@@ -17,7 +17,7 @@ Det eksisterende import-preview v1 og database-preview v1 forbliver uændrede.
 En ny Python-builder læser import-preview v1, database-preview v1 og alle fire
 identitetsbatches. Den materialiserer ét source-persona-objekt pr. godkendt
 source record og binder hvert objekt til source span, verbatimtekst,
-beslutningshash, target-baseline-record og eksisterende canonical person-id.
+beslutningshash, target-record og eksisterende canonical person-id.
 
 En udvidet read-only R-komparator læser dette artefakt som et ekstra,
 obligatorisk input til database-preview v2. Den samme direkte PostgreSQL-session
@@ -31,15 +31,19 @@ Builderen accepterer kun identitetsbatches med schema
 gates på `NO-GO`. Hver beslutning skal være `same`, være entydig globalt og
 pege på præcis én post i import-previewets `genuinely_new_pending`.
 
-Targetens baseline-record-key og canonical person-id skal stemme med et
-entydigt `person_anchors.matched`-par i database-preview v1. Source span og
-verbatimtekst kopieres fra import-previewet; de må ikke rekonstrueres fra navn
-eller OCR-lighed.
+Targetens record-key og canonical person-id skal stemme med et entydigt
+eksisterende 1939-anker i database-preview v1. Targeten kan være enten et
+`person_anchors.matched`-anker eller et `person_anchors.database_only`-anker;
+begge typer kontrolleres igen mod den læste `person_external_id`-snapshot i
+database-dry-runnen. Source span og verbatimtekst kopieres fra import-previewet;
+de må ikke rekonstrueres fra navn eller OCR-lighed.
 
-`source_persona_id` og `persona_key` afledes deterministisk af source-id og
-source-record-key. ID'et er previewidentitet, ikke tilladelse til at indsætte en
-databasepost. Hver materialisering bærer inputhashes, beslutningsbatch,
-candidate-evidence-hash og den oprindelige brugerbekræftelse.
+`source_persona_id` og `persona_key` afledes deterministisk af import-previewets
+logiske source-id og source-record-key. Personaens databasefelt bruger derimod
+det numeriske source-id fra database-previewet; de to id-domæner må ikke blandes.
+ID'et er previewidentitet, ikke tilladelse til at indsætte en databasepost. Hver
+materialisering bærer inputhashes, beslutningsbatch, candidate-evidence-hash og
+den oprindelige brugerbekræftelse.
 
 Med de låste input forventes:
 

@@ -41,7 +41,7 @@
 
 - [ ] **Step 3: Implementér minimal lukket builder**
 
-  Builderen validerer schemas/gates/hashes, afleder deterministisk UUIDv5 fra `source_id` og `new_record_key`, kopierer source span/verbatim og emitterer 24 accepted identities, 17 pending samt nul canonical mutations.
+  Builderen validerer schemas/gates/hashes, afleder deterministisk UUIDv5 fra det logiske `source_id` og `new_record_key`, bevarer database-source-id separat, kopierer source span/verbatim og emitterer 24 accepted identities, 17 pending samt nul canonical mutations.
 
 - [ ] **Step 4: Tilføj negative drift-tests**
 

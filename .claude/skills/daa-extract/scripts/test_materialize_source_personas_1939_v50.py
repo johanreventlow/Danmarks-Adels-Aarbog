@@ -35,7 +35,7 @@ def fixture_inputs() -> dict:
     import_preview = {
         "schema_version": "1939-v50-import-preview-v1",
         "generator_version": "prepare_reimport_1939_v50.py:v1",
-        "source": {"edition": "1939", "source_id": 17,
+        "source": {"edition": "1939", "source_id": "1939",
                    "rendition_id": "daa-1939-calamari-r6-clean",
                    "input_hashes": import_hashes},
         "canonical_mutations_authorized": False,
@@ -66,7 +66,7 @@ def fixture_inputs() -> dict:
         "schema_version": "1939-v50-database-preview-v1",
         "input_preview": {"schema_version": "1939-v50-import-preview-v1",
                           "input_hashes": import_hashes},
-        "source": {"id": 17, "udgave": "1939", "import_key": "DAA-1939"},
+        "source": {"id": 17, "udgave": "DAA 1939", "import_key": "daa:1939"},
         "canonical_mutations_authorized": False,
         "person_anchors": {
             "matched_count": 1, "missing_count": 0, "collision_count": 0,
@@ -132,8 +132,10 @@ def test_materializes_approved_identity_and_leaves_other_source_pending():
     }
     persona = result["source_personas"][0]
     assert persona["source_record_key"] == "record-a"
-    assert persona["target_baseline_record_key"] == "baseline-a"
+    assert persona["target_record_key"] == "baseline-a"
     assert persona["canonical_person_id"] == 1201
+    assert persona["source_id"] == 17
+    assert result["source"]["logical_source_id"] == "1939"
     assert persona["identity_status"] == "accepted"
     assert persona["source_span"] == {"char_from": 10, "char_to": 25}
     assert persona["verbatim_text"] == "Christian 1701"
@@ -147,6 +149,27 @@ def test_materializes_approved_identity_and_leaves_other_source_pending():
     assert result["reimport_gate"] == "NO-GO"
 
 
+def test_accepts_explicit_identity_to_existing_database_only_record():
+    inputs = fixture_inputs()
+    anchors = inputs["database_preview"]["person_anchors"]
+    anchors["database_only_record_keys"] = ["db-only-a"]
+    anchors["database_only"] = [{
+        "record_key": "db-only-a", "person_id": 1300,
+        "visning_navn": "Christian", "staged": False,
+        "source_narrative_count": 1, "fact_count": 2,
+        "family_member_count": 0,
+    }]
+    decision = inputs["identity_decision_batches"][0]["decisions"][0]
+    decision["candidate_record_key"] = "db-only-a"
+    decision["canonical_person_id"] = 1300
+
+    result = subject.build_source_persona_materialization(
+        **inputs, expected_decisions=1, expected_remaining_pending=1)
+
+    assert result["source_personas"][0]["target_record_key"] == "db-only-a"
+    assert result["source_personas"][0]["canonical_person_id"] == 1300
+
+
 def test_source_persona_id_is_deterministic_and_source_scoped():
     inputs = fixture_inputs()
     first = subject.build_source_persona_materialization(
@@ -155,7 +178,7 @@ def test_source_persona_id_is_deterministic_and_source_scoped():
         **copy.deepcopy(inputs), expected_decisions=1, expected_remaining_pending=1)
     assert first == second
     assert first["source_personas"][0]["source_persona_id"] == (
-        "bea26985-0347-50c3-b347-7127678dbe27")
+        "f899b139-f2e4-5241-9c8d-9df3ea595edb")
 
 
 @pytest.mark.parametrize("mutation", [
@@ -173,7 +196,7 @@ def test_rejects_input_drift_ambiguity_or_write_authority(mutation):
     elif mutation == "source_record_drift":
         inputs["import_preview"]["source_records"][0]["verbatim_text"] = "drift"
     elif mutation == "database_source":
-        inputs["database_preview"]["source"]["id"] = 18
+        inputs["database_preview"]["source"]["udgave"] = "DAA 1940"
     elif mutation == "database_target":
         inputs["database_preview"]["person_anchors"]["matched"][0]["person_id"] = 999
     elif mutation == "batch_schema":

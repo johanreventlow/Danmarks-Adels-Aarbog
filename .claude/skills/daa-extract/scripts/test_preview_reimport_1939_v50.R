@@ -11,7 +11,7 @@ preview_fixture <- function() {
     schema_version = "1939-v50-import-preview-v1",
     generator_version = "prepare_reimport_1939_v50.py:v1",
     source = list(
-      edition = "1939", source_id = 7L, rendition_id = "rendition",
+      edition = "1939", source_id = "1939", rendition_id = "rendition",
       input_hashes = as.list(setNames(rep(paste(rep("a", 64L), collapse = ""), 6L),
         c("calamari_sha256", "clean_sha256", "ledger_sha256",
           "materialization_sha256", "reconciliation_report_sha256",
@@ -91,7 +91,7 @@ source_persona_fixture <- function() {
     schema_version = "1939-v50-source-persona-materialization-v1",
     generator_version = "materialize_source_personas_1939_v50.py:v1",
     source = list(
-      edition = "1939", source_id = 7L,
+      edition = "1939", logical_source_id = "1939", database_source_id = 7L,
       input_hashes = list(
         database_preview_sha256 = paste(rep("b", 64L), collapse = ""),
         identity_decision_sha256s = list(paste(rep("c", 64L), collapse = "")),
@@ -109,7 +109,7 @@ source_persona_fixture <- function() {
       persona_key = "1939:new-b", source_id = 7L,
       source_record_key = "new-b",
       source_span = list(char_from = 10L, char_to = 20L),
-      verbatim_text = "Bent ny", target_baseline_record_key = "old-a",
+      verbatim_text = "Bent ny", target_record_key = "old-a",
       canonical_person_id = 101L, identity_status = "accepted",
       identity_decision = list(
         decision_batch = "batch-1",
@@ -392,9 +392,9 @@ testthat::test_that("source-persona-materialisering valideres fail-closed mod pr
 
   mutations <- list(
     function(value) { value$source$input_hashes$import_preview_sha256 <- fixture_sha("0"); value },
-    function(value) { value$source$source_id <- 8L; value },
+    function(value) { value$source$logical_source_id <- "1940"; value },
     function(value) { value$counts$source_personas <- 2L; value },
-    function(value) { value$source_personas[[1L]]$target_baseline_record_key <- "unknown"; value },
+    function(value) { value$source_personas[[1L]]$target_record_key <- ""; value },
     function(value) { value$source_personas[[1L]]$canonical_person_id <- NA_integer_; value },
     function(value) { value$source_personas[[1L]]$source_persona_id <- "not-a-uuid"; value },
     function(value) { value$database_write_authorized <- TRUE; value },
@@ -406,6 +406,24 @@ testthat::test_that("source-persona-materialisering valideres fail-closed mod pr
       invalid, preview_fixture(), fixture_sha("d"), fixture_sha("e")),
       "DB_PREVIEW_SOURCE_PERSONA_INVALID")
   }
+})
+
+testthat::test_that("database-only 1939-record kan vaere et eksplicit identitetsmaal", {
+  materialization <- source_persona_fixture()
+  materialization$source_personas[[1L]]$target_record_key <- "db-only"
+  materialization$source_personas[[1L]]$canonical_person_id <- 102L
+
+  testthat::expect_invisible(validate_source_persona_materialization(
+    materialization, preview_fixture(), fixture_sha("d"), fixture_sha("e")))
+
+  fake <- fake_database()
+  result <- build_database_preview(
+    preview_fixture(), materialization, fixture_sha("e"), fixture_sha("d"),
+    fake$query, fake$execute,
+    expected_database = "postgres", expected_source_edition = "DAA 1939",
+    snapshot_at = "2026-08-17T12:00:00Z"
+  )
+  testthat::expect_length(result$source_personas$target_mismatches, 0L)
 })
 
 testthat::test_that("database-preview outputs er eksklusive og uden credentials", {

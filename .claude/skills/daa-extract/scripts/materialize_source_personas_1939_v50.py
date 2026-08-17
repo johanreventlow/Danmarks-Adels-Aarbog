@@ -61,12 +61,13 @@ def _span(value: Any) -> dict[str, int]:
     return {"char_from": start, "char_to": end}
 
 
-def _persona_id(source_id: int, record_key: str) -> str:
+def _persona_id(logical_source_id: str, record_key: str) -> str:
     return str(uuid.uuid5(
-        uuid.NAMESPACE_URL, f"daa:source-persona:{source_id}:{record_key}"))
+        uuid.NAMESPACE_URL,
+        f"daa:source-persona:{logical_source_id}:{record_key}"))
 
 
-def _validate_import_preview(preview: Any) -> tuple[int, dict[str, dict[str, Any]]]:
+def _validate_import_preview(preview: Any) -> tuple[str, dict[str, dict[str, Any]]]:
     preview = _mapping(preview)
     if (preview.get("schema_version") != "1939-v50-import-preview-v1" or
             preview.get("canonical_mutations_authorized") is not False or
@@ -76,7 +77,7 @@ def _validate_import_preview(preview: Any) -> tuple[int, dict[str, dict[str, Any
     source = _mapping(preview.get("source"))
     if source.get("edition") != "1939":
         _fail("SOURCE_PERSONA_IMPORT_PREVIEW_INVALID")
-    source_id = _integer(source.get("source_id"))
+    logical_source_id = _text(source.get("source_id"))
     counts = _mapping(preview.get("counts"))
     pending_rows = _list(preview.get("genuinely_new_pending"))
     source_rows = _list(preview.get("source_records"))
@@ -112,16 +113,19 @@ def _validate_import_preview(preview: Any) -> tuple[int, dict[str, dict[str, Any
             changes.get("canonical_person_updates") != [] or
             changes.get("canonical_person_deletes") != []):
         _fail("SOURCE_PERSONA_IMPORT_PREVIEW_INVALID")
-    return source_id, pending_by_key
+    return logical_source_id, pending_by_key
 
 
-def _validate_database_preview(preview: Any, source_id: int) -> dict[str, int]:
+def _validate_database_preview(preview: Any) -> tuple[int, dict[str, int]]:
     preview = _mapping(preview)
     if (preview.get("schema_version") != "1939-v50-database-preview-v1" or
             preview.get("canonical_mutations_authorized") is not False or
             preview.get("dry_run_gate") not in {"GO", "NO-GO"} or
-            preview.get("reimport_gate") != "NO-GO" or
-            _mapping(preview.get("source")).get("id") != source_id):
+            preview.get("reimport_gate") != "NO-GO"):
+        _fail("SOURCE_PERSONA_DATABASE_PREVIEW_INVALID")
+    source = _mapping(preview.get("source"))
+    database_source_id = _integer(source.get("id"))
+    if source.get("udgave") != "DAA 1939" or source.get("import_key") != "daa:1939":
         _fail("SOURCE_PERSONA_DATABASE_PREVIEW_INVALID")
     anchors = _mapping(preview.get("person_anchors"))
     rows = _list(anchors.get("matched"))
@@ -139,13 +143,30 @@ def _validate_database_preview(preview: Any, source_id: int) -> dict[str, int]:
             _fail("SOURCE_PERSONA_DATABASE_PREVIEW_INVALID")
         by_key[key] = person_id
         person_ids.add(person_id)
+    database_only_keys = _list(anchors.get("database_only_record_keys"))
+    database_only = _list(anchors.get("database_only"))
+    if len(database_only_keys) != len(database_only):
+        _fail("SOURCE_PERSONA_DATABASE_PREVIEW_INVALID")
+    observed_database_only_keys = []
+    for raw in database_only:
+        row = _mapping(raw)
+        key = _text(row.get("record_key"))
+        person_id = _integer(row.get("person_id"))
+        if key in by_key or person_id in person_ids:
+            _fail("SOURCE_PERSONA_DATABASE_PREVIEW_INVALID")
+        by_key[key] = person_id
+        person_ids.add(person_id)
+        observed_database_only_keys.append(key)
+    if sorted(_text(value) for value in database_only_keys) != sorted(
+            observed_database_only_keys):
+        _fail("SOURCE_PERSONA_DATABASE_PREVIEW_INVALID")
     changes = _mapping(preview.get("expected_database_changes"))
     if (changes.get("authorized") is not False or
             changes.get("canonical_person_creates") != [] or
             changes.get("canonical_person_updates") != [] or
             changes.get("canonical_person_deletes") != []):
         _fail("SOURCE_PERSONA_DATABASE_PREVIEW_INVALID")
-    return by_key
+    return database_source_id, by_key
 
 
 def _validate_hashes(value: Any, batch_count: int) -> dict[str, Any]:
@@ -169,8 +190,8 @@ def build_source_persona_materialization(
         expected_decisions: int = 24,
         expected_remaining_pending: int = 17) -> dict[str, Any]:
     """Join explicit human decisions to source records and existing persons."""
-    source_id, pending_by_key = _validate_import_preview(import_preview)
-    anchors = _validate_database_preview(database_preview, source_id)
+    logical_source_id, pending_by_key = _validate_import_preview(import_preview)
+    database_source_id, anchors = _validate_database_preview(database_preview)
     batches = _list(identity_decision_batches)
     if not batches:
         _fail("SOURCE_PERSONA_DECISIONS_INVALID")
@@ -218,15 +239,15 @@ def build_source_persona_materialization(
             seen_sources.add(source_key)
             seen_candidates.add(candidate_key)
             seen_persons.add(person_id)
-            persona_key = f"1939:{source_key}"
+            persona_key = f"{logical_source_id}:{source_key}"
             personas.append({
-                "source_persona_id": _persona_id(source_id, source_key),
+                "source_persona_id": _persona_id(logical_source_id, source_key),
                 "persona_key": persona_key,
-                "source_id": source_id,
+                "source_id": database_source_id,
                 "source_record_key": source_key,
                 "source_span": pending["source_span"],
                 "verbatim_text": pending["verbatim_text"],
-                "target_baseline_record_key": candidate_key,
+                "target_record_key": candidate_key,
                 "canonical_person_id": person_id,
                 "identity_status": "accepted",
                 "identity_decision": {
@@ -252,7 +273,8 @@ def build_source_persona_materialization(
         "schema_version": "1939-v50-source-persona-materialization-v1",
         "generator_version": "materialize_source_personas_1939_v50.py:v1",
         "source": {
-            "edition": "1939", "source_id": source_id,
+            "edition": "1939", "logical_source_id": logical_source_id,
+            "database_source_id": database_source_id,
             "input_hashes": hashes,
         },
         "canonical_mutations_authorized": False,
@@ -292,7 +314,7 @@ def render_markdown(result: Mapping[str, Any]) -> str:
     for index, row in enumerate(result["source_personas"], 1):
         lines.append(
             f"{index}. `{row['source_record_key']}` → "
-            f"`{row['target_baseline_record_key']}` (person {row['canonical_person_id']})")
+            f"`{row['target_record_key']}` (person {row['canonical_person_id']})")
     lines.append("")
     return "\n".join(lines)
 

@@ -167,7 +167,7 @@ validate_source_persona_materialization <- function(materialization, preview,
     "DB_PREVIEW_SOURCE_PERSONA_INVALID")
   if (!is.list(materialization$source) ||
       !identical(materialization$source$edition, "1939") ||
-      as.integer(materialization$source$source_id) != as.integer(preview$source$source_id) ||
+      !identical(materialization$source$logical_source_id, preview$source$source_id) ||
       !is.list(materialization$source$input_hashes) ||
       !identical(materialization$source$input_hashes$import_preview_sha256,
         input_preview_sha256) || !is.list(materialization$counts) ||
@@ -176,6 +176,8 @@ validate_source_persona_materialization <- function(materialization, preview,
       !is.list(materialization$expected_database_changes)) {
     preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
   }
+  database_source_id <- scalar_positive_integer(
+    materialization$source$database_source_id)
   personas <- materialization$source_personas
   remaining <- materialization$remaining_genuinely_new_pending
   counts <- materialization$counts
@@ -188,8 +190,6 @@ validate_source_persona_materialization <- function(materialization, preview,
   pending_by_key <- setNames(preview$genuinely_new_pending,
     vapply(preview$genuinely_new_pending, function(row) scalar_text(row$new_record_key),
       character(1L)))
-  mapped_keys <- vapply(preview$mapped_existing,
-    function(row) scalar_text(row$baseline_record_key), character(1L))
   persona_keys <- character()
   source_keys <- character()
   target_keys <- character()
@@ -198,7 +198,7 @@ validate_source_persona_materialization <- function(materialization, preview,
     if (!is.list(row)) preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
     source_key <- scalar_text(row$source_record_key, "DB_PREVIEW_SOURCE_PERSONA_INVALID")
     pending <- pending_by_key[[source_key]]
-    if (is.null(pending) || as.integer(row$source_id) != as.integer(preview$source$source_id) ||
+    if (is.null(pending) || scalar_positive_integer(row$source_id) != database_source_id ||
         !identical(row$source_span, pending$source_span) ||
         !identical(row$verbatim_text, pending$verbatim_text) ||
         !identical(row$identity_status, "accepted") ||
@@ -206,14 +206,15 @@ validate_source_persona_materialization <- function(materialization, preview,
       preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
     }
     persona_key <- scalar_text(row$persona_key, "DB_PREVIEW_SOURCE_PERSONA_INVALID")
-    if (!identical(persona_key, paste0("1939:", source_key))) {
+    if (!identical(persona_key,
+        paste0(materialization$source$logical_source_id, ":", source_key))) {
       preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
     }
     persona_keys <- c(persona_keys, persona_key)
     scalar_uuid_v5(row$source_persona_id)
     source_keys <- c(source_keys, source_key)
     target_keys <- c(target_keys,
-      scalar_text(row$target_baseline_record_key, "DB_PREVIEW_SOURCE_PERSONA_INVALID"))
+      scalar_text(row$target_record_key, "DB_PREVIEW_SOURCE_PERSONA_INVALID"))
     canonical_ids <- c(canonical_ids, scalar_positive_integer(row$canonical_person_id))
   }
   remaining_keys <- vapply(remaining,
@@ -223,8 +224,7 @@ validate_source_persona_materialization <- function(materialization, preview,
   if (anyDuplicated(persona_keys) || anyDuplicated(source_keys) ||
       anyDuplicated(target_keys) || anyDuplicated(canonical_ids) ||
       anyDuplicated(remaining_keys) || length(intersect(source_keys, remaining_keys)) ||
-      !setequal(c(source_keys, remaining_keys), pending_keys) ||
-      !all(target_keys %in% mapped_keys)) {
+      !setequal(c(source_keys, remaining_keys), pending_keys)) {
     preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
   }
   changes <- materialization$expected_database_changes
@@ -341,6 +341,10 @@ build_database_preview <- function(preview, source_persona_materialization,
     preview_stop("DB_PREVIEW_SOURCE_MISMATCH")
   }
   source_id <- as.integer(source$id[[1L]])
+  if (!identical(source_id,
+      as.integer(source_persona_materialization$source$database_source_id))) {
+    preview_stop("DB_PREVIEW_SOURCE_MISMATCH")
+  }
 
   anchors <- query(paste(
     "SELECT pei.person_id, pei.record_key, pei.linje, pei.nr, p.staged, p.visning_navn",
@@ -495,13 +499,13 @@ build_database_preview <- function(preview, source_persona_materialization,
   persona_collisions <- list()
   target_mismatches <- list()
   for (row in planned_personas) {
-    anchor_indexes <- db_groups[[row$target_baseline_record_key]] %||% integer()
+    anchor_indexes <- db_groups[[row$target_record_key]] %||% integer()
     if (length(anchor_indexes) != 1L ||
         as.integer(anchors$person_id[[anchor_indexes[[1L]]]]) !=
           as.integer(row$canonical_person_id)) {
       target_mismatches[[length(target_mismatches) + 1L]] <- list(
         source_record_key = row$source_record_key,
-        target_baseline_record_key = row$target_baseline_record_key,
+        target_record_key = row$target_record_key,
         canonical_person_id = as.integer(row$canonical_person_id)
       )
     }
