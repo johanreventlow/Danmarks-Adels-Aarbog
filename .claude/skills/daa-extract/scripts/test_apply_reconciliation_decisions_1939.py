@@ -960,6 +960,356 @@ def test_later_text_anchor_batch_preserves_prior_history_and_recounts_reports():
     assert result["report"]["reconciliation_gate"] == "GO"
 
 
+def legacy_anchor_reconciliation():
+    """Two repairs: one disjoint and one partially overlapping source span."""
+    return {
+        "schema_version": "1.0",
+        "source": {
+            "edition": "1939",
+            "baseline_sha256": "a" * 64,
+            "calamari_sha256": "b" * 64,
+        },
+        "baseline_entries": [
+            {
+                "baseline_record_key": "old-margrethe",
+                "name": "Margrethe",
+                "source_span": {"char_from": 50370, "char_to": 50568},
+                "matches": [],
+                "disposition": "unresolved",
+                "unresolved_reason": "unique_exact_narrative_outside_new_record",
+            },
+            {
+                "baseline_record_key": "old-iwen",
+                "name": "Iwen",
+                "source_span": {"char_from": 182918, "char_to": 183074},
+                "matches": [],
+                "disposition": "unresolved",
+                "unresolved_reason": "unique_exact_narrative_outside_new_record",
+            },
+        ],
+        "new_entries": [
+            {
+                "new_record_key": "new-margrethe",
+                "source_span": {"char_from": 49214, "char_to": 49537},
+                "baseline_record_keys": [],
+                "disposition": "unmatched_new_review",
+            },
+            {
+                "new_record_key": "new-iwen",
+                "source_span": {"char_from": 182918, "char_to": 183021},
+                "baseline_record_keys": [],
+                "disposition": "unmatched_new_review",
+            },
+        ],
+        "report": {"reconciliation_gate": "NO-GO"},
+    }
+
+
+def legacy_anchor_decision_document(reconciliation_sha256):
+    return {
+        "schema_version": "1.0",
+        "source": {
+            "edition": "1939",
+            "reconciliation_sha256": reconciliation_sha256,
+            "baseline_sha256": "a" * 64,
+            "calamari_sha256": "b" * 64,
+        },
+        "reviewed_by": "johan-reventlow",
+        "decision_batch": "legacy-anchor-repair-v1",
+        "decisions": [
+            {
+                "baseline_record_key": "old-margrethe",
+                "decision_kind": "repair_legacy_anchor",
+                "selected_new_record_key": "new-margrethe",
+                "stale_source_span": {"char_from": 50370, "char_to": 50568},
+                "selected_new_source_span": {"char_from": 49214, "char_to": 49537},
+                "discarded_source_spans": [{"char_from": 50370, "char_to": 50568}],
+                "reason": "neighbor_record_contamination",
+            },
+            {
+                "baseline_record_key": "old-iwen",
+                "decision_kind": "repair_legacy_anchor",
+                "selected_new_record_key": "new-iwen",
+                "stale_source_span": {"char_from": 182918, "char_to": 183074},
+                "selected_new_source_span": {"char_from": 182918, "char_to": 183021},
+                "discarded_source_spans": [{"char_from": 183021, "char_to": 183074}],
+                "reason": "neighbor_record_contamination",
+            },
+        ],
+    }
+
+
+def test_repairs_disjoint_and_overlapping_legacy_anchors_with_complete_provenance():
+    source = legacy_anchor_reconciliation()
+    original = copy.deepcopy(source)
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+
+    result = apply_decisions(
+        source,
+        legacy_anchor_decision_document(digest),
+        reconciliation_sha256=digest,
+    )
+
+    baseline = {entry["baseline_record_key"]: entry for entry in result["baseline_entries"]}
+    new = {entry["new_record_key"]: entry for entry in result["new_entries"]}
+    assert baseline["old-margrethe"]["source_span"] == {"char_from": 50370, "char_to": 50568}
+    assert baseline["old-iwen"]["source_span"] == {"char_from": 182918, "char_to": 183074}
+    for old_key, new_key, stale, target, discarded in [
+        ("old-margrethe", "new-margrethe", {"char_from": 50370, "char_to": 50568},
+         {"char_from": 49214, "char_to": 49537}, [{"char_from": 50370, "char_to": 50568}]),
+        ("old-iwen", "new-iwen", {"char_from": 182918, "char_to": 183074},
+         {"char_from": 182918, "char_to": 183021}, [{"char_from": 183021, "char_to": 183074}]),
+    ]:
+        entry = baseline[old_key]
+        assert entry["matches"] == [{
+            "new_record_key": new_key,
+            "geometry_relation": "human_repaired_legacy_anchor",
+        }]
+        assert entry["selected_new_record_key"] == new_key
+        assert entry["disposition"] == "accepted_carryover"
+        assert entry["reconciliation_basis"] == "human_repaired_legacy_anchor"
+        assert entry["reviewed_by"] == "johan-reventlow"
+        assert entry["decision_batch"] == "legacy-anchor-repair-v1"
+        assert entry["legacy_anchor_repair"] == {
+            "stale_source_span": stale,
+            "selected_new_source_span": target,
+            "discarded_source_spans": discarded,
+            "reason": "neighbor_record_contamination",
+        }
+        assert new[new_key]["baseline_record_keys"] == [old_key]
+        assert new[new_key]["disposition"] == "accepted_carryover"
+    assert result["report"] == {
+        "baseline_total": 2,
+        "new_total": 2,
+        "applied_decisions": 2,
+        "accepted_carryovers": 2,
+        "retired_duplicates": 0,
+        "retired_fragments": 0,
+        "baseline_dispositions": {"accepted_carryover": 2},
+        "new_dispositions": {"accepted_carryover": 2},
+        "remaining_baseline_review": 0,
+        "remaining_new_review": 0,
+        "reconciliation_gate": "GO",
+    }
+    assert {
+        before["baseline_record_key"]
+        for before, after in zip(original["baseline_entries"], result["baseline_entries"])
+        if before != after
+    } == {"old-margrethe", "old-iwen"}
+    assert {
+        before["new_record_key"]
+        for before, after in zip(original["new_entries"], result["new_entries"])
+        if before != after
+    } == {"new-margrethe", "new-iwen"}
+
+
+@pytest.mark.parametrize("mutation", [
+    "wrong_baseline_disposition",
+    "wrong_unresolved_reason",
+    "baseline_has_match",
+    "target_not_unmatched",
+    "target_ghost_owner",
+    "target_duplicate_owner",
+    "target_malformed_owners",
+    "target_previously_annotated",
+    "stale_baseline_span",
+    "wrong_declared_stale_span",
+    "mismatched_target_span",
+    "wrong_declared_target_span",
+    "empty_discarded",
+    "unsorted_discarded",
+    "overlapping_discarded",
+    "incomplete_discarded",
+    "wrong_reason",
+    "unknown_field",
+    "unknown_target",
+    "stale_reconciliation_hash",
+    "stale_baseline_hash",
+    "stale_calamari_hash",
+])
+def test_legacy_anchor_repair_fails_closed_on_unproven_or_drifted_input(mutation):
+    source = legacy_anchor_reconciliation()
+    if mutation == "wrong_baseline_disposition":
+        source["baseline_entries"][0]["disposition"] = "boundary_change_review"
+    elif mutation == "wrong_unresolved_reason":
+        source["baseline_entries"][0]["unresolved_reason"] = "other"
+    elif mutation == "baseline_has_match":
+        source["baseline_entries"][0]["matches"] = [{"new_record_key": "new-margrethe"}]
+    elif mutation == "target_not_unmatched":
+        source["new_entries"][0]["disposition"] = "accepted_carryover"
+    elif mutation == "target_ghost_owner":
+        source["new_entries"][0]["baseline_record_keys"] = ["ghost"]
+    elif mutation == "target_duplicate_owner":
+        source["new_entries"][0]["baseline_record_keys"] = ["old-margrethe", "old-margrethe"]
+    elif mutation == "target_malformed_owners":
+        source["new_entries"][0]["baseline_record_keys"] = "old-margrethe"
+    elif mutation == "target_previously_annotated":
+        source["new_entries"][0]["human_annotation"] = {
+            "new_record_key": "new-margrethe",
+            "record_kind": "cross_reference",
+            "person_creation": "forbidden_without_separate_evidence",
+        }
+    elif mutation == "stale_baseline_span":
+        source["baseline_entries"][0]["source_span"] = {"char_from": 50370, "char_to": 50567}
+    elif mutation == "mismatched_target_span":
+        source["new_entries"][0]["source_span"] = {"char_from": 49214, "char_to": 49536}
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    document = legacy_anchor_decision_document(digest)
+    decision = document["decisions"][0]
+    if mutation == "empty_discarded":
+        decision["discarded_source_spans"] = []
+    elif mutation == "unsorted_discarded":
+        decision["discarded_source_spans"] = [
+            {"char_from": 50400, "char_to": 50568},
+            {"char_from": 50370, "char_to": 50400},
+        ]
+    elif mutation == "overlapping_discarded":
+        decision["discarded_source_spans"] = [
+            {"char_from": 50370, "char_to": 50400},
+            {"char_from": 50399, "char_to": 50568},
+        ]
+    elif mutation == "incomplete_discarded":
+        decision["discarded_source_spans"] = [{"char_from": 50370, "char_to": 50567}]
+    elif mutation == "wrong_declared_stale_span":
+        decision["stale_source_span"] = {"char_from": 50370, "char_to": 50567}
+    elif mutation == "wrong_declared_target_span":
+        decision["selected_new_source_span"] = {"char_from": 49214, "char_to": 49536}
+    elif mutation == "wrong_reason":
+        decision["reason"] = "similarity"
+    elif mutation == "unknown_field":
+        decision["note"] = "not allowed"
+    elif mutation == "unknown_target":
+        decision["selected_new_record_key"] = "missing"
+    elif mutation == "stale_reconciliation_hash":
+        document["source"]["reconciliation_sha256"] = "c" * 64
+    elif mutation == "stale_baseline_hash":
+        document["source"]["baseline_sha256"] = "c" * 64
+    elif mutation == "stale_calamari_hash":
+        document["source"]["calamari_sha256"] = "c" * 64
+
+    with pytest.raises(DecisionError):
+        apply_decisions(source, document, reconciliation_sha256=digest)
+
+
+def test_legacy_anchor_repair_rejects_same_batch_target_reuse():
+    source = legacy_anchor_reconciliation()
+    source["baseline_entries"].append({
+        "baseline_record_key": "old-extra",
+        "source_span": {"char_from": 60000, "char_to": 60010},
+        "matches": [],
+        "disposition": "unresolved",
+        "unresolved_reason": "unique_exact_narrative_outside_new_record",
+    })
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    document = legacy_anchor_decision_document(digest)
+    document["decisions"].append({
+        "baseline_record_key": "old-extra",
+        "decision_kind": "repair_legacy_anchor",
+        "selected_new_record_key": "new-margrethe",
+        "stale_source_span": {"char_from": 60000, "char_to": 60010},
+        "selected_new_source_span": {"char_from": 49214, "char_to": 49537},
+        "discarded_source_spans": [{"char_from": 60000, "char_to": 60010}],
+        "reason": "neighbor_record_contamination",
+    })
+
+    with pytest.raises(DecisionError):
+        apply_decisions(source, document, reconciliation_sha256=digest)
+
+
+def test_later_batch_preserves_legacy_anchor_repair_metadata_and_report_counts():
+    source = legacy_anchor_reconciliation()
+    first_digest = hashlib.sha256(encoded(source)).hexdigest()
+    first = apply_decisions(
+        source,
+        legacy_anchor_decision_document(first_digest),
+        reconciliation_sha256=first_digest,
+    )
+    prior_baseline = copy.deepcopy(first["baseline_entries"])
+    prior_new = copy.deepcopy(first["new_entries"])
+    second_source = copy.deepcopy(first)
+    second_source["baseline_entries"].append({
+        "baseline_record_key": "old-fresh-boundary",
+        "matches": [{"new_record_key": "new-fresh-boundary"}],
+        "disposition": "boundary_change_review",
+    })
+    second_source["new_entries"].append({
+        "new_record_key": "new-fresh-boundary",
+        "source_span": {"char_from": 70000, "char_to": 70010},
+        "baseline_record_keys": ["old-fresh-boundary"],
+        "disposition": "boundary_change_review",
+    })
+    second_digest = hashlib.sha256(encoded(second_source)).hexdigest()
+    second_document = decision_document(second_digest)
+    second_document["decisions"] = [{
+        "baseline_record_key": "old-fresh-boundary",
+        "decision_kind": "accept_boundary_change",
+        "selected_new_record_key": "new-fresh-boundary",
+    }]
+
+    result = apply_decisions(
+        second_source, second_document, reconciliation_sha256=second_digest,
+    )
+
+    assert result["baseline_entries"][:2] == prior_baseline
+    assert result["new_entries"][:2] == prior_new
+    assert result["report"]["accepted_carryovers"] == 3
+    assert result["report"]["remaining_baseline_review"] == 0
+    assert result["report"]["remaining_new_review"] == 0
+
+
+def test_later_batch_cannot_annotate_a_previously_repaired_legacy_anchor_target():
+    source = legacy_anchor_reconciliation()
+    first_digest = hashlib.sha256(encoded(source)).hexdigest()
+    first = apply_decisions(
+        source,
+        legacy_anchor_decision_document(first_digest),
+        reconciliation_sha256=first_digest,
+    )
+    second_source = copy.deepcopy(first)
+    second_source["baseline_entries"].append({
+        "baseline_record_key": "old-fresh-split",
+        "matches": [
+            {"new_record_key": "new-fresh-split"},
+            {"new_record_key": "new-iwen"},
+        ],
+        "disposition": "split_review",
+    })
+    second_source["new_entries"].append({
+        "new_record_key": "new-fresh-split",
+        "source_span": {"char_from": 70000, "char_to": 70010},
+        "baseline_record_keys": ["old-fresh-split"],
+        "disposition": "split_review",
+    })
+    second_digest = hashlib.sha256(encoded(second_source)).hexdigest()
+    second_document = {
+        "schema_version": "1.0",
+        "source": {
+            "edition": "1939",
+            "reconciliation_sha256": second_digest,
+            "baseline_sha256": "a" * 64,
+            "calamari_sha256": "b" * 64,
+        },
+        "reviewed_by": "later-reviewer",
+        "decision_batch": "later-batch",
+        "decisions": [{
+            "baseline_record_key": "old-fresh-split",
+            "decision_kind": "select_carryover_target",
+            "selected_new_record_key": "new-fresh-split",
+            "nonselected_action": "retain_distinct_source_records",
+            "record_annotations": [{
+                "new_record_key": "new-iwen",
+                "record_kind": "cross_reference",
+                "person_creation": "forbidden_without_separate_evidence",
+            }],
+        }],
+    }
+
+    with pytest.raises(DecisionError):
+        apply_decisions(
+            second_source, second_document, reconciliation_sha256=second_digest,
+        )
+
+
 @pytest.mark.parametrize("mutation", [
     "different_source_span",
     "wrong_shared_target",

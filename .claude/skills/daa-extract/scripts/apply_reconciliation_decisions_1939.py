@@ -55,6 +55,33 @@ def _unique(entries: Sequence[Mapping[str, Any]], field: str, label: str) -> dic
     return result
 
 
+def _span(value: object, field: str) -> dict[str, int]:
+    if (not isinstance(value, Mapping) or set(value) != {"char_from", "char_to"}
+            or type(value.get("char_from")) is not int
+            or type(value.get("char_to")) is not int
+            or value["char_from"] < 0
+            or value["char_to"] <= value["char_from"]):
+        raise DecisionError(f"{field} skal være et gyldigt kildespænd")
+    return {"char_from": value["char_from"], "char_to": value["char_to"]}
+
+
+def _span_difference(stale: Mapping[str, int], selected: Mapping[str, int]) -> list[dict[str, int]]:
+    """Return the ordered half-open interval difference stale - selected."""
+    result = []
+    if stale["char_from"] < selected["char_from"]:
+        end = min(stale["char_to"], selected["char_from"])
+        if stale["char_from"] < end:
+            result.append({"char_from": stale["char_from"], "char_to": end})
+    if selected["char_to"] < stale["char_to"]:
+        start = max(stale["char_from"], selected["char_to"])
+        if start < stale["char_to"]:
+            result.append({"char_from": start, "char_to": stale["char_to"]})
+    if not result and (selected["char_to"] <= stale["char_from"]
+                       or stale["char_to"] <= selected["char_from"]):
+        result.append(dict(stale))
+    return result
+
+
 def _unresolved_disposition(entry: Mapping[str, Any], owners: Mapping[str, list[str]]) -> str:
     original = entry.get("disposition")
     if original in {"retired_duplicate", "retired_fragment"}:
@@ -108,6 +135,12 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
     decision_by_old = {}
     retirement_by_retired = {}
     retirement_by_canonical = {}
+    legacy_anchor_repairs = {}
+    legacy_repair_targets = {
+        entry["selected_new_record_key"] for entry in baseline_entries
+        if entry.get("reconciliation_basis") == "human_repaired_legacy_anchor"
+        and isinstance(entry.get("selected_new_record_key"), str)
+    }
     affected_old_keys = set()
     selected_targets = set()
     annotation_by_new = {}
@@ -280,6 +313,58 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
                 decision, selected, "human_accepted_text_anchor",
             )
             continue
+        if decision.get("decision_kind") == "repair_legacy_anchor":
+            if set(decision) != {
+                "baseline_record_key", "decision_kind", "selected_new_record_key",
+                "stale_source_span", "selected_new_source_span",
+                "discarded_source_spans", "reason",
+            } or decision.get("reason") != "neighbor_record_contamination":
+                raise DecisionError("ukendt legacy-anchor repair-handling")
+            selected = _text(
+                decision.get("selected_new_record_key"), "selected_new_record_key"
+            )
+            target = new_by_key.get(selected)
+            if (old is None or target is None
+                    or old.get("disposition") != "unresolved"
+                    or old.get("unresolved_reason")
+                    != "unique_exact_narrative_outside_new_record"
+                    or old.get("matches") != []
+                    or target.get("disposition") != "unmatched_new_review"
+                    or target.get("baseline_record_keys") != []
+                    or "human_annotation" in target):
+                raise DecisionError("legacy-anchor repair kræver ejerløs unresolved baseline og target")
+            stale_span = _span(decision.get("stale_source_span"), "stale_source_span")
+            selected_span = _span(
+                decision.get("selected_new_source_span"), "selected_new_source_span"
+            )
+            if _span(old.get("source_span"), "baseline source_span") != stale_span:
+                raise DecisionError("legacy-anchor repair har stale baseline-kildespænd")
+            if _span(target.get("source_span"), "target source_span") != selected_span:
+                raise DecisionError("legacy-anchor repair har forkert target-kildespænd")
+            declared_discarded = _objects(
+                decision.get("discarded_source_spans"), "discarded_source_spans"
+            )
+            discarded = [
+                _span(span, "discarded_source_spans") for span in declared_discarded
+            ]
+            if not discarded:
+                raise DecisionError("legacy-anchor repair kræver forkastede kildespænd")
+            if any(
+                discarded[index]["char_from"] >= discarded[index + 1]["char_from"]
+                or discarded[index]["char_to"] > discarded[index + 1]["char_from"]
+                for index in range(len(discarded) - 1)
+            ):
+                raise DecisionError("forkastede kildespænd skal være sorterede uden overlap")
+            if discarded != _span_difference(stale_span, selected_span):
+                raise DecisionError("forkastede kildespænd matcher ikke stale-minus-target")
+            if (selected in selected_targets or selected in annotation_by_new
+                    or selected in legacy_repair_targets):
+                raise DecisionError("legacy-anchor repair genbruger eller annoterer target")
+            affected_old_keys.add(old_key)
+            selected_targets.add(selected)
+            legacy_repair_targets.add(selected)
+            legacy_anchor_repairs[old_key] = (decision, selected)
+            continue
         if old is None or old.get("disposition") not in ALLOWED_SOURCE_DISPOSITIONS:
             raise DecisionError("decision må kun afgøre en eksisterende split-review")
         if (decision.get("decision_kind") != "select_carryover_target"
@@ -308,6 +393,8 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
                 raise DecisionError("ukendt record annotation")
             if annotated in annotation_by_new:
                 raise DecisionError("dublet record annotation")
+            if annotated in legacy_repair_targets:
+                raise DecisionError("annotation må ikke berøre legacy-anchor repair-target")
             annotation_by_new[annotated] = dict(annotation)
         decision_by_old[old_key] = (
             decision, selected, "human_selected_split_target",
@@ -332,6 +419,7 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
         old_key = entry["baseline_record_key"]
         retirement = retirement_by_retired.get(old_key)
         retained = retirement_by_canonical.get(old_key)
+        repair = legacy_anchor_repairs.get(old_key)
         choice = decision_by_old.get(old_key)
         if retirement is not None:
             decision, canonical_key, _, retirement_kind = retirement
@@ -357,6 +445,25 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
                 output["reconciliation_basis"] = "human_retained_duplicate_target"
             output["reviewed_by"] = reviewed_by
             output["decision_batch"] = decision_batch
+        elif repair is not None:
+            decision, target = repair
+            output["matches"] = [{
+                "new_record_key": target,
+                "geometry_relation": "human_repaired_legacy_anchor",
+            }]
+            output["selected_new_record_key"] = target
+            output["disposition"] = "accepted_carryover"
+            output["reconciliation_basis"] = "human_repaired_legacy_anchor"
+            output["reviewed_by"] = reviewed_by
+            output["decision_batch"] = decision_batch
+            output["legacy_anchor_repair"] = {
+                "stale_source_span": dict(decision["stale_source_span"]),
+                "selected_new_source_span": dict(decision["selected_new_source_span"]),
+                "discarded_source_spans": [
+                    dict(span) for span in decision["discarded_source_spans"]
+                ],
+                "reason": decision["reason"],
+            }
         elif choice is not None:
             _, selected, reconciliation_basis = choice
             output["matches"] = [
@@ -381,7 +488,8 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
             disposition = retirement_by_retired[entry["baseline_record_key"]][3]
             disposition = "retired_fragment" if disposition == "fragment" else "retired_duplicate"
         elif (entry["baseline_record_key"] in decision_by_old
-              or entry["baseline_record_key"] in retirement_by_canonical):
+              or entry["baseline_record_key"] in retirement_by_canonical
+              or entry["baseline_record_key"] in legacy_anchor_repairs):
             disposition = "accepted_carryover"
         else:
             disposition = _unresolved_disposition(entry, owners)

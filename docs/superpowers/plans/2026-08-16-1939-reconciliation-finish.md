@@ -60,15 +60,38 @@
 - [ ] Prove coverage: all 49 unresolved baseline keys and all remaining unmatched-new keys occur exactly once as subjects; candidate references may repeat only as explicit alternatives.
 - [ ] Run deterministic schema, source-hash, injectivity, coverage, and `git diff --check` audits.
 
-### Task 3: Resolve paired reconciliation reviews in source-ordered batches
+### Task 3: Repair two contaminated legacy anchors
+
+**Files:**
+- Modify: `.claude/skills/daa-extract/scripts/apply_reconciliation_decisions_1939.py`
+- Modify: `.claude/skills/daa-extract/scripts/test_apply_reconciliation_decisions_1939.py`
+- Modify: `docs/superpowers/plans/2026-08-16-1939-reconciliation-finish.md`
+- Create: `work/task20-1939-full/source-record-decisions-legacy-anchor-repair-v1.json`
+- Create: `work/task20-1939-full/source-record-reconciliation-v32.json`
+- Create: `work/task20-1939-full/source-record-reconciliation-report-v32.json`
+- Create: `work/task20-1939-full/legacy-anchor-repair-v1-report.md`
+
+**Interfaces:**
+- Consumes: approved design `docs/superpowers/specs/2026-08-17-1939-legacy-anchor-repair-design.md` and v31 SHA-256 `ee37434d78057088f0b20f16a642dee82e24875c02ff9d8dc1b1b538cb6ee725`.
+- Produces: a fail-closed `repair_legacy_anchor` decision and v32 where Margrethe and Iwen own their existing correct targets, while their stale baseline spans remain visible as historical provenance.
+
+- [x] Add failing tests for the exact closed decision shape and a successful batch containing both geometries: disjoint Margrethe and overlapping Iwen. Assert accepted baseline/target output, synthesized `human_repaired_legacy_anchor` match, complete repair metadata, exact changed sets and report counts.
+- [x] Add failing rejection tests for wrong source disposition/reason, non-empty baseline matches, target not `unmatched_new_review`, ghost/duplicate/malformed owners, stale or mismatched spans, empty/unsorted/overlapping/incomplete discarded spans, wrong reason, unknown fields, reused target, stale hashes and later-batch metadata loss.
+- [x] Implement `repair_legacy_anchor` exactly as specified. Compute the half-open interval difference `stale_source_span - selected_new_source_span` internally and require exact equality with the declared non-empty sorted `discarded_source_spans`; never infer a target from name, proximity or overlap.
+- [x] Create one v1 decision batch with Margrethe `c52df82f-0cd9-4c66-ab76-8a429df0124f` → `record-9bd09532-097b-49e1-aa99-14bef66588d6`, discarded `[50370,50568)`, and Iwen `6bfbce43-740d-49b1-9b4b-1aa2e9b17266` → `record-07204254-7bc5-4754-bcd2-68a1c79408c5`, discarded `[183021,183074)`.
+- [x] Apply the decision directly to v31 with new exclusive v32/report paths. Audit exactly two changed baseline and two changed new objects, unique ownership, deep preservation of all others, embedded/standalone report identity, unchanged v31/OCR/source artifacts and counts `145 accepted`, `47 unresolved baseline`, `90 unmatched new`, one retired duplicate, one retired fragment, `NO-GO`.
+- [x] Run focused interpreter tests, the full scripts suite, the artifact audit and `git diff --check`.
+- [x] Commit only interpreter, tests and this plan after implementation self-review; never commit work artifacts.
+
+### Task 4: Resolve paired reconciliation reviews in source-ordered batches
 
 **Files:**
 - Create: sequential `work/task20-1939-full/source-record-decisions-paired-vN.json`
-- Create: sequential reconciliation/report artifacts after v31
+- Create: sequential reconciliation/report artifacts after v32
 - Create: sequential `work/task20-1939-full/paired-review-batch-vN-report.md`
 
 **Interfaces:**
-- Consumes: the Task 2 manifest and the latest reconciliation hash.
+- Consumes: a regenerated, v32-bound paired manifest and the latest reconciliation hash.
 - Produces: reviewed decisions for every clear pair or genuinely new/structural record; genuinely ambiguous hierarchy or identity remains explicitly unresolved for user review.
 
 - [ ] Review subjects in batches of at most 12, preserving manifest source order and using complete relevant PDF pages plus literal Calamari.
