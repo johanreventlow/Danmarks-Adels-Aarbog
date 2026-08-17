@@ -35,6 +35,12 @@ def _sha256(value: object, field: str) -> str:
     return value
 
 
+def _canonical_json_sha256(value: object) -> str:
+    return hashlib.sha256(json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()
+
+
 def _objects(value: object, field: str) -> list[dict[str, Any]]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
         raise DecisionError(f"{field} kræves")
@@ -214,15 +220,8 @@ def _validate_historical_spanless_adoptions(
 def _validate_historical_nonperson_classifications(
         new_entries: Sequence[Mapping[str, Any]],
         owners: Mapping[str, list[str]],
-        decision_source: object,
 ) -> None:
     """Reject malformed human non-person classification history."""
-    history_source_sha = None
-    if isinstance(decision_source, Mapping):
-        history_source_sha = _sha256(
-            decision_source.get("reconciliation_sha256"),
-            "historisk decision_source reconciliation_sha256",
-        )
     for entry in new_entries:
         key = _text(entry.get("new_record_key"), "new_record_key")
         is_cross_reference = (
@@ -257,17 +256,20 @@ def _validate_historical_nonperson_classifications(
                     or annotation.get("record_kind") != "cross_reference"
                     or annotation.get("person_creation")
                     != "forbidden_without_separate_evidence"
-                    or history_source_sha is None
                     or not isinstance(history, Mapping)
                     or set(history) != {
                         "source_reconciliation_sha256", "annotation_reviewed_by",
                         "annotation_decision_batch", "resolution_reviewed_by",
                         "resolution_decision_batch",
                     }
-                    or _sha256(
+                    or not _sha256(
                         history.get("source_reconciliation_sha256"),
                         "historisk cross-reference classification source",
-                    ) != history_source_sha
+                    )
+                    or _sha256(
+                        entry.get("classification_history_sha256"),
+                        "historisk cross-reference classification digest",
+                    ) != _canonical_json_sha256(history)
                     or history.get("annotation_reviewed_by") != entry.get("reviewed_by")
                     or history.get("annotation_decision_batch")
                     != entry.get("decision_batch")
@@ -290,16 +292,19 @@ def _validate_historical_nonperson_classifications(
                     or "human_annotation" in entry
                     or "resolved_by" in entry
                     or "resolution_batch" in entry
-                    or history_source_sha is None
                     or not isinstance(history, Mapping)
                     or set(history) != {
                         "source_reconciliation_sha256", "classification_reviewed_by",
                         "classification_decision_batch",
                     }
-                    or _sha256(
+                    or not _sha256(
                         history.get("source_reconciliation_sha256"),
                         "historisk structural classification source",
-                    ) != history_source_sha
+                    )
+                    or _sha256(
+                        entry.get("classification_history_sha256"),
+                        "historisk structural classification digest",
+                    ) != _canonical_json_sha256(history)
                     or history.get("classification_reviewed_by")
                     != entry.get("reviewed_by")
                     or history.get("classification_decision_batch")
@@ -363,7 +368,7 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
         baseline_entries, new_entries, original_owners, new_by_key,
     )
     _validate_historical_nonperson_classifications(
-        new_entries, original_owners, reconciliation.get("decision_source"),
+        new_entries, original_owners,
     )
     raw_decisions = _objects(decisions.get("decisions"), "decisions")
     if not raw_decisions:
@@ -405,7 +410,7 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
                     or any(field in target_entry for field in (
                         "human_annotation", "reviewed_by", "decision_batch",
                         "classification_basis", "resolved_by", "resolution_batch",
-                        "classification_history",
+                        "classification_history", "classification_history_sha256",
                     ))):
                 raise DecisionError(
                     "structural classification kræver ejerløs unmatched unclassified target"
@@ -441,7 +446,7 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
                     != "forbidden_without_separate_evidence"
                     or any(field in target_entry for field in (
                         "classification_basis", "resolved_by", "resolution_batch",
-                        "classification_history",
+                        "classification_history", "classification_history_sha256",
                     ))):
                 raise DecisionError(
                     "cross-reference resolution kræver præcist annoteret ejerløst target"
@@ -920,6 +925,9 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
                 "classification_reviewed_by": reviewed_by,
                 "classification_decision_batch": decision_batch,
             }
+            output["classification_history_sha256"] = _canonical_json_sha256(
+                output["classification_history"]
+            )
         elif key in cross_reference_resolutions:
             output["record_kind"] = "cross_reference"
             output["disposition"] = "accepted_cross_reference"
@@ -935,6 +943,9 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
                 "resolution_reviewed_by": reviewed_by,
                 "resolution_decision_batch": decision_batch,
             }
+            output["classification_history_sha256"] = _canonical_json_sha256(
+                output["classification_history"]
+            )
         elif entry.get("disposition") == "accepted_genuinely_new_source_record":
             output["disposition"] = "accepted_genuinely_new_source_record"
         elif (entry.get("disposition") == "accepted_cross_reference"
