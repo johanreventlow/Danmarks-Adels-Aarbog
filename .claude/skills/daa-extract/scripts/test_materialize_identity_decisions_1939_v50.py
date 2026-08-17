@@ -62,6 +62,70 @@ def fixture():
     return review, approvals, review_sha
 
 
+def mapped_fixture():
+    review = {
+        "schema_version": "1939-v50-mapped-identity-review-v1",
+        "generator_version": "mapped-builder:v1",
+        "input_hashes": {"x": "a" * 64},
+        "review_only": True,
+        "review_state": "pending",
+        "canonical_mutations_authorized": False,
+        "counts": {
+            "subjects": 2,
+            "profiles": 543,
+            "searchable_profiles": 530,
+            "unsearchable_profiles": 13,
+            "candidate_links": 2,
+            "linked_subjects": 2,
+            "unlinked_subjects": 0,
+            "ambiguous_subjects": 0,
+        },
+        "unsearchable_profile_keys": [
+            "old-unsearchable-01", "old-unsearchable-02", "old-unsearchable-03",
+            "old-unsearchable-04", "old-unsearchable-05", "old-unsearchable-06",
+            "old-unsearchable-07", "old-unsearchable-08", "old-unsearchable-09",
+            "old-unsearchable-10", "old-unsearchable-11", "old-unsearchable-12",
+            "old-unsearchable-13",
+        ],
+        "subjects": [
+            {"new_record_key": "new-ditlev", "review_state": "pending",
+             "person_creation": "forbidden", "source_span": {"char_from": 1, "char_to": 5},
+             "verbatim_text": "Ditlev † 1690", "candidates": [{
+                 "candidate_record_key": "old-ditlev", "candidate_person_id": 1054,
+                 "candidate_display_name": "Ditlev",
+                 "classification": "mapped_1939_review_candidate",
+                 "proposed_action": "unresolved",
+                 "signals": [{"kind": "literal_fact_value", "text": "1690"}],
+             }]},
+            {"new_record_key": "new-johan", "review_state": "pending",
+             "person_creation": "forbidden", "source_span": {"char_from": 6, "char_to": 10},
+             "verbatim_text": "Johan † 1563", "candidates": [{
+                 "candidate_record_key": "old-johan", "candidate_person_id": 993,
+                 "candidate_display_name": "Johan",
+                 "classification": "mapped_1939_review_candidate",
+                 "proposed_action": "unresolved",
+                 "signals": [{"kind": "literal_fact_value", "text": "1563"}],
+             }]},
+        ],
+        "review_gate": "GO", "identity_decision_gate": "NO-GO", "reimport_gate": "NO-GO",
+    }
+    review_sha = sha_bytes(json.dumps(review, sort_keys=True).encode())
+    approvals = {
+        "schema_version": "1939-v50-identity-approvals-v1",
+        "review_sha256": review_sha,
+        "reviewed_by": "codex-assisted:johan-reventlow",
+        "decision_batch": "v50-mapped-identity-review-batch-2",
+        "confirmation": "1-2 ja",
+        "approvals": [
+            {"source_record_key": "new-ditlev", "candidate_record_key": "old-ditlev",
+             "action": "same"},
+            {"source_record_key": "new-johan", "candidate_record_key": "old-johan",
+             "action": "same"},
+        ],
+    }
+    return review, approvals, review_sha
+
+
 def test_materializes_exact_append_only_decisions_without_database_authority():
     review, approvals, review_sha = fixture()
     result = subject.materialize_decisions(review, approvals, review_sha, expected_decisions=2)
@@ -76,6 +140,29 @@ def test_materializes_exact_append_only_decisions_without_database_authority():
         "record_key": "new-a", "external_person_number": None}
     assert result["decisions"][0]["canonical_person_id"] == 101
     assert result["decisions"][0]["source_persona_status"] == "pending_materialization"
+
+
+def test_materializes_unambiguous_mapped_review_decisions_without_database_authority():
+    review, approvals, review_sha = mapped_fixture()
+    result = subject.materialize_decisions(review, approvals, review_sha, expected_decisions=2)
+    assert result["input_review_sha256"] == review_sha
+    assert result["decision_batch"] == "v50-mapped-identity-review-batch-2"
+    assert result["canonical_mutations_authorized"] is False
+    assert result["database_write_authorized"] is False
+    assert [(row["source_record_key"], row["canonical_person_id"])
+            for row in result["decisions"]] == [
+                ("new-ditlev", 1054), ("new-johan", 993)]
+
+
+@pytest.mark.parametrize("mutation", ["coverage_counts", "duplicate_person"])
+def test_mapped_review_fails_closed_on_coverage_or_canonical_person_collision(mutation):
+    review, approvals, review_sha = mapped_fixture()
+    if mutation == "coverage_counts":
+        review["counts"]["linked_subjects"] = 1
+    elif mutation == "duplicate_person":
+        review["subjects"][1]["candidates"][0]["candidate_person_id"] = 1054
+    with pytest.raises(subject.IdentityDecisionError):
+        subject.materialize_decisions(review, approvals, review_sha, expected_decisions=2)
 
 
 @pytest.mark.parametrize("mutation", [
@@ -119,4 +206,3 @@ def test_output_is_exclusive_and_deterministic(tmp_path: Path):
     output.unlink(); report.unlink()
     subject.write_outputs(result, output, report)
     assert (output.read_bytes(), report.read_bytes()) == first
-
