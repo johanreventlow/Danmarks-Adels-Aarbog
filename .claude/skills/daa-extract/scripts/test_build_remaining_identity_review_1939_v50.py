@@ -188,6 +188,18 @@ def test_rejects_fabricated_later_source_record_before_it_can_be_authoritative()
         subject.build_remaining_review(**values)
 
 
+def test_rejects_rotation_of_keyed_source_record_spans_before_page_mapping():
+    values = fixture_inputs()
+    source_records = copy.deepcopy(values["import_preview"]["genuinely_new_pending"])
+    source_payloads = [(row["source_span"], row["verbatim_text"]) for row in source_records]
+    for row, (span, text) in zip(source_records, source_payloads[1:] + source_payloads[:1]):
+        row["source_span"] = span
+        row["verbatim_text"] = text
+    values["import_preview"]["source_records"] = source_records
+    with pytest.raises(subject.RemainingIdentityReviewError):
+        subject.build_remaining_review(**values)
+
+
 def test_later_occurrences_do_not_rescan_full_profile_pool(monkeypatch):
     calls = []
     original = subject._profile_signals

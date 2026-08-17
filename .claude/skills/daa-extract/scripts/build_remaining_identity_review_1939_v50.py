@@ -156,6 +156,10 @@ def _validate_import(import_preview: dict[str, Any], hashes: dict[str, str],
     records = [_source_record(row) for row in source_rows]
     if len({row["new_record_key"] for row in records}) != len(records):
         _fail("REMAINING_IDENTITY_IMPORT_INVALID")
+    records_by_key = {row["new_record_key"]: row for row in records}
+    for subject in subjects:
+        if records_by_key.get(subject["new_record_key"]) != subject:
+            _fail("REMAINING_IDENTITY_SUBJECT_DRIFT")
     return records
 
 
