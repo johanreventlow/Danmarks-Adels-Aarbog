@@ -217,6 +217,88 @@ def _validate_historical_spanless_adoptions(
         raise DecisionError("historisk spanless adoption-target er delvis")
 
 
+def _validate_historical_embedded_fragment_retirements(
+        baseline_entries: Sequence[Mapping[str, Any]],
+        owners: Mapping[str, list[str]],
+        old_by_key: Mapping[str, Mapping[str, Any]],
+        new_by_key: Mapping[str, Mapping[str, Any]]) -> None:
+    """Reject partial or drifted source-bound embedded-fragment retirements."""
+    for entry in baseline_entries:
+        has_history = any(field in entry for field in (
+            "embedded_fragment_retirement",
+            "embedded_fragment_retirement_sha256",
+        ))
+        if not has_history and entry.get("retirement_reason") != (
+                "embedded_text_fragment_of_canonical_record"):
+            continue
+        history = entry.get("embedded_fragment_retirement")
+        if not isinstance(history, Mapping) or set(history) != {
+            "source_reconciliation_sha256",
+            "canonical_baseline_record_key",
+            "new_record_key",
+            "embedded_source_span",
+            "embedded_fragment_text",
+            "reason",
+            "reviewed_by",
+            "decision_batch",
+        }:
+            raise DecisionError("historisk embedded fragment-retirement er ugyldig")
+        digest = _sha256(
+            entry.get("embedded_fragment_retirement_sha256"),
+            "embedded fragment-retirement SHA-256",
+        )
+        if digest != _canonical_json_sha256(history):
+            raise DecisionError("historisk embedded fragment-retirement matcher ikke digest")
+        _sha256(
+            history.get("source_reconciliation_sha256"),
+            "historisk embedded source reconciliation SHA-256",
+        )
+        canonical_key = _text(
+            history.get("canonical_baseline_record_key"),
+            "historisk embedded canonical_baseline_record_key",
+        )
+        target_key = _text(
+            history.get("new_record_key"), "historisk embedded new_record_key",
+        )
+        canonical = old_by_key.get(canonical_key)
+        target = new_by_key.get(target_key)
+        embedded_span = _span(
+            history.get("embedded_source_span"),
+            "historisk embedded source span",
+        )
+        if (entry.get("disposition") != "retired_fragment"
+                or entry.get("matches") != []
+                or "source_span" in entry
+                or entry.get("canonical_baseline_record_key") != canonical_key
+                or entry.get("retirement_reason")
+                != "embedded_text_fragment_of_canonical_record"
+                or entry.get("reviewed_by") != history.get("reviewed_by")
+                or entry.get("decision_batch") != history.get("decision_batch")
+                or entry.get("name") != history.get("embedded_fragment_text")
+                or history.get("reason")
+                != "embedded_text_fragment_of_canonical_record"
+                or canonical is None or target is None
+                or canonical_key == entry.get("baseline_record_key")
+                or canonical.get("disposition") not in {"unchanged", "accepted_carryover"}
+                or target.get("disposition") not in {"unchanged", "accepted_carryover"}
+                or owners.get(target_key, []) != [canonical_key]
+                or target.get("baseline_record_keys") != [canonical_key]):
+            raise DecisionError("historisk embedded fragment-retirement er inkonsistent")
+        canonical_span = _span(
+            canonical.get("source_span"), "historisk canonical source span",
+        )
+        target_span = _span(
+            target.get("source_span"), "historisk target source span",
+        )
+        if not (canonical_span["char_from"] <= embedded_span["char_from"]
+                < embedded_span["char_to"] <= canonical_span["char_to"]
+                and target_span["char_from"] <= embedded_span["char_from"]
+                < embedded_span["char_to"] <= target_span["char_to"]
+                and embedded_span["char_to"] - embedded_span["char_from"]
+                == len(history["embedded_fragment_text"])):
+            raise DecisionError("historisk embedded fragment ligger uden for canonical target")
+
+
 def _validate_historical_nonperson_classifications(
         new_entries: Sequence[Mapping[str, Any]],
         owners: Mapping[str, list[str]],
@@ -367,6 +449,9 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
     _validate_historical_spanless_adoptions(
         baseline_entries, new_entries, original_owners, new_by_key,
     )
+    _validate_historical_embedded_fragment_retirements(
+        baseline_entries, original_owners, old_by_key, new_by_key,
+    )
     _validate_historical_nonperson_classifications(
         new_entries, original_owners,
     )
@@ -389,6 +474,7 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
     genuinely_new_acceptances = {}
     spanless_adoptions = {}
     spanless_adoptions_by_target = {}
+    embedded_fragment_retirements = {}
     structural_context_acceptances = {}
     cross_reference_resolutions = {}
     for decision in raw_decisions:
@@ -537,6 +623,70 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
             selected_targets.add(target)
             spanless_adoptions[old_key] = (decision, target)
             spanless_adoptions_by_target[target] = old_key
+            continue
+        if decision.get("decision_kind") == "retire_embedded_spanless_fragment":
+            if set(decision) != {
+                "baseline_record_key", "decision_kind",
+                "canonical_baseline_record_key", "new_record_key",
+                "embedded_source_span", "embedded_fragment_text", "reason",
+            } or decision.get("reason") != (
+                    "embedded_text_fragment_of_canonical_record"):
+                raise DecisionError("ukendt embedded spanless fragment retirement-handling")
+            canonical_key = _text(
+                decision.get("canonical_baseline_record_key"),
+                "canonical_baseline_record_key",
+            )
+            target = _text(decision.get("new_record_key"), "new_record_key")
+            fragment_text = _text(
+                decision.get("embedded_fragment_text"), "embedded_fragment_text",
+            )
+            embedded_span = _span(
+                decision.get("embedded_source_span"), "embedded_source_span",
+            )
+            canonical = old_by_key.get(canonical_key)
+            target_entry = new_by_key.get(target)
+            if old is None or canonical is None or target_entry is None:
+                raise DecisionError("embedded fragment peger på ukendt record")
+            canonical_span = _span(canonical.get("source_span"), "canonical source_span")
+            target_span = _span(target_entry.get("source_span"), "target source_span")
+            canonical_matches = canonical.get("matches")
+            if (old_key == canonical_key
+                    or canonical_key in affected_old_keys
+                    or "source_span" in old
+                    or old.get("disposition") != "unresolved"
+                    or old.get("unresolved_reason") != "narrative_not_exact"
+                    or old.get("matches") != []
+                    or old.get("name") != fragment_text
+                    or any(field in old for field in (
+                        "canonical_baseline_record_key", "retirement_reason",
+                        "reviewed_by", "decision_batch",
+                        "embedded_fragment_retirement",
+                        "embedded_fragment_retirement_sha256",
+                    ))
+                    or canonical.get("disposition") not in {"unchanged", "accepted_carryover"}
+                    or not isinstance(canonical_matches, list)
+                    or len(canonical_matches) != 1
+                    or not isinstance(canonical_matches[0], Mapping)
+                    or canonical_matches[0].get("new_record_key") != target
+                    or target_entry.get("disposition") not in {"unchanged", "accepted_carryover"}
+                    or original_owners[target] != [canonical_key]
+                    or target_entry.get("baseline_record_keys") != [canonical_key]
+                    or not (canonical_span["char_from"] <= embedded_span["char_from"]
+                            < embedded_span["char_to"] <= canonical_span["char_to"])
+                    or not (target_span["char_from"] <= embedded_span["char_from"]
+                            < embedded_span["char_to"] <= target_span["char_to"])
+                    or embedded_span["char_to"] - embedded_span["char_from"]
+                    != len(fragment_text)):
+                raise DecisionError(
+                    "embedded fragment kræver spanless unresolved tekst i ét canonical target"
+                )
+            if target in selected_targets:
+                raise DecisionError("flere beslutninger bruger samme new_record_key")
+            affected_old_keys.add(old_key)
+            selected_targets.add(target)
+            embedded_fragment_retirements[old_key] = (
+                dict(decision), canonical_key, target,
+            )
             continue
         if decision.get("decision_kind") == "retire_continuation_fragment":
             if set(decision) != {
@@ -796,11 +946,33 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
         output = dict(entry)
         old_key = entry["baseline_record_key"]
         retirement = retirement_by_retired.get(old_key)
+        embedded_retirement = embedded_fragment_retirements.get(old_key)
         retained = retirement_by_canonical.get(old_key)
         repair = legacy_anchor_repairs.get(old_key)
         adoption = spanless_adoptions.get(old_key)
         choice = decision_by_old.get(old_key)
-        if retirement is not None:
+        if embedded_retirement is not None:
+            decision, canonical_key, target = embedded_retirement
+            output["matches"] = []
+            output["disposition"] = "retired_fragment"
+            output["canonical_baseline_record_key"] = canonical_key
+            output["retirement_reason"] = decision["reason"]
+            output["reviewed_by"] = reviewed_by
+            output["decision_batch"] = decision_batch
+            output["embedded_fragment_retirement"] = {
+                "source_reconciliation_sha256": reconciliation_sha256,
+                "canonical_baseline_record_key": canonical_key,
+                "new_record_key": target,
+                "embedded_source_span": dict(decision["embedded_source_span"]),
+                "embedded_fragment_text": decision["embedded_fragment_text"],
+                "reason": decision["reason"],
+                "reviewed_by": reviewed_by,
+                "decision_batch": decision_batch,
+            }
+            output["embedded_fragment_retirement_sha256"] = _canonical_json_sha256(
+                output["embedded_fragment_retirement"]
+            )
+        elif retirement is not None:
             decision, canonical_key, _, retirement_kind = retirement
             output["matches"] = []
             output["disposition"] = (
@@ -879,7 +1051,9 @@ def apply_decisions(reconciliation: Mapping[str, Any], decisions: Mapping[str, A
                 owners[match.get("new_record_key")].append(entry["baseline_record_key"])
     disposition_by_old = {}
     for entry in resolved_baseline:
-        if entry["baseline_record_key"] in retirement_by_retired:
+        if entry["baseline_record_key"] in embedded_fragment_retirements:
+            disposition = "retired_fragment"
+        elif entry["baseline_record_key"] in retirement_by_retired:
             disposition = retirement_by_retired[entry["baseline_record_key"]][3]
             disposition = "retired_fragment" if disposition == "fragment" else "retired_duplicate"
         elif (entry["baseline_record_key"] in decision_by_old

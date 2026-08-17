@@ -1542,6 +1542,52 @@ def continuation_fragment_decision_document(reconciliation_sha256):
     return document
 
 
+def embedded_spanless_fragment_reconciliation():
+    source = reconciliation()
+    source["baseline_entries"] = [
+        {
+            "baseline_record_key": "old-canonical",
+            "name": "Conrad Reventlow",
+            "source_span": {"char_from": 0, "char_to": 100},
+            "matches": [{
+                "new_record_key": "new-a",
+                "geometry_relation": "partial_overlap",
+            }],
+            "disposition": "unchanged",
+            "reconciliation_basis": "unique_exact_narrative_inside_new",
+        },
+        {
+            "baseline_record_key": "old-fragment",
+            "name": "fyenske Rytterreg.)",
+            "matches": [],
+            "unresolved_reason": "narrative_not_exact",
+            "disposition": "unresolved",
+        },
+    ]
+    source["new_entries"] = [{
+        "new_record_key": "new-a",
+        "record_kind": "unclassified",
+        "source_span": {"char_from": 0, "char_to": 90},
+        "baseline_record_keys": ["old-canonical"],
+        "disposition": "unchanged",
+    }]
+    return source
+
+
+def embedded_spanless_fragment_decision_document(reconciliation_sha256):
+    document = decision_document(reconciliation_sha256)
+    document["decisions"] = [{
+        "baseline_record_key": "old-fragment",
+        "decision_kind": "retire_embedded_spanless_fragment",
+        "canonical_baseline_record_key": "old-canonical",
+        "new_record_key": "new-a",
+        "embedded_source_span": {"char_from": 20, "char_to": 39},
+        "embedded_fragment_text": "fyenske Rytterreg.)",
+        "reason": "embedded_text_fragment_of_canonical_record",
+    }]
+    return document
+
+
 def encoded(value):
     return (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode()
 
@@ -2142,6 +2188,158 @@ def test_retires_contiguous_continuation_fragment_and_retains_only_canonical_own
     assert result["report"]["remaining_baseline_review"] == 0
     assert result["report"]["remaining_new_review"] == 0
     assert result["report"]["reconciliation_gate"] == "GO"
+
+
+def test_retires_embedded_spanless_fragment_without_changing_canonical_graph():
+    source = embedded_spanless_fragment_reconciliation()
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+
+    result = apply_decisions(
+        source,
+        embedded_spanless_fragment_decision_document(digest),
+        reconciliation_sha256=digest,
+    )
+
+    canonical, fragment = result["baseline_entries"]
+    assert canonical == source["baseline_entries"][0]
+    assert result["new_entries"] == source["new_entries"]
+    assert fragment["matches"] == []
+    assert fragment["disposition"] == "retired_fragment"
+    assert fragment["canonical_baseline_record_key"] == "old-canonical"
+    assert fragment["retirement_reason"] == "embedded_text_fragment_of_canonical_record"
+    assert fragment["reviewed_by"] == "johan-reventlow"
+    assert fragment["decision_batch"] == "batch-1"
+    history = fragment["embedded_fragment_retirement"]
+    assert history == {
+        "source_reconciliation_sha256": digest,
+        "canonical_baseline_record_key": "old-canonical",
+        "new_record_key": "new-a",
+        "embedded_source_span": {"char_from": 20, "char_to": 39},
+        "embedded_fragment_text": "fyenske Rytterreg.)",
+        "reason": "embedded_text_fragment_of_canonical_record",
+        "reviewed_by": "johan-reventlow",
+        "decision_batch": "batch-1",
+    }
+    assert fragment["embedded_fragment_retirement_sha256"] == (
+        classification_history_sha256(history)
+    )
+    assert result["report"]["retired_fragments"] == 1
+    assert result["report"]["remaining_baseline_review"] == 0
+    assert result["report"]["remaining_new_review"] == 0
+    assert result["report"]["reconciliation_gate"] == "GO"
+
+
+@pytest.mark.parametrize("mutation", [
+    "fragment_has_span",
+    "fragment_not_unresolved",
+    "fragment_has_match",
+    "wrong_unresolved_reason",
+    "text_not_exact_name",
+    "canonical_not_resolved",
+    "canonical_wrong_target",
+    "target_wrong_owner",
+    "span_outside_canonical",
+    "span_outside_target",
+    "wrong_reason",
+    "extra_field",
+    "duplicate_decision",
+])
+def test_embedded_spanless_fragment_retirement_fails_closed(mutation):
+    source = embedded_spanless_fragment_reconciliation()
+    if mutation == "fragment_has_span":
+        source["baseline_entries"][1]["source_span"] = {"char_from": 20, "char_to": 39}
+    elif mutation == "fragment_not_unresolved":
+        source["baseline_entries"][1]["disposition"] = "unchanged"
+    elif mutation == "fragment_has_match":
+        source["baseline_entries"][1]["matches"] = [{"new_record_key": "new-a"}]
+        source["new_entries"][0]["baseline_record_keys"].append("old-fragment")
+    elif mutation == "wrong_unresolved_reason":
+        source["baseline_entries"][1]["unresolved_reason"] = "not_found"
+    elif mutation == "text_not_exact_name":
+        source["baseline_entries"][1]["name"] = "different fragment"
+    elif mutation == "canonical_not_resolved":
+        source["baseline_entries"][0]["disposition"] = "merge_review"
+        source["new_entries"][0]["disposition"] = "merge_review"
+    elif mutation == "canonical_wrong_target":
+        source["baseline_entries"][0]["matches"][0]["new_record_key"] = "new-b"
+        source["new_entries"].append({
+            "new_record_key": "new-b", "record_kind": "unclassified",
+            "source_span": {"char_from": 0, "char_to": 100},
+            "baseline_record_keys": ["old-canonical"], "disposition": "unchanged",
+        })
+        source["new_entries"][0]["baseline_record_keys"] = []
+    elif mutation == "target_wrong_owner":
+        source["new_entries"][0]["baseline_record_keys"] = []
+    digest = hashlib.sha256(encoded(source)).hexdigest()
+    document = embedded_spanless_fragment_decision_document(digest)
+    decision = document["decisions"][0]
+    if mutation == "span_outside_canonical":
+        decision["embedded_source_span"] = {"char_from": 100, "char_to": 110}
+    elif mutation == "span_outside_target":
+        decision["embedded_source_span"] = {"char_from": 90, "char_to": 100}
+    elif mutation == "wrong_reason":
+        decision["reason"] = "continuation_extraction_fragment"
+    elif mutation == "extra_field":
+        decision["note"] = "looks embedded"
+    elif mutation == "duplicate_decision":
+        document["decisions"].append(copy.deepcopy(decision))
+
+    with pytest.raises(DecisionError):
+        apply_decisions(source, document, reconciliation_sha256=digest)
+
+
+def test_later_batch_preserves_and_validates_embedded_spanless_fragment_history():
+    source = embedded_spanless_fragment_reconciliation()
+    first_digest = hashlib.sha256(encoded(source)).hexdigest()
+    first = apply_decisions(
+        source,
+        embedded_spanless_fragment_decision_document(first_digest),
+        reconciliation_sha256=first_digest,
+    )
+    prior_fragment = copy.deepcopy(first["baseline_entries"][1])
+    first["baseline_entries"].append({
+        "baseline_record_key": "old-fresh",
+        "matches": [{"new_record_key": "new-fresh"}],
+        "disposition": "boundary_change_review",
+    })
+    first["new_entries"].append({
+        "new_record_key": "new-fresh",
+        "record_kind": "unclassified",
+        "source_span": {"char_from": 110, "char_to": 120},
+        "baseline_record_keys": ["old-fresh"],
+        "disposition": "boundary_change_review",
+    })
+    second_digest = hashlib.sha256(encoded(first)).hexdigest()
+    document = decision_document(second_digest)
+    document["decisions"] = [{
+        "baseline_record_key": "old-fresh",
+        "decision_kind": "accept_boundary_change",
+        "selected_new_record_key": "new-fresh",
+    }]
+
+    result = apply_decisions(first, document, reconciliation_sha256=second_digest)
+
+    assert result["baseline_entries"][1] == prior_fragment
+    assert result["report"]["retired_fragments"] == 1
+
+    for mutation in ("reviewed_by", "embedded_source_span", "history_digest"):
+        corrupt = copy.deepcopy(first)
+        fragment = corrupt["baseline_entries"][1]
+        if mutation == "reviewed_by":
+            fragment["reviewed_by"] = "different-reviewer"
+        elif mutation == "embedded_source_span":
+            fragment["embedded_fragment_retirement"]["embedded_source_span"] = {
+                "char_from": 21, "char_to": 39,
+            }
+        else:
+            fragment["embedded_fragment_retirement_sha256"] = "a" * 64
+        corrupt_digest = hashlib.sha256(encoded(corrupt)).hexdigest()
+        corrupt_document = decision_document(corrupt_digest)
+        corrupt_document["decisions"] = copy.deepcopy(document["decisions"])
+        with pytest.raises(DecisionError):
+            apply_decisions(
+                corrupt, corrupt_document, reconciliation_sha256=corrupt_digest,
+            )
 
 
 @pytest.mark.parametrize("mutation", [
