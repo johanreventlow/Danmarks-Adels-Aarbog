@@ -195,7 +195,9 @@
 - Generate ignored: `work/task24-1939-v50-remaining-identities/remaining-identity-decisions-v1-report.md`
 
 **Interfaces:**
-- Consumes: reviewmanifest v1, dets eksakte SHA-256 og det komplette 17-posters forslag/brugersvar.
+- Consumes: reviewmanifest v1, dets eksakte SHA-256, det komplette 17-posters
+  forslag/brugersvar samt de allerede hash-låste import-preview v1 og
+  database-preview v1 til uafhængig target-/owner-validering.
 - Produces: schema `1939-v50-remaining-identity-decisions-v1` med lukkede counts og alle gates på ikke-skrivende værdier.
 
 - [ ] **Step 1: Skriv RED-tests for de fire dispositioner**
@@ -220,16 +222,19 @@
 - [ ] **Step 3: Implementér closed-schema-validatoren**
 
   Kræv præcis ét proposal-row pr. reviewsubject. `same_existing_person` kræver
-  kandidat/anker og canonical person-id; `new_person_candidate` og `unresolved`
-  forbyder targetfelter; `structural_or_summary` tillader kun en deklareret
-  context owner. Bind hver række til source span, verbatim-hash, reviewhash og
-  evidenshash.
+  et eksakt record-key/person-id-par i database-previewets `matched` eller
+  `database_only`; `new_person_candidate` og `unresolved` forbyder targetfelter;
+  `structural_or_summary` tillader kun en context owner, som findes ordret i det
+  hash-låste import-preview. Kræv at begge previewhashes matcher reviewets
+  deklarerede inputhashes. Bind hver række til source span, verbatim-hash,
+  reviewhash og evidenshash.
 
 - [ ] **Step 4: Tilføj mutations- og ejerskabstests**
 
   Afvis duplicate/missing source, ukendt decision, skjult targetfelt, forkert
   person-id, duplicate target/person, konkurrerende kandidat uden brugerbevis,
-  falsk context owner, ændret reviewhash, ændret evidenshash og enhver authority.
+  falsk context owner, previewhash-/previewindholdsdrift, ændret reviewhash,
+  ændret evidenshash og enhver authority.
 
 - [ ] **Step 5: Kør GREEN, generér realdataoutput og commit**
 
