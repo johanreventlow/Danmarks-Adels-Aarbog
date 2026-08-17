@@ -441,6 +441,46 @@ Alle preview-output oprettes eksklusivt under `work/` og må ikke committes.
 forbliver NO-GO, indtil identiteter, parkeret provenance, private source records
 og en særskilt godkendt writer/replay/rollback-plan er på plads.
 
+### v50 identitetsreview for genuinely-new records
+
+Når databasepreviewet har fundet 41 genuinely-new source records og 23
+eksisterende 1939-personposter uden v50-baseline-mapping, skal de sammenholdes
+før personoprettelse overhovedet kan overvejes.
+
+Profilér først præcis de 23 deklarerede databaseankre i en ny read-only session:
+
+```bash
+Rscript .claude/skills/daa-extract/scripts/profile_identity_review_1939_v50.R \
+  --database-preview=work/task21-1939-v50-import-preview/database-preview-v1.json \
+  --output=work/task22-1939-v50-identity-review/database-profiles-v1.json
+```
+
+Byg derefter det lokale, hashbundne review-manifest:
+
+```bash
+/usr/bin/python3 .claude/skills/daa-extract/scripts/build_identity_review_1939_v50.py \
+  --import-preview=work/task21-1939-v50-import-preview/import-preview-v1.json \
+  --database-preview=work/task21-1939-v50-import-preview/database-preview-v1.json \
+  --database-profiles=work/task22-1939-v50-identity-review/database-profiles-v1.json \
+  --linked-clean=/Users/johanreventlow/TypeScript/danmarksadelsaarbog/work_1939_stamtavle/linked_clean_1939_v2.json \
+  --output=work/task22-1939-v50-identity-review/identity-review-v1.json \
+  --report=work/task22-1939-v50-identity-review/identity-review-v1-report.md
+```
+
+Profiludtrækket validerer de eksakte record-key/person-ID-par mod databasen,
+starter `BEGIN READ ONLY` før domænequeries og rollbacker/lukker forbindelsen,
+før output skrives. Kandidatbuilderen accepterer kun reproducerbare literal-
+signaler med eksakte source-offsets. Et langt navn må kun matches fra navnets
+begyndelse; titler og godsnavne fra halen kan ikke identificere personen.
+Embedded sønner/efterkommere efter en slægtskabs-overgang bliver mentions, ikke
+recordets hovedperson. Korte fællesnavne kræver mindst en eksakt vital fact.
+
+Manifestet er altid `review_only`, alle kandidatlinks er `unresolved`, og
+`canonical_mutations_authorized` er `false`. Et grønt `review_gate` betyder kun,
+at pakken er komplet og reproducerbar; det er ikke identitets-, person-create-,
+writer- eller reimport-GO. Alle tre output ligger under ignoreret `work/` og må
+ikke committes.
+
 ## Vigtige principper
 
 - **Hver DAA-udgave er én `source`.** Modstridende udgaver = separate kilder,
