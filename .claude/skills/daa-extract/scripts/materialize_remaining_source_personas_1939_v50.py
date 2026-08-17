@@ -509,7 +509,7 @@ def _validate_decisions(
     return validated, reviewed_by, decision_basis
 
 
-def materialize_remaining_source_personas(
+def _materialize_remaining_source_personas_for_contract(
     *,
     source_persona_v1: dict[str, Any],
     source_persona_v1_sha256: str,
@@ -521,7 +521,7 @@ def materialize_remaining_source_personas(
     expected_decisions: int = 17,
     expected_disposition_counts: dict[str, int] | None = None,
 ) -> dict[str, Any]:
-    """Build an append-only v2 bundle without granting database authority."""
+    """Build against an explicit contract; used by tests and the locked public API."""
     expected_v1_personas = _positive_int(
         expected_v1_personas, "REMAINING_SOURCE_PERSONA_COUNT_INVALID")
     expected_decisions = _positive_int(
@@ -658,6 +658,29 @@ def materialize_remaining_source_personas(
     }
 
 
+def materialize_remaining_source_personas(
+    *,
+    source_persona_v1: dict[str, Any],
+    source_persona_v1_sha256: str,
+    remaining_decisions: dict[str, Any],
+    remaining_decisions_sha256: str,
+    database_preview: dict[str, Any],
+    database_preview_sha256: str,
+) -> dict[str, Any]:
+    """Build the locked 24 + 17 DAA 1939 v50 append-only materialization."""
+    return _materialize_remaining_source_personas_for_contract(
+        source_persona_v1=source_persona_v1,
+        source_persona_v1_sha256=source_persona_v1_sha256,
+        remaining_decisions=remaining_decisions,
+        remaining_decisions_sha256=remaining_decisions_sha256,
+        database_preview=database_preview,
+        database_preview_sha256=database_preview_sha256,
+        expected_v1_personas=24,
+        expected_decisions=17,
+        expected_disposition_counts=None,
+    )
+
+
 def render_markdown(result: dict[str, Any]) -> str:
     counts = result["counts"]
     hashes = result["source"]["input_hashes"]
@@ -731,8 +754,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--database-preview", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--report", required=True, type=Path)
-    parser.add_argument("--expected-v1-personas", type=int, default=24)
-    parser.add_argument("--expected-decisions", type=int, default=17)
     args = parser.parse_args(argv)
     v1_bytes, v1 = _load(args.source_personas_v1)
     decision_bytes, decisions = _load(args.remaining_decisions)
@@ -744,8 +765,6 @@ def main(argv: list[str] | None = None) -> int:
         remaining_decisions_sha256=hashlib.sha256(decision_bytes).hexdigest(),
         database_preview=database,
         database_preview_sha256=hashlib.sha256(database_bytes).hexdigest(),
-        expected_v1_personas=args.expected_v1_personas,
-        expected_decisions=args.expected_decisions,
     )
     write_outputs(result, args.output, args.report)
     print(json.dumps({

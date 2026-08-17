@@ -253,7 +253,29 @@ def fixture() -> dict[str, object]:
 
 
 def materialize(values: dict[str, object]) -> dict[str, object]:
-    return subject.materialize_remaining_source_personas(**values)
+    return subject._materialize_remaining_source_personas_for_contract(**values)
+
+
+def test_public_materializer_rejects_weaker_count_contract():
+    values = fixture()
+
+    with pytest.raises(TypeError):
+        subject.materialize_remaining_source_personas(**values)
+
+
+def test_cli_does_not_expose_count_overrides():
+    with pytest.raises(SystemExit) as raised:
+        subject.main([
+            "--source-personas-v1=missing-v1.json",
+            "--remaining-decisions=missing-decisions.json",
+            "--database-preview=missing-database.json",
+            "--output=missing-output.json",
+            "--report=missing-report.md",
+            "--expected-v1-personas=23",
+            "--expected-decisions=17",
+        ])
+
+    assert raised.value.code == 2
 
 
 def test_deep_preserves_v1_and_appends_only_same_existing_person():
@@ -427,7 +449,7 @@ def test_json_and_report_are_byte_identical_across_hash_seeds(tmp_path: Path):
             "from pathlib import Path; "
             "import test_materialize_remaining_source_personas_1939_v50 as t; "
             "import materialize_remaining_source_personas_1939_v50 as m; "
-            "v=t.fixture(); r=m.materialize_remaining_source_personas(**v); "
+            "v=t.fixture(); r=m._materialize_remaining_source_personas_for_contract(**v); "
             "m.write_outputs(r, Path(__import__('sys').argv[1]), Path(__import__('sys').argv[2]))"
         ),
     ]
