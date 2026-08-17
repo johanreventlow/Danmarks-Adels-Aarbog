@@ -466,3 +466,274 @@ testthat::test_that("forbindelsesvagten afviser transaction pooler og manglende 
     port = 5432L, database = "postgres"
   ))
 })
+
+preview_v2_fixture <- function() {
+  value <- preview_fixture()
+  pending <- lapply(seq_len(41L), function(index) {
+    key <- sprintf("new-p%02d", index)
+    text <- sprintf("Persontekst %02d", index)
+    list(
+      new_record_key = key,
+      source_span = list(char_from = index * 100L, char_to = index * 100L + nchar(text)),
+      verbatim_text = text,
+      person_creation = "forbidden",
+      pending_gates = list("source_persona", "identity", "interpretation_provenance")
+    )
+  })
+  value$genuinely_new_pending <- pending
+  value$source_records <- c(
+    value$source_records[c(1L, 3L, 4L)],
+    lapply(pending, function(row) list(
+      new_record_key = row$new_record_key,
+      acceptance_id = paste0("accept-", row$new_record_key),
+      record_kind = "unclassified",
+      disposition = "accepted_genuinely_new_source_record",
+      source_span = row$source_span,
+      verbatim_text = row$verbatim_text,
+      baseline_record_keys = list(),
+      person_creation = "forbidden"
+    ))
+  )
+  value$counts$genuinely_new_pending <- 41L
+  value$counts$source_records <- 44L
+  value
+}
+
+source_persona_v2_fixture <- function() {
+  preview <- preview_v2_fixture()
+  pending <- setNames(preview$genuinely_new_pending,
+    vapply(preview$genuinely_new_pending, function(row) row$new_record_key, character(1L)))
+  personas <- lapply(seq_len(32L), function(index) {
+    source_key <- sprintf("new-p%02d", index)
+    pending_row <- pending[[source_key]]
+    identity <- if (index <= 24L) {
+      list(
+        decision_batch = "batch-v1",
+        decision_batch_sha256 = fixture_sha("4"),
+        candidate_evidence_sha256 = fixture_sha("5"),
+        confirmation = "ja",
+        reviewed_by = "test-reviewer"
+      )
+    } else {
+      value <- list(
+        decision = "same_existing_person",
+        decision_artifact_sha256 = fixture_sha("2"),
+        review_sha256 = fixture_sha("6"),
+        proposal_evidence_sha256 = fixture_sha("7"),
+        reviewed_by = "test-reviewer",
+        decision_basis = "complete_fixture_evidence",
+        reason = "fixture_target_agrees",
+        review_status = "codex_verified"
+      )
+      if (index %in% c(29L, 31L)) {
+        value$competing_target_record_key <- sprintf("competing-%02d", index)
+        value$competing_canonical_person_id <- 1000L + index
+        value$resolution_basis <-
+          "explicit_user_instruction_prefer_later_full_person_over_summary_duplicate"
+      }
+      value
+    }
+    list(
+      source_persona_id = sprintf("%08x-0000-5000-8000-%012d", index, index),
+      persona_key = paste0("1939:", source_key),
+      source_id = 7L,
+      source_record_key = source_key,
+      source_span = pending_row$source_span,
+      verbatim_text = pending_row$verbatim_text,
+      target_record_key = if (index == 1L) "old-a" else sprintf("db-target-%02d", index),
+      canonical_person_id = 100L + index,
+      identity_status = "accepted",
+      identity_decision = identity,
+      database_write_authorized = FALSE
+    )
+  })
+  decision_row <- function(index, decision, owner = NULL) {
+    source_key <- sprintf("new-p%02d", index)
+    pending_row <- pending[[source_key]]
+    row <- list(
+      source_record_key = source_key,
+      source_span = pending_row$source_span,
+      verbatim_sha256 = digest::digest(charToRaw(enc2utf8(pending_row$verbatim_text)),
+        algo = "sha256", serialize = FALSE),
+      decision = decision,
+      reason = "fixture_review",
+      review_status = "codex_verified",
+      review_sha256 = fixture_sha("6"),
+      proposal_evidence_sha256 = fixture_sha("7")
+    )
+    if (!is.null(owner)) row$context_owner_record_key <- owner
+    row
+  }
+  new_candidates <- lapply(33:40, decision_row, decision = "new_person_candidate")
+  structural <- list(decision_row(
+    41L, "structural_or_summary", owner = "new-a"))
+  persona_ids <- lapply(personas, function(row) row$source_persona_id)
+  list(
+    schema_version = "1939-v50-source-persona-materialization-v2",
+    generator_version = "materialize_remaining_source_personas_1939_v50.py:v1",
+    source = list(
+      edition = "1939", logical_source_id = "1939", database_source_id = 7L,
+      input_hashes = list(
+        source_persona_v1_sha256 = fixture_sha("1"),
+        remaining_identity_decisions_sha256 = fixture_sha("2"),
+        database_preview_sha256 = fixture_sha("3")
+      )
+    ),
+    review_only = TRUE,
+    canonical_mutations_authorized = FALSE,
+    database_write_authorized = FALSE,
+    counts = list(
+      v1_source_personas = 24L, appended_source_personas = 8L,
+      source_personas = 32L, same_existing_person = 8L,
+      new_person_candidate = 8L, structural_or_summary = 1L, unresolved = 0L
+    ),
+    source_personas = personas,
+    new_person_candidates = new_candidates,
+    structural_or_summary = structural,
+    unresolved = list(),
+    expected_database_changes = list(
+      source_persona_candidates = persona_ids,
+      source_persona_identity_candidates = persona_ids,
+      canonical_person_creates = list(), canonical_person_updates = list(),
+      canonical_person_deletes = list(), authorized = FALSE
+    ),
+    source_persona_materialization_gate = "GO",
+    database_gate = "NO-GO", reimport_gate = "NO-GO"
+  )
+}
+
+fake_database_v3 <- function(target_person_override = NULL,
+                             expose_private_tables = FALSE) {
+  fake <- fake_database()
+  query <- function(sql, params = list()) {
+    if (grepl("information_schema.columns", sql, fixed = TRUE)) {
+      required <- required_database_columns()
+      if (!expose_private_tables) required <- required[startsWith(names(required), "public.")]
+      return(do.call(rbind, lapply(names(required), function(table) {
+        bits <- strsplit(table, "\\.")[[1L]]
+        data.frame(table_schema = bits[[1L]], table_name = bits[[2L]],
+          column_name = required[[table]])
+      })))
+    }
+    if (grepl("FROM public.person_external_id pei", sql, fixed = TRUE) &&
+        grepl("JOIN public.person p", sql, fixed = TRUE)) {
+      person_ids <- 101:132
+      if (!is.null(target_person_override)) {
+        person_ids[[target_person_override$index]] <- target_person_override$person_id
+      }
+      return(data.frame(
+        person_id = person_ids,
+        record_key = c("old-a", sprintf("db-target-%02d", 2:32)),
+        linje = rep("I", 32L), nr = seq_len(32L), staged = rep(FALSE, 32L),
+        visning_navn = sprintf("Target %02d", seq_len(32L))
+      ))
+    }
+    if (grepl("FROM private.", sql, fixed = TRUE)) {
+      stop("private table query was attempted")
+    }
+    fake$query(sql, params)
+  }
+  list(execute = fake$execute, query = query, calls = fake$calls)
+}
+
+testthat::test_that("v1-input bevarer database-preview v2-kontrakten", {
+  fake <- fake_database()
+  result <- build_database_preview(
+    preview_fixture(), source_persona_fixture(), fixture_sha("e"), fixture_sha("d"),
+    fake$query, fake$execute, expected_database = "postgres",
+    expected_source_edition = "DAA 1939", snapshot_at = "2026-08-17T12:00:00Z"
+  )
+  testthat::expect_identical(result$schema_version, "1939-v50-database-preview-v2")
+  testthat::expect_false("new_person_candidate_count" %in% names(result$source_personas))
+  testthat::expect_false(any(grepl("genuinely_new_person_creation_pending",
+    unlist(result$blockers), fixed = TRUE)))
+})
+
+testthat::test_that("v2-input giver v3 med 32/32 targets og praecise blockers", {
+  fake <- fake_database_v3()
+  result <- build_database_preview(
+    preview_v2_fixture(), source_persona_v2_fixture(), fixture_sha("e"), fixture_sha("d"),
+    fake$query, fake$execute, expected_database = "postgres",
+    expected_source_edition = "DAA 1939", snapshot_at = "2026-08-17T12:00:00Z"
+  )
+
+  testthat::expect_identical(result$schema_version, "1939-v50-database-preview-v3")
+  testthat::expect_identical(result$source_personas$planned_count, 32L)
+  testthat::expect_identical(result$source_personas$target_matched_count, 32L)
+  testthat::expect_identical(result$source_personas$target_mismatch_count, 0L)
+  testthat::expect_identical(result$source_personas$new_person_candidate_count, 8L)
+  testthat::expect_identical(result$source_personas$structural_or_summary_count, 1L)
+  testthat::expect_identical(result$source_personas$unresolved_count, 0L)
+  testthat::expect_identical(result$source_personas$remaining_pending_count, 0L)
+  testthat::expect_length(result$source_personas$competition_resolutions, 2L)
+  blockers <- unlist(result$blockers)
+  testthat::expect_true("genuinely_new_person_creation_pending:8" %in% blockers)
+  testthat::expect_false(any(grepl("genuinely_new_identity_pending", blockers, fixed = TRUE)))
+  testthat::expect_false(any(grepl("structural_or_summary", blockers, fixed = TRUE)))
+  testthat::expect_false(result$canonical_mutations_authorized)
+  testthat::expect_false(result$expected_database_changes$authorized)
+})
+
+testthat::test_that("v2 target mismatch og private-table drift stopper fail-closed", {
+  mismatch <- fake_database_v3(list(index = 32L, person_id = 999L))
+  testthat::expect_error(build_database_preview(
+    preview_v2_fixture(), source_persona_v2_fixture(), fixture_sha("e"), fixture_sha("d"),
+    mismatch$query, mismatch$execute, expected_database = "postgres"
+  ), "DB_PREVIEW_SOURCE_PERSONA_TARGET_MISMATCH")
+  testthat::expect_identical(tail(mismatch$calls(), 1L)[[1L]]$sql, "ROLLBACK")
+
+  private <- fake_database_v3(expose_private_tables = TRUE)
+  testthat::expect_error(build_database_preview(
+    preview_v2_fixture(), source_persona_v2_fixture(), fixture_sha("e"), fixture_sha("d"),
+    private$query, private$execute, expected_database = "postgres"
+  ), "DB_PREVIEW_PRIVATE_TABLE_DRIFT")
+  testthat::expect_false(any(grepl("FROM private.",
+    vapply(private$calls(), function(call) call$sql, character(1L)), fixed = TRUE)))
+})
+
+testthat::test_that("v2 category, lineage, authority og credentials valideres lukket", {
+  mutations <- list(
+    function(value) { value$counts$new_person_candidate <- 7L; value },
+    function(value) { value$source$input_hashes$source_persona_v1_sha256 <- "bad"; value },
+    function(value) {
+      value$source_personas[[32L]]$identity_decision$decision_artifact_sha256 <-
+        fixture_sha("9")
+      value
+    },
+    function(value) { value$database_write_authorized <- TRUE; value },
+    function(value) { value$password <- "must-never-serialize"; value },
+    function(value) { value$schema_version <- "unknown"; value }
+  )
+  for (mutate in mutations) {
+    invalid <- mutate(source_persona_v2_fixture())
+    testthat::expect_error(validate_source_persona_materialization(
+      invalid, preview_v2_fixture(), fixture_sha("d"), fixture_sha("e")),
+      "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  }
+})
+
+testthat::test_that("v3-output serialiserer ingen credentialfelter", {
+  fake <- fake_database_v3()
+  result <- build_database_preview(
+    preview_v2_fixture(), source_persona_v2_fixture(), fixture_sha("e"), fixture_sha("d"),
+    fake$query, fake$execute, expected_database = "postgres",
+    snapshot_at = "2026-08-17T12:00:00Z"
+  )
+  serialized <- jsonlite::toJSON(result, auto_unbox = TRUE, null = "null")
+  testthat::expect_false(grepl(
+    '"(password|host|user|credential|connection_string)"\\s*:', serialized,
+    ignore.case = TRUE, perl = TRUE
+  ))
+})
+
+testthat::test_that("v2-filhash er laast til det godkendte produktionsartefakt", {
+  production_sha <-
+    "450e2dae158573131d19333be3cebefe36bf6a5d269c7ff0059e17c5fcafa97c"
+  testthat::expect_invisible(validate_source_persona_file_hash(
+    "1939-v50-source-persona-materialization-v2", production_sha, production_sha))
+  testthat::expect_error(validate_source_persona_file_hash(
+    "1939-v50-source-persona-materialization-v2", fixture_sha("9"), fixture_sha("9")),
+    "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  testthat::expect_invisible(validate_source_persona_file_hash(
+    "1939-v50-source-persona-materialization-v1", fixture_sha("8"), fixture_sha("8")))
+})

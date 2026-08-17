@@ -31,6 +31,23 @@ scalar_sha256 <- function(value, code = "DB_PREVIEW_SOURCE_PERSONA_INVALID") {
   value
 }
 
+validate_source_persona_file_hash <- function(schema_version, actual_sha256,
+                                                supplied_sha256) {
+  schema_version <- scalar_text(schema_version, "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  actual_sha256 <- scalar_sha256(actual_sha256)
+  supplied_sha256 <- scalar_sha256(supplied_sha256)
+  if (!schema_version %in% c(
+      "1939-v50-source-persona-materialization-v1",
+      "1939-v50-source-persona-materialization-v2") ||
+      !identical(actual_sha256, supplied_sha256) ||
+      identical(schema_version, "1939-v50-source-persona-materialization-v2") &&
+        !identical(actual_sha256,
+          "450e2dae158573131d19333be3cebefe36bf6a5d269c7ff0059e17c5fcafa97c")) {
+    preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  }
+  invisible(TRUE)
+}
+
 scalar_positive_integer <- function(value, code = "DB_PREVIEW_SOURCE_PERSONA_INVALID") {
   if (!is.numeric(value) || length(value) != 1L || is.na(value) ||
       value < 1 || value != floor(value)) preview_stop(code)
@@ -147,9 +164,9 @@ validate_import_preview <- function(preview) {
   invisible(TRUE)
 }
 
-validate_source_persona_materialization <- function(materialization, preview,
-                                                      input_preview_sha256,
-                                                      materialization_sha256) {
+validate_source_persona_materialization_v1 <- function(materialization, preview,
+                                                         input_preview_sha256,
+                                                         materialization_sha256) {
   validate_import_preview(preview)
   input_preview_sha256 <- scalar_sha256(input_preview_sha256)
   materialization_sha256 <- scalar_sha256(materialization_sha256)
@@ -237,6 +254,313 @@ validate_source_persona_materialization <- function(materialization, preview,
   invisible(TRUE)
 }
 
+exact_names <- function(value, expected) {
+  is.list(value) && length(value) == length(expected) &&
+    identical(sort(names(value)), sort(expected))
+}
+
+scalar_nonnegative_integer <- function(value,
+                                       code = "DB_PREVIEW_SOURCE_PERSONA_INVALID") {
+  if (!is.numeric(value) || length(value) != 1L || is.na(value) ||
+      value < 0 || value != floor(value)) preview_stop(code)
+  as.integer(value)
+}
+
+validate_source_span <- function(value,
+                                 code = "DB_PREVIEW_SOURCE_PERSONA_INVALID") {
+  if (!exact_names(value, c("char_from", "char_to"))) preview_stop(code)
+  char_from <- scalar_nonnegative_integer(value$char_from, code)
+  char_to <- scalar_nonnegative_integer(value$char_to, code)
+  if (char_to <= char_from) preview_stop(code)
+  list(char_from = char_from, char_to = char_to)
+}
+
+sha256_text <- function(value) {
+  value <- scalar_text(value, "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  digest::digest(charToRaw(enc2utf8(value)), algo = "sha256", serialize = FALSE)
+}
+
+source_persona_prefix_sha256 <- function(rows) {
+  payload <- jsonlite::toJSON(rows, auto_unbox = TRUE, pretty = TRUE,
+    null = "null", na = "null")
+  digest::digest(charToRaw(enc2utf8(payload)), algo = "sha256", serialize = FALSE)
+}
+
+validate_source_persona_materialization_v2 <- function(materialization, preview,
+                                                         input_preview_sha256,
+                                                         materialization_sha256) {
+  validate_import_preview(preview)
+  input_preview_sha256 <- scalar_sha256(input_preview_sha256)
+  materialization_sha256 <- scalar_sha256(materialization_sha256)
+  top_level_names <- c(
+    "schema_version", "generator_version", "source", "review_only",
+    "canonical_mutations_authorized", "database_write_authorized", "counts",
+    "source_personas", "new_person_candidates", "structural_or_summary",
+    "unresolved", "expected_database_changes",
+    "source_persona_materialization_gate", "database_gate", "reimport_gate"
+  )
+  if (!exact_names(materialization, top_level_names) ||
+      !identical(materialization$schema_version,
+        "1939-v50-source-persona-materialization-v2") ||
+      !identical(materialization$generator_version,
+        "materialize_remaining_source_personas_1939_v50.py:v1") ||
+      !identical(materialization$review_only, TRUE) ||
+      !identical(materialization$source_persona_materialization_gate, "GO") ||
+      !identical(materialization$database_gate, "NO-GO") ||
+      !identical(materialization$reimport_gate, "NO-GO")) {
+    preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  }
+  scalar_false(materialization$canonical_mutations_authorized,
+    "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  scalar_false(materialization$database_write_authorized,
+    "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+
+  source <- materialization$source
+  if (!exact_names(source,
+      c("edition", "logical_source_id", "database_source_id", "input_hashes")) ||
+      !identical(source$edition, "1939") ||
+      !identical(source$logical_source_id, preview$source$source_id)) {
+    preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  }
+  database_source_id <- scalar_positive_integer(source$database_source_id)
+  hashes <- source$input_hashes
+  if (!exact_names(hashes, c("source_persona_v1_sha256",
+      "remaining_identity_decisions_sha256", "database_preview_sha256"))) {
+    preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  }
+  v1_sha256 <- scalar_sha256(hashes$source_persona_v1_sha256)
+  decisions_sha256 <- scalar_sha256(hashes$remaining_identity_decisions_sha256)
+  database_preview_sha256 <- scalar_sha256(hashes$database_preview_sha256)
+  production_v1_sha256 <-
+    "07756ef4faf17561cf84095c5abe47919064d72ceecd3e1d9f725281ab0b172d"
+  if (identical(v1_sha256, production_v1_sha256) &&
+      (!identical(decisions_sha256,
+          "a86b508205ca413f1c7f4af2f747b320f9f77bde7fb686dc10cf343b16565ebe") ||
+       !identical(database_preview_sha256,
+          "a00efd43a34358f95f4b0df40695f4abd3b279066bee196e3cbdbd1b87b9e97c") ||
+       !identical(input_preview_sha256,
+          "04f2780b4fc3f63263324cbb5133e07d1eed70018f7ea11212597a26cc196ca5") ||
+       !identical(materialization_sha256,
+          "450e2dae158573131d19333be3cebefe36bf6a5d269c7ff0059e17c5fcafa97c"))) {
+    preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  }
+
+  counts <- materialization$counts
+  expected_counts <- list(
+    v1_source_personas = 24L, appended_source_personas = 8L,
+    source_personas = 32L, same_existing_person = 8L,
+    new_person_candidate = 8L, structural_or_summary = 1L, unresolved = 0L
+  )
+  if (!exact_names(counts, names(expected_counts))) {
+    preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  }
+  observed_counts <- lapply(names(expected_counts), function(name) {
+    scalar_nonnegative_integer(counts[[name]])
+  })
+  names(observed_counts) <- names(expected_counts)
+  if (!identical(observed_counts, expected_counts) ||
+      !is.list(materialization$source_personas) ||
+      length(materialization$source_personas) != 32L ||
+      !is.list(materialization$new_person_candidates) ||
+      length(materialization$new_person_candidates) != 8L ||
+      !is.list(materialization$structural_or_summary) ||
+      length(materialization$structural_or_summary) != 1L ||
+      !is.list(materialization$unresolved) ||
+      length(materialization$unresolved) != 0L) {
+    preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  }
+
+  pending_by_key <- list()
+  for (row in preview$genuinely_new_pending) {
+    if (!is.list(row)) preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+    key <- scalar_text(row$new_record_key, "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+    if (!is.null(pending_by_key[[key]])) preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+    pending_by_key[[key]] <- row
+  }
+  if (length(pending_by_key) != 41L) preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+
+  persona_row_names <- c(
+    "source_persona_id", "persona_key", "source_id", "source_record_key",
+    "source_span", "verbatim_text", "target_record_key", "canonical_person_id",
+    "identity_status", "identity_decision", "database_write_authorized"
+  )
+  v1_identity_names <- c(
+    "decision_batch", "decision_batch_sha256", "candidate_evidence_sha256",
+    "confirmation", "reviewed_by"
+  )
+  appended_identity_names <- c(
+    "decision", "decision_artifact_sha256", "review_sha256",
+    "proposal_evidence_sha256", "reviewed_by", "decision_basis", "reason",
+    "review_status"
+  )
+  competition_names <- c(
+    "competing_target_record_key", "competing_canonical_person_id",
+    "resolution_basis"
+  )
+  persona_ids <- character()
+  persona_keys <- character()
+  source_keys <- character()
+  target_keys <- character()
+  canonical_ids <- integer()
+  competition_count <- 0L
+  for (index in seq_along(materialization$source_personas)) {
+    row <- materialization$source_personas[[index]]
+    if (!exact_names(row, persona_row_names)) {
+      preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+    }
+    source_key <- scalar_text(row$source_record_key,
+      "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+    pending <- pending_by_key[[source_key]]
+    span <- validate_source_span(row$source_span)
+    verbatim <- scalar_text(row$verbatim_text, "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+    if (is.null(pending) || !identical(span, pending$source_span) ||
+        !identical(verbatim, pending$verbatim_text) ||
+        span$char_to - span$char_from != nchar(verbatim, type = "chars") ||
+        scalar_positive_integer(row$source_id) != database_source_id ||
+        !identical(row$persona_key, paste0(source$logical_source_id, ":", source_key)) ||
+        !identical(row$identity_status, "accepted") ||
+        !identical(row$database_write_authorized, FALSE)) {
+      preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+    }
+    persona_ids <- c(persona_ids, scalar_uuid_v5(row$source_persona_id))
+    persona_keys <- c(persona_keys, row$persona_key)
+    source_keys <- c(source_keys, source_key)
+    target_keys <- c(target_keys,
+      scalar_text(row$target_record_key, "DB_PREVIEW_SOURCE_PERSONA_INVALID"))
+    canonical_ids <- c(canonical_ids,
+      scalar_positive_integer(row$canonical_person_id))
+    identity <- row$identity_decision
+    if (index <= 24L) {
+      if (!exact_names(identity, v1_identity_names)) {
+        preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+      }
+      scalar_text(identity$decision_batch, "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+      scalar_sha256(identity$decision_batch_sha256)
+      scalar_sha256(identity$candidate_evidence_sha256)
+      scalar_text(identity$confirmation, "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+      scalar_text(identity$reviewed_by, "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+    } else {
+      present_competition <- intersect(names(identity), competition_names)
+      expected_identity_names <- appended_identity_names
+      if (length(present_competition)) {
+        if (!setequal(present_competition, competition_names)) {
+          preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+        }
+        expected_identity_names <- c(expected_identity_names, competition_names)
+        competition_count <- competition_count + 1L
+        competing_target <- scalar_text(identity$competing_target_record_key,
+          "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+        competing_person <- scalar_positive_integer(identity$competing_canonical_person_id)
+        if (identical(competing_target, row$target_record_key) ||
+            identical(competing_person, as.integer(row$canonical_person_id)) ||
+            !identical(identity$resolution_basis,
+              "explicit_user_instruction_prefer_later_full_person_over_summary_duplicate")) {
+          preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+        }
+      }
+      if (!exact_names(identity, expected_identity_names) ||
+          !identical(identity$decision, "same_existing_person") ||
+          !identical(identity$decision_artifact_sha256, decisions_sha256)) {
+        preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+      }
+      scalar_sha256(identity$review_sha256)
+      scalar_sha256(identity$proposal_evidence_sha256)
+      for (field in c("reviewed_by", "decision_basis", "reason", "review_status")) {
+        scalar_text(identity[[field]], "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+      }
+    }
+  }
+  if (anyDuplicated(persona_ids) || anyDuplicated(persona_keys) ||
+      anyDuplicated(source_keys) || anyDuplicated(target_keys) ||
+      anyDuplicated(canonical_ids) || competition_count != 2L) {
+    preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  }
+  if (identical(v1_sha256, production_v1_sha256) &&
+      !identical(source_persona_prefix_sha256(materialization$source_personas[seq_len(24L)]),
+        "7f4b6b625b6e3589c14b8bdd35887e4e4f28b2156966199b48d40e23188ae827")) {
+    preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  }
+
+  decision_common_names <- c(
+    "source_record_key", "source_span", "verbatim_sha256", "decision", "reason",
+    "review_status", "review_sha256", "proposal_evidence_sha256"
+  )
+  disposition_keys <- character()
+  validate_disposition <- function(row, decision, structural = FALSE) {
+    expected_names <- decision_common_names
+    if (structural) expected_names <- c(expected_names, "context_owner_record_key")
+    if (!exact_names(row, expected_names) || !identical(row$decision, decision)) {
+      preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+    }
+    key <- scalar_text(row$source_record_key, "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+    pending <- pending_by_key[[key]]
+    if (is.null(pending) || !identical(validate_source_span(row$source_span),
+        pending$source_span) || !identical(scalar_sha256(row$verbatim_sha256),
+        sha256_text(pending$verbatim_text))) {
+      preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+    }
+    scalar_text(row$reason, "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+    scalar_text(row$review_status, "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+    scalar_sha256(row$review_sha256)
+    scalar_sha256(row$proposal_evidence_sha256)
+    if (structural) {
+      owner <- scalar_text(row$context_owner_record_key,
+        "DB_PREVIEW_SOURCE_PERSONA_INVALID")
+      preview_source_keys <- vapply(preview$source_records,
+        function(value) scalar_text(value$new_record_key,
+          "DB_PREVIEW_SOURCE_PERSONA_INVALID"), character(1L))
+      if (!owner %in% preview_source_keys) preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+    }
+    key
+  }
+  for (row in materialization$new_person_candidates) {
+    disposition_keys <- c(disposition_keys,
+      validate_disposition(row, "new_person_candidate"))
+  }
+  for (row in materialization$structural_or_summary) {
+    disposition_keys <- c(disposition_keys,
+      validate_disposition(row, "structural_or_summary", structural = TRUE))
+  }
+  for (row in materialization$unresolved) {
+    disposition_keys <- c(disposition_keys, validate_disposition(row, "unresolved"))
+  }
+  if (anyDuplicated(disposition_keys) || length(intersect(source_keys, disposition_keys)) ||
+      !setequal(c(source_keys, disposition_keys), names(pending_by_key))) {
+    preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  }
+
+  changes <- materialization$expected_database_changes
+  if (!exact_names(changes, c(
+      "source_persona_candidates", "source_persona_identity_candidates",
+      "canonical_person_creates", "canonical_person_updates",
+      "canonical_person_deletes", "authorized")) ||
+      !identical(changes$source_persona_candidates, as_character_list(persona_ids)) ||
+      !identical(changes$source_persona_identity_candidates, as_character_list(persona_ids)) ||
+      !identical(changes$canonical_person_creates, list()) ||
+      !identical(changes$canonical_person_updates, list()) ||
+      !identical(changes$canonical_person_deletes, list()) ||
+      !identical(changes$authorized, FALSE)) {
+    preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+  }
+  invisible(TRUE)
+}
+
+validate_source_persona_materialization <- function(materialization, preview,
+                                                      input_preview_sha256,
+                                                      materialization_sha256) {
+  if (is.list(materialization) && identical(materialization$schema_version,
+      "1939-v50-source-persona-materialization-v1")) {
+    return(validate_source_persona_materialization_v1(materialization, preview,
+      input_preview_sha256, materialization_sha256))
+  }
+  if (is.list(materialization) && identical(materialization$schema_version,
+      "1939-v50-source-persona-materialization-v2")) {
+    return(validate_source_persona_materialization_v2(materialization, preview,
+      input_preview_sha256, materialization_sha256))
+  }
+  preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
+}
+
 safe_sum <- function(values) {
   if (!length(values)) return(0L)
   as.integer(sum(as.integer(values), na.rm = TRUE))
@@ -276,6 +600,8 @@ build_database_preview <- function(preview, source_persona_materialization,
   validate_import_preview(preview)
   validate_source_persona_materialization(source_persona_materialization, preview,
     input_preview_sha256, source_persona_materialization_sha256)
+  is_v3 <- identical(source_persona_materialization$schema_version,
+    "1939-v50-source-persona-materialization-v2")
   expected_database <- scalar_text(expected_database, "DB_PREVIEW_DATABASE_MISMATCH")
   expected_source_edition <- scalar_text(expected_source_edition, "DB_PREVIEW_SOURCE_MISMATCH")
   if (!is.function(query_fn) || !is.function(execute_fn)) preview_stop("DB_PREVIEW_INPUT_INVALID")
@@ -332,6 +658,9 @@ build_database_preview <- function(preview, source_persona_materialization,
   private_source_persona_available <-
     !any(startsWith(missing, "private.source_persona.")) &&
     !any(startsWith(missing, "private.source_persona_identity."))
+  if (is_v3 && (private_source_record_available || private_source_persona_available)) {
+    preview_stop("DB_PREVIEW_PRIVATE_TABLE_DRIFT")
+  }
 
   source <- query(
     "SELECT id, udgave, import_key FROM public.source WHERE udgave = $1 ORDER BY id",
@@ -539,6 +868,9 @@ build_database_preview <- function(preview, source_persona_materialization,
       }
     }
   }
+  if (is_v3 && length(target_mismatches)) {
+    preview_stop("DB_PREVIEW_SOURCE_PERSONA_TARGET_MISMATCH")
+  }
   persona_database_only <- if (private_source_persona_available) {
     sort(setdiff(unique(database_persona_keys), planned_persona_keys))
   } else NULL
@@ -583,6 +915,30 @@ build_database_preview <- function(preview, source_persona_materialization,
   fact_counts <- preview$counts$facts
   marriage_counts <- preview$counts$marriages
   relationship_counts <- preview$counts$relationships
+  new_person_candidate_count <- if (is_v3) {
+    length(source_persona_materialization$new_person_candidates)
+  } else 0L
+  structural_or_summary_count <- if (is_v3) {
+    length(source_persona_materialization$structural_or_summary)
+  } else 0L
+  unresolved_count <- if (is_v3) {
+    length(source_persona_materialization$unresolved)
+  } else length(source_persona_materialization$remaining_genuinely_new_pending)
+  competition_resolutions <- if (is_v3) {
+    Filter(Negate(is.null), lapply(planned_personas, function(row) {
+      identity <- row$identity_decision
+      if (is.null(identity$competing_target_record_key)) return(NULL)
+      list(
+        source_record_key = row$source_record_key,
+        selected_target_record_key = row$target_record_key,
+        selected_canonical_person_id = as.integer(row$canonical_person_id),
+        competing_target_record_key = identity$competing_target_record_key,
+        competing_canonical_person_id = as.integer(identity$competing_canonical_person_id),
+        resolution_basis = identity$resolution_basis,
+        authorized = FALSE
+      )
+    }))
+  } else list()
   blockers <- c(
     if (!private_source_record_available) "database_capability_blocker:private.source_record" else character(),
     if (!private_source_persona_available) "database_capability_blocker:private.source_persona" else character(),
@@ -594,7 +950,12 @@ build_database_preview <- function(preview, source_persona_materialization,
       "source_persona_collision:", row$source_record_key), character(1L)),
     vapply(narrative_collisions, function(row) paste0("narrative_collision:", row$baseline_record_key), character(1L)),
     if (length(database_only)) paste0("unmapped_existing_1939_person_records:", length(database_only)) else character(),
-    if (length(source_persona_materialization$remaining_genuinely_new_pending))
+    if (is_v3 && unresolved_count > 0L)
+      paste0("genuinely_new_identity_pending:", unresolved_count) else character(),
+    if (is_v3 && new_person_candidate_count > 0L)
+      paste0("genuinely_new_person_creation_pending:",
+        new_person_candidate_count) else character(),
+    if (!is_v3 && length(source_persona_materialization$remaining_genuinely_new_pending))
       paste0("genuinely_new_identity_pending:",
         length(source_persona_materialization$remaining_genuinely_new_pending)) else character(),
     if (safe_sum(fact_counts$missing_provenance) + safe_sum(fact_counts$nonliteral_provenance))
@@ -607,7 +968,8 @@ build_database_preview <- function(preview, source_persona_materialization,
   )
 
   list(
-    schema_version = "1939-v50-database-preview-v2",
+    schema_version = if (is_v3) "1939-v50-database-preview-v3" else
+      "1939-v50-database-preview-v2",
     snapshot_at = scalar_text(snapshot_at, "DB_PREVIEW_INPUT_INVALID"),
     input_preview = list(
       schema_version = preview$schema_version,
@@ -646,11 +1008,10 @@ build_database_preview <- function(preview, source_persona_materialization,
       insert_record_keys = if (private_source_record_available) as_character_list(source_inserts) else NULL,
       database_only_record_keys = if (private_source_record_available) as_character_list(source_database_only) else NULL
     ),
-    source_personas = list(
+    source_personas = c(list(
       comparison_available = private_source_persona_available,
       planned_count = length(planned_personas),
-      remaining_pending_count = length(
-        source_persona_materialization$remaining_genuinely_new_pending),
+      remaining_pending_count = unresolved_count,
       existing_count = if (private_source_persona_available) length(persona_existing) else NULL,
       insert_count = if (private_source_persona_available) length(persona_inserts) else NULL,
       collision_count = if (private_source_persona_available) length(persona_collisions) else NULL,
@@ -660,7 +1021,14 @@ build_database_preview <- function(preview, source_persona_materialization,
       target_mismatches = target_mismatches,
       database_only_persona_keys = if (private_source_persona_available)
         as_character_list(persona_database_only) else NULL
-    ),
+    ), if (is_v3) list(
+      target_matched_count = length(planned_personas) - length(target_mismatches),
+      target_mismatch_count = length(target_mismatches),
+      new_person_candidate_count = new_person_candidate_count,
+      structural_or_summary_count = structural_or_summary_count,
+      unresolved_count = unresolved_count,
+      competition_resolutions = competition_resolutions
+    ) else list()),
     narratives = list(
       insert_count = length(narrative_inserts), update_count = length(narrative_updates),
       unchanged_count = length(narrative_unchanged), collision_count = length(narrative_collisions),
@@ -714,6 +1082,7 @@ build_database_preview <- function(preview, source_persona_materialization,
 }
 
 render_database_preview_markdown <- function(preview) {
+  is_v3 <- identical(preview$schema_version, "1939-v50-database-preview-v3")
   source_record_lines <- if (isTRUE(preview$source_records$comparison_available)) {
     c(
       sprintf("- eksisterende source records: %d", preview$source_records$existing_count),
@@ -738,6 +1107,18 @@ render_database_preview_markdown <- function(preview) {
       sprintf("- resterende uafklarede identiteter: %d",
         preview$source_personas$remaining_pending_count)
     )
+  }
+  if (is_v3) {
+    source_persona_lines <- c(source_persona_lines,
+      sprintf("- friske target-matches / mismatches: %d/%d",
+        preview$source_personas$target_matched_count,
+        preview$source_personas$target_mismatch_count),
+      sprintf("- nye personkandidater / strukturelle / uafklarede: %d/%d/%d",
+        preview$source_personas$new_person_candidate_count,
+        preview$source_personas$structural_or_summary_count,
+        preview$source_personas$unresolved_count),
+      sprintf("- eksplicitte konkurrenceløsninger (kun provenance): %d",
+        length(preview$source_personas$competition_resolutions)))
   }
   lines <- c(
     "# DAA 1939 v50 database-preview",

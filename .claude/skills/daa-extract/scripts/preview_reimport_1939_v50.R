@@ -51,10 +51,8 @@ preview <- jsonlite::fromJSON(args$input, simplifyVector = FALSE)
 source_personas <- jsonlite::fromJSON(args[["source-personas"]], simplifyVector = FALSE)
 input_preview_sha256 <- sha256_file(args$input)
 source_personas_sha256 <- sha256_file(args[["source-personas"]])
-if (!identical(source_personas_sha256,
-    scalar_sha256(args[["source-personas-sha256"]]))) {
-  preview_stop("DB_PREVIEW_SOURCE_PERSONA_INVALID")
-}
+validate_source_persona_file_hash(source_personas$schema_version,
+  source_personas_sha256, args[["source-personas-sha256"]])
 validate_import_preview(preview)
 validate_source_persona_materialization(source_personas, preview,
   input_preview_sha256, source_personas_sha256)
@@ -84,6 +82,7 @@ connection <- NULL
 
 write_database_preview_outputs(database_preview, args$output, args$report)
 cat(jsonlite::toJSON(list(
+  schema_version = database_preview$schema_version,
   output = args$output,
   report = args$report,
   dry_run_gate = database_preview$dry_run_gate,
@@ -95,7 +94,18 @@ cat(jsonlite::toJSON(list(
   ),
   expected_source_record_inserts = database_preview$source_records$insert_count,
   planned_source_personas = database_preview$source_personas$planned_count,
+  matched_source_persona_targets =
+    database_preview$source_personas$target_matched_count %||%
+      database_preview$source_personas$planned_count -
+      length(database_preview$source_personas$target_mismatches),
+  mismatched_source_persona_targets =
+    database_preview$source_personas$target_mismatch_count %||%
+      length(database_preview$source_personas$target_mismatches),
   remaining_identity_pending = database_preview$source_personas$remaining_pending_count,
+  new_person_creation_pending =
+    database_preview$source_personas$new_person_candidate_count %||% 0L,
+  structural_or_summary =
+    database_preview$source_personas$structural_or_summary_count %||% 0L,
   canonical_mutations_authorized = FALSE
 ), auto_unbox = TRUE, null = "null"))
 cat("\n")
