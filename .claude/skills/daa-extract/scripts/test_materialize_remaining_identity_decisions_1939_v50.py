@@ -25,6 +25,11 @@ def digest(value: object) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def artifact_digest(value: object) -> str:
+    payload = (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def evidence_digest(review_sha256: str, row: dict[str, object]) -> str:
     payload = {"review_sha256": review_sha256, **row}
     return digest(payload)
@@ -104,8 +109,8 @@ def fixture() -> dict[str, object]:
         "dry_run_gate": "NO-GO",
         "reimport_gate": "NO-GO",
     }
-    import_sha = digest(import_preview)
-    database_sha = digest(database_preview)
+    import_sha = artifact_digest(import_preview)
+    database_sha = artifact_digest(database_preview)
     input_hashes = {
         "boundary_materialization_sha256": "1" * 64,
         "calamari_sha256": "2" * 64,
@@ -161,7 +166,7 @@ def fixture() -> dict[str, object]:
         "database_gate": "NO-GO",
         "reimport_gate": "NO-GO",
     }
-    review_sha = digest(review)
+    review_sha = artifact_digest(review)
     rows = [
         {
             "source_record_key": "new-a",
@@ -234,6 +239,231 @@ def fixture() -> dict[str, object]:
         "database_preview": database_preview,
         "database_preview_sha256": database_sha,
         "expected_decisions": 4,
+        "expected_competitions": {
+            "new-a": {
+                "target_record_key": "old-a",
+                "canonical_person_id": 101,
+                "competing_target_record_key": "old-other",
+                "competing_canonical_person_id": 102,
+            },
+        },
+    }
+
+
+def production_fixture() -> dict[str, object]:
+    competition_rows = [
+        (
+            "record-7f274857-98d6-4ef8-a186-c71c26d6ccd0",
+            "85e9fb68-f2cb-41ed-a6bc-ab45e00915ca",
+            1040,
+            "13a42804-65f5-4b78-8e1a-34463ac2a141",
+            1013,
+        ),
+        (
+            "record-a86ed385-5a8e-466b-aa60-e6fdfc539277",
+            "fd1c45fe-1283-499e-8a86-ab5164a391ae",
+            1121,
+            "d636eaa4-1b00-485b-a639-f09ef2437c35",
+            963,
+        ),
+    ]
+    ordinary_same = [(f"same-{index}", f"old-{index}", 2000 + index)
+                     for index in range(2, 8)]
+    same_rows = [
+        (source_key, target_key, person_id)
+        for source_key, target_key, person_id, _, _ in competition_rows
+    ] + ordinary_same
+    new_keys = [f"new-{index}" for index in range(8, 16)]
+    structural_key = "structural-16"
+    owner_key = "owner-structural"
+    subject_keys = [source_key for source_key, _, _ in same_rows] + new_keys + [structural_key]
+
+    import_preview = {
+        "schema_version": "1939-v50-import-preview-v1",
+        "generator_version": "fixture:v1",
+        "source": {"edition": "1939", "input_hashes": {}},
+        "counts": {"source_records": 18},
+        "source_records": [
+            source_row(key, 10 + index * 20, f"Text {index:02d}")
+            for index, key in enumerate(subject_keys)
+        ] + [source_row(owner_key, 400, "Owner structural")],
+        "genuinely_new_pending": [],
+        "mapped_existing": [],
+        "retired_legacy": [],
+        "source_only_records": [],
+        "expected_database_changes": {},
+        "reimport_blockers": ["review_pending"],
+        "canonical_mutations_authorized": False,
+        "preview_gate": "GO",
+        "reimport_gate": "NO-GO",
+    }
+    matched = [
+        {"baseline_record_key": target_key, "person_id": person_id}
+        for _, target_key, person_id in same_rows
+    ]
+    database_only = [{
+        "record_key": competing_key,
+        "person_id": competing_person,
+        "visning_navn": f"Competitor {index}",
+        "staged": False,
+        "source_narrative_count": 1,
+        "fact_count": 1,
+        "family_member_count": 0,
+    } for index, (_, _, _, competing_key, competing_person) in enumerate(competition_rows)]
+    database_preview = {
+        "schema_version": "1939-v50-database-preview-v1",
+        "source": {},
+        "snapshot_at": "2026-08-17T00:00:00Z",
+        "input_preview": {"schema_version": "1939-v50-import-preview-v1"},
+        "database": {"transaction_read_only": "on"},
+        "capabilities": {},
+        "person_anchors": {
+            "matched": matched,
+            "matched_count": len(matched),
+            "database_only": database_only,
+            "database_only_record_keys": [row["record_key"] for row in database_only],
+            "missing_count": 0,
+            "missing_record_keys": [],
+            "collision_count": 0,
+            "collisions": [],
+            "retired_present": [],
+            "retired_present_count": 0,
+            "retired_present_record_keys": [],
+        },
+        "source_records": {},
+        "narratives": {},
+        "facts": {},
+        "relations": {},
+        "expected_database_changes": {},
+        "blockers": ["review_pending"],
+        "canonical_mutations_authorized": False,
+        "dry_run_gate": "NO-GO",
+        "reimport_gate": "NO-GO",
+    }
+    import_sha = artifact_digest(import_preview)
+    database_sha = artifact_digest(database_preview)
+    subjects = []
+    for index, key in enumerate(subject_keys):
+        text = f"Text {index:02d}"
+        start = 10 + index * 20
+        subjects.append({
+            "new_record_key": key,
+            "source_span": {"char_from": start, "char_to": start + len(text)},
+            "verbatim_text": text,
+            "previous_record": None,
+            "next_record": None,
+            "page_evidence": {"page_from": 503, "page_to": 503},
+            "later_occurrences": [],
+            "candidates": [],
+            "presentation_candidates": [],
+            "review_state": "pending",
+        })
+    review = {
+        "schema_version": "1939-v50-remaining-identity-review-v1",
+        "generator_version": "fixture:v1",
+        "input_hashes": {
+            "boundary_materialization_sha256": "1" * 64,
+            "calamari_sha256": "2" * 64,
+            "clean_sha256": "3" * 64,
+            "database_only_profiles_sha256": "4" * 64,
+            "database_preview_sha256": database_sha,
+            "import_preview_sha256": import_sha,
+            "source_persona_sha256": "5" * 64,
+        },
+        "review_only": True,
+        "review_state": "pending",
+        "canonical_mutations_authorized": False,
+        "database_write_authorized": False,
+        "counts": {
+            "subjects": 17,
+            "mapped_profiles": 8,
+            "database_only_profiles": 2,
+            "profiles": 10,
+            "candidate_links": 0,
+            "presentation_only": 0,
+        },
+        "subjects": subjects,
+        "review_gate": "GO",
+        "identity_decision_gate": "NO-GO",
+        "database_gate": "NO-GO",
+        "reimport_gate": "NO-GO",
+    }
+    review_sha = artifact_digest(review)
+    rows = []
+    for index, (source_key, target_key, person_id) in enumerate(same_rows):
+        text = f"Text {index:02d}"
+        start = 10 + index * 20
+        row = {
+            "source_record_key": source_key,
+            "source_span": {"char_from": start, "char_to": start + len(text)},
+            "verbatim_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            "decision": "same_existing_person",
+            "target_record_key": target_key,
+            "canonical_person_id": person_id,
+            "reason": "same_anchor",
+            "review_status": "codex_verified",
+        }
+        if index < 2:
+            row.update({
+                "competing_target_record_key": competition_rows[index][3],
+                "competing_canonical_person_id": competition_rows[index][4],
+                "resolution_basis": EXPLICIT_USER_BASIS,
+                "reason": "user_directed_prefer_later_full_person_over_summary_duplicate",
+            })
+        rows.append(row)
+    for index, key in enumerate(new_keys, 8):
+        text = f"Text {index:02d}"
+        start = 10 + index * 20
+        rows.append({
+            "source_record_key": key,
+            "source_span": {"char_from": start, "char_to": start + len(text)},
+            "verbatim_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            "decision": "new_person_candidate",
+            "reason": "distinct_person",
+            "review_status": "codex_verified",
+        })
+    text = "Text 16"
+    rows.append({
+        "source_record_key": structural_key,
+        "source_span": {"char_from": 330, "char_to": 330 + len(text)},
+        "verbatim_sha256": hashlib.sha256(text.encode()).hexdigest(),
+        "decision": "structural_or_summary",
+        "context_owner_record_key": owner_key,
+        "reason": "structural_owner",
+        "review_status": "codex_verified",
+    })
+    for row in rows:
+        row["evidence_sha256"] = evidence_digest(review_sha, row)
+    proposal = {
+        "schema_version": "1939-v50-remaining-identity-proposals-v1",
+        "review_sha256": review_sha,
+        "reviewed_by": "codex_verified",
+        "decision_basis": "complete_review",
+        "review_only": True,
+        "review_state": "complete",
+        "canonical_mutations_authorized": False,
+        "database_write_authorized": False,
+        "counts": {
+            "decisions": 17,
+            "same_existing_person": 8,
+            "new_person_candidate": 8,
+            "structural_or_summary": 1,
+            "unresolved": 0,
+        },
+        "proposals": rows,
+        "proposal_gate": "GO",
+        "identity_decision_gate": "NO-GO",
+        "reimport_gate": "NO-GO",
+    }
+    return {
+        "review": review,
+        "proposal": proposal,
+        "review_sha256": review_sha,
+        "import_preview": import_preview,
+        "import_preview_sha256": import_sha,
+        "database_preview": database_preview,
+        "database_preview_sha256": database_sha,
+        "expected_decisions": 17,
     }
 
 
@@ -407,6 +637,69 @@ def test_rejects_altered_evidence_hash():
     with pytest.raises(
         subject.RemainingIdentityDecisionError,
         match="^REMAINING_DECISION_EVIDENCE_INVALID$",
+    ):
+        materialize(values)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "code"),
+    [
+        (
+            lambda v: v["review"]["subjects"][0].update(
+                page_evidence={"page_from": 504, "page_to": 504}),
+            "REMAINING_DECISION_REVIEW_HASH_INVALID",
+        ),
+        (
+            lambda v: v["import_preview"]["source_records"][0].update(
+                acceptance_id="changed-but-valid"),
+            "REMAINING_DECISION_PREVIEW_HASH_INVALID",
+        ),
+        (
+            lambda v: v["database_preview"]["capabilities"].update(
+                read_only_probe="changed-but-valid"),
+            "REMAINING_DECISION_PREVIEW_HASH_INVALID",
+        ),
+    ],
+)
+def test_rejects_valid_schema_artifact_content_drift_with_retained_hashes(mutation, code):
+    values = fixture()
+    mutation(values)
+
+    with pytest.raises(subject.RemainingIdentityDecisionError, match=f"^{code}$"):
+        materialize(values)
+
+
+def test_production_contract_rejects_removed_competition_even_with_changed_reason_and_evidence():
+    values = production_fixture()
+    row = values["proposal"]["proposals"][0]
+    del row["competing_target_record_key"]
+    del row["competing_canonical_person_id"]
+    del row["resolution_basis"]
+    row["reason"] = "attacker_changed_reason"
+    refresh_evidence(values, 0)
+
+    with pytest.raises(
+        subject.RemainingIdentityDecisionError,
+        match="^REMAINING_DECISION_COMPETITION_INVALID$",
+    ):
+        materialize(values)
+
+
+def test_production_contract_rejects_reclassification_with_rehashed_row_and_counts():
+    values = production_fixture()
+    row = values["proposal"]["proposals"][8]
+    row["decision"] = "unresolved"
+    row["reason"] = "attacker_reclassified"
+    row["review_status"] = "pending_user"
+    refresh_evidence(values, 8)
+    values["proposal"]["counts"].update(
+        new_person_candidate=7,
+        unresolved=1,
+    )
+
+    with pytest.raises(
+        subject.RemainingIdentityDecisionError,
+        match="^REMAINING_DECISION_COUNT_INVALID$",
     ):
         materialize(values)
 

@@ -14,7 +14,6 @@ SCHEMA_VERSION = "1939-v50-remaining-identity-decisions-v1"
 EXPLICIT_USER_BASIS = (
     "explicit_user_instruction_prefer_later_full_person_over_summary_duplicate"
 )
-EXPLICIT_USER_REASON = "user_directed_prefer_later_full_person_over_summary_duplicate"
 HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 DECISION_ORDER = (
     "same_existing_person",
@@ -23,6 +22,28 @@ DECISION_ORDER = (
     "unresolved",
 )
 DECISIONS = frozenset(DECISION_ORDER)
+PRODUCTION_DECISION_COUNTS = {
+    "same_existing_person": 8,
+    "new_person_candidate": 8,
+    "structural_or_summary": 1,
+    "unresolved": 0,
+}
+PRODUCTION_COMPETITIONS = (
+    (
+        "record-7f274857-98d6-4ef8-a186-c71c26d6ccd0",
+        "85e9fb68-f2cb-41ed-a6bc-ab45e00915ca",
+        1040,
+        "13a42804-65f5-4b78-8e1a-34463ac2a141",
+        1013,
+    ),
+    (
+        "record-a86ed385-5a8e-466b-aa60-e6fdfc539277",
+        "fd1c45fe-1283-499e-8a86-ab5164a391ae",
+        1121,
+        "d636eaa4-1b00-485b-a639-f09ef2437c35",
+        963,
+    ),
+)
 
 
 class RemainingIdentityDecisionError(ValueError):
@@ -63,6 +84,43 @@ def _canonical_digest(value: Any) -> str:
         value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def _artifact_digest(value: Any) -> str:
+    payload = (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _competition_contract(
+        expected_decisions: int,
+        expected_competitions: dict[str, dict[str, Any]] | None,
+) -> dict[str, tuple[str, int, str, int]]:
+    if expected_decisions == 17:
+        if expected_competitions is not None:
+            _fail("REMAINING_DECISION_COMPETITION_INVALID")
+        return {
+            source_key: (target_key, person_id, competing_key, competing_person_id)
+            for source_key, target_key, person_id, competing_key, competing_person_id
+            in PRODUCTION_COMPETITIONS
+        }
+    if not isinstance(expected_competitions, dict):
+        _fail("REMAINING_DECISION_COMPETITION_INVALID")
+    expected_value_keys = {
+        "target_record_key", "canonical_person_id", "competing_target_record_key",
+        "competing_canonical_person_id",
+    }
+    contract: dict[str, tuple[str, int, str, int]] = {}
+    for source_key, value in expected_competitions.items():
+        source_key = _text(source_key, "REMAINING_DECISION_COMPETITION_INVALID")
+        if not isinstance(value, dict) or set(value) != expected_value_keys:
+            _fail("REMAINING_DECISION_COMPETITION_INVALID")
+        contract[source_key] = (
+            _text(value.get("target_record_key"), "REMAINING_DECISION_COMPETITION_INVALID"),
+            _positive_int(value.get("canonical_person_id"), "REMAINING_DECISION_COMPETITION_INVALID"),
+            _text(value.get("competing_target_record_key"), "REMAINING_DECISION_COMPETITION_INVALID"),
+            _positive_int(value.get("competing_canonical_person_id"), "REMAINING_DECISION_COMPETITION_INVALID"),
+        )
+    return contract
 
 
 def _span(value: Any, code: str) -> dict[str, int]:
@@ -317,18 +375,28 @@ def materialize_remaining_decisions(
     import_preview: dict[str, Any], import_preview_sha256: str,
     database_preview: dict[str, Any], database_preview_sha256: str,
     expected_decisions: int = 17, proposal_sha256: str | None = None,
+    expected_competitions: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     expected_decisions = _positive_int(expected_decisions, "REMAINING_DECISION_COUNT_INVALID")
     review_sha256 = _sha(review_sha256, "REMAINING_DECISION_REVIEW_HASH_INVALID")
     import_preview_sha256 = _sha(import_preview_sha256, "REMAINING_DECISION_PREVIEW_HASH_INVALID")
     database_preview_sha256 = _sha(database_preview_sha256, "REMAINING_DECISION_PREVIEW_HASH_INVALID")
     subjects, input_hashes = _validate_review(review, expected_decisions)
+    if _artifact_digest(review) != review_sha256:
+        _fail("REMAINING_DECISION_REVIEW_HASH_INVALID")
     if (input_hashes["import_preview_sha256"] != import_preview_sha256 or
             input_hashes["database_preview_sha256"] != database_preview_sha256):
         _fail("REMAINING_DECISION_PREVIEW_HASH_INVALID")
     import_records = _validate_import_preview(import_preview)
+    if _artifact_digest(import_preview) != import_preview_sha256:
+        _fail("REMAINING_DECISION_PREVIEW_HASH_INVALID")
     matched_pairs, database_pairs = _validate_database_preview(database_preview)
+    if _artifact_digest(database_preview) != database_preview_sha256:
+        _fail("REMAINING_DECISION_PREVIEW_HASH_INVALID")
     anchor_pairs = matched_pairs | database_pairs
+    competition_contract = _competition_contract(expected_decisions, expected_competitions)
+    if not set(competition_contract).issubset({row["new_record_key"] for row in subjects}):
+        _fail("REMAINING_DECISION_COMPETITION_INVALID")
 
     proposal_keys = {
         "schema_version", "review_sha256", "reviewed_by", "decision_basis",
@@ -372,6 +440,7 @@ def materialize_remaining_decisions(
             _fail("REMAINING_DECISION_ACTION_INVALID")
         expected_row_keys = set(base_keys)
         has_competition = False
+        expected_competition = competition_contract.get(review_subject["new_record_key"])
         if decision == "same_existing_person":
             expected_row_keys |= {"target_record_key", "canonical_person_id"}
             competition_keys = {
@@ -388,8 +457,9 @@ def materialize_remaining_decisions(
             expected_row_keys.add("context_owner_record_key")
         if set(raw) != expected_row_keys:
             _fail("REMAINING_DECISION_ROW_INVALID")
-        if (decision == "same_existing_person" and
-                (raw.get("reason") == EXPLICIT_USER_REASON) != has_competition):
+        if ((expected_competition is not None and
+             (decision != "same_existing_person" or not has_competition)) or
+                (expected_competition is None and has_competition)):
             _fail("REMAINING_DECISION_COMPETITION_INVALID")
         _text(raw.get("reason"), "REMAINING_DECISION_ROW_INVALID")
         _text(raw.get("review_status"), "REMAINING_DECISION_ROW_INVALID")
@@ -413,10 +483,10 @@ def materialize_remaining_decisions(
                 competing = _text(raw.get("competing_target_record_key"), "REMAINING_DECISION_COMPETITION_INVALID")
                 competing_person = _positive_int(
                     raw.get("competing_canonical_person_id"), "REMAINING_DECISION_COMPETITION_INVALID")
-                if ((competing, competing_person) not in database_pairs or
+                if (expected_competition != (target, person_id, competing, competing_person) or
+                        (competing, competing_person) not in database_pairs or
                         competing == target or competing_person == person_id or
-                        raw.get("resolution_basis") != EXPLICIT_USER_BASIS or
-                        raw.get("reason") != EXPLICIT_USER_REASON):
+                        raw.get("resolution_basis") != EXPLICIT_USER_BASIS):
                     _fail("REMAINING_DECISION_COMPETITION_INVALID")
         elif decision == "structural_or_summary":
             owner = _text(raw.get("context_owner_record_key"), "REMAINING_DECISION_OWNER_INVALID")
@@ -435,6 +505,8 @@ def materialize_remaining_decisions(
     counts = proposal.get("counts")
     expected_count_keys = {"decisions", *DECISIONS}
     final_counts = {"decisions": len(decisions), **derived_counts}
+    if expected_decisions == 17 and derived_counts != PRODUCTION_DECISION_COUNTS:
+        _fail("REMAINING_DECISION_COUNT_INVALID")
     if (not isinstance(counts, dict) or set(counts) != expected_count_keys or
             not all(isinstance(counts[key], int) and not isinstance(counts[key], bool) and
                     counts[key] >= 0 for key in expected_count_keys) or
