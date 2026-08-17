@@ -235,6 +235,7 @@ def test_builds_closed_preview_without_authorizing_canonical_mutations():
             "nonliteral_provenance": 0,
             "retired_source_record": 0,
         },
+        "narratives": {"changed": 1, "unchanged": 0, "retired": 1},
         "relationships": {"legacy_structure_pending_revalidation": 1},
     }
     assert len(result["source_records"]) == 4
@@ -336,3 +337,45 @@ def test_write_outputs_is_exclusive_and_cleans_partial_failure(tmp_path: Path):
         subject.write_preview_outputs(build(), partial_bundle, occupied_report)
     assert not partial_bundle.exists()
     assert occupied_report.read_text(encoding="utf-8") == "keep"
+
+
+def test_real_v50_inputs_build_expected_complete_preview(tmp_path: Path):
+    worktree = Path(__file__).resolve().parents[4]
+    parent_repo = Path("/Users/johanreventlow/TypeScript/danmarksadelsaarbog")
+    task20 = worktree / "work/task20-1939-full"
+    required = [
+        task20 / "source-record-reconciliation-v50.json",
+        task20 / "source-record-reconciliation-report-v50.json",
+        task20 / "source-record-ledger-v3-ditlev.json",
+        task20 / "boundary-materialization-v3-ditlev.json",
+        parent_repo / "work_1939_stamtavle/clean_1939_v3.json",
+        parent_repo / "work_1939_stamtavle/full_ocr_calamari_r6_clean.txt",
+    ]
+    if not all(path.exists() for path in required):
+        pytest.skip("ignorerede realdata-input findes ikke i denne checkout")
+    output = tmp_path / "preview.json"
+    report = tmp_path / "preview.md"
+
+    assert subject.main([
+        "--reconciliation", str(required[0]),
+        "--reconciliation-report", str(required[1]),
+        "--ledger", str(required[2]),
+        "--materialization", str(required[3]),
+        "--clean", str(required[4]),
+        "--calamari", str(required[5]),
+        "--output", str(output),
+        "--report", str(report),
+    ]) == 0
+
+    preview = json.loads(output.read_text(encoding="utf-8"))
+    assert {key: preview["counts"][key] for key in subject.V50_EXPECTED_COUNTS} == (
+        subject.V50_EXPECTED_COUNTS
+    )
+    assert preview["source"]["input_hashes"] == subject.V50_PINNED_HASHES
+    assert preview["canonical_mutations_authorized"] is False
+    assert preview["expected_database_changes"]["canonical_person_creates"] == []
+    assert all(row["person_creation"] == "forbidden"
+               for row in preview["genuinely_new_pending"])
+    assert all(row["person_creation"] == "forbidden"
+               for row in preview["source_only_records"])
+    assert "reimport gate: **NO-GO**" in report.read_text(encoding="utf-8")

@@ -414,6 +414,11 @@ def build_import_preview(*, reconciliation: object, reconciliation_report: objec
     counts = base_counts | {
         "facts": {status: fact_counts[status] for status in claim_statuses},
         "marriages": {status: marriage_counts[status] for status in claim_statuses},
+        "narratives": {
+            "changed": sum(row["narrative_change"]["changed"] for row in mapped_existing),
+            "unchanged": sum(not row["narrative_change"]["changed"] for row in mapped_existing),
+            "retired": len(retired_legacy),
+        },
         "relationships": {
             "legacy_structure_pending_revalidation": sum(
                 len(row["relationship_candidates"]) for row in mapped_existing
@@ -460,6 +465,7 @@ def render_markdown(preview: Mapping[str, Any]) -> str:
     counts = preview["counts"]
     facts = counts["facts"]
     marriages = counts["marriages"]
+    narratives = counts["narratives"]
     lines = [
         "# DAA 1939 v50 import-preview",
         "",
@@ -476,6 +482,7 @@ def render_markdown(preview: Mapping[str, Any]) -> str:
         "## Provenance",
         f"- facts literal/missing/nonliteral/retired: {facts['source_bound_literal']}/{facts['missing_provenance']}/{facts['nonliteral_provenance']}/{facts['retired_source_record']}",
         f"- marriages literal/missing/nonliteral/retired: {marriages['source_bound_literal']}/{marriages['missing_provenance']}/{marriages['nonliteral_provenance']}/{marriages['retired_source_record']}",
+        f"- narrativer ændret/uændret/pensioneret: {narratives['changed']}/{narratives['unchanged']}/{narratives['retired']}",
         f"- relationer til genvalidering: {counts['relationships']['legacy_structure_pending_revalidation']}",
         "",
         f"- preview gate: **{preview['preview_gate']}**",
