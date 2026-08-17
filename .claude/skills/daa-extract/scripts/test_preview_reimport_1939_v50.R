@@ -247,6 +247,90 @@ testthat::test_that("SQL-vagten tillader hele og kun previewets statiske registr
   testthat::expect_true(length(registry) > 0L)
   testthat::expect_false(anyDuplicated(names(registry)) > 0L)
   for (sql in registry) testthat::expect_invisible(assert_read_only_sql(sql))
+
+  caller_copy <- registry
+  caller_copy$caller_injected <- "SELECT 42 AS caller_injected"
+  testthat::expect_error(assert_read_only_sql(caller_copy$caller_injected),
+    "DB_PREVIEW_SQL_FORBIDDEN")
+})
+
+testthat::test_that("SQL-registry dækker profile-modulets seks statiske reads", {
+  profile_sql <- list(
+    profile_capability_columns = paste(
+      "SELECT table_schema, table_name, column_name",
+      "FROM information_schema.columns",
+      "WHERE table_schema = 'public'",
+      "ORDER BY table_schema, table_name, ordinal_position"
+    ),
+    profile_anchors = paste(
+      "SELECT pei.person_id, pei.record_key, p.visning_navn, p.staged",
+      "FROM public.person_external_id pei",
+      "JOIN public.person p ON p.id = pei.person_id",
+      "WHERE pei.source_id = $1",
+      "ORDER BY pei.record_key, pei.person_id"
+    ),
+    profile_narratives = paste(
+      "SELECT n.id, pei.person_id, pei.record_key, n.tekst, n.side, n.privat,",
+      "(SELECT count(*) FROM public.change_event ce",
+      " JOIN public.change_set cs ON cs.id = ce.change_set_id",
+      " WHERE ce.tabel = 'narrative' AND ce.row_pk->>'id' = n.id::text",
+      " AND left(cs.operation, 4) = 'red_') AS editorial_events",
+      "FROM public.narrative n",
+      "JOIN public.person_external_id pei ON pei.person_id = n.subjekt_id AND pei.source_id = $1",
+      "WHERE n.subjekt_type = 'person' AND n.source_id = $1",
+      "ORDER BY pei.record_key, n.id"
+    ),
+    profile_person_facts = paste(
+      "SELECT f.id AS fact_id, pei.person_id, pei.record_key, f.faktatype,",
+      "a.id AS assertion_id, a.vaerdi_tekst, a.date_raw, c.id AS citation_id,",
+      "c.citat_tekst, c.side AS citation_side,",
+      "(SELECT count(*) FROM public.change_event ce",
+      " JOIN public.change_set cs ON cs.id = ce.change_set_id",
+      " WHERE ce.tabel = 'fact' AND ce.row_pk->>'id' = f.id::text",
+      " AND left(cs.operation, 4) = 'red_') AS editorial_events",
+      "FROM public.fact f",
+      "JOIN public.person_external_id pei ON pei.person_id = f.subjekt_id AND pei.source_id = $1",
+      "LEFT JOIN public.assertion a ON a.target_type = 'fact' AND a.target_id = f.id",
+      "LEFT JOIN public.citation c ON c.assertion_id = a.id AND c.source_id = $1",
+      "WHERE f.subjekt_type = 'person'",
+      "ORDER BY pei.record_key, f.id, a.id, c.id"
+    ),
+    profile_relations = paste(
+      "SELECT r.id AS relation_id, r.rolle, r.subjekt_id, r.objekt_id,",
+      "ps.visning_navn AS subjekt_navn, po.visning_navn AS objekt_navn,",
+      "a.id AS assertion_id, a.vaerdi_tekst, a.date_raw, c.id AS citation_id,",
+      "c.citat_tekst, c.side AS citation_side,",
+      "(SELECT count(*) FROM public.change_event ce",
+      " JOIN public.change_set cs ON cs.id = ce.change_set_id",
+      " WHERE ce.tabel = 'relation' AND ce.row_pk->>'id' = r.id::text",
+      " AND left(cs.operation, 4) = 'red_') AS editorial_events",
+      "FROM public.relation r",
+      "LEFT JOIN public.person ps ON r.subjekt_type = 'person' AND ps.id = r.subjekt_id",
+      "LEFT JOIN public.person po ON r.objekt_type = 'person' AND po.id = r.objekt_id",
+      "LEFT JOIN public.assertion a ON a.target_type = 'relation' AND a.target_id = r.id",
+      "LEFT JOIN public.citation c ON c.assertion_id = a.id AND c.source_id = $1",
+      "WHERE (r.subjekt_type = 'person' AND EXISTS (SELECT 1 FROM public.person_external_id pei",
+      " WHERE pei.source_id = $1 AND pei.person_id = r.subjekt_id))",
+      "OR (r.objekt_type = 'person' AND EXISTS (SELECT 1 FROM public.person_external_id pei",
+      " WHERE pei.source_id = $1 AND pei.person_id = r.objekt_id))",
+      "ORDER BY r.id, a.id, c.id"
+    ),
+    profile_family_members = paste(
+      "SELECT target.person_id AS target_person_id, fm.family_id, fm.person_id AS member_person_id,",
+      "fm.rolle AS member_role, p.visning_navn AS member_name,",
+      "(SELECT count(*) FROM public.change_event ce",
+      " JOIN public.change_set cs ON cs.id = ce.change_set_id",
+      " WHERE ce.tabel = 'family_member' AND ce.row_pk->>'family_id' = fm.family_id::text",
+      " AND ce.row_pk->>'person_id' = fm.person_id::text",
+      " AND left(cs.operation, 4) = 'red_') AS editorial_events",
+      "FROM public.family_member target",
+      "JOIN public.person_external_id pei ON pei.person_id = target.person_id AND pei.source_id = $1",
+      "JOIN public.family_member fm ON fm.family_id = target.family_id",
+      "JOIN public.person p ON p.id = fm.person_id",
+      "ORDER BY target.person_id, fm.family_id, fm.rolle, fm.person_id"
+    )
+  )
+  for (sql in profile_sql) testthat::expect_invisible(assert_read_only_sql(sql))
 })
 
 testthat::test_that("read-only bootstrap sker før alle domænequeries og rollbacker", {
