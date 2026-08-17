@@ -51,6 +51,7 @@ def _validate_review(review: dict[str, Any]) -> dict[str, tuple[dict[str, Any], 
         review.get("schema_version") not in {
             "1939-v50-identity-review-v1",
             "1939-v50-mapped-identity-review-v1",
+            "1939-v50-death-year-identity-review-v1",
         } or
         review.get("review_only") is not True or
         review.get("review_state") != "pending" or
@@ -64,9 +65,11 @@ def _validate_review(review: dict[str, Any]) -> dict[str, tuple[dict[str, Any], 
     if (not isinstance(subjects, list) or not isinstance(counts, dict) or
         counts.get("subjects") != len(subjects)):
         _fail("IDENTITY_DECISION_REVIEW_INVALID")
-    mapped_review = review["schema_version"] == "1939-v50-mapped-identity-review-v1"
+    schema_version = review["schema_version"]
+    mapped_review = schema_version == "1939-v50-mapped-identity-review-v1"
+    death_year_review = schema_version == "1939-v50-death-year-identity-review-v1"
     profile_pairs = None
-    if not mapped_review:
+    if not mapped_review and not death_year_review:
         profiles = review.get("profiles")
         if not isinstance(profiles, list) or counts.get("profiles") != len(profiles):
             _fail("IDENTITY_DECISION_REVIEW_INVALID")
@@ -80,12 +83,18 @@ def _validate_review(review: dict[str, Any]) -> dict[str, tuple[dict[str, Any], 
     elif (not isinstance(counts.get("profiles"), int) or counts["profiles"] < 1 or
           not isinstance(counts.get("searchable_profiles"), int) or
           not isinstance(counts.get("unsearchable_profiles"), int) or
-          counts["searchable_profiles"] + counts["unsearchable_profiles"] != counts["profiles"] or
-          not isinstance(review.get("unsearchable_profile_keys"), list) or
-          len(review["unsearchable_profile_keys"]) != counts["unsearchable_profiles"] or
-          len(set(review["unsearchable_profile_keys"])) != counts["unsearchable_profiles"] or
-          not isinstance(counts.get("ambiguous_subjects"), int) or
-          counts["ambiguous_subjects"] != 0):
+          counts["searchable_profiles"] + counts["unsearchable_profiles"] != counts["profiles"]):
+        _fail("IDENTITY_DECISION_REVIEW_INVALID")
+    if mapped_review and (
+            not isinstance(review.get("unsearchable_profile_keys"), list) or
+            len(review["unsearchable_profile_keys"]) != counts["unsearchable_profiles"] or
+            len(set(review["unsearchable_profile_keys"])) != counts["unsearchable_profiles"] or
+            not isinstance(counts.get("ambiguous_subjects"), int) or
+            counts["ambiguous_subjects"] != 0):
+        _fail("IDENTITY_DECISION_REVIEW_INVALID")
+    if death_year_review and (
+            review.get("database_write_authorized") is not False or
+            review.get("database_gate") != "NO-GO"):
         _fail("IDENTITY_DECISION_REVIEW_INVALID")
     candidates: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
     mapped_candidate_keys: set[str] = set()
@@ -103,8 +112,11 @@ def _validate_review(review: dict[str, Any]) -> dict[str, tuple[dict[str, Any], 
             link_count += 1
             candidate_key = _text(candidate.get("candidate_record_key"))
             person_id = _integer(candidate.get("candidate_person_id"))
-            if mapped_review:
-                if (candidate.get("classification") != "mapped_1939_review_candidate" or
+            if mapped_review or death_year_review:
+                expected_classification = (
+                    "death_year_review_candidate" if death_year_review
+                    else "mapped_1939_review_candidate")
+                if (candidate.get("classification") != expected_classification or
                     candidate.get("proposed_action") != "unresolved" or
                     not isinstance(candidate.get("signals"), list) or
                     not candidate["signals"] or candidate_key in mapped_candidate_keys or
@@ -112,6 +124,25 @@ def _validate_review(review: dict[str, Any]) -> dict[str, tuple[dict[str, Any], 
                     _fail("IDENTITY_DECISION_CANDIDATE_INVALID", source_key)
                 mapped_candidate_keys.add(candidate_key)
                 mapped_candidate_person_ids.add(person_id)
+                if death_year_review:
+                    source = subject.get("verbatim_text")
+                    kinds = [signal.get("kind") for signal in candidate["signals"]
+                             if isinstance(signal, dict)]
+                    if (not isinstance(source, str) or kinds.count("literal_name") != 1 or
+                        kinds.count("literal_death_year") < 1 or
+                        not set(kinds).issubset({
+                            "literal_name", "literal_death_year"}) or
+                        len(kinds) != len(candidate["signals"])):
+                        _fail("IDENTITY_DECISION_CANDIDATE_INVALID", source_key)
+                    for signal in candidate["signals"]:
+                        start, end, literal = (signal.get("source_start"),
+                                               signal.get("source_end"),
+                                               signal.get("text"))
+                        if (isinstance(start, bool) or not isinstance(start, int) or
+                            isinstance(end, bool) or not isinstance(end, int) or
+                            start < 0 or end <= start or end > len(source) or
+                            not isinstance(literal, str) or source[start:end] != literal):
+                            _fail("IDENTITY_DECISION_CANDIDATE_INVALID", source_key)
             elif (profile_pairs is None or profile_pairs.get(candidate_key) != person_id or
                   candidate.get("classification") != "review_candidate" or
                   candidate.get("proposed_action") != "unresolved" or
@@ -126,13 +157,14 @@ def _validate_review(review: dict[str, Any]) -> dict[str, tuple[dict[str, Any], 
             candidates[compound] = (subject, candidate)
     if counts.get("candidate_links") != link_count:
         _fail("IDENTITY_DECISION_REVIEW_INVALID")
-    if mapped_review:
+    if mapped_review or death_year_review:
         linked_subjects = sum(bool(subject["candidates"]) for subject in subjects)
         unlinked_subjects = len(subjects) - linked_subjects
         ambiguous_subjects = sum(len(subject["candidates"]) > 1 for subject in subjects)
         if (counts.get("linked_subjects") != linked_subjects or
             counts.get("unlinked_subjects") != unlinked_subjects or
-            counts.get("ambiguous_subjects") != ambiguous_subjects):
+            (mapped_review and counts.get("ambiguous_subjects") != ambiguous_subjects) or
+            (death_year_review and ambiguous_subjects != 0)):
             _fail("IDENTITY_DECISION_REVIEW_INVALID")
     return candidates
 

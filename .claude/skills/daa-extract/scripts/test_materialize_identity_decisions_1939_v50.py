@@ -126,6 +126,40 @@ def mapped_fixture():
     return review, approvals, review_sha
 
 
+def death_year_fixture():
+    review, approvals, _ = mapped_fixture()
+    review["schema_version"] = "1939-v50-death-year-identity-review-v1"
+    review["database_write_authorized"] = False
+    review["database_gate"] = "NO-GO"
+    review["counts"].pop("ambiguous_subjects")
+    review.pop("unsearchable_profile_keys")
+    for subject_row in review["subjects"]:
+        candidate = subject_row["candidates"][0]
+        candidate["classification"] = "death_year_review_candidate"
+        year = candidate["signals"][0]["text"]
+        name = candidate["candidate_display_name"]
+        candidate["signals"] = [
+            {"kind": "literal_name", "source_start": 0,
+             "source_end": len(name), "text": name,
+             "profile_source": {"kind": "profile",
+                                "id": candidate["candidate_record_key"],
+                                "field": "name"}},
+            {"kind": "literal_death_year", "source_start": len(name) + 3,
+             "source_end": len(name) + 7, "text": year,
+             "profile_source": {"kind": "fact",
+                                "id": candidate["candidate_record_key"] + ":fact:0",
+                                "field": "raw_value"},
+             "fact_type": "død"},
+        ]
+    review_sha = sha_bytes(json.dumps(review, sort_keys=True).encode())
+    approvals.update({
+        "review_sha256": review_sha,
+        "decision_batch": "v50-death-year-identity-review-batch-3",
+        "confirmation": "1-2 ja",
+    })
+    return review, approvals, review_sha
+
+
 def test_materializes_exact_append_only_decisions_without_database_authority():
     review, approvals, review_sha = fixture()
     result = subject.materialize_decisions(review, approvals, review_sha, expected_decisions=2)
@@ -152,6 +186,31 @@ def test_materializes_unambiguous_mapped_review_decisions_without_database_autho
     assert [(row["source_record_key"], row["canonical_person_id"])
             for row in result["decisions"]] == [
                 ("new-ditlev", 1054), ("new-johan", 993)]
+
+
+def test_materializes_death_year_review_decisions_without_database_authority():
+    review, approvals, review_sha = death_year_fixture()
+    result = subject.materialize_decisions(
+        review, approvals, review_sha, expected_decisions=2)
+    assert result["input_review_sha256"] == review_sha
+    assert result["decision_batch"] == "v50-death-year-identity-review-batch-3"
+    assert result["counts"] == {"decisions": 2, "same": 2}
+    assert result["canonical_mutations_authorized"] is False
+    assert result["database_write_authorized"] is False
+    assert result["database_gate"] == "NO-GO"
+
+
+def test_death_year_review_rejects_extra_presentation_only_signal():
+    review, approvals, review_sha = death_year_fixture()
+    review["subjects"][0]["candidates"][0]["signals"].append({
+        "kind": "presentation_only",
+        "source_start": 0,
+        "source_end": 6,
+        "text": "Ditlev",
+    })
+    with pytest.raises(subject.IdentityDecisionError):
+        subject.materialize_decisions(
+            review, approvals, review_sha, expected_decisions=2)
 
 
 @pytest.mark.parametrize("mutation", ["coverage_counts", "duplicate_person"])
