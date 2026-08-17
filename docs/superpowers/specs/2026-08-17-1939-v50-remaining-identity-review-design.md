@@ -19,8 +19,9 @@ Reviewpakken bindes med SHA-256 til:
 - `source-persona-materialization-v1.json`, som definerer de præcise 17 poster;
 - `import-preview-v1.json` og v50-reconciliationen, som leverer record keys,
   source spans og ordret tekst;
-- `database-profiles-v1.json`, som indeholder profilerne for alle 543
-  eksisterende 1939-personankre;
+- database-preview v1's 543 mapped personankre sammen med
+  `clean_1939_v3.json`, som leverer de kildebundne profiler for disse ankre;
+- `database-profiles-v1.json`, som supplerer med de 23 database-only-profiler;
 - den rensede Calamari-tekst og den konkrete 1939-PDF/rendition;
 - de allerede godkendte identity-decisions v1-v4.
 
@@ -38,7 +39,8 @@ indeholder præcis de 17 poster én gang i stigende kildeoffset og viser for hve
 - komplet PDF-side samt relevante nabo-/sidebrudshenvisninger;
 - foregående og efterfølgende v50-record;
 - mulige senere v50-forekomster af hovedpersonen;
-- konservative kandidater blandt alle 543 databaseprofiler;
+- konservative kandidater blandt alle 566 databaseprofiler (543 mapped og 23
+  database-only);
 - de eksakte signaler og deres kilde, ikke blot en score.
 
 Kandidatsignaler kan være et diskriminerende navn, samtidige årstal, godsnavne,
