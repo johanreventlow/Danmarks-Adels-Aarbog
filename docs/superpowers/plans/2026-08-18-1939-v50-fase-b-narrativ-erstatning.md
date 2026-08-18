@@ -94,10 +94,12 @@ PostgreSQL 17 lokalt (rehearsal), psql mod prod (gated).
 - Produces: ren funktion
   `normalize_narrative_v1(raw: str, corpus: str) -> dict` med nøglerne
   `text` (normaliseret), `flags` (liste af
-  `{"kind": "hyphen_ambiguous"|"ordinal_ambiguous", "context": <±40 tegn>,
-  "char_offset": <int i raw>}`), `applied` (tællinger:
-  `soft_breaks_joined`, `hyphens_merged`, `hyphens_kept_compound`,
-  `ordinal_stripped` 0/1). Deterministisk, ingen I/O.
+  `{"kind": "hyphen_ambiguous"|"hyphen_unproven"|"ordinal_ambiguous",
+  "context": <±40 tegn>, "char_offset": <int i raw>}`), `applied`
+  (tællinger: `soft_breaks_joined`, `hyphens_merged`,
+  `hyphens_kept_compound`, `ordinal_stripped` 0/1,
+  `page_markers_removed`). Deterministisk, ingen I/O. Slutinvariianter:
+  intet `### PAGE`, intet enligt `\n`, ingen trailing whitespace.
 
 - [ ] **Step 1: Skriv fejlende tests** — én test pr. regel i
   programplanens normaliseringskontrakt (pkt. 1-6), minimum:

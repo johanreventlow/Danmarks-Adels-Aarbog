@@ -111,10 +111,18 @@ Ren, deterministisk funktion `dewrap_narrative_v1(raw: str, corpus: str) -> (str
      → `X-Y`.
    - **Korpus-tiebreak:** findes `XY` ubrudt andetsteds i Calamari-korpuset
      men `X-Y` gør ikke, vælges `XY` (og omvendt) uanset versaler.
-   - **Uafklaret** (begge/ingen former i korpus + stort begyndelsesbogstav
-     er eneste signal): behold `X-Y` **og** udskriv en flag-række
-     (record_key, side, kontekst ±40 tegn) til et menneskeligt reviewark —
-     fail-closed, aldrig et stille gæt.
+   - **Uafklaret versal** (begge/ingen former i korpus + stort
+     begyndelsesbogstav er eneste signal): behold `X-Y` **og** flag
+     (`hyphen_ambiguous`) — fail-closed, aldrig et stille gæt.
+   - **Ubevist småbogstavs-sammentrækning** (reviewfund: 168/584 merges
+     havde hverken `XY` eller `X-Y` i korpus — heraf mindst én reel
+     OCR-korruption, «kar-og» → «karog» hvor bogen har «kar. og»):
+     sammentrækningen udføres fortsat som default, men flages
+     (`hyphen_unproven`) så reviewarket viser alle 168 med kontekst til
+     menneskeligt veto pr. tilfælde. Degenererede tilfælde (ikke
+     bogstav-løb på begge sider — talintervaller, forkortelses-punktummer,
+     †-nabo): behold bindestregen, fjern KUN linjeskiftet (aldrig et råt
+     `\n` i slutteksten), flag `hyphen_ambiguous`.
 4. **Ordenstals-strip (brugerkrav 2026-08-18):** efter indledende
    whitespace-trim fjernes et ledende søskende-ordenstal på formen
    `^\d{1,2}\.\s+` («1. Sybille Malvina Lonny…» → «Sybille Malvina
@@ -135,9 +143,14 @@ Ren, deterministisk funktion `dewrap_narrative_v1(raw: str, corpus: str) -> (str
    `### PAGE`. Empirisk assert: præcis 73 markør-fjernelser på 551-scopet.
 6. Ingen andre ændringer: tegnsætning, stavning, «ø/æ/å», OCR-fejl m.v.
    røres ikke (det er evidens, ikke redaktion).
-7. Funktionen er versioneret (`narrative_norm_v1` = dewrap +
-   ordenstals-strip + markør-fjernelse); manifestet registrerer pr.
-   narrativ både rå span-SHA
+7. **Slutinvariianter:** slutteksten indeholder aldrig `### PAGE`, aldrig
+   et enligt `\n` (kun `\n\n`-afsnitsskel — webben renderer `\n` som
+   linjeskift), og trailing whitespace trimmes (`rstrip`; 293 rå spans
+   sluttede på whitespace uden visningsværdi). Diff-klassekontrollen får
+   `trailing_trim` som tilladt klasse.
+8. Funktionen er versioneret (`narrative_norm_v1` = dewrap +
+   ordenstals-strip + markør-fjernelse + slutinvariianter); manifestet
+   registrerer pr. narrativ både rå span-SHA
    og normaliseret SHA, så transformationen kan genberegnes og efterprøves
    byte-eksakt.
 
