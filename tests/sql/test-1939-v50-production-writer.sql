@@ -12,7 +12,7 @@ END $test$;
 DO $test$
 DECLARE
   v_actor uuid := '11111111-1111-4111-8111-111111111111';
-  v_auth uuid; v_batch uuid; v_person bigint; v_result jsonb;
+  v_auth uuid; v_batch uuid; v_reversal_auth uuid; v_person bigint; v_result jsonb;
   v_source_payload jsonb; v_person_payload jsonb;
 BEGIN
   INSERT INTO public.source(id,titel,udgave,slags) VALUES(3,'DAA','1939','DAA-udgave') ON CONFLICT DO NOTHING;
@@ -23,8 +23,14 @@ BEGIN
 
   v_source_payload := jsonb_build_object('review_subject_id','fixture','source_record_key','record-evidence-fixture','category','fact','disposition','retain_source_only','evidence_sha256',repeat('c',64),'canonical_target',jsonb_build_object('canonical_person_id',1),'source_span',jsonb_build_object('char_from',0,'char_to',8),'page_evidence',jsonb_build_object('page_from',1,'page_to',1),'verbatim_text','evidence','legacy_payload',jsonb_build_object('value','evidence'),'rendition_content_sha256',repeat('d',64));
   v_person_payload := jsonb_build_object('source_record_key','record-fixture','source_id',3,'edition','1939','source_span',jsonb_build_object('char_from',10,'char_to',17),'page_evidence',jsonb_build_object('page_from',1,'page_to',1),'verbatim_text','Fixture','verbatim_sha256',repeat('e',64),'source_persona_id','33333333-3333-5333-8333-333333333333','persona_key','1939:record-fixture','identity_decision_sha256',repeat('f',64),'review_sha256',repeat('1',64),'decision_basis','fixture','name','Fixture','sex',NULL,'narrative',jsonb_build_object('text','Fixture','source_record_key','record-fixture'),'source_mentions','[]'::jsonb,'persona_mention_links','[]'::jsonb,'facts','[]'::jsonb,'relations','[]'::jsonb,'families','[]'::jsonb,'uncertainties','[]'::jsonb,'staged',true,'rendition_content_sha256',repeat('d',64));
+  BEGIN
+    PERFORM public.red_authorize_1939_v50_reimport(repeat('a',64),repeat('b',64),'wrong-db',3,'{"person_creates":1,"source_evidence":1,"canonical_delta":0}'::jsonb,jsonb_build_object('source-evidence:fixture',v_source_payload,'person-create:record-fixture',v_person_payload),gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+    RAISE EXCEPTION 'REIMPORT_1939_DATABASE_DRIFT_ACCEPTED';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='REIMPORT_1939_DATABASE_DRIFT_ACCEPTED' THEN RAISE; END IF;
+  END;
   v_auth := public.red_authorize_1939_v50_reimport(
-    repeat('a',64),repeat('b',64),'fixture-db',3,
+    repeat('a',64),repeat('b',64),current_database(),3,
     '{"person_creates":1,"source_evidence":1,"canonical_delta":0}'::jsonb,
     jsonb_build_object('source-evidence:fixture',v_source_payload,'person-create:record-fixture',v_person_payload),
     '22222222-2222-4222-8222-222222222222',clock_timestamp()+interval '5 minutes');
@@ -42,6 +48,13 @@ BEGIN
   END IF;
   v_result := public.red_finalize_1939_v50_reimport(v_batch);
   IF v_result->>'status' <> 'finalized' THEN RAISE EXCEPTION 'REIMPORT_1939_FINALIZE_FAILED'; END IF;
+  v_reversal_auth := public.red_authorize_1939_v50_reversal(v_batch,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  BEGIN
+    PERFORM public.red_reverse_1939_v50_reimport(gen_random_uuid(),v_reversal_auth);
+    RAISE EXCEPTION 'REIMPORT_1939_CROSS_BATCH_REVERSAL_ACCEPTED';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='REIMPORT_1939_CROSS_BATCH_REVERSAL_ACCEPTED' THEN RAISE; END IF;
+  END;
   BEGIN
     PERFORM public.red_begin_1939_v50_reimport(v_auth,repeat('a',64),repeat('b',64));
     RAISE EXCEPTION 'REIMPORT_1939_AUTH_REUSE_ACCEPTED';
