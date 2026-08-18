@@ -26,7 +26,7 @@ R + testthat (DB-fri gateway-tests), PostgreSQL 17 lokalt, psql mod prod.
 
 ## Global Constraints
 
-- Prod-apply er IKKE en del af denne plan: Task 5 slutter i en GO-pakke;
+- Prod-apply er IKKE en del af denne plan: Task 4 slutter i en GO-pakke;
   selve apply kræver særskilt brugergodkendelse med eksakte hashes + ny
   umiddelbar backup.
 - Verbatim/spans/rendition er byte-eksakte; INGEN normalisering her.
