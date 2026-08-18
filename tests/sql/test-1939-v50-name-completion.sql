@@ -345,7 +345,7 @@ BEGIN
     RAISE EXCEPTION 'ACTIVATION_PROBE_NOT_ROLLED_BACK';
   END IF;
 
-  FOREACH v_drift IN ARRAY ARRAY['citation','conclusion','fact','cache','result','child_payload','source_payload'] LOOP
+  FOREACH v_drift IN ARRAY ARRAY['citation','conclusion','fact','cache','cache_null','identity_missing','result','child_payload','source_payload'] LOOP
     BEGIN
       CASE v_drift
         WHEN 'citation' THEN
@@ -360,6 +360,11 @@ BEGIN
             WHERE id=(SELECT min(fact_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch);
         WHEN 'cache' THEN
           UPDATE public.person SET visning_navn='tampered' WHERE id=1846;
+        WHEN 'cache_null' THEN
+          UPDATE public.person SET visning_navn=NULL WHERE id=1846;
+        WHEN 'identity_missing' THEN
+          DELETE FROM private.source_persona_identity
+            WHERE source_persona_id='00000000-0000-4000-8000-000000000001';
         WHEN 'result' THEN
           ALTER TABLE private.reimport_1939_name_completion_result DISABLE TRIGGER trg_reimport_1939_name_completion_result_append_only;
           UPDATE private.reimport_1939_name_completion_result
@@ -395,28 +400,38 @@ BEGIN
   SELECT count(*) INTO v_before_assertion FROM public.assertion WHERE id IN(SELECT assertion_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch);
   SELECT count(*) INTO v_before_citation FROM public.citation WHERE id IN(SELECT citation_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch);
   SELECT count(*) INTO v_before_conclusion FROM public.conclusion WHERE id IN(SELECT conclusion_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch);
-  BEGIN
-    UPDATE public.citation SET citat_tekst='reversal drift'
-      WHERE id=(SELECT min(citation_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch);
-    v_reversal_auth:=public.red_authorize_1939_v50_reversal(v_source_batch,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  FOREACH v_drift IN ARRAY ARRAY['citation','cache_null','identity_missing'] LOOP
     BEGIN
-      PERFORM public.red_reverse_1939_v50_reimport(v_source_batch,v_reversal_auth);
-      RAISE EXCEPTION 'DRIFT_REVERSAL_ACCEPTED';
-    EXCEPTION WHEN OTHERS THEN
-      IF SQLERRM='DRIFT_REVERSAL_ACCEPTED' THEN RAISE; END IF;
-      IF SQLERRM<>'REIMPORT_1939_NAME_COMPLETION_INVALID' THEN RAISE; END IF;
+      CASE v_drift
+        WHEN 'citation' THEN
+          UPDATE public.citation SET citat_tekst='reversal drift'
+            WHERE id=(SELECT min(citation_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch);
+        WHEN 'cache_null' THEN
+          UPDATE public.person SET visning_navn=NULL WHERE id=1846;
+        WHEN 'identity_missing' THEN
+          DELETE FROM private.source_persona_identity
+            WHERE source_persona_id='00000000-0000-4000-8000-000000000001';
+      END CASE;
+      v_reversal_auth:=public.red_authorize_1939_v50_reversal(v_source_batch,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+      BEGIN
+        PERFORM public.red_reverse_1939_v50_reimport(v_source_batch,v_reversal_auth);
+        RAISE EXCEPTION 'DRIFT_REVERSAL_ACCEPTED:%',v_drift;
+      EXCEPTION WHEN OTHERS THEN
+        IF SQLERRM='DRIFT_REVERSAL_ACCEPTED:'||v_drift THEN RAISE; END IF;
+        IF SQLERRM<>'REIMPORT_1939_NAME_COMPLETION_INVALID' THEN RAISE; END IF;
+      END;
+      IF (SELECT count(*) FROM public.fact WHERE id IN(SELECT fact_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch))<>v_before_fact
+         OR (SELECT count(*) FROM public.assertion WHERE id IN(SELECT assertion_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch))<>v_before_assertion
+         OR (SELECT count(*) FROM public.citation WHERE id IN(SELECT citation_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch))<>v_before_citation
+         OR (SELECT count(*) FROM public.conclusion WHERE id IN(SELECT conclusion_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch))<>v_before_conclusion
+         OR (SELECT status FROM private.reimport_1939_write_batch WHERE id=v_completion_batch)<>'finalized' THEN
+        RAISE EXCEPTION 'DRIFT_REVERSAL_DELETED_ROWS:%',v_drift;
+      END IF;
+      RAISE EXCEPTION USING ERRCODE='40001',MESSAGE='ROLLBACK_REVERSAL_DRIFT:'||v_drift;
+    EXCEPTION WHEN SQLSTATE '40001' THEN
+      IF SQLERRM<>'ROLLBACK_REVERSAL_DRIFT:'||v_drift THEN RAISE; END IF;
     END;
-    IF (SELECT count(*) FROM public.fact WHERE id IN(SELECT fact_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch))<>v_before_fact
-       OR (SELECT count(*) FROM public.assertion WHERE id IN(SELECT assertion_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch))<>v_before_assertion
-       OR (SELECT count(*) FROM public.citation WHERE id IN(SELECT citation_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch))<>v_before_citation
-       OR (SELECT count(*) FROM public.conclusion WHERE id IN(SELECT conclusion_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch))<>v_before_conclusion
-       OR (SELECT status FROM private.reimport_1939_write_batch WHERE id=v_completion_batch)<>'finalized' THEN
-      RAISE EXCEPTION 'DRIFT_REVERSAL_DELETED_ROWS';
-    END IF;
-    RAISE EXCEPTION USING ERRCODE='40001',MESSAGE='ROLLBACK_REVERSAL_DRIFT';
-  EXCEPTION WHEN SQLSTATE '40001' THEN
-    IF SQLERRM<>'ROLLBACK_REVERSAL_DRIFT' THEN RAISE; END IF;
-  END;
+  END LOOP;
 
   v_reversal_auth:=public.red_authorize_1939_v50_reversal(v_source_batch,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
   v_result:=public.red_reverse_1939_v50_reimport(v_source_batch,v_reversal_auth);

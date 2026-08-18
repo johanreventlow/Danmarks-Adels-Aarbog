@@ -2630,8 +2630,10 @@ BEGIN
            OR se.payload->'page_evidence'<>ca.authorized_elements->'payloads'->r.element_id->'page_evidence'
            OR se.payload->>'verbatim_text'<>ca.authorized_elements->'payloads'->r.element_id->>'verbatim_text'
            OR sr.id IS NULL OR sr.source_id<>3 OR sr.record_key<>ca.authorized_elements->'payloads'->r.element_id->>'source_record_key'
-           OR sp.id IS NULL OR sp.source_id<>3 OR si.canonical_person_id<>r.person_id
-           OR p.id IS NULL OR NOT p.staged OR p.visning_navn<>ca.authorized_elements->'payloads'->r.element_id->>'name'
+           OR sp.id IS NULL OR sp.source_id<>3
+           OR (SELECT count(*) FROM private.source_persona_identity qi WHERE qi.source_persona_id=r.source_persona_id AND qi.decision_status='accepted') IS DISTINCT FROM 1::bigint
+           OR si.canonical_person_id IS DISTINCT FROM r.person_id
+           OR p.id IS NULL OR NOT p.staged OR p.visning_navn IS DISTINCT FROM ca.authorized_elements->'payloads'->r.element_id->>'name'
            OR f.id IS NULL OR f.subjekt_type<>'person' OR f.subjekt_id<>r.person_id OR f.faktatype<>'navn'
            OR (SELECT count(*) FROM public.fact nf WHERE nf.subjekt_type='person' AND nf.subjekt_id=r.person_id AND nf.faktatype='navn')<>1
            OR x.id IS NULL OR x.target_type<>'fact' OR x.target_id<>r.fact_id OR x.vaerdi_tekst<>ca.authorized_elements->'payloads'->r.element_id->>'name' OR NOT x.uforanderlig
@@ -2729,8 +2731,10 @@ BEGIN
          OR se.payload->'page_evidence'<>ca.authorized_elements->'payloads'->r.element_id->'page_evidence'
          OR se.payload->>'verbatim_text'<>ca.authorized_elements->'payloads'->r.element_id->>'verbatim_text'
          OR sr.id IS NULL OR sr.source_id<>3 OR sr.record_key<>ca.authorized_elements->'payloads'->r.element_id->>'source_record_key'
-         OR sp.id IS NULL OR sp.source_id<>3 OR si.canonical_person_id<>r.person_id
-         OR p.id IS NULL OR NOT p.staged OR p.visning_navn<>ca.authorized_elements->'payloads'->r.element_id->>'name'
+         OR sp.id IS NULL OR sp.source_id<>3
+         OR (SELECT count(*) FROM private.source_persona_identity qi WHERE qi.source_persona_id=r.source_persona_id AND qi.decision_status='accepted') IS DISTINCT FROM 1::bigint
+         OR si.canonical_person_id IS DISTINCT FROM r.person_id
+         OR p.id IS NULL OR NOT p.staged OR p.visning_navn IS DISTINCT FROM ca.authorized_elements->'payloads'->r.element_id->>'name'
          OR f.id IS NULL OR f.subjekt_type<>'person' OR f.subjekt_id<>r.person_id OR f.faktatype<>'navn'
          OR (SELECT count(*) FROM public.fact nf WHERE nf.subjekt_type='person' AND nf.subjekt_id=r.person_id AND nf.faktatype='navn')<>1
          OR x.id IS NULL OR x.target_type<>'fact' OR x.target_id<>r.fact_id OR x.vaerdi_tekst<>ca.authorized_elements->'payloads'->r.element_id->>'name' OR NOT x.uforanderlig
