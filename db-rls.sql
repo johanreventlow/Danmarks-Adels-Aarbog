@@ -827,9 +827,10 @@ ALTER TABLE private.reimport_1939_write_event ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON private.reimport_1939_authorization,private.reimport_1939_write_batch,
   private.reimport_1939_write_event FROM PUBLIC,anon,authenticated;
 REVOKE ALL ON FUNCTION private.reject_reimport_1939_event_mutation(),
-  private.require_reimport_1939_editor(),private.require_reimport_1939_open_batch(uuid)
+  private.require_reimport_1939_editor(),private.require_reimport_1939_open_batch(uuid),
+  private.ensure_reimport_1939_source_evidence(uuid,text,jsonb)
   FROM PUBLIC,anon,authenticated;
-REVOKE ALL ON FUNCTION public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,uuid,timestamptz),
+REVOKE ALL ON FUNCTION public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz),
   public.red_begin_1939_v50_reimport(uuid,text,text),
   public.red_apply_1939_v50_source_evidence(uuid,text,jsonb),
   public.red_apply_1939_v50_person_create(uuid,text,jsonb),
@@ -840,7 +841,7 @@ REVOKE ALL ON FUNCTION public.red_authorize_1939_v50_reimport(text,text,text,big
   public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz),
   public.red_activate_1939_v50_batch(uuid,uuid)
   FROM PUBLIC,anon,authenticated;
-GRANT EXECUTE ON FUNCTION public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,uuid,timestamptz),
+GRANT EXECUTE ON FUNCTION public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz),
   public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz),
   public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)
   TO service_role;

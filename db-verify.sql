@@ -34,7 +34,7 @@ BEGIN
   IF to_regclass('private.reimport_1939_authorization') IS NULL
      OR to_regclass('private.reimport_1939_write_batch') IS NULL
      OR to_regclass('private.reimport_1939_write_event') IS NULL
-     OR to_regprocedure('public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,uuid,timestamp with time zone)') IS NULL
+     OR to_regprocedure('public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamp with time zone)') IS NULL
      OR to_regprocedure('public.red_finalize_1939_v50_reimport(uuid)') IS NULL THEN
     RAISE EXCEPTION 'REIMPORT_1939_WRITER_CONTRACT_MISSING';
   END IF;
