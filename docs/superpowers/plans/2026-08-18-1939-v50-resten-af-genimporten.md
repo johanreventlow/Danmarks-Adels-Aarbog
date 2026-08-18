@@ -84,8 +84,9 @@ Calamari-renditionen (i dag: 243). Nul kanonisk delta.
    kontrakt uændret. `person_creates=0`, `canonical_delta=0`.
 3. Rehearsal (frisk prod-restore EFTER cutover, byte-identiske baselines,
    dry-run + committed + replay) → GO-pakke → [godkendelse] → backup +
-   apply → read-only efterkontrol (827 records, 897 ankre, personaer
-   fortsat 8, kanoniske tællinger uændrede).
+   apply → read-only efterkontrol (592 records i alt — 349 nye + 235
+   eksisterende claim-nøgler beriget med helpost-occurrence — 897 ankre,
+   personaer fortsat 8, kanoniske tællinger uændrede).
 
 **Gate:** brugergodkendelse med manifest-SHA + backup-SHA før apply.
 

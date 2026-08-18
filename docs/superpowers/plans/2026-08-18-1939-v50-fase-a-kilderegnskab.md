@@ -274,7 +274,10 @@ git commit -m "feat(1939): fase A-manifest-bygger for de 584 kilderecords"
   `status=finalized, committed=false`; efter-baseline SKAL være
   byte-identisk med før (cmp).
 - [ ] **Step 4: Committed rehearsal** (uden `--dry-run`, stadig lokal base):
-  efterkontrol med read-only SQL: source_records 243+584=827,
+  efterkontrol med read-only SQL: source_records i alt **592** (243
+  eksisterende, hvoraf 235 nøgler deles med task 25's claim-rows og KUN
+  beriges med en ny helpost-occurrence via `ON CONFLICT DO NOTHING` —
+  deres record_kind forbliver claim-typen; +349 nye rækker),
   anchors 313+584=897, occurrences/observations/mentions +584,
   personas fortsat 8, extraction_run +1, OG kanoniske tællinger
   (person/fact/assertion/citation/conclusion/relation/family/narrative)
