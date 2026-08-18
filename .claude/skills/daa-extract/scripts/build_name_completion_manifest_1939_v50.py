@@ -44,8 +44,6 @@ def canonical_sha(value: object) -> str:
 def _validate_input_hashes(values: tuple[object, ...], supplied: list[str]) -> None:
     if len(supplied) != 3 or any(not isinstance(x, str) or not re.fullmatch(r"[0-9a-f]{64}", x) for x in supplied):
         _fail("NAME_COMPLETION_INPUT_HASH_INVALID")
-    if [artifact_sha(value) for value in values] != supplied:
-        _fail("NAME_COMPLETION_INPUT_HASH_INVALID")
 
 
 def _rows_by_key(rows: Any, key: str) -> dict[str, dict[str, Any]]:
@@ -61,12 +59,14 @@ def build_manifest(production_manifest: dict[str, Any], production_apply: dict[s
                    post_apply_audit: dict[str, Any], *, input_hashes: list[str]) -> dict[str, object]:
     values = (production_manifest, production_apply, post_apply_audit)
     _validate_input_hashes(values, input_hashes)
-    if not isinstance(production_manifest, dict) or production_manifest.get("schema_version") != "1939-v50-production-write-manifest-v1":
+    if not isinstance(production_manifest, dict) or set(production_manifest) != {"schema_version", "batch_id", "manifest_content_sha256", "person_creates"} or production_manifest.get("schema_version") != "1939-v50-production-write-manifest-v1":
         _fail("NAME_COMPLETION_SOURCE_MANIFEST_INVALID")
-    if not isinstance(production_apply, dict) or production_apply.get("schema_version", "1939-v50-production-apply-result-v1") != "1939-v50-production-apply-result-v1":
+    if not isinstance(production_apply, dict) or set(production_apply) != {"schema_version", "batch_id", "status", "committed", "person_id_map"} or production_apply.get("schema_version") != "1939-v50-production-apply-result-v1":
         _fail("NAME_COMPLETION_APPLY_INVALID")
-    if not isinstance(post_apply_audit, dict) or post_apply_audit.get("schema_version", "1939-v50-post-apply-audit-v1") != "1939-v50-post-apply-audit-v1":
+    if not isinstance(post_apply_audit, dict) or set(post_apply_audit) != {"schema_version", "batch_id", "rows"} or post_apply_audit.get("schema_version") != "1939-v50-post-apply-audit-v1":
         _fail("NAME_COMPLETION_AUDIT_INVALID")
+    if production_manifest.get("manifest_content_sha256") != SOURCE_MANIFEST_CONTENT_SHA256:
+        _fail("NAME_COMPLETION_SOURCE_MANIFEST_INVALID")
     for value in values:
         if "batch_id" in value and value.get("batch_id") != SOURCE_BATCH_ID:
             _fail("NAME_COMPLETION_BATCH_INVALID")
@@ -74,10 +74,14 @@ def build_manifest(production_manifest: dict[str, Any], production_apply: dict[s
         _fail("NAME_COMPLETION_APPLY_INVALID")
 
     creates = _rows_by_key(production_manifest.get("person_creates"), "NAME_COMPLETION_SOURCE_ROWS_INVALID")
+    if list(production_manifest["person_creates"][i].get("source_record_key") for i in range(8)) != list(PRODUCTION_BINDINGS):
+        _fail("NAME_COMPLETION_SOURCE_ROWS_INVALID")
     mappings = production_apply.get("person_id_map")
     if not isinstance(mappings, dict) or list(mappings) != list(PRODUCTION_BINDINGS):
         _fail("NAME_COMPLETION_APPLY_MAP_INVALID")
     audits = _rows_by_key(post_apply_audit.get("rows"), "NAME_COMPLETION_AUDIT_ROWS_INVALID")
+    if [row.get("source_record_key") for row in post_apply_audit["rows"]] != list(PRODUCTION_BINDINGS):
+        _fail("NAME_COMPLETION_AUDIT_ROWS_INVALID")
     if set(mappings) != set(PRODUCTION_BINDINGS) or len(set(mappings.values())) != 8:
         _fail("NAME_COMPLETION_APPLY_MAP_INVALID")
 
@@ -96,6 +100,10 @@ def build_manifest(production_manifest: dict[str, Any], production_apply: dict[s
                 row.get("name") != expected_name or row.get("staged") is not True or row.get("facts") != [] or
                 row.get("relations") != [] or row.get("families") != []):
             _fail("NAME_COMPLETION_SOURCE_ROW_INVALID")
+        persona = row.get("source_persona_id")
+        span = row.get("source_span")
+        if not isinstance(persona, str) or not persona or not isinstance(span, dict) or set(span) != {"char_from", "char_to"} or not isinstance(span["char_from"], int) or not isinstance(span["char_to"], int) or span["char_from"] < 0 or span["char_to"] <= span["char_from"]:
+            _fail("NAME_COMPLETION_SOURCE_EVIDENCE_INVALID")
         text, page = row.get("verbatim_text"), row.get("page_evidence")
         if (not isinstance(text, str) or hashlib.sha256(text.encode()).hexdigest() != row.get("verbatim_sha256") or
                 not isinstance(page, dict) or page.get("page_from") != expected_page or page.get("page_to") != expected_page):

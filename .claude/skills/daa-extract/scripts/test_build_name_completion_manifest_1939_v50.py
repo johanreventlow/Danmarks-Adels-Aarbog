@@ -11,18 +11,30 @@ from pathlib import Path
 import pytest
 
 from build_name_completion_manifest_1939_v50 import (
-    PRODUCTION_BINDINGS,
+    SOURCE_MANIFEST_CONTENT_SHA256,
     ManifestError,
     artifact_sha,
     build_manifest,
     canonical_sha,
 )
 
+LOCKED_ROWS = (
+    ("record-3766faae-ae21-412a-8cfb-745a19ac77f0", 1846, "Ditlev", 503),
+    ("record-43d4974a-0532-421d-a3fb-8e7c575a67e7", 1847, "Gerhard (Gherardus de Reventlow)", 506),
+    ("record-80180a6e-2cc6-4968-81ca-004b6662d8ce", 1848, "Henning", 506),
+    ("record-89a932c8-7b52-4f5c-9e00-0f2b62ee4422", 1849, "Henning Reventlow", 508),
+    ("record-8f346104-cf3c-465f-bfa3-efb78be436b2", 1850, "Iven (Ywanus de Reuentlo)", 506),
+    ("record-a1f4547d-16cc-4110-ad1b-fa3ff1c59a58", 1851, "Henning", 508),
+    ("record-b626f5ff-f2fb-4061-bfce-988dbddec846", 1852, "Henrik", 506),
+    ("record-c731fc5a-7e4c-45b8-9bfc-d6eba9f62e5d", 1853, "Margrethe", 517),
+)
+LOCKED_MAP = {key: (person, name, page) for key, person, name, page in LOCKED_ROWS}
+
 
 def _production_inputs():
     creates = []
     audits = []
-    for key, (person_id, name, page) in PRODUCTION_BINDINGS.items():
+    for key, person_id, name, page in LOCKED_ROWS:
         text = f"{name}, source text for {key}."
         payload = {
             "element_id": f"person-create:{key}",
@@ -54,6 +66,7 @@ def _production_inputs():
     production_manifest = {
         "schema_version": "1939-v50-production-write-manifest-v1",
         "batch_id": "560c39f8-5c87-4c0d-a768-025d97fa2974",
+        "manifest_content_sha256": SOURCE_MANIFEST_CONTENT_SHA256,
         "person_creates": creates,
     }
     production_apply = {
@@ -61,7 +74,7 @@ def _production_inputs():
         "batch_id": "560c39f8-5c87-4c0d-a768-025d97fa2974",
         "status": "finalized",
         "committed": True,
-        "person_id_map": {key: binding[0] for key, binding in PRODUCTION_BINDINGS.items()},
+        "person_id_map": {key: binding[0] for key, binding in LOCKED_MAP.items()},
     }
     post_apply_audit = {
         "schema_version": "1939-v50-post-apply-audit-v1",
@@ -89,7 +102,7 @@ def mutate_production_inputs(mutation):
     if mutation == "wrong_batch":
         manifest["batch_id"] = "wrong"
     elif mutation == "wrong_person":
-        apply["person_id_map"][next(iter(PRODUCTION_BINDINGS))] = 9999
+        apply["person_id_map"][LOCKED_ROWS[0][0]] = 9999
     elif mutation == "wrong_record":
         audit["rows"][0]["source_record_key"] = "record-wrong"
     elif mutation == "wrong_name":
@@ -101,11 +114,11 @@ def mutate_production_inputs(mutation):
     elif mutation == "wrong_persona":
         audit["rows"][0]["source_persona_id"] = "persona-wrong"
     elif mutation == "duplicate_person":
-        apply["person_id_map"][list(PRODUCTION_BINDINGS)[1]] = 1846
+        apply["person_id_map"][LOCKED_ROWS[1][0]] = 1846
     elif mutation == "missing_operation":
         del manifest["person_creates"][-1]
         del audit["rows"][-1]
-        del apply["person_id_map"][list(PRODUCTION_BINDINGS)[-1]]
+        del apply["person_id_map"][LOCKED_ROWS[-1][0]]
     elif mutation == "unknown_field":
         manifest["person_creates"][0]["unexpected"] = True
     elif mutation == "reordered_apply_map":
@@ -189,3 +202,50 @@ def test_cli_refuses_existing_output_path(tmp_path):
     assert result.returncode != 0
     assert "OUTPUT_EXISTS" in result.stderr
     assert output.read_text() == "sentinel"
+
+
+@pytest.mark.parametrize("attack", [
+    "mutated_manifest_rehashed", "missing_persona", "null_persona",
+    "missing_span", "malformed_span", "nonpositive_span",
+    "unknown_manifest_field", "reversed_create_order", "reversed_audit_order",
+])
+def test_rejects_additional_closed_boundary_attacks(attack):
+    values = list(production_inputs())
+    if attack == "mutated_manifest_rehashed":
+        values[0]["person_creates"][0]["name"] = "Attacker"
+    elif attack == "missing_persona":
+        del values[0]["person_creates"][0]["source_persona_id"]
+    elif attack == "null_persona":
+        values[0]["person_creates"][0]["source_persona_id"] = None
+    elif attack == "missing_span":
+        del values[0]["person_creates"][0]["source_span"]
+    elif attack == "malformed_span":
+        values[0]["person_creates"][0]["source_span"] = {"char_from": 1}
+    elif attack == "nonpositive_span":
+        values[0]["person_creates"][0]["source_span"] = {"char_from": 0, "char_to": 0}
+    elif attack == "unknown_manifest_field":
+        values[0]["unknown"] = True
+    elif attack == "reversed_create_order":
+        values[0]["person_creates"].reverse()
+    elif attack == "reversed_audit_order":
+        values[2]["rows"].reverse()
+    with pytest.raises(ManifestError):
+        build_manifest(*values, input_hashes=hash_inputs(values))
+
+
+def test_cli_accepts_nonpreferred_json_whitespace_with_raw_hash(tmp_path):
+    values = production_inputs()
+    paths, hashes = [], []
+    for index, value in enumerate(values):
+        path = tmp_path / f"input-{index}.json"
+        raw = json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode() + b"\n"
+        path.write_bytes(raw)
+        paths.append(path)
+        hashes.append(hashlib.sha256(raw).hexdigest())
+    output = tmp_path / "out.json"
+    module = Path(__file__).with_name("build_name_completion_manifest_1939_v50.py")
+    command = [sys.executable, str(module)]
+    for label, path, digest in zip(("production-manifest", "production-apply", "post-apply-audit"), paths, hashes):
+        command.extend([f"--{label}", str(path), f"--{label}-sha256", digest])
+    command.extend(["--output", str(output)])
+    subprocess.run(command, check=True)
