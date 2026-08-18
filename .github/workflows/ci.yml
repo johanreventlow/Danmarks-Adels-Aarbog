@@ -125,6 +125,41 @@ jobs:
           psql -h localhost -U postgres -d evidence_promotion -v ON_ERROR_STOP=1 -f db-rls.sql
           psql -h localhost -U postgres -d evidence_promotion -v ON_ERROR_STOP=1 -f tests/sql/test-evidence-promotion.sql
 
+  writer-1939-v50-db:
+    name: DAA 1939 v50 writer · PostgreSQL 17
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: writer_1939
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d writer_1939"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: r-lib/actions/setup-r@v2
+        with: {use-public-rspm: true}
+      - run: Rscript -e 'install.packages(c("DBI","RPostgres","jsonlite","digest"))'
+      - name: Bootstrap og writer-kontrakt
+        env: {PGPASSWORD: postgres}
+        run: |
+          psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql
+          psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f schema.sql
+          psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f db-rls.sql
+          psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/1939-v50-writer-bootstrap.sql
+          psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-1939-v50-production-writer.sql
+      - name: Virkelig rollback/apply/reversal integration
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: writer_1939
+        run: Rscript tests/integration/test-1939-v50-production-writer.R
+
   web:
     name: web · vitest + build
     runs-on: ubuntu-latest
