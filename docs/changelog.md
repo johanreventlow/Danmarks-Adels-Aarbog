@@ -1,5 +1,27 @@
 # Changelog
 
+## Fase A: fuldt kilderegnskab i prod — 592/592 records forankret (2026-08-18 aften)
+
+Det menneskeverificerede grænsearbejdes komplette kilderegnskab er nu i
+produktionsdatabasen: fase A-applyen skrev de 584 resterende source records
+(batch `328a813a…`, 584 source_evidence-events, nul kanonisk delta) oven på
+de 243 eksisterende. Prod-evidenslaget står nu på 592 records / 897 byte-
+ankre-occurrences-observationer-mentions, alle bundet til Calamari-
+renditionen. 235 nøgler deles bevidst med task 25's claim-rækker (helpost-
+vs. claim-granularitet; append-only-trigger gør kind-overskrivning
+strukturelt umulig).
+
+Bygget efter subagent-metoden (4 tasks, 2 fix-runder, uafhængige reviews
+der genudledte artefakterne selv, fable-slutreview clean): deterministisk
+manifest-bygger (fil-SHA `1945416b…`, content-SHA `19d72155…` = DB'ens
+idempotens-nøgle), hard-låst R-writer (eksplicit `--dry-run|--apply`, delt
+advisory-lås med task 25-writeren), rehearsal mod frisk prod-restore med
+byte-identiske baselines og bevist idempotent replay. Backup før apply:
+`daa-production-before-phase-a-apply-20260818-190120.dump` (0600, SHA
+`50d62309…`). GO-pakke: `docs/superpowers/reviews/1939-v50-phase-a-readiness.md`.
+Næste: fase B — narrativ-erstatning (478 ændrede) inkl.
+ombrydnings-normalisering.
+
 ## 1939 v50-strømmen lukket i prod: publikation + cutover (2026-08-18)
 
 Hele den evidensbaserede 1939 v50-strøm er nu udført og verificeret i produktion.
