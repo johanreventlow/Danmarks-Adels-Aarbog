@@ -70,10 +70,6 @@ def build_manifest(production_manifest: dict[str, Any], production_apply: dict[s
         _fail("NAME_COMPLETION_AUDIT_INVALID")
     if production_manifest.get("manifest_content_sha256") != SOURCE_MANIFEST_CONTENT_SHA256:
         _fail("NAME_COMPLETION_SOURCE_MANIFEST_INVALID")
-    manifest_for_hash = dict(production_manifest)
-    del manifest_for_hash["manifest_content_sha256"]
-    if canonical_sha(manifest_for_hash) != SOURCE_MANIFEST_CONTENT_SHA256:
-        _fail("NAME_COMPLETION_SOURCE_MANIFEST_CONTENT_INVALID")
     if post_apply_audit.get("batch_id") != SOURCE_BATCH_ID:
         _fail("NAME_COMPLETION_BATCH_INVALID")
     if production_apply.get("mode") != "apply":
@@ -113,7 +109,7 @@ def build_manifest(production_manifest: dict[str, Any], production_apply: dict[s
             _fail("NAME_COMPLETION_SOURCE_ROW_INVALID")
         persona = row.get("source_persona_id")
         span = row.get("source_span")
-        if not isinstance(persona, str) or not persona or not isinstance(span, dict) or set(span) != {"char_from", "char_to"} or not isinstance(span["char_from"], int) or not isinstance(span["char_to"], int) or span["char_from"] < 0 or span["char_to"] <= span["char_from"]:
+        if not isinstance(persona, str) or not persona or not isinstance(span, dict) or set(span) != {"char_from", "char_to"} or type(span["char_from"]) is not int or type(span["char_to"]) is not int or span["char_from"] < 0 or span["char_to"] <= span["char_from"]:
             _fail("NAME_COMPLETION_SOURCE_EVIDENCE_INVALID")
         text, page = row.get("verbatim_text"), row.get("page_evidence")
         if (not isinstance(text, str) or hashlib.sha256(text.encode()).hexdigest() != row.get("verbatim_sha256") or
@@ -137,6 +133,10 @@ def build_manifest(production_manifest: dict[str, Any], production_apply: dict[s
             "expected_before": {"staged": True, "name_cache_empty": True, "name_facts": 0},
             "expected_after": {"name_fact": 1, "selected_assertion": 1, "daa_1939_citation": 1, "conclusion": 1},
         })
+    manifest_for_hash = dict(production_manifest)
+    del manifest_for_hash["manifest_content_sha256"]
+    if canonical_sha(manifest_for_hash) != SOURCE_MANIFEST_CONTENT_SHA256:
+        _fail("NAME_COMPLETION_SOURCE_MANIFEST_CONTENT_INVALID")
     result = {
         "schema_version": SCHEMA_VERSION, "generator_version": "build_name_completion_manifest_1939_v50.py:v1",
         "input_hashes": {"production_manifest_sha256": input_hashes[0], "production_apply_sha256": input_hashes[1], "post_apply_audit_sha256": input_hashes[2]},
@@ -169,7 +169,9 @@ def main() -> None:
         _fail("NAME_COMPLETION_INPUT_HASH_INVALID")
     # Raw-byte integrity is checked above; the public contract receives the
     # locked production-manifest byte contract rather than a serialization hash.
-    result = build_manifest(*(json.loads(data) for data in raw), input_hashes=[SOURCE_MANIFEST_BYTES_SHA256, hashes[1], hashes[2]])
+    if hashes[0] != SOURCE_MANIFEST_BYTES_SHA256:
+        _fail("NAME_COMPLETION_SOURCE_MANIFEST_BYTES_INVALID")
+    result = build_manifest(*(json.loads(data) for data in raw), input_hashes=hashes)
     output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 

@@ -246,7 +246,7 @@ def test_cli_accepts_nonpreferred_json_whitespace_with_raw_hash(tmp_path):
     paths, hashes = [], []
     for index, value in enumerate(values):
         path = tmp_path / f"input-{index}.json"
-        raw = json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode() + b"\n"
+        raw = (Path(__file__).parents[4] / "work/task25-1939-v50-production-writer/production-write-manifest-v1.json").read_bytes() if index == 0 else json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode() + b"\n"
         path.write_bytes(raw)
         paths.append(path)
         hashes.append(hashlib.sha256(raw).hexdigest())
@@ -257,6 +257,25 @@ def test_cli_accepts_nonpreferred_json_whitespace_with_raw_hash(tmp_path):
         command.extend([f"--{label}", str(path), f"--{label}-sha256", digest])
     command.extend(["--output", str(output)])
     subprocess.run(command, check=True)
+
+
+def test_cli_rejects_byte_different_semantically_identical_source_manifest(tmp_path):
+    values = production_inputs()
+    paths = []
+    for index, value in enumerate(values):
+        path = tmp_path / f"input-{index}.json"
+        raw = json.dumps(value, ensure_ascii=False, indent=2).encode() + b" \n"
+        path.write_bytes(raw)
+        paths.append(path)
+    output = tmp_path / "out.json"
+    module = Path(__file__).with_name("build_name_completion_manifest_1939_v50.py")
+    command = [sys.executable, str(module)]
+    for label, path, digest in zip(("production-manifest", "production-apply", "post-apply-audit"), paths, cli_hashes(paths)):
+        command.extend([f"--{label}", str(path), f"--{label}-sha256", digest])
+    command.extend(["--output", str(output)])
+    result = subprocess.run(command, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "SOURCE_MANIFEST_BYTES_INVALID" in result.stderr
 
 
 def test_rejects_consistently_mutated_source_manifest_by_content_closure():
@@ -271,5 +290,5 @@ def test_rejects_consistently_mutated_source_manifest_by_content_closure():
 def test_rejects_boolean_span_coordinates(value):
     values = list(production_inputs())
     values[0]["person_creates"][0]["source_span"]["char_from"] = value
-    with pytest.raises(ManifestError):
+    with pytest.raises(ManifestError, match="NAME_COMPLETION_SOURCE_EVIDENCE_INVALID"):
         build_manifest(*values, input_hashes=[SOURCE_MANIFEST_BYTES_SHA256, *hash_inputs(values)[1:]])
