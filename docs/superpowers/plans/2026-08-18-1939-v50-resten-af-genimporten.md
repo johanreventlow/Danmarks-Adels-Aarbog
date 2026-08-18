@@ -71,19 +71,21 @@ samme tekstnorm i én operation.
 **Leverance:** Prod indeholder alle 592 source records med byte-ankre i
 Calamari-renditionen (i dag: 243). Nul kanonisk delta.
 
-**Indhold (fase-planen detaljerer):**
-1. Udvid `build_production_write_manifest_1939_v50.py` (eller søsterbygger)
-   til et fase-A-manifest: de 543 baseline-mappede person-records +
-   3 pensionerede legacy-markeringer + resterende strukturelle/krydsref-
-   records, hver med span, verbatim-hash, occurrence, observation, mention
-   og (for person-records) persona + identitetsafgørelse mod den allerede
-   kendte kanoniske person (task 22-24's afgørelser genbruges — de ligger
-   i work/task22-24-artefakterne og skal hash-låses som input).
+**Indhold — detaljeret i
+`2026-08-18-1939-v50-fase-a-kilderegnskab.md`:**
+1. Ny deterministisk manifest-bygger for de **584** endnu ikke skrevne
+   records (592 minus de 8 person-creates): span + verbatim (byte-verificeret
+   mod Calamari) + sideudledning fra `###`-markørerne + `canonical_target`
+   -person-id via database-preview'ets `person_anchors.matched`.
+   **Ingen DDL og ingen personaer/identiteter** — persona-laget for
+   eksisterende personer er flyttet til fase C, hvor
+   `red_decide_source_persona_identity`-maskineriet bor.
 2. Ny batch gennem den eksisterende authorize→begin→source_evidence→finalize-
-   kontrakt. `person_creates=0`, `canonical_delta=0` i expected_counts.
-3. Rehearsal (template-kopi af frisk prod-restore, byte-identiske baselines)
-   → backup → GO-pakke → apply → read-only efterkontrol (592 records,
-   ankre = records-antal, personaer = 543+8, identiteter accepteret 551).
+   kontrakt uændret. `person_creates=0`, `canonical_delta=0`.
+3. Rehearsal (frisk prod-restore EFTER cutover, byte-identiske baselines,
+   dry-run + committed + replay) → GO-pakke → [godkendelse] → backup +
+   apply → read-only efterkontrol (827 records, 897 ankre, personaer
+   fortsat 8, kanoniske tællinger uændrede).
 
 **Gate:** brugergodkendelse med manifest-SHA + backup-SHA før apply.
 
