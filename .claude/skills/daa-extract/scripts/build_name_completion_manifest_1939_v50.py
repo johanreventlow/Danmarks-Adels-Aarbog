@@ -122,6 +122,10 @@ def build_manifest(production_manifest: dict[str, Any], production_apply: dict[s
                 audit.get("page") != expected_page or audit.get("verbatim_text") != text or
                 audit.get("staged") is not True or audit.get("name_fact_count") != 0):
             _fail("NAME_COMPLETION_AUDIT_INVALID")
+        source_payload = dict(row)
+        del source_payload["element_id"]
+        del source_payload["dependency_class"]
+        source_payload["rendition_content_sha256"] = production_manifest["source"]["rendition_content_sha256"]
         operations.append({
             "element_id": f"name-completion:{key}", "source_batch_id": SOURCE_BATCH_ID,
             "source_person_create_element_id": row["element_id"], "person_id": expected_person,
@@ -129,7 +133,7 @@ def build_manifest(production_manifest: dict[str, Any], production_apply: dict[s
             "source_persona_id": row.get("source_persona_id"), "name": expected_name,
             "source_span": row.get("source_span"), "page_evidence": page,
             "verbatim_text": text, "verbatim_sha256": row["verbatim_sha256"],
-            "source_payload_sha256": canonical_sha(row),
+            "source_payload_sha256": canonical_sha(source_payload),
             "expected_before": {"staged": True, "name_cache_empty": True, "name_facts": 0},
             "expected_after": {"name_fact": 1, "selected_assertion": 1, "daa_1939_citation": 1, "conclusion": 1},
         })

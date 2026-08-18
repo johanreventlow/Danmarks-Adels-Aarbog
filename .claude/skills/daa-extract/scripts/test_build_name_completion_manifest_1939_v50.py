@@ -161,13 +161,25 @@ def test_rejects_locked_universe_drift(mutation):
 
 
 def test_payload_hash_is_canonical_and_output_flags_are_closed():
-    out = build_manifest(*production_inputs(), input_hashes=production_hashes())
+    production_manifest, production_apply, post_apply_audit = production_inputs()
+    out = build_manifest(production_manifest, production_apply, post_apply_audit,
+                         input_hashes=production_hashes())
     first = out["operations"][0]
-    assert first["source_payload_sha256"] == canonical_sha(
-        _production_inputs()[0]["person_creates"][0]
-    )
+    expected_payload = copy.deepcopy(production_manifest["person_creates"][0])
+    expected_payload.pop("element_id")
+    expected_payload.pop("dependency_class")
+    expected_payload["rendition_content_sha256"] = production_manifest["source"]["rendition_content_sha256"]
+    assert first["source_payload_sha256"] == canonical_sha(expected_payload)
+    assert first["source_payload_sha256"] != canonical_sha(production_manifest["person_creates"][0])
     assert out["production_authorized"] is False
     assert out["cutover_authorized"] is False
+
+
+def test_rejects_rendition_drift_before_authorized_payload_hashing():
+    values = list(production_inputs())
+    values[0]["source"]["rendition_content_sha256"] = "f" * 64
+    with pytest.raises(ManifestError, match="NAME_COMPLETION_SOURCE_MANIFEST_CONTENT_INVALID"):
+        build_manifest(*values, input_hashes=[SOURCE_MANIFEST_BYTES_SHA256, *hash_inputs(values)[1:]])
 
 
 def test_subprocess_builds_are_byte_identical_across_hash_seeds(tmp_path):
