@@ -237,7 +237,13 @@ git commit -m "feat(1939): orchestrate staged name completion"
 
 **Interfaces:**
 - Consumes: one exact completion manifest authorization and eight closed element payloads.
-- Produces: `public.red_authorize_1939_v50_name_completion(...)`, `public.red_begin_1939_v50_name_completion(...)`, `public.red_apply_1939_v50_name_completion(...)`, and `public.red_finalize_1939_v50_name_completion(...)`.
+- Produces: `public.red_lock_1939_v50_name_completion(text)`, `public.red_authorize_1939_v50_name_completion(...)`, `public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)`, `public.red_begin_1939_v50_name_completion(...)`, `public.red_apply_1939_v50_name_completion(...)`, and `public.red_finalize_1939_v50_name_completion(...)`.
+- The preflight RPC consumes the authorization id, source-batch id, manifest
+  hash and complete element-payload map. It returns the closed nested object
+  `{authorization,preflight}`, where `authorization` is read from database
+  state as exactly `{authorization_id,database_name,system_identifier}` and
+  `preflight` is exactly
+  `{valid,database_name,system_identifier,source_batch_id,manifest_sha256}`.
 
 - [ ] **Step 1: Write the failing PostgreSQL behavior test**
 
@@ -264,7 +270,11 @@ ASSERT (SELECT count(*) FROM private.reimport_1939_name_completion_result
   WHERE batch_id=v_completion_batch) = 1;
 ```
 
-Add negative blocks for tampered name/text/page/person/persona/event hash,
+Before begin, call the dedicated lock and four-argument preflight RPC and assert
+that the returned database-issued authorization envelope and preflight identity
+match the disposable database. Add negative blocks for unknown or mismatched
+authorization id, database/system identity drift, extra/missing nested return
+fields, tampered name/text/page/person/persona/event hash,
 non-staged person, existing name fact, missing source link, reused authorization,
 wrong actor, expired authorization, ninth element and partial finalize.
 
@@ -308,12 +318,17 @@ CREATE TABLE private.reimport_1939_name_completion_result (
 Enable RLS, add the existing append-only mutation rejection trigger, and revoke
 all table privileges from `PUBLIC`, `anon` and `authenticated`.
 
-- [ ] **Step 4: Implement the four narrow functions**
+- [ ] **Step 4: Implement the six narrow functions**
 
 The authorize function verifies current database plus
 `(pg_control_system()).system_identifier`, source batch status/hashes, exact
-8-counts and exact element object. Begin consumes the authorization and creates
-one open child batch. Apply:
+8-counts and exact element object, stores that database identity with the
+authorization, and returns the closed authorization envelope. The lock function
+acquires the name-completion advisory transaction lock. Preflight accepts the
+authorization id and re-derives the complete payload evidence from database
+state; it returns the exact nested `{authorization,preflight}` object and cannot
+echo caller-supplied database identity. Begin consumes the authorization and
+creates one open child batch. Apply:
 
 ```sql
 PERFORM pg_advisory_xact_lock(hashtextextended('daa-1939-v50-name-completion',0));
@@ -330,10 +345,12 @@ row chains before setting the child batch to `finalized`.
 - [ ] **Step 5: Add RLS and function grants**
 
 Revoke all new SECURITY DEFINER functions from `PUBLIC`, `anon` and
-`authenticated`. Grant only begin/apply/finalize to `authenticated`; keep
-authorization unavailable to self-service roles, matching the original writer
-contract. Use fixed `search_path=pg_catalog,public,private,extensions` only
-where `digest()` is needed.
+`authenticated`. Grant only lock/preflight/begin/apply/finalize to
+`authenticated`; keep authorization unavailable to self-service roles,
+matching the original writer contract. Preflight must validate the stored
+authorization actor and identity before returning its envelope. Use fixed
+`search_path=pg_catalog,public,private,extensions` only where `digest()` is
+needed.
 
 - [ ] **Step 6: Rebuild and run the SQL test GREEN**
 
