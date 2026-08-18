@@ -2306,7 +2306,7 @@ REVOKE EXECUTE ON FUNCTION private.validate_narrative_record_publication() FROM 
 -- ---------- DAA 1939 v50: guarded production writer ----------
 CREATE TABLE private.reimport_1939_authorization (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  operation text NOT NULL CHECK(operation IN ('reimport','reversal','cutover')),
+  operation text NOT NULL CHECK(operation IN ('reimport','reversal','cutover','name_completion')),
   manifest_sha256 text NOT NULL CHECK(manifest_sha256 ~ '^[0-9a-f]{64}$'),
   preview_sha256 text NOT NULL CHECK(preview_sha256 ~ '^[0-9a-f]{64}$'),
   database_identity text NOT NULL CHECK(btrim(database_identity)<>''),
@@ -2606,14 +2606,272 @@ BEGIN
   RETURN jsonb_build_object('batch_id',p_batch_id,'status','activated','persons_activated',v_count);
 END $$;
 
+-- ---------- DAA 1939 v50: source-bound name completion ----------
+CREATE TABLE private.reimport_1939_name_completion_result (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  batch_id uuid NOT NULL REFERENCES private.reimport_1939_write_batch(id),
+  element_id text NOT NULL,
+  source_batch_id uuid NOT NULL REFERENCES private.reimport_1939_write_batch(id),
+  person_id bigint NOT NULL,
+  source_record_id uuid NOT NULL,
+  source_persona_id uuid NOT NULL,
+  fact_id bigint NOT NULL,
+  assertion_id bigint NOT NULL,
+  citation_id bigint NOT NULL,
+  conclusion_id bigint NOT NULL,
+  payload_sha256 text NOT NULL CHECK(payload_sha256 ~ '^[0-9a-f]{64}$'),
+  result_sha256 text NOT NULL CHECK(result_sha256 ~ '^[0-9a-f]{64}$'),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(batch_id,element_id),
+  UNIQUE(source_batch_id,person_id,source_record_id)
+);
+CREATE TRIGGER trg_reimport_1939_name_completion_result_append_only
+  BEFORE UPDATE OR DELETE ON private.reimport_1939_name_completion_result
+  FOR EACH ROW EXECUTE FUNCTION private.reject_reimport_1939_event_mutation();
+
+CREATE FUNCTION private.reimport_1939_canonical_json_sha256(p_value jsonb)
+RETURNS text LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog,extensions AS $$
+DECLARE v_piece text; v_key text; v_item jsonb;
+BEGIN
+  CASE jsonb_typeof(p_value)
+    WHEN 'object' THEN
+      v_piece:='{';
+      FOR v_key IN SELECT jsonb_object_keys(p_value) ORDER BY 1 LOOP
+        IF v_piece<>'{' THEN v_piece:=v_piece||','; END IF;
+        v_piece:=v_piece||to_jsonb(v_key)::text||':'||private.reimport_1939_canonical_json_text(p_value->v_key);
+      END LOOP;
+      v_piece:=v_piece||'}';
+    WHEN 'array' THEN
+      v_piece:='[';
+      FOR v_item IN SELECT value FROM jsonb_array_elements(p_value) LOOP
+        IF v_piece<>'[' THEN v_piece:=v_piece||','; END IF;
+        v_piece:=v_piece||private.reimport_1939_canonical_json_text(v_item);
+      END LOOP;
+      v_piece:=v_piece||']';
+    ELSE v_piece:=p_value::text;
+  END CASE;
+  RETURN encode(digest(convert_to(v_piece,'UTF8'),'sha256'),'hex');
+END $$;
+
+CREATE FUNCTION private.reimport_1939_canonical_json_text(p_value jsonb)
+RETURNS text LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE v_piece text; v_key text; v_item jsonb;
+BEGIN
+  CASE jsonb_typeof(p_value)
+    WHEN 'object' THEN
+      v_piece:='{';
+      FOR v_key IN SELECT jsonb_object_keys(p_value) ORDER BY 1 LOOP
+        IF v_piece<>'{' THEN v_piece:=v_piece||','; END IF;
+        v_piece:=v_piece||to_jsonb(v_key)::text||':'||private.reimport_1939_canonical_json_text(p_value->v_key);
+      END LOOP;
+      RETURN v_piece||'}';
+    WHEN 'array' THEN
+      v_piece:='[';
+      FOR v_item IN SELECT value FROM jsonb_array_elements(p_value) LOOP
+        IF v_piece<>'[' THEN v_piece:=v_piece||','; END IF;
+        v_piece:=v_piece||private.reimport_1939_canonical_json_text(v_item);
+      END LOOP;
+      RETURN v_piece||']';
+    ELSE RETURN p_value::text;
+  END CASE;
+END $$;
+
+CREATE FUNCTION private.validate_reimport_1939_name_completion(
+  p_authorization_id uuid,p_source_batch_id uuid,p_manifest_sha256 text,p_payloads jsonb)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE a private.reimport_1939_authorization%ROWTYPE; b private.reimport_1939_write_batch%ROWTYPE;
+  sa private.reimport_1939_authorization%ROWTYPE; k text; p jsonb; e private.reimport_1939_write_event%ROWTYPE;
+  v_identity jsonb; v_system text:=(pg_control_system()).system_identifier::text; v_record uuid;
+BEGIN
+  SELECT * INTO a FROM private.reimport_1939_authorization WHERE id=p_authorization_id FOR UPDATE;
+  IF NOT FOUND OR a.operation<>'name_completion' OR a.status<>'issued' OR a.principal_id<>private.require_reimport_1939_editor()
+     OR a.expires_at<=clock_timestamp() OR a.manifest_sha256<>p_manifest_sha256
+     OR jsonb_typeof(p_payloads)<>'object' OR a.expected_counts<>'{"name_completions":8,"operations":8}'::jsonb
+     OR a.authorized_elements<>jsonb_build_object('payloads',p_payloads,
+          'source_manifest_bytes_sha256',a.authorized_elements->>'source_manifest_bytes_sha256',
+          'source_manifest_content_sha256',a.authorized_elements->>'source_manifest_content_sha256') THEN
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_PREFLIGHT_INVALID';
+  END IF;
+  BEGIN v_identity:=a.database_identity::jsonb; EXCEPTION WHEN OTHERS THEN RAISE EXCEPTION 'NAME_COMPLETION_1939_PREFLIGHT_INVALID'; END;
+  IF v_identity<>jsonb_build_object('database_name',current_database(),'system_identifier',v_system)
+     OR (SELECT array_agg(key ORDER BY key) FROM jsonb_object_keys(v_identity) AS t(key))<>ARRAY['database_name','system_identifier'] THEN
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_PREFLIGHT_INVALID';
+  END IF;
+  SELECT * INTO b FROM private.reimport_1939_write_batch WHERE id=p_source_batch_id;
+  SELECT * INTO sa FROM private.reimport_1939_authorization WHERE id=b.authorization_id;
+  IF NOT FOUND OR b.status<>'finalized' OR sa.operation<>'reimport' OR sa.source_id<>3
+     OR sa.manifest_sha256<>a.authorized_elements->>'source_manifest_bytes_sha256'
+     OR sa.preview_sha256<>a.authorized_elements->>'source_manifest_content_sha256'
+     OR (SELECT count(*) FROM private.reimport_1939_write_event WHERE batch_id=b.id AND operation='person_create')<>8
+     OR (SELECT count(*) FROM jsonb_object_keys(p_payloads))<>8 THEN
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_PREFLIGHT_INVALID';
+  END IF;
+  FOR k,p IN SELECT key,value FROM jsonb_each(p_payloads) LOOP
+    IF k<>('name-completion:'||(p->>'source_record_key'))
+       OR (p-ARRAY['source_batch_id','source_person_create_element_id','person_id','source_id','edition','source_record_key','source_persona_id','name','source_span','page_evidence','verbatim_text','verbatim_sha256','source_payload_sha256','expected_before','expected_after'])<>'{}'::jsonb
+       OR p->>'source_batch_id'<>p_source_batch_id::text OR p->>'source_id'<>'3' OR p->>'edition'<>'1939'
+       OR jsonb_typeof(p->'source_span')<>'object' OR jsonb_typeof(p->'page_evidence')<>'object'
+       OR p->'expected_before'<>'{"staged":true,"name_cache_empty":true,"name_facts":0}'::jsonb
+       OR p->'expected_after'<>'{"name_fact":1,"selected_assertion":1,"daa_1939_citation":1,"conclusion":1}'::jsonb
+       OR nullif(btrim(p->>'name'),'') IS NULL OR p->>'source_payload_sha256' !~ '^[0-9a-f]{64}$'
+       OR p->>'verbatim_sha256'<>encode(digest(convert_to(p->>'verbatim_text','UTF8'),'sha256'),'hex') THEN
+      RAISE EXCEPTION 'NAME_COMPLETION_1939_PREFLIGHT_INVALID';
+    END IF;
+    SELECT * INTO e FROM private.reimport_1939_write_event
+      WHERE batch_id=b.id AND element_id=p->>'source_person_create_element_id' AND operation='person_create';
+    SELECT id INTO v_record FROM private.source_record WHERE source_id=3 AND record_key=p->>'source_record_key';
+    IF NOT FOUND OR e.canonical_person_id<>(p->>'person_id')::bigint OR e.source_record_key<>p->>'source_record_key'
+       OR private.reimport_1939_canonical_json_sha256(e.payload)<>p->>'source_payload_sha256'
+       OR e.payload->>'source_id'<>'3' OR e.payload->>'source_record_key'<>p->>'source_record_key'
+       OR e.payload->>'source_persona_id'<>p->>'source_persona_id' OR e.payload->>'name'<>p->>'name'
+       OR e.payload->'source_span'<>p->'source_span' OR e.payload->'page_evidence'<>p->'page_evidence'
+       OR e.payload->>'verbatim_text'<>p->>'verbatim_text' OR e.payload->>'verbatim_sha256'<>p->>'verbatim_sha256'
+       OR NOT EXISTS(SELECT 1 FROM public.person q WHERE q.id=(p->>'person_id')::bigint AND q.staged AND q.visning_navn IS NULL)
+       OR EXISTS(SELECT 1 FROM public.fact f WHERE f.subjekt_type='person' AND f.subjekt_id=(p->>'person_id')::bigint AND f.faktatype='navn')
+       OR NOT EXISTS(SELECT 1 FROM private.source_persona sp JOIN private.source_persona_identity si ON si.source_persona_id=sp.id
+                     WHERE sp.id=(p->>'source_persona_id')::uuid AND sp.source_id=3
+                       AND si.canonical_person_id=(p->>'person_id')::bigint AND si.decision_status='accepted') THEN
+      RAISE EXCEPTION 'NAME_COMPLETION_1939_PREFLIGHT_INVALID';
+    END IF;
+  END LOOP;
+END $$;
+
+CREATE FUNCTION public.red_lock_1939_v50_name_completion(p_manifest_sha256 text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  PERFORM private.require_reimport_1939_editor();
+  IF p_manifest_sha256 !~ '^[0-9a-f]{64}$' THEN RAISE EXCEPTION 'NAME_COMPLETION_1939_LOCK_INVALID'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-1939-v50-name-completion',0));
+END $$;
+
+CREATE FUNCTION public.red_authorize_1939_v50_name_completion(
+  p_manifest_sha256 text,p_source_batch_id uuid,p_source_manifest_bytes_sha256 text,
+  p_source_manifest_content_sha256 text,p_expected_counts jsonb,p_payloads jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_id uuid; v_actor uuid:=private.require_reimport_1939_editor(); v_system text:=(pg_control_system()).system_identifier::text;
+BEGIN
+  IF p_manifest_sha256 !~ '^[0-9a-f]{64}$' OR p_source_manifest_bytes_sha256 !~ '^[0-9a-f]{64}$'
+     OR p_source_manifest_content_sha256 !~ '^[0-9a-f]{64}$'
+     OR p_expected_counts<>'{"name_completions":8,"operations":8}'::jsonb OR jsonb_typeof(p_payloads)<>'object' THEN
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_AUTHORIZATION_INVALID';
+  END IF;
+  INSERT INTO private.reimport_1939_authorization(operation,manifest_sha256,preview_sha256,database_identity,source_id,expected_counts,authorized_elements,principal_id,nonce,expires_at)
+  VALUES('name_completion',p_manifest_sha256,p_source_manifest_content_sha256,
+    jsonb_build_object('database_name',current_database(),'system_identifier',v_system)::text,3,p_expected_counts,
+    jsonb_build_object('payloads',p_payloads,'source_manifest_bytes_sha256',p_source_manifest_bytes_sha256,
+      'source_manifest_content_sha256',p_source_manifest_content_sha256),v_actor,gen_random_uuid(),clock_timestamp()+interval '5 minutes')
+  RETURNING id INTO v_id;
+  PERFORM private.validate_reimport_1939_name_completion(v_id,p_source_batch_id,p_manifest_sha256,p_payloads);
+  RETURN jsonb_build_object('authorization_id',v_id,'database_name',current_database(),'system_identifier',v_system);
+END $$;
+
+CREATE FUNCTION public.red_preflight_1939_v50_name_completion(
+  p_authorization_id uuid,p_source_batch_id uuid,p_manifest_sha256 text,p_payloads jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE a private.reimport_1939_authorization%ROWTYPE; v_system text:=(pg_control_system()).system_identifier::text;
+BEGIN
+  PERFORM private.validate_reimport_1939_name_completion(p_authorization_id,p_source_batch_id,p_manifest_sha256,p_payloads);
+  SELECT * INTO a FROM private.reimport_1939_authorization WHERE id=p_authorization_id;
+  RETURN jsonb_build_object('authorization',jsonb_build_object('authorization_id',a.id,'database_name',current_database(),'system_identifier',v_system),
+    'preflight',jsonb_build_object('valid',true,'database_name',current_database(),'system_identifier',v_system,
+      'source_batch_id',p_source_batch_id,'manifest_sha256',p_manifest_sha256));
+END $$;
+
+CREATE FUNCTION public.red_begin_1939_v50_name_completion(
+  p_authorization_id uuid,p_manifest_sha256 text,p_source_batch_id uuid)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE a private.reimport_1939_authorization%ROWTYPE; v_id uuid;
+BEGIN
+  SELECT * INTO a FROM private.reimport_1939_authorization WHERE id=p_authorization_id FOR UPDATE;
+  IF NOT FOUND OR a.operation<>'name_completion' OR a.status<>'issued' OR a.principal_id<>private.require_reimport_1939_editor()
+     OR a.expires_at<=clock_timestamp() OR a.manifest_sha256<>p_manifest_sha256
+     OR NOT EXISTS(SELECT 1 FROM private.reimport_1939_write_batch WHERE id=p_source_batch_id AND status='finalized') THEN
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_AUTHORIZATION_INVALID';
+  END IF;
+  UPDATE private.reimport_1939_authorization SET status='consumed',consumed_at=clock_timestamp() WHERE id=a.id;
+  INSERT INTO private.reimport_1939_write_batch(authorization_id,manifest_sha256,preview_sha256,principal_id,expected_counts)
+  VALUES(a.id,a.manifest_sha256,a.preview_sha256,a.principal_id,a.expected_counts) RETURNING id INTO v_id;
+  RETURN v_id;
+END $$;
+
+CREATE FUNCTION public.red_apply_1939_v50_name_completion(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE b private.reimport_1939_write_batch%ROWTYPE; a private.reimport_1939_authorization%ROWTYPE;
+  v_fact bigint; v_assertion bigint; v_citation bigint; v_conclusion bigint; v_record uuid; v_hash text;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-1939-v50-name-completion',0));
+  LOCK TABLE public.fact, public.assertion, public.citation, public.conclusion IN SHARE ROW EXCLUSIVE MODE;
+  SELECT * INTO b FROM private.reimport_1939_write_batch WHERE id=p_batch_id FOR UPDATE;
+  IF NOT FOUND OR b.status<>'open' OR b.principal_id<>private.require_reimport_1939_editor() THEN RAISE EXCEPTION 'NAME_COMPLETION_1939_BATCH_INVALID'; END IF;
+  SELECT * INTO a FROM private.reimport_1939_authorization WHERE id=b.authorization_id;
+  IF NOT FOUND OR a.operation<>'name_completion' OR a.authorized_elements->'payloads'->p_element_id IS DISTINCT FROM p_payload THEN
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_APPLY_INVALID';
+  END IF;
+  IF EXISTS(SELECT 1 FROM private.reimport_1939_name_completion_result WHERE batch_id=p_batch_id AND element_id=p_element_id) THEN
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_APPLY_INVALID';
+  END IF;
+  SELECT id INTO v_record FROM private.source_record WHERE source_id=3 AND record_key=p_payload->>'source_record_key';
+  IF NOT FOUND OR NOT EXISTS(SELECT 1 FROM private.reimport_1939_write_event e
+      JOIN private.reimport_1939_write_batch sb ON sb.id=e.batch_id
+      WHERE e.batch_id=(p_payload->>'source_batch_id')::uuid AND sb.status='finalized' AND e.operation='person_create'
+        AND e.element_id=p_payload->>'source_person_create_element_id' AND e.canonical_person_id=(p_payload->>'person_id')::bigint
+        AND private.reimport_1939_canonical_json_sha256(e.payload)=p_payload->>'source_payload_sha256') THEN
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_APPLY_INVALID';
+  END IF;
+  SELECT coalesce(max(id),0)+1 INTO v_fact FROM public.fact;
+  SELECT coalesce(max(id),0)+1 INTO v_assertion FROM public.assertion;
+  SELECT coalesce(max(id),0)+1 INTO v_citation FROM public.citation;
+  SELECT coalesce(max(id),0)+1 INTO v_conclusion FROM public.conclusion;
+  INSERT INTO public.fact(id,subjekt_type,subjekt_id,faktatype) VALUES(v_fact,'person',(p_payload->>'person_id')::bigint,'navn');
+  INSERT INTO public.assertion(id,target_type,target_id,vaerdi_tekst,uforanderlig) VALUES(v_assertion,'fact',v_fact,p_payload->>'name',true);
+  INSERT INTO public.citation(id,assertion_id,source_id,side,citat_tekst,kvalitet)
+    VALUES(v_citation,v_assertion,3,p_payload->'page_evidence'->>'page_from',p_payload->>'verbatim_text','primær');
+  INSERT INTO public.conclusion(id,target_type,target_id,valgt_assertion_id,status,blaastemplet_af,blaastemplet_naar)
+    VALUES(v_conclusion,'fact',v_fact,v_assertion,'afklaret','DAA 1939 v50 name completion',current_date);
+  IF (SELECT visning_navn FROM public.person WHERE id=(p_payload->>'person_id')::bigint) IS DISTINCT FROM p_payload->>'name' THEN
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_CACHE_INVALID';
+  END IF;
+  v_hash:=private.reimport_1939_canonical_json_sha256(jsonb_build_object('fact_id',v_fact,'assertion_id',v_assertion,'citation_id',v_citation,'conclusion_id',v_conclusion));
+  INSERT INTO private.reimport_1939_name_completion_result(batch_id,element_id,source_batch_id,person_id,source_record_id,source_persona_id,fact_id,assertion_id,citation_id,conclusion_id,payload_sha256,result_sha256)
+    VALUES(p_batch_id,p_element_id,(p_payload->>'source_batch_id')::uuid,(p_payload->>'person_id')::bigint,v_record,
+      (p_payload->>'source_persona_id')::uuid,v_fact,v_assertion,v_citation,v_conclusion,
+      private.reimport_1939_canonical_json_sha256(p_payload),v_hash);
+  INSERT INTO private.reimport_1939_write_event(batch_id,element_id,operation,source_record_key,canonical_person_id,payload,after_sha256)
+    VALUES(p_batch_id,p_element_id,'canonical_delta',p_payload->>'source_record_key',(p_payload->>'person_id')::bigint,p_payload,v_hash);
+END $$;
+
+CREATE FUNCTION public.red_finalize_1939_v50_name_completion(p_batch_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE b private.reimport_1939_write_batch%ROWTYPE; v_counts jsonb;
+BEGIN
+  SELECT * INTO b FROM private.reimport_1939_write_batch WHERE id=p_batch_id FOR UPDATE;
+  IF NOT FOUND OR b.principal_id<>private.require_reimport_1939_editor() OR b.status<>'open' THEN RAISE EXCEPTION 'NAME_COMPLETION_1939_BATCH_INVALID'; END IF;
+  SELECT jsonb_build_object('name_completions',count(*),'operations',count(*)) INTO v_counts
+    FROM private.reimport_1939_name_completion_result WHERE batch_id=p_batch_id;
+  IF v_counts<>b.expected_counts OR (SELECT count(*) FROM private.reimport_1939_write_event WHERE batch_id=p_batch_id AND operation='canonical_delta')<>8
+     OR EXISTS(SELECT 1 FROM private.reimport_1939_name_completion_result r
+       LEFT JOIN public.fact f ON f.id=r.fact_id AND f.subjekt_type='person' AND f.subjekt_id=r.person_id AND f.faktatype='navn'
+       LEFT JOIN public.assertion a ON a.id=r.assertion_id AND a.target_type='fact' AND a.target_id=r.fact_id
+       LEFT JOIN public.citation c ON c.id=r.citation_id AND c.assertion_id=r.assertion_id
+       LEFT JOIN public.conclusion n ON n.id=r.conclusion_id AND n.target_type='fact' AND n.target_id=r.fact_id AND n.valgt_assertion_id=r.assertion_id
+       WHERE f.id IS NULL OR a.id IS NULL OR c.id IS NULL OR n.id IS NULL) THEN
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_FINALIZE_COUNT_MISMATCH';
+  END IF;
+  UPDATE private.reimport_1939_write_batch SET status='finalized',observed_counts=v_counts,finalized_at=clock_timestamp() WHERE id=p_batch_id;
+  RETURN jsonb_build_object('batch_id',p_batch_id,'status','finalized','counts',v_counts);
+END $$;
+
 ALTER TABLE private.reimport_1939_authorization ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.reimport_1939_write_batch ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.reimport_1939_write_event ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON private.reimport_1939_authorization,private.reimport_1939_write_batch,private.reimport_1939_write_event FROM PUBLIC,anon,authenticated;
+ALTER TABLE private.reimport_1939_name_completion_result ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON private.reimport_1939_authorization,private.reimport_1939_write_batch,private.reimport_1939_write_event,private.reimport_1939_name_completion_result FROM PUBLIC,anon,authenticated;
 REVOKE ALL ON FUNCTION private.reject_reimport_1939_event_mutation(),private.require_reimport_1939_editor(),private.require_reimport_1939_open_batch(uuid),private.ensure_reimport_1939_source_evidence(uuid,text,jsonb) FROM PUBLIC,anon,authenticated;
 REVOKE ALL ON FUNCTION public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz),public.red_begin_1939_v50_reimport(uuid,text,text),public.red_apply_1939_v50_source_evidence(uuid,text,jsonb),public.red_apply_1939_v50_person_create(uuid,text,jsonb),public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb),public.red_finalize_1939_v50_reimport(uuid),public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz),public.red_reverse_1939_v50_reimport(uuid,uuid),public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz),public.red_activate_1939_v50_batch(uuid,uuid) FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION private.reimport_1939_canonical_json_text(jsonb),private.reimport_1939_canonical_json_sha256(jsonb),private.validate_reimport_1939_name_completion(uuid,uuid,text,jsonb),public.red_lock_1939_v50_name_completion(text),public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb),public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb),public.red_begin_1939_v50_name_completion(uuid,text,uuid),public.red_apply_1939_v50_name_completion(uuid,text,jsonb),public.red_finalize_1939_v50_name_completion(uuid) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz),public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz),public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.red_begin_1939_v50_reimport(uuid,text,text),public.red_apply_1939_v50_source_evidence(uuid,text,jsonb),public.red_apply_1939_v50_person_create(uuid,text,jsonb),public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb),public.red_finalize_1939_v50_reimport(uuid),public.red_reverse_1939_v50_reimport(uuid,uuid),public.red_activate_1939_v50_batch(uuid,uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.red_lock_1939_v50_name_completion(text),public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb),public.red_begin_1939_v50_name_completion(uuid,text,uuid),public.red_apply_1939_v50_name_completion(uuid,text,jsonb),public.red_finalize_1939_v50_name_completion(uuid) TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.public_person_bio_source_versions(p_person_ids bigint[])
 RETURNS TABLE(person_id bigint,record_ref uuid,source_label text,record_label text,narrative_text text,citation_label text,provenance_kind text)

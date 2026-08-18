@@ -824,8 +824,9 @@ USING (
 ALTER TABLE private.reimport_1939_authorization ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.reimport_1939_write_batch ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.reimport_1939_write_event ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_1939_name_completion_result ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON private.reimport_1939_authorization,private.reimport_1939_write_batch,
-  private.reimport_1939_write_event FROM PUBLIC,anon,authenticated;
+  private.reimport_1939_write_event,private.reimport_1939_name_completion_result FROM PUBLIC,anon,authenticated;
 REVOKE ALL ON FUNCTION private.reject_reimport_1939_event_mutation(),
   private.require_reimport_1939_editor(),private.require_reimport_1939_open_batch(uuid),
   private.ensure_reimport_1939_source_evidence(uuid,text,jsonb)
@@ -841,6 +842,16 @@ REVOKE ALL ON FUNCTION public.red_authorize_1939_v50_reimport(text,text,text,big
   public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz),
   public.red_activate_1939_v50_batch(uuid,uuid)
   FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION private.reimport_1939_canonical_json_text(jsonb),
+  private.reimport_1939_canonical_json_sha256(jsonb),
+  private.validate_reimport_1939_name_completion(uuid,uuid,text,jsonb),
+  public.red_lock_1939_v50_name_completion(text),
+  public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb),
+  public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb),
+  public.red_begin_1939_v50_name_completion(uuid,text,uuid),
+  public.red_apply_1939_v50_name_completion(uuid,text,jsonb),
+  public.red_finalize_1939_v50_name_completion(uuid)
+  FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz),
   public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz),
   public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)
@@ -852,4 +863,10 @@ GRANT EXECUTE ON FUNCTION public.red_begin_1939_v50_reimport(uuid,text,text),
   public.red_finalize_1939_v50_reimport(uuid),
   public.red_reverse_1939_v50_reimport(uuid,uuid),
   public.red_activate_1939_v50_batch(uuid,uuid)
+  TO authenticated;
+GRANT EXECUTE ON FUNCTION public.red_lock_1939_v50_name_completion(text),
+  public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb),
+  public.red_begin_1939_v50_name_completion(uuid,text,uuid),
+  public.red_apply_1939_v50_name_completion(uuid,text,jsonb),
+  public.red_finalize_1939_v50_name_completion(uuid)
   TO authenticated;
