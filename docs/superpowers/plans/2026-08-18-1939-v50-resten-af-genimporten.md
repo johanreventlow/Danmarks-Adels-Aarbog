@@ -154,10 +154,29 @@ resten ligger i en redaktionel kø med kildespan.
    strukturrelationer og de 305 allerede parkerede → reviewark pr. klasse
    med span-kontekst; afgørelser materialiseres som nye manifester i
    skiver. Ingen deadline — køen er selve leverancen.
+3. **C3 (ægtefællerne — de 644 narrativ-løse personer):** Prod-måling
+   2026-08-18: alle 644 er `partner`-rolle (gift-ind, skabt af loaderen fra
+   »g.m. …«-klausuler; ingen er forældre/børn), 331 fra 2018-20 og 313 fra
+   1939, 465 allerede `samme_som`-matchet på tværs af udgaverne, 179
+   umatchede (103/76 pr. kilde), heraf 115 i unioner hvor probanden ER
+   matchet — de er primære dublet-kandidater. Leverancer:
+   - Ægteskabs-records (fase C1) giver ægtefællerne source personas +
+     identitetsafgørelser mod de eksisterende partner-rækker, så de 644
+     bliver evidensbårne i stedet for loader-artefakter.
+   - Match-review af de 115 kandidater (genbrug værktøjet fra
+     tværudgave-matchningen, PR #90-#96): hver af de 179 ender enten
+     `samme_som`-linket eller dokumenteret som ægte én-udgave-ægtefælle.
+   - Ægtefællers forældre (»datter af N.N.«) findes i dag kun i prosaen;
+     de materialiseres KUN via C2's relations-kø, hvis en klausul bærer
+     dem — ingen ny personoprettelse uden positiv source-validering.
 
 ## Fase D: Staged-backlog (96 personer)
 
 **Leverance:** 0 uafklarede staged-personer fra de gamle loads.
+
+De 96 deler sig præcist i 51 med 1939-narrativ (probander) og 45
+narrativ-løse ægtefæller — de 45 er delmængde af fase C3's 644 og afgøres
+med samme identitetsgrundlag.
 
 1. Klassificér de 96 (51 m. 1939-narrativ) mod kilderegnskabet: dublet →
    `samme_som` + pensionering (jf. 2026-08-16-planen om duplicate
