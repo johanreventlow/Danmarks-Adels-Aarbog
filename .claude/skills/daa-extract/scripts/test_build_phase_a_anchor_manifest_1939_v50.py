@@ -121,10 +121,24 @@ def test_excludes_already_written_records():
 
 
 def test_element_payload_has_exactly_allowed_keys():
+    # De 11 tilladte nøgler pinnet LITERALT (uafhængigt af modulets egen
+    # SQL_PAYLOAD_KEYS-konstant) — skal matche schema.sql:2489
+    # (red_apply_1939_v50_source_evidence's `p_payload-ARRAY[...]`) ord for ord,
+    # så en drivet konstant i selve byggeren ikke kan gøre denne test grøn.
+    allowed_keys = {
+        "review_subject_id", "source_record_key", "category", "disposition",
+        "evidence_sha256", "canonical_target", "source_span", "page_evidence",
+        "verbatim_text", "legacy_payload", "rendition_content_sha256",
+    }
+    required_present_keys = {
+        "source_record_key", "disposition", "source_span", "page_evidence",
+        "verbatim_text", "rendition_content_sha256",
+    }
     result = build()
     for op in result["operations"]:
         payload_keys = set(op) - {"element_id", "dependency_class"}
-        assert payload_keys <= subject.SQL_PAYLOAD_KEYS
+        assert payload_keys <= allowed_keys
+        assert required_present_keys <= payload_keys
         assert op["disposition"] == "retain_source_only"
     by_key = {op["source_record_key"]: op for op in result["operations"]}
     assert "canonical_target" in by_key["record-A"]
@@ -174,6 +188,62 @@ def test_boundary_verbatim_drift_aborts_with_record_key():
     values["boundary"]["source_record_review"]["records"][2]["verbatim_text"] = "andet"
     with pytest.raises(ManifestError, match="record-C"):
         build(values)
+
+
+def test_ambiguous_boundary_anchor_aborts():
+    # Kravet lyder "manglende/TVETYDIGT opslag aborterer" — to boundary-records
+    # med samme (char_from,char_to) er tvetydigt, uafhængigt af om nogen
+    # source_record rammer den præcise nøgle. Guard: builder ~linje 190-192
+    # (`if anchor_key in by_anchor: _fail(...)`), som ellers kunne "forenkles"
+    # væk uden at nogen test blev rød.
+    values = fixture()
+    duplicate_anchor_row = dict(values["boundary"]["source_record_review"]["records"][0])
+    values["boundary"]["source_record_review"]["records"].append(duplicate_anchor_row)
+    with pytest.raises(ManifestError, match="PHASE_A_MANIFEST_BOUNDARY_INVALID"):
+        build(values)
+
+
+def test_anchor_lookup_failed_when_mapped_existing_entry_missing():
+    # Gren 1 af ANCHOR_LOOKUP_FAILED (builder ~linje 257-259): record-A er
+    # `requires_existing_anchor`, men mapped_existing har ingen post for den.
+    # I produktion er denne gren uopnåelig fordi expected_canonical_targets=543
+    # fyrer allerede i den offentlige funktion — testes derfor direkte mod den
+    # private funktion (uden expected_*), så guarden ikke rådner ubemærket.
+    values = fixture()
+    values["import_preview"]["mapped_existing"] = []
+    with pytest.raises(ManifestError, match="PHASE_A_MANIFEST_ANCHOR_LOOKUP_FAILED:record-A"):
+        build(values)
+
+
+def test_anchor_lookup_failed_when_person_anchor_entry_missing():
+    # Gren 2 af ANCHOR_LOOKUP_FAILED (builder ~linje 262-263): mapped_existing
+    # peger på baseline-A, men database-preview's person_anchors.matched
+    # indeholder ingen post for baseline-A.
+    values = fixture()
+    values["database_preview"]["person_anchors"]["matched"] = []
+    values["database_preview"]["person_anchors"]["matched_count"] = 0
+    with pytest.raises(ManifestError, match="PHASE_A_MANIFEST_ANCHOR_LOOKUP_FAILED:record-A"):
+        build(values)
+
+
+def test_main_output_exists_aborts_without_overwriting(tmp_path: Path):
+    # Bindende krav: "output-fil må ikke findes i forvejen". Guard er det
+    # allerførste main() gør (før nogen fil læses/hash-verificeres), så vi kan
+    # bruge vilkårlige/ikke-eksisterende inputstier og stadig teste guarden
+    # isoleret — og bekræfte at det eksisterende output IKKE overskrives.
+    output_path = tmp_path / "existing-manifest.json"
+    output_path.write_text("allerede-her", encoding="utf-8")
+    placeholder_sha = "0" * 64
+    with pytest.raises(ManifestError, match="PHASE_A_MANIFEST_OUTPUT_EXISTS"):
+        subject.main([
+            "--import-preview", "does-not-matter.json", "--import-preview-sha256", placeholder_sha,
+            "--database-preview", "does-not-matter.json", "--database-preview-sha256", placeholder_sha,
+            "--production-manifest", "does-not-matter.json", "--production-manifest-sha256", placeholder_sha,
+            "--boundary", "does-not-matter.json", "--boundary-sha256", placeholder_sha,
+            "--calamari", "does-not-matter.txt", "--calamari-sha256", placeholder_sha,
+            "--output", str(output_path),
+        ])
+    assert output_path.read_text(encoding="utf-8") == "allerede-her"
 
 
 def test_counts_and_determinism():
