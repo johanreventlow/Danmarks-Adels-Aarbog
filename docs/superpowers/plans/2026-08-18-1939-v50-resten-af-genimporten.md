@@ -115,11 +115,21 @@ Ren, deterministisk funktion `dewrap_narrative_v1(raw: str, corpus: str) -> (str
      er eneste signal): behold `X-Y` **og** udskriv en flag-række
      (record_key, side, kontekst ±40 tegn) til et menneskeligt reviewark —
      fail-closed, aldrig et stille gæt.
-4. Ingen andre ændringer: tegnsætning, stavning, «ø/æ/å», OCR-fejl m.v.
+4. **Ordenstals-strip (brugerkrav 2026-08-18):** efter indledende
+   whitespace-trim fjernes et ledende søskende-ordenstal på formen
+   `^\d{1,2}\.\s+` («1. Sybille Malvina Lonny…» → «Sybille Malvina
+   Lonny…»). Nummereringen er allerede bevaret strukturelt (record-nøgler,
+   identitetsregister, verbatim), så det er rent formidlingslag. Empirisk
+   målt på 551-scopet: 499 entydige strips, 50 uden ordenstal (probander,
+   røres ikke), 2 tvetydige OCR-varianter («7 Heinrich…» uden punktum;
+   «2) Greve Conrad…» med parentes) → flages til menneskeligt reviewark,
+   strippes ALDRIG ved gæt.
+5. Ingen andre ændringer: tegnsætning, stavning, «ø/æ/å», OCR-fejl m.v.
    røres ikke (det er evidens, ikke redaktion).
-5. Funktionen er versioneret (`dewrap_v1`); manifestet registrerer pr.
-   narrativ både rå span-SHA og dewrapped SHA, så transformationen kan
-   genberegnes og efterprøves byte-eksakt.
+6. Funktionen er versioneret (`narrative_norm_v1` = dewrap +
+   ordenstals-strip); manifestet registrerer pr. narrativ både rå span-SHA
+   og normaliseret SHA, så transformationen kan genberegnes og efterprøves
+   byte-eksakt.
 
 Testkrav i fase-planen: eksempeldrevne enhedstests for hvert af punkterne
 1-4 (inkl. «Reventlow-\nCriminil», orddeling over sidegrænse, flag-vejen)
