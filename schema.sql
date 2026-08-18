@@ -2569,9 +2569,81 @@ END $$;
 
 CREATE FUNCTION public.red_reverse_1939_v50_reimport(p_batch_id uuid,p_authorization_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-DECLARE v_actor uuid:=private.require_reimport_1939_editor(); v_run uuid;
+DECLARE v_actor uuid:=private.require_reimport_1939_editor(); v_run uuid; v_child_id uuid; v_child_count bigint; v_child_status text;
 BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-1939-v50-name-completion',0));
+  LOCK TABLE public.fact,public.assertion,public.citation,public.conclusion IN SHARE ROW EXCLUSIVE MODE;
   IF NOT EXISTS(SELECT 1 FROM private.reimport_1939_authorization a JOIN private.reimport_1939_write_batch b ON b.id=p_batch_id WHERE a.id=p_authorization_id AND a.operation='reversal' AND a.status='issued' AND a.principal_id=v_actor AND a.expires_at>clock_timestamp() AND a.database_identity='batch:'||b.id::text AND a.manifest_sha256=b.manifest_sha256 AND a.preview_sha256=b.preview_sha256 AND b.status='finalized') THEN RAISE EXCEPTION 'REIMPORT_1939_REVERSAL_INVALID'; END IF;
+  PERFORM 1 FROM private.reimport_1939_write_batch WHERE id=p_batch_id FOR UPDATE;
+  SELECT count(*),(array_agg(cb.id ORDER BY cb.id))[1] INTO v_child_count,v_child_id
+  FROM private.reimport_1939_write_batch cb JOIN private.reimport_1939_authorization ca ON ca.id=cb.authorization_id
+  WHERE ca.operation='name_completion' AND cb.status<>'reversed'
+    AND EXISTS(SELECT 1 FROM jsonb_each(ca.authorized_elements->'payloads') j WHERE j.value->>'source_batch_id'=p_batch_id::text);
+  IF v_child_count>1 THEN RAISE EXCEPTION 'REIMPORT_1939_NAME_COMPLETION_INVALID'; END IF;
+  IF v_child_id IS NOT NULL THEN
+    SELECT status INTO v_child_status FROM private.reimport_1939_write_batch WHERE id=v_child_id FOR UPDATE;
+    PERFORM 1 FROM private.reimport_1939_name_completion_result WHERE batch_id=v_child_id ORDER BY person_id FOR UPDATE;
+    PERFORM 1 FROM public.person WHERE id IN(SELECT person_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_child_id) ORDER BY id FOR UPDATE;
+    IF v_child_status<>'finalized'
+       OR (SELECT count(*) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_child_id)<>8
+       OR (SELECT count(DISTINCT person_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_child_id)<>8
+       OR (SELECT count(DISTINCT fact_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_child_id)<>8
+       OR (SELECT count(DISTINCT assertion_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_child_id)<>8
+       OR (SELECT count(DISTINCT citation_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_child_id)<>8
+       OR (SELECT count(DISTINCT conclusion_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_child_id)<>8
+       OR (SELECT count(*) FROM private.reimport_1939_write_event WHERE batch_id=p_batch_id AND operation='person_create')<>8
+       OR (SELECT count(*) FROM private.reimport_1939_write_event WHERE batch_id=v_child_id AND operation='canonical_delta')<>8
+       OR EXISTS(SELECT 1 FROM private.reimport_1939_write_event se
+         WHERE se.batch_id=p_batch_id AND se.operation='person_create' AND NOT EXISTS(
+           SELECT 1 FROM private.reimport_1939_name_completion_result r
+           WHERE r.batch_id=v_child_id AND r.source_batch_id=p_batch_id AND r.person_id=se.canonical_person_id))
+       OR EXISTS(SELECT 1
+         FROM private.reimport_1939_name_completion_result r
+         JOIN private.reimport_1939_write_batch cb ON cb.id=r.batch_id
+         JOIN private.reimport_1939_authorization ca ON ca.id=cb.authorization_id
+         LEFT JOIN private.reimport_1939_write_event ce ON ce.batch_id=r.batch_id AND ce.element_id=r.element_id AND ce.operation='canonical_delta'
+         LEFT JOIN private.reimport_1939_write_event se ON se.batch_id=r.source_batch_id AND se.element_id=ca.authorized_elements->'payloads'->r.element_id->>'source_person_create_element_id' AND se.operation='person_create'
+         LEFT JOIN private.source_record sr ON sr.id=r.source_record_id
+         LEFT JOIN private.source_persona sp ON sp.id=r.source_persona_id
+         LEFT JOIN private.source_persona_identity si ON si.source_persona_id=r.source_persona_id AND si.decision_status='accepted'
+         LEFT JOIN public.person p ON p.id=r.person_id
+         LEFT JOIN public.fact f ON f.id=r.fact_id
+         LEFT JOIN public.assertion x ON x.id=r.assertion_id
+         LEFT JOIN public.citation c ON c.id=r.citation_id
+         LEFT JOIN public.conclusion n ON n.id=r.conclusion_id
+         WHERE r.batch_id=v_child_id AND (
+           r.source_batch_id<>p_batch_id OR ca.operation<>'name_completion' OR cb.status<>'finalized'
+           OR ca.expected_counts<>'{"name_completions":8,"operations":8}'::jsonb OR cb.observed_counts<>ca.expected_counts
+           OR ca.authorized_elements->'payloads'->r.element_id IS NULL
+           OR r.element_id<>'name-completion:'||(ca.authorized_elements->'payloads'->r.element_id->>'source_record_key')
+           OR r.person_id<>(ca.authorized_elements->'payloads'->r.element_id->>'person_id')::bigint
+           OR r.source_persona_id<>(ca.authorized_elements->'payloads'->r.element_id->>'source_persona_id')::uuid
+           OR r.payload_sha256<>private.reimport_1939_canonical_json_sha256(ca.authorized_elements->'payloads'->r.element_id)
+           OR r.result_sha256<>private.reimport_1939_canonical_json_sha256(jsonb_build_object('fact_id',r.fact_id,'assertion_id',r.assertion_id,'citation_id',r.citation_id,'conclusion_id',r.conclusion_id))
+           OR ce.id IS NULL OR ce.payload IS DISTINCT FROM ca.authorized_elements->'payloads'->r.element_id
+           OR ce.canonical_person_id<>r.person_id OR ce.source_record_key<>ca.authorized_elements->'payloads'->r.element_id->>'source_record_key' OR ce.after_sha256<>r.result_sha256
+           OR se.id IS NULL OR se.canonical_person_id<>r.person_id OR se.source_record_key<>ca.authorized_elements->'payloads'->r.element_id->>'source_record_key'
+           OR private.reimport_1939_canonical_json_sha256(se.payload)<>ca.authorized_elements->'payloads'->r.element_id->>'source_payload_sha256'
+           OR se.payload->>'name'<>ca.authorized_elements->'payloads'->r.element_id->>'name'
+           OR se.payload->>'source_persona_id'<>r.source_persona_id::text
+           OR se.payload->'source_span'<>ca.authorized_elements->'payloads'->r.element_id->'source_span'
+           OR se.payload->'page_evidence'<>ca.authorized_elements->'payloads'->r.element_id->'page_evidence'
+           OR se.payload->>'verbatim_text'<>ca.authorized_elements->'payloads'->r.element_id->>'verbatim_text'
+           OR sr.id IS NULL OR sr.source_id<>3 OR sr.record_key<>ca.authorized_elements->'payloads'->r.element_id->>'source_record_key'
+           OR sp.id IS NULL OR sp.source_id<>3 OR si.canonical_person_id<>r.person_id
+           OR p.id IS NULL OR NOT p.staged OR p.visning_navn<>ca.authorized_elements->'payloads'->r.element_id->>'name'
+           OR f.id IS NULL OR f.subjekt_type<>'person' OR f.subjekt_id<>r.person_id OR f.faktatype<>'navn'
+           OR (SELECT count(*) FROM public.fact nf WHERE nf.subjekt_type='person' AND nf.subjekt_id=r.person_id AND nf.faktatype='navn')<>1
+           OR x.id IS NULL OR x.target_type<>'fact' OR x.target_id<>r.fact_id OR x.vaerdi_tekst<>ca.authorized_elements->'payloads'->r.element_id->>'name' OR NOT x.uforanderlig
+           OR c.id IS NULL OR c.assertion_id<>r.assertion_id OR c.source_id<>3 OR c.side<>ca.authorized_elements->'payloads'->r.element_id->'page_evidence'->>'page_from' OR c.citat_tekst<>ca.authorized_elements->'payloads'->r.element_id->>'verbatim_text'
+           OR n.id IS NULL OR n.target_type<>'fact' OR n.target_id<>r.fact_id OR n.valgt_assertion_id<>r.assertion_id OR n.status<>'afklaret'
+         )) THEN RAISE EXCEPTION 'REIMPORT_1939_NAME_COMPLETION_INVALID'; END IF;
+    DELETE FROM public.conclusion n USING private.reimport_1939_name_completion_result r WHERE r.batch_id=v_child_id AND n.id=r.conclusion_id;
+    DELETE FROM public.citation c USING private.reimport_1939_name_completion_result r WHERE r.batch_id=v_child_id AND c.id=r.citation_id;
+    DELETE FROM public.assertion x USING private.reimport_1939_name_completion_result r WHERE r.batch_id=v_child_id AND x.id=r.assertion_id;
+    DELETE FROM public.fact f USING private.reimport_1939_name_completion_result r WHERE r.batch_id=v_child_id AND f.id=r.fact_id;
+    UPDATE private.reimport_1939_write_batch SET status='reversed' WHERE id=v_child_id AND status='finalized';
+  END IF;
   SELECT r.id INTO v_run FROM private.extraction_run r JOIN private.reimport_1939_write_batch b ON r.run_key='reimport-1939-v50:'||b.manifest_sha256 WHERE b.id=p_batch_id;
   DELETE FROM private.narrative_record_publication p USING public.narrative n,private.reimport_1939_write_event e WHERE e.batch_id=p_batch_id AND e.operation='person_create' AND n.subjekt_type='person' AND n.subjekt_id=e.canonical_person_id AND p.narrative_id=n.id;
   DELETE FROM public.narrative n USING private.reimport_1939_write_event e WHERE e.batch_id=p_batch_id AND e.operation='person_create' AND n.subjekt_type='person' AND n.subjekt_id=e.canonical_person_id;
@@ -2597,10 +2669,76 @@ END $$;
 
 CREATE FUNCTION public.red_activate_1939_v50_batch(p_batch_id uuid,p_authorization_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-DECLARE v_actor uuid:=private.require_reimport_1939_editor(); v_count bigint;
+DECLARE v_actor uuid:=private.require_reimport_1939_editor(); v_count bigint; v_child_id uuid; v_child_count bigint; v_child_status text;
 BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-1939-v50-name-completion',0));
+  LOCK TABLE public.fact,public.assertion,public.citation,public.conclusion IN SHARE ROW EXCLUSIVE MODE;
   IF NOT EXISTS(SELECT 1 FROM private.reimport_1939_authorization a JOIN private.reimport_1939_write_batch b ON b.id=p_batch_id WHERE a.id=p_authorization_id AND a.operation='cutover' AND a.status='issued' AND a.principal_id=v_actor AND a.expires_at>clock_timestamp() AND a.database_identity='batch:'||b.id::text AND a.manifest_sha256=b.manifest_sha256 AND a.preview_sha256=b.preview_sha256 AND b.status='finalized') THEN RAISE EXCEPTION 'REIMPORT_1939_CUTOVER_INVALID'; END IF;
+  PERFORM 1 FROM private.reimport_1939_write_batch WHERE id=p_batch_id FOR UPDATE;
+  SELECT count(*),(array_agg(cb.id ORDER BY cb.id))[1] INTO v_child_count,v_child_id
+  FROM private.reimport_1939_write_batch cb JOIN private.reimport_1939_authorization ca ON ca.id=cb.authorization_id
+  WHERE ca.operation='name_completion' AND cb.status<>'reversed'
+    AND EXISTS(SELECT 1 FROM jsonb_each(ca.authorized_elements->'payloads') j WHERE j.value->>'source_batch_id'=p_batch_id::text);
+  IF v_child_count<>1 THEN RAISE EXCEPTION 'REIMPORT_1939_NAME_COMPLETION_INVALID'; END IF;
+  SELECT status INTO v_child_status FROM private.reimport_1939_write_batch WHERE id=v_child_id FOR UPDATE;
+  PERFORM 1 FROM private.reimport_1939_name_completion_result WHERE batch_id=v_child_id ORDER BY person_id FOR UPDATE;
+  PERFORM 1 FROM public.person WHERE id IN(SELECT person_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_child_id) ORDER BY id FOR UPDATE;
+  IF v_child_status<>'finalized'
+     OR (SELECT count(*) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_child_id)<>8
+     OR (SELECT count(DISTINCT person_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_child_id)<>8
+     OR (SELECT count(DISTINCT fact_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_child_id)<>8
+     OR (SELECT count(DISTINCT assertion_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_child_id)<>8
+     OR (SELECT count(DISTINCT citation_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_child_id)<>8
+     OR (SELECT count(DISTINCT conclusion_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_child_id)<>8
+     OR (SELECT count(*) FROM private.reimport_1939_write_event WHERE batch_id=p_batch_id AND operation='person_create')<>8
+     OR (SELECT count(*) FROM private.reimport_1939_write_event WHERE batch_id=v_child_id AND operation='canonical_delta')<>8
+     OR EXISTS(SELECT 1 FROM private.reimport_1939_write_event se
+       WHERE se.batch_id=p_batch_id AND se.operation='person_create' AND NOT EXISTS(
+         SELECT 1 FROM private.reimport_1939_name_completion_result r
+         WHERE r.batch_id=v_child_id AND r.source_batch_id=p_batch_id AND r.person_id=se.canonical_person_id))
+     OR EXISTS(SELECT 1
+       FROM private.reimport_1939_name_completion_result r
+       JOIN private.reimport_1939_write_batch cb ON cb.id=r.batch_id
+       JOIN private.reimport_1939_authorization ca ON ca.id=cb.authorization_id
+       LEFT JOIN private.reimport_1939_write_event ce ON ce.batch_id=r.batch_id AND ce.element_id=r.element_id AND ce.operation='canonical_delta'
+       LEFT JOIN private.reimport_1939_write_event se ON se.batch_id=r.source_batch_id AND se.element_id=ca.authorized_elements->'payloads'->r.element_id->>'source_person_create_element_id' AND se.operation='person_create'
+       LEFT JOIN private.source_record sr ON sr.id=r.source_record_id
+       LEFT JOIN private.source_persona sp ON sp.id=r.source_persona_id
+       LEFT JOIN private.source_persona_identity si ON si.source_persona_id=r.source_persona_id AND si.decision_status='accepted'
+       LEFT JOIN public.person p ON p.id=r.person_id
+       LEFT JOIN public.fact f ON f.id=r.fact_id
+       LEFT JOIN public.assertion x ON x.id=r.assertion_id
+       LEFT JOIN public.citation c ON c.id=r.citation_id
+       LEFT JOIN public.conclusion n ON n.id=r.conclusion_id
+       WHERE r.batch_id=v_child_id AND (
+         r.source_batch_id<>p_batch_id OR ca.operation<>'name_completion' OR cb.status<>'finalized'
+         OR ca.expected_counts<>'{"name_completions":8,"operations":8}'::jsonb OR cb.observed_counts<>ca.expected_counts
+         OR ca.authorized_elements->'payloads'->r.element_id IS NULL
+         OR r.element_id<>'name-completion:'||(ca.authorized_elements->'payloads'->r.element_id->>'source_record_key')
+         OR r.person_id<>(ca.authorized_elements->'payloads'->r.element_id->>'person_id')::bigint
+         OR r.source_persona_id<>(ca.authorized_elements->'payloads'->r.element_id->>'source_persona_id')::uuid
+         OR r.payload_sha256<>private.reimport_1939_canonical_json_sha256(ca.authorized_elements->'payloads'->r.element_id)
+         OR r.result_sha256<>private.reimport_1939_canonical_json_sha256(jsonb_build_object('fact_id',r.fact_id,'assertion_id',r.assertion_id,'citation_id',r.citation_id,'conclusion_id',r.conclusion_id))
+         OR ce.id IS NULL OR ce.payload IS DISTINCT FROM ca.authorized_elements->'payloads'->r.element_id
+         OR ce.canonical_person_id<>r.person_id OR ce.source_record_key<>ca.authorized_elements->'payloads'->r.element_id->>'source_record_key' OR ce.after_sha256<>r.result_sha256
+         OR se.id IS NULL OR se.canonical_person_id<>r.person_id OR se.source_record_key<>ca.authorized_elements->'payloads'->r.element_id->>'source_record_key'
+         OR private.reimport_1939_canonical_json_sha256(se.payload)<>ca.authorized_elements->'payloads'->r.element_id->>'source_payload_sha256'
+         OR se.payload->>'name'<>ca.authorized_elements->'payloads'->r.element_id->>'name'
+         OR se.payload->>'source_persona_id'<>r.source_persona_id::text
+         OR se.payload->'source_span'<>ca.authorized_elements->'payloads'->r.element_id->'source_span'
+         OR se.payload->'page_evidence'<>ca.authorized_elements->'payloads'->r.element_id->'page_evidence'
+         OR se.payload->>'verbatim_text'<>ca.authorized_elements->'payloads'->r.element_id->>'verbatim_text'
+         OR sr.id IS NULL OR sr.source_id<>3 OR sr.record_key<>ca.authorized_elements->'payloads'->r.element_id->>'source_record_key'
+         OR sp.id IS NULL OR sp.source_id<>3 OR si.canonical_person_id<>r.person_id
+         OR p.id IS NULL OR NOT p.staged OR p.visning_navn<>ca.authorized_elements->'payloads'->r.element_id->>'name'
+         OR f.id IS NULL OR f.subjekt_type<>'person' OR f.subjekt_id<>r.person_id OR f.faktatype<>'navn'
+         OR (SELECT count(*) FROM public.fact nf WHERE nf.subjekt_type='person' AND nf.subjekt_id=r.person_id AND nf.faktatype='navn')<>1
+         OR x.id IS NULL OR x.target_type<>'fact' OR x.target_id<>r.fact_id OR x.vaerdi_tekst<>ca.authorized_elements->'payloads'->r.element_id->>'name' OR NOT x.uforanderlig
+         OR c.id IS NULL OR c.assertion_id<>r.assertion_id OR c.source_id<>3 OR c.side<>ca.authorized_elements->'payloads'->r.element_id->'page_evidence'->>'page_from' OR c.citat_tekst<>ca.authorized_elements->'payloads'->r.element_id->>'verbatim_text'
+         OR n.id IS NULL OR n.target_type<>'fact' OR n.target_id<>r.fact_id OR n.valgt_assertion_id<>r.assertion_id OR n.status<>'afklaret'
+       )) THEN RAISE EXCEPTION 'REIMPORT_1939_NAME_COMPLETION_INVALID'; END IF;
   UPDATE public.person SET staged=false WHERE id IN(SELECT canonical_person_id FROM private.reimport_1939_write_event WHERE batch_id=p_batch_id AND operation='person_create'); GET DIAGNOSTICS v_count=ROW_COUNT;
+  IF v_count<>8 THEN RAISE EXCEPTION 'REIMPORT_1939_NAME_COMPLETION_INVALID'; END IF;
   UPDATE private.reimport_1939_authorization SET status='consumed',consumed_at=clock_timestamp() WHERE id=p_authorization_id;
   UPDATE private.reimport_1939_write_batch SET status='activated' WHERE id=p_batch_id AND status='finalized';
   RETURN jsonb_build_object('batch_id',p_batch_id,'status','activated','persons_activated',v_count);

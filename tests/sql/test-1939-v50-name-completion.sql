@@ -5,7 +5,8 @@ CREATE TEMP TABLE name_completion_1939_test_state (
   authorization_id uuid NOT NULL,
   source_batch_id uuid NOT NULL,
   payloads jsonb NOT NULL,
-  authorization_envelope jsonb NOT NULL
+  authorization_envelope jsonb NOT NULL,
+  completion_batch_id uuid
 ) ON COMMIT PRESERVE ROWS;
 
 DO $test$
@@ -15,7 +16,7 @@ DECLARE
   v_source_batch uuid := '560c39f8-5c87-4c0d-a768-025d97fa2974';
   v_source_auth uuid := '560c39f8-5c87-4c0d-a768-025d97fa2973';
   v_run uuid := '560c39f8-5c87-4c0d-a768-025d97fa2972';
-  v_auth uuid; v_completion_batch uuid; v_envelope jsonb; v_preflight jsonb; v_result jsonb;
+  v_auth uuid; v_completion_batch uuid; v_cutover_auth uuid; v_envelope jsonb; v_preflight jsonb; v_result jsonb;
   v_payloads jsonb := '{}'::jsonb; v_payload jsonb; v_source_payload jsonb;
   v_person bigint; v_record text; v_persona uuid; v_name text; v_page integer; v_element text;
   v_index integer; v_busy integer; v_temp_fact bigint;
@@ -83,6 +84,18 @@ BEGIN
     );
     v_payloads := v_payloads || jsonb_build_object('name-completion:' || v_record,v_payload);
   END LOOP;
+
+  v_cutover_auth:=public.red_authorize_1939_v50_cutover(v_source_batch,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  BEGIN
+    PERFORM public.red_activate_1939_v50_batch(v_source_batch,v_cutover_auth);
+    RAISE EXCEPTION 'NAMELESS_CUTOVER_ACCEPTED';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='NAMELESS_CUTOVER_ACCEPTED' THEN RAISE; END IF;
+    IF SQLERRM<>'REIMPORT_1939_NAME_COMPLETION_INVALID' THEN RAISE; END IF;
+  END;
+  IF EXISTS(SELECT 1 FROM public.person WHERE id BETWEEN 1846 AND 1853 AND NOT staged) THEN
+    RAISE EXCEPTION 'NAMELESS_CUTOVER_MUTATED_PERSONS';
+  END IF;
 
   v_envelope := public.red_authorize_1939_v50_name_completion(
     repeat('1',64),v_source_batch,repeat('a',64),repeat('b',64),
@@ -291,6 +304,7 @@ BEGIN
     RAISE EXCEPTION 'NAME_COMPLETION_1939_NINTH_ELEMENT_ACCEPTED';
   EXCEPTION WHEN OTHERS THEN IF SQLERRM='NAME_COMPLETION_1939_NINTH_ELEMENT_ACCEPTED' THEN RAISE; END IF; END;
   v_result := public.red_finalize_1939_v50_name_completion(v_completion_batch);
+  UPDATE name_completion_1939_test_state SET completion_batch_id=v_completion_batch;
   IF v_result->>'status'<>'finalized'
      OR (SELECT visning_navn FROM public.person WHERE id=1846)<>'Fixture'
      OR (SELECT count(*) FROM public.fact WHERE subjekt_type='person' AND subjekt_id=1846 AND faktatype='navn')<>1
@@ -303,6 +317,121 @@ BEGIN
     PERFORM public.red_begin_1939_v50_name_completion(v_auth,repeat('1',64),v_source_batch);
     RAISE EXCEPTION 'NAME_COMPLETION_1939_AUTH_REUSE_ACCEPTED';
   EXCEPTION WHEN OTHERS THEN IF SQLERRM='NAME_COMPLETION_1939_AUTH_REUSE_ACCEPTED' THEN RAISE; END IF; END;
+END $test$;
+
+DO $test$
+DECLARE
+  v_actor uuid := '11111111-1111-4111-8111-111111111111';
+  v_source_batch uuid; v_completion_batch uuid; v_cutover_auth uuid; v_reversal_auth uuid; v_result jsonb;
+  v_drift text; v_before_fact bigint; v_before_assertion bigint; v_before_citation bigint; v_before_conclusion bigint;
+BEGIN
+  SELECT source_batch_id,completion_batch_id INTO v_source_batch,v_completion_batch
+    FROM name_completion_1939_test_state;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+
+  BEGIN
+    v_cutover_auth:=public.red_authorize_1939_v50_cutover(v_source_batch,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+    v_result:=public.red_activate_1939_v50_batch(v_source_batch,v_cutover_auth);
+    IF v_result->>'status'<>'activated' OR (v_result->>'persons_activated')::int<>8
+       OR EXISTS(SELECT 1 FROM public.person WHERE id BETWEEN 1846 AND 1853 AND staged) THEN
+      RAISE EXCEPTION 'VALID_NAME_COMPLETION_CUTOVER_NOT_REACHED';
+    END IF;
+    RAISE EXCEPTION USING ERRCODE='40001',MESSAGE='ROLLBACK_ACTIVATION_PROBE';
+  EXCEPTION WHEN SQLSTATE '40001' THEN
+    IF SQLERRM<>'ROLLBACK_ACTIVATION_PROBE' THEN RAISE; END IF;
+  END;
+  IF EXISTS(SELECT 1 FROM public.person WHERE id BETWEEN 1846 AND 1853 AND NOT staged)
+     OR (SELECT status FROM private.reimport_1939_write_batch WHERE id=v_source_batch)<>'finalized' THEN
+    RAISE EXCEPTION 'ACTIVATION_PROBE_NOT_ROLLED_BACK';
+  END IF;
+
+  FOREACH v_drift IN ARRAY ARRAY['citation','conclusion','fact','cache','result','child_payload','source_payload'] LOOP
+    BEGIN
+      CASE v_drift
+        WHEN 'citation' THEN
+          INSERT INTO public.source(id,titel,udgave,slags) VALUES(4,'Other source','fixture','bog') ON CONFLICT(id) DO NOTHING;
+          UPDATE public.citation SET source_id=4,citat_tekst='tampered'
+            WHERE id=(SELECT min(citation_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch);
+        WHEN 'conclusion' THEN
+          UPDATE public.conclusion SET valgt_assertion_id=(SELECT max(assertion_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch)
+            WHERE id=(SELECT min(conclusion_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch);
+        WHEN 'fact' THEN
+          UPDATE public.fact SET subjekt_id=999999
+            WHERE id=(SELECT min(fact_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch);
+        WHEN 'cache' THEN
+          UPDATE public.person SET visning_navn='tampered' WHERE id=1846;
+        WHEN 'result' THEN
+          ALTER TABLE private.reimport_1939_name_completion_result DISABLE TRIGGER trg_reimport_1939_name_completion_result_append_only;
+          UPDATE private.reimport_1939_name_completion_result
+            SET fact_id=(SELECT max(fact_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch)
+            WHERE batch_id=v_completion_batch AND fact_id=(SELECT min(fact_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch);
+        WHEN 'child_payload' THEN
+          ALTER TABLE private.reimport_1939_write_event DISABLE TRIGGER trg_reimport_1939_event_append_only;
+          UPDATE private.reimport_1939_write_event SET payload=payload||'{"name":"tampered"}'::jsonb
+            WHERE batch_id=v_completion_batch AND element_id=(SELECT min(element_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch);
+        WHEN 'source_payload' THEN
+          ALTER TABLE private.reimport_1939_write_event DISABLE TRIGGER trg_reimport_1939_event_append_only;
+          UPDATE private.reimport_1939_write_event SET payload=payload||'{"name":"tampered"}'::jsonb
+            WHERE batch_id=v_source_batch AND operation='person_create' AND canonical_person_id=1846;
+      END CASE;
+      v_cutover_auth:=public.red_authorize_1939_v50_cutover(v_source_batch,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+      BEGIN
+        PERFORM public.red_activate_1939_v50_batch(v_source_batch,v_cutover_auth);
+        RAISE EXCEPTION 'DRIFT_CUTOVER_ACCEPTED:%',v_drift;
+      EXCEPTION WHEN OTHERS THEN
+        IF SQLERRM='DRIFT_CUTOVER_ACCEPTED:'||v_drift THEN RAISE; END IF;
+        IF SQLERRM<>'REIMPORT_1939_NAME_COMPLETION_INVALID' THEN RAISE; END IF;
+      END;
+      IF EXISTS(SELECT 1 FROM public.person WHERE id BETWEEN 1846 AND 1853 AND NOT staged) THEN
+        RAISE EXCEPTION 'DRIFT_CUTOVER_PARTIALLY_ACTIVATED:%',v_drift;
+      END IF;
+      RAISE EXCEPTION USING ERRCODE='40001',MESSAGE='ROLLBACK_CUTOVER_DRIFT:'||v_drift;
+    EXCEPTION WHEN SQLSTATE '40001' THEN
+      IF SQLERRM<>'ROLLBACK_CUTOVER_DRIFT:'||v_drift THEN RAISE; END IF;
+    END;
+  END LOOP;
+
+  SELECT count(*) INTO v_before_fact FROM public.fact WHERE id IN(SELECT fact_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch);
+  SELECT count(*) INTO v_before_assertion FROM public.assertion WHERE id IN(SELECT assertion_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch);
+  SELECT count(*) INTO v_before_citation FROM public.citation WHERE id IN(SELECT citation_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch);
+  SELECT count(*) INTO v_before_conclusion FROM public.conclusion WHERE id IN(SELECT conclusion_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch);
+  BEGIN
+    UPDATE public.citation SET citat_tekst='reversal drift'
+      WHERE id=(SELECT min(citation_id) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch);
+    v_reversal_auth:=public.red_authorize_1939_v50_reversal(v_source_batch,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+    BEGIN
+      PERFORM public.red_reverse_1939_v50_reimport(v_source_batch,v_reversal_auth);
+      RAISE EXCEPTION 'DRIFT_REVERSAL_ACCEPTED';
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM='DRIFT_REVERSAL_ACCEPTED' THEN RAISE; END IF;
+      IF SQLERRM<>'REIMPORT_1939_NAME_COMPLETION_INVALID' THEN RAISE; END IF;
+    END;
+    IF (SELECT count(*) FROM public.fact WHERE id IN(SELECT fact_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch))<>v_before_fact
+       OR (SELECT count(*) FROM public.assertion WHERE id IN(SELECT assertion_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch))<>v_before_assertion
+       OR (SELECT count(*) FROM public.citation WHERE id IN(SELECT citation_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch))<>v_before_citation
+       OR (SELECT count(*) FROM public.conclusion WHERE id IN(SELECT conclusion_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch))<>v_before_conclusion
+       OR (SELECT status FROM private.reimport_1939_write_batch WHERE id=v_completion_batch)<>'finalized' THEN
+      RAISE EXCEPTION 'DRIFT_REVERSAL_DELETED_ROWS';
+    END IF;
+    RAISE EXCEPTION USING ERRCODE='40001',MESSAGE='ROLLBACK_REVERSAL_DRIFT';
+  EXCEPTION WHEN SQLSTATE '40001' THEN
+    IF SQLERRM<>'ROLLBACK_REVERSAL_DRIFT' THEN RAISE; END IF;
+  END;
+
+  v_reversal_auth:=public.red_authorize_1939_v50_reversal(v_source_batch,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  v_result:=public.red_reverse_1939_v50_reimport(v_source_batch,v_reversal_auth);
+  IF v_result->>'status'<>'reversed'
+     OR (SELECT status FROM private.reimport_1939_write_batch WHERE id=v_source_batch)<>'reversed'
+     OR (SELECT status FROM private.reimport_1939_write_batch WHERE id=v_completion_batch)<>'reversed'
+     OR EXISTS(SELECT 1 FROM public.person WHERE id BETWEEN 1846 AND 1853 AND status IS DISTINCT FROM 'reimport_1939_reversed')
+     OR EXISTS(SELECT 1 FROM public.fact WHERE id IN(SELECT fact_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch))
+     OR EXISTS(SELECT 1 FROM public.assertion WHERE id IN(SELECT assertion_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch))
+     OR EXISTS(SELECT 1 FROM public.citation WHERE id IN(SELECT citation_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch))
+     OR EXISTS(SELECT 1 FROM public.conclusion WHERE id IN(SELECT conclusion_id FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch))
+     OR (SELECT count(*) FROM private.reimport_1939_name_completion_result WHERE batch_id=v_completion_batch)<>8
+     OR (SELECT count(*) FROM private.reimport_1939_write_event WHERE batch_id=v_completion_batch AND operation='canonical_delta')<>8 THEN
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_REVERSAL_FAILED';
+  END IF;
 END $test$;
 
 DO $test$
