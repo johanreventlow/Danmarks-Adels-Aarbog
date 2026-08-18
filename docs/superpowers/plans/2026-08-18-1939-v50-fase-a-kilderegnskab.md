@@ -50,7 +50,24 @@ R + testthat (DB-fri gateway-tests), PostgreSQL 17 lokalt, psql mod prod.
   `structural_context`, 2 `cross_reference`), `source_span`
   (`char_from`/`char_to`), `verbatim_text`, `disposition`,
   `person_creation` (543 `requires_existing_anchor`, 49 `forbidden`).
-  Ingen `page_evidence` — den skal udledes (Task 1, Step 5).
+  Ingen `page_evidence` — den slås op i boundary-materialiseringen.
+- Sider:
+  `work/task20-1939-full/boundary-materialization-v3-ditlev.json`
+  (SHA-256 `73aa0eecb365de35b8e5ca38af87c7b247fbdd7d14e2ece358d86e4680056b4f`
+  = import-preview'ets låste `materialization_sha256`) har
+  `source_record_review.records` (592) med `source_anchor`
+  (`char_from`/`char_to`), `span.page_from`/`span.page_to` og
+  `verbatim_text`. Opslag = `_boundary_pages`-mønstret i
+  `build_provenance_review_1939_v50.py`: match på (char_from,char_to) OG
+  verbatim-lighed; manglende/tvetydigt opslag aborterer.
+- Calamari-filen ligger i HOVED-repoet:
+  `/Users/johanreventlow/TypeScript/danmarksadelsaarbog/work_1939_stamtavle/full_ocr_calamari_r6_clean.txt`
+  (verificeret SHA `020123a3…`).
+- Låste input-SHA'er (beregnet 2026-08-18):
+  `import-preview-v1.json` =
+  `04f2780b4fc3f63263324cbb5133e07d1eed70018f7ea11212597a26cc196ca5`;
+  `database-preview-v1.json` =
+  `a00efd43a34358f95f4b0df40695f4abd3b279066bee196e3cbdbd1b87b9e97c`.
 - `mapped_existing` (543 entries): `baseline_record_key` + `new_record_key`
   + `legacy_name` + kandidater. Indeholder IKKE person-id.
 - Kanonisk person-id kommer fra
@@ -120,9 +137,10 @@ def test_element_payload_has_exactly_allowed_keys():
     # nøglesæt ⊆ kontraktens 11 nøgler; disposition == "retain_source_only"
 def test_verbatim_must_match_calamari_span():
     # fixture med forkert verbatim → SystemExit/ManifestError "SPAN_MISMATCH"
-def test_page_index_from_calamari_markers():
-    # syntetisk calamari-tekst med to '###'-sidemarkører; span hen over
-    # markøren → page_from/page_to = de to sider; span før første markør fejler
+def test_page_evidence_from_boundary_lookup():
+    # fixture-boundary med (char_from,char_to)+verbatim+span-sider;
+    # match → page_evidence sat; manglende anchor ELLER verbatim-afvigelse
+    # → abort med record_key i fejlbeskeden
 def test_counts_and_determinism():
     # counts == {0,584-mønstret for fixture}, to kørsler → byte-identisk output
 def test_real_artifacts_full_arithmetic():
@@ -155,10 +173,9 @@ Krav ud over teststrukturen:
   "legacy_name": …}` for de 543, ellers udelades;
   `evidence_sha256 = canonical_sha(payload uden evidence_sha256)`;
   `rendition_content_sha256` = den låste Calamari-SHA.
-- Side-indeks: parse Calamari-tekstens `###`-sidemarkører til en sorteret
-  liste af (char_offset, kildeside-nummer); `page_from/page_to` = siderne
-  for `char_from` hhv. `char_to-1`. Span før første markør eller markørliste
-  tom → fail-closed.
+- Sider: `page_evidence = {"page_from": …, "page_to": …}` via
+  boundary-opslaget (`_boundary_pages`-mønstret, se Faktagrundlag);
+  CLI får `--boundary PATH --boundary-sha256 HEX`.
 - Byte-kontrol: `verbatim_text == calamari[char_from:char_to]` for HVERT
   element (tegn-eksakt, ingen normalisering) — mismatch aborterer hele
   bygningen med record_key i fejlbeskeden.
@@ -178,7 +195,9 @@ ROOT=/Users/johanreventlow/TypeScript/danmarksadelsaarbog/.claude/worktrees/evid
   --database-preview-sha256 <låst i Step 1> \
   --production-manifest $ROOT/work/task25-1939-v50-production-writer/production-write-manifest-v1.json \
   --production-manifest-sha256 8417b6deeaf32b3cf39a4f2995a06211f8368172dfa97a188e03c6f7ef379a1f \
-  --calamari <find stien i prepare_reimport_1939_v50.py's kørselskonvention; SHA-kontrollen fanger enhver forkert fil> \
+  --boundary $ROOT/work/task20-1939-full/boundary-materialization-v3-ditlev.json \
+  --boundary-sha256 73aa0eecb365de35b8e5ca38af87c7b247fbdd7d14e2ece358d86e4680056b4f \
+  --calamari /Users/johanreventlow/TypeScript/danmarksadelsaarbog/work_1939_stamtavle/full_ocr_calamari_r6_clean.txt \
   --calamari-sha256 020123a3588dacf80705a22fb021ab4f5da97b8de202e8664304ca01f9a6da37 \
   --output $ROOT/work/task25-1939-v50-production-writer/phase-a-anchor-manifest-v1.json
 ```
