@@ -124,10 +124,20 @@ Ren, deterministisk funktion `dewrap_narrative_v1(raw: str, corpus: str) -> (str
    røres ikke), 2 tvetydige OCR-varianter («7 Heinrich…» uden punktum;
    «2) Greve Conrad…» med parentes) → flages til menneskeligt reviewark,
    strippes ALDRIG ved gæt.
-5. Ingen andre ændringer: tegnsætning, stavning, «ø/æ/å», OCR-fejl m.v.
+5. **Sidemarkører (fundet ved implementering):** 73 af de 551 spans
+   krydser en sidegrænse og indeholder rendition-markørblokken
+   `\n*### PAGE \d{4} ###\n*`. Blokken fjernes og erstattes af ÉT blødt
+   linjeskift, FØR afsnits- og bindestregreglerne kører — så en orddeling
+   hen over sidevendingen genindtræder i normal bindestreg-logik, og
+   prosa der fortsætter over siden bliver til ét mellemrum (bogens
+   sætning fortsætter; de blanke linjer omkring markøren er
+   rendition-struktur, ikke afsnit). Slutteksten må ikke indeholde
+   `### PAGE`. Empirisk assert: præcis 73 markør-fjernelser på 551-scopet.
+6. Ingen andre ændringer: tegnsætning, stavning, «ø/æ/å», OCR-fejl m.v.
    røres ikke (det er evidens, ikke redaktion).
-6. Funktionen er versioneret (`narrative_norm_v1` = dewrap +
-   ordenstals-strip); manifestet registrerer pr. narrativ både rå span-SHA
+7. Funktionen er versioneret (`narrative_norm_v1` = dewrap +
+   ordenstals-strip + markør-fjernelse); manifestet registrerer pr.
+   narrativ både rå span-SHA
    og normaliseret SHA, så transformationen kan genberegnes og efterprøves
    byte-eksakt.
 
