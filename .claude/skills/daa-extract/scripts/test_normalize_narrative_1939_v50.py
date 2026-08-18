@@ -26,7 +26,7 @@ _PAGE_MARKER_BLOCK_RE = re.compile(r"\n*### PAGE \d{4} ###\n*")
 
 # ---------------------------------------------------------------------------
 # Diff-class control: every character-level hunk between ``raw`` and the
-# normalized ``text`` must belong to one of the five declared change
+# normalized ``text`` must belong to one of the six declared change
 # classes. Shared by the mixed-fixture unit test and the corpus regression.
 #
 # Page-marker blocks are stripped out *before* diffing (via the same
@@ -37,11 +37,17 @@ _PAGE_MARKER_BLOCK_RE = re.compile(r"\n*### PAGE \d{4} ###\n*")
 # made of ordinary letters/digits/spaces, so it can spuriously "match" a
 # few characters of unrelated surrounding prose and get chopped into
 # pieces that don't individually look like a marker. Stripping first keeps
-# the diff surgical for the four dewrap/ordinal classes, which is what
+# the diff surgical for the dewrap/ordinal/trim classes, which is what
 # this check actually needs to police.
+#
+# Note: the degenerate hyphen branch (numeral ranges, abbreviation
+# periods, etc.) now keeps the hyphen and drops only the newline -- the
+# same shape as an ordinary "keep compound" decision -- so it needs no
+# separate diff class; it falls under ``hyphen_keep`` below.
 # ---------------------------------------------------------------------------
 
 _LEADING_TRIM_RE = re.compile(r"\s*(?:\d{1,2}\.\s+)?")
+_TRAILING_TRIM_RE = re.compile(r"\s+")
 
 
 def _classify_hunk(raw: str, norm: str, i1: int, i2: int, j1: int, j2: int) -> str | None:
@@ -50,6 +56,8 @@ def _classify_hunk(raw: str, norm: str, i1: int, i2: int, j1: int, j2: int) -> s
 
     if i1 == 0 and norm_seg == "" and _LEADING_TRIM_RE.fullmatch(raw_seg):
         return "leading_trim"
+    if i2 == len(raw) and norm_seg == "" and _TRAILING_TRIM_RE.fullmatch(raw_seg):
+        return "trailing_trim"
     if raw_seg == "\n" and norm_seg == " ":
         return "soft_wrap"
     if raw_seg == "-\n" and norm_seg == "":
@@ -61,8 +69,12 @@ def _classify_hunk(raw: str, norm: str, i1: int, i2: int, j1: int, j2: int) -> s
     return None
 
 
+_LONE_NEWLINE_RE = re.compile(r"(?<!\n)\n(?!\n)")
+
+
 def assert_diff_classes_allowed(raw: str, norm: str) -> None:
     assert "### PAGE" not in norm, f"page marker leaked into normalized text: {norm!r}"
+    assert not _LONE_NEWLINE_RE.search(norm), f"lone newline survived into: {norm!r}"
 
     marker_free = _PAGE_MARKER_BLOCK_RE.sub("\n", raw)
     sm = difflib.SequenceMatcher(None, marker_free, norm, autojunk=False)
@@ -105,7 +117,11 @@ def test_bloed_ombrydning():
 
 
 def test_orddeling_lille_bogstav():
-    result = normalize_narrative_v1("sammen-\ntrækkes", corpus="")
+    # Corpus corroborates the joined form, so this stays a clean test of
+    # the merge mechanism itself -- the "no corpus evidence at all" case
+    # is covered separately by the hyphen_unproven tests below.
+    corpus = "Man ser ofte sammentrækkes andetsteds i bogen."
+    result = normalize_narrative_v1("sammen-\ntrækkes", corpus=corpus)
     assert result["text"] == "sammentrækkes"
     assert result["applied"]["hyphens_merged"] == 1
     assert result["applied"]["hyphens_kept_compound"] == 0
@@ -165,6 +181,33 @@ def test_hyphen_uafklaret_flager():
     assert result_both["flags"][0]["kind"] == "hyphen_ambiguous"
 
 
+def test_hyphen_ubevist_smaabogstav_flager_men_sammentraekker():
+    # Controller ruling: lower-case default with NEITHER form anywhere in
+    # the corpus -- the merge still happens (it's the low-risk default),
+    # but is flagged `hyphen_unproven` for a human veto pass (measured on
+    # the 551-scope: 168/584 merges).
+    raw = "sammen-\ntrækkes"
+    result = normalize_narrative_v1(raw, corpus="intet relevant her")
+    assert result["text"] == "sammentrækkes"
+    assert result["applied"]["hyphens_merged"] == 1
+    assert len(result["flags"]) == 1
+    flag = result["flags"][0]
+    assert flag["kind"] == "hyphen_unproven"
+    assert flag["char_offset"] == raw.index("-")
+    assert "sammen" in flag["context"] and "trækkes" in flag["context"]
+
+
+def test_hyphen_smaabogstav_med_ét_korpusfund_flages_ikke():
+    # Contrast case: if EITHER form is present in the corpus (even the
+    # "both present" sub-case), there is at least some corroborating
+    # evidence for the merge, so it is not flagged as unproven.
+    raw = "sammen-\ntrækkes"
+    result = normalize_narrative_v1(raw, corpus="Man ser ofte sammentrækkes andetsteds.")
+    assert result["text"] == "sammentrækkes"
+    assert result["applied"]["hyphens_merged"] == 1
+    assert result["flags"] == []
+
+
 def test_ordenstal_strippes():
     result = normalize_narrative_v1("1. Sybille Malvina Lonny, f. 1800.", corpus="")
     assert result["text"] == "Sybille Malvina Lonny, f. 1800."
@@ -213,7 +256,7 @@ def test_ordenstal_uden_ordenstal_uroert():
 
 
 def test_ingen_andre_aendringer():
-    corpus = "Se Brahe-Trolleborg andetsteds i denne bog."
+    corpus = "Se Brahe-Trolleborg og sammentrækkes andetsteds i denne bog."
     raw = (
         "1. Wulf Erhardt gik til Kjøbenhvn (sic!), en Stavefejl forbliver "
         "urørt.\nHan skrev sammen-\ntrækkes og Brahe-\nTrolleborg som "
@@ -284,14 +327,18 @@ def test_ordinal_efter_ledende_whitespace_uden_ordenstal():
 # Degenerate hyphen sites found empirically in the real 1939 corpus: not
 # the illustrated word-hyphenation pattern at all (a numeral range, an
 # abbreviation period right before the hyphen, or nothing left to join to).
-# Fail closed: leave untouched, flag, never guess.
+# Fail closed: keep the hyphen, drop ONLY the newline (a raw "\n" must
+# never survive into the final text -- the web renders it as a hard
+# linebreak mid-sentence), and flag. Never a silent guess, never a leaked
+# newline.
 # ---------------------------------------------------------------------------
 
 
 def test_hyphen_talomraade_uroert_og_flaget():
     raw = "Skivehus i Nørre H. (1735-\n50), Osterrade."
     result = normalize_narrative_v1(raw, corpus="")
-    assert result["text"] == raw
+    assert result["text"] == "Skivehus i Nørre H. (1735-50), Osterrade."
+    assert "\n" not in result["text"]
     assert result["applied"]["hyphens_merged"] == 0
     assert result["applied"]["hyphens_kept_compound"] == 0
     assert len(result["flags"]) == 1
@@ -301,7 +348,8 @@ def test_hyphen_talomraade_uroert_og_flaget():
 def test_hyphen_efter_forkortelsespunktum_uroert_og_flaget():
     raw = "1725 Sek.-\nMajor, 1733 kar. Oberst."
     result = normalize_narrative_v1(raw, corpus="")
-    assert result["text"] == raw
+    assert result["text"] == "1725 Sek.-Major, 1733 kar. Oberst."
+    assert "\n" not in result["text"]
     assert result["applied"]["hyphens_merged"] == 0
     assert result["applied"]["hyphens_kept_compound"] == 0
     assert len(result["flags"]) == 1
@@ -311,11 +359,29 @@ def test_hyphen_efter_forkortelsespunktum_uroert_og_flaget():
 def test_hyphen_ved_tekstslutning_uroert_og_flaget():
     raw = "Foo-\n"
     result = normalize_narrative_v1(raw, corpus="")
-    assert result["text"] == raw
+    # The trailing "\n" is dropped by the hyphen rule itself here (single
+    # newline immediately after the hyphen); nothing is left over for the
+    # final rstrip() to additionally trim.
+    assert result["text"] == "Foo-"
+    assert "\n" not in result["text"]
     assert result["applied"]["hyphens_merged"] == 0
     assert result["applied"]["hyphens_kept_compound"] == 0
     assert len(result["flags"]) == 1
     assert result["flags"][0]["kind"] == "hyphen_ambiguous"
+
+
+def test_hyphen_degenereret_lækker_aldrig_raat_linjeskift():
+    # Regression for the Critical review finding: the degenerate branch
+    # used to append BOTH the hyphen and the raw "\n" verbatim, which
+    # would have shipped as a hard linebreak mid-sentence on the web (5
+    # real spans were affected). Multiple degenerate sites in one text,
+    # to make sure the fix isn't position-dependent.
+    raw = "A (1700-\n50) B Sek.-\nMajor C."
+    result = normalize_narrative_v1(raw, corpus="")
+    assert "\n" not in result["text"]
+    assert result["text"] == "A (1700-50) B Sek.-Major C."
+    assert len(result["flags"]) == 2
+    assert all(f["kind"] == "hyphen_ambiguous" for f in result["flags"])
 
 
 # ---------------------------------------------------------------------------
@@ -348,15 +414,29 @@ def test_sidemarkoer_orddeling_sammentraekkes():
     # A word hyphenated across the page turn re-enters the ordinary
     # hyphen rule once the marker no longer sits between the halves:
     # lower-case continuation -> merge, exactly like any other
-    # "sammen-\ntrækkes" case.
+    # "sammen-\ntrækkes" case. Corpus corroborates "Medlem", so this is
+    # the clean corroborated-merge path, not the hyphen_unproven path
+    # (covered separately).
     raw = "Han var Med-\n\n### PAGE 0053 ###\nlem af Ordenen."
-    result = normalize_narrative_v1(raw, corpus="")
+    result = normalize_narrative_v1(raw, corpus="Han var Medlem af den gamle Orden.")
     assert result["text"] == "Han var Medlem af Ordenen."
     assert result["applied"]["page_markers_removed"] == 1
     assert result["applied"]["hyphens_merged"] == 1
     assert result["applied"]["hyphens_kept_compound"] == 0
     assert "### PAGE" not in result["text"]
     assert result["flags"] == []
+
+
+def test_sidemarkoer_orddeling_uden_korpusevidens_flager_unproven():
+    # Same marker-split merge, but with no corroborating corpus evidence
+    # at all -- flagged hyphen_unproven, same as any other unproven
+    # merge, marker or not.
+    raw = "Han var Med-\n\n### PAGE 0053 ###\nlem af Ordenen."
+    result = normalize_narrative_v1(raw, corpus="")
+    assert result["text"] == "Han var Medlem af Ordenen."
+    assert result["applied"]["hyphens_merged"] == 1
+    assert len(result["flags"]) == 1
+    assert result["flags"][0]["kind"] == "hyphen_unproven"
 
 
 def test_sidemarkoer_kompositum_bevares():
@@ -403,9 +483,12 @@ def test_sidemarkoer_som_allerfoerste_indhold_i_span():
 
 
 def test_sidemarkoer_som_sidste_indhold_i_span():
+    # The marker collapses to a trailing soft linebreak, which the
+    # soft-break rule turns into a trailing space -- and the final
+    # rstrip() invariant (point 7) then removes that trailing space too.
     raw = "Foo bar.\n\n### PAGE 0099 ###"
     result = normalize_narrative_v1(raw, corpus="")
-    assert result["text"] == "Foo bar. "
+    assert result["text"] == "Foo bar."
     assert result["applied"]["page_markers_removed"] == 1
     assert result["applied"]["soft_breaks_joined"] == 1
     assert "### PAGE" not in result["text"]
@@ -425,6 +508,47 @@ def test_sidemarkoer_invariant_aldrig_i_output():
     for raw in fixtures:
         result = normalize_narrative_v1(raw, corpus="")
         assert "### PAGE" not in result["text"], raw
+
+
+# ---------------------------------------------------------------------------
+# Contract point 7 (hardening): final invariants -- rstrip() trailing
+# whitespace, and hard asserts that a lone "\n" never survives (only
+# "\n\n" paragraph breaks do; the web renders a bare "\n" as a hard
+# linebreak).
+# ---------------------------------------------------------------------------
+
+
+def test_trailing_whitespace_trimmes():
+    raw = "Foo bar.\n\n"
+    result = normalize_narrative_v1(raw, corpus="")
+    assert result["text"] == "Foo bar."
+
+
+def test_trailing_whitespace_efter_bloed_ombrydning_trimmes():
+    # A lone trailing newline first becomes a trailing space (soft-break
+    # rule), which rstrip() then removes too.
+    raw = "Foo bar.\n"
+    result = normalize_narrative_v1(raw, corpus="")
+    assert result["text"] == "Foo bar."
+
+
+def test_ingen_enligt_linjeskift_overlever_i_output():
+    # A battery of fixtures spanning every rule (paragraph, hyphen-merge,
+    # hyphen-keep, degenerate-hyphen, page-marker, ordinal) -- none may
+    # ever leave a lone "\n" in the final text.
+    fixtures = [
+        ("a\n\n\nb", ""),
+        ("sammen-\ntrækkes", ""),
+        ("Reventlow-\nCriminil", ""),
+        ("Skivehus i Nørre H. (1735-\n50), Osterrade.", ""),
+        ("Han var Med-\n\n### PAGE 0053 ###\nlem af Ordenen.", ""),
+        ("Foo bar.\n\n### PAGE 0099 ###", ""),
+        ("linje1\nlinje2", ""),
+    ]
+    lone_newline = re.compile(r"(?<!\n)\n(?!\n)")
+    for raw, corpus in fixtures:
+        result = normalize_narrative_v1(raw, corpus=corpus)
+        assert not lone_newline.search(result["text"]), (raw, result["text"])
 
 
 # ---------------------------------------------------------------------------
@@ -465,6 +589,27 @@ def _load_scope_texts(worktree: Path):
     return texts, corpus
 
 
+_LONE_NEWLINE_CORPUS_RE = re.compile(r"(?<!\n)\n(?!\n)")
+
+
+def _assert_marker_shapes_are_the_measured_form(texts) -> None:
+    """Hardening (Minor 2): every marker occurrence in the raw spans must
+    have the measured shape (exactly 2 leading newlines, exactly 1
+    trailing). A deviation must fail loudly here rather than being
+    silently swallowed by the tolerant ``\\n*...\\n*`` removal regex.
+    """
+    for raw in texts:
+        for match in _PAGE_MARKER_BLOCK_RE.finditer(raw):
+            block = match.group()
+            leading = len(block) - len(block.lstrip("\n"))
+            trailing = len(block) - len(block.rstrip("\n"))
+            assert (leading, trailing) == (2, 1), (
+                f"marker with unexpected surrounding-newline shape "
+                f"(leading={leading}, trailing={trailing}): {block!r} in "
+                f"{raw[:80]!r}"
+            )
+
+
 def test_korpus_regression_551_spans():
     worktree = Path(__file__).resolve().parents[4]
     loaded = _load_scope_texts(worktree)
@@ -473,6 +618,8 @@ def test_korpus_regression_551_spans():
     texts, corpus = loaded
 
     assert len(texts) == 551
+
+    _assert_marker_shapes_are_the_measured_form(texts)
 
     def run_all():
         return [normalize_narrative_v1(t, corpus) for t in texts]
@@ -483,6 +630,22 @@ def test_korpus_regression_551_spans():
 
     ordinal_stripped_sum = sum(r["applied"]["ordinal_stripped"] for r in results_a)
     assert ordinal_stripped_sum == 499
+
+    soft_breaks_sum = sum(r["applied"]["soft_breaks_joined"] for r in results_a)
+    hyphens_merged_sum = sum(r["applied"]["hyphens_merged"] for r in results_a)
+    hyphens_kept_sum = sum(r["applied"]["hyphens_kept_compound"] for r in results_a)
+    page_markers_removed_sum = sum(
+        r["applied"]["page_markers_removed"] for r in results_a
+    )
+    assert soft_breaks_sum == 2304
+    assert hyphens_merged_sum == 584
+    assert hyphens_kept_sum == 10
+    assert page_markers_removed_sum == 73
+
+    flag_counts: dict = {}
+    for result in results_a:
+        for flag in result["flags"]:
+            flag_counts[flag["kind"]] = flag_counts.get(flag["kind"], 0) + 1
 
     ordinal_ambiguous_flags = [
         flag
@@ -495,11 +658,14 @@ def test_korpus_regression_551_spans():
     assert any("Heinrich" in c for c in contexts)
     assert any("Conrad" in c for c in contexts)
 
-    page_markers_removed_sum = sum(
-        r["applied"]["page_markers_removed"] for r in results_a
-    )
-    assert page_markers_removed_sum == 73
+    assert flag_counts.get("ordinal_ambiguous", 0) == 2
+    assert flag_counts.get("hyphen_ambiguous", 0) == 8
+    assert flag_counts.get("hyphen_unproven", 0) == 168
 
     for raw, result in zip(texts, results_a):
         assert "### PAGE" not in result["text"], raw
+        assert not _LONE_NEWLINE_CORPUS_RE.search(result["text"]), (
+            raw,
+            result["text"],
+        )
         assert_diff_classes_allowed(raw, result["text"])

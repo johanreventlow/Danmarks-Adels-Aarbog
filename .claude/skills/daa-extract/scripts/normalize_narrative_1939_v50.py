@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Pure, deterministic dewrap + ordinal-strip transform (``narrative_norm_v1``).
 
-Implements the "Dewrap-transformens kontrakt" (points 1-6, later extended
-with point 5 on page-boundary markers) from
+Implements the "Dewrap-transformens kontrakt" (points 1-8, extended after
+Task 1's first review pass with point 5 on page-boundary markers and
+point 7 on final invariants) from
 ``docs/superpowers/plans/2026-08-18-1939-v50-resten-af-genimporten.md``
 (Fase B):
 
@@ -35,12 +36,23 @@ with point 5 on page-boundary markers) from
      is the only signal, the upper-case default is kept **and** a
      ``hyphen_ambiguous`` flag is emitted -- fail-closed, never a silent
      guess.
+   - **Ubevist småbogstavs-sammentrækning:** if the corpus has *neither*
+     form at all (no evidence either way) and the lower-case default
+     still contracts to ``XY``, the contraction still happens -- it
+     remains the low-risk default -- but a ``hyphen_unproven`` flag is
+     emitted so the review sheet can show every such case to a human for
+     veto (measured on the 551-scope: 168 of 584 merges). When at least
+     one of the two forms IS present in the corpus (the "both present"
+     sub-case), the joined form has corroborating evidence and is not
+     flagged.
    - If either side of the hyphen is not a genuine letter run (e.g. a
      numeral range ``1735-\\n50``, or an abbreviation-period immediately
-     before the hyphen such as ``Sek.-\\nMajor``), this is not the
-     illustrated word-hyphenation pattern at all: nothing is merged or
-     rejoined, the two characters are left untouched, and a
-     ``hyphen_ambiguous`` flag is emitted.
+     before the hyphen such as ``Sek.-\\nMajor``): this is not the
+     illustrated word-hyphenation pattern at all, so nothing is merged
+     or rejoined -- but the hyphen is still kept and ONLY the newline is
+     dropped (never a raw ``\\n`` survives into the final text -- a
+     hard linebreak mid-sentence is exactly what this whole transform
+     exists to remove), and a ``hyphen_ambiguous`` flag is emitted.
 4. **Ordenstals-strip:** a leading sibling ordinal ``^\\d{1,2}\\.\\s+`` is
    stripped after an initial ``lstrip()`` (numbering survives elsewhere --
    record keys, identity register, verbatim -- so this is
@@ -51,6 +63,11 @@ with point 5 on page-boundary markers) from
 5. **No other changes:** punctuation, spelling, ae/oe/aa, OCR errors etc.
    are untouched -- this is evidence, not editing.
 6. This module is version ``narrative_norm_v1``.
+7. **Slutinvarianter:** the final text is ``rstrip()``-ed (293 of the 551
+   real spans end on trailing whitespace with no display value) and must
+   never contain ``### PAGE`` nor a lone ``\\n`` (only ``\\n\\n`` paragraph
+   breaks survive -- the web renders a bare ``\\n`` as a hard linebreak).
+   Both are asserted as hard invariants at the end of the function.
 
 The function is pure (no I/O): callers pass in ``corpus`` (the full
 Calamari text) for the hyphen tie-break lookups.
@@ -67,7 +84,8 @@ cases:
   collapse runs before *everything* else, a marker at the very start
   becomes a leading ``\\n`` that ``lstrip()`` then removes normally (and a
   marker at the very end becomes a trailing ``\\n`` that the soft-break
-  rule turns into a trailing space, same as any other lone newline).
+  rule turns into a trailing space, which the final ``rstrip()`` then
+  removes too, same as any other lone trailing newline).
 - Ordinal after a leading ``\\n``: ``lstrip()`` removes the leading newline
   *before* the ordinal regex is tried, so ``"\\n2. Foo"`` strips correctly.
 - Hyphen at a paragraph boundary: paragraph collapsing always runs before
@@ -94,6 +112,7 @@ _ORDINAL_OK_PREFIX_LEN = 2  # max digits considered for a sibling ordinal
 _CONTEXT_RADIUS = 40
 
 _PAGE_MARKER_BLOCK_RE = re.compile(r"\n*### PAGE \d{4} ###\n*")
+_LONE_NEWLINE_RE = re.compile(r"(?<!\n)\n(?!\n)")
 
 
 class Flag(TypedDict):
@@ -275,9 +294,11 @@ def normalize_narrative_v1(raw: str, corpus: str) -> NormalizeResult:
             if not x_word or not y_word:
                 # Not the illustrated word-hyphenation pattern (a numeral
                 # range, an abbreviation period, or nothing left to join
-                # to) -- fail closed: leave both characters exactly as
-                # they are and flag for human review.
-                out.append(content[i : i + 2])
+                # to) -- fail closed: keep the hyphen, drop ONLY the
+                # newline (never a raw "\n" in the final text -- the web
+                # renders it as a hard linebreak mid-sentence), and flag
+                # for human review.
+                out.append("-")
                 flags.append(
                     {
                         "kind": "hyphen_ambiguous",
@@ -309,9 +330,22 @@ def normalize_narrative_v1(raw: str, corpus: str) -> NormalizeResult:
                             "char_offset": origin[i],
                         }
                     )
-                # Lower-case default (word-split) is the common, low-risk
-                # case and is not flagged -- case is the "only signal"
-                # clause in the contract applies to the upper-case branch.
+                elif not joined_in_corpus and not hyphenated_in_corpus:
+                    # Lower-case default (word-split) with NEITHER form
+                    # anywhere in the corpus -- the contraction still
+                    # happens (it's the low-risk default), but there is
+                    # zero corroborating evidence for it either way, so
+                    # it is flagged for the human reviewer's veto list.
+                    # (When at least one form IS present -- the "both"
+                    # sub-case -- the joined form has corroborating
+                    # evidence and is not flagged.)
+                    flags.append(
+                        {
+                            "kind": "hyphen_unproven",
+                            "context": _context(raw, origin[i]),
+                            "char_offset": origin[i],
+                        }
+                    )
 
             y_start = i + 2
             y_end = y_start + len(y_word)
@@ -340,6 +374,12 @@ def normalize_narrative_v1(raw: str, corpus: str) -> NormalizeResult:
         out.append(ch)
         i += 1
 
-    text = "".join(out)
+    text = "".join(out).rstrip()
+
     assert "### PAGE" not in text, "page marker leaked into normalized narrative"
+    assert not _LONE_NEWLINE_RE.search(text), (
+        "a lone \\n survived into the normalized narrative (the web "
+        "renders it as a hard linebreak mid-sentence)"
+    )
+
     return {"text": text, "flags": flags, "applied": applied}
