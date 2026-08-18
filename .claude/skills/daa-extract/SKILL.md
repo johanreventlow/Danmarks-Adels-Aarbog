@@ -595,6 +595,51 @@ provenance og en særskilt godkendt production writer er fortsat blokerende.
 `false`, canonical create/update/delete skal være tomme, og `reimport_gate`
 forbliver `NO-GO`.
 
+### Kompilér og afprøv v50 production-writeren
+
+Task 25 bruger tre adskilte, hashbundne trin: provenance-review,
+provenanceafgørelser og write-manifest. Det autoritative manifest er:
+
+```text
+work/task25-1939-v50-production-writer/production-write-manifest-v1.json
+SHA-256 8417b6deeaf32b3cf39a4f2995a06211f8368172dfa97a188e03c6f7ef379a1f
+content SHA-256 8c6a9f56af7f1e75e1b961f561cc2118478ac4d9e08f838c9e5279938c545f03
+```
+
+Det indeholder præcis 543 eksisterende ankre, 305 private
+source-evidence-operationer, otte staged personoprettelser og nul canonical
+delta. Alle 313 payloads bindes i den databaseudstedte authorization; et
+ændret element afvises, selv hvis manifesthashen genbruges.
+
+Kør kun rollback-dry-run mod en kontrolleret database efter schema,
+migrations- og databaseidentitetskontrol:
+
+```bash
+DAA_REIMPORT_ACTOR_ID=<editor-uuid> \
+PGDATABASE=<controlled-database> PGHOST=<host> PGPORT=<port> PGUSER=<user> \
+Rscript .claude/skills/daa-extract/scripts/apply_reimport_1939_v50.R \
+  --manifest work/task25-1939-v50-production-writer/production-write-manifest-v1.json \
+  --manifest-sha256 8417b6deeaf32b3cf39a4f2995a06211f8368172dfa97a188e03c6f7ef379a1f \
+  --preview-sha256 279fcb9969f9a4371d995e97c4fffa55589289bcc34a000c03e2bdca29714e6c \
+  --dry-run
+```
+
+Dry-run bruger de virkelige write-RPC'er i én transaktion og rollbacker efter
+databaseverificeret finalize. Den er derfor ikke SQL-read-only. `--apply`
+kræver en separat databaseudstedt, engangs authorization-envelope; en
+implementeret writer eller en grøn lokal dry-run er aldrig i sig selv
+production authorization. Identisk, allerede finaliseret replay returnerer
+`already_applied`; samme hash med ændrede payloads afvises.
+
+Reversal kræver sin egen engangsauthorization bundet til det eksakte batch.
+På grund af den append-only source-persona-identitet bevares kildeevidensen og
+personrækken som `staged=true,status='reimport_1939_reversed'`, mens external ID
+og narrativ fjernes og personaidentiteten supersedes. Offentlig cutover er en
+senere, separat authorization og må ikke kombineres med apply.
+
+Se den aktuelle verifikations- og gate-status i
+`docs/superpowers/reviews/1939-v50-production-writer-readiness.md`.
+
 ## Vigtige principper
 
 - **Hver DAA-udgave er én `source`.** Modstridende udgaver = separate kilder,
