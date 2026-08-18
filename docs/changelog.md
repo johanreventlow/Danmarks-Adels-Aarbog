@@ -1,5 +1,36 @@
 # Changelog
 
+## 1939 v50-strømmen lukket i prod: publikation + cutover (2026-08-18)
+
+Hele den evidensbaserede 1939 v50-strøm er nu udført og verificeret i produktion.
+Tidligere på dagen (Codex): production apply (8 staged summary-personer 1846-1853 +
+305 source-only evidensobjekter, batch `560c39f8…`) og name-completion apply
+(8 kildebundne navnefakta, batch `0b0055f6…`). Derefter (denne session):
+
+- **Narrativ-publikation:** `red_publicer_narrative_record` hærdet til
+  draft→published med eksakt felt-match (`FOR UPDATE`, mismatch fejler uden
+  mutation); DDL deployet via `apply_migration` (RPC-md5 `6e888307…`,
+  `get_advisors(security)` uden nye fund); de 8 draft-bindinger publiceret via
+  hash-låst, atomisk DO-blok genereret deterministisk fra manifestet.
+- **Cutover:** gennem skemaets autoriserede vej —
+  `red_authorize_1939_v50_cutover` → `red_activate_1939_v50_batch` (fuld
+  integritetskontrol af kæden source-batch ↔ completion ↔ facts/citations ↔
+  personae) satte `staged=false` for præcis de 8. Batch `activated`,
+  autorisation `consumed`.
+- **Efterkontrol:** alle 8 offentligt kvalificerede (afdøde, ikke-private, navn
+  sat), record-provenance synlig 8/8, nul-delta i øvrigt (1.812 personer,
+  7.199 facts, 321 write-events). Umiddelbare backups før hvert skrivetrin
+  (publikation: `…narrative-publication-20260818-151116.dump`; cutover:
+  `…1939-v50-cutover-20260818-151949.dump`), begge 0600 + SHA-256-noteret.
+
+Rehearsal forinden: endelig real-DBI-kørsel mod frisk produktionsækvivalent
+restore med byte-identiske før/efter-baselines (0 persistens — previewets
+gateway har ingen commit-operation). Rapporter i
+`work/task25-1939-v50-production-writer/`. Læring: Supabase MCP `execute_sql`
+kører i read-only transaktion — skrivninger går via `apply_migration` eller
+direkte psql; første apply-forsøg abortede derfor fail-closed uden ændringer.
+Udestår: manuel browser-test af de 8 poster i web-fladen.
+
 ## Hele 1939-bogen gennemgået i tekstfladen (2026-08-10)
 
 Mennesket har været igennem alle 86 sider. Skæringssættet gik fra 446 forudsatte til

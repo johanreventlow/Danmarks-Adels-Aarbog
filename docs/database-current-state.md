@@ -4,7 +4,12 @@
 > er autoritative, og hvordan næste deploy forberedes sikkert. Changelog fortæller
 > historien; denne side fortæller tilstanden.
 >
-> **Sidst afstemt:** 2026-08-01 (union-redigering: `red_tilfoej_partner`,
+> **Sidst afstemt:** 2026-08-18 (1939 v50-strømmen lukket i prod: 8 nye
+> summary-personer 1846-1853 oprettet, navngivet, narrativ-publiceret og
+> cutover'et til offentlig synlighed; `red_publicer_narrative_record` hærdet
+> (draft→published m. eksakt felt-match); prod = 1.812 personer, 7.199 facts,
+> 321 write-events; backups + rapporter i `work/task25-1939-v50-production-writer/`.
+> Se changelog 2026-08-18). Forudgående afstemning 2026-08-01 (union-redigering: `red_tilfoej_partner`,
 > `_samme_som_gruppe`, `trg_partner_loft`, opdateret `red_tilfoej_barn`,
 > `enforce_samme_som_invariants` m. UPDATE-trigger og udvidet `red_doede_links`
 > applied til prod; data: 65 børn flyttet + 7 forældre matchet → 0 karantænerede
