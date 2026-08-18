@@ -228,9 +228,11 @@ git commit -m "feat(1939): fase A-manifest-bygger for de 584 kilderecords"
   som forlæg — kopiér mønstret, del ikke koden, da validatorerne er
   batch-specifikke pr. designbeslutning i dette program).
 - Produces: CLI `Rscript apply_phase_a_1939_v50.R --manifest … 
-  --manifest-sha256 … --preview-sha256 … --output … [--dry-run]` der kører
-  authorize→begin→source_evidence×584→finalize; `--dry-run` = samme
-  transaktion afsluttet med rollback (aldrig commit).
+  --manifest-sha256 … --preview-sha256 … --output … (--dry-run | --apply)`
+  der kører authorize→begin→source_evidence×584→finalize; tilstanden er
+  OBLIGATORISK og eksplicit — `--dry-run` = samme transaktion afsluttet med
+  rollback (aldrig commit); intet default-apply (fail-closed, ruling efter
+  task 2-review).
 
 - [ ] **Step 1: Skriv fejlende DB-fri tests** (`test_apply_phase_a_1939_v50.R`,
   fake-gateway-mønster som `test_preview_narrative_publication_1939_v50.R`):
@@ -273,7 +275,7 @@ git commit -m "feat(1939): fase A-manifest-bygger for de 584 kilderecords"
   `DAA_REIMPORT_ACTOR_ID=<redaktions-uuid fra restoren>`): forvent
   `status=finalized, committed=false`; efter-baseline SKAL være
   byte-identisk med før (cmp).
-- [ ] **Step 4: Committed rehearsal** (uden `--dry-run`, stadig lokal base):
+- [ ] **Step 4: Committed rehearsal** (med `--apply`, stadig lokal base):
   efterkontrol med read-only SQL: source_records i alt **592** (243
   eksisterende, hvoraf 235 nøgler deles med task 25's claim-rows og KUN
   beriges med en ny helpost-occurrence via `ON CONFLICT DO NOTHING` —
