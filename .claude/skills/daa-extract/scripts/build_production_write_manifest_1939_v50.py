@@ -117,6 +117,7 @@ def _build_manifest(
             "element_id": f"person-create:{key}", "dependency_class": "person_create",
             "source_record_key": key, "source_id": 3, "edition": "1939",
             "source_span": span, "verbatim_text": text,
+            "page_evidence": review.get("page_evidence"),
             "verbatim_sha256": hashlib.sha256(text.encode()).hexdigest(),
             "source_persona_id": persona_id(key), "persona_key": f"1939:{key}",
             "identity_decision_sha256": input_hashes[2], "review_sha256": decision.get("review_sha256"),
@@ -148,6 +149,9 @@ def _build_manifest(
                 "review_subject_id": sid, "source_record_key": row.get("source_record_key"),
                 "category": row.get("category"), "disposition": "retain_source_only",
                 "evidence_sha256": row.get("evidence_sha256"),
+                "canonical_target": row.get("canonical_target"),
+                "source_span": row.get("source_span"), "page_evidence": row.get("page_evidence"),
+                "verbatim_text": row.get("verbatim_text"), "legacy_payload": row.get("legacy_payload"),
             })
         elif row.get("disposition") in {"promote_canonical", "retire_1939_projection"}:
             canonical_delta.extend(row.get("canonical_operations", []))
@@ -162,7 +166,8 @@ def _build_manifest(
             "remaining_identity_decisions_sha256": input_hashes[2], "provenance_decisions_sha256": input_hashes[3],
             "database_preview_v3_sha256": input_hashes[4],
         },
-        "source": {"edition": "1939", "logical_source_id": "1939", "database_source_id": 3},
+        "source": {"edition": "1939", "logical_source_id": "1939", "database_source_id": 3,
+                   "rendition_content_sha256": provenance_decisions.get("input_hashes", {}).get("calamari_sha256")},
         "expected_database_contract": {"postgres_major": 17, "writer_contract": "1939-v50-production-writer-v1"},
         "existing_anchors": matched, "person_creates": creates,
         "provenance_dispositions": prov_rows, "canonical_delta": canonical_delta,

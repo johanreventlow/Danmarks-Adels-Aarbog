@@ -22,7 +22,7 @@ def fixture():
     }
     identity_review = {"schema_version": "1939-v50-remaining-identity-review-v1", "subjects": [{"new_record_key": key, "source_span": {"char_from": 0, "char_to": 9}, "verbatim_text": "1. Ditlev", "page_evidence": {"page_from": 1, "page_to": 1}}], "database_write_authorized": False}
     identity_decisions = {"schema_version": "1939-v50-remaining-identity-decisions-v1", "counts": {"new_person_candidate": 1, "unresolved": 0}, "decisions": [{"source_record_key": key, "source_span": {"char_from": 0, "char_to": 9}, "verbatim_sha256": hashlib.sha256(b"1. Ditlev").hexdigest(), "decision": "new_person_candidate", "reason": "verified", "review_status": "codex_verified", "review_sha256": "a"*64}], "database_write_authorized": False}
-    provenance = {"schema_version": "1939-v50-provenance-decisions-v1", "counts": {"subjects": 1, "unresolved": 0}, "decisions": [{"review_subject_id": "p1", "category": "fact", "source_record_key": "record-x", "canonical_target": {"canonical_person_id": 1}, "disposition": "retain_source_only", "resolution_basis": "safe", "canonical_operations": [], "evidence_sha256": "c"*64}], "production_authorized": False, "database_write_authorized": False}
+    provenance = {"schema_version": "1939-v50-provenance-decisions-v1", "input_hashes": {"calamari_sha256": "d"*64}, "counts": {"subjects": 1, "unresolved": 0}, "decisions": [{"review_subject_id": "p1", "category": "fact", "source_record_key": "record-x", "canonical_target": {"canonical_person_id": 1}, "source_span": {"char_from": 10,"char_to": 15}, "page_evidence": {"page_from": 1,"page_to": 1}, "verbatim_text": "tekst", "legacy_payload": {"value":"x"}, "disposition": "retain_source_only", "resolution_basis": "safe", "canonical_operations": [], "evidence_sha256": "c"*64}], "production_authorized": False, "database_write_authorized": False}
     preview = {"schema_version": "1939-v50-database-preview-v3", "person_anchors": {"matched_count": 1, "missing_count": 0, "collision_count": 0, "matched": [{"baseline_record_key": "baseline-1", "person_id": 1}]}, "canonical_mutations_authorized": False, "expected_database_changes": {"authorized": False}, "source": {"database_source_id": 3}}
     return source_personas, identity_review, identity_decisions, provenance, preview
 
@@ -49,6 +49,8 @@ def test_source_only_decision_only_emits_private_evidence():
     out = build()
     assert [x["dependency_class"] for x in out["operations"]] == ["source_evidence", "person_create"]
     assert out["canonical_delta"] == []
+    assert out["operations"][0]["verbatim_text"] == "tekst"
+    assert out["source"]["rendition_content_sha256"] == "d" * 64
 
 
 @pytest.mark.parametrize("index,mutate", [
