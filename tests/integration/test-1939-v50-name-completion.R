@@ -133,6 +133,35 @@ protected_counts <- function(connection) query(connection, paste(
 
 gateway <- function(timeout = NULL) new_name_completion_dbi_gateway(function() connect(timeout))
 before <- protected_counts(con)
+
+cli_manifest <- tempfile("name-completion-cli-manifest-", fileext = ".json")
+cli_outputs <- tempfile(c("name-completion-cli-missing-", "name-completion-cli-wrong-",
+  "name-completion-cli-correct-"), fileext = ".json")
+on.exit(unlink(c(cli_manifest, cli_outputs)), add = TRUE)
+writeLines(jsonlite::toJSON(manifest, auto_unbox = TRUE, pretty = TRUE, null = "null"),
+  cli_manifest, useBytes = TRUE)
+cli_manifest_sha <- digest::digest(file = cli_manifest, algo = "sha256", serialize = FALSE)
+cli_script <- file.path(root, ".claude/skills/daa-extract/scripts/apply_name_completion_1939_v50.R")
+run_cli <- function(actor_value, output) suppressWarnings(system2("Rscript", c(cli_script,
+  "--manifest", cli_manifest, "--manifest-sha256", cli_manifest_sha,
+  "--mode", "dry-run", "--output", output),
+  env = paste0("DAA_REIMPORT_ACTOR_ID=", actor_value), stdout = TRUE, stderr = TRUE))
+
+missing_actor <- run_cli("", cli_outputs[[1L]])
+stopifnot(identical(as.integer(attr(missing_actor, "status")), 1L),
+  any(grepl("NAME_COMPLETION_1939_ACTOR_REQUIRED", missing_actor, fixed = TRUE)),
+  !file.exists(cli_outputs[[1L]]), identical(protected_counts(con), before))
+wrong_actor <- run_cli("22222222-2222-4222-8222-222222222222", cli_outputs[[2L]])
+stopifnot(identical(as.integer(attr(wrong_actor, "status")), 1L),
+  any(grepl("REIMPORT_1939_ROLE_FORBIDDEN", wrong_actor, fixed = TRUE)),
+  !file.exists(cli_outputs[[2L]]), identical(protected_counts(con), before))
+correct_actor <- run_cli(actor, cli_outputs[[3L]])
+stopifnot(is.null(attr(correct_actor, "status")), file.exists(cli_outputs[[3L]]),
+  identical(protected_counts(con), before))
+cli_result <- jsonlite::fromJSON(cli_outputs[[3L]], simplifyVector = FALSE)
+stopifnot(identical(cli_result$mode, "dry-run"), identical(cli_result$committed, FALSE),
+  length(cli_result$result_map) == 8L)
+
 DBI::dbDisconnect(con); con <- NULL
 dry <- execute_name_completion(manifest, manifest_sha, "dry-run", gateway())
 stopifnot(!dry$committed)
