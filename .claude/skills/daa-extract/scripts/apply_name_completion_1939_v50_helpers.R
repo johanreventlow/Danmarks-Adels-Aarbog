@@ -2,8 +2,6 @@ name_completion_hash_re <- "^[0-9a-f]{64}$"
 name_completion_source_batch_id <- "560c39f8-5c87-4c0d-a768-025d97fa2974"
 name_completion_source_manifest_bytes_sha256 <- "8417b6deeaf32b3cf39a4f2995a06211f8368172dfa97a188e03c6f7ef379a1f"
 name_completion_source_manifest_content_sha256 <- "8c6a9f56af7f1e75e1b961f561cc2118478ac4d9e08f838c9e5279938c545f03"
-name_completion_database_name <- "postgres"
-name_completion_system_identifier <- "7642734024280108049"
 
 stop_name_completion <- function(code) stop(code, call. = FALSE)
 
@@ -18,6 +16,11 @@ name_completion_names <- function(value, expected) {
 
 name_completion_integer <- function(value, expected) {
   is.integer(value) && length(value) == 1L && !is.na(value) && identical(value, expected)
+}
+
+name_completion_uuid <- function(value) {
+  is.character(value) && length(value) == 1L && !is.na(value) &&
+    grepl("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", value)
 }
 
 canonical_name_completion_value <- function(value) {
@@ -146,11 +149,23 @@ authorized_name_payloads <- function(x) {
   payloads
 }
 
-validate_name_completion_preflight <- function(result, source_batch_id, manifest_sha256) {
+validate_name_completion_authorization <- function(authorization) {
+  required <- c("authorization_id", "database_name", "system_identifier")
+  if (!name_completion_names(authorization, required) ||
+      !name_completion_uuid(authorization$authorization_id) ||
+      !is.character(authorization$database_name) || length(authorization$database_name) != 1L ||
+      is.na(authorization$database_name) || !nzchar(authorization$database_name) ||
+      !is.character(authorization$system_identifier) || length(authorization$system_identifier) != 1L ||
+      is.na(authorization$system_identifier) || !nzchar(authorization$system_identifier))
+    stop_name_completion("NAME_COMPLETION_1939_AUTHORIZATION_INVALID")
+  invisible(authorization)
+}
+
+validate_name_completion_preflight <- function(result, authorization, source_batch_id, manifest_sha256) {
   required <- c("valid", "database_name", "system_identifier", "source_batch_id", "manifest_sha256")
   if (!name_completion_names(result, required) || !identical(result$valid, TRUE) ||
-      !identical(result$database_name, name_completion_database_name) ||
-      !identical(result$system_identifier, name_completion_system_identifier) ||
+      !identical(result$database_name, authorization$database_name) ||
+      !identical(result$system_identifier, authorization$system_identifier) ||
       !identical(result$source_batch_id, source_batch_id) ||
       !identical(result$manifest_sha256, manifest_sha256))
     stop_name_completion("NAME_COMPLETION_1939_PREFLIGHT_INVALID")
@@ -166,10 +181,9 @@ execute_name_completion <- function(manifest, manifest_sha256,
     stop_name_completion("NAME_COMPLETION_1939_MANIFEST_HASH_INVALID")
   if (!is.list(gateway) || !is.function(gateway$call))
     stop_name_completion("NAME_COMPLETION_1939_GATEWAY_INVALID")
-  if (identical(mode, "apply") && (!is.list(authorization) ||
-      !is.character(authorization$id) || length(authorization$id) != 1L ||
-      is.na(authorization$id) || !nzchar(authorization$id)))
+  if (identical(mode, "apply") && is.null(authorization))
     stop_name_completion("NAME_COMPLETION_1939_AUTHORIZATION_REQUIRED")
+  if (identical(mode, "apply")) validate_name_completion_authorization(authorization)
   call <- gateway$call
   connected <- FALSE
   rolled_back <- FALSE
@@ -184,15 +198,25 @@ execute_name_completion <- function(manifest, manifest_sha256,
     connected <- TRUE
     call("begin")
     call("advisory_lock", manifest_sha256)
-    preflight <- call("preflight", manifest$source_batch_id, manifest_sha256,
-      authorized_name_payloads(manifest))
-    validate_name_completion_preflight(preflight, manifest$source_batch_id, manifest_sha256)
+    resolved <- call("preflight", manifest$source_batch_id, manifest_sha256,
+      authorized_name_payloads(manifest), if (identical(mode, "apply")) authorization$authorization_id else NULL,
+      manifest, mode)
+    if (!name_completion_names(resolved, c("authorization", "preflight")))
+      stop_name_completion("NAME_COMPLETION_1939_PREFLIGHT_INVALID")
+    resolved_authorization <- resolved$authorization
+    validate_name_completion_authorization(resolved_authorization)
+    if (identical(mode, "apply") && !identical(resolved_authorization, authorization))
+      stop_name_completion("NAME_COMPLETION_1939_PREFLIGHT_INVALID")
+    authorization <- resolved_authorization
+    validate_name_completion_preflight(resolved$preflight, authorization,
+      manifest$source_batch_id, manifest_sha256)
     batch <- call("begin_batch", authorization, manifest, manifest_sha256, mode)
     for (op in manifest$operations)
       call("name_completion", batch, op$element_id, strip_transport(op))
     final <- call("finalize", batch)
     if (identical(mode, "dry-run")) rollback_once() else call("commit")
     list(mode = mode, status = final$status, batch_id = final$batch_id,
+      authorization = authorization,
       committed = identical(mode, "apply"))
   }, error = function(e) {
     rollback_once()
@@ -214,9 +238,23 @@ new_name_completion_dbi_gateway <- function(connection_factory) {
         invisible(NULL)
       },
       preflight = {
+        authorization_id <- args[[4L]]
+        manifest <- args[[5L]]
+        mode <- args[[6L]]
+        if (identical(mode, "dry-run")) {
+          authorization <- jsonlite::fromJSON(query(
+          "SELECT public.red_authorize_1939_v50_name_completion($1,$2,$3,$4,$5::jsonb,$6::jsonb)::text AS value",
+          list(args[[2L]], manifest$source_batch_id,
+            manifest$source_manifest_bytes_sha256, manifest$source_manifest_content_sha256,
+            jsonlite::toJSON(manifest$counts, auto_unbox = TRUE),
+            jsonlite::toJSON(args[[3L]], auto_unbox = TRUE, null = "null"))
+          )$value[[1L]], simplifyVector = FALSE)
+          authorization_id <- authorization$authorization_id
+        }
         jsonlite::fromJSON(query(
-          "SELECT public.red_preflight_1939_v50_name_completion($1,$2,$3::jsonb)::text AS value",
-          list(args[[1L]], args[[2L]], jsonlite::toJSON(args[[3L]], auto_unbox = TRUE, null = "null"))
+          "SELECT public.red_preflight_1939_v50_name_completion($1,$2,$3,$4::jsonb)::text AS value",
+          list(authorization_id, args[[1L]], args[[2L]],
+            jsonlite::toJSON(args[[3L]], auto_unbox = TRUE, null = "null"))
         )$value[[1L]], simplifyVector = FALSE)
       },
       begin_batch = {
@@ -224,17 +262,8 @@ new_name_completion_dbi_gateway <- function(connection_factory) {
         manifest <- args[[2L]]
         manifest_sha256 <- args[[3L]]
         mode <- args[[4L]]
-        if (identical(mode, "dry-run")) {
-          authorization <- list(id = query(
-            "SELECT public.red_authorize_1939_v50_name_completion($1,$2,$3,$4,$5::jsonb,$6::jsonb) AS id",
-            list(manifest_sha256, manifest$source_batch_id,
-              manifest$source_manifest_bytes_sha256, manifest$source_manifest_content_sha256,
-              jsonlite::toJSON(manifest$counts, auto_unbox = TRUE),
-              jsonlite::toJSON(authorized_name_payloads(manifest), auto_unbox = TRUE, null = "null"))
-          )$id[[1L]])
-        }
         query("SELECT public.red_begin_1939_v50_name_completion($1,$2,$3) AS id",
-          list(authorization$id, manifest_sha256, manifest$source_batch_id))$id[[1L]]
+          list(authorization$authorization_id, manifest_sha256, manifest$source_batch_id))$id[[1L]]
       },
       name_completion = {
         execute("SELECT public.red_apply_1939_v50_name_completion($1,$2,$3::jsonb)",

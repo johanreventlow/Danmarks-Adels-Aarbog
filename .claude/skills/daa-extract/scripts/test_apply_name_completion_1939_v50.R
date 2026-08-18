@@ -50,6 +50,12 @@ rehash_manifest <- function(manifest) {
   manifest
 }
 
+authorization_fixture <- function(database_name = "name_completion_1939",
+                                  system_identifier = "test-system-identifier") {
+  list(authorization_id = "9f7a80dc-7566-45dc-8a98-9d3c4ea7a312",
+    database_name = database_name, system_identifier = system_identifier)
+}
+
 fixture_manifest <- function() {
   operations <- lapply(seq_along(locked_rows), function(index) {
     row <- locked_rows[[index]]
@@ -86,27 +92,33 @@ fixture_manifest <- function() {
   ))
 }
 
-fake_gateway <- function(fail_at = NULL, preflight_result = NULL) {
+fake_gateway <- function(fail_at = NULL, preflight_result = NULL,
+                         authorization_envelope = authorization_fixture(),
+                         resolved_authorization = NULL) {
   log <- character()
   preflight_args <- NULL
+  name_completion_args <- list()
   call <- function(name, ...) {
     args <- list(...)
     log <<- c(log, name)
     if (identical(name, fail_at)) stop(paste0("FAIL_AT_", name), call. = FALSE)
     if (identical(name, "preflight")) {
       preflight_args <<- args
-      if (!is.null(preflight_result)) return(preflight_result)
-      source_batch <- if (length(args) == 3L) args[[1L]] else args[[1L]]$source_batch_id
-      manifest_sha256 <- if (length(args) == 3L) args[[2L]] else args[[2L]]
-      return(list(valid = TRUE, database_name = "postgres",
-        system_identifier = "7642734024280108049", source_batch_id = source_batch,
-        manifest_sha256 = manifest_sha256))
+      source_batch <- if (length(args) >= 3L) args[[1L]] else args[[1L]]$source_batch_id
+      manifest_sha256 <- args[[2L]]
+      envelope <- if (!is.null(resolved_authorization)) resolved_authorization else authorization_envelope
+      response <- if (is.null(preflight_result)) list(valid = TRUE,
+        database_name = envelope$database_name, system_identifier = envelope$system_identifier,
+        source_batch_id = source_batch, manifest_sha256 = manifest_sha256) else preflight_result
+      return(list(authorization = envelope, preflight = response))
     }
+    if (identical(name, "name_completion")) name_completion_args <<- c(name_completion_args, list(args))
     if (identical(name, "begin_batch")) return("completion-batch")
     if (identical(name, "finalize")) return(list(status = "finalized", batch_id = "completion-batch"))
     invisible(NULL)
   }
-  list(call = call, log = function() log, preflight_args = function() preflight_args)
+  list(call = call, log = function() log, preflight_args = function() preflight_args,
+    name_completion_args = function() name_completion_args)
 }
 
 manifest <- fixture_manifest()
@@ -125,6 +137,13 @@ result <- execute_name_completion(manifest, manifest_sha, "dry-run", g)
 expect(identical(result$status, "finalized") && identical(result$committed, FALSE))
 expect(identical(g$log(), c("connect", "begin", "advisory_lock", "preflight", "begin_batch",
   rep("name_completion", 8L), "finalize", "rollback")))
+expect(length(g$preflight_args()) == 6L && is.null(g$preflight_args()[[4L]]) &&
+  identical(g$preflight_args()[[6L]], "dry-run"))
+disposable_envelope <- authorization_fixture("name_completion_rehearsal", "rehearsal-system")
+g <- fake_gateway(authorization_envelope = disposable_envelope)
+result <- execute_name_completion(manifest, manifest_sha, "dry-run", g)
+expect(identical(result$authorization, disposable_envelope) &&
+  identical(result$authorization$database_name, "name_completion_rehearsal"))
 
 bad <- fixture_manifest(); bad$operations[[1L]]$verbatim_text <- "tampered text"
 expect_error(validate_name_completion_manifest(bad), "NAME_COMPLETION_1939_OPERATION_INVALID")
@@ -151,12 +170,12 @@ expect_error(execute_name_completion(bad, manifest_sha, "dry-run", g),
   "NAME_COMPLETION_1939_PREFLIGHT_INVALID")
 expect(identical(tail(g$log(), 1L), "rollback"))
 g <- fake_gateway(preflight_result = list(valid = TRUE, database_name = "wrong",
-  system_identifier = "7642734024280108049", source_batch_id = manifest$source_batch_id,
+  system_identifier = "test-system-identifier", source_batch_id = manifest$source_batch_id,
   manifest_sha256 = manifest_sha))
 expect_error(execute_name_completion(manifest, manifest_sha, "dry-run", g),
   "NAME_COMPLETION_1939_PREFLIGHT_INVALID")
 expect(identical(tail(g$log(), 1L), "rollback"))
-g <- fake_gateway(preflight_result = list(valid = TRUE, database_name = "postgres",
+g <- fake_gateway(preflight_result = list(valid = TRUE, database_name = "name_completion_1939",
   system_identifier = "wrong", source_batch_id = manifest$source_batch_id,
   manifest_sha256 = manifest_sha))
 expect_error(execute_name_completion(manifest, manifest_sha, "dry-run", g),
@@ -178,13 +197,33 @@ g <- fake_gateway()
 invisible(execute_name_completion(manifest, manifest_sha, "dry-run", g))
 expect(identical(g$preflight_args()[[1L]], manifest$source_batch_id) &&
   identical(g$preflight_args()[[2L]], manifest_sha) &&
-  identical(g$preflight_args()[[3L]], authorized_name_payloads(manifest)))
+  identical(g$preflight_args()[[3L]], authorized_name_payloads(manifest)) &&
+  is.null(g$preflight_args()[[4L]]) && identical(g$preflight_args()[[5L]], manifest) &&
+  identical(g$preflight_args()[[6L]], "dry-run"))
+expect(length(g$name_completion_args()) == 8L && all(vapply(seq_along(manifest$operations),
+  function(index) identical(g$name_completion_args()[[index]][[3L]],
+    strip_transport(manifest$operations[[index]])), logical(1))))
 
 g <- fake_gateway()
-result <- execute_name_completion(manifest, manifest_sha, "apply", g, list(id = "authorization"))
+result <- execute_name_completion(manifest, manifest_sha, "apply", g, authorization_fixture())
 expect(identical(result$committed, TRUE) && identical(tail(g$log(), 1L), "commit"))
+expect(identical(g$preflight_args()[[4L]], authorization_fixture()$authorization_id))
+g <- fake_gateway(resolved_authorization = authorization_fixture("another_database",
+  "test-system-identifier"))
+expect_error(execute_name_completion(manifest, manifest_sha, "apply", g, authorization_fixture()),
+  "NAME_COMPLETION_1939_PREFLIGHT_INVALID")
+expect(identical(tail(g$log(), 1L), "rollback"))
 expect_error(execute_name_completion(manifest, manifest_sha, "apply", fake_gateway()),
   "NAME_COMPLETION_1939_AUTHORIZATION_REQUIRED")
+for (bad_authorization in list(
+    list(authorization_id = "9f7a80dc-7566-45dc-8a98-9d3c4ea7a312",
+      database_name = "name_completion_1939"),
+    c(authorization_fixture(), list(unexpected = TRUE)),
+    list(authorization_id = "not-a-uuid", database_name = "name_completion_1939",
+      system_identifier = "test-system-identifier"))) {
+  expect_error(execute_name_completion(manifest, manifest_sha, "apply", fake_gateway(),
+    bad_authorization), "NAME_COMPLETION_1939_AUTHORIZATION_INVALID")
+}
 
 for (stage in c("preflight", "begin_batch", "name_completion", "finalize")) {
   g <- fake_gateway(stage)
@@ -228,11 +267,14 @@ expect(identical(names(formals(execute_name_completion)),
 gateway_body <- paste(deparse(body(new_name_completion_dbi_gateway)), collapse = "\n")
 expect(!grepl("pg_advisory_xact_lock|current_database|pg_control_system|gen_random_uuid", gateway_body))
 for (rpc in c("red_lock_1939_v50_name_completion($1)",
-    "red_preflight_1939_v50_name_completion($1,$2,$3::jsonb)",
+    "red_preflight_1939_v50_name_completion($1,$2,$3,$4::jsonb)",
     "red_authorize_1939_v50_name_completion($1,$2,$3,$4,$5::jsonb,$6::jsonb)",
     "red_begin_1939_v50_name_completion($1,$2,$3)",
     "red_apply_1939_v50_name_completion($1,$2,$3::jsonb)",
     "red_finalize_1939_v50_name_completion($1)"))
   expect(grepl(rpc, gateway_body, fixed = TRUE), rpc)
+expect(grepl("red_authorize_1939_v50_name_completion($1,$2,$3,$4,$5::jsonb,$6::jsonb)::text AS value",
+  gateway_body, fixed = TRUE))
+expect(!grepl("authorization <- args[[4L]]", gateway_body, fixed = TRUE))
 
 cat(sprintf("PASS %d assertions\n", ok))
