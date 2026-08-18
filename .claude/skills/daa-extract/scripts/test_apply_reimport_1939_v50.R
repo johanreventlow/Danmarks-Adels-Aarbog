@@ -20,9 +20,9 @@ fixture_manifest <- function() list(
   manifest_content_sha256=paste(rep("a",64),collapse=""), production_authorized=FALSE,apply_gate="NO-GO",cutover_gate="NO-GO"
 )
 
-fake_gateway <- function() {
+fake_gateway <- function(fail_at=NULL) {
   log <- character(); ids <- 0L
-  call <- function(name, ...) { log <<- c(log,name); if(name=="person_create") {ids<<-ids+1L; return(ids)}; if(name=="finalize") return(list(status="finalized")); invisible(NULL) }
+  call <- function(name, ...) { log <<- c(log,name); if(identical(name,fail_at)) stop(paste0("FAIL_AT_",name)); if(name=="person_create") {ids<<-ids+1L; return(ids)}; if(name=="finalize") return(list(status="finalized")); invisible(NULL) }
   list(call=call,log=function() log)
 }
 
@@ -36,5 +36,12 @@ g <- fake_gateway(); execute_reimport(m,paste(rep("c",64),collapse=""),"apply",g
 expect(identical(tail(g$log(),1),"commit"))
 expect_error(execute_reimport(m,paste(rep("c",64),collapse=""),"apply",fake_gateway()),"REIMPORT_1939_AUTHORIZATION_REQUIRED")
 m$production_authorized <- TRUE; expect_error(validate_production_manifest(m),"REIMPORT_1939_MANIFEST_INVALID")
+
+for (stage in c("begin_batch","source_evidence","person_create","finalize")) {
+  g <- fake_gateway(stage)
+  expect_error(execute_reimport(fixture_manifest(),paste(rep("c",64),collapse=""),"dry-run",g),paste0("FAIL_AT_",stage))
+  expect(sum(g$log()=="rollback")==1L)
+  expect(!("commit" %in% g$log()))
+}
 
 cat(sprintf("PASS %d assertions\n",ok))

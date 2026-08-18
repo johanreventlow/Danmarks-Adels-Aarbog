@@ -31,6 +31,18 @@ validate_production_manifest <- function(x) {
   invisible(x)
 }
 
+authorized_element_payloads <- function(manifest) {
+  payloads <- lapply(manifest$operations, function(op) {
+    payload <- op
+    payload$element_id <- NULL
+    payload$dependency_class <- NULL
+    payload$rendition_content_sha256 <- manifest$source$rendition_content_sha256
+    payload
+  })
+  names(payloads) <- vapply(manifest$operations, function(op) op$element_id, character(1))
+  payloads
+}
+
 execute_reimport <- function(manifest, preview_sha256, mode=c("dry-run","apply"), gateway,
                              authorization=NULL) {
   mode <- match.arg(mode); validate_production_manifest(manifest)
@@ -44,11 +56,17 @@ execute_reimport <- function(manifest, preview_sha256, mode=c("dry-run","apply")
     call("connect"); connected <- TRUE; call("begin"); call("advisory_lock")
     call("preflight",manifest,preview_sha256)
     batch <- call("begin_batch",if(mode=="apply") authorization else NULL,manifest,preview_sha256,mode)
-    for (op in manifest$operations[vapply(manifest$operations,function(z) z$dependency_class=="source_evidence",logical(1))])
-      call("source_evidence",batch,op$element_id,list(source_record_key=op$source_record_key,disposition=op$disposition))
+    for (op in manifest$operations[vapply(manifest$operations,function(z) z$dependency_class=="source_evidence",logical(1))]) {
+      payload <- op; payload$element_id <- NULL; payload$dependency_class <- NULL
+      payload$rendition_content_sha256 <- manifest$source$rendition_content_sha256
+      call("source_evidence",batch,op$element_id,payload)
+    }
     person_map <- list()
-    for (op in manifest$operations[vapply(manifest$operations,function(z) z$dependency_class=="person_create",logical(1))])
-      person_map[[op$source_record_key]] <- call("person_create",batch,op$element_id,list(source_record_key=op$source_record_key,source_id=3L,name=op$name,staged=TRUE))
+    for (op in manifest$operations[vapply(manifest$operations,function(z) z$dependency_class=="person_create",logical(1))]) {
+      payload <- op; payload$element_id <- NULL; payload$dependency_class <- NULL
+      payload$rendition_content_sha256 <- manifest$source$rendition_content_sha256
+      person_map[[op$source_record_key]] <- call("person_create",batch,op$element_id,payload)
+    }
     for (op in manifest$canonical_delta) call("canonical_delta",batch,op$element_id,op)
     final <- call("finalize",batch)
     if (mode=="dry-run") rollback_once() else call("commit")
@@ -81,13 +99,14 @@ new_dbi_writer_gateway <- function(connection_factory) {
         if (mode=="dry-run") {
           nonce <- query("SELECT gen_random_uuid() AS id")$id[[1]]
           counts <- jsonlite::toJSON(list(person_creates=8L,source_evidence=305L,canonical_delta=0L),auto_unbox=TRUE)
-          auth <- list(id=query("SELECT public.red_authorize_1939_v50_reimport($1,$2,current_database(),3,$3::jsonb,$4,clock_timestamp()+interval '10 minutes') AS id",list(manifest$manifest_content_sha256,preview,counts,nonce))$id[[1]])
+          elements <- jsonlite::toJSON(authorized_element_payloads(manifest),auto_unbox=TRUE,null="null")
+          auth <- list(id=query("SELECT public.red_authorize_1939_v50_reimport($1,$2,current_database(),3,$3::jsonb,$4::jsonb,$5,clock_timestamp()+interval '10 minutes') AS id",list(manifest$manifest_content_sha256,preview,counts,elements,nonce))$id[[1]])
         }
         query("SELECT public.red_begin_1939_v50_reimport($1,$2,$3) AS id",list(auth$id,manifest$manifest_content_sha256,preview))$id[[1]]
       },
-      source_evidence={execute("SELECT public.red_apply_1939_v50_source_evidence($1,$2,$3::jsonb)",list(args[[1]],args[[2]],jsonlite::toJSON(args[[3]],auto_unbox=TRUE))); invisible(NULL)},
-      person_create=query("SELECT public.red_apply_1939_v50_person_create($1,$2,$3::jsonb) AS id",list(args[[1]],args[[2]],jsonlite::toJSON(args[[3]],auto_unbox=TRUE)))$id[[1]],
-      canonical_delta={execute("SELECT public.red_apply_1939_v50_canonical_delta($1,$2,$3::jsonb)",list(args[[1]],args[[2]],jsonlite::toJSON(args[[3]],auto_unbox=TRUE))); invisible(NULL)},
+      source_evidence={execute("SELECT public.red_apply_1939_v50_source_evidence($1,$2,$3::jsonb)",list(args[[1]],args[[2]],jsonlite::toJSON(args[[3]],auto_unbox=TRUE,null="null"))); invisible(NULL)},
+      person_create=query("SELECT public.red_apply_1939_v50_person_create($1,$2,$3::jsonb) AS id",list(args[[1]],args[[2]],jsonlite::toJSON(args[[3]],auto_unbox=TRUE,null="null")))$id[[1]],
+      canonical_delta={execute("SELECT public.red_apply_1939_v50_canonical_delta($1,$2,$3::jsonb)",list(args[[1]],args[[2]],jsonlite::toJSON(args[[3]],auto_unbox=TRUE,null="null"))); invisible(NULL)},
       finalize=jsonlite::fromJSON(query("SELECT public.red_finalize_1939_v50_reimport($1)::text AS value",list(args[[1]]))$value[[1]],simplifyVector=FALSE),
       rollback={DBI::dbRollback(con); DBI::dbDisconnect(con); con <<- NULL; invisible(NULL)},
       commit={DBI::dbCommit(con); DBI::dbDisconnect(con); con <<- NULL; invisible(NULL)},
