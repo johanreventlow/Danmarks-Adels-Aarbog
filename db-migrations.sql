@@ -8014,3 +8014,32 @@ REVOKE ALL ON FUNCTION public.red_reverse_1939_v50_reimport(uuid,uuid),
   public.red_activate_1939_v50_batch(uuid,uuid) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.red_reverse_1939_v50_reimport(uuid,uuid),
   public.red_activate_1939_v50_batch(uuid,uuid) TO authenticated;
+
+-- 2026-08-18: Return the deterministic name-completion result map.
+DROP FUNCTION public.red_finalize_1939_v50_name_completion(uuid);
+CREATE FUNCTION public.red_finalize_1939_v50_name_completion(p_batch_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE b private.reimport_1939_write_batch%ROWTYPE; v_counts jsonb; v_result_map jsonb;
+BEGIN
+  SELECT * INTO b FROM private.reimport_1939_write_batch WHERE id=p_batch_id FOR UPDATE;
+  IF NOT FOUND OR b.principal_id<>private.require_reimport_1939_editor() OR b.status<>'open' THEN RAISE EXCEPTION 'NAME_COMPLETION_1939_BATCH_INVALID'; END IF;
+  SELECT jsonb_build_object('name_completions',count(*),'operations',count(*)) INTO v_counts
+    FROM private.reimport_1939_name_completion_result WHERE batch_id=p_batch_id;
+  IF v_counts<>b.expected_counts OR (SELECT count(*) FROM private.reimport_1939_write_event WHERE batch_id=p_batch_id AND operation='canonical_delta')<>8
+     OR EXISTS(SELECT 1 FROM private.reimport_1939_name_completion_result r
+       LEFT JOIN public.fact f ON f.id=r.fact_id AND f.subjekt_type='person' AND f.subjekt_id=r.person_id AND f.faktatype='navn'
+       LEFT JOIN public.assertion a ON a.id=r.assertion_id AND a.target_type='fact' AND a.target_id=r.fact_id
+       LEFT JOIN public.citation c ON c.id=r.citation_id AND c.assertion_id=r.assertion_id
+       LEFT JOIN public.conclusion n ON n.id=r.conclusion_id AND n.target_type='fact' AND n.target_id=r.fact_id AND n.valgt_assertion_id=r.assertion_id
+       WHERE f.id IS NULL OR a.id IS NULL OR c.id IS NULL OR n.id IS NULL) THEN
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_FINALIZE_COUNT_MISMATCH';
+  END IF;
+  SELECT jsonb_object_agg(r.element_id,jsonb_build_object(
+    'person_id',r.person_id,'fact_id',r.fact_id,'assertion_id',r.assertion_id,
+    'citation_id',r.citation_id,'conclusion_id',r.conclusion_id) ORDER BY r.element_id)
+    INTO v_result_map FROM private.reimport_1939_name_completion_result r WHERE r.batch_id=p_batch_id;
+  UPDATE private.reimport_1939_write_batch SET status='finalized',observed_counts=v_counts,finalized_at=clock_timestamp() WHERE id=p_batch_id;
+  RETURN jsonb_build_object('batch_id',p_batch_id,'status','finalized','counts',v_counts,'result_map',v_result_map);
+END $$;
+REVOKE ALL ON FUNCTION public.red_finalize_1939_v50_name_completion(uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_finalize_1939_v50_name_completion(uuid) TO authenticated;

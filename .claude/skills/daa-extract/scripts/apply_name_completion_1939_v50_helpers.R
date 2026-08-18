@@ -214,9 +214,15 @@ execute_name_completion <- function(manifest, manifest_sha256,
     for (op in manifest$operations)
       call("name_completion", batch, op$element_id, strip_transport(op))
     final <- call("finalize", batch)
+    expected_result_keys <- vapply(manifest$operations, function(op) op$element_id, character(1))
+    expected_result_fields <- c("person_id", "fact_id", "assertion_id", "citation_id", "conclusion_id")
+    if (!name_completion_names(final, c("batch_id", "status", "counts", "result_map")) ||
+        !is.list(final$result_map) || !identical(names(final$result_map), expected_result_keys) ||
+        !all(vapply(final$result_map, name_completion_names, logical(1), expected_result_fields)))
+      stop_name_completion("NAME_COMPLETION_1939_FINALIZE_INVALID")
     if (identical(mode, "dry-run")) rollback_once() else call("commit")
     list(mode = mode, status = final$status, batch_id = final$batch_id,
-      authorization = authorization,
+      authorization = authorization, result_map = final$result_map,
       committed = identical(mode, "apply"))
   }, error = function(e) {
     rollback_once()

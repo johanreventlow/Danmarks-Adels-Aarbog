@@ -114,7 +114,15 @@ fake_gateway <- function(fail_at = NULL, preflight_result = NULL,
     }
     if (identical(name, "name_completion")) name_completion_args <<- c(name_completion_args, list(args))
     if (identical(name, "begin_batch")) return("completion-batch")
-    if (identical(name, "finalize")) return(list(status = "finalized", batch_id = "completion-batch"))
+    if (identical(name, "finalize")) {
+      fixture <- fixture_manifest()
+      result_map <- lapply(seq_along(fixture$operations), function(index) list(
+        person_id = fixture$operations[[index]]$person_id, fact_id = index,
+        assertion_id = index + 10L, citation_id = index + 20L, conclusion_id = index + 30L))
+      names(result_map) <- vapply(fixture$operations, function(op) op$element_id, character(1))
+      return(list(status = "finalized", batch_id = "completion-batch",
+        counts = list(name_completions = 8L, operations = 8L), result_map = result_map))
+    }
     invisible(NULL)
   }
   list(call = call, log = function() log, preflight_args = function() preflight_args,
@@ -135,6 +143,10 @@ expect(length(payloads) == 8L && is.null(payloads[[1L]]$element_id))
 g <- fake_gateway()
 result <- execute_name_completion(manifest, manifest_sha, "dry-run", g)
 expect(identical(result$status, "finalized") && identical(result$committed, FALSE))
+expect(length(result$result_map) == 8L &&
+  identical(names(result$result_map), vapply(manifest$operations, `[[`, "", "element_id")) &&
+  identical(names(result$result_map[[1L]]),
+    c("person_id", "fact_id", "assertion_id", "citation_id", "conclusion_id")))
 expect(identical(g$log(), c("connect", "begin", "advisory_lock", "preflight", "begin_batch",
   rep("name_completion", 8L), "finalize", "rollback")))
 expect(length(g$preflight_args()) == 6L && is.null(g$preflight_args()[[4L]]) &&

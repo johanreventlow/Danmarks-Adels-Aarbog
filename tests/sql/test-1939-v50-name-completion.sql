@@ -305,7 +305,17 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN IF SQLERRM='NAME_COMPLETION_1939_NINTH_ELEMENT_ACCEPTED' THEN RAISE; END IF; END;
   v_result := public.red_finalize_1939_v50_name_completion(v_completion_batch);
   UPDATE name_completion_1939_test_state SET completion_batch_id=v_completion_batch;
-  IF v_result->>'status'<>'finalized'
+  IF (SELECT array_agg(key ORDER BY key) FROM jsonb_object_keys(v_result) AS t(key))
+       <> ARRAY['batch_id','counts','result_map','status']
+     OR v_result->>'status'<>'finalized'
+     OR (SELECT count(*) FROM jsonb_object_keys(v_result->'result_map'))<>8
+     OR EXISTS(SELECT 1 FROM private.reimport_1939_name_completion_result r
+       WHERE r.batch_id=v_completion_batch AND (
+         (SELECT array_agg(key ORDER BY key) FROM jsonb_object_keys(v_result->'result_map'->r.element_id) AS t(key))
+           <> ARRAY['assertion_id','citation_id','conclusion_id','fact_id','person_id']
+         OR v_result->'result_map'->r.element_id<>jsonb_build_object(
+           'person_id',r.person_id,'fact_id',r.fact_id,'assertion_id',r.assertion_id,
+           'citation_id',r.citation_id,'conclusion_id',r.conclusion_id)))
      OR (SELECT visning_navn FROM public.person WHERE id=1846)<>'Fixture'
      OR (SELECT count(*) FROM public.fact WHERE subjekt_type='person' AND subjekt_id=1846 AND faktatype='navn')<>1
      OR (SELECT count(*) FROM public.citation c JOIN public.assertion a ON a.id=c.assertion_id JOIN public.fact f ON f.id=a.target_id

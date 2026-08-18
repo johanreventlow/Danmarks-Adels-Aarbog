@@ -3015,7 +3015,7 @@ END $$;
 
 CREATE FUNCTION public.red_finalize_1939_v50_name_completion(p_batch_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-DECLARE b private.reimport_1939_write_batch%ROWTYPE; v_counts jsonb;
+DECLARE b private.reimport_1939_write_batch%ROWTYPE; v_counts jsonb; v_result_map jsonb;
 BEGIN
   SELECT * INTO b FROM private.reimport_1939_write_batch WHERE id=p_batch_id FOR UPDATE;
   IF NOT FOUND OR b.principal_id<>private.require_reimport_1939_editor() OR b.status<>'open' THEN RAISE EXCEPTION 'NAME_COMPLETION_1939_BATCH_INVALID'; END IF;
@@ -3030,8 +3030,12 @@ BEGIN
        WHERE f.id IS NULL OR a.id IS NULL OR c.id IS NULL OR n.id IS NULL) THEN
     RAISE EXCEPTION 'NAME_COMPLETION_1939_FINALIZE_COUNT_MISMATCH';
   END IF;
+  SELECT jsonb_object_agg(r.element_id,jsonb_build_object(
+    'person_id',r.person_id,'fact_id',r.fact_id,'assertion_id',r.assertion_id,
+    'citation_id',r.citation_id,'conclusion_id',r.conclusion_id) ORDER BY r.element_id)
+    INTO v_result_map FROM private.reimport_1939_name_completion_result r WHERE r.batch_id=p_batch_id;
   UPDATE private.reimport_1939_write_batch SET status='finalized',observed_counts=v_counts,finalized_at=clock_timestamp() WHERE id=p_batch_id;
-  RETURN jsonb_build_object('batch_id',p_batch_id,'status','finalized','counts',v_counts);
+  RETURN jsonb_build_object('batch_id',p_batch_id,'status','finalized','counts',v_counts,'result_map',v_result_map);
 END $$;
 
 ALTER TABLE private.reimport_1939_authorization ENABLE ROW LEVEL SECURITY;
