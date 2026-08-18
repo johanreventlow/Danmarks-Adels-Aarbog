@@ -2683,6 +2683,8 @@ DECLARE a private.reimport_1939_authorization%ROWTYPE; b private.reimport_1939_w
   sa private.reimport_1939_authorization%ROWTYPE; k text; p jsonb; e private.reimport_1939_write_event%ROWTYPE;
   v_identity jsonb; v_system text:=(pg_control_system()).system_identifier::text; v_record uuid;
 BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-1939-v50-name-completion',0));
+  LOCK TABLE public.fact, public.assertion, public.citation, public.conclusion IN SHARE ROW EXCLUSIVE MODE;
   SELECT * INTO a FROM private.reimport_1939_authorization WHERE id=p_authorization_id FOR UPDATE;
   IF NOT FOUND OR a.operation<>'name_completion' OR a.status<>'issued' OR a.principal_id<>private.require_reimport_1939_editor()
      OR a.expires_at<=clock_timestamp() OR a.manifest_sha256<>p_manifest_sha256
@@ -2706,6 +2708,18 @@ BEGIN
      OR (SELECT count(*) FROM jsonb_object_keys(p_payloads))<>8 THEN
     RAISE EXCEPTION 'NAME_COMPLETION_1939_PREFLIGHT_INVALID';
   END IF;
+  PERFORM 1 FROM public.person q
+    JOIN jsonb_each(p_payloads) j ON q.id=(j.value->>'person_id')::bigint
+    ORDER BY q.id FOR UPDATE OF q;
+  PERFORM 1 FROM private.source_record sr
+    JOIN jsonb_each(p_payloads) j ON sr.source_id=3 AND sr.record_key=j.value->>'source_record_key'
+    ORDER BY sr.id FOR UPDATE OF sr;
+  PERFORM 1 FROM private.source_persona sp
+    JOIN jsonb_each(p_payloads) j ON sp.id=(j.value->>'source_persona_id')::uuid
+    ORDER BY sp.id FOR UPDATE OF sp;
+  PERFORM 1 FROM private.source_persona_identity si
+    JOIN jsonb_each(p_payloads) j ON si.source_persona_id=(j.value->>'source_persona_id')::uuid
+    ORDER BY si.source_persona_id FOR UPDATE OF si;
   FOR k,p IN SELECT key,value FROM jsonb_each(p_payloads) LOOP
     IF k<>('name-completion:'||(p->>'source_record_key'))
        OR (p-ARRAY['source_batch_id','source_person_create_element_id','person_id','source_id','edition','source_record_key','source_persona_id','name','source_span','page_evidence','verbatim_text','verbatim_sha256','source_payload_sha256','expected_before','expected_after'])<>'{}'::jsonb
@@ -2810,12 +2824,29 @@ BEGIN
   IF EXISTS(SELECT 1 FROM private.reimport_1939_name_completion_result WHERE batch_id=p_batch_id AND element_id=p_element_id) THEN
     RAISE EXCEPTION 'NAME_COMPLETION_1939_APPLY_INVALID';
   END IF;
+  PERFORM 1 FROM public.person q WHERE q.id=(p_payload->>'person_id')::bigint FOR UPDATE OF q;
+  PERFORM 1 FROM private.source_record sr
+    WHERE sr.source_id=3 AND sr.record_key=p_payload->>'source_record_key' FOR UPDATE OF sr;
+  PERFORM 1 FROM private.source_persona sp
+    WHERE sp.id=(p_payload->>'source_persona_id')::uuid FOR UPDATE OF sp;
+  PERFORM 1 FROM private.source_persona_identity si
+    WHERE si.source_persona_id=(p_payload->>'source_persona_id')::uuid FOR UPDATE OF si;
   SELECT id INTO v_record FROM private.source_record WHERE source_id=3 AND record_key=p_payload->>'source_record_key';
   IF NOT FOUND OR NOT EXISTS(SELECT 1 FROM private.reimport_1939_write_event e
       JOIN private.reimport_1939_write_batch sb ON sb.id=e.batch_id
       WHERE e.batch_id=(p_payload->>'source_batch_id')::uuid AND sb.status='finalized' AND e.operation='person_create'
         AND e.element_id=p_payload->>'source_person_create_element_id' AND e.canonical_person_id=(p_payload->>'person_id')::bigint
         AND private.reimport_1939_canonical_json_sha256(e.payload)=p_payload->>'source_payload_sha256') THEN
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_APPLY_INVALID';
+  END IF;
+  IF NOT EXISTS(SELECT 1 FROM public.person q
+       WHERE q.id=(p_payload->>'person_id')::bigint AND q.staged AND q.visning_navn IS NULL)
+     OR EXISTS(SELECT 1 FROM public.fact f
+       WHERE f.subjekt_type='person' AND f.subjekt_id=(p_payload->>'person_id')::bigint AND f.faktatype='navn')
+     OR NOT EXISTS(SELECT 1 FROM private.source_persona sp
+       JOIN private.source_persona_identity si ON si.source_persona_id=sp.id
+       WHERE sp.id=(p_payload->>'source_persona_id')::uuid AND sp.source_id=3
+         AND si.canonical_person_id=(p_payload->>'person_id')::bigint AND si.decision_status='accepted') THEN
     RAISE EXCEPTION 'NAME_COMPLETION_1939_APPLY_INVALID';
   END IF;
   SELECT coalesce(max(id),0)+1 INTO v_fact FROM public.fact;
