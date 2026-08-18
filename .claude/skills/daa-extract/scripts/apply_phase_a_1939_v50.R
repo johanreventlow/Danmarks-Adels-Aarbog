@@ -1,17 +1,22 @@
 #!/usr/bin/env Rscript
 ## CLI: Rscript apply_phase_a_1939_v50.R --manifest … --manifest-sha256 …
-##   --preview-sha256 … --output … [--dry-run]
+##   --preview-sha256 … --output … (--dry-run|--apply)
 ## Kører authorize→begin_batch→source_evidence×584→finalize→(rollback|commit).
-## `--dry-run` slutter ALTID med rollback (aldrig commit). Prod-apply er
-## ikke en del af dette program (Global Constraints) — dette script bygger
-## og tester blot skrive-værktøjet.
+## `--dry-run` slutter ALTID med rollback (aldrig commit). Tilstand er
+## OBLIGATORISK og gensidigt udelukkende (controller-ruling, Task 2-review
+## Important 2) — hverken flag eller begge flag er en CLI-fejl, netop for
+## at undgå at en genbrugt shell-kommando uden --dry-run selv-autoriserer
+## og committer 584 rækker uden gate. Prod-apply er ikke en del af dette
+## program (Global Constraints) — dette script bygger og tester blot
+## skrive-værktøjet.
 args <- commandArgs(trailingOnly = TRUE)
-allowed <- c("--manifest", "--manifest-sha256", "--preview-sha256", "--output", "--dry-run")
+allowed <- c("--manifest", "--manifest-sha256", "--preview-sha256", "--output", "--dry-run", "--apply")
 flags <- args[grepl("^--", args)]
 if (any(!flags %in% allowed) || anyDuplicated(flags))
   stop("PHASE_A_1939_CLI_INVALID", call. = FALSE)
 required <- c("--manifest", "--manifest-sha256", "--preview-sha256", "--output")
 if (any(!required %in% flags)) stop("PHASE_A_1939_CLI_INVALID", call. = FALSE)
+if (sum(c("--dry-run", "--apply") %in% flags) != 1L) stop("PHASE_A_1939_CLI_INVALID", call. = FALSE)
 value <- function(flag) {
   index <- match(flag, args)
   if (is.na(index) || index == length(args) || grepl("^--", args[[index + 1L]]))

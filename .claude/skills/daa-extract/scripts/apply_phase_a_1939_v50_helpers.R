@@ -271,7 +271,11 @@ new_phase_a_dbi_gateway <- function(connection_factory) {
       connect = { con <<- connection_factory(); invisible(NULL) },
       begin = {
         DBI::dbBegin(con)
-        query("SELECT pg_advisory_xact_lock(hashtextextended('daa-1939-v50-phase-a-writer',0))")
+        ## Samme låsenøgle som apply_reimport_1939_v50_helpers.R — fase A
+        ## skriver i samme private.reimport_1939_write_batch/source_record-
+        ## domæne som task 25-writeren og SKAL serialisere mod den, ikke
+        ## bare mod sig selv.
+        query("SELECT pg_advisory_xact_lock(hashtextextended('daa-1939-v50-production-writer',0))")
         invisible(NULL)
       },
       authorize = {

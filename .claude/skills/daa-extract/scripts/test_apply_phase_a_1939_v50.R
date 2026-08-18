@@ -128,6 +128,20 @@ expect(length(calls) == 584L)
 first_id <- m$operations[[1L]]$element_id
 expect(identical(calls[[1L]][[3L]], payloads[[first_id]]))
 
+## -- Important 1 (review): strip_phase_a_transport SKAL fjerne element_id/
+## dependency_class, og resultatet SKAL være en delmængde af de 11
+## SQL-kontrakt-nøgler. Uden denne assertion fanger intet en NULL-tildeling
+## der forsvinder fra strip_phase_a_transport ved en refaktorering — de
+## øvrige checks (identical(x,x), round-trip) holder stadig grønne selv om
+## BEGGE veje bærer den ekstra nøgle, og fejlen dukker først op i prod som
+## REIMPORT_1939_SOURCE_EVIDENCE_INVALID.
+expect(!any(c("element_id", "dependency_class") %in% names(payloads[[first_id]])))
+expect(length(setdiff(names(payloads[[first_id]]), phase_a_sql_payload_keys)) == 0L)
+expect(all(vapply(payloads, function(p) {
+  !any(c("element_id", "dependency_class") %in% names(p)) &&
+    length(setdiff(names(p), phase_a_sql_payload_keys)) == 0L
+}, logical(1))))
+
 ## -- den relevante ækvivalens er IKKE identical(x,x) på samme R-objekt, men
 ## at Postgres' `authorized_elements->element_id IS DISTINCT FROM p_payload`
 ## ser den samme værdi, uanset om den kommer fra ÉN samlet jsonb-kort-
@@ -159,6 +173,17 @@ expect(!("rollback" %in% g2$log()))
 g_connect <- fake_gateway("connect")
 expect_error(execute_phase_a_1939(m, sha("a"), "dry-run", g_connect), "FAIL_AT_connect")
 expect(sum(g_connect$log() == "rollback") == 0L)
+
+## -- Important 1b (review): manifest-validering SKAL ske FØR connect —
+## ugyldigt manifest må ALDRIG åbne en prod-forbindelse eller starte en
+## transaktion. Uden denne assertion ville en refaktorering der flytter
+## validate_phase_a_manifest() ned under call("connect") stadig give
+## PASS på alle andre 63+ assertions.
+g_early <- fake_gateway()
+bad_early <- fixture_manifest(); bad_early$counts$person_creates <- 1L
+expect_error(execute_phase_a_1939(bad_early, sha("a"), "dry-run", g_early),
+  "PHASE_A_1939_COUNTS_INVALID")
+expect(length(g_early$log()) == 0L)
 
 ## -- alle øvrige fejlveje ender i PRÆCIS én rollback, aldrig commit
 for (stage in c("authorize", "begin_batch", "source_evidence", "finalize")) {
@@ -244,6 +269,20 @@ expect_error(validate_phase_a_manifest(bad), "PHASE_A_1939_MANIFEST_INVALID")
 expect_error(execute_phase_a_1939(m, sha("a"), "dry-run", list(call = "not-a-function")),
   "PHASE_A_1939_GATEWAY_INVALID")
 
+## -- Important 3 (review, controller-ruling): advisory-låsen deler nøgle
+## med apply_reimport_1939_v50 (samme skrive-domæne), OG "source-only" er
+## en testet egenskab, ikke en påstand — fase A må ALDRIG kunne kalde
+## person_create/canonical_delta-RPC'erne. Mønster kopieret fra
+## test_apply_name_completion_1939_v50.R (deparse(body(...))-teknikken).
+gateway_body <- paste(deparse(body(new_phase_a_dbi_gateway)), collapse = "\n")
+expect(grepl("daa-1939-v50-production-writer", gateway_body, fixed = TRUE))
+expect(grepl("pg_advisory_xact_lock", gateway_body, fixed = TRUE))
+for (rpc in c("red_authorize_1939_v50_reimport", "red_begin_1939_v50_reimport",
+    "red_apply_1939_v50_source_evidence", "red_finalize_1939_v50_reimport"))
+  expect(grepl(rpc, gateway_body, fixed = TRUE), rpc)
+for (rpc in c("red_apply_1939_v50_person_create", "red_apply_1939_v50_canonical_delta"))
+  expect(!grepl(rpc, gateway_body, fixed = TRUE), rpc)
+
 ## -- CLI afviser forkert manifest-hash (system2, exit 1)
 manifest_path <- tempfile("phase-a-manifest-", fileext = ".json")
 output_path <- tempfile("phase-a-output-", fileext = ".json")
@@ -251,10 +290,27 @@ on.exit(unlink(c(manifest_path, output_path)), add = TRUE)
 writeLines(jsonlite::toJSON(m, auto_unbox = TRUE, pretty = FALSE), manifest_path, useBytes = TRUE)
 cli <- file.path(script_dir, "apply_phase_a_1939_v50.R")
 cli_result <- suppressWarnings(system2("Rscript", c(cli, "--manifest", manifest_path,
-  "--manifest-sha256", sha("f"), "--preview-sha256", sha("a"), "--output", output_path),
-  stdout = TRUE, stderr = TRUE))
+  "--manifest-sha256", sha("f"), "--preview-sha256", sha("a"), "--output", output_path,
+  "--dry-run"), stdout = TRUE, stderr = TRUE))
 expect(identical(as.integer(attr(cli_result, "status")), 1L) &&
   any(grepl("PHASE_A_1939_MANIFEST_HASH_INVALID", cli_result, fixed = TRUE)))
+expect(!file.exists(output_path))
+
+## -- Important 2 (controller-ruling): tilstand er OBLIGATORISK og gensidigt
+## udelukkende. Hverken flag → CLI-fejl exit 1; BEGGE flag → CLI-fejl exit 1.
+## En genbrugt shell-kommando uden --dry-run må ALDRIG stille committe.
+cli_no_mode <- suppressWarnings(system2("Rscript", c(cli, "--manifest", manifest_path,
+  "--manifest-sha256", sha("f"), "--preview-sha256", sha("a"), "--output", output_path),
+  stdout = TRUE, stderr = TRUE))
+expect(identical(as.integer(attr(cli_no_mode, "status")), 1L) &&
+  any(grepl("PHASE_A_1939_CLI_INVALID", cli_no_mode, fixed = TRUE)))
+expect(!file.exists(output_path))
+
+cli_both_modes <- suppressWarnings(system2("Rscript", c(cli, "--manifest", manifest_path,
+  "--manifest-sha256", sha("f"), "--preview-sha256", sha("a"), "--output", output_path,
+  "--dry-run", "--apply"), stdout = TRUE, stderr = TRUE))
+expect(identical(as.integer(attr(cli_both_modes, "status")), 1L) &&
+  any(grepl("PHASE_A_1939_CLI_INVALID", cli_both_modes, fixed = TRUE)))
 expect(!file.exists(output_path))
 
 cat(sprintf("PASS %d assertions\n", ok))
