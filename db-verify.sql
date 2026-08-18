@@ -28,6 +28,23 @@
 -- ===== Task 1: Tabeller profiles + suggestion =====
 -- Forvent: begge tabeller findes, rolle-CHECK håndhæves.
 
+-- ===== DAA 1939 v50 production-writer contract =====
+DO $$
+BEGIN
+  IF to_regclass('private.reimport_1939_authorization') IS NULL
+     OR to_regclass('private.reimport_1939_write_batch') IS NULL
+     OR to_regclass('private.reimport_1939_write_event') IS NULL
+     OR to_regprocedure('public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,uuid,timestamp with time zone)') IS NULL
+     OR to_regprocedure('public.red_finalize_1939_v50_reimport(uuid)') IS NULL THEN
+    RAISE EXCEPTION 'REIMPORT_1939_WRITER_CONTRACT_MISSING';
+  END IF;
+  IF has_table_privilege('anon','private.reimport_1939_write_event','SELECT')
+     OR has_table_privilege('authenticated','private.reimport_1939_write_event','SELECT') THEN
+    RAISE EXCEPTION 'REIMPORT_1939_PRIVATE_GRANT_INVALID';
+  END IF;
+  RAISE NOTICE 'OK: DAA 1939 v50 production-writer contract er installeret og privat';
+END $$;
+
 SELECT to_regclass('public.profiles') IS NOT NULL AS profiles_ok,
        to_regclass('public.suggestion') IS NOT NULL AS suggestion_ok;
 -- Forvent profiles_ok=t, suggestion_ok=t

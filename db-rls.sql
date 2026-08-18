@@ -819,3 +819,36 @@ USING (
     ELSE public.entitet_offentlig(maal_type, maal_id)
   END
 );
+
+-- DAA 1939 v50 production-writer: private journal state is never a client table.
+ALTER TABLE private.reimport_1939_authorization ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_1939_write_batch ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_1939_write_event ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON private.reimport_1939_authorization,private.reimport_1939_write_batch,
+  private.reimport_1939_write_event FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION private.reject_reimport_1939_event_mutation(),
+  private.require_reimport_1939_editor(),private.require_reimport_1939_open_batch(uuid)
+  FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,uuid,timestamptz),
+  public.red_begin_1939_v50_reimport(uuid,text,text),
+  public.red_apply_1939_v50_source_evidence(uuid,text,jsonb),
+  public.red_apply_1939_v50_person_create(uuid,text,jsonb),
+  public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb),
+  public.red_finalize_1939_v50_reimport(uuid),
+  public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz),
+  public.red_reverse_1939_v50_reimport(uuid,uuid),
+  public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz),
+  public.red_activate_1939_v50_batch(uuid,uuid)
+  FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,uuid,timestamptz),
+  public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz),
+  public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)
+  TO service_role;
+GRANT EXECUTE ON FUNCTION public.red_begin_1939_v50_reimport(uuid,text,text),
+  public.red_apply_1939_v50_source_evidence(uuid,text,jsonb),
+  public.red_apply_1939_v50_person_create(uuid,text,jsonb),
+  public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb),
+  public.red_finalize_1939_v50_reimport(uuid),
+  public.red_reverse_1939_v50_reimport(uuid,uuid),
+  public.red_activate_1939_v50_batch(uuid,uuid)
+  TO authenticated;
