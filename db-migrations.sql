@@ -8119,3 +8119,30 @@ BEGIN
     END IF;
   END LOOP;
 END $$;
+
+-- 2026-08-18: Publicer en allerede source-bundet draft uden at ombinde den.
+CREATE OR REPLACE FUNCTION public.red_publicer_narrative_record(
+  p_narrative_id bigint,p_source_record_id uuid,p_record_label text,p_citation_label text
+) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_id uuid; v_binding private.narrative_record_publication%ROWTYPE;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  SELECT * INTO v_binding FROM private.narrative_record_publication
+    WHERE narrative_id=p_narrative_id FOR UPDATE;
+  IF FOUND THEN
+    IF v_binding.source_record_id IS DISTINCT FROM p_source_record_id
+       OR v_binding.record_label IS DISTINCT FROM p_record_label
+       OR v_binding.citation_label IS DISTINCT FROM p_citation_label THEN
+      RAISE EXCEPTION 'SOURCE_RECORD_PUBLICATION_BINDING_MISMATCH';
+    END IF;
+    IF v_binding.status<>'draft' THEN RAISE EXCEPTION 'SOURCE_RECORD_PUBLICATION_ALREADY_BOUND'; END IF;
+    UPDATE private.narrative_record_publication SET status='published'
+      WHERE id=v_binding.id RETURNING id INTO v_id;
+    RETURN v_id;
+  END IF;
+  INSERT INTO private.narrative_record_publication(narrative_id,source_record_id,record_label,citation_label,status)
+    VALUES (p_narrative_id,p_source_record_id,p_record_label,p_citation_label,'published') RETURNING id INTO v_id;
+  RETURN v_id;
+END $$;
+REVOKE ALL ON FUNCTION public.red_publicer_narrative_record(bigint,uuid,text,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_publicer_narrative_record(bigint,uuid,text,text) TO authenticated;

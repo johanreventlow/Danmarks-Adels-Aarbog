@@ -70,6 +70,10 @@ DECLARE
   v_record uuid := '22222222-2222-2222-2222-222222222251';
   v_bound_narrative bigint := -987651003;
   v_legacy_narrative bigint := -987651004;
+  v_insert_narrative bigint := -987651005;
+  v_actor uuid := '11111111-1111-4111-8111-111111111152';
+  v_binding uuid;
+  v_published_binding uuid;
   v_rows jsonb;
 BEGIN
   IF to_regclass('private.narrative_record_publication') IS NULL
@@ -83,6 +87,9 @@ BEGIN
   END IF;
 
   BEGIN
+    INSERT INTO auth.users(id,email) VALUES (v_actor,'record-publication-verify@test.invalid');
+    INSERT INTO profiles(id,rolle,email) VALUES (v_actor,'redaktion','record-publication-verify@test.invalid');
+    PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
     INSERT INTO person(id,levende,privat,staged,visning_navn)
       VALUES (v_person,false,false,false,'VERIFY record-version');
     INSERT INTO source(id,slags,titel,udgave,aar)
@@ -94,18 +101,56 @@ BEGIN
       VALUES (v_record,v_source,'verify-record','person_entry',v_run);
     INSERT INTO narrative(id,subjekt_type,subjekt_id,source_id,tekst,privat) VALUES
       (v_bound_narrative,'person',v_person,v_source,'Bundet record-tekst',false),
-      (v_legacy_narrative,'person',v_person,v_source,'Legacy-tekst',false);
+      (v_legacy_narrative,'person',v_person,v_source,'Legacy-tekst',false),
+      (v_insert_narrative,'person',v_person,v_source,'Ny record-tekst',false);
     INSERT INTO private.narrative_record_publication(
       narrative_id,source_record_id,record_label,citation_label,status
     ) VALUES (
-      v_bound_narrative,v_record,'Linje I, nr. 1','s. 1','published'
-    );
+      v_bound_narrative,v_record,'Linje I, nr. 1','s. 1','draft'
+    ) RETURNING id INTO v_binding;
+
+    BEGIN
+      PERFORM red_publicer_narrative_record(
+        v_bound_narrative,v_record,'Forkert label','s. 1'
+      );
+      RAISE EXCEPTION 'FEJL: Task 15 accepterede drift i en eksisterende draft-binding';
+    EXCEPTION WHEN others THEN
+      IF SQLERRM='FEJL: Task 15 accepterede drift i en eksisterende draft-binding' THEN RAISE; END IF;
+      IF SQLERRM<>'SOURCE_RECORD_PUBLICATION_BINDING_MISMATCH' THEN
+        RAISE EXCEPTION 'FEJL: Task 15 draft-drift gav forkert fejl: %',SQLERRM;
+      END IF;
+    END;
+    IF (SELECT status FROM private.narrative_record_publication WHERE id=v_binding) IS DISTINCT FROM 'draft'
+       OR (SELECT published_at FROM private.narrative_record_publication WHERE id=v_binding) IS NOT NULL THEN
+      RAISE EXCEPTION 'FEJL: Task 15 muterede draft ved mismatch';
+    END IF;
+
+    SELECT red_publicer_narrative_record(
+      v_bound_narrative,v_record,'Linje I, nr. 1','s. 1'
+    ) INTO v_published_binding;
+    IF v_published_binding IS DISTINCT FROM v_binding
+       OR (SELECT status FROM private.narrative_record_publication WHERE id=v_binding) IS DISTINCT FROM 'published'
+       OR (SELECT published_at FROM private.narrative_record_publication WHERE id=v_binding) IS NULL THEN
+      RAISE EXCEPTION 'FEJL: Task 15 publicerer ikke en eksakt eksisterende draft-binding';
+    END IF;
+
+    SELECT red_publicer_narrative_record(
+      v_insert_narrative,v_record,'Linje I, nr. 2','s. 2'
+    ) INTO v_published_binding;
+    IF NOT EXISTS (
+      SELECT 1 FROM private.narrative_record_publication
+       WHERE id=v_published_binding AND narrative_id=v_insert_narrative
+         AND source_record_id=v_record AND record_label='Linje I, nr. 2'
+         AND citation_label='s. 2' AND status='published' AND published_at IS NOT NULL
+    ) THEN
+      RAISE EXCEPTION 'FEJL: Task 15 bevarer ikke ny-publiceringsvejen';
+    END IF;
 
     SELECT jsonb_agg(to_jsonb(row) ORDER BY row.provenance_kind,row.record_label)
       INTO v_rows
       FROM public.public_person_bio_source_versions(ARRAY[v_person]) AS row;
-    IF jsonb_array_length(v_rows) <> 2 THEN
-      RAISE EXCEPTION 'FEJL: Task 15 returnerede ikke både publiceret record og legacy-narrativ';
+    IF jsonb_array_length(v_rows) <> 3 THEN
+      RAISE EXCEPTION 'FEJL: Task 15 returnerede ikke begge publicerede records og legacy-narrativ';
     END IF;
     IF NOT EXISTS (
       SELECT 1 FROM jsonb_array_elements(v_rows) value
