@@ -2470,7 +2470,7 @@ BEGIN
   SELECT * INTO v_batch FROM private.reimport_1939_write_batch WHERE id=p_batch_id AND status='finalized';
   IF NOT FOUND OR p_expires_at<=clock_timestamp() THEN RAISE EXCEPTION 'REIMPORT_1939_REVERSAL_INVALID'; END IF;
   INSERT INTO private.reimport_1939_authorization(operation,manifest_sha256,preview_sha256,database_identity,source_id,expected_counts,principal_id,nonce,expires_at)
-  SELECT 'reversal',manifest_sha256,preview_sha256,'batch:'||id::text,a.source_id,'{}',v_actor,p_nonce,p_expires_at
+  SELECT 'reversal',b.manifest_sha256,b.preview_sha256,'batch:'||b.id::text,a.source_id,'{}',v_actor,p_nonce,p_expires_at
   FROM private.reimport_1939_write_batch b JOIN private.reimport_1939_authorization a ON a.id=b.authorization_id WHERE b.id=p_batch_id RETURNING id INTO v_id;
   RETURN v_id;
 END $$;
@@ -2480,6 +2480,7 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,publi
 DECLARE v_actor uuid:=private.require_reimport_1939_editor();
 BEGIN
   IF NOT EXISTS(SELECT 1 FROM private.reimport_1939_authorization WHERE id=p_authorization_id AND operation='reversal' AND status='issued' AND principal_id=v_actor AND expires_at>clock_timestamp()) THEN RAISE EXCEPTION 'REIMPORT_1939_REVERSAL_INVALID'; END IF;
+  DELETE FROM public.person_external_id x USING private.reimport_1939_write_event e WHERE e.batch_id=p_batch_id AND e.operation='person_create' AND x.person_id=e.canonical_person_id;
   DELETE FROM public.person p USING private.reimport_1939_write_event e WHERE e.batch_id=p_batch_id AND e.operation='person_create' AND p.id=e.canonical_person_id;
   UPDATE private.reimport_1939_authorization SET status='consumed',consumed_at=clock_timestamp() WHERE id=p_authorization_id;
   UPDATE private.reimport_1939_write_batch SET status='reversed' WHERE id=p_batch_id AND status='finalized';
