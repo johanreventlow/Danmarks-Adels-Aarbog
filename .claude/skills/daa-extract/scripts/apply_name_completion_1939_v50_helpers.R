@@ -2,6 +2,8 @@ name_completion_hash_re <- "^[0-9a-f]{64}$"
 name_completion_source_batch_id <- "560c39f8-5c87-4c0d-a768-025d97fa2974"
 name_completion_source_manifest_bytes_sha256 <- "8417b6deeaf32b3cf39a4f2995a06211f8368172dfa97a188e03c6f7ef379a1f"
 name_completion_source_manifest_content_sha256 <- "8c6a9f56af7f1e75e1b961f561cc2118478ac4d9e08f838c9e5279938c545f03"
+name_completion_database_name <- "postgres"
+name_completion_system_identifier <- "7642734024280108049"
 
 stop_name_completion <- function(code) stop(code, call. = FALSE)
 
@@ -16,6 +18,24 @@ name_completion_names <- function(value, expected) {
 
 name_completion_integer <- function(value, expected) {
   is.integer(value) && length(value) == 1L && !is.na(value) && identical(value, expected)
+}
+
+canonical_name_completion_value <- function(value) {
+  if (!is.list(value)) return(value)
+  value_names <- names(value)
+  if (is.null(value_names)) return(lapply(value, canonical_name_completion_value))
+  if (anyNA(value_names) || anyDuplicated(value_names))
+    stop_name_completion("NAME_COMPLETION_1939_CANONICAL_INVALID")
+  ordered_names <- sort(value_names, method = "radix")
+  result <- lapply(ordered_names, function(name) canonical_name_completion_value(value[[name]]))
+  names(result) <- ordered_names
+  result
+}
+
+canonical_name_completion_sha256 <- function(value) {
+  json <- jsonlite::toJSON(canonical_name_completion_value(value), auto_unbox = TRUE,
+    null = "null", pretty = FALSE)
+  digest::digest(enc2utf8(json), algo = "sha256", serialize = FALSE)
 }
 
 name_completion_rows <- list(
@@ -54,7 +74,9 @@ validate_name_completion_operation <- function(op, row) {
       !name_completion_integer(op$page_evidence$page_to, row[[4L]]) ||
       !is.character(op$verbatim_text) || length(op$verbatim_text) != 1L ||
       is.na(op$verbatim_text) || !nzchar(op$verbatim_text) ||
-      !name_completion_hash(op$verbatim_sha256) || !name_completion_hash(op$source_payload_sha256))
+      !name_completion_hash(op$verbatim_sha256) ||
+      !identical(digest::digest(op$verbatim_text, algo = "sha256", serialize = FALSE),
+        op$verbatim_sha256) || !name_completion_hash(op$source_payload_sha256))
     stop_name_completion("NAME_COMPLETION_1939_OPERATION_INVALID")
   before <- list(staged = TRUE, name_cache_empty = TRUE, name_facts = 0L)
   after <- list(name_fact = 1L, selected_assertion = 1L, daa_1939_citation = 1L, conclusion = 1L)
@@ -104,6 +126,10 @@ validate_name_completion_manifest <- function(x) {
   for (index in seq_along(name_completion_rows)) {
     validate_name_completion_operation(x$operations[[index]], name_completion_rows[[index]])
   }
+  content <- x
+  content$manifest_content_sha256 <- NULL
+  if (!identical(canonical_name_completion_sha256(content), x$manifest_content_sha256))
+    stop_name_completion("NAME_COMPLETION_1939_CONTENT_HASH_INVALID")
   invisible(x)
 }
 
@@ -118,6 +144,17 @@ authorized_name_payloads <- function(x) {
   payloads <- lapply(x$operations, strip_transport)
   names(payloads) <- vapply(x$operations, function(op) op$element_id, character(1))
   payloads
+}
+
+validate_name_completion_preflight <- function(result, source_batch_id, manifest_sha256) {
+  required <- c("valid", "database_name", "system_identifier", "source_batch_id", "manifest_sha256")
+  if (!name_completion_names(result, required) || !identical(result$valid, TRUE) ||
+      !identical(result$database_name, name_completion_database_name) ||
+      !identical(result$system_identifier, name_completion_system_identifier) ||
+      !identical(result$source_batch_id, source_batch_id) ||
+      !identical(result$manifest_sha256, manifest_sha256))
+    stop_name_completion("NAME_COMPLETION_1939_PREFLIGHT_INVALID")
+  invisible(result)
 }
 
 execute_name_completion <- function(manifest, manifest_sha256,
@@ -146,8 +183,10 @@ execute_name_completion <- function(manifest, manifest_sha256,
     call("connect")
     connected <- TRUE
     call("begin")
-    call("advisory_lock")
-    call("preflight", manifest, manifest_sha256)
+    call("advisory_lock", manifest_sha256)
+    preflight <- call("preflight", manifest$source_batch_id, manifest_sha256,
+      authorized_name_payloads(manifest))
+    validate_name_completion_preflight(preflight, manifest$source_batch_id, manifest_sha256)
     batch <- call("begin_batch", authorization, manifest, manifest_sha256, mode)
     for (op in manifest$operations)
       call("name_completion", batch, op$element_id, strip_transport(op))
@@ -171,12 +210,14 @@ new_name_completion_dbi_gateway <- function(connection_factory) {
       connect = { con <<- connection_factory(); invisible(NULL) },
       begin = { DBI::dbBegin(con); invisible(NULL) },
       advisory_lock = {
-        query("SELECT pg_advisory_xact_lock(hashtextextended('daa-1939-v50-name-completion',0))")
+        query("SELECT public.red_lock_1939_v50_name_completion($1)", list(args[[1L]]))
         invisible(NULL)
       },
       preflight = {
-        query("SELECT current_database() AS database_name, (pg_control_system()).system_identifier::text AS system_identifier")
-        invisible(NULL)
+        jsonlite::fromJSON(query(
+          "SELECT public.red_preflight_1939_v50_name_completion($1,$2,$3::jsonb)::text AS value",
+          list(args[[1L]], args[[2L]], jsonlite::toJSON(args[[3L]], auto_unbox = TRUE, null = "null"))
+        )$value[[1L]], simplifyVector = FALSE)
       },
       begin_batch = {
         authorization <- args[[1L]]
@@ -184,12 +225,12 @@ new_name_completion_dbi_gateway <- function(connection_factory) {
         manifest_sha256 <- args[[3L]]
         mode <- args[[4L]]
         if (identical(mode, "dry-run")) {
-          nonce <- query("SELECT gen_random_uuid() AS id")$id[[1L]]
           authorization <- list(id = query(
-            "SELECT public.red_authorize_1939_v50_name_completion($1,$2,$3,$4::jsonb,$5::jsonb,$6,clock_timestamp()+interval '10 minutes') AS id",
-            list(manifest_sha256, manifest$source_batch_id, manifest$source$source_id,
+            "SELECT public.red_authorize_1939_v50_name_completion($1,$2,$3,$4,$5::jsonb,$6::jsonb) AS id",
+            list(manifest_sha256, manifest$source_batch_id,
+              manifest$source_manifest_bytes_sha256, manifest$source_manifest_content_sha256,
               jsonlite::toJSON(manifest$counts, auto_unbox = TRUE),
-              jsonlite::toJSON(authorized_name_payloads(manifest), auto_unbox = TRUE, null = "null"), nonce)
+              jsonlite::toJSON(authorized_name_payloads(manifest), auto_unbox = TRUE, null = "null"))
           )$id[[1L]])
         }
         query("SELECT public.red_begin_1939_v50_name_completion($1,$2,$3) AS id",

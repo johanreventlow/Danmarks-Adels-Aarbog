@@ -29,6 +29,27 @@ locked_rows <- list(
 
 sha <- function(letter) paste(rep(letter, 64L), collapse = "")
 
+canonical_test_value <- function(value) {
+  if (!is.list(value)) return(value)
+  value_names <- names(value)
+  if (is.null(value_names)) return(lapply(value, canonical_test_value))
+  if (anyNA(value_names) || anyDuplicated(value_names)) stop("TEST_CANONICAL_INVALID", call. = FALSE)
+  result <- lapply(sort(value_names, method = "radix"), function(name) canonical_test_value(value[[name]]))
+  names(result) <- sort(value_names, method = "radix")
+  result
+}
+
+canonical_test_sha256 <- function(value) {
+  digest::digest(enc2utf8(jsonlite::toJSON(canonical_test_value(value), auto_unbox = TRUE,
+    null = "null", pretty = FALSE)), algo = "sha256", serialize = FALSE)
+}
+
+rehash_manifest <- function(manifest) {
+  manifest$manifest_content_sha256 <- NULL
+  manifest$manifest_content_sha256 <- canonical_test_sha256(manifest)
+  manifest
+}
+
 fixture_manifest <- function() {
   operations <- lapply(seq_along(locked_rows), function(index) {
     row <- locked_rows[[index]]
@@ -41,14 +62,14 @@ fixture_manifest <- function() {
       source_record_key = row[[1L]], source_persona_id = paste0("persona-", row[[2L]]),
       name = row[[3L]], source_span = list(char_from = index, char_to = index + 10L),
       page_evidence = list(page_from = row[[4L]], page_to = row[[4L]]),
-      verbatim_text = text, verbatim_sha256 = sha(c("a", "b", "c", "d", "e", "f", "a", "b")[[index]]),
+      verbatim_text = text, verbatim_sha256 = digest::digest(text, algo = "sha256", serialize = FALSE),
       source_payload_sha256 = sha(c("b", "c", "d", "e", "f", "a", "b", "c")[[index]]),
       expected_before = list(staged = TRUE, name_cache_empty = TRUE, name_facts = 0L),
       expected_after = list(name_fact = 1L, selected_assertion = 1L,
         daa_1939_citation = 1L, conclusion = 1L)
     )
   })
-  list(
+  rehash_manifest(list(
     schema_version = "1939-v50-name-completion-manifest-v1",
     generator_version = "test", input_hashes = list(
       production_manifest_sha256 = "8417b6deeaf32b3cf39a4f2995a06211f8368172dfa97a188e03c6f7ef379a1f",
@@ -61,25 +82,38 @@ fixture_manifest <- function() {
     expected_changes = list(facts_created = 8L, assertions_created = 8L,
       citations_created = 8L, conclusions_created = 8L, persons_created = 0L,
       persons_activated = 0L, relations_changed = 0L, families_changed = 0L),
-    production_authorized = FALSE, cutover_authorized = FALSE,
-    manifest_content_sha256 = sha("d")
-  )
+    production_authorized = FALSE, cutover_authorized = FALSE
+  ))
 }
 
-fake_gateway <- function(fail_at = NULL) {
+fake_gateway <- function(fail_at = NULL, preflight_result = NULL) {
   log <- character()
+  preflight_args <- NULL
   call <- function(name, ...) {
+    args <- list(...)
     log <<- c(log, name)
     if (identical(name, fail_at)) stop(paste0("FAIL_AT_", name), call. = FALSE)
+    if (identical(name, "preflight")) {
+      preflight_args <<- args
+      if (!is.null(preflight_result)) return(preflight_result)
+      source_batch <- if (length(args) == 3L) args[[1L]] else args[[1L]]$source_batch_id
+      manifest_sha256 <- if (length(args) == 3L) args[[2L]] else args[[2L]]
+      return(list(valid = TRUE, database_name = "postgres",
+        system_identifier = "7642734024280108049", source_batch_id = source_batch,
+        manifest_sha256 = manifest_sha256))
+    }
     if (identical(name, "begin_batch")) return("completion-batch")
     if (identical(name, "finalize")) return(list(status = "finalized", batch_id = "completion-batch"))
     invisible(NULL)
   }
-  list(call = call, log = function() log)
+  list(call = call, log = function() log, preflight_args = function() preflight_args)
 }
 
 manifest <- fixture_manifest()
 manifest_sha <- sha("e")
+expect(identical(canonical_name_completion_sha256(list(z = 1L, a = "ø",
+  nested = list(y = FALSE, x = NULL))),
+  "a198893d41f5f54b5fa8f9a4c4f53937ee4974749fce01ddb8b649c240a96c18"))
 validate_name_completion_manifest(manifest)
 expect(TRUE)
 payloads <- authorized_name_payloads(manifest)
@@ -91,6 +125,60 @@ result <- execute_name_completion(manifest, manifest_sha, "dry-run", g)
 expect(identical(result$status, "finalized") && identical(result$committed, FALSE))
 expect(identical(g$log(), c("connect", "begin", "advisory_lock", "preflight", "begin_batch",
   rep("name_completion", 8L), "finalize", "rollback")))
+
+bad <- fixture_manifest(); bad$operations[[1L]]$verbatim_text <- "tampered text"
+expect_error(validate_name_completion_manifest(bad), "NAME_COMPLETION_1939_OPERATION_INVALID")
+bad <- fixture_manifest(); bad$generator_version <- "tampered generator"
+expect_error(validate_name_completion_manifest(bad), "NAME_COMPLETION_1939_CONTENT_HASH_INVALID")
+raw_manifest_path <- tempfile("name-completion-manifest-", fileext = ".json")
+raw_output_path <- tempfile("name-completion-output-", fileext = ".json")
+on.exit(unlink(c(raw_manifest_path, raw_output_path)), add = TRUE)
+writeLines(jsonlite::toJSON(manifest, auto_unbox = TRUE, pretty = FALSE), raw_manifest_path,
+  useBytes = TRUE)
+raw_cli <- file.path(script_dir, "apply_name_completion_1939_v50.R")
+raw_result <- suppressWarnings(system2("Rscript", c(raw_cli, "--manifest", raw_manifest_path,
+  "--manifest-sha256", sha("f"), "--mode", "dry-run", "--output", raw_output_path),
+  stdout = TRUE, stderr = TRUE))
+expect(identical(as.integer(attr(raw_result, "status")), 1L) &&
+  any(grepl("NAME_COMPLETION_1939_MANIFEST_HASH_INVALID", raw_result, fixed = TRUE)))
+bad <- fixture_manifest(); bad$operations[[1L]]$verbatim_text <- "rehashable text"
+bad$operations[[1L]]$verbatim_sha256 <- digest::digest(bad$operations[[1L]]$verbatim_text,
+  algo = "sha256", serialize = FALSE)
+bad <- rehash_manifest(bad)
+validate_name_completion_manifest(bad)
+g <- fake_gateway(preflight_result = list(valid = FALSE))
+expect_error(execute_name_completion(bad, manifest_sha, "dry-run", g),
+  "NAME_COMPLETION_1939_PREFLIGHT_INVALID")
+expect(identical(tail(g$log(), 1L), "rollback"))
+g <- fake_gateway(preflight_result = list(valid = TRUE, database_name = "wrong",
+  system_identifier = "7642734024280108049", source_batch_id = manifest$source_batch_id,
+  manifest_sha256 = manifest_sha))
+expect_error(execute_name_completion(manifest, manifest_sha, "dry-run", g),
+  "NAME_COMPLETION_1939_PREFLIGHT_INVALID")
+expect(identical(tail(g$log(), 1L), "rollback"))
+g <- fake_gateway(preflight_result = list(valid = TRUE, database_name = "postgres",
+  system_identifier = "wrong", source_batch_id = manifest$source_batch_id,
+  manifest_sha256 = manifest_sha))
+expect_error(execute_name_completion(manifest, manifest_sha, "dry-run", g),
+  "NAME_COMPLETION_1939_PREFLIGHT_INVALID")
+expect(identical(tail(g$log(), 1L), "rollback"))
+bad <- fixture_manifest(); bad$operations[[1L]]$source_payload_sha256 <- sha("f")
+bad <- rehash_manifest(bad)
+validate_name_completion_manifest(bad)
+g <- fake_gateway(preflight_result = list(valid = FALSE))
+expect_error(execute_name_completion(bad, manifest_sha, "dry-run", g),
+  "NAME_COMPLETION_1939_PREFLIGHT_INVALID")
+bad <- fixture_manifest(); bad$operations[[1L]]$source_persona_id <- "persona-rebound"
+bad <- rehash_manifest(bad)
+validate_name_completion_manifest(bad)
+g <- fake_gateway(preflight_result = list(valid = FALSE))
+expect_error(execute_name_completion(bad, manifest_sha, "dry-run", g),
+  "NAME_COMPLETION_1939_PREFLIGHT_INVALID")
+g <- fake_gateway()
+invisible(execute_name_completion(manifest, manifest_sha, "dry-run", g))
+expect(identical(g$preflight_args()[[1L]], manifest$source_batch_id) &&
+  identical(g$preflight_args()[[2L]], manifest_sha) &&
+  identical(g$preflight_args()[[3L]], authorized_name_payloads(manifest)))
 
 g <- fake_gateway()
 result <- execute_name_completion(manifest, manifest_sha, "apply", g, list(id = "authorization"))
@@ -136,5 +224,15 @@ expect_error(execute_name_completion(manifest, "not-a-hash", "dry-run", fake_gat
   "NAME_COMPLETION_1939_MANIFEST_HASH_INVALID")
 expect(identical(names(formals(execute_name_completion)),
   c("manifest", "manifest_sha256", "mode", "gateway", "authorization")))
+
+gateway_body <- paste(deparse(body(new_name_completion_dbi_gateway)), collapse = "\n")
+expect(!grepl("pg_advisory_xact_lock|current_database|pg_control_system|gen_random_uuid", gateway_body))
+for (rpc in c("red_lock_1939_v50_name_completion($1)",
+    "red_preflight_1939_v50_name_completion($1,$2,$3::jsonb)",
+    "red_authorize_1939_v50_name_completion($1,$2,$3,$4,$5::jsonb,$6::jsonb)",
+    "red_begin_1939_v50_name_completion($1,$2,$3)",
+    "red_apply_1939_v50_name_completion($1,$2,$3::jsonb)",
+    "red_finalize_1939_v50_name_completion($1)"))
+  expect(grepl(rpc, gateway_body, fixed = TRUE), rpc)
 
 cat(sprintf("PASS %d assertions\n", ok))
