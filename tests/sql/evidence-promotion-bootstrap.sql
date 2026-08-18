@@ -4,7 +4,8 @@
 -- tabel- eller funktionsgrants her. Dermed kan promotion-testen stadig opdage, hvis
 -- schema.sql eller db-rls.sql fejlagtigt åbner private objekter.
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE SCHEMA IF NOT EXISTS extensions;
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 
 DO $bootstrap_roles$
 BEGIN

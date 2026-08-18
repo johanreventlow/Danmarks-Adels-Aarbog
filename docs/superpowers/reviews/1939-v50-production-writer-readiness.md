@@ -1,19 +1,22 @@
 # DAA 1939 v50 production-writer readiness
 
-Dato: 2026-08-18. Scope: Tasks 1-7 i production-writer-planen. Ingen live
-Supabase-kørsel, production apply, reversal eller cutover er udført.
+Dato: 2026-08-18. Scope: Tasks 1-8 og forberedelsen af Task 9 i
+production-writer-planen. Ingen production apply, reversal eller cutover er
+udført.
 
 ## Konklusion
 
-Writerens lokale implementering er klar til særskilt Task 8-rehearsal på en
-kontrolleret databasekopi. Det er ikke production authorization. Task 8-10
-forbliver hårdt gatede, og den samlede production-status er fortsat **NO-GO**.
+Writerens to uafhængige Task 8-rehearsals er grønne. En fuld lokal
+produktionsbackup er desuden oprettet, katalogkontrolleret og prøverestaureret;
+writerens rollback-dry-run er efterfølgende kørt mod en helt frisk restore af
+netop denne backup. Det er ikke production authorization. Task 9-10 forbliver
+hårdt gatede, og production-status er fortsat **NO-GO**, indtil brugeren har
+set den eksakte reviewpakke og særskilt godkendt production apply.
 
-En bred `db-verify.sql`-kørsel stopper desuden ved den eksisterende,
-writer-uafhængige assertion `regen genskabte ikke visning_navn` på linje 3484.
-Writerens fokuserede SQL-kontrakt og integration er grønne, men denne globale
-database-verifikationsfejl skal enten rettes eller eksplicit dispositioneres,
-før en production rehearsal kan betegnes helt grøn.
+Restore-testen fandt, at Supabase har `pgcrypto` i schemaet `extensions`.
+Writer- og promotionfunktionernes faste `search_path` er derfor gjort
+kompatibel med dette faktiske layout. Regressionen var rød med
+`function digest(text, unknown) does not exist` før rettelsen og grøn efter.
 
 ## Autoritative artefakter
 
@@ -72,8 +75,8 @@ SQL-write-transaktion med rollback, ikke en read-only query.
 
 - Fokuseret Task 1-3 Python: `33 passed in 0.12s`.
 - Fokuseret Task 5 R: `PASS 20 assertions`.
-- Fuld Python-suite: `1679 passed, 3 skipped in 7.31s`.
-- Fuld R-suite: `810 passed, 2 skipped, 0 failed, 0 warnings`.
+- Fuld Python-suite: `1679 passed, 3 skipped in 7.29s`.
+- Fuld R-suite: `810 passed, 2 skipped, 0 failed, 0 warnings in 5.6s`.
 - PostgreSQL 17 migration fra planbase `4a02174`, RLS, SQL-contract og virkelig
   R-integration: exit 0; `PASS DAA 1939 v50 PostgreSQL integration`.
 - Determinisme: decisions og manifest blev genbygget med
@@ -87,6 +90,38 @@ provenancerækker, otte staged personer, append-only identity, identisk replay,
 reversal. DB-fri failpointtests injicerer fejl ved begin-batch,
 source-evidence, person-create og finalize og kræver præcis én rollback.
 
+## Lokal backup og realistisk restore-kontrol
+
+Før enhver produktionsskrivning blev der oprettet en fuld lokal custom-format
+PostgreSQL-backup:
+
+- fil: `~/Backups/danmarksadelsaarbog/daa-production-before-1939-v50-2026-08-18.dump`
+- størrelse: `3656690` bytes
+- SHA-256: `634eef826b22b3443ac265b4bbbded31d3917be4fcbf7193e7172e7643b66032`
+- filtilstand: `0600`; backupmappen er `0700`
+- `pg_restore --list`: 867 katalogposter
+
+Den permanente fil er komplet, inklusive Supabase Vault. Den lokale Homebrew
+PostgreSQL mangler platformextensionen `supabase_vault`, så prøverestoren
+udelod præcis de fire lokale platformposter for Vault (schema, extension,
+extension-comment og Vault table data). De øvrige 863 katalogposter blev
+restaureret. Dette ændrer ikke backupfilen.
+
+Kontroltællingerne i restore matchede den read-only produktionssnapshot, bl.a.
+1.804 personer, 1.160 external IDs, 7.191 facts, 2.031 relationer, 682 familier,
+9.296 assertions og 8.574 citations. Projektets aktuelle migrationer og RLS
+kunne anvendes på restoren. En efterfølgende rigtig writer-dry-run gav otte
+lokale person-ID'er 1846-1853, `status=finalized` og `committed=false`.
+Efter rollback var der fortsat 1.804 personer og præcis nul authorizations,
+batches, write-events, nye source records, source personas og nye external
+record keys.
+
+Task 8 A/B havde desuden identisk normaliseret semantik, 543 eksisterende
+ankre, 8 staged creates, 305 source-only operationer, 0 canonical mutationer
+og en grøn reversal. Databasegenererede ID'er i en production apply afgøres af
+den live sekvens ved apply-tidspunktet; de lokale restore-ID'er er derfor
+kontrolevidens, ikke en forhåndsreservation.
+
 ## Gates og fejltilstande
 
 Følgende er eksplicitte stoptilstande: forkert database/preview/manifest,
@@ -96,6 +131,8 @@ duplicate persona, ikke-staged create, cross-batch reversal, concurrent writer
 og enhver canonical delta (denne manifestversion har nul og RPC'en afviser
 canonical writes).
 
-Næste tilladte trin er kun Task 8 efter ny brugerautorisation til en konkret,
-kontrolleret databasekopi med dokumenteret gendannelsesmulighed. Task 9 live
-apply og Task 10 cutover kræver hver sin senere, særskilte hard-gate-beslutning.
+Næste tilladte trin er at forelægge Task 9-reviewpakken med den eksakte live
+databaseidentitet, recovery point, hashes og forventet delta. Først efter en ny
+eksplicit brugerautorisation må migration/RLS, one-use apply-authorization og
+én staged production apply køres. Task 10 cutover kræver en senere, separat
+hard-gate-beslutning.

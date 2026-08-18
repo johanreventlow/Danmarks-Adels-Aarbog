@@ -2433,7 +2433,7 @@ BEGIN
 END $$;
 
 CREATE FUNCTION private.ensure_reimport_1939_source_evidence(p_batch_id uuid,p_element_id text,p_payload jsonb)
-RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE v_batch private.reimport_1939_write_batch%ROWTYPE; v_auth private.reimport_1939_authorization%ROWTYPE;
  v_run uuid; v_rendition uuid; v_record uuid; v_occurrence uuid; v_observation uuid; v_mention uuid;
  v_actor uuid:=private.require_reimport_1939_editor(); v_actor_name text; v_span jsonb; v_page jsonb; v_text text;
@@ -2475,7 +2475,7 @@ BEGIN
 END $$;
 
 CREATE FUNCTION public.red_apply_1939_v50_source_evidence(p_batch_id uuid,p_element_id text,p_payload jsonb)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE v_batch private.reimport_1939_write_batch%ROWTYPE; v_actor uuid:=private.require_reimport_1939_editor();
 BEGIN
   SELECT * INTO v_batch FROM private.reimport_1939_write_batch WHERE id=p_batch_id FOR UPDATE;
@@ -2493,7 +2493,7 @@ BEGIN
 END $$;
 
 CREATE FUNCTION public.red_apply_1939_v50_person_create(p_batch_id uuid,p_element_id text,p_payload jsonb)
-RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE v_batch private.reimport_1939_write_batch%ROWTYPE; v_person_id bigint; v_evidence jsonb; v_persona uuid; v_narrative bigint; v_actor uuid:=private.require_reimport_1939_editor(); v_actor_name text;
 BEGIN
   SELECT * INTO v_batch FROM private.reimport_1939_write_batch WHERE id=p_batch_id FOR UPDATE;
@@ -5854,7 +5854,7 @@ END $$;
 CREATE OR REPLACE FUNCTION private.preview_interpretation_promotions(
   p_items jsonb,p_lock boolean DEFAULT false
 ) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE v_items jsonb; v_hash text; v_envelope jsonb;
 BEGIN
   SELECT coalesce(jsonb_agg(jsonb_build_object(
@@ -5888,7 +5888,7 @@ END $$;
 CREATE OR REPLACE FUNCTION red_promote_interpretations_batch(
   p_items jsonb,p_preview_hash text
 ) RETURNS uuid
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE
   v_actor uuid:=auth.uid(); v_actor_name text; v_preview jsonb; v_reason text;
   v_profile_hash text; v_profile jsonb; v_batch_id uuid;
