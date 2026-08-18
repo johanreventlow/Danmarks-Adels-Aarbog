@@ -1,17 +1,30 @@
 #!/usr/bin/env python3
 """Pure, deterministic dewrap + ordinal-strip transform (``narrative_norm_v1``).
 
-Implements the "Dewrap-transformens kontrakt" (points 1-6) from
+Implements the "Dewrap-transformens kontrakt" (points 1-6, later extended
+with point 5 on page-boundary markers) from
 ``docs/superpowers/plans/2026-08-18-1939-v50-resten-af-genimporten.md``
 (Fase B):
 
-1. Paragraphs are preserved: runs of two or more ``\\n`` collapse to exactly
+0. **Page-boundary markers** (extension, committed after Task 1's first
+   pass): a rendition may embed a literal ``### PAGE nnnn ###`` marker
+   inside a person's verbatim span when it crosses a PDF page boundary,
+   surrounded by any amount of blank-line "rendition structure" that is
+   *not* a real paragraph break. The whole block
+   (``\\n*### PAGE \\d{4} ###\\n*``) is collapsed to a single soft
+   linebreak *before* the paragraph and hyphen rules run, so prose that
+   merely continues across a page turn ends up as one space, and a word
+   hyphenated across the page turn re-enters the ordinary hyphen rule
+   (points 3 below) once the marker no longer sits between the two
+   halves. The normalized text must never contain ``### PAGE`` -- this is
+   asserted as a hard invariant.
+1. **Afsnit bevares:** runs of two or more ``\\n`` collapse to exactly
    ``\\n\\n``.
-2. A lone ``\\n`` (not preceded by a hyphen) becomes a single space. Pre-
-   existing double spaces are never collapsed beyond the one space this
-   rule introduces.
-3. A hyphen immediately followed by exactly one ``\\n`` (``X-\\nY``) is a
-   line-wrap hyphenation candidate:
+2. **Blød ombrydning:** a lone ``\\n`` (not preceded by a hyphen) becomes
+   a single space. Pre-existing double spaces are never collapsed beyond
+   the one space this rule introduces.
+3. **Bindestreg ved linjeskift:** a hyphen immediately followed by exactly
+   one ``\\n`` (``X-\\nY``) is a line-wrap hyphenation candidate:
    - ``Y`` starts lower-case  -> word-split, contract to ``XY``.
    - ``Y`` starts upper-case  -> compound candidate, keep the hyphen, drop
      only the newline (``X-Y``).
@@ -26,16 +39,17 @@ Implements the "Dewrap-transformens kontrakt" (points 1-6) from
      numeral range ``1735-\\n50``, or an abbreviation-period immediately
      before the hyphen such as ``Sek.-\\nMajor``), this is not the
      illustrated word-hyphenation pattern at all: nothing is merged or
-     rejoined, the two raw characters are left untouched, and a
+     rejoined, the two characters are left untouched, and a
      ``hyphen_ambiguous`` flag is emitted.
-4. A leading sibling ordinal ``^\\d{1,2}\\.\\s+`` is stripped after an
-   initial ``lstrip()`` (numbering survives elsewhere -- record keys,
-   identity register, verbatim -- so this is presentation-layer only).
-   A leading digit run that looks like an ordinal but does not fit that
-   exact shape (missing the period, or wrapped in a closing paren) is left
-   untouched and flagged ``ordinal_ambiguous`` -- never stripped by guess.
-5. No other changes: punctuation, spelling, ae/oe/aa, OCR errors etc. are
-   untouched -- this is evidence, not editing.
+4. **Ordenstals-strip:** a leading sibling ordinal ``^\\d{1,2}\\.\\s+`` is
+   stripped after an initial ``lstrip()`` (numbering survives elsewhere --
+   record keys, identity register, verbatim -- so this is
+   presentation-layer only). A leading digit run that looks like an
+   ordinal but does not fit that exact shape (missing the period, or
+   wrapped in a closing paren) is left untouched and flagged
+   ``ordinal_ambiguous`` -- never stripped by guess.
+5. **No other changes:** punctuation, spelling, ae/oe/aa, OCR errors etc.
+   are untouched -- this is evidence, not editing.
 6. This module is version ``narrative_norm_v1``.
 
 The function is pure (no I/O): callers pass in ``corpus`` (the full
@@ -43,33 +57,43 @@ Calamari text) for the hyphen tie-break lookups.
 
 Rule application order and why it matters
 ------------------------------------------
-Rules are applied in a single left-to-right scan in this order: (1) lstrip +
+Rules are applied in this order: (0) page-marker collapse, (1) lstrip +
 ordinal handling, (2) paragraph normalization, (3) hyphen-at-linebreak,
-(4) soft linebreak -> space. The order resolves two interference cases:
+(4) soft linebreak -> space -- (1)-(4) in a single left-to-right scan over
+the page-marker-collapsed text. The order resolves three interference
+cases:
 
+- Page marker as the very first/last content of a span: because marker
+  collapse runs before *everything* else, a marker at the very start
+  becomes a leading ``\\n`` that ``lstrip()`` then removes normally (and a
+  marker at the very end becomes a trailing ``\\n`` that the soft-break
+  rule turns into a trailing space, same as any other lone newline).
 - Ordinal after a leading ``\\n``: ``lstrip()`` removes the leading newline
   *before* the ordinal regex is tried, so ``"\\n2. Foo"`` strips correctly.
-- Hyphen at a paragraph boundary: because paragraph collapsing always runs
-  first and only ever leaves runs of exactly one or exactly two ``\\n``
-  behind, the hyphen rule -- which only fires for *exactly one* trailing
-  newline -- never fires across a genuine paragraph break. A hyphen
-  immediately followed by a real paragraph break (``X-\\n\\n\\nY``, which
-  collapses to ``X-\\n\\nY``) is therefore left completely untouched by the
-  hyphen rule; only the newline run itself was normalized to ``\\n\\n``.
-  This also protects embedded ``### PAGE nnnn ###`` markers that sit inside
-  a person's verbatim span when it crosses a PDF page boundary: a
-  hyphenated word broken across such a marker (``Med-\\n\\n### PAGE 0053
-  ###\\nlem``) is never merged or treated as a compound -- rejoining across
-  a page marker is out of scope for this transform.
+- Hyphen at a paragraph boundary: paragraph collapsing always runs before
+  the hyphen rule and only ever leaves runs of exactly one or exactly two
+  ``\\n`` behind, so the hyphen rule -- which only fires for *exactly one*
+  trailing newline -- never fires across a genuine paragraph break. A
+  hyphen immediately followed by a real paragraph break
+  (``X-\\n\\n\\nY``, which collapses to ``X-\\n\\nY``) is left completely
+  untouched by the hyphen rule; only the newline run itself was
+  normalized. By contrast, a hyphen immediately followed by a *page
+  marker* (``X-\\n\\n### PAGE nnnn ###\\nY``) has already had its marker
+  block collapsed to a single ``\\n`` by the time the hyphen rule runs, so
+  it reads as the ordinary ``X-\\nY`` pattern and re-enters the normal
+  merge/compound/tie-break/ambiguous logic above.
 """
 from __future__ import annotations
 
-from typing import Dict, List, TypedDict
+import re
+from typing import Dict, List, Tuple, TypedDict
 
 VERSION = "narrative_norm_v1"
 
 _ORDINAL_OK_PREFIX_LEN = 2  # max digits considered for a sibling ordinal
 _CONTEXT_RADIUS = 40
+
+_PAGE_MARKER_BLOCK_RE = re.compile(r"\n*### PAGE \d{4} ###\n*")
 
 
 class Flag(TypedDict):
@@ -83,6 +107,7 @@ class Applied(TypedDict):
     hyphens_merged: int
     hyphens_kept_compound: int
     ordinal_stripped: int
+    page_markers_removed: int
 
 
 class NormalizeResult(TypedDict):
@@ -95,6 +120,40 @@ def _context(raw: str, offset: int) -> str:
     lo = max(0, offset - _CONTEXT_RADIUS)
     hi = min(len(raw), offset + _CONTEXT_RADIUS)
     return raw[lo:hi]
+
+
+def _remove_page_markers(raw: str) -> Tuple[str, List[int], int]:
+    """Collapse every ``\\n*### PAGE dddd ###\\n*`` block to one ``\\n``.
+
+    Returns ``(collapsed, origin, removed_count)`` where ``origin[k]`` is
+    the offset into ``raw`` that ``collapsed[k]`` represents -- used to
+    keep flag ``char_offset``/``context`` anchored in true raw-text
+    coordinates even though the scanned string has shrunk. The blank
+    lines surrounding a marker are rendition structure, not a real
+    paragraph break, so the *entire* block -- however many newlines
+    surround the marker on either side -- becomes exactly one soft
+    linebreak, to be resolved by the ordinary paragraph/hyphen/soft-break
+    rules afterwards.
+    """
+    out: List[str] = []
+    origin: List[int] = []
+    removed = 0
+    cursor = 0
+    for match in _PAGE_MARKER_BLOCK_RE.finditer(raw):
+        start, end = match.span()
+        if start < cursor:
+            continue  # defensive: finditer never overlaps, but never trust silently
+        for k in range(cursor, start):
+            out.append(raw[k])
+            origin.append(k)
+        out.append("\n")
+        origin.append(start)
+        removed += 1
+        cursor = end
+    for k in range(cursor, len(raw)):
+        out.append(raw[k])
+        origin.append(k)
+    return "".join(out), origin, removed
 
 
 def _match_ordinal_ok(remainder: str) -> int:
@@ -139,19 +198,19 @@ def _match_ordinal_ambiguous(remainder: str) -> int:
     return k
 
 
-def _word_run_before(raw: str, hyphen_index: int, floor: int) -> str:
+def _word_run_before(text: str, hyphen_index: int, floor: int) -> str:
     start = hyphen_index
-    while start > floor and raw[start - 1].isalpha():
+    while start > floor and text[start - 1].isalpha():
         start -= 1
-    return raw[start:hyphen_index]
+    return text[start:hyphen_index]
 
 
-def _word_run_after(raw: str, start: int) -> str:
+def _word_run_after(text: str, start: int) -> str:
     end = start
-    n = len(raw)
-    while end < n and raw[end].isalpha():
+    n = len(text)
+    while end < n and text[end].isalpha():
         end += 1
-    return raw[start:end]
+    return text[start:end]
 
 
 def normalize_narrative_v1(raw: str, corpus: str) -> NormalizeResult:
@@ -168,57 +227,62 @@ def normalize_narrative_v1(raw: str, corpus: str) -> NormalizeResult:
         "hyphens_merged": 0,
         "hyphens_kept_compound": 0,
         "ordinal_stripped": 0,
+        "page_markers_removed": 0,
     }
 
-    lstripped = raw.lstrip()
-    pos = len(raw) - len(lstripped)
+    content, origin, markers_removed = _remove_page_markers(raw)
+    applied["page_markers_removed"] = markers_removed
+
+    lstripped = content.lstrip()
+    pos = len(content) - len(lstripped)
     content_floor = pos
 
-    remainder = raw[pos:]
-    ok_len = _match_ordinal_ok(remainder)
-    if ok_len:
-        applied["ordinal_stripped"] = 1
-        pos += ok_len
-        content_floor = pos
-    else:
-        amb_len = _match_ordinal_ambiguous(remainder)
-        if amb_len:
-            flags.append(
-                {
-                    "kind": "ordinal_ambiguous",
-                    "context": _context(raw, pos),
-                    "char_offset": pos,
-                }
-            )
-        # else: genuinely no ordinal at this position -- left untouched,
-        # unflagged (the "50 without" bucket).
+    if pos < len(content):
+        remainder = content[pos:]
+        ok_len = _match_ordinal_ok(remainder)
+        if ok_len:
+            applied["ordinal_stripped"] = 1
+            pos += ok_len
+            content_floor = pos
+        else:
+            amb_len = _match_ordinal_ambiguous(remainder)
+            if amb_len:
+                flags.append(
+                    {
+                        "kind": "ordinal_ambiguous",
+                        "context": _context(raw, origin[pos]),
+                        "char_offset": origin[pos],
+                    }
+                )
+            # else: genuinely no ordinal at this position -- left
+            # untouched, unflagged (the "50 without" bucket).
 
     out: List[str] = []
     i = pos
-    n = len(raw)
+    n = len(content)
     while i < n:
-        ch = raw[i]
+        ch = content[i]
 
         if (
             ch == "-"
             and i + 1 < n
-            and raw[i + 1] == "\n"
-            and not (i + 2 < n and raw[i + 2] == "\n")
+            and content[i + 1] == "\n"
+            and not (i + 2 < n and content[i + 2] == "\n")
         ):
-            x_word = _word_run_before(raw, i, content_floor)
-            y_word = _word_run_after(raw, i + 2)
+            x_word = _word_run_before(content, i, content_floor)
+            y_word = _word_run_after(content, i + 2)
 
             if not x_word or not y_word:
                 # Not the illustrated word-hyphenation pattern (a numeral
                 # range, an abbreviation period, or nothing left to join
                 # to) -- fail closed: leave both characters exactly as
                 # they are and flag for human review.
-                out.append(raw[i : i + 2])
+                out.append(content[i : i + 2])
                 flags.append(
                     {
                         "kind": "hyphen_ambiguous",
-                        "context": _context(raw, i),
-                        "char_offset": i,
+                        "context": _context(raw, origin[i]),
+                        "char_offset": origin[i],
                     }
                 )
                 i += 2
@@ -241,8 +305,8 @@ def normalize_narrative_v1(raw: str, corpus: str) -> NormalizeResult:
                     flags.append(
                         {
                             "kind": "hyphen_ambiguous",
-                            "context": _context(raw, i),
-                            "char_offset": i,
+                            "context": _context(raw, origin[i]),
+                            "char_offset": origin[i],
                         }
                     )
                 # Lower-case default (word-split) is the common, low-risk
@@ -262,7 +326,7 @@ def normalize_narrative_v1(raw: str, corpus: str) -> NormalizeResult:
 
         if ch == "\n":
             j = i
-            while j < n and raw[j] == "\n":
+            while j < n and content[j] == "\n":
                 j += 1
             run_len = j - i
             if run_len >= 2:
@@ -276,4 +340,6 @@ def normalize_narrative_v1(raw: str, corpus: str) -> NormalizeResult:
         out.append(ch)
         i += 1
 
-    return {"text": "".join(out), "flags": flags, "applied": applied}
+    text = "".join(out)
+    assert "### PAGE" not in text, "page marker leaked into normalized narrative"
+    return {"text": text, "flags": flags, "applied": applied}

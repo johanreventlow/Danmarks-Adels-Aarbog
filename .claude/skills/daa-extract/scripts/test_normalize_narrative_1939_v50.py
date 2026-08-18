@@ -19,11 +19,26 @@ PRODUCTION_WRITE_MANIFEST_SHA256 = (
 )
 CALAMARI_SHA256 = "020123a3588dacf80705a22fb021ab4f5da97b8de202e8664304ca01f9a6da37"
 
+# Independently defined (not imported from the module under test) so a
+# typo in the implementation's own pattern can't hide from this check.
+_PAGE_MARKER_BLOCK_RE = re.compile(r"\n*### PAGE \d{4} ###\n*")
+
 
 # ---------------------------------------------------------------------------
 # Diff-class control: every character-level hunk between ``raw`` and the
-# normalized ``text`` must belong to one of the four declared change
+# normalized ``text`` must belong to one of the five declared change
 # classes. Shared by the mixed-fixture unit test and the corpus regression.
+#
+# Page-marker blocks are stripped out *before* diffing (via the same
+# mechanical, judgment-free regex substitution the contract specifies),
+# rather than being classified as part of the generic character diff.
+# difflib's LCS-based opcodes can otherwise split one conceptual marker
+# deletion into several oddly-shaped hunks -- a marker block is long and
+# made of ordinary letters/digits/spaces, so it can spuriously "match" a
+# few characters of unrelated surrounding prose and get chopped into
+# pieces that don't individually look like a marker. Stripping first keeps
+# the diff surgical for the four dewrap/ordinal classes, which is what
+# this check actually needs to police.
 # ---------------------------------------------------------------------------
 
 _LEADING_TRIM_RE = re.compile(r"\s*(?:\d{1,2}\.\s+)?")
@@ -47,14 +62,18 @@ def _classify_hunk(raw: str, norm: str, i1: int, i2: int, j1: int, j2: int) -> s
 
 
 def assert_diff_classes_allowed(raw: str, norm: str) -> None:
-    sm = difflib.SequenceMatcher(None, raw, norm, autojunk=False)
+    assert "### PAGE" not in norm, f"page marker leaked into normalized text: {norm!r}"
+
+    marker_free = _PAGE_MARKER_BLOCK_RE.sub("\n", raw)
+    sm = difflib.SequenceMatcher(None, marker_free, norm, autojunk=False)
     for tag, i1, i2, j1, j2 in sm.get_opcodes():
         if tag == "equal":
             continue
-        cls = _classify_hunk(raw, norm, i1, i2, j1, j2)
+        cls = _classify_hunk(marker_free, norm, i1, i2, j1, j2)
         assert cls is not None, (
-            f"unclassified diff hunk {tag} raw={raw[i1:i2]!r} -> norm={norm[j1:j2]!r} "
-            f"context={raw[max(0, i1 - 20):i2 + 20]!r}"
+            f"unclassified diff hunk {tag} marker_free={marker_free[i1:i2]!r} -> "
+            f"norm={norm[j1:j2]!r} "
+            f"context={marker_free[max(0, i1 - 20):i2 + 20]!r}"
         )
 
 
@@ -299,19 +318,113 @@ def test_hyphen_ved_tekstslutning_uroert_og_flaget():
     assert result["flags"][0]["kind"] == "hyphen_ambiguous"
 
 
-def test_hyphen_ved_sidemarkoer_uroert():
-    # A hyphenated word split across an embedded PDF page-boundary marker
-    # (a real artifact: the marker sits inside the two newlines separating
-    # the halves). Rejoining across the marker is out of scope; only the
-    # generic paragraph/soft-break rules may still touch the surrounding
-    # newlines.
-    raw = "Med-\n\n### PAGE 0053 ###\nlem"
+# ---------------------------------------------------------------------------
+# Contract point 0 (extension): page-boundary marker blocks. A rendition
+# may embed a literal ``### PAGE nnnn ###`` inside a person's verbatim
+# span when it crosses a PDF page boundary, surrounded by any amount of
+# blank-line "rendition structure" that is NOT a real paragraph break.
+# ---------------------------------------------------------------------------
+
+
+def test_sidemarkoer_prosa_fortsaettelse_bliver_mellemrum():
+    # Prose that merely continues across a page turn: the whole marker
+    # block collapses to ONE soft linebreak, never a paragraph break --
+    # even though it visually looks like a blank-line-delimited block.
+    raw = (
+        "Dorothea g. o. 1560 m. hert.\n\n### PAGE 0019 ###\n"
+        "gottorpsk Amtmand Ove Rantzau."
+    )
     result = normalize_narrative_v1(raw, corpus="")
-    assert result["text"] == "Med-\n\n### PAGE 0053 ### lem"
-    assert result["applied"]["hyphens_merged"] == 0
-    assert result["applied"]["hyphens_kept_compound"] == 0
+    assert result["text"] == (
+        "Dorothea g. o. 1560 m. hert. gottorpsk Amtmand Ove Rantzau."
+    )
+    assert result["applied"]["page_markers_removed"] == 1
     assert result["applied"]["soft_breaks_joined"] == 1
+    assert "### PAGE" not in result["text"]
     assert result["flags"] == []
+
+
+def test_sidemarkoer_orddeling_sammentraekkes():
+    # A word hyphenated across the page turn re-enters the ordinary
+    # hyphen rule once the marker no longer sits between the halves:
+    # lower-case continuation -> merge, exactly like any other
+    # "sammen-\ntrækkes" case.
+    raw = "Han var Med-\n\n### PAGE 0053 ###\nlem af Ordenen."
+    result = normalize_narrative_v1(raw, corpus="")
+    assert result["text"] == "Han var Medlem af Ordenen."
+    assert result["applied"]["page_markers_removed"] == 1
+    assert result["applied"]["hyphens_merged"] == 1
+    assert result["applied"]["hyphens_kept_compound"] == 0
+    assert "### PAGE" not in result["text"]
+    assert result["flags"] == []
+
+
+def test_sidemarkoer_kompositum_bevares():
+    # Upper-case continuation across a page turn, corroborated by the
+    # corpus -> kept as a compound, same as any other "Reventlow-\nY"
+    # case, just with a marker sitting in the gap beforehand.
+    raw = "Han ejede Rigsfri-\n\n### PAGE 0074 ###\nHerregaarden."
+    corpus = "Se Rigsfri-Herregaarden andetsteds i bogen."
+    result = normalize_narrative_v1(raw, corpus=corpus)
+    assert result["text"] == "Han ejede Rigsfri-Herregaarden."
+    assert result["applied"]["page_markers_removed"] == 1
+    assert result["applied"]["hyphens_kept_compound"] == 1
+    assert result["applied"]["hyphens_merged"] == 0
+    assert "### PAGE" not in result["text"]
+    assert result["flags"] == []
+
+
+def test_sidemarkoer_blanklinje_varianter_alle_bliver_et_mellemrum():
+    # However many blank lines surround the marker on either side, the
+    # whole block is rendition structure, not a paragraph break -- it
+    # always collapses to exactly one soft linebreak.
+    variants = [
+        "Foo.\n### PAGE 0001 ###\nBar.",
+        "Foo.\n\n\n### PAGE 0002 ###\n\n\nBar.",
+        "Foo.### PAGE 0003 ###Bar.",
+        "Foo.\n\n### PAGE 0004 ###\nBar.",
+    ]
+    for raw in variants:
+        result = normalize_narrative_v1(raw, corpus="")
+        assert result["text"] == "Foo. Bar.", raw
+        assert result["applied"]["page_markers_removed"] == 1
+        assert "\n\n" not in result["text"]
+        assert "### PAGE" not in result["text"]
+
+
+def test_sidemarkoer_som_allerfoerste_indhold_i_span():
+    raw = "### PAGE 0010 ###\n1. Sybille, f. 1800."
+    result = normalize_narrative_v1(raw, corpus="")
+    assert result["text"] == "Sybille, f. 1800."
+    assert result["applied"]["page_markers_removed"] == 1
+    assert result["applied"]["ordinal_stripped"] == 1
+    assert "### PAGE" not in result["text"]
+    assert result["flags"] == []
+
+
+def test_sidemarkoer_som_sidste_indhold_i_span():
+    raw = "Foo bar.\n\n### PAGE 0099 ###"
+    result = normalize_narrative_v1(raw, corpus="")
+    assert result["text"] == "Foo bar. "
+    assert result["applied"]["page_markers_removed"] == 1
+    assert result["applied"]["soft_breaks_joined"] == 1
+    assert "### PAGE" not in result["text"]
+    assert result["flags"] == []
+
+
+def test_sidemarkoer_invariant_aldrig_i_output():
+    # Explicit invariant check (also asserted as a hard fail-closed guard
+    # inside normalize_narrative_v1 itself): the marker literal must never
+    # survive into the normalized text, across every marker fixture above.
+    fixtures = [
+        "Dorothea g. o. 1560 m. hert.\n\n### PAGE 0019 ###\ngottorpsk Amtmand.",
+        "Han var Med-\n\n### PAGE 0053 ###\nlem af Ordenen.",
+        "### PAGE 0010 ###\n1. Sybille, f. 1800.",
+        "Foo bar.\n\n### PAGE 0099 ###",
+    ]
+    for raw in fixtures:
+        result = normalize_narrative_v1(raw, corpus="")
+        assert "### PAGE" not in result["text"], raw
 
 
 # ---------------------------------------------------------------------------
@@ -382,5 +495,11 @@ def test_korpus_regression_551_spans():
     assert any("Heinrich" in c for c in contexts)
     assert any("Conrad" in c for c in contexts)
 
+    page_markers_removed_sum = sum(
+        r["applied"]["page_markers_removed"] for r in results_a
+    )
+    assert page_markers_removed_sum == 73
+
     for raw, result in zip(texts, results_a):
+        assert "### PAGE" not in result["text"], raw
         assert_diff_classes_allowed(raw, result["text"])
