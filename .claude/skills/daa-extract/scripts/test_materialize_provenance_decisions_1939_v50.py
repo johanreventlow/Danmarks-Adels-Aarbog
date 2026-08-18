@@ -93,6 +93,8 @@ def test_retain_source_only_is_closed_and_no_go_for_writes():
     assert out["production_authorized"] is False
     assert all(row["canonical_operations"] == [] for row in out["decisions"])
     assert all(len(row["evidence_sha256"]) == 64 for row in out["decisions"])
+    assert out["decisions"][0]["verbatim_text"] == "tekst"
+    assert out["decisions"][0]["source_span"] == {"char_from": 0, "char_to": 5}
 
 
 @pytest.mark.parametrize("mutation", [
