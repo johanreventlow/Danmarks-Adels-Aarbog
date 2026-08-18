@@ -24,6 +24,24 @@ BEGIN
   IF to_regnamespace('private') IS NULL THEN
     RAISE EXCEPTION 'EVIDENCE_PROMOTION_RLS_TEST_FAILED: private-schema mangler';
   END IF;
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_extension e
+      JOIN pg_catalog.pg_namespace n ON n.oid=e.extnamespace
+     WHERE e.extname='pgcrypto' AND n.nspname='extensions'
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RLS_TEST_FAILED: pgcrypto ligger ikke i extensions';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_namespace n,
+           LATERAL aclexplode(coalesce(n.nspacl,acldefault('n',n.nspowner))) acl
+     WHERE n.nspname='extensions'
+       AND acl.grantee=0
+       AND acl.privilege_type='CREATE'
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RLS_TEST_FAILED: PUBLIC har CREATE på extensions';
+  END IF;
 
   -- Prøv den DDL-ejers aktuelle default privileges direkte. En tabel/funktion,
   -- der oprettes efter RLS-filen, må heller ikke automatisk blive API-læsbar
@@ -60,6 +78,9 @@ BEGIN
 
     IF has_schema_privilege(v_role,'private','USAGE') THEN
       RAISE EXCEPTION 'EVIDENCE_PROMOTION_RLS_TEST_FAILED: % har USAGE på private',v_role;
+    END IF;
+    IF has_schema_privilege(v_role,'extensions','CREATE') THEN
+      RAISE EXCEPTION 'EVIDENCE_PROMOTION_RLS_TEST_FAILED: % har CREATE på extensions',v_role;
     END IF;
 
     FOREACH v_table IN ARRAY ARRAY[
@@ -193,3 +214,117 @@ BEGIN
 
   RAISE NOTICE 'OK: evidence promotion har deny-all private ACL/RLS og afgrænset redaktions-RPC';
 END $evidence_promotion_rls_test$;
+
+-- En gyldig, kildebunden promotion skal gennem begge SHA-256-stier med
+-- Supabases faktiske pgcrypto-layout. Hele fixturen rulles tilbage, så testen
+-- også kan køres mod en database med eksisterende data.
+DO $evidence_promotion_digest_success_test$
+DECLARE
+  v_actor uuid := '11000000-0000-0000-0000-000000000091';
+  v_run uuid := '22000000-0000-0000-0000-000000000091';
+  v_rendition uuid := '33000000-0000-0000-0000-000000000091';
+  v_occurrence uuid := '55000000-0000-0000-0000-000000000091';
+  v_observation uuid := '66000000-0000-0000-0000-000000000091';
+  v_mention uuid := '70000000-0000-0000-0000-000000000091';
+  v_persona uuid := '88000000-0000-0000-0000-000000000091';
+  v_interpretation uuid := 'c1000000-0000-0000-0000-000000000091';
+  v_accepted uuid;
+  v_preview jsonb;
+  v_items jsonb;
+BEGIN
+  BEGIN
+    INSERT INTO auth.users(id,email)
+      VALUES (v_actor,'promotion-digest-success@test.invalid');
+    INSERT INTO profiles(id,rolle,navn,email)
+      VALUES (v_actor,'redaktion','Promotion Digest Success',
+              'promotion-digest-success@test.invalid');
+    INSERT INTO person(id,levende,privat,status)
+      VALUES (-987650091,false,false,'promotion digest fixture');
+    INSERT INTO source(id,titel,import_key)
+      VALUES (-987650091,'Promotion digest success','verify:promotion:digest');
+    INSERT INTO private.extraction_run(
+      id,source_id,run_key,schema_version,extractor_version,profile_version,
+      input_sha256,manifest
+    ) VALUES (
+      v_run,-987650091,'promotion-digest-run','1.0','verify','verify',repeat('9',64),'{}'
+    );
+    INSERT INTO private.source_rendition(
+      id,source_id,rendition_key,rendition_kind,content_sha256,metadata
+    ) VALUES (
+      v_rendition,-987650091,'promotion-digest-rendition','text_layer',repeat('8',64),'{}'
+    );
+    INSERT INTO private.source_record_occurrence(
+      id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,
+      verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id
+    ) VALUES (
+      v_occurrence,v_rendition,'promotion-digest-occurrence',1,1,0,11,
+      'Anna Digest','physical-promotion-digest','structural-promotion-digest',v_run
+    );
+    INSERT INTO private.source_observation(
+      id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,
+      verbatim_text,quality_status,extraction_method,extraction_run_id
+    ) VALUES (
+      v_observation,v_occurrence,'name_clause',1,1,0,11,'Anna Digest',
+      'clear','verify',v_run
+    );
+    INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id)
+      VALUES (v_persona,-987650091,'promotion-digest-persona',v_run);
+    INSERT INTO private.source_mention(
+      id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id
+    ) VALUES (v_mention,v_observation,'person',0,11,'Anna Digest',v_run);
+    INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
+      VALUES (v_persona,v_mention,'principal',1);
+    INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype)
+      VALUES (-987650091,'person',-987650091,'navn');
+    INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,calendar,uforanderlig)
+      VALUES (-987650091,'fact',-987650091,'Anna Digest','gregoriansk',true);
+    INSERT INTO private.interpretation(
+      id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,
+      predicate,value,schema_version,derivation_kind,confidence,status,method,
+      extraction_run_id
+    ) VALUES (
+      v_interpretation,'c0000000-0000-0000-0000-000000000091',1,-987650091,
+      v_persona,'property','person.name','"Anna Digest"','1.0','source_statement',
+      1,'proposed','verify',v_run
+    );
+    INSERT INTO private.interpretation_observation(
+      interpretation_id,observation_id,evidence_role,ordinal
+    ) VALUES (v_interpretation,v_observation,'supporting',1);
+    SET CONSTRAINTS private.interpretation_has_observation IMMEDIATE;
+    SET CONSTRAINTS private.interpretation_has_observation DEFERRED;
+
+    PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+    SET LOCAL ROLE authenticated;
+    PERFORM red_decide_source_persona_identity(
+      v_persona,-987650091,0,'accepted','{"basis":"digest success regression"}'
+    );
+    SELECT red_decide_interpretation(
+      v_interpretation,1,'accepted','{"basis":"digest success regression"}'
+    ) INTO v_accepted;
+    v_items:=jsonb_build_array(jsonb_build_object(
+      'interpretation_id',v_accepted,'target_type','assertion','target_id',-987650091
+    ));
+    v_preview:=red_preview_interpretation_promotions(v_items);
+    IF v_preview->'items'->0->>'eligible'<>'true'
+       OR v_preview->>'preview_hash' !~ '^[0-9a-f]{64}$' THEN
+      RAISE EXCEPTION 'EVIDENCE_PROMOTION_DIGEST_TEST_FAILED: ugyldigt preview %',v_preview;
+    END IF;
+    PERFORM red_promote_interpretations_batch(v_items,v_preview->>'preview_hash');
+    RESET ROLE;
+
+    IF (SELECT count(*) FROM private.interpretation_promotion
+         WHERE interpretation_id=v_accepted AND target_id=-987650091)<>1
+       OR (SELECT count(*) FROM private.interpretation_promotion_batch
+           WHERE promoted_by=v_actor AND requested_count=1
+             AND rule_profile_hash ~ '^[0-9a-f]{64}$')<>1 THEN
+      RAISE EXCEPTION 'EVIDENCE_PROMOTION_DIGEST_TEST_FAILED: promotion/batch mangler';
+    END IF;
+    RAISE EXCEPTION 'ROLLBACK_EVIDENCE_PROMOTION_DIGEST_SUCCESS';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='ROLLBACK_EVIDENCE_PROMOTION_DIGEST_SUCCESS' THEN
+      RAISE NOTICE 'OK: promotion-preview og batch bruger pgcrypto fra extensions';
+    ELSE
+      RAISE;
+    END IF;
+  END;
+END $evidence_promotion_digest_success_test$;

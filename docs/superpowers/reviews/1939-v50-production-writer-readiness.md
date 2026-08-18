@@ -75,10 +75,13 @@ SQL-write-transaktion med rollback, ikke en read-only query.
 
 - Fokuseret Task 1-3 Python: `33 passed in 0.12s`.
 - Fokuseret Task 5 R: `PASS 20 assertions`.
-- Fuld Python-suite: `1679 passed, 3 skipped in 7.29s`.
-- Fuld R-suite: `810 passed, 2 skipped, 0 failed, 0 warnings in 5.6s`.
+- Fuld Python-suite: `1679 passed, 3 skipped in 7.76s`.
+- Fuld R-suite: `810 passed, 2 skipped, 0 failed, 0 warnings in 6.1s`.
 - PostgreSQL 17 migration fra planbase `4a02174`, RLS, SQL-contract og virkelig
   R-integration: exit 0; `PASS DAA 1939 v50 PostgreSQL integration`.
+- Den fokuserede promotionkontrakt gennemførte både et gyldigt preview og en
+  gyldig batch med `pgcrypto` i `extensions`, mod både en frisk database og
+  produktionsrestoren; fixturens rækker var 0 efter rollback.
 - Determinisme: decisions og manifest blev genbygget med
   `PYTHONHASHSEED=17` og `991`; begge var byteidentiske med de autoritative
   filer.
@@ -89,6 +92,16 @@ provenancerækker, otte staged personer, append-only identity, identisk replay,
 ændret-byte-afvisning, advisory-lock-race, staged visibility, sequence og
 reversal. DB-fri failpointtests injicerer fejl ved begin-batch,
 source-evidence, person-create og finalize og kræver præcis én rollback.
+
+Den brede, historiske `db-verify.sql` er eksplicit **ikke** rapporteret som
+grøn mod produktionsrestoren og er ikke Task 9-writer-gaten. Dens ældre
+fixtures forudsætter en tom eller minimal database og kolliderer med den
+restaurerede databases eksisterende `daa:1939`-nøgle, faste auth-UUID'er,
+lineage-fixtures, storage-forudsætninger og sekvenstilstand. Task 9 bruger i
+stedet de afgrænsede writer- og promotion-SQL-kontrakter, de fulde Python- og
+R-suiter, Task 8's dobbelte rehearsal samt den virkelige rollback-dry-run mod
+en frisk restore. Det er en bevidst disposition af legacy-verifierens kendte
+begrænsning, ikke en påstand om at den er repareret eller passerer globalt.
 
 ## Lokal backup og realistisk restore-kontrol
 
