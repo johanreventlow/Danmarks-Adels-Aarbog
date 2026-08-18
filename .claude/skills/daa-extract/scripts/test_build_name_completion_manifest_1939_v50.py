@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from build_name_completion_manifest_1939_v50 import (
+    SOURCE_MANIFEST_BYTES_SHA256,
     SOURCE_MANIFEST_CONTENT_SHA256,
     ManifestError,
     artifact_sha,
@@ -63,15 +64,16 @@ def _production_inputs():
             "staged": True,
             "name_fact_count": 0,
         })
-    production_manifest = {
-        "schema_version": "1939-v50-production-write-manifest-v1",
-        "batch_id": "560c39f8-5c87-4c0d-a768-025d97fa2974",
-        "manifest_content_sha256": SOURCE_MANIFEST_CONTENT_SHA256,
-        "person_creates": creates,
-    }
+    manifest_path = Path(__file__).parents[4] / "work/task25-1939-v50-production-writer/production-write-manifest-v1.json"
+    production_manifest = json.loads(manifest_path.read_text())
+    create_by_key = {row["source_record_key"]: row for row in production_manifest["person_creates"]}
+    for audit in audits:
+        source = create_by_key[audit["source_record_key"]]
+        audit["source_persona_id"] = source["source_persona_id"]
+        audit["verbatim_text"] = source["verbatim_text"]
+        audit["page"] = source["page_evidence"]["page_from"]
     production_apply = {
-        "schema_version": "1939-v50-production-apply-result-v1",
-        "batch_id": "560c39f8-5c87-4c0d-a768-025d97fa2974",
+        "mode": "apply",
         "status": "finalized",
         "committed": True,
         "person_id_map": {key: binding[0] for key, binding in LOCKED_MAP.items()},
@@ -89,7 +91,11 @@ def production_inputs():
 
 
 def production_hashes():
-    return [artifact_sha(value) for value in production_inputs()]
+    return [SOURCE_MANIFEST_BYTES_SHA256, artifact_sha(production_inputs()[1]), artifact_sha(production_inputs()[2])]
+
+
+def cli_hashes(paths):
+    return [hashlib.sha256(path.read_bytes()).hexdigest() for path in paths]
 
 
 def hash_inputs(values):
@@ -176,7 +182,7 @@ def test_subprocess_builds_are_byte_identical_across_hash_seeds(tmp_path):
     for seed in ("1", "987654"):
         output = tmp_path / f"out-{seed}.json"
         command = [sys.executable, str(module)]
-        for label, path, digest in zip(("production-manifest", "production-apply", "post-apply-audit"), paths, production_hashes()):
+        for label, path, digest in zip(("production-manifest", "production-apply", "post-apply-audit"), paths, cli_hashes(paths)):
             command.extend([f"--{label}", str(path), f"--{label}-sha256", digest])
         command.extend(["--output", str(output)])
         subprocess.run(command, check=True, env={**os.environ, "PYTHONHASHSEED": seed})
@@ -195,7 +201,7 @@ def test_cli_refuses_existing_output_path(tmp_path):
     output.write_text("sentinel")
     module = Path(__file__).with_name("build_name_completion_manifest_1939_v50.py")
     command = [sys.executable, str(module)]
-    for label, path, digest in zip(("production-manifest", "production-apply", "post-apply-audit"), paths, production_hashes()):
+    for label, path, digest in zip(("production-manifest", "production-apply", "post-apply-audit"), paths, cli_hashes(paths)):
         command.extend([f"--{label}", str(path), f"--{label}-sha256", digest])
     command.extend(["--output", str(output)])
     result = subprocess.run(command, capture_output=True, text=True)
@@ -207,7 +213,7 @@ def test_cli_refuses_existing_output_path(tmp_path):
 @pytest.mark.parametrize("attack", [
     "mutated_manifest_rehashed", "missing_persona", "null_persona",
     "missing_span", "malformed_span", "nonpositive_span",
-    "unknown_manifest_field", "reversed_create_order", "reversed_audit_order",
+    "unknown_manifest_field", "reversed_create_order", "reversed_audit_order", "unknown_audit_row_field",
 ])
 def test_rejects_additional_closed_boundary_attacks(attack):
     values = list(production_inputs())
@@ -229,6 +235,8 @@ def test_rejects_additional_closed_boundary_attacks(attack):
         values[0]["person_creates"].reverse()
     elif attack == "reversed_audit_order":
         values[2]["rows"].reverse()
+    elif attack == "unknown_audit_row_field":
+        values[2]["rows"][0]["unexpected"] = True
     with pytest.raises(ManifestError):
         build_manifest(*values, input_hashes=hash_inputs(values))
 
@@ -249,3 +257,19 @@ def test_cli_accepts_nonpreferred_json_whitespace_with_raw_hash(tmp_path):
         command.extend([f"--{label}", str(path), f"--{label}-sha256", digest])
     command.extend(["--output", str(output)])
     subprocess.run(command, check=True)
+
+
+def test_rejects_consistently_mutated_source_manifest_by_content_closure():
+    values = list(production_inputs())
+    values[0]["person_creates"][0]["source_persona_id"] = "persona-attacker"
+    values[2]["rows"][0]["source_persona_id"] = "persona-attacker"
+    with pytest.raises(ManifestError):
+        build_manifest(*values, input_hashes=[SOURCE_MANIFEST_BYTES_SHA256, *hash_inputs(values)[1:]])
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_rejects_boolean_span_coordinates(value):
+    values = list(production_inputs())
+    values[0]["person_creates"][0]["source_span"]["char_from"] = value
+    with pytest.raises(ManifestError):
+        build_manifest(*values, input_hashes=[SOURCE_MANIFEST_BYTES_SHA256, *hash_inputs(values)[1:]])

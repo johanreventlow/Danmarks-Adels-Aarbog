@@ -44,6 +44,8 @@ def canonical_sha(value: object) -> str:
 def _validate_input_hashes(values: tuple[object, ...], supplied: list[str]) -> None:
     if len(supplied) != 3 or any(not isinstance(x, str) or not re.fullmatch(r"[0-9a-f]{64}", x) for x in supplied):
         _fail("NAME_COMPLETION_INPUT_HASH_INVALID")
+    if supplied[0] != SOURCE_MANIFEST_BYTES_SHA256:
+        _fail("NAME_COMPLETION_SOURCE_MANIFEST_BYTES_INVALID")
 
 
 def _rows_by_key(rows: Any, key: str) -> dict[str, dict[str, Any]]:
@@ -59,16 +61,25 @@ def build_manifest(production_manifest: dict[str, Any], production_apply: dict[s
                    post_apply_audit: dict[str, Any], *, input_hashes: list[str]) -> dict[str, object]:
     values = (production_manifest, production_apply, post_apply_audit)
     _validate_input_hashes(values, input_hashes)
-    if not isinstance(production_manifest, dict) or set(production_manifest) != {"schema_version", "batch_id", "manifest_content_sha256", "person_creates"} or production_manifest.get("schema_version") != "1939-v50-production-write-manifest-v1":
+    manifest_keys = {"schema_version", "generator_version", "input_hashes", "source", "expected_database_contract", "existing_anchors", "person_creates", "provenance_dispositions", "canonical_delta", "operations", "counts", "expected_changes", "production_authorized", "apply_gate", "cutover_gate", "manifest_content_sha256"}
+    if not isinstance(production_manifest, dict) or set(production_manifest) != manifest_keys or production_manifest.get("schema_version") != "1939-v50-production-write-manifest-v1":
         _fail("NAME_COMPLETION_SOURCE_MANIFEST_INVALID")
-    if not isinstance(production_apply, dict) or set(production_apply) != {"schema_version", "batch_id", "status", "committed", "person_id_map"} or production_apply.get("schema_version") != "1939-v50-production-apply-result-v1":
+    if not isinstance(production_apply, dict) or set(production_apply) != {"mode", "status", "committed", "person_id_map"}:
         _fail("NAME_COMPLETION_APPLY_INVALID")
     if not isinstance(post_apply_audit, dict) or set(post_apply_audit) != {"schema_version", "batch_id", "rows"} or post_apply_audit.get("schema_version") != "1939-v50-post-apply-audit-v1":
         _fail("NAME_COMPLETION_AUDIT_INVALID")
     if production_manifest.get("manifest_content_sha256") != SOURCE_MANIFEST_CONTENT_SHA256:
         _fail("NAME_COMPLETION_SOURCE_MANIFEST_INVALID")
-    for value in values:
-        if "batch_id" in value and value.get("batch_id") != SOURCE_BATCH_ID:
+    manifest_for_hash = dict(production_manifest)
+    del manifest_for_hash["manifest_content_sha256"]
+    if canonical_sha(manifest_for_hash) != SOURCE_MANIFEST_CONTENT_SHA256:
+        _fail("NAME_COMPLETION_SOURCE_MANIFEST_CONTENT_INVALID")
+    if post_apply_audit.get("batch_id") != SOURCE_BATCH_ID:
+        _fail("NAME_COMPLETION_BATCH_INVALID")
+    if production_apply.get("mode") != "apply":
+        _fail("NAME_COMPLETION_APPLY_INVALID")
+    for value in (post_apply_audit,):
+        if value.get("batch_id") != SOURCE_BATCH_ID:
             _fail("NAME_COMPLETION_BATCH_INVALID")
     if production_apply.get("status") != "finalized" or production_apply.get("committed") is not True:
         _fail("NAME_COMPLETION_APPLY_INVALID")
@@ -90,7 +101,7 @@ def build_manifest(production_manifest: dict[str, Any], production_apply: dict[s
         row, audit = creates[key], audits[key]
         if mappings[key] != expected_person:
             _fail("NAME_COMPLETION_PERSON_BINDING_INVALID")
-        allowed = {"element_id", "source_record_key", "source_id", "edition", "source_persona_id", "name",
+        allowed = {"element_id", "dependency_class", "source_record_key", "source_id", "edition", "source_persona_id", "persona_key", "name",
                    "source_span", "page_evidence", "verbatim_text", "verbatim_sha256", "staged", "facts",
                    "relations", "families", "sex", "narrative", "source_mentions", "persona_mention_links",
                    "identity_decision_sha256", "review_sha256", "decision_basis", "uncertainties"}
@@ -108,6 +119,8 @@ def build_manifest(production_manifest: dict[str, Any], production_apply: dict[s
         if (not isinstance(text, str) or hashlib.sha256(text.encode()).hexdigest() != row.get("verbatim_sha256") or
                 not isinstance(page, dict) or page.get("page_from") != expected_page or page.get("page_to") != expected_page):
             _fail("NAME_COMPLETION_SOURCE_EVIDENCE_INVALID")
+        if set(audit) != {"person_id", "source_record_key", "source_persona_id", "name", "page", "verbatim_text", "staged", "name_fact_count"}:
+            _fail("NAME_COMPLETION_AUDIT_INVALID")
         if (audit.get("person_id") != expected_person or audit.get("source_record_key") != key or
                 audit.get("source_persona_id") != row.get("source_persona_id") or audit.get("name") != expected_name or
                 audit.get("page") != expected_page or audit.get("verbatim_text") != text or
@@ -154,7 +167,9 @@ def main() -> None:
     raw = [path.read_bytes() for path in paths]
     if [hashlib.sha256(data).hexdigest() for data in raw] != hashes:
         _fail("NAME_COMPLETION_INPUT_HASH_INVALID")
-    result = build_manifest(*(json.loads(data) for data in raw), input_hashes=hashes)
+    # Raw-byte integrity is checked above; the public contract receives the
+    # locked production-manifest byte contract rather than a serialization hash.
+    result = build_manifest(*(json.loads(data) for data in raw), input_hashes=[SOURCE_MANIFEST_BYTES_SHA256, hashes[1], hashes[2]])
     output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
