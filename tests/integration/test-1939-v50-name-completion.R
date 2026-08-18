@@ -8,6 +8,7 @@ source_auth <- "560c39f8-5c87-4c0d-a768-025d97fa2973"
 source_run <- "560c39f8-5c87-4c0d-a768-025d97fa2972"
 manifest_sha <- paste(rep("1", 64L), collapse = "")
 sha <- function(letter) paste(rep(letter, 64L), collapse = "")
+source_preview_sha <- sha("9")
 
 connect <- function(statement_timeout = NULL) {
   con <- DBI::dbConnect(RPostgres::Postgres(), dbname = Sys.getenv("PGDATABASE"),
@@ -94,12 +95,12 @@ DBI::dbBegin(con)
 DBI::dbExecute(con, "INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) VALUES($1,3,'name-completion-r-integration','fixture','fixture','fixture',$2,'{}')",
   params = list(source_run, sha("a")))
 DBI::dbExecute(con, "INSERT INTO private.reimport_1939_authorization(id,operation,manifest_sha256,preview_sha256,database_identity,source_id,expected_counts,authorized_elements,principal_id,nonce,expires_at,status,consumed_at) VALUES($1,'reimport',$2,$3,current_database(),3,$4::jsonb,'{}',$5,gen_random_uuid(),clock_timestamp()+interval '1 hour','consumed',clock_timestamp())",
-  params = list(source_auth, name_completion_source_manifest_bytes_sha256,
-    name_completion_source_manifest_content_sha256,
+  params = list(source_auth, name_completion_source_manifest_content_sha256,
+    source_preview_sha,
     jsonlite::toJSON(list(person_creates = 8L, source_evidence = 0L, canonical_delta = 0L), auto_unbox = TRUE), actor))
 DBI::dbExecute(con, "INSERT INTO private.reimport_1939_write_batch(id,authorization_id,manifest_sha256,preview_sha256,principal_id,status,expected_counts,observed_counts,finalized_at) VALUES($1,$2,$3,$4,$5,'finalized',$6::jsonb,$6::jsonb,clock_timestamp())",
-  params = list(source_batch, source_auth, name_completion_source_manifest_bytes_sha256,
-    name_completion_source_manifest_content_sha256, actor,
+  params = list(source_batch, source_auth, name_completion_source_manifest_content_sha256,
+    source_preview_sha, actor,
     jsonlite::toJSON(list(person_creates = 8L, source_evidence = 0L, canonical_delta = 0L), auto_unbox = TRUE)))
 
 for (index in seq_along(locked_rows)) {

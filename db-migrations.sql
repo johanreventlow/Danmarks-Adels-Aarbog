@@ -8043,3 +8043,79 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.red_finalize_1939_v50_name_completion(uuid) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.red_finalize_1939_v50_name_completion(uuid) TO authenticated;
+
+-- 2026-08-18: Bind completion to the finalized source journal's real hash semantics.
+CREATE OR REPLACE FUNCTION private.validate_reimport_1939_name_completion(
+  p_authorization_id uuid,p_source_batch_id uuid,p_manifest_sha256 text,p_payloads jsonb)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE a private.reimport_1939_authorization%ROWTYPE; b private.reimport_1939_write_batch%ROWTYPE;
+  sa private.reimport_1939_authorization%ROWTYPE; k text; p jsonb; e private.reimport_1939_write_event%ROWTYPE;
+  v_identity jsonb; v_system text:=(pg_control_system()).system_identifier::text; v_record uuid;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-1939-v50-name-completion',0));
+  LOCK TABLE public.fact, public.assertion, public.citation, public.conclusion IN SHARE ROW EXCLUSIVE MODE;
+  SELECT * INTO a FROM private.reimport_1939_authorization WHERE id=p_authorization_id FOR UPDATE;
+  IF NOT FOUND OR a.operation<>'name_completion' OR a.status<>'issued' OR a.principal_id<>private.require_reimport_1939_editor()
+     OR a.expires_at<=clock_timestamp() OR a.manifest_sha256<>p_manifest_sha256
+     OR jsonb_typeof(p_payloads)<>'object' OR a.expected_counts<>'{"name_completions":8,"operations":8}'::jsonb
+     OR a.authorized_elements<>jsonb_build_object('payloads',p_payloads,
+          'source_manifest_bytes_sha256',a.authorized_elements->>'source_manifest_bytes_sha256',
+          'source_manifest_content_sha256',a.authorized_elements->>'source_manifest_content_sha256') THEN
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_PREFLIGHT_INVALID';
+  END IF;
+  BEGIN v_identity:=a.database_identity::jsonb; EXCEPTION WHEN OTHERS THEN RAISE EXCEPTION 'NAME_COMPLETION_1939_PREFLIGHT_INVALID'; END;
+  IF v_identity<>jsonb_build_object('database_name',current_database(),'system_identifier',v_system)
+     OR (SELECT array_agg(key ORDER BY key) FROM jsonb_object_keys(v_identity) AS t(key))<>ARRAY['database_name','system_identifier'] THEN
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_PREFLIGHT_INVALID';
+  END IF;
+  SELECT * INTO b FROM private.reimport_1939_write_batch WHERE id=p_source_batch_id;
+  SELECT * INTO sa FROM private.reimport_1939_authorization WHERE id=b.authorization_id;
+  IF NOT FOUND OR b.status<>'finalized' OR sa.operation<>'reimport' OR sa.source_id<>3
+     OR b.manifest_sha256<>a.authorized_elements->>'source_manifest_content_sha256'
+     OR sa.manifest_sha256<>a.authorized_elements->>'source_manifest_content_sha256'
+     OR b.preview_sha256<>sa.preview_sha256
+     OR (SELECT count(*) FROM private.reimport_1939_write_event WHERE batch_id=b.id AND operation='person_create')<>8
+     OR (SELECT count(*) FROM jsonb_object_keys(p_payloads))<>8 THEN
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_PREFLIGHT_INVALID';
+  END IF;
+  PERFORM 1 FROM public.person q
+    JOIN jsonb_each(p_payloads) j ON q.id=(j.value->>'person_id')::bigint
+    ORDER BY q.id FOR UPDATE OF q;
+  PERFORM 1 FROM private.source_record sr
+    JOIN jsonb_each(p_payloads) j ON sr.source_id=3 AND sr.record_key=j.value->>'source_record_key'
+    ORDER BY sr.id FOR UPDATE OF sr;
+  PERFORM 1 FROM private.source_persona sp
+    JOIN jsonb_each(p_payloads) j ON sp.id=(j.value->>'source_persona_id')::uuid
+    ORDER BY sp.id FOR UPDATE OF sp;
+  PERFORM 1 FROM private.source_persona_identity si
+    JOIN jsonb_each(p_payloads) j ON si.source_persona_id=(j.value->>'source_persona_id')::uuid
+    ORDER BY si.source_persona_id FOR UPDATE OF si;
+  FOR k,p IN SELECT key,value FROM jsonb_each(p_payloads) LOOP
+    IF k<>('name-completion:'||(p->>'source_record_key'))
+       OR (p-ARRAY['source_batch_id','source_person_create_element_id','person_id','source_id','edition','source_record_key','source_persona_id','name','source_span','page_evidence','verbatim_text','verbatim_sha256','source_payload_sha256','expected_before','expected_after'])<>'{}'::jsonb
+       OR p->>'source_batch_id'<>p_source_batch_id::text OR p->>'source_id'<>'3' OR p->>'edition'<>'1939'
+       OR jsonb_typeof(p->'source_span')<>'object' OR jsonb_typeof(p->'page_evidence')<>'object'
+       OR p->'expected_before'<>'{"staged":true,"name_cache_empty":true,"name_facts":0}'::jsonb
+       OR p->'expected_after'<>'{"name_fact":1,"selected_assertion":1,"daa_1939_citation":1,"conclusion":1}'::jsonb
+       OR nullif(btrim(p->>'name'),'') IS NULL OR p->>'source_payload_sha256' !~ '^[0-9a-f]{64}$'
+       OR p->>'verbatim_sha256'<>encode(digest(convert_to(p->>'verbatim_text','UTF8'),'sha256'),'hex') THEN
+      RAISE EXCEPTION 'NAME_COMPLETION_1939_PREFLIGHT_INVALID';
+    END IF;
+    SELECT * INTO e FROM private.reimport_1939_write_event
+      WHERE batch_id=b.id AND element_id=p->>'source_person_create_element_id' AND operation='person_create';
+    SELECT id INTO v_record FROM private.source_record WHERE source_id=3 AND record_key=p->>'source_record_key';
+    IF NOT FOUND OR e.canonical_person_id<>(p->>'person_id')::bigint OR e.source_record_key<>p->>'source_record_key'
+       OR private.reimport_1939_canonical_json_sha256(e.payload)<>p->>'source_payload_sha256'
+       OR e.payload->>'source_id'<>'3' OR e.payload->>'source_record_key'<>p->>'source_record_key'
+       OR e.payload->>'source_persona_id'<>p->>'source_persona_id' OR e.payload->>'name'<>p->>'name'
+       OR e.payload->'source_span'<>p->'source_span' OR e.payload->'page_evidence'<>p->'page_evidence'
+       OR e.payload->>'verbatim_text'<>p->>'verbatim_text' OR e.payload->>'verbatim_sha256'<>p->>'verbatim_sha256'
+       OR NOT EXISTS(SELECT 1 FROM public.person q WHERE q.id=(p->>'person_id')::bigint AND q.staged AND q.visning_navn IS NULL)
+       OR EXISTS(SELECT 1 FROM public.fact f WHERE f.subjekt_type='person' AND f.subjekt_id=(p->>'person_id')::bigint AND f.faktatype='navn')
+       OR NOT EXISTS(SELECT 1 FROM private.source_persona sp JOIN private.source_persona_identity si ON si.source_persona_id=sp.id
+                     WHERE sp.id=(p->>'source_persona_id')::uuid AND sp.source_id=3
+                       AND si.canonical_person_id=(p->>'person_id')::bigint AND si.decision_status='accepted') THEN
+      RAISE EXCEPTION 'NAME_COMPLETION_1939_PREFLIGHT_INVALID';
+    END IF;
+  END LOOP;
+END $$;

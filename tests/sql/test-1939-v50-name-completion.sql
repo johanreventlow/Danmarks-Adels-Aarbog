@@ -98,7 +98,7 @@ BEGIN
   END IF;
 
   v_envelope := public.red_authorize_1939_v50_name_completion(
-    repeat('1',64),v_source_batch,repeat('a',64),repeat('b',64),
+    repeat('1',64),v_source_batch,repeat('c',64),repeat('a',64),
     '{"name_completions":8,"operations":8}'::jsonb,v_payloads);
   IF (SELECT array_agg(key ORDER BY key) FROM jsonb_object_keys(v_envelope) AS t(key))
        <> ARRAY['authorization_id','database_name','system_identifier']
@@ -125,6 +125,28 @@ BEGIN
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
 
   PERFORM public.red_lock_1939_v50_name_completion(repeat('1',64));
+
+  UPDATE private.reimport_1939_authorization SET manifest_sha256=repeat('f',64)
+    WHERE id=(SELECT authorization_id FROM private.reimport_1939_write_batch WHERE id=v_source_batch);
+  BEGIN
+    PERFORM public.red_preflight_1939_v50_name_completion(v_auth,v_source_batch,repeat('1',64),v_payloads);
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_SOURCE_CONTENT_DRIFT_ACCEPTED';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='NAME_COMPLETION_1939_SOURCE_CONTENT_DRIFT_ACCEPTED' THEN RAISE; END IF;
+    IF SQLERRM<>'NAME_COMPLETION_1939_PREFLIGHT_INVALID' THEN RAISE; END IF;
+  END;
+  UPDATE private.reimport_1939_authorization SET manifest_sha256=repeat('a',64)
+    WHERE id=(SELECT authorization_id FROM private.reimport_1939_write_batch WHERE id=v_source_batch);
+
+  UPDATE private.reimport_1939_write_batch SET preview_sha256=repeat('e',64) WHERE id=v_source_batch;
+  BEGIN
+    PERFORM public.red_preflight_1939_v50_name_completion(v_auth,v_source_batch,repeat('1',64),v_payloads);
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_SOURCE_PREVIEW_DRIFT_ACCEPTED';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='NAME_COMPLETION_1939_SOURCE_PREVIEW_DRIFT_ACCEPTED' THEN RAISE; END IF;
+    IF SQLERRM<>'NAME_COMPLETION_1939_PREFLIGHT_INVALID' THEN RAISE; END IF;
+  END;
+  UPDATE private.reimport_1939_write_batch SET preview_sha256=repeat('b',64) WHERE id=v_source_batch;
 
   INSERT INTO auth.users(id,email) VALUES(v_other_actor,'other-writer-ci@example.invalid') ON CONFLICT(id) DO NOTHING;
   INSERT INTO public.profiles(id,email,rolle,navn)

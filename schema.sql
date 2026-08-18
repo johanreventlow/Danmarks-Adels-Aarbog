@@ -2844,8 +2844,9 @@ BEGIN
   SELECT * INTO b FROM private.reimport_1939_write_batch WHERE id=p_source_batch_id;
   SELECT * INTO sa FROM private.reimport_1939_authorization WHERE id=b.authorization_id;
   IF NOT FOUND OR b.status<>'finalized' OR sa.operation<>'reimport' OR sa.source_id<>3
-     OR sa.manifest_sha256<>a.authorized_elements->>'source_manifest_bytes_sha256'
-     OR sa.preview_sha256<>a.authorized_elements->>'source_manifest_content_sha256'
+     OR b.manifest_sha256<>a.authorized_elements->>'source_manifest_content_sha256'
+     OR sa.manifest_sha256<>a.authorized_elements->>'source_manifest_content_sha256'
+     OR b.preview_sha256<>sa.preview_sha256
      OR (SELECT count(*) FROM private.reimport_1939_write_event WHERE batch_id=b.id AND operation='person_create')<>8
      OR (SELECT count(*) FROM jsonb_object_keys(p_payloads))<>8 THEN
     RAISE EXCEPTION 'NAME_COMPLETION_1939_PREFLIGHT_INVALID';
