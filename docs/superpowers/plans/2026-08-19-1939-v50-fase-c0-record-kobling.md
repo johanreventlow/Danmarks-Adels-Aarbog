@@ -1335,6 +1335,31 @@ Prod-skrivningen er en separat GO-pakke og ligger uden for denne plan.
 7. Pytest- og testthat-suiterne grønne (0 failed); determinisme bevist
    under tre `PYTHONHASHSEED`-værdier.
 
+## Afvigelser under eksekvering (udført 2026-08-19)
+
+Planen blev eksekveret, men softwaren afviger på syv punkter. **Læs
+`docs/superpowers/reviews/1939-v50-fase-c0-linkage-report.md` sammen med
+denne plan** — en genkørsel efter planens bogstav ville genskabe to
+målefejl, som den færdige kode ikke har.
+
+1. **Sammenhængende anker** (`longest`, `MIN_ANCHOR_RUN`, `has_anchor`).
+   `coverage` alene genskabte længde-asymmetrien spejlvendt: korte
+   modparter blev promiskuøse. Kandidater kræver nu ét sammenhængende
+   anker på ≥ min(40, 80 % af korteste).
+2. **Klassen `allerede_materialiseret`** + input `--production-manifest`
+   (låst `8417b6de…`). Otte af de 41 var allerede blevet til personer i
+   task 25; import-preview er ældre end den kørsel.
+3. **Tokenet `[FÆRDIG]`** til klassen ovenfor; `[KOBL]` afvises på den.
+4. **`old_text_only_short_record_hint`** i lukningen, så en person hvis
+   eneste spor er en for kort record ikke fremstår helt uforklaret.
+5. **Cifre i tokenregexen** (`[A-ZÆØÅ0-9]+`) — uden dem blev `[C3]` ikke
+   genkendt som beslutningslinje.
+6. **`[KOBL]` på `for_kort` kun ved præcis én kandidat** — ellers kan
+   arket ikke udtrykke hvilken kandidat der menes.
+7. **Task 1's skema:** tabellen er `private.narrative_record_publication`,
+   dens `status` eksporteres med, og R-testen følger husets mønster (ægte
+   test ved scriptet, shim i `tests/testthat/`).
+
 ## Uden for denne plan
 
 Fase B-efterkørslen for `[KOBL]`-afgørelserne (eget manifest, egen GO-pakke,

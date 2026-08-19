@@ -127,6 +127,32 @@ firkantede parentes; alt andet er byte-låst og verificeres ved indlæsning.
 
 Tokens: `[KOBL]` · `[NY]` · `[C3]` · `[SPØRG]` · `[FÆRDIG]`
 
+### Hvor `[SPØRG]` fører hen
+
+Seks records har `[SPØRG]` udfyldt (1 stillingtagen + 5 for korte). De er
+bevidst **ikke-terminale**: de bliver ikke til en skrivning, men til en
+samtale. Konkret bliver de en kort opfølgningsrunde, hvor vi ser på
+recordens fulde tekst mod kildesiden sammen — fem af dem er så korte
+(»4. Margrethe.«, »I. Ditlev † 1536, Biskop i Lübeck.«), at afgørelsen
+kræver bogens kontekst, ikke mere maskinkraft. Ændrer du et `[SPØRG]` til
+et af de andre tokens, er den terminal med det samme.
+
+Undtagelse med vilje: `[KOBL]` **er** tilladt på en for kort post, når den
+har præcis én kandidat — det gælder R37 (`I1. Hr. Iven til Rixdorf † 1569.`
+→ person 991), hvor teksten er ordret identisk, og et menneske uden videre
+kan se hvad værktøjet ikke tør konkludere. Har posten flere kandidater,
+afviser konverteren `[KOBL]`, fordi arket ikke kan udtrykke *hvilken* der
+menes, og et ja ellers tavst ville binde til den øverste støjmatch.
+
+### Til den senere GO-pakke: to af de ni KOBL-mål er `staged`
+
+Personerne **967** og **963** er `staged`. C0 skriver ikke, så det ændrer
+intet her — men efterkørslen *skriver*, og at publicere en record-binding
+på en staged persons narrativ er et synligheds-/RLS-spørgsmål, ingen har
+afklaret. `staged` findes netop for at skjule umatchede poster for anonyme
+læsere (invariant 8). Det skal afgøres i efterkørslens GO-pakke, ikke
+opdages under tidspres.
+
 ## Hvad der ikke sker i C0
 
 Prod-skrivningen af `[KOBL]`-afgørelserne (fase B-efterkørsel, eget

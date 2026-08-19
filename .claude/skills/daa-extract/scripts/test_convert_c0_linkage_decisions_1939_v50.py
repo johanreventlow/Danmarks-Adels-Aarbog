@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -174,6 +175,26 @@ def test_convert_afviser_kobl_paa_materialiseret_record():
     text = _retok(c.generate_document(DOC), "record-f", "[KOBL]")
     with pytest.raises(SystemExit) as excinfo:
         c.convert_edited_document(text, DOC)
+    assert excinfo.value.code == 2
+
+
+def test_convert_afviser_kobl_paa_for_kort_med_flere_kandidater():
+    # Arket kan ikke udtrykke HVILKEN af flere ordsammenfald der menes;
+    # et ja ville tavst binde til den øverste støjmatch.
+    doc = json.loads(json.dumps(DOC))
+    for record in doc["records"]:
+        if record["new_record_key"] == "record-d":
+            record["candidates"] = [_cand(991, "Iven", coverage=1.0),
+                                    _cand(1760, "Iven", coverage=0.9)]
+    text = c.generate_document(doc)
+    rid = c.assign_rids(doc["records"])["record-d"]
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        parsed = c._parse_positional(line)
+        if parsed and parsed[1] == rid:
+            lines[i] = "[KOBL]" + line[len(parsed[0]):]
+    with pytest.raises(SystemExit) as excinfo:
+        c.convert_edited_document("\n".join(lines), doc)
     assert excinfo.value.code == 2
 
 

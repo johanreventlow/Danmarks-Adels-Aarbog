@@ -252,6 +252,11 @@ def convert_edited_document(text: str, candidates_doc: Dict[str, Any]) -> Dict[s
                 _fail("C0_DECISIONS_KOBL_ON_MATERIALIZED_RECORD:{}".format(key))
             if not record["candidates"]:
                 _fail("C0_DECISIONS_KOBL_WITHOUT_CANDIDATE:{}".format(key))
+            if record["classification"] == "for_kort" and len(record["candidates"]) > 1:
+                # En for_kort-post kalder selv sine kandidater ordsammenfald.
+                # Med flere af dem kan arket ikke udtrykke HVILKEN der menes,
+                # og et ja ville tavst binde til den øverste støjmatch.
+                _fail("C0_DECISIONS_KOBL_ON_AMBIGUOUS_SHORT_RECORD:{}".format(key))
             # Person-id'et kommer fra kandidatfilen, aldrig fra den
             # redigerede tekst.
             person_id = record["candidates"][0]["person_id"]
