@@ -1,5 +1,43 @@
 # Changelog
 
+## Fase B: 551 biografier erstattet med evidensbaseret, renset tekst (2026-08-19)
+
+Programmets oprindelige formål er nået: de fejlbehæftede narrativer fra den
+første 1939-import er erstattet af tekst udtrukket direkte fra det
+menneskeverificerede grænsearbejde i Calamari-OCR'en — og normaliseret til
+læsbar prosa.
+
+**Normaliseringen (`narrative_norm_v1`):** 2.304 OCR-linjeskift samlet til
+mellemrum, 584 orddelinger sammentrukket (10 kompositum-navne bevaret),
+**499 søskende-ordenstal strippet** (»1. Sybille Malvina Lonny« →
+»Sybille Malvina Lonny«), 73 sidemarkører fjernet. Afsnit, tegnsætning,
+stavning og OCR-egenheder er urørt — det er evidens, ikke redaktion.
+Slutinvarianter håndhæves i koden: ingen `### PAGE`, intet enligt
+linjeskift, ingen trailing whitespace.
+
+**Menneskeligt checkpoint:** 178 usikre tilfælde (168 ubeviste
+sammentrækninger + 8 tvetydige bindestreger + 2 ordenstals-varianter) blev
+afgjort af brugeren i en token-fil efter grænseflade-mønstret (ret kun
+tokenet; fail-closed konverter afviser enhver anden ændring). Resultat: 165
+merge, 11 keep, 2 strip — bl.a. `kar-og` bevaret frem for det meningsløse
+»karog«, og begge ordenstals-varianter strippet.
+
+**Prod-apply:** 551 narrativer (543 eksisterende + de 8 nye), 543 nye
+record-bindinger publiceret (551 i alt), 2 dokumenterede sidehenvisnings-
+rettelser (person 975: 508→509, 986: 503→505 — gamle importfejl, fanget af
+writerens værn og verificeret mod grænsematerialet). Nul kanonisk delta:
+1.812 personer, 7.199 facts, 2.031 relationer, 682 familier uændret. Alle
+577 narrativers samlede hash i prod er identisk med rehearsal-basens
+(`8a79112e…`). Backup før apply:
+`daa-production-before-phase-b-apply-20260819-172157.dump` (0600, SHA
+`cfe40b7d…`). Fortryd: ét change_set med de gamle tekster bevaret.
+
+**To fælder fanget undervejs:** writerens replay-værn dækkede kun teksten,
+selv om `red_upsert_narrativ` også skriver `privat` og `side` — en post med
+`privat=true` ville tavst være blevet offentlig (invariant 8). Og writerens
+SQL-`digest()` var ukvalificeret; prods `search_path` mangler `extensions`,
+så applyen ville være fejlet — fanget af en read-only probe før skrivning.
+
 ## Fase A: fuldt kilderegnskab i prod — 592/592 records forankret (2026-08-18 aften)
 
 Det menneskeverificerede grænsearbejdes komplette kilderegnskab er nu i
