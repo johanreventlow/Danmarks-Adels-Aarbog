@@ -252,6 +252,42 @@ narrative_replacement_check_old_sha <- function(rows, manifest) {
   result
 }
 
+## rows: SAMME data.frame som narrative_replacement_check_old_sha (person_id,
+## narrative_id, narrative_sha256) men UDVIDET med privat/side — se Task
+## 4-review Important 1 (controller-ruling 2026-08-19). red_upsert_narrativ's
+## UPDATE-gren skriver TRE kolonner (schema.sql:3884: tekst, privat,
+## side=COALESCE(p_side,side)), men replay-værnet ovenfor dækker kun tekst.
+## Denne funktion lukker de to andre:
+##   (1) privat=TRUE for en af de 551 → ABORT. Writeren sender altid
+##       p_privat=FALSE, så en post der i dag er privat ville blive
+##       tavst afprivatiseret — public_person_bio_source_versions filtrerer
+##       netop på dette flag (schema.sql:3061), så brud er et GDPR-brud
+##       (invariant 8), ikke bare en datafejl.
+##   (2) side afviger fra manifestets page_from → ABORT. p_side er ALTID
+##       non-NULL (as.character(page_from)), så SQL'ens COALESCE(p_side,side)
+##       aldrig aktiveres og side altid overskrives — en flersidet/håndrettet
+##       side-streng ville kollapse tavst, uopgjort og uopdaget i verify.
+## Fail-closed på FØRSTE afvigelse i manifest-rækkefølge (stigende person_id),
+## privat prioriteret før side for samme post.
+narrative_replacement_check_privat_and_side <- function(rows, manifest) {
+  if (!is.data.frame(rows) || !all(c("privat", "side") %in% names(rows)))
+    stop_narrative_replacement("NARRATIVE_REPLACEMENT_1939_PREFLIGHT_COLUMNS_INVALID")
+  for (op in manifest$operations) {
+    idx <- match(op$person_id, rows$person_id)
+    if (is.na(idx)) next  ## dækket fail-closed af check_old_sha's egen radraekke-invariant
+    if (isTRUE(rows$privat[[idx]]))
+      stop_narrative_replacement(paste0("NARRATIVE_REPLACEMENT_1939_PRIVAT_FLAG_SET:", op$person_id))
+    observed_side <- rows$side[[idx]]
+    expected_side <- as.character(op$page_from)
+    observed_side_label <- if (is.na(observed_side)) "NULL" else as.character(observed_side)
+    if (!identical(observed_side_label, expected_side) || is.na(observed_side))
+      stop_narrative_replacement(paste0(
+        "NARRATIVE_REPLACEMENT_1939_SIDE_UNEXPECTED:", op$person_id,
+        ":observed=", observed_side_label, ":expected=", expected_side))
+  }
+  invisible(TRUE)
+}
+
 ## rows: HELE private.narrative_record_publication-tabellen (ikke scopet til
 ## de 551) — Faktagrundlag er eksplicit: "præcis 8 rækker ... i alt". At
 ## tælle tabel-bredt (frem for kun blandt vores 551 narrative_id'er) fanger
@@ -334,6 +370,27 @@ narrative_replacement_check_canonical_counts <- function(before, after) {
   if (!identical(before, after))
     stop_narrative_replacement("NARRATIVE_REPLACEMENT_1939_CANONICAL_COUNTS_CHANGED")
   invisible(TRUE)
+}
+
+## ---------------------------------------------------------------------
+## Rene parameter-byggere til de to RPC-kald (Task 4-review Minor 4). Den
+## rigtige gateway bruger disse i stedet for at bygge parameterlisten
+## inline i query()-kaldet, så rækkefølgen kan asserteres DIREKTE i en test
+## uden at gå via SQL/mock-udtræk — en ombytning af fx `FALSE`/`3L` giver et
+## rødt test-svigt her, i stedet for først at vise sig som en DB-typefejl
+## eller et forkert kildebundet narrativ.
+## ---------------------------------------------------------------------
+
+## Rækkefølge SKAL matche red_upsert_narrativ(p_subjekt_type,p_subjekt_id,
+## p_tekst,p_privat,p_source_id,p_side) — schema.sql:3868-3870.
+narrative_replacement_upsert_params <- function(op) {
+  list("person", op$person_id, op$normalized_text, FALSE, 3L, as.character(op$page_from))
+}
+
+## Rækkefølge SKAL matche red_publicer_narrative_record(p_narrative_id,
+## p_source_record_id,p_record_label,p_citation_label) — schema.sql:3074-3075.
+narrative_replacement_publish_params <- function(narrative_id, source_record_id, record_label, citation_label) {
+  list(narrative_id, source_record_id, record_label, citation_label)
 }
 
 ## ---------------------------------------------------------------------
@@ -495,16 +552,22 @@ new_narrative_replacement_dbi_gateway <- function(connection_factory) {
         narrative_replacement_check_batch_status(if (nrow(batch) == 1L) batch$status[[1L]] else NA_character_)
 
         person_ids <- vapply(manifest$operations, function(op) op$person_id, integer(1))
+        ## Important 1 (Task 4-review, controller-ruling 2026-08-19): n.privat
+        ## og n.side tilføjet — red_upsert_narrativ's UPDATE-gren skriver
+        ## begge kolonner ubetinget, men replay-værnet dækkede oprindeligt kun
+        ## n.tekst. Se narrative_replacement_check_privat_and_side.
         narrative_rows <- query(
           paste(
             "SELECT n.subjekt_id AS person_id, n.id AS narrative_id,",
-            "encode(digest(convert_to(n.tekst,'UTF8'),'sha256'),'hex') AS narrative_sha256",
+            "encode(digest(convert_to(n.tekst,'UTF8'),'sha256'),'hex') AS narrative_sha256,",
+            "n.privat AS privat, n.side AS side",
             "FROM public.narrative n WHERE n.subjekt_type='person' AND n.source_id=3",
             "AND n.subjekt_id = ANY($1::bigint[])"
           ),
           list(narrative_replacement_pg_bigint_array(person_ids))
         )
         narrative_ids <- narrative_replacement_check_old_sha(narrative_rows, manifest)
+        narrative_replacement_check_privat_and_side(narrative_rows, manifest)
 
         ## HELE tabellen (ikke scopet til vores 551 narrative_id'er) —
         ## Faktagrundlag: "præcis 8 rækker ... i alt". Array-fri forespørgsel.
@@ -532,7 +595,7 @@ new_narrative_replacement_dbi_gateway <- function(connection_factory) {
         op <- args[[1L]]
         query(
           "SELECT public.red_upsert_narrativ($1,$2,$3,$4,$5,$6) AS id",
-          list("person", op$person_id, op$normalized_text, FALSE, 3L, as.character(op$page_from))
+          narrative_replacement_upsert_params(op)
         )$id[[1L]]
       },
       publish = {
@@ -540,7 +603,7 @@ new_narrative_replacement_dbi_gateway <- function(connection_factory) {
         record_label <- args[[3L]]; citation_label <- args[[4L]]
         query(
           "SELECT public.red_publicer_narrative_record($1,$2::uuid,$3,$4)::text AS id",
-          list(narrative_id, source_record_id, record_label, citation_label)
+          narrative_replacement_publish_params(narrative_id, source_record_id, record_label, citation_label)
         )$id[[1L]]
       },
       verify = {

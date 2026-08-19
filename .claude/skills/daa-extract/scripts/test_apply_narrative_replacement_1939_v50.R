@@ -295,6 +295,100 @@ expect_error(narrative_replacement_check_old_sha(double_drift_rows, m),
 missing_rows <- matching_rows[-1L, ]
 expect_error(narrative_replacement_check_old_sha(missing_rows, m), "NARRATIVE_REPLACEMENT_1939_PREFLIGHT_COUNT_INVALID")
 
+## ---------------------------------------------------------------------
+## narrative_replacement_check_privat_and_side (Task 4-review Important 1,
+## controller-ruling 2026-08-19): red_upsert_narrativ's UPDATE-gren
+## overskriver privat OG side ubetinget — replay-værnet ovenfor dækkede
+## oprindeligt kun tekst-SHA'en. Disse tests dækker begge afvisningsveje.
+## ---------------------------------------------------------------------
+privat_side_rows <- matching_rows
+privat_side_rows$privat <- FALSE
+privat_side_rows$side <- vapply(m$operations, function(op) as.character(op$page_from), character(1))
+
+## -- succesvej: alle privat=FALSE, alle side==page_from
+narrative_replacement_check_privat_and_side(privat_side_rows, m)
+expect(TRUE)
+
+## -- privat=TRUE for én post → ABORT fail-closed med det person_id (ville
+## ellers tavst afprivatisere posten — brud på invariant 8/GDPR)
+privat_true_rows <- privat_side_rows
+privat_flag_pid <- m$operations[[9L]]$person_id
+privat_true_rows$privat[privat_true_rows$person_id == privat_flag_pid] <- TRUE
+expect_error(narrative_replacement_check_privat_and_side(privat_true_rows, m),
+  paste0("NARRATIVE_REPLACEMENT_1939_PRIVAT_FLAG_SET:", privat_flag_pid))
+
+## -- privat=NA behandles IKKE som TRUE (isTRUE-værn) men rammer stadig ikke
+## side-checket for samme post, da NA != FALSE ville være en anden fejlklasse
+## — her tjekkes blot at NA ikke fejlagtigt trigger PRIVAT_FLAG_SET
+na_privat_rows <- privat_side_rows
+na_privat_rows$privat[[1L]] <- NA
+narrative_replacement_check_privat_and_side(na_privat_rows, m)
+expect(TRUE)
+
+## -- side afviger fra page_from for én post → ABORT fail-closed med
+## person_id + begge værdier (ville ellers kollapse en flersidet/håndrettet
+## side-streng tavst, jf. COALESCE(p_side,side) der aldrig aktiveres når
+## p_side altid er non-NULL)
+side_drift_rows <- privat_side_rows
+side_drift_pid <- m$operations[[15L]]$person_id
+side_drift_rows$side[side_drift_rows$person_id == side_drift_pid] <- "596-598"
+expect_error(narrative_replacement_check_privat_and_side(side_drift_rows, m),
+  paste0("NARRATIVE_REPLACEMENT_1939_SIDE_UNEXPECTED:", side_drift_pid,
+    ":observed=596-598:expected=", m$operations[[15L]]$page_from))
+
+## -- side==NA (NULL i DB) for én post → ABORT (COALESCE ville ellers sætte
+## den til page_from, hvilket IKKE er en afvigelse vi ønsker at overse blot
+## fordi den nuværende værdi tilfældigvis er tom)
+side_null_rows <- privat_side_rows
+side_null_pid <- m$operations[[21L]]$person_id
+side_null_rows$side[side_null_rows$person_id == side_null_pid] <- NA_character_
+expect_error(narrative_replacement_check_privat_and_side(side_null_rows, m),
+  paste0("NARRATIVE_REPLACEMENT_1939_SIDE_UNEXPECTED:", side_null_pid, ":observed=NULL"))
+
+## -- manglende privat/side-kolonner → struktur-guard
+expect_error(narrative_replacement_check_privat_and_side(matching_rows, m),
+  "NARRATIVE_REPLACEMENT_1939_PREFLIGHT_COLUMNS_INVALID")
+
+## -- privat prioriteres over side for SAMME post, hvis begge er i uorden
+both_wrong_rows <- privat_side_rows
+both_wrong_pid <- m$operations[[3L]]$person_id
+both_wrong_rows$privat[both_wrong_rows$person_id == both_wrong_pid] <- TRUE
+both_wrong_rows$side[both_wrong_rows$person_id == both_wrong_pid] <- "wrong"
+expect_error(narrative_replacement_check_privat_and_side(both_wrong_rows, m),
+  paste0("NARRATIVE_REPLACEMENT_1939_PRIVAT_FLAG_SET:", both_wrong_pid))
+
+## ---------------------------------------------------------------------
+## Parameter-byggere (Task 4-review Minor 4): rækkefølgen til de to RPC'er
+## SKAL matche schema.sql, og en test skal fange en ombytning direkte —
+## ikke kun konstatere at RPC-navnet optræder et sted i gateway-kroppen.
+## ---------------------------------------------------------------------
+sample_op <- m$operations[[1L]]
+upsert_params <- narrative_replacement_upsert_params(sample_op)
+expect(identical(upsert_params, list(
+  "person", sample_op$person_id, sample_op$normalized_text, FALSE, 3L, as.character(sample_op$page_from)
+)))
+## -- Rækkefølge/typer eksplicit, matcher red_upsert_narrativ(p_subjekt_type
+## text,p_subjekt_id bigint,p_tekst text,p_privat boolean,p_source_id bigint,
+## p_side text) — schema.sql:3868-3870
+expect(length(upsert_params) == 6L)
+expect(identical(upsert_params[[1L]], "person"))
+expect(is.numeric(upsert_params[[2L]]) && identical(upsert_params[[2L]], sample_op$person_id))
+expect(is.character(upsert_params[[3L]]) && identical(upsert_params[[3L]], sample_op$normalized_text))
+expect(identical(upsert_params[[4L]], FALSE))
+expect(identical(upsert_params[[5L]], 3L))
+expect(is.character(upsert_params[[6L]]) && identical(upsert_params[[6L]], as.character(sample_op$page_from)))
+
+publish_params <- narrative_replacement_publish_params(4242L, "uuid-x", "record-x", "DAA 1939 side 500")
+## -- matcher red_publicer_narrative_record(p_narrative_id bigint,
+## p_source_record_id uuid,p_record_label text,p_citation_label text) —
+## schema.sql:3074-3075
+expect(identical(publish_params, list(4242L, "uuid-x", "record-x", "DAA 1939 side 500")))
+expect(length(publish_params) == 4L)
+expect(identical(publish_params[[1L]], 4242L))
+expect(identical(publish_params[[2L]], "uuid-x"))
+expect(identical(publish_params[[3L]], "record-x"))
+expect(identical(publish_params[[4L]], "DAA 1939 side 500"))
+
 ## -- narrative_replacement_check_bindings
 narrative_ids_map <- result
 existing_ids_vec <- vapply(Filter(function(op) identical(op$binding, "existing"), m$operations),
