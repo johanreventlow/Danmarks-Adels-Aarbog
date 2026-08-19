@@ -2,6 +2,44 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## Fase C1 udskudt: værdien udløses først af den anden udgave (2026-08-19)
+
+**Beslutning:** C1 (promovering af 1.078 literal fakta + 212 ægteskaber til
+det private fortolkningslag) bygges ikke nu. Fase D tages i stedet.
+
+**Hvad målingen viste.** Programplanen kaldte C1 »mekanisk: manifest + writer
+efter fase A-mønstret«. Tre tal modsiger det:
+
+- `private.interpretation` og `private.interpretation_promotion` er **tomme**
+  (0 rækker). Der er intet at promovere; fortolkningerne skal først skabes.
+- Promotion-reglerne dækker **979 af 1.078** fakta (fødsel/titel/død). Dåb (50)
+  og begravelse (49) mangler regler; alle **212 ægteskaber** mangler en
+  regelklasse, fordi de fem eksisterende regler er `person.*`-prædikater mod
+  `assertion`, mens et ægteskab er en relation.
+- Fakta er **allerede kildebundne**: 3.211 citations mod DAA 1939, alle med
+  `assertion_id`, fordelt på 87 sider. De 1.233 uden `citat_tekst` er
+  hovedsagelig `forældrefamilie` (356, en relation uden naturligt citat) og
+  `navn` (337, hvor citatet ville gentage værdien). Indholdsfakta — fødsel,
+  død, titel, vielse — har citat i 366-369 tilfælde og mangler kun i 80-93.
+
+**Hvad der reelt mangler** er koblingen fra faktum til den granulære
+`source_record` (posten på siden), som narrativerne fik i fase A og B. Én side
+rummer flere personer, så »DAA 1939, s. 574« er grovere end »posten om
+Ferdinand, s. 574-575«. Det betyder lidt for én udgave og meget når 2018-20
+skal stilles op mod 1939.
+
+**Hvorfor udskydelsen ikke koster noget.** Fase A's 592 source records ligger
+allerede uforanderligt i prod. Fakta kan bindes til dem når som helst —
+rækkefølgen er fri. Det omvendte gælder ikke: bygger vi regelklassen for
+ægteskaber nu, låser vi et design **før** vi har set 2018-20's ægteskabsdata.
+Døren lukker sig af at gå i gang, ikke af at vente.
+
+**Hvis C1 alligevel skal give noget nu:** det billigste med reel effekt er at
+udfylde de 80-93 manglende citater på fødsel og død — de tal folk læser efter
+— uden at røre fortolkningslaget og uden DDL.
+
+---
+
 ## Grænsekontrollen som redigerbar tekst: tre valg der bærer resten (2026-08-09/10)
 
 **Annoteringssyntaksen må ikke dele tegn med det, den annoterer.** Kildeteksten
