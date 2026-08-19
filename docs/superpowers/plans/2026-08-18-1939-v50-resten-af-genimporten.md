@@ -53,7 +53,7 @@ PostgreSQL 17 lokalt til rehearsal, Supabase prod via psql/MCP.
 |---|---|---|
 | **A** | Kilderegnskab 592/592 i prod (source-only) | Fundament: narrativ-bindinger og fakta-citationer skal pege på source records, der findes i prod. Nul kanonisk risiko. |
 | **B** | 577 narrativer erstattet m. Calamari-tekst **inkl. ombrydnings-normalisering** + publiceret provenance | Programmets oprindelige formål (de fejlbehæftede tekster). Dewrap foldes ind HER: én skrivning + én review i stedet for to. |
-| **C** | Strukturerede fakta promoveret/kø-lagt | Kræver A's records til citations; redaktionelt tungest, kan tages i skiver. |
+| **C** | **C0 først:** 41 fejlklassificerede records kobles (løser de 23 gamle tekster); derefter strukturerede fakta promoveret/kø-lagt + ægtefællerne | C0 er billig og synlig for læsere; resten kræver A's records til citations og er redaktionelt tungest, kan tages i skiver. |
 | **D** | 96 staged afgjort (publicér/pensionér/samme_som) | Uafhængig af B-C, men genbruger A's identitetsbillede; lavest hast. |
 | **E** | Konsolidering: push, draft-PR, docs, oprydning | Løbende efter hver fase; afsluttes til sidst. |
 
@@ -182,15 +182,35 @@ tegnændringer ud over linjeskift/bindestreg-reglerne (diff-klassekontrol).
 **Leverance:** Literal-verificerede påstande er kildebundne kanoniske data;
 resten ligger i en redaktionel kø med kildespan.
 
-1. **C1 (mekanisk):** 1.078 literal facts + 212 literal marriages →
+1. **C0 (de 41 »ægte nye« records — fejlklassifikation; TAGES FØRST):**
+   Fase B efterlod 23 narrativer med gammel tekst. Undersøgelse 2026-08-19
+   viste at årsagen ikke er manglende tekst, men en manglende KOBLING:
+   fx person 1299 (Ferdinand Einar Julius Gottlieb) har i prod netop den
+   tekst, som kilderecord `record-82f49e95…` (side 574-575) dækker — men
+   recorden blev i identitetsgennemgangen klassificeret
+   `accepted_genuinely_new_source_record` / `person_creation: forbidden`
+   uden baseline-tilknytning, så personen kom aldrig i fase B's scope.
+   Leverance: gennemgå alle 41 »ægte nye« records mod eksisterende
+   personer (tekstlighed mod prods narrativer er et stærkt signal —
+   eksakt eller næsten-eksakt match afslører fejlklassifikationen);
+   hver record ender enten (a) mappet til en eksisterende person →
+   optages i en fase B-efterkørsel (samme writer, nyt lille manifest),
+   (b) bekræftet ægte ny → personoprettelse som i task 25, eller
+   (c) dokumenteret som alias/dublet → afgøres i C3.
+   De 6 strukturelle og 2 krydsreference-records er IKKE i denne
+   gennemgang (de skal med rette ikke kobles til personer).
+   Bemærk: OCR-fejl i teksten (fx «Gottlie b» med indsat mellemrum) er
+   redaktionelt arbejde, ikke normalisering — de rettes i redaktørfladen,
+   ikke af denne fase.
+2. **C1 (mekanisk):** 1.078 literal facts + 212 literal marriages →
    kildebundne assertions/citations der bekræfter de eksisterende
    konklusioner (ingen konklusionsændring — kun evidens-tilknytning).
    Manifest + writer efter fase A-mønstret.
-2. **C2 (redaktionel):** 92+56 ikke-literal, 38+38 uden span, 81 børne-/
+3. **C2 (redaktionel):** 92+56 ikke-literal, 38+38 uden span, 81 børne-/
    strukturrelationer og de 305 allerede parkerede → reviewark pr. klasse
    med span-kontekst; afgørelser materialiseres som nye manifester i
    skiver. Ingen deadline — køen er selve leverancen.
-3. **C3 (ægtefællerne — de 644 narrativ-løse personer):** Prod-måling
+4. **C3 (ægtefællerne — de 644 narrativ-løse personer):** Prod-måling
    2026-08-18: alle 644 er `partner`-rolle (gift-ind, skabt af loaderen fra
    »g.m. …«-klausuler; ingen er forældre/børn), 331 fra 2018-20 og 313 fra
    1939, 465 allerede `samme_som`-matchet på tværs af udgaverne, 179
