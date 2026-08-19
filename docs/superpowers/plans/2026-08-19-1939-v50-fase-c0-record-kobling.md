@@ -207,9 +207,39 @@ Rscript .claude/skills/daa-extract/scripts/export_c0_narrative_state_1939_v50.R 
   --output work/task26-1939-v50-c0-record-linkage/narrative-state-v1.json
 shasum -a 256 work/task26-1939-v50-c0-record-linkage/narrative-state-v1.json
 ```
-Expected: `row_count` = 577 (prods source_id=3-bestand pr. fase B). Afviger
-tallet, STOP og rapportér — bestanden har ændret sig siden fase B, og alle
-efterfølgende tal skal revurderes.
+Expected: `row_count` = 577 (prods source_id=3-bestand pr. fase B).
+
+- [ ] **Step 6b: Verificér at binding-proxyen måler det rigtige**
+
+`har_record_binding == false` er en *proxy* for »teksten er stadig
+gammel«. Den skal efterprøves, før Task 3 bygger sin lukning på den —
+ellers navngiver rapporten de forkerte personer som fund.
+
+Run:
+```bash
+python3 - <<'PY'
+import json
+doc = json.load(open("work/task26-1939-v50-c0-record-linkage/narrative-state-v1.json"))
+unbound = sorted(r["person_id"] for r in doc["rows"] if not r["har_record_binding"])
+print("rækker:", doc["row_count"], "| uden binding:", len(unbound))
+print(unbound)
+empirisk = {929,930,933,934,935,940,963,967,974,977,978,992,1013,1014,1017,
+            1021,1135,1138,1296,1297,1298,1299,1802}
+print("i empirisk, ikke i proxy:", sorted(empirisk - set(unbound)))
+print("i proxy, ikke i empirisk:", sorted(set(unbound) - empirisk))
+PY
+```
+
+Fase B skrev 551 upserts / 543 publiceringer, og 8 var publiceret i
+forvejen. Er dækningen 551 af 577, er det ubundne sæt 26 — ikke 23. **Kræv
+en forklaring på hver afvigelse fra den empiriske liste** (som stammer fra
+gårsdagens prod-måling). Er afvigelsen ikke forklarlig, er proxyen forkert,
+og gammel-tekst-sættet skal i stedet udledes ved at sammenholde
+`tekst_sha256` med fase B-manifestets `expected_new`-shas. STOP og rapportér
+frem for at gætte — hele lukningen hviler på dette sæt.
+
+Afviger `row_count` fra 577, STOP ligeledes: bestanden har ændret sig siden
+fase B, og alle efterfølgende tal skal revurderes.
 
 - [ ] **Step 7: Commit**
 
@@ -234,12 +264,34 @@ git commit -m "feat(1939): read-only eksport af 1939-narrativbestanden til fase 
   - `COMPARE_VERSION = "c0_compare_v1"`
   - `text_skeleton(raw: str) -> str`
   - `similarity(a_skeleton: str, b_skeleton: str) -> dict` →
-    `{"ratio": float, "containment": "none"|"record_in_person"|"person_in_record"|"exact"}`
+    `{"ratio": float, "coverage": float,
+      "containment": "none"|"record_in_person"|"person_in_record"|"exact"}`
   - `name_signal(verbatim: str, visning_navn: str) -> bool`
   - `page_signal(record_pages: dict|None, person_side: str|None) -> bool|None`
-  - `classify(candidates: list[dict]) -> str` → `"kobling"|"gennemgang"|"sammenlaegning"|"aegte_ny"`
-  - Tærskler som modul-konstanter: `CANDIDATE_RATIO = 0.60`,
-    `STRONG_RATIO = 0.90`.
+  - `classify(candidates: list[dict], record_skeleton_len: int) -> str` →
+    `"kobling"|"gennemgang"|"sammenlaegning"|"aegte_ny"|"for_kort"`
+  - Tærskler som modul-konstanter: `CANDIDATE_COVERAGE = 0.55`,
+    `STRONG_COVERAGE = 0.85`, `MIN_SKELETON_CHARS = 60`.
+
+**Hvorfor `MIN_SKELETON_CHARS`:** målt på det ægte grundlag er de 41
+recordskeletter mellem 10 og 918 tegn; **6 er under 60**. Den korteste er
+«4. Margrethe.» → `4margrethe`. Med min-normaliseret coverage matcher den
+ethvert narrativ der indeholder ordet »Margrethe« med coverage ≈1.0 og
+containment `record_in_person`. Uden en nedre grænse ville de seks
+producere dusinvis af kandidater hver og blive klassificeret
+`sammenlaegning` — altså rutet til C3 som fragmenter, hvilket de ikke er.
+De er for korte til at bære et tekstsignal, og det er en femte, ærlig
+klasse: `for_kort`.
+
+**Hvorfor `coverage` og ikke `ratio`:** `SequenceMatcher.ratio()` er
+symmetrisk — `2·M/(len(a)+len(b))`. En record på 400 tegn der ligger
+*perfekt* inde i et narrativ på 4000 tegn scorer ≈0.18. Med en
+ratio-tærskel ville den kun overleve via eksakt containment, som ét
+transponeret OCR-tegn ødelægger — og så bliver en ægte match stemplet
+`aegte_ny` uden flag. Det er nøjagtig den fejlklasse C0 findes for at
+fange. `coverage = matchede tegn / min(længderne)` er ~1.0 for »record
+ligger i narrativ med lidt OCR-støj«, uanset længdeforskellen. `ratio`
+beholdes i outputtet som information, men styrer intet.
 
 **Hvorfor skelet-normalisering frem for `narrative_norm_v1`:** designdokumentet
 foreslog at genbruge fase B's transform til sammenligning. Under
@@ -280,6 +332,16 @@ def test_similarity_exact():
     s = m.similarity("abc", "abc")
     assert s["containment"] == "exact"
     assert s["ratio"] == 1.0
+    assert s["coverage"] == 1.0
+
+
+def test_kort_record_i_lang_narrativ_er_kandidat():
+    # Den fælde ratio() ville falde i: perfekt delstreng, stor længdeforskel.
+    record = m.text_skeleton("Greve Ferdinand Einar Julius Gottlie b til Vindeholme")
+    person = m.text_skeleton("x" * 3000 + "Greve Ferdinand Einar Julius Gottlieb til Vindeholme" + "y" * 3000)
+    s = m.similarity(record, person)
+    assert s["coverage"] >= 0.9
+    assert s["ratio"] < 0.3  # dokumenterer hvorfor ratio ikke må styre
 
 
 def test_similarity_containment_begge_veje():
@@ -305,34 +367,49 @@ def test_page_signal_matcher_overlap():
     assert m.page_signal({"page_from": 574, "page_to": 575}, "601") is False
 
 
+LANG = 400  # skeletlængde over MIN_SKELETON_CHARS
+
+
 def test_classify_kobling_kraever_bekraeftende_signal():
-    cand = [{"person_id": 1299, "ratio": 0.97, "containment": "record_in_person",
+    cand = [{"person_id": 1299, "coverage": 0.97, "containment": "record_in_person",
              "name_signal": True, "page_signal": True}]
-    assert m.classify(cand) == "kobling"
+    assert m.classify(cand, LANG) == "kobling"
 
 
 def test_classify_gennemgang_naar_kun_tekst_taler():
-    cand = [{"person_id": 1299, "ratio": 0.97, "containment": "record_in_person",
+    cand = [{"person_id": 1299, "coverage": 0.97, "containment": "record_in_person",
              "name_signal": False, "page_signal": None}]
-    assert m.classify(cand) == "gennemgang"
+    assert m.classify(cand, LANG) == "gennemgang"
 
 
 def test_classify_sammenlaegning_ved_flere_kandidater():
-    cand = [{"person_id": 1296, "ratio": 0.95, "containment": "person_in_record",
+    cand = [{"person_id": 1296, "coverage": 0.95, "containment": "person_in_record",
              "name_signal": True, "page_signal": True},
-            {"person_id": 1297, "ratio": 0.93, "containment": "person_in_record",
+            {"person_id": 1297, "coverage": 0.93, "containment": "person_in_record",
              "name_signal": True, "page_signal": True}]
-    assert m.classify(cand) == "sammenlaegning"
+    assert m.classify(cand, LANG) == "sammenlaegning"
 
 
 def test_classify_aegte_ny_uden_kandidater():
-    assert m.classify([]) == "aegte_ny"
+    assert m.classify([], LANG) == "aegte_ny"
 
 
-def test_classify_er_fail_closed_ved_svag_ratio():
-    cand = [{"person_id": 5, "ratio": 0.61, "containment": "none",
+def test_classify_er_fail_closed_ved_svag_daekning():
+    cand = [{"person_id": 5, "coverage": 0.56, "containment": "none",
              "name_signal": True, "page_signal": True}]
-    assert m.classify(cand) == "gennemgang"
+    assert m.classify(cand, LANG) == "gennemgang"
+
+
+def test_kort_record_bliver_for_kort_ikke_sammenlaegning():
+    # "4. Margrethe." -> "4margrethe" (10 tegn) matcher promiskuøst.
+    # Den må ALDRIG rutes til C3 som fragment.
+    cand = [{"person_id": i, "coverage": 1.0, "containment": "record_in_person",
+             "name_signal": True, "page_signal": None} for i in (10, 11, 12)]
+    assert m.classify(cand, len(m.text_skeleton("4. Margrethe."))) == "for_kort"
+
+
+def test_kort_record_uden_kandidater_er_ogsaa_for_kort():
+    assert m.classify([], 10) == "for_kort"
 ```
 
 - [ ] **Step 2: Kør testene og bekræft at de fejler**
@@ -367,9 +444,10 @@ COMPARE_VERSION = "c0_compare_v1"
 
 # Tærskler styrer KUN hvilken anbefaling der udfyldes og hvilken rækkefølge
 # posterne står i -- aldrig hvad der sker med data. Kalibreret i Task 3 mod
-# person 1299 / record-82f49e95-e5ce-4e08-9840-d0e334b4ba50.
-CANDIDATE_RATIO = 0.60
-STRONG_RATIO = 0.90
+# BEGGE ankre: person 1299 (skal blive kobling) og von Carlstein-noten
+# (skal blive aegte_ny).
+CANDIDATE_COVERAGE = 0.55
+STRONG_COVERAGE = 0.85
 
 _NON_ALNUM = re.compile(r"[^0-9a-z]+")
 
@@ -385,15 +463,40 @@ def text_skeleton(raw: str) -> str:
 
 
 def similarity(a_skeleton: str, b_skeleton: str) -> Dict[str, Any]:
+    """``coverage`` er det styrende mål; ``ratio`` er kun information.
+
+    ``autojunk=False`` er ikke valgfrit: autojunk kasserer tegn der optræder
+    i mere end 1 % af en lang streng, og på et skelet af små bogstaver ville
+    det stille og roligt smide de almindelige bogstaver væk."""
     if a_skeleton == b_skeleton and a_skeleton:
-        return {"ratio": 1.0, "containment": "exact"}
+        return {"ratio": 1.0, "coverage": 1.0, "containment": "exact"}
     containment = "none"
     if a_skeleton and a_skeleton in b_skeleton:
         containment = "record_in_person"
     elif b_skeleton and b_skeleton in a_skeleton:
         containment = "person_in_record"
-    ratio = difflib.SequenceMatcher(None, a_skeleton, b_skeleton).ratio()
-    return {"ratio": round(ratio, 6), "containment": containment}
+    matcher = difflib.SequenceMatcher(None, a_skeleton, b_skeleton, autojunk=False)
+    matched = sum(block.size for block in matcher.get_matching_blocks())
+    denominator = min(len(a_skeleton), len(b_skeleton)) or 1
+    return {
+        "ratio": round(matcher.ratio(), 6),
+        "coverage": round(matched / denominator, 6),
+        "containment": containment,
+    }
+
+
+NGRAM = 20
+
+
+def shares_ngram(a_skeleton: str, b_skeleton: str) -> bool:
+    """Billigt forfilter: kræv mindst ét fælles sammenhængende n-gram, før
+    den dyre sammenligning køres. Korte skeletter (< 2·NGRAM) undtages —
+    ellers ville forfilteret selv skjule netop de korte records."""
+    if len(a_skeleton) < 2 * NGRAM or len(b_skeleton) < 2 * NGRAM:
+        return True
+    grams = {a_skeleton[i:i + NGRAM] for i in range(len(a_skeleton) - NGRAM + 1)}
+    return any(b_skeleton[i:i + NGRAM] in grams
+               for i in range(len(b_skeleton) - NGRAM + 1))
 
 
 def name_signal(verbatim: str, visning_navn: str) -> bool:
@@ -417,7 +520,12 @@ def page_signal(record_pages: Optional[Dict[str, int]],
 
     ``None`` nedgraderer anbefalingen, men spærrer ikke posten -- manglende
     sidehenvisning er almindeligt i de gamle importrækker og siger intet om
-    identiteten."""
+    identiteten.
+
+    Reglen er ETHVERT overlap, ikke alle-inden-for: prods sidefelter er
+    ujævne (én trykt side kan dække to kildesider), så et strengere krav
+    ville give falske negativer. Signalet kan kun OPGRADERE en anbefaling --
+    det spærrer aldrig -- så et generøst overlap er den sikre retning."""
     if not record_pages or not person_side:
         return None
     numbers = [int(n) for n in _PAGE_NUM.findall(person_side)]
@@ -434,12 +542,22 @@ def page_signal(record_pages: Optional[Dict[str, int]],
     return any(lo <= value <= hi for value in expanded)
 
 
-def classify(candidates: List[Dict[str, Any]]) -> str:
-    """Klassificér en record ud fra dens kandidatliste.
+MIN_SKELETON_CHARS = 60
 
-    Fail-closed: enhver tvivl falder til ``gennemgang``, aldrig til
-    ``kobling``."""
-    strong = [c for c in candidates if c["ratio"] >= CANDIDATE_RATIO
+
+def classify(candidates: List[Dict[str, Any]], record_skeleton_len: int) -> str:
+    """Klassificér en record ud fra dens kandidatliste og dens egen længde.
+
+    Fail-closed: enhver tvivl falder til ``gennemgang``/``for_kort``, aldrig
+    til ``kobling``.
+
+    ``for_kort`` går FORAN alt andet: en record på 10 skeletttegn
+    («4. Margrethe.») matcher promiskuøst, og dens kandidatliste er støj,
+    ikke evidens. At kalde den ``sammenlaegning`` ville rute den til C3 som
+    et fragment, den ikke er."""
+    if record_skeleton_len < MIN_SKELETON_CHARS:
+        return "for_kort"
+    strong = [c for c in candidates if c["coverage"] >= CANDIDATE_COVERAGE
               or c["containment"] != "none"]
     if not strong:
         return "aegte_ny"
@@ -448,7 +566,7 @@ def classify(candidates: List[Dict[str, Any]]) -> str:
     only = strong[0]
     corroborating = sum(1 for signal in (only.get("name_signal"), only.get("page_signal"))
                         if signal is True)
-    text_is_strong = only["ratio"] >= STRONG_RATIO or only["containment"] != "none"
+    text_is_strong = only["coverage"] >= STRONG_COVERAGE or only["containment"] != "none"
     if text_is_strong and corroborating >= 1:
         return "kobling"
     return "gennemgang"
@@ -492,8 +610,9 @@ git commit -m "feat(1939): deterministisk matchningslogik til fase C0"
   ```
   {schema_version: "1.0", compare_version: "c0_compare_v1",
    input_hashes: {import_preview, database_preview, boundary, narrative_state},
-   counts: {records: 41, kobling: int, gennemgang: int,
+   counts: {records: 41, kobling: int, gennemgang: int, for_kort: int,
             sammenlaegning: int, aegte_ny: int},
+   prefilter: {pairs_total: int, pairs_skipped: int, ngram: 20},
    closure: {old_text_persons: [int], old_text_explained: [int],
              old_text_unexplained: [int], old_text_resolved_in_c0: [int],
              old_text_deferred_c3: [int],
@@ -672,7 +791,8 @@ def load_locked(path: Path, expected_sha256: str, failure_code: str) -> Dict[str
 
 
 def build_records(records: List[Dict[str, Any]], persons: List[Dict[str, Any]],
-                  pages_by_key: Dict[str, Dict[str, int]]) -> List[Dict[str, Any]]:
+                  pages_by_key: Dict[str, Dict[str, int]],
+                  prefilter_stats: Optional[Dict[str, int]] = None) -> List[Dict[str, Any]]:
     person_skeletons = [(p, match.text_skeleton(p["tekst"])) for p in persons]
     out: List[Dict[str, Any]] = []
     for record in sorted(records, key=lambda r: r["new_record_key"]):
@@ -681,8 +801,16 @@ def build_records(records: List[Dict[str, Any]], persons: List[Dict[str, Any]],
         pages = pages_by_key.get(record["new_record_key"])
         candidates: List[Dict[str, Any]] = []
         for person, person_skeleton in person_skeletons:
+            if prefilter_stats is not None:
+                prefilter_stats["pairs_total"] = prefilter_stats.get("pairs_total", 0) + 1
+            # Forfilteret er en optimering, ikke en beslutning -- og det tælles,
+            # så et stille loft aldrig kan læses som fuld dækning.
+            if not match.shares_ngram(record_skeleton, person_skeleton):
+                if prefilter_stats is not None:
+                    prefilter_stats["pairs_skipped"] = prefilter_stats.get("pairs_skipped", 0) + 1
+                continue
             scores = match.similarity(record_skeleton, person_skeleton)
-            if scores["ratio"] < match.CANDIDATE_RATIO and scores["containment"] == "none":
+            if scores["coverage"] < match.CANDIDATE_COVERAGE and scores["containment"] == "none":
                 continue
             candidates.append({
                 "person_id": person["person_id"],
@@ -690,18 +818,24 @@ def build_records(records: List[Dict[str, Any]], persons: List[Dict[str, Any]],
                 "staged": person["staged"],
                 "side": person.get("side"),
                 "ratio": scores["ratio"],
+                "coverage": scores["coverage"],
                 "containment": scores["containment"],
                 "name_signal": match.name_signal(verbatim, person["visning_navn"]),
                 "page_signal": match.page_signal(pages, person.get("side")),
                 "person_tekst": person["tekst"],
             })
-        candidates.sort(key=lambda c: (-c["ratio"], c["person_id"]))
+        candidates.sort(key=lambda c: (-c["coverage"], c["person_id"]))
+        classification = match.classify(candidates, len(record_skeleton))
+        if classification == "for_kort":
+            # Kandidatlisten er støj; de fem bedste vises alene til orientering.
+            candidates = candidates[:5]
         out.append({
             "new_record_key": record["new_record_key"],
             "source_span": record["source_span"],
             "pages": pages,
             "verbatim_text": verbatim,
-            "classification": match.classify(candidates),
+            "skeleton_len": len(record_skeleton),
+            "classification": classification,
             "candidates": candidates,
         })
     return out
@@ -722,6 +856,11 @@ def build_closure(records: List[Dict[str, Any]], old_text_persons: List[int],
     explained: set[int] = set()
     resolvable: set[int] = set()
     for record in records:
+        # ``for_kort`` bidrager til INGEN af delene: dens kandidater er
+        # ordsammenfald, ikke evidens, og at lade dem tælle som forklaring
+        # ville skjule ægte uforklarede personer bag støj.
+        if record["classification"] == "for_kort":
+            continue
         for candidate in record["candidates"]:
             explained.add(candidate["person_id"])
             if record["classification"] in ("kobling", "gennemgang"):
@@ -749,16 +888,40 @@ verbatim-verifikation og samme fail-closed adfærd), assert på
 `EXPECTED_GENUINELY_NEW`, kalibrerings-assert, og skrivning af JSON + valgfri
 markdown-rapport.
 
-Kalibrerings-asserten:
+**Gates i `main()`.** Kalibreringsankeret alene beviser kun, at tærsklerne
+ikke er for *stramme*. Intet i det fanger tærskler der er for *løse* — og
+en løs tærskel udfylder `[KOBL]` på hele korpus, hvorefter et menneskes
+realistiske adfærd er at acceptere anbefalingerne. Derfor tre gates, ikke én:
 
 ```python
+    # 1. Positivt anker: tærsklerne må ikke være for stramme.
     calibration = next((r for r in built if r["new_record_key"] == CALIBRATION_RECORD_KEY), None)
     if calibration is None:
         _fail("C0_LINKAGE_CALIBRATION_RECORD_MISSING")
     if calibration["classification"] != "kobling" or not calibration["candidates"] or \
             calibration["candidates"][0]["person_id"] != CALIBRATION_PERSON_ID:
         _fail(f"C0_LINKAGE_CALIBRATION_FAILED:{calibration['classification']}")
+
+    # 2. Ingen person må være topkandidat for to records. To poster der begge
+    #    anbefaler KOBL -> 1299 er en selvmodsigelse, som arket ikke afslører:
+    #    linjerne står langt fra hinanden, hver især plausible.
+    claimed: Dict[int, str] = {}
+    for record in built:
+        if record["classification"] not in ("kobling", "gennemgang") or not record["candidates"]:
+            continue
+        top = record["candidates"][0]["person_id"]
+        if top in claimed:
+            _fail(f"C0_LINKAGE_PERSON_CLAIMED_TWICE:{top}:{claimed[top]}:{record['new_record_key']}")
+        claimed[top] = record["new_record_key"]
+
+    # 3. Alarm, ikke sandhed: flyder over halvdelen af korpus ind som
+    #    koblinger, er tærsklerne løse -- 41 records mod ~23-26 personer med
+    #    gammel tekst gør et stort tal usandsynligt.
+    if sum(1 for r in built if r["classification"] == "kobling") > 25:
+        _fail("C0_LINKAGE_KOBLING_DISTRIBUTION_IMPLAUSIBLE")
 ```
+
+`_fail` her betyder *stop og tænk*, ikke *justér tallet til det passerer*.
 
 - [ ] **Step 4: Kør testene og bekræft at de passerer**
 
@@ -777,10 +940,22 @@ python3 .claude/skills/daa-extract/scripts/build_c0_record_linkage_1939_v50.py \
   --output work/task26-1939-v50-c0-record-linkage/linkage-candidates-v1.json \
   --report work/task26-1939-v50-c0-record-linkage/linkage-candidates-v1.md
 ```
-Expected: exit 0. **Fejler kalibreringsasserten, er tærsklerne forkerte —
-justér `CANDIDATE_RATIO`/`STRONG_RATIO` i Task 2's modul, kør Task 2's tests
-igen, og notér justeringen i rapporten. Justér ALDRIG kalibreringsankeret
-for at få asserten til at passere.**
+Expected: exit 0. **Fejler en gate, er tærsklerne forkerte — justér
+`CANDIDATE_COVERAGE`/`STRONG_COVERAGE` i Task 2's modul, kør Task 2's tests
+igen, og notér justeringen i rapporten. Justér ALDRIG ankeret eller
+gate-grænserne for at få asserten til at passere.**
+
+- [ ] **Step 5b: Fastlæg det negative regressionsanker**
+
+Et negativt anker kan ikke hårdkodes på forhånd — man skal se data først.
+Vælg fra kørslen én record der klassificeres `aegte_ny` med den laveste
+bedste coverage, læs dens verbatim-tekst, og bekræft manuelt at den ikke
+handler om en person i prod. Hårdkod derefter dens nøgle som
+`NEGATIVE_ANCHOR_RECORD_KEY` med en assert om at den forbliver `aegte_ny`,
+og notér i rapporten hvorfor netop den blev valgt.
+
+Bemærk: `record-ca225a9a…` (von Carlstein-noten) er **ikke** blandt de 41 —
+den er et `accepted_carryover` source record. Brug den ikke.
 
 - [ ] **Step 6: Bekræft determinisme på det ægte grundlag**
 
@@ -830,9 +1005,15 @@ mod den friskt genskabte linje; enhver anden ændring afvises med linjenummer.
 | Sektion | Poster | Udfyldt token |
 |---|---|---|
 | `KRÆVER STILLINGTAGEN` | `gennemgang` | `[SPØRG]` |
+| `FOR KORT TIL AT MATCHE` | `for_kort` | `[SPØRG]` |
 | `SAMMENLÆGNING — spærret for kobling (→ C3)` | `sammenlaegning` | `[C3]` |
 | `FORESLÅET KOBLING` | `kobling` | `[KOBL]` |
 | `INGEN KANDIDAT` | `aegte_ny` | `[NY]` |
+
+`for_kort`-sektionen viser recordens fulde verbatim-tekst (den er jo kort)
+og de fem bedste kandidater **mærket som ordsammenfald, ikke forslag**.
+`[KOBL]` er tilladt her — mennesket kan se hvad værktøjet ikke kan — men
+kun mod den øverste kandidat, som alle andre steder.
 
 `[SPØRG]` er en bevidst escape-ventil: uden den ville et menneske i tvivl
 være tvunget til at gætte mellem tre bindende udfald.
@@ -971,10 +1152,12 @@ Kernen, konkret:
 ```python
 VALID_TOKENS = {"[KOBL]", "[NY]", "[C3]", "[SPØRG]"}
 DEFAULT_TOKEN_BY_CLASS = {"kobling": "[KOBL]", "gennemgang": "[SPØRG]",
-                          "sammenlaegning": "[C3]", "aegte_ny": "[NY]"}
-SECTION_ORDER = ["gennemgang", "sammenlaegning", "kobling", "aegte_ny"]
+                          "for_kort": "[SPØRG]", "sammenlaegning": "[C3]",
+                          "aegte_ny": "[NY]"}
+SECTION_ORDER = ["gennemgang", "for_kort", "sammenlaegning", "kobling", "aegte_ny"]
 SECTION_TITLES = {
     "gennemgang": "KRÆVER STILLINGTAGEN ({n})",
+    "for_kort": "FOR KORT TIL AT MATCHE ({n}) — kandidater er ordsammenfald",
     "sammenlaegning": "SAMMENLÆGNING — spærret for kobling (→ C3) ({n})",
     "kobling": "FORESLÅET KOBLING ({n})",
     "aegte_ny": "INGEN KANDIDAT ({n})",
@@ -1050,7 +1233,9 @@ Expected: PASS (10/10).
 - [ ] **Step 5: Kør hele pytest-suiten for C0**
 
 Run: `python3 -m pytest .claude/skills/daa-extract/scripts/test_match_c0_records_1939_v50.py .claude/skills/daa-extract/scripts/test_build_c0_record_linkage_1939_v50.py .claude/skills/daa-extract/scripts/test_convert_c0_linkage_decisions_1939_v50.py -q`
-Expected: 28 passed.
+Expected: `0 failed` — ingen fejl, ingen fejl-i-opsætning. (Et fast
+forventet antal skrives ikke her: tests tilføjes undervejs, og et forældet
+tal ville få skridtet til at fejle af den forkerte grund.)
 
 - [ ] **Step 6: Commit**
 
@@ -1106,6 +1291,10 @@ Opret `docs/superpowers/reviews/1939-v50-fase-c0-linkage-report.md` med:
   C0, udskudt til C3, og **uforklaret** — sidstnævnte som en navngiven
   liste over person-id'er. Det er fasens vigtigste fund, ikke en fodnote,
   og må ikke rulles sammen i én "forklaret"-procent;
+- resultatet af Step 6b's proxy-verifikation (afvigelser mellem
+  binding-proxyen og den empiriske gammel-tekst-liste, med forklaring);
+- `for_kort`-posterne navngivet, og forfilterets `pairs_skipped` — et
+  stille loft må aldrig kunne læses som fuld dækning;
 - eventuelle tærskeljusteringer fra Task 3 Step 5, med begrundelse;
 - eksplicit: ingen prod-skrivning udført, staged forbliver staged,
   personoprettelse og sammenlægning udskudt til hhv. egen GO-pakke og C3.
@@ -1135,12 +1324,16 @@ Prod-skrivningen er en separat GO-pakke og ligger uden for denne plan.
 
 1. Alle 41 records har en klassifikation og en udfyldt anbefaling.
 2. Lukning begge veje er rapporteret, og uforklarede personer er navngivet.
-3. Kalibreringsankeret (record `82f49e95…` → person 1299) lander i klassen
-   `kobling` uden at ankeret er justeret.
-4. Token-filen er genereret, roundtrip-verificeret og afleveret.
-5. Intet er skrevet til produktionsdatabasen.
-6. 28 pytest-tests + 2 testthat-tests grønne; determinisme bevist under tre
-   `PYTHONHASHSEED`-værdier.
+3. Alle tre gates i `main()` passerer uden at ankre eller grænser er
+   justeret: positivt anker (record `82f49e95…` → person 1299 = `kobling`),
+   negativt anker (Step 5b, `aegte_ny`), ingen person hævdet to gange, og
+   koblings-fordelingen under alarmgrænsen.
+4. Binding-proxyen er verificeret mod den empiriske gammel-tekst-liste
+   (Step 6b), og enhver afvigelse er forklaret i rapporten.
+5. Token-filen er genereret, roundtrip-verificeret og afleveret.
+6. Intet er skrevet til produktionsdatabasen.
+7. Pytest- og testthat-suiterne grønne (0 failed); determinisme bevist
+   under tre `PYTHONHASHSEED`-værdier.
 
 ## Uden for denne plan
 
