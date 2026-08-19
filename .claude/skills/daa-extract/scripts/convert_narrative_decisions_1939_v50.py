@@ -375,20 +375,29 @@ def generate_document(flags_doc: Dict[str, Any], *, expected_flag_count: Optiona
 # convert
 # ---------------------------------------------------------------------------
 
+_DECISION_HEAD_RE = re.compile(r"^(\[[A-Z]+\])([ \t]+)(F\d{3})(?=[ \t])")
+
+
 def _parse_positional(line: str) -> Optional[Tuple[str, str]]:
-    """Extract (token, fid) from a candidate decision line using the exact
-    fixed-width layout `render_line` produces: an 8-char padded token field
-    immediately followed by a 4-char F-id. Returns None if the line does
-    not have that shape at all (i.e. is not a decision line)."""
-    if len(line) < 12:
+    """Extract (token, fid) from a candidate decision line.
+
+    The token field's padding is deliberately NOT part of the contract:
+    replacing `[MERGE]` with the shorter `[KEEP]` in place shifts the
+    column, which is exactly what a human editor does. Everything after
+    the F-id stays byte-exact (enforced in `convert_edited_document`)."""
+    match = _DECISION_HEAD_RE.match(line)
+    if match is None:
         return None
-    fid_candidate = line[8:12]
-    if not re.fullmatch(r"F\d{3}", fid_candidate):
-        return None
-    token = line[0:8].rstrip()
-    if not re.fullmatch(r"\[[A-Z]+\]", token):
-        return None
-    return token, fid_candidate
+    return match.group(1), match.group(3)
+
+
+def _canonical_for_compare(line: str) -> str:
+    """Collapse only the whitespace run between token and F-id, so the
+    byte-identity gate ignores re-alignment but nothing else."""
+    match = _DECISION_HEAD_RE.match(line)
+    if match is None:
+        return line
+    return f"{match.group(1)} {line[match.end(2):]}"
 
 
 def convert_edited_document(
@@ -451,7 +460,7 @@ def convert_edited_document(
     if len(expected_lines) != len(edited_lines):
         _fail(f"DECISIONS_LINE_COUNT_MISMATCH:expected={len(expected_lines)}:actual={len(edited_lines)}")
     for lineno, (exp, act) in enumerate(zip(expected_lines, edited_lines), start=1):
-        if exp != act:
+        if _canonical_for_compare(exp) != _canonical_for_compare(act):
             _fail(f"DECISIONS_LINE_MISMATCH:{lineno}")
 
     return {flag_by_fid[fid]["flag_id"]: TOKEN_TO_ACTION[tok] for fid, tok in tokens_by_fid.items()}

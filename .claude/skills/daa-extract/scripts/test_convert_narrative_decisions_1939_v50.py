@@ -171,6 +171,41 @@ def test_round_trip_flip_three_tokens_changes_only_those_actions():
     assert decisions == expected
 
 
+def test_accepts_token_replaced_in_place_without_realigning_columns():
+    """A human editing `[MERGE]` -> `[KEEP]` in place leaves one space, not
+    two. Padding between token and F-id is presentation, not contract."""
+    doc = fixture_flags_doc()
+    flags_sorted = sorted_flags(doc)
+    fid_by_flag_id, flag_by_fid = assign_fids(flags_sorted)
+    fid_a = fid_by_flag_id[
+        next(f["flag_id"] for f in flags_sorted if f["source_record_key"] == "record-A")
+    ]
+
+    # No padding compensation: exactly what an editor produces.
+    edited = generate_document(doc).replace(f"[MERGE] {fid_a}", f"[KEEP] {fid_a}", 1)
+    assert f"[KEEP] {fid_a}" in edited and f"[KEEP]  {fid_a}" not in edited
+
+    decisions = convert_edited_document(doc, edited)
+    expected = {f["flag_id"]: f["suggested_default_action"] for f in doc["flags"]}
+    expected[flag_by_fid[fid_a]["flag_id"]] = "keep"
+    assert decisions == expected
+
+
+def test_realignment_tolerance_does_not_mask_context_edits():
+    """The relaxed padding must not weaken the byte-identity gate: an edit
+    elsewhere on a re-aligned line is still rejected."""
+    doc = fixture_flags_doc()
+    flags_sorted = sorted_flags(doc)
+    fid_a = assign_fids(flags_sorted)[0][
+        next(f["flag_id"] for f in flags_sorted if f["source_record_key"] == "record-A")
+    ]
+    edited = generate_document(doc).replace(f"[MERGE] {fid_a}", f"[KEEP] {fid_a}", 1)
+    edited = edited.replace("s. 500", "s. 999", 1)
+    with pytest.raises(subject.DecisionsFileError) as excinfo:
+        convert_edited_document(doc, edited)
+    assert "DECISIONS_LINE_MISMATCH" in str(excinfo.value)
+
+
 # ---------------------------------------------------------------------------
 # Rejections
 # ---------------------------------------------------------------------------
