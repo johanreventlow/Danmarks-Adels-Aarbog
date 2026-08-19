@@ -661,7 +661,7 @@ new_narrative_replacement_dbi_gateway <- function(connection_factory) {
         narrative_rows <- query(
           paste(
             "SELECT n.subjekt_id AS person_id, n.id AS narrative_id,",
-            "encode(digest(convert_to(n.tekst,'UTF8'),'sha256'),'hex') AS narrative_sha256,",
+            "encode(extensions.digest(convert_to(n.tekst,'UTF8'),'sha256'),'hex') AS narrative_sha256,",
             "n.privat AS privat, n.side AS side",
             "FROM public.narrative n WHERE n.subjekt_type='person' AND n.source_id=3",
             "AND n.subjekt_id = ANY($1::bigint[])"
@@ -714,7 +714,7 @@ new_narrative_replacement_dbi_gateway <- function(connection_factory) {
         narrative_rows <- query(
           paste(
             "SELECT n.subjekt_id AS person_id,",
-            "encode(digest(convert_to(n.tekst,'UTF8'),'sha256'),'hex') AS narrative_sha256",
+            "encode(extensions.digest(convert_to(n.tekst,'UTF8'),'sha256'),'hex') AS narrative_sha256",
             "FROM public.narrative n WHERE n.subjekt_type='person' AND n.source_id=3",
             "AND n.subjekt_id = ANY($1::bigint[])"
           ),
