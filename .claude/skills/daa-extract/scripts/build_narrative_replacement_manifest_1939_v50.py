@@ -244,12 +244,6 @@ def _old_sha_by_person(export: Dict[str, Any]) -> Dict[int, str]:
 # Empirically verified against all 178 real in-scope flags before use.
 # ---------------------------------------------------------------------------
 
-def _default_span_len(kind: str, raw: str, char_offset: int) -> int:
-    if kind == "ordinal_ambiguous":
-        return _normalize_mod._match_ordinal_ambiguous(raw[char_offset:])
-    return 1 if kind == "hyphen_ambiguous" else 0  # hyphen_unproven default merges (0 chars kept)
-
-
 def _decided_text(raw: str, corpus: str, default_text: str, op_flags: List[Dict[str, Any]],
                    decisions: Dict[str, str], source_record_key: str) -> str:
     edits: List[Tuple[int, int, str]] = []
@@ -260,8 +254,6 @@ def _decided_text(raw: str, corpus: str, default_text: str, op_flags: List[Dict[
         action = decisions[flag_id]
         if action == DEFAULT_ACTION[kind]:
             continue
-        default_len = _default_span_len(kind, raw, offset)
-        default_span = raw[offset:offset + default_len] if kind == "ordinal_ambiguous" else ("-" if default_len else "")
         prefix_text = normalize_narrative_v1(raw[:offset], corpus)["text"]
         prefix_len = len(prefix_text)
         # Non-vacuous even when default_len==0 (hyphen_unproven, 168 of 178
@@ -271,8 +263,30 @@ def _decided_text(raw: str, corpus: str, default_text: str, op_flags: List[Dict[
         # (or delete one) at the wrong position silently.
         if default_text[:prefix_len] != prefix_text:
             _fail(f"NARRATIVE_MANIFEST_DECISION_PREFIX_MISMATCH:{flag_id}")
-        if default_text[prefix_len:prefix_len + default_len] != default_span:
-            _fail(f"NARRATIVE_MANIFEST_DECISION_SPLICE_MISMATCH:{flag_id}")
+        if kind == "ordinal_ambiguous":
+            # Reviewer finding (Important 1): the span length MUST be
+            # measured on default_text[prefix_len:] -- the marker-collapsed
+            # coordinate space the splice actually happens in -- never on
+            # raw[offset:]. A "### PAGE nnnn ###" block sitting inside the
+            # ordinal's trailing whitespace collapses to one "\n" in
+            # default_text but spans many raw characters, so measuring on
+            # raw silently gives the wrong (too-short) length and strips
+            # one char too few, leaking a lone leading "\n" into the
+            # manifest. _match_ordinal_ambiguous is reused (composition,
+            # not a re-derived rule) but only ever on the already-decided
+            # coordinate space.
+            default_len = _normalize_mod._match_ordinal_ambiguous(default_text[prefix_len:])
+            if default_len == 0:
+                # Whitespace already rstrip()-ed away (ordinal at the very
+                # end of the text) -- "strip" would silently no-op here;
+                # fail closed instead of pretending the decision applied.
+                _fail(f"NARRATIVE_MANIFEST_DECISION_ORDINAL_SPAN_EMPTY:{flag_id}")
+        elif kind == "hyphen_ambiguous":
+            default_len = 1
+            if default_text[prefix_len:prefix_len + 1] != "-":
+                _fail(f"NARRATIVE_MANIFEST_DECISION_SPLICE_MISMATCH:{flag_id}")
+        else:  # hyphen_unproven -- default already merged, 0 chars kept
+            default_len = 0
         new_span = "" if action in ("strip", "merge") else "-"
         edits.append((prefix_len, prefix_len + default_len, new_span))
     edits.sort(key=lambda e: -e[0])
@@ -283,7 +297,26 @@ def _decided_text(raw: str, corpus: str, default_text: str, op_flags: List[Dict[
             _fail("NARRATIVE_MANIFEST_DECISION_SPLICE_OVERLAP")
         seen_ranges.append((b_lo, b_hi))
         text = text[:b_lo] + new_span + text[b_hi:]
+    _assert_normalized_invariants(text, source_record_key)
     return text
+
+
+_LONE_NEWLINE_RE = _normalize_mod._LONE_NEWLINE_RE  # reused, not re-derived
+
+
+def _assert_normalized_invariants(text: str, context: str) -> None:
+    """Re-assert normalize_narrative_v1's own end invariants (module
+    docstring point 7) on a *spliced* (decision-applied) text before it can
+    reach a manifest operation. The module's own assert only ever runs on
+    its own default output -- a splice bypasses it entirely, so this is the
+    only guard standing between a bad splice and a corrupted manifest
+    (reviewer Important-1 finding)."""
+    if "### PAGE" in text:
+        _fail(f"NARRATIVE_MANIFEST_DECISION_INVARIANT_PAGE_MARKER:{context}")
+    if _LONE_NEWLINE_RE.search(text):
+        _fail(f"NARRATIVE_MANIFEST_DECISION_INVARIANT_LONE_NEWLINE:{context}")
+    if text != text.rstrip():
+        _fail(f"NARRATIVE_MANIFEST_DECISION_INVARIANT_TRAILING_WHITESPACE:{context}")
 
 
 def _flag_id(source_record_key: str, flag: Dict[str, Any]) -> str:

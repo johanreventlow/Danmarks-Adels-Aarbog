@@ -370,6 +370,98 @@ def test_raw_evidence_untouched_by_decisions():
 
 
 # ---------------------------------------------------------------------------
+# Regression: ordinal_ambiguous span length must be measured in the
+# marker-collapsed coordinate space (default_text[prefix_len:]), never on
+# raw[offset:] -- reviewer Important-1 finding (task-2-review.md). A
+# "### PAGE nnnn ###" block sitting inside the ordinal's trailing
+# whitespace collapses to a single "\n" in the normalized text but spans
+# many raw characters; measuring on raw silently strips one character too
+# few and leaks a lone leading "\n" into the spliced text.
+# ---------------------------------------------------------------------------
+
+RAW_F_ORDINAL_ACROSS_PAGE_MARKER = (
+    "40 \n### PAGE 0721 ###\n\n### PAGE 0191 ###\n\n\n\n\n\nBbb 1786-\n78 "
+)
+
+
+def test_ordinal_strip_across_page_marker_does_not_leak_lone_newline():
+    default = normalize_narrative_v1(RAW_F_ORDINAL_ACROSS_PAGE_MARKER, corpus="")
+    assert default["text"] == "40 \n\nBbb 1786-78"
+    kinds_present = {f["kind"] for f in default["flags"]}
+    assert kinds_present == {"ordinal_ambiguous", "hyphen_ambiguous"}
+    decisions = {
+        f"record-F:{f['char_offset']}:{f['kind']}": ("strip" if f["kind"] == "ordinal_ambiguous" else "keep")
+        for f in default["flags"]
+    }
+    text = _decided_text(
+        RAW_F_ORDINAL_ACROSS_PAGE_MARKER, "", default["text"], default["flags"], decisions, "record-F",
+    )
+    # Pre-fix this produced '\nBbb 1786-78' (raw[0:4] == '40 \n' measured 4,
+    # but default_text's actual ordinal span is '40 \n\n' -- 5 chars).
+    assert text == "Bbb 1786-78"
+
+
+def test_ordinal_strip_across_page_marker_via_full_builder():
+    values = fixture()
+    base_len = len(values["calamari_text"])
+    extended_calamari = values["calamari_text"] + "xxxxx" + RAW_F_ORDINAL_ACROSS_PAGE_MARKER
+    pos = extended_calamari.index(RAW_F_ORDINAL_ACROSS_PAGE_MARKER, base_len)
+    default = normalize_narrative_v1(RAW_F_ORDINAL_ACROSS_PAGE_MARKER, corpus=extended_calamari)
+
+    values["phase_a_manifest"]["operations"].append({
+        "source_record_key": "record-F",
+        "canonical_target": {"person_id": 504},
+        "source_span": {"char_from": pos, "char_to": pos + len(RAW_F_ORDINAL_ACROSS_PAGE_MARKER)},
+        "page_evidence": {"page_from": 700},
+        "verbatim_text": RAW_F_ORDINAL_ACROSS_PAGE_MARKER,
+    })
+    values["calamari_text"] = extended_calamari
+    new_calamari_sha256 = _sha256_bytes(extended_calamari.encode())
+    values["phase_a_manifest"]["input_hashes"]["calamari_sha256"] = new_calamari_sha256
+    values["production_manifest"]["source"]["rendition_content_sha256"] = new_calamari_sha256
+    values["old_sha_export"]["rows"].append({"person_id": 504, "narrative_sha256": "4" * 64})
+    values["old_sha_export"]["row_count"] = len(values["old_sha_export"]["rows"])
+
+    doc = _all_default_decisions()
+    for f in default["flags"]:
+        doc["decisions"][f"record-F:{f['char_offset']}:{f['kind']}"] = (
+            "strip" if f["kind"] == "ordinal_ambiguous" else "keep"
+        )
+    manifest = _build_narrative_replacement(
+        values["phase_a_manifest"], values["production_manifest"], values["pub_manifest"],
+        values["calamari_text"], values["old_sha_export"], input_hashes=hashes_for(values),
+        decisions_doc=doc, decisions_sha256="d" * 64,
+        expected_bindings_create=4, expected_bindings_existing=1,
+        expected_out_of_scope=2, expected_total_source_narratives=7,
+    )[0]
+    by_pid = {op["person_id"]: op for op in manifest["operations"]}
+    assert by_pid[504]["normalized_text"] == "Bbb 1786-78"
+    assert "\n### PAGE" not in by_pid[504]["normalized_text"]
+    assert not by_pid[504]["normalized_text"].startswith("\n")
+
+
+def test_assert_normalized_invariants_rejects_page_marker():
+    with pytest.raises(ManifestError, match="INVARIANT_PAGE_MARKER"):
+        subject._assert_normalized_invariants("foo ### PAGE 0001 ### bar", "ctx")
+
+
+def test_assert_normalized_invariants_rejects_lone_newline():
+    with pytest.raises(ManifestError, match="INVARIANT_LONE_NEWLINE"):
+        subject._assert_normalized_invariants("foo\nbar", "ctx")
+
+
+def test_assert_normalized_invariants_accepts_paragraph_break():
+    subject._assert_normalized_invariants("foo\n\nbar", "ctx")  # must not raise
+
+
+def test_assert_normalized_invariants_rejects_trailing_whitespace():
+    # Trailing space, deliberately NOT a "\n" (that would hit the
+    # lone-newline check first) -- isolates the rstrip() check specifically.
+    with pytest.raises(ManifestError, match="INVARIANT_TRAILING_WHITESPACE"):
+        subject._assert_normalized_invariants("foo bar  ", "ctx")
+
+
+# ---------------------------------------------------------------------------
 # Operation payload shape
 # ---------------------------------------------------------------------------
 
@@ -755,3 +847,63 @@ def test_real_artifacts_full_manifest_with_default_decisions(tmp_path: Path):
         expected_out_of_scope=26, expected_total_source_narratives=577,
     )
     assert manifest["manifest_content_sha256"] == manifest2["manifest_content_sha256"]
+
+
+def test_real_artifacts_full_manifest_all_non_default_decisions_passes_invariants(tmp_path: Path):
+    # Reviewer's own verification, repeated here as a regression gate: build
+    # the full 551-op manifest with EVERY one of the 178 real flags flipped
+    # to its non-default action (the branch that actually exercises
+    # _decided_text's splice path for all of them, not just a handful), and
+    # confirm every resulting normalized_text still satisfies the module's
+    # own end invariants -- no "### PAGE", no lone "\n", no trailing
+    # whitespace. This is the exact scenario the ordinal-span fix targets.
+    worktree = Path(__file__).resolve().parents[4]
+    work = worktree / "work/task25-1939-v50-production-writer"
+    parent_repo = Path("/Users/johanreventlow/TypeScript/danmarksadelsaarbog")
+    phase_a_path = work / "phase-a-anchor-manifest-v1.json"
+    production_path = work / "production-write-manifest-v1.json"
+    pub_path = work / "narrative-publication-manifest-v1.json"
+    calamari_path = parent_repo / "work_1939_stamtavle/full_ocr_calamari_r6_clean.txt"
+    old_sha_path = work / "narrative-old-sha-export-v1.json"
+    required = [phase_a_path, production_path, pub_path, calamari_path, old_sha_path]
+    if not all(p.exists() for p in required):
+        pytest.skip("ignorerede realdata-input findes ikke i denne checkout")
+
+    phase_a_manifest = json.loads(phase_a_path.read_text(encoding="utf-8"))
+    production_manifest = json.loads(production_path.read_text(encoding="utf-8"))
+    pub_manifest = json.loads(pub_path.read_text(encoding="utf-8"))
+    calamari_text = calamari_path.read_text(encoding="utf-8")
+    old_sha_export = json.loads(old_sha_path.read_text(encoding="utf-8"))
+    hashes = [PHASE_A_MANIFEST_SHA256, PRODUCTION_MANIFEST_SHA256,
+              NARRATIVE_PUBLICATION_MANIFEST_SHA256, CALAMARI_SHA256, OLD_NARRATIVE_SHA_EXPORT_SHA256]
+
+    _manifest_none, flags_doc = _build_narrative_replacement(
+        phase_a_manifest, production_manifest, pub_manifest, calamari_text, old_sha_export,
+        input_hashes=hashes,
+    )
+    assert len(flags_doc["flags"]) == 178
+
+    def _non_default(kind: str, default_action: str) -> str:
+        options = subject.VALID_ACTIONS[kind] - {default_action}
+        assert len(options) == 1
+        return next(iter(options))
+
+    decisions = {
+        f["flag_id"]: _non_default(f["kind"], f["suggested_default_action"])
+        for f in flags_doc["flags"]
+    }
+    decisions_doc = {"schema_version": "1939-v50-narrative-decisions-v1", "decisions": decisions}
+
+    manifest, _ = _build_narrative_replacement(
+        phase_a_manifest, production_manifest, pub_manifest, calamari_text, old_sha_export,
+        input_hashes=hashes, decisions_doc=decisions_doc, decisions_sha256="d" * 64,
+        expected_bindings_create=543, expected_bindings_existing=8,
+        expected_out_of_scope=26, expected_total_source_narratives=577,
+    )
+    assert manifest is not None
+    assert len(manifest["operations"]) == 551
+    for op in manifest["operations"]:
+        text = op["normalized_text"]
+        assert "### PAGE" not in text
+        assert not subject._LONE_NEWLINE_RE.search(text)
+        assert text == text.rstrip()
