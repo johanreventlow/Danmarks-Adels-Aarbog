@@ -370,6 +370,26 @@ partner i publiceringen. `recompute_partners` udleder partnerne af de
 proband trækker sine egne partnere med ud, medmindre en anden valgt proband
 også deler familie med dem.
 
+### `[VENT]` kan ikke altid honoreres — og så skal det siges højt
+
+Målt mod prod 2026-08-19: **26 af de 44 er partner til en anden af de 44.**
+RPC'ens `UPDATE` afstager enhver staged person, der deler familie med *nogen*
+i id-listen. Holder brugeren derfor person A tilbage, men publicerer B, som A
+deler familie med, bliver A afstaget alligevel.
+
+En flade, der stiltiende ignorerer et `[VENT]`, er værre end ingen flade.
+Konverteren skal derfor **beregne RPC'ens faktiske effekt** og afvise
+fail-closed, hvis en tilbageholdt person alligevel ville blive publiceret:
+
+```
+D1_DECISIONS_VENT_INEFFECTIVE:<person_id>:via=<valgt_person_id>
+```
+
+Beskeden skal navngive den valgte person, der trækker den tilbageholdte med
+— så brugeren kan træffe det reelle valg: hold begge tilbage, eller publicér
+begge. Det er ikke en begrænsning, vi har indført; det er en egenskab ved
+familie-grafen, som fladen nu er ærlig om.
+
 - [ ] **Step 1: Skriv de fejlende tests**
 
 ```python
@@ -460,6 +480,59 @@ def test_vent_beholder_partner_der_naas_via_en_anden_valgt():
     assert 1467 in result["predicted_partners"]  # 947 er stadig en vej
 
 
+# --------------------------------------------------------------------------
+# [VENT] der ikke kan honoreres — 26 af de 44 deler familie med en anden valgt
+# --------------------------------------------------------------------------
+
+DOC_KOBLET = {
+    "schema_version": "1.0",
+    "counts": {"staged_total": 96, "selected": 2, "predicted_partners": 0,
+               "blocked_no_binding": 7, "spouses_visible_partner": 21},
+    "selected": [
+        # 950 og 951 deler familie: hver står i den andens partner_ids.
+        {"person_id": 950, "visning_navn": "Anna Sophie", "side": "598", "fakta": 2,
+         "samme_som_2020": False, "partner_ids": [951]},
+        {"person_id": 951, "visning_navn": "Engelke Reventlow", "side": "598",
+         "fakta": 2, "samme_som_2020": False, "partner_ids": [950]},
+    ],
+    "predicted_partners": [],
+}
+
+
+def test_vent_afvises_naar_den_alligevel_ville_blive_publiceret():
+    # RPC'en afstager enhver staged person med familie-kant til id-listen.
+    # At acceptere [VENT] her ville lyve om resultatet.
+    pids = c.assign_pids(DOC_KOBLET["selected"])
+    text = c.generate_document(DOC_KOBLET)
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        parsed = c._parse_positional(line)
+        if parsed and parsed[1] == pids[950]:
+            lines[i] = "[VENT]" + line[len(parsed[0]):]
+    with pytest.raises(SystemExit) as excinfo:
+        c.convert_edited_document("\n".join(lines), DOC_KOBLET)
+    assert excinfo.value.code == 2
+
+
+def test_vent_paa_begge_koblede_accepteres():
+    pids = c.assign_pids(DOC_KOBLET["selected"])
+    text = c.generate_document(DOC_KOBLET)
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        parsed = c._parse_positional(line)
+        if parsed and parsed[1] in (pids[950], pids[951]):
+            lines[i] = "[VENT]" + line[len(parsed[0]):]
+    result = c.convert_edited_document("\n".join(lines), DOC_KOBLET)
+    assert result["person_ids"] == []
+    assert sorted(result["held_back"]) == [950, 951]
+
+
+def test_linjen_advarer_om_koblede_valgte():
+    # Brugeren skal kunne SE koblingen, før hen prøver at holde én tilbage.
+    text = c.generate_document(DOC_KOBLET)
+    assert "951" in text and "950" in text
+
+
 def test_alle_vent_giver_tom_publicering():
     text = c.generate_document(DOC)
     for pid in (927, 937, 947):
@@ -533,14 +606,23 @@ def assign_pids(selected):
             for i, r in enumerate(ordered, start=1)}
 
 
-def render_line(record, pid, token):
-    partners = record["partner_ids"]
-    følger = ("følger med: " + ", ".join(str(p) for p in partners)) if partners \
-        else "ingen partner følger med"
+def render_line(record, pid, token, selected_ids):
+    """Skelner mellem partnere der er STUBS (følger passivt med) og partnere
+    der selv er VALGTE (binder de to linjer sammen: holdes den ene tilbage
+    uden den anden, overhører RPC'en tokenet)."""
+    stubs = [p for p in record["partner_ids"] if p not in selected_ids]
+    koblede = [p for p in record["partner_ids"] if p in selected_ids]
+    dele = []
+    if stubs:
+        dele.append("stub følger med: " + ", ".join(str(p) for p in stubs))
+    if koblede:
+        dele.append("KOBLET til valgt: " + ", ".join(str(p) for p in koblede))
+    if not dele:
+        dele.append("ingen partner følger med")
     tvaer = " [samme_som 2020]" if record["samme_som_2020"] else ""
     return "{}  {}  s.{}  {} ({} fakta){}  |  {}".format(
         token, pid, record["side"], record["visning_navn"], record["fakta"],
-        tvaer, følger)
+        tvaer, "  |  ".join(dele))
 
 
 def recompute_partners(selection_doc, chosen_ids):
@@ -555,6 +637,26 @@ def recompute_partners(selection_doc, chosen_ids):
         if chosen & set(partner["via_person_ids"]):
             out.append(partner["person_id"])
     return sorted(out)
+
+
+def assert_vent_is_honourable(selection_doc, chosen_ids, held_back_ids):
+    """Afvis et [VENT], som RPC'en alligevel ville overhøre.
+
+    UPDATE'en afstager enhver staged person med en familie-kant til
+    id-listen. Er en tilbageholdt person partner til en VALGT person, bliver
+    hen publiceret uanset tokenet -- og fladen ville have løjet. Målt mod
+    prod 2026-08-19 gælder det 26 af de 44, så det er hovedreglen, ikke en
+    sjælden kant."""
+    chosen = set(chosen_ids)
+    by_id = {r["person_id"]: r for r in selection_doc["selected"]}
+    for held in sorted(held_back_ids):
+        record = by_id.get(held)
+        if record is None:
+            continue
+        via = sorted(chosen & set(record["partner_ids"]))
+        if via:
+            _fail("D1_DECISIONS_VENT_INEFFECTIVE:{}:via={}".format(
+                held, ",".join(str(v) for v in via)))
 ```
 
 `convert_edited_document` returnerer
@@ -621,8 +723,12 @@ fase B's `narrative-publication-apply.sql`:
 BEGIN;
 DO $$
 DECLARE
-  v_ids bigint[] := ARRAY[/* de valgte person_ids fra d1-afgoerelser.json */]::bigint[];
-  v_expected_total integer := 68;   -- expected_unstaged_total fra beslutningsfilen
+  -- ALLE tre tal kommer fra SAMME kilde (d1-afgoerelser.json), så de ikke
+  -- kan komme ud af trit: holdes poster tilbage, ændrer både id-listen og
+  -- de to forventede tal sig sammen.
+  v_ids bigint[] := ARRAY[/* person_ids fra d1-afgoerelser.json */]::bigint[];
+  v_expected_total integer := 68;    -- expected_unstaged_total, samme fil
+  v_expected_before integer := 96;   -- staged_total, samme fil
   v_before_staged integer;
   v_after_staged integer;
   v_before_person integer; v_after_person integer;
@@ -641,8 +747,9 @@ BEGIN
   SELECT count(*) INTO v_before_person   FROM person;
   SELECT count(*) INTO v_before_fact     FROM fact;
   SELECT count(*) INTO v_before_relation FROM relation;
-  IF v_before_staged <> 96 THEN
-    RAISE EXCEPTION 'D1_APPLY_ABORT: forventede 96 staged, fandt %', v_before_staged;
+  IF v_before_staged <> v_expected_before THEN
+    RAISE EXCEPTION 'D1_APPLY_ABORT: forventede % staged, fandt % — en anden fase har flyttet staged siden beslutningsfilen blev skrevet',
+      v_expected_before, v_before_staged;
   END IF;
 
   -- 3. Alle valgte SKAL vaere staged i forvejen; ellers er listen foraeldet.
@@ -757,6 +864,21 @@ Skal indeholde, med eksakte værdier:
   levende, ingen private.
 - Eksplicit rest: 28 staged tilbage (7 blokerede af C0/C3, 21 til D2).
 
+**Rækkefølgen mellem de åbne prod-spor skal stå i GO-pakken.** Der er tre:
+C0's efterkørsel (10 koblinger), D1 (denne, 68 publiceringer) og C3/D3's 7
+blokerede. D1's guard afbryder, hvis `staged` er flyttet siden
+beslutningsfilen — men C0's efterkørsel har **ingen** tilsvarende guard mod
+at D1 har kørt imellem.
+
+Anbefalet rækkefølge: **D1 først, C0's efterkørsel bagefter.** Begrundelse:
+D1 rører kun `staged` og ændrer ikke narrativer eller bindinger, så C0's
+efterkørsel arbejder på et uændret tekstgrundlag. Omvendt ville C0's
+efterkørsel ændre narrativ-tekst på to af D1's koblingsmål (963 og 967, som
+netop er staged) midt i D1's beslutningsvindue.
+
+Køres de i anden rækkefølge, skal D1's eksport og beslutningsfil genskabes
+først — tallene 96/44/24 er målt før C0's efterkørsel.
+
 - [ ] **Step 2: Fremlæg for brugeren og vent på GO**
 
 Ingen apply uden eksplicit godkendelse med tallene foran sig.
@@ -803,13 +925,33 @@ Expected: `staged_tilbage` = 28; personer/fakta/relationer uændrede (1812 /
 
 - [ ] **Step 4: Verificér at de 68 faktisk er offentligt kvalificerede**
 
+Hent de 68 fra **change_settet**, ikke fra en hardkodet liste — så
+efterkontrollen måler hvad der faktisk skete, i stedet for at gentage vores
+egen forudsigelse:
+
 ```sql
-SELECT count(*) AS offentligt_kvalificerede FROM person p
-WHERE p.id = ANY(ARRAY[/* de 68 */]::bigint[])
-  AND NOT p.staged AND NOT p.levende AND NOT p.privat;
+WITH roert AS (
+  SELECT DISTINCT (ce.pk_vaerdi->>'id')::bigint AS person_id
+  FROM change_event ce
+  WHERE ce.change_set_id = (SELECT max(id) FROM change_set
+                            WHERE handling = 'red_publicer_personer')
+    AND ce.tabel = 'person')
+SELECT count(*) AS roert_i_alt,
+       count(*) FILTER (WHERE NOT p.staged) AS afstagede,
+       count(*) FILTER (WHERE NOT p.staged AND NOT p.levende AND NOT p.privat)
+         AS offentligt_kvalificerede
+FROM roert JOIN person p ON p.id = roert.person_id;
 ```
-Expected: 68. `staged` alene gør ikke en person synlig — `levende` og
-`privat` gælder stadig (invariant 8).
+Expected: 68 / 68 / 68. `staged` alene gør ikke en person synlig — `levende`
+og `privat` gælder stadig (invariant 8).
+
+Afviger `offentligt_kvalificerede` fra `afstagede`, er der personer, vi har
+afstaget uden at gøre synlige. Det er ikke en fejl i sig selv (en levende
+person skal netop forblive skjult), men det skal navngives i changeloggen
+frem for at fremstå som 68 nye offentlige poster.
+
+Kolonnenavnene i `change_event` (`pk_vaerdi`, `tabel`, `handling`) skal
+verificeres mod `schema.sql` før kørsel; afviger de, rettes forespørgslen.
 
 - [ ] **Step 5: Opdatér dokumentationen**
 
