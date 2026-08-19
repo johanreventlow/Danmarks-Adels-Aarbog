@@ -45,12 +45,20 @@ grundlag, fase A og B blev reviewet og kørt på. Filnavne-versionering
 ordning og må ikke bruges til at vælge input; hash-låsen er båndet.
 
 **Verbatim er uforanderligt.** Rendition, spans og `citat_tekst` røres
-ikke. Fase B's `normalize_narrative_1939_v50.py` (`narrative_norm_v1`)
-genbruges **udelukkende i hukommelsen som sammenligningsfunktion** og
-skrives aldrig tilbage. Uden den er sammenligningen meningsløs: de 23
-personer bærer gammel importtekst, mens recordene bærer OCR-ombrudt
-Calamari-tekst — en rå sammenligning ville vise nær-nul lighed og
-fejlagtigt bekræfte, at recordene er ægte nye.
+ikke. Al normalisering sker i hukommelsen og skrives aldrig tilbage.
+
+Uden normalisering er sammenligningen meningsløs: de 23 personer bærer
+gammel importtekst, mens recordene bærer OCR-ombrudt Calamari-tekst — en
+rå sammenligning ville vise nær-nul lighed og fejlagtigt bekræfte, at
+recordene er ægte nye.
+
+Sammenligningen sker på et **skelet** (`c0_compare_v1`): NFC, casefold,
+kun alfanumeriske tegn. Det er strengere og enklere end at genbruge fase
+B's `narrative_norm_v1` — ombrydning, bindestreger og OCR-indsatte
+mellemrum forsvinder i ét greb, uden at arve norm_v1's beslutninger om
+tvetydige bindestreger. Kalibreringsankeret «Gottlie b» → «gottlieb» er
+netop den klasse. (Fastlagt under planlægningen; erstatter designets
+oprindelige forslag om at genbruge norm_v1 til sammenligning.)
 
 ## Matchningskontrakt
 
