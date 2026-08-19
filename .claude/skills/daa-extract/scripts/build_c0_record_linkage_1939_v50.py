@@ -42,6 +42,13 @@ EXPECTED_GENUINELY_NEW = 41
 CALIBRATION_RECORD_KEY = "record-82f49e95-e5ce-4e08-9840-d0e334b4ba50"
 CALIBRATION_PERSON_ID = 1299
 
+# Negativt anker: valgt empirisk efter første kørsel (planens Task 3, step 5b).
+# Recorden er en ren strukturel overgangstekst -- «Fra ovennævnte Joachim
+# Reventlow til Rixdorf nedstammer den yngre holstenske Linje ... uddøde i
+# Mandsstammen 1783» -- den handler om en LINJE, ikke om én person, og må
+# aldrig blive en kobling uanset hvordan tærsklerne justeres.
+NEGATIVE_ANCHOR_RECORD_KEY = "record-4ba8b3b2-a4d4-40e6-b4f9-1a0aaf8b4cfa"
+
 # Alarmgrænse, ikke en sandhed: 41 records mod ~26 personer med gammel tekst
 # gør et stort antal koblinger usandsynligt. Rammer den, er tærsklerne løse.
 MAX_PLAUSIBLE_KOBLING = 25
@@ -245,6 +252,19 @@ def assert_calibration(built: List[Dict[str, Any]]) -> None:
         _fail(f"C0_LINKAGE_CALIBRATION_FAILED:{calibration['classification']}")
 
 
+def assert_negative_anchor(built: List[Dict[str, Any]]) -> None:
+    """Negativt anker: beviser at tærsklerne ikke er for LØSE.
+
+    Uden dette kunne enhver opblødning af tærsklerne passere kalibreringen,
+    som kun straffer for stramme grænser."""
+    negative = next(
+        (r for r in built if r["new_record_key"] == NEGATIVE_ANCHOR_RECORD_KEY), None)
+    if negative is None:
+        _fail("C0_LINKAGE_NEGATIVE_ANCHOR_MISSING")
+    if negative["classification"] != "aegte_ny":
+        _fail(f"C0_LINKAGE_NEGATIVE_ANCHOR_FAILED:{negative['classification']}")
+
+
 def assert_no_person_claimed_twice(built: List[Dict[str, Any]]) -> None:
     """To poster der begge peger på samme person er en selvmodsigelse, som
     arket ikke afslører: linjerne står langt fra hinanden, hver især
@@ -363,6 +383,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     built = build_records(pending, rows, pages_by_key, prefilter_stats)
 
     assert_calibration(built)
+    assert_negative_anchor(built)
     assert_no_person_claimed_twice(built)
     assert_kobling_distribution_plausible(built)
 

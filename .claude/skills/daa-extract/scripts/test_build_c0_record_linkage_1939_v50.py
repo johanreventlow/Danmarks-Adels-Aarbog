@@ -140,6 +140,24 @@ def test_kalibreringsanker_er_haardkodet():
     assert b.CALIBRATION_PERSON_ID == 1299
 
 
+def test_negativt_anker_er_haardkodet():
+    assert b.NEGATIVE_ANCHOR_RECORD_KEY == "record-4ba8b3b2-a4d4-40e6-b4f9-1a0aaf8b4cfa"
+
+
+def test_negativt_anker_afviser_kobling():
+    built = [{"new_record_key": b.NEGATIVE_ANCHOR_RECORD_KEY,
+              "classification": "kobling", "candidates": [{"person_id": 7}]}]
+    with pytest.raises(SystemExit) as excinfo:
+        b.assert_negative_anchor(built)
+    assert excinfo.value.code == 2
+
+
+def test_negativt_anker_accepterer_aegte_ny():
+    built = [{"new_record_key": b.NEGATIVE_ANCHOR_RECORD_KEY,
+              "classification": "aegte_ny", "candidates": []}]
+    b.assert_negative_anchor(built)  # må ikke rejse
+
+
 def test_gate_afviser_person_haevdet_to_gange():
     built = [{"new_record_key": "record-a", "classification": "kobling",
               "candidates": [{"person_id": 1299}]},
