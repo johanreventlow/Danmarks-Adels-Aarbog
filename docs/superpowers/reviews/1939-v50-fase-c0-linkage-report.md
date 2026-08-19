@@ -119,6 +119,52 @@ klasse, `allerede_materialiseret`, som slår tekstsignalet — det er et
 faktum om databasen, ikke en vurdering af lighed. Konverteren afviser
 `[KOBL]` på dem.
 
+## Afgørelser truffet 2026-08-19
+
+Alle 41 er afgjort. **0 uafklarede.**
+
+| Udfald | Antal |
+|---|---|
+| `[KOBL]` | 10 |
+| `[NY]` | 16 |
+| `[C3]` | 7 |
+| `[FÆRDIG]` | 8 |
+
+Beslutningsfil: `c0-afgoerelser.txt` (`e7458bf1…`) →
+`c0-afgoerelser.json` (`9b702544…`).
+
+De seks poster, der stod som `[SPØRG]`, blev afgjort ved at læse kildens og
+databasens tekst side om side (`c0-tekster-side-om-side.txt`):
+
+- **R37 → `[KOBL]` (person 991).** Kildens `I1. Hr. Iven til Rixdorf †
+  1569.` er tegn for tegn identisk med prods tekst. Posten er kort, men
+  identiteten er ikke i tvivl — netop derfor tillader konverteren `[KOBL]`
+  på en for kort post med præcis én kandidat.
+- **R08, R14, R25, R36 → `[NY]`.** Fire korte oversigtslinjer (`I. Ditlev
+  † 1536, Biskop i Lübeck.`, `A. Henning til Hemmelmark († 1705), Fader
+  til:`) uden nogen kandidat i basen. Samme slags som det negative anker:
+  strukturelle punkter i stamtavlen, ikke personposter.
+- **R10 → `[NY]`.** Kilden handler om Storkansler Conrad Reventlows søn
+  (1700-tallet); kandidaten person 1291 er født **1864**. De 0.60 dækning
+  stammer alene fra de fælles godsnavne (Reventlow, Christianssæde,
+  Brahe-Trolleborg). Ikke samme person.
+
+Effekt på lukningen: person 991 løses nu af R37, så de uforklarede går fra
+9 til **8** (933, 934, 935, 940, 1135, 1791, 1795, 1802).
+
+### R40 ændrer person 1017's viste biografi
+
+Koblingen R40 → person 1017 er mere end en binding. Kilden består af to
+afsnit, A) og B), som er to selvstændige records (R40 og R15). I basen er
+begge havnet i ét for stort narrativ på 1017, mens person 1021 kun har en
+afskåret stump, der begynder midt i ordet »Reventlow« — en gammel
+grænsefejl.
+
+Fase B-efterkørslen vil derfor **erstatte 1017's tekst med A) alene**.
+Det er en reparation, men det fjerner synligt indhold fra biografien;
+B)-delen hører til 1021 og følger med R15 i C3. Det skal stå i
+efterkørslens GO-pakke, så tekstændringen ikke ser ud som et tab.
+
 ## Til brugeren
 
 Beslutningsfilen er `work/task26-1939-v50-c0-record-linkage/c0-afgoerelser.txt`

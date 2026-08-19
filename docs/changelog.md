@@ -24,6 +24,15 @@ sammenhængende anker. (2) Otte af de 41 var allerede materialiseret som
 personer i task 25 — import-preview er fra før den kørte — og et
 koblingsforslag ville have kollideret med deres UNIQUE narrativ-binding.
 
+**Afgørelser truffet samme dag:** alle 41 afgjort, 0 uafklarede — 10 kobling,
+16 ny, 7 til C3, 8 allerede færdige. De seks tvivlstilfælde blev afgjort ved at
+læse kildens og databasens tekst side om side: R37 er tegn-for-tegn identisk
+med person 991, de fem øvrige er strukturelle oversigtslinjer eller (R10) en
+forveksling af en 1700-tals-post med en person født 1864. Bemærk til
+efterkørslen: koblingen R40 → person 1017 erstatter dennes tekst med afsnit A)
+alene — en reparation af en gammel grænsefejl, men den fjerner synligt indhold,
+hvis B)-del hører til person 1021 og følger med i C3.
+
 Rapport: `docs/superpowers/reviews/1939-v50-fase-c0-linkage-report.md`.
 67 pytest-tests + 9 R-assertions; output byte-identisk under tre
 `PYTHONHASHSEED`-værdier.
