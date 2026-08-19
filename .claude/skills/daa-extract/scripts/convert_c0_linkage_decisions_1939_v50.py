@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-VALID_TOKENS = ("[KOBL]", "[NY]", "[C3]", "[SPØRG]")
+VALID_TOKENS = ("[KOBL]", "[NY]", "[C3]", "[SPØRG]", "[FÆRDIG]")
 
 DEFAULT_TOKEN_BY_CLASS = {
     "kobling": "[KOBL]",
@@ -39,17 +39,21 @@ DEFAULT_TOKEN_BY_CLASS = {
     "for_kort": "[SPØRG]",
     "sammenlaegning": "[C3]",
     "aegte_ny": "[NY]",
+    "allerede_materialiseret": "[FÆRDIG]",
 }
 
 # Mistænkelige først: det mennesket skal tage stilling til, står øverst;
 # det maskinen er sikker på, står nederst.
-SECTION_ORDER = ["gennemgang", "for_kort", "sammenlaegning", "kobling", "aegte_ny"]
+SECTION_ORDER = ["gennemgang", "for_kort", "sammenlaegning", "kobling", "aegte_ny",
+                 "allerede_materialiseret"]
 SECTION_TITLES = {
     "gennemgang": "KRÆVER STILLINGTAGEN ({n}) — én kandidat, men kun ét signal",
     "for_kort": "FOR KORT TIL AT MATCHE ({n}) — kandidater er ordsammenfald, ikke forslag",
     "sammenlaegning": "SAMMENLÆGNING ({n}) — spærret for kobling, afgøres i C3",
     "kobling": "FORESLÅET KOBLING ({n}) — én kandidat, flere signaler enige",
     "aegte_ny": "INGEN KANDIDAT ({n}) — ingen tekst i prod ligner",
+    "allerede_materialiseret":
+        "ALLEREDE FÆRDIG ({n}) — blev til personer i task 25; ingen handling",
 }
 
 INSTRUCTIONS = """\
@@ -62,6 +66,7 @@ INSTRUCTIONS = """\
 #   [NY]     recorden er en ægte ny kilderecord uden modstykke i basen
 #   [C3]     fragment/alias — udskydes til sammenlægningsrunden C3
 #   [SPØRG]  kan ikke afgøres her; tages op særskilt
+#   [FÆRDIG] recorden er allerede materialiseret som person; ingen handling
 #
 # Anbefalingerne er UDFYLDT på forhånd. Lad en linje stå, hvis du er enig.
 # Ingen af valgene skriver noget til databasen — det sker først i en
@@ -241,6 +246,10 @@ def convert_edited_document(text: str, candidates_doc: Dict[str, Any]) -> Dict[s
         if token == "[KOBL]":
             if record["classification"] == "sammenlaegning":
                 _fail("C0_DECISIONS_KOBL_ON_BLOCKED_RECORD:{}".format(key))
+            if record["classification"] == "allerede_materialiseret":
+                # Personen findes, og dens narrativ har allerede en binding
+                # (UNIQUE). En kobling ville kollidere, ikke tilføje noget.
+                _fail("C0_DECISIONS_KOBL_ON_MATERIALIZED_RECORD:{}".format(key))
             if not record["candidates"]:
                 _fail("C0_DECISIONS_KOBL_WITHOUT_CANDIDATE:{}".format(key))
             # Person-id'et kommer fra kandidatfilen, aldrig fra den

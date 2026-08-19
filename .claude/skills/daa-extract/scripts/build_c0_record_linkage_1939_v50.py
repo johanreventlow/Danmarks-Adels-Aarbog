@@ -31,11 +31,19 @@ LOCKED_IMPORT_PREVIEW_SHA256 = "04f2780b4fc3f63263324cbb5133e07d1eed70018f7ea112
 LOCKED_DATABASE_PREVIEW_SHA256 = "a00efd43a34358f95f4b0df40695f4abd3b279066bee196e3cbdbd1b87b9e97c"
 LOCKED_BOUNDARY_SHA256 = "73aa0eecb365de35b8e5ca38af87c7b247fbdd7d14e2ece358d86e4680056b4f"
 LOCKED_CALAMARI_SHA256 = "020123a3588dacf80705a22fb021ab4f5da97b8de202e8664304ca01f9a6da37"
+# Task 25's produktionsmanifest -- samme hash som fase A og B låste. Dets 8
+# person_creates er records fra netop denne mængde, som ALLEREDE er
+# materialiseret i prod (personerne 1846-1853). Import-preview er fra
+# 2026-08-17, altså før task 25 kørte, så den ved det ikke.
+LOCKED_PRODUCTION_MANIFEST_SHA256 = "8417b6deeaf32b3cf39a4f2995a06211f8368172dfa97a188e03c6f7ef379a1f"
 
 CALAMARI_RENDITION_ID = "daa-1939-calamari-r6-clean"
 CALAMARI_SOURCE_ID = "1939"
 
 EXPECTED_GENUINELY_NEW = 41
+
+CLASSES = ("kobling", "gennemgang", "for_kort", "sammenlaegning", "aegte_ny",
+           "allerede_materialiseret")
 
 # Positivt anker: bekræftet sandt positiv. Recorden dækker s. 574-575, og
 # person 1299 bærer i prod netop den tekst.
@@ -135,7 +143,14 @@ def boundary_pages(boundary: Dict[str, Any], records_by_key: Dict[str, Dict[str,
 
 def build_records(records: List[Dict[str, Any]], persons: List[Dict[str, Any]],
                   pages_by_key: Dict[str, Dict[str, int]],
-                  prefilter_stats: Optional[Dict[str, int]] = None) -> List[Dict[str, Any]]:
+                  prefilter_stats: Optional[Dict[str, int]] = None,
+                  materialized_keys: Optional[set] = None) -> List[Dict[str, Any]]:
+    """``materialized_keys`` er records der allerede blev til personer i task
+    25. De klassificeres ``allerede_materialiseret`` uanset tekstsignal --
+    det er et faktum om databasen, ikke en vurdering af lighed. Uden dem
+    ville arket foreslå at koble syv records, hvis arbejde for længst er
+    gjort, og hvis narrativ allerede har en (UNIQUE) binding."""
+    materialized_keys = materialized_keys or set()
     person_skeletons = [(p, match.text_skeleton(p["tekst"])) for p in persons]
     out: List[Dict[str, Any]] = []
     for record in sorted(records, key=lambda r: r["new_record_key"]):
@@ -174,7 +189,10 @@ def build_records(records: List[Dict[str, Any]], persons: List[Dict[str, Any]],
                 "person_tekst": person["tekst"],
             })
         candidates.sort(key=lambda c: (-c["coverage"], c["person_id"]))
-        classification = match.classify(candidates, len(record_skeleton))
+        if record["new_record_key"] in materialized_keys:
+            classification = "allerede_materialiseret"
+        else:
+            classification = match.classify(candidates, len(record_skeleton))
         if classification == "for_kort":
             # Kandidatlisten er ordsammenfald; de fem bedste vises alene til
             # orientering, så arket ikke drukner i støj.
@@ -210,6 +228,11 @@ def build_closure(records: List[Dict[str, Any]], old_text_persons: List[int],
     resolvable = set()
     short_hint = set()
     for record in records:
+        if record["classification"] == "allerede_materialiseret":
+            # Ligger uden for C0's handlingsrum: personen findes, teksten er
+            # rigtig, bindingen er der. Den hverken forklarer eller løser
+            # noget af det, C0 skal afgøre.
+            continue
         if record["classification"] == "for_kort":
             # Bidrager ikke til forklaringen, men noteres særskilt: en person
             # der KUN berøres af en for kort record er ikke helt uden spor,
@@ -304,7 +327,7 @@ def render_report(document: Dict[str, Any]) -> str:
     for name, digest in sorted(document["input_hashes"].items()):
         lines.append(f"- `{name}`: `{digest}`")
     lines += ["", "## Klassefordeling", ""]
-    for key in ("kobling", "gennemgang", "for_kort", "sammenlaegning", "aegte_ny"):
+    for key in CLASSES:
         lines.append(f"- {key}: {counts[key]}")
     lines += [
         "", f"- records i alt: {counts['records']}",
@@ -339,6 +362,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--database-preview", required=True)
     parser.add_argument("--boundary", required=True)
     parser.add_argument("--calamari", required=True)
+    parser.add_argument("--production-manifest", required=True)
     parser.add_argument("--narrative-state", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--report")
@@ -358,6 +382,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     calamari_sha256 = hashlib.sha256(calamari_raw).hexdigest()
     if calamari_sha256 != LOCKED_CALAMARI_SHA256:
         _fail("C0_LINKAGE_CALAMARI_HASH_MISMATCH")
+    production_manifest = load_locked(
+        Path(args.production_manifest), LOCKED_PRODUCTION_MANIFEST_SHA256,
+        "C0_LINKAGE_PRODUCTION_MANIFEST_HASH_MISMATCH")
     narrative_state, narrative_state_sha256 = load_free(
         Path(args.narrative_state), "C0_LINKAGE_NARRATIVE_STATE_UNREADABLE")
 
@@ -379,8 +406,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     records_by_key = {r["new_record_key"]: r for r in pending}
     pages_by_key = boundary_pages(boundary, records_by_key, calamari_sha256)
 
+    materialized_keys = {p["source_record_key"] for p in production_manifest["person_creates"]}
+    if not materialized_keys <= set(records_by_key):
+        _fail("C0_LINKAGE_MATERIALIZED_KEY_OUTSIDE_PENDING")
+
     prefilter_stats: Dict[str, int] = {"pairs_total": 0, "pairs_skipped": 0}
-    built = build_records(pending, rows, pages_by_key, prefilter_stats)
+    built = build_records(pending, rows, pages_by_key, prefilter_stats, materialized_keys)
 
     assert_calibration(built)
     assert_negative_anchor(built)
@@ -388,7 +419,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     assert_kobling_distribution_plausible(built)
 
     counts = {"records": len(built)}
-    for key in ("kobling", "gennemgang", "for_kort", "sammenlaegning", "aegte_ny"):
+    for key in CLASSES:
         counts[key] = sum(1 for r in built if r["classification"] == key)
 
     document = {
@@ -399,6 +430,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             "import_preview_sha256": LOCKED_IMPORT_PREVIEW_SHA256,
             "database_preview_sha256": LOCKED_DATABASE_PREVIEW_SHA256,
             "boundary_sha256": LOCKED_BOUNDARY_SHA256,
+            "production_manifest_sha256": LOCKED_PRODUCTION_MANIFEST_SHA256,
             "calamari_sha256": calamari_sha256,
             "narrative_state_sha256": narrative_state_sha256,
         },

@@ -73,6 +73,26 @@ def test_kort_record_bliver_for_kort_med_trunkeret_kandidatliste():
     assert result[0]["skeleton_len"] < 60
 
 
+def test_allerede_materialiseret_slaar_tekstsignalet():
+    # Record 3766faae skabte person 1846 i task 25. Uden denne klasse ville
+    # arket foreslå at koble den igen -- mod et narrativ der allerede har en
+    # UNIQUE binding.
+    records = [_record("record-a", "Greve Ferdinand Gottlieb til Vindeholme" + LANG_HALE)]
+    persons = [_person(1846, "Ferdinand Gottlieb",
+                       "Greve Ferdinand Gottlieb til Vindeholme" + LANG_HALE, binding=True)]
+    result = b.build_records(records, persons, {}, None, {"record-a"})
+    assert result[0]["classification"] == "allerede_materialiseret"
+
+
+def test_materialiseret_bidrager_ikke_til_lukningen():
+    closure = b.build_closure(
+        records=[{"new_record_key": "record-a", "classification": "allerede_materialiseret",
+                  "candidates": [{"person_id": 1846}]}],
+        old_text_persons=[1846], database_only_persons=[])
+    assert closure["old_text_explained"] == []
+    assert closure["old_text_unexplained"] == [1846]
+
+
 # --------------------------------------------------------------------------
 # lukning begge veje
 # --------------------------------------------------------------------------

@@ -40,6 +40,11 @@ DOC = {
          "verbatim_text": "I1. Hr. Iven til Rixdorf † 1569.",
          "source_span": {"char_from": 31, "char_to": 40},
          "candidates": [_cand(991, "Iven", coverage=1.0, side="504")]},
+        {"new_record_key": "record-f", "classification": "allerede_materialiseret",
+         "pages": {"page_from": 498, "page_to": 498}, "skeleton_len": 400,
+         "verbatim_text": "Ditlev, nævnt 1254",
+         "source_span": {"char_from": 51, "char_to": 60},
+         "candidates": [_cand(1846, "Ditlev", coverage=1.0)]},
         {"new_record_key": "record-e", "classification": "gennemgang",
          "pages": {"page_from": 509, "page_to": 509}, "skeleton_len": 228,
          "verbatim_text": "D. Geheimekonferensraad Detlev",
@@ -151,6 +156,22 @@ def test_convert_taeller_beslutninger_pr_token():
 
 def test_convert_afviser_kobl_paa_spaerret_post():
     text = c.generate_document(DOC).replace("[C3]", "[KOBL]", 1)
+    with pytest.raises(SystemExit) as excinfo:
+        c.convert_edited_document(text, DOC)
+    assert excinfo.value.code == 2
+
+
+def test_convert_udfylder_faerdig_paa_materialiseret():
+    result = c.convert_edited_document(c.generate_document(DOC), DOC)
+    by_key = {d["new_record_key"]: d for d in result["decisions"]}
+    assert by_key["record-f"]["token"] == "[FÆRDIG]"
+    assert by_key["record-f"]["person_id"] is None
+
+
+def test_convert_afviser_kobl_paa_materialiseret_record():
+    # Personen findes allerede, og dens narrativ har en UNIQUE binding:
+    # en kobling ville kollidere frem for at tilføje noget.
+    text = _retok(c.generate_document(DOC), "record-f", "[KOBL]")
     with pytest.raises(SystemExit) as excinfo:
         c.convert_edited_document(text, DOC)
     assert excinfo.value.code == 2

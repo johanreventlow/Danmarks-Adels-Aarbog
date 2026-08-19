@@ -1,5 +1,33 @@
 # Changelog
 
+## Fase C0: de 41 »ægte nye« records gennemgået — afventer afgørelser (2026-08-19)
+
+Fase B efterlod narrativer med gammel tekst, fordi 41 kilderecords var
+klassificeret »ægte nye« uden baseline-tilknytning. C0 bygger grundlaget for
+at omgøre de klassifikationer: read-only prod-eksport (577 narrativer, 551
+bindinger), deterministisk matchning mod hele bestanden, og en token-fil med
+41 udfyldte anbefalinger. **Intet skrevet til prod.**
+
+Fordeling: 9 kobling · 1 stillingtagen · 5 for kort · 7 sammenlægning ·
+11 uden kandidat · 8 allerede færdige. Lukning: 26 personer m. gammel tekst
+(ikke 23 — binding-proxyen viste sig at være et supersæt af den empiriske
+liste og fangede 991, 1791, 1795), 9 løst i C0, 8 udskudt til C3, **9
+uforklarede** (933, 934, 935, 940, 991, 1135, 1791, 1795, 1802). Alle 11
+»uden kandidat« har dækning 0.00 — de er formentlig modstykker til de
+uforklarede, men teksterne er for beskadigede til maskinel afgørelse.
+
+To fejl i C0's eget værktøj fanget af dets egne gates: (1) tekstmålet var
+længde-asymmetrisk i begge udgaver — `ratio()` gav 0.015 for en perfekt
+delstreng i et langt narrativ, og min-normaliseret dækning gjorde derefter
+korte modparter promiskuøse (spredte bogstaver → 1.00); løst med krav om ét
+sammenhængende anker. (2) Otte af de 41 var allerede materialiseret som
+personer i task 25 — import-preview er fra før den kørte — og et
+koblingsforslag ville have kollideret med deres UNIQUE narrativ-binding.
+
+Rapport: `docs/superpowers/reviews/1939-v50-fase-c0-linkage-report.md`.
+67 pytest-tests + 9 R-assertions; output byte-identisk under tre
+`PYTHONHASHSEED`-værdier.
+
 ## Fase B: 551 biografier erstattet med evidensbaseret, renset tekst (2026-08-19)
 
 Programmets oprindelige formål er nået: de fejlbehæftede narrativer fra den
