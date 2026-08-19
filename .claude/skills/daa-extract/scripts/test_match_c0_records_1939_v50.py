@@ -56,7 +56,40 @@ def test_similarity_containment_begge_veje():
 def test_similarity_taaler_tomme_strenge():
     s = m.similarity("", "")
     assert s["coverage"] == 0.0
+    assert s["longest"] == 0
     assert s["containment"] == "none"
+
+
+# --------------------------------------------------------------------------
+# sammenhængende anker — spejlvendingen af ratio-fælden
+# --------------------------------------------------------------------------
+
+def test_kort_modpart_med_spredte_bogstaver_er_ikke_anker():
+    # Person 1149 hedder "Henrich" (10 skelettegn). Bogstaverne findes spredt
+    # i enhver lang record -> coverage 1.0 uden nogen identitet på spil.
+    # Uden ankerkravet blev kalibreringsrecorden derfor sammenlaegning.
+    kort = m.text_skeleton("Henrich")
+    lang = m.text_skeleton(
+        "Greve Ferdinand Einar Julius Gottlieb til Vindeholme, 1874 Student fra "
+        "Roskilde Katedralskole, 1879 cand. polit., Volontør i Udenrigsministeriet")
+    s = m.similarity(lang, kort)
+    assert s["coverage"] > 0.5          # den gamle regel ville sige kandidat
+    assert not m.has_anchor(s, len(lang), len(kort))
+
+
+def test_langt_sammenhaengende_match_er_anker():
+    person = m.text_skeleton("Greve Ferdinand Einar Julius Gottlieb til Vindeholme")
+    record = m.text_skeleton(
+        "5. Greve Ferdinand Einar Julius Gottlieb til Vindeholme (udskilt 1909)")
+    s = m.similarity(record, person)
+    assert m.has_anchor(s, len(record), len(person))
+
+
+def test_ankerkrav_skalerer_for_korte_modparter():
+    # 80 % af den korteste, dog højst MIN_ANCHOR_RUN.
+    assert m.anchor_required(500, 20) == 16
+    assert m.anchor_required(500, 500) == m.MIN_ANCHOR_RUN
+    assert m.anchor_required(0, 500) == 0
 
 
 # --------------------------------------------------------------------------

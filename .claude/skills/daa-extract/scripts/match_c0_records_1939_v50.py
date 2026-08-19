@@ -12,6 +12,7 @@ mennesket træffer alle 41 afgørelser.
 from __future__ import annotations
 
 import difflib
+import math
 import re
 import unicodedata
 from typing import Any, Dict, List, Optional
@@ -60,22 +61,48 @@ def similarity(a_skeleton: str, b_skeleton: str) -> Dict[str, Any]:
     i mere end 1 % af en lang streng, og på et skelet af små bogstaver ville
     det stille og roligt smide de almindelige bogstaver væk."""
     if not a_skeleton or not b_skeleton:
-        return {"ratio": 0.0, "coverage": 0.0, "containment": "none"}
+        return {"ratio": 0.0, "coverage": 0.0, "longest": 0, "containment": "none"}
     if a_skeleton == b_skeleton:
-        return {"ratio": 1.0, "coverage": 1.0, "containment": "exact"}
+        return {"ratio": 1.0, "coverage": 1.0, "longest": len(a_skeleton),
+                "containment": "exact"}
     containment = "none"
     if a_skeleton in b_skeleton:
         containment = "record_in_person"
     elif b_skeleton in a_skeleton:
         containment = "person_in_record"
     matcher = difflib.SequenceMatcher(None, a_skeleton, b_skeleton, autojunk=False)
-    matched = sum(block.size for block in matcher.get_matching_blocks())
+    blocks = matcher.get_matching_blocks()
+    matched = sum(block.size for block in blocks)
     denominator = min(len(a_skeleton), len(b_skeleton))
     return {
         "ratio": round(matcher.ratio(), 6),
         "coverage": round(matched / denominator, 6),
+        "longest": max((block.size for block in blocks), default=0),
         "containment": containment,
     }
+
+
+# Et ægte tekstmatch har ét langt SAMMENHÆNGENDE anker; et falsk har kun
+# krummer. Uden dette krav gør min-normaliseringen korte modparter
+# promiskuøse: person 1149 hedder «Henrich» (10 skelettegn), og de ti
+# bogstaver findes spredt i enhver lang record -> coverage 1.0 uden at der
+# er nogen som helst identitet på spil. Målt på kalibreringsrecorden skar
+# kravet 60 kandidater ned til den ene rigtige.
+MIN_ANCHOR_RUN = 40
+
+
+def anchor_required(a_len: int, b_len: int) -> int:
+    """Krævet længde på det sammenhængende anker.
+
+    Skaleret, ikke fast: for en kort modpart kræves 80 % af dens længde, så
+    ægte korte matches (fragmentstumper der står ordret) stadig kan bæres,
+    mens spredt bogstavstøj falder."""
+    shortest = min(a_len, b_len)
+    return min(MIN_ANCHOR_RUN, math.ceil(0.8 * shortest)) if shortest else 0
+
+
+def has_anchor(scores: Dict[str, Any], a_len: int, b_len: int) -> bool:
+    return scores["longest"] >= anchor_required(a_len, b_len)
 
 
 NGRAM = 20
