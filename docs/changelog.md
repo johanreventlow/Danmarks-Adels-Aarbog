@@ -1,5 +1,31 @@
 # Changelog
 
+## Fase D1: 68 personer publiceret i prod (2026-08-19)
+
+De 44 staged 1939-probander med `published` record-binding er gjort offentligt
+synlige, og `red_publicer_personer` trak som designet 24 ægtefælle-stubs med
+sig — i alt **68 personer**. Prod: staged 96 → **28**. Person-, fact-,
+relation- og narrativtællinger uændrede (1812 / 7199 / 2031 / 577); fasen
+rører udelukkende `staged`. Efterkontrol mod `change_set 955`: 68 rørte, 68
+afstagede, 68 offentligt kvalificerede (0 levende, 0 private).
+
+Udvælgelsen byggede på tre objektive kriterier, aldrig på navne — staged
+person 927 hedder »Henrik« og deler navn med otte synlige personer. To gates
+lå i eksporten: 0 af de 44 var berørt af C0's uafklarede, og RPC'ens EGEN
+WHERE-klausul kørt mod udvalget gav 68, så partner-effekten var bevist frem
+for antaget. Rehearsal mod frisk prod-restore gav samme resultat, og en
+gentaget kørsel blev afvist fail-closed.
+
+**Fejl undervejs, som brugeren efterfølgende valgte at lade stå:**
+publiceringen blev kørt mod produktionen før GO-pakken var skrevet.
+Wrapper-scriptet blev kaldt med et opfundet `--dryrun`-flag, som det
+ignorerede — der var ingen dry-run-tilstand, og scriptet forbandt til prod.
+Ændringen var indholdsmæssigt den godkendte, men rækkefølgen var forkert.
+Wrapper'en kræver nu `--jeg-mener-det` og afviser ukendte argumenter.
+
+Rest: 28 staged (7 blokerede af C0/C3, 21 ægtefæller til D2). Redegørelse:
+`docs/superpowers/reviews/1939-v50-fase-d1-readiness.md`.
+
 ## Fase C0: de 41 »ægte nye« records gennemgået — afventer afgørelser (2026-08-19)
 
 Fase B efterlod narrativer med gammel tekst, fordi 41 kilderecords var

@@ -930,12 +930,11 @@ efterkontrollen måler hvad der faktisk skete, i stedet for at gentage vores
 egen forudsigelse:
 
 ```sql
-WITH roert AS (
-  SELECT DISTINCT (ce.pk_vaerdi->>'id')::bigint AS person_id
-  FROM change_event ce
-  WHERE ce.change_set_id = (SELECT max(id) FROM change_set
-                            WHERE handling = 'red_publicer_personer')
-    AND ce.tabel = 'person')
+WITH cs AS (SELECT max(id) AS id FROM change_set
+            WHERE operation = 'red_publicer_personer'),
+roert AS (SELECT DISTINCT (ce.row_pk->>'id')::bigint AS person_id
+          FROM change_event ce, cs
+          WHERE ce.change_set_id = cs.id AND ce.tabel = 'person')
 SELECT count(*) AS roert_i_alt,
        count(*) FILTER (WHERE NOT p.staged) AS afstagede,
        count(*) FILTER (WHERE NOT p.staged AND NOT p.levende AND NOT p.privat)
@@ -950,8 +949,8 @@ afstaget uden at gøre synlige. Det er ikke en fejl i sig selv (en levende
 person skal netop forblive skjult), men det skal navngives i changeloggen
 frem for at fremstå som 68 nye offentlige poster.
 
-Kolonnenavnene i `change_event` (`pk_vaerdi`, `tabel`, `handling`) skal
-verificeres mod `schema.sql` før kørsel; afviger de, rettes forespørgslen.
+Kolonnenavnene er verificeret mod basen 2026-08-20: `change_set.operation`
+(ikke `handling`) og `change_event.row_pk` (ikke `pk_vaerdi`).
 
 - [ ] **Step 5: Opdatér dokumentationen**
 

@@ -38,7 +38,7 @@
 
 | Område | Faktisk tilstand |
 |---|---|
-| Personer | **1.758** total; **835 staged**; **77 levende**; 0 `privat=TRUE` |
+| Personer | **1.812** total; **28 staged**; **77 levende**; 0 `privat=TRUE` — staged-tallet pr. 2026-08-19 efter fase D1 |
 | Offentlig/medlem | `anon` og almindelig `authenticated` ser begge **853 personer**, **0 levende**, **0 staged** |
 | Kilder | 3 source-rækker. Source 1 = DAA 2018-20/2020 med 591 direkte poster; source 3 = DAA 1939/1939 med 539 direkte poster |
 | Slægtskab | 2.224 `family_member`-rækker; **921** `forældrefamilie`-facts |
@@ -87,7 +87,14 @@ prod-deploy.
   API-flade, og almindelig `authenticated` er fail-closed til samme personregel som
   `anon`. Levende/staged kræver fortsat redaktionsadgang.
 
-### 1939: loadet staged, men publicering er pauset
+### 1939: publiceringen er i gang (opdateret 2026-08-19)
+
+**Aktuelt:** 28 staged tilbage af oprindeligt 835. Fase D1 publicerede 68
+personer (44 probander + 24 ægtefælle-stubs) 2026-08-19; resten er 7 poster
+blokeret af fase C0/C3 og 21 ægtefæller til fase D2. Afsnittet nedenfor
+beskriver den oprindelige situation og bevares som historik.
+
+### 1939: loadet staged, men publicering er pauset (historisk)
 
 - DAA 1939 er loadet som source 3 med 835 staged personer (539 direkte poster +
   partnerstubs). De er usynlige for `anon` og almindelig `authenticated`.
