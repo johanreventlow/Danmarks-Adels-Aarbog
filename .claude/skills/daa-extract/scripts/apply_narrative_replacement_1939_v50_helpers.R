@@ -19,18 +19,38 @@ narrative_replacement_phase_a_batch_id <- "328a813a-3c04-4265-8263-79ba3b2a0715"
 
 ## -- låst 2026-08-18 (task-context.md, Faktagrundlag) — manifestet er
 ## endeligt, så disse er bogstavelige forventninger, ikke genudledte.
+## old_narrative_sha_export_sha256 opdateret 2026-08-19 (controller-ruling):
+## v2-eksporten (person_id/narrative_sha256/side/privat, genereret af den
+## reproducerbare export_narrative_old_sha_1939_v50.R mod
+## daa1939_phase_b_rehearsal1) erstatter v1 (kun person_id/narrative_sha256)
+## -- rehearsalens dry-run fandt at DB's narrative.side for person 975/986
+## afveg fra manifestets page_from, og v1 kunne ikke bære de to dokumenterede
+## rettelser eksplicit.
 narrative_replacement_locked_input_hashes <- list(
   phase_a_manifest_sha256 = "1945416b3b56e781787366008a2463b419cb8ed4df3ef1399211cac5c999e208",
   production_manifest_sha256 = "8417b6deeaf32b3cf39a4f2995a06211f8368172dfa97a188e03c6f7ef379a1f",
   narrative_publication_manifest_sha256 = "d71908cf3a998d57602a91d936a2c1b19cf874da938bdef0d691fda9a2ac7654",
   calamari_sha256 = "020123a3588dacf80705a22fb021ab4f5da97b8de202e8664304ca01f9a6da37",
-  old_narrative_sha_export_sha256 = "e91145c79867f99c79edcc6aa6f1711b4dc5002406fdfc0eded42778f90501ec",
+  old_narrative_sha_export_sha256 = "ec9845e0504d77980182617afd9f1b7daddb447d12e55dd4f6148c435987fec6",
   decisions_sha256 = "4090680b0fc9cb2c590b2235606536557d0c4dd7afebe5cc6e34b415334e5f0b"
 )
 
+## -- antal DOKUMENTEREDE side-rettelser er låst (2 -- person 975: DB side
+## 508 rettes til 509; 986: DB side 503 rettes til 505 -- controller-
+## verificeret 2026-08-19, se task-5-report.md), men INDHOLDET (hvilke
+## person_id'er/tal) valideres STRUKTURELT i validate_narrative_replacement_
+## manifest (person_id findes blandt operations, observed != expected,
+## expected matcher den operations page_from) -- ikke som en hardkodet
+## literal-liste. Samme mønster som bindings_create/bindings_existing
+## (543/8): tallet er låst, de specifikke identiteter er det ikke, så
+## R-testens syntetiske fixture kan udøve den fulde kontrakt uden at
+## afhænge af de rigtige person_id'er.
+narrative_replacement_expected_side_corrections <- 2L
+
 narrative_replacement_expected_counts <- list(
   narratives = 551L, updates = 551L, inserts = 0L,
-  bindings_create = 543L, bindings_existing = 8L
+  bindings_create = 543L, bindings_existing = 8L,
+  side_corrections = narrative_replacement_expected_side_corrections
 )
 
 stop_narrative_replacement <- function(code) stop(code, call. = FALSE)
@@ -106,7 +126,8 @@ canonical_narrative_replacement_sha256 <- function(value) {
 ## ---------------------------------------------------------------------
 
 narrative_replacement_operation_required_keys <- c(
-  "binding", "citation_label", "expected_old_narrative_sha256", "normalized_sha256",
+  "binding", "citation_label", "expected_old_narrative_sha256", "expected_old_privat",
+  "expected_old_side", "normalized_sha256",
   "normalized_text", "page_from", "person_id", "raw_sha256", "record_label",
   "source_record_key", "source_span"
 )
@@ -133,6 +154,14 @@ validate_narrative_replacement_operation <- function(op) {
   if (!narrative_replacement_hash(op$raw_sha256) || !narrative_replacement_hash(op$normalized_sha256) ||
       !narrative_replacement_hash(op$expected_old_narrative_sha256))
     stop_narrative_replacement("NARRATIVE_REPLACEMENT_1939_OPERATION_INVALID")
+  ## expected_old_privat: build-time guarantee (Python builder aborts if any
+  ## of the 551 has privat=true in the export) -- validated here as a
+  ## literal, so a builder regression is caught at manifest-load-time, not
+  ## only later against a live DB.
+  if (!identical(op$expected_old_privat, FALSE))
+    stop_narrative_replacement("NARRATIVE_REPLACEMENT_1939_OPERATION_INVALID")
+  if (!narrative_replacement_scalar_string(op$expected_old_side))
+    stop_narrative_replacement("NARRATIVE_REPLACEMENT_1939_OPERATION_INVALID")
   if (!narrative_replacement_scalar_string(op$normalized_text))
     stop_narrative_replacement("NARRATIVE_REPLACEMENT_1939_OPERATION_INVALID")
   if (!identical(digest::digest(enc2utf8(op$normalized_text), algo = "sha256", serialize = FALSE), op$normalized_sha256))
@@ -144,14 +173,14 @@ validate_narrative_replacement_operation <- function(op) {
 
 narrative_replacement_required_manifest_keys <- c(
   "schema_version", "generator_version", "input_hashes", "source", "operations",
-  "counts", "flags", "out_of_scope", "production_authorized", "apply_gate",
+  "counts", "flags", "out_of_scope", "side_corrections", "production_authorized", "apply_gate",
   "manifest_content_sha256"
 )
 
 validate_narrative_replacement_manifest <- function(x) {
   if (!narrative_replacement_names_equal(x, narrative_replacement_required_manifest_keys))
     stop_narrative_replacement("NARRATIVE_REPLACEMENT_1939_MANIFEST_INVALID")
-  if (!identical(x$schema_version, "1939-v50-narrative-replacement-manifest-v1") ||
+  if (!identical(x$schema_version, "1939-v50-narrative-replacement-manifest-v2") ||
       !narrative_replacement_scalar_string(x$generator_version) ||
       !identical(x$production_authorized, FALSE) || !identical(x$apply_gate, "NO-GO") ||
       !narrative_replacement_hash(x$manifest_content_sha256))
@@ -173,7 +202,8 @@ validate_narrative_replacement_manifest <- function(x) {
     updates = narrative_replacement_int(x$counts$updates),
     inserts = narrative_replacement_int(x$counts$inserts),
     bindings_create = narrative_replacement_int(x$counts$bindings_create),
-    bindings_existing = narrative_replacement_int(x$counts$bindings_existing)
+    bindings_existing = narrative_replacement_int(x$counts$bindings_existing),
+    side_corrections = narrative_replacement_int(x$counts$side_corrections)
   )
   if (!narrative_replacement_names_equal(x$counts, names(narrative_replacement_expected_counts)) ||
       !identical(got_counts, narrative_replacement_expected_counts))
@@ -208,6 +238,53 @@ validate_narrative_replacement_manifest <- function(x) {
   bindings <- vapply(ops, validate_narrative_replacement_operation, character(1))
   if (sum(bindings == "create") != 543L || sum(bindings == "existing") != 8L)
     stop_narrative_replacement("NARRATIVE_REPLACEMENT_1939_BINDING_ARITHMETIC_INVALID")
+
+  ## side_corrections: COUNT is locked (2, via got_counts above); CONTENT is
+  ## validated structurally -- each entry must name a real in-scope
+  ## person_id, observed != expected (an identity "correction" isn't one),
+  ## and (cross-checked below) must match that operation's own
+  ## expected_old_side/page_from exactly. This is the same split as
+  ## bindings_create/bindings_existing (543/8 locked, specific person_ids
+  ## not hardcoded) -- keeps the contract enforced without baking production
+  ## person_ids into the general-purpose validator.
+  sc <- x$side_corrections
+  if (!is.list(sc) || length(sc) != narrative_replacement_expected_side_corrections)
+    stop_narrative_replacement("NARRATIVE_REPLACEMENT_1939_SIDE_CORRECTIONS_INVALID")
+  got_side_corrections <- lapply(sc, function(entry) {
+    if (!narrative_replacement_names_equal(entry, c("person_id", "observed", "expected")))
+      stop_narrative_replacement("NARRATIVE_REPLACEMENT_1939_SIDE_CORRECTIONS_INVALID")
+    pid <- narrative_replacement_int(entry$person_id)
+    if (is.na(pid) || !(pid %in% person_ids) ||
+        !narrative_replacement_scalar_string(entry$observed) || !narrative_replacement_scalar_string(entry$expected) ||
+        identical(entry$observed, entry$expected))
+      stop_narrative_replacement("NARRATIVE_REPLACEMENT_1939_SIDE_CORRECTIONS_INVALID")
+    list(person_id = pid, observed = entry$observed, expected = entry$expected)
+  })
+  correction_pids <- vapply(got_side_corrections, function(c) c$person_id, integer(1))
+  if (anyDuplicated(correction_pids))
+    stop_narrative_replacement("NARRATIVE_REPLACEMENT_1939_SIDE_CORRECTIONS_INVALID")
+
+  ## Cross-check EVERY operation's expected_old_side against side_corrections
+  ## membership -- an operation NOT in the corrections list must claim
+  ## expected_old_side==page_from; one that IS listed must claim exactly the
+  ## documented "observed" value (and the correction's own "expected" must
+  ## equal that op's page_from). Catches a manifest whose top-level
+  ## side_corrections list is structurally valid but whose per-operation
+  ## fields have silently decoupled from it -- also proves every correction
+  ## entry is actually consumed by a real operation (no orphans), since
+  ## every op is visited and correction_pids is a subset of person_ids.
+  correction_by_pid <- stats::setNames(got_side_corrections, as.character(correction_pids))
+  for (op in ops) {
+    pid_key <- as.character(narrative_replacement_int(op$person_id))
+    expected_side <- as.character(narrative_replacement_int(op$page_from))
+    correction <- correction_by_pid[[pid_key]]
+    ok <- if (is.null(correction)) {
+      identical(op$expected_old_side, expected_side)
+    } else {
+      identical(op$expected_old_side, correction$observed) && identical(correction$expected, expected_side)
+    }
+    if (!ok) stop_narrative_replacement(paste0("NARRATIVE_REPLACEMENT_1939_SIDE_CORRECTIONS_OP_MISMATCH:", pid_key))
+  }
 
   content <- x
   content$manifest_content_sha256 <- NULL
@@ -258,28 +335,53 @@ narrative_replacement_check_old_sha <- function(rows, manifest) {
 ## UPDATE-gren skriver TRE kolonner (schema.sql:3884: tekst, privat,
 ## side=COALESCE(p_side,side)), men replay-værnet ovenfor dækker kun tekst.
 ## Denne funktion lukker de to andre:
-##   (1) privat=TRUE for en af de 551 → ABORT. Writeren sender altid
-##       p_privat=FALSE, så en post der i dag er privat ville blive
-##       tavst afprivatiseret — public_person_bio_source_versions filtrerer
-##       netop på dette flag (schema.sql:3061), så brud er et GDPR-brud
-##       (invariant 8), ikke bare en datafejl.
-##   (2) side afviger fra manifestets page_from → ABORT. p_side er ALTID
-##       non-NULL (as.character(page_from)), så SQL'ens COALESCE(p_side,side)
-##       aldrig aktiveres og side altid overskrives — en flersidet/håndrettet
-##       side-streng ville kollapse tavst, uopgjort og uopdaget i verify.
+##   (1) privat=TRUE for en af de 551 → ABORT, UÆNDRET (Task 4-fix). Writeren
+##       sender altid p_privat=FALSE, så en post der i dag er privat ville
+##       blive tavst afprivatiseret — public_person_bio_source_versions
+##       filtrerer netop på dette flag (schema.sql:3061), så brud er et
+##       GDPR-brud (invariant 8), ikke bare en datafejl.
+##   (2) side afviger fra manifestets page_from → ABORT, MEDMINDRE person_id
+##       findes i manifest$side_corrections MED PRÆCIS matchende
+##       observed/expected (2026-08-19 controller-ruling: person 975/986 er
+##       to dokumenterede gamle importfejl, verificeret uden for denne
+##       kørsel — se task-5-report.md/build_narrative_replacement_manifest's
+##       side_corrections). En korrektion der ikke matcher DB's FAKTISKE
+##       observed-værdi PRÆCIST er FORÆLDET (allerede rettet af en anden
+##       vej, eller DB har flyttet sig yderligere siden manifestet blev
+##       frosset) og skal ABORTE, ikke stille tillades eller stiltiende
+##       springes over — korrektionslisten er et fastfrosset foto af DB's
+##       tilstand på fryse-tidspunktet, ikke en generel tilladelse.
 ## Fail-closed på FØRSTE afvigelse i manifest-rækkefølge (stigende person_id),
 ## privat prioriteret før side for samme post.
 narrative_replacement_check_privat_and_side <- function(rows, manifest) {
   if (!is.data.frame(rows) || !all(c("privat", "side") %in% names(rows)))
     stop_narrative_replacement("NARRATIVE_REPLACEMENT_1939_PREFLIGHT_COLUMNS_INVALID")
+  corrections_by_pid <- stats::setNames(manifest$side_corrections,
+    vapply(manifest$side_corrections, function(c) as.character(narrative_replacement_int(c$person_id)), character(1)))
   for (op in manifest$operations) {
     idx <- match(op$person_id, rows$person_id)
-    if (is.na(idx)) next  ## dækket fail-closed af check_old_sha's egen radraekke-invariant
+    if (is.na(idx))
+      stop_narrative_replacement(paste0("NARRATIVE_REPLACEMENT_1939_NARRATIVE_MISSING:", op$person_id))
     if (isTRUE(rows$privat[[idx]]))
       stop_narrative_replacement(paste0("NARRATIVE_REPLACEMENT_1939_PRIVAT_FLAG_SET:", op$person_id))
     observed_side <- rows$side[[idx]]
     expected_side <- as.character(op$page_from)
     observed_side_label <- if (is.na(observed_side)) "NULL" else as.character(observed_side)
+
+    pid_key <- as.character(op$person_id)
+    correction <- corrections_by_pid[[pid_key]]
+    if (!is.null(correction)) {
+      ## En dokumenteret korrektion findes for dette person_id -- DB's
+      ## FAKTISKE observed-værdi skal matche korrektionens "observed" HELT
+      ## PRÆCIST, ellers er korrektionen forældet (kollapset-til/allerede
+      ## fikset/drevet-yderligere) og skal ABORTE, ikke stiltiende passere.
+      if (!identical(observed_side_label, correction$observed))
+        stop_narrative_replacement(paste0(
+          "NARRATIVE_REPLACEMENT_1939_SIDE_CORRECTION_STALE:", op$person_id,
+          ":db=", observed_side_label, ":manifest_observed=", correction$observed))
+      next  ## korrektionen dækker netop denne dokumenterede afvigelse
+    }
+
     if (!identical(observed_side_label, expected_side) || is.na(observed_side))
       stop_narrative_replacement(paste0(
         "NARRATIVE_REPLACEMENT_1939_SIDE_UNEXPECTED:", op$person_id,

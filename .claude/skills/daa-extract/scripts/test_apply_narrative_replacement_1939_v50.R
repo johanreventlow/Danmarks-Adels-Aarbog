@@ -20,10 +20,14 @@ sha <- function(letter) paste(rep(letter, 64L), collapse = "")
 
 ## -- fixture-manifest: 551 operationer (543 create + 8 existing), samme
 ## invarianter som det rigtige (låste) manifest, men syntetiske person_id'er/
-## nøgler så testen aldrig afhænger af PII eller af den frosne fil.
+## nøgler så testen aldrig afhænger af PII eller af den frosne fil. To
+## operationer (i=1,2 -- person 901/902) er bevidst byggede som DOKUMENTEREDE
+## side-rettelser (expected_old_side != page_from), samme mønster som de
+## rigtige person 975/986 -- se side_corrections nedenfor.
 narrative_replacement_test_total <- 551L
 narrative_replacement_test_existing <- 8L
 narrative_replacement_test_create <- 543L
+narrative_replacement_test_correction_indices <- c(1L, 2L)
 
 build_narrative_replacement_fixture_operations <- function() {
   lapply(seq_len(narrative_replacement_test_total), function(i) {
@@ -32,6 +36,11 @@ build_narrative_replacement_fixture_operations <- function() {
     key <- sprintf("record-aaaaaaaa-aaaa-4aaa-8aaa-%012d", i)
     page <- 500L + (i %/% 20L)
     text <- paste0("Normaliseret tekst for person ", person_id, " (post ", i, ").")
+    old_side <- if (i %in% narrative_replacement_test_correction_indices) {
+      as.character(page - 1L)  ## deliberate mismatch -- a documented correction
+    } else {
+      as.character(page)
+    }
     list(
       person_id = person_id,
       source_record_key = key,
@@ -41,6 +50,8 @@ build_narrative_replacement_fixture_operations <- function() {
       normalized_sha256 = digest::digest(enc2utf8(text), algo = "sha256", serialize = FALSE),
       normalized_text = text,
       expected_old_narrative_sha256 = digest::digest(paste0("old-", key), algo = "sha256", serialize = FALSE),
+      expected_old_side = old_side,
+      expected_old_privat = FALSE,
       binding = binding,
       record_label = key,
       citation_label = paste0("DAA 1939 side ", page)
@@ -48,19 +59,31 @@ build_narrative_replacement_fixture_operations <- function() {
   })
 }
 
+## -- side_corrections svarende PRÆCIST til de to markerede operationer
+## ovenfor (person 901/902): observed==deres expected_old_side,
+## expected==deres page_from som streng.
+build_narrative_replacement_fixture_side_corrections <- function(operations) {
+  lapply(narrative_replacement_test_correction_indices, function(i) {
+    op <- operations[[i]]
+    list(person_id = op$person_id, observed = op$expected_old_side, expected = as.character(op$page_from))
+  })
+}
+
 fixture_manifest <- function() {
+  operations <- build_narrative_replacement_fixture_operations()
   manifest <- list(
-    schema_version = "1939-v50-narrative-replacement-manifest-v1",
+    schema_version = "1939-v50-narrative-replacement-manifest-v2",
     generator_version = "test:v1",
     input_hashes = narrative_replacement_locked_input_hashes,
     source = list(
       edition = "1939", logical_source_id = "1939", database_source_id = 3L,
       rendition_content_sha256 = narrative_replacement_locked_input_hashes$calamari_sha256
     ),
-    operations = build_narrative_replacement_fixture_operations(),
+    operations = operations,
     counts = narrative_replacement_expected_counts,
     flags = list(),
     out_of_scope = lapply(1:26, function(i) list(person_id = 2000L + i, reason = "no_mapped_source_record")),
+    side_corrections = build_narrative_replacement_fixture_side_corrections(operations),
     production_authorized = FALSE, apply_gate = "NO-GO"
   )
   manifest$manifest_content_sha256 <- canonical_narrative_replacement_sha256(manifest)
@@ -299,15 +322,36 @@ expect_error(narrative_replacement_check_old_sha(missing_rows, m), "NARRATIVE_RE
 ## narrative_replacement_check_privat_and_side (Task 4-review Important 1,
 ## controller-ruling 2026-08-19): red_upsert_narrativ's UPDATE-gren
 ## overskriver privat OG side ubetinget — replay-værnet ovenfor dækkede
-## oprindeligt kun tekst-SHA'en. Disse tests dækker begge afvisningsveje.
+## oprindeligt kun tekst-SHA'en. Disse tests dækker begge afvisningsveje,
+## PLUS de to nye korrektions-stier (2026-08-19-udvidelsen): en dokumenteret
+## side-afvigelse tillades KUN når DB'ens faktiske værdi matcher manifestets
+## side_corrections PRÆCIST; en forældet/ikke-matchende korrektion aborter.
 ## ---------------------------------------------------------------------
+correction_pids <- vapply(m$side_corrections, function(c) c$person_id, numeric(1))
+side_for_op <- function(op) {
+  idx <- match(op$person_id, correction_pids)
+  if (is.na(idx)) as.character(op$page_from) else m$side_corrections[[idx]]$observed
+}
 privat_side_rows <- matching_rows
 privat_side_rows$privat <- FALSE
-privat_side_rows$side <- vapply(m$operations, function(op) as.character(op$page_from), character(1))
+## -- reality matching the DOCUMENTED corrections: the two corrected persons
+## legitimately still show their pre-correction (observed) side in "DB";
+## everyone else shows page_from.
+privat_side_rows$side <- vapply(m$operations, side_for_op, character(1))
 
-## -- succesvej: alle privat=FALSE, alle side==page_from
+## -- succesvej: alle privat=FALSE; alle side==page_from ELLER en
+## dokumenteret, eksakt matchende korrektion (fire veje, vej 1: ren match)
 narrative_replacement_check_privat_and_side(privat_side_rows, m)
 expect(TRUE)
+
+## -- vej 2 eksplicit: en dokumenteret afvigelse med PRÆCIS matchende
+## observed-værdi tillades gennem replay-værnet (writeren vil rette den til
+## page_from ved upsert) -- den generelle succesvej ovenfor dækker dette
+## allerede for BEGGE korrigerede personer (901 og 902); assert direkte at
+## begge rent faktisk afviger fra page_from i input, så testen ikke
+## utilsigtet er en no-op.
+expect(m$operations[[1L]]$expected_old_side != as.character(m$operations[[1L]]$page_from))
+expect(m$operations[[2L]]$expected_old_side != as.character(m$operations[[2L]]$page_from))
 
 ## -- privat=TRUE for én post → ABORT fail-closed med det person_id (ville
 ## ellers tavst afprivatisere posten — brud på invariant 8/GDPR)
@@ -325,10 +369,10 @@ na_privat_rows$privat[[1L]] <- NA
 narrative_replacement_check_privat_and_side(na_privat_rows, m)
 expect(TRUE)
 
-## -- side afviger fra page_from for én post → ABORT fail-closed med
-## person_id + begge værdier (ville ellers kollapse en flersidet/håndrettet
-## side-streng tavst, jf. COALESCE(p_side,side) der aldrig aktiveres når
-## p_side altid er non-NULL)
+## -- vej 3: side afviger fra page_from for én post der IKKE er dokumenteret
+## som en korrektion → ABORT fail-closed med person_id + begge værdier
+## (ville ellers kollapse en flersidet/håndrettet side-streng tavst, jf.
+## COALESCE(p_side,side) der aldrig aktiveres når p_side altid er non-NULL)
 side_drift_rows <- privat_side_rows
 side_drift_pid <- m$operations[[15L]]$person_id
 side_drift_rows$side[side_drift_rows$person_id == side_drift_pid] <- "596-598"
@@ -344,6 +388,31 @@ side_null_pid <- m$operations[[21L]]$person_id
 side_null_rows$side[side_null_rows$person_id == side_null_pid] <- NA_character_
 expect_error(narrative_replacement_check_privat_and_side(side_null_rows, m),
   paste0("NARRATIVE_REPLACEMENT_1939_SIDE_UNEXPECTED:", side_null_pid, ":observed=NULL"))
+
+## -- vej 4: en FORÆLDET korrektion aborter -- DB's faktiske observed-værdi
+## for en dokumenteret korrigeret person matcher IKKE manifestets
+## side_corrections["observed"] PRÆCIST (her: allerede rettet til page_from
+## af en anden vej, dvs. korrektionen er ikke længere nødvendig men listen
+## siger den stadig er). Skal ABORTE, ikke stiltiende accepteres blot fordi
+## personen er "på listen" -- korrektionslisten er et fastfrosset foto, ikke
+## en generel tilladelse for det person_id.
+stale_correction_rows <- privat_side_rows
+stale_pid <- m$operations[[1L]]$person_id
+stale_expected <- as.character(m$operations[[1L]]$page_from)
+stale_correction_rows$side[stale_correction_rows$person_id == stale_pid] <- stale_expected
+expect_error(narrative_replacement_check_privat_and_side(stale_correction_rows, m),
+  paste0("NARRATIVE_REPLACEMENT_1939_SIDE_CORRECTION_STALE:", stale_pid,
+    ":db=", stale_expected, ":manifest_observed=", m$operations[[1L]]$expected_old_side))
+
+## -- samme vej 4, men DB viser en TREDJE, helt anden værdi (hverken den
+## dokumenterede observed eller page_from) -- stadig STALE, ikke
+## SIDE_UNEXPECTED (personen ER på korrektionslisten, så det er den sti der
+## afgør fejlkoden)
+drifted_further_rows <- privat_side_rows
+drifted_further_rows$side[drifted_further_rows$person_id == stale_pid] <- "999"
+expect_error(narrative_replacement_check_privat_and_side(drifted_further_rows, m),
+  paste0("NARRATIVE_REPLACEMENT_1939_SIDE_CORRECTION_STALE:", stale_pid,
+    ":db=999:manifest_observed=", m$operations[[1L]]$expected_old_side))
 
 ## -- manglende privat/side-kolonner → struktur-guard
 expect_error(narrative_replacement_check_privat_and_side(matching_rows, m),
@@ -510,6 +579,22 @@ bad <- fixture_manifest()
 bad$operations[[1L]]$source_record_key <- "not-a-record-key"
 expect_error(validate_narrative_replacement_manifest(bad), "NARRATIVE_REPLACEMENT_1939_OPERATION_INVALID")
 
+## -- expected_old_privat/expected_old_side (2026-08-19-udvidelsen): manglende
+## nøgle -> shape-guard; expected_old_privat != FALSE -> byggeren garanterer
+## dette altid, så en TRUE her er en builder-regression fanget ved
+## manifest-load-tid, ikke først ved en levende DB.
+bad <- fixture_manifest(); bad$operations[[1L]]$expected_old_privat <- NULL
+expect_error(validate_narrative_replacement_manifest(bad), "NARRATIVE_REPLACEMENT_1939_OPERATION_INVALID")
+
+bad <- fixture_manifest(); bad$operations[[1L]]$expected_old_side <- NULL
+expect_error(validate_narrative_replacement_manifest(bad), "NARRATIVE_REPLACEMENT_1939_OPERATION_INVALID")
+
+bad <- fixture_manifest(); bad$operations[[1L]]$expected_old_privat <- TRUE
+expect_error(validate_narrative_replacement_manifest(bad), "NARRATIVE_REPLACEMENT_1939_OPERATION_INVALID")
+
+bad <- fixture_manifest(); bad$operations[[1L]]$expected_old_side <- ""
+expect_error(validate_narrative_replacement_manifest(bad), "NARRATIVE_REPLACEMENT_1939_OPERATION_INVALID")
+
 bad <- fixture_manifest()
 ## flyt én "create" til "existing" uden at ændre labels → arithmetik knækker (542/9)
 bad$operations[[551L]]$binding <- "existing"
@@ -526,6 +611,51 @@ expect_error(validate_narrative_replacement_manifest(bad), "NARRATIVE_REPLACEMEN
 
 bad <- fixture_manifest(); bad$out_of_scope[[2L]]$person_id <- bad$out_of_scope[[1L]]$person_id
 expect_error(validate_narrative_replacement_manifest(bad), "NARRATIVE_REPLACEMENT_1939_OUT_OF_SCOPE_INVALID")
+
+## ---------------------------------------------------------------------
+## side_corrections -- manifest-validator afvisningsstier (2026-08-19)
+## ---------------------------------------------------------------------
+## -- counts$side_corrections afviger fra selve listens indhold
+bad <- fixture_manifest(); bad$counts$side_corrections <- 1L
+expect_error(validate_narrative_replacement_manifest(bad), "NARRATIVE_REPLACEMENT_1939_COUNTS_INVALID")
+
+## -- selve side_corrections-listen har forkert længde (counts urørt)
+bad <- fixture_manifest(); bad$side_corrections <- bad$side_corrections[1L]
+expect_error(validate_narrative_replacement_manifest(bad), "NARRATIVE_REPLACEMENT_1939_SIDE_CORRECTIONS_INVALID")
+
+bad <- fixture_manifest()
+bad$side_corrections <- list(bad$side_corrections[[1L]], bad$side_corrections[[1L]])
+expect_error(validate_narrative_replacement_manifest(bad), "NARRATIVE_REPLACEMENT_1939_SIDE_CORRECTIONS_INVALID")
+
+## -- person_id ikke blandt operations
+bad <- fixture_manifest(); bad$side_corrections[[1L]]$person_id <- 999999L
+expect_error(validate_narrative_replacement_manifest(bad), "NARRATIVE_REPLACEMENT_1939_SIDE_CORRECTIONS_INVALID")
+
+## -- observed==expected er ikke en ægte korrektion
+bad <- fixture_manifest()
+bad$side_corrections[[1L]]$observed <- bad$side_corrections[[1L]]$expected
+expect_error(validate_narrative_replacement_manifest(bad), "NARRATIVE_REPLACEMENT_1939_SIDE_CORRECTIONS_INVALID")
+
+## -- manglende side_corrections-nøgle helt → manifest-shape-guard
+bad <- fixture_manifest(); bad$side_corrections <- NULL
+expect_error(validate_narrative_replacement_manifest(bad), "NARRATIVE_REPLACEMENT_1939_MANIFEST_INVALID")
+
+## -- op-niveau er DEKOBLET fra side_corrections: operationen for en
+## korrigeret person siger noget ANDET end det korrektionens "observed"
+## dokumenterer → OP_MISMATCH (fanger et manifest hvis top-niveau er
+## strukturelt gyldigt, men hvis per-operation-felt er faldet ud af trit)
+bad <- fixture_manifest()
+bad$operations[[1L]]$expected_old_side <- "drift-value"
+expect_error(validate_narrative_replacement_manifest(bad),
+  paste0("NARRATIVE_REPLACEMENT_1939_SIDE_CORRECTIONS_OP_MISMATCH:", bad$operations[[1L]]$person_id))
+
+## -- en operation der IKKE er i side_corrections, men alligevel har
+## expected_old_side != page_from → OP_MISMATCH (en udokumenteret afvigelse,
+## der aldrig kunne komme fra byggeren, men SKAL fanges her hvis den gør)
+bad <- fixture_manifest()
+bad$operations[[10L]]$expected_old_side <- "not-the-page"
+expect_error(validate_narrative_replacement_manifest(bad),
+  paste0("NARRATIVE_REPLACEMENT_1939_SIDE_CORRECTIONS_OP_MISMATCH:", bad$operations[[10L]]$person_id))
 
 bad <- fixture_manifest(); bad$schema_version <- "other"
 expect_error(validate_narrative_replacement_manifest(bad), "NARRATIVE_REPLACEMENT_1939_MANIFEST_INVALID")

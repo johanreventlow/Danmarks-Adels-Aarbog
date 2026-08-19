@@ -60,7 +60,17 @@ LOCKED_PHASE_A_MANIFEST_SHA256 = "1945416b3b56e781787366008a2463b419cb8ed4df3ef1
 LOCKED_PRODUCTION_MANIFEST_SHA256 = "8417b6deeaf32b3cf39a4f2995a06211f8368172dfa97a188e03c6f7ef379a1f"
 LOCKED_NARRATIVE_PUBLICATION_MANIFEST_SHA256 = "d71908cf3a998d57602a91d936a2c1b19cf874da938bdef0d691fda9a2ac7654"
 LOCKED_CALAMARI_SHA256 = "020123a3588dacf80705a22fb021ab4f5da97b8de202e8664304ca01f9a6da37"
-LOCKED_OLD_NARRATIVE_SHA_EXPORT_SHA256 = "e91145c79867f99c79edcc6aa6f1711b4dc5002406fdfc0eded42778f90501ec"
+# v2 (2026-08-19, controller-ruling): rehearsal dry-run fandt at DB's
+# narrative.side for person 975/986 (508/503) afveg fra manifestets
+# page_from (509/505) -- to gamle importfejl, verificeret af controlleren
+# (menneskeverificeret grænsemateriale + 0 PDF-side-konflikter i hele bogen
+# + korrekt side for peers på samme trykte side). v1's eksport bar kun
+# person_id+narrative_sha256 og kunne derfor ikke bære disse to rettelser
+# eksplicit -- v2 tilføjer side+privat pr. række (se
+# export_narrative_old_sha_1939_v50.R, den reproducerbare erstatning for
+# Task 2's ad hoc psql-eksport), så de to rettelser kan OPREGNES
+# (side_corrections) i stedet for tavst tilladt eller blokerende.
+LOCKED_OLD_NARRATIVE_SHA_EXPORT_SHA256 = "ec9845e0504d77980182617afd9f1b7daddb447d12e55dd4f6148c435987fec6"
 LOCKED_INPUT_HASHES = [
     LOCKED_PHASE_A_MANIFEST_SHA256, LOCKED_PRODUCTION_MANIFEST_SHA256,
     LOCKED_NARRATIVE_PUBLICATION_MANIFEST_SHA256, LOCKED_CALAMARI_SHA256,
@@ -73,6 +83,7 @@ EXPECTED_IN_SCOPE = 551
 EXPECTED_TOTAL_SOURCE_NARRATIVES = 577
 EXPECTED_OUT_OF_SCOPE = 26
 EXPECTED_FLAG_COUNTS = {"hyphen_unproven": 168, "hyphen_ambiguous": 8, "ordinal_ambiguous": 2}
+EXPECTED_SIDE_CORRECTIONS = 2
 
 DEFAULT_ACTION = {"hyphen_unproven": "merge", "hyphen_ambiguous": "keep", "ordinal_ambiguous": "keep"}
 VALID_ACTIONS = {
@@ -214,23 +225,35 @@ def _production_write_8(production_manifest: Dict[str, Any], calamari_sha256: st
     return result
 
 
-def _old_sha_by_person(export: Dict[str, Any]) -> Dict[int, str]:
-    if (export.get("schema_version") != "1939-v50-narrative-old-sha-export-v1" or
-            export.get("query", {}).get("source_id") != 3 or
+def _old_sha_by_person(export: Dict[str, Any]) -> Dict[int, Dict[str, Any]]:
+    """Parses a v2 old-narrative-sha export (person_id, narrative_sha256,
+    side, privat per row) -- v1 (person_id/narrative_sha256 only, no
+    side/privat) is explicitly REJECTED with a clear, distinct error so a
+    caller who still points this at the old ad hoc export gets an
+    unambiguous message rather than a row-shape KeyError downstream."""
+    schema_version = export.get("schema_version")
+    if schema_version != "1939-v50-narrative-old-sha-export-v2":
+        _fail(f"NARRATIVE_MANIFEST_OLD_SHA_SCHEMA_VERSION_UNSUPPORTED:{schema_version}")
+    if (export.get("query", {}).get("source_id") != 3 or
             export.get("query", {}).get("subjekt_type") != "person"):
         _fail("NARRATIVE_MANIFEST_OLD_SHA_INVALID")
     rows = export.get("rows")
     if not isinstance(rows, list) or export.get("row_count") != len(rows):
         _fail("NARRATIVE_MANIFEST_OLD_SHA_INVALID")
-    result: Dict[int, str] = {}
+    result: Dict[int, Dict[str, Any]] = {}
     for row in rows:
         if not isinstance(row, dict):
             _fail("NARRATIVE_MANIFEST_OLD_SHA_INVALID")
         pid = row.get("person_id")
         sha = row.get("narrative_sha256")
-        if not isinstance(pid, int) or pid in result or not HASH_RE.fullmatch(sha or ""):
-            _fail("NARRATIVE_MANIFEST_OLD_SHA_ROW_INVALID")
-        result[pid] = sha
+        side = row.get("side")
+        privat = row.get("privat")
+        if (not isinstance(pid, int) or isinstance(pid, bool) or pid in result or
+                not HASH_RE.fullmatch(sha or "") or
+                not (side is None or isinstance(side, str)) or
+                not isinstance(privat, bool)):
+            _fail(f"NARRATIVE_MANIFEST_OLD_SHA_ROW_INVALID:{pid}")
+        result[pid] = {"narrative_sha256": sha, "side": side, "privat": privat}
     return result
 
 
@@ -352,6 +375,7 @@ def _build_narrative_replacement(
     expected_bindings_create: Optional[int] = None, expected_bindings_existing: Optional[int] = None,
     expected_out_of_scope: Optional[int] = None, expected_total_source_narratives: Optional[int] = None,
     expected_in_scope: Optional[int] = None, expected_flag_counts: Optional[Dict[str, int]] = None,
+    expected_side_corrections: Optional[int] = None,
 ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
     """Returns ``(manifest_or_None, flags_document)``.
 
@@ -385,6 +409,28 @@ def _build_narrative_replacement(
     missing_old_sha = set(scope) - set(old_sha)
     if missing_old_sha:
         _fail(f"NARRATIVE_MANIFEST_OLD_SHA_MISSING_FOR_SCOPE:{sorted(missing_old_sha)[0]}")
+
+    # Build-time privat guard (controller-ruling 2026-08-19): a privat=true
+    # narrative among the 551 must abort manifest generation entirely, not
+    # just be caught later by the writer's own preflight -- this is the
+    # earliest point the fact is knowable, and Task 3's human checkpoint
+    # (which also runs the builder, without --decisions) should see it too.
+    for pid in sorted(scope):
+        if old_sha[pid]["privat"]:
+            _fail(f"NARRATIVE_MANIFEST_OLD_PRIVAT_UNEXPECTED:{pid}")
+
+    # Documented side-corrections (controller-ruling 2026-08-19): DB's
+    # current narrative.side may legitimately differ from the manifest's
+    # page_from for a *documented, reviewed* subset (two known old import
+    # errors at build time: person 975 508->509, 986 503->505) -- these
+    # deviations must be explicitly ENUMERATED, never silently accepted, so
+    # the writer's replay-guard can allow exactly these and nothing else.
+    side_corrections = [
+        {"person_id": pid, "observed": old_sha[pid]["side"], "expected": str(scope[pid]["page_from"])}
+        for pid in sorted(scope) if old_sha[pid]["side"] != str(scope[pid]["page_from"])
+    ]
+    if expected_side_corrections is not None and len(side_corrections) != expected_side_corrections:
+        _fail("NARRATIVE_MANIFEST_ARITHMETIC_MISMATCH:side_corrections")
 
     out_of_scope_ids = sorted(set(old_sha) - set(scope))
     if expected_out_of_scope is not None and len(out_of_scope_ids) != expected_out_of_scope:
@@ -461,7 +507,9 @@ def _build_narrative_replacement(
             "raw_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
             "normalized_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
             "normalized_text": text,
-            "expected_old_narrative_sha256": old_sha[pid],
+            "expected_old_narrative_sha256": old_sha[pid]["narrative_sha256"],
+            "expected_old_side": old_sha[pid]["side"],
+            "expected_old_privat": old_sha[pid]["privat"],
             "binding": row["binding"],
             "record_label": row["source_record_key"],
             "citation_label": f"DAA 1939 side {row['page_from']}",
@@ -470,10 +518,11 @@ def _build_narrative_replacement(
     counts = {
         "narratives": len(operations), "updates": len(operations), "inserts": 0,
         "bindings_create": len(scope_543), "bindings_existing": len(scope_8),
+        "side_corrections": len(side_corrections),
     }
     manifest = {
-        "schema_version": "1939-v50-narrative-replacement-manifest-v1",
-        "generator_version": "build_narrative_replacement_manifest_1939_v50.py:v1",
+        "schema_version": "1939-v50-narrative-replacement-manifest-v2",
+        "generator_version": "build_narrative_replacement_manifest_1939_v50.py:v2",
         "input_hashes": {
             "phase_a_manifest_sha256": input_hashes[0], "production_manifest_sha256": input_hashes[1],
             "narrative_publication_manifest_sha256": input_hashes[2], "calamari_sha256": input_hashes[3],
@@ -485,6 +534,7 @@ def _build_narrative_replacement(
         "counts": counts,
         "flags": [],
         "out_of_scope": out_of_scope,
+        "side_corrections": side_corrections,
         "production_authorized": False, "apply_gate": "NO-GO",
     }
     manifest["manifest_content_sha256"] = canonical_sha(manifest)
@@ -507,6 +557,7 @@ def build_narrative_replacement_manifest(
         expected_out_of_scope=EXPECTED_OUT_OF_SCOPE,
         expected_total_source_narratives=EXPECTED_TOTAL_SOURCE_NARRATIVES,
         expected_in_scope=EXPECTED_IN_SCOPE, expected_flag_counts=EXPECTED_FLAG_COUNTS,
+        expected_side_corrections=EXPECTED_SIDE_CORRECTIONS,
     )
 
 
