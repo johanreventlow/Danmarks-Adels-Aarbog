@@ -1,5 +1,40 @@
 # Changelog
 
+## Fase D2 UDFØRT i prod — 21 ægtefæller publiceret (2026-08-20)
+
+De 21 staged gift-ind-ægtefæller er nu offentligt synlige. `change_set 960`,
+aktør `johan@reventlow.dk` som `redaktion`, 21 `change_events` — publiceringen
+er fortrydbar ad den almindelige vej.
+
+**Kontroltal, målt umiddelbart før kørslen:** 21 valgte · 28 staged i alt ·
+7 bagefter · 0 ekstra medrevne · 0 overlap med C0's uafklarede. Id-listen
+identisk med designdokumentets 21.
+
+**Efterkontrol mod prod:** `staged 28 → 7`; personer 1.811, facts 7.197,
+relationer 2.030, narrativer 1.169 — alle **uændrede**; 0 af de 21 er
+ikke-kvalificerede (ingen staged, levende, private eller navnløse). Målt med
+`SET LOCAL ROLE anon`: **1.734 personer synlige, 0 levende, 0 staged** —
+RLS-gaten holder efter publiceringen.
+
+**Backup før skrivning:** `work/task28-1939-v50-d2-aegtefaeller/pre-d2-20260820-222135.dump`
+(5,7 MB, 0600), SHA-256 `2c974998df4b8f9fe3e73254dfbc254bdd7ec96b12959ea5f4def59cc2289f85`.
+Udvalgsfil `spouse-selection-v2.json`, SHA-256
+`8487ad711164d429d0adfa54984af7bbfda7fd75217868fceb8821bf725f3463` — hash-låst
+ind i apply'en, som er obligatorisk.
+
+**De 7 tilbage:** `933, 935, 940, 963, 967, 1014, 1135` — ikke én gruppe. 933,
+935, 940 og 1135 er blandt C0's 9 uforklarede; 1014 står på C0's
+uafklarede-liste; og **963 og 967 er `[KOBL]`-mål der selv er staged**, altså
+et C0-spørgsmål frem for et D3-spørgsmål. Se
+`docs/superpowers/reviews/1939-v50-fase-c0-efterkoersel-genmaaling.md`.
+
+**Udestår:** brugerens verifikation i web-fladen — særligt at person 1662's
+ægteskab nu fremgår på den collapsede person sammen med 785's. Web-fladen i
+prod bygger fra `main`, så ændringen er synlig dér uden ny deploy (den ligger i
+data, ikke i kode).
+
+---
+
 ## Fase D2: Task 1+2 bygget, reviewet og rehearsal-kørt (2026-08-20)
 
 De 21 staged gift-ind-ægtefæller, hvis partner allerede er synlig. Design i

@@ -8,7 +8,7 @@
 > backup: bindinger, slægts-/linjemedlemskaber og hændelses-ankre ryddes nu, og
 > medlemskabstabellerne er registreret i `version_pk_registry`. Verificeret på
 > ægte data — person 924 med kildebinding kunne slettes i en rullet-tilbage
-> transaktion. Fase D1's fase-D2-rest står urørt på 28 staged. Målte tal: 1.811
+> transaktion. **Fase D2 er kørt 2026-08-20: 28 → 7 staged.** Målte tal: 1.811
 > personer, 7.197 facts, 2.258 `family_member`, 592 source_records, 905
 > write-events; `anon` ser 1.713. Se changelog 2026-08-20).
 >
@@ -46,8 +46,8 @@
 
 | Område | Faktisk tilstand |
 |---|---|
-| Personer | **1.811** total; **28 staged**; **70 levende**; 0 `privat=TRUE` — målt 2026-08-20 (975 pensioneret som oversigtslinje) |
-| Offentlig/medlem | `anon` ser **1.713 personer**, **0 levende**, **0 staged** (målt 2026-08-20). Regnestykket går op: 1811 − 70 levende − 28 staged = 1713 |
+| Personer | **1.811** total; **7 staged**; **70 levende**; 0 `privat=TRUE` — målt 2026-08-20 efter fase D2 (975 pensioneret som oversigtslinje) |
+| Offentlig/medlem | `anon` ser **1.734 personer**, **0 levende**, **0 staged** (efter fase D2, 2026-08-20). Regnestykket går op: 1811 − 70 levende − 7 staged = 1734 |
 | Kilder | 3 source-rækker. Source 1 = DAA 2018-20/2020 med 591 direkte poster; source 3 = DAA 1939/1939 med 539 direkte poster |
 | Slægtskab | **2.258** `family_member`-rækker; **922** `forældrefamilie`-facts (målt 2026-08-20) |
 | Medier | **6** media-rækker: 2 `klar`, 4 `fjernet`; privat `media`-bucket og `media_variant` findes |
@@ -95,16 +95,29 @@ prod-deploy.
   API-flade, og almindelig `authenticated` er fail-closed til samme personregel som
   `anon`. Levende/staged kræver fortsat redaktionsadgang.
 
-### 1939: publiceringen er i gang (opdateret 2026-08-19)
+### 1939: publiceringen er i gang (opdateret 2026-08-20)
 
-**Aktuelt:** 28 staged tilbage af oprindeligt 835. Fase D1 publicerede 68
-personer (44 probander + 24 ægtefælle-stubs) 2026-08-19; resten er 7 poster
-blokeret af fase C0/C3 og 21 ægtefæller til fase D2. **D2 er designet og
-planlagt 2026-08-20, men ikke implementeret** — se
-`docs/superpowers/plans/2026-08-20-1939-v50-fase-d2-aegtefaeller.md`.
-Prædikatet er målt mod prod: 21 valgte giver 21 afstaget, 0 ekstra medrevne,
-28 → 7 tilbage. Afsnittet nedenfor
-beskriver den oprindelige situation og bevares som historik.
+**Aktuelt:** **7 staged** tilbage af oprindeligt 835.
+
+- **Fase D1** publicerede 68 personer (44 probander + 24 ægtefælle-stubs) 2026-08-19.
+- **Fase D2** publicerede de 21 gift-ind-ægtefæller 2026-08-20 (`change_set 960`,
+  21 `change_events`, staged 28 → 7). Person-, fact-, relation- og
+  narrativtællinger uændrede — fasen rørte udelukkende `staged`. Backup før
+  skrivning: `pre-d2-20260820-222135.dump`, SHA-256 `2c974998…`. Se changelog
+  2026-08-20 og `docs/superpowers/reviews/1939-v50-fase-d2-go-pakke.md`.
+
+**De 7 tilbage:** `933, 935, 940, 963, 967, 1014, 1135`. Alle har et
+1939-narrativ og et `person_external_id`, men **0 published bindinger** — det
+er D1's kriterium, de fejler på. De er tre forskellige sager:
+
+| Personer | Sag |
+|---|---|
+| 933, 935, 940, 1135 | Blandt C0's 9 uforklarede — hører til C3's identitetsspor |
+| 1014 | På C0's uafklarede-liste; afventer C0 |
+| 963, 967 | **`[KOBL]`-mål der selv er staged.** Uafklaret synligheds-/RLS-spørgsmål: må en record-binding publiceres på en staged persons narrativ? Hører til C0's efterkørsel, ikke til D3. |
+
+Se `docs/superpowers/reviews/1939-v50-fase-c0-efterkoersel-genmaaling.md`.
+Afsnittet nedenfor beskriver den oprindelige situation og bevares som historik.
 
 ### 1939: loadet staged, men publicering er pauset (historisk)
 
