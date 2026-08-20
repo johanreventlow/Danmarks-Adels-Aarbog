@@ -12,9 +12,22 @@
 ## `if` til at fejle med en uklar meddelelse i stedet for at spaerre.
 spaerrer <- function(x) any(is.na(x) | as.logical(x))
 
+## En fail-closed gate der spoerger "er nogen af dem levende?" svarer FALSE,
+## naar kolonnen slet ikke findes: any(logical(0)) er FALSE. Fravaer af data
+## ville altsaa ligne fravaer af problem -- praecis den omvendte fejlretning.
+## Derfor kraeves felterne til stede, FOER de bruges.
+kraev_kolonner <- function(df, navne) {
+  mangler <- setdiff(navne, names(df))
+  if (length(mangler) > 0L)
+    stop(paste0("D2_SELECTION_KOLONNE_MANGLER:", paste(mangler, collapse = ",")),
+         call. = FALSE)
+}
+
 build_d2_spouse_selection_1939_v50 <- function(selected_rows, counts,
                                                database_name, database_identity,
                                                generator) {
+  kraev_kolonner(selected_rows, c("person_id", "visning_navn", "levende",
+                                  "privat", "partner_id", "har_samme_som"))
   n <- nrow(selected_rows)
   if (n == 0L) stop("D2_SELECTION_EMPTY", call. = FALSE)
   if (anyDuplicated(selected_rows$person_id))

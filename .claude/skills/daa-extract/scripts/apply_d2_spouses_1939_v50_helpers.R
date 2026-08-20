@@ -79,6 +79,13 @@ d2_plan_apply <- function(doc, live) {
 ## transaktionen, saa en afvigelse ruller tilbage frem for blot at melde.
 ## `before` og `after` er navngivne taellinger fra samme forespoergsel.
 d2_check_postcheck <- function(before, after, forventet_bagefter) {
+  ## Samme faelde som i eksportens gates: identical(as.numeric(NULL),
+  ## as.numeric(NULL)) er TRUE, saa en taelling der tabte et felt ville
+  ## passere nul-delta uden at melde noget.
+  felter <- c("staged", "person", "fact", "relation", "narrative")
+  if (length(setdiff(felter, names(before))) > 0L ||
+      length(setdiff(felter, names(after))) > 0L)
+    stop("D2_APPLY_TAELLING_MANGLER", call. = FALSE)
   if (!identical(as.numeric(after$staged), as.numeric(forventet_bagefter)))
     stop("D2_APPLY_POSTCHECK_MISMATCH", call. = FALSE)
   for (felt in c("person", "fact", "relation", "narrative")) {

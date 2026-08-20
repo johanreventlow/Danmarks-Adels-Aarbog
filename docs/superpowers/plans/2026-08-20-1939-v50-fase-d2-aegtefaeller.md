@@ -15,6 +15,51 @@ eksplicit bekræftelses-flag.
 
 **Spec:** `docs/superpowers/specs/2026-08-20-1939-v50-fase-d2-aegtefaeller-design.md`
 
+---
+
+## ⚠️ AFVIGELSER FRA DENNE PLAN — læs før du kopierer kode herfra
+
+**Task 1 og 2 er udført** (commits `aaf96b0`, `f5f9789`, `61840e5`). Den kode,
+der faktisk kører, står i scripterne — ikke her. **Kodeblokkene nedenfor
+indeholder fem fejl, der alle er rettet i scripterne.** Kopiér dem ikke.
+
+1. **Task 2, Step 1, test 10** — `fixture_doc(selected = list())` virker ikke.
+   `modifyList` rekurserer, når begge sider er lister, og en navnløs tom liste
+   efterlader feltet **urørt**. `D2_APPLY_EMPTY` ville aldrig fyre, og testen
+   ville bestå af den forkerte grund. Byg doc'et og sæt `$selected <- list()`.
+
+2. **Task 1, Step 5** — `md5(current_setting('cluster_name', true) || …)` giver
+   `null` på Supabase. Brug D1's `(pg_control_system()).system_identifier::text`.
+
+3. **Task 2, Step 5 — ville have stoppet Task 3.** Wrapperen kalder
+   `red_publicer_personer` uden at etablere aktøren. RPC'en gates på
+   `current_rolle()='redaktion'`, som udledes af `profiles WHERE id =
+   auth.uid()`; over en direkte forbindelse er `auth.uid()` NULL → rollen bliver
+   `medlem` → RPC'en kaster. Aktøren skal sættes med
+   `set_config('request.jwt.claim.sub', <uuid>, true)` **inde i transaktionen**
+   og verificeres mod `profiles` — som i fase B's og D1's apply-SQL.
+
+4. **Task 2, Step 3 — `d2_plan_apply` sammenligner antal, ikke hvem.** Mister en
+   valgt person sin synlige partner (men forbliver staged) mens en anden staged
+   person får én, er antallene uændrede og SHA-låsen passerer — filen er ægte,
+   bare forældet på en måde der bevarer antallet. Sammenlign id-**mængden**, og
+   mål den inde i skrive-transaktionen (lukker samtidig TOCTOU-vinduet).
+
+5. **Task 1 — ingen gate på `levende`/`privat`/navn.** SQL-prædikatet filtrerer
+   kun på `staged` + synlig partner, så invariant 8 håndhæves ingen steder.
+   Gaten hører i helperen, og `NA` skal spærre (`any(logical(0))` er `FALSE`, så
+   en manglende kolonne ville få gaten til at tie).
+
+**Desuden tilføjet ud over planen:** `--expect-sha256` og `--backup` er
+obligatoriske; efterkontrollen kører inde i transaktionen med eksplicit
+rollback; en fejlet `dbCommit` melder `D2_APPLY_COMMIT_UKENDT`.
+
+**Task 3 afviger også:** planen udelod den rehearsal, D1's plan krævede. Den er
+kørt alligevel mod en frisk prod-restore. Se
+`docs/superpowers/reviews/1939-v50-fase-d2-go-pakke.md`.
+
+---
+
 ## Global Constraints
 
 - **Prod-wrappere skal være fail-closed.** Ethvert skrivende script SKAL
@@ -35,7 +80,7 @@ eksplicit bekræftelses-flag.
 
 ---
 
-### Task 1: Eksport af de 21 (read-only) med kontroltal
+### Task 1: Eksport af de 21 (read-only) med kontroltal — ✅ UDFØRT (aaf96b0, hærdet i 61840e5)
 
 **Files:**
 - Create: `.claude/skills/daa-extract/scripts/export_d2_spouse_selection_1939_v50_helpers.R`
@@ -47,7 +92,7 @@ eksplicit bekræftelses-flag.
 - Consumes: intet fra tidligere tasks.
 - Produces: `build_d2_spouse_selection_1939_v50(selected_rows, counts, database_name, database_identity, generator)` → `list` med felterne `schema_version`, `database_name`, `database_identity`, `generator`, `counts`, `selected`. Task 2 læser den JSON, dette bygger.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `.claude/skills/daa-extract/scripts/test_export_d2_spouse_selection_1939_v50.R`:
 
@@ -150,7 +195,7 @@ testthat::test_that("export-d2-spouse-selection R contract passes direct asserti
 })
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 ```bash
@@ -158,7 +203,7 @@ cd .claude/skills/daa-extract/scripts && Rscript test_export_d2_spouse_selection
 ```
 Expected: FAIL — `cannot open file 'export_d2_spouse_selection_1939_v50_helpers.R'`
 
-- [ ] **Step 3: Write the helpers**
+- [x] **Step 3: Write the helpers**
 
 Create `.claude/skills/daa-extract/scripts/export_d2_spouse_selection_1939_v50_helpers.R`:
 
@@ -204,7 +249,7 @@ build_d2_spouse_selection_1939_v50 <- function(selected_rows, counts,
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run:
 ```bash
@@ -212,7 +257,7 @@ cd .claude/skills/daa-extract/scripts && Rscript test_export_d2_spouse_selection
 ```
 Expected: `OK: 7 assertions`
 
-- [ ] **Step 5: Write the CLI wrapper**
+- [x] **Step 5: Write the CLI wrapper**
 
 Create `.claude/skills/daa-extract/scripts/export_d2_spouse_selection_1939_v50.R`:
 
@@ -334,12 +379,12 @@ cat(sprintf("valgte=%d staged_i_alt=%d staged_bagefter=%d ekstra_medrevne=%d ove
             counts$ekstra_medrevne, counts$overlap_c0))
 ```
 
-- [ ] **Step 6: Run the full R suite**
+- [x] **Step 6: Run the full R suite**
 
 Run: `Rscript run-tests.R`
 Expected: alle tests grønne, inkl. den nye `test-export-d2-spouse-selection-1939-v50.R`
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add .claude/skills/daa-extract/scripts/export_d2_spouse_selection_1939_v50*.R \
@@ -350,7 +395,7 @@ git commit -m "feat(1939): read-only eksport af fase D2's 21 ægtefæller"
 
 ---
 
-### Task 2: Fail-closed apply-wrapper
+### Task 2: Fail-closed apply-wrapper — ✅ UDFØRT (f5f9789, hærdet i 61840e5)
 
 **Files:**
 - Create: `.claude/skills/daa-extract/scripts/apply_d2_spouses_1939_v50_helpers.R`
@@ -362,7 +407,7 @@ git commit -m "feat(1939): read-only eksport af fase D2's 21 ægtefæller"
 - Consumes: JSON-dokumentet fra Task 1 — felterne `counts` og `selected[].person_id`.
 - Produces: `d2_parse_apply_args(args)` → `list(selection = <path>, expect_sha256 = <chr eller NA>)`, og `d2_plan_apply(doc, live_counts)` → `list(ids = <numeric>, forventet_bagefter = <numeric>)`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `.claude/skills/daa-extract/scripts/test_apply_d2_spouses_1939_v50.R`:
 
@@ -465,7 +510,7 @@ testthat::test_that("apply-d2-spouses R contract passes direct assertions", {
 })
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run:
 ```bash
@@ -473,7 +518,7 @@ cd .claude/skills/daa-extract/scripts && Rscript test_apply_d2_spouses_1939_v50.
 ```
 Expected: FAIL — `cannot open file 'apply_d2_spouses_1939_v50_helpers.R'`
 
-- [ ] **Step 3: Write the helpers**
+- [x] **Step 3: Write the helpers**
 
 Create `.claude/skills/daa-extract/scripts/apply_d2_spouses_1939_v50_helpers.R`:
 
@@ -520,7 +565,7 @@ d2_plan_apply <- function(doc, live_counts) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run:
 ```bash
@@ -528,7 +573,7 @@ cd .claude/skills/daa-extract/scripts && Rscript test_apply_d2_spouses_1939_v50.
 ```
 Expected: `OK: 10 assertions`
 
-- [ ] **Step 5: Write the CLI wrapper**
+- [x] **Step 5: Write the CLI wrapper**
 
 Create `.claude/skills/daa-extract/scripts/apply_d2_spouses_1939_v50.R`:
 
@@ -598,12 +643,12 @@ if (!identical(as.numeric(efter), plan$forventet_bagefter))
 cat(sprintf("OK: staged %d -> %d\n", live_staged, efter))
 ```
 
-- [ ] **Step 6: Run the full R suite**
+- [x] **Step 6: Run the full R suite**
 
 Run: `Rscript run-tests.R`
 Expected: alle tests grønne, inkl. `test-apply-d2-spouses-1939-v50.R`
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add .claude/skills/daa-extract/scripts/apply_d2_spouses_1939_v50*.R \
@@ -614,7 +659,7 @@ git commit -m "feat(1939): fail-closed apply-wrapper til fase D2"
 
 ---
 
-### Task 3: Kørsel mod prod
+### Task 3: Kørsel mod prod — ⏸ AFVENTER GO (backup + rehearsal er taget)
 
 **Files:**
 - Modify: `docs/changelog.md`

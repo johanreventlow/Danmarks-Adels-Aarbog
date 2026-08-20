@@ -182,4 +182,12 @@ expect_error(
                      fixture_taelling(staged = 7, narrative = 591), 7),
   "D2_APPLY_DELTA_NOT_ZERO")
 
+## 14) Et tabt taellefelt maa ikke passere nul-delta:
+##     identical(as.numeric(NULL), as.numeric(NULL)) er TRUE.
+mangler <- fixture_taelling(); mangler$fact <- NULL
+expect_error(d2_check_postcheck(mangler, fixture_taelling(staged = 7), 7),
+             "D2_APPLY_TAELLING_MANGLER")
+expect_error(d2_check_postcheck(fixture_taelling(), mangler, 7),
+             "D2_APPLY_TAELLING_MANGLER")
+
 cat(sprintf("OK: %d assertions\n", ok))

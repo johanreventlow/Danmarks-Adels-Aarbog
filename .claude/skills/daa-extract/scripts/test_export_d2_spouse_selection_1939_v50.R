@@ -114,4 +114,15 @@ expect_error(
   build_d2_spouse_selection_1939_v50(u2, fixture_counts(), "postgres", "abc", "test"),
   "D2_SELECTION_MISSING_NAME")
 
+## 10) En MANGLENDE kolonne maa ikke ligne "ingen problemer". any(logical(0))
+##     er FALSE, saa gaten ville vaere tavs -- fravaer af data ville se ud som
+##     fravaer af levende personer. Fixturerne kan ikke fange det, fordi de
+##     alle baerer alle kolonner.
+for (kolonne in c("levende", "privat", "visning_navn")) {
+  uden <- fixture_rows(); uden[[kolonne]] <- NULL
+  expect_error(
+    build_d2_spouse_selection_1939_v50(uden, fixture_counts(), "p", "a", "t"),
+    "D2_SELECTION_KOLONNE_MANGLER")
+}
+
 cat(sprintf("OK: %d assertions\n", ok))

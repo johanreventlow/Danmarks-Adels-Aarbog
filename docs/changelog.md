@@ -1,11 +1,12 @@
 # Changelog
 
-## Fase D2 designet og planlagt (2026-08-20)
+## Fase D2: Task 1+2 bygget, reviewet og rehearsal-kørt (2026-08-20)
 
 De 21 staged gift-ind-ægtefæller, hvis partner allerede er synlig. Design i
 `docs/superpowers/specs/2026-08-20-1939-v50-fase-d2-aegtefaeller-design.md`,
 plan i `docs/superpowers/plans/2026-08-20-1939-v50-fase-d2-aegtefaeller.md`.
-**Ingen kode skrevet.**
+**Task 3 (prod-kørslen) er IKKE kørt** — GO-pakken ligger i
+`docs/superpowers/reviews/1939-v50-fase-d2-go-pakke.md`.
 
 Grundlaget er **konsistens**, ikke en ny evidenstærskel. De 21 har 0
 narrativer, 0 record-bindinger og 0 external_ids, så D1's kriterium kan per
@@ -13,17 +14,39 @@ definition ikke bruges. Men D1 publicerede allerede 24 stubs af samme slags,
 fordi `red_publicer_personer` trækker staged familiemedlemmer med. De 21
 adskiller sig kun ved, at deres partner blev synlig i en tidligere runde.
 
-Målt mod prod: 21 valgte → 21 afstaget, 0 ekstra medrevne, 28 → 7 staged
-tilbage, 0 overlap med C0's uafklarede, 0 levende eller private.
+Genmålt mod prod med den hærdede kode: 21 valgte → 28 → 7 staged, 0 ekstra
+medrevne, 0 overlap med C0's uafklarede, 0 levende eller private. Id-listen er
+identisk med designdokumentets. Udvalgsfil `spouse-selection-v2.json`
+SHA-256 `8487ad71…`; backup `pre-d2-20260820-222135.dump` SHA-256 `2c974998…`.
 
-Person 1662 er eneste undtagelse: `samme_som` 785, men i forskellige familier
-— to ægteskaber for samme menneske. Begge er stubs uden bogpost, så der er
-ingen dublet at pensionere; publicering tilføjer det manglende ægteskab.
+**Et hul i planen ville have stoppet Task 3.** `red_publicer_personer` gates på
+`current_rolle()='redaktion'`, udledt af `profiles WHERE id = auth.uid()`. Over
+en direkte R-forbindelse er `auth.uid()` NULL → rollen bliver `medlem` → RPC'en
+kaster. Planens R-kode gjorde intet ved det. Afgjort empirisk mod prod:
+`auth.uid()` coalescer `request.jwt.claim.sub` **først**, aktøren sættes nu i
+transaktionen og verificeres mod `profiles`, og RPC'en kaldt i en `READ ONLY`-
+transaktion fejlede på `INSERT` — altså *efter* rolle-gaten.
 
-Planens Task 2 bygger repoets **første fail-closed prod-wrapper**: kræver
-`--jeg-mener-det` og afviser ukendte flag. Det er en direkte lære fra fase D1,
-hvor et opfundet `--dryrun` blev stiltiende ignoreret, og 68 personer blev
-publiceret i prod uden godkendelse.
+**Adversarial review (Codex sol)** fandt fire ægte fund, alle rettet. Det
+alvorligste: drift-guarden sammenlignede *antal* frem for *hvem*. Mister en
+valgt person sin synlige partner mens en anden staged person får én, er
+antallene uændrede, SHA-låsen passerer (filen er jo ægte), og vi ville
+publicere nogen ingen har set på. Guarden sammenligner nu id-mængden, målt
+inde i skrive-transaktionen. Desuden: eksporten gatede ikke på
+`levende`/`privat`/navn (invariant 8), apply validerede ikke dokumentets
+øvrige felter, og `--backup` er nu obligatorisk.
+
+To fælder som testene selv fangede: `modifyList` rekurserer, så en navnløs tom
+liste efterlader feltet urørt (guarden ville aldrig fyre), og `any(logical(0))`
+er `FALSE`, så en manglende kolonne ville få en fail-closed gate til at tie.
+
+**Rehearsal kørt, selv om D2's plan udelod den.** D1's plan krævede rehearsal
+mod frisk restore; D2's gik backup → eksport → apply. Mod en restore af dagens
+prod-dump (`daa1939_d2_rehearsal1`): 21 afstaget, `staged 28 → 7`, nul delta på
+person/fact/relation/narrative, 21 `change_events`, 0 ikke-kvalificerede blandt
+de 21, gentagen kørsel og induceret drift begge afvist fail-closed. Fordi
+kopien er en restore af prod, var den øvede `red_publicer_personer` den
+**live** definition — ikke `db-migrations.sql`'s.
 
 ---
 

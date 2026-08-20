@@ -34,6 +34,8 @@ Id-listen er identisk med designdokumentets 21, og 1662 er fortsat den eneste
 med en `samme_som`-relation.
 
 **Udvalgsfil:** `work/task28-1939-v50-d2-aegtefaeller/spouse-selection-v2.json`
+(en tidligere `v1` fra før GDPR-gaten er slettet — den ville have passeret den
+hærdede apply, som ikke læser `levende`/`privat` fra dokumentet)
 SHA-256 `8487ad711164d429d0adfa54984af7bbfda7fd75217868fceb8821bf725f3463`
 
 **Backup:** `work/task28-1939-v50-d2-aegtefaeller/pre-d2-20260820-222135.dump`
@@ -56,6 +58,10 @@ frisk restore af dagens dump (`daa1939_d2_rehearsal1`):
 | Efterkontrol: ikke-kvalificerede blandt de 21 | **0** |
 | Gentagen kørsel | afvist fail-closed (`D2_APPLY_STAGED_DRIFT`) |
 | Induceret drift (én ekstra staged) | afvist, basen uændret |
+
+Fordi kopien er en **restore af prod-dumpen**, var den `red_publicer_personer`
+der blev øvet, den **live** definition — ikke `db-migrations.sql`'s. Det lukker
+drift-risikoen mellem repo og base for denne fase.
 
 ## Rolle-gaten — et hul i planen, fundet og lukket
 
