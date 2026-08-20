@@ -86,11 +86,25 @@ persona-identifikation, vil stadig fejle på fremmednøglen. Det rammer ikke de
 551 (de blokerede på bindingen), men skal afklares før persona-materialiseringen
 bruges bredt.
 
-**Valgmuligheder:** (a) en egen RPC der først sætter identifikationen til
-`superseded` med begrundelse og derefter tillader sletning; (b) lade
-`red_slet_person` afvise med en forståelig fejl (»personen har en accepteret
-kilde-identifikation — træk den tilbage først«) i stedet for en rå FK-fejl.
-(b) er billigst og mest ærlig; (a) er den rigtige på sigt.
+**Rettelse efter review (Codex sol, 2026-08-20):** forslag (a) — »supersede og
+tillad så sletning« — **virker ikke**. `source_persona_identity_event` er
+append-only (kun en `BEFORE INSERT`-trigger, ingen UPDATE/DELETE-sti), og hver
+historisk event bærer sin egen `canonical_person_id` med fremmednøgle mod
+`person`. En ny `superseded`-event fjerner altså ikke den gamle accepterede
+events reference. Konsekvensen er skarpere end først noteret: **har en person
+én gang været mål for en accepteret identitetsbeslutning, kan den aldrig
+hard-slettes** — uanset hvad `red_slet_person` gør. Det er en egenskab ved
+v50'ens auditdesign, ikke en fejl i slette-rutinen.
+
+**Valgmuligheder, revideret:** (b) lade `red_slet_person` afvise tidligt med en
+forståelig domænefejl (»personen har en accepteret kilde-identifikation — træk
+den tilbage først«) i stedet for en rå FK-fejl. Det er ærligt og billigt, men
+løser ikke det underliggende. (c) soft-delete/tombstone af kanoniske personer,
+så identitetshistorikken kan pege på et bevaret id. (d) et auditdesign hvor
+historiske person-id'er bevares uden blokerende fremmednøgle.
+
+**Dette er et arkitekturvalg, ikke en oprydning** — (c) og (d) ændrer hvad
+»slet en person« overhovedet betyder i modellen, og bør besluttes bevidst.
 
 ---
 

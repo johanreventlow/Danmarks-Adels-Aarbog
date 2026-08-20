@@ -8261,3 +8261,29 @@ BEGIN
     'antal_medlemskaber', v_nmedlem,
     'relationer', v_rels);
 END $$;
+
+
+-- ============================================================================
+-- 2026-08-20: gør de nye medlemskabs-sletninger fortrydbare
+-- ----------------------------------------------------------------------------
+-- red_slet_person rydder nu person_slaegt_membership og person_lineage_membership
+-- (begge person_id NOT NULL uden ON DELETE CASCADE). Uden registrering i
+-- version_pk_registry ville de sletninger ikke give change_events, og en fortrudt
+-- person-sletning ville give personen tilbage UDEN dens slægts- og linjetilhør.
+-- Trigger-loopet ved siden af registret fanger kun tabeller der stod der da det kørte,
+-- så triggerne oprettes eksplicit her (samme mønster som entity_description).
+-- ============================================================================
+INSERT INTO version_pk_registry (tabel,pk_cols,skip_cols) VALUES
+  ('person_slaegt_membership',  ARRAY['person_id','slaegt_id'],  '{}'),
+  ('person_lineage_membership', ARRAY['person_id','lineage_id'], '{}')
+ON CONFLICT (tabel) DO UPDATE SET pk_cols=excluded.pk_cols, skip_cols=excluded.skip_cols;
+
+DROP TRIGGER IF EXISTS trg_log_person_slaegt_membership ON person_slaegt_membership;
+CREATE TRIGGER trg_log_person_slaegt_membership
+  AFTER INSERT OR UPDATE OR DELETE ON person_slaegt_membership
+  FOR EACH ROW EXECUTE FUNCTION log_change();
+
+DROP TRIGGER IF EXISTS trg_log_person_lineage_membership ON person_lineage_membership;
+CREATE TRIGGER trg_log_person_lineage_membership
+  AFTER INSERT OR UPDATE OR DELETE ON person_lineage_membership
+  FOR EACH ROW EXECUTE FUNCTION log_change();

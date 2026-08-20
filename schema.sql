@@ -5430,7 +5430,12 @@ INSERT INTO version_pk_registry (tabel, pk_cols, skip_cols) VALUES
   ('coat_of_arms',       ARRAY['id'], '{}'),
   ('lineage',            ARRAY['id'], '{}'),
   ('vocab',              ARRAY['scheme','code'], '{}'),
-  ('profiles',           ARRAY['id'], ARRAY['email','rolle'])  -- versionér kun reventlow_person_id-binding (spec §4.3.1)
+  ('profiles',           ARRAY['id'], ARRAY['email','rolle']),  -- versionér kun reventlow_person_id-binding (spec §4.3.1)
+  -- 2026-08-20: red_slet_person rydder nu medlemskaberne (person_id NOT NULL uden cascade
+  -- blokerede sletningen). Uden registrering ville den sletning være ufortrydelig: fortryd
+  -- ville give personen tilbage uden dens slægts- og linjetilhør.
+  ('person_slaegt_membership',  ARRAY['person_id','slaegt_id'],  '{}'),
+  ('person_lineage_membership', ARRAY['person_id','lineage_id'], '{}')
 ON CONFLICT (tabel) DO UPDATE SET pk_cols=excluded.pk_cols, skip_cols=excluded.skip_cols;
 -- ---------- VERSIONERING: change_set / change_event ----------
 CREATE TABLE IF NOT EXISTS change_set (
