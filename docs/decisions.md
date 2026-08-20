@@ -134,10 +134,22 @@ FROM (
 ) nb;
 ```
 
-Er `blokeret_af_kildeidentitet` ≈ 0, er slet-knappen reelt frigjort for de 551.
-Er den ≈ 551, har rettelsen fjernet den *første* af to blokeringer, og
-tombstone-valget nedenfor er det, der afgør resten. Tallet bør stå her, når det
-er målt.
+**MÅLT mod prod 2026-08-20 (read-only):**
+
+| | |
+|---|---:|
+| narrativ-bundne personer | **550** |
+| heraf blokeret af kilde-identitet | **8** |
+
+550 og ikke 551, fordi person 975 blev slettet samme morgen — tallet stemmer med
+den kendte historik. **Rettelsen frigør altså 542 af 550.** De 8 er dem fra
+v50-cutoveren, hvis integritetskontrol netop omfattede personae.
+
+**Konsekvens for tombstone-valget:** det haster ikke. Det angår 8 personer, ikke
+hovedparten af bestanden, og hard delete med dokumenteret forbehold er derfor et
+holdbart valg indtil videre. Bemærk dog at tallet vokser, efterhånden som flere
+identitetsbeslutninger accepteres — det er ikke et engangstal, og det bør måles
+igen før den næste udgave lægges ind.
 
 **Anbefaling fra arkitekturvurdering (fable, 2026-08-20): vælg (c), i varianten
 tombstone + udtømning.** `red_slet_person` ville da tømme alt det, den allerede

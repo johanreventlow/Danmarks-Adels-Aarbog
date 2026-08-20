@@ -30,7 +30,12 @@ ingen writer kan producere tilstanden (`red_upsert_fakta` og retract-stien
 sætter target og valgt påstand i samme operation). Ingen defensiv kode tilføjet.
 
 `db-verify.sql` har fået to tests mere (hændelses-ankeret og persona-afvisningen).
-**Ingen af de tre nye tests er kørt** — sessionen havde ingen base-adgang.
+**Ingen af de tre nye tests er kørt** — de kræver at migrationen først er deployet.
+
+**Målt mod prod (read-only):** 550 narrativ-bundne personer, hvoraf **8** er
+blokeret af kilde-identitet. Rettelsen frigør altså 542 af 550, og
+tombstone-spørgsmålet angår 8 personer — ikke bestanden. Tallet vokser dog med
+hver accepteret identitetsbeslutning og bør måles igen før næste udgave.
 
 
 ## `red_slet_person` rettet — bindinger og medlemskaber ryddes nu (2026-08-20)
