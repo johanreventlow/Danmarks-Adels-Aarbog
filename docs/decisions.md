@@ -2,7 +2,7 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
-## RETTET (ikke deployet): `red_slet_person` var brudt for alle 551 narrativ-bundne personer (2026-08-20)
+## RETTET OG DEPLOYET: `red_slet_person` var brudt for alle 551 narrativ-bundne personer (2026-08-20)
 
 **Symptom:** `red_slet_person(p_person_id)` fejler med
 
@@ -47,11 +47,11 @@ udvidelsen usynlig for redaktøren.
 Uden præfikset fejler funktionen ved *deploy* med »relation does not exist«,
 ikke ved kørsel.
 
-**Udestår:** `db-verify.sql` har fået en ny DO-blok der bygger
-source_record + binding + begge medlemskaber og kræver at sletningen lykkes
-uden at røre `private.source_record` — men den er **ikke kørt**, da sessionen
-ikke havde adgang til en base. Deploy mod prod + `get_advisors(security)`
-udestår og er brugerens kald.
+**Status:** deployet til prod 2026-08-20 efter backup. Alle tre nye
+db-verify-blokke bestod, og sletningen er verificeret på ægte data (person 924
+med kildebinding, i en rullet-tilbage transaktion). Eneste udestående er
+`get_advisors(security)`, som kræver dashboard-adgang — en SQL-lint for
+`search_path` på SECURITY DEFINER-funktioner gav 0 fund.
 
 **Bemærk om semantikken:** bindingen siger »dette narrativ stammer fra denne
 kilderecord«. Når narrativet slettes, er udsagnet meningsløst, så bindingen

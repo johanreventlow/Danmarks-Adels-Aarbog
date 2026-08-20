@@ -1,5 +1,36 @@
 # Changelog
 
+## `red_slet_person` DEPLOYET til prod og verificeret (2026-08-20)
+
+Migrationen er kørt mod prod i én transaktion: begge funktioner genudgivet,
+`person_slaegt_membership` og `person_lineage_membership` registreret i
+`version_pk_registry` med `log_change`-triggere.
+
+Backup før skrivning:
+`work/task29-red-slet-person-deploy/pre-red-slet-person-20260820-201833.dump`
+(6,1 MB, 0600), SHA-256 `52b64e806fd830727db7a6f1a77591fc20e12af22472bc0637966a2dc90622d9`.
+
+**Alle tre nye db-verify-blokke bestod mod prod** (kørt i en transaktion der
+blev rullet tilbage):
+
+- narrativ-binding + slægts-/linjemedlemskab fjernet, `source_record` bevaret
+- Q's hændelse bevaret, `relation_id`-ankeret løsnet
+- persona-bundet person afvist med `PERSON_HAR_KILDEIDENTITET`
+
+**Verificeret på ægte data:** person 924 (én kildebinding) kunne slettes i en
+rullet-tilbage transaktion. Præcis den operation fejlede før med
+`narrative_record_publication_narrative_id_fkey`. Prod uændret: 1811 personer.
+
+Efterkontrol: begge funktioner er `SECURITY DEFINER` med
+`search_path=public`; den live kode indeholder alle fire nye elementer; begge
+medlemskabstabeller har trigger. Sikkerhedslint viser 0 SECURITY
+DEFINER-funktioner i `public` uden `search_path`.
+
+**Forbehold:** `get_advisors(security)` er *ikke* kørt — MCP-forbindelsen
+peger på en anden Supabase-konto. Linten ovenfor dækker samme klasse af fund
+(search_path), men ikke Supabase's øvrige regler. Bør køres fra dashboardet.
+
+
 ## Sletnings-rutinen hærdet efter dobbelt review (2026-08-20)
 
 Fixet ovenfor blev reviewet af Codex sol og arkitekturvurderet af fable. Tre
