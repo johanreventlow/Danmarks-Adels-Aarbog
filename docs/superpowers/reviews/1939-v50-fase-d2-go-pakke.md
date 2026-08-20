@@ -1,6 +1,11 @@
 # Fase D2 — GO-pakke
 
-**Dato:** 2026-08-20 · **Status:** afventer brugerens GO · **Intet skrevet til prod.**
+**Dato:** 2026-08-20 · **Status:** ✅ GODKENDT OG UDFØRT · `change_set 960`
+
+> **Kørt 2026-08-20.** staged 28 → 7, 21 `change_events`, nul delta på
+> person/fact/relation/narrative. Målt med `SET LOCAL ROLE anon`: 1.734
+> personer synlige, 0 levende, 0 staged. Dokumentet bevares som det grundlag,
+> der blev sagt ja til.
 
 Task 1 og 2 er bygget, reviewet og hærdet. Task 3 (prod-kørslen) er ikke kørt.
 Dette dokument er det grundlag, der skal siges ja til.

@@ -19,7 +19,7 @@ eksplicit bekræftelses-flag.
 
 ## ⚠️ AFVIGELSER FRA DENNE PLAN — læs før du kopierer kode herfra
 
-**Task 1 og 2 er udført** (commits `aaf96b0`, `f5f9789`, `61840e5`). Den kode,
+**Hele planen er udført** (commits `aaf96b0`, `f5f9789`, `61840e5`, `8297927`, `c8d2c7c`). Den kode,
 der faktisk kører, står i scripterne — ikke her. **Kodeblokkene nedenfor
 indeholder fem fejl, der alle er rettet i scripterne.** Kopiér dem ikke.
 
@@ -54,9 +54,12 @@ indeholder fem fejl, der alle er rettet i scripterne.** Kopiér dem ikke.
 obligatoriske; efterkontrollen kører inde i transaktionen med eksplicit
 rollback; en fejlet `dbCommit` melder `D2_APPLY_COMMIT_UKENDT`.
 
-**Task 3 afviger også:** planen udelod den rehearsal, D1's plan krævede. Den er
-kørt alligevel mod en frisk prod-restore. Se
+**Task 3 afveg også:** planen udelod den rehearsal, D1's plan krævede. Den blev
+kørt alligevel mod en frisk prod-restore, før prod-kørslen. Se
 `docs/superpowers/reviews/1939-v50-fase-d2-go-pakke.md`.
+
+**Task 3 er udført 2026-08-20** — `change_set 960`, staged 28 → 7. Kun trin 7
+(brugerens verifikation i web-fladen) udestår.
 
 ---
 
@@ -659,7 +662,7 @@ git commit -m "feat(1939): fail-closed apply-wrapper til fase D2"
 
 ---
 
-### Task 3: Kørsel mod prod — ⏸ AFVENTER GO (backup + rehearsal er taget)
+### Task 3: Kørsel mod prod — ✅ UDFØRT 2026-08-20 (change_set 960, staged 28 → 7)
 
 **Files:**
 - Modify: `docs/changelog.md`
@@ -673,7 +676,7 @@ git commit -m "feat(1939): fail-closed apply-wrapper til fase D2"
 > udtrykkeligt har sagt GO til de faktiske tal fra Step 2. Ingen af trinene
 > må slås sammen.
 
-- [ ] **Step 1: Tag backup**
+- [x] **Step 1: Tag backup**
 
 Run:
 ```bash
@@ -686,7 +689,7 @@ shasum -a 256 work/task28-1939-v50-d2-aegtefaeller/*.dump
 Expected: én dump-fil, 0600, SHA-256 noteret. Basen kører på free tier og har
 ingen automatisk backup.
 
-- [ ] **Step 2: Kør eksporten (read-only) og fremlæg tallene**
+- [x] **Step 2: Kør eksporten (read-only) og fremlæg tallene**
 
 Run:
 ```bash
@@ -702,7 +705,7 @@ selv ved `ekstra_medrevne > 0` og ved overlap med C0.
 Fremlæg for brugeren: de fem tal, filens SHA-256, og at 21 mennesker bliver
 offentligt synlige. Vent på eksplicit GO.
 
-- [ ] **Step 3: Apply — én gang, ingen retry**
+- [x] **Step 3: Apply — én gang, ingen retry**
 
 Run:
 ```bash
@@ -715,7 +718,7 @@ Expected: `OK: staged 28 -> 7`
 
 Fejler den, STOP. Kør ikke igen — undersøg først hvad der ændrede sig.
 
-- [ ] **Step 4: Efterkontrol**
+- [x] **Step 4: Efterkontrol**
 
 Run (forbindelsen bygges af `~/.Renviron`, samme kilde som scripterne bruger):
 ```bash
@@ -732,20 +735,20 @@ ROLLBACK;"
 ```
 Expected: `staged_tilbage = 7`, `personer_i_alt` uændret, `ikke_kvalificerede = 0`
 
-- [ ] **Step 5: Opdatér dokumentationen**
+- [x] **Step 5: Opdatér dokumentationen**
 
 Skriv i `docs/changelog.md` en dateret post med: de fem kontroltal, dump-filens
 navn og SHA-256, change_set-id'et fra RPC-svaret, og at de 7 tilbage er D3's
 blokerede. Afstem persontallene i `docs/database-current-state.md`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/changelog.md docs/database-current-state.md
 git commit -m "docs(1939): fase D2 udført i prod — 21 ægtefæller publiceret"
 ```
 
-- [ ] **Step 7: Brugerens verifikation i web-fladen**
+- [ ] **Step 7: Brugerens verifikation i web-fladen** ← UDESTÅR
 
 Bed brugeren bekræfte i web-fladen at et af de 21 ægteskaber nu viser begge
 parter — og særligt at person 1662's ægteskab fremgår på den collapsede person
