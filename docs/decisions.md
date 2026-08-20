@@ -2,6 +2,99 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## ÅBENT: hvor langt er bio-udtrækket nået? (2026-08-20)
+
+Målt mod prod, så spørgsmålet »har vi udtrukket de ekstra bio-oplysninger?«
+kan besvares med tal frem for indtryk.
+
+**Rygraden er bredt dækket.** 7.197 fakta på 15 typer:
+
+| Mål | Antal | Af 1.811 |
+|---|---:|---:|
+| Har mindst ét faktum ud over navn | 1.473 | 81 % |
+| Har fødsels- eller dødsdato | 1.335 | 74 % |
+| Har narrativ | 1.167 | 64 % |
+| Har gods (`relation`→`estate`) | 308 | 17 % |
+| Har embede (`relation`→`organisation`) | **150** | **8 %** |
+| Har kun navn og intet andet | 263 | 15 % |
+
+Typefordeling: navn 1.815 · død 1.137 · fødsel 1.104 · forældrefamilie 922 ·
+titel 806 · begravelse 325 · dåb 293 · dekoration 131 · floruit 105 ·
+dødsårsag 21 · klosterindgang 8 · tilnavn 5 · forældre_ukendt 4 · overhoved 4 ·
+adling 4.
+
+**Det rige lag er derimod aldrig kørt.** `haendelse`-tabellen indeholder
+**0 rækker**. Hændelsesudtrækket (`/daa-haendelser`) blev parkeret som issue
+#130 til efter genimporten — og genimporten er nu nået til fase D2/C0. Det er
+her de daterede begivenheder fra prosaen skulle blive struktur: udnævnelser,
+slag, rejser, godskøb, studier.
+
+**Størrelsesordenen af det uudnyttede:** 1939-narrativerne alene er 166.518
+tegn prosa fordelt på 576 biografier. Til sammenligning er kun 150 personer
+knyttet til et embede, selv om embedsroller optræder tæt i teksten
+(amtmand 34, kaptajn 14, gehejmeråd 11, landråd 12 …). Rygraden er udtrukket;
+karriereforløbene ligger stadig i prosaen.
+
+**Ikke besluttet:** om hændelsesudtrækket skal køres nu, hvor genimporten har
+stabiliseret teksten. Det er forudsætningen for både det levende feed og for
+at persondetaljen kan vise mere end leveår — jf. »strukturerede fakta er
+usynlige i fladen« nedenfor. De to hænger sammen: der er ingen grund til at
+udtrække mere, før der er et sted at vise det, og ingen grund til at bygge
+visningen, hvis den kun kan vise fødsel og død.
+
+## BESLUTTET: C0-efterkørslen — 1017 flyttes til C3, RLS-frygten var ubegrundet (2026-08-20)
+
+Afgjort ved måling, ikke ræsonnement. Fuld dokumentation i
+`docs/superpowers/reviews/1939-v50-fase-c0-efterkoersel-afklaringer.md`.
+
+**Person 1017 hører ikke til C0.** Koblingen ville fjerne afsnit B) (149 tegn),
+og fragmentet findes ikke ordret nogen steder i korpus. Længste delvise match
+er 57 tegn — og det match *er* person **1021's samlede narrativ**, som begynder
+midt i det orddelte »Revent- low«. 1021 er altså ikke en post, men halen af
+1017's afsnit B). C0's antagelse om at B)-delen »følger med i C3« holder kun
+for de sidste 57 tegn; de første ~92 ville forsvinde. **Den rigtige rettelse er
+en C3-sammenlægning af 1021 ind i 1017's afsnit B).** Den, der scoper C3, skal
+kende dette.
+
+**Person 1297 bliver i batchen.** Det fjernede er »Børn: Ottende Slægtled IIl.«
+— en trykt krydshenvisning, samme klasse som de 73 sidemarkører og 499
+søskende-ordenstal, fase B allerede fjernede.
+
+**963/967's synligheds-spørgsmål er ikke reelt.** `private` er ikke eksponeret
+gennem API'et, `anon` har nul grants på `narrative_record_publication` og får
+»permission denied for schema private«, og ser 0 af de 7 staged personer og 0
+af deres narrativer. Rækkefølgen mellem »bind record« og »publicér person« er
+derfor ligegyldig for synligheden.
+
+**Status: 9 af 10 koblinger er klar.** Værktøjet er bevidst ikke bygget:
+`narrative_record_publication` står ikke i `version_pk_registry`, så en forkert
+kobling kan ikke fortrydes — dumpen er eneste udvej. Gate-kæden skal være
+stærkere end D2's, og fasen erstatter narrativtekst frem for at sætte et flag.
+Det kræver egen spec.
+
+## ÅBENT: 1021 er ikke enestående — 12 narrativer begynder midt i en sætning (2026-08-20)
+
+Scannet over alle 576 1939-narrativer for 1021's signatur (teksten begynder med
+lille bogstav = fortsættelse af noget afskåret):
+
+```
+ 929 (302 tegn)   930 (302 tegn)   956 (433)   977 (79)   1013 (127)
+1014 (127)       1021 (57)        1308 (110)  1413 (191) 1771 (58)
+1772 (66)        1791 (1439)
+```
+
+To iøjnefaldende mønstre: **929/930 og 1013/1014 er par med byte-identisk
+tekst** — altså både afskårne *og* duplikerede. Og fem af de tolv (929, 930,
+977, 1013, 1014) står på C0's uafklarede-liste, mens 1014 desuden er en af de
+7 staged.
+
+Ingen narrativer *ender* på en bindestreg, så modstykkerne er enten allerede
+afkortet eller ligger i en anden post, som 1021's gør hos 1017.
+
+**Dette er ikke fikset — kun talt.** Tallet er relevant, fordi det antyder
+C3's reelle størrelse: grænsefejlene er en klasse på mindst 12, ikke et
+enkelttilfælde.
+
 ## ÅBENT: strukturerede fakta er usynlige i fladen (2026-08-20)
 
 **Fundet under D2's web-verifikation.** Persondetaljen viser aldrig en

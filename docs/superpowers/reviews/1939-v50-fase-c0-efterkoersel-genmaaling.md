@@ -2,6 +2,14 @@
 
 **Dato:** 2026-08-20 · **Karakter:** read-only måling mod prod · **Intet skrevet.**
 
+> **⚠️ Delvist afløst.** Afsnit 2's anbefaling (»kør de otte uproblematiske som
+> én batch, og afgør 1017 og 1297 hver for sig mod kildesiden«) er overhalet af
+> `1939-v50-fase-c0-efterkoersel-afklaringer.md`, som afgjorde begge ved måling:
+> **9 af 10 er klar** (inkl. 1297), og **1017 hører til C3**, fordi person 1021
+> viser sig at være halen af 1017's afsnit B). Afsnit 3's kortlægning af de 7
+> blokerede står uændret, bortset fra at 963/967's RLS-spørgsmål nu er afgjort:
+> der er ingen lækage.
+
 C0's 41 afgørelser blev truffet 2026-08-19, *før* fase D1 kørte. Efterkørslen
 har ingen guard mod at basen har flyttet sig imens, så grundlaget skulle
 måles igen før noget kunne planlægges. Det er gjort her.
