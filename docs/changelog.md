@@ -1,5 +1,25 @@
 # Changelog
 
+## Person 975 pensioneret + fund: `red_slet_person` er brudt (2026-08-20)
+
+Brugerens gennemlæsning af de nypublicerede poster afslørede, at person 975
+(»Greve Conrad til Grevskabet Reventlow, der af legitimt Afkom kun efterlod en
+Datter«, s. 509) ikke er en kildepost, men en **oversigtslinje** — hovedposten
+er person 1240 (s. 550), som allerede er `samme_som`-linket til 2020-udgavens
+530. 975 blev slettet (`change_set 956`); prod: 1812 → **1811 personer**.
+`private.source_record` urørt på 592: registreringen af, at teksten står på
+s. 509, er stadig sand.
+
+Maskinel eftersøgning bekræftede at 975 var den eneste af de 44 publicerede
+med oversigtsformulering — de øvrige korte narrativer er ægte personposter om
+børn, der døde som spæde.
+
+**Sideordnet fund:** `red_slet_person` fejler på en fremmednøgle mod
+`private.narrative_record_publication` for **alle 551** narrativ-bundne
+1939-personer. Funktionen er ældre end bindingstabellen. Her blev det omgået
+ved at slette bindingen først i samme transaktion; den egentlige rettelse er
+noteret som åben i `docs/decisions.md`.
+
 ## Fase D1: 68 personer publiceret i prod (2026-08-19)
 
 De 44 staged 1939-probander med `published` record-binding er gjort offentligt

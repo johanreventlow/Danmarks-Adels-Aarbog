@@ -2,6 +2,45 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## ÅBEN FEJL: `red_slet_person` er brudt for alle 551 narrativ-bundne personer (2026-08-20)
+
+**Symptom:** `red_slet_person(p_person_id)` fejler med
+
+```
+update or delete on table "narrative" violates foreign key constraint
+"narrative_record_publication_narrative_id_fkey"
+```
+
+for enhver person, hvis 1939-narrativ har en binding i
+`private.narrative_record_publication`. Det er **alle 551**, fase B bandt —
+altså hovedparten af 1939-bestanden. Redaktørfladens slet-knap vil fejle på
+dem alle.
+
+**Årsag:** funktionen er ældre end bindingstabellen (som kom med v50-arbejdet
+i august) og kender den ikke. Dens sletteorden går
+citation → assertion → fact/relation → narrative → person, og FK'en fra
+`narrative_record_publication.narrative_id` blokerer narrativ-sletningen.
+`red_slet_person_preview` er tilsvarende ufuldstændig: den rapporterer fakta
+og relationer, men hverken narrativer eller bindinger.
+
+**Opdaget** da person 975 skulle pensioneres (2026-08-20). Dér blev det løst
+ved at slette bindingen først i samme transaktion — en engangsomgåelse, ikke
+en rettelse.
+
+**Rettelse (ikke udført):** udvid `red_slet_person` til at fjerne
+`private.narrative_record_publication`-rækker for personens narrativer, før
+narrativerne slettes, og udvid `red_slet_person_preview` til at vise både
+narrativer og bindinger, så redaktøren kan se hvad der forsvinder. Bemærk at
+funktionen findes i **to** definitioner i `db-migrations.sql` (linje 451 og
+en senere) — begge skal rettes, og migrationslaget vinder ved deploy.
+
+**Bemærk om semantikken:** bindingen siger »dette narrativ stammer fra denne
+kilderecord«. Når narrativet slettes, er udsagnet meningsløst, så bindingen
+skal med. `private.source_record` skal derimod **aldrig** røres af en
+person-sletning — registreringen af, at teksten står på siden, er stadig sand.
+
+---
+
 ## Fase C1 udskudt: værdien udløses først af den anden udgave (2026-08-19)
 
 **Beslutning:** C1 (promovering af 1.078 literal fakta + 212 ægteskaber til
