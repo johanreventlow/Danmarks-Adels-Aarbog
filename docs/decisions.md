@@ -110,6 +110,35 @@ historiske person-id'er bevares uden blokerende fremmednøgle.
 `PERSON_HAR_KILDEIDENTITET` i stedet for at lade en rå FK-violation slippe ud
 midt i en halvt udført sletning. Det er en ærlig fejlbesked, ikke en løsning.
 
+Gaten fyrer **præcis** når fremmednøglen alligevel ville blokere, så den gør
+ingen sletning umulig, der før var mulig. Men den rejser et spørgsmål, som ikke
+kan besvares uden et opslag i basen: **hvor stor en del af de 551 narrativ-bundne
+er også persona-bundne?** De er i så fald fortsat ikke-slettelige — ikke på grund
+af bindingen, som nu er rettet, men på grund af det uforanderlige beslutningsspor.
+V50-materialiseringen skrev `identity_status: "accepted"`, og cutover-kontrollen
+omfattede personae, så overlappet er sandsynligt, men ikke målt.
+
+Kør dette mod prod for at afgøre, hvor meget rettelsen faktisk frigør:
+
+```sql
+SELECT
+  count(*)                                              AS narrativ_bundne_personer,
+  count(*) FILTER (WHERE EXISTS (
+    SELECT 1 FROM private.source_persona_identity_event e
+     WHERE e.canonical_person_id = nb.person_id))       AS blokeret_af_kildeidentitet
+FROM (
+  SELECT DISTINCT n.subjekt_id AS person_id
+    FROM public.narrative n
+    JOIN private.narrative_record_publication p ON p.narrative_id = n.id
+   WHERE n.subjekt_type = 'person'
+) nb;
+```
+
+Er `blokeret_af_kildeidentitet` ≈ 0, er slet-knappen reelt frigjort for de 551.
+Er den ≈ 551, har rettelsen fjernet den *første* af to blokeringer, og
+tombstone-valget nedenfor er det, der afgør resten. Tallet bør stå her, når det
+er målt.
+
 **Anbefaling fra arkitekturvurdering (fable, 2026-08-20): vælg (c), i varianten
 tombstone + udtømning.** `red_slet_person` ville da tømme alt det, den allerede
 sletter (fakta, evidenskæde, narrativer, bindinger, medlemskaber, external ids,
