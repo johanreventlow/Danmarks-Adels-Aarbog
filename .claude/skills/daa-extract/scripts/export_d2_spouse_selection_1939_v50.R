@@ -32,9 +32,13 @@ script_arg <- grep("^--file=", commandArgs(), value = TRUE)[1L]
 script_dir <- dirname(normalizePath(sub("^--file=", "", script_arg)))
 source(file.path(script_dir, "export_d2_spouse_selection_1939_v50_helpers.R"))
 
-## C0's uafklarede person-id'er pr. 2026-08-19 -- samme liste som D1's
-## eksportoer. En af dem i udvalget ville betyde at D2 publicerer noget, en
-## anden fase endnu ikke har afgjort.
+## C0's uafklarede pr. 2026-08-19 -- de id'er der var uafgjorte DA D1 blev
+## bygget. C0's 41 er sidenhen alle afgjort, saa listen er et historisk
+## oejebliksbillede, ikke en levende karantaene. Gaten bevares fordi den er
+## billig og fordi et fremtidigt udvalg kan naa laengere ned i id-rummet, men
+## den er i praksis tandloes for D2: alle 21 har id >= 1480, og hele C0's
+## orbit ligger <= 1299. Skal en senere fase bruge en aegte karantaene, er
+## den rigtige liste de 10 KOBL-maal + 16 NY + 7 C3, ikke denne.
 C0_UAFKLAREDE <- c(929, 930, 974, 977, 991, 1013, 1014, 1017, 1021, 1028,
                    1138, 1220, 1239, 1241, 1243, 1291)
 
@@ -70,7 +74,7 @@ if (!is.na(expect_database_name) && !identical(database_name, expect_database_na
 
 selection_sql <- "
 WITH s AS (
-  SELECT p.id AS person_id, p.visning_navn,
+  SELECT p.id AS person_id, p.visning_navn, p.levende, p.privat,
          (SELECT min(f2.person_id) FROM family_member f1
             JOIN family_member f2 ON f2.family_id=f1.family_id
                                  AND f2.person_id<>p.id AND f2.rolle='partner'
@@ -84,7 +88,7 @@ WITH s AS (
        JOIN person a ON a.id=f2.person_id
       WHERE f1.person_id=p.id AND f1.rolle='partner' AND NOT a.staged)
 )
-SELECT s.person_id, s.visning_navn, s.partner_id,
+SELECT s.person_id, s.visning_navn, s.levende, s.privat, s.partner_id,
        EXISTS (SELECT 1 FROM relation r
                 WHERE r.rolle='samme_som'
                   AND ((r.subjekt_type='person' AND r.subjekt_id=s.person_id)

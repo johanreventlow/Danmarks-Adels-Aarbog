@@ -20,59 +20,121 @@ expect_error <- function(expr, pattern) {
 
 ## --- CLI-gaten ---------------------------------------------------------
 ## 1) Lykkelig sti.
-parsed <- d2_parse_apply_args(c("--selection", "s.json", "--jeg-mener-det"))
+parsed <- d2_parse_apply_args(c("--selection", "s.json", "--expect-sha256", "abc",
+                                "--backup", "b.dump", "--jeg-mener-det"))
 expect(identical(parsed$selection, "s.json"))
-expect(identical(parsed$expect_sha256, NA_character_))
+expect(identical(parsed$expect_sha256, "abc"))
+expect(identical(parsed$backup, "b.dump"))
 
 ## 2) UDEN bekraeftelses-flaget skal den afvise. Dette er hele pointen:
 ##    i fase D1 blev et opfundet --dryrun ignoreret, og 68 personer blev
 ##    publiceret i prod uden godkendelse.
-expect_error(d2_parse_apply_args(c("--selection", "s.json")),
+expect_error(d2_parse_apply_args(c("--selection", "s.json", "--expect-sha256", "abc",
+                                   "--backup", "b.dump")),
              "D2_APPLY_CONFIRMATION_REQUIRED")
+
+## 2b) Hash-laasen er OBLIGATORISK. Uden den kan et haandredigeret
+##     udvalgsdokument saette sin egen forventning til efterkontrollen, som
+##     saa "bekraefter" den. Det er den sidste haandredigerings-vej i en
+##     wrapper hvis hele formaal er at vaere fail-closed.
+expect_error(d2_parse_apply_args(c("--selection", "s.json", "--backup", "b.dump",
+                                   "--jeg-mener-det")),
+             "D2_APPLY_SHA_REQUIRED")
+
+## 2c) Basen koerer paa free tier UDEN automatisk backup. At tage en dump er
+##     en instruktion i planen; her er det en betingelse for at koere.
+expect_error(d2_parse_apply_args(c("--selection", "s.json", "--expect-sha256",
+                                   "abc", "--jeg-mener-det")),
+             "D2_APPLY_BACKUP_REQUIRED")
 
 ## 3) Et UKENDT flag maa aldrig blive til tavs accept.
 expect_error(
-  d2_parse_apply_args(c("--selection", "s.json", "--dryrun", "--jeg-mener-det")),
+  d2_parse_apply_args(c("--selection", "s.json", "--expect-sha256", "abc",
+                        "--backup", "b.dump", "--dryrun", "--jeg-mener-det")),
   "D2_APPLY_CLI_INVALID")
 
 ## 4) Duplikerede flag er ogsaa en fejl.
 expect_error(
   d2_parse_apply_args(c("--selection", "a.json", "--selection", "b.json",
+                        "--expect-sha256", "abc", "--backup", "b.dump",
                         "--jeg-mener-det")),
   "D2_APPLY_CLI_INVALID")
 
 ## 5) --selection er paakraevet.
-expect_error(d2_parse_apply_args("--jeg-mener-det"), "D2_APPLY_CLI_INVALID")
+expect_error(d2_parse_apply_args(c("--expect-sha256", "abc", "--backup",
+                                   "b.dump", "--jeg-mener-det")),
+             "D2_APPLY_CLI_INVALID")
 
 ## 6) En flag-vaerdi der selv ligner et flag er en tastefejl, ikke en vaerdi.
 expect_error(
-  d2_parse_apply_args(c("--selection", "--jeg-mener-det")),
+  d2_parse_apply_args(c("--selection", "--expect-sha256", "abc", "--backup",
+                        "b.dump", "--jeg-mener-det")),
   "D2_APPLY_CLI_INVALID")
 
 ## --- Guarden mod at basen har flyttet sig ------------------------------
 fixture_doc <- function(...) {
   base <- list(
+    schema_version = "1.0", database_name = "postgres",
+    database_identity = "764273", 
     counts = list(valgte = 2, staged_i_alt = 9, staged_bagefter = 7,
                   ekstra_medrevne = 0, overlap_c0 = 0),
     selected = list(list(person_id = 1480), list(person_id = 1487)))
   utils::modifyList(base, list(...))
 }
+fixture_live <- function(...) {
+  base <- list(staged_i_alt = 9, valgte_ids = c(1480, 1487),
+               database_name = "postgres", database_identity = "764273")
+  utils::modifyList(base, list(...))
+}
 
-## 7) Lykkelig sti: live-taellingen matcher eksporten.
-plan <- d2_plan_apply(fixture_doc(), list(staged_i_alt = 9, valgte = 2))
+## 7) Lykkelig sti: basen ser ud praecis som eksporten beskrev.
+plan <- d2_plan_apply(fixture_doc(), fixture_live())
 expect(identical(plan$ids, c(1480, 1487)))
 expect(identical(plan$forventet_bagefter, 7))
 
 ## 8) Har staged-maengden flyttet sig, er eksportens tal foraeldede.
-expect_error(
-  d2_plan_apply(fixture_doc(), list(staged_i_alt = 10, valgte = 2)),
-  "D2_APPLY_STAGED_DRIFT")
+expect_error(d2_plan_apply(fixture_doc(), fixture_live(staged_i_alt = 10)),
+             "D2_APPLY_STAGED_DRIFT")
 
-## 9) Er selve udvalget skiftet, peger vi paa andre mennesker end dem der blev
-##    gennemgaaet.
+## 9) DET FARLIGE TILFAELDE: samme ANTAL kandidater, andre mennesker.
+##    En valgt person mister sin synlige partner (men forbliver staged) mens
+##    en anden staged person faar én. Antal staged og antal kandidater er
+##    uaendret, og SHA-laasen passerer -- filen er jo aegte. Kun en
+##    sammenligning af selve ID-MAENGDEN fanger det.
+expect_error(d2_plan_apply(fixture_doc(), fixture_live(valgte_ids = c(1480, 1499))),
+             "D2_APPLY_SELECTION_DRIFT")
+
+## 9b) Faerre kandidater end eksporten saa.
+expect_error(d2_plan_apply(fixture_doc(), fixture_live(valgte_ids = 1480)),
+             "D2_APPLY_SELECTION_DRIFT")
+
+## 9c) Raekkefoelge maa IKKE goere en forskel -- ellers ville guarden fyre
+##     paa en base der er fuldstaendig uaendret.
+expect(identical(d2_plan_apply(fixture_doc(), fixture_live(valgte_ids = c(1487, 1480)))$ids,
+                 c(1480, 1487)))
+
+## 9d) En eksport fra en ANDEN base ville ellers passere alt oevrigt.
+expect_error(d2_plan_apply(fixture_doc(), fixture_live(database_identity = "999")),
+             "D2_APPLY_DATABASE_MISMATCH")
+expect_error(d2_plan_apply(fixture_doc(), fixture_live(database_name = "anden")),
+             "D2_APPLY_DATABASE_MISMATCH")
+
+## 9e) Dokumentets egne gate-tal genlaeses: filen kan vaere haandbygget og
+##     behoever ikke komme fra eksporten.
 expect_error(
-  d2_plan_apply(fixture_doc(), list(staged_i_alt = 9, valgte = 3)),
-  "D2_APPLY_SELECTION_DRIFT")
+  d2_plan_apply(fixture_doc(counts = list(valgte = 2, staged_i_alt = 9,
+    staged_bagefter = 7, ekstra_medrevne = 1, overlap_c0 = 0)), fixture_live()),
+  "D2_APPLY_EXTRA_SWEPT")
+expect_error(
+  d2_plan_apply(fixture_doc(counts = list(valgte = 2, staged_i_alt = 9,
+    staged_bagefter = 7, ekstra_medrevne = 0, overlap_c0 = 1)), fixture_live()),
+  "D2_APPLY_C0_OVERLAP")
+expect_error(
+  d2_plan_apply(fixture_doc(counts = list(valgte = 3, staged_i_alt = 9,
+    staged_bagefter = 7, ekstra_medrevne = 0, overlap_c0 = 0)), fixture_live()),
+  "D2_APPLY_COUNT_MISMATCH")
+expect_error(d2_plan_apply(fixture_doc(schema_version = "2.0"), fixture_live()),
+             "D2_APPLY_SCHEMA_UNKNOWN")
 
 ## 10) Et tomt udvalg maa aldrig naa til apply.
 ##     Bemaerk: doc'et bygges IKKE med modifyList(selected = list()).
@@ -84,9 +146,8 @@ tom_doc <- fixture_doc(counts = list(valgte = 0, staged_i_alt = 9,
                                      overlap_c0 = 0))
 tom_doc$selected <- list()
 expect(identical(length(tom_doc$selected), 0L))
-expect_error(d2_plan_apply(tom_doc, list(staged_i_alt = 9, valgte = 0)),
+expect_error(d2_plan_apply(tom_doc, fixture_live(valgte_ids = numeric(0))),
              "D2_APPLY_EMPTY")
-
 
 ## --- Efterkontrollen (DB-fri) ------------------------------------------
 ## D2 roerer UDELUKKENDE person.staged. Efterkontrollen koerer inde i

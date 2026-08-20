@@ -6,6 +6,12 @@
 ## allerede er synlig. Alle fem kontroltal valideres HER, saa en raadden
 ## maaling ikke kan naa frem til apply-trinnet.
 
+## Spaerrer ved TRUE OG ved NA. NA betyder "ikke bevist afdoed/offentlig",
+## og en publicering skal kraeve bevis, ikke fravaer af modbevis. Skrevet som
+## en eksplicit vektor frem for any(x), fordi any(c(NA)) er NA og ville faa
+## `if` til at fejle med en uklar meddelelse i stedet for at spaerre.
+spaerrer <- function(x) any(is.na(x) | as.logical(x))
+
 build_d2_spouse_selection_1939_v50 <- function(selected_rows, counts,
                                                database_name, database_identity,
                                                generator) {
@@ -25,10 +31,21 @@ build_d2_spouse_selection_1939_v50 <- function(selected_rows, counts,
   if (!identical(as.numeric(counts$staged_i_alt) - as.numeric(counts$valgte),
                  as.numeric(counts$staged_bagefter)))
     stop("D2_SELECTION_REMAINDER_MISMATCH", call. = FALSE)
+  ## Invariant 8 (GDPR): publicering goer personen synlig for anonyme laesere.
+  ## En levende eller privatmarkeret person maa aldrig med, og en person uden
+  ## navn ville blive en tom raekke i fladen. Praedikatet i SQL'en filtrerer
+  ## kun paa staged + synlig partner, saa gaten hoerer her.
+  if (spaerrer(selected_rows$levende) || spaerrer(selected_rows$privat))
+    stop("D2_SELECTION_NOT_PUBLIC_SAFE", call. = FALSE)
+  if (any(is.na(selected_rows$visning_navn)) ||
+      any(!nzchar(trimws(as.character(selected_rows$visning_navn)))))
+    stop("D2_SELECTION_MISSING_NAME", call. = FALSE)
 
   selected <- lapply(order(selected_rows$person_id), function(i) list(
     person_id     = as.numeric(selected_rows$person_id[[i]]),
     visning_navn  = as.character(selected_rows$visning_navn[[i]]),
+    levende       = as.logical(selected_rows$levende[[i]]),
+    privat        = as.logical(selected_rows$privat[[i]]),
     partner_id    = as.numeric(selected_rows$partner_id[[i]]),
     har_samme_som = as.logical(selected_rows$har_samme_som[[i]])
   ))

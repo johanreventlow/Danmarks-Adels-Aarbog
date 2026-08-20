@@ -23,6 +23,8 @@ fixture_rows <- function() {
   data.frame(
     person_id = c(1487, 1480),
     visning_navn = c("B", "A"),
+    levende = c(FALSE, FALSE),
+    privat = c(FALSE, FALSE),
     partner_id = c(801, 800),
     har_samme_som = c(FALSE, TRUE),
     stringsAsFactors = FALSE
@@ -83,5 +85,33 @@ expect_error(
     fixture_rows()[0, ], fixture_counts(valgte = 0, staged_bagefter = 9),
     "postgres", "abc", "test"),
   "D2_SELECTION_EMPTY")
+
+## 8) Invariant 8: en levende eller privatmarkeret person maa aldrig
+##    publiceres. SQL-praedikatet filtrerer ikke paa det, saa gaten skal
+##    sidde her -- ellers er den ingen steder.
+lev <- fixture_rows(); lev$levende <- c(FALSE, TRUE)
+expect_error(
+  build_d2_spouse_selection_1939_v50(lev, fixture_counts(), "postgres", "abc", "test"),
+  "D2_SELECTION_NOT_PUBLIC_SAFE")
+pri <- fixture_rows(); pri$privat <- c(TRUE, FALSE)
+expect_error(
+  build_d2_spouse_selection_1939_v50(pri, fixture_counts(), "postgres", "abc", "test"),
+  "D2_SELECTION_NOT_PUBLIC_SAFE")
+
+## 8b) NA maa spaerre, ikke slippe igennem: any(c(NA)) er NA, ikke FALSE.
+nas <- fixture_rows(); nas$levende <- c(FALSE, NA)
+expect_error(
+  build_d2_spouse_selection_1939_v50(nas, fixture_counts(), "postgres", "abc", "test"),
+  "D2_SELECTION_NOT_PUBLIC_SAFE")
+
+## 9) Uden navn bliver personen en tom raekke i fladen.
+u1 <- fixture_rows(); u1$visning_navn <- c("B", NA_character_)
+expect_error(
+  build_d2_spouse_selection_1939_v50(u1, fixture_counts(), "postgres", "abc", "test"),
+  "D2_SELECTION_MISSING_NAME")
+u2 <- fixture_rows(); u2$visning_navn <- c("B", "   ")
+expect_error(
+  build_d2_spouse_selection_1939_v50(u2, fixture_counts(), "postgres", "abc", "test"),
+  "D2_SELECTION_MISSING_NAME")
 
 cat(sprintf("OK: %d assertions\n", ok))
