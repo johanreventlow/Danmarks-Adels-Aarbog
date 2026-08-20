@@ -1,5 +1,38 @@
 # Changelog
 
+## Sletnings-rutinen hærdet efter dobbelt review (2026-08-20)
+
+Fixet ovenfor blev reviewet af Codex sol og arkitekturvurderet af fable. Tre
+fund blev accepteret og rettet, ét blev afvist som uopnåeligt.
+
+**Fortrydbarhed.** Ingen af de tabeller, `red_slet_person` nu sletter fra, stod
+i `version_pk_registry` — sletningerne gav altså ingen `change_events`.
+`person_slaegt_membership` og `person_lineage_membership` er nu registreret med
+`log_change`-triggere. `private.narrative_record_publication` kan ikke
+registreres som mekanikken ser ud; vurderingen er at tabet er
+publicerings-tilstand (`record_ref`, `published_at`), ikke evidens — se
+`decisions.md`.
+
+**Hændelses-ankre.** Påvist asymmetri: sletningen samler relationer på både
+subjekt- og objektsiden, mens hændelses-loaderen forankrer efter subjekt alene.
+En relation Q→P kan derfor bære en hændelse under Q's narrativ, som blokerer.
+Ankeret løsnes nu (`SET NULL`) i stedet for at slette en anden persons hændelse.
+
+**Kilde-identitet.** `source_persona_identity_event` er append-only, så en
+person, der én gang har haft en accepteret identitetsbeslutning, kan aldrig
+hard-slettes. `red_slet_person` afviser nu tidligt med
+`PERSON_HAR_KILDEIDENTITET` i stedet for en rå fremmednøglefejl halvvejs
+igennem. Den varige løsning — tombstone frem for hard delete — er anbefalet,
+men **ikke besluttet**.
+
+**Afvist:** `conclusion.valgt_assertion_id` blev meldt som blokerende, men
+ingen writer kan producere tilstanden (`red_upsert_fakta` og retract-stien
+sætter target og valgt påstand i samme operation). Ingen defensiv kode tilføjet.
+
+`db-verify.sql` har fået to tests mere (hændelses-ankeret og persona-afvisningen).
+**Ingen af de tre nye tests er kørt** — sessionen havde ingen base-adgang.
+
+
 ## `red_slet_person` rettet — bindinger og medlemskaber ryddes nu (2026-08-20)
 
 Fejlen fra samme dag (se nedenfor) er rettet i kode, men **ikke deployet**.

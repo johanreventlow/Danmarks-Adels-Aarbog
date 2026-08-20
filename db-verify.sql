@@ -6566,3 +6566,118 @@ BEGIN
 EXCEPTION WHEN others THEN
   IF SQLERRM = 'ROLLBACK_TESTDATA' THEN RAISE NOTICE 'OK: testdata rullet tilbage'; ELSE RAISE; END IF;
 END $$;
+
+
+-- ===== 2026-08-20: red_slet_person løsner haendelse-ankre i stedet for at slette =====
+-- Påvist asymmetri: red_slet_person samler relationer hvor personen er subjekt ELLER objekt
+-- (schema.sql), mens hændelses-loaderen forankrer efter subjekt alene
+-- (.claude/skills/daa-haendelser/scripts/load_haendelser.R). En relation Q→P kan derfor bære
+-- en hændelse under Q's narrativ, som IKKE cascade-slettes når P's narrativer forsvinder —
+-- og haendelse.relation_id har FK uden ON DELETE. Q's hændelse skal bevares, ankeret løsnes.
+DO $$
+DECLARE
+  v_actor  uuid := gen_random_uuid();
+  v_source bigint; v_p bigint; v_q bigint; v_qnarr bigint; v_rel bigint; v_h bigint;
+BEGIN
+  INSERT INTO auth.users(id,email) VALUES (v_actor,'haendelse-anker-verify@test.invalid');
+  INSERT INTO profiles(id,rolle,email) VALUES (v_actor,'redaktion','haendelse-anker-verify@test.invalid');
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+
+  v_source := (SELECT coalesce(max(id),0)+1 FROM source);
+  INSERT INTO source(id,slags,titel) VALUES (v_source,'DAA-udgave','VERIFY haendelse-anker');
+  v_p := (SELECT coalesce(max(id),0)+1 FROM person);
+  INSERT INTO person(id,levende,privat,visning_navn) VALUES (v_p,false,false,'VERIFY P (slettes)');
+  v_q := v_p + 1;
+  INSERT INTO person(id,levende,privat,visning_navn) VALUES (v_q,false,false,'VERIFY Q (bevares)');
+
+  -- P er OBJEKT i relationen — red_slet_person(P) samler den alligevel i v_rels.
+  v_rel := (SELECT coalesce(max(id),0)+1 FROM relation);
+  INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw)
+    VALUES (v_rel,'person',v_q,'person',v_p,'deltager','1930');
+
+  -- Hændelsen hænger under Q's narrativ, ikke P's, og overlever derfor P's narrativ-sletning.
+  v_qnarr := (SELECT coalesce(max(id),0)+1 FROM narrative);
+  INSERT INTO narrative(id,subjekt_type,subjekt_id,source_id,tekst,privat)
+    VALUES (v_qnarr,'person',v_q,v_source,'Q-biografi',false);
+  v_h := (SELECT coalesce(max(id),0)+1 FROM haendelse);
+  INSERT INTO haendelse(id,subjekt_type,subjekt_id,narrative_id,noegle,klausul,relation_id)
+    VALUES (v_h,'person',v_q,v_qnarr,'verify-anker','deltog 1930',v_rel);
+
+  PERFORM red_slet_person(v_p);
+
+  IF EXISTS (SELECT 1 FROM person WHERE id=v_p) THEN
+    RAISE EXCEPTION 'FEJL: P blev ikke slettet';
+  END IF;
+  IF EXISTS (SELECT 1 FROM relation WHERE id=v_rel) THEN
+    RAISE EXCEPTION 'FEJL: relationen Q->P overlevede sletningen';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM person WHERE id=v_q) THEN
+    RAISE EXCEPTION 'FEJL: Q blev slettet — kun P skulle slettes';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM haendelse WHERE id=v_h) THEN
+    RAISE EXCEPTION 'FEJL: Q-haendelsen blev slettet — kun ankeret skulle loesnes';
+  END IF;
+  IF (SELECT relation_id FROM haendelse WHERE id=v_h) IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: haendelse.relation_id blev ikke loesnet';
+  END IF;
+
+  RAISE NOTICE 'OK: red_slet_person — Q-haendelsen bevaret, relation_id-anker loesnet';
+  RAISE EXCEPTION 'ROLLBACK_TESTDATA';
+EXCEPTION WHEN others THEN
+  IF SQLERRM = 'ROLLBACK_TESTDATA' THEN RAISE NOTICE 'OK: testdata rullet tilbage'; ELSE RAISE; END IF;
+END $$;
+
+
+-- ===== 2026-08-20: red_slet_person afviser tidligt ved accepteret kilde-identitet =====
+-- private.source_persona_identity_event er append-only og bærer canonical_person_id med FK mod
+-- person. Har personen én gang haft en ACCEPTERET identitetsbeslutning, kan den aldrig
+-- hard-slettes — heller ikke efter en tilbagetrækning. Kontrakten er, at brugeren får en
+-- forståelig domænefejl FØR change_settet åbnes, ikke en rå FK-violation halvvejs igennem.
+DO $$
+DECLARE
+  v_actor   uuid := gen_random_uuid();
+  v_run     uuid := gen_random_uuid();
+  v_persona uuid := gen_random_uuid();
+  v_source  bigint; v_p bigint; v_fejl text;
+BEGIN
+  INSERT INTO auth.users(id,email) VALUES (v_actor,'persona-gate-verify@test.invalid');
+  INSERT INTO profiles(id,rolle,email) VALUES (v_actor,'redaktion','persona-gate-verify@test.invalid');
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+
+  v_source := (SELECT coalesce(max(id),0)+1 FROM source);
+  INSERT INTO source(id,slags,titel) VALUES (v_source,'DAA-udgave','VERIFY persona-gate');
+  v_p := (SELECT coalesce(max(id),0)+1 FROM person);
+  INSERT INTO person(id,levende,privat,visning_navn) VALUES (v_p,false,false,'VERIFY persona-bundet');
+  INSERT INTO private.extraction_run(
+    id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest
+  ) VALUES (v_run,v_source,'persona-gate-verify','1','verify','verify',repeat('3',64),'{}');
+  INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id)
+    VALUES (v_persona,v_source,'verify-persona',v_run);
+  INSERT INTO private.source_persona_identity_event(
+    source_persona_id,canonical_person_id,decision_status,version,evidence,
+    decided_by,decided_by_name,decided_at
+  ) VALUES (v_persona,v_p,'accepted',1,'{"verify":true}'::jsonb,v_actor,'Verify',now());
+
+  v_fejl := NULL;
+  BEGIN
+    PERFORM red_slet_person(v_p);
+    RAISE EXCEPTION 'VERIFY_SLETNING_BLEV_ACCEPTERET';
+  EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+
+  IF v_fejl = 'VERIFY_SLETNING_BLEV_ACCEPTERET' THEN
+    RAISE EXCEPTION 'FEJL: sletning af persona-bundet person blev accepteret';
+  END IF;
+  IF v_fejl NOT LIKE 'PERSON_HAR_KILDEIDENTITET%' THEN
+    RAISE EXCEPTION 'FEJL: forkert afvisningsgrund ved persona-blokering: %', v_fejl;
+  END IF;
+  -- BEMÆRK: der er ingen assert på »intet change_set blev åbnet« eller »intet blev delvist
+  -- slettet«. PL/pgSQL's BEGIN..EXCEPTION ovenfor er en subtransaktion, så begge dele rulles
+  -- tilbage uanset hvor i funktionen afvisningen faldt — en sådan assert ville altid bestå og
+  -- give falsk tryghed. At afvisningen sker før begin_change_set er sikret ved rækkefølgen i
+  -- funktionen selv, ikke her.
+
+  RAISE NOTICE 'OK: red_slet_person — persona-bundet person afvist med domaenefejl';
+  RAISE EXCEPTION 'ROLLBACK_TESTDATA';
+EXCEPTION WHEN others THEN
+  IF SQLERRM = 'ROLLBACK_TESTDATA' THEN RAISE NOTICE 'OK: testdata rullet tilbage'; ELSE RAISE; END IF;
+END $$;

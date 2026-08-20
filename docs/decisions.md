@@ -106,6 +106,82 @@ historiske person-id'er bevares uden blokerende fremmednøgle.
 **Dette er et arkitekturvalg, ikke en oprydning** — (c) og (d) ændrer hvad
 »slet en person« overhovedet betyder i modellen, og bør besluttes bevidst.
 
+**Status:** (b) er implementeret — `red_slet_person` afviser nu tidligt med
+`PERSON_HAR_KILDEIDENTITET` i stedet for at lade en rå FK-violation slippe ud
+midt i en halvt udført sletning. Det er en ærlig fejlbesked, ikke en løsning.
+
+**Anbefaling fra arkitekturvurdering (fable, 2026-08-20): vælg (c), i varianten
+tombstone + udtømning.** `red_slet_person` ville da tømme alt det, den allerede
+sletter (fakta, evidenskæde, narrativer, bindinger, medlemskaber, external ids,
+`visning_*`), men bevare den nøgne person-række med et eksplicit slettet-state,
+så `canonical_person_id`-fremmednøglerne forbliver gyldige. Begrundelsen ligger
+i modellens egne invarianter: personen er reelt en *konklusion*
+(`datamodel-oversigt.md`), og rettelse sker ved ny tilstand ovenpå — aldrig ved
+destruktion (invariant 1). Hard delete er anomalien i denne model, ikke normen.
+Huset praktiserer i forvejen tombstones: 1939-reversal sletter ikke personer,
+den sætter `staged=true, status='reimport_1939_reversed'`.
+
+GDPR (invariant 8) taler ikke imod: en udtømt tombstone er et nøgent surrogat-id
+uden persondata. Den reelle eksponering ved en sletteanmodning ligger i
+`private.source_persona`/`source_record` — bogens egen tekst — og den består
+uanset om person-rækken slettes hårdt. Hard delete ville altså ikke have løst
+det GDPR-problem, tombstonen får skylden for.
+
+**Vigtigste indvending mod (c):** tombstones skal ekskluderes konsistent i
+*alle* læseflader — RLS, anon-RPC'er, finderen, `samme_som`-collapse, tællinger.
+Én overset gate genopliver en »slettet« person offentligt. `staged` kan ikke
+genbruges (det betyder kuratering, ikke sletning), så det kræver et nyt,
+distinkt state plus en audit af samtlige læsestier og lockstep-opdatering af
+web og mobil. **Beslutningen er ikke truffet — den afventer brugeren.**
+
+---
+
+## Hændelses-ankre: subjekt/objekt-asymmetrien (2026-08-20)
+
+`red_slet_person` samler relationer hvor personen er **subjekt eller objekt**,
+mens hændelses-loaderen (`load_haendelser.R`) forankrer hændelser efter
+**subjekt alene**. En relation Q→P kan derfor bære en hændelse under *Q's*
+narrativ, som ikke cascade-slettes når P's narrativer forsvinder — og
+`haendelse.relation_id` har fremmednøgle uden `ON DELETE`. Sletningen af P ville
+strande på Q's hændelse.
+
+**Løsning:** ankeret løsnes (`SET NULL`) i stedet for at slette en anden persons
+hændelse. Hændelseslaget er per design regenererbart, og begge kolonner er
+allerede `skip_cols` i versioneringen, så en nulstilling er konsistent med
+husets eget valg om ikke at versionere dem.
+
+`haendelse.fact_id` tages med for symmetri, men den sti er **ikke** påvist:
+loaderen filtrerer fakta til narrativets egen person, så et krydsanker kan i dag
+ikke opstå. Det er billig forsikring mod en fremtidig writer, ikke en rettelse
+af en kendt fejl.
+
+---
+
+## Narrativ-bindingens tab ved fortryd er publicerings-tilstand, ikke evidens (2026-08-20)
+
+`private.narrative_record_publication` kan ikke registreres i
+`version_pk_registry`: registret er nøglet på skemaløst `tabel TEXT`,
+trigger-loopet bruger `%I` uden skema, og `_version_pk_where` slår kolonner op
+med `table_schema='public'` hårdkodet. Sletning af en binding giver derfor ingen
+`change_event` og kan ikke fortrydes.
+
+**Vurdering:** koblingen narrativ→kilderecord er *funktionelt* rekonstruerbar for
+1939-flowets rækker — labels dannes efter en deterministisk konvention, og
+`record_key` er unik pr. kilde. Reelt tabt er derimod `record_ref` (en
+`gen_random_uuid()`, UNIQUE og uforanderlig — en genopbygget binding ville mønte
+en **ny** offentlig identitet), `published_at`, og de frit kalder-leverede labels
+på den manuelle publiceringssti.
+
+**Det er ikke tabt evidens** i invariant 1's forstand: evidensen er
+`private.source_record`, som aldrig røres. Det er tabt *publicerings-tilstand*.
+Alvoren i dag er lav — `record_ref` eksponeres for `anon` via
+`public_person_bio_source_versions`, men ingen konsument fastholder den (kun
+listenøgle og sorterings-tiebreak i web/mobil). Alvoren bliver reel, hvis
+`record_ref` nogensinde bruges som citérbar reference udadtil — hvilket er
+præcis, hvad den er designet til. **Bør genbesøges før den bruges eksternt.**
+
+---
+
 ---
 
 ## Fase C1 udskudt: værdien udløses først af den anden udgave (2026-08-19)

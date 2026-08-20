@@ -8175,6 +8175,20 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_facts bigint[]; v_rels bigint[];
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+
+  -- 2026-08-20: private.source_persona_identity(_event).canonical_person_id har FK mod person
+  -- uden ON DELETE, og _event er append-only (kun BEFORE INSERT-trigger). Har personen én gang
+  -- været mål for en ACCEPTERET kilde-identifikation, bærer den historiske event stadig id'et,
+  -- og sletningen kan aldrig lykkes — heller ikke efter en tilbagetrækning. Vi afviser derfor
+  -- tidligt med en forståelig fejl i stedet for at lade en rå FK-violation slippe ud midt i
+  -- en halvt udført sletning. Den varige løsning er et arkitekturvalg; se docs/decisions.md.
+  IF EXISTS (SELECT 1 FROM private.source_persona_identity_event
+               WHERE canonical_person_id = p_person_id)
+     OR EXISTS (SELECT 1 FROM private.source_persona_identity
+               WHERE canonical_person_id = p_person_id) THEN
+    RAISE EXCEPTION 'PERSON_HAR_KILDEIDENTITET: personen er mål for en accepteret kilde-identifikation, og beslutningssporet er uforanderligt. Sletning er ikke mulig — se docs/decisions.md om tombstone-valget.';
+  END IF;
+
   PERFORM begin_change_set('red_slet_person', format('Slettede person %s', p_person_id), 'person', p_person_id);
 
   -- Fælles skriveorden med OCR-rettelsen: source/external-id → person → evidens.
@@ -8212,6 +8226,16 @@ BEGIN
   DELETE FROM private.narrative_record_publication WHERE narrative_id IN (
     SELECT id FROM narrative WHERE subjekt_type='person' AND subjekt_id=p_person_id);
   DELETE FROM narrative          WHERE subjekt_type='person' AND subjekt_id=p_person_id;
+  -- 2026-08-20: haendelse.relation_id/fact_id har FK uden ON DELETE. relation_id er en PÅVIST
+  -- blokering: red_slet_person samler relationer hvor personen er subjekt ELLER objekt, mens
+  -- hændelses-loaderen forankrer efter subjekt alene — en relation Q→P kan derfor bære en
+  -- hændelse under Q's narrativ, som overlever når P slettes. fact_id tages med for symmetri
+  -- (loaderen filtrerer i dag fakta til narrativets egen person, så den sti er ikke påvist).
+  -- Hændelseslaget er regenererbart, og begge kolonner er skip-cols i versioneringen, så vi
+  -- løsner ankeret i stedet for at slette en anden persons hændelse.
+  UPDATE haendelse SET relation_id = NULL WHERE relation_id = ANY(v_rels);
+  UPDATE haendelse SET fact_id     = NULL WHERE fact_id     = ANY(v_facts);
+
   DELETE FROM relation           WHERE id = ANY(v_rels);
   DELETE FROM fact               WHERE id = ANY(v_facts);
   DELETE FROM person_external_id WHERE person_id = p_person_id;
