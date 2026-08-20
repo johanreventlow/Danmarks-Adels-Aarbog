@@ -6484,3 +6484,85 @@ BEGIN
 EXCEPTION WHEN others THEN
   IF SQLERRM = 'ROLLBACK_TESTDATA' THEN RAISE NOTICE 'OK: testdata rullet tilbage'; ELSE RAISE; END IF;
 END $$;
+
+
+-- ===== 2026-08-20: red_slet_person for en NARRATIV-BUNDET person =====
+-- Lukker den åbne fejl fra 2026-08-20: funktionen er ældre end
+-- private.narrative_record_publication, og FK'en derfra mod narrative(id) (uden
+-- ON DELETE) blokerede sletningen for alle 551 narrativ-bundne 1939-personer.
+-- Samme bugklasse som review 19 H2 (slaegtsnavn_karantaene) ovenfor.
+-- Dækker samtidig person_slaegt_membership og person_lineage_membership, hvis
+-- person_id er NOT NULL uden CASCADE og derfor blokerer på samme måde.
+-- Kontrollerer til slut den modsatte invariant: private.source_record MÅ IKKE
+-- røres — at teksten står på siden er stadig sandt efter en person er slettet.
+DO $$
+DECLARE
+  v_actor     uuid   := gen_random_uuid();
+  v_run       uuid   := gen_random_uuid();
+  v_record    uuid   := gen_random_uuid();
+  v_source    bigint; v_person bigint; v_narrative bigint;
+  v_slaegt    bigint; v_lineage bigint;
+BEGIN
+  INSERT INTO auth.users(id,email) VALUES (v_actor,'slet-binding-verify@test.invalid');
+  INSERT INTO profiles(id,rolle,email) VALUES (v_actor,'redaktion','slet-binding-verify@test.invalid');
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+
+  v_source := (SELECT coalesce(max(id),0)+1 FROM source);
+  INSERT INTO source(id,slags,titel,udgave,aar)
+    VALUES (v_source,'DAA-udgave','VERIFY Slet-binding','VERIFY 2026',2026);
+  v_person := (SELECT coalesce(max(id),0)+1 FROM person);
+  INSERT INTO person(id,levende,privat,staged,visning_navn)
+    VALUES (v_person,false,false,false,'VERIFY slet-binding');
+
+  -- Kilderecord + binding: præcis den konstellation fase B lagde på de 551.
+  INSERT INTO private.extraction_run(
+    id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest
+  ) VALUES (v_run,v_source,'slet-binding-verify','1','verify','verify',repeat('2',64),'{}');
+  INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
+    VALUES (v_record,v_source,'slet-binding-record','person_entry',v_run);
+  v_narrative := (SELECT coalesce(max(id),0)+1 FROM narrative);
+  INSERT INTO narrative(id,subjekt_type,subjekt_id,source_id,tekst,privat)
+    VALUES (v_narrative,'person',v_person,v_source,'Bundet narrativ',false);
+  INSERT INTO private.narrative_record_publication(
+    narrative_id,source_record_id,record_label,citation_label,status
+  ) VALUES (v_narrative,v_record,'Linje I, nr. 1','s. 1','published');
+
+  -- Medlemskaber: person_id er NOT NULL uden ON DELETE CASCADE.
+  INSERT INTO slaegt(navn,sorteringsnavn,slug)
+    VALUES ('VERIFY Slet','VERIFY Slet','verify-slet-binding') RETURNING id INTO v_slaegt;
+  INSERT INTO person_slaegt_membership(person_id,slaegt_id,membership_kind)
+    VALUES (v_person,v_slaegt,'editorial');
+  v_lineage := (SELECT coalesce(max(id),0)+1 FROM lineage);
+  INSERT INTO lineage(id,source_id,kode,navn,slaegtsnavn)
+    VALUES (v_lineage,v_source,'__VERIFY_SLET','VERIFY','Verify');
+  INSERT INTO person_lineage_membership(person_id,lineage_id,role)
+    VALUES (v_person,v_lineage,'member');
+
+  -- Selve prøven: må ikke rejse FK-violation.
+  PERFORM red_slet_person(v_person);
+
+  IF EXISTS (SELECT 1 FROM person WHERE id=v_person) THEN
+    RAISE EXCEPTION 'FEJL: personen blev ikke slettet';
+  END IF;
+  IF EXISTS (SELECT 1 FROM narrative WHERE id=v_narrative) THEN
+    RAISE EXCEPTION 'FEJL: narrativet overlevede sletningen';
+  END IF;
+  IF EXISTS (SELECT 1 FROM private.narrative_record_publication WHERE narrative_id=v_narrative) THEN
+    RAISE EXCEPTION 'FEJL: narrativ-bindingen overlevede sletningen';
+  END IF;
+  IF EXISTS (SELECT 1 FROM person_slaegt_membership WHERE person_id=v_person) THEN
+    RAISE EXCEPTION 'FEJL: slaegt-medlemskabet overlevede sletningen';
+  END IF;
+  IF EXISTS (SELECT 1 FROM person_lineage_membership WHERE person_id=v_person) THEN
+    RAISE EXCEPTION 'FEJL: lineage-medlemskabet overlevede sletningen';
+  END IF;
+  -- Modsat invariant: kilderegistreringen er stadig sand.
+  IF NOT EXISTS (SELECT 1 FROM private.source_record WHERE id=v_record) THEN
+    RAISE EXCEPTION 'FEJL: person-sletningen fjernede en private.source_record';
+  END IF;
+
+  RAISE NOTICE 'OK: red_slet_person — narrativ-binding + slaegt/lineage-medlemskab fjernet, source_record bevaret';
+  RAISE EXCEPTION 'ROLLBACK_TESTDATA';
+EXCEPTION WHEN others THEN
+  IF SQLERRM = 'ROLLBACK_TESTDATA' THEN RAISE NOTICE 'OK: testdata rullet tilbage'; ELSE RAISE; END IF;
+END $$;

@@ -3850,6 +3850,13 @@ BEGIN
                       OR (target_type='fact'     AND target_id = ANY(v_facts))
                       OR (target_type='relation' AND target_id = ANY(v_rels));
 
+  -- 2026-08-20: private.narrative_record_publication har FK mod narrative(id) UDEN ON DELETE,
+  -- så den blokerede sletningen for alle 551 narrativ-bundne 1939-personer. Bindingen siger
+  -- »dette narrativ stammer fra denne kilderecord« — når narrativet går, er udsagnet
+  -- meningsløst, så bindingen skal med. private.source_record røres derimod ALDRIG: at
+  -- teksten står på siden er stadig sandt. Skema-kvalificeret, fordi SET search_path=public.
+  DELETE FROM private.narrative_record_publication WHERE narrative_id IN (
+    SELECT id FROM narrative WHERE subjekt_type='person' AND subjekt_id=p_person_id);
   DELETE FROM narrative          WHERE subjekt_type='person' AND subjekt_id=p_person_id;
   DELETE FROM relation           WHERE id = ANY(v_rels);
   DELETE FROM fact               WHERE id = ANY(v_facts);
@@ -3858,6 +3865,10 @@ BEGIN
   -- review 19 H2: slaegtsnavn_karantaene.person_id har ingen ON DELETE CASCADE — uden denne linje
   -- fejler sletningen for enhver person der har >1 distinkt effektivt efternavn (fan-out).
   DELETE FROM slaegtsnavn_karantaene WHERE person_id = p_person_id;
+  -- 2026-08-20: samme klasse som H2 ovenfor — person_id er NOT NULL uden ON DELETE CASCADE,
+  -- så et medlemskab blokerer sletningen. Et medlemskab uden sin person er meningsløst.
+  DELETE FROM person_slaegt_membership   WHERE person_id = p_person_id;
+  DELETE FROM person_lineage_membership  WHERE person_id = p_person_id;
   DELETE FROM person             WHERE id = p_person_id;
 END $$;
 
@@ -4829,11 +4840,21 @@ HAVING count(DISTINCT a.vaerdi_tekst) > 1;
 -- relations-logik: personen som subjekt ELLER objekt (spec §7, Codex-review høj).
 CREATE OR REPLACE FUNCTION red_slet_person_preview(p_person_id bigint)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
-DECLARE v_rels jsonb; v_nfacts int;
+DECLARE v_rels jsonb; v_nfacts int; v_nnarr int; v_nbind int; v_nmedlem int;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   SELECT count(*) INTO v_nfacts FROM fact
     WHERE subjekt_type='person' AND subjekt_id=p_person_id;
+  -- 2026-08-20: preview rapporterede kun fakta og relationer, så redaktøren kunne ikke se at
+  -- en biografi og dens kildebinding fulgte med. Skema-kvalificeret (SET search_path=public).
+  SELECT count(*) INTO v_nnarr FROM narrative
+    WHERE subjekt_type='person' AND subjekt_id=p_person_id;
+  SELECT count(*) INTO v_nbind FROM private.narrative_record_publication p
+    JOIN narrative n ON n.id = p.narrative_id
+    WHERE n.subjekt_type='person' AND n.subjekt_id=p_person_id;
+  SELECT (SELECT count(*) FROM person_slaegt_membership  WHERE person_id=p_person_id)
+       + (SELECT count(*) FROM person_lineage_membership WHERE person_id=p_person_id)
+    INTO v_nmedlem;
   SELECT coalesce(jsonb_agg(r), '[]'::jsonb) INTO v_rels FROM (
     SELECT rolle,
            CASE WHEN subjekt_type='person' AND subjekt_id=p_person_id
@@ -4847,6 +4868,9 @@ BEGIN
   RETURN jsonb_build_object(
     'antal_relationer', jsonb_array_length(v_rels),
     'antal_facts', v_nfacts,
+    'antal_narrativer', v_nnarr,
+    'antal_bindinger', v_nbind,
+    'antal_medlemskaber', v_nmedlem,
     'relationer', v_rels);
 END $$;
 

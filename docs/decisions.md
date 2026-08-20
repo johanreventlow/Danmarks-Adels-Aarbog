@@ -2,7 +2,7 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
-## ÅBEN FEJL: `red_slet_person` er brudt for alle 551 narrativ-bundne personer (2026-08-20)
+## RETTET (ikke deployet): `red_slet_person` var brudt for alle 551 narrativ-bundne personer (2026-08-20)
 
 **Symptom:** `red_slet_person(p_person_id)` fejler med
 
@@ -27,17 +27,70 @@ og relationer, men hverken narrativer eller bindinger.
 ved at slette bindingen først i samme transaktion — en engangsomgåelse, ikke
 en rettelse.
 
-**Rettelse (ikke udført):** udvid `red_slet_person` til at fjerne
-`private.narrative_record_publication`-rækker for personens narrativer, før
-narrativerne slettes, og udvid `red_slet_person_preview` til at vise både
-narrativer og bindinger, så redaktøren kan se hvad der forsvinder. Bemærk at
-funktionen findes i **to** definitioner i `db-migrations.sql` (linje 451 og
-en senere) — begge skal rettes, og migrationslaget vinder ved deploy.
+**Rettelse (skrevet 2026-08-20, IKKE kørt mod nogen base):** begge funktioner
+er genudgivet som en ny blok i bunden af `db-migrations.sql` og opdateret i
+`schema.sql`. De tidligere blokke (linje 451 og 1714) står urørt som historik —
+det er husets konvention i en replayet migrationsfil, og den sidste definition
+vinder. `red_slet_person` fjerner nu bindingerne før narrativerne.
+
+Gennemgangen fandt **to blokerende fremmednøgler mere**, som noten ovenfor ikke
+kendte: `person_slaegt_membership` og `person_lineage_membership` har begge
+`person_id NOT NULL` uden `ON DELETE CASCADE`. De ryddes nu i samme omgang.
+
+`red_slet_person_preview` returnerer nu også `antal_narrativer`,
+`antal_bindinger` og `antal_medlemskaber`, og begge slet-flader (web
+`Redaktion.tsx`, mobil `SletBekraeftSheet.tsx`) viser tallene — ellers var
+udvidelsen usynlig for redaktøren.
+
+**Fælde værd at huske:** begge funktioner er `SECURITY DEFINER` med
+`SET search_path=public`, så `private.`-tabeller **skal** skema-kvalificeres.
+Uden præfikset fejler funktionen ved *deploy* med »relation does not exist«,
+ikke ved kørsel.
+
+**Udestår:** `db-verify.sql` har fået en ny DO-blok der bygger
+source_record + binding + begge medlemskaber og kræver at sletningen lykkes
+uden at røre `private.source_record` — men den er **ikke kørt**, da sessionen
+ikke havde adgang til en base. Deploy mod prod + `get_advisors(security)`
+udestår og er brugerens kald.
 
 **Bemærk om semantikken:** bindingen siger »dette narrativ stammer fra denne
 kilderecord«. Når narrativet slettes, er udsagnet meningsløst, så bindingen
 skal med. `private.source_record` skal derimod **aldrig** røres af en
 person-sletning — registreringen af, at teksten står på siden, er stadig sand.
+
+---
+
+## ÅBEN: hvad skal en person-sletning gøre ved `source_persona_identity`? (2026-08-20)
+
+**Spørgsmålet dukkede op** under rettelsen af `red_slet_person` ovenfor.
+`private.source_persona_identity` og `private.source_persona_identity_event`
+har begge `canonical_person_id` med fremmednøgle mod `person(id)` og **uden**
+`ON DELETE`. De blokerer altså en sletning på præcis samme måde som
+bindingstabellen gjorde — men de er bevidst **ikke** rørt af rettelsen.
+
+**Hvorfor ikke:** en source persona er bogens beskrivelse af en person — en
+påstand fra kilden, ikke et faktum om vores kanoniske person. At slette den,
+fordi vi sletter personen, er samme kategorifejl som at slette
+`private.source_record` (invariant 1: påstande overskrives aldrig).
+`_event`-tabellen er desuden et append-only beslutningsspor.
+
+Nulstilling er heller ikke en udvej: `source_persona_identity_target_check`
+kræver at `canonical_person_id IS NOT NULL` præcis når
+`decision_status='accepted'`. Man kan altså ikke nulstille feltet uden samtidig
+at flytte beslutningen til fx `superseded` — og *det* er en redaktionel
+afgørelse (»denne identifikation gælder ikke længere«), ikke en teknisk
+oprydning der hører hjemme i en slette-rutine.
+
+**Konsekvens indtil videre:** sletning af en person, som har en *accepteret*
+persona-identifikation, vil stadig fejle på fremmednøglen. Det rammer ikke de
+551 (de blokerede på bindingen), men skal afklares før persona-materialiseringen
+bruges bredt.
+
+**Valgmuligheder:** (a) en egen RPC der først sætter identifikationen til
+`superseded` med begrundelse og derefter tillader sletning; (b) lade
+`red_slet_person` afvise med en forståelig fejl (»personen har en accepteret
+kilde-identifikation — træk den tilbage først«) i stedet for en rå FK-fejl.
+(b) er billigst og mest ærlig; (a) er den rigtige på sigt.
 
 ---
 

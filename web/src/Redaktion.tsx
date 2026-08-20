@@ -2284,8 +2284,13 @@ export default function Redaktion() {
             </div>
           </div>
           <div style={{ margin: '0 22px', background: '#f8ecef', border: '1px solid rgba(138,43,43,.25)', borderRadius: 11, padding: '13px 15px' }}>
-            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.red, marginBottom: 6 }}>Relationer der brydes</div>
-            <div style={{ fontSize: 13.5, lineHeight: 1.5, color: '#3d382f' }}>{pv ? `${pv.antalRelationer} relation(er) og ${pv.antalFacts} fakta knyttet til personen.` : 'Henter relations-overblik…'}</div>
+            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.red, marginBottom: 6 }}>Det her forsvinder</div>
+            <div style={{ fontSize: 13.5, lineHeight: 1.5, color: '#3d382f' }}>{pv ? `${pv.antalRelationer} relation(er), ${pv.antalFacts} fakta, ${pv.antalNarrativer} biografi(er) og ${pv.antalMedlemskaber} slægts-/linjemedlemskab(er) knyttet til personen.` : 'Henter overblik…'}</div>
+            {pv && pv.antalBindinger > 0 ? (
+              <div style={{ fontSize: 12.5, lineHeight: 1.45, color: '#5a5147', marginTop: 6 }}>
+                {`Heraf er ${pv.antalBindinger} biografi(er) bundet til en kildepost. Bindingen fjernes med biografien — selve registreringen af, at teksten står på siden, bevares.`}
+              </div>
+            ) : null}
           </div>
           <div style={{ padding: '16px 22px 4px' }}>
             <label onClick={() => setConfirmDel((c) => c && { ...c, ack: !c.ack })} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>

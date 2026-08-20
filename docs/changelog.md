@@ -1,5 +1,33 @@
 # Changelog
 
+## `red_slet_person` rettet — bindinger og medlemskaber ryddes nu (2026-08-20)
+
+Fejlen fra samme dag (se nedenfor) er rettet i kode, men **ikke deployet**.
+`red_slet_person` fjerner nu `private.narrative_record_publication`-bindingerne
+før narrativerne, så sletning ikke længere strander på fremmednøglen for de 551
+narrativ-bundne 1939-personer.
+
+Gennemgangen af *alle* fremmednøgler mod `person` og `narrative` fandt to
+blokerende mere end den oprindelige note kendte: `person_slaegt_membership` og
+`person_lineage_membership` (begge `person_id NOT NULL` uden cascade). Begge
+ryddes nu. `private.source_record` røres fortsat aldrig.
+
+`red_slet_person_preview` er udvidet med `antal_narrativer`, `antal_bindinger`
+og `antal_medlemskaber`, og både web- og mobil-slet-fladen viser tallene — en
+redaktør kunne før slette en biografi uden at få det at vide.
+
+To persona-tabeller er bevidst ladt urørt og noteret som åben beslutning i
+`docs/decisions.md`: deres CHECK-constraint binder `canonical_person_id` til
+`decision_status`, så feltet hverken kan slettes eller nulstilles uden en
+redaktionel afgørelse.
+
+**Status:** web-suiten er grøn (773/773), og typetjekket viser samme 34
+præeksisterende fejl som før ændringen (i `GeoMap.tsx`, `mediaDedup.ts` og
+`humanReview1939Ui.test.ts` — ingen i de rørte filer). Den nye `db-verify`-blok
+er **ikke kørt**: sessionen havde ingen base-adgang. Deploy mod prod +
+`get_advisors(security)` udestår.
+
+
 ## Person 975 pensioneret + fund: `red_slet_person` er brudt (2026-08-20)
 
 Brugerens gennemlæsning af de nypublicerede poster afslørede, at person 975
