@@ -2,6 +2,63 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## ÅBENT: strukturerede fakta er usynlige i fladen (2026-08-20)
+
+**Fundet under D2's web-verifikation.** Persondetaljen viser aldrig en
+fakta-liste. `fetchPersonDetail` (`web/src/data/public.ts:171`) henter
+narrativ, embeder, godser, medier og evt. kilder — den forespørger **ikke**
+`fact`. De eneste fakta, der når skærmen, er:
+
+- `p.years` — leveårene som lille monospace under navnet (`DetailPanel.tsx:88`),
+  bygget af cache-kolonnerne `visning_foedt`/`visning_doed`
+- `p.title` — titel som badge (`DetailPanel.tsx:96`)
+
+Fødsel, dåb, død, navneformer og alt andet står i basen med afklarede
+konklusioner, men har ingen vej til brugeren. Verificeret hele kæden ned for
+person 1651 og 1268: fakta findes, konklusioner er `afklaret`, cachen er
+udfyldt, `anon` får dem udleveret, og `getAll` paginerer korrekt. Der er
+**ingen fejl** — visningen findes bare ikke.
+
+**Hvorfor det først falder i øjnene nu:** fase D2 publicerede 21 gift-ind-
+stubbe uden narrativ. Deres sider består af navn + leveår og intet andet, så
+det tomrum, der hidtil var skjult bag lange biografier, blev synligt.
+
+Det er en spænding mod invariant 6: prosaen bevares ordret *og* rygraden
+udtrækkes selektivt — men kun prosaen vises. For en person uden prosa er der
+derfor intet at se, selv om rygraden er der.
+
+**Ikke besluttet:** om persondetaljen skal have en fakta-sektion, og i så fald
+om den skal vise konklusionen alene eller også påstand/kilde (evidenskæden).
+Redaktionsfladen viser allerede fakta; læserfladen gør ikke.
+
+## ÅBENT: 16 tomme unioner i prod (2026-08-20)
+
+Målt under D2's efterkontrol: 16 af 682 familier har **præcis én partner og
+nul børn** — altså et registreret ægteskab uden nogen at være gift med.
+
+```
+familie 396→977 · 715→931 · 717→995 · 718→996 · 719→998 · 720→1025
+        721→1040 · 723→1112 · 724→1136 · 725→1148 · 726→1198 · 727→1220
+        728→1291 · 729→1356 · 730→1367 · 731→1403
+```
+
+To ting gør dem mistænkelige frem for blot ufuldstændige:
+
+1. **Familie-id 715–731 er en næsten sammenhængende blok.** Det peger på én
+   loader-kørsel, ikke på spredte redaktionelle fejl. Det passer med den
+   udestående loader-guard (`navn ≠ ref`), som ellers genskaber
+   spøgelses-unioner ved reload — samme klasse som oprydningen i change_sets 3-7.
+2. **977, 1220 og 1291 står på C0's uafklarede-liste**, så der er overlap med
+   et spor, der allerede er åbent.
+
+**Ingen af fase D2's 21 sidder i en tom union**, og alle 16 fandtes før D2.
+Fasen har hverken skabt eller forværret dem. Men de vises formentlig som
+"ægteskab" i fladen, og person 996 er en af dem — netop den person, D2's
+nye ægtefælle 1487 blev koblet til.
+
+**Ikke besluttet:** om de skal ryddes, eller om loader-guarden skal komme
+først, så oprydningen ikke bliver gjort om ved næste reload.
+
 ## RETTET OG DEPLOYET: `red_slet_person` var brudt for alle 551 narrativ-bundne personer (2026-08-20)
 
 **Symptom:** `red_slet_person(p_person_id)` fejler med

@@ -748,7 +748,7 @@ git add docs/changelog.md docs/database-current-state.md
 git commit -m "docs(1939): fase D2 udført i prod — 21 ægtefæller publiceret"
 ```
 
-- [ ] **Step 7: Brugerens verifikation i web-fladen** ← UDESTÅR
+- [x] **Step 7: Brugerens verifikation i web-fladen** — BESTÅET 2026-08-20
 
 Bed brugeren bekræfte i web-fladen at et af de 21 ægteskaber nu viser begge
 parter — og særligt at person 1662's ægteskab fremgår på den collapsede person
