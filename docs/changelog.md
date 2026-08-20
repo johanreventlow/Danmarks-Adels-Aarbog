@@ -1,5 +1,32 @@
 # Changelog
 
+## Fase D2 designet og planlagt (2026-08-20)
+
+De 21 staged gift-ind-ægtefæller, hvis partner allerede er synlig. Design i
+`docs/superpowers/specs/2026-08-20-1939-v50-fase-d2-aegtefaeller-design.md`,
+plan i `docs/superpowers/plans/2026-08-20-1939-v50-fase-d2-aegtefaeller.md`.
+**Ingen kode skrevet.**
+
+Grundlaget er **konsistens**, ikke en ny evidenstærskel. De 21 har 0
+narrativer, 0 record-bindinger og 0 external_ids, så D1's kriterium kan per
+definition ikke bruges. Men D1 publicerede allerede 24 stubs af samme slags,
+fordi `red_publicer_personer` trækker staged familiemedlemmer med. De 21
+adskiller sig kun ved, at deres partner blev synlig i en tidligere runde.
+
+Målt mod prod: 21 valgte → 21 afstaget, 0 ekstra medrevne, 28 → 7 staged
+tilbage, 0 overlap med C0's uafklarede, 0 levende eller private.
+
+Person 1662 er eneste undtagelse: `samme_som` 785, men i forskellige familier
+— to ægteskaber for samme menneske. Begge er stubs uden bogpost, så der er
+ingen dublet at pensionere; publicering tilføjer det manglende ægteskab.
+
+Planens Task 2 bygger repoets **første fail-closed prod-wrapper**: kræver
+`--jeg-mener-det` og afviser ukendte flag. Det er en direkte lære fra fase D1,
+hvor et opfundet `--dryrun` blev stiltiende ignoreret, og 68 personer blev
+publiceret i prod uden godkendelse.
+
+---
+
 ## `red_slet_person` DEPLOYET til prod og verificeret (2026-08-20)
 
 Migrationen er kørt mod prod i én transaktion: begge funktioner genudgivet,
