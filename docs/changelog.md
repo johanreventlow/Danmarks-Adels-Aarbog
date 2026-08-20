@@ -26,9 +26,19 @@ Efterkontrol: begge funktioner er `SECURITY DEFINER` med
 medlemskabstabeller har trigger. Sikkerhedslint viser 0 SECURITY
 DEFINER-funktioner i `public` uden `search_path`.
 
+**App-laget efterprøvet:** web 773/773 og mobil 426/426 tests grønne.
+Typetjek: mobil 0 fejl; web uændret på 34 præeksisterende fejl (`GeoMap.tsx`,
+`mediaDedup.ts`, `humanReview1939Ui.test.ts` — ingen i de rørte filer).
+`SletPreview` konstrueres præcis tre steder, og alle tre er opdateret.
+
 **Forbehold:** `get_advisors(security)` er *ikke* kørt — MCP-forbindelsen
 peger på en anden Supabase-konto. Linten ovenfor dækker samme klasse af fund
 (search_path), men ikke Supabase's øvrige regler. Bør køres fra dashboardet.
+
+**Bemærk om web-fladen:** prod bygger fra `main`, så slet-modalen dér viser
+stadig den gamle tekst. De nye narrativ- og bindingstal er live i databasen,
+men usynlige indtil branchen merges og Vercel bygger igen. Det er forventet,
+ikke en fejlet udrulning.
 
 
 ## Sletnings-rutinen hærdet efter dobbelt review (2026-08-20)
