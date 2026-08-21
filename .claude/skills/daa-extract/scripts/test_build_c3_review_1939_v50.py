@@ -119,6 +119,8 @@ def editable_sequence(selection=None, state=None):
 def test_sequence_has_fifteen_decisions_and_locked_special_tail():
     editable = editable_sequence()
     assert len(editable) == 15
+    decision_ids = [item["decision_id"] for item in editable]
+    assert len(decision_ids) == len(set(decision_ids)) == 15
     assert [(item["decision_id"], item["default_token"])
             for item in editable[-3:]] == [
         ("identity:1017:1021", "SAMME 1021 1017"),
@@ -226,6 +228,21 @@ def test_locked_counts_are_terminal_contracts(field, value):
         mod.render_review(selection, state_doc(selection), "a" * 64, "b" * 64)
 
 
+@pytest.mark.parametrize("entrypoint", ["sequence", "render"])
+def test_duplicate_ordinary_rid_is_terminal_before_sequence_or_render(entrypoint):
+    selection = selection_doc()
+    duplicate_rid = selection["cases"][0]["records"][0]["rid"]
+    selection["cases"][1]["records"][0]["rid"] = duplicate_rid
+    state = state_doc(selection)
+    with pytest.raises(
+            SystemExit,
+            match="^C3_REVIEW_RID_DUPLICATE:{}$".format(duplicate_rid)):
+        if entrypoint == "sequence":
+            mod.review_sequence(selection, state)
+        else:
+            mod.render_review(selection, state, "a" * 64, "b" * 64)
+
+
 @pytest.mark.parametrize("change", ["missing", "extra", "duplicate"])
 def test_state_person_coverage_is_exact(change):
     selection = selection_doc()
@@ -311,6 +328,40 @@ def test_unknown_or_inconsistent_binding_is_terminal(source_record_id,
     with pytest.raises(SystemExit,
                        match="^C3_REVIEW_BINDING_INVALID:{}$".format(person_id)):
         mod.render_review(selection, state, "a" * 64, "b" * 64)
+
+
+@pytest.mark.parametrize("entrypoint", ["sequence", "render"])
+@pytest.mark.parametrize("binding_status", [[], {}, 1])
+def test_binding_status_wrong_json_types_are_specific_system_exit(
+        entrypoint, binding_status):
+    selection = selection_doc()
+    state = state_doc(selection)
+    person_id = state["narratives"][0]["person_id"]
+    state["narratives"][0]["source_record_id"] = (
+        "00000000-0000-0000-0000-000000000001")
+    state["narratives"][0]["binding_status"] = binding_status
+    with pytest.raises(
+            SystemExit,
+            match="^C3_REVIEW_BINDING_INVALID:{}$".format(person_id)):
+        if entrypoint == "sequence":
+            mod.review_sequence(selection, state)
+        else:
+            mod.render_review(selection, state, "a" * 64, "b" * 64)
+
+
+@pytest.mark.parametrize("entrypoint", ["sequence", "render"])
+@pytest.mark.parametrize("role", [[], {}, 1])
+def test_identity_edge_role_wrong_json_types_are_specific_system_exit(
+        entrypoint, role):
+    selection = selection_doc()
+    state = state_doc(selection)
+    state["identity_edges"] = [{"role": role, "subject_id": 1101,
+                                "object_id": 9101}]
+    with pytest.raises(SystemExit, match="^C3_REVIEW_EDGE_INVALID$"):
+        if entrypoint == "sequence":
+            mod.review_sequence(selection, state)
+        else:
+            mod.render_review(selection, state, "a" * 64, "b" * 64)
 
 
 @pytest.mark.parametrize("drift, expected", [
@@ -420,6 +471,25 @@ def test_cli_invalid_document_does_not_leak_input(tmp_path):
     assert completed.returncode != 0
     assert completed.stdout == ""
     assert completed.stderr == "C3_REVIEW_SELECTION_INVALID\n"
+    assert "MODEL_BLIND_SENTINEL" not in completed.stdout + completed.stderr
+    assert not output_path.exists()
+
+
+def test_cli_wrong_binding_json_type_is_specific_and_token_only(tmp_path):
+    selection_path, state_path, _, _ = write_cli_inputs(tmp_path)
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    person_id = state["narratives"][0]["person_id"]
+    state["narratives"][0]["source_record_id"] = (
+        "00000000-0000-0000-0000-000000000001")
+    state["narratives"][0]["binding_status"] = []
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    output_path = tmp_path / "review.txt"
+    completed = run_cli(["--selection", str(selection_path), "--state",
+                         str(state_path), "--output", str(output_path)])
+    assert completed.returncode != 0
+    assert completed.stdout == ""
+    assert completed.stderr == "C3_REVIEW_BINDING_INVALID:{}\n".format(
+        person_id)
     assert "MODEL_BLIND_SENTINEL" not in completed.stdout + completed.stderr
     assert not output_path.exists()
 

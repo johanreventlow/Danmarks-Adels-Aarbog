@@ -127,6 +127,8 @@ def _validate_selection(selection_doc: Any) -> List[int]:
         if (match is None or int(match.group(1)) < 1
                 or rid in {SPECIAL_RID, COMPANION_RID}):
             fail("C3_REVIEW_CASE_INVALID")
+        if rid in ordinary_rids:
+            fail("C3_REVIEW_RID_DUPLICATE:" + rid)
         _validate_record(record, rid, case_ids, "sammenlaegning",
                          "C3_REVIEW_CASE_INVALID:" + rid)
         if record["new_record_key"] in record_keys:
@@ -220,6 +222,8 @@ def _validate_state(state_doc: Any, selected_ids: List[int]) -> None:
                         or _UUID_RE.fullmatch(source_record_id) is None))
                 or bound != (binding_status is not None)
                 or (binding_status is not None
+                    and not isinstance(binding_status, str))
+                or (isinstance(binding_status, str)
                     and binding_status not in {"draft", "published", "withdrawn"})):
             fail("C3_REVIEW_BINDING_INVALID:" + str(person_id))
     if (narrative_person_ids != selected_ids
@@ -232,6 +236,7 @@ def _validate_state(state_doc: Any, selected_ids: List[int]) -> None:
     edge_keys = set()
     for edge in edges:
         if (not isinstance(edge, dict)
+                or not isinstance(edge.get("role"), str)
                 or edge.get("role") not in {"samme_som", "ikke_samme_som"}
                 or not _is_id(edge.get("subject_id"))
                 or not _is_id(edge.get("object_id"))
