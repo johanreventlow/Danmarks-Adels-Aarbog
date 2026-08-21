@@ -45,6 +45,7 @@ glemt — ikke fravalgt.
 | `SIDE_CORRECTIONS_INVALID` | **Fravalgt.** Fase B havde to poster med forkert trykt sidetal, som krævede en registreret korrektion. Alle ni matcher her, så en afvigelse skal være terminal, ikke korrigerbar | — |
 | `FLAGS_INVALID` | Task 4 (`VALID_ACTIONS`) | `C0F_MANIFEST_ACTION_INVALID`, `C0F_MANIFEST_FLAG_KIND_UNKNOWN` |
 | `SOURCE_INVALID` | Task 1, 2 og 5 (`source_id = 3` overalt) | — (hårdkodet, ingen vej til en anden kilde) |
+| **Base-identitet** (D2's `DATABASE_MISMATCH`) | Task 1 måler den, Task 2 og 4 bærer den, Task 5 verificerer mod den levende base | `C0F_APPLY_DATABASE_MISMATCH` |
 
 **Plus D2's lærdomme** — alle i Task 5: `--jeg-mener-det`, obligatorisk
 `--expect-sha256` og `--backup`, drift-guard målt *inde i* transaktionen,
@@ -338,7 +339,7 @@ git commit -m "feat(1939): read-only eksport af C0-efterkørslens ni personer"
 
 **Interfaces:**
 - Consumes: Task 1's JSON (`selected[].person_id`, `.narrative_id`, `.old_sha256`, `.side`) og `work/task26-1939-v50-c0-record-linkage/linkage-candidates-v1.json`.
-- Produces: `build_flags_document(selection, candidates, record_by_person)` → `dict` med `schema_version`, `input_hashes`, `operations` (hver med `person_id`, `narrative_id`, `old_sha256`, `source_record_key`, `page_from`, `default_text`, `flags`), `flag_counts`. Task 3 og 4 læser den.
+- Produces: `build_flags_document(selection, candidates, record_by_person)` → `dict` med `schema_version`, `database_name`, `database_identity`, `input_hashes`, `operations` (hver med `person_id`, `narrative_id`, `old_sha256`, `source_record_key`, `page_from`, `default_text`, `flags`), `flag_counts`. Task 3 og 4 læser den.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -384,6 +385,16 @@ def test_happy_path_produces_nine_operations():
     assert len(doc["operations"]) == 9
     assert [op["person_id"] for op in doc["operations"]] == IDS
     assert doc["schema_version"] == "1939-v50-c0-followup-flags-v1"
+
+
+def test_database_identity_is_carried_through():
+    """Uden den kan en eksport fra rehearsal-basen føde et manifest, der køres
+    mod prod. D2 spærrede for det med D2_APPLY_DATABASE_MISMATCH."""
+    doc = mod.build_flags_document(
+        _selection(database_name="postgres", database_identity="764273"),
+        _candidates(), _record_by_person())
+    assert doc["database_name"] == "postgres"
+    assert doc["database_identity"] == "764273"
 
 
 def test_default_text_is_normalized_not_raw():
@@ -589,6 +600,11 @@ def build_flags_document(selection: Dict[str, Any], candidates: Dict[str, Any],
     return {
         "schema_version": "1939-v50-c0-followup-flags-v1",
         "generator": "build_c0_followup_flags_1939_v50.py",
+        # Base-identiteten baeres HELE vejen til apply. Uden den kan en eksport
+        # taget mod rehearsal-basen fode et manifest, der koeres mod prod --
+        # praecis det D2's D2_APPLY_DATABASE_MISMATCH spaerrer for.
+        "database_name": selection.get("database_name"),
+        "database_identity": selection.get("database_identity"),
         "operations": operations,
         "flag_counts": flag_counts,
     }
@@ -1022,7 +1038,7 @@ git commit -m "feat(1939): menneskeark og fail-closed konverter til C0-efterkør
 
 **Interfaces:**
 - Consumes: Task 2's flag-dokument og Task 3's beslutnings-JSON, samt `linkage-candidates-v1.json` (rå tekst til splice).
-- Produces: `build_manifest(flags_doc, decisions_doc, candidates)` → `dict` med `schema_version`, `operations` (hver med `person_id`, `narrative_id`, `expected_old_narrative_sha256`, `source_record_key`, `page_from`, `new_text`, `new_text_sha256`), `counts`. Task 5 læser den JSON.
+- Produces: `build_manifest(flags_doc, decisions_doc, candidates)` → `dict` med `schema_version`, `database_name`, `database_identity`, `operations` (hver med `person_id`, `narrative_id`, `expected_old_narrative_sha256`, `source_record_key`, `page_from`, `new_text`, `new_text_sha256`), `counts`. Task 5 læser den JSON.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1263,6 +1279,10 @@ def build_manifest(flags_doc: Dict[str, Any], decisions_doc: Dict[str, Any],
     return {
         "schema_version": "1939-v50-c0-followup-manifest-v1",
         "generator": "build_c0_followup_manifest_1939_v50.py",
+        # Baeres videre fra flag-dokumentet; apply sammenligner mod den LEVENDE
+        # base, saa et manifest fra rehearsal ikke kan koeres mod prod.
+        "database_name": flags_doc.get("database_name"),
+        "database_identity": flags_doc.get("database_identity"),
         "source": {"edition": "1939", "database_source_id": 3},
         "counts": {"operations": len(operations), "bindings_create": len(operations)},
         "operations": operations,
@@ -1387,6 +1407,7 @@ SHA <- paste(rep("c", 64), collapse = "")
 fixture_manifest <- function(...) {
   base <- list(
     schema_version = "1939-v50-c0-followup-manifest-v1",
+    database_name = "postgres", database_identity = "764273",
     counts = list(operations = 2, bindings_create = 2),
     operations = list(
       list(person_id = 963, narrative_id = 632, page_from = 508,
@@ -1398,7 +1419,8 @@ fixture_manifest <- function(...) {
 fixture_live <- function(...) {
   base <- list(
     narrative_ids = c(632, 660), old_shas = c(SHA, SHA),
-    privat = c(FALSE, FALSE), sider = c("508", "504"), bindinger = 0)
+    privat = c(FALSE, FALSE), sider = c("508", "504"), bindinger = 0,
+    database_name = "postgres", database_identity = "764273")
   utils::modifyList(base, list(...))
 }
 
@@ -1432,6 +1454,12 @@ expect_error(c0f_plan_apply(fixture_manifest(), fixture_live(bindinger = 1)),
 ## 13) Narrativet er forsvundet.
 expect_error(c0f_plan_apply(fixture_manifest(), fixture_live(narrative_ids = c(632, 999))),
              "C0F_APPLY_NARRATIVE_DRIFT")
+
+## 13b) Et manifest bygget mod rehearsal-basen maa aldrig koeres mod prod.
+expect_error(c0f_plan_apply(fixture_manifest(), fixture_live(database_identity = "999")),
+             "C0F_APPLY_DATABASE_MISMATCH")
+expect_error(c0f_plan_apply(fixture_manifest(), fixture_live(database_name = "daa1939_c0f_rehearsal1")),
+             "C0F_APPLY_DATABASE_MISMATCH")
 
 ## 14) Ukendt schema_version.
 expect_error(c0f_plan_apply(fixture_manifest(schema_version = "x"), fixture_live()),
@@ -1537,6 +1565,12 @@ c0f_spaerrer <- function(x) any(is.na(x) | as.logical(x))
 c0f_plan_apply <- function(manifest, live) {
   if (!identical(manifest$schema_version, "1939-v50-c0-followup-manifest-v1"))
     stop("C0F_APPLY_SCHEMA_UNKNOWN", call. = FALSE)
+  ## Et manifest bygget mod rehearsal-basen maa ALDRIG kunne koeres mod prod.
+  ## env_or falder tilbage per variabel, saa en manglende PGHOST sender
+  ## scriptet mod produktionen -- dette er spaerringen for netop det.
+  if (!identical(as.character(manifest$database_name), as.character(live$database_name)) ||
+      !identical(as.character(manifest$database_identity), as.character(live$database_identity)))
+    stop("C0F_APPLY_DATABASE_MISMATCH", call. = FALSE)
   ops <- manifest$operations
   if (length(ops) == 0L) stop("C0F_APPLY_EMPTY", call. = FALSE)
 
@@ -1588,7 +1622,7 @@ Run:
 ```bash
 cd .claude/skills/daa-extract/scripts && Rscript test_apply_c0_followup_1939_v50.R
 ```
-Expected: `OK: 24 assertions`
+Expected: `OK: 26 assertions`
 
 - [ ] **Step 5: Write the CLI wrapper**
 
@@ -1675,10 +1709,15 @@ resultat <- tryCatch({
        AND n.subjekt_id = ANY($1::bigint[])
      ORDER BY n.subjekt_id", params = list(pg_bigint_array(ids)))
 
+  ident <- DBI::dbGetQuery(con,
+    "SELECT current_database() AS database_name,
+            (pg_control_system()).system_identifier::text AS database_identity")
   plan <- c0f_plan_apply(manifest, list(
     narrative_ids = live_rows$narrative_id, old_shas = live_rows$old_sha,
     privat = live_rows$privat, sider = live_rows$side,
-    bindinger = sum(as.numeric(live_rows$bundet))))
+    bindinger = sum(as.numeric(live_rows$bundet)),
+    database_name = ident$database_name[[1L]],
+    database_identity = ident$database_identity[[1L]]))
 
   DBI::dbGetQuery(con, "SELECT set_config('request.jwt.claim.sub', $1, true)",
                   params = list(REDAKTOER_UUID))
