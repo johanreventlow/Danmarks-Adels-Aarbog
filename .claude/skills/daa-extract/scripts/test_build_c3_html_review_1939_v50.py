@@ -68,6 +68,22 @@ def rebind_documents(selection, state, hashes):
     return selection_raw, state_raw, changed_hashes
 
 
+def write_nonfinite_fixture(paths, selection, state, value):
+    selection["cases"][0]["records"][0]["candidates"][0][
+        "confidence"] = value
+    selection_raw = encode_document(selection)
+    selection_sha256 = hashlib.sha256(selection_raw).hexdigest()
+    state["selection_sha256"] = selection_sha256
+    state_raw = encode_document(state)
+    state_sha256 = hashlib.sha256(state_raw).hexdigest()
+    review_raw = fixtures.review_builder.render_review(
+        selection, state, selection_sha256, state_sha256).encode("utf-8")
+    paths["selection"].write_bytes(selection_raw)
+    paths["state"].write_bytes(state_raw)
+    paths["review"].write_bytes(review_raw)
+    return selection_raw, state_raw, review_raw, fixtures.input_hashes(paths)
+
+
 def test_fixture_factory_writes_locked_synthetic_chain(tmp_path):
     paths, selection, state, review_raw, hashes = fixture_chain(tmp_path)
     assert set(paths) == {"selection", "state", "review"}
@@ -539,3 +555,40 @@ def test_cli_removes_own_temp_file_when_atomic_publish_fails(
 ])
 def test_cli_accepts_only_the_four_locked_path_arguments(arguments):
     html_error("C3_HTML_ARGUMENTS_INVALID", lambda: mod.main(arguments))
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_nonfinite_input_metadata_is_terminal(tmp_path, value):
+    paths, selection, state, _, _ = fixture_chain(tmp_path)
+    selection_raw, state_raw, review_raw, hashes = write_nonfinite_fixture(
+        paths, selection, state, value)
+    html_error(
+        "C3_HTML_REVIEW_INVALID",
+        lambda: mod.build_payload(
+            selection_raw, state_raw, review_raw, hashes))
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_render_html_rejects_nonfinite_payload(tmp_path, value):
+    html_error(
+        "C3_HTML_PAYLOAD_INVALID",
+        lambda: mod.render_html({"plausible_metadata": value}, b"review"))
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_cli_rejects_nonfinite_input_without_artifacts(tmp_path, value):
+    paths, selection, state, _, _ = fixture_chain(tmp_path / "fixture")
+    write_nonfinite_fixture(paths, selection, state, value)
+    output = tmp_path / "c3-review.html"
+    result = subprocess.run([
+        "/usr/bin/python3", str(MODULE_PATH),
+        "--selection", str(paths["selection"]),
+        "--state", str(paths["state"]),
+        "--review", str(paths["review"]),
+        "--output", str(output),
+    ], check=False, capture_output=True, text=True)
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == "C3_HTML_REVIEW_INVALID\n"
+    assert not output.exists()
+    assert not list(tmp_path.glob(".c3-review.html.*.tmp"))

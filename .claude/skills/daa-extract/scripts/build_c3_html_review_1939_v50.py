@@ -74,8 +74,12 @@ def _valid_hashes(input_hashes: Any) -> bool:
 
 
 def _decode_document(raw: bytes) -> Dict[str, Any]:
+    def reject_nonfinite(_value: str) -> None:
+        raise ValueError("non-finite JSON number")
+
     try:
-        document = json.loads(raw.decode("utf-8"))
+        document = json.loads(
+            raw.decode("utf-8"), parse_constant=reject_nonfinite)
     except (UnicodeDecodeError, ValueError):
         fail("C3_HTML_REVIEW_INVALID")
     if not isinstance(document, dict):
@@ -774,7 +778,7 @@ def render_html(payload: Mapping[str, Any], review_bytes: bytes) -> bytes:
     try:
         payload_raw = json.dumps(
             payload, ensure_ascii=False, sort_keys=True,
-            separators=(",", ":")).encode("utf-8")
+            separators=(",", ":"), allow_nan=False).encode("utf-8")
     except (TypeError, ValueError):
         fail("C3_HTML_PAYLOAD_INVALID")
     document = """<!doctype html>
