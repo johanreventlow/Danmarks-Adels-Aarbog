@@ -109,7 +109,7 @@ async function main() {
         value: installed,
         configurable: false
       });
-      const auditGetter = (object, name) => {
+      const auditProperty = (object, name) => {
         let owner = object;
         while (owner && !Object.prototype.hasOwnProperty.call(owner, name)) {
           owner = Object.getPrototypeOf(owner);
@@ -120,19 +120,26 @@ async function main() {
         if (!descriptor || !descriptor.configurable || !descriptor.get) {
           return;
         }
-        Object.defineProperty(owner, name, {
+        const replacement = {
           ...descriptor,
           get() {
-            accesses.push(name);
+            accesses.push(`${name}:read`);
             return descriptor.get.call(this);
           }
-        });
-        installed.push(name);
+        };
+        if (descriptor.set) {
+          replacement.set = function(value) {
+            accesses.push(`${name}:write`);
+            return descriptor.set.call(this, value);
+          };
+        }
+        Object.defineProperty(owner, name, replacement);
+        installed.push({name, reads: true, writes: Boolean(descriptor.set)});
       };
-      auditGetter(globalThis, "localStorage");
-      auditGetter(globalThis, "sessionStorage");
-      auditGetter(globalThis, "indexedDB");
-      auditGetter(Document.prototype, "cookie");
+      auditProperty(globalThis, "localStorage");
+      auditProperty(globalThis, "sessionStorage");
+      auditProperty(globalThis, "indexedDB");
+      auditProperty(Document.prototype, "cookie");
     });
     const page = await context.newPage();
     const requestProtocols = [];
@@ -177,6 +184,8 @@ async function main() {
     const firstIdentity = controls.nth(0);
     const identityDependent = firstIdentity.locator("div.dependent");
     await assertHidden(identityDependent, true);
+    await selectAction(firstIdentity, "FORSKELLIGE");
+    await assertHidden(identityDependent, true);
     await selectAction(firstIdentity, "SAMME");
     await assertHidden(identityDependent, false);
     const alias = firstIdentity.locator("select.choice").nth(1);
@@ -213,6 +222,8 @@ async function main() {
       await firstRecord.locator("code.exact-token").textContent(),
       `TIL ${secondPerson}`);
     await selectAction(firstRecord, "INGEN_PUBLIKATION");
+    await assertHidden(recordDependents.nth(0), true);
+    await assertHidden(recordDependents.nth(1), true);
     assert.equal(
       await firstRecord.locator("code.exact-token").textContent(),
       "INGEN_PUBLIKATION");
@@ -322,8 +333,14 @@ async function main() {
     assert.deepEqual(
       await page.evaluate(() => globalThis.__C3_TEST_API_ACCESSES__), []);
     assert.deepEqual(
-      (await page.evaluate(() => globalThis.__C3_TEST_AUDIT_INSTALLED__)).sort(),
-      ["cookie", "indexedDB", "localStorage", "sessionStorage"]);
+      (await page.evaluate(() => globalThis.__C3_TEST_AUDIT_INSTALLED__))
+        .sort((left, right) => left.name.localeCompare(right.name)),
+      [
+        {name: "cookie", reads: true, writes: true},
+        {name: "indexedDB", reads: true, writes: false},
+        {name: "localStorage", reads: true, writes: false},
+        {name: "sessionStorage", reads: true, writes: false}
+      ]);
     assert.deepEqual(await context.cookies(), []);
     assert.equal(requestProtocols.length >= 3, true);
     assert.equal(
