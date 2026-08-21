@@ -121,6 +121,10 @@ def test_decision_slots_are_unique_ordered_exact_byte_intervals(tmp_path):
     ]
     assert [slot["case_id"] for slot in slots[-3:]] == [
         "1017/1021", "1017/1021", "1017/1021"]
+    assert slots[-3]["preferred_alias_person_id"] == 1021
+    assert slots[-3]["preferred_canonical_person_id"] == 1017
+    assert slots[0]["preferred_alias_person_id"] is None
+    assert slots[0]["preferred_canonical_person_id"] is None
 
 
 @pytest.mark.parametrize("hash_name", [
@@ -211,6 +215,40 @@ def test_duplicate_authoritative_decision_ids_are_terminal(tmp_path,
     monkeypatch.setattr(mod.build, "review_sequence", duplicate_sequence)
     html_error(
         "C3_HTML_DECISION_DUPLICATE",
+        lambda: mod.decision_slots(
+            review_raw, paths["selection"].read_bytes(),
+            paths["state"].read_bytes(), hashes))
+
+
+@pytest.mark.parametrize("alias_id,canonical_id", [
+    (1017, 1017),
+    (9999, 1017),
+    (1021, None),
+    (None, None),
+])
+def test_invalid_preferred_same_direction_is_terminal(
+        tmp_path, monkeypatch, alias_id, canonical_id):
+    paths, _, _, review_raw, hashes = fixture_chain(tmp_path)
+    real_sequence = mod.build.review_sequence
+
+    def invalid_sequence(selection_doc, state_doc):
+        sequence = copy.deepcopy(real_sequence(selection_doc, state_doc))
+        special = next(
+            item for item in sequence
+            if item.get("decision_id") == "identity:1017:1021")
+        if alias_id is None:
+            special.pop("preferred_alias_person_id", None)
+        else:
+            special["preferred_alias_person_id"] = alias_id
+        if canonical_id is None:
+            special.pop("preferred_canonical_person_id", None)
+        else:
+            special["preferred_canonical_person_id"] = canonical_id
+        return sequence
+
+    monkeypatch.setattr(mod.build, "review_sequence", invalid_sequence)
+    html_error(
+        "C3_HTML_SLOT_INVALID",
         lambda: mod.decision_slots(
             review_raw, paths["selection"].read_bytes(),
             paths["state"].read_bytes(), hashes))
@@ -370,6 +408,9 @@ def test_payload_has_seven_cards_and_fifteen_closed_controls(tmp_path):
         "UAFKLARET", "UAFKLARET",
         "UAFKLARET", "TIL 1017", "TIL 1021",
     ]
+    special_identity = payload["cases"][-1]["controls"][0]
+    assert special_identity["preferred_alias_person_id"] == 1021
+    assert special_identity["preferred_canonical_person_id"] == 1017
     assert payload["vocabulary"] == {
         "identity_actions": ["UAFKLARET", "FORSKELLIGE", "SAMME"],
         "record_actions": [

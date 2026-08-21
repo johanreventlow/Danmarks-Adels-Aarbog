@@ -181,6 +181,27 @@ async function main() {
     assert.deepEqual(defaultTokens.slice(-3), [
       "UAFKLARET", "TIL 1017", "TIL 1021"]);
 
+    await navButtons.nth(6).click();
+    const specialIdentity = controls.nth(12);
+    await selectAction(specialIdentity, "SAMME");
+    assert.equal(
+      await specialIdentity.locator("code.exact-token").textContent(),
+      "SAMME 1021 1017");
+    const specialTokens = await page.locator("code.exact-token").allTextContents();
+    const expectedSpecial = replaceTokenBytes(baseline, payload.slots, specialTokens);
+    const specialPath = path.join(tempDir, "special-same.txt");
+    const specialDownload = await downloadTo(
+      page, page.locator("button.download"), specialPath);
+    assert.deepEqual(specialDownload, expectedSpecial);
+    const specialSlot = payload.slots[12];
+    assert.equal(
+      specialDownload.subarray(
+        specialSlot.start,
+        specialSlot.start + Buffer.byteLength("SAMME 1021 1017")
+      ).toString("utf8"),
+      "SAMME 1021 1017");
+    await page.reload({waitUntil: "load"});
+
     const firstIdentity = controls.nth(0);
     const identityDependent = firstIdentity.locator("div.dependent");
     await assertHidden(identityDependent, true);
@@ -348,12 +369,12 @@ async function main() {
       true);
     assert.deepEqual(
       fs.readdirSync(tempDir).sort(),
-      ["edited.txt", "review.html", "review.txt", "selection.json", "state.json", "unchanged.txt"]);
+      ["edited.txt", "review.html", "review.txt", "selection.json", "special-same.txt", "state.json", "unchanged.txt"]);
 
     await context.close();
     await browser.close();
     browser = undefined;
-    process.stdout.write("C3_HTML_BROWSER_OK sager=7 beslutninger=15 downloads=2\n");
+    process.stdout.write("C3_HTML_BROWSER_OK sager=7 beslutninger=15 downloads=3\n");
   } finally {
     if (browser) {
       await browser.close();

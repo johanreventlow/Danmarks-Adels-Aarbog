@@ -283,9 +283,12 @@ def _canonical(value: Any) -> str:
 
 
 def _decision(decision_type: str, decision_id: str, default_token: str,
-              allowed_person_ids: List[int]) -> Dict[str, Any]:
+              allowed_person_ids: List[int],
+              preferred_alias_person_id: Optional[int] = None,
+              preferred_canonical_person_id: Optional[int] = None
+              ) -> Dict[str, Any]:
     ids = sorted(set(allowed_person_ids))
-    return {
+    result = {
         "type": decision_type,
         "decision_id": decision_id,
         "tail": "{} | allowed_person_ids={}".format(
@@ -293,6 +296,19 @@ def _decision(decision_type: str, decision_id: str, default_token: str,
         "allowed_person_ids": ids,
         "default_token": default_token,
     }
+    if (preferred_alias_person_id is not None
+            or preferred_canonical_person_id is not None):
+        if (decision_type != "identity"
+                or preferred_alias_person_id is None
+                or preferred_canonical_person_id is None
+                or preferred_alias_person_id == preferred_canonical_person_id
+                or preferred_alias_person_id not in ids
+                or preferred_canonical_person_id not in ids):
+            fail("C3_REVIEW_DECISION_INVALID")
+        result["preferred_alias_person_id"] = preferred_alias_person_id
+        result["preferred_canonical_person_id"] = (
+            preferred_canonical_person_id)
+    return result
 
 
 def _record_headings(record: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -393,7 +409,9 @@ def review_sequence(selection_doc: Dict[str, Any], state_doc: Dict[str, Any]
     sequence.extend(_record_headings(records[SPECIAL_RID]))
     sequence.extend(_state_headings(SPECIAL_PERSON_IDS))
     sequence.append(_decision("identity", "identity:1017:1021",
-                              "UAFKLARET", SPECIAL_PERSON_IDS))
+                              "UAFKLARET", SPECIAL_PERSON_IDS,
+                              preferred_alias_person_id=1021,
+                              preferred_canonical_person_id=1017))
     sequence.append(_decision("record", "record:R40", "TIL 1017",
                               SPECIAL_PERSON_IDS))
     sequence.append(_decision("record", "record:R15", "TIL 1021",

@@ -149,6 +149,12 @@ stilling til:
 2. R40/A: `TIL 1017`; og
 3. R15/B: `TIL 1021`.
 
+Den autoritative beslutningssekvens bærer samtidig den foretrukne
+`SAMME`-retning som strukturel metadata: alias 1021 → canonical 1017. Den
+metadata ændrer ikke baseline-tokenet. Den bruges kun til at bevare den
+godkendte retning, hvis redaktøren eksplicit skifter identitetsvalget fra
+`UAFKLARET` til `SAMME`.
+
 R40 og R15 er allerede to forskellige kilderecords. Derfor foreslås ingen
 source-record revision alene for at holde A) og B) adskilt. Reviewet må ikke
 omskrive denne tredeling til én samlet »merge«-handling.

@@ -90,6 +90,10 @@ Specialkortet 1017/1021 viser tre valg:
 Standardværdierne er eksakt de værdier, det eksisterende tekstark allerede
 bærer: de 12 almindelige beslutninger og specialens identitetsbeslutning er
 `UAFKLARET`, mens specialens to recordforslag er `TIL 1017` og `TIL 1021`.
+Specialens identitetskontrol modtager desuden den foretrukne retning 1021
+alias → 1017 canonical fra den autoritative `review_sequence()`. Vælger
+redaktøren aktivt `Samme menneske`, initialiseres selectorernes eksakte token
+derfor som `SAMME 1021 1017`; almindelige sagers selectoradfærd er uændret.
 
 ## Beslutningskontroller
 

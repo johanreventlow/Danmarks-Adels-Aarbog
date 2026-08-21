@@ -147,6 +147,15 @@ def test_ordinary_axes_are_independent_and_default_unresolved():
                for item in editable)
 
 
+def test_special_identity_keeps_preferred_same_direction_metadata():
+    editable = editable_sequence()
+    assert editable[-3]["decision_id"] == "identity:1017:1021"
+    assert editable[-3]["preferred_alias_person_id"] == 1021
+    assert editable[-3]["preferred_canonical_person_id"] == 1017
+    assert "preferred_alias_person_id" not in editable[0]
+    assert "preferred_canonical_person_id" not in editable[0]
+
+
 def test_authoritative_sequence_does_not_return_narrative_prose():
     sequence = mod.review_sequence(selection_doc(), state_doc())
     serialized = json.dumps(sequence, ensure_ascii=False, sort_keys=True)

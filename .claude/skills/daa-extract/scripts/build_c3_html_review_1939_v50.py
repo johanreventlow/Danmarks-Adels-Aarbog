@@ -57,6 +57,8 @@ class DecisionSlot:
     end: int
     default_token: str
     allowed_person_ids: Tuple[int, ...]
+    preferred_alias_person_id: Optional[int] = None
+    preferred_canonical_person_id: Optional[int] = None
 
 
 def fail(code: str) -> None:
@@ -160,6 +162,10 @@ def _validate_slot_contract(review_bytes: bytes,
         fail("C3_HTML_DECISION_DUPLICATE")
     previous_end = 0
     for slot in slots:
+        preferred_alias = slot.preferred_alias_person_id
+        preferred_canonical = slot.preferred_canonical_person_id
+        preferred_present = (preferred_alias is not None
+                             or preferred_canonical is not None)
         if (
                 not isinstance(slot.decision_id, str)
                 or not slot.decision_id
@@ -179,7 +185,16 @@ def _validate_slot_contract(review_bytes: bytes,
                 or tuple(sorted(set(slot.allowed_person_ids)))
                 != slot.allowed_person_ids
                 or any(type(person_id) is not int or person_id <= 0
-                       for person_id in slot.allowed_person_ids)):
+                       for person_id in slot.allowed_person_ids)
+                or (slot.decision_id == "identity:1017:1021"
+                    and not preferred_present)
+                or (preferred_present and (
+                    slot.decision_type != "identity"
+                    or type(preferred_alias) is not int
+                    or type(preferred_canonical) is not int
+                    or preferred_alias == preferred_canonical
+                    or preferred_alias not in slot.allowed_person_ids
+                    or preferred_canonical not in slot.allowed_person_ids))):
             fail("C3_HTML_SLOT_INVALID")
         expected = slot.default_token.encode("utf-8")
         if review_bytes[slot.start:slot.end] != expected:
@@ -262,6 +277,8 @@ def _discover_slots(review_bytes: bytes,
         tail = item.get("tail")
         decision_id = item.get("decision_id")
         allowed_ids = item.get("allowed_person_ids")
+        preferred_alias = item.get("preferred_alias_person_id")
+        preferred_canonical = item.get("preferred_canonical_person_id")
         if (
                 item.get("type") not in {"identity", "record"}
                 or not isinstance(default_token, str)
@@ -282,6 +299,8 @@ def _discover_slots(review_bytes: bytes,
             end=end,
             default_token=default_token,
             allowed_person_ids=tuple(allowed_ids),
+            preferred_alias_person_id=preferred_alias,
+            preferred_canonical_person_id=preferred_canonical,
         ))
     if len(slots) != 15:
         fail("C3_HTML_COUNT_INVALID")
@@ -305,6 +324,9 @@ def decision_slots(review_bytes: bytes,
             "end": slot.end,
             "default_token": slot.default_token,
             "allowed_person_ids": list(slot.allowed_person_ids),
+            "preferred_alias_person_id": slot.preferred_alias_person_id,
+            "preferred_canonical_person_id": (
+                slot.preferred_canonical_person_id),
         }
         for slot in slots
     ]
@@ -331,6 +353,9 @@ def _case_context(case: Mapping[str, Any], state_doc: Mapping[str, Any],
             "decision_type": slot.decision_type,
             "default_token": slot.default_token,
             "allowed_person_ids": list(slot.allowed_person_ids),
+            "preferred_alias_person_id": slot.preferred_alias_person_id,
+            "preferred_canonical_person_id": (
+                slot.preferred_canonical_person_id),
             "start": slot.start,
             "end": slot.end,
         }
@@ -367,6 +392,8 @@ def _slot_dict(slot: DecisionSlot) -> Dict[str, Any]:
         "end": slot.end,
         "default_token": slot.default_token,
         "allowed_person_ids": list(slot.allowed_person_ids),
+        "preferred_alias_person_id": slot.preferred_alias_person_id,
+        "preferred_canonical_person_id": slot.preferred_canonical_person_id,
     }
 
 
@@ -536,10 +563,14 @@ function renderIdentityControl(container, control, vocabulary, states, refreshSt
   const alias = makeSelect(ids);
   const canonical = makeSelect(ids);
   if (!state.alias) {
-    state.alias = ids[0];
+    state.alias = control.preferred_alias_person_id === null
+      ? ids[0]
+      : String(control.preferred_alias_person_id);
   }
   if (!state.canonical) {
-    state.canonical = ids[1];
+    state.canonical = control.preferred_canonical_person_id === null
+      ? ids[1]
+      : String(control.preferred_canonical_person_id);
   }
   action.value = state.action;
   alias.value = state.alias;
