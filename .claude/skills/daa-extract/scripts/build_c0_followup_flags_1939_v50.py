@@ -66,6 +66,30 @@ def build_flags_document(selection: Dict[str, Any], candidates: Dict[str, Any],
     if ids != sorted(PERSON_IDS):
         _fail("C0F_FLAGS_IDS_INVALID")
 
+    # Base-identiteten skal vaere til stede OG ikke-tom -- uden den kan et
+    # manifest bygget mod rehearsal-basen ikke skelnes fra ét bygget mod prod.
+    db_name = selection.get("database_name")
+    if not db_name or not str(db_name).strip():
+        _fail("C0F_FLAGS_DATABASE_NAME_MISSING")
+    db_identity = selection.get("database_identity")
+    if not db_identity or not str(db_identity).strip():
+        _fail("C0F_FLAGS_DATABASE_IDENTITY_MISSING")
+
+    # Entydigheds-kontrol: record_by_person MAA ikke lade to forskellige
+    # personer pege paa samme record-noegle -- ellers kan writeren senere
+    # erstatte den enes biografi med den andens tekst. En dict kan ikke i sig
+    # selv afsloere "flere raekker samme person_id" (det tjekkes ved
+    # udledningen i main()), men den KAN og SKAL afsloere "samme noegle brugt
+    # to gange".
+    seen_keys: Dict[str, int] = {}
+    for pid in sorted(PERSON_IDS):
+        key = record_by_person.get(pid)
+        if key is None:
+            continue
+        if key in seen_keys and seen_keys[key] != pid:
+            _fail("C0F_FLAGS_DUPLICATE_RECORD_KEY:%s" % key)
+        seen_keys[key] = pid
+
     recs = {r["new_record_key"]: r for r in candidates.get("records", [])}
     # Korpus = ALLE records' rå tekst. normalize_narrative_v1 bruger det til at
     # bevise sammentrækninger; et smallere korpus ville gøre flere orddelinger
@@ -131,9 +155,11 @@ def build_flags_document(selection: Dict[str, Any], candidates: Dict[str, Any],
         "generator": "build_c0_followup_flags_1939_v50.py",
         # Base-identiteten baeres HELE vejen til apply. Uden den kan en eksport
         # taget mod rehearsal-basen fode et manifest, der koeres mod prod --
-        # praecis det D2's D2_APPLY_DATABASE_MISMATCH spaerrer for.
-        "database_name": selection.get("database_name"),
-        "database_identity": selection.get("database_identity"),
+        # praecis det D2's D2_APPLY_DATABASE_MISMATCH spaerrer for. Genbruger
+        # db_name/db_identity (valideret ovenfor) i stedet for at laese
+        # selection igen -- validering og emission skal vaere SAMME vaerdi.
+        "database_name": db_name,
+        "database_identity": db_identity,
         "operations": operations,
         "flag_counts": flag_counts,
     }
@@ -165,13 +191,23 @@ def main(argv=None) -> int:
 
     # record_by_person udledes af C0's EGNE afgoerelser -- aldrig af navne
     # eller af raekkefoelge. Kun [KOBL] med en person_id blandt de ni.
-    record_by_person = {}
+    #
+    # Entydigheds-kontrol: hvis to [KOBL]-raekker begge peger paa samme
+    # person_id, ville en blind dict-tildeling lade den sidste raekke
+    # overskrive den foerste i STILHED -- fejlen ville foerst vise sig som en
+    # forkert biografi i output, laenge efter aarsagen var glemt. Fejl
+    # TERMINALT i stedet, foer nogen data naar build_flags_document.
+    record_by_person: Dict[int, str] = {}
     for row in decisions.get("decisions", []):
         if row.get("token") != "[KOBL]":
             continue
         pid = row.get("person_id")
-        if pid in PERSON_IDS:
-            record_by_person[int(pid)] = row["new_record_key"]
+        if pid not in PERSON_IDS:
+            continue
+        pid = int(pid)
+        if pid in record_by_person:
+            _fail("C0F_FLAGS_DUPLICATE_PERSON_ID:%d" % pid)
+        record_by_person[pid] = row["new_record_key"]
 
     doc = build_flags_document(selection, candidates, record_by_person)
     doc["input_hashes"] = {
