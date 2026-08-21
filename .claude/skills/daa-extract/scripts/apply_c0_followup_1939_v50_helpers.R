@@ -72,6 +72,13 @@ c0f_plan_apply <- function(manifest, live) {
 
 ## Efterkontrol: fasen aendrer narrativ-TEKST og tilfoejer bindinger. Antallet
 ## af narrativer, personer, fakta og relationer skal staa stille.
+##
+## Dette er et NETTO-tjek: det beviser at bindingstallet steg med det rette
+## antal og at intet andet rykkede sig i mangde. Det beviser IKKE at det er
+## de RIGTIGE ni bindinger, der blev oprettet, eller at maal-narrativerne
+## faktisk baerer manifestets new_text_sha256 -- en samtidig transaktion der
+## sletter een binding og opretter en anden ville give netto +9 og passere
+## her. Se c0f_check_write_identity for den kontrol.
 c0f_check_postcheck <- function(before, after, forventet_bindinger) {
   felter <- c("bindinger", "narrativer", "personer", "fakta", "relationer")
   if (length(setdiff(felter, names(before))) > 0L ||
@@ -83,6 +90,33 @@ c0f_check_postcheck <- function(before, after, forventet_bindinger) {
   for (felt in c("narrativer", "personer", "fakta", "relationer")) {
     if (!identical(as.numeric(before[[felt]]), as.numeric(after[[felt]])))
       stop("C0F_APPLY_DELTA_NOT_ZERO", call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
+## Mangde-tjek, ikke antal-tjek: beviser at det skrevne ER det tilsigtede.
+## For hver operation: (a) maal-narrativets NUVAERENDE tekst-hash matcher
+## manifestets new_text_sha256 praecis, og (b) der findes PRAECIS EEN binding
+## for det narrative_id, med det source_record_id vi selv slog op og skrev.
+## `operations` er manifestets operationer, hver udvidet med det faktiske
+## `source_record_id` skriveren brugte. `narrative_shas` er en liste noeglet
+## paa as.character(narrative_id) -> observeret sha256-hex. `bindings` er
+## list(narrative_id=, source_record_id=) -- een raekke per fundet binding
+## for de paagaeldende narrative_id'er.
+c0f_check_write_identity <- function(operations, narrative_shas, bindings) {
+  for (op in operations) {
+    nid_chr <- as.character(op$narrative_id)
+    actual_sha <- narrative_shas[[nid_chr]]
+    if (is.null(actual_sha)) stop("C0F_APPLY_TEXT_HASH_MISSING", call. = FALSE)
+    if (!identical(as.character(actual_sha), as.character(op$new_text_sha256)))
+      stop("C0F_APPLY_TEXT_HASH_MISMATCH", call. = FALSE)
+
+    treff <- which(as.character(bindings$narrative_id) == nid_chr)
+    if (length(treff) != 1L)
+      stop("C0F_APPLY_BINDING_COUNT_MISMATCH", call. = FALSE)
+    if (!identical(as.character(bindings$source_record_id[[treff]]),
+                   as.character(op$source_record_id)))
+      stop("C0F_APPLY_BINDING_SOURCE_MISMATCH", call. = FALSE)
   }
   invisible(TRUE)
 }
