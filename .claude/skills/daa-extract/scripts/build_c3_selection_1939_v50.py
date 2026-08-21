@@ -6,13 +6,14 @@ menneskelige review. Det tilgår aldrig databasen og skriver først output,
 når begge C0-inputs og den fulde selektionskontrakt er valideret.
 """
 
-import argparse
 import copy
 import hashlib
 import importlib.util
 import json
+import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -72,7 +73,7 @@ def candidate_ids(record: Dict[str, Any]) -> List[int]:
     return ids
 
 
-def make_case(key: str, record: Dict[str, Any], rid: str) -> Dict[str, Any]:
+def make_case(record: Dict[str, Any], rid: str) -> Dict[str, Any]:
     selected_record = copy.deepcopy(record)
     selected_record["rid"] = rid
     return {"case_kind": "ordinary",
@@ -131,7 +132,7 @@ def build_selection(candidates_doc: Dict[str, Any], decisions_doc: Dict[str, Any
     if (r40_key in c3_keys or r40_decision.get("token") != "[KOBL]"
             or r40_decision.get("person_id") != 1017):
         fail("C3_SELECTION_R40_INVALID")
-    ordinary = [make_case(key, records_by_key[key], rid_by_key[key])
+    ordinary = [make_case(records_by_key[key], rid_by_key[key])
                 for key in sorted(c3_keys, key=lambda item: int(rid_by_key[item][1:]))
                 if rid_by_key[key] != SPECIAL_RID]
     special = make_special_case(r15, records_by_key[r40_key])
@@ -163,29 +164,72 @@ def _decode_document(raw: bytes, failure_code: str) -> Dict[str, Any]:
     return document
 
 
+def _arguments(argv: List[str]) -> Dict[str, str]:
+    allowed = {"--candidates", "--c0-decisions", "--output"}
+    values: Dict[str, str] = {}
+    position = 0
+    while position < len(argv):
+        option = argv[position]
+        if (option not in allowed or option in values
+                or position + 1 >= len(argv)
+                or argv[position + 1].startswith("--")):
+            fail("C3_SELECTION_ARGUMENTS_INVALID")
+        values[option] = argv[position + 1]
+        position += 2
+    if set(values) != allowed:
+        fail("C3_SELECTION_ARGUMENTS_INVALID")
+    return values
+
+
+def publish_output(output: Path, rendered: str) -> None:
+    temp_path: Optional[Path] = None
+    descriptor: Optional[int] = None
+    try:
+        if os.path.lexists(str(output)):
+            fail("C3_SELECTION_OUTPUT_EXISTS")
+        descriptor, temporary = tempfile.mkstemp(
+            prefix="." + output.name + ".", suffix=".tmp", dir=str(output.parent))
+        temp_path = Path(temporary)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            descriptor = None
+            handle.write(rendered)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(str(temp_path), str(output))
+        except FileExistsError:
+            fail("C3_SELECTION_OUTPUT_EXISTS")
+        os.unlink(str(temp_path))
+        temp_path = None
+    except OSError:
+        fail("C3_SELECTION_OUTPUT_WRITE_FAILED")
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        if temp_path is not None:
+            try:
+                os.unlink(str(temp_path))
+            except OSError:
+                pass
+
+
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--candidates", required=True)
-    parser.add_argument("--c0-decisions", required=True)
-    parser.add_argument("--output", required=True)
-    args = parser.parse_args(argv)
-    output = Path(args.output)
-    if output.exists():
-        fail("C3_SELECTION_OUTPUT_EXISTS")
-    candidates_raw = _read_input(args.candidates, "C3_SELECTION_CANDIDATES_INVALID")
-    decisions_raw = _read_input(args.c0_decisions, "C3_SELECTION_DECISIONS_INVALID")
+    values = _arguments(list(sys.argv[1:] if argv is None else argv))
+    output = Path(values["--output"])
+    candidates_raw = _read_input(values["--candidates"], "C3_SELECTION_CANDIDATES_INVALID")
+    decisions_raw = _read_input(values["--c0-decisions"], "C3_SELECTION_DECISIONS_INVALID")
     candidates_sha256 = hashlib.sha256(candidates_raw).hexdigest()
     decisions_sha256 = hashlib.sha256(decisions_raw).hexdigest()
     candidates_doc = _decode_document(candidates_raw, "C3_SELECTION_CANDIDATES_INVALID")
     decisions_doc = _decode_document(decisions_raw, "C3_SELECTION_DECISIONS_INVALID")
     result = build_selection(candidates_doc, decisions_doc,
                              candidates_sha256, decisions_sha256)
-    try:
-        rendered = json.dumps(result, ensure_ascii=False, sort_keys=True,
-                              separators=(",", ":")) + "\n"
-        output.write_text(rendered, encoding="utf-8")
-    except OSError:
-        fail("C3_SELECTION_OUTPUT_WRITE_FAILED")
+    rendered = json.dumps(result, ensure_ascii=False, sort_keys=True,
+                          separators=(",", ":")) + "\n"
+    publish_output(output, rendered)
     print("sager=7 records=8 beslutningslinjer=15")
     return 0
 

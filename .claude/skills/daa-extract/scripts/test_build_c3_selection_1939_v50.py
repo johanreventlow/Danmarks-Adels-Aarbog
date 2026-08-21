@@ -1,6 +1,7 @@
 import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -173,3 +174,85 @@ def test_cli_hashes_raw_input_bytes_and_does_not_emit_fixture_text(tmp_path):
         "c0_candidates_sha256": hashlib.sha256(candidates_bytes).hexdigest(),
         "c0_decisions_sha256": hashlib.sha256(decisions_bytes).hexdigest(),
     }
+
+
+@pytest.mark.parametrize("arguments", [[], ["--help"], ["--candidates"]])
+def test_cli_argument_failures_are_token_only(arguments):
+    completed = subprocess.run(
+        [sys.executable, str(MODULE_PATH)] + arguments,
+        check=False, capture_output=True, text=True)
+
+    assert completed.returncode != 0
+    assert completed.stdout == ""
+    assert completed.stderr == "C3_SELECTION_ARGUMENTS_INVALID\n"
+
+
+def test_cli_existing_output_is_terminal_and_preserved(tmp_path):
+    candidates, decisions = fixture_documents()
+    candidates_path = tmp_path / "candidates.json"
+    decisions_path = tmp_path / "decisions.json"
+    output_path = tmp_path / "selection.json"
+    candidates_path.write_text(json.dumps(candidates), encoding="utf-8")
+    decisions_path.write_text(json.dumps(decisions), encoding="utf-8")
+    output_path.write_text("preexisting", encoding="utf-8")
+
+    completed = subprocess.run(
+        [sys.executable, str(MODULE_PATH), "--candidates", str(candidates_path),
+         "--c0-decisions", str(decisions_path), "--output", str(output_path)],
+        check=False, capture_output=True, text=True)
+
+    assert completed.returncode != 0
+    assert completed.stdout == ""
+    assert completed.stderr == "C3_SELECTION_OUTPUT_EXISTS\n"
+    assert output_path.read_text(encoding="utf-8") == "preexisting"
+
+
+def test_atomic_publication_rejects_racing_destination_and_cleans_temp(
+        tmp_path, monkeypatch):
+    output_path = tmp_path / "selection.json"
+    real_link = mod.os.link
+    created_temp_paths = []
+    real_mkstemp = mod.tempfile.mkstemp
+
+    def capture_mkstemp(*args, **kwargs):
+        descriptor, path = real_mkstemp(*args, **kwargs)
+        created_temp_paths.append(Path(path))
+        return descriptor, path
+
+    def race_link(source, destination):
+        Path(destination).write_text("racer", encoding="utf-8")
+        return real_link(source, destination)
+
+    monkeypatch.setattr(mod.tempfile, "mkstemp", capture_mkstemp)
+    monkeypatch.setattr(mod.os, "link", race_link)
+
+    with pytest.raises(SystemExit, match="C3_SELECTION_OUTPUT_EXISTS"):
+        mod.publish_output(output_path, "complete")
+
+    assert output_path.read_text(encoding="utf-8") == "racer"
+    assert all(not path.exists() for path in created_temp_paths)
+
+
+def test_atomic_publication_write_error_leaves_no_destination_or_temp(
+        tmp_path, monkeypatch):
+    output_path = tmp_path / "selection.json"
+    created_temp_paths = []
+    real_mkstemp = mod.tempfile.mkstemp
+
+    def capture_mkstemp(*args, **kwargs):
+        descriptor, path = real_mkstemp(*args, **kwargs)
+        created_temp_paths.append(Path(path))
+        return descriptor, path
+
+    def fail_fdopen(descriptor, *args, **kwargs):
+        os.close(descriptor)
+        raise OSError("simulated write failure")
+
+    monkeypatch.setattr(mod.tempfile, "mkstemp", capture_mkstemp)
+    monkeypatch.setattr(mod.os, "fdopen", fail_fdopen)
+
+    with pytest.raises(SystemExit, match="C3_SELECTION_OUTPUT_WRITE_FAILED"):
+        mod.publish_output(output_path, "complete")
+
+    assert not output_path.exists()
+    assert all(not path.exists() for path in created_temp_paths)
