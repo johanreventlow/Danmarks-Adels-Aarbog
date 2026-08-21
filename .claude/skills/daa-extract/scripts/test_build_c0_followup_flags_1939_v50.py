@@ -23,8 +23,12 @@ def _selection(**kw):
     return doc
 
 
-def _record_by_person():
-    return {p: "record-%032x" % p for p in IDS}
+def _decision_rows():
+    """De rå [KOBL]-rækker som build_flags_document nu udleder
+    record_by_person af -- se _derive_record_by_person i implementeringen
+    for hvorfor kontrollen bor her og ikke som en færdig dict."""
+    return [{"token": "[KOBL]", "person_id": p, "new_record_key": "record-%032x" % p}
+            for p in IDS]
 
 
 def _candidates(text="Ditlev til Wittenberg.\n"):
@@ -35,7 +39,7 @@ def _candidates(text="Ditlev til Wittenberg.\n"):
 
 
 def test_happy_path_produces_nine_operations():
-    doc = mod.build_flags_document(_selection(), _candidates(), _record_by_person())
+    doc = mod.build_flags_document(_selection(), _candidates(), _decision_rows())
     assert len(doc["operations"]) == 9
     assert [op["person_id"] for op in doc["operations"]] == IDS
     assert doc["schema_version"] == "1939-v50-c0-followup-flags-v1"
@@ -50,7 +54,7 @@ def test_database_identity_is_carried_through():
     sætter dem som default) for at bevise pass-through frem for default-værdi."""
     doc = mod.build_flags_document(
         _selection(database_name="postgres", database_identity="764273"),
-        _candidates(), _record_by_person())
+        _candidates(), _decision_rows())
     assert doc["database_name"] == "postgres"
     assert doc["database_identity"] == "764273"
 
@@ -61,7 +65,7 @@ def test_default_text_is_normalized_not_raw():
     i en bestand af 551 rensede narrativer."""
     doc = mod.build_flags_document(
         _selection(), _candidates("Revent-\nlow til Gaarz.\n\n### PAGE 0063 ###\n"),
-        _record_by_person())
+        _decision_rows())
     for op in doc["operations"]:
         assert "### PAGE" not in op["default_text"]
         assert "-\n" not in op["default_text"]
@@ -74,21 +78,20 @@ def test_side_mismatch_is_terminal():
     sel = _selection()
     sel["selected"][0]["side"] = "999"
     with pytest.raises(SystemExit, match="C0F_FLAGS_SIDE_MISMATCH"):
-        mod.build_flags_document(sel, _candidates(), _record_by_person())
+        mod.build_flags_document(sel, _candidates(), _decision_rows())
 
 
 def test_side_null_is_terminal():
     sel = _selection()
     sel["selected"][0]["side"] = None
     with pytest.raises(SystemExit, match="C0F_FLAGS_SIDE_MISSING"):
-        mod.build_flags_document(sel, _candidates(), _record_by_person())
+        mod.build_flags_document(sel, _candidates(), _decision_rows())
 
 
 def test_missing_record_is_terminal():
-    rbp = _record_by_person()
-    del rbp[963]
+    rows = [r for r in _decision_rows() if r["person_id"] != 963]
     with pytest.raises(SystemExit, match="C0F_FLAGS_RECORD_MISSING"):
-        mod.build_flags_document(_selection(), _candidates(), rbp)
+        mod.build_flags_document(_selection(), _candidates(), rows)
 
 
 def test_person_1017_is_rejected():
@@ -96,13 +99,13 @@ def test_person_1017_is_rejected():
     sel = _selection()
     sel["selected"][0]["person_id"] = 1017
     with pytest.raises(SystemExit, match="C0F_FLAGS_IDS_INVALID"):
-        mod.build_flags_document(sel, _candidates(), _record_by_person())
+        mod.build_flags_document(sel, _candidates(), _decision_rows())
 
 
 def test_empty_normalized_text_is_terminal():
     with pytest.raises(SystemExit, match="C0F_FLAGS_TEXT_EMPTY"):
         mod.build_flags_document(_selection(), _candidates("   \n  "),
-                                 _record_by_person())
+                                 _decision_rows())
 
 
 def test_flag_ids_are_globally_unique_and_locally_sorted():
@@ -114,7 +117,7 @@ def test_flag_ids_are_globally_unique_and_locally_sorted():
     kontrakt koden faktisk giver, ikke en der kun holder i fixture-rummet."""
     doc = mod.build_flags_document(
         _selection(), _candidates("Revent-\nlow og Futter-\nkamp.\n"),
-        _record_by_person())
+        _decision_rows())
     all_ids = [f["flag_id"] for op in doc["operations"] for f in op["flags"]]
     assert len(all_ids) == len(set(all_ids))  # globalt unikke (nøgle-praefiks er unik pr. person)
     for op in doc["operations"]:
@@ -123,9 +126,9 @@ def test_flag_ids_are_globally_unique_and_locally_sorted():
 
 
 def test_flag_id_collision_is_terminal(monkeypatch):
-    """Kollisionsgaten (linje ~130) skal bevise sig selv ved rent faktisk at
-    fyre -- ikke bare bestå fordi ingen test rammer den. En ægte kollision
-    (samme record-nøgle, samme char_offset, samme kind) kan efter
+    """Kollisionsgaten skal bevise sig selv ved rent faktisk at fyre -- ikke
+    bare bestå fordi ingen test rammer den. En ægte kollision (samme
+    record-nøgle, samme char_offset, samme kind) kan efter
     C0F_FLAGS_DUPLICATE_RECORD_KEY ikke længere opstå ved at to personer
     deler nøgle, så den tvinges her frem ved at monkeypatche
     normalize_narrative_v1 til at returnere to identiske flag for én record.
@@ -140,41 +143,58 @@ def test_flag_id_collision_is_terminal(monkeypatch):
 
     monkeypatch.setattr(mod, "normalize_narrative_v1", _fake_normalize)
     with pytest.raises(SystemExit, match="C0F_FLAGS_ID_COLLISION"):
-        mod.build_flags_document(_selection(), _candidates(), _record_by_person())
+        mod.build_flags_document(_selection(), _candidates(), _decision_rows())
 
 
 def test_missing_database_name_is_terminal():
     with pytest.raises(SystemExit, match="C0F_FLAGS_DATABASE_NAME_MISSING"):
         mod.build_flags_document(_selection(database_name=None), _candidates(),
-                                 _record_by_person())
+                                 _decision_rows())
 
 
 def test_blank_database_name_is_terminal():
     with pytest.raises(SystemExit, match="C0F_FLAGS_DATABASE_NAME_MISSING"):
         mod.build_flags_document(_selection(database_name="   "), _candidates(),
-                                 _record_by_person())
+                                 _decision_rows())
 
 
 def test_missing_database_identity_is_terminal():
     with pytest.raises(SystemExit, match="C0F_FLAGS_DATABASE_IDENTITY_MISSING"):
         mod.build_flags_document(_selection(database_identity=None), _candidates(),
-                                 _record_by_person())
+                                 _decision_rows())
 
 
 def test_blank_database_identity_is_terminal():
     with pytest.raises(SystemExit, match="C0F_FLAGS_DATABASE_IDENTITY_MISSING"):
         mod.build_flags_document(_selection(database_identity=""), _candidates(),
-                                 _record_by_person())
+                                 _decision_rows())
 
 
-def test_reused_record_key_across_two_persons_is_terminal():
-    """Reviewerens reproduktion: to personer der peger på samme record-nøgle
-    må IKKE stiltiende give begge samme tekst -- writeren kunne senere
-    erstatte den enes biografi med den andens."""
-    rbp = _record_by_person()
-    rbp[IDS[1]] = rbp[IDS[0]]  # 967 genbruger 963's nøgle
+def test_duplicate_person_id_via_direct_call_is_terminal():
+    """Reviewerens skarpeste fund: en Dict[int, str] kan ikke bære beviset
+    for at to rækker konkurrerede om samme person_id -- den information er
+    udslettet før build_flags_document nogensinde ser en dict. Derfor
+    modtager funktionen nu de RÅ decision_rows og udleder selv, med begge
+    kontroller på det sted dubletterne stadig er synlige. Denne test rammer
+    build_flags_document DIREKTE (ikke kun via main()), og beviser dermed at
+    ingen kalder kan omgå kontrollen ved selv at bygge en færdig dict."""
+    rows = _decision_rows()
+    rows.append({"token": "[KOBL]", "person_id": IDS[0],
+                "new_record_key": "record-%032x" % (IDS[0] + 100000)})
+    with pytest.raises(SystemExit, match="C0F_FLAGS_DUPLICATE_PERSON_ID"):
+        mod.build_flags_document(_selection(), _candidates(), rows)
+
+
+def test_reused_record_key_via_direct_call_is_terminal():
+    """Reviewerens oprindelige reproduktion: to personer der peger på samme
+    record-nøgle må IKKE stiltiende give begge samme tekst -- writeren kunne
+    senere erstatte den enes biografi med den andens. Rammer
+    build_flags_document DIREKTE via decision_rows, ikke kun via main()."""
+    rows = _decision_rows()
+    rows[1] = {"token": "[KOBL]", "person_id": IDS[1],
+              "new_record_key": rows[0]["new_record_key"]}  # 967 genbruger 963's nøgle
     with pytest.raises(SystemExit, match="C0F_FLAGS_DUPLICATE_RECORD_KEY"):
-        mod.build_flags_document(_selection(), _candidates(), rbp)
+        mod.build_flags_document(_selection(), _candidates(), rows)
 
 
 def _write_json(path, obj):
@@ -182,8 +202,8 @@ def _write_json(path, obj):
 
 
 def _run_main(tmp_path, decisions, selection=None, candidates=None):
-    """Kører main() ende-til-ende via temp-filer -- rammer den udledningskode
-    (decisions -> record_by_person) som build_flags_document aldrig ser."""
+    """Kører main() ende-til-ende via temp-filer -- bekræfter at CLI-laget
+    fortsat sender de rå rækker uændret videre til build_flags_document."""
     sel_path = tmp_path / "selection.json"
     cand_path = tmp_path / "candidates.json"
     dec_path = tmp_path / "decisions.json"
@@ -196,12 +216,10 @@ def _run_main(tmp_path, decisions, selection=None, candidates=None):
 
 
 def test_main_rejects_duplicate_person_id_in_decisions(tmp_path):
-    """To [KOBL]-rækker med samme person_id: en blind dict-tildeling ville
-    lade den sidste vinde i stilhed. Det er den utestede udledningskode i
-    main() -- build_flags_document ser aldrig de to konkurrerende rækker,
-    kun det færdige (fejlagtigt overskrevne) resultat."""
-    rows = [{"token": "[KOBL]", "person_id": p, "new_record_key": "record-%032x" % p}
-            for p in IDS]
+    """Samme defekt som test_duplicate_person_id_via_direct_call_is_terminal,
+    men gennem hele CLI-stien (JSON-filer -> main() -> build_flags_document)
+    for at bevise at intet går tabt i main()'s tyndere lag."""
+    rows = _decision_rows()
     rows.append({"token": "[KOBL]", "person_id": IDS[0],
                 "new_record_key": "record-%032x" % (IDS[0] + 100000)})
     decisions = {"schema_version": "1.0", "decisions": rows}
@@ -210,11 +228,9 @@ def test_main_rejects_duplicate_person_id_in_decisions(tmp_path):
 
 
 def test_main_rejects_reused_record_key_via_decisions(tmp_path):
-    """To forskellige person_id'er, samme new_record_key i selve
-    afgørelsesfilen -- går hele vejen gennem main()'s udledning og ind i
-    build_flags_document's entydigheds-kontrol."""
-    rows = [{"token": "[KOBL]", "person_id": p, "new_record_key": "record-%032x" % p}
-            for p in IDS]
+    """Samme defekt som test_reused_record_key_via_direct_call_is_terminal,
+    men gennem hele CLI-stien."""
+    rows = _decision_rows()
     rows[1] = {"token": "[KOBL]", "person_id": IDS[1],
               "new_record_key": rows[0]["new_record_key"]}
     decisions = {"schema_version": "1.0", "decisions": rows}

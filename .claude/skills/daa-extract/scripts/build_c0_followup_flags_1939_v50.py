@@ -59,8 +59,44 @@ def assert_invariants(text: str, context: str) -> None:
         _fail("C0F_FLAGS_TEXT_EMPTY:" + context)
 
 
+def _derive_record_by_person(decision_rows: List[Dict[str, Any]]) -> Dict[int, str]:
+    """Udleder record_by_person af C0's EGNE afgoerelser -- aldrig af navne
+    eller raekkefoelge. Kun [KOBL] med en person_id blandt de ni.
+
+    Begge entydigheds-retninger haandhaeves HER, mens dubletterne stadig er
+    synlige i raekkerne -- IKKE efter at de er samlet i en dict. En
+    Dict[int, str] kan per definition ikke baere beviset for "der var to
+    raekker med samme person_id": tildelingen record_by_person[pid] = key2
+    overskriver record_by_person[pid] = key1 i stilhed, og funktionen der
+    modtager den faerdige dict kan aldrig genopdage at der var to. Derfor
+    KAN denne kontrol kun leve i selve udledningen, ikke som en pre-pass paa
+    et allerede-bygget resultat -- et interface hvis type ikke kan udtrykke
+    fejlen, kan heller ikke afvise den.
+
+    Den anden retning (to personer, samme new_record_key) overlever derimod
+    ind i en faerdig dict og kontrolleres i samme ombaering.
+    """
+    record_by_person: Dict[int, str] = {}
+    key_owner: Dict[str, int] = {}
+    for row in decision_rows or []:
+        if row.get("token") != "[KOBL]":
+            continue
+        pid = row.get("person_id")
+        if pid not in PERSON_IDS:
+            continue
+        pid = int(pid)
+        key = row["new_record_key"]
+        if pid in record_by_person:
+            _fail("C0F_FLAGS_DUPLICATE_PERSON_ID:%d" % pid)
+        if key in key_owner and key_owner[key] != pid:
+            _fail("C0F_FLAGS_DUPLICATE_RECORD_KEY:%s" % key)
+        record_by_person[pid] = key
+        key_owner[key] = pid
+    return record_by_person
+
+
 def build_flags_document(selection: Dict[str, Any], candidates: Dict[str, Any],
-                         record_by_person: Dict[int, str]) -> Dict[str, Any]:
+                         decision_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     selected = selection.get("selected") or []
     ids = sorted(int(row["person_id"]) for row in selected)
     if ids != sorted(PERSON_IDS):
@@ -75,20 +111,7 @@ def build_flags_document(selection: Dict[str, Any], candidates: Dict[str, Any],
     if not db_identity or not str(db_identity).strip():
         _fail("C0F_FLAGS_DATABASE_IDENTITY_MISSING")
 
-    # Entydigheds-kontrol: record_by_person MAA ikke lade to forskellige
-    # personer pege paa samme record-noegle -- ellers kan writeren senere
-    # erstatte den enes biografi med den andens tekst. En dict kan ikke i sig
-    # selv afsloere "flere raekker samme person_id" (det tjekkes ved
-    # udledningen i main()), men den KAN og SKAL afsloere "samme noegle brugt
-    # to gange".
-    seen_keys: Dict[str, int] = {}
-    for pid in sorted(PERSON_IDS):
-        key = record_by_person.get(pid)
-        if key is None:
-            continue
-        if key in seen_keys and seen_keys[key] != pid:
-            _fail("C0F_FLAGS_DUPLICATE_RECORD_KEY:%s" % key)
-        seen_keys[key] = pid
+    record_by_person = _derive_record_by_person(decision_rows)
 
     recs = {r["new_record_key"]: r for r in candidates.get("records", [])}
     # Korpus = ALLE records' rå tekst. normalize_narrative_v1 bruger det til at
@@ -189,27 +212,11 @@ def main(argv=None) -> int:
     candidates = json.loads(cand_path.read_text(encoding="utf-8"))
     decisions = json.loads(dec_path.read_text(encoding="utf-8"))
 
-    # record_by_person udledes af C0's EGNE afgoerelser -- aldrig af navne
-    # eller af raekkefoelge. Kun [KOBL] med en person_id blandt de ni.
-    #
-    # Entydigheds-kontrol: hvis to [KOBL]-raekker begge peger paa samme
-    # person_id, ville en blind dict-tildeling lade den sidste raekke
-    # overskrive den foerste i STILHED -- fejlen ville foerst vise sig som en
-    # forkert biografi i output, laenge efter aarsagen var glemt. Fejl
-    # TERMINALT i stedet, foer nogen data naar build_flags_document.
-    record_by_person: Dict[int, str] = {}
-    for row in decisions.get("decisions", []):
-        if row.get("token") != "[KOBL]":
-            continue
-        pid = row.get("person_id")
-        if pid not in PERSON_IDS:
-            continue
-        pid = int(pid)
-        if pid in record_by_person:
-            _fail("C0F_FLAGS_DUPLICATE_PERSON_ID:%d" % pid)
-        record_by_person[pid] = row["new_record_key"]
-
-    doc = build_flags_document(selection, candidates, record_by_person)
+    # Udledningen af record_by_person (inkl. begge entydigheds-kontroller)
+    # sker INDE i build_flags_document -- se _derive_record_by_person's
+    # docstring for hvorfor det ikke kan flyttes ud igen. main() sender blot
+    # de raa raekker videre, ufiltrerede.
+    doc = build_flags_document(selection, candidates, decisions.get("decisions", []))
     doc["input_hashes"] = {
         "selection_sha256": _sha256_file(sel_path),
         "candidates_sha256": _sha256_file(cand_path),
