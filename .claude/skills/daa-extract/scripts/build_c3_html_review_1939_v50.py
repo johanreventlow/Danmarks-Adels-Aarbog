@@ -475,8 +475,9 @@ function makeElement(tagName, className, text) {
   return node;
 }
 
-function makeSelect(values, labels) {
+function makeSelect(values, labels, accessibleName) {
   const select = makeElement("select", "choice");
+  select.setAttribute("aria-label", accessibleName);
   values.forEach((value, index) => {
     const option = makeElement("option", "", labels ? labels[index] : value);
     option.value = String(value);
@@ -552,15 +553,16 @@ function appendLabelledValue(container, label, value, className) {
   container.append(row);
 }
 
-function sourcePage(record) {
-  const pages = [];
-  record.candidates.forEach(candidate => {
-    const page = readableValue(candidate.side);
-    if (page !== "Ikke registreret" && !pages.includes(page)) {
-      pages.push(page);
-    }
-  });
-  return pages.length > 0 ? pages.join(", ") : "Ikke registreret";
+function recordPage(record) {
+  const pages = record.pages;
+  if (!pages || !Number.isInteger(pages.page_from) ||
+      !Number.isInteger(pages.page_to) || pages.page_from < 1 ||
+      pages.page_to < pages.page_from) {
+    return "Ikke registreret";
+  }
+  return pages.page_from === pages.page_to
+    ? String(pages.page_from)
+    : `${pages.page_from}–${pages.page_to}`;
 }
 
 function classificationLabel(value) {
@@ -575,7 +577,7 @@ function renderSourceRecord(container, record) {
   const article = makeElement("article", "source-record");
   article.append(makeElement("h3", "", `Kilderecord ${readableValue(record.rid)}`));
   const metadata = makeElement("div", "source-metadata");
-  appendLabelledValue(metadata, "Side", sourcePage(record));
+  appendLabelledValue(metadata, "Side", recordPage(record));
   appendLabelledValue(metadata, "Vurdering", classificationLabel(record.classification));
   appendLabelledValue(metadata, "Recordnøgle", record.new_record_key);
   article.append(metadata, makeElement("h4", "", "Kildetekst"),
@@ -694,12 +696,15 @@ function renderContext(card, caseData) {
 
 function renderIdentityControl(container, control, vocabulary, states, refreshStatus) {
   const state = parseDefault(control);
+  const accessiblePrefix = `Beslutning ${control.decision_id}`;
   const action = makeSelect(
     vocabulary.identity_actions,
-    ["Uafklaret", "Forskellige personer", "Samme menneske"]);
+    ["Uafklaret", "Forskellige personer", "Samme menneske"],
+    `${accessiblePrefix}: handling`);
   const ids = control.allowed_person_ids.map(String);
-  const alias = makeSelect(ids);
-  const canonical = makeSelect(ids);
+  const alias = makeSelect(ids, null, `${accessiblePrefix}: aliasperson`);
+  const canonical = makeSelect(
+    ids, null, `${accessiblePrefix}: kanonisk person`);
   if (!state.alias) {
     state.alias = control.preferred_alias_person_id === null
       ? ids[0]
@@ -759,12 +764,15 @@ function renderIdentityControl(container, control, vocabulary, states, refreshSt
 
 function renderRecordControl(container, control, vocabulary, states, refreshStatus) {
   const state = parseDefault(control);
+  const accessiblePrefix = `Beslutning ${control.decision_id}`;
   const action = makeSelect(
     vocabulary.record_actions,
-    ["Uafklaret", "Tilhører person", "Ingen publikation", "Kræver record-revision"]);
+    ["Uafklaret", "Tilhører person", "Ingen publikation", "Kræver record-revision"],
+    `${accessiblePrefix}: handling`);
   const ids = control.allowed_person_ids.map(String);
-  const person = makeSelect(ids);
-  const revision = makeSelect(vocabulary.revision_kinds);
+  const person = makeSelect(ids, null, `${accessiblePrefix}: person`);
+  const revision = makeSelect(
+    vocabulary.revision_kinds, null, `${accessiblePrefix}: revisionstype`);
   if (!state.person) {
     state.person = ids[0];
   }
@@ -918,18 +926,20 @@ if (typeof document !== "undefined") {
 
 STYLE = r'''
 :root { color-scheme: light; font-family: system-ui, sans-serif; }
+* { box-sizing: border-box; }
 body { margin: 0; color: #172032; background: #f4f1e8; }
-main { max-width: 70rem; margin: 0 auto; padding: 1rem; }
+main { width: 100%; max-width: 70rem; margin: 0 auto; padding: 1rem; }
 .toolbar { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap;
   gap: .65rem; align-items: center; padding: .8rem; background: #172032;
   color: white; border-radius: .5rem; }
 .case-navigation { display: flex; flex-wrap: wrap; gap: .3rem; }
-button, select { font: inherit; padding: .45rem .6rem; }
+button, select { max-width: 100%; font: inherit; padding: .45rem .6rem; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 .download { background: #f2c14e; border: 0; font-weight: 700; }
 .digest { flex-basis: 100%; overflow-wrap: anywhere; }
-.case-card { margin-top: 1rem; padding: 1rem; background: white; border-radius: .5rem;
+.case-card { min-width: 0; margin-top: 1rem; padding: 1rem; background: white; border-radius: .5rem;
+  overflow-wrap: anywhere;
   box-shadow: 0 .1rem .4rem #0002; }
 .comparison { margin-bottom: 1.3rem; }
 .comparison-heading { font-size: 1.25rem; }
@@ -955,14 +965,17 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .empty-state { color: #566175; }
 .decision-control { margin-top: .8rem; padding: 1rem; border: 1px solid #ccd2dc;
   border-radius: .4rem; }
-.dependent { display: inline-flex; gap: .4rem; align-items: center; margin-left: .6rem; }
+.dependent { display: inline-flex; flex-wrap: wrap; max-width: 100%; gap: .4rem;
+  align-items: center; margin-left: .6rem; }
+.dependent select { min-width: 0; }
 .token-label { display: block; margin-top: .8rem; }
 .exact-token { display: inline-block; padding: .2rem .4rem; background: #eef3fa; }
 .control-error { color: #9d211c; font-weight: 700; }
 [hidden] { display: none !important; }
 @media (max-width: 44rem) {
   .candidate-grid { grid-template-columns: 1fr; }
-  .dependent { display: flex; margin: .6rem 0 0; }
+  .dependent { display: flex; flex-direction: column; align-items: stretch;
+    margin: .6rem 0 0; }
 }
 '''
 

@@ -209,6 +209,39 @@ async function main() {
     await assertHidden(identityDependent, true);
     await selectAction(firstIdentity, "SAMME");
     await assertHidden(identityDependent, false);
+    await page.setViewportSize({width: 320, height: 900});
+    const mobileMetrics = await page.evaluate(() => {
+      const clientWidth = document.documentElement.clientWidth;
+      return {
+        clientWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+        overflowing: Array.from(document.querySelectorAll("body *"))
+          .map(element => ({
+            tag: element.tagName,
+            className: element.className,
+            right: Math.ceil(element.getBoundingClientRect().right),
+            scrollWidth: element.scrollWidth,
+            clientWidth: element.clientWidth
+          }))
+          .filter(item => item.right > clientWidth || item.scrollWidth > item.clientWidth)
+      };
+    });
+    assert.equal(mobileMetrics.clientWidth, 320);
+    assert.equal(
+      mobileMetrics.scrollWidth <= mobileMetrics.clientWidth,
+      true,
+      JSON.stringify(mobileMetrics));
+    const mobileControlBox = await firstIdentity.boundingBox();
+    assert.ok(mobileControlBox);
+    assert.equal(mobileControlBox.x >= 0, true);
+    assert.equal(mobileControlBox.x + mobileControlBox.width <= 320, true);
+    for (const element of await firstIdentity.locator(
+      "select.choice, button.swap-direction").all()) {
+      const box = await element.boundingBox();
+      assert.ok(box);
+      assert.equal(box.x >= 0, true);
+      assert.equal(box.x + box.width <= 320, true);
+    }
     const alias = firstIdentity.locator("select.choice").nth(1);
     const canonical = firstIdentity.locator("select.choice").nth(2);
     assert.notEqual(await alias.inputValue(), await canonical.inputValue());
@@ -270,6 +303,9 @@ async function main() {
     assert.equal(
       await firstComparison.locator("p.source-text").textContent(),
       "Syntetisk kildetekst ÆØÅ R03");
+    assert.equal(await firstComparison.locator("article.source-record").getByText(
+      "Side: 603–604", {exact: true}
+    ).count(), 1);
     const candidateTexts = await firstComparison.locator(
       "p.candidate-text").allTextContents();
     assert.equal(candidateTexts.length, 2);
@@ -316,6 +352,22 @@ async function main() {
       assert.equal(visibleComparisonText.includes(rawSurface), false);
     }
     assert.equal(await page.evaluate(() => globalThis.__C3_PWNED__), undefined);
+
+    const selectNames = await page.locator("select.choice").evaluateAll(selects =>
+      selects.map(select => select.getAttribute("aria-label") || ""));
+    assert.equal(selectNames.length > 0, true);
+    assert.equal(selectNames.every(name => name.trim().length > 0), true);
+    assert.equal(new Set(selectNames).size, selectNames.length);
+    const decisionIds = payload.cases.flatMap(caseData =>
+      caseData.controls.map(control => control.decision_id));
+    assert.equal(selectNames.every(name =>
+      decisionIds.some(decisionId => name.includes(decisionId))), true);
+
+    await navButtons.nth(2).click();
+    assert.equal(await cards.nth(2).locator("article.source-record").getByText(
+      "Side: Ikke registreret", {exact: true}
+    ).count(), 1);
+    await navButtons.nth(0).click();
 
     await navButtons.nth(6).click();
     const specialComparison = cards.nth(6).locator("section.comparison");

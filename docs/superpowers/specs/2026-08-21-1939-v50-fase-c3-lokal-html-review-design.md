@@ -18,6 +18,10 @@ partnerkonflikter som advarsler. Specialens R15 og R40 står i hver sin
 kildesektion, og kandidatkort stables på små skærme. Manglende værdier vises
 eksplicit som `Ikke registreret`. Rendering sker fortsat udelukkende med
 `textContent` og DOM-elementer, aldrig rå markup.
+Kilderecordens side kommer autoritativt fra dens eget `record.pages`-felt,
+aldrig fra en kandidatpersons side. Alle beslutningsvælgere har desuden et
+entydigt, sagsbundet tilgængeligt navn, og fladen må ikke få vandret
+dokument-overflow ved 320 pixels, heller ikke når `Samme menneske` er valgt.
 
 ## Problemet
 

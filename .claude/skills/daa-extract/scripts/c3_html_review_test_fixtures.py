@@ -57,10 +57,18 @@ def _candidate(person_id: int, rid: str, include_attack: bool = False
 
 def _record(rid: str, person_ids: Tuple[int, ...], include_attack: bool = False
             ) -> Dict[str, Any]:
+    page_number = 600 + int(rid[1:])
+    if rid == "R03":
+        pages = {"page_from": page_number, "page_to": page_number + 1}
+    elif rid == "R11":
+        pages = None
+    else:
+        pages = {"page_from": page_number, "page_to": page_number}
     return {
         "rid": rid,
         "new_record_key": "synthetic-{}".format(rid.lower()),
         "classification": "kobling" if rid == "R40" else "sammenlaegning",
+        "pages": pages,
         "verbatim_text": "Syntetisk kildetekst ÆØÅ {}".format(rid),
         "candidates": [
             _candidate(person_id, rid, include_attack and index == 0)

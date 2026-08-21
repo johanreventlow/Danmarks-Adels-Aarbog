@@ -95,6 +95,17 @@ def test_fixture_factory_writes_locked_synthetic_chain(tmp_path):
     assert selection["cases"][-1]["case_kind"] == "1017_1021"
     assert [row["rid"] for row in selection["cases"][-1]["records"]] == [
         "R15", "R40"]
+    records = [record for case in selection["cases"]
+               for record in case["records"]]
+    r03 = next(record for record in records if record["rid"] == "R03")
+    r11 = next(record for record in records if record["rid"] == "R11")
+    assert r03["pages"] == {"page_from": 603, "page_to": 604}
+    assert r11["pages"] is None
+    assert all(
+        record["pages"] is None
+        or str(record["pages"]["page_from"])
+        not in {candidate["side"] for candidate in record["candidates"]}
+        for record in records)
     assert state["selection_sha256"] == hashes["selection_sha256"]
     decoded = review_raw.decode("utf-8")
     assert sum(line.startswith("[") for line in decoded.splitlines()) == 15
@@ -499,6 +510,25 @@ def test_client_renders_missing_values_explicitly(tmp_path):
         "readableValue('')].join('|'));\n")
     assert result.stdout == (
         "Ikke registreret|Ikke registreret|Ikke registreret")
+
+
+def test_client_formats_only_authoritative_record_pages(tmp_path):
+    _, _, _, _, html = build_artifact(tmp_path)
+    script, script_path = extract_client_script(html, tmp_path)
+    formatter = re.search(
+        r"function recordPage\(record\) \{(.*?)\n\}", script, re.DOTALL)
+    assert formatter is not None
+    assert "candidate" not in formatter.group(1)
+    assert "record.pages" in formatter.group(1)
+    result = run_client_function(
+        script_path,
+        "process.stdout.write(["
+        "recordPage({pages:{page_from:603,page_to:603}}),"
+        "recordPage({pages:{page_from:603,page_to:604}}),"
+        "recordPage({pages:null}),"
+        "recordPage({pages:{page_from:null,page_to:604}})"
+        "].join('|'));\n")
+    assert result.stdout == "603|603–604|Ikke registreret|Ikke registreret"
 
 
 def test_base64_separator_cannot_terminate_the_client_script(tmp_path):
