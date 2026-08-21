@@ -2,6 +2,15 @@
 
 **Dato:** 2026-08-21 · **Status:** afventer brugerens GO · **Intet skrevet til prod.**
 
+> **Endelig helhedsgennemgang (Codex sol): GO.** Ingen blokerende eller høje
+> fund. Alle fem succeskriterier dækket. Ingen utilsigtede skriveveje: trin 1 er
+> ren `SELECT`, trin 2-4 har ingen DB-klient og nægter at overskrive output, og
+> trin 5's eneste mutationssti er de to RPC-kald bag manifest-SHA, backup og
+> eksplicit bekræftelse. Manifestet blev **regenereret byte for byte** fra
+> `prod-flags.json` + `prod-decisions.json` + den låste kandidatfil: samme ni
+> længder, samme SHA-256, `cmp_status=0`. Seks parkerede fund triageret som
+> »kan vente«; ingen skal rettes før kørslen.
+
 Task 1–5 er bygget, reviewet og rehearsal-kørt. Task 6's prod-apply er ikke kørt.
 Dette er det grundlag, der skal siges ja til.
 
@@ -75,6 +84,20 @@ repoets SQL.
 `change_set` fik **8** change_events, ikke 9: person 991's tekst er byte-identisk
 før og efter, så UPDATE'en skrev samme værdi og triggeren så ingen ændring. Det er
 beviset for succeskriteriet, ikke et tabt spor.
+
+## En rettelse af min egen begrundelse
+
+To parkeringer blev oprindeligt begrundet med, at en rettelse ville ændre
+menneskearkets rendering og dermed ugyldiggøre brugerens hash-bundne
+godkendelse. **Helhedsgennemgangen afviser det argument, og med rette:** en
+hash-binding mellem ark og flag-dokument kan bæres i beslutnings-JSON'en eller
+som et CLI-krav uden at ændre én byte i arket, og en fælles sekvensgenerator
+kan udtrækkes og bevises med golden-hash. At røre rendererens kode er ikke det
+samme som at ændre rendererens bytes.
+
+Parkeringerne står, men på det rigtige grundlag: **denne** artefaktkæde er
+empirisk afstemt — arket er byte-identisk med det godkendte, og manifestet er
+reproduceret med samme SHA. Ved genbrug i en senere fase skal bindingen laves.
 
 ## Fortrydelse — ærligt
 
