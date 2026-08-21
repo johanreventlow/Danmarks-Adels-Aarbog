@@ -88,6 +88,16 @@ def _derive_record_by_person(decision_rows: List[Dict[str, Any]]) -> Dict[int, s
     Begge felter paa selve raekken kraeves ogsaa til stede: en [KOBL]-raekke
     uden person_id eller new_record_key fejler terminalt her, ikke med en
     bar KeyError laengere nede.
+
+    person_id skal vaere PRAECIS int -- ``type(pid) is int``, ikke
+    ``isinstance``. To grunde: (1) ``int(963.9)`` afkorter stille til 963 og
+    ville lade en ikke-heltallig vaerdi glide igennem konverteringen uden
+    fejl; (2) ``bool`` er en underklasse af ``int`` i Python, saa
+    ``isinstance(True, int)`` er ``True`` og ville lukke ``person_id: true``
+    igennem som 1. Kontrollen SKAL sidde her, foer noget bruger pid -- at
+    filtrere raa vaerdier mod PERSON_IDS foer konvertering (som den gamle
+    main() gjorde) er ikke det samme forsvar; det forhindrer ikke en
+    ikke-heltallig vaerdi der tilfaeldigvis konverterer til et scoped tal.
     """
     record_by_person: Dict[int, str] = {}
     key_owner: Dict[str, int] = {}
@@ -97,7 +107,8 @@ def _derive_record_by_person(decision_rows: List[Dict[str, Any]]) -> Dict[int, s
         pid = row.get("person_id")
         if pid is None:
             _fail("C0F_FLAGS_KOBL_ROW_MISSING_PERSON_ID")
-        pid = int(pid)
+        if type(pid) is not int:
+            _fail("C0F_FLAGS_KOBL_ROW_INVALID_PERSON_ID:%r" % (pid,))
         key = row.get("new_record_key")
         if not key:
             _fail("C0F_FLAGS_KOBL_ROW_MISSING_RECORD_KEY:%d" % pid)

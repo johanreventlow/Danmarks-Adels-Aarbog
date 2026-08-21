@@ -234,6 +234,31 @@ def test_kobl_row_missing_record_key_is_terminal():
         mod.build_flags_document(_selection(), _candidates(), rows)
 
 
+def test_kobl_row_non_integer_person_id_is_terminal():
+    """Fjerde re-review: int(pid) afkorter stille -- int(963.9) == 963 -- og
+    ville lade en ikke-heltallig vaerdi glide igennem konverteringen uden
+    fejl. Reviewer reproducerede det: person_id 963.9 gav ni operationer og
+    lod 963 faa en fremmed record, uden at nogen gate fyrede. Kontrollen er
+    nu type(pid) is int, foer noget bruger pid."""
+    rows = _decision_rows()
+    rows[0] = {"token": "[KOBL]", "person_id": 963.9,
+              "new_record_key": rows[0]["new_record_key"]}
+    with pytest.raises(SystemExit, match="C0F_FLAGS_KOBL_ROW_INVALID_PERSON_ID"):
+        mod.build_flags_document(_selection(), _candidates(), rows)
+
+
+def test_kobl_row_bool_person_id_is_terminal():
+    """bool er en underklasse af int i Python -- isinstance(True, int) er
+    True -- saa person_id: true ville glide igennem en isinstance-kontrol
+    som 1. type(pid) is int fanger det, fordi type(True) is bool, ikke
+    int."""
+    rows = _decision_rows()
+    rows[0] = {"token": "[KOBL]", "person_id": True,
+              "new_record_key": rows[0]["new_record_key"]}
+    with pytest.raises(SystemExit, match="C0F_FLAGS_KOBL_ROW_INVALID_PERSON_ID"):
+        mod.build_flags_document(_selection(), _candidates(), rows)
+
+
 def _write_json(path, obj):
     path.write_text(json.dumps(obj), encoding="utf-8")
 
