@@ -545,8 +545,10 @@ function renderIdentityControl(container, control, vocabulary, states, refreshSt
   alias.value = state.alias;
   canonical.value = state.canonical;
   const direction = makeElement("div", "dependent");
+  const swap = makeElement("button", "swap-direction", "Byt retning");
+  swap.type = "button";
   direction.append(makeElement("span", "", "Alias "), alias,
-                   makeElement("span", "", " → canonical "), canonical);
+                   makeElement("span", "", " → canonical "), canonical, swap);
   const exact = makeElement("code", "exact-token");
   const error = makeElement("p", "control-error");
   const update = () => {
@@ -575,6 +577,12 @@ function renderIdentityControl(container, control, vocabulary, states, refreshSt
   action.addEventListener("change", update);
   alias.addEventListener("change", update);
   canonical.addEventListener("change", update);
+  swap.addEventListener("click", () => {
+    const previousAlias = alias.value;
+    alias.value = canonical.value;
+    canonical.value = previousAlias;
+    update();
+  });
   container.append(action, direction, makeElement("span", "token-label", "Eksakt token: "), exact, error);
   states.set(control.decision_id, state);
   update();
