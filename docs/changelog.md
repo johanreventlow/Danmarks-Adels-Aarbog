@@ -1,5 +1,63 @@
 # Changelog
 
+## C0's efterkørsel UDFØRT i prod — ni record-koblinger (2026-08-21)
+
+De ni personer, hvis 1939-narrativ stod med fejlbehæftet tekst fra den første
+import, har nu den rensede, evidensbaserede tekst og en publiceret
+kildebinding. `change_set 965`, aktør `johan@reventlow.dk` som `redaktion`.
+
+**Resultat:** bindinger **550 → 559**. Narrativer (1.169), personer (1.811),
+fakta (7.197) og relationer (2.030) **uændrede** — fasen rørte tekst og
+bindinger, intet andet. `anon` ser fortsat 1.734 personer.
+
+| Person | Nu | Blev | Δ |
+|---|---:|---:|---:|
+| **991** | 32 | **32** | **0** — kun bindingen |
+| 963 · 992 | 103 · 107 | 101 · 105 | −2 |
+| 1296 · 1298 · 1299 | 278 · 349 · 666 | 275 · 344 · 655 | −3 · −5 · −11 |
+| 1297 | 731 | 688 | −43 |
+| **978** | 100 | **140** | **+40** nyt indhold |
+| **967** | 149 | **193** | **+44** nyt indhold |
+
+Kun 967 og 978 tilførte reelt nyt indhold. De negative delta er normalisering —
+samme rensning, fase B gav de øvrige 551.
+
+**8 change_events, ikke 9:** person 991's tekst er byte-identisk før og efter,
+så UPDATE'en skrev samme værdi og triggeren så ingen ændring. Det er beviset
+for fasens succeskriterium.
+
+**Det afgørende fund undervejs:** C0's `verbatim_text` er RÅ OCR. Alle ni
+fejlede fase B's slutinvarianter — enlige linjeskift, uopløste orddelinger,
+`### PAGE 0063 ###` i 1299, trailing whitespace i 1297. Uden normalisering
+ville fasen have indført rå tekst i en bestand af 551 rensede. `narrative_norm_v1`
+blev derfor et obligatorisk trin, og efterkontrollen bekræfter: **0 narrativer
+med rå sidemarkører, 0 enlige linjeskift i de ni.**
+
+**Person 1017 blev flyttet til C3.** Dens kobling ville have slettet 149 tegn,
+hvoraf de første ~92 ikke findes noget andet sted i korpus — person 1021 viste
+sig at være halen af dens afsnit B), skåret over midt i det orddelte
+»Revent- low«.
+
+**Menneskeark:** otte orddelingsvalg, ikke ni biografier. Brugeren godkendte
+alle otte som `merge` (Efter+slægt, For+pagter, For+mand, Folke+tinget,
+Rigs+raad, Katedral+skole og to gange Legationssekre+tær). Arket var
+hash-bundet (`98fbb11b…`) og verificeret byte-identisk umiddelbart før kørslen.
+
+**Backup:** `pre-c0f-20260821-112005.dump` (5,7 MB, 0600), SHA-256
+`fcfeb2253…`. Manifest `f067a4c3e…`, hash-låst ind i writeren.
+
+**Kvalitetsarbejdet:** fem tasks, otte fix-runder, 19 commits. Alle reviews af
+Codex sol. Rehearsal mod en restore af prod-dumpen — så de øvede RPC'er var de
+**live** definitioner. Fail-closed verificeret mod prod: en gentagen kørsel
+afvises med `C0F_APPLY_OLD_SHA_MISMATCH`, og et manifest bygget mod øvebasen
+afvises med `C0F_APPLY_DATABASE_MISMATCH`.
+
+**Udestår:** de 16 `[NY]`-records, de 7 C3-sammenlægninger plus 1017/1021, og
+de 12 grænsefejl-kandidater. 963 og 967 forbliver staged — bevist ufarligt, da
+`private` ikke er eksponeret gennem API'et.
+
+---
+
 ## Fase D2 UDFØRT i prod — 21 ægtefæller publiceret (2026-08-20)
 
 De 21 staged gift-ind-ægtefæller er nu offentligt synlige. `change_set 960`,

@@ -42,7 +42,7 @@ usynlige i fladen« nedenfor. De to hænger sammen: der er ingen grund til at
 udtrække mere, før der er et sted at vise det, og ingen grund til at bygge
 visningen, hvis den kun kan vise fødsel og død.
 
-## BESLUTTET: C0-efterkørslen — 1017 flyttes til C3, RLS-frygten var ubegrundet (2026-08-20)
+## UDFØRT: C0-efterkørslen kørt i prod 2026-08-21 — 1017 flyttet til C3 (2026-08-20)
 
 Afgjort ved måling, ikke ræsonnement. Fuld dokumentation i
 `docs/superpowers/reviews/1939-v50-fase-c0-efterkoersel-afklaringer.md`.
@@ -66,7 +66,7 @@ gennem API'et, `anon` har nul grants på `narrative_record_publication` og får
 af deres narrativer. Rækkefølgen mellem »bind record« og »publicér person« er
 derfor ligegyldig for synligheden.
 
-**Status: 9 af 10 koblinger er klar.** Værktøjet er bevidst ikke bygget:
+**Status 2026-08-21: UDFØRT.** De ni koblinger er skrevet til prod (`change_set 965`, bindinger 550 → 559). Se changelog. 1017/1021 er stadig åben og hører til C3. Det oprindelige forbehold nedenfor er indfriet ved at bygge en dedikeret writer med en gate-kæde stærkere end D2's:
 `narrative_record_publication` står ikke i `version_pk_registry`, så en forkert
 kobling kan ikke fortrydes — dumpen er eneste udvej. Gate-kæden skal være
 stærkere end D2's, og fasen erstatter narrativtekst frem for at sætte et flag.

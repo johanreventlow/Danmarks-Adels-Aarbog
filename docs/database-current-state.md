@@ -48,6 +48,7 @@
 |---|---|
 | Personer | **1.811** total; **7 staged**; **70 levende**; 0 `privat=TRUE` — målt 2026-08-20 efter fase D2 (975 pensioneret som oversigtslinje) |
 | Offentlig/medlem | `anon` ser **1.734 personer**, **0 levende**, **0 staged** (efter fase D2, 2026-08-20). Regnestykket går op: 1811 − 70 levende − 7 staged = 1734 |
+| Kildebindinger | **559** i `private.narrative_record_publication`, alle `published` (efter C0-efterkørslen 2026-08-21) |
 | Kilder | 3 source-rækker. Source 1 = DAA 2018-20/2020 med 591 direkte poster; source 3 = DAA 1939/1939 med 539 direkte poster |
 | Slægtskab | **2.258** `family_member`-rækker; **922** `forældrefamilie`-facts (målt 2026-08-20) |
 | Medier | **6** media-rækker: 2 `klar`, 4 `fjernet`; privat `media`-bucket og `media_variant` findes |
