@@ -11,6 +11,14 @@ import pytest
 SCRIPT_DIR = Path(__file__).resolve().parent
 BUILD_PATH = SCRIPT_DIR / "build_c3_review_1939_v50.py"
 MODULE_PATH = SCRIPT_DIR / "convert_c3_decisions_1939_v50.py"
+NO_WRITER_PATTERN = r"\b(INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b|red_[a-z_]+\s*\("
+C3_SCRIPT_PATHS = [
+    SCRIPT_DIR / "build_c3_selection_1939_v50.py",
+    SCRIPT_DIR / "export_c3_current_state_1939_v50.R",
+    SCRIPT_DIR / "export_c3_current_state_1939_v50_helpers.R",
+    SCRIPT_DIR / "build_c3_review_1939_v50.py",
+    MODULE_PATH,
+]
 
 
 def load_module(name, path):
@@ -22,6 +30,15 @@ def load_module(name, path):
 
 
 build = load_module("build_c3_review_for_converter_test", BUILD_PATH)
+
+
+def test_c3_scripts_pass_mechanical_no_writer_audit():
+    completed = subprocess.run(
+        ["rg", "-n", NO_WRITER_PATTERN, *map(str, C3_SCRIPT_PATHS)],
+        text=True, capture_output=True, check=False)
+    assert completed.returncode == 1
+    assert completed.stdout == ""
+    assert completed.stderr == ""
 
 
 def converter():

@@ -123,8 +123,8 @@ def _parse_decision_line(line: str, expected_line: str,
     return decision
 
 
-def _structured_cases(selection_doc: Dict[str, Any],
-                      decisions: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _decision_cases(selection_doc: Dict[str, Any],
+                    decisions: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
     cases: List[Dict[str, Any]] = []
     for case in selection_doc["cases"][:-1]:
         rid = case["records"][0]["rid"]
@@ -282,7 +282,7 @@ def parse_review(text: str, selection_doc: Dict[str, Any],
         fail("C3_REVIEW_LINE_TAMPERED")
 
     _validate_graph_decisions(decisions, state_doc)
-    cases = _structured_cases(selection_doc, decisions)
+    cases = _decision_cases(selection_doc, decisions)
     unresolved = sum(
         1 for case in cases
         for decision in [case["identity"]] + case["record_decisions"]
