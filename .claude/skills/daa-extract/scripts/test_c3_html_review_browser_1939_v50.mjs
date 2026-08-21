@@ -261,13 +261,68 @@ async function main() {
     await selectAction(firstRecord, "TIL");
     await recordPerson.selectOption(secondPerson);
 
-    const contextDetails = cards.nth(0).locator("details.context");
-    await contextDetails.locator("summary").click();
+    const firstComparison = cards.nth(0).locator("section.comparison");
+    assert.equal(await firstComparison.getByRole("heading", {
+      name: "Kilderecord R03"
+    }).count(), 1);
+    assert.equal(await firstComparison.locator("article.source-record").count(), 1);
+    assert.equal(await firstComparison.locator("article.candidate-card").count(), 2);
     assert.equal(
-      (await contextDetails.locator("pre.context-body").textContent()).includes(
-        "</script><img src=x onerror=globalThis.__C3_PWNED__=1>"),
-      true);
+      await firstComparison.locator("p.source-text").textContent(),
+      "Syntetisk kildetekst ÆØÅ R03");
+    const candidateTexts = await firstComparison.locator(
+      "p.candidate-text").allTextContents();
+    assert.equal(candidateTexts.length, 2);
+    assert.equal(candidateTexts.some(text => text.includes(
+      "</script><img src=x onerror=globalThis.__C3_PWNED__=1>")), true);
+    assert.equal(await firstComparison.getByText("Person-ID 1101", {
+      exact: true
+    }).count(), 1);
+    assert.equal(await firstComparison.locator("article.candidate-card").getByText("Side: 500", {
+      exact: true
+    }).count(), 2);
+    assert.equal(await firstComparison.getByText("Eksisterende person", {
+      exact: true
+    }).count(), 1);
+    assert.equal(await firstComparison.getByText("Kladdeperson", {
+      exact: true
+    }).count(), 1);
+    assert.equal(await firstComparison.getByText("Offentlig", {
+      exact: true
+    }).count(), 2);
+    assert.equal(await firstComparison.getByText(
+      "Narrativ 6101 · side 500 · publiceret binding", {exact: true}
+    ).count(), 1);
+    assert.equal(await firstComparison.getByText(
+      "Narrativ 6102 · side 500 · ingen recordbinding", {exact: true}
+    ).count(), 1);
+    assert.equal(await firstComparison.getByText(
+      "Person 1101 er registreret som samme person som person 9101.",
+      {exact: true}
+    ).count(), 1);
+    assert.equal(await firstComparison.getByText(
+      "Person 1101 er registreret som forskellig fra person 9102.",
+      {exact: true}
+    ).count(), 1);
+    assert.equal(await firstComparison.getByText(
+      "Advarsel: Person 1101 og person 1102 er partnere i familie 77.",
+      {exact: true}
+    ).count(), 1);
+    const visibleComparisonText = await firstComparison.textContent();
+    for (const rawSurface of [
+      "{", "}", '"records"', '"persons"', "identity_edges",
+      "partner_conflicts", "verbatim_text", "new_record_key"
+    ]) {
+      assert.equal(visibleComparisonText.includes(rawSurface), false);
+    }
     assert.equal(await page.evaluate(() => globalThis.__C3_PWNED__), undefined);
+
+    await navButtons.nth(6).click();
+    const specialComparison = cards.nth(6).locator("section.comparison");
+    assert.deepEqual(
+      await specialComparison.locator("article.source-record h3").allTextContents(),
+      ["Kilderecord R15", "Kilderecord R40"]);
+    await navButtons.nth(0).click();
 
     const downloadButton = page.getByRole("button", {
       name: "Download c3-afgoerelser-redigeret.txt"

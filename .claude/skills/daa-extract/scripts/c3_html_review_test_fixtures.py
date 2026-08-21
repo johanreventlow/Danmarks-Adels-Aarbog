@@ -110,6 +110,7 @@ def state_document(selection_sha256: str,
         {"person_id": person_id, "staged": False, "privat": False}
         for person_id in selection["person_ids"]
     ]
+    next(row for row in persons if row["person_id"] == 1102)["staged"] = True
     narratives = [
         {
             "person_id": person_id,
@@ -122,6 +123,12 @@ def state_document(selection_sha256: str,
         }
         for person_id in selection["person_ids"]
     ]
+    first_person_id = selection["cases"][0]["candidate_person_ids"][0]
+    first_narrative = next(
+        row for row in narratives if row["person_id"] == first_person_id)
+    first_narrative["source_record_id"] = (
+        "00000000-0000-0000-0000-000000000001")
+    first_narrative["binding_status"] = "published"
     return {
         "schema_version": "1939-v50-c3-current-state-v1",
         "database_name": "synthetic",
@@ -130,8 +137,16 @@ def state_document(selection_sha256: str,
         "selection_sha256": selection_sha256,
         "persons": persons,
         "narratives": narratives,
-        "identity_edges": [],
-        "partner_conflicts": [],
+        "identity_edges": [
+            {"role": "samme_som", "subject_id": first_person_id,
+             "object_id": 9101},
+            {"role": "ikke_samme_som", "subject_id": first_person_id,
+             "object_id": 9102},
+        ],
+        "partner_conflicts": [
+            {"left_person_id": 1101, "right_person_id": 1102,
+             "family_id": 77},
+        ],
     }
 
 

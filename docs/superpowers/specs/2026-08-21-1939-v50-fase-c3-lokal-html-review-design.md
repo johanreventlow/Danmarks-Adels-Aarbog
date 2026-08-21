@@ -9,6 +9,16 @@ når alias 1021 allerede har en anden `samme_som`-kant. R40 og R15 beholder
 standarderne `TIL 1017` og `TIL 1021`. Fladen starter derfor med 13
 uafklarede og 2 afklarede beslutninger.
 
+**Godkendt læsbarhedstillæg 2026-08-21:** Sagsgrundlaget må ikke vises som
+rå JSON. Hvert kort viser i stedet kilderecords med danske etiketter, side og
+fuld kildetekst samt kandidatpersoner i selvstændige sammenligningskort med
+navn, person-ID, persontekst, side, staged-/privatstatus og eksisterende
+narrativbinding. Identitetsrelationer vises som sætninger og
+partnerkonflikter som advarsler. Specialens R15 og R40 står i hver sin
+kildesektion, og kandidatkort stables på små skærme. Manglende værdier vises
+eksplicit som `Ikke registreret`. Rendering sker fortsat udelukkende med
+`textContent` og DOM-elementer, aldrig rå markup.
+
 ## Problemet
 
 C3's hashbundne tekstark er maskinelt sikkert, men vanskeligt at navigere i.

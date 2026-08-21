@@ -473,6 +473,34 @@ def test_generated_client_is_valid_javascript_and_has_no_forbidden_path(
                          document, re.IGNORECASE)
 
 
+def test_client_uses_semantic_readable_context_without_json_surface(tmp_path):
+    _, _, _, _, html = build_artifact(tmp_path)
+    script, _ = extract_client_script(html, tmp_path)
+    assert "JSON.stringify" not in script
+    assert 'makeElement("pre"' not in script
+    for semantic_class in (
+            "comparison", "source-record", "source-text",
+            "candidate-grid", "candidate-card", "candidate-text",
+            "narrative-info", "identity-relations", "partner-warning"):
+        assert semantic_class in script
+    for readable_label in (
+            "Kilderecord", "Kildetekst", "Side", "Kandidatpersoner",
+            "Eksisterende narrativ", "Eksisterende identitetsrelationer",
+            "Partnerkonflikter", "Ikke registreret"):
+        assert readable_label in script
+
+
+def test_client_renders_missing_values_explicitly(tmp_path):
+    _, _, _, _, html = build_artifact(tmp_path)
+    _, script_path = extract_client_script(html, tmp_path)
+    result = run_client_function(
+        script_path,
+        "process.stdout.write([readableValue(null), readableValue(undefined), "
+        "readableValue('')].join('|'));\n")
+    assert result.stdout == (
+        "Ikke registreret|Ikke registreret|Ikke registreret")
+
+
 def test_base64_separator_cannot_terminate_the_client_script(tmp_path):
     _, _, _, payload, _ = build_artifact(tmp_path)
     payload = copy.deepcopy(payload)

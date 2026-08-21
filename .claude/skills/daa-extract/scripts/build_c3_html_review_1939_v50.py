@@ -539,19 +539,157 @@ function controlToken(state, control, vocabulary) {
     : recordToken(state, control, vocabulary);
 }
 
+function readableValue(value) {
+  return value === null || value === undefined || value === ""
+    ? "Ikke registreret"
+    : String(value);
+}
+
+function appendLabelledValue(container, label, value, className) {
+  const row = makeElement("p", className || "labelled-value");
+  row.append(makeElement("strong", "", `${label}: `),
+             makeElement("span", "", readableValue(value)));
+  container.append(row);
+}
+
+function sourcePage(record) {
+  const pages = [];
+  record.candidates.forEach(candidate => {
+    const page = readableValue(candidate.side);
+    if (page !== "Ikke registreret" && !pages.includes(page)) {
+      pages.push(page);
+    }
+  });
+  return pages.length > 0 ? pages.join(", ") : "Ikke registreret";
+}
+
+function classificationLabel(value) {
+  const labels = {
+    sammenlaegning: "Mulig sammenlægning",
+    kobling: "Mulig kobling"
+  };
+  return labels[value] || readableValue(value);
+}
+
+function renderSourceRecord(container, record) {
+  const article = makeElement("article", "source-record");
+  article.append(makeElement("h3", "", `Kilderecord ${readableValue(record.rid)}`));
+  const metadata = makeElement("div", "source-metadata");
+  appendLabelledValue(metadata, "Side", sourcePage(record));
+  appendLabelledValue(metadata, "Vurdering", classificationLabel(record.classification));
+  appendLabelledValue(metadata, "Recordnøgle", record.new_record_key);
+  article.append(metadata, makeElement("h4", "", "Kildetekst"),
+                 makeElement("p", "source-text", readableValue(record.verbatim_text)));
+  container.append(article);
+}
+
+function bindingLabel(narrative) {
+  if (!narrative || narrative.source_record_id === null) {
+    return "ingen recordbinding";
+  }
+  const labels = {
+    draft: "kladdebinding",
+    published: "publiceret binding",
+    withdrawn: "tilbagetrukket binding"
+  };
+  return labels[narrative.binding_status] || "bindingens status er ikke registreret";
+}
+
+function renderCandidate(container, candidate, person, narrative) {
+  const article = makeElement("article", "candidate-card");
+  article.append(makeElement("h3", "candidate-name",
+                             readableValue(candidate && candidate.visning_navn)));
+  article.append(makeElement("p", "candidate-id",
+                             `Person-ID ${readableValue(candidate && candidate.person_id)}`));
+  const badges = makeElement("div", "candidate-badges");
+  badges.append(
+    makeElement("span", "badge", person && person.staged
+      ? "Kladdeperson" : "Eksisterende person"),
+    makeElement("span", "badge", person && person.privat
+      ? "Privat" : "Offentlig")
+  );
+  article.append(badges);
+  appendLabelledValue(article, "Side", candidate && candidate.side);
+  article.append(makeElement("h4", "", "Eksisterende persontekst"),
+                 makeElement("p", "candidate-text",
+                             readableValue(candidate && candidate.person_tekst)),
+                 makeElement("h4", "", "Eksisterende narrativ"));
+  if (!narrative) {
+    article.append(makeElement("p", "narrative-info", "Ikke registreret"));
+  } else {
+    article.append(makeElement(
+      "p", "narrative-info",
+      `Narrativ ${readableValue(narrative.narrative_id)} · side ` +
+      `${readableValue(narrative.side)} · ${bindingLabel(narrative)}`));
+    if (narrative.source_record_id !== null) {
+      appendLabelledValue(article, "Recordbinding", narrative.source_record_id,
+                          "binding-id");
+    }
+  }
+  container.append(article);
+}
+
+function renderIdentityRelations(container, edges) {
+  const section = makeElement("section", "identity-relations");
+  section.append(makeElement("h3", "", "Eksisterende identitetsrelationer"));
+  if (edges.length === 0) {
+    section.append(makeElement(
+      "p", "empty-state", "Ingen eksisterende identitetsrelationer registreret."));
+  } else {
+    const list = makeElement("ul", "relation-list");
+    edges.forEach(edge => {
+      const sentence = edge.role === "samme_som"
+        ? `Person ${edge.subject_id} er registreret som samme person som person ${edge.object_id}.`
+        : `Person ${edge.subject_id} er registreret som forskellig fra person ${edge.object_id}.`;
+      list.append(makeElement("li", "", sentence));
+    });
+    section.append(list);
+  }
+  container.append(section);
+}
+
+function renderPartnerConflicts(container, conflicts) {
+  const section = makeElement("section", "partner-conflicts");
+  section.append(makeElement("h3", "", "Partnerkonflikter"));
+  if (conflicts.length === 0) {
+    section.append(makeElement("p", "empty-state", "Ingen partnerkonflikter registreret."));
+  } else {
+    const list = makeElement("ul", "partner-warning");
+    conflicts.forEach(conflict => {
+      list.append(makeElement(
+        "li", "",
+        `Advarsel: Person ${conflict.left_person_id} og person ` +
+        `${conflict.right_person_id} er partnere i familie ${conflict.family_id}.`));
+    });
+    section.append(list);
+  }
+  container.append(section);
+}
+
 function renderContext(card, caseData) {
-  const context = makeElement("details", "context");
-  const summary = makeElement("summary", "", "Vis kildetekst og strukturel tilstand");
-  const body = makeElement("pre", "context-body");
-  body.textContent = JSON.stringify({
-    records: caseData.records,
-    persons: caseData.persons,
-    narratives: caseData.narratives,
-    identity_edges: caseData.identity_edges,
-    partner_conflicts: caseData.partner_conflicts
-  }, null, 2);
-  context.append(summary, body);
-  card.append(context);
+  const comparison = makeElement("section", "comparison");
+  comparison.append(makeElement("h2", "comparison-heading", "Sammenlign grundlaget"));
+  const records = makeElement("section", "source-records");
+  caseData.records.forEach(record => renderSourceRecord(records, record));
+  comparison.append(records, makeElement("h2", "", "Kandidatpersoner"));
+
+  const candidates = makeElement("section", "candidate-grid");
+  caseData.candidate_person_ids.forEach(personId => {
+    let candidate = null;
+    caseData.records.forEach(record => {
+      const match = record.candidates.find(row => row.person_id === personId);
+      if (candidate === null && match) {
+        candidate = match;
+      }
+    });
+    const person = caseData.persons.find(row => row.person_id === personId);
+    const narrative = caseData.narratives.find(row => row.person_id === personId);
+    renderCandidate(candidates, candidate, person, narrative);
+  });
+  comparison.append(candidates);
+  renderIdentityRelations(comparison, caseData.identity_edges);
+  renderPartnerConflicts(comparison, caseData.partner_conflicts);
+  card.append(comparison);
 }
 
 function renderIdentityControl(container, control, vocabulary, states, refreshStatus) {
@@ -793,9 +931,28 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .digest { flex-basis: 100%; overflow-wrap: anywhere; }
 .case-card { margin-top: 1rem; padding: 1rem; background: white; border-radius: .5rem;
   box-shadow: 0 .1rem .4rem #0002; }
-.context { margin-bottom: 1rem; }
-.context-body { max-height: 24rem; overflow: auto; padding: .8rem;
-  white-space: pre-wrap; background: #f7f7f7; }
+.comparison { margin-bottom: 1.3rem; }
+.comparison-heading { font-size: 1.25rem; }
+.source-records { display: grid; gap: 1rem; }
+.source-record { padding: 1rem; border-left: .35rem solid #426b82; background: #eef5f7; }
+.source-record h3, .candidate-card h3 { margin-top: 0; }
+.source-metadata { display: flex; flex-wrap: wrap; gap: .3rem 1.2rem; }
+.source-metadata p { margin: 0; }
+.source-text, .candidate-text { white-space: pre-wrap; line-height: 1.55; }
+.candidate-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem; }
+.candidate-card { min-width: 0; padding: 1rem; border: 1px solid #aeb9c8;
+  border-radius: .4rem; background: #fbfcfd; }
+.candidate-id, .binding-id { color: #566175; font-size: .9rem; overflow-wrap: anywhere; }
+.candidate-badges { display: flex; flex-wrap: wrap; gap: .35rem; }
+.badge { padding: .18rem .45rem; border-radius: 99rem; background: #e3eaf2;
+  font-size: .88rem; font-weight: 650; }
+.identity-relations, .partner-conflicts { margin-top: 1rem; padding: .8rem 1rem;
+  border-radius: .4rem; background: #f4f6f8; }
+.identity-relations h3, .partner-conflicts h3 { margin-top: 0; }
+.partner-conflicts { border-left: .35rem solid #ad3b31; background: #fff1ef; }
+.partner-warning { color: #7d211c; font-weight: 650; }
+.empty-state { color: #566175; }
 .decision-control { margin-top: .8rem; padding: 1rem; border: 1px solid #ccd2dc;
   border-radius: .4rem; }
 .dependent { display: inline-flex; gap: .4rem; align-items: center; margin-left: .6rem; }
@@ -803,6 +960,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .exact-token { display: inline-block; padding: .2rem .4rem; background: #eef3fa; }
 .control-error { color: #9d211c; font-weight: 700; }
 [hidden] { display: none !important; }
+@media (max-width: 44rem) {
+  .candidate-grid { grid-template-columns: 1fr; }
+  .dependent { display: flex; margin: .6rem 0 0; }
+}
 '''
 
 
