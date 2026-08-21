@@ -1,7 +1,10 @@
+import base64
 import copy
 import hashlib
 import importlib.util
 import json
+import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -294,3 +297,245 @@ def test_fixture_cli_prints_only_safe_metadata(tmp_path, capsys):
     assert "sager=7 records=8 beslutningslinjer=15" in captured.out
     assert "Syntetisk" not in captured.out
     assert fixtures.ATTACK_SENTINEL not in captured.out
+
+
+def build_artifact(tmp_path):
+    paths, _, _, review_raw, hashes = fixture_chain(tmp_path)
+    selection_raw = paths["selection"].read_bytes()
+    state_raw = paths["state"].read_bytes()
+    payload = mod.build_payload(
+        selection_raw, state_raw, review_raw, hashes)
+    html = mod.render_html(payload, review_raw)
+    return paths, review_raw, hashes, payload, html
+
+
+def extract_client_script(html, tmp_path):
+    decoded = html.decode("utf-8")
+    matches = re.findall(r"<script>(.*?)</script>", decoded, re.DOTALL)
+    assert len(matches) == 1
+    script_path = tmp_path / "generated-c3-review.js"
+    script_path.write_text(matches[0], encoding="utf-8")
+    return matches[0], script_path
+
+
+def run_client_function(script_path, assertions):
+    runnable = script_path.with_name("generated-c3-review-test.js")
+    runnable.write_text(
+        script_path.read_text(encoding="utf-8") + "\n" + assertions,
+        encoding="utf-8")
+    return subprocess.run(
+        ["node", str(runnable)], check=True, capture_output=True, text=True)
+
+
+def test_payload_has_seven_cards_and_fifteen_closed_controls(tmp_path):
+    _, _, _, payload, _ = build_artifact(tmp_path)
+    assert payload["counts"] == {
+        "cases": 7,
+        "records": 8,
+        "decisions": 15,
+    }
+    assert len(payload["cases"]) == 7
+    assert [len(case["controls"]) for case in payload["cases"]] == [
+        2, 2, 2, 2, 2, 2, 3]
+    assert [[control["decision_type"] for control in case["controls"]]
+            for case in payload["cases"][:-1]] == [
+        ["identity", "record"] for _case in range(6)]
+    assert [control["decision_type"]
+            for control in payload["cases"][-1]["controls"]] == [
+        "identity", "record", "record"]
+    assert [control["default_token"]
+            for case in payload["cases"]
+            for control in case["controls"]] == [
+        "UAFKLARET", "UAFKLARET",
+        "UAFKLARET", "UAFKLARET",
+        "UAFKLARET", "UAFKLARET",
+        "UAFKLARET", "UAFKLARET",
+        "UAFKLARET", "UAFKLARET",
+        "UAFKLARET", "UAFKLARET",
+        "SAMME 1021 1017", "TIL 1017", "TIL 1021",
+    ]
+    assert payload["vocabulary"] == {
+        "identity_actions": ["UAFKLARET", "FORSKELLIGE", "SAMME"],
+        "record_actions": [
+            "UAFKLARET", "TIL", "INGEN_PUBLIKATION", "REVISION"],
+        "revision_kinds": ["split_into", "merged_from", "replaced_by"],
+    }
+
+
+def test_payload_contains_local_case_context_only(tmp_path):
+    _, _, _, payload, _ = build_artifact(tmp_path)
+    first = payload["cases"][0]
+    assert first["case_id"] == "R03"
+    assert [record["rid"] for record in first["records"]] == ["R03"]
+    assert [row["person_id"] for row in first["persons"]] == [1101, 1102]
+    assert [row["person_id"] for row in first["narratives"]] == [1101, 1102]
+    assert fixtures.ATTACK_SENTINEL in json.dumps(first, ensure_ascii=False)
+    assert all(
+        set(control["allowed_person_ids"]) == {1101, 1102}
+        for control in first["controls"])
+    special = payload["cases"][-1]
+    assert special["case_id"] == "1017/1021"
+    assert [record["rid"] for record in special["records"]] == ["R15", "R40"]
+
+
+def test_html_keeps_all_untrusted_data_behind_base64_boundary(tmp_path):
+    _, review_raw, _, payload, html = build_artifact(tmp_path)
+    decoded = html.decode("utf-8")
+    blocks = dict(re.findall(
+        r'<div id="(c3-(?:payload|review))" hidden>([A-Za-z0-9_=-]+)</div>',
+        decoded))
+    assert set(blocks) == {"c3-payload", "c3-review"}
+    assert json.loads(base64.urlsafe_b64decode(
+        blocks["c3-payload"]).decode("utf-8")) == payload
+    assert base64.urlsafe_b64decode(blocks["c3-review"]) == review_raw
+    assert fixtures.ATTACK_SENTINEL not in decoded
+    assert "Syntetisk Ægir" not in decoded
+    assert review_raw.decode("utf-8") not in decoded
+
+
+def test_generated_client_is_valid_javascript_and_has_no_forbidden_path(
+        tmp_path):
+    _, _, _, _, html = build_artifact(tmp_path)
+    script, script_path = extract_client_script(html, tmp_path)
+    checked = subprocess.run(
+        ["node", "--check", str(script_path)], check=True,
+        capture_output=True, text=True)
+    assert checked.stdout == ""
+    assert checked.stderr == ""
+    forbidden = [
+        r"innerHTML", r"fetch\s*\(", r"XMLHttpRequest", r"WebSocket",
+        r"localStorage", r"sessionStorage", r"indexedDB",
+        r"document\.cookie", r"supabase", r"\beval\s*\(",
+        r"new\s+Function", r"\.setAttribute\(\s*['\"]on",
+    ]
+    assert not any(re.search(pattern, script, re.IGNORECASE)
+                   for pattern in forbidden)
+    document = html.decode("utf-8")
+    assert not re.search(r"<[^>]+\son[a-z]+\s*=", document, re.IGNORECASE)
+    assert not re.search(r"<(?:script|link|img)[^>]+\s(?:src|href)\s*=",
+                         document, re.IGNORECASE)
+
+
+def test_base64_separator_cannot_terminate_the_client_script(tmp_path):
+    _, _, _, payload, _ = build_artifact(tmp_path)
+    payload = copy.deepcopy(payload)
+    payload["cases"][0]["records"][0]["verbatim_text"] = (
+        "</script><script>globalThis.__C3_PWNED__=1</script>")
+    html = mod.render_html(payload, b"</script>\x00\xff")
+    decoded = html.decode("utf-8")
+    assert decoded.count("<script>") == 1
+    assert decoded.count("</script>") == 1
+    assert "__C3_PWNED__" not in decoded
+    _, script_path = extract_client_script(html, tmp_path)
+    subprocess.run(["node", "--check", str(script_path)], check=True,
+                   capture_output=True, text=True)
+
+
+def test_client_unchanged_export_is_byte_identical(tmp_path):
+    _, review_raw, _, payload, html = build_artifact(tmp_path)
+    _, script_path = extract_client_script(html, tmp_path)
+    slots_json = json.dumps([
+        dict(slot, token=slot["default_token"])
+        for slot in payload["slots"]], ensure_ascii=True)
+    result = run_client_function(
+        script_path,
+        "const source = decodeBase64Url({});\n"
+        "const result = replaceTokenBytes(source, {});\n"
+        "process.stdout.write(encodeBase64Url(result));\n".format(
+            json.dumps(base64.urlsafe_b64encode(review_raw).decode("ascii")),
+            slots_json))
+    assert base64.urlsafe_b64decode(result.stdout) == review_raw
+
+
+def test_client_descending_replacement_preserves_danish_and_newlines(tmp_path):
+    _, _, _, _, html = build_artifact(tmp_path)
+    _, script_path = extract_client_script(html, tmp_path)
+    source = "Æ[UAFKLARET]\r\nØ[UAFKLARET]\nå".encode("utf-8")
+    first_start = source.index(b"UAFKLARET")
+    second_start = source.index(b"UAFKLARET", first_start + 1)
+    token_length = len(b"UAFKLARET")
+    slots = [
+        {"start": first_start, "end": first_start + token_length,
+         "token": "FORSKELLIGE"},
+        {"start": second_start, "end": second_start + token_length,
+         "token": "TIL 7"},
+    ]
+    result = run_client_function(
+        script_path,
+        "const source = decodeBase64Url({});\n"
+        "const result = replaceTokenBytes(source, {});\n"
+        "process.stdout.write(encodeBase64Url(result));\n".format(
+            json.dumps(base64.urlsafe_b64encode(source).decode("ascii")),
+            json.dumps(slots)))
+    assert base64.urlsafe_b64decode(result.stdout) == (
+        "Æ[FORSKELLIGE]\r\nØ[TIL 7]\nå".encode("utf-8"))
+
+
+def test_cli_publishes_one_self_contained_html_and_safe_metadata(
+        tmp_path, capsys):
+    fixture_dir = tmp_path / "fixture"
+    paths, _, _, _, hashes = fixture_chain(fixture_dir)
+    output = tmp_path / "c3-review.html"
+    assert mod.main([
+        "--selection", str(paths["selection"]),
+        "--state", str(paths["state"]),
+        "--review", str(paths["review"]),
+        "--output", str(output),
+    ]) == 0
+    assert output.read_bytes().startswith(b"<!doctype html>\n")
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert "sager=7 records=8 beslutninger=15" in captured.out
+    assert "c3-review.html" in captured.out
+    assert "html_sha256=" in captured.out
+    assert hashes["review_sha256"] in captured.out
+    assert "Syntetisk" not in captured.out
+    assert fixtures.ATTACK_SENTINEL not in captured.out
+    assert not list(tmp_path.glob(".c3-review.html.*.tmp"))
+
+
+def test_cli_refuses_existing_output_without_changing_it(tmp_path):
+    paths, _, _, _, _ = fixture_chain(tmp_path / "fixture")
+    output = tmp_path / "c3-review.html"
+    output.write_bytes(b"bevar mig")
+    html_error(
+        "C3_HTML_OUTPUT_EXISTS",
+        lambda: mod.main([
+            "--selection", str(paths["selection"]),
+            "--state", str(paths["state"]),
+            "--review", str(paths["review"]),
+            "--output", str(output),
+        ]))
+    assert output.read_bytes() == b"bevar mig"
+    assert not list(tmp_path.glob(".c3-review.html.*.tmp"))
+
+
+def test_cli_removes_own_temp_file_when_atomic_publish_fails(
+        tmp_path, monkeypatch):
+    paths, _, _, _, _ = fixture_chain(tmp_path / "fixture")
+    output = tmp_path / "c3-review.html"
+
+    def fail_link(_source, _target):
+        raise OSError("synthetic link failure")
+
+    monkeypatch.setattr(mod.os, "link", fail_link)
+    html_error(
+        "C3_HTML_OUTPUT_WRITE_FAILED",
+        lambda: mod.main([
+            "--selection", str(paths["selection"]),
+            "--state", str(paths["state"]),
+            "--review", str(paths["review"]),
+            "--output", str(output),
+        ]))
+    assert not output.exists()
+    assert not list(tmp_path.glob(".c3-review.html.*.tmp"))
+
+
+@pytest.mark.parametrize("arguments", [
+    [],
+    ["--selection", "a", "--state", "b", "--review", "c"],
+    ["--selection", "a", "--state", "b", "--review", "c",
+     "--output", "d", "--unknown", "e"],
+])
+def test_cli_accepts_only_the_four_locked_path_arguments(arguments):
+    html_error("C3_HTML_ARGUMENTS_INVALID", lambda: mod.main(arguments))
