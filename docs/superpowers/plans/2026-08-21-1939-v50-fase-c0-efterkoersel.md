@@ -18,6 +18,7 @@
 - **`p_side := NULL`.** `red_upsert_narrativ`s UPDATE-gren skriver `side = COALESCE(p_side, side)`. Efterkørslen retter tekst, ikke sidetal. Men `narrative.side` SKAL sammenlignes mod recordens `page_from` som identitetskontrol (målt 2026-08-21: 9/9 match).
 - **`privat = TRUE` på nogen af de ni → ABORT.** Writeren sender altid `p_privat := false`, så en privat post ville blive tavst afprivatiseret. Det er et GDPR-brud (invariant 8), ikke en datafejl.
 - **Fejlkoder er stabile strenge** i `SCREAMING_SNAKE_CASE` med prefikset `C0F_`.
+- **Python er `/usr/bin/python3` (3.9.6) — ikke `python3` fra PATH.** Homebrews `python3` (3.14) har ikke `pytest` installeret, så `python3 -m pytest` fejler med »No module named pytest«. Alle Python-kald i denne plan, også i Task 6's prod-kørsel, skal bruge den absolutte sti. 3.9 er dermed sprogniveauet: brug `Dict`/`List` fra `typing`, aldrig `dict[str, int]`-syntaks.
 - **R-scripts læser forbindelsen** fra `PGHOST`/`PGDATABASE`/… med fallback til `SUPABASE_*` — samme `env_or`-mønster som `export_d2_spouse_selection_1939_v50.R`. Sæt ALLE fem `PG*`-variabler ved lokal omdirigering; env_or falder tilbage per variabel, så en manglende `PGHOST` sender scriptet mod PROD.
 - **Aktør-etablering:** `red_upsert_narrativ` og `red_publicer_narrative_record` gates på `current_rolle()='redaktion'`. Over en direkte forbindelse er `auth.uid()` NULL → rollen bliver `medlem`. Sæt `set_config('request.jwt.claim.sub', 'ba4ce28d-42a0-48af-a47c-773c26934236', true)` INDE i transaktionen via `dbGetQuery` (ikke `dbExecute`) og verificér mod `profiles` før skrivning.
 
@@ -460,7 +461,7 @@ def test_flag_ids_are_unique_and_sorted():
 
 Run:
 ```bash
-cd .claude/skills/daa-extract/scripts && python3 -m pytest test_build_c0_followup_flags_1939_v50.py -q
+cd .claude/skills/daa-extract/scripts && /usr/bin/python3 -m pytest test_build_c0_followup_flags_1939_v50.py -q
 ```
 Expected: FAIL — `No such file or directory: build_c0_followup_flags_1939_v50.py`
 
@@ -665,9 +666,9 @@ if __name__ == "__main__":
 
 Run:
 ```bash
-cd .claude/skills/daa-extract/scripts && python3 -m pytest test_build_c0_followup_flags_1939_v50.py -q
+cd .claude/skills/daa-extract/scripts && /usr/bin/python3 -m pytest test_build_c0_followup_flags_1939_v50.py -q
 ```
-Expected: `8 passed`
+Expected: `9 passed`
 
 - [ ] **Step 5: Verify determinism under three hash seeds**
 
@@ -675,10 +676,10 @@ Run:
 ```bash
 cd .claude/skills/daa-extract/scripts
 for seed in 0 1 42; do
-  PYTHONHASHSEED=$seed python3 -m pytest test_build_c0_followup_flags_1939_v50.py -q | tail -1
+  PYTHONHASHSEED=$seed /usr/bin/python3 -m pytest test_build_c0_followup_flags_1939_v50.py -q | tail -1
 done
 ```
-Expected: `8 passed` alle tre gange. Samme krav som C0 selv stillede.
+Expected: `9 passed` alle tre gange. Samme krav som C0 selv stillede.
 
 - [ ] **Step 6: Commit**
 
@@ -817,7 +818,7 @@ def test_all_rejected_is_terminal():
 
 Run:
 ```bash
-cd .claude/skills/daa-extract/scripts && python3 -m pytest test_c0_followup_review_1939_v50.py -q
+cd .claude/skills/daa-extract/scripts && /usr/bin/python3 -m pytest test_c0_followup_review_1939_v50.py -q
 ```
 Expected: FAIL — `No such file or directory: build_c0_followup_review_1939_v50.py`
 
@@ -1015,7 +1016,7 @@ if __name__ == "__main__":
 
 Run:
 ```bash
-cd .claude/skills/daa-extract/scripts && python3 -m pytest test_c0_followup_review_1939_v50.py -q
+cd .claude/skills/daa-extract/scripts && /usr/bin/python3 -m pytest test_c0_followup_review_1939_v50.py -q
 ```
 Expected: `9 passed`
 
@@ -1145,7 +1146,7 @@ def test_invariants_are_reasserted_after_splice():
 
 Run:
 ```bash
-cd .claude/skills/daa-extract/scripts && python3 -m pytest test_build_c0_followup_manifest_1939_v50.py -q
+cd .claude/skills/daa-extract/scripts && /usr/bin/python3 -m pytest test_build_c0_followup_manifest_1939_v50.py -q
 ```
 Expected: FAIL — `No such file or directory: build_c0_followup_manifest_1939_v50.py`
 
@@ -1316,7 +1317,7 @@ if __name__ == "__main__":
 
 Run:
 ```bash
-cd .claude/skills/daa-extract/scripts && python3 -m pytest test_build_c0_followup_manifest_1939_v50.py -q
+cd .claude/skills/daa-extract/scripts && /usr/bin/python3 -m pytest test_build_c0_followup_manifest_1939_v50.py -q
 ```
 Expected: `6 passed` (én kan blive `skipped`, hvis fixturens tekst ikke gav flag)
 
@@ -1777,7 +1778,7 @@ cat(sprintf("OK: %d koblinger; bindinger %d -> %d\n",
 Run:
 ```bash
 Rscript run-tests.R
-cd .claude/skills/daa-extract/scripts && python3 -m pytest test_build_c0_followup_flags_1939_v50.py \
+cd .claude/skills/daa-extract/scripts && /usr/bin/python3 -m pytest test_build_c0_followup_flags_1939_v50.py \
   test_c0_followup_review_1939_v50.py test_build_c0_followup_manifest_1939_v50.py -q
 ```
 Expected: R-suiten grøn; pytest `23 passed`
@@ -1840,14 +1841,14 @@ C=work/task26-1939-v50-c0-record-linkage
 
 Rscript $S/export_c0_followup_selection_1939_v50.R --output $W/rehearsal-selection.json \
   --expect-database-name daa1939_c0f_rehearsal1
-python3 $S/build_c0_followup_flags_1939_v50.py --selection $W/rehearsal-selection.json \
+/usr/bin/python3 $S/build_c0_followup_flags_1939_v50.py --selection $W/rehearsal-selection.json \
   --candidates $C/linkage-candidates-v1.json --decisions $C/c0-afgoerelser.json \
   --output $W/rehearsal-flags.json
-python3 $S/build_c0_followup_review_1939_v50.py --flags $W/rehearsal-flags.json \
+/usr/bin/python3 $S/build_c0_followup_review_1939_v50.py --flags $W/rehearsal-flags.json \
   --output $W/rehearsal-ark.txt
-python3 $S/convert_c0_followup_decisions_1939_v50.py --review $W/rehearsal-ark.txt \
+/usr/bin/python3 $S/convert_c0_followup_decisions_1939_v50.py --review $W/rehearsal-ark.txt \
   --flags $W/rehearsal-flags.json --output $W/rehearsal-decisions.json
-python3 $S/build_c0_followup_manifest_1939_v50.py --flags $W/rehearsal-flags.json \
+/usr/bin/python3 $S/build_c0_followup_manifest_1939_v50.py --flags $W/rehearsal-flags.json \
   --decisions $W/rehearsal-decisions.json --candidates $C/linkage-candidates-v1.json \
   --output $W/rehearsal-manifest.json
 Rscript $S/apply_c0_followup_1939_v50.R --manifest $W/rehearsal-manifest.json \
@@ -1884,10 +1885,10 @@ W=work/task30-1939-v50-c0-efterkoersel; S=.claude/skills/daa-extract/scripts
 C=work/task26-1939-v50-c0-record-linkage
 Rscript $S/export_c0_followup_selection_1939_v50.R --output $W/selection-v1.json \
   --expect-database-name postgres
-python3 $S/build_c0_followup_flags_1939_v50.py --selection $W/selection-v1.json \
+/usr/bin/python3 $S/build_c0_followup_flags_1939_v50.py --selection $W/selection-v1.json \
   --candidates $C/linkage-candidates-v1.json --decisions $C/c0-afgoerelser.json \
   --output $W/flags-v1.json
-python3 $S/build_c0_followup_review_1939_v50.py --flags $W/flags-v1.json \
+/usr/bin/python3 $S/build_c0_followup_review_1939_v50.py --flags $W/flags-v1.json \
   --output $W/ark-v1.txt
 ```
 
