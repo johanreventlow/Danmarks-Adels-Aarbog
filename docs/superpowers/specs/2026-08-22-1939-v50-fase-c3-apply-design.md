@@ -66,8 +66,9 @@ Apply-fasen er en envejs, hashbundet kæde:
 
 ```text
 C3 beslutnings-JSON
-  -> C3 apply-manifest
+  -> C3 candidate-manifest
   -> read-only databasepreview
+  -> final C3 apply-manifest
   -> lokal HTML-tekstgennemgang
   -> byte-låst godkendelsesark
   -> tekstfri godkendelses-JSON
@@ -82,17 +83,30 @@ narrativtekster må behandles af lokale scripts og den lokale browser, men må
 ikke udskrives, committes, screenshots eller sendes ind i modelkontekst.
 CLI-output er begrænset til skemaer, counts, filbasenames, status og hashes.
 
-### Apply-manifest
+### Candidate-manifest og final apply-manifest
 
-Manifestet har et versionsmærket skema og binder mindst:
+Candidate-manifestet er databaseuafhængigt. Det udleder præcis de fem hele
+sager fra C3-beslutningerne, normaliserer de fem recordtekster og binder:
 
 - selection-, state-, review- og decisions-SHA-256 fra C3;
 - decisions-filens eksakte bytehash;
 - eksakt fem case-ID'er og seks recordbeslutninger;
+- logiske person-ID'er, RID'er og record keys;
+- normaliseret tekst, flags og teksthash pr. `assign`; og
+- candidate-manifestets egen bytehash og canonical-content-hash.
+
+Den read-only databasepreview slår de logiske nøgler op og måler alle
+drift-prone IDs og førtilstande. Først derefter bygger en deterministisk
+finalizer det endelige apply-manifest. Det endelige manifest har et
+versionsmærket skema og binder mindst:
+
+- candidate-manifestets og databasepreviewets eksakte bytehashes;
+- hele den forudgående C3-hashkæde;
+- eksakt fem case-ID'er og seks recordbeslutninger;
 - database name og PostgreSQL system identifier;
 - kilde-ID og eksakte source-record-ID'er/record keys;
 - et kanonisk payload pr. sag; og
-- manifestets egen bytehash og canonical-content-hash.
+- final-manifestets egen bytehash og canonical-content-hash.
 
 For hver identitetsafgørelse indeholder payloaden:
 
