@@ -6,9 +6,9 @@ noget der forsøges tolket: ellers kunne en utilsigtet ændring flytte et valg
 til et andet sted i teksten uden at nogen opdagede det.
 
 Valideringen er POSITIONEL, ikke et opslag på et ID læst AF linjen selv. Den
-forventede linjesekvens bygges i PRÆCIS den rækkefølge ``render_review``
-udsender den (person, så dens flag, i operations-rækkefølge), og linje n i
-arket skal bære præcis den forventede hale for position n. Et opslag keyet på
+forventede linjesekvens og ``render_review`` kommer fra den SAMME
+``review_sequence``-generator (person, så dens flag, i operations-rækkefølge),
+og linje n i arket skal bære præcis den forventede hale for position n. Et opslag keyet på
 et ID parset fra selve linjen ville kun bevise, at halen er *en* gyldig hale
 et sted i dokumentet -- ikke at den hører til DENNE linje. Codex-review fandt
 at man derved kunne bytte to linjers HALER om uden at nogen fejl blev rejst:
@@ -38,9 +38,11 @@ parentesen, ikke den omkringliggende afstand.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import pathlib
+import re
 import sys
 from typing import Any, Dict, List
 
@@ -66,6 +68,7 @@ def _import_build():
 _build_mod = _import_build()
 DEFAULT_ACTION = _build_mod.DEFAULT_ACTION
 TOKEN_BY_ACTION = _build_mod.TOKEN_BY_ACTION
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 # Person-linjer har ingen kolonne-udligning i render_review (formatstrengen
 # er hardkodet "[ACCEPT] %d  %s") -- mellemrummet mellem token og hale er
@@ -98,28 +101,10 @@ def _fail(code: str) -> None:
 
 
 def _expected_sequence(flags_doc: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Bygger den forventede linjesekvens i SAMME rækkefølge som
-    render_review udsender den. Fejler for en ukendt flag-type UAFHÆNGIGT af
-    render_review's egen gate -- konverteren kører sin egen kontrol, selvom
-    arket den fik at se blev renderet mod et (evt. senere ændret) dokument."""
-    expected: List[Dict[str, Any]] = []
-    for op in flags_doc["operations"]:
-        expected.append({
-            "type": "person",
-            "id": op["person_id"],
-            "hale": "%d  %s" % (op["person_id"], op["source_record_key"]),
-        })
-        for flag in op["flags"]:
-            if flag["kind"] not in DEFAULT_ACTION:
-                _fail("C0F_REVIEW_FLAG_KIND_UNKNOWN:" + flag["kind"])
-            expected.append({
-                "type": "flag",
-                "id": flag["flag_id"],
-                "kind": flag["kind"],
-                "hale": "%s  |  %s" % (
-                    flag["flag_id"], flag["context"].replace("\n", "\\n")),
-            })
-    return expected
+    """Brug rendererens fælles sekvenskilde, men uden overskriftsrækker."""
+    return [dict(item, hale=item["tail"])
+            for item in _build_mod.review_sequence(flags_doc)
+            if item["type"] != "heading"]
 
 
 def _match_prefix(line: str, prefixes: Dict[str, str]):
@@ -132,7 +117,10 @@ def _match_prefix(line: str, prefixes: Dict[str, str]):
     return None, None
 
 
-def parse_review(text: str, flags_doc: Dict[str, Any]) -> Dict[str, Any]:
+def parse_review(text: str, flags_doc: Dict[str, Any],
+                 flags_sha256: str) -> Dict[str, Any]:
+    if not isinstance(flags_sha256, str) or _SHA256_RE.fullmatch(flags_sha256) is None:
+        _fail("C0F_REVIEW_FLAGS_SHA256_INVALID")
     expected = _expected_sequence(flags_doc)
 
     content_lines = [
@@ -187,7 +175,11 @@ def parse_review(text: str, flags_doc: Dict[str, Any]) -> Dict[str, Any]:
 
     if not accepted:
         _fail("C0F_REVIEW_EMPTY")
-    return {"decisions": decisions, "accepted_person_ids": sorted(accepted)}
+    return {
+        "decisions": decisions,
+        "accepted_person_ids": sorted(accepted),
+        "flags_sha256": flags_sha256,
+    }
 
 
 def main(argv=None) -> int:
@@ -199,10 +191,12 @@ def main(argv=None) -> int:
     out = pathlib.Path(args.output)
     if out.exists():
         _fail("C0F_DECISIONS_OUTPUT_EXISTS")
-    flags_doc = json.loads(pathlib.Path(args.flags).read_text(encoding="utf-8"))
+    flags_bytes = pathlib.Path(args.flags).read_bytes()
+    flags_doc = json.loads(flags_bytes.decode("utf-8"))
     result = parse_review(
-        pathlib.Path(args.review).read_text(encoding="utf-8"), flags_doc)
-    result["schema_version"] = "1939-v50-c0-followup-decisions-v1"
+        pathlib.Path(args.review).read_text(encoding="utf-8"), flags_doc,
+        hashlib.sha256(flags_bytes).hexdigest())
+    result["schema_version"] = "1939-v50-c0-followup-decisions-v2"
     out.write_text(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True),
                    encoding="utf-8")
     print("accepteret=%d afgjorte_orddelinger=%d" % (

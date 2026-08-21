@@ -1,6 +1,7 @@
 """DB-frie tests for manifest-byggeren."""
 import hashlib
 import importlib.util
+import json
 import pathlib
 import pytest
 
@@ -14,6 +15,7 @@ RAW = "Revent-\nlow til Gaarz.\n"
 
 DATABASE_NAME = "postgres"
 DATABASE_IDENTITY = "test-identity-123"
+FLAGS_SHA256 = "a" * 64
 
 
 def _import_flags_mod():
@@ -54,12 +56,57 @@ def _candidates():
 def _decisions(doc, action="merge"):
     return {"decisions": {f["flag_id"]: action
                           for op in doc["operations"] for f in op["flags"]},
-            "accepted_person_ids": [992]}
+            "accepted_person_ids": [992],
+            "flags_sha256": FLAGS_SHA256}
+
+
+def _build_manifest(doc, decisions, candidates, flags_sha256=FLAGS_SHA256):
+    return mod.build_manifest(doc, decisions, candidates, flags_sha256)
+
+
+def test_manifest_rejects_decisions_for_another_flags_file():
+    doc = _flags_doc()
+    decisions = _decisions(doc)
+    with pytest.raises(SystemExit, match="C0F_MANIFEST_FLAGS_SHA256_MISMATCH"):
+        _build_manifest(doc, decisions, _candidates(), "b" * 64)
+
+
+def test_manifest_rejects_decisions_without_flags_binding():
+    doc = _flags_doc()
+    decisions = _decisions(doc)
+    del decisions["flags_sha256"]
+    with pytest.raises(SystemExit, match="C0F_MANIFEST_FLAGS_SHA256_MISSING"):
+        _build_manifest(doc, decisions, _candidates())
+
+
+def test_manifest_main_binds_exact_flags_file_bytes(tmp_path):
+    """Samme JSON med anden whitespace er en anden flagsfil og skal afvises."""
+    flags_path = tmp_path / "flags.json"
+    decisions_path = tmp_path / "decisions.json"
+    candidates_path = tmp_path / "candidates.json"
+    output_path = tmp_path / "manifest.json"
+    doc = _flags_doc()
+    original_bytes = json.dumps(doc, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    decisions = _decisions(doc)
+    decisions["flags_sha256"] = hashlib.sha256(original_bytes).hexdigest()
+
+    # Semantisk samme dokument, men ikke de bytes menneskets beslutning bandt sig til.
+    flags_path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+    decisions_path.write_text(json.dumps(decisions), encoding="utf-8")
+    candidates_path.write_text(json.dumps(_candidates()), encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="C0F_MANIFEST_FLAGS_SHA256_MISMATCH"):
+        mod.main([
+            "--flags", str(flags_path),
+            "--decisions", str(decisions_path),
+            "--candidates", str(candidates_path),
+            "--output", str(output_path),
+        ])
 
 
 def test_default_decisions_reproduce_default_text():
     doc = _flags_doc()
-    man = mod.build_manifest(doc, _decisions(doc), _candidates())
+    man = _build_manifest(doc, _decisions(doc), _candidates())
     assert man["operations"][0]["new_text"] == doc["operations"][0]["default_text"]
 
 
@@ -74,7 +121,7 @@ def test_keep_reconstructs_exact_hyphenated_text():
     doc = _flags_doc()
     if not doc["operations"][0]["flags"]:
         pytest.skip("fixturen gav ingen flag")
-    man = mod.build_manifest(doc, _decisions(doc, "keep"), _candidates())
+    man = _build_manifest(doc, _decisions(doc, "keep"), _candidates())
     assert man["operations"][0]["new_text"] == "Revent-low til Gaarz."
 
 
@@ -83,7 +130,7 @@ def test_rejected_person_is_excluded():
     dec = _decisions(doc)
     dec["accepted_person_ids"] = []
     with pytest.raises(SystemExit, match="C0F_MANIFEST_EMPTY"):
-        mod.build_manifest(doc, dec, _candidates())
+        _build_manifest(doc, dec, _candidates())
 
 
 def test_missing_decision_is_terminal():
@@ -93,12 +140,12 @@ def test_missing_decision_is_terminal():
     dec = _decisions(doc)
     dec["decisions"] = {}
     with pytest.raises(SystemExit, match="C0F_MANIFEST_DECISION_MISSING"):
-        mod.build_manifest(doc, dec, _candidates())
+        _build_manifest(doc, dec, _candidates())
 
 
 def test_new_text_sha256_matches_the_text():
     doc = _flags_doc()
-    man = mod.build_manifest(doc, _decisions(doc), _candidates())
+    man = _build_manifest(doc, _decisions(doc), _candidates())
     op = man["operations"][0]
     assert op["new_text_sha256"] == hashlib.sha256(
         op["new_text"].encode("utf-8")).hexdigest()
@@ -122,7 +169,7 @@ def test_corrupted_default_text_is_rejected_before_invariant_check():
     doc = _flags_doc()
     doc["operations"][0]["default_text"] += "\n### PAGE 0001 ###"
     with pytest.raises(SystemExit, match="C0F_MANIFEST_DEFAULT_TEXT_MISMATCH"):
-        mod.build_manifest(doc, _decisions(doc), _candidates())
+        _build_manifest(doc, _decisions(doc), _candidates())
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +189,7 @@ def test_shifted_char_offset_is_rejected():
     dec = _decisions(doc, "keep")
     doc["operations"][0]["flags"][0]["char_offset"] += 1
     with pytest.raises(SystemExit, match="C0F_MANIFEST_FLAG_NOT_FOUND"):
-        mod.build_manifest(doc, dec, _candidates())
+        _build_manifest(doc, dec, _candidates())
 
 
 def _harder_splice_fixture():
@@ -187,8 +234,9 @@ def test_splice_uses_raw_prefix_not_default_text_offset():
     decisions = {}
     for f in flags:
         decisions[f["flag_id"]] = "keep" if f["char_offset"] == 21 else "merge"
-    dec_doc = {"decisions": decisions, "accepted_person_ids": [992]}
-    man = mod.build_manifest(doc, dec_doc, candidates)
+    dec_doc = {"decisions": decisions, "accepted_person_ids": [992],
+               "flags_sha256": FLAGS_SHA256}
+    man = _build_manifest(doc, dec_doc, candidates)
     assert man["operations"][0]["new_text"] == "Svigerfar var Efter-slægt."
 
 
@@ -241,9 +289,10 @@ def test_rejected_person_flags_never_reach_decision_lookup():
          "pages": {"page_from": 505, "page_to": 505}},
     ]}
     decisions = {f["flag_id"]: "merge" for f in doc["operations"][0]["flags"]}
-    dec_doc = {"decisions": decisions, "accepted_person_ids": [992]}
+    dec_doc = {"decisions": decisions, "accepted_person_ids": [992],
+               "flags_sha256": FLAGS_SHA256}
 
-    man = mod.build_manifest(doc, dec_doc, candidates)
+    man = _build_manifest(doc, dec_doc, candidates)
     assert [op["person_id"] for op in man["operations"]] == [992]
 
 
@@ -257,7 +306,7 @@ def test_operation_missing_flags_field_is_terminal():
     dec = _decisions(doc)  # bygges FØR feltet fjernes -- den skal ikke selv KeyError'e
     del doc["operations"][0]["flags"]
     with pytest.raises(SystemExit, match="C0F_MANIFEST_OP_MISSING_FIELD"):
-        mod.build_manifest(doc, dec, _candidates())
+        _build_manifest(doc, dec, _candidates())
 
 
 def test_operation_invalid_person_id_is_terminal():
@@ -265,7 +314,7 @@ def test_operation_invalid_person_id_is_terminal():
     dec = _decisions(doc)
     doc["operations"][0]["person_id"] = "abc"
     with pytest.raises(SystemExit, match="C0F_MANIFEST_OP_PERSON_ID_INVALID"):
-        mod.build_manifest(doc, dec, _candidates())
+        _build_manifest(doc, dec, _candidates())
 
 
 # ---------------------------------------------------------------------------
@@ -278,14 +327,14 @@ def test_database_name_missing_is_terminal():
     doc = _flags_doc()
     del doc["database_name"]
     with pytest.raises(SystemExit, match="C0F_MANIFEST_DATABASE_NAME_MISSING"):
-        mod.build_manifest(doc, _decisions(doc), _candidates())
+        _build_manifest(doc, _decisions(doc), _candidates())
 
 
 def test_database_identity_missing_is_terminal():
     doc = _flags_doc()
     del doc["database_identity"]
     with pytest.raises(SystemExit, match="C0F_MANIFEST_DATABASE_IDENTITY_MISSING"):
-        mod.build_manifest(doc, _decisions(doc), _candidates())
+        _build_manifest(doc, _decisions(doc), _candidates())
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +355,7 @@ def test_operation_person_id_rejects_non_int_types(bad_person_id):
     dec = _decisions(doc)
     doc["operations"][0]["person_id"] = bad_person_id
     with pytest.raises(SystemExit, match="C0F_MANIFEST_OP_PERSON_ID_INVALID"):
-        mod.build_manifest(doc, dec, _candidates())
+        _build_manifest(doc, dec, _candidates())
 
 
 @pytest.mark.parametrize("bad_id", [992.9, "992", True, None])
@@ -315,7 +364,7 @@ def test_accepted_person_id_rejects_non_int_types(bad_id):
     dec = _decisions(doc)
     dec["accepted_person_ids"] = [bad_id]
     with pytest.raises(SystemExit, match="C0F_MANIFEST_ACCEPTED_ID_INVALID"):
-        mod.build_manifest(doc, dec, _candidates())
+        _build_manifest(doc, dec, _candidates())
 
 
 @pytest.mark.parametrize("bad_value", [660.9, "660", True, None])
@@ -324,7 +373,7 @@ def test_operation_narrative_id_rejects_non_int_types(bad_value):
     dec = _decisions(doc)
     doc["operations"][0]["narrative_id"] = bad_value
     with pytest.raises(SystemExit, match="C0F_MANIFEST_NARRATIVE_ID_INVALID"):
-        mod.build_manifest(doc, dec, _candidates())
+        _build_manifest(doc, dec, _candidates())
 
 
 @pytest.mark.parametrize("bad_value", [504.5, "504", True, None])
@@ -333,7 +382,7 @@ def test_operation_page_from_rejects_non_int_types(bad_value):
     dec = _decisions(doc)
     doc["operations"][0]["page_from"] = bad_value
     with pytest.raises(SystemExit, match="C0F_MANIFEST_PAGE_FROM_INVALID"):
-        mod.build_manifest(doc, dec, _candidates())
+        _build_manifest(doc, dec, _candidates())
 
 
 @pytest.mark.parametrize("bad_value", [6.5, "6", True, None])
@@ -344,7 +393,7 @@ def test_flag_char_offset_rejects_non_int_types(bad_value):
     dec = _decisions(doc)
     doc["operations"][0]["flags"][0]["char_offset"] = bad_value
     with pytest.raises(SystemExit, match="C0F_MANIFEST_FLAG_OFFSET_INVALID"):
-        mod.build_manifest(doc, dec, _candidates())
+        _build_manifest(doc, dec, _candidates())
 
 
 # ---------------------------------------------------------------------------
@@ -367,7 +416,7 @@ def test_shifted_char_offset_is_rejected_even_for_default_action():
     dec = _decisions(doc, "merge")  # default-handling -- rammer 'continue'-grenen
     doc["operations"][0]["flags"][0]["char_offset"] += 1
     with pytest.raises(SystemExit, match="C0F_MANIFEST_FLAG_NOT_FOUND"):
-        mod.build_manifest(doc, dec, _candidates())
+        _build_manifest(doc, dec, _candidates())
 
 
 def test_default_text_from_wrong_record_is_rejected():
@@ -385,7 +434,7 @@ def test_default_text_from_wrong_record_is_rejected():
     })
     doc["operations"][0]["source_record_key"] = "record-other"
     with pytest.raises(SystemExit, match="C0F_MANIFEST_DEFAULT_TEXT_MISMATCH"):
-        mod.build_manifest(doc, _decisions(doc), candidates)
+        _build_manifest(doc, _decisions(doc), candidates)
 
 
 def test_default_text_mismatch_detected_even_with_zero_flags():
@@ -414,9 +463,10 @@ def test_default_text_mismatch_detected_even_with_zero_flags():
     candidates = {"records": [{"new_record_key": "record-wrong",
                                "verbatim_text": "En helt anden tekst.\n",
                                "pages": {"page_from": 504, "page_to": 504}}]}
-    dec_doc = {"decisions": {}, "accepted_person_ids": [992]}
+    dec_doc = {"decisions": {}, "accepted_person_ids": [992],
+               "flags_sha256": FLAGS_SHA256}
     with pytest.raises(SystemExit, match="C0F_MANIFEST_DEFAULT_TEXT_MISMATCH"):
-        mod.build_manifest(doc, dec_doc, candidates)
+        _build_manifest(doc, dec_doc, candidates)
 
 
 # ---------------------------------------------------------------------------
@@ -434,4 +484,4 @@ def test_duplicate_flag_id_is_rejected():
     flags.append(dict(flags[0]))  # eksakt duplikat: samme flag_id/kind/offset
     dec = _decisions(doc, "keep")
     with pytest.raises(SystemExit, match="C0F_MANIFEST_FLAG_ID_DUPLICATE"):
-        mod.build_manifest(doc, dec, _candidates())
+        _build_manifest(doc, dec, _candidates())

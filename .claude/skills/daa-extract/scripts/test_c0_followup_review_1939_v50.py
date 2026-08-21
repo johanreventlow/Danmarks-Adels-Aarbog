@@ -1,5 +1,7 @@
 """DB-frie tests for menneskearket og dets fail-closed konverter."""
+import hashlib
 import importlib.util
+import json
 import pathlib
 import pytest
 
@@ -15,6 +17,8 @@ def _load(name):
 
 build = _load("build_c0_followup_review_1939_v50")
 conv = _load("convert_c0_followup_decisions_1939_v50")
+
+FLAGS_SHA256 = "a" * 64
 
 
 def _flags_doc():
@@ -36,6 +40,17 @@ def _flags_doc():
     }
 
 
+def _parse(text, doc):
+    return conv.parse_review(text, doc, FLAGS_SHA256)
+
+
+def test_rendered_review_keeps_existing_fixture_byte_surface():
+    """En refactor af sekvenskilden må ikke ændre menneskearkets bytes."""
+    rendered = build.render_review(_flags_doc()).encode("utf-8")
+    assert hashlib.sha256(rendered).hexdigest() == (
+        "1d1096c6ce32bbbfd61c0d90477a042dad3cf415bea0f9951b7db4bff28ba545")
+
+
 def test_sheet_prefills_the_recommended_action():
     """Anbefalingerne er UDFYLDT: står en linje urørt, er den enig."""
     text = build.render_review(_flags_doc())
@@ -51,15 +66,16 @@ def test_sheet_lists_person_without_flags_as_auto():
 
 def test_roundtrip_unchanged_sheet_yields_defaults():
     doc = _flags_doc()
-    out = conv.parse_review(build.render_review(doc), doc)
+    out = _parse(build.render_review(doc), doc)
     assert out["decisions"] == {"record-y:12:hyphen_unproven": "merge"}
     assert out["accepted_person_ids"] == [991, 992]
+    assert out["flags_sha256"] == FLAGS_SHA256
 
 
 def test_keep_is_honoured():
     doc = _flags_doc()
     text = build.render_review(doc).replace("[MERGE] record-y", "[KEEP] record-y", 1)
-    assert conv.parse_review(text, doc)["decisions"] == {
+    assert _parse(text, doc)["decisions"] == {
         "record-y:12:hyphen_unproven": "keep"}
 
 
@@ -68,7 +84,7 @@ def test_afvis_removes_the_person_but_keeps_the_others():
     presse mod at acceptere noget tvivlsomt for at få resten igennem."""
     doc = _flags_doc()
     text = build.render_review(doc).replace("[ACCEPT] 991", "[AFVIS] 991", 1)
-    out = conv.parse_review(text, doc)
+    out = _parse(text, doc)
     assert out["accepted_person_ids"] == [992]
 
 
@@ -76,7 +92,7 @@ def test_unknown_token_is_terminal():
     doc = _flags_doc()
     text = build.render_review(doc).replace("[MERGE] record-y", "[MAASKE] record-y", 1)
     with pytest.raises(SystemExit, match="C0F_REVIEW_TOKEN_INVALID"):
-        conv.parse_review(text, doc)
+        _parse(text, doc)
 
 
 def test_edited_context_is_terminal():
@@ -85,7 +101,7 @@ def test_edited_context_is_terminal():
     doc = _flags_doc()
     text = build.render_review(doc).replace("Revent-\\n", "Rvent-\\n", 1)
     with pytest.raises(SystemExit, match="C0F_REVIEW_LINE_TAMPERED"):
-        conv.parse_review(text, doc)
+        _parse(text, doc)
 
 
 def test_missing_line_is_terminal():
@@ -93,7 +109,7 @@ def test_missing_line_is_terminal():
     text = "\n".join(l for l in build.render_review(doc).splitlines()
                      if "record-y:12" not in l)
     with pytest.raises(SystemExit, match="C0F_REVIEW_FLAG_MISSING"):
-        conv.parse_review(text, doc)
+        _parse(text, doc)
 
 
 def test_all_rejected_is_terminal():
@@ -101,7 +117,7 @@ def test_all_rejected_is_terminal():
     doc = _flags_doc()
     text = build.render_review(doc).replace("[ACCEPT] ", "[AFVIS] ")
     with pytest.raises(SystemExit, match="C0F_REVIEW_EMPTY"):
-        conv.parse_review(text, doc)
+        _parse(text, doc)
 
 
 def test_unknown_flag_kind_is_terminal():
@@ -123,7 +139,7 @@ def test_converter_rejects_unknown_flag_kind_independently_of_renderer():
     text = build.render_review(doc)
     doc["operations"][1]["flags"][0]["kind"] = "future_kind"
     with pytest.raises(SystemExit, match="C0F_REVIEW_FLAG_KIND_UNKNOWN"):
-        conv.parse_review(text, doc)
+        _parse(text, doc)
 
 
 def test_swapped_line_tails_cannot_move_a_decision():
@@ -144,7 +160,7 @@ def test_swapped_line_tails_cannot_move_a_decision():
     lines[i992] = "[ACCEPT] " + tail991  # 992s linje bærer nu 991s hale
     text = "\n".join(lines) + "\n"
     with pytest.raises(SystemExit, match="C0F_REVIEW_LINE_TAMPERED"):
-        conv.parse_review(text, doc)
+        _parse(text, doc)
 
 
 def test_person_hale_is_locked():
@@ -154,7 +170,7 @@ def test_person_hale_is_locked():
     doc = _flags_doc()
     text = build.render_review(doc).replace("record-x", "record-q", 1)
     with pytest.raises(SystemExit, match="C0F_REVIEW_LINE_TAMPERED"):
-        conv.parse_review(text, doc)
+        _parse(text, doc)
 
 
 def test_person_missing_gate_fires():
@@ -171,7 +187,7 @@ def test_person_missing_gate_fires():
     text = "\n".join(l for l in build.render_review(doc).splitlines()
                      if "[ACCEPT] 993" not in l)
     with pytest.raises(SystemExit, match="C0F_REVIEW_PERSON_MISSING"):
-        conv.parse_review(text, doc)
+        _parse(text, doc)
 
 
 def test_person_duplicate_gate_fires():
@@ -184,7 +200,7 @@ def test_person_duplicate_gate_fires():
     doc["operations"].append(dict(doc["operations"][0], narrative_id=999))
     text = build.render_review(doc)
     with pytest.raises(SystemExit, match="C0F_REVIEW_PERSON_DUPLICATE"):
-        conv.parse_review(text, doc)
+        _parse(text, doc)
 
 
 def test_keep_default_round_trips_without_false_tamper():
@@ -201,7 +217,7 @@ def test_keep_default_round_trips_without_false_tamper():
     conv.DEFAULT_ACTION["future_keep_kind"] = "keep"
     try:
         text = build.render_review(doc)
-        out = conv.parse_review(text, doc)
+        out = _parse(text, doc)
         assert out["decisions"] == {"record-y:12:hyphen_unproven": "keep"}
         assert out["accepted_person_ids"] == [991, 992]
     finally:
@@ -218,7 +234,7 @@ def test_extra_line_is_terminal():
     flag_line = next(l for l in text.splitlines() if "record-y:12" in l)
     text2 = text.rstrip("\n") + "\n" + flag_line + "\n"
     with pytest.raises(SystemExit, match="C0F_REVIEW_LINE_UNEXPECTED"):
-        conv.parse_review(text2, doc)
+        _parse(text2, doc)
 
 
 def test_flag_duplicate_gate_fires():
@@ -230,7 +246,7 @@ def test_flag_duplicate_gate_fires():
     doc["operations"][1]["flags"].append(dict(doc["operations"][1]["flags"][0]))
     text = build.render_review(doc)
     with pytest.raises(SystemExit, match="C0F_REVIEW_FLAG_DUPLICATE"):
-        conv.parse_review(text, doc)
+        _parse(text, doc)
 
 
 def test_broken_person_id_fails_closed_not_as_a_raw_exception():
@@ -242,4 +258,31 @@ def test_broken_person_id_fails_closed_not_as_a_raw_exception():
     doc = _flags_doc()
     text = build.render_review(doc).replace("[ACCEPT] 991", "[ACCEPT] xyz", 1)
     with pytest.raises(SystemExit, match="C0F_REVIEW_LINE_TAMPERED"):
-        conv.parse_review(text, doc)
+        _parse(text, doc)
+
+
+def test_converter_rejects_malformed_flags_sha256():
+    doc = _flags_doc()
+    with pytest.raises(SystemExit, match="C0F_REVIEW_FLAGS_SHA256_INVALID"):
+        conv.parse_review(build.render_review(doc), doc, "not-a-sha")
+
+
+def test_cli_hashes_exact_flags_file_bytes(tmp_path):
+    """Beslutningen bindes til filens bytes, ikke blot dens JSON-indhold."""
+    flags_path = tmp_path / "flags.json"
+    review_path = tmp_path / "review.txt"
+    output_path = tmp_path / "decisions.json"
+    flags_bytes = (json.dumps(_flags_doc(), ensure_ascii=False, indent=2)
+                   + "\n").encode("utf-8")
+    flags_path.write_bytes(flags_bytes)
+    review_path.write_text(build.render_review(_flags_doc()), encoding="utf-8")
+
+    assert conv.main([
+        "--review", str(review_path),
+        "--flags", str(flags_path),
+        "--output", str(output_path),
+    ]) == 0
+
+    decisions = json.loads(output_path.read_text(encoding="utf-8"))
+    assert decisions["schema_version"] == "1939-v50-c0-followup-decisions-v2"
+    assert decisions["flags_sha256"] == hashlib.sha256(flags_bytes).hexdigest()

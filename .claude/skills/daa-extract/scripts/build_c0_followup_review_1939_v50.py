@@ -14,7 +14,7 @@ import argparse
 import json
 import pathlib
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 DEFAULT_ACTION = {"hyphen_unproven": "merge"}
 TOKEN_BY_ACTION = {"merge": "[MERGE]", "keep": "[KEEP] "}
@@ -38,25 +38,55 @@ HEADER = """\
 """
 
 
-def render_review(flags_doc: Dict[str, Any]) -> str:
-    lines = [HEADER]
+def review_sequence(flags_doc: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Én autoritativ sekvens for både rendering og positionel parsing.
+
+    Hvert beslutningspunkt bærer sin eksakte, byte-låste hale. Overskrifter
+    er med i samme sekvens, så rendererens grupperingsorden heller ikke kan
+    drive fra konverterens positionssemantik.
+    """
+    sequence: List[Dict[str, Any]] = []
     for op in flags_doc["operations"]:
         pid = op["person_id"]
         n_flag = len(op["flags"])
-        lines.append("")
-        lines.append("== PERSON %d — s.%d — %d tegn — %s ==" % (
-            pid, op["page_from"], len(op["default_text"]),
-            "%d orddeling(er) at afgøre" % n_flag if n_flag else "ingen valg; teksten er allerede korrekt"))
-        lines.append("[ACCEPT] %d  %s" % (pid, op["source_record_key"]))
+        sequence.append({
+            "type": "heading",
+            "text": "== PERSON %d — s.%d — %d tegn — %s ==" % (
+                pid, op["page_from"], len(op["default_text"]),
+                "%d orddeling(er) at afgøre" % n_flag
+                if n_flag else "ingen valg; teksten er allerede korrekt"),
+        })
+        sequence.append({
+            "type": "person",
+            "id": pid,
+            "tail": "%d  %s" % (pid, op["source_record_key"]),
+        })
         for flag in op["flags"]:
             if flag["kind"] not in DEFAULT_ACTION:
                 # Maalingen 2026-08-21 gav kun hyphen_unproven, men det er en
                 # egenskab ved DATA, ikke ved koden. En ny flagtype skal give
                 # en laesbar fejl, ikke en KeyError midt i en render.
                 raise SystemExit("C0F_REVIEW_FLAG_KIND_UNKNOWN:" + flag["kind"])
-            token = TOKEN_BY_ACTION[DEFAULT_ACTION[flag["kind"]]]
-            lines.append("%s %s  |  %s" % (
-                token, flag["flag_id"], flag["context"].replace("\n", "\\n")))
+            sequence.append({
+                "type": "flag",
+                "id": flag["flag_id"],
+                "kind": flag["kind"],
+                "tail": "%s  |  %s" % (
+                    flag["flag_id"], flag["context"].replace("\n", "\\n")),
+            })
+    return sequence
+
+
+def render_review(flags_doc: Dict[str, Any]) -> str:
+    lines = [HEADER]
+    for item in review_sequence(flags_doc):
+        if item["type"] == "heading":
+            lines.extend(("", item["text"]))
+        elif item["type"] == "person":
+            lines.append("[ACCEPT] " + item["tail"])
+        else:
+            token = TOKEN_BY_ACTION[DEFAULT_ACTION[item["kind"]]]
+            lines.append("%s %s" % (token, item["tail"]))
     return "\n".join(lines) + "\n"
 
 

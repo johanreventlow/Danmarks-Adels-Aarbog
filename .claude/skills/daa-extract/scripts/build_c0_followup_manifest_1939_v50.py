@@ -46,6 +46,7 @@ import hashlib
 import importlib.util
 import json
 import pathlib
+import re
 import sys
 from typing import Any, Dict, List, Set, Tuple
 
@@ -53,6 +54,7 @@ _SCRIPTS_DIR = pathlib.Path(__file__).resolve().parent
 
 DEFAULT_ACTION = {"hyphen_unproven": "merge"}
 VALID_ACTIONS = {"hyphen_unproven": {"merge", "keep"}}
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 # De felter en operation SKAL baere for at kunne behandles. Mangler et af
 # dem, er dokumentet ikke bygget af Task 2's build_flags_document -- fail
@@ -194,7 +196,18 @@ def _decided_text(raw: str, corpus: str, default_text: str,
 
 
 def build_manifest(flags_doc: Dict[str, Any], decisions_doc: Dict[str, Any],
-                   candidates: Dict[str, Any]) -> Dict[str, Any]:
+                   candidates: Dict[str, Any], flags_sha256: str) -> Dict[str, Any]:
+    if not isinstance(flags_sha256, str) or _SHA256_RE.fullmatch(flags_sha256) is None:
+        _fail("C0F_MANIFEST_FLAGS_SHA256_INVALID")
+    decision_flags_sha256 = decisions_doc.get("flags_sha256")
+    if decision_flags_sha256 is None:
+        _fail("C0F_MANIFEST_FLAGS_SHA256_MISSING")
+    if (not isinstance(decision_flags_sha256, str) or
+            _SHA256_RE.fullmatch(decision_flags_sha256) is None):
+        _fail("C0F_MANIFEST_DECISION_FLAGS_SHA256_INVALID")
+    if decision_flags_sha256 != flags_sha256:
+        _fail("C0F_MANIFEST_FLAGS_SHA256_MISMATCH")
+
     # Sikkerhedsgaten valider sin EGEN inputkontrakt -- den kan ikke laene
     # tillid fra Task 2's producent-side validering. Uden dette ville et
     # flag-dokument uden database-identitet blive til et manifest med
@@ -293,6 +306,7 @@ def build_manifest(flags_doc: Dict[str, Any], decisions_doc: Dict[str, Any],
         # base, saa et manifest fra rehearsal ikke kan koeres mod prod.
         "database_name": db_name,
         "database_identity": db_identity,
+        "input_hashes": {"flags_sha256": flags_sha256},
         "source": {"edition": "1939", "database_source_id": 3},
         "counts": {"operations": len(operations), "bindings_create": len(operations)},
         "operations": operations,
@@ -310,7 +324,10 @@ def main(argv=None) -> int:
     if out.exists():
         _fail("C0F_MANIFEST_OUTPUT_EXISTS")
     read = lambda p: json.loads(pathlib.Path(p).read_text(encoding="utf-8"))
-    man = build_manifest(read(args.flags), read(args.decisions), read(args.candidates))
+    flags_bytes = pathlib.Path(args.flags).read_bytes()
+    man = build_manifest(
+        json.loads(flags_bytes.decode("utf-8")), read(args.decisions),
+        read(args.candidates), hashlib.sha256(flags_bytes).hexdigest())
     out.write_text(json.dumps(man, ensure_ascii=False, indent=2, sort_keys=True),
                    encoding="utf-8")
     print("operationer=%d bindinger=%d" % (
