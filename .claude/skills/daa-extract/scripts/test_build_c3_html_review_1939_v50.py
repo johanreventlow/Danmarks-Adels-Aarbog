@@ -115,7 +115,7 @@ def test_decision_slots_are_unique_ordered_exact_byte_intervals(tmp_path):
                == slot["default_token"] for slot in slots)
     assert [(slot["decision_id"], slot["default_token"])
             for slot in slots[-3:]] == [
-        ("identity:1017:1021", "SAMME 1021 1017"),
+        ("identity:1017:1021", "UAFKLARET"),
         ("record:R40", "TIL 1017"),
         ("record:R15", "TIL 1021"),
     ]
@@ -368,7 +368,7 @@ def test_payload_has_seven_cards_and_fifteen_closed_controls(tmp_path):
         "UAFKLARET", "UAFKLARET",
         "UAFKLARET", "UAFKLARET",
         "UAFKLARET", "UAFKLARET",
-        "SAMME 1021 1017", "TIL 1017", "TIL 1021",
+        "UAFKLARET", "TIL 1017", "TIL 1021",
     ]
     assert payload["vocabulary"] == {
         "identity_actions": ["UAFKLARET", "FORSKELLIGE", "SAMME"],

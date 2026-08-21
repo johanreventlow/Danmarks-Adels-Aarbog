@@ -393,7 +393,7 @@ def review_sequence(selection_doc: Dict[str, Any], state_doc: Dict[str, Any]
     sequence.extend(_record_headings(records[SPECIAL_RID]))
     sequence.extend(_state_headings(SPECIAL_PERSON_IDS))
     sequence.append(_decision("identity", "identity:1017:1021",
-                              "SAMME 1021 1017", SPECIAL_PERSON_IDS))
+                              "UAFKLARET", SPECIAL_PERSON_IDS))
     sequence.append(_decision("record", "record:R40", "TIL 1017",
                               SPECIAL_PERSON_IDS))
     sequence.append(_decision("record", "record:R15", "TIL 1021",

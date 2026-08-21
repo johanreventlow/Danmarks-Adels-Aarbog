@@ -10,10 +10,15 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-21-1939-v50-fase-c3-identitet-og-recordplacering-design.md`
 
+**Godkendt tillæg 2026-08-21:** Specialens identitetsdefault er
+`UAFKLARET`, så baseline er fail-closed ved en eksisterende, konfliktende
+alias-kant. Det giver 13 uafklarede og 2 afklarede defaults. R40/A og R15/B
+forbliver `TIL 1017` og `TIL 1021`.
+
 ## Global Constraints
 
 - **Scope er præcis 7 + 1:** syv C0-beslutninger med token `[C3]`, plus R40 som låst ledsager til R15. R15 skal være blandt de syv.
-- **1017/1021-kontrakten er låst:** identitetsforslag `SAMME 1021 1017`, R40/A `TIL 1017`, R15/B `TIL 1021`.
+- **1017/1021-kontrakten er låst:** identitetsdefault `UAFKLARET`, R40/A `TIL 1017`, R15/B `TIL 1021`; `SAMME 1021 1017` kræver et eksplicit, grafvalideret redaktørvalg.
 - **To akser er uafhængige:** identitet må aldrig udlede recordplacering, og recordplacering må aldrig udlede identitet.
 - **Ingen DB-mutation:** ingen apply-fil, RPC, `INSERT`, `UPDATE`, `DELETE`, DDL eller apply-manifest tilføjes i denne plan.
 - **`work/` er model-blind og gitignoreret:** narrativ prosa må kun behandles lokalt i processen og må aldrig committes, udskrives på CLI eller kopieres til tests, dokumentation eller beslutnings-JSON.
@@ -309,15 +314,15 @@ Expected: `rg` has no matches (exit 1); tests pass.
 
 - [ ] **Step 1: Write RED sequence and golden-byte tests**
 
-Use synthetic prose only. Six ordinary cases emit `identity,record`; special case emits `identity,R40,R15`. Ordinary defaults are `UAFKLARET`; special defaults are locked proposals.
+Use synthetic prose only. Six ordinary cases emit `identity,record`; special case emits `identity,R40,R15`. Ordinary defaults and the special identity default are `UAFKLARET`; the two special record defaults are locked proposals.
 
 ```python
-def test_sequence_has_fifteen_decisions_and_locked_special_tail():
+def test_sequence_has_fifteen_decisions_and_fail_closed_special_tail():
     editable = [x for x in mod.review_sequence(selection_doc(), state_doc())
                 if x["type"] != "heading"]
     assert len(editable) == 15
     assert [(x["decision_id"], x["default_token"]) for x in editable[-3:]] == [
-        ("identity:1017:1021", "SAMME 1021 1017"),
+        ("identity:1017:1021", "UAFKLARET"),
         ("record:R40", "TIL 1017"),
         ("record:R15", "TIL 1021"),
     ]
@@ -392,8 +397,8 @@ def test_unchanged_sheet_roundtrips_without_prose():
         "review_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
     })
     assert out["counts"] == {"cases":7, "records":8,
-                             "decision_lines":15, "unresolved":12}
-    assert out["cases"][-1]["identity"]["alias_person_id"] == 1021
+                             "decision_lines":15, "unresolved":13}
+    assert out["cases"][-1]["identity"] == {"action":"unresolved"}
     assert [x["person_id"] for x in out["cases"][-1]["record_decisions"]] == [1017,1021]
     assert "MODEL_BLIND_SENTINEL" not in json.dumps(out, ensure_ascii=False)
 ```

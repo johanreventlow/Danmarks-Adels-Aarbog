@@ -116,14 +116,14 @@ def editable_sequence(selection=None, state=None):
             if item["type"] != "heading"]
 
 
-def test_sequence_has_fifteen_decisions_and_locked_special_tail():
+def test_sequence_has_fifteen_decisions_and_fail_closed_special_tail():
     editable = editable_sequence()
     assert len(editable) == 15
     decision_ids = [item["decision_id"] for item in editable]
     assert len(decision_ids) == len(set(decision_ids)) == 15
     assert [(item["decision_id"], item["default_token"])
             for item in editable[-3:]] == [
-        ("identity:1017:1021", "SAMME 1021 1017"),
+        ("identity:1017:1021", "UAFKLARET"),
         ("record:R40", "TIL 1017"),
         ("record:R15", "TIL 1021"),
     ]
@@ -161,7 +161,7 @@ def test_rendered_synthetic_fixture_has_locked_golden_sha256():
     assert "selection_sha256=" + "a" * 64 in rendered
     assert "state_sha256=" + "b" * 64 in rendered
     digest = hashlib.sha256(rendered.encode("utf-8")).hexdigest()
-    assert digest == "789453b38527c4e09b693e305c81d49d76a72c7411c4acaed96302b783f8b0f5"
+    assert digest == "38d7423d18deacf1b01f1bc4a2b8c4abbe1c2a423d4c28fe3db4ebbd479a61d8"
 
 
 def test_fixture_is_json_roundtrip_stable():

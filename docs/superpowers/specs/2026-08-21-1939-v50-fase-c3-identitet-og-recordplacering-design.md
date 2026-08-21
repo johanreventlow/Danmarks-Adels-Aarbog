@@ -3,6 +3,13 @@
 **Status:** godkendt i brainstorm 2026-08-21. Stopper før databaseændringer;
 implementeringsplan følger først efter særskilt godkendelse af denne spec.
 
+**Godkendt tillæg 2026-08-21:** Den særlige identitetslinje har
+fail-closed standarden `UAFKLARET`, fordi en eksisterende `samme_som`-kant
+fra alias 1021 ellers kan gøre den genererede baseline ugyldig ved G3-gaten.
+Recordstandarderne for R40 og R15 er fortsat henholdsvis `TIL 1017` og
+`TIL 1021`. En redaktør kan stadig vælge `SAMME 1021 1017`, men det må være
+en eksplicit afgørelse, som den friske grafvalidering accepterer.
+
 ## Problemet
 
 C0 afgjorde 41 records, men routede syv af dem til `[C3]`, fordi én record
@@ -135,9 +142,10 @@ acceptance-forløb i overensstemmelse med source-anchor-kontrakten.
 
 ### Den låste 1017/1021-sag
 
-Reviewet viser tre adskilte forslag, som redaktøren skal tage stilling til:
+Reviewet viser tre adskilte beslutningslinjer, som redaktøren skal tage
+stilling til:
 
-1. identitet: `SAMME 1021 1017`;
+1. identitet: `UAFKLARET` som fail-closed standard;
 2. R40/A: `TIL 1017`; og
 3. R15/B: `TIL 1021`.
 

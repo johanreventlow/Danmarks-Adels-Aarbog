@@ -163,7 +163,7 @@ async function main() {
     assert.equal(await page.locator("strong.position").textContent(), "1 af 7");
     assert.equal(
       await page.locator("span.counts").textContent(),
-      "3 afklarede · 12 uafklarede");
+      "2 afklarede · 13 uafklarede");
 
     await navButtons.nth(3).click();
     assert.equal(await page.locator("strong.position").textContent(), "4 af 7");
@@ -179,7 +179,7 @@ async function main() {
       defaultTokens,
       payload.slots.map(slot => slot.default_token));
     assert.deepEqual(defaultTokens.slice(-3), [
-      "SAMME 1021 1017", "TIL 1017", "TIL 1021"]);
+      "UAFKLARET", "TIL 1017", "TIL 1021"]);
 
     const firstIdentity = controls.nth(0);
     const identityDependent = firstIdentity.locator("div.dependent");
@@ -280,7 +280,7 @@ async function main() {
     assert.equal(await downloadButton.isEnabled(), true);
     assert.equal(
       await page.locator("span.counts").textContent(),
-      "5 afklarede · 10 uafklarede");
+      "4 afklarede · 11 uafklarede");
 
     await page.reload({waitUntil: "load"});
     assert.deepEqual(
@@ -288,7 +288,7 @@ async function main() {
       payload.slots.map(slot => slot.default_token));
     assert.equal(
       await page.locator("span.counts").textContent(),
-      "3 afklarede · 12 uafklarede");
+      "2 afklarede · 13 uafklarede");
 
     const unchangedPath = path.join(tempDir, "unchanged.txt");
     const unchanged = await downloadTo(

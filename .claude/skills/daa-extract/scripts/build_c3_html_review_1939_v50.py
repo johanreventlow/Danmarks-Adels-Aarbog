@@ -237,7 +237,7 @@ def _discover_slots(review_bytes: bytes,
             "cases": 7,
             "records": 8,
             "decision_lines": 15,
-            "unresolved": 12}:
+            "unresolved": 13}:
         fail("C3_HTML_COUNT_INVALID")
 
     header = build.HEADER.format(

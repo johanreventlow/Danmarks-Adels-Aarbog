@@ -3,6 +3,12 @@
 **Status:** godkendt i brainstorm 2026-08-21. Implementeringsplan følger
 først efter særskilt godkendelse af denne spec.
 
+**Godkendt tillæg 2026-08-21:** Specialens identitetsstandard er ændret til
+`UAFKLARET`, så den genererede baseline også passerer converterens G3-gate,
+når alias 1021 allerede har en anden `samme_som`-kant. R40 og R15 beholder
+standarderne `TIL 1017` og `TIL 1021`. Fladen starter derfor med 13
+uafklarede og 2 afklarede beslutninger.
+
 ## Problemet
 
 C3's hashbundne tekstark er maskinelt sikkert, men vanskeligt at navigere i.
@@ -82,8 +88,8 @@ Specialkortet 1017/1021 viser tre valg:
 3. R15/B's placering.
 
 Standardværdierne er eksakt de værdier, det eksisterende tekstark allerede
-bærer: de 12 almindelige beslutninger er `UAFKLARET`, og specialens tre
-forslag er `SAMME 1021 1017`, `TIL 1017` og `TIL 1021`.
+bærer: de 12 almindelige beslutninger og specialens identitetsbeslutning er
+`UAFKLARET`, mens specialens to recordforslag er `TIL 1017` og `TIL 1021`.
 
 ## Beslutningskontroller
 

@@ -164,24 +164,37 @@ def test_unchanged_sheet_roundtrips_without_prose():
         "cases": 7,
         "records": 8,
         "decision_lines": 15,
-        "unresolved": 12,
+        "unresolved": 13,
     }
     assert out["input_hashes"] == hashes(text)
     assert out["database_identity"] == {
         "database_name": "synthetic",
         "database_identity": "42",
     }
-    assert out["cases"][-1]["identity"] == {
-        "action": "same",
-        "alias_person_id": 1021,
-        "canonical_person_id": 1017,
-    }
+    assert out["cases"][-1]["identity"] == {"action": "unresolved"}
     assert [row["person_id"]
             for row in out["cases"][-1]["record_decisions"]] == [1017, 1021]
     serialized = json.dumps(out, ensure_ascii=False, sort_keys=True)
     for forbidden in ("MODEL_BLIND_SENTINEL", "verbatim_text", "tail",
                       "heading", "visning_navn", "person_tekst"):
         assert forbidden not in serialized
+
+
+def test_generated_baseline_is_fail_closed_when_special_alias_is_occupied():
+    selection, state = docs()
+    state["identity_edges"] = [{
+        "role": "samme_som",
+        "subject_id": 1021,
+        "object_id": 9999,
+    }]
+    text = rendered(selection, state)
+
+    out = converter().parse_review(text, selection, state, hashes(text))
+
+    assert out["counts"]["unresolved"] == 13
+    assert out["cases"][-1]["identity"] == {"action": "unresolved"}
+    assert [row["person_id"]
+            for row in out["cases"][-1]["record_decisions"]] == [1017, 1021]
 
 
 def test_identity_change_does_not_change_record_axis():
@@ -501,7 +514,7 @@ def test_cli_hashes_raw_bytes_and_writes_text_free_json_atomically(tmp_path):
     out = json.loads(output_path.read_text(encoding="utf-8"))
     assert completed.returncode == 0
     assert completed.stdout == (
-        "sager=7 records=8 beslutningslinjer=15 uafklarede=12\n")
+        "sager=7 records=8 beslutningslinjer=15 uafklarede=13\n")
     assert completed.stderr == ""
     assert out["input_hashes"] == {
         "c0_candidates_sha256": "c" * 64,

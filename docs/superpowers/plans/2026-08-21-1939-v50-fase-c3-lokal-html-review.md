@@ -10,6 +10,12 @@
 
 **Approved design:** `docs/superpowers/specs/2026-08-21-1939-v50-fase-c3-lokal-html-review-design.md`
 
+**Godkendt tillæg 2026-08-21:** Specialens identitetsdefault er
+`UAFKLARET`, fordi en automatisk `SAMME 1021 1017` kan ramme converterens
+G3-gate mod den friske identitetsgraf. De to special-records forbliver
+`TIL 1017` og `TIL 1021`; startsiden viser derfor 2 afklarede og 13
+uafklarede valg.
+
 ---
 
 ## Binding constraints
@@ -56,7 +62,7 @@ Generate locally but never commit:
 
 **Step 1: Add a synthetic seven-case fixture factory**
 
-Build the smallest synthetic selection/state/review chain that satisfies the existing C3 validators. The factory must generate exactly seven cases, eight records, 15 decisions, the locked 1017/1021 special case, Danish UTF-8 text, and inert attack strings such as `</script><img src=x onerror=globalThis.__C3_PWNED__=1>`.
+Build the smallest synthetic selection/state/review chain that satisfies the existing C3 validators. The factory must generate exactly seven cases, eight records, 15 decisions, the fail-closed 1017/1021 special case (`UAFKLARET`, `TIL 1017`, `TIL 1021`), Danish UTF-8 text, and inert attack strings such as `</script><img src=x onerror=globalThis.__C3_PWNED__=1>`.
 
 Expose a test-only API and CLI:
 
