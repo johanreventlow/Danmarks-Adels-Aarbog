@@ -61,7 +61,7 @@ def assert_invariants(text: str, context: str) -> None:
 
 def _derive_record_by_person(decision_rows: List[Dict[str, Any]]) -> Dict[int, str]:
     """Udleder record_by_person af C0's EGNE afgoerelser -- aldrig af navne
-    eller raekkefoelge. Kun [KOBL] med en person_id blandt de ni.
+    eller raekkefoelge. Kun [KOBL]-raekker taeller.
 
     Begge entydigheds-retninger haandhaeves HER, mens dubletterne stadig er
     synlige i raekkerne -- IKKE efter at de er samlet i en dict. En
@@ -73,8 +73,21 @@ def _derive_record_by_person(decision_rows: List[Dict[str, Any]]) -> Dict[int, s
     et allerede-bygget resultat -- et interface hvis type ikke kan udtrykke
     fejlen, kan heller ikke afvise den.
 
-    Den anden retning (to personer, samme new_record_key) overlever derimod
-    ind i en faerdig dict og kontrolleres i samme ombaering.
+    C0F_FLAGS_DUPLICATE_RECORD_KEY daekker ALLE [KOBL]-raekker, ogsaa dem
+    UDEN for PERSON_IDS (fx 1017, som er bevidst udeladt fordi dens kobling
+    ville slette ~92 tegn permanent). En noegle delt mellem en scoped og en
+    EKSKLUDERET person er lige saa farlig som mellem to scopede -- 963 ville
+    faa 1017's tekst lige saa stiltiende som hvis det var 967's. Derfor sker
+    scope-filtreringen (kun de ni i det returnerede map) FOERST EFTER
+    kollisionskontrollen, ikke foer.
+
+    C0F_FLAGS_DUPLICATE_PERSON_ID daekker derimod kun PERSON_IDS -- det er en
+    kontrol paa VORES egen udvaelgelse (konkurrerer to raekker om en af de
+    ni?), ikke paa hele afgoerelsesfilen.
+
+    Begge felter paa selve raekken kraeves ogsaa til stede: en [KOBL]-raekke
+    uden person_id eller new_record_key fejler terminalt her, ikke med en
+    bar KeyError laengere nede.
     """
     record_by_person: Dict[int, str] = {}
     key_owner: Dict[str, int] = {}
@@ -82,16 +95,24 @@ def _derive_record_by_person(decision_rows: List[Dict[str, Any]]) -> Dict[int, s
         if row.get("token") != "[KOBL]":
             continue
         pid = row.get("person_id")
-        if pid not in PERSON_IDS:
-            continue
+        if pid is None:
+            _fail("C0F_FLAGS_KOBL_ROW_MISSING_PERSON_ID")
         pid = int(pid)
-        key = row["new_record_key"]
-        if pid in record_by_person:
-            _fail("C0F_FLAGS_DUPLICATE_PERSON_ID:%d" % pid)
+        key = row.get("new_record_key")
+        if not key:
+            _fail("C0F_FLAGS_KOBL_ROW_MISSING_RECORD_KEY:%d" % pid)
+
+        # Kollisionskontrollen foerst -- daekker ALLE [KOBL]-raekker.
         if key in key_owner and key_owner[key] != pid:
             _fail("C0F_FLAGS_DUPLICATE_RECORD_KEY:%s" % key)
-        record_by_person[pid] = key
         key_owner[key] = pid
+
+        # Scope-filtrering EFTER kollisionskontrollen.
+        if pid not in PERSON_IDS:
+            continue
+        if pid in record_by_person:
+            _fail("C0F_FLAGS_DUPLICATE_PERSON_ID:%d" % pid)
+        record_by_person[pid] = key
     return record_by_person
 
 

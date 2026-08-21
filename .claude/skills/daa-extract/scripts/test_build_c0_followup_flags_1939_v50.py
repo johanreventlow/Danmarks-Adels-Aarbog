@@ -197,6 +197,43 @@ def test_reused_record_key_via_direct_call_is_terminal():
         mod.build_flags_document(_selection(), _candidates(), rows)
 
 
+def test_key_shared_with_excluded_person_is_terminal():
+    """Tredje re-review: kollisionskontrollen daekkede kun de ni, saa en
+    noegle delt mellem en scoped person og en EKSKLUDERET person (fx 1017,
+    som er bevidst udeladt fordi dens kobling ville slette ~92 tegn
+    permanent) var usynlig -- 1017's raekke blev filtreret vaek FOER
+    key_owner nogensinde saa den. Maalt mod de aegte data (2026-08-21): 10
+    [KOBL]-raekker, 10 unikke noegler, ingen kollision i praksis -- rent
+    latent, men samme fejlklasse som blev lukket for de to scopede retninger.
+    Denne test bruger 1017 helt konkret, ikke et vilkaarligt tal udenfor
+    PERSON_IDS, for at spejle det virkelige scenarie."""
+    rows = _decision_rows()
+    shared_key = rows[0]["new_record_key"]  # 963's noegle
+    rows.append({"token": "[KOBL]", "person_id": 1017, "new_record_key": shared_key})
+    with pytest.raises(SystemExit, match="C0F_FLAGS_DUPLICATE_RECORD_KEY"):
+        mod.build_flags_document(_selection(), _candidates(), rows)
+
+
+def test_kobl_row_missing_person_id_is_terminal():
+    """En [KOBL]-raekke uden person_id maa IKKE naa row["new_record_key"]
+    eller int(pid) og fejle med en bar exception -- den funktion der skal
+    vaere selv-garanterende giver en C0F_-kode ligesom alt andet her."""
+    rows = _decision_rows()
+    rows.append({"token": "[KOBL]", "new_record_key": "record-uden-person-id"})
+    with pytest.raises(SystemExit, match="C0F_FLAGS_KOBL_ROW_MISSING_PERSON_ID"):
+        mod.build_flags_document(_selection(), _candidates(), rows)
+
+
+def test_kobl_row_missing_record_key_is_terminal():
+    """Samme princip som ovenfor, for det andet paakraevede felt: en
+    [KOBL]-raekke uden new_record_key gav tidligere en bar KeyError ved
+    row["new_record_key"] -- nu en C0F_-kode."""
+    rows = _decision_rows()
+    rows.append({"token": "[KOBL]", "person_id": 1017})
+    with pytest.raises(SystemExit, match="C0F_FLAGS_KOBL_ROW_MISSING_RECORD_KEY"):
+        mod.build_flags_document(_selection(), _candidates(), rows)
+
+
 def _write_json(path, obj):
     path.write_text(json.dumps(obj), encoding="utf-8")
 
