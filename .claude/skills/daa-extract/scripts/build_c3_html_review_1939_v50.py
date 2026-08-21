@@ -3,6 +3,7 @@
 
 import hashlib
 import importlib.util
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,6 +60,16 @@ def _valid_hashes(input_hashes: Any) -> bool:
                 and SHA256_RE.fullmatch(value) is not None
                 for value in input_hashes.values())
     )
+
+
+def _decode_document(raw: bytes) -> Dict[str, Any]:
+    try:
+        document = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        fail("C3_HTML_REVIEW_INVALID")
+    if not isinstance(document, dict):
+        fail("C3_HTML_REVIEW_INVALID")
+    return document
 
 
 def _map_review_error(error: SystemExit) -> None:
@@ -167,19 +178,25 @@ def _validate_slot_contract(review_bytes: bytes,
 
 
 def _discover_slots(review_bytes: bytes,
-                    selection_doc: Mapping[str, Any],
-                    state_doc: Mapping[str, Any],
+                    selection_bytes: bytes,
+                    state_bytes: bytes,
                     input_hashes: Mapping[str, str]) -> List[DecisionSlot]:
     if not _valid_hashes(input_hashes):
         fail("C3_HTML_HASH_MISMATCH")
-    if not isinstance(review_bytes, bytes):
+    if (not isinstance(review_bytes, bytes)
+            or not isinstance(selection_bytes, bytes)
+            or not isinstance(state_bytes, bytes)):
         fail("C3_HTML_REVIEW_INVALID")
-    if hashlib.sha256(review_bytes).hexdigest() != input_hashes[
-            "review_sha256"]:
+    exact_inputs = (
+        (review_bytes, "review_sha256"),
+        (selection_bytes, "selection_sha256"),
+        (state_bytes, "state_sha256"),
+    )
+    if any(hashlib.sha256(raw).hexdigest() != input_hashes[hash_name]
+           for raw, hash_name in exact_inputs):
         fail("C3_HTML_HASH_MISMATCH")
-    if not isinstance(selection_doc, Mapping) or not isinstance(
-            state_doc, Mapping):
-        fail("C3_HTML_REVIEW_INVALID")
+    selection_doc = _decode_document(selection_bytes)
+    state_doc = _decode_document(state_bytes)
     selection_hashes = selection_doc.get("input_hashes")
     if selection_hashes != {
             "c0_candidates_sha256": input_hashes["c0_candidates_sha256"],
@@ -258,12 +275,12 @@ def _discover_slots(review_bytes: bytes,
 
 
 def decision_slots(review_bytes: bytes,
-                   selection_doc: Mapping[str, Any],
-                   state_doc: Mapping[str, Any],
+                   selection_bytes: bytes,
+                   state_bytes: bytes,
                    input_hashes: Mapping[str, str]) -> List[Dict[str, Any]]:
-    """Returnér validerede, JSON-sikre byteintervaller i kildeorden."""
+    """Validér rå inputbytes og returnér JSON-sikre tokenintervaller."""
     slots = _discover_slots(
-        review_bytes, selection_doc, state_doc, input_hashes)
+        review_bytes, selection_bytes, state_bytes, input_hashes)
     return [
         {
             "decision_id": slot.decision_id,

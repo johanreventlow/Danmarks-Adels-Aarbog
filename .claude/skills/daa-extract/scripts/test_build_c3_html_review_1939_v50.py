@@ -48,6 +48,23 @@ def with_review_hash(hashes, review_raw):
     return changed
 
 
+def encode_document(document):
+    return (json.dumps(
+        document, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode(
+            "utf-8")
+
+
+def rebind_documents(selection, state, hashes):
+    selection_raw = encode_document(selection)
+    changed_hashes = dict(hashes)
+    changed_hashes["selection_sha256"] = hashlib.sha256(
+        selection_raw).hexdigest()
+    state["selection_sha256"] = changed_hashes["selection_sha256"]
+    state_raw = encode_document(state)
+    changed_hashes["state_sha256"] = hashlib.sha256(state_raw).hexdigest()
+    return selection_raw, state_raw, changed_hashes
+
+
 def test_fixture_factory_writes_locked_synthetic_chain(tmp_path):
     paths, selection, state, review_raw, hashes = fixture_chain(tmp_path)
     assert set(paths) == {"selection", "state", "review"}
@@ -67,8 +84,10 @@ def test_fixture_factory_writes_locked_synthetic_chain(tmp_path):
 
 
 def test_decision_slots_are_unique_ordered_exact_byte_intervals(tmp_path):
-    _, selection, state, review_raw, hashes = fixture_chain(tmp_path)
-    slots = mod.decision_slots(review_raw, selection, state, hashes)
+    paths, _, _, review_raw, hashes = fixture_chain(tmp_path)
+    slots = mod.decision_slots(
+        review_raw, paths["selection"].read_bytes(),
+        paths["state"].read_bytes(), hashes)
     assert len(slots) == 15
     assert len({slot["decision_id"] for slot in slots}) == 15
     assert all(slots[index]["end"] <= slots[index + 1]["start"]
@@ -93,25 +112,51 @@ def test_decision_slots_are_unique_ordered_exact_byte_intervals(tmp_path):
     "review_sha256",
 ])
 def test_any_hash_drift_is_terminal(tmp_path, hash_name):
-    _, selection, state, review_raw, hashes = fixture_chain(tmp_path)
+    paths, _, _, review_raw, hashes = fixture_chain(tmp_path)
     hashes[hash_name] = "0" * 64
     html_error(
         "C3_HTML_HASH_MISMATCH",
-        lambda: mod.decision_slots(review_raw, selection, state, hashes))
+        lambda: mod.decision_slots(
+            review_raw, paths["selection"].read_bytes(),
+            paths["state"].read_bytes(), hashes))
+
+
+def test_selection_content_drift_with_old_hash_is_terminal(tmp_path):
+    paths, selection, _, review_raw, hashes = fixture_chain(tmp_path)
+    selection["extra_valid_field"] = "changed"
+    changed_selection_raw = encode_document(selection)
+    html_error(
+        "C3_HTML_HASH_MISMATCH",
+        lambda: mod.decision_slots(
+            review_raw, changed_selection_raw, paths["state"].read_bytes(),
+            hashes))
+
+
+def test_state_content_drift_with_old_hash_is_terminal(tmp_path):
+    paths, _, state, review_raw, hashes = fixture_chain(tmp_path)
+    state["database_identity"] = "43"
+    changed_state_raw = encode_document(state)
+    html_error(
+        "C3_HTML_HASH_MISMATCH",
+        lambda: mod.decision_slots(
+            review_raw, paths["selection"].read_bytes(), changed_state_raw,
+            hashes))
 
 
 def test_invalid_utf8_is_terminal_without_input_leakage(tmp_path):
-    _, selection, state, review_raw, hashes = fixture_chain(tmp_path)
+    paths, _, _, review_raw, hashes = fixture_chain(tmp_path)
     invalid = review_raw + b"\xff"
     hashes = with_review_hash(hashes, invalid)
     html_error(
         "C3_HTML_REVIEW_INVALID",
-        lambda: mod.decision_slots(invalid, selection, state, hashes))
+        lambda: mod.decision_slots(
+            invalid, paths["selection"].read_bytes(),
+            paths["state"].read_bytes(), hashes))
 
 
 @pytest.mark.parametrize("change", ["missing", "extra", "duplicate", "reordered"])
 def test_decision_line_structure_drift_is_terminal(tmp_path, change):
-    _, selection, state, review_raw, hashes = fixture_chain(tmp_path)
+    paths, _, _, review_raw, hashes = fixture_chain(tmp_path)
     lines = review_raw.decode("utf-8").splitlines(keepends=True)
     decision_indexes = [index for index, line in enumerate(lines)
                         if line.startswith("[")]
@@ -128,12 +173,14 @@ def test_decision_line_structure_drift_is_terminal(tmp_path, change):
     html_error(
         "C3_HTML_REVIEW_INVALID",
         lambda: mod.decision_slots(
-            changed, selection, state, with_review_hash(hashes, changed)))
+            changed, paths["selection"].read_bytes(),
+            paths["state"].read_bytes(),
+            with_review_hash(hashes, changed)))
 
 
 def test_duplicate_authoritative_decision_ids_are_terminal(tmp_path,
                                                             monkeypatch):
-    _, selection, state, review_raw, hashes = fixture_chain(tmp_path)
+    paths, _, _, review_raw, hashes = fixture_chain(tmp_path)
     real_sequence = mod.build.review_sequence
 
     def duplicate_sequence(selection_doc, state_doc):
@@ -145,14 +192,18 @@ def test_duplicate_authoritative_decision_ids_are_terminal(tmp_path,
     monkeypatch.setattr(mod.build, "review_sequence", duplicate_sequence)
     html_error(
         "C3_HTML_DECISION_DUPLICATE",
-        lambda: mod.decision_slots(review_raw, selection, state, hashes))
+        lambda: mod.decision_slots(
+            review_raw, paths["selection"].read_bytes(),
+            paths["state"].read_bytes(), hashes))
 
 
 @pytest.mark.parametrize("mutation", [
     "zero_width", "out_of_range", "overlap", "wrong_bytes"])
 def test_invalid_interval_contract_is_terminal(tmp_path, mutation):
-    _, selection, state, review_raw, hashes = fixture_chain(tmp_path)
-    slots = mod._discover_slots(review_raw, selection, state, hashes)
+    paths, _, _, review_raw, hashes = fixture_chain(tmp_path)
+    slots = mod._discover_slots(
+        review_raw, paths["selection"].read_bytes(),
+        paths["state"].read_bytes(), hashes)
     changed = list(slots)
     first = changed[0]
     second = changed[1]
@@ -189,9 +240,12 @@ def test_invalid_interval_contract_is_terminal(tmp_path, mutation):
 def test_any_unlocked_count_is_terminal(tmp_path, field, value):
     _, selection, state, review_raw, hashes = fixture_chain(tmp_path)
     selection[field] = value
+    selection_raw, state_raw, hashes = rebind_documents(
+        selection, state, hashes)
     html_error(
         "C3_HTML_COUNT_INVALID",
-        lambda: mod.decision_slots(review_raw, selection, state, hashes))
+        lambda: mod.decision_slots(
+            review_raw, selection_raw, state_raw, hashes))
 
 
 @pytest.mark.parametrize("removed", ["case", "record"])
@@ -201,9 +255,12 @@ def test_actual_case_and_record_counts_are_terminal(tmp_path, removed):
         selection["cases"].pop(0)
     else:
         selection["cases"][0]["records"].pop()
+    selection_raw, state_raw, hashes = rebind_documents(
+        selection, state, hashes)
     html_error(
         "C3_HTML_COUNT_INVALID",
-        lambda: mod.decision_slots(review_raw, selection, state, hashes))
+        lambda: mod.decision_slots(
+            review_raw, selection_raw, state_raw, hashes))
 
 
 @pytest.mark.parametrize("drift", [
@@ -221,9 +278,12 @@ def test_broken_special_contract_is_terminal(tmp_path, drift):
         special["records"][0]["candidates"].pop()
     else:
         special["records"][1]["candidates"][0]["person_id"] = 1021
+    selection_raw, state_raw, hashes = rebind_documents(
+        selection, state, hashes)
     html_error(
         "C3_HTML_SPECIAL_INVALID",
-        lambda: mod.decision_slots(review_raw, selection, state, hashes))
+        lambda: mod.decision_slots(
+            review_raw, selection_raw, state_raw, hashes))
 
 
 def test_fixture_cli_prints_only_safe_metadata(tmp_path, capsys):
