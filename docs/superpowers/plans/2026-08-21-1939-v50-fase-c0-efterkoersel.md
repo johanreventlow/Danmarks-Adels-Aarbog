@@ -340,7 +340,7 @@ git commit -m "feat(1939): read-only eksport af C0-efterkørslens ni personer"
 
 **Interfaces:**
 - Consumes: Task 1's JSON (`selected[].person_id`, `.narrative_id`, `.old_sha256`, `.side`) og `work/task26-1939-v50-c0-record-linkage/linkage-candidates-v1.json`.
-- Produces: `build_flags_document(selection, candidates, record_by_person)` → `dict` med `schema_version`, `database_name`, `database_identity`, `input_hashes`, `operations` (hver med `person_id`, `narrative_id`, `old_sha256`, `source_record_key`, `page_from`, `default_text`, `flags`), `flag_counts`. Task 3 og 4 læser den.
+- Produces: `build_flags_document(selection, candidates, decision_rows)` → `dict` med `schema_version`, `database_name`, `database_identity`, `input_hashes`, `operations` (hver med `person_id`, `narrative_id`, `old_sha256`, `source_record_key`, `page_from`, `default_text`, `flags`), `flag_counts`. Task 3 og 4 læser den.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -690,6 +690,17 @@ git commit -m "feat(1939): normalisering og flag-udtræk til C0-efterkørslen"
 ```
 
 ---
+
+> **Task 2 afveg fra denne plan efter review.** Signaturen er nu
+> `build_flags_document(selection, candidates, decision_rows)` — den modtager
+> C0's rå `[KOBL]`-rækker og udleder `record_by_person` selv. Grunden: en
+> færdig `Dict[int, str]` kan ikke bære beviset for, at to rækker gjorde krav
+> på samme person, så en gate inde i funktionen kunne aldrig fange det. Nu
+> ligger begge entydigheds-kontroller dér, hvor dubletterne stadig er synlige.
+> Fejlkoder tilføjet ud over planen: `C0F_FLAGS_DUPLICATE_PERSON_ID`,
+> `C0F_FLAGS_DUPLICATE_RECORD_KEY`, `C0F_FLAGS_DATABASE_NAME_MISSING`,
+> `C0F_FLAGS_DATABASE_IDENTITY_MISSING`. Se commits `076d672`, `91123e7`.
+> Task 3 og 4 rører ikke den signatur — de læser flag-dokumentets JSON.
 
 ### Task 3: Menneskeark og fail-closed konverter
 
