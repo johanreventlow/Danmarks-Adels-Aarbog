@@ -343,14 +343,16 @@ Run:
 ```bash
 /usr/bin/python3 -m pytest -q \
   .claude/skills/daa-extract/scripts/test_build_c3_selection_1939_v50.py \
-  .claude/skills/daa-extract/scripts/test_export_c3_state_1939_v50.py \
   .claude/skills/daa-extract/scripts/test_build_c3_review_1939_v50.py \
   .claude/skills/daa-extract/scripts/test_convert_c3_decisions_1939_v50.py \
   .claude/skills/daa-extract/scripts/test_build_c3_html_review_1939_v50.py
 node .claude/skills/daa-extract/scripts/test_c3_html_review_browser_1939_v50.mjs
 ```
 
-Expected: all focused Python tests and Chromium assertions pass.
+State-exporteren har ikke en Python-testfil. Dens fokuserede test er
+`.claude/skills/daa-extract/scripts/test_export_c3_current_state_1939_v50.R`
+og køres af den etablerede R-runner i Step 2. Expected: all focused Python
+tests and Chromium assertions pass.
 
 **Step 2: Run the complete regression suites**
 
