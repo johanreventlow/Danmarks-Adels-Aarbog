@@ -104,12 +104,24 @@ def test_new_text_sha256_matches_the_text():
         op["new_text"].encode("utf-8")).hexdigest()
 
 
-def test_invariants_are_reasserted_after_splice():
-    """Et splice kan i princippet genindføre et brud; invarianterne hævdes
-    derfor igen på den FÆRDIGE tekst, ikke kun på default_text."""
+def test_corrupted_default_text_is_rejected_before_invariant_check():
+    """Et splice kan i princippet genindføre et brud i den FÆRDIGE tekst;
+    ``_assert_invariants`` hævder derfor invarianterne igen efter splice,
+    uændret -- se runde 2, fund 2's docstring i implementeringsfilen.
+
+    Denne konkrete korruption (en "### PAGE"-rest i default_text) bliver nu
+    fanget ENDNU tidligere: ``C0F_MANIFEST_DEFAULT_TEXT_MISMATCH`` fyrer
+    allerede når ``default_text`` ikke er PRÆCIS hvad en frisk normalisering
+    af raw+corpus giver -- en "### PAGE"-streng kan aldrig forekomme i et
+    ægte ``normalize_narrative_v1``-resultat (funktionen asserter det
+    internt), så enhver default_text der indeholder den, afsløres her, FØR
+    noget forsøges spliced. ``_assert_invariants``-kaldet på den færdige
+    tekst i ``build_manifest`` er urørt og fungerer fortsat som en ekstra
+    sikkerhedsdug -- den er blot ikke længere den FØRSTE linje der fanger
+    netop denne fixture, fordi fund 2's rettelse lukker klassen tidligere."""
     doc = _flags_doc()
     doc["operations"][0]["default_text"] += "\n### PAGE 0001 ###"
-    with pytest.raises(SystemExit, match="C0F_MANIFEST_INVARIANT"):
+    with pytest.raises(SystemExit, match="C0F_MANIFEST_DEFAULT_TEXT_MISMATCH"):
         mod.build_manifest(doc, _decisions(doc), _candidates())
 
 
@@ -274,3 +286,152 @@ def test_database_identity_missing_is_terminal():
     del doc["database_identity"]
     with pytest.raises(SystemExit, match="C0F_MANIFEST_DATABASE_IDENTITY_MISSING"):
         mod.build_manifest(doc, _decisions(doc), _candidates())
+
+
+# ---------------------------------------------------------------------------
+# Runde 2, fund 1: _safe_int accepterede floats og cifferstrenge (og --
+# efter en reviewer-mutation der fjernede bool-afvisningen -- bool), fordi
+# den brugte en generel int(value) i stedet for type(value) is int.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_person_id", [992.9, "992", True, None])
+def test_operation_person_id_rejects_non_int_types(bad_person_id):
+    """Låser hver af de fire typer reviewer fremhævede: en float der
+    tidligere blev trunkeret (992.9 -> 992), en cifferstreng der tidligere
+    blev konverteret ("992" -> 992), True (bool er en int-underklasse i
+    Python), og None. Alle fire SKAL afvises terminalt -- ingen af dem må
+    stille konverteres til et gyldigt heltal."""
+    doc = _flags_doc()
+    dec = _decisions(doc)
+    doc["operations"][0]["person_id"] = bad_person_id
+    with pytest.raises(SystemExit, match="C0F_MANIFEST_OP_PERSON_ID_INVALID"):
+        mod.build_manifest(doc, dec, _candidates())
+
+
+@pytest.mark.parametrize("bad_id", [992.9, "992", True, None])
+def test_accepted_person_id_rejects_non_int_types(bad_id):
+    doc = _flags_doc()
+    dec = _decisions(doc)
+    dec["accepted_person_ids"] = [bad_id]
+    with pytest.raises(SystemExit, match="C0F_MANIFEST_ACCEPTED_ID_INVALID"):
+        mod.build_manifest(doc, dec, _candidates())
+
+
+@pytest.mark.parametrize("bad_value", [660.9, "660", True, None])
+def test_operation_narrative_id_rejects_non_int_types(bad_value):
+    doc = _flags_doc()
+    dec = _decisions(doc)
+    doc["operations"][0]["narrative_id"] = bad_value
+    with pytest.raises(SystemExit, match="C0F_MANIFEST_NARRATIVE_ID_INVALID"):
+        mod.build_manifest(doc, dec, _candidates())
+
+
+@pytest.mark.parametrize("bad_value", [504.5, "504", True, None])
+def test_operation_page_from_rejects_non_int_types(bad_value):
+    doc = _flags_doc()
+    dec = _decisions(doc)
+    doc["operations"][0]["page_from"] = bad_value
+    with pytest.raises(SystemExit, match="C0F_MANIFEST_PAGE_FROM_INVALID"):
+        mod.build_manifest(doc, dec, _candidates())
+
+
+@pytest.mark.parametrize("bad_value", [6.5, "6", True, None])
+def test_flag_char_offset_rejects_non_int_types(bad_value):
+    doc = _flags_doc()
+    if not doc["operations"][0]["flags"]:
+        pytest.skip("fixturen gav ingen flag")
+    dec = _decisions(doc)
+    doc["operations"][0]["flags"][0]["char_offset"] = bad_value
+    with pytest.raises(SystemExit, match="C0F_MANIFEST_FLAG_OFFSET_INVALID"):
+        mod.build_manifest(doc, dec, _candidates())
+
+
+# ---------------------------------------------------------------------------
+# Runde 2, fund 2: FLAG_NOT_FOUND-kontrollen lå EFTER "continue" for
+# default-handlede flag, og default_text blev slet ikke krydstjekket mod en
+# frisk normalisering af raw+corpus -- en operation koblet til en ANDEN
+# records raw kunne derfor passere ubemærket, især i nul-flag-tilfældet.
+# ---------------------------------------------------------------------------
+
+
+def test_shifted_char_offset_is_rejected_even_for_default_action():
+    """Den snævre del af fund 2: genfindingskontrollen skal gælde ALLE
+    flag, ikke kun dem med en (splice-udløsende) afvigende beslutning. Et
+    flag med default-handling (merge) og et forskudt offset skal også
+    afvises -- den gamle placering lod "continue" springe kontrollen helt
+    over for netop denne gren."""
+    doc = _flags_doc()
+    if not doc["operations"][0]["flags"]:
+        pytest.skip("fixturen gav ingen flag")
+    dec = _decisions(doc, "merge")  # default-handling -- rammer 'continue'-grenen
+    doc["operations"][0]["flags"][0]["char_offset"] += 1
+    with pytest.raises(SystemExit, match="C0F_MANIFEST_FLAG_NOT_FOUND"):
+        mod.build_manifest(doc, dec, _candidates())
+
+
+def test_default_text_from_wrong_record_is_rejected():
+    """Reviewer-scenariet: en operations default_text stammer fra den
+    RIGTIGE tekst, men source_record_key peger på en ANDEN records raw.
+    En frisk normalisering af den forkerte raw kan aldrig give samme tekst
+    som den ægte default_text, så mismatchet opdages uanset flagenes
+    handlinger."""
+    doc = _flags_doc()
+    candidates = _candidates()
+    candidates["records"].append({
+        "new_record_key": "record-other",
+        "verbatim_text": "Noget helt andet.\n",
+        "pages": {"page_from": 999, "page_to": 999},
+    })
+    doc["operations"][0]["source_record_key"] = "record-other"
+    with pytest.raises(SystemExit, match="C0F_MANIFEST_DEFAULT_TEXT_MISMATCH"):
+        mod.build_manifest(doc, _decisions(doc), candidates)
+
+
+def test_default_text_mismatch_detected_even_with_zero_flags():
+    """Det værste tilfælde reviewer pegede på: en operation med NUL flag
+    (allerede korrekt tekst, intet at afgøre for et menneske) blev IKKE
+    tjekket overhovedet før denne rettelse, fordi flag-loopet i
+    _decided_text simpelthen ikke kørte for en tom liste. Kontrollen skal
+    fyre UAFHÆNGIGT af om der er noget at splice."""
+    flags_mod = _import_flags_mod()
+    clean_raw = "Rolig sætning uden orddeling.\n"
+    default = flags_mod.normalize_narrative_v1(clean_raw, clean_raw)
+    assert default["flags"] == []  # denne tekst har intet at afgøre
+
+    doc = {
+        "schema_version": "1939-v50-c0-followup-flags-v1",
+        "database_name": DATABASE_NAME,
+        "database_identity": DATABASE_IDENTITY,
+        "operations": [{
+            "person_id": 992, "narrative_id": 661, "old_sha256": "b" * 64,
+            "source_record_key": "record-wrong", "page_from": 504,
+            "default_text": default["text"],  # ægte tekst -- for clean_raw
+            "flags": [],
+        }],
+        "flag_counts": {},
+    }
+    candidates = {"records": [{"new_record_key": "record-wrong",
+                               "verbatim_text": "En helt anden tekst.\n",
+                               "pages": {"page_from": 504, "page_to": 504}}]}
+    dec_doc = {"decisions": {}, "accepted_person_ids": [992]}
+    with pytest.raises(SystemExit, match="C0F_MANIFEST_DEFAULT_TEXT_MISMATCH"):
+        mod.build_manifest(doc, dec_doc, candidates)
+
+
+# ---------------------------------------------------------------------------
+# Runde 2, fund 3: eksakt duplerede flag-id'er blev begge spliced, fordi to
+# nul-længde-indsættelser på samme punkt ikke tælles som "overlappende" af
+# det halvåbne interval-tjek ("Revent--low").
+# ---------------------------------------------------------------------------
+
+
+def test_duplicate_flag_id_is_rejected():
+    doc = _flags_doc()
+    if not doc["operations"][0]["flags"]:
+        pytest.skip("fixturen gav ingen flag")
+    flags = doc["operations"][0]["flags"]
+    flags.append(dict(flags[0]))  # eksakt duplikat: samme flag_id/kind/offset
+    dec = _decisions(doc, "keep")
+    with pytest.raises(SystemExit, match="C0F_MANIFEST_FLAG_ID_DUPLICATE"):
+        mod.build_manifest(doc, dec, _candidates())

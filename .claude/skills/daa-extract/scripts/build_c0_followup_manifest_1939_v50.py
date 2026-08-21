@@ -8,16 +8,36 @@ ved et flags ``char_offset`` og en genkørsel giver et EKSAKT præfiks af
 standard-outputtet — og dermed splice-positionen via modulets eget API.
 Mønsteret er verificeret mod alle 178 ægte flag i fase B.
 
-Codex-review (2026-08-21) fandt at præfiks-kontrollen alene IKKE er nok: den
-beviser kun at ET præfiks matcher standard-outputtet, ikke at
-``raw[char_offset]`` faktisk ER det flagede sted. Et forskudt ``char_offset``
-i et korrupt eller forkert genereret flag-dokument kunne derfor i teorien
-snige sig forbi kontrollen og splice på et forkert sted (fx
-``Efters-lægt`` i stedet for ``Efter-slægt``). Derfor genfindes flaget FØRST
+Codex-review (2026-08-21, runde 1) fandt at præfiks-kontrollen alene IKKE er
+nok: den beviser kun at ET præfiks matcher standard-outputtet, ikke at
+``raw[char_offset]`` faktisk ER det flagede sted. Derfor genfindes hvert flag
 i en frisk ``normalize_narrative_v1(raw, corpus)``-kørsel og krydstjekkes med
-eksakt samme ``kind``/``char_offset``, FØR præfiks-kontrollen overhovedet
-forsøges -- flag-dokumentet er ikke autoritativt over sin egen ``char_offset``,
-kun den friske kørsel over raw-teksten er.
+eksakt samme ``kind``/``char_offset`` -- flag-dokumentet er ikke autoritativt
+over sin egen ``char_offset``, kun den friske kørsel over raw-teksten er.
+
+Codex-review (2026-08-21, runde 2) fandt tre yderligere fund efter runde 1's
+rettelse:
+
+1. ``_safe_int`` brugte en generel ``int(value)``-konvertering, der stille
+   accepterede baade floats (``992.9`` -> ``992``) og cifferstrenge
+   (``"992"`` -> ``992``). Rettet til PRAECIS ``type(value) is int`` -- samme
+   moenster som Task 2's ``_derive_record_by_person`` bruger for person_id,
+   af noejagtig samme grund.
+2. Genfindingskontrollen laa EFTER "continue"-grenen for default-handlede
+   flag (og blev slet ikke koert for operationer med NUL flag), saa en
+   operation koblet til en ANDEN records raw-tekst kunne passere ubemaerket
+   naar alle dens beslutninger var default (merge) -- og udsende
+   flag-dokumentets ``default_text``, som reelt stammede fra et andet
+   dokument end den ``raw``, operationen faktisk pegede paa. Rettet ved (a)
+   at flytte genfindingskontrollen op saa den gaelder ALLE flag foer nogen
+   "continue", og (b) at kraeve at en frisk normalisering af raw+corpus
+   giver PRAECIS ``default_text`` -- det lukker ogsaa nul-flag-tilfaeldet,
+   hvor der slet ikke er noget flag-loop at koere.
+3. To flag med identisk ``flag_id`` i samme operation blev begge spliced,
+   fordi to nul-laengde-indsaettelser paa samme punkt ikke registreres som
+   "overlappende" af det halvaabne interval-tjek (``Revent--low``). Rettet
+   ved at afvise duplerede ``flag_id`` TERMINALT, foer noget naar
+   splice-listen.
 """
 from __future__ import annotations
 
@@ -27,7 +47,7 @@ import importlib.util
 import json
 import pathlib
 import sys
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 _SCRIPTS_DIR = pathlib.Path(__file__).resolve().parent
 
@@ -71,45 +91,80 @@ def _assert_invariants(text: str, context: str) -> None:
 
 
 def _safe_int(value: Any, code: str) -> int:
-    """int() der aldrig lader en raa ValueError/TypeError sive igennem.
+    """Kraever PRAECIS ``type(value) is int`` -- aldrig en generel
+    ``int(...)``-konvertering og aldrig en generel ``isinstance``-kontrol.
 
-    ``bool`` er en underklasse af ``int`` i Python -- afvises eksplicit, for
-    ``int(True)`` ville ellers stille konvertere til 1 og lade en
-    ikke-heltallig JSON-vaerdi glide igennem som et gyldigt tal.
+    Samme moenster som Task 2's ``_derive_record_by_person`` bruger for
+    person_id, af noejagtig samme to grunde: (1) en generel ``int(value)``
+    ville stille afkorte ``992.9`` til ``992`` og konvertere cifferstrengen
+    ``"992"`` uden fejl -- begge blev verificeret (Codex-review runde 2) at
+    glide igennem den tidligere implementering; (2) ``isinstance(True, int)``
+    er ``True`` i Python, fordi ``bool`` er en underklasse af ``int``, saa
+    selv en "stram" isinstance-kontrol ville lukke ``true`` igennem som 1.
+    ``type(value) is int`` er den ENESTE kontrol der afviser begge klasser
+    paa een gang, uden en separat bool-saerkontrol.
     """
-    if isinstance(value, bool):
+    if type(value) is not int:
         _fail(code)
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        _fail(code)
-    raise AssertionError("unreachable")  # _fail raiser altid SystemExit
+    return value
 
 
 def _decided_text(raw: str, corpus: str, default_text: str,
                   op_flags: List[Dict[str, Any]], decisions: Dict[str, str],
                   pid: int) -> str:
     # Den ENESTE autoritative kilde til hvor de aegte flag sidder i raw: en
-    # frisk genkoersel. Flag-dokumentets egen char_offset bruges ALDRIG blindt
-    # -- se modulets docstring for hvorfor praefiks-kontrollen alene ikke er
-    # nok.
-    true_flags = normalize_narrative_v1(raw, corpus)["flags"]
-    true_flag_set = {(f["kind"], f["char_offset"]) for f in true_flags}
+    # frisk genkoersel. Flag-dokumentets egen char_offset bruges ALDRIG blindt.
+    true_result = normalize_narrative_v1(raw, corpus)
+
+    # Runde 2, fund 2: default_text SKAL vaere PRAECIS det en frisk
+    # normalisering af DENNE raw+corpus giver -- ikke bare "et praefiks
+    # matcher" for de flag der rent faktisk spliced. En operation koblet til
+    # en ANDEN records raw (fx via en forkert source_record_key) ville ellers
+    # passere ubemaerket saa laenge alle dens beslutninger var default
+    # (merge, ingen splice, intet at tjekke) -- inklusive det vaerste
+    # tilfaelde: en operation med NUL flag (allerede korrekt tekst, intet at
+    # afgoere) blev slet ikke tjekket overhovedet, fordi flag-loopet
+    # nedenfor simpelthen ikke koerte. Denne kontrol lukker HELE klassen paa
+    # een gang, uanset antal flag eller deres handlinger.
+    if true_result["text"] != default_text:
+        _fail("C0F_MANIFEST_DEFAULT_TEXT_MISMATCH:person=%d" % pid)
+    true_flag_set = {(f["kind"], f["char_offset"]) for f in true_result["flags"]}
 
     edits: List[Tuple[int, int, str]] = []
+    seen_flag_ids: Set[str] = set()
     for flag in op_flags:
         if not isinstance(flag, dict):
             _fail("C0F_MANIFEST_FLAG_INVALID:person=%d" % pid)
         for field in ("kind", "char_offset", "flag_id"):
             if field not in flag:
                 _fail("C0F_MANIFEST_FLAG_MISSING_FIELD:%s:person=%d" % (field, pid))
-        kind = flag["kind"]
         flag_id = flag["flag_id"]
-        offset = flag["char_offset"]
-        if isinstance(offset, bool) or not isinstance(offset, int):
-            _fail("C0F_MANIFEST_FLAG_OFFSET_INVALID:" + str(flag_id))
+
+        # Runde 2, fund 3: eksakt duplerede flag-id'er accepteres IKKE.
+        # Splice-overlap-kontrollen laengere nede fanger det ikke: to
+        # identiske nul-laengde-indsaettelser paa samme punkt
+        # (prefix_len, prefix_len) registreres ikke som "overlappende" under
+        # det halvaabne interval-tjek (hi <= a or lo >= b er sandt naar
+        # lo == hi == a == b), saa et dupleret "keep"-flag ville splice to
+        # bindestreger paa samme sted ("Revent--low"). Afvises HER, foer
+        # noget naar splice-listen.
+        if flag_id in seen_flag_ids:
+            _fail("C0F_MANIFEST_FLAG_ID_DUPLICATE:" + flag_id)
+        seen_flag_ids.add(flag_id)
+
+        kind = flag["kind"]
+        offset = _safe_int(flag["char_offset"],
+                           "C0F_MANIFEST_FLAG_OFFSET_INVALID:" + str(flag_id))
         if kind not in VALID_ACTIONS:
             _fail("C0F_MANIFEST_FLAG_KIND_UNKNOWN:" + flag_id)
+
+        # Runde 2, fund 2: genfindingskontrollen gaelder NU for ALLE flag --
+        # ogsaa dem med default-handling, der aldrig naar splice-koden. Den
+        # gamle placering (efter "continue") lod default-handlede flag
+        # passere HELT UPROEVET.
+        if (kind, offset) not in true_flag_set:
+            _fail("C0F_MANIFEST_FLAG_NOT_FOUND:" + flag_id)
+
         action = decisions.get(flag_id)
         if action is None:
             _fail("C0F_MANIFEST_DECISION_MISSING:" + flag_id)
@@ -117,12 +172,6 @@ def _decided_text(raw: str, corpus: str, default_text: str,
             _fail("C0F_MANIFEST_ACTION_INVALID:" + flag_id)
         if action == DEFAULT_ACTION[kind]:
             continue
-
-        # Genfind flaget i den friske koersel FOER noget splices. Et
-        # forskudt/opfundet char_offset -- selv et der tilfaeldigvis
-        # bestaar praefiks-kontrollen nedenfor -- fejler HER, terminalt.
-        if (kind, offset) not in true_flag_set:
-            _fail("C0F_MANIFEST_FLAG_NOT_FOUND:" + flag_id)
 
         prefix_text = normalize_narrative_v1(raw[:offset], corpus)["text"]
         prefix_len = len(prefix_text)
