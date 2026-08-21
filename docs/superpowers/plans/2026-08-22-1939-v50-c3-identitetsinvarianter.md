@@ -147,7 +147,7 @@ SELECT private.lock_identity_people(ARRAY[p_high, p_low, p_low]);
 -- A second session locking p_low must block before it can mutate either endpoint.
 ```
 
-The helper must raise `IDENTITY_PERSON_NOT_FOUND` if the locked row count differs from the deduplicated positive input set.
+The helper must raise `IDENTITY_PERSON_NOT_FOUND` if the locked row count differs from the deduplicated non-`NULL` input set; negative fixture IDs are valid `bigint` person IDs in repository tests.
 
 - [ ] **Step 2: Write a failing two-session race test**
 
