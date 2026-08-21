@@ -861,6 +861,11 @@ def render_review(flags_doc: Dict[str, Any]) -> str:
             "%d orddeling(er) at afgøre" % n_flag if n_flag else "ingen valg; teksten er allerede korrekt"))
         lines.append("[ACCEPT] %d  %s" % (pid, op["source_record_key"]))
         for flag in op["flags"]:
+            if flag["kind"] not in DEFAULT_ACTION:
+                # Maalingen 2026-08-21 gav kun hyphen_unproven, men det er en
+                # egenskab ved DATA, ikke ved koden. En ny flagtype skal give
+                # en laesbar fejl, ikke en KeyError midt i en render.
+                raise SystemExit("C0F_REVIEW_FLAG_KIND_UNKNOWN:" + flag["kind"])
             token = TOKEN_BY_ACTION[DEFAULT_ACTION[flag["kind"]]]
             lines.append("%s %s  |  %s" % (
                 token, flag["flag_id"], flag["context"].replace("\n", "\\n")))
@@ -1810,7 +1815,7 @@ Rscript $S/apply_c0_followup_1939_v50.R --manifest $W/rehearsal-manifest.json \
   --expect-sha256 $(shasum -a 256 $W/rehearsal-manifest.json | cut -d' ' -f1) \
   --backup $W/pre-c0f-*.dump --jeg-mener-det
 ```
-Expected: `valgte=9 privat=0` · `operationer=9 flag=8 {'hyphen_unproven': 8}` · `personer=9 orddelingsvalg=8` · `accepteret=9 afgjorte_orddelinger=8` · `operationer=9 bindinger=9` · `OK: 9 koblinger; bindinger 8 -> 17`
+Expected: `valgte=9 privat=0` · `operationer=9 flag=8 {'hyphen_unproven': 8}` · `personer=9 orddelingsvalg=8` · `accepteret=9 afgjorte_orddelinger=8` · `operationer=9 bindinger=9` · `OK: 9 koblinger; bindinger 550 -> 559`
 
 **Afviger flag-antallet fra 8, STOP** og fremlæg afvigelsen: normaliseringen har fundet noget andet, end målingen 2026-08-21 viste.
 
@@ -1829,7 +1834,7 @@ Rscript $S/apply_c0_followup_1939_v50.R --manifest $W/rehearsal-manifest.json \
   --expect-sha256 $(shasum -a 256 $W/rehearsal-manifest.json | cut -d' ' -f1) \
   --backup $W/pre-c0f-*.dump --jeg-mener-det
 ```
-Expected: 17 bindinger; narrativ-antal uændret; person 991 er **32 tegn** (uændret — dér tilføjer koblingen kun bindingen); gentaget kørsel afvist med `C0F_APPLY_ALREADY_BOUND`.
+Expected: 559 bindinger; narrativ-antal uændret; person 991 er **32 tegn** (uændret — dér tilføjer koblingen kun bindingen); gentaget kørsel afvist med `C0F_APPLY_ALREADY_BOUND`.
 
 - [ ] **Step 4: Kør trin 1–4 mod prod og fremlæg menneskearket**
 
@@ -1858,7 +1863,7 @@ Run:
 Rscript $S/apply_c0_followup_1939_v50.R --manifest $W/manifest-v1.json \
   --expect-sha256 <SHA fra Step 4> --backup $W/pre-c0f-<stamp>.dump --jeg-mener-det
 ```
-Expected: `OK: 9 koblinger; bindinger 8 -> 17`
+Expected: `OK: 9 koblinger; bindinger 550 -> 559`
 
 Fejler den, STOP. Kør ikke igen — den melder selv, hvad der har flyttet sig.
 
@@ -1880,7 +1885,7 @@ SELECT count(*) AS stadig_raa FROM narrative
  WHERE subjekt_type='person' AND source_id=3 AND tekst LIKE '%### PAGE%';
 ROLLBACK;"
 ```
-Expected: 17 bindinger; narrativ- og persontal uændrede; person 991 = 32 tegn; `stadig_raa = 0`.
+Expected: 559 bindinger; narrativ- og persontal uændrede; person 991 = 32 tegn; `stadig_raa = 0`.
 
 - [ ] **Step 7: Opdatér dokumentationen og commit**
 
