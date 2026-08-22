@@ -648,6 +648,118 @@ def test_existing_target_is_never_removed_during_collision_cleanup(
     assert dirfd_inventory(tmp_path)["candidate.json"] == before
 
 
+def test_ownership_fd_remains_open_through_inventory_and_all_fds_close(
+        tmp_path, monkeypatch):
+    output = tmp_path / "candidate.json"
+    real_open = mod.os.open
+    real_dup = mod.os.dup
+    real_stat = mod.os.stat
+    temp_descriptors = []
+    all_descriptors = []
+
+    def recording_open(path, flags, *args, **kwargs):
+        descriptor = real_open(path, flags, *args, **kwargs)
+        all_descriptors.append(descriptor)
+        if (kwargs.get("dir_fd") is not None
+                and str(path).startswith(".c3-apply-")):
+            temp_descriptors.append(descriptor)
+        return descriptor
+
+    def recording_dup(descriptor):
+        duplicate = real_dup(descriptor)
+        all_descriptors.append(duplicate)
+        return duplicate
+
+    def ownership_checked_stat(path, *args, **kwargs):
+        if kwargs.get("dir_fd") is not None:
+            assert any(_fd_is_open(descriptor)
+                       for descriptor in temp_descriptors)
+        return real_stat(path, *args, **kwargs)
+
+    def _fd_is_open(descriptor):
+        try:
+            os.fstat(descriptor)
+        except OSError:
+            return False
+        return True
+
+    monkeypatch.setattr(mod.os, "open", recording_open)
+    monkeypatch.setattr(mod.os, "dup", recording_dup)
+    monkeypatch.setattr(mod.os, "stat", ownership_checked_stat)
+    mod.publish_output(output, "{}\n")
+
+    assert len(temp_descriptors) == 1
+    assert all(not _fd_is_open(descriptor) for descriptor in all_descriptors)
+
+
+@pytest.mark.parametrize("mutation", ["remove", "replace"])
+def test_final_inventory_detects_target_mutation_during_directory_fsync(
+        tmp_path, monkeypatch, mutation):
+    output = tmp_path / "candidate.json"
+    real_fsync = mod.os.fsync
+    real_unlink = mod.os.unlink
+    real_open = mod.os.open
+    mutated = {"value": False}
+
+    def mutate_after_first_directory_fsync(descriptor):
+        result = real_fsync(descriptor)
+        if (stat.S_ISDIR(os.fstat(descriptor).st_mode)
+                and not mutated["value"]):
+            mutated["value"] = True
+            real_unlink("candidate.json", dir_fd=descriptor)
+            if mutation == "replace":
+                foreign = real_open(
+                    "candidate.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o600, dir_fd=descriptor)
+                try:
+                    os.write(foreign, b"foreign-target")
+                    real_fsync(foreign)
+                finally:
+                    os.close(foreign)
+        return result
+
+    monkeypatch.setattr(mod.os, "fsync", mutate_after_first_directory_fsync)
+    with pytest.raises(SystemExit) as error:
+        mod.publish_output(output, "{}\n")
+    assert str(error.value) == "C3_APPLY_OUTPUT_RECOVERY_REQUIRED"
+    assert not list(tmp_path.glob(".c3-apply-*.tmp"))
+    if mutation == "remove":
+        assert not output.exists()
+    else:
+        assert output.read_bytes() == b"foreign-target"
+
+
+def test_post_link_failure_never_unlinks_foreign_replacement(
+        tmp_path, monkeypatch):
+    output = tmp_path / "candidate.json"
+    real_unlink = mod.os.unlink
+    real_open = mod.os.open
+    replaced = {"value": False}
+
+    def replace_target_when_temp_unlink_fails(path, *args, **kwargs):
+        if str(path).endswith(".tmp") and not replaced["value"]:
+            replaced["value"] = True
+            directory_fd = kwargs["dir_fd"]
+            real_unlink("candidate.json", dir_fd=directory_fd)
+            foreign = real_open(
+                "candidate.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600, dir_fd=directory_fd)
+            try:
+                os.write(foreign, b"foreign-after-link")
+                os.fsync(foreign)
+            finally:
+                os.close(foreign)
+            raise OSError("synthetic post-link failure")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(mod.os, "unlink", replace_target_when_temp_unlink_fails)
+    with pytest.raises(SystemExit) as error:
+        mod.publish_output(output, "{}\n")
+    assert str(error.value) == "C3_APPLY_OUTPUT_RECOVERY_REQUIRED"
+    assert output.read_bytes() == b"foreign-after-link"
+    assert not list(tmp_path.glob(".c3-apply-*.tmp"))
+
+
 def test_cli_argument_surface_is_exact(tmp_path):
     paths = write_chain(tmp_path)
     completed = subprocess.run(
