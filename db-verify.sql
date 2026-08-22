@@ -53,6 +53,39 @@ END $$;
 -- ===== C3 Task 1 — komponentbrede identitetskontradiktioner =====
 DO $$
 BEGIN
+  IF to_regclass('private.identity_mutation_generation') IS NULL
+     OR to_regprocedure('private.guard_identity_mutation_snapshot()') IS NULL
+     OR NOT EXISTS (
+       SELECT 1 FROM pg_proc p
+       WHERE p.oid='private.guard_identity_mutation_snapshot()'::regprocedure
+         AND p.prosecdef
+         AND 'search_path=pg_catalog, private'=ANY(p.proconfig)
+     ) THEN
+    RAISE EXCEPTION 'IDENTITY_MUTATION_GENERATION_CONTRACT_MISSING';
+  END IF;
+  IF has_table_privilege('anon','private.identity_mutation_generation','SELECT')
+     OR has_table_privilege('authenticated','private.identity_mutation_generation','UPDATE')
+     OR has_function_privilege('anon','private.guard_identity_mutation_snapshot()','EXECUTE')
+     OR has_function_privilege('authenticated','private.guard_identity_mutation_snapshot()','EXECUTE') THEN
+    RAISE EXCEPTION 'IDENTITY_MUTATION_GENERATION_ACL_DRIFT';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM (VALUES
+      ('public.relation_id_seq'),('public.assertion_id_seq'),('public.conclusion_id_seq')
+    ) s(name), (VALUES ('PUBLIC'),('anon'),('authenticated')) r(name)
+    WHERE (r.name='PUBLIC' AND EXISTS (
+             SELECT 1 FROM pg_class c
+             CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault('S',c.relowner))) a
+             WHERE c.oid=s.name::regclass AND a.grantee=0
+               AND a.privilege_type IN ('USAGE','SELECT','UPDATE')
+          )) OR (r.name<>'PUBLIC' AND (
+             has_sequence_privilege(r.name,s.name,'USAGE')
+             OR has_sequence_privilege(r.name,s.name,'SELECT')
+             OR has_sequence_privilege(r.name,s.name,'UPDATE')
+          ))
+  ) THEN
+    RAISE EXCEPTION 'IDENTITY_SEQUENCE_ACL_DRIFT';
+  END IF;
   IF NOT EXISTS (
     SELECT 1
     FROM pg_proc p

@@ -2245,6 +2245,12 @@ CREATE TABLE conclusion (                -- den blåstemplede vurdering ovenpå 
   UNIQUE (target_type, target_id)
 );
 
+-- Supabase may grant sequence privileges through owner default privileges.
+-- These IDs are allocated only inside owner/SECURITY DEFINER writers.
+REVOKE ALL ON SEQUENCE public.relation_id_seq FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON SEQUENCE public.assertion_id_seq FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON SEQUENCE public.conclusion_id_seq FROM PUBLIC, anon, authenticated;
+
 CREATE TABLE citation (
   id           BIGINT PRIMARY KEY,
   assertion_id BIGINT REFERENCES assertion(id),
@@ -3817,6 +3823,7 @@ DECLARE v_facts bigint[]; v_rels bigint[];
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  PERFORM private.guard_identity_mutation_snapshot();
 
   -- 2026-08-20: private.source_persona_identity(_event).canonical_person_id har FK mod person
   -- uden ON DELETE, og _event er append-only (kun BEFORE INSERT-trigger). Har personen én gang
@@ -4075,6 +4082,32 @@ GRANT EXECUTE ON FUNCTION public.red_slet_medierelation_uden_evidens(bigint) TO 
 -- relationens BEFORE UPDATE-trigger. Rækken indeholder kun den eksakte relationsovergang og
 -- de faktisk låste person-id'er. En deferred trigger sletter også et ubrugt bevis ved COMMIT;
 -- ved ROLLBACK forsvinder INSERT'en naturligt med transaktionen.
+CREATE TABLE IF NOT EXISTS private.identity_mutation_generation (
+  singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+  generation bigint NOT NULL DEFAULT 0
+);
+INSERT INTO private.identity_mutation_generation(singleton,generation)
+VALUES (true,0) ON CONFLICT (singleton) DO NOTHING;
+ALTER TABLE private.identity_mutation_generation ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.identity_mutation_generation FROM PUBLIC, anon, authenticated;
+
+-- Advisory locks serialize lock acquisition, but do not refresh a REPEATABLE READ snapshot.
+-- Updating this shared row after the advisory lock makes a stale RR writer fail with 40001
+-- before it evaluates any graph predicate. READ COMMITTED writers see the refreshed state.
+CREATE OR REPLACE FUNCTION private.guard_identity_mutation_snapshot()
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, private AS $$
+BEGIN
+  UPDATE private.identity_mutation_generation
+     SET generation = generation + 1
+   WHERE singleton;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'IDENTITY_MUTATION_GENERATION_MISSING';
+  END IF;
+END $$;
+REVOKE ALL ON FUNCTION private.guard_identity_mutation_snapshot()
+  FROM PUBLIC, anon, authenticated;
+
 CREATE TABLE IF NOT EXISTS private.identity_relation_update_prelock (
   transaction_id xid8 NOT NULL,
   backend_pid integer NOT NULL,
@@ -4151,6 +4184,7 @@ BEGIN
     RAISE EXCEPTION 'Kun redaktion';
   END IF;
   PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  PERFORM private.guard_identity_mutation_snapshot();
 
   v_relation_id := (p_current->>'id')::bigint;
   v_target_relation_id := (p_target->>'id')::bigint;
@@ -4270,6 +4304,7 @@ BEGIN
     RETURN NEW; -- ikke et person→person identitetsforhold — rør ikke
   END IF;
   PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation')); -- serialisér samme_som-mutationer
+  PERFORM private.guard_identity_mutation_snapshot();
   PERFORM private.lock_identity_people(ARRAY[NEW.subjekt_id, NEW.objekt_id]);
   IF NEW.rolle = 'ikke_samme_som' THEN
     IF EXISTS (
@@ -4337,6 +4372,7 @@ DECLARE v_rel bigint; v_ass bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  PERFORM private.guard_identity_mutation_snapshot();
   PERFORM private.lock_identity_people(ARRAY[p_alias_id, p_objekt_id]);
   -- G2 idempotens (præcis retning) FØR begin_change_set.
   SELECT id INTO v_rel FROM relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
@@ -4370,6 +4406,7 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  PERFORM private.guard_identity_mutation_snapshot();
   IF NOT EXISTS(SELECT 1 FROM relation WHERE id=p_relation_id AND rolle='samme_som'
                 AND subjekt_type='person' AND objekt_type='person') THEN
     RAISE EXCEPTION 'Relation % er ikke et person→person samme_som-link', p_relation_id;
@@ -4396,6 +4433,7 @@ BEGIN
   -- Samme advisory-lock som red_samme_som: serialisér de to kontradiktions-guards mod hinanden
   -- (uden den kan concurrent red_samme_som(a,b)+red_ikke_samme_som(a,b) begge passere → dobbelt-rolle).
   PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  PERFORM private.guard_identity_mutation_snapshot();
   PERFORM private.lock_identity_people(ARRAY[p_a, p_b]);
   IF p_a = p_b THEN RAISE EXCEPTION 'ikke_samme_som: kan ikke afvise en person mod sig selv'; END IF;
   v_lo := least(p_a, p_b); v_hi := greatest(p_a, p_b);
@@ -4430,6 +4468,8 @@ CREATE OR REPLACE FUNCTION red_fjern_ikke_samme_som(p_relation_id bigint)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  PERFORM private.guard_identity_mutation_snapshot();
   IF NOT EXISTS(SELECT 1 FROM relation WHERE id=p_relation_id AND rolle='ikke_samme_som'
                 AND subjekt_type='person' AND objekt_type='person') THEN
     RAISE EXCEPTION 'Relation % er ikke et person→person ikke_samme_som-spor', p_relation_id;

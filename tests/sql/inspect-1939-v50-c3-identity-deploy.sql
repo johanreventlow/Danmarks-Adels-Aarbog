@@ -13,6 +13,7 @@ DECLARE
   v_missing text[];
 BEGIN
   WITH expected(signature) AS (VALUES
+    ('private.guard_identity_mutation_snapshot()'),
     ('private.identity_components_have_rejection(bigint,bigint)'),
     ('private.cleanup_identity_relation_update_prelock()'),
     ('private.lock_identity_people(bigint[])'),
@@ -29,6 +30,8 @@ BEGIN
     ('public.red_relation(text,bigint,text,bigint,text,text)'),
     ('public.red_samme_som(bigint,bigint)'),
     ('public.red_ikke_samme_som(bigint,bigint)'),
+    ('public.red_fjern_samme_som(bigint)'),
+    ('public.red_fjern_ikke_samme_som(bigint)'),
     ('public.red_tilfoej_relation(bigint,text,bigint,text,text)'),
     ('public._ensure_foraeldrefamilie_redaktionel(bigint,bigint)'),
     ('public.red_tilfoej_foraeldre_paastand(bigint,bigint,bigint,text,text,text)'),
@@ -43,6 +46,7 @@ BEGIN
 
   WITH expected(relname) AS (VALUES
     ('public.relation'),('public.assertion'),('public.conclusion'),
+    ('private.identity_mutation_generation'),
     ('private.identity_relation_update_prelock')
   )
   SELECT array_agg(relname ORDER BY relname) INTO v_missing
@@ -77,6 +81,8 @@ BEGIN
   END IF;
 
   WITH expected(relname,conname) AS (VALUES
+    ('private.identity_mutation_generation','identity_mutation_generation_pkey'),
+    ('private.identity_mutation_generation','identity_mutation_generation_singleton_check'),
     ('private.identity_relation_update_prelock','identity_relation_update_prelock_pkey'),
     ('private.identity_relation_update_prelock','trg_identity_relation_update_prelock_cleanup'),
     ('public.assertion','assertion_date_certainty_chk'),
@@ -98,6 +104,7 @@ BEGIN
   END IF;
 
   WITH expected(relname,indexname) AS (VALUES
+    ('private.identity_mutation_generation','identity_mutation_generation_pkey'),
     ('private.identity_relation_update_prelock','identity_relation_update_prelock_pkey'),
     ('public.assertion','assertion_pkey'),
     ('public.assertion','ix_assertion_objekt'),
@@ -139,6 +146,7 @@ END $expected_inventory$;
 
 WITH expected(signature) AS (
   VALUES
+    ('private.guard_identity_mutation_snapshot()'),
     ('private.identity_components_have_rejection(bigint,bigint)'),
     ('private.cleanup_identity_relation_update_prelock()'),
     ('private.lock_identity_people(bigint[])'),
@@ -155,6 +163,8 @@ WITH expected(signature) AS (
     ('public.red_relation(text,bigint,text,bigint,text,text)'),
     ('public.red_samme_som(bigint,bigint)'),
     ('public.red_ikke_samme_som(bigint,bigint)'),
+    ('public.red_fjern_samme_som(bigint)'),
+    ('public.red_fjern_ikke_samme_som(bigint)'),
     ('public.red_tilfoej_relation(bigint,text,bigint,text,text)'),
     ('public._ensure_foraeldrefamilie_redaktionel(bigint,bigint)'),
     ('public.red_tilfoej_foraeldre_paastand(bigint,bigint,bigint,text,text,text)'),
@@ -192,6 +202,7 @@ WITH touched_tables(nspname, relname) AS (
     ('public', 'relation'),
     ('public', 'assertion'),
     ('public', 'conclusion'),
+    ('private', 'identity_mutation_generation'),
     ('private', 'identity_relation_update_prelock')
 )
 SELECT concat_ws('|',
@@ -212,6 +223,7 @@ WITH touched_tables(nspname, relname) AS (
     ('public', 'relation'),
     ('public', 'assertion'),
     ('public', 'conclusion'),
+    ('private', 'identity_mutation_generation'),
     ('private', 'identity_relation_update_prelock')
 )
 SELECT concat_ws('|',
@@ -358,6 +370,7 @@ JOIN pg_class c ON c.oid=con.conrelid
 JOIN pg_namespace n ON n.oid=c.relnamespace
 WHERE (n.nspname,c.relname) IN (
   ('public','relation'),('public','assertion'),('public','conclusion'),
+  ('private','identity_mutation_generation'),
   ('private','identity_relation_update_prelock')
 )
 ORDER BY n.nspname,c.relname,con.conname;
@@ -376,6 +389,7 @@ JOIN pg_class c ON c.oid=ix.indrelid
 JOIN pg_namespace n ON n.oid=c.relnamespace
 WHERE (n.nspname,c.relname) IN (
   ('public','relation'),('public','assertion'),('public','conclusion'),
+  ('private','identity_mutation_generation'),
   ('private','identity_relation_update_prelock')
 )
 ORDER BY n.nspname,c.relname,i.relname;
@@ -394,6 +408,7 @@ JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE NOT t.tgisinternal
   AND (n.nspname,c.relname) IN (
     ('public','relation'),('public','assertion'),('public','conclusion'),
+    ('private','identity_mutation_generation'),
     ('private','identity_relation_update_prelock')
   )
 ORDER BY n.nspname, c.relname, t.tgname;
