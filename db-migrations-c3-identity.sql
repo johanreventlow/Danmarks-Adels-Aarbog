@@ -75,6 +75,37 @@ BEGIN
 END $function$
 ;
 
+CREATE OR REPLACE FUNCTION private.prelock_identity_relation_delete(p_relation_id bigint)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public', 'private'
+AS $function$
+DECLARE v_initial_role text; v_locked_role text;
+BEGIN
+  IF public.current_rolle() <> 'redaktion' THEN
+    RAISE EXCEPTION 'Kun redaktion';
+  END IF;
+
+  SELECT r.rolle INTO v_initial_role
+  FROM public.relation r WHERE r.id=p_relation_id;
+  IF NOT FOUND OR v_initial_role IN ('samme_som','ikke_samme_som') THEN
+    PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+    PERFORM private.guard_identity_mutation_snapshot();
+    SELECT r.rolle INTO v_locked_role
+    FROM public.relation r WHERE r.id=p_relation_id FOR UPDATE;
+    RETURN;
+  END IF;
+
+  SELECT r.rolle INTO v_locked_role
+  FROM public.relation r WHERE r.id=p_relation_id FOR UPDATE;
+  IF FOUND AND v_locked_role IN ('samme_som','ikke_samme_som') THEN
+    RAISE EXCEPTION 'IDENTITY_RELATION_DELETE_RETRY_REQUIRED';
+  END IF;
+END
+$function$
+;
+
 CREATE TABLE IF NOT EXISTS private.identity_relation_update_prelock (
   transaction_id xid8 NOT NULL,
   backend_pid integer NOT NULL,
@@ -128,6 +159,169 @@ BEGIN
     AND p.relation_id = NEW.relation_id;
   RETURN NULL;
 END $function$
+;
+
+CREATE OR REPLACE FUNCTION public._delete_relation_evidence(p_relation_id bigint)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  -- Gate (sikkerheds-hærdning): SECURITY DEFINER-helper kaldes kun fra gatede red_*-funktioner, men
+  -- Supabases default-grants ville ellers eksponere den for anon via PostgREST → uatoriseret sletning
+  -- af relations-evidens (kører som ejer, omgår RLS). Gratis her (kalderne er allerede redaktion).
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion (intern relations-slet-helper)'; END IF;
+  -- Helperen er også en rå intern skrivevej. Den skal derfor selv bevise den globale
+  -- identity-låserækkefølge; top-level RPC-gates alene er ikke tilstrækkelige.
+  PERFORM private.prelock_identity_relation_delete(p_relation_id);
+  DELETE FROM citation WHERE assertion_id IN
+    (SELECT id FROM assertion WHERE target_type='relation' AND target_id=p_relation_id);
+  DELETE FROM conclusion WHERE target_type='relation' AND target_id=p_relation_id;
+  DELETE FROM assertion  WHERE target_type='relation' AND target_id=p_relation_id;
+  DELETE FROM note       WHERE target_type='relation' AND target_id=p_relation_id;
+  DELETE FROM relation   WHERE id=p_relation_id;
+END
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.red_slet_relation(p_relation_id bigint)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Tag identity-protokollen før change_set-rækken, så ingen senere advisory-lås kan
+  -- vende låserækkefølgen mod en samtidig identity-writer.
+  PERFORM private.prelock_identity_relation_delete(p_relation_id);
+  PERFORM begin_change_set('red_slet_relation', format('Slettede relation %s', p_relation_id), NULL, NULL);
+  PERFORM _delete_relation_evidence(p_relation_id);
+END
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public._version_delete_row(p_tabel text, p_pk jsonb)
+ RETURNS void
+ LANGUAGE plpgsql
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF p_tabel='relation' THEN
+    PERFORM private.prelock_identity_relation_delete((p_pk->>'id')::bigint);
+  END IF;
+  EXECUTE format('DELETE FROM %I WHERE %s', p_tabel, _version_pk_where(p_tabel, p_pk));
+END
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.red_fortryd_change_set(p_change_set_id bigint, p_force boolean DEFAULT false)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  ev change_event; v_new_cs bigint; v_orig change_set;
+  v_cur jsonb; v_pids bigint[] := '{}'; v_narr bigint[] := '{}'; v_notes bigint[] := '{}';
+  v_div int := 0; pid bigint; v_forventet jsonb;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  SELECT * INTO v_orig FROM change_set WHERE id=p_change_set_id;
+  IF v_orig.id IS NULL THEN RAISE EXCEPTION 'FEJL: change_set % findes ikke', p_change_set_id; END IF;
+  -- allerede reverteret? (reversal-kæde; M3)
+  IF EXISTS (SELECT 1 FROM change_set WHERE reverterer_id=p_change_set_id) THEN
+    RAISE EXCEPTION 'FEJL: change_set % er allerede fortrudt', p_change_set_id;
+  END IF;
+
+  -- Forudscan HELE sættet før reversal-audit eller inverse DML. Hvis nogen inverse
+  -- operation kan indsætte, opdatere eller slette en identitetsrelation, tages den
+  -- fælles advisory+generation-protokol én gang i den globale rækkefølge.
+  IF EXISTS (
+    SELECT 1 FROM change_event ce
+    WHERE ce.change_set_id=p_change_set_id AND ce.tabel='relation'
+      AND CASE ce.op
+        WHEN 'INSERT' THEN ce.efter->>'rolle' IN ('samme_som','ikke_samme_som')
+        WHEN 'DELETE' THEN ce.foer->>'rolle' IN ('samme_som','ikke_samme_som')
+        WHEN 'UPDATE' THEN ce.foer->>'rolle' IN ('samme_som','ikke_samme_som')
+                            OR ce.efter->>'rolle' IN ('samme_som','ikke_samme_som')
+        ELSE false
+      END
+  ) THEN
+    PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+    PERFORM private.guard_identity_mutation_snapshot();
+  END IF;
+
+  -- åbn reversal-sæt (re-entrant: triggere fanger ikke restore-DML ind under DET, da vi
+  -- bevidst NULLER app.change_set_id under selve inverse — se nedenfor). Vi logger restore
+  -- som ÉT change_set uden child-events for ikke at dobbelt-logge; reversal-kæden er sporet.
+  PERFORM set_config('app.change_set_id','',true);  -- undgå at inverse-DML re-logges
+  IF pg_get_serial_sequence('public.change_set','id') IS NULL THEN
+    v_new_cs := (SELECT coalesce(max(id),0)+1 FROM change_set);
+    INSERT INTO change_set(id, actor_id, actor_navn, actor_rolle, operation, summary,
+                           subjekt_type, subjekt_id, subjekt_synlighed, reverterer_id)
+      VALUES (v_new_cs, auth.uid(),
+              coalesce((SELECT coalesce(p.navn, p.email, auth.uid()::text) FROM profiles p WHERE p.id=auth.uid()), 'ukendt'),
+              current_rolle(), 'fortryd',
+              format('Fortrød: %s', coalesce(v_orig.summary,'(uden tekst)')),
+              v_orig.subjekt_type, v_orig.subjekt_id, v_orig.subjekt_synlighed, p_change_set_id);
+  ELSE
+    INSERT INTO change_set(actor_id, actor_navn, actor_rolle, operation, summary,
+                           subjekt_type, subjekt_id, subjekt_synlighed, reverterer_id)
+      VALUES (auth.uid(),
+              coalesce((SELECT coalesce(p.navn, p.email, auth.uid()::text) FROM profiles p WHERE p.id=auth.uid()), 'ukendt'),
+              current_rolle(), 'fortryd',
+              format('Fortrød: %s', coalesce(v_orig.summary,'(uden tekst)')),
+              v_orig.subjekt_type, v_orig.subjekt_id, v_orig.subjekt_synlighed, p_change_set_id)
+      RETURNING id INTO v_new_cs;
+  END IF;
+
+  -- inverse-apply i OMVENDT seq-orden, alt i denne ene transaktion
+  FOR ev IN SELECT * FROM change_event WHERE change_set_id=p_change_set_id ORDER BY seq DESC LOOP
+    -- optimistisk verifikation (B9): nuværende tilstand skal matche hvad sættet efterlod
+    v_cur := _version_current_row(ev.tabel, ev.row_pk);
+    -- B9-divergens for ALLE op-typer (review09 H1): DELETE efterlod række ABSENT (NULL),
+    -- INSERT/UPDATE efterlod ev.efter. Lukker blind PK-overskrivning ved DELETE-inverse.
+    v_forventet := CASE WHEN ev.op='DELETE' THEN NULL ELSE ev.efter END;
+    IF v_cur IS DISTINCT FROM v_forventet THEN
+      v_div := v_div + 1;
+      IF NOT p_force THEN
+        RAISE EXCEPTION 'FEJL: nyere ændring rører %/% — afvist (brug force)', ev.tabel, ev.row_pk;
+      END IF;
+    END IF;
+    -- anvend inverse
+    IF ev.op='INSERT' THEN
+      PERFORM _version_delete_row(ev.tabel, ev.row_pk);
+    ELSE  -- DELETE eller UPDATE: genskab foer-tilstand
+      PERFORM _version_upsert_row(ev.tabel, ev.foer);
+    END IF;
+    -- saml berørte for cache/indeks-regen
+    IF ev.tabel='person'    THEN v_pids := v_pids || (ev.row_pk->>'id')::bigint; END IF;
+    IF ev.tabel='conclusion' THEN
+      SELECT f.subjekt_id INTO pid FROM fact f
+        WHERE f.id=(coalesce(ev.foer,ev.efter)->>'target_id')::bigint AND f.subjekt_type='person';
+      IF pid IS NOT NULL THEN v_pids := v_pids || pid; END IF;
+    END IF;
+    IF ev.tabel='narrative' THEN v_narr := v_narr || (ev.row_pk->>'id')::bigint; END IF;
+    IF ev.tabel='note'      THEN v_notes := v_notes || (ev.row_pk->>'id')::bigint; END IF;
+  END LOOP;
+
+  -- regenerér afledte projektioner ÉN gang (B8 + hyperlinks)
+  FOR pid IN SELECT DISTINCT unnest(v_pids) LOOP
+    PERFORM regen_person_visning(pid);
+  END LOOP;
+  -- text_mention regenereres af mention-trigger ved narrativ/note-skrivning (Task 10);
+  -- ved restore kalder vi den eksplicit (funktion tilføjes i Task 10):
+  PERFORM _regen_mentions_for('narrative', n) FROM unnest(v_narr) n;
+  PERFORM _regen_mentions_for('note', n)      FROM unnest(v_notes) n;
+
+  IF v_div > 0 THEN
+    UPDATE change_set SET summary = summary || format(' [%s divergenser tvunget]', v_div) WHERE id=v_new_cs;
+  END IF;
+  RETURN jsonb_build_object('reversal_change_set', v_new_cs, 'divergenser', v_div);
+END
+$function$
 ;
 
 CREATE OR REPLACE FUNCTION private.lock_identity_people(p_person_ids bigint[])
@@ -1086,13 +1280,24 @@ REVOKE ALL ON FUNCTION
   private.identity_components_have_rejection(bigint,bigint),
   private.cleanup_identity_relation_update_prelock(),
   private.lock_identity_people(bigint[]),
-  private.prelock_identity_relation_update(jsonb,jsonb)
+  private.prelock_identity_relation_update(jsonb,jsonb),
+  private.prelock_identity_relation_delete(bigint)
   FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION
+  public._delete_relation_evidence(bigint),
+  public._version_delete_row(text,jsonb),
   public._version_upsert_row(text,jsonb),
   public.enforce_samme_som_invariants(),
   public._ensure_foraeldrefamilie_redaktionel(bigint,bigint)
   FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION
+  public.red_slet_relation(bigint),
+  public.red_fortryd_change_set(bigint,boolean)
+  FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION
+  public.red_slet_relation(bigint),
+  public.red_fortryd_change_set(bigint,boolean)
+  TO authenticated;
 REVOKE ALL ON FUNCTION
   public.red_apply_1939_v50_name_completion(uuid,text,jsonb)
   FROM PUBLIC, anon, authenticated;

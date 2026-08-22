@@ -30,6 +30,8 @@ BEGIN
     ('red_set_konklusion'),
     ('red_edit_oplysning'),
     ('red_relation'),
+    ('red_slet_relation'),
+    ('red_fortryd_change_set'),
     ('red_samme_som'),
     ('red_ikke_samme_som'),
     ('red_tilfoej_relation'),
@@ -57,6 +59,7 @@ BEGIN
       'red_apply_1939_v50_name_completion','red_upsert_fakta',
       'red_tilfoej_oplysning','red_opret_fakta','red_set_konklusion',
       'red_edit_oplysning','red_relation','red_samme_som',
+      'red_slet_relation','red_fortryd_change_set',
       'red_ikke_samme_som','red_tilfoej_relation',
       '_ensure_foraeldrefamilie_redaktionel',
       'red_tilfoej_foraeldre_paastand','red_vaelg_foraeldre'

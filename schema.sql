@@ -3969,6 +3969,9 @@ BEGIN
   -- Supabases default-grants ville ellers eksponere den for anon via PostgREST → uatoriseret sletning
   -- af relations-evidens (kører som ejer, omgår RLS). Gratis her (kalderne er allerede redaktion).
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion (intern relations-slet-helper)'; END IF;
+  -- Helperen er også en rå intern skrivevej. Den skal derfor selv bevise den globale
+  -- identity-låserækkefølge; top-level RPC-gates alene er ikke tilstrækkelige.
+  PERFORM private.prelock_identity_relation_delete(p_relation_id);
   DELETE FROM citation WHERE assertion_id IN
     (SELECT id FROM assertion WHERE target_type='relation' AND target_id=p_relation_id);
   DELETE FROM conclusion WHERE target_type='relation' AND target_id=p_relation_id;
@@ -3981,6 +3984,9 @@ CREATE OR REPLACE FUNCTION red_slet_relation(p_relation_id bigint)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Tag identity-protokollen før change_set-rækken, så ingen senere advisory-lås kan
+  -- vende låserækkefølgen mod en samtidig identity-writer.
+  PERFORM private.prelock_identity_relation_delete(p_relation_id);
   PERFORM begin_change_set('red_slet_relation', format('Slettede relation %s', p_relation_id), NULL, NULL);
   PERFORM _delete_relation_evidence(p_relation_id);
 END $$;
@@ -4106,6 +4112,38 @@ BEGIN
   END IF;
 END $$;
 REVOKE ALL ON FUNCTION private.guard_identity_mutation_snapshot()
+  FROM PUBLIC, anon, authenticated;
+
+-- Generisk relationssletning må kun deltage i den globale identity-protokol, når
+-- målrækken er (eller endnu ikke er) en identitetsrelation. En allerede eksisterende,
+-- uvedkommende rolle tager kun rækkelåsen. Hvis rollen skifter til identity mens den
+-- venter, fejler kaldet i stedet for at tage advisory-låsen sent og invertere ordenen.
+CREATE OR REPLACE FUNCTION private.prelock_identity_relation_delete(p_relation_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, public, private AS $$
+DECLARE v_initial_role text; v_locked_role text;
+BEGIN
+  IF public.current_rolle() <> 'redaktion' THEN
+    RAISE EXCEPTION 'Kun redaktion';
+  END IF;
+
+  SELECT r.rolle INTO v_initial_role
+  FROM public.relation r WHERE r.id=p_relation_id;
+  IF NOT FOUND OR v_initial_role IN ('samme_som','ikke_samme_som') THEN
+    PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+    PERFORM private.guard_identity_mutation_snapshot();
+    SELECT r.rolle INTO v_locked_role
+    FROM public.relation r WHERE r.id=p_relation_id FOR UPDATE;
+    RETURN;
+  END IF;
+
+  SELECT r.rolle INTO v_locked_role
+  FROM public.relation r WHERE r.id=p_relation_id FOR UPDATE;
+  IF FOUND AND v_locked_role IN ('samme_som','ikke_samme_som') THEN
+    RAISE EXCEPTION 'IDENTITY_RELATION_DELETE_RETRY_REQUIRED';
+  END IF;
+END $$;
+REVOKE ALL ON FUNCTION private.prelock_identity_relation_delete(bigint)
   FROM PUBLIC, anon, authenticated;
 
 CREATE TABLE IF NOT EXISTS private.identity_relation_update_prelock (
@@ -5899,6 +5937,9 @@ END $$;
 CREATE OR REPLACE FUNCTION _version_delete_row(p_tabel text, p_pk jsonb)
 RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
 BEGIN
+  IF p_tabel='relation' THEN
+    PERFORM private.prelock_identity_relation_delete((p_pk->>'id')::bigint);
+  END IF;
   EXECUTE format('DELETE FROM %I WHERE %s', p_tabel, _version_pk_where(p_tabel, p_pk));
 END $$;
 -- ---------- VERSIONERING: restore ----------
@@ -5917,18 +5958,47 @@ BEGIN
     RAISE EXCEPTION 'FEJL: change_set % er allerede fortrudt', p_change_set_id;
   END IF;
 
+  -- Forudscan HELE sættet før reversal-audit eller inverse DML. Hvis nogen inverse
+  -- operation kan indsætte, opdatere eller slette en identitetsrelation, tages den
+  -- fælles advisory+generation-protokol én gang i den globale rækkefølge.
+  IF EXISTS (
+    SELECT 1 FROM change_event ce
+    WHERE ce.change_set_id=p_change_set_id AND ce.tabel='relation'
+      AND CASE ce.op
+        WHEN 'INSERT' THEN ce.efter->>'rolle' IN ('samme_som','ikke_samme_som')
+        WHEN 'DELETE' THEN ce.foer->>'rolle' IN ('samme_som','ikke_samme_som')
+        WHEN 'UPDATE' THEN ce.foer->>'rolle' IN ('samme_som','ikke_samme_som')
+                            OR ce.efter->>'rolle' IN ('samme_som','ikke_samme_som')
+        ELSE false
+      END
+  ) THEN
+    PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+    PERFORM private.guard_identity_mutation_snapshot();
+  END IF;
+
   -- åbn reversal-sæt (re-entrant: triggere fanger ikke restore-DML ind under DET, da vi
   -- bevidst NULLER app.change_set_id under selve inverse — se nedenfor). Vi logger restore
   -- som ÉT change_set uden child-events for ikke at dobbelt-logge; reversal-kæden er sporet.
   PERFORM set_config('app.change_set_id','',true);  -- undgå at inverse-DML re-logges
-  v_new_cs := (SELECT coalesce(max(id),0)+1 FROM change_set);
-  INSERT INTO change_set(id, actor_id, actor_navn, actor_rolle, operation, summary,
-                         subjekt_type, subjekt_id, subjekt_synlighed, reverterer_id)
-    VALUES (v_new_cs, auth.uid(),
-            coalesce((SELECT coalesce(p.navn, p.email, auth.uid()::text) FROM profiles p WHERE p.id=auth.uid()), 'ukendt'),
-            current_rolle(), 'fortryd',
-            format('Fortrød: %s', coalesce(v_orig.summary,'(uden tekst)')),
-            v_orig.subjekt_type, v_orig.subjekt_id, v_orig.subjekt_synlighed, p_change_set_id);
+  IF pg_get_serial_sequence('public.change_set','id') IS NULL THEN
+    v_new_cs := (SELECT coalesce(max(id),0)+1 FROM change_set);
+    INSERT INTO change_set(id, actor_id, actor_navn, actor_rolle, operation, summary,
+                           subjekt_type, subjekt_id, subjekt_synlighed, reverterer_id)
+      VALUES (v_new_cs, auth.uid(),
+              coalesce((SELECT coalesce(p.navn, p.email, auth.uid()::text) FROM profiles p WHERE p.id=auth.uid()), 'ukendt'),
+              current_rolle(), 'fortryd',
+              format('Fortrød: %s', coalesce(v_orig.summary,'(uden tekst)')),
+              v_orig.subjekt_type, v_orig.subjekt_id, v_orig.subjekt_synlighed, p_change_set_id);
+  ELSE
+    INSERT INTO change_set(actor_id, actor_navn, actor_rolle, operation, summary,
+                           subjekt_type, subjekt_id, subjekt_synlighed, reverterer_id)
+      VALUES (auth.uid(),
+              coalesce((SELECT coalesce(p.navn, p.email, auth.uid()::text) FROM profiles p WHERE p.id=auth.uid()), 'ukendt'),
+              current_rolle(), 'fortryd',
+              format('Fortrød: %s', coalesce(v_orig.summary,'(uden tekst)')),
+              v_orig.subjekt_type, v_orig.subjekt_id, v_orig.subjekt_synlighed, p_change_set_id)
+      RETURNING id INTO v_new_cs;
+  END IF;
 
   -- inverse-apply i OMVENDT seq-orden, alt i denne ene transaktion
   FOR ev IN SELECT * FROM change_event WHERE change_set_id=p_change_set_id ORDER BY seq DESC LOOP

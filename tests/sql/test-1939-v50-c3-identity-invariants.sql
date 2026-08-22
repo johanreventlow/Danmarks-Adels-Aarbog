@@ -24,6 +24,9 @@ BEGIN
   IF to_regprocedure('private.prelock_identity_relation_update(jsonb,jsonb)') IS NULL THEN
     RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_HELPER_MISSING';
   END IF;
+  IF to_regprocedure('private.prelock_identity_relation_delete(bigint)') IS NULL THEN
+    RAISE EXCEPTION 'IDENTITY_DELETE_PRELOCK_HELPER_MISSING';
+  END IF;
   IF to_regclass('private.identity_relation_update_prelock') IS NULL THEN
     RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_RECORD_MISSING';
   END IF;
@@ -81,6 +84,28 @@ BEGIN
   ) OR has_function_privilege('anon','private.prelock_identity_relation_update(jsonb,jsonb)','EXECUTE')
        OR has_function_privilege('authenticated','private.prelock_identity_relation_update(jsonb,jsonb)','EXECUTE') THEN
     RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_HELPER_SECURITY_DRIFT';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p
+    WHERE p.oid='private.prelock_identity_relation_delete(bigint)'::regprocedure
+      AND p.prosecdef
+      AND 'search_path=pg_catalog, public, private'=ANY(p.proconfig)
+  ) OR EXISTS (
+    SELECT 1 FROM pg_proc p
+    CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl
+    WHERE p.oid='private.prelock_identity_relation_delete(bigint)'::regprocedure
+      AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
+  ) OR has_function_privilege('anon','private.prelock_identity_relation_delete(bigint)','EXECUTE')
+     OR has_function_privilege('authenticated','private.prelock_identity_relation_delete(bigint)','EXECUTE') THEN
+    RAISE EXCEPTION 'IDENTITY_DELETE_PRELOCK_HELPER_SECURITY_DRIFT';
+  END IF;
+  v_definition := pg_get_functiondef('private.prelock_identity_relation_delete(bigint)'::regprocedure);
+  v_lock_position := strpos(v_definition,'pg_advisory_xact_lock(hashtext(''samme_som_mutation''))');
+  IF v_lock_position < 1
+     OR strpos(v_definition,'private.guard_identity_mutation_snapshot') <= v_lock_position
+     OR strpos(v_definition,'FOR UPDATE') <= strpos(v_definition,'private.guard_identity_mutation_snapshot')
+     OR v_definition !~ 'IDENTITY_RELATION_DELETE_RETRY_REQUIRED' THEN
+    RAISE EXCEPTION 'IDENTITY_DELETE_PRELOCK_ORDER_DRIFT';
   END IF;
   v_definition := pg_get_functiondef('private.prelock_identity_relation_update(jsonb,jsonb)'::regprocedure);
   v_lock_position := strpos(v_definition, 'pg_advisory_xact_lock(hashtext(''samme_som_mutation''))');
@@ -142,6 +167,29 @@ BEGIN
   IF strpos(v_definition,'private.prelock_identity_relation_update') < 1
      OR strpos(v_definition,'private.prelock_identity_relation_update') > strpos(v_definition,'UPDATE %1$I SET') THEN
     RAISE EXCEPTION 'IDENTITY_VERSION_UPSERT_PRELOCK_DRIFT';
+  END IF;
+  v_definition := pg_get_functiondef('public._delete_relation_evidence(bigint)'::regprocedure);
+  IF strpos(v_definition,'private.prelock_identity_relation_delete') < 1
+     OR strpos(v_definition,'private.prelock_identity_relation_delete') > strpos(v_definition,'DELETE FROM citation') THEN
+    RAISE EXCEPTION 'IDENTITY_RAW_DELETE_HELPER_BYPASS';
+  END IF;
+  v_definition := pg_get_functiondef('public.red_slet_relation(bigint)'::regprocedure);
+  IF strpos(v_definition,'private.prelock_identity_relation_delete') < 1
+     OR strpos(v_definition,'private.prelock_identity_relation_delete') > strpos(v_definition,'begin_change_set') THEN
+    RAISE EXCEPTION 'IDENTITY_GENERIC_DELETE_LOCK_ORDER_DRIFT';
+  END IF;
+  v_definition := pg_get_functiondef('public._version_delete_row(text,jsonb)'::regprocedure);
+  IF strpos(v_definition,'private.prelock_identity_relation_delete') < 1
+     OR strpos(v_definition,'private.prelock_identity_relation_delete') > strpos(v_definition,'DELETE FROM %I') THEN
+    RAISE EXCEPTION 'IDENTITY_VERSION_DELETE_HELPER_BYPASS';
+  END IF;
+  v_definition := pg_get_functiondef('public.red_fortryd_change_set(bigint,boolean)'::regprocedure);
+  v_lock_position := strpos(v_definition,'pg_advisory_xact_lock(hashtext(''samme_som_mutation''))');
+  IF v_lock_position < 1
+     OR strpos(v_definition,'private.guard_identity_mutation_snapshot') <= v_lock_position
+     OR strpos(v_definition,'set_config(''app.change_set_id''') <= strpos(v_definition,'private.guard_identity_mutation_snapshot')
+     OR strpos(v_definition,'FOR ev IN SELECT') <= strpos(v_definition,'private.guard_identity_mutation_snapshot') THEN
+    RAISE EXCEPTION 'IDENTITY_UNDO_PREANALYSIS_ORDER_DRIFT';
   END IF;
 END $catalog$;
 
