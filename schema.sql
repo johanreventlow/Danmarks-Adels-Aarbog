@@ -4096,13 +4096,24 @@ BEGIN
     END IF;
     RETURN NEW;
   END IF;
-  IF NEW.rolle <> 'samme_som' OR NEW.subjekt_type <> 'person' OR NEW.objekt_type <> 'person' THEN
-    RETURN NEW; -- ikke et person→person samme_som — rør ikke
+  IF NEW.rolle NOT IN ('samme_som','ikke_samme_som')
+     OR NEW.subjekt_type <> 'person' OR NEW.objekt_type <> 'person' THEN
+    RETURN NEW; -- ikke et person→person identitetsforhold — rør ikke
   END IF;
   PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation')); -- serialisér samme_som-mutationer
   PERFORM 1 FROM public.person
     WHERE id IN (NEW.subjekt_id, NEW.objekt_id)
     ORDER BY id FOR UPDATE;
+  IF NEW.rolle = 'ikke_samme_som' THEN
+    IF EXISTS (
+      SELECT 1
+      FROM public._samme_som_gruppe(NEW.subjekt_id) a
+      JOIN public._samme_som_gruppe(NEW.objekt_id) b ON b.pid = a.pid
+    ) THEN
+      RAISE EXCEPTION 'IDENTITY_COMPONENT_CONTRADICTION: ikke_samme_som overlapper samme_som-komponent';
+    END IF;
+    RETURN NEW;
+  END IF;
   IF NEW.subjekt_id = NEW.objekt_id THEN
     RAISE EXCEPTION 'samme_som: kan ikke linke en person til sig selv';
   END IF;
@@ -4144,7 +4155,7 @@ END $$;
 
 DROP TRIGGER IF EXISTS trg_enforce_samme_som ON relation;
 CREATE TRIGGER trg_enforce_samme_som BEFORE INSERT ON relation
-  FOR EACH ROW WHEN (NEW.rolle = 'samme_som') EXECUTE FUNCTION enforce_samme_som_invariants();
+  FOR EACH ROW WHEN (NEW.rolle IN ('samme_som','ikke_samme_som')) EXECUTE FUNCTION enforce_samme_som_invariants();
 DROP TRIGGER IF EXISTS trg_enforce_samme_som_update ON relation;
 CREATE TRIGGER trg_enforce_samme_som_update BEFORE UPDATE ON relation
   FOR EACH ROW WHEN (OLD.rolle = 'samme_som' OR NEW.rolle = 'samme_som')
@@ -4456,10 +4467,14 @@ REVOKE EXECUTE ON FUNCTION _samme_som_gruppe(bigint) FROM PUBLIC, anon, authenti
 CREATE OR REPLACE FUNCTION private.identity_components_have_rejection(
   p_left bigint, p_right bigint
 ) RETURNS boolean
-LANGUAGE sql STABLE SECURITY DEFINER
+LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, public, private
 AS $$
-  SELECT EXISTS (
+BEGIN
+  IF pg_trigger_depth() = 0 AND public.current_rolle() <> 'redaktion' THEN
+    RAISE EXCEPTION 'Kun redaktion';
+  END IF;
+  RETURN EXISTS (
     SELECT 1
     FROM public.relation r
     WHERE r.rolle = 'ikke_samme_som'
@@ -4471,7 +4486,8 @@ AS $$
         (r.objekt_id IN (SELECT pid FROM public._samme_som_gruppe(p_left))
          AND r.subjekt_id IN (SELECT pid FROM public._samme_som_gruppe(p_right)))
       )
-  )
+  );
+END
 $$;
 REVOKE ALL ON FUNCTION private.identity_components_have_rejection(bigint,bigint) FROM PUBLIC, anon, authenticated;
 

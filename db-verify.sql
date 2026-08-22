@@ -93,6 +93,14 @@ BEGIN
   PERFORM red_samme_som(a1,ac);
   PERFORM red_samme_som(a2,ac);
   BEGIN
+    INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM relation),
+            'person',a1,'person',a2,'ikke_samme_som');
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_TRIGGER_COMPONENT_DIFFERENT_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
+  END;
+  BEGIN
     PERFORM red_ikke_samme_som(a1,a2);
     RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_COMPONENT_DIFFERENT_REJECTION';
   EXCEPTION WHEN others THEN
@@ -107,6 +115,13 @@ BEGIN
     RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_COMPONENT_SAME_REJECTION';
   EXCEPTION WHEN others THEN
     IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
+  END;
+  PERFORM set_config('request.jwt.claim.sub','19390000-0000-4000-8000-000000000098',true);
+  BEGIN
+    PERFORM private.identity_components_have_rejection(a1,b1);
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_HELPER_ROLE_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%Kun redaktion%' THEN RAISE; END IF;
   END;
   RAISE NOTICE 'OK: C3 komponentbrede identitetskontradiktioner';
 END $verify$;
