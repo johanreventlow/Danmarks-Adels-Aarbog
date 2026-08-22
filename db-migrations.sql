@@ -4218,12 +4218,8 @@ BEGIN
   -- Samme advisory-lock som red_samme_som: serialisér de to kontradiktions-guards mod hinanden
   -- (uden den kan concurrent red_samme_som(a,b)+red_ikke_samme_som(a,b) begge passere → dobbelt-rolle).
   PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  PERFORM private.lock_identity_people(ARRAY[p_a, p_b]);
   IF p_a = p_b THEN RAISE EXCEPTION 'ikke_samme_som: kan ikke afvise en person mod sig selv'; END IF;
-  PERFORM 1 FROM public.person
-    WHERE id IN (p_a, p_b)
-    ORDER BY id FOR UPDATE;
-  IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_a) THEN RAISE EXCEPTION 'Person % findes ikke', p_a; END IF;
-  IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_b) THEN RAISE EXCEPTION 'Person % findes ikke', p_b; END IF;
   v_lo := least(p_a, p_b); v_hi := greatest(p_a, p_b);
   -- Idempotens FØR change_set (ingen tom audit ved gentagelse; begge kald-retninger normaliseres).
   SELECT id INTO v_rel FROM relation WHERE rolle='ikke_samme_som' AND subjekt_type='person' AND objekt_type='person'
@@ -4467,8 +4463,7 @@ DECLARE v_rel bigint; v_ass bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
-  IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_alias_id) THEN RAISE EXCEPTION 'Person % findes ikke', p_alias_id; END IF;
-  IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_objekt_id) THEN RAISE EXCEPTION 'Person % findes ikke', p_objekt_id; END IF;
+  PERFORM private.lock_identity_people(ARRAY[p_alias_id, p_objekt_id]);
   -- G2 idempotens (præcis retning) FØR begin_change_set.
   SELECT id INTO v_rel FROM relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
     AND subjekt_id=p_alias_id AND objekt_id=p_objekt_id LIMIT 1;
@@ -4889,6 +4884,30 @@ END
 $$;
 REVOKE ALL ON FUNCTION private.identity_components_have_rejection(bigint,bigint) FROM PUBLIC, anon, authenticated;
 
+-- Fælles låse-helper for alle identitets-writers og identitetstriggere. Direkte kald er
+-- redaktion-gated; trigger-contexten håndhæver samme invariant for rå restore/undo-skrivninger.
+CREATE OR REPLACE FUNCTION private.lock_identity_people(p_person_ids bigint[])
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, public, private AS $$
+DECLARE v_expected integer; v_locked integer;
+BEGIN
+  IF pg_trigger_depth() = 0 AND public.current_rolle() <> 'redaktion' THEN
+    RAISE EXCEPTION 'Kun redaktion';
+  END IF;
+  SELECT count(*) INTO v_expected
+  FROM (SELECT DISTINCT x FROM unnest(p_person_ids) x WHERE x IS NOT NULL) q;
+  SELECT count(*) INTO v_locked
+  FROM (
+    SELECT p.id FROM public.person p
+    WHERE p.id IN (SELECT DISTINCT x FROM unnest(p_person_ids) x)
+    ORDER BY p.id FOR UPDATE
+  ) q;
+  IF v_expected < 1 OR v_locked <> v_expected THEN
+    RAISE EXCEPTION 'IDENTITY_PERSON_NOT_FOUND';
+  END IF;
+END $$;
+REVOKE ALL ON FUNCTION private.lock_identity_people(bigint[]) FROM PUBLIC, anon, authenticated;
+
 -- SECURITY DEFINER (2026-08-01): guarden nedenfor kalder _samme_som_gruppe, hvis EXECUTE er
 -- revoked fra anon/authenticated. Alle reelle skriveveje går gennem definer-RPC'er og kører
 -- allerede som ejer, men uden dette ville en fremtidig ikke-ejer-sti fejle på rettigheder frem
@@ -4910,9 +4929,7 @@ BEGIN
     IF NEW.rolle = 'ikke_samme_som'
        AND NEW.subjekt_type = 'person' AND NEW.objekt_type = 'person' THEN
       PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
-      PERFORM 1 FROM public.person
-        WHERE id IN (NEW.subjekt_id, NEW.objekt_id)
-        ORDER BY id FOR UPDATE;
+      PERFORM private.lock_identity_people(ARRAY[NEW.subjekt_id, NEW.objekt_id]);
       IF EXISTS (
         SELECT 1
         FROM public._samme_som_gruppe(NEW.subjekt_id) a
@@ -4928,9 +4945,7 @@ BEGIN
     RETURN NEW; -- ikke et person→person identitetsforhold — rør ikke
   END IF;
   PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation')); -- serialisér samme_som-mutationer
-  PERFORM 1 FROM public.person
-    WHERE id IN (NEW.subjekt_id, NEW.objekt_id)
-    ORDER BY id FOR UPDATE;
+  PERFORM private.lock_identity_people(ARRAY[NEW.subjekt_id, NEW.objekt_id]);
   IF NEW.rolle = 'ikke_samme_som' THEN
     IF EXISTS (
       SELECT 1
@@ -8240,6 +8255,7 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_facts bigint[]; v_rels bigint[];
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
 
   -- 2026-08-20: private.source_persona_identity(_event).canonical_person_id har FK mod person
   -- uden ON DELETE, og _event er append-only (kun BEFORE INSERT-trigger). Har personen én gang
@@ -8261,7 +8277,7 @@ BEGIN
   -- danne cyklussen external-id→citation / citation→external-id.
   PERFORM 1 FROM source s JOIN person_external_id pei ON pei.source_id=s.id
     WHERE pei.person_id=p_person_id ORDER BY s.id,pei.source_id FOR UPDATE OF s,pei;
-  PERFORM 1 FROM person WHERE id=p_person_id FOR UPDATE;
+  PERFORM private.lock_identity_people(ARRAY[p_person_id]);
 
   SELECT coalesce(array_agg(id),'{}') INTO v_facts FROM fact
     WHERE subjekt_type='person' AND subjekt_id=p_person_id;

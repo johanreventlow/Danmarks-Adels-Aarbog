@@ -165,6 +165,97 @@ BEGIN
 END $verify$;
 ROLLBACK;
 
+-- ===== C3 Task 2 — identitets-writers serialiserer med person-sletning =====
+DO $verify$
+DECLARE
+  v_definition text;
+  v_lock_position integer;
+  v_people_position integer;
+  v_writer regprocedure;
+BEGIN
+  IF to_regprocedure('private.lock_identity_people(bigint[])') IS NULL THEN
+    RAISE EXCEPTION 'IDENTITY_LOCK_HELPER_MISSING';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    WHERE p.oid = 'private.lock_identity_people(bigint[])'::regprocedure
+      AND p.prosecdef
+      AND 'search_path=pg_catalog, public, private' = ANY (p.proconfig)
+  ) THEN
+    RAISE EXCEPTION 'IDENTITY_LOCK_HELPER_SECURITY_DRIFT';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f',p.proowner))) acl
+    WHERE p.oid = 'private.lock_identity_people(bigint[])'::regprocedure
+      AND acl.grantee = 0 AND acl.privilege_type = 'EXECUTE'
+  )
+     OR has_function_privilege('anon','private.lock_identity_people(bigint[])','EXECUTE')
+     OR has_function_privilege('authenticated','private.lock_identity_people(bigint[])','EXECUTE') THEN
+    RAISE EXCEPTION 'IDENTITY_LOCK_HELPER_ACL_DRIFT';
+  END IF;
+  v_definition := pg_get_functiondef('private.lock_identity_people(bigint[])'::regprocedure);
+  IF v_definition !~ 'SELECT DISTINCT x FROM unnest\(p_person_ids\) x WHERE x IS NOT NULL'
+     OR v_definition !~ 'ORDER BY p.id FOR UPDATE' THEN
+    RAISE EXCEPTION 'IDENTITY_LOCK_HELPER_SORT_DEDUP_DRIFT';
+  END IF;
+  FOREACH v_writer IN ARRAY ARRAY[
+    'public.red_samme_som(bigint,bigint)'::regprocedure,
+    'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
+    'public.red_slet_person(bigint)'::regprocedure
+  ] LOOP
+    v_definition := pg_get_functiondef(v_writer);
+    v_lock_position := strpos(v_definition, 'pg_advisory_xact_lock(hashtext(''samme_som_mutation''))');
+    v_people_position := strpos(v_definition, 'private.lock_identity_people');
+    IF v_lock_position < 1 OR v_people_position <= v_lock_position THEN
+      RAISE EXCEPTION 'IDENTITY_WRITER_LOCK_ORDER_DRIFT: %', v_writer;
+    END IF;
+  END LOOP;
+  v_definition := pg_get_functiondef('public.enforce_samme_som_invariants()'::regprocedure);
+  IF regexp_count(v_definition, 'private\.lock_identity_people') <> 2 THEN
+    RAISE EXCEPTION 'IDENTITY_TRIGGER_LOCK_HELPER_DRIFT';
+  END IF;
+  RAISE NOTICE 'OK: C3 identitets-writers har fælles advisory/person-låsorden';
+END $verify$;
+
+BEGIN;
+DO $verify$
+DECLARE
+  v_actor uuid := '19390000-0000-4000-8000-000000000004';
+  p_low bigint := -1939502101;
+  p_high bigint := -1939502102;
+  p_missing bigint := -1939502199;
+BEGIN
+  INSERT INTO auth.users(id,email)
+  VALUES (v_actor,'c3-identity-lock-verify@test.invalid')
+  ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,email,rolle,navn)
+  VALUES (v_actor,'c3-identity-lock-verify@test.invalid','redaktion','C3 identity lock verify')
+  ON CONFLICT (id) DO UPDATE SET rolle='redaktion',navn='C3 identity lock verify';
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  INSERT INTO person(id,levende,koen) VALUES
+    (p_low,false,'ukendt'),(p_high,false,'ukendt')
+  ON CONFLICT (id) DO NOTHING;
+  PERFORM private.lock_identity_people(ARRAY[p_high,p_low,p_low,NULL]);
+  BEGIN
+    PERFORM private.lock_identity_people(ARRAY[p_low,p_missing,NULL]);
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_PERSON_NOT_FOUND';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_PERSON_NOT_FOUND' THEN RAISE; END IF;
+  END;
+  PERFORM set_config('request.jwt.claim.sub','19390000-0000-4000-8000-000000000098',true);
+  BEGIN
+    PERFORM private.lock_identity_people(ARRAY[p_low,p_high]);
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_LOCK_HELPER_ROLE_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%Kun redaktion%' THEN RAISE; END IF;
+  END;
+  RAISE NOTICE 'OK: C3 sorteret person-lås accepterer negative fixtures og afviser manglende personer';
+END $verify$;
+ROLLBACK;
+
 SELECT to_regclass('public.profiles') IS NOT NULL AS profiles_ok,
        to_regclass('public.suggestion') IS NOT NULL AS suggestion_ok;
 -- Forvent profiles_ok=t, suggestion_ok=t
