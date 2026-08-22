@@ -51,8 +51,13 @@ REVOKE ALL ON SEQUENCE public.conclusion_id_seq FROM PUBLIC, anon, authenticated
 
 CREATE TABLE IF NOT EXISTS private.identity_mutation_generation (
   singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
-  generation bigint NOT NULL DEFAULT 0
+  generation bigint NOT NULL DEFAULT 0,
+  guard_transaction_id xid8,
+  guard_backend_pid integer
 );
+ALTER TABLE private.identity_mutation_generation
+  ADD COLUMN IF NOT EXISTS guard_transaction_id xid8,
+  ADD COLUMN IF NOT EXISTS guard_backend_pid integer;
 INSERT INTO private.identity_mutation_generation(singleton,generation)
 VALUES (true,0) ON CONFLICT (singleton) DO NOTHING;
 ALTER TABLE private.identity_mutation_generation ENABLE ROW LEVEL SECURITY;
@@ -67,7 +72,9 @@ CREATE OR REPLACE FUNCTION private.guard_identity_mutation_snapshot()
 AS $function$
 BEGIN
   UPDATE private.identity_mutation_generation
-     SET generation = generation + 1
+     SET generation = generation + 1,
+         guard_transaction_id = pg_catalog.pg_current_xact_id(),
+         guard_backend_pid = pg_catalog.pg_backend_pid()
    WHERE singleton;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'IDENTITY_MUTATION_GENERATION_MISSING';
@@ -81,29 +88,26 @@ CREATE OR REPLACE FUNCTION private.prelock_identity_relation_delete(p_relation_i
  SECURITY DEFINER
  SET search_path TO 'pg_catalog', 'public', 'private'
 AS $function$
-DECLARE v_initial_role text; v_locked_role text;
+DECLARE v_locked_role text; v_has_guard boolean;
 BEGIN
   IF public.current_rolle() <> 'redaktion' THEN
     RAISE EXCEPTION 'Kun redaktion';
   END IF;
 
-  SELECT r.rolle INTO v_initial_role
-  FROM public.relation r WHERE r.id=p_relation_id;
-  IF NOT FOUND OR v_initial_role IN ('samme_som','ikke_samme_som') THEN
-    PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
-    PERFORM private.guard_identity_mutation_snapshot();
-    SELECT r.rolle INTO v_locked_role
-    FROM public.relation r WHERE r.id=p_relation_id FOR UPDATE;
-    RETURN;
-  END IF;
-
   SELECT r.rolle INTO v_locked_role
   FROM public.relation r WHERE r.id=p_relation_id FOR UPDATE;
-  IF FOUND AND v_locked_role IN ('samme_som','ikke_samme_som') THEN
-    RAISE EXCEPTION 'IDENTITY_RELATION_DELETE_RETRY_REQUIRED';
+  IF NOT FOUND OR v_locked_role IN ('samme_som','ikke_samme_som') THEN
+    SELECT EXISTS (
+      SELECT 1 FROM private.identity_mutation_generation g
+      WHERE g.singleton
+        AND g.guard_transaction_id=pg_catalog.pg_current_xact_id()
+        AND g.guard_backend_pid=pg_catalog.pg_backend_pid()
+    ) INTO v_has_guard;
+    IF NOT v_has_guard THEN
+      RAISE EXCEPTION 'IDENTITY_RELATION_DELETE_RETRY_REQUIRED';
+    END IF;
   END IF;
-END
-$function$
+END $function$
 ;
 
 CREATE TABLE IF NOT EXISTS private.identity_relation_update_prelock (
@@ -181,8 +185,7 @@ BEGIN
   DELETE FROM assertion  WHERE target_type='relation' AND target_id=p_relation_id;
   DELETE FROM note       WHERE target_type='relation' AND target_id=p_relation_id;
   DELETE FROM relation   WHERE id=p_relation_id;
-END
-$function$
+END $function$
 ;
 
 CREATE OR REPLACE FUNCTION public.red_slet_relation(p_relation_id bigint)
@@ -191,15 +194,25 @@ CREATE OR REPLACE FUNCTION public.red_slet_relation(p_relation_id bigint)
  SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
+DECLARE v_role text;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
-  -- Tag identity-protokollen før change_set-rækken, så ingen senere advisory-lås kan
-  -- vende låserækkefølgen mod en samtidig identity-writer.
-  PERFORM private.prelock_identity_relation_delete(p_relation_id);
-  PERFORM begin_change_set('red_slet_relation', format('Slettede relation %s', p_relation_id), NULL, NULL);
+  -- Klassificér uden rækkelås. Identity/absent tager den globale protokol før
+  -- change_set; unrelated bevarer repository-ordenen change_set -> relation tuple.
+  SELECT rolle INTO v_role FROM relation WHERE id=p_relation_id;
+  IF NOT FOUND OR v_role IN ('samme_som','ikke_samme_som') THEN
+    PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+    PERFORM private.guard_identity_mutation_snapshot();
+    PERFORM private.prelock_identity_relation_delete(p_relation_id);
+    PERFORM begin_change_set('red_slet_relation', format('Slettede relation %s', p_relation_id), NULL, NULL);
+  ELSE
+    PERFORM begin_change_set('red_slet_relation', format('Slettede relation %s', p_relation_id), NULL, NULL);
+    -- Helperen tager kun tuple-lock. Rolle-drift til identity fejler retry-required;
+    -- helperen tager aldrig advisory/generation sent.
+    PERFORM private.prelock_identity_relation_delete(p_relation_id);
+  END IF;
   PERFORM _delete_relation_evidence(p_relation_id);
-END
-$function$
+END $function$
 ;
 
 CREATE OR REPLACE FUNCTION public._version_delete_row(p_tabel text, p_pk jsonb)
@@ -212,8 +225,7 @@ BEGIN
     PERFORM private.prelock_identity_relation_delete((p_pk->>'id')::bigint);
   END IF;
   EXECUTE format('DELETE FROM %I WHERE %s', p_tabel, _version_pk_where(p_tabel, p_pk));
-END
-$function$
+END $function$
 ;
 
 CREATE OR REPLACE FUNCTION public.red_fortryd_change_set(p_change_set_id bigint, p_force boolean DEFAULT false)
@@ -240,14 +252,14 @@ BEGIN
   -- fælles advisory+generation-protokol én gang i den globale rækkefølge.
   IF EXISTS (
     SELECT 1 FROM change_event ce
-    WHERE ce.change_set_id=p_change_set_id AND ce.tabel='relation'
-      AND CASE ce.op
+    WHERE ce.change_set_id=p_change_set_id AND ce.tabel='relation' AND (
+      p_force OR CASE ce.op
         WHEN 'INSERT' THEN ce.efter->>'rolle' IN ('samme_som','ikke_samme_som')
         WHEN 'DELETE' THEN ce.foer->>'rolle' IN ('samme_som','ikke_samme_som')
         WHEN 'UPDATE' THEN ce.foer->>'rolle' IN ('samme_som','ikke_samme_som')
                             OR ce.efter->>'rolle' IN ('samme_som','ikke_samme_som')
         ELSE false
-      END
+      END)
   ) THEN
     PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
     PERFORM private.guard_identity_mutation_snapshot();
@@ -320,8 +332,7 @@ BEGIN
     UPDATE change_set SET summary = summary || format(' [%s divergenser tvunget]', v_div) WHERE id=v_new_cs;
   END IF;
   RETURN jsonb_build_object('reversal_change_set', v_new_cs, 'divergenser', v_div);
-END
-$function$
+END $function$
 ;
 
 CREATE OR REPLACE FUNCTION private.lock_identity_people(p_person_ids bigint[])

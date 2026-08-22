@@ -27,6 +27,17 @@ BEGIN
   IF to_regprocedure('private.prelock_identity_relation_delete(bigint)') IS NULL THEN
     RAISE EXCEPTION 'IDENTITY_DELETE_PRELOCK_HELPER_MISSING';
   END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='private' AND table_name='identity_mutation_generation'
+      AND column_name='guard_transaction_id' AND udt_name='xid8'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='private' AND table_name='identity_mutation_generation'
+      AND column_name='guard_backend_pid' AND udt_name='int4'
+  ) THEN
+    RAISE EXCEPTION 'IDENTITY_DELETE_GUARD_PROOF_COLUMNS_MISSING';
+  END IF;
   IF to_regclass('private.identity_relation_update_prelock') IS NULL THEN
     RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_RECORD_MISSING';
   END IF;
@@ -100,12 +111,16 @@ BEGIN
     RAISE EXCEPTION 'IDENTITY_DELETE_PRELOCK_HELPER_SECURITY_DRIFT';
   END IF;
   v_definition := pg_get_functiondef('private.prelock_identity_relation_delete(bigint)'::regprocedure);
-  v_lock_position := strpos(v_definition,'pg_advisory_xact_lock(hashtext(''samme_som_mutation''))');
-  IF v_lock_position < 1
-     OR strpos(v_definition,'private.guard_identity_mutation_snapshot') <= v_lock_position
-     OR strpos(v_definition,'FOR UPDATE') <= strpos(v_definition,'private.guard_identity_mutation_snapshot')
+  IF v_definition ~ 'pg_advisory_xact_lock|guard_identity_mutation_snapshot'
+     OR strpos(v_definition,'FOR UPDATE') < 1
+     OR strpos(v_definition,'guard_transaction_id') <= strpos(v_definition,'FOR UPDATE')
      OR v_definition !~ 'IDENTITY_RELATION_DELETE_RETRY_REQUIRED' THEN
     RAISE EXCEPTION 'IDENTITY_DELETE_PRELOCK_ORDER_DRIFT';
+  END IF;
+  v_definition := pg_get_functiondef('private.guard_identity_mutation_snapshot()'::regprocedure);
+  IF v_definition !~ 'guard_transaction_id = pg_catalog.pg_current_xact_id\(\)'
+     OR v_definition !~ 'guard_backend_pid = pg_catalog.pg_backend_pid\(\)' THEN
+    RAISE EXCEPTION 'IDENTITY_DELETE_GUARD_PROOF_WRITE_DRIFT';
   END IF;
   v_definition := pg_get_functiondef('private.prelock_identity_relation_update(jsonb,jsonb)'::regprocedure);
   v_lock_position := strpos(v_definition, 'pg_advisory_xact_lock(hashtext(''samme_som_mutation''))');
@@ -173,9 +188,12 @@ BEGIN
      OR strpos(v_definition,'private.prelock_identity_relation_delete') > strpos(v_definition,'DELETE FROM citation') THEN
     RAISE EXCEPTION 'IDENTITY_RAW_DELETE_HELPER_BYPASS';
   END IF;
-  v_definition := pg_get_functiondef('public.red_slet_relation(bigint)'::regprocedure);
-  IF strpos(v_definition,'private.prelock_identity_relation_delete') < 1
-     OR strpos(v_definition,'private.prelock_identity_relation_delete') > strpos(v_definition,'begin_change_set') THEN
+  v_definition := regexp_replace(pg_get_functiondef('public.red_slet_relation(bigint)'::regprocedure),'\s+',' ','g');
+  IF v_definition !~ 'SELECT rolle INTO v_role FROM relation WHERE id=p_relation_id'
+     OR v_definition ~ 'SELECT rolle INTO v_role FROM relation WHERE id=p_relation_id FOR UPDATE'
+     OR regexp_count(v_definition,'private\.prelock_identity_relation_delete') <> 2
+     OR regexp_count(v_definition,'begin_change_set') <> 2
+     OR v_definition !~ 'pg_advisory_xact_lock.*guard_identity_mutation_snapshot.*prelock_identity_relation_delete.*begin_change_set.*ELSE.*begin_change_set.*prelock_identity_relation_delete' THEN
     RAISE EXCEPTION 'IDENTITY_GENERIC_DELETE_LOCK_ORDER_DRIFT';
   END IF;
   v_definition := pg_get_functiondef('public._version_delete_row(text,jsonb)'::regprocedure);
@@ -187,6 +205,7 @@ BEGIN
   v_lock_position := strpos(v_definition,'pg_advisory_xact_lock(hashtext(''samme_som_mutation''))');
   IF v_lock_position < 1
      OR strpos(v_definition,'private.guard_identity_mutation_snapshot') <= v_lock_position
+     OR v_definition !~ 'p_force OR CASE ce.op'
      OR strpos(v_definition,'set_config(''app.change_set_id''') <= strpos(v_definition,'private.guard_identity_mutation_snapshot')
      OR strpos(v_definition,'FOR ev IN SELECT') <= strpos(v_definition,'private.guard_identity_mutation_snapshot') THEN
     RAISE EXCEPTION 'IDENTITY_UNDO_PREANALYSIS_ORDER_DRIFT';
