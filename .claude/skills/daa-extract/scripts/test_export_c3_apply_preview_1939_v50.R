@@ -444,6 +444,94 @@ zero_row_gateway <- (function() {
 })()
 expect_fail_closed(zero_row_gateway, "C3_PREVIEW_RESPONSE_INVALID")
 
+## -- Fund 2 (review fix round 1): field-type checks previously missing on
+## target_narratives.narrative_id/old_sha256, bindings.binding_person_id,
+## and source_records.side for non-assign rows. Each malformed variant
+## below must fail closed as C3_PREVIEW_RESPONSE_INVALID, and each
+## corresponding NULL-is-allowed variant must still build successfully.
+## `x[name] <- list(NULL)` is used (not `x$name <- NULL` / `x[[name]] <-
+## NULL`, both of which DELETE the list element in R) to set a field to a
+## real NULL while keeping the key present, matching how jsonlite parses a
+## JSON `null` value from a real RPC response. ------------------------------
+
+set_null_field <- function(lst, name) { lst[name] <- list(NULL); lst }
+
+wrong_type_narrative_id <- modify_response(function(r) {
+  r$target_narratives[[1L]]$narrative_id <- "not-a-number"; r
+})
+expect_fail_closed(fake_gateway(rpc_response = wrong_type_narrative_id),
+                   "C3_PREVIEW_RESPONSE_INVALID")
+
+null_narrative_id <- modify_response(function(r) {
+  r$target_narratives[[1L]] <- set_null_field(r$target_narratives[[1L]], "narrative_id")
+  r
+})
+null_narrative_id_result <- run_build(fake_gateway(rpc_response = null_narrative_id))
+expect(is.null(null_narrative_id_result$before_state$target_narratives[[1L]]$narrative_id),
+       "C3_TEST_NARRATIVE_ID_NULL_ALLOWED")
+
+wrong_type_old_sha256 <- modify_response(function(r) {
+  r$target_narratives[[1L]]$old_sha256 <- 12345; r
+})
+expect_fail_closed(fake_gateway(rpc_response = wrong_type_old_sha256),
+                   "C3_PREVIEW_RESPONSE_INVALID")
+
+malformed_old_sha256 <- modify_response(function(r) {
+  r$target_narratives[[1L]]$old_sha256 <- "not-64-hex"; r
+})
+expect_fail_closed(fake_gateway(rpc_response = malformed_old_sha256),
+                   "C3_PREVIEW_RESPONSE_INVALID")
+
+null_old_sha256 <- modify_response(function(r) {
+  r$target_narratives[[1L]] <- set_null_field(r$target_narratives[[1L]], "old_sha256")
+  r
+})
+null_old_sha256_result <- run_build(fake_gateway(rpc_response = null_old_sha256))
+expect(is.null(null_old_sha256_result$before_state$target_narratives[[1L]]$old_sha256),
+       "C3_TEST_OLD_SHA256_NULL_ALLOWED")
+
+wrong_type_binding_person_id <- modify_response(function(r) {
+  r$bindings[[1L]]$binding_person_id <- "not-a-number"; r
+})
+expect_fail_closed(fake_gateway(rpc_response = wrong_type_binding_person_id),
+                   "C3_PREVIEW_RESPONSE_INVALID")
+
+null_binding_person_id <- modify_response(function(r) {
+  r$bindings[[1L]] <- set_null_field(r$bindings[[1L]], "binding_person_id")
+  r
+})
+null_binding_person_id_result <- run_build(fake_gateway(rpc_response = null_binding_person_id))
+expect(is.null(null_binding_person_id_result$before_state$bindings[[1L]]$binding_person_id),
+       "C3_TEST_BINDING_PERSON_ID_NULL_ALLOWED")
+
+wrong_type_no_publication_side <- modify_response(function(r) {
+  r$source_records[[6L]]$side <- 502; r  ## rid-6/rk-6 is the no_publication row
+})
+expect_fail_closed(fake_gateway(rpc_response = wrong_type_no_publication_side),
+                   "C3_PREVIEW_RESPONSE_INVALID")
+
+## -- Fund 3 (review fix round 1): a draft_same_record binding must be bound
+## to the case's own target person; a draft bound to a DIFFERENT person must
+## fail closed instead of passing as a clean absent-equivalent state. -------
+
+draft_same_record_wrong_person <- modify_response(function(r) {
+  r$bindings[[1L]]$status <- "draft_same_record"
+  r$bindings[[1L]]$binding_person_id <- 999  ## rk-1's assign target is 101
+  r
+})
+expect_fail_closed(fake_gateway(rpc_response = draft_same_record_wrong_person),
+                   "C3_PREVIEW_BINDING_INVALID")
+
+draft_same_record_matching_person <- modify_response(function(r) {
+  r$bindings[[1L]]$status <- "draft_same_record"
+  r$bindings[[1L]]$binding_person_id <- 101  ## matches rk-1's assign target
+  r
+})
+draft_same_record_ok_result <- run_build(fake_gateway(rpc_response = draft_same_record_matching_person))
+expect(identical(draft_same_record_ok_result$before_state$bindings[[1L]]$status,
+                 "draft_same_record"),
+       "C3_TEST_DRAFT_SAME_RECORD_MATCHING_PERSON_ALLOWED")
+
 ## Non-jsonb-looking result text (invalid JSON) also fails closed.
 invalid_json_gateway <- (function() {
   base <- fake_gateway()

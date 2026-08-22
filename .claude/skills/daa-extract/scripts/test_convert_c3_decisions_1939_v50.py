@@ -2,6 +2,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -18,6 +19,25 @@ C3_SCRIPT_PATHS = [
     SCRIPT_DIR / "export_c3_current_state_1939_v50_helpers.R",
     SCRIPT_DIR / "build_c3_review_1939_v50.py",
     MODULE_PATH,
+    SCRIPT_DIR / "c3_export_shared_1939_v50_helpers.R",
+]
+
+# The C3 apply preview scripts are read-only like every other file above, but
+# they legitimately call the read-only RPC `public.red_preview_reimport_cases(`
+# (Task 2, Fund H1: the preview has no SQL registry of its own, it forwards
+# this one RPC's canonical answer). That call matches the strict
+# `red_[a-z_]+\s*\(` clause of NO_WRITER_PATTERN above, so these two files
+# cannot be added to C3_SCRIPT_PATHS without permanently blinding the audit
+# to any other `red_*(` writer call inside them (verified by hand: the
+# original strict pattern does hit these two files, exactly once each, on
+# their `red_preview_reimport_cases(` call). Instead of loosening the shared
+# regex — which would require `rg -P`/PCRE2, a ripgrep feature this repo's CI
+# runner is not confirmed to have — the check below stays on the plain
+# NO_WRITER_PATTERN and allowlists in Python: every matched line must become
+# clean once the one permitted call is stripped out of it.
+C3_PREVIEW_SCRIPT_PATHS = [
+    SCRIPT_DIR / "export_c3_apply_preview_1939_v50.R",
+    SCRIPT_DIR / "export_c3_apply_preview_1939_v50_helpers.R",
 ]
 
 
@@ -39,6 +59,24 @@ def test_c3_scripts_pass_mechanical_no_writer_audit():
     assert completed.returncode == 1
     assert completed.stdout == ""
     assert completed.stderr == ""
+
+
+def test_c3_preview_scripts_only_writer_hit_is_the_read_only_preview_rpc():
+    # Runs the plain (non-PCRE2) NO_WRITER_PATTERN, same as the strict audit
+    # above, then allowlists exactly one thing in Python: a matched line is
+    # only acceptable if stripping out `red_preview_reimport_cases(` from it
+    # leaves nothing that still matches NO_WRITER_PATTERN. A `returncode==0`
+    # is required (not just tolerated): if neither preview file calls the
+    # RPC any more, this loop runs zero iterations and would pass vacuously,
+    # so the exit code is asserted separately as the "still calls it" guard.
+    completed = subprocess.run(
+        ["rg", "-n", NO_WRITER_PATTERN, *map(str, C3_PREVIEW_SCRIPT_PATHS)],
+        text=True, capture_output=True, check=False)
+    assert completed.returncode == 0
+    assert completed.stderr == ""
+    for line in completed.stdout.splitlines():
+        stripped = line.replace("red_preview_reimport_cases(", "")
+        assert not re.search(NO_WRITER_PATTERN, stripped), line
 
 
 def converter():

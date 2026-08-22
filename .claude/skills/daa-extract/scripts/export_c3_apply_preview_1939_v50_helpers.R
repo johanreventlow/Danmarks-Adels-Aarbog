@@ -246,7 +246,11 @@
         !.c3_common_scalar_string(row$record_key) ||
         !identical(row$record_key, decision$record_key) ||
         !is.numeric(row$match_count) || length(row$match_count) != 1L ||
-        !.c3_common_scalar_string(row$verbatim_sha256, "^[0-9a-f]{64}$"))
+        !.c3_common_scalar_string(row$verbatim_sha256, "^[0-9a-f]{64}$") ||
+        ## `side` is typechecked for every row, not only assign rows (Fund 2):
+        ## a no_publication row's `side` was previously never inspected at
+        ## all, so a wrong-typed value there passed the audit silently.
+        !.c3_common_scalar_string(row$side))
       .c3_common_stop("C3_PREVIEW_RESPONSE_INVALID")
     if (!identical(as.numeric(row$match_count), 1))
       .c3_common_stop("C3_PREVIEW_SOURCE_RECORD_INVALID")
@@ -273,10 +277,19 @@
                             "C3_PREVIEW_RESPONSE_INVALID")
     rid <- row$rid
     decision <- idx$record_by_rid[[rid]]
+    ## narrative_id: int|null (Fund 2 — previously not typechecked at all).
+    narrative_id_ok <- is.null(row$narrative_id) ||
+      (is.numeric(row$narrative_id) && length(row$narrative_id) == 1L &&
+       !is.na(row$narrative_id) && is.finite(row$narrative_id) &&
+       row$narrative_id == floor(row$narrative_id) && row$narrative_id > 0)
+    ## old_sha256: 64-hex string|null (Fund 2 — previously not typechecked).
+    old_sha256_ok <- is.null(row$old_sha256) ||
+      .c3_common_scalar_string(row$old_sha256, "^[0-9a-f]{64}$")
     if (!.c3_common_scalar_string(rid) || is.null(decision) ||
         !identical(decision$action, "assign") ||
         !is.numeric(row$person_id) || length(row$person_id) != 1L ||
-        !is.logical(row$privat) || length(row$privat) != 1L || is.na(row$privat))
+        !is.logical(row$privat) || length(row$privat) != 1L || is.na(row$privat) ||
+        !narrative_id_ok || !old_sha256_ok)
       .c3_common_stop("C3_PREVIEW_RESPONSE_INVALID")
     if (!identical(as.numeric(row$person_id), as.numeric(decision$target_person_id)))
       .c3_common_stop("C3_PREVIEW_TARGET_MISMATCH")
@@ -302,10 +315,18 @@
     .c3_preview_exact_keys(row, .c3_preview_binding_keys,
                             "C3_PREVIEW_RESPONSE_INVALID")
     record_key <- row$record_key
+    ## binding_person_id: int|null (Fund 2 — previously not typechecked at
+    ## all, and never cross-checked against anything — see Fund 3 below).
+    binding_person_id_ok <- is.null(row$binding_person_id) ||
+      (is.numeric(row$binding_person_id) && length(row$binding_person_id) == 1L &&
+       !is.na(row$binding_person_id) && is.finite(row$binding_person_id) &&
+       row$binding_person_id == floor(row$binding_person_id) &&
+       row$binding_person_id > 0)
     if (!.c3_common_scalar_string(record_key) ||
         !(record_key %in% known_record_keys) ||
         !.c3_common_scalar_string(row$status) ||
-        !(row$status %in% .c3_preview_binding_statuses))
+        !(row$status %in% .c3_preview_binding_statuses) ||
+        !binding_person_id_ok)
       .c3_common_stop("C3_PREVIEW_RESPONSE_INVALID")
     if (record_key %in% seen_binding_keys)
       .c3_common_stop("C3_PREVIEW_BINDING_INVALID")
@@ -319,6 +340,17 @@
       if (identical(row$status, "published"))
         .c3_common_stop("C3_PREVIEW_BINDING_ACTIVE_FOR_NO_PUBLICATION")
     }
+    ## Fund 3: `binding_person_id` was required in the key set but never
+    ## cross-checked against anything. A `draft_same_record` binding is only
+    ## meaningfully "the same record" if it is also bound to the case's own
+    ## target person; a draft bound to a DIFFERENT person must not pass as
+    ## clean — this is exactly the drift this task's own Step 2 names
+    ## ("assign binding outside absent|draft_same_record").
+    if (identical(row$status, "draft_same_record") &&
+        identical(decision$action, "assign") &&
+        !identical(as.numeric(row$binding_person_id),
+                   as.numeric(decision$target_person_id)))
+      .c3_common_stop("C3_PREVIEW_BINDING_INVALID")
   }
   if (!setequal(seen_binding_keys, known_record_keys))
     .c3_common_stop("C3_PREVIEW_RESPONSE_INVALID")
