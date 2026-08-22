@@ -253,6 +253,87 @@ reverse_schedule <- function(writer, left, right, connection_name) {
   list(result = result, orphan_count = orphan_count)
 }
 
+repeatable_read_stale_raw_update_schedule <- function(deleted_person, surviving_person,
+                                                      current_left, current_right,
+                                                      relation_id) {
+  reserved_people <- c(deleted_person, surviving_person, current_left, current_right)
+  execute(controller, "DELETE FROM public.relation WHERE id=$1", list(relation_id))
+  execute(controller, paste0(
+    "DELETE FROM public.person WHERE id = ANY(ARRAY[$1,$2,$3,$4]::bigint[])"
+  ), as.list(reserved_people))
+  seed_people(reserved_people)
+  execute(controller, paste0(
+    "INSERT INTO public.relation(id,subjekt_type,subjekt_id,rolle,objekt_type,objekt_id) ",
+    "VALUES($1,'person',$2,'bekendt_med','person',$3)"
+  ), list(relation_id, current_left, current_right))
+
+  stale <- connect()
+  deleter <- connect()
+  on.exit(try(DBI::dbDisconnect(stale), silent = TRUE), add = TRUE)
+  on.exit(try(DBI::dbDisconnect(deleter), silent = TRUE), add = TRUE)
+  on.exit({
+    try(execute(controller, "DELETE FROM public.relation WHERE id=$1", list(relation_id)), silent = TRUE)
+    try(execute(controller, paste0(
+      "DELETE FROM public.person WHERE id = ANY(ARRAY[$1,$2,$3,$4]::bigint[])"
+    ), as.list(reserved_people)), silent = TRUE)
+  }, add = TRUE)
+
+  DBI::dbBegin(stale)
+  execute(stale, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+  set_actor(stale)
+  invisible(query(stale, "SELECT set_config('app.change_set_id','',false)"))
+  invisible(query(stale, "SELECT set_config('app.change_seq','0',false)"))
+  snapshot_person_count <- query(
+    stale, "SELECT count(*) n FROM public.person WHERE id=$1", list(deleted_person)
+  )$n[[1L]]
+  if (snapshot_person_count != 1) {
+    stop("IDENTITY_REPEATABLE_READ_SNAPSHOT_DID_NOT_SEE_PERSON", call. = FALSE)
+  }
+
+  DBI::dbBegin(deleter)
+  set_writer_context(deleter)
+  query(deleter, "SELECT public.red_slet_person($1)", list(deleted_person))
+  DBI::dbCommit(deleter)
+
+  update_result <- suppressWarnings(try({
+    query(stale, "SELECT pg_advisory_xact_lock(hashtext('samme_som_mutation'))")
+    execute(stale, paste0(
+      "UPDATE public.relation SET subjekt_id=$1,objekt_id=$2,rolle='ikke_samme_som' ",
+      "WHERE id=$3"
+    ), list(deleted_person, surviving_person, relation_id))
+  }, silent = TRUE))
+  if (inherits(update_result, "try-error")) {
+    suppressWarnings(try(DBI::dbRollback(stale), silent = TRUE))
+  } else {
+    DBI::dbCommit(stale)
+  }
+
+  orphan_count <- query(controller, paste0(
+    "SELECT count(*) n FROM public.relation r WHERE r.id=$1 ",
+    "AND ((r.subjekt_type='person' AND NOT EXISTS ",
+    "      (SELECT 1 FROM public.person p WHERE p.id=r.subjekt_id)) ",
+    "  OR (r.objekt_type='person' AND NOT EXISTS ",
+    "      (SELECT 1 FROM public.person p WHERE p.id=r.objekt_id)))"
+  ), list(relation_id))$n[[1L]]
+
+  execute(controller, "DELETE FROM public.relation WHERE id=$1", list(relation_id))
+  execute(controller, paste0(
+    "DELETE FROM public.person WHERE id = ANY(ARRAY[$1,$2,$3,$4]::bigint[])"
+  ), as.list(reserved_people))
+
+  if (!inherits(update_result, "try-error") ||
+      !grepl("IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED", as.character(update_result),
+             fixed = TRUE, useBytes = TRUE)) {
+    stop(sprintf(
+      "IDENTITY_REPEATABLE_READ_RAW_UPDATE_BYPASSED_PERSON_PRELOCK: update=%s orphan_count=%s",
+      paste(update_result, collapse = " "), orphan_count
+    ), call. = FALSE)
+  }
+  if (orphan_count != 0) {
+    stop(sprintf("IDENTITY_REPEATABLE_READ_ORPHAN_ENDPOINT: %s", orphan_count), call. = FALSE)
+  }
+}
+
 undo_delete_schedule <- function(left, original_right, replacement_right) {
   seed_people(c(left, original_right, replacement_right))
   assertion_id <- -1939503998
@@ -354,6 +435,10 @@ helper_lock_schedule(-1939503099, -1939503100)
 identity_first_schedule("ikke_samme_som", -1939503101, -1939503102)
 identity_first_schedule("samme_som", -1939503103, -1939503104)
 top_level_identity_first_schedule(-1939503109, -1939503110)
+
+repeatable_read_stale_raw_update_schedule(
+  -1939503121, -1939503122, -1939503123, -1939503124, -1939503199
+)
 
 reverse_same <- reverse_schedule("samme_som", -1939503105, -1939503106, "identity_reverse_same")
 reverse_different <- reverse_schedule("ikke_samme_som", -1939503107, -1939503108, "identity_reverse_different")

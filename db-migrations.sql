@@ -4889,6 +4889,40 @@ END
 $$;
 REVOKE ALL ON FUNCTION private.identity_components_have_rejection(bigint,bigint) FROM PUBLIC, anon, authenticated;
 
+-- Transaktionsbundet, privat bevis mellem den sorterede person-prelock og relationens
+-- BEFORE UPDATE-trigger. Deferred cleanup fjerner også et ubrugt bevis ved COMMIT.
+CREATE TABLE IF NOT EXISTS private.identity_relation_update_prelock (
+  transaction_id xid8 NOT NULL,
+  backend_pid integer NOT NULL,
+  relation_id bigint NOT NULL,
+  current_signature jsonb NOT NULL,
+  target_signature jsonb NOT NULL,
+  locked_person_ids bigint[] NOT NULL,
+  PRIMARY KEY (transaction_id, backend_pid, relation_id)
+);
+ALTER TABLE private.identity_relation_update_prelock ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.identity_relation_update_prelock FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION private.cleanup_identity_relation_update_prelock()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, private AS $$
+BEGIN
+  DELETE FROM private.identity_relation_update_prelock p
+  WHERE p.transaction_id = NEW.transaction_id
+    AND p.backend_pid = NEW.backend_pid
+    AND p.relation_id = NEW.relation_id;
+  RETURN NULL;
+END $$;
+REVOKE ALL ON FUNCTION private.cleanup_identity_relation_update_prelock()
+  FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS trg_identity_relation_update_prelock_cleanup
+  ON private.identity_relation_update_prelock;
+CREATE CONSTRAINT TRIGGER trg_identity_relation_update_prelock_cleanup
+  AFTER INSERT ON private.identity_relation_update_prelock
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION private.cleanup_identity_relation_update_prelock();
+
 -- Fælles låse-helper for alle identitets-writers og identitetstriggere. Direkte kald er
 -- redaktion-gated; trigger-contexten håndhæver samme invariant for rå restore/undo-skrivninger.
 CREATE OR REPLACE FUNCTION private.lock_identity_people(p_person_ids bigint[])
@@ -4914,37 +4948,70 @@ END $$;
 REVOKE ALL ON FUNCTION private.lock_identity_people(bigint[]) FROM PUBLIC, anon, authenticated;
 
 -- Global lock order for supported identity UPDATE/undo paths:
--- same_som_mutation -> ascending person rows -> relation tuple.  The row trigger verifies
--- the already-held advisory lock non-blockingly, but never takes the first blocking lock.
+-- same_som_mutation -> ascending person rows -> transaction-bound exact prelock record ->
+-- relation tuple. Row-triggeren læser kun bevisrækken og tager ingen blokerende prelock.
 CREATE OR REPLACE FUNCTION private.prelock_identity_relation_update(
   p_current jsonb, p_target jsonb
 ) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, public, private AS $$
-DECLARE v_ids bigint[] := ARRAY[]::bigint[];
+DECLARE
+  v_ids bigint[];
+  v_relation_id bigint;
+  v_target_relation_id bigint;
+  v_current_signature jsonb;
+  v_target_signature jsonb;
+  v_transaction_id xid8;
+  v_backend_pid integer;
 BEGIN
   IF public.current_rolle() <> 'redaktion' THEN
     RAISE EXCEPTION 'Kun redaktion';
   END IF;
   PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
-  IF p_current->>'rolle' IN ('samme_som','ikke_samme_som') THEN
-    IF p_current->>'subjekt_type' = 'person' THEN
-      v_ids := array_append(v_ids,(p_current->>'subjekt_id')::bigint);
-    END IF;
-    IF p_current->>'objekt_type' = 'person' THEN
-      v_ids := array_append(v_ids,(p_current->>'objekt_id')::bigint);
-    END IF;
+
+  v_relation_id := (p_current->>'id')::bigint;
+  v_target_relation_id := (p_target->>'id')::bigint;
+  IF v_relation_id IS NULL OR v_target_relation_id IS DISTINCT FROM v_relation_id
+     OR (coalesce(p_current->>'rolle','') NOT IN ('samme_som','ikke_samme_som')
+         AND coalesce(p_target->>'rolle','') NOT IN ('samme_som','ikke_samme_som')) THEN
+    RAISE EXCEPTION 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED';
   END IF;
-  IF p_target->>'rolle' IN ('samme_som','ikke_samme_som') THEN
-    IF p_target->>'subjekt_type' = 'person' THEN
-      v_ids := array_append(v_ids,(p_target->>'subjekt_id')::bigint);
-    END IF;
-    IF p_target->>'objekt_type' = 'person' THEN
-      v_ids := array_append(v_ids,(p_target->>'objekt_id')::bigint);
-    END IF;
-  END IF;
-  IF cardinality(v_ids) > 0 THEN
-    PERFORM private.lock_identity_people(v_ids);
-  END IF;
+
+  v_current_signature := jsonb_build_array(
+    v_relation_id,p_current->>'rolle',p_current->>'subjekt_type',
+    (p_current->>'subjekt_id')::bigint,p_current->>'objekt_type',
+    (p_current->>'objekt_id')::bigint
+  );
+  v_target_signature := jsonb_build_array(
+    v_target_relation_id,p_target->>'rolle',p_target->>'subjekt_type',
+    (p_target->>'subjekt_id')::bigint,p_target->>'objekt_type',
+    (p_target->>'objekt_id')::bigint
+  );
+  SELECT coalesce(array_agg(x ORDER BY x),'{}'::bigint[]) INTO v_ids
+  FROM (
+    SELECT DISTINCT x
+    FROM (VALUES
+      (CASE WHEN p_current->>'subjekt_type'='person' THEN (p_current->>'subjekt_id')::bigint END),
+      (CASE WHEN p_current->>'objekt_type'='person' THEN (p_current->>'objekt_id')::bigint END),
+      (CASE WHEN p_target->>'subjekt_type'='person' THEN (p_target->>'subjekt_id')::bigint END),
+      (CASE WHEN p_target->>'objekt_type'='person' THEN (p_target->>'objekt_id')::bigint END)
+    ) ids(x)
+    WHERE x IS NOT NULL
+  ) sorted_ids;
+  PERFORM private.lock_identity_people(v_ids);
+
+  -- Beviset opstår først efter at ALLE eksakte, sorterede personrækker er låst.
+  v_transaction_id := pg_catalog.pg_current_xact_id();
+  v_backend_pid := pg_catalog.pg_backend_pid();
+  DELETE FROM private.identity_relation_update_prelock p
+  WHERE p.transaction_id=v_transaction_id
+    AND p.backend_pid=v_backend_pid
+    AND p.relation_id=v_relation_id;
+  INSERT INTO private.identity_relation_update_prelock(
+    transaction_id,backend_pid,relation_id,current_signature,target_signature,locked_person_ids
+  ) VALUES (
+    v_transaction_id,v_backend_pid,v_relation_id,
+    v_current_signature,v_target_signature,v_ids
+  );
 END $$;
 REVOKE ALL ON FUNCTION private.prelock_identity_relation_update(jsonb,jsonb)
   FROM PUBLIC, anon, authenticated;
@@ -4956,12 +5023,10 @@ REVOKE ALL ON FUNCTION private.prelock_identity_relation_update(jsonb,jsonb)
 CREATE OR REPLACE FUNCTION enforce_samme_som_invariants() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE
-  v_advisory_key bigint := pg_catalog.hashtext('samme_som_mutation')::bigint;
-  v_has_identity_lock boolean;
-  v_has_session_lock boolean;
-  v_old_client_min_messages text;
-  v_expected_people integer;
-  v_existing_people integer;
+  v_has_exact_prelock boolean;
+  v_current_signature jsonb;
+  v_target_signature jsonb;
+  v_expected_person_ids bigint[];
 BEGIN
   IF TG_OP = 'UPDATE' THEN
     -- samme_som er en identitetspåstand med evidens knyttet til relationens stabile id.
@@ -4974,51 +5039,35 @@ BEGIN
            ROW(NEW.rolle, NEW.subjekt_type, NEW.subjekt_id, NEW.objekt_type, NEW.objekt_id) THEN
       RAISE EXCEPTION 'samme_som: rolle og endepunkter er uforanderlige — brug slet+genopret';
     END IF;
+    v_current_signature := jsonb_build_array(
+      OLD.id,OLD.rolle,OLD.subjekt_type,OLD.subjekt_id,OLD.objekt_type,OLD.objekt_id
+    );
+    v_target_signature := jsonb_build_array(
+      NEW.id,NEW.rolle,NEW.subjekt_type,NEW.subjekt_id,NEW.objekt_type,NEW.objekt_id
+    );
+    SELECT coalesce(array_agg(x ORDER BY x),'{}'::bigint[])
+      INTO v_expected_person_ids
+    FROM (
+      SELECT DISTINCT x
+      FROM (VALUES
+        (CASE WHEN OLD.subjekt_type='person' THEN OLD.subjekt_id END),
+        (CASE WHEN OLD.objekt_type='person' THEN OLD.objekt_id END),
+        (CASE WHEN NEW.subjekt_type='person' THEN NEW.subjekt_id END),
+        (CASE WHEN NEW.objekt_type='person' THEN NEW.objekt_id END)
+      ) ids(x)
+      WHERE x IS NOT NULL
+    ) sorted_ids;
     SELECT EXISTS (
-      SELECT 1
-      FROM pg_catalog.pg_locks l
-      WHERE l.locktype = 'advisory'
-        AND l.pid = pg_catalog.pg_backend_pid()
-        AND l.database = (
-          SELECT d.oid FROM pg_catalog.pg_database d
-          WHERE d.datname=pg_catalog.current_database()
-        )
-        AND l.classid = ((v_advisory_key >> 32) & 4294967295::bigint)::oid
-        AND l.objid = (v_advisory_key & 4294967295::bigint)::oid
-        AND l.objsubid = 1
-        AND l.mode = 'ExclusiveLock'
-        AND l.granted
-    ) INTO v_has_identity_lock;
-    IF NOT v_has_identity_lock THEN
+      SELECT 1 FROM private.identity_relation_update_prelock p
+      WHERE p.transaction_id=pg_catalog.pg_current_xact_id()
+        AND p.backend_pid=pg_catalog.pg_backend_pid()
+        AND p.relation_id=OLD.id
+        AND p.current_signature=v_current_signature
+        AND p.target_signature=v_target_signature
+        AND p.locked_person_ids=v_expected_person_ids
+    ) INTO v_has_exact_prelock;
+    IF NOT v_has_exact_prelock THEN
       RAISE EXCEPTION 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED';
-    END IF;
-    -- pg_locks har ikke en scope-kolonne. Pin først den allerede ejede nøgle med den
-    -- ikke-blokerende xact-variant, og prøv derefter session-unlock. Kun en session-lås
-    -- kan unlockes eksplicit. En eventuel session-stack gendannes før fail-closed.
-    IF NOT pg_catalog.pg_try_advisory_xact_lock(v_advisory_key) THEN
-      RAISE EXCEPTION 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED';
-    END IF;
-    v_old_client_min_messages := pg_catalog.current_setting('client_min_messages');
-    PERFORM pg_catalog.set_config('client_min_messages','error',true);
-    v_has_session_lock := pg_catalog.pg_advisory_unlock(v_advisory_key);
-    PERFORM pg_catalog.set_config('client_min_messages',v_old_client_min_messages,true);
-    IF v_has_session_lock THEN
-      IF NOT pg_catalog.pg_try_advisory_lock(v_advisory_key) THEN
-        RAISE EXCEPTION 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED';
-      END IF;
-      RAISE EXCEPTION 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED';
-    END IF;
-    IF NEW.rolle IN ('samme_som','ikke_samme_som')
-       AND NEW.subjekt_type = 'person' AND NEW.objekt_type = 'person' THEN
-      SELECT count(*) INTO v_expected_people
-      FROM (SELECT DISTINCT x FROM unnest(ARRAY[NEW.subjekt_id,NEW.objekt_id]) x
-            WHERE x IS NOT NULL) q;
-      SELECT count(*) INTO v_existing_people
-      FROM public.person p
-      WHERE p.id IN (NEW.subjekt_id,NEW.objekt_id);
-      IF v_expected_people < 1 OR v_existing_people <> v_expected_people THEN
-        RAISE EXCEPTION 'IDENTITY_PERSON_NOT_FOUND';
-      END IF;
     END IF;
     IF NEW.rolle = 'ikke_samme_som'
        AND NEW.subjekt_type = 'person' AND NEW.objekt_type = 'person' THEN

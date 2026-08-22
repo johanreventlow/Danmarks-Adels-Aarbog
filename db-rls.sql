@@ -779,6 +779,18 @@ REVOKE EXECUTE ON FUNCTION
   _version_delete_row(text, jsonb)
   FROM PUBLIC, anon, authenticated;
 
+-- C3 identitets-UPDATE: prelock-beviset er intern transaktionsstate, ikke API-data.
+-- Tabellen har ingen ekstern læse-/skriveflade; alle legitime kald går gennem ejerens
+-- SECURITY DEFINER-kæde, og cleanup-triggeren fjerner rækkerne ved transaktionsslut.
+ALTER TABLE private.identity_relation_update_prelock ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.identity_relation_update_prelock
+  FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION
+  private.lock_identity_people(bigint[]),
+  private.prelock_identity_relation_update(jsonb,jsonb),
+  private.cleanup_identity_relation_update_prelock()
+  FROM PUBLIC, anon, authenticated;
+
 -- 2026-07-17 (post-cutover advisor-lint): _ensure_foraeldrefamilie_redaktionel er en intern
 -- Problem 2-helper tilføjet EFTER F-01 REVOKE-sweepet ovenfor, så den manglede samme REVOKE.
 -- Den HAR allerede current_rolle()-guarden (belt-and-suspenders, ikke exploiterbar) — dette er

@@ -24,6 +24,55 @@ BEGIN
   IF to_regprocedure('private.prelock_identity_relation_update(jsonb,jsonb)') IS NULL THEN
     RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_HELPER_MISSING';
   END IF;
+  IF to_regclass('private.identity_relation_update_prelock') IS NULL THEN
+    RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_RECORD_MISSING';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_class c
+    WHERE c.oid='private.identity_relation_update_prelock'::regclass
+      AND c.relrowsecurity
+  ) OR EXISTS (
+    SELECT 1
+    FROM pg_class c
+    CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) acl
+    WHERE c.oid='private.identity_relation_update_prelock'::regclass
+      AND acl.grantee=0
+  ) OR EXISTS (
+    SELECT 1
+    FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) privilege
+    WHERE has_table_privilege('anon','private.identity_relation_update_prelock',privilege)
+       OR has_table_privilege('authenticated','private.identity_relation_update_prelock',privilege)
+  ) THEN
+    RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_RECORD_SECURITY_DRIFT';
+  END IF;
+  IF to_regprocedure('private.cleanup_identity_relation_update_prelock()') IS NULL
+     OR NOT EXISTS (
+       SELECT 1 FROM pg_proc p
+       WHERE p.oid='private.cleanup_identity_relation_update_prelock()'::regprocedure
+         AND p.prosecdef
+         AND 'search_path=pg_catalog, private'=ANY(p.proconfig)
+     )
+     OR EXISTS (
+       SELECT 1
+       FROM pg_proc p
+       CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl
+       WHERE p.oid='private.cleanup_identity_relation_update_prelock()'::regprocedure
+         AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
+     )
+     OR has_function_privilege('anon','private.cleanup_identity_relation_update_prelock()','EXECUTE')
+     OR has_function_privilege('authenticated','private.cleanup_identity_relation_update_prelock()','EXECUTE') THEN
+    RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_CLEANUP_SECURITY_DRIFT';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger t
+    WHERE t.tgrelid='private.identity_relation_update_prelock'::regclass
+      AND t.tgname='trg_identity_relation_update_prelock_cleanup'
+      AND t.tgconstraint<>0
+      AND t.tgdeferrable
+      AND t.tginitdeferred
+  ) THEN
+    RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_CLEANUP_TRIGGER_DRIFT';
+  END IF;
   IF NOT EXISTS (
     SELECT 1 FROM pg_proc p
     WHERE p.oid = 'private.prelock_identity_relation_update(jsonb,jsonb)'::regprocedure
@@ -38,6 +87,11 @@ BEGIN
   v_people_position := strpos(v_definition, 'private.lock_identity_people');
   IF v_lock_position < 1 OR v_people_position <= v_lock_position THEN
     RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_ORDER_DRIFT';
+  END IF;
+  IF strpos(v_definition,'INSERT INTO private.identity_relation_update_prelock') <= v_people_position
+     OR v_definition !~ 'pg_current_xact_id\(\)'
+     OR v_definition !~ 'ORDER BY x' THEN
+    RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_RECORD_ORDER_DRIFT';
   END IF;
   IF v_definition ~ 'app\.identity_relation_update_prelock' THEN
     RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_WRITABLE_MARKER_DRIFT';
@@ -75,15 +129,12 @@ BEGIN
   v_definition := pg_get_functiondef('public.enforce_samme_som_invariants()'::regprocedure);
   IF regexp_count(v_definition, 'private\.lock_identity_people') <> 1
      OR v_definition !~ 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED'
-     OR v_definition !~ 'pg_catalog\.pg_locks'
-     OR v_definition !~ 'v_advisory_key >> 32'
-     OR v_definition !~ '4294967295'
-     OR v_definition !~ 'pg_catalog\.pg_advisory_unlock'
-     OR v_definition !~ 'pg_catalog\.pg_try_advisory_xact_lock'
-     OR v_definition !~ 'pg_catalog\.pg_try_advisory_lock'
-     OR v_definition !~ 'client_min_messages'
-     OR v_definition !~ 'IDENTITY_PERSON_NOT_FOUND'
-     OR v_definition !~ 'public\.person'
+     OR v_definition !~ 'private\.identity_relation_update_prelock'
+     OR v_definition !~ 'pg_catalog\.pg_current_xact_id\(\)'
+     OR v_definition ~ 'pg_catalog\.pg_locks'
+     OR v_definition ~ 'pg_catalog\.pg_advisory_unlock'
+     OR v_definition ~ 'pg_catalog\.pg_try_advisory'
+     OR v_definition ~ 'client_min_messages'
      OR v_definition ~ 'app\.identity_relation_update_prelock' THEN
     RAISE EXCEPTION 'IDENTITY_TRIGGER_LOCK_HELPER_DRIFT';
   END IF;
@@ -311,10 +362,16 @@ END $test$;
 
 ROLLBACK;
 
--- A caught component contradiction rolls back its subtransaction advisory lock.  A retry
--- must not inherit authorization from the old writable marker, while the correctly pre-held
--- lock must reach the normal Task 1 contradiction check.
+-- The authorization record is exact to transaction, relation, old/new identity signature,
+-- and the sorted person-row set. It is private, replaced rather than accumulated, and removed
+-- at transaction end even when the prelock is never consumed by an UPDATE.
 BEGIN;
+DO $preclean_transaction_proof$
+BEGIN
+  IF EXISTS (SELECT 1 FROM private.identity_relation_update_prelock) THEN
+    RAISE EXCEPTION 'IDENTITY_PRELOCK_RECORD_RETAINED_FROM_PRIOR_RUN';
+  END IF;
+END $preclean_transaction_proof$;
 DELETE FROM public.relation WHERE id IN (-1939501199,-1939501198,-1939501197);
 DELETE FROM public.person WHERE id IN (-1939501101,-1939501102,-1939501103,-1939501104);
 DELETE FROM public.profiles WHERE id='19390000-0000-4000-8000-000000000005';
@@ -322,7 +379,7 @@ DELETE FROM auth.users WHERE id='19390000-0000-4000-8000-000000000005';
 COMMIT;
 
 BEGIN;
-DO $setup_reusable_proof$
+DO $setup_transaction_proof$
 DECLARE
   v_actor uuid := '19390000-0000-4000-8000-000000000005';
 BEGIN
@@ -341,27 +398,33 @@ BEGIN
     (-1939501199,'person',-1939501103,'bekendt_med','person',-1939501104),
     (-1939501198,'person',-1939501101,'samme_som','person',-1939501102),
     (-1939501197,'person',-1939501103,'ikke_samme_som','person',-1939501104);
-END $setup_reusable_proof$;
+END $setup_transaction_proof$;
 COMMIT;
 
+-- Advisory locks, old GUCs, wrong relation IDs, and wrong target endpoints are not proof.
+-- A second exact helper call replaces the first record, and a successful first UPDATE cannot
+-- reuse the obsolete old/new signature for a second UPDATE.
 BEGIN;
-DO $reusable_proof$
+DO $exact_transaction_proof$
 DECLARE
   v_actor uuid := '19390000-0000-4000-8000-000000000005';
-  v_current jsonb; v_target jsonb; v_has_lock boolean;
+  v_current jsonb; v_target_a jsonb; v_target_b jsonb; v_after jsonb;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
-  SELECT to_jsonb(r) INTO v_current FROM public.relation r WHERE r.id=-1939501197;
-  v_target := v_current || jsonb_build_object('subjekt_id',-1939501101,'objekt_id',-1939501102);
+  SELECT to_jsonb(r) INTO v_current FROM public.relation r WHERE r.id=-1939501199;
+  v_target_a := v_current || jsonb_build_object(
+    'rolle','ikke_samme_som','subjekt_id',-1939501103,'objekt_id',-1939501101
+  );
+  v_target_b := v_current || jsonb_build_object(
+    'rolle','ikke_samme_som','subjekt_id',-1939501104,'objekt_id',-1939501101
+  );
 
-  -- pg_locks shows the same identity for session and transaction locks. Session-only proof
-  -- must nevertheless fail closed, and the test must restore/release its own lock on error.
   BEGIN
     PERFORM pg_advisory_lock(hashtext('samme_som_mutation'));
     BEGIN
       UPDATE public.relation
-        SET subjekt_id=-1939501101,objekt_id=-1939501102
-        WHERE id=-1939501197;
+        SET rolle='ikke_samme_som',subjekt_id=-1939501103,objekt_id=-1939501101
+        WHERE id=-1939501199;
       RAISE EXCEPTION 'EXPECTED_SESSION_ONLY_PRELOCK_REJECTION';
     EXCEPTION WHEN others THEN
       IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
@@ -373,81 +436,180 @@ BEGIN
     PERFORM pg_advisory_unlock(hashtext('samme_som_mutation'));
     RAISE;
   END;
-  SELECT EXISTS (
-    SELECT 1 FROM pg_catalog.pg_locks l
-    WHERE l.locktype='advisory' AND l.pid=pg_backend_pid() AND l.granted
-      AND l.classid=(CASE WHEN hashtext('samme_som_mutation') < 0
-                          THEN 4294967295::bigint ELSE 0::bigint END)::oid
-      AND l.objid=(hashtext('samme_som_mutation')::bigint & 4294967295::bigint)::oid
-      AND l.objsubid=1
-  ) INTO v_has_lock;
-  IF v_has_lock THEN RAISE EXCEPTION 'IDENTITY_SESSION_SCOPE_PROBE_LOCK_LEAKED'; END IF;
-
   BEGIN
     PERFORM pg_advisory_xact_lock(hashtext('different_identity_mutation'));
-    UPDATE public.relation SET rolle='ikke_samme_som' WHERE id=-1939501199;
+    UPDATE public.relation
+      SET rolle='ikke_samme_som',subjekt_id=-1939501103,objekt_id=-1939501101
+      WHERE id=-1939501199;
     RAISE EXCEPTION 'EXPECTED_DIFFERENT_ADVISORY_KEY_REJECTION';
   EXCEPTION WHEN others THEN
     IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
   END;
-
-  BEGIN
-    PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
-    UPDATE public.relation SET objekt_id=-1939501196 WHERE id=-1939501197;
-    RAISE EXCEPTION 'EXPECTED_PREHELD_LOCK_PERSON_NOT_FOUND';
-  EXCEPTION WHEN others THEN
-    IF SQLERRM <> 'IDENTITY_PERSON_NOT_FOUND' THEN RAISE; END IF;
-  END;
-
-  PERFORM set_config('app.identity_relation_update_prelock','',true);
   BEGIN
     PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
     UPDATE public.relation
-      SET subjekt_id=-1939501101,objekt_id=-1939501102
-      WHERE id=-1939501197;
-    RAISE EXCEPTION 'EXPECTED_PREHELD_LOCK_COMPONENT_CONTRADICTION';
-  EXCEPTION WHEN others THEN
-    IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
-  END;
-  PERFORM set_config(
-    'app.identity_relation_update_prelock',
-    jsonb_build_array(
-      v_target->'id',v_target->'rolle',v_target->'subjekt_type',v_target->'subjekt_id',
-      v_target->'objekt_type',v_target->'objekt_id'
-    )::text,
-    true
-  );
-  BEGIN
-    PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
-    UPDATE public.relation
-      SET subjekt_id=-1939501101,objekt_id=-1939501102
-      WHERE id=-1939501197;
-    RAISE EXCEPTION 'EXPECTED_REUSABLE_PROOF_COMPONENT_CONTRADICTION';
-  EXCEPTION WHEN others THEN
-    IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
-  END;
-  SELECT EXISTS (
-    SELECT 1 FROM pg_catalog.pg_locks l
-    WHERE l.locktype='advisory' AND l.pid=pg_backend_pid() AND l.granted
-      AND l.mode='ExclusiveLock'
-      AND l.classid=(CASE WHEN hashtext('samme_som_mutation') < 0
-                          THEN 4294967295::bigint ELSE 0::bigint END)::oid
-      AND l.objid=(hashtext('samme_som_mutation')::bigint & 4294967295::bigint)::oid
-      AND l.objsubid=1
-  ) INTO v_has_lock;
-  IF v_has_lock THEN RAISE EXCEPTION 'IDENTITY_SUBTRANSACTION_ADVISORY_LOCK_LEAKED'; END IF;
-  BEGIN
-    UPDATE public.relation
-      SET subjekt_id=-1939501101,objekt_id=-1939501102
-      WHERE id=-1939501197;
-    RAISE EXCEPTION 'EXPECTED_REUSED_IDENTITY_PRELOCK_REJECTION';
+      SET rolle='ikke_samme_som',subjekt_id=-1939501103,objekt_id=-1939501101
+      WHERE id=-1939501199;
+    RAISE EXCEPTION 'EXPECTED_ADVISORY_ONLY_PRELOCK_REJECTION';
   EXCEPTION WHEN others THEN
     IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
   END;
-END $reusable_proof$;
+
+  PERFORM private.prelock_identity_relation_update(v_current,v_target_a);
+  IF NOT EXISTS (
+    SELECT 1 FROM private.identity_relation_update_prelock p
+    WHERE p.transaction_id=pg_current_xact_id()
+      AND p.backend_pid=pg_backend_pid()
+      AND p.relation_id=-1939501199
+      AND p.current_signature=jsonb_build_array(
+        -1939501199,'bekendt_med','person',-1939501103,'person',-1939501104
+      )
+      AND p.target_signature=jsonb_build_array(
+        -1939501199,'ikke_samme_som','person',-1939501103,'person',-1939501101
+      )
+      AND p.locked_person_ids=ARRAY[-1939501104,-1939501103,-1939501101]::bigint[]
+  ) THEN
+    RAISE EXCEPTION 'IDENTITY_EXACT_PRELOCK_RECORD_MISSING';
+  END IF;
+  BEGIN
+    UPDATE public.relation
+      SET rolle='ikke_samme_som',subjekt_id=-1939501104,objekt_id=-1939501101
+      WHERE id=-1939501199;
+    RAISE EXCEPTION 'EXPECTED_TARGET_MISMATCH_PRELOCK_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE public.relation SET subjekt_id=-1939501101,objekt_id=-1939501102
+      WHERE id=-1939501197;
+    RAISE EXCEPTION 'EXPECTED_RELATION_MISMATCH_PRELOCK_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
+  END;
+  IF (SELECT count(*) FROM private.identity_relation_update_prelock
+      WHERE transaction_id=pg_current_xact_id() AND backend_pid=pg_backend_pid()) <> 1 THEN
+    RAISE EXCEPTION 'IDENTITY_MISMATCH_CHANGED_PRELOCK_RECORD_LIFECYCLE';
+  END IF;
+
+  PERFORM private.prelock_identity_relation_update(v_current,v_target_b);
+  IF (SELECT count(*) FROM private.identity_relation_update_prelock
+      WHERE transaction_id=pg_current_xact_id() AND backend_pid=pg_backend_pid()) <> 1
+     OR NOT EXISTS (
+       SELECT 1 FROM private.identity_relation_update_prelock p
+       WHERE p.transaction_id=pg_current_xact_id()
+         AND p.backend_pid=pg_backend_pid()
+         AND p.relation_id=-1939501199
+         AND p.target_signature=jsonb_build_array(
+           -1939501199,'ikke_samme_som','person',-1939501104,'person',-1939501101
+         )
+     ) THEN
+    RAISE EXCEPTION 'IDENTITY_REPRELOCK_RETAINED_OBSOLETE_RECORD';
+  END IF;
+  UPDATE public.relation
+    SET rolle='ikke_samme_som',subjekt_id=-1939501104,objekt_id=-1939501101
+    WHERE id=-1939501199;
+
+  BEGIN
+    UPDATE public.relation SET periode_raw='must prelock again' WHERE id=-1939501199;
+    RAISE EXCEPTION 'EXPECTED_OBSOLETE_SIGNATURE_REUSE_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
+  END;
+  SELECT to_jsonb(r) INTO v_after FROM public.relation r WHERE r.id=-1939501199;
+  PERFORM private.prelock_identity_relation_update(
+    v_after,v_after || jsonb_build_object('periode_raw','fresh exact prelock')
+  );
+  UPDATE public.relation SET periode_raw='fresh exact prelock' WHERE id=-1939501199;
+END $exact_transaction_proof$;
 ROLLBACK;
 
+DO $rollback_lifecycle$
+BEGIN
+  IF EXISTS (SELECT 1 FROM private.identity_relation_update_prelock) THEN
+    RAISE EXCEPTION 'IDENTITY_ROLLBACK_RETAINED_PRELOCK_RECORD';
+  END IF;
+END $rollback_lifecycle$;
+
+-- The supported helper and failing UPDATE share the caught subtransaction, so both the
+-- marker and its advisory/person locks disappear together when the contradiction is caught.
 BEGIN;
+DO $caught_error_lifecycle$
+DECLARE
+  v_actor uuid := '19390000-0000-4000-8000-000000000005';
+  v_current jsonb; v_target jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SELECT to_jsonb(r) INTO v_current FROM public.relation r WHERE r.id=-1939501197;
+  v_target := v_current || jsonb_build_object('subjekt_id',-1939501101,'objekt_id',-1939501102);
+  BEGIN
+    PERFORM private.prelock_identity_relation_update(v_current,v_target);
+    UPDATE public.relation SET subjekt_id=-1939501101,objekt_id=-1939501102
+      WHERE id=-1939501197;
+    RAISE EXCEPTION 'EXPECTED_PRELOCKED_COMPONENT_CONTRADICTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
+  END;
+  IF EXISTS (
+    SELECT 1 FROM private.identity_relation_update_prelock
+    WHERE backend_pid=pg_backend_pid()
+  ) THEN
+    RAISE EXCEPTION 'IDENTITY_CAUGHT_ERROR_RETAINED_PRELOCK_RECORD';
+  END IF;
+END $caught_error_lifecycle$;
+COMMIT;
+
+-- Successful use and an intentionally unused prelock both disappear at COMMIT through the
+-- private initially-deferred cleanup trigger. This is also the repeated-run residue gate.
+BEGIN;
+DO $commit_success_lifecycle$
+DECLARE
+  v_actor uuid := '19390000-0000-4000-8000-000000000005';
+  v_current jsonb; v_target jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SELECT to_jsonb(r) INTO v_current FROM public.relation r WHERE r.id=-1939501199;
+  v_target := v_current || jsonb_build_object(
+    'rolle','ikke_samme_som','subjekt_id',-1939501104,'objekt_id',-1939501101
+  );
+  PERFORM private.prelock_identity_relation_update(v_current,v_target);
+  UPDATE public.relation
+    SET rolle='ikke_samme_som',subjekt_id=-1939501104,objekt_id=-1939501101
+    WHERE id=-1939501199;
+  IF (SELECT count(*) FROM private.identity_relation_update_prelock
+      WHERE transaction_id=pg_current_xact_id() AND backend_pid=pg_backend_pid()) <> 1 THEN
+    RAISE EXCEPTION 'IDENTITY_SUCCESS_LOST_TRANSACTION_PRELOCK_RECORD_EARLY';
+  END IF;
+END $commit_success_lifecycle$;
+COMMIT;
+
+BEGIN;
+DO $commit_cleanup_lifecycle$
+DECLARE
+  v_actor uuid := '19390000-0000-4000-8000-000000000005';
+  v_current jsonb;
+BEGIN
+  IF EXISTS (SELECT 1 FROM private.identity_relation_update_prelock) THEN
+    RAISE EXCEPTION 'IDENTITY_SUCCESS_COMMIT_RETAINED_PRELOCK_RECORD';
+  END IF;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SELECT to_jsonb(r) INTO v_current FROM public.relation r WHERE r.id=-1939501199;
+  PERFORM private.prelock_identity_relation_update(
+    v_current,v_current || jsonb_build_object('periode_raw','unused prelock')
+  );
+  IF (SELECT count(*) FROM private.identity_relation_update_prelock
+      WHERE transaction_id=pg_current_xact_id() AND backend_pid=pg_backend_pid()) <> 1 THEN
+    RAISE EXCEPTION 'IDENTITY_UNUSED_PRELOCK_RECORD_NOT_CREATED';
+  END IF;
+END $commit_cleanup_lifecycle$;
+COMMIT;
+
+BEGIN;
+DO $unused_commit_cleanup$
+BEGIN
+  IF EXISTS (SELECT 1 FROM private.identity_relation_update_prelock) THEN
+    RAISE EXCEPTION 'IDENTITY_UNUSED_COMMIT_RETAINED_PRELOCK_RECORD';
+  END IF;
+END $unused_commit_cleanup$;
 DELETE FROM public.relation WHERE id IN (-1939501199,-1939501198,-1939501197);
 DELETE FROM public.person WHERE id IN (-1939501101,-1939501102,-1939501103,-1939501104);
 DELETE FROM public.profiles WHERE id='19390000-0000-4000-8000-000000000005';
