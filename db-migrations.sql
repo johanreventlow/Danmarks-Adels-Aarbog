@@ -4914,8 +4914,8 @@ END $$;
 REVOKE ALL ON FUNCTION private.lock_identity_people(bigint[]) FROM PUBLIC, anon, authenticated;
 
 -- Global lock order for supported identity UPDATE/undo paths:
--- same_som_mutation -> ascending person rows -> relation tuple.  The row trigger may
--- therefore verify this one-shot marker, but must never take the first blocking lock.
+-- same_som_mutation -> ascending person rows -> relation tuple.  The row trigger verifies
+-- the already-held advisory lock non-blockingly, but never takes the first blocking lock.
 CREATE OR REPLACE FUNCTION private.prelock_identity_relation_update(
   p_current jsonb, p_target jsonb
 ) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
@@ -4945,14 +4945,6 @@ BEGIN
   IF cardinality(v_ids) > 0 THEN
     PERFORM private.lock_identity_people(v_ids);
   END IF;
-  PERFORM set_config(
-    'app.identity_relation_update_prelock',
-    jsonb_build_array(
-      p_target->'id', p_target->'rolle', p_target->'subjekt_type', p_target->'subjekt_id',
-      p_target->'objekt_type', p_target->'objekt_id'
-    )::text,
-    true
-  );
 END $$;
 REVOKE ALL ON FUNCTION private.prelock_identity_relation_update(jsonb,jsonb)
   FROM PUBLIC, anon, authenticated;
@@ -4963,7 +4955,9 @@ REVOKE ALL ON FUNCTION private.prelock_identity_relation_update(jsonb,jsonb)
 -- for på invarianten. Funktionen skriver intet — den læser og rejser.
 CREATE OR REPLACE FUNCTION enforce_samme_som_invariants() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
-DECLARE v_expected_prelock text;
+DECLARE
+  v_advisory_key bigint := hashtext('samme_som_mutation')::bigint;
+  v_has_identity_lock boolean;
 BEGIN
   IF TG_OP = 'UPDATE' THEN
     -- samme_som er en identitetspåstand med evidens knyttet til relationens stabile id.
@@ -4976,14 +4970,21 @@ BEGIN
            ROW(NEW.rolle, NEW.subjekt_type, NEW.subjekt_id, NEW.objekt_type, NEW.objekt_id) THEN
       RAISE EXCEPTION 'samme_som: rolle og endepunkter er uforanderlige — brug slet+genopret';
     END IF;
-    v_expected_prelock := jsonb_build_array(
-      to_jsonb(NEW.id), to_jsonb(NEW.rolle), to_jsonb(NEW.subjekt_type), to_jsonb(NEW.subjekt_id),
-      to_jsonb(NEW.objekt_type), to_jsonb(NEW.objekt_id)
-    )::text;
-    IF current_setting('app.identity_relation_update_prelock',true) IS DISTINCT FROM v_expected_prelock THEN
+    SELECT EXISTS (
+      SELECT 1
+      FROM pg_catalog.pg_locks l
+      WHERE l.locktype = 'advisory'
+        AND l.pid = pg_backend_pid()
+        AND l.database = (SELECT d.oid FROM pg_catalog.pg_database d WHERE d.datname=current_database())
+        AND l.classid = ((v_advisory_key >> 32) & 4294967295::bigint)::oid
+        AND l.objid = (v_advisory_key & 4294967295::bigint)::oid
+        AND l.objsubid = 1
+        AND l.mode = 'ExclusiveLock'
+        AND l.granted
+    ) INTO v_has_identity_lock;
+    IF NOT v_has_identity_lock THEN
       RAISE EXCEPTION 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED';
     END IF;
-    PERFORM set_config('app.identity_relation_update_prelock','',true);
     IF NEW.rolle = 'ikke_samme_som'
        AND NEW.subjekt_type = 'person' AND NEW.objekt_type = 'person' THEN
       IF EXISTS (

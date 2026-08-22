@@ -125,12 +125,6 @@ BEGIN
     IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
   END;
   v_update_rejection := red_ikke_samme_som(w1,w2);
-  BEGIN
-    UPDATE relation SET periode_raw=periode_raw WHERE id=v_update_rejection;
-    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_UPDATE_PRELOCK_REQUIRED';
-  EXCEPTION WHEN others THEN
-    IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
-  END;
   PERFORM red_samme_som(w1,wc);
   SELECT to_jsonb(r) INTO v_current FROM relation r WHERE r.id=v_update_rejection;
   v_target := v_current || jsonb_build_object('subjekt_id',w1,'objekt_id',wc);
@@ -213,6 +207,9 @@ BEGIN
   IF v_lock_position < 1 OR v_people_position <= v_lock_position THEN
     RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_ORDER_DRIFT';
   END IF;
+  IF v_definition ~ 'app\.identity_relation_update_prelock' THEN
+    RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_WRITABLE_MARKER_DRIFT';
+  END IF;
   IF EXISTS (
     SELECT 1
     FROM pg_proc p
@@ -243,7 +240,11 @@ BEGIN
   END LOOP;
   v_definition := pg_get_functiondef('public.enforce_samme_som_invariants()'::regprocedure);
   IF regexp_count(v_definition, 'private\.lock_identity_people') <> 1
-     OR v_definition !~ 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN
+     OR v_definition !~ 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED'
+     OR v_definition !~ 'pg_catalog\.pg_locks'
+     OR v_definition !~ 'v_advisory_key >> 32'
+     OR v_definition !~ '4294967295'
+     OR v_definition ~ 'app\.identity_relation_update_prelock' THEN
     RAISE EXCEPTION 'IDENTITY_TRIGGER_LOCK_HELPER_DRIFT';
   END IF;
   v_definition := pg_get_functiondef('public._version_upsert_row(text,jsonb)'::regprocedure);
@@ -289,6 +290,100 @@ BEGIN
   RAISE NOTICE 'OK: C3 sorteret person-lås accepterer negative fixtures og afviser manglende personer';
 END $verify$;
 ROLLBACK;
+
+-- Task 2 UPDATE-bevis må komme fra den faktisk holdte advisory-lås, ikke en skrivbar GUC.
+BEGIN;
+DO $verify$
+DECLARE v_actor uuid := '19390000-0000-4000-8000-000000000006';
+BEGIN
+  INSERT INTO auth.users(id,email) VALUES(v_actor,'c3-identity-prelock-verify@test.invalid');
+  INSERT INTO profiles(id,email,rolle,navn)
+    VALUES(v_actor,'c3-identity-prelock-verify@test.invalid','redaktion','C3 identity prelock verify');
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  INSERT INTO person(id,levende,koen) VALUES
+    (-1939502201,false,'ukendt'),(-1939502202,false,'ukendt'),
+    (-1939502203,false,'ukendt'),(-1939502204,false,'ukendt');
+  INSERT INTO relation(id,subjekt_type,subjekt_id,rolle,objekt_type,objekt_id) VALUES
+    (-1939502299,'person',-1939502203,'bekendt_med','person',-1939502204),
+    (-1939502298,'person',-1939502201,'samme_som','person',-1939502202),
+    (-1939502297,'person',-1939502203,'ikke_samme_som','person',-1939502204);
+END $verify$;
+COMMIT;
+
+BEGIN;
+DO $verify$
+DECLARE
+  v_actor uuid := '19390000-0000-4000-8000-000000000006';
+  v_current jsonb; v_target jsonb; v_has_lock boolean;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SELECT to_jsonb(r) || jsonb_build_object('rolle','ikke_samme_som')
+    INTO v_target FROM relation r WHERE r.id=-1939502299;
+  PERFORM set_config('app.identity_relation_update_prelock',jsonb_build_array(
+    v_target->'id',v_target->'rolle',v_target->'subjekt_type',v_target->'subjekt_id',
+    v_target->'objekt_type',v_target->'objekt_id')::text,true);
+  BEGIN
+    UPDATE relation SET rolle='ikke_samme_som' WHERE id=-1939502299;
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_SPOOF_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
+  END;
+  PERFORM _version_upsert_row(
+    'relation',
+    (SELECT to_jsonb(r) || jsonb_build_object('periode_raw','generic undo remains supported')
+     FROM relation r WHERE r.id=-1939502299)
+  );
+  IF (SELECT periode_raw FROM relation WHERE id=-1939502299)
+     <> 'generic undo remains supported' THEN
+    RAISE EXCEPTION 'IDENTITY_VERIFY_GENERIC_RELATION_UPSERT_REGRESSED';
+  END IF;
+
+  SELECT to_jsonb(r) INTO v_current FROM relation r WHERE r.id=-1939502297;
+  v_target := v_current || jsonb_build_object('subjekt_id',-1939502201,'objekt_id',-1939502202);
+  PERFORM set_config('app.identity_relation_update_prelock','',true);
+  BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+    UPDATE relation SET subjekt_id=-1939502201,objekt_id=-1939502202 WHERE id=-1939502297;
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_PREHELD_COMPONENT_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
+  END;
+  PERFORM set_config('app.identity_relation_update_prelock',jsonb_build_array(
+    v_target->'id',v_target->'rolle',v_target->'subjekt_type',v_target->'subjekt_id',
+    v_target->'objekt_type',v_target->'objekt_id')::text,true);
+  BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+    UPDATE relation SET subjekt_id=-1939502201,objekt_id=-1939502202 WHERE id=-1939502297;
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_REUSABLE_COMPONENT_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
+  END;
+  SELECT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_locks l
+    WHERE l.locktype='advisory' AND l.pid=pg_backend_pid() AND l.granted
+      AND l.mode='ExclusiveLock'
+      AND l.classid=(CASE WHEN hashtext('samme_som_mutation') < 0
+                          THEN 4294967295::bigint ELSE 0::bigint END)::oid
+      AND l.objid=(hashtext('samme_som_mutation')::bigint & 4294967295::bigint)::oid
+      AND l.objsubid=1
+  ) INTO v_has_lock;
+  IF v_has_lock THEN RAISE EXCEPTION 'IDENTITY_VERIFY_SUBTRANSACTION_LOCK_LEAKED'; END IF;
+  BEGIN
+    UPDATE relation SET subjekt_id=-1939502201,objekt_id=-1939502202 WHERE id=-1939502297;
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_REUSED_PROOF_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
+  END;
+  RAISE NOTICE 'OK: C3 identity UPDATE kræver den faktisk holdte advisory-lås; GUC-spoof og genbrug afvises';
+END $verify$;
+ROLLBACK;
+
+BEGIN;
+DELETE FROM relation WHERE id IN (-1939502299,-1939502298,-1939502297);
+DELETE FROM person WHERE id IN (-1939502201,-1939502202,-1939502203,-1939502204);
+DELETE FROM profiles WHERE id='19390000-0000-4000-8000-000000000006';
+DELETE FROM auth.users WHERE id='19390000-0000-4000-8000-000000000006';
+COMMIT;
 
 SELECT to_regclass('public.profiles') IS NOT NULL AS profiles_ok,
        to_regclass('public.suggestion') IS NOT NULL AS suggestion_ok;
