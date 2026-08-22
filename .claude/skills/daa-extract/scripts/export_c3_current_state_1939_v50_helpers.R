@@ -1,28 +1,17 @@
 ## Pure structural transformation for the C3 current-state export.
 ## This file has no database access and never accepts narrative prose.
+##
+## Every entry point sources c3_export_shared_1939_v50_helpers.R before this
+## file. The `.c3_state_*` names below are thin aliases onto the shared
+## primitives, kept so this file's external contract (and its existing
+## tests) stay unchanged while the implementation is genuinely shared with
+## export_c3_apply_preview_1939_v50.R.
 
-.c3_state_stop <- function(token) stop(token, call. = FALSE)
-
-.c3_state_require_columns <- function(rows, required, token) {
-  if (!is.data.frame(rows) || length(setdiff(required, names(rows))) > 0L)
-    .c3_state_stop(token)
-}
-
-.c3_state_valid_ids <- function(values, allow_empty = FALSE) {
-  if (!is.numeric(values) || (!allow_empty && length(values) == 0L)) return(FALSE)
-  if (length(values) == 0L) return(TRUE)
-  all(!is.na(values) & is.finite(values) & values > 0 & values == floor(values))
-}
-
-.c3_state_scalar_string <- function(value, pattern = NULL) {
-  if (!is.character(value) || length(value) != 1L || is.na(value) || !nzchar(value))
-    return(FALSE)
-  is.null(pattern) || grepl(pattern, value, perl = TRUE)
-}
-
-.c3_state_optional_strings <- function(values) {
-  is.character(values) && all(is.na(values) | nzchar(values))
-}
+.c3_state_stop <- .c3_common_stop
+.c3_state_require_columns <- .c3_common_require_columns
+.c3_state_valid_ids <- .c3_common_valid_ids
+.c3_state_scalar_string <- .c3_common_scalar_string
+.c3_state_optional_strings <- .c3_common_optional_strings
 
 build_c3_current_state_1939_v50 <- function(
     person_ids, person_rows, narrative_rows, identity_rows, partner_conflict_rows,

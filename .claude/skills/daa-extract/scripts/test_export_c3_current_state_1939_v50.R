@@ -6,6 +6,7 @@ script_dir <- if (!is.na(script_arg) && !identical(script_arg, "--file=-e")) {
 } else {
   getwd()
 }
+source(file.path(script_dir, "c3_export_shared_1939_v50_helpers.R"))
 source(file.path(script_dir, "export_c3_current_state_1939_v50_helpers.R"))
 
 ok <- 0L

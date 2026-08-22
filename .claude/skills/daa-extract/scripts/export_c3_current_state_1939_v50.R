@@ -5,30 +5,20 @@
 .c3_state_main <- function() {
   script_arg <- grep("^--file=", commandArgs(), value = TRUE)[1L]
   script_dir <- dirname(normalizePath(sub("^--file=", "", script_arg)))
+  source(file.path(script_dir, "c3_export_shared_1939_v50_helpers.R"))
   source(file.path(script_dir, "export_c3_current_state_1939_v50_helpers.R"))
 
   args <- commandArgs(trailingOnly = TRUE)
   allowed <- c("--selection", "--output", "--expect-database-name")
-  if (length(args) != 6L || any(seq_along(args) %% 2L == 0L & grepl("^--", args)) ||
-      any(seq_along(args) %% 2L == 1L & !grepl("^--", args)))
-    .c3_state_stop("C3_STATE_ARGUMENTS_INVALID")
-  flags <- args[seq.int(1L, length(args), by = 2L)]
-  values <- args[seq.int(2L, length(args), by = 2L)]
-  if (anyDuplicated(flags) || !setequal(flags, allowed) || any(!nzchar(values)))
-    .c3_state_stop("C3_STATE_ARGUMENTS_INVALID")
-  value <- function(flag) values[[match(flag, flags)]]
-  selection_path <- value("--selection")
-  output_path <- value("--output")
-  expected_database_name <- value("--expect-database-name")
+  parsed <- .c3_common_parse_flags(args, allowed, "C3_STATE_ARGUMENTS_INVALID")
+  selection_path <- parsed[["--selection"]]
+  output_path <- parsed[["--output"]]
+  expected_database_name <- parsed[["--expect-database-name"]]
   if (!.c3_state_scalar_string(expected_database_name, "^[A-Za-z0-9_.-]+$"))
     .c3_state_stop("C3_STATE_DATABASE_NAME_INVALID")
-  if (file.exists(output_path)) .c3_state_stop("C3_STATE_OUTPUT_EXISTS")
+  .c3_common_refuse_existing_output(output_path, "C3_STATE_OUTPUT_EXISTS")
 
-  selection_raw <- tryCatch({
-    size <- file.info(selection_path)$size
-    if (length(size) != 1L || is.na(size) || size <= 0) stop("invalid")
-    readBin(selection_path, what = "raw", n = size)
-  }, error = function(e) .c3_state_stop("C3_STATE_SELECTION_INVALID"))
+  selection_raw <- .c3_common_read_regular_raw(selection_path, "C3_STATE_SELECTION_INVALID")
   selection_sha256 <- digest::digest(selection_raw, algo = "sha256", serialize = FALSE)
   selection <- tryCatch(
     jsonlite::fromJSON(rawToChar(selection_raw), simplifyVector = TRUE),
@@ -54,32 +44,15 @@
     .c3_state_stop("C3_STATE_SELECTION_INVALID")
   person_ids <- sort(as.numeric(selection$person_ids), method = "radix")
 
-  pg_names <- c("PGDATABASE", "PGHOST", "PGPORT", "PGUSER", "PGPASSWORD")
-  pg_set <- nzchar(Sys.getenv(pg_names))
-  if (any(pg_set) && !all(pg_set)) .c3_state_stop("C3_STATE_PG_ENV_INVALID")
-  local_pg <- all(pg_set)
-  env_or <- function(primary, fallback) {
-    result <- Sys.getenv(primary)
-    if (nzchar(result)) result else Sys.getenv(fallback)
-  }
-  connection_values <- list(
-    dbname = env_or("PGDATABASE", "SUPABASE_DB"),
-    host = env_or("PGHOST", "SUPABASE_HOST"),
-    port = env_or("PGPORT", "SUPABASE_PORT"),
-    user = env_or("PGUSER", "SUPABASE_USER"),
-    password = env_or("PGPASSWORD", "SUPABASE_PASSWORD")
-  )
-  port <- suppressWarnings(as.integer(connection_values$port))
-  if (any(!nzchar(unlist(connection_values, use.names = FALSE))) ||
-      is.na(port) || port < 1L || port > 65535L)
-    .c3_state_stop("C3_STATE_CONNECTION_ENV_INVALID")
+  connection_values <- .c3_common_pg_connection_values(
+    "C3_STATE_PG_ENV_INVALID", "C3_STATE_CONNECTION_ENV_INVALID")
 
   con <- tryCatch(
     DBI::dbConnect(
       RPostgres::Postgres(), dbname = connection_values$dbname,
-      host = connection_values$host, port = port, user = connection_values$user,
-      password = connection_values$password,
-      sslmode = if (local_pg) "disable" else {
+      host = connection_values$host, port = connection_values$port,
+      user = connection_values$user, password = connection_values$password,
+      sslmode = if (connection_values$local) "disable" else {
         sslmode <- Sys.getenv("SUPABASE_SSLMODE")
         if (nzchar(sslmode)) sslmode else "require"
       },
@@ -177,15 +150,8 @@
   )
   rendered <- paste0(jsonlite::toJSON(document, auto_unbox = TRUE, pretty = TRUE,
                                       null = "null"), "\n")
-  temporary <- tempfile(pattern = ".c3-state-", tmpdir = dirname(output_path))
-  on.exit(unlink(temporary), add = TRUE)
-  tryCatch(writeBin(charToRaw(enc2utf8(rendered)), temporary),
-           error = function(e) .c3_state_stop("C3_STATE_OUTPUT_WRITE_FAILED"))
-  if (!isTRUE(file.link(temporary, output_path))) {
-    if (file.exists(output_path)) .c3_state_stop("C3_STATE_OUTPUT_EXISTS")
-    .c3_state_stop("C3_STATE_OUTPUT_WRITE_FAILED")
-  }
-  unlink(temporary)
+  .c3_common_publish_exclusive(rendered, output_path, "C3_STATE_OUTPUT_EXISTS",
+                                "C3_STATE_OUTPUT_WRITE_FAILED")
   cat(sprintf("persons=%d narratives=%d identity_edges=%d partner_conflicts=%d\n",
               length(document$persons), length(document$narratives),
               length(document$identity_edges), length(document$partner_conflicts)))
