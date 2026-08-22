@@ -110,8 +110,36 @@ Persona-, placement- og membership-tabellerne er skeletter. Task 17/20 trin 3-4 
 ### 7.5 To identitetsveje — *Beslut → #151*
 Webkøen (Task 11) og `source_persona.py` (Task 10) er bygget og ubrugte; al ægte identitet gik via lokale token-/HTML-ark i `work/` + batch-writer der skriver `accepted` direkte (spec §6.2 siger ingest må kun skrive `proposed`). Den lokale vej er *strengere* (byte-låst, fail-closed) men audit-sporet i DB er kun en hash + batch-udførerens navn, og menneskets afgørelse ligger i gitignorerede filer. **Anbefaling:** Vælg én: (a) lad den lokale vej skrive `proposed`, som webkøen bekræfter (giver DB-audit med redaktør som aktør), eller (b) afvikl webkøen som PoC og dokumentér token-fil-vejen som den gældende. Ikke begge.
 
-### 7.6 Én narrativ pr. person pr. udgave — *Savnes → #152 (blokerer C3-apply)*
-`red_upsert_narrativ` er nøglet på `(subjekt, source_id)`, og `narrative_record_publication.narrative_id` er UNIQUE. Spec §11's "tre opslag i samme bog = tre tekster" er strukturelt umuligt. 1017/1021-sagen og de 12 afskårne narrativer (929/930 og 1013/1014 byte-identiske) er symptomer. C3 arbejder i denne begrænsning i stedet for at løfte den. **Anbefaling:** Afgør før C3-apply om narrativ skal nøgles på `source_record` (spec) frem for `source_id`. Ellers bygges C3 på en model, der skal skiftes.
+### 7.6 Én narrativ pr. person pr. udgave — *Savnes → #152*
+`red_upsert_narrativ` er nøglet på `(subjekt, source_id)`, og `narrative_record_publication.narrative_id` er UNIQUE. Spec §11's "tre opslag i samme bog = tre tekster" kan ikke udtrykkes. 1017/1021-sagen og de 12 afskårne narrativer (929/930 og 1013/1014 byte-identiske) er symptomer.
+
+> **RETTELSE 2026-08-22 (efter måling — se §7.6b).** To påstande i afsnittet ovenfor var forkerte, og de nåede både `decisions.md` og issue #152, før de blev efterprøvet. De står stadig her, så rettelsen kan læses mod originalen.
+
+### 7.6b Rettelse: hvad målingen faktisk viste
+
+Tre målinger mod prod 2026-08-22, alle læse-kun:
+
+1. **"Strukturelt umuligt" er forkert.** `public.narrative` har ingen unique-constraint på `(subjekt_type, subjekt_id, source_id)` — kun `narrative_pkey` på `id` og et *ikke*-unikt indeks `ix_narrative_subjekt`. Én-pr-udgave håndhæves af `red_upsert_narrativ` og af læserne (`pickPreferredBio`, `public_person_bio_source_versions`), ikke af skemaet. #152 er derfor en writer-/læser-ændring med en additiv kolonne, ikke en skemarestrukturering. Det gør opgaven **mindre** end først antaget.
+2. **"Blokerer C3-apply" var en påstand, ikke en udledning.** Den er ikke efterprøvet her og må ikke bruges som gate, før det er afgjort, om C3's operationer er *bindinger* (fremadkompatible med en senere nøgleændring) eller *tekstkirurgi* (som en nøgleændring skal rulle tilbage). Se §7.6c.
+3. **Den bundne bestand er ren — men det beviser ikke, at modellen er tilstrækkelig.** Alle 559 publicerede bindinger er 1:1 med deres record: 0 narrativer er længere end deres record (median −3,3 %, forklaret af `narrative_norm_v1`). Tallet gælder dog kun det, fase B rørte; **alle kendte patologier ligger i den ubundne rest** (25 person-records uden binding), som målingen per konstruktion udelader. Tallet må ikke læses som "modellen er fin".
+
+**Den afgørende måling — 1017/1021 — bekræfter derimod merge-patologien empirisk:**
+
+| Objekt | Længde | Forhold |
+|---|---:|---|
+| Person 1017's narrativ | 369 tegn | indeholder **hele** record A **plus begyndelsen af** record B |
+| `record-e8bace88` (s. 504, "A) Otto til Wittenberg…") | 236 tegn | start **og** slut findes i 1017 → fuldt dækket |
+| `record-5fc1a041` (s. 505, "B) Ditlev til Wittenberg…") | 150 tegn | start findes i 1017, slut findes **ikke** → afskåret |
+| Person 1021's narrativ | 57 tegn | begynder `"low († 1752)…"` = halen af B's orddelte »Revent-\nlow« |
+
+Altså: **ét narrativ spænder to records, og ét record spænder to narrativer** — begge retninger af misforholdet i én sag. Den nuværende nøgle kan ikke udtrykke, hvor teksten kommer fra. Det er en stærkere begrundelse for #152 end spec §11's grundlægger-eksempel, fordi det er observeret i egne data frem for forudset.
+
+Yderligere i den ubundne rest: `record-6fe0fbac` ("Doso, maa være Broder til Hartvig") matcher **både** person 929 og 930, hvis narrativer er byte-identiske (samme md5, 302 tegn). Samme mønster for 1013/1014 (md5-identiske, 127 tegn).
+
+**Bemærk også** at 3 af de 12 "begynder midt i en sætning"-sager er falske positiver: 956 (`"lven"` = OCR af »Iven«), 1308 og 1413 (`"l. Comtesse"` = OCR af »1. Comtesse«). Det er tegnfejl, ikke grænsefejl. Reelle fragment-sager er 1017/1021, 1791 (hvis *navn* er »fyenske Rytterreg.)«), 977 og 1772 (planche-OCR).
+
+### 7.6c Åbent efter rettelsen
+Sekvensen »#152 før C3« hviler nu på ét ubesvaret spørgsmål: er C3's apply-operationer bindinger eller tekstkirurgi? Bindinger → C3 kan køre først, #152 er uafhængig. Tekstkirurgi → #152 skal først, ellers skal arbejdet gøres om. Afgøres af gennemgangen af `2026-08-22-1939-v50-c3-atomisk-apply.md`, ikke af skøn.
 
 ### 7.7 Udgavespecifikke tabeller og RPC'er — *Teknisk gæld → #153*
 `private.reimport_1939_{authorization,write_batch,write_event,name_completion_result}` og `red_*_1939_v50_*` bryder invariant 12. Omfang (Codex' optælling): 27 1939-specifikke tabel-/funktionsdefinitioner i `schema.sql` og 106 Python/R-filer med `1939_v50` i navnet. Næste bog kan ikke genbruge writeren uden kopi. **Anbefaling:** Omdøb/generalisér til `reimport_batch` med `source_id` som parameter, før 2018-20 rører dem. Kan være en mekanisk refactor.
