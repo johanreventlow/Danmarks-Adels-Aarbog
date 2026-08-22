@@ -30,6 +30,22 @@ data — ikke spec'ens evidensbaserede genimport (fortolkningslag 0 rækker,
 
 - Ingen ny v50-fase (C3-apply, `[NY]`, C1, C2) før narrativ-nøglen (#152) er
   afgjort — C3 må ikke bygges på en model, der skal skiftes.
+
+  **Præcisering 2026-08-22 (efter måling):** reglen blev skrevet på påstanden
+  om, at #152 »blokerer« C3. Den påstand var ikke udledt, og målingen viste
+  desuden, at der ikke findes nogen unique-constraint på
+  `(subjekt, source_id)` — én-pr-udgave bor i `red_upsert_narrativ` og
+  læserne, ikke i skemaet. Reglen gælder derfor kun, indtil ét spørgsmål er
+  besvaret: **er C3's apply-operationer bindinger eller tekstkirurgi?**
+  Bindinger (»pensionér person X, ombind record R til person Y«) er
+  fremadkompatible med en senere nøgleændring, og så kan C3 køre først.
+  Tekstkirurgi (»føj fragment til 1017's `tekst`, slet 1021's narrativ«)
+  skal rulles tilbage af en nøgleændring, og så går #152 først. Afgøres af
+  gennemgangen af `2026-08-22-1939-v50-c3-atomisk-apply.md` — ikke af skøn.
+  Merge-patologien er til gengæld nu empirisk bekræftet (1017 rummer hele
+  record A + starten af record B; 1021 rummer B's hale), så #152's
+  berettigelse står, uanset hvordan sekvensen falder ud. Se
+  afvigelsesvurderingens §7.6b-c.
 - Ingen ny plan uden henvisning til et §7-punkt i afvigelsesvurderingen eller
   et af issues #147-#158.
 - Ingen prod-skrivning uden committet GO-pakke.
