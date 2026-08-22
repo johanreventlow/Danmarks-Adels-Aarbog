@@ -113,7 +113,7 @@ Webkøen (Task 11) og `source_persona.py` (Task 10) er bygget og ubrugte; al æg
 `red_upsert_narrativ` er nøglet på `(subjekt, source_id)`, og `narrative_record_publication.narrative_id` er UNIQUE. Spec §11's "tre opslag i samme bog = tre tekster" er strukturelt umuligt. 1017/1021-sagen og de 12 afskårne narrativer (929/930 og 1013/1014 byte-identiske) er symptomer. C3 arbejder i denne begrænsning i stedet for at løfte den. **Anbefaling:** Afgør før C3-apply om narrativ skal nøgles på `source_record` (spec) frem for `source_id`. Ellers bygges C3 på en model, der skal skiftes.
 
 ### 7.7 Udgavespecifikke tabeller og RPC'er — *Teknisk gæld*
-`private.reimport_1939_{authorization,write_batch,write_event,name_completion_result}` og `red_*_1939_v50_*` bryder invariant 12. Næste bog kan ikke genbruge writeren uden kopi. **Anbefaling:** Omdøb/generalisér til `reimport_batch` med `source_id` som parameter, før 2018-20 rører dem. Kan være en mekanisk refactor.
+`private.reimport_1939_{authorization,write_batch,write_event,name_completion_result}` og `red_*_1939_v50_*` bryder invariant 12. Omfang (Codex' optælling): 27 1939-specifikke tabel-/funktionsdefinitioner i `schema.sql` og 106 Python/R-filer med `1939_v50` i navnet. Næste bog kan ikke genbruge writeren uden kopi. **Anbefaling:** Omdøb/generalisér til `reimport_batch` med `source_id` som parameter, før 2018-20 rører dem. Kan være en mekanisk refactor.
 
 ### 7.8 Global `ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS` — *Teknisk gæld*
 `db-rls.sql:14-15`. Planen (Task 4 trin 4) advarede udtrykkeligt. Enhver fremtidig `public.red_*` deployet af samme ejer uden eksplicit `GRANT EXECUTE TO authenticated` bliver tavst ukaldbar fra appen. **Anbefaling:** Enten tilføj en db-verify-assert, der fanger ugrantede public-funktioner, eller rul tilbage til schema-lokal revoke som planlagt.
@@ -128,7 +128,7 @@ Udskudt som planen tillader. Men `entity_description` er en versioneret tabel ud
 Se §5. **Anbefaling:** Vedtag fase-pakke-modellen skriftligt i `decisions.md` med dens kendte svaghed (ingen gammel↔ny sammenligning), og tilføj én efterfølgende kontrol: en samlet "er prod lig med summen af manifesterne"-afstemning (Task 21 trin 3 i reduceret form).
 
 ### 7.12 Allerede kendte v50-udeståender (fra overdragelsen 08-21) — *Igangværende*
-C3 (7 records + 1017/1021; invarianter bygget, apply ikke); 16 `[NY]`-records; 7 staged (933, 935, 940, 963, 967, 1014, 1135); C1 udskudt; C2-køen ikke startet; 644 narrativ-løse ægtefæller; to parkerede kodefejl i C0f-kæden (`flags_sha256`, dubleret sekvens); strukturerede fakta usynlige i læserfladen (`fetchPersonDetail` henter aldrig `fact`); hændelsesudtræk aldrig kørt (#130); 16 tomme unioner; `get_advisors` efter `red_slet_person`; ingen draft-PR.
+Narrativ-bindinger (`narrative_record_publication`) er kun delvist fortrydbare og optræder ikke i det almindelige fortryd-panel (jf. C0f-GO-pakken §fortrydelse; C3-designet forsøger at lukke det). C3 (7 records + 1017/1021; invarianter bygget, apply ikke); 16 `[NY]`-records; 7 staged (933, 935, 940, 963, 967, 1014, 1135); C1 udskudt; C2-køen ikke startet; 644 narrativ-løse ægtefæller; to parkerede kodefejl i C0f-kæden (`flags_sha256`, dubleret sekvens); strukturerede fakta usynlige i læserfladen (`fetchPersonDetail` henter aldrig `fact`); hændelsesudtræk aldrig kørt (#130); 16 tomme unioner; `get_advisors` efter `red_slet_person`; ingen draft-PR.
 
 ### 7.13 Dokumentationsdrift — *Teknisk gæld*
 Checkbokse i mindst seks planer (Task 8, Task 14, 08-05 placement, fase B, same-som-paritet, C3-invarianter) modsvarer ikke commits. `docs/database-current-state.md` siger stadig "source 3 = 539 direkte poster". Changelog 08-18 ("v50-strømmen lukket i prod") overdriver. Planerne kan ikke bruges som statuskilde; dette dokument + changelog er det indtil rettet.
@@ -142,7 +142,11 @@ Checkbokse i mindst seks planer (Task 8, Task 14, 08-05 placement, fase B, same-
 
 Programmet er altså **ikke færdigt og ikke bedre end planen samlet set**, men det har lagt et fundament, hvorpå planens kerne stadig kan bygges uden at smide noget væk. Den afgørende beslutning er 7.1: skal fortolkningslaget fyldes, eller er provenance-laget produktet? Alt andet følger af den.
 
-## 9. Hvad der IKKE må ske herfra
+## 9. Uafhængig krydskontrol (Codex, samme dag, read-only, uden DB)
+
+Codex nåede uafhængigt samme hoveddom: fundament GO m. forbehold; oprindelig plan NO-GO; 1939-biografilæser betinget GO; "1939-genimporten afsluttet" NO-GO. Codex tilføjede 7.12's fortryd-hul og kvantificeringen i 7.7, og modererede de 16 tomme unioner til et mistankesignal (overtaget). Én uenighed: Codex regner klausul-ledgeren som leveret ("fuldtegnsdækkende"); den dækker alle tegn, men pr. *linje*, ikke pr. klausul, og beviser derfor ikke spec §15.1 — 7.2 fastholdes. Codex' gennemgang omfattede ikke prod-målingen (§2), extractorens manglende model-kald, narrativ-nøglen (7.6), de to identitetsveje (7.5), global REVOKE/TRUNCATE (7.8-7.9) eller de to uauditerede prod-skrivninger (§5).
+
+## 10. Hvad der IKKE må ske herfra
 
 - Ingen ny v50-fase (C1, C2, C3-apply, `[NY]`) startes, før 7.1 og 7.6 er besluttet — ellers bygges videre på en model, der måske skal skiftes.
 - Ingen ny plan uden henvisning til et punkt i §7.
