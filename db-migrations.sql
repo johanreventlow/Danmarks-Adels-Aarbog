@@ -4219,6 +4219,9 @@ BEGIN
   -- (uden den kan concurrent red_samme_som(a,b)+red_ikke_samme_som(a,b) begge passere → dobbelt-rolle).
   PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
   IF p_a = p_b THEN RAISE EXCEPTION 'ikke_samme_som: kan ikke afvise en person mod sig selv'; END IF;
+  PERFORM 1 FROM public.person
+    WHERE id IN (p_a, p_b)
+    ORDER BY id FOR UPDATE;
   IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_a) THEN RAISE EXCEPTION 'Person % findes ikke', p_a; END IF;
   IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_b) THEN RAISE EXCEPTION 'Person % findes ikke', p_b; END IF;
   v_lo := least(p_a, p_b); v_hi := greatest(p_a, p_b);
@@ -4226,10 +4229,13 @@ BEGIN
   SELECT id INTO v_rel FROM relation WHERE rolle='ikke_samme_som' AND subjekt_type='person' AND objekt_type='person'
     AND subjekt_id=v_lo AND objekt_id=v_hi LIMIT 1;
   IF v_rel IS NOT NULL THEN RETURN v_rel; END IF;
-  -- Kontradiktions-guard: findes et samme_som-link mellem parret (begge retninger) → afvis.
-  IF EXISTS (SELECT 1 FROM relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
-             AND ((subjekt_id=p_a AND objekt_id=p_b) OR (subjekt_id=p_b AND objekt_id=p_a))) THEN
-    RAISE EXCEPTION 'ikke_samme_som: parret (%,%) er allerede linket som samme_som — fjern linket først', p_a, p_b;
+  -- Kontradiktions-guard: de to komponenter må ikke overlappe.
+  IF EXISTS (
+    SELECT 1
+    FROM public._samme_som_gruppe(p_a) a
+    JOIN public._samme_som_gruppe(p_b) b ON b.pid = a.pid
+  ) THEN
+    RAISE EXCEPTION 'IDENTITY_COMPONENT_CONTRADICTION: ikke_samme_som overlapper samme_som-komponent';
   END IF;
   PERFORM begin_change_set('red_ikke_samme_som',
     format('Markerede person %s og %s som forskellige', v_lo, v_hi), 'person', v_lo);
@@ -4856,6 +4862,28 @@ RETURNS TABLE(pid bigint) LANGUAGE sql STABLE SECURITY INVOKER SET search_path=p
 $$;
 REVOKE EXECUTE ON FUNCTION _samme_som_gruppe(bigint) FROM PUBLIC, anon, authenticated;
 
+CREATE OR REPLACE FUNCTION private.identity_components_have_rejection(
+  p_left bigint, p_right bigint
+) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, public, private
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.relation r
+    WHERE r.rolle = 'ikke_samme_som'
+      AND r.subjekt_type = 'person' AND r.objekt_type = 'person'
+      AND (
+        (r.subjekt_id IN (SELECT pid FROM public._samme_som_gruppe(p_left))
+         AND r.objekt_id IN (SELECT pid FROM public._samme_som_gruppe(p_right)))
+        OR
+        (r.objekt_id IN (SELECT pid FROM public._samme_som_gruppe(p_left))
+         AND r.subjekt_id IN (SELECT pid FROM public._samme_som_gruppe(p_right)))
+      )
+  )
+$$;
+REVOKE ALL ON FUNCTION private.identity_components_have_rejection(bigint,bigint) FROM PUBLIC, anon, authenticated;
+
 -- SECURITY DEFINER (2026-08-01): guarden nedenfor kalder _samme_som_gruppe, hvis EXECUTE er
 -- revoked fra anon/authenticated. Alle reelle skriveveje går gennem definer-RPC'er og kører
 -- allerede som ejer, men uden dette ville en fremtidig ikke-ejer-sti fejle på rettigheder frem
@@ -4880,8 +4908,14 @@ BEGIN
     RETURN NEW; -- ikke et person→person samme_som — rør ikke
   END IF;
   PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation')); -- serialisér samme_som-mutationer
+  PERFORM 1 FROM public.person
+    WHERE id IN (NEW.subjekt_id, NEW.objekt_id)
+    ORDER BY id FOR UPDATE;
   IF NEW.subjekt_id = NEW.objekt_id THEN
     RAISE EXCEPTION 'samme_som: kan ikke linke en person til sig selv';
+  END IF;
+  IF private.identity_components_have_rejection(NEW.subjekt_id, NEW.objekt_id) THEN
+    RAISE EXCEPTION 'IDENTITY_COMPONENT_CONTRADICTION: samme_som bridge forbinder afviste komponenter';
   END IF;
   -- G3 out-degree ≤ 1: alias peger ikke allerede på en ANDEN kanonisk (multi-sink).
   IF EXISTS (SELECT 1 FROM relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'

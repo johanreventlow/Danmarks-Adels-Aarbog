@@ -45,6 +45,73 @@ BEGIN
   RAISE NOTICE 'OK: DAA 1939 v50 production-writer contract er installeret og privat';
 END $$;
 
+-- ===== C3 Task 1 — komponentbrede identitetskontradiktioner =====
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    WHERE p.oid = 'private.identity_components_have_rejection(bigint,bigint)'::regprocedure
+      AND p.prosecdef
+      AND 'search_path=pg_catalog, public, private' = ANY (p.proconfig)
+  ) THEN
+    RAISE EXCEPTION 'IDENTITY_COMPONENT_HELPER_SECURITY_DRIFT';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f',p.proowner))) acl
+    WHERE p.oid = 'private.identity_components_have_rejection(bigint,bigint)'::regprocedure
+      AND acl.grantee = 0 AND acl.privilege_type = 'EXECUTE'
+  )
+     OR has_function_privilege('anon','private.identity_components_have_rejection(bigint,bigint)','EXECUTE')
+     OR has_function_privilege('authenticated','private.identity_components_have_rejection(bigint,bigint)','EXECUTE') THEN
+    RAISE EXCEPTION 'IDENTITY_COMPONENT_HELPER_ACL_DRIFT';
+  END IF;
+  RAISE NOTICE 'OK: C3 identitets-helper er DEFINER, har fast search_path og er privat';
+END $$;
+
+BEGIN;
+DO $verify$
+DECLARE
+  v_actor uuid := '19390000-0000-4000-8000-000000000002';
+  a1 bigint := -1939502001; a2 bigint := -1939502002; ac bigint := -1939502003;
+  b1 bigint := -1939502004; b2 bigint := -1939502005; bc bigint := -1939502006;
+BEGIN
+  INSERT INTO auth.users(id,email)
+  VALUES (v_actor,'c3-identity-verify@test.invalid')
+  ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,email,rolle,navn)
+  VALUES (v_actor,'c3-identity-verify@test.invalid','redaktion','C3 identity verify')
+  ON CONFLICT (id) DO UPDATE SET rolle='redaktion', navn='C3 identity verify';
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  INSERT INTO person(id,levende,koen) VALUES
+    (a1,false,'mand'), (a2,false,'mand'), (ac,false,'mand'),
+    (b1,false,'kvinde'), (b2,false,'kvinde'), (bc,false,'kvinde')
+  ON CONFLICT (id) DO NOTHING;
+
+  PERFORM red_samme_som(a1,ac);
+  PERFORM red_samme_som(a2,ac);
+  BEGIN
+    PERFORM red_ikke_samme_som(a1,a2);
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_COMPONENT_DIFFERENT_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
+  END;
+
+  PERFORM red_samme_som(b1,bc);
+  PERFORM red_samme_som(b2,bc);
+  PERFORM red_ikke_samme_som(a1,b1);
+  BEGIN
+    PERFORM red_samme_som(a2,b2);
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_COMPONENT_SAME_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
+  END;
+  RAISE NOTICE 'OK: C3 komponentbrede identitetskontradiktioner';
+END $verify$;
+ROLLBACK;
+
 SELECT to_regclass('public.profiles') IS NOT NULL AS profiles_ok,
        to_regclass('public.suggestion') IS NOT NULL AS suggestion_ok;
 -- Forvent profiles_ok=t, suggestion_ok=t
@@ -4919,11 +4986,11 @@ BEGIN
   PERFORM red_fjern_ikke_samme_som(r_ikke);
   r_samme := red_samme_som(-1001,-1002);
   BEGIN PERFORM red_ikke_samme_som(-1001,-1002); RAISE EXCEPTION 'samme_som→ikke ikke fanget';
-  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%allerede linket som samme_som%' THEN RAISE; END IF; END;
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF; END;
   PERFORM red_fjern_samme_som(r_samme);
   r_ikke := red_ikke_samme_som(-1001,-1002);
   BEGIN PERFORM red_samme_som(-1001,-1002); RAISE EXCEPTION 'ikke→samme ikke fanget';
-  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%markeret ikke_samme_som%' THEN RAISE; END IF; END;
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF; END;
 
   -- red_relation-guard + fjern sletter evidens
   BEGIN PERFORM red_relation('person',-1001,'person',-1002,'ikke_samme_som'); RAISE EXCEPTION 'red_relation tillod ikke_samme_som';
