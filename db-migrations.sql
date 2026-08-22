@@ -4956,8 +4956,12 @@ REVOKE ALL ON FUNCTION private.prelock_identity_relation_update(jsonb,jsonb)
 CREATE OR REPLACE FUNCTION enforce_samme_som_invariants() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE
-  v_advisory_key bigint := hashtext('samme_som_mutation')::bigint;
+  v_advisory_key bigint := pg_catalog.hashtext('samme_som_mutation')::bigint;
   v_has_identity_lock boolean;
+  v_has_session_lock boolean;
+  v_old_client_min_messages text;
+  v_expected_people integer;
+  v_existing_people integer;
 BEGIN
   IF TG_OP = 'UPDATE' THEN
     -- samme_som er en identitetspåstand med evidens knyttet til relationens stabile id.
@@ -4974,8 +4978,11 @@ BEGIN
       SELECT 1
       FROM pg_catalog.pg_locks l
       WHERE l.locktype = 'advisory'
-        AND l.pid = pg_backend_pid()
-        AND l.database = (SELECT d.oid FROM pg_catalog.pg_database d WHERE d.datname=current_database())
+        AND l.pid = pg_catalog.pg_backend_pid()
+        AND l.database = (
+          SELECT d.oid FROM pg_catalog.pg_database d
+          WHERE d.datname=pg_catalog.current_database()
+        )
         AND l.classid = ((v_advisory_key >> 32) & 4294967295::bigint)::oid
         AND l.objid = (v_advisory_key & 4294967295::bigint)::oid
         AND l.objsubid = 1
@@ -4984,6 +4991,34 @@ BEGIN
     ) INTO v_has_identity_lock;
     IF NOT v_has_identity_lock THEN
       RAISE EXCEPTION 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED';
+    END IF;
+    -- pg_locks har ikke en scope-kolonne. Pin først den allerede ejede nøgle med den
+    -- ikke-blokerende xact-variant, og prøv derefter session-unlock. Kun en session-lås
+    -- kan unlockes eksplicit. En eventuel session-stack gendannes før fail-closed.
+    IF NOT pg_catalog.pg_try_advisory_xact_lock(v_advisory_key) THEN
+      RAISE EXCEPTION 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED';
+    END IF;
+    v_old_client_min_messages := pg_catalog.current_setting('client_min_messages');
+    PERFORM pg_catalog.set_config('client_min_messages','error',true);
+    v_has_session_lock := pg_catalog.pg_advisory_unlock(v_advisory_key);
+    PERFORM pg_catalog.set_config('client_min_messages',v_old_client_min_messages,true);
+    IF v_has_session_lock THEN
+      IF NOT pg_catalog.pg_try_advisory_lock(v_advisory_key) THEN
+        RAISE EXCEPTION 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED';
+      END IF;
+      RAISE EXCEPTION 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED';
+    END IF;
+    IF NEW.rolle IN ('samme_som','ikke_samme_som')
+       AND NEW.subjekt_type = 'person' AND NEW.objekt_type = 'person' THEN
+      SELECT count(*) INTO v_expected_people
+      FROM (SELECT DISTINCT x FROM unnest(ARRAY[NEW.subjekt_id,NEW.objekt_id]) x
+            WHERE x IS NOT NULL) q;
+      SELECT count(*) INTO v_existing_people
+      FROM public.person p
+      WHERE p.id IN (NEW.subjekt_id,NEW.objekt_id);
+      IF v_expected_people < 1 OR v_existing_people <> v_expected_people THEN
+        RAISE EXCEPTION 'IDENTITY_PERSON_NOT_FOUND';
+      END IF;
     END IF;
     IF NEW.rolle = 'ikke_samme_som'
        AND NEW.subjekt_type = 'person' AND NEW.objekt_type = 'person' THEN

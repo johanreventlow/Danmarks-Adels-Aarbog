@@ -78,6 +78,12 @@ BEGIN
      OR v_definition !~ 'pg_catalog\.pg_locks'
      OR v_definition !~ 'v_advisory_key >> 32'
      OR v_definition !~ '4294967295'
+     OR v_definition !~ 'pg_catalog\.pg_advisory_unlock'
+     OR v_definition !~ 'pg_catalog\.pg_try_advisory_xact_lock'
+     OR v_definition !~ 'pg_catalog\.pg_try_advisory_lock'
+     OR v_definition !~ 'client_min_messages'
+     OR v_definition !~ 'IDENTITY_PERSON_NOT_FOUND'
+     OR v_definition !~ 'public\.person'
      OR v_definition ~ 'app\.identity_relation_update_prelock' THEN
     RAISE EXCEPTION 'IDENTITY_TRIGGER_LOCK_HELPER_DRIFT';
   END IF;
@@ -309,18 +315,30 @@ ROLLBACK;
 -- must not inherit authorization from the old writable marker, while the correctly pre-held
 -- lock must reach the normal Task 1 contradiction check.
 BEGIN;
+DELETE FROM public.relation WHERE id IN (-1939501199,-1939501198,-1939501197);
+DELETE FROM public.person WHERE id IN (-1939501101,-1939501102,-1939501103,-1939501104);
+DELETE FROM public.profiles WHERE id='19390000-0000-4000-8000-000000000005';
+DELETE FROM auth.users WHERE id='19390000-0000-4000-8000-000000000005';
+COMMIT;
+
+BEGIN;
 DO $setup_reusable_proof$
 DECLARE
   v_actor uuid := '19390000-0000-4000-8000-000000000005';
 BEGIN
-  INSERT INTO auth.users(id,email) VALUES(v_actor,'c3-identity-prelock@test.invalid');
+  INSERT INTO auth.users(id,email) VALUES(v_actor,'c3-identity-prelock@test.invalid')
+    ON CONFLICT (id) DO UPDATE SET email=excluded.email;
   INSERT INTO public.profiles(id,email,rolle,navn)
-    VALUES(v_actor,'c3-identity-prelock@test.invalid','redaktion','C3 identity prelock test');
+    VALUES(v_actor,'c3-identity-prelock@test.invalid','redaktion','C3 identity prelock test')
+    ON CONFLICT (id) DO UPDATE
+      SET email=excluded.email,rolle=excluded.rolle,navn=excluded.navn;
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   INSERT INTO public.person(id,levende,koen) VALUES
     (-1939501101,false,'ukendt'),(-1939501102,false,'ukendt'),
-    (-1939501103,false,'ukendt'),(-1939501104,false,'ukendt');
+    (-1939501103,false,'ukendt'),(-1939501104,false,'ukendt')
+    ON CONFLICT (id) DO UPDATE SET levende=excluded.levende,koen=excluded.koen;
   INSERT INTO public.relation(id,subjekt_type,subjekt_id,rolle,objekt_type,objekt_id) VALUES
+    (-1939501199,'person',-1939501103,'bekendt_med','person',-1939501104),
     (-1939501198,'person',-1939501101,'samme_som','person',-1939501102),
     (-1939501197,'person',-1939501103,'ikke_samme_som','person',-1939501104);
 END $setup_reusable_proof$;
@@ -335,6 +353,52 @@ BEGIN
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   SELECT to_jsonb(r) INTO v_current FROM public.relation r WHERE r.id=-1939501197;
   v_target := v_current || jsonb_build_object('subjekt_id',-1939501101,'objekt_id',-1939501102);
+
+  -- pg_locks shows the same identity for session and transaction locks. Session-only proof
+  -- must nevertheless fail closed, and the test must restore/release its own lock on error.
+  BEGIN
+    PERFORM pg_advisory_lock(hashtext('samme_som_mutation'));
+    BEGIN
+      UPDATE public.relation
+        SET subjekt_id=-1939501101,objekt_id=-1939501102
+        WHERE id=-1939501197;
+      RAISE EXCEPTION 'EXPECTED_SESSION_ONLY_PRELOCK_REJECTION';
+    EXCEPTION WHEN others THEN
+      IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
+    END;
+    IF NOT pg_advisory_unlock(hashtext('samme_som_mutation')) THEN
+      RAISE EXCEPTION 'IDENTITY_SESSION_LOCK_CLEANUP_FAILED';
+    END IF;
+  EXCEPTION WHEN others THEN
+    PERFORM pg_advisory_unlock(hashtext('samme_som_mutation'));
+    RAISE;
+  END;
+  SELECT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_locks l
+    WHERE l.locktype='advisory' AND l.pid=pg_backend_pid() AND l.granted
+      AND l.classid=(CASE WHEN hashtext('samme_som_mutation') < 0
+                          THEN 4294967295::bigint ELSE 0::bigint END)::oid
+      AND l.objid=(hashtext('samme_som_mutation')::bigint & 4294967295::bigint)::oid
+      AND l.objsubid=1
+  ) INTO v_has_lock;
+  IF v_has_lock THEN RAISE EXCEPTION 'IDENTITY_SESSION_SCOPE_PROBE_LOCK_LEAKED'; END IF;
+
+  BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('different_identity_mutation'));
+    UPDATE public.relation SET rolle='ikke_samme_som' WHERE id=-1939501199;
+    RAISE EXCEPTION 'EXPECTED_DIFFERENT_ADVISORY_KEY_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
+  END;
+
+  BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+    UPDATE public.relation SET objekt_id=-1939501196 WHERE id=-1939501197;
+    RAISE EXCEPTION 'EXPECTED_PREHELD_LOCK_PERSON_NOT_FOUND';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_PERSON_NOT_FOUND' THEN RAISE; END IF;
+  END;
+
   PERFORM set_config('app.identity_relation_update_prelock','',true);
   BEGIN
     PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
@@ -384,7 +448,7 @@ END $reusable_proof$;
 ROLLBACK;
 
 BEGIN;
-DELETE FROM public.relation WHERE id IN (-1939501198,-1939501197);
+DELETE FROM public.relation WHERE id IN (-1939501199,-1939501198,-1939501197);
 DELETE FROM public.person WHERE id IN (-1939501101,-1939501102,-1939501103,-1939501104);
 DELETE FROM public.profiles WHERE id='19390000-0000-4000-8000-000000000005';
 DELETE FROM auth.users WHERE id='19390000-0000-4000-8000-000000000005';

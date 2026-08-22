@@ -244,6 +244,12 @@ BEGIN
      OR v_definition !~ 'pg_catalog\.pg_locks'
      OR v_definition !~ 'v_advisory_key >> 32'
      OR v_definition !~ '4294967295'
+     OR v_definition !~ 'pg_catalog\.pg_advisory_unlock'
+     OR v_definition !~ 'pg_catalog\.pg_try_advisory_xact_lock'
+     OR v_definition !~ 'pg_catalog\.pg_try_advisory_lock'
+     OR v_definition !~ 'client_min_messages'
+     OR v_definition !~ 'IDENTITY_PERSON_NOT_FOUND'
+     OR v_definition !~ 'public\.person'
      OR v_definition ~ 'app\.identity_relation_update_prelock' THEN
     RAISE EXCEPTION 'IDENTITY_TRIGGER_LOCK_HELPER_DRIFT';
   END IF;
@@ -293,16 +299,27 @@ ROLLBACK;
 
 -- Task 2 UPDATE-bevis må komme fra den faktisk holdte advisory-lås, ikke en skrivbar GUC.
 BEGIN;
+DELETE FROM relation WHERE id IN (-1939502299,-1939502298,-1939502297);
+DELETE FROM person WHERE id IN (-1939502201,-1939502202,-1939502203,-1939502204);
+DELETE FROM profiles WHERE id='19390000-0000-4000-8000-000000000006';
+DELETE FROM auth.users WHERE id='19390000-0000-4000-8000-000000000006';
+COMMIT;
+
+BEGIN;
 DO $verify$
 DECLARE v_actor uuid := '19390000-0000-4000-8000-000000000006';
 BEGIN
-  INSERT INTO auth.users(id,email) VALUES(v_actor,'c3-identity-prelock-verify@test.invalid');
+  INSERT INTO auth.users(id,email) VALUES(v_actor,'c3-identity-prelock-verify@test.invalid')
+    ON CONFLICT (id) DO UPDATE SET email=excluded.email;
   INSERT INTO profiles(id,email,rolle,navn)
-    VALUES(v_actor,'c3-identity-prelock-verify@test.invalid','redaktion','C3 identity prelock verify');
+    VALUES(v_actor,'c3-identity-prelock-verify@test.invalid','redaktion','C3 identity prelock verify')
+    ON CONFLICT (id) DO UPDATE
+      SET email=excluded.email,rolle=excluded.rolle,navn=excluded.navn;
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   INSERT INTO person(id,levende,koen) VALUES
     (-1939502201,false,'ukendt'),(-1939502202,false,'ukendt'),
-    (-1939502203,false,'ukendt'),(-1939502204,false,'ukendt');
+    (-1939502203,false,'ukendt'),(-1939502204,false,'ukendt')
+    ON CONFLICT (id) DO UPDATE SET levende=excluded.levende,koen=excluded.koen;
   INSERT INTO relation(id,subjekt_type,subjekt_id,rolle,objekt_type,objekt_id) VALUES
     (-1939502299,'person',-1939502203,'bekendt_med','person',-1939502204),
     (-1939502298,'person',-1939502201,'samme_som','person',-1939502202),
@@ -340,6 +357,44 @@ BEGIN
 
   SELECT to_jsonb(r) INTO v_current FROM relation r WHERE r.id=-1939502297;
   v_target := v_current || jsonb_build_object('subjekt_id',-1939502201,'objekt_id',-1939502202);
+  BEGIN
+    PERFORM pg_advisory_lock(hashtext('samme_som_mutation'));
+    BEGIN
+      UPDATE relation SET subjekt_id=-1939502201,objekt_id=-1939502202 WHERE id=-1939502297;
+      RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_SESSION_ONLY_REJECTION';
+    EXCEPTION WHEN others THEN
+      IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
+    END;
+    IF NOT pg_advisory_unlock(hashtext('samme_som_mutation')) THEN
+      RAISE EXCEPTION 'IDENTITY_VERIFY_SESSION_LOCK_CLEANUP_FAILED';
+    END IF;
+  EXCEPTION WHEN others THEN
+    PERFORM pg_advisory_unlock(hashtext('samme_som_mutation'));
+    RAISE;
+  END;
+  SELECT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_locks l
+    WHERE l.locktype='advisory' AND l.pid=pg_backend_pid() AND l.granted
+      AND l.classid=(CASE WHEN hashtext('samme_som_mutation') < 0
+                          THEN 4294967295::bigint ELSE 0::bigint END)::oid
+      AND l.objid=(hashtext('samme_som_mutation')::bigint & 4294967295::bigint)::oid
+      AND l.objsubid=1
+  ) INTO v_has_lock;
+  IF v_has_lock THEN RAISE EXCEPTION 'IDENTITY_VERIFY_SESSION_SCOPE_PROBE_LOCK_LEAKED'; END IF;
+  BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('different_identity_mutation'));
+    UPDATE relation SET rolle='ikke_samme_som' WHERE id=-1939502299;
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_DIFFERENT_KEY_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
+  END;
+  BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+    UPDATE relation SET objekt_id=-1939502296 WHERE id=-1939502297;
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_PERSON_NOT_FOUND';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_PERSON_NOT_FOUND' THEN RAISE; END IF;
+  END;
   PERFORM set_config('app.identity_relation_update_prelock','',true);
   BEGIN
     PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
@@ -374,7 +429,7 @@ BEGIN
   EXCEPTION WHEN others THEN
     IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
   END;
-  RAISE NOTICE 'OK: C3 identity UPDATE kræver den faktisk holdte advisory-lås; GUC-spoof og genbrug afvises';
+  RAISE NOTICE 'OK: C3 identity UPDATE kræver xact-lås; session/different key/GUC/genbrug og manglende target afvises';
 END $verify$;
 ROLLBACK;
 
