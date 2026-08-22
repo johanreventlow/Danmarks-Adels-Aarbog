@@ -7832,15 +7832,15 @@ BEGIN
     RAISE EXCEPTION 'NAME_COMPLETION_1939_APPLY_INVALID';
   END IF;
   SELECT coalesce(max(id),0)+1 INTO v_fact FROM public.fact;
-  SELECT coalesce(max(id),0)+1 INTO v_assertion FROM public.assertion;
   SELECT coalesce(max(id),0)+1 INTO v_citation FROM public.citation;
-  SELECT coalesce(max(id),0)+1 INTO v_conclusion FROM public.conclusion;
   INSERT INTO public.fact(id,subjekt_type,subjekt_id,faktatype) VALUES(v_fact,'person',(p_payload->>'person_id')::bigint,'navn');
-  INSERT INTO public.assertion(id,target_type,target_id,vaerdi_tekst,uforanderlig) VALUES(v_assertion,'fact',v_fact,p_payload->>'name',true);
+  INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst,uforanderlig)
+    VALUES('fact',v_fact,p_payload->>'name',true) RETURNING id INTO v_assertion;
   INSERT INTO public.citation(id,assertion_id,source_id,side,citat_tekst,kvalitet)
     VALUES(v_citation,v_assertion,3,p_payload->'page_evidence'->>'page_from',p_payload->>'verbatim_text','primær');
-  INSERT INTO public.conclusion(id,target_type,target_id,valgt_assertion_id,status,blaastemplet_af,blaastemplet_naar)
-    VALUES(v_conclusion,'fact',v_fact,v_assertion,'afklaret','DAA 1939 v50 name completion',current_date);
+  INSERT INTO public.conclusion(target_type,target_id,valgt_assertion_id,status,blaastemplet_af,blaastemplet_naar)
+    VALUES('fact',v_fact,v_assertion,'afklaret','DAA 1939 v50 name completion',current_date)
+    RETURNING id INTO v_conclusion;
   IF (SELECT visning_navn FROM public.person WHERE id=(p_payload->>'person_id')::bigint) IS DISTINCT FROM p_payload->>'name' THEN
     RAISE EXCEPTION 'NAME_COMPLETION_1939_CACHE_INVALID';
   END IF;
