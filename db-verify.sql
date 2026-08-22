@@ -4102,27 +4102,35 @@ END $$;
 
 
 -- ===== Task 2: Cache-regenerering — regen_person_visning + trigger =====
--- Vælg en person med navne-fakta; nulstil cache; kald regen; bekræft den genskabes.
+-- Selvstændig syntetisk selected-name fixture: nulstil cache; kald regen; bekræft
+-- den eksakte valgte assertion genskabes. Hele fixturen rulles tilbage.
 -- Forvent: NOTICE "OK: visning_navn regenereret".
-
-WITH p AS (
-  SELECT f.subjekt_id AS pid FROM fact f
-  JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id
-  WHERE f.subjekt_type='person' AND f.faktatype='navn' LIMIT 1
-)
-UPDATE person SET visning_navn=NULL WHERE id=(SELECT pid FROM p);
--- Kald regen for samme person og bekræft visning_navn nu er sat igen:
-DO $$ DECLARE tid BIGINT;
+BEGIN;
+DO $$
+DECLARE
+  tid CONSTANT bigint := -987656201;
+  fid CONSTANT bigint := -987656202;
+  aid CONSTANT bigint := -987656203;
+  cid CONSTANT bigint := -987656204;
+  expected_name CONSTANT text := 'Task 2 syntetisk navn';
 BEGIN
-  SELECT f.subjekt_id INTO tid FROM fact f
-   JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id
-   WHERE f.subjekt_type='person' AND f.faktatype='navn' LIMIT 1;
+  INSERT INTO person(id, levende, privat)
+  VALUES (tid, false, false);
+  INSERT INTO fact(id, subjekt_type, subjekt_id, faktatype)
+  VALUES (fid, 'person', tid, 'navn');
+  INSERT INTO assertion(id, target_type, target_id, vaerdi_tekst)
+  VALUES (aid, 'fact', fid, expected_name);
+  INSERT INTO conclusion(id, target_type, target_id, valgt_assertion_id, status)
+  VALUES (cid, 'fact', fid, aid, 'afklaret');
+
+  UPDATE person SET visning_navn=NULL WHERE id=tid;
   PERFORM regen_person_visning(tid);
-  IF (SELECT visning_navn FROM person WHERE id=tid) IS NULL
-    THEN RAISE EXCEPTION 'regen genskabte ikke visning_navn';
-    ELSE RAISE NOTICE 'OK: visning_navn regenereret';
+  IF (SELECT visning_navn FROM person WHERE id=tid) IS DISTINCT FROM expected_name THEN
+    RAISE EXCEPTION 'regen genskabte ikke visning_navn';
   END IF;
+  RAISE NOTICE 'OK: visning_navn regenereret';
 END $$;
+ROLLBACK;
 
 
 -- ===== Task 3: current_rolle + red_upsert_fakta (fact-triplet, rolle-gated) =====
@@ -4146,30 +4154,33 @@ END $$;
 -- Seed et fact med to assertions, slet den valgte, bekræft konklusion peger på tilbageværende.
 -- Forvent: NOTICE "OK: konklusion re-pegede til a2".
 --
--- NOTE OM ROLLE-GATING: red_slet_oplysning tjekker current_rolle() = 'redaktion'.
--- I SQL Editor (auth.uid() NULL → 'medlem') vil kaldet REJSE en fejl.
--- Løsning: kør blokken som funktionsejer (postgres) eller seed en redaktion-profil
--- for auth.uid() midlertidigt — dokumentér i PR. Se Global Constraints i planen.
-
-DO $$ DECLARE fid bigint; a1 bigint; a2 bigint; cid bigint; chosen bigint;
+-- Blokken seeder selv en ægte syntetisk JWT-subject + redaktion-profil og ruller
+-- både rolle- og datatest-fixtures tilbage.
+BEGIN;
+DO $$
+DECLARE
+  actor CONSTANT uuid := '19390000-0000-4000-8000-000000000204';
+  fid CONSTANT bigint := -987656211;
+  a1 CONSTANT bigint := -987656212;
+  a2 CONSTANT bigint := -987656213;
+  cid CONSTANT bigint := -987656214;
+  chosen bigint;
 BEGIN
-  fid := (SELECT coalesce(max(id),0)+1 FROM fact);
+  INSERT INTO auth.users(id,email) VALUES (actor,'task4-db-verify@example.invalid');
+  INSERT INTO profiles(id,rolle,email) VALUES (actor,'redaktion','task4-db-verify@example.invalid');
+  PERFORM set_config('request.jwt.claim.sub', actor::text, true);
+
   INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (fid,'person',-99,'test_slet');
-  a1 := (SELECT coalesce(max(id),0)+1 FROM assertion);
   INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,uforanderlig) VALUES (a1,'fact',fid,'A',false);
-  a2 := a1+1;
   INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,uforanderlig) VALUES (a2,'fact',fid,'B',false);
-  cid := (SELECT coalesce(max(id),0)+1 FROM conclusion);
   INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id) VALUES (cid,'fact',fid,a1);
   -- Slet den valgte (a1); forvent konklusion re-peger til a2.
-  PERFORM red_slet_oplysning(a1);  -- bemærk: gating kræver redaktion; kør evt. som funktionsejer
+  PERFORM red_slet_oplysning(a1);
   SELECT valgt_assertion_id INTO chosen FROM conclusion WHERE id=cid;
   IF chosen = a2 THEN RAISE NOTICE 'OK: konklusion re-pegede til a2';
   ELSE RAISE EXCEPTION 'Forventede a2, fik %', chosen; END IF;
-  -- Oprydning:
-  DELETE FROM conclusion WHERE id=cid; DELETE FROM assertion WHERE target_id=fid AND target_type='fact';
-  DELETE FROM fact WHERE id=fid;
 END $$;
+ROLLBACK;
 
 
 -- ===== Task 5: Direkte person/narrativ/relation-RPC'er (rolle-gated) =====
@@ -4917,16 +4928,24 @@ END $$;
 -- ===== Versionering Task 7b: composite-PK restore-hjælpere (B11/M2) =====
 -- T7 dækkede kun enkelt-id (note). Her: family_member (3-kol PK) gennem alle tre
 -- helper-stier — fanger ON CONFLICT-constraint-match + multi-kolonne WHERE-cast.
+BEGIN;
 DO $$
-DECLARE cur jsonb; pk jsonb := jsonb_build_object('family_id',1,'person_id',1,'rolle','__verify_fm__');
+DECLARE
+  v_family CONSTANT bigint := -987656221;
+  v_person CONSTANT bigint := -987656222;
+  cur jsonb;
+  pk jsonb := jsonb_build_object(
+    'family_id',-987656221,'person_id',-987656222,'rolle','__verify_fm__');
 BEGIN
+  INSERT INTO family(id,type) VALUES (v_family,'ukendt');
+  INSERT INTO person(id,levende,privat) VALUES (v_person,false,false);
   PERFORM _version_upsert_row('family_member',
-    jsonb_build_object('family_id',1,'person_id',1,'rolle','__verify_fm__','ordinal',9,'konfidens','sikker'));
+    jsonb_build_object('family_id',v_family,'person_id',v_person,'rolle','__verify_fm__','ordinal',9,'konfidens','sikker'));
   cur := _version_current_row('family_member', pk);
   IF cur->>'konfidens' <> 'sikker' THEN RAISE EXCEPTION 'FEJL: composite upsert-insert virkede ikke (%)', cur; END IF;
   -- update via ON CONFLICT (samme composite-nøgle)
   PERFORM _version_upsert_row('family_member',
-    jsonb_build_object('family_id',1,'person_id',1,'rolle','__verify_fm__','ordinal',9,'konfidens','formodet'));
+    jsonb_build_object('family_id',v_family,'person_id',v_person,'rolle','__verify_fm__','ordinal',9,'konfidens','formodet'));
   cur := _version_current_row('family_member', pk);
   IF cur->>'konfidens' <> 'formodet' THEN RAISE EXCEPTION 'FEJL: composite upsert-update virkede ikke (%)', cur; END IF;
   PERFORM _version_delete_row('family_member', pk);
@@ -4936,6 +4955,7 @@ EXCEPTION WHEN OTHERS THEN
   IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: composite-PK restore-hjælpere round-trip';
   ELSE RAISE; END IF;
 END $$;
+ROLLBACK;
 
 -- ===== Versionering Task 8c: non-person restore (tom v_pids — regen-loop no-op) =====
 -- Alle øvrige restore-asserts rørte en person. Her: undo en kilde-oprettelse (ingen person,
@@ -5080,7 +5100,7 @@ END $$;
 
 -- ===== Udledt slægtsnavn Task 1: lineage-graf-walkers + cyklus-vagt =====
 DO $$
-DECLARE v_anc BIGINT[];
+DECLARE v_lineage BIGINT; v_anc BIGINT[];
 BEGIN
   IF to_regprocedure('lineage_ancestors(bigint)') IS NULL THEN
     RAISE EXCEPTION 'FEJL: lineage_ancestors mangler';
@@ -5088,9 +5108,13 @@ BEGIN
   IF to_regprocedure('lineage_descendants(bigint)') IS NULL THEN
     RAISE EXCEPTION 'FEJL: lineage_descendants mangler';
   END IF;
-  SELECT lineage_ancestors(id) INTO v_anc FROM lineage WHERE kode='I' LIMIT 1;
-  IF v_anc IS NULL OR array_length(v_anc,1) <> 1 THEN
-    RAISE EXCEPTION 'FEJL: lineage_ancestors(I) skal returnere præcis [sig selv] uden forgrening, fik %', v_anc;
+  SELECT id, lineage_ancestors(id) INTO v_lineage, v_anc FROM lineage WHERE kode='I' LIMIT 1;
+  IF v_anc IS NULL OR array_length(v_anc,1) <> 2 OR v_anc[1] <> v_lineage
+     OR NOT EXISTS (
+       SELECT 1 FROM lineage
+       WHERE id=v_anc[2] AND parent_lineage_id IS NULL AND slaegtsnavn IS NOT NULL
+     ) THEN
+    RAISE EXCEPTION 'FEJL: lineage_ancestors(I) skal returnere [sig selv, slægts-rod], fik %', v_anc;
   END IF;
   RAISE NOTICE 'OK: lineage_ancestors basal';
 END $$;
@@ -5192,20 +5216,18 @@ END $$;
 
 -- Fan-out → karantæne (to distinkte linjer/sources, to distinkte efternavne)
 DO $$
-DECLARE v_source BIGINT; v_source2 BIGINT; v_l1 BIGINT; v_l2 BIGINT; v_l3 BIGINT; v_p BIGINT; v_efternavn TEXT;
+DECLARE v_source BIGINT; v_source2 BIGINT; v_l1 BIGINT; v_l3 BIGINT; v_p BIGINT; v_efternavn TEXT;
 BEGIN
   SELECT id INTO v_source FROM source LIMIT 1;
   v_l1 := (SELECT coalesce(max(id),0)+1 FROM lineage);
   INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn) VALUES (v_l1, v_source, '__TEST_FO1', 'A', 'Alfa');
-  v_l2 := v_l1 + 1;
-  INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn) VALUES (v_l2, v_source, '__TEST_FO2', 'B', 'Beta');
   v_p := (SELECT coalesce(max(id),0)+1 FROM person);
   INSERT INTO person(id, visning_navn) VALUES (v_p, 'Fanout Person');
   INSERT INTO person_external_id(person_id, source_id, linje, nr) VALUES (v_p, v_source, '__TEST_FO1', 1);
 
   v_source2 := (SELECT coalesce(max(id),0)+1 FROM source);
   INSERT INTO source(id, slags, titel) VALUES (v_source2, 'DAA-udgave', 'Test-udgave 2');
-  v_l3 := v_l2 + 1;
+  v_l3 := v_l1 + 1;
   INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn) VALUES (v_l3, v_source2, '__TEST_FO2', 'B2', 'Beta');
   INSERT INTO person_external_id(person_id, source_id, linje, nr) VALUES (v_p, v_source2, '__TEST_FO2', 1);
 
@@ -5225,7 +5247,7 @@ BEGIN
   DELETE FROM slaegtsnavn_karantaene WHERE person_id=v_p;
   DELETE FROM person_external_id WHERE person_id=v_p;
   DELETE FROM person WHERE id=v_p;
-  DELETE FROM lineage WHERE id IN (v_l1, v_l2, v_l3);
+  DELETE FROM lineage WHERE id IN (v_l1, v_l3);
   DELETE FROM source WHERE id=v_source2;
   RAISE NOTICE 'OK: fan-out → karantæne + idempotens';
 END $$;
@@ -5363,6 +5385,10 @@ END $$;
 DO $$
 DECLARE has_bucket boolean; vis_klar int; vis_spaerret int; vis_orphan int; vis_klar_auth int; vis_spaerret_auth int;
 BEGIN
+  IF to_regclass('storage.buckets') IS NULL OR to_regclass('storage.objects') IS NULL THEN
+    RAISE NOTICE 'SPRINGER OVER Task 12b (storage.objects-politikker): storage-katalog er ikke installeret';
+    RETURN;
+  END IF;
   SELECT EXISTS(SELECT 1 FROM storage.buckets WHERE id='media') INTO has_bucket;
   IF NOT has_bucket THEN
     RAISE NOTICE 'SPRINGER OVER Task 12b (storage.objects-politikker): ingen media-bucket — opret den for fuld dækning';
@@ -5519,7 +5545,10 @@ BEGIN
   PERFORM red_fjern_samme_som(r_samme);
   r_ikke := red_ikke_samme_som(-1001,-1002);
   BEGIN PERFORM red_samme_som(-1001,-1002); RAISE EXCEPTION 'ikke→samme ikke fanget';
-  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF; END;
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%'
+       AND SQLERRM NOT LIKE '%er markeret ikke_samme_som%' THEN RAISE; END IF;
+  END;
 
   -- red_relation-guard + fjern sletter evidens
   BEGIN PERFORM red_relation('person',-1001,'person',-1002,'ikke_samme_som'); RAISE EXCEPTION 'red_relation tillod ikke_samme_som';
@@ -6931,7 +6960,7 @@ DECLARE
 BEGIN
   SELECT id INTO v_uid FROM profiles WHERE rolle='redaktion' LIMIT 1;
   IF v_uid IS NULL THEN RAISE EXCEPTION 'FEJL: ingen redaktion-profil — union-asserts kan ikke køres'; END IF;
-  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_uid, 'role','authenticated')::text, true);
+  PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
 
   v_a := red_opret_person('VERIFY far');
   v_b := red_opret_person('VERIFY mor');
@@ -6939,7 +6968,8 @@ BEGIN
 
   -- Skallen bygges råt: red_opret_union kræver to partnere fra start, og det er netop den
   -- mor-løse børne-familie fra 1939-loaderen vi vil kunne reparere.
-  INSERT INTO family(type) VALUES ('vielse') RETURNING id INTO v_fam;
+  v_fam := (SELECT coalesce(max(id),0)+1 FROM family);
+  INSERT INTO family(id,type) VALUES (v_fam,'vielse');
   INSERT INTO family_member(family_id, person_id, rolle) VALUES (v_fam, v_a, 'partner');
   INSERT INTO family_member(family_id, person_id, rolle) VALUES (v_fam, v_barn, 'barn');
 

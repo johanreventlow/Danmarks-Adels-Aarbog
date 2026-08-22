@@ -19,6 +19,20 @@ from build_name_completion_manifest_1939_v50 import (
     canonical_sha,
 )
 
+PRODUCTION_MANIFEST_ENV = "DAA_1939_V50_NAME_COMPLETION_SOURCE_MANIFEST"
+_production_manifest_setting = os.environ.get(PRODUCTION_MANIFEST_ENV)
+PRODUCTION_MANIFEST_PATH = (
+    Path(_production_manifest_setting).expanduser()
+    if _production_manifest_setting else None
+)
+_production_manifest_available = (
+    PRODUCTION_MANIFEST_PATH is not None and PRODUCTION_MANIFEST_PATH.is_file()
+)
+pytestmark = pytest.mark.skipif(
+    not _production_manifest_available,
+    reason=f"production-artifact tests require an existing explicit {PRODUCTION_MANIFEST_ENV}",
+)
+
 LOCKED_ROWS = (
     ("record-3766faae-ae21-412a-8cfb-745a19ac77f0", 1846, "Ditlev", 503),
     ("record-43d4974a-0532-421d-a3fb-8e7c575a67e7", 1847, "Gerhard (Gherardus de Reventlow)", 506),
@@ -33,6 +47,7 @@ LOCKED_MAP = {key: (person, name, page) for key, person, name, page in LOCKED_RO
 
 
 def _production_inputs():
+    assert PRODUCTION_MANIFEST_PATH is not None
     creates = []
     audits = []
     for key, person_id, name, page in LOCKED_ROWS:
@@ -64,8 +79,7 @@ def _production_inputs():
             "staged": True,
             "name_fact_count": 0,
         })
-    manifest_path = Path(__file__).parents[4] / "work/task25-1939-v50-production-writer/production-write-manifest-v1.json"
-    production_manifest = json.loads(manifest_path.read_text())
+    production_manifest = json.loads(PRODUCTION_MANIFEST_PATH.read_text())
     create_by_key = {row["source_record_key"]: row for row in production_manifest["person_creates"]}
     for audit in audits:
         source = create_by_key[audit["source_record_key"]]
@@ -258,7 +272,7 @@ def test_cli_accepts_nonpreferred_json_whitespace_with_raw_hash(tmp_path):
     paths, hashes = [], []
     for index, value in enumerate(values):
         path = tmp_path / f"input-{index}.json"
-        raw = (Path(__file__).parents[4] / "work/task25-1939-v50-production-writer/production-write-manifest-v1.json").read_bytes() if index == 0 else json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode() + b"\n"
+        raw = PRODUCTION_MANIFEST_PATH.read_bytes() if index == 0 else json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode() + b"\n"
         path.write_bytes(raw)
         paths.append(path)
         hashes.append(hashlib.sha256(raw).hexdigest())
