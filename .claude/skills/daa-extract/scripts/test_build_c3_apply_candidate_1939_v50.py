@@ -3,6 +3,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import stat
 import subprocess
 from pathlib import Path
 
@@ -237,6 +238,23 @@ def test_exact_five_whole_cases_and_payload_contract():
     assert len(result["canonical_content_sha256"]) == 64
 
 
+def test_canonical_content_sha_is_independently_reproducible_and_sensitive():
+    result = build_candidate()
+    stated = result["canonical_content_sha256"]
+    unhashed = copy.deepcopy(result)
+    del unhashed["canonical_content_sha256"]
+    independently_rendered = (json.dumps(
+        unhashed, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        allow_nan=False) + "\n").encode("utf-8")
+    assert hashlib.sha256(independently_rendered).hexdigest() == stated
+
+    unhashed["cases"][0]["identity"]["person_ids"][0] += 1
+    mutated_rendered = (json.dumps(
+        unhashed, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        allow_nan=False) + "\n").encode("utf-8")
+    assert hashlib.sha256(mutated_rendered).hexdigest() != stated
+
+
 @pytest.mark.parametrize("tokens", [
     {"record:R03": "UAFKLARET"},
     {"identity:R19": "UAFKLARET", "record:R19": "UAFKLARET"},
@@ -322,6 +340,22 @@ def test_strict_json_rejects_nonfinite_constants(input_name):
         input_name.replace("_raw", "").upper()), values)
 
 
+@pytest.mark.parametrize("input_name,raw", [
+    ("decisions_raw", b'{"schema_version":"x","schema_version":"x"}\n'),
+    ("decisions_raw", b'{"schema_version":"x","schema_version":"y"}\n'),
+    ("selection_raw", b'{"input_hashes":{"selection_sha256":"a","selection_sha256":"a"}}\n'),
+    ("selection_raw", b'{"input_hashes":{"selection_sha256":"a","selection_sha256":"b"}}\n'),
+    ("state_raw", b'{"narratives":[{"person_id":1,"person_id":1}]}\n'),
+    ("state_raw", b'{"narratives":[{"person_id":1,"person_id":2}]}\n'),
+])
+def test_strict_json_rejects_recursive_same_and_different_duplicate_keys(
+        input_name, raw):
+    values = chain()
+    values[input_name] = raw
+    assert_fails("C3_APPLY_{}_INVALID".format(
+        input_name.replace("_raw", "").upper()), values)
+
+
 def test_normalization_uses_full_corpus_twice_and_rejects_nondeterminism(monkeypatch):
     values = chain()
     calls = []
@@ -377,7 +411,7 @@ def write_chain(tmp_path, values=None):
     return paths
 
 
-def invoke(paths):
+def invoke(paths, env=None):
     return subprocess.run([
         "/usr/bin/python3", str(MODULE_PATH),
         "--decisions", str(paths["decisions"]),
@@ -385,12 +419,21 @@ def invoke(paths):
         "--state", str(paths["state"]),
         "--review", str(paths["review"]),
         "--output", str(paths["output"]),
-    ], text=True, capture_output=True, check=False)
+    ], text=True, capture_output=True, check=False, env=env)
 
 
 def test_cli_publishes_canonical_no_clobber_output_with_safe_stdout(tmp_path):
     paths = write_chain(tmp_path)
-    completed = invoke(paths)
+    env = dict(os.environ)
+    pg_values = {
+        "PGDATABASE": "SENSITIVE_DB_SENTINEL",
+        "PGHOST": "SENSITIVE_HOST_SENTINEL",
+        "PGPORT": "65432",
+        "PGUSER": "SENSITIVE_USER_SENTINEL",
+        "PGPASSWORD": "SENSITIVE_PASSWORD_SENTINEL",
+    }
+    env.update(pg_values)
+    completed = invoke(paths, env=env)
     assert completed.returncode == 0
     output_raw = paths["output"].read_bytes()
     assert output_raw == canonical_bytes(json.loads(output_raw))
@@ -400,8 +443,10 @@ def test_cli_publishes_canonical_no_clobber_output_with_safe_stdout(tmp_path):
     assert "cases=5" in completed.stdout
     assert paths["output"].name in completed.stdout
     assert hashlib.sha256(output_raw).hexdigest() in completed.stdout
-    for forbidden in ("Synthetic", "line-break", "PGPASSWORD", str(tmp_path)):
-        assert forbidden not in completed.stdout
+    combined_output = completed.stdout + completed.stderr
+    for forbidden in ("Synthetic", "line-break", str(tmp_path),
+                      *pg_values.keys(), *pg_values.values()):
+        assert forbidden not in combined_output
 
     original = output_raw
     second = invoke(paths)
@@ -438,10 +483,48 @@ def test_cli_rejects_symlink_and_non_file_paths(tmp_path, kind):
 def test_publish_cleans_temp_after_link_failure(tmp_path, monkeypatch):
     output = tmp_path / "candidate.json"
 
-    def fail_link(source, destination):
+    def fail_link(source, destination, *args, **kwargs):
         raise OSError("synthetic link failure")
 
     monkeypatch.setattr(mod.os, "link", fail_link)
+    with pytest.raises(SystemExit) as error:
+        mod.publish_output(output, "{}\n")
+    assert str(error.value) == "C3_APPLY_OUTPUT_WRITE_FAILED"
+    assert not output.exists()
+    assert not list(tmp_path.glob(".candidate.json.*.tmp"))
+
+
+def test_publish_rolls_back_target_when_temp_unlink_fails(
+        tmp_path, monkeypatch):
+    output = tmp_path / "candidate.json"
+    real_unlink = mod.os.unlink
+    failed = {"value": False}
+
+    def fail_first_temp_unlink(path, *args, **kwargs):
+        if str(path).endswith(".tmp") and not failed["value"]:
+            failed["value"] = True
+            raise OSError("synthetic temp unlink failure")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(mod.os, "unlink", fail_first_temp_unlink)
+    with pytest.raises(SystemExit) as error:
+        mod.publish_output(output, "{}\n")
+    assert str(error.value) == "C3_APPLY_OUTPUT_WRITE_FAILED"
+    assert not output.exists()
+    assert not list(tmp_path.glob(".candidate.json.*.tmp"))
+
+
+def test_publish_does_not_claim_success_when_directory_fsync_fails(
+        tmp_path, monkeypatch):
+    output = tmp_path / "candidate.json"
+    real_fsync = mod.os.fsync
+
+    def fail_directory_fsync(descriptor):
+        if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            raise OSError("synthetic directory fsync failure")
+        return real_fsync(descriptor)
+
+    monkeypatch.setattr(mod.os, "fsync", fail_directory_fsync)
     with pytest.raises(SystemExit) as error:
         mod.publish_output(output, "{}\n")
     assert str(error.value) == "C3_APPLY_OUTPUT_WRITE_FAILED"

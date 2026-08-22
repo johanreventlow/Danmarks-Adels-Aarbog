@@ -47,8 +47,19 @@ def _reject_constant(_token: str) -> None:
 def _decode_document(raw: bytes, code: str) -> Dict[str, Any]:
     if not isinstance(raw, bytes):
         fail(code)
+
+    def reject_duplicate_keys(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                fail(code)
+            result[key] = value
+        return result
+
     try:
-        value = json.loads(raw.decode("utf-8"), parse_constant=_reject_constant)
+        value = json.loads(
+            raw.decode("utf-8"), parse_constant=_reject_constant,
+            object_pairs_hook=reject_duplicate_keys)
     except (UnicodeDecodeError, ValueError):
         fail(code)
     if not isinstance(value, dict):
@@ -325,6 +336,10 @@ def build_candidate_manifest(
         "counts": counts,
         "cases": cases,
     }
+    # Definition: SHA-256 of the canonical JSON bytes (including trailing LF)
+    # before this field is inserted. The exact candidate-file SHA cannot be
+    # embedded without self-reference; the CLI prints it and every downstream
+    # consumer computes it from the exact raw candidate bytes.
     result["canonical_content_sha256"] = _sha(_canonical_bytes(result))
     return result
 
@@ -361,29 +376,65 @@ def _read_regular(path_text: str, code: str) -> bytes:
 def publish_output(output: Path, rendered: str) -> None:
     """Publish through a sibling hard link without overwriting any path."""
     temporary_path: Optional[Path] = None
+    temporary_name: Optional[str] = None
     descriptor: Optional[int] = None
+    parent_descriptor: Optional[int] = None
+    published = False
     try:
         if os.path.lexists(str(output)):
             fail("C3_APPLY_OUTPUT_EXISTS")
         parent_info = output.parent.lstat()
         if stat.S_ISLNK(parent_info.st_mode) or not stat.S_ISDIR(parent_info.st_mode):
             fail("C3_APPLY_OUTPUT_WRITE_FAILED")
+        open_flags = (os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+                      | getattr(os, "O_NOFOLLOW", 0))
+        parent_descriptor = os.open(str(output.parent), open_flags)
+        if not stat.S_ISDIR(os.fstat(parent_descriptor).st_mode):
+            fail("C3_APPLY_OUTPUT_WRITE_FAILED")
         descriptor, temporary = tempfile.mkstemp(
             prefix="." + output.name + ".", suffix=".tmp",
             dir=str(output.parent))
         temporary_path = Path(temporary)
+        temporary_name = temporary_path.name
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             descriptor = None
             handle.write(rendered)
             handle.flush()
             os.fsync(handle.fileno())
         try:
-            os.link(str(temporary_path), str(output))
+            os.link(
+                temporary_name, output.name,
+                src_dir_fd=parent_descriptor,
+                dst_dir_fd=parent_descriptor,
+                follow_symlinks=False)
         except FileExistsError:
             fail("C3_APPLY_OUTPUT_EXISTS")
-        os.unlink(str(temporary_path))
+        published = True
+        os.unlink(temporary_name, dir_fd=parent_descriptor)
+        temporary_name = None
         temporary_path = None
+        # The name addition and temporary-name removal are not durable until
+        # the containing directory itself has been flushed.
+        os.fsync(parent_descriptor)
     except OSError:
+        if published and parent_descriptor is not None:
+            try:
+                os.unlink(output.name, dir_fd=parent_descriptor)
+                published = False
+            except OSError:
+                pass
+        if temporary_name is not None and parent_descriptor is not None:
+            try:
+                os.unlink(temporary_name, dir_fd=parent_descriptor)
+                temporary_name = None
+                temporary_path = None
+            except OSError:
+                pass
+        if parent_descriptor is not None:
+            try:
+                os.fsync(parent_descriptor)
+            except OSError:
+                pass
         fail("C3_APPLY_OUTPUT_WRITE_FAILED")
     finally:
         if descriptor is not None:
@@ -391,9 +442,19 @@ def publish_output(output: Path, rendered: str) -> None:
                 os.close(descriptor)
             except OSError:
                 pass
-        if temporary_path is not None:
+        if temporary_name is not None and parent_descriptor is not None:
+            try:
+                os.unlink(temporary_name, dir_fd=parent_descriptor)
+            except OSError:
+                pass
+        elif temporary_path is not None:
             try:
                 os.unlink(str(temporary_path))
+            except OSError:
+                pass
+        if parent_descriptor is not None:
+            try:
+                os.close(parent_descriptor)
             except OSError:
                 pass
 
