@@ -1,0 +1,458 @@
+import copy
+import hashlib
+import importlib.util
+import json
+import os
+import subprocess
+from pathlib import Path
+
+import pytest
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+MODULE_PATH = SCRIPT_DIR / "build_c3_apply_candidate_1939_v50.py"
+BUILD_PATH = SCRIPT_DIR / "build_c3_review_1939_v50.py"
+CONVERT_PATH = SCRIPT_DIR / "convert_c3_decisions_1939_v50.py"
+
+
+def load_module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+mod = load_module("build_c3_apply_candidate_1939_v50", MODULE_PATH)
+build = load_module("build_c3_review_for_apply_candidate_test", BUILD_PATH)
+convert = load_module("convert_c3_decisions_for_apply_candidate_test", CONVERT_PATH)
+
+
+ORDINARY_CASES = (
+    ("R03", (1101, 1102)),
+    ("R07", (1201, 1202)),
+    ("R11", (1301, 1302)),
+    ("R19", (1401, 1402)),
+    ("R25", (1501, 1502)),
+    ("R31", (1601, 1602)),
+)
+
+
+def canonical_bytes(value):
+    return (json.dumps(value, ensure_ascii=False, sort_keys=True,
+                       separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
+
+
+def candidate(person_id, rid):
+    return {
+        "person_id": person_id,
+        "visning_navn": "SYNTHETIC_NAME_{}_{}".format(rid, person_id),
+        "staged": False,
+        "side": str(500 + int(rid[1:])),
+        "person_tekst": "SYNTHETIC_PERSON_CONTEXT_{}_{}".format(rid, person_id),
+    }
+
+
+def record(rid, person_ids):
+    return {
+        "rid": rid,
+        "new_record_key": "synthetic-{}".format(rid.lower()),
+        "classification": "sammenlaegning" if rid != "R40" else "kobling",
+        "verbatim_text": "1. Synthetic {} line-\nbreak.".format(rid),
+        "candidates": [candidate(person_id, rid) for person_id in person_ids],
+    }
+
+
+def selection_doc():
+    cases = [{
+        "case_kind": "ordinary",
+        "candidate_person_ids": list(person_ids),
+        "records": [record(rid, person_ids)],
+    } for rid, person_ids in ORDINARY_CASES]
+    cases.append({
+        "case_kind": "1017_1021",
+        "candidate_person_ids": [1017, 1021],
+        "records": [record("R15", (1017, 1021)), record("R40", (1017,))],
+    })
+    person_ids = sorted({person_id for case in cases
+                         for person_id in case["candidate_person_ids"]})
+    return {
+        "schema_version": "1939-v50-c3-selection-v1",
+        "input_hashes": {
+            "c0_candidates_sha256": "c" * 64,
+            "c0_decisions_sha256": "d" * 64,
+        },
+        "case_count": 7,
+        "record_count": 8,
+        "decision_line_count": 15,
+        "person_ids": person_ids,
+        "cases": cases,
+    }
+
+
+def state_doc(selection_raw):
+    selection = json.loads(selection_raw)
+    person_ids = selection["person_ids"]
+    return {
+        "schema_version": "1939-v50-c3-current-state-v1",
+        "database_name": "synthetic",
+        "database_identity": "42",
+        "generator": "synthetic:v1",
+        "selection_sha256": hashlib.sha256(selection_raw).hexdigest(),
+        "persons": [{"person_id": person_id, "staged": False, "privat": False}
+                    for person_id in person_ids],
+        "narratives": [{
+            "person_id": person_id,
+            "narrative_id": 5000 + person_id,
+            "old_sha256": "e" * 64,
+            "privat": False,
+            "side": "500",
+            "source_record_id": None,
+            "binding_status": None,
+        } for person_id in person_ids],
+        "identity_edges": [],
+        "partner_conflicts": [],
+    }
+
+
+def replace_token(text, decision_id, token, selection, state):
+    item = next(row for row in build.review_sequence(selection, state)
+                if row.get("decision_id") == decision_id)
+    old = "[{}] {}".format(item["default_token"], item["tail"])
+    new = "[{}] {}".format(token, item["tail"])
+    assert text.count(old) == 1
+    return text.replace(old, new, 1)
+
+
+def chain(tokens=None):
+    selection = selection_doc()
+    selection_raw = canonical_bytes(selection)
+    state = state_doc(selection_raw)
+    state_raw = canonical_bytes(state)
+    review = build.render_review(
+        selection, state, hashlib.sha256(selection_raw).hexdigest(),
+        hashlib.sha256(state_raw).hexdigest())
+    default_tokens = {
+        "identity:R03": "FORSKELLIGE", "record:R03": "TIL 1101",
+        "identity:R07": "FORSKELLIGE", "record:R07": "TIL 1202",
+        "identity:R11": "FORSKELLIGE", "record:R11": "INGEN_PUBLIKATION",
+        "identity:R19": "FORSKELLIGE", "record:R19": "TIL 1401",
+        "identity:1017:1021": "FORSKELLIGE",
+        "record:R40": "TIL 1017", "record:R15": "TIL 1021",
+    }
+    default_tokens.update(tokens or {})
+    for decision_id, token in default_tokens.items():
+        review = replace_token(review, decision_id, token, selection, state)
+    review_raw = review.encode("utf-8")
+    hashes = {
+        "c0_candidates_sha256": selection["input_hashes"]["c0_candidates_sha256"],
+        "c0_decisions_sha256": selection["input_hashes"]["c0_decisions_sha256"],
+        "selection_sha256": hashlib.sha256(selection_raw).hexdigest(),
+        "state_sha256": hashlib.sha256(state_raw).hexdigest(),
+        "review_sha256": hashlib.sha256(review_raw).hexdigest(),
+    }
+    decisions = convert.parse_review(review, selection, state, hashes)
+    return {
+        "decisions": decisions,
+        "decisions_raw": canonical_bytes(decisions),
+        "selection": selection,
+        "selection_raw": selection_raw,
+        "state": state,
+        "state_raw": state_raw,
+        "review": review,
+        "review_raw": review_raw,
+    }
+
+
+def build_candidate(values=None):
+    values = values or chain()
+    return mod.build_candidate_manifest(
+        values["decisions_raw"], values["selection_raw"],
+        values["state_raw"], values["review_raw"])
+
+
+def assert_fails(code, values):
+    with pytest.raises(SystemExit) as error:
+        build_candidate(values)
+    assert str(error.value) == code
+
+
+def test_exact_five_whole_cases_and_payload_contract():
+    values = chain()
+    result = build_candidate(values)
+    assert result["schema_version"] == "1939-v50-c3-apply-candidate-v1"
+    assert result["counts"] == {
+        "cases": 5,
+        "identity_different": 5,
+        "record_assign": 5,
+        "record_no_publication": 1,
+    }
+    assert [case["case_id"] for case in result["cases"]] == [
+        "R03", "R07", "R11", "R19", "1017/1021"]
+    assert all(case["identity"]["action"] == "different"
+               for case in result["cases"])
+    assert not {"R25", "R31"}.intersection(
+        case["case_id"] for case in result["cases"])
+    assign = result["cases"][0]["record_decisions"][0]
+    assert assign == {
+        "action": "assign",
+        "rid": "R03",
+        "record_key": "synthetic-r03",
+        "target_person_id": 1101,
+        "raw_sha256": hashlib.sha256(
+            values["selection"]["cases"][0]["records"][0]["verbatim_text"].encode("utf-8")
+        ).hexdigest(),
+        "normalized_text": "Synthetic R03 linebreak.",
+        "normalized_sha256": hashlib.sha256(
+            b"Synthetic R03 linebreak.").hexdigest(),
+        "normalization_version": "narrative_norm_v1",
+        "normalization_flags": [{
+            "kind": "hyphen_unproven",
+            "context": "1. Synthetic R03 line-\nbreak.",
+            "char_offset": 21,
+        }],
+        "expected_narrative": {
+            "privat": False,
+            "side": "503",
+            "record_label": "synthetic-r03",
+            "citation_label": "DAA 1939 side 503",
+        },
+    }
+    no_publication = result["cases"][2]["record_decisions"][0]
+    assert no_publication == {
+        "action": "no_publication", "rid": "R11",
+        "record_key": "synthetic-r11",
+    }
+    assert not ({"normalized_text", "normalized_sha256", "raw_sha256",
+                 "normalization_flags", "expected_narrative"}
+                & set(no_publication))
+    assert result["input_hashes"] == {
+        "decisions_sha256": hashlib.sha256(values["decisions_raw"]).hexdigest(),
+        "selection_sha256": hashlib.sha256(values["selection_raw"]).hexdigest(),
+        "state_sha256": hashlib.sha256(values["state_raw"]).hexdigest(),
+        "review_sha256": hashlib.sha256(values["review_raw"]).hexdigest(),
+        "c0_candidates_sha256": "c" * 64,
+        "c0_decisions_sha256": "d" * 64,
+    }
+    assert len(result["canonical_content_sha256"]) == 64
+
+
+@pytest.mark.parametrize("tokens", [
+    {"record:R03": "UAFKLARET"},
+    {"identity:R19": "UAFKLARET", "record:R19": "UAFKLARET"},
+    {"identity:R25": "FORSKELLIGE", "record:R25": "TIL 1501"},
+    {"identity:R03": "SAMME 1101 1102"},
+    {"record:R03": "REVISION split_into"},
+])
+def test_rejects_partial_wrong_partition_same_and_revision(tokens):
+    assert_fails("C3_APPLY_DECISION_SET_INVALID", chain(tokens))
+
+
+@pytest.mark.parametrize("mutation", ["unknown", "duplicate_case", "reorder_cases"])
+def test_rejects_decision_document_drift_and_duplicates(mutation):
+    values = chain()
+    decisions = copy.deepcopy(values["decisions"])
+    if mutation == "unknown":
+        decisions["cases"][0]["identity"]["action"] = "mystery"
+    elif mutation == "duplicate_case":
+        decisions["cases"][1] = copy.deepcopy(decisions["cases"][0])
+    else:
+        decisions["cases"][0], decisions["cases"][1] = (
+            decisions["cases"][1], decisions["cases"][0])
+    values["decisions_raw"] = canonical_bytes(decisions)
+    assert_fails("C3_APPLY_DECISIONS_MISMATCH", values)
+
+
+def test_rejects_duplicate_rid_and_reordered_selection():
+    for mutation in ("duplicate", "reorder"):
+        values = chain()
+        selection = copy.deepcopy(values["selection"])
+        if mutation == "duplicate":
+            selection["cases"][1]["records"][0]["rid"] = "R03"
+        else:
+            selection["cases"][0], selection["cases"][1] = (
+                selection["cases"][1], selection["cases"][0])
+        values["selection_raw"] = canonical_bytes(selection)
+        assert_fails("C3_APPLY_SELECTION_INVALID", values)
+
+
+def test_rejects_reordered_state_rows():
+    values = chain()
+    state = copy.deepcopy(values["state"])
+    state["persons"][0], state["persons"][1] = (
+        state["persons"][1], state["persons"][0])
+    values["state_raw"] = canonical_bytes(state)
+    assert_fails("C3_APPLY_SELECTION_INVALID", values)
+
+
+@pytest.mark.parametrize("field", [
+    "c0_candidates_sha256", "c0_decisions_sha256", "selection_sha256",
+    "state_sha256", "review_sha256",
+])
+def test_rejects_each_declared_upstream_hash_drift(field):
+    values = chain()
+    decisions = copy.deepcopy(values["decisions"])
+    decisions["input_hashes"][field] = "f" * 64
+    values["decisions_raw"] = canonical_bytes(decisions)
+    assert_fails("C3_APPLY_UPSTREAM_HASH_MISMATCH", values)
+
+
+@pytest.mark.parametrize("input_name", ["selection_raw", "state_raw", "review_raw"])
+def test_rejects_raw_byte_drift_in_hash_declared_inputs(input_name):
+    values = chain()
+    values[input_name] += b" "
+    assert_fails("C3_APPLY_UPSTREAM_HASH_MISMATCH", values)
+
+
+def test_binds_exact_decisions_bytes_even_when_json_value_is_unchanged():
+    values = chain()
+    original = build_candidate(values)
+    values["decisions_raw"] = values["decisions_raw"].rstrip(b"\n") + b"  \n"
+    changed = build_candidate(values)
+    assert changed["input_hashes"]["decisions_sha256"] != (
+        original["input_hashes"]["decisions_sha256"])
+    assert changed["cases"] == original["cases"]
+
+
+@pytest.mark.parametrize("input_name", ["decisions_raw", "selection_raw", "state_raw"])
+def test_strict_json_rejects_nonfinite_constants(input_name):
+    values = chain()
+    values[input_name] = b'{"value":NaN}\n'
+    assert_fails("C3_APPLY_{}_INVALID".format(
+        input_name.replace("_raw", "").upper()), values)
+
+
+def test_normalization_uses_full_corpus_twice_and_rejects_nondeterminism(monkeypatch):
+    values = chain()
+    calls = []
+    real = mod.normalize_narrative_v1
+
+    def observing(raw, corpus):
+        calls.append((raw, corpus))
+        return real(raw, corpus)
+
+    monkeypatch.setattr(mod, "normalize_narrative_v1", observing)
+    build_candidate(values)
+    corpus = "\n".join(record["verbatim_text"]
+                       for case in values["selection"]["cases"]
+                       for record in case["records"])
+    assert len(calls) == 10
+    assert all(call[1] == corpus for call in calls)
+
+    counter = {"value": 0}
+
+    def unstable(raw, corpus):
+        result = copy.deepcopy(real(raw, corpus))
+        counter["value"] += 1
+        if counter["value"] % 2 == 0:
+            result["text"] += "x"
+        return result
+
+    monkeypatch.setattr(mod, "normalize_narrative_v1", unstable)
+    assert_fails("C3_APPLY_NORMALIZATION_NONDETERMINISTIC", values)
+
+
+def test_rejects_duplicate_normalization_flags(monkeypatch):
+    values = chain()
+    real = mod.normalize_narrative_v1
+
+    def duplicate_flags(raw, corpus):
+        result = copy.deepcopy(real(raw, corpus))
+        flag = {"kind": "synthetic", "context": "safe", "char_offset": 0}
+        result["flags"] = [flag, copy.deepcopy(flag)]
+        return result
+
+    monkeypatch.setattr(mod, "normalize_narrative_v1", duplicate_flags)
+    assert_fails("C3_APPLY_NORMALIZATION_FLAGS_INVALID", values)
+
+
+def write_chain(tmp_path, values=None):
+    values = values or chain()
+    paths = {}
+    for name in ("decisions", "selection", "state", "review"):
+        path = tmp_path / (name + (".txt" if name == "review" else ".json"))
+        path.write_bytes(values[name + "_raw"])
+        paths[name] = path
+    paths["output"] = tmp_path / "candidate.json"
+    return paths
+
+
+def invoke(paths):
+    return subprocess.run([
+        "/usr/bin/python3", str(MODULE_PATH),
+        "--decisions", str(paths["decisions"]),
+        "--selection", str(paths["selection"]),
+        "--state", str(paths["state"]),
+        "--review", str(paths["review"]),
+        "--output", str(paths["output"]),
+    ], text=True, capture_output=True, check=False)
+
+
+def test_cli_publishes_canonical_no_clobber_output_with_safe_stdout(tmp_path):
+    paths = write_chain(tmp_path)
+    completed = invoke(paths)
+    assert completed.returncode == 0
+    output_raw = paths["output"].read_bytes()
+    assert output_raw == canonical_bytes(json.loads(output_raw))
+    assert json.loads(output_raw) == build_candidate()
+    assert completed.stderr == ""
+    assert "schema=1939-v50-c3-apply-candidate-v1" in completed.stdout
+    assert "cases=5" in completed.stdout
+    assert paths["output"].name in completed.stdout
+    assert hashlib.sha256(output_raw).hexdigest() in completed.stdout
+    for forbidden in ("Synthetic", "line-break", "PGPASSWORD", str(tmp_path)):
+        assert forbidden not in completed.stdout
+
+    original = output_raw
+    second = invoke(paths)
+    assert second.returncode == 1
+    assert second.stderr == "C3_APPLY_OUTPUT_EXISTS\n"
+    assert paths["output"].read_bytes() == original
+
+
+@pytest.mark.parametrize("kind", [
+    "input_symlink", "input_directory", "output_symlink", "output_parent_symlink",
+])
+def test_cli_rejects_symlink_and_non_file_paths(tmp_path, kind):
+    paths = write_chain(tmp_path)
+    if kind == "input_symlink":
+        target = paths["selection"]
+        link = tmp_path / "selection-link.json"
+        link.symlink_to(target)
+        paths["selection"] = link
+    elif kind == "input_directory":
+        paths["selection"] = tmp_path
+    elif kind == "output_symlink":
+        paths["output"].symlink_to(paths["selection"])
+    else:
+        real_parent = tmp_path / "real-parent"
+        real_parent.mkdir()
+        linked_parent = tmp_path / "linked-parent"
+        linked_parent.symlink_to(real_parent, target_is_directory=True)
+        paths["output"] = linked_parent / "candidate.json"
+    completed = invoke(paths)
+    assert completed.returncode == 1
+    assert not list(tmp_path.glob(".candidate.json.*.tmp"))
+
+
+def test_publish_cleans_temp_after_link_failure(tmp_path, monkeypatch):
+    output = tmp_path / "candidate.json"
+
+    def fail_link(source, destination):
+        raise OSError("synthetic link failure")
+
+    monkeypatch.setattr(mod.os, "link", fail_link)
+    with pytest.raises(SystemExit) as error:
+        mod.publish_output(output, "{}\n")
+    assert str(error.value) == "C3_APPLY_OUTPUT_WRITE_FAILED"
+    assert not output.exists()
+    assert not list(tmp_path.glob(".candidate.json.*.tmp"))
+
+
+def test_cli_argument_surface_is_exact(tmp_path):
+    paths = write_chain(tmp_path)
+    completed = subprocess.run(
+        ["/usr/bin/python3", str(MODULE_PATH), "--unknown", "x"],
+        text=True, capture_output=True, check=False)
+    assert completed.returncode == 1
+    assert completed.stderr == "C3_APPLY_ARGUMENTS_INVALID\n"
