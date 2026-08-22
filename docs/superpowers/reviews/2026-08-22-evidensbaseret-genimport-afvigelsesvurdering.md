@@ -138,8 +138,16 @@ Yderligere i den ubundne rest: `record-6fe0fbac` ("Doso, maa være Broder til Ha
 
 **Bemærk også** at 3 af de 12 "begynder midt i en sætning"-sager er falske positiver: 956 (`"lven"` = OCR af »Iven«), 1308 og 1413 (`"l. Comtesse"` = OCR af »1. Comtesse«). Det er tegnfejl, ikke grænsefejl. Reelle fragment-sager er 1017/1021, 1791 (hvis *navn* er »fyenske Rytterreg.)«), 977 og 1772 (planche-OCR).
 
-### 7.6c Åbent efter rettelsen
-Sekvensen »#152 før C3« hviler nu på ét ubesvaret spørgsmål: er C3's apply-operationer bindinger eller tekstkirurgi? Bindinger → C3 kan køre først, #152 er uafhængig. Tekstkirurgi → #152 skal først, ellers skal arbejdet gøres om. Afgøres af gennemgangen af `2026-08-22-1939-v50-c3-atomisk-apply.md`, ikke af skøn.
+### 7.6c AFGJORT: C3's operationer er bindinger — sekvensen byttes om
+Spørgsmålet var: er C3's apply-operationer bindinger (fremadkompatible) eller tekstkirurgi (skal rulles tilbage af en nøgleændring)? Svaret står i `specs/2026-08-22-1939-v50-fase-c3-apply-design.md`:
+
+- **`TIL`-semantik:** target-narrativet skal under lås have bindingstilstand `absent` (eller en eksakt draft til samme record), og der må ikke findes nogen anden draft/published binding for samme source-record. Hver sag etablerer dermed præcis ét record ↔ ét narrativ ↔ én person — den invariant record-nøgling ville håndhæve.
+- **Uden for scope:** »implicit rebind eller withdrawal af eksisterende publiceringer«, »`SAMME`-writes«, og »de øvrige lowercase-start- eller `[NY]`-sager«. Merge-sagerne er parkeret; **1017 og 1021 nævnes slet ikke** i C3's apply-dokumenter.
+- Teksten omskrives, men konvergerer mod netop den tilstand, `narrative.source_record_id` ville udtrykke. Backfill efter #152 er triviel og tabsfri.
+
+**Konsekvens: C3-apply først, #152 derefter.** Min gate i `decisions.md` var ubegrundet og er ophævet — den ville have blokeret færdigt, verificeret arbejde uden grund, altså selv været en form for creep. #152 tager bagefter præcis de sager, C3 parkerer: de er ikke løsbare ved tekstkirurgi, men bliver udtrykkelige med en record-nøglet model.
+
+Forbehold: konklusionen hviler på designets invarianter og dets menneskelige før/efter-tekstgodkendelse, ikke på en optælling af de fem konkrete personer (beslutnings-JSON'en ligger i gitignoreret `work/`).
 
 ### 7.7 Udgavespecifikke tabeller og RPC'er — *Teknisk gæld → #153*
 `private.reimport_1939_{authorization,write_batch,write_event,name_completion_result}` og `red_*_1939_v50_*` bryder invariant 12. Omfang (Codex' optælling): 27 1939-specifikke tabel-/funktionsdefinitioner i `schema.sql` og 106 Python/R-filer med `1939_v50` i navnet. Næste bog kan ikke genbruge writeren uden kopi. **Anbefaling:** Omdøb/generalisér til `reimport_batch` med `source_id` som parameter, før 2018-20 rører dem. Kan være en mekanisk refactor.

@@ -46,6 +46,36 @@ data — ikke spec'ens evidensbaserede genimport (fortolkningslag 0 rækker,
   record A + starten af record B; 1021 rummer B's hale), så #152's
   berettigelse står, uanset hvordan sekvensen falder ud. Se
   afvigelsesvurderingens §7.6b-c.
+
+  **AFGJORT samme dag — gaten ophæves.** Gennemgangen af
+  `specs/2026-08-22-1939-v50-fase-c3-apply-design.md` viser, at C3's fem
+  sager er **bindinger, ikke tekstkirurgi**, og dermed fremadkompatible:
+
+  - `TIL`-semantikken kræver, at target-narrativet under lås har
+    bindingstilstand `absent` (eller en eksakt draft til samme record), og at
+    **ingen anden binding findes for samme source-record** (§Record- og
+    publiceringsinvarianter). Hver sag etablerer altså præcis ét
+    record ↔ ét narrativ ↔ én person — nøjagtig den invariant, record-nøgling
+    ville håndhæve.
+  - »Implicit rebind eller withdrawal af eksisterende publiceringer« og »de
+    øvrige lowercase-start- eller `[NY]`-sager« er eksplicit **uden for
+    scope**. Merge-sagerne (1017/1021, 929/930, 1013/1014, 1791) er parkeret
+    og røres ikke; 1017 og 1021 nævnes slet ikke i C3's apply-dokumenter.
+  - Teksten skrives ganske vist om, men konvergerer mod netop den tilstand,
+    en senere `narrative.source_record_id` ville udtrykke. Backfill efter
+    #152 bliver triviel og tabsfri:
+    `UPDATE narrative SET source_record_id = pub.source_record_id FROM
+    narrative_record_publication pub WHERE pub.narrative_id = narrative.id`.
+
+  **Ny rækkefølge: C3-apply først, #152 derefter.** C3 leverer redaktionel
+  værdi nu uden at male os op i et hjørne, og #152 tager bagefter præcis de
+  sager, C3 måtte parkere — de bliver først *udtrykkelige* med en
+  record-nøglet model i stedet for at kræve tekstkirurgi. Rækkefølgen for
+  resten er uændret: #153 (generalisér writer) før #149 (2018-20 fase A).
+
+  Forbehold: verifikationen hviler på designets invarianter og dets
+  menneskelige før/efter-tekstgodkendelse, ikke på en optælling af de fem
+  konkrete personer — beslutnings-JSON'en ligger i gitignoreret `work/`.
 - Ingen ny plan uden henvisning til et §7-punkt i afvigelsesvurderingen eller
   et af issues #147-#158.
 - Ingen prod-skrivning uden committet GO-pakke.
