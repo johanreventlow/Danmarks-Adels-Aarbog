@@ -25,13 +25,21 @@ PRODUCTION_MANIFEST_PATH = (
     Path(_production_manifest_setting).expanduser()
     if _production_manifest_setting else None
 )
-_production_manifest_available = (
-    PRODUCTION_MANIFEST_PATH is not None and PRODUCTION_MANIFEST_PATH.is_file()
-)
-pytestmark = pytest.mark.skipif(
-    not _production_manifest_available,
-    reason=f"production-artifact tests require an existing explicit {PRODUCTION_MANIFEST_ENV}",
-)
+if PRODUCTION_MANIFEST_PATH is not None and not PRODUCTION_MANIFEST_PATH.is_file():
+    raise pytest.UsageError(
+        f"{PRODUCTION_MANIFEST_ENV} must name an existing regular file: "
+        f"{PRODUCTION_MANIFEST_PATH}"
+    )
+
+
+@pytest.fixture(autouse=True)
+def require_explicit_production_manifest(request):
+    if request.node.name.startswith("test_manifest_env_"):
+        return
+    if PRODUCTION_MANIFEST_PATH is None:
+        pytest.skip(
+            f"production-artifact tests require explicit {PRODUCTION_MANIFEST_ENV}"
+        )
 
 LOCKED_ROWS = (
     ("record-3766faae-ae21-412a-8cfb-745a19ac77f0", 1846, "Ditlev", 503),
@@ -44,6 +52,48 @@ LOCKED_ROWS = (
     ("record-c731fc5a-7e4c-45b8-9bfc-d6eba9f62e5d", 1853, "Margrethe", 517),
 )
 LOCKED_MAP = {key: (person, name, page) for key, person, name, page in LOCKED_ROWS}
+
+
+def _run_this_module_with_env(env, selected_test):
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "--tb=short",
+            str(Path(__file__)),
+            "-k",
+            selected_test,
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+
+
+def test_manifest_env_unset_skips_private_artifact_case():
+    env = os.environ.copy()
+    env.pop(PRODUCTION_MANIFEST_ENV, None)
+    result = _run_this_module_with_env(
+        env, "test_builds_exact_eight_source_bound_name_operations"
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "1 skipped" in result.stdout
+
+
+def test_manifest_env_explicit_missing_path_fails_configuration(tmp_path):
+    missing_path = tmp_path / "explicit-but-missing.json"
+    env = os.environ.copy()
+    env[PRODUCTION_MANIFEST_ENV] = str(missing_path)
+    result = _run_this_module_with_env(
+        env, "test_builds_exact_eight_source_bound_name_operations"
+    )
+    combined = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert PRODUCTION_MANIFEST_ENV in combined
+    assert "must name an existing regular file" in combined
 
 
 def _production_inputs():

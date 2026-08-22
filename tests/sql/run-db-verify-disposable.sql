@@ -7,6 +7,23 @@
 -- db-verify and this runner removes its prerequisites after a green run.
 -- Never run this wrapper against production.
 
+CREATE SCHEMA IF NOT EXISTS extensions;
+CREATE EXTENSION IF NOT EXISTS dblink WITH SCHEMA extensions;
+SET search_path TO public, private, extensions, pg_catalog;
+
+DO $dblink_required$
+BEGIN
+  IF to_regprocedure('dblink_connect(text,text)') IS NULL THEN
+    RAISE EXCEPTION 'DB_VERIFY_DBLINK_REQUIRED: disposable runner';
+  END IF;
+END $dblink_required$;
+
+SELECT set_config('daa.verify_dblink_evidence_anchor','pending',false);
+SELECT set_config('daa.verify_dblink_promotion','pending',false);
+SELECT set_config('daa.verify_dblink_identity','pending',false);
+SELECT set_config('daa.verify_dblink_placement','pending',false);
+SELECT set_config('daa.verify_dblink_ocr_lock','pending',false);
+
 DELETE FROM lineage WHERE id IN (-987659904,-987659903);
 DELETE FROM source WHERE id=-987659902;
 DELETE FROM person WHERE id=-987659901;
@@ -45,6 +62,25 @@ INSERT INTO task3_db_verify_seeded_vocab(code)
 SELECT code FROM inserted;
 
 \ir ../../db-verify.sql
+
+DO $all_dblink_gates_executed$
+DECLARE
+  v_missing text[];
+BEGIN
+  SELECT array_agg(gate ORDER BY gate) INTO v_missing
+  FROM (VALUES
+    ('evidence_anchor',current_setting('daa.verify_dblink_evidence_anchor',true)),
+    ('promotion',current_setting('daa.verify_dblink_promotion',true)),
+    ('identity',current_setting('daa.verify_dblink_identity',true)),
+    ('placement',current_setting('daa.verify_dblink_placement',true)),
+    ('ocr_lock',current_setting('daa.verify_dblink_ocr_lock',true))
+  ) AS gates(gate,state)
+  WHERE state IS DISTINCT FROM 'executed';
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'DB_VERIFY_DBLINK_GATES_NOT_EXECUTED: %',v_missing;
+  END IF;
+  RAISE NOTICE 'OK: all five dblink concurrency gates executed';
+END $all_dblink_gates_executed$;
 
 DELETE FROM vocab v
 USING task3_db_verify_seeded_vocab s

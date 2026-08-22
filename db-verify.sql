@@ -24,6 +24,11 @@
 -- Dette er dokumenteret pr. assert-blok nedenfor.
 -- =============================================================
 
+-- Supabase installs extension functions in `extensions`; plain PostgreSQL may
+-- install them in `public`.  Keep both legitimate layouts callable while the
+-- five two-connection gates below fail closed if dblink is not installed.
+SET search_path TO public, private, extensions, pg_catalog;
+
 
 -- ===== Task 1: Tabeller profiles + suggestion =====
 -- Forvent: begge tabeller findes, rolle-CHECK håndhæves.
@@ -1114,9 +1119,8 @@ DECLARE
     SET session_replication_role=origin;
   $cleanup$;
 BEGIN
-  IF to_regprocedure('public.dblink_connect(text,text)') IS NULL THEN
-    RAISE NOTICE 'SKIP: evidens-anchor samtidighed kræver dblink i disposable verify-base';
-    RETURN;
+  IF to_regprocedure('dblink_connect(text,text)') IS NULL THEN
+    RAISE EXCEPTION 'DB_VERIFY_DBLINK_REQUIRED: evidens-anchor samtidighed';
   END IF;
 
   PERFORM dblink_connect('evidence_setup',v_conn || ' application_name=daa_verify_evidence_setup');
@@ -1204,6 +1208,7 @@ BEGIN
   END IF;
   PERFORM dblink_exec('evidence_setup',v_cleanup);
   PERFORM dblink_disconnect('evidence_setup'); v_setup_connected := false;
+  PERFORM set_config('daa.verify_dblink_evidence_anchor','executed',false);
   RAISE NOTICE 'OK: source_record_anchor_event serialiserer samtidige accepted-afgørelser';
 EXCEPTION WHEN others THEN
   IF v_a_connected THEN
@@ -2670,9 +2675,8 @@ DECLARE
     SET session_replication_role=origin;
   $cleanup$;
 BEGIN
-  IF to_regprocedure('public.dblink_connect(text,text)') IS NULL THEN
-    RAISE NOTICE 'SKIP: promotion-samtidighed kræver dblink i disposable verify-base';
-    RETURN;
+  IF to_regprocedure('dblink_connect(text,text)') IS NULL THEN
+    RAISE EXCEPTION 'DB_VERIFY_DBLINK_REQUIRED: promotion-samtidighed';
   END IF;
   PERFORM dblink_connect('promotion_setup',v_conn||' application_name=daa_verify_promotion_setup');
   v_setup_connected:=true;
@@ -2946,6 +2950,7 @@ BEGIN
     RAISE EXCEPTION 'FEJL: rule-racet efterlod promotion med skjult regelversion'; END IF;
   PERFORM dblink_exec('promotion_setup',v_cleanup);
   PERFORM dblink_disconnect('promotion_setup'); v_setup_connected:=false;
+  PERFORM set_config('daa.verify_dblink_promotion','executed',false);
   RAISE NOTICE 'OK: promotion-batch låser current fortolkning og personaidentitet og afviser stale preview';
 EXCEPTION WHEN others THEN
   IF v_a_connected THEN
@@ -3009,9 +3014,8 @@ DECLARE
     SET session_replication_role=origin;
   $cleanup$;
 BEGIN
-  IF to_regprocedure('public.dblink_connect(text,text)') IS NULL THEN
-    RAISE NOTICE 'SKIP: identity-samtidighed kræver dblink i disposable verify-base';
-    RETURN;
+  IF to_regprocedure('dblink_connect(text,text)') IS NULL THEN
+    RAISE EXCEPTION 'DB_VERIFY_DBLINK_REQUIRED: identity-samtidighed';
   END IF;
   PERFORM dblink_connect('identity_setup',v_conn||' application_name=daa_verify_identity_setup');
   v_setup_connected:=true;
@@ -3144,6 +3148,7 @@ BEGIN
   END IF;
   PERFORM dblink_exec('identity_setup',v_cleanup);
   PERFORM dblink_disconnect('identity_setup'); v_setup_connected:=false;
+  PERFORM set_config('daa.verify_dblink_identity','executed',false);
   RAISE NOTICE 'OK: identitetsafgørelser serialiseres og expected_version er fail-closed';
 EXCEPTION WHEN others THEN
   IF v_a_connected THEN
@@ -3194,8 +3199,8 @@ DECLARE
     SET session_replication_role=origin;
   $cleanup$;
 BEGIN
-  IF to_regprocedure('public.dblink_connect(text,text)') IS NULL THEN
-    RAISE NOTICE 'SKIP: placement-samtidighed kræver dblink i disposable verify-base'; RETURN;
+  IF to_regprocedure('dblink_connect(text,text)') IS NULL THEN
+    RAISE EXCEPTION 'DB_VERIFY_DBLINK_REQUIRED: placement-samtidighed';
   END IF;
   PERFORM dblink_connect('placement_setup',v_conn||' application_name=daa_verify_placement_setup');
   v_setup_connected:=true; PERFORM dblink_exec('placement_setup',v_cleanup);
@@ -3285,6 +3290,7 @@ BEGIN
     RAISE EXCEPTION 'FEJL: placement-race efterlod ikke præcis én accepted decision'; END IF;
   PERFORM dblink_exec('placement_setup',v_cleanup);
   PERFORM dblink_disconnect('placement_setup'); v_setup_connected:=false;
+  PERFORM set_config('daa.verify_dblink_placement','executed',false);
   RAISE NOTICE 'OK: placement-afgørelser serialiseres på parent-record og er globalt entydige';
 EXCEPTION WHEN others THEN
   IF v_a_connected THEN BEGIN PERFORM dblink_exec('placement_a','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END;
@@ -3617,9 +3623,8 @@ DECLARE
     END $remote_cleanup$
   $cleanup_sql$;
 BEGIN
-  IF to_regprocedure('public.dblink_connect(text,text)') IS NULL THEN
-    RAISE NOTICE 'SKIP: OCR-låseorden kræver dblink i disposable verify-base';
-    RETURN;
+  IF to_regprocedure('dblink_connect(text,text)') IS NULL THEN
+    RAISE EXCEPTION 'DB_VERIFY_DBLINK_REQUIRED: OCR-låseorden';
   END IF;
   -- Setup is committed through a third local connection: dblink sessions cannot see
   -- uncommitted rows from this verify DO-block.
@@ -3751,6 +3756,7 @@ BEGIN
      ) THEN
     RAISE EXCEPTION 'FEJL: OCR-låseorden efterlod fixture eller dblink-session';
   END IF;
+  PERFORM set_config('daa.verify_dblink_ocr_lock','executed',false);
   RAISE NOTICE 'OK: OCR-låseorden to-forbindelsesregression';
 EXCEPTION WHEN OTHERS THEN
   GET STACKED DIAGNOSTICS
