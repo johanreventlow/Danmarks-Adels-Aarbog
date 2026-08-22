@@ -1,7 +1,9 @@
 # 1939 v50 fase C3 — sagsatomisk apply: design
 
-**Status:** Designsektionerne er godkendt af brugeren 2026-08-22. Denne
-samlede spec skal godkendes særskilt, før der skrives implementeringsplan.
+**Status:** Designsektionerne er godkendt af brugeren 2026-08-22. Den samlede
+spec er **godkendt 2026-08-22 med én ændring**: den varige databaseoverflade
+navngives generisk (se »Navngivning og generalisering« nedenfor). Herefter
+skrives implementeringsplanen.
 
 ## Formål
 
@@ -32,6 +34,7 @@ anvende en af deres akser eller udlede nye redaktionelle beslutninger.
 | Genkørsel | Batch-idempotens på nonce og alle artefakthashes; samme nonce med drift afvises. |
 | Reversal | Én dedikeret, sagsatomisk reversal med exact-after/CAS. |
 | Produktions-GO | Først efter disposable apply, reconnect, reversal og særskilt brugerautorisation. |
+| Navngivning | **Generisk** `reimport_case_*`-familie parametriseret på kilde og fase. C3 er dens første bruger, ikke en 1939-specifik batchfamilie. |
 
 ## Hvorfor de eksisterende writeveje ikke er tilstrækkelige
 
@@ -150,10 +153,60 @@ separat konverter validerer arket mod det eksakte manifest/preview og skriver
 tekstfri godkendelses-JSON. Apply kræver fem `GODKENDT`; ét `UAFKLARET`
 stopper hele batchen.
 
+## Navngivning og generalisering (ændring 2026-08-22)
+
+Den oprindelige spec lagde op til, at »C3 får en selvstændig, mindre
+batchfamilie«. Med de navne, det indebar (`red_*_1939_v50_c3_*`), ville fasen
+lægge tre tabeller og fem funktioner oven i de 27 udgavespecifikke
+definitioner, som issue #153 skal generalisere væk — altså nyskabt gæld i
+præcis den kategori, afvigelsesvurderingen bogførte som brud på spec-invariant
+12 (»alt nyt er generelt«).
+
+**Beslutning:** den varige databaseoverflade navngives generisk fra starten og
+parametriseres på **kilde** og **fase**, ikke på udgave. C3 bliver den første
+bruger af kontrakten frem for et engangsartefakt.
+
+- Tabeller: `private.reimport_case_authorization`, `reimport_case_batch`,
+  `reimport_case_event` — hver med `source_id` og en `phase`-kolonne
+  (kontrolleret vokabular; `c3` er første værdi).
+- Funktioner: `red_preview_reimport_cases`, `red_authorize_reimport_cases`,
+  `red_apply_reimport_cases`, `red_authorize_reimport_case_reversal`,
+  `red_reverse_reimport_cases` — med kilde og fase som parametre.
+- Operationskoder (`c3_apply`, `c3_reversal`) bliver dataværdier i
+  `phase`/`operation`, ikke dele af objektnavne.
+- Payload- og eventskemaet forbliver versionsmærket, så en senere fase kan
+  tilføje operationstyper uden at ændre C3's betydning.
+
+Dette generaliserer **navngivning og scoping**, ikke forretningslogikken. Der
+gøres intet forsøg på at gøre `assign`/`no_publication`-semantikken
+genanvendelig for ukendte fremtidige faser; det ville være at
+overgeneralisere på ét eksempel. Kravet er alene, at navnene ikke skal
+migreres, når #153 rydder op, og at de eksisterende
+`reimport_1939_*`-tabeller ikke røres af denne fase.
+
+## To forhold fastlagt ved spec-gennemgangen 2026-08-22
+
+1. **Tekstreview-fladen genbruges.** Kravet om en lokal HTML til de fem
+   før/efter-tekstdiffs opfyldes ved at udvide den eksisterende, browsertestede
+   `build_c3_html_review_1939_v50.py` (med
+   `test_c3_html_review_browser_1939_v50.mjs` og
+   `c3_html_review_test_fixtures.py`), ikke ved at bygge en ny renderer. Samme
+   sikkerhedskrav gælder uændret: intet netværk, ingen databaseklient, ingen
+   browserpersistens, sikre DOM-API'er, byte-låst eksport.
+2. **Identitetsforudsætningen er allerede opfyldt.** Afsnittet
+   »Identitetsinvarianter« beskriver en hærdning, der skal ske »før apply«.
+   Den er gennemført: komponent-kontrollen ligger i triggerlaget
+   (`schema.sql:4345-4366`, `IDENTITY_COMPONENT_CONTRADICTION`), med
+   `tests/sql/test-1939-v50-c3-identity-invariants.sql` og flere fix-commits.
+   Implementeringsplanen skal **verificere og springe over**, ikke gentage
+   arbejdet. (Planfilens 0/18 afkrydsninger er dokumentationsdrift, jf. #157.)
+
 ## Databasemodel
 
-Der indføres private, deny-all og append-only C3-tabeller. De præcise navne
-låses i implementeringsplanen, men kontrakten omfatter:
+Der indføres private, deny-all og append-only tabeller i den generiske
+`reimport_case_*`-familie (se »Navngivning og generalisering«). Alle bærer
+`source_id` og `phase`, så C3 er én fase blandt flere mulige. Kontrakten
+omfatter:
 
 ### Authorization
 
@@ -194,19 +247,20 @@ RLS som defense in depth og `REVOKE ALL` fra `PUBLIC`, `anon` og
 ## Databasefunktioner
 
 Følgende logiske grænser kræves; implementeringsplanen fastlåser endelige
-signaturer efter testinventar:
+signaturer efter testinventar. Navnene nedenfor er de generiske, som ændringen
+2026-08-22 fastlagde; kilde og fase er parametre, ikke dele af navnet:
 
-1. `red_preview_1939_v50_c3_apply(...) -> jsonb`
+1. `red_preview_reimport_cases(...) -> jsonb`
    - read-only og redaktør-gated;
    - genmåler den eksakte fem-sags state;
    - returnerer canonical preview og exact ID-set/counts.
-2. `red_authorize_1939_v50_c3_apply(...) -> uuid/jsonb`
+2. `red_authorize_reimport_cases(...) -> uuid/jsonb`
    - binder expiring nonce, principal, databaseidentitet og alle payloads.
-3. `red_apply_1939_v50_c3_batch(...) -> jsonb`
+3. `red_apply_reimport_cases(...) -> jsonb`
    - ét RPC-kald og én transaktion for alle fem sager;
    - returnerer eksisterende receipt ved eksakt idempotent genkørsel.
-4. `red_authorize_1939_v50_c3_reversal(...) -> uuid/jsonb`.
-5. `red_reverse_1939_v50_c3_batch(...) -> jsonb`
+4. `red_authorize_reimport_case_reversal(...) -> uuid/jsonb`.
+5. `red_reverse_reimport_cases(...) -> jsonb`
    - exact-after/CAS og samlet reversal i én transaktion.
 
 Public RPC'er er kun de nødvendige, rolle-gatede entrypoints. Privilegerede
