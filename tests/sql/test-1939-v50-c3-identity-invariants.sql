@@ -21,6 +21,24 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'IDENTITY_LOCK_HELPER_SECURITY_DRIFT';
   END IF;
+  IF to_regprocedure('private.prelock_identity_relation_update(jsonb,jsonb)') IS NULL THEN
+    RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_HELPER_MISSING';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p
+    WHERE p.oid = 'private.prelock_identity_relation_update(jsonb,jsonb)'::regprocedure
+      AND p.prosecdef
+      AND 'search_path=pg_catalog, public, private' = ANY (p.proconfig)
+  ) OR has_function_privilege('anon','private.prelock_identity_relation_update(jsonb,jsonb)','EXECUTE')
+       OR has_function_privilege('authenticated','private.prelock_identity_relation_update(jsonb,jsonb)','EXECUTE') THEN
+    RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_HELPER_SECURITY_DRIFT';
+  END IF;
+  v_definition := pg_get_functiondef('private.prelock_identity_relation_update(jsonb,jsonb)'::regprocedure);
+  v_lock_position := strpos(v_definition, 'pg_advisory_xact_lock(hashtext(''samme_som_mutation''))');
+  v_people_position := strpos(v_definition, 'private.lock_identity_people');
+  IF v_lock_position < 1 OR v_people_position <= v_lock_position THEN
+    RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_ORDER_DRIFT';
+  END IF;
   IF EXISTS (
     SELECT 1
     FROM pg_proc p
@@ -52,8 +70,14 @@ BEGIN
     END IF;
   END LOOP;
   v_definition := pg_get_functiondef('public.enforce_samme_som_invariants()'::regprocedure);
-  IF regexp_count(v_definition, 'private\.lock_identity_people') <> 2 THEN
+  IF regexp_count(v_definition, 'private\.lock_identity_people') <> 1
+     OR v_definition !~ 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN
     RAISE EXCEPTION 'IDENTITY_TRIGGER_LOCK_HELPER_DRIFT';
+  END IF;
+  v_definition := pg_get_functiondef('public._version_upsert_row(text,jsonb)'::regprocedure);
+  IF strpos(v_definition,'private.prelock_identity_relation_update') < 1
+     OR strpos(v_definition,'private.prelock_identity_relation_update') > strpos(v_definition,'UPDATE %1$I SET') THEN
+    RAISE EXCEPTION 'IDENTITY_VERSION_UPSERT_PRELOCK_DRIFT';
   END IF;
 END $catalog$;
 
@@ -69,6 +93,7 @@ DECLARE
   p_low bigint := -1939501017; p_high bigint := -1939501018; p_missing bigint := -1939501099;
   v_rejection bigint; v_remove_change_set bigint; v_update_rejection bigint;
   v_change_sets_before bigint; v_change_sets_after bigint; v_same bigint;
+  v_current jsonb; v_target jsonb;
 BEGIN
   INSERT INTO auth.users(id,email)
   VALUES (v_actor,'c3-identity-invariants@test.invalid')
@@ -139,6 +164,15 @@ BEGIN
     RAISE EXCEPTION 'IDENTITY_REJECTION_IDEMPOTENCY_CREATED_EMPTY_CHANGE_SET';
   END IF;
 
+  -- A privileged raw UPDATE already owns the relation tuple when its row trigger runs.
+  -- Without the caller-side protocol it must fail closed instead of taking locks inversely.
+  BEGIN
+    UPDATE public.relation SET periode_raw=periode_raw WHERE id=v_rejection;
+    RAISE EXCEPTION 'EXPECTED_IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
+  END;
+
   -- Same-as idempotency also remains before begin_change_set after locking.
   v_same := public.red_samme_som(x1,x2);
   PERFORM set_config('app.change_set_id','',true);
@@ -186,7 +220,10 @@ BEGIN
   -- An existing rejection cannot be UPDATEd into one same-as component.
   v_update_rejection := public.red_ikke_samme_som(w1,w2);
   PERFORM public.red_samme_som(w1,wc);
+  SELECT to_jsonb(r) INTO v_current FROM public.relation r WHERE r.id=v_update_rejection;
+  v_target := v_current || jsonb_build_object('subjekt_id',w1,'objekt_id',wc);
   BEGIN
+    PERFORM private.prelock_identity_relation_update(v_current,v_target);
     UPDATE public.relation SET subjekt_id=w1, objekt_id=wc WHERE id=v_update_rejection;
     RAISE EXCEPTION 'EXPECTED_TRIGGER_COMPONENT_UPDATE_REJECTION';
   EXCEPTION WHEN others THEN

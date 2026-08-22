@@ -4101,12 +4101,57 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION private.lock_identity_people(bigint[]) FROM PUBLIC, anon, authenticated;
 
+-- Global lock order for supported identity UPDATE/undo paths:
+-- same_som_mutation -> ascending person rows -> relation tuple.  The row trigger may
+-- therefore verify this one-shot marker, but must never take the first blocking lock.
+CREATE OR REPLACE FUNCTION private.prelock_identity_relation_update(
+  p_current jsonb, p_target jsonb
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, public, private AS $$
+DECLARE v_ids bigint[] := ARRAY[]::bigint[];
+BEGIN
+  IF public.current_rolle() <> 'redaktion' THEN
+    RAISE EXCEPTION 'Kun redaktion';
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  IF p_current->>'rolle' IN ('samme_som','ikke_samme_som') THEN
+    IF p_current->>'subjekt_type' = 'person' THEN
+      v_ids := array_append(v_ids,(p_current->>'subjekt_id')::bigint);
+    END IF;
+    IF p_current->>'objekt_type' = 'person' THEN
+      v_ids := array_append(v_ids,(p_current->>'objekt_id')::bigint);
+    END IF;
+  END IF;
+  IF p_target->>'rolle' IN ('samme_som','ikke_samme_som') THEN
+    IF p_target->>'subjekt_type' = 'person' THEN
+      v_ids := array_append(v_ids,(p_target->>'subjekt_id')::bigint);
+    END IF;
+    IF p_target->>'objekt_type' = 'person' THEN
+      v_ids := array_append(v_ids,(p_target->>'objekt_id')::bigint);
+    END IF;
+  END IF;
+  IF cardinality(v_ids) > 0 THEN
+    PERFORM private.lock_identity_people(v_ids);
+  END IF;
+  PERFORM set_config(
+    'app.identity_relation_update_prelock',
+    jsonb_build_array(
+      p_target->'id', p_target->'rolle', p_target->'subjekt_type', p_target->'subjekt_id',
+      p_target->'objekt_type', p_target->'objekt_id'
+    )::text,
+    true
+  );
+END $$;
+REVOKE ALL ON FUNCTION private.prelock_identity_relation_update(jsonb,jsonb)
+  FROM PUBLIC, anon, authenticated;
+
 -- SECURITY DEFINER (2026-08-01): guarden nedenfor kalder _samme_som_gruppe, hvis EXECUTE er
 -- revoked fra anon/authenticated. Alle reelle skriveveje går gennem definer-RPC'er og kører
 -- allerede som ejer, men uden dette ville en fremtidig ikke-ejer-sti fejle på rettigheder frem
 -- for på invarianten. Funktionen skriver intet — den læser og rejser.
 CREATE OR REPLACE FUNCTION enforce_samme_som_invariants() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_expected_prelock text;
 BEGIN
   IF TG_OP = 'UPDATE' THEN
     -- samme_som er en identitetspåstand med evidens knyttet til relationens stabile id.
@@ -4119,10 +4164,16 @@ BEGIN
            ROW(NEW.rolle, NEW.subjekt_type, NEW.subjekt_id, NEW.objekt_type, NEW.objekt_id) THEN
       RAISE EXCEPTION 'samme_som: rolle og endepunkter er uforanderlige — brug slet+genopret';
     END IF;
+    v_expected_prelock := jsonb_build_array(
+      to_jsonb(NEW.id), to_jsonb(NEW.rolle), to_jsonb(NEW.subjekt_type), to_jsonb(NEW.subjekt_id),
+      to_jsonb(NEW.objekt_type), to_jsonb(NEW.objekt_id)
+    )::text;
+    IF current_setting('app.identity_relation_update_prelock',true) IS DISTINCT FROM v_expected_prelock THEN
+      RAISE EXCEPTION 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED';
+    END IF;
+    PERFORM set_config('app.identity_relation_update_prelock','',true);
     IF NEW.rolle = 'ikke_samme_som'
        AND NEW.subjekt_type = 'person' AND NEW.objekt_type = 'person' THEN
-      PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
-      PERFORM private.lock_identity_people(ARRAY[NEW.subjekt_id, NEW.objekt_id]);
       IF EXISTS (
         SELECT 1
         FROM public._samme_som_gruppe(NEW.subjekt_id) a
@@ -5684,7 +5735,7 @@ END $$;
 -- ved en slettet række bruges INSERT, hvor manglende kolonner får deres DEFAULT.
 CREATE OR REPLACE FUNCTION _version_upsert_row(p_tabel text, p_row jsonb)
 RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
-DECLARE v_pk_cols text; v_set text; v_cols text; v_exists boolean;
+DECLARE v_pk_cols text; v_set text; v_cols text; v_exists boolean; v_current jsonb;
 BEGIN
   SELECT string_agg(quote_ident(k),',') INTO v_pk_cols
     FROM version_pk_registry r, unnest(r.pk_cols) k WHERE r.tabel=p_tabel;
@@ -5706,9 +5757,14 @@ BEGIN
   -- En UPDATE-fortrydelse har stadig målrækken. Gå direkte til UPDATE, så Postgres ikke
   -- validerer en kunstig, ufuldstændig INSERT-række mod NOT NULL før ON CONFLICT (haendelse
   -- logger bevidst kun id+feed_status; alle regenererbare kolonner er skip_cols).
-  EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I WHERE %s)',
-                 p_tabel, _version_pk_where(p_tabel, _row_pk(p_tabel, p_row))) INTO v_exists;
+  v_current := _version_current_row(p_tabel, _row_pk(p_tabel, p_row));
+  v_exists := v_current IS NOT NULL;
   IF v_exists THEN
+    IF p_tabel = 'relation'
+       AND (v_current->>'rolle' IN ('samme_som','ikke_samme_som')
+            OR p_row->>'rolle' IN ('samme_som','ikke_samme_som')) THEN
+      PERFORM private.prelock_identity_relation_update(v_current,p_row);
+    END IF;
     EXECUTE format(
       'UPDATE %1$I SET (%2$s) = (SELECT %2$s FROM jsonb_populate_record(null::%1$I, $1)) WHERE %3$s',
       p_tabel, v_cols, _version_pk_where(p_tabel, _row_pk(p_tabel, p_row))) USING p_row;
