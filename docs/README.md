@@ -20,6 +20,7 @@ i historiske planer og afsluttede reviews.
 |---|---|
 | [`changelog.md`](changelog.md) | Kronologisk log: hvad ændrede sig, fejl fanget, reviews, testniveau, prod-status. Nyeste øverst. |
 | [`decisions.md`](decisions.md) | Arkitektur-beslutningslog: ikke-oplagte valg + hvorfor alternativer blev fravalgt. |
+| [`superpowers/reviews/2026-08-22-evidensbaseret-genimport-afvigelsesvurdering.md`](superpowers/reviews/2026-08-22-evidensbaseret-genimport-afvigelsesvurdering.md) | **Hvor genimporten faktisk står** ift. den oprindelige plan: dom pr. udestående, prod-måling, issues #147-#158. Anti-creep-ankeret — nye spor skal henvise til et §7-punkt. |
 
 ## 🗄️ Skema & database (autoritative filer i repo-roden)
 

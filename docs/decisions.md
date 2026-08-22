@@ -2,6 +2,55 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## C3 apply: fire ikke-oplagte valg i apply-kontrakten (2026-08-22)
+
+Truffet under revisionen efter Codex sols adversarial review. Alle fire kunne
+være gået den anden vej, og begrundelsen er ikke synlig af koden alene.
+
+**1. Tekstgodkendelsen bindes til `text_bundle_sha256`, ikke til manifestet.**
+Finalmanifestet binder databasenavn og system identifier, så et prod-bundet
+manifest afvises mod rehearsal-basen og omvendt — der er nødvendigvis **to**
+databasebundne artefaktforløb. Havde godkendelsen været bundet til manifestet,
+skulle mennesket godkende de samme fem tekstdiffs to gange. *Afvist alternativ:*
+lade det ske. Begrundelse for at afvise: den anden godkendelse ville blive en
+formalitet, man klikker igennem, og en godkendelse man ikke reelt læser er
+værre end ingen. Teksten afhænger af record-verbatim og normaliseringsprofil,
+ikke af databasen, så bindingen til en teksthash er den ærlige afgrænsning.
+Manifestet binder fortsat bundle-hashen, så tekstændringer stadig invaliderer
+alt.
+
+**2. Source-record-eksklusivitet håndhæves deklarativt, ikke kun med låse.**
+`narrative_record_publication` har unikhed på `narrative_id` og `record_ref`,
+men **ikke** på `source_record_id`. En binding, der ikke findes, kan ikke
+`FOR UPDATE`-låses, så to writere kan hver oprette en binding for samme record
+og begge committe. *Valgt:* partielt unikt indeks
+(`WHERE status IN ('draft','published')`) **plus** delt lås på
+`private.source_record`. *Afvist alternativ:* kun låsedisciplin — den beskytter
+ikke mod en fremtidig writer, der glemmer låsen, og det er præcis den slags
+regression, ingen opdager før den rammer produktion.
+
+**3. `phase` og `operation` holdes ortogonale.** Spec'en foreslog
+operationskoder `c3_apply|c3_reversal`. Valgt i stedet: `phase='c3'` +
+`operation='apply'|'reversal'` som separate felter. Begrundelse: fasen er et
+kontrolleret vokabular, senere faser udvider det med en migration, og
+sammensatte koder ville betyde, at hver ny fase fordobler antallet af
+operationsværdier. `payload_schema_version` tilføjet, så en senere fase ikke kan
+flytte C3-eventets betydning.
+
+**4. `haendelse`-kravet nedskaleret fra regenerering til »kræv sættet tomt«.**
+`red_upsert_narrativ` opdaterer kun `narrative`; `haendelse` er en
+tekstafhængig envejsprojektion uden regenereringstrigger, så en tekstændring
+kan efterlade forældede spans. Måling: `haendelse` har **0 rækker** i hele
+prod. Derfor bygges ingen regenerering — previewet måler ID-sættet og kræver
+det tomt. Kravet skal genbesøges, hvis hændelsesudtrækket køres (#130). Dette
+er anvendelsen af princippet om, at målingen afgør *hvor meget der skal bygges*
+— ikke om problemet er reelt.
+
+**Metodisk sidegevinst:** tre af rettelserne lå oprindeligt kun i planens
+filkort og noter uden et step, der udførte dem — samme fejltype som
+reviewfundet H6. En udførende agent følger tasken, ikke indledningen. Enhver
+rettelse skal derfor være et step med sin egen test, ikke en note.
+
 ## BESLUTTET: evidensbaseret genimport — retning efter afvigelsesvurderingen (2026-08-22)
 
 Fem uafhængige audits + læse-kun prod-måling + Codex-krydskontrol viste, at

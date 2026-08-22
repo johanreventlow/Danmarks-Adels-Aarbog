@@ -1,5 +1,59 @@
 # Changelog
 
+## Helhedsvurdering af genimporten + C3 apply-plan revideret (2026-08-22)
+
+Ingen prod-skrivning. Dagen gik med at måle, hvor programmet faktisk står, og
+at bringe C3's apply-plan i en tilstand, der kan udføres.
+
+**Afvigelsesvurdering mod den oprindelige plan.** Fem parallelle læse-kun
+kodeaudits + en prod-måling + en uafhængig Codex-analyse gav samme dom:
+fundamentet er bygget (og på DB-siden stærkere end planlagt), men programmets
+kerne er ikke nået. Fortolkningslaget har **0 rækker**, 2018-20 har **0**
+source records, `source_record_placement` og medlemskabstabellerne er **tomme**,
+og `evidence_extract.py` kalder bevidst ingen model. Det byggede er et
+provenance-lag for 1939 oven på juli-loaderens data — ikke spec'ens
+evidensbaserede genimport. Fuld opgørelse med dom pr. udestående i
+`docs/superpowers/reviews/2026-08-22-evidensbaseret-genimport-afvigelsesvurdering.md`.
+
+**12 issues oprettet: #147-#158.** Tre beslutninger truffet: fortolkningslaget
+skal fyldes (#147/#148), 2018-20 skal have fase A-ækvivalent (#149), og
+fase-pakke-modellen er vedtaget som den gældende prod-gate (#156).
+
+**To egne påstande falsificeret ved måling.** `narrative` har ingen
+unique-constraint på `(subjekt, source_id)` — én-pr-udgave bor i RPC'en og
+læserne, så #152 er en writer-/læser-ændring, ikke en skemarestrukturering. Og
+»#152 blokerer C3« var en påstand, ikke en udledning: C3's `TIL`-semantik
+kræver bindingstilstand `absent`, så hver sag etablerer ét record ↔ ét narrativ
+↔ én person og er fremadkompatibel. **Gaten blev ophævet, rækkefølgen byttet
+om til C3 → #152 → #153 → #149.** Rettelserne står som tilføjelser, ikke
+omskrivninger.
+
+**Merge-patologien bekræftet empirisk.** Person 1017's narrativ (369 tegn)
+rummer hele `record-e8bace88` (236) plus begyndelsen af `record-5fc1a041`
+(150), hvis hale ligger i person 1021 (57 tegn). Ét narrativ spænder to
+records, og ét record spænder to narrativer. Tre af de tolv
+»midt-i-sætning«-sager viste sig at være OCR-tegnfejl (`lven`, `l. Comtesse`),
+ikke grænsefejl.
+
+**C3's apply-spec godkendt med én ændring:** den varige databaseoverflade
+navngives generisk (`reimport_case_*` / `red_*_reimport_cases`) parametriseret
+på kilde og fase, så C3 bliver første bruger af den generelle kontrakt frem for
+otte nye udgavespecifikke objekter (spec-invariant 12, #153). Scriptfilnavne er
+bevidst uændret.
+
+**Apply-planen revideret mod 12 adversarial-fund (Codex sol, NO-GO).** Alle
+tiltrådt. To af dem — manglende `source_id`/`phase`/`state_sha256` i
+signaturerne og et filkort der modsagde genbrugsbeslutningen — var fejl i
+samme dags egen ændring. Blandt rettelserne: to adskilte artefaktforløb
+(rehearsal og prod kan ikke dele et databasebundet manifest), migrationstrin
+mod den restorede base, reversal som selvstændig batch, partielt unikt indeks
+på aktiv binding pr. source-record, live-guard mod `staged`/`levende`/`privat`,
+og reconciliation der erhverver den globale lock før receipt-opslag.
+`haendelse`-kravet blev nedskaleret til »kræv sættet tomt« på grundlag af
+prod-målingen (0 rækker). Task 1 er færdig (50 tests grønne, bygget i sideløbende
+session).
+
+
 ## C0's efterkørsel UDFØRT i prod — ni record-koblinger (2026-08-21)
 
 De ni personer, hvis 1939-narrativ stod med fejlbehæftet tekst fra den første
