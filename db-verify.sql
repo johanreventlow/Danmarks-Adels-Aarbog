@@ -77,6 +77,10 @@ DECLARE
   v_actor uuid := '19390000-0000-4000-8000-000000000002';
   a1 bigint := -1939502001; a2 bigint := -1939502002; ac bigint := -1939502003;
   b1 bigint := -1939502004; b2 bigint := -1939502005; bc bigint := -1939502006;
+  u1 bigint := -1939502007; uc bigint := -1939502008; v1 bigint := -1939502009;
+  w1 bigint := -1939502010; w2 bigint := -1939502011; wc bigint := -1939502012;
+  x1 bigint := -1939502013; x2 bigint := -1939502014;
+  v_rejection bigint; v_remove_change_set bigint; v_update_rejection bigint;
 BEGIN
   INSERT INTO auth.users(id,email)
   VALUES (v_actor,'c3-identity-verify@test.invalid')
@@ -87,7 +91,10 @@ BEGIN
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   INSERT INTO person(id,levende,koen) VALUES
     (a1,false,'mand'), (a2,false,'mand'), (ac,false,'mand'),
-    (b1,false,'kvinde'), (b2,false,'kvinde'), (bc,false,'kvinde')
+    (b1,false,'kvinde'), (b2,false,'kvinde'), (bc,false,'kvinde'),
+    (u1,false,'mand'), (uc,false,'mand'), (v1,false,'kvinde'),
+    (w1,false,'mand'), (w2,false,'kvinde'), (wc,false,'mand'),
+    (x1,false,'ukendt'), (x2,false,'ukendt')
   ON CONFLICT (id) DO NOTHING;
 
   PERFORM red_samme_som(a1,ac);
@@ -113,6 +120,37 @@ BEGIN
   BEGIN
     PERFORM red_samme_som(a2,b2);
     RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_COMPONENT_SAME_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
+  END;
+  v_update_rejection := red_ikke_samme_som(w1,w2);
+  PERFORM red_samme_som(w1,wc);
+  BEGIN
+    UPDATE relation SET subjekt_id=w1, objekt_id=wc WHERE id=v_update_rejection;
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_COMPONENT_UPDATE_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
+  END;
+
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  PERFORM red_samme_som(u1,uc);
+  v_rejection := red_ikke_samme_som(u1,v1);
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  PERFORM red_fjern_ikke_samme_som(v_rejection);
+  v_remove_change_set := current_setting('app.change_set_id',true)::bigint;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  PERFORM red_ikke_samme_som(x1,x2);
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  PERFORM red_samme_som(v1,uc);
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  BEGIN
+    PERFORM red_fortryd_change_set(v_remove_change_set,true);
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_UNDO_COMPONENT_REJECTION';
   EXCEPTION WHEN others THEN
     IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
   END;

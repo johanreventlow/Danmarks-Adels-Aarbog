@@ -8,7 +8,10 @@ DECLARE
   a1 bigint := -1939501001; a2 bigint := -1939501002; ac bigint := -1939501003;
   b1 bigint := -1939501004; b2 bigint := -1939501005; bc bigint := -1939501006;
   c1 bigint := -1939501007; c2 bigint := -1939501008;
-  v_rejection bigint;
+  u1 bigint := -1939501009; uc bigint := -1939501010; v1 bigint := -1939501011;
+  w1 bigint := -1939501012; w2 bigint := -1939501013; wc bigint := -1939501014;
+  x1 bigint := -1939501015; x2 bigint := -1939501016;
+  v_rejection bigint; v_remove_change_set bigint; v_update_rejection bigint;
 BEGIN
   INSERT INTO auth.users(id,email)
   VALUES (v_actor,'c3-identity-invariants@test.invalid')
@@ -24,7 +27,10 @@ BEGIN
   INSERT INTO public.person(id,levende,koen) VALUES
     (a1,false,'mand'), (a2,false,'mand'), (ac,false,'mand'),
     (b1,false,'kvinde'), (b2,false,'kvinde'), (bc,false,'kvinde'),
-    (c1,false,'ukendt'), (c2,false,'ukendt')
+    (c1,false,'ukendt'), (c2,false,'ukendt'),
+    (u1,false,'mand'), (uc,false,'mand'), (v1,false,'kvinde'),
+    (w1,false,'mand'), (w2,false,'kvinde'), (wc,false,'mand'),
+    (x1,false,'ukendt'), (x2,false,'ukendt')
   ON CONFLICT (id) DO NOTHING;
 
   -- A rejection between separate components succeeds and remains idempotent.
@@ -59,6 +65,41 @@ BEGIN
   BEGIN
     PERFORM public.red_samme_som(a2,b2);
     RAISE EXCEPTION 'EXPECTED_COMPONENT_SAME_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
+  END;
+
+  -- An existing rejection cannot be UPDATEd into one same-as component.
+  v_update_rejection := public.red_ikke_samme_som(w1,w2);
+  PERFORM public.red_samme_som(w1,wc);
+  BEGIN
+    UPDATE public.relation SET subjekt_id=w1, objekt_id=wc WHERE id=v_update_rejection;
+    RAISE EXCEPTION 'EXPECTED_TRIGGER_COMPONENT_UPDATE_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
+  END;
+
+  -- Normal undo restores the deleted rejection through _version_upsert_row and must fail closed.
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  PERFORM public.red_samme_som(u1,uc);
+  v_rejection := public.red_ikke_samme_som(u1,v1);
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  PERFORM public.red_fjern_ikke_samme_som(v_rejection);
+  v_remove_change_set := current_setting('app.change_set_id',true)::bigint;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  -- Reuse the deleted relation ID with another rejection, forcing undo onto UPDATE rather than INSERT.
+  PERFORM public.red_ikke_samme_som(x1,x2);
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  PERFORM public.red_samme_som(v1,uc);
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  BEGIN
+    PERFORM public.red_fortryd_change_set(v_remove_change_set,true);
+    RAISE EXCEPTION 'EXPECTED_UNDO_COMPONENT_REJECTION';
   EXCEPTION WHEN others THEN
     IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
   END;
