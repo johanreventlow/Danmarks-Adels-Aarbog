@@ -491,7 +491,7 @@ def test_publish_cleans_temp_after_link_failure(tmp_path, monkeypatch):
         mod.publish_output(output, "{}\n")
     assert str(error.value) == "C3_APPLY_OUTPUT_WRITE_FAILED"
     assert not output.exists()
-    assert not list(tmp_path.glob(".candidate.json.*.tmp"))
+    assert not list(tmp_path.glob(".c3-apply-*.tmp"))
 
 
 def test_publish_rolls_back_target_when_temp_unlink_fails(
@@ -511,7 +511,7 @@ def test_publish_rolls_back_target_when_temp_unlink_fails(
         mod.publish_output(output, "{}\n")
     assert str(error.value) == "C3_APPLY_OUTPUT_WRITE_FAILED"
     assert not output.exists()
-    assert not list(tmp_path.glob(".candidate.json.*.tmp"))
+    assert not list(tmp_path.glob(".c3-apply-*.tmp"))
 
 
 def test_publish_does_not_claim_success_when_directory_fsync_fails(
@@ -527,9 +527,125 @@ def test_publish_does_not_claim_success_when_directory_fsync_fails(
     monkeypatch.setattr(mod.os, "fsync", fail_directory_fsync)
     with pytest.raises(SystemExit) as error:
         mod.publish_output(output, "{}\n")
-    assert str(error.value) == "C3_APPLY_OUTPUT_WRITE_FAILED"
+    assert str(error.value) == "C3_APPLY_OUTPUT_RECOVERY_REQUIRED"
     assert not output.exists()
-    assert not list(tmp_path.glob(".candidate.json.*.tmp"))
+    assert not list(tmp_path.glob(".c3-apply-*.tmp"))
+
+
+def dirfd_inventory(directory):
+    descriptor = os.open(
+        str(directory), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        return {
+            name: (os.stat(name, dir_fd=descriptor, follow_symlinks=False).st_dev,
+                   os.stat(name, dir_fd=descriptor, follow_symlinks=False).st_ino)
+            for name in os.listdir(descriptor)
+        }
+    finally:
+        os.close(descriptor)
+
+
+def test_parent_path_replacement_after_open_cannot_redirect_publication(
+        tmp_path, monkeypatch):
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    moved_parent = tmp_path / "verified-parent"
+    output = parent / "candidate.json"
+    real_open = mod.os.open
+    swapped = {"value": False}
+
+    def swap_after_parent_open(path, flags, *args, **kwargs):
+        descriptor = real_open(path, flags, *args, **kwargs)
+        if path == str(parent) and kwargs.get("dir_fd") is None and not swapped["value"]:
+            swapped["value"] = True
+            parent.rename(moved_parent)
+            parent.mkdir()
+            (parent / "candidate.json").write_bytes(b"replacement-target")
+        return descriptor
+
+    monkeypatch.setattr(mod.os, "open", swap_after_parent_open)
+    mod.publish_output(output, "{}\n")
+
+    assert set(dirfd_inventory(parent)) == {"candidate.json"}
+    assert (parent / "candidate.json").read_bytes() == b"replacement-target"
+    moved = dirfd_inventory(moved_parent)
+    assert set(moved) == {"candidate.json"}
+    assert (moved_parent / "candidate.json").read_text(encoding="utf-8") == "{}\n"
+
+
+def test_randomized_temp_name_collision_never_touches_existing_entry(
+        tmp_path, monkeypatch):
+    collision_token = "a" * 32
+    unique_token = "b" * 32
+    collision = tmp_path / ".c3-apply-{}.tmp".format(collision_token)
+    collision.write_bytes(b"pre-existing")
+    names = iter((collision_token, unique_token))
+    monkeypatch.setattr(mod.secrets, "token_hex", lambda _size: next(names))
+
+    output = tmp_path / "candidate.json"
+    mod.publish_output(output, "{}\n")
+
+    assert collision.read_bytes() == b"pre-existing"
+    inventory = dirfd_inventory(tmp_path)
+    assert set(inventory) == {collision.name, "candidate.json"}
+    assert stat.S_IMODE(output.stat().st_mode) == 0o600
+
+
+def test_compound_temp_unlink_and_target_rollback_failure_requires_recovery(
+        tmp_path, monkeypatch):
+    output = tmp_path / "candidate.json"
+    real_unlink = mod.os.unlink
+
+    def fail_temp_and_target_unlink(path, *args, **kwargs):
+        if str(path).endswith(".tmp") or str(path) == "candidate.json":
+            raise OSError("synthetic permanent unlink failure")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(mod.os, "unlink", fail_temp_and_target_unlink)
+    with pytest.raises(SystemExit) as error:
+        mod.publish_output(output, "{}\n")
+    assert str(error.value) == "C3_APPLY_OUTPUT_RECOVERY_REQUIRED"
+    inventory = dirfd_inventory(tmp_path)
+    assert "candidate.json" in inventory
+    residues = [name for name in inventory if name.startswith(".c3-apply-")]
+    assert len(residues) == 1
+    assert inventory["candidate.json"] == inventory[residues[0]]
+
+
+def test_compound_link_and_temp_cleanup_failure_requires_recovery(
+        tmp_path, monkeypatch):
+    output = tmp_path / "candidate.json"
+    real_link = mod.os.link
+    real_unlink = mod.os.unlink
+
+    def fail_link(*args, **kwargs):
+        raise OSError("synthetic link failure")
+
+    def fail_temp_cleanup(path, *args, **kwargs):
+        if str(path).endswith(".tmp"):
+            raise OSError("synthetic permanent temp cleanup failure")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(mod.os, "link", fail_link)
+    monkeypatch.setattr(mod.os, "unlink", fail_temp_cleanup)
+    with pytest.raises(SystemExit) as error:
+        mod.publish_output(output, "{}\n")
+    assert str(error.value) == "C3_APPLY_OUTPUT_RECOVERY_REQUIRED"
+    inventory = dirfd_inventory(tmp_path)
+    assert "candidate.json" not in inventory
+    assert len([name for name in inventory if name.startswith(".c3-apply-")]) == 1
+
+
+def test_existing_target_is_never_removed_during_collision_cleanup(
+        tmp_path):
+    output = tmp_path / "candidate.json"
+    output.write_bytes(b"pre-existing-target")
+    before = dirfd_inventory(tmp_path)["candidate.json"]
+    with pytest.raises(SystemExit) as error:
+        mod.publish_output(output, "{}\n")
+    assert str(error.value) == "C3_APPLY_OUTPUT_EXISTS"
+    assert output.read_bytes() == b"pre-existing-target"
+    assert dirfd_inventory(tmp_path)["candidate.json"] == before
 
 
 def test_cli_argument_surface_is_exact(tmp_path):
