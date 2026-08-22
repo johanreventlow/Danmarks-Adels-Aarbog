@@ -35,6 +35,8 @@ anvende en af deres akser eller udlede nye redaktionelle beslutninger.
 | Reversal | Én dedikeret, sagsatomisk reversal med exact-after/CAS. |
 | Produktions-GO | Først efter disposable apply, reconnect, reversal og særskilt brugerautorisation. |
 | Navngivning | **Generisk** `reimport_case_*`-familie parametriseret på kilde og fase. C3 er dens første bruger, ikke en 1939-specifik batchfamilie. |
+| Artefaktforløb | **To** databasebundne forløb (rehearsal og produktion); kandidat-manifest og tekstgodkendelse er fælles og bindes til `text_bundle_sha256`. |
+| Reversal-identitet | Reversal er en **selvstændig batch** med egen authorization, nonce, counts og kvittering; original batch peger på den via `reversal_batch_id`. |
 
 ## Hvorfor de eksisterende writeveje ikke er tilstrækkelige
 
@@ -64,6 +66,27 @@ batchfamilie, som kan verificeres og reverseres uden at ændre de ældre
 writeres kontrakt.
 
 ## Artefaktkæde
+
+> **Ændring 2026-08-22 efter adversarial review (fund B1).** Kæden nedenfor
+> beskriver **ét** forløb, men finalmanifestet binder databasenavn og system
+> identifier, og den disposable rehearsal-base har nødvendigvis andre værdier
+> end produktionen. Et prod-bundet manifest ville derfor blive afvist under
+> rehearsal, og et restore-bundet kan ikke bruges efter produktions-GO. Der er
+> derfor **to databasebundne forløb**:
+>
+> ```text
+> Forløb 1 (rehearsal):  restore-preview → restore-manifest → disposable apply/reversal
+> Forløb 2 (produktion): frisk prod-preview → prod-manifest → produktions-GO
+> ```
+>
+> Kandidat-manifestet og **tekstgodkendelsen er fælles**, fordi de er
+> databaseuafhængige. Tekstgodkendelsen bindes derfor til `text_bundle_sha256`
+> — en kanonisk hash over (record-ID, normaliseringsprofilversion, normaliseret
+> tekst, flags) for alle fem `assign` — og ikke til hele manifestet, som
+> afsnittet »Normalisering og tekstpreview« ellers foreskriver. Begrundelsen er
+> ikke bekvemmelighed: to godkendelser af nøjagtig samme fem tekster ville gøre
+> den anden til en formalitet, mennesket klikker igennem. Manifestet binder
+> fortsat `text_bundle_sha256`, så enhver tekstændring stadig invaliderer alt.
 
 Apply-fasen er en envejs, hashbundet kæde:
 
@@ -212,7 +235,9 @@ omfatter:
 
 Én række binder:
 
-- operation `c3_apply` eller `c3_reversal`;
+- `source_id` og `phase` (`'c3'`) samt operation `apply` eller `reversal`
+  — ortogonalt, så fasen ikke gemmer sig i operationskoden (ændring efter
+  adversarial review, fund M3);
 - manifest-, preview-, approval-, decisions- og state-hashes;
 - database name og system identifier;
 - eksakt authorized payload-map og counts;
@@ -237,7 +262,9 @@ sager: fem identitetsafgørelser og seks recordafgørelser.
 
 Identitetseventet registrerer mindst relation-ID og udfaldet `created` eller
 `reused`. Recordeventet registrerer action, relevante IDs, before-kind,
-before-/after-hashes og payloadhash. `no_publication` får et varigt event med
+before-/after-hashes og payloadhash. Hvert event bærer desuden
+`payload_schema_version` (`'c3-apply-v1'`), så en senere fase ikke kan ændre
+C3-eventets betydning (fund M3). `no_publication` får et varigt event med
 bevist fravær af aktiv binding, selv om handlingen ikke muterer domænet.
 
 Alle public-schema-tabeller har RLS. C3-tabellerne placeres i `private`, får
