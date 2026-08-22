@@ -2,6 +2,7 @@
 
 **Dato:** 2026-08-22 · **Branch:** `feat/evidensbaseret-genimport` (493 commits siden merge-base `3117836`)
 **Grundlag:** spec `2026-08-02-evidensbaseret-genimport-og-multislaegt-design.md`, plan `2026-08-02-evidensbaseret-genimport-og-multislaegt.md`, fem uafhængige læse-kun kodeaudits (fase 1-2, 3, 4, 5-6, 7-9) og en læse-kun måling af prod 2026-08-22.
+**Beslutninger 2026-08-22 (brugeren):** fortolkningslaget SKAL fyldes; 2018-20 SKAL have fase A-ækvivalent; fase-pakke-gaten vedtaget. Issues #147-#158. Se `docs/decisions.md` øverst.
 **Formål:** Fastholde hvad der blev planlagt, hvad der blev bygget, og for hvert udestående afgøre: *savnes* (skal laves), *bedre end planlagt* (planen opdateres), eller *droppet scope* (skal besluttes eksplicit). Dokumentet er anti-creep-ankeret: intet nyt spor startes uden at stå her.
 
 ---
@@ -94,43 +95,43 @@ Fase-pakke-modellen skal enten vedtages som den gældende prod-gate (og skrives 
 
 Hvert punkt har en af tre domme. **Savnes** = planen havde ret, vi vil mangle det. **Beslut** = ægte valg, som skal træffes eksplicit (ikke glide). **Teknisk gæld** = skal lukkes uanset retning.
 
-### 7.1 Fortolkningslaget er tomt, og ingen vej fylder det — *Beslut (anbefaling: savnes)*
+### 7.1 Fortolkningslaget er tomt, og ingen vej fylder det — *BESLUTTET 2026-08-22: savnes → #147*
 Ingen extractor kalder en model; intet script indlæser `proposed`-fortolkninger; promotion v1 kan kun binde til allerede eksisterende assertions; vokabularerne (`life_event.birth` vs. `person.birth`) matcher ikke. Uden dette er "nye klassifikationer uden nyt grundudtræk" (spec §20) ikke opnået, og 2018-20 kan ikke genimporteres evidensbaseret. **Hvad vi vil savne:** indgiftedes oplysninger (§13), embeder/hofstilling/uddannelse/rejser som strukturerede fakta (§7.3), kildebundne ægteskaber, og muligheden for at en fremtidig forskningsidé kan besvares fra observationslaget. **Anbefaling:** Afgør om dette er programmets mål. Hvis ja: byg extractor-runneren (Task 13's manglende led) + `proposed`-ingest + vokabular-mapping, og kør 2018-20-piloten (Task 16 trin 3) som første reelle test. Hvis nej: skriv det i `decisions.md`, og arkivér Task 13-14-koden som "kontrakt uden runner".
 
-### 7.2 Observationer er helposter, ikke klausuler — *Savnes (betinget af 7.1)*
+### 7.2 Observationer er helposter, ikke klausuler — *Savnes → #148*
 Spec §5 og §15.1. Uden klausulniveau kan en fortolkning ikke pege på et præcist kildeudsnit, og klausulregnskabet ("hver klausul får én disposition") kan ikke føres. Hvis 7.1 besvares "ja", er dette forudsætningen; hvis "nej", er helpost-niveauet tilstrækkeligt til narrativ-provenance og punktet bortfalder.
 
-### 7.3 2018-20 er uberørt — *Beslut*
+### 7.3 2018-20 er uberørt — *BESLUTTET 2026-08-22: fase A-ækvivalent → #149*
 Halvdelen af scope. Planen ville bruge 2018-20 til at *fryse metoden* (pålideligt tekstlag, 591 kendte record keys). Nu er metoden frosset på 1939 i stedet, hvilket er det sværere tilfælde — ikke i sig selv forkert. Men 2018-20's 591 narrativer har ingen kildebinding, ingen source records og ingen rendition. **Anbefaling:** Mindst fase A-ækvivalent for 2018-20 (records + ankre + bindinger) bør gennemføres, så begge udgaver har samme provenance-niveau; ellers er "kildeversioner" i UI asymmetriske. Fuld udtrækning følger 7.1.
 
-### 7.4 Identitet, slægtled og medlemskab for de ~1.800 eksisterende personer ligger i legacy-kolonner — *Savnes*
+### 7.4 Identitet, slægtled og medlemskab for de ~1.800 eksisterende personer ligger i legacy-kolonner — *Savnes → #150*
 Persona-, placement- og membership-tabellerne er skeletter. Task 17/20 trin 3-4 (migrér `slaegtled_*`/`kuld` til placement med positiv header-observation; ledger pr. legacy-række) er ikke udført, og dispositionerne `mapped/retained_legacy/archived_by_editor/unresolved` er ikke modelleret. Konsekvens: multi-slægt-modellen er en mulighed, ikke en tilstand; slægtsnavn afledes stadig af `lineage.slaegtsnavn`; `red_person_grid` bruger `max(slaegtled_lokal)`. **Anbefaling:** Planlæg som egen fase efter 7.1/7.3-beslutningen — men ledgeren for legacy-rækker kan bygges nu uden extraction.
 
-### 7.5 To identitetsveje — *Beslut*
+### 7.5 To identitetsveje — *Beslut → #151*
 Webkøen (Task 11) og `source_persona.py` (Task 10) er bygget og ubrugte; al ægte identitet gik via lokale token-/HTML-ark i `work/` + batch-writer der skriver `accepted` direkte (spec §6.2 siger ingest må kun skrive `proposed`). Den lokale vej er *strengere* (byte-låst, fail-closed) men audit-sporet i DB er kun en hash + batch-udførerens navn, og menneskets afgørelse ligger i gitignorerede filer. **Anbefaling:** Vælg én: (a) lad den lokale vej skrive `proposed`, som webkøen bekræfter (giver DB-audit med redaktør som aktør), eller (b) afvikl webkøen som PoC og dokumentér token-fil-vejen som den gældende. Ikke begge.
 
-### 7.6 Én narrativ pr. person pr. udgave — *Savnes*
+### 7.6 Én narrativ pr. person pr. udgave — *Savnes → #152 (blokerer C3-apply)*
 `red_upsert_narrativ` er nøglet på `(subjekt, source_id)`, og `narrative_record_publication.narrative_id` er UNIQUE. Spec §11's "tre opslag i samme bog = tre tekster" er strukturelt umuligt. 1017/1021-sagen og de 12 afskårne narrativer (929/930 og 1013/1014 byte-identiske) er symptomer. C3 arbejder i denne begrænsning i stedet for at løfte den. **Anbefaling:** Afgør før C3-apply om narrativ skal nøgles på `source_record` (spec) frem for `source_id`. Ellers bygges C3 på en model, der skal skiftes.
 
-### 7.7 Udgavespecifikke tabeller og RPC'er — *Teknisk gæld*
+### 7.7 Udgavespecifikke tabeller og RPC'er — *Teknisk gæld → #153*
 `private.reimport_1939_{authorization,write_batch,write_event,name_completion_result}` og `red_*_1939_v50_*` bryder invariant 12. Omfang (Codex' optælling): 27 1939-specifikke tabel-/funktionsdefinitioner i `schema.sql` og 106 Python/R-filer med `1939_v50` i navnet. Næste bog kan ikke genbruge writeren uden kopi. **Anbefaling:** Omdøb/generalisér til `reimport_batch` med `source_id` som parameter, før 2018-20 rører dem. Kan være en mekanisk refactor.
 
-### 7.8 Global `ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS` — *Teknisk gæld*
+### 7.8 Global `ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS` — *Teknisk gæld → #154*
 `db-rls.sql:14-15`. Planen (Task 4 trin 4) advarede udtrykkeligt. Enhver fremtidig `public.red_*` deployet af samme ejer uden eksplicit `GRANT EXECUTE TO authenticated` bliver tavst ukaldbar fra appen. **Anbefaling:** Enten tilføj en db-verify-assert, der fanger ugrantede public-funktioner, eller rul tilbage til schema-lokal revoke som planlagt.
 
-### 7.9 DB-hærdningshuller — *Teknisk gæld*
+### 7.9 DB-hærdningshuller — *Teknisk gæld → #155*
 (a) TRUNCATE omgår append-only (ingen `BEFORE TRUNCATE`-trigger). (b) `db-verify.sql` — hvor dblink-samtidigheds- og default-privilege-beviserne bor — kører ikke i CI; kun `tests/sql/test-evidence-promotion.sql`. (c) `db-migrations.sql` køres aldrig i CI; "migreret DB"-vejen er manuel. (d) Split/merge-forbuddet mod tavs genankring lever kun i Python + dokumentation, ikke i DB. (e) Task 2's svære fixture er tom. (f) `interpretation-schema.json` kender ikke `unresolved`/`superseded`.
 
 ### 7.10 Heraldik (spor H) og mobil (spor M) — *Droppet scope, lovligt*
 Udskudt som planen tillader. Men `entity_description` er en versioneret tabel uden skrive-RPC, og `CoatOfArmsAssociation` har ingen producent. **Anbefaling:** Lad dem ligge; notér i `decisions.md` at spor H/M er parkeret, ikke glemt.
 
-### 7.11 Gate-model og to uauditerede prod-skrivninger — *Beslut*
+### 7.11 Gate-model og to uauditerede prod-skrivninger — *BESLUTTET 2026-08-22: fase-pakke-gaten vedtaget → #156*
 Se §5. **Anbefaling:** Vedtag fase-pakke-modellen skriftligt i `decisions.md` med dens kendte svaghed (ingen gammel↔ny sammenligning), og tilføj én efterfølgende kontrol: en samlet "er prod lig med summen af manifesterne"-afstemning (Task 21 trin 3 i reduceret form).
 
-### 7.12 Allerede kendte v50-udeståender (fra overdragelsen 08-21) — *Igangværende*
+### 7.12 Allerede kendte v50-udeståender (fra overdragelsen 08-21) — *Igangværende → #158*
 Narrativ-bindinger (`narrative_record_publication`) er kun delvist fortrydbare og optræder ikke i det almindelige fortryd-panel (jf. C0f-GO-pakken §fortrydelse; C3-designet forsøger at lukke det). C3 (7 records + 1017/1021; invarianter bygget, apply ikke); 16 `[NY]`-records; 7 staged (933, 935, 940, 963, 967, 1014, 1135); C1 udskudt; C2-køen ikke startet; 644 narrativ-løse ægtefæller; to parkerede kodefejl i C0f-kæden (`flags_sha256`, dubleret sekvens); strukturerede fakta usynlige i læserfladen (`fetchPersonDetail` henter aldrig `fact`); hændelsesudtræk aldrig kørt (#130); 16 tomme unioner; `get_advisors` efter `red_slet_person`; ingen draft-PR.
 
-### 7.13 Dokumentationsdrift — *Teknisk gæld*
+### 7.13 Dokumentationsdrift — *Teknisk gæld → #157*
 Checkbokse i mindst seks planer (Task 8, Task 14, 08-05 placement, fase B, same-som-paritet, C3-invarianter) modsvarer ikke commits. `docs/database-current-state.md` siger stadig "source 3 = 539 direkte poster". Changelog 08-18 ("v50-strømmen lukket i prod") overdriver. Planerne kan ikke bruges som statuskilde; dette dokument + changelog er det indtil rettet.
 
 ## 8. Svar på spørgsmålet "er det vi fik bedre?"

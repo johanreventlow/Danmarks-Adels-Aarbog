@@ -2,6 +2,44 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: evidensbaseret genimport — retning efter afvigelsesvurderingen (2026-08-22)
+
+Fem uafhængige audits + læse-kun prod-måling + Codex-krydskontrol viste, at
+programmet pivoterede ~2026-08-06 uden skriftlig beslutning: det byggede er et
+provenance-lag for 1939 (592 records, 559 bindinger) oven på juli-loaderens
+data — ikke spec'ens evidensbaserede genimport (fortolkningslag 0 rækker,
+2018-20 0 records, placement/membership 0 rækker). Fuld opgørelse:
+`docs/superpowers/reviews/2026-08-22-evidensbaseret-genimport-afvigelsesvurdering.md`.
+
+**Tre beslutninger (brugeren, 2026-08-22):**
+
+1. **Fortolkningslaget SKAL fyldes.** Provenance-laget er ikke det færdige
+   produkt. Extractor-runner + `proposed`-ingest + vokabular-mapping til
+   promotion bygges (#147), med klausulgranularitet som forudsætning (#148).
+   Spec §20 er fortsat målet.
+2. **2018-20 SKAL have fase A-ækvivalent** (rendition, records, ankre,
+   bindinger) uafhængigt af udtræk (#149) — kildeversionerne i UI skal være
+   symmetriske. Forudsætter at writeren generaliseres først (#153).
+3. **Fase-pakke-modellen er den gældende prod-gate** i stedet for planens
+   parallelle DB + samlet cutover: backup (0600+SHA) → restore-rehearsal m.
+   byte-identiske baselines → hash-låst manifest → brugergodkendelse → ét
+   apply. Kendt svaghed: ingen uafhængig gammel↔ny-sammenligning; kompenseres
+   af en »prod = sum af manifester«-afstemning (#156).
+
+**Anti-creep-regler, der følger af beslutningerne:**
+
+- Ingen ny v50-fase (C3-apply, `[NY]`, C1, C2) før narrativ-nøglen (#152) er
+  afgjort — C3 må ikke bygges på en model, der skal skiftes.
+- Ingen ny plan uden henvisning til et §7-punkt i afvigelsesvurderingen eller
+  et af issues #147-#158.
+- Ingen prod-skrivning uden committet GO-pakke.
+- Spor H (heraldik) og M (mobil redaktør) er parkeret, ikke glemt; de får
+  ingen issues, før kernen (#147-#150) står.
+
+Øvrige issues fra vurderingen: #151 (én identitetsvej), #154 (global REVOKE
+EXECUTE), #155 (DB-hærdning), #157 (dokumentationsdrift), #158 (1939 v50
+lukning).
+
 ## ÅBENT: hvor langt er bio-udtrækket nået? (2026-08-20)
 
 Målt mod prod, så spørgsmålet »har vi udtrukket de ekstra bio-oplysninger?«
