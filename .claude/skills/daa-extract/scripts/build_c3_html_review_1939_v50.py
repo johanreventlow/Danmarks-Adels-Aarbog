@@ -17,6 +17,40 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 SCRIPT_DIR = Path(__file__).resolve().parent
 BUILD_PATH = SCRIPT_DIR / "build_c3_review_1939_v50.py"
 CONVERTER_PATH = SCRIPT_DIR / "convert_c3_decisions_1939_v50.py"
+APPLY_MANIFEST_PATH = SCRIPT_DIR / "finalize_c3_apply_manifest_1939_v50.py"
+APPLY_SHEET_SCHEMA = "1939-v50-c3-apply-approvals-v1"
+APPLY_TOKENS = ("UAFKLARET", "GODKENDT")
+_APPLY_MANIFEST_TOP_KEYS = {
+    "schema_version", "input_hashes", "database", "counts", "cases",
+    "canonical_content_sha256"}
+_APPLY_INPUT_HASH_KEYS = {
+    "candidate_raw_sha256", "preview_raw_sha256",
+    "candidate_canonical_content_sha256", "before_state_canonical_sha256"}
+_APPLY_DATABASE_KEYS = {"database_name", "system_identifier"}
+_APPLY_COUNTS_EXACT = {
+    "cases": 5, "identity_events": 5, "assign_events": 5,
+    "no_publication_events": 1, "events": 11}
+_APPLY_CASE_KEYS = {
+    "element_id", "case_id", "after_state", "before_state", "events"}
+_APPLY_CASE_AFTER_KEYS = {"action", "person_ids"}
+_APPLY_CASE_BEFORE_KEYS = {"component_overlap", "existing_rejection"}
+_APPLY_EVENT_KEYS = {
+    "element_id", "rid", "record_key", "action", "after_state",
+    "before_state"}
+_APPLY_ASSIGN_AFTER_KEYS = {
+    "target_person_id", "raw_sha256", "normalized_text", "normalized_sha256",
+    "normalization_version", "normalization_flags", "expected_narrative"}
+_APPLY_EXPECTED_NARRATIVE_KEYS = {
+    "privat", "side", "record_label", "citation_label"}
+_APPLY_ASSIGN_BEFORE_KEYS = {"source_record", "binding", "target_narrative"}
+_APPLY_NOPUB_BEFORE_KEYS = {"source_record", "binding"}
+_APPLY_SOURCE_RECORD_KEYS = {"match_count", "verbatim_sha256", "side"}
+_APPLY_BINDING_KEYS = {"status", "binding_person_id"}
+_APPLY_TARGET_NARRATIVE_KEYS = {
+    "person_id", "narrative_id", "privat", "old_sha256"}
+_APPLY_BINDING_STATUSES = {
+    "absent", "draft_same_record", "draft_other_record", "published",
+    "withdrawn"}
 HASH_KEYS = {
     "c0_candidates_sha256",
     "c0_decisions_sha256",
@@ -46,6 +80,8 @@ def _load_module(name: str, path: Path):
 build = _load_module("build_c3_review_1939_v50_for_html", BUILD_PATH)
 converter = _load_module(
     "convert_c3_decisions_1939_v50_for_html", CONVERTER_PATH)
+apply_manifest = _load_module(
+    "finalize_c3_apply_manifest_1939_v50_for_html", APPLY_MANIFEST_PATH)
 
 
 @dataclass(frozen=True)
@@ -938,6 +974,7 @@ button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 .download { background: #f2c14e; border: 0; font-weight: 700; }
 .digest { flex-basis: 100%; overflow-wrap: anywhere; }
+.digest-static { overflow-wrap: anywhere; margin: 0 1rem 1rem; }
 .case-card { min-width: 0; margin-top: 1rem; padding: 1rem; background: white; border-radius: .5rem;
   overflow-wrap: anywhere;
   box-shadow: 0 .1rem .4rem #0002; }
@@ -1017,20 +1054,586 @@ def render_html(payload: Mapping[str, Any], review_bytes: bytes) -> bytes:
     return document.encode("utf-8")
 
 
+# ---------------------------------------------------------------------------
+# Apply-tilstand: godkendelsesark for de fem `assign`-sager i det endelige
+# C3 apply-manifest (Task 3's output). Genbruger dette scripts eksisterende
+# base64url-embedding, CSP-sikre klientkontrakt og atomiske publish_output —
+# tilføjer ikke en ny renderer (Fund H6).
+# ---------------------------------------------------------------------------
+
+def _apply_exact_keys(value: Any, expected: set) -> None:
+    if not isinstance(value, Mapping) or set(value.keys()) != expected:
+        fail("C3_HTML_APPLY_MANIFEST_INVALID")
+
+
+def _apply_hex64(value: Any) -> bool:
+    return isinstance(value, str) and SHA256_RE.fullmatch(value) is not None
+
+
+def _apply_nonempty_str(value: Any) -> bool:
+    return isinstance(value, str) and value != ""
+
+
+def _apply_bool(value: Any) -> bool:
+    return type(value) is bool
+
+
+def _apply_positive_int(value: Any) -> bool:
+    return type(value) is int and value > 0
+
+
+def _apply_optional_positive_int(value: Any) -> bool:
+    return value is None or _apply_positive_int(value)
+
+
+def _apply_optional_hex64(value: Any) -> bool:
+    return value is None or _apply_hex64(value)
+
+
+def _validate_apply_source_record(value: Any) -> None:
+    _apply_exact_keys(value, _APPLY_SOURCE_RECORD_KEYS)
+    if (not (isinstance(value["match_count"], int)
+              and type(value["match_count"]) is not bool)
+            or not _apply_hex64(value["verbatim_sha256"])
+            or not _apply_nonempty_str(value["side"])):
+        fail("C3_HTML_APPLY_MANIFEST_INVALID")
+
+
+def _validate_apply_binding(value: Any) -> None:
+    _apply_exact_keys(value, _APPLY_BINDING_KEYS)
+    if (not isinstance(value["status"], str)
+            or value["status"] not in _APPLY_BINDING_STATUSES
+            or not _apply_optional_positive_int(value["binding_person_id"])):
+        fail("C3_HTML_APPLY_MANIFEST_INVALID")
+
+
+def _validate_apply_event(event: Any) -> None:
+    _apply_exact_keys(event, _APPLY_EVENT_KEYS)
+    if (not _apply_nonempty_str(event["element_id"])
+            or not _apply_nonempty_str(event["rid"])
+            or not _apply_nonempty_str(event["record_key"])
+            or event["action"] not in {"assign", "no_publication"}):
+        fail("C3_HTML_APPLY_MANIFEST_INVALID")
+    before_state = event["before_state"]
+    if event["action"] == "assign":
+        _apply_exact_keys(before_state, _APPLY_ASSIGN_BEFORE_KEYS)
+        _validate_apply_source_record(before_state["source_record"])
+        _validate_apply_binding(before_state["binding"])
+        target = before_state["target_narrative"]
+        _apply_exact_keys(target, _APPLY_TARGET_NARRATIVE_KEYS)
+        if (not (isinstance(target["person_id"], int)
+                  and type(target["person_id"]) is not bool)
+                or not _apply_optional_positive_int(target["narrative_id"])
+                or not _apply_bool(target["privat"])
+                or not _apply_optional_hex64(target["old_sha256"])):
+            fail("C3_HTML_APPLY_MANIFEST_INVALID")
+        after_state = event["after_state"]
+        _apply_exact_keys(after_state, _APPLY_ASSIGN_AFTER_KEYS)
+        if (not _apply_positive_int(after_state["target_person_id"])
+                or not _apply_hex64(after_state["raw_sha256"])
+                or not _apply_nonempty_str(after_state["normalized_text"])
+                or not _apply_hex64(after_state["normalized_sha256"])
+                or not _apply_nonempty_str(
+                    after_state["normalization_version"])
+                or not isinstance(
+                    after_state["normalization_flags"], list)
+                or not all(isinstance(flag, str)
+                           for flag in after_state["normalization_flags"])):
+            fail("C3_HTML_APPLY_MANIFEST_INVALID")
+        expected_narrative = after_state["expected_narrative"]
+        _apply_exact_keys(
+            expected_narrative, _APPLY_EXPECTED_NARRATIVE_KEYS)
+        if (expected_narrative["privat"] is not False
+                or not _apply_nonempty_str(expected_narrative["side"])
+                or not _apply_nonempty_str(
+                    expected_narrative["record_label"])
+                or not _apply_nonempty_str(
+                    expected_narrative["citation_label"])):
+            fail("C3_HTML_APPLY_MANIFEST_INVALID")
+    else:
+        _apply_exact_keys(before_state, _APPLY_NOPUB_BEFORE_KEYS)
+        _validate_apply_source_record(before_state["source_record"])
+        _validate_apply_binding(before_state["binding"])
+        if event["after_state"] != {}:
+            fail("C3_HTML_APPLY_MANIFEST_INVALID")
+
+
+def _validate_apply_case(case: Any) -> None:
+    _apply_exact_keys(case, _APPLY_CASE_KEYS)
+    if not _apply_nonempty_str(case["case_id"]):
+        fail("C3_HTML_APPLY_MANIFEST_INVALID")
+    after_state = case["after_state"]
+    _apply_exact_keys(after_state, _APPLY_CASE_AFTER_KEYS)
+    person_ids = after_state["person_ids"]
+    if (after_state["action"] != "different"
+            or not isinstance(person_ids, list) or len(person_ids) != 2
+            or not all(_apply_positive_int(pid) for pid in person_ids)
+            or person_ids[0] >= person_ids[1]):
+        fail("C3_HTML_APPLY_MANIFEST_INVALID")
+    before_state = case["before_state"]
+    _apply_exact_keys(before_state, _APPLY_CASE_BEFORE_KEYS)
+    if (not _apply_bool(before_state["component_overlap"])
+            or not _apply_bool(before_state["existing_rejection"])):
+        fail("C3_HTML_APPLY_MANIFEST_INVALID")
+    events = case["events"]
+    if not isinstance(events, list) or not events:
+        fail("C3_HTML_APPLY_MANIFEST_INVALID")
+    for event in events:
+        _validate_apply_event(event)
+
+
+def _validate_apply_manifest(doc: Any) -> Dict[str, Any]:
+    """Strukturel, uafhængig gyldighedskontrol af det endelige apply-manifest.
+
+    Kontrollerer nøglesæt, typer og optalte tælle-invarianter, og
+    genberegner manifestets egen `canonical_content_sha256` (samme
+    kanoniske hash-konvention som Task 1/3). Genudleder IKKE Task 1's
+    semantiske label-regler (fx `citation_label`-formatet) — det er
+    Task 3's ansvar, allerede håndhævet der.
+    """
+    _apply_exact_keys(doc, _APPLY_MANIFEST_TOP_KEYS)
+    if doc["schema_version"] != apply_manifest.SCHEMA_VERSION:
+        fail("C3_HTML_APPLY_MANIFEST_INVALID")
+    _apply_exact_keys(doc["input_hashes"], _APPLY_INPUT_HASH_KEYS)
+    if any(not _apply_hex64(value) for value in doc["input_hashes"].values()):
+        fail("C3_HTML_APPLY_MANIFEST_INVALID")
+    _apply_exact_keys(doc["database"], _APPLY_DATABASE_KEYS)
+    if any(not _apply_nonempty_str(value)
+           for value in doc["database"].values()):
+        fail("C3_HTML_APPLY_MANIFEST_INVALID")
+    if doc["counts"] != _APPLY_COUNTS_EXACT:
+        fail("C3_HTML_APPLY_COUNT_INVALID")
+    if not _apply_hex64(doc["canonical_content_sha256"]):
+        fail("C3_HTML_APPLY_MANIFEST_INVALID")
+    cases = doc["cases"]
+    if not isinstance(cases, list) or len(cases) != 5:
+        fail("C3_HTML_APPLY_MANIFEST_INVALID")
+    for case in cases:
+        _validate_apply_case(case)
+
+    stated_hash = doc["canonical_content_sha256"]
+    unhashed = {key: value for key, value in doc.items()
+                if key != "canonical_content_sha256"}
+    if (apply_manifest._sha(apply_manifest._canonical_bytes(unhashed))
+            != stated_hash):
+        fail("C3_HTML_APPLY_MANIFEST_HASH_MISMATCH")
+    return doc
+
+
+def _apply_assign_events(manifest_doc: Mapping[str, Any]
+                         ) -> List[Dict[str, Any]]:
+    """Udtræk de fem `assign`-hændelser i stabil, deterministisk rækkefølge.
+
+    Sorteringen (efter `element_id`) er den ENE autoritative rækkefølge —
+    kort, godkendelsesark og konverter deler den, fordi de alle sorterer
+    de samme fem hændelser efter det samme felt.
+    """
+    events: List[Dict[str, Any]] = []
+    for case in manifest_doc["cases"]:
+        for event in case["events"]:
+            if event["action"] == "assign":
+                events.append({
+                    "element_id": event["element_id"],
+                    "case_id": case["case_id"],
+                    "rid": event["rid"],
+                    "record_key": event["record_key"],
+                    "before": event["before_state"],
+                    "after": event["after_state"],
+                })
+    if (len(events) != 5
+            or len({event["element_id"] for event in events}) != 5):
+        fail("C3_HTML_APPLY_COUNT_INVALID")
+    return sorted(events, key=lambda event: event["element_id"])
+
+
+def apply_text_bundle_sha256(assign_events: Sequence[Mapping[str, Any]]
+                             ) -> str:
+    """Kanonisk hash over kun kandidat-afledte felter for de fem sager.
+
+    Bindes udelukkende til (element_id, rid, normaliseringsprofil-version,
+    normaliseret tekst, flags) — ALDRIG til preview-/DB-afledte felter
+    (fx `before_state`, `database`, `input_hashes`). Det er præcis det,
+    der gør ÉN menneskelig godkendelse gyldig i både rehearsal og prod
+    (brief-rettelse "fund B1"): teksten er den samme uanset hvilken
+    database, der senere leverer before-state.
+    """
+    ordered = sorted(assign_events, key=lambda event: event["element_id"])
+    payload = [
+        {
+            "element_id": event["element_id"],
+            "rid": event["rid"],
+            "normalization_version": event["after"]["normalization_version"],
+            "normalized_text": event["after"]["normalized_text"],
+            "normalization_flags": list(event["after"]["normalization_flags"]),
+        }
+        for event in ordered
+    ]
+    return apply_manifest._sha(apply_manifest._canonical_bytes(payload))
+
+
+def apply_approval_sheet(text_bundle_sha256: str,
+                         assign_events: Sequence[Mapping[str, Any]]
+                         ) -> Tuple[bytes, List[Dict[str, Any]]]:
+    """Den ENE autoritative byte-sekvens for godkendelsesarket.
+
+    Kaldes af BÅDE denne renderer og den separate godkendelseskonverter
+    (`convert_c3_apply_approvals_1939_v50.py`) — ingen af dem implementerer
+    rækkefølgen selvstændigt (den parkerede C0-efterkørselsfejl).
+    Returnerer (arkets rå bytes, de fem redigerbare tokenintervaller) i ét
+    kald, så positionerne aldrig kan afvige fra teksten, de blev fundet i.
+    """
+    if not _apply_hex64(text_bundle_sha256):
+        fail("C3_HTML_APPLY_HASH_INVALID")
+    ordered = sorted(assign_events, key=lambda event: event["element_id"])
+    element_ids = [event["element_id"] for event in ordered]
+    if len(element_ids) != 5 or len(set(element_ids)) != 5:
+        fail("C3_HTML_APPLY_COUNT_INVALID")
+    header = "# schema={}\n# text_bundle_sha256={}\n".format(
+        APPLY_SHEET_SCHEMA, text_bundle_sha256)
+    header_bytes = header.encode("utf-8")
+    body = bytearray()
+    slots: List[Dict[str, Any]] = []
+    offset = len(header_bytes)
+    default_token = APPLY_TOKENS[0]
+    token_bytes = default_token.encode("utf-8")
+    for element_id in element_ids:
+        line = "[{}] approve:{}\n".format(default_token, element_id)
+        line_bytes = line.encode("utf-8")
+        start = offset + len(b"[")
+        end = start + len(token_bytes)
+        slots.append({
+            "element_id": element_id,
+            "start": start,
+            "end": end,
+            "default_token": default_token,
+        })
+        body.extend(line_bytes)
+        offset += len(line_bytes)
+    return header_bytes + bytes(body), slots
+
+
+def _apply_card(event: Mapping[str, Any]) -> Dict[str, Any]:
+    before = event["before"]
+    after = event["after"]
+    return {
+        "element_id": event["element_id"],
+        "case_id": event["case_id"],
+        "rid": event["rid"],
+        "record_key": event["record_key"],
+        "before": {
+            "source_record": dict(before["source_record"]),
+            "binding": dict(before["binding"]),
+            "target_narrative": dict(before["target_narrative"]),
+        },
+        "after": {
+            "target_person_id": after["target_person_id"],
+            "raw_sha256": after["raw_sha256"],
+            "normalized_text": after["normalized_text"],
+            "normalized_sha256": after["normalized_sha256"],
+            "normalization_version": after["normalization_version"],
+            "normalization_flags": list(after["normalization_flags"]),
+            "expected_narrative": dict(after["expected_narrative"]),
+        },
+    }
+
+
+def build_apply_payload(manifest_raw: bytes
+                        ) -> Tuple[Dict[str, Any], bytes]:
+    """Validér rå manifestbytes og byg den browser-view-model + arkbytes."""
+    if not isinstance(manifest_raw, bytes):
+        fail("C3_HTML_APPLY_MANIFEST_INVALID")
+    manifest_doc = apply_manifest._decode_document(
+        manifest_raw, "C3_HTML_APPLY_MANIFEST_INVALID")
+    _validate_apply_manifest(manifest_doc)
+    assign_events = _apply_assign_events(manifest_doc)
+    text_bundle_sha256 = apply_text_bundle_sha256(assign_events)
+    sheet_bytes, slots = apply_approval_sheet(
+        text_bundle_sha256, assign_events)
+    cards = [_apply_card(event) for event in assign_events]
+    if [card["element_id"] for card in cards] != [
+            slot["element_id"] for slot in slots]:
+        fail("C3_HTML_APPLY_INTERNAL_ERROR")
+    payload = {
+        "schema_version": "1939-v50-c3-apply-html-payload-v1",
+        "manifest_hashes": {
+            "manifest_raw_sha256": hashlib.sha256(manifest_raw).hexdigest(),
+            "manifest_canonical_content_sha256":
+                manifest_doc["canonical_content_sha256"],
+        },
+        "text_bundle_sha256": text_bundle_sha256,
+        "counts": {"decisions": 5},
+        "vocabulary": {"approval_actions": list(APPLY_TOKENS)},
+        "cards": cards,
+        "slots": slots,
+    }
+    return payload, sheet_bytes
+
+
+CLIENT_APPLY_SCRIPT = r'''"use strict";
+
+function decodeBase64Url(value) {
+  const padded = value + "=".repeat((4 - value.length % 4) % 4);
+  const binary = atob(padded.replace(/-/g, "+").replace(/_/g, "/"));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function encodeBase64Url(bytes) {
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 1) {
+    binary += String.fromCharCode(bytes[index]);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+function replaceTokenBytes(sourceBytes, replacements) {
+  const encoder = new TextEncoder();
+  const ordered = replacements.slice().sort((left, right) => right.start - left.start);
+  let result = sourceBytes.slice();
+  for (const replacement of ordered) {
+    if (!Number.isInteger(replacement.start) || !Number.isInteger(replacement.end) ||
+        replacement.start < 0 || replacement.end <= replacement.start ||
+        replacement.end > sourceBytes.length || typeof replacement.token !== "string") {
+      throw new Error("C3_HTML_APPLY_EXPORT_INVALID");
+    }
+    const tokenBytes = encoder.encode(replacement.token);
+    const next = new Uint8Array(
+      replacement.start + tokenBytes.length + result.length - replacement.end);
+    next.set(result.slice(0, replacement.start), 0);
+    next.set(tokenBytes, replacement.start);
+    next.set(result.slice(replacement.end), replacement.start + tokenBytes.length);
+    result = next;
+  }
+  return result;
+}
+
+function makeElement(tagName, className, text) {
+  const node = document.createElement(tagName);
+  if (className) {
+    node.className = className;
+  }
+  if (text !== undefined) {
+    node.textContent = text;
+  }
+  return node;
+}
+
+function makeSelect(values, labels, accessibleName) {
+  const select = makeElement("select", "choice");
+  select.setAttribute("aria-label", accessibleName);
+  values.forEach((value, index) => {
+    const option = makeElement("option", "", labels ? labels[index] : value);
+    option.value = String(value);
+    select.append(option);
+  });
+  return select;
+}
+
+function readableValue(value) {
+  return value === null || value === undefined || value === ""
+    ? "Ikke registreret"
+    : String(value);
+}
+
+function appendLabelledValue(container, label, value, className) {
+  const row = makeElement("p", className || "labelled-value");
+  row.append(makeElement("strong", "", `${label}: `),
+             makeElement("span", "", readableValue(value)));
+  container.append(row);
+}
+
+function bindingLabel(status) {
+  const labels = {
+    absent: "ingen binding",
+    draft_same_record: "kladdebinding til samme record",
+    draft_other_record: "kladdebinding til andet record",
+    published: "publiceret binding",
+    withdrawn: "tilbagetrukket binding"
+  };
+  return labels[status] || "bindingens status er ikke registreret";
+}
+
+function renderApplyCard(card) {
+  const article = makeElement("section", "case-card");
+  article.append(makeElement("h2", "", `Sag ${card.case_id} · ${card.rid}`));
+  const comparison = makeElement("section", "comparison");
+  comparison.append(makeElement("h3", "comparison-heading", "Kildekontekst"));
+  appendLabelledValue(comparison, "Recordnøgle", card.record_key);
+  appendLabelledValue(comparison, "Side", card.after.expected_narrative.side);
+  appendLabelledValue(comparison, "Citation", card.after.expected_narrative.citation_label);
+  appendLabelledValue(comparison, "Kildehash (raw_sha256)", card.after.raw_sha256);
+
+  const before = makeElement("article", "source-record");
+  before.append(makeElement("h4", "", "Eksisterende narrativ (før)"));
+  appendLabelledValue(before, "Person-ID", card.before.target_narrative.person_id);
+  appendLabelledValue(before, "Narrativ-ID", card.before.target_narrative.narrative_id);
+  appendLabelledValue(before, "Eksisterende hash (old_sha256)", card.before.target_narrative.old_sha256);
+  appendLabelledValue(before, "Bindingsstatus", bindingLabel(card.before.binding.status));
+  comparison.append(before);
+
+  const after = makeElement("article", "candidate-card");
+  after.append(makeElement("h4", "", "Ny narrativtekst (efter)"));
+  appendLabelledValue(after, "Tildeles person-ID", card.after.target_person_id);
+  after.append(makeElement("p", "candidate-text", readableValue(card.after.normalized_text)));
+  appendLabelledValue(after, "Normaliseret hash (normalized_sha256)", card.after.normalized_sha256);
+  appendLabelledValue(after, "Normaliseringsversion", card.after.normalization_version);
+  appendLabelledValue(
+    after, "Flags",
+    card.after.normalization_flags.length
+      ? card.after.normalization_flags.join(", ")
+      : null);
+  comparison.append(after);
+  article.append(comparison);
+  return article;
+}
+
+function boot() {
+  const payloadBytes = decodeBase64Url(document.getElementById("c3-apply-payload").textContent.trim());
+  const sheetBytes = decodeBase64Url(document.getElementById("c3-apply-sheet").textContent.trim());
+  const payload = JSON.parse(new TextDecoder("utf-8", {fatal: true}).decode(payloadBytes));
+  const root = document.getElementById("c3-apply-app");
+  const states = new Map();
+
+  const download = makeElement("button", "download", "Download c3-apply-godkendelser.txt");
+  download.type = "button";
+  const counts = makeElement("span", "counts");
+  const bundleHash = makeElement("p", "digest-static", `text_bundle_sha256: ${payload.text_bundle_sha256}`);
+  const digest = makeElement("output", "digest");
+
+  const refreshStatus = () => {
+    if (states.size !== payload.counts.decisions) {
+      return;
+    }
+    const values = Array.from(states.values());
+    const approved = values.filter(value => value === "GODKENDT").length;
+    counts.textContent = `${approved} godkendt · ${values.length - approved} uafklaret`;
+  };
+
+  payload.cards.forEach(card => {
+    const article = renderApplyCard(card);
+    const control = makeElement("section", "decision-control");
+    control.append(makeElement("h3", "", "Godkend indsættelse af denne tekst"));
+    const slot = payload.slots.find(row => row.element_id === card.element_id);
+    const select = makeSelect(
+      payload.vocabulary.approval_actions, ["Uafklaret", "Godkendt"],
+      `Beslutning ${card.element_id}: godkendelse`);
+    select.value = slot.default_token;
+    const exact = makeElement("code", "exact-token", select.value);
+    const update = () => {
+      states.set(card.element_id, select.value);
+      exact.textContent = select.value;
+      refreshStatus();
+    };
+    select.addEventListener("change", update);
+    control.append(select, makeElement("span", "token-label", "Eksakt token: "), exact);
+    article.append(control);
+    root.append(article);
+    states.set(card.element_id, select.value);
+  });
+
+  download.addEventListener("click", async () => {
+    try {
+      const replacements = payload.slots.map(slot => {
+        const token = states.get(slot.element_id);
+        if (typeof token !== "string") {
+          throw new Error("C3_HTML_APPLY_EXPORT_INVALID");
+        }
+        return {start: slot.start, end: slot.end, token};
+      });
+      const exported = replaceTokenBytes(sheetBytes, replacements);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", exported);
+      const hash = Array.from(new Uint8Array(hashBuffer))
+        .map(value => value.toString(16).padStart(2, "0")).join("");
+      const blob = new Blob([exported], {type: "text/plain;charset=utf-8"});
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = makeElement("a", "");
+      anchor.href = objectUrl;
+      anchor.download = "c3-apply-godkendelser.txt";
+      anchor.click();
+      URL.revokeObjectURL(objectUrl);
+      digest.textContent = `SHA-256: ${hash}`;
+    } catch (_error) {
+      digest.textContent = "Download afvist: et valg er ugyldigt.";
+    }
+  });
+
+  const toolbar = makeElement("header", "toolbar");
+  toolbar.append(counts, download, digest);
+  root.append(toolbar, bundleHash);
+  refreshStatus();
+}
+
+if (typeof document !== "undefined") {
+  boot();
+}
+'''
+
+
+def render_apply_html(payload: Mapping[str, Any], sheet_bytes: bytes) -> bytes:
+    """Returnér ét komplet HTML-dokument for apply-godkendelsestilstanden."""
+    if not isinstance(payload, Mapping) or not isinstance(sheet_bytes, bytes):
+        fail("C3_HTML_APPLY_PAYLOAD_INVALID")
+    try:
+        payload_raw = json.dumps(
+            payload, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"), allow_nan=False).encode("utf-8")
+    except (TypeError, ValueError):
+        fail("C3_HTML_APPLY_PAYLOAD_INVALID")
+    document = """<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DAA 1939 C3 apply — lokal godkendelse</title>
+<style>{style}</style>
+</head>
+<body>
+<main id="c3-apply-app"><h1>DAA 1939 C3 apply — lokal godkendelse</h1></main>
+<div id="c3-apply-payload" hidden>{payload}</div>
+<div id="c3-apply-sheet" hidden>{sheet}</div>
+<script>{script}</script>
+</body>
+</html>
+""".format(
+        style=STYLE,
+        payload=_base64url(payload_raw),
+        sheet=_base64url(sheet_bytes),
+        script=CLIENT_APPLY_SCRIPT)
+    return document.encode("utf-8")
+
+
 def _arguments(argv: Sequence[str]) -> Dict[str, str]:
-    allowed = {"--selection", "--state", "--review", "--output"}
+    args = list(argv)
+    mode = "review"
+    if "--mode" in args:
+        index = args.index("--mode")
+        if index + 1 >= len(args):
+            fail("C3_HTML_ARGUMENTS_INVALID")
+        mode = args[index + 1]
+        del args[index:index + 2]
+    if mode == "review":
+        allowed = {"--selection", "--state", "--review", "--output"}
+    elif mode == "apply":
+        allowed = {"--manifest", "--output"}
+    else:
+        fail("C3_HTML_ARGUMENTS_INVALID")
+        raise AssertionError("unreachable")
     values: Dict[str, str] = {}
     position = 0
-    while position < len(argv):
-        option = argv[position]
+    while position < len(args):
+        option = args[position]
         if (option not in allowed or option in values
-                or position + 1 >= len(argv)
-                or argv[position + 1].startswith("--")):
+                or position + 1 >= len(args)
+                or args[position + 1].startswith("--")):
             fail("C3_HTML_ARGUMENTS_INVALID")
-        values[option] = argv[position + 1]
+        values[option] = args[position + 1]
         position += 2
     if set(values) != allowed:
         fail("C3_HTML_ARGUMENTS_INVALID")
+    values["--mode"] = mode
     return values
 
 
@@ -1079,8 +1682,7 @@ def publish_output(output: Path, rendered: bytes) -> None:
                 pass
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
-    values = _arguments(list(sys.argv[1:] if argv is None else argv))
+def _main_review(values: Dict[str, str]) -> int:
     output = Path(values["--output"])
     if os.path.lexists(str(output)):
         fail("C3_HTML_OUTPUT_EXISTS")
@@ -1109,6 +1711,31 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             output.name, input_hashes["review_sha256"],
             hashlib.sha256(rendered).hexdigest()))
     return 0
+
+
+def _main_apply(values: Dict[str, str]) -> int:
+    output = Path(values["--output"])
+    if os.path.lexists(str(output)):
+        fail("C3_HTML_OUTPUT_EXISTS")
+    manifest_raw = _read_input(
+        values["--manifest"], "C3_HTML_APPLY_MANIFEST_INVALID")
+    payload, sheet_bytes = build_apply_payload(manifest_raw)
+    rendered = render_apply_html(payload, sheet_bytes)
+    publish_output(output, rendered)
+    print(
+        "beslutninger=5 output={} manifest_sha256={} "
+        "text_bundle_sha256={} html_sha256={}".format(
+            output.name, payload["manifest_hashes"]["manifest_raw_sha256"],
+            payload["text_bundle_sha256"],
+            hashlib.sha256(rendered).hexdigest()))
+    return 0
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    values = _arguments(list(sys.argv[1:] if argv is None else argv))
+    if values["--mode"] == "apply":
+        return _main_apply(values)
+    return _main_review(values)
 
 
 def _cli_status() -> int:

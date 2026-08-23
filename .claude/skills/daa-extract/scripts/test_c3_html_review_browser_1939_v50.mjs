@@ -490,7 +490,236 @@ async function main() {
   }
 }
 
-main().catch(error => {
-  process.stderr.write(`C3_HTML_BROWSER_TEST_FAILED ${error.stack}\n`);
-  process.exitCode = 1;
-});
+async function mainApply() {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "c3-html-apply-browser-"));
+  let browser;
+  try {
+    const manifestPath = path.join(tempDir, "manifest.json");
+    const htmlPath = path.join(tempDir, "apply.html");
+    runPython(["-c",
+      "import importlib.util, pathlib\n" +
+      "spec = importlib.util.spec_from_file_location('fx', " +
+      JSON.stringify(FIXTURE_SCRIPT) + ")\n" +
+      "m = importlib.util.module_from_spec(spec)\n" +
+      "spec.loader.exec_module(m)\n" +
+      "m.write_apply_fixture(pathlib.Path(" + JSON.stringify(tempDir) + "))\n"
+    ]);
+    runPython([
+      GENERATOR_SCRIPT,
+      "--mode", "apply",
+      "--manifest", manifestPath,
+      "--output", htmlPath
+    ]);
+
+    const manifestDocument = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    const expectedElementIds = manifestDocument.cases
+      .flatMap(caseRow => caseRow.events)
+      .filter(event => event.action === "assign")
+      .map(event => event.element_id)
+      .sort();
+
+    const html = fs.readFileSync(htmlPath, "utf8");
+    const match = html.match(
+      /<div id="c3-apply-payload" hidden>([A-Za-z0-9_-]+=*)<\/div>/);
+    assert.ok(match, "synthetic apply HTML payload missing");
+    const payload = JSON.parse(decodeBase64Url(match[1]).toString("utf8"));
+    assert.equal(payload.cards.length, 5);
+    assert.equal(payload.slots.length, 5);
+    assert.deepEqual(
+      payload.cards.map(card => card.element_id),
+      payload.slots.map(slot => slot.element_id));
+    assert.deepEqual(
+      payload.slots.map(slot => slot.element_id), expectedElementIds);
+
+    const sheetMatch = html.match(
+      /<div id="c3-apply-sheet" hidden>([A-Za-z0-9_-]+=*)<\/div>/);
+    assert.ok(sheetMatch, "synthetic apply HTML sheet missing");
+    const baseline = decodeBase64Url(sheetMatch[1]);
+
+    browser = await chromium.launch({headless: true});
+    const context = await browser.newContext({acceptDownloads: true});
+    await context.addInitScript(() => {
+      const accesses = [];
+      Object.defineProperty(globalThis, "__C3_APPLY_TEST_API_ACCESSES__", {
+        value: accesses,
+        configurable: false
+      });
+      const auditProperty = (object, name) => {
+        let owner = object;
+        while (owner && !Object.prototype.hasOwnProperty.call(owner, name)) {
+          owner = Object.getPrototypeOf(owner);
+        }
+        const descriptor = owner
+          ? Object.getOwnPropertyDescriptor(owner, name)
+          : undefined;
+        if (!descriptor || !descriptor.configurable || !descriptor.get) {
+          return;
+        }
+        const replacement = {
+          ...descriptor,
+          get() {
+            accesses.push(`${name}:read`);
+            return descriptor.get.call(this);
+          }
+        };
+        if (descriptor.set) {
+          replacement.set = function(value) {
+            accesses.push(`${name}:write`);
+            return descriptor.set.call(this, value);
+          };
+        }
+        Object.defineProperty(owner, name, replacement);
+      };
+      auditProperty(globalThis, "localStorage");
+      auditProperty(globalThis, "sessionStorage");
+      auditProperty(globalThis, "indexedDB");
+      auditProperty(Document.prototype, "cookie");
+    });
+    const page = await context.newPage();
+    const requestProtocols = [];
+    await page.route("**/*", async route => {
+      const protocol = new URL(route.request().url()).protocol;
+      requestProtocols.push(protocol);
+      if (protocol !== "file:" && protocol !== "data:") {
+        await route.abort("blockedbyclient");
+        return;
+      }
+      await route.continue();
+    });
+    await page.goto(pathToFileURL(htmlPath).href, {waitUntil: "load"});
+
+    const cards = page.locator("section.case-card");
+    const controls = page.locator("section.decision-control");
+    assert.equal(await cards.count(), 5);
+    assert.equal(await controls.count(), 5);
+
+    // Kortenes rækkefølge i DOM'et SKAL følge arkets linjerækkefølge
+    // (payload.slots, allerede bekræftet lig payload.cards ovenfor) — en
+    // menneskelig godkender, der ser "kort 3", skal se den samme sag som
+    // "linje 3" i det downloadede ark.
+    const cardHeadings = await cards.locator("h2").allTextContents();
+    assert.deepEqual(
+      cardHeadings,
+      payload.cards.map(card => `Sag ${card.case_id} · ${card.rid}`));
+
+    const selects = page.locator("select.choice");
+    assert.equal(await selects.count(), 5);
+    const selectNames = await selects.evaluateAll(nodes =>
+      nodes.map(node => node.getAttribute("aria-label") || ""));
+    assert.equal(new Set(selectNames).size, selectNames.length);
+    assert.equal(
+      selectNames.every(name => payload.cards.some(
+        card => name.includes(card.element_id))),
+      true);
+
+    const attackText = await cards.first().locator("p.candidate-text").textContent();
+    assert.equal(
+      attackText.includes("</script><img src=x onerror=globalThis.__C3_APPLY_PWNED__=1>"),
+      true);
+    assert.equal(await page.evaluate(() => globalThis.__C3_APPLY_PWNED__), undefined);
+    const visibleText = await page.locator("main#c3-apply-app").textContent();
+    for (const rawSurface of [
+      "{", "}", '"cards"', '"slots"', "normalized_text", "before_state"
+    ]) {
+      assert.equal(visibleText.includes(rawSurface), false);
+    }
+
+    const downloadButton = page.getByRole("button", {
+      name: "Download c3-apply-godkendelser.txt"
+    });
+    const unchangedPath = path.join(tempDir, "unchanged.txt");
+    const unchangedPending = page.waitForEvent("download");
+    await downloadButton.click();
+    const unchangedDownload = await unchangedPending;
+    assert.equal(
+      unchangedDownload.suggestedFilename(), "c3-apply-godkendelser.txt");
+    await unchangedDownload.saveAs(unchangedPath);
+    await page.locator("output.digest").waitFor({state: "visible"});
+    const unchanged = fs.readFileSync(unchangedPath);
+    assert.deepEqual(unchanged, baseline);
+    const unchangedHash = crypto.createHash("sha256").update(unchanged).digest("hex");
+    assert.equal(
+      await page.locator("output.digest").textContent(),
+      `SHA-256: ${unchangedHash}`);
+
+    for (let index = 0; index < await selects.count(); index += 1) {
+      await selects.nth(index).selectOption("GODKENDT");
+    }
+    assert.equal(
+      await page.locator("span.counts").textContent(),
+      "5 godkendt · 0 uafklaret");
+    const tokens = await page.locator("code.exact-token").allTextContents();
+    assert.deepEqual(tokens, new Array(5).fill("GODKENDT"));
+
+    const approvedPath = path.join(tempDir, "approved.txt");
+    const approvedPending = page.waitForEvent("download");
+    await downloadButton.click();
+    const approvedDownload = await approvedPending;
+    await approvedDownload.saveAs(approvedPath);
+    await page.locator("output.digest").waitFor({state: "visible"});
+    const approved = fs.readFileSync(approvedPath);
+    assert.notDeepEqual(approved, baseline);
+    assert.notEqual(approved.length, baseline.length);
+    const approvedText = approved.toString("utf8");
+    const approvedLines = approvedText.split("\n").filter(line => line.length);
+    assert.equal(
+      approvedLines.filter(line => line.startsWith("[GODKENDT]")).length, 5);
+    for (const slot of payload.slots) {
+      assert.equal(
+        approvedText.includes(`[GODKENDT] approve:${slot.element_id}`),
+        true);
+    }
+    const approvedHash = crypto.createHash("sha256").update(approved).digest("hex");
+    assert.equal(
+      await page.locator("output.digest").textContent(),
+      `SHA-256: ${approvedHash}`);
+
+    await page.setViewportSize({width: 320, height: 900});
+    const mobileMetrics = await page.evaluate(() => {
+      const clientWidth = document.documentElement.clientWidth;
+      return {
+        clientWidth,
+        scrollWidth: document.documentElement.scrollWidth
+      };
+    });
+    assert.equal(mobileMetrics.clientWidth, 320);
+    assert.equal(mobileMetrics.scrollWidth <= mobileMetrics.clientWidth, true);
+    const firstControlBox = await controls.first().boundingBox();
+    assert.ok(firstControlBox);
+    assert.equal(firstControlBox.x >= 0, true);
+    assert.equal(firstControlBox.x + firstControlBox.width <= 320, true);
+
+    assert.deepEqual(
+      await page.evaluate(() => globalThis.__C3_APPLY_TEST_API_ACCESSES__), []);
+    assert.deepEqual(await context.cookies(), []);
+    // Observed exactly one request for this page: the file: navigation
+    // itself (no favicon probe, unlike the review-mode page above). The
+    // >= 1 floor keeps the assertion meaningful (a network egress would
+    // still be caught by the file:/data: check below) without hardcoding
+    // a count that depends on browser favicon-fetch behaviour.
+    assert.equal(requestProtocols.length >= 1, true, JSON.stringify(requestProtocols));
+    assert.equal(
+      requestProtocols.every(protocol => protocol === "file:" || protocol === "data:"),
+      true);
+    assert.deepEqual(
+      fs.readdirSync(tempDir).sort(),
+      ["apply.html", "approved.txt", "manifest.json", "unchanged.txt"]);
+
+    await context.close();
+    await browser.close();
+    browser = undefined;
+    process.stdout.write("C3_HTML_APPLY_BROWSER_OK beslutninger=5 downloads=2\n");
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+    fs.rmSync(tempDir, {recursive: true, force: true});
+  }
+}
+
+main()
+  .then(() => mainApply())
+  .catch(error => {
+    process.stderr.write(`C3_HTML_BROWSER_TEST_FAILED ${error.stack}\n`);
+    process.exitCode = 1;
+  });

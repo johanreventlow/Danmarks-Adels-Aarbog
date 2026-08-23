@@ -691,3 +691,393 @@ def test_cli_rejects_nonfinite_input_without_artifacts(tmp_path, value):
     assert result.stderr == "C3_HTML_REVIEW_INVALID\n"
     assert not output.exists()
     assert not list(tmp_path.glob(".c3-review.html.*.tmp"))
+
+
+# ---------------------------------------------------------------------------
+# Apply-tilstand: godkendelsesark for de fem `assign`-sager i det endelige
+# C3 apply-manifest (Task 4). Bruger udelukkende syntetiske fixtures — ingen
+# database, ingen ægte prosa.
+# ---------------------------------------------------------------------------
+
+def apply_error(expected, call):
+    with pytest.raises(SystemExit) as caught:
+        call()
+    token = str(caught.value)
+    assert token == expected
+    assert token.startswith("C3_HTML_APPLY_")
+    assert "Syntetisk" not in token
+    assert fixtures.APPLY_ATTACK_SENTINEL not in token
+
+
+def apply_manifest_raw(mutate=None):
+    document = fixtures.apply_manifest_document()
+    if mutate is not None:
+        mutate(document)
+        document.pop("canonical_content_sha256", None)
+        document["canonical_content_sha256"] = fixtures.finalize_builder._sha(
+            fixtures.finalize_builder._canonical_bytes(document))
+    return fixtures.apply_manifest_bytes(document), document
+
+
+def test_apply_fixture_has_five_assign_and_one_no_publication_event():
+    raw, document = apply_manifest_raw()
+    assert document["counts"] == {
+        "cases": 5, "identity_events": 5, "assign_events": 5,
+        "no_publication_events": 1, "events": 11,
+    }
+    events = [event for case in document["cases"] for event in case["events"]]
+    assign = [event for event in events if event["action"] == "assign"]
+    no_pub = [event for event in events if event["action"] == "no_publication"]
+    assert len(assign) == 5
+    assert len(no_pub) == 1
+    assert fixtures.APPLY_ATTACK_SENTINEL in raw.decode("utf-8")
+
+
+def test_apply_assign_events_are_sorted_by_element_id():
+    raw, document = apply_manifest_raw()
+    events = mod._apply_assign_events(document)
+    assert len(events) == 5
+    assert [event["element_id"] for event in events] == sorted(
+        event["element_id"] for event in events)
+
+
+def test_apply_text_bundle_sha256_ignores_preview_derived_drift():
+    raw, document = apply_manifest_raw()
+    events = mod._apply_assign_events(document)
+    baseline = mod.apply_text_bundle_sha256(events)
+
+    def drift_preview_only(doc):
+        doc["database"]["database_name"] = "other_synthetic_db"
+        doc["input_hashes"]["preview_raw_sha256"] = "f" * 64
+        for case in doc["cases"]:
+            for event in case["events"]:
+                event["before_state"]["source_record"][
+                    "verbatim_sha256"] = "9" * 64
+                if event["action"] == "assign":
+                    event["before_state"]["target_narrative"][
+                        "old_sha256"] = None
+                    event["before_state"]["target_narrative"][
+                        "narrative_id"] = 999999
+                    event["before_state"]["binding"]["status"] = (
+                        "draft_same_record")
+                    event["before_state"]["binding"]["binding_person_id"] = (
+                        event["before_state"]["target_narrative"][
+                            "person_id"])
+
+    _, drifted_document = apply_manifest_raw(mutate=drift_preview_only)
+    drifted_events = mod._apply_assign_events(drifted_document)
+    assert mod.apply_text_bundle_sha256(drifted_events) == baseline
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda doc: doc["cases"][0]["events"][0].__setitem__(
+        "after_state",
+        dict(doc["cases"][0]["events"][0]["after_state"],
+             normalized_text=(
+                 doc["cases"][0]["events"][0]["after_state"][
+                     "normalized_text"] + " ÆNDRET"))),
+    lambda doc: doc["cases"][0]["events"][0]["after_state"].__setitem__(
+        "normalization_flags", list(reversed(
+            doc["cases"][0]["events"][0]["after_state"][
+                "normalization_flags"]))),
+])
+def test_apply_text_bundle_sha256_changes_with_candidate_derived_drift(
+        mutate):
+    raw, document = apply_manifest_raw()
+    baseline = mod.apply_text_bundle_sha256(mod._apply_assign_events(document))
+    _, drifted_document = apply_manifest_raw(mutate=mutate)
+    drifted = mod.apply_text_bundle_sha256(
+        mod._apply_assign_events(drifted_document))
+    assert drifted != baseline
+
+
+def test_apply_approval_sheet_has_exact_locked_byte_sequence():
+    raw, document = apply_manifest_raw()
+    events = mod._apply_assign_events(document)
+    text_bundle_sha256 = mod.apply_text_bundle_sha256(events)
+    sheet_bytes, slots = mod.apply_approval_sheet(text_bundle_sha256, events)
+    decoded = sheet_bytes.decode("utf-8")
+    lines = decoded.splitlines(keepends=True)
+    assert lines[0] == "# schema=1939-v50-c3-apply-approvals-v1\n"
+    assert lines[1] == "# text_bundle_sha256={}\n".format(text_bundle_sha256)
+    assert len(lines) == 7
+    assert len(slots) == 5
+    assert [slot["element_id"] for slot in slots] == sorted(
+        event["element_id"] for event in events)
+    for index, slot in enumerate(slots):
+        assert lines[2 + index] == "[UAFKLARET] approve:{}\n".format(
+            slot["element_id"])
+        assert sheet_bytes[slot["start"]:slot["end"]].decode(
+            "utf-8") == "UAFKLARET"
+        assert slot["default_token"] == "UAFKLARET"
+    assert all(slots[index]["end"] <= slots[index + 1]["start"]
+               for index in range(4))
+
+
+def test_apply_approval_sheet_rejects_wrong_event_count():
+    raw, document = apply_manifest_raw()
+    events = mod._apply_assign_events(document)
+    apply_error(
+        "C3_HTML_APPLY_COUNT_INVALID",
+        lambda: mod.apply_approval_sheet("a" * 64, events[:-1]))
+
+
+def test_apply_approval_sheet_rejects_invalid_bundle_hash():
+    raw, document = apply_manifest_raw()
+    events = mod._apply_assign_events(document)
+    apply_error(
+        "C3_HTML_APPLY_HASH_INVALID",
+        lambda: mod.apply_approval_sheet("not-hex", events))
+
+
+def build_apply_artifact(mutate=None):
+    raw, _document = apply_manifest_raw(mutate=mutate)
+    payload, sheet_bytes = mod.build_apply_payload(raw)
+    html = mod.render_apply_html(payload, sheet_bytes)
+    return raw, payload, sheet_bytes, html
+
+
+def test_apply_payload_has_five_cards_matching_slot_order():
+    _, payload, _, _ = build_apply_artifact()
+    assert payload["counts"] == {"decisions": 5}
+    assert len(payload["cards"]) == 5
+    assert len(payload["slots"]) == 5
+    assert [card["element_id"] for card in payload["cards"]] == [
+        slot["element_id"] for slot in payload["slots"]]
+    assert payload["vocabulary"] == {
+        "approval_actions": ["UAFKLARET", "GODKENDT"]}
+    assert re.fullmatch(r"[0-9a-f]{64}", payload["text_bundle_sha256"])
+
+
+def test_apply_payload_card_carries_readable_before_after_fields():
+    _, payload, _, _ = build_apply_artifact()
+    first = payload["cards"][0]
+    assert set(first) == {
+        "element_id", "case_id", "rid", "record_key", "before", "after"}
+    assert set(first["before"]) == {
+        "source_record", "binding", "target_narrative"}
+    assert set(first["after"]) == {
+        "target_person_id", "raw_sha256", "normalized_text",
+        "normalized_sha256", "normalization_version",
+        "normalization_flags", "expected_narrative"}
+    assert fixtures.APPLY_ATTACK_SENTINEL in first["after"]["normalized_text"]
+
+
+@pytest.mark.parametrize("mutate,expected", [
+    (lambda doc: doc.pop("database"), "C3_HTML_APPLY_MANIFEST_INVALID"),
+    (lambda doc: doc["counts"].__setitem__("assign_events", 4),
+     "C3_HTML_APPLY_COUNT_INVALID"),
+    (lambda doc: doc["cases"][0]["events"][0]["before_state"][
+        "source_record"].__setitem__("side", 7),
+     "C3_HTML_APPLY_MANIFEST_INVALID"),
+    (lambda doc: doc["cases"][0]["events"][0]["after_state"].__setitem__(
+        "normalization_flags", "not-a-list"),
+     "C3_HTML_APPLY_MANIFEST_INVALID"),
+])
+def test_build_apply_payload_rejects_structural_drift(mutate, expected):
+    document = fixtures.apply_manifest_document()
+    mutate(document)
+    raw = fixtures.apply_manifest_bytes(document)
+    apply_error(expected, lambda: mod.build_apply_payload(raw))
+
+
+def test_build_apply_payload_rejects_self_hash_tamper():
+    document = fixtures.apply_manifest_document()
+    document["canonical_content_sha256"] = "0" * 64
+    raw = fixtures.apply_manifest_bytes(document)
+    apply_error(
+        "C3_HTML_APPLY_MANIFEST_HASH_MISMATCH",
+        lambda: mod.build_apply_payload(raw))
+
+
+def test_build_apply_payload_rejects_non_bytes_and_invalid_json():
+    apply_error(
+        "C3_HTML_APPLY_MANIFEST_INVALID",
+        lambda: mod.build_apply_payload("not-bytes"))
+    apply_error(
+        "C3_HTML_APPLY_MANIFEST_INVALID",
+        lambda: mod.build_apply_payload(b"not json"))
+
+
+def test_apply_html_keeps_all_untrusted_data_behind_base64_boundary():
+    _, payload, sheet_bytes, html = build_apply_artifact()
+    decoded = html.decode("utf-8")
+    blocks = dict(re.findall(
+        r'<div id="(c3-apply-(?:payload|sheet))" hidden>'
+        r'([A-Za-z0-9_=-]+)</div>',
+        decoded))
+    assert set(blocks) == {"c3-apply-payload", "c3-apply-sheet"}
+    assert json.loads(base64.urlsafe_b64decode(
+        blocks["c3-apply-payload"]).decode("utf-8")) == payload
+    assert base64.urlsafe_b64decode(blocks["c3-apply-sheet"]) == sheet_bytes
+    assert fixtures.APPLY_ATTACK_SENTINEL not in decoded
+    assert sheet_bytes.decode("utf-8") not in decoded
+
+
+def test_apply_generated_client_is_valid_javascript_and_has_no_forbidden_path(
+        tmp_path):
+    _, _, _, html = build_apply_artifact()
+    script, script_path = extract_client_script(html, tmp_path)
+    checked = subprocess.run(
+        ["node", "--check", str(script_path)], check=True,
+        capture_output=True, text=True)
+    assert checked.stdout == ""
+    assert checked.stderr == ""
+    forbidden = [
+        r"innerHTML", r"fetch\s*\(", r"XMLHttpRequest", r"WebSocket",
+        r"localStorage", r"sessionStorage", r"indexedDB",
+        r"document\.cookie", r"supabase", r"\beval\s*\(",
+        r"new\s+Function", r"\.setAttribute\(\s*['\"]on",
+        r"JSON\.stringify",
+    ]
+    assert not any(re.search(pattern, script, re.IGNORECASE)
+                   for pattern in forbidden)
+    document = html.decode("utf-8")
+    assert not re.search(r"<[^>]+\son[a-z]+\s*=", document, re.IGNORECASE)
+    assert not re.search(r"<(?:script|link|img)[^>]+\s(?:src|href)\s*=",
+                         document, re.IGNORECASE)
+
+
+def test_apply_client_unchanged_export_is_byte_identical(tmp_path):
+    _, payload, sheet_bytes, html = build_apply_artifact()
+    _, script_path = extract_client_script(html, tmp_path)
+    slots_json = json.dumps([
+        dict(slot, token=slot["default_token"])
+        for slot in payload["slots"]], ensure_ascii=True)
+    result = run_client_function(
+        script_path,
+        "const source = decodeBase64Url({});\n"
+        "const result = replaceTokenBytes(source, {});\n"
+        "process.stdout.write(encodeBase64Url(result));\n".format(
+            json.dumps(base64.urlsafe_b64encode(sheet_bytes).decode("ascii")),
+            slots_json))
+    assert base64.urlsafe_b64decode(result.stdout) == sheet_bytes
+
+
+def test_apply_client_length_changing_export_replaces_bytes_exactly(
+        tmp_path):
+    _, payload, sheet_bytes, html = build_apply_artifact()
+    _, script_path = extract_client_script(html, tmp_path)
+    tokens = ["GODKENDT" if index == 0 else "UAFKLARET"
+              for index in range(len(payload["slots"]))]
+    slots_json = json.dumps([
+        dict(slot, token=tokens[index])
+        for index, slot in enumerate(payload["slots"])], ensure_ascii=True)
+    result = run_client_function(
+        script_path,
+        "const source = decodeBase64Url({});\n"
+        "const result = replaceTokenBytes(source, {});\n"
+        "process.stdout.write(encodeBase64Url(result));\n".format(
+            json.dumps(base64.urlsafe_b64encode(sheet_bytes).decode("ascii")),
+            slots_json))
+    exported = base64.urlsafe_b64decode(result.stdout)
+    assert exported != sheet_bytes
+    decoded = exported.decode("utf-8")
+    lines = decoded.splitlines(keepends=True)
+    assert lines[2] == "[GODKENDT] approve:{}\n".format(
+        payload["slots"][0]["element_id"])
+    for index in range(1, len(payload["slots"])):
+        assert lines[2 + index] == "[UAFKLARET] approve:{}\n".format(
+            payload["slots"][index]["element_id"])
+
+
+def apply_fixture_chain(tmp_path):
+    paths = fixtures.write_apply_fixture(tmp_path)
+    manifest_raw = paths["manifest"].read_bytes()
+    return paths, manifest_raw
+
+
+def test_apply_cli_publishes_one_self_contained_html_and_safe_metadata(
+        tmp_path, capsys):
+    fixture_dir = tmp_path / "fixture"
+    paths, manifest_raw = apply_fixture_chain(fixture_dir)
+    output = tmp_path / "c3-apply.html"
+    assert mod.main([
+        "--mode", "apply",
+        "--manifest", str(paths["manifest"]),
+        "--output", str(output),
+    ]) == 0
+    assert output.read_bytes().startswith(b"<!doctype html>\n")
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert "beslutninger=5" in captured.out
+    assert "c3-apply.html" in captured.out
+    assert "text_bundle_sha256=" in captured.out
+    assert "html_sha256=" in captured.out
+    assert "Syntetisk" not in captured.out
+    assert fixtures.APPLY_ATTACK_SENTINEL not in captured.out
+    assert not list(tmp_path.glob(".c3-apply.html.*.tmp"))
+
+
+def test_apply_cli_refuses_existing_output_without_changing_it(tmp_path):
+    paths, _ = apply_fixture_chain(tmp_path / "fixture")
+    output = tmp_path / "c3-apply.html"
+    output.write_bytes(b"bevar mig")
+    html_error(
+        "C3_HTML_OUTPUT_EXISTS",
+        lambda: mod.main([
+            "--mode", "apply",
+            "--manifest", str(paths["manifest"]),
+            "--output", str(output),
+        ]))
+    assert output.read_bytes() == b"bevar mig"
+
+
+@pytest.mark.parametrize("arguments", [
+    ["--mode", "apply"],
+    ["--mode", "apply", "--manifest", "a"],
+    ["--mode", "apply", "--manifest", "a", "--output", "b", "--review", "c"],
+    ["--mode", "bogus", "--manifest", "a", "--output", "b"],
+])
+def test_apply_cli_accepts_only_the_locked_apply_arguments(arguments):
+    html_error("C3_HTML_ARGUMENTS_INVALID", lambda: mod.main(arguments))
+
+
+def _extract_js_function(script, name):
+    """Udtræk en JS-funktionskrop via akkolade-optælling (ikke regex-‑
+    grådighed, som kan stoppe ved en indlejret ``}``)."""
+    start = script.index("function " + name + "(")
+    open_index = script.index("{", start)
+    depth = 0
+    index = open_index
+    while True:
+        if script[index] == "{":
+            depth += 1
+        elif script[index] == "}":
+            depth -= 1
+            if depth == 0:
+                break
+        index += 1
+    return script[start:index + 1]
+
+
+def test_apply_client_shares_the_same_helper_bodies_as_review_client():
+    """Den sikkerhedsbærende byte-erstatning (replaceTokenBytes) og de
+    øvrige DOM-hjælpefunktioner må IKKE genimplementeres uafhængigt for
+    apply-tilstanden — det var C0-efterkørslens parkerede fejl. Eneste
+    tilladte forskel er apply-scriptets egen fejl-token-navnerum
+    (``C3_HTML_APPLY_EXPORT_INVALID`` i stedet for
+    ``C3_HTML_EXPORT_INVALID``), som normaliseres væk før sammenligning."""
+    shared_names = [
+        "decodeBase64Url", "encodeBase64Url", "replaceTokenBytes",
+        "makeElement", "makeSelect", "readableValue", "appendLabelledValue",
+    ]
+    for name in shared_names:
+        review_body = _extract_js_function(mod.CLIENT_SCRIPT, name)
+        apply_body = _extract_js_function(mod.CLIENT_APPLY_SCRIPT, name)
+        normalized_apply_body = apply_body.replace(
+            "C3_HTML_APPLY_EXPORT_INVALID", "C3_HTML_EXPORT_INVALID")
+        assert normalized_apply_body == review_body, name
+
+
+def test_review_mode_cli_is_unaffected_by_explicit_mode_flag(tmp_path):
+    paths, _, _, _, hashes = fixture_chain(tmp_path / "fixture")
+    output = tmp_path / "c3-review.html"
+    assert mod.main([
+        "--mode", "review",
+        "--selection", str(paths["selection"]),
+        "--state", str(paths["state"]),
+        "--review", str(paths["review"]),
+        "--output", str(output),
+    ]) == 0
+    assert output.read_bytes().startswith(b"<!doctype html>\n")
