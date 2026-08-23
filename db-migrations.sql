@@ -8869,3 +8869,1079 @@ ALTER TABLE private.reimport_case_batch ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.reimport_case_event ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON private.reimport_case_authorization,private.reimport_case_batch,private.reimport_case_event FROM PUBLIC,anon,authenticated;
 REVOKE ALL ON FUNCTION private.reject_reimport_case_event_mutation() FROM PUBLIC,anon,authenticated;
+
+-- ===== 2026-08-23: DAA 1939 v50 fase C3 -- atomic apply RPCs (Task 6) =====
+-- Idempotent: every statement below is CREATE OR REPLACE / REVOKE / GRANT.
+-- Mirrors the schema.sql section of the same name byte for byte, plus the
+-- red_publicer_narrative_record replacement that carries fund B4's source-record
+-- lock (step 4b). Parameter names are unchanged, so CREATE OR REPLACE applies
+-- cleanly against an already-deployed base.
+CREATE OR REPLACE FUNCTION red_publicer_narrative_record(
+  p_narrative_id bigint,p_source_record_id uuid,p_record_label text,p_citation_label text
+) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_id uuid; v_binding private.narrative_record_publication%ROWTYPE;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  -- C3 adversarial review, fund B4 (2026-08-22): absence cannot be locked with a row
+  -- lock. narrative_record_publication is unique on narrative_id and record_ref but NOT
+  -- on source_record_id, so FOR UPDATE on a binding that does not exist protects nothing:
+  -- a concurrent writer could publish a DIFFERENT narrative for the SAME source record
+  -- and both could commit. Serialise on the source record itself, in the same position
+  -- as red_apply_reimport_cases' step 5, so the two writers can never take the source
+  -- record and the binding rows in opposite order. The declarative
+  -- narrative_record_publication_active_record_uidx is the primary guard; this lock is
+  -- the lock-discipline half of the same fix.
+  PERFORM 1 FROM private.source_record WHERE id = p_source_record_id FOR UPDATE;
+  SELECT * INTO v_binding FROM private.narrative_record_publication
+    WHERE narrative_id=p_narrative_id FOR UPDATE;
+  IF FOUND THEN
+    IF v_binding.source_record_id IS DISTINCT FROM p_source_record_id
+       OR v_binding.record_label IS DISTINCT FROM p_record_label
+       OR v_binding.citation_label IS DISTINCT FROM p_citation_label THEN
+      RAISE EXCEPTION 'SOURCE_RECORD_PUBLICATION_BINDING_MISMATCH';
+    END IF;
+    IF v_binding.status<>'draft' THEN RAISE EXCEPTION 'SOURCE_RECORD_PUBLICATION_ALREADY_BOUND'; END IF;
+    UPDATE private.narrative_record_publication SET status='published'
+      WHERE id=v_binding.id RETURNING id INTO v_id;
+    RETURN v_id;
+  END IF;
+  INSERT INTO private.narrative_record_publication(narrative_id,source_record_id,record_label,citation_label,status)
+    VALUES (p_narrative_id,p_source_record_id,p_record_label,p_citation_label,'published') RETURNING id INTO v_id;
+  RETURN v_id;
+END $$;
+-- ============================================================================
+-- DAA 1939 v50 fase C3: atomic, hash-bound apply RPCs (Task 6)
+-- ============================================================================
+-- Generic reimport_case_* surface (see the ledger DDL above): parametrised on
+-- source_id + phase, never on edition. The three public entry points are the
+-- only client-visible surface; everything privileged lives in private.
+--
+-- Reuse, not reinvention: private.require_reimport_1939_editor() is the role
+-- gate and private.reimport_1939_canonical_json_sha256() is the canonical
+-- payload hasher for both families -- both are already generic in behaviour
+-- despite their family-scoped names.
+--
+-- Deterministic lock order (apply AND the later reversal use the same order):
+--   1. pg_advisory_xact_lock(hashtextextended('daa-1939-v50-production-writer',0))
+--   2. actor/profile/role gate
+--   3. pg_advisory_xact_lock(hashtext('samme_som_mutation'))
+--   4. every involved person row, ascending id
+--   5. source records, ascending uuid
+--   6. narratives, ascending id
+--   7. existing binding rows, ascending narrative_id
+--   8. identity relations/evidence, ascending id
+-- ============================================================================
+
+-- ---------- private state probes (single source of truth for preview+apply) --
+
+-- Measured source-record state for one (source_id, record_key).
+-- match_count is the number of occurrences whose CURRENT (highest-version)
+-- anchor decision for this record is 'accepted'. Zero accepted occurrences is
+-- fatal rather than reportable: the R preview wrapper's contract requires a
+-- 64-hex verbatim_sha256 and a non-empty side on every row, and neither has a
+-- truthful value when nothing is anchored. A count > 1 IS reportable (the
+-- wrapper fails closed on match_count <> 1), so the deterministic first
+-- occurrence supplies the measured values.
+CREATE OR REPLACE FUNCTION private.reimport_case_source_record_state(
+  p_source_id bigint, p_record_key text)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path=pg_catalog,public,private AS $$
+DECLARE v_id uuid; v_count integer; v_text text; v_page integer;
+BEGIN
+  SELECT id INTO v_id FROM private.source_record
+   WHERE source_id=p_source_id AND record_key=p_record_key;
+  IF v_id IS NULL THEN RAISE EXCEPTION 'REIMPORT_CASE_SOURCE_RECORD_MISSING'; END IF;
+  WITH current_anchor AS (
+    SELECT DISTINCT ON (ae.occurrence_id) ae.occurrence_id, ae.decision_status
+      FROM private.source_record_anchor_event ae
+     WHERE ae.source_record_id=v_id
+     ORDER BY ae.occurrence_id, ae.version DESC
+  )
+  SELECT count(*) INTO v_count FROM current_anchor WHERE decision_status='accepted';
+  IF v_count=0 THEN RAISE EXCEPTION 'REIMPORT_CASE_SOURCE_RECORD_UNANCHORED'; END IF;
+  WITH current_anchor AS (
+    SELECT DISTINCT ON (ae.occurrence_id) ae.occurrence_id, ae.decision_status
+      FROM private.source_record_anchor_event ae
+     WHERE ae.source_record_id=v_id
+     ORDER BY ae.occurrence_id, ae.version DESC
+  )
+  SELECT o.verbatim_text, o.page_from INTO v_text, v_page
+    FROM current_anchor a
+    JOIN private.source_record_occurrence o ON o.id=a.occurrence_id
+   WHERE a.decision_status='accepted'
+   ORDER BY o.page_from, o.char_from, o.id
+   LIMIT 1;
+  RETURN jsonb_build_object(
+    'source_record_id', v_id,
+    'match_count', v_count,
+    'verbatim_sha256', encode(sha256(convert_to(v_text,'UTF8')),'hex'),
+    'side', v_page::text);
+END $$;
+
+-- Measured narrative state for one (source_id, person). Exactly one logical row
+-- is allowed (fund M2): more than one is terminal drift, because red_upsert_narrativ's
+-- ORDER BY id LIMIT 1 would silently pick a row the manifest never measured.
+CREATE OR REPLACE FUNCTION private.reimport_case_narrative_state(
+  p_source_id bigint, p_person_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path=pg_catalog,public,private AS $$
+DECLARE v_count integer; v_id bigint; v_privat boolean; v_tekst text; v_side text;
+BEGIN
+  SELECT count(*) INTO v_count FROM public.narrative
+   WHERE subjekt_type='person' AND subjekt_id=p_person_id
+     AND source_id IS NOT DISTINCT FROM p_source_id;
+  IF v_count>1 THEN RAISE EXCEPTION 'REIMPORT_CASE_NARRATIVE_AMBIGUOUS'; END IF;
+  IF v_count=0 THEN
+    RETURN jsonb_build_object('narrative_id',NULL,'privat',false,'old_sha256',NULL,'side',NULL);
+  END IF;
+  SELECT id, coalesce(privat,false), tekst, side INTO v_id, v_privat, v_tekst, v_side
+    FROM public.narrative
+   WHERE subjekt_type='person' AND subjekt_id=p_person_id
+     AND source_id IS NOT DISTINCT FROM p_source_id;
+  RETURN jsonb_build_object(
+    'narrative_id', v_id, 'privat', v_privat,
+    'old_sha256', encode(sha256(convert_to(v_tekst,'UTF8')),'hex'),
+    'side', v_side);
+END $$;
+
+-- Measured publication-binding state for one source record.
+-- The fund-B4 partial unique index guarantees at most one active (draft|published)
+-- binding per source record, so the ORDER BY below is a determinism belt, not a choice.
+CREATE OR REPLACE FUNCTION private.reimport_case_binding_state(
+  p_source_record_id uuid, p_target_narrative_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path=pg_catalog,public,private AS $$
+DECLARE v_row private.narrative_record_publication%ROWTYPE; v_person bigint; v_status text;
+BEGIN
+  SELECT * INTO v_row FROM private.narrative_record_publication
+   WHERE source_record_id=p_source_record_id AND status IN ('draft','published')
+   ORDER BY narrative_id LIMIT 1;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object(
+      'status', CASE WHEN EXISTS(SELECT 1 FROM private.narrative_record_publication
+                                  WHERE source_record_id=p_source_record_id)
+                     THEN 'withdrawn' ELSE 'absent' END,
+      'binding_person_id', NULL);
+  END IF;
+  SELECT n.subjekt_id INTO v_person FROM public.narrative n WHERE n.id=v_row.narrative_id;
+  IF v_row.status='published' THEN v_status:='published';
+  ELSIF p_target_narrative_id IS NOT NULL AND v_row.narrative_id=p_target_narrative_id
+    THEN v_status:='draft_same_record';
+  ELSE v_status:='draft_other_record';
+  END IF;
+  RETURN jsonb_build_object('status',v_status,'binding_person_id',v_person);
+END $$;
+
+-- ---------- selection / element structural validators ----------------------
+
+-- Validates the p_selection argument of red_preview_reimport_cases. Structure
+-- only: no cardinality is hard-coded here (the phase's own five-case shape is
+-- enforced by the offline finalizer and by the authorization's expected_counts),
+-- so a later phase can reuse the same contract.
+CREATE OR REPLACE FUNCTION private.validate_reimport_case_selection(p_selection jsonb)
+RETURNS void LANGUAGE plpgsql IMMUTABLE
+SET search_path=pg_catalog AS $$
+DECLARE v_case jsonb; v_record jsonb; v_case_ids text[]:='{}'; v_rids text[]:='{}'; v_keys text[]:='{}';
+BEGIN
+  IF jsonb_typeof(p_selection)<>'object'
+     OR (SELECT count(*) FROM jsonb_object_keys(p_selection))<>2
+     OR p_selection->>'schema_version'<>'1939-v50-c3-apply-selection-v1'
+     OR jsonb_typeof(p_selection->'cases')<>'array'
+     OR jsonb_array_length(p_selection->'cases')<1 THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_SELECTION_INVALID';
+  END IF;
+  FOR v_case IN SELECT * FROM jsonb_array_elements(p_selection->'cases') LOOP
+    IF jsonb_typeof(v_case)<>'object'
+       OR (SELECT count(*) FROM jsonb_object_keys(v_case))<>3
+       OR coalesce(btrim(v_case->>'case_id'),'')=''
+       OR jsonb_typeof(v_case->'identity_pair')<>'object'
+       OR (SELECT count(*) FROM jsonb_object_keys(v_case->'identity_pair'))<>1
+       OR jsonb_typeof(v_case->'identity_pair'->'person_ids')<>'array'
+       OR jsonb_array_length(v_case->'identity_pair'->'person_ids')<>2
+       OR jsonb_typeof(v_case->'identity_pair'->'person_ids'->0)<>'number'
+       OR jsonb_typeof(v_case->'identity_pair'->'person_ids'->1)<>'number'
+       OR (v_case->'identity_pair'->'person_ids'->>0)::bigint
+          >= (v_case->'identity_pair'->'person_ids'->>1)::bigint
+       OR jsonb_typeof(v_case->'records')<>'array'
+       OR jsonb_array_length(v_case->'records')<1 THEN
+      RAISE EXCEPTION 'REIMPORT_CASE_SELECTION_INVALID';
+    END IF;
+    IF v_case->>'case_id' = ANY(v_case_ids) THEN
+      RAISE EXCEPTION 'REIMPORT_CASE_SELECTION_INVALID';
+    END IF;
+    v_case_ids := v_case_ids || (v_case->>'case_id');
+    FOR v_record IN SELECT * FROM jsonb_array_elements(v_case->'records') LOOP
+      IF jsonb_typeof(v_record)<>'object'
+         OR coalesce(btrim(v_record->>'rid'),'')=''
+         OR coalesce(btrim(v_record->>'record_key'),'')='' THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_SELECTION_INVALID';
+      END IF;
+      IF v_record->>'action'='assign' THEN
+        IF (SELECT count(*) FROM jsonb_object_keys(v_record))<>6
+           OR jsonb_typeof(v_record->'target_person_id')<>'number'
+           OR (v_record->>'raw_sha256') !~ '^[0-9a-f]{64}$'
+           OR (v_record->>'normalized_sha256') !~ '^[0-9a-f]{64}$' THEN
+          RAISE EXCEPTION 'REIMPORT_CASE_SELECTION_INVALID';
+        END IF;
+      ELSIF v_record->>'action'='no_publication' THEN
+        IF (SELECT count(*) FROM jsonb_object_keys(v_record))<>3 THEN
+          RAISE EXCEPTION 'REIMPORT_CASE_SELECTION_INVALID';
+        END IF;
+      ELSE
+        RAISE EXCEPTION 'REIMPORT_CASE_SELECTION_INVALID';
+      END IF;
+      IF v_record->>'rid' = ANY(v_rids) OR v_record->>'record_key' = ANY(v_keys) THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_SELECTION_INVALID';
+      END IF;
+      v_rids := v_rids || (v_record->>'rid');
+      v_keys := v_keys || (v_record->>'record_key');
+    END LOOP;
+  END LOOP;
+END $$;
+
+-- Validates the authorized element map: exactly the manifest's stable element
+-- IDs ("case:<case_id>" for an identity decision, "case:<case_id>:rid:<rid>"
+-- for a record decision), each with a fully typed payload. Purely structural
+-- and self-consistent (no database lookups), so authorize and apply can run it
+-- over the same bytes and never disagree.
+CREATE OR REPLACE FUNCTION private.validate_reimport_case_elements(
+  p_elements jsonb, p_counts jsonb)
+RETURNS void LANGUAGE plpgsql IMMUTABLE
+SET search_path=pg_catalog AS $$
+DECLARE
+  v_key text; v_payload jsonb; v_before jsonb;
+  v_identity integer:=0; v_assign integer:=0; v_no_pub integer:=0;
+  v_case_ids text[]:='{}';
+BEGIN
+  IF jsonb_typeof(p_elements)<>'object'
+     OR (SELECT count(*) FROM jsonb_object_keys(p_elements))<1 THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+  END IF;
+  FOR v_key, v_payload IN SELECT e.key, e.value FROM jsonb_each(p_elements) e ORDER BY e.key LOOP
+    IF jsonb_typeof(v_payload)<>'object' OR coalesce(btrim(v_payload->>'case_id'),'')='' THEN
+      RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+    END IF;
+    v_before := v_payload->'before_state';
+    IF v_payload->>'action'='different' THEN
+      IF v_key <> 'case:'||(v_payload->>'case_id')
+         OR (SELECT count(*) FROM jsonb_object_keys(v_payload))<>4
+         OR jsonb_typeof(v_payload->'person_ids')<>'array'
+         OR jsonb_array_length(v_payload->'person_ids')<>2
+         OR jsonb_typeof(v_payload->'person_ids'->0)<>'number'
+         OR jsonb_typeof(v_payload->'person_ids'->1)<>'number'
+         OR (v_payload->'person_ids'->>0)::bigint >= (v_payload->'person_ids'->>1)::bigint
+         OR jsonb_typeof(v_before)<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before))<>2
+         OR jsonb_typeof(v_before->'component_overlap')<>'boolean'
+         OR jsonb_typeof(v_before->'existing_rejection')<>'boolean'
+         OR (v_before->>'component_overlap')::boolean THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+      END IF;
+      IF v_payload->>'case_id' = ANY(v_case_ids) THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+      END IF;
+      v_case_ids := v_case_ids || (v_payload->>'case_id');
+      v_identity := v_identity + 1;
+    ELSIF v_payload->>'action'='assign' THEN
+      IF v_key <> 'case:'||(v_payload->>'case_id')||':rid:'||coalesce(v_payload->>'rid','')
+         OR (SELECT count(*) FROM jsonb_object_keys(v_payload))<>13
+         OR coalesce(btrim(v_payload->>'rid'),'')=''
+         OR coalesce(btrim(v_payload->>'record_key'),'')=''
+         OR jsonb_typeof(v_payload->'target_person_id')<>'number'
+         OR NOT (jsonb_typeof(v_payload->'target_narrative_id') IN ('number','null'))
+         OR jsonb_typeof(v_payload->'normalized_text')<>'string'
+         OR (v_payload->>'normalized_sha256') !~ '^[0-9a-f]{64}$'
+         OR encode(sha256(convert_to(v_payload->>'normalized_text','UTF8')),'hex')
+            <> (v_payload->>'normalized_sha256')
+         OR coalesce(btrim(v_payload->>'record_label'),'')=''
+         OR coalesce(btrim(v_payload->>'citation_label'),'')=''
+         OR coalesce(btrim(v_payload->>'side'),'')=''
+         OR jsonb_typeof(v_payload->'privat')<>'boolean'
+         OR (v_payload->>'privat')::boolean
+         OR jsonb_typeof(v_before)<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before))<>3 THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+      END IF;
+      IF jsonb_typeof(v_before->'source_record')<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before->'source_record'))<>3
+         OR jsonb_typeof(v_before->'source_record'->'match_count')<>'number'
+         OR (v_before->'source_record'->>'match_count')::integer<>1
+         OR (v_before->'source_record'->>'verbatim_sha256') !~ '^[0-9a-f]{64}$'
+         OR (v_before->'source_record'->>'side') <> (v_payload->>'side')
+         OR jsonb_typeof(v_before->'target_narrative')<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before->'target_narrative'))<>4
+         OR (v_before->'target_narrative'->'person_id') IS DISTINCT FROM (v_payload->'target_person_id')
+         OR (v_before->'target_narrative'->'narrative_id') IS DISTINCT FROM (v_payload->'target_narrative_id')
+         OR jsonb_typeof(v_before->'target_narrative'->'privat')<>'boolean'
+         OR (v_before->'target_narrative'->>'privat')::boolean
+         OR NOT (
+              (jsonb_typeof(v_payload->'target_narrative_id')='null'
+                AND jsonb_typeof(v_before->'target_narrative'->'old_sha256')='null')
+              OR (jsonb_typeof(v_payload->'target_narrative_id')='number'
+                AND (v_before->'target_narrative'->>'old_sha256') ~ '^[0-9a-f]{64}$'))
+         OR jsonb_typeof(v_before->'binding')<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before->'binding'))<>2
+         OR NOT (v_before->'binding'->>'status' IN ('absent','draft_same_record'))
+         OR NOT (
+              (v_before->'binding'->>'status'='absent'
+                AND jsonb_typeof(v_before->'binding'->'binding_person_id')='null')
+              OR (v_before->'binding'->>'status'='draft_same_record'
+                AND (v_before->'binding'->'binding_person_id')
+                    IS NOT DISTINCT FROM (v_payload->'target_person_id'))) THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+      END IF;
+      v_assign := v_assign + 1;
+    ELSIF v_payload->>'action'='no_publication' THEN
+      -- Controller ruling 1: the no_publication threshold is exactly 'absent',
+      -- matching the already-shipped offline finalizer, so a manifest that
+      -- passed that gate is guaranteed to pass this one.
+      IF v_key <> 'case:'||(v_payload->>'case_id')||':rid:'||coalesce(v_payload->>'rid','')
+         OR (SELECT count(*) FROM jsonb_object_keys(v_payload))<>5
+         OR coalesce(btrim(v_payload->>'rid'),'')=''
+         OR coalesce(btrim(v_payload->>'record_key'),'')=''
+         OR jsonb_typeof(v_before)<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before))<>2
+         OR jsonb_typeof(v_before->'source_record')<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before->'source_record'))<>3
+         OR (v_before->'source_record'->>'verbatim_sha256') !~ '^[0-9a-f]{64}$'
+         OR coalesce(btrim(v_before->'source_record'->>'side'),'')=''
+         OR jsonb_typeof(v_before->'binding')<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before->'binding'))<>2
+         OR v_before->'binding'->>'status'<>'absent'
+         OR jsonb_typeof(v_before->'binding'->'binding_person_id')<>'null' THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+      END IF;
+      v_no_pub := v_no_pub + 1;
+    ELSE
+      RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+    END IF;
+  END LOOP;
+
+  -- Every record element must belong to a case that also carries its identity
+  -- element: a record decision without its case's identity decision would be a
+  -- half-applied case, which the spec forbids ("apply-enhed = hele sagen").
+  IF EXISTS (
+    SELECT 1 FROM jsonb_each(p_elements) e
+     WHERE e.value->>'action' IN ('assign','no_publication')
+       AND NOT (p_elements ? ('case:'||(e.value->>'case_id')))
+  ) THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+  END IF;
+
+  IF (p_counts->>'identity_events')::integer IS DISTINCT FROM v_identity
+     OR (p_counts->>'assign_events')::integer IS DISTINCT FROM v_assign
+     OR (p_counts->>'no_publication_events')::integer IS DISTINCT FROM v_no_pub THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_COUNTS_MISMATCH';
+  END IF;
+END $$;
+
+-- Validates the expected-counts contract. approvals_* are the gateway's
+-- attestation of the human text approval (the database only ever sees the
+-- approval file's SHA-256, never its contents) -- they are hash-bound here so a
+-- later reconciliation can prove WHICH attestation authorised the batch, not so
+-- the database can re-derive it.
+CREATE OR REPLACE FUNCTION private.validate_reimport_case_counts(p_counts jsonb)
+RETURNS void LANGUAGE plpgsql IMMUTABLE
+SET search_path=pg_catalog AS $$
+DECLARE v_key text;
+BEGIN
+  IF jsonb_typeof(p_counts)<>'object'
+     OR (SELECT count(*) FROM jsonb_object_keys(p_counts))<>7 THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_COUNTS_INVALID';
+  END IF;
+  FOREACH v_key IN ARRAY ARRAY['cases','identity_events','assign_events',
+                               'no_publication_events','events',
+                               'approvals_approved','approvals_unresolved'] LOOP
+    IF jsonb_typeof(p_counts->v_key) IS DISTINCT FROM 'number'
+       OR (p_counts->>v_key) !~ '^[0-9]+$' THEN
+      RAISE EXCEPTION 'REIMPORT_CASE_COUNTS_INVALID';
+    END IF;
+  END LOOP;
+  IF (p_counts->>'cases')::integer<1
+     OR (p_counts->>'cases')::integer<>(p_counts->>'identity_events')::integer
+     OR (p_counts->>'events')::integer<>(p_counts->>'identity_events')::integer
+                                       +(p_counts->>'assign_events')::integer
+                                       +(p_counts->>'no_publication_events')::integer
+     OR (p_counts->>'approvals_unresolved')::integer<>0
+     OR (p_counts->>'approvals_approved')::integer<>(p_counts->>'assign_events')::integer THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_COUNTS_INVALID';
+  END IF;
+END $$;
+
+-- ---------- public: read-only preview ---------------------------------------
+
+-- Fund H1: this RPC is the ONLY state oracle for the phase. The R exporter
+-- validates and byte-publishes this answer; it never re-derives domain state
+-- with SQL of its own, so no second implementation can diverge.
+-- STABLE and mutation-free by construction.
+CREATE OR REPLACE FUNCTION public.red_preview_reimport_cases(
+  p_source_id bigint, p_phase text, p_selection jsonb)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_identity_pairs jsonb; v_source_records jsonb; v_target_narratives jsonb;
+  v_bindings jsonb; v_source_anchors jsonb; v_identity_components jsonb;
+  v_missing bigint;
+BEGIN
+  PERFORM private.require_reimport_1939_editor();
+  IF p_phase<>'c3' THEN RAISE EXCEPTION 'REIMPORT_CASE_PHASE_UNSUPPORTED'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM public.source WHERE id=p_source_id) THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_SOURCE_MISSING';
+  END IF;
+  PERFORM private.validate_reimport_case_selection(p_selection);
+
+  -- Every referenced person must exist before any identity-component probing.
+  SELECT min(pid) INTO v_missing FROM (
+    SELECT (c->'identity_pair'->'person_ids'->>0)::bigint AS pid
+      FROM jsonb_array_elements(p_selection->'cases') c
+    UNION
+    SELECT (c->'identity_pair'->'person_ids'->>1)::bigint
+      FROM jsonb_array_elements(p_selection->'cases') c
+    UNION
+    SELECT (r->>'target_person_id')::bigint
+      FROM jsonb_array_elements(p_selection->'cases') c,
+           jsonb_array_elements(c->'records') r
+     WHERE r->>'action'='assign'
+  ) q WHERE NOT EXISTS(SELECT 1 FROM public.person p WHERE p.id=q.pid);
+  IF v_missing IS NOT NULL THEN RAISE EXCEPTION 'REIMPORT_CASE_PERSON_MISSING'; END IF;
+
+  SELECT jsonb_agg(x.item ORDER BY x.case_id) INTO v_identity_pairs FROM (
+    SELECT c->>'case_id' AS case_id, jsonb_build_object(
+      'case_id', c->>'case_id',
+      'person_ids', c->'identity_pair'->'person_ids',
+      'component_overlap', EXISTS(
+        SELECT 1 FROM public._samme_som_gruppe((c->'identity_pair'->'person_ids'->>0)::bigint) a
+        JOIN public._samme_som_gruppe((c->'identity_pair'->'person_ids'->>1)::bigint) b ON b.pid=a.pid),
+      'existing_rejection', EXISTS(
+        SELECT 1 FROM public.relation r
+         WHERE r.rolle='ikke_samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'
+           AND r.subjekt_id=(c->'identity_pair'->'person_ids'->>0)::bigint
+           AND r.objekt_id=(c->'identity_pair'->'person_ids'->>1)::bigint)
+    ) AS item
+    FROM jsonb_array_elements(p_selection->'cases') c
+  ) x;
+
+  SELECT jsonb_agg(x.item ORDER BY x.rid) INTO v_source_records FROM (
+    SELECT r->>'rid' AS rid, jsonb_build_object(
+      'rid', r->>'rid', 'record_key', r->>'record_key',
+      'match_count', (s.state->>'match_count')::integer,
+      'verbatim_sha256', s.state->>'verbatim_sha256',
+      'side', s.state->>'side') AS item
+    FROM jsonb_array_elements(p_selection->'cases') c,
+         jsonb_array_elements(c->'records') r,
+         LATERAL (SELECT private.reimport_case_source_record_state(p_source_id, r->>'record_key') AS state) s
+  ) x;
+
+  SELECT jsonb_agg(x.item ORDER BY x.rid) INTO v_target_narratives FROM (
+    SELECT r->>'rid' AS rid, jsonb_build_object(
+      'rid', r->>'rid',
+      'person_id', (r->>'target_person_id')::bigint,
+      'narrative_id', n.state->'narrative_id',
+      'privat', n.state->'privat',
+      'old_sha256', n.state->'old_sha256') AS item
+    FROM jsonb_array_elements(p_selection->'cases') c,
+         jsonb_array_elements(c->'records') r,
+         LATERAL (SELECT private.reimport_case_narrative_state(
+                    p_source_id, (r->>'target_person_id')::bigint) AS state) n
+    WHERE r->>'action'='assign'
+  ) x;
+
+  SELECT jsonb_agg(x.item ORDER BY x.record_key) INTO v_bindings FROM (
+    SELECT r->>'record_key' AS record_key, jsonb_build_object(
+      'record_key', r->>'record_key',
+      'status', b.state->>'status',
+      'binding_person_id', b.state->'binding_person_id') AS item
+    FROM jsonb_array_elements(p_selection->'cases') c,
+         jsonb_array_elements(c->'records') r,
+         LATERAL (SELECT private.reimport_case_source_record_state(p_source_id, r->>'record_key') AS state) s,
+         LATERAL (SELECT CASE WHEN r->>'action'='assign'
+                    THEN (private.reimport_case_narrative_state(
+                            p_source_id,(r->>'target_person_id')::bigint)->>'narrative_id')::bigint
+                    END AS target_narrative_id) t,
+         LATERAL (SELECT private.reimport_case_binding_state(
+                    (s.state->>'source_record_id')::uuid, t.target_narrative_id) AS state) b
+  ) x;
+
+  -- Informational, forwarded to the human review surface and hash-bound through
+  -- the preview's canonical bytes. Fund H2's live-guard fields are measured here
+  -- so text drift and person-flag drift both invalidate the manifest; the
+  -- authoritative live guard runs in red_apply_reimport_cases under row locks.
+  SELECT jsonb_agg(x.item ORDER BY x.rid) INTO v_source_anchors FROM (
+    SELECT r->>'rid' AS rid, jsonb_build_object(
+      'rid', r->>'rid', 'record_key', r->>'record_key',
+      'source_record_id', s.state->>'source_record_id',
+      'match_count', (s.state->>'match_count')::integer,
+      'side', s.state->>'side') AS item
+    FROM jsonb_array_elements(p_selection->'cases') c,
+         jsonb_array_elements(c->'records') r,
+         LATERAL (SELECT private.reimport_case_source_record_state(p_source_id, r->>'record_key') AS state) s
+  ) x;
+
+  SELECT jsonb_agg(x.item ORDER BY x.case_id) INTO v_identity_components FROM (
+    SELECT c->>'case_id' AS case_id, jsonb_build_object(
+      'case_id', c->>'case_id',
+      'persons', (
+        SELECT jsonb_agg(jsonb_build_object(
+                 'person_id', p.id,
+                 'levende', coalesce(p.levende,false),
+                 'privat', coalesce(p.privat,false),
+                 'staged', coalesce(p.staged,false),
+                 'component_size', (SELECT count(*) FROM public._samme_som_gruppe(p.id))
+               ) ORDER BY p.id)
+        FROM public.person p
+        WHERE p.id IN ((c->'identity_pair'->'person_ids'->>0)::bigint,
+                       (c->'identity_pair'->'person_ids'->>1)::bigint))
+    ) AS item
+    FROM jsonb_array_elements(p_selection->'cases') c
+  ) x;
+
+  RETURN jsonb_build_object(
+    'database_name', current_database(),
+    'system_identifier', (pg_control_system()).system_identifier::text,
+    'identity_pairs', coalesce(v_identity_pairs,'[]'::jsonb),
+    'source_records', coalesce(v_source_records,'[]'::jsonb),
+    'target_narratives', coalesce(v_target_narratives,'[]'::jsonb),
+    'bindings', coalesce(v_bindings,'[]'::jsonb),
+    'source_anchors', coalesce(v_source_anchors,'[]'::jsonb),
+    'identity_components', coalesce(v_identity_components,'[]'::jsonb));
+END $$;
+
+-- ---------- public: expiring authorization ----------------------------------
+
+-- Two-step principal split, mirroring the existing 1939 writer: this function is
+-- granted to service_role only; red_apply_reimport_cases is granted to
+-- authenticated only. Both still require the SAME redaktion principal through
+-- private.require_reimport_1939_editor() -- role membership is the gateway, the
+-- JWT subject is the actor.
+CREATE OR REPLACE FUNCTION public.red_authorize_reimport_cases(
+  p_source_id bigint, p_phase text, p_operation text,
+  p_manifest_sha256 text, p_preview_sha256 text, p_approval_sha256 text,
+  p_decisions_sha256 text, p_state_sha256 text, p_text_bundle_sha256 text,
+  p_database_name text, p_system_identifier text,
+  p_expected_counts jsonb, p_authorized_elements jsonb,
+  p_nonce uuid, p_expires_at timestamptz)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER
+SET search_path=pg_catalog,public,private AS $$
+DECLARE v_id uuid; v_actor uuid:=private.require_reimport_1939_editor();
+        v_existing private.reimport_case_authorization%ROWTYPE;
+BEGIN
+  IF p_phase<>'c3' THEN RAISE EXCEPTION 'REIMPORT_CASE_PHASE_UNSUPPORTED'; END IF;
+  IF p_operation NOT IN ('apply','reversal')
+     OR p_manifest_sha256 !~ '^[0-9a-f]{64}$' OR p_preview_sha256 !~ '^[0-9a-f]{64}$'
+     OR p_approval_sha256 !~ '^[0-9a-f]{64}$' OR p_decisions_sha256 !~ '^[0-9a-f]{64}$'
+     OR p_state_sha256 !~ '^[0-9a-f]{64}$' OR p_text_bundle_sha256 !~ '^[0-9a-f]{64}$'
+     OR p_nonce IS NULL OR p_expires_at IS NULL OR p_expires_at<=clock_timestamp() THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_AUTHORIZATION_INVALID';
+  END IF;
+  -- Fund B1: database name and system identifier are two separate, separately
+  -- comparable fields, so a rehearsal-bound artefact fails closed against
+  -- production and vice versa.
+  IF p_database_name IS DISTINCT FROM current_database()
+     OR p_system_identifier IS DISTINCT FROM (pg_control_system()).system_identifier::text THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_DATABASE_IDENTITY_MISMATCH';
+  END IF;
+  IF NOT EXISTS(SELECT 1 FROM public.source WHERE id=p_source_id) THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_SOURCE_MISSING';
+  END IF;
+  PERFORM private.validate_reimport_case_counts(p_expected_counts);
+  PERFORM private.validate_reimport_case_elements(p_authorized_elements,p_expected_counts);
+  IF (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements))
+     <> (p_expected_counts->>'events')::integer THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_COUNTS_MISMATCH';
+  END IF;
+
+  -- Nonce is the commit-unknown handle: the exact same request returns the exact
+  -- same authorization id; anything else under the same nonce is terminal.
+  SELECT * INTO v_existing FROM private.reimport_case_authorization WHERE nonce=p_nonce;
+  IF FOUND THEN
+    IF v_existing.source_id=p_source_id AND v_existing.phase=p_phase
+       AND v_existing.operation=p_operation
+       AND v_existing.manifest_sha256=p_manifest_sha256
+       AND v_existing.preview_sha256=p_preview_sha256
+       AND v_existing.approval_sha256=p_approval_sha256
+       AND v_existing.decisions_sha256=p_decisions_sha256
+       AND v_existing.state_sha256=p_state_sha256
+       AND v_existing.text_bundle_sha256=p_text_bundle_sha256
+       AND v_existing.database_name=p_database_name
+       AND v_existing.system_identifier=p_system_identifier
+       AND v_existing.expected_counts=p_expected_counts
+       AND v_existing.authorized_elements=p_authorized_elements
+       AND v_existing.principal_id=v_actor THEN
+      RETURN v_existing.id;
+    END IF;
+    RAISE EXCEPTION 'REIMPORT_CASE_NONCE_CONFLICT';
+  END IF;
+
+  -- Fund B6: an already finalized batch for the same artefact chain pins the
+  -- element map; a second authorization may not silently change it.
+  IF EXISTS(
+    SELECT 1 FROM private.reimport_case_batch b
+    JOIN private.reimport_case_authorization a ON a.id=b.authorization_id
+    WHERE b.source_id=p_source_id AND b.phase=p_phase AND b.operation=p_operation
+      AND b.manifest_sha256=p_manifest_sha256 AND b.preview_sha256=p_preview_sha256
+      AND b.principal_id=v_actor AND b.status='finalized'
+      AND (a.authorized_elements IS DISTINCT FROM p_authorized_elements
+           OR a.expected_counts IS DISTINCT FROM p_expected_counts)
+  ) THEN RAISE EXCEPTION 'REIMPORT_CASE_MANIFEST_ELEMENT_DRIFT'; END IF;
+
+  INSERT INTO private.reimport_case_authorization(
+    source_id,phase,operation,manifest_sha256,preview_sha256,approval_sha256,
+    decisions_sha256,state_sha256,text_bundle_sha256,database_name,system_identifier,
+    expected_counts,authorized_elements,principal_id,nonce,expires_at)
+  VALUES (p_source_id,p_phase,p_operation,p_manifest_sha256,p_preview_sha256,p_approval_sha256,
+    p_decisions_sha256,p_state_sha256,p_text_bundle_sha256,p_database_name,p_system_identifier,
+    p_expected_counts,p_authorized_elements,v_actor,p_nonce,p_expires_at)
+  RETURNING id INTO v_id;
+  RETURN v_id;
+END $$;
+
+-- ---------- private: batch receipt ------------------------------------------
+
+-- Only IDs, counts, hashes and status. No narrative prose ever leaves here.
+CREATE OR REPLACE FUNCTION private.reimport_case_receipt(p_batch_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path=pg_catalog,public,private AS $$
+DECLARE v_batch private.reimport_case_batch%ROWTYPE; v_elements jsonb;
+BEGIN
+  SELECT * INTO v_batch FROM private.reimport_case_batch WHERE id=p_batch_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'REIMPORT_CASE_BATCH_INVALID'; END IF;
+  SELECT jsonb_agg(jsonb_build_object(
+           'element_id', e.element_id, 'action', e.action,
+           'payload_schema_version', e.payload_schema_version,
+           'result', e.payload->'result',
+           'before_sha256', e.before_sha256, 'after_sha256', e.after_sha256)
+         ORDER BY e.element_id)
+    INTO v_elements
+    FROM private.reimport_case_event e WHERE e.batch_id=p_batch_id;
+  RETURN jsonb_build_object(
+    'schema_version','c3-apply-receipt-v1',
+    'batch_id', v_batch.id, 'authorization_id', v_batch.authorization_id,
+    'source_id', v_batch.source_id, 'phase', v_batch.phase, 'operation', v_batch.operation,
+    'status', v_batch.status, 'change_set_id', v_batch.change_set_id,
+    'manifest_sha256', v_batch.manifest_sha256, 'preview_sha256', v_batch.preview_sha256,
+    'expected_counts', v_batch.expected_counts, 'observed_counts', v_batch.observed_counts,
+    'elements', coalesce(v_elements,'[]'::jsonb));
+END $$;
+
+-- ---------- private: exact-ID narrative writer (fund M2) --------------------
+
+-- red_upsert_narrativ selects on (subjekt_type,subjekt_id,source_id) with
+-- ORDER BY id LIMIT 1 and never receives the manifest's narrative id, so a
+-- duplicate logical row would send the write to the wrong row (issue #152).
+-- C3 writes against the LOCKED, MEASURED id instead and asserts both
+-- (a) exactly one logical row exists and (b) the written id is the manifest's.
+CREATE OR REPLACE FUNCTION private.write_reimport_case_narrative(
+  p_narrative_id bigint, p_person_id bigint, p_source_id bigint,
+  p_tekst text, p_privat boolean, p_side text)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER
+SET search_path=pg_catalog,public,private AS $$
+DECLARE v_count integer; v_id bigint;
+BEGIN
+  SELECT count(*) INTO v_count FROM public.narrative
+   WHERE subjekt_type='person' AND subjekt_id=p_person_id
+     AND source_id IS NOT DISTINCT FROM p_source_id;
+  IF p_narrative_id IS NULL THEN
+    IF v_count<>0 THEN RAISE EXCEPTION 'REIMPORT_CASE_NARRATIVE_DRIFT'; END IF;
+    v_id := (SELECT coalesce(max(id),0)+1 FROM public.narrative);
+    INSERT INTO public.narrative(id,subjekt_type,subjekt_id,source_id,tekst,side,privat)
+      VALUES (v_id,'person',p_person_id,p_source_id,p_tekst,p_side,p_privat);
+    RETURN v_id;
+  END IF;
+  IF v_count<>1 THEN RAISE EXCEPTION 'REIMPORT_CASE_NARRATIVE_AMBIGUOUS'; END IF;
+  UPDATE public.narrative
+     SET tekst=p_tekst, privat=p_privat, side=p_side
+   WHERE id=p_narrative_id AND subjekt_type='person' AND subjekt_id=p_person_id
+     AND source_id IS NOT DISTINCT FROM p_source_id
+   RETURNING id INTO v_id;
+  IF v_id IS NULL THEN RAISE EXCEPTION 'REIMPORT_CASE_NARRATIVE_DRIFT'; END IF;
+  RETURN v_id;
+END $$;
+
+-- ---------- public: one-call atomic apply -----------------------------------
+
+CREATE OR REPLACE FUNCTION public.red_apply_reimport_cases(
+  p_authorization_id uuid, p_manifest_sha256 text, p_approval_sha256 text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
+SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_actor uuid; v_auth private.reimport_case_authorization%ROWTYPE;
+  v_batch private.reimport_case_batch%ROWTYPE; v_batch_id uuid;
+  v_elements jsonb; v_key text; v_payload jsonb; v_before jsonb;
+  v_person_ids bigint[]; v_record_ids uuid[]; v_narrative_ids bigint[];
+  v_written_narratives bigint[]:='{}';
+  v_change_set bigint; v_state jsonb; v_binding jsonb;
+  v_record_id uuid; v_narrative_id bigint; v_relation_id bigint;
+  v_outcome text; v_binding_id uuid; v_binding_row private.narrative_record_publication%ROWTYPE;
+  v_identity integer:=0; v_assign integer:=0; v_no_pub integer:=0; v_events integer;
+  v_result jsonb; v_after jsonb; v_bad bigint;
+BEGIN
+  -- ===== lock order step 1: global production-writer lock ====================
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-1939-v50-production-writer',0));
+  -- ===== lock order step 2: actor / profile / role gate ======================
+  v_actor := private.require_reimport_1939_editor();
+  PERFORM set_config('lock_timeout','5s',true);
+  PERFORM set_config('statement_timeout','120s',true);
+
+  SELECT * INTO v_auth FROM private.reimport_case_authorization
+   WHERE id=p_authorization_id FOR UPDATE;
+  IF NOT FOUND OR v_auth.phase<>'c3' OR v_auth.operation<>'apply'
+     OR v_auth.principal_id<>v_actor
+     OR v_auth.manifest_sha256 IS DISTINCT FROM p_manifest_sha256
+     OR v_auth.approval_sha256 IS DISTINCT FROM p_approval_sha256 THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_AUTHORIZATION_INVALID';
+  END IF;
+  IF v_auth.database_name IS DISTINCT FROM current_database()
+     OR v_auth.system_identifier IS DISTINCT FROM (pg_control_system()).system_identifier::text THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_DATABASE_IDENTITY_MISMATCH';
+  END IF;
+
+  -- Commit-unknown replay: an already consumed authorization with a finalized
+  -- batch returns that exact receipt BEFORE any domain state is re-derived.
+  -- Validating first would re-measure state that has legitimately moved on
+  -- since the successful apply and turn a success into terminal drift.
+  IF v_auth.status='consumed' THEN
+    SELECT * INTO v_batch FROM private.reimport_case_batch
+     WHERE authorization_id=v_auth.id FOR UPDATE;
+    IF FOUND AND v_batch.status='finalized' THEN
+      RETURN private.reimport_case_receipt(v_batch.id);
+    END IF;
+    RAISE EXCEPTION 'REIMPORT_CASE_AUTHORIZATION_ALREADY_CONSUMED';
+  END IF;
+  IF v_auth.status<>'issued' OR v_auth.expires_at<=clock_timestamp() THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_AUTHORIZATION_INVALID';
+  END IF;
+
+  v_elements := v_auth.authorized_elements;
+  PERFORM private.validate_reimport_case_counts(v_auth.expected_counts);
+  PERFORM private.validate_reimport_case_elements(v_elements,v_auth.expected_counts);
+
+  -- ===== lock order step 3: samme_som mutation lock ==========================
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+
+  -- ===== lock order step 4: all involved person rows, ascending id ===========
+  SELECT array_agg(DISTINCT pid ORDER BY pid) INTO v_person_ids FROM (
+    SELECT (e.value->'person_ids'->>0)::bigint AS pid FROM jsonb_each(v_elements) e
+     WHERE e.value->>'action'='different'
+    UNION
+    SELECT (e.value->'person_ids'->>1)::bigint FROM jsonb_each(v_elements) e
+     WHERE e.value->>'action'='different'
+    UNION
+    SELECT (e.value->>'target_person_id')::bigint FROM jsonb_each(v_elements) e
+     WHERE e.value->>'action'='assign'
+  ) q;
+  PERFORM private.lock_identity_people(v_person_ids);
+
+  -- Fund H2 live guard, under the person row locks. All involved persons are in
+  -- scope: identity-pair persons as well as assign targets. Verified against the
+  -- phase's own five approved cases (none carries staged/privat), so the
+  -- fail-closed reading of the fund costs nothing here.
+  SELECT min(p.id) INTO v_bad FROM public.person p
+   WHERE p.id = ANY(v_person_ids)
+     AND (coalesce(p.levende,false) OR coalesce(p.privat,false) OR coalesce(p.staged,false));
+  IF v_bad IS NOT NULL THEN RAISE EXCEPTION 'REIMPORT_CASE_PERSON_NOT_PUBLISHABLE'; END IF;
+
+  -- ===== lock order step 5: source records, ascending uuid ===================
+  SELECT array_agg(DISTINCT sr.id ORDER BY sr.id) INTO v_record_ids
+    FROM jsonb_each(v_elements) e
+    JOIN private.source_record sr
+      ON sr.source_id=v_auth.source_id AND sr.record_key=e.value->>'record_key'
+   WHERE e.value->>'action' IN ('assign','no_publication');
+  IF v_record_ids IS NULL
+     OR array_length(v_record_ids,1) <> (v_auth.expected_counts->>'assign_events')::integer
+                                      + (v_auth.expected_counts->>'no_publication_events')::integer THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_SOURCE_RECORD_MISSING';
+  END IF;
+  PERFORM 1 FROM (
+    SELECT sr.id FROM private.source_record sr
+     WHERE sr.id = ANY(v_record_ids) ORDER BY sr.id FOR UPDATE) q;
+
+  -- ===== lock order step 6: narratives, ascending id =========================
+  SELECT array_agg(DISTINCT nid ORDER BY nid) INTO v_narrative_ids FROM (
+    SELECT (e.value->>'target_narrative_id')::bigint AS nid FROM jsonb_each(v_elements) e
+     WHERE e.value->>'action'='assign' AND jsonb_typeof(e.value->'target_narrative_id')='number'
+  ) q;
+  IF v_narrative_ids IS NOT NULL THEN
+    PERFORM 1 FROM (
+      SELECT n.id FROM public.narrative n
+       WHERE n.id = ANY(v_narrative_ids) ORDER BY n.id FOR UPDATE) q;
+  END IF;
+
+  -- ===== lock order step 7: existing binding rows, ascending narrative_id ====
+  PERFORM 1 FROM (
+    SELECT b.id FROM private.narrative_record_publication b
+     WHERE b.source_record_id = ANY(v_record_ids) ORDER BY b.narrative_id FOR UPDATE) q;
+
+  -- ===== lock order step 8: identity relations/evidence, ascending id ========
+  PERFORM 1 FROM (
+    SELECT r.id FROM public.relation r
+     WHERE r.rolle='ikke_samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'
+       AND (r.subjekt_id = ANY(v_person_ids) OR r.objekt_id = ANY(v_person_ids))
+     ORDER BY r.id FOR UPDATE) q;
+
+  -- ===== validate ALL cases before the first domain write ====================
+  FOR v_key, v_payload IN SELECT e.key, e.value FROM jsonb_each(v_elements) e ORDER BY e.key LOOP
+    v_before := v_payload->'before_state';
+    IF v_payload->>'action'='different' THEN
+      IF EXISTS(SELECT 1
+                  FROM public._samme_som_gruppe((v_payload->'person_ids'->>0)::bigint) a
+                  JOIN public._samme_som_gruppe((v_payload->'person_ids'->>1)::bigint) b ON b.pid=a.pid) THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_IDENTITY_COMPONENT_DRIFT';
+      END IF;
+      IF EXISTS(SELECT 1 FROM public.relation r
+                 WHERE r.rolle='ikke_samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'
+                   AND r.subjekt_id=(v_payload->'person_ids'->>0)::bigint
+                   AND r.objekt_id=(v_payload->'person_ids'->>1)::bigint)
+         <> (v_before->>'existing_rejection')::boolean THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_IDENTITY_DRIFT';
+      END IF;
+    ELSE
+      v_state := private.reimport_case_source_record_state(v_auth.source_id, v_payload->>'record_key');
+      IF (v_state->>'verbatim_sha256') IS DISTINCT FROM (v_before->'source_record'->>'verbatim_sha256')
+         OR (v_state->>'side') IS DISTINCT FROM (v_before->'source_record'->>'side')
+         OR (v_state->>'match_count')::integer <> 1 THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_SOURCE_RECORD_DRIFT';
+      END IF;
+      v_record_id := (v_state->>'source_record_id')::uuid;
+      IF v_payload->>'action'='assign' THEN
+        v_narrative_id := (v_payload->>'target_narrative_id')::bigint;
+        v_result := private.reimport_case_narrative_state(
+                      v_auth.source_id,(v_payload->>'target_person_id')::bigint);
+        IF (v_result->'narrative_id') IS DISTINCT FROM (v_before->'target_narrative'->'narrative_id')
+           OR (v_result->'old_sha256') IS DISTINCT FROM (v_before->'target_narrative'->'old_sha256')
+           OR (v_result->>'privat')::boolean <> (v_before->'target_narrative'->>'privat')::boolean THEN
+          RAISE EXCEPTION 'REIMPORT_CASE_NARRATIVE_DRIFT';
+        END IF;
+        -- Fund H3: haendelse is a text-derived one-way projection with no
+        -- regeneration trigger, so a narrative rewrite would silently strand it.
+        -- Measured 0 rows in the whole base; apply therefore REQUIRES it empty.
+        IF v_narrative_id IS NOT NULL
+           AND EXISTS(SELECT 1 FROM public.haendelse h WHERE h.narrative_id=v_narrative_id) THEN
+          RAISE EXCEPTION 'REIMPORT_CASE_HAENDELSE_PRESENT';
+        END IF;
+        IF EXISTS(SELECT 1 FROM public.haendelse h
+                   WHERE h.subjekt_type='person'
+                     AND h.subjekt_id=(v_payload->>'target_person_id')::bigint) THEN
+          RAISE EXCEPTION 'REIMPORT_CASE_HAENDELSE_PRESENT';
+        END IF;
+      ELSE
+        v_narrative_id := NULL;
+      END IF;
+      v_binding := private.reimport_case_binding_state(v_record_id, v_narrative_id);
+      IF (v_binding->>'status') IS DISTINCT FROM (v_before->'binding'->>'status')
+         OR (v_binding->'binding_person_id') IS DISTINCT FROM (v_before->'binding'->'binding_person_id') THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_BINDING_DRIFT';
+      END IF;
+      IF v_payload->>'action'='no_publication' AND v_binding->>'status'<>'absent' THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_BINDING_ACTIVE_FOR_NO_PUBLICATION';
+      END IF;
+    END IF;
+  END LOOP;
+
+  -- ===== consume authorization, open the batch, open the change set ==========
+  UPDATE private.reimport_case_authorization
+     SET status='consumed', consumed_at=clock_timestamp() WHERE id=v_auth.id;
+  INSERT INTO private.reimport_case_batch(
+    authorization_id,source_id,phase,operation,manifest_sha256,preview_sha256,
+    principal_id,expected_counts)
+  VALUES (v_auth.id,v_auth.source_id,v_auth.phase,'apply',v_auth.manifest_sha256,
+    v_auth.preview_sha256,v_actor,v_auth.expected_counts)
+  RETURNING id INTO v_batch_id;
+
+  v_change_set := public.begin_change_set(
+    'red_apply_reimport_cases','Anvendte fem godkendte C3-sager',NULL,NULL);
+
+  -- ===== apply every action under the one change set =========================
+  FOR v_key, v_payload IN SELECT e.key, e.value FROM jsonb_each(v_elements) e ORDER BY e.key LOOP
+    v_before := v_payload->'before_state';
+    IF v_payload->>'action'='different' THEN
+      v_outcome := CASE WHEN (v_before->>'existing_rejection')::boolean THEN 'reused' ELSE 'created' END;
+      -- red_ikke_samme_som is re-entrant here: it re-takes the samme_som advisory
+      -- lock and the same person row locks we already hold, reuses our change set,
+      -- and returns the existing relation unchanged when one is already present.
+      v_relation_id := public.red_ikke_samme_som(
+        (v_payload->'person_ids'->>0)::bigint,(v_payload->'person_ids'->>1)::bigint);
+      v_after := jsonb_build_object('relation_id',v_relation_id,'outcome',v_outcome);
+      INSERT INTO private.reimport_case_event(
+        batch_id,source_id,phase,element_id,action,payload_schema_version,payload,
+        before_sha256,after_sha256)
+      VALUES (v_batch_id,v_auth.source_id,v_auth.phase,v_key,'identity_different','c3-apply-v1',
+        jsonb_build_object('case_id',v_payload->>'case_id',
+          'person_ids',v_payload->'person_ids','before_state',v_before,'result',v_after),
+        private.reimport_1939_canonical_json_sha256(v_before),
+        private.reimport_1939_canonical_json_sha256(v_after));
+      v_identity := v_identity + 1;
+
+    ELSIF v_payload->>'action'='assign' THEN
+      v_state := private.reimport_case_source_record_state(v_auth.source_id, v_payload->>'record_key');
+      v_record_id := (v_state->>'source_record_id')::uuid;
+      v_narrative_id := private.write_reimport_case_narrative(
+        (v_payload->>'target_narrative_id')::bigint,
+        (v_payload->>'target_person_id')::bigint, v_auth.source_id,
+        v_payload->>'normalized_text', false, v_payload->>'side');
+      IF jsonb_typeof(v_payload->'target_narrative_id')='number'
+         AND v_narrative_id <> (v_payload->>'target_narrative_id')::bigint THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_NARRATIVE_DRIFT';
+      END IF;
+      v_written_narratives := v_written_narratives || v_narrative_id;
+
+      -- Binding: only 'absent' (insert) or an exact same-record draft (promote).
+      -- Written inline rather than through red_publicer_narrative_record so the
+      -- drift taxonomy stays inside this phase's own token namespace and so
+      -- Step 4b's two-session proof keeps testing that RPC's own lock.
+      SELECT * INTO v_binding_row FROM private.narrative_record_publication
+       WHERE narrative_id=v_narrative_id FOR UPDATE;
+      IF FOUND THEN
+        IF v_before->'binding'->>'status'<>'draft_same_record'
+           OR v_binding_row.status<>'draft'
+           OR v_binding_row.source_record_id<>v_record_id
+           OR v_binding_row.record_label IS DISTINCT FROM v_payload->>'record_label'
+           OR v_binding_row.citation_label IS DISTINCT FROM v_payload->>'citation_label' THEN
+          RAISE EXCEPTION 'REIMPORT_CASE_BINDING_DRIFT';
+        END IF;
+        UPDATE private.narrative_record_publication SET status='published'
+         WHERE id=v_binding_row.id RETURNING id INTO v_binding_id;
+      ELSE
+        IF v_before->'binding'->>'status'<>'absent' THEN
+          RAISE EXCEPTION 'REIMPORT_CASE_BINDING_DRIFT';
+        END IF;
+        INSERT INTO private.narrative_record_publication(
+          narrative_id,source_record_id,record_label,citation_label,status)
+        VALUES (v_narrative_id,v_record_id,v_payload->>'record_label',
+                v_payload->>'citation_label','published')
+        RETURNING id INTO v_binding_id;
+      END IF;
+
+      v_after := jsonb_build_object(
+        'narrative_id',v_narrative_id,'source_record_id',v_record_id,
+        'binding_id',v_binding_id,'binding_status','published',
+        'binding_before_kind',v_before->'binding'->>'status',
+        'narrative_sha256',v_payload->>'normalized_sha256');
+      INSERT INTO private.reimport_case_event(
+        batch_id,source_id,phase,element_id,action,payload_schema_version,payload,
+        before_sha256,after_sha256)
+      VALUES (v_batch_id,v_auth.source_id,v_auth.phase,v_key,'record_assign','c3-apply-v1',
+        jsonb_build_object('case_id',v_payload->>'case_id','rid',v_payload->>'rid',
+          'record_key',v_payload->>'record_key',
+          'target_person_id',v_payload->'target_person_id',
+          'before_state',v_before,'result',v_after),
+        private.reimport_1939_canonical_json_sha256(v_before),
+        private.reimport_1939_canonical_json_sha256(v_after));
+      v_assign := v_assign + 1;
+
+    ELSE
+      -- no_publication: no domain mutation at all; only the durable event with
+      -- the proven absence of an active binding (re-proved here under the locks).
+      v_state := private.reimport_case_source_record_state(v_auth.source_id, v_payload->>'record_key');
+      v_record_id := (v_state->>'source_record_id')::uuid;
+      IF private.reimport_case_binding_state(v_record_id,NULL)->>'status'<>'absent' THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_BINDING_ACTIVE_FOR_NO_PUBLICATION';
+      END IF;
+      v_after := jsonb_build_object(
+        'source_record_id',v_record_id,'binding_status','absent','outcome','no_publication');
+      INSERT INTO private.reimport_case_event(
+        batch_id,source_id,phase,element_id,action,payload_schema_version,payload,
+        before_sha256,after_sha256)
+      VALUES (v_batch_id,v_auth.source_id,v_auth.phase,v_key,'record_no_publication','c3-apply-v1',
+        jsonb_build_object('case_id',v_payload->>'case_id','rid',v_payload->>'rid',
+          'record_key',v_payload->>'record_key','before_state',v_before,'result',v_after),
+        private.reimport_1939_canonical_json_sha256(v_before),
+        private.reimport_1939_canonical_json_sha256(v_after));
+      v_no_pub := v_no_pub + 1;
+    END IF;
+  END LOOP;
+
+  -- ===== verify the exact after-state before the receipt is finalized ========
+  FOR v_key, v_payload IN SELECT e.key, e.value FROM jsonb_each(v_elements) e ORDER BY e.key LOOP
+    IF v_payload->>'action'='different' THEN
+      IF NOT EXISTS(
+        SELECT 1 FROM public.relation r
+        JOIN public.conclusion c ON c.target_type='relation' AND c.target_id=r.id
+        JOIN public.assertion a ON a.id=c.valgt_assertion_id
+         WHERE r.rolle='ikke_samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'
+           AND r.subjekt_id=(v_payload->'person_ids'->>0)::bigint
+           AND r.objekt_id=(v_payload->'person_ids'->>1)::bigint) THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_AFTER_STATE_INVALID';
+      END IF;
+    ELSIF v_payload->>'action'='assign' THEN
+      v_state := private.reimport_case_source_record_state(v_auth.source_id, v_payload->>'record_key');
+      IF NOT EXISTS(
+        SELECT 1 FROM public.narrative n
+        JOIN private.narrative_record_publication b ON b.narrative_id=n.id
+         WHERE n.subjekt_type='person'
+           AND n.subjekt_id=(v_payload->>'target_person_id')::bigint
+           AND n.source_id=v_auth.source_id
+           AND coalesce(n.privat,false)=false
+           AND n.side=v_payload->>'side'
+           AND encode(sha256(convert_to(n.tekst,'UTF8')),'hex')=v_payload->>'normalized_sha256'
+           AND b.source_record_id=(v_state->>'source_record_id')::uuid
+           AND b.status='published'
+           AND b.record_label=v_payload->>'record_label'
+           AND b.citation_label=v_payload->>'citation_label') THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_AFTER_STATE_INVALID';
+      END IF;
+    ELSE
+      v_state := private.reimport_case_source_record_state(v_auth.source_id, v_payload->>'record_key');
+      IF private.reimport_case_binding_state((v_state->>'source_record_id')::uuid,NULL)->>'status'<>'absent' THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_AFTER_STATE_INVALID';
+      END IF;
+    END IF;
+  END LOOP;
+
+  -- Fund H2: the live-guard fields must still hold after the writes; a
+  -- concurrent flip would otherwise leave a "published" receipt behind an
+  -- empty public projection.
+  SELECT min(p.id) INTO v_bad FROM public.person p
+   WHERE p.id = ANY(v_person_ids)
+     AND (coalesce(p.levende,false) OR coalesce(p.privat,false) OR coalesce(p.staged,false));
+  IF v_bad IS NOT NULL THEN RAISE EXCEPTION 'REIMPORT_CASE_PERSON_NOT_PUBLISHABLE'; END IF;
+
+  -- Fund M2 (c): no narrative row outside the batch's own target set may appear
+  -- in this change set. Scoped to tabel='narrative' -- relation/assertion/
+  -- conclusion rows legitimately appear here, written by red_ikke_samme_som.
+  IF EXISTS(
+    SELECT 1 FROM public.change_event ce
+     WHERE ce.change_set_id=v_change_set AND ce.tabel='narrative'
+       AND NOT ((ce.row_pk->>'id')::bigint = ANY(v_written_narratives))) THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_CHANGE_SCOPE_DRIFT';
+  END IF;
+
+  -- Exact observed counts, then finalize.
+  SELECT count(*) INTO v_events FROM private.reimport_case_event WHERE batch_id=v_batch_id;
+  IF v_identity <> (v_auth.expected_counts->>'identity_events')::integer
+     OR v_assign <> (v_auth.expected_counts->>'assign_events')::integer
+     OR v_no_pub <> (v_auth.expected_counts->>'no_publication_events')::integer
+     OR v_events <> (v_auth.expected_counts->>'events')::integer THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_COUNTS_MISMATCH';
+  END IF;
+
+  UPDATE private.reimport_case_batch
+     SET status='finalized', finalized_at=clock_timestamp(), change_set_id=v_change_set,
+         observed_counts=jsonb_build_object(
+           'cases',(v_auth.expected_counts->>'cases')::integer,
+           'identity_events',v_identity,'assign_events',v_assign,
+           'no_publication_events',v_no_pub,'events',v_events,
+           'narratives_written',coalesce(array_length(v_written_narratives,1),0),
+           'source_records',coalesce(array_length(v_record_ids,1),0),
+           'persons',coalesce(array_length(v_person_ids,1),0))
+   WHERE id=v_batch_id;
+
+  RETURN private.reimport_case_receipt(v_batch_id);
+END $$;
+
+-- ---------- ACLs -------------------------------------------------------------
+REVOKE ALL ON FUNCTION private.reimport_case_source_record_state(bigint,text),
+  private.reimport_case_narrative_state(bigint,bigint),
+  private.reimport_case_binding_state(uuid,bigint),
+  private.validate_reimport_case_selection(jsonb),
+  private.validate_reimport_case_elements(jsonb,jsonb),
+  private.validate_reimport_case_counts(jsonb),
+  private.reimport_case_receipt(uuid),
+  private.write_reimport_case_narrative(bigint,bigint,bigint,text,boolean,text)
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.red_preview_reimport_cases(bigint,text,jsonb),
+  public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz),
+  public.red_apply_reimport_cases(uuid,text,text)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_preview_reimport_cases(bigint,text,jsonb) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz) TO service_role;
+GRANT EXECUTE ON FUNCTION public.red_apply_reimport_cases(uuid,text,text) TO authenticated;

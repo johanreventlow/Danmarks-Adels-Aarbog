@@ -895,3 +895,31 @@ REVOKE ALL ON private.reimport_case_authorization,
   FROM PUBLIC,anon,authenticated;
 REVOKE ALL ON FUNCTION private.reject_reimport_case_event_mutation()
   FROM PUBLIC,anon,authenticated;
+
+-- C3 apply plan Task 6: least-privilege ACL for the generic reimport case RPCs.
+-- The ledger tables above stay without any direct DML grant; the only way in is
+-- through these three SECURITY DEFINER entry points. Two-step principal split:
+-- the service-role gateway issues the short-lived authorization, an
+-- authenticated redaktion principal consumes it through apply. Both still pass
+-- private.require_reimport_1939_editor(), so role membership is the gateway and
+-- the JWT subject is the actor. Every privileged helper is private and revoked
+-- from every role including service_role.
+REVOKE ALL ON FUNCTION private.reimport_case_source_record_state(bigint,text),
+  private.reimport_case_narrative_state(bigint,bigint),
+  private.reimport_case_binding_state(uuid,bigint),
+  private.validate_reimport_case_selection(jsonb),
+  private.validate_reimport_case_elements(jsonb,jsonb),
+  private.validate_reimport_case_counts(jsonb),
+  private.reimport_case_receipt(uuid),
+  private.write_reimport_case_narrative(bigint,bigint,bigint,text,boolean,text)
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.red_preview_reimport_cases(bigint,text,jsonb),
+  public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz),
+  public.red_apply_reimport_cases(uuid,text,text)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_preview_reimport_cases(bigint,text,jsonb)
+  TO authenticated;
+GRANT EXECUTE ON FUNCTION public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)
+  TO service_role;
+GRANT EXECUTE ON FUNCTION public.red_apply_reimport_cases(uuid,text,text)
+  TO authenticated;

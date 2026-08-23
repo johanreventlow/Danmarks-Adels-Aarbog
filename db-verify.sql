@@ -76,6 +76,77 @@ BEGIN
   RAISE NOTICE 'OK: C3 apply case ledger (reimport_case_authorization/_batch/_event) er installeret og privat';
 END $$;
 
+-- ===== C3 apply plan Task 6: atomic apply RPC contract =====
+-- Behavioural proof lives in tests/sql/test-1939-v50-c3-apply.sql; this block only
+-- proves the deployed surface after db-migrations.sql/db-rls.sql: the three entry
+-- points exist with their exact signatures, preview is STABLE, all three are
+-- SECURITY DEFINER with a fixed search_path, the ACL split holds (preview+apply to
+-- authenticated, authorize to service_role, nothing to PUBLIC/anon), every private
+-- helper stays ungranted, and red_publicer_narrative_record still takes fund B4's
+-- source-record lock BEFORE it reads the binding row.
+DO $$
+DECLARE v_def text; v_lock int; v_select int;
+BEGIN
+  IF to_regprocedure('public.red_preview_reimport_cases(bigint,text,jsonb)') IS NULL
+     OR to_regprocedure('public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)') IS NULL
+     OR to_regprocedure('public.red_apply_reimport_cases(uuid,text,text)') IS NULL
+     OR to_regprocedure('private.reimport_case_receipt(uuid)') IS NULL
+     OR to_regprocedure('private.write_reimport_case_narrative(bigint,bigint,bigint,text,boolean,text)') IS NULL
+     OR to_regprocedure('private.reimport_case_source_record_state(bigint,text)') IS NULL
+     OR to_regprocedure('private.reimport_case_narrative_state(bigint,bigint)') IS NULL
+     OR to_regprocedure('private.reimport_case_binding_state(uuid,bigint)') IS NULL
+     OR to_regprocedure('private.validate_reimport_case_selection(jsonb)') IS NULL
+     OR to_regprocedure('private.validate_reimport_case_elements(jsonb,jsonb)') IS NULL
+     OR to_regprocedure('private.validate_reimport_case_counts(jsonb)') IS NULL THEN
+    RAISE EXCEPTION 'C3_APPLY_RPC_CONTRACT_MISSING';
+  END IF;
+  IF (SELECT provolatile FROM pg_proc
+       WHERE oid='public.red_preview_reimport_cases(bigint,text,jsonb)'::regprocedure) <> 's' THEN
+    RAISE EXCEPTION 'C3_APPLY_PREVIEW_NOT_STABLE';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_proc p WHERE p.oid IN (
+      'public.red_preview_reimport_cases(bigint,text,jsonb)'::regprocedure,
+      'public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)'::regprocedure,
+      'public.red_apply_reimport_cases(uuid,text,text)'::regprocedure)
+      AND (NOT p.prosecdef OR p.proconfig IS NULL)
+  ) THEN
+    RAISE EXCEPTION 'C3_APPLY_RPC_HARDENING_MISSING';
+  END IF;
+  IF has_function_privilege('anon','public.red_preview_reimport_cases(bigint,text,jsonb)','EXECUTE')
+     OR has_function_privilege('anon','public.red_apply_reimport_cases(uuid,text,text)','EXECUTE')
+     OR has_function_privilege('anon','public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)','EXECUTE')
+     OR has_function_privilege('authenticated','public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)','EXECUTE')
+     OR has_function_privilege('service_role','public.red_apply_reimport_cases(uuid,text,text)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_preview_reimport_cases(bigint,text,jsonb)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_apply_reimport_cases(uuid,text,text)','EXECUTE')
+     OR NOT has_function_privilege('service_role','public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)','EXECUTE') THEN
+    RAISE EXCEPTION 'C3_APPLY_RPC_ACL_INVALID';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM unnest(ARRAY[
+      'private.reimport_case_source_record_state(bigint,text)',
+      'private.reimport_case_narrative_state(bigint,bigint)',
+      'private.reimport_case_binding_state(uuid,bigint)',
+      'private.validate_reimport_case_selection(jsonb)',
+      'private.validate_reimport_case_elements(jsonb,jsonb)',
+      'private.validate_reimport_case_counts(jsonb)',
+      'private.reimport_case_receipt(uuid)',
+      'private.write_reimport_case_narrative(bigint,bigint,bigint,text,boolean,text)']) fn
+    CROSS JOIN unnest(ARRAY['anon','authenticated','service_role']) role_name
+    WHERE has_function_privilege(role_name,fn,'EXECUTE')
+  ) THEN
+    RAISE EXCEPTION 'C3_APPLY_PRIVATE_HELPER_ACL_INVALID';
+  END IF;
+  v_def := pg_get_functiondef('public.red_publicer_narrative_record(bigint,uuid,text,text)'::regprocedure);
+  v_lock := strpos(v_def,'FROM private.source_record WHERE id = p_source_record_id FOR UPDATE');
+  v_select := strpos(v_def,'FROM private.narrative_record_publication');
+  IF v_lock = 0 OR v_select = 0 OR v_lock > v_select THEN
+    RAISE EXCEPTION 'C3_APPLY_PUBLICATION_SOURCE_RECORD_LOCK_MISSING';
+  END IF;
+  RAISE NOTICE 'OK: C3 apply RPC-kontrakt (preview/authorize/apply) er installeret, hærdet og rolle-adskilt';
+END $$;
+
 -- ===== C3 Task 1 — komponentbrede identitetskontradiktioner =====
 DO $$
 BEGIN
