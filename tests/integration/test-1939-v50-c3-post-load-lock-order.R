@@ -6,11 +6,15 @@ if (!grepl("^daa1939_c3_identity_task2_",pg$PGDATABASE))
   stop("POST_LOAD_LOCK_ORDER_REQUIRES_NAMED_DISPOSABLE_DATABASE",call.=FALSE)
 
 script <- readLines(".claude/skills/daa-extract/scripts/post_load_fixup.R",warn=FALSE)
-advisory_line <- grep("pg_advisory_xact_lock\\(hashtext",script)[1]
-generation_line <- grep("guard_identity_mutation_snapshot",script)[1]
+# Each pattern must match its OWN statement line: "hashtext" is a prefix of
+# "hashtextextended", so a loose pattern would silently latch onto the global
+# writer lock (fund H4) above and stop checking samme_som_mutation at all.
+writer_line <- grep("pg_advisory_xact_lock\\(hashtextextended\\('daa-1939-v50-production-writer',0\\)\\)",script)[1]
+advisory_line <- grep("pg_advisory_xact_lock\\(hashtext\\('samme_som_mutation'\\)\\)",script)[1]
+generation_line <- grep("private.guard_identity_mutation_snapshot\\(\\)",script)[1]
 table_line <- grep("LOCK TABLE lineage, relation",script)[1]
-if (is.na(advisory_line) || is.na(generation_line) || is.na(table_line) ||
-    advisory_line >= generation_line || generation_line >= table_line)
+if (is.na(writer_line) || is.na(advisory_line) || is.na(generation_line) || is.na(table_line) ||
+    writer_line >= advisory_line || advisory_line >= generation_line || generation_line >= table_line)
   stop("POST_LOAD_SOURCE_LOCK_ORDER_INVERTED",call.=FALSE)
 
 connect <- function() DBI::dbConnect(RPostgres::Postgres(),dbname=pg$PGDATABASE,
@@ -35,6 +39,7 @@ on.exit({try(q(controller,"SELECT extensions.dblink_exec($1,'ROLLBACK')",list(re
 remote_exec <- function(sql) q(controller,"SELECT extensions.dblink_exec($1,$2)",list(remote,sql))
 remote_exec(paste0(
   "CREATE FUNCTION pg_temp.c3_post_load_take_locks() RETURNS text LANGUAGE plpgsql AS $$ BEGIN ",
+  "PERFORM pg_advisory_xact_lock(hashtextextended('daa-1939-v50-production-writer',0)); ",
   "PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation')); ",
   "PERFORM private.guard_identity_mutation_snapshot(); ",
   "LOCK TABLE public.lineage,public.relation,public.assertion,public.citation,public.conclusion IN EXCLUSIVE MODE; ",
@@ -58,7 +63,7 @@ finish <- function(expected) {
 }
 
 # Post-load first: writer waits at advisory, never while holding relation table locks.
-DBI::dbBegin(loader); q(loader,"SELECT pg_advisory_xact_lock(hashtext('samme_som_mutation'))"); q(loader,"SELECT private.guard_identity_mutation_snapshot()"); x(loader,"LOCK TABLE public.lineage,public.relation,public.assertion,public.citation,public.conclusion IN EXCLUSIVE MODE")
+DBI::dbBegin(loader); q(loader,"SELECT pg_advisory_xact_lock(hashtextextended('daa-1939-v50-production-writer',0))"); q(loader,"SELECT pg_advisory_xact_lock(hashtext('samme_som_mutation'))"); q(loader,"SELECT private.guard_identity_mutation_snapshot()"); x(loader,"LOCK TABLE public.lineage,public.relation,public.assertion,public.citation,public.conclusion IN EXCLUSIVE MODE")
 q(controller,"SELECT extensions.dblink_send_query($1,$2)",list(remote,"SELECT public.red_samme_som(-1939513001,-1939513002)::text")); wait_lock(); DBI::dbCommit(loader); finish("^-?[0-9]+$"); remote_exec("ROLLBACK")
 if (q(controller,"SELECT EXISTS(SELECT 1 FROM relation WHERE rolle='samme_som' AND subjekt_id=-1939513001 AND objekt_id=-1939513002) value")$value[[1L]])
   stop("POST_LOAD_WRITER_ROLLBACK_OUTCOME_DRIFT",call.=FALSE)

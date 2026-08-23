@@ -797,3 +797,36 @@ test_that("match_replace_unioner: DB-union med NA/blank stub-navn giver hverken 
   expect_equal(r$match[["1"]], list(family_id = 10, stub_pid = 100))
   expect_equal(r$bortfaldne_family_ids, 11)
 })
+
+# Fund H4 (Task 9, step 0): loaderen og post-load SKAL tage den globale
+# writer-lock som C3-genimportens apply/reversal tager først — og FØR
+# samme_som_mutation og før enhver tabellås. Den empiriske to-sessions-prøve bor
+# i tests/integration/test-1939-v50-c3-writer-lock-order.R og kræver en
+# engangs-database; denne rene tekstkontrol kører i CI, så en fremtidig
+# omrokering af låserækkefølgen ikke kan slippe igennem ubemærket.
+test_that("load_daa.R og post_load_fixup.R tager den globale writer-lock først", {
+  root <- normalizePath(file.path(getwd(), "..", ".."))
+  writer_sql <- "SELECT pg_advisory_xact_lock(hashtextextended('daa-1939-v50-production-writer',0))"
+  writer_re <- "pg_advisory_xact_lock\\(hashtextextended\\('daa-1939-v50-production-writer',0\\)\\)"
+  code_only <- function(v) v[!grepl("^\\s*#", v)]   # prosa om låse er ikke en lås
+
+  loader <- readLines(file.path(root, ".claude/skills/daa-extract/scripts/load_daa.R"), warn = FALSE)
+  l_begin <- grep("^dbBegin\\(con\\)$", loader)[1]
+  l_writer <- grep(writer_re, loader)[1]
+  l_table <- grep("LOCK TABLE \", paste\\(id_tables", loader)[1]
+  expect_false(is.na(l_writer))
+  expect_true(l_begin < l_writer && l_writer < l_table)
+  expect_true(grepl(writer_sql, loader[[l_writer]], fixed = TRUE))
+  before_writer <- if (l_writer > l_begin + 1L) code_only(loader[(l_begin + 1L):(l_writer - 1L)]) else character(0)
+  expect_false(any(grepl("LOCK TABLE|advisory|FOR UPDATE|FOR SHARE", before_writer)))
+
+  post <- readLines(file.path(root, ".claude/skills/daa-extract/scripts/post_load_fixup.R"), warn = FALSE)
+  p_begin <- grep("^dbBegin\\(con\\)$", post)[1]
+  p_writer <- grep(writer_re, post)[1]
+  # 'hashtext' er et præfiks af 'hashtextextended' — mønstret skal ramme sin EGEN linje.
+  p_samme <- grep("pg_advisory_xact_lock\\(hashtext\\('samme_som_mutation'\\)\\)", post)[1]
+  p_table <- grep("LOCK TABLE lineage, relation", post)[1]
+  expect_false(is.na(p_writer))
+  expect_true(p_begin < p_writer && p_writer < p_samme && p_samme < p_table)
+  expect_true(grepl(writer_sql, post[[p_writer]], fixed = TRUE))
+})

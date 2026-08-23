@@ -49,6 +49,10 @@ tryCatch({
   # Global identity lock order: advisory/generation guard BEFORE any table lock.
   # This matches RPCs/triggers and turns stale REPEATABLE READ snapshots into
   # PostgreSQL serialization failures before graph predicates are evaluated.
+  # GLOBAL WRITER-LOCK (fund H4, Task 9 step 0): samme nøgle og samme placering
+  # som C3-genimportens apply/reversal bruger — global writer-lock FØR
+  # samme_som_mutation og før tabellåsene. Inversion = deadlock.
+  one("SELECT pg_advisory_xact_lock(hashtextextended('daa-1939-v50-production-writer',0))")
   one("SELECT pg_advisory_xact_lock(hashtext('samme_som_mutation'))")
   one("SELECT private.guard_identity_mutation_snapshot()")
   # IDENTITY-kontrakt (2026-07-31): nid() slår MAX(id)+1 op pr. kald — kræver
