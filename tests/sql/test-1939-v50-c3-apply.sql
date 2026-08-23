@@ -105,6 +105,7 @@ DECLARE
   v_event1 bigint;
   v_hash64 text := repeat('a',64);
   v_hash64_b text := repeat('b',64);
+  v_constraint text;
 BEGIN
   v_source_a := (SELECT coalesce(max(id),0)+1 FROM public.source);
   INSERT INTO public.source(id,slags,titel,udgave,aar)
@@ -157,7 +158,9 @@ BEGIN
       clock_timestamp()+interval '1 hour'
     );
     RAISE EXCEPTION 'EXPECTED_AUTHORIZATION_OPERATION_CHECK_REJECTION';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint <> 'reimport_case_authorization_operation_check' THEN RAISE; END IF;
   END;
 
   BEGIN
@@ -171,7 +174,9 @@ BEGIN
       clock_timestamp()+interval '1 hour'
     );
     RAISE EXCEPTION 'EXPECTED_AUTHORIZATION_PHASE_CHECK_REJECTION';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint <> 'reimport_case_authorization_phase_check' THEN RAISE; END IF;
   END;
 
   BEGIN
@@ -185,7 +190,29 @@ BEGIN
       clock_timestamp()+interval '1 hour'
     );
     RAISE EXCEPTION 'EXPECTED_AUTHORIZATION_HASH_SHAPE_REJECTION';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint <> 'reimport_case_authorization_manifest_sha256_check' THEN RAISE; END IF;
+  END;
+
+  -- Spot-check a SECOND, independent hash column: all six *_sha256 columns share
+  -- byte-identical regex text, so a typo confined to one column's CHECK (e.g. a
+  -- missing character in approval_sha256's pattern) would not be caught by only
+  -- ever exercising manifest_sha256 above.
+  BEGIN
+    INSERT INTO private.reimport_case_authorization(
+      source_id,phase,operation,manifest_sha256,preview_sha256,approval_sha256,
+      decisions_sha256,state_sha256,text_bundle_sha256,database_name,system_identifier,
+      expected_counts,authorized_elements,principal_id,nonce,expires_at
+    ) VALUES (
+      v_source_a,'c3','apply',v_hash64,v_hash64,'not-a-hash',v_hash64,v_hash64,v_hash64,
+      current_database(),'x','{}'::jsonb,'{}'::jsonb,gen_random_uuid(),gen_random_uuid(),
+      clock_timestamp()+interval '1 hour'
+    );
+    RAISE EXCEPTION 'EXPECTED_AUTHORIZATION_APPROVAL_HASH_SHAPE_REJECTION';
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint <> 'reimport_case_authorization_approval_sha256_check' THEN RAISE; END IF;
   END;
 
   BEGIN
@@ -199,7 +226,9 @@ BEGIN
       clock_timestamp()+interval '1 hour'
     );
     RAISE EXCEPTION 'EXPECTED_AUTHORIZATION_DATABASE_NAME_BLANK_REJECTION';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint <> 'reimport_case_authorization_database_name_check' THEN RAISE; END IF;
   END;
 
   BEGIN
@@ -213,7 +242,9 @@ BEGIN
       clock_timestamp()+interval '1 hour'
     );
     RAISE EXCEPTION 'EXPECTED_AUTHORIZATION_EXPECTED_COUNTS_NOT_OBJECT_REJECTION';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint <> 'reimport_case_authorization_expected_counts_check' THEN RAISE; END IF;
   END;
 
   BEGIN
@@ -227,13 +258,17 @@ BEGIN
       clock_timestamp()+interval '1 hour'
     );
     RAISE EXCEPTION 'EXPECTED_AUTHORIZATION_AUTHORIZED_ELEMENTS_NOT_OBJECT_REJECTION';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint <> 'reimport_case_authorization_authorized_elements_check' THEN RAISE; END IF;
   END;
 
   BEGIN
     UPDATE private.reimport_case_authorization SET status='consumed' WHERE id=v_auth_a;
     RAISE EXCEPTION 'EXPECTED_AUTHORIZATION_CONSUMED_WITHOUT_TIMESTAMP_REJECTION';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint <> 'reimport_case_authorization_consumed_has_timestamp' THEN RAISE; END IF;
   END;
   UPDATE private.reimport_case_authorization
     SET status='consumed', consumed_at=clock_timestamp() WHERE id=v_auth_a;
@@ -317,7 +352,9 @@ BEGIN
       v_auth_a,v_source_a,'c2','apply',v_hash64,v_hash64,gen_random_uuid(),'{}'::jsonb
     );
     RAISE EXCEPTION 'EXPECTED_BATCH_PHASE_CHECK_REJECTION';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint <> 'reimport_case_batch_phase_check' THEN RAISE; END IF;
   END;
 
   BEGIN
@@ -328,19 +365,25 @@ BEGIN
       v_auth_a,v_source_a,'c3','not-an-operation',v_hash64,v_hash64,gen_random_uuid(),'{}'::jsonb
     );
     RAISE EXCEPTION 'EXPECTED_BATCH_OPERATION_CHECK_REJECTION';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint <> 'reimport_case_batch_operation_check' THEN RAISE; END IF;
   END;
 
   BEGIN
     UPDATE private.reimport_case_batch SET status='not-a-status' WHERE id=v_batch_a;
     RAISE EXCEPTION 'EXPECTED_BATCH_STATUS_CHECK_REJECTION';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint <> 'reimport_case_batch_status_check' THEN RAISE; END IF;
   END;
 
   BEGIN
     UPDATE private.reimport_case_batch SET observed_counts='[1]'::jsonb WHERE id=v_batch_a;
     RAISE EXCEPTION 'EXPECTED_BATCH_OBSERVED_COUNTS_NOT_OBJECT_REJECTION';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint <> 'reimport_case_batch_observed_counts_check' THEN RAISE; END IF;
   END;
   UPDATE private.reimport_case_batch
     SET observed_counts='{"identity_different":1}'::jsonb WHERE id=v_batch_a;
@@ -354,13 +397,17 @@ BEGIN
   BEGIN
     UPDATE private.reimport_case_batch SET status='reversed' WHERE id=v_batch_a;
     RAISE EXCEPTION 'EXPECTED_BATCH_REVERSED_WITHOUT_REVERSAL_ID_REJECTION';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint <> 'reimport_case_batch_reversed_has_reversal' THEN RAISE; END IF;
   END;
 
   BEGIN
     UPDATE private.reimport_case_batch SET reversal_batch_id=gen_random_uuid() WHERE id=v_batch_a;
     RAISE EXCEPTION 'EXPECTED_BATCH_REVERSAL_ID_WITHOUT_REVERSED_STATUS_REJECTION';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint <> 'reimport_case_batch_reversed_has_reversal' THEN RAISE; END IF;
   END;
 
   -- A distinct reversal batch, referenced from the original -- both directions of
@@ -435,7 +482,9 @@ BEGIN
       v_batch_reversal,v_source_b,'c3','e2','not-an-action','c3-apply-v1','{}'::jsonb,v_hash64
     );
     RAISE EXCEPTION 'EXPECTED_EVENT_ACTION_CHECK_REJECTION';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint <> 'reimport_case_event_action_check' THEN RAISE; END IF;
   END;
 
   BEGIN
@@ -445,7 +494,9 @@ BEGIN
       v_batch_reversal,v_source_b,'c3','e2','identity_different','c2-apply-v0','{}'::jsonb,v_hash64
     );
     RAISE EXCEPTION 'EXPECTED_EVENT_PAYLOAD_SCHEMA_VERSION_CHECK_REJECTION';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint <> 'reimport_case_event_payload_schema_version_check' THEN RAISE; END IF;
   END;
 
   BEGIN
@@ -455,7 +506,9 @@ BEGIN
       v_batch_reversal,v_source_b,'c3','e2','identity_different','c3-apply-v1','[1,2]'::jsonb,v_hash64
     );
     RAISE EXCEPTION 'EXPECTED_EVENT_PAYLOAD_NOT_OBJECT_REJECTION';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint <> 'reimport_case_event_payload_check' THEN RAISE; END IF;
   END;
 
   BEGIN
@@ -465,7 +518,9 @@ BEGIN
       v_batch_reversal,v_source_b,'c3','e2','identity_different','c3-apply-v1','{}'::jsonb,'not-a-hash'
     );
     RAISE EXCEPTION 'EXPECTED_EVENT_AFTER_SHA_SHAPE_REJECTION';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint <> 'reimport_case_event_after_sha256_check' THEN RAISE; END IF;
   END;
 
   BEGIN
@@ -477,7 +532,9 @@ BEGIN
       'not-a-hash',v_hash64
     );
     RAISE EXCEPTION 'EXPECTED_EVENT_BEFORE_SHA_SHAPE_REJECTION';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint <> 'reimport_case_event_before_sha256_check' THEN RAISE; END IF;
   END;
 
   IF (SELECT created_at FROM private.reimport_case_event WHERE id=v_event1) IS NULL
