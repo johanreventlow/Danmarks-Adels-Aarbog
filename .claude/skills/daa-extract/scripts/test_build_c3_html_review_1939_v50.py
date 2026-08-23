@@ -791,6 +791,89 @@ def test_apply_text_bundle_sha256_changes_with_candidate_derived_drift(
     assert drifted != baseline
 
 
+@pytest.mark.parametrize("mutate", [
+    lambda doc: doc["cases"][0]["events"][0].__setitem__(
+        "rid", doc["cases"][0]["events"][0]["rid"] + "-DRIFTED"),
+    lambda doc: doc["cases"][0]["events"][0]["after_state"].__setitem__(
+        "normalization_version", "narrative_norm_v2"),
+])
+def test_apply_text_bundle_sha256_is_sensitive_to_rid_and_normalization_version(
+        mutate):
+    """Pins the remaining two fields of the documented hash input set.
+
+    `apply_text_bundle_sha256` is documented (its own docstring, and the
+    Task 4 report) to bind exactly: element_id, rid, normalization_version,
+    normalized_text, normalization_flags. The parametrized test above
+    (`..._changes_with_candidate_derived_drift`) already proves
+    normalized_text/normalization_flags sensitivity; this covers the
+    other two so the full input set is regression-pinned, not just
+    described in prose. If either mutation here stops changing the hash,
+    a field silently fell out of the payload.
+    """
+    raw, document = apply_manifest_raw()
+    baseline = mod.apply_text_bundle_sha256(mod._apply_assign_events(document))
+    _, drifted_document = apply_manifest_raw(mutate=mutate)
+    drifted = mod.apply_text_bundle_sha256(
+        mod._apply_assign_events(drifted_document))
+    assert drifted != baseline
+
+
+def test_apply_text_bundle_sha256_does_not_bind_target_person_id_KNOWN_LIMITATION():
+    """KNOWN LIMITATION (deliberate, not a bug) — do not "fix" this test.
+
+    `apply_text_bundle_sha256` is scoped, by design, to only the
+    record-derived text fields (element_id, rid, normalization_version,
+    normalized_text, normalization_flags) — see its docstring and the
+    Task 4 report's "fund B1" note: this is what lets ONE human text
+    approval stay valid across both the rehearsal-base manifest and the
+    prod manifest, since before_state/database differ between the two
+    runs but the candidate text does not.
+
+    The direct consequence: `target_person_id` — and the other
+    candidate-derived, card-visible-but-non-text fields `record_key` and
+    `expected_narrative` (e.g. `citation_label`) — are NOT covered by
+    this hash. Two manifests with byte-identical narrative text but
+    DIFFERENT assign targets produce the SAME text_bundle_sha256. A
+    human approval of the text alone therefore does not, and cannot, bind
+    which person the text gets assigned to.
+
+    This is exactly why Task 5/6's real-write authorization MUST NOT gate
+    solely on `text_bundle_sha256` — it must additionally verify byte
+    identity of the actual manifest being applied (e.g. via
+    `manifest_raw_sha256`, which the report clarifies is a *record* of
+    which manifest was checked, not itself a gate — Task 5/6 has to wire
+    the check, not just log the hash).
+
+    If this assertion ever starts failing because target_person_id/
+    record_key/expected_narrative began influencing the hash, that is a
+    behavior change to `apply_text_bundle_sha256`'s contract, not a test
+    bug — update this test's name/docstring and the report accordingly,
+    do not just make it pass.
+    """
+    raw, document = apply_manifest_raw()
+    baseline = mod.apply_text_bundle_sha256(mod._apply_assign_events(document))
+
+    def drift_target(doc):
+        event = doc["cases"][0]["events"][0]
+        event["after_state"]["target_person_id"] = (
+            event["after_state"]["target_person_id"] + 999)
+        event["record_key"] = event["record_key"] + "-OTHER-TARGET"
+        event["after_state"]["expected_narrative"]["citation_label"] = (
+            event["after_state"]["expected_narrative"]["citation_label"]
+            + " ANDET MAAL")
+
+    _, drifted_document = apply_manifest_raw(mutate=drift_target)
+    drifted = mod.apply_text_bundle_sha256(
+        mod._apply_assign_events(drifted_document))
+    # Discriminating check: prove the mutation actually landed (the
+    # manifest's own canonical_content_sha256 differs), so an equality
+    # assertion on the bundle hash below cannot pass vacuously because
+    # drift_target silently did nothing.
+    assert (drifted_document["canonical_content_sha256"]
+            != document["canonical_content_sha256"])
+    assert drifted == baseline
+
+
 def test_apply_approval_sheet_has_exact_locked_byte_sequence():
     raw, document = apply_manifest_raw()
     events = mod._apply_assign_events(document)
