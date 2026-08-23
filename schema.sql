@@ -7666,13 +7666,47 @@ DECLARE
   v_identity integer:=0; v_assign integer:=0; v_no_pub integer:=0; v_events integer;
   v_result jsonb; v_after jsonb; v_bad bigint;
 BEGIN
+  -- ===== lock order step 0: timeouts, then the foreign-change-set guard ======
+  -- Both set_config calls MUST run before the first lock wait. lock_timeout is
+  -- re-read at every lock acquisition, so setting it here rather than after
+  -- step 1 is what bounds step 1's own advisory lock -- potentially the longest
+  -- wait in the whole call. Deliberate behaviour change: that wait is now
+  -- capped at 5s instead of being unbounded.
+  -- statement_timeout, by contrast, is bound by PostgreSQL at statement start,
+  -- and this function body IS the running statement, so no in-function
+  -- assignment can ever bound this call; it only affects later statements in
+  -- the same transaction. A gateway (Task 8) must therefore issue its own
+  -- SET LOCAL statement_timeout on its connection before calling apply.
+  PERFORM set_config('lock_timeout','5s',true);
+  PERFORM set_config('statement_timeout','120s',true);
+  -- The batch must own its change set. begin_change_set RETURNS an already
+  -- active app.change_set_id instead of opening a new one, so a caller that
+  -- left a foreign change set open would silently enrol every write below into
+  -- it -- and Task 7's reversal, which feeds reimport_case_batch.change_set_id
+  -- to red_fortryd_change_set, would then undo more than this batch. Fail
+  -- closed: apply must be the first and only statement in its transaction.
+  IF btrim(coalesce(current_setting('app.change_set_id',true),'')) <> '' THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_FOREIGN_CHANGE_SET';
+  END IF;
+
   -- ===== lock order step 1: global production-writer lock ====================
+  -- What this lock actually protects, stated precisely: it serialises C3
+  -- applies (and Task 7's reversals, which must take the same key) against EACH
+  -- OTHER. It does NOT serialise them against the existing 1939 writer family,
+  -- which takes hashtextextended('daa-1939-v50-name-completion',0) -- a
+  -- different key. Only Task 9's loader/post-load integration (its Step 0) can
+  -- bring the two families under one key; until then this lock must not be read
+  -- as protection against that family.
   PERFORM pg_advisory_xact_lock(hashtextextended('daa-1939-v50-production-writer',0));
   -- ===== lock order step 2: actor / profile / role gate ======================
   v_actor := private.require_reimport_1939_editor();
-  PERFORM set_config('lock_timeout','5s',true);
-  PERFORM set_config('statement_timeout','120s',true);
 
+  -- ===== lock order step 2.5: the authorization row itself ===================
+  -- Part of the deterministic order, not an aside: the authorization row is
+  -- locked between the role gate and the samme_som advisory lock, so two
+  -- concurrent applies of the same authorization serialise here. Task 7 must
+  -- take it in this same position (its sibling reimport_case_batch lock in the
+  -- commit-unknown branch below is taken immediately after, still inside 2.5).
   SELECT * INTO v_auth FROM private.reimport_case_authorization
    WHERE id=p_authorization_id FOR UPDATE;
   IF NOT FOUND OR v_auth.phase<>'c3' OR v_auth.operation<>'apply'

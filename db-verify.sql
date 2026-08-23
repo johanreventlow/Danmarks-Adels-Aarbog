@@ -85,7 +85,7 @@ END $$;
 -- helper stays ungranted, and red_publicer_narrative_record still takes fund B4's
 -- source-record lock BEFORE it reads the binding row.
 DO $$
-DECLARE v_def text; v_lock int; v_select int;
+DECLARE v_def text; v_lock int; v_select int; v_apply_def text;
 BEGIN
   IF to_regprocedure('public.red_preview_reimport_cases(bigint,text,jsonb)') IS NULL
      OR to_regprocedure('public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)') IS NULL
@@ -143,6 +143,27 @@ BEGIN
   v_select := strpos(v_def,'FROM private.narrative_record_publication');
   IF v_lock = 0 OR v_select = 0 OR v_lock > v_select THEN
     RAISE EXCEPTION 'C3_APPLY_PUBLICATION_SOURCE_RECORD_LOCK_MISSING';
+  END IF;
+  -- lock_timeout/statement_timeout must be set BEFORE the step-1 advisory lock
+  -- (lock_timeout is re-read at every lock acquisition, so its position decides
+  -- whether step 1's own wait is bounded), and the foreign-change-set guard
+  -- must run before begin_change_set, which would otherwise silently return an
+  -- already active change set and enrol the whole batch into it.
+  v_apply_def := pg_get_functiondef('public.red_apply_reimport_cases(uuid,text,text)'::regprocedure);
+  IF strpos(v_apply_def,'set_config(''lock_timeout''') = 0
+     OR strpos(v_apply_def,'set_config(''statement_timeout''') = 0
+     OR strpos(v_apply_def,'hashtextextended(''daa-1939-v50-production-writer'',0)') = 0
+     OR strpos(v_apply_def,'set_config(''lock_timeout''')
+        > strpos(v_apply_def,'hashtextextended(''daa-1939-v50-production-writer'',0)')
+     OR strpos(v_apply_def,'set_config(''statement_timeout''')
+        > strpos(v_apply_def,'hashtextextended(''daa-1939-v50-production-writer'',0)') THEN
+    RAISE EXCEPTION 'C3_APPLY_TIMEOUTS_SET_TOO_LATE';
+  END IF;
+  IF strpos(v_apply_def,'REIMPORT_CASE_FOREIGN_CHANGE_SET') = 0
+     OR strpos(v_apply_def,'public.begin_change_set(') = 0
+     OR strpos(v_apply_def,'REIMPORT_CASE_FOREIGN_CHANGE_SET')
+        > strpos(v_apply_def,'public.begin_change_set(') THEN
+    RAISE EXCEPTION 'C3_APPLY_FOREIGN_CHANGE_SET_GUARD_MISSING';
   END IF;
   RAISE NOTICE 'OK: C3 apply RPC-kontrakt (preview/authorize/apply) er installeret, hærdet og rolle-adskilt';
 END $$;

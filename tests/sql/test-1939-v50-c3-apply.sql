@@ -649,6 +649,8 @@ BEGIN;
 
 DO $t6_catalog$
 DECLARE v_def text; v_lock int; v_select int;
+        v_apply_def text; v_lock_timeout int; v_stmt_timeout int;
+        v_writer_lock int; v_guard int; v_begin_cs int;
 BEGIN
   IF to_regprocedure('public.red_preview_reimport_cases(bigint,text,jsonb)') IS NULL
      OR to_regprocedure('public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)') IS NULL
@@ -739,7 +741,36 @@ BEGIN
     RAISE EXCEPTION 'C3_APPLY_PUBLICATION_LOCK_ORDER_WRONG';
   END IF;
 
-  RAISE NOTICE 'OK: Task 6 catalog contract (RPC signatures, volatility, hardening, ACLs, step 4b lock order)';
+  -- Fund I1: both timeouts must be set BEFORE the step-1 advisory lock.
+  -- lock_timeout is re-read at every lock acquisition, so its position decides
+  -- whether the longest wait in the call -- step 1 itself -- is bounded at all.
+  -- (statement_timeout can never bound this call whatever its position, because
+  -- PostgreSQL binds it at statement start and the function body IS the
+  -- statement; it is still asserted here so the pair cannot drift apart.)
+  v_apply_def := pg_get_functiondef('public.red_apply_reimport_cases(uuid,text,text)'::regprocedure);
+  v_lock_timeout := strpos(v_apply_def,'set_config(''lock_timeout''');
+  v_stmt_timeout := strpos(v_apply_def,'set_config(''statement_timeout''');
+  v_writer_lock  := strpos(v_apply_def,'hashtextextended(''daa-1939-v50-production-writer'',0)');
+  IF v_lock_timeout = 0 OR v_stmt_timeout = 0 OR v_writer_lock = 0 THEN
+    RAISE EXCEPTION 'C3_APPLY_TIMEOUT_OR_WRITER_LOCK_MISSING';
+  END IF;
+  IF v_lock_timeout > v_writer_lock OR v_stmt_timeout > v_writer_lock THEN
+    RAISE EXCEPTION 'C3_APPLY_TIMEOUTS_SET_TOO_LATE';
+  END IF;
+
+  -- Fund C2: the foreign-change-set guard must exist and must run before
+  -- begin_change_set, which would otherwise silently return (and enrol these
+  -- writes into) an already active change set.
+  v_guard    := strpos(v_apply_def,'REIMPORT_CASE_FOREIGN_CHANGE_SET');
+  v_begin_cs := strpos(v_apply_def,'public.begin_change_set(');
+  IF v_guard = 0 THEN
+    RAISE EXCEPTION 'C3_APPLY_FOREIGN_CHANGE_SET_GUARD_MISSING';
+  END IF;
+  IF v_begin_cs = 0 OR v_guard > v_begin_cs THEN
+    RAISE EXCEPTION 'C3_APPLY_FOREIGN_CHANGE_SET_GUARD_TOO_LATE';
+  END IF;
+
+  RAISE NOTICE 'OK: Task 6 catalog contract (RPC signatures, volatility, hardening, ACLs, step 4b lock order, timeout/change-set guard order)';
 END $t6_catalog$;
 
 ROLLBACK;
@@ -769,6 +800,11 @@ DECLARE
   v_nonce uuid; v_n bigint; v_sqlstate text;
   v_rel_before bigint; v_narr_before bigint; v_bind_before bigint;
   v_ce_before bigint; v_ev_before bigint; v_batch_before bigint;
+  v_foreign_cs bigint;
+  v_promo_pa bigint; v_promo_pb bigint; v_promo_rid uuid; v_promo_nid bigint;
+  v_promo_bind uuid; v_promo_text text; v_promo_elems jsonb; v_promo_counts jsonb;
+  v_promo_auth uuid; v_promo_receipt jsonb; v_promo_batch uuid; v_promo_event jsonb;
+  v_promo_sel jsonb;
 BEGIN
   PERFORM set_config('app.change_set_id','',true);
   PERFORM set_config('app.change_seq','',true);
@@ -1176,6 +1212,10 @@ BEGIN
     INSERT INTO private.narrative_record_publication(
       narrative_id,source_record_id,record_label,citation_label,status)
     VALUES (v_narr[4],v_records[3],'kaprer','kaprer','published');
+    -- Apply owns its change set (see the foreign-change-set gate below), so
+    -- every call site clears app.change_set_id first. This is the caller's
+    -- contract, not a workaround.
+    PERFORM set_config('app.change_set_id','',true);
     EXECUTE 'SET LOCAL ROLE authenticated';
     PERFORM public.red_apply_reimport_cases(v_auth,repeat('1',64),repeat('3',64));
     RAISE EXCEPTION 'EXPECTED_CASE3_BINDING_DRIFT';
@@ -1300,6 +1340,38 @@ BEGIN
   RAISE NOTICE 'OK: haendelse, no_publication binding, narrative ambiguity, text drift and identity drift gates';
 
   ---------------------------------------------------------------------------
+  -- Foreign change set: apply must own its change set. begin_change_set
+  -- RETURNS an already active app.change_set_id rather than opening a new one,
+  -- so without this gate a caller that had a change set open would enrol the
+  -- whole batch into it -- and Task 7's reversal, which feeds
+  -- reimport_case_batch.change_set_id to red_fortryd_change_set, would undo
+  -- more than this batch. A REAL foreign change set is opened here, which is
+  -- exactly the production hazard.
+  ---------------------------------------------------------------------------
+  PERFORM set_config('app.change_set_id','',true);
+  v_foreign_cs := public.begin_change_set('t6-fremmed-saet','fremmed change set',NULL,NULL);
+  IF coalesce(current_setting('app.change_set_id',true),'') <> v_foreign_cs::text THEN
+    RAISE EXCEPTION 'C3_APPLY_FOREIGN_CHANGE_SET_FIXTURE_INVALID';
+  END IF;
+  BEGIN
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    PERFORM public.red_apply_reimport_cases(v_auth,repeat('1',64),repeat('3',64));
+    RAISE EXCEPTION 'EXPECTED_FOREIGN_CHANGE_SET_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'REIMPORT_CASE_FOREIGN_CHANGE_SET' THEN RAISE; END IF;
+  END;
+  EXECUTE 'RESET ROLE';
+  IF (SELECT count(*) FROM private.reimport_case_batch) <> v_batch_before
+     OR (SELECT count(*) FROM private.reimport_case_event) <> v_ev_before
+     OR (SELECT status FROM private.reimport_case_authorization WHERE id=v_auth) <> 'issued'
+     OR EXISTS (SELECT 1 FROM public.change_event WHERE change_set_id=v_foreign_cs) THEN
+    RAISE EXCEPTION 'C3_APPLY_PARTIAL_STATE_AFTER_FOREIGN_CHANGE_SET';
+  END IF;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  RAISE NOTICE 'OK: apply refuses to join a foreign change set (REIMPORT_CASE_FOREIGN_CHANGE_SET)';
+
+  ---------------------------------------------------------------------------
   -- Happy path: one call, one transaction, one batch, one change set,
   -- 11 events, exact after-state.
   ---------------------------------------------------------------------------
@@ -1393,6 +1465,10 @@ BEGIN
   ---------------------------------------------------------------------------
   -- Idempotency and commit-unknown
   ---------------------------------------------------------------------------
+  -- The successful apply above left ITS change set active in this transaction;
+  -- the replay is a fresh caller and must clear it, exactly as a gateway would
+  -- by calling apply as the only statement in its own transaction.
+  PERFORM set_config('app.change_set_id','',true);
   EXECUTE 'SET LOCAL ROLE authenticated';
   v_receipt2 := public.red_apply_reimport_cases(v_auth,repeat('1',64),repeat('3',64));
   EXECUTE 'RESET ROLE';
@@ -1402,6 +1478,7 @@ BEGIN
     RAISE EXCEPTION 'C3_APPLY_REPLAY_DUPLICATED';
   END IF;
   BEGIN
+    PERFORM set_config('app.change_set_id','',true);
     EXECUTE 'SET LOCAL ROLE authenticated';
     PERFORM public.red_apply_reimport_cases(v_auth,repeat('9',64),repeat('3',64));
     RAISE EXCEPTION 'EXPECTED_REPLAY_MANIFEST_DRIFT';
@@ -1410,6 +1487,7 @@ BEGIN
   END;
   EXECUTE 'RESET ROLE';
   BEGIN
+    PERFORM set_config('app.change_set_id','',true);
     EXECUTE 'SET LOCAL ROLE authenticated';
     PERFORM public.red_apply_reimport_cases(v_auth,repeat('1',64),repeat('9',64));
     RAISE EXCEPTION 'EXPECTED_REPLAY_APPROVAL_DRIFT';
@@ -1445,6 +1523,191 @@ BEGIN
     RAISE EXCEPTION 'C3_APPLY_RECORD_EXCLUSIVITY_END_STATE_DRIFT';
   END IF;
   RAISE NOTICE 'OK: step 4b end state -- one active binding per source record in both commit orders';
+
+  ---------------------------------------------------------------------------
+  -- The draft_same_record PROMOTE branch. Task 3's shipped finalizer allows
+  -- exactly two before-states for an assign record
+  -- (_ASSIGN_ALLOWED_BINDING_STATUSES = {absent, draft_same_record}), so a
+  -- manifest that passes every offline gate CAN reach the promote branch --
+  -- it is production-reachable and must be proven in both directions.
+  --
+  -- A second, self-contained one-case batch (1 identity + 1 assign = 2
+  -- elements) is used rather than a sixth case in the fixture above, so none of
+  -- the already-approved five-case assertions move.
+  ---------------------------------------------------------------------------
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+
+  v_promo_pa := (SELECT coalesce(max(id),0)+1 FROM public.person);
+  INSERT INTO public.person(id,levende,privat,staged,visning_navn)
+    VALUES (v_promo_pa,false,false,false,'Task 6 promote-target');
+  v_promo_pb := (SELECT coalesce(max(id),0)+1 FROM public.person);
+  INSERT INTO public.person(id,levende,privat,staged,visning_navn)
+    VALUES (v_promo_pb,false,false,false,'Task 6 promote-partner');
+
+  v_promo_rid := gen_random_uuid();
+  INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
+    VALUES (v_promo_rid,v_source,'t6-record-promote','person_entry',v_run);
+  v_occ := gen_random_uuid();
+  INSERT INTO private.source_record_occurrence(
+    id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,
+    verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id)
+    VALUES (v_occ,v_rend,'t6-occ-promote',777,777,7700,7750,
+            'RAA OCR PROMOTE','pf-promote','sf-promote',v_run);
+  INSERT INTO private.source_record_anchor_event(
+    occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name)
+    VALUES (v_occ,v_promo_rid,'accepted','{"k":"v"}'::jsonb,1,v_actor,'tester');
+
+  v_promo_nid := (SELECT coalesce(max(id),0)+1 FROM public.narrative);
+  INSERT INTO public.narrative(id,subjekt_type,subjekt_id,source_id,tekst,side,privat)
+    VALUES (v_promo_nid,'person',v_promo_pa,v_source,'GAMMEL PROMOTE TEKST','777',false);
+
+  -- The pre-existing DRAFT binding: same record, same target narrative, and the
+  -- exact labels the manifest names.
+  INSERT INTO private.narrative_record_publication(
+    narrative_id,source_record_id,record_label,citation_label,status)
+  VALUES (v_promo_nid,v_promo_rid,'t6-record-promote','DAA 1939 side 777','draft')
+  RETURNING id INTO v_promo_bind;
+  IF private.reimport_case_binding_state(v_promo_rid,v_promo_nid)->>'status'
+       <> 'draft_same_record' THEN
+    RAISE EXCEPTION 'C3_APPLY_PROMOTE_FIXTURE_INVALID';
+  END IF;
+
+  v_promo_text := 'NY NORMALISERET PROMOTE TEKST';
+  v_state := private.reimport_case_source_record_state(v_source,'t6-record-promote');
+  v_nstate := private.reimport_case_narrative_state(v_source,v_promo_pa);
+  v_promo_elems :=
+    jsonb_build_object('case:T6PROMO', jsonb_build_object(
+      'case_id','T6PROMO','action','different',
+      'person_ids',jsonb_build_array(v_promo_pa,v_promo_pb),
+      'before_state',jsonb_build_object('component_overlap',false,'existing_rejection',false)))
+    || jsonb_build_object('case:T6PROMO:rid:T6R07', jsonb_build_object(
+      'case_id','T6PROMO','rid','T6R07','record_key','t6-record-promote','action','assign',
+      'target_person_id',v_promo_pa,'target_narrative_id',v_promo_nid,
+      'normalized_text',v_promo_text,
+      'normalized_sha256',encode(sha256(convert_to(v_promo_text,'UTF8')),'hex'),
+      'record_label','t6-record-promote','citation_label','DAA 1939 side 777',
+      'side','777','privat',false,
+      'before_state',jsonb_build_object(
+        'source_record',jsonb_build_object('match_count',1,
+          'verbatim_sha256',v_state->>'verbatim_sha256','side',v_state->>'side'),
+        'target_narrative',jsonb_build_object('person_id',v_promo_pa,
+          'narrative_id',v_promo_nid,'privat',false,'old_sha256',v_nstate->'old_sha256'),
+        'binding',jsonb_build_object('status','draft_same_record',
+          'binding_person_id',v_promo_pa))));
+  v_promo_counts := jsonb_build_object('cases',1,'identity_events',1,'assign_events',1,
+    'no_publication_events',0,'events',2,'approvals_approved',1,'approvals_unresolved',0);
+
+  -- Fund H1: preview is the ONLY state oracle, so the before-state this element
+  -- map hard-codes must be the one preview would actually publish -- otherwise
+  -- the promote branch would be apply-reachable but never reachable through the
+  -- real pipeline. Preview re-derives the target narrative from the selection's
+  -- target_person_id and passes it to reimport_case_binding_state, so it can and
+  -- must distinguish draft_same_record from draft_other_record here.
+  v_promo_sel := jsonb_build_object('schema_version','1939-v50-c3-apply-selection-v1',
+    'cases', jsonb_build_array(jsonb_build_object(
+      'case_id','T6PROMO',
+      'identity_pair',jsonb_build_object('person_ids',jsonb_build_array(v_promo_pa,v_promo_pb)),
+      'records',jsonb_build_array(jsonb_build_object(
+        'rid','T6R07','record_key','t6-record-promote','action','assign',
+        'target_person_id',v_promo_pa,
+        'raw_sha256',v_state->>'verbatim_sha256',
+        'normalized_sha256',encode(sha256(convert_to(v_promo_text,'UTF8')),'hex'))))));
+  v_preview := public.red_preview_reimport_cases(v_source,'c3',v_promo_sel);
+  IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_preview->'bindings') b
+                  WHERE b->>'record_key'='t6-record-promote'
+                    AND b->>'status'='draft_same_record'
+                    AND (b->>'binding_person_id')::bigint = v_promo_pa) THEN
+    RAISE EXCEPTION 'C3_APPLY_PROMOTE_PREVIEW_STATUS_DRIFT';
+  END IF;
+
+  EXECUTE 'SET LOCAL ROLE service_role';
+  v_promo_auth := public.red_authorize_reimport_cases(
+    v_source,'c3','apply',repeat('a',64),repeat('b',64),repeat('c',64),repeat('d',64),
+    repeat('e',64),repeat('f',64),current_database(),
+    (pg_control_system()).system_identifier::text, v_promo_counts, v_promo_elems,
+    gen_random_uuid(), clock_timestamp()+interval '1 hour');
+  EXECUTE 'RESET ROLE';
+
+  -- Negative twin FIRST: the same existing draft, but its label no longer
+  -- matches the manifest. Label drift is only detectable in the write loop
+  -- (the binding STATUS still measures as draft_same_record), i.e. after the
+  -- identity relation and the narrative rewrite have already been written --
+  -- so this also re-proves all-or-nothing on the promote path.
+  BEGIN
+    UPDATE private.narrative_record_publication
+       SET record_label='FORKERT ETIKET' WHERE id=v_promo_bind;
+    PERFORM set_config('app.change_set_id','',true);
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    PERFORM public.red_apply_reimport_cases(v_promo_auth,repeat('a',64),repeat('c',64));
+    RAISE EXCEPTION 'EXPECTED_PROMOTE_LABEL_DRIFT_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'REIMPORT_CASE_BINDING_DRIFT' THEN RAISE; END IF;
+  END;
+  EXECUTE 'RESET ROLE';
+  IF (SELECT status FROM private.narrative_record_publication WHERE id=v_promo_bind) <> 'draft'
+     OR (SELECT record_label FROM private.narrative_record_publication WHERE id=v_promo_bind)
+        <> 't6-record-promote'
+     OR (SELECT tekst FROM public.narrative WHERE id=v_promo_nid) <> 'GAMMEL PROMOTE TEKST'
+     OR EXISTS (SELECT 1 FROM public.relation r
+                 WHERE r.rolle='ikke_samme_som' AND r.subjekt_type='person'
+                   AND r.subjekt_id=v_promo_pa AND r.objekt_id=v_promo_pb)
+     OR (SELECT status FROM private.reimport_case_authorization WHERE id=v_promo_auth) <> 'issued'
+     OR (SELECT count(*) FROM private.reimport_case_batch WHERE source_id=v_source) <> 1 THEN
+    RAISE EXCEPTION 'C3_APPLY_PROMOTE_LABEL_DRIFT_PARTIAL_STATE';
+  END IF;
+
+  -- Positive: the untouched draft is PROMOTED in place.
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  v_promo_receipt := public.red_apply_reimport_cases(v_promo_auth,repeat('a',64),repeat('c',64));
+  EXECUTE 'RESET ROLE';
+  v_promo_batch := (v_promo_receipt->>'batch_id')::uuid;
+  IF v_promo_receipt->>'status' <> 'finalized'
+     OR jsonb_array_length(v_promo_receipt->'elements') <> 2
+     OR (v_promo_receipt->'observed_counts'->>'events')::int <> 2
+     OR (v_promo_receipt->'observed_counts'->>'identity_events')::int <> 1
+     OR (v_promo_receipt->'observed_counts'->>'assign_events')::int <> 1
+     OR (v_promo_receipt->'observed_counts'->>'no_publication_events')::int <> 0 THEN
+    RAISE EXCEPTION 'C3_APPLY_PROMOTE_RECEIPT_DRIFT';
+  END IF;
+  -- Promotion, not delete+insert: the SAME binding row id survives, now
+  -- published, with its labels intact and still the record's only binding.
+  -- NOT EXISTS, not a scalar comparison: a delete+insert would make every
+  -- scalar read NULL and let a three-valued IF fall through.
+  IF (SELECT count(*) FROM private.narrative_record_publication
+       WHERE source_record_id=v_promo_rid) <> 1
+     OR NOT EXISTS (SELECT 1 FROM private.narrative_record_publication
+                     WHERE id=v_promo_bind AND status='published'
+                       AND narrative_id=v_promo_nid
+                       AND record_label='t6-record-promote'
+                       AND citation_label='DAA 1939 side 777') THEN
+    RAISE EXCEPTION 'C3_APPLY_PROMOTE_BINDING_AFTER_STATE_DRIFT';
+  END IF;
+  IF (SELECT tekst FROM public.narrative WHERE id=v_promo_nid) <> v_promo_text
+     OR NOT EXISTS (SELECT 1 FROM public.relation r
+                     WHERE r.rolle='ikke_samme_som' AND r.subjekt_type='person'
+                       AND r.subjekt_id=v_promo_pa AND r.objekt_id=v_promo_pb) THEN
+    RAISE EXCEPTION 'C3_APPLY_PROMOTE_DOMAIN_AFTER_STATE_DRIFT';
+  END IF;
+  -- The C3 event records WHICH branch ran, so Task 7's reversal can tell a
+  -- promoted pre-existing draft from a binding this batch created.
+  SELECT e.payload->'result' INTO v_promo_event
+    FROM private.reimport_case_event e
+   WHERE e.batch_id=v_promo_batch AND e.action='record_assign';
+  IF v_promo_event->>'binding_before_kind' <> 'draft_same_record'
+     OR v_promo_event->>'binding_status' <> 'published'
+     OR v_promo_event->>'binding_id' <> v_promo_bind::text
+     OR (v_promo_event->>'narrative_id')::bigint <> v_promo_nid THEN
+    RAISE EXCEPTION 'C3_APPLY_PROMOTE_EVENT_DRIFT';
+  END IF;
+  -- The five-case batch is untouched by this second batch.
+  IF (SELECT count(*) FROM private.reimport_case_batch WHERE source_id=v_source) <> 2
+     OR (SELECT count(*) FROM private.reimport_case_event WHERE batch_id=v_batch) <> 11 THEN
+    RAISE EXCEPTION 'C3_APPLY_PROMOTE_BATCH_SCOPE_DRIFT';
+  END IF;
+  RAISE NOTICE 'OK: draft_same_record promote branch -- preview reports it, in-place promotion, binding_before_kind recorded, label drift is terminal';
 
   RAISE EXCEPTION 'ROLLBACK_TEST_1939_V50_C3_APPLY_TASK6';
 EXCEPTION WHEN others THEN
