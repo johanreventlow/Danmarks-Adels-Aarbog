@@ -14,13 +14,22 @@
   source(file.path(script_dir, "export_c3_apply_preview_1939_v50_helpers.R"))
 
   args <- commandArgs(trailingOnly = TRUE)
-  allowed <- c("--candidate", "--output", "--expect-database-name")
+  allowed <- c("--candidate", "--output", "--expect-database-name", "--actor-id")
   parsed <- .c3_common_parse_flags(args, allowed, "C3_PREVIEW_ARGUMENTS_INVALID")
   candidate_path <- parsed[["--candidate"]]
   output_path <- parsed[["--output"]]
   expected_database_name <- parsed[["--expect-database-name"]]
+  actor_id <- parsed[["--actor-id"]]
   if (!.c3_common_scalar_string(expected_database_name, "^[A-Za-z0-9_.-]+$"))
     .c3_common_stop("C3_PREVIEW_DATABASE_NAME_INVALID")
+  ## Task 2 addendum: red_preview_reimport_cases is SECURITY DEFINER and its
+  ## first statement gates on auth.uid(), which a direct DBI connection never
+  ## carries -- see export_c3_apply_preview_1939_v50_helpers.R's
+  ## `.c3_preview_jwt_sql` comment for the full chain. Validated here, DB-free,
+  ## before any connection is opened, mirroring the database-name check
+  ## immediately above it.
+  if (!.c3_common_scalar_string(actor_id, .c3_preview_actor_id_pattern))
+    .c3_common_stop("C3_PREVIEW_ACTOR_ID_INVALID")
   .c3_common_refuse_existing_output(output_path, "C3_PREVIEW_OUTPUT_EXISTS")
 
   candidate_raw <- .c3_common_read_regular_raw(candidate_path,
@@ -63,7 +72,7 @@
   )
 
   preview <- build_c3_apply_database_preview(candidate_raw, gateway,
-                                             expected_database_name)
+                                             expected_database_name, actor_id)
 
   rendered <- paste0(jsonlite::toJSON(preview, auto_unbox = TRUE, pretty = TRUE,
                                       null = "null"), "\n")

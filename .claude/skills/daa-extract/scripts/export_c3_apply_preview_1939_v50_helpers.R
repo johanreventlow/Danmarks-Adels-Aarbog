@@ -16,6 +16,26 @@
 
 .c3_preview_source_id_1939 <- 3L
 .c3_preview_phase <- "c3"
+## Duplicated verbatim from apply_c3_1939_v50_helpers.R's own
+## `.c3_apply_uuid_pattern` (not sourced from there -- this file's own header
+## says every entry point sources only c3_export_shared_1939_v50_helpers.R
+## plus its own task-specific helpers file, and the shared file defines no
+## UUID pattern of its own). Same shape, same reason: RFC 4122 textual UUID.
+.c3_preview_actor_id_pattern <-
+  "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+## Task 2 addendum: `public.red_preview_reimport_cases` is SECURITY DEFINER
+## and its first statement is `PERFORM private.require_reimport_1939_editor()`,
+## which resolves `auth.uid()` from `request.jwt.claim.sub` and rejects unless
+## the matching `profiles` row has `rolle='redaktion'` (schema.sql, function
+## body at ~line 7387; the role gate itself at ~line 2377-2385). A direct DBI
+## connection carries no JWT, so `auth.uid()` is NULL until this is set.
+## `true` (transaction-local): confirmed empirically that `set_config(...,
+## true)` issued in an implicit single-statement transaction reverts before
+## the next explicit `BEGIN`, so this must run *inside* the same transaction
+## as the RPC call, not before it opens -- mirroring
+## `apply_c3_1939_v50_helpers.R`'s own `.c3_apply_prologue`, which sets it as
+## the first statement immediately after `BEGIN`, not before.
+.c3_preview_jwt_sql <- "SELECT set_config('request.jwt.claim.sub', $1, true) AS jwt_subject"
 .c3_preview_statement_timeout_sql <- "SET LOCAL statement_timeout = '30s'"
 .c3_preview_lock_timeout_sql <- "SET LOCAL lock_timeout = '2s'"
 .c3_preview_rpc_response_keys <- c(
@@ -371,12 +391,17 @@
 ## execute = function(sql, params) -> invisible)`. Both are pure I/O
 ## injection points: the CLI entry point supplies a real DBI-backed
 ## implementation; tests supply a call-recording fake. Neither this
-## function nor its caller ever issues any SQL beyond the fixed 8-call
-## sequence documented in the Task 2 ruling.
+## function nor its caller ever issues any SQL beyond the fixed 9-call
+## sequence documented in the Task 2 ruling (originally 8; the Task 2
+## addendum added the `request.jwt.claim.sub` set_config call as the new
+## call 2, immediately after BEGIN -- see the `.c3_preview_jwt_sql` constant's
+## comment above for why).
 build_c3_apply_database_preview <- function(candidate_raw, gateway,
-                                            expected_database_name) {
+                                            expected_database_name, actor_id) {
   if (!.c3_common_scalar_string(expected_database_name, "^[A-Za-z0-9_.-]+$"))
     .c3_common_stop("C3_PREVIEW_DATABASE_NAME_INVALID")
+  if (!.c3_common_scalar_string(actor_id, .c3_preview_actor_id_pattern))
+    .c3_common_stop("C3_PREVIEW_ACTOR_ID_INVALID")
   if (!is.list(gateway) || !is.function(gateway$query) || !is.function(gateway$execute))
     .c3_common_stop("C3_PREVIEW_GATEWAY_INVALID")
   candidate <- .c3_preview_parse_candidate(candidate_raw)
@@ -396,6 +421,11 @@ build_c3_apply_database_preview <- function(candidate_raw, gateway,
   on.exit(rollback(), add = TRUE)
 
   execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+  ## Must be the first statement after BEGIN, not before it (see the constant's
+  ## comment above): `request.jwt.claim.sub` is transaction-local so it has to
+  ## be set inside the same transaction every later query in this sequence
+  ## runs in, before the RPC call that is gated on it.
+  query(.c3_preview_jwt_sql, list(actor_id))
   execute(.c3_preview_statement_timeout_sql)
   execute(.c3_preview_lock_timeout_sql)
 

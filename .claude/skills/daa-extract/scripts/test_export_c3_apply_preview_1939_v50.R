@@ -21,6 +21,7 @@ expect_error <- function(expr, token) {
   expect(identical(observed, token), paste0("C3_TEST_ERROR_MISMATCH:", token, ":", observed))
 }
 sha <- function(letter) paste(rep(letter, 64L), collapse = "")
+ACTOR_ID <- "11111111-1111-1111-1111-111111111111"
 
 ## ---- Candidate fixture (mirrors build_c3_apply_candidate_1939_v50.py's
 ## exact five-case, six-record output shape) ------------------------------
@@ -138,6 +139,8 @@ fake_gateway <- function(rpc_response = default_rpc_response(), rpc_error = NULL
   execute <- function(sql, params = NULL) { record("execute", sql, params); invisible(NULL) }
   query <- function(sql, params = NULL) {
     record("query", sql, params)
+    if (grepl("set_config", sql, fixed = TRUE) && grepl("jwt", sql, fixed = TRUE))
+      return(data.frame(jwt_subject = params[[1L]], stringsAsFactors = FALSE))
     if (identical(sql, "SHOW transaction_read_only"))
       return(data.frame(transaction_read_only = readonly, stringsAsFactors = FALSE))
     if (identical(sql, "SELECT current_database()"))
@@ -161,15 +164,15 @@ last_call_sql <- function(gateway) {
 }
 
 run_build <- function(gateway = fake_gateway(), document = candidate_document(),
-                      expected_database_name = DB_NAME) {
+                      expected_database_name = DB_NAME, actor_id = ACTOR_ID) {
   build_c3_apply_database_preview(candidate_raw(document), gateway,
-                                  expected_database_name)
+                                  expected_database_name, actor_id)
 }
 
 expect_fail_closed <- function(gateway, token, document = candidate_document(),
-                               expected_database_name = DB_NAME) {
+                               expected_database_name = DB_NAME, actor_id = ACTOR_ID) {
   observed <- tryCatch({
-    run_build(gateway, document, expected_database_name)
+    run_build(gateway, document, expected_database_name, actor_id)
     ""
   }, error = function(e) conditionMessage(e))
   expect(identical(observed, token), paste0("C3_TEST_FAILCLOSED:", token, ":", observed))
@@ -180,26 +183,45 @@ expect_fail_closed <- function(gateway, token, document = candidate_document(),
 modify_response <- function(mutator, base = default_rpc_response()) mutator(base)
 
 ## ==========================================================================
-## Step 1: fixed 8-call gateway sequence and canonical output
+## Step 1: fixed 9-call gateway sequence and canonical output
 ## ==========================================================================
+##
+## Task 2 addendum: was 8 calls. red_preview_reimport_cases's first statement
+## is PERFORM private.require_reimport_1939_editor(), which rejects unless
+## auth.uid() (from request.jwt.claim.sub) resolves to a profiles row with
+## rolle='redaktion' -- confirmed statically against schema.sql (function body
+## at ~line 7387, role gate at ~line 2377-2385) and by the identical, already-
+## shipped jwt-first-after-BEGIN pattern in apply_c3_1939_v50_helpers.R's
+## `.c3_apply_prologue`. Call 2 is the new set_config('request.jwt.claim.sub',
+## ...) call this establishes, immediately after BEGIN: transaction-local
+## set_config must run inside the same transaction as everything that depends
+## on it, confirmed empirically against a local Postgres 17 instance (see the
+## Task 2 addendum report) -- a value set outside an explicit transaction
+## reverts as soon as that single-statement implicit transaction commits, so
+## it is gone before any later explicit BEGIN even starts.
 
 fg <- fake_gateway()
 result <- run_build(fg)
 calls <- fg$calls()
 
-expect(length(calls) == 8L, paste0("C3_TEST_CALL_COUNT:", length(calls)))
+expect(length(calls) == 9L, paste0("C3_TEST_CALL_COUNT:", length(calls)))
 expect(identical(calls[[1L]]$sql, "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY"),
        "C3_TEST_CALL_1_BEGIN")
-expect(grepl("statement_timeout", calls[[2L]]$sql, fixed = TRUE), "C3_TEST_CALL_2_STMT_TIMEOUT")
-expect(grepl("lock_timeout", calls[[3L]]$sql, fixed = TRUE), "C3_TEST_CALL_3_LOCK_TIMEOUT")
-expect(identical(calls[[4L]]$sql, "SHOW transaction_read_only"), "C3_TEST_CALL_4_SHOW_READONLY")
-expect(identical(calls[[5L]]$sql, "SELECT current_database()"), "C3_TEST_CALL_5_CURRENT_DATABASE")
-expect(grepl("system_identifier", calls[[6L]]$sql, fixed = TRUE), "C3_TEST_CALL_6_SYSTEM_IDENTIFIER")
-expect(!identical(calls[[5L]]$sql, calls[[6L]]$sql), "C3_TEST_CALL_5_6_DISTINCT")
-expect(grepl("red_preview_reimport_cases", calls[[7L]]$sql, fixed = TRUE),
-       "C3_TEST_CALL_7_RPC")
-expect(identical(calls[[7L]]$kind, "query"), "C3_TEST_CALL_7_IS_QUERY")
-expect(identical(calls[[8L]]$sql, "ROLLBACK"), "C3_TEST_CALL_8_ROLLBACK")
+expect(grepl("set_config", calls[[2L]]$sql, fixed = TRUE) &&
+       grepl("request.jwt.claim.sub", calls[[2L]]$sql, fixed = TRUE),
+       "C3_TEST_CALL_2_JWT")
+expect(identical(calls[[2L]]$kind, "query"), "C3_TEST_CALL_2_IS_QUERY")
+expect(identical(calls[[2L]]$params[[1L]], ACTOR_ID), "C3_TEST_CALL_2_ACTOR_ID_PARAM")
+expect(grepl("statement_timeout", calls[[3L]]$sql, fixed = TRUE), "C3_TEST_CALL_3_STMT_TIMEOUT")
+expect(grepl("lock_timeout", calls[[4L]]$sql, fixed = TRUE), "C3_TEST_CALL_4_LOCK_TIMEOUT")
+expect(identical(calls[[5L]]$sql, "SHOW transaction_read_only"), "C3_TEST_CALL_5_SHOW_READONLY")
+expect(identical(calls[[6L]]$sql, "SELECT current_database()"), "C3_TEST_CALL_6_CURRENT_DATABASE")
+expect(grepl("system_identifier", calls[[7L]]$sql, fixed = TRUE), "C3_TEST_CALL_7_SYSTEM_IDENTIFIER")
+expect(!identical(calls[[6L]]$sql, calls[[7L]]$sql), "C3_TEST_CALL_6_7_DISTINCT")
+expect(grepl("red_preview_reimport_cases", calls[[8L]]$sql, fixed = TRUE),
+       "C3_TEST_CALL_8_RPC")
+expect(identical(calls[[8L]]$kind, "query"), "C3_TEST_CALL_8_IS_QUERY")
+expect(identical(calls[[9L]]$sql, "ROLLBACK"), "C3_TEST_CALL_9_ROLLBACK")
 ## Fund M1: under the single-RPC design (Fund H1) there is exactly one
 ## domain-state call, so there is no interleaving window a fake gateway
 ## could exercise for a genuine concurrent-mutation test, and a fake has no
@@ -208,21 +230,21 @@ expect(identical(calls[[8L]]$sql, "ROLLBACK"), "C3_TEST_CALL_8_ROLLBACK")
 ## REPEATABLE READ before any state is read, verbatim, as call 1.
 expect(grepl("REPEATABLE READ", calls[[1L]]$sql, fixed = TRUE), "C3_TEST_REPEATABLE_READ")
 
-## No SELECT beyond the five/six identity+RPC calls: calls 5-7 are query, and
-## no other query-kind call exists anywhere in the sequence.
+## No SELECT beyond the jwt/read-only/identity/RPC calls: calls 2, 5-8 are
+## query, and no other query-kind call exists anywhere in the sequence.
 query_calls <- Filter(function(c) identical(c$kind, "query"), calls)
-expect(length(query_calls) == 4L, paste0("C3_TEST_QUERY_CALL_COUNT:", length(query_calls)))
+expect(length(query_calls) == 5L, paste0("C3_TEST_QUERY_CALL_COUNT:", length(query_calls)))
 
 ## p_selection carries hashes, never prose.
-selection_text <- calls[[7L]]$params[[3L]]
+selection_text <- calls[[8L]]$params[[3L]]
 selection_sent <- jsonlite::fromJSON(selection_text, simplifyVector = FALSE)
 expect(identical(selection_sent$schema_version, "1939-v50-c3-apply-selection-v1"),
        "C3_TEST_SELECTION_SCHEMA")
 expect(length(selection_sent$cases) == 5L, "C3_TEST_SELECTION_CASE_COUNT")
 expect(!grepl("normalized_text", selection_text, fixed = TRUE), "C3_TEST_SELECTION_NO_PROSE_FIELD")
 expect(!grepl("PROSE-FIXTURE", selection_text, fixed = TRUE), "C3_TEST_SELECTION_NO_PROSE_CONTENT")
-expect(identical(calls[[7L]]$params[[1L]], 3L), "C3_TEST_SELECTION_SOURCE_ID")
-expect(identical(calls[[7L]]$params[[2L]], "c3"), "C3_TEST_SELECTION_PHASE")
+expect(identical(calls[[8L]]$params[[1L]], 3L), "C3_TEST_SELECTION_SOURCE_ID")
+expect(identical(calls[[8L]]$params[[2L]], "c3"), "C3_TEST_SELECTION_PHASE")
 ## p_selection must be an ordinary character parameter, not a jsonlite
 ## `json`-classed object, so DBI/RPostgres parameter binding never has to
 ## guess how to coerce it.
@@ -260,29 +282,49 @@ expect(identical(result$before_state_canonical_sha256,
 ## Step 1b: pure-input validation (before any gateway call)
 ## ==========================================================================
 
-expect_error(build_c3_apply_database_preview(candidate_raw(), fake_gateway(), ""),
+expect_error(build_c3_apply_database_preview(candidate_raw(), fake_gateway(), "", ACTOR_ID),
              "C3_PREVIEW_DATABASE_NAME_INVALID")
-expect_error(build_c3_apply_database_preview(candidate_raw(), fake_gateway(), "bad name"),
+expect_error(build_c3_apply_database_preview(candidate_raw(), fake_gateway(), "bad name", ACTOR_ID),
              "C3_PREVIEW_DATABASE_NAME_INVALID")
-expect_error(build_c3_apply_database_preview(candidate_raw(), list(query = 1, execute = 2), DB_NAME),
+## Task 2 addendum: actor_id is validated before the gateway shape, matching
+## the database-name check's ordering (both are pure inputs, checked before
+## anything DB-shaped).
+expect_error(build_c3_apply_database_preview(candidate_raw(), fake_gateway(), DB_NAME, ""),
+             "C3_PREVIEW_ACTOR_ID_INVALID")
+expect_error(build_c3_apply_database_preview(candidate_raw(), fake_gateway(), DB_NAME, "not-a-uuid"),
+             "C3_PREVIEW_ACTOR_ID_INVALID")
+expect_error(build_c3_apply_database_preview(candidate_raw(), fake_gateway(), DB_NAME, NA_character_),
+             "C3_PREVIEW_ACTOR_ID_INVALID")
+expect_error(build_c3_apply_database_preview(candidate_raw(), fake_gateway(), DB_NAME, NULL),
+             "C3_PREVIEW_ACTOR_ID_INVALID")
+## Uppercase hex is not the RFC 4122 textual form this codebase's own
+## producers emit (e.g. digest::digest / gen_random_uuid()); reject it rather
+## than silently normalizing case. ACTOR_ID itself is all-digit (no hex
+## letters), so toupper() would be a no-op on it -- a separate, letter-bearing
+## UUID is used here to actually exercise case sensitivity.
+expect_error(build_c3_apply_database_preview(
+  candidate_raw(), fake_gateway(), DB_NAME,
+  toupper("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")),
+  "C3_PREVIEW_ACTOR_ID_INVALID")
+expect_error(build_c3_apply_database_preview(candidate_raw(), list(query = 1, execute = 2), DB_NAME, ACTOR_ID),
              "C3_PREVIEW_GATEWAY_INVALID")
-expect_error(build_c3_apply_database_preview("not raw bytes", fake_gateway(), DB_NAME),
+expect_error(build_c3_apply_database_preview("not raw bytes", fake_gateway(), DB_NAME, ACTOR_ID),
              "C3_PREVIEW_CANDIDATE_INVALID")
-expect_error(build_c3_apply_database_preview(charToRaw("{not json"), fake_gateway(), DB_NAME),
+expect_error(build_c3_apply_database_preview(charToRaw("{not json"), fake_gateway(), DB_NAME, ACTOR_ID),
              "C3_PREVIEW_CANDIDATE_INVALID")
 expect_error(build_c3_apply_database_preview(
-  candidate_raw(candidate_document(schema_version = "wrong")), fake_gateway(), DB_NAME),
+  candidate_raw(candidate_document(schema_version = "wrong")), fake_gateway(), DB_NAME, ACTOR_ID),
   "C3_PREVIEW_CANDIDATE_INVALID")
 
 wrong_counts <- candidate_document()
 wrong_counts$counts$cases <- 4
-expect_error(build_c3_apply_database_preview(candidate_raw(wrong_counts), fake_gateway(), DB_NAME),
+expect_error(build_c3_apply_database_preview(candidate_raw(wrong_counts), fake_gateway(), DB_NAME, ACTOR_ID),
              "C3_PREVIEW_CANDIDATE_INVALID")
 
 duplicate_rid_cases <- candidate_cases()
 duplicate_rid_cases[[2L]]$record_decisions[[1L]]$rid <- "rid-1"
 expect_error(build_c3_apply_database_preview(
-  candidate_raw(candidate_document(cases = duplicate_rid_cases)), fake_gateway(), DB_NAME),
+  candidate_raw(candidate_document(cases = duplicate_rid_cases)), fake_gateway(), DB_NAME, ACTOR_ID),
   "C3_PREVIEW_CANDIDATE_INVALID")
 
 ## ==========================================================================
@@ -584,17 +626,39 @@ expect(identical(as.integer(bad_args_cli$status), 1L) &&
        paste0("C3_TEST_CLI_ARGS_PREFLIGHT:", bad_args_cli$status, ":",
               paste(bad_args_cli$output, collapse = "|")))
 
+## Task 2 addendum: --actor-id is now a required flag. Omitting it (while
+## otherwise passing a complete, previously-sufficient flag set) must fail
+## closed on flag-count, exactly like any other missing required flag above.
+missing_actor_id_cli <- run_cli(c("--candidate", candidate_path, "--output", output_path,
+                                  "--expect-database-name", "postgres"), empty_pg)
+expect(identical(as.integer(missing_actor_id_cli$status), 1L) &&
+       length(missing_actor_id_cli$output) == 1L &&
+       identical(missing_actor_id_cli$output[[1L]], "C3_PREVIEW_ARGUMENTS_INVALID"),
+       paste0("C3_TEST_CLI_MISSING_ACTOR_ID_PREFLIGHT:", missing_actor_id_cli$status, ":",
+              paste(missing_actor_id_cli$output, collapse = "|")))
+
 bad_db_name_cli <- run_cli(c("--candidate", candidate_path, "--output", output_path,
-                             "--expect-database-name", "bad!name"), empty_pg)
+                             "--expect-database-name", "bad!name",
+                             "--actor-id", ACTOR_ID), empty_pg)
 expect(identical(as.integer(bad_db_name_cli$status), 1L) &&
        length(bad_db_name_cli$output) == 1L &&
        identical(bad_db_name_cli$output[[1L]], "C3_PREVIEW_DATABASE_NAME_INVALID"),
        paste0("C3_TEST_CLI_DBNAME_PREFLIGHT:", bad_db_name_cli$status, ":",
               paste(bad_db_name_cli$output, collapse = "|")))
 
+bad_actor_id_cli <- run_cli(c("--candidate", candidate_path, "--output", output_path,
+                              "--expect-database-name", "postgres",
+                              "--actor-id", "not-a-uuid"), empty_pg)
+expect(identical(as.integer(bad_actor_id_cli$status), 1L) &&
+       length(bad_actor_id_cli$output) == 1L &&
+       identical(bad_actor_id_cli$output[[1L]], "C3_PREVIEW_ACTOR_ID_INVALID"),
+       paste0("C3_TEST_CLI_ACTOR_ID_PREFLIGHT:", bad_actor_id_cli$status, ":",
+              paste(bad_actor_id_cli$output, collapse = "|")))
+
 writeBin(charToRaw("placeholder"), output_path)
 output_exists_cli <- run_cli(c("--candidate", candidate_path, "--output", output_path,
-                               "--expect-database-name", "postgres"), empty_pg)
+                               "--expect-database-name", "postgres",
+                               "--actor-id", ACTOR_ID), empty_pg)
 unlink(output_path)
 expect(identical(as.integer(output_exists_cli$status), 1L) &&
        length(output_exists_cli$output) == 1L &&
@@ -607,7 +671,8 @@ on.exit(unlink(malformed_candidate_path), add = TRUE)
 writeBin(charToRaw("[]"), malformed_candidate_path)
 malformed_candidate_cli <- run_cli(c("--candidate", malformed_candidate_path,
                                      "--output", output_path,
-                                     "--expect-database-name", "postgres"), empty_pg)
+                                     "--expect-database-name", "postgres",
+                                     "--actor-id", ACTOR_ID), empty_pg)
 expect(identical(as.integer(malformed_candidate_cli$status), 1L) &&
        length(malformed_candidate_cli$output) == 1L &&
        identical(malformed_candidate_cli$output[[1L]], "C3_PREVIEW_CANDIDATE_INVALID"),
@@ -615,7 +680,8 @@ expect(identical(as.integer(malformed_candidate_cli$status), 1L) &&
               paste(malformed_candidate_cli$output, collapse = "|")))
 
 pg_env_cli <- run_cli(c("--candidate", candidate_path, "--output", output_path,
-                        "--expect-database-name", "postgres"), partial_pg)
+                        "--expect-database-name", "postgres",
+                        "--actor-id", ACTOR_ID), partial_pg)
 expect(identical(as.integer(pg_env_cli$status), 1L) &&
        length(pg_env_cli$output) == 1L &&
        identical(pg_env_cli$output[[1L]], "C3_PREVIEW_PG_ENV_INVALID"),
@@ -628,7 +694,8 @@ expect(identical(as.integer(pg_env_cli$status), 1L) &&
 sentinel_pg <- c("PGDATABASE=sentinel-db", "PGHOST=", "PGPORT=6543",
                  "PGUSER=sentinel-user", "PGPASSWORD=SENTINEL-SECRET-VALUE")
 sentinel_cli <- run_cli(c("--candidate", candidate_path, "--output", output_path,
-                          "--expect-database-name", "postgres"), sentinel_pg)
+                          "--expect-database-name", "postgres",
+                          "--actor-id", ACTOR_ID), sentinel_pg)
 sentinel_text <- paste(sentinel_cli$output, collapse = "\n")
 expect(identical(as.integer(sentinel_cli$status), 1L) &&
        identical(sentinel_cli$output[[1L]], "C3_PREVIEW_PG_ENV_INVALID"),
