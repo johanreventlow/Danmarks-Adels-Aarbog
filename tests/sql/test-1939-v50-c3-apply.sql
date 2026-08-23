@@ -287,6 +287,23 @@ BEGIN
     clock_timestamp()+interval '1 hour'
   ) RETURNING id INTO v_auth_b;
 
+  -- Authorization status vocabulary: reject anything outside issued|consumed|expired,
+  -- and exercise the 'expired' transition explicitly (v_auth_a already proved
+  -- 'consumed' above; v_auth_b is still 'issued'/consumed_at IS NULL here, so
+  -- moving it straight to 'expired' does not collide with the consumed_has_timestamp
+  -- coupling check).
+  BEGIN
+    UPDATE private.reimport_case_authorization SET status='not-a-status' WHERE id=v_auth_b;
+    RAISE EXCEPTION 'EXPECTED_AUTHORIZATION_STATUS_CHECK_REJECTION';
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint <> 'reimport_case_authorization_status_check' THEN RAISE; END IF;
+  END;
+  UPDATE private.reimport_case_authorization SET status='expired' WHERE id=v_auth_b;
+  IF (SELECT status FROM private.reimport_case_authorization WHERE id=v_auth_b) <> 'expired' THEN
+    RAISE EXCEPTION 'C3_APPLY_AUTHORIZATION_EXPIRED_WRITE_FAILED';
+  END IF;
+
   ---------------------------------------------------------------------------
   -- reimport_case_batch: composite FK to authorization (drift guard), unique
   -- index scoped by (source_id,phase,manifest,preview,principal), status/
