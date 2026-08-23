@@ -1248,23 +1248,41 @@ def _apply_assign_events(manifest_doc: Mapping[str, Any]
 
 def apply_text_bundle_sha256(assign_events: Sequence[Mapping[str, Any]]
                              ) -> str:
-    """Kanonisk hash over kun kandidat-afledte felter for de fem sager.
+    """Kanonisk hash over de kandidat-afledte felter for de fem sager.
 
-    Bindes udelukkende til (element_id, rid, normaliseringsprofil-version,
-    normaliseret tekst, flags) — ALDRIG til preview-/DB-afledte felter
-    (fx `before_state`, `database`, `input_hashes`). Det er præcis det,
-    der gør ÉN menneskelig godkendelse gyldig i både rehearsal og prod
-    (brief-rettelse "fund B1"): teksten er den samme uanset hvilken
-    database, der senere leverer before-state.
+    Bindes til (element_id, rid, record_key, target_person_id,
+    normaliseringsprofil-version, normaliseret tekst, flags,
+    expected_narrative) — ALDRIG til preview-/DB-afledte felter (fx
+    `before_state`, `database`, `input_hashes`, `narrative_id`,
+    `old_sha256`, bindings-status). Det er præcis det, der gør ÉN
+    menneskelig godkendelse gyldig i både rehearsal og prod
+    (brief-rettelse "fund B1"): teksten og dens mål er de samme uanset
+    hvilken database, der senere leverer before-state.
+
+    `record_key`, `target_person_id` og `expected_narrative` blev
+    tilføjet ved "Følgeafgørelse 2026-08-23" (bruger, efter Task 4's
+    review): en uafhængig kontrol viste, at bundlen uden dem IKKE bandt
+    hvilken person teksten skulle tildeles — to manifester med samme
+    tekst men forskellige mål delte samme hash, og et fuldt godkendt ark
+    for det ene validerede rent mod det andet. De tre felter er alle
+    kandidat-afledte (Task 1, databaseuafhængige — hele assign
+    `after_state` kopieres direkte fra kandidatens `decision` i
+    `finalize_c3_apply_manifest_1939_v50.py`), præcis som record-tekst
+    og normalisering allerede var, så tilføjelsen koster ikke B1's
+    rehearsal/prod-portabilitet: samme kandidat giver samme
+    bundle-værdi i begge forløb, uændret.
     """
     ordered = sorted(assign_events, key=lambda event: event["element_id"])
     payload = [
         {
             "element_id": event["element_id"],
             "rid": event["rid"],
+            "record_key": event["record_key"],
+            "target_person_id": event["after"]["target_person_id"],
             "normalization_version": event["after"]["normalization_version"],
             "normalized_text": event["after"]["normalized_text"],
             "normalization_flags": list(event["after"]["normalization_flags"]),
+            "expected_narrative": dict(event["after"]["expected_narrative"]),
         }
         for event in ordered
     ]

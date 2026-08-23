@@ -164,6 +164,68 @@ def test_candidate_derived_manifest_drift_invalidates_the_sheet():
         "C3_APPLY_APPROVALS_HASH_MISMATCH")
 
 
+def test_identical_text_different_targets_produce_different_bundle_and_reject_cross_manifest_approval():
+    """Direct reproduction of the security gap an independent review found
+    (see docs/superpowers/plans/2026-08-22-1939-v50-c3-atomisk-apply.md,
+    Task 4's "Følgeafgørelse 2026-08-23"): two manifests with IDENTICAL
+    normalized narrative text but DIFFERENT target_person_id/record_key
+    for all five `assign` events used to share the same
+    `text_bundle_sha256`, so a fully approved sheet built for one
+    manifest validated cleanly against the other — a human approving a
+    text diff would unknowingly also authorize assigning that text to a
+    different person. Proves the fix closes the hole at both ends: the
+    bundle hash itself now differs, and `parse_approvals` rejects the
+    cross-manifest sheet in both directions."""
+    document_a, manifest_raw_a = manifest_and_raw()
+
+    def retarget_all_assign_events(doc):
+        for case in doc["cases"]:
+            for event in case["events"]:
+                if event["action"] != "assign":
+                    continue
+                event["after_state"]["target_person_id"] += 500000
+                event["record_key"] = event["record_key"] + "-OTHER-TARGET"
+                event["after_state"]["expected_narrative"]["record_label"] = (
+                    event["record_key"])
+
+    document_b, manifest_raw_b = manifest_and_raw(
+        mutate=retarget_all_assign_events)
+
+    events_a = renderer._apply_assign_events(document_a)
+    events_b = renderer._apply_assign_events(document_b)
+    assert len(events_a) == len(events_b) == 5
+    for event_a, event_b in zip(
+            sorted(events_a, key=lambda event: event["rid"]),
+            sorted(events_b, key=lambda event: event["rid"])):
+        assert event_a["rid"] == event_b["rid"]
+        assert (event_a["after"]["normalized_text"]
+                == event_b["after"]["normalized_text"])
+        assert (event_a["after"]["target_person_id"]
+                != event_b["after"]["target_person_id"])
+        assert event_a["record_key"] != event_b["record_key"]
+
+    bundle_a = renderer.apply_text_bundle_sha256(events_a)
+    bundle_b = renderer.apply_text_bundle_sha256(events_b)
+    assert bundle_a != bundle_b
+
+    # A fully approved sheet built for manifest A must NOT validate
+    # against manifest B (different assign targets, same text) — and the
+    # rejection must be the explicit bundle-hash-mismatch error, not a
+    # silent "0 approved".
+    text_a, _slots_a, _ = baseline_sheet(document_a)
+    approved_text_a = text_a.replace("[UAFKLARET]", "[GODKENDT]")
+    parse_failure(
+        approved_text_a, document_b, manifest_raw_b,
+        "C3_APPLY_APPROVALS_HASH_MISMATCH")
+
+    # ...and symmetrically in the other direction.
+    text_b, _slots_b, _ = baseline_sheet(document_b)
+    approved_text_b = text_b.replace("[UAFKLARET]", "[GODKENDT]")
+    parse_failure(
+        approved_text_b, document_a, manifest_raw_a,
+        "C3_APPLY_APPROVALS_HASH_MISMATCH")
+
+
 def test_stale_schema_line_is_terminal():
     document, manifest_raw = manifest_and_raw()
     text, _slots, _ = baseline_sheet(document)

@@ -81,12 +81,28 @@ writeres kontrakt.
 >
 > Kandidat-manifestet og **tekstgodkendelsen er fælles**, fordi de er
 > databaseuafhængige. Tekstgodkendelsen bindes derfor til `text_bundle_sha256`
-> — en kanonisk hash over (record-ID, normaliseringsprofilversion, normaliseret
-> tekst, flags) for alle fem `assign` — og ikke til hele manifestet, som
-> afsnittet »Normalisering og tekstpreview« ellers foreskriver. Begrundelsen er
-> ikke bekvemmelighed: to godkendelser af nøjagtig samme fem tekster ville gøre
+> — en kanonisk hash over (record-ID, `record_key`, `target_person_id`,
+> normaliseringsprofilversion, normaliseret tekst, flags, `expected_narrative`)
+> for alle fem `assign` — og ikke til hele manifestet, som afsnittet
+> »Normalisering og tekstpreview« ellers foreskriver. Begrundelsen er ikke
+> bekvemmelighed: to godkendelser af nøjagtig samme fem tekster ville gøre
 > den anden til en formalitet, mennesket klikker igennem. Manifestet binder
 > fortsat `text_bundle_sha256`, så enhver tekstændring stadig invaliderer alt.
+>
+> **Følgeafgørelse 2026-08-23 (bruger, efter Task 4's review).** Feltsættet
+> ovenfor blev udvidet efter Task 4's implementering: den oprindelige,
+> snævrere hash (kun record-ID, normaliseringsprofilversion, normaliseret
+> tekst, flags) bandt ikke `target_person_id`/`record_key`/
+> `expected_narrative` — to manifester med samme tekst men forskellige
+> personmål delte samme hash, og et fuldt godkendt ark for det ene
+> validerede rent mod det andet. `record_key`, `target_person_id` og
+> `expected_narrative` er alle kandidat-afledte (Task 1,
+> databaseuafhængige), så udvidelsen koster ikke portabiliteten beskrevet
+> ovenfor: samme kandidat giver samme bundle-værdi i begge forløb, uændret.
+> Kun de reelt database-afledte felter (databasenavn, system identifier,
+> `narrative_id`, `old_sha256`, bindings-status) forbliver uden for
+> bundlen — det er dem, der gør de to databasebundne forløb nødvendige i
+> første omgang.
 
 Apply-fasen er en envejs, hashbundet kæde:
 

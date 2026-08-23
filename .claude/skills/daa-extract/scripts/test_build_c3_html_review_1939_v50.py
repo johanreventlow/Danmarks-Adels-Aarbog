@@ -818,37 +818,33 @@ def test_apply_text_bundle_sha256_is_sensitive_to_rid_and_normalization_version(
     assert drifted != baseline
 
 
-def test_apply_text_bundle_sha256_does_not_bind_target_person_id_KNOWN_LIMITATION():
-    """KNOWN LIMITATION (deliberate, not a bug) — do not "fix" this test.
+def test_apply_text_bundle_sha256_binds_target_person_id_and_expected_narrative():
+    """Følgeafgørelse 2026-08-23 — bruger, efter Task 4's review.
 
-    `apply_text_bundle_sha256` is scoped, by design, to only the
-    record-derived text fields (element_id, rid, normalization_version,
-    normalized_text, normalization_flags) — see its docstring and the
-    Task 4 report's "fund B1" note: this is what lets ONE human text
-    approval stay valid across both the rehearsal-base manifest and the
-    prod manifest, since before_state/database differ between the two
-    runs but the candidate text does not.
+    En uafhængig kontrol viste, at `apply_text_bundle_sha256` som
+    oprindeligt defineret (kun element_id/rid/normalization_version/
+    normalized_text/normalization_flags) IKKE bandt `target_person_id`,
+    `record_key` eller `expected_narrative`: to manifester med samme
+    tekst men FORSKELLIGE personmål delte samme hash, og et fuldt
+    godkendt ark for det ene validerede også rent mod det andet — se
+    ledger for Task 4 (fix round 2). Brugeren har besluttet at udvide
+    bundlen fremfor at stole på en udenomsystemisk manuel kontrol.
 
-    The direct consequence: `target_person_id` — and the other
-    candidate-derived, card-visible-but-non-text fields `record_key` and
-    `expected_narrative` (e.g. `citation_label`) — are NOT covered by
-    this hash. Two manifests with byte-identical narrative text but
-    DIFFERENT assign targets produce the SAME text_bundle_sha256. A
-    human approval of the text alone therefore does not, and cannot, bind
-    which person the text gets assigned to.
+    Dette koster IKKE B1's rehearsal/prod-portabilitet: `target_person_id`,
+    `record_key` og `expected_narrative` er alle kandidat-afledte
+    (Task 1, databaseuafhængige — hele assign `after_state` kopieres
+    direkte fra kandidatens `decision` i
+    `finalize_c3_apply_manifest_1939_v50.py`), præcis som record-tekst og
+    normalisering allerede er. Kun de reelt database-afledte felter
+    (databasenavn, system identifier, `narrative_id`, `old_sha256`,
+    bindings-status) forbliver uden for bundlen.
 
-    This is exactly why Task 5/6's real-write authorization MUST NOT gate
-    solely on `text_bundle_sha256` — it must additionally verify byte
-    identity of the actual manifest being applied (e.g. via
-    `manifest_raw_sha256`, which the report clarifies is a *record* of
-    which manifest was checked, not itself a gate — Task 5/6 has to wire
-    the check, not just log the hash).
-
-    If this assertion ever starts failing because target_person_id/
-    record_key/expected_narrative began influencing the hash, that is a
-    behavior change to `apply_text_bundle_sha256`'s contract, not a test
-    bug — update this test's name/docstring and the report accordingly,
-    do not just make it pass.
+    This test now asserts the OPPOSITE of the previous
+    "KNOWN_LIMITATION" version: mutating `target_person_id`,
+    `record_key`, or a field inside `expected_narrative` MUST change
+    `text_bundle_sha256`. If this assertion ever starts failing again,
+    that is a regression of the target-person binding fix, not a test
+    bug to "relax".
     """
     raw, document = apply_manifest_raw()
     baseline = mod.apply_text_bundle_sha256(mod._apply_assign_events(document))
@@ -866,12 +862,46 @@ def test_apply_text_bundle_sha256_does_not_bind_target_person_id_KNOWN_LIMITATIO
     drifted = mod.apply_text_bundle_sha256(
         mod._apply_assign_events(drifted_document))
     # Discriminating check: prove the mutation actually landed (the
-    # manifest's own canonical_content_sha256 differs), so an equality
+    # manifest's own canonical_content_sha256 differs), so an inequality
     # assertion on the bundle hash below cannot pass vacuously because
     # drift_target silently did nothing.
     assert (drifted_document["canonical_content_sha256"]
             != document["canonical_content_sha256"])
-    assert drifted == baseline
+    assert drifted != baseline
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda event: event["after_state"].__setitem__(
+        "target_person_id", event["after_state"]["target_person_id"] + 1),
+    lambda event: event.__setitem__(
+        "record_key", event["record_key"] + "-DRIFT"),
+    lambda event: event["after_state"]["expected_narrative"].__setitem__(
+        "record_label", event["after_state"]["expected_narrative"][
+            "record_label"] + "-DRIFT"),
+    lambda event: event["after_state"]["expected_narrative"].__setitem__(
+        "citation_label", event["after_state"]["expected_narrative"][
+            "citation_label"] + " DRIFT"),
+])
+def test_apply_text_bundle_sha256_is_sensitive_to_each_target_field(mutate):
+    """Regression-pins each of the three newly-bound fields individually.
+
+    The combined test above mutates all three at once; this parametrized
+    test proves each one alone is load-bearing, so a partial regression
+    (e.g. `record_key` silently dropped from the payload again) cannot
+    hide behind the other two still being bound.
+    """
+    raw, document = apply_manifest_raw()
+    baseline = mod.apply_text_bundle_sha256(mod._apply_assign_events(document))
+
+    def drift_one(doc):
+        mutate(doc["cases"][0]["events"][0])
+
+    _, drifted_document = apply_manifest_raw(mutate=drift_one)
+    drifted = mod.apply_text_bundle_sha256(
+        mod._apply_assign_events(drifted_document))
+    assert (drifted_document["canonical_content_sha256"]
+            != document["canonical_content_sha256"])
+    assert drifted != baseline
 
 
 def test_apply_approval_sheet_has_exact_locked_byte_sequence():
