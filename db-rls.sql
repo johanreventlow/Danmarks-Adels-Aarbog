@@ -923,3 +923,17 @@ GRANT EXECUTE ON FUNCTION public.red_authorize_reimport_cases(bigint,text,text,t
   TO service_role;
 GRANT EXECUTE ON FUNCTION public.red_apply_reimport_cases(uuid,text,text)
   TO authenticated;
+
+-- ---------- DAA 1939 v50 fase C3: reversal RPCs (Task 7) ----------
+-- Same principal split as the apply family: service_role authorises the
+-- reversal, authenticated performs it, and the plan oracle stays private to
+-- every Supabase role.
+REVOKE ALL ON FUNCTION private.reimport_case_reversal_plan(uuid)
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz),
+  public.red_reverse_reimport_cases(uuid,uuid)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)
+  TO service_role;
+GRANT EXECUTE ON FUNCTION public.red_reverse_reimport_cases(uuid,uuid)
+  TO authenticated;

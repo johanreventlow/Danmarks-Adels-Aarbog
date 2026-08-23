@@ -168,6 +168,81 @@ BEGIN
   RAISE NOTICE 'OK: C3 apply RPC-kontrakt (preview/authorize/apply) er installeret, hærdet og rolle-adskilt';
 END $$;
 
+-- ===== C3 Task 7 — reversal-RPC-kontrakt =====
+-- Reversal er sin EGEN batch (fund B5): egen authorization, egen nonce, eget
+-- change set og egen kvittering. Kontrakten her er den deployede flade:
+-- signaturer, hærdning, rolle-adskillelse (service_role autoriserer,
+-- authenticated reverserer), samme låsepræfiks som apply, og at HELE CAS'en
+-- ligger før første mutation -- den ene påstand en enkelt-session-test ikke selv
+-- kan bevise, fordi et fejlet kalds egen sub-transaktion rulles tilbage.
+DO $$
+DECLARE v_def text; v_cas int; v_first_write int; v_bindings int; v_fortryd int;
+BEGIN
+  IF to_regprocedure('public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)') IS NULL
+     OR to_regprocedure('public.red_reverse_reimport_cases(uuid,uuid)') IS NULL
+     OR to_regprocedure('private.reimport_case_reversal_plan(uuid)') IS NULL THEN
+    RAISE EXCEPTION 'C3_REVERSAL_RPC_CONTRACT_MISSING';
+  END IF;
+  IF (SELECT provolatile FROM pg_proc
+       WHERE oid='private.reimport_case_reversal_plan(uuid)'::regprocedure) <> 's' THEN
+    RAISE EXCEPTION 'C3_REVERSAL_PLAN_NOT_STABLE';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_proc p WHERE p.oid IN (
+      'public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)'::regprocedure,
+      'public.red_reverse_reimport_cases(uuid,uuid)'::regprocedure,
+      'private.reimport_case_reversal_plan(uuid)'::regprocedure)
+      AND (NOT p.prosecdef OR p.proconfig IS NULL)
+  ) THEN
+    RAISE EXCEPTION 'C3_REVERSAL_RPC_HARDENING_MISSING';
+  END IF;
+  IF has_function_privilege('anon','public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)','EXECUTE')
+     OR has_function_privilege('anon','public.red_reverse_reimport_cases(uuid,uuid)','EXECUTE')
+     OR has_function_privilege('authenticated','public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)','EXECUTE')
+     OR has_function_privilege('service_role','public.red_reverse_reimport_cases(uuid,uuid)','EXECUTE')
+     OR NOT has_function_privilege('service_role','public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_reverse_reimport_cases(uuid,uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'C3_REVERSAL_RPC_ACL_INVALID';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM unnest(ARRAY['anon','authenticated','service_role']) role_name
+    WHERE has_function_privilege(role_name,'private.reimport_case_reversal_plan(uuid)','EXECUTE')
+  ) THEN
+    RAISE EXCEPTION 'C3_REVERSAL_PLAN_ACL_INVALID';
+  END IF;
+  v_def := pg_get_functiondef('public.red_reverse_reimport_cases(uuid,uuid)'::regprocedure);
+  -- Samme låsepræfiks som apply: timeouts og fremmed-change-set-gate før den
+  -- globale writer-lås, og PRÆCIS samme advisory-nøgle -- ellers kan en apply og
+  -- en reversal køre samtidig.
+  IF strpos(v_def,'set_config(''lock_timeout''') = 0
+     OR strpos(v_def,'set_config(''statement_timeout''') = 0
+     OR strpos(v_def,'REIMPORT_CASE_FOREIGN_CHANGE_SET') = 0
+     OR strpos(v_def,'hashtextextended(''daa-1939-v50-production-writer'',0)') = 0
+     OR strpos(v_def,'set_config(''lock_timeout''')
+        > strpos(v_def,'hashtextextended(''daa-1939-v50-production-writer'',0)')
+     OR strpos(v_def,'REIMPORT_CASE_FOREIGN_CHANGE_SET')
+        > strpos(v_def,'hashtextextended(''daa-1939-v50-production-writer'',0)')
+     OR strpos(v_def,'hashtext(''samme_som_mutation'')')
+        < strpos(v_def,'hashtextextended(''daa-1939-v50-production-writer'',0)') THEN
+    RAISE EXCEPTION 'C3_REVERSAL_LOCK_PREFIX_INVALID';
+  END IF;
+  -- Hele CAS'en før første mutation; bindinger før change-set-undoet (binding
+  -- -> narrative er en almindelig FK uden ON DELETE); ingen force-omgåelse.
+  v_cas         := strpos(v_def,'reversal CAS: everything is proven BEFORE the first mutation');
+  v_first_write := strpos(v_def,'INSERT INTO private.reimport_case_batch(');
+  v_bindings    := strpos(v_def,'DELETE FROM private.narrative_record_publication');
+  v_fortryd     := strpos(v_def,'public.red_fortryd_change_set(');
+  IF v_cas = 0 OR v_first_write = 0 OR v_bindings = 0 OR v_fortryd = 0
+     OR v_cas > v_first_write OR v_bindings > v_fortryd THEN
+    RAISE EXCEPTION 'C3_REVERSAL_MUTATION_ORDER_INVALID';
+  END IF;
+  IF strpos(v_def,'red_fortryd_change_set(v_change_set,false)') = 0
+     OR strpos(v_def,'red_fortryd_change_set(v_change_set,true)') <> 0 THEN
+    RAISE EXCEPTION 'C3_REVERSAL_FORCE_BYPASS_PRESENT';
+  END IF;
+  RAISE NOTICE 'OK: C3 reversal-RPC-kontrakt (authorize/reverse) er installeret, hærdet, rolle-adskilt og CAS-før-mutation';
+END $$;
+
 -- ===== C3 Task 1 — komponentbrede identitetskontradiktioner =====
 DO $$
 BEGIN

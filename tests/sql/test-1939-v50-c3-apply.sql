@@ -1719,3 +1719,1002 @@ EXCEPTION WHEN others THEN
 END $t6$;
 
 ROLLBACK;
+
+-- ============================================================================
+-- Task 7: public.red_authorize_reimport_case_reversal /
+-- public.red_reverse_reimport_cases -- exact-after reversal of an applied batch.
+--
+-- Catalog contract first: signatures, volatility, hardening, ACL split, the
+-- shared lock prefix (same advisory key as apply, timeouts before it), and the
+-- structural proof that every CAS runs before the first mutation -- the one
+-- claim a single-session behavioural test cannot make, because a failed call's
+-- own sub-transaction rollback would erase the evidence either way.
+-- ============================================================================
+
+BEGIN;
+
+DO $t7_catalog$
+DECLARE v_def text;
+        v_lock_timeout int; v_stmt_timeout int; v_writer_lock int; v_guard int;
+        v_cas int; v_first_write int; v_fortryd int; v_bindings int;
+BEGIN
+  IF to_regprocedure('public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)') IS NULL
+     OR to_regprocedure('public.red_reverse_reimport_cases(uuid,uuid)') IS NULL THEN
+    RAISE EXCEPTION 'C3_REVERSAL_RPCS_MISSING';
+  END IF;
+  IF to_regprocedure('private.reimport_case_reversal_plan(uuid)') IS NULL THEN
+    RAISE EXCEPTION 'C3_REVERSAL_PLAN_HELPER_MISSING';
+  END IF;
+
+  -- The plan oracle is read-only; both writers are volatile.
+  IF (SELECT provolatile FROM pg_proc
+       WHERE oid='private.reimport_case_reversal_plan(uuid)'::regprocedure) <> 's' THEN
+    RAISE EXCEPTION 'C3_REVERSAL_PLAN_NOT_STABLE';
+  END IF;
+  IF (SELECT provolatile FROM pg_proc
+       WHERE oid='public.red_reverse_reimport_cases(uuid,uuid)'::regprocedure) <> 'v' THEN
+    RAISE EXCEPTION 'C3_REVERSAL_NOT_VOLATILE';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM pg_proc p WHERE p.oid IN (
+      'public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)'::regprocedure,
+      'public.red_reverse_reimport_cases(uuid,uuid)'::regprocedure,
+      'private.reimport_case_reversal_plan(uuid)'::regprocedure)
+      AND (NOT p.prosecdef
+           OR NOT ('search_path=pg_catalog, public, private' = ANY(coalesce(p.proconfig,'{}'))))
+  ) THEN
+    RAISE EXCEPTION 'C3_REVERSAL_RPC_HARDENING_MISSING';
+  END IF;
+
+  -- Same principal split as apply: service_role authorises, authenticated
+  -- reverses, anon gets nothing, and the plan oracle is revoked from all three.
+  IF has_function_privilege('anon','public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)','EXECUTE')
+     OR has_function_privilege('anon','public.red_reverse_reimport_cases(uuid,uuid)','EXECUTE')
+     OR has_function_privilege('authenticated','public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)','EXECUTE')
+     OR has_function_privilege('service_role','public.red_reverse_reimport_cases(uuid,uuid)','EXECUTE')
+     OR NOT has_function_privilege('service_role','public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_reverse_reimport_cases(uuid,uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'C3_REVERSAL_RPC_ACL_DRIFT';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM unnest(ARRAY['anon','authenticated','service_role']) role_name
+    WHERE has_function_privilege(role_name,'private.reimport_case_reversal_plan(uuid)','EXECUTE')
+  ) THEN
+    RAISE EXCEPTION 'C3_REVERSAL_PLAN_ACL_DRIFT';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_proc p
+    CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl
+    WHERE p.oid IN (
+      'public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)'::regprocedure,
+      'public.red_reverse_reimport_cases(uuid,uuid)'::regprocedure,
+      'private.reimport_case_reversal_plan(uuid)'::regprocedure)
+      AND acl.grantee=0
+  ) THEN
+    RAISE EXCEPTION 'C3_REVERSAL_RPC_PUBLIC_GRANT_PRESENT';
+  END IF;
+
+  v_def := pg_get_functiondef('public.red_reverse_reimport_cases(uuid,uuid)'::regprocedure);
+
+  -- Same lock prefix as apply: timeouts before the writer lock, the SAME
+  -- advisory key, and the foreign-change-set guard before any of it.
+  v_lock_timeout := strpos(v_def,'set_config(''lock_timeout''');
+  v_stmt_timeout := strpos(v_def,'set_config(''statement_timeout''');
+  v_writer_lock  := strpos(v_def,'hashtextextended(''daa-1939-v50-production-writer'',0)');
+  v_guard        := strpos(v_def,'REIMPORT_CASE_FOREIGN_CHANGE_SET');
+  IF v_lock_timeout = 0 OR v_stmt_timeout = 0 OR v_writer_lock = 0 OR v_guard = 0 THEN
+    RAISE EXCEPTION 'C3_REVERSAL_LOCK_PREFIX_MISSING';
+  END IF;
+  IF v_lock_timeout > v_writer_lock OR v_stmt_timeout > v_writer_lock
+     OR v_guard > v_writer_lock THEN
+    RAISE EXCEPTION 'C3_REVERSAL_LOCK_PREFIX_ORDER_WRONG';
+  END IF;
+  IF strpos(v_def,'hashtext(''samme_som_mutation'')') = 0
+     OR strpos(v_def,'private.lock_identity_people') = 0 THEN
+    RAISE EXCEPTION 'C3_REVERSAL_IDENTITY_LOCKS_MISSING';
+  END IF;
+  IF strpos(v_def,'hashtext(''samme_som_mutation'')') < v_writer_lock
+     OR strpos(v_def,'private.lock_identity_people')
+        < strpos(v_def,'hashtext(''samme_som_mutation'')') THEN
+    RAISE EXCEPTION 'C3_REVERSAL_LOCK_ORDER_WRONG';
+  END IF;
+
+  -- Every CAS runs before the first mutation, and the binding restore runs
+  -- before the change-set undo (narrative_record_publication.narrative_id is a
+  -- plain FK: a batch-created narrative cannot be removed under a live binding).
+  v_cas         := strpos(v_def,'reversal CAS: everything is proven BEFORE the first mutation');
+  v_first_write := strpos(v_def,'INSERT INTO private.reimport_case_batch(');
+  v_bindings    := strpos(v_def,'DELETE FROM private.narrative_record_publication');
+  v_fortryd     := strpos(v_def,'public.red_fortryd_change_set(');
+  IF v_cas = 0 OR v_first_write = 0 OR v_bindings = 0 OR v_fortryd = 0 THEN
+    RAISE EXCEPTION 'C3_REVERSAL_STRUCTURE_MISSING';
+  END IF;
+  IF v_cas > v_first_write OR v_bindings > v_fortryd THEN
+    RAISE EXCEPTION 'C3_REVERSAL_MUTATION_ORDER_WRONG';
+  END IF;
+  -- The phase offers no force bypass: the undo is always non-force.
+  IF strpos(v_def,'red_fortryd_change_set(v_change_set,false)') = 0
+     OR strpos(v_def,'red_fortryd_change_set(v_change_set,true)') <> 0 THEN
+    RAISE EXCEPTION 'C3_REVERSAL_FORCE_BYPASS_PRESENT';
+  END IF;
+
+  -- The lock order is TEN steps, not eight: Task 6's fix round inserted step 0
+  -- (timeouts + change-set guard) and step 2.5 (the authorization row). Both
+  -- functions must name all ten, in ascending order, in their own bodies -- the
+  -- machine-checkable half of the same correction made to the section banners
+  -- in schema.sql and db-migrations.sql.
+  IF EXISTS (
+    SELECT 1
+      FROM unnest(ARRAY[
+        'public.red_apply_reimport_cases(uuid,text,text)',
+        'public.red_reverse_reimport_cases(uuid,uuid)']) fn
+      CROSS JOIN LATERAL (SELECT pg_get_functiondef(fn::regprocedure) AS def) d
+      CROSS JOIN LATERAL unnest(ARRAY['lock order step 0:','lock order step 1:',
+        'lock order step 2:','lock order step 2.5:','lock order step 3:',
+        'lock order step 4:','lock order step 5:','lock order step 6:',
+        'lock order step 7:','lock order step 8:']) WITH ORDINALITY AS m(marker,ord)
+     WHERE strpos(d.def,m.marker) = 0
+  ) THEN
+    RAISE EXCEPTION 'C3_LOCK_ORDER_STEPS_INCOMPLETE';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM unnest(ARRAY[
+        'public.red_apply_reimport_cases(uuid,text,text)',
+        'public.red_reverse_reimport_cases(uuid,uuid)']) fn
+      CROSS JOIN LATERAL (SELECT pg_get_functiondef(fn::regprocedure) AS def) d
+      CROSS JOIN LATERAL unnest(ARRAY['lock order step 0:','lock order step 1:',
+        'lock order step 2:','lock order step 2.5:','lock order step 3:',
+        'lock order step 4:','lock order step 5:','lock order step 6:',
+        'lock order step 7:','lock order step 8:']) WITH ORDINALITY AS m(marker,ord)
+      CROSS JOIN LATERAL unnest(ARRAY['lock order step 0:','lock order step 1:',
+        'lock order step 2:','lock order step 2.5:','lock order step 3:',
+        'lock order step 4:','lock order step 5:','lock order step 6:',
+        'lock order step 7:','lock order step 8:']) WITH ORDINALITY AS n(marker2,ord2)
+     WHERE n.ord2 = m.ord + 1
+       AND strpos(d.def,m.marker) > strpos(d.def,n.marker2)
+  ) THEN
+    RAISE EXCEPTION 'C3_LOCK_ORDER_STEPS_OUT_OF_ORDER';
+  END IF;
+
+  RAISE NOTICE 'OK: Task 7 catalog contract (reversal RPC signatures, hardening, ACLs, shared lock prefix, CAS-before-mutation order)';
+END $t7_catalog$;
+
+ROLLBACK;
+
+-- ============================================================================
+-- Task 7 roundtrip: apply -> reverse restores the EXACT before-state.
+--
+-- The fixture deliberately covers all four combinations the reversal has to
+-- tell apart in one batch:
+--   case 1: identity CREATED   + narrative created from nothing + binding ABSENT
+--   case 2: identity REUSED    + existing narrative rewritten   + existing DRAFT binding
+--   plus one no_publication record (no domain mutation at all).
+-- Only append-only history (change_set/change_event, the reimport_case_* ledger)
+-- may survive the roundtrip; every domain row must be byte-identical again.
+-- ============================================================================
+
+BEGIN;
+
+DO $t7_roundtrip$
+DECLARE
+  v_actor uuid := '00000000-0000-4c37-8000-000000000001';
+  v_source bigint; v_run uuid; v_rend uuid;
+  v_p bigint[]:='{}'; v_rec uuid[]:='{}'; v_nid bigint; v_narr bigint[]:='{}';
+  i int; v_pid bigint; v_rid uuid; v_occ uuid; v_page int;
+  v_elems jsonb:='{}'::jsonb; v_counts jsonb; v_auth uuid; v_receipt jsonb;
+  v_state jsonb; v_nstate jsonb; v_text text; v_side text;
+  v_snap_before jsonb; v_snap_after jsonb; v_skip text[];
+  v_batch uuid; v_cs bigint; v_reused_rel bigint; v_draft_bind uuid;
+  v_rev_auth uuid; v_rev_receipt jsonb; v_rev_receipt2 jsonb; v_rev_batch uuid;
+  v_plan jsonb; v_receipt_sha text; v_nonce uuid := gen_random_uuid();
+  v_created_rel bigint; v_new_narr bigint;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  PERFORM set_config('request.jwt.claim.sub', v_actor::text, true);
+  INSERT INTO auth.users(id,email) VALUES (v_actor,'c3-task7@test.local') ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES (v_actor,'redaktion','c3-task7@test.local')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+
+  v_source := (SELECT coalesce(max(id),0)+1 FROM public.source);
+  INSERT INTO public.source(id,slags,titel,udgave,aar)
+    VALUES (v_source,'DAA-udgave','DAA 1939 (Task 7 fixture)','1939',1939);
+  v_run := gen_random_uuid();
+  INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+    VALUES (v_run,v_source,'c3-task7','1','t','t',repeat('a',64),'{}');
+  v_rend := gen_random_uuid();
+  INSERT INTO private.source_rendition(id,source_id,rendition_key,rendition_kind,content_sha256)
+    VALUES (v_rend,v_source,'c3-task7-rend','ocr_text',repeat('b',64));
+
+  FOR i IN 1..4 LOOP
+    v_pid := (SELECT coalesce(max(id),0)+1 FROM public.person);
+    INSERT INTO public.person(id,levende,privat,staged,visning_navn)
+      VALUES (v_pid,false,false,false,'Task 7 testperson '||i);
+    v_p := v_p || v_pid;
+  END LOOP;
+  FOR i IN 1..3 LOOP
+    v_page := 700+i; v_rid := gen_random_uuid();
+    INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
+      VALUES (v_rid,v_source,'t7-record-'||i,'person_entry',v_run);
+    v_occ := gen_random_uuid();
+    INSERT INTO private.source_record_occurrence(
+      id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,
+      verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id)
+      VALUES (v_occ,v_rend,'t7-occ-'||i,v_page,v_page,i*100,i*100+50,
+              'RAA OCR '||i,'pf-'||i,'sf-'||i,v_run);
+    INSERT INTO private.source_record_anchor_event(
+      occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name)
+      VALUES (v_occ,v_rid,'accepted','{"k":"v"}'::jsonb,1,v_actor,'tester');
+    v_rec := v_rec || v_rid;
+  END LOOP;
+
+  -- Case 2 pre-state: an existing narrative, an existing DRAFT binding to its
+  -- own record, and an ALREADY REJECTED identity pair (the reused path).
+  v_nid := (SELECT coalesce(max(id),0)+1 FROM public.narrative);
+  INSERT INTO public.narrative(id,subjekt_type,subjekt_id,source_id,tekst,side,privat)
+    VALUES (v_nid,'person',v_p[3],v_source,'GAMMEL TEKST 2','702',false);
+  v_narr := v_narr || v_nid;
+  INSERT INTO private.narrative_record_publication(
+    narrative_id,source_record_id,record_label,citation_label,status)
+    VALUES (v_nid,v_rec[2],'t7-record-2','DAA 1939 side 702','draft')
+    RETURNING id INTO v_draft_bind;
+  PERFORM set_config('app.change_set_id','',true);
+  v_reused_rel := public.red_ikke_samme_som(v_p[3],v_p[4]);
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+
+  IF private.reimport_case_binding_state(v_rec[2],v_nid)->>'status' <> 'draft_same_record' THEN
+    RAISE EXCEPTION 'C3_REVERSAL_FIXTURE_DRAFT_BINDING_INVALID';
+  END IF;
+
+  ---------------------------------------------------------------------------
+  -- Snapshot the exact domain rows the batch may touch.
+  -- person.visning_* are excluded through the version registry's OWN skip_cols
+  -- (invariant 4: a one-way projection, never restored as data), so the
+  -- snapshot can never drift from what the ledger actually versions.
+  ---------------------------------------------------------------------------
+  SELECT coalesce(skip_cols,'{}') INTO v_skip FROM version_pk_registry WHERE tabel='person';
+  IF v_skip = '{}' THEN RAISE EXCEPTION 'C3_REVERSAL_FIXTURE_SKIP_COLS_MISSING'; END IF;
+  v_snap_before := jsonb_build_object(
+    'person',(SELECT jsonb_agg(to_jsonb(p)-v_skip ORDER BY p.id) FROM public.person p WHERE p.id=ANY(v_p)),
+    'narrative',(SELECT jsonb_agg(to_jsonb(n) ORDER BY n.id) FROM public.narrative n WHERE n.subjekt_id=ANY(v_p)),
+    'relation',(SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id) FROM public.relation r
+                 WHERE r.subjekt_id=ANY(v_p) OR r.objekt_id=ANY(v_p)),
+    'assertion',(SELECT jsonb_agg(to_jsonb(a) ORDER BY a.id) FROM public.assertion a WHERE a.target_type='relation'),
+    'conclusion',(SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id) FROM public.conclusion c WHERE c.target_type='relation'),
+    'binding',(SELECT jsonb_agg(to_jsonb(b) ORDER BY b.id) FROM private.narrative_record_publication b
+                WHERE b.source_record_id=ANY(v_rec)));
+
+  ---------------------------------------------------------------------------
+  -- Element map: case 1 (created identity, new narrative, absent binding),
+  -- case 2 (reused identity, existing narrative, draft binding) + no_publication.
+  ---------------------------------------------------------------------------
+  v_text := 'NY TEKST 1'; v_side := '701';
+  v_state := private.reimport_case_source_record_state(v_source,'t7-record-1');
+  v_nstate := private.reimport_case_narrative_state(v_source,v_p[1]);
+  v_elems := v_elems || jsonb_build_object('case:T7C1', jsonb_build_object(
+    'case_id','T7C1','action','different',
+    'person_ids',jsonb_build_array(least(v_p[1],v_p[2]),greatest(v_p[1],v_p[2])),
+    'before_state',jsonb_build_object('component_overlap',false,'existing_rejection',false)));
+  v_elems := v_elems || jsonb_build_object('case:T7C1:rid:T7R1', jsonb_build_object(
+    'case_id','T7C1','rid','T7R1','record_key','t7-record-1','action','assign',
+    'target_person_id',v_p[1],'target_narrative_id',v_nstate->'narrative_id',
+    'normalized_text',v_text,'normalized_sha256',encode(sha256(convert_to(v_text,'UTF8')),'hex'),
+    'record_label','t7-record-1','citation_label','DAA 1939 side '||v_side,
+    'side',v_side,'privat',false,
+    'before_state',jsonb_build_object(
+      'source_record',jsonb_build_object('match_count',1,
+        'verbatim_sha256',v_state->>'verbatim_sha256','side',v_state->>'side'),
+      'target_narrative',jsonb_build_object('person_id',v_p[1],
+        'narrative_id',v_nstate->'narrative_id','privat',false,'old_sha256',v_nstate->'old_sha256'),
+      'binding',jsonb_build_object('status','absent','binding_person_id',NULL))));
+
+  v_text := 'NY TEKST 2'; v_side := '702';
+  v_state := private.reimport_case_source_record_state(v_source,'t7-record-2');
+  v_nstate := private.reimport_case_narrative_state(v_source,v_p[3]);
+  v_elems := v_elems || jsonb_build_object('case:T7C2', jsonb_build_object(
+    'case_id','T7C2','action','different',
+    'person_ids',jsonb_build_array(least(v_p[3],v_p[4]),greatest(v_p[3],v_p[4])),
+    'before_state',jsonb_build_object('component_overlap',false,'existing_rejection',true)));
+  v_elems := v_elems || jsonb_build_object('case:T7C2:rid:T7R2', jsonb_build_object(
+    'case_id','T7C2','rid','T7R2','record_key','t7-record-2','action','assign',
+    'target_person_id',v_p[3],'target_narrative_id',v_nstate->'narrative_id',
+    'normalized_text',v_text,'normalized_sha256',encode(sha256(convert_to(v_text,'UTF8')),'hex'),
+    'record_label','t7-record-2','citation_label','DAA 1939 side 702',
+    'side',v_side,'privat',false,
+    'before_state',jsonb_build_object(
+      'source_record',jsonb_build_object('match_count',1,
+        'verbatim_sha256',v_state->>'verbatim_sha256','side',v_state->>'side'),
+      'target_narrative',jsonb_build_object('person_id',v_p[3],
+        'narrative_id',v_nstate->'narrative_id','privat',false,'old_sha256',v_nstate->'old_sha256'),
+      'binding',jsonb_build_object('status','draft_same_record','binding_person_id',v_p[3]))));
+
+  v_state := private.reimport_case_source_record_state(v_source,'t7-record-3');
+  v_elems := v_elems || jsonb_build_object('case:T7C2:rid:T7R3', jsonb_build_object(
+    'case_id','T7C2','rid','T7R3','record_key','t7-record-3','action','no_publication',
+    'before_state',jsonb_build_object(
+      'source_record',jsonb_build_object('match_count',1,
+        'verbatim_sha256',v_state->>'verbatim_sha256','side',v_state->>'side'),
+      'binding',jsonb_build_object('status','absent','binding_person_id',NULL))));
+
+  v_counts := jsonb_build_object('cases',2,'identity_events',2,'assign_events',2,
+    'no_publication_events',1,'events',5,'approvals_approved',2,'approvals_unresolved',0);
+
+  EXECUTE 'SET LOCAL ROLE service_role';
+  v_auth := public.red_authorize_reimport_cases(v_source,'c3','apply',
+    repeat('1',64),repeat('2',64),repeat('3',64),repeat('4',64),repeat('5',64),repeat('6',64),
+    current_database(),(pg_control_system()).system_identifier::text,
+    v_counts,v_elems,gen_random_uuid(),clock_timestamp()+interval '1 hour');
+  EXECUTE 'RESET ROLE';
+
+  PERFORM set_config('app.change_set_id','',true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  v_receipt := public.red_apply_reimport_cases(v_auth,repeat('1',64),repeat('3',64));
+  EXECUTE 'RESET ROLE';
+  v_batch := (v_receipt->>'batch_id')::uuid;
+  v_cs := (v_receipt->>'change_set_id')::bigint;
+
+  -- The fixture really did exercise both identity paths and both binding paths.
+  IF (SELECT count(*) FROM private.reimport_case_event
+       WHERE batch_id=v_batch AND action='identity_different'
+         AND payload->'result'->>'outcome'='created') <> 1
+     OR (SELECT count(*) FROM private.reimport_case_event
+          WHERE batch_id=v_batch AND action='identity_different'
+            AND payload->'result'->>'outcome'='reused') <> 1
+     OR (SELECT count(*) FROM private.reimport_case_event
+          WHERE batch_id=v_batch AND action='record_assign'
+            AND payload->'result'->>'binding_before_kind'='absent') <> 1
+     OR (SELECT count(*) FROM private.reimport_case_event
+          WHERE batch_id=v_batch AND action='record_assign'
+            AND payload->'result'->>'binding_before_kind'='draft_same_record') <> 1 THEN
+    RAISE EXCEPTION 'C3_REVERSAL_FIXTURE_MATRIX_INCOMPLETE';
+  END IF;
+  -- The created relation is in the batch's change set; the reused one is not --
+  -- that difference IS the created|reused discriminator the reversal relies on.
+  SELECT (payload->'result'->>'relation_id')::bigint INTO v_created_rel
+    FROM private.reimport_case_event WHERE batch_id=v_batch
+     AND action='identity_different' AND payload->'result'->>'outcome'='created';
+  IF NOT EXISTS(SELECT 1 FROM public.change_event
+                 WHERE change_set_id=v_cs AND tabel='relation'
+                   AND (row_pk->>'id')::bigint=v_created_rel AND op='INSERT')
+     OR EXISTS(SELECT 1 FROM public.change_event
+                WHERE change_set_id=v_cs AND tabel='relation'
+                  AND (row_pk->>'id')::bigint=v_reused_rel) THEN
+    RAISE EXCEPTION 'C3_REVERSAL_FIXTURE_CREATED_REUSED_DISCRIMINATOR_INVALID';
+  END IF;
+  SELECT (payload->'result'->>'narrative_id')::bigint INTO v_new_narr
+    FROM private.reimport_case_event WHERE batch_id=v_batch
+     AND action='record_assign' AND element_id='case:T7C1:rid:T7R1';
+  -- Applied state, before reversal: the draft was promoted in place.
+  IF (SELECT status FROM private.narrative_record_publication WHERE id=v_draft_bind) <> 'published'
+     OR (SELECT published_at FROM private.narrative_record_publication WHERE id=v_draft_bind) IS NULL THEN
+    RAISE EXCEPTION 'C3_REVERSAL_FIXTURE_PROMOTE_INVALID';
+  END IF;
+
+  ---------------------------------------------------------------------------
+  -- Authorize + reverse
+  ---------------------------------------------------------------------------
+  v_plan := private.reimport_case_reversal_plan(v_batch);
+  v_receipt_sha := private.reimport_1939_canonical_json_sha256(
+                     private.reimport_case_receipt(v_batch));
+  -- The plan and the receipt are two independent artefacts: the plan must NOT
+  -- carry the receipt's hash, or one of the two drift tokens becomes unreachable.
+  IF (v_plan ? 'receipt_sha256')
+     OR (v_plan->'counts'->>'events')::int <> 5
+     OR (v_plan->'counts'->>'identity_created')::int <> 1
+     OR (v_plan->'counts'->>'identity_reused')::int <> 1
+     OR (v_plan->'counts'->>'bindings_deleted')::int <> 1
+     OR (v_plan->'counts'->>'bindings_restored')::int <> 1
+     OR (v_plan->'counts'->>'narratives_deleted')::int <> 1
+     OR (v_plan->'counts'->>'narratives_restored')::int <> 1 THEN
+    RAISE EXCEPTION 'C3_REVERSAL_PLAN_CONTRACT_DRIFT';
+  END IF;
+
+  -- A wrong receipt hash is refused at authorization time.
+  BEGIN
+    EXECUTE 'SET LOCAL ROLE service_role';
+    PERFORM public.red_authorize_reimport_case_reversal(
+      v_batch,repeat('e',64),gen_random_uuid(),clock_timestamp()+interval '1 hour');
+    RAISE EXCEPTION 'EXPECTED_RECEIPT_HASH_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'REIMPORT_CASE_RECEIPT_DRIFT' THEN RAISE; END IF;
+  END;
+  EXECUTE 'RESET ROLE';
+
+  EXECUTE 'SET LOCAL ROLE service_role';
+  v_rev_auth := public.red_authorize_reimport_case_reversal(
+    v_batch,v_receipt_sha,v_nonce,clock_timestamp()+interval '1 hour');
+  -- Same nonce, same payload returns the same authorization (commit-unknown).
+  IF public.red_authorize_reimport_case_reversal(
+       v_batch,v_receipt_sha,v_nonce,clock_timestamp()+interval '1 hour') <> v_rev_auth THEN
+    RAISE EXCEPTION 'C3_REVERSAL_AUTHORIZATION_NOT_IDEMPOTENT';
+  END IF;
+  EXECUTE 'RESET ROLE';
+  IF (SELECT operation FROM private.reimport_case_authorization WHERE id=v_rev_auth) <> 'reversal'
+     OR (SELECT manifest_sha256 FROM private.reimport_case_authorization WHERE id=v_rev_auth) <> v_receipt_sha
+     OR (SELECT count(*) FROM private.reimport_case_authorization WHERE nonce=v_nonce) <> 1 THEN
+    RAISE EXCEPTION 'C3_REVERSAL_AUTHORIZATION_DRIFT';
+  END IF;
+  -- Role boundary: authenticated may not authorise, service_role may not reverse.
+  BEGIN
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    PERFORM public.red_authorize_reimport_case_reversal(
+      v_batch,v_receipt_sha,gen_random_uuid(),clock_timestamp()+interval '1 hour');
+    RAISE EXCEPTION 'EXPECTED_AUTHORIZE_ROLE_REJECTION';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  EXECUTE 'RESET ROLE';
+  BEGIN
+    EXECUTE 'SET LOCAL ROLE service_role';
+    PERFORM public.red_reverse_reimport_cases(v_rev_auth,v_batch);
+    RAISE EXCEPTION 'EXPECTED_REVERSE_ROLE_REJECTION';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  EXECUTE 'RESET ROLE';
+
+  PERFORM set_config('app.change_set_id','',true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  v_rev_receipt := public.red_reverse_reimport_cases(v_rev_auth,v_batch);
+  EXECUTE 'RESET ROLE';
+  v_rev_batch := (v_rev_receipt->>'batch_id')::uuid;
+
+  ---------------------------------------------------------------------------
+  -- The exact before-state is back
+  ---------------------------------------------------------------------------
+  v_snap_after := jsonb_build_object(
+    'person',(SELECT jsonb_agg(to_jsonb(p)-v_skip ORDER BY p.id) FROM public.person p WHERE p.id=ANY(v_p)),
+    'narrative',(SELECT jsonb_agg(to_jsonb(n) ORDER BY n.id) FROM public.narrative n WHERE n.subjekt_id=ANY(v_p)),
+    'relation',(SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id) FROM public.relation r
+                 WHERE r.subjekt_id=ANY(v_p) OR r.objekt_id=ANY(v_p)),
+    'assertion',(SELECT jsonb_agg(to_jsonb(a) ORDER BY a.id) FROM public.assertion a WHERE a.target_type='relation'),
+    'conclusion',(SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id) FROM public.conclusion c WHERE c.target_type='relation'),
+    'binding',(SELECT jsonb_agg(to_jsonb(b) ORDER BY b.id) FROM private.narrative_record_publication b
+                WHERE b.source_record_id=ANY(v_rec)));
+  IF v_snap_before IS DISTINCT FROM v_snap_after THEN
+    RAISE EXCEPTION 'C3_REVERSAL_SNAPSHOT_DIFFERS: % vs %', v_snap_before, v_snap_after;
+  END IF;
+  -- Named, not merely implied by the snapshot: the reused edge is the SAME row,
+  -- the created one is gone with its evidence, the created narrative is gone,
+  -- the promoted draft is a draft again with published_at cleared.
+  IF NOT EXISTS(SELECT 1 FROM public.relation WHERE id=v_reused_rel)
+     OR EXISTS(SELECT 1 FROM public.relation WHERE id=v_created_rel)
+     OR EXISTS(SELECT 1 FROM public.assertion WHERE target_type='relation' AND target_id=v_created_rel)
+     OR EXISTS(SELECT 1 FROM public.conclusion WHERE target_type='relation' AND target_id=v_created_rel)
+     OR EXISTS(SELECT 1 FROM public.narrative WHERE id=v_new_narr)
+     OR (SELECT status FROM private.narrative_record_publication WHERE id=v_draft_bind) <> 'draft'
+     OR (SELECT published_at FROM private.narrative_record_publication WHERE id=v_draft_bind) IS NOT NULL
+     OR (SELECT tekst FROM public.narrative WHERE id=v_nid) <> 'GAMMEL TEKST 2' THEN
+    RAISE EXCEPTION 'C3_REVERSAL_AFTER_STATE_DRIFT';
+  END IF;
+  -- The public projection is empty again -- the mirror image of apply's own
+  -- fund-H2 assertion.
+  IF EXISTS(SELECT 1 FROM public.public_person_bio_source_versions(v_p)
+             WHERE provenance_kind='source_record') THEN
+    RAISE EXCEPTION 'C3_REVERSAL_PUBLIC_PROJECTION_NOT_EMPTY';
+  END IF;
+
+  ---------------------------------------------------------------------------
+  -- Ledger: a separate, finalized reversal batch, both sides of fund B5's link
+  ---------------------------------------------------------------------------
+  IF v_rev_receipt->>'operation' <> 'reversal'
+     OR v_rev_receipt->>'status' <> 'finalized'
+     OR v_rev_batch = v_batch
+     OR jsonb_array_length(v_rev_receipt->'elements') <> 5
+     OR (v_rev_receipt->'observed_counts'->>'identity_created')::int <> 1
+     OR (v_rev_receipt->'observed_counts'->>'identity_reused')::int <> 1
+     OR (v_rev_receipt->'observed_counts'->>'bindings_deleted')::int <> 1
+     OR (v_rev_receipt->'observed_counts'->>'bindings_restored')::int <> 1
+     OR (v_rev_receipt->'observed_counts'->>'narratives_deleted')::int <> 1
+     OR (v_rev_receipt->'observed_counts'->>'narratives_restored')::int <> 1
+     OR (v_rev_receipt->'observed_counts'->>'reversed_batch_id') <> v_batch::text THEN
+    RAISE EXCEPTION 'C3_REVERSAL_RECEIPT_DRIFT';
+  END IF;
+  IF v_rev_receipt::text LIKE '%NY TEKST%' OR v_rev_receipt::text LIKE '%GAMMEL TEKST%'
+     OR v_rev_receipt::text LIKE '%RAA OCR%' THEN
+    RAISE EXCEPTION 'C3_REVERSAL_RECEIPT_LEAKS_PROSE';
+  END IF;
+  IF (SELECT status FROM private.reimport_case_batch WHERE id=v_batch) <> 'reversed'
+     OR (SELECT reversal_batch_id FROM private.reimport_case_batch WHERE id=v_batch) <> v_rev_batch
+     OR (SELECT status FROM private.reimport_case_batch WHERE id=v_rev_batch) <> 'finalized'
+     OR (SELECT operation FROM private.reimport_case_batch WHERE id=v_rev_batch) <> 'reversal'
+     OR (SELECT count(*) FROM private.reimport_case_event WHERE batch_id=v_rev_batch) <> 5
+     OR (SELECT count(*) FROM private.reimport_case_event WHERE batch_id=v_batch) <> 5
+     OR (SELECT status FROM private.reimport_case_authorization WHERE id=v_rev_auth) <> 'consumed' THEN
+    RAISE EXCEPTION 'C3_REVERSAL_LEDGER_DRIFT';
+  END IF;
+  -- Every reversal event names the event it reverses, and the identity events
+  -- record which relation was deleted and which was kept.
+  IF (SELECT count(*) FROM private.reimport_case_event
+       WHERE batch_id=v_rev_batch AND payload->>'reversed_batch_id'=v_batch::text) <> 5
+     OR (SELECT count(*) FROM private.reimport_case_event
+          WHERE batch_id=v_rev_batch AND action='identity_different'
+            AND payload->'result'->>'outcome'='deleted') <> 1
+     OR (SELECT count(*) FROM private.reimport_case_event
+          WHERE batch_id=v_rev_batch AND action='identity_different'
+            AND payload->'result'->>'outcome'='kept') <> 1
+     OR (SELECT count(*) FROM private.reimport_case_event
+          WHERE batch_id=v_rev_batch AND action='record_assign'
+            AND payload->'result'->>'outcome'='binding_deleted') <> 1
+     OR (SELECT count(*) FROM private.reimport_case_event
+          WHERE batch_id=v_rev_batch AND action='record_assign'
+            AND payload->'result'->>'outcome'='binding_restored') <> 1 THEN
+    RAISE EXCEPTION 'C3_REVERSAL_EVENT_DRIFT';
+  END IF;
+  -- The reversal batch's change set is red_fortryd_change_set's own reversal
+  -- set, chained to the applied one. It legitimately carries no child
+  -- change_event rows: fortryd clears app.change_set_id before the inverse DML
+  -- exactly so the restore is not double-logged.
+  IF (SELECT reverterer_id FROM public.change_set
+       WHERE id=(v_rev_receipt->>'change_set_id')::bigint) <> v_cs THEN
+    RAISE EXCEPTION 'C3_REVERSAL_CHANGE_SET_CHAIN_DRIFT';
+  END IF;
+
+  ---------------------------------------------------------------------------
+  -- Commit-unknown replay and the double-reversal guard
+  ---------------------------------------------------------------------------
+  PERFORM set_config('app.change_set_id','',true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  v_rev_receipt2 := public.red_reverse_reimport_cases(v_rev_auth,v_batch);
+  EXECUTE 'RESET ROLE';
+  IF v_rev_receipt2 <> v_rev_receipt THEN RAISE EXCEPTION 'C3_REVERSAL_REPLAY_RECEIPT_DRIFT'; END IF;
+  IF (SELECT count(*) FROM private.reimport_case_batch WHERE operation='reversal') <> 1
+     OR (SELECT count(*) FROM private.reimport_case_event WHERE batch_id=v_rev_batch) <> 5 THEN
+    RAISE EXCEPTION 'C3_REVERSAL_REPLAY_DUPLICATED';
+  END IF;
+  BEGIN
+    EXECUTE 'SET LOCAL ROLE service_role';
+    PERFORM public.red_authorize_reimport_case_reversal(
+      v_batch,v_receipt_sha,gen_random_uuid(),clock_timestamp()+interval '1 hour');
+    RAISE EXCEPTION 'EXPECTED_DOUBLE_REVERSAL_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'REIMPORT_CASE_BATCH_NOT_REVERSIBLE' THEN RAISE; END IF;
+  END;
+  EXECUTE 'RESET ROLE';
+
+  RAISE NOTICE 'OK: apply -> reverse restores the exact before-state (created+reused identity, absent+draft binding, created+rewritten narrative)';
+END $t7_roundtrip$;
+
+DO $t7_rollback$
+BEGIN
+  RAISE NOTICE 'OK: C3 apply Task 7 roundtrip-testdata rullet tilbage';
+END $t7_rollback$;
+
+ROLLBACK;
+
+-- ============================================================================
+-- Task 7 drift: every reversal attempt against drifted state fails, and the
+-- drifted state survives untouched.
+--
+-- Drift is applied in the OUTER transaction and the failing call is made inside
+-- a sub-block, so the assertions after the handler see the drift as it really
+-- is -- Task 6's pattern (mutate inside the sub-block) would have rolled the
+-- drift back together with the failure and asserted nothing.
+--
+-- Batch X carries the restorable drifts and is reversed successfully at the end,
+-- which is the real proof that no failed attempt leaked a partial mutation.
+-- Batch Y carries the three terminal ones (a deleted reused relation, an
+-- injected event, an out-of-band undo of the batch's change set) -- none of
+-- which can be undone.
+-- ============================================================================
+
+BEGIN;
+
+DO $t7_drift$
+DECLARE
+  v_actor uuid := '00000000-0000-4c37-8000-000000000002';
+  v_source bigint; v_run uuid; v_rend uuid;
+  v_p bigint[]:='{}'; v_rec uuid[]:='{}';
+  i int; v_pid bigint; v_rid uuid; v_occ uuid; v_page int;
+  v_state jsonb; v_nstate jsonb; v_text text; v_side text;
+  v_elems jsonb; v_counts jsonb; v_auth uuid; v_receipt jsonb;
+  v_bx uuid; v_by uuid; v_bz uuid; v_csx bigint; v_csy bigint; v_csz bigint;
+  v_authx uuid; v_authy uuid; v_authz uuid; v_shax text; v_shay text; v_shaz text;
+  v_nx bigint; v_ny bigint; v_nz bigint; v_bind_x uuid; v_reused_rel bigint;
+  v_noncex uuid := gen_random_uuid();
+  v_batches bigint; v_rev_batches bigint;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  PERFORM set_config('request.jwt.claim.sub', v_actor::text, true);
+  INSERT INTO auth.users(id,email) VALUES (v_actor,'c3-task7-drift@test.local') ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES (v_actor,'redaktion','c3-task7-drift@test.local')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+
+  v_source := (SELECT coalesce(max(id),0)+1 FROM public.source);
+  INSERT INTO public.source(id,slags,titel,udgave,aar)
+    VALUES (v_source,'DAA-udgave','DAA 1939 (Task 7 drift)','1939',1939);
+  v_run := gen_random_uuid();
+  INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+    VALUES (v_run,v_source,'c3-task7-drift','1','t','t',repeat('a',64),'{}');
+  v_rend := gen_random_uuid();
+  INSERT INTO private.source_rendition(id,source_id,rendition_key,rendition_kind,content_sha256)
+    VALUES (v_rend,v_source,'c3-task7-drift-rend','ocr_text',repeat('b',64));
+  FOR i IN 1..6 LOOP
+    v_pid := (SELECT coalesce(max(id),0)+1 FROM public.person);
+    INSERT INTO public.person(id,levende,privat,staged,visning_navn)
+      VALUES (v_pid,false,false,false,'Task 7 drift-person '||i);
+    v_p := v_p || v_pid;
+  END LOOP;
+  FOR i IN 1..4 LOOP
+    v_page := 800+i; v_rid := gen_random_uuid();
+    INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
+      VALUES (v_rid,v_source,'t7d-record-'||i,'person_entry',v_run);
+    v_occ := gen_random_uuid();
+    INSERT INTO private.source_record_occurrence(
+      id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,
+      verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id)
+      VALUES (v_occ,v_rend,'t7d-occ-'||i,v_page,v_page,i*100,i*100+50,
+              'RAA OCR D'||i,'pfd-'||i,'sfd-'||i,v_run);
+    INSERT INTO private.source_record_anchor_event(
+      occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name)
+      VALUES (v_occ,v_rid,'accepted','{"k":"v"}'::jsonb,1,v_actor,'tester');
+    v_rec := v_rec || v_rid;
+  END LOOP;
+  -- Both batches rewrite an EXISTING narrative, so no batch-created narrative
+  -- can block the out-of-band undo through the binding FK.
+  v_nx := (SELECT coalesce(max(id),0)+1 FROM public.narrative);
+  INSERT INTO public.narrative(id,subjekt_type,subjekt_id,source_id,tekst,side,privat)
+    VALUES (v_nx,'person',v_p[1],v_source,'GAMMEL X','801',false);
+  v_ny := (SELECT coalesce(max(id),0)+1 FROM public.narrative);
+  INSERT INTO public.narrative(id,subjekt_type,subjekt_id,source_id,tekst,side,privat)
+    VALUES (v_ny,'person',v_p[3],v_source,'GAMMEL Y','803',false);
+  v_nz := (SELECT coalesce(max(id),0)+1 FROM public.narrative);
+  INSERT INTO public.narrative(id,subjekt_type,subjekt_id,source_id,tekst,side,privat)
+    VALUES (v_nz,'person',v_p[5],v_source,'GAMMEL Z','804',false);
+  PERFORM set_config('app.change_set_id','',true);
+  v_reused_rel := public.red_ikke_samme_som(v_p[3],v_p[4]);
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+
+  ---------------------------------------------------------------------------
+  -- Batch X: created identity + assign (existing narrative, absent binding)
+  --          + no_publication
+  ---------------------------------------------------------------------------
+  v_text := 'NY X'; v_side := '801';
+  v_state := private.reimport_case_source_record_state(v_source,'t7d-record-1');
+  v_nstate := private.reimport_case_narrative_state(v_source,v_p[1]);
+  v_elems := jsonb_build_object('case:T7X', jsonb_build_object(
+    'case_id','T7X','action','different',
+    'person_ids',jsonb_build_array(least(v_p[1],v_p[2]),greatest(v_p[1],v_p[2])),
+    'before_state',jsonb_build_object('component_overlap',false,'existing_rejection',false)))
+    || jsonb_build_object('case:T7X:rid:T7RX', jsonb_build_object(
+    'case_id','T7X','rid','T7RX','record_key','t7d-record-1','action','assign',
+    'target_person_id',v_p[1],'target_narrative_id',v_nstate->'narrative_id',
+    'normalized_text',v_text,'normalized_sha256',encode(sha256(convert_to(v_text,'UTF8')),'hex'),
+    'record_label','t7d-record-1','citation_label','DAA 1939 side 801',
+    'side',v_side,'privat',false,
+    'before_state',jsonb_build_object(
+      'source_record',jsonb_build_object('match_count',1,
+        'verbatim_sha256',v_state->>'verbatim_sha256','side',v_state->>'side'),
+      'target_narrative',jsonb_build_object('person_id',v_p[1],
+        'narrative_id',v_nstate->'narrative_id','privat',false,'old_sha256',v_nstate->'old_sha256'),
+      'binding',jsonb_build_object('status','absent','binding_person_id',NULL))));
+  v_state := private.reimport_case_source_record_state(v_source,'t7d-record-2');
+  v_elems := v_elems || jsonb_build_object('case:T7X:rid:T7RXN', jsonb_build_object(
+    'case_id','T7X','rid','T7RXN','record_key','t7d-record-2','action','no_publication',
+    'before_state',jsonb_build_object(
+      'source_record',jsonb_build_object('match_count',1,
+        'verbatim_sha256',v_state->>'verbatim_sha256','side',v_state->>'side'),
+      'binding',jsonb_build_object('status','absent','binding_person_id',NULL))));
+  v_counts := jsonb_build_object('cases',1,'identity_events',1,'assign_events',1,
+    'no_publication_events',1,'events',3,'approvals_approved',1,'approvals_unresolved',0);
+  EXECUTE 'SET LOCAL ROLE service_role';
+  v_auth := public.red_authorize_reimport_cases(v_source,'c3','apply',
+    repeat('1',64),repeat('2',64),repeat('3',64),repeat('4',64),repeat('5',64),repeat('6',64),
+    current_database(),(pg_control_system()).system_identifier::text,
+    v_counts,v_elems,gen_random_uuid(),clock_timestamp()+interval '1 hour');
+  EXECUTE 'RESET ROLE';
+  PERFORM set_config('app.change_set_id','',true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  v_receipt := public.red_apply_reimport_cases(v_auth,repeat('1',64),repeat('3',64));
+  EXECUTE 'RESET ROLE';
+  v_bx := (v_receipt->>'batch_id')::uuid; v_csx := (v_receipt->>'change_set_id')::bigint;
+  SELECT (payload->'result'->>'binding_id')::uuid INTO v_bind_x
+    FROM private.reimport_case_event WHERE batch_id=v_bx AND action='record_assign';
+
+  ---------------------------------------------------------------------------
+  -- Batch Y: reused identity + assign (existing narrative, absent binding)
+  ---------------------------------------------------------------------------
+  v_text := 'NY Y'; v_side := '803';
+  v_state := private.reimport_case_source_record_state(v_source,'t7d-record-3');
+  v_nstate := private.reimport_case_narrative_state(v_source,v_p[3]);
+  v_elems := jsonb_build_object('case:T7Y', jsonb_build_object(
+    'case_id','T7Y','action','different',
+    'person_ids',jsonb_build_array(least(v_p[3],v_p[4]),greatest(v_p[3],v_p[4])),
+    'before_state',jsonb_build_object('component_overlap',false,'existing_rejection',true)))
+    || jsonb_build_object('case:T7Y:rid:T7RY', jsonb_build_object(
+    'case_id','T7Y','rid','T7RY','record_key','t7d-record-3','action','assign',
+    'target_person_id',v_p[3],'target_narrative_id',v_nstate->'narrative_id',
+    'normalized_text',v_text,'normalized_sha256',encode(sha256(convert_to(v_text,'UTF8')),'hex'),
+    'record_label','t7d-record-3','citation_label','DAA 1939 side 803',
+    'side',v_side,'privat',false,
+    'before_state',jsonb_build_object(
+      'source_record',jsonb_build_object('match_count',1,
+        'verbatim_sha256',v_state->>'verbatim_sha256','side',v_state->>'side'),
+      'target_narrative',jsonb_build_object('person_id',v_p[3],
+        'narrative_id',v_nstate->'narrative_id','privat',false,'old_sha256',v_nstate->'old_sha256'),
+      'binding',jsonb_build_object('status','absent','binding_person_id',NULL))));
+  v_counts := jsonb_build_object('cases',1,'identity_events',1,'assign_events',1,
+    'no_publication_events',0,'events',2,'approvals_approved',1,'approvals_unresolved',0);
+  PERFORM set_config('app.change_set_id','',true);
+  EXECUTE 'SET LOCAL ROLE service_role';
+  v_auth := public.red_authorize_reimport_cases(v_source,'c3','apply',
+    repeat('7',64),repeat('8',64),repeat('3',64),repeat('4',64),repeat('5',64),repeat('6',64),
+    current_database(),(pg_control_system()).system_identifier::text,
+    v_counts,v_elems,gen_random_uuid(),clock_timestamp()+interval '1 hour');
+  EXECUTE 'RESET ROLE';
+  PERFORM set_config('app.change_set_id','',true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  v_receipt := public.red_apply_reimport_cases(v_auth,repeat('7',64),repeat('3',64));
+  EXECUTE 'RESET ROLE';
+  v_by := (v_receipt->>'batch_id')::uuid; v_csy := (v_receipt->>'change_set_id')::bigint;
+
+  ---------------------------------------------------------------------------
+  -- Batch Z exists only so the out-of-band-undo guard can be proven on a batch
+  -- that carries NO other drift. Sharing Y would have let an earlier terminal
+  -- drift mask it: with the guard removed the call would still fail, just with
+  -- a different token, and the test could not tell the two apart.
+  ---------------------------------------------------------------------------
+  v_text := 'NY Z'; v_side := '804';
+  v_state := private.reimport_case_source_record_state(v_source,'t7d-record-4');
+  v_nstate := private.reimport_case_narrative_state(v_source,v_p[5]);
+  v_elems := jsonb_build_object('case:T7Z', jsonb_build_object(
+    'case_id','T7Z','action','different',
+    'person_ids',jsonb_build_array(least(v_p[5],v_p[6]),greatest(v_p[5],v_p[6])),
+    'before_state',jsonb_build_object('component_overlap',false,'existing_rejection',false)))
+    || jsonb_build_object('case:T7Z:rid:T7RZ', jsonb_build_object(
+    'case_id','T7Z','rid','T7RZ','record_key','t7d-record-4','action','assign',
+    'target_person_id',v_p[5],'target_narrative_id',v_nstate->'narrative_id',
+    'normalized_text',v_text,'normalized_sha256',encode(sha256(convert_to(v_text,'UTF8')),'hex'),
+    'record_label','t7d-record-4','citation_label','DAA 1939 side 804',
+    'side',v_side,'privat',false,
+    'before_state',jsonb_build_object(
+      'source_record',jsonb_build_object('match_count',1,
+        'verbatim_sha256',v_state->>'verbatim_sha256','side',v_state->>'side'),
+      'target_narrative',jsonb_build_object('person_id',v_p[5],
+        'narrative_id',v_nstate->'narrative_id','privat',false,'old_sha256',v_nstate->'old_sha256'),
+      'binding',jsonb_build_object('status','absent','binding_person_id',NULL))));
+  v_counts := jsonb_build_object('cases',1,'identity_events',1,'assign_events',1,
+    'no_publication_events',0,'events',2,'approvals_approved',1,'approvals_unresolved',0);
+  PERFORM set_config('app.change_set_id','',true);
+  EXECUTE 'SET LOCAL ROLE service_role';
+  v_auth := public.red_authorize_reimport_cases(v_source,'c3','apply',
+    repeat('9',64),repeat('0',64),repeat('3',64),repeat('4',64),repeat('5',64),repeat('6',64),
+    current_database(),(pg_control_system()).system_identifier::text,
+    v_counts,v_elems,gen_random_uuid(),clock_timestamp()+interval '1 hour');
+  EXECUTE 'RESET ROLE';
+  PERFORM set_config('app.change_set_id','',true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  v_receipt := public.red_apply_reimport_cases(v_auth,repeat('9',64),repeat('3',64));
+  EXECUTE 'RESET ROLE';
+  v_bz := (v_receipt->>'batch_id')::uuid; v_csz := (v_receipt->>'change_set_id')::bigint;
+
+  -- All three reversal authorizations are issued BEFORE any drift: that is what
+  -- binds the human's approval to the state as it was measured.
+  v_shax := private.reimport_1939_canonical_json_sha256(private.reimport_case_receipt(v_bx));
+  v_shay := private.reimport_1939_canonical_json_sha256(private.reimport_case_receipt(v_by));
+  v_shaz := private.reimport_1939_canonical_json_sha256(private.reimport_case_receipt(v_bz));
+  EXECUTE 'SET LOCAL ROLE service_role';
+  v_authx := public.red_authorize_reimport_case_reversal(
+    v_bx,v_shax,v_noncex,clock_timestamp()+interval '1 hour');
+  v_authy := public.red_authorize_reimport_case_reversal(
+    v_by,v_shay,gen_random_uuid(),clock_timestamp()+interval '1 hour');
+  v_authz := public.red_authorize_reimport_case_reversal(
+    v_bz,v_shaz,gen_random_uuid(),clock_timestamp()+interval '1 hour');
+  EXECUTE 'RESET ROLE';
+  SELECT count(*) INTO v_batches FROM private.reimport_case_batch;
+
+  ---------------------------------------------------------------------------
+  -- Nonce reuse across batches: the same nonce with a DIFFERENT payload is
+  -- terminal, exactly as for apply. Without this the nonce would be a name
+  -- rather than a commitment.
+  ---------------------------------------------------------------------------
+  BEGIN
+    EXECUTE 'SET LOCAL ROLE service_role';
+    PERFORM public.red_authorize_reimport_case_reversal(
+      v_by,v_shay,v_noncex,clock_timestamp()+interval '1 hour');
+    RAISE EXCEPTION 'EXPECTED_NONCE_CONFLICT_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'REIMPORT_CASE_NONCE_CONFLICT' THEN RAISE; END IF;
+  END;
+  EXECUTE 'RESET ROLE';
+  -- An authorization may only be spent on the batch it NAMES. The element
+  -- lookup deliberately runs BEFORE the consumed-replay short-circuit, so a
+  -- token can never be redirected to fetch another batch's receipt.
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    PERFORM public.red_reverse_reimport_cases(v_authx,v_by);
+    RAISE EXCEPTION 'EXPECTED_WRONG_BATCH_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'REIMPORT_CASE_AUTHORIZATION_INVALID' THEN RAISE; END IF;
+  END;
+  EXECUTE 'RESET ROLE';
+  IF (SELECT count(*) FROM private.reimport_case_batch) <> v_batches
+     OR (SELECT count(*) FROM private.reimport_case_authorization WHERE nonce=v_noncex) <> 1
+     OR (SELECT status FROM private.reimport_case_authorization WHERE id=v_authx) <> 'issued'
+     OR (SELECT status FROM private.reimport_case_batch WHERE id=v_by) <> 'finalized' THEN
+    RAISE EXCEPTION 'C3_REVERSAL_TOKEN_MISBINDING_NOT_REJECTED';
+  END IF;
+
+  ---------------------------------------------------------------------------
+  -- Drift 1 (X): the narrative text moved on since apply
+  ---------------------------------------------------------------------------
+  PERFORM set_config('app.change_set_id','',true);
+  UPDATE public.narrative SET tekst='EN ANDEN HAAND HAR SKREVET HER' WHERE id=v_nx;
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    PERFORM public.red_reverse_reimport_cases(v_authx,v_bx);
+    RAISE EXCEPTION 'EXPECTED_NARRATIVE_DRIFT_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'REIMPORT_CASE_REVERSAL_STATE_DRIFT' THEN RAISE; END IF;
+  END;
+  EXECUTE 'RESET ROLE';
+  IF (SELECT tekst FROM public.narrative WHERE id=v_nx) <> 'EN ANDEN HAAND HAR SKREVET HER'
+     OR (SELECT status FROM private.narrative_record_publication WHERE id=v_bind_x) <> 'published'
+     OR (SELECT status FROM private.reimport_case_batch WHERE id=v_bx) <> 'finalized'
+     OR (SELECT reversal_batch_id FROM private.reimport_case_batch WHERE id=v_bx) IS NOT NULL
+     OR (SELECT status FROM private.reimport_case_authorization WHERE id=v_authx) <> 'issued'
+     OR (SELECT count(*) FROM private.reimport_case_batch) <> v_batches THEN
+    RAISE EXCEPTION 'C3_REVERSAL_DRIFT_NARRATIVE_NOT_PRESERVED';
+  END IF;
+  UPDATE public.narrative SET tekst='NY X' WHERE id=v_nx;
+
+  ---------------------------------------------------------------------------
+  -- Drift 2 (X): the binding was withdrawn behind the batch's back
+  ---------------------------------------------------------------------------
+  UPDATE private.narrative_record_publication SET status='withdrawn' WHERE id=v_bind_x;
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    PERFORM public.red_reverse_reimport_cases(v_authx,v_bx);
+    RAISE EXCEPTION 'EXPECTED_BINDING_DRIFT_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'REIMPORT_CASE_REVERSAL_BINDING_DRIFT' THEN RAISE; END IF;
+  END;
+  EXECUTE 'RESET ROLE';
+  IF (SELECT status FROM private.narrative_record_publication WHERE id=v_bind_x) <> 'withdrawn'
+     OR (SELECT status FROM private.reimport_case_batch WHERE id=v_bx) <> 'finalized'
+     OR (SELECT count(*) FROM private.reimport_case_batch) <> v_batches THEN
+    RAISE EXCEPTION 'C3_REVERSAL_DRIFT_BINDING_NOT_PRESERVED';
+  END IF;
+  UPDATE private.narrative_record_publication SET status='published' WHERE id=v_bind_x;
+
+  ---------------------------------------------------------------------------
+  -- Drift 3 (X): the receipt the authorization was bound to no longer holds
+  ---------------------------------------------------------------------------
+  UPDATE private.reimport_case_batch
+     SET observed_counts=observed_counts||jsonb_build_object('events',99) WHERE id=v_bx;
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    PERFORM public.red_reverse_reimport_cases(v_authx,v_bx);
+    RAISE EXCEPTION 'EXPECTED_RECEIPT_DRIFT_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'REIMPORT_CASE_RECEIPT_DRIFT' THEN RAISE; END IF;
+  END;
+  EXECUTE 'RESET ROLE';
+  IF (SELECT (observed_counts->>'events')::int FROM private.reimport_case_batch WHERE id=v_bx) <> 99
+     OR (SELECT count(*) FROM private.reimport_case_batch) <> v_batches THEN
+    RAISE EXCEPTION 'C3_REVERSAL_DRIFT_RECEIPT_NOT_PRESERVED';
+  END IF;
+  UPDATE private.reimport_case_batch
+     SET observed_counts=observed_counts||jsonb_build_object('events',3) WHERE id=v_bx;
+
+  ---------------------------------------------------------------------------
+  -- X reverses cleanly now: three failed attempts leaked nothing.
+  ---------------------------------------------------------------------------
+  PERFORM set_config('app.change_set_id','',true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  v_receipt := public.red_reverse_reimport_cases(v_authx,v_bx);
+  EXECUTE 'RESET ROLE';
+  IF v_receipt->>'status' <> 'finalized'
+     OR (v_receipt->'observed_counts'->>'identity_created')::int <> 1
+     OR (v_receipt->'observed_counts'->>'bindings_deleted')::int <> 1
+     OR (v_receipt->'observed_counts'->>'narratives_restored')::int <> 1
+     OR (SELECT tekst FROM public.narrative WHERE id=v_nx) <> 'GAMMEL X'
+     OR EXISTS(SELECT 1 FROM private.narrative_record_publication WHERE id=v_bind_x)
+     OR (SELECT status FROM private.reimport_case_batch WHERE id=v_bx) <> 'reversed' THEN
+    RAISE EXCEPTION 'C3_REVERSAL_POST_DRIFT_REVERSAL_DRIFT';
+  END IF;
+  SELECT count(*) INTO v_batches FROM private.reimport_case_batch;
+  SELECT count(*) INTO v_rev_batches FROM private.reimport_case_batch WHERE operation='reversal';
+
+  ---------------------------------------------------------------------------
+  -- Drift 4 (Y): the REUSED identity relation was removed out of band.
+  -- Terminal: reversal must not invent a replacement for an edge it never made.
+  ---------------------------------------------------------------------------
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM public.red_fjern_ikke_samme_som(v_reused_rel);
+  PERFORM set_config('app.change_set_id','',true);
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    PERFORM public.red_reverse_reimport_cases(v_authy,v_by);
+    RAISE EXCEPTION 'EXPECTED_IDENTITY_DRIFT_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'REIMPORT_CASE_REVERSAL_IDENTITY_DRIFT' THEN RAISE; END IF;
+  END;
+  EXECUTE 'RESET ROLE';
+  IF EXISTS(SELECT 1 FROM public.relation WHERE id=v_reused_rel)
+     OR (SELECT tekst FROM public.narrative WHERE id=v_ny) <> 'NY Y'
+     OR (SELECT status FROM private.reimport_case_batch WHERE id=v_by) <> 'finalized'
+     OR (SELECT status FROM private.reimport_case_authorization WHERE id=v_authy) <> 'issued'
+     OR (SELECT count(*) FROM private.reimport_case_batch WHERE operation='reversal') <> v_rev_batches THEN
+    RAISE EXCEPTION 'C3_REVERSAL_DRIFT_IDENTITY_NOT_PRESERVED';
+  END IF;
+
+  ---------------------------------------------------------------------------
+  -- Drift 5 (Y): an event was injected into the applied batch after
+  -- authorization -- the pinned plan no longer matches.
+  ---------------------------------------------------------------------------
+  INSERT INTO private.reimport_case_event(
+    batch_id,source_id,phase,element_id,action,payload_schema_version,payload,after_sha256)
+  VALUES (v_by,v_source,'c3','case:INJECTED','record_no_publication','c3-apply-v1',
+    '{"case_id":"INJECTED","result":{"binding_status":"absent"}}'::jsonb,repeat('c',64));
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    PERFORM public.red_reverse_reimport_cases(v_authy,v_by);
+    RAISE EXCEPTION 'EXPECTED_PLAN_DRIFT_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'REIMPORT_CASE_REVERSAL_PLAN_DRIFT' THEN RAISE; END IF;
+  END;
+  EXECUTE 'RESET ROLE';
+  IF (SELECT count(*) FROM private.reimport_case_event WHERE batch_id=v_by) <> 3
+     OR (SELECT status FROM private.reimport_case_batch WHERE id=v_by) <> 'finalized'
+     OR (SELECT count(*) FROM private.reimport_case_batch WHERE operation='reversal') <> v_rev_batches THEN
+    RAISE EXCEPTION 'C3_REVERSAL_DRIFT_PLAN_NOT_PRESERVED';
+  END IF;
+
+  ---------------------------------------------------------------------------
+  -- Drift 6 (Z, undrifted): a human undid the batch's change set through the
+  -- fortryd panel (prod-live today). Reversal must refuse BEFORE it deletes any
+  -- binding row, not discover it inside red_fortryd_change_set afterwards --
+  -- which is why the guard sits in the shared plan oracle and not in the undo.
+  ---------------------------------------------------------------------------
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM public.red_fortryd_change_set(v_csz,false);
+  PERFORM set_config('app.change_set_id','',true);
+  BEGIN
+    PERFORM set_config('app.change_set_id','',true);
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    PERFORM public.red_reverse_reimport_cases(v_authz,v_bz);
+    RAISE EXCEPTION 'EXPECTED_ALREADY_REVERSED_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'REIMPORT_CASE_CHANGE_SET_ALREADY_REVERSED' THEN RAISE; END IF;
+  END;
+  EXECUTE 'RESET ROLE';
+  IF (SELECT status FROM private.reimport_case_batch WHERE id=v_bz) <> 'finalized'
+     OR (SELECT reversal_batch_id FROM private.reimport_case_batch WHERE id=v_bz) IS NOT NULL
+     OR (SELECT status FROM private.reimport_case_authorization WHERE id=v_authz) <> 'issued'
+     OR (SELECT count(*) FROM private.reimport_case_batch WHERE operation='reversal') <> v_rev_batches
+     -- the binding the batch created is still there: nothing was mutated
+     OR NOT EXISTS(SELECT 1 FROM private.narrative_record_publication
+                    WHERE source_record_id=v_rec[4] AND status='published') THEN
+    RAISE EXCEPTION 'C3_REVERSAL_DRIFT_ALREADY_REVERSED_NOT_PRESERVED';
+  END IF;
+  -- The same guard fails a NEW authorization early, so a gateway never gets a
+  -- reversal token for a batch whose change set is already gone.
+  BEGIN
+    EXECUTE 'SET LOCAL ROLE service_role';
+    PERFORM public.red_authorize_reimport_case_reversal(
+      v_bz,v_shaz,gen_random_uuid(),clock_timestamp()+interval '1 hour');
+    RAISE EXCEPTION 'EXPECTED_ALREADY_REVERSED_AUTHORIZE_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'REIMPORT_CASE_CHANGE_SET_ALREADY_REVERSED' THEN RAISE; END IF;
+  END;
+  EXECUTE 'RESET ROLE';
+
+  RAISE NOTICE 'OK: nonce/batch misbinding plus narrative, binding, receipt, identity, event-set and out-of-band-undo drift each fail closed with the drifted state intact';
+END $t7_drift$;
+
+DO $t7_drift_rollback$
+BEGIN
+  RAISE NOTICE 'OK: C3 apply Task 7 drift-testdata rullet tilbage';
+END $t7_drift_rollback$;
+
+ROLLBACK;
