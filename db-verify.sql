@@ -50,6 +50,32 @@ BEGIN
   RAISE NOTICE 'OK: DAA 1939 v50 production-writer contract er installeret og privat';
 END $$;
 
+-- ===== C3 apply plan Task 5: generic reimport case ledger contract =====
+-- Full catalog/constraint proof lives in tests/sql/test-1939-v50-c3-apply.sql; this
+-- block only proves the objects exist and stay private after db-migrations.sql/db-rls.sql.
+DO $$
+BEGIN
+  IF to_regclass('private.reimport_case_authorization') IS NULL
+     OR to_regclass('private.reimport_case_batch') IS NULL
+     OR to_regclass('private.reimport_case_event') IS NULL
+     OR to_regclass('private.narrative_record_publication_active_record_uidx') IS NULL
+     OR to_regprocedure('private.reject_reimport_case_event_mutation()') IS NULL THEN
+    RAISE EXCEPTION 'C3_APPLY_LEDGER_CONTRACT_MISSING';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE']) privilege
+    CROSS JOIN unnest(ARRAY[
+      'private.reimport_case_authorization','private.reimport_case_batch','private.reimport_case_event'
+    ]) tbl
+    WHERE has_table_privilege('anon',tbl,privilege)
+       OR has_table_privilege('authenticated',tbl,privilege)
+  ) THEN
+    RAISE EXCEPTION 'C3_APPLY_LEDGER_PRIVATE_GRANT_INVALID';
+  END IF;
+  RAISE NOTICE 'OK: C3 apply case ledger (reimport_case_authorization/_batch/_event) er installeret og privat';
+END $$;
+
 -- ===== C3 Task 1 — komponentbrede identitetskontradiktioner =====
 DO $$
 BEGIN
@@ -769,6 +795,10 @@ DECLARE
   v_source bigint := -987651002;
   v_run uuid := '11111111-1111-1111-1111-111111111151';
   v_record uuid := '22222222-2222-2222-2222-222222222251';
+  -- Separate record for the insert-path assertion below: narrative_record_publication_active_record_uidx
+  -- (C3 fund B4) now allows only one active (draft/published) binding per source_record_id, so the
+  -- "new-publication path" case can no longer reuse v_record once it already carries v_binding.
+  v_record2 uuid := '22222222-2222-2222-2222-222222222252';
   v_bound_narrative bigint := -987651003;
   v_legacy_narrative bigint := -987651004;
   v_insert_narrative bigint := -987651005;
@@ -800,6 +830,8 @@ BEGIN
     ) VALUES (v_run,v_source,'task15-verify','1','verify','verify',repeat('1',64),'{}');
     INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
       VALUES (v_record,v_source,'verify-record','person_entry',v_run);
+    INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
+      VALUES (v_record2,v_source,'verify-record-2','person_entry',v_run);
     INSERT INTO narrative(id,subjekt_type,subjekt_id,source_id,tekst,privat) VALUES
       (v_bound_narrative,'person',v_person,v_source,'Bundet record-tekst',false),
       (v_legacy_narrative,'person',v_person,v_source,'Legacy-tekst',false),
@@ -836,12 +868,12 @@ BEGIN
     END IF;
 
     SELECT red_publicer_narrative_record(
-      v_insert_narrative,v_record,'Linje I, nr. 2','s. 2'
+      v_insert_narrative,v_record2,'Linje I, nr. 2','s. 2'
     ) INTO v_published_binding;
     IF NOT EXISTS (
       SELECT 1 FROM private.narrative_record_publication
        WHERE id=v_published_binding AND narrative_id=v_insert_narrative
-         AND source_record_id=v_record AND record_label='Linje I, nr. 2'
+         AND source_record_id=v_record2 AND record_label='Linje I, nr. 2'
          AND citation_label='s. 2' AND status='published' AND published_at IS NOT NULL
     ) THEN
       RAISE EXCEPTION 'FEJL: Task 15 bevarer ikke ny-publiceringsvejen';

@@ -2309,6 +2309,16 @@ ALTER TABLE private.narrative_record_publication ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE private.narrative_record_publication FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION private.validate_narrative_record_publication() FROM PUBLIC,anon,authenticated;
 
+-- C3 adversarial review, fund B4 (2026-08-22): a source_record may carry only one
+-- active (draft/published) narrative binding. Declarative, not lock-based, so every
+-- writer is protected -- not only the ones that remember to lock private.source_record
+-- first. withdrawn bindings are excluded so a fresh binding remains possible after a
+-- withdrawal. Backfill check before this index applied to prod: 0 records with >1
+-- active binding (verified 2026-08-22; re-verify immediately before the prod migration).
+CREATE UNIQUE INDEX narrative_record_publication_active_record_uidx
+  ON private.narrative_record_publication (source_record_id)
+  WHERE status IN ('draft','published');
+
 -- ---------- DAA 1939 v50: guarded production writer ----------
 CREATE TABLE private.reimport_1939_authorization (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -5779,6 +5789,108 @@ CREATE TABLE IF NOT EXISTS change_set (
   subjekt_synlighed TEXT,                       -- frosset: 'offentlig'|'levende'|'privat' (C1-sti)
   reverterer_id     BIGINT REFERENCES change_set(id)  -- dette saet fortroed hvilket (reversal-kaede; M3)
 );
+
+-- ---------- DAA 1939 v50 C3: generic reimport case ledger ----------
+-- Deliberately GENERIC naming (not "1939_v50_c3"-scoped): parametrised on source_id +
+-- phase so that a later phase extends the phase vocabulary with a migration, not new
+-- tables (issue #153). This is a separate, structurally similar family, NOT a rename
+-- of private.reimport_1939_* above -- that family is untouched.
+--
+-- private.require_reimport_1939_editor() and private.reimport_1939_canonical_json_sha256()
+-- (defined above) are reused as-is by the RPCs this ledger supports (Task 6): both are
+-- already generic in behaviour despite their family-scoped names -- the role gate is
+-- public.current_rolle()='redaktion' and the hash helper is plain jsonb canonicalisation,
+-- neither is 1939-specific. Duplicating them under a generic name would be exactly the
+-- kind of new debt the naming decision above exists to avoid.
+--
+-- Composite foreign keys below (batch->authorization, event->batch) each carry
+-- (source_id,phase) alongside the referenced id, mirroring the existing
+-- private.source_record -> private.extraction_run pattern (schema.sql:467-478). This
+-- declaratively guarantees a batch/event can never point at a parent row scoped to a
+-- different source or phase than its own -- the same "prefer declarative over lock
+-- discipline alone" reasoning as the B4 index above.
+CREATE TABLE private.reimport_case_authorization (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_id bigint NOT NULL REFERENCES public.source(id),
+  phase text NOT NULL CHECK (phase IN ('c3')),
+  operation text NOT NULL CHECK (operation IN ('apply','reversal')),
+  manifest_sha256 text NOT NULL CHECK (manifest_sha256 ~ '^[0-9a-f]{64}$'),
+  preview_sha256 text NOT NULL CHECK (preview_sha256 ~ '^[0-9a-f]{64}$'),
+  approval_sha256 text NOT NULL CHECK (approval_sha256 ~ '^[0-9a-f]{64}$'),
+  decisions_sha256 text NOT NULL CHECK (decisions_sha256 ~ '^[0-9a-f]{64}$'),
+  state_sha256 text NOT NULL CHECK (state_sha256 ~ '^[0-9a-f]{64}$'),
+  text_bundle_sha256 text NOT NULL CHECK (text_bundle_sha256 ~ '^[0-9a-f]{64}$'),
+  database_name text NOT NULL CHECK (btrim(database_name)<>''),
+  system_identifier text NOT NULL CHECK (btrim(system_identifier)<>''),
+  expected_counts jsonb NOT NULL CHECK (jsonb_typeof(expected_counts)='object'),
+  authorized_elements jsonb NOT NULL CHECK (jsonb_typeof(authorized_elements)='object'),
+  principal_id uuid NOT NULL,
+  nonce uuid NOT NULL UNIQUE,
+  expires_at timestamptz NOT NULL,
+  status text NOT NULL DEFAULT 'issued' CHECK (status IN ('issued','consumed','expired')),
+  consumed_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  CONSTRAINT reimport_case_authorization_consumed_has_timestamp
+    CHECK ((status='consumed')=(consumed_at IS NOT NULL)),
+  CONSTRAINT reimport_case_authorization_id_source_phase_uk UNIQUE (id,source_id,phase)
+);
+
+CREATE TABLE private.reimport_case_batch (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  authorization_id uuid NOT NULL UNIQUE,
+  source_id bigint NOT NULL REFERENCES public.source(id),
+  phase text NOT NULL CHECK (phase IN ('c3')),
+  operation text NOT NULL CHECK (operation IN ('apply','reversal')),
+  manifest_sha256 text NOT NULL CHECK (manifest_sha256 ~ '^[0-9a-f]{64}$'),
+  preview_sha256 text NOT NULL CHECK (preview_sha256 ~ '^[0-9a-f]{64}$'),
+  principal_id uuid NOT NULL,
+  status text NOT NULL DEFAULT 'open' CHECK (status IN ('open','finalized','reversed')),
+  expected_counts jsonb NOT NULL CHECK (jsonb_typeof(expected_counts)='object'),
+  observed_counts jsonb CHECK (observed_counts IS NULL OR jsonb_typeof(observed_counts)='object'),
+  change_set_id bigint REFERENCES public.change_set(id),
+  reversal_batch_id uuid REFERENCES private.reimport_case_batch(id),
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  finalized_at timestamptz,
+  CONSTRAINT reimport_case_batch_reversed_has_reversal
+    CHECK ((status='reversed')=(reversal_batch_id IS NOT NULL)),
+  CONSTRAINT reimport_case_batch_id_source_phase_uk UNIQUE (id,source_id,phase),
+  CONSTRAINT reimport_case_batch_authorization_source_phase_fk
+    FOREIGN KEY (authorization_id,source_id,phase)
+    REFERENCES private.reimport_case_authorization(id,source_id,phase)
+);
+CREATE UNIQUE INDEX reimport_case_batch_manifest_uidx
+  ON private.reimport_case_batch(source_id,phase,manifest_sha256,preview_sha256,principal_id);
+
+CREATE TABLE private.reimport_case_event (
+  id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  batch_id uuid NOT NULL,
+  source_id bigint NOT NULL REFERENCES public.source(id),
+  phase text NOT NULL CHECK (phase IN ('c3')),
+  element_id text NOT NULL CHECK (btrim(element_id)<>''),
+  action text NOT NULL CHECK (action IN ('identity_different','record_assign','record_no_publication')),
+  payload_schema_version text NOT NULL CHECK (payload_schema_version='c3-apply-v1'),
+  payload jsonb NOT NULL CHECK (jsonb_typeof(payload)='object'),
+  before_sha256 text CHECK (before_sha256 IS NULL OR before_sha256 ~ '^[0-9a-f]{64}$'),
+  after_sha256 text NOT NULL CHECK (after_sha256 ~ '^[0-9a-f]{64}$'),
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  CONSTRAINT reimport_case_event_batch_element_uk UNIQUE (batch_id,element_id),
+  CONSTRAINT reimport_case_event_batch_source_phase_fk
+    FOREIGN KEY (batch_id,source_id,phase)
+    REFERENCES private.reimport_case_batch(id,source_id,phase)
+);
+
+CREATE FUNCTION private.reject_reimport_case_event_mutation()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+BEGIN RAISE EXCEPTION 'REIMPORT_CASE_EVENT_APPEND_ONLY'; END $$;
+CREATE TRIGGER trg_reimport_case_event_append_only
+  BEFORE UPDATE OR DELETE ON private.reimport_case_event
+  FOR EACH ROW EXECUTE FUNCTION private.reject_reimport_case_event_mutation();
+
+ALTER TABLE private.reimport_case_authorization ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_case_batch ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_case_event ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON private.reimport_case_authorization,private.reimport_case_batch,private.reimport_case_event FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION private.reject_reimport_case_event_mutation() FROM PUBLIC,anon,authenticated;
 
 CREATE TABLE IF NOT EXISTS change_event (
   id            BIGINT PRIMARY KEY,

@@ -882,3 +882,16 @@ GRANT EXECUTE ON FUNCTION public.red_lock_1939_v50_name_completion(text),
   public.red_apply_1939_v50_name_completion(uuid,text,jsonb),
   public.red_finalize_1939_v50_name_completion(uuid)
   TO authenticated;
+
+-- C3 apply plan Task 5: generic reimport case ledger. No RPCs exist yet (Task 6
+-- builds those against service_role/authenticated); until then the ledger has
+-- no direct DML grant to any role -- table owner only.
+ALTER TABLE private.reimport_case_authorization ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_case_batch ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_case_event ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON private.reimport_case_authorization,
+  private.reimport_case_batch,
+  private.reimport_case_event
+  FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION private.reject_reimport_case_event_mutation()
+  FROM PUBLIC,anon,authenticated;
