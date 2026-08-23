@@ -1008,6 +1008,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .token-label { display: block; margin-top: .8rem; }
 .exact-token { display: inline-block; padding: .2rem .4rem; background: #eef3fa; }
 .control-error { color: #9d211c; font-weight: 700; }
+.page-intro { max-width: 46rem; line-height: 1.55; }
+.card-intro { color: #3c485c; line-height: 1.5; }
+.status-line { padding: .6rem .8rem; border-radius: .4rem; background: #eef5f7;
+  border-left: .35rem solid #426b82; }
+.technical-detail { margin-top: 1rem; }
+.technical-detail summary { cursor: pointer; color: #566175; font-size: .9rem; }
+.technical-detail p { font-size: .9rem; }
 [hidden] { display: none !important; }
 @media (max-width: 44rem) {
   .candidate-grid { grid-template-columns: 1fr; }
@@ -1463,47 +1470,60 @@ function appendLabelledValue(container, label, value, className) {
   container.append(row);
 }
 
-function bindingLabel(status) {
+function bindingStatusPlain(status) {
   const labels = {
-    absent: "ingen binding",
-    draft_same_record: "kladdebinding til samme record",
-    draft_other_record: "kladdebinding til andet record",
-    published: "publiceret binding",
-    withdrawn: "tilbagetrukket binding"
+    absent: "Der er endnu ikke registreret nogen tekst her — dette er en ny tilføjelse.",
+    draft_same_record: "Der findes allerede en kladde her for samme kildepost.",
+    draft_other_record: "Der findes allerede en kladde her for en anden kildepost.",
+    published: "Der er allerede en offentliggjort tekst her.",
+    withdrawn: "En tidligere tekst her er trukket tilbage."
   };
-  return labels[status] || "bindingens status er ikke registreret";
+  return labels[status] || "Status for denne tekst kunne ikke aflæses.";
 }
 
-function renderApplyCard(card) {
-  const article = makeElement("section", "case-card");
-  article.append(makeElement("h2", "", `Sag ${card.case_id} · ${card.rid}`));
-  const comparison = makeElement("section", "comparison");
-  comparison.append(makeElement("h3", "comparison-heading", "Kildekontekst"));
-  appendLabelledValue(comparison, "Recordnøgle", card.record_key);
-  appendLabelledValue(comparison, "Side", card.after.expected_narrative.side);
-  appendLabelledValue(comparison, "Citation", card.after.expected_narrative.citation_label);
-  appendLabelledValue(comparison, "Kildehash (raw_sha256)", card.after.raw_sha256);
+function appendDetailRow(container, label, value) {
+  const row = makeElement("p", "labelled-value");
+  row.append(makeElement("strong", "", `${label}: `),
+             makeElement("span", "", readableValue(value)));
+  container.append(row);
+}
 
-  const before = makeElement("article", "source-record");
-  before.append(makeElement("h4", "", "Eksisterende narrativ (før)"));
-  appendLabelledValue(before, "Person-ID", card.before.target_narrative.person_id);
-  appendLabelledValue(before, "Narrativ-ID", card.before.target_narrative.narrative_id);
-  appendLabelledValue(before, "Eksisterende hash (old_sha256)", card.before.target_narrative.old_sha256);
-  appendLabelledValue(before, "Bindingsstatus", bindingLabel(card.before.binding.status));
-  comparison.append(before);
+function renderApplyCard(card, index, total) {
+  const article = makeElement("section", "case-card");
+  article.append(makeElement(
+    "h2", "", `Tekst ${index + 1} af ${total}`));
+  article.append(makeElement(
+    "p", "card-intro",
+    `Kilde: ${readableValue(card.after.expected_narrative.citation_label)}. `
+    + "Læs teksten nedenfor, og markér den som godkendt, hvis den er korrekt."));
+
+  const comparison = makeElement("section", "comparison");
+  comparison.append(makeElement(
+    "p", "status-line", bindingStatusPlain(card.before.binding.status)));
 
   const after = makeElement("article", "candidate-card");
-  after.append(makeElement("h4", "", "Ny narrativtekst (efter)"));
-  appendLabelledValue(after, "Tildeles person-ID", card.after.target_person_id);
+  after.append(makeElement("h3", "", "Foreslået tekst"));
   after.append(makeElement("p", "candidate-text", readableValue(card.after.normalized_text)));
-  appendLabelledValue(after, "Normaliseret hash (normalized_sha256)", card.after.normalized_sha256);
-  appendLabelledValue(after, "Normaliseringsversion", card.after.normalization_version);
-  appendLabelledValue(
-    after, "Flags",
+  comparison.append(after);
+
+  const details = makeElement("details", "technical-detail");
+  details.append(makeElement("summary", "", "Tekniske detaljer (til kontrol af sagen)"));
+  appendDetailRow(details, "Tildeles person med database-ID", card.after.target_person_id);
+  appendDetailRow(details, "Recordnøgle", card.record_key);
+  appendDetailRow(details, "Sagsnummer", card.case_id);
+  appendDetailRow(details, "Kildehash (raw_sha256)", card.after.raw_sha256);
+  appendDetailRow(details, "Normaliseret hash (normalized_sha256)", card.after.normalized_sha256);
+  appendDetailRow(details, "Normaliseringsversion", card.after.normalization_version);
+  appendDetailRow(
+    details, "Flags",
     card.after.normalization_flags.length
       ? card.after.normalization_flags.join(", ")
       : null);
-  comparison.append(after);
+  appendDetailRow(details, "Eksisterende narrativ-ID", card.before.target_narrative.narrative_id);
+  appendDetailRow(details, "Eksisterende hash (old_sha256)", card.before.target_narrative.old_sha256);
+  appendDetailRow(details, "Bindingsstatus (rå værdi)", card.before.binding.status);
+  comparison.append(details);
+
   article.append(comparison);
   return article;
 }
@@ -1530,8 +1550,19 @@ function boot() {
     counts.textContent = `${approved} godkendt · ${values.length - approved} uafklaret`;
   };
 
-  payload.cards.forEach(card => {
-    const article = renderApplyCard(card);
+  const intro = makeElement(
+    "p", "page-intro",
+    `Der er ${payload.counts.decisions} tekster klar til godkendelse. Gennemgå dem `
+    + "én ad gangen, og markér hver som \"Godkendt\", hvis den er korrekt. Når du er "
+    + "færdig, download filen med dine beslutninger nedenfor.");
+  root.append(intro);
+
+  const toolbar = makeElement("header", "toolbar");
+  toolbar.append(counts, download, digest);
+  root.append(toolbar, bundleHash);
+
+  payload.cards.forEach((card, index) => {
+    const article = renderApplyCard(card, index, payload.cards.length);
     const control = makeElement("section", "decision-control");
     control.append(makeElement("h3", "", "Godkend indsættelse af denne tekst"));
     const slot = payload.slots.find(row => row.element_id === card.element_id);
@@ -1546,7 +1577,8 @@ function boot() {
       refreshStatus();
     };
     select.addEventListener("change", update);
-    control.append(select, makeElement("span", "token-label", "Eksakt token: "), exact);
+    control.append(
+      select, makeElement("span", "token-label", "Din beslutning gemmes som: "), exact);
     article.append(control);
     root.append(article);
     states.set(card.element_id, select.value);
@@ -1578,9 +1610,6 @@ function boot() {
     }
   });
 
-  const toolbar = makeElement("header", "toolbar");
-  toolbar.append(counts, download, digest);
-  root.append(toolbar, bundleHash);
   refreshStatus();
 }
 

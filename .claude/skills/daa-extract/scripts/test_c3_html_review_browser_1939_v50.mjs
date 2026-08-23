@@ -600,7 +600,7 @@ async function mainApply() {
     const cardHeadings = await cards.locator("h2").allTextContents();
     assert.deepEqual(
       cardHeadings,
-      payload.cards.map(card => `Sag ${card.case_id} · ${card.rid}`));
+      payload.cards.map((card, index) => `Tekst ${index + 1} af ${payload.cards.length}`));
 
     const selects = page.locator("select.choice");
     assert.equal(await selects.count(), 5);
