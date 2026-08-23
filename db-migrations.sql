@@ -9649,6 +9649,15 @@ BEGIN
     IF FOUND AND v_batch.status='finalized' THEN
       RETURN private.reimport_case_receipt(v_batch.id);
     END IF;
+    -- A deliberately reversed batch is NOT anomalous state, and must not hide
+    -- inside the token the spec routes to manual audit. Task 7 flips a reversed
+    -- batch's status away from 'finalized', so a late retry of the original
+    -- apply authorization lands here; it gets its own token so a gateway can
+    -- tell "this work was withdrawn on purpose" from "this authorization is in
+    -- a partial or unexplained state".
+    IF FOUND AND v_batch.status='reversed' THEN
+      RAISE EXCEPTION 'REIMPORT_CASE_BATCH_REVERSED';
+    END IF;
     RAISE EXCEPTION 'REIMPORT_CASE_AUTHORIZATION_ALREADY_CONSUMED';
   END IF;
   IF v_auth.status<>'issued' OR v_auth.expires_at<=clock_timestamp() THEN
@@ -10117,6 +10126,32 @@ BEGIN
     RAISE EXCEPTION 'REIMPORT_CASE_DATABASE_IDENTITY_MISMATCH';
   END IF;
 
+  -- Nonce is the commit-unknown handle, exactly as for apply -- and it is
+  -- looked up BEFORE the plan and the receipt are derived, because neither
+  -- derivation survives the reversal this authorization goes on to permit: the
+  -- plan oracle refuses a batch that is already 'reversed', and the applied
+  -- batch's receipt stops hashing to the approved value the moment its status
+  -- flips inside that very JSON. A caller whose connection dropped on the
+  -- original authorize call must still be able to repeat it, so the replay is
+  -- decided against what was STORED when the authorization was created --
+  -- never against a fresh re-derivation. manifest_sha256 IS that stored
+  -- receipt hash (see the INSERT below), so comparing the caller's
+  -- p_receipt_sha256 to it is the same commitment as before, just taken from
+  -- the ledger instead of from the live batch.
+  SELECT * INTO v_existing FROM private.reimport_case_authorization WHERE nonce=p_nonce;
+  IF FOUND THEN
+    IF v_existing.operation='reversal' AND v_existing.source_id=v_batch.source_id
+       AND v_existing.phase=v_batch.phase
+       AND v_existing.manifest_sha256=p_receipt_sha256
+       AND v_existing.preview_sha256=v_batch.preview_sha256
+       AND v_existing.principal_id=v_actor
+       AND (SELECT count(*) FROM jsonb_object_keys(v_existing.authorized_elements))=1
+       AND (v_existing.authorized_elements->('batch:'||p_batch_id::text)) IS NOT NULL THEN
+      RETURN v_existing.id;
+    END IF;
+    RAISE EXCEPTION 'REIMPORT_CASE_NONCE_CONFLICT';
+  END IF;
+
   v_plan := private.reimport_case_reversal_plan(p_batch_id);
   v_receipt_sha := private.reimport_1939_canonical_json_sha256(
                      private.reimport_case_receipt(p_batch_id));
@@ -10129,21 +10164,6 @@ BEGIN
     'receipt_sha256',v_receipt_sha,'plan_sha256',v_plan_sha,
     'event_ids',(SELECT jsonb_agg(e->'event_id' ORDER BY (e->>'event_id')::bigint)
                    FROM jsonb_array_elements(v_plan->'events') e)));
-
-  -- Nonce is the commit-unknown handle, exactly as for apply.
-  SELECT * INTO v_existing FROM private.reimport_case_authorization WHERE nonce=p_nonce;
-  IF FOUND THEN
-    IF v_existing.operation='reversal' AND v_existing.source_id=v_batch.source_id
-       AND v_existing.phase=v_batch.phase
-       AND v_existing.manifest_sha256=v_receipt_sha
-       AND v_existing.preview_sha256=v_batch.preview_sha256
-       AND v_existing.expected_counts=(v_plan->'counts')
-       AND v_existing.authorized_elements=v_elements
-       AND v_existing.principal_id=v_actor THEN
-      RETURN v_existing.id;
-    END IF;
-    RAISE EXCEPTION 'REIMPORT_CASE_NONCE_CONFLICT';
-  END IF;
 
   -- manifest_sha256 of a reversal IS the receipt hash of the batch it reverses:
   -- that receipt is the artefact a human approved, and it keeps

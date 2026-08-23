@@ -2273,6 +2273,74 @@ BEGIN
   END;
   EXECUTE 'RESET ROLE';
 
+  ---------------------------------------------------------------------------
+  -- The reversal authorization's nonce is STILL a commit-unknown handle after
+  -- the reversal has committed (fix round 1, fund 3)
+  --
+  -- Both derivations the authorization used to run before its nonce lookup are
+  -- unusable by now: the plan oracle refuses a batch that is already
+  -- 'reversed', and the applied batch's receipt no longer hashes to what the
+  -- human approved, because 'status' flips inside the hashed JSON. A caller
+  -- that lost its connection on the ORIGINAL authorize call must nevertheless
+  -- be able to repeat it with the same nonce and get the same authorization
+  -- back -- so the comparison has to be against the STORED manifest_sha256,
+  -- never against a fresh re-derivation. The first assertion pins the premise:
+  -- the applied receipt hash really has moved.
+  ---------------------------------------------------------------------------
+  IF private.reimport_1939_canonical_json_sha256(private.reimport_case_receipt(v_batch))
+     = v_receipt_sha THEN
+    RAISE EXCEPTION 'C3_REVERSAL_APPLIED_RECEIPT_HASH_UNEXPECTEDLY_STABLE';
+  END IF;
+  EXECUTE 'SET LOCAL ROLE service_role';
+  IF public.red_authorize_reimport_case_reversal(
+       v_batch,v_receipt_sha,v_nonce,clock_timestamp()+interval '1 hour') <> v_rev_auth THEN
+    RAISE EXCEPTION 'C3_REVERSAL_AUTHORIZATION_NONCE_REPLAY_BROKEN';
+  END IF;
+  -- The negative twin: same nonce, a different payload, is still refused.
+  BEGIN
+    PERFORM public.red_authorize_reimport_case_reversal(
+      v_batch,repeat('e',64),v_nonce,clock_timestamp()+interval '1 hour');
+    RAISE EXCEPTION 'EXPECTED_NONCE_PAYLOAD_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'REIMPORT_CASE_NONCE_CONFLICT' THEN RAISE; END IF;
+  END;
+  EXECUTE 'RESET ROLE';
+  IF (SELECT count(*) FROM private.reimport_case_authorization WHERE nonce=v_nonce) <> 1 THEN
+    RAISE EXCEPTION 'C3_REVERSAL_AUTHORIZATION_NONCE_DUPLICATED';
+  END IF;
+  -- The recovered handle closes the loop rather than merely returning a uuid:
+  -- reversing with it yields the same receipt, byte for byte, and duplicates
+  -- nothing.
+  PERFORM set_config('app.change_set_id','',true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  v_rev_receipt2 := public.red_reverse_reimport_cases(v_rev_auth,v_batch);
+  EXECUTE 'RESET ROLE';
+  IF v_rev_receipt2 <> v_rev_receipt
+     OR (SELECT count(*) FROM private.reimport_case_batch WHERE operation='reversal') <> 1
+     OR (SELECT count(*) FROM private.reimport_case_event WHERE batch_id=v_rev_batch) <> 5 THEN
+    RAISE EXCEPTION 'C3_REVERSAL_NONCE_REPLAY_RECEIPT_DRIFT';
+  END IF;
+
+  ---------------------------------------------------------------------------
+  -- A stale APPLY retry against a reversed batch says exactly that
+  -- (fix round 1, fund 1)
+  --
+  -- Apply's commit-unknown replay requires the batch to be 'finalized'; this
+  -- task flips it to 'reversed'. That must not report as the generic
+  -- ...AUTHORIZATION_ALREADY_CONSUMED, which the spec routes to manual audit:
+  -- "the batch was deliberately reversed" is a known, benign answer, and a
+  -- gateway has to be able to tell it apart from genuinely anomalous state.
+  ---------------------------------------------------------------------------
+  PERFORM set_config('app.change_set_id','',true);
+  BEGIN
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    PERFORM public.red_apply_reimport_cases(v_auth,repeat('1',64),repeat('3',64));
+    RAISE EXCEPTION 'EXPECTED_REVERSED_BATCH_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'REIMPORT_CASE_BATCH_REVERSED' THEN RAISE; END IF;
+  END;
+  EXECUTE 'RESET ROLE';
+
   RAISE NOTICE 'OK: apply -> reverse restores the exact before-state (created+reused identity, absent+draft binding, created+rewritten narrative)';
 END $t7_roundtrip$;
 
