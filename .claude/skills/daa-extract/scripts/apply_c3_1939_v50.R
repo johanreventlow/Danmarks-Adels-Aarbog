@@ -27,6 +27,16 @@
 ##
 ## Only counts, IDs and hashes are ever printed. Narrative prose reaches the
 ## database as an authorization parameter and never touches stdout/stderr.
+##
+## If `apply` reports `outcome=not_committed` (exit 2), the transaction was
+## proven NOT to have committed and nothing was consumed. Retry by re-running
+## `--mode apply` with THE SAME `--nonce`: authorize compares all six hashes on
+## nonce replay, so the same nonce keeps the retry idempotent and keeps a later
+## `--mode status` on that nonce meaningful. A fresh nonce would also fail
+## closed, but it discards the handle reconciliation is read through.
+## `outcome=reversed` means the batch was deliberately withdrawn -- not a
+## failure, and never something to retry. The terminal token
+## C3_APPLY_COMMIT_UNKNOWN means manual audit, never an automatic retry.
 
 .c3_apply_main <- function() {
   script_arg <- grep("^--file=", commandArgs(), value = TRUE)[1L]

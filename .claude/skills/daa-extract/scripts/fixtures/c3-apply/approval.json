@@ -1,0 +1,34 @@
+{
+  "approvals_raw_sha256": "b9be1c10a41fe30e56f551d37beaef17bd6ac86e6bb52903ce3db5d3a29be2f1",
+  "counts": {
+    "approved": 5,
+    "decisions": 5,
+    "unresolved": 0
+  },
+  "decisions": [
+    {
+      "element_id": "case:T8CASE1:rid:R01",
+      "status": "approved"
+    },
+    {
+      "element_id": "case:T8CASE2:rid:R02",
+      "status": "approved"
+    },
+    {
+      "element_id": "case:T8CASE3:rid:R03",
+      "status": "approved"
+    },
+    {
+      "element_id": "case:T8CASE4:rid:R04",
+      "status": "approved"
+    },
+    {
+      "element_id": "case:T8CASE5:rid:R05",
+      "status": "approved"
+    }
+  ],
+  "manifest_canonical_content_sha256": "a96481c61bc1afce2f4fc426415fe0571448cd333983d8ce948bdc0b1c5c4cec",
+  "manifest_raw_sha256": "6dde3fa10f23b4d563b50eb9908a43e558969f5055815a7975bfc9e3dd2622b4",
+  "schema_version": "1939-v50-c3-apply-approvals-decisions-v1",
+  "text_bundle_sha256": "19dcd1b13078792d9e8c9f9bc6eeb89535e65e7392b2cc1510b89bfda2d3c5f2"
+}

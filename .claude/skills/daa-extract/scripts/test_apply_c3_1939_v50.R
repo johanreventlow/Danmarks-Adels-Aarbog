@@ -927,6 +927,55 @@ expect_error(
   "C3_APPLY_REVERSAL_BATCH_NOT_REVERSIBLE")
 
 ## ===========================================================================
+## Cross-tool pin: REAL finalizer + converter output, not a hand-written mirror
+##
+## Every other fixture in this file is written by hand to mirror
+## finalize_c3_apply_manifest_1939_v50.py and
+## convert_c3_apply_approvals_1939_v50.py. That pins one side only: if either
+## Python tool changed its output shape, all the assertions above would still
+## pass. These two files are genuine output of those tools (produced against a
+## disposable local Postgres during Task 8's rehearsal, see the task report);
+## they contain no real prose and no PII. Asserting the projection against
+## them is what makes a finalizer/gateway divergence fail in CI rather than in
+## a production window.
+##
+## Only the projection is exercised -- build_c3_apply_authorization() never
+## compares `database` against a live connection, so the fixtures' recorded
+## database name / system identifier are inert here.
+## ===========================================================================
+
+local({
+  manifest_raw <- .c3_common_read_regular_raw(
+    file.path(script_dir, "fixtures", "c3-apply", "manifest.json"), "C3_APPLY_MANIFEST_UNREADABLE")
+  approval_raw <- .c3_common_read_regular_raw(
+    file.path(script_dir, "fixtures", "c3-apply", "approval.json"), "C3_APPLY_APPROVAL_UNREADABLE")
+  real <- build_c3_apply_authorization(manifest_raw, approval_raw)
+  expect(length(real$element_ids) == 11L)
+  expect(length(real$assign_element_ids) == 5L)
+  real_elements <- jsonlite::fromJSON(real$authorized_elements_json,
+                                       simplifyVector = FALSE)
+  expect(setequal(names(real_elements), real$element_ids))
+  key_counts <- vapply(real_elements, length, integer(1))
+  actions <- vapply(real_elements, function(e) e$action, character(1))
+  expect(all(key_counts[actions == "different"] == 4L))
+  expect(all(key_counts[actions == "assign"] == 13L))
+  expect(all(key_counts[actions == "no_publication"] == 5L))
+  expect(sum(actions == "different") == 5L)
+  expect(sum(actions == "assign") == 5L)
+  expect(sum(actions == "no_publication") == 1L)
+  real_counts <- jsonlite::fromJSON(real$expected_counts_json, simplifyVector = FALSE)
+  expect(length(real_counts) == 7L)
+  expect(identical(as.integer(real_counts$events), 11L))
+  expect(identical(as.integer(real_counts$approvals_approved), 5L))
+  expect(identical(as.integer(real_counts$approvals_unresolved), 0L))
+  ## Element ids are exactly the finalizer's own element_id values.
+  manifest <- jsonlite::fromJSON(rawToChar(manifest_raw), simplifyVector = FALSE)
+  finalizer_ids <- unlist(lapply(manifest$cases, function(case)
+    c(case$element_id, vapply(case$events, function(e) e$element_id, character(1)))))
+  expect(setequal(finalizer_ids, real$element_ids))
+})
+
+## ===========================================================================
 ## Step 5: printed output carries only safe counts / ids / hashes
 ## ===========================================================================
 
