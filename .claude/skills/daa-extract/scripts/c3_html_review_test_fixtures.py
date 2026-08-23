@@ -29,8 +29,11 @@ APPLY_CASE_SPECS: Tuple[Tuple[str, str, int, int, str], ...] = (
     ("case-1", "rid-1", 2101, 2102, "603"),
     ("case-2", "rid-2", 2201, 2202, "610"),
     ("case-3", "rid-3", 2301, 2302, "615"),
-    ("case-4", "rid-4", 2401, 2402, "620"),
 )
+# Spejler fasens reelle facon (2026-08-23): case-4 er en no_publication-only-
+# sag (modstykke til den ægte R28), så manifestet bærer 4 assigns + 2
+# no_publications på tværs af 5 sager.
+APPLY_NOPUB_CASE = ("case-4", "rid-4", 2401, 2402)
 APPLY_SPECIAL_CASE = ("case-5", "rid-5", "rid-6", 2501, 2502, "625")
 
 
@@ -184,7 +187,13 @@ def _apply_assign_after_state(rid: str, record_key: str, side: str,
         "normalized_text": text,
         "normalized_sha256": _sha256(text.encode("utf-8")),
         "normalization_version": "narrative_norm_v1",
-        "normalization_flags": ["ocr_cleanup", rid.replace("-", "_")],
+        # Samme flag-form som den ægte kandidatbygger: objekter med præcis
+        # {kind, context, char_offset}, aldrig bare strenge.
+        "normalization_flags": [{
+            "kind": "hyphen_unproven",
+            "context": "SYNTHETIC-CONTEXT-" + rid,
+            "char_offset": 21,
+        }],
         "expected_narrative": {
             "privat": False,
             "side": side,
@@ -278,6 +287,11 @@ def apply_manifest_document() -> Dict[str, Any]:
             case_id, rid, alias_id, canonical_id, side,
             include_attack=index == 0)
         cases.append(_apply_case(case_id, alias_id, canonical_id, [event]))
+    (nopub_case_id, nopub_only_rid, nopub_alias_id,
+     nopub_canonical_id) = APPLY_NOPUB_CASE
+    cases.append(_apply_case(
+        nopub_case_id, nopub_alias_id, nopub_canonical_id,
+        [_apply_nopub_event(nopub_case_id, nopub_only_rid)]))
     (special_case_id, assign_rid, nopub_rid, alias_id, canonical_id,
      side) = APPLY_SPECIAL_CASE
     assign_event = _apply_assign_event(
@@ -301,8 +315,8 @@ def apply_manifest_document() -> Dict[str, Any]:
         "counts": {
             "cases": 5,
             "identity_events": 5,
-            "assign_events": 5,
-            "no_publication_events": 1,
+            "assign_events": 4,
+            "no_publication_events": 2,
             "events": 11,
         },
         "cases": cases,

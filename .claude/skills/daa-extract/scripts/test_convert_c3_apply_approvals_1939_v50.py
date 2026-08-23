@@ -85,9 +85,9 @@ def test_unchanged_sheet_roundtrips_to_all_unresolved():
         "canonical_content_sha256"]
     assert out["approvals_raw_sha256"] == hashlib.sha256(
         text.encode("utf-8")).hexdigest()
-    assert out["counts"] == {"decisions": 5, "approved": 0, "unresolved": 5}
+    assert out["counts"] == {"decisions": 4, "approved": 0, "unresolved": 4}
     assert [decision["status"] for decision in out["decisions"]] == (
-        ["unresolved"] * 5)
+        ["unresolved"] * 4)
     assert [decision["element_id"] for decision in out["decisions"]] == [
         slot["element_id"] for slot in slots]
     serialized = json.dumps(out, ensure_ascii=False)
@@ -101,9 +101,9 @@ def test_fully_approved_sheet_marks_all_five_approved():
     text, slots, _ = baseline_sheet(document)
     approved_text = text.replace("[UAFKLARET]", "[GODKENDT]")
     out = converter().parse_approvals(approved_text, document, manifest_raw)
-    assert out["counts"] == {"decisions": 5, "approved": 5, "unresolved": 0}
+    assert out["counts"] == {"decisions": 4, "approved": 4, "unresolved": 0}
     assert [decision["status"] for decision in out["decisions"]] == (
-        ["approved"] * 5)
+        ["approved"] * 4)
 
 
 def test_partial_approval_only_changes_the_approved_lines():
@@ -111,7 +111,7 @@ def test_partial_approval_only_changes_the_approved_lines():
     text, slots, _ = baseline_sheet(document)
     edited = approve(text, slots[0]["element_id"])
     out = converter().parse_approvals(edited, document, manifest_raw)
-    assert out["counts"] == {"decisions": 5, "approved": 1, "unresolved": 4}
+    assert out["counts"] == {"decisions": 4, "approved": 1, "unresolved": 3}
     assert out["decisions"][0] == {
         "element_id": slots[0]["element_id"], "status": "approved"}
     assert all(decision["status"] == "unresolved"
@@ -141,7 +141,7 @@ def test_approval_sheet_is_portable_across_preview_derived_manifest_drift():
     drifted_document, drifted_raw = manifest_and_raw(mutate=drift_preview_only)
     out = converter().parse_approvals(
         approved_text, drifted_document, drifted_raw)
-    assert out["counts"] == {"decisions": 5, "approved": 5, "unresolved": 0}
+    assert out["counts"] == {"decisions": 4, "approved": 4, "unresolved": 0}
     assert out["text_bundle_sha256"] == converter().renderer.apply_text_bundle_sha256(
         converter().renderer._apply_assign_events(document))
     assert out["manifest_raw_sha256"] == hashlib.sha256(
@@ -193,7 +193,7 @@ def test_identical_text_different_targets_produce_different_bundle_and_reject_cr
 
     events_a = renderer._apply_assign_events(document_a)
     events_b = renderer._apply_assign_events(document_b)
-    assert len(events_a) == len(events_b) == 5
+    assert len(events_a) == len(events_b) == 4
     for event_a, event_b in zip(
             sorted(events_a, key=lambda event: event["rid"]),
             sorted(events_b, key=lambda event: event["rid"])):
@@ -319,7 +319,7 @@ def test_line_not_starting_with_bracket_is_token_invalid():
 
 @pytest.mark.parametrize("mutate,expected", [
     (lambda doc: doc.pop("database"), "C3_APPLY_APPROVALS_MANIFEST_INVALID"),
-    (lambda doc: doc["counts"].__setitem__("assign_events", 4),
+    (lambda doc: doc["counts"].__setitem__("assign_events", 5),
      "C3_APPLY_APPROVALS_MANIFEST_INVALID"),
 ])
 def test_structural_manifest_drift_is_remapped_to_own_namespace(
@@ -403,10 +403,10 @@ def test_cli_hashes_raw_bytes_and_writes_text_free_json_atomically(tmp_path):
         "--output", str(output_path),
     ])
     assert completed.returncode == 0
-    assert completed.stdout == "beslutninger=5 godkendt=1 uafklarede=4\n"
+    assert completed.stdout == "beslutninger=4 godkendt=1 uafklarede=3\n"
     assert completed.stderr == ""
     out = json.loads(output_path.read_text(encoding="utf-8"))
-    assert out["counts"] == {"decisions": 5, "approved": 1, "unresolved": 4}
+    assert out["counts"] == {"decisions": 4, "approved": 1, "unresolved": 3}
     assert out["manifest_raw_sha256"] == hashlib.sha256(
         manifest_raw).hexdigest()
     assert "Syntetisk" not in json.dumps(out, ensure_ascii=False)

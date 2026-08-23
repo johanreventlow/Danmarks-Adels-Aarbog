@@ -69,11 +69,11 @@ manifest_assign_event <- function(index, narrative_id = 700L + index) {
   )
 }
 
-manifest_no_publication_event <- function() {
+manifest_no_publication_event <- function(case_index = 5L, rid_index = 6L) {
   list(
-    element_id = "case:T8CASE5:rid:R06",
-    rid = "R06",
-    record_key = "t8-record-6",
+    element_id = paste0("case:T8CASE", case_index, ":rid:R0", rid_index),
+    rid = paste0("R0", rid_index),
+    record_key = paste0("t8-record-", rid_index),
     action = "no_publication",
     after_state = structure(list(), names = character(0)),
     before_state = list(
@@ -86,7 +86,10 @@ manifest_no_publication_event <- function() {
 
 manifest_document <- function(mutate = identity) {
   cases <- lapply(1:5, function(index) {
-    events <- list(manifest_assign_event(index))
+    ## Spejler fasens reelle facon (2026-08-23): case 4 er no_publication-only
+    ## (modstykke til den ægte R28), case 5 bærer assign + no_publication.
+    events <- if (index == 4L) list(manifest_no_publication_event(4L, 4L))
+              else list(manifest_assign_event(index))
     if (index == 5L) events <- c(events, list(manifest_no_publication_event()))
     list(
       element_id = paste0("case:T8CASE", index),
@@ -104,8 +107,8 @@ manifest_document <- function(mutate = identity) {
       candidate_canonical_content_sha256 = sha("3"),
       before_state_canonical_sha256 = sha("4")),
     database = list(database_name = DB_NAME, system_identifier = SYS_ID),
-    counts = list(cases = 5L, identity_events = 5L, assign_events = 5L,
-                  no_publication_events = 1L, events = 11L),
+    counts = list(cases = 5L, identity_events = 5L, assign_events = 4L,
+                  no_publication_events = 2L, events = 11L),
     cases = cases,
     canonical_content_sha256 = sha("5")
   ))
@@ -127,10 +130,11 @@ approval_document <- function(mutate = identity,
     manifest_raw_sha256 = manifest_sha,
     manifest_canonical_content_sha256 = sha("5"),
     text_bundle_sha256 = sha("8"),
-    decisions = lapply(1:5, function(index) list(
+    ## Kun de fire assign-elementer (case 4 er no_publication-only).
+    decisions = lapply(c(1L, 2L, 3L, 5L), function(index) list(
       element_id = paste0("case:T8CASE", index, ":rid:R0", index),
       status = "approved")),
-    counts = list(decisions = 5L, approved = 5L, unresolved = 0L)
+    counts = list(decisions = 4L, approved = 4L, unresolved = 0L)
   ))
 }
 
@@ -173,12 +177,12 @@ receipt_json <- function(mutate = identity, operation = "apply",
     source_id = 3L, phase = "c3", operation = operation,
     status = "finalized", change_set_id = 4242L,
     manifest_sha256 = MANIFEST_SHA, preview_sha256 = sha("2"),
-    expected_counts = list(cases = 5L, identity_events = 5L, assign_events = 5L,
-                           no_publication_events = 1L, events = 11L,
-                           approvals_approved = 5L, approvals_unresolved = 0L),
-    observed_counts = list(cases = 5L, identity_events = 5L, assign_events = 5L,
-                           no_publication_events = 1L, events = 11L,
-                           narratives_written = 5L, source_records = 6L,
+    expected_counts = list(cases = 5L, identity_events = 5L, assign_events = 4L,
+                           no_publication_events = 2L, events = 11L,
+                           approvals_approved = 4L, approvals_unresolved = 0L),
+    observed_counts = list(cases = 5L, identity_events = 5L, assign_events = 4L,
+                           no_publication_events = 2L, events = 11L,
+                           narratives_written = 4L, source_records = 6L,
                            persons = 10L),
     elements = lapply(element_ids, function(id) list(
       element_id = id, action = "record_assign",
@@ -349,7 +353,7 @@ expect_error(
     MANIFEST_RAW,
     raw_of(approval_document(function(a) {
       a$decisions[[3L]]$status <- "unresolved"
-      a$counts <- list(decisions = 5L, approved = 4L, unresolved = 1L); a }))),
+      a$counts <- list(decisions = 4L, approved = 3L, unresolved = 1L); a }))),
   "C3_APPLY_APPROVAL_NOT_APPROVED")
 ## Approval decisions must name exactly the manifest's five assign elements.
 expect_error(
@@ -411,7 +415,7 @@ expect(setequal(names(counts), c("cases", "identity_events", "assign_events",
 expect(length(counts) == 7L)
 expect(identical(counts$cases, 5L) || identical(counts$cases, 5))
 expect(identical(as.integer(counts$events), 11L))
-expect(identical(as.integer(counts$approvals_approved), 5L))
+expect(identical(as.integer(counts$approvals_approved), 4L))
 expect(identical(as.integer(counts$approvals_unresolved), 0L))
 
 elements <- jsonlite::fromJSON(bundle$authorized_elements_json,
@@ -597,14 +601,14 @@ expect_error(
 expect_error(
   c3_apply_run("apply", bundle, list(nonce = NONCE, actor_id = ACTOR),
                connector(make_fake(apply_answers(function(j) sub(
-                 '"narratives_written":5', '"narratives_written":4', j,
+                 '"narratives_written":4', '"narratives_written":3', j,
                  fixed = TRUE))))),
   "")  ## an unrelated observed key must NOT fail the run
 expect_error(
   c3_apply_run("apply", bundle, list(nonce = NONCE, actor_id = ACTOR),
                connector(make_fake(default_answers(list(apply = frame(
                  receipt = receipt_json(function(r) {
-                   r$observed_counts$assign_events <- 4L; r }))))))),
+                   r$observed_counts$assign_events <- 5L; r }))))))),
   "C3_APPLY_RECEIPT_COUNTS_MISMATCH")
 ## The ledger must have recorded exactly our eleven element ids.
 expect_error(
@@ -636,8 +640,8 @@ reconcile_batch_frame <- function(status = "finalized",
                                   observed = NULL) {
   if (is.null(observed)) {
     observed <- as.character(jsonlite::toJSON(list(
-      cases = 5L, identity_events = 5L, assign_events = 5L,
-      no_publication_events = 1L, events = 11L, narratives_written = 5L,
+      cases = 5L, identity_events = 5L, assign_events = 4L,
+      no_publication_events = 2L, events = 11L, narratives_written = 4L,
       source_records = 6L, persons = 10L), auto_unbox = TRUE))
   }
   frame(id = NEW_BATCH_ID, status = status, change_set_id = 4242L,
@@ -951,7 +955,7 @@ local({
     file.path(script_dir, "fixtures", "c3-apply", "approval.json"), "C3_APPLY_APPROVAL_UNREADABLE")
   real <- build_c3_apply_authorization(manifest_raw, approval_raw)
   expect(length(real$element_ids) == 11L)
-  expect(length(real$assign_element_ids) == 5L)
+  expect(length(real$assign_element_ids) == 4L)
   real_elements <- jsonlite::fromJSON(real$authorized_elements_json,
                                        simplifyVector = FALSE)
   expect(setequal(names(real_elements), real$element_ids))
@@ -961,12 +965,12 @@ local({
   expect(all(key_counts[actions == "assign"] == 13L))
   expect(all(key_counts[actions == "no_publication"] == 5L))
   expect(sum(actions == "different") == 5L)
-  expect(sum(actions == "assign") == 5L)
-  expect(sum(actions == "no_publication") == 1L)
+  expect(sum(actions == "assign") == 4L)
+  expect(sum(actions == "no_publication") == 2L)
   real_counts <- jsonlite::fromJSON(real$expected_counts_json, simplifyVector = FALSE)
   expect(length(real_counts) == 7L)
   expect(identical(as.integer(real_counts$events), 11L))
-  expect(identical(as.integer(real_counts$approvals_approved), 5L))
+  expect(identical(as.integer(real_counts$approvals_approved), 4L))
   expect(identical(as.integer(real_counts$approvals_unresolved), 0L))
   ## Element ids are exactly the finalizer's own element_id values.
   manifest <- jsonlite::fromJSON(rawToChar(manifest_raw), simplifyVector = FALSE)

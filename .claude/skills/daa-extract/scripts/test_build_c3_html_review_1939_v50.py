@@ -719,24 +719,24 @@ def apply_manifest_raw(mutate=None):
     return fixtures.apply_manifest_bytes(document), document
 
 
-def test_apply_fixture_has_five_assign_and_one_no_publication_event():
+def test_apply_fixture_has_four_assign_and_two_no_publication_events():
     raw, document = apply_manifest_raw()
     assert document["counts"] == {
-        "cases": 5, "identity_events": 5, "assign_events": 5,
-        "no_publication_events": 1, "events": 11,
+        "cases": 5, "identity_events": 5, "assign_events": 4,
+        "no_publication_events": 2, "events": 11,
     }
     events = [event for case in document["cases"] for event in case["events"]]
     assign = [event for event in events if event["action"] == "assign"]
     no_pub = [event for event in events if event["action"] == "no_publication"]
-    assert len(assign) == 5
-    assert len(no_pub) == 1
+    assert len(assign) == 4
+    assert len(no_pub) == 2
     assert fixtures.APPLY_ATTACK_SENTINEL in raw.decode("utf-8")
 
 
 def test_apply_assign_events_are_sorted_by_element_id():
     raw, document = apply_manifest_raw()
     events = mod._apply_assign_events(document)
-    assert len(events) == 5
+    assert len(events) == 4
     assert [event["element_id"] for event in events] == sorted(
         event["element_id"] for event in events)
 
@@ -777,9 +777,9 @@ def test_apply_text_bundle_sha256_ignores_preview_derived_drift():
                  doc["cases"][0]["events"][0]["after_state"][
                      "normalized_text"] + " ÆNDRET"))),
     lambda doc: doc["cases"][0]["events"][0]["after_state"].__setitem__(
-        "normalization_flags", list(reversed(
+        "normalization_flags", [dict(
             doc["cases"][0]["events"][0]["after_state"][
-                "normalization_flags"]))),
+                "normalization_flags"][0], char_offset=99)]),
 ])
 def test_apply_text_bundle_sha256_changes_with_candidate_derived_drift(
         mutate):
@@ -913,8 +913,8 @@ def test_apply_approval_sheet_has_exact_locked_byte_sequence():
     lines = decoded.splitlines(keepends=True)
     assert lines[0] == "# schema=1939-v50-c3-apply-approvals-v1\n"
     assert lines[1] == "# text_bundle_sha256={}\n".format(text_bundle_sha256)
-    assert len(lines) == 7
-    assert len(slots) == 5
+    assert len(lines) == 6
+    assert len(slots) == 4
     assert [slot["element_id"] for slot in slots] == sorted(
         event["element_id"] for event in events)
     for index, slot in enumerate(slots):
@@ -924,7 +924,7 @@ def test_apply_approval_sheet_has_exact_locked_byte_sequence():
             "utf-8") == "UAFKLARET"
         assert slot["default_token"] == "UAFKLARET"
     assert all(slots[index]["end"] <= slots[index + 1]["start"]
-               for index in range(4))
+               for index in range(3))
 
 
 def test_apply_approval_sheet_rejects_wrong_event_count():
@@ -950,11 +950,11 @@ def build_apply_artifact(mutate=None):
     return raw, payload, sheet_bytes, html
 
 
-def test_apply_payload_has_five_cards_matching_slot_order():
+def test_apply_payload_has_four_cards_matching_slot_order():
     _, payload, _, _ = build_apply_artifact()
-    assert payload["counts"] == {"decisions": 5}
-    assert len(payload["cards"]) == 5
-    assert len(payload["slots"]) == 5
+    assert payload["counts"] == {"decisions": 4}
+    assert len(payload["cards"]) == 4
+    assert len(payload["slots"]) == 4
     assert [card["element_id"] for card in payload["cards"]] == [
         slot["element_id"] for slot in payload["slots"]]
     assert payload["vocabulary"] == {
@@ -978,7 +978,7 @@ def test_apply_payload_card_carries_readable_before_after_fields():
 
 @pytest.mark.parametrize("mutate,expected", [
     (lambda doc: doc.pop("database"), "C3_HTML_APPLY_MANIFEST_INVALID"),
-    (lambda doc: doc["counts"].__setitem__("assign_events", 4),
+    (lambda doc: doc["counts"].__setitem__("assign_events", 5),
      "C3_HTML_APPLY_COUNT_INVALID"),
     (lambda doc: doc["cases"][0]["events"][0]["before_state"][
         "source_record"].__setitem__("side", 7),
@@ -1113,7 +1113,7 @@ def test_apply_cli_publishes_one_self_contained_html_and_safe_metadata(
     assert output.read_bytes().startswith(b"<!doctype html>\n")
     captured = capsys.readouterr()
     assert captured.err == ""
-    assert "beslutninger=5" in captured.out
+    assert "beslutninger=4" in captured.out
     assert "c3-apply.html" in captured.out
     assert "text_bundle_sha256=" in captured.out
     assert "html_sha256=" in captured.out

@@ -34,8 +34,8 @@
 ## five numbers offline and Task 6's validate_reimport_case_counts asserts the
 ## derived invariants server-side; this is the third, cheapest gate.
 .c3_apply_expected_manifest_counts <- list(
-  cases = 5L, identity_events = 5L, assign_events = 5L,
-  no_publication_events = 1L, events = 11L)
+  cases = 5L, identity_events = 5L, assign_events = 4L,
+  no_publication_events = 2L, events = 11L)
 
 ## The four `expected_counts`/`observed_counts` keys apply's receipt does NOT
 ## share: observed_counts carries eight keys (three write-side measurements,

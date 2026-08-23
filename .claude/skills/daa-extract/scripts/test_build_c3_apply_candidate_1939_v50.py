@@ -133,11 +133,16 @@ def chain(tokens=None):
     review = build.render_review(
         selection, state, hashlib.sha256(selection_raw).hexdigest(),
         hashlib.sha256(state_raw).hexdigest())
+    # Spejler fasens reelle facon (revideret 2026-08-23): fem hele sager,
+    # fire assigns og TO no_publication — R19 er testens modstykke til den
+    # ægte R28, hvis recordbeslutning blev flippet fra assign til
+    # no_publication, da personens narrativ allerede var publiceret fra en
+    # anden kildepost.
     default_tokens = {
         "identity:R03": "FORSKELLIGE", "record:R03": "TIL 1101",
         "identity:R07": "FORSKELLIGE", "record:R07": "TIL 1202",
         "identity:R11": "FORSKELLIGE", "record:R11": "INGEN_PUBLIKATION",
-        "identity:R19": "FORSKELLIGE", "record:R19": "TIL 1401",
+        "identity:R19": "FORSKELLIGE", "record:R19": "INGEN_PUBLIKATION",
         "identity:1017:1021": "FORSKELLIGE",
         "record:R40": "TIL 1017", "record:R15": "TIL 1021",
     }
@@ -185,8 +190,8 @@ def test_exact_five_whole_cases_and_payload_contract():
     assert result["counts"] == {
         "cases": 5,
         "identity_different": 5,
-        "record_assign": 5,
-        "record_no_publication": 1,
+        "record_assign": 4,
+        "record_no_publication": 2,
     }
     assert [case["case_id"] for case in result["cases"]] == [
         "R03", "R07", "R11", "R19", "1017/1021"]
@@ -370,7 +375,8 @@ def test_normalization_uses_full_corpus_twice_and_rejects_nondeterminism(monkeyp
     corpus = "\n".join(record["verbatim_text"]
                        for case in values["selection"]["cases"]
                        for record in case["records"])
-    assert len(calls) == 10
+    # Fire assigns, hver normaliseret to gange (byggekald + genberegnings-CAS).
+    assert len(calls) == 8
     assert all(call[1] == corpus for call in calls)
 
     counter = {"value": 0}

@@ -70,8 +70,8 @@ _CANDIDATE_KEYS = {
     "schema_version", "input_hashes", "counts", "cases",
     "canonical_content_sha256"}
 _CANDIDATE_COUNTS = {
-    "cases": 5, "identity_different": 5, "record_assign": 5,
-    "record_no_publication": 1}
+    "cases": 5, "identity_different": 5, "record_assign": 4,
+    "record_no_publication": 2}
 _CASE_KEYS = {"case_id", "identity", "record_decisions"}
 _IDENTITY_KEYS = {"action", "person_ids"}
 _ASSIGN_KEYS = {
@@ -227,7 +227,7 @@ def _validate_candidate(doc: Dict[str, Any]) -> Dict[str, Any]:
         _fail(code)
     if len(set(record_keys)) != 6 or len(record_keys) != 6:
         _fail(code)
-    if assign_count != 5 or no_publication_count != 1:
+    if assign_count != 4 or no_publication_count != 2:
         _fail(code)
 
     stated_hash = doc["canonical_content_sha256"]
@@ -408,9 +408,10 @@ def _validate_target_narratives(
         before_state: Dict[str, Any], index: Dict[str, Any]
         ) -> Dict[str, Dict[str, Any]]:
     target_narratives = before_state["target_narratives"]
-    if not isinstance(target_narratives, list) or len(target_narratives) != 5:
-        _fail("C3_APPLY_MANIFEST_PREVIEW_INVALID")
     assign_rids = index["assign_rids"]
+    if (not isinstance(target_narratives, list)
+            or len(target_narratives) != len(assign_rids)):
+        _fail("C3_APPLY_MANIFEST_PREVIEW_INVALID")
     seen: List[str] = []
     result: Dict[str, Dict[str, Any]] = {}
     for row in target_narratives:
@@ -597,8 +598,8 @@ def finalize_manifest(candidate_raw: bytes, preview_raw: bytes) -> Dict[str, Any
         "events": identity_events + assign_events + no_publication_events,
     }
     if counts != {
-            "cases": 5, "identity_events": 5, "assign_events": 5,
-            "no_publication_events": 1, "events": 11}:
+            "cases": 5, "identity_events": 5, "assign_events": 4,
+            "no_publication_events": 2, "events": 11}:
         _fail("C3_APPLY_MANIFEST_COUNTS_INVALID")
 
     result: Dict[str, Any] = {

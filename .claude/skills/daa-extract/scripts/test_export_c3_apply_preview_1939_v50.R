@@ -54,7 +54,7 @@ candidate_cases <- function() {
     list(case_id = "case-3", identity = list(action = "different", person_ids = c(103, 203)),
          record_decisions = list(assign_decision("rid-3", "rk-3", 103))),
     list(case_id = "case-4", identity = list(action = "different", person_ids = c(104, 204)),
-         record_decisions = list(assign_decision("rid-4", "rk-4", 104))),
+         record_decisions = list(no_publication_decision("rid-4", "rk-4"))),
     list(case_id = "case-5", identity = list(action = "different", person_ids = c(105, 205)),
          record_decisions = list(assign_decision("rid-5", "rk-5", 105),
                                  no_publication_decision("rid-6", "rk-6")))
@@ -68,8 +68,8 @@ candidate_document <- function(cases = candidate_cases(), schema_version =
     input_hashes = list(decisions_sha256 = sha("1"), selection_sha256 = sha("2"),
                         state_sha256 = sha("3"), review_sha256 = sha("4"),
                         c0_candidates_sha256 = sha("5"), c0_decisions_sha256 = sha("6")),
-    counts = list(cases = 5, identity_different = 5, record_assign = 5,
-                 record_no_publication = 1),
+    counts = list(cases = 5, identity_different = 5, record_assign = 4,
+                 record_no_publication = 2),
     cases = cases,
     canonical_content_sha256 = sha("7")
   )
@@ -108,7 +108,6 @@ default_rpc_response <- function() {
       list(rid = "rid-1", person_id = 101, narrative_id = 9001, privat = FALSE, old_sha256 = sha("c")),
       list(rid = "rid-2", person_id = 102, narrative_id = 9002, privat = FALSE, old_sha256 = sha("c")),
       list(rid = "rid-3", person_id = 103, narrative_id = 9003, privat = FALSE, old_sha256 = sha("c")),
-      list(rid = "rid-4", person_id = 104, narrative_id = 9004, privat = FALSE, old_sha256 = sha("c")),
       list(rid = "rid-5", person_id = 105, narrative_id = 9005, privat = FALSE, old_sha256 = sha("c"))
     ),
     ## Exactly one row per candidate record_key, always, with explicit
@@ -262,7 +261,7 @@ expect(identical(result$database$database_name, DB_NAME), "C3_TEST_RESULT_DB_NAM
 expect(identical(result$database$system_identifier, SYSTEM_IDENTIFIER), "C3_TEST_RESULT_SYSTEM_ID")
 expect(length(result$before_state$identity_pairs) == 5L, "C3_TEST_RESULT_IDENTITY_COUNT")
 expect(length(result$before_state$source_records) == 6L, "C3_TEST_RESULT_SOURCE_COUNT")
-expect(length(result$before_state$target_narratives) == 5L, "C3_TEST_RESULT_TARGET_COUNT")
+expect(length(result$before_state$target_narratives) == 4L, "C3_TEST_RESULT_TARGET_COUNT")
 expect(is.list(result$candidate) &&
        identical(result$candidate$schema_version, "1939-v50-c3-apply-candidate-v1"),
        "C3_TEST_RESULT_CANDIDATE_FORWARDED")

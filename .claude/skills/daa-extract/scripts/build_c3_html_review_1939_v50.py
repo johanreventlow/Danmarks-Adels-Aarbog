@@ -28,8 +28,8 @@ _APPLY_INPUT_HASH_KEYS = {
     "candidate_canonical_content_sha256", "before_state_canonical_sha256"}
 _APPLY_DATABASE_KEYS = {"database_name", "system_identifier"}
 _APPLY_COUNTS_EXACT = {
-    "cases": 5, "identity_events": 5, "assign_events": 5,
-    "no_publication_events": 1, "events": 11}
+    "cases": 5, "identity_events": 5, "assign_events": 4,
+    "no_publication_events": 2, "events": 11}
 _APPLY_CASE_KEYS = {
     "element_id", "case_id", "after_state", "before_state", "events"}
 _APPLY_CASE_AFTER_KEYS = {"action", "person_ids"}
@@ -1144,8 +1144,18 @@ def _validate_apply_event(event: Any) -> None:
                     after_state["normalization_version"])
                 or not isinstance(
                     after_state["normalization_flags"], list)
-                or not all(isinstance(flag, str)
-                           for flag in after_state["normalization_flags"])):
+                # Samme flag-pin som kandidatbyggeren (build_c3_apply_
+                # candidate_1939_v50.py): hvert flag er et objekt med præcis
+                # {kind, context, char_offset} — aldrig en bar streng.
+                or not all(
+                    isinstance(flag, dict)
+                    and set(flag) == {"kind", "context", "char_offset"}
+                    and isinstance(flag["kind"], str) and flag["kind"]
+                    and isinstance(flag["context"], str)
+                    and isinstance(flag["char_offset"], int)
+                    and type(flag["char_offset"]) is not bool
+                    and flag["char_offset"] >= 0
+                    for flag in after_state["normalization_flags"])):
             fail("C3_HTML_APPLY_MANIFEST_INVALID")
         expected_narrative = after_state["expected_narrative"]
         _apply_exact_keys(
@@ -1247,8 +1257,9 @@ def _apply_assign_events(manifest_doc: Mapping[str, Any]
                     "before": event["before_state"],
                     "after": event["after_state"],
                 })
-    if (len(events) != 5
-            or len({event["element_id"] for event in events}) != 5):
+    expected = _APPLY_COUNTS_EXACT["assign_events"]
+    if (len(events) != expected
+            or len({event["element_id"] for event in events}) != expected):
         fail("C3_HTML_APPLY_COUNT_INVALID")
     return sorted(events, key=lambda event: event["element_id"])
 
@@ -1311,7 +1322,8 @@ def apply_approval_sheet(text_bundle_sha256: str,
         fail("C3_HTML_APPLY_HASH_INVALID")
     ordered = sorted(assign_events, key=lambda event: event["element_id"])
     element_ids = [event["element_id"] for event in ordered]
-    if len(element_ids) != 5 or len(set(element_ids)) != 5:
+    expected = _APPLY_COUNTS_EXACT["assign_events"]
+    if len(element_ids) != expected or len(set(element_ids)) != expected:
         fail("C3_HTML_APPLY_COUNT_INVALID")
     header = "# schema={}\n# text_bundle_sha256={}\n".format(
         APPLY_SHEET_SCHEMA, text_bundle_sha256)
@@ -1386,7 +1398,7 @@ def build_apply_payload(manifest_raw: bytes
                 manifest_doc["canonical_content_sha256"],
         },
         "text_bundle_sha256": text_bundle_sha256,
-        "counts": {"decisions": 5},
+        "counts": {"decisions": _APPLY_COUNTS_EXACT["assign_events"]},
         "vocabulary": {"approval_actions": list(APPLY_TOKENS)},
         "cards": cards,
         "slots": slots,
@@ -1517,7 +1529,9 @@ function renderApplyCard(card, index, total) {
   appendDetailRow(
     details, "Flags",
     card.after.normalization_flags.length
-      ? card.after.normalization_flags.join(", ")
+      ? card.after.normalization_flags
+          .map(flag => `${flag.kind} (tegn ${flag.char_offset})`)
+          .join(", ")
       : null);
   appendDetailRow(details, "Eksisterende narrativ-ID", card.before.target_narrative.narrative_id);
   appendDetailRow(details, "Eksisterende hash (old_sha256)", card.before.target_narrative.old_sha256);
@@ -1770,9 +1784,10 @@ def _main_apply(values: Dict[str, str]) -> int:
     rendered = render_apply_html(payload, sheet_bytes)
     publish_output(output, rendered)
     print(
-        "beslutninger=5 output={} manifest_sha256={} "
+        "beslutninger={} output={} manifest_sha256={} "
         "text_bundle_sha256={} html_sha256={}".format(
-            output.name, payload["manifest_hashes"]["manifest_raw_sha256"],
+            payload["counts"]["decisions"], output.name,
+            payload["manifest_hashes"]["manifest_raw_sha256"],
             payload["text_bundle_sha256"],
             hashlib.sha256(rendered).hexdigest()))
     return 0

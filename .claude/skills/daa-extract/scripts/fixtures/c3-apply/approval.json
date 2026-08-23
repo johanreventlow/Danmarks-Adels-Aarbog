@@ -1,34 +1,30 @@
 {
-  "approvals_raw_sha256": "b9be1c10a41fe30e56f551d37beaef17bd6ac86e6bb52903ce3db5d3a29be2f1",
+  "approvals_raw_sha256": "eea3bd2e77e1d96e0ca603f8b846034a47d11102b5c959af840b7d4ab5e47a35",
   "counts": {
-    "approved": 5,
-    "decisions": 5,
+    "approved": 4,
+    "decisions": 4,
     "unresolved": 0
   },
   "decisions": [
     {
-      "element_id": "case:T8CASE1:rid:R01",
+      "element_id": "case:case-1:rid:rid-1",
       "status": "approved"
     },
     {
-      "element_id": "case:T8CASE2:rid:R02",
+      "element_id": "case:case-2:rid:rid-2",
       "status": "approved"
     },
     {
-      "element_id": "case:T8CASE3:rid:R03",
+      "element_id": "case:case-3:rid:rid-3",
       "status": "approved"
     },
     {
-      "element_id": "case:T8CASE4:rid:R04",
-      "status": "approved"
-    },
-    {
-      "element_id": "case:T8CASE5:rid:R05",
+      "element_id": "case:case-5:rid:rid-5",
       "status": "approved"
     }
   ],
-  "manifest_canonical_content_sha256": "a96481c61bc1afce2f4fc426415fe0571448cd333983d8ce948bdc0b1c5c4cec",
-  "manifest_raw_sha256": "6dde3fa10f23b4d563b50eb9908a43e558969f5055815a7975bfc9e3dd2622b4",
+  "manifest_canonical_content_sha256": "e04c047f95479b8aa948a5a4363db92305b12c7132b524a2547c2d01e35e5c4a",
+  "manifest_raw_sha256": "f494eaabd7fa0dd0ca94ac99af0ffcd775c983b1f7b2d2ab521bf961c0005dc8",
   "schema_version": "1939-v50-c3-apply-approvals-decisions-v1",
-  "text_bundle_sha256": "19dcd1b13078792d9e8c9f9bc6eeb89535e65e7392b2cc1510b89bfda2d3c5f2"
+  "text_bundle_sha256": "a0d71eb724382bf58dc8b8daf6cd2181144650edf2cd0a36c29f23488d873fe6"
 }

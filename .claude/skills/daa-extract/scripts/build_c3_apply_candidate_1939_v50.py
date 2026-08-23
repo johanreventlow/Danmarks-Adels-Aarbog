@@ -326,9 +326,14 @@ def build_candidate_manifest(
         "record_assign": assign_count,
         "record_no_publication": no_publication_count,
     }
+    # Fastlåst facitliste for fasen. Revideret 2026-08-23: R28's record-
+    # beslutning blev flippet fra assign til no_publication, da personens
+    # (1220, samme_som 510) rigtige narrativ allerede er publiceret fra
+    # "8."-posten på side 545 (record-2c93dd69...), og R28's record er
+    # oversigtsposten på side 509, som ikke skal være nogens biografi.
     if counts != {
             "cases": 5, "identity_different": 5,
-            "record_assign": 5, "record_no_publication": 1}:
+            "record_assign": 4, "record_no_publication": 2}:
         fail("C3_APPLY_DECISION_SET_INVALID")
     result: Dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,

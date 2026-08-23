@@ -523,8 +523,8 @@ async function mainApply() {
       /<div id="c3-apply-payload" hidden>([A-Za-z0-9_-]+=*)<\/div>/);
     assert.ok(match, "synthetic apply HTML payload missing");
     const payload = JSON.parse(decodeBase64Url(match[1]).toString("utf8"));
-    assert.equal(payload.cards.length, 5);
-    assert.equal(payload.slots.length, 5);
+    assert.equal(payload.cards.length, 4);
+    assert.equal(payload.slots.length, 4);
     assert.deepEqual(
       payload.cards.map(card => card.element_id),
       payload.slots.map(slot => slot.element_id));
@@ -590,8 +590,8 @@ async function mainApply() {
 
     const cards = page.locator("section.case-card");
     const controls = page.locator("section.decision-control");
-    assert.equal(await cards.count(), 5);
-    assert.equal(await controls.count(), 5);
+    assert.equal(await cards.count(), 4);
+    assert.equal(await controls.count(), 4);
 
     // Kortenes rækkefølge i DOM'et SKAL følge arkets linjerækkefølge
     // (payload.slots, allerede bekræftet lig payload.cards ovenfor) — en
@@ -603,7 +603,7 @@ async function mainApply() {
       payload.cards.map((card, index) => `Tekst ${index + 1} af ${payload.cards.length}`));
 
     const selects = page.locator("select.choice");
-    assert.equal(await selects.count(), 5);
+    assert.equal(await selects.count(), 4);
     const selectNames = await selects.evaluateAll(nodes =>
       nodes.map(node => node.getAttribute("aria-label") || ""));
     assert.equal(new Set(selectNames).size, selectNames.length);
@@ -647,9 +647,9 @@ async function mainApply() {
     }
     assert.equal(
       await page.locator("span.counts").textContent(),
-      "5 godkendt · 0 uafklaret");
+      "4 godkendt · 0 uafklaret");
     const tokens = await page.locator("code.exact-token").allTextContents();
-    assert.deepEqual(tokens, new Array(5).fill("GODKENDT"));
+    assert.deepEqual(tokens, new Array(4).fill("GODKENDT"));
 
     const approvedPath = path.join(tempDir, "approved.txt");
     const approvedPending = page.waitForEvent("download");
@@ -663,7 +663,7 @@ async function mainApply() {
     const approvedText = approved.toString("utf8");
     const approvedLines = approvedText.split("\n").filter(line => line.length);
     assert.equal(
-      approvedLines.filter(line => line.startsWith("[GODKENDT]")).length, 5);
+      approvedLines.filter(line => line.startsWith("[GODKENDT]")).length, 4);
     for (const slot of payload.slots) {
       assert.equal(
         approvedText.includes(`[GODKENDT] approve:${slot.element_id}`),
@@ -708,7 +708,7 @@ async function mainApply() {
     await context.close();
     await browser.close();
     browser = undefined;
-    process.stdout.write("C3_HTML_APPLY_BROWSER_OK beslutninger=5 downloads=2\n");
+    process.stdout.write("C3_HTML_APPLY_BROWSER_OK beslutninger=4 downloads=2\n");
   } finally {
     if (browser) {
       await browser.close();

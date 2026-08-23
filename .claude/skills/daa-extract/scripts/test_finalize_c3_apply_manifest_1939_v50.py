@@ -81,9 +81,12 @@ def candidate_cases():
         {"case_id": "case-3",
          "identity": {"action": "different", "person_ids": [103, 203]},
          "record_decisions": [assign_decision("rid-3", "rk-3", 103)]},
+        # Spejler fasens reelle facon (2026-08-23): case-4 er testens
+        # modstykke til den ægte R28 — recordbeslutningen flippet fra assign
+        # til no_publication.
         {"case_id": "case-4",
          "identity": {"action": "different", "person_ids": [104, 204]},
-         "record_decisions": [assign_decision("rid-4", "rk-4", 104)]},
+         "record_decisions": [no_publication_decision("rid-4", "rk-4")]},
         {"case_id": "case-5",
          "identity": {"action": "different", "person_ids": [105, 205]},
          "record_decisions": [
@@ -100,8 +103,8 @@ def candidate_document(cases=None) -> Dict[str, Any]:
             "state_sha256": sha("3"), "review_sha256": sha("4"),
             "c0_candidates_sha256": sha("5"), "c0_decisions_sha256": sha("6"),
         },
-        "counts": {"cases": 5, "identity_different": 5, "record_assign": 5,
-                   "record_no_publication": 1},
+        "counts": {"cases": 5, "identity_different": 5, "record_assign": 4,
+                   "record_no_publication": 2},
         "cases": cases if cases is not None else candidate_cases(),
     }
     doc["canonical_content_sha256"] = mod._sha(mod._canonical_bytes(doc))
@@ -137,21 +140,24 @@ def default_source_records():
 
 
 def default_target_narratives():
+    # rid-4 er no_publication og har derfor ingen target-narrativ-række.
     return [
         {"rid": "rid-%d" % i, "person_id": 100 + i, "narrative_id": 9000 + i,
          "privat": False, "old_sha256": sha("c")}
-        for i in range(1, 6)
+        for i in (1, 2, 3, 5)
     ]
 
 
 def default_bindings():
+    # En 'absent'-binding HAR ingen person: både DB-validatoren
+    # (validate_reimport_case_elements) og R-gatewayen kræver null her.
     rows = [
         {"record_key": "rk-%d" % i, "status": "absent",
-         "binding_person_id": 100 + i}
+         "binding_person_id": None}
         for i in range(1, 6)
     ]
     rows.append({"record_key": "rk-6", "status": "absent",
-                 "binding_person_id": 106})
+                 "binding_person_id": None})
     return rows
 
 
@@ -232,7 +238,7 @@ def test_exact_counts_and_shape():
     assert manifest["schema_version"] == "1939-v50-c3-apply-manifest-v1"
     assert manifest["counts"] == {
         "cases": 5, "identity_events": 5,
-        "assign_events": 5, "no_publication_events": 1,
+        "assign_events": 4, "no_publication_events": 2,
         "events": 11,
     }
     assert manifest["database"] == {
@@ -286,7 +292,7 @@ def test_assign_event_carries_after_state_and_before_state():
                           "side": "501"},
         "target_narrative": {"person_id": 101, "narrative_id": 9001,
                              "privat": False, "old_sha256": sha("c")},
-        "binding": {"status": "absent", "binding_person_id": 101},
+        "binding": {"status": "absent", "binding_person_id": None},
     }
 
 
@@ -349,7 +355,7 @@ def test_rejects_duplicate_record_key_in_bindings():
 
 def test_rejects_short_target_narratives_list():
     def mutate(state):
-        del state["target_narratives"][4]
+        del state["target_narratives"][3]
     assert_fails("C3_APPLY_MANIFEST_PREVIEW_INVALID",
                 before_state=before_state_with(mutate))
 

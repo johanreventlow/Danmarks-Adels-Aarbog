@@ -82,8 +82,8 @@
         c("cases", "identity_different", "record_assign", "record_no_publication")) ||
       !scalar_count(counts$cases, 5) ||
       !scalar_count(counts$identity_different, 5) ||
-      !scalar_count(counts$record_assign, 5) ||
-      !scalar_count(counts$record_no_publication, 1))
+      !scalar_count(counts$record_assign, 4) ||
+      !scalar_count(counts$record_no_publication, 2))
     .c3_common_stop("C3_PREVIEW_CANDIDATE_INVALID")
   cases <- candidate$cases
   if (!is.list(cases) || length(cases) != 5L)
@@ -141,7 +141,7 @@
     function(x) identical(x$decision$action, "assign"), logical(1)))
   no_pub_n <- sum(vapply(all_records,
     function(x) identical(x$decision$action, "no_publication"), logical(1)))
-  if (assign_n != 5L || no_pub_n != 1L)
+  if (assign_n != 4L || no_pub_n != 2L)
     .c3_common_stop("C3_PREVIEW_CANDIDATE_INVALID")
 
   candidate
@@ -285,11 +285,12 @@
   if (anyDuplicated(seen_rids) || !setequal(seen_rids, names(idx$record_by_rid)))
     .c3_common_stop("C3_PREVIEW_SOURCE_RECORD_INVALID")
 
-  ## target_narratives: exactly 5, one per assign rid, person/privat checked.
+  ## target_narratives: exactly one per assign rid, person/privat checked.
   assign_rids <- names(Filter(function(d) identical(d$action, "assign"),
                               idx$record_by_rid))
   target_narratives <- response$target_narratives
-  if (!is.list(target_narratives) || length(target_narratives) != 5L)
+  if (!is.list(target_narratives) ||
+      length(target_narratives) != length(assign_rids))
     .c3_common_stop("C3_PREVIEW_RESPONSE_INVALID")
   seen_target_rids <- character(0L)
   for (row in target_narratives) {
