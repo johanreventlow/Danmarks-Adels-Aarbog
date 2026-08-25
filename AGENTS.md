@@ -1,8 +1,9 @@
 # Agentinstruktioner for genimport- og årbogsarbejde
 
 Disse regler gælder kun arbejde med DAA-import/genimport, source
-records/personas, fortolkning, identitetsafstemning, promotion,
-importpublicering og andet årbogsarbejde. De gælder ikke andre projektspor.
+records/personas, fortolkning, identitetsafstemning, promotion og
+importpublicering. De gælder ikke andre produkt-, web-, mobil- eller
+formidlingsspor.
 Brugerens konkrete instruktioner har altid højere myndighed.
 
 ## Bindende styringsgrundlag
