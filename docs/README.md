@@ -10,17 +10,20 @@ i historiske planer og afsluttede reviews.
 
 | Dokument | Hvad |
 |---|---|
-| [`../CLAUDE.md`](../CLAUDE.md) | Projekt-handoff: vision, arkitektur, invarianter (§3 er ufravigelige), aktuel tilstand. |
+| [`evidensbaseret-genimport/vision.md`](evidensbaseret-genimport/vision.md) | Autoritativ vision og værdigrundlag for DAA-import og -genimport. |
+| [`evidensbaseret-genimport/roadmap.md`](evidensbaseret-genimport/roadmap.md) | Det styrende roadmap: bindende prioritering og seks adgangskrav til nye planer. |
+| [`evidensbaseret-genimport/teknisk-maalarkitektur.md`](evidensbaseret-genimport/teknisk-maalarkitektur.md) | Autoritativ teknisk målarkitektur for den fælles ende-til-ende-kæde; levende kode og schema afgør aktuelle detaljer. |
+| [`evidensbaseret-genimport/status.md`](evidensbaseret-genimport/status.md) | Aktuel status og statusorakel for genimportprogrammets mål, modenhed og næste tilladte arbejde. |
+| [`../CLAUDE.md`](../CLAUDE.md) | Projekt-handoff: arkitektur, invarianter og agentinstruktioner. |
 | [`../datamodel-oversigt.md`](../datamodel-oversigt.md) | **Autoritativ** konceptuel modelbeskrivelse — *hvorfor* modellen ser sådan ud. |
-| [`database-current-state.md`](database-current-state.md) | **Hvad er faktisk i prod nu** + hvilke SQL-filer der er autoritative + deploy-procedure. |
+| [`database-current-state.md`](database-current-state.md) | Autoritet for senest dokumenterede live-prod-tilstand, autoritative SQL-filer og deploy-procedure; driftfølsomme spørgsmål kræver altid en frisk kontrol. |
 
-## 🟢 Aktuel status & løbende log
+## 🟢 Beslutninger og løbende historik
 
 | Dokument | Hvad |
 |---|---|
-| [`changelog.md`](changelog.md) | Kronologisk log: hvad ændrede sig, fejl fanget, reviews, testniveau, prod-status. Nyeste øverst. |
+| [`changelog.md`](changelog.md) | Kronologisk historik over ændringer, fejl, reviews og testniveau; ikke aktuel programstatus. |
 | [`decisions.md`](decisions.md) | Arkitektur-beslutningslog: ikke-oplagte valg + hvorfor alternativer blev fravalgt. |
-| [`superpowers/reviews/2026-08-22-evidensbaseret-genimport-afvigelsesvurdering.md`](superpowers/reviews/2026-08-22-evidensbaseret-genimport-afvigelsesvurdering.md) | **Hvor genimporten faktisk står** ift. den oprindelige plan: dom pr. udestående, prod-måling, issues #147-#158. Anti-creep-ankeret — nye spor skal henvise til et §7-punkt. |
 
 ## 🗄️ Skema & database (autoritative filer i repo-roden)
 
@@ -44,7 +47,7 @@ i historiske planer og afsluttede reviews.
 
 | Dokument | Hvad |
 |---|---|
-| [`plan-1939-produktionsklar.md`](plan-1939-produktionsklar.md) | Historik og tidligere styringsplan for cutover/1939-load. **1939-publicering er pauset**, indtil PDF'en er OCR-udtrukket igen og artefakt-/komplethedsgaten er gentaget; aktuel prod-status står i `database-current-state.md`. |
+| [`plan-1939-produktionsklar.md`](plan-1939-produktionsklar.md) | Historisk plan for cutover/1939-load; ikke gældende styring eller aktuel status. Brug genimportens roadmap og statusorakel ovenfor. |
 | [`moed-en-slaegtning-roadmap.md`](moed-en-slaegtning-roadmap.md) | Telefon-til-telefon slægtskab ved fysisk møde (QR → BLE → UWB). |
 | [`flere-daa-udgaver-roadmap.md`](flere-daa-udgaver-roadmap.md) | Præsenslister over tid, modstridende relationer mellem udgaver, tværudgave-personidentifikation. |
 
@@ -63,10 +66,14 @@ i historiske planer og afsluttede reviews.
 ## 🗂️ Historiske artefakter (kontekst, ikke gældende sandhed)
 
 Afsluttede planer, specs og reviews. Værdifulde som *hvorfor blev det gjort sådan*,
-men **ikke** kilde til aktuel tilstand — brug changelog + `database-current-state.md` til det.
+men **ikke** kilde til aktuel programstatus. Brug
+`evidensbaseret-genimport/status.md`; kontrollér live prod frisk via
+`database-current-state.md` og de autoritative SQL-filer ved driftfølsomme spørgsmål.
 
 - **`reviews/`** — afsluttede review-runder (dual-review Claude+Codex, QA-rapporter).
   Fx `09-versionering-hyperlinks-db.md`, `10-app-lag-hyperlinks.md`.
+- **`superpowers/reviews/2026-08-22-evidensbaseret-genimport-afvigelsesvurdering.md`**
+  — historisk afvigelsesvurdering og review-kontekst, ikke aktuelt statusorakel.
 - **`superpowers/plans/`** — implementeringsplaner (én pr. feature, tidsstemplet).
 - **`superpowers/specs/`** — design-specs der gik forud for planerne.
 - **`tng-qa-rapport-<dato>.md`** (i `reviews/`) — genererede QA-rapporter (GDPR-gated output).

@@ -14,6 +14,20 @@ description: >-
 
 # DAA-udtræk: stamtavle-PDF → evidensbaseret datamodel
 
+## Bindende styringsgrundlag før arbejde
+
+Læs i rækkefølge:
+1. `docs/evidensbaseret-genimport/vision.md`
+2. `docs/evidensbaseret-genimport/roadmap.md`
+3. `docs/evidensbaseret-genimport/teknisk-maalarkitektur.md`
+4. `docs/evidensbaseret-genimport/status.md`
+
+Skillens operationelle runbooks giver ikke selv roadmap- eller produktions-GO.
+En ny plan skal opfylde roadmapets seks adgangskrav, før pipeline eller
+udgavespecifikke undtagelsesspor udvides.
+Historiske specs, planer og reviews er bevis og
+historik, ikke aktuel programstatus; levende kode og schema afgør driftede tekniske detaljer.
+
 ## Formål og filosofi
 
 Dansk Adels Aarbog er den **autoritative kilde**. Hver post i stamtavlen er

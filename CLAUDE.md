@@ -38,6 +38,22 @@ Hemmeligheder ligger i `~/.Renviron` / env-variabler — aldrig i kode eller git
 8. **GDPR indbygget.** `person.levende` styrer synlighed (afdøde relativt åbne, levende kræver samtykke) — er også forretningsmodellen, kortlagt på RLS.
 9. **Kontrolleret vokabular.** `slags`/`type`/`rolle`/`dekoration`/`koen` trækker på `vocab`-tabellen, så "samme slags"-forespørgsler er pålidelige.
 
+## Evidensbaseret genimport — bindende styringsgrundlag
+
+Ved arbejde med DAA-import/genimport, source records/personas, fortolkning,
+identitetsafstemning, promotion eller importpublicering: læs først, i rækkefølge,
+`docs/evidensbaseret-genimport/vision.md`, `roadmap.md`,
+`teknisk-maalarkitektur.md` og `status.md`.
+
+Før en plan eller implementering skal opgaven kobles til roadmapmål,
+værdikædeled, leverancetype, redaktionel/læserrettet værdi, færdigbevis og det
+workflow den erstatter. Omprioritér ikke roadmapet, og opret ikke nye permanente
+editionsnavngivne overflader uden en beslutning i `docs/decisions.md`.
+
+Historiske specs, planer, reviews og changelog er
+historik, ikke aktuel programstatus. Levende kode og schema er source of truth for tekniske detaljer,
+der kan være ændret siden statussnapshotet.
+
 ## Faldgruber
 
 - **Supabase:** brug *Session pooler* (IPv4), `sslmode=require`, EU-region. Free-tier pauser efter 7 dages inaktivitet (hold varm før live-demo) og har ingen backup — hold et dump i repo'et.
