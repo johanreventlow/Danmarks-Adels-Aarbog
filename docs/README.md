@@ -15,7 +15,7 @@ i historiske planer og afsluttede reviews.
 | [`evidensbaseret-genimport/teknisk-maalarkitektur.md`](evidensbaseret-genimport/teknisk-maalarkitektur.md) | Autoritativ teknisk målarkitektur for den fælles ende-til-ende-kæde; levende kode og schema afgør aktuelle detaljer. |
 | [`evidensbaseret-genimport/status.md`](evidensbaseret-genimport/status.md) | Aktuel status og statusorakel for genimportprogrammets mål, modenhed og næste tilladte arbejde. |
 | [`../CLAUDE.md`](../CLAUDE.md) | Projekt-handoff: arkitektur, invarianter og agentinstruktioner. |
-| [`../datamodel-oversigt.md`](../datamodel-oversigt.md) | **Autoritativ** konceptuel modelbeskrivelse — *hvorfor* modellen ser sådan ud. |
+| [`../datamodel-oversigt.md`](../datamodel-oversigt.md) | Autoritativ bred konceptmodel — *hvorfor* modellen ser sådan ud. For source-record-, narrativ- og genimportproveniens styrer [`evidensbaseret-genimport/teknisk-maalarkitektur.md`](evidensbaseret-genimport/teknisk-maalarkitektur.md). |
 | [`database-current-state.md`](database-current-state.md) | Autoritet for senest dokumenterede live-prod-tilstand, autoritative SQL-filer og deploy-procedure; driftfølsomme spørgsmål kræver altid en frisk kontrol. |
 
 ## 🟢 Beslutninger og løbende historik
@@ -49,7 +49,7 @@ i historiske planer og afsluttede reviews.
 |---|---|
 | [`plan-1939-produktionsklar.md`](plan-1939-produktionsklar.md) | Historisk plan for cutover/1939-load; ikke gældende styring eller aktuel status. Brug genimportens roadmap og statusorakel ovenfor. |
 | [`moed-en-slaegtning-roadmap.md`](moed-en-slaegtning-roadmap.md) | Telefon-til-telefon slægtskab ved fysisk møde (QR → BLE → UWB). |
-| [`flere-daa-udgaver-roadmap.md`](flere-daa-udgaver-roadmap.md) | Præsenslister over tid, modstridende relationer mellem udgaver, tværudgave-personidentifikation. |
+| [`flere-daa-udgaver-roadmap.md`](flere-daa-udgaver-roadmap.md) | Historisk og ikke-styrende roadmap for flerudgaveidéer; underordnet genimportens styrende roadmap og statusorakel ovenfor. |
 
 ## 🎨 Design & koncepter (levende — styrer kommende udvikling)
 

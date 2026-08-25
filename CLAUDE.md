@@ -64,9 +64,11 @@ der kan være ændret siden statussnapshotet.
 
 - `docs/README.md` — dokumentationsindeks (start her)
 - `docs/database-current-state.md` — hvad der faktisk er i prod + deploy-procedure
-- `docs/changelog.md` — dateret statushistorik (source of truth for "hvad er lavet")
+- `docs/changelog.md` — dateret ændringshistorik; ikke statusorakel
 - `docs/decisions.md` — arkitektur-/datamodel-beslutninger + åben backlog
-- `datamodel-oversigt.md` — **autoritativ** konceptuel modelbeskrivelse (*hvorfor*)
+- `datamodel-oversigt.md` — autoritativ bred konceptmodel (*hvorfor*);
+  `docs/evidensbaseret-genimport/teknisk-maalarkitektur.md` styrer
+  source-record-, narrativ- og genimportproveniens
 
 ---
 

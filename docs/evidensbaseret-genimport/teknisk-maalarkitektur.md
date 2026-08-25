@@ -8,7 +8,7 @@ Målarkitekturen oversætter visionen til varige systemgrænser og kontrakter fo
 bevægelsen fra årbog til offentlig kildevisning. Den beskriver, hvilke
 identiteter, beviser og afgørelser der skal overleve hvert trin, men foreskriver
 ikke aktuelle tabeller, SQL-signaturer, filnavne, batchstørrelser eller
-implementeringsrækkefølge. Roadmapet styrer rækkefølgen, statusdokumentet
+implementeringsrækkefølge. Roadmapet styrer rækkefølgen, `status.md`
 beskriver modenheden, og levende kode og schema afgør aktuelle detaljer.
 
 Arkitekturen omfatter bibliografisk registrering, rendition- og
