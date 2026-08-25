@@ -2,6 +2,26 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: model 2 — lagdelt styringsmodel for evidensbaseret genimport (2026-08-25)
+
+[Designspecifikationen](superpowers/specs/2026-08-25-evidensbaseret-genimport-styringsgrundlag-design.md)
+vedtages som model 2: fire autoritative dokumenter med adskilte roller og
+myndighed. [Visionen](evidensbaseret-genimport/vision.md) fastlægger det stabile
+værdigrundlag, [roadmapet](evidensbaseret-genimport/roadmap.md) den bindende
+prioritering, [målarkitekturen](evidensbaseret-genimport/teknisk-maalarkitektur.md)
+den stabile tekniske retning og [status](evidensbaseret-genimport/status.md) et
+dateret, driftfølsomt snapshot. Status er ikke kilde til stabile værdier eller
+til tekniske detaljer, som levende kode og schema har ændret.
+
+Vision og målarkitektur må kun ændres ved projektejerens udtrykkelige
+beslutning. Roadmaprækkefølgen må kun ændres gennem en begrundet
+beslutningspost. Roadmapet har ét aktivt programmål, og nye planer inden for
+scope skal opfylde alle seks adgangskrav i roadmapet.
+
+CI-håndhævelse er bevidst udskudt, indtil den manuelle styringsmodel er
+afprøvet. Beslutningen giver ingen produktions-GO og ændrer ikke andre
+projektspors styring.
+
 ## C3 apply: fire ikke-oplagte valg i apply-kontrakten (2026-08-22)
 
 Truffet under revisionen efter Codex sols adversarial review. Alle fire kunne

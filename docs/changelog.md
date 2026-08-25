@@ -1,5 +1,21 @@
 # Changelog
 
+## Bindende styringsgrundlag for evidensbaseret genimport indført (2026-08-25)
+
+Dokumentpakken og dens LLM-/dokumentindgange er indført. Det stabile
+[værdigrundlag](evidensbaseret-genimport/vision.md), det styrende
+[roadmap](evidensbaseret-genimport/roadmap.md), den tekniske
+[målarkitektur](evidensbaseret-genimport/teknisk-maalarkitektur.md) og det
+daterede [statussnapshot](evidensbaseret-genimport/status.md) har nu hver sin
+myndighed. Nyt genimportarbejde har obligatorisk roadmapkobling og skal opfylde
+de seks adgangskrav til planer.
+
+Det første snapshot gør C3's integration-, rehearsal- og stopport før
+produktion til det aktive programmål og fastholder den generelle
+ende-til-ende-kæde som uafsluttet. Ingen kode, database, produktion eller
+CI-håndhævelse er ændret. Den varige beslutning er registreret i
+[beslutningsloggen](decisions.md).
+
 ## Helhedsvurdering af genimporten + C3 apply-plan revideret (2026-08-22)
 
 Ingen prod-skrivning. Dagen gik med at måle, hvor programmet faktisk står, og
