@@ -12,16 +12,53 @@ const sharedSource = readFileSync(resolve(
   process.cwd(), '../.claude/skills/daa-extract/scripts/review_ui_shared.js',
 ), 'utf8');
 
-function memoryStorage() {
+type MemoryStorage = {
+  getItem: (key: string) => string | null;
+  setItem: (key: string, value: string) => void;
+  removeItem: (key: string) => void;
+};
+
+type ReviewCandidate = {
+  candidate_id: string;
+  lokal_id: string;
+  pdf_pages: number[];
+  calamari_pages: number[];
+  raw_text: string;
+  rank_reason: string;
+  details?: Record<string, unknown>;
+  accepted_review_details?: Record<string, unknown>;
+};
+
+type ReviewRecord = {
+  record_key: string;
+  navn: string;
+  sider: string;
+  narrative: string;
+  queue_class: string;
+  reason_code: string;
+  reason_da: string;
+  is_audit: boolean;
+  is_completed: boolean;
+  initial_candidate_ids: string[];
+  candidates: ReviewCandidate[];
+  decision: any;
+  boundary_context?: string;
+  classification?: any;
+};
+
+type DownloadFn = (payload: any, filename?: string) => void;
+type DownloadMock = ReturnType<typeof vi.fn<DownloadFn>>;
+
+function memoryStorage(): MemoryStorage {
   const values = new Map<string, string>();
   return {
     getItem: (key: string) => values.get(key) ?? null,
-    setItem: (key: string, value: string) => values.set(key, value),
-    removeItem: (key: string) => values.delete(key),
+    setItem: (key: string, value: string) => { values.set(key, value); },
+    removeItem: (key: string) => { values.delete(key); },
   };
 }
 
-function humanRecord(recordKey: string, candidateId: string) {
+function humanRecord(recordKey: string, candidateId: string): ReviewRecord {
   return {
     record_key: recordKey,
     navn: `Navn ${recordKey}`,
@@ -45,7 +82,7 @@ function humanRecord(recordKey: string, candidateId: string) {
   };
 }
 
-function automaticRecord(recordKey: string, candidateId: string, audit = false) {
+function automaticRecord(recordKey: string, candidateId: string, audit = false): ReviewRecord {
   return {
     ...humanRecord(recordKey, candidateId),
     queue_class: 'auto_resolved',
@@ -93,12 +130,13 @@ function viewModel(records: any[], source = {}, sourceBlocked: any = 0) {
   };
 }
 
-function startReview({ storage, records, source, sourceBlocked, download = vi.fn() }: {
+function startReview({ storage, records, source, sourceBlocked,
+  download = vi.fn<DownloadFn>() }: {
   storage: ReturnType<typeof memoryStorage>;
   records: any[];
   source?: Record<string, unknown>;
   sourceBlocked?: any;
-  download?: ReturnType<typeof vi.fn>;
+  download?: DownloadMock;
 }) {
   document.body.innerHTML = '<aside data-mobile-open="false"><p data-role="save-state"></p><button type="button" data-action="toggle-sidebar" aria-expanded="false">Vælg person</button><div data-role="sidebar-navigation"></div></aside><main data-role="app"></main>';
   window.eval(sharedSource);
@@ -633,10 +671,15 @@ describe('human 1939 review controller', () => {
       source: viewModel(records).source,
       decisions: { 'rk-1': invalid },
     }));
-    const download = vi.fn();
-    const createObjectURL = vi.fn(() => 'blob:quarantine');
+    const download = vi.fn<DownloadFn>();
+    const createObjectURL = vi.fn((_blob: Blob) => 'blob:quarantine');
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL });
-    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    let clickedAnchor: HTMLAnchorElement | undefined;
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      clickedAnchor = this;
+    });
     const { controller } = startReview({ storage, records, download });
 
     document.querySelector<HTMLButtonElement>('[data-action="export-draft"]')!.click();
@@ -651,8 +694,7 @@ describe('human 1939 review controller', () => {
     expect(quarantineButton).not.toBeNull();
     quarantineButton!.click();
     expect(click).toHaveBeenCalledOnce();
-    expect((click.mock.instances[0] as HTMLAnchorElement).download)
-      .toBe('1939-review-karantaene.json');
+    expect(clickedAnchor?.download).toBe('1939-review-karantaene.json');
     const blob = createObjectURL.mock.calls[0][0];
     const exported = await new Promise<any>((resolveExport, reject) => {
       const reader = new FileReader();
