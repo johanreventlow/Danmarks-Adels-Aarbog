@@ -24,6 +24,38 @@ export type RawLineage = {
   id?: string | number;
   parent_lineage_id?: string | number | null;
 };
+export type SlaegtRef = { id: string; navn: string; slug: string };
+export type LineageRef = {
+  id: string;
+  slaegtId: string;
+  canonicalLabel: string;
+  parentLineageId: string | null;
+};
+export type LineageSchemeEntryRef = {
+  id: string;
+  schemeId: string;
+  code: string;
+  label: string;
+};
+export type EntityDescription = {
+  id: string;
+  subjectType: 'person' | 'slaegt' | 'lineage' | 'coat_of_arms' | 'media' | 'estate';
+  subjectId: string;
+  kind: 'overview' | 'history' | 'caption' | 'blazon_explanation';
+  languageCode: string;
+  text: string;
+  status: 'draft' | 'approved' | 'published' | 'archived';
+  citations: Array<{ sourceLabel: string; citationLabel: string }>;
+  version: number;
+};
+export type CoatOfArmsAssociation = {
+  subjectType: 'slaegt' | 'lineage' | 'person';
+  subjectId: string;
+  coatOfArmsId: string;
+  variantType: string | null;
+  validFrom: string | null;
+  validTo: string | null;
+};
 export type RawEstate = {
   id: number | string;
   navn: string | null;

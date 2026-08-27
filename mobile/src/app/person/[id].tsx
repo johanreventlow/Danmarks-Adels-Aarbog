@@ -13,8 +13,11 @@ import { StripedPlaceholder } from '../../components/StripedPlaceholder';
 import { TopBar } from '../../components/TopBar';
 import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
 import { lifeJourney } from '@daa/core';
+import type { BioSourceVersion } from '@daa/core';
+import { fetchPublicBioVersionsForPerson } from '../../data/publicBioVersions';
 import { childrenByMarriage, parentsOf, spousesOf } from '../../data/selectors';
 import { usePersonMedia } from '../../lib/media';
+import { supabase } from '../../lib/supabase';
 import { selectMeId, useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius } from '../../theme/tokens';
 
@@ -34,6 +37,8 @@ export default function PersonScreen() {
   const status = useStore((s) => s.status);
   const [bioExpanded, setBioExpanded] = useState(false);
   const [lightbox, setLightbox] = useState<number | null>(null); // Slice A
+  const [bioVersionResult, setBioVersionResult] = useState<{ personId: string; versions: BioSourceVersion[] | null } | null>(null);
+  const [selectedBioVersion, setSelectedBioVersion] = useState<{ personId: string; index: number } | null>(null);
 
   // Lazy geo-kæde (review 27 P3): persondetaljen viser et livsrejse-minikort hvis personen har
   // geo-punkter — udløs hentningen ved mount (mirror af web's Folgesvend.tsx detailOpen-trigger).
@@ -50,6 +55,15 @@ export default function PersonScreen() {
   // lander på den samme, samlede person (samme_som-collapse).
   const personId = id ? canonicalId(String(id)) : null;
   const person = personId && model ? model.byId[personId] : null;
+
+  useEffect(() => {
+    let current = true;
+    if (!personId || !supabase) return () => { current = false; };
+    fetchPublicBioVersionsForPerson(supabase, personId, person?.mergedFrom).then((versions) => {
+      if (current) setBioVersionResult({ personId, versions });
+    }).catch(() => { if (current) setBioVersionResult({ personId, versions: null }); });
+    return () => { current = false; };
+  }, [personId, person?.mergedFrom]);
 
   // Medier (mediehåndtering Slice 0): model-hook FØR early-return så hook-kaldet er ubetinget.
   // lightboxItems (portræt+galleri, ÉT navigerbart sæt) bygges af hooken selv (Slice A).
@@ -92,8 +106,11 @@ export default function PersonScreen() {
   const sources = aux?.sourcesBy[person.id] ?? [];
   // Vis udfold-toggle hvis bio enten er lang (tegn) ELLER har mange linjeskift — ellers
   // ville en kort men afsnits-opdelt prosa blive klampet til 7 linjer uden mulighed for udfold.
-  const bioNewlines = (person.bio.match(/\n/g)?.length ?? 0);
-  const bioLong = person.bio.length > BIO_CLAMP_CHARS || bioNewlines >= BIO_CLAMP_LINES;
+  const bioVersions = bioVersionResult?.personId === personId ? bioVersionResult.versions : null;
+  const bioVersionIdx = selectedBioVersion?.personId === personId ? selectedBioVersion.index : 0;
+  const activeBio = bioVersions?.[bioVersionIdx]?.narrativeText ?? person.bio;
+  const bioNewlines = (activeBio.match(/\n/g)?.length ?? 0);
+  const bioLong = activeBio.length > BIO_CLAMP_CHARS || bioNewlines >= BIO_CLAMP_LINES;
 
   return (
     <View style={{ flex: 1 }}>
@@ -150,9 +167,20 @@ export default function PersonScreen() {
         ) : null}
 
         {/* Biografi — klamp 7 linjer */}
-        {person.bio ? (
+        {activeBio ? (
           <View style={styles.block}>
-            <NarrativRenderer tekst={person.bio} size={14} color={Colors.textSecondary}
+            {bioVersions && bioVersions.length > 1 ? (
+              <View style={styles.badgeRow}>
+                {bioVersions.map((version, index) => (
+                  <Pressable key={version.recordRef ?? `${version.sourceLabel}:${index}`} onPress={() => setSelectedBioVersion({ personId: person.id, index })}>
+                    <Mono size={10} color={index === bioVersionIdx ? Colors.bordeaux : Colors.textMuted}>
+                      {version.sourceLabel} · {version.provenanceKind === 'source_record' ? version.recordLabel : 'overgangsdata'}
+                    </Mono>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+            <NarrativRenderer tekst={activeBio} size={14} color={Colors.textSecondary}
               style={{ lineHeight: 14 * 1.55 }}
               numberOfLines={bioExpanded ? undefined : BIO_CLAMP_LINES} />
             {bioLong ? (

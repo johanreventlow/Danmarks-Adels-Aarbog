@@ -1,0 +1,30 @@
+{
+  "approvals_raw_sha256": "eea3bd2e77e1d96e0ca603f8b846034a47d11102b5c959af840b7d4ab5e47a35",
+  "counts": {
+    "approved": 4,
+    "decisions": 4,
+    "unresolved": 0
+  },
+  "decisions": [
+    {
+      "element_id": "case:case-1:rid:rid-1",
+      "status": "approved"
+    },
+    {
+      "element_id": "case:case-2:rid:rid-2",
+      "status": "approved"
+    },
+    {
+      "element_id": "case:case-3:rid:rid-3",
+      "status": "approved"
+    },
+    {
+      "element_id": "case:case-5:rid:rid-5",
+      "status": "approved"
+    }
+  ],
+  "manifest_canonical_content_sha256": "e04c047f95479b8aa948a5a4363db92305b12c7132b524a2547c2d01e35e5c4a",
+  "manifest_raw_sha256": "f494eaabd7fa0dd0ca94ac99af0ffcd775c983b1f7b2d2ab521bf961c0005dc8",
+  "schema_version": "1939-v50-c3-apply-approvals-decisions-v1",
+  "text_bundle_sha256": "a0d71eb724382bf58dc8b8daf6cd2181144650edf2cd0a36c29f23488d873fe6"
+}

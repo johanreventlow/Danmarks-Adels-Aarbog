@@ -4,8 +4,22 @@
 > er autoritative, og hvordan næste deploy forberedes sikkert. Changelog fortæller
 > historien; denne side fortæller tilstanden.
 >
-> **Sidst afstemt:** 2026-08-06 (medie-metadata: 12 nye `vocab`-faktatyper for medier
-> — `kilde_url`, `kilde_institution`, `ekstern_objekt_id`, `hentedato`, `fotograf`,
+> **Sidst afstemt:** 2026-08-20 (`red_slet_person` + `_preview` deployet efter
+> backup: bindinger, slægts-/linjemedlemskaber og hændelses-ankre ryddes nu, og
+> medlemskabstabellerne er registreret i `version_pk_registry`. Verificeret på
+> ægte data — person 924 med kildebinding kunne slettes i en rullet-tilbage
+> transaktion. **Fase D2 er kørt 2026-08-20: 28 → 7 staged.** Målte tal: 1.811
+> personer, 7.197 facts, 2.258 `family_member`, 592 source_records, 905
+> write-events; `anon` ser 1.713. Se changelog 2026-08-20).
+>
+> Forudgående afstemning: 2026-08-18 (1939 v50-strømmen lukket i prod: 8 nye
+> summary-personer 1846-1853 oprettet, navngivet, narrativ-publiceret og
+> cutover'et til offentlig synlighed; `red_publicer_narrative_record` hærdet
+> (draft→published m. eksakt felt-match); prod = 1.812 personer, 7.199 facts,
+> 321 write-events; backups + rapporter i `work/task25-1939-v50-production-writer/`.
+> Se changelog 2026-08-18). Forudgående afstemning 2026-08-06
+> (medie-metadata: 12 nye `vocab`-faktatyper for medier — `kilde_url`,
+> `kilde_institution`, `ekstern_objekt_id`, `hentedato`, `fotograf`,
 > `rettighedshaver`, `kreditlinje`, `beskrivelse`, `alt_tekst`, `teknik`,
 > `fysiske_maal`, `datering` — samt RLS-skærpelse af `entitet_offentlig`:
 > media-grenen gik fra ubetinget `true` til `media_rettigheder_ok(p_id)`, så et
@@ -45,10 +59,11 @@
 
 | Område | Faktisk tilstand |
 |---|---|
-| Personer | **1.758** total; **835 staged**; **77 levende**; 0 `privat=TRUE` |
-| Offentlig/medlem | `anon` og almindelig `authenticated` ser begge **853 personer**, **0 levende**, **0 staged** |
+| Personer | **1.811** total; **7 staged**; **70 levende**; 0 `privat=TRUE` — målt 2026-08-20 efter fase D2 (975 pensioneret som oversigtslinje) |
+| Offentlig/medlem | `anon` ser **1.734 personer**, **0 levende**, **0 staged** (efter fase D2, 2026-08-20). Regnestykket går op: 1811 − 70 levende − 7 staged = 1734 |
+| Kildebindinger | **559** i `private.narrative_record_publication`, alle `published` (efter C0-efterkørslen 2026-08-21) |
 | Kilder | 3 source-rækker. Source 1 = DAA 2018-20/2020 med 591 direkte poster; source 3 = DAA 1939/1939 med 539 direkte poster |
-| Slægtskab | 2.224 `family_member`-rækker; **921** `forældrefamilie`-facts |
+| Slægtskab | **2.258** `family_member`-rækker; **922** `forældrefamilie`-facts (målt 2026-08-20) |
 | Medier | **6** media-rækker: 2 `klar`, 4 `fjernet`; privat `media`-bucket og `media_variant` findes |
 | Bogmærker | `bookmark` er live og indeholder 1 række |
 | Versionering | 22 tabeller i `version_pk_registry`; `change_set`/`change_event` og `text_mention` er live |
@@ -94,7 +109,31 @@ prod-deploy.
   API-flade, og almindelig `authenticated` er fail-closed til samme personregel som
   `anon`. Levende/staged kræver fortsat redaktionsadgang.
 
-### 1939: loadet staged, men publicering er pauset
+### 1939: publiceringen er i gang (opdateret 2026-08-20)
+
+**Aktuelt:** **7 staged** tilbage af oprindeligt 835.
+
+- **Fase D1** publicerede 68 personer (44 probander + 24 ægtefælle-stubs) 2026-08-19.
+- **Fase D2** publicerede de 21 gift-ind-ægtefæller 2026-08-20 (`change_set 960`,
+  21 `change_events`, staged 28 → 7). Person-, fact-, relation- og
+  narrativtællinger uændrede — fasen rørte udelukkende `staged`. Backup før
+  skrivning: `pre-d2-20260820-222135.dump`, SHA-256 `2c974998…`. Se changelog
+  2026-08-20 og `docs/superpowers/reviews/1939-v50-fase-d2-go-pakke.md`.
+
+**De 7 tilbage:** `933, 935, 940, 963, 967, 1014, 1135`. Alle har et
+1939-narrativ og et `person_external_id`, men **0 published bindinger** — det
+er D1's kriterium, de fejler på. De er tre forskellige sager:
+
+| Personer | Sag |
+|---|---|
+| 933, 935, 940, 1135 | Blandt C0's 9 uforklarede — hører til C3's identitetsspor |
+| 1014 | På C0's uafklarede-liste; afventer C0 |
+| 963, 967 | **`[KOBL]`-mål der selv er staged.** Uafklaret synligheds-/RLS-spørgsmål: må en record-binding publiceres på en staged persons narrativ? Hører til C0's efterkørsel, ikke til D3. |
+
+Se `docs/superpowers/reviews/1939-v50-fase-c0-efterkoersel-genmaaling.md`.
+Afsnittet nedenfor beskriver den oprindelige situation og bevares som historik.
+
+### 1939: loadet staged, men publicering er pauset (historisk)
 
 - DAA 1939 er loadet som source 3 med 835 staged personer (539 direkte poster +
   partnerstubs). De er usynlige for `anon` og almindelig `authenticated`.

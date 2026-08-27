@@ -5,7 +5,7 @@ import { supabase } from '../supabase';
 import { buildGenCoords, buildParentsUnknown, buildGeo, buildModel, collapseSameAs, fmtYears, parseYear, getAll, EMPTY_GEO } from '@daa/core';
 import { buildLineage } from './lineage';
 import { buildSources } from './sources';
-import { normalizeKoen, normalizeKonfidens, type AppModel, type AppPerson, type Db, type Geo, type Model, type ModelPerson, type ParentChild, type RawEstate, type RawExtId, type RawFact, type RawLineage, type RawPlace, type RawSource, type Union } from './types';
+import { normalizeKoen, normalizeKonfidens, type AppModel, type AppPerson, type Db, type Geo, type Model, type ModelPerson, type ParentChild, type RawEstate, type RawExtId, type RawFact, type RawLineageContext, type RawLineageScheme, type RawLineageSchemeEntry, type RawLineageSchemeEntryLineage, type RawPlace, type RawSource, type Union } from './types';
 
 const PARTNER_ROLLER = ['partner'];
 // KUN blodslægt ('barn') bliver en forælder→barn-kant — matcher mobile/src/data/load.ts og
@@ -34,6 +34,11 @@ type RawPerson = {
   visning_doed: string | null; visning_titel: string | null; koen: string | null; privat: boolean | null;
 };
 type RawMember = { family_id: number | string; person_id: number | string; rolle: string | null; ordinal: number | null; konfidens: string | null };
+type RawLegacyCoordinate = {
+  person_id: number | string; source_id: number | string; legacy_line_code: string | null;
+  printed_number: number | null; generation_local: number | null;
+  generation_global: number | null; kuld_label: string | null;
+};
 
 // Sorterer forældre (partner-rolle-medlemmer af en familie) så far kommer før mor —
 // DAA er patrilineær, linje/nr følger mandslinjen. `ordinal` er ægteskabs-nummer
@@ -58,15 +63,24 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
   // Start "forældre ukendt"-markerings-hentningen NU, så den overlapper hoved-batchen (dens
   // facts-probe har ingen data-afhængighed af canonicalIdById — kun buildParentsUnknown til sidst har).
   const puRowsP = fetchParentsUnknownRows();
-  const [persons, members, extIds, lineageRows, sources, sameAsRel, approvedConc, estates] = await Promise.all([
+  const [persons, members, extIds, lineageRows, schemes, schemeEntries, schemeMappings, sources, sameAsRel, approvedConc, estates] = await Promise.all([
     getAll<RawPerson>(() => supabase.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_titel,koen,privat')),
     getAll<RawMember>(() => supabase.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens')),
     // Linje/nr pr. person (grene) — tolerant: tabellen/kolonnerne kan mangle i ældre baser.
     // Review 15: log ved fejl, så en RLS/drifts-fejl ikke stiltiende ligner "ingen linjer"
     // (graceful degradation bevares, men degraderingen bliver synlig i konsol/telemetri).
-    getAll<RawExtId>(() => supabase.from('person_external_id').select('person_id,source_id,linje,nr,slaegtled_lokal,slaegtled_gennem,kuld')).catch((e) => { console.warn('[loadModel] person_external_id utilgængelig — linjer/kilder degraderet:', e); return [] as RawExtId[]; }),
+    getAll<RawLegacyCoordinate>(() => supabase.from('person_source_coordinate_legacy').select('person_id,source_id,legacy_line_code,printed_number,generation_local,generation_global,kuld_label'))
+      .then((rows) => rows.map((row): RawExtId => ({
+        person_id: row.person_id, source_id: row.source_id, linje: row.legacy_line_code,
+        nr: row.printed_number, slaegtled_lokal: row.generation_local,
+        slaegtled_gennem: row.generation_global, kuld: row.kuld_label,
+      })))
+      .catch((e) => { console.warn('[loadModel] placement-kompatibilitetsview utilgængeligt ikke — linjer/kilder degraderet:', e); return [] as RawExtId[]; }),
     // Linje-navne — lineage-tabellen findes måske ikke endnu (fallback til 'Linje {kode}').
-    getAll<RawLineage>(() => supabase.from('lineage').select('id,source_id,kode,navn,parent_lineage_id')).catch((e) => { console.warn('[loadModel] lineage utilgængelig — bruger linje-koder som navne:', e); return [] as RawLineage[]; }),
+    getAll<RawLineageContext>(() => supabase.from('lineage').select('id,source_id,kode,navn,canonical_label,slaegt_id,slaegtsnavn,parent_lineage_id')).catch((e) => { console.warn('[loadModel] lineage utilgængelig — bruger linje-koder som navne:', e); return [] as RawLineageContext[]; }),
+    getAll<RawLineageScheme>(() => supabase.from('lineage_scheme').select('id,slaegt_id,source_id,kind')).catch((e) => { console.warn('[loadModel] lineage schemes utilgængelige ikke — bruger kanonisk lineage-kontekst:', e); return [] as RawLineageScheme[]; }),
+    getAll<RawLineageSchemeEntry>(() => supabase.from('lineage_scheme_entry').select('id,scheme_id,code,label')).catch((e) => { console.warn('[loadModel] lineage scheme entries utilgængelige ikke — bruger kanonisk lineage-kontekst:', e); return [] as RawLineageSchemeEntry[]; }),
+    getAll<RawLineageSchemeEntryLineage>(() => supabase.from('lineage_scheme_entry_lineage').select('entry_id,lineage_id,relation_kind')).catch((e) => { console.warn('[loadModel] lineage scheme mapping utilgængelig ikke — bruger kanonisk lineage-kontekst:', e); return [] as RawLineageSchemeEntryLineage[]; }),
     // Kilder (trykt værk) — til "Kilde i Aarbogen" pr. person.
     getAll<RawSource>(() => supabase.from('source').select('id,slags,titel,udgave,ekstern')).catch((e) => { console.warn('[loadModel] source utilgængelig — Kilde-i-Aarbogen degraderet:', e); return [] as RawSource[]; }),
     // samme_som-relationer (person→person; subjekt=alias, objekt=kanonisk) + afklarede konklusioner.
@@ -145,7 +159,9 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
 
   const model: AppModel = {
     ...buildModel(collapsed.db),
-    lineage: buildLineage(extIds, lineageRows, collapsed.canonicalIdById),
+    lineage: buildLineage(extIds, lineageRows, collapsed.canonicalIdById, {
+      schemes, entries: schemeEntries, mappings: schemeMappings,
+    }),
     sourcesBy: buildSources(extIds, sources, collapsed.canonicalIdById),
     canonicalIdById: collapsed.canonicalIdById,
     // Geo-lag: starter TOMT (review 27 P3, "lazy geo-kæde") — place+fact hentes ikke ved

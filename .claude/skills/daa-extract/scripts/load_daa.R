@@ -283,6 +283,12 @@ current_by <- udgave   # konklusions-proveniens; sættes per record
 # ================= LOAD (én transaktion) =================
 dbBegin(con)
 tryCatch({
+  # GLOBAL WRITER-LOCK (fund H4, Task 9 step 0): C3-genimportens apply/reversal
+  # (red_apply_reimport_cases / red_reverse_reimport_cases) tager denne nøgle som
+  # deres FØRSTE lås. Uden den samme lås her kan en produktionsimport køre oven i
+  # en C3-apply. Rækkefølgen er bindende: global writer-lock FØR alle tabellåse —
+  # samme orden som RPC'erne — ellers bytter man et race ud med en deadlock.
+  ex("SELECT pg_advisory_xact_lock(hashtextextended('daa-1939-v50-production-writer',0))")
   # IDENTITY-kontrakten (Codex-review 2026-07-31 fund 1): loaderen allokerer
   # eksplicitte id'er fra MAX(id) — uden lås kan en samtidig RPC's nextval få
   # præcis samme id, og slut-sync kan ikke reparere en PK-kollision der

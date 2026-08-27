@@ -46,6 +46,15 @@ message(sprintf("post_load_fixup: source '%s' (id %s)", udgave, src))
 
 dbBegin(con)
 tryCatch({
+  # Global identity lock order: advisory/generation guard BEFORE any table lock.
+  # This matches RPCs/triggers and turns stale REPEATABLE READ snapshots into
+  # PostgreSQL serialization failures before graph predicates are evaluated.
+  # GLOBAL WRITER-LOCK (fund H4, Task 9 step 0): samme nøgle og samme placering
+  # som C3-genimportens apply/reversal bruger — global writer-lock FØR
+  # samme_som_mutation og før tabellåsene. Inversion = deadlock.
+  one("SELECT pg_advisory_xact_lock(hashtextextended('daa-1939-v50-production-writer',0))")
+  one("SELECT pg_advisory_xact_lock(hashtext('samme_som_mutation'))")
+  one("SELECT private.guard_identity_mutation_snapshot()")
   # IDENTITY-kontrakt (2026-07-31): nid() slår MAX(id)+1 op pr. kald — kræver
   # eksklusiv skrive-lås på de tabeller der allokeres til, ellers kan en
   # samtidig RPC's nextval tage samme id. Sync før commit nedenfor.
@@ -111,8 +120,13 @@ tryCatch({
     s <- one(sprintf("SELECT pg_get_serial_sequence('%s','id')", t))
     if (is.na(s) || is.null(s)) message(sprintf("sekvens-sync: %s uden identity — sprunget over", t))
     else ex(sprintf(
-      "SELECT setval('%s', (SELECT GREATEST(COALESCE((SELECT MAX(id) FROM %s), 0),
-         COALESCE((SELECT MAX((row_pk->>'id')::bigint) FROM change_event WHERE tabel='%s'), 0))) + 1, false)", s, t, t))
+      "SELECT setval('%s', GREATEST(
+         (SELECT GREATEST(COALESCE((SELECT MAX(id) FROM %s), 0),
+          COALESCE((SELECT MAX((row_pk->>'id')::bigint) FROM change_event
+                    WHERE tabel='%s' AND row_pk ? 'id'
+                      AND row_pk->>'id' ~ '^-?[0-9]+$'), 0), 0) + 1),
+         (SELECT CASE WHEN is_called THEN last_value + seqincrement ELSE last_value END
+            FROM %s CROSS JOIN pg_sequence WHERE seqrelid='%s'::regclass)), false)", s, t, t, s, s))
   }
   dbCommit(con); message("post_load_fixup: OK")
 }, error = function(e) { dbRollback(con); dbDisconnect(con); stop("fixup fejlede, rullet tilbage: ", conditionMessage(e)) })

@@ -148,6 +148,11 @@ export async function fetchKonflikter(): Promise<Konflikt[]> {
 export type SletPreview = {
   antalRelationer: number;
   antalFacts: number;
+  // 2026-08-20: biografien og dens kildebinding fulgte hele tiden med i sletningen, men
+  // preview nævnte dem ikke. Medlemskaber er slaegt + lineage lagt sammen.
+  antalNarrativer: number;
+  antalBindinger: number;
+  antalMedlemskaber: number;
   relationer: { rolle: string; retning: string; modpartId: number }[];
 };
 
@@ -282,13 +287,16 @@ export async function fetchForaeldreKonflikter(): Promise<ForaeldreKonflikt[]> {
 }
 
 export async function fetchSletPreview(personId: string): Promise<SletPreview> {
-  const tom: SletPreview = { antalRelationer: 0, antalFacts: 0, relationer: [] };
+  const tom: SletPreview = { antalRelationer: 0, antalFacts: 0, antalNarrativer: 0, antalBindinger: 0, antalMedlemskaber: 0, relationer: [] };
   if (!supabase) return tom;
   const { data, error } = await supabase.rpc('red_slet_person_preview', { p_person_id: Number(personId) });
   if (error || !data) return tom;
   return {
     antalRelationer: data.antal_relationer ?? 0,
     antalFacts: data.antal_facts ?? 0,
+    antalNarrativer: data.antal_narrativer ?? 0,
+    antalBindinger: data.antal_bindinger ?? 0,
+    antalMedlemskaber: data.antal_medlemskaber ?? 0,
     relationer: (data.relationer ?? []).map((r: { rolle: string; retning: string; modpart_id: number }) => ({
       rolle: r.rolle,
       retning: r.retning,

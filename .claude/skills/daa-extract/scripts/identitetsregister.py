@@ -38,6 +38,20 @@ from dataclasses import dataclass, field
 from typing import Iterable
 
 
+def record_provenance_key(record_key: object, external_person_number: object) -> tuple[str, str | None]:
+    """Stabil provenance for personaafgørelser ved genudtræk.
+
+    Bogens `(linje,nr)` er en lokator, ikke en identitet. Et record_key er
+    obligatorisk; eksternt personnummer styrker nøglens præcision, men kan være
+    ukendt uden at vi opfinder en værdi.
+    """
+    if not isinstance(record_key, str) or not record_key.strip():
+        raise ValueError("record_key kræves for persona-provenance")
+    if external_person_number is None or str(external_person_number).strip() == "":
+        return record_key, None
+    return record_key, str(external_person_number)
+
+
 @dataclass(frozen=True)
 class Lokator:
     """Hvor i den trykte bog posten står. Nøglen registeret slår op på."""

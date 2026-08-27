@@ -10,6 +10,43 @@ export type BioVersion = {
   tekst: string;
 };
 
+export type BioSourceVersion = {
+  recordRef: string | null;
+  sourceLabel: string;
+  recordLabel: string;
+  narrativeText: string;
+  citationLabel: string;
+  provenanceKind: 'source_record' | 'legacy_narrative';
+};
+
+export type PublicBioSourceVersionRow = {
+  record_ref: string | null;
+  source_label: string;
+  record_label: string;
+  narrative_text: string;
+  citation_label: string;
+  provenance_kind: 'source_record' | 'legacy_narrative';
+};
+
+// RPC-rækker er allerede publicerings- og privatlivsgatede i databasen. Denne
+// mapper bevarer derfor hver record som sin egen version i stedet for at samle
+// tekst pr. bog, som den ældre fallback-builder gør.
+export function buildBioSourceVersions(rows: PublicBioSourceVersionRow[]): BioSourceVersion[] {
+  return rows
+    .filter((row) => row.narrative_text.trim() !== '')
+    .map((row) => ({
+      recordRef: row.record_ref,
+      sourceLabel: row.source_label,
+      recordLabel: row.record_label,
+      narrativeText: row.narrative_text.trim(),
+      citationLabel: row.citation_label,
+      provenanceKind: row.provenance_kind,
+    }))
+    .sort((a, b) => a.sourceLabel.localeCompare(b.sourceLabel, 'da')
+      || a.recordLabel.localeCompare(b.recordLabel, 'da')
+      || (a.recordRef ?? '').localeCompare(b.recordRef ?? ''));
+}
+
 // Fuld deterministisk orden: aar DESC NULLS LAST, sourceId DESC — samme som pickPreferredBio,
 // så version[0] ALTID er den bio pickPreferredBio ville have valgt.
 export function buildBioVersions(cands: NarrativeCand[]): BioVersion[] {

@@ -44,6 +44,7 @@ import { initials } from './data/format';
 import { NarrativRenderer } from './components/NarrativRenderer';
 import { Lightbox } from './components/Lightbox';
 import { MediaDetaljeOverlay } from './components/MediaDetaljeOverlay';
+import { KildepersonaKo } from './components/KildepersonaKo';
 
 const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 const MEDIA_RETTIGHED_STATUS = ['ukendt', 'public_domain', 'licenseret', 'tilladelse_givet', 'begraenset', 'spaerret'] as const;
@@ -85,6 +86,7 @@ const ENTITIES = [
   { key: 'feed', label: 'Feed-styring', icon: '⚑' },
   { key: 'sammenlign', label: 'Sammenlign udgaver', icon: '⇄' },
   { key: 'foraeldre-konflikter', label: 'Forældre-konflikter', icon: '⚠' },
+  { key: 'kildepersonaer', label: 'Kildepersonaer', icon: '⌕' },
 ];
 const FELT_DEFS: [string, string][] = [
   ['navn', 'Navn'], ['foedt', 'Født'], ['doed', 'Død'], ['titel', 'Titel/rang'],
@@ -810,13 +812,15 @@ export default function Redaktion() {
       {renderTopBar()}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {renderSidebar()}
-        {entity === 'feed' || entity === 'sammenlign' || entity === 'foraeldre-konflikter' ? (
+        {entity === 'feed' || entity === 'sammenlign' || entity === 'foraeldre-konflikter' || entity === 'kildepersonaer' ? (
           <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: T.paper }}>
             {entity === 'feed'
               ? <FeedStyring role={role} model={model} run={run} />
               : entity === 'sammenlign'
               ? <SammenlignUdgaver role={role} dryRun={dryRun} />
-              : <ForaeldreKonflikterListe onOpen={(id) => openRecord('person', id)} />}
+              : entity === 'foraeldre-konflikter'
+              ? <ForaeldreKonflikterListe onOpen={(id) => openRecord('person', id)} />
+              : <KildepersonaKo role={role} />}
           </div>
         ) : visKvalitetsark ? (
           renderKvalitetsark()
@@ -1045,7 +1049,7 @@ export default function Redaktion() {
                   {[{ linje: null as string | null, navn: null as string | null }, ...linjeList].map((l) => {
                     const on = activeLinje === l.linje;
                     return (
-                      <div key={l.linje ?? 'all'} onClick={() => setActiveLinje(l.linje)} title={l.navn ?? undefined} style={{ padding: '5px 11px', borderRadius: 15, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: on ? T.bordeaux : 'transparent', color: on ? T.paper : T.muted, border: `1px solid ${on ? T.bordeaux : 'rgba(34,31,26,.18)'}` }}>{l.linje ? `Linje ${l.linje}` : 'Hele slægten'}</div>
+                      <div key={l.linje ?? 'all'} onClick={() => setActiveLinje(l.linje)} title={l.navn ?? undefined} style={{ padding: '5px 11px', borderRadius: 15, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: on ? T.bordeaux : 'transparent', color: on ? T.paper : T.muted, border: `1px solid ${on ? T.bordeaux : 'rgba(34,31,26,.18)'}` }}>{l.linje ? (l.navn ?? `Linje ${l.linje}`) : 'Hele slægten'}</div>
                     );
                   })}
                 </div>
@@ -1053,7 +1057,7 @@ export default function Redaktion() {
             )}
 
             <div style={{ padding: '0 14px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <span style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>{`${activeLinje ? `Linje ${activeLinje} · ` : ''}${b.flat.length} ${query ? 'træffere' : 'personer'}`}</span>
+              <span style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>{`${activeLinje ? `${linjeList.find((l) => l.linje === activeLinje)?.navn ?? `Linje ${activeLinje}`} · ` : ''}${b.flat.length} ${query ? 'træffere' : 'personer'}`}</span>
               <div style={{ display: 'flex', background: '#e6ddcc', borderRadius: 7, padding: 2, gap: 2, flex: 'none' }}>
                 {(['navn', 'aar'] as const).map((s) => (
                   <span key={s} onClick={() => setBrowseSort(s)} style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 5, cursor: 'pointer', background: browseSort === s ? T.bordeaux : 'transparent', color: browseSort === s ? T.paper : '#3d382f' }}>{s === 'navn' ? 'A–Å' : 'Født'}</span>
@@ -2373,8 +2377,13 @@ export default function Redaktion() {
             </div>
           </div>
           <div style={{ margin: '0 22px', background: '#f8ecef', border: '1px solid rgba(138,43,43,.25)', borderRadius: 11, padding: '13px 15px' }}>
-            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.red, marginBottom: 6 }}>Relationer der brydes</div>
-            <div style={{ fontSize: 13.5, lineHeight: 1.5, color: '#3d382f' }}>{pv ? `${pv.antalRelationer} relation(er) og ${pv.antalFacts} fakta knyttet til personen.` : 'Henter relations-overblik…'}</div>
+            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.red, marginBottom: 6 }}>Det her forsvinder</div>
+            <div style={{ fontSize: 13.5, lineHeight: 1.5, color: '#3d382f' }}>{pv ? `${pv.antalRelationer} relation(er), ${pv.antalFacts} fakta, ${pv.antalNarrativer} biografi(er) og ${pv.antalMedlemskaber} slægts-/linjemedlemskab(er) knyttet til personen.` : 'Henter overblik…'}</div>
+            {pv && pv.antalBindinger > 0 ? (
+              <div style={{ fontSize: 12.5, lineHeight: 1.45, color: '#5a5147', marginTop: 6 }}>
+                {`Heraf er ${pv.antalBindinger} biografi(er) bundet til en kildepost. Bindingen fjernes med biografien — selve registreringen af, at teksten står på siden, bevares.`}
+              </div>
+            ) : null}
           </div>
           <div style={{ padding: '16px 22px 4px' }}>
             <label onClick={() => setConfirmDel((c) => c && { ...c, ack: !c.ack })} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>

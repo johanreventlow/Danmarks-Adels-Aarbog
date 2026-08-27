@@ -1,4 +1,4 @@
-import { buildBioVersions } from '../bioVersions';
+import { buildBioSourceVersions, buildBioVersions } from '../bioVersions';
 import type { NarrativeCand } from '../pickPreferredBio';
 
 const C = (o: Partial<NarrativeCand> & Pick<NarrativeCand, 'narrativeId'>): NarrativeCand => ({
@@ -48,5 +48,18 @@ describe('buildBioVersions', () => {
 
   it('tom input → tom liste', () => {
     expect(buildBioVersions([])).toEqual([]);
+  });
+});
+
+describe('buildBioSourceVersions', () => {
+  it('bevarer to publicerede records fra samme bog uden at sammenføje dem', () => {
+    const versions = buildBioSourceVersions([
+      { record_ref: 'ref-b', source_label: 'DAA 1939', record_label: 'Linje I, nr. 2', narrative_text: 'Anden tekst', citation_label: 's. 2', provenance_kind: 'source_record' },
+      { record_ref: 'ref-a', source_label: 'DAA 1939', record_label: 'Linje I, nr. 1', narrative_text: 'Første tekst', citation_label: 's. 1', provenance_kind: 'source_record' },
+      { record_ref: null, source_label: 'DAA 1939', record_label: 'Overgangsdata', narrative_text: 'Legacy tekst', citation_label: '', provenance_kind: 'legacy_narrative' },
+    ]);
+    expect(versions).toHaveLength(3);
+    expect(versions.map((v) => v.recordRef)).toEqual(['ref-a', 'ref-b', null]);
+    expect(versions[2]).toMatchObject({ provenanceKind: 'legacy_narrative', narrativeText: 'Legacy tekst' });
   });
 });

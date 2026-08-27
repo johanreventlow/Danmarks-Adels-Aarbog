@@ -9,6 +9,7 @@ import {
 } from '../data/presens';
 import { fetchPresensLinjer, fetchPresensIntro, type PresensLinjeInfo } from '../data/presensLinjer';
 import { fetchPersonDetail } from '../data/public';
+import { personMemberIds } from '../data/personMembers';
 import { currentSession, type RedSession } from '../data/auth';
 import { NarrativRenderer } from './NarrativRenderer';
 import { T } from '../theme';
@@ -288,7 +289,7 @@ export default function PresensView(props: { model: Model | null; onPickPerson: 
     });
     if (bioById.has(id) || hentendeIds.has(id)) return;
     setHentendeIds((prev) => new Set(prev).add(id));
-    const members = model!.byId[id]?.mergedFrom?.map((m) => m.personId);
+    const members = personMemberIds(id, model!.byId[id]);
     fetchPersonDetail(id, members)
       .then((d) => setBioById((prev) => new Map(prev).set(id, d.bio)))
       .catch(() => setBioById((prev) => new Map(prev).set(id, '')))

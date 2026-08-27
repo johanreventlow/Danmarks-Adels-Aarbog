@@ -1,5 +1,567 @@
 # Changelog
 
+## Bindende styringsgrundlag for evidensbaseret genimport indført (2026-08-25)
+
+Dokumentpakken og dens LLM-/dokumentindgange er indført. Det stabile
+[værdigrundlag](evidensbaseret-genimport/vision.md), det styrende
+[roadmap](evidensbaseret-genimport/roadmap.md), den tekniske
+[målarkitektur](evidensbaseret-genimport/teknisk-maalarkitektur.md) og det
+daterede [statussnapshot](evidensbaseret-genimport/status.md) har nu hver sin
+myndighed. Nyt genimportarbejde har obligatorisk roadmapkobling og skal opfylde
+de seks adgangskrav til planer.
+
+Det første snapshot gør C3's integration-, rehearsal- og stopport før
+produktion til det aktive programmål og fastholder den generelle
+ende-til-ende-kæde som uafsluttet. Ingen kode, database, produktion eller
+CI-håndhævelse er ændret. Den varige beslutning er registreret i
+[beslutningsloggen](decisions.md).
+
+## Helhedsvurdering af genimporten + C3 apply-plan revideret (2026-08-22)
+
+Ingen prod-skrivning. Dagen gik med at måle, hvor programmet faktisk står, og
+at bringe C3's apply-plan i en tilstand, der kan udføres.
+
+**Afvigelsesvurdering mod den oprindelige plan.** Fem parallelle læse-kun
+kodeaudits + en prod-måling + en uafhængig Codex-analyse gav samme dom:
+fundamentet er bygget (og på DB-siden stærkere end planlagt), men programmets
+kerne er ikke nået. Fortolkningslaget har **0 rækker**, 2018-20 har **0**
+source records, `source_record_placement` og medlemskabstabellerne er **tomme**,
+og `evidence_extract.py` kalder bevidst ingen model. Det byggede er et
+provenance-lag for 1939 oven på juli-loaderens data — ikke spec'ens
+evidensbaserede genimport. Fuld opgørelse med dom pr. udestående i
+`docs/superpowers/reviews/2026-08-22-evidensbaseret-genimport-afvigelsesvurdering.md`.
+
+**12 issues oprettet: #147-#158.** Tre beslutninger truffet: fortolkningslaget
+skal fyldes (#147/#148), 2018-20 skal have fase A-ækvivalent (#149), og
+fase-pakke-modellen er vedtaget som den gældende prod-gate (#156).
+
+**To egne påstande falsificeret ved måling.** `narrative` har ingen
+unique-constraint på `(subjekt, source_id)` — én-pr-udgave bor i RPC'en og
+læserne, så #152 er en writer-/læser-ændring, ikke en skemarestrukturering. Og
+»#152 blokerer C3« var en påstand, ikke en udledning: C3's `TIL`-semantik
+kræver bindingstilstand `absent`, så hver sag etablerer ét record ↔ ét narrativ
+↔ én person og er fremadkompatibel. **Gaten blev ophævet, rækkefølgen byttet
+om til C3 → #152 → #153 → #149.** Rettelserne står som tilføjelser, ikke
+omskrivninger.
+
+**Merge-patologien bekræftet empirisk.** Person 1017's narrativ (369 tegn)
+rummer hele `record-e8bace88` (236) plus begyndelsen af `record-5fc1a041`
+(150), hvis hale ligger i person 1021 (57 tegn). Ét narrativ spænder to
+records, og ét record spænder to narrativer. Tre af de tolv
+»midt-i-sætning«-sager viste sig at være OCR-tegnfejl (`lven`, `l. Comtesse`),
+ikke grænsefejl.
+
+**C3's apply-spec godkendt med én ændring:** den varige databaseoverflade
+navngives generisk (`reimport_case_*` / `red_*_reimport_cases`) parametriseret
+på kilde og fase, så C3 bliver første bruger af den generelle kontrakt frem for
+otte nye udgavespecifikke objekter (spec-invariant 12, #153). Scriptfilnavne er
+bevidst uændret.
+
+**Apply-planen revideret mod 12 adversarial-fund (Codex sol, NO-GO).** Alle
+tiltrådt. To af dem — manglende `source_id`/`phase`/`state_sha256` i
+signaturerne og et filkort der modsagde genbrugsbeslutningen — var fejl i
+samme dags egen ændring. Blandt rettelserne: to adskilte artefaktforløb
+(rehearsal og prod kan ikke dele et databasebundet manifest), migrationstrin
+mod den restorede base, reversal som selvstændig batch, partielt unikt indeks
+på aktiv binding pr. source-record, live-guard mod `staged`/`levende`/`privat`,
+og reconciliation der erhverver den globale lock før receipt-opslag.
+`haendelse`-kravet blev nedskaleret til »kræv sættet tomt« på grundlag af
+prod-målingen (0 rækker). Task 1 er færdig (50 tests grønne, bygget i sideløbende
+session).
+
+
+## C0's efterkørsel UDFØRT i prod — ni record-koblinger (2026-08-21)
+
+De ni personer, hvis 1939-narrativ stod med fejlbehæftet tekst fra den første
+import, har nu den rensede, evidensbaserede tekst og en publiceret
+kildebinding. `change_set 965`, aktør `johan@reventlow.dk` som `redaktion`.
+
+**Resultat:** bindinger **550 → 559**. Narrativer (1.169), personer (1.811),
+fakta (7.197) og relationer (2.030) **uændrede** — fasen rørte tekst og
+bindinger, intet andet. `anon` ser fortsat 1.734 personer.
+
+| Person | Nu | Blev | Δ |
+|---|---:|---:|---:|
+| **991** | 32 | **32** | **0** — kun bindingen |
+| 963 · 992 | 103 · 107 | 101 · 105 | −2 |
+| 1296 · 1298 · 1299 | 278 · 349 · 666 | 275 · 344 · 655 | −3 · −5 · −11 |
+| 1297 | 731 | 688 | −43 |
+| **978** | 100 | **140** | **+40** nyt indhold |
+| **967** | 149 | **193** | **+44** nyt indhold |
+
+Kun 967 og 978 tilførte reelt nyt indhold. De negative delta er normalisering —
+samme rensning, fase B gav de øvrige 551.
+
+**8 change_events, ikke 9:** person 991's tekst er byte-identisk før og efter,
+så UPDATE'en skrev samme værdi og triggeren så ingen ændring. Det er beviset
+for fasens succeskriterium.
+
+**Det afgørende fund undervejs:** C0's `verbatim_text` er RÅ OCR. Alle ni
+fejlede fase B's slutinvarianter — enlige linjeskift, uopløste orddelinger,
+`### PAGE 0063 ###` i 1299, trailing whitespace i 1297. Uden normalisering
+ville fasen have indført rå tekst i en bestand af 551 rensede. `narrative_norm_v1`
+blev derfor et obligatorisk trin, og efterkontrollen bekræfter: **0 narrativer
+med rå sidemarkører, 0 enlige linjeskift i de ni.**
+
+**Person 1017 blev flyttet til C3.** Dens kobling ville have slettet 149 tegn,
+hvoraf de første ~92 ikke findes noget andet sted i korpus — person 1021 viste
+sig at være halen af dens afsnit B), skåret over midt i det orddelte
+»Revent- low«.
+
+**Menneskeark:** otte orddelingsvalg, ikke ni biografier. Brugeren godkendte
+alle otte som `merge` (Efter+slægt, For+pagter, For+mand, Folke+tinget,
+Rigs+raad, Katedral+skole og to gange Legationssekre+tær). Arket var
+hash-bundet (`98fbb11b…`) og verificeret byte-identisk umiddelbart før kørslen.
+
+**Backup:** `pre-c0f-20260821-112005.dump` (5,7 MB, 0600), SHA-256
+`fcfeb2253…`. Manifest `f067a4c3e…`, hash-låst ind i writeren.
+
+**Kvalitetsarbejdet:** fem tasks, otte fix-runder, 19 commits. Alle reviews af
+Codex sol. Rehearsal mod en restore af prod-dumpen — så de øvede RPC'er var de
+**live** definitioner. Fail-closed verificeret mod prod: en gentagen kørsel
+afvises med `C0F_APPLY_OLD_SHA_MISMATCH`, og et manifest bygget mod øvebasen
+afvises med `C0F_APPLY_DATABASE_MISMATCH`.
+
+**Udestår:** de 16 `[NY]`-records, de 7 C3-sammenlægninger plus 1017/1021, og
+de 12 grænsefejl-kandidater. 963 og 967 forbliver staged — bevist ufarligt, da
+`private` ikke er eksponeret gennem API'et.
+
+---
+
+## Fase D2 UDFØRT i prod — 21 ægtefæller publiceret (2026-08-20)
+
+De 21 staged gift-ind-ægtefæller er nu offentligt synlige. `change_set 960`,
+aktør `johan@reventlow.dk` som `redaktion`, 21 `change_events` — publiceringen
+er fortrydbar ad den almindelige vej.
+
+**Kontroltal, målt umiddelbart før kørslen:** 21 valgte · 28 staged i alt ·
+7 bagefter · 0 ekstra medrevne · 0 overlap med C0's uafklarede. Id-listen
+identisk med designdokumentets 21.
+
+**Efterkontrol mod prod:** `staged 28 → 7`; personer 1.811, facts 7.197,
+relationer 2.030, narrativer 1.169 — alle **uændrede**; 0 af de 21 er
+ikke-kvalificerede (ingen staged, levende, private eller navnløse). Målt med
+`SET LOCAL ROLE anon`: **1.734 personer synlige, 0 levende, 0 staged** —
+RLS-gaten holder efter publiceringen.
+
+**Backup før skrivning:** `work/task28-1939-v50-d2-aegtefaeller/pre-d2-20260820-222135.dump`
+(5,7 MB, 0600), SHA-256 `2c974998df4b8f9fe3e73254dfbc254bdd7ec96b12959ea5f4def59cc2289f85`.
+Udvalgsfil `spouse-selection-v2.json`, SHA-256
+`8487ad711164d429d0adfa54984af7bbfda7fd75217868fceb8821bf725f3463` — hash-låst
+ind i apply'en, som er obligatorisk.
+
+**De 7 tilbage:** `933, 935, 940, 963, 967, 1014, 1135` — ikke én gruppe. 933,
+935, 940 og 1135 er blandt C0's 9 uforklarede; 1014 står på C0's
+uafklarede-liste; og **963 og 967 er `[KOBL]`-mål der selv er staged**, altså
+et C0-spørgsmål frem for et D3-spørgsmål. Se
+`docs/superpowers/reviews/1939-v50-fase-c0-efterkoersel-genmaaling.md`.
+
+**Udestår:** brugerens verifikation i web-fladen — særligt at person 1662's
+ægteskab nu fremgår på den collapsede person sammen med 785's. Web-fladen i
+prod bygger fra `main`, så ændringen er synlig dér uden ny deploy (den ligger i
+data, ikke i kode).
+
+---
+
+## Fase D2: Task 1+2 bygget, reviewet og rehearsal-kørt (2026-08-20)
+
+De 21 staged gift-ind-ægtefæller, hvis partner allerede er synlig. Design i
+`docs/superpowers/specs/2026-08-20-1939-v50-fase-d2-aegtefaeller-design.md`,
+plan i `docs/superpowers/plans/2026-08-20-1939-v50-fase-d2-aegtefaeller.md`.
+**Task 3 (prod-kørslen) er IKKE kørt** — GO-pakken ligger i
+`docs/superpowers/reviews/1939-v50-fase-d2-go-pakke.md`.
+
+Grundlaget er **konsistens**, ikke en ny evidenstærskel. De 21 har 0
+narrativer, 0 record-bindinger og 0 external_ids, så D1's kriterium kan per
+definition ikke bruges. Men D1 publicerede allerede 24 stubs af samme slags,
+fordi `red_publicer_personer` trækker staged familiemedlemmer med. De 21
+adskiller sig kun ved, at deres partner blev synlig i en tidligere runde.
+
+Genmålt mod prod med den hærdede kode: 21 valgte → 28 → 7 staged, 0 ekstra
+medrevne, 0 overlap med C0's uafklarede, 0 levende eller private. Id-listen er
+identisk med designdokumentets. Udvalgsfil `spouse-selection-v2.json`
+SHA-256 `8487ad71…`; backup `pre-d2-20260820-222135.dump` SHA-256 `2c974998…`.
+
+**Et hul i planen ville have stoppet Task 3.** `red_publicer_personer` gates på
+`current_rolle()='redaktion'`, udledt af `profiles WHERE id = auth.uid()`. Over
+en direkte R-forbindelse er `auth.uid()` NULL → rollen bliver `medlem` → RPC'en
+kaster. Planens R-kode gjorde intet ved det. Afgjort empirisk mod prod:
+`auth.uid()` coalescer `request.jwt.claim.sub` **først**, aktøren sættes nu i
+transaktionen og verificeres mod `profiles`, og RPC'en kaldt i en `READ ONLY`-
+transaktion fejlede på `INSERT` — altså *efter* rolle-gaten.
+
+**Adversarial review (Codex sol)** fandt fire ægte fund, alle rettet. Det
+alvorligste: drift-guarden sammenlignede *antal* frem for *hvem*. Mister en
+valgt person sin synlige partner mens en anden staged person får én, er
+antallene uændrede, SHA-låsen passerer (filen er jo ægte), og vi ville
+publicere nogen ingen har set på. Guarden sammenligner nu id-mængden, målt
+inde i skrive-transaktionen. Desuden: eksporten gatede ikke på
+`levende`/`privat`/navn (invariant 8), apply validerede ikke dokumentets
+øvrige felter, og `--backup` er nu obligatorisk.
+
+To fælder som testene selv fangede: `modifyList` rekurserer, så en navnløs tom
+liste efterlader feltet urørt (guarden ville aldrig fyre), og `any(logical(0))`
+er `FALSE`, så en manglende kolonne ville få en fail-closed gate til at tie.
+
+**Rehearsal kørt, selv om D2's plan udelod den.** D1's plan krævede rehearsal
+mod frisk restore; D2's gik backup → eksport → apply. Mod en restore af dagens
+prod-dump (`daa1939_d2_rehearsal1`): 21 afstaget, `staged 28 → 7`, nul delta på
+person/fact/relation/narrative, 21 `change_events`, 0 ikke-kvalificerede blandt
+de 21, gentagen kørsel og induceret drift begge afvist fail-closed. Fordi
+kopien er en restore af prod, var den øvede `red_publicer_personer` den
+**live** definition — ikke `db-migrations.sql`'s.
+
+---
+
+## `red_slet_person` DEPLOYET til prod og verificeret (2026-08-20)
+
+Migrationen er kørt mod prod i én transaktion: begge funktioner genudgivet,
+`person_slaegt_membership` og `person_lineage_membership` registreret i
+`version_pk_registry` med `log_change`-triggere.
+
+Backup før skrivning:
+`work/task29-red-slet-person-deploy/pre-red-slet-person-20260820-201833.dump`
+(6,1 MB, 0600), SHA-256 `52b64e806fd830727db7a6f1a77591fc20e12af22472bc0637966a2dc90622d9`.
+
+**Alle tre nye db-verify-blokke bestod mod prod** (kørt i en transaktion der
+blev rullet tilbage):
+
+- narrativ-binding + slægts-/linjemedlemskab fjernet, `source_record` bevaret
+- Q's hændelse bevaret, `relation_id`-ankeret løsnet
+- persona-bundet person afvist med `PERSON_HAR_KILDEIDENTITET`
+
+**Verificeret på ægte data:** person 924 (én kildebinding) kunne slettes i en
+rullet-tilbage transaktion. Præcis den operation fejlede før med
+`narrative_record_publication_narrative_id_fkey`. Prod uændret: 1811 personer.
+
+Efterkontrol: begge funktioner er `SECURITY DEFINER` med
+`search_path=public`; den live kode indeholder alle fire nye elementer; begge
+medlemskabstabeller har trigger. Sikkerhedslint viser 0 SECURITY
+DEFINER-funktioner i `public` uden `search_path`.
+
+**App-laget efterprøvet:** web 773/773 og mobil 426/426 tests grønne.
+Typetjek: mobil 0 fejl; web uændret på 34 præeksisterende fejl (`GeoMap.tsx`,
+`mediaDedup.ts`, `humanReview1939Ui.test.ts` — ingen i de rørte filer).
+`SletPreview` konstrueres præcis tre steder, og alle tre er opdateret.
+
+**Forbehold:** `get_advisors(security)` er *ikke* kørt — MCP-forbindelsen
+peger på en anden Supabase-konto. Linten ovenfor dækker samme klasse af fund
+(search_path), men ikke Supabase's øvrige regler. Bør køres fra dashboardet.
+
+**Bemærk om web-fladen:** prod bygger fra `main`, så slet-modalen dér viser
+stadig den gamle tekst. De nye narrativ- og bindingstal er live i databasen,
+men usynlige indtil branchen merges og Vercel bygger igen. Det er forventet,
+ikke en fejlet udrulning.
+
+
+## Sletnings-rutinen hærdet efter dobbelt review (2026-08-20)
+
+Fixet ovenfor blev reviewet af Codex sol og arkitekturvurderet af fable. Tre
+fund blev accepteret og rettet, ét blev afvist som uopnåeligt.
+
+**Fortrydbarhed.** Ingen af de tabeller, `red_slet_person` nu sletter fra, stod
+i `version_pk_registry` — sletningerne gav altså ingen `change_events`.
+`person_slaegt_membership` og `person_lineage_membership` er nu registreret med
+`log_change`-triggere. `private.narrative_record_publication` kan ikke
+registreres som mekanikken ser ud; vurderingen er at tabet er
+publicerings-tilstand (`record_ref`, `published_at`), ikke evidens — se
+`decisions.md`.
+
+**Hændelses-ankre.** Påvist asymmetri: sletningen samler relationer på både
+subjekt- og objektsiden, mens hændelses-loaderen forankrer efter subjekt alene.
+En relation Q→P kan derfor bære en hændelse under Q's narrativ, som blokerer.
+Ankeret løsnes nu (`SET NULL`) i stedet for at slette en anden persons hændelse.
+
+**Kilde-identitet.** `source_persona_identity_event` er append-only, så en
+person, der én gang har haft en accepteret identitetsbeslutning, kan aldrig
+hard-slettes. `red_slet_person` afviser nu tidligt med
+`PERSON_HAR_KILDEIDENTITET` i stedet for en rå fremmednøglefejl halvvejs
+igennem. Den varige løsning — tombstone frem for hard delete — er anbefalet,
+men **ikke besluttet**.
+
+**Afvist:** `conclusion.valgt_assertion_id` blev meldt som blokerende, men
+ingen writer kan producere tilstanden (`red_upsert_fakta` og retract-stien
+sætter target og valgt påstand i samme operation). Ingen defensiv kode tilføjet.
+
+`db-verify.sql` har fået to tests mere (hændelses-ankeret og persona-afvisningen).
+**Ingen af de tre nye tests er kørt** — de kræver at migrationen først er deployet.
+
+**Målt mod prod (read-only):** 550 narrativ-bundne personer, hvoraf **8** er
+blokeret af kilde-identitet. Rettelsen frigør altså 542 af 550, og
+tombstone-spørgsmålet angår 8 personer — ikke bestanden. Tallet vokser dog med
+hver accepteret identitetsbeslutning og bør måles igen før næste udgave.
+
+
+## `red_slet_person` rettet — bindinger og medlemskaber ryddes nu (2026-08-20)
+
+Fejlen fra samme dag (se nedenfor) er rettet i kode, men **ikke deployet**.
+`red_slet_person` fjerner nu `private.narrative_record_publication`-bindingerne
+før narrativerne, så sletning ikke længere strander på fremmednøglen for de 551
+narrativ-bundne 1939-personer.
+
+Gennemgangen af *alle* fremmednøgler mod `person` og `narrative` fandt to
+blokerende mere end den oprindelige note kendte: `person_slaegt_membership` og
+`person_lineage_membership` (begge `person_id NOT NULL` uden cascade). Begge
+ryddes nu. `private.source_record` røres fortsat aldrig.
+
+`red_slet_person_preview` er udvidet med `antal_narrativer`, `antal_bindinger`
+og `antal_medlemskaber`, og både web- og mobil-slet-fladen viser tallene — en
+redaktør kunne før slette en biografi uden at få det at vide.
+
+To persona-tabeller er bevidst ladt urørt og noteret som åben beslutning i
+`docs/decisions.md`: deres CHECK-constraint binder `canonical_person_id` til
+`decision_status`, så feltet hverken kan slettes eller nulstilles uden en
+redaktionel afgørelse.
+
+**Status:** web-suiten er grøn (773/773), og typetjekket viser samme 34
+præeksisterende fejl som før ændringen (i `GeoMap.tsx`, `mediaDedup.ts` og
+`humanReview1939Ui.test.ts` — ingen i de rørte filer). Den nye `db-verify`-blok
+er **ikke kørt**: sessionen havde ingen base-adgang. Deploy mod prod +
+`get_advisors(security)` udestår.
+
+
+## Person 975 pensioneret + fund: `red_slet_person` er brudt (2026-08-20)
+
+Brugerens gennemlæsning af de nypublicerede poster afslørede, at person 975
+(»Greve Conrad til Grevskabet Reventlow, der af legitimt Afkom kun efterlod en
+Datter«, s. 509) ikke er en kildepost, men en **oversigtslinje** — hovedposten
+er person 1240 (s. 550), som allerede er `samme_som`-linket til 2020-udgavens
+530. 975 blev slettet (`change_set 956`); prod: 1812 → **1811 personer**.
+`private.source_record` urørt på 592: registreringen af, at teksten står på
+s. 509, er stadig sand.
+
+Maskinel eftersøgning bekræftede at 975 var den eneste af de 44 publicerede
+med oversigtsformulering — de øvrige korte narrativer er ægte personposter om
+børn, der døde som spæde.
+
+**Sideordnet fund:** `red_slet_person` fejler på en fremmednøgle mod
+`private.narrative_record_publication` for **alle 551** narrativ-bundne
+1939-personer. Funktionen er ældre end bindingstabellen. Her blev det omgået
+ved at slette bindingen først i samme transaktion; den egentlige rettelse er
+noteret som åben i `docs/decisions.md`.
+
+## Fase D1: 68 personer publiceret i prod (2026-08-19)
+
+De 44 staged 1939-probander med `published` record-binding er gjort offentligt
+synlige, og `red_publicer_personer` trak som designet 24 ægtefælle-stubs med
+sig — i alt **68 personer**. Prod: staged 96 → **28**. Person-, fact-,
+relation- og narrativtællinger uændrede (1812 / 7199 / 2031 / 577); fasen
+rører udelukkende `staged`. Efterkontrol mod `change_set 955`: 68 rørte, 68
+afstagede, 68 offentligt kvalificerede (0 levende, 0 private).
+
+Udvælgelsen byggede på tre objektive kriterier, aldrig på navne — staged
+person 927 hedder »Henrik« og deler navn med otte synlige personer. To gates
+lå i eksporten: 0 af de 44 var berørt af C0's uafklarede, og RPC'ens EGEN
+WHERE-klausul kørt mod udvalget gav 68, så partner-effekten var bevist frem
+for antaget. Rehearsal mod frisk prod-restore gav samme resultat, og en
+gentaget kørsel blev afvist fail-closed.
+
+**Fejl undervejs, som brugeren efterfølgende valgte at lade stå:**
+publiceringen blev kørt mod produktionen før GO-pakken var skrevet.
+Wrapper-scriptet blev kaldt med et opfundet `--dryrun`-flag, som det
+ignorerede — der var ingen dry-run-tilstand, og scriptet forbandt til prod.
+Ændringen var indholdsmæssigt den godkendte, men rækkefølgen var forkert.
+Wrapper'en kræver nu `--jeg-mener-det` og afviser ukendte argumenter.
+
+Rest: 28 staged (7 blokerede af C0/C3, 21 ægtefæller til D2). Redegørelse:
+`docs/superpowers/reviews/1939-v50-fase-d1-readiness.md`.
+
+## Fase C0: de 41 »ægte nye« records gennemgået — afventer afgørelser (2026-08-19)
+
+Fase B efterlod narrativer med gammel tekst, fordi 41 kilderecords var
+klassificeret »ægte nye« uden baseline-tilknytning. C0 bygger grundlaget for
+at omgøre de klassifikationer: read-only prod-eksport (577 narrativer, 551
+bindinger), deterministisk matchning mod hele bestanden, og en token-fil med
+41 udfyldte anbefalinger. **Intet skrevet til prod.**
+
+Fordeling: 9 kobling · 1 stillingtagen · 5 for kort · 7 sammenlægning ·
+11 uden kandidat · 8 allerede færdige. Lukning: 26 personer m. gammel tekst
+(ikke 23 — binding-proxyen viste sig at være et supersæt af den empiriske
+liste og fangede 991, 1791, 1795), 9 løst i C0, 8 udskudt til C3, **9
+uforklarede** (933, 934, 935, 940, 991, 1135, 1791, 1795, 1802). Alle 11
+»uden kandidat« har dækning 0.00 — de er formentlig modstykker til de
+uforklarede, men teksterne er for beskadigede til maskinel afgørelse.
+
+To fejl i C0's eget værktøj fanget af dets egne gates: (1) tekstmålet var
+længde-asymmetrisk i begge udgaver — `ratio()` gav 0.015 for en perfekt
+delstreng i et langt narrativ, og min-normaliseret dækning gjorde derefter
+korte modparter promiskuøse (spredte bogstaver → 1.00); løst med krav om ét
+sammenhængende anker. (2) Otte af de 41 var allerede materialiseret som
+personer i task 25 — import-preview er fra før den kørte — og et
+koblingsforslag ville have kollideret med deres UNIQUE narrativ-binding.
+
+**Afgørelser truffet samme dag:** alle 41 afgjort, 0 uafklarede — 10 kobling,
+16 ny, 7 til C3, 8 allerede færdige. De seks tvivlstilfælde blev afgjort ved at
+læse kildens og databasens tekst side om side: R37 er tegn-for-tegn identisk
+med person 991, de fem øvrige er strukturelle oversigtslinjer eller (R10) en
+forveksling af en 1700-tals-post med en person født 1864. Bemærk til
+efterkørslen: koblingen R40 → person 1017 erstatter dennes tekst med afsnit A)
+alene — en reparation af en gammel grænsefejl, men den fjerner synligt indhold,
+hvis B)-del hører til person 1021 og følger med i C3.
+
+Rapport: `docs/superpowers/reviews/1939-v50-fase-c0-linkage-report.md`.
+67 pytest-tests + 9 R-assertions; output byte-identisk under tre
+`PYTHONHASHSEED`-værdier.
+
+## Fase B: 551 biografier erstattet med evidensbaseret, renset tekst (2026-08-19)
+
+Programmets oprindelige formål er nået: de fejlbehæftede narrativer fra den
+første 1939-import er erstattet af tekst udtrukket direkte fra det
+menneskeverificerede grænsearbejde i Calamari-OCR'en — og normaliseret til
+læsbar prosa.
+
+**Normaliseringen (`narrative_norm_v1`):** 2.304 OCR-linjeskift samlet til
+mellemrum, 584 orddelinger sammentrukket (10 kompositum-navne bevaret),
+**499 søskende-ordenstal strippet** (»1. Sybille Malvina Lonny« →
+»Sybille Malvina Lonny«), 73 sidemarkører fjernet. Afsnit, tegnsætning,
+stavning og OCR-egenheder er urørt — det er evidens, ikke redaktion.
+Slutinvarianter håndhæves i koden: ingen `### PAGE`, intet enligt
+linjeskift, ingen trailing whitespace.
+
+**Menneskeligt checkpoint:** 178 usikre tilfælde (168 ubeviste
+sammentrækninger + 8 tvetydige bindestreger + 2 ordenstals-varianter) blev
+afgjort af brugeren i en token-fil efter grænseflade-mønstret (ret kun
+tokenet; fail-closed konverter afviser enhver anden ændring). Resultat: 165
+merge, 11 keep, 2 strip — bl.a. `kar-og` bevaret frem for det meningsløse
+»karog«, og begge ordenstals-varianter strippet.
+
+**Prod-apply:** 551 narrativer (543 eksisterende + de 8 nye), 543 nye
+record-bindinger publiceret (551 i alt), 2 dokumenterede sidehenvisnings-
+rettelser (person 975: 508→509, 986: 503→505 — gamle importfejl, fanget af
+writerens værn og verificeret mod grænsematerialet). Nul kanonisk delta:
+1.812 personer, 7.199 facts, 2.031 relationer, 682 familier uændret. Alle
+577 narrativers samlede hash i prod er identisk med rehearsal-basens
+(`8a79112e…`). Backup før apply:
+`daa-production-before-phase-b-apply-20260819-172157.dump` (0600, SHA
+`cfe40b7d…`). Fortryd: ét change_set med de gamle tekster bevaret.
+
+**To fælder fanget undervejs:** writerens replay-værn dækkede kun teksten,
+selv om `red_upsert_narrativ` også skriver `privat` og `side` — en post med
+`privat=true` ville tavst være blevet offentlig (invariant 8). Og writerens
+SQL-`digest()` var ukvalificeret; prods `search_path` mangler `extensions`,
+så applyen ville være fejlet — fanget af en read-only probe før skrivning.
+
+## Fase A: fuldt kilderegnskab i prod — 592/592 records forankret (2026-08-18 aften)
+
+Det menneskeverificerede grænsearbejdes komplette kilderegnskab er nu i
+produktionsdatabasen: fase A-applyen skrev de 584 resterende source records
+(batch `328a813a…`, 584 source_evidence-events, nul kanonisk delta) oven på
+de 243 eksisterende. Prod-evidenslaget står nu på 592 records / 897 byte-
+ankre-occurrences-observationer-mentions, alle bundet til Calamari-
+renditionen. 235 nøgler deles bevidst med task 25's claim-rækker (helpost-
+vs. claim-granularitet; append-only-trigger gør kind-overskrivning
+strukturelt umulig).
+
+Bygget efter subagent-metoden (4 tasks, 2 fix-runder, uafhængige reviews
+der genudledte artefakterne selv, fable-slutreview clean): deterministisk
+manifest-bygger (fil-SHA `1945416b…`, content-SHA `19d72155…` = DB'ens
+idempotens-nøgle), hard-låst R-writer (eksplicit `--dry-run|--apply`, delt
+advisory-lås med task 25-writeren), rehearsal mod frisk prod-restore med
+byte-identiske baselines og bevist idempotent replay. Backup før apply:
+`daa-production-before-phase-a-apply-20260818-190120.dump` (0600, SHA
+`50d62309…`). GO-pakke: `docs/superpowers/reviews/1939-v50-phase-a-readiness.md`.
+Næste: fase B — narrativ-erstatning (478 ændrede) inkl.
+ombrydnings-normalisering.
+
+## 1939 v50-strømmen lukket i prod: publikation + cutover (2026-08-18)
+
+Hele den evidensbaserede 1939 v50-strøm er nu udført og verificeret i produktion.
+Tidligere på dagen (Codex): production apply (8 staged summary-personer 1846-1853 +
+305 source-only evidensobjekter, batch `560c39f8…`) og name-completion apply
+(8 kildebundne navnefakta, batch `0b0055f6…`). Derefter (denne session):
+
+- **Narrativ-publikation:** `red_publicer_narrative_record` hærdet til
+  draft→published med eksakt felt-match (`FOR UPDATE`, mismatch fejler uden
+  mutation); DDL deployet via `apply_migration` (RPC-md5 `6e888307…`,
+  `get_advisors(security)` uden nye fund); de 8 draft-bindinger publiceret via
+  hash-låst, atomisk DO-blok genereret deterministisk fra manifestet.
+- **Cutover:** gennem skemaets autoriserede vej —
+  `red_authorize_1939_v50_cutover` → `red_activate_1939_v50_batch` (fuld
+  integritetskontrol af kæden source-batch ↔ completion ↔ facts/citations ↔
+  personae) satte `staged=false` for præcis de 8. Batch `activated`,
+  autorisation `consumed`.
+- **Efterkontrol:** alle 8 offentligt kvalificerede (afdøde, ikke-private, navn
+  sat), record-provenance synlig 8/8, nul-delta i øvrigt (1.812 personer,
+  7.199 facts, 321 write-events). Umiddelbare backups før hvert skrivetrin
+  (publikation: `…narrative-publication-20260818-151116.dump`; cutover:
+  `…1939-v50-cutover-20260818-151949.dump`), begge 0600 + SHA-256-noteret.
+
+Rehearsal forinden: endelig real-DBI-kørsel mod frisk produktionsækvivalent
+restore med byte-identiske før/efter-baselines (0 persistens — previewets
+gateway har ingen commit-operation). Rapporter i
+`work/task25-1939-v50-production-writer/`. Læring: Supabase MCP `execute_sql`
+kører i read-only transaktion — skrivninger går via `apply_migration` eller
+direkte psql; første apply-forsøg abortede derfor fail-closed uden ændringer.
+Udestår: manuel browser-test af de 8 poster i web-fladen.
+
+## Hele 1939-bogen gennemgået i tekstfladen (2026-08-10)
+
+Mennesket har været igennem alle 86 sider. Skæringssættet gik fra 446 forudsatte til
+**651**: 414 beholdt, 32 forkastet, 237 nye — plus **132 udeladelser** af tekst der ikke
+hører til nogen post (overskrifter, slægtled-etiketter og indledende oversigter). Målt
+mod bogens egen evidens er dækningen lukket: **alle 68 trykte postnumre i ejerløs tekst
+er nu enten skåret eller udeladt**, mod 68 uden ejer ved fase 1's afslutning.
+
+To fejl fundet undervejs, begge af den slags ingen gate kan se:
+
+**76 udeladelser begyndte ét tegn efter et linjeskift**, så overskriftens første bogstav
+blev stående som ejet tekst (`eneralmajor` i stedet for `Generalmajor`). Brugeren fandt
+én; en måling fandt de øvrige 75. Rettet maskinelt efter en entydig regel og efterprøvet
+på en anden egenskab end den rettede: udeladelser der starter ved et linjeskift gik fra
+53 til 129, uden overlap eller tomme områder. Fejlen kunne ikke genskabes som en levende
+fejl i den nuværende flade — tre genindlæsninger, begge tag-skrivemåder og gen-indlæsning
+via `--markeringer` gav alle nul afvigelse — så årsagen står åben.
+
+**Sidetallet 598 dækker to kildesider.** Fremskridtet var nøglet på det trykte tal, så
+86 af 86 var uopnåeligt, og — værre — kvittering for den ene side fik den anden til at
+fremstå gennemgået. Identiteten er nu kildesiden (altid unik), det trykte tal en etiket
+(`PDF-side 598 (1/2)`), og gamle eksporter oversættes fail-closed: et tvetydigt sidetal
+markerer ingen af siderne og rapporteres.
+
+Nyt: `check_graenseflade_export.py` kontrollerer en menneskelig gennemgang for de
+fejlmåder byte-gaten ikke kan se (én-tegns-forskydning, overlap, skæringer midt i en
+linje, trykte numre uden ejer, diff mod forrige eksport).
+`docs/superpowers/plans/2026-08-10-graenseflade-overdragelse.md` er en selvstændig
+overdragelsesprompt med invarianter, verifikationsveje og fem udestående opgaver.
+
+Tre gange kaldte en kontrol korrekt arbejde for en fejl: den ledte efter en skæring
+*inde i* et hul (den rigtige placering er kanten), viste linjen *før* en skæring ved et
+linjeslut, og krævede at udeladelser flugtede med linjer. Verificér mod noget kilden selv
+siger — bogens trykte postnumre — ikke mod din egen definition af færdig.
+
+## Grænsekontrollen som én tekst frem for 446 kasser (2026-08-09)
+
+Fase 1's flade besvarede "er denne skæring rigtig?" én kasse ad gangen, men fase 1's
+egentlige fund var dækningen: 75,3 % af Calamari-teksten er ejet af en post, og 101
+poster ejer intet. Et hul er praktisk talt usynligt i en flade, der kun viser
+skæringer mellem spænd, som allerede findes. Ny flade (brugerens forslag): hele
+teksten i én tekstboks, skæringerne som markørlinjer, navigation via browserens egen
+søgning. Markøren siger kun "her klippes"; ejerskab afgøres i en senere runde.
+Tavshed er godkendelse, så eksporten registrerer i stedet ændringen mod de 446
+forudsatte. Gæt inde i huller er forslag, der kun tæller, hvis mennesket fjerner
+ordet `FORSLAG?`.
+
+Kildeteksten bruger allerede `###` til sine egne 86 sidemarkører, så fladens markører
+fik `===`: ellers ville integritetskontrollen fjerne bogens egne linjer sammen med
+vores, og en sletning i kilden kunne passere ubemærket. Kontrollen stripper kun
+navngivne mønstre og byte-sammenligner resten med kilden, løbende og ikke først ved
+eksport; eksport er umulig — ikke frarådet — mens den er brudt.
+
+Målingen korrigerede to tal, vi troede vi kendte: de 46.015 ejerløse tegn sidder i
+**97 huller, ikke 355** (258 af "hullerne" er linjeskiftet mellem to poster), og
+kilden er 186.655 tegn, ikke 189.671 — det tal var bytes. Tre fejl fundet ved at køre
+mod rigtige data frem for syntetiske: generatoren krævede at hver skæring lå ved et
+linjestart (352 af 446 gør ikke, de ligger ved linjens slut), 256 bannere annoncerede
+et linjeskift som ejerløs tekst, og **to huller med rigtig tekst — 868 og 6.330 tegn —
+var helt usynlige, fordi koden krævede en nabo på begge sider.** Dokumentets kant har
+ingen nabo. Samme fejlmønster som dagen før: fravær af bevis læst som bevis på fravær.
+
+Verificeret i Chromium mod rigtige data: 21/21 kontroller, inkl. at en eksport kan
+læses tilbage i en ny fil (445 forudsatte + 1 egen skæring overlevede). Suiten er
+1.106 grønne. Resultatet er et skæringssæt og review-/fil-GO — ingen materialisering;
+afløsning af accepteret evidens kræver fortsat en autoriseret operation (beslutning
+2026-08-08).
+
 ## Medie-metadata-udvidelse (2026-08-06)
 
 Udvider hvad der kan registreres om et medie, så eksternt hentede billeder
@@ -26,6 +588,29 @@ foldbar, og `alt_tekst` på thumbnail/lightbox.
 Status: 733 web-tests grønne. DB-migrationen (vocab-seeds + RLS-skærpelse)
 er IKKE kørt mod prod endnu — gated, kræver eksplicit go (se
 `docs/superpowers/plans/2026-08-06-medie-metadata.md`, Task 7).
+
+## Menneskegodkendte 1939-valg kan efterforankres fail-closed (2026-08-06)
+
+Et uafhængigt review fandt en reel blindgyde: browserens fagligt godkendte
+kandidatvalg kunne eksporteres, men ingen komponent producerede den
+anchored-candidates-wrapper, som slutkonverteringen kræver. Den nye
+`anchor_review_choices_1939.py` validerer eksport og kildehashes, genskaber det
+valgte Calamari-span deterministisk, registrerer en invariant rå-OCR-bro hvor den
+findes og ellers en eksplicit menneskelig approval. Den skriver samtidig en
+omskrevet choice-eksport og komponerer de nye human-entries ind i et obligatorisk,
+komplet source-bundet base-evidence-bundle; ingen `presentation:`-identitet bliver
+accepteret direkte. Base-entries med blockers eller eksisterende positiv evidens
+kan ikke erstattes, og global retained-auto + human-injektivitet valideres før output.
+
+Real-data-replayet bevarede alle 25 ikke-audit menneskevalg uden fejlmatch: 13 fik
+bytevalideret råbro og 12 approval alene; konverteringen gav 25 `accepteret`, de
+fem `no_candidate_fits` forblev parkeret som `menneskeark`, og alle fem auditvalg
+blev `audit_confirmed`. En eksporteret 35-valgs kladde kan desuden genindlejres
+felt-for-felt i et nyt menneskeark. Task-5-outputtet `{decisions, audit_results}`
+joines som `--review` mod composed evidence som `--evidence`. Resultatet er et
+review-/filworkflow; der findes ingen approval-capable privat coverage-materializer,
+og resultatet er derfor ikke coverage-materialiserings-, database-, loader- eller
+deployment-GO.
 
 ## Ægte links i web-fladen + tydeligere "Samme person" (2026-08-01)
 
@@ -2514,3 +3099,49 @@ efter DDL: 139 → 135 lints (revoke på de to nye trigger-funktioner).
 loader-låsen (parkeret, se decisions) · 1235/1237 peger begge på 1930-id 527
 (sandsynlig dublet i 1939-posten) · 15 mor-løse skaller står tilbage med én part og
 0 børn, bevidst ikke slettet.
+
+## Grænsekontrol fase 1 + 1939-matchningen færdiggjort (2026-08-08)
+
+**Matchningen er komplet.** Alle 453 `human_required`-poster og alle 5 stikprøver er
+afgjort (402 kandidatvalg, 55 "ingen kandidat passer", 1 uafgjort). De 88 uden afgørelse
+er præcis de automatiske ikke-stikprøver, som fladen forbyder valg på. Forankret:
+**352 spænd, 45 parkerede, ingen injektivitetsfejl** — den risiko vi havde udpeget som
+utestet med 131 tekstankre i spil holdt. Parkeringsårsager: 26 `pdf_pages_mismatch`
+(alle tekstankre, koncentreret på s. 571-573 og 596-598 = sidekortets grovkornede
+område), 19 overlap.
+
+**To fejl rettet i menneskeark-generatoren før det.** (1) Fladen viste kun de tre
+øverste kandidater bag "Vis alle kandidater"; nu vises alle, foldet ud. (2) Calamari
+mangler 18 PDF-sider (plancher), men generatoren regnede sidetal lineært i stedet for
+at bruge `CALAMARI_R6_TO_PDF_V1`. Målt: tabellen rammer trykt side 321/362, lineær
+149/362 — og opdelt ved side 547 er lineær **0/205**. Sidefiksen alene gjorde det værre
+(101 → 57 korrekte kandidater), fordi korrekte sider fortrængte det eksakte tekstanker;
+ankeret tilbydes nu altid og først: **101 → 301**.
+
+**Detektor for skævt delte baseline-poster** (`detect_boundary_defects_1939.py`): 2
+grænsefejl-par, 17 poster uden eget hoved, 5 grupper der deler ordret samme narrativ.
+Bruger den trykte søskendenummerering; resultatet er et gulv, ikke en optælling.
+
+**Grænsekontrol fase 1 bygget** (17 commits, `c150ae7..59c75fa`): delt UI-modul
+udtrukket fra menneskearket, grænser dannet af accepterede spænd med revisionsbærende
+id, klausul-regnskab, fire spænd-signaler, view-model med eksplicit kald af den
+kanoniske globale injektivitetskontrol, selvstændig browserflade med fem domme,
+OCR-noter og karantæne, samt CLI med hash-validering. 1083 Python-tests, 773 web-tests,
+menneskearkets 88 uændret gennem refaktoren.
+
+**Kørt mod rigtige data:** 446 grænser (= 445 spænd + 1), 248 med signal.
+`slugt_hoved` 2 · `nummerspring` 80 · `mangler_eget_hoved` 10 · `hoved_i_raa_ocr` 5.
+
+**Fase 1's egentlige svar:** grænserne er overvejende i orden — kun 12 bærer et signal
+om en forskubbet skæring. Det der mangler er **dækning**: 101 poster ejer intet spænd,
+og **46.015 tegn** af kilden ejes af ingen, i 355 huller (største 8.996 tegn).
+
+**Fem fejl fundet af reviews, én af et tal, fire af brugerens browsertest.** Se
+decisions for mønsteret. Brugerens fund: uparsebar genereret fil (blank side), to tomme
+kasser der læstes som frikendelse, manglende fremdrift/navigation i en flade til 446
+poster, manglende sidetal, og kontekst der rakte ud over spændets kant (352 af 446).
+
+**Udestår.** Ikke pushet, ikke merget · `manglende_post` registrerer ikke *hvilken*
+post der mangler (struktureret felt foreslået, ikke bygget) · brugeren vil diskutere en
+anden fremgangsmåde i næste session · fase 2 bør planlægges forfra på tallene ovenfor ·
+eksport-knappen er ikke verificeret i en rigtig browser.

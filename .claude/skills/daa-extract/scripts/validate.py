@@ -18,6 +18,7 @@ Reglerne (kan-tjekkes-deterministisk delmængde):
   K   linje/nr i udtræk matcher kilde-posten
 """
 import sys, os, re, json, argparse, hashlib
+import clause_ledger
 
 ALLOWED_TOP = {"linje", "nr", "nr_label", "usikker", "navn", "tilnavn", "koen",
                "facts", "godser", "embeder", "aegteskaber", "boern",
@@ -962,7 +963,15 @@ def main():
     ap.add_argument('--clean', required=True)
     ap.add_argument('--review', required=True)
     ap.add_argument('--escalate', help='skriv eskalerings-worklist (blokerende + R8) hertil')
+    ap.add_argument('--evidence-ledger', help='verificér et komplet clause-ledger før validering')
     args = ap.parse_args()
+
+    if args.evidence_ledger:
+        evidence = json.load(open(args.evidence_ledger, encoding='utf-8'))
+        source_length = evidence.get('source_length')
+        if not isinstance(source_length, int) or source_length < 0:
+            raise clause_ledger.LedgerError('evidence ledger lacks source_length')
+        clause_ledger.validate_ledger(evidence.get('clauses', []), ' ' * source_length)
 
     posts = json.load(open(args.posts, encoding='utf-8'))
     # nøgle på (linje, nr_label): nr resetter per linje OG 15a/15b deler basenr

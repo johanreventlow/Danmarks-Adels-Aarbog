@@ -6,12 +6,15 @@ kører mod både den faktiske Calamari-OCR og ``raw.txt``-fallbacken.
 
 import segment_1939 as seg
 import contextlib
+import hashlib
 import io
 import os
 import json
 import subprocess
 import sys
 import tempfile
+
+import pytest
 
 import segment as structural_segment
 
@@ -72,6 +75,75 @@ def run_structural_path(path, udgave):
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(stderr):
         posts = structural_segment.main(str(path), udgave=udgave)
     return posts, stderr.getvalue()
+
+
+# ------------------------------------------------ Calamari post headers
+
+def test_calamari_header_accepts_short_name_with_death_marker():
+    posts, _ = run_structural("   7. Ceder † 1891.\n", "1939")
+
+    assert [post["nr_label"] for post in posts] == ["7"]
+
+
+def test_calamari_header_accepts_short_name_with_birth_marker():
+    posts, _ = run_structural("   8. Ceder, f. 1864.\n", "1939")
+
+    assert [post["nr_label"] for post in posts] == ["8"]
+
+
+def test_calamari_header_does_not_accept_source_reference():
+    posts, _ = run_structural("   7. : Se S. 521.\n", "1939")
+
+    assert posts == []
+
+
+def test_calamari_header_does_not_accept_ordinary_numbered_prose():
+    posts, _ = run_structural("   7. Ceder.\n", "1939")
+
+    assert posts == []
+
+
+# ------------------------------------------------ Calamari line headers
+
+def test_calamari_line_header_uses_page_roman_and_line_name():
+    posts, _ = run_structural(
+        "### PAGE 520 ###\n"
+        "IV.\n"
+        "Den syntetiske Linje.\n"
+        "   1. Ceder † 1900.\n",
+        "1939",
+    )
+
+    assert [post["linje"] for post in posts] == ["IV"]
+
+
+def test_calamari_generation_header_requires_fresh_page():
+    posts, _ = run_structural(
+        "### PAGE 520 ###\n"
+        "Første Slægtled.\n"
+        "   1. Ceder † 1900.\n",
+        "1939",
+    )
+
+    assert [post["slaegtled"] for post in posts] == ["Første"]
+
+
+def test_1939_segmentation_summary_reports_structure_without_text():
+    posts = [
+        {"linje": "II", "lokal_id": "II.Tredje.1"},
+        {"linje": "II", "lokal_id": None},
+        {"linje": "Stamme", "lokal_id": None},
+    ]
+
+    summary = structural_segment.segmentation_summary_1939(posts, "syntetisk")
+
+    assert summary == {
+        "source_sha256": hashlib.sha256(b"syntetisk").hexdigest(),
+        "posts": 3,
+        "with_lokal_id": 1,
+        "without_lokal_id": 2,
+        "by_linje": {"II": 2, "Stamme": 1},
+    }
 
 
 # ------------------------------------------------------ v2 unnumbered records
@@ -232,6 +304,42 @@ def test_v2_bevarer_alle_v1_nummererede_poster_post_for_post():
     assert v2_nummererede == v1
 
 
+def test_v2_poster_baerer_kildelinje_interval():
+    # Bevarer det halvåbne linje-interval hver post blev bygget af, så en
+    # senere adapter kan udlede karaktér-offsets deterministisk uden at
+    # gen-parse teksten.
+    raw = "\n".join([
+        "                    IV.",
+        "Den danske grevelige Linje af 1673.",
+        "                  (S. 43).",
+        "                     F ø rste S læ gtled .",
+        "  T e s t A n e er en unummereret stamfader.",
+        "                     A ndet S læ gtled .",
+        "1. T e s t B o har første nummererede narrativ",
+        "   og fortsætter her.",
+        "2. T e s t C a r l har andet nummererede narrativ.",
+    ])
+    lines = raw.split("\n")
+
+    posts, _ = run_structural(raw, "1939-v2")
+    nummererede = [post for post in posts if post.get("nr") is not None]
+    stamfaedre = [post for post in posts if post.get("postklasse") == "stamfader"]
+
+    assert all(isinstance(post.get("linjer"), dict) for post in nummererede)
+    first = next(post for post in nummererede if post["nr"] == 1)
+    assert lines[first["linjer"]["fra"]].startswith("1. T e s t B o")
+    assert first["linjer"]["til"] == first["linjer"]["fra"] + 2
+
+    second = next(post for post in nummererede if post["nr"] == 2)
+    assert lines[second["linjer"]["fra"]].startswith("2. T e s t C a r l")
+    assert second["linjer"]["til"] == second["linjer"]["fra"] + 1
+
+    assert len(stamfaedre) == 1
+    assert isinstance(stamfaedre[0]["linjer"], dict)
+    assert lines[stamfaedre[0]["linjer"]["fra"]].startswith("  T e s t A n e")
+    assert stamfaedre[0]["linjer"]["til"] == stamfaedre[0]["linjer"]["fra"] + 1
+
+
 def test_v2_lokal_ids_er_unikke_og_output_deterministisk():
     raw = "\n".join([
         "                    IL",
@@ -278,6 +386,8 @@ def test_v2_faktisk_ocr_bevarer_v1_nummererede_byte_for_byte():
     repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
     ocr = os.path.join(
         repo, "work_1939_stamtavle", "full_ocr_calamari_r6_clean.txt")
+    if not os.path.isfile(ocr):
+        pytest.skip("kræver den gitignorerede Calamari-OCR-artefakt")
 
     v1, _ = run_structural_path(ocr, "1939")
     v2, _ = run_structural_path(ocr, "1939-v2")
@@ -299,6 +409,8 @@ def test_v2_faktisk_ocr_bevarer_v1_nummererede_byte_for_byte():
 def test_v2_faktisk_ocr_taelling_unikhed_fail_closed_og_determinisme():
     repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../.."))
     ocr = os.path.join(repo, "work_1939_stamtavle", "raw.txt")
+    if not os.path.isfile(ocr):
+        pytest.skip("kræver den gitignorerede 1939 raw.txt-artefakt")
 
     foerste, rapport = run_structural_path(ocr, "1939-v2")
     anden, _ = run_structural_path(ocr, "1939-v2")

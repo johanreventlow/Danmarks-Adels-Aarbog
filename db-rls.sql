@@ -1,4 +1,43 @@
 -- =====================================================================
+
+-- ---------- PRIVAT KILDEEVIDENS ----------
+-- Ingen API-rolle har direkte adgang. Default privileges gælder for den
+-- DDL-ejer, som kører filen; kør derfor deployment med den normale ejerrolle.
+revoke all on schema private from public, anon, authenticated;
+alter default privileges in schema private
+  revoke all on tables from public, anon, authenticated;
+alter default privileges in schema private
+  revoke all on sequences from public, anon, authenticated;
+-- PostgreSQLs implicitte PUBLIC-EXECUTE på nye funktioner er global; et
+-- schema-lokalt REVOKE kan ikke fjerne den. Fremtidige funktioner skal derfor
+-- altid have en eksplicit, gennemset grant (også hvis private senere får USAGE).
+alter default privileges
+  revoke execute on functions from public, anon, authenticated;
+alter default privileges in schema private
+  revoke execute on functions from public, anon, authenticated;
+
+do $$
+declare v_table text;
+begin
+  foreach v_table in array array[
+    'extraction_run','source_rendition','source_record','source_record_occurrence',
+    'source_record_anchor_event','source_record_revision_event','source_observation',
+    'source_observation_text','source_mention','source_persona','source_persona_mention',
+    'interpretation','interpretation_observation','interpretation_promotion_rule',
+    'interpretation_promotion_batch','interpretation_promotion',
+    'source_persona_identity','source_persona_identity_event',
+    'narrative_record_publication'
+  ] loop
+    if to_regclass(format('private.%I',v_table)) is not null then
+      execute format('alter table private.%I enable row level security',v_table);
+      execute format('revoke all on table private.%I from public,anon,authenticated',v_table);
+    end if;
+  end loop;
+end $$;
+revoke all on all sequences in schema private from public, anon, authenticated;
+revoke execute on all functions in schema private from public, anon, authenticated;
+
+-- =====================================================================
 --  RLS-LAG · offentlig (anon) læseadgang med GDPR-filtrering
 --
 --  Erstatter den midlertidige permissive dev-RLS (web/dev-rls.sql, "USING true").
@@ -139,7 +178,7 @@ returns boolean language sql stable security definer set search_path = public as
     -- Redaktionen ser fortsat alt via det additive redaktion_read-lag.
     when p_type = 'media' then public.media_rettigheder_ok(p_id)
     -- det faste ikke-PII-entitetssæt (sted/gods/våben/linje/organisation/begivenhed/kilde/arkiv)
-    when p_type in ('place','estate','coat_of_arms','lineage','organisation',
+    when p_type in ('place','estate','coat_of_arms','slaegt','lineage','organisation',
                     'historical_event','source','repository') then true
     else false  -- ukendt/fejlstavet type → fail-closed
   end;
@@ -206,7 +245,8 @@ begin
   -- =========================================================
   foreach t in array array[
     'vocab','repository','source','place','organisation','estate',
-    'coat_of_arms','lineage','family','historical_event'
+    'coat_of_arms','slaegt','lineage','lineage_scheme','lineage_scheme_entry',
+    'lineage_scheme_entry_lineage','family','historical_event'
   ] loop
     execute format('grant select on table public.%I to anon, authenticated;', t);
     execute format('alter table public.%I enable row level security;', t);
@@ -220,6 +260,29 @@ begin
     execute format('create policy auth_read on public.%I for select to authenticated using (true);', t);
   end loop;
 end $$;
+
+-- Overgangs-viewet er læsbart, men security_invoker lader fortsat de underliggende
+-- person_external_id-politikker afgøre hvilke personkoordinater en klient ser.
+GRANT SELECT ON public.person_source_coordinate_legacy TO anon, authenticated;
+
+-- Generelle beskrivelser: publicerede, ikke-private beskrivelser følger deres
+-- kanoniske subjekts synlighed. Kildekoblinger forbliver i private schema og
+-- må kun læses gennem en senere redaktions-RPC.
+GRANT SELECT ON public.entity_description TO anon, authenticated;
+ALTER TABLE public.entity_description ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS anon_read ON public.entity_description;
+CREATE POLICY anon_read ON public.entity_description FOR SELECT TO anon
+  USING (status='published' AND privat=false
+         AND public.entitet_offentlig(subjekt_type,subjekt_id));
+DROP POLICY IF EXISTS auth_read ON public.entity_description;
+CREATE POLICY auth_read ON public.entity_description FOR SELECT TO authenticated
+  USING (status='published' AND privat=false
+         AND public.entitet_offentlig(subjekt_type,subjekt_id));
+DROP POLICY IF EXISTS redaktion_read ON public.entity_description;
+CREATE POLICY redaktion_read ON public.entity_description FOR SELECT TO authenticated
+  USING ((select public.current_rolle())='redaktion');
+ALTER TABLE private.entity_description_source ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.entity_description_source FROM PUBLIC,anon,authenticated;
 
 -- 'media' har ingen egen levende/privat-kolonne; synligheden afledes af de personer billedet
 -- AFBILDER (relation rolle='afbildet' → person), via SECURITY DEFINER-helperne ovenfor.
@@ -520,6 +583,10 @@ begin
   for fn in select proname from pg_proc where proname like 'red\_%' escape '\'
   loop execute format('grant execute on function public.%I to authenticated;', fn); end loop;
 end $$;
+-- Den historiske enkeltrække-RPC mangler v1's persona-/regel-/værdikontrol.
+-- Den må derfor ikke blive genåbnet af den generelle redaktions-RPC-grant ovenfor.
+revoke execute on function public.red_promote_interpretation(uuid,text,bigint,jsonb)
+  from public, anon, authenticated;
 -- "from public" alene revoker ikke anon/authenticated (Supabase grantér dem direkte,
 -- jf. 2026-07-02-hærdningen nedenfor) — naevn anon eksplicit så hygiejne-hensigten reelt holder.
 revoke all on function public.current_rolle() from public, anon;
@@ -716,6 +783,18 @@ REVOKE EXECUTE ON FUNCTION
   _version_delete_row(text, jsonb)
   FROM PUBLIC, anon, authenticated;
 
+-- C3 identitets-UPDATE: prelock-beviset er intern transaktionsstate, ikke API-data.
+-- Tabellen har ingen ekstern læse-/skriveflade; alle legitime kald går gennem ejerens
+-- SECURITY DEFINER-kæde, og cleanup-triggeren fjerner rækkerne ved transaktionsslut.
+ALTER TABLE private.identity_relation_update_prelock ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.identity_relation_update_prelock
+  FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION
+  private.lock_identity_people(bigint[]),
+  private.prelock_identity_relation_update(jsonb,jsonb),
+  private.cleanup_identity_relation_update_prelock()
+  FROM PUBLIC, anon, authenticated;
+
 -- 2026-07-17 (post-cutover advisor-lint): _ensure_foraeldrefamilie_redaktionel er en intern
 -- Problem 2-helper tilføjet EFTER F-01 REVOKE-sweepet ovenfor, så den manglede samme REVOKE.
 -- Den HAR allerede current_rolle()-guarden (belt-and-suspenders, ikke exploiterbar) — dette er
@@ -756,3 +835,109 @@ USING (
     ELSE public.entitet_offentlig(maal_type, maal_id)
   END
 );
+
+-- DAA 1939 v50 production-writer: private journal state is never a client table.
+ALTER TABLE private.reimport_1939_authorization ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_1939_write_batch ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_1939_write_event ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_1939_name_completion_result ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON private.reimport_1939_authorization,private.reimport_1939_write_batch,
+  private.reimport_1939_write_event,private.reimport_1939_name_completion_result FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION private.reject_reimport_1939_event_mutation(),
+  private.require_reimport_1939_editor(),private.require_reimport_1939_open_batch(uuid),
+  private.ensure_reimport_1939_source_evidence(uuid,text,jsonb)
+  FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz),
+  public.red_begin_1939_v50_reimport(uuid,text,text),
+  public.red_apply_1939_v50_source_evidence(uuid,text,jsonb),
+  public.red_apply_1939_v50_person_create(uuid,text,jsonb),
+  public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb),
+  public.red_finalize_1939_v50_reimport(uuid),
+  public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz),
+  public.red_reverse_1939_v50_reimport(uuid,uuid),
+  public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz),
+  public.red_activate_1939_v50_batch(uuid,uuid)
+  FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION private.reimport_1939_canonical_json_text(jsonb),
+  private.reimport_1939_canonical_json_sha256(jsonb),
+  private.validate_reimport_1939_name_completion(uuid,uuid,text,jsonb),
+  public.red_lock_1939_v50_name_completion(text),
+  public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb),
+  public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb),
+  public.red_begin_1939_v50_name_completion(uuid,text,uuid),
+  public.red_apply_1939_v50_name_completion(uuid,text,jsonb),
+  public.red_finalize_1939_v50_name_completion(uuid)
+  FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz),
+  public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz),
+  public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)
+  TO service_role;
+GRANT EXECUTE ON FUNCTION public.red_begin_1939_v50_reimport(uuid,text,text),
+  public.red_apply_1939_v50_source_evidence(uuid,text,jsonb),
+  public.red_apply_1939_v50_person_create(uuid,text,jsonb),
+  public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb),
+  public.red_finalize_1939_v50_reimport(uuid),
+  public.red_reverse_1939_v50_reimport(uuid,uuid),
+  public.red_activate_1939_v50_batch(uuid,uuid)
+  TO authenticated;
+GRANT EXECUTE ON FUNCTION public.red_lock_1939_v50_name_completion(text),
+  public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb),
+  public.red_begin_1939_v50_name_completion(uuid,text,uuid),
+  public.red_apply_1939_v50_name_completion(uuid,text,jsonb),
+  public.red_finalize_1939_v50_name_completion(uuid)
+  TO authenticated;
+
+-- C3 apply plan Task 5: generic reimport case ledger. No RPCs exist yet (Task 6
+-- builds those against service_role/authenticated); until then the ledger has
+-- no direct DML grant to any role -- table owner only.
+ALTER TABLE private.reimport_case_authorization ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_case_batch ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_case_event ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON private.reimport_case_authorization,
+  private.reimport_case_batch,
+  private.reimport_case_event
+  FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION private.reject_reimport_case_event_mutation()
+  FROM PUBLIC,anon,authenticated;
+
+-- C3 apply plan Task 6: least-privilege ACL for the generic reimport case RPCs.
+-- The ledger tables above stay without any direct DML grant; the only way in is
+-- through these three SECURITY DEFINER entry points. Two-step principal split:
+-- the service-role gateway issues the short-lived authorization, an
+-- authenticated redaktion principal consumes it through apply. Both still pass
+-- private.require_reimport_1939_editor(), so role membership is the gateway and
+-- the JWT subject is the actor. Every privileged helper is private and revoked
+-- from every role including service_role.
+REVOKE ALL ON FUNCTION private.reimport_case_source_record_state(bigint,text),
+  private.reimport_case_narrative_state(bigint,bigint),
+  private.reimport_case_binding_state(uuid,bigint),
+  private.validate_reimport_case_selection(jsonb),
+  private.validate_reimport_case_elements(jsonb,jsonb),
+  private.validate_reimport_case_counts(jsonb),
+  private.reimport_case_receipt(uuid),
+  private.write_reimport_case_narrative(bigint,bigint,bigint,text,boolean,text)
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.red_preview_reimport_cases(bigint,text,jsonb),
+  public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz),
+  public.red_apply_reimport_cases(uuid,text,text)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_preview_reimport_cases(bigint,text,jsonb)
+  TO authenticated;
+GRANT EXECUTE ON FUNCTION public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)
+  TO service_role;
+GRANT EXECUTE ON FUNCTION public.red_apply_reimport_cases(uuid,text,text)
+  TO authenticated;
+
+-- ---------- DAA 1939 v50 fase C3: reversal RPCs (Task 7) ----------
+-- Same principal split as the apply family: service_role authorises the
+-- reversal, authenticated performs it, and the plan oracle stays private to
+-- every Supabase role.
+REVOKE ALL ON FUNCTION private.reimport_case_reversal_plan(uuid)
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz),
+  public.red_reverse_reimport_cases(uuid,uuid)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)
+  TO service_role;
+GRANT EXECUTE ON FUNCTION public.red_reverse_reimport_cases(uuid,uuid)
+  TO authenticated;
