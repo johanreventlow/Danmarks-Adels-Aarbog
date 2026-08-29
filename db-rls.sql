@@ -1123,3 +1123,9 @@ GRANT EXECUTE ON FUNCTION
   public.public_person_bio_source_versions(bigint[]),
   public.public_person_bio_source_versions_v2(bigint[])
   TO anon,authenticated;
+
+-- #152 Task 7: one version-aware ACL source of truth is applied after every
+-- historical grant block. The cutover kernel calls the same helper atomically.
+SELECT private.apply_narrative_record_contract_acl(
+  public.narrative_record_contract_version()
+);

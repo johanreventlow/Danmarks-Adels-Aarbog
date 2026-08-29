@@ -259,6 +259,61 @@ test_that("Task 6 pins loader, updater and historical gated consumers", {
                info = "historical one-shot C0 consumer classification")
 })
 
+test_that("Task 7 pins the atomic cutover, receipt, sequence and ACL source of truth", {
+  for (path in c("schema.sql", "db-migrations.sql")) {
+    sql <- paste(read_repo(path), collapse = "\n")
+    kernel <- last_function_block(sql, "private", "apply_narrative_record_cutover")
+    expect_match(
+      kernel,
+      "pg_advisory_xact_lock(hashtextextended('daa-narrative-record-contract',0))",
+      fixed = TRUE, info = path
+    )
+    for (name in c(
+      "record_candidates_sha256", "legacy_candidates_sha256",
+      "record_manifest_sha256", "legacy_manifest_sha256",
+      "inventory_sha256", "approval_sha256"
+    )) expect_match(kernel, name, fixed = TRUE, info = paste(path, name))
+    expect_match(kernel, "LOCK TABLE public.change_set IN ACCESS EXCLUSIVE MODE",
+                 fixed = TRUE, info = path)
+    expect_match(kernel, "ALTER SEQUENCE %s RESTART WITH %s", fixed = TRUE, info = path)
+    expect_false(grepl("setval\\(", kernel), info = path)
+    acl_position <- regexpr("apply_narrative_record_contract_acl(2)", kernel, fixed = TRUE)[1]
+    version_position <- regexpr("SET version=2", kernel, fixed = TRUE)[1]
+    expect_true(acl_position > 0L && version_position > acl_position, info = path)
+    expect_match(kernel, "Version is deliberately the final write", fixed = TRUE, info = path)
+
+    acl <- last_function_block(sql, "private", "apply_narrative_record_contract_acl")
+    expect_match(acl, "IF p_version=1", fixed = TRUE, info = path)
+    expect_match(acl, "GRANT EXECUTE ON FUNCTION %s TO authenticated", fixed = TRUE,
+                 info = path)
+    expect_match(acl, "GRANT EXECUTE ON FUNCTION %s TO service_role", fixed = TRUE,
+                 info = path)
+    expect_match(acl, "REVOKE ALL ON FUNCTION %s FROM PUBLIC,anon,authenticated,service_role",
+                 fixed = TRUE, info = path)
+
+    receipt_guard <- last_function_block(
+      sql, "private", "reject_narrative_record_cutover_receipt_mutation"
+    )
+    expect_match(receipt_guard, "NARRATIVE_RECORD_CUTOVER_RECEIPT_APPEND_ONLY",
+                 fixed = TRUE, info = path)
+    expect_acl(
+      sql, "REVOKE ALL ON FUNCTION",
+      "private.apply_narrative_record_cutover( text,text,text,text,text,text,uuid,text,text )",
+      "FROM PUBLIC,anon,authenticated,service_role"
+    )
+  }
+
+  rls <- paste(read_repo("db-rls.sql"), collapse = "\n")
+  expect_match(
+    gsub("[[:space:]]+", " ", rls),
+    "SELECT private.apply_narrative_record_contract_acl( public.narrative_record_contract_version() );",
+    fixed = TRUE
+  )
+  verify <- paste(read_repo("db-verify.sql"), collapse = "\n")
+  expect_match(verify, "VERIFY_NARRATIVE_RECORD_NEW_WRITER_ACL_INVALID", fixed = TRUE)
+  expect_match(verify, "VERIFY_NARRATIVE_RECORD_LEGACY_AUTH_ACL_INVALID", fixed = TRUE)
+})
+
 test_that("direct narrative mutation sources remain an exact closed inventory", {
   # A new direct table writer must be classified here before this test can pass.
   # The effective legacy entries are gated by Task 6; record-native entries are

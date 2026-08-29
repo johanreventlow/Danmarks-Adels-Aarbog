@@ -11208,6 +11208,610 @@ REVOKE ALL ON FUNCTION public.narrative_record_contract_version()
   FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.narrative_record_contract_version()
   TO anon,authenticated,service_role;
+CREATE OR REPLACE FUNCTION private.apply_narrative_record_cutover(
+  p_record_candidates_raw text,p_legacy_candidates_raw text,
+  p_record_manifest_raw text,p_legacy_manifest_raw text,
+  p_inventory_raw text,p_approval_raw text,
+  p_nonce uuid,p_expected_database_name text,
+  p_expected_system_identifier text
+) RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  v_record_candidates jsonb;
+  v_legacy_candidates jsonb;
+  v_record_manifest jsonb;
+  v_legacy_manifest jsonb;
+  v_inventory jsonb;
+  v_approval jsonb;
+  v_record_candidates_sha text;
+  v_legacy_candidates_sha text;
+  v_record_manifest_sha text;
+  v_legacy_manifest_sha text;
+  v_inventory_sha text;
+  v_approval_sha text;
+  v_database_name text;
+  v_system_identifier text;
+  v_candidate_record_ids jsonb;
+  v_manifest_record_ids jsonb;
+  v_candidate_legacy_ids jsonb;
+  v_keep_ids jsonb;
+  v_hide_ids jsonb;
+  v_live jsonb;
+  v_expected jsonb;
+  v_live_accepted_identity_count bigint;
+  v_live_blocked_record_count bigint;
+  v_row jsonb;
+  v_state jsonb;
+  v_state_sha text;
+  v_editor jsonb;
+  v_event_id uuid;
+  v_change_set_id bigint;
+  v_change_sequence regclass;
+  v_change_sequence_last bigint;
+  v_change_sequence_called boolean;
+  v_change_sequence_floor bigint;
+  v_change_set_max bigint;
+  v_record_results jsonb:='[]'::jsonb;
+  v_legacy_results jsonb:='[]'::jsonb;
+  v_sequence regclass;
+  v_sequence_before bigint;
+  v_sequence_floor bigint;
+  v_sequence_after bigint;
+  v_max_narrative bigint;
+  v_max_change_event bigint;
+  v_max_publication_event bigint;
+  v_result jsonb;
+  v_result_sha text;
+BEGIN
+  IF p_nonce IS NULL THEN
+    RAISE EXCEPTION 'CUTOVER_NONCE_REQUIRED';
+  END IF;
+  IF p_record_candidates_raw IS NULL OR p_legacy_candidates_raw IS NULL
+     OR p_record_manifest_raw IS NULL OR p_legacy_manifest_raw IS NULL
+     OR p_inventory_raw IS NULL OR p_approval_raw IS NULL THEN
+    RAISE EXCEPTION 'CUTOVER_RAW_ARTIFACT_REQUIRED';
+  END IF;
+
+  -- Hash the six raw UTF-8 arguments before parsing. Receipt/recovery identity is
+  -- the byte identity, never a reserialized jsonb value.
+  v_record_candidates_sha:=encode(
+    extensions.digest(convert_to(p_record_candidates_raw,'UTF8'),'sha256'),'hex');
+  v_legacy_candidates_sha:=encode(
+    extensions.digest(convert_to(p_legacy_candidates_raw,'UTF8'),'sha256'),'hex');
+  v_record_manifest_sha:=encode(
+    extensions.digest(convert_to(p_record_manifest_raw,'UTF8'),'sha256'),'hex');
+  v_legacy_manifest_sha:=encode(
+    extensions.digest(convert_to(p_legacy_manifest_raw,'UTF8'),'sha256'),'hex');
+  v_inventory_sha:=encode(
+    extensions.digest(convert_to(p_inventory_raw,'UTF8'),'sha256'),'hex');
+  v_approval_sha:=encode(
+    extensions.digest(convert_to(p_approval_raw,'UTF8'),'sha256'),'hex');
+  BEGIN
+    v_record_candidates:=p_record_candidates_raw::jsonb;
+    v_legacy_candidates:=p_legacy_candidates_raw::jsonb;
+    v_record_manifest:=p_record_manifest_raw::jsonb;
+    v_legacy_manifest:=p_legacy_manifest_raw::jsonb;
+    v_inventory:=p_inventory_raw::jsonb;
+    v_approval:=p_approval_raw::jsonb;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE EXCEPTION 'CUTOVER_ARTIFACT_JSON_INVALID';
+  END;
+
+  IF v_record_candidates->>'schema_version'<>'narrative-record-baseline-candidates-v1'
+     OR v_legacy_candidates->>'schema_version'<>'narrative-legacy-baseline-candidates-v1'
+     OR v_record_manifest->>'schema_version'<>'narrative-record-baseline-manifest-v1'
+     OR v_legacy_manifest->>'schema_version'<>'narrative-legacy-baseline-manifest-v1'
+     OR v_inventory->>'schema_version'<>'narrative-record-cutover-inventory-v1'
+     OR v_approval->>'schema_version'<>'narrative-record-cutover-approval-v1'
+     OR jsonb_typeof(v_record_candidates->'rows')<>'array'
+     OR jsonb_typeof(v_legacy_candidates->'rows')<>'array'
+     OR jsonb_typeof(v_record_manifest->'rows')<>'array'
+     OR jsonb_typeof(v_legacy_manifest->'rows')<>'array' THEN
+    RAISE EXCEPTION 'CUTOVER_ARTIFACT_SCHEMA_INVALID';
+  END IF;
+
+  SELECT current_database(),(pg_control_system()).system_identifier::text
+    INTO v_database_name,v_system_identifier;
+  IF p_expected_database_name IS DISTINCT FROM v_database_name
+     OR p_expected_system_identifier IS DISTINCT FROM v_system_identifier THEN
+    RAISE EXCEPTION 'CUTOVER_DATABASE_IDENTITY_MISMATCH';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM (VALUES
+        (v_record_candidates->'database'),(v_legacy_candidates->'database'),
+        (v_record_manifest->'database'),(v_legacy_manifest->'database'),
+        (v_inventory->'database'),(v_approval->'database')
+      ) artifact(database)
+     WHERE artifact.database IS DISTINCT FROM jsonb_build_object(
+       'database_name',v_database_name,'system_identifier',v_system_identifier
+     )
+  ) THEN
+    RAISE EXCEPTION 'CUTOVER_ARTIFACT_DATABASE_IDENTITY_MISMATCH';
+  END IF;
+  IF v_record_manifest->>'record_candidates_sha256' IS DISTINCT FROM
+       v_record_candidates_sha
+     OR v_legacy_manifest->>'legacy_candidates_sha256' IS DISTINCT FROM
+       v_legacy_candidates_sha
+     OR v_approval #>> '{input_hashes,record_candidates_sha256}' IS DISTINCT FROM
+       v_record_candidates_sha
+     OR v_approval #>> '{input_hashes,legacy_candidates_sha256}' IS DISTINCT FROM
+       v_legacy_candidates_sha
+     OR v_approval #>> '{input_hashes,record_manifest_sha256}' IS DISTINCT FROM
+       v_record_manifest_sha
+     OR v_approval #>> '{input_hashes,legacy_manifest_sha256}' IS DISTINCT FROM
+       v_legacy_manifest_sha
+     OR v_approval #>> '{input_hashes,inventory_sha256}' IS DISTINCT FROM
+       v_inventory_sha THEN
+    RAISE EXCEPTION 'CUTOVER_ARTIFACT_HASH_MISMATCH';
+  END IF;
+
+  SELECT coalesce(jsonb_agg(row->'binding_id' ORDER BY row->>'binding_id'),'[]'::jsonb),
+         coalesce(jsonb_agg(row-'row_sha256' ORDER BY row->>'binding_id'),'[]'::jsonb)
+    INTO v_candidate_record_ids,v_expected
+    FROM jsonb_array_elements(v_record_candidates->'rows') row;
+  SELECT coalesce(jsonb_agg(row->'binding_id' ORDER BY row->>'binding_id'),'[]'::jsonb),
+         coalesce(jsonb_agg(row-'row_sha256' ORDER BY row->>'binding_id'),'[]'::jsonb)
+    INTO v_manifest_record_ids,v_live
+    FROM jsonb_array_elements(v_record_manifest->'rows') row;
+  IF v_manifest_record_ids IS DISTINCT FROM v_candidate_record_ids
+     OR v_live IS DISTINCT FROM v_expected
+     OR v_approval->'record_approved_ids' IS DISTINCT FROM v_candidate_record_ids THEN
+    RAISE EXCEPTION 'CUTOVER_RECORD_MANIFEST_IDENTITY_MISMATCH';
+  END IF;
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'binding_id',row->'binding_id','row_sha256',row->'row_sha256'
+         ) ORDER BY row->>'binding_id'),'[]'::jsonb)
+    INTO v_expected
+    FROM jsonb_array_elements(v_record_candidates->'rows') row;
+  IF v_approval->'record_approved_rows' IS DISTINCT FROM v_expected
+     OR jsonb_array_length(v_candidate_record_ids)<>
+        (SELECT count(DISTINCT row->>'binding_id')
+           FROM jsonb_array_elements(v_record_candidates->'rows') row) THEN
+    RAISE EXCEPTION 'CUTOVER_RECORD_APPROVAL_IDENTITY_MISMATCH';
+  END IF;
+
+  SELECT coalesce(jsonb_agg(row->'narrative_id' ORDER BY (row->>'narrative_id')::bigint),'[]'::jsonb)
+    INTO v_candidate_legacy_ids
+    FROM jsonb_array_elements(v_legacy_candidates->'rows') row;
+  SELECT coalesce(jsonb_agg(row->'narrative_id' ORDER BY (row->>'narrative_id')::bigint),'[]'::jsonb)
+    INTO v_keep_ids
+    FROM jsonb_array_elements(v_legacy_manifest->'rows') row;
+  v_hide_ids:=coalesce(v_approval->'legacy_hide_ids','[]'::jsonb);
+  IF v_approval->'legacy_keep_ids' IS DISTINCT FROM v_keep_ids
+     OR jsonb_array_length(v_candidate_legacy_ids)<>
+        (SELECT count(DISTINCT (row->>'narrative_id')::bigint)
+           FROM jsonb_array_elements(v_legacy_candidates->'rows') row)
+     OR EXISTS (
+       SELECT 1 FROM jsonb_array_elements(v_keep_ids) keep
+       JOIN jsonb_array_elements(v_hide_ids) hide ON keep=hide
+     )
+     OR (SELECT coalesce(jsonb_agg(value ORDER BY (value #>> '{}')::bigint),'[]'::jsonb)
+           FROM (
+             SELECT value FROM jsonb_array_elements(v_keep_ids)
+             UNION ALL
+             SELECT value FROM jsonb_array_elements(v_hide_ids)
+           ) partition_rows) IS DISTINCT FROM v_candidate_legacy_ids THEN
+    RAISE EXCEPTION 'CUTOVER_LEGACY_PARTITION_INVALID';
+  END IF;
+  SELECT coalesce(jsonb_agg(candidate ORDER BY (candidate->>'narrative_id')::bigint),'[]'::jsonb)
+    INTO v_expected
+    FROM jsonb_array_elements(v_legacy_candidates->'rows') candidate
+   WHERE candidate->'narrative_id' IN (SELECT value FROM jsonb_array_elements(v_keep_ids));
+  IF v_legacy_manifest->'rows' IS DISTINCT FROM v_expected THEN
+    RAISE EXCEPTION 'CUTOVER_LEGACY_MANIFEST_IDENTITY_MISMATCH';
+  END IF;
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'narrative_id',row->'narrative_id',
+           'legacy_publication_ref',row->'legacy_publication_ref',
+           'row_sha256',row->'row_sha256'
+         ) ORDER BY (row->>'narrative_id')::bigint),'[]'::jsonb)
+    INTO v_expected
+    FROM jsonb_array_elements(v_legacy_manifest->'rows') row;
+  IF v_approval->'legacy_keep_rows' IS DISTINCT FROM v_expected THEN
+    RAISE EXCEPTION 'CUTOVER_LEGACY_KEEP_ROWS_MISMATCH';
+  END IF;
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'narrative_id',row->'narrative_id','row_sha256',row->'row_sha256'
+         ) ORDER BY (row->>'narrative_id')::bigint),'[]'::jsonb)
+    INTO v_expected
+    FROM jsonb_array_elements(v_legacy_candidates->'rows') row
+   WHERE row->'narrative_id' IN (SELECT value FROM jsonb_array_elements(v_hide_ids));
+  IF v_approval->'legacy_hide_rows' IS DISTINCT FROM v_expected
+     OR (v_approval #>> '{counts,record_approved}')::integer<>
+          jsonb_array_length(v_candidate_record_ids)
+     OR (v_approval #>> '{counts,legacy_candidates}')::integer<>
+          jsonb_array_length(v_candidate_legacy_ids)
+     OR (v_approval #>> '{counts,legacy_keep}')::integer<>jsonb_array_length(v_keep_ids)
+     OR (v_approval #>> '{counts,legacy_hide}')::integer<>jsonb_array_length(v_hide_ids) THEN
+    RAISE EXCEPTION 'CUTOVER_APPROVAL_COUNTS_OR_HIDE_ROWS_MISMATCH';
+  END IF;
+
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'source_id',source_count.source_id,
+           'record_candidates',source_count.record_candidates,
+           'legacy_candidates',source_count.legacy_candidates
+         ) ORDER BY source_count.source_id),'[]'::jsonb)
+    INTO v_expected
+    FROM (
+      SELECT candidate.source_id,
+             count(*) FILTER (WHERE candidate.kind='record')::integer AS record_candidates,
+             count(*) FILTER (WHERE candidate.kind='legacy')::integer AS legacy_candidates
+        FROM (
+          SELECT (row->>'source_id')::bigint AS source_id,'record'::text AS kind
+            FROM jsonb_array_elements(v_record_candidates->'rows') row
+          UNION ALL
+          SELECT (row->>'source_id')::bigint,'legacy'::text
+            FROM jsonb_array_elements(v_legacy_candidates->'rows') row
+        ) candidate
+       GROUP BY candidate.source_id
+    ) source_count;
+  IF v_inventory->'record_candidate_ids' IS DISTINCT FROM v_candidate_record_ids
+     OR v_inventory->'legacy_candidate_ids' IS DISTINCT FROM v_candidate_legacy_ids
+     OR v_inventory->'counts_by_source' IS DISTINCT FROM v_expected
+     OR jsonb_typeof(v_inventory->'accepted_identity_count')<>'number'
+     OR jsonb_typeof(v_inventory->'identity_blocked_record_count')<>'number'
+     OR (v_inventory->>'accepted_identity_count')::bigint<0
+     OR (v_inventory->>'identity_blocked_record_count')::bigint<0
+     OR v_inventory->'classified_direct_readers' IS DISTINCT FROM jsonb_build_array(
+       jsonb_build_object('path','mobile/src/data/about.ts','classification','non_person_control'),
+       jsonb_build_object('path','mobile/src/data/haendelser.ts','classification','rls_gated_metadata'),
+       jsonb_build_object('path','mobile/src/data/load.ts','classification','v2_public_rpc'),
+       jsonb_build_object('path','mobile/src/data/presensLinjer.ts','classification','non_person_control'),
+       jsonb_build_object('path','mobile/src/data/redaktionRead.ts','classification','v2_editor_rpc'),
+       jsonb_build_object('path','web/src/data/feedAux.ts','classification','v2_public_rpc'),
+       jsonb_build_object('path','web/src/data/haendelser.ts','classification','rls_gated_metadata'),
+       jsonb_build_object('path','web/src/data/presensLinjer.ts','classification','non_person_control'),
+       jsonb_build_object('path','web/src/data/public.ts','classification','v2_public_rpc'),
+       jsonb_build_object('path','web/src/data/redaktionRead.ts','classification','v2_editor_rpc')
+     ) THEN
+    RAISE EXCEPTION 'CUTOVER_INVENTORY_IDENTITY_MISMATCH';
+  END IF;
+
+  -- The exclusive gate is acquired before version/live-state validation. The
+  -- table locks freeze both existing rows and absence sets through commit.
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>1 THEN
+    RAISE EXCEPTION 'CUTOVER_CONTRACT_VERSION_NOT_ONE';
+  END IF;
+  IF EXISTS (SELECT 1 FROM private.narrative_record_cutover_receipt
+              WHERE nonce=p_nonce) THEN
+    RAISE EXCEPTION 'CUTOVER_NONCE_ALREADY_USED';
+  END IF;
+  LOCK TABLE private.narrative_record_publication,
+    private.narrative_legacy_publication,
+    private.narrative_publication_event IN SHARE ROW EXCLUSIVE MODE;
+  LOCK TABLE public.narrative,public.change_set IN SHARE ROW EXCLUSIVE MODE;
+  -- Canonical publication state also depends on source evidence, current
+  -- placements/identity, labels and person policy. SHARE conflicts with every
+  -- INSERT/UPDATE/DELETE writer while allowing the cutover's read-only measure.
+  LOCK TABLE private.source_record,
+    private.source_record_occurrence,
+    private.source_rendition,
+    private.source_record_anchor_event,
+    private.source_record_placement,
+    private.source_record_placement_decision,
+    private.source_persona,
+    private.source_persona_placement,
+    private.source_persona_placement_decision,
+    private.source_persona_identity_event,
+    private.source_persona_identity,
+    private.source_record_revision_event,
+    public.person,public.source,public.lineage_scheme_entry,public.haendelse
+    IN SHARE MODE;
+
+  SELECT count(*)::bigint INTO v_live_accepted_identity_count
+    FROM private.source_persona_identity identity_state
+    JOIN private.source_persona persona
+      ON persona.id=identity_state.source_persona_id
+    JOIN public.source source ON source.id=persona.source_id
+   WHERE source.slags='DAA-udgave'
+     AND identity_state.decision_status='accepted';
+  SELECT count(*)::bigint INTO v_live_blocked_record_count
+    FROM private.source_record record
+    JOIN public.source source ON source.id=record.source_id
+   WHERE source.slags='DAA-udgave'
+     AND (SELECT count(DISTINCT identity_state.canonical_person_id)
+            FROM private.source_record_placement_current record_placement
+            JOIN private.source_persona_placement_current persona_placement
+              ON persona_placement.record_placement_id=record_placement.id
+            JOIN private.source_persona_identity identity_state
+              ON identity_state.source_persona_id=persona_placement.source_persona_id
+           WHERE record_placement.source_record_id=record.id
+             AND record_placement.decision_status='accepted'
+             AND persona_placement.decision_status='accepted'
+             AND persona_placement.placement_role IN ('principal_member','co_principal')
+             AND identity_state.decision_status='accepted')<>1;
+  IF v_live_accepted_identity_count IS DISTINCT FROM
+       (v_inventory->>'accepted_identity_count')::bigint
+     OR v_live_blocked_record_count IS DISTINCT FROM
+       (v_inventory->>'identity_blocked_record_count')::bigint THEN
+    RAISE EXCEPTION 'CUTOVER_INVENTORY_LIVE_DRIFT';
+  END IF;
+
+  SELECT coalesce(jsonb_agg(live.value ORDER BY live.binding_id),'[]'::jsonb)
+    INTO v_live
+    FROM (
+      SELECT binding.id::text AS binding_id,jsonb_build_object(
+           'binding_id',binding.id::text,
+           'narrative_id',narrative.id,
+           'person_id',narrative.subjekt_id,
+           'source_id',narrative.source_id,
+           'source_kind',source.slags,
+           'source_record_id',record.id::text,
+           'record_key',record.record_key,
+           'status',binding.status,
+           'record_label',binding.record_label,
+           'citation_label',binding.citation_label,
+           'publication_state_sha256',encode(extensions.digest(
+             private.narrative_publication_state(
+               narrative.subjekt_id,narrative.source_id,record.record_key
+             )::text,'sha256'),'hex'),
+           'narrative_text_sha256',encode(extensions.digest(narrative.tekst,'sha256'),'hex'),
+           'binding_match_count',count(*) OVER (PARTITION BY narrative.id)
+         ) AS value
+        FROM private.narrative_record_publication binding
+        JOIN public.narrative narrative ON narrative.id=binding.narrative_id
+        JOIN private.source_record record ON record.id=binding.source_record_id
+        JOIN public.source source ON source.id=narrative.source_id
+       WHERE source.slags='DAA-udgave'
+    ) live;
+  SELECT coalesce(jsonb_agg(row-'row_sha256' ORDER BY row->>'binding_id'),'[]'::jsonb)
+    INTO v_expected
+    FROM jsonb_array_elements(v_record_candidates->'rows') row;
+  IF v_live IS DISTINCT FROM v_expected THEN
+    RAISE EXCEPTION 'CUTOVER_RECORD_LIVE_SET_DRIFT';
+  END IF;
+
+  SELECT coalesce(jsonb_agg(narrative.id ORDER BY narrative.id),'[]'::jsonb)
+    INTO v_live
+    FROM public.narrative narrative
+    JOIN public.person person
+      ON person.id=narrative.subjekt_id AND narrative.subjekt_type='person'
+    JOIN public.source source
+      ON source.id=narrative.source_id AND source.slags='DAA-udgave'
+   WHERE coalesce(narrative.privat,false)=false
+     AND person.levende=false
+     AND coalesce(person.privat,false)=false
+     AND coalesce(person.staged,false)=false
+     AND NOT EXISTS (SELECT 1 FROM private.narrative_record_publication binding
+                      WHERE binding.narrative_id=narrative.id)
+     AND NOT EXISTS (SELECT 1 FROM private.narrative_legacy_publication legacy
+                      WHERE legacy.narrative_id=narrative.id);
+  IF v_live IS DISTINCT FROM v_candidate_legacy_ids THEN
+    RAISE EXCEPTION 'CUTOVER_LEGACY_LIVE_SET_DRIFT';
+  END IF;
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'legacy_publication_ref',row->>'legacy_publication_ref',
+           'narrative_id',narrative.id,
+           'person_id',narrative.subjekt_id,
+           'source_id',narrative.source_id,
+           'source_kind',source.slags,
+           'narrative_text_sha256',encode(extensions.digest(narrative.tekst,'sha256'),'hex'),
+           'baseline_sha256',encode(extensions.digest(
+             private.narrative_legacy_candidate_publication_state(
+               narrative.id,narrative.source_id,(row->>'legacy_publication_ref')::uuid
+             )::text,'sha256'),'hex'),
+           'binding_match_count',0
+         ) ORDER BY narrative.id),'[]'::jsonb)
+    INTO v_live
+    FROM jsonb_array_elements(v_legacy_candidates->'rows') row
+    JOIN public.narrative narrative ON narrative.id=(row->>'narrative_id')::bigint
+    JOIN public.source source ON source.id=narrative.source_id;
+  SELECT coalesce(jsonb_agg(row-'row_sha256' ORDER BY (row->>'narrative_id')::bigint),'[]'::jsonb)
+    INTO v_expected
+    FROM jsonb_array_elements(v_legacy_candidates->'rows') row;
+  IF v_live IS DISTINCT FROM v_expected THEN
+    RAISE EXCEPTION 'CUTOVER_LEGACY_BASELINE_DRIFT';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM private.narrative_publication_event event
+     WHERE event.binding_id IN (
+       SELECT (row->>'binding_id')::uuid
+         FROM jsonb_array_elements(v_record_manifest->'rows') row
+     )
+  ) THEN
+    RAISE EXCEPTION 'CUTOVER_RECORD_STREAM_NOT_EMPTY';
+  END IF;
+
+  LOCK TABLE public.change_set IN ACCESS EXCLUSIVE MODE;
+  v_change_sequence:=pg_get_serial_sequence('public.change_set','id')::regclass;
+  IF v_change_sequence IS NULL THEN
+    RAISE EXCEPTION 'CUTOVER_CHANGE_SET_SEQUENCE_MISSING';
+  END IF;
+  EXECUTE format('SELECT last_value::bigint,is_called FROM %s',v_change_sequence)
+    INTO v_change_sequence_last,v_change_sequence_called;
+  SELECT coalesce(max(change_set.id),0) INTO v_change_set_max
+    FROM public.change_set change_set;
+  v_change_sequence_floor:=greatest(
+    CASE WHEN v_change_sequence_called
+         THEN v_change_sequence_last+1 ELSE v_change_sequence_last END,
+    v_change_set_max+1
+  );
+  EXECUTE format(
+    'ALTER SEQUENCE %s RESTART WITH %s',v_change_sequence,v_change_sequence_floor
+  );
+  INSERT INTO public.change_set(
+    actor_navn,actor_rolle,operation,summary,subjekt_synlighed
+  ) VALUES (
+    'Narrative record cutover','system',
+    'narrative_record_contract_cutover',
+    format('Narrative record contract cutover %s',p_nonce),'offentlig'
+  ) RETURNING id INTO v_change_set_id;
+
+  FOR v_row IN
+    SELECT row FROM jsonb_array_elements(v_record_manifest->'rows') row
+     ORDER BY row->>'binding_id'
+  LOOP
+    SELECT private.narrative_publication_state(
+             narrative.subjekt_id,narrative.source_id,record.record_key
+           )
+      INTO v_state
+      FROM private.narrative_record_publication binding
+      JOIN public.narrative narrative ON narrative.id=binding.narrative_id
+      JOIN private.source_record record ON record.id=binding.source_record_id
+     WHERE binding.id=(v_row->>'binding_id')::uuid;
+    v_state_sha:=encode(extensions.digest(v_state::text,'sha256'),'hex');
+    IF v_state_sha IS DISTINCT FROM v_row->>'publication_state_sha256' THEN
+      RAISE EXCEPTION 'CUTOVER_RECORD_BASELINE_HASH_DRIFT';
+    END IF;
+    INSERT INTO private.narrative_publication_event(
+      change_set_id,stream_ref,stream_version,event_type,binding_id,narrative_id,
+      source_id,source_record_id,decision_basis,before_state,after_state,
+      before_state_sha256,after_state_sha256,decided_by_name
+    ) VALUES (
+      v_change_set_id,(v_row->>'binding_id')::uuid,1,'baseline',
+      (v_row->>'binding_id')::uuid,(v_row->>'narrative_id')::bigint,
+      (v_row->>'source_id')::bigint,(v_row->>'source_record_id')::uuid,
+      format('Godkendt baseline ved contract cutover %s',p_nonce),
+      v_state,v_state,v_state_sha,v_state_sha,'Narrative record cutover'
+    ) RETURNING id INTO v_event_id;
+    v_editor:=private.narrative_record_state(
+      (v_row->>'person_id')::bigint,(v_row->>'source_id')::bigint,
+      v_row->>'record_key',false
+    );
+    IF v_editor->>'latest_event_id' IS DISTINCT FROM v_event_id::text
+       OR v_editor->>'publication_state_sha256' IS DISTINCT FROM v_state_sha THEN
+      RAISE EXCEPTION 'CUTOVER_RECORD_POSTSTATE_MISMATCH';
+    END IF;
+    v_record_results:=v_record_results||jsonb_build_array(jsonb_build_object(
+      'binding_id',v_row->>'binding_id','narrative_id',v_row->'narrative_id',
+      'event_id',v_event_id,'publication_state_sha256',v_state_sha,
+      'state_sha256',v_editor->>'state_sha256'
+    ));
+  END LOOP;
+
+  FOR v_row IN
+    SELECT row FROM jsonb_array_elements(v_legacy_manifest->'rows') row
+     ORDER BY (row->>'narrative_id')::bigint
+  LOOP
+    v_state:=private.narrative_legacy_candidate_publication_state(
+      (v_row->>'narrative_id')::bigint,(v_row->>'source_id')::bigint,
+      (v_row->>'legacy_publication_ref')::uuid
+    );
+    v_state_sha:=encode(extensions.digest(v_state::text,'sha256'),'hex');
+    IF v_state_sha IS DISTINCT FROM v_row->>'baseline_sha256' THEN
+      RAISE EXCEPTION 'CUTOVER_LEGACY_BASELINE_HASH_DRIFT';
+    END IF;
+    INSERT INTO private.narrative_legacy_publication(
+      legacy_publication_ref,narrative_id,source_id,baseline_state,
+      baseline_sha256,status
+    ) VALUES (
+      (v_row->>'legacy_publication_ref')::uuid,
+      (v_row->>'narrative_id')::bigint,(v_row->>'source_id')::bigint,
+      v_state,v_state_sha,'grandfathered_publication'
+    );
+    INSERT INTO private.narrative_publication_event(
+      change_set_id,stream_ref,stream_version,event_type,narrative_id,source_id,
+      legacy_publication_ref,decision_basis,before_state,after_state,
+      before_state_sha256,after_state_sha256,decided_by_name
+    ) VALUES (
+      v_change_set_id,(v_row->>'legacy_publication_ref')::uuid,1,'baseline',
+      (v_row->>'narrative_id')::bigint,(v_row->>'source_id')::bigint,
+      (v_row->>'legacy_publication_ref')::uuid,
+      format('Godkendt grandfathered baseline ved contract cutover %s',p_nonce),
+      v_state,v_state,v_state_sha,v_state_sha,'Narrative record cutover'
+    ) RETURNING id INTO v_event_id;
+    UPDATE private.narrative_legacy_publication legacy
+       SET latest_event_id=v_event_id
+     WHERE legacy.legacy_publication_ref=(v_row->>'legacy_publication_ref')::uuid;
+    v_editor:=private.narrative_legacy_state(
+      (v_row->>'legacy_publication_ref')::uuid,false
+    );
+    IF v_editor->>'latest_event_id' IS DISTINCT FROM v_event_id::text
+       OR v_editor->>'publication_state_sha256' IS DISTINCT FROM v_state_sha
+       OR v_editor->>'baseline_matches' IS DISTINCT FROM 'true' THEN
+      RAISE EXCEPTION 'CUTOVER_LEGACY_POSTSTATE_MISMATCH';
+    END IF;
+    v_legacy_results:=v_legacy_results||jsonb_build_array(jsonb_build_object(
+      'legacy_publication_ref',v_row->>'legacy_publication_ref',
+      'narrative_id',v_row->'narrative_id','event_id',v_event_id,
+      'publication_state_sha256',v_state_sha,
+      'state_sha256',v_editor->>'state_sha256'
+    ));
+  END LOOP;
+
+  v_sequence:=pg_get_serial_sequence('public.narrative','id')::regclass;
+  IF v_sequence IS NULL THEN
+    RAISE EXCEPTION 'CUTOVER_NARRATIVE_SEQUENCE_MISSING';
+  END IF;
+  EXECUTE format('SELECT last_value::bigint FROM %s',v_sequence)
+    INTO v_sequence_before;
+  SELECT coalesce(max(narrative.id),0) INTO v_max_narrative
+    FROM public.narrative narrative;
+  SELECT coalesce(max(greatest(
+           CASE WHEN event.row_pk->>'id' ~ '^[0-9]+$'
+                THEN (event.row_pk->>'id')::bigint ELSE 0 END,
+           CASE WHEN event.foer->>'id' ~ '^[0-9]+$'
+                THEN (event.foer->>'id')::bigint ELSE 0 END,
+           CASE WHEN event.efter->>'id' ~ '^[0-9]+$'
+                THEN (event.efter->>'id')::bigint ELSE 0 END
+         )),0)
+    INTO v_max_change_event
+    FROM public.change_event event
+   WHERE event.tabel='narrative';
+  SELECT coalesce(max(event.narrative_id),0) INTO v_max_publication_event
+    FROM private.narrative_publication_event event;
+  v_sequence_floor:=greatest(
+    v_sequence_before,v_max_narrative,v_max_change_event,v_max_publication_event
+  )+1;
+  -- ALTER SEQUENCE RESTART is transactional; setval is not and would make the
+  -- gateway's real rollback mode leak sequence state outside the rollback.
+  EXECUTE format('ALTER SEQUENCE %s RESTART WITH %s',v_sequence,v_sequence_floor);
+  EXECUTE format('SELECT last_value::bigint FROM %s',v_sequence)
+    INTO v_sequence_after;
+  IF v_sequence_after<v_sequence_before OR v_sequence_after<>v_sequence_floor THEN
+    RAISE EXCEPTION 'CUTOVER_NARRATIVE_SEQUENCE_NOT_MONOTONE';
+  END IF;
+
+  v_result:=jsonb_build_object(
+    'nonce',p_nonce,'database',jsonb_build_object(
+      'database_name',v_database_name,'system_identifier',v_system_identifier),
+    'contract_version_before',1,'contract_version_after',2,
+    'change_set_id',v_change_set_id,
+    'record_events',v_record_results,'legacy_events',v_legacy_results,
+    'legacy_hidden_ids',v_hide_ids,
+    'sequence',jsonb_build_object(
+      'before',v_sequence_before,'floor',v_sequence_floor,'after',v_sequence_after),
+    'input_hashes',jsonb_build_object(
+      'record_candidates_sha256',v_record_candidates_sha,
+      'legacy_candidates_sha256',v_legacy_candidates_sha,
+      'record_manifest_sha256',v_record_manifest_sha,
+      'legacy_manifest_sha256',v_legacy_manifest_sha,
+      'inventory_sha256',v_inventory_sha,'approval_sha256',v_approval_sha)
+  );
+  v_result_sha:=encode(extensions.digest(v_result::text,'sha256'),'hex');
+  INSERT INTO private.narrative_record_cutover_receipt(
+    nonce,record_candidates_sha256,legacy_candidates_sha256,
+    record_manifest_sha256,legacy_manifest_sha256,inventory_sha256,approval_sha256,
+    database_name,system_identifier,sequence_before,sequence_floor,sequence_after,
+    result,result_sha256
+  ) VALUES (
+    p_nonce,v_record_candidates_sha,v_legacy_candidates_sha,
+    v_record_manifest_sha,v_legacy_manifest_sha,v_inventory_sha,v_approval_sha,
+    v_database_name,v_system_identifier,v_sequence_before,v_sequence_floor,
+    v_sequence_after,v_result,v_result_sha
+  );
+
+  PERFORM private.apply_narrative_record_contract_acl(2);
+  -- Version is deliberately the final write in the cutover transaction.
+  UPDATE private.narrative_record_contract contract
+     SET version=2,changed_at=clock_timestamp()
+   WHERE contract.singleton AND contract.version=1;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'CUTOVER_CONTRACT_VERSION_UPDATE_FAILED';
+  END IF;
+  RETURN v_result;
+END
+$$;
+
+REVOKE ALL ON FUNCTION private.apply_narrative_record_cutover(
+  text,text,text,text,text,text,uuid,text,text
+) FROM PUBLIC,anon,authenticated,service_role;
 
 -- =====================================================================
 -- 2026-08-29: #152 Task 2 — canonical narrative publication read model
@@ -13635,3 +14239,249 @@ GRANT EXECUTE ON FUNCTION
   public.public_person_bio_source_versions(bigint[]),
   public.public_person_bio_source_versions_v2(bigint[])
   TO anon,authenticated;
+-- 2026-08-29: #152 Task 7 — atomic narrative contract cutover
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS private.narrative_record_contract (
+  singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+  version integer NOT NULL CHECK (version IN (1,2)),
+  changed_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+INSERT INTO private.narrative_record_contract(singleton,version)
+VALUES (true,1)
+ON CONFLICT (singleton) DO NOTHING;
+
+CREATE OR REPLACE FUNCTION public.narrative_record_contract_version()
+RETURNS integer
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path=pg_catalog
+AS $$
+  SELECT contract.version
+    FROM private.narrative_record_contract contract
+   WHERE contract.singleton
+$$;
+
+CREATE OR REPLACE FUNCTION private.narrative_legacy_candidate_publication_state(
+  p_narrative_id bigint,
+  p_source_id bigint,
+  p_legacy_publication_ref uuid
+) RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  v_state jsonb;
+  v_policy jsonb;
+  v_person_levende boolean;
+  v_person_private boolean;
+  v_person_staged boolean;
+  v_narrative_private boolean;
+  v_has_haendelse boolean;
+BEGIN
+  SELECT person.levende,coalesce(person.privat,false),
+         coalesce(person.staged,false),coalesce(narrative.privat,false),
+         EXISTS(SELECT 1 FROM public.haendelse event
+                 WHERE event.narrative_id=narrative.id)
+    INTO v_person_levende,v_person_private,v_person_staged,
+         v_narrative_private,v_has_haendelse
+    FROM public.narrative narrative
+    JOIN public.person person
+      ON person.id=narrative.subjekt_id AND narrative.subjekt_type='person'
+   WHERE narrative.id=p_narrative_id
+     AND narrative.source_id=p_source_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NARRATIVE_LEGACY_CANDIDATE_NOT_FOUND';
+  END IF;
+
+  v_policy:=jsonb_build_object(
+    'person_levende',v_person_levende,
+    'person_private',v_person_private,
+    'person_staged',v_person_staged,
+    'narrative_private',v_narrative_private,
+    'person_publication_allowed',v_person_levende IS FALSE
+                                 AND NOT v_person_private
+                                 AND NOT v_person_staged,
+    'narrative_publication_allowed',NOT v_narrative_private,
+    'publication_allowed',v_person_levende IS FALSE
+                          AND NOT v_person_private
+                          AND NOT v_person_staged
+                          AND NOT v_narrative_private
+  );
+
+  SELECT jsonb_build_object(
+           'target',jsonb_build_object(
+             'legacy_publication_ref',p_legacy_publication_ref,
+             'narrative_id',narrative.id,
+             'person_id',narrative.subjekt_id,
+             'source_id',p_source_id
+           ),
+           'source',jsonb_build_object(
+             'source_year',source.aar::integer,
+             'source_label',coalesce(source.udgave,source.titel)
+           ),
+           'narrative',jsonb_build_object(
+             'narrative_id',narrative.id,
+             'text',narrative.tekst,
+             'text_sha256',encode(extensions.digest(narrative.tekst,'sha256'),'hex'),
+             'private',coalesce(narrative.privat,false),
+             'side',narrative.side,
+             'has_haendelse',v_has_haendelse
+           ),
+           'publication_policy',v_policy,
+           'policy_sha256',encode(extensions.digest(v_policy::text,'sha256'),'hex'),
+           'has_haendelse',v_has_haendelse
+         )
+    INTO v_state
+    FROM public.narrative narrative
+    JOIN public.source source ON source.id=p_source_id
+   WHERE narrative.id=p_narrative_id
+     AND narrative.source_id=p_source_id;
+  RETURN v_state;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION private.narrative_legacy_publication_state(
+  p_legacy_publication_ref uuid
+) RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  v_narrative_id bigint;
+  v_source_id bigint;
+BEGIN
+  SELECT legacy.narrative_id,legacy.source_id
+    INTO v_narrative_id,v_source_id
+    FROM private.narrative_legacy_publication legacy
+   WHERE legacy.legacy_publication_ref=p_legacy_publication_ref;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NARRATIVE_LEGACY_PUBLICATION_NOT_FOUND';
+  END IF;
+  RETURN private.narrative_legacy_candidate_publication_state(
+    v_narrative_id,v_source_id,p_legacy_publication_ref
+  );
+END
+$$;
+
+CREATE TABLE IF NOT EXISTS private.narrative_record_cutover_receipt (
+  nonce uuid PRIMARY KEY,
+  record_candidates_sha256 text NOT NULL CHECK (record_candidates_sha256 ~ '^[0-9a-f]{64}$'),
+  legacy_candidates_sha256 text NOT NULL CHECK (legacy_candidates_sha256 ~ '^[0-9a-f]{64}$'),
+  record_manifest_sha256 text NOT NULL CHECK (record_manifest_sha256 ~ '^[0-9a-f]{64}$'),
+  legacy_manifest_sha256 text NOT NULL CHECK (legacy_manifest_sha256 ~ '^[0-9a-f]{64}$'),
+  inventory_sha256 text NOT NULL CHECK (inventory_sha256 ~ '^[0-9a-f]{64}$'),
+  approval_sha256 text NOT NULL CHECK (approval_sha256 ~ '^[0-9a-f]{64}$'),
+  database_name text NOT NULL CHECK (btrim(database_name)<>''),
+  system_identifier text NOT NULL CHECK (btrim(system_identifier)<>''),
+  sequence_before bigint NOT NULL,
+  sequence_floor bigint NOT NULL,
+  sequence_after bigint NOT NULL,
+  result jsonb NOT NULL CHECK (jsonb_typeof(result)='object'),
+  result_sha256 text NOT NULL CHECK (result_sha256 ~ '^[0-9a-f]{64}$'),
+  committed_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+
+CREATE OR REPLACE FUNCTION private.reject_narrative_record_cutover_receipt_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path=pg_catalog
+AS $$
+BEGIN
+  RAISE EXCEPTION 'NARRATIVE_RECORD_CUTOVER_RECEIPT_APPEND_ONLY';
+END
+$$;
+DROP TRIGGER IF EXISTS trg_narrative_record_cutover_receipt_append_only
+  ON private.narrative_record_cutover_receipt;
+CREATE TRIGGER trg_narrative_record_cutover_receipt_append_only
+  BEFORE UPDATE OR DELETE ON private.narrative_record_cutover_receipt
+  FOR EACH ROW EXECUTE FUNCTION private.reject_narrative_record_cutover_receipt_mutation();
+
+ALTER TABLE private.narrative_record_contract ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.narrative_record_cutover_receipt ENABLE ROW LEVEL SECURITY;
+
+CREATE OR REPLACE FUNCTION private.apply_narrative_record_contract_acl(
+  p_version integer
+) RETURNS void
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  v_signature text;
+  v_new text[]:=ARRAY[
+    'public.red_upsert_person_narrative_record(bigint,bigint,text,text,boolean,text)',
+    'public.red_publicer_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)',
+    'public.red_revalider_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_kasser_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_tilbagetraek_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_tilbagetraek_legacy_narrative(uuid,text,text)',
+    'public.red_fortryd_person_narrative_publication_event(uuid,text)'
+  ];
+  v_legacy_authenticated text[]:=ARRAY[
+    'public.red_publicer_narrative_record(bigint,uuid,text,text)',
+    'public.red_tilbagetraek_narrative_record(bigint)',
+    'public.red_begin_1939_v50_reimport(uuid,text,text)',
+    'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_person_create(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',
+    'public.red_finalize_1939_v50_reimport(uuid)',
+    'public.red_reverse_1939_v50_reimport(uuid,uuid)',
+    'public.red_activate_1939_v50_batch(uuid,uuid)',
+    'public.red_apply_reimport_cases(uuid,text,text)',
+    'public.red_reverse_reimport_cases(uuid,uuid)'
+  ];
+  v_legacy_service text[]:=ARRAY[
+    'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)',
+    'public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)'
+  ];
+BEGIN
+  IF p_version NOT IN (1,2) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_CONTRACT_ACL_VERSION_INVALID';
+  END IF;
+  FOREACH v_signature IN ARRAY v_new||v_legacy_authenticated||v_legacy_service LOOP
+    IF to_regprocedure(v_signature) IS NULL THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_CONTRACT_ACL_SIGNATURE_MISSING: %',v_signature;
+    END IF;
+    EXECUTE format(
+      'REVOKE ALL ON FUNCTION %s FROM PUBLIC,anon,authenticated,service_role',
+      v_signature
+    );
+  END LOOP;
+  IF p_version=1 THEN
+    FOREACH v_signature IN ARRAY v_legacy_authenticated LOOP
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated',v_signature);
+    END LOOP;
+    FOREACH v_signature IN ARRAY v_legacy_service LOOP
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role',v_signature);
+    END LOOP;
+  ELSE
+    FOREACH v_signature IN ARRAY v_new LOOP
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated',v_signature);
+    END LOOP;
+  END IF;
+END
+$$;
+
+REVOKE ALL ON TABLE private.narrative_record_contract,
+  private.narrative_record_cutover_receipt
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION
+  private.narrative_legacy_candidate_publication_state(bigint,bigint,uuid),
+  private.reject_narrative_record_cutover_receipt_mutation(),
+  private.apply_narrative_record_contract_acl(integer)
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.narrative_record_contract_version()
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.narrative_record_contract_version()
+  TO anon,authenticated,service_role;

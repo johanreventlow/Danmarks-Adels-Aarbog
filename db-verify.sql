@@ -53,7 +53,7 @@ BEGIN
      OR to_regclass('private.narrative_legacy_publication') IS NULL THEN
     RAISE EXCEPTION 'NARRATIVE_RECORD_FOUNDATION_MISSING';
   END IF;
-  IF public.narrative_record_contract_version()<>1 THEN
+  IF public.narrative_record_contract_version() NOT IN (1,2) THEN
     RAISE EXCEPTION 'NARRATIVE_RECORD_CONTRACT_VERSION_INVALID';
   END IF;
 
@@ -533,6 +533,87 @@ BEGIN
   RAISE NOTICE 'OK: DAA 1939 v50 production-writer contract er installeret og privat';
 END $$;
 
+-- #152 Task 7: exact version/ACL/receipt cutover verification.
+DO $verify_narrative_record_cutover$
+DECLARE
+  v_version integer;
+  v_signature text;
+  v_new text[]:=ARRAY[
+    'public.red_upsert_person_narrative_record(bigint,bigint,text,text,boolean,text)',
+    'public.red_publicer_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)',
+    'public.red_revalider_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_kasser_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_tilbagetraek_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_tilbagetraek_legacy_narrative(uuid,text,text)',
+    'public.red_fortryd_person_narrative_publication_event(uuid,text)'
+  ];
+  v_legacy_authenticated text[]:=ARRAY[
+    'public.red_publicer_narrative_record(bigint,uuid,text,text)',
+    'public.red_tilbagetraek_narrative_record(bigint)',
+    'public.red_begin_1939_v50_reimport(uuid,text,text)',
+    'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_person_create(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',
+    'public.red_finalize_1939_v50_reimport(uuid)',
+    'public.red_reverse_1939_v50_reimport(uuid,uuid)',
+    'public.red_activate_1939_v50_batch(uuid,uuid)',
+    'public.red_apply_reimport_cases(uuid,text,text)',
+    'public.red_reverse_reimport_cases(uuid,uuid)'
+  ];
+  v_legacy_service text[]:=ARRAY[
+    'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)',
+    'public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)'
+  ];
+BEGIN
+  IF to_regclass('private.narrative_record_cutover_receipt') IS NULL
+     OR to_regprocedure(
+       'private.apply_narrative_record_cutover(text,text,text,text,text,text,uuid,text,text)'
+     ) IS NULL
+     OR to_regprocedure('private.apply_narrative_record_contract_acl(integer)') IS NULL THEN
+    RAISE EXCEPTION 'VERIFY_NARRATIVE_RECORD_CUTOVER_OBJECT_MISSING';
+  END IF;
+  IF NOT (SELECT relrowsecurity FROM pg_class
+           WHERE oid='private.narrative_record_cutover_receipt'::regclass)
+     OR EXISTS (SELECT 1 FROM pg_policy
+                 WHERE polrelid='private.narrative_record_cutover_receipt'::regclass) THEN
+    RAISE EXCEPTION 'VERIFY_NARRATIVE_RECORD_CUTOVER_RECEIPT_RLS_INVALID';
+  END IF;
+  v_version:=public.narrative_record_contract_version();
+  IF v_version NOT IN (1,2) THEN
+    RAISE EXCEPTION 'VERIFY_NARRATIVE_RECORD_CONTRACT_VERSION_INVALID';
+  END IF;
+  FOREACH v_signature IN ARRAY v_new LOOP
+    IF has_function_privilege('authenticated',v_signature,'EXECUTE') IS DISTINCT FROM
+         (v_version=2)
+       OR has_function_privilege('anon',v_signature,'EXECUTE')
+       OR has_function_privilege('service_role',v_signature,'EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_NARRATIVE_RECORD_NEW_WRITER_ACL_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+  FOREACH v_signature IN ARRAY v_legacy_authenticated LOOP
+    IF has_function_privilege('authenticated',v_signature,'EXECUTE') IS DISTINCT FROM
+         (v_version=1)
+       OR has_function_privilege('anon',v_signature,'EXECUTE')
+       OR has_function_privilege('service_role',v_signature,'EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_NARRATIVE_RECORD_LEGACY_AUTH_ACL_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+  FOREACH v_signature IN ARRAY v_legacy_service LOOP
+    IF has_function_privilege('service_role',v_signature,'EXECUTE') IS DISTINCT FROM
+         (v_version=1)
+       OR has_function_privilege('anon',v_signature,'EXECUTE')
+       OR has_function_privilege('authenticated',v_signature,'EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_NARRATIVE_RECORD_LEGACY_SERVICE_ACL_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: narrative record contract v% ACL/receipt',v_version;
+END
+$verify_narrative_record_cutover$;
+
 -- ===== #152 Task 3: record-keyed mutation kernel, additive ACL =====
 DO $narrative_record_mutation_verify$
 DECLARE
@@ -543,7 +624,7 @@ DECLARE
   v_version_position integer;
   v_state_position integer;
 BEGIN
-  IF public.narrative_record_contract_version()<>1 THEN
+  IF public.narrative_record_contract_version() NOT IN (1,2) THEN
     RAISE EXCEPTION 'NARRATIVE_RECORD_MUTATION_ADDITIVE_VERSION_INVALID';
   END IF;
 
@@ -563,7 +644,11 @@ BEGIN
       RAISE EXCEPTION 'NARRATIVE_RECORD_MUTATION_RESULT_INVALID: %',v_signature;
     END IF;
     FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
-      IF has_function_privilege(v_role,v_signature,'EXECUTE') THEN
+      IF has_function_privilege(v_role,v_signature,'EXECUTE') IS DISTINCT FROM (
+        public.narrative_record_contract_version()=2
+        AND v_role='authenticated'
+        AND v_signature LIKE 'public.%'
+      ) THEN
         RAISE EXCEPTION 'NARRATIVE_RECORD_MUTATION_PRECUTOVER_ACL_INVALID: % %',
           v_role,v_signature;
       END IF;
@@ -611,7 +696,8 @@ BEGIN
     RAISE EXCEPTION 'NARRATIVE_RECORD_MUTATION_EDITOR_READ_ACL_REGRESSION';
   END IF;
 
-  RAISE NOTICE 'OK: #152 Task 3 mutation kernel er installeret og ugranted ved version 1';
+  RAISE NOTICE 'OK: #152 Task 3 mutation kernel ACL matcher contract-version %',
+    public.narrative_record_contract_version();
 END
 $narrative_record_mutation_verify$;
 
@@ -626,7 +712,7 @@ DECLARE
   v_guard_position integer;
   v_change_set_position integer;
 BEGIN
-  IF public.narrative_record_contract_version()<>1 THEN
+  IF public.narrative_record_contract_version() NOT IN (1,2) THEN
     RAISE EXCEPTION 'NARRATIVE_RECORD_REVERSAL_ADDITIVE_VERSION_INVALID';
   END IF;
 
@@ -643,7 +729,11 @@ BEGIN
       RAISE EXCEPTION 'NARRATIVE_RECORD_REVERSAL_RESULT_INVALID: %',v_signature;
     END IF;
     FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
-      IF has_function_privilege(v_role,v_signature,'EXECUTE') THEN
+      IF has_function_privilege(v_role,v_signature,'EXECUTE') IS DISTINCT FROM (
+        public.narrative_record_contract_version()=2
+        AND v_role='authenticated'
+        AND v_signature LIKE 'public.%'
+      ) THEN
         RAISE EXCEPTION 'NARRATIVE_RECORD_REVERSAL_PRECUTOVER_ACL_INVALID: % %',
           v_role,v_signature;
       END IF;
@@ -725,7 +815,8 @@ BEGIN
     RAISE EXCEPTION 'NARRATIVE_RECORD_HISTORY_LEGAL_EVENT_SET_INVALID';
   END IF;
 
-  RAISE NOTICE 'OK: #152 Task 4 withdrawal/reversal er installeret og ugranted ved version 1';
+  RAISE NOTICE 'OK: #152 Task 4 withdrawal/reversal ACL matcher contract-version %',
+    public.narrative_record_contract_version();
 END
 $narrative_record_reversal_verify$;
 
@@ -740,7 +831,7 @@ DECLARE
   v_expected_owner oid;
   v_privilege text;
 BEGIN
-  IF public.narrative_record_contract_version()<>1 THEN
+  IF public.narrative_record_contract_version() NOT IN (1,2) THEN
     RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_READ_ADDITIVE_VERSION_INVALID';
   END IF;
   IF to_regprocedure(
@@ -967,8 +1058,14 @@ BEGIN
      OR has_function_privilege('authenticated','public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)','EXECUTE')
      OR has_function_privilege('service_role','public.red_apply_reimport_cases(uuid,text,text)','EXECUTE')
      OR NOT has_function_privilege('authenticated','public.red_preview_reimport_cases(bigint,text,jsonb)','EXECUTE')
-     OR NOT has_function_privilege('authenticated','public.red_apply_reimport_cases(uuid,text,text)','EXECUTE')
-     OR NOT has_function_privilege('service_role','public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)','EXECUTE') THEN
+     OR has_function_privilege(
+       'authenticated','public.red_apply_reimport_cases(uuid,text,text)','EXECUTE'
+     ) IS DISTINCT FROM (public.narrative_record_contract_version()=1)
+     OR has_function_privilege(
+       'service_role',
+       'public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)',
+       'EXECUTE'
+     ) IS DISTINCT FROM (public.narrative_record_contract_version()=1) THEN
     RAISE EXCEPTION 'C3_APPLY_RPC_ACL_INVALID';
   END IF;
   IF EXISTS (
@@ -1048,8 +1145,13 @@ BEGIN
      OR has_function_privilege('anon','public.red_reverse_reimport_cases(uuid,uuid)','EXECUTE')
      OR has_function_privilege('authenticated','public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)','EXECUTE')
      OR has_function_privilege('service_role','public.red_reverse_reimport_cases(uuid,uuid)','EXECUTE')
-     OR NOT has_function_privilege('service_role','public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)','EXECUTE')
-     OR NOT has_function_privilege('authenticated','public.red_reverse_reimport_cases(uuid,uuid)','EXECUTE') THEN
+     OR has_function_privilege(
+       'service_role','public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)',
+       'EXECUTE'
+     ) IS DISTINCT FROM (public.narrative_record_contract_version()=1)
+     OR has_function_privilege(
+       'authenticated','public.red_reverse_reimport_cases(uuid,uuid)','EXECUTE'
+     ) IS DISTINCT FROM (public.narrative_record_contract_version()=1) THEN
     RAISE EXCEPTION 'C3_REVERSAL_RPC_ACL_INVALID';
   END IF;
   IF EXISTS (
@@ -1856,6 +1958,28 @@ BEGIN
     ) VALUES (
       v_bound_narrative,v_record,'Linje I, nr. 1','s. 1','draft'
     ) RETURNING id INTO v_binding;
+
+    IF public.narrative_record_contract_version()=2 THEN
+      BEGIN
+        PERFORM red_publicer_narrative_record(
+          v_bound_narrative,v_record,'Linje I, nr. 1','s. 1'
+        );
+        RAISE EXCEPTION 'FEJL: Task 15 legacy-writer accepteret ved version 2';
+      EXCEPTION WHEN others THEN
+        IF SQLERRM='FEJL: Task 15 legacy-writer accepteret ved version 2' THEN RAISE; END IF;
+        IF SQLERRM<>'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED' THEN
+          RAISE EXCEPTION 'FEJL: Task 15 legacy-writer gav forkert v2-fejl: %',SQLERRM;
+        END IF;
+      END;
+      IF (SELECT status FROM private.narrative_record_publication WHERE id=v_binding)
+           IS DISTINCT FROM 'draft'
+         OR EXISTS (SELECT 1 FROM private.narrative_publication_event
+                     WHERE binding_id=v_binding) THEN
+        RAISE EXCEPTION 'FEJL: Task 15 legacy-writer skrev ved version 2';
+      END IF;
+      RAISE NOTICE 'OK: Task 15 legacy-writer er fail-closed ved version 2';
+      RAISE EXCEPTION 'ROLLBACK_TASK15_TESTDATA';
+    END IF;
 
     BEGIN
       PERFORM red_publicer_narrative_record(
