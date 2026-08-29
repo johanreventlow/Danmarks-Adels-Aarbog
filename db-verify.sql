@@ -350,6 +350,126 @@ END
 $narrative_record_foundation_verify$;
 
 
+-- ===== #152 Task 2: canonical state and typed editor reads =====
+DO $narrative_record_state_verify$
+DECLARE
+  v_role text;
+  v_function text;
+  v_actual_result text;
+BEGIN
+  IF to_regprocedure('private.narrative_record_labels(uuid)') IS NULL
+     OR to_regprocedure('private.narrative_publication_state(bigint,bigint,text)') IS NULL
+     OR to_regprocedure('private.narrative_record_state(bigint,bigint,text,boolean)') IS NULL
+     OR to_regprocedure('private.narrative_legacy_publication_state(uuid)') IS NULL
+     OR to_regprocedure('private.narrative_legacy_state(uuid,boolean)') IS NULL
+     OR to_regprocedure('public.red_person_narrative_records(bigint)') IS NULL
+     OR to_regprocedure('public.red_person_narrative_publication_history(bigint)') IS NULL
+     OR to_regclass('private.narrative_record_publication_record_state_idx') IS NULL
+     OR to_regclass('private.source_record_anchor_event_record_state_idx') IS NULL
+     OR to_regclass('private.source_record_placement_record_state_idx') IS NULL
+     OR to_regclass('private.source_persona_placement_record_state_idx') IS NULL
+     OR to_regclass('private.source_persona_identity_person_state_idx') IS NULL
+     OR to_regclass('private.source_record_revision_event_successor_state_idx') IS NULL THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_STATE_CONTRACT_MISSING';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM pg_proc function
+     WHERE function.oid IN (
+       'private.narrative_record_labels(uuid)'::regprocedure,
+       'private.narrative_publication_state(bigint,bigint,text)'::regprocedure,
+       'private.narrative_legacy_publication_state(uuid)'::regprocedure
+     )
+       AND function.provolatile<>'s'
+  ) OR EXISTS (
+    SELECT 1 FROM pg_proc function
+     WHERE function.oid IN (
+       'private.narrative_record_state(bigint,bigint,text,boolean)'::regprocedure,
+       'private.narrative_legacy_state(uuid,boolean)'::regprocedure
+     )
+       AND function.provolatile<>'v'
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_STATE_VOLATILITY_INVALID';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM pg_proc function
+     WHERE function.oid IN (
+       'public.red_person_narrative_records(bigint)'::regprocedure,
+       'public.red_person_narrative_publication_history(bigint)'::regprocedure
+     )
+       AND (
+         NOT function.prosecdef
+         OR function.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+       )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_EDITOR_SECURITY_INVALID';
+  END IF;
+
+  SELECT pg_get_function_result(
+    'public.red_person_narrative_records(bigint)'::regprocedure
+  ) INTO v_actual_result;
+  IF v_actual_result IS DISTINCT FROM
+       'TABLE(person_id bigint, source_id bigint, source_year integer, source_label text, provenance_kind text, record_key text, source_record_ref uuid, legacy_publication_ref uuid, record_order integer, record_label text, citation_label text, narrative_id bigint, narrative_text text, narrative_private boolean, narrative_side text, publication_status text, text_editable boolean, allowed_actions jsonb, withdrawn_history jsonb, latest_event_version integer, published_text_sha256 text, eligibility_status text, blocking_reason text, state_sha256 text)' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_EDITOR_RESULT_INVALID: %',v_actual_result;
+  END IF;
+  SELECT pg_get_function_result(
+    'public.red_person_narrative_publication_history(bigint)'::regprocedure
+  ) INTO v_actual_result;
+  IF v_actual_result IS DISTINCT FROM
+       'TABLE(event_id uuid, change_set_id bigint, stream_version integer, event_type text, source_record_ref uuid, legacy_publication_ref uuid, before_state_sha256 text, after_state_sha256 text, before_text text, after_text text, decided_by_name text, created_at timestamp with time zone, can_reverse boolean, blocking_reason text)' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_HISTORY_RESULT_INVALID: %',v_actual_result;
+  END IF;
+
+  FOREACH v_role IN ARRAY ARRAY['anon','service_role'] LOOP
+    IF has_function_privilege(
+      v_role,'public.red_person_narrative_records(bigint)','EXECUTE'
+    ) OR has_function_privilege(
+      v_role,'public.red_person_narrative_publication_history(bigint)','EXECUTE'
+    ) THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_EDITOR_PUBLIC_ACL_INVALID: %',v_role;
+    END IF;
+  END LOOP;
+  IF NOT has_function_privilege(
+    'authenticated','public.red_person_narrative_records(bigint)','EXECUTE'
+  ) OR NOT has_function_privilege(
+    'authenticated','public.red_person_narrative_publication_history(bigint)','EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_EDITOR_AUTHENTICATED_GRANT_MISSING';
+  END IF;
+
+  FOREACH v_function IN ARRAY ARRAY[
+    'private.narrative_record_labels(uuid)',
+    'private.narrative_publication_state(bigint,bigint,text)',
+    'private.narrative_record_state(bigint,bigint,text,boolean)',
+    'private.narrative_legacy_publication_state(uuid)',
+    'private.narrative_legacy_state(uuid,boolean)'
+  ] LOOP
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+      IF has_function_privilege(v_role,v_function,'EXECUTE') THEN
+        RAISE EXCEPTION 'NARRATIVE_RECORD_STATE_PRIVATE_ACL_INVALID: % %',
+          v_role,v_function;
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  IF strpos(
+       pg_get_functiondef(
+         'private.narrative_record_state(bigint,bigint,text,boolean)'::regprocedure
+       ),'FOR UPDATE'
+     )=0 OR strpos(
+       pg_get_functiondef(
+         'private.narrative_legacy_state(uuid,boolean)'::regprocedure
+       ),'FOR UPDATE'
+     )=0 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_STATE_LOCK_MODE_MISSING';
+  END IF;
+
+  RAISE NOTICE 'OK: #152 Task 2 canonical state, typed editor/history og ACL er installeret';
+END
+$narrative_record_state_verify$;
+
+
 -- ===== Task 1: Tabeller profiles + suggestion =====
 -- Forvent: begge tabeller findes, rolle-CHECK håndhæves.
 

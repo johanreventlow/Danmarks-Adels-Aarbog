@@ -957,3 +957,20 @@ GRANT EXECUTE ON FUNCTION public.red_authorize_reimport_case_reversal(uuid,text,
   TO service_role;
 GRANT EXECUTE ON FUNCTION public.red_reverse_reimport_cases(uuid,uuid)
   TO authenticated;
+
+-- #152 Task 2: the two typed editor reads are authenticated entry points,
+-- but perform their own fail-closed redaktion role check. All canonical state
+-- projectors remain private even though PostgreSQL grants new functions to
+-- PUBLIC by default.
+REVOKE ALL ON FUNCTION private.narrative_record_labels(uuid),
+  private.narrative_publication_state(bigint,bigint,text),
+  private.narrative_record_state(bigint,bigint,text,boolean),
+  private.narrative_legacy_publication_state(uuid),
+  private.narrative_legacy_state(uuid,boolean)
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.red_person_narrative_records(bigint),
+  public.red_person_narrative_publication_history(bigint)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_person_narrative_records(bigint),
+  public.red_person_narrative_publication_history(bigint)
+  TO authenticated;

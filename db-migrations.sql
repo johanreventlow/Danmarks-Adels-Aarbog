@@ -11091,3 +11091,1099 @@ REVOKE ALL ON FUNCTION public.narrative_record_contract_version()
   FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.narrative_record_contract_version()
   TO anon,authenticated,service_role;
+
+-- =====================================================================
+-- 2026-08-29: #152 Task 2 — canonical narrative publication read model
+-- =====================================================================
+
+CREATE INDEX IF NOT EXISTS narrative_record_publication_record_state_idx
+  ON private.narrative_record_publication(source_record_id,status,created_at,id);
+CREATE INDEX IF NOT EXISTS source_record_anchor_event_record_state_idx
+  ON private.source_record_anchor_event(
+    source_record_id,occurrence_id,version DESC,created_at DESC,id DESC
+  );
+CREATE INDEX IF NOT EXISTS source_record_placement_record_state_idx
+  ON private.source_record_placement(source_record_id,id);
+CREATE INDEX IF NOT EXISTS source_persona_placement_record_state_idx
+  ON private.source_persona_placement(record_placement_id,source_persona_id,id);
+CREATE INDEX IF NOT EXISTS source_persona_identity_person_state_idx
+  ON private.source_persona_identity(canonical_person_id,source_persona_id)
+  WHERE decision_status='accepted';
+CREATE INDEX IF NOT EXISTS source_record_revision_event_successor_state_idx
+  ON private.source_record_revision_event(
+    successor_record_id,predecessor_record_id,relation_kind,version DESC
+  );
+
+CREATE OR REPLACE FUNCTION private.narrative_record_labels(
+  p_source_record_id uuid
+) RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  v_source_label text;
+  v_record_key text;
+  v_record_order integer;
+  v_page_label text;
+  v_record_label text;
+  v_citation_label text;
+  v_binding_record_label text;
+  v_binding_citation_label text;
+  v_placement_count integer;
+BEGIN
+  SELECT coalesce(source.udgave,source.titel),record.record_key
+    INTO v_source_label,v_record_key
+    FROM private.source_record record
+    JOIN public.source source ON source.id=record.source_id
+   WHERE record.id=p_source_record_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_NOT_FOUND';
+  END IF;
+
+  SELECT min(interval.page_from),
+         string_agg(interval.page_label,', ' ORDER BY interval.page_from,interval.page_to)
+    INTO v_record_order,v_page_label
+    FROM (
+      SELECT DISTINCT occurrence.page_from,occurrence.page_to,
+             CASE WHEN occurrence.page_from=occurrence.page_to
+                  THEN occurrence.page_from::text
+                  ELSE occurrence.page_from::text||'-'||occurrence.page_to::text
+              END AS page_label
+        FROM private.source_record_anchor_current anchor
+        JOIN private.source_record_occurrence occurrence
+          ON occurrence.id=anchor.occurrence_id
+       WHERE anchor.source_record_id=p_source_record_id
+         AND anchor.decision_status='accepted'
+    ) interval;
+
+  SELECT count(*),min(entry.label)
+    INTO v_placement_count,v_record_label
+    FROM private.source_record_placement_current placement
+    JOIN public.lineage_scheme_entry entry ON entry.id=placement.scheme_entry_id
+   WHERE placement.source_record_id=p_source_record_id
+     AND placement.decision_status='accepted';
+  IF v_placement_count<>1 THEN
+    v_record_label:=v_record_key;
+  END IF;
+  v_citation_label:=CASE WHEN v_page_label IS NULL THEN NULL
+                         ELSE v_source_label||', s. '||v_page_label END;
+
+  SELECT binding.record_label,binding.citation_label
+    INTO v_binding_record_label,v_binding_citation_label
+    FROM private.narrative_record_publication binding
+   WHERE binding.source_record_id=p_source_record_id
+     AND binding.status IN ('draft','published')
+   ORDER BY binding.created_at,binding.id
+   LIMIT 1;
+  IF FOUND THEN
+    v_record_label:=v_binding_record_label;
+    v_citation_label:=v_binding_citation_label;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'record_order',v_record_order,
+    'record_label',v_record_label,
+    'citation_label',v_citation_label,
+    'side',v_page_label
+  );
+END
+$$;
+
+CREATE OR REPLACE FUNCTION private.narrative_publication_state(
+  p_person_id bigint,
+  p_source_id bigint,
+  p_record_key text
+) RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  v_record private.source_record%ROWTYPE;
+  v_source_year integer;
+  v_source_label text;
+  v_anchors jsonb;
+  v_placements jsonb;
+  v_identities jsonb;
+  v_identity_people jsonb;
+  v_identity_count integer;
+  v_identity_matches boolean;
+  v_revisions jsonb;
+  v_provenance jsonb;
+  v_provenance_sha256 text;
+  v_binding private.narrative_record_publication%ROWTYPE;
+  v_binding_person_id bigint;
+  v_binding_source_id bigint;
+  v_binding_json jsonb;
+  v_narrative_json jsonb;
+  v_labels jsonb;
+  v_authority_kind text;
+  v_eligibility_status text;
+  v_blocking_reason text;
+  v_publication_status text;
+  v_person_levende boolean;
+  v_person_private boolean;
+  v_person_staged boolean;
+  v_narrative_private boolean;
+  v_person_publication_allowed boolean;
+  v_narrative_publication_allowed boolean;
+  v_policy jsonb;
+  v_has_haendelse boolean;
+  v_has_anchor boolean;
+BEGIN
+  SELECT * INTO v_record
+    FROM private.source_record record
+   WHERE record.source_id=p_source_id AND record.record_key=p_record_key;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_NOT_FOUND';
+  END IF;
+
+  SELECT source.aar::integer,coalesce(source.udgave,source.titel)
+    INTO v_source_year,v_source_label
+    FROM public.source source
+   WHERE source.id=p_source_id;
+  SELECT person.levende,coalesce(person.privat,false),
+         coalesce(person.staged,false)
+    INTO v_person_levende,v_person_private,v_person_staged
+    FROM public.person person
+   WHERE person.id=p_person_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PERSON_NOT_FOUND';
+  END IF;
+
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'anchor_event_id',anchor.id,
+           'anchor_version',anchor.version,
+           'occurrence_id',occurrence.id,
+           'rendition_id',rendition.id,
+           'rendition_content_sha256',rendition.content_sha256,
+           'page_from',occurrence.page_from,
+           'page_to',occurrence.page_to,
+           'physical_fingerprint',occurrence.physical_fingerprint,
+           'structural_fingerprint',occurrence.structural_fingerprint
+         ) ORDER BY occurrence.page_from,occurrence.page_to,occurrence.id,anchor.id),'[]'::jsonb),
+         count(*)>0
+    INTO v_anchors,v_has_anchor
+    FROM private.source_record_anchor_current anchor
+    JOIN private.source_record_occurrence occurrence ON occurrence.id=anchor.occurrence_id
+    JOIN private.source_rendition rendition ON rendition.id=occurrence.rendition_id
+   WHERE anchor.source_record_id=v_record.id
+     AND anchor.decision_status='accepted';
+
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'record_placement_id',placement.id,
+           'placement_version',placement.version,
+           'scheme_entry_id',placement.scheme_entry_id,
+           'scheme_entry_label',entry.label,
+           'printed_number',placement.printed_number,
+           'generation_local',placement.generation_local,
+           'generation_global',placement.generation_global,
+           'generation_label_raw',placement.generation_label_raw,
+           'kuld_label',placement.kuld_label,
+           'section_path',to_jsonb(placement.section_path)
+         ) ORDER BY entry.sort_order,placement.id),'[]'::jsonb)
+    INTO v_placements
+    FROM private.source_record_placement_current placement
+    JOIN public.lineage_scheme_entry entry ON entry.id=placement.scheme_entry_id
+   WHERE placement.source_record_id=v_record.id
+     AND placement.decision_status='accepted';
+
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'source_persona_id',identity_row.source_persona_id,
+           'persona_placement_id',identity_row.persona_placement_id,
+           'placement_role',identity_row.placement_role,
+           'placement_version',identity_row.placement_version,
+           'canonical_person_id',identity_row.canonical_person_id,
+           'identity_version',identity_row.identity_version
+         ) ORDER BY identity_row.canonical_person_id,identity_row.placement_role,
+                    identity_row.source_persona_id,identity_row.persona_placement_id),'[]'::jsonb)
+    INTO v_identities
+    FROM (
+      SELECT persona_placement.source_persona_id,
+             persona_placement.id AS persona_placement_id,
+             persona_placement.placement_role,
+             persona_placement.version AS placement_version,
+             identity_state.canonical_person_id,
+             identity_state.version AS identity_version
+        FROM private.source_persona_placement_current persona_placement
+        JOIN private.source_record_placement_current record_placement
+          ON record_placement.id=persona_placement.record_placement_id
+        JOIN private.source_persona_identity identity_state
+          ON identity_state.source_persona_id=persona_placement.source_persona_id
+       WHERE record_placement.source_record_id=v_record.id
+         AND record_placement.decision_status='accepted'
+         AND persona_placement.decision_status='accepted'
+         AND persona_placement.placement_role IN ('principal_member','co_principal')
+         AND identity_state.decision_status='accepted'
+    ) identity_row;
+
+  SELECT coalesce(jsonb_agg(person_id ORDER BY person_id),'[]'::jsonb),count(*),
+         count(*)=1 AND min(person_id)=p_person_id
+    INTO v_identity_people,v_identity_count,v_identity_matches
+    FROM (
+      SELECT DISTINCT (identity_item->>'canonical_person_id')::bigint AS person_id
+        FROM jsonb_array_elements(v_identities) identity_item
+    ) people;
+
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'revision_event_id',revision.id,
+           'revision_version',revision.version,
+           'relation_kind',revision.relation_kind,
+           'predecessor_record_id',revision.predecessor_record_id,
+           'successor_record_id',revision.successor_record_id
+         ) ORDER BY revision.relation_kind,revision.predecessor_record_id,
+                    revision.successor_record_id),'[]'::jsonb)
+    INTO v_revisions
+    FROM private.source_record_revision_current revision
+   WHERE revision.decision_status='accepted'
+     AND (revision.predecessor_record_id=v_record.id
+          OR revision.successor_record_id=v_record.id);
+
+  v_provenance:=jsonb_build_object(
+    'anchors',v_anchors,
+    'placements',v_placements,
+    'identities',v_identities,
+    'revisions',v_revisions
+  );
+  v_provenance_sha256:=encode(extensions.digest(v_provenance::text,'sha256'),'hex');
+  v_labels:=private.narrative_record_labels(v_record.id);
+
+  SELECT binding.*
+    INTO v_binding
+    FROM private.narrative_record_publication binding
+   WHERE binding.source_record_id=v_record.id
+     AND binding.status IN ('draft','published')
+   ORDER BY binding.created_at,binding.id
+   LIMIT 1;
+
+  IF FOUND THEN
+    SELECT narrative.subjekt_id,narrative.source_id
+      INTO v_binding_person_id,v_binding_source_id
+      FROM public.narrative narrative
+     WHERE narrative.id=v_binding.narrative_id;
+    v_binding_json:=jsonb_build_object(
+      'binding_id',v_binding.id,
+      'narrative_id',v_binding.narrative_id,
+      'binding_person_id',v_binding_person_id,
+      'status',v_binding.status,
+      'record_label',v_binding.record_label,
+      'citation_label',v_binding.citation_label,
+      'published_at',CASE WHEN v_binding.published_at IS NULL THEN NULL
+        ELSE to_char(
+          v_binding.published_at AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+        ) END
+    );
+    SELECT jsonb_build_object(
+             'narrative_id',narrative.id,
+             'text',narrative.tekst,
+             'text_sha256',encode(extensions.digest(narrative.tekst,'sha256'),'hex'),
+             'private',coalesce(narrative.privat,false),
+             'side',narrative.side,
+             'has_haendelse',EXISTS(
+               SELECT 1 FROM public.haendelse event WHERE event.narrative_id=narrative.id
+             )
+           ),coalesce(narrative.privat,false),EXISTS(
+             SELECT 1 FROM public.haendelse event WHERE event.narrative_id=narrative.id
+           )
+      INTO v_narrative_json,v_narrative_private,v_has_haendelse
+      FROM public.narrative narrative
+     WHERE narrative.id=v_binding.narrative_id;
+  ELSE
+    v_binding_json:=NULL;
+    v_narrative_json:=NULL;
+    v_narrative_private:=NULL;
+    v_has_haendelse:=false;
+  END IF;
+
+  IF v_binding.id IS NOT NULL
+     AND (v_binding_person_id IS DISTINCT FROM p_person_id
+          OR v_binding_source_id IS DISTINCT FROM p_source_id) THEN
+    v_authority_kind:='conflicting_active_binding';
+    v_eligibility_status:='blocked';
+    v_blocking_reason:='NARRATIVE_RECORD_ACTIVE_BINDING_CONFLICT';
+  ELSIF NOT v_has_anchor THEN
+    v_authority_kind:='missing_anchor';
+    v_eligibility_status:='blocked';
+    v_blocking_reason:='NARRATIVE_RECORD_ANCHOR_REQUIRED';
+  ELSIF v_binding.id IS NOT NULL AND EXISTS (
+    SELECT 1 FROM jsonb_array_elements(v_identity_people) item
+     WHERE (item #>> '{}')::bigint<>p_person_id
+  ) THEN
+    v_authority_kind:='conflicting_identity';
+    v_eligibility_status:='blocked';
+    v_blocking_reason:='NARRATIVE_RECORD_IDENTITY_CONFLICT';
+  ELSIF v_binding.id IS NOT NULL THEN
+    v_authority_kind:='existing_exact_binding';
+    v_eligibility_status:='eligible';
+    v_blocking_reason:=NULL;
+  ELSIF v_identity_matches THEN
+    v_authority_kind:='accepted_identity';
+    v_eligibility_status:='eligible';
+    v_blocking_reason:=NULL;
+  ELSIF v_identity_count=0 THEN
+    v_authority_kind:='missing_identity';
+    v_eligibility_status:='blocked';
+    v_blocking_reason:='NARRATIVE_RECORD_IDENTITY_REQUIRED';
+  ELSE
+    v_authority_kind:='ambiguous_identity';
+    v_eligibility_status:='blocked';
+    v_blocking_reason:='NARRATIVE_RECORD_IDENTITY_AMBIGUOUS';
+  END IF;
+
+  IF v_binding.id IS NOT NULL AND v_binding_person_id=p_person_id THEN
+    v_publication_status:=v_binding.status;
+  ELSIF EXISTS (
+    SELECT 1
+      FROM private.narrative_record_publication withdrawn_binding
+      JOIN public.narrative withdrawn_narrative
+        ON withdrawn_narrative.id=withdrawn_binding.narrative_id
+     WHERE withdrawn_binding.source_record_id=v_record.id
+       AND withdrawn_binding.status='withdrawn'
+       AND withdrawn_narrative.subjekt_type='person'
+       AND withdrawn_narrative.subjekt_id=p_person_id
+       AND withdrawn_narrative.source_id=p_source_id
+  ) THEN
+    v_publication_status:='withdrawn';
+  ELSE
+    v_publication_status:='none';
+  END IF;
+
+  v_person_publication_allowed:=v_person_levende IS FALSE
+                                AND NOT v_person_private
+                                AND NOT v_person_staged;
+  v_narrative_publication_allowed:=v_narrative_json IS NOT NULL
+                                   AND NOT coalesce(v_narrative_private,true);
+  v_policy:=jsonb_build_object(
+    'person_levende',v_person_levende,
+    'person_private',v_person_private,
+    'person_staged',v_person_staged,
+    'narrative_private',v_narrative_private,
+    'person_publication_allowed',v_person_publication_allowed,
+    'narrative_publication_allowed',v_narrative_publication_allowed,
+    'publication_allowed',v_person_publication_allowed
+                          AND v_narrative_publication_allowed
+  );
+
+  RETURN jsonb_build_object(
+    'target',jsonb_build_object(
+      'person_id',p_person_id,
+      'source_id',p_source_id,
+      'record_key',p_record_key,
+      'source_record_id',v_record.id,
+      'source_record_ref',v_record.public_ref
+    ),
+    'source',jsonb_build_object(
+      'source_year',v_source_year,
+      'source_label',v_source_label
+    ),
+    'provenance',v_provenance,
+    'provenance_sha256',v_provenance_sha256,
+    'authority',jsonb_build_object(
+      'kind',v_authority_kind,
+      'identity_people',v_identity_people,
+      'eligibility_status',v_eligibility_status,
+      'blocking_reason',v_blocking_reason
+    ),
+    'binding',v_binding_json,
+    'narrative',v_narrative_json,
+    'publication_status',v_publication_status,
+    'labels',v_labels,
+    'publication_policy',v_policy,
+    'policy_sha256',encode(extensions.digest(v_policy::text,'sha256'),'hex'),
+    'has_haendelse',v_has_haendelse
+  );
+END
+$$;
+
+CREATE OR REPLACE FUNCTION private.narrative_record_state(
+  p_person_id bigint,
+  p_source_id bigint,
+  p_record_key text,
+  p_lock boolean DEFAULT false
+) RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  v_record_id uuid;
+  v_publication_state jsonb;
+  v_publication_state_sha256 text;
+  v_active_binding_id uuid;
+  v_withdrawn_history jsonb;
+  v_latest private.narrative_publication_event%ROWTYPE;
+  v_publication_status text;
+  v_text_editable boolean;
+  v_allowed_actions jsonb;
+  v_eligibility_status text;
+  v_blocking_reason text;
+  v_published_text_sha256 text;
+  v_publication_allowed boolean;
+  v_editor_state jsonb;
+BEGIN
+  SELECT record.id INTO v_record_id
+    FROM private.source_record record
+   WHERE record.source_id=p_source_id AND record.record_key=p_record_key;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_NOT_FOUND';
+  END IF;
+
+  IF p_lock THEN
+    PERFORM record.id FROM private.source_record record
+     WHERE record.id=v_record_id FOR UPDATE;
+    PERFORM binding.id FROM private.narrative_record_publication binding
+     WHERE binding.source_record_id=v_record_id
+     ORDER BY binding.id FOR UPDATE;
+    PERFORM event.id
+      FROM private.narrative_publication_event event
+     WHERE event.source_record_id=v_record_id
+     ORDER BY event.stream_ref,event.stream_version,event.id FOR UPDATE;
+    PERFORM narrative.id
+      FROM public.narrative narrative
+      JOIN private.narrative_record_publication binding
+        ON binding.narrative_id=narrative.id
+     WHERE binding.source_record_id=v_record_id
+     ORDER BY narrative.id FOR UPDATE OF narrative;
+    PERFORM anchor.id
+      FROM private.source_record_anchor_event anchor
+     WHERE anchor.source_record_id=v_record_id
+     ORDER BY anchor.occurrence_id,anchor.version,anchor.id FOR UPDATE;
+    PERFORM occurrence.id
+      FROM private.source_record_occurrence occurrence
+      JOIN private.source_record_anchor_current anchor
+        ON anchor.occurrence_id=occurrence.id
+     WHERE anchor.source_record_id=v_record_id
+     ORDER BY occurrence.id FOR UPDATE OF occurrence;
+    PERFORM rendition.id
+      FROM private.source_rendition rendition
+      JOIN private.source_record_occurrence occurrence
+        ON occurrence.rendition_id=rendition.id
+      JOIN private.source_record_anchor_current anchor
+        ON anchor.occurrence_id=occurrence.id
+     WHERE anchor.source_record_id=v_record_id
+     ORDER BY rendition.id FOR UPDATE OF rendition;
+    PERFORM persona.id
+      FROM private.source_persona persona
+      JOIN private.source_persona_placement persona_placement
+        ON persona_placement.source_persona_id=persona.id
+      JOIN private.source_record_placement placement
+        ON placement.id=persona_placement.record_placement_id
+     WHERE placement.source_record_id=v_record_id
+     ORDER BY persona.id FOR UPDATE OF persona;
+    PERFORM placement.id FROM private.source_record_placement placement
+     WHERE placement.source_record_id=v_record_id ORDER BY placement.id FOR UPDATE;
+    PERFORM decision.id
+      FROM private.source_record_placement_decision decision
+      JOIN private.source_record_placement placement ON placement.id=decision.placement_id
+     WHERE placement.source_record_id=v_record_id
+     ORDER BY decision.placement_id,decision.version,decision.id FOR UPDATE OF decision;
+    PERFORM persona_placement.id
+      FROM private.source_persona_placement persona_placement
+      JOIN private.source_record_placement placement
+        ON placement.id=persona_placement.record_placement_id
+     WHERE placement.source_record_id=v_record_id
+     ORDER BY persona_placement.id FOR UPDATE OF persona_placement;
+    PERFORM identity_state.source_persona_id
+      FROM private.source_persona_identity identity_state
+      JOIN private.source_persona_placement persona_placement
+        ON persona_placement.source_persona_id=identity_state.source_persona_id
+      JOIN private.source_record_placement placement
+        ON placement.id=persona_placement.record_placement_id
+     WHERE placement.source_record_id=v_record_id
+     ORDER BY identity_state.source_persona_id FOR UPDATE OF identity_state;
+    PERFORM revision.id FROM private.source_record_revision_event revision
+     WHERE revision.predecessor_record_id=v_record_id
+        OR revision.successor_record_id=v_record_id
+     ORDER BY revision.id FOR UPDATE;
+  END IF;
+
+  v_publication_state:=private.narrative_publication_state(
+    p_person_id,p_source_id,p_record_key
+  );
+  v_publication_state_sha256:=encode(
+    extensions.digest(v_publication_state::text,'sha256'),'hex'
+  );
+  v_active_binding_id:=(v_publication_state #>> '{binding,binding_id}')::uuid;
+
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'binding_id',binding.id,
+           'narrative_id',binding.narrative_id,
+           'status',binding.status,
+           'text_sha256',encode(extensions.digest(narrative.tekst,'sha256'),'hex'),
+           'record_label',binding.record_label,
+           'citation_label',binding.citation_label,
+           'created_at',to_char(
+             binding.created_at AT TIME ZONE 'UTC',
+             'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+           )
+         ) ORDER BY binding.created_at,binding.id),'[]'::jsonb)
+    INTO v_withdrawn_history
+    FROM private.narrative_record_publication binding
+    JOIN public.narrative narrative ON narrative.id=binding.narrative_id
+   WHERE binding.source_record_id=v_record_id
+     AND binding.status='withdrawn'
+     AND narrative.subjekt_type='person'
+     AND narrative.subjekt_id=p_person_id
+     AND narrative.source_id=p_source_id;
+
+  SELECT event.* INTO v_latest
+    FROM private.narrative_publication_event event
+    JOIN private.narrative_record_publication binding ON binding.id=event.binding_id
+    JOIN public.narrative narrative ON narrative.id=binding.narrative_id
+   WHERE binding.source_record_id=v_record_id
+     AND narrative.subjekt_type='person'
+     AND narrative.subjekt_id=p_person_id
+     AND narrative.source_id=p_source_id
+     AND (v_active_binding_id IS NULL OR event.binding_id=v_active_binding_id)
+   ORDER BY event.stream_version DESC,event.created_at DESC,event.id DESC
+   LIMIT 1;
+
+  v_publication_status:=v_publication_state->>'publication_status';
+  v_eligibility_status:=v_publication_state #>> '{authority,eligibility_status}';
+  v_blocking_reason:=v_publication_state #>> '{authority,blocking_reason}';
+  v_publication_allowed:=coalesce((
+    v_publication_state #>> '{publication_policy,publication_allowed}'
+  )::boolean,false);
+  IF v_publication_status='published'
+     AND (v_latest.id IS NULL
+          OR v_latest.after_state_sha256 IS DISTINCT FROM v_publication_state_sha256) THEN
+    v_publication_status:='stale_published';
+  END IF;
+
+  IF v_blocking_reason IS NOT NULL THEN
+    v_text_editable:=false;
+    v_allowed_actions:='[]'::jsonb;
+  ELSIF v_publication_status IN ('none','withdrawn') THEN
+    v_text_editable:=true;
+    v_allowed_actions:='["create_draft"]'::jsonb;
+  ELSIF v_publication_status='draft' THEN
+    v_text_editable:=true;
+    v_allowed_actions:=CASE WHEN v_publication_allowed
+      THEN '["save_draft","discard_draft","publish"]'::jsonb
+      ELSE '["save_draft","discard_draft"]'::jsonb END;
+  ELSIF v_publication_status='published' THEN
+    v_text_editable:=v_publication_allowed
+                     AND NOT (v_publication_state->>'has_haendelse')::boolean;
+    v_allowed_actions:=CASE WHEN NOT v_publication_allowed
+      THEN '["withdraw"]'::jsonb WHEN v_text_editable
+      THEN '["publish_revision","withdraw"]'::jsonb
+      ELSE '["withdraw"]'::jsonb END;
+  ELSIF v_publication_status='stale_published' THEN
+    v_text_editable:=false;
+    v_allowed_actions:=CASE WHEN v_publication_allowed
+      THEN '["revalidate","withdraw"]'::jsonb
+      ELSE '["withdraw"]'::jsonb END;
+  ELSE
+    v_text_editable:=false;
+    v_allowed_actions:='[]'::jsonb;
+  END IF;
+
+  IF v_publication_status IN ('published','stale_published') THEN
+    v_published_text_sha256:=v_latest.after_state #>> '{narrative,text_sha256}';
+  ELSE
+    v_published_text_sha256:=NULL;
+  END IF;
+
+  v_editor_state:=jsonb_build_object(
+    'publication_state',v_publication_state,
+    'publication_state_sha256',v_publication_state_sha256,
+    'withdrawn_history',v_withdrawn_history,
+    'latest_event_id',v_latest.id,
+    'latest_event_type',v_latest.event_type,
+    'latest_event_version',v_latest.stream_version,
+    'latest_before_state_sha256',v_latest.before_state_sha256,
+    'latest_after_state_sha256',v_latest.after_state_sha256,
+    'publication_status',v_publication_status,
+    'text_editable',v_text_editable,
+    'allowed_actions',v_allowed_actions,
+    'eligibility_status',v_eligibility_status,
+    'blocking_reason',v_blocking_reason,
+    'published_text_sha256',v_published_text_sha256
+  );
+  RETURN v_editor_state||jsonb_build_object(
+    'state_sha256',encode(extensions.digest(v_editor_state::text,'sha256'),'hex')
+  );
+END
+$$;
+
+CREATE OR REPLACE FUNCTION private.narrative_legacy_publication_state(
+  p_legacy_publication_ref uuid
+) RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  v_state jsonb;
+  v_policy jsonb;
+  v_person_levende boolean;
+  v_person_private boolean;
+  v_person_staged boolean;
+  v_narrative_private boolean;
+  v_has_haendelse boolean;
+BEGIN
+  SELECT person.levende,coalesce(person.privat,false),
+         coalesce(person.staged,false),coalesce(narrative.privat,false),
+         EXISTS(SELECT 1 FROM public.haendelse event WHERE event.narrative_id=narrative.id)
+    INTO v_person_levende,v_person_private,v_person_staged,
+         v_narrative_private,v_has_haendelse
+    FROM private.narrative_legacy_publication legacy
+    JOIN public.narrative narrative ON narrative.id=legacy.narrative_id
+    JOIN public.person person
+      ON person.id=narrative.subjekt_id AND narrative.subjekt_type='person'
+   WHERE legacy.legacy_publication_ref=p_legacy_publication_ref;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NARRATIVE_LEGACY_PUBLICATION_NOT_FOUND';
+  END IF;
+
+  v_policy:=jsonb_build_object(
+    'person_levende',v_person_levende,
+    'person_private',v_person_private,
+    'person_staged',v_person_staged,
+    'narrative_private',v_narrative_private,
+    'person_publication_allowed',v_person_levende IS FALSE
+                                 AND NOT v_person_private
+                                 AND NOT v_person_staged,
+    'narrative_publication_allowed',NOT v_narrative_private,
+    'publication_allowed',v_person_levende IS FALSE
+                          AND NOT v_person_private
+                          AND NOT v_person_staged
+                          AND NOT v_narrative_private
+  );
+
+  SELECT jsonb_build_object(
+           'target',jsonb_build_object(
+             'legacy_publication_ref',legacy.legacy_publication_ref,
+             'narrative_id',narrative.id,
+             'person_id',narrative.subjekt_id,
+             'source_id',legacy.source_id
+           ),
+           'source',jsonb_build_object(
+             'source_year',source.aar::integer,
+             'source_label',coalesce(source.udgave,source.titel)
+           ),
+           'narrative',jsonb_build_object(
+             'narrative_id',narrative.id,
+             'text',narrative.tekst,
+             'text_sha256',encode(extensions.digest(narrative.tekst,'sha256'),'hex'),
+             'private',coalesce(narrative.privat,false),
+             'side',narrative.side,
+             'has_haendelse',v_has_haendelse
+           ),
+           'publication_policy',v_policy,
+           'policy_sha256',encode(extensions.digest(v_policy::text,'sha256'),'hex'),
+           'has_haendelse',v_has_haendelse
+         )
+    INTO v_state
+    FROM private.narrative_legacy_publication legacy
+    JOIN public.narrative narrative ON narrative.id=legacy.narrative_id
+    JOIN public.source source ON source.id=legacy.source_id
+   WHERE legacy.legacy_publication_ref=p_legacy_publication_ref;
+  RETURN v_state;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION private.narrative_legacy_state(
+  p_legacy_publication_ref uuid,
+  p_lock boolean DEFAULT false
+) RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  v_legacy private.narrative_legacy_publication%ROWTYPE;
+  v_latest private.narrative_publication_event%ROWTYPE;
+  v_publication_state jsonb;
+  v_publication_state_sha256 text;
+  v_baseline_matches boolean;
+  v_withdrawal_event_id uuid;
+  v_withdrawn_history jsonb;
+  v_publication_status text;
+  v_allowed_actions jsonb;
+  v_eligibility_status text;
+  v_blocking_reason text;
+  v_editor_state jsonb;
+BEGIN
+  SELECT * INTO v_legacy
+    FROM private.narrative_legacy_publication legacy
+   WHERE legacy.legacy_publication_ref=p_legacy_publication_ref;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NARRATIVE_LEGACY_PUBLICATION_NOT_FOUND';
+  END IF;
+
+  IF p_lock THEN
+    PERFORM legacy.legacy_publication_ref
+      FROM private.narrative_legacy_publication legacy
+     WHERE legacy.legacy_publication_ref=p_legacy_publication_ref FOR UPDATE;
+    PERFORM event.id FROM private.narrative_publication_event event
+     WHERE event.legacy_publication_ref=p_legacy_publication_ref
+     ORDER BY event.stream_version,event.id FOR UPDATE;
+    PERFORM narrative.id FROM public.narrative narrative
+     WHERE narrative.id=v_legacy.narrative_id FOR UPDATE;
+  END IF;
+
+  v_publication_state:=private.narrative_legacy_publication_state(
+    p_legacy_publication_ref
+  );
+  v_publication_state_sha256:=encode(
+    extensions.digest(v_publication_state::text,'sha256'),'hex'
+  );
+  v_baseline_matches:=v_legacy.baseline_state=v_publication_state
+                      AND v_legacy.baseline_sha256=encode(
+                        extensions.digest(v_legacy.baseline_state::text,'sha256'),'hex'
+                      );
+  SELECT event.* INTO v_latest
+    FROM private.narrative_publication_event event
+   WHERE event.legacy_publication_ref=p_legacy_publication_ref
+   ORDER BY event.stream_version DESC,event.created_at DESC,event.id DESC LIMIT 1;
+  SELECT event.id INTO v_withdrawal_event_id
+    FROM private.narrative_publication_event event
+   WHERE event.legacy_publication_ref=p_legacy_publication_ref
+     AND event.event_type='legacy_withdrawn'
+   ORDER BY event.stream_version DESC,event.id DESC LIMIT 1;
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+           'event_id',event.id,
+           'event_type',event.event_type,
+           'stream_version',event.stream_version,
+           'after_state_sha256',event.after_state_sha256
+         ) ORDER BY event.stream_version,event.id),'[]'::jsonb)
+    INTO v_withdrawn_history
+    FROM private.narrative_publication_event event
+   WHERE event.legacy_publication_ref=p_legacy_publication_ref
+     AND event.event_type='legacy_withdrawn';
+
+  IF v_legacy.status IN ('withdrawn','migrated') THEN
+    v_publication_status:='withdrawn';
+    v_allowed_actions:='[]'::jsonb;
+    v_eligibility_status:=v_legacy.status;
+    v_blocking_reason:=NULL;
+  ELSIF NOT v_baseline_matches THEN
+    v_publication_status:='stale_published';
+    v_allowed_actions:='[]'::jsonb;
+    v_eligibility_status:='blocked';
+    v_blocking_reason:='NARRATIVE_LEGACY_BASELINE_DRIFT';
+  ELSE
+    v_publication_status:='published';
+    v_allowed_actions:='["withdraw_legacy"]'::jsonb;
+    v_eligibility_status:='eligible';
+    v_blocking_reason:=NULL;
+  END IF;
+
+  v_editor_state:=jsonb_build_object(
+    'publication_state',v_publication_state,
+    'publication_state_sha256',v_publication_state_sha256,
+    'ledger_status',v_legacy.status,
+    'baseline_sha256',v_legacy.baseline_sha256,
+    'baseline_matches',v_baseline_matches,
+    'withdrawal_event_id',v_withdrawal_event_id,
+    'withdrawn_history',v_withdrawn_history,
+    'latest_event_id',v_latest.id,
+    'latest_event_type',v_latest.event_type,
+    'latest_event_version',v_latest.stream_version,
+    'latest_before_state_sha256',v_latest.before_state_sha256,
+    'latest_after_state_sha256',v_latest.after_state_sha256,
+    'publication_status',v_publication_status,
+    'text_editable',false,
+    'allowed_actions',v_allowed_actions,
+    'eligibility_status',v_eligibility_status,
+    'blocking_reason',v_blocking_reason,
+    'published_text_sha256',CASE WHEN v_publication_status IN ('published','stale_published')
+      THEN v_legacy.baseline_state #>> '{narrative,text_sha256}' ELSE NULL END
+  );
+  RETURN v_editor_state||jsonb_build_object(
+    'state_sha256',encode(extensions.digest(v_editor_state::text,'sha256'),'hex')
+  );
+END
+$$;
+
+REVOKE ALL ON FUNCTION private.narrative_record_labels(uuid),
+  private.narrative_publication_state(bigint,bigint,text),
+  private.narrative_record_state(bigint,bigint,text,boolean),
+  private.narrative_legacy_publication_state(uuid),
+  private.narrative_legacy_state(uuid,boolean)
+  FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION public.red_person_narrative_records(
+  p_person_id bigint
+) RETURNS TABLE(
+  person_id bigint,
+  source_id bigint,
+  source_year integer,
+  source_label text,
+  provenance_kind text,
+  record_key text,
+  source_record_ref uuid,
+  legacy_publication_ref uuid,
+  record_order integer,
+  record_label text,
+  citation_label text,
+  narrative_id bigint,
+  narrative_text text,
+  narrative_private boolean,
+  narrative_side text,
+  publication_status text,
+  text_editable boolean,
+  allowed_actions jsonb,
+  withdrawn_history jsonb,
+  latest_event_version integer,
+  published_text_sha256 text,
+  eligibility_status text,
+  blocking_reason text,
+  state_sha256 text
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path=pg_catalog
+AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_ROLE_FORBIDDEN';
+  END IF;
+
+  RETURN QUERY
+  WITH candidates AS (
+    SELECT record.id,record.source_id,record.record_key
+      FROM private.source_record record
+     WHERE EXISTS (
+       SELECT 1
+         FROM private.narrative_record_publication binding
+         JOIN public.narrative narrative ON narrative.id=binding.narrative_id
+        WHERE binding.source_record_id=record.id
+          AND narrative.subjekt_type='person'
+          AND narrative.subjekt_id=p_person_id
+          AND narrative.source_id=record.source_id
+     )
+    UNION
+    SELECT DISTINCT record.id,record.source_id,record.record_key
+      FROM private.source_record record
+      JOIN private.source_record_anchor_current anchor
+        ON anchor.source_record_id=record.id AND anchor.decision_status='accepted'
+      JOIN private.source_record_placement_current record_placement
+        ON record_placement.source_record_id=record.id
+       AND record_placement.decision_status='accepted'
+      JOIN private.source_persona_placement_current persona_placement
+        ON persona_placement.record_placement_id=record_placement.id
+       AND persona_placement.decision_status='accepted'
+       AND persona_placement.placement_role IN ('principal_member','co_principal')
+      JOIN private.source_persona_identity identity_state
+        ON identity_state.source_persona_id=persona_placement.source_persona_id
+       AND identity_state.decision_status='accepted'
+       AND identity_state.canonical_person_id=p_person_id
+  ), measured AS (
+    SELECT candidate.id,candidate.source_id,candidate.record_key,
+           private.narrative_record_state(
+             p_person_id,candidate.source_id,candidate.record_key,false
+           ) AS state
+      FROM candidates candidate
+  )
+  SELECT p_person_id,
+         measured.source_id,
+         (measured.state #>> '{publication_state,source,source_year}')::integer,
+         measured.state #>> '{publication_state,source,source_label}',
+         'source_record'::text,
+         measured.record_key,
+         (measured.state #>> '{publication_state,target,source_record_ref}')::uuid,
+         NULL::uuid,
+         (measured.state #>> '{publication_state,labels,record_order}')::integer,
+         measured.state #>> '{publication_state,labels,record_label}',
+         measured.state #>> '{publication_state,labels,citation_label}',
+         CASE WHEN measured.state->>'blocking_reason'=
+                        'NARRATIVE_RECORD_ACTIVE_BINDING_CONFLICT'
+              THEN NULL::bigint
+              ELSE (measured.state #>> '{publication_state,narrative,narrative_id}')::bigint
+          END,
+         CASE WHEN measured.state->>'blocking_reason'=
+                        'NARRATIVE_RECORD_ACTIVE_BINDING_CONFLICT'
+              THEN NULL::text
+              ELSE measured.state #>> '{publication_state,narrative,text}'
+          END,
+         CASE WHEN measured.state->>'blocking_reason'=
+                        'NARRATIVE_RECORD_ACTIVE_BINDING_CONFLICT'
+              THEN NULL::boolean
+              ELSE (measured.state #>> '{publication_state,narrative,private}')::boolean
+          END,
+         CASE WHEN measured.state->>'blocking_reason'=
+                        'NARRATIVE_RECORD_ACTIVE_BINDING_CONFLICT'
+              THEN NULL::text
+              ELSE measured.state #>> '{publication_state,narrative,side}'
+          END,
+         measured.state->>'publication_status',
+         (measured.state->>'text_editable')::boolean,
+         measured.state->'allowed_actions',
+         coalesce((
+           SELECT jsonb_agg(jsonb_build_object(
+                    'narrative_id',item->'narrative_id',
+                    'status',item->'status',
+                    'text_sha256',item->'text_sha256',
+                    'record_label',item->'record_label',
+                    'citation_label',item->'citation_label',
+                    'created_at',item->'created_at'
+                  ) ORDER BY item->>'created_at',item->>'narrative_id')
+             FROM jsonb_array_elements(measured.state->'withdrawn_history') item
+         ),'[]'::jsonb),
+         (measured.state->>'latest_event_version')::integer,
+         measured.state->>'published_text_sha256',
+         measured.state->>'eligibility_status',
+         measured.state->>'blocking_reason',
+         measured.state->>'state_sha256'
+    FROM measured
+   ORDER BY (measured.state #>> '{publication_state,labels,record_order}')::integer
+              NULLS LAST,
+            measured.record_key;
+
+  RETURN QUERY
+  WITH measured AS (
+    SELECT legacy.legacy_publication_ref,legacy.created_at,
+           private.narrative_legacy_state(
+             legacy.legacy_publication_ref,false
+           ) AS state
+      FROM private.narrative_legacy_publication legacy
+      JOIN public.narrative narrative ON narrative.id=legacy.narrative_id
+     WHERE narrative.subjekt_type='person'
+       AND narrative.subjekt_id=p_person_id
+  )
+  SELECT p_person_id,
+         (measured.state #>> '{publication_state,target,source_id}')::bigint,
+         (measured.state #>> '{publication_state,source,source_year}')::integer,
+         measured.state #>> '{publication_state,source,source_label}',
+         'grandfathered_legacy'::text,
+         NULL::text,
+         NULL::uuid,
+         measured.legacy_publication_ref,
+         NULL::integer,
+         'Overgangsdata — kildepost ikke fastlagt'::text,
+         (measured.state #>> '{publication_state,source,source_label}')
+           ||CASE WHEN nullif(
+                     measured.state #>> '{publication_state,narrative,side}',''
+                   ) IS NULL THEN ''
+                 ELSE ', s. '||(
+                   measured.state #>> '{publication_state,narrative,side}'
+                 ) END,
+         (measured.state #>> '{publication_state,narrative,narrative_id}')::bigint,
+         measured.state #>> '{publication_state,narrative,text}',
+         (measured.state #>> '{publication_state,narrative,private}')::boolean,
+         measured.state #>> '{publication_state,narrative,side}',
+         measured.state->>'publication_status',
+         (measured.state->>'text_editable')::boolean,
+         measured.state->'allowed_actions',
+         measured.state->'withdrawn_history',
+         (measured.state->>'latest_event_version')::integer,
+         measured.state->>'published_text_sha256',
+         measured.state->>'eligibility_status',
+         measured.state->>'blocking_reason',
+         measured.state->>'state_sha256'
+    FROM measured
+   ORDER BY measured.created_at,measured.legacy_publication_ref;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION public.red_person_narrative_publication_history(
+  p_person_id bigint
+) RETURNS TABLE(
+  event_id uuid,
+  change_set_id bigint,
+  stream_version integer,
+  event_type text,
+  source_record_ref uuid,
+  legacy_publication_ref uuid,
+  before_state_sha256 text,
+  after_state_sha256 text,
+  before_text text,
+  after_text text,
+  decided_by_name text,
+  created_at timestamptz,
+  can_reverse boolean,
+  blocking_reason text
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path=pg_catalog
+AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_ROLE_FORBIDDEN';
+  END IF;
+
+  RETURN QUERY
+  WITH measured AS (
+    SELECT event.*,record.public_ref AS safe_source_record_ref,
+           CASE WHEN event.source_record_id IS NOT NULL
+                THEN private.narrative_record_state(
+                  p_person_id,event.source_id,record.record_key,false
+                )
+                ELSE private.narrative_legacy_state(
+                  event.legacy_publication_ref,false
+                )
+            END AS state
+      FROM private.narrative_publication_event event
+      JOIN public.narrative narrative ON narrative.id=event.narrative_id
+      LEFT JOIN private.source_record record ON record.id=event.source_record_id
+     WHERE narrative.subjekt_type='person'
+       AND narrative.subjekt_id=p_person_id
+  ), classified AS (
+    SELECT measured.*,
+           measured.state->>'publication_state_sha256' AS current_state_sha256,
+           measured.state->>'blocking_reason' AS current_blocking_reason,
+           EXISTS(
+             SELECT 1 FROM private.narrative_publication_event later
+              WHERE later.stream_ref=measured.stream_ref
+                AND later.stream_version>measured.stream_version
+           ) AS has_later_event,
+           EXISTS(
+             SELECT 1 FROM private.narrative_publication_event reversal
+              WHERE reversal.reversed_event_id=measured.id
+           ) AS has_reversal
+      FROM measured
+  ), reversible AS (
+    SELECT classified.*,
+           CASE
+             WHEN classified.event_type='baseline'
+               THEN 'NARRATIVE_PUBLICATION_EVENT_BASELINE_NOT_REVERSIBLE'
+             WHEN classified.event_type='reversal'
+               THEN 'NARRATIVE_PUBLICATION_EVENT_REVERSAL_NOT_REVERSIBLE'
+             WHEN classified.has_reversal
+               THEN 'NARRATIVE_PUBLICATION_EVENT_ALREADY_REVERSED'
+             WHEN classified.has_later_event
+               THEN 'NARRATIVE_PUBLICATION_EVENT_NOT_LATEST'
+             WHEN classified.current_state_sha256 IS DISTINCT FROM
+                    classified.after_state_sha256
+               THEN 'NARRATIVE_PUBLICATION_EVENT_STATE_DRIFT'
+             WHEN classified.current_blocking_reason IS NOT NULL
+               THEN classified.current_blocking_reason
+             ELSE NULL
+            END AS reversal_blocking_reason
+      FROM classified
+  )
+  SELECT reversible.id,
+         reversible.change_set_id,
+         reversible.stream_version,
+         reversible.event_type,
+         reversible.safe_source_record_ref,
+         reversible.legacy_publication_ref,
+         reversible.before_state_sha256,
+         reversible.after_state_sha256,
+         reversible.before_state #>> '{narrative,text}',
+         reversible.after_state #>> '{narrative,text}',
+         reversible.decided_by_name,
+         reversible.created_at,
+         reversible.reversal_blocking_reason IS NULL,
+         reversible.reversal_blocking_reason
+    FROM reversible
+   ORDER BY reversible.created_at,reversible.id;
+END
+$$;
+
+REVOKE ALL ON FUNCTION public.red_person_narrative_records(bigint),
+  public.red_person_narrative_publication_history(bigint)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_person_narrative_records(bigint),
+  public.red_person_narrative_publication_history(bigint)
+  TO authenticated;
