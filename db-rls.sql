@@ -423,15 +423,13 @@ create policy anon_read on public.relation for select to anon
     and public.entitet_offentlig(objekt_type, objekt_id)
   );
 
--- narrative: ikke-privat OG (ikke-person ELLER person offentlig).
+-- narrative: version 1 preserves the historical privacy/person gate. At
+-- version 2 the helper exhaustively gates person/DAA rows by event or ledger.
 grant select on table public.narrative to anon;
 alter table public.narrative enable row level security;
 drop policy if exists anon_read on public.narrative;
 create policy anon_read on public.narrative for select to anon
-  using (
-    coalesce(privat, false) = false
-    and public.entitet_offentlig(subjekt_type, subjekt_id)
-  );
+  using (public.person_daa_narrative_publication_allowed(id));
 
 -- haendelse: kun ikke-skjulte projektioner hvis både subjekt og substrat er offentlige.
 revoke all on table public.haendelse from public, anon, authenticated;
@@ -529,13 +527,10 @@ create policy auth_read on public.relation for select to authenticated
     public.entitet_offentlig(subjekt_type, subjekt_id)
     and public.entitet_offentlig(objekt_type, objekt_id)
   );
--- narrative/note: eget privat-flag OG (ikke-person ELLER refereret person offentlig).
--- Cycle 02 H3 — manglede person-gating (ikke-flagget bio/note om privat person lækkede).
+-- narrative uses the same exhaustive, version-aware server predicate as anon.
+-- The separate redaktion_read policy below remains additive and unchanged.
 create policy auth_read on public.narrative for select to authenticated
-  using (
-    coalesce(privat,false)=false
-    and public.entitet_offentlig(subjekt_type, subjekt_id)
-  );
+  using (public.person_daa_narrative_publication_allowed(id));
 create policy auth_read on public.haendelse for select to authenticated
   using (
     feed_status <> 'skjult'
@@ -1111,3 +1106,20 @@ REVOKE ALL ON FUNCTION public.red_person_narrative_records(bigint),
 GRANT EXECUTE ON FUNCTION public.red_person_narrative_records(bigint),
   public.red_person_narrative_publication_history(bigint)
   TO authenticated;
+
+-- #152 Task 5: the RLS helper is a boolean-only SECURITY DEFINER capability;
+-- the two public biography RPCs expose no private identifiers or event state.
+REVOKE ALL ON TABLE private.narrative_record_publication,
+  private.narrative_publication_event,
+  private.narrative_legacy_publication
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION
+  public.person_daa_narrative_publication_allowed(bigint),
+  public.public_person_bio_source_versions(bigint[]),
+  public.public_person_bio_source_versions_v2(bigint[])
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION
+  public.person_daa_narrative_publication_allowed(bigint),
+  public.public_person_bio_source_versions(bigint[]),
+  public.public_person_bio_source_versions_v2(bigint[])
+  TO anon,authenticated;

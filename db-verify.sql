@@ -729,6 +729,175 @@ BEGIN
 END
 $narrative_record_reversal_verify$;
 
+-- ===== #152 Task 5: event-gated public v2 contract and narrative RLS =====
+DO $narrative_record_public_read_verify$
+DECLARE
+  v_signature text;
+  v_role text;
+  v_definition text;
+  v_policy text;
+  v_result text;
+  v_expected_owner oid;
+  v_privilege text;
+BEGIN
+  IF public.narrative_record_contract_version()<>1 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_READ_ADDITIVE_VERSION_INVALID';
+  END IF;
+  IF to_regprocedure(
+       'public.person_daa_narrative_publication_allowed(bigint)'
+     ) IS NULL
+     OR to_regprocedure(
+       'public.public_person_bio_source_versions_v2(bigint[])'
+     ) IS NULL THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_READ_CONTRACT_MISSING';
+  END IF;
+
+  SELECT pg_get_function_result(
+    'public.public_person_bio_source_versions_v2(bigint[])'::regprocedure
+  ) INTO v_result;
+  IF v_result IS DISTINCT FROM
+       'TABLE(person_id bigint, source_id bigint, source_year integer, record_order integer, source_record_ref uuid, source_label text, record_label text, narrative_text text, citation_label text, provenance_kind text)' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_V2_RESULT_INVALID: %',v_result;
+  END IF;
+
+  SELECT relation.relowner INTO v_expected_owner
+    FROM pg_class relation WHERE relation.oid='public.narrative'::regclass;
+  IF v_expected_owner IS DISTINCT FROM (
+       SELECT relation.relowner FROM pg_class relation
+        WHERE relation.oid='private.narrative_publication_event'::regclass
+     ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_CONTROLLED_OWNER_SPLIT';
+  END IF;
+
+  FOREACH v_signature IN ARRAY ARRAY[
+    'public.person_daa_narrative_publication_allowed(bigint)',
+    'public.public_person_bio_source_versions(bigint[])',
+    'public.public_person_bio_source_versions_v2(bigint[])'
+  ] LOOP
+    IF EXISTS (
+      SELECT 1 FROM pg_proc function
+       JOIN pg_roles owner ON owner.oid=function.proowner
+       WHERE function.oid=v_signature::regprocedure
+         AND (
+           NOT function.prosecdef
+           OR function.provolatile<>'s'
+           OR function.proconfig IS DISTINCT FROM
+                ARRAY['search_path=pg_catalog']::text[]
+           OR function.proowner<>v_expected_owner
+         )
+    ) THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_FUNCTION_SECURITY_INVALID: %',
+        v_signature;
+    END IF;
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated'] LOOP
+      IF NOT has_function_privilege(v_role,v_signature,'EXECUTE') THEN
+        RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_FUNCTION_GRANT_MISSING: % %',
+          v_role,v_signature;
+      END IF;
+    END LOOP;
+    IF EXISTS (
+         SELECT 1
+           FROM pg_proc function
+           CROSS JOIN LATERAL aclexplode(
+             coalesce(function.proacl,acldefault('f',function.proowner))
+           ) acl
+          WHERE function.oid=v_signature::regprocedure
+            AND (
+              acl.privilege_type<>'EXECUTE'
+              OR acl.is_grantable
+              OR acl.grantor<>v_expected_owner
+              OR acl.grantee NOT IN (
+                v_expected_owner,'anon'::regrole::oid,
+                'authenticated'::regrole::oid
+              )
+            )
+       ) OR (
+         SELECT count(*)
+           FROM pg_proc function
+           CROSS JOIN LATERAL aclexplode(
+             coalesce(function.proacl,acldefault('f',function.proowner))
+           ) acl
+          WHERE function.oid=v_signature::regprocedure
+       )<>3 THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_FUNCTION_GRANT_INVALID: %',
+        v_signature;
+    END IF;
+  END LOOP;
+
+  v_definition:=pg_get_functiondef(
+    'public.person_daa_narrative_publication_allowed(bigint)'::regprocedure
+  );
+  IF strpos(v_definition,'private.narrative_publication_state(')=0
+     OR strpos(v_definition,'private.narrative_legacy_publication_state(')=0
+     OR strpos(v_definition,'private.narrative_record_state(')>0
+     OR strpos(v_definition,'private.narrative_legacy_state(')>0 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_PREDICATE_STATE_INVALID';
+  END IF;
+  FOREACH v_signature IN ARRAY ARRAY[
+    'public.public_person_bio_source_versions(bigint[])',
+    'public.public_person_bio_source_versions_v2(bigint[])'
+  ] LOOP
+    v_definition:=pg_get_functiondef(v_signature::regprocedure);
+    IF strpos(v_definition,'person_daa_narrative_publication_allowed')=0
+       OR strpos(v_definition,'narrative_record_contract_version()')=0 THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_RPC_GATE_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+
+  IF NOT (
+    SELECT relation.relrowsecurity AND NOT relation.relforcerowsecurity
+      FROM pg_class relation WHERE relation.oid='public.narrative'::regclass
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_RLS_MODE_INVALID';
+  END IF;
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated'] LOOP
+    SELECT pg_get_expr(policy.polqual,policy.polrelid)
+      INTO v_policy
+      FROM pg_policy policy
+     WHERE policy.polrelid='public.narrative'::regclass
+       AND policy.polname=CASE v_role
+         WHEN 'anon' THEN 'anon_read' ELSE 'auth_read' END;
+    IF strpos(
+         coalesce(v_policy,''),'person_daa_narrative_publication_allowed'
+       )=0 THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_RLS_POLICY_INVALID: % %',
+        v_role,v_policy;
+    END IF;
+  END LOOP;
+
+  FOREACH v_signature IN ARRAY ARRAY[
+    'private.narrative_record_publication',
+    'private.narrative_publication_event',
+    'private.narrative_legacy_publication'
+  ] LOOP
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+      FOREACH v_privilege IN ARRAY ARRAY['SELECT','INSERT','UPDATE','DELETE'] LOOP
+        IF has_table_privilege(v_role,v_signature,v_privilege) THEN
+          RAISE EXCEPTION
+            'NARRATIVE_RECORD_PUBLIC_PRIVATE_TABLE_GRANT: % % %',
+            v_role,v_signature,v_privilege;
+        END IF;
+      END LOOP;
+    END LOOP;
+    IF EXISTS (
+      SELECT 1
+        FROM pg_class relation
+        CROSS JOIN LATERAL aclexplode(
+          coalesce(relation.relacl,acldefault('r',relation.relowner))
+        ) acl
+       WHERE relation.oid=v_signature::regclass
+         AND acl.grantee=0
+         AND acl.privilege_type IN ('SELECT','INSERT','UPDATE','DELETE')
+    ) THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_PRIVATE_TABLE_GRANT: PUBLIC %',
+        v_signature;
+    END IF;
+  END LOOP;
+
+  RAISE NOTICE 'OK: #152 Task 5 public v1/v2, semantic predicate og RLS er installeret';
+END
+$narrative_record_public_read_verify$;
+
 -- ===== C3 apply plan Task 5: generic reimport case ledger contract =====
 -- Full catalog/constraint proof lives in tests/sql/test-1939-v50-c3-apply.sql; this
 -- block only proves the objects exist and stay private after db-migrations.sql/db-rls.sql.

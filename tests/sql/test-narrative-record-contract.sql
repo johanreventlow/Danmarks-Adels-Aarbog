@@ -3916,6 +3916,816 @@ BEGIN
 END
 $narrative_record_task4_version_restored$;
 
+-- Task 5: one semantic publication predicate must gate both public RPCs and
+-- direct narrative RLS. Version 1 remains byte-compatible until cutover;
+-- version 2 is exercised only below a savepoint that is rolled back.
+DO $narrative_record_task5_structure$
+DECLARE
+  v_signature text;
+  v_definition text;
+  v_owner text;
+  v_expected_owner oid;
+  v_function_owner oid;
+  v_role text;
+  v_privilege text;
+  v_policy text;
+BEGIN
+  IF to_regprocedure('public.person_daa_narrative_publication_allowed(bigint)')
+       IS NULL THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_PUBLICATION_PREDICATE_MISSING';
+  END IF;
+  IF to_regprocedure(
+       'public.public_person_bio_source_versions_v2(bigint[])'
+     ) IS NULL THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_V2_RPC_MISSING';
+  END IF;
+
+  IF pg_get_function_result(
+       'public.public_person_bio_source_versions_v2(bigint[])'::regprocedure
+     ) IS DISTINCT FROM
+       'TABLE(person_id bigint, source_id bigint, source_year integer, record_order integer, source_record_ref uuid, source_label text, record_label text, narrative_text text, citation_label text, provenance_kind text)' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_V2_SIGNATURE_INVALID: %',
+      pg_get_function_result(
+        'public.public_person_bio_source_versions_v2(bigint[])'::regprocedure
+      );
+  END IF;
+
+  SELECT relation.relowner INTO v_expected_owner
+    FROM pg_class relation WHERE relation.oid='public.narrative'::regclass;
+  IF v_expected_owner IS DISTINCT FROM (
+       SELECT relation.relowner FROM pg_class relation
+        WHERE relation.oid='private.narrative_publication_event'::regclass
+     ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_CONTROLLED_OWNER_SPLIT';
+  END IF;
+
+  FOREACH v_signature IN ARRAY ARRAY[
+    'public.person_daa_narrative_publication_allowed(bigint)',
+    'public.public_person_bio_source_versions(bigint[])',
+    'public.public_person_bio_source_versions_v2(bigint[])'
+  ] LOOP
+    SELECT function.proowner,role.rolname,function.prosecdef,
+           function.proconfig=ARRAY['search_path=pg_catalog']::text[]
+      INTO v_function_owner,v_owner,v_definition,v_policy
+      FROM pg_proc function
+      JOIN pg_roles role ON role.oid=function.proowner
+     WHERE function.oid=v_signature::regprocedure;
+    IF v_function_owner IS DISTINCT FROM v_expected_owner
+       OR v_definition::boolean IS DISTINCT FROM true
+       OR v_policy::boolean IS DISTINCT FROM true THEN
+      RAISE EXCEPTION
+        'NARRATIVE_RECORD_TASK5_FUNCTION_SECURITY_METADATA_INVALID: % owner=% definer=% path=%',
+        v_signature,v_owner,v_definition,v_policy;
+    END IF;
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated'] LOOP
+      IF NOT has_function_privilege(v_role,v_signature,'EXECUTE') THEN
+        RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_SAFE_EXECUTE_MISSING: % %',
+          v_role,v_signature;
+      END IF;
+    END LOOP;
+    IF EXISTS (
+      SELECT 1
+        FROM pg_proc function
+        CROSS JOIN LATERAL aclexplode(
+          coalesce(function.proacl,acldefault('f',function.proowner))
+        ) acl
+       WHERE function.oid=v_signature::regprocedure
+         AND (
+           acl.privilege_type<>'EXECUTE'
+           OR acl.is_grantable
+           OR acl.grantor<>v_expected_owner
+           OR acl.grantee NOT IN (
+             v_expected_owner,'anon'::regrole::oid,'authenticated'::regrole::oid
+           )
+         )
+    ) OR (
+      SELECT count(*)
+        FROM pg_proc function
+        CROSS JOIN LATERAL aclexplode(
+          coalesce(function.proacl,acldefault('f',function.proowner))
+        ) acl
+       WHERE function.oid=v_signature::regprocedure
+    )<>3 THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_FUNCTION_ACL_NOT_EXACT: %',
+        v_signature;
+    END IF;
+  END LOOP;
+
+  SELECT pg_get_functiondef(
+           'public.person_daa_narrative_publication_allowed(bigint)'::regprocedure
+         ) INTO v_definition;
+  IF strpos(v_definition,'private.narrative_publication_state(')=0
+     OR strpos(v_definition,'private.narrative_legacy_publication_state(')=0
+     OR strpos(v_definition,'private.narrative_record_state(')>0
+     OR strpos(v_definition,'private.narrative_legacy_state(')>0 THEN
+    RAISE EXCEPTION
+      'NARRATIVE_RECORD_TASK5_PREDICATE_NOT_SEMANTIC_STATE_ONLY';
+  END IF;
+
+  FOREACH v_signature IN ARRAY ARRAY[
+    'public.public_person_bio_source_versions(bigint[])',
+    'public.public_person_bio_source_versions_v2(bigint[])'
+  ] LOOP
+    SELECT pg_get_functiondef(v_signature::regprocedure) INTO v_definition;
+    IF strpos(v_definition,'person_daa_narrative_publication_allowed')=0 THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_RPC_BYPASSES_PREDICATE: %',
+        v_signature;
+    END IF;
+  END LOOP;
+
+  SELECT pg_get_expr(policy.polqual,policy.polrelid)
+    INTO v_policy
+    FROM pg_policy policy
+   WHERE policy.polrelid='public.narrative'::regclass
+     AND policy.polname='anon_read';
+  IF strpos(coalesce(v_policy,''),'person_daa_narrative_publication_allowed')=0 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_ANON_RLS_BYPASSES_PREDICATE: %',
+      v_policy;
+  END IF;
+  SELECT pg_get_expr(policy.polqual,policy.polrelid)
+    INTO v_policy
+    FROM pg_policy policy
+   WHERE policy.polrelid='public.narrative'::regclass
+     AND policy.polname='auth_read';
+  IF strpos(coalesce(v_policy,''),'person_daa_narrative_publication_allowed')=0 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_AUTH_RLS_BYPASSES_PREDICATE: %',
+      v_policy;
+  END IF;
+  IF NOT (
+    SELECT relation.relrowsecurity AND NOT relation.relforcerowsecurity
+      FROM pg_class relation WHERE relation.oid='public.narrative'::regclass
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_NARRATIVE_RLS_FORCE_EXPECTATION_INVALID';
+  END IF;
+
+  FOREACH v_signature IN ARRAY ARRAY[
+    'private.narrative_record_publication',
+    'private.narrative_publication_event',
+    'private.narrative_legacy_publication'
+  ] LOOP
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+      FOREACH v_privilege IN ARRAY ARRAY['SELECT','INSERT','UPDATE','DELETE'] LOOP
+        IF has_table_privilege(v_role,v_signature,v_privilege) THEN
+          RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_PRIVATE_TABLE_GRANT: % % %',
+            v_role,v_signature,v_privilege;
+        END IF;
+      END LOOP;
+    END LOOP;
+    IF EXISTS (
+      SELECT 1
+        FROM pg_class relation
+        CROSS JOIN LATERAL aclexplode(
+          coalesce(relation.relacl,acldefault('r',relation.relowner))
+        ) acl
+       WHERE relation.oid=v_signature::regclass
+         AND acl.grantee=0
+         AND acl.privilege_type IN ('SELECT','INSERT','UPDATE','DELETE')
+    ) THEN
+        RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_PRIVATE_TABLE_GRANT: % %',
+          'PUBLIC',v_signature;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: narrative record Task 5 typed public contract and security metadata';
+END
+$narrative_record_task5_structure$;
+
+CREATE FUNCTION pg_temp.task5_v1_texts(p_person_id bigint)
+RETURNS text[]
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$
+  SELECT coalesce(array_agg(row.narrative_text ORDER BY row.narrative_text),ARRAY[]::text[])
+    FROM public.public_person_bio_source_versions(ARRAY[p_person_id]) row
+$$;
+CREATE FUNCTION pg_temp.task5_v2_texts(p_person_id bigint)
+RETURNS text[]
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$
+  SELECT coalesce(array_agg(row.narrative_text ORDER BY row.narrative_text),ARRAY[]::text[])
+    FROM public.public_person_bio_source_versions_v2(ARRAY[p_person_id]) row
+$$;
+CREATE FUNCTION pg_temp.task5_direct_narrative_ids(p_ids bigint[])
+RETURNS bigint[]
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$
+  SELECT coalesce(array_agg(narrative.id ORDER BY narrative.id),ARRAY[]::bigint[])
+    FROM public.narrative narrative WHERE narrative.id=ANY(p_ids)
+$$;
+CREATE FUNCTION pg_temp.task5_direct_event_ids(p_ids bigint[])
+RETURNS bigint[]
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$
+  SELECT coalesce(array_agg(event.id ORDER BY event.id),ARRAY[]::bigint[])
+    FROM public.haendelse event WHERE event.id=ANY(p_ids)
+$$;
+GRANT EXECUTE ON FUNCTION pg_temp.task5_v1_texts(bigint),
+  pg_temp.task5_v2_texts(bigint),
+  pg_temp.task5_direct_narrative_ids(bigint[]),
+  pg_temp.task5_direct_event_ids(bigint[])
+  TO anon,authenticated;
+
+-- Extend the Task 2 fixtures with the cases that are meaningful only at the
+-- public/RLS boundary: a never-baselined unbound row and unaffected controls.
+INSERT INTO public.source(id,slags,titel,udgave,aar)
+VALUES (-91525002,'test','Task 5 non-DAA source','Task 5 control',2025);
+INSERT INTO public.narrative(
+  id,subjekt_type,subjekt_id,source_id,tekst,side,privat
+) VALUES
+  (-91521204,'person',-91521001,-91521001,'New unbound','23',false),
+  (-91521210,'source',-91521001,-91521001,'Non-person control','24',false),
+  (-91521211,'person',-91521001,-91525002,'Non-DAA person control','25',false),
+  (-91521212,'source',-91521001,-91521001,'Private non-person control','26',true);
+INSERT INTO private.extraction_run(
+  id,source_id,run_key,schema_version,extractor_version,profile_version,
+  input_sha256,manifest
+) VALUES (
+  '15250000-0000-0000-0000-000000000101',-91525002,'task5-non-daa-run',
+  '1','task5-test','task5-test',repeat('5',64),'{}'
+);
+INSERT INTO private.source_rendition(
+  id,source_id,rendition_key,rendition_kind,content_sha256,metadata
+) VALUES (
+  '15250000-0000-0000-0000-000000000102',-91525002,
+  'task5-non-daa-rendition','text_layer',repeat('6',64),'{}'
+);
+INSERT INTO private.source_record(
+  id,source_id,record_key,record_kind,created_run_id
+) VALUES (
+  '15250000-0000-0000-0000-000000000103',-91525002,
+  'task5-non-daa-record','person',
+  '15250000-0000-0000-0000-000000000101'
+);
+INSERT INTO private.source_record_occurrence(
+  id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,
+  verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id
+) VALUES (
+  '15250000-0000-0000-0000-000000000104',
+  '15250000-0000-0000-0000-000000000102','task5-non-daa-occurrence',
+  25,25,0,22,'Non-DAA person control','task5-non-daa-physical',
+  'task5-non-daa-structural','15250000-0000-0000-0000-000000000101'
+);
+INSERT INTO private.source_record_anchor_event(
+  id,occurrence_id,source_record_id,decision_status,evidence,version,
+  decided_by,decided_by_name
+) VALUES (
+  '15250000-0000-0000-0000-000000000105',
+  '15250000-0000-0000-0000-000000000104',
+  '15250000-0000-0000-0000-000000000103','accepted',
+  '{"basis":"Task 5 non-DAA control"}',1,
+  '15200000-0000-0000-0000-000000000001','Task 5 actor'
+);
+INSERT INTO private.narrative_record_publication(
+  id,narrative_id,source_record_id,record_label,citation_label,status,
+  published_at
+) VALUES (
+  '15250000-0000-0000-0000-000000000106',-91521211,
+  '15250000-0000-0000-0000-000000000103','Non-DAA control record',
+  'Non-DAA control citation','published',clock_timestamp()
+);
+DO $narrative_record_task5_non_daa_attestation$
+DECLARE
+  v_state jsonb;
+  v_hash text;
+BEGIN
+  v_state:=private.narrative_publication_state(
+    -91521001,-91525002,'task5-non-daa-record'
+  );
+  v_hash:=encode(extensions.digest(v_state::text,'sha256'),'hex');
+  INSERT INTO private.narrative_publication_event(
+    id,change_set_id,stream_ref,stream_version,event_type,binding_id,
+    narrative_id,source_id,source_record_id,decision_basis,before_state,
+    after_state,before_state_sha256,after_state_sha256,decided_by,
+    decided_by_name
+  ) VALUES (
+    '15250000-0000-0000-0000-000000000107',-91521001,
+    '15250000-0000-0000-0000-000000000106',1,'published',
+    '15250000-0000-0000-0000-000000000106',-91521211,-91525002,
+    '15250000-0000-0000-0000-000000000103','Task 5 non-DAA attestation',
+    v_state,v_state,v_hash,v_hash,
+    '15200000-0000-0000-0000-000000000001','Task 5 actor'
+  );
+END
+$narrative_record_task5_non_daa_attestation$;
+INSERT INTO public.haendelse(
+  id,subjekt_type,subjekt_id,narrative_id,noegle,klausul,feed_status
+) VALUES
+  (-91521290,'person',-91521001,-91521190,'task5-invalid','Invalid stale event','interessant'),
+  (-91521291,'person',-91521001,-91521180,'task5-valid','Valid published event','interessant'),
+  (-91521292,'source',-91521001,-91521210,'task5-control','Unaffected event','interessant');
+DO $narrative_record_task5_revalidate_event_projection$
+DECLARE
+  v_state jsonb;
+  v_hash text;
+BEGIN
+  -- has_haendelse is semantic publication state. Model the explicit
+  -- revalidation required after adding a derived event to a published record.
+  v_state:=private.narrative_publication_state(
+    -91521001,-91521001,'published'
+  );
+  v_hash:=encode(extensions.digest(v_state::text,'sha256'),'hex');
+  INSERT INTO private.narrative_publication_event(
+    id,change_set_id,stream_ref,stream_version,event_type,binding_id,
+    narrative_id,source_id,source_record_id,decision_basis,before_state,
+    after_state,before_state_sha256,after_state_sha256,decided_by,
+    decided_by_name,created_at
+  ) VALUES (
+    '15210000-0000-0000-0000-000000002183',-91521001,
+    '15210000-0000-0000-0000-000000001180',3,'revalidated',
+    '15210000-0000-0000-0000-000000001180',-91521180,-91521001,
+    '15210000-0000-0000-0000-000000000180','Task 5 event revalidation',
+    v_state,v_state,v_hash,v_hash,
+    '15200000-0000-0000-0000-000000000001','Task 5 actor',
+    '2026-08-29 12:20:00+02'::timestamptz
+  );
+END
+$narrative_record_task5_revalidate_event_projection$;
+
+DO $narrative_record_task5_version1_matrix$
+DECLARE
+  v_person bigint:=-91521001;
+  v_member uuid:='15210000-0000-0000-0000-000000000001';
+  v_redactor uuid:='15200000-0000-0000-0000-000000000001';
+  v_expected_rpc text[]:=ARRAY[
+    'After drift','Legacy active','Legacy after drift','Legacy withdrawn',
+    'New unbound','Published text'
+  ];
+  v_all_ids bigint[]:=ARRAY[
+    -91521212,-91521211,-91521210,-91521204,-91521203,-91521202,
+    -91521201,-91521190,-91521181,-91521180,-91521170,-91521160,-91521150
+  ];
+  v_public_ids bigint[]:=ARRAY[
+    -91521211,-91521210,-91521204,-91521203,-91521202,-91521201,
+    -91521190,-91521181,-91521180,-91521170,-91521160,-91521150
+  ];
+  v_all_events bigint[]:=ARRAY[-91521292,-91521291,-91521290];
+  v_actual_texts text[];
+  v_actual_ids bigint[];
+BEGIN
+  IF public.narrative_record_contract_version()<>1 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_VERSION1_MATRIX_VERSION_INVALID';
+  END IF;
+
+  SET LOCAL ROLE anon;
+  v_actual_texts:=pg_temp.task5_v1_texts(v_person);
+  IF v_actual_texts IS DISTINCT FROM v_expected_rpc
+     OR pg_temp.task5_v2_texts(v_person) IS DISTINCT FROM v_expected_rpc THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_VERSION1_ANON_RPC_DRIFT: %',v_actual_texts;
+  END IF;
+  v_actual_ids:=pg_temp.task5_direct_narrative_ids(v_all_ids);
+  IF v_actual_ids IS DISTINCT FROM v_public_ids
+     OR pg_temp.task5_direct_event_ids(v_all_events)
+          IS DISTINCT FROM v_all_events THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_VERSION1_ANON_RLS_DRIFT: %',v_actual_ids;
+  END IF;
+  SET LOCAL ROLE NONE;
+
+  PERFORM set_config('request.jwt.claim.sub',v_member::text,true);
+  SET LOCAL ROLE authenticated;
+  IF pg_temp.task5_v1_texts(v_person) IS DISTINCT FROM v_expected_rpc
+     OR pg_temp.task5_v2_texts(v_person) IS DISTINCT FROM v_expected_rpc
+     OR pg_temp.task5_direct_narrative_ids(v_all_ids) IS DISTINCT FROM v_public_ids
+     OR pg_temp.task5_direct_event_ids(v_all_events) IS DISTINCT FROM v_all_events THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_VERSION1_AUTH_MATRIX_DRIFT';
+  END IF;
+  SET LOCAL ROLE NONE;
+
+  PERFORM set_config('request.jwt.claim.sub',v_redactor::text,true);
+  SET LOCAL ROLE authenticated;
+  IF pg_temp.task5_v1_texts(v_person) IS DISTINCT FROM v_expected_rpc
+     OR pg_temp.task5_v2_texts(v_person) IS DISTINCT FROM v_expected_rpc
+     OR pg_temp.task5_direct_narrative_ids(v_all_ids) IS DISTINCT FROM v_all_ids
+     OR pg_temp.task5_direct_event_ids(v_all_events) IS DISTINCT FROM v_all_events THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_VERSION1_REDACTION_MATRIX_DRIFT';
+  END IF;
+  SET LOCAL ROLE NONE;
+  RAISE NOTICE 'OK: narrative record Task 5 version-1 public and redaction behavior preserved';
+END
+$narrative_record_task5_version1_matrix$;
+
+SAVEPOINT narrative_record_task5_version_2;
+CREATE OR REPLACE FUNCTION public.narrative_record_contract_version()
+RETURNS integer
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path=pg_catalog
+AS $$ SELECT 2 $$;
+
+-- Two active legacy rows in the same person/source have identical public sort
+-- fields. Their internal ledger refs must still make the RPC order total and
+-- deterministic without exposing that private tie-break.
+DO $narrative_record_task5_second_legacy_fixture$
+DECLARE
+  v_ref uuid:='15210000-0000-0000-0000-000000000200';
+  v_event uuid:='15250000-0000-0000-0000-000000000200';
+  v_policy jsonb;
+  v_state jsonb;
+  v_hash text;
+BEGIN
+  INSERT INTO public.narrative(
+    id,subjekt_type,subjekt_id,source_id,tekst,side,privat
+  ) VALUES (
+    -91521205,'person',-91521001,-91521001,'Legacy stable first','19',false
+  );
+  v_policy:=jsonb_build_object(
+    'person_levende',false,'person_private',false,'person_staged',false,
+    'narrative_private',false,'person_publication_allowed',true,
+    'narrative_publication_allowed',true,'publication_allowed',true
+  );
+  v_state:=jsonb_build_object(
+    'target',jsonb_build_object(
+      'legacy_publication_ref',v_ref,'narrative_id',-91521205,
+      'person_id',-91521001,'source_id',-91521001
+    ),
+    'source',jsonb_build_object('source_year',1939,'source_label','DAA Task 2'),
+    'narrative',jsonb_build_object(
+      'narrative_id',-91521205,'text','Legacy stable first',
+      'text_sha256',encode(
+        extensions.digest('Legacy stable first','sha256'),'hex'
+      ),
+      'private',false,'side','19','has_haendelse',false
+    ),
+    'publication_policy',v_policy,
+    'policy_sha256',encode(extensions.digest(v_policy::text,'sha256'),'hex'),
+    'has_haendelse',false
+  );
+  v_hash:=encode(extensions.digest(v_state::text,'sha256'),'hex');
+  INSERT INTO private.narrative_legacy_publication(
+    legacy_publication_ref,narrative_id,source_id,baseline_state,
+    baseline_sha256,status,created_at
+  ) VALUES (
+    v_ref,-91521205,-91521001,v_state,v_hash,
+    'grandfathered_publication','2026-08-29 12:30:00+02'
+  );
+  INSERT INTO private.narrative_publication_event(
+    id,change_set_id,stream_ref,stream_version,event_type,
+    legacy_publication_ref,narrative_id,source_id,decision_basis,before_state,
+    after_state,before_state_sha256,after_state_sha256,decided_by,
+    decided_by_name,created_at
+  ) VALUES (
+    v_event,-91521001,v_ref,1,'baseline',v_ref,-91521205,-91521001,
+    'Task 5 stable legacy order',v_state,v_state,v_hash,v_hash,
+    '15200000-0000-0000-0000-000000000001','Task 5 actor',
+    '2026-08-29 12:31:00+02'
+  );
+  UPDATE private.narrative_legacy_publication SET latest_event_id=v_event
+   WHERE legacy_publication_ref=v_ref;
+END
+$narrative_record_task5_second_legacy_fixture$;
+
+DO $narrative_record_task5_version2_matrix$
+DECLARE
+  v_person bigint:=-91521001;
+  v_member uuid:='15210000-0000-0000-0000-000000000001';
+  v_redactor uuid:='15200000-0000-0000-0000-000000000001';
+  v_expected_rpc text[]:=ARRAY[
+    'Legacy active','Legacy stable first','Published text'
+  ];
+  v_expected_v2_order text[]:=ARRAY[
+    'Published text','Legacy stable first','Legacy active'
+  ];
+  v_all_ids bigint[]:=ARRAY[
+    -91521212,-91521211,-91521210,-91521205,-91521204,-91521203,-91521202,
+    -91521201,-91521190,-91521181,-91521180,-91521170,-91521160,-91521150
+  ];
+  v_public_ids bigint[]:=ARRAY[
+    -91521211,-91521210,-91521205,-91521201,-91521180
+  ];
+  v_all_events bigint[]:=ARRAY[-91521292,-91521291,-91521290];
+  v_public_events bigint[]:=ARRAY[-91521292,-91521291];
+  v_actual record;
+  v_actual_v2_order text[];
+BEGIN
+  SET LOCAL ROLE anon;
+  IF pg_temp.task5_v1_texts(v_person) IS DISTINCT FROM v_expected_rpc
+     OR pg_temp.task5_v2_texts(v_person) IS DISTINCT FROM v_expected_rpc
+     OR pg_temp.task5_direct_narrative_ids(v_all_ids) IS DISTINCT FROM v_public_ids
+     OR pg_temp.task5_direct_event_ids(v_all_events) IS DISTINCT FROM v_public_events THEN
+    RAISE EXCEPTION
+      'NARRATIVE_RECORD_TASK5_VERSION2_ANON_MATRIX_INVALID: v1=% v2=% narrative=% event=%',
+      pg_temp.task5_v1_texts(v_person),pg_temp.task5_v2_texts(v_person),
+      pg_temp.task5_direct_narrative_ids(v_all_ids),
+      pg_temp.task5_direct_event_ids(v_all_events);
+  END IF;
+  SET LOCAL ROLE NONE;
+
+  PERFORM set_config('request.jwt.claim.sub',v_member::text,true);
+  SET LOCAL ROLE authenticated;
+  IF pg_temp.task5_v1_texts(v_person) IS DISTINCT FROM v_expected_rpc
+     OR pg_temp.task5_v2_texts(v_person) IS DISTINCT FROM v_expected_rpc
+     OR pg_temp.task5_direct_narrative_ids(v_all_ids) IS DISTINCT FROM v_public_ids
+     OR pg_temp.task5_direct_event_ids(v_all_events) IS DISTINCT FROM v_public_events THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_VERSION2_AUTH_MATRIX_INVALID';
+  END IF;
+  SET LOCAL ROLE NONE;
+
+  PERFORM set_config('request.jwt.claim.sub',v_redactor::text,true);
+  SET LOCAL ROLE authenticated;
+  IF pg_temp.task5_v1_texts(v_person) IS DISTINCT FROM v_expected_rpc
+     OR pg_temp.task5_v2_texts(v_person) IS DISTINCT FROM v_expected_rpc
+     OR pg_temp.task5_direct_narrative_ids(v_all_ids) IS DISTINCT FROM v_all_ids
+     OR pg_temp.task5_direct_event_ids(v_all_events) IS DISTINCT FROM v_all_events THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_VERSION2_REDACTION_MATRIX_INVALID';
+  END IF;
+  SET LOCAL ROLE NONE;
+
+  SELECT array_agg(row.narrative_text ORDER BY row.ordinality)
+    INTO v_actual_v2_order
+    FROM public.public_person_bio_source_versions_v2(ARRAY[v_person])
+      WITH ORDINALITY AS row;
+  IF v_actual_v2_order IS DISTINCT FROM v_expected_v2_order THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_V2_ORDER_NOT_TOTAL: %',
+      v_actual_v2_order;
+  END IF;
+
+  SELECT * INTO v_actual
+    FROM public.public_person_bio_source_versions_v2(ARRAY[v_person]) row
+   WHERE row.narrative_text='Published text';
+  IF v_actual.source_id IS DISTINCT FROM -91521001
+     OR v_actual.source_year IS DISTINCT FROM 1939
+     OR v_actual.record_order IS DISTINCT FROM 9
+     OR v_actual.source_record_ref IS NULL
+     OR v_actual.record_label IS DISTINCT FROM 'Existing published'
+     OR v_actual.narrative_text IS DISTINCT FROM (
+       SELECT event.after_state #>> '{narrative,text}'
+         FROM private.narrative_publication_event event
+        WHERE event.id='15210000-0000-0000-0000-000000002183'
+     )
+     OR v_actual.provenance_kind IS DISTINCT FROM 'source_record' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_V2_BOUND_MAPPING_INVALID: %',
+      to_jsonb(v_actual);
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM jsonb_object_keys(to_jsonb(v_actual)) key
+     WHERE key IN (
+       'record_key','source_record_id','binding_id','source_persona_id',
+       'identity_people','publication_policy','policy_sha256','state_sha256'
+     )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_V2_PRIVATE_FIELD_LEAK';
+  END IF;
+  RAISE NOTICE 'OK: narrative record Task 5 version-2 anon/auth/redaction matrix';
+  RAISE NOTICE 'OK: narrative record Task 5 draft/withdrawn/unbound/legacy and event cascade';
+END
+$narrative_record_task5_version2_matrix$;
+
+-- Each stale dimension must independently remove the once-valid published
+-- record from v1, v2 and direct anon RLS. Roll back every mutation so the next
+-- dimension starts from the exact same attested semantic state.
+SAVEPOINT narrative_record_task5_anchor_drift;
+INSERT INTO private.source_record_anchor_event(
+  id,occurrence_id,source_record_id,decision_status,evidence,version,
+  decided_by,decided_by_name
+) VALUES (
+  '15250000-0000-0000-0000-000000000001',
+  '15210000-0000-0000-0000-000000000380',
+  '15210000-0000-0000-0000-000000000180','rejected',
+  '{"basis":"Task 5 anchor drift"}',2,
+  '15200000-0000-0000-0000-000000000001','Task 5 actor'
+);
+DO $task5_anchor_drift$
+BEGIN
+  IF 'Published text'=ANY(pg_temp.task5_v1_texts(-91521001))
+     OR 'Published text'=ANY(pg_temp.task5_v2_texts(-91521001)) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_STALE_ANCHOR_RPC_VISIBLE';
+  END IF;
+  SET LOCAL ROLE anon;
+  IF -91521180=ANY(pg_temp.task5_direct_narrative_ids(ARRAY[-91521180])) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_STALE_ANCHOR_RLS_VISIBLE';
+  END IF;
+  SET LOCAL ROLE NONE;
+  PERFORM set_config(
+    'request.jwt.claim.sub','15210000-0000-0000-0000-000000000001',true
+  );
+  SET LOCAL ROLE authenticated;
+  IF -91521180=ANY(pg_temp.task5_direct_narrative_ids(ARRAY[-91521180]))
+     OR 'Published text'=ANY(pg_temp.task5_v2_texts(-91521001)) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_STALE_ANCHOR_AUTH_VISIBLE';
+  END IF;
+  SET LOCAL ROLE NONE;
+  PERFORM set_config(
+    'request.jwt.claim.sub','15200000-0000-0000-0000-000000000001',true
+  );
+  SET LOCAL ROLE authenticated;
+  IF NOT -91521180=ANY(pg_temp.task5_direct_narrative_ids(ARRAY[-91521180]))
+     OR 'Published text'=ANY(pg_temp.task5_v2_texts(-91521001)) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_STALE_ANCHOR_REDACTION_INVALID';
+  END IF;
+  SET LOCAL ROLE NONE;
+END
+$task5_anchor_drift$;
+ROLLBACK TO SAVEPOINT narrative_record_task5_anchor_drift;
+
+SAVEPOINT narrative_record_task5_rendition_drift;
+SET LOCAL session_replication_role=replica;
+UPDATE private.source_rendition
+   SET content_sha256=repeat('9',64)
+ WHERE id='15210000-0000-0000-0000-000000000003';
+SET LOCAL session_replication_role=origin;
+DO $task5_rendition_drift$
+BEGIN
+  IF 'Published text'=ANY(pg_temp.task5_v1_texts(-91521001))
+     OR 'Published text'=ANY(pg_temp.task5_v2_texts(-91521001)) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_STALE_RENDITION_RPC_VISIBLE';
+  END IF;
+  SET LOCAL ROLE anon;
+  IF -91521180=ANY(pg_temp.task5_direct_narrative_ids(ARRAY[-91521180])) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_STALE_RENDITION_RLS_VISIBLE';
+  END IF;
+  SET LOCAL ROLE NONE;
+  PERFORM set_config(
+    'request.jwt.claim.sub','15210000-0000-0000-0000-000000000001',true
+  );
+  SET LOCAL ROLE authenticated;
+  IF -91521180=ANY(pg_temp.task5_direct_narrative_ids(ARRAY[-91521180]))
+     OR 'Published text'=ANY(pg_temp.task5_v2_texts(-91521001)) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_STALE_RENDITION_AUTH_VISIBLE';
+  END IF;
+  SET LOCAL ROLE NONE;
+  PERFORM set_config(
+    'request.jwt.claim.sub','15200000-0000-0000-0000-000000000001',true
+  );
+  SET LOCAL ROLE authenticated;
+  IF NOT -91521180=ANY(pg_temp.task5_direct_narrative_ids(ARRAY[-91521180]))
+     OR 'Published text'=ANY(pg_temp.task5_v2_texts(-91521001)) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_STALE_RENDITION_REDACTION_INVALID';
+  END IF;
+  SET LOCAL ROLE NONE;
+END
+$task5_rendition_drift$;
+ROLLBACK TO SAVEPOINT narrative_record_task5_rendition_drift;
+
+SAVEPOINT narrative_record_task5_identity_drift;
+SELECT pg_temp.task2_seed_identity(
+  '15210000-0000-0000-0000-000000000180',
+  '15210000-0000-0000-0000-000000000580',
+  '15250000-0000-0000-0000-000000000010',
+  '15250000-0000-0000-0000-000000000011',
+  '15250000-0000-0000-0000-000000000012',
+  '15250000-0000-0000-0000-000000000013',
+  '15250000-0000-0000-0000-000000000014',
+  -91521002,'principal_member',-91521002
+);
+SET CONSTRAINTS ALL IMMEDIATE;
+SET CONSTRAINTS ALL DEFERRED;
+DO $task5_identity_drift$
+BEGIN
+  IF 'Published text'=ANY(pg_temp.task5_v1_texts(-91521001))
+     OR 'Published text'=ANY(pg_temp.task5_v2_texts(-91521001)) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_STALE_IDENTITY_RPC_VISIBLE';
+  END IF;
+  SET LOCAL ROLE anon;
+  IF -91521180=ANY(pg_temp.task5_direct_narrative_ids(ARRAY[-91521180])) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_STALE_IDENTITY_RLS_VISIBLE';
+  END IF;
+  SET LOCAL ROLE NONE;
+  PERFORM set_config(
+    'request.jwt.claim.sub','15210000-0000-0000-0000-000000000001',true
+  );
+  SET LOCAL ROLE authenticated;
+  IF -91521180=ANY(pg_temp.task5_direct_narrative_ids(ARRAY[-91521180]))
+     OR 'Published text'=ANY(pg_temp.task5_v2_texts(-91521001)) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_STALE_IDENTITY_AUTH_VISIBLE';
+  END IF;
+  SET LOCAL ROLE NONE;
+  PERFORM set_config(
+    'request.jwt.claim.sub','15200000-0000-0000-0000-000000000001',true
+  );
+  SET LOCAL ROLE authenticated;
+  IF NOT -91521180=ANY(pg_temp.task5_direct_narrative_ids(ARRAY[-91521180]))
+     OR 'Published text'=ANY(pg_temp.task5_v2_texts(-91521001)) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_STALE_IDENTITY_REDACTION_INVALID';
+  END IF;
+  SET LOCAL ROLE NONE;
+END
+$task5_identity_drift$;
+ROLLBACK TO SAVEPOINT narrative_record_task5_identity_drift;
+
+SAVEPOINT narrative_record_task5_privacy_drift;
+UPDATE public.narrative SET privat=true WHERE id=-91521180;
+DO $task5_privacy_drift$
+BEGIN
+  IF 'Published text'=ANY(pg_temp.task5_v1_texts(-91521001))
+     OR 'Published text'=ANY(pg_temp.task5_v2_texts(-91521001)) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_STALE_PRIVACY_RPC_VISIBLE';
+  END IF;
+  SET LOCAL ROLE anon;
+  IF -91521180=ANY(pg_temp.task5_direct_narrative_ids(ARRAY[-91521180])) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_STALE_PRIVACY_RLS_VISIBLE';
+  END IF;
+  SET LOCAL ROLE NONE;
+  PERFORM set_config(
+    'request.jwt.claim.sub','15210000-0000-0000-0000-000000000001',true
+  );
+  SET LOCAL ROLE authenticated;
+  IF -91521180=ANY(pg_temp.task5_direct_narrative_ids(ARRAY[-91521180]))
+     OR 'Published text'=ANY(pg_temp.task5_v2_texts(-91521001)) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_STALE_PRIVACY_AUTH_VISIBLE';
+  END IF;
+  SET LOCAL ROLE NONE;
+  PERFORM set_config(
+    'request.jwt.claim.sub','15200000-0000-0000-0000-000000000001',true
+  );
+  SET LOCAL ROLE authenticated;
+  IF NOT -91521180=ANY(pg_temp.task5_direct_narrative_ids(ARRAY[-91521180]))
+     OR 'Published text'=ANY(pg_temp.task5_v2_texts(-91521001)) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_STALE_PRIVACY_REDACTION_INVALID';
+  END IF;
+  SET LOCAL ROLE NONE;
+END
+$task5_privacy_drift$;
+ROLLBACK TO SAVEPOINT narrative_record_task5_privacy_drift;
+
+SAVEPOINT narrative_record_task5_policy_drift;
+UPDATE public.person SET staged=true WHERE id=-91521001;
+DO $task5_policy_drift$
+BEGIN
+  IF 'Published text'=ANY(pg_temp.task5_v1_texts(-91521001))
+     OR 'Published text'=ANY(pg_temp.task5_v2_texts(-91521001)) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_STALE_POLICY_RPC_VISIBLE';
+  END IF;
+  SET LOCAL ROLE anon;
+  IF -91521180=ANY(pg_temp.task5_direct_narrative_ids(ARRAY[-91521180])) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_STALE_POLICY_RLS_VISIBLE';
+  END IF;
+  SET LOCAL ROLE NONE;
+  PERFORM set_config(
+    'request.jwt.claim.sub','15210000-0000-0000-0000-000000000001',true
+  );
+  SET LOCAL ROLE authenticated;
+  IF -91521180=ANY(pg_temp.task5_direct_narrative_ids(ARRAY[-91521180]))
+     OR 'Published text'=ANY(pg_temp.task5_v2_texts(-91521001)) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_STALE_POLICY_AUTH_VISIBLE';
+  END IF;
+  SET LOCAL ROLE NONE;
+  PERFORM set_config(
+    'request.jwt.claim.sub','15200000-0000-0000-0000-000000000001',true
+  );
+  SET LOCAL ROLE authenticated;
+  IF NOT -91521180=ANY(pg_temp.task5_direct_narrative_ids(ARRAY[-91521180]))
+     OR 'Published text'=ANY(pg_temp.task5_v2_texts(-91521001)) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_STALE_POLICY_REDACTION_INVALID';
+  END IF;
+  SET LOCAL ROLE NONE;
+END
+$task5_policy_drift$;
+ROLLBACK TO SAVEPOINT narrative_record_task5_policy_drift;
+
+SAVEPOINT narrative_record_task5_event_hash_drift;
+SET LOCAL session_replication_role=replica;
+UPDATE private.narrative_publication_event
+   SET after_state_sha256=repeat('f',64)
+ WHERE id='15210000-0000-0000-0000-000000002183';
+SET LOCAL session_replication_role=origin;
+DO $task5_event_hash_drift$
+BEGIN
+  IF 'Published text'=ANY(pg_temp.task5_v1_texts(-91521001))
+     OR 'Published text'=ANY(pg_temp.task5_v2_texts(-91521001)) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_EVENT_HASH_MISMATCH_VISIBLE';
+  END IF;
+END
+$task5_event_hash_drift$;
+ROLLBACK TO SAVEPOINT narrative_record_task5_event_hash_drift;
+
+SAVEPOINT narrative_record_task5_legacy_hash_drift;
+SET LOCAL session_replication_role=replica;
+UPDATE private.narrative_legacy_publication
+   SET baseline_sha256=repeat('e',64)
+ WHERE legacy_publication_ref='15210000-0000-0000-0000-000000000201';
+SET LOCAL session_replication_role=origin;
+DO $task5_legacy_hash_drift$
+BEGIN
+  IF 'Legacy active'=ANY(pg_temp.task5_v1_texts(-91521001))
+     OR 'Legacy active'=ANY(pg_temp.task5_v2_texts(-91521001)) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_LEGACY_HASH_MISMATCH_VISIBLE';
+  END IF;
+  RAISE NOTICE 'OK: narrative record Task 5 semantic stale-axis matrix';
+END
+$task5_legacy_hash_drift$;
+ROLLBACK TO SAVEPOINT narrative_record_task5_legacy_hash_drift;
+
+ROLLBACK TO SAVEPOINT narrative_record_task5_version_2;
+DO $narrative_record_task5_version_restored$
+BEGIN
+  IF public.narrative_record_contract_version()<>1 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_TEST_WEAKENED_PRODUCTION_VERSION';
+  END IF;
+  RAISE NOTICE 'OK: narrative record Task 5 version-2 fixture rolled back to version 1';
+END
+$narrative_record_task5_version_restored$;
+
 ROLLBACK;
 
 -- Task 3 policy serialization: the canonical writer lock must cover the person
