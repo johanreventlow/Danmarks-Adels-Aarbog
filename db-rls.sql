@@ -26,7 +26,8 @@ begin
     'interpretation','interpretation_observation','interpretation_promotion_rule',
     'interpretation_promotion_batch','interpretation_promotion',
     'source_persona_identity','source_persona_identity_event',
-    'narrative_record_publication'
+    'narrative_record_publication','narrative_publication_event',
+    'narrative_legacy_publication'
   ] loop
     if to_regclass(format('private.%I',v_table)) is not null then
       execute format('alter table private.%I enable row level security',v_table);
@@ -36,6 +37,21 @@ begin
 end $$;
 revoke all on all sequences in schema private from public, anon, authenticated;
 revoke execute on all functions in schema private from public, anon, authenticated;
+
+-- #152 additive event foundation: service_role has no direct table/helper path.
+-- The safe public capability function is explicitly callable, but no writer is
+-- granted while the contract remains at version 1.
+revoke all on table private.narrative_publication_event,
+  private.narrative_legacy_publication
+  from public, anon, authenticated, service_role;
+revoke all on function private.validate_narrative_publication_event(),
+  private.reject_narrative_publication_event_mutation(),
+  private.validate_narrative_legacy_publication()
+  from public, anon, authenticated, service_role;
+revoke all on function public.narrative_record_contract_version()
+  from public, anon, authenticated, service_role;
+grant execute on function public.narrative_record_contract_version()
+  to anon, authenticated, service_role;
 
 -- =====================================================================
 --  RLS-LAG · offentlig (anon) læseadgang med GDPR-filtrering

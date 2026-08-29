@@ -466,6 +466,7 @@ CREATE INDEX source_rendition_content_idx
 
 CREATE TABLE private.source_record (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  public_ref     uuid NOT NULL UNIQUE DEFAULT gen_random_uuid(),
   source_id      bigint NOT NULL REFERENCES public.source(id),
   record_key     text NOT NULL CHECK (btrim(record_key) <> ''),
   record_kind    text NOT NULL CHECK (btrim(record_kind) <> ''),
@@ -3952,8 +3953,8 @@ BEGIN
     WHERE subjekt_type=p_subjekt_type AND subjekt_id=p_subjekt_id AND source_id IS NOT DISTINCT FROM p_source_id
     ORDER BY id LIMIT 1;
   IF v_id IS NULL THEN
-    INSERT INTO narrative(id, subjekt_type, subjekt_id, source_id, tekst, side, privat)
-      VALUES ((SELECT coalesce(max(id),0)+1 FROM narrative), p_subjekt_type, p_subjekt_id, p_source_id, p_tekst, p_side, p_privat)
+    INSERT INTO narrative(subjekt_type, subjekt_id, source_id, tekst, side, privat)
+      VALUES (p_subjekt_type, p_subjekt_id, p_source_id, p_tekst, p_side, p_privat)
       RETURNING id INTO v_id;
   ELSE
     UPDATE narrative SET tekst=p_tekst, privat=p_privat, side=COALESCE(p_side, side) WHERE id=v_id;
@@ -8785,3 +8786,297 @@ REVOKE ALL ON FUNCTION public.red_authorize_reimport_case_reversal(uuid,text,uui
   FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.red_reverse_reimport_cases(uuid,uuid) TO authenticated;
+
+-- =====================================================================
+-- 2026-08-29: #152 — additive narrative publication event foundation
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION public.narrative_record_contract_version()
+RETURNS integer
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$ SELECT 1 $$;
+
+CREATE TABLE private.narrative_legacy_publication (
+  legacy_publication_ref uuid NOT NULL,
+  narrative_id bigint NOT NULL,
+  source_id bigint NOT NULL,
+  baseline_state jsonb NOT NULL,
+  baseline_sha256 text NOT NULL,
+  status text NOT NULL,
+  latest_event_id uuid,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  CONSTRAINT narrative_legacy_publication_pkey
+    PRIMARY KEY (legacy_publication_ref),
+  CONSTRAINT narrative_legacy_publication_narrative_id_key
+    UNIQUE (narrative_id),
+  CONSTRAINT narrative_legacy_publication_status_check
+    CHECK (status IN ('grandfathered_publication','withdrawn','migrated')),
+  CONSTRAINT narrative_legacy_publication_baseline_state_object_check
+    CHECK (jsonb_typeof(baseline_state)='object'),
+  CONSTRAINT narrative_legacy_publication_baseline_sha256_check
+    CHECK (baseline_sha256 ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT narrative_legacy_publication_narrative_id_fkey
+    FOREIGN KEY (narrative_id) REFERENCES public.narrative(id),
+  CONSTRAINT narrative_legacy_publication_source_id_fkey
+    FOREIGN KEY (source_id) REFERENCES public.source(id)
+);
+
+CREATE TABLE private.narrative_publication_event (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  change_set_id bigint NOT NULL,
+  stream_ref uuid NOT NULL,
+  stream_version integer NOT NULL,
+  event_type text NOT NULL,
+  binding_id uuid,
+  narrative_id bigint NOT NULL,
+  source_id bigint NOT NULL,
+  source_record_id uuid,
+  legacy_publication_ref uuid,
+  decision_basis text NOT NULL,
+  before_state jsonb NOT NULL,
+  after_state jsonb NOT NULL,
+  before_state_sha256 text NOT NULL,
+  after_state_sha256 text NOT NULL,
+  reversed_event_id uuid,
+  decided_by uuid,
+  decided_by_name text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  CONSTRAINT narrative_publication_event_pkey PRIMARY KEY (id),
+  CONSTRAINT narrative_publication_event_stream_version_key
+    UNIQUE (stream_ref,stream_version),
+  CONSTRAINT narrative_publication_event_event_type_check CHECK (
+    event_type IN (
+      'baseline','draft_created','draft_updated','draft_discarded','published',
+      'published_revision','revalidated','withdrawn','legacy_migrated',
+      'legacy_withdrawn','reversal'
+    )
+  ),
+  CONSTRAINT narrative_publication_event_stream_version_check
+    CHECK (stream_version >= 1),
+  CONSTRAINT narrative_publication_event_decision_basis_check
+    CHECK (btrim(decision_basis)<>''),
+  CONSTRAINT narrative_publication_event_decided_by_name_check
+    CHECK (btrim(decided_by_name)<>''),
+  CONSTRAINT narrative_publication_event_before_state_object_check
+    CHECK (jsonb_typeof(before_state)='object'),
+  CONSTRAINT narrative_publication_event_after_state_object_check
+    CHECK (jsonb_typeof(after_state)='object'),
+  CONSTRAINT narrative_publication_event_before_state_sha256_check
+    CHECK (before_state_sha256 ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT narrative_publication_event_after_state_sha256_check
+    CHECK (after_state_sha256 ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT narrative_publication_event_target_check CHECK (
+    (
+      binding_id IS NOT NULL
+      AND source_record_id IS NOT NULL
+      AND legacy_publication_ref IS NULL
+    ) OR (
+      binding_id IS NULL
+      AND source_record_id IS NULL
+      AND legacy_publication_ref IS NOT NULL
+    )
+  ),
+  CONSTRAINT narrative_publication_event_reversal_reference_check CHECK (
+    (event_type='reversal')=(reversed_event_id IS NOT NULL)
+  ),
+  CONSTRAINT narrative_publication_event_stream_target_check CHECK (
+    stream_ref=coalesce(binding_id,legacy_publication_ref)
+  ),
+  CONSTRAINT narrative_publication_event_change_set_id_fkey
+    FOREIGN KEY (change_set_id) REFERENCES public.change_set(id),
+  CONSTRAINT narrative_publication_event_binding_id_fkey
+    FOREIGN KEY (binding_id) REFERENCES private.narrative_record_publication(id),
+  CONSTRAINT narrative_publication_event_narrative_id_fkey
+    FOREIGN KEY (narrative_id) REFERENCES public.narrative(id),
+  CONSTRAINT narrative_publication_event_source_id_fkey
+    FOREIGN KEY (source_id) REFERENCES public.source(id),
+  CONSTRAINT narrative_publication_event_source_record_id_fkey
+    FOREIGN KEY (source_record_id) REFERENCES private.source_record(id),
+  CONSTRAINT narrative_publication_event_legacy_publication_ref_fkey
+    FOREIGN KEY (legacy_publication_ref)
+    REFERENCES private.narrative_legacy_publication(legacy_publication_ref),
+  CONSTRAINT narrative_publication_event_reversed_event_id_fkey
+    FOREIGN KEY (reversed_event_id) REFERENCES private.narrative_publication_event(id)
+);
+
+ALTER TABLE private.narrative_legacy_publication
+  ADD CONSTRAINT narrative_legacy_publication_latest_event_id_fkey
+  FOREIGN KEY (latest_event_id) REFERENCES private.narrative_publication_event(id);
+
+CREATE INDEX narrative_publication_event_change_set_idx
+  ON private.narrative_publication_event(change_set_id);
+CREATE INDEX narrative_publication_event_binding_idx
+  ON private.narrative_publication_event(binding_id) WHERE binding_id IS NOT NULL;
+CREATE INDEX narrative_publication_event_narrative_idx
+  ON private.narrative_publication_event(narrative_id);
+CREATE INDEX narrative_publication_event_source_idx
+  ON private.narrative_publication_event(source_id);
+CREATE INDEX narrative_publication_event_source_record_idx
+  ON private.narrative_publication_event(source_record_id)
+  WHERE source_record_id IS NOT NULL;
+CREATE INDEX narrative_publication_event_legacy_idx
+  ON private.narrative_publication_event(legacy_publication_ref)
+  WHERE legacy_publication_ref IS NOT NULL;
+CREATE INDEX narrative_publication_event_reversed_idx
+  ON private.narrative_publication_event(reversed_event_id)
+  WHERE reversed_event_id IS NOT NULL;
+CREATE INDEX narrative_legacy_publication_source_idx
+  ON private.narrative_legacy_publication(source_id);
+CREATE INDEX narrative_legacy_publication_latest_event_idx
+  ON private.narrative_legacy_publication(latest_event_id)
+  WHERE latest_event_id IS NOT NULL;
+
+CREATE FUNCTION private.validate_narrative_publication_event()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  v_latest_version integer;
+  v_reversed_stream uuid;
+  v_reversed_version integer;
+  v_target_narrative bigint;
+  v_target_source bigint;
+  v_target_record uuid;
+  v_narrative_source bigint;
+  v_record_source bigint;
+BEGIN
+  IF NEW.binding_id IS NOT NULL THEN
+    SELECT binding.narrative_id,binding.source_record_id,
+           narrative.source_id,record.source_id
+      INTO v_target_narrative,v_target_record,v_narrative_source,v_record_source
+      FROM private.narrative_record_publication binding
+      JOIN public.narrative narrative ON narrative.id=binding.narrative_id
+      JOIN private.source_record record ON record.id=binding.source_record_id
+     WHERE binding.id=NEW.binding_id;
+    IF NOT FOUND
+       OR v_target_narrative IS DISTINCT FROM NEW.narrative_id
+       OR v_target_record IS DISTINCT FROM NEW.source_record_id
+       OR v_narrative_source IS DISTINCT FROM NEW.source_id
+       OR v_record_source IS DISTINCT FROM NEW.source_id THEN
+      RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_TARGET_IDENTITY_INVALID';
+    END IF;
+  ELSE
+    SELECT legacy.narrative_id,legacy.source_id,narrative.source_id
+      INTO v_target_narrative,v_target_source,v_narrative_source
+      FROM private.narrative_legacy_publication legacy
+      JOIN public.narrative narrative ON narrative.id=legacy.narrative_id
+     WHERE legacy.legacy_publication_ref=NEW.legacy_publication_ref;
+    IF NOT FOUND
+       OR v_target_narrative IS DISTINCT FROM NEW.narrative_id
+       OR v_target_source IS DISTINCT FROM NEW.source_id
+       OR v_narrative_source IS DISTINCT FROM NEW.source_id THEN
+      RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_TARGET_IDENTITY_INVALID';
+    END IF;
+  END IF;
+
+  SELECT max(event.stream_version)
+    INTO v_latest_version
+    FROM private.narrative_publication_event event
+   WHERE event.stream_ref=NEW.stream_ref;
+  IF NEW.stream_version IS DISTINCT FROM coalesce(v_latest_version,0)+1 THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_STREAM_VERSION_INVALID';
+  END IF;
+
+  IF NEW.reversed_event_id IS NOT NULL THEN
+    SELECT event.stream_ref,event.stream_version
+      INTO v_reversed_stream,v_reversed_version
+      FROM private.narrative_publication_event event
+     WHERE event.id=NEW.reversed_event_id;
+    IF NOT FOUND
+       OR v_reversed_stream IS DISTINCT FROM NEW.stream_ref
+       OR v_reversed_version>=NEW.stream_version THEN
+      RAISE EXCEPTION 'NARRATIVE_PUBLICATION_REVERSAL_TARGET_INVALID';
+    END IF;
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE FUNCTION private.reject_narrative_publication_event_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path=pg_catalog
+AS $$
+BEGIN
+  RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_APPEND_ONLY';
+END
+$$;
+
+CREATE FUNCTION private.validate_narrative_legacy_publication()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  v_latest private.narrative_publication_event%ROWTYPE;
+  v_narrative_source bigint;
+BEGIN
+  SELECT narrative.source_id
+    INTO v_narrative_source
+    FROM public.narrative narrative
+   WHERE narrative.id=NEW.narrative_id;
+  IF NOT FOUND OR v_narrative_source IS DISTINCT FROM NEW.source_id THEN
+    RAISE EXCEPTION 'NARRATIVE_LEGACY_PUBLICATION_TARGET_IDENTITY_INVALID';
+  END IF;
+
+  IF TG_OP='UPDATE' AND (
+    NEW.legacy_publication_ref IS DISTINCT FROM OLD.legacy_publication_ref
+    OR NEW.narrative_id IS DISTINCT FROM OLD.narrative_id
+    OR NEW.source_id IS DISTINCT FROM OLD.source_id
+    OR NEW.baseline_state IS DISTINCT FROM OLD.baseline_state
+    OR NEW.baseline_sha256 IS DISTINCT FROM OLD.baseline_sha256
+    OR NEW.created_at IS DISTINCT FROM OLD.created_at
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_LEGACY_PUBLICATION_BASELINE_IMMUTABLE';
+  END IF;
+
+  IF NEW.latest_event_id IS NOT NULL THEN
+    SELECT event.*
+      INTO v_latest
+      FROM private.narrative_publication_event event
+     WHERE event.id=NEW.latest_event_id;
+    IF NOT FOUND
+       OR v_latest.legacy_publication_ref IS DISTINCT FROM NEW.legacy_publication_ref
+       OR v_latest.narrative_id IS DISTINCT FROM NEW.narrative_id
+       OR v_latest.source_id IS DISTINCT FROM NEW.source_id
+       OR EXISTS (
+         SELECT 1
+           FROM private.narrative_publication_event later
+          WHERE later.stream_ref=NEW.legacy_publication_ref
+            AND later.stream_version>v_latest.stream_version
+       ) THEN
+      RAISE EXCEPTION 'NARRATIVE_LEGACY_PUBLICATION_LATEST_EVENT_INVALID';
+    END IF;
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER trg_narrative_publication_event_validate
+  BEFORE INSERT ON private.narrative_publication_event
+  FOR EACH ROW EXECUTE FUNCTION private.validate_narrative_publication_event();
+CREATE TRIGGER trg_narrative_publication_event_append_only
+  BEFORE UPDATE OR DELETE ON private.narrative_publication_event
+  FOR EACH ROW EXECUTE FUNCTION private.reject_narrative_publication_event_mutation();
+CREATE TRIGGER trg_narrative_legacy_publication_validate
+  BEFORE INSERT OR UPDATE ON private.narrative_legacy_publication
+  FOR EACH ROW EXECUTE FUNCTION private.validate_narrative_legacy_publication();
+
+ALTER TABLE private.narrative_publication_event ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.narrative_legacy_publication ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE private.narrative_publication_event,
+  private.narrative_legacy_publication
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION private.validate_narrative_publication_event(),
+  private.reject_narrative_publication_event_mutation(),
+  private.validate_narrative_legacy_publication()
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.narrative_record_contract_version()
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.narrative_record_contract_version()
+  TO anon,authenticated,service_role;

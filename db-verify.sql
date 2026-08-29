@@ -30,6 +30,326 @@
 SET search_path TO public, private, extensions, pg_catalog;
 
 
+-- ===== #152 Task 1: narrative publication event foundation =====
+DO $narrative_record_foundation_verify$
+DECLARE
+  v_role text;
+  v_table text;
+  v_privilege text;
+  v_default text;
+  v_source bigint;
+  v_person bigint;
+  v_narrative bigint;
+  v_change_set bigint;
+  v_run uuid := gen_random_uuid();
+  v_record uuid := gen_random_uuid();
+  v_binding uuid := gen_random_uuid();
+  v_event uuid := gen_random_uuid();
+  v_public_ref uuid;
+  v_error text;
+BEGIN
+  IF to_regprocedure('public.narrative_record_contract_version()') IS NULL
+     OR to_regclass('private.narrative_publication_event') IS NULL
+     OR to_regclass('private.narrative_legacy_publication') IS NULL THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_FOUNDATION_MISSING';
+  END IF;
+  IF public.narrative_record_contract_version()<>1 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_CONTRACT_VERSION_INVALID';
+  END IF;
+
+  SELECT pg_get_expr(d.adbin,d.adrelid)
+    INTO v_default
+    FROM pg_attribute a
+    JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+   WHERE a.attrelid='private.source_record'::regclass
+     AND a.attname='public_ref';
+  IF replace(v_default,'pg_catalog.','') IS DISTINCT FROM 'gen_random_uuid()'
+     OR EXISTS (SELECT 1 FROM private.source_record WHERE public_ref IS NULL)
+     OR (SELECT count(*) FROM private.source_record)
+        IS DISTINCT FROM (SELECT count(DISTINCT public_ref) FROM private.source_record) THEN
+    RAISE EXCEPTION 'SOURCE_RECORD_PUBLIC_REF_INTEGRITY_INVALID';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM private.narrative_publication_event event
+     WHERE event.before_state_sha256 !~ '^[0-9a-f]{64}$'
+        OR event.after_state_sha256 !~ '^[0-9a-f]{64}$'
+        OR jsonb_typeof(event.before_state)<>'object'
+        OR jsonb_typeof(event.after_state)<>'object'
+        OR btrim(event.decision_basis)=''
+        OR btrim(event.decided_by_name)=''
+        OR event.stream_ref<>coalesce(event.binding_id,event.legacy_publication_ref)
+        OR NOT (
+          (event.binding_id IS NOT NULL AND event.source_record_id IS NOT NULL
+           AND event.legacy_publication_ref IS NULL)
+          OR
+          (event.binding_id IS NULL AND event.source_record_id IS NULL
+           AND event.legacy_publication_ref IS NOT NULL)
+        )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_SHAPE_INVALID';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM private.narrative_publication_event event
+      LEFT JOIN private.narrative_publication_event reversed
+        ON reversed.id=event.reversed_event_id
+     WHERE (event.event_type='reversal') IS DISTINCT FROM
+           (event.reversed_event_id IS NOT NULL)
+        OR (
+          event.reversed_event_id IS NOT NULL
+          AND (
+            reversed.id IS NULL
+            OR reversed.stream_ref<>event.stream_ref
+            OR reversed.stream_version>=event.stream_version
+          )
+        )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_REVERSAL_INVALID';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM private.narrative_publication_event event
+      LEFT JOIN private.narrative_record_publication binding
+        ON binding.id=event.binding_id
+      LEFT JOIN private.narrative_legacy_publication legacy
+        ON legacy.legacy_publication_ref=event.legacy_publication_ref
+     WHERE (
+       event.binding_id IS NOT NULL
+       AND (
+         binding.id IS NULL
+         OR binding.narrative_id<>event.narrative_id
+         OR binding.source_record_id<>event.source_record_id
+       )
+     ) OR (
+       event.legacy_publication_ref IS NOT NULL
+       AND (
+         legacy.legacy_publication_ref IS NULL
+         OR legacy.narrative_id<>event.narrative_id
+         OR legacy.source_id<>event.source_id
+       )
+     )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_IDENTITY_INVALID';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM private.narrative_legacy_publication legacy
+     WHERE legacy.baseline_sha256 !~ '^[0-9a-f]{64}$'
+        OR jsonb_typeof(legacy.baseline_state)<>'object'
+        OR (
+          legacy.latest_event_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM private.narrative_publication_event event
+             WHERE event.id=legacy.latest_event_id
+               AND event.legacy_publication_ref=legacy.legacy_publication_ref
+               AND event.narrative_id=legacy.narrative_id
+               AND event.source_id=legacy.source_id
+               AND NOT EXISTS (
+                 SELECT 1 FROM private.narrative_publication_event later
+                  WHERE later.stream_ref=event.stream_ref
+                    AND later.stream_version>event.stream_version
+               )
+          )
+        )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_LEGACY_PUBLICATION_INTEGRITY_INVALID';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+     WHERE tgrelid='private.source_record'::regclass
+       AND tgname='trg_source_record_append_only'
+       AND tgenabled<>'D'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+     WHERE tgrelid='private.narrative_publication_event'::regclass
+       AND tgname='trg_narrative_publication_event_append_only'
+       AND tgenabled<>'D'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+     WHERE tgrelid='private.narrative_publication_event'::regclass
+       AND tgname='trg_narrative_publication_event_validate'
+       AND tgenabled<>'D'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+     WHERE tgrelid='private.narrative_legacy_publication'::regclass
+       AND tgname='trg_narrative_legacy_publication_validate'
+       AND tgenabled<>'D'
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_IMMUTABILITY_TRIGGER_MISSING';
+  END IF;
+
+  FOREACH v_table IN ARRAY ARRAY[
+    'private.narrative_publication_event',
+    'private.narrative_legacy_publication'
+  ] LOOP
+    IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid=v_table::regclass) THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PRIVATE_RLS_DISABLED: %',v_table;
+    END IF;
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+      FOREACH v_privilege IN ARRAY ARRAY['SELECT','INSERT','UPDATE','DELETE'] LOOP
+        IF has_table_privilege(v_role,v_table,v_privilege) THEN
+          RAISE EXCEPTION 'NARRATIVE_RECORD_PRIVATE_GRANT_INVALID: % % %',
+            v_role,v_privilege,v_table;
+        END IF;
+      END LOOP;
+    END LOOP;
+    IF EXISTS (
+      SELECT 1
+        FROM pg_class relation
+        CROSS JOIN LATERAL aclexplode(
+          coalesce(relation.relacl,acldefault('r',relation.relowner))
+        ) acl
+       WHERE relation.oid=v_table::regclass
+         AND acl.grantee=0
+         AND acl.privilege_type IN ('SELECT','INSERT','UPDATE','DELETE')
+    ) THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PRIVATE_PUBLIC_GRANT_INVALID: %',v_table;
+    END IF;
+  END LOOP;
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_function_privilege(
+      v_role,'private.validate_narrative_publication_event()'::regprocedure,'EXECUTE'
+    ) OR has_function_privilege(
+      v_role,'private.reject_narrative_publication_event_mutation()'::regprocedure,'EXECUTE'
+    ) OR has_function_privilege(
+      v_role,'private.validate_narrative_legacy_publication()'::regprocedure,'EXECUTE'
+    ) THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PRIVATE_HELPER_GRANT_INVALID: %',v_role;
+    END IF;
+  END LOOP;
+  IF EXISTS (
+    SELECT 1
+      FROM pg_proc function
+      CROSS JOIN LATERAL aclexplode(
+        coalesce(function.proacl,acldefault('f',function.proowner))
+      ) acl
+     WHERE function.oid IN (
+       'private.validate_narrative_publication_event()'::regprocedure,
+       'private.reject_narrative_publication_event_mutation()'::regprocedure,
+       'private.validate_narrative_legacy_publication()'::regprocedure
+     )
+       AND acl.grantee=0
+       AND acl.privilege_type='EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PRIVATE_HELPER_PUBLIC_GRANT_INVALID';
+  END IF;
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF NOT has_function_privilege(
+      v_role,'public.narrative_record_contract_version()'::regprocedure,'EXECUTE'
+    ) THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_VERSION_GRANT_MISSING: %',v_role;
+    END IF;
+  END LOOP;
+  IF EXISTS (
+    SELECT 1
+      FROM pg_proc function
+      CROSS JOIN LATERAL aclexplode(
+        coalesce(function.proacl,acldefault('f',function.proowner))
+      ) acl
+     WHERE function.oid='public.narrative_record_contract_version()'::regprocedure
+       AND acl.grantee=0
+       AND acl.privilege_type='EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_VERSION_PUBLIC_GRANT_INVALID';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM pg_proc function
+      JOIN pg_namespace namespace ON namespace.oid=function.pronamespace
+     WHERE namespace.nspname='public'
+       AND function.prosrc LIKE '%legacy_migrated%'
+       AND (
+         has_function_privilege('anon',function.oid,'EXECUTE')
+         OR has_function_privilege('authenticated',function.oid,'EXECUTE')
+         OR has_function_privilege('service_role',function.oid,'EXECUTE')
+       )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_LEGACY_MIGRATION_WRITER_EXPOSED';
+  END IF;
+
+  -- Exercise the immutable triggers with a fully rolled-back fixture.
+  BEGIN
+    SELECT least(coalesce(min(id),0),0)-152 INTO v_source FROM public.source;
+    SELECT least(coalesce(min(id),0),0)-152 INTO v_person FROM public.person;
+    SELECT least(coalesce(min(id),0),0)-152 INTO v_narrative FROM public.narrative;
+    SELECT least(coalesce(min(id),0),0)-152 INTO v_change_set FROM public.change_set;
+
+    INSERT INTO public.source(id,slags,titel)
+    VALUES (v_source,'DAA-udgave','Narrative record verify fixture');
+    INSERT INTO private.extraction_run(
+      id,source_id,run_key,schema_version,extractor_version,profile_version,
+      input_sha256,manifest
+    ) VALUES (
+      v_run,v_source,'narrative-record-verify','1','verify','verify',repeat('1',64),'{}'
+    );
+    INSERT INTO private.source_record(
+      id,source_id,record_key,record_kind,created_run_id
+    ) VALUES (
+      v_record,v_source,'narrative-record-verify','person',v_run
+    ) RETURNING public_ref INTO v_public_ref;
+
+    v_error:=NULL;
+    BEGIN
+      UPDATE private.source_record SET public_ref=gen_random_uuid() WHERE id=v_record;
+    EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+    END;
+    IF v_error IS NULL
+       OR (SELECT public_ref FROM private.source_record WHERE id=v_record)
+          IS DISTINCT FROM v_public_ref THEN
+      RAISE EXCEPTION 'SOURCE_RECORD_PUBLIC_REF_IMMUTABILITY_NOT_ENFORCED';
+    END IF;
+
+    INSERT INTO public.person(id,levende,privat,visning_navn)
+    VALUES (v_person,false,false,'Narrative record verify fixture');
+    INSERT INTO public.narrative(id,subjekt_type,subjekt_id,source_id,tekst,privat)
+    VALUES (v_narrative,'person',v_person,v_source,'Verify text',false);
+    INSERT INTO private.narrative_record_publication(
+      id,narrative_id,source_record_id,record_label,citation_label,status
+    ) VALUES (v_binding,v_narrative,v_record,'Verify','Verify citation','draft');
+    INSERT INTO public.change_set(id,operation,summary)
+    VALUES (v_change_set,'narrative_record_verify','Narrative record verify');
+    INSERT INTO private.narrative_publication_event(
+      id,change_set_id,stream_ref,stream_version,event_type,binding_id,narrative_id,
+      source_id,source_record_id,decision_basis,before_state,after_state,
+      before_state_sha256,after_state_sha256,decided_by_name
+    ) VALUES (
+      v_event,v_change_set,v_binding,1,'baseline',v_binding,v_narrative,v_source,
+      v_record,'Verify baseline',jsonb_build_object('state','before'),
+      jsonb_build_object('state','after'),repeat('a',64),repeat('b',64),'Verify actor'
+    );
+
+    v_error:=NULL;
+    BEGIN
+      UPDATE private.narrative_publication_event
+         SET decision_basis='changed'
+       WHERE id=v_event;
+    EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+    END;
+    IF v_error IS DISTINCT FROM 'NARRATIVE_PUBLICATION_EVENT_APPEND_ONLY' THEN
+      RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_UPDATE_NOT_IMMUTABLE';
+    END IF;
+    v_error:=NULL;
+    BEGIN
+      DELETE FROM private.narrative_publication_event WHERE id=v_event;
+    EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+    END;
+    IF v_error IS DISTINCT FROM 'NARRATIVE_PUBLICATION_EVENT_APPEND_ONLY' THEN
+      RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_DELETE_NOT_IMMUTABLE';
+    END IF;
+
+    RAISE EXCEPTION 'ROLLBACK_NARRATIVE_RECORD_FOUNDATION_VERIFY';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM<>'ROLLBACK_NARRATIVE_RECORD_FOUNDATION_VERIFY' THEN
+      RAISE;
+    END IF;
+  END;
+
+  RAISE NOTICE 'OK: #152 narrative publication event foundation er additiv, privat og uforanderlig';
+END
+$narrative_record_foundation_verify$;
+
+
 -- ===== Task 1: Tabeller profiles + suggestion =====
 -- Forvent: begge tabeller findes, rolle-CHECK håndhæves.
 
