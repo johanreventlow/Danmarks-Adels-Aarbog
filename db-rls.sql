@@ -721,16 +721,20 @@ BEGIN
 END
 $redaction_rpc_allow_list$;
 
--- #152 Task 3 remains additive and uncallable until Task 7's atomic cutover.
--- The private kernel is denied alongside every currently installed wrapper.
+-- #152 Tasks 3-4 remain additive and uncallable until Task 7's atomic cutover.
+-- The private kernels are denied alongside every currently installed wrapper.
 REVOKE ALL ON FUNCTION
   private.mutate_person_narrative_record(text,bigint,bigint,text,text,boolean,text),
+  private.withdraw_legacy_narrative(uuid,text,text),
+  private.reverse_narrative_publication_event(uuid,text),
   public.red_upsert_person_narrative_record(bigint,bigint,text,text,boolean,text),
   public.red_publicer_person_narrative_record(bigint,bigint,text,text),
   public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text),
   public.red_revalider_person_narrative_record(bigint,bigint,text,text),
   public.red_kasser_person_narrative_record(bigint,bigint,text,text),
-  public.red_tilbagetraek_person_narrative_record(bigint,bigint,text,text)
+  public.red_tilbagetraek_person_narrative_record(bigint,bigint,text,text),
+  public.red_tilbagetraek_legacy_narrative(uuid,text,text),
+  public.red_fortryd_person_narrative_publication_event(uuid,text)
   FROM PUBLIC,anon,authenticated,service_role;
 -- Den historiske enkeltrække-RPC mangler v1's persona-/regel-/værdikontrol.
 -- Den må derfor ikke blive genåbnet af den generelle redaktions-RPC-grant ovenfor.

@@ -2027,6 +2027,138 @@ END
 $narrative_record_task3_acl_classifier$;
 DROP FUNCTION public.red_task3_unclassified_acl_probe(integer);
 
+-- Task 4 structural contract: additive legacy withdrawal and dedicated
+-- reversal stay owner-only at version 1, their helpers keep a fixed private
+-- boundary, generic undo rejects publication-owned change sets before opening
+-- its own audit set, and person hard-delete takes the shared cutover gate first.
+DO $narrative_record_task4_structure$
+DECLARE
+  v_signature text;
+  v_role text;
+  v_definition text;
+  v_lock_position integer;
+  v_version_position integer;
+  v_state_position integer;
+  v_guard_position integer;
+  v_change_set_position integer;
+BEGIN
+  FOREACH v_signature IN ARRAY ARRAY[
+    'private.withdraw_legacy_narrative(uuid,text,text)',
+    'private.reverse_narrative_publication_event(uuid,text)',
+    'public.red_tilbagetraek_legacy_narrative(uuid,text,text)',
+    'public.red_fortryd_person_narrative_publication_event(uuid,text)'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NULL THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TASK4_FUNCTION_MISSING: %',v_signature;
+    END IF;
+    IF pg_get_function_result(to_regprocedure(v_signature)) IS DISTINCT FROM 'jsonb' THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TASK4_RESULT_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+
+  IF EXISTS (
+    SELECT 1
+      FROM pg_proc function
+     WHERE function.oid IN (
+       'private.withdraw_legacy_narrative(uuid,text,text)'::regprocedure,
+       'private.reverse_narrative_publication_event(uuid,text)'::regprocedure,
+       'public.red_tilbagetraek_legacy_narrative(uuid,text,text)'::regprocedure,
+       'public.red_fortryd_person_narrative_publication_event(uuid,text)'::regprocedure
+     )
+       AND (
+         NOT function.prosecdef
+         OR function.provolatile<>'v'
+         OR function.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+       )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK4_SECURITY_CONTRACT_INVALID';
+  END IF;
+
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    FOREACH v_signature IN ARRAY ARRAY[
+      'private.withdraw_legacy_narrative(uuid,text,text)',
+      'private.reverse_narrative_publication_event(uuid,text)',
+      'public.red_tilbagetraek_legacy_narrative(uuid,text,text)',
+      'public.red_fortryd_person_narrative_publication_event(uuid,text)'
+    ] LOOP
+      IF has_function_privilege(v_role,v_signature,'EXECUTE') THEN
+        RAISE EXCEPTION 'NARRATIVE_RECORD_TASK4_PRECUTOVER_GRANT_INVALID: % %',
+          v_role,v_signature;
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  v_definition:=pg_get_functiondef(
+    'private.withdraw_legacy_narrative(uuid,text,text)'::regprocedure
+  );
+  v_lock_position:=strpos(v_definition,'pg_advisory_xact_lock_shared(');
+  v_version_position:=strpos(v_definition,'public.narrative_record_contract_version()');
+  v_state_position:=strpos(v_definition,'private.narrative_legacy_state(');
+  IF v_lock_position=0 OR v_version_position<=v_lock_position
+     OR v_state_position<=v_version_position
+     OR strpos(v_definition,'''daa-narrative-record-contract''')=0 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK4_LEGACY_GATE_OR_LOCK_ORDER_INVALID';
+  END IF;
+
+  v_definition:=pg_get_functiondef(
+    'private.reverse_narrative_publication_event(uuid,text)'::regprocedure
+  );
+  v_lock_position:=strpos(v_definition,'pg_advisory_xact_lock_shared(');
+  v_version_position:=strpos(v_definition,'public.narrative_record_contract_version()');
+  IF v_lock_position=0 OR v_version_position<=v_lock_position
+     OR strpos(v_definition,'''daa-narrative-record-contract''')=0
+     OR strpos(v_definition,'private.narrative_record_state(')<=v_version_position
+     OR strpos(v_definition,'private.narrative_legacy_state(')<=v_version_position THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK4_REVERSAL_GATE_OR_LOCK_ORDER_INVALID';
+  END IF;
+
+  v_definition:=pg_get_functiondef(
+    'public.red_fortryd_change_set(bigint,boolean)'::regprocedure
+  );
+  v_lock_position:=strpos(
+    v_definition,'LOCK TABLE public.change_set IN ACCESS SHARE MODE'
+  );
+  v_guard_position:=strpos(
+    v_definition,'NARRATIVE_RECORD_DEDICATED_REVERSAL_REQUIRED'
+  );
+  v_change_set_position:=strpos(
+    v_definition,'INSERT INTO change_set'
+  );
+  IF v_lock_position=0 OR v_guard_position<=v_lock_position
+     OR v_change_set_position=0
+     OR v_guard_position>=v_change_set_position
+     OR strpos(v_definition,'private.narrative_publication_event')=0
+     OR strpos(v_definition,'private.narrative_legacy_publication')=0 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK4_GENERIC_UNDO_GUARD_INVALID';
+  END IF;
+
+  v_definition:=pg_get_functiondef('public.red_slet_person(bigint)'::regprocedure);
+  v_lock_position:=strpos(v_definition,'pg_advisory_xact_lock_shared(');
+  v_guard_position:=strpos(
+    v_definition,'PERSON_HAR_NARRATIVE_PUBLICATION_HISTORY'
+  );
+  v_change_set_position:=strpos(v_definition,'begin_change_set(');
+  IF v_lock_position=0 OR v_guard_position<=v_lock_position
+     OR v_change_set_position<=v_guard_position
+     OR strpos(v_definition,'''daa-narrative-record-contract''')=0 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK4_PERSON_DELETE_GUARD_INVALID';
+  END IF;
+
+  v_definition:=pg_get_functiondef(
+    'public.red_person_narrative_publication_history(bigint)'::regprocedure
+  );
+  IF strpos(v_definition,'NARRATIVE_PUBLICATION_REVERSAL_NOT_REVERSIBLE')=0 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK4_HISTORY_REVERSAL_REASON_INVALID';
+  END IF;
+  IF strpos(v_definition,'NARRATIVE_PUBLICATION_EVENT_NOT_REVERSIBLE')=0
+     OR strpos(v_definition,'classified.event_type NOT IN')=0 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK4_HISTORY_LEGAL_EVENT_SET_INVALID';
+  END IF;
+
+  RAISE NOTICE 'OK: narrative record Task 4 signatures, gates and pre-cutover ACL';
+END
+$narrative_record_task4_structure$;
+
 -- Task 3 contract: all six record mutations remain owner-only while version 1
 -- is active. Their behavior is exercised below inside a savepoint which swaps
 -- only the capability function to version 2 and is rolled back afterwards.
@@ -3014,6 +3146,776 @@ BEGIN
 END
 $narrative_record_task3_version_restored$;
 
+SAVEPOINT narrative_record_task4_version_2;
+CREATE OR REPLACE FUNCTION public.narrative_record_contract_version()
+RETURNS integer
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$ SELECT 2 $$;
+
+CREATE FUNCTION pg_temp.task4_write_snapshot()
+RETURNS jsonb
+LANGUAGE sql
+VOLATILE
+SET search_path=pg_catalog
+AS $task4_write_snapshot$
+  SELECT jsonb_build_object(
+    'change_set',coalesce((
+      SELECT jsonb_agg(to_jsonb(row) ORDER BY row.id) FROM public.change_set row
+    ),'[]'::jsonb),
+    'change_event',coalesce((
+      SELECT jsonb_agg(to_jsonb(row) ORDER BY row.id) FROM public.change_event row
+    ),'[]'::jsonb),
+    'person',coalesce((
+      SELECT jsonb_agg(to_jsonb(row) ORDER BY row.id) FROM public.person row
+    ),'[]'::jsonb),
+    'narrative',coalesce((
+      SELECT jsonb_agg(to_jsonb(row) ORDER BY row.id) FROM public.narrative row
+    ),'[]'::jsonb),
+    'binding',coalesce((
+      SELECT jsonb_agg(to_jsonb(row) ORDER BY row.id)
+        FROM private.narrative_record_publication row
+    ),'[]'::jsonb),
+    'legacy',coalesce((
+      SELECT jsonb_agg(to_jsonb(row) ORDER BY row.legacy_publication_ref)
+        FROM private.narrative_legacy_publication row
+    ),'[]'::jsonb),
+    'publication_event',coalesce((
+      SELECT jsonb_agg(to_jsonb(row) ORDER BY row.created_at,row.id)
+        FROM private.narrative_publication_event row
+    ),'[]'::jsonb)
+  )
+$task4_write_snapshot$;
+
+CREATE FUNCTION pg_temp.task4_expect_reverse_error(
+  p_event_id uuid,
+  p_expected_state_sha256 text,
+  p_expected_error text
+) RETURNS void
+LANGUAGE plpgsql
+VOLATILE
+SET search_path=pg_catalog
+AS $task4_expect_reverse_error$
+DECLARE
+  v_before jsonb;
+  v_after jsonb;
+  v_error text;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  v_before:=pg_temp.task4_write_snapshot();
+  BEGIN
+    PERFORM public.red_fortryd_person_narrative_publication_event(
+      p_event_id,p_expected_state_sha256
+    );
+  EXCEPTION WHEN OTHERS THEN
+    v_error:=SQLERRM;
+  END;
+  v_after:=pg_temp.task4_write_snapshot();
+  IF v_error IS DISTINCT FROM p_expected_error THEN
+    RAISE EXCEPTION 'TASK4_REVERSAL_ERROR_MISMATCH: event=% expected=% actual=%',
+      p_event_id,p_expected_error,v_error;
+  END IF;
+  IF v_after IS DISTINCT FROM v_before THEN
+    RAISE EXCEPTION 'TASK4_REVERSAL_REJECTION_CHANGED_WRITE_SET: event=%',p_event_id;
+  END IF;
+END
+$task4_expect_reverse_error$;
+
+CREATE FUNCTION pg_temp.task4_expect_legacy_error(
+  p_legacy_publication_ref uuid,
+  p_expected_state_sha256 text,
+  p_reason text,
+  p_expected_error text
+) RETURNS void
+LANGUAGE plpgsql
+VOLATILE
+SET search_path=pg_catalog
+AS $task4_expect_legacy_error$
+DECLARE
+  v_before jsonb;
+  v_after jsonb;
+  v_error text;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  v_before:=pg_temp.task4_write_snapshot();
+  BEGIN
+    PERFORM public.red_tilbagetraek_legacy_narrative(
+      p_legacy_publication_ref,p_expected_state_sha256,p_reason
+    );
+  EXCEPTION WHEN OTHERS THEN
+    v_error:=SQLERRM;
+  END;
+  v_after:=pg_temp.task4_write_snapshot();
+  IF v_error IS DISTINCT FROM p_expected_error THEN
+    RAISE EXCEPTION 'TASK4_LEGACY_ERROR_MISMATCH: ref=% expected=% actual=%',
+      p_legacy_publication_ref,p_expected_error,v_error;
+  END IF;
+  IF v_after IS DISTINCT FROM v_before THEN
+    RAISE EXCEPTION 'TASK4_LEGACY_REJECTION_CHANGED_WRITE_SET: ref=%',
+      p_legacy_publication_ref;
+  END IF;
+END
+$task4_expect_legacy_error$;
+
+DO $narrative_record_task4_behavior$
+DECLARE
+  v_actor uuid := '15200000-0000-0000-0000-000000000001';
+  v_person bigint := -91521001;
+  v_state jsonb;
+  v_other_state jsonb;
+  v_result jsonb;
+  v_reverse_result jsonb;
+  v_event_create uuid;
+  v_event_update uuid;
+  v_event_discard uuid;
+  v_event_publish uuid;
+  v_event_revision uuid;
+  v_event_revalidate uuid;
+  v_event_withdraw uuid;
+  v_event_create_only uuid;
+  v_event_create_only_reversal uuid;
+  v_event_legacy uuid;
+  v_event_legacy_reversal uuid;
+  v_event_legacy_migrated uuid;
+  v_event_drift uuid;
+  v_narrative_id bigint;
+  v_binding_id uuid;
+  v_legacy_active uuid := '15210000-0000-0000-0000-000000000201';
+  v_legacy_drift uuid := '15210000-0000-0000-0000-000000000203';
+  v_legacy_sibling uuid := '15240000-0000-0000-0000-000000000210';
+  v_legacy_sibling_state jsonb;
+  v_policy jsonb;
+  v_before jsonb;
+  v_after jsonb;
+  v_history jsonb;
+  v_preview jsonb;
+  v_error text;
+  v_cs bigint;
+  v_baseline_cs bigint;
+  v_baseline_state jsonb;
+  v_baseline_hash text;
+  v_baseline_event uuid := '15240000-0000-0000-0000-000000002103';
+  v_reversed_type text;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+
+  -- One stream exercises update, discard, publish, published revision,
+  -- revalidation and withdrawal reversals without deleting any history.
+  PERFORM set_config('app.change_set_id','',true);
+  v_state:=private.narrative_record_state(
+    v_person,-91521001,'accepted-principal',false
+  );
+  v_result:=pg_temp.task3_call(
+    'upsert',v_person,'accepted-principal','Task 4 draft one',false,
+    v_state->>'state_sha256'
+  );
+  v_event_create:=(v_result->>'event_id')::uuid;
+
+  PERFORM set_config('app.change_set_id','',true);
+  v_state:=private.narrative_record_state(
+    v_person,-91521001,'accepted-principal',false
+  );
+  v_result:=pg_temp.task3_call(
+    'upsert',v_person,'accepted-principal','Task 4 draft two',true,
+    v_state->>'state_sha256'
+  );
+  v_event_update:=(v_result->>'event_id')::uuid;
+  PERFORM pg_temp.task4_expect_reverse_error(
+    v_event_create,
+    private.narrative_record_state(
+      v_person,-91521001,'accepted-principal',false
+    )->>'state_sha256',
+    'NARRATIVE_PUBLICATION_EVENT_NOT_LATEST'
+  );
+  PERFORM set_config('app.change_set_id','',true);
+  v_reverse_result:=public.red_fortryd_person_narrative_publication_event(
+    v_event_update,
+    private.narrative_record_state(
+      v_person,-91521001,'accepted-principal',false
+    )->>'state_sha256'
+  );
+  IF (SELECT tekst FROM public.narrative
+       WHERE id=(v_result->>'narrative_id')::bigint)
+       IS DISTINCT FROM 'Task 4 draft one'
+     OR (SELECT privat FROM public.narrative
+          WHERE id=(v_result->>'narrative_id')::bigint) IS DISTINCT FROM false THEN
+    RAISE EXCEPTION 'TASK4_DRAFT_UPDATE_REVERSAL_DID_NOT_RESTORE_BEFORE_STATE';
+  END IF;
+
+  PERFORM set_config('app.change_set_id','',true);
+  v_state:=private.narrative_record_state(
+    v_person,-91521001,'accepted-principal',false
+  );
+  v_result:=pg_temp.task3_call(
+    'discard',v_person,'accepted-principal',NULL,NULL,v_state->>'state_sha256'
+  );
+  v_event_discard:=(v_result->>'event_id')::uuid;
+  PERFORM set_config('app.change_set_id','',true);
+  v_reverse_result:=public.red_fortryd_person_narrative_publication_event(
+    v_event_discard,
+    private.narrative_record_state(
+      v_person,-91521001,'accepted-principal',false
+    )->>'state_sha256'
+  );
+  IF private.narrative_record_state(
+       v_person,-91521001,'accepted-principal',false
+     )->>'publication_status' IS DISTINCT FROM 'draft' THEN
+    RAISE EXCEPTION 'TASK4_DRAFT_DISCARD_REVERSAL_DID_NOT_RESTORE_DRAFT';
+  END IF;
+
+  PERFORM set_config('app.change_set_id','',true);
+  v_state:=private.narrative_record_state(
+    v_person,-91521001,'accepted-principal',false
+  );
+  v_result:=pg_temp.task3_call(
+    'publish',v_person,'accepted-principal',NULL,NULL,v_state->>'state_sha256'
+  );
+  v_event_publish:=(v_result->>'event_id')::uuid;
+  PERFORM set_config('app.change_set_id','',true);
+  v_reverse_result:=public.red_fortryd_person_narrative_publication_event(
+    v_event_publish,
+    private.narrative_record_state(
+      v_person,-91521001,'accepted-principal',false
+    )->>'state_sha256'
+  );
+  SELECT binding.id INTO STRICT v_binding_id
+    FROM private.narrative_record_publication binding
+    JOIN public.narrative narrative ON narrative.id=binding.narrative_id
+   WHERE narrative.subjekt_id=v_person
+     AND binding.source_record_id='15210000-0000-0000-0000-000000000101';
+  IF (SELECT status FROM private.narrative_record_publication WHERE id=v_binding_id)
+       IS DISTINCT FROM 'draft'
+     OR (SELECT published_at FROM private.narrative_record_publication WHERE id=v_binding_id)
+       IS NOT NULL THEN
+    RAISE EXCEPTION 'TASK4_PUBLISH_REVERSAL_DID_NOT_RESTORE_DRAFT';
+  END IF;
+
+  PERFORM set_config('app.change_set_id','',true);
+  v_result:=pg_temp.task3_call(
+    'publish',v_person,'accepted-principal',NULL,NULL,
+    private.narrative_record_state(
+      v_person,-91521001,'accepted-principal',false
+    )->>'state_sha256'
+  );
+  PERFORM set_config('app.change_set_id','',true);
+  v_result:=pg_temp.task3_call(
+    'revise',v_person,'accepted-principal','Task 4 published revision',NULL,
+    private.narrative_record_state(
+      v_person,-91521001,'accepted-principal',false
+    )->>'state_sha256'
+  );
+  v_event_revision:=(v_result->>'event_id')::uuid;
+  PERFORM set_config('app.change_set_id','',true);
+  v_reverse_result:=public.red_fortryd_person_narrative_publication_event(
+    v_event_revision,
+    private.narrative_record_state(
+      v_person,-91521001,'accepted-principal',false
+    )->>'state_sha256'
+  );
+  IF (SELECT tekst FROM public.narrative WHERE id=(v_result->>'narrative_id')::bigint)
+       IS DISTINCT FROM 'Task 4 draft one' THEN
+    RAISE EXCEPTION 'TASK4_PUBLISHED_REVISION_REVERSAL_DID_NOT_RESTORE_TEXT';
+  END IF;
+
+  -- Provenance drift becomes an explicit revalidation decision. Reversing that
+  -- decision appends history and leaves the projection byte-identical.
+  INSERT INTO private.source_record_occurrence(
+    id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,
+    verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id
+  ) VALUES (
+    '15240000-0000-0000-0000-000000000250',
+    '15210000-0000-0000-0000-000000000003','task4-revalidate-extra',
+    14,14,21,40,'Task 4 extra occurrence','task4-revalidate-physical',
+    'task4-revalidate-structural','15210000-0000-0000-0000-000000000002'
+  );
+  INSERT INTO private.source_record_anchor_event(
+    id,occurrence_id,source_record_id,decision_status,evidence,version,
+    decided_by,decided_by_name
+  ) VALUES (
+    '15240000-0000-0000-0000-000000000350',
+    '15240000-0000-0000-0000-000000000250',
+    '15210000-0000-0000-0000-000000000101','accepted',
+    jsonb_build_object('basis','Task 4 provenance drift'),1,v_actor,'Task 4 actor'
+  );
+  v_state:=private.narrative_record_state(
+    v_person,-91521001,'accepted-principal',false
+  );
+  IF v_state->>'publication_status' IS DISTINCT FROM 'stale_published' THEN
+    RAISE EXCEPTION 'TASK4_REVALIDATE_FIXTURE_NOT_STALE';
+  END IF;
+  PERFORM set_config('app.change_set_id','',true);
+  v_result:=pg_temp.task3_call(
+    'revalidate',v_person,'accepted-principal',NULL,NULL,v_state->>'state_sha256'
+  );
+  v_event_revalidate:=(v_result->>'event_id')::uuid;
+  v_before:=(SELECT to_jsonb(narrative) FROM public.narrative narrative
+              WHERE narrative.id=(v_result->>'narrative_id')::bigint);
+  PERFORM set_config('app.change_set_id','',true);
+  v_reverse_result:=public.red_fortryd_person_narrative_publication_event(
+    v_event_revalidate,
+    private.narrative_record_state(
+      v_person,-91521001,'accepted-principal',false
+    )->>'state_sha256'
+  );
+  v_after:=(SELECT to_jsonb(narrative) FROM public.narrative narrative
+             WHERE narrative.id=(v_result->>'narrative_id')::bigint);
+  IF v_after IS DISTINCT FROM v_before THEN
+    RAISE EXCEPTION 'TASK4_REVALIDATION_REVERSAL_CHANGED_PROJECTION';
+  END IF;
+  IF private.narrative_record_state(
+       v_person,-91521001,'accepted-principal',false
+     )->>'publication_status' IS DISTINCT FROM 'stale_published' THEN
+    RAISE EXCEPTION 'TASK4_REVALIDATION_REVERSAL_DID_NOT_RESTORE_STALE_STATE';
+  END IF;
+
+  PERFORM set_config('app.change_set_id','',true);
+  v_result:=pg_temp.task3_call(
+    'withdraw',v_person,'accepted-principal',NULL,NULL,
+    private.narrative_record_state(
+      v_person,-91521001,'accepted-principal',false
+    )->>'state_sha256'
+  );
+  v_event_withdraw:=(v_result->>'event_id')::uuid;
+
+  -- Restoring a record publication rechecks the underlying narrative/person
+  -- rows even though a withdrawn binding is absent from the public projector.
+  PERFORM set_config('app.change_set_id','',true);
+  UPDATE public.person SET privat=true WHERE id=v_person;
+  PERFORM pg_temp.task4_expect_reverse_error(
+    v_event_withdraw,
+    private.narrative_record_state(
+      v_person,-91521001,'accepted-principal',false
+    )->>'state_sha256',
+    'NARRATIVE_PUBLICATION_REVERSAL_POLICY_BLOCKED'
+  );
+  PERFORM set_config('app.change_set_id','',true);
+  UPDATE public.person SET privat=false WHERE id=v_person;
+
+  -- Reversal tokens cannot be borrowed across streams.
+  PERFORM pg_temp.task2_seed_record(
+    '15240000-0000-0000-0000-000000000101','task4-create-only',
+    '15240000-0000-0000-0000-000000000201',
+    '15240000-0000-0000-0000-000000000301',
+    '15240000-0000-0000-0000-000000000401',41
+  );
+  PERFORM pg_temp.task2_seed_identity(
+    '15240000-0000-0000-0000-000000000101',
+    '15240000-0000-0000-0000-000000000401',
+    '15240000-0000-0000-0000-000000000501',
+    '15240000-0000-0000-0000-000000000601',
+    '15240000-0000-0000-0000-000000000701',
+    '15240000-0000-0000-0000-000000000801',
+    '15240000-0000-0000-0000-000000000901',v_person,
+    'principal_member',-91521001
+  );
+  PERFORM set_config('app.change_set_id','',true);
+  v_result:=pg_temp.task3_call(
+    'upsert',v_person,'task4-create-only','Task 4 create only',false,
+    private.narrative_record_state(
+      v_person,-91521001,'task4-create-only',false
+    )->>'state_sha256'
+  );
+  v_event_create_only:=(v_result->>'event_id')::uuid;
+  v_narrative_id:=(v_result->>'narrative_id')::bigint;
+  v_other_state:=private.narrative_record_state(
+    v_person,-91521001,'task4-create-only',false
+  );
+  PERFORM pg_temp.task4_expect_reverse_error(
+    v_event_withdraw,v_other_state->>'state_sha256',
+    'NARRATIVE_RECORD_STATE_STALE'
+  );
+  PERFORM set_config('app.change_set_id','',true);
+  v_reverse_result:=public.red_fortryd_person_narrative_publication_event(
+    v_event_create_only,v_other_state->>'state_sha256'
+  );
+  v_event_create_only_reversal:=(v_reverse_result->>'event_id')::uuid;
+  IF NOT EXISTS (
+    SELECT 1 FROM private.narrative_record_publication binding
+     WHERE binding.narrative_id=v_narrative_id AND binding.status='withdrawn'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.narrative narrative WHERE narrative.id=v_narrative_id
+  ) THEN
+    RAISE EXCEPTION 'TASK4_DRAFT_CREATE_REVERSAL_DELETED_PROJECTION_HISTORY';
+  END IF;
+  v_other_state:=private.narrative_record_state(
+    v_person,-91521001,'task4-create-only',false
+  );
+  PERFORM pg_temp.task4_expect_reverse_error(
+    v_event_create_only_reversal,v_other_state->>'state_sha256',
+    'NARRATIVE_PUBLICATION_REVERSAL_NOT_REVERSIBLE'
+  );
+  PERFORM pg_temp.task4_expect_reverse_error(
+    v_event_create_only,v_other_state->>'state_sha256',
+    'NARRATIVE_PUBLICATION_EVENT_ALREADY_REVERSED'
+  );
+
+  PERFORM set_config('app.change_set_id','',true);
+  v_reverse_result:=public.red_fortryd_person_narrative_publication_event(
+    v_event_withdraw,
+    private.narrative_record_state(
+      v_person,-91521001,'accepted-principal',false
+    )->>'state_sha256'
+  );
+  IF private.narrative_record_state(
+       v_person,-91521001,'accepted-principal',false
+     )->>'publication_status' IS DISTINCT FROM 'stale_published' THEN
+    RAISE EXCEPTION 'TASK4_STALE_WITHDRAW_REVERSAL_REVALIDATED_PUBLICATION';
+  END IF;
+
+  -- A latest event whose projection drifted is rejected even with a freshly
+  -- measured editor token.
+  PERFORM pg_temp.task2_seed_record(
+    '15240000-0000-0000-0000-000000000102','task4-drift',
+    '15240000-0000-0000-0000-000000000202',
+    '15240000-0000-0000-0000-000000000302',
+    '15240000-0000-0000-0000-000000000402',42
+  );
+  PERFORM pg_temp.task2_seed_identity(
+    '15240000-0000-0000-0000-000000000102',
+    '15240000-0000-0000-0000-000000000402',
+    '15240000-0000-0000-0000-000000000502',
+    '15240000-0000-0000-0000-000000000602',
+    '15240000-0000-0000-0000-000000000702',
+    '15240000-0000-0000-0000-000000000802',
+    '15240000-0000-0000-0000-000000000902',v_person,
+    'principal_member',-91521001
+  );
+  PERFORM set_config('app.change_set_id','',true);
+  v_result:=pg_temp.task3_call(
+    'upsert',v_person,'task4-drift','Task 4 drift before',false,
+    private.narrative_record_state(
+      v_person,-91521001,'task4-drift',false
+    )->>'state_sha256'
+  );
+  v_event_drift:=(v_result->>'event_id')::uuid;
+  PERFORM set_config('app.change_set_id','',true);
+  UPDATE public.narrative SET tekst='Task 4 drift after'
+   WHERE id=(v_result->>'narrative_id')::bigint;
+  PERFORM pg_temp.task4_expect_reverse_error(
+    v_event_drift,
+    private.narrative_record_state(
+      v_person,-91521001,'task4-drift',false
+    )->>'state_sha256',
+    'NARRATIVE_PUBLICATION_EVENT_STATE_DRIFT'
+  );
+
+  -- Legacy withdrawal changes only the selected ledger disposition and event
+  -- stream. Text/privacy and a sibling grandfathered biography stay intact.
+  INSERT INTO public.narrative(
+    id,subjekt_type,subjekt_id,source_id,tekst,side,privat
+  ) VALUES (
+    -91524210,'person',v_person,-91521001,'Task 4 legacy sibling','51',false
+  );
+  v_policy:=jsonb_build_object(
+    'person_levende',false,'person_private',false,'person_staged',false,
+    'narrative_private',false,'person_publication_allowed',true,
+    'narrative_publication_allowed',true,'publication_allowed',true
+  );
+  v_legacy_sibling_state:=jsonb_build_object(
+    'target',jsonb_build_object(
+      'legacy_publication_ref',v_legacy_sibling,'narrative_id',-91524210,
+      'person_id',v_person,'source_id',-91521001
+    ),
+    'source',jsonb_build_object('source_year',1939,'source_label','DAA Task 2'),
+    'narrative',jsonb_build_object(
+      'narrative_id',-91524210,'text','Task 4 legacy sibling',
+      'text_sha256',encode(
+        extensions.digest('Task 4 legacy sibling','sha256'),'hex'
+      ),'private',false,'side','51','has_haendelse',false
+    ),
+    'publication_policy',v_policy,
+    'policy_sha256',encode(extensions.digest(v_policy::text,'sha256'),'hex'),
+    'has_haendelse',false
+  );
+  INSERT INTO private.narrative_legacy_publication(
+    legacy_publication_ref,narrative_id,source_id,baseline_state,
+    baseline_sha256,status
+  ) VALUES (
+    v_legacy_sibling,-91524210,-91521001,v_legacy_sibling_state,
+    encode(extensions.digest(v_legacy_sibling_state::text,'sha256'),'hex'),
+    'grandfathered_publication'
+  );
+
+  v_state:=private.narrative_legacy_state(v_legacy_active,false);
+  PERFORM pg_temp.task4_expect_legacy_error(
+    v_legacy_active,v_state->>'state_sha256','   ',
+    'NARRATIVE_LEGACY_WITHDRAWAL_REASON_REQUIRED'
+  );
+  PERFORM pg_temp.task4_expect_legacy_error(
+    v_legacy_active,repeat('0',64),'Task 4 stale',
+    'NARRATIVE_RECORD_STATE_STALE'
+  );
+  PERFORM pg_temp.task4_expect_legacy_error(
+    '15240000-0000-0000-0000-000000000299',repeat('0',64),'Task 4 unknown',
+    'NARRATIVE_LEGACY_PUBLICATION_NOT_FOUND'
+  );
+  PERFORM pg_temp.task4_expect_legacy_error(
+    v_legacy_drift,
+    private.narrative_legacy_state(v_legacy_drift,false)->>'state_sha256',
+    'Task 4 drifted baseline','NARRATIVE_LEGACY_BASELINE_DRIFT'
+  );
+
+  v_before:=(SELECT to_jsonb(narrative) FROM public.narrative narrative
+              WHERE narrative.id=-91521201);
+  PERFORM set_config('app.change_set_id','',true);
+  v_result:=public.red_tilbagetraek_legacy_narrative(
+    v_legacy_active,v_state->>'state_sha256','Task 4 granular withdrawal'
+  );
+  v_event_legacy:=(v_result->>'event_id')::uuid;
+  v_after:=(SELECT to_jsonb(narrative) FROM public.narrative narrative
+             WHERE narrative.id=-91521201);
+  IF v_after IS DISTINCT FROM v_before
+     OR (SELECT status FROM private.narrative_legacy_publication
+          WHERE legacy_publication_ref=v_legacy_active)
+          IS DISTINCT FROM 'withdrawn'
+     OR (SELECT status FROM private.narrative_legacy_publication
+          WHERE legacy_publication_ref=v_legacy_sibling)
+          IS DISTINCT FROM 'grandfathered_publication'
+     OR private.narrative_legacy_state(v_legacy_active,false)
+          ->>'publication_status' IS DISTINCT FROM 'withdrawn'
+     OR private.narrative_legacy_state(v_legacy_sibling,false)
+          ->>'publication_status' IS DISTINCT FROM 'published' THEN
+    RAISE EXCEPTION 'TASK4_LEGACY_WITHDRAWAL_NOT_GRANULAR_OR_TEXT_SAFE';
+  END IF;
+  PERFORM pg_temp.task4_expect_legacy_error(
+    v_legacy_active,
+    private.narrative_legacy_state(v_legacy_active,false)->>'state_sha256',
+    'Task 4 duplicate','NARRATIVE_LEGACY_PUBLICATION_ALREADY_WITHDRAWN'
+  );
+
+  SELECT to_jsonb(row) INTO STRICT v_history
+    FROM public.red_person_narrative_publication_history(v_person) row
+   WHERE row.event_id=v_event_legacy;
+  IF (v_history->>'can_reverse')::boolean IS DISTINCT FROM true
+     OR v_history->>'change_set_id' IS DISTINCT FROM
+          (SELECT event.change_set_id::text
+             FROM private.narrative_publication_event event
+            WHERE event.id=v_event_legacy) THEN
+    RAISE EXCEPTION 'TASK4_LEGACY_HISTORY_EVENT_MAPPING_INVALID: %',v_history;
+  END IF;
+
+  UPDATE public.person SET privat=true WHERE id=v_person;
+  PERFORM pg_temp.task4_expect_reverse_error(
+    v_event_legacy,
+    private.narrative_legacy_state(v_legacy_active,false)->>'state_sha256',
+    'NARRATIVE_PUBLICATION_REVERSAL_POLICY_BLOCKED'
+  );
+  UPDATE public.person SET privat=false WHERE id=v_person;
+
+  PERFORM set_config('app.change_set_id','',true);
+  v_reverse_result:=public.red_fortryd_person_narrative_publication_event(
+    v_event_legacy,
+    private.narrative_legacy_state(v_legacy_active,false)->>'state_sha256'
+  );
+  v_event_legacy_reversal:=(v_reverse_result->>'event_id')::uuid;
+  IF (SELECT status FROM private.narrative_legacy_publication
+       WHERE legacy_publication_ref=v_legacy_active)
+       IS DISTINCT FROM 'grandfathered_publication' THEN
+    RAISE EXCEPTION 'TASK4_LEGACY_REVERSAL_DID_NOT_RESTORE_LEDGER';
+  END IF;
+  SELECT to_jsonb(row) INTO STRICT v_history
+    FROM public.red_person_narrative_publication_history(v_person) row
+   WHERE row.event_id=v_event_legacy_reversal;
+  IF (v_history->>'can_reverse')::boolean IS DISTINCT FROM false
+     OR v_history->>'blocking_reason' IS DISTINCT FROM
+          'NARRATIVE_PUBLICATION_REVERSAL_NOT_REVERSIBLE' THEN
+    RAISE EXCEPTION 'TASK4_HISTORY_REVERSAL_ROW_INVALID: %',v_history;
+  END IF;
+  SELECT to_jsonb(row) INTO STRICT v_history
+    FROM public.red_person_narrative_publication_history(v_person) row
+   WHERE row.event_id=v_event_legacy;
+  IF (v_history->>'can_reverse')::boolean IS DISTINCT FROM false
+     OR v_history->>'blocking_reason' IS DISTINCT FROM
+          'NARRATIVE_PUBLICATION_EVENT_ALREADY_REVERSED' THEN
+    RAISE EXCEPTION 'TASK4_HISTORY_REVERSED_TARGET_INVALID: %',v_history;
+  END IF;
+
+  -- Reserved migration events are not legal reversal targets even when they
+  -- are the exact current stream head.
+  v_before:=private.narrative_legacy_publication_state(v_legacy_sibling);
+  v_baseline_hash:=encode(extensions.digest(v_before::text,'sha256'),'hex');
+  PERFORM set_config('app.change_set_id','',true);
+  v_cs:=public.begin_change_set(
+    'task4_legacy_migrated','Task 4 reserved migration event','person',v_person
+  );
+  UPDATE private.narrative_legacy_publication
+     SET status='migrated'
+   WHERE legacy_publication_ref=v_legacy_sibling;
+  INSERT INTO private.narrative_publication_event(
+    change_set_id,stream_ref,stream_version,event_type,narrative_id,source_id,
+    legacy_publication_ref,decision_basis,before_state,after_state,
+    before_state_sha256,after_state_sha256,decided_by,decided_by_name
+  ) VALUES (
+    v_cs,v_legacy_sibling,1,'legacy_migrated',-91524210,-91521001,
+    v_legacy_sibling,'Task 4 reserved migration event',v_before,v_before,
+    v_baseline_hash,v_baseline_hash,v_actor,'Task 4 actor'
+  ) RETURNING id INTO v_event_legacy_migrated;
+  UPDATE private.narrative_legacy_publication
+     SET latest_event_id=v_event_legacy_migrated
+   WHERE legacy_publication_ref=v_legacy_sibling;
+  SELECT to_jsonb(row) INTO STRICT v_history
+    FROM public.red_person_narrative_publication_history(v_person) row
+   WHERE row.event_id=v_event_legacy_migrated;
+  IF (v_history->>'can_reverse')::boolean IS DISTINCT FROM false
+     OR v_history->>'blocking_reason' IS DISTINCT FROM
+          'NARRATIVE_PUBLICATION_EVENT_NOT_REVERSIBLE' THEN
+    RAISE EXCEPTION 'TASK4_HISTORY_RESERVED_EVENT_INVALID: %',v_history;
+  END IF;
+
+  -- Every requested reversible event class has a dedicated reversal event.
+  FOREACH v_event_update IN ARRAY ARRAY[
+    v_event_update,v_event_discard,v_event_publish,v_event_revision,
+    v_event_revalidate,v_event_withdraw,v_event_create_only,v_event_legacy
+  ] LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM private.narrative_publication_event reversal
+       WHERE reversal.event_type='reversal'
+         AND reversal.reversed_event_id=v_event_update
+    ) THEN
+      RAISE EXCEPTION 'TASK4_REVERSAL_CLASS_NOT_COVERED: %',v_event_update;
+    END IF;
+  END LOOP;
+
+  -- Generic undo remains unchanged for ordinary narrative change sets.
+  INSERT INTO public.person(id,levende,privat,staged,visning_navn)
+  VALUES (-91524020,false,false,false,'Task 4 ordinary undo');
+  INSERT INTO public.narrative(
+    id,subjekt_type,subjekt_id,source_id,tekst,privat
+  ) VALUES (
+    -91524120,'person',-91524020,-91521001,'Ordinary before',false
+  );
+  PERFORM set_config('app.change_set_id','',true);
+  v_cs:=public.begin_change_set(
+    'task4_ordinary_undo','Task 4 ordinary narrative undo','person',-91524020
+  );
+  UPDATE public.narrative SET tekst='Ordinary after' WHERE id=-91524120;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM public.red_fortryd_change_set(v_cs,false);
+  IF (SELECT tekst FROM public.narrative WHERE id=-91524120)
+       IS DISTINCT FROM 'Ordinary before' THEN
+    RAISE EXCEPTION 'TASK4_GENERIC_UNDO_ORDINARY_CASE_REGRESSED';
+  END IF;
+
+  -- A publication event's own change set is routed away from generic undo
+  -- before a reversal change set can be inserted.
+  SELECT event.change_set_id INTO STRICT v_cs
+    FROM private.narrative_publication_event event
+   WHERE event.id=v_event_legacy_reversal;
+  PERFORM set_config('app.change_set_id','',true);
+  v_before:=pg_temp.task4_write_snapshot();
+  BEGIN
+    PERFORM public.red_fortryd_change_set(v_cs,false);
+  EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+  END;
+  v_after:=pg_temp.task4_write_snapshot();
+  IF v_error IS DISTINCT FROM 'NARRATIVE_RECORD_DEDICATED_REVERSAL_REQUIRED'
+     OR v_after IS DISTINCT FROM v_before THEN
+    RAISE EXCEPTION 'TASK4_GENERIC_UNDO_DIRECT_EVENT_GUARD_FAILED: %',v_error;
+  END IF;
+
+  -- A pre-cutover/C3-shaped narrative change set is also blocked once the
+  -- narrative is represented by a later baseline event.
+  INSERT INTO public.person(id,levende,privat,staged,visning_navn)
+  VALUES (-91524030,false,false,false,'Task 4 C3 baseline');
+  PERFORM pg_temp.task2_seed_record(
+    '15240000-0000-0000-0000-000000000103','task4-c3-baseline',
+    '15240000-0000-0000-0000-000000000203',
+    '15240000-0000-0000-0000-000000000303',
+    '15240000-0000-0000-0000-000000000403',43
+  );
+  INSERT INTO public.narrative(
+    id,subjekt_type,subjekt_id,source_id,tekst,side,privat
+  ) VALUES (
+    -91524130,'person',-91524030,-91521001,'C3 before','43',false
+  );
+  PERFORM set_config('app.change_set_id','',true);
+  v_cs:=public.begin_change_set(
+    'task4_c3_pre_cutover','Task 4 pre-cutover C3 change','person',-91524030
+  );
+  UPDATE public.narrative SET tekst='C3 after' WHERE id=-91524130;
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO private.narrative_record_publication(
+    id,narrative_id,source_record_id,record_label,citation_label,status
+  ) VALUES (
+    '15240000-0000-0000-0000-000000001103',-91524130,
+    '15240000-0000-0000-0000-000000000103','Task 4 C3 record',
+    'DAA Task 2, s. 43','published'
+  );
+  v_baseline_state:=private.narrative_publication_state(
+    -91524030,-91521001,'task4-c3-baseline'
+  );
+  v_baseline_hash:=encode(
+    extensions.digest(v_baseline_state::text,'sha256'),'hex'
+  );
+  v_baseline_cs:=public.begin_change_set(
+    'task4_c3_baseline','Task 4 C3 baseline','person',-91524030
+  );
+  INSERT INTO private.narrative_publication_event(
+    id,change_set_id,stream_ref,stream_version,event_type,binding_id,
+    narrative_id,source_id,source_record_id,decision_basis,before_state,
+    after_state,before_state_sha256,after_state_sha256,decided_by,
+    decided_by_name
+  ) VALUES (
+    v_baseline_event,v_baseline_cs,
+    '15240000-0000-0000-0000-000000001103',1,'baseline',
+    '15240000-0000-0000-0000-000000001103',-91524130,-91521001,
+    '15240000-0000-0000-0000-000000000103','Task 4 C3 baseline',
+    v_baseline_state,v_baseline_state,v_baseline_hash,v_baseline_hash,
+    v_actor,'Task 4 actor'
+  );
+  PERFORM set_config('app.change_set_id','',true);
+  v_before:=pg_temp.task4_write_snapshot();
+  v_error:=NULL;
+  BEGIN
+    PERFORM public.red_fortryd_change_set(v_cs,false);
+  EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+  END;
+  v_after:=pg_temp.task4_write_snapshot();
+  IF v_error IS DISTINCT FROM 'NARRATIVE_RECORD_DEDICATED_REVERSAL_REQUIRED'
+     OR v_after IS DISTINCT FROM v_before
+     OR (SELECT tekst FROM public.narrative WHERE id=-91524130)
+          IS DISTINCT FROM 'C3 after' THEN
+    RAISE EXCEPTION 'TASK4_GENERIC_UNDO_HISTORIC_BASELINE_GUARD_FAILED: %',v_error;
+  END IF;
+
+  -- Preview exposes only a count/block flag, and hard-delete rejects before
+  -- begin_change_set or any domain write.
+  v_preview:=public.red_slet_person_preview(-91524030);
+  IF (v_preview->>'antal_publication_events')::integer IS DISTINCT FROM 1
+     OR (v_preview->>'sletning_blokeret')::boolean IS DISTINCT FROM true
+     OR v_preview ? 'publication_events'
+     OR v_preview::text LIKE '%'||v_baseline_event::text||'%' THEN
+    RAISE EXCEPTION 'TASK4_PERSON_DELETE_PREVIEW_CONTRACT_INVALID: %',v_preview;
+  END IF;
+  PERFORM set_config('app.change_set_id','',true);
+  v_before:=pg_temp.task4_write_snapshot();
+  v_error:=NULL;
+  BEGIN
+    PERFORM public.red_slet_person(-91524030);
+  EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+  END;
+  v_after:=pg_temp.task4_write_snapshot();
+  IF v_error IS DISTINCT FROM 'PERSON_HAR_NARRATIVE_PUBLICATION_HISTORY'
+     OR v_after IS DISTINCT FROM v_before THEN
+    RAISE EXCEPTION 'TASK4_PERSON_DELETE_PREWRITE_BLOCK_FAILED: %',v_error;
+  END IF;
+
+  RAISE NOTICE 'OK: narrative record Task 4 withdrawal, reversal, undo and delete behavior';
+END
+$narrative_record_task4_behavior$;
+
+ROLLBACK TO SAVEPOINT narrative_record_task4_version_2;
+DO $narrative_record_task4_version_restored$
+BEGIN
+  IF public.narrative_record_contract_version()<>1 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK4_TEST_WEAKENED_PRODUCTION_VERSION';
+  END IF;
+  RAISE NOTICE 'OK: narrative record Task 4 version-2 fixture rolled back to version 1';
+END
+$narrative_record_task4_version_restored$;
+
 ROLLBACK;
 
 -- Task 3 policy serialization: the canonical writer lock must cover the person
@@ -3041,6 +3943,7 @@ DECLARE
   v_after_event_count bigint;
   v_before_change_count bigint;
   v_after_change_count bigint;
+  v_undo_result text;
   v_original_error text;
   v_a_pid integer;
   v_b_pid integer;
@@ -3343,6 +4246,107 @@ BEGIN
     || '''15230000-0000-0000-0000-000000000001'',''Task 3 policy record'','
     || '''Task 3 policy citation'',''draft'')'
   );
+
+  -- Task 4 generic-undo routing must serialize before its event predicate.
+  -- Session A models a publication writer that already owns change_set but has
+  -- not committed the event which claims an older narrative change set. The
+  -- undo call must wait, then re-evaluate the predicate and reject; evaluating
+  -- first and merely blocking on the later change_set read is a TOCTOU bypass.
+  PERFORM extensions.dblink_exec(
+    'task3_policy_setup',
+    'INSERT INTO public.change_set('
+    || 'id,actor_id,actor_navn,actor_rolle,operation,summary,subjekt_type,subjekt_id) VALUES '
+    || '(-91523991,''15230000-0000-0000-0000-000000000099'',''Task 4 actor'', '
+    || '''redaktion'',''task4_undo_race'',''Task 4 undo race'',''person'',-91523001);'
+    || 'WITH snapshot AS ('
+    || 'SELECT public._version_current_row(''narrative'',''{"id": -91523010}''::jsonb) AS state) '
+    || 'INSERT INTO public.change_event('
+    || 'id,change_set_id,seq,tabel,row_pk,op,foer,efter) '
+    || 'SELECT -91523991,-91523991,1,''narrative'',''{"id": -91523010}''::jsonb,'
+    || '''UPDATE'',state,state FROM snapshot'
+  );
+  PERFORM extensions.dblink_exec('task3_policy_a','BEGIN');
+  PERFORM extensions.dblink_exec(
+    'task3_policy_a',
+    'LOCK TABLE public.change_set IN ACCESS EXCLUSIVE MODE;'
+    || 'INSERT INTO private.narrative_publication_event('
+    || 'id,change_set_id,stream_ref,stream_version,event_type,binding_id,narrative_id,'
+    || 'source_id,source_record_id,decision_basis,before_state,after_state,'
+    || 'before_state_sha256,after_state_sha256,decided_by,decided_by_name) VALUES ('
+    || '''15230000-0000-0000-0000-000000000091'',-91523991,'
+    || '''15230000-0000-0000-0000-000000000010'',1,''baseline'','
+    || '''15230000-0000-0000-0000-000000000010'',-91523010,-91523001,'
+    || '''15230000-0000-0000-0000-000000000001'',''Task 4 undo race owner'','
+    || '''{"race":"owned"}'',''{"race":"owned"}'','
+    || 'encode(extensions.digest(''{"race":"owned"}''::jsonb::text,''sha256''),''hex''),'
+    || 'encode(extensions.digest(''{"race":"owned"}''::jsonb::text,''sha256''),''hex''),'
+    || '''15230000-0000-0000-0000-000000000099'',''Task 4 actor'')'
+  );
+  PERFORM extensions.dblink_exec('task3_policy_b','BEGIN');
+  PERFORM extensions.dblink_exec(
+    'task3_policy_b',
+    'SET LOCAL "request.jwt.claim.sub"='
+    || quote_literal(v_actor::text)
+  );
+  PERFORM extensions.dblink_exec(
+    'task3_policy_b',
+    'CREATE FUNCTION pg_temp.task4_attempt_undo() RETURNS text '
+    || 'LANGUAGE plpgsql AS $attempt$ BEGIN '
+    || 'PERFORM public.red_fortryd_change_set(-91523991,false); '
+    || 'RETURN ''ACCEPTED''; EXCEPTION WHEN OTHERS THEN RETURN SQLERRM; END $attempt$'
+  );
+  PERFORM extensions.dblink_send_query(
+    'task3_policy_b','SELECT pg_temp.task4_attempt_undo()'
+  );
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
+    SELECT extensions.dblink_is_busy('task3_policy_b') INTO v_busy;
+    IF v_busy=0 THEN
+      RAISE EXCEPTION 'TASK4_GENERIC_UNDO_DID_NOT_SERIALIZE_WITH_EVENT_OWNER';
+    END IF;
+    IF clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'TASK4_GENERIC_UNDO_SERIALIZATION_TIMEOUT';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  PERFORM extensions.dblink_exec('task3_policy_a','COMMIT');
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    SELECT extensions.dblink_is_busy('task3_policy_b') INTO v_busy;
+    EXIT WHEN v_busy=0;
+    IF clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'TASK4_GENERIC_UNDO_DID_NOT_RESUME';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  SELECT result INTO v_undo_result
+    FROM extensions.dblink_get_result('task3_policy_b') AS t(result text);
+  PERFORM result
+    FROM extensions.dblink_get_result('task3_policy_b') AS t(result text);
+  IF v_undo_result IS DISTINCT FROM
+       'NARRATIVE_RECORD_DEDICATED_REVERSAL_REQUIRED' THEN
+    RAISE EXCEPTION 'TASK4_GENERIC_UNDO_CONCURRENT_EVENT_BYPASS: %',v_undo_result;
+  END IF;
+  SELECT reversal_count INTO v_after_change_count
+    FROM extensions.dblink(
+      'task3_policy_setup',
+      'SELECT count(*) FROM public.change_set WHERE reverterer_id=-91523991'
+    ) AS t(reversal_count bigint);
+  IF v_after_change_count<>0 THEN
+    RAISE EXCEPTION 'TASK4_GENERIC_UNDO_CONCURRENT_REJECTION_WROTE';
+  END IF;
+  PERFORM extensions.dblink_exec('task3_policy_b','ROLLBACK');
+  PERFORM extensions.dblink_exec(
+    'task3_policy_setup',
+    'SET session_replication_role=replica;'
+    || 'DELETE FROM private.narrative_publication_event '
+    || 'WHERE id=''15230000-0000-0000-0000-000000000091'';'
+    || 'DELETE FROM public.change_event WHERE change_set_id=-91523991;'
+    || 'DELETE FROM public.change_set WHERE id=-91523991;'
+    || 'SET session_replication_role=origin'
+  );
+  RAISE NOTICE 'OK: narrative record Task 4 generic undo serializes before event routing';
 
   PERFORM extensions.dblink_exec('task3_policy_a','BEGIN');
   PERFORM extensions.dblink_exec(

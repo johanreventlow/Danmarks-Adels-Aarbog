@@ -615,6 +615,120 @@ BEGIN
 END
 $narrative_record_mutation_verify$;
 
+-- ===== #152 Task 4: legacy withdrawal, dedicated reversal and undo routing =====
+DO $narrative_record_reversal_verify$
+DECLARE
+  v_signature text;
+  v_role text;
+  v_definition text;
+  v_lock_position integer;
+  v_version_position integer;
+  v_guard_position integer;
+  v_change_set_position integer;
+BEGIN
+  IF public.narrative_record_contract_version()<>1 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_REVERSAL_ADDITIVE_VERSION_INVALID';
+  END IF;
+
+  FOREACH v_signature IN ARRAY ARRAY[
+    'private.withdraw_legacy_narrative(uuid,text,text)',
+    'private.reverse_narrative_publication_event(uuid,text)',
+    'public.red_tilbagetraek_legacy_narrative(uuid,text,text)',
+    'public.red_fortryd_person_narrative_publication_event(uuid,text)'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NULL THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_REVERSAL_FUNCTION_MISSING: %',v_signature;
+    END IF;
+    IF pg_get_function_result(to_regprocedure(v_signature)) IS DISTINCT FROM 'jsonb' THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_REVERSAL_RESULT_INVALID: %',v_signature;
+    END IF;
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+      IF has_function_privilege(v_role,v_signature,'EXECUTE') THEN
+        RAISE EXCEPTION 'NARRATIVE_RECORD_REVERSAL_PRECUTOVER_ACL_INVALID: % %',
+          v_role,v_signature;
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  IF EXISTS (
+    SELECT 1 FROM pg_proc function
+     WHERE function.oid IN (
+       'private.withdraw_legacy_narrative(uuid,text,text)'::regprocedure,
+       'private.reverse_narrative_publication_event(uuid,text)'::regprocedure,
+       'public.red_tilbagetraek_legacy_narrative(uuid,text,text)'::regprocedure,
+       'public.red_fortryd_person_narrative_publication_event(uuid,text)'::regprocedure
+     )
+       AND (
+         NOT function.prosecdef OR function.provolatile<>'v'
+         OR function.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+       )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_REVERSAL_SECURITY_INVALID';
+  END IF;
+
+  v_definition:=pg_get_functiondef(
+    'private.withdraw_legacy_narrative(uuid,text,text)'::regprocedure
+  );
+  v_lock_position:=strpos(v_definition,'pg_advisory_xact_lock_shared(');
+  v_version_position:=strpos(v_definition,'public.narrative_record_contract_version()');
+  IF v_lock_position=0 OR v_version_position<=v_lock_position
+     OR strpos(v_definition,'private.narrative_legacy_state(')<=v_version_position THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WITHDRAWAL_LOCK_ORDER_INVALID';
+  END IF;
+
+  v_definition:=pg_get_functiondef(
+    'private.reverse_narrative_publication_event(uuid,text)'::regprocedure
+  );
+  v_lock_position:=strpos(v_definition,'pg_advisory_xact_lock_shared(');
+  v_version_position:=strpos(v_definition,'public.narrative_record_contract_version()');
+  IF v_lock_position=0 OR v_version_position<=v_lock_position
+     OR strpos(v_definition,'private.narrative_record_state(')<=v_version_position
+     OR strpos(v_definition,'private.narrative_legacy_state(')<=v_version_position THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_REVERSAL_LOCK_ORDER_INVALID';
+  END IF;
+
+  v_definition:=pg_get_functiondef(
+    'public.red_fortryd_change_set(bigint,boolean)'::regprocedure
+  );
+  v_lock_position:=strpos(
+    v_definition,'LOCK TABLE public.change_set IN ACCESS SHARE MODE'
+  );
+  v_guard_position:=strpos(
+    v_definition,'NARRATIVE_RECORD_DEDICATED_REVERSAL_REQUIRED'
+  );
+  v_change_set_position:=strpos(v_definition,'INSERT INTO change_set');
+  IF v_lock_position=0 OR v_guard_position<=v_lock_position
+     OR v_change_set_position=0
+     OR v_guard_position>=v_change_set_position THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_GENERIC_UNDO_ROUTING_INVALID';
+  END IF;
+
+  v_definition:=pg_get_functiondef('public.red_slet_person(bigint)'::regprocedure);
+  v_lock_position:=strpos(v_definition,'pg_advisory_xact_lock_shared(');
+  v_guard_position:=strpos(
+    v_definition,'PERSON_HAR_NARRATIVE_PUBLICATION_HISTORY'
+  );
+  v_change_set_position:=strpos(v_definition,'begin_change_set(');
+  IF v_lock_position=0 OR v_guard_position<=v_lock_position
+     OR v_change_set_position<=v_guard_position THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PERSON_DELETE_ROUTING_INVALID';
+  END IF;
+
+  v_definition:=pg_get_functiondef(
+    'public.red_person_narrative_publication_history(bigint)'::regprocedure
+  );
+  IF strpos(v_definition,'NARRATIVE_PUBLICATION_REVERSAL_NOT_REVERSIBLE')=0 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_HISTORY_REVERSAL_REASON_INVALID';
+  END IF;
+  IF strpos(v_definition,'NARRATIVE_PUBLICATION_EVENT_NOT_REVERSIBLE')=0
+     OR strpos(v_definition,'classified.event_type NOT IN')=0 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_HISTORY_LEGAL_EVENT_SET_INVALID';
+  END IF;
+
+  RAISE NOTICE 'OK: #152 Task 4 withdrawal/reversal er installeret og ugranted ved version 1';
+END
+$narrative_record_reversal_verify$;
+
 -- ===== C3 apply plan Task 5: generic reimport case ledger contract =====
 -- Full catalog/constraint proof lives in tests/sql/test-1939-v50-c3-apply.sql; this
 -- block only proves the objects exist and stay private after db-migrations.sql/db-rls.sql.
