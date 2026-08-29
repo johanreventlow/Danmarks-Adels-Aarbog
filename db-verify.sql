@@ -1106,6 +1106,7 @@ DECLARE
   v_rendition_b uuid := '30000000-0000-0000-0000-000000000002';
   v_record_a uuid := '40000000-0000-0000-0000-000000000001';
   v_record_b uuid := '40000000-0000-0000-0000-000000000002';
+  v_record_c uuid := '40000000-0000-0000-0000-000000000004';
   v_record_foreign uuid := '40000000-0000-0000-0000-000000000003';
   v_occurrence uuid := '50000000-0000-0000-0000-000000000001';
   v_observation uuid := '60000000-0000-0000-0000-000000000001';
@@ -1131,6 +1132,25 @@ BEGIN
        AND NOT c.relrowsecurity
   ) THEN
     RAISE EXCEPTION 'FEJL: mindst én privat evidenstabel mangler RLS';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM unnest(v_required) required_name
+     WHERE NOT EXISTS (
+       SELECT 1 FROM pg_trigger t
+        WHERE t.tgrelid=format('private.%I',required_name)::regclass
+          AND NOT t.tgisinternal AND t.tgenabled<>'D'
+          AND (t.tgtype & 1)<>0 AND (t.tgtype & 2)<>0
+          AND (t.tgtype & 8)<>0 AND (t.tgtype & 16)<>0
+     )
+        OR NOT EXISTS (
+       SELECT 1 FROM pg_trigger t
+        WHERE t.tgrelid=format('private.%I',required_name)::regclass
+          AND NOT t.tgisinternal AND t.tgenabled<>'D'
+          AND (t.tgtype & 1)=0 AND (t.tgtype & 2)<>0 AND (t.tgtype & 32)<>0
+     )
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_APPEND_ONLY_TRIGGER_CONTRACT_DRIFT';
   END IF;
   IF has_schema_privilege('anon','private','USAGE')
      OR has_schema_privilege('authenticated','private','USAGE') THEN
@@ -1165,6 +1185,7 @@ BEGIN
       VALUES
       (v_record_a,-987650001,'record-a','person_entry',v_run_a),
       (v_record_b,-987650001,'record-b','person_entry',v_run_a),
+      (v_record_c,-987650001,'record-c','person_entry',v_run_a),
       (v_record_foreign,-987650002,'record-foreign','person_entry',v_run_b);
     INSERT INTO private.source_record_occurrence(
       id,rendition_id,occurrence_key,page_from,page_to,column_label,
@@ -1316,6 +1337,47 @@ BEGIN
     ) THEN
       RAISE EXCEPTION 'FEJL: afvist revision kan ikke genforeslås append-only';
     END IF;
+    v_error:=NULL;
+    BEGIN
+      INSERT INTO private.source_record_revision_event(
+        id,predecessor_record_id,successor_record_id,relation_kind,
+        decision_status,evidence,version,decided_by,decided_by_name
+      ) VALUES (
+        'a0000000-0000-0000-0000-000000000004',v_record_a,v_record_b,
+        'split_into','accepted','{"basis":"invalid reused successor"}',4,v_actor,'Verify'
+      );
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error IS NULL OR v_error NOT LIKE 'EVIDENCE_REVISION_SUCCESSOR_ALREADY_ANCHORED%' THEN
+      RAISE EXCEPTION 'FEJL: accepted revision genbrugte tavst en forankret successor: %',v_error;
+    END IF;
+    INSERT INTO private.source_record_revision_event(
+      id,predecessor_record_id,successor_record_id,relation_kind,
+      decision_status,evidence,version,decided_by,decided_by_name
+    ) VALUES (
+      'a0000000-0000-0000-0000-000000000005',v_record_a,v_record_c,
+      'split_into','accepted','{"basis":"fresh successor"}',1,v_actor,'Verify'
+    );
+    -- En reanchor er eksplicit append-only: først afløses den gamle anchor,
+    -- derefter accepteres den friske, reviewed successor.
+    INSERT INTO private.source_record_anchor_event(
+      id,occurrence_id,source_record_id,decision_status,evidence,version,
+      decided_by,decided_by_name
+    ) VALUES
+      ('90000000-0000-0000-0000-000000000008',v_occurrence,v_record_b,
+       'rejected','{"basis":"explicit reanchor"}',2,v_actor,'Verify'),
+      ('90000000-0000-0000-0000-000000000009',v_occurrence,v_record_c,
+       'accepted','{"basis":"accepted split successor"}',1,v_actor,'Verify');
+    IF NOT EXISTS (
+      SELECT 1 FROM private.source_record_anchor_current
+       WHERE occurrence_id=v_occurrence AND source_record_id=v_record_c
+         AND decision_status='accepted'
+    ) OR EXISTS (
+      SELECT 1 FROM private.source_record_anchor_current
+       WHERE occurrence_id=v_occurrence AND source_record_id=v_record_b
+         AND decision_status='accepted'
+    ) THEN
+      RAISE EXCEPTION 'FEJL: accepted split successor krævede ikke eksplicit reanchor';
+    END IF;
 
     v_error := NULL;
     BEGIN
@@ -1332,6 +1394,20 @@ BEGIN
     IF v_error NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN
       RAISE EXCEPTION 'FEJL: source record kunne slettes: %',v_error;
     END IF;
+    v_error := NULL;
+    BEGIN
+      TRUNCATE private.source_persona_mention;
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN
+      RAISE EXCEPTION 'FEJL: rå persona-mention kunne truncates: %',v_error;
+    END IF;
+    INSERT INTO private.source_mention(
+      id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id
+    ) VALUES (
+      '70000000-0000-0000-0000-000000000003',v_observation,'person',5,12,'Reventl',v_run_a
+    );
+    INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
+      VALUES (v_persona,'70000000-0000-0000-0000-000000000003','secondary',2);
 
     DELETE FROM auth.users WHERE id=v_actor;
     IF NOT EXISTS (
@@ -1380,6 +1456,94 @@ BEGIN
     END IF;
   END;
 END $evidence_verify$;
+
+-- #154: Global default revoke må ikke efterlade eksisterende public.red_*
+-- RPC'er med implicit PUBLIC-adgang eller gøre en ny klient-RPC tavst
+-- ukaldbar. Alle undtagelser er eksplicitte og versionsstyrede her.
+DO $public_red_acl_verify$
+DECLARE
+  v_service_only regprocedure[] := ARRAY[
+    'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)'::regprocedure,
+    'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)'::regprocedure,
+    'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)'::regprocedure,
+    'public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)'::regprocedure,
+    'public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)'::regprocedure
+  ];
+  v_disabled regprocedure[] := ARRAY[
+    'public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)'::regprocedure,
+    'public.red_promote_interpretation(uuid,text,bigint,jsonb)'::regprocedure
+  ];
+  v_bad text[];
+  v_error text;
+BEGIN
+  SELECT array_agg(p.oid::regprocedure::text ORDER BY p.oid::regprocedure::text)
+    INTO v_bad
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid=p.pronamespace
+   WHERE n.nspname='public'
+     AND p.proname LIKE 'red\_%' ESCAPE '\'
+     AND (
+       EXISTS (
+         SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl
+          WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE'
+       )
+       OR has_function_privilege('anon',p.oid,'EXECUTE')
+       OR (p.oid=ANY(v_service_only) AND (
+             has_function_privilege('authenticated',p.oid,'EXECUTE')
+             OR NOT has_function_privilege('service_role',p.oid,'EXECUTE')
+           ))
+       OR (p.oid=ANY(v_disabled) AND (
+             has_function_privilege('authenticated',p.oid,'EXECUTE')
+             OR has_function_privilege('service_role',p.oid,'EXECUTE')
+           ))
+       OR (p.oid<>ALL(v_service_only) AND p.oid<>ALL(v_disabled)
+           AND (
+             NOT has_function_privilege('authenticated',p.oid,'EXECUTE')
+             OR has_function_privilege('service_role',p.oid,'EXECUTE')
+           ))
+     );
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION 'EVIDENCE_PUBLIC_RED_ACL_DRIFT: %',v_bad;
+  END IF;
+
+  EXECUTE $sql$CREATE FUNCTION public.red_evidence_acl_verify()
+    RETURNS integer LANGUAGE sql AS 'SELECT 1'$sql$;
+  v_error:=NULL;
+  BEGIN
+    SET LOCAL ROLE anon;
+    PERFORM public.red_evidence_acl_verify();
+  EXCEPTION WHEN insufficient_privilege THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS NULL THEN
+    RAISE EXCEPTION 'EVIDENCE_PUBLIC_RED_DEFAULT_ACL_ANON_OPEN';
+  END IF;
+  v_error:=NULL;
+  BEGIN
+    SET LOCAL ROLE authenticated;
+    PERFORM public.red_evidence_acl_verify();
+  EXCEPTION WHEN insufficient_privilege THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS NULL THEN
+    RAISE EXCEPTION 'EVIDENCE_PUBLIC_RED_DEFAULT_ACL_AUTH_OPEN';
+  END IF;
+  GRANT EXECUTE ON FUNCTION public.red_evidence_acl_verify() TO authenticated;
+  SET LOCAL ROLE authenticated;
+  IF public.red_evidence_acl_verify()<>1 THEN
+    RAISE EXCEPTION 'EVIDENCE_PUBLIC_RED_EXPLICIT_AUTH_GRANT_FAILED';
+  END IF;
+  RESET ROLE;
+  v_error:=NULL;
+  BEGIN
+    SET LOCAL ROLE anon;
+    PERFORM public.red_evidence_acl_verify();
+  EXCEPTION WHEN insufficient_privilege THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS NULL THEN
+    RAISE EXCEPTION 'EVIDENCE_PUBLIC_RED_EXPLICIT_AUTH_GRANT_OPENED_ANON';
+  END IF;
+  DROP FUNCTION public.red_evidence_acl_verify();
+  RAISE NOTICE 'OK: public.red_* har eksplicit, least-privilege EXECUTE-policy';
+END $public_red_acl_verify$;
 
 -- Reel to-forbindelses-test: occurrence-låsen skal serialisere to samtidige
 -- accepted-events, så præcis én vinder. Kun aktiv i disposable baser med dblink.
@@ -1524,6 +1688,87 @@ EXCEPTION WHEN others THEN
   END IF;
   RAISE;
 END $evidence_concurrency$;
+
+-- En accepted anchor, der vinder kapløbet om en hidtil frisk successor, skal
+-- få den konkurrerende accepted revision til at vente og derefter afvise den.
+DO $revision_anchor_concurrency$
+DECLARE
+  v_conn text := format('dbname=%s port=%s host=%s',current_database(),current_setting('port'),split_part(current_setting('unix_socket_directories'),',',1));
+  v_actor uuid := '10000000-0000-0000-0000-000000000071';
+  v_a_pid integer;
+  v_b_pid integer;
+  v_busy integer;
+  v_deadline timestamptz;
+  v_error text;
+  v_setup_connected boolean := false;
+  v_a_connected boolean := false;
+  v_b_connected boolean := false;
+  v_cleanup text := $cleanup$
+    SET session_replication_role=replica;
+    DELETE FROM private.source_record_revision_event WHERE predecessor_record_id='40000000-0000-0000-0000-000000000071';
+    DELETE FROM private.source_record_anchor_event WHERE occurrence_id='50000000-0000-0000-0000-000000000071';
+    DELETE FROM private.source_record_occurrence WHERE id='50000000-0000-0000-0000-000000000071';
+    DELETE FROM private.source_record WHERE id IN ('40000000-0000-0000-0000-000000000071','40000000-0000-0000-0000-000000000072');
+    DELETE FROM private.source_rendition WHERE id='30000000-0000-0000-0000-000000000071';
+    DELETE FROM private.extraction_run WHERE id='20000000-0000-0000-0000-000000000071';
+    DELETE FROM source WHERE id=-987650071;
+    DELETE FROM auth.users WHERE id='10000000-0000-0000-0000-000000000071';
+    SET session_replication_role=origin;
+  $cleanup$;
+BEGIN
+  IF to_regprocedure('dblink_connect(text,text)') IS NULL THEN
+    RAISE EXCEPTION 'DB_VERIFY_DBLINK_REQUIRED: revision-anchor samtidighed';
+  END IF;
+  PERFORM dblink_connect('revision_anchor_setup',v_conn||' application_name=daa_verify_revision_anchor_setup');
+  v_setup_connected:=true;
+  PERFORM dblink_exec('revision_anchor_setup',v_cleanup);
+  PERFORM dblink_exec('revision_anchor_setup','INSERT INTO auth.users(id,email) VALUES (''10000000-0000-0000-0000-000000000071'',''revision-anchor@test.invalid'')');
+  PERFORM dblink_exec('revision_anchor_setup','INSERT INTO source(id,titel,import_key) VALUES (-987650071,''Revision anchor lock'',''verify:revision-anchor:lock'')');
+  PERFORM dblink_exec('revision_anchor_setup','INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) VALUES (''20000000-0000-0000-0000-000000000071'',-987650071,''revision-anchor-run'',''1.0'',''verify'',''verify'',''' || repeat('7',64) || ''',''{}'')');
+  PERFORM dblink_exec('revision_anchor_setup','INSERT INTO private.source_rendition(id,source_id,rendition_key,rendition_kind,content_sha256,metadata) VALUES (''30000000-0000-0000-0000-000000000071'',-987650071,''revision-anchor-rendition'',''text_layer'',''' || repeat('8',64) || ''',''{}'')');
+  PERFORM dblink_exec('revision_anchor_setup','INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id) VALUES (''40000000-0000-0000-0000-000000000071'',-987650071,''revision-predecessor'',''person_entry'',''20000000-0000-0000-0000-000000000071''),(''40000000-0000-0000-0000-000000000072'',-987650071,''revision-successor'',''person_entry'',''20000000-0000-0000-0000-000000000071'')');
+  PERFORM dblink_exec('revision_anchor_setup','INSERT INTO private.source_record_occurrence(id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id) VALUES (''50000000-0000-0000-0000-000000000071'',''30000000-0000-0000-0000-000000000071'',''revision-anchor-occurrence'',1,1,0,4,''Lock'',''revision-anchor-physical'',''revision-anchor-structural'',''20000000-0000-0000-0000-000000000071'')');
+  PERFORM dblink_connect('revision_anchor_a',v_conn||' application_name=daa_verify_revision_a'); v_a_connected:=true;
+  PERFORM dblink_connect('revision_anchor_b',v_conn||' application_name=daa_verify_anchor_b'); v_b_connected:=true;
+  SELECT pid INTO v_a_pid FROM dblink('revision_anchor_a','SELECT pg_backend_pid()') AS t(pid integer);
+  SELECT pid INTO v_b_pid FROM dblink('revision_anchor_b','SELECT pg_backend_pid()') AS t(pid integer);
+  PERFORM dblink_exec('revision_anchor_b','BEGIN');
+  PERFORM dblink_exec('revision_anchor_b','INSERT INTO private.source_record_anchor_event(id,occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name) VALUES (''90000000-0000-0000-0000-000000000071'',''50000000-0000-0000-0000-000000000071'',''40000000-0000-0000-0000-000000000072'',''accepted'',''{"basis":"B"}'',1,''10000000-0000-0000-0000-000000000071'',''B'')');
+  PERFORM dblink_exec('revision_anchor_a','BEGIN');
+  PERFORM dblink_send_query('revision_anchor_a','INSERT INTO private.source_record_revision_event(id,predecessor_record_id,successor_record_id,relation_kind,decision_status,evidence,version,decided_by,decided_by_name) VALUES (''a0000000-0000-0000-0000-000000000071'',''40000000-0000-0000-0000-000000000071'',''40000000-0000-0000-0000-000000000072'',''split_into'',''accepted'',''{"basis":"A"}'',1,''10000000-0000-0000-0000-000000000071'',''A'')');
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    EXIT WHEN v_b_pid=ANY(pg_blocking_pids(v_a_pid));
+    SELECT dblink_is_busy('revision_anchor_a') INTO v_busy;
+    IF v_busy=0 OR clock_timestamp()>v_deadline THEN RAISE EXCEPTION 'FEJL: revision ventede ikke på accepted anchor'; END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  PERFORM dblink_exec('revision_anchor_b','COMMIT');
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP SELECT dblink_is_busy('revision_anchor_a') INTO v_busy; EXIT WHEN v_busy=0;
+    IF clock_timestamp()>v_deadline THEN RAISE EXCEPTION 'FEJL: revision-anchor race afsluttede ikke'; END IF;
+    PERFORM pg_sleep(0.02); END LOOP;
+  v_error:=NULL;
+  BEGIN PERFORM * FROM dblink_get_result('revision_anchor_a') AS t(id uuid);
+  EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+  BEGIN PERFORM * FROM dblink_get_result('revision_anchor_a') AS t(id uuid);
+  EXCEPTION WHEN others THEN IF v_error IS NULL THEN v_error:=SQLERRM; END IF; END;
+  IF v_error NOT LIKE '%EVIDENCE_REVISION_SUCCESSOR_ALREADY_ANCHORED%' THEN
+    RAISE EXCEPTION 'FEJL: concurrent accepted revision blev ikke afvist: %',v_error;
+  END IF;
+  PERFORM dblink_exec('revision_anchor_a','ROLLBACK');
+  PERFORM dblink_disconnect('revision_anchor_a'); v_a_connected:=false;
+  PERFORM dblink_disconnect('revision_anchor_b'); v_b_connected:=false;
+  PERFORM dblink_exec('revision_anchor_setup',v_cleanup);
+  PERFORM dblink_disconnect('revision_anchor_setup'); v_setup_connected:=false;
+  PERFORM set_config('daa.verify_dblink_revision_anchor','executed',false);
+  RAISE NOTICE 'OK: accepted anchor serialiserer concurrent accepted revision';
+EXCEPTION WHEN others THEN
+  IF v_a_connected THEN BEGIN PERFORM dblink_exec('revision_anchor_a','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END; BEGIN PERFORM dblink_disconnect('revision_anchor_a'); EXCEPTION WHEN others THEN NULL; END; END IF;
+  IF v_b_connected THEN BEGIN PERFORM dblink_exec('revision_anchor_b','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END; BEGIN PERFORM dblink_disconnect('revision_anchor_b'); EXCEPTION WHEN others THEN NULL; END; END IF;
+  IF v_setup_connected THEN BEGIN PERFORM dblink_exec('revision_anchor_setup',v_cleanup); EXCEPTION WHEN others THEN NULL; END; BEGIN PERFORM dblink_disconnect('revision_anchor_setup'); EXCEPTION WHEN others THEN NULL; END; END IF;
+  RAISE;
+END $revision_anchor_concurrency$;
 
 -- ===== Evidensimport Fase 3 / Task 6: slægt, lineage og kildeschemes =====
 DO $slaegt_verify$
@@ -1879,6 +2124,9 @@ DECLARE
   v_persona uuid := '88000000-0000-0000-0000-000000000021';
   v_interpretation uuid := 'c1000000-0000-0000-0000-000000000021';
   v_accepted_interpretation uuid;
+  v_terminal_proposal uuid;
+  v_terminal_decision uuid;
+  v_terminal_status text;
   v_error text;
 BEGIN
   SELECT array_agg(required_name ORDER BY required_name) INTO v_missing
@@ -2106,6 +2354,52 @@ BEGIN
     ) THEN
       RAISE EXCEPTION 'FEJL: accepted fortolkning mangler versions-/aktøraudit';
     END IF;
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_decide_interpretation(
+        v_accepted_interpretation,2,'rejected','{"basis":"second decision"}'
+      );
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error IS NULL OR v_error NOT LIKE 'EVIDENCE_INTERPRETATION_NOT_PROPOSED%' THEN
+      RAISE EXCEPTION 'FEJL: accepted fortolkning kunne afgøres igen: %',v_error;
+    END IF;
+    IF (SELECT count(*) FROM private.interpretation
+         WHERE interpretation_key='c0000000-0000-0000-0000-000000000021')<>2 THEN
+      RAISE EXCEPTION 'FEJL: second decision oprettede en ekstra fortolkningsversion';
+    END IF;
+    FOREACH v_terminal_status IN ARRAY ARRAY['rejected','unresolved','superseded'] LOOP
+      v_terminal_proposal:=gen_random_uuid();
+      INSERT INTO private.interpretation(
+        id,interpretation_key,version,source_id,source_persona_id,
+        interpretation_kind,predicate,value,schema_version,derivation_kind,
+        confidence,status,method,extraction_run_id
+      ) VALUES (
+        v_terminal_proposal,gen_random_uuid(),1,-987650021,v_persona,
+        'property','terminal_status','{}','1.0','source_statement',1,
+        'proposed','verify',v_run
+      );
+      INSERT INTO private.interpretation_observation(
+        interpretation_id,observation_id,evidence_role,ordinal
+      ) VALUES (v_terminal_proposal,v_observation,'supporting',1);
+      SELECT red_decide_interpretation(
+        v_terminal_proposal,1,v_terminal_status,'{"basis":"terminal state verify"}'
+      ) INTO v_terminal_decision;
+      IF NOT EXISTS (
+        SELECT 1 FROM private.interpretation
+         WHERE id=v_terminal_decision AND version=2 AND status=v_terminal_status
+      ) THEN
+        RAISE EXCEPTION 'FEJL: terminal fortolkningsstatus % blev ikke skrevet append-only',v_terminal_status;
+      END IF;
+      v_error:=NULL;
+      BEGIN
+        PERFORM red_decide_interpretation(
+          v_terminal_decision,2,'accepted','{"basis":"invalid terminal redecision"}'
+        );
+      EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+      IF v_error IS NULL OR v_error NOT LIKE 'EVIDENCE_INTERPRETATION_NOT_PROPOSED%' THEN
+        RAISE EXCEPTION 'FEJL: terminal fortolkning % kunne afgøres igen: %',v_terminal_status,v_error;
+      END IF;
+    END LOOP;
     PERFORM red_promote_interpretation(
       v_accepted_interpretation,'person',-987650021,'{"basis":"verified"}'
     );
@@ -2258,6 +2552,160 @@ BEGIN
     END IF;
   END;
 END $interpretation_verify$;
+
+-- To samtidige afgørelser af samme proposal skal serialiseres; den tabende
+-- transaktion må ikke skabe en tredje version efter den første commit.
+DO $interpretation_concurrency$
+DECLARE
+  v_conn text := format(
+    'dbname=%s port=%s host=%s',current_database(),current_setting('port'),
+    split_part(current_setting('unix_socket_directories'),',',1)
+  );
+  v_actor uuid := '11000000-0000-0000-0000-000000000061';
+  v_run uuid := '22000000-0000-0000-0000-000000000061';
+  v_rendition uuid := '33000000-0000-0000-0000-000000000061';
+  v_occurrence uuid := '55000000-0000-0000-0000-000000000061';
+  v_observation uuid := '66000000-0000-0000-0000-000000000061';
+  v_persona uuid := '88000000-0000-0000-0000-000000000061';
+  v_interpretation uuid := 'c1000000-0000-0000-0000-000000000061';
+  v_a_pid integer;
+  v_b_pid integer;
+  v_busy integer;
+  v_deadline timestamptz;
+  v_error text;
+  v_setup_connected boolean := false;
+  v_a_connected boolean := false;
+  v_b_connected boolean := false;
+  v_cleanup text := $cleanup$
+    SET session_replication_role=replica;
+    DELETE FROM private.interpretation_observation
+     WHERE interpretation_id IN (
+       SELECT id FROM private.interpretation
+        WHERE interpretation_key='c0000000-0000-0000-0000-000000000061'
+     );
+    DELETE FROM private.interpretation
+     WHERE interpretation_key='c0000000-0000-0000-0000-000000000061';
+    DELETE FROM private.source_persona WHERE id='88000000-0000-0000-0000-000000000061';
+    DELETE FROM private.source_observation WHERE id='66000000-0000-0000-0000-000000000061';
+    DELETE FROM private.source_record_occurrence WHERE id='55000000-0000-0000-0000-000000000061';
+    DELETE FROM private.source_rendition WHERE id='33000000-0000-0000-0000-000000000061';
+    DELETE FROM private.extraction_run WHERE id='22000000-0000-0000-0000-000000000061';
+    DELETE FROM source WHERE id=-987650061;
+    DELETE FROM profiles WHERE id='11000000-0000-0000-0000-000000000061';
+    DELETE FROM auth.users WHERE id='11000000-0000-0000-0000-000000000061';
+    SET session_replication_role=origin;
+  $cleanup$;
+BEGIN
+  IF to_regprocedure('dblink_connect(text,text)') IS NULL THEN
+    RAISE EXCEPTION 'DB_VERIFY_DBLINK_REQUIRED: fortolkningssamtidighed';
+  END IF;
+  PERFORM dblink_connect('interpretation_setup',v_conn||' application_name=daa_verify_interpretation_setup');
+  v_setup_connected:=true;
+  PERFORM dblink_exec('interpretation_setup',v_cleanup);
+  PERFORM dblink_exec('interpretation_setup',format(
+    'INSERT INTO auth.users(id,email) VALUES (''%s'',''interpretation-lock@test.invalid'')',v_actor));
+  PERFORM dblink_exec('interpretation_setup',format(
+    'INSERT INTO profiles(id,rolle,email,navn) VALUES (''%s'',''redaktion'',''interpretation-lock@test.invalid'',''Interpretation Editor'')',v_actor));
+  PERFORM dblink_exec('interpretation_setup',
+    'INSERT INTO source(id,titel,import_key) VALUES (-987650061,''Interpretation lock'',''verify:interpretation:lock'')');
+  PERFORM dblink_exec('interpretation_setup',
+    'INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) '
+    || 'VALUES (''22000000-0000-0000-0000-000000000061'',-987650061,''interpretation-lock-run'',''1.0'',''verify'',''verify'','
+    || quote_literal(repeat('6',64)) || ',''{}'')');
+  PERFORM dblink_exec('interpretation_setup',
+    'INSERT INTO private.source_rendition(id,source_id,rendition_key,rendition_kind,content_sha256,metadata) '
+    || 'VALUES (''33000000-0000-0000-0000-000000000061'',-987650061,''interpretation-lock-rendition'',''text_layer'','
+    || quote_literal(repeat('7',64)) || ',''{}'')');
+  PERFORM dblink_exec('interpretation_setup',
+    'INSERT INTO private.source_record_occurrence(id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id) '
+    || 'VALUES (''55000000-0000-0000-0000-000000000061'',''33000000-0000-0000-0000-000000000061'',''interpretation-lock-occurrence'',1,1,0,4,''Anna'',''interpretation-physical'',''interpretation-structural'',''22000000-0000-0000-0000-000000000061'')');
+  PERFORM dblink_exec('interpretation_setup',
+    'INSERT INTO private.source_observation(id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id) '
+    || 'VALUES (''66000000-0000-0000-0000-000000000061'',''55000000-0000-0000-0000-000000000061'',''name'',1,1,0,4,''Anna'',''clear'',''verify'',''22000000-0000-0000-0000-000000000061'')');
+  PERFORM dblink_exec('interpretation_setup',
+    'INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) '
+    || 'VALUES (''88000000-0000-0000-0000-000000000061'',-987650061,''interpretation-lock-persona'',''22000000-0000-0000-0000-000000000061'')');
+  PERFORM dblink_exec('interpretation_setup','BEGIN');
+  PERFORM dblink_exec('interpretation_setup','SET CONSTRAINTS ALL DEFERRED');
+  PERFORM dblink_exec('interpretation_setup',
+    'INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id) '
+    || 'VALUES (''c1000000-0000-0000-0000-000000000061'',''c0000000-0000-0000-0000-000000000061'',1,-987650061,''88000000-0000-0000-0000-000000000061'',''property'',''name'',''{}'',''1.0'',''source_statement'',1,''proposed'',''verify'',''22000000-0000-0000-0000-000000000061'')');
+  PERFORM dblink_exec('interpretation_setup',
+    'INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) VALUES (''c1000000-0000-0000-0000-000000000061'',''66000000-0000-0000-0000-000000000061'',''supporting'',1)');
+  PERFORM dblink_exec('interpretation_setup','COMMIT');
+  PERFORM dblink_connect('interpretation_a',v_conn||' application_name=daa_verify_interpretation_a');
+  v_a_connected:=true;
+  PERFORM dblink_connect('interpretation_b',v_conn||' application_name=daa_verify_interpretation_b');
+  v_b_connected:=true;
+  SELECT pid INTO v_a_pid FROM dblink('interpretation_a','SELECT pg_backend_pid()') AS t(pid integer);
+  SELECT pid INTO v_b_pid FROM dblink('interpretation_b','SELECT pg_backend_pid()') AS t(pid integer);
+  PERFORM dblink_exec('interpretation_a','BEGIN');
+  PERFORM dblink_exec('interpretation_a','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('interpretation_a',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  PERFORM * FROM dblink('interpretation_a',format(
+    'SELECT red_decide_interpretation(''%s'',1,''accepted'',''{"basis":"A"}'')',v_interpretation
+  )) AS t(decision_id uuid);
+  PERFORM dblink_exec('interpretation_b','BEGIN');
+  PERFORM dblink_exec('interpretation_b','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('interpretation_b',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  PERFORM dblink_send_query('interpretation_b',format(
+    'SELECT red_decide_interpretation(''%s'',1,''rejected'',''{"basis":"B"}'')',v_interpretation
+  ));
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
+    SELECT dblink_is_busy('interpretation_b') INTO v_busy;
+    IF v_busy=0 OR clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: fortolkningsafgørelse B ventede ikke på proposal-låsen';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  PERFORM dblink_exec('interpretation_a','COMMIT');
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    SELECT dblink_is_busy('interpretation_b') INTO v_busy;
+    EXIT WHEN v_busy=0;
+    IF clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: fortolkningsafgørelse B afsluttede ikke';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  v_error:=NULL;
+  BEGIN
+    PERFORM * FROM dblink_get_result('interpretation_b') AS t(decision_id uuid);
+  EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+  BEGIN
+    PERFORM * FROM dblink_get_result('interpretation_b') AS t(decision_id uuid);
+  EXCEPTION WHEN others THEN IF v_error IS NULL THEN v_error:=SQLERRM; END IF; END;
+  IF v_error NOT LIKE '%EVIDENCE_INTERPRETATION_VERSION_CONFLICT%' THEN
+    RAISE EXCEPTION 'FEJL: tabende fortolkningsafgørelse fejlede ikke fail-closed: %',v_error;
+  END IF;
+  PERFORM dblink_exec('interpretation_b','ROLLBACK');
+  IF (SELECT count(*) FROM private.interpretation
+       WHERE interpretation_key='c0000000-0000-0000-0000-000000000061')<>2 THEN
+    RAISE EXCEPTION 'FEJL: fortolknings-race efterlod mere end én decision-version';
+  END IF;
+  PERFORM dblink_disconnect('interpretation_a'); v_a_connected:=false;
+  PERFORM dblink_disconnect('interpretation_b'); v_b_connected:=false;
+  PERFORM dblink_exec('interpretation_setup',v_cleanup);
+  PERFORM dblink_disconnect('interpretation_setup'); v_setup_connected:=false;
+  PERFORM set_config('daa.verify_dblink_interpretation','executed',false);
+  RAISE NOTICE 'OK: fortolkningsafgørelser serialiseres og taberen skriver ingen ny version';
+EXCEPTION WHEN others THEN
+  IF v_a_connected THEN
+    BEGIN PERFORM dblink_exec('interpretation_a','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('interpretation_a'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  IF v_b_connected THEN
+    BEGIN PERFORM dblink_exec('interpretation_b','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('interpretation_b'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  IF v_setup_connected THEN
+    BEGIN PERFORM dblink_exec('interpretation_setup',v_cleanup); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('interpretation_setup'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  RAISE;
+END $interpretation_concurrency$;
 
 -- ===== Evidensimport Fase 2 / Task 1: promotionregler og batch-audit =====
 DO $promotion_rule_verify$
@@ -2657,10 +3105,6 @@ BEGIN
       INTO v_accepted_no_bulk_2;
     SELECT red_decide_interpretation(v_interpretation_principal,1,'accepted','{"basis":"promotion verify"}')
       INTO v_accepted_principal;
-    SELECT red_decide_interpretation(v_interpretation_stale,1,'accepted','{"basis":"promotion verify"}')
-      INTO v_accepted_stale;
-    PERFORM red_decide_interpretation(v_accepted_stale,2,'rejected','{"basis":"later review"}');
-
     v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
       jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650041)
     ));
@@ -2671,10 +3115,10 @@ BEGIN
       RAISE EXCEPTION 'FEJL: samme person/fact-type/tekst blev ikke previewet som eligible: %',v_preview;
     END IF;
     v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
-      jsonb_build_object('interpretation_id',v_accepted_stale,'target_type','assertion','target_id',-987650041)
+      jsonb_build_object('interpretation_id',v_interpretation_stale,'target_type','assertion','target_id',-987650041)
     ));
-    IF v_preview->'items'->0->>'reason_code'<>'EVIDENCE_INTERPRETATION_NOT_CURRENT' THEN
-      RAISE EXCEPTION 'FEJL: historisk accepted fortolkning blev ikke afvist: %',v_preview;
+    IF v_preview->'items'->0->>'reason_code'<>'EVIDENCE_INTERPRETATION_NOT_ACCEPTED' THEN
+      RAISE EXCEPTION 'FEJL: proposed fortolkning blev ikke afvist: %',v_preview;
     END IF;
     v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
       jsonb_build_object('interpretation_id',v_accepted_no_bulk_1,'target_type','assertion','target_id',-987650041),
@@ -3067,9 +3511,24 @@ BEGIN
   IF v_preview_hash !~ '^[0-9a-f]{64}$' THEN
     RAISE EXCEPTION 'FEJL: promotion-samtidighed fik ikke SHA-256-preview';
   END IF;
-  PERFORM * FROM dblink('promotion_a',format(
-    'SELECT red_decide_interpretation(''%s'',2,''rejected'',''{"basis":"concurrent review"}'')',
-    v_interpretation_2)) AS t(interpretation_id uuid);
+  -- Simulér en separat, append-only current-version mellem preview og batch.
+  -- Det er med vilje ikke red_decide_interpretation(): #155 tillader kun den
+  -- RPC på proposals, mens stale-preview-gaten stadig skal tåle en ændret
+  -- ledger-version fra en anden autoriseret write-vej.
+  PERFORM dblink_exec('promotion_a','RESET ROLE');
+  PERFORM dblink_exec('promotion_a',format(
+    'WITH created AS (INSERT INTO private.interpretation('
+    || 'id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,value,'
+    || 'schema_version,derivation_kind,confidence,status,method,model_version,prompt_version,'
+    || 'extraction_run_id,supersedes_id,decision_evidence,decided_by,decided_by_name,decided_at) '
+    || 'SELECT gen_random_uuid(),interpretation_key,version+1,source_id,source_persona_id,interpretation_kind,predicate,value,'
+    || 'schema_version,derivation_kind,confidence,''rejected'',method,model_version,prompt_version,'
+    || 'extraction_run_id,id,''{"basis":"concurrent ledger change"}'',%L,''Promotion Editor'',clock_timestamp() '
+    || 'FROM private.interpretation WHERE id=''%s'' RETURNING id) '
+    || 'INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) '
+    || 'SELECT created.id,io.observation_id,io.evidence_role,io.ordinal '
+    || 'FROM created JOIN private.interpretation_observation io ON io.interpretation_id=''%s''',
+    v_actor::text,v_interpretation_2,v_interpretation_2));
 
   PERFORM dblink_exec('promotion_b','BEGIN');
   PERFORM dblink_exec('promotion_b','SET LOCAL ROLE authenticated');

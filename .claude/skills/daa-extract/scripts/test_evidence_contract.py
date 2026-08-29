@@ -1,6 +1,8 @@
 """Acceptance tests for the edition-neutral evidence extraction contract."""
 
 import hashlib
+import json
+import re
 from pathlib import Path
 
 import pytest
@@ -400,3 +402,23 @@ def test_synthetic_fixture_obeys_contract_shape():
     fixture = Path(__file__).parent / "tests" / "fixtures" / "evidence-observation.synthetic.json"
     assert fixture.is_file()
     validate_bundle(fixture)
+
+
+def test_json_schemas_use_the_current_interpretation_status_vocabulary():
+    references = Path(__file__).parent.parent / "references"
+    for filename in ("observation-schema.json", "interpretation-schema.json"):
+        with (references / filename).open(encoding="utf-8") as handle:
+            schema = json.load(handle)
+        assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+
+    with (references / "interpretation-schema.json").open(encoding="utf-8") as handle:
+        interpretation_schema = json.load(handle)
+    schema_sql = (Path(__file__).parents[4] / "schema.sql").read_text(encoding="utf-8")
+    decision_values = re.search(
+        r"p_decision_status NOT IN \(([^)]*)\)", schema_sql, re.DOTALL,
+    )
+    assert decision_values is not None
+    assert interpretation_schema["properties"]["status"]["enum"] == [
+        "proposed",
+        *re.findall(r"'([^']+)'", decision_values.group(1)),
+    ]

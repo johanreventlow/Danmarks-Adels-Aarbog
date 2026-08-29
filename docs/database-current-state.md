@@ -276,6 +276,15 @@ Afsnittet nedenfor beskriver den oprindelige situation og bevares som historik.
 5. **Eksplicit godkendelse:** brugeren navngiver prod-målet og det konkrete apply.
 6. **Atomisk apply:** `--single-transaction` hvor artefaktet tillader det; genanvend
    `db-rls.sql` når policies/grants påvirkes.
+   For evidens-hardening (#154/#155) skal den godkendte `db-migrations.sql`-blok
+   og de tilhørende `db-rls.sql`-grants køres i samme deploy-transaktion efter en
+   restore-rehearsal. Kør aldrig `db-rls.sql` alene som kompensation for en
+   migrationssti. Hver ny eller erstattet `public.red_*` skal i samme transaktion
+   være eksplicit klassificeret som authenticated-, service-only- eller lukket RPC
+   og få sit passende `GRANT EXECUTE`; `PUBLIC` er aldrig en implicit klientrolle.
+   Den katalogbaserede `db-verify`-policy samt både migrations- og fresh-schema-
+   vejen i CI er deploy-gaten, efterfulgt af append-only- og fortolkningskontroller
+   i en isoleret database.
 7. **Verificér:** scoped adfærdsasserts, read-only katalog-/RLS-smoke, Data API-grants,
    schema-cache og Supabase security advisors.
 8. **Dokumentér:** opdatér changelog og denne side med faktisk resultat, tal og

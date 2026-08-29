@@ -576,13 +576,30 @@ drop policy if exists bookmark_delete_own on public.bookmark;
 create policy bookmark_delete_own on public.bookmark
   for delete to authenticated using (user_id = auth.uid());
 
--- RPC-grants: alle red_*-funktioner kaldbare af authenticated (rolle-tjek er INDE i dem).
+-- RPC-grants ejer migrationssporet: #154 kræver en eksplicit overload-
+--klassifikation dér. Denne samlede RLS-fil må derfor aldrig automatisk åbne
+--nye red_* RPC'er for authenticated.
 do $$
 declare fn text;
 begin
   for fn in select proname from pg_proc where proname like 'red\_%' escape '\'
-  loop execute format('grant execute on function public.%I to authenticated;', fn); end loop;
+  loop execute format('revoke execute on function public.%I from public, anon;', fn); end loop;
 end $$;
+-- Default EXECUTE for PUBLIC predates den globale default-revoke på mange
+-- eksisterende RPC'er. Fjern den eksplicit på hver overload; de efterfølgende,
+-- navngivne GRANTs er den eneste klient-/service-role-policy.
+DO $public_red_revoke$
+DECLARE fn regprocedure;
+BEGIN
+  FOR fn IN
+    SELECT p.oid::regprocedure
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid=p.pronamespace
+     WHERE n.nspname='public' AND p.proname LIKE 'red\_%' ESCAPE '\'
+  LOOP
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon',fn);
+  END LOOP;
+END $public_red_revoke$;
 -- Den historiske enkeltrække-RPC mangler v1's persona-/regel-/værdikontrol.
 -- Den må derfor ikke blive genåbnet af den generelle redaktions-RPC-grant ovenfor.
 revoke execute on function public.red_promote_interpretation(uuid,text,bigint,jsonb)
