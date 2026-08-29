@@ -24,6 +24,7 @@ i historiske planer og afsluttede reviews.
 |---|---|
 | [`changelog.md`](changelog.md) | Kronologisk historik over ændringer, fejl, reviews og testniveau; ikke aktuel programstatus. |
 | [`decisions.md`](decisions.md) | Arkitektur-beslutningslog: ikke-oplagte valg + hvorfor alternativer blev fravalgt. |
+| [`superpowers/reviews/2026-08-22-evidensbaseret-genimport-afvigelsesvurdering.md`](superpowers/reviews/2026-08-22-evidensbaseret-genimport-afvigelsesvurdering.md) | Afvigelser mod den oprindelige genimportplan, fase-pakke-gaten og dokumenteret uafsluttet arbejde. |
 
 ## 🗄️ Skema & database (autoritative filer i repo-roden)
 

@@ -463,9 +463,14 @@ byte-identiske baselines og bevist idempotent replay. Backup før apply:
 Næste: fase B — narrativ-erstatning (478 ændrede) inkl.
 ombrydnings-normalisering.
 
-## 1939 v50-strømmen lukket i prod: publikation + cutover (2026-08-18)
+## 1939 v50: begrænset prod-skrivning, publikation + cutover (2026-08-18)
 
-Hele den evidensbaserede 1939 v50-strøm er nu udført og verificeret i produktion.
+**Historisk korrektion 2026-08-29:** Denne entry dokumenterer kun de konkrete
+skrivninger nedenfor; den betyder ikke, at hele den evidensbaserede 1939 v50-
+strøm var lukket. Afvigelsesvurderingen 2026-08-22 fastslår bl.a., at
+fortolkningslaget, C3-apply og flere afsluttende dispositioner fortsat manglede.
+Se `docs/superpowers/reviews/2026-08-22-evidensbaseret-genimport-afvigelsesvurdering.md`.
+
 Tidligere på dagen (Codex): production apply (8 staged summary-personer 1846-1853 +
 305 source-only evidensobjekter, batch `560c39f8…`) og name-completion apply
 (8 kildebundne navnefakta, batch `0b0055f6…`). Derefter (denne session):

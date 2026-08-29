@@ -1,6 +1,12 @@
 # Evidensbaseret genimport og multi-slægt Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **Historisk status (2026-08-29):** Checkbokse er den oprindelige plans
+> arbejdsspor, ikke en aktuel udførelseslog. Task 8/9 er lovligt udskudt, og
+> Task 14 er bygget som fundament men uden produceret `proposed`-ingest. Den
+> gældende status er `docs/evidensbaseret-genimport/status.md`, changelog og
+> afvigelsesvurderingen 2026-08-22.
 
 **Goal:** Etablér en kildebevarende importarkitektur, hvor eksplicitte oplysninger udtrækkes granulært, identiteter afklares uden gæt, og personer, slægter, linjer, grene og kildeudgaver vises korrekt uden kildespecifikke lappeløsninger i den kanoniske model.
 

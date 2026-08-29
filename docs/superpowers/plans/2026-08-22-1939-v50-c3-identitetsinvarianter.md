@@ -1,6 +1,10 @@
 # 1939 v50 C3 Identity Invariants Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **Historisk status (2026-08-29):** Checkbokse er ikke C3's live status.
+> Invarianterne er implementeret, men atomisk C3-apply er et separat, fortsat
+> gated spor; se `docs/superpowers/reviews/2026-08-22-evidensbaseret-genimport-afvigelsesvurdering.md` §7.12.
 
 **Goal:** Harden the general `samme_som`/`ikke_samme_som` database invariants so C3 can safely record five `FORSKELLIGE` decisions without component contradictions or races with person deletion.
 

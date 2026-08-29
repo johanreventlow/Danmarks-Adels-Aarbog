@@ -1,6 +1,11 @@
 # Kildeversioner for same_som-aliaser Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **Historisk status (2026-08-29):** Denne plans checkbokse må ikke læses som
+> tværgående evidensstatus. Brug `docs/evidensbaseret-genimport/status.md`,
+> changelog og afvigelsesvurderingen 2026-08-22 ved vurdering af faktisk
+> kildeversion-/same_som-paritet.
 
 **Goal:** Sørg for, at web og mobil henter offentlige kildeversioner for alle fysiske personrækker bag en kanonisk `same_som`-person.
 

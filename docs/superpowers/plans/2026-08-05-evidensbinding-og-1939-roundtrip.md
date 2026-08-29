@@ -1,6 +1,11 @@
 # Evidensbinding og 1939-roundtrip Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **Historisk status (2026-08-29):** Checkbokse er ikke en aktuel statuskilde.
+> Den efterfølgende v50-kæde erstattede dele af roundtrip-sporet; se
+> afvigelsesvurderingen 2026-08-22 §§4 og 7.1 for dokumenteret leverance og
+> rester.
 
 **Goal:** Gør hvert promotionsklart claim mekanisk sporbar til den korrekte persona, record og frosne rendition, og bind 1939-beslutninger til de baseline-bytes, de blev truffet imod.
 

@@ -10,9 +10,9 @@
 > ægte data — person 924 med kildebinding kunne slettes i en rullet-tilbage
 > transaktion. **Fase D2 er kørt 2026-08-20: 28 → 7 staged.** Målte tal: 1.811
 > personer, 7.197 facts, 2.258 `family_member`, 592 source_records, 905
-> write-events; `anon` ser 1.713. Se changelog 2026-08-20).
+> write-events; `anon` ser 1.734. Se changelog 2026-08-20).
 >
-> Forudgående afstemning: 2026-08-18 (1939 v50-strømmen lukket i prod: 8 nye
+> Forudgående afstemning: 2026-08-18 (afgrænset 1939 v50-apply: 8 nye
 > summary-personer 1846-1853 oprettet, navngivet, narrativ-publiceret og
 > cutover'et til offentlig synlighed; `red_publicer_narrative_record` hærdet
 > (draft→published m. eksakt felt-match); prod = 1.812 personer, 7.199 facts,
@@ -30,6 +30,11 @@
 > planer/specs gælder denne side for prod-status; ret derefter det forældede
 > dokument i dets egen dokumentationsrunde.
 >
+> **Evidenskorrektion 2026-08-29:** Den læse-kun måling 2026-08-22 viser
+> **592 `private.source_record`-rækker** for DAA 1939. Det ældre tal 539 er
+> juli-loaderens antal direkte poster og må ikke bruges som antal evidens-records.
+> Se `superpowers/reviews/2026-08-22-evidensbaseret-genimport-afvigelsesvurdering.md`.
+>
 > **Fund ved 2026-07-20-afstemningen:** denne sides "Sidst afstemt: 2026-07-01" havde stået
 > ureflekteret i tre uger. Et direkte objektinventar (tabeller + `pg_proc`-funktionsnavne)
 > viste at ALT arbejde dateret 2026-07-02 til 2026-07-17 i `db-migrations.sql`/`db-rls.sql`
@@ -42,14 +47,14 @@
 
 ---
 
-## 1. Verificeret prod-snapshot 2026-07-20
+## 1. Senest dokumenterede prod-snapshot (2026-08-20; evidensmåling 2026-08-22)
 
 | Område | Faktisk tilstand |
 |---|---|
 | Personer | **1.811** total; **7 staged**; **70 levende**; 0 `privat=TRUE` — målt 2026-08-20 efter fase D2 (975 pensioneret som oversigtslinje) |
 | Offentlig/medlem | `anon` ser **1.734 personer**, **0 levende**, **0 staged** (efter fase D2, 2026-08-20). Regnestykket går op: 1811 − 70 levende − 7 staged = 1734 |
 | Kildebindinger | **559** i `private.narrative_record_publication`, alle `published` (efter C0-efterkørslen 2026-08-21) |
-| Kilder | 3 source-rækker. Source 1 = DAA 2018-20/2020 med 591 direkte poster; source 3 = DAA 1939/1939 med 539 direkte poster |
+| Kilder | 3 source-rækker. Source 1 = DAA 2018-20/2020 med 591 direkte poster; source 3 = DAA 1939/1939 med **592 private evidens-records** (målt 2026-08-22). 539 er et historisk juli-loader-tal for direkte poster, ikke evidens-records. |
 | Slægtskab | **2.258** `family_member`-rækker; **922** `forældrefamilie`-facts (målt 2026-08-20) |
 | Medier | **6** media-rækker: 2 `klar`, 4 `fjernet`; privat `media`-bucket og `media_variant` findes |
 | Bogmærker | `bookmark` er live og indeholder 1 række |
@@ -122,8 +127,10 @@ Afsnittet nedenfor beskriver den oprindelige situation og bevares som historik.
 
 ### 1939: loadet staged, men publicering er pauset (historisk)
 
-- DAA 1939 er loadet som source 3 med 835 staged personer (539 direkte poster +
-  partnerstubs). De er usynlige for `anon` og almindelig `authenticated`.
+- DAA 1939 har source 3 med 592 private evidens-records (målt 2026-08-22).
+  Det ældre juli-loader-snapshot med 835 staged personer og 539 direkte poster
+  er historisk og må ikke bruges som bevis for evidenslagets dækning. Staged-
+  data er usynlige for `anon` og almindelig `authenticated`.
 - **Publicér ikke source 3.** Projektbeslutningen 2026-07-20 er, at 1939-PDF'en skal
   OCR-udtrækkes igen, og at artefakt-/komplethedsgaten skal gentages før videre
   1939-arbejde. Den ældre `plan-1939-produktionsklar.md` dokumenterer det tidligere
