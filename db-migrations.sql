@@ -10712,20 +10712,27 @@ INSERT INTO vocab (scheme, code, label) VALUES
 ON CONFLICT (scheme, code) DO NOTHING;
 
 -- RLS-skærpelse (MM-01): media fjernes fra altid-true-sættet i entitet_offentlig og gates på
--- media_rettigheder_ok (upload_status='klar' AND maa_publiceres). Et upubliceret medies fakta/
--- noter/relationer er dermed mørke for publikum; redaktionen ser fortsat alt via det additive
--- redaktion_read-lag. CREATE OR REPLACE bevarer eksisterende grants (anon, authenticated).
-create or replace function public.entitet_offentlig(p_type text, p_id bigint)
-returns boolean language sql stable security definer set search_path = public as $$
-  select case
-    when p_type = 'person' then public.person_offentlig(p_id)
-    when p_type = 'family' then public.family_offentlig(p_id)
-    -- media: fakta/noter/relationer følger publiceringsgaten (spec §1b, MM-01).
-    -- Redaktionen ser fortsat alt via det additive redaktion_read-lag.
-    when p_type = 'media' then public.media_rettigheder_ok(p_id)
-    -- det faste ikke-PII-entitetssæt (sted/gods/våben/slægt/linje/organisation/begivenhed/kilde/arkiv)
-    when p_type in ('place','estate','coat_of_arms','slaegt','lineage','organisation',
-                    'historical_event','source','repository') then true
-    else false  -- ukendt/fejlstavet type → fail-closed
-  end;
-$$;
+-- media_rettigheder_ok (upload_status='klar' AND maa_publiceres). På en deployet base findes de
+-- tre RLS-helpere allerede, og CREATE OR REPLACE bevarer eksisterende grants. På en frisk base
+-- oprettes helperne først af db-rls.sql; spring derfor denne tidlige afstemning over dér.
+DO $media_rls_migration$
+BEGIN
+  IF to_regprocedure('public.person_offentlig(bigint)') IS NOT NULL
+     AND to_regprocedure('public.family_offentlig(bigint)') IS NOT NULL
+     AND to_regprocedure('public.media_rettigheder_ok(bigint)') IS NOT NULL THEN
+    EXECUTE $function$
+      create or replace function public.entitet_offentlig(p_type text, p_id bigint)
+      returns boolean language sql stable security definer set search_path = public as $body$
+        select case
+          when p_type = 'person' then public.person_offentlig(p_id)
+          when p_type = 'family' then public.family_offentlig(p_id)
+          when p_type = 'media' then public.media_rettigheder_ok(p_id)
+          when p_type in ('place','estate','coat_of_arms','slaegt','lineage','organisation',
+                          'historical_event','source','repository') then true
+          else false
+        end;
+      $body$
+    $function$;
+  END IF;
+END
+$media_rls_migration$;
