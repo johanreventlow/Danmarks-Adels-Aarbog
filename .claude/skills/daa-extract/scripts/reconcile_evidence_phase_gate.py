@@ -17,10 +17,11 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Tuple
 
+from evidence_phase_artifact_ledger import LedgerError, PhaseEntry, validate_ledger
+
 
 MANIFEST_SCHEMA = "daa-evidence-phase-reconciliation-manifest-v1"
 SNAPSHOT_SCHEMA = "daa-evidence-production-snapshot-v1"
-INVENTORY_SCHEMA = "daa-evidence-phase-reconciliation-inventory-v1"
 SECTIONS = (
     "source_records",
     "source_anchors",
@@ -146,30 +147,6 @@ def _validate_snapshot(document: object) -> Dict[str, List[Dict[str, Any]]]:
     return _validate_sections(document)
 
 
-def _validate_inventory(document: object) -> Dict[str, Dict[str, Any]]:
-    _require(isinstance(document, dict), "EVIDENCE_RECONCILIATION_INVENTORY_INVALID")
-    _require(document.get("schema_version") == INVENTORY_SCHEMA, "EVIDENCE_RECONCILIATION_INVENTORY_SCHEMA_INVALID")
-    _require(_is_hex_sha256(document.get("inventory_content_sha256")), "EVIDENCE_RECONCILIATION_INVENTORY_HASH_INVALID")
-    _require(_canonical_sha256(document, "inventory_content_sha256") == document["inventory_content_sha256"], "EVIDENCE_RECONCILIATION_INVENTORY_HASH_INVALID")
-    rows = document.get("phase_manifests")
-    _require(isinstance(rows, list) and bool(rows), "EVIDENCE_RECONCILIATION_INVENTORY_INVALID")
-    indexed: Dict[str, Dict[str, Any]] = {}
-    sequences = set()
-    for row in rows:
-        _require(isinstance(row, dict) and set(row) == {"phase_id", "sequence", "reconciliation_content_sha256", "source_manifest_sha256"}, "EVIDENCE_RECONCILIATION_INVENTORY_ROW_INVALID")
-        phase_id = row["phase_id"]
-        _require(isinstance(phase_id, str) and phase_id.strip() == phase_id and bool(phase_id), "EVIDENCE_RECONCILIATION_PHASE_ID_INVALID")
-        _require(type(row["sequence"]) is int and row["sequence"] > 0, "EVIDENCE_RECONCILIATION_INVENTORY_SEQUENCE_INVALID")
-        _require(_is_hex_sha256(row["reconciliation_content_sha256"]) and _is_hex_sha256(row["source_manifest_sha256"]), "EVIDENCE_RECONCILIATION_INVENTORY_HASH_INVALID")
-        if phase_id in indexed:
-            raise ReconciliationError("EVIDENCE_RECONCILIATION_INVENTORY_DUPLICATE")
-        if row["sequence"] in sequences:
-            raise ReconciliationError("EVIDENCE_RECONCILIATION_INVENTORY_SEQUENCE_DUPLICATE")
-        sequences.add(row["sequence"])
-        indexed[phase_id] = dict(row)
-    return indexed
-
-
 def seal(document: object) -> Dict[str, Any]:
     """Return a hash-locked copy of an unsealed phase manifest or snapshot."""
     _require(isinstance(document, dict), "EVIDENCE_RECONCILIATION_INPUT_INVALID")
@@ -179,18 +156,14 @@ def seal(document: object) -> Dict[str, Any]:
         hash_field = "snapshot_content_sha256"
     elif schema == MANIFEST_SCHEMA:
         hash_field = "reconciliation_content_sha256"
-    elif schema == INVENTORY_SCHEMA:
-        hash_field = "inventory_content_sha256"
     else:
         raise ReconciliationError("EVIDENCE_RECONCILIATION_SCHEMA_INVALID")
     _require(hash_field not in result, "EVIDENCE_RECONCILIATION_ALREADY_SEALED")
     result[hash_field] = _canonical_sha256(result, hash_field)
     if schema == SNAPSHOT_SCHEMA:
         _validate_snapshot(result)
-    elif schema == MANIFEST_SCHEMA:
-        _validate_manifest(result)
     else:
-        _validate_inventory(result)
+        _validate_manifest(result)
     return result
 
 
@@ -208,12 +181,19 @@ def _index(section: str, rows: Iterable[Dict[str, Any]], token: str) -> Dict[Tup
     return indexed
 
 
-def reconcile(snapshot: object, manifests: Iterable[object], inventory: object) -> Dict[str, Any]:
+def _validate_ledger_admission(ledger: object) -> list[PhaseEntry]:
+    try:
+        return validate_ledger(ledger, require_contribution_hashes=True)
+    except LedgerError as error:
+        raise ReconciliationError(str(error)) from error
+
+
+def reconcile(snapshot: object, manifests: Iterable[object], ledger: object) -> Dict[str, Any]:
     """Return a match report or raise a fail-closed ReconciliationError."""
+    approved = _validate_ledger_admission(ledger)
     actual = _validate_snapshot(snapshot)
-    approved = _validate_inventory(inventory)
     phase_ids: List[str] = []
-    manifest_index: Dict[str, Dict[str, str]] = {}
+    manifest_hashes: Dict[str, str] = {}
     contributions: Dict[str, Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, List[Dict[str, Any]]]]] = {}
     for manifest in manifests:
         phase_id, sections, withdrawals = _validate_manifest(manifest)
@@ -221,26 +201,18 @@ def reconcile(snapshot: object, manifests: Iterable[object], inventory: object) 
             raise ReconciliationError("EVIDENCE_RECONCILIATION_DUPLICATE_PHASE")
         phase_ids.append(phase_id)
         assert isinstance(manifest, dict)  # narrowed by _validate_manifest
-        manifest_index[phase_id] = {
-            "reconciliation_content_sha256": manifest["reconciliation_content_sha256"],
-            "source_manifest_sha256": manifest["source_manifest_sha256"],
-        }
+        manifest_hashes[phase_id] = manifest["reconciliation_content_sha256"]
         contributions[phase_id] = (sections, withdrawals)
     _require(bool(phase_ids), "EVIDENCE_RECONCILIATION_MANIFESTS_REQUIRED")
-    approved_hashes = {
-        phase_id: {
-            "reconciliation_content_sha256": row["reconciliation_content_sha256"],
-            "source_manifest_sha256": row["source_manifest_sha256"],
-        }
-        for phase_id, row in approved.items()
-    }
-    if manifest_index != approved_hashes:
-        raise ReconciliationError("EVIDENCE_RECONCILIATION_INVENTORY_MISMATCH")
+    approved_hashes = {entry.phase_id: entry.contribution_sha256 for entry in approved}
+    if manifest_hashes != approved_hashes:
+        raise ReconciliationError("EVIDENCE_RECONCILIATION_LEDGER_MISMATCH")
 
     expected_rows: Dict[str, Dict[Tuple[Any, ...], Dict[str, Any]]] = {section: {} for section in SECTIONS}
     overrides: Dict[str, int] = {section: 0 for section in SECTIONS}
     withdrawal_counts: Dict[str, int] = {section: 0 for section in SECTIONS}
-    for phase_id, _ in sorted(approved.items(), key=lambda item: item[1]["sequence"]):
+    for entry in sorted(approved, key=lambda item: item.sequence):
+        phase_id = entry.phase_id
         for section in SECTIONS:
             phase_sections, phase_withdrawals = contributions[phase_id]
             contribution_rows = _index(
@@ -287,8 +259,8 @@ def reconcile(snapshot: object, manifests: Iterable[object], inventory: object) 
     report = {
         "status": "match" if not differences else "drift",
         "scope": "five-projection-final-state-v1",
-        "phase_ids": [phase_id for phase_id, _ in sorted(approved.items(), key=lambda item: item[1]["sequence"])],
-        "inventory_content_sha256": inventory["inventory_content_sha256"],
+        "phase_ids": [entry.phase_id for entry in sorted(approved, key=lambda item: item.sequence)],
+        "ledger_content_sha256": ledger["ledger_content_sha256"],
         "counts": counts,
         "overrides": overrides,
         "withdrawals": withdrawal_counts,
@@ -327,17 +299,17 @@ def main(argv: List[str] | None = None) -> int:
     mode.add_argument("--snapshot", type=Path)
     mode.add_argument("--seal", type=Path, help="Print a hash-locked copy of an unsealed JSON input.")
     parser.add_argument("--phase-manifest", action="append", type=Path)
-    parser.add_argument("--inventory", type=Path)
+    parser.add_argument("--ledger", type=Path)
     args = parser.parse_args(argv)
     try:
         if args.seal is not None:
-            if args.phase_manifest or args.inventory:
+            if args.phase_manifest or args.ledger:
                 raise ReconciliationError("EVIDENCE_RECONCILIATION_SEAL_ARGUMENTS_INVALID")
             print(json.dumps(seal(_load_json(args.seal)), ensure_ascii=False, sort_keys=True))
             return 0
-        if not args.phase_manifest or args.inventory is None:
+        if not args.phase_manifest or args.ledger is None:
             raise ReconciliationError("EVIDENCE_RECONCILIATION_MANIFESTS_REQUIRED")
-        report = reconcile(_load_json(args.snapshot), [load_phase_manifest(path) for path in args.phase_manifest], _load_json(args.inventory))
+        report = reconcile(_load_json(args.snapshot), [load_phase_manifest(path) for path in args.phase_manifest], _load_json(args.ledger))
     except ReconciliationError as error:
         print(json.dumps(error.report, ensure_ascii=False, sort_keys=True), file=sys.stderr)
         return 2

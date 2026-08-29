@@ -5,6 +5,7 @@ import json
 
 import pytest
 
+from evidence_phase_artifact_ledger import seal_ledger
 from reconcile_evidence_phase_gate import ReconciliationError, load_phase_manifest, reconcile, seal
 
 
@@ -61,21 +62,59 @@ def _snapshot(*manifests: dict) -> dict:
     return _with_hash(payload, "snapshot_content_sha256")
 
 
-def _inventory(*manifests: dict) -> dict:
-    return _with_hash(
+def _ledger(*manifests: dict) -> dict:
+    return seal_ledger(
         {
-            "schema_version": "daa-evidence-phase-reconciliation-inventory-v1",
-            "phase_manifests": [
+            "schema_version": "daa-evidence-phase-artifact-ledger-v2",
+            "phases": [
                 {
                     "phase_id": manifest["phase_id"],
                     "sequence": sequence,
-                    "reconciliation_content_sha256": manifest["reconciliation_content_sha256"],
-                    "source_manifest_sha256": manifest["source_manifest_sha256"],
+                    "artifacts": [
+                        {
+                            "role": "contribution",
+                            "path": f"{manifest['phase_id']}.json",
+                            "sha256": manifest["reconciliation_content_sha256"],
+                            "schema_version": "daa-evidence-phase-reconciliation-manifest-v1",
+                            "required": True,
+                        }
+                    ],
+                    "adapter_id": f"{manifest['phase_id']}-adapter-v1",
+                    "adapter_sha256": "b" * 64,
+                    "projection_evidence": "mechanically_bound",
+                    "authorisation_evidence": "contemporaneous_phase_package",
+                    "contribution_sha256": manifest["reconciliation_content_sha256"],
                 }
                 for sequence, manifest in enumerate(manifests, start=1)
             ],
-        },
-        "inventory_content_sha256",
+        }
+    )
+
+
+def _unbound_ledger() -> dict:
+    return seal_ledger(
+        {
+            "schema_version": "daa-evidence-phase-artifact-ledger-v2",
+            "phases": [
+                {
+                    "phase_id": "phase-a",
+                    "sequence": 1,
+                    "artifacts": [
+                        {
+                            "role": "manifest",
+                            "path": "phase-a.json",
+                            "sha256": "a" * 64,
+                            "schema_version": "daa-evidence-phase-reconciliation-manifest-v1",
+                            "required": True,
+                        }
+                    ],
+                    "adapter_id": "phase-a-v1",
+                    "adapter_sha256": "b" * 64,
+                    "projection_evidence": "afterdocumented_unbound",
+                    "authorisation_evidence": "afterdocumented_authorisation_gap",
+                }
+            ],
+        }
     )
 
 
@@ -83,7 +122,7 @@ def test_reconcile_matches_snapshot_against_ordered_phase_final_state():
     phase_a = _manifest("phase-a", record_key="1939:1", occurrence_key="occ-1", person_id=101, narrative_id=201)
     phase_b = _manifest("phase-b", record_key="1939:2", occurrence_key="occ-2", person_id=102, narrative_id=202)
 
-    report = reconcile(_snapshot(phase_a, phase_b), [phase_a, phase_b], _inventory(phase_a, phase_b))
+    report = reconcile(_snapshot(phase_a, phase_b), [phase_a, phase_b], _ledger(phase_a, phase_b))
 
     assert report["status"] == "match"
     assert report["scope"] == "five-projection-final-state-v1"
@@ -97,6 +136,11 @@ def test_reconcile_matches_snapshot_against_ordered_phase_final_state():
     }
 
 
+def test_reconcile_refuses_an_incomplete_ledger_with_an_afterdocumented_phase_before_snapshot_comparison():
+    with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_INCOMPLETE"):
+        reconcile({}, [], _unbound_ledger())
+
+
 def test_reconcile_fails_closed_when_production_has_an_unmanifested_binding():
     phase_a = _manifest("phase-a", record_key="1939:1", occurrence_key="occ-1", person_id=101, narrative_id=201)
     snapshot = _snapshot(phase_a)
@@ -104,7 +148,7 @@ def test_reconcile_fails_closed_when_production_has_an_unmanifested_binding():
     snapshot = _with_hash({key: value for key, value in snapshot.items() if key != "snapshot_content_sha256"}, "snapshot_content_sha256")
 
     with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_DRIFT") as caught:
-        reconcile(snapshot, [phase_a], _inventory(phase_a))
+        reconcile(snapshot, [phase_a], _ledger(phase_a))
 
     assert caught.value.report["differences"]["narrative_bindings"]["unexpected"] == [
         {"narrative_id": 999, "record_key": "1939:unmanifested", "source_id": 3}
@@ -118,7 +162,7 @@ def test_reconcile_fails_closed_when_production_has_a_different_value_for_the_sa
     snapshot = _with_hash({key: value for key, value in snapshot.items() if key != "snapshot_content_sha256"}, "snapshot_content_sha256")
 
     with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_DRIFT") as caught:
-        reconcile(snapshot, [phase_a], _inventory(phase_a))
+        reconcile(snapshot, [phase_a], _ledger(phase_a))
 
     difference = caught.value.report["differences"]["narrative_sha256"]
     assert difference["missing"] == [{"narrative_id": 201, "sha256": "b" * 64}]
@@ -129,7 +173,7 @@ def test_reconcile_accepts_later_phase_override_for_an_already_touched_narrative
     phase_a = _manifest("phase-a", record_key="1939:1", occurrence_key="occ-1", person_id=101, narrative_id=201)
     phase_b = _manifest("phase-b", record_key="1939:2", occurrence_key="occ-2", person_id=102, narrative_id=201, narrative_sha256="c" * 64)
 
-    report = reconcile(_snapshot(phase_a, phase_b), [phase_b, phase_a], _inventory(phase_a, phase_b))
+    report = reconcile(_snapshot(phase_a, phase_b), [phase_b, phase_a], _ledger(phase_a, phase_b))
 
     assert report["phase_ids"] == ["phase-a", "phase-b"]
     assert report["counts"]["narrative_sha256"] == 1
@@ -142,7 +186,7 @@ def test_reconcile_applies_a_later_withdrawal_before_comparing_final_state():
     phase_b["withdrawals"]["narrative_sha256"] = [{"narrative_id": 201}]
     phase_b = _with_hash({key: value for key, value in phase_b.items() if key != "reconciliation_content_sha256"}, "reconciliation_content_sha256")
 
-    report = reconcile(_snapshot(phase_b), [phase_a, phase_b], _inventory(phase_a, phase_b))
+    report = reconcile(_snapshot(phase_b), [phase_a, phase_b], _ledger(phase_a, phase_b))
 
     assert report["status"] == "match"
     assert report["counts"]["narrative_sha256"] == 1
@@ -154,7 +198,7 @@ def test_reconcile_rejects_duplicate_final_state_inside_one_contribution():
     phase_a = _with_hash({key: value for key, value in phase_a.items() if key != "reconciliation_content_sha256"}, "reconciliation_content_sha256")
 
     with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_CONTRIBUTION_DUPLICATE"):
-        reconcile(_snapshot(phase_a), [phase_a], _inventory(phase_a))
+        reconcile(_snapshot(phase_a), [phase_a], _ledger(phase_a))
 
 
 def test_reconcile_rejects_a_manifest_without_a_complete_withdrawals_shape():
@@ -163,7 +207,7 @@ def test_reconcile_rejects_a_manifest_without_a_complete_withdrawals_shape():
     phase_a = _with_hash({key: value for key, value in phase_a.items() if key != "reconciliation_content_sha256"}, "reconciliation_content_sha256")
 
     with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_WITHDRAWALS_INVALID"):
-        reconcile(_snapshot(), [phase_a], _inventory(phase_a))
+        reconcile(_snapshot(), [phase_a], _ledger(phase_a))
 
 
 def test_reconcile_rejects_a_withdrawal_that_conflicts_with_its_new_row():
@@ -172,7 +216,7 @@ def test_reconcile_rejects_a_withdrawal_that_conflicts_with_its_new_row():
     phase_a = _with_hash({key: value for key, value in phase_a.items() if key != "reconciliation_content_sha256"}, "reconciliation_content_sha256")
 
     with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_WITHDRAWAL_CONFLICT"):
-        reconcile(_snapshot(), [phase_a], _inventory(phase_a))
+        reconcile(_snapshot(), [phase_a], _ledger(phase_a))
 
 
 def test_reconcile_rejects_a_withdrawal_without_a_previous_state():
@@ -182,7 +226,7 @@ def test_reconcile_rejects_a_withdrawal_without_a_previous_state():
     phase_b = _with_hash({key: value for key, value in phase_b.items() if key != "reconciliation_content_sha256"}, "reconciliation_content_sha256")
 
     with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_WITHDRAWAL_MISSING"):
-        reconcile(_snapshot(phase_a, phase_b), [phase_a, phase_b], _inventory(phase_a, phase_b))
+        reconcile(_snapshot(phase_a, phase_b), [phase_a, phase_b], _ledger(phase_a, phase_b))
 
 
 def test_reconcile_rejects_a_tampered_phase_manifest_before_comparing_any_state():
@@ -190,7 +234,7 @@ def test_reconcile_rejects_a_tampered_phase_manifest_before_comparing_any_state(
     phase_a["persons"] = [{"person_id": 999}]
 
     with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_MANIFEST_HASH_INVALID"):
-        reconcile(_snapshot(phase_a), [phase_a], _inventory(phase_a))
+        reconcile(_snapshot(phase_a), [phase_a], _ledger(phase_a))
 
 
 def test_seal_adds_a_canonical_hash_without_mutating_the_capture_document():
@@ -225,20 +269,30 @@ def test_loading_a_phase_contribution_verifies_its_original_manifest_bytes(tmp_p
         load_phase_manifest(contribution)
 
 
-def test_reconcile_rejects_an_inventory_that_names_a_phase_missing_from_the_command():
+def test_reconcile_rejects_a_ledger_that_names_a_phase_missing_from_the_command():
     phase_a = _manifest("phase-a", record_key="1939:1", occurrence_key="occ-1", person_id=101, narrative_id=201)
     phase_b = _manifest("phase-b", record_key="1939:2", occurrence_key="occ-2", person_id=102, narrative_id=202)
 
-    with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_INVENTORY_MISMATCH"):
-        reconcile(_snapshot(phase_a), [phase_a], _inventory(phase_a, phase_b))
+    with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_LEDGER_MISMATCH"):
+        reconcile(_snapshot(phase_a), [phase_a], _ledger(phase_a, phase_b))
 
 
-def test_reconcile_rejects_an_inventory_with_a_duplicate_sequence():
+def test_reconcile_rejects_a_contribution_whose_hash_does_not_match_the_ledger():
+    phase_a = _manifest("phase-a", record_key="1939:1", occurrence_key="occ-1", person_id=101, narrative_id=201)
+    ledger = _ledger(phase_a)
+    ledger["phases"][0]["contribution_sha256"] = "c" * 64
+    ledger = seal_ledger({key: value for key, value in ledger.items() if key != "ledger_content_sha256"})
+
+    with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_LEDGER_MISMATCH"):
+        reconcile(_snapshot(phase_a), [phase_a], ledger)
+
+
+def test_reconcile_rejects_a_ledger_with_a_duplicate_sequence():
     phase_a = _manifest("phase-a", record_key="1939:1", occurrence_key="occ-1", person_id=101, narrative_id=201)
     phase_b = _manifest("phase-b", record_key="1939:2", occurrence_key="occ-2", person_id=102, narrative_id=202)
-    inventory = _inventory(phase_a, phase_b)
-    inventory["phase_manifests"][1]["sequence"] = 1
-    inventory = _with_hash({key: value for key, value in inventory.items() if key != "inventory_content_sha256"}, "inventory_content_sha256")
+    ledger = _ledger(phase_a, phase_b)
+    ledger["phases"][1]["sequence"] = 1
+    ledger = seal_ledger({key: value for key, value in ledger.items() if key != "ledger_content_sha256"})
 
-    with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_INVENTORY_SEQUENCE_DUPLICATE"):
-        reconcile(_snapshot(phase_a, phase_b), [phase_a, phase_b], inventory)
+    with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_LEDGER_SEQUENCE_DUPLICATE"):
+        reconcile(_snapshot(phase_a, phase_b), [phase_a, phase_b], ledger)
