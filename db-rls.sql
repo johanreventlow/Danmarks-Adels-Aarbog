@@ -592,13 +592,129 @@ drop policy if exists bookmark_delete_own on public.bookmark;
 create policy bookmark_delete_own on public.bookmark
   for delete to authenticated using (user_id = auth.uid());
 
--- RPC-grants: alle red_*-funktioner kaldbare af authenticated (rolle-tjek er INDE i dem).
-do $$
-declare fn text;
-begin
-  for fn in select proname from pg_proc where proname like 'red\_%' escape '\'
-  loop execute format('grant execute on function public.%I to authenticated;', fn); end loop;
-end $$;
+-- RPC-grants: signature-aware allow-list. A new red_* overload receives no
+-- privilege merely because of its name; it must be classified here or in a
+-- later, purpose-specific ACL block.
+DO $redaction_rpc_allow_list$
+DECLARE v_signature text;
+BEGIN
+  FOREACH v_signature IN ARRAY ARRAY[
+    'public.red_activate_1939_v50_batch(uuid,uuid)',
+    'public.red_afgoer_source_persona(uuid,integer,text,bigint,text)',
+    'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_name_completion(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_person_create(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)',
+    'public.red_apply_reimport_cases(uuid,text,text)',
+    'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)',
+    'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)',
+    'public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)',
+    'public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_begin_1939_v50_name_completion(uuid,text,uuid)',
+    'public.red_begin_1939_v50_reimport(uuid,text,text)',
+    'public.red_bekraeft_media_upload(bigint,bigint,text)',
+    'public.red_decide_interpretation(uuid,integer,text,jsonb)',
+    'public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)',
+    'public.red_decide_source_persona_placement(uuid,integer,text,jsonb)',
+    'public.red_decide_source_record_placement(uuid,integer,text,jsonb)',
+    'public.red_edit_oplysning(bigint,text,text,text)',
+    'public.red_erstat_media_fil(bigint,text,text,bigint,integer,integer,text,text,jsonb)',
+    'public.red_finalize_1939_v50_name_completion(uuid)',
+    'public.red_finalize_1939_v50_reimport(uuid)',
+    'public.red_fjern_feed_pin(text)',
+    'public.red_fjern_ikke_samme_som(bigint)',
+    'public.red_fjern_media(bigint)',
+    'public.red_fjern_samme_som(bigint)',
+    'public.red_flyt_barn(bigint,bigint,bigint,text)',
+    'public.red_fortryd_change_set(bigint,boolean)',
+    'public.red_genopret_media(bigint)',
+    'public.red_ikke_samme_som(bigint,bigint)',
+    'public.red_lock_1939_v50_name_completion(text)',
+    'public.red_match_personer()',
+    'public.red_ocr_historik(text,text,text)',
+    'public.red_opdater_media(bigint,text,text,text,text)',
+    'public.red_opret_estate(text,text,bigint)',
+    'public.red_opret_fakta(text,bigint,text,text,date,date,text,text,text)',
+    'public.red_opret_kilde(text,text,text,boolean,smallint)',
+    'public.red_opret_media(text,text,text,text,text,text,text,bigint,integer,integer,text,text,text,boolean)',
+    'public.red_opret_organisation(text,text)',
+    'public.red_opret_person(text,text,boolean,text,text,text)',
+    'public.red_opret_story(text,bigint,text,text,bigint,bigint,bigint,bigint,date,date,text,text,boolean)',
+    'public.red_opret_union(bigint,bigint,text,integer)',
+    'public.red_person_grid()',
+    'public.red_person_narrative_publication_history(bigint)',
+    'public.red_person_narrative_records(bigint)',
+    'public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)',
+    'public.red_preview_interpretation_promotions(jsonb)',
+    'public.red_preview_reimport_cases(bigint,text,jsonb)',
+    'public.red_promote_interpretations_batch(jsonb,text)',
+    'public.red_publicer_narrative_record(bigint,uuid,text,text)',
+    'public.red_publicer_personer(bigint[])',
+    'public.red_publicer_udgave(bigint)',
+    'public.red_rediger_story(bigint,text,text,bigint,bigint,bigint,bigint,date,date,text,text,boolean)',
+    'public.red_registrer_media_variant(bigint,text,text,text,bigint,integer,integer)',
+    'public.red_relation(text,bigint,text,bigint,text,text)',
+    'public.red_ret_ocr_felt(bigint,text,text,text,text,jsonb,text,text)',
+    'public.red_reverse_1939_v50_reimport(uuid,uuid)',
+    'public.red_reverse_reimport_cases(uuid,uuid)',
+    'public.red_saet_portraet(bigint,bigint)',
+    'public.red_samme_som(bigint,bigint)',
+    'public.red_set_familie_konfidens(bigint,bigint,text,text)',
+    'public.red_set_familie_ordinal(bigint,bigint,text,integer)',
+    'public.red_set_feed_pin(text,text)',
+    'public.red_set_haendelse_status(bigint,text)',
+    'public.red_set_koen(bigint,text)',
+    'public.red_set_konklusion(bigint)',
+    'public.red_set_media_rettigheder(bigint,text,boolean,text,text,text,text)',
+    'public.red_set_privat(bigint,boolean)',
+    'public.red_set_story_kilder(bigint,jsonb)',
+    'public.red_set_story_status(bigint,text)',
+    'public.red_slet_familie_link(bigint,bigint,text)',
+    'public.red_slet_medierelation_uden_evidens(bigint)',
+    'public.red_slet_oplysning(bigint)',
+    'public.red_slet_person(bigint)',
+    'public.red_slet_person_preview(bigint)',
+    'public.red_slet_relation(bigint)',
+    'public.red_slet_story(bigint)',
+    'public.red_source_persona_detail(uuid)',
+    'public.red_source_persona_history(uuid)',
+    'public.red_source_persona_queue(text,bigint,uuid,integer)',
+    'public.red_suggest(text,text,bigint,text,text,text,jsonb,text)',
+    'public.red_tilbagetraek_fakta(bigint)',
+    'public.red_tilbagetraek_narrative_record(bigint)',
+    'public.red_tilfoej_barn(bigint,bigint,text,text)',
+    'public.red_tilfoej_foraeldre_paastand(bigint,bigint,bigint,text,text,text)',
+    'public.red_tilfoej_oplysning(bigint,text,date,date,text,text,text)',
+    'public.red_tilfoej_partner(bigint,bigint,integer)',
+    'public.red_tilfoej_relation(bigint,text,bigint,text,text)',
+    'public.red_udrens_media(bigint)',
+    'public.red_udrens_media_preview(bigint)',
+    'public.red_upload_media(text,text,text,text,text,text,bigint,text,bigint,bigint,integer,integer,text,text,text,boolean)',
+    'public.red_upsert_fakta(text,bigint,text,text,date,date,text,text,text)',
+    'public.red_upsert_narrativ(text,bigint,text,boolean,bigint,text)',
+    'public.red_vaelg_foraeldre(bigint,text)'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NULL THEN
+      RAISE EXCEPTION 'RLS_REDACTION_RPC_ALLOW_LIST_SIGNATURE_MISSING: %',v_signature;
+    END IF;
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated',v_signature);
+  END LOOP;
+END
+$redaction_rpc_allow_list$;
+
+-- #152 Task 3 remains additive and uncallable until Task 7's atomic cutover.
+-- The private kernel is denied alongside every currently installed wrapper.
+REVOKE ALL ON FUNCTION
+  private.mutate_person_narrative_record(text,bigint,bigint,text,text,boolean,text),
+  public.red_upsert_person_narrative_record(bigint,bigint,text,text,boolean,text),
+  public.red_publicer_person_narrative_record(bigint,bigint,text,text),
+  public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text),
+  public.red_revalider_person_narrative_record(bigint,bigint,text,text),
+  public.red_kasser_person_narrative_record(bigint,bigint,text,text),
+  public.red_tilbagetraek_person_narrative_record(bigint,bigint,text,text)
+  FROM PUBLIC,anon,authenticated,service_role;
 -- Den historiske enkeltrække-RPC mangler v1's persona-/regel-/værdikontrol.
 -- Den må derfor ikke blive genåbnet af den generelle redaktions-RPC-grant ovenfor.
 revoke execute on function public.red_promote_interpretation(uuid,text,bigint,jsonb)

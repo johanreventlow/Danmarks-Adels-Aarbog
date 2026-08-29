@@ -10176,3 +10176,389 @@ REVOKE ALL ON FUNCTION public.red_person_narrative_records(bigint),
 GRANT EXECUTE ON FUNCTION public.red_person_narrative_records(bigint),
   public.red_person_narrative_publication_history(bigint)
   TO authenticated;
+
+-- =====================================================================
+-- 2026-08-29: #152 Task 3 — record-keyed narrative mutation kernel
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION private.mutate_person_narrative_record(
+  p_operation text,
+  p_person_id bigint,
+  p_source_id bigint,
+  p_record_key text,
+  p_text text,
+  p_private boolean,
+  p_expected_state_sha256 text
+) RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  v_actor uuid;
+  v_actor_name text;
+  v_before_editor jsonb;
+  v_before_publication jsonb;
+  v_after_editor jsonb;
+  v_after_publication jsonb;
+  v_before_hash text;
+  v_after_hash text;
+  v_status text;
+  v_blocking_reason text;
+  v_source_record_id uuid;
+  v_source_record_ref uuid;
+  v_binding_id uuid;
+  v_narrative_id bigint;
+  v_labels jsonb;
+  v_latest_event private.narrative_publication_event%ROWTYPE;
+  v_event_id uuid;
+  v_event_type text;
+  v_stream_version integer;
+  v_change_set_id bigint;
+  v_decision_basis text;
+BEGIN
+  -- The shared contract gate is deliberately the first lock in every writer.
+  PERFORM pg_advisory_xact_lock_shared(
+    hashtextextended('daa-narrative-record-contract',0)
+  );
+  IF public.narrative_record_contract_version()<>2 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_CONTRACT_INACTIVE';
+  END IF;
+
+  v_actor:=auth.uid();
+  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_ROLE_FORBIDDEN';
+  END IF;
+  IF p_operation NOT IN (
+    'upsert','publish','revise','revalidate','discard','withdraw'
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_OPERATION_INVALID';
+  END IF;
+
+  -- Task 2 owns record resolution and the complete record-first lock order.
+  v_before_editor:=private.narrative_record_state(
+    p_person_id,p_source_id,p_record_key,true
+  );
+  IF p_expected_state_sha256 IS NULL
+     OR p_expected_state_sha256 !~ '^[0-9a-f]{64}$'
+     OR p_expected_state_sha256 IS DISTINCT FROM
+          v_before_editor->>'state_sha256' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_STATE_STALE';
+  END IF;
+
+  v_before_publication:=v_before_editor->'publication_state';
+  v_before_hash:=v_before_editor->>'publication_state_sha256';
+  v_status:=v_before_editor->>'publication_status';
+  v_blocking_reason:=v_before_editor->>'blocking_reason';
+  IF v_blocking_reason IS NOT NULL THEN
+    RAISE EXCEPTION '%',v_blocking_reason;
+  END IF;
+
+  v_source_record_id:=(
+    v_before_publication #>> '{target,source_record_id}'
+  )::uuid;
+  v_source_record_ref:=(
+    v_before_publication #>> '{target,source_record_ref}'
+  )::uuid;
+  v_binding_id:=(
+    v_before_publication #>> '{binding,binding_id}'
+  )::uuid;
+  v_narrative_id:=(
+    v_before_publication #>> '{narrative,narrative_id}'
+  )::bigint;
+  v_labels:=v_before_publication->'labels';
+  SELECT event.* INTO v_latest_event
+    FROM private.narrative_publication_event event
+   WHERE event.id=(v_before_editor->>'latest_event_id')::uuid;
+
+  -- Validate the complete transition before opening its audit set. A rejected
+  -- call therefore cannot leave an empty change set behind.
+  IF p_operation='upsert' THEN
+    IF p_text IS NULL THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TEXT_REQUIRED';
+    END IF;
+    IF p_private IS NULL THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PRIVACY_REQUIRED';
+    END IF;
+    IF v_status='published' THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLISHED_REQUIRES_REVISION';
+    ELSIF v_status='stale_published' THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLICATION_STALE';
+    ELSIF v_status='draft' THEN
+      v_event_type:='draft_updated';
+    ELSIF v_status IN ('none','withdrawn') THEN
+      v_event_type:='draft_created';
+    ELSE
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TRANSITION_INVALID';
+    END IF;
+  ELSIF p_operation='publish' THEN
+    IF v_status<>'draft' THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TRANSITION_INVALID';
+    END IF;
+    IF NOT coalesce((
+      v_before_publication #>> '{publication_policy,publication_allowed}'
+    )::boolean,false) THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLICATION_POLICY_BLOCKED';
+    END IF;
+    v_event_type:='published';
+  ELSIF p_operation='revise' THEN
+    IF p_text IS NULL THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TEXT_REQUIRED';
+    END IF;
+    IF coalesce((v_before_publication->>'has_haendelse')::boolean,false) THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT';
+    END IF;
+    IF v_status='stale_published' THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLICATION_STALE';
+    ELSIF v_status<>'published' THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TRANSITION_INVALID';
+    END IF;
+    IF NOT coalesce((
+      v_before_publication #>> '{publication_policy,publication_allowed}'
+    )::boolean,false) THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLICATION_POLICY_BLOCKED';
+    END IF;
+    v_event_type:='published_revision';
+  ELSIF p_operation='revalidate' THEN
+    IF v_status<>'stale_published' THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TRANSITION_INVALID';
+    END IF;
+    IF NOT coalesce((
+      v_before_publication #>> '{publication_policy,publication_allowed}'
+    )::boolean,false) THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLICATION_POLICY_BLOCKED';
+    END IF;
+    IF v_latest_event.id IS NULL THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLICATION_EVENT_MISSING';
+    END IF;
+    IF v_before_publication #>> '{narrative,text_sha256}' IS DISTINCT FROM
+       v_latest_event.after_state #>> '{narrative,text_sha256}' THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLICATION_TEXT_DRIFT';
+    END IF;
+    v_event_type:='revalidated';
+  ELSIF p_operation='discard' THEN
+    IF v_status<>'draft' THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TRANSITION_INVALID';
+    END IF;
+    v_event_type:='draft_discarded';
+  ELSIF p_operation='withdraw' THEN
+    IF v_status NOT IN ('published','stale_published') THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TRANSITION_INVALID';
+    END IF;
+    v_event_type:='withdrawn';
+  END IF;
+
+  IF v_before_hash IS DISTINCT FROM encode(
+       extensions.digest(v_before_publication::text,'sha256'),'hex'
+     ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PRESTATE_HASH_MISMATCH';
+  END IF;
+
+  -- A nested caller could otherwise make begin_change_set reuse an unrelated
+  -- audit set. Serialize Task-3 allocations because the legacy audit table has
+  -- no identity default and begin_change_set still allocates with max(id)+1.
+  IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_FOREIGN_CHANGE_SET';
+  END IF;
+  LOCK TABLE public.change_set IN SHARE ROW EXCLUSIVE MODE;
+  v_decision_basis:=CASE v_event_type
+    WHEN 'draft_created' THEN 'Oprettede record-bundet narrativkladde'
+    WHEN 'draft_updated' THEN 'Opdaterede record-bundet narrativkladde'
+    WHEN 'draft_discarded' THEN 'Kasserede record-bundet narrativkladde'
+    WHEN 'published' THEN 'Publicerede record-bundet narrativ'
+    WHEN 'published_revision' THEN 'Publicerede revideret record-bundet narrativ'
+    WHEN 'revalidated' THEN 'Revaliderede record-bundet narrativpublicering'
+    WHEN 'withdrawn' THEN 'Tilbagetrak record-bundet narrativpublicering'
+  END;
+  v_change_set_id:=public.begin_change_set(
+    'narrative_record_'||v_event_type,
+    format('%s: person %s, source %s, record %s',
+      v_decision_basis,p_person_id,p_source_id,p_record_key),
+    'person',p_person_id
+  );
+
+  -- Perform exactly the projection mutation selected above, after the change
+  -- set is active so narrative INSERT/UPDATE is captured by change_event.
+  IF v_event_type='draft_updated' THEN
+    UPDATE public.narrative narrative
+       SET tekst=p_text,privat=p_private
+     WHERE narrative.id=v_narrative_id;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PROJECTION_MISSING';
+    END IF;
+  ELSIF v_event_type='draft_created' THEN
+    INSERT INTO public.narrative(
+      subjekt_type,subjekt_id,source_id,side,tekst,privat
+    ) VALUES (
+      'person',p_person_id,p_source_id,v_labels->>'side',p_text,p_private
+    ) RETURNING id INTO v_narrative_id;
+    INSERT INTO private.narrative_record_publication(
+      narrative_id,source_record_id,record_label,citation_label,status
+    ) VALUES (
+      v_narrative_id,v_source_record_id,v_labels->>'record_label',
+      v_labels->>'citation_label','draft'
+    ) RETURNING id INTO v_binding_id;
+  ELSIF v_event_type='published' THEN
+    UPDATE private.narrative_record_publication binding
+       SET status='published'
+     WHERE binding.id=v_binding_id AND binding.status='draft';
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PROJECTION_MISMATCH';
+    END IF;
+  ELSIF v_event_type='published_revision' THEN
+    UPDATE public.narrative narrative
+       SET tekst=p_text
+     WHERE narrative.id=v_narrative_id;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PROJECTION_MISSING';
+    END IF;
+  ELSIF v_event_type='draft_discarded' THEN
+    UPDATE private.narrative_record_publication binding
+       SET status='withdrawn'
+     WHERE binding.id=v_binding_id AND binding.status='draft';
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PROJECTION_MISMATCH';
+    END IF;
+  ELSIF v_event_type='withdrawn' THEN
+    UPDATE private.narrative_record_publication binding
+       SET status='withdrawn'
+     WHERE binding.id=v_binding_id AND binding.status='published';
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PROJECTION_MISMATCH';
+    END IF;
+  END IF;
+
+  v_after_publication:=private.narrative_publication_state(
+    p_person_id,p_source_id,p_record_key
+  );
+  v_after_hash:=encode(
+    extensions.digest(v_after_publication::text,'sha256'),'hex'
+  );
+  SELECT coalesce(nullif(btrim(profile.navn),''),
+                  nullif(btrim(profile.email),''),v_actor::text)
+    INTO v_actor_name
+    FROM public.profiles profile
+   WHERE profile.id=v_actor;
+  v_actor_name:=coalesce(v_actor_name,v_actor::text);
+  SELECT coalesce(max(event.stream_version),0)+1
+    INTO v_stream_version
+    FROM private.narrative_publication_event event
+   WHERE event.stream_ref=v_binding_id;
+  INSERT INTO private.narrative_publication_event(
+    change_set_id,stream_ref,stream_version,event_type,binding_id,narrative_id,
+    source_id,source_record_id,decision_basis,before_state,after_state,
+    before_state_sha256,after_state_sha256,decided_by,decided_by_name
+  ) VALUES (
+    v_change_set_id,v_binding_id,v_stream_version,v_event_type,v_binding_id,
+    v_narrative_id,p_source_id,v_source_record_id,v_decision_basis,
+    v_before_publication,v_after_publication,v_before_hash,v_after_hash,
+    v_actor,v_actor_name
+  ) RETURNING id INTO v_event_id;
+
+  v_after_editor:=private.narrative_record_state(
+    p_person_id,p_source_id,p_record_key,false
+  );
+  IF v_after_editor->>'latest_event_id' IS DISTINCT FROM v_event_id::text
+     OR v_after_editor->>'publication_state_sha256' IS DISTINCT FROM v_after_hash
+     OR v_after_editor->>'latest_before_state_sha256' IS DISTINCT FROM v_before_hash
+     OR v_after_editor->>'latest_after_state_sha256' IS DISTINCT FROM v_after_hash
+     OR v_after_editor->'publication_state' IS DISTINCT FROM v_after_publication THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_EVENT_APPEND_MISMATCH';
+  END IF;
+
+  RETURN jsonb_build_object(
+    'person_id',p_person_id,
+    'source_id',p_source_id,
+    'record_key',p_record_key,
+    'source_record_ref',v_source_record_ref,
+    'event_id',v_event_id,
+    'narrative_id',v_narrative_id,
+    'status',v_after_editor->>'publication_status',
+    'publication_state_sha256',v_after_hash,
+    'state_sha256',v_after_editor->>'state_sha256'
+  );
+END
+$$;
+
+CREATE OR REPLACE FUNCTION public.red_upsert_person_narrative_record(
+  p_person_id bigint,p_source_id bigint,p_record_key text,
+  p_tekst text,p_privat boolean,p_expected_state_sha256 text
+) RETURNS jsonb
+LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog
+AS $$
+  SELECT private.mutate_person_narrative_record(
+    'upsert',p_person_id,p_source_id,p_record_key,p_tekst,p_privat,
+    p_expected_state_sha256
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION public.red_publicer_person_narrative_record(
+  p_person_id bigint,p_source_id bigint,p_record_key text,
+  p_expected_state_sha256 text
+) RETURNS jsonb
+LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog
+AS $$
+  SELECT private.mutate_person_narrative_record(
+    'publish',p_person_id,p_source_id,p_record_key,NULL,NULL,
+    p_expected_state_sha256
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION public.red_revider_publiceret_person_narrative_record(
+  p_person_id bigint,p_source_id bigint,p_record_key text,p_tekst text,
+  p_expected_state_sha256 text
+) RETURNS jsonb
+LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog
+AS $$
+  SELECT private.mutate_person_narrative_record(
+    'revise',p_person_id,p_source_id,p_record_key,p_tekst,NULL,
+    p_expected_state_sha256
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION public.red_revalider_person_narrative_record(
+  p_person_id bigint,p_source_id bigint,p_record_key text,
+  p_expected_state_sha256 text
+) RETURNS jsonb
+LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog
+AS $$
+  SELECT private.mutate_person_narrative_record(
+    'revalidate',p_person_id,p_source_id,p_record_key,NULL,NULL,
+    p_expected_state_sha256
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION public.red_kasser_person_narrative_record(
+  p_person_id bigint,p_source_id bigint,p_record_key text,
+  p_expected_state_sha256 text
+) RETURNS jsonb
+LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog
+AS $$
+  SELECT private.mutate_person_narrative_record(
+    'discard',p_person_id,p_source_id,p_record_key,NULL,NULL,
+    p_expected_state_sha256
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION public.red_tilbagetraek_person_narrative_record(
+  p_person_id bigint,p_source_id bigint,p_record_key text,
+  p_expected_state_sha256 text
+) RETURNS jsonb
+LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog
+AS $$
+  SELECT private.mutate_person_narrative_record(
+    'withdraw',p_person_id,p_source_id,p_record_key,NULL,NULL,
+    p_expected_state_sha256
+  )
+$$;
+
+REVOKE ALL ON FUNCTION
+  private.mutate_person_narrative_record(text,bigint,bigint,text,text,boolean,text),
+  public.red_upsert_person_narrative_record(bigint,bigint,text,text,boolean,text),
+  public.red_publicer_person_narrative_record(bigint,bigint,text,text),
+  public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text),
+  public.red_revalider_person_narrative_record(bigint,bigint,text,text),
+  public.red_kasser_person_narrative_record(bigint,bigint,text,text),
+  public.red_tilbagetraek_person_narrative_record(bigint,bigint,text,text)
+  FROM PUBLIC,anon,authenticated,service_role;

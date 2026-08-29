@@ -1993,4 +1993,878 @@ BEGIN
 END
 $narrative_record_task2_behavior$;
 
+-- Task 3 contract: all six record mutations remain owner-only while version 1
+-- is active. Their behavior is exercised below inside a savepoint which swaps
+-- only the capability function to version 2 and is rolled back afterwards.
+DO $narrative_record_task3_structure$
+DECLARE
+  v_signature text;
+  v_role text;
+  v_definition text;
+  v_lock_position integer;
+  v_version_position integer;
+  v_state_position integer;
+  v_error text;
+  v_sqlstate text;
+BEGIN
+  FOREACH v_signature IN ARRAY ARRAY[
+    'private.mutate_person_narrative_record(text,bigint,bigint,text,text,boolean,text)',
+    'public.red_upsert_person_narrative_record(bigint,bigint,text,text,boolean,text)',
+    'public.red_publicer_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)',
+    'public.red_revalider_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_kasser_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_tilbagetraek_person_narrative_record(bigint,bigint,text,text)'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NULL THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TASK3_FUNCTION_MISSING: %',v_signature;
+    END IF;
+    IF pg_get_function_result(to_regprocedure(v_signature)) IS DISTINCT FROM 'jsonb' THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TASK3_RESULT_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+
+  IF EXISTS (
+    SELECT 1
+      FROM pg_proc function
+     WHERE function.oid IN (
+       'private.mutate_person_narrative_record(text,bigint,bigint,text,text,boolean,text)'::regprocedure,
+       'public.red_upsert_person_narrative_record(bigint,bigint,text,text,boolean,text)'::regprocedure,
+       'public.red_publicer_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
+       'public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)'::regprocedure,
+       'public.red_revalider_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
+       'public.red_kasser_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
+       'public.red_tilbagetraek_person_narrative_record(bigint,bigint,text,text)'::regprocedure
+     )
+       AND (
+         NOT function.prosecdef
+         OR function.provolatile<>'v'
+         OR function.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+       )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK3_SECURITY_CONTRACT_INVALID';
+  END IF;
+
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    FOREACH v_signature IN ARRAY ARRAY[
+      'private.mutate_person_narrative_record(text,bigint,bigint,text,text,boolean,text)',
+      'public.red_upsert_person_narrative_record(bigint,bigint,text,text,boolean,text)',
+      'public.red_publicer_person_narrative_record(bigint,bigint,text,text)',
+      'public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)',
+      'public.red_revalider_person_narrative_record(bigint,bigint,text,text)',
+      'public.red_kasser_person_narrative_record(bigint,bigint,text,text)',
+      'public.red_tilbagetraek_person_narrative_record(bigint,bigint,text,text)'
+    ] LOOP
+      IF has_function_privilege(v_role,v_signature,'EXECUTE') THEN
+        RAISE EXCEPTION 'NARRATIVE_RECORD_TASK3_PRECUTOVER_GRANT_INVALID: % %',
+          v_role,v_signature;
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  v_definition:=pg_get_functiondef(
+    'private.mutate_person_narrative_record(text,bigint,bigint,text,text,boolean,text)'::regprocedure
+  );
+  v_lock_position:=strpos(v_definition,'pg_advisory_xact_lock_shared(');
+  v_version_position:=strpos(v_definition,'public.narrative_record_contract_version()');
+  v_state_position:=strpos(v_definition,'private.narrative_record_state(');
+  IF v_lock_position=0 OR v_version_position<=v_lock_position
+     OR v_state_position<=v_version_position
+     OR strpos(v_definition,'''daa-narrative-record-contract''')=0 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK3_GATE_OR_LOCK_ORDER_INVALID';
+  END IF;
+
+  v_error:=NULL;
+  BEGIN
+    PERFORM public.red_upsert_person_narrative_record(
+      -91521001,-91521001,'accepted-principal','must not run',false,repeat('0',64)
+    );
+  EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS DISTINCT FROM 'NARRATIVE_RECORD_CONTRACT_INACTIVE' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK3_VERSION_1_OWNER_CALL_NOT_BLOCKED: %',v_error;
+  END IF;
+
+  v_error:=NULL; v_sqlstate:=NULL;
+  BEGIN
+    SET LOCAL ROLE authenticated;
+    PERFORM public.red_upsert_person_narrative_record(
+      -91521001,-91521001,'accepted-principal','must not run',false,repeat('0',64)
+    );
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_sqlstate=RETURNED_SQLSTATE;
+    v_error:=SQLERRM;
+  END;
+  SET LOCAL ROLE NONE;
+  IF v_sqlstate IS DISTINCT FROM '42501' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK3_AUTHENTICATED_CALL_NOT_DENIED: % %',
+      v_sqlstate,v_error;
+  END IF;
+
+  RAISE NOTICE 'OK: narrative record Task 3 signatures, gate order and pre-cutover ACL';
+END
+$narrative_record_task3_structure$;
+
+CREATE FUNCTION pg_temp.task3_write_snapshot()
+RETURNS jsonb
+LANGUAGE sql
+VOLATILE
+SET search_path=pg_catalog
+AS $task3_write_snapshot$
+  SELECT jsonb_build_object(
+    'change_set',coalesce((
+      SELECT jsonb_agg(to_jsonb(row) ORDER BY row.id) FROM public.change_set row
+    ),'[]'::jsonb),
+    'change_event',coalesce((
+      SELECT jsonb_agg(to_jsonb(row) ORDER BY row.id) FROM public.change_event row
+    ),'[]'::jsonb),
+    'narrative',coalesce((
+      SELECT jsonb_agg(to_jsonb(row) ORDER BY row.id) FROM public.narrative row
+    ),'[]'::jsonb),
+    'binding',coalesce((
+      SELECT jsonb_agg(to_jsonb(row) ORDER BY row.id)
+        FROM private.narrative_record_publication row
+    ),'[]'::jsonb),
+    'publication_event',coalesce((
+      SELECT jsonb_agg(to_jsonb(row) ORDER BY row.created_at,row.id)
+        FROM private.narrative_publication_event row
+    ),'[]'::jsonb),
+    'haendelse',coalesce((
+      SELECT jsonb_agg(to_jsonb(row) ORDER BY row.id) FROM public.haendelse row
+    ),'[]'::jsonb)
+  )
+$task3_write_snapshot$;
+
+CREATE FUNCTION pg_temp.task3_call(
+  p_operation text,
+  p_person_id bigint,
+  p_record_key text,
+  p_text text,
+  p_private boolean,
+  p_expected_state_sha256 text
+) RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SET search_path=pg_catalog
+AS $task3_call$
+BEGIN
+  CASE p_operation
+    WHEN 'upsert' THEN
+      RETURN public.red_upsert_person_narrative_record(
+        p_person_id,-91521001,p_record_key,p_text,p_private,p_expected_state_sha256
+      );
+    WHEN 'publish' THEN
+      RETURN public.red_publicer_person_narrative_record(
+        p_person_id,-91521001,p_record_key,p_expected_state_sha256
+      );
+    WHEN 'revise' THEN
+      RETURN public.red_revider_publiceret_person_narrative_record(
+        p_person_id,-91521001,p_record_key,p_text,p_expected_state_sha256
+      );
+    WHEN 'revalidate' THEN
+      RETURN public.red_revalider_person_narrative_record(
+        p_person_id,-91521001,p_record_key,p_expected_state_sha256
+      );
+    WHEN 'discard' THEN
+      RETURN public.red_kasser_person_narrative_record(
+        p_person_id,-91521001,p_record_key,p_expected_state_sha256
+      );
+    WHEN 'withdraw' THEN
+      RETURN public.red_tilbagetraek_person_narrative_record(
+        p_person_id,-91521001,p_record_key,p_expected_state_sha256
+      );
+    ELSE
+      RAISE EXCEPTION 'TASK3_TEST_OPERATION_INVALID';
+  END CASE;
+END
+$task3_call$;
+
+CREATE FUNCTION pg_temp.task3_expect_error(
+  p_operation text,
+  p_person_id bigint,
+  p_record_key text,
+  p_text text,
+  p_private boolean,
+  p_expected_state_sha256 text,
+  p_expected_error text
+) RETURNS void
+LANGUAGE plpgsql
+VOLATILE
+SET search_path=pg_catalog
+AS $task3_expect_error$
+DECLARE
+  v_before jsonb;
+  v_after jsonb;
+  v_error text;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  v_before:=pg_temp.task3_write_snapshot();
+  BEGIN
+    PERFORM pg_temp.task3_call(
+      p_operation,p_person_id,p_record_key,p_text,p_private,p_expected_state_sha256
+    );
+  EXCEPTION WHEN OTHERS THEN
+    v_error:=SQLERRM;
+  END;
+  v_after:=pg_temp.task3_write_snapshot();
+  IF v_error IS DISTINCT FROM p_expected_error THEN
+    RAISE EXCEPTION 'TASK3_EXPECTED_ERROR_MISMATCH: op=% record=% expected=% actual=%',
+      p_operation,p_record_key,p_expected_error,v_error;
+  END IF;
+  IF v_after IS DISTINCT FROM v_before THEN
+    RAISE EXCEPTION 'TASK3_REJECTION_CHANGED_WRITE_SET: op=% record=% before=% after=%',
+      p_operation,p_record_key,v_before,v_after;
+  END IF;
+END
+$task3_expect_error$;
+
+CREATE FUNCTION pg_temp.task3_assert_success(
+  p_before jsonb,
+  p_result jsonb,
+  p_person_id bigint,
+  p_record_key text,
+  p_before_publication_state jsonb,
+  p_expected_status text,
+  p_expected_event_type text,
+  p_expected_narrative_delta integer,
+  p_expected_binding_delta integer,
+  p_expected_change_op text
+) RETURNS void
+LANGUAGE plpgsql
+VOLATILE
+SET search_path=pg_catalog
+AS $task3_assert_success$
+DECLARE
+  v_after jsonb:=pg_temp.task3_write_snapshot();
+  v_event private.narrative_publication_event%ROWTYPE;
+  v_after_publication_state jsonb;
+  v_after_editor_state jsonb;
+  v_before_hash text;
+  v_after_hash text;
+  v_result_keys text[];
+  v_before_other jsonb;
+  v_after_other jsonb;
+  v_change_events jsonb;
+BEGIN
+  IF jsonb_array_length(v_after->'change_set')
+       <> jsonb_array_length(p_before->'change_set')+1
+     OR jsonb_array_length(v_after->'publication_event')
+       <> jsonb_array_length(p_before->'publication_event')+1
+     OR jsonb_array_length(v_after->'narrative')
+       <> jsonb_array_length(p_before->'narrative')+p_expected_narrative_delta
+     OR jsonb_array_length(v_after->'binding')
+       <> jsonb_array_length(p_before->'binding')+p_expected_binding_delta
+     OR jsonb_array_length(v_after->'change_event')
+       <> jsonb_array_length(p_before->'change_event')
+          +(CASE WHEN p_expected_change_op IS NULL THEN 0 ELSE 1 END) THEN
+    RAISE EXCEPTION 'TASK3_SUCCESS_COUNT_DELTA_INVALID: before=% after=% result=%',
+      p_before,v_after,p_result;
+  END IF;
+
+  SELECT array_agg(key ORDER BY key)
+    INTO v_result_keys
+    FROM jsonb_object_keys(p_result) key;
+  IF v_result_keys IS DISTINCT FROM ARRAY[
+    'event_id','narrative_id','person_id','publication_state_sha256',
+    'record_key','source_id','source_record_ref','state_sha256','status'
+  ]::text[] THEN
+    RAISE EXCEPTION 'TASK3_RESULT_KEYS_UNSAFE_OR_INCOMPLETE: %',p_result;
+  END IF;
+
+  SELECT * INTO STRICT v_event
+    FROM private.narrative_publication_event event
+   WHERE event.id=(p_result->>'event_id')::uuid;
+  v_after_publication_state:=private.narrative_publication_state(
+    p_person_id,-91521001,p_record_key
+  );
+  v_after_editor_state:=private.narrative_record_state(
+    p_person_id,-91521001,p_record_key,false
+  );
+  v_before_hash:=encode(
+    extensions.digest(p_before_publication_state::text,'sha256'),'hex'
+  );
+  v_after_hash:=encode(
+    extensions.digest(v_after_publication_state::text,'sha256'),'hex'
+  );
+
+  IF v_event.event_type IS DISTINCT FROM p_expected_event_type
+     OR v_event.before_state IS DISTINCT FROM p_before_publication_state
+     OR v_event.before_state_sha256 IS DISTINCT FROM v_before_hash
+     OR v_event.after_state IS DISTINCT FROM v_after_publication_state
+     OR v_event.after_state_sha256 IS DISTINCT FROM v_after_hash
+     OR p_result->>'publication_state_sha256' IS DISTINCT FROM v_after_hash
+     OR p_result->>'state_sha256' IS DISTINCT FROM v_after_editor_state->>'state_sha256'
+     OR p_result->>'state_sha256' IS NOT DISTINCT FROM v_after_hash
+     OR p_result->>'status' IS DISTINCT FROM p_expected_status
+     OR p_result->>'person_id' IS DISTINCT FROM p_person_id::text
+     OR p_result->>'source_id' IS DISTINCT FROM '-91521001'
+     OR p_result->>'record_key' IS DISTINCT FROM p_record_key
+     OR p_result->>'source_record_ref' IS DISTINCT FROM
+          v_after_publication_state #>> '{target,source_record_ref}'
+     OR p_result->>'narrative_id' IS DISTINCT FROM v_event.narrative_id::text
+     OR v_after_editor_state->>'latest_event_id' IS DISTINCT FROM v_event.id::text
+     OR v_after_editor_state->>'publication_status' IS DISTINCT FROM p_expected_status THEN
+    RAISE EXCEPTION 'TASK3_SUCCESS_HASH_OR_RESULT_INVALID: result=% event=% editor=%',
+      p_result,to_jsonb(v_event),v_after_editor_state;
+  END IF;
+
+  SELECT coalesce(jsonb_agg(item ORDER BY (item->>'id')::bigint),'[]'::jsonb)
+    INTO v_before_other
+    FROM jsonb_array_elements(p_before->'narrative') item
+   WHERE item->>'id' IS DISTINCT FROM v_event.narrative_id::text;
+  SELECT coalesce(jsonb_agg(to_jsonb(row) ORDER BY row.id),'[]'::jsonb)
+    INTO v_after_other
+    FROM public.narrative row
+   WHERE row.id<>v_event.narrative_id;
+  IF v_before_other IS DISTINCT FROM v_after_other THEN
+    RAISE EXCEPTION 'TASK3_SUCCESS_CHANGED_OTHER_NARRATIVE_ROWS';
+  END IF;
+
+  SELECT coalesce(jsonb_agg(item ORDER BY item->>'id'),'[]'::jsonb)
+    INTO v_before_other
+    FROM jsonb_array_elements(p_before->'binding') item
+   WHERE item->>'id' IS DISTINCT FROM v_event.binding_id::text;
+  SELECT coalesce(jsonb_agg(to_jsonb(row) ORDER BY row.id),'[]'::jsonb)
+    INTO v_after_other
+    FROM private.narrative_record_publication row
+   WHERE row.id<>v_event.binding_id;
+  IF v_before_other IS DISTINCT FROM v_after_other THEN
+    RAISE EXCEPTION 'TASK3_SUCCESS_CHANGED_OTHER_BINDING_ROWS';
+  END IF;
+
+  IF p_expected_change_op IS NULL THEN
+    IF EXISTS (
+      SELECT 1 FROM public.change_event row
+       WHERE row.change_set_id=v_event.change_set_id
+    ) THEN
+      RAISE EXCEPTION 'TASK3_SUCCESS_UNEXPECTED_CHANGE_EVENT';
+    END IF;
+  ELSE
+    SELECT jsonb_agg(to_jsonb(row) ORDER BY row.seq)
+      INTO v_change_events
+      FROM public.change_event row
+     WHERE row.change_set_id=v_event.change_set_id;
+    IF jsonb_array_length(coalesce(v_change_events,'[]'::jsonb))<>1
+       OR v_change_events->0->>'tabel' IS DISTINCT FROM 'narrative'
+       OR v_change_events->0->>'op' IS DISTINCT FROM p_expected_change_op
+       OR v_change_events->0->'row_pk' IS DISTINCT FROM
+            jsonb_build_object('id',v_event.narrative_id) THEN
+      RAISE EXCEPTION 'TASK3_SUCCESS_CHANGE_EVENT_WRITE_SET_INVALID: %',
+        v_change_events;
+    END IF;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.change_set row
+     WHERE row.id=v_event.change_set_id
+       AND row.subjekt_type='person'
+       AND row.subjekt_id=p_person_id
+       AND row.operation='narrative_record_'||p_expected_event_type
+  ) THEN
+    RAISE EXCEPTION 'TASK3_SUCCESS_CHANGE_SET_INVALID: %',v_event.change_set_id;
+  END IF;
+END
+$task3_assert_success$;
+
+SAVEPOINT narrative_record_task3_version_2;
+CREATE OR REPLACE FUNCTION public.narrative_record_contract_version()
+RETURNS integer
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$ SELECT 2 $$;
+
+DO $narrative_record_task3_behavior$
+DECLARE
+  v_actor uuid := '15200000-0000-0000-0000-000000000001';
+  v_person_private bigint := -91522001;
+  v_person_staged bigint := -91522002;
+  v_person_alive bigint := -91522003;
+  v_person_revalidate bigint := -91522004;
+  v_before jsonb;
+  v_pre_state jsonb;
+  v_state jsonb;
+  v_result jsonb;
+  v_hash text;
+  v_old_narrative bigint;
+  v_old_binding uuid;
+  v_event private.narrative_publication_event%ROWTYPE;
+  v_latest private.narrative_publication_event%ROWTYPE;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+
+  INSERT INTO public.person(id,levende,privat,staged,visning_navn)
+  VALUES
+    (v_person_private,false,false,false,'Task 3 private narrative'),
+    (v_person_staged,false,false,true,'Task 3 staged person'),
+    (v_person_alive,true,false,false,'Task 3 living person'),
+    (v_person_revalidate,false,false,false,'Task 3 revalidation person');
+
+  PERFORM pg_temp.task2_seed_record(
+    '15220000-0000-0000-0000-000000000101','task3-private',
+    '15220000-0000-0000-0000-000000000201',
+    '15220000-0000-0000-0000-000000000301',
+    '15220000-0000-0000-0000-000000000401',31
+  );
+  PERFORM pg_temp.task2_seed_identity(
+    '15220000-0000-0000-0000-000000000101',
+    '15220000-0000-0000-0000-000000000401',
+    '15220000-0000-0000-0000-000000000501',
+    '15220000-0000-0000-0000-000000000601',
+    '15220000-0000-0000-0000-000000000701',
+    '15220000-0000-0000-0000-000000000801',
+    '15220000-0000-0000-0000-000000000901',v_person_private,
+    'principal_member',-91521001
+  );
+  PERFORM pg_temp.task2_seed_record(
+    '15220000-0000-0000-0000-000000000102','task3-staged',
+    '15220000-0000-0000-0000-000000000202',
+    '15220000-0000-0000-0000-000000000302',
+    '15220000-0000-0000-0000-000000000402',32
+  );
+  PERFORM pg_temp.task2_seed_identity(
+    '15220000-0000-0000-0000-000000000102',
+    '15220000-0000-0000-0000-000000000402',
+    '15220000-0000-0000-0000-000000000502',
+    '15220000-0000-0000-0000-000000000602',
+    '15220000-0000-0000-0000-000000000702',
+    '15220000-0000-0000-0000-000000000802',
+    '15220000-0000-0000-0000-000000000902',v_person_staged,
+    'principal_member',-91521001
+  );
+  PERFORM pg_temp.task2_seed_record(
+    '15220000-0000-0000-0000-000000000103','task3-alive',
+    '15220000-0000-0000-0000-000000000203',
+    '15220000-0000-0000-0000-000000000303',
+    '15220000-0000-0000-0000-000000000403',33
+  );
+  PERFORM pg_temp.task2_seed_identity(
+    '15220000-0000-0000-0000-000000000103',
+    '15220000-0000-0000-0000-000000000403',
+    '15220000-0000-0000-0000-000000000503',
+    '15220000-0000-0000-0000-000000000603',
+    '15220000-0000-0000-0000-000000000703',
+    '15220000-0000-0000-0000-000000000803',
+    '15220000-0000-0000-0000-000000000903',v_person_alive,
+    'principal_member',-91521001
+  );
+  PERFORM pg_temp.task2_seed_record(
+    '15220000-0000-0000-0000-000000000104','task3-revalidate',
+    '15220000-0000-0000-0000-000000000204',
+    '15220000-0000-0000-0000-000000000304',
+    '15220000-0000-0000-0000-000000000404',34
+  );
+  PERFORM pg_temp.task2_seed_identity(
+    '15220000-0000-0000-0000-000000000104',
+    '15220000-0000-0000-0000-000000000404',
+    '15220000-0000-0000-0000-000000000504',
+    '15220000-0000-0000-0000-000000000604',
+    '15220000-0000-0000-0000-000000000704',
+    '15220000-0000-0000-0000-000000000804',
+    '15220000-0000-0000-0000-000000000904',v_person_revalidate,
+    'principal_member',-91521001
+  );
+  PERFORM pg_temp.task2_seed_binding_event(
+    v_person_revalidate,'task3-revalidate',
+    '15220000-0000-0000-0000-000000001104',-91522104,'published',
+    '15220000-0000-0000-0000-000000002104','published',
+    'Revalidation text','34'
+  );
+  INSERT INTO private.source_record_occurrence(
+    id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,
+    verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id
+  ) VALUES (
+    '15220000-0000-0000-0000-000000000205',
+    '15210000-0000-0000-0000-000000000003','task3-revalidate-extra',
+    35,35,21,40,'Task 3 extra occurrence','task3-revalidate-physical',
+    'task3-revalidate-structural','15210000-0000-0000-0000-000000000002'
+  );
+  INSERT INTO private.source_record_anchor_event(
+    id,occurrence_id,source_record_id,decision_status,evidence,version,
+    decided_by,decided_by_name
+  ) VALUES (
+    '15220000-0000-0000-0000-000000000305',
+    '15220000-0000-0000-0000-000000000205',
+    '15220000-0000-0000-0000-000000000104','accepted',
+    jsonb_build_object('basis','Task 3 additional accepted occurrence'),1,
+    v_actor,'Task 3 actor'
+  );
+
+  -- Every negative row snapshots all Task-3 write tables before/after.
+  PERFORM pg_temp.task3_expect_error(
+    'upsert',-91521001,'legacy-target-not-addressable','legacy edit',false,
+    repeat('0',64),'NARRATIVE_RECORD_NOT_FOUND'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'empty-identity',false
+  );
+  PERFORM pg_temp.task3_expect_error(
+    'upsert',-91521001,'empty-identity','missing identity',false,
+    v_state->>'state_sha256','NARRATIVE_RECORD_IDENTITY_REQUIRED'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'ambiguous-identity',false
+  );
+  PERFORM pg_temp.task3_expect_error(
+    'upsert',-91521001,'ambiguous-identity','ambiguous identity',false,
+    v_state->>'state_sha256','NARRATIVE_RECORD_IDENTITY_AMBIGUOUS'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'conflicting-binding',false
+  );
+  PERFORM pg_temp.task3_expect_error(
+    'upsert',-91521001,'conflicting-binding','binding conflict',false,
+    v_state->>'state_sha256','NARRATIVE_RECORD_ACTIVE_BINDING_CONFLICT'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'missing-anchor',false
+  );
+  PERFORM pg_temp.task3_expect_error(
+    'upsert',-91521001,'missing-anchor','missing anchor',false,
+    v_state->>'state_sha256','NARRATIVE_RECORD_ANCHOR_REQUIRED'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'active-draft',false
+  );
+  PERFORM pg_temp.task3_expect_error(
+    'upsert',-91521001,'active-draft','stale state',false,
+    repeat('0',64),'NARRATIVE_RECORD_STATE_STALE'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'published',false
+  );
+  PERFORM pg_temp.task3_expect_error(
+    'upsert',-91521001,'published','ordinary published save',false,
+    v_state->>'state_sha256','NARRATIVE_RECORD_PUBLISHED_REQUIRES_REVISION'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'stale-published',false
+  );
+  PERFORM pg_temp.task3_expect_error(
+    'revise',-91521001,'stale-published','stale revision',false,
+    v_state->>'state_sha256','NARRATIVE_RECORD_PUBLICATION_STALE'
+  );
+  PERFORM pg_temp.task3_expect_error(
+    'revalidate',-91521001,'stale-published',NULL,NULL,
+    v_state->>'state_sha256','NARRATIVE_RECORD_PUBLICATION_TEXT_DRIFT'
+  );
+
+  -- New draft -> update -> discard -> fresh stream. The old stream and text
+  -- stay byte-for-byte intact and every success owns one change set/event.
+  PERFORM set_config('app.change_set_id','',true);
+  v_pre_state:=private.narrative_publication_state(
+    -91521001,-91521001,'accepted-principal'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'accepted-principal',false
+  );
+  v_before:=pg_temp.task3_write_snapshot();
+  v_result:=pg_temp.task3_call(
+    'upsert',-91521001,'accepted-principal','First draft bytes',false,
+    v_state->>'state_sha256'
+  );
+  PERFORM pg_temp.task3_assert_success(
+    v_before,v_result,-91521001,'accepted-principal',v_pre_state,
+    'draft','draft_created',1,1,'INSERT'
+  );
+
+  PERFORM set_config('app.change_set_id','',true);
+  v_pre_state:=private.narrative_publication_state(
+    -91521001,-91521001,'accepted-principal'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'accepted-principal',false
+  );
+  v_before:=pg_temp.task3_write_snapshot();
+  v_result:=pg_temp.task3_call(
+    'upsert',-91521001,'accepted-principal',E'Draft bytes\nwith exact spacing ',true,
+    v_state->>'state_sha256'
+  );
+  PERFORM pg_temp.task3_assert_success(
+    v_before,v_result,-91521001,'accepted-principal',v_pre_state,
+    'draft','draft_updated',0,0,'UPDATE'
+  );
+  v_old_narrative:=(v_result->>'narrative_id')::bigint;
+  SELECT id INTO STRICT v_old_binding
+    FROM private.narrative_record_publication
+   WHERE narrative_id=v_old_narrative;
+
+  PERFORM set_config('app.change_set_id','',true);
+  v_pre_state:=private.narrative_publication_state(
+    -91521001,-91521001,'accepted-principal'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'accepted-principal',false
+  );
+  v_before:=pg_temp.task3_write_snapshot();
+  v_result:=pg_temp.task3_call(
+    'discard',-91521001,'accepted-principal',NULL,NULL,v_state->>'state_sha256'
+  );
+  PERFORM pg_temp.task3_assert_success(
+    v_before,v_result,-91521001,'accepted-principal',v_pre_state,
+    'withdrawn','draft_discarded',0,0,NULL
+  );
+
+  PERFORM set_config('app.change_set_id','',true);
+  v_pre_state:=private.narrative_publication_state(
+    -91521001,-91521001,'accepted-principal'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'accepted-principal',false
+  );
+  v_before:=pg_temp.task3_write_snapshot();
+  v_result:=pg_temp.task3_call(
+    'upsert',-91521001,'accepted-principal','Fresh stream text',false,
+    v_state->>'state_sha256'
+  );
+  PERFORM pg_temp.task3_assert_success(
+    v_before,v_result,-91521001,'accepted-principal',v_pre_state,
+    'draft','draft_created',1,1,'INSERT'
+  );
+  IF (v_result->>'narrative_id')::bigint=v_old_narrative
+     OR (SELECT tekst FROM public.narrative WHERE id=v_old_narrative)
+          IS DISTINCT FROM E'Draft bytes\nwith exact spacing '
+     OR (SELECT status FROM private.narrative_record_publication WHERE id=v_old_binding)
+          IS DISTINCT FROM 'withdrawn'
+     OR (SELECT count(*) FROM private.narrative_record_publication
+          WHERE source_record_id='15210000-0000-0000-0000-000000000101')<>2 THEN
+    RAISE EXCEPTION 'TASK3_WITHDRAWN_STREAM_NOT_PRESERVED';
+  END IF;
+
+  -- Active draft update, publication, explicit revision and derived-event block.
+  PERFORM set_config('app.change_set_id','',true);
+  v_pre_state:=private.narrative_publication_state(
+    -91521001,-91521001,'active-draft'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'active-draft',false
+  );
+  v_before:=pg_temp.task3_write_snapshot();
+  v_result:=pg_temp.task3_call(
+    'upsert',-91521001,'active-draft','Updated active draft',false,
+    v_state->>'state_sha256'
+  );
+  PERFORM pg_temp.task3_assert_success(
+    v_before,v_result,-91521001,'active-draft',v_pre_state,
+    'draft','draft_updated',0,0,'UPDATE'
+  );
+
+  PERFORM set_config('app.change_set_id','',true);
+  v_pre_state:=private.narrative_publication_state(
+    -91521001,-91521001,'active-draft'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'active-draft',false
+  );
+  v_before:=pg_temp.task3_write_snapshot();
+  v_result:=pg_temp.task3_call(
+    'publish',-91521001,'active-draft',NULL,NULL,v_state->>'state_sha256'
+  );
+  PERFORM pg_temp.task3_assert_success(
+    v_before,v_result,-91521001,'active-draft',v_pre_state,
+    'published','published',0,0,NULL
+  );
+  SELECT * INTO STRICT v_event
+    FROM private.narrative_publication_event
+   WHERE id=(v_result->>'event_id')::uuid;
+  IF v_event.after_state #> '{provenance,anchors}' IS NULL
+     OR v_event.after_state #> '{provenance,identities}' IS NULL
+     OR v_event.after_state #> '{publication_policy}' IS NULL
+     OR v_event.after_state #>> '{narrative,text}' IS DISTINCT FROM
+          'Updated active draft'
+     OR v_event.after_state #>> '{narrative,text_sha256}' IS NULL THEN
+    RAISE EXCEPTION 'TASK3_PUBLISHED_SNAPSHOT_INCOMPLETE: %',v_event.after_state;
+  END IF;
+
+  PERFORM set_config('app.change_set_id','',true);
+  v_pre_state:=private.narrative_publication_state(
+    -91521001,-91521001,'active-draft'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'active-draft',false
+  );
+  v_before:=pg_temp.task3_write_snapshot();
+  v_result:=pg_temp.task3_call(
+    'revise',-91521001,'active-draft',E'Published revision\nnew bytes',NULL,
+    v_state->>'state_sha256'
+  );
+  PERFORM pg_temp.task3_assert_success(
+    v_before,v_result,-91521001,'active-draft',v_pre_state,
+    'published','published_revision',0,0,'UPDATE'
+  );
+  SELECT * INTO STRICT v_event
+    FROM private.narrative_publication_event
+   WHERE id=(v_result->>'event_id')::uuid;
+  IF v_event.before_state #>> '{narrative,text}' IS DISTINCT FROM
+       'Updated active draft'
+     OR v_event.after_state #>> '{narrative,text}' IS DISTINCT FROM
+       E'Published revision\nnew bytes'
+     OR v_event.before_state #> '{provenance,anchors}' IS NULL
+     OR v_event.after_state #> '{provenance,anchors}' IS NULL
+     OR v_event.before_state #> '{publication_policy}' IS NULL
+     OR v_event.after_state #> '{publication_policy}' IS NULL THEN
+    RAISE EXCEPTION 'TASK3_PUBLISHED_REVISION_SNAPSHOT_INCOMPLETE';
+  END IF;
+
+  INSERT INTO public.haendelse(
+    id,subjekt_type,subjekt_id,narrative_id,noegle,klausul
+  ) VALUES (
+    -91522001,'person',-91521001,-91521170,'task3-derived','Derived event'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'active-draft',false
+  );
+  PERFORM pg_temp.task3_expect_error(
+    'revise',-91521001,'active-draft','must not rewrite derived event',NULL,
+    v_state->>'state_sha256','NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT'
+  );
+
+  PERFORM set_config('app.change_set_id','',true);
+  v_pre_state:=private.narrative_publication_state(
+    -91521001,-91521001,'active-draft'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'active-draft',false
+  );
+  v_before:=pg_temp.task3_write_snapshot();
+  v_result:=pg_temp.task3_call(
+    'withdraw',-91521001,'active-draft',NULL,NULL,v_state->>'state_sha256'
+  );
+  PERFORM pg_temp.task3_assert_success(
+    v_before,v_result,-91521001,'active-draft',v_pre_state,
+    'withdrawn','withdrawn',0,0,NULL
+  );
+  IF (SELECT tekst FROM public.narrative WHERE id=-91521170)
+       IS DISTINCT FROM E'Published revision\nnew bytes' THEN
+    RAISE EXCEPTION 'TASK3_WITHDRAW_DELETED_OR_CHANGED_TEXT';
+  END IF;
+
+  -- Publication policy rejects private narrative, staged person and living person.
+  PERFORM set_config('app.change_set_id','',true);
+  v_pre_state:=private.narrative_publication_state(
+    v_person_private,-91521001,'task3-private'
+  );
+  v_state:=private.narrative_record_state(
+    v_person_private,-91521001,'task3-private',false
+  );
+  v_before:=pg_temp.task3_write_snapshot();
+  v_result:=pg_temp.task3_call(
+    'upsert',v_person_private,'task3-private','Private draft',true,
+    v_state->>'state_sha256'
+  );
+  PERFORM pg_temp.task3_assert_success(
+    v_before,v_result,v_person_private,'task3-private',v_pre_state,
+    'draft','draft_created',1,1,'INSERT'
+  );
+  v_state:=private.narrative_record_state(
+    v_person_private,-91521001,'task3-private',false
+  );
+  PERFORM pg_temp.task3_expect_error(
+    'publish',v_person_private,'task3-private',NULL,NULL,v_state->>'state_sha256',
+    'NARRATIVE_RECORD_PUBLICATION_POLICY_BLOCKED'
+  );
+  PERFORM set_config('app.change_set_id','',true);
+  v_pre_state:=private.narrative_publication_state(
+    v_person_staged,-91521001,'task3-staged'
+  );
+  v_state:=private.narrative_record_state(
+    v_person_staged,-91521001,'task3-staged',false
+  );
+  v_before:=pg_temp.task3_write_snapshot();
+  v_result:=pg_temp.task3_call(
+    'upsert',v_person_staged,'task3-staged','Staged draft',false,
+    v_state->>'state_sha256'
+  );
+  PERFORM pg_temp.task3_assert_success(
+    v_before,v_result,v_person_staged,'task3-staged',v_pre_state,
+    'draft','draft_created',1,1,'INSERT'
+  );
+  v_state:=private.narrative_record_state(
+    v_person_staged,-91521001,'task3-staged',false
+  );
+  PERFORM pg_temp.task3_expect_error(
+    'publish',v_person_staged,'task3-staged',NULL,NULL,v_state->>'state_sha256',
+    'NARRATIVE_RECORD_PUBLICATION_POLICY_BLOCKED'
+  );
+  PERFORM set_config('app.change_set_id','',true);
+  v_pre_state:=private.narrative_publication_state(
+    v_person_alive,-91521001,'task3-alive'
+  );
+  v_state:=private.narrative_record_state(
+    v_person_alive,-91521001,'task3-alive',false
+  );
+  v_before:=pg_temp.task3_write_snapshot();
+  v_result:=pg_temp.task3_call(
+    'upsert',v_person_alive,'task3-alive','Living draft',false,
+    v_state->>'state_sha256'
+  );
+  PERFORM pg_temp.task3_assert_success(
+    v_before,v_result,v_person_alive,'task3-alive',v_pre_state,
+    'draft','draft_created',1,1,'INSERT'
+  );
+  v_state:=private.narrative_record_state(
+    v_person_alive,-91521001,'task3-alive',false
+  );
+  PERFORM pg_temp.task3_expect_error(
+    'publish',v_person_alive,'task3-alive',NULL,NULL,v_state->>'state_sha256',
+    'NARRATIVE_RECORD_PUBLICATION_POLICY_BLOCKED'
+  );
+
+  -- Provenance-only drift may be explicitly revalidated; the event binds the
+  -- current semantic state without changing text or projection rows.
+  v_state:=private.narrative_record_state(
+    v_person_revalidate,-91521001,'task3-revalidate',false
+  );
+  IF v_state->>'publication_status' IS DISTINCT FROM 'stale_published' THEN
+    RAISE EXCEPTION 'TASK3_REVALIDATION_FIXTURE_NOT_STALE: %',v_state;
+  END IF;
+  PERFORM set_config('app.change_set_id','',true);
+  v_pre_state:=private.narrative_publication_state(
+    v_person_revalidate,-91521001,'task3-revalidate'
+  );
+  v_before:=pg_temp.task3_write_snapshot();
+  v_result:=pg_temp.task3_call(
+    'revalidate',v_person_revalidate,'task3-revalidate',NULL,NULL,
+    v_state->>'state_sha256'
+  );
+  PERFORM pg_temp.task3_assert_success(
+    v_before,v_result,v_person_revalidate,'task3-revalidate',v_pre_state,
+    'published','revalidated',0,0,NULL
+  );
+
+  -- An existing binding that gains an accepted identity for another person
+  -- is blocked even though the binding itself still targets this person.
+  PERFORM pg_temp.task2_seed_identity(
+    '15210000-0000-0000-0000-000000000101',
+    '15210000-0000-0000-0000-000000000501',
+    '15220000-0000-0000-0000-000000000511',
+    '15220000-0000-0000-0000-000000000611',
+    '15220000-0000-0000-0000-000000000711',
+    '15220000-0000-0000-0000-000000000811',
+    '15220000-0000-0000-0000-000000000911',-91521002,
+    'co_principal',-91521002
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'accepted-principal',false
+  );
+  PERFORM pg_temp.task3_expect_error(
+    'upsert',-91521001,'accepted-principal','identity conflict',false,
+    v_state->>'state_sha256','NARRATIVE_RECORD_IDENTITY_CONFLICT'
+  );
+
+  RAISE NOTICE 'OK: narrative record Task 3 transition table, write sets and hashes';
+END
+$narrative_record_task3_behavior$;
+
+ROLLBACK TO SAVEPOINT narrative_record_task3_version_2;
+DO $narrative_record_task3_version_restored$
+BEGIN
+  IF public.narrative_record_contract_version()<>1 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK3_TEST_WEAKENED_PRODUCTION_VERSION';
+  END IF;
+  RAISE NOTICE 'OK: narrative record Task 3 version-2 fixture rolled back to version 1';
+END
+$narrative_record_task3_version_restored$;
+
 ROLLBACK;

@@ -490,6 +490,88 @@ BEGIN
   RAISE NOTICE 'OK: DAA 1939 v50 production-writer contract er installeret og privat';
 END $$;
 
+-- ===== #152 Task 3: record-keyed mutation kernel, additive ACL =====
+DO $narrative_record_mutation_verify$
+DECLARE
+  v_signature text;
+  v_role text;
+  v_definition text;
+  v_lock_position integer;
+  v_version_position integer;
+  v_state_position integer;
+BEGIN
+  IF public.narrative_record_contract_version()<>1 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_MUTATION_ADDITIVE_VERSION_INVALID';
+  END IF;
+
+  FOREACH v_signature IN ARRAY ARRAY[
+    'private.mutate_person_narrative_record(text,bigint,bigint,text,text,boolean,text)',
+    'public.red_upsert_person_narrative_record(bigint,bigint,text,text,boolean,text)',
+    'public.red_publicer_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)',
+    'public.red_revalider_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_kasser_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_tilbagetraek_person_narrative_record(bigint,bigint,text,text)'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NULL THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_MUTATION_FUNCTION_MISSING: %',v_signature;
+    END IF;
+    IF pg_get_function_result(to_regprocedure(v_signature)) IS DISTINCT FROM 'jsonb' THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_MUTATION_RESULT_INVALID: %',v_signature;
+    END IF;
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+      IF has_function_privilege(v_role,v_signature,'EXECUTE') THEN
+        RAISE EXCEPTION 'NARRATIVE_RECORD_MUTATION_PRECUTOVER_ACL_INVALID: % %',
+          v_role,v_signature;
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  IF EXISTS (
+    SELECT 1
+      FROM pg_proc function
+     WHERE function.oid IN (
+       'private.mutate_person_narrative_record(text,bigint,bigint,text,text,boolean,text)'::regprocedure,
+       'public.red_upsert_person_narrative_record(bigint,bigint,text,text,boolean,text)'::regprocedure,
+       'public.red_publicer_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
+       'public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)'::regprocedure,
+       'public.red_revalider_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
+       'public.red_kasser_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
+       'public.red_tilbagetraek_person_narrative_record(bigint,bigint,text,text)'::regprocedure
+     )
+       AND (
+         NOT function.prosecdef
+         OR function.provolatile<>'v'
+         OR function.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+       )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_MUTATION_SECURITY_INVALID';
+  END IF;
+
+  v_definition:=pg_get_functiondef(
+    'private.mutate_person_narrative_record(text,bigint,bigint,text,text,boolean,text)'::regprocedure
+  );
+  v_lock_position:=strpos(v_definition,'pg_advisory_xact_lock_shared(');
+  v_version_position:=strpos(v_definition,'public.narrative_record_contract_version()');
+  v_state_position:=strpos(v_definition,'private.narrative_record_state(');
+  IF v_lock_position=0 OR v_version_position<=v_lock_position
+     OR v_state_position<=v_version_position
+     OR strpos(v_definition,'''daa-narrative-record-contract''')=0 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_MUTATION_GATE_OR_LOCK_ORDER_INVALID';
+  END IF;
+
+  IF NOT has_function_privilege(
+    'authenticated','public.red_person_narrative_records(bigint)','EXECUTE'
+  ) OR NOT has_function_privilege(
+    'authenticated','public.red_person_narrative_publication_history(bigint)','EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_MUTATION_EDITOR_READ_ACL_REGRESSION';
+  END IF;
+
+  RAISE NOTICE 'OK: #152 Task 3 mutation kernel er installeret og ugranted ved version 1';
+END
+$narrative_record_mutation_verify$;
+
 -- ===== C3 apply plan Task 5: generic reimport case ledger contract =====
 -- Full catalog/constraint proof lives in tests/sql/test-1939-v50-c3-apply.sql; this
 -- block only proves the objects exist and stay private after db-migrations.sql/db-rls.sql.
