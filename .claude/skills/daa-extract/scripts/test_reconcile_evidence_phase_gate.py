@@ -6,7 +6,7 @@ import json
 import pytest
 
 from evidence_phase_artifact_ledger import seal_ledger
-from reconcile_evidence_phase_gate import ReconciliationError, load_phase_manifest, reconcile, seal
+from reconcile_evidence_phase_gate import ReconciliationError, load_phase_manifest, main, reconcile, seal
 
 
 def _with_hash(payload: dict, field: str) -> dict:
@@ -141,6 +141,14 @@ def test_reconcile_refuses_an_incomplete_ledger_with_an_afterdocumented_phase_be
         reconcile({}, [], _unbound_ledger())
 
 
+def test_reconcile_rejects_a_missing_ledger_contribution_before_snapshot_validation():
+    phase_a = _manifest("phase-a", record_key="1939:1", occurrence_key="occ-1", person_id=101, narrative_id=201)
+    phase_b = _manifest("phase-b", record_key="1939:2", occurrence_key="occ-2", person_id=102, narrative_id=202)
+
+    with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_LEDGER_MISMATCH"):
+        reconcile({}, [phase_b], _ledger(phase_a))
+
+
 def test_reconcile_fails_closed_when_production_has_an_unmanifested_binding():
     phase_a = _manifest("phase-a", record_key="1939:1", occurrence_key="occ-1", person_id=101, narrative_id=201)
     snapshot = _snapshot(phase_a)
@@ -267,6 +275,29 @@ def test_loading_a_phase_contribution_verifies_its_original_manifest_bytes(tmp_p
     original.write_bytes(b'{"original":false}\n')
     with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_SOURCE_MANIFEST_HASH_INVALID"):
         load_phase_manifest(contribution)
+
+
+def test_cli_loads_phase_contributions_before_reading_the_snapshot(tmp_path, capsys):
+    phase_a = _manifest("phase-a", record_key="1939:1", occurrence_key="occ-1", person_id=101, narrative_id=201)
+    phase_a["persons"] = [{"person_id": 999}]
+    contribution = tmp_path / "phase-a.json"
+    contribution.write_text(json.dumps(phase_a), encoding="utf-8")
+    ledger = tmp_path / "ledger.json"
+    ledger.write_text(json.dumps(_ledger(_manifest("phase-a", record_key="1939:1", occurrence_key="occ-1", person_id=101, narrative_id=201))), encoding="utf-8")
+
+    status = main(
+        [
+            "--snapshot",
+            str(tmp_path / "missing-snapshot.json"),
+            "--phase-manifest",
+            str(contribution),
+            "--ledger",
+            str(ledger),
+        ]
+    )
+
+    assert status == 2
+    assert json.loads(capsys.readouterr().err)["error"] == "EVIDENCE_RECONCILIATION_MANIFEST_HASH_INVALID"
 
 
 def test_reconcile_rejects_a_ledger_that_names_a_phase_missing_from_the_command():
