@@ -2,6 +2,57 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: #152 bruger privat recordbinding, append-only publication-versioner og stabil offentlig record-reference (2026-08-29)
+
+Projektejeren har valgt og efter tværgående DAA-arkitekturgennemgang bedt om
+revision af
+[designspecifikationen](superpowers/specs/2026-08-29-narrative-source-record-key-design.md).
+
+Følgende er den gældende retning for person/DAA-narrativer:
+
+1. `private.narrative_record_publication` forbliver den aktuelle binding mellem
+   narrativ og source record. Der tilføjes ikke en privat
+   `source_record_id`-kolonne til den offentligt læsbare narrative-tabel.
+2. Redaktionelle RPC'er adresserer recorden med `(source_id, record_key)` og
+   resolver den private UUID internt. `record_key` er ikke personidentitet.
+3. `private.source_record` får en tilfældig, unik og uforanderlig `public_ref`.
+   Den gamle publication-bindings `record_ref` bevares for kompatibilitet, men
+   er ikke en stabil source-record-reference og bruges ikke i nye eksterne
+   links eller citationer.
+4. En editionsneutral append-only `private.narrative_publication_event`
+   bevarer hver draft-, publicerings-, revisions-, revalidation-, withdraw- og
+   reversalbeslutning med konkret tekst-, occurrence-, rendition-, identity-,
+   policy- og tilstandshash. Den mutable binding/narrative-række er kun aktuel
+   projektion.
+5. En publiceret tekst kan ikke ændres gennem almindelig save. En eksplicit
+   `Publicér ændring` opretter en ny publiceret eventversion. Drift i tekst,
+   provenance, identity, privacy eller policy gør publiceringen stale og
+   fail-closed usynlig, indtil en ny eksplicit revision eller revalidation.
+6. Publication-change sets fortrydes kun gennem en dedikeret, append-only
+   reversal. Den generiske `red_fortryd_change_set` må ikke fortryde narrative
+   uden samtidig at håndtere den private publication-projektion.
+7. Offentligt synlige ubundne legacy-narrativer bevares kun gennem et eksakt,
+   hash-låst og menneskegodkendt grandfathered manifest. Nye eller driftede
+   ubundne rækker er usynlige. Exit er eksplicit record-disposition; 2018-20
+   får provenance gennem #153 → #149.
+8. Eksisterende eksakte C3-/recordbindinger kan fungere som en kontrolleret
+   stående redigeringsautoritet for samme record, narrativ og person, når ingen
+   accepted identity peger på en anden person. Der konstrueres ingen identity-
+   backfill; legacy-broen får disposition ved #151.
+9. Web får den fulde recordredaktør. Mobilen får kun den minimale
+   capability-aware, fail-closed klientmigration, der kræves for at lukke den
+   gamle writer; det parkerede fulde mobilredaktørspor genåbnes ikke.
+
+Beslutningen erstatter for person/DAA-sporet både 2026-07-03-beslutningens
+source-nøgle `(subjekt, source_id)` og 2026-08-22-afsnittets illustrative
+`public.narrative.source_record_id`-backfill. De historiske afsnit bevares som
+beslutningshistorik, men er ikke implementeringskontrakt for #152.
+
+Udrulningen er additiv forberedelse efterfulgt af ét atomisk write-authority-
+cutover med hash-låste baselines, RLS-/ACL-gate, gamle writer-revokes og
+contract-version som sidste logiske skridt. Beslutningen giver ikke i sig selv
+produktions-GO.
+
 ## BESLUTTET: model 2 — lagdelt styringsmodel for evidensbaseret genimport (2026-08-25)
 
 [Designspecifikationen](superpowers/specs/2026-08-25-evidensbaseret-genimport-styringsgrundlag-design.md)

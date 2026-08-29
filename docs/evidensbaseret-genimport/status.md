@@ -1,8 +1,12 @@
 # Evidensbaseret genimport — aktuel status
 
-**Verificeret:** 2026-08-29
-**Kodegrundlag:** `add4372` plus Task 9-integrationsrettelserne i denne lokale leverance
-**Produktionsstatus:** Kun læst til en beskyttet backup 2026-08-29; ingen migration, apply eller anden produktionsmutation er udført
+**Verificeret:** 2026-08-29 efter C3 production apply og postverify
+
+**Kodegrundlag:** lokal `main` ved `7b5dc5a`; #152 er foreløbig kun en
+docs-only designbranch
+
+**Produktionsstatus:** C3's eksakte fem-sagers scope er migreret, anvendt og
+efterverificeret i produktion; #152 har ingen produktionsmutation
 
 ## Samlet dom
 
@@ -14,10 +18,14 @@ færdig, og genimporten er samlet **NO-GO som generel leverance**.
 
 ## Aktivt programmål og stopport
 
-C3 nåede 2026-08-29 den tekniske stopport `READY_FOR_PRODUCTION_GO` efter den
-planlagte samlede integration og disposable rehearsal. Programmet står nu i
-en kontrolleret pause ved stopporten. Dommen er ikke produktions-GO og
-autoriserer ingen produktionsmutation.
+C3 passerede 2026-08-29 sin tekniske stopport og blev derefter kørt i
+produktion efter et særskilt GO. Apply-batch
+`447d81a8-5c21-4b22-832e-e0d2a379a20c`, change set `966`, blev `finalized` og
+bestod den uafhængige read-only postverification.
+
+Det aktive programmål er nu #152. Det er `specificeret` i en revideret
+designspecifikation og afventer projektejerens review af den skrevne revision.
+Der er ikke givet implementerings- eller produktions-GO til #152.
 
 ## Modenhed pr. værdikædeled
 
@@ -27,14 +35,16 @@ De eneste tilladte tilstande er `specificeret`, `isoleret implementeret`,
 | Værdikædeled | Tilstand | Afgrænsning og bevis |
 | --- | --- | --- |
 | 1939 source/rendition og recordproveniens | `produktionsverificeret` | En læse-kun produktionsmåling 2026-08-22 dokumenterede rendition, source records, occurrences, observationer og mentions for 1939. Tilstanden gælder denne afgrænsede leverance og er ikke genverificeret 2026-08-25. |
-| 1939 narrativpublicering og kildebinding | `produktionsverificeret` | Den læse-kun måling 2026-08-22 dokumenterede publicerede recordbindinger. Det beviser en væsentlig 1939-delleverance, ikke den fælles genimportkæde. |
+| 1939 narrativpublicering og kildebinding | `produktionsverificeret` | Den læse-kun måling 2026-08-22 dokumenterede den daværende bundne bestand; C3 postverify 2026-08-29 beviste yderligere fire eksakte production record-assignments. Det beviser en væsentlig 1939-delleverance, ikke den fælles genimportkæde. |
 | Klausulgranularitet og coverage | `specificeret` | Helpost- og linjegrundlag findes, men den krævede mindste meningsbærende klausul og dens disposition er ikke implementeret ende-til-ende. |
 | Extractor-runner og modelkald | `specificeret` | Kontrakter, profiler og validator findes; `evidence_extract.py` kalder bevidst ingen model, og ingen bog er kørt gennem den fælles extractor-kæde. |
 | Proposed-ingest og promotion | `isoleret implementeret` | Skema, regler, RPC'er og tests udgør et fundament, men ingen reel extractor-kørsel føder kæden. `project_evidence.R` er fortsat dry-run og ikke en integreret promotionvej. |
 | Source persona, identitetskandidater og webkø | `isoleret implementeret` | Moduler, databaseflader og redaktørkø findes, men den virkelige 1939-vej er parallel og bruger ikke denne fælles beslutningsvej. |
 | Placement og membership | `isoleret implementeret` | Skema og fundament findes, men de eksisterende personer føres fortsat ikke gennem placement-/membership-datavejen. |
 | 2018-20-proveniens | `specificeret` | Fase A-ækvivalent provenance er besluttet, men ikke gennemført. |
-| C3 atomisk apply/reversal | `integreret ende-til-ende` | Hele kæden er bevist mod en frisk, produktionsafledt disposable restore: migration, fail-closed databasebinding, rollback-rehearsal, committed apply, idempotent replay og separat reversal med eksakt gendannet domænetilstand. Det er ikke en produktionskørsel. |
+| C3 atomisk apply | `produktionsverificeret` | Production batch `447d81a8-5c21-4b22-832e-e0d2a379a20c` / change set `966` blev finalized med 5 identity-, 4 assign- og 2 no-publication-events og bestod eksakt read-only postverify. |
+| C3 reversal | `integreret ende-til-ende` | Separat reversal er bevist mod en frisk, produktionsafledt disposable restore med eksakt gendannet domænetilstand; den er ikke udført i produktion. |
+| #152 record-nøglede person-narrativer | `specificeret` | Revideret, editionsneutralt design med append-only publication-versioner, stale-gate, grandfathered legacy-ledger og stabil offentlig source-record-reference; ingen implementering endnu. |
 | Tredje-årbogsprøve | `specificeret` | Prøven er generaliseringsbeviset efter begge referenceudgaver; den er ikke gennemført. |
 
 Ingen af de fælles flerudgaveled er aktuelt klassificeret som `integreret
@@ -53,6 +63,9 @@ programmets samlede modenhed.
 - C3's samlede Task 9-rehearsal har bevist 5 identitetshændelser, 4 narrative
   tildelinger og 2 `no_publication`-hændelser som ét 11-hændelsesforløb med
   eksakt reversal.
+- C3 production apply gentog det autoriserede 11-event-scope og bestod
+  uafhængig efterverifikation af receipt, eventhashes, identitetsrelationer,
+  narrative teksthashes, bindinger, no-publication-fravær og change-set-scope.
 - Den menneskeverificerede 1939-segmentering er et stærkt udgavespecifikt
   resultat, men er ikke et bevis for en fælles flerudgavemetode.
 
@@ -69,27 +82,26 @@ programmets samlede modenhed.
 
 ## Åbne blokeringer
 
-- Task 9-rettelserne er gennemgået, verificeret og valgt til lokal integration
-  i `main`; der er ikke givet tilladelse til push eller produktion.
-- Der foreligger stadig intet nyt eksplicit produktions-GO. Et eventuelt
-  produktionsforløb kræver friske produktionsbundne artefakter og gentaget
-  precondition-, migration- og ACL-kontrol.
+- Den reviderede #152-spec afventer projektejerens review, før en
+  implementeringsplan må skrives.
+- #152 mangler implementation, disposable databasebevis, klientmigration og
+  et eventuelt senere særskilt production-GO.
 - Den fælles kæde mangler fortsat klausulobservationer, reel extraction,
   proposed-ingest, én identitetsvej, promotion i drift og publicering med
   kildehenvisning på tværs af referenceudgaverne.
 
 ## Næste tilladte arbejde
 
-Programmet står ved C3-stopporten efter den valgte lokale branchintegration.
-Næste tilladte handling er enten et særskilt, eksplicit produktions-GO eller
-en beslutning om at fortsætte med roadmapmål #152 uden production apply. Ingen
-agent må fortsætte automatisk fra denne status.
+Næste tilladte handling er projektejerens review af den skrevne, reviderede
+spec for roadmapmål #152. Efter godkendelse må der udarbejdes en
+implementeringsplan, som igen
+kræver review før kodearbejde. Ingen #152-produktionsmutation er autoriseret.
 
 ## Parkeret arbejde
 
 `[NY]`, C1, C2, nye 1939-specialfaser samt spor H og M er fortsat parkeret.
-Stopporten åbner den styrende rækkefølge i roadmapet, men starter ikke selv
-#152 eller et nyt genimportspor uden projektejerens beslutning.
+Roadmapmål #152's mobilændring er kun den minimale sikre migration, som kræves
+for at lukke den gamle writer; den genåbner ikke det fulde mobilredaktørspor.
 
 ## Bevisgrundlag og friskhed
 
@@ -99,6 +111,11 @@ Stopporten åbner den styrende rækkefølge i roadmapet, men starter ikke selv
 - [Task 9-rehearsalrapporten 2026-08-29](c3-task9-rehearsal-2026-08-29.md)
   dokumenterer backupafgrænsning, restore/migration, artefakthashes,
   testsuiter, apply/reversal-receipts og den tekniske stopport.
+- [C3 production-apply-rapporten](c3-production-apply-2026-08-29.md)
+  dokumenterer backuphash, migrationshashes, autoriserede artefakter,
+  production receipt og read-only postverify.
+- [Den reviderede #152-spec](../superpowers/specs/2026-08-29-narrative-source-record-key-design.md)
+  beskriver det aktive programmål i modenheden `specificeret`.
 - Commitintervallet `cc9d7d5..2e015df` ændrer kun styringsdokumentation og
   ændrer derfor ikke den funktionelle klassifikation.
 - [Vision og værdigrundlag](vision.md), [styrende roadmap](roadmap.md) og

@@ -5,14 +5,19 @@
 
 ## Aktivt programmål
 
-C3 nåede 2026-08-29 den dokumenterede stopport
-`READY_FOR_PRODUCTION_GO` efter samlet integration og disposable rehearsal.
-Projetejeren har valgt lokal branchintegration uden push. Programmet forbliver
-i kontrolleret pause, indtil det besluttes, om der skal gives et særskilt
-produktions-GO eller fortsættes med roadmapmål #152 uden production apply.
+C3 blev 2026-08-29 migreret, anvendt og uafhængigt efterverificeret i
+produktion for det eksakte fem-sagers scope. Se
+[production-apply-rapporten](c3-production-apply-2026-08-29.md).
 
-Stopporten giver ikke i sig selv produktions-GO, og ingen agent fortsætter
-automatisk fra den.
+Projektejeren har derefter aktiveret roadmapmål #152: person-narrativer skal
+knyttes entydigt til konkrete source records. Målet er `specificeret` i den
+reviderede
+[#152-designspecifikation](../superpowers/specs/2026-08-29-narrative-source-record-key-design.md),
+som afventer projektejerens review af den skrevne revision.
+
+Designreview giver ikke automatisk implementerings- eller produktions-GO. Den
+næste tilladte artefakt efter godkendt spec er en implementeringsplan; arbejdet
+fortsætter ikke automatisk fra planen til production apply.
 
 ## Styrende rækkefølge
 
