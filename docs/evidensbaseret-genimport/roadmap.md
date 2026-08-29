@@ -13,7 +13,10 @@ Projektejeren har derefter aktiveret roadmapmål #152: person-narrativer skal
 knyttes entydigt til konkrete source records. Målet er `specificeret` i den
 reviderede
 [#152-designspecifikation](../superpowers/specs/2026-08-29-narrative-source-record-key-design.md),
-som afventer projektejerens review af den skrevne revision.
+som efter eksternt review nu også beskriver granulær legacy-nedtagning, den
+midlertidige frysning af nye bindinger/DAA-import og de præcise RLS-, undo- og
+cutover-gates. Den skrevne revision afventer projektejerens review; den målte
+overgangsomkostning kræver desuden en senere særskilt accept før production.
 
 Designreview giver ikke automatisk implementerings- eller produktions-GO. Den
 næste tilladte artefakt efter godkendt spec er en implementeringsplan; arbejdet

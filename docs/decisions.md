@@ -2,6 +2,35 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## AFVENTER GODKENDELSE: #152's målte overgangsomkostning og sikkerhedsminimum (2026-08-29)
+
+Et eksternt read-only review af den reviderede #152-spec rapporterede et
+produktionssnapshot med 563 eksisterende publication-bindinger, 591 ubundne
+2018-20-personnarrativer og kun 8 accepterede `source_persona_identity`-rækker.
+Tallene skal genmåles ved en senere production-gate, men konsekvensen er
+arkitektonisk allerede klar: eksisterende eksakte bindinger kan fortsætte,
+mens hovedparten af nye bindinger og alle direkte DAA-loaderkørsler fryses
+fail-closed efter cutover, indtil senere roadmapmål leverer den generaliserede
+writer, recordproveniens og fælles identitetsvej.
+
+Append-only publication-events gør også den eksisterende åbne
+tombstone-/retentionsbeslutning konkret: `red_slet_person` må efter #152 ikke
+slette en projektion og ødelægge eller efterlade inkonsistent historik. Indtil
+den permanente beslutning er truffet, afviser den derfor personer med
+publication-events tidligt; den granulære withdrawal dækker offentlig
+nedtagning af den enkelte biografi.
+
+Designspecifikationen er revideret, så denne omkostning ikke er skjult. Den
+tilføjer samtidig et nødvendigt sikkerhedsminimum: én grandfathered
+legacy-biografi kan tages ned gennem en særskilt, append-only og reversibel
+legacy-withdrawal uden at skjule hele personen eller gøre legacy-teksten
+redigerbar.
+
+Reviewinstruksen autoriserer den skriftlige revision, men ikke production
+cutover. Før production-GO skal projektejeren særskilt acceptere den friske,
+målte redaktions- og importfrysning. Indtil da er dette punkt `AFVENTER
+GODKENDELSE`, mens den allerede besluttede arkitekturretning nedenfor består.
+
 ## BESLUTTET: #152 bruger privat recordbinding, append-only publication-versioner og stabil offentlig record-reference (2026-08-29)
 
 Projektejeren har valgt og efter tværgående DAA-arkitekturgennemgang bedt om
