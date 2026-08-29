@@ -213,9 +213,12 @@ def _validate_contribution_admission(
     return approved, contributions
 
 
-def reconcile(snapshot: object, manifests: Iterable[object], ledger: object) -> Dict[str, Any]:
-    """Return a match report or raise a fail-closed ReconciliationError."""
-    approved, contributions = _validate_contribution_admission(manifests, ledger)
+def _reconcile_admitted(
+    snapshot: object,
+    approved: list[PhaseEntry],
+    contributions: Dict[str, Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, List[Dict[str, Any]]]]],
+    ledger: object,
+) -> Dict[str, Any]:
     actual = _validate_snapshot(snapshot)
 
     expected_rows: Dict[str, Dict[Tuple[Any, ...], Dict[str, Any]]] = {section: {} for section in SECTIONS}
@@ -281,6 +284,12 @@ def reconcile(snapshot: object, manifests: Iterable[object], ledger: object) -> 
     return report
 
 
+def reconcile(snapshot: object, manifests: Iterable[object], ledger: object) -> Dict[str, Any]:
+    """Return a match report or raise a fail-closed ReconciliationError."""
+    approved, contributions = _validate_contribution_admission(manifests, ledger)
+    return _reconcile_admitted(snapshot, approved, contributions, ledger)
+
+
 def _load_json(path: Path) -> object:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -321,8 +330,9 @@ def main(argv: List[str] | None = None) -> int:
             raise ReconciliationError("EVIDENCE_RECONCILIATION_MANIFESTS_REQUIRED")
         ledger = _load_json(args.ledger)
         manifests = [load_phase_manifest(path) for path in args.phase_manifest]
+        approved, contributions = _validate_contribution_admission(manifests, ledger)
         snapshot = _load_json(args.snapshot)
-        report = reconcile(snapshot, manifests, ledger)
+        report = _reconcile_admitted(snapshot, approved, contributions, ledger)
     except ReconciliationError as error:
         print(json.dumps(error.report, ensure_ascii=False, sort_keys=True), file=sys.stderr)
         return 2
