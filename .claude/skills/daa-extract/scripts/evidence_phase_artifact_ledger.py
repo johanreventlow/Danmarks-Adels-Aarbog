@@ -70,18 +70,25 @@ def _valid_text(value: object) -> bool:
     return isinstance(value, str) and bool(value) and value.strip() == value
 
 
+def _relative_path_identity(path: object) -> str:
+    _require(_valid_text(path), "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_INVALID")
+    assert isinstance(path, str)
+    candidate = Path(path)
+    _require(
+        not candidate.is_absolute() and ".." not in candidate.parts,
+        "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_INVALID",
+    )
+    return candidate.as_posix()
+
+
 def _validate_artifact(row: object) -> ArtifactEntry:
     _require(isinstance(row, dict), "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_INVALID")
     _require(
         set(row) == {"role", "path", "sha256", "schema_version", "required"},
         "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_INVALID",
     )
-    path = row["path"]
     _require(_valid_text(row["role"]), "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_INVALID")
-    _require(_valid_text(path), "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_INVALID")
-    assert isinstance(path, str)
-    candidate = Path(path)
-    _require(not candidate.is_absolute() and ".." not in candidate.parts, "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_INVALID")
+    path = _relative_path_identity(row["path"])
     _require(_is_hex_sha256(row["sha256"]), "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_INVALID")
     _require(_valid_text(row["schema_version"]), "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_INVALID")
     _require(type(row["required"]) is bool, "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_INVALID")
@@ -128,8 +135,16 @@ def validate_phase_rows(rows: object) -> list[PhaseEntry]:
         _require(_is_hex_sha256(row["adapter_sha256"]), "EVIDENCE_RECONCILIATION_LEDGER_PHASE_INVALID")
         projection_evidence = row["projection_evidence"]
         authorisation_evidence = row["authorisation_evidence"]
-        _require(projection_evidence in PROJECTION_STATES, "EVIDENCE_RECONCILIATION_LEDGER_EVIDENCE_INVALID")
-        _require(authorisation_evidence in AUTHORISATION_STATES, "EVIDENCE_RECONCILIATION_LEDGER_EVIDENCE_INVALID")
+        _require(
+            _valid_text(projection_evidence)
+            and projection_evidence in PROJECTION_STATES,
+            "EVIDENCE_RECONCILIATION_LEDGER_EVIDENCE_INVALID",
+        )
+        _require(
+            _valid_text(authorisation_evidence)
+            and authorisation_evidence in AUTHORISATION_STATES,
+            "EVIDENCE_RECONCILIATION_LEDGER_EVIDENCE_INVALID",
+        )
         contribution_sha256 = row.get("contribution_sha256")
         if contribution_sha256 is not None:
             _require(projection_evidence == "mechanically_bound", "EVIDENCE_RECONCILIATION_LEDGER_EVIDENCE_INVALID")

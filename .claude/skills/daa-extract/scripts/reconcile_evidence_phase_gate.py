@@ -188,10 +188,13 @@ def _validate_ledger_admission(ledger: object) -> list[PhaseEntry]:
         raise ReconciliationError(str(error)) from error
 
 
-def reconcile(snapshot: object, manifests: Iterable[object], ledger: object) -> Dict[str, Any]:
-    """Return a match report or raise a fail-closed ReconciliationError."""
+def _validate_contribution_admission(
+    manifests: Iterable[object], ledger: object
+) -> Tuple[
+    list[PhaseEntry],
+    Dict[str, Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, List[Dict[str, Any]]]]],
+]:
     approved = _validate_ledger_admission(ledger)
-    actual = _validate_snapshot(snapshot)
     phase_ids: List[str] = []
     manifest_hashes: Dict[str, str] = {}
     contributions: Dict[str, Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, List[Dict[str, Any]]]]] = {}
@@ -207,6 +210,13 @@ def reconcile(snapshot: object, manifests: Iterable[object], ledger: object) -> 
     approved_hashes = {entry.phase_id: entry.contribution_sha256 for entry in approved}
     if manifest_hashes != approved_hashes:
         raise ReconciliationError("EVIDENCE_RECONCILIATION_LEDGER_MISMATCH")
+    return approved, contributions
+
+
+def reconcile(snapshot: object, manifests: Iterable[object], ledger: object) -> Dict[str, Any]:
+    """Return a match report or raise a fail-closed ReconciliationError."""
+    approved, contributions = _validate_contribution_admission(manifests, ledger)
+    actual = _validate_snapshot(snapshot)
 
     expected_rows: Dict[str, Dict[Tuple[Any, ...], Dict[str, Any]]] = {section: {} for section in SECTIONS}
     overrides: Dict[str, int] = {section: 0 for section in SECTIONS}
@@ -309,7 +319,10 @@ def main(argv: List[str] | None = None) -> int:
             return 0
         if not args.phase_manifest or args.ledger is None:
             raise ReconciliationError("EVIDENCE_RECONCILIATION_MANIFESTS_REQUIRED")
-        report = reconcile(_load_json(args.snapshot), [load_phase_manifest(path) for path in args.phase_manifest], _load_json(args.ledger))
+        ledger = _load_json(args.ledger)
+        manifests = [load_phase_manifest(path) for path in args.phase_manifest]
+        snapshot = _load_json(args.snapshot)
+        report = reconcile(snapshot, manifests, ledger)
     except ReconciliationError as error:
         print(json.dumps(error.report, ensure_ascii=False, sort_keys=True), file=sys.stderr)
         return 2
