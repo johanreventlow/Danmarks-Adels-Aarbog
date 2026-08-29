@@ -358,6 +358,7 @@ DECLARE
   v_actual_result text;
   v_state_definition text;
   v_record_lock_position integer;
+  v_change_set_lock_position integer;
   v_person_lock_position integer;
   v_projection_position integer;
 BEGIN
@@ -475,6 +476,9 @@ BEGIN
   v_record_lock_position:=strpos(
     v_state_definition,'WHERE record.id=v_record_id FOR UPDATE;'
   );
+  v_change_set_lock_position:=strpos(
+    v_state_definition,'LOCK TABLE public.change_set IN ACCESS EXCLUSIVE MODE;'
+  );
   v_person_lock_position:=strpos(
     v_state_definition,'WHERE person.id=p_person_id FOR UPDATE;'
   );
@@ -482,7 +486,8 @@ BEGIN
     v_state_definition,'v_publication_state:=private.narrative_publication_state('
   );
   IF v_record_lock_position=0
-     OR v_person_lock_position<=v_record_lock_position
+     OR v_change_set_lock_position<=v_record_lock_position
+     OR v_person_lock_position<=v_change_set_lock_position
      OR v_projection_position<=v_person_lock_position THEN
     RAISE EXCEPTION 'NARRATIVE_RECORD_PERSON_POLICY_LOCK_ORDER_INVALID';
   END IF;
@@ -490,7 +495,15 @@ BEGIN
      OR strpos(v_state_definition,'event.binding_id=v_selected_binding_id')=0
      OR strpos(
           v_state_definition,
+          'ORDER BY stream_head.change_set_id DESC,stream_head.created_at DESC'
+        )=0
+     OR strpos(
+          v_state_definition,
           '(v_active_binding_id IS NULL OR event.binding_id=v_active_binding_id)'
+        )<>0
+     OR strpos(
+          v_state_definition,
+          'ORDER BY binding.created_at DESC,stream_head.created_at DESC'
         )<>0 THEN
     RAISE EXCEPTION 'NARRATIVE_RECORD_STREAM_CHRONOLOGY_INVALID';
   END IF;

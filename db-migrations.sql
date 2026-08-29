@@ -11537,6 +11537,11 @@ BEGIN
   IF p_lock THEN
     PERFORM record.id FROM private.source_record record
      WHERE record.id=v_record_id FOR UPDATE;
+    -- Legacy person-policy writers open their audit set before updating person.
+    -- After the record-first absence owner, block the legacy allocator before
+    -- its max(id)+1 read, then lock person. This makes both writer families use
+    -- one compatible audit-before-person order without a stale allocation.
+    LOCK TABLE public.change_set IN ACCESS EXCLUSIVE MODE;
     -- levende/privat/staged are part of the semantic policy hash. Serialize
     -- those flags after the record-first absence owner and before projection.
     PERFORM person.id FROM public.person person
@@ -11616,9 +11621,9 @@ BEGIN
   v_active_binding_id:=(v_publication_state #>> '{binding,binding_id}')::uuid;
 
   -- stream_version is local to one binding and cannot order replacement
-  -- streams. Prefer the active stream; after withdrawal/discard select the
-  -- newest binding, using its canonical head event to break same-transaction
-  -- binding timestamp ties deterministically.
+  -- streams. Prefer the active stream; after withdrawal/discard order stream
+  -- heads by server-owned change-set allocation, never by transaction-start
+  -- binding timestamps. Event/id tie breakers keep the result deterministic.
   IF v_active_binding_id IS NOT NULL THEN
     v_selected_binding_id:=v_active_binding_id;
   ELSE
@@ -11637,8 +11642,8 @@ BEGIN
        AND narrative.subjekt_type='person'
        AND narrative.subjekt_id=p_person_id
        AND narrative.source_id=p_source_id
-     ORDER BY binding.created_at DESC,stream_head.created_at DESC,
-              stream_head.change_set_id DESC,stream_head.id DESC,binding.id DESC
+     ORDER BY stream_head.change_set_id DESC,stream_head.created_at DESC,
+              stream_head.id DESC,binding.id DESC
      LIMIT 1;
   END IF;
 
@@ -12398,12 +12403,11 @@ BEGIN
   END IF;
 
   -- A nested caller could otherwise make begin_change_set reuse an unrelated
-  -- audit set. Serialize Task-3 allocations because the legacy audit table has
-  -- no identity default and begin_change_set still allocates with max(id)+1.
+  -- audit set. The Task-2 lock owner has already serialized change-set
+  -- allocation before person-policy rows, following the global writer order.
   IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN
     RAISE EXCEPTION 'NARRATIVE_RECORD_FOREIGN_CHANGE_SET';
   END IF;
-  LOCK TABLE public.change_set IN SHARE ROW EXCLUSIVE MODE;
   v_decision_basis:=CASE v_event_type
     WHEN 'draft_created' THEN 'Oprettede record-bundet narrativkladde'
     WHEN 'draft_updated' THEN 'Opdaterede record-bundet narrativkladde'

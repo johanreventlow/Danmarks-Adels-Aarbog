@@ -3035,6 +3035,13 @@ DECLARE
   v_writer_result jsonb;
   v_event_type text;
   v_attested_allowed boolean;
+  v_chronology_predated boolean;
+  v_latest_event_id uuid;
+  v_before_event_count bigint;
+  v_after_event_count bigint;
+  v_before_change_count bigint;
+  v_after_change_count bigint;
+  v_original_error text;
   v_a_pid integer;
   v_b_pid integer;
   v_busy integer;
@@ -3046,6 +3053,13 @@ DECLARE
     SET session_replication_role=replica;
     DELETE FROM private.narrative_publication_event
       WHERE source_record_id='15230000-0000-0000-0000-000000000001';
+    DELETE FROM public.change_event
+      WHERE change_set_id IN (
+        SELECT id FROM public.change_set
+         WHERE subjekt_type='person' AND subjekt_id=-91523001
+      );
+    DELETE FROM public.change_set
+      WHERE subjekt_type='person' AND subjekt_id=-91523001;
     DELETE FROM private.narrative_record_publication
       WHERE source_record_id='15230000-0000-0000-0000-000000000001';
     DELETE FROM public.narrative
@@ -3189,6 +3203,147 @@ BEGIN
   SELECT pid INTO v_b_pid
     FROM extensions.dblink('task3_policy_b','SELECT pg_backend_pid()') AS t(pid integer);
 
+  -- Cross-transaction chronology: session A starts first, but the old v4
+  -- withdrawn binding is inserted and committed afterwards. Any ordering by
+  -- binding.created_at therefore misclassifies the later A stream as older.
+  PERFORM extensions.dblink_exec('task3_policy_a','BEGIN');
+  PERFORM started_at
+    FROM extensions.dblink('task3_policy_a','SELECT now()')
+      AS t(started_at timestamptz);
+  PERFORM extensions.dblink_exec(
+    'task3_policy_setup',
+    'SET session_replication_role=replica;'
+    || 'INSERT INTO public.narrative('
+    || 'id,subjekt_type,subjekt_id,source_id,side,tekst,privat) VALUES '
+    || '(-91523041,''person'',-91523001,-91523001,''1'',''Old v4 stream'',false);'
+    || 'INSERT INTO private.narrative_record_publication('
+    || 'id,narrative_id,source_record_id,record_label,citation_label,status) VALUES '
+    || '(''15230000-0000-0000-0000-000000000041'',-91523041,'
+    || '''15230000-0000-0000-0000-000000000001'',''Task 3 old record'','
+    || '''Task 3 old citation'',''withdrawn'');'
+    || 'WITH changes AS (SELECT public.begin_change_set('
+    || '''task3_old_stream'',''Task 3 old v4 stream'',''person'',-91523001) AS id) '
+    || 'INSERT INTO private.narrative_publication_event('
+    || 'id,change_set_id,stream_ref,stream_version,event_type,binding_id,narrative_id,'
+    || 'source_id,source_record_id,decision_basis,before_state,after_state,'
+    || 'before_state_sha256,after_state_sha256,decided_by,decided_by_name) SELECT '
+    || '''15230000-0000-0000-0000-000000000042'',changes.id,'
+    || '''15230000-0000-0000-0000-000000000041'',4,''draft_discarded'','
+    || '''15230000-0000-0000-0000-000000000041'',-91523041,-91523001,'
+    || '''15230000-0000-0000-0000-000000000001'',''Task 3 old stream fixture'','
+    || '''{"fixture":"old-before"}'',''{"fixture":"old-after"}'','
+    || '''' || repeat('4',64) || ''',''' || repeat('5',64) || ''','
+    || '''15230000-0000-0000-0000-000000000099'',''Task 3 policy actor'' FROM changes;'
+    || 'SET session_replication_role=origin'
+  );
+  PERFORM extensions.dblink_exec(
+    'task3_policy_a',
+    'CREATE OR REPLACE FUNCTION public.narrative_record_contract_version() '
+    || 'RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER '
+    || 'SET search_path=pg_catalog AS $version$ SELECT 2 $version$'
+  );
+  PERFORM extensions.dblink_exec(
+    'task3_policy_a',
+    'SET LOCAL "request.jwt.claim.sub"=' || quote_literal(v_actor::text)
+  );
+  SELECT result INTO v_writer_result
+    FROM extensions.dblink(
+      'task3_policy_a',
+      'SELECT public.red_upsert_person_narrative_record('
+      || '-91523001,-91523001,''task3-policy-lock'',''Predated fresh stream'',false,'
+      || 'private.narrative_record_state('
+      || '-91523001,-91523001,''task3-policy-lock'',false)->>''state_sha256'')'
+    ) AS t(result jsonb);
+  -- Resolve the fresh binding through the returned narrative because event_id
+  -- and binding_id deliberately belong to different identifier domains.
+  SELECT predated INTO v_chronology_predated
+    FROM extensions.dblink(
+      'task3_policy_a',
+      'SELECT fresh.created_at<old.created_at '
+      || 'FROM private.narrative_record_publication fresh '
+      || 'JOIN private.narrative_record_publication old '
+      || 'ON old.id=''15230000-0000-0000-0000-000000000041'' '
+      || 'WHERE fresh.narrative_id=' || (v_writer_result->>'narrative_id')
+    ) AS t(predated boolean);
+  IF v_writer_result->>'status' IS DISTINCT FROM 'draft'
+     OR v_chronology_predated IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_CROSS_TRANSACTION_FIXTURE_INVALID';
+  END IF;
+
+  PERFORM value FROM extensions.dblink(
+    'task3_policy_a','SELECT set_config(''app.change_set_id'','''',true)'
+  ) AS t(value text);
+  SELECT result INTO v_writer_result
+    FROM extensions.dblink(
+      'task3_policy_a',
+      'SELECT public.red_kasser_person_narrative_record('
+      || '-91523001,-91523001,''task3-policy-lock'',private.narrative_record_state('
+      || '-91523001,-91523001,''task3-policy-lock'',false)->>''state_sha256'')'
+    ) AS t(result jsonb);
+  SELECT latest_event_id INTO v_latest_event_id
+    FROM extensions.dblink(
+      'task3_policy_a',
+      'SELECT (private.narrative_record_state('
+      || '-91523001,-91523001,''task3-policy-lock'',false)->>''latest_event_id'')::uuid'
+    ) AS t(latest_event_id uuid);
+  IF v_writer_result->>'status' IS DISTINCT FROM 'withdrawn'
+     OR v_latest_event_id IS DISTINCT FROM (v_writer_result->>'event_id')::uuid THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_CROSS_TRANSACTION_DISCARD_INVALID';
+  END IF;
+
+  PERFORM value FROM extensions.dblink(
+    'task3_policy_a','SELECT set_config(''app.change_set_id'','''',true)'
+  ) AS t(value text);
+  SELECT result INTO v_writer_result FROM extensions.dblink(
+    'task3_policy_a',
+    'SELECT public.red_upsert_person_narrative_record('
+    || '-91523001,-91523001,''task3-policy-lock'',''Predated publish stream'',false,'
+    || 'private.narrative_record_state('
+    || '-91523001,-91523001,''task3-policy-lock'',false)->>''state_sha256'')'
+  ) AS t(result jsonb);
+  PERFORM value FROM extensions.dblink(
+    'task3_policy_a','SELECT set_config(''app.change_set_id'','''',true)'
+  ) AS t(value text);
+  SELECT result INTO v_writer_result FROM extensions.dblink(
+    'task3_policy_a',
+    'SELECT public.red_publicer_person_narrative_record('
+    || '-91523001,-91523001,''task3-policy-lock'',private.narrative_record_state('
+    || '-91523001,-91523001,''task3-policy-lock'',false)->>''state_sha256'')'
+  ) AS t(result jsonb);
+  PERFORM value FROM extensions.dblink(
+    'task3_policy_a','SELECT set_config(''app.change_set_id'','''',true)'
+  ) AS t(value text);
+  SELECT result INTO v_writer_result FROM extensions.dblink(
+    'task3_policy_a',
+    'SELECT public.red_tilbagetraek_person_narrative_record('
+    || '-91523001,-91523001,''task3-policy-lock'',private.narrative_record_state('
+    || '-91523001,-91523001,''task3-policy-lock'',false)->>''state_sha256'')'
+  ) AS t(result jsonb);
+  SELECT latest_event_id INTO v_latest_event_id
+    FROM extensions.dblink(
+      'task3_policy_a',
+      'SELECT (private.narrative_record_state('
+      || '-91523001,-91523001,''task3-policy-lock'',false)->>''latest_event_id'')::uuid'
+    ) AS t(latest_event_id uuid);
+  IF v_writer_result->>'status' IS DISTINCT FROM 'withdrawn'
+     OR v_latest_event_id IS DISTINCT FROM (v_writer_result->>'event_id')::uuid THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_CROSS_TRANSACTION_WITHDRAW_INVALID';
+  END IF;
+  PERFORM extensions.dblink_exec('task3_policy_a','ROLLBACK');
+
+  -- Seed the active draft for the independent policy/deadlock interleaving.
+  PERFORM extensions.dblink_exec(
+    'task3_policy_setup',
+    'INSERT INTO public.narrative('
+    || 'id,subjekt_type,subjekt_id,source_id,side,tekst,privat) VALUES '
+    || '(-91523010,''person'',-91523001,-91523001,''1'',''Policy race draft'',false);'
+    || 'INSERT INTO private.narrative_record_publication('
+    || 'id,narrative_id,source_record_id,record_label,citation_label,status) VALUES '
+    || '(''15230000-0000-0000-0000-000000000010'',-91523010,'
+    || '''15230000-0000-0000-0000-000000000001'',''Task 3 policy record'','
+    || '''Task 3 policy citation'',''draft'')'
+  );
+
   PERFORM extensions.dblink_exec('task3_policy_a','BEGIN');
   PERFORM extensions.dblink_exec(
     'task3_policy_a',
@@ -3201,22 +3356,31 @@ BEGIN
     'SET LOCAL "request.jwt.claim.sub"='
     || quote_literal(v_actor::text)
   );
-  SELECT result INTO v_writer_result
+  PERFORM extensions.dblink_exec(
+    'task3_policy_a','SET LOCAL deadlock_timeout=''100ms'''
+  );
+  -- Enter the production record-lock path before the publication RPC. The
+  -- canonical order blocks red_set_privat at its change-set allocator before
+  -- that legacy writer can retain an audit lock and wait on session A's person.
+  PERFORM state
     FROM extensions.dblink(
       'task3_policy_a',
-      'SELECT public.red_upsert_person_narrative_record('
-      || '-91523001,-91523001,''task3-policy-lock'',''Policy race draft'',false,'
-      || 'private.narrative_record_state('
-      || '-91523001,-91523001,''task3-policy-lock'',false)->>''state_sha256'')'
-    ) AS t(result jsonb);
-  IF v_writer_result->>'status' IS DISTINCT FROM 'draft' THEN
-    RAISE EXCEPTION 'NARRATIVE_RECORD_PERSON_POLICY_DRAFT_SETUP_INVALID';
-  END IF;
+      'SELECT private.narrative_record_state('
+      || '-91523001,-91523001,''task3-policy-lock'',true)'
+    ) AS t(state jsonb);
 
   PERFORM extensions.dblink_exec('task3_policy_b','BEGIN');
+  PERFORM extensions.dblink_exec(
+    'task3_policy_b',
+    'SET LOCAL "request.jwt.claim.sub"='
+    || quote_literal(v_actor::text)
+  );
+  PERFORM extensions.dblink_exec(
+    'task3_policy_b','SET LOCAL deadlock_timeout=''100ms'''
+  );
   PERFORM extensions.dblink_send_query(
     'task3_policy_b',
-    'UPDATE public.person SET privat=true WHERE id=-91523001 RETURNING id'
+    'SELECT public.red_set_privat(-91523001,true)::text'
   );
   v_deadline:=clock_timestamp()+interval '3 seconds';
   LOOP
@@ -3251,8 +3415,8 @@ BEGIN
       'SELECT event_type,'
       || '(after_state #>> ''{publication_policy,publication_allowed}'')::boolean '
       || 'FROM private.narrative_publication_event '
-      || 'WHERE source_record_id=''15230000-0000-0000-0000-000000000001'' '
-      || 'ORDER BY stream_version DESC LIMIT 1'
+      || 'WHERE id='
+      || quote_literal(v_writer_result->>'event_id')
     ) AS t(event_type text,attested_allowed boolean);
   IF v_writer_result->>'status' IS DISTINCT FROM 'published'
      OR v_event_type IS DISTINCT FROM 'published'
@@ -3260,9 +3424,15 @@ BEGIN
     RAISE EXCEPTION 'NARRATIVE_RECORD_PERSON_POLICY_PUBLISHED_ATTESTATION_INVALID';
   END IF;
 
-  -- Roll back both the temporary version-2 definition and the successful
-  -- publication. Only then may the concurrent policy update resume.
-  PERFORM extensions.dblink_exec('task3_policy_a','ROLLBACK');
+  -- Restore the capability function inside the same transaction, so commit
+  -- makes the valid publication durable without ever exposing version 2.
+  PERFORM extensions.dblink_exec(
+    'task3_policy_a',
+    'CREATE OR REPLACE FUNCTION public.narrative_record_contract_version() '
+    || 'RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER '
+    || 'SET search_path=pg_catalog AS $version$ SELECT 1 $version$'
+  );
+  PERFORM extensions.dblink_exec('task3_policy_a','COMMIT');
   v_deadline:=clock_timestamp()+interval '3 seconds';
   LOOP
     SELECT extensions.dblink_is_busy('task3_policy_b') INTO v_busy;
@@ -3272,30 +3442,82 @@ BEGIN
     END IF;
     PERFORM pg_sleep(0.02);
   END LOOP;
-  PERFORM id FROM extensions.dblink_get_result('task3_policy_b') AS t(id bigint);
-  PERFORM id FROM extensions.dblink_get_result('task3_policy_b') AS t(id bigint);
+  PERFORM result FROM extensions.dblink_get_result('task3_policy_b') AS t(result text);
+  PERFORM result FROM extensions.dblink_get_result('task3_policy_b') AS t(result text);
   PERFORM extensions.dblink_exec('task3_policy_b','COMMIT');
-  PERFORM extensions.dblink_disconnect('task3_policy_a'); v_a_connected:=false;
   PERFORM extensions.dblink_disconnect('task3_policy_b'); v_b_connected:=false;
 
-  IF coalesce((
-       private.narrative_record_state(
-         v_person_id,v_source_id,'task3-policy-lock',false
-       ) #>> '{publication_state,publication_policy,publication_allowed}'
-     )::boolean,true)
-     OR EXISTS (
-       SELECT 1 FROM private.narrative_publication_event event
-        WHERE event.source_record_id=v_record_id
-     )
+  v_writer_result:=private.narrative_record_state(
+    v_person_id,v_source_id,'task3-policy-lock',false
+  );
+  IF v_writer_result->>'publication_status' IS DISTINCT FROM 'stale_published'
+     OR coalesce((v_writer_result #>>
+          '{publication_state,publication_policy,publication_allowed}'
+        )::boolean,true)
+     OR (SELECT count(*) FROM private.narrative_publication_event event
+          WHERE event.source_record_id=v_record_id
+            AND event.id<>'15230000-0000-0000-0000-000000000042')<>1
      OR public.narrative_record_contract_version()<>1 THEN
     RAISE EXCEPTION 'NARRATIVE_RECORD_PERSON_POLICY_POST_STATE_INVALID';
   END IF;
+
+  -- Count through an autocommit helper session. The coordinating DO must not
+  -- retain an ACCESS SHARE lock on change_set while session A proves that the
+  -- canonical lock path can acquire its allocator lock and reject revalidation.
+  SELECT event_count,change_count
+    INTO v_before_event_count,v_before_change_count
+    FROM extensions.dblink(
+      'task3_policy_setup',
+      'SELECT (SELECT count(*) FROM private.narrative_publication_event '
+      || 'WHERE source_record_id=''15230000-0000-0000-0000-000000000001''),'
+      || '(SELECT count(*) FROM public.change_set '
+      || 'WHERE subjekt_type=''person'' AND subjekt_id=-91523001)'
+    ) AS t(event_count bigint,change_count bigint);
+  PERFORM extensions.dblink_exec('task3_policy_a','BEGIN');
+  PERFORM extensions.dblink_exec(
+    'task3_policy_a',
+    'CREATE OR REPLACE FUNCTION public.narrative_record_contract_version() '
+    || 'RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER '
+    || 'SET search_path=pg_catalog AS $version$ SELECT 2 $version$'
+  );
+  PERFORM extensions.dblink_exec(
+    'task3_policy_a',
+    'SET LOCAL "request.jwt.claim.sub"='
+    || quote_literal(v_actor::text)
+  );
+  PERFORM extensions.dblink_exec(
+    'task3_policy_a',
+    'DO $expect$ BEGIN '
+    || 'PERFORM public.red_revalider_person_narrative_record('
+    || '-91523001,-91523001,''task3-policy-lock'',private.narrative_record_state('
+    || '-91523001,-91523001,''task3-policy-lock'',false)->>''state_sha256''); '
+    || 'RAISE EXCEPTION ''NARRATIVE_RECORD_POLICY_REVALIDATION_ACCEPTED''; '
+    || 'EXCEPTION WHEN OTHERS THEN '
+    || 'IF SQLERRM<>''NARRATIVE_RECORD_PUBLICATION_POLICY_BLOCKED'' THEN RAISE; END IF; '
+    || 'END $expect$'
+  );
+  SELECT event_count,change_count
+    INTO v_after_event_count,v_after_change_count
+    FROM extensions.dblink(
+      'task3_policy_a',
+      'SELECT (SELECT count(*) FROM private.narrative_publication_event '
+      || 'WHERE source_record_id=''15230000-0000-0000-0000-000000000001''),'
+      || '(SELECT count(*) FROM public.change_set '
+      || 'WHERE subjekt_type=''person'' AND subjekt_id=-91523001)'
+    ) AS t(event_count bigint,change_count bigint);
+  IF v_after_event_count IS DISTINCT FROM v_before_event_count
+     OR v_after_change_count IS DISTINCT FROM v_before_change_count THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_POLICY_REVALIDATION_WROTE';
+  END IF;
+  PERFORM extensions.dblink_exec('task3_policy_a','ROLLBACK');
+  PERFORM extensions.dblink_disconnect('task3_policy_a'); v_a_connected:=false;
 
   PERFORM extensions.dblink_exec('task3_policy_setup',v_cleanup);
   PERFORM extensions.dblink_disconnect('task3_policy_setup');
   v_setup_connected:=false;
   RAISE NOTICE 'OK: narrative record Task 3 person policy row is serialized before attestation';
 EXCEPTION WHEN OTHERS THEN
+  GET STACKED DIAGNOSTICS v_original_error=MESSAGE_TEXT;
   IF v_a_connected THEN
     BEGIN PERFORM extensions.dblink_exec('task3_policy_a','ROLLBACK');
       EXCEPTION WHEN OTHERS THEN NULL; END;
@@ -3310,7 +3532,7 @@ EXCEPTION WHEN OTHERS THEN
         PERFORM pg_sleep(0.02);
       END LOOP;
     EXCEPTION WHEN OTHERS THEN NULL; END;
-    BEGIN PERFORM * FROM extensions.dblink_get_result('task3_policy_b') AS t(id bigint);
+    BEGIN PERFORM * FROM extensions.dblink_get_result('task3_policy_b') AS t(result text);
       EXCEPTION WHEN OTHERS THEN NULL; END;
     BEGIN PERFORM extensions.dblink_exec('task3_policy_b','ROLLBACK');
       EXCEPTION WHEN OTHERS THEN NULL; END;
@@ -3323,7 +3545,7 @@ EXCEPTION WHEN OTHERS THEN
     BEGIN PERFORM extensions.dblink_disconnect('task3_policy_setup');
       EXCEPTION WHEN OTHERS THEN NULL; END;
   END IF;
-  RAISE;
+  RAISE EXCEPTION '%',v_original_error;
 END
 $narrative_record_task3_person_policy_lock$;
 RESET search_path;
