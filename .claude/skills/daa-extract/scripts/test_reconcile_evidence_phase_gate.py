@@ -300,6 +300,40 @@ def test_cli_loads_phase_contributions_before_reading_the_snapshot(tmp_path, cap
     assert json.loads(capsys.readouterr().err)["error"] == "EVIDENCE_RECONCILIATION_MANIFEST_HASH_INVALID"
 
 
+def test_cli_rejects_a_ledger_hash_mismatch_before_reading_the_snapshot(tmp_path, capsys):
+    original = tmp_path / "original-manifest.json"
+    original.write_bytes(b'{"original":true}\n')
+    phase_a = _manifest("phase-a", record_key="1939:1", occurrence_key="occ-1", person_id=101, narrative_id=201)
+    phase_a["source_manifest_sha256"] = hashlib.sha256(original.read_bytes()).hexdigest()
+    phase_a = _with_hash(
+        {key: value for key, value in phase_a.items() if key != "reconciliation_content_sha256"},
+        "reconciliation_content_sha256",
+    )
+    contribution = tmp_path / "phase-a.json"
+    contribution.write_text(json.dumps(phase_a), encoding="utf-8")
+    ledger = _ledger(phase_a)
+    ledger["phases"][0]["contribution_sha256"] = "c" * 64
+    ledger = seal_ledger(
+        {key: value for key, value in ledger.items() if key != "ledger_content_sha256"}
+    )
+    ledger_path = tmp_path / "ledger.json"
+    ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+
+    status = main(
+        [
+            "--snapshot",
+            str(tmp_path / "missing-snapshot.json"),
+            "--phase-manifest",
+            str(contribution),
+            "--ledger",
+            str(ledger_path),
+        ]
+    )
+
+    assert status == 2
+    assert json.loads(capsys.readouterr().err)["error"] == "EVIDENCE_RECONCILIATION_LEDGER_MISMATCH"
+
+
 def test_reconcile_rejects_a_ledger_that_names_a_phase_missing_from_the_command():
     phase_a = _manifest("phase-a", record_key="1939:1", occurrence_key="occ-1", person_id=101, narrative_id=201)
     phase_b = _manifest("phase-b", record_key="1939:2", occurrence_key="occ-2", person_id=102, narrative_id=202)
