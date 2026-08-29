@@ -205,6 +205,8 @@ def test_exact_five_whole_cases_and_payload_contract():
         "rid": "R03",
         "record_key": "synthetic-r03",
         "target_person_id": 1101,
+        "target_display_name": "SYNTHETIC_NAME_R03_1101",
+        "source_text": "1. Synthetic R03 line-\nbreak.",
         "raw_sha256": hashlib.sha256(
             values["selection"]["cases"][0]["records"][0]["verbatim_text"].encode("utf-8")
         ).hexdigest(),

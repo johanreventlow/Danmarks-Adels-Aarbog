@@ -7496,12 +7496,12 @@ CREATE TABLE IF NOT EXISTS private.narrative_record_publication (
 );
 CREATE OR REPLACE FUNCTION private.validate_narrative_record_publication()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-DECLARE a bigint; b bigint; t text;
+DECLARE v_narrative_source bigint; v_record_source bigint; v_subject_type text;
 BEGIN
-  SELECT source_id,subjekt_type INTO a,t FROM public.narrative WHERE id=NEW.narrative_id;
-  SELECT source_id INTO b FROM private.source_record WHERE id=NEW.source_record_id;
-  IF a IS NULL OR b IS NULL OR a<>b THEN RAISE EXCEPTION 'SOURCE_RECORD_PUBLICATION_SOURCE_MISMATCH'; END IF;
-  IF t<>'person' THEN RAISE EXCEPTION 'SOURCE_RECORD_PUBLICATION_SUBJECT_INVALID'; END IF;
+  SELECT source_id,subjekt_type INTO v_narrative_source,v_subject_type FROM public.narrative WHERE id=NEW.narrative_id;
+  SELECT source_id INTO v_record_source FROM private.source_record WHERE id=NEW.source_record_id;
+  IF v_narrative_source IS NULL OR v_record_source IS NULL OR v_narrative_source<>v_record_source THEN RAISE EXCEPTION 'SOURCE_RECORD_PUBLICATION_SOURCE_MISMATCH'; END IF;
+  IF v_subject_type<>'person' THEN RAISE EXCEPTION 'SOURCE_RECORD_PUBLICATION_SUBJECT_INVALID'; END IF;
   IF TG_OP='UPDATE' AND (NEW.narrative_id<>OLD.narrative_id OR NEW.source_record_id<>OLD.source_record_id OR NEW.record_ref<>OLD.record_ref) THEN RAISE EXCEPTION 'SOURCE_RECORD_PUBLICATION_BINDING_IMMUTABLE'; END IF;
   IF NEW.status='published' AND NEW.published_at IS NULL THEN NEW.published_at:=clock_timestamp(); END IF;
   RETURN NEW;
@@ -7566,7 +7566,7 @@ CREATE TABLE IF NOT EXISTS private.reimport_1939_write_event (
 CREATE OR REPLACE FUNCTION private.reject_reimport_1939_event_mutation() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$ BEGIN RAISE EXCEPTION 'REIMPORT_1939_EVENT_APPEND_ONLY'; END $$;
 DROP TRIGGER IF EXISTS trg_reimport_1939_event_append_only ON private.reimport_1939_write_event;
 CREATE TRIGGER trg_reimport_1939_event_append_only BEFORE UPDATE OR DELETE ON private.reimport_1939_write_event FOR EACH ROW EXECUTE FUNCTION private.reject_reimport_1939_event_mutation();
-DROP FUNCTION IF EXISTS public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,uuid,timestamptz),public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz),public.red_begin_1939_v50_reimport(uuid,text,text),public.red_apply_1939_v50_source_evidence(uuid,text,jsonb),public.red_apply_1939_v50_person_create(uuid,text,jsonb),public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb),public.red_finalize_1939_v50_reimport(uuid),public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz),public.red_reverse_1939_v50_reimport(uuid,uuid),public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz),public.red_activate_1939_v50_batch(uuid,uuid),private.require_reimport_1939_open_batch(uuid),private.require_reimport_1939_editor();
+DROP FUNCTION IF EXISTS public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,uuid,timestamptz),public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz),public.red_begin_1939_v50_reimport(uuid,text,text),public.red_apply_1939_v50_source_evidence(uuid,text,jsonb),public.red_apply_1939_v50_person_create(uuid,text,jsonb),public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb),public.red_finalize_1939_v50_reimport(uuid),public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz),public.red_reverse_1939_v50_reimport(uuid,uuid),public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz),public.red_activate_1939_v50_batch(uuid,uuid),private.ensure_reimport_1939_source_evidence(uuid,text,jsonb),private.require_reimport_1939_open_batch(uuid),private.require_reimport_1939_editor();
 CREATE OR REPLACE FUNCTION private.require_reimport_1939_editor() RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$ DECLARE a uuid:=auth.uid(); BEGIN IF a IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'REIMPORT_1939_ROLE_FORBIDDEN'; END IF; RETURN a; END $$;
 CREATE OR REPLACE FUNCTION public.red_authorize_1939_v50_reimport(m text,p text,d text,s bigint,c jsonb,e jsonb,n uuid,x timestamptz) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE i uuid; a uuid:=private.require_reimport_1939_editor(); BEGIN
@@ -7581,20 +7581,20 @@ DECLARE a private.reimport_1939_authorization%ROWTYPE; b uuid; u uuid:=private.r
  INSERT INTO private.reimport_1939_write_batch(authorization_id,manifest_sha256,preview_sha256,principal_id,expected_counts) VALUES(i,m,p,u,a.expected_counts) RETURNING id INTO b; RETURN b; END $$;
 CREATE OR REPLACE FUNCTION private.require_reimport_1939_open_batch(i uuid) RETURNS private.reimport_1939_write_batch LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE b private.reimport_1939_write_batch%ROWTYPE; u uuid:=private.require_reimport_1939_editor(); BEGIN SELECT * INTO b FROM private.reimport_1939_write_batch WHERE id=i FOR UPDATE; IF NOT FOUND OR b.status<>'open' OR b.principal_id<>u THEN RAISE EXCEPTION 'REIMPORT_1939_BATCH_INVALID'; END IF; RETURN b; END $$;
-CREATE OR REPLACE FUNCTION private.ensure_reimport_1939_source_evidence(b uuid,e text,p jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
-DECLARE x private.reimport_1939_write_batch%ROWTYPE; a private.reimport_1939_authorization%ROWTYPE; r uuid; d uuid; s uuid; o uuid; q uuid; m uuid; u uuid:=private.require_reimport_1939_editor(); n text; sp jsonb:=p->'source_span'; pg jsonb:=p->'page_evidence'; t text:=p->>'verbatim_text'; BEGIN
- x:=private.require_reimport_1939_open_batch(b); SELECT * INTO a FROM private.reimport_1939_authorization WHERE id=x.authorization_id; IF NOT a.authorized_elements ? e OR (a.authorized_elements->e IS DISTINCT FROM p AND a.authorized_elements->e IS DISTINCT FROM (p-'category')) THEN RAISE EXCEPTION 'REIMPORT_1939_ELEMENT_NOT_AUTHORIZED'; END IF;
- IF nullif(btrim(p->>'source_record_key'),'') IS NULL OR sp IS NULL OR pg IS NULL OR nullif(t,'') IS NULL OR (sp->>'char_from')::int<0 OR (sp->>'char_to')::int<=(sp->>'char_from')::int OR (pg->>'page_from')::int<1 OR (pg->>'page_to')::int<(pg->>'page_from')::int OR p->>'rendition_content_sha256'!~'^[0-9a-f]{64}$' THEN RAISE EXCEPTION 'REIMPORT_1939_SOURCE_EVIDENCE_INVALID'; END IF;
+CREATE OR REPLACE FUNCTION private.ensure_reimport_1939_source_evidence(p_batch_id uuid,p_element_id text,p_payload jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE x private.reimport_1939_write_batch%ROWTYPE; a private.reimport_1939_authorization%ROWTYPE; r uuid; d uuid; s uuid; o uuid; q uuid; m uuid; u uuid:=private.require_reimport_1939_editor(); n text; sp jsonb:=p_payload->'source_span'; pg jsonb:=p_payload->'page_evidence'; t text:=p_payload->>'verbatim_text'; BEGIN
+ x:=private.require_reimport_1939_open_batch(p_batch_id); SELECT * INTO a FROM private.reimport_1939_authorization WHERE id=x.authorization_id; IF NOT a.authorized_elements ? p_element_id OR (a.authorized_elements->p_element_id IS DISTINCT FROM p_payload AND a.authorized_elements->p_element_id IS DISTINCT FROM (p_payload-'category')) THEN RAISE EXCEPTION 'REIMPORT_1939_ELEMENT_NOT_AUTHORIZED'; END IF;
+ IF nullif(btrim(p_payload->>'source_record_key'),'') IS NULL OR sp IS NULL OR pg IS NULL OR nullif(t,'') IS NULL OR (sp->>'char_from')::int<0 OR (sp->>'char_to')::int<=(sp->>'char_from')::int OR (pg->>'page_from')::int<1 OR (pg->>'page_to')::int<(pg->>'page_from')::int OR p_payload->>'rendition_content_sha256'!~'^[0-9a-f]{64}$' THEN RAISE EXCEPTION 'REIMPORT_1939_SOURCE_EVIDENCE_INVALID'; END IF;
  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),u::text) INTO n FROM public.profiles WHERE id=u;
- INSERT INTO private.extraction_run(source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) VALUES(a.source_id,'reimport-1939-v50:'||x.manifest_sha256,'1939-v50-production-write-manifest-v1','production-writer-v1','production-writer-v1',x.manifest_sha256,jsonb_build_object('batch_id',b)) ON CONFLICT(source_id,run_key) DO NOTHING;
+ INSERT INTO private.extraction_run(source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) VALUES(a.source_id,'reimport-1939-v50:'||x.manifest_sha256,'1939-v50-production-write-manifest-v1','production-writer-v1','production-writer-v1',x.manifest_sha256,jsonb_build_object('batch_id',p_batch_id)) ON CONFLICT(source_id,run_key) DO NOTHING;
  SELECT id INTO r FROM private.extraction_run WHERE source_id=a.source_id AND run_key='reimport-1939-v50:'||x.manifest_sha256;
- INSERT INTO private.source_rendition(source_id,rendition_key,rendition_kind,content_sha256,metadata) VALUES(a.source_id,'daa-1939-calamari-r6-clean','ocr_text',p->>'rendition_content_sha256','{"edition":"1939"}') ON CONFLICT(source_id,rendition_key) DO NOTHING;
- SELECT id INTO d FROM private.source_rendition WHERE source_id=a.source_id AND rendition_key='daa-1939-calamari-r6-clean'; IF NOT EXISTS(SELECT 1 FROM private.source_rendition WHERE id=d AND content_sha256=p->>'rendition_content_sha256') THEN RAISE EXCEPTION 'REIMPORT_1939_RENDITION_DRIFT'; END IF;
- INSERT INTO private.source_record(source_id,record_key,record_kind,created_run_id) VALUES(a.source_id,p->>'source_record_key',coalesce(p->>'category','person'),r) ON CONFLICT(source_id,record_key) DO NOTHING; SELECT id INTO s FROM private.source_record WHERE source_id=a.source_id AND record_key=p->>'source_record_key';
- INSERT INTO private.source_record_occurrence(rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id) VALUES(d,e,(pg->>'page_from')::int,(pg->>'page_to')::int,(sp->>'char_from')::int,(sp->>'char_to')::int,t,encode(digest(t,'sha256'),'hex'),encode(digest(p::text,'sha256'),'hex'),r) ON CONFLICT(rendition_id,extraction_run_id,occurrence_key) DO NOTHING; SELECT id INTO o FROM private.source_record_occurrence WHERE rendition_id=d AND extraction_run_id=r AND occurrence_key=e;
- INSERT INTO private.source_record_anchor_event(occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name) VALUES(o,s,'accepted',jsonb_build_object('batch_id',b,'element_id',e),1,u,n) ON CONFLICT(occurrence_id,source_record_id,version) DO NOTHING;
- INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id) VALUES(o,coalesce(p->>'category','person'),(pg->>'page_from')::int,(pg->>'page_to')::int,(sp->>'char_from')::int,(sp->>'char_to')::int,t,'clear','human_reviewed_1939_v50',r) RETURNING id INTO q;
- INSERT INTO private.source_mention(observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id) VALUES(q,coalesce(p->>'category','person'),0,char_length(t),t,r) RETURNING id INTO m;
+ INSERT INTO private.source_rendition(source_id,rendition_key,rendition_kind,content_sha256,metadata) VALUES(a.source_id,'daa-1939-calamari-r6-clean','ocr_text',p_payload->>'rendition_content_sha256','{"edition":"1939"}') ON CONFLICT(source_id,rendition_key) DO NOTHING;
+ SELECT id INTO d FROM private.source_rendition WHERE source_id=a.source_id AND rendition_key='daa-1939-calamari-r6-clean'; IF NOT EXISTS(SELECT 1 FROM private.source_rendition WHERE id=d AND content_sha256=p_payload->>'rendition_content_sha256') THEN RAISE EXCEPTION 'REIMPORT_1939_RENDITION_DRIFT'; END IF;
+ INSERT INTO private.source_record(source_id,record_key,record_kind,created_run_id) VALUES(a.source_id,p_payload->>'source_record_key',coalesce(p_payload->>'category','person'),r) ON CONFLICT(source_id,record_key) DO NOTHING; SELECT id INTO s FROM private.source_record WHERE source_id=a.source_id AND record_key=p_payload->>'source_record_key';
+ INSERT INTO private.source_record_occurrence(rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id) VALUES(d,p_element_id,(pg->>'page_from')::int,(pg->>'page_to')::int,(sp->>'char_from')::int,(sp->>'char_to')::int,t,encode(digest(t,'sha256'),'hex'),encode(digest(p_payload::text,'sha256'),'hex'),r) ON CONFLICT(rendition_id,extraction_run_id,occurrence_key) DO NOTHING; SELECT id INTO o FROM private.source_record_occurrence WHERE rendition_id=d AND extraction_run_id=r AND occurrence_key=p_element_id;
+ INSERT INTO private.source_record_anchor_event(occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name) VALUES(o,s,'accepted',jsonb_build_object('batch_id',p_batch_id,'element_id',p_element_id),1,u,n) ON CONFLICT(occurrence_id,source_record_id,version) DO NOTHING;
+ INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id) VALUES(o,coalesce(p_payload->>'category','person'),(pg->>'page_from')::int,(pg->>'page_to')::int,(sp->>'char_from')::int,(sp->>'char_to')::int,t,'clear','human_reviewed_1939_v50',r) RETURNING id INTO q;
+ INSERT INTO private.source_mention(observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id) VALUES(q,coalesce(p_payload->>'category','person'),0,char_length(t),t,r) RETURNING id INTO m;
  RETURN jsonb_build_object('run_id',r,'rendition_id',d,'source_record_id',s,'occurrence_id',o,'observation_id',q,'mention_id',m); END $$;
 CREATE OR REPLACE FUNCTION public.red_apply_1939_v50_source_evidence(b uuid,e text,p jsonb) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$ DECLARE x private.reimport_1939_write_batch%ROWTYPE; u uuid:=private.require_reimport_1939_editor(); BEGIN SELECT * INTO x FROM private.reimport_1939_write_batch WHERE id=b FOR UPDATE; IF NOT FOUND OR x.principal_id<>u THEN RAISE EXCEPTION 'REIMPORT_1939_BATCH_INVALID'; END IF; IF x.status='finalized' THEN IF EXISTS(SELECT 1 FROM private.reimport_1939_write_event WHERE batch_id=b AND element_id=e AND operation='source_evidence' AND payload=p) THEN RETURN; END IF; RAISE EXCEPTION 'REIMPORT_1939_ALREADY_APPLIED_DRIFT'; END IF; PERFORM private.require_reimport_1939_open_batch(b); IF p->>'disposition'<>'retain_source_only' OR (p-ARRAY['review_subject_id','source_record_key','category','disposition','evidence_sha256','canonical_target','source_span','page_evidence','verbatim_text','legacy_payload','rendition_content_sha256'])<>'{}'::jsonb THEN RAISE EXCEPTION 'REIMPORT_1939_SOURCE_EVIDENCE_INVALID'; END IF; PERFORM private.ensure_reimport_1939_source_evidence(b,e,p); INSERT INTO private.reimport_1939_write_event(batch_id,element_id,operation,source_record_key,payload,after_sha256) VALUES(b,e,'source_evidence',p->>'source_record_key',p,encode(digest(p::text,'sha256'),'hex')); END $$;
 CREATE OR REPLACE FUNCTION public.red_apply_1939_v50_person_create(b uuid,e text,p jsonb) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
@@ -9002,14 +9002,15 @@ BEGIN
      AND source_id IS NOT DISTINCT FROM p_source_id;
   IF v_count>1 THEN RAISE EXCEPTION 'REIMPORT_CASE_NARRATIVE_AMBIGUOUS'; END IF;
   IF v_count=0 THEN
-    RETURN jsonb_build_object('narrative_id',NULL,'privat',false,'old_sha256',NULL,'side',NULL);
+    RETURN jsonb_build_object('narrative_id',NULL,'privat',false,'old_text',NULL,
+                              'old_sha256',NULL,'side',NULL);
   END IF;
   SELECT id, coalesce(privat,false), tekst, side INTO v_id, v_privat, v_tekst, v_side
     FROM public.narrative
    WHERE subjekt_type='person' AND subjekt_id=p_person_id
      AND source_id IS NOT DISTINCT FROM p_source_id;
   RETURN jsonb_build_object(
-    'narrative_id', v_id, 'privat', v_privat,
+    'narrative_id', v_id, 'privat', v_privat, 'old_text', v_tekst,
     'old_sha256', encode(sha256(convert_to(v_tekst,'UTF8')),'hex'),
     'side', v_side);
 END $$;
@@ -9348,6 +9349,7 @@ BEGIN
       'person_id', (r->>'target_person_id')::bigint,
       'narrative_id', n.state->'narrative_id',
       'privat', n.state->'privat',
+      'old_text', n.state->'old_text',
       'old_sha256', n.state->'old_sha256') AS item
     FROM jsonb_array_elements(p_selection->'cases') c,
          jsonb_array_elements(c->'records') r,

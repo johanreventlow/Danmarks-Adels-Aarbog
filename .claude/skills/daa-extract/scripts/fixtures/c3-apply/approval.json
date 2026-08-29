@@ -1,5 +1,5 @@
 {
-  "approvals_raw_sha256": "eea3bd2e77e1d96e0ca603f8b846034a47d11102b5c959af840b7d4ab5e47a35",
+  "approvals_raw_sha256": "234a77381a23f10ef6945bc8541e4186e2c3823ee8bcc3ab5e089428245e1f02",
   "counts": {
     "approved": 4,
     "decisions": 4,
@@ -23,8 +23,8 @@
       "status": "approved"
     }
   ],
-  "manifest_canonical_content_sha256": "e04c047f95479b8aa948a5a4363db92305b12c7132b524a2547c2d01e35e5c4a",
-  "manifest_raw_sha256": "f494eaabd7fa0dd0ca94ac99af0ffcd775c983b1f7b2d2ab521bf961c0005dc8",
+  "manifest_canonical_content_sha256": "ec111bfea0efcfa1fa37cede68b5644274c1aed5d53ddf19e7b916907e4aba02",
+  "manifest_raw_sha256": "d5adccb8e9f25bf300c0f5d2518b17a0db7523664e605f69052461201371e37b",
   "schema_version": "1939-v50-c3-apply-approvals-decisions-v1",
-  "text_bundle_sha256": "a0d71eb724382bf58dc8b8daf6cd2181144650edf2cd0a36c29f23488d873fe6"
+  "text_bundle_sha256": "bba9321760170efa1ea473cdf25f80ba9a33bb6d0c10a9fcf6bf963d8e1a7ddf"
 }

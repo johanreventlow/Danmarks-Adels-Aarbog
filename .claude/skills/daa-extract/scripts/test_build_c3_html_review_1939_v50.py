@@ -694,7 +694,7 @@ def test_cli_rejects_nonfinite_input_without_artifacts(tmp_path, value):
 
 
 # ---------------------------------------------------------------------------
-# Apply-tilstand: godkendelsesark for de fem `assign`-sager i det endelige
+# Apply-tilstand: godkendelsesark for de fire `assign`-sager i det endelige
 # C3 apply-manifest (Task 4). Bruger udelukkende syntetiske fixtures — ingen
 # database, ingen ægte prosa.
 # ---------------------------------------------------------------------------
@@ -709,8 +709,15 @@ def apply_error(expected, call):
     assert fixtures.APPLY_ATTACK_SENTINEL not in token
 
 
-def apply_manifest_raw(mutate=None):
-    document = fixtures.apply_manifest_document()
+def apply_preview_raw(mutate=None):
+    document = fixtures.apply_preview_document()
+    if mutate is not None:
+        mutate(document)
+    return fixtures.apply_preview_bytes(document), document
+
+
+def apply_manifest_raw(mutate=None, preview_raw=None):
+    document = fixtures.apply_manifest_document(preview_raw=preview_raw)
     if mutate is not None:
         mutate(document)
         document.pop("canonical_content_sha256", None)
@@ -943,9 +950,11 @@ def test_apply_approval_sheet_rejects_invalid_bundle_hash():
         lambda: mod.apply_approval_sheet("not-hex", events))
 
 
-def build_apply_artifact(mutate=None):
-    raw, _document = apply_manifest_raw(mutate=mutate)
-    payload, sheet_bytes = mod.build_apply_payload(raw)
+def build_apply_artifact(mutate=None, preview_mutate=None):
+    preview_raw, _preview = apply_preview_raw(mutate=preview_mutate)
+    raw, _document = apply_manifest_raw(
+        mutate=mutate, preview_raw=preview_raw)
+    payload, sheet_bytes = mod.build_apply_payload(raw, preview_raw)
     html = mod.render_apply_html(payload, sheet_bytes)
     return raw, payload, sheet_bytes, html
 
@@ -970,10 +979,74 @@ def test_apply_payload_card_carries_readable_before_after_fields():
     assert set(first["before"]) == {
         "source_record", "binding", "target_narrative"}
     assert set(first["after"]) == {
-        "target_person_id", "raw_sha256", "normalized_text",
+        "target_person_id", "target_display_name", "source_text",
+        "raw_sha256", "normalized_text",
         "normalized_sha256", "normalization_version",
         "normalization_flags", "expected_narrative"}
     assert fixtures.APPLY_ATTACK_SENTINEL in first["after"]["normalized_text"]
+    assert first["after"]["source_text"] == "Syntetisk kildetekst æøå for rid-1"
+    assert first["after"]["target_display_name"] == "Syntetisk målperson 2101"
+    assert first["before"]["target_narrative"]["old_text"] == (
+        "Syntetisk eksisterende narrativ æøå for rid-1")
+
+
+def test_apply_text_bundle_binds_source_text_and_target_display_name():
+    _, document = apply_manifest_raw()
+    baseline = mod.apply_text_bundle_sha256(mod._apply_assign_events(document))
+    for field in ("source_text", "target_display_name"):
+        changed = copy.deepcopy(document)
+        changed["cases"][0]["events"][0]["after_state"][field] += " ændret"
+        assert mod.apply_text_bundle_sha256(
+            mod._apply_assign_events(changed)) != baseline
+
+
+def test_build_apply_payload_rejects_preview_hash_or_target_drift():
+    preview_raw, preview = apply_preview_raw()
+    manifest_raw, _ = apply_manifest_raw(preview_raw=preview_raw)
+    apply_error(
+        "C3_HTML_APPLY_PREVIEW_HASH_MISMATCH",
+        lambda: mod.build_apply_payload(
+            manifest_raw, preview_raw + b" "))
+    preview["before_state"]["target_narratives"][0]["person_id"] = 999
+    canonical = fixtures.finalize_builder._canonical_bytes(
+        preview["before_state"]).decode("utf-8").rstrip("\n")
+    preview["before_state_canonical"] = canonical
+    preview["before_state_canonical_sha256"] = hashlib.sha256(
+        canonical.encode("utf-8")).hexdigest()
+    drifted = fixtures.apply_preview_bytes(preview)
+    drifted_manifest, _ = apply_manifest_raw(preview_raw=drifted)
+    apply_error(
+        "C3_HTML_APPLY_PREVIEW_TARGET_MISMATCH",
+        lambda: mod.build_apply_payload(drifted_manifest, drifted))
+
+
+def test_build_apply_payload_rejects_preview_old_text_hash_mismatch():
+    preview = fixtures.apply_preview_document()
+    preview["before_state"]["target_narratives"][0]["old_text"] += " ændret"
+    canonical = fixtures.finalize_builder._canonical_bytes(
+        preview["before_state"]).decode("utf-8").rstrip("\n")
+    preview["before_state_canonical"] = canonical
+    preview["before_state_canonical_sha256"] = hashlib.sha256(
+        canonical.encode("utf-8")).hexdigest()
+    preview_raw = fixtures.apply_preview_bytes(preview)
+    manifest_raw, _ = apply_manifest_raw(preview_raw=preview_raw)
+    apply_error(
+        "C3_HTML_APPLY_PREVIEW_INVALID",
+        lambda: mod.build_apply_payload(manifest_raw, preview_raw))
+
+
+def test_build_apply_payload_rejects_absent_binding_with_person_id():
+    preview_raw = fixtures.apply_preview_bytes()
+    document = fixtures.apply_manifest_document(preview_raw=preview_raw)
+    document["cases"][0]["events"][0]["before_state"]["binding"][
+        "binding_person_id"] = 2101
+    document.pop("canonical_content_sha256")
+    document["canonical_content_sha256"] = fixtures.finalize_builder._sha(
+        fixtures.finalize_builder._canonical_bytes(document))
+    raw = fixtures.apply_manifest_bytes(document)
+    apply_error(
+        "C3_HTML_APPLY_MANIFEST_INVALID",
+        lambda: mod.build_apply_payload(raw, preview_raw))
 
 
 @pytest.mark.parametrize("mutate,expected", [
@@ -991,7 +1064,8 @@ def test_build_apply_payload_rejects_structural_drift(mutate, expected):
     document = fixtures.apply_manifest_document()
     mutate(document)
     raw = fixtures.apply_manifest_bytes(document)
-    apply_error(expected, lambda: mod.build_apply_payload(raw))
+    apply_error(expected, lambda: mod.build_apply_payload(
+        raw, fixtures.apply_preview_bytes()))
 
 
 def test_build_apply_payload_rejects_self_hash_tamper():
@@ -1000,16 +1074,16 @@ def test_build_apply_payload_rejects_self_hash_tamper():
     raw = fixtures.apply_manifest_bytes(document)
     apply_error(
         "C3_HTML_APPLY_MANIFEST_HASH_MISMATCH",
-        lambda: mod.build_apply_payload(raw))
+        lambda: mod.build_apply_payload(raw, fixtures.apply_preview_bytes()))
 
 
 def test_build_apply_payload_rejects_non_bytes_and_invalid_json():
     apply_error(
         "C3_HTML_APPLY_MANIFEST_INVALID",
-        lambda: mod.build_apply_payload("not-bytes"))
+        lambda: mod.build_apply_payload("not-bytes", fixtures.apply_preview_bytes()))
     apply_error(
         "C3_HTML_APPLY_MANIFEST_INVALID",
-        lambda: mod.build_apply_payload(b"not json"))
+        lambda: mod.build_apply_payload(b"not json", fixtures.apply_preview_bytes()))
 
 
 def test_apply_html_keeps_all_untrusted_data_behind_base64_boundary():
@@ -1108,6 +1182,7 @@ def test_apply_cli_publishes_one_self_contained_html_and_safe_metadata(
     assert mod.main([
         "--mode", "apply",
         "--manifest", str(paths["manifest"]),
+        "--preview", str(paths["preview"]),
         "--output", str(output),
     ]) == 0
     assert output.read_bytes().startswith(b"<!doctype html>\n")
@@ -1131,6 +1206,7 @@ def test_apply_cli_refuses_existing_output_without_changing_it(tmp_path):
         lambda: mod.main([
             "--mode", "apply",
             "--manifest", str(paths["manifest"]),
+            "--preview", str(paths["preview"]),
             "--output", str(output),
         ]))
     assert output.read_bytes() == b"bevar mig"

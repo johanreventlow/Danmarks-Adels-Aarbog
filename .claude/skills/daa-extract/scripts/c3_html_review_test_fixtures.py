@@ -178,18 +178,21 @@ def state_document(selection_sha256: str,
 
 def _apply_assign_after_state(rid: str, record_key: str, side: str,
                               include_attack: bool = False) -> Dict[str, Any]:
+    source_text = "Syntetisk kildetekst æøå for {}".format(rid)
     text = "Syntetisk normaliseret narrativ æøå for {}".format(rid)
     if include_attack:
         text += " " + APPLY_ATTACK_SENTINEL
     return {
         "target_person_id": None,
-        "raw_sha256": _sha256(("apply-raw-" + rid).encode("utf-8")),
+        "target_display_name": None,
+        "source_text": source_text,
+        "raw_sha256": _sha256(source_text.encode("utf-8")),
         "normalized_text": text,
         "normalized_sha256": _sha256(text.encode("utf-8")),
         "normalization_version": "narrative_norm_v1",
         # Samme flag-form som den ægte kandidatbygger: objekter med præcis
         # {kind, context, char_offset}, aldrig bare strenge.
-        "normalization_flags": [{
+        "normalization_flags": [] if rid == "rid-2" else [{
             "kind": "hyphen_unproven",
             "context": "SYNTHETIC-CONTEXT-" + rid,
             "char_offset": 21,
@@ -205,10 +208,12 @@ def _apply_assign_after_state(rid: str, record_key: str, side: str,
 
 def _apply_assign_before_state(rid: str, narrative_person_id: int
                                ) -> Dict[str, Any]:
+    old_text = "Syntetisk eksisterende narrativ æøå for {}".format(rid)
     return {
         "source_record": {
             "match_count": 1,
-            "verbatim_sha256": _sha256(("apply-raw-" + rid).encode("utf-8")),
+            "verbatim_sha256": _sha256(
+                ("Syntetisk kildetekst æøå for " + rid).encode("utf-8")),
             "side": "699",
         },
         "binding": {"status": "absent", "binding_person_id": None},
@@ -216,7 +221,7 @@ def _apply_assign_before_state(rid: str, narrative_person_id: int
             "person_id": narrative_person_id,
             "narrative_id": 7000 + narrative_person_id,
             "privat": False,
-            "old_sha256": _sha256(("apply-old-" + rid).encode("utf-8")),
+            "old_sha256": _sha256(old_text.encode("utf-8")),
         },
     }
 
@@ -239,6 +244,8 @@ def _apply_assign_event(case_id: str, rid: str, alias_person_id: int,
     after_state = _apply_assign_after_state(
         rid, record_key, side, include_attack=include_attack)
     after_state["target_person_id"] = alias_person_id
+    after_state["target_display_name"] = (
+        "Syntetisk målperson {}".format(alias_person_id))
     return {
         "element_id": "case:{}:rid:{}".format(case_id, rid),
         "rid": rid,
@@ -278,7 +285,55 @@ def _apply_case(case_id: str, alias_person_id: int, canonical_person_id: int,
     }
 
 
-def apply_manifest_document() -> Dict[str, Any]:
+def apply_preview_document() -> Dict[str, Any]:
+    target_rows: List[Dict[str, Any]] = []
+    assign_specs = list(APPLY_CASE_SPECS) + [(
+        APPLY_SPECIAL_CASE[0], APPLY_SPECIAL_CASE[1], APPLY_SPECIAL_CASE[3],
+        APPLY_SPECIAL_CASE[4], APPLY_SPECIAL_CASE[5])]
+    for _case_id, rid, alias_id, _canonical_id, _side in assign_specs:
+        old_text = "Syntetisk eksisterende narrativ æøå for {}".format(rid)
+        target_rows.append({
+            "rid": rid,
+            "person_id": alias_id,
+            "narrative_id": 7000 + alias_id,
+            "privat": False,
+            "old_text": old_text,
+            "old_sha256": _sha256(old_text.encode("utf-8")),
+        })
+    before_state = {
+        "database_name": "synthetic_apply_db",
+        "system_identifier": "42",
+        "identity_pairs": [],
+        "source_records": [],
+        "target_narratives": target_rows,
+        "bindings": [],
+        "source_anchors": [],
+        "identity_components": [],
+    }
+    before_canonical = finalize_builder._canonical_bytes(before_state).decode(
+        "utf-8").rstrip("\n")
+    return {
+        "schema_version": "1939-v50-c3-apply-db-preview-v1",
+        "candidate_file_sha256": "a" * 64,
+        "candidate_canonical_content_sha256": "c" * 64,
+        "database": {
+            "database_name": "synthetic_apply_db",
+            "system_identifier": "42",
+        },
+        "before_state": before_state,
+        "before_state_canonical": before_canonical,
+        "before_state_canonical_sha256": _sha256(
+            before_canonical.encode("utf-8")),
+        "candidate": {},
+    }
+
+
+def apply_preview_bytes(preview: Optional[Dict[str, Any]] = None) -> bytes:
+    return finalize_builder._canonical_bytes(
+        apply_preview_document() if preview is None else preview)
+
+
+def apply_manifest_document(preview_raw: Optional[bytes] = None) -> Dict[str, Any]:
     """Byg et syntetisk endeligt C3 apply-manifest (Task 3-skema)."""
     cases: List[Dict[str, Any]] = []
     for index, (case_id, rid, alias_id, canonical_id, side) in enumerate(
@@ -300,13 +355,17 @@ def apply_manifest_document() -> Dict[str, Any]:
     cases.append(_apply_case(
         special_case_id, alias_id, canonical_id, [assign_event, nopub_event]))
 
+    if preview_raw is None:
+        preview_raw = apply_preview_bytes()
+    preview = json.loads(preview_raw.decode("utf-8"))
     result: Dict[str, Any] = {
         "schema_version": finalize_builder.SCHEMA_VERSION,
         "input_hashes": {
             "candidate_raw_sha256": "a" * 64,
-            "preview_raw_sha256": "b" * 64,
+            "preview_raw_sha256": _sha256(preview_raw),
             "candidate_canonical_content_sha256": "c" * 64,
-            "before_state_canonical_sha256": "d" * 64,
+            "before_state_canonical_sha256":
+                preview["before_state_canonical_sha256"],
         },
         "database": {
             "database_name": "synthetic_apply_db",
@@ -333,11 +392,15 @@ def apply_manifest_bytes(manifest: Optional[Dict[str, Any]] = None) -> bytes:
 
 
 def write_apply_fixture(output_dir: Path) -> Dict[str, Path]:
-    """Skriv manifest.json (det endelige C3 apply-manifest) og returnér stien."""
+    """Skriv manifest.json + det hashbundne, syntetiske DB-preview."""
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = output_dir / "manifest.json"
-    manifest_path.write_bytes(apply_manifest_bytes())
-    return {"manifest": manifest_path}
+    preview_path = output_dir / "preview.json"
+    preview_raw = apply_preview_bytes()
+    preview_path.write_bytes(preview_raw)
+    manifest_path.write_bytes(apply_manifest_bytes(
+        apply_manifest_document(preview_raw)))
+    return {"manifest": manifest_path, "preview": preview_path}
 
 
 def write_fixture(output_dir: Path) -> Dict[str, Path]:

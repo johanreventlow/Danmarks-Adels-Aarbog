@@ -3883,7 +3883,10 @@ END $$;
 DO $$
 DECLARE
   v_uid uuid := '00000000-0000-0000-0000-0000000000c6';
-  v_conn text := format('dbname=%s', current_database());
+  v_conn text := format(
+    'dbname=%s port=%s host=%s', current_database(), current_setting('port'),
+    split_part(current_setting('unix_socket_directories'),',',1)
+  );
   v_a_busy integer;
   v_b_busy integer;
   v_a_pid integer;
@@ -4138,8 +4141,8 @@ DECLARE
   v_qa text[];
 BEGIN
   INSERT INTO source(id,titel,udgave,import_key) VALUES
-    (-987656101,'Grid verify-kilde','Grid verify 1','daa:1939'),
-    (-987656102,'Grid verify-ekstra','Grid verify 2','daa:1940');
+    (-987656101,'Grid verify-kilde','Grid verify 1','verify:ocr-grid:1939'),
+    (-987656102,'Grid verify-ekstra','Grid verify 2','verify:ocr-grid:1940');
   INSERT INTO person(id,koen) VALUES
     (-987656111,'mand'), (-987656112,'kvinde'), (-987656113,NULL),
     (-987656114,'ukendt'), (-987656115,'mand'), (-987656116,'kvinde');
@@ -4218,7 +4221,7 @@ BEGIN
     (-987656513,-987656313,-987656101,'99','Legacy Navn Uden Anker'),
     (-987656514,-987656314,-987656101,'99','født 1690');
   INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,korrigeret,status)
-    VALUES ('daa:1939','I-15a','navn','0123456789abcdef0123456789abcdef',
+    VALUES ('verify:ocr-grid:1939','I-15a','navn','0123456789abcdef0123456789abcdef',
             '{"value":"Mikkel"}','{"value":"Mikkel rettet"}','rettet');
   INSERT INTO family(id,type) VALUES (-987656601,'vielse');
   INSERT INTO family_member(family_id,person_id,rolle) VALUES (-987656601,-987656111,'partner');
@@ -4810,6 +4813,8 @@ DO $$
 DECLARE r jsonb; cs bigint; n int;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
@@ -4831,6 +4836,8 @@ DO $$
 DECLARE r jsonb; v_pid bigint; cs_before bigint; cs_after bigint; n_sets int; n_person int; n_fact int;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
@@ -4838,7 +4845,7 @@ BEGIN
   v_pid := red_opret_person('__verify_person__','mand',false,'1700','1750',NULL);
   cs_after := (SELECT coalesce(max(id),0) FROM change_set);
   -- præcis ÉT nyt change_set (re-entrancy: nested red_upsert_fakta åbnede ikke flere)
-  n_sets := cs_after - cs_before;
+  SELECT count(*) INTO n_sets FROM change_set WHERE id > cs_before;
   IF n_sets <> 1 THEN RAISE EXCEPTION 'FEJL: red_opret_person åbnede % change_sets (vent 1)', n_sets; END IF;
   -- person-INSERT logget i sættet (beviser ydre begin_change_set kørte FØR person-INSERT)
   SELECT count(*) INTO n_person FROM change_event WHERE change_set_id=cs_after AND tabel='person' AND op='INSERT';
@@ -4857,6 +4864,8 @@ DO $$
 DECLARE v_fact bigint; v_old bigint; v_concl_valgt bigint; n_before int; n_after int; r jsonb;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
@@ -4903,6 +4912,8 @@ DO $$
 DECLARE r jsonb; v_fact bigint; v_aid bigint; cs bigint; v_val text;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   -- opret en oplysning (change_set #1)
@@ -4940,6 +4951,8 @@ DO $$
 DECLARE v_pid bigint; cs_del bigint; n_facts_before int; n_facts_after int;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
@@ -5269,6 +5282,8 @@ DO $$
 DECLARE v_sid bigint; cs bigint;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
@@ -5291,6 +5306,8 @@ DO $$
 DECLARE v_nid bigint; cs bigint; cur text; afvist boolean := false;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
@@ -5321,6 +5338,8 @@ DO $$
 DECLARE v_uid uuid := '00000000-0000-0000-0000-000000000077'; v_pid bigint; cs bigint; r_after text; e_after text;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
@@ -5354,6 +5373,8 @@ DO $$
 DECLARE a bigint; b bigint; c bigint; rel bigint; rel2 bigint; n_ass int; n_con int;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true); a := red_opret_person('__ss_a__','mand',false,NULL,NULL,NULL);
@@ -5485,7 +5506,8 @@ DECLARE v_source BIGINT; v_lineage BIGINT; v_p BIGINT; v_efternavn TEXT; v_fuldt
 BEGIN
   SELECT id INTO v_source FROM source LIMIT 1;
   v_lineage := (SELECT coalesce(max(id),0)+1 FROM lineage);
-  INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn) VALUES (v_lineage, v_source, '__TEST_L', 'Test-linje', 'Reventlow');
+  INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn)
+    VALUES (v_lineage, v_source, '__TEST_L', 'Test-linje', '__VERIFY_SLAEGT_TASK4__');
 
   -- (a) enkelt-fornavn, født medlem uden efternavn i visning_navn
   v_p := (SELECT coalesce(max(id),0)+1 FROM person);
@@ -5493,16 +5515,16 @@ BEGIN
   INSERT INTO person_external_id(person_id, source_id, linje, nr) VALUES (v_p, v_source, '__TEST_L', 999);
   PERFORM regen_person_visning(v_p);
   SELECT visning_efternavn, visning_fuldt_navn INTO v_efternavn, v_fuldt FROM person WHERE id=v_p;
-  IF v_efternavn <> 'Reventlow' OR v_fuldt <> 'Conrad Reventlow' THEN
+  IF v_efternavn <> '__VERIFY_SLAEGT_TASK4__' OR v_fuldt <> 'Conrad __VERIFY_SLAEGT_TASK4__' THEN
     RAISE EXCEPTION 'FEJL: (a) enkelt-fornavn — fik efternavn=% fuldt=%', v_efternavn, v_fuldt;
   END IF;
 
   -- (d) allerede indeholder efternavnet → NULL, uændret visning_navn
-  UPDATE person SET visning_navn = 'Detlef von Reventlow' WHERE id=v_p;
+  UPDATE person SET visning_navn = 'Detlef von __VERIFY_SLAEGT_TASK4__' WHERE id=v_p;
   PERFORM regen_person_visning(v_p);
   SELECT visning_efternavn, visning_fuldt_navn INTO v_efternavn, v_fuldt FROM person WHERE id=v_p;
-  IF v_efternavn IS NOT NULL OR v_fuldt <> 'Detlef von Reventlow' THEN
-    RAISE EXCEPTION 'FEJL: (d) allerede-Reventlow skal give NULL efternavn, fik % / %', v_efternavn, v_fuldt;
+  IF v_efternavn IS NOT NULL OR v_fuldt <> 'Detlef von __VERIFY_SLAEGT_TASK4__' THEN
+    RAISE EXCEPTION 'FEJL: (d) allerede-efternavn skal give NULL efternavn, fik % / %', v_efternavn, v_fuldt;
   END IF;
 
   -- (e) indgift-ægtefælle uden external_id → NULL
@@ -5614,6 +5636,7 @@ DO $$
 DECLARE v_source BIGINT; v_source2 BIGINT; v_l1 BIGINT; v_l2 BIGINT; v_p BIGINT; v_uid UUID := '00000000-0000-0000-0000-000000000001';
 BEGIN
   PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+  INSERT INTO auth.users(id,email) VALUES (v_uid,'db-verify@test.invalid') ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id, rolle, email) VALUES (v_uid,'redaktion','t@x') ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   SELECT id INTO v_source FROM source LIMIT 1;
   v_l1 := (SELECT coalesce(max(id),0)+1 FROM lineage);
@@ -5687,6 +5710,7 @@ END $$;
 -- (media_obj_anon/auth) ved at indsætte objekt-rækker og læse dem under SET LOCAL ROLE — så en
 -- fail-open-politik (OR i stedet for AND, manglende rettigheds-gate, eller manglende bucket-guard)
 -- rejser her. Springes over hvis der ikke findes en 'media'-bucket (lokalt/pre-provisionering).
+BEGIN;
 DO $$
 DECLARE has_bucket boolean; vis_klar int; vis_spaerret int; vis_orphan int; vis_klar_auth int; vis_spaerret_auth int;
 BEGIN
@@ -5699,8 +5723,16 @@ BEGIN
     RAISE NOTICE 'SPRINGER OVER Task 12b (storage.objects-politikker): ingen media-bucket — opret den for fuld dækning';
     RETURN;
   END IF;
-  DELETE FROM storage.objects WHERE bucket_id='media' AND name IN ('test/klar.jpg','test/spaerret.jpg','test/orphan.jpg');
-  DELETE FROM media WHERE id IN (-921,-922);
+  IF EXISTS (
+    SELECT 1 FROM storage.objects
+    WHERE bucket_id='media' AND name IN ('test/klar.jpg','test/spaerret.jpg','test/orphan.jpg')
+  ) OR EXISTS (SELECT 1 FROM media WHERE id IN (-921,-922)) THEN
+    RAISE EXCEPTION 'storage.objects-gating fixture-kollision';
+  END IF;
+  -- Et --no-acl restore har bevidst ingen Supabase-default-grants. De
+  -- midlertidige grants rulles tilbage og lader testen udøve RLS-politikkerne.
+  EXECUTE 'GRANT USAGE ON SCHEMA storage TO anon, authenticated';
+  EXECUTE 'GRANT SELECT ON storage.objects TO anon, authenticated';
   INSERT INTO media(id, slags, titel, maa_publiceres, upload_status, bucket, storage_path) VALUES
     (-921,'segl','obj-klar',    true, 'klar','media','test/klar.jpg'),
     (-922,'segl','obj-spaerret',false,'klar','media','test/spaerret.jpg');
@@ -5722,10 +5754,9 @@ BEGIN
       vis_klar, vis_spaerret, vis_orphan, vis_klar_auth, vis_spaerret_auth;
   END IF;
 
-  DELETE FROM storage.objects WHERE bucket_id='media' AND name IN ('test/klar.jpg','test/spaerret.jpg','test/orphan.jpg');
-  DELETE FROM media WHERE id IN (-921,-922);
   RAISE NOTICE 'OK: storage.objects-politikker (klar synlig anon+medlem; spærret + forældreløs skjult for begge)';
 END $$;
+ROLLBACK;
 
 -- ===== Task 13: generations-reparation — slægtled-kolonner findes + trigger scoped =====
 DO $$
@@ -6332,13 +6363,15 @@ DECLARE v_id bigint; v_upload bigint; v_cs bigint; v_cs_foer int; v_cs_efter int
         v_relation bigint; v_sha text;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
 
-  v_id := (SELECT coalesce(max(id),0)+1 FROM media);
-  INSERT INTO media(id,slags,titel,kunstner,datering,upload_status,maa_publiceres)
-    VALUES (v_id,'foto','Gammel titel','Gammel kunstner','1699','klar',false);
+  INSERT INTO media(slags,titel,kunstner,datering,upload_status,maa_publiceres)
+    VALUES ('foto','Gammel titel','Gammel kunstner','1699','klar',false)
+    RETURNING id INTO v_id;
 
   SELECT count(*) INTO v_cs_foer FROM change_set;
   PERFORM red_opdater_media(v_id, 'Ny titel', NULL, '', 'ca. 1700');
@@ -6473,6 +6506,8 @@ DO $$
 DECLARE v_id bigint; v_rel bigint; v_andet bigint; v_cs bigint; v_thumb_foer text; v_thumb_efter text;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
@@ -6593,6 +6628,8 @@ DECLARE v_id bigint; v_rel bigint; v_story bigint; v_narr bigint; v_note bigint;
         v_prev jsonb; v_res jsonb; v_cs bigint;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
@@ -6790,6 +6827,8 @@ DO $$
 DECLARE v_m1 bigint; v_m2 bigint; v_r1 bigint; v_r2 bigint;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
@@ -7273,8 +7312,7 @@ BEGIN
 
   -- Skallen bygges råt: red_opret_union kræver to partnere fra start, og det er netop den
   -- mor-løse børne-familie fra 1939-loaderen vi vil kunne reparere.
-  v_fam := (SELECT coalesce(max(id),0)+1 FROM family);
-  INSERT INTO family(id,type) VALUES (v_fam,'vielse');
+  INSERT INTO family(type) VALUES ('vielse') RETURNING id INTO v_fam;
   INSERT INTO family_member(family_id, person_id, rolle) VALUES (v_fam, v_a, 'partner');
   INSERT INTO family_member(family_id, person_id, rolle) VALUES (v_fam, v_barn, 'barn');
 
@@ -7367,9 +7405,8 @@ BEGIN
   BEGIN
     v_alias2 := red_opret_person('VERIFY UPDATE alias');
     v_kanon2 := red_opret_person('VERIFY UPDATE kanonisk');
-    INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle)
-      VALUES ((SELECT coalesce(max(id),0)+1 FROM relation),
-              'person', v_alias2, 'person', v_kanon2, 'bekendt_med')
+    INSERT INTO relation(subjekt_type, subjekt_id, objekt_type, objekt_id, rolle)
+      VALUES ('person', v_alias2, 'person', v_kanon2, 'bekendt_med')
       RETURNING id INTO v_rel;
     v_fejl := NULL;
     BEGIN

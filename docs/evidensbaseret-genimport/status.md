@@ -1,8 +1,8 @@
 # Evidensbaseret genimport — aktuel status
 
-**Verificeret:** 2026-08-25
-**Kodegrundlag:** `cc9d7d5` for funktionel C3-implementering; senere dokumentationscommits ændrer ikke den funktionelle klassifikation
-**Produktionsstatus:** Ikke genverificeret i denne dokumentationsopgave; seneste anvendte måling er dateret 2026-08-22
+**Verificeret:** 2026-08-29
+**Kodegrundlag:** `add4372` plus Task 9-integrationsrettelserne i denne lokale leverance
+**Produktionsstatus:** Kun læst til en beskyttet backup 2026-08-29; ingen migration, apply eller anden produktionsmutation er udført
 
 ## Samlet dom
 
@@ -14,11 +14,10 @@ færdig, og genimporten er samlet **NO-GO som generel leverance**.
 
 ## Aktivt programmål og stopport
 
-Det eneste aktive programmål er at afslutte C3 ved den planlagte samlede
-integration, disposable rehearsal og stop før produktion. Stopporten er enten
-et dokumenteret `READY_FOR_PRODUCTION_GO` eller en fail-closed blocker. En
-opnået stopport er ikke produktions-GO og autoriserer ingen
-produktionsmutation.
+C3 nåede 2026-08-29 den tekniske stopport `READY_FOR_PRODUCTION_GO` efter den
+planlagte samlede integration og disposable rehearsal. Programmet står nu i
+en kontrolleret pause ved stopporten. Dommen er ikke produktions-GO og
+autoriserer ingen produktionsmutation.
 
 ## Modenhed pr. værdikædeled
 
@@ -35,12 +34,13 @@ De eneste tilladte tilstande er `specificeret`, `isoleret implementeret`,
 | Source persona, identitetskandidater og webkø | `isoleret implementeret` | Moduler, databaseflader og redaktørkø findes, men den virkelige 1939-vej er parallel og bruger ikke denne fælles beslutningsvej. |
 | Placement og membership | `isoleret implementeret` | Skema og fundament findes, men de eksisterende personer føres fortsat ikke gennem placement-/membership-datavejen. |
 | 2018-20-proveniens | `specificeret` | Fase A-ækvivalent provenance er besluttet, men ikke gennemført. |
-| C3 atomisk apply/reversal | `isoleret implementeret` | Preview, manifester, tekstgodkendelse, batchledger, apply, reversal, gateway og writer-lock er langt implementeret. Task 9's samlede integration, disposable rehearsal og stopport er ikke dokumenteret færdige. |
+| C3 atomisk apply/reversal | `integreret ende-til-ende` | Hele kæden er bevist mod en frisk, produktionsafledt disposable restore: migration, fail-closed databasebinding, rollback-rehearsal, committed apply, idempotent replay og separat reversal med eksakt gendannet domænetilstand. Det er ikke en produktionskørsel. |
 | Tredje-årbogsprøve | `specificeret` | Prøven er generaliseringsbeviset efter begge referenceudgaver; den er ikke gennemført. |
 
 Ingen af de fælles flerudgaveled er aktuelt klassificeret som `integreret
-ende-til-ende`. `produktionsverificeret` ovenfor er afgrænset til de målte
-1939-delleverancer 2026-08-22 og løfter ikke programmets samlede modenhed.
+ende-til-ende`; C3 er en afgrænset 1939-korrektionskæde. `produktionsverificeret`
+ovenfor er afgrænset til de målte 1939-delleverancer 2026-08-22 og løfter ikke
+programmets samlede modenhed.
 
 ## Væsentlige leverancer
 
@@ -50,6 +50,9 @@ ende-til-ende`. `produktionsverificeret` ovenfor er afgrænset til de målte
   publiceringsfundament er væsentligt stærkere end den oprindelige minimumsplan.
 - C3 har hashbundne, fail-closed byggeklodser for preview, menneskelig
   tekstgodkendelse, atomisk apply, separat reversal og commit-unknown-håndtering.
+- C3's samlede Task 9-rehearsal har bevist 5 identitetshændelser, 4 narrative
+  tildelinger og 2 `no_publication`-hændelser som ét 11-hændelsesforløb med
+  eksakt reversal.
 - Den menneskeverificerede 1939-segmentering er et stærkt udgavespecifikt
   resultat, men er ikke et bevis for en fælles flerudgavemetode.
 
@@ -66,40 +69,36 @@ ende-til-ende`. `produktionsverificeret` ovenfor er afgrænset til de målte
 
 ## Åbne blokeringer
 
-- C3 mangler Task 9's reelle integrations- og fejlindsprøjtningstests, samlede
-  suites og dokumenterede disposable apply/reversal-rehearsal.
-- Den kendte schema/migration-paritetsdrift for den ældre
-  `ensure_reimport_1939_source_evidence`-signatur skal lukkes eller
-  fail-closed dokumenteres under Task 9, før den krævede restore-migration kan
-  bestå.
-- Der foreligger ingen dokumenteret C3-stopport og intet nyt eksplicit
-  produktions-GO.
+- Task 9-rettelserne er gennemgået, verificeret og valgt til lokal integration
+  i `main`; der er ikke givet tilladelse til push eller produktion.
+- Der foreligger stadig intet nyt eksplicit produktions-GO. Et eventuelt
+  produktionsforløb kræver friske produktionsbundne artefakter og gentaget
+  precondition-, migration- og ACL-kontrol.
 - Den fælles kæde mangler fortsat klausulobservationer, reel extraction,
   proposed-ingest, én identitetsvej, promotion i drift og publicering med
   kildehenvisning på tværs af referenceudgaverne.
 
 ## Næste tilladte arbejde
 
-Kun C3 Task 9's resterende integration, disposable rehearsal og stop før
-produktion er tilladt: gennemfør de planlagte integration-/concurrency- og
-failure-injection-beviser, de fokuserede og fulde suites, den beskyttede
-disposable restore/migration, rollback rehearsal samt committed disposable
-apply og reversal med eksakt efterkontrol. Stop derefter og rapportér enten
-`READY_FOR_PRODUCTION_GO` eller en fail-closed blocker. Dette arbejde giver
-ikke produktions-GO og stopper før enhver production apply.
+Programmet står ved C3-stopporten efter den valgte lokale branchintegration.
+Næste tilladte handling er enten et særskilt, eksplicit produktions-GO eller
+en beslutning om at fortsætte med roadmapmål #152 uden production apply. Ingen
+agent må fortsætte automatisk fra denne status.
 
 ## Parkeret arbejde
 
-`[NY]`, C1, C2, nye 1939-specialfaser, spor H og M samt alle efterfølgende
-roadmapmål er parkeret, indtil C3 har nået stopporten eller projektejeren
-udtrykkeligt ændrer prioriteringen. Der åbnes ikke et nyt genimportspor fra
-dette snapshot.
+`[NY]`, C1, C2, nye 1939-specialfaser samt spor H og M er fortsat parkeret.
+Stopporten åbner den styrende rækkefølge i roadmapet, men starter ikke selv
+#152 eller et nyt genimportspor uden projektejerens beslutning.
 
 ## Bevisgrundlag og friskhed
 
 - Funktionelt kodegrundlag: commit `cc9d7d5`; intervallet
   `2f64b7b..cc9d7d5` dokumenterer C3-implementeringen efter
   afvigelsesvurderingen.
+- [Task 9-rehearsalrapporten 2026-08-29](c3-task9-rehearsal-2026-08-29.md)
+  dokumenterer backupafgrænsning, restore/migration, artefakthashes,
+  testsuiter, apply/reversal-receipts og den tekniske stopport.
 - Commitintervallet `cc9d7d5..2e015df` ændrer kun styringsdokumentation og
   ændrer derfor ikke den funktionelle klassifikation.
 - [Vision og værdigrundlag](vision.md), [styrende roadmap](roadmap.md) og
@@ -109,8 +108,8 @@ dette snapshot.
   er grundlag for de seneste anvendte produktionsmålinger; de er ikke
   genverificeret 2026-08-25.
 - [Den aktuelle C3-plan](../superpowers/plans/2026-08-22-1939-v50-c3-atomisk-apply.md)
-  er grundlag for C3's implementerede dele, åbne Task 9-arbejde og
-  produktionsstop.
+  er grundlag for C3's implementerede dele, afsluttede tekniske Task 9-bevis,
+  lokale integration og produktionsstop.
 
 Historiske specs, planer og reviews er bevis og historik, ikke selv aktuel
 programstatus. Levende kode og schema er source of truth for tekniske detaljer,

@@ -495,6 +495,7 @@ async function mainApply() {
   let browser;
   try {
     const manifestPath = path.join(tempDir, "manifest.json");
+    const previewPath = path.join(tempDir, "preview.json");
     const htmlPath = path.join(tempDir, "apply.html");
     runPython(["-c",
       "import importlib.util, pathlib\n" +
@@ -508,6 +509,7 @@ async function mainApply() {
       GENERATOR_SCRIPT,
       "--mode", "apply",
       "--manifest", manifestPath,
+      "--preview", previewPath,
       "--output", htmlPath
     ]);
 
@@ -592,6 +594,21 @@ async function mainApply() {
     const controls = page.locator("section.decision-control");
     assert.equal(await cards.count(), 4);
     assert.equal(await controls.count(), 4);
+    const pageText = await page.locator("main#c3-apply-app").textContent();
+    assert.equal(pageText.includes("ikke produktions-GO"), true);
+    assert.equal(pageText.includes("Syntetisk målperson 2101 (person 2101)"), true);
+    assert.equal(pageText.includes("Kildetekst"), true);
+    assert.equal(pageText.includes("Foreslået normaliseret tekst"), true);
+    assert.equal(pageText.includes("Eksisterende databasetekst"), true);
+    assert.equal(
+      pageText.includes("Kildeposten har endnu ingen publiceringsbinding."), true);
+    assert.equal(
+      pageText.includes("Der er endnu ikke registreret nogen tekst her"), false);
+    assert.equal(pageText.includes("Ingen normaliseringsadvarsler"), true);
+    assert.equal(
+      pageText.includes(
+        "Godkender du, at den foreslåede tekst gengiver denne kildepost korrekt og skal knyttes til Syntetisk målperson 2101 (person 2101)?"),
+      true);
 
     // Kortenes rækkefølge i DOM'et SKAL følge arkets linjerækkefølge
     // (payload.slots, allerede bekræftet lig payload.cards ovenfor) — en
@@ -703,7 +720,8 @@ async function mainApply() {
       true);
     assert.deepEqual(
       fs.readdirSync(tempDir).sort(),
-      ["apply.html", "approved.txt", "manifest.json", "unchanged.txt"]);
+      ["apply.html", "approved.txt", "manifest.json", "preview.json",
+       "unchanged.txt"]);
 
     await context.close();
     await browser.close();

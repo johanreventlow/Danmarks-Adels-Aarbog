@@ -51,10 +51,13 @@ SYSTEM_IDENTIFIER = "1234567890123456789"
 
 def assign_decision(rid, record_key, target_person_id, side="501",
                      raw_char="a", norm_char="b"):
+    source_text = "SYNTHETIC SOURCE %s" % rid
     return {
         "action": "assign", "rid": rid, "record_key": record_key,
         "target_person_id": target_person_id,
-        "raw_sha256": sha(raw_char),
+        "target_display_name": "SYNTHETIC TARGET %s" % target_person_id,
+        "source_text": source_text,
+        "raw_sha256": hashlib.sha256(source_text.encode("utf-8")).hexdigest(),
         "normalized_text": "PROSE-FIXTURE-NEVER-SENT-TO-STDOUT",
         "normalized_sha256": sha(norm_char),
         "normalization_version": "narrative_norm_v1",
@@ -131,7 +134,10 @@ def default_identity_pairs():
 def default_source_records():
     rows = [
         {"rid": "rid-%d" % i, "record_key": "rk-%d" % i, "match_count": 1,
-         "verbatim_sha256": sha("a"), "side": "501"}
+         "verbatim_sha256": (
+             hashlib.sha256(("SYNTHETIC SOURCE rid-%d" % i).encode("utf-8")).hexdigest()
+             if i in (1, 2, 3, 5) else sha("a")),
+         "side": "501"}
         for i in range(1, 6)
     ]
     rows.append({"rid": "rid-6", "record_key": "rk-6", "match_count": 1,
@@ -143,7 +149,9 @@ def default_target_narratives():
     # rid-4 er no_publication og har derfor ingen target-narrativ-række.
     return [
         {"rid": "rid-%d" % i, "person_id": 100 + i, "narrative_id": 9000 + i,
-         "privat": False, "old_sha256": sha("c")}
+         "privat": False, "old_text": "SYNTHETIC OLD %d" % i,
+         "old_sha256": hashlib.sha256(
+             ("SYNTHETIC OLD %d" % i).encode("utf-8")).hexdigest()}
         for i in (1, 2, 3, 5)
     ]
 
@@ -277,7 +285,10 @@ def test_assign_event_carries_after_state_and_before_state():
     assert event["record_key"] == "rk-1"
     assert event["after_state"] == {
         "target_person_id": 101,
-        "raw_sha256": sha("a"),
+        "target_display_name": "SYNTHETIC TARGET 101",
+        "source_text": "SYNTHETIC SOURCE rid-1",
+        "raw_sha256": hashlib.sha256(
+            b"SYNTHETIC SOURCE rid-1").hexdigest(),
         "normalized_text": "PROSE-FIXTURE-NEVER-SENT-TO-STDOUT",
         "normalized_sha256": sha("b"),
         "normalization_version": "narrative_norm_v1",
@@ -288,10 +299,13 @@ def test_assign_event_carries_after_state_and_before_state():
         },
     }
     assert event["before_state"] == {
-        "source_record": {"match_count": 1, "verbatim_sha256": sha("a"),
+        "source_record": {"match_count": 1, "verbatim_sha256": hashlib.sha256(
+            b"SYNTHETIC SOURCE rid-1").hexdigest(),
                           "side": "501"},
-        "target_narrative": {"person_id": 101, "narrative_id": 9001,
-                             "privat": False, "old_sha256": sha("c")},
+        "target_narrative": {
+            "person_id": 101, "narrative_id": 9001, "privat": False,
+            "old_sha256": hashlib.sha256(
+                b"SYNTHETIC OLD 1").hexdigest()},
         "binding": {"status": "absent", "binding_person_id": None},
     }
 
@@ -364,7 +378,14 @@ def test_rejects_extra_no_publication_row_in_target_narratives():
     def mutate(state):
         state["target_narratives"].append({
             "rid": "rid-6", "person_id": 105, "narrative_id": None,
-            "privat": False, "old_sha256": None})
+            "privat": False, "old_text": None, "old_sha256": None})
+    assert_fails("C3_APPLY_MANIFEST_PREVIEW_INVALID",
+                before_state=before_state_with(mutate))
+
+
+def test_rejects_existing_narrative_text_hash_mismatch():
+    def mutate(state):
+        state["target_narratives"][0]["old_text"] = "SYNTHETIC TAMPER"
     assert_fails("C3_APPLY_MANIFEST_PREVIEW_INVALID",
                 before_state=before_state_with(mutate))
 
@@ -419,6 +440,13 @@ def test_noncanonical_binding_label():
     def mutate(state):
         state["bindings"][0]["status"] = "weird_status"
     assert_fails("C3_APPLY_MANIFEST_NONCANONICAL_LABEL",
+                before_state=before_state_with(mutate))
+
+
+def test_absent_binding_rejects_person_id():
+    def mutate(state):
+        state["bindings"][0]["binding_person_id"] = 101
+    assert_fails("C3_APPLY_MANIFEST_BINDING_INVALID",
                 before_state=before_state_with(mutate))
 
 

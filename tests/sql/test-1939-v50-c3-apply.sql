@@ -970,10 +970,16 @@ BEGIN
      OR (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(v_preview->'source_records'->0) k)
        <> ARRAY['match_count','record_key','rid','side','verbatim_sha256']
      OR (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(v_preview->'target_narratives'->0) k)
-       <> ARRAY['narrative_id','old_sha256','person_id','privat','rid']
+       <> ARRAY['narrative_id','old_sha256','old_text','person_id','privat','rid']
      OR (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(v_preview->'bindings'->0) k)
        <> ARRAY['binding_person_id','record_key','status'] THEN
     RAISE EXCEPTION 'C3_APPLY_PREVIEW_ROW_KEYS_DRIFT';
+  END IF;
+  IF v_preview->'target_narratives'->0->>'old_text' <> 'GAMMEL TEKST 1'
+     OR encode(sha256(convert_to(
+          v_preview->'target_narratives'->0->>'old_text','UTF8')),'hex')
+        <> v_preview->'target_narratives'->0->>'old_sha256' THEN
+    RAISE EXCEPTION 'C3_APPLY_PREVIEW_OLD_TEXT_DRIFT';
   END IF;
   IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_preview->'bindings') b
               WHERE b->>'status' <> 'absent')
