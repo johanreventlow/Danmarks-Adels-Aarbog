@@ -47,6 +47,41 @@ class PhaseEntry:
     contribution_sha256: str | None = None
 
 
+@dataclass(frozen=True)
+class ReceiptAdapter:
+    """Data-free contract for an adapter's manifest-to-receipt binding."""
+
+    adapter_id: str
+    manifest_role: str
+    manifest_schema_version: str
+    receipt_role: str
+    receipt_schema_version: str
+    manifest_sha256_field: str
+    identity_map_field: str
+    identity_fields: tuple[str, ...]
+
+
+RECEIPT_ADAPTERS: Mapping[str, ReceiptAdapter] = {
+    "phase-b-v1": ReceiptAdapter(
+        adapter_id="phase-b-v1",
+        manifest_role="manifest",
+        manifest_schema_version="1939-v50-narrative-replacement-manifest-v2",
+        receipt_role="receipt",
+        receipt_schema_version="daa-evidence-phase-receipt-phase-b-v1",
+        manifest_sha256_field="manifest_sha256",
+        identity_map_field="identity_map",
+        identity_fields=(
+            "person_id",
+            "record_key",
+            "narrative_id",
+            "before_sha256",
+            "after_sha256",
+            "publication_status",
+        ),
+    ),
+}
+
+
 def _require(condition: bool, token: str) -> None:
     if not condition:
         raise LedgerError(token)
