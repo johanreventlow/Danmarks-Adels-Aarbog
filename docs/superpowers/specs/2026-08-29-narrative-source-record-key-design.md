@@ -2,8 +2,8 @@
 
 **Dato:** 2026-08-29
 
-**Status:** Revideret efter DAA-arkitektur- og eksternt driftsreview; afventer
-projektejerens review af den skrevne revision
+**Status:** Godkendt efter DAA-arkitektur- og eksternt driftsreview; afventer
+review af implementeringsplanen
 
 **Roadmapmål:** #152 — narrativer knyttes entydigt til en konkret source record
 
@@ -96,9 +96,10 @@ synlig:
   tilgængelige offentlige nedtagningsvej.
 
 Det er en bevidst fail-closed redaktions- og importfrysning, ikke en skjult
-teknisk bivirkning. Production cutover kræver projektejerens særskilte,
-udtrykkelige accept af denne omkostning; review af arkitekturretningen alene er
-ikke den accept.
+teknisk bivirkning. Projektejeren accepterede 2026-08-29 omkostningen som
+designpræmis sammen med den midlertidige `red_slet_person`-blokering. Den
+friske bestand skal stadig genmåles ved production-gaten; væsentlig drift fra
+den godkendte konsekvens kræver en ny projektejerbeslutning og production-GO.
 
 ## 3. Nuværende problem
 
@@ -736,8 +737,9 @@ lukke den gamle writer.
 - Manifesterne er snapshots, ikke stående autorisation. Enhver ændring mellem
   godkendelse og cutover afviser hele transaktionen og kræver nye manifester og
   ny menneskelig godkendelse.
-- Kræv desuden en særskilt projektejergodkendelse af den målte redaktions- og
-  importfrysning i §2.1.
+- Kontrollér, at den friske måling fortsat ligger inden for den 2026-08-29
+  godkendte redaktions- og importfrysning i §2.1; væsentlig drift kræver ny
+  projektejerbeslutning.
 
 ### Fase 1 — additiv databaseforberedelse
 
@@ -853,8 +855,9 @@ mobilklienter er verificeret capability-aware mod fase 1.
 
 Implementering og disposable bevis giver ikke automatisk produktions-GO.
 Produktion kræver et separat checkpoint med frisk backup, schema-/ACL-driftcheck,
-transaktionel migration, postverify, eksplicit projektejergodkendelse og den
-særskilte accept af §2.1's målte overgangsomkostning.
+transaktionel migration, postverify, eksplicit projektejer-GO og bekræftelse af,
+at den friske §2.1-måling ikke afviger væsentligt fra den godkendte
+overgangsomkostning.
 
 ## 10. Verifikation
 
@@ -1048,10 +1051,11 @@ Det eksterne review 2026-08-29 er i denne revision disponeret således:
     kladdekassation er en eksplicit event, reversal-af-reversal er forbudt, og
     `source_id` er kun en opaque, deterministisk `ASC`-tie-break.
 
-Instruksen om at indarbejde fair reviewfund autoriserer denne skriftlige
-revision. Den tæller ikke som den særskilte accept af §2.1's production-
-omkostning eller som implementerings-/produktions-GO.
+Efter indarbejdelsen godkendte projektejeren 2026-08-29:
 
-Næste tilladte artefakt efter projektejerens review af denne skrevne spec er
-en implementeringsplan. Der implementeres ingen kode på grundlag af den
-mundtlige godkendelse alene.
+18. den reviderede spec samlet, herunder §2.1's målte redaktions- og
+    importfrysning som designpræmis og den midlertidige fail-closed blokering af
+    `red_slet_person` for personer med publication-events.
+
+Næste tilladte artefakt er en implementeringsplan, som skal reviewes før
+kodearbejde. Godkendelsen er ikke et produktions-GO.

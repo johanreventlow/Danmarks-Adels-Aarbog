@@ -23,11 +23,12 @@ produktion efter et særskilt GO. Apply-batch
 `447d81a8-5c21-4b22-832e-e0d2a379a20c`, change set `966`, blev `finalized` og
 bestod den uafhængige read-only postverification.
 
-Det aktive programmål er nu #152. Det er `specificeret` i en revideret
-designspecifikation, som efter eksternt review også gør den operationelle
-frysning og granulær legacy-nedtagning eksplicit. Den skrevne revision afventer
-projektejerens review, og der er ikke givet implementerings- eller
-produktions-GO til #152.
+Det aktive programmål er nu #152. Det er `specificeret` i en revideret og
+2026-08-29 godkendt designspecifikation, som efter eksternt review også gør den
+operationelle frysning, granulær legacy-nedtagning og den midlertidige blokering
+af hel-person-sletning eksplicit. Godkendelsen åbner kun for en
+implementeringsplan. Planen er nu udarbejdet og afventer review; der er ikke
+givet kode- eller produktions-GO til #152.
 
 ## Modenhed pr. værdikædeled
 
@@ -46,7 +47,7 @@ De eneste tilladte tilstande er `specificeret`, `isoleret implementeret`,
 | 2018-20-proveniens | `specificeret` | Fase A-ækvivalent provenance er besluttet, men ikke gennemført. |
 | C3 atomisk apply | `produktionsverificeret` | Production batch `447d81a8-5c21-4b22-832e-e0d2a379a20c` / change set `966` blev finalized med 5 identity-, 4 assign- og 2 no-publication-events og bestod eksakt read-only postverify. |
 | C3 reversal | `integreret ende-til-ende` | Separat reversal er bevist mod en frisk, produktionsafledt disposable restore med eksakt gendannet domænetilstand; den er ikke udført i produktion. |
-| #152 record-nøglede person-narrativer | `specificeret` | Revideret, editionsneutralt design med append-only publication-versioner, stale-gate, granulær legacy-withdrawal, grandfathered legacy-ledger og stabil offentlig source-record-reference. Den målte frysning af nye bindinger og DAA-import afventer særskilt accept; ingen implementering endnu. |
+| #152 record-nøglede person-narrativer | `specificeret` | Godkendt, editionsneutralt design med append-only publication-versioner, stale-gate, granulær legacy-withdrawal, grandfathered legacy-ledger og stabil offentlig source-record-reference. Den målte frysning af nye bindinger/DAA-import og den midlertidige `red_slet_person`-blokering er accepteret som designpræmis; ingen implementering endnu. |
 | Tredje-årbogsprøve | `specificeret` | Prøven er generaliseringsbeviset efter begge referenceudgaver; den er ikke gennemført. |
 
 Ingen af de fælles flerudgaveled er aktuelt klassificeret som `integreret
@@ -84,11 +85,10 @@ programmets samlede modenhed.
 
 ## Åbne blokeringer
 
-- Den reviderede #152-spec afventer projektejerens review, før en
-  implementeringsplan må skrives.
-- Den friske production-måling og projektejerens særskilte accept af den
-  midlertidige frysning af nye bindinger og DAA-loaderen mangler; dette er en
-  production-gate, ikke stiltiende godkendt af designrevisionen.
+- #152-implementeringsplanen afventer review før kodearbejde.
+- Den friske production-måling mangler fortsat; væsentlig drift fra den
+  godkendte overgangsomkostning kræver ny projektejerbeslutning ved den senere
+  production-gate.
 - Den eksisterende åbne tombstone-/retentionsbeslutning betyder, at #152
   foreløbig må blokere hel-person-sletning for personer med publication-events;
   granulær withdrawal løser kun offentlig nedtagning af den enkelte biografi.
@@ -100,10 +100,9 @@ programmets samlede modenhed.
 
 ## Næste tilladte arbejde
 
-Næste tilladte handling er projektejerens review af den skrevne, reviderede
-spec for roadmapmål #152. Efter godkendelse må der udarbejdes en
-implementeringsplan, som igen
-kræver review før kodearbejde. Ingen #152-produktionsmutation er autoriseret.
+Næste tilladte handling er review af
+[#152-implementeringsplanen](../superpowers/plans/2026-08-29-narrative-source-record-key-implementation.md).
+Ingen kode- eller #152-produktionsmutation er autoriseret.
 
 ## Parkeret arbejde
 

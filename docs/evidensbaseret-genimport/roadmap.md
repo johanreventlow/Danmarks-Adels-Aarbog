@@ -15,12 +15,15 @@ reviderede
 [#152-designspecifikation](../superpowers/specs/2026-08-29-narrative-source-record-key-design.md),
 som efter eksternt review nu også beskriver granulær legacy-nedtagning, den
 midlertidige frysning af nye bindinger/DAA-import og de præcise RLS-, undo- og
-cutover-gates. Den skrevne revision afventer projektejerens review; den målte
-overgangsomkostning kræver desuden en senere særskilt accept før production.
+cutover-gates. Projektejeren godkendte 2026-08-29 den skrevne revision,
+overgangsomkostningen som designpræmis og den midlertidige blokering af
+hel-person-sletning ved publication-events.
 
-Designreview giver ikke automatisk implementerings- eller produktions-GO. Den
-næste tilladte artefakt efter godkendt spec er en implementeringsplan; arbejdet
-fortsætter ikke automatisk fra planen til production apply.
+Godkendelsen giver ikke automatisk implementerings- eller produktions-GO. Den
+detaljerede
+[#152-implementeringsplan](../superpowers/plans/2026-08-29-narrative-source-record-key-implementation.md)
+er udarbejdet og afventer review; arbejdet fortsætter ikke automatisk fra den
+reviewede plan til kode eller production apply.
 
 ## Styrende rækkefølge
 

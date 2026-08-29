@@ -2,7 +2,7 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
-## AFVENTER GODKENDELSE: #152's målte overgangsomkostning og sikkerhedsminimum (2026-08-29)
+## BESLUTTET: #152's målte overgangsomkostning og sikkerhedsminimum (2026-08-29)
 
 Et eksternt read-only review af den reviderede #152-spec rapporterede et
 produktionssnapshot med 563 eksisterende publication-bindinger, 591 ubundne
@@ -26,10 +26,12 @@ legacy-biografi kan tages ned gennem en særskilt, append-only og reversibel
 legacy-withdrawal uden at skjule hele personen eller gøre legacy-teksten
 redigerbar.
 
-Reviewinstruksen autoriserer den skriftlige revision, men ikke production
-cutover. Før production-GO skal projektejeren særskilt acceptere den friske,
-målte redaktions- og importfrysning. Indtil da er dette punkt `AFVENTER
-GODKENDELSE`, mens den allerede besluttede arkitekturretning nedenfor består.
+Projektejeren godkendte 2026-08-29 både denne målte overgangsomkostning som
+designpræmis og den midlertidige fail-closed blokering af `red_slet_person` for
+personer med publication-events. Godkendelsen autoriserer implementeringsplanen,
+men hverken kodearbejde eller production cutover. Før production-GO skal den
+friske bestand genmåles; væsentlig afvigelse fra den godkendte konsekvens kræver
+ny projektejerbeslutning.
 
 ## BESLUTTET: #152 bruger privat recordbinding, append-only publication-versioner og stabil offentlig record-reference (2026-08-29)
 
