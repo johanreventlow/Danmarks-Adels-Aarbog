@@ -5,11 +5,14 @@
 
 ## Aktivt programmål
 
-Afslut C3 ved den planlagte samlede integration, disposable rehearsal og stop
-før produktion.
+C3 nåede 2026-08-29 den dokumenterede stopport
+`READY_FOR_PRODUCTION_GO` efter samlet integration og disposable rehearsal.
+Projetejeren har valgt lokal branchintegration uden push. Programmet forbliver
+i kontrolleret pause, indtil det besluttes, om der skal gives et særskilt
+produktions-GO eller fortsættes med roadmapmål #152 uden production apply.
 
-Stopporten er enten et dokumenteret `READY_FOR_PRODUCTION_GO` eller en
-fail-closed blocker. Stopporten giver ikke i sig selv produktions-GO.
+Stopporten giver ikke i sig selv produktions-GO, og ingen agent fortsætter
+automatisk fra den.
 
 ## Styrende rækkefølge
 

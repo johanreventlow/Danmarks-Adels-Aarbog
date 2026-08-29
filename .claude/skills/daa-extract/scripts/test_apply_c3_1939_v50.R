@@ -43,6 +43,9 @@ AUTH_ID <- uuid("00a1")
 manifest_assign_event <- function(index, narrative_id = 700L + index) {
   side <- as.character(500L + index)
   record_key <- paste0("t8-record-", index)
+  source_text <- paste("SYNTETISK-KILDETEKST", index)
+  raw_sha256 <- digest::digest(
+    charToRaw(enc2utf8(source_text)), algo = "sha256", serialize = FALSE)
   list(
     element_id = paste0("case:T8CASE", index, ":rid:R0", index),
     rid = paste0("R0", index),
@@ -50,7 +53,9 @@ manifest_assign_event <- function(index, narrative_id = 700L + index) {
     action = "assign",
     after_state = list(
       target_person_id = 100L + index,
-      raw_sha256 = sha(letters[index]),
+      target_display_name = paste("SYNTETISK MÅLPERSON", 100L + index),
+      source_text = source_text,
+      raw_sha256 = raw_sha256,
       normalized_text = "SYNTETISK-FIXTURE-TEKST-ALDRIG-PROD",
       normalized_sha256 = sha(as.character(index)),
       normalization_version = "narrative_norm_v1",
@@ -60,7 +65,7 @@ manifest_assign_event <- function(index, narrative_id = 700L + index) {
         citation_label = paste("DAA 1939 side", side))
     ),
     before_state = list(
-      source_record = list(match_count = 1L, verbatim_sha256 = sha(letters[index]),
+      source_record = list(match_count = 1L, verbatim_sha256 = raw_sha256,
                            side = side),
       target_narrative = list(person_id = 100L + index, narrative_id = narrative_id,
                               privat = FALSE, old_sha256 = sha("f")),
@@ -454,10 +459,12 @@ expect(identical(assign_element$record_label, "t8-record-3"))
 expect(identical(assign_element$citation_label, "DAA 1939 side 503"))
 expect(identical(assign_element$side, "503"))
 expect(identical(assign_element$privat, FALSE))
-## The flattening drops normalization_version / normalization_flags / raw_sha256.
+## The flattening drops display/source review context and normalization metadata.
 expect(is.null(assign_element$normalization_version))
 expect(is.null(assign_element$normalization_flags))
 expect(is.null(assign_element$raw_sha256))
+expect(is.null(assign_element$target_display_name))
+expect(is.null(assign_element$source_text))
 expect(length(assign_element$before_state) == 3L)
 expect(setequal(names(assign_element$before_state),
                 c("source_record", "target_narrative", "binding")))
@@ -769,6 +776,18 @@ expect_error(
                connector(make_fake(apply_answers(),
                                    fail_on = "red_apply_reimport_cases",
                                    fail_token = "REIMPORT_CASE_SOURCE_RECORD_DRIFT"))),
+  "C3_APPLY_SOURCE_RECORD_DRIFT")
+expect_error(
+  c3_apply_run("apply", bundle, list(nonce = NONCE, actor_id = ACTOR),
+               connector(make_fake(apply_answers(),
+                                   fail_on = "red_apply_reimport_cases",
+                                   fail_token = "column hidden_name does not exist"))),
+  "C3_APPLY_DATABASE_SCHEMA_DRIFT")
+expect_error(
+  c3_apply_run("apply", bundle, list(nonce = NONCE, actor_id = ACTOR),
+               connector(make_fake(apply_answers(),
+                                   fail_on = "red_apply_reimport_cases",
+                                   fail_token = "uncontrolled database detail"))),
   "C3_APPLY_RPC_FAILED")
 
 ## ===========================================================================

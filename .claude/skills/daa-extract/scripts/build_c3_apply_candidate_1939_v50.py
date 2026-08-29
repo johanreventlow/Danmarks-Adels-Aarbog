@@ -186,10 +186,12 @@ def _assign_payload(decision: Dict[str, Any], record: Dict[str, Any],
     raw = record.get("verbatim_text")
     record_key = record.get("new_record_key")
     side = selected.get("side")
+    display_name = selected.get("visning_navn")
     if (not isinstance(raw, str) or not raw
             or not isinstance(record_key, str) or not record_key
             or type(target) is not int or target <= 0
             or not isinstance(side, str) or not side
+            or not isinstance(display_name, str) or not display_name
             or selected.get("staged") is not False):
         fail("C3_APPLY_ASSIGN_TARGET_INVALID")
     first = normalize_narrative_v1(raw, corpus)
@@ -206,6 +208,8 @@ def _assign_payload(decision: Dict[str, Any], record: Dict[str, Any],
         "rid": decision["rid"],
         "record_key": record_key,
         "target_person_id": target,
+        "target_display_name": display_name,
+        "source_text": raw,
         "raw_sha256": _sha(raw.encode("utf-8")),
         "normalized_text": first["text"],
         "normalized_sha256": _sha(normalized_raw),

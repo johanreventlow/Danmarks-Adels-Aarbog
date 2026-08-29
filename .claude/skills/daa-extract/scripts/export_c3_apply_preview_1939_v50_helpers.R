@@ -46,7 +46,7 @@
 .c3_preview_source_record_keys <- c(
   "rid", "record_key", "match_count", "verbatim_sha256", "side")
 .c3_preview_target_narrative_keys <- c(
-  "rid", "person_id", "narrative_id", "privat", "old_sha256")
+  "rid", "person_id", "narrative_id", "privat", "old_text", "old_sha256")
 .c3_preview_binding_keys <- c("record_key", "status", "binding_person_id")
 .c3_preview_binding_statuses <- c(
   "absent", "draft_same_record", "draft_other_record", "published", "withdrawn")
@@ -117,11 +117,18 @@
         if (!.c3_common_scalar_string(decision$record_key) ||
             !is.numeric(decision$target_person_id) ||
             length(decision$target_person_id) != 1L ||
+            !.c3_common_scalar_string(decision$target_display_name) ||
+            !.c3_common_scalar_string(decision$source_text) ||
             !.c3_common_scalar_string(decision$raw_sha256, "^[0-9a-f]{64}$") ||
             !.c3_common_scalar_string(decision$normalized_sha256, "^[0-9a-f]{64}$") ||
             !is.list(expected_narrative) ||
             !identical(expected_narrative$privat, FALSE) ||
             !.c3_common_scalar_string(expected_narrative$side))
+          .c3_common_stop("C3_PREVIEW_CANDIDATE_INVALID")
+        source_sha256 <- digest::digest(
+          charToRaw(enc2utf8(decision$source_text)),
+          algo = "sha256", serialize = FALSE)
+        if (!identical(source_sha256, decision$raw_sha256))
           .c3_common_stop("C3_PREVIEW_CANDIDATE_INVALID")
       } else if (identical(action, "no_publication")) {
         if (!.c3_common_scalar_string(decision$record_key))
@@ -306,12 +313,24 @@
     ## old_sha256: 64-hex string|null (Fund 2 — previously not typechecked).
     old_sha256_ok <- is.null(row$old_sha256) ||
       .c3_common_scalar_string(row$old_sha256, "^[0-9a-f]{64}$")
+    old_text_ok <- is.null(row$old_text) || .c3_common_scalar_string(row$old_text)
     if (!.c3_common_scalar_string(rid) || is.null(decision) ||
         !identical(decision$action, "assign") ||
         !is.numeric(row$person_id) || length(row$person_id) != 1L ||
         !is.logical(row$privat) || length(row$privat) != 1L || is.na(row$privat) ||
-        !narrative_id_ok || !old_sha256_ok)
+        !narrative_id_ok || !old_text_ok || !old_sha256_ok)
       .c3_common_stop("C3_PREVIEW_RESPONSE_INVALID")
+    if (is.null(row$narrative_id)) {
+      if (!is.null(row$old_text) || !is.null(row$old_sha256))
+        .c3_common_stop("C3_PREVIEW_RESPONSE_INVALID")
+    } else {
+      if (is.null(row$old_text) || is.null(row$old_sha256))
+        .c3_common_stop("C3_PREVIEW_RESPONSE_INVALID")
+      measured_old_sha256 <- digest::digest(
+        charToRaw(enc2utf8(row$old_text)), algo = "sha256", serialize = FALSE)
+      if (!identical(measured_old_sha256, row$old_sha256))
+        .c3_common_stop("C3_PREVIEW_RESPONSE_INVALID")
+    }
     if (!identical(as.numeric(row$person_id), as.numeric(decision$target_person_id)))
       .c3_common_stop("C3_PREVIEW_TARGET_MISMATCH")
     if (isTRUE(row$privat)) .c3_common_stop("C3_PREVIEW_PRIVATE_DRIFT")
@@ -350,6 +369,11 @@
         !binding_person_id_ok)
       .c3_common_stop("C3_PREVIEW_RESPONSE_INVALID")
     if (record_key %in% seen_binding_keys)
+      .c3_common_stop("C3_PREVIEW_BINDING_INVALID")
+    ## `absent` is a complete state assertion, not merely a presentation
+    ## label.  It is contradictory (and therefore unsafe) for the RPC to
+    ## report both "absent" and an owning person id.
+    if (identical(row$status, "absent") && !is.null(row$binding_person_id))
       .c3_common_stop("C3_PREVIEW_BINDING_INVALID")
     seen_binding_keys <- c(seen_binding_keys, record_key)
     decision <- Find(function(d) identical(d$record_key, record_key),

@@ -76,6 +76,7 @@ _CASE_KEYS = {"case_id", "identity", "record_decisions"}
 _IDENTITY_KEYS = {"action", "person_ids"}
 _ASSIGN_KEYS = {
     "action", "rid", "record_key", "target_person_id", "raw_sha256",
+    "target_display_name", "source_text",
     "normalized_text", "normalized_sha256", "normalization_version",
     "normalization_flags", "expected_narrative"}
 _NO_PUBLICATION_KEYS = {"action", "rid", "record_key"}
@@ -95,7 +96,7 @@ _IDENTITY_PAIR_KEYS = {"case_id", "person_ids", "component_overlap",
 _SOURCE_RECORD_KEYS = {"rid", "record_key", "match_count",
                         "verbatim_sha256", "side"}
 _TARGET_NARRATIVE_KEYS = {"rid", "person_id", "narrative_id", "privat",
-                           "old_sha256"}
+                           "old_text", "old_sha256"}
 _BINDING_KEYS = {"record_key", "status", "binding_person_id"}
 _BINDING_STATUSES = {
     "absent", "draft_same_record", "draft_other_record", "published",
@@ -196,11 +197,16 @@ def _validate_candidate(doc: Dict[str, Any]) -> Dict[str, Any]:
                 record_key = decision.get("record_key")
                 if (not _nonempty_str(record_key)
                         or not _positive_int(decision.get("target_person_id"))
+                        or not _nonempty_str(decision.get("target_display_name"))
+                        or not _nonempty_str(decision.get("source_text"))
                         or not _hex64(decision.get("raw_sha256"))
                         or not _nonempty_str(decision.get("normalized_text"))
                         or not _hex64(decision.get("normalized_sha256"))
                         or not _nonempty_str(decision.get("normalization_version"))
                         or not isinstance(decision.get("normalization_flags"), list)):
+                    _fail(code)
+                if (_sha(decision["source_text"].encode("utf-8"))
+                        != decision["raw_sha256"]):
                     _fail(code)
                 expected_narrative = decision.get("expected_narrative")
                 _exact_keys(expected_narrative, _EXPECTED_NARRATIVE_KEYS, code)
@@ -427,6 +433,14 @@ def _validate_target_narratives(
                 or not _optional_positive_int(row["narrative_id"])
                 or not _optional_hex64(row["old_sha256"])):
             _fail("C3_APPLY_MANIFEST_PREVIEW_INVALID")
+        old_text = row["old_text"]
+        if row["narrative_id"] is None:
+            if old_text is not None or row["old_sha256"] is not None:
+                _fail("C3_APPLY_MANIFEST_PREVIEW_INVALID")
+        elif (not _nonempty_str(old_text)
+              or row["old_sha256"] is None
+              or _sha(old_text.encode("utf-8")) != row["old_sha256"]):
+            _fail("C3_APPLY_MANIFEST_PREVIEW_INVALID")
         if row["person_id"] != decision["target_person_id"]:
             _fail("C3_APPLY_MANIFEST_TARGET_PERSON_MISMATCH")
         if row["privat"] is not False:
@@ -459,6 +473,9 @@ def _validate_bindings(
             _fail("C3_APPLY_MANIFEST_PREVIEW_INVALID")
         if row["status"] not in _BINDING_STATUSES:
             _fail("C3_APPLY_MANIFEST_NONCANONICAL_LABEL")
+        if (row["status"] == "absent"
+                and row["binding_person_id"] is not None):
+            _fail("C3_APPLY_MANIFEST_BINDING_INVALID")
         rid = index["by_record_key"][record_key]
         decision = index["by_rid"][rid]["decision"]
         if decision["action"] == "assign":
@@ -546,6 +563,8 @@ def finalize_manifest(candidate_raw: bytes, preview_raw: bytes) -> Dict[str, Any
                 }
                 after_state = {
                     "target_person_id": decision["target_person_id"],
+                    "target_display_name": decision["target_display_name"],
+                    "source_text": decision["source_text"],
                     "raw_sha256": decision["raw_sha256"],
                     "normalized_text": decision["normalized_text"],
                     "normalized_sha256": decision["normalized_sha256"],

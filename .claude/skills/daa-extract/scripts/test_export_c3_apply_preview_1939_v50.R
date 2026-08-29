@@ -28,10 +28,14 @@ ACTOR_ID <- "11111111-1111-1111-1111-111111111111"
 
 assign_decision <- function(rid, record_key, target_person_id, side = "501",
                             raw_char = "a", norm_char = "b") {
+  source_text <- paste("SYNTHETIC SOURCE", rid)
   list(
     action = "assign", rid = rid, record_key = record_key,
     target_person_id = target_person_id,
-    raw_sha256 = sha(raw_char),
+    target_display_name = paste("SYNTHETIC TARGET", target_person_id),
+    source_text = source_text,
+    raw_sha256 = digest::digest(
+      charToRaw(enc2utf8(source_text)), algo = "sha256", serialize = FALSE),
     normalized_text = "PROSE-FIXTURE-NEVER-SENT-TO-RPC",
     normalized_sha256 = sha(norm_char),
     normalization_version = "narrative_norm_v1",
@@ -97,29 +101,37 @@ default_rpc_response <- function() {
       list(case_id = "case-5", person_ids = c(105, 205), component_overlap = FALSE, existing_rejection = FALSE)
     ),
     source_records = list(
-      list(rid = "rid-1", record_key = "rk-1", match_count = 1, verbatim_sha256 = sha("a"), side = "501"),
-      list(rid = "rid-2", record_key = "rk-2", match_count = 1, verbatim_sha256 = sha("a"), side = "501"),
-      list(rid = "rid-3", record_key = "rk-3", match_count = 1, verbatim_sha256 = sha("a"), side = "501"),
+      list(rid = "rid-1", record_key = "rk-1", match_count = 1, verbatim_sha256 = digest::digest(charToRaw("SYNTHETIC SOURCE rid-1"), algo = "sha256", serialize = FALSE), side = "501"),
+      list(rid = "rid-2", record_key = "rk-2", match_count = 1, verbatim_sha256 = digest::digest(charToRaw("SYNTHETIC SOURCE rid-2"), algo = "sha256", serialize = FALSE), side = "501"),
+      list(rid = "rid-3", record_key = "rk-3", match_count = 1, verbatim_sha256 = digest::digest(charToRaw("SYNTHETIC SOURCE rid-3"), algo = "sha256", serialize = FALSE), side = "501"),
       list(rid = "rid-4", record_key = "rk-4", match_count = 1, verbatim_sha256 = sha("a"), side = "501"),
-      list(rid = "rid-5", record_key = "rk-5", match_count = 1, verbatim_sha256 = sha("a"), side = "501"),
+      list(rid = "rid-5", record_key = "rk-5", match_count = 1, verbatim_sha256 = digest::digest(charToRaw("SYNTHETIC SOURCE rid-5"), algo = "sha256", serialize = FALSE), side = "501"),
       list(rid = "rid-6", record_key = "rk-6", match_count = 1, verbatim_sha256 = sha("e"), side = "502")
     ),
     target_narratives = list(
-      list(rid = "rid-1", person_id = 101, narrative_id = 9001, privat = FALSE, old_sha256 = sha("c")),
-      list(rid = "rid-2", person_id = 102, narrative_id = 9002, privat = FALSE, old_sha256 = sha("c")),
-      list(rid = "rid-3", person_id = 103, narrative_id = 9003, privat = FALSE, old_sha256 = sha("c")),
-      list(rid = "rid-5", person_id = 105, narrative_id = 9005, privat = FALSE, old_sha256 = sha("c"))
+      list(rid = "rid-1", person_id = 101, narrative_id = 9001, privat = FALSE,
+           old_text = "SYNTHETIC OLD 1", old_sha256 = digest::digest(
+             charToRaw("SYNTHETIC OLD 1"), algo = "sha256", serialize = FALSE)),
+      list(rid = "rid-2", person_id = 102, narrative_id = 9002, privat = FALSE,
+           old_text = "SYNTHETIC OLD 2", old_sha256 = digest::digest(
+             charToRaw("SYNTHETIC OLD 2"), algo = "sha256", serialize = FALSE)),
+      list(rid = "rid-3", person_id = 103, narrative_id = 9003, privat = FALSE,
+           old_text = "SYNTHETIC OLD 3", old_sha256 = digest::digest(
+             charToRaw("SYNTHETIC OLD 3"), algo = "sha256", serialize = FALSE)),
+      list(rid = "rid-5", person_id = 105, narrative_id = 9005, privat = FALSE,
+           old_text = "SYNTHETIC OLD 5", old_sha256 = digest::digest(
+             charToRaw("SYNTHETIC OLD 5"), algo = "sha256", serialize = FALSE))
     ),
     ## Exactly one row per candidate record_key, always, with explicit
     ## "absent" where there is none. Omission is not a safe default (see
     ## the Task 2 report) so every fixture must enumerate all six.
     bindings = list(
-      list(record_key = "rk-1", status = "absent", binding_person_id = 101),
-      list(record_key = "rk-2", status = "absent", binding_person_id = 102),
-      list(record_key = "rk-3", status = "absent", binding_person_id = 103),
-      list(record_key = "rk-4", status = "absent", binding_person_id = 104),
-      list(record_key = "rk-5", status = "absent", binding_person_id = 105),
-      list(record_key = "rk-6", status = "absent", binding_person_id = 106)
+      list(record_key = "rk-1", status = "absent", binding_person_id = NULL),
+      list(record_key = "rk-2", status = "absent", binding_person_id = NULL),
+      list(record_key = "rk-3", status = "absent", binding_person_id = NULL),
+      list(record_key = "rk-4", status = "absent", binding_person_id = NULL),
+      list(record_key = "rk-5", status = "absent", binding_person_id = NULL),
+      list(record_key = "rk-6", status = "absent", binding_person_id = NULL)
     ),
     source_anchors = list(),
     identity_components = list()
@@ -348,6 +360,12 @@ expect_fail_closed(fake_gateway(rpc_response = target_mismatch), "C3_PREVIEW_TAR
 private_drift <- modify_response(function(r) { r$target_narratives[[1L]]$privat <- TRUE; r })
 expect_fail_closed(fake_gateway(rpc_response = private_drift), "C3_PREVIEW_PRIVATE_DRIFT")
 
+absent_binding_with_owner <- modify_response(function(r) {
+  r$bindings[[1L]]$binding_person_id <- 101; r
+})
+expect_fail_closed(fake_gateway(rpc_response = absent_binding_with_owner),
+                   "C3_PREVIEW_BINDING_INVALID")
+
 ## -- Text / side drift -------------------------------------------------------
 text_drift <- modify_response(function(r) { r$source_records[[1L]]$verbatim_sha256 <- sha("f"); r })
 expect_fail_closed(fake_gateway(rpc_response = text_drift), "C3_PREVIEW_TEXT_DRIFT")
@@ -505,6 +523,8 @@ expect_fail_closed(fake_gateway(rpc_response = wrong_type_narrative_id),
 
 null_narrative_id <- modify_response(function(r) {
   r$target_narratives[[1L]] <- set_null_field(r$target_narratives[[1L]], "narrative_id")
+  r$target_narratives[[1L]] <- set_null_field(r$target_narratives[[1L]], "old_text")
+  r$target_narratives[[1L]] <- set_null_field(r$target_narratives[[1L]], "old_sha256")
   r
 })
 null_narrative_id_result <- run_build(fake_gateway(rpc_response = null_narrative_id))
@@ -524,12 +544,34 @@ expect_fail_closed(fake_gateway(rpc_response = malformed_old_sha256),
                    "C3_PREVIEW_RESPONSE_INVALID")
 
 null_old_sha256 <- modify_response(function(r) {
+  r$target_narratives[[1L]] <- set_null_field(r$target_narratives[[1L]], "narrative_id")
+  r$target_narratives[[1L]] <- set_null_field(r$target_narratives[[1L]], "old_text")
   r$target_narratives[[1L]] <- set_null_field(r$target_narratives[[1L]], "old_sha256")
   r
 })
 null_old_sha256_result <- run_build(fake_gateway(rpc_response = null_old_sha256))
 expect(is.null(null_old_sha256_result$before_state$target_narratives[[1L]]$old_sha256),
        "C3_TEST_OLD_SHA256_NULL_ALLOWED")
+
+wrong_type_old_text <- modify_response(function(r) {
+  r$target_narratives[[1L]]$old_text <- 12345; r
+})
+expect_fail_closed(fake_gateway(rpc_response = wrong_type_old_text),
+                   "C3_PREVIEW_RESPONSE_INVALID")
+
+missing_old_text_for_existing_narrative <- modify_response(function(r) {
+  r$target_narratives[[1L]] <- set_null_field(
+    r$target_narratives[[1L]], "old_text"); r
+})
+expect_fail_closed(
+  fake_gateway(rpc_response = missing_old_text_for_existing_narrative),
+  "C3_PREVIEW_RESPONSE_INVALID")
+
+mismatched_old_text <- modify_response(function(r) {
+  r$target_narratives[[1L]]$old_text <- "SYNTHETIC TAMPERED OLD"; r
+})
+expect_fail_closed(fake_gateway(rpc_response = mismatched_old_text),
+                   "C3_PREVIEW_RESPONSE_INVALID")
 
 wrong_type_binding_person_id <- modify_response(function(r) {
   r$bindings[[1L]]$binding_person_id <- "not-a-number"; r

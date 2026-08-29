@@ -241,8 +241,8 @@
 ## not: the finalizer NESTS the four narrative labels inside
 ## `after_state.expected_narrative`, while the element payload wants all four
 ## at its root; `target_narrative_id` is taken from BEFORE-state (there is no
-## such field in after_state at all); and `raw_sha256`,
-## `normalization_version`, `normalization_flags` are DROPPED -- the database
+## such field in after_state at all); and `target_display_name`, `source_text`,
+## `raw_sha256`, `normalization_version`, `normalization_flags` are DROPPED -- the database
 ## has no use for them and they are already bound through `text_bundle_sha256`
 ## and `manifest_sha256`.
 .c3_apply_manifest_elements <- function(manifest) {
@@ -313,7 +313,8 @@
                              c("source_record", "target_narrative", "binding"), token)
         after <- event$after_state
         .c3_apply_exact_keys(after,
-                             c("target_person_id", "raw_sha256", "normalized_text",
+                             c("target_person_id", "target_display_name", "source_text",
+                               "raw_sha256", "normalized_text",
                                "normalized_sha256", "normalization_version",
                                "normalization_flags", "expected_narrative"), token)
         expected <- after$expected_narrative
@@ -325,6 +326,11 @@
                              c("person_id", "narrative_id", "privat", "old_sha256"),
                              token)
         target_person_id <- .c3_apply_int(after$target_person_id, token)
+        .c3_apply_string(after$target_display_name, token)
+        source_text <- .c3_apply_string(after$source_text, token)
+        if (!identical(digest::digest(charToRaw(enc2utf8(source_text)),
+                                      algo = "sha256", serialize = FALSE),
+                       after$raw_sha256)) .c3_common_stop(token)
         narrative_id <- .c3_apply_optional_int(target$narrative_id, token)
         old_sha256 <- .c3_apply_optional_hex(target$old_sha256, token)
         if (is.na(narrative_id) != is.na(old_sha256)) .c3_common_stop(token)
@@ -604,6 +610,26 @@ c3_apply_pg_connection_values <- function() {
     REIMPORT_1939_ROLE_FORBIDDEN = "C3_APPLY_ROLE_FORBIDDEN")
   for (name in names(mapped))
     if (grepl(name, message, fixed = TRUE)) .c3_common_stop(mapped[[name]])
+  ## Preserve the server's controlled REIMPORT_CASE_* vocabulary while still
+  ## suppressing every byte of free-form database error text.  This keeps a
+  ## production rejection diagnosable without risking narrative disclosure.
+  match <- regexpr("REIMPORT_CASE_[A-Z0-9_]+", message, perl = TRUE)
+  if (match[[1L]] > 0L) {
+    server_token <- regmatches(message, match)
+    .c3_common_stop(sub("^REIMPORT_CASE_", "C3_APPLY_", server_token))
+  }
+  safe_patterns <- c(
+    "(column|relation|function|type).*(does not exist|undefined)" =
+      "C3_APPLY_DATABASE_SCHEMA_DRIFT",
+    "(duplicate key|unique constraint)" =
+      "C3_APPLY_DATABASE_CONSTRAINT_CONFLICT",
+    "(null value|violates .* constraint)" =
+      "C3_APPLY_DATABASE_CONSTRAINT_INVALID",
+    "permission denied" = "C3_APPLY_DATABASE_PERMISSION_DENIED",
+    "ambiguous" = "C3_APPLY_DATABASE_DEFINITION_INVALID")
+  for (pattern in names(safe_patterns))
+    if (grepl(pattern, message, perl = TRUE, ignore.case = TRUE))
+      .c3_common_stop(safe_patterns[[pattern]])
   .c3_common_stop(fallback)
 }
 

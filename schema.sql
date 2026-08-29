@@ -7111,14 +7111,15 @@ BEGIN
      AND source_id IS NOT DISTINCT FROM p_source_id;
   IF v_count>1 THEN RAISE EXCEPTION 'REIMPORT_CASE_NARRATIVE_AMBIGUOUS'; END IF;
   IF v_count=0 THEN
-    RETURN jsonb_build_object('narrative_id',NULL,'privat',false,'old_sha256',NULL,'side',NULL);
+    RETURN jsonb_build_object('narrative_id',NULL,'privat',false,'old_text',NULL,
+                              'old_sha256',NULL,'side',NULL);
   END IF;
   SELECT id, coalesce(privat,false), tekst, side INTO v_id, v_privat, v_tekst, v_side
     FROM public.narrative
    WHERE subjekt_type='person' AND subjekt_id=p_person_id
      AND source_id IS NOT DISTINCT FROM p_source_id;
   RETURN jsonb_build_object(
-    'narrative_id', v_id, 'privat', v_privat,
+    'narrative_id', v_id, 'privat', v_privat, 'old_text', v_tekst,
     'old_sha256', encode(sha256(convert_to(v_tekst,'UTF8')),'hex'),
     'side', v_side);
 END $$;
@@ -7457,6 +7458,7 @@ BEGIN
       'person_id', (r->>'target_person_id')::bigint,
       'narrative_id', n.state->'narrative_id',
       'privat', n.state->'privat',
+      'old_text', n.state->'old_text',
       'old_sha256', n.state->'old_sha256') AS item
     FROM jsonb_array_elements(p_selection->'cases') c,
          jsonb_array_elements(c->'records') r,

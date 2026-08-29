@@ -38,7 +38,8 @@ _APPLY_EVENT_KEYS = {
     "element_id", "rid", "record_key", "action", "after_state",
     "before_state"}
 _APPLY_ASSIGN_AFTER_KEYS = {
-    "target_person_id", "raw_sha256", "normalized_text", "normalized_sha256",
+    "target_person_id", "target_display_name", "source_text", "raw_sha256",
+    "normalized_text", "normalized_sha256",
     "normalization_version", "normalization_flags", "expected_narrative"}
 _APPLY_EXPECTED_NARRATIVE_KEYS = {
     "privat", "side", "record_label", "citation_label"}
@@ -1015,9 +1016,14 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .technical-detail { margin-top: 1rem; }
 .technical-detail summary { cursor: pointer; color: #566175; font-size: .9rem; }
 .technical-detail p { font-size: .9rem; }
+.apply-text-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem; }
+.database-effect { margin-top: 1rem; padding: 1rem; border: 1px solid #ccd2dc;
+  border-radius: .4rem; background: #f8f7f2; }
+.database-effect h3 { margin-top: 0; }
 [hidden] { display: none !important; }
 @media (max-width: 44rem) {
-  .candidate-grid { grid-template-columns: 1fr; }
+  .candidate-grid, .apply-text-grid { grid-template-columns: 1fr; }
   .dependent { display: flex; flex-direction: column; align-items: stretch;
     margin: .6rem 0 0; }
 }
@@ -1062,7 +1068,7 @@ def render_html(payload: Mapping[str, Any], review_bytes: bytes) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# Apply-tilstand: godkendelsesark for de fem `assign`-sager i det endelige
+# Apply-tilstand: godkendelsesark for de fire `assign`-sager i det endelige
 # C3 apply-manifest (Task 3's output). Genbruger dette scripts eksisterende
 # base64url-embedding, CSP-sikre klientkontrakt og atomiske publish_output —
 # tilføjer ikke en ny renderer (Fund H6).
@@ -1112,6 +1118,9 @@ def _validate_apply_binding(value: Any) -> None:
             or value["status"] not in _APPLY_BINDING_STATUSES
             or not _apply_optional_positive_int(value["binding_person_id"])):
         fail("C3_HTML_APPLY_MANIFEST_INVALID")
+    if (value["status"] == "absent"
+            and value["binding_person_id"] is not None):
+        fail("C3_HTML_APPLY_MANIFEST_INVALID")
 
 
 def _validate_apply_event(event: Any) -> None:
@@ -1137,6 +1146,8 @@ def _validate_apply_event(event: Any) -> None:
         after_state = event["after_state"]
         _apply_exact_keys(after_state, _APPLY_ASSIGN_AFTER_KEYS)
         if (not _apply_positive_int(after_state["target_person_id"])
+                or not _apply_nonempty_str(after_state["target_display_name"])
+                or not _apply_nonempty_str(after_state["source_text"])
                 or not _apply_hex64(after_state["raw_sha256"])
                 or not _apply_nonempty_str(after_state["normalized_text"])
                 or not _apply_hex64(after_state["normalized_sha256"])
@@ -1156,6 +1167,9 @@ def _validate_apply_event(event: Any) -> None:
                     and type(flag["char_offset"]) is not bool
                     and flag["char_offset"] >= 0
                     for flag in after_state["normalization_flags"])):
+            fail("C3_HTML_APPLY_MANIFEST_INVALID")
+        if (hashlib.sha256(after_state["source_text"].encode("utf-8")).hexdigest()
+                != after_state["raw_sha256"]):
             fail("C3_HTML_APPLY_MANIFEST_INVALID")
         expected_narrative = after_state["expected_narrative"]
         _apply_exact_keys(
@@ -1239,11 +1253,11 @@ def _validate_apply_manifest(doc: Any) -> Dict[str, Any]:
 
 def _apply_assign_events(manifest_doc: Mapping[str, Any]
                          ) -> List[Dict[str, Any]]:
-    """Udtræk de fem `assign`-hændelser i stabil, deterministisk rækkefølge.
+    """Udtræk de fire `assign`-hændelser i stabil, deterministisk rækkefølge.
 
     Sorteringen (efter `element_id`) er den ENE autoritative rækkefølge —
     kort, godkendelsesark og konverter deler den, fordi de alle sorterer
-    de samme fem hændelser efter det samme felt.
+    de samme fire hændelser efter det samme felt.
     """
     events: List[Dict[str, Any]] = []
     for case in manifest_doc["cases"]:
@@ -1266,10 +1280,11 @@ def _apply_assign_events(manifest_doc: Mapping[str, Any]
 
 def apply_text_bundle_sha256(assign_events: Sequence[Mapping[str, Any]]
                              ) -> str:
-    """Kanonisk hash over de kandidat-afledte felter for de fem sager.
+    """Kanonisk hash over de kandidat-afledte felter for de fire sager.
 
     Bindes til (element_id, rid, record_key, target_person_id,
-    normaliseringsprofil-version, normaliseret tekst, flags,
+    target_display_name, source_text, normaliseringsprofil-version,
+    normaliseret tekst, flags,
     expected_narrative) — ALDRIG til preview-/DB-afledte felter (fx
     `before_state`, `database`, `input_hashes`, `narrative_id`,
     `old_sha256`, bindings-status). Det er præcis det, der gør ÉN
@@ -1286,7 +1301,10 @@ def apply_text_bundle_sha256(assign_events: Sequence[Mapping[str, Any]]
     kandidat-afledte (Task 1, databaseuafhængige — hele assign
     `after_state` kopieres direkte fra kandidatens `decision` i
     `finalize_c3_apply_manifest_1939_v50.py`), præcis som record-tekst
-    og normalisering allerede var, så tilføjelsen koster ikke B1's
+    og normalisering allerede var. `target_display_name` og `source_text`
+    er nu bundet efter samme princip, så godkenderen autoriserer præcis det
+    navn og den kildetekst, fladen viser. Felterne er kandidat-afledte, så
+    tilføjelsen koster ikke B1's
     rehearsal/prod-portabilitet: samme kandidat giver samme
     bundle-værdi i begge forløb, uændret.
     """
@@ -1297,6 +1315,8 @@ def apply_text_bundle_sha256(assign_events: Sequence[Mapping[str, Any]]
             "rid": event["rid"],
             "record_key": event["record_key"],
             "target_person_id": event["after"]["target_person_id"],
+            "target_display_name": event["after"]["target_display_name"],
+            "source_text": event["after"]["source_text"],
             "normalization_version": event["after"]["normalization_version"],
             "normalized_text": event["after"]["normalized_text"],
             "normalization_flags": list(event["after"]["normalization_flags"]),
@@ -1315,7 +1335,7 @@ def apply_approval_sheet(text_bundle_sha256: str,
     Kaldes af BÅDE denne renderer og den separate godkendelseskonverter
     (`convert_c3_apply_approvals_1939_v50.py`) — ingen af dem implementerer
     rækkefølgen selvstændigt (den parkerede C0-efterkørselsfejl).
-    Returnerer (arkets rå bytes, de fem redigerbare tokenintervaller) i ét
+    Returnerer (arkets rå bytes, de fire redigerbare tokenintervaller) i ét
     kald, så positionerne aldrig kan afvige fra teksten, de blev fundet i.
     """
     if not _apply_hex64(text_bundle_sha256):
@@ -1349,7 +1369,70 @@ def apply_approval_sheet(text_bundle_sha256: str,
     return header_bytes + bytes(body), slots
 
 
-def _apply_card(event: Mapping[str, Any]) -> Dict[str, Any]:
+def _apply_preview_targets(
+        manifest_doc: Mapping[str, Any], preview_raw: bytes
+        ) -> Dict[str, Dict[str, Any]]:
+    if not isinstance(preview_raw, bytes):
+        fail("C3_HTML_APPLY_PREVIEW_INVALID")
+    if (hashlib.sha256(preview_raw).hexdigest()
+            != manifest_doc["input_hashes"]["preview_raw_sha256"]):
+        fail("C3_HTML_APPLY_PREVIEW_HASH_MISMATCH")
+    try:
+        preview_doc = apply_manifest._validate_preview_shape(
+            apply_manifest._decode_document(
+                preview_raw, "C3_HTML_APPLY_PREVIEW_INVALID"))
+    except SystemExit:
+        fail("C3_HTML_APPLY_PREVIEW_INVALID")
+    if preview_doc["database"] != manifest_doc["database"]:
+        fail("C3_HTML_APPLY_PREVIEW_DATABASE_MISMATCH")
+    canonical = preview_doc["before_state_canonical"]
+    if (hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+            != preview_doc["before_state_canonical_sha256"]
+            or preview_doc["before_state_canonical_sha256"]
+            != manifest_doc["input_hashes"]["before_state_canonical_sha256"]):
+        fail("C3_HTML_APPLY_PREVIEW_INVALID")
+    try:
+        reparsed = apply_manifest._decode_document(
+            canonical.encode("utf-8"), "C3_HTML_APPLY_PREVIEW_INVALID")
+    except SystemExit:
+        fail("C3_HTML_APPLY_PREVIEW_INVALID")
+    if (apply_manifest._canonical_bytes(reparsed)
+            != apply_manifest._canonical_bytes(preview_doc["before_state"])):
+        fail("C3_HTML_APPLY_PREVIEW_INVALID")
+
+    events = _apply_assign_events(manifest_doc)
+    event_by_rid = {event["rid"]: event for event in events}
+    rows = preview_doc["before_state"]["target_narratives"]
+    if not isinstance(rows, list) or len(rows) != len(events):
+        fail("C3_HTML_APPLY_PREVIEW_INVALID")
+    result: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        if (not isinstance(row, dict)
+                or set(row) != apply_manifest._TARGET_NARRATIVE_KEYS):
+            fail("C3_HTML_APPLY_PREVIEW_INVALID")
+        rid = row.get("rid")
+        if not _apply_nonempty_str(rid) or rid not in event_by_rid or rid in result:
+            fail("C3_HTML_APPLY_PREVIEW_TARGET_MISMATCH")
+        event_target = event_by_rid[rid]["before"]["target_narrative"]
+        if any(row.get(key) != event_target[key] for key in (
+                "person_id", "narrative_id", "privat", "old_sha256")):
+            fail("C3_HTML_APPLY_PREVIEW_TARGET_MISMATCH")
+        old_text = row.get("old_text")
+        if row["narrative_id"] is None:
+            if old_text is not None or row["old_sha256"] is not None:
+                fail("C3_HTML_APPLY_PREVIEW_INVALID")
+        elif (not _apply_nonempty_str(old_text)
+              or hashlib.sha256(old_text.encode("utf-8")).hexdigest()
+              != row["old_sha256"]):
+            fail("C3_HTML_APPLY_PREVIEW_INVALID")
+        result[rid] = row
+    if set(result) != set(event_by_rid):
+        fail("C3_HTML_APPLY_PREVIEW_TARGET_MISMATCH")
+    return result
+
+
+def _apply_card(event: Mapping[str, Any], old_text: Optional[str]
+                ) -> Dict[str, Any]:
     before = event["before"]
     after = event["after"]
     return {
@@ -1360,10 +1443,13 @@ def _apply_card(event: Mapping[str, Any]) -> Dict[str, Any]:
         "before": {
             "source_record": dict(before["source_record"]),
             "binding": dict(before["binding"]),
-            "target_narrative": dict(before["target_narrative"]),
+            "target_narrative": dict(before["target_narrative"],
+                                     old_text=old_text),
         },
         "after": {
             "target_person_id": after["target_person_id"],
+            "target_display_name": after["target_display_name"],
+            "source_text": after["source_text"],
             "raw_sha256": after["raw_sha256"],
             "normalized_text": after["normalized_text"],
             "normalized_sha256": after["normalized_sha256"],
@@ -1374,7 +1460,7 @@ def _apply_card(event: Mapping[str, Any]) -> Dict[str, Any]:
     }
 
 
-def build_apply_payload(manifest_raw: bytes
+def build_apply_payload(manifest_raw: bytes, preview_raw: bytes
                         ) -> Tuple[Dict[str, Any], bytes]:
     """Validér rå manifestbytes og byg den browser-view-model + arkbytes."""
     if not isinstance(manifest_raw, bytes):
@@ -1382,11 +1468,13 @@ def build_apply_payload(manifest_raw: bytes
     manifest_doc = apply_manifest._decode_document(
         manifest_raw, "C3_HTML_APPLY_MANIFEST_INVALID")
     _validate_apply_manifest(manifest_doc)
+    preview_targets = _apply_preview_targets(manifest_doc, preview_raw)
     assign_events = _apply_assign_events(manifest_doc)
     text_bundle_sha256 = apply_text_bundle_sha256(assign_events)
     sheet_bytes, slots = apply_approval_sheet(
         text_bundle_sha256, assign_events)
-    cards = [_apply_card(event) for event in assign_events]
+    cards = [_apply_card(event, preview_targets[event["rid"]]["old_text"])
+             for event in assign_events]
     if [card["element_id"] for card in cards] != [
             slot["element_id"] for slot in slots]:
         fail("C3_HTML_APPLY_INTERNAL_ERROR")
@@ -1396,6 +1484,7 @@ def build_apply_payload(manifest_raw: bytes
             "manifest_raw_sha256": hashlib.sha256(manifest_raw).hexdigest(),
             "manifest_canonical_content_sha256":
                 manifest_doc["canonical_content_sha256"],
+            "preview_raw_sha256": hashlib.sha256(preview_raw).hexdigest(),
         },
         "text_bundle_sha256": text_bundle_sha256,
         "counts": {"decisions": _APPLY_COUNTS_EXACT["assign_events"]},
@@ -1484,7 +1573,7 @@ function appendLabelledValue(container, label, value, className) {
 
 function bindingStatusPlain(status) {
   const labels = {
-    absent: "Der er endnu ikke registreret nogen tekst her — dette er en ny tilføjelse.",
+    absent: "Kildeposten har endnu ingen publiceringsbinding.",
     draft_same_record: "Der findes allerede en kladde her for samme kildepost.",
     draft_other_record: "Der findes allerede en kladde her for en anden kildepost.",
     published: "Der er allerede en offentliggjort tekst her.",
@@ -1507,16 +1596,41 @@ function renderApplyCard(card, index, total) {
   article.append(makeElement(
     "p", "card-intro",
     `Kilde: ${readableValue(card.after.expected_narrative.citation_label)}. `
-    + "Læs teksten nedenfor, og markér den som godkendt, hvis den er korrekt."));
+    + `Foreslået mål: ${card.after.target_display_name} `
+    + `(person ${card.after.target_person_id}).`));
 
   const comparison = makeElement("section", "comparison");
-  comparison.append(makeElement(
-    "p", "status-line", bindingStatusPlain(card.before.binding.status)));
+  const textGrid = makeElement("div", "apply-text-grid");
+  const source = makeElement("article", "source-record");
+  source.append(makeElement("h3", "", "Kildetekst"));
+  source.append(makeElement("p", "source-text", card.after.source_text));
+  textGrid.append(source);
 
   const after = makeElement("article", "candidate-card");
-  after.append(makeElement("h3", "", "Foreslået tekst"));
+  after.append(makeElement("h3", "", "Foreslået normaliseret tekst"));
   after.append(makeElement("p", "candidate-text", readableValue(card.after.normalized_text)));
-  comparison.append(after);
+  textGrid.append(after);
+  comparison.append(textGrid);
+
+  const effect = makeElement("section", "database-effect");
+  effect.append(makeElement("h3", "", "Forventet databaseeffekt"));
+  effect.append(makeElement(
+    "p", "status-line", bindingStatusPlain(card.before.binding.status)));
+  effect.append(makeElement("h4", "", "Eksisterende databasetekst"));
+  effect.append(makeElement(
+    "p", "source-text",
+    card.before.target_narrative.old_text === null
+      ? "Der findes ikke et eksisterende narrativ for denne person og kilde."
+      : card.before.target_narrative.old_text));
+  const narrativeEffect = card.before.target_narrative.narrative_id === null
+    ? "En fremtidig apply vil oprette narrativet"
+    : "En fremtidig apply vil erstatte narrativets tekst";
+  const bindingEffect = card.before.binding.status === "absent"
+    ? "oprette en publiceringsbinding"
+    : "publicere den eksisterende kladdebinding";
+  effect.append(makeElement(
+    "p", "effect-summary", `${narrativeEffect} og ${bindingEffect}.`));
+  comparison.append(effect);
 
   const details = makeElement("details", "technical-detail");
   details.append(makeElement("summary", "", "Tekniske detaljer (til kontrol af sagen)"));
@@ -1532,7 +1646,7 @@ function renderApplyCard(card, index, total) {
       ? card.after.normalization_flags
           .map(flag => `${flag.kind} (tegn ${flag.char_offset})`)
           .join(", ")
-      : null);
+      : "Ingen normaliseringsadvarsler");
   appendDetailRow(details, "Eksisterende narrativ-ID", card.before.target_narrative.narrative_id);
   appendDetailRow(details, "Eksisterende hash (old_sha256)", card.before.target_narrative.old_sha256);
   appendDetailRow(details, "Bindingsstatus (rå værdi)", card.before.binding.status);
@@ -1566,9 +1680,10 @@ function boot() {
 
   const intro = makeElement(
     "p", "page-intro",
-    `Der er ${payload.counts.decisions} tekster klar til godkendelse. Gennemgå dem `
-    + "én ad gangen, og markér hver som \"Godkendt\", hvis den er korrekt. Når du er "
-    + "færdig, download filen med dine beslutninger nedenfor.");
+    `Der er ${payload.counts.decisions} tekster til faglig kontrol. Du godkender, `
+    + "at kildeteksten er gengivet korrekt i den foreslåede tekst, og at teksten "
+    + "skal knyttes til den viste person. Godkendelsen er ikke produktions-GO og "
+    + "ændrer ikke databasen. Når du er færdig, download beslutningsfilen.");
   root.append(intro);
 
   const toolbar = makeElement("header", "toolbar");
@@ -1578,7 +1693,11 @@ function boot() {
   payload.cards.forEach((card, index) => {
     const article = renderApplyCard(card, index, payload.cards.length);
     const control = makeElement("section", "decision-control");
-    control.append(makeElement("h3", "", "Godkend indsættelse af denne tekst"));
+    control.append(makeElement(
+      "h3", "",
+      "Godkender du, at den foreslåede tekst gengiver denne kildepost korrekt "
+      + `og skal knyttes til ${card.after.target_display_name} `
+      + `(person ${card.after.target_person_id})?`));
     const slot = payload.slots.find(row => row.element_id === card.element_id);
     const select = makeSelect(
       payload.vocabulary.approval_actions, ["Uafklaret", "Godkendt"],
@@ -1678,7 +1797,7 @@ def _arguments(argv: Sequence[str]) -> Dict[str, str]:
     if mode == "review":
         allowed = {"--selection", "--state", "--review", "--output"}
     elif mode == "apply":
-        allowed = {"--manifest", "--output"}
+        allowed = {"--manifest", "--preview", "--output"}
     else:
         fail("C3_HTML_ARGUMENTS_INVALID")
         raise AssertionError("unreachable")
@@ -1780,7 +1899,9 @@ def _main_apply(values: Dict[str, str]) -> int:
         fail("C3_HTML_OUTPUT_EXISTS")
     manifest_raw = _read_input(
         values["--manifest"], "C3_HTML_APPLY_MANIFEST_INVALID")
-    payload, sheet_bytes = build_apply_payload(manifest_raw)
+    preview_raw = _read_input(
+        values["--preview"], "C3_HTML_APPLY_PREVIEW_INVALID")
+    payload, sheet_bytes = build_apply_payload(manifest_raw, preview_raw)
     rendered = render_apply_html(payload, sheet_bytes)
     publish_output(output, rendered)
     print(
