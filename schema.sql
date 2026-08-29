@@ -9504,6 +9504,7 @@ DECLARE
   v_publication_state jsonb;
   v_publication_state_sha256 text;
   v_active_binding_id uuid;
+  v_selected_binding_id uuid;
   v_withdrawn_history jsonb;
   v_latest private.narrative_publication_event%ROWTYPE;
   v_publication_status text;
@@ -9525,6 +9526,10 @@ BEGIN
   IF p_lock THEN
     PERFORM record.id FROM private.source_record record
      WHERE record.id=v_record_id FOR UPDATE;
+    -- levende/privat/staged are part of the semantic policy hash. Serialize
+    -- those flags after the record-first absence owner and before projection.
+    PERFORM person.id FROM public.person person
+     WHERE person.id=p_person_id FOR UPDATE;
     PERFORM binding.id FROM private.narrative_record_publication binding
      WHERE binding.source_record_id=v_record_id
      ORDER BY binding.id FOR UPDATE;
@@ -9599,6 +9604,33 @@ BEGIN
   );
   v_active_binding_id:=(v_publication_state #>> '{binding,binding_id}')::uuid;
 
+  -- stream_version is local to one binding and cannot order replacement
+  -- streams. Prefer the active stream; after withdrawal/discard select the
+  -- newest binding, using its canonical head event to break same-transaction
+  -- binding timestamp ties deterministically.
+  IF v_active_binding_id IS NOT NULL THEN
+    v_selected_binding_id:=v_active_binding_id;
+  ELSE
+    SELECT binding.id INTO v_selected_binding_id
+      FROM private.narrative_record_publication binding
+      JOIN public.narrative narrative ON narrative.id=binding.narrative_id
+      JOIN LATERAL (
+        SELECT event.created_at,event.change_set_id,event.id
+          FROM private.narrative_publication_event event
+         WHERE event.binding_id=binding.id
+         ORDER BY event.stream_version DESC,event.id DESC
+         LIMIT 1
+      ) stream_head ON true
+     WHERE binding.source_record_id=v_record_id
+       AND binding.status='withdrawn'
+       AND narrative.subjekt_type='person'
+       AND narrative.subjekt_id=p_person_id
+       AND narrative.source_id=p_source_id
+     ORDER BY binding.created_at DESC,stream_head.created_at DESC,
+              stream_head.change_set_id DESC,stream_head.id DESC,binding.id DESC
+     LIMIT 1;
+  END IF;
+
   SELECT coalesce(jsonb_agg(jsonb_build_object(
            'binding_id',binding.id,
            'narrative_id',binding.narrative_id,
@@ -9628,7 +9660,7 @@ BEGIN
      AND narrative.subjekt_type='person'
      AND narrative.subjekt_id=p_person_id
      AND narrative.source_id=p_source_id
-     AND (v_active_binding_id IS NULL OR event.binding_id=v_active_binding_id)
+     AND event.binding_id=v_selected_binding_id
    ORDER BY event.stream_version DESC,event.created_at DESC,event.id DESC
    LIMIT 1;
 

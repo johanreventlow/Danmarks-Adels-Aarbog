@@ -12,7 +12,7 @@ alter default privileges in schema private
 -- schema-lokalt REVOKE kan ikke fjerne den. Fremtidige funktioner skal derfor
 -- altid have en eksplicit, gennemset grant (også hvis private senere får USAGE).
 alter default privileges
-  revoke execute on functions from public, anon, authenticated;
+  revoke execute on functions from public, anon, authenticated, service_role;
 alter default privileges in schema private
   revoke execute on functions from public, anon, authenticated;
 
@@ -598,6 +598,23 @@ create policy bookmark_delete_own on public.bookmark
 DO $redaction_rpc_allow_list$
 DECLARE v_signature text;
 BEGIN
+  -- Functions are installed before this file on a fresh deployment, so default
+  -- privileges alone cannot close an already-created, unclassified overload.
+  -- Reset the complete current red_* surface before reopening exact signatures.
+  FOR v_signature IN
+    SELECT 'public.'||function.oid::regprocedure::text
+      FROM pg_proc function
+      JOIN pg_namespace namespace ON namespace.oid=function.pronamespace
+     WHERE namespace.nspname='public'
+       AND function.proname LIKE 'red\_%' ESCAPE '\'
+     ORDER BY function.oid
+  LOOP
+    EXECUTE format(
+      'REVOKE ALL ON FUNCTION %s FROM PUBLIC,anon,authenticated,service_role',
+      v_signature
+    );
+  END LOOP;
+
   FOREACH v_signature IN ARRAY ARRAY[
     'public.red_activate_1939_v50_batch(uuid,uuid)',
     'public.red_afgoer_source_persona(uuid,integer,text,bigint,text)',

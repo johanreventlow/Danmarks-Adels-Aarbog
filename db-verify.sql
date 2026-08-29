@@ -356,6 +356,10 @@ DECLARE
   v_role text;
   v_function text;
   v_actual_result text;
+  v_state_definition text;
+  v_record_lock_position integer;
+  v_person_lock_position integer;
+  v_projection_position integer;
 BEGIN
   IF to_regprocedure('private.narrative_record_labels(uuid)') IS NULL
      OR to_regprocedure('private.narrative_publication_state(bigint,bigint,text)') IS NULL
@@ -461,8 +465,34 @@ BEGIN
        pg_get_functiondef(
          'private.narrative_legacy_state(uuid,boolean)'::regprocedure
        ),'FOR UPDATE'
-     )=0 THEN
+  )=0 THEN
     RAISE EXCEPTION 'NARRATIVE_RECORD_STATE_LOCK_MODE_MISSING';
+  END IF;
+
+  v_state_definition:=pg_get_functiondef(
+    'private.narrative_record_state(bigint,bigint,text,boolean)'::regprocedure
+  );
+  v_record_lock_position:=strpos(
+    v_state_definition,'WHERE record.id=v_record_id FOR UPDATE;'
+  );
+  v_person_lock_position:=strpos(
+    v_state_definition,'WHERE person.id=p_person_id FOR UPDATE;'
+  );
+  v_projection_position:=strpos(
+    v_state_definition,'v_publication_state:=private.narrative_publication_state('
+  );
+  IF v_record_lock_position=0
+     OR v_person_lock_position<=v_record_lock_position
+     OR v_projection_position<=v_person_lock_position THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PERSON_POLICY_LOCK_ORDER_INVALID';
+  END IF;
+  IF strpos(v_state_definition,'v_selected_binding_id:=v_active_binding_id')=0
+     OR strpos(v_state_definition,'event.binding_id=v_selected_binding_id')=0
+     OR strpos(
+          v_state_definition,
+          '(v_active_binding_id IS NULL OR event.binding_id=v_active_binding_id)'
+        )<>0 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_STREAM_CHRONOLOGY_INVALID';
   END IF;
 
   RAISE NOTICE 'OK: #152 Task 2 canonical state, typed editor/history og ACL er installeret';

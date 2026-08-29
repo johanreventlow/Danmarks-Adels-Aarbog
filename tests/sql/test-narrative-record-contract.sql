@@ -1993,6 +1993,40 @@ BEGIN
 END
 $narrative_record_task2_behavior$;
 
+-- Simulate a fresh Supabase owner whose default ACL grants a newly installed
+-- red_* overload before db-rls.sql classifies the public RPC surface. Re-running
+-- RLS must revoke this unclassified overload while preserving exact readers.
+ALTER DEFAULT PRIVILEGES
+  GRANT EXECUTE ON FUNCTIONS TO PUBLIC,anon,authenticated,service_role;
+CREATE FUNCTION public.red_task3_unclassified_acl_probe(p_value integer)
+RETURNS integer
+LANGUAGE sql
+IMMUTABLE
+SET search_path=pg_catalog
+AS $$ SELECT p_value $$;
+\ir ../../db-rls.sql
+DO $narrative_record_task3_acl_classifier$
+DECLARE v_role text;
+BEGIN
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_function_privilege(
+      v_role,'public.red_task3_unclassified_acl_probe(integer)','EXECUTE'
+    ) THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TASK3_UNCLASSIFIED_RPC_EXECUTABLE: %',v_role;
+    END IF;
+  END LOOP;
+  IF NOT has_function_privilege(
+       'authenticated','public.red_person_narrative_records(bigint)','EXECUTE'
+     ) OR NOT has_function_privilege(
+       'authenticated','public.red_person_narrative_publication_history(bigint)','EXECUTE'
+     ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK3_EDITOR_READER_GRANT_REGRESSION';
+  END IF;
+  RAISE NOTICE 'OK: narrative record Task 3 red_* ACL classification is fail-closed';
+END
+$narrative_record_task3_acl_classifier$;
+DROP FUNCTION public.red_task3_unclassified_acl_probe(integer);
+
 -- Task 3 contract: all six record mutations remain owner-only while version 1
 -- is active. Their behavior is exercised below inside a savepoint which swaps
 -- only the capability function to version 2 and is rolled back afterwards.
@@ -2542,6 +2576,10 @@ BEGIN
     -91521001,-91521001,'stale-published',false
   );
   PERFORM pg_temp.task3_expect_error(
+    'upsert',-91521001,'stale-published','ordinary stale save',false,
+    v_state->>'state_sha256','NARRATIVE_RECORD_PUBLICATION_STALE'
+  );
+  PERFORM pg_temp.task3_expect_error(
     'revise',-91521001,'stale-published','stale revision',false,
     v_state->>'state_sha256','NARRATIVE_RECORD_PUBLICATION_STALE'
   );
@@ -2579,6 +2617,25 @@ BEGIN
   v_before:=pg_temp.task3_write_snapshot();
   v_result:=pg_temp.task3_call(
     'upsert',-91521001,'accepted-principal',E'Draft bytes\nwith exact spacing ',true,
+    v_state->>'state_sha256'
+  );
+  PERFORM pg_temp.task3_assert_success(
+    v_before,v_result,-91521001,'accepted-principal',v_pre_state,
+    'draft','draft_updated',0,0,'UPDATE'
+  );
+
+  -- Make the first stream longer than each replacement stream. A stream-local
+  -- version must never outrank a chronologically newer binding stream.
+  PERFORM set_config('app.change_set_id','',true);
+  v_pre_state:=private.narrative_publication_state(
+    -91521001,-91521001,'accepted-principal'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'accepted-principal',false
+  );
+  v_before:=pg_temp.task3_write_snapshot();
+  v_result:=pg_temp.task3_call(
+    'upsert',-91521001,'accepted-principal','Long first stream bytes',false,
     v_state->>'state_sha256'
   );
   PERFORM pg_temp.task3_assert_success(
@@ -2624,13 +2681,103 @@ BEGIN
   );
   IF (v_result->>'narrative_id')::bigint=v_old_narrative
      OR (SELECT tekst FROM public.narrative WHERE id=v_old_narrative)
-          IS DISTINCT FROM E'Draft bytes\nwith exact spacing '
+          IS DISTINCT FROM 'Long first stream bytes'
      OR (SELECT status FROM private.narrative_record_publication WHERE id=v_old_binding)
           IS DISTINCT FROM 'withdrawn'
      OR (SELECT count(*) FROM private.narrative_record_publication
           WHERE source_record_id='15210000-0000-0000-0000-000000000101')<>2 THEN
     RAISE EXCEPTION 'TASK3_WITHDRAWN_STREAM_NOT_PRESERVED';
   END IF;
+
+  -- The fresh stream is only v2 after this immediate discard, while the older
+  -- withdrawn stream is v4. Canonical latest-event selection must follow the
+  -- newer stream, not compare these stream-local versions globally.
+  PERFORM set_config('app.change_set_id','',true);
+  v_pre_state:=private.narrative_publication_state(
+    -91521001,-91521001,'accepted-principal'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'accepted-principal',false
+  );
+  v_before:=pg_temp.task3_write_snapshot();
+  v_result:=pg_temp.task3_call(
+    'discard',-91521001,'accepted-principal',NULL,NULL,v_state->>'state_sha256'
+  );
+  PERFORM pg_temp.task3_assert_success(
+    v_before,v_result,-91521001,'accepted-principal',v_pre_state,
+    'withdrawn','draft_discarded',0,0,NULL
+  );
+
+  -- A second replacement stream reaches only v3 (create, publish, withdraw),
+  -- still shorter than the first v4 stream. Withdrawal must nevertheless make
+  -- its own event the canonical head after its binding becomes withdrawn.
+  PERFORM set_config('app.change_set_id','',true);
+  v_pre_state:=private.narrative_publication_state(
+    -91521001,-91521001,'accepted-principal'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'accepted-principal',false
+  );
+  v_before:=pg_temp.task3_write_snapshot();
+  v_result:=pg_temp.task3_call(
+    'upsert',-91521001,'accepted-principal','Newest stream bytes',false,
+    v_state->>'state_sha256'
+  );
+  PERFORM pg_temp.task3_assert_success(
+    v_before,v_result,-91521001,'accepted-principal',v_pre_state,
+    'draft','draft_created',1,1,'INSERT'
+  );
+
+  PERFORM set_config('app.change_set_id','',true);
+  v_pre_state:=private.narrative_publication_state(
+    -91521001,-91521001,'accepted-principal'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'accepted-principal',false
+  );
+  v_before:=pg_temp.task3_write_snapshot();
+  v_result:=pg_temp.task3_call(
+    'publish',-91521001,'accepted-principal',NULL,NULL,v_state->>'state_sha256'
+  );
+  PERFORM pg_temp.task3_assert_success(
+    v_before,v_result,-91521001,'accepted-principal',v_pre_state,
+    'published','published',0,0,NULL
+  );
+
+  PERFORM set_config('app.change_set_id','',true);
+  v_pre_state:=private.narrative_publication_state(
+    -91521001,-91521001,'accepted-principal'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'accepted-principal',false
+  );
+  v_before:=pg_temp.task3_write_snapshot();
+  v_result:=pg_temp.task3_call(
+    'withdraw',-91521001,'accepted-principal',NULL,NULL,v_state->>'state_sha256'
+  );
+  PERFORM pg_temp.task3_assert_success(
+    v_before,v_result,-91521001,'accepted-principal',v_pre_state,
+    'withdrawn','withdrawn',0,0,NULL
+  );
+
+  -- Preserve the later identity-conflict test's active-binding premise while
+  -- also proving a new draft remains possible after the shorter stream exits.
+  PERFORM set_config('app.change_set_id','',true);
+  v_pre_state:=private.narrative_publication_state(
+    -91521001,-91521001,'accepted-principal'
+  );
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'accepted-principal',false
+  );
+  v_before:=pg_temp.task3_write_snapshot();
+  v_result:=pg_temp.task3_call(
+    'upsert',-91521001,'accepted-principal','Active conflict stream',false,
+    v_state->>'state_sha256'
+  );
+  PERFORM pg_temp.task3_assert_success(
+    v_before,v_result,-91521001,'accepted-principal',v_pre_state,
+    'draft','draft_created',1,1,'INSERT'
+  );
 
   -- Active draft update, publication, explicit revision and derived-event block.
   PERFORM set_config('app.change_set_id','',true);
@@ -2868,3 +3015,315 @@ END
 $narrative_record_task3_version_restored$;
 
 ROLLBACK;
+
+-- Task 3 policy serialization: the canonical writer lock must cover the person
+-- row whose levende/privat/staged values are hashed into publication_policy.
+-- This committed disposable fixture is required because both dblink sessions
+-- must observe it; the exception handler removes it on both RED and GREEN paths.
+SET search_path TO public,private,extensions,pg_catalog;
+DO $narrative_record_task3_person_policy_lock$
+DECLARE
+  v_conn text:=format(
+    'dbname=%s port=%s host=%s user=%s',current_database(),current_setting('port'),
+    split_part(current_setting('unix_socket_directories'),',',1),session_user
+  );
+  v_person_id bigint:=-91523001;
+  v_source_id bigint:=-91523001;
+  v_actor uuid:='15230000-0000-0000-0000-000000000099';
+  v_record_id uuid:='15230000-0000-0000-0000-000000000001';
+  v_run_id uuid:='15230000-0000-0000-0000-000000000002';
+  v_writer_result jsonb;
+  v_event_type text;
+  v_attested_allowed boolean;
+  v_a_pid integer;
+  v_b_pid integer;
+  v_busy integer;
+  v_deadline timestamptz;
+  v_setup_connected boolean:=false;
+  v_a_connected boolean:=false;
+  v_b_connected boolean:=false;
+  v_cleanup text:=$cleanup$
+    SET session_replication_role=replica;
+    DELETE FROM private.narrative_publication_event
+      WHERE source_record_id='15230000-0000-0000-0000-000000000001';
+    DELETE FROM private.narrative_record_publication
+      WHERE source_record_id='15230000-0000-0000-0000-000000000001';
+    DELETE FROM public.narrative
+      WHERE subjekt_type='person' AND subjekt_id=-91523001 AND source_id=-91523001;
+    DELETE FROM private.source_persona_identity
+      WHERE source_persona_id='15230000-0000-0000-0000-000000000008';
+    DELETE FROM private.source_persona_identity_event
+      WHERE source_persona_id='15230000-0000-0000-0000-000000000008';
+    DELETE FROM private.source_persona_placement_decision
+      WHERE placement_id='15230000-0000-0000-0000-000000000012';
+    DELETE FROM private.source_persona_placement
+      WHERE id='15230000-0000-0000-0000-000000000012';
+    DELETE FROM private.source_record_placement_decision
+      WHERE placement_id='15230000-0000-0000-0000-000000000011';
+    DELETE FROM private.source_record_placement
+      WHERE id='15230000-0000-0000-0000-000000000011';
+    DELETE FROM private.source_persona_mention
+      WHERE persona_id='15230000-0000-0000-0000-000000000008';
+    DELETE FROM private.source_mention
+      WHERE id='15230000-0000-0000-0000-000000000009';
+    DELETE FROM private.source_persona
+      WHERE id='15230000-0000-0000-0000-000000000008';
+    DELETE FROM private.source_observation
+      WHERE id='15230000-0000-0000-0000-000000000007';
+    DELETE FROM private.source_record_anchor_event
+      WHERE source_record_id='15230000-0000-0000-0000-000000000001';
+    DELETE FROM private.source_record_occurrence
+      WHERE id='15230000-0000-0000-0000-000000000006';
+    DELETE FROM private.source_record
+      WHERE id='15230000-0000-0000-0000-000000000001';
+    DELETE FROM private.source_rendition
+      WHERE id='15230000-0000-0000-0000-000000000005';
+    DELETE FROM private.extraction_run
+      WHERE id='15230000-0000-0000-0000-000000000002';
+    DELETE FROM public.lineage_scheme_entry WHERE id=-91523001;
+    DELETE FROM public.lineage_scheme WHERE id=-91523001;
+    DELETE FROM public.slaegt WHERE id=-91523001;
+    DELETE FROM public.profiles WHERE id='15230000-0000-0000-0000-000000000099';
+    DELETE FROM auth.users WHERE id='15230000-0000-0000-0000-000000000099';
+    DELETE FROM public.source WHERE id=-91523001;
+    DELETE FROM public.person WHERE id=-91523001;
+    SET session_replication_role=origin;
+  $cleanup$;
+BEGIN
+  IF to_regprocedure('extensions.dblink_connect(text,text)') IS NULL THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK3_DBLINK_REQUIRED';
+  END IF;
+
+  PERFORM extensions.dblink_connect('task3_policy_setup',v_conn);
+  v_setup_connected:=true;
+  PERFORM extensions.dblink_exec('task3_policy_setup',v_cleanup);
+  PERFORM extensions.dblink_exec('task3_policy_setup',
+    'INSERT INTO auth.users(id,email) VALUES '
+    || '(''15230000-0000-0000-0000-000000000099'',''task3-policy@test.invalid'');'
+    || 'INSERT INTO public.profiles(id,rolle,email) VALUES '
+    || '(''15230000-0000-0000-0000-000000000099'',''redaktion'',''task3-policy@test.invalid'');'
+    || 'INSERT INTO public.person(id,levende,privat,staged,visning_navn) '
+    || 'VALUES (-91523001,false,false,false,''Task 3 policy lock'');'
+    || 'INSERT INTO public.source(id,slags,titel,udgave,aar,import_key) '
+    || 'VALUES (-91523001,''test'',''Task 3 policy lock'',''Task 3 policy'',1939,''task3:policy-lock'');'
+    || 'INSERT INTO public.slaegt(id,navn,sorteringsnavn,slug) '
+    || 'VALUES (-91523001,''Task 3 policy slægt'',''Task 3 policy slægt'',''task3-policy-lock'');'
+    || 'INSERT INTO public.lineage_scheme(id,slaegt_id,source_id,kind,label) '
+    || 'VALUES (-91523001,-91523001,-91523001,''stamtavle'',''Task 3 policy scheme'');'
+    || 'INSERT INTO public.lineage_scheme_entry(id,scheme_id,slaegt_id,code,label,sort_order) '
+    || 'VALUES (-91523001,-91523001,-91523001,''A'',''Task 3 policy line'',1);'
+    || 'INSERT INTO private.extraction_run('
+    || 'id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) '
+    || 'VALUES (''15230000-0000-0000-0000-000000000002'',-91523001,''task3-policy-lock'','
+    || '''1'',''task3'',''task3'',''' || repeat('3',64) || ''',''{}'');'
+    || 'INSERT INTO private.source_rendition('
+    || 'id,source_id,rendition_key,rendition_kind,content_sha256,metadata) '
+    || 'VALUES (''15230000-0000-0000-0000-000000000005'',-91523001,'
+    || '''task3-policy-lock'',''text_layer'',''' || repeat('5',64) || ''',''{}'');'
+    || 'INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id) '
+    || 'VALUES (''15230000-0000-0000-0000-000000000001'',-91523001,'
+    || '''task3-policy-lock'',''person_entry'',''15230000-0000-0000-0000-000000000002'');'
+    || 'INSERT INTO private.source_record_occurrence('
+    || 'id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,'
+    || 'physical_fingerprint,structural_fingerprint,extraction_run_id) VALUES '
+    || '(''15230000-0000-0000-0000-000000000006'',''15230000-0000-0000-0000-000000000005'','
+    || '''task3-policy-lock'',1,1,0,20,''Task 3 policy occurrence'',''task3-policy-physical'','
+    || '''task3-policy-structural'',''15230000-0000-0000-0000-000000000002'');'
+    || 'INSERT INTO private.source_record_anchor_event('
+    || 'occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name) '
+    || 'VALUES (''15230000-0000-0000-0000-000000000006'',''15230000-0000-0000-0000-000000000001'','
+    || '''accepted'',''{"basis":"Task 3 policy anchor"}'',1,'
+    || '''15230000-0000-0000-0000-000000000099'',''Task 3 policy actor'');'
+    || 'INSERT INTO private.source_observation('
+    || 'id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,'
+    || 'quality_status,extraction_method,extraction_run_id) VALUES '
+    || '(''15230000-0000-0000-0000-000000000007'',''15230000-0000-0000-0000-000000000006'','
+    || '''header'',1,1,0,20,''Task 3 policy observation'',''clear'',''task3-test'','
+    || '''15230000-0000-0000-0000-000000000002'');'
+    || 'INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES '
+    || '(''15230000-0000-0000-0000-000000000008'',-91523001,''task3-policy-persona'','
+    || '''15230000-0000-0000-0000-000000000002'');'
+    || 'INSERT INTO private.source_mention('
+    || 'id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id) VALUES '
+    || '(''15230000-0000-0000-0000-000000000009'',''15230000-0000-0000-0000-000000000007'','
+    || '''person_name'',0,4,''Task'',''15230000-0000-0000-0000-000000000002'');'
+    || 'INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) '
+    || 'VALUES (''15230000-0000-0000-0000-000000000008'',''15230000-0000-0000-0000-000000000009'','
+    || '''primary'',1);'
+    || 'INSERT INTO private.source_record_placement('
+    || 'id,source_record_id,scheme_entry_id,header_observation_id,initial_status) VALUES '
+    || '(''15230000-0000-0000-0000-000000000011'',''15230000-0000-0000-0000-000000000001'','
+    || '-91523001,''15230000-0000-0000-0000-000000000007'',''accepted'');'
+    || 'INSERT INTO private.source_record_placement_decision('
+    || 'placement_id,version,decision_status,evidence,decision_origin,decided_by_name) VALUES '
+    || '(''15230000-0000-0000-0000-000000000011'',1,''accepted'','
+    || '''{"basis":"Task 3 policy placement"}'',''migration'',''Task 3 policy actor'');'
+    || 'INSERT INTO private.source_persona_placement('
+    || 'id,source_persona_id,record_placement_id,placement_role,basis_observation_id,initial_status) VALUES '
+    || '(''15230000-0000-0000-0000-000000000012'',''15230000-0000-0000-0000-000000000008'','
+    || '''15230000-0000-0000-0000-000000000011'',''principal_member'','
+    || '''15230000-0000-0000-0000-000000000007'',''accepted'');'
+    || 'INSERT INTO private.source_persona_placement_decision('
+    || 'placement_id,version,decision_status,evidence,decision_origin,decided_by_name) VALUES '
+    || '(''15230000-0000-0000-0000-000000000012'',1,''accepted'','
+    || '''{"basis":"Task 3 policy persona placement"}'',''migration'',''Task 3 policy actor'');'
+    || 'INSERT INTO private.source_persona_identity_event('
+    || 'source_persona_id,canonical_person_id,decision_status,version,evidence,decided_by,'
+    || 'decided_by_name,decided_at) VALUES '
+    || '(''15230000-0000-0000-0000-000000000008'',-91523001,''accepted'',1,'
+    || '''{"basis":"Task 3 policy identity"}'',''15230000-0000-0000-0000-000000000099'','
+    || '''Task 3 policy actor'',now());'
+    || 'INSERT INTO private.source_persona_identity('
+    || 'source_persona_id,canonical_person_id,decision_status,version,evidence,decided_by,'
+    || 'decided_by_name,decided_at) VALUES '
+    || '(''15230000-0000-0000-0000-000000000008'',-91523001,''accepted'',1,'
+    || '''{"basis":"Task 3 policy identity"}'',''15230000-0000-0000-0000-000000000099'','
+    || '''Task 3 policy actor'',now())');
+
+  PERFORM extensions.dblink_connect('task3_policy_a',v_conn);
+  v_a_connected:=true;
+  PERFORM extensions.dblink_connect('task3_policy_b',v_conn);
+  v_b_connected:=true;
+  SELECT pid INTO v_a_pid
+    FROM extensions.dblink('task3_policy_a','SELECT pg_backend_pid()') AS t(pid integer);
+  SELECT pid INTO v_b_pid
+    FROM extensions.dblink('task3_policy_b','SELECT pg_backend_pid()') AS t(pid integer);
+
+  PERFORM extensions.dblink_exec('task3_policy_a','BEGIN');
+  PERFORM extensions.dblink_exec(
+    'task3_policy_a',
+    'CREATE OR REPLACE FUNCTION public.narrative_record_contract_version() '
+    || 'RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER '
+    || 'SET search_path=pg_catalog AS $version$ SELECT 2 $version$'
+  );
+  PERFORM extensions.dblink_exec(
+    'task3_policy_a',
+    'SET LOCAL "request.jwt.claim.sub"='
+    || quote_literal(v_actor::text)
+  );
+  SELECT result INTO v_writer_result
+    FROM extensions.dblink(
+      'task3_policy_a',
+      'SELECT public.red_upsert_person_narrative_record('
+      || '-91523001,-91523001,''task3-policy-lock'',''Policy race draft'',false,'
+      || 'private.narrative_record_state('
+      || '-91523001,-91523001,''task3-policy-lock'',false)->>''state_sha256'')'
+    ) AS t(result jsonb);
+  IF v_writer_result->>'status' IS DISTINCT FROM 'draft' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PERSON_POLICY_DRAFT_SETUP_INVALID';
+  END IF;
+
+  PERFORM extensions.dblink_exec('task3_policy_b','BEGIN');
+  PERFORM extensions.dblink_send_query(
+    'task3_policy_b',
+    'UPDATE public.person SET privat=true WHERE id=-91523001 RETURNING id'
+  );
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
+    SELECT extensions.dblink_is_busy('task3_policy_b') INTO v_busy;
+    IF v_busy=0 THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PERSON_POLICY_NOT_SERIALIZED';
+    END IF;
+    IF clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PERSON_POLICY_LOCK_TIMEOUT';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+
+  PERFORM value
+    FROM extensions.dblink(
+      'task3_policy_a',
+      'SELECT set_config(''app.change_set_id'','''',true)'
+    ) AS t(value text);
+  SELECT result INTO v_writer_result
+    FROM extensions.dblink(
+      'task3_policy_a',
+      'SELECT public.red_publicer_person_narrative_record('
+      || '-91523001,-91523001,''task3-policy-lock'','
+      || 'private.narrative_record_state('
+      || '-91523001,-91523001,''task3-policy-lock'',false)->>''state_sha256'')'
+    ) AS t(result jsonb);
+  SELECT event_type,attested_allowed
+    INTO v_event_type,v_attested_allowed
+    FROM extensions.dblink(
+      'task3_policy_a',
+      'SELECT event_type,'
+      || '(after_state #>> ''{publication_policy,publication_allowed}'')::boolean '
+      || 'FROM private.narrative_publication_event '
+      || 'WHERE source_record_id=''15230000-0000-0000-0000-000000000001'' '
+      || 'ORDER BY stream_version DESC LIMIT 1'
+    ) AS t(event_type text,attested_allowed boolean);
+  IF v_writer_result->>'status' IS DISTINCT FROM 'published'
+     OR v_event_type IS DISTINCT FROM 'published'
+     OR v_attested_allowed IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PERSON_POLICY_PUBLISHED_ATTESTATION_INVALID';
+  END IF;
+
+  -- Roll back both the temporary version-2 definition and the successful
+  -- publication. Only then may the concurrent policy update resume.
+  PERFORM extensions.dblink_exec('task3_policy_a','ROLLBACK');
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    SELECT extensions.dblink_is_busy('task3_policy_b') INTO v_busy;
+    EXIT WHEN v_busy=0;
+    IF clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PERSON_POLICY_UPDATE_DID_NOT_RESUME';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  PERFORM id FROM extensions.dblink_get_result('task3_policy_b') AS t(id bigint);
+  PERFORM id FROM extensions.dblink_get_result('task3_policy_b') AS t(id bigint);
+  PERFORM extensions.dblink_exec('task3_policy_b','COMMIT');
+  PERFORM extensions.dblink_disconnect('task3_policy_a'); v_a_connected:=false;
+  PERFORM extensions.dblink_disconnect('task3_policy_b'); v_b_connected:=false;
+
+  IF coalesce((
+       private.narrative_record_state(
+         v_person_id,v_source_id,'task3-policy-lock',false
+       ) #>> '{publication_state,publication_policy,publication_allowed}'
+     )::boolean,true)
+     OR EXISTS (
+       SELECT 1 FROM private.narrative_publication_event event
+        WHERE event.source_record_id=v_record_id
+     )
+     OR public.narrative_record_contract_version()<>1 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PERSON_POLICY_POST_STATE_INVALID';
+  END IF;
+
+  PERFORM extensions.dblink_exec('task3_policy_setup',v_cleanup);
+  PERFORM extensions.dblink_disconnect('task3_policy_setup');
+  v_setup_connected:=false;
+  RAISE NOTICE 'OK: narrative record Task 3 person policy row is serialized before attestation';
+EXCEPTION WHEN OTHERS THEN
+  IF v_a_connected THEN
+    BEGIN PERFORM extensions.dblink_exec('task3_policy_a','ROLLBACK');
+      EXCEPTION WHEN OTHERS THEN NULL; END;
+    BEGIN PERFORM extensions.dblink_disconnect('task3_policy_a');
+      EXCEPTION WHEN OTHERS THEN NULL; END;
+  END IF;
+  IF v_b_connected THEN
+    BEGIN PERFORM extensions.dblink_cancel_query('task3_policy_b');
+      EXCEPTION WHEN OTHERS THEN NULL; END;
+    BEGIN
+      WHILE extensions.dblink_is_busy('task3_policy_b')=1 LOOP
+        PERFORM pg_sleep(0.02);
+      END LOOP;
+    EXCEPTION WHEN OTHERS THEN NULL; END;
+    BEGIN PERFORM * FROM extensions.dblink_get_result('task3_policy_b') AS t(id bigint);
+      EXCEPTION WHEN OTHERS THEN NULL; END;
+    BEGIN PERFORM extensions.dblink_exec('task3_policy_b','ROLLBACK');
+      EXCEPTION WHEN OTHERS THEN NULL; END;
+    BEGIN PERFORM extensions.dblink_disconnect('task3_policy_b');
+      EXCEPTION WHEN OTHERS THEN NULL; END;
+  END IF;
+  IF v_setup_connected THEN
+    BEGIN PERFORM extensions.dblink_exec('task3_policy_setup',v_cleanup);
+      EXCEPTION WHEN OTHERS THEN NULL; END;
+    BEGIN PERFORM extensions.dblink_disconnect('task3_policy_setup');
+      EXCEPTION WHEN OTHERS THEN NULL; END;
+  END IF;
+  RAISE;
+END
+$narrative_record_task3_person_policy_lock$;
+RESET search_path;
