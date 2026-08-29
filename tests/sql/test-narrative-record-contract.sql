@@ -5363,3 +5363,639 @@ EXCEPTION WHEN OTHERS THEN
 END
 $narrative_record_task3_person_policy_lock$;
 RESET search_path;
+
+-- Task 6: every legacy mutation surface joins the cutover lock protocol. The
+-- shared advisory lock must be the first lock in each body, with the version
+-- recheck before role, authorization, journal, or domain state access.
+DO $narrative_record_task6_structure$
+DECLARE
+  v_signature text;
+  v_definition text;
+  v_gate integer;
+  v_version integer;
+  v_other integer;
+  v_position integer;
+  v_timeout integer;
+BEGIN
+  FOREACH v_signature IN ARRAY ARRAY[
+    'public.red_upsert_narrativ(text,bigint,text,boolean,bigint,text)',
+    'public.red_publicer_narrative_record(bigint,uuid,text,text)',
+    'public.red_tilbagetraek_narrative_record(bigint)',
+    'public.red_slet_person(bigint)',
+    'public.red_fortryd_change_set(bigint,boolean)',
+    'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_begin_1939_v50_reimport(uuid,text,text)',
+    'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_person_create(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',
+    'public.red_finalize_1939_v50_reimport(uuid)',
+    'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)',
+    'public.red_reverse_1939_v50_reimport(uuid,uuid)',
+    'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)',
+    'public.red_activate_1939_v50_batch(uuid,uuid)',
+    'public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_apply_reimport_cases(uuid,text,text)',
+    'public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)',
+    'public.red_reverse_reimport_cases(uuid,uuid)',
+    'private.write_reimport_case_narrative(bigint,bigint,bigint,text,boolean,text)'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NULL THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TASK6_WRITER_MISSING: %',v_signature;
+    END IF;
+    v_definition:=regexp_replace(
+      pg_get_functiondef(to_regprocedure(v_signature)),
+      '--[^' || chr(10) || ']*',' ','g'
+    );
+    v_gate:=strpos(v_definition,'pg_advisory_xact_lock_shared(');
+    v_version:=strpos(v_definition,'public.narrative_record_contract_version()');
+    IF v_gate=0 OR v_version<=v_gate
+       OR strpos(v_definition,'''daa-narrative-record-contract''')=0 THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TASK6_GATE_ORDER_INVALID: %',v_signature;
+    END IF;
+    v_other:=0;
+    FOREACH v_position IN ARRAY ARRAY[
+      strpos(v_definition,'pg_advisory_xact_lock('),
+      strpos(v_definition,'LOCK TABLE '),
+      strpos(v_definition,' FOR UPDATE'),
+      strpos(v_definition,' FOR SHARE')
+    ] LOOP
+      IF v_position>0 AND (v_other=0 OR v_position<v_other) THEN v_other:=v_position; END IF;
+    END LOOP;
+    IF v_other>0 AND v_other<v_gate THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TASK6_FIRST_LOCK_INVALID: %',v_signature;
+    END IF;
+    IF v_signature IN (
+         'public.red_apply_reimport_cases(uuid,text,text)',
+         'public.red_reverse_reimport_cases(uuid,uuid)'
+       ) THEN
+      v_timeout:=strpos(v_definition,'set_config(''lock_timeout''');
+      IF v_timeout=0 OR v_timeout<v_version THEN
+        RAISE EXCEPTION 'NARRATIVE_RECORD_TASK6_CUTOVER_TIMEOUT_ORDER_INVALID: %',v_signature;
+      END IF;
+    END IF;
+  END LOOP;
+
+  FOREACH v_signature IN ARRAY ARRAY[
+    'public.red_preview_reimport_cases(bigint,text,jsonb)',
+    'private.reimport_case_receipt(uuid)',
+    'private.reimport_case_reversal_plan(uuid)'
+  ] LOOP
+    v_definition:=pg_get_functiondef(to_regprocedure(v_signature));
+    IF strpos(v_definition,'daa-narrative-record-contract')>0 THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TASK6_READ_ONLY_CLASSIFICATION_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: narrative record Task 6 complete writer inventory and first-lock order';
+END
+$narrative_record_task6_structure$;
+
+-- Real two-session orders. Each committed fixture is isolated to negative ids
+-- and removed by the exception-safe cleanup path.
+SET search_path TO public,private,extensions,pg_catalog;
+DO $narrative_record_task6_lock_orders$
+DECLARE
+  v_conn text:=format(
+    'dbname=%s port=%s host=%s user=%s',current_database(),current_setting('port'),
+    split_part(current_setting('unix_socket_directories'),',',1),session_user
+  );
+  v_actor uuid:='15260000-0000-0000-0000-000000000099';
+  v_a_pid integer;
+  v_b_pid integer;
+  v_busy integer;
+  v_deadline timestamptz;
+  v_index integer;
+  v_result text;
+  v_before jsonb;
+  v_after jsonb;
+  v_manifest text;
+  v_acl text;
+  v_calls text[]:=ARRAY[
+    'SELECT public.red_upsert_narrativ(''person'',-91526001,''task6 order A'',false,-91526001,NULL)',
+    'SELECT public.red_apply_1939_v50_source_evidence(NULL,NULL,NULL)',
+    'SELECT public.red_reverse_1939_v50_reimport(NULL,NULL)',
+    'SELECT public.red_apply_reimport_cases(NULL,NULL,NULL)',
+    'SELECT public.red_reverse_reimport_cases(NULL,NULL)'
+  ];
+  v_errors text[]:=ARRAY[
+    'NARRATIVE_RECORD_REQUIRED',
+    'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED',
+    'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED',
+    'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED',
+    'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'
+  ];
+  v_disabled_calls text[]:=ARRAY[
+    'SELECT public.red_publicer_narrative_record(NULL,NULL,NULL,NULL)',
+    'SELECT public.red_tilbagetraek_narrative_record(NULL)',
+    'SELECT public.red_authorize_1939_v50_reimport(NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL)',
+    'SELECT public.red_begin_1939_v50_reimport(NULL,NULL,NULL)',
+    'SELECT public.red_apply_1939_v50_source_evidence(NULL,NULL,NULL)',
+    'SELECT public.red_apply_1939_v50_person_create(NULL,NULL,NULL)',
+    'SELECT public.red_apply_1939_v50_canonical_delta(NULL,NULL,NULL)',
+    'SELECT public.red_finalize_1939_v50_reimport(NULL)',
+    'SELECT public.red_authorize_1939_v50_reversal(NULL,NULL,NULL)',
+    'SELECT public.red_reverse_1939_v50_reimport(NULL,NULL)',
+    'SELECT public.red_authorize_1939_v50_cutover(NULL,NULL,NULL)',
+    'SELECT public.red_activate_1939_v50_batch(NULL,NULL)',
+    'SELECT public.red_authorize_reimport_cases(NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL)',
+    'SELECT public.red_apply_reimport_cases(NULL,NULL,NULL)',
+    'SELECT public.red_authorize_reimport_case_reversal(NULL,NULL,NULL,NULL)',
+    'SELECT public.red_reverse_reimport_cases(NULL,NULL)',
+    'SELECT private.write_reimport_case_narrative(NULL,NULL,NULL,NULL,NULL,NULL)'
+  ];
+  v_setup_connected boolean:=false;
+  v_a_connected boolean:=false;
+  v_b_connected boolean:=false;
+  v_cleanup text:=$cleanup$
+    SET session_replication_role=replica;
+    DELETE FROM public.change_event WHERE change_set_id IN (
+      SELECT id FROM public.change_set WHERE subjekt_id IN (-91526001,-91526002)
+    );
+    DELETE FROM public.change_set WHERE subjekt_id IN (-91526001,-91526002);
+    DELETE FROM private.narrative_record_publication WHERE narrative_id IN (
+      SELECT id FROM public.narrative WHERE subjekt_id IN (-91526001,-91526002)
+    );
+    DELETE FROM public.narrative WHERE subjekt_id IN (-91526001,-91526002);
+    DELETE FROM public.person WHERE id IN (-91526001,-91526002);
+    DELETE FROM public.source WHERE id IN (-91526001,-91526002);
+    DELETE FROM public.profiles WHERE id='15260000-0000-0000-0000-000000000099';
+    DELETE FROM auth.users WHERE id='15260000-0000-0000-0000-000000000099';
+    SET session_replication_role=origin;
+  $cleanup$;
+  v_snapshot_sql text:=$snapshot$
+    SELECT jsonb_build_object(
+      'v50_auth',(SELECT count(*) FROM private.reimport_1939_authorization),
+      'v50_batch',(SELECT count(*) FROM private.reimport_1939_write_batch),
+      'v50_event',(SELECT count(*) FROM private.reimport_1939_write_event),
+      'c3_auth',(SELECT count(*) FROM private.reimport_case_authorization),
+      'c3_batch',(SELECT count(*) FROM private.reimport_case_batch),
+      'c3_event',(SELECT count(*) FROM private.reimport_case_event),
+      'change_set',(SELECT count(*) FROM public.change_set),
+      'change_event',(SELECT count(*) FROM public.change_event),
+      'narrative',(SELECT count(*) FROM public.narrative),
+      'binding',(SELECT count(*) FROM private.narrative_record_publication)
+    )
+  $snapshot$;
+BEGIN
+  PERFORM extensions.dblink_connect('task6_setup',v_conn); v_setup_connected:=true;
+  PERFORM extensions.dblink_connect('task6_a',v_conn); v_a_connected:=true;
+  PERFORM extensions.dblink_connect('task6_b',v_conn); v_b_connected:=true;
+  PERFORM extensions.dblink_exec('task6_setup',v_cleanup);
+  PERFORM extensions.dblink_exec('task6_setup',
+    'INSERT INTO auth.users(id,email) VALUES '
+    || '(''15260000-0000-0000-0000-000000000099'',''task6@test.invalid'');'
+    || 'INSERT INTO public.profiles(id,rolle,email) VALUES '
+    || '(''15260000-0000-0000-0000-000000000099'',''redaktion'',''task6@test.invalid'');'
+    || 'INSERT INTO public.person(id,levende,privat,staged,visning_navn) VALUES '
+    || '(-91526001,false,false,false,''Task 6 old writer'');'
+    || 'INSERT INTO public.source(id,slags,titel,udgave,aar,import_key) VALUES '
+    || '(-91526001,''DAA-udgave'',''Task 6 DAA'',''Task 6'',1939,''task6:daa''),'
+    || '(-91526002,''bog'',''Task 6 control'',''Task 6'',1939,''task6:control'')'
+  );
+  PERFORM extensions.dblink_exec('task6_a',
+    'CREATE OR REPLACE FUNCTION pg_temp.task6_attempt(p_sql text) RETURNS text '
+    || 'LANGUAGE plpgsql AS $attempt$ BEGIN EXECUTE p_sql; RETURN ''NO_ERROR''; '
+    || 'EXCEPTION WHEN OTHERS THEN RETURN SQLERRM; END $attempt$'
+  );
+  SELECT pid INTO v_a_pid FROM extensions.dblink('task6_a','SELECT pg_backend_pid()') AS t(pid integer);
+  SELECT pid INTO v_b_pid FROM extensions.dblink('task6_b','SELECT pg_backend_pid()') AS t(pid integer);
+
+  -- Order A: exclusive first. Every family representative blocks, then wakes
+  -- under committed v2 and rejects before any old-family write.
+  FOR v_index IN 1..array_length(v_calls,1) LOOP
+    PERFORM extensions.dblink_exec('task6_b','BEGIN');
+    PERFORM extensions.dblink_exec('task6_b',
+      'DO $lock$ BEGIN PERFORM pg_advisory_xact_lock('
+      || 'hashtextextended(''daa-narrative-record-contract'',0)); END $lock$'
+    );
+    PERFORM extensions.dblink_exec('task6_b',
+      'CREATE OR REPLACE FUNCTION public.narrative_record_contract_version() '
+      || 'RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER '
+      || 'SET search_path=pg_catalog AS $version$ SELECT 2 $version$'
+    );
+    PERFORM extensions.dblink_exec('task6_a','BEGIN');
+    PERFORM extensions.dblink_exec('task6_a',
+      'SET LOCAL "request.jwt.claim.sub"='||quote_literal(v_actor::text)
+    );
+    PERFORM extensions.dblink_send_query(
+      'task6_a','SELECT pg_temp.task6_attempt('||quote_literal(v_calls[v_index])||')'
+    );
+    v_deadline:=clock_timestamp()+interval '3 seconds';
+    LOOP
+      EXIT WHEN v_b_pid=ANY(pg_blocking_pids(v_a_pid));
+      SELECT extensions.dblink_is_busy('task6_a') INTO v_busy;
+      IF v_busy=0 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_TASK6_ORDER_A_DID_NOT_BLOCK: %',v_index; END IF;
+      IF clock_timestamp()>v_deadline THEN RAISE EXCEPTION 'NARRATIVE_RECORD_TASK6_ORDER_A_TIMEOUT: %',v_index; END IF;
+      PERFORM pg_sleep(0.02);
+    END LOOP;
+    -- C3 apply/reversal historically installed a five-second lock_timeout
+    -- before their first advisory lock. A real cutover may legitimately hold
+    -- exclusive for longer: the old call must remain queued, then wake and
+    -- return the exact version error rather than a generic lock timeout.
+    IF v_index IN (4,5) THEN PERFORM pg_sleep(5.25); END IF;
+    PERFORM extensions.dblink_exec('task6_b','COMMIT');
+    SELECT result INTO v_result FROM extensions.dblink_get_result('task6_a') AS t(result text);
+    PERFORM result FROM extensions.dblink_get_result('task6_a') AS t(result text);
+    IF v_result IS DISTINCT FROM v_errors[v_index] THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TASK6_ORDER_A_ERROR: % %',v_index,v_result;
+    END IF;
+    PERFORM extensions.dblink_exec('task6_a','ROLLBACK');
+    PERFORM extensions.dblink_exec('task6_b',
+      'CREATE OR REPLACE FUNCTION public.narrative_record_contract_version() '
+      || 'RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER '
+      || 'SET search_path=pg_catalog AS $version$ SELECT 1 $version$'
+    );
+  END LOOP;
+
+  -- At v2 every remaining mutation entry point rejects with no authorization,
+  -- batch, event, change-set, narrative, or binding delta.
+  PERFORM extensions.dblink_exec('task6_b','BEGIN');
+  PERFORM extensions.dblink_exec('task6_b',
+    'DO $lock$ BEGIN PERFORM pg_advisory_xact_lock('
+    || 'hashtextextended(''daa-narrative-record-contract'',0)); END $lock$'
+  );
+  PERFORM extensions.dblink_exec('task6_b',
+    'CREATE OR REPLACE FUNCTION public.narrative_record_contract_version() '
+    || 'RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER '
+    || 'SET search_path=pg_catalog AS $version$ SELECT 2 $version$'
+  );
+  PERFORM extensions.dblink_exec('task6_b','COMMIT');
+  SELECT snapshot INTO v_before FROM extensions.dblink('task6_setup',v_snapshot_sql) AS t(snapshot jsonb);
+  PERFORM extensions.dblink_exec('task6_a','BEGIN');
+  PERFORM extensions.dblink_exec('task6_a',
+    'SET LOCAL "request.jwt.claim.sub"='||quote_literal(v_actor::text)
+  );
+  FOREACH v_result IN ARRAY v_disabled_calls LOOP
+    SELECT result INTO v_result FROM extensions.dblink(
+      'task6_a','SELECT pg_temp.task6_attempt('||quote_literal(v_result)||')'
+    ) AS t(result text);
+    IF v_result IS DISTINCT FROM 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED' THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TASK6_V2_BYPASS: %',v_result;
+    END IF;
+  END LOOP;
+  SELECT result INTO v_result FROM extensions.dblink(
+    'task6_a',
+    'SELECT pg_temp.task6_attempt(''SELECT public.red_upsert_narrativ(''''person'''',-91526001,''''blocked'''',false,-91526001,NULL)'')'
+  ) AS t(result text);
+  IF v_result IS DISTINCT FROM 'NARRATIVE_RECORD_REQUIRED' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK6_UPSERT_V2_BYPASS: %',v_result;
+  END IF;
+  SELECT snapshot INTO v_after FROM extensions.dblink('task6_a',v_snapshot_sql) AS t(snapshot jsonb);
+  IF v_after IS DISTINCT FROM v_before THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK6_V2_REJECTION_WROTE: % %',v_before,v_after;
+  END IF;
+  -- Controls: only person+DAA is disabled. Other subjects and sources preserve
+  -- the legacy v1 behavior even while the contract is at v2.
+  PERFORM result FROM extensions.dblink(
+    'task6_a',
+    'SELECT public.red_upsert_narrativ(''estate'',-91526002,''estate control'',false,-91526001,NULL)'
+  ) AS t(result bigint);
+  PERFORM result FROM extensions.dblink(
+    'task6_a',
+    'SELECT public.red_upsert_narrativ(''person'',-91526001,''source control'',false,-91526002,NULL)'
+  ) AS t(result bigint);
+  PERFORM extensions.dblink_exec('task6_a','ROLLBACK');
+  PERFORM extensions.dblink_exec('task6_b',
+    'CREATE OR REPLACE FUNCTION public.narrative_record_contract_version() '
+    || 'RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER '
+    || 'SET search_path=pg_catalog AS $version$ SELECT 1 $version$'
+  );
+
+  -- Order B: the v1 writer takes shared first and commits. The exclusive
+  -- cutover waits, recomputes the exact narrative manifest under its lock, and
+  -- aborts on drift without changing the version function or ACL manifest.
+  SELECT manifest INTO v_manifest FROM extensions.dblink(
+    'task6_setup',
+    'SELECT encode(extensions.digest(convert_to(coalesce(jsonb_agg('
+    || 'jsonb_build_array(id,subjekt_type,subjekt_id,source_id,tekst,side,privat) ORDER BY id),'
+    || '''[]''::jsonb)::text,''UTF8''),''sha256''),''hex'') FROM public.narrative'
+  ) AS t(manifest text);
+  SELECT acl INTO v_acl FROM extensions.dblink(
+    'task6_setup',
+    'SELECT md5(string_agg(n.nspname||''.''||p.proname||coalesce(p.proacl::text,''''),'','' ORDER BY n.nspname,p.proname,p.oid)) '
+    || 'FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace '
+    || 'WHERE p.proname LIKE ''red_%narrative_record%'' OR p.proname=''narrative_record_contract_version'''
+  ) AS t(acl text);
+  PERFORM extensions.dblink_exec('task6_b',
+    'CREATE OR REPLACE FUNCTION pg_temp.task6_cutover(p_expected text) RETURNS text '
+    || 'LANGUAGE plpgsql SET search_path=pg_catalog,public,private,extensions AS $cutover$ '
+    || 'DECLARE v_actual text; BEGIN '
+    || 'PERFORM pg_advisory_xact_lock(hashtextextended(''daa-narrative-record-contract'',0)); '
+    || 'SELECT encode(extensions.digest(convert_to(coalesce(jsonb_agg('
+    || 'jsonb_build_array(id,subjekt_type,subjekt_id,source_id,tekst,side,privat) ORDER BY id),'
+    || '''[]''::jsonb)::text,''UTF8''),''sha256''),''hex'') INTO v_actual FROM public.narrative; '
+    || 'IF v_actual IS DISTINCT FROM p_expected THEN RAISE EXCEPTION ''CUTOVER_MANIFEST_DRIFT''; END IF; '
+    || 'RETURN ''NO_DRIFT''; END $cutover$'
+  );
+  PERFORM extensions.dblink_exec('task6_b',
+    'CREATE OR REPLACE FUNCTION pg_temp.task6_attempt(p_sql text) RETURNS text '
+    || 'LANGUAGE plpgsql AS $attempt$ BEGIN EXECUTE p_sql; RETURN ''NO_ERROR''; '
+    || 'EXCEPTION WHEN OTHERS THEN RETURN SQLERRM; END $attempt$'
+  );
+  PERFORM extensions.dblink_exec('task6_a','BEGIN');
+  PERFORM extensions.dblink_exec('task6_a',
+    'SET LOCAL "request.jwt.claim.sub"='||quote_literal(v_actor::text)
+  );
+  PERFORM result FROM extensions.dblink(
+    'task6_a',
+    'SELECT public.red_upsert_narrativ(''person'',-91526001,''order B committed'',false,-91526001,''1'')'
+  ) AS t(result bigint);
+  PERFORM extensions.dblink_exec('task6_b','BEGIN');
+  PERFORM extensions.dblink_send_query(
+    'task6_b','SELECT pg_temp.task6_attempt('||quote_literal(
+      'SELECT pg_temp.task6_cutover('||quote_literal(v_manifest)||')'
+    )||')'
+  );
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
+    SELECT extensions.dblink_is_busy('task6_b') INTO v_busy;
+    IF v_busy=0 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_TASK6_ORDER_B_DID_NOT_BLOCK'; END IF;
+    IF clock_timestamp()>v_deadline THEN RAISE EXCEPTION 'NARRATIVE_RECORD_TASK6_ORDER_B_TIMEOUT'; END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  PERFORM extensions.dblink_exec('task6_a','COMMIT');
+  SELECT result INTO v_result FROM extensions.dblink_get_result('task6_b') AS t(result text);
+  PERFORM result FROM extensions.dblink_get_result('task6_b') AS t(result text);
+  IF v_result IS DISTINCT FROM 'CUTOVER_MANIFEST_DRIFT' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK6_ORDER_B_RECHECK_FAILED: %',v_result;
+  END IF;
+  PERFORM extensions.dblink_exec('task6_b','ROLLBACK');
+  SELECT result INTO v_result FROM extensions.dblink(
+    'task6_setup','SELECT public.narrative_record_contract_version()::text'
+  ) AS t(result text);
+  IF v_result IS DISTINCT FROM '1' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK6_ORDER_B_CHANGED_VERSION';
+  END IF;
+  SELECT acl INTO v_result FROM extensions.dblink(
+    'task6_setup',
+    'SELECT md5(string_agg(n.nspname||''.''||p.proname||coalesce(p.proacl::text,''''),'','' ORDER BY n.nspname,p.proname,p.oid)) '
+    || 'FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace '
+    || 'WHERE p.proname LIKE ''red_%narrative_record%'' OR p.proname=''narrative_record_contract_version'''
+  ) AS t(acl text);
+  IF v_result IS DISTINCT FROM v_acl THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK6_ORDER_B_CHANGED_GRANTS';
+  END IF;
+
+  PERFORM extensions.dblink_exec('task6_setup',v_cleanup);
+  PERFORM extensions.dblink_disconnect('task6_b'); v_b_connected:=false;
+  PERFORM extensions.dblink_disconnect('task6_a'); v_a_connected:=false;
+  PERFORM extensions.dblink_disconnect('task6_setup'); v_setup_connected:=false;
+  RAISE NOTICE 'OK: narrative record Task 6 real lock orders A/B, v1 compatibility and v2 zero writes';
+EXCEPTION WHEN OTHERS THEN
+  BEGIN PERFORM extensions.dblink_cancel_query('task6_a'); EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN PERFORM extensions.dblink_cancel_query('task6_b'); EXCEPTION WHEN OTHERS THEN NULL; END;
+  IF v_a_connected THEN
+    BEGIN PERFORM extensions.dblink_exec('task6_a','ROLLBACK'); EXCEPTION WHEN OTHERS THEN NULL; END;
+    BEGIN PERFORM extensions.dblink_disconnect('task6_a'); EXCEPTION WHEN OTHERS THEN NULL; END;
+  END IF;
+  IF v_b_connected THEN
+    BEGIN PERFORM extensions.dblink_exec('task6_b','ROLLBACK'); EXCEPTION WHEN OTHERS THEN NULL; END;
+    BEGIN PERFORM extensions.dblink_exec('task6_b',
+      'CREATE OR REPLACE FUNCTION public.narrative_record_contract_version() '
+      || 'RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER '
+      || 'SET search_path=pg_catalog AS $version$ SELECT 1 $version$'
+    ); EXCEPTION WHEN OTHERS THEN NULL; END;
+    BEGIN PERFORM extensions.dblink_disconnect('task6_b'); EXCEPTION WHEN OTHERS THEN NULL; END;
+  END IF;
+  IF v_setup_connected THEN
+    BEGIN PERFORM extensions.dblink_exec('task6_setup',v_cleanup); EXCEPTION WHEN OTHERS THEN NULL; END;
+    BEGIN PERFORM extensions.dblink_disconnect('task6_setup'); EXCEPTION WHEN OTHERS THEN NULL; END;
+  END IF;
+  RAISE;
+END
+$narrative_record_task6_lock_orders$;
+
+DO $narrative_record_task6_new_writer_cutover$
+DECLARE
+  v_conn text:=format(
+    'dbname=%s port=%s host=%s user=%s',current_database(),current_setting('port'),
+    split_part(current_setting('unix_socket_directories'),',',1),session_user
+  );
+  v_actor uuid:='15260000-0000-0000-0000-000000000199';
+  v_result text;
+  v_writer jsonb;
+  v_setup_connected boolean:=false;
+  v_a_connected boolean:=false;
+  v_b_connected boolean:=false;
+  v_cleanup text:=$cleanup$
+    SET session_replication_role=replica;
+    DELETE FROM private.narrative_publication_event
+      WHERE source_record_id='15260000-0000-0000-0000-000000000101';
+    DELETE FROM public.change_event WHERE change_set_id IN (
+      SELECT id FROM public.change_set WHERE subjekt_id=-91526003
+    );
+    DELETE FROM public.change_set WHERE subjekt_id=-91526003;
+    DELETE FROM private.narrative_record_publication
+      WHERE source_record_id='15260000-0000-0000-0000-000000000101';
+    DELETE FROM public.narrative WHERE subjekt_id=-91526003 AND source_id=-91526003;
+    DELETE FROM private.source_persona_identity
+      WHERE source_persona_id='15260000-0000-0000-0000-000000000108';
+    DELETE FROM private.source_persona_identity_event
+      WHERE source_persona_id='15260000-0000-0000-0000-000000000108';
+    DELETE FROM private.source_persona_placement_decision
+      WHERE placement_id='15260000-0000-0000-0000-000000000112';
+    DELETE FROM private.source_persona_placement
+      WHERE id='15260000-0000-0000-0000-000000000112';
+    DELETE FROM private.source_record_placement_decision
+      WHERE placement_id='15260000-0000-0000-0000-000000000111';
+    DELETE FROM private.source_record_placement
+      WHERE id='15260000-0000-0000-0000-000000000111';
+    DELETE FROM private.source_persona_mention
+      WHERE persona_id='15260000-0000-0000-0000-000000000108';
+    DELETE FROM private.source_mention
+      WHERE id='15260000-0000-0000-0000-000000000109';
+    DELETE FROM private.source_persona
+      WHERE id='15260000-0000-0000-0000-000000000108';
+    DELETE FROM private.source_observation
+      WHERE id='15260000-0000-0000-0000-000000000107';
+    DELETE FROM private.source_record_anchor_event
+      WHERE source_record_id='15260000-0000-0000-0000-000000000101';
+    DELETE FROM private.source_record_occurrence
+      WHERE id='15260000-0000-0000-0000-000000000106';
+    DELETE FROM private.source_record
+      WHERE id='15260000-0000-0000-0000-000000000101';
+    DELETE FROM private.source_rendition
+      WHERE id='15260000-0000-0000-0000-000000000105';
+    DELETE FROM private.extraction_run
+      WHERE id='15260000-0000-0000-0000-000000000102';
+    DELETE FROM public.lineage_scheme_entry WHERE id=-91526003;
+    DELETE FROM public.lineage_scheme WHERE id=-91526003;
+    DELETE FROM public.slaegt WHERE id=-91526003;
+    DELETE FROM public.person WHERE id=-91526003;
+    DELETE FROM public.source WHERE id=-91526003;
+    DELETE FROM public.profiles WHERE id='15260000-0000-0000-0000-000000000199';
+    DELETE FROM auth.users WHERE id='15260000-0000-0000-0000-000000000199';
+    SET session_replication_role=origin;
+  $cleanup$;
+BEGIN
+  PERFORM extensions.dblink_connect('task6_new_setup',v_conn); v_setup_connected:=true;
+  PERFORM extensions.dblink_connect('task6_new_a',v_conn); v_a_connected:=true;
+  PERFORM extensions.dblink_connect('task6_new_b',v_conn); v_b_connected:=true;
+  PERFORM extensions.dblink_exec('task6_new_setup',v_cleanup);
+  PERFORM extensions.dblink_exec('task6_new_setup',
+    'INSERT INTO auth.users(id,email) VALUES '
+    || '(''15260000-0000-0000-0000-000000000199'',''task6-new@test.invalid'');'
+    || 'INSERT INTO public.profiles(id,rolle,email) VALUES '
+    || '(''15260000-0000-0000-0000-000000000199'',''redaktion'',''task6-new@test.invalid'');'
+    || 'INSERT INTO public.person(id,levende,privat,staged,visning_navn) VALUES '
+    || '(-91526003,false,false,false,''Task 6 new writer'');'
+    || 'INSERT INTO public.source(id,slags,titel,udgave,aar,import_key) VALUES '
+    || '(-91526003,''DAA-udgave'',''Task 6 new writer'',''Task 6'',1939,''task6:new-writer'');'
+    || 'INSERT INTO public.slaegt(id,navn,sorteringsnavn,slug) VALUES '
+    || '(-91526003,''Task 6 slægt'',''Task 6 slægt'',''task6-new-writer'');'
+    || 'INSERT INTO public.lineage_scheme(id,slaegt_id,source_id,kind,label) VALUES '
+    || '(-91526003,-91526003,-91526003,''stamtavle'',''Task 6 scheme'');'
+    || 'INSERT INTO public.lineage_scheme_entry(id,scheme_id,slaegt_id,code,label,sort_order) VALUES '
+    || '(-91526003,-91526003,-91526003,''A'',''Task 6 entry'',1);'
+    || 'INSERT INTO private.extraction_run('
+    || 'id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) VALUES '
+    || '(''15260000-0000-0000-0000-000000000102'',-91526003,''task6-new-writer'','
+    || '''1'',''task6'',''task6'','''||repeat('3',64)||''',''{}'');'
+    || 'INSERT INTO private.source_rendition('
+    || 'id,source_id,rendition_key,rendition_kind,content_sha256,metadata) VALUES '
+    || '(''15260000-0000-0000-0000-000000000105'',-91526003,''task6-new-writer'','
+    || '''text_layer'','''||repeat('5',64)||''',''{}'');'
+    || 'INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id) VALUES '
+    || '(''15260000-0000-0000-0000-000000000101'',-91526003,''task6-new-writer'','
+    || '''person_entry'',''15260000-0000-0000-0000-000000000102'');'
+    || 'INSERT INTO private.source_record_occurrence('
+    || 'id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,'
+    || 'physical_fingerprint,structural_fingerprint,extraction_run_id) VALUES '
+    || '(''15260000-0000-0000-0000-000000000106'',''15260000-0000-0000-0000-000000000105'','
+    || '''task6-new-writer'',1,1,0,20,''Task 6 occurrence'',''task6-physical'','
+    || '''task6-structural'',''15260000-0000-0000-0000-000000000102'');'
+    || 'INSERT INTO private.source_record_anchor_event('
+    || 'occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name) VALUES '
+    || '(''15260000-0000-0000-0000-000000000106'',''15260000-0000-0000-0000-000000000101'','
+    || '''accepted'',''{"basis":"task6"}'',1,''15260000-0000-0000-0000-000000000199'',''Task 6 actor'');'
+    || 'INSERT INTO private.source_observation('
+    || 'id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,'
+    || 'quality_status,extraction_method,extraction_run_id) VALUES '
+    || '(''15260000-0000-0000-0000-000000000107'',''15260000-0000-0000-0000-000000000106'','
+    || '''header'',1,1,0,20,''Task 6 observation'',''clear'',''task6'','
+    || '''15260000-0000-0000-0000-000000000102'');'
+    || 'INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES '
+    || '(''15260000-0000-0000-0000-000000000108'',-91526003,''task6-persona'','
+    || '''15260000-0000-0000-0000-000000000102'');'
+    || 'INSERT INTO private.source_mention('
+    || 'id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id) VALUES '
+    || '(''15260000-0000-0000-0000-000000000109'',''15260000-0000-0000-0000-000000000107'','
+    || '''person_name'',0,4,''Task'',''15260000-0000-0000-0000-000000000102'');'
+    || 'INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) VALUES '
+    || '(''15260000-0000-0000-0000-000000000108'',''15260000-0000-0000-0000-000000000109'',''primary'',1);'
+    || 'INSERT INTO private.source_record_placement('
+    || 'id,source_record_id,scheme_entry_id,header_observation_id,initial_status) VALUES '
+    || '(''15260000-0000-0000-0000-000000000111'',''15260000-0000-0000-0000-000000000101'','
+    || '-91526003,''15260000-0000-0000-0000-000000000107'',''accepted'');'
+    || 'INSERT INTO private.source_record_placement_decision('
+    || 'placement_id,version,decision_status,evidence,decision_origin,decided_by_name) VALUES '
+    || '(''15260000-0000-0000-0000-000000000111'',1,''accepted'',''{"basis":"task6"}'','
+    || '''migration'',''Task 6 actor'');'
+    || 'INSERT INTO private.source_persona_placement('
+    || 'id,source_persona_id,record_placement_id,placement_role,basis_observation_id,initial_status) VALUES '
+    || '(''15260000-0000-0000-0000-000000000112'',''15260000-0000-0000-0000-000000000108'','
+    || '''15260000-0000-0000-0000-000000000111'',''principal_member'','
+    || '''15260000-0000-0000-0000-000000000107'',''accepted'');'
+    || 'INSERT INTO private.source_persona_placement_decision('
+    || 'placement_id,version,decision_status,evidence,decision_origin,decided_by_name) VALUES '
+    || '(''15260000-0000-0000-0000-000000000112'',1,''accepted'',''{"basis":"task6"}'','
+    || '''migration'',''Task 6 actor'');'
+    || 'INSERT INTO private.source_persona_identity_event('
+    || 'source_persona_id,canonical_person_id,decision_status,version,evidence,decided_by,decided_by_name,decided_at) VALUES '
+    || '(''15260000-0000-0000-0000-000000000108'',-91526003,''accepted'',1,''{"basis":"task6"}'','
+    || '''15260000-0000-0000-0000-000000000199'',''Task 6 actor'',now());'
+    || 'INSERT INTO private.source_persona_identity('
+    || 'source_persona_id,canonical_person_id,decision_status,version,evidence,decided_by,decided_by_name,decided_at) VALUES '
+    || '(''15260000-0000-0000-0000-000000000108'',-91526003,''accepted'',1,''{"basis":"task6"}'','
+    || '''15260000-0000-0000-0000-000000000199'',''Task 6 actor'',now())'
+  );
+  PERFORM extensions.dblink_exec('task6_new_a',
+    'CREATE OR REPLACE FUNCTION pg_temp.task6_attempt(p_sql text) RETURNS text '
+    || 'LANGUAGE plpgsql AS $attempt$ BEGIN EXECUTE p_sql; RETURN ''NO_ERROR''; '
+    || 'EXCEPTION WHEN OTHERS THEN RETURN SQLERRM; END $attempt$'
+  );
+  PERFORM extensions.dblink_exec('task6_new_a','BEGIN');
+  PERFORM extensions.dblink_exec('task6_new_a',
+    'SET LOCAL "request.jwt.claim.sub"='||quote_literal(v_actor::text)
+  );
+  SELECT result INTO v_result FROM extensions.dblink(
+    'task6_new_a',
+    'SELECT pg_temp.task6_attempt(''SELECT public.red_upsert_person_narrative_record('
+    || '-91526003,-91526003,''''task6-new-writer'''',''''blocked'''',false,repeat(''''0'''',64))'')'
+  ) AS t(result text);
+  IF v_result IS DISTINCT FROM 'NARRATIVE_RECORD_CONTRACT_INACTIVE' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK6_NEW_WRITER_V1_NOT_BLOCKED: %',v_result;
+  END IF;
+  PERFORM extensions.dblink_exec('task6_new_a','ROLLBACK');
+
+  PERFORM extensions.dblink_exec('task6_new_b','BEGIN');
+  PERFORM extensions.dblink_exec('task6_new_b',
+    'DO $lock$ BEGIN PERFORM pg_advisory_xact_lock('
+    || 'hashtextextended(''daa-narrative-record-contract'',0)); END $lock$'
+  );
+  PERFORM extensions.dblink_exec('task6_new_b',
+    'CREATE OR REPLACE FUNCTION public.narrative_record_contract_version() '
+    || 'RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER '
+    || 'SET search_path=pg_catalog AS $version$ SELECT 2 $version$'
+  );
+  PERFORM extensions.dblink_exec('task6_new_b','COMMIT');
+
+  PERFORM extensions.dblink_exec('task6_new_a','BEGIN');
+  PERFORM extensions.dblink_exec('task6_new_a',
+    'SET LOCAL "request.jwt.claim.sub"='||quote_literal(v_actor::text)
+  );
+  SELECT result INTO v_writer FROM extensions.dblink(
+    'task6_new_a',
+    'SELECT public.red_upsert_person_narrative_record('
+    || '-91526003,-91526003,''task6-new-writer'',''Task 6 v2 text'',false,'
+    || 'private.narrative_record_state(-91526003,-91526003,''task6-new-writer'',false)->>''state_sha256'')'
+  ) AS t(result jsonb);
+  PERFORM extensions.dblink_exec('task6_new_a','COMMIT');
+  IF v_writer->>'status' IS DISTINCT FROM 'draft'
+     OR (SELECT n FROM extensions.dblink(
+          'task6_new_setup',
+          'SELECT count(*) FROM public.narrative n JOIN private.narrative_record_publication p '
+          || 'ON p.narrative_id=n.id WHERE n.subjekt_id=-91526003 AND n.source_id=-91526003 '
+          || 'AND n.tekst=''Task 6 v2 text'' AND p.status=''draft'''
+        ) AS t(n bigint))<>1 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK6_NEW_WRITER_V2_FAILED: %',v_writer;
+  END IF;
+
+  PERFORM extensions.dblink_exec('task6_new_b','BEGIN');
+  PERFORM extensions.dblink_exec('task6_new_b',
+    'DO $lock$ BEGIN PERFORM pg_advisory_xact_lock('
+    || 'hashtextextended(''daa-narrative-record-contract'',0)); END $lock$'
+  );
+  PERFORM extensions.dblink_exec('task6_new_b',
+    'CREATE OR REPLACE FUNCTION public.narrative_record_contract_version() '
+    || 'RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER '
+    || 'SET search_path=pg_catalog AS $version$ SELECT 1 $version$'
+  );
+  PERFORM extensions.dblink_exec('task6_new_b','COMMIT');
+  PERFORM extensions.dblink_exec('task6_new_setup',v_cleanup);
+  PERFORM extensions.dblink_disconnect('task6_new_b'); v_b_connected:=false;
+  PERFORM extensions.dblink_disconnect('task6_new_a'); v_a_connected:=false;
+  PERFORM extensions.dblink_disconnect('task6_new_setup'); v_setup_connected:=false;
+  RAISE NOTICE 'OK: narrative record Task 6 new writer requires committed exclusive v2 cutover';
+EXCEPTION WHEN OTHERS THEN
+  IF v_a_connected THEN
+    BEGIN PERFORM extensions.dblink_exec('task6_new_a','ROLLBACK'); EXCEPTION WHEN OTHERS THEN NULL; END;
+    BEGIN PERFORM extensions.dblink_disconnect('task6_new_a'); EXCEPTION WHEN OTHERS THEN NULL; END;
+  END IF;
+  IF v_b_connected THEN
+    BEGIN PERFORM extensions.dblink_exec('task6_new_b','ROLLBACK'); EXCEPTION WHEN OTHERS THEN NULL; END;
+    BEGIN PERFORM extensions.dblink_exec('task6_new_b',
+      'CREATE OR REPLACE FUNCTION public.narrative_record_contract_version() '
+      || 'RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER '
+      || 'SET search_path=pg_catalog AS $version$ SELECT 1 $version$'
+    ); EXCEPTION WHEN OTHERS THEN NULL; END;
+    BEGIN PERFORM extensions.dblink_disconnect('task6_new_b'); EXCEPTION WHEN OTHERS THEN NULL; END;
+  END IF;
+  IF v_setup_connected THEN
+    BEGIN PERFORM extensions.dblink_exec('task6_new_setup',v_cleanup); EXCEPTION WHEN OTHERS THEN NULL; END;
+    BEGIN PERFORM extensions.dblink_disconnect('task6_new_setup'); EXCEPTION WHEN OTHERS THEN NULL; END;
+  END IF;
+  RAISE;
+END
+$narrative_record_task6_new_writer_cutover$;
+RESET search_path;

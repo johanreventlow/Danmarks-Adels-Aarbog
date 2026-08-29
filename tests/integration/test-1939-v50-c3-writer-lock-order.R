@@ -1,9 +1,10 @@
 # Fund H4 (Task 9, Step 0): load_daa.R and post_load_fixup.R must take the SAME
 # global production-writer advisory lock that Task 6/7's C3 apply/reversal RPCs
-# take as their FIRST lock -- otherwise a production import can overlap a C3
-# apply or reversal. The lock must come BEFORE samme_som_mutation and BEFORE any
-# table lock, i.e. the exact order the RPCs use; an inversion trades one race for
-# a deadlock.
+# take as their first FAMILY-SPECIFIC lock -- otherwise a production import can
+# overlap a C3 apply or reversal. load_daa.R first takes the shared narrative-
+# contract gate and rechecks version; only then may it take the production-
+# writer lock, before any table lock. An inversion trades one race for a
+# deadlock.
 #
 # This test does three things, in this order:
 #   1. SOURCE CONTRACT  -- reads both R scripts and asserts the statement order.
@@ -36,6 +37,8 @@ if (any(vapply(pg,function(v) length(v)!=1L || is.na(v),logical(1))))
 if (!grepl("^daa1939_",pg$PGDATABASE))
   stop("C3_WRITER_LOCK_REQUIRES_NAMED_DISPOSABLE_DATABASE",call.=FALSE)
 
+CONTRACT_LOCK_SQL <- "SELECT pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0))"
+CONTRACT_VERSION_SQL <- "SELECT public.narrative_record_contract_version() AS version"
 WRITER_LOCK_SQL <- "SELECT pg_advisory_xact_lock(hashtextextended('daa-1939-v50-production-writer',0))"
 scripts <- ".claude/skills/daa-extract/scripts"
 failures <- character(0)
@@ -57,20 +60,40 @@ first_or_na <- function(idx) if (length(idx)) idx[[1L]] else NA_integer_
 code_only <- function(v) v[!grepl("^\\s*#",v)]
 
 loader_src <- readLines(file.path(scripts,"load_daa.R"),warn=FALSE)
-l_begin  <- first_or_na(grep("^dbBegin\\(con\\)$",loader_src))
-l_writer <- first_or_na(grep("pg_advisory_xact_lock\\(hashtextextended\\(",loader_src))
-l_table  <- first_or_na(grep("LOCK TABLE \", paste\\(id_tables",loader_src))
+l_begin    <- first_or_na(grep("^dbBegin\\(con\\)$",loader_src))
+l_contract <- first_or_na(grep("pg_advisory_xact_lock_shared\\(hashtextextended\\(",loader_src))
+l_version  <- first_or_na(grep("SELECT public.narrative_record_contract_version\\(\\) AS version",loader_src))
+l_writer   <- first_or_na(grep("pg_advisory_xact_lock\\(hashtextextended\\(",loader_src))
+l_table    <- first_or_na(grep("LOCK TABLE \", paste\\(id_tables",loader_src))
 if (is.na(l_begin) || is.na(l_table)) stop("C3_WRITER_LOCK_LOADER_SOURCE_SHAPE_CHANGED",call.=FALSE)
+if (is.na(l_contract)) {
+  note_failure("C3_LOADER_MISSING_NARRATIVE_CONTRACT_LOCK")
+} else {
+  if (!(l_begin < l_contract)) note_failure("C3_LOADER_CONTRACT_LOCK_ORDER_INVERTED")
+  if (!identical(sql_literal(loader_src[[l_contract]],"loader_contract"),CONTRACT_LOCK_SQL))
+    note_failure("C3_LOADER_CONTRACT_LOCK_STATEMENT_DRIFT")
+  # The shared cutover gate must be the transaction's first lock.
+  if (l_contract > l_begin+1L &&
+      any(grepl("LOCK TABLE|advisory|FOR UPDATE|FOR SHARE",code_only(loader_src[(l_begin+1L):(l_contract-1L)]))))
+    note_failure("C3_LOADER_LOCK_BEFORE_CONTRACT_LOCK")
+}
+if (is.na(l_version)) {
+  note_failure("C3_LOADER_MISSING_NARRATIVE_CONTRACT_VERSION_RECHECK")
+} else if (!identical(sql_literal(loader_src[[l_version]],"loader_contract_version"),CONTRACT_VERSION_SQL)) {
+  note_failure("C3_LOADER_CONTRACT_VERSION_STATEMENT_DRIFT")
+}
 if (is.na(l_writer)) {
   note_failure("C3_LOADER_MISSING_GLOBAL_WRITER_LOCK")
 } else {
-  if (!(l_begin < l_writer && l_writer < l_table)) note_failure("C3_LOADER_WRITER_LOCK_ORDER_INVERTED")
+  if (is.na(l_contract) || is.na(l_version) ||
+      !(l_begin < l_contract && l_contract < l_version && l_version < l_writer && l_writer < l_table))
+    note_failure("C3_LOADER_WRITER_LOCK_ORDER_INVERTED")
   if (!identical(sql_literal(loader_src[[l_writer]],"loader"),WRITER_LOCK_SQL))
     note_failure("C3_LOADER_WRITER_LOCK_STATEMENT_DRIFT")
-  # nothing may take a lock between the transaction start and the writer lock
-  if (l_writer > l_begin+1L &&
-      any(grepl("LOCK TABLE|advisory|FOR UPDATE|FOR SHARE",code_only(loader_src[(l_begin+1L):(l_writer-1L)]))))
-    note_failure("C3_LOADER_LOCK_BEFORE_WRITER_LOCK")
+  # After the shared gate, no other lock may precede the family writer lock.
+  if (!is.na(l_contract) && l_writer > l_contract+1L &&
+      any(grepl("LOCK TABLE|advisory|FOR UPDATE|FOR SHARE",code_only(loader_src[(l_contract+1L):(l_writer-1L)]))))
+    note_failure("C3_LOADER_LOCK_BETWEEN_CONTRACT_AND_WRITER_LOCK")
 }
 # id_tables is a literal vector in the source; evaluating it keeps the table list
 # and its canonical order bound to the loader rather than duplicated here.
@@ -79,6 +102,8 @@ if (is.na(it_start)) stop("C3_WRITER_LOCK_LOADER_ID_TABLES_UNREADABLE",call.=FAL
 it_end <- it_start; while (!grepl("\\)\\s*$",loader_src[[it_end]])) it_end <- it_end + 1L
 id_tables <- local(eval(parse(text=paste(loader_src[it_start:it_end],collapse="\n"))))
 loader_sequence <- c(
+  if (!is.na(l_contract)) sql_literal(loader_src[[l_contract]],"loader_contract"),
+  if (!is.na(l_version)) sql_literal(loader_src[[l_version]],"loader_contract_version"),
   if (!is.na(l_writer)) sql_literal(loader_src[[l_writer]],"loader"),
   paste0("LOCK TABLE ",paste(id_tables,collapse=", ")," IN EXCLUSIVE MODE"))
 

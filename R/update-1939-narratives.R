@@ -16,6 +16,25 @@ suppressPackageStartupMessages({
 
 stopf <- function(fmt, ...) stop(sprintf(fmt, ...), call. = FALSE)
 
+require_narrative_record_loader_contract <- function(
+    con,
+    execute = DBI::dbExecute,
+    query = DBI::dbGetQuery) {
+  execute(
+    con,
+    "SELECT pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0))"
+  )
+  result <- query(
+    con,
+    "SELECT public.narrative_record_contract_version() AS version"
+  )
+  if (nrow(result) != 1L || length(result$version) != 1L ||
+      is.na(result$version[[1L]]) || !identical(as.integer(result$version[[1L]]), 1L)) {
+    stop("NARRATIVE_RECORD_LOADER_MIGRATION_REQUIRED", call. = FALSE)
+  }
+  1L
+}
+
 parse_update_1939_args <- function(args) {
   value_after <- function(prefix, default = NULL) {
     hit <- args[startsWith(args, paste0(prefix, "="))]
@@ -249,6 +268,7 @@ run_update_1939 <- function(config) {
   dbExecute(con, if (config$apply)
     "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"
   else "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+  require_narrative_record_loader_contract(con)
   dbExecute(con, "SET LOCAL lock_timeout='10s'")
   dbExecute(con, "SET LOCAL statement_timeout='120s'")
 

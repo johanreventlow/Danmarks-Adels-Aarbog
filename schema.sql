@@ -2389,8 +2389,11 @@ CREATE FUNCTION public.red_authorize_1939_v50_reimport(
   p_manifest_sha256 text,p_preview_sha256 text,p_database_identity text,p_source_id bigint,
   p_expected_counts jsonb,p_authorized_elements jsonb,p_nonce uuid,p_expires_at timestamptz)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-DECLARE v_id uuid; v_actor uuid:=private.require_reimport_1939_editor();
+DECLARE v_id uuid; v_actor uuid;
 BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF;
+  v_actor:=private.require_reimport_1939_editor();
   IF p_database_identity<>current_database() OR p_expires_at<=clock_timestamp() OR p_expected_counts<>jsonb_build_object(
       'person_creates',coalesce((p_expected_counts->>'person_creates')::int,-1),
       'source_evidence',coalesce((p_expected_counts->>'source_evidence')::int,-1),
@@ -2420,8 +2423,11 @@ END $$;
 
 CREATE FUNCTION public.red_begin_1939_v50_reimport(p_authorization_id uuid,p_manifest_sha256 text,p_preview_sha256 text)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-DECLARE v_auth private.reimport_1939_authorization%ROWTYPE; v_id uuid; v_actor uuid:=private.require_reimport_1939_editor();
+DECLARE v_auth private.reimport_1939_authorization%ROWTYPE; v_id uuid; v_actor uuid;
 BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF;
+  v_actor:=private.require_reimport_1939_editor();
   SELECT * INTO v_auth FROM private.reimport_1939_authorization WHERE id=p_authorization_id FOR UPDATE;
   IF NOT FOUND OR v_auth.operation<>'reimport' OR v_auth.status<>'issued' OR v_auth.expires_at<=clock_timestamp()
      OR v_auth.principal_id<>v_actor OR v_auth.manifest_sha256<>p_manifest_sha256 OR v_auth.preview_sha256<>p_preview_sha256 THEN
@@ -2493,8 +2499,11 @@ END $$;
 
 CREATE FUNCTION public.red_apply_1939_v50_source_evidence(p_batch_id uuid,p_element_id text,p_payload jsonb)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
-DECLARE v_batch private.reimport_1939_write_batch%ROWTYPE; v_actor uuid:=private.require_reimport_1939_editor();
+DECLARE v_batch private.reimport_1939_write_batch%ROWTYPE; v_actor uuid;
 BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF;
+  v_actor:=private.require_reimport_1939_editor();
   SELECT * INTO v_batch FROM private.reimport_1939_write_batch WHERE id=p_batch_id FOR UPDATE;
   IF NOT FOUND OR v_batch.principal_id<>v_actor THEN RAISE EXCEPTION 'REIMPORT_1939_BATCH_INVALID'; END IF;
   IF v_batch.status='finalized' THEN
@@ -2511,8 +2520,11 @@ END $$;
 
 CREATE FUNCTION public.red_apply_1939_v50_person_create(p_batch_id uuid,p_element_id text,p_payload jsonb)
 RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
-DECLARE v_batch private.reimport_1939_write_batch%ROWTYPE; v_person_id bigint; v_evidence jsonb; v_persona uuid; v_narrative bigint; v_actor uuid:=private.require_reimport_1939_editor(); v_actor_name text;
+DECLARE v_batch private.reimport_1939_write_batch%ROWTYPE; v_person_id bigint; v_evidence jsonb; v_persona uuid; v_narrative bigint; v_actor uuid; v_actor_name text;
 BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF;
+  v_actor:=private.require_reimport_1939_editor();
   SELECT * INTO v_batch FROM private.reimport_1939_write_batch WHERE id=p_batch_id FOR UPDATE;
   IF NOT FOUND OR v_batch.principal_id<>v_actor THEN RAISE EXCEPTION 'REIMPORT_1939_BATCH_INVALID'; END IF;
   IF v_batch.status='finalized' THEN
@@ -2548,14 +2560,19 @@ END $$;
 CREATE FUNCTION public.red_apply_1939_v50_canonical_delta(p_batch_id uuid,p_element_id text,p_payload jsonb)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF;
   PERFORM private.require_reimport_1939_open_batch(p_batch_id);
   RAISE EXCEPTION 'REIMPORT_1939_CANONICAL_DELTA_UNSUPPORTED';
 END $$;
 
 CREATE FUNCTION public.red_finalize_1939_v50_reimport(p_batch_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-DECLARE v_batch private.reimport_1939_write_batch%ROWTYPE; v_counts jsonb; v_actor uuid:=private.require_reimport_1939_editor();
+DECLARE v_batch private.reimport_1939_write_batch%ROWTYPE; v_counts jsonb; v_actor uuid;
 BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF;
+  v_actor:=private.require_reimport_1939_editor();
   SELECT * INTO v_batch FROM private.reimport_1939_write_batch WHERE id=p_batch_id FOR UPDATE;
   IF NOT FOUND OR v_batch.principal_id<>v_actor THEN RAISE EXCEPTION 'REIMPORT_1939_BATCH_INVALID'; END IF;
   IF v_batch.status='finalized' THEN
@@ -2574,8 +2591,11 @@ END $$;
 
 CREATE FUNCTION public.red_authorize_1939_v50_reversal(p_batch_id uuid,p_nonce uuid,p_expires_at timestamptz)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-DECLARE v_id uuid; v_batch private.reimport_1939_write_batch%ROWTYPE; v_actor uuid:=private.require_reimport_1939_editor();
+DECLARE v_id uuid; v_batch private.reimport_1939_write_batch%ROWTYPE; v_actor uuid;
 BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF;
+  v_actor:=private.require_reimport_1939_editor();
   SELECT * INTO v_batch FROM private.reimport_1939_write_batch WHERE id=p_batch_id AND status='finalized';
   IF NOT FOUND OR p_expires_at<=clock_timestamp() THEN RAISE EXCEPTION 'REIMPORT_1939_REVERSAL_INVALID'; END IF;
   INSERT INTO private.reimport_1939_authorization(operation,manifest_sha256,preview_sha256,database_identity,source_id,expected_counts,authorized_elements,principal_id,nonce,expires_at)
@@ -2586,8 +2606,11 @@ END $$;
 
 CREATE FUNCTION public.red_reverse_1939_v50_reimport(p_batch_id uuid,p_authorization_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-DECLARE v_actor uuid:=private.require_reimport_1939_editor(); v_run uuid; v_child_id uuid; v_child_count bigint; v_child_status text;
+DECLARE v_actor uuid; v_run uuid; v_child_id uuid; v_child_count bigint; v_child_status text;
 BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF;
+  v_actor:=private.require_reimport_1939_editor();
   PERFORM pg_advisory_xact_lock(hashtextextended('daa-1939-v50-name-completion',0));
   LOCK TABLE public.fact,public.assertion,public.citation,public.conclusion IN SHARE ROW EXCLUSIVE MODE;
   IF NOT EXISTS(SELECT 1 FROM private.reimport_1939_authorization a JOIN private.reimport_1939_write_batch b ON b.id=p_batch_id WHERE a.id=p_authorization_id AND a.operation='reversal' AND a.status='issued' AND a.principal_id=v_actor AND a.expires_at>clock_timestamp() AND a.database_identity='batch:'||b.id::text AND a.manifest_sha256=b.manifest_sha256 AND a.preview_sha256=b.preview_sha256 AND b.status='finalized') THEN RAISE EXCEPTION 'REIMPORT_1939_REVERSAL_INVALID'; END IF;
@@ -2677,8 +2700,11 @@ END $$;
 
 CREATE FUNCTION public.red_authorize_1939_v50_cutover(p_batch_id uuid,p_nonce uuid,p_expires_at timestamptz)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-DECLARE v_id uuid; v_actor uuid:=private.require_reimport_1939_editor();
+DECLARE v_id uuid; v_actor uuid;
 BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF;
+  v_actor:=private.require_reimport_1939_editor();
   IF NOT EXISTS(SELECT 1 FROM private.reimport_1939_write_batch WHERE id=p_batch_id AND status='finalized') OR p_expires_at<=clock_timestamp() THEN RAISE EXCEPTION 'REIMPORT_1939_CUTOVER_INVALID'; END IF;
   INSERT INTO private.reimport_1939_authorization(operation,manifest_sha256,preview_sha256,database_identity,source_id,expected_counts,authorized_elements,principal_id,nonce,expires_at)
   SELECT 'cutover',b.manifest_sha256,b.preview_sha256,'batch:'||b.id::text,a.source_id,'{}','{}',v_actor,p_nonce,p_expires_at
@@ -2688,8 +2714,11 @@ END $$;
 
 CREATE FUNCTION public.red_activate_1939_v50_batch(p_batch_id uuid,p_authorization_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-DECLARE v_actor uuid:=private.require_reimport_1939_editor(); v_count bigint; v_child_id uuid; v_child_count bigint; v_child_status text;
+DECLARE v_actor uuid; v_count bigint; v_child_id uuid; v_child_count bigint; v_child_status text;
 BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF;
+  v_actor:=private.require_reimport_1939_editor();
   PERFORM pg_advisory_xact_lock(hashtextextended('daa-1939-v50-name-completion',0));
   LOCK TABLE public.fact,public.assertion,public.citation,public.conclusion IN SHARE ROW EXCLUSIVE MODE;
   IF NOT EXISTS(SELECT 1 FROM private.reimport_1939_authorization a JOIN private.reimport_1939_write_batch b ON b.id=p_batch_id WHERE a.id=p_authorization_id AND a.operation='cutover' AND a.status='issued' AND a.principal_id=v_actor AND a.expires_at>clock_timestamp() AND a.database_identity='batch:'||b.id::text AND a.manifest_sha256=b.manifest_sha256 AND a.preview_sha256=b.preview_sha256 AND b.status='finalized') THEN RAISE EXCEPTION 'REIMPORT_1939_CUTOVER_INVALID'; END IF;
@@ -3093,6 +3122,8 @@ CREATE OR REPLACE FUNCTION red_publicer_narrative_record(
 ) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE v_id uuid; v_binding private.narrative_record_publication%ROWTYPE;
 BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF;
   IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
   -- C3 adversarial review, fund B4 (2026-08-22): absence cannot be locked with a row
   -- lock. narrative_record_publication is unique on narrative_id and record_ref but NOT
@@ -3124,6 +3155,8 @@ END $$;
 CREATE OR REPLACE FUNCTION red_tilbagetraek_narrative_record(p_narrative_id bigint)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF;
   IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
   UPDATE private.narrative_record_publication SET status='withdrawn' WHERE narrative_id=p_narrative_id AND status='published';
   IF NOT FOUND THEN RAISE EXCEPTION 'SOURCE_RECORD_PUBLICATION_NOT_PUBLISHED'; END IF;
@@ -3857,15 +3890,16 @@ END $$;
 -- (citation+conclusion FØR assertion, da conclusion.valgt_assertion_id → assertion).
 CREATE OR REPLACE FUNCTION red_slet_person(p_person_id bigint)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
-DECLARE v_facts bigint[]; v_rels bigint[];
+DECLARE v_facts bigint[]; v_rels bigint[]; v_contract_version integer;
 BEGIN
-  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   -- #152: serialize with the atomic narrative-record cutover before every
   -- existing delete lock. Publication history is append-only, so whole-person
   -- hard delete stays fail-closed until the retention/tombstone design exists.
   PERFORM pg_advisory_xact_lock_shared(
     hashtextextended('daa-narrative-record-contract',0)
   );
+  v_contract_version:=public.narrative_record_contract_version();
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   IF EXISTS (
     SELECT 1
       FROM private.narrative_publication_event event
@@ -3960,9 +3994,16 @@ CREATE OR REPLACE FUNCTION red_upsert_narrativ(
   p_subjekt_type text, p_subjekt_id bigint, p_tekst text, p_privat boolean,
   p_source_id bigint, p_side text DEFAULT NULL)
 RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
-DECLARE v_id bigint;
+DECLARE v_id bigint; v_contract_version integer;
 BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  v_contract_version:=public.narrative_record_contract_version();
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF v_contract_version>=2 AND p_subjekt_type='person' AND EXISTS(
+    SELECT 1 FROM public.source WHERE id=p_source_id AND slags='DAA-udgave'
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_REQUIRED';
+  END IF;
   PERFORM begin_change_set('red_upsert_narrativ', format('Opdaterede narrativ på %s/%s (kilde %s)', p_subjekt_type, p_subjekt_id, p_source_id), p_subjekt_type, p_subjekt_id);
   SELECT id INTO v_id FROM narrative
     WHERE subjekt_type=p_subjekt_type AND subjekt_id=p_subjekt_id AND source_id IS NOT DISTINCT FROM p_source_id
@@ -6129,8 +6170,10 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE
   ev change_event; v_new_cs bigint; v_orig change_set;
   v_cur jsonb; v_pids bigint[] := '{}'; v_narr bigint[] := '{}'; v_notes bigint[] := '{}';
-  v_div int := 0; pid bigint; v_forventet jsonb;
+  v_div int := 0; pid bigint; v_forventet jsonb; v_contract_version integer;
 BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  v_contract_version:=public.narrative_record_contract_version();
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   -- Publication writers hold ACCESS EXCLUSIVE while allocating their audit
   -- set and appending its event. Take the weakest conflicting table lock before
@@ -6143,7 +6186,7 @@ BEGIN
     FROM private.narrative_publication_event
     WHERE change_set_id = p_change_set_id
   ) OR (
-    public.narrative_record_contract_version() >= 2
+    v_contract_version >= 2
     AND EXISTS (
       SELECT 1
       FROM public.change_event ce
@@ -7605,9 +7648,12 @@ CREATE OR REPLACE FUNCTION public.red_authorize_reimport_cases(
   p_nonce uuid, p_expires_at timestamptz)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER
 SET search_path=pg_catalog,public,private AS $$
-DECLARE v_id uuid; v_actor uuid:=private.require_reimport_1939_editor();
+DECLARE v_id uuid; v_actor uuid;
         v_existing private.reimport_case_authorization%ROWTYPE;
 BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF;
+  v_actor:=private.require_reimport_1939_editor();
   IF p_phase<>'c3' THEN RAISE EXCEPTION 'REIMPORT_CASE_PHASE_UNSUPPORTED'; END IF;
   IF p_operation NOT IN ('apply','reversal')
      OR p_manifest_sha256 !~ '^[0-9a-f]{64}$' OR p_preview_sha256 !~ '^[0-9a-f]{64}$'
@@ -7720,6 +7766,8 @@ RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER
 SET search_path=pg_catalog,public,private AS $$
 DECLARE v_count integer; v_id bigint;
 BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF;
   SELECT count(*) INTO v_count FROM public.narrative
    WHERE subjekt_type='person' AND subjekt_id=p_person_id
      AND source_id IS NOT DISTINCT FROM p_source_id;
@@ -7758,12 +7806,16 @@ DECLARE
   v_identity integer:=0; v_assign integer:=0; v_no_pub integer:=0; v_events integer;
   v_result jsonb; v_after jsonb; v_bad bigint;
 BEGIN
-  -- ===== lock order step 0: timeouts, then the foreign-change-set guard ======
-  -- Both set_config calls MUST run before the first lock wait. lock_timeout is
-  -- re-read at every lock acquisition, so setting it here rather than after
-  -- step 1 is what bounds step 1's own advisory lock -- potentially the longest
-  -- wait in the whole call. Deliberate behaviour change: that wait is now
-  -- capped at 5s instead of being unbounded.
+  -- ===== lock order step 0: unbounded cutover gate, then version =============
+  -- No function-local lock_timeout may cap this first wait: an old call queued
+  -- behind a committed cutover must wake and return the exact version error.
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF;
+
+  -- ===== lock order step 0.5: timeouts for subsequent family/domain locks =====
+  -- lock_timeout is re-read at every lock acquisition, so setting it here keeps
+  -- the existing 5s bound on the production-writer and domain locks without
+  -- changing the cutover gate's required wake-and-recheck contract.
   -- statement_timeout, by contrast, is bound by PostgreSQL at statement start,
   -- and this function body IS the running statement, so no in-function
   -- assignment can ever bound this call; it only affects later statements in
@@ -7771,6 +7823,8 @@ BEGIN
   -- SET LOCAL statement_timeout on its connection before calling apply.
   PERFORM set_config('lock_timeout','5s',true);
   PERFORM set_config('statement_timeout','120s',true);
+  -- The shared cutover gate above is the first transaction lock. Only after
+  -- its version recheck may this guard or an existing C3 lock run.
   -- The batch must own its change set. begin_change_set RETURNS an already
   -- active app.change_set_id instead of opening a new one, so a caller that
   -- left a foreign change set open would silently enrol every write below into
@@ -8278,12 +8332,15 @@ CREATE OR REPLACE FUNCTION public.red_authorize_reimport_case_reversal(
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER
 SET search_path=pg_catalog,public,private AS $$
 DECLARE
-  v_actor uuid:=private.require_reimport_1939_editor();
+  v_actor uuid;
   v_batch private.reimport_case_batch%ROWTYPE;
   v_auth private.reimport_case_authorization%ROWTYPE;
   v_existing private.reimport_case_authorization%ROWTYPE;
   v_plan jsonb; v_plan_sha text; v_receipt_sha text; v_elements jsonb; v_id uuid;
 BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF;
+  v_actor:=private.require_reimport_1939_editor();
   IF p_batch_id IS NULL OR p_receipt_sha256 !~ '^[0-9a-f]{64}$'
      OR p_nonce IS NULL OR p_expires_at IS NULL OR p_expires_at<=clock_timestamp() THEN
     RAISE EXCEPTION 'REIMPORT_CASE_AUTHORIZATION_INVALID';
@@ -8377,8 +8434,14 @@ DECLARE
   v_rel_deleted integer:=0; v_rel_kept integer:=0;
   v_narr_deleted integer:=0; v_narr_restored integer:=0; v_events integer;
 BEGIN
-  -- ===== lock order step 0: timeouts, then the foreign-change-set guard ======
-  -- Same position and the same lock_timeout reasoning as apply. The
+  -- ===== lock order step 0: unbounded cutover gate, then version =============
+  -- Same unbounded first-wait contract as apply: after a committed cutover the
+  -- call must wake and return the exact legacy-writer error.
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF;
+
+  -- ===== lock order step 0.5: timeouts for subsequent family/domain locks =====
+  -- The
   -- change-set guard's motive differs, though: reversal never opens a change
   -- set of its own, but red_fortryd_change_set deliberately clears
   -- app.change_set_id and never restores it, so a caller that had one open
@@ -8386,6 +8449,8 @@ BEGIN
   -- call, one transaction -- fail closed on anything else.
   PERFORM set_config('lock_timeout','5s',true);
   PERFORM set_config('statement_timeout','120s',true);
+  -- The shared cutover gate above is the first transaction lock. Only after
+  -- its version recheck may this guard or an existing C3 lock run.
   IF btrim(coalesce(current_setting('app.change_set_id',true),'')) <> '' THEN
     RAISE EXCEPTION 'REIMPORT_CASE_FOREIGN_CHANGE_SET';
   END IF;
