@@ -2,8 +2,8 @@
 
 **Dato:** 2026-08-29
 
-**Status:** Godkendt efter DAA-arkitektur- og eksternt driftsreview; afventer
-review af implementeringsplanen
+**Status:** Revideret efter implementeringsplan-review; afventer fornyet samlet
+godkendelse før kodearbejde
 
 **Roadmapmål:** #152 — narrativer knyttes entydigt til en konkret source record
 
@@ -89,15 +89,21 @@ synlig:
 - den eksisterende DAA-loader må efter cutover ikke fortsætte en direkte
   narrativmutation uden event- og recordkontrakten. Den afviser derfor hele
   kørslen før første write, indtil #153 leverer den generaliserede writer;
+- de historiske 1939-v50- og C3-apply-/reversal-familier lukkes tilsvarende ved
+  cutover. Efter version `2` må de hverken starte en ny write-batch eller
+  ændre/slette en projektion bag #152-eventloggen. En senere hel-batch-reversal
+  kræver en ny, særskilt reviewet recovery-migration; #152's dedikerede
+  event-reversal gendanner kun publication-streamens semantiske førtilstand;
 - `red_slet_person` må ikke slette en mutable narrativprojektion og efterlade
   eller kaskadeslette publication-historikken. Indtil den åbne
   tombstone-/retentionsbeslutning er afgjort, afviser den derfor tidligt for en
   person med #152-publication-events; granulær legacy-/record-withdrawal er den
   tilgængelige offentlige nedtagningsvej.
 
-Det er en bevidst fail-closed redaktions- og importfrysning, ikke en skjult
-teknisk bivirkning. Projektejeren accepterede 2026-08-29 omkostningen som
-designpræmis sammen med den midlertidige `red_slet_person`-blokering. Den
+Det er en bevidst fail-closed redaktions-, import- og legacy-reversalfrysning,
+ikke en skjult teknisk bivirkning. Projektejeren accepterede 2026-08-29
+omkostningen som designpræmis sammen med den midlertidige
+`red_slet_person`-blokering. Den
 friske bestand skal stadig genmåles ved production-gaten; væsentlig drift fra
 den godkendte konsekvens kræver en ny projektejerbeslutning og production-GO.
 
@@ -169,8 +175,11 @@ record-bundne og grandfathered legacy-publiceringer. Tabellen har mindst:
   `baseline`, `draft_created`, `draft_updated`, `published`,
   `draft_discarded`, `published_revision`, `revalidated`, `withdrawn`,
   `reversal`, `legacy_migrated` eller `legacy_withdrawn`;
-- binding-, narrative-, source- og source-record-identitet, når relevant;
-- aktør-id, aktørnavn, tidspunkt, change-set-id og beslutningsgrundlag;
+- eksplicit binding-, narrative-, source- og source-record-identitet for en
+  record-stream; eksplicit legacy-publication-, narrative- og source-identitet
+  for en legacy-stream;
+- aktør-id, aktørnavn, tidspunkt, change-set-id og et ikke-tomt
+  beslutningsgrundlag;
 - event-id'et, der reverseres, når eventet er en fortrydelse;
 - kanonisk før- og eftertilstand med SHA-256 for begge;
 - den fulde private tekstversion, teksthash, privacy og side;
@@ -180,6 +189,42 @@ record-bundne og grandfathered legacy-publiceringer. Tabellen har mindst:
 - den anvendte identity-authority og dens version eller den grandfathered
   eksisterende bindingsautoritet;
 - publication-policy-input og policyhash.
+
+Eventtypen `legacy_migrated` og ledgerstatus `migrated` er reserveret i den
+permanente kontrakt, så #149 senere kan afslutte en grandfathered stream uden
+schemaændring. #152 eksponerer ingen writer, som kan oprette denne disposition;
+kun `baseline`, `legacy_withdrawn` og en sikker reversal af sidstnævnte bruges
+for legacy i dette roadmapmål. Ledgerens persistente statusmængde er præcis
+`grandfathered_publication`, `withdrawn` eller `migrated`.
+
+### 4.3.1 To kanoniske tilstande uden hash-selvreference
+
+Publication-eventets før-/eftertilstand og editorens concurrency-tilstand er to
+forskellige, eksplicitte hashdomæner:
+
+1. **`publication_state`** er den semantiske publication-tilstand: targetets
+   interne og sikre identiteter, projection/binding/ledger, fuld privat tekst,
+   teksthash, privacy, side, labels, anchor-/occurrence-/rendition-snapshot,
+   record-revision, identity-authority, policy/provenance og
+   `has_haendelse`. Den indeholder aldrig det event-id, den eventversion eller
+   de eventhashes, som skal attestere tilstanden.
+2. **`editor_state`** er concurrency-envelope omkring den aktuelle
+   `publication_state`. Den indeholder desuden seneste event-id,
+   stream-version, eventets før-/efterhash og den ordnede withdrawn-historik.
+   Det er denne envelopes SHA-256, som eksponeres som `state_sha256` og sendes
+   tilbage ved mutation.
+
+`narrative_publication_event.before_state` og `after_state` er de komplette
+kanoniske `publication_state`-objekter. Begge tilhørende SHA-256-kolonner er
+`NOT NULL`; også "ingen binding" og "ingen aktiv legacy-publication" er
+eksplicitte kanoniske JSON-tilstande med en hash, aldrig SQL `NULL`.
+
+En writer må derfor beregne den semantiske førtilstand, udføre projektionen,
+beregne den semantiske eftertilstand og append eventet med disse to hashes.
+Først derefter beregner den den nye `editor_state` med det nye events identitet
+og returnerer dens separate `state_sha256`. Eventets `after_state_sha256` må
+aldrig sættes lig editor-envelope-hashen eller på anden måde afhænge af sig
+selv.
 
 Eventtabellen har en trigger, som afviser `UPDATE` og `DELETE`, og er uden
 direkte grants til `anon` og `authenticated`. Aktuel binding og narrative-række
@@ -239,8 +284,10 @@ materiale forbliver fail-closed.
 
 Der etableres den editionsneutrale `SECURITY DEFINER`-RPC
 `public.red_person_narrative_records(p_person_id bigint)` for én person. Den
-returnerer en tabelkontrakt; komplekse withdrawn-historikker bæres som valideret
-JSONB i den enkelte record-entry.
+returnerer en eksplicit `RETURNS TABLE(...)`-kontrakt med typede topniveaukolonner;
+den må ikke implementeres som `SETOF jsonb`. Kun komplekse
+withdrawn-historikker og det serverafledte actionsæt bæres som valideret JSONB i
+den enkelte record-entry.
 
 RPC'en må kun kaldes af en autentificeret bruger med rollen `redaktion`. Den
 returnerer ingen interne private UUID'er; de særskilt designede, uforanderlige
@@ -331,7 +378,8 @@ read, create og publish må ikke have parallelle formatteringsregler.
 
 ### 5.3 Tilstandshash
 
-`state_sha256` beregnes fra en kanonisk JSON-tilstand, som mindst binder:
+`state_sha256` beregnes fra den kanoniske `editor_state` i §4.3.1. Dens
+indlejrede `publication_state` binder mindst:
 
 - `(person_id, source_id, record_key)` og intern resolved record-identitet;
 - stabil `source_record.public_ref`;
@@ -341,28 +389,35 @@ read, create og publish må ikke have parallelle formatteringsregler.
 - den anvendte redigeringsautoritet: `accepted_identity` eller
   `existing_exact_binding`;
 - aktiv binding eller eksplicit fravær;
-- den ordnede withdrawn-historiks identiteter, statusser og teksthashes;
 - narrative-id, tekst, privacy og side;
-- seneste publication-event-id, stream-version og eventets før-/efterhash;
 - publication-status, provenance-/policyhash og serverafledte labels;
 - om narrativet har afledte `haendelse`-rækker.
 
-For legacy indgår desuden `legacy_publication_ref`, ledgerstatus,
-baseline-hash, seneste legacy-event og eksplicit withdrawal-disposition.
+Editor-envelope-delen binder derudover den ordnede withdrawn-historiks
+identiteter, statusser og teksthashes samt seneste publication-event-id,
+stream-version og eventets semantiske før-/efterhash. For legacy indgår desuden
+`legacy_publication_ref`, ledgerstatus, baseline-hash, seneste legacy-event og
+eksplicit withdrawal-disposition.
 
 Klienten sender hashen tilbage ved hver mutation. Writeren genberegner den
 efter låsning og afviser mismatch som stale state. Hashen er concurrency-token,
 ikke en godkendelse, og erstatter ikke revalidering af rolle, identity,
 anchor, binding eller privacy.
 
+Den separate `publication_state_sha256` er kun eventets attestering af den
+semantiske projektion. Den bruges af publication-predikatet og historikken, men
+er ikke klientens concurrency-token og indeholder ikke sit eget event-envelope.
+
 ### 5.4 Redaktionel publication-historik
 
 Den rolle-gatede læse-RPC
 `public.red_person_narrative_publication_history(p_person_id bigint)` returnerer
-den ordnede eventhistorik for personens recordbindinger og grandfathered
-legacy-publicationer. Hver række indeholder mindst event-id, change-set-id,
-stream-version, eventtype, targetets `source_record_ref` eller
-`legacy_publication_ref`, før-/efterhash og `can_reverse` med blocking reason.
+den ordnede eventhistorik som en eksplicit `RETURNS TABLE(...)`-kontrakt for
+personens recordbindinger og grandfathered legacy-publicationer. Hver række
+indeholder mindst event-id, change-set-id, stream-version, eventtype, targetets
+`source_record_ref` eller `legacy_publication_ref`, semantisk før-/efterhash,
+private før-/eftertekster, beslutningstager/tidspunkt og `can_reverse` med
+blocking reason.
 
 RPC'en er den konkrete mapping mellem webhistorikken og den dedikerede
 reversal. Den kan returnere de private før-/eftertekster til en godkendt
@@ -414,7 +469,7 @@ Hver record-baseret mutation skal i samme transaktion:
 6. låse den seneste publication-eventversion og legacy-disposition, når de
    findes;
 7. låse den aktive narrative-række, hvis den findes;
-8. genberegne og sammenligne `state_sha256`;
+8. genberegne og sammenligne editor-envelope-`state_sha256`;
 9. revalidere accepteret anchor og den operationens krævede autoritet:
    den entydige principal/co-principal-identitetsmængde ved ny binding, eller
    en eksisterende eksakt binding uden en accepteret principal/co-principal-
@@ -422,9 +477,11 @@ Hver record-baseret mutation skal i samme transaktion:
 10. kontrollere source-, subject-, privacy-, provenance- og
    publication-invarianter;
 11. udføre præcis én tilladt projektionstilstandsovergang og append præcis
-    ét event i samme change set;
-12. verificere eventets efterhash mod den levende tilstand;
-13. returnere den nye servermålte tilstand, event-id og nye hash.
+    ét event i samme change set med komplette semantiske før-/eftertilstande;
+12. verificere eventets `after_state_sha256` mod den levende kanoniske
+    `publication_state` uden event-envelope;
+13. genberegne og returnere den nye `editor_state`, event-id, semantiske
+    eventhash og nye concurrency-`state_sha256`.
 
 Unique-indexen beskytter mod en glemt eller konkurrerende writer, men er ikke
 en erstatning for source-record-låsen. Ingen writer må låse bindingen før
@@ -526,15 +583,17 @@ den oprindelige baseline stadig matcher, og den aktuelle person-, privacy- og
 publication-policy fortsat tillader offentlighed. Ellers forbliver
 publicationen withdrawn.
 
-Det generiske `red_fortryd_change_set` skal afvise change sets, som indeholder
-en `narrative_publication_event`, med
+Det generiske `red_fortryd_change_set` skal afvise både change sets, som selv
+indeholder en `narrative_publication_event`, og ældre change sets, som har en
+`change_event` for en narrative-række, der nu forekommer i en #152-event eller
+legacy-ledger. Begge afvises med
 `NARRATIVE_RECORD_DEDICATED_REVERSAL_REQUIRED`. Dermed kan den almindelige
 undo-motor ikke gendanne narrative-rækken uden samtidig at gendanne den
 private publication-projektion og eventhistorik. Webhistorikken ruter i stedet
 disse change sets til den dedikerede reversal-RPC.
 
-Mekanismen er et eksplicit første opslag, før der oprettes et reversal-change
-set eller udføres inverse DML:
+Mekanismen er dette eksplicitte første opslag, før der oprettes et
+reversal-change set eller udføres inverse DML:
 
 ```sql
 EXISTS (
@@ -542,11 +601,34 @@ EXISTS (
     FROM private.narrative_publication_event
    WHERE change_set_id = p_change_set_id
 )
+OR (
+  public.narrative_record_contract_version() >= 2
+  AND EXISTS (
+    SELECT 1
+      FROM public.change_event ce
+     WHERE ce.change_set_id = p_change_set_id
+       AND ce.tabel = 'narrative'
+       AND ce.row_pk ? 'id'
+       AND (
+         EXISTS (
+           SELECT 1
+             FROM private.narrative_publication_event npe
+            WHERE npe.narrative_id = (ce.row_pk->>'id')::bigint
+         )
+         OR EXISTS (
+           SELECT 1
+             FROM private.narrative_legacy_publication nlp
+            WHERE nlp.narrative_id = (ce.row_pk->>'id')::bigint
+         )
+       )
+  )
+)
 ```
 
-Eventtabellens `change_set_id` og §5.4's historik-RPC leverer den modsatte
-mapping fra webhistorikken til `event_id`. `public.change_event` bruges ikke
-som oracle for private publication-events.
+Eventtabellens `change_set_id` og §5.4's historik-RPC leverer den normale
+mapping fra webhistorikken til `event_id`. `public.change_event` bruges kun i
+den defensive historiske række-PK-gate ovenfor; den bruges aldrig som oracle
+for publication-streamens tilstand eller reversibility.
 
 ### 6.5 Audit og fejlkontrakt
 
@@ -578,6 +660,9 @@ Forventede afvisninger har stabile maskinkoder, mindst for:
 - reversal-af-reversal;
 - ugyldig, allerede withdrawn eller driftet legacy-publication;
 - gammel DAA-loader eller direkte updater efter aktiv contract-version `2`;
+- historisk 1939-v50-/C3-apply eller -reversal efter aktiv contract-version `2`;
+- generisk undo af et historisk change set, som berører et senere
+  baseline-/ledger-bundet narrativ;
 - hel-person-sletning med append-only publication-historik.
 
 ## 7. Offentlig læsekontrakt v2
@@ -734,6 +819,16 @@ lukke den gamle writer.
 - Kræv menneskelig godkendelse af begge friske production-manifester før en
   production apply; dynamisk `INSERT ... SELECT` uden godkendt ID-sæt er ikke
   tilladt.
+- Reviewet starter fra to immutable kandidatmanifester. Converteren producerer
+  først de to endelige apply-manifester og approval-artefaktet, når hver
+  record-baseline har beslutningen `godkend baseline`, og hver legacy-kandidat
+  har præcis én eksplicit disposition: `bevar offentligt som grandfathered`
+  eller `skjul ved cutover`. En eneste `uafklaret` række er terminal og må ikke
+  give et approval- eller apply-artefakt.
+- Det endelige record-manifest indeholder hele det godkendte record-ID-sæt. Det
+  endelige legacy-manifest indeholder præcis `bevar`-mængden; approval-artefaktet
+  binder desuden det komplementære `skjul`-ID-sæt og per-række-hashes, så
+  `bevar ∪ skjul` skal være lig det friske kandidat-ID-sæt uden overlap.
 - Manifesterne er snapshots, ikke stående autorisation. Enhver ændring mellem
   godkendelse og cutover afviser hele transaktionen og kræver nye manifester og
   ny menneskelig godkendelse.
@@ -755,13 +850,18 @@ lukke den gamle writer.
   `pg_advisory_xact_lock` ved cutover. Eksisterende 1939-/loaderlåse tages
   altid bagefter.
 - Opdatér hver gammel person/DAA-skrivevej, herunder `red_upsert_narrativ`, de
-  gamle publication-RPC'er, C3's eksakte narrative-writer,
+  gamle publication-RPC'er, hele den muterende 1939-v50-apply-/reversal-familie,
+  C3's authorization/apply/reversal-familie og dens eksakte narrative-helper,
   `R/update-1939-narratives.R`, `R/update-2018-narratives.R` og
   `.claude/skills/daa-extract/scripts/load_daa.R`, til først at tage den delte
   cutover-lås og derefter kontrollere, at contract-versionen fortsat er `1`.
-  Loaderen afviser efter version `2` hele kørslen før første mutation med
-  `NARRATIVE_RECORD_LOADER_MIGRATION_REQUIRED`, indtil #153 erstatter dens
-  direkte narrative-write.
+  Et flertrinsflow skal gate før sin første journal-/authorization-mutation og
+  genlæse versionen i hvert narrative-muterende entry point, så en batch, der
+  krydser cutover, ikke kan fortsætte delvist.
+- Loaderen og de direkte updatere afviser efter version `2` hele kørslen før
+  første mutation med `NARRATIVE_RECORD_LOADER_MIGRATION_REQUIRED`, indtil #153
+  erstatter deres direkte narrative-write. De historiske DB-apply-/reversal-
+  familier afviser tilsvarende med `NARRATIVE_RECORD_LEGACY_WRITER_DISABLED`.
 - Lad `red_slet_person` tage den delte cutover-lås, opdatér
   `red_slet_person_preview` til at vise publication-eventhistorik, og afvis
   tidligt med en stabil domænefejl, når historikken findes. #152 må hverken
@@ -814,8 +914,9 @@ transaktion:
 5. flyt v1-RPC'en og direkte narrative-RLS til den event-/legacy-gatede
    projektion;
 6. giv `authenticated` execute på de nye writer-RPC'er;
-7. luk alle gamle person/DAA-skriveveje og gør loaderens version-2-afvisning
-   aktiv;
+7. luk alle gamle person/DAA-skriveveje, inklusive historiske
+   1939-v50-/C3-apply- og reversal-familier, og gør loaderens
+   version-2-afvisning aktiv;
 8. sæt serverens narrative-record-contract-version aktiv som transaktionens
    sidste logiske skridt.
 
@@ -826,9 +927,12 @@ slettede id'er og direkte loader-id'er.
 
 Alle nye writere tager den delte cutover-lås og kræver version `2`, før de
 resolver eller muterer en record. Et gammelt kald, som blev autoriseret lige
-før cutover, men ventede på den eksklusive lås, genlæser derfor versionen efter
-låsning og afvises uden writes. ACL-revokes er en ekstra adgangsbarriere, ikke
-det eneste concurrency-bevis.
+før cutover, men først forsøger at tage den delte lås, mens cutover allerede
+holder den eksklusive lås, genlæser derfor versionen efter opvågning og afvises
+uden writes. Hvis det gamle kald derimod fik den delte lås først, venter cutover;
+det gamle version-1-kald må færdiggøre, hvorefter cutoverens obligatoriske
+manifest-/hash-recheck ser enhver in-scope drift og afviser hele cutoveren.
+ACL-revokes er en ekstra adgangsbarriere, ikke det eneste concurrency-bevis.
 
 Efter verificeret klientmigrering ændres den gamle `red_upsert_narrativ`, så
 den afviser **alle** `subjekt_type='person'`-skrivninger til en source med
@@ -840,6 +944,17 @@ I samme fase fjernes `authenticated`-execute fra de gamle
 vej uden state hash, identity-/anchor-gate og serverafledte labels. Eventuel
 fortsat `service_role`-adgang kræver en konkret levende consumer og verificeres
 eksplicit; ellers revokes den også.
+
+Execute revokes ved cutover omfatter desuden alle muterende 1939-v50- og
+C3-authorization/apply/reversal-entry points for både `authenticated` og
+`service_role`. Read-only preview/receipt-flader kan kun bevares, hvis
+source-inventory-testen klassificerer dem eksplicit som ikke-muterende. Den
+fælles versionsgate forbliver i funktionerne som concurrency- og
+fejlkontrakt, også efter ACL-revoke.
+
+Den generiske `red_fortryd_change_set` bevares for øvrige domæner, men dens
+udvidede §6.4-gate gør det umuligt at omgå frysningen ved direkte at fortryde
+et præ-cutover change set for et narrativ, der siden er baseline-/ledger-bundet.
 
 Den gamle writer bevares for:
 
@@ -880,9 +995,13 @@ Disposable PostgreSQL-integration skal bevise:
 - to samtidige creates/updates kan ikke skabe to aktive bindinger, to eventer
   med samme stream-version eller tabte opdateringer; dette testes med reelt
   separate databasesessioner;
-- et gammelt writer-kald, der starter før cutover og blokerer på den fælles
-  gate, afvises uden writes efter contract-version `2`; nye writere kan ikke
-  skrive før version `2`;
+- når cutover holder den eksklusive gate først, blokerer et gammelt writer-kald
+  på den delte gate og afvises uden writes efter contract-version `2`; når det
+  gamle kald holder den delte gate først, venter cutover og afviser bagefter på
+  manifestdrift. Nye writere kan ikke skrive før version `2`;
+- de muterende 1939-v50- og C3-authorization/apply/reversal-entry points tager
+  samme gate før første mutation, afviser version `2` og har ingen klientgrant
+  efter cutover;
 - DAA-loaderen tager cutover-gaten før sin eksisterende writer-lås, virker som
   før ved version `1` og afviser hele version-2-kørslen før første write;
 - de to direkte narrative-update-scripts afviser tilsvarende version `2`, og
@@ -900,6 +1019,10 @@ Disposable PostgreSQL-integration skal bevise:
 - revalidation kræver frisk state og opretter en ny beslutningsversion;
 - hvert writerkald appender præcis én hash-matchende event, og eventtabellen
   afviser update/delete;
+- eventets før-/efterhash matcher de semantiske `publication_state`-objekter,
+  mens klientens separate `state_sha256` matcher editor-envelope med seneste
+  eventmetadata; en test beviser eksplicit, at ingen hashinput indeholder sin
+  egen outputhash;
 - kassation af en kladde appender `draft_discarded`, bevarer alle versioner og
   tillader kun en senere ny kladde gennem den normale identity-gate;
 - dedikeret reversal virker for draft-create, draft-update, draft-discard,
@@ -908,6 +1031,8 @@ Disposable PostgreSQL-integration skal bevise:
 - generisk `red_fortryd_change_set` afviser #152-change sets gennem det direkte
   private eventopslag uden at røre narrative eller binding, også når sættet ikke
   har en `public.change_event`;
+- generisk undo af et ældre change set med en narrative-`change_event` afvises
+  tilsvarende, når narrative-id'et senere er baseline-/ledger-bundet;
 - historik-RPC'en mapper hvert publication-change-set til det korrekte event og
   markerer kun et faktisk reversibelt seneste domæneevent som `can_reverse`;
 - baselineimporten matcher de to godkendte manifesters eksakte ID-sæt og
@@ -923,6 +1048,9 @@ Disposable PostgreSQL-integration skal bevise:
 - `source_record.public_ref` er unik, uforanderlig og den samme efter withdraw
   og en ny binding;
 - public/editor-RPC'er returnerer ingen private source-record-UUID'er;
+- editor- og historik-RPC'erne har de eksakte typede `RETURNS TABLE`-kolonner,
+  som klientkontrakten forventer; hverken topniveau-rækker eller actions er en
+  uvalideret fri JSONB-kontrakt;
 - grants, revokes, owner, `search_path`, RLS og PostgREST-signaturer er eksakt
   verificeret;
 - den gamle writer afviser person/DAA efter fase 3, men godkendte andre cases
@@ -937,6 +1065,9 @@ Kontrakttests skal mindst dække:
 
 - `source_year DESC NULLS LAST`, opaque `source_id ASC`- og
   record-tie-breaks;
+- editorens records sorteres inden for en source efter numerisk side og derefter
+  `record_key`; det offentlige standardvalg er første eligible bound række og
+  først derefter første eligible legacy-række;
 - to records i samme bog forbliver to versioner;
 - bound før legacy og ingen tekstkonkatenering;
 - draft, published, stale_published, withdrawn, none og blocked vises korrekt;
@@ -976,6 +1107,20 @@ Røgtesten skal i en isoleret database og en reel browser demonstrere:
 Fokuserede tests og fuld suite/build rapporteres separat. En grøn isoleret
 SQL-test er ikke alene bevis for `integreret ende-til-ende`.
 
+### 10.4 Uafhængigt kode-review
+
+Efter Codex' afsluttende spec-konformitets- og kodekvalitets-self-review skal
+Claude Fable 5 gennem Claude Code udføre ét uafhængigt read-only review af hele
+feature-diffet fra dokument-checkpointet til branchens aktuelle HEAD samt den
+relevante omgivende kode. Reviewet skal dække korrekthed, regressioner,
+edge cases, arkitektur, sikkerhed, dataintegritet, unødig kompleksitet og
+manglende tests. Claude må ikke ændre filer.
+
+Hvert fund klassificeres med konkret evidens. Kun valide fund rettes, altid med
+RED → GREEN, og de relevante fokuserede og fulde verifikationer køres igen. Et
+andet Fable-review er kun nødvendigt, hvis rettelserne ændrer designet eller
+risikoprofilen materielt.
+
 ## 11. Ikke-mål og eksplicit teknisk gæld
 
 - Ingen automatisk binding eller tekstkirurgi for legacy-rækker.
@@ -991,6 +1136,9 @@ SQL-test er ikke alene bevis for `integreret ende-til-ende`.
 - Ingen ny implicit legacy-publication fra en loader. Den eksisterende
   DAA-loader er midlertidigt blokeret ved contract-version `2`, indtil #153
   leverer den nye writerkontrakt.
+- Ingen fortsat hel-batch-reversal gennem de historiske 1939-v50-/C3-RPC'er
+  efter contract-version `2`. De fryses fail-closed; en senere samlet recovery
+  kræver en ny særskilt specificeret og godkendt migration.
 - Ingen løsning af den eksisterende tombstone-/retentionsbeslutning for
   hel-person-sletning. #152 blokerer i stedet hard delete, når append-only
   publication-events findes, så historikken ikke ødelægges stiltiende.
@@ -1057,5 +1205,18 @@ Efter indarbejdelsen godkendte projektejeren 2026-08-29:
     importfrysning som designpræmis og den midlertidige fail-closed blokering af
     `red_slet_person` for personer med publication-events.
 
-Næste tilladte artefakt er en implementeringsplan, som skal reviewes før
+Implementeringsplan-reviewet 2026-08-29 afdækkede derefter to kontraktknuder,
+som projektejeren godkendte at revidere før kodearbejde:
+
+19. eventets semantiske `publication_state_sha256` og editorens
+    concurrency-`state_sha256` er separate hashdomæner, så intet hashinput
+    indeholder sin egen outputhash;
+20. alle historiske narrative-mutating 1939-v50-/C3-apply- og reversal-flows
+    fryses ved version `2`, og generisk undo kan ikke omgå frysningen gennem et
+    ældre narrative-change-set;
+21. planreviewets afledte lukninger er bindende: eksakte event-/ledgerfelter,
+    typede editor-RPC'er, eksplicit ACL-rækkefølge, terminal `uafklaret`,
+    manglende sorterings-/default-tests og obligatorisk afsluttende Fable-review.
+
+Den tilsvarende reviderede implementeringsplan skal godkendes samlet før
 kodearbejde. Godkendelsen er ikke et produktions-GO.
