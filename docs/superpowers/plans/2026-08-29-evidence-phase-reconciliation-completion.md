@@ -199,6 +199,9 @@ git commit -m "feat(evidens): require phase artifact ledger"
 - Produces: `AuditResult` with one data-free phase summary per ledger entry;
   never contribution rows or private identities on stdout.
 - Uses: `sha256_file(path: Path) -> str` and strict relative-path resolution.
+- Define `AuditError(ValueError)`; every missing, unreadable, escaped,
+  hash-drifting or schema-invalid required artifact raises a stable
+  `EVIDENCE_RECONCILIATION_*` token before phase classification.
 - Define immutable `PhaseSummary(phase_id, projection_evidence,
   authorisation_evidence, error)` and `AuditResult(summaries)`, where
   `AuditResult.phase(phase_id)` returns exactly one summary or raises
@@ -289,8 +292,9 @@ git commit -m "feat(evidens): audit historical phase artifacts"
 - Modify: `.claude/skills/daa-extract/scripts/audit_evidence_phase_artifacts_1939_v50.py`
 
 **Interfaces:**
-- Consumes: `project_phase(bundle_root: Path, phase: PhaseEntry) -> dict` after
-  the auditor has returned `mechanically_bound`.
+- Consumes: `project_phase(bundle_root: Path, phase: PhaseEntry,
+  summary: PhaseSummary) -> dict` after the auditor has returned
+  `mechanically_bound`.
 - Produces: the existing sealed contribution shape, including five lists and
   empty or explicit `withdrawals`.
 - Rejects: any phase not classified `mechanically_bound` with
@@ -307,7 +311,8 @@ git commit -m "feat(evidens): audit historical phase artifacts"
 
 ```python
 def test_project_task25_uses_manifest_element_id_as_occurrence_key(tmp_path):
-    contribution = project_phase(tmp_path, mechanically_bound_task25_phase())
+    phase = mechanically_bound_task25_phase()
+    contribution = project_phase(tmp_path, phase, bound_summary(phase))
     assert contribution["source_anchors"] == [
         {"source_id": 3, "record_key": "record-1", "occurrence_key": "element-1"}
     ]
@@ -337,10 +342,12 @@ serialising the contribution.
 ```python
 def test_project_rejects_phase_b_without_the_required_551_row_bound_identity_map(tmp_path):
     with pytest.raises(ProjectError, match="EVIDENCE_RECONCILIATION_INCOMPLETE"):
-        project_phase(tmp_path, phase_b_without_bound_map())
+        phase = phase_b_without_bound_map()
+        project_phase(tmp_path, phase, unbound_summary(phase))
 
 def test_project_c0_uses_the_receipt_after_sha_and_binding_identity(tmp_path):
-    contribution = project_phase(tmp_path, mechanically_bound_c0_phase())
+    phase = mechanically_bound_c0_phase()
+    contribution = project_phase(tmp_path, phase, bound_summary(phase))
     assert contribution["narrative_sha256"] == [{"narrative_id": 7, "sha256": "d" * 64}]
 ```
 
