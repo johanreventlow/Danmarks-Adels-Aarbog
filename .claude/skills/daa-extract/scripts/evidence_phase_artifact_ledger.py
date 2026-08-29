@@ -57,8 +57,12 @@ class ReceiptAdapter:
     receipt_role: str
     receipt_schema_version: str
     manifest_sha256_field: str
+    database_target_identity_field: str
     identity_map_field: str
     identity_fields: tuple[str, ...]
+    identity_unique_fields: tuple[str, ...]
+    identity_count: int
+    publication_statuses: frozenset[str]
 
 
 RECEIPT_ADAPTERS: Mapping[str, ReceiptAdapter] = {
@@ -69,6 +73,7 @@ RECEIPT_ADAPTERS: Mapping[str, ReceiptAdapter] = {
         receipt_role="receipt",
         receipt_schema_version="daa-evidence-phase-receipt-phase-b-v1",
         manifest_sha256_field="manifest_sha256",
+        database_target_identity_field="database_target_identity",
         identity_map_field="identity_map",
         identity_fields=(
             "person_id",
@@ -78,6 +83,9 @@ RECEIPT_ADAPTERS: Mapping[str, ReceiptAdapter] = {
             "after_sha256",
             "publication_status",
         ),
+        identity_unique_fields=("person_id", "record_key", "narrative_id"),
+        identity_count=551,
+        publication_statuses=frozenset({"published"}),
     ),
 }
 
