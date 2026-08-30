@@ -56,26 +56,30 @@ blocks <- regmatches(
 if (length(blocks) < 2L) stop("INTEGRATION_FIXTURE_PARSE_FAILED", call. = FALSE)
 for (block in blocks) DBI::dbExecute(con, block)
 
-# Preserve the sanitized fixture only for this disposable DBI race. Both worker
-# processes use DBI/RPostgres, wait behind the same writer advisory lock, then
-# apply the same already-authorized request. Exactly one final batch and two
-# byte-identical replay receipts is the race invariant.
+# Preserve a sanitized, *issued* authorization only for this disposable DBI
+# race. Both workers use DBI/RPostgres, wait behind the writer lock, then race
+# through apply/finalize. The first finalizes; the second can only return that
+# newly-created receipt.
 DBI::dbExecute(con, "SET daa.evidence_promotion_keep_fixture = 'on'")
+DBI::dbExecute(con, "SET daa.evidence_promotion_race_issued = 'on'")
 for (block in blocks) DBI::dbExecute(con, block)
 race <- DBI::dbGetQuery(con, "
-  SELECT a.actor_id::text AS actor_id, b.authorization_id::text AS authorization_id,
-         b.preview_hash,
-         jsonb_agg(jsonb_build_object('interpretation_id',p.interpretation_id,
-           'target_type',p.target_type,'target_id',p.target_id)
-           ORDER BY p.interpretation_id,p.target_type,p.target_id)::text AS items
-    FROM private.interpretation_promotion_batch b
-    JOIN private.interpretation_promotion_authorization a ON a.id=b.authorization_id
-    JOIN private.interpretation_promotion p ON p.batch_id=b.id
-   WHERE b.status='finalized'
-   GROUP BY a.actor_id,b.authorization_id,b.preview_hash
-   ORDER BY b.authorization_id DESC LIMIT 1
+  SELECT a.actor_id::text AS actor_id, a.id::text AS authorization_id,
+         a.preview_hash,
+         jsonb_build_array(jsonb_build_object('interpretation_id',i.id,
+           'target_type','assertion','target_id',-987650091))::text AS items
+    FROM private.interpretation_promotion_authorization a
+    JOIN private.interpretation i ON i.source_id=-987650091 AND i.status='accepted'
+   WHERE a.nonce='91000000-0000-0000-0000-000000000091'
+     AND a.status='issued'
+   ORDER BY a.issued_at DESC LIMIT 1
 ")
 if (nrow(race) != 1L) stop("INTEGRATION_RACE_FIXTURE_MISSING", call. = FALSE)
+pre_final <- DBI::dbGetQuery(con, sprintf(
+  "SELECT count(*) AS n FROM private.interpretation_promotion_batch WHERE authorization_id=%s::uuid",
+  DBI::dbQuoteString(con, race$authorization_id[[1L]])
+))$n[[1L]]
+if (!identical(as.integer(pre_final), 0L)) stop("INTEGRATION_RACE_ALREADY_FINALIZED", call. = FALSE)
 DBI::dbExecute(con, "SELECT pg_advisory_lock(hashtextextended('daa-evidence-promotion-writer',0))")
 worker <- function() {
   db <- DBI::dbConnect(RPostgres::Postgres(), dbname = Sys.getenv("PGDATABASE"), host = Sys.getenv("PGHOST"),
@@ -105,4 +109,9 @@ final <- DBI::dbGetQuery(con, sprintf(
   DBI::dbQuoteString(con, race$authorization_id[[1L]])
 ))$n[[1L]]
 if (!identical(as.integer(final), 1L)) stop("INTEGRATION_WRITER_RACE_PARTIAL_STATE", call. = FALSE)
-cat("PASS evidence-promotion writer contract DBI integration (barriered concurrent writer replay)\n")
+promotions <- DBI::dbGetQuery(con, sprintf(
+  "SELECT count(*) AS n FROM private.interpretation_promotion p JOIN private.interpretation_promotion_batch b ON b.id=p.batch_id WHERE b.authorization_id=%s::uuid",
+  DBI::dbQuoteString(con, race$authorization_id[[1L]])
+))$n[[1L]]
+if (!identical(as.integer(promotions), 1L)) stop("INTEGRATION_WRITER_RACE_PROMOTION_PARTIAL_STATE", call. = FALSE)
+cat("PASS evidence-promotion writer contract DBI integration (barriered issued-authority finalize race)\n")

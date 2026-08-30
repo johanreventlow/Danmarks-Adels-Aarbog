@@ -360,6 +360,9 @@ BEGIN
       v_items,v_preview->>'preview_hash',
       '91000000-0000-0000-0000-000000000091',clock_timestamp()+interval '5 minutes'
     );
+    -- The DBI race fixture deliberately stops at a genuine issued authority:
+    -- neither worker may receive an already-finalized receipt before competing.
+    IF current_setting('daa.evidence_promotion_race_issued',true) IS DISTINCT FROM 'on' THEN
     v_error:=NULL;
     BEGIN
       PERFORM red_authorize_interpretation_promotions(v_items,v_preview->>'preview_hash',
@@ -425,10 +428,19 @@ BEGIN
     RESET ROLE; SET session_replication_role=replica;
     UPDATE private.interpretation_promotion_authorization SET expires_at=clock_timestamp()+interval '5 minutes' WHERE id=v_authorization;
     SET session_replication_role=origin;
+    -- This is a deliberately privileged test-only mutation.  Disabling only
+    -- the append-only UPDATE guard lets the AFTER INSERT trigger emulate a
+    -- compromised writer between insert and postverify; the authorized-batch
+    -- INSERT guard remains enabled.
+    ALTER TABLE private.interpretation_promotion DISABLE TRIGGER trg_interpretation_promotion_append_only;
     CREATE OR REPLACE FUNCTION private._evidence_promotion_prefinal_drift()
     RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN
-      UPDATE private.interpretation_promotion SET evidence=evidence || '{"injected":true}'::jsonb WHERE id=NEW.id;
+      -- `promoted_by` is intentionally outside the legacy migration's
+      -- postverify JSON.  Clean and migration writers must both reject it.
+      UPDATE private.interpretation_promotion
+         SET promoted_by='11000000-0000-0000-0000-000000000092'::uuid
+       WHERE id=NEW.id;
       RETURN NEW;
     END $$;
     CREATE TRIGGER _evidence_promotion_prefinal_drift AFTER INSERT ON private.interpretation_promotion
@@ -441,7 +453,9 @@ BEGIN
     RESET ROLE;
     DROP TRIGGER _evidence_promotion_prefinal_drift ON private.interpretation_promotion;
     DROP FUNCTION private._evidence_promotion_prefinal_drift();
-    IF v_error IS NULL OR (SELECT count(*) FROM private.interpretation_promotion_batch)<>v_before THEN
+    ALTER TABLE private.interpretation_promotion ENABLE TRIGGER trg_interpretation_promotion_append_only;
+    IF v_error IS NULL OR v_error NOT LIKE 'EVIDENCE_PROMOTION_POSTVERIFY_TARGET_DRIFT%'
+       OR (SELECT count(*) FROM private.interpretation_promotion_batch)<>v_before THEN
       RAISE EXCEPTION 'EVIDENCE_PROMOTION_DIGEST_TEST_FAILED: pre-finalization drift left a batch: %',v_error;
     END IF;
     SET LOCAL ROLE authenticated;
@@ -494,6 +508,7 @@ BEGIN
     END IF;
     IF current_setting('daa.evidence_promotion_keep_fixture',true) IS DISTINCT FROM 'on' THEN
       RAISE EXCEPTION 'ROLLBACK_EVIDENCE_PROMOTION_DIGEST_SUCCESS';
+    END IF;
     END IF;
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM='ROLLBACK_EVIDENCE_PROMOTION_DIGEST_SUCCESS' THEN
