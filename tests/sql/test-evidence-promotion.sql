@@ -424,7 +424,27 @@ BEGIN
     END IF;
     RESET ROLE; SET session_replication_role=replica;
     UPDATE private.interpretation_promotion_authorization SET expires_at=clock_timestamp()+interval '5 minutes' WHERE id=v_authorization;
-    SET session_replication_role=origin; SET LOCAL ROLE authenticated;
+    SET session_replication_role=origin;
+    CREATE OR REPLACE FUNCTION private._evidence_promotion_prefinal_drift()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      UPDATE private.interpretation_promotion SET evidence=evidence || '{"injected":true}'::jsonb WHERE id=NEW.id;
+      RETURN NEW;
+    END $$;
+    CREATE TRIGGER _evidence_promotion_prefinal_drift AFTER INSERT ON private.interpretation_promotion
+      FOR EACH ROW EXECUTE FUNCTION private._evidence_promotion_prefinal_drift();
+    SELECT count(*) INTO v_before FROM private.interpretation_promotion_batch;
+    SET LOCAL ROLE authenticated;
+    v_error:=NULL;
+    BEGIN PERFORM red_promote_interpretations_batch(v_items,v_preview->>'preview_hash',v_authorization);
+    EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
+    RESET ROLE;
+    DROP TRIGGER _evidence_promotion_prefinal_drift ON private.interpretation_promotion;
+    DROP FUNCTION private._evidence_promotion_prefinal_drift();
+    IF v_error IS NULL OR (SELECT count(*) FROM private.interpretation_promotion_batch)<>v_before THEN
+      RAISE EXCEPTION 'EVIDENCE_PROMOTION_DIGEST_TEST_FAILED: pre-finalization drift left a batch: %',v_error;
+    END IF;
+    SET LOCAL ROLE authenticated;
     v_receipt:=red_promote_interpretations_batch(
       v_items,v_preview->>'preview_hash',v_authorization
     );
