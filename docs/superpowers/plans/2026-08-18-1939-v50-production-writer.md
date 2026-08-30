@@ -5,6 +5,12 @@
 > implement this plan task-by-task. Use superpowers:test-driven-development for
 > every code task and superpowers:verification-before-completion before each
 > completion claim. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **Historisk status (2026-08-30):** Checkboksene beskriver den oprindelige
+> production-writer-arbejdsgang og er ikke status for den samlede v50-strøm.
+> Den gældende programstatus er
+> `docs/evidensbaseret-genimport/status.md`; se desuden changelog-korrektionen
+> for 2026-08-18 og afvigelsesvurderingen 2026-08-22.
 
 **Goal:** Luk den resterende 1939-provenance, opret præcis otte nye staged
 personer og implementér en atomisk, idempotent production writer for hele

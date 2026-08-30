@@ -1,6 +1,11 @@
 # 1939 Dual-Rendition Evidence Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **Historisk status (2026-08-30):** Checkboksene beskriver denne plans
+> oprindelige arbejdsspor, ikke den gældende status for 1939-genimporten.
+> Brug `docs/evidensbaseret-genimport/status.md`, changelog og
+> afvigelsesvurderingen 2026-08-22 ved status- eller gate-spørgsmål.
 
 **Goal:** Generate source-bound 1939 evidence from unique baseline ownership anchors plus structurally unique agreement between Calamari and raw OCR, so the private queue shows only genuine exceptions and deterministic audit samples.
 
