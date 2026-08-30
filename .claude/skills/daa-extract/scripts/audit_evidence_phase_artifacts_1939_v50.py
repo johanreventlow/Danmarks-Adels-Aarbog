@@ -281,6 +281,8 @@ def receipt_binds_manifest_and_identities(resolved: Mapping[str, Path], phase: P
         path = resolved[artifact.role]
         try:
             raw = path.read_bytes()
+        except ValueError as error:
+            raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_PATH_INVALID") from error
         except OSError as error:
             raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_UNREADABLE") from error
         if hashlib.sha256(raw).hexdigest() != artifact.sha256:
