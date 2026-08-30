@@ -118,6 +118,42 @@ def _unbound_ledger() -> dict:
     )
 
 
+def _write_cli_reconciliation_inputs(tmp_path, snapshot: dict, *manifests: dict) -> list[str]:
+    contributions = []
+    bound_manifests = []
+    for manifest in manifests:
+        original = tmp_path / f"{manifest['phase_id']}-original.json"
+        original.write_bytes(b'{"original":true}\n')
+        bound = dict(manifest)
+        bound["source_manifest_path"] = original.name
+        bound["source_manifest_sha256"] = hashlib.sha256(original.read_bytes()).hexdigest()
+        bound = _with_hash(
+            {key: value for key, value in bound.items() if key != "reconciliation_content_sha256"},
+            "reconciliation_content_sha256",
+        )
+        contribution = tmp_path / f"{bound['phase_id']}-contribution.json"
+        contribution.write_text(json.dumps(bound), encoding="utf-8")
+        contributions.extend(["--phase-manifest", str(contribution)])
+        bound_manifests.append(bound)
+
+    snapshot_path = tmp_path / "snapshot.json"
+    snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+    ledger_path = tmp_path / "ledger.json"
+    ledger_path.write_text(json.dumps(_ledger(*bound_manifests)), encoding="utf-8")
+    return ["--snapshot", str(snapshot_path), "--ledger", str(ledger_path), *contributions]
+
+
+def _drifting_cli_args(tmp_path) -> list[str]:
+    phase_a = _manifest("phase-a", record_key="record-1", occurrence_key="occ-1", person_id=101, narrative_id=201)
+    snapshot = _snapshot(phase_a)
+    snapshot["source_records"] = [{"source_id": 3, "record_key": "record-2"}]
+    snapshot = _with_hash(
+        {key: value for key, value in snapshot.items() if key != "snapshot_content_sha256"},
+        "snapshot_content_sha256",
+    )
+    return _write_cli_reconciliation_inputs(tmp_path, snapshot, phase_a)
+
+
 def test_reconcile_matches_snapshot_against_ordered_phase_final_state():
     phase_a = _manifest("phase-a", record_key="1939:1", occurrence_key="occ-1", person_id=101, narrative_id=201)
     phase_b = _manifest("phase-b", record_key="1939:2", occurrence_key="occ-2", person_id=102, narrative_id=202)
@@ -277,6 +313,68 @@ def test_loading_a_phase_contribution_verifies_its_original_manifest_bytes(tmp_p
         load_phase_manifest(contribution)
 
 
+def test_cli_requires_a_private_report_path_for_reconciliation(tmp_path, capsys):
+    assert main(_drifting_cli_args(tmp_path)) == 2
+
+    terminal = json.loads(capsys.readouterr().err)
+    assert terminal["error"] == "EVIDENCE_RECONCILIATION_PRIVATE_REPORT_REQUIRED"
+
+
+def test_cli_writes_exact_drift_only_to_mode_0600_private_report(tmp_path, capsys):
+    private_report = tmp_path / "private-drift.json"
+
+    assert main([*_drifting_cli_args(tmp_path), "--private-report", str(private_report)]) == 2
+
+    terminal = json.loads(capsys.readouterr().err)
+    assert terminal["error"] == "EVIDENCE_RECONCILIATION_DRIFT"
+    assert "record-1" not in json.dumps(terminal)
+    assert oct(private_report.stat().st_mode & 0o777) == "0o600"
+    assert json.loads(private_report.read_text(encoding="utf-8"))["differences"]["source_records"]["missing"] == [
+        {"record_key": "record-1", "source_id": 3}
+    ]
+
+
+def test_cli_rejects_an_existing_private_report_before_reading_reconciliation_inputs(tmp_path, capsys):
+    private_report = tmp_path / "private-drift.json"
+    private_report.write_text("do not overwrite", encoding="utf-8")
+    args = [
+        "--snapshot",
+        str(tmp_path / "unreadable-snapshot.json"),
+        "--ledger",
+        str(tmp_path / "unreadable-ledger.json"),
+        "--phase-manifest",
+        str(tmp_path / "unreadable-manifest.json"),
+        "--private-report",
+        str(private_report),
+    ]
+
+    assert main(args) == 2
+
+    terminal = json.loads(capsys.readouterr().err)
+    assert terminal["error"] == "EVIDENCE_RECONCILIATION_PRIVATE_REPORT_EXISTS"
+    assert private_report.read_text(encoding="utf-8") == "do not overwrite"
+
+
+def test_cli_rejects_an_unwritable_private_report_before_reading_reconciliation_inputs(tmp_path, capsys):
+    private_report = tmp_path / "missing-parent" / "private-drift.json"
+    args = [
+        "--snapshot",
+        str(tmp_path / "unreadable-snapshot.json"),
+        "--ledger",
+        str(tmp_path / "unreadable-ledger.json"),
+        "--phase-manifest",
+        str(tmp_path / "unreadable-manifest.json"),
+        "--private-report",
+        str(private_report),
+    ]
+
+    assert main(args) == 2
+
+    terminal = json.loads(capsys.readouterr().err)
+    assert terminal["error"] == "EVIDENCE_RECONCILIATION_PRIVATE_REPORT_UNWRITABLE"
+    assert not private_report.exists()
+
+
 def test_cli_loads_phase_contributions_before_reading_the_snapshot(tmp_path, capsys):
     phase_a = _manifest("phase-a", record_key="1939:1", occurrence_key="occ-1", person_id=101, narrative_id=201)
     phase_a["persons"] = [{"person_id": 999}]
@@ -293,6 +391,8 @@ def test_cli_loads_phase_contributions_before_reading_the_snapshot(tmp_path, cap
             str(contribution),
             "--ledger",
             str(ledger),
+            "--private-report",
+            str(tmp_path / "private-report.json"),
         ]
     )
 
@@ -327,6 +427,8 @@ def test_cli_rejects_a_ledger_hash_mismatch_before_reading_the_snapshot(tmp_path
             str(contribution),
             "--ledger",
             str(ledger_path),
+            "--private-report",
+            str(tmp_path / "private-report.json"),
         ]
     )
 
