@@ -142,6 +142,66 @@ def test_ledger_rejects_artifacts_with_the_same_normalized_relative_path():
         validate_ledger(ledger)
 
 
+def test_ledger_rejects_a_nul_artifact_path_before_path_resolution():
+    ledger = seal_ledger(
+        {
+            "schema_version": "daa-evidence-phase-artifact-ledger-v2",
+            "phases": [
+                {
+                    "phase_id": "task25",
+                    "sequence": 1,
+                    "artifacts": [
+                        {
+                            "role": "manifest",
+                            "path": "nul\x00artifact.json",
+                            "sha256": "a" * 64,
+                            "schema_version": "1939-v50-production-write-manifest-v1",
+                            "required": True,
+                        }
+                    ],
+                    "adapter_id": "task25-v1",
+                    "adapter_sha256": "b" * 64,
+                    "projection_evidence": "afterdocumented_unbound",
+                    "authorisation_evidence": "afterdocumented_authorisation_gap",
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(LedgerError, match="EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_INVALID"):
+        validate_ledger(ledger)
+
+
+def test_ledger_requires_a_hash_declared_production_target_for_phase_b():
+    ledger = seal_ledger(
+        {
+            "schema_version": "daa-evidence-phase-artifact-ledger-v2",
+            "phases": [
+                {
+                    "phase_id": "phase-b",
+                    "sequence": 1,
+                    "artifacts": [
+                        {
+                            "role": "manifest",
+                            "path": "phase-b.json",
+                            "sha256": "a" * 64,
+                            "schema_version": "1939-v50-narrative-replacement-manifest-v2",
+                            "required": True,
+                        }
+                    ],
+                    "adapter_id": "phase-b-v1",
+                    "adapter_sha256": "b" * 64,
+                    "projection_evidence": "afterdocumented_unbound",
+                    "authorisation_evidence": "afterdocumented_authorisation_gap",
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(LedgerError, match="EVIDENCE_RECONCILIATION_LEDGER_PHASE_INVALID"):
+        validate_ledger(ledger)
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

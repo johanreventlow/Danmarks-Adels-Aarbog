@@ -8,7 +8,13 @@ import json
 from pathlib import Path
 from typing import Mapping
 
-from evidence_phase_artifact_ledger import ArtifactEntry, PhaseEntry, RECEIPT_ADAPTERS, ReceiptAdapter
+from evidence_phase_artifact_ledger import (
+    ArtifactEntry,
+    PhaseEntry,
+    RECEIPT_ADAPTERS,
+    ReceiptAdapter,
+    canonical_sha256,
+)
 
 
 class AuditError(ValueError):
@@ -72,15 +78,17 @@ def _parse_json(raw: bytes) -> dict[str, object]:
 
 
 def _resolve_artifact_path(bundle_root: Path, artifact: ArtifactEntry) -> Path:
-    if not isinstance(artifact.path, str):
-        raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_PATH_INVALID")
-    relative = Path(artifact.path)
-    if not artifact.path or relative.is_absolute() or ".." in relative.parts:
+    if not isinstance(artifact.path, str) or "\x00" in artifact.path:
         raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_PATH_INVALID")
     try:
+        relative = Path(artifact.path)
+        if not artifact.path or relative.is_absolute() or ".." in relative.parts:
+            raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_PATH_INVALID")
         root = bundle_root.resolve()
         candidate = (root / relative).resolve()
-    except (OSError, RuntimeError) as error:
+    except AuditError:
+        raise
+    except (OSError, RuntimeError, ValueError) as error:
         raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_PATH_INVALID") from error
     if root not in candidate.parents:
         raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_PATH_INVALID")
@@ -154,6 +162,8 @@ def _validate_phase_b_identity_map(value: object, adapter: ReceiptAdapter) -> li
             raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
         if not _valid_sha256(row["before_sha256"]) or not _valid_sha256(row["after_sha256"]):
             raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+        if not isinstance(row["publication_status"], str):
+            raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
         if row["publication_status"] not in adapter.publication_statuses:
             return None
         for field in adapter.identity_unique_fields:
@@ -195,6 +205,28 @@ def _phase_b_operations_match(manifest: dict[str, object], identity_map: list[di
     return expected == observed
 
 
+def _production_target_matches(value: object, phase: PhaseEntry) -> bool:
+    if not isinstance(value, dict) or set(value) != {
+        "schema_version",
+        "environment",
+        "system_identifier_sha256",
+    }:
+        raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+    if (
+        value["schema_version"] != "daa-evidence-production-target-identity-v1"
+        or not _valid_text(value["environment"])
+        or not _valid_sha256(value["system_identifier_sha256"])
+    ):
+        raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+    expected_hash = phase.database_target_identity_sha256
+    if not _valid_sha256(expected_hash):
+        raise AuditError("EVIDENCE_RECONCILIATION_DATABASE_TARGET_REQUIRED")
+    return (
+        value["environment"] == "production"
+        and canonical_sha256(value, "") == expected_hash
+    )
+
+
 def _receipt_binds_verified_artifacts(
     verified: Mapping[str, _VerifiedArtifact], phase: PhaseEntry, adapter: ReceiptAdapter
 ) -> bool:
@@ -218,13 +250,15 @@ def _receipt_binds_verified_artifacts(
         raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
     if not _valid_sha256(receipt.document[adapter.manifest_sha256_field]):
         raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
-    if not _valid_text(receipt.document[adapter.database_target_identity_field]):
-        raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+    target_matches = _production_target_matches(
+        receipt.document[adapter.database_target_identity_field], phase
+    )
     identity_map = _validate_phase_b_identity_map(receipt.document[adapter.identity_map_field], adapter)
     if identity_map is None:
         return False
     return (
-        receipt.document[adapter.manifest_sha256_field] == hashlib.sha256(manifest.raw).hexdigest()
+        target_matches
+        and receipt.document[adapter.manifest_sha256_field] == hashlib.sha256(manifest.raw).hexdigest()
         and _phase_b_operations_match(manifest.document, identity_map)
     )
 

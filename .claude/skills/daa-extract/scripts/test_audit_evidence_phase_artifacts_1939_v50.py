@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from audit_evidence_phase_artifacts_1939_v50 import AuditError, audit_bundle, receipt_binds_manifest_and_identities
-from evidence_phase_artifact_ledger import ArtifactEntry, PhaseEntry, seal_ledger, validate_ledger
+from evidence_phase_artifact_ledger import ArtifactEntry, PhaseEntry, canonical_sha256, seal_ledger, validate_ledger
 
 
 def sha256_bytes(value: bytes) -> str:
@@ -18,6 +18,18 @@ def write_json(path: Path, document: object) -> str:
     raw = json.dumps(document, sort_keys=True, separators=(",", ":")).encode("utf-8")
     path.write_bytes(raw)
     return sha256_bytes(raw)
+
+
+def production_target_identity() -> dict:
+    return {
+        "schema_version": "daa-evidence-production-target-identity-v1",
+        "environment": "production",
+        "system_identifier_sha256": "e" * 64,
+    }
+
+
+def production_target_identity_sha256() -> str:
+    return canonical_sha256(production_target_identity(), "")
 
 
 def sealed_phase_b_ledger(manifest_sha256: str) -> list:
@@ -40,6 +52,7 @@ def sealed_phase_b_ledger(manifest_sha256: str) -> list:
                         ],
                         "adapter_id": "phase-b-v1",
                         "adapter_sha256": "a" * 64,
+                        "database_target_identity_sha256": production_target_identity_sha256(),
                         "projection_evidence": "afterdocumented_unbound",
                         "authorisation_evidence": "afterdocumented_authorisation_gap",
                     }
@@ -70,6 +83,7 @@ def phase_b_ledger_with_receipt(manifest_sha256: str, receipt_sha256: str) -> li
             adapter_sha256=phase.adapter_sha256,
             projection_evidence=phase.projection_evidence,
             authorisation_evidence=phase.authorisation_evidence,
+            database_target_identity_sha256=phase.database_target_identity_sha256,
         )
     ]
 
@@ -92,6 +106,7 @@ def phase_b_manifest_phase(path: str, sha256: str) -> PhaseEntry:
         adapter_sha256=phase.adapter_sha256,
         projection_evidence=phase.projection_evidence,
         authorisation_evidence=phase.authorisation_evidence,
+        database_target_identity_sha256=phase.database_target_identity_sha256,
     )
 
 
@@ -183,7 +198,7 @@ def test_audit_marks_phase_b_mechanically_bound_only_for_an_exact_manifest_and_i
         {
             "schema_version": "daa-evidence-phase-receipt-phase-b-v1",
             "manifest_sha256": manifest_sha256,
-            "database_target_identity": "synthetic-target-v1",
+            "database_target_identity": production_target_identity(),
             "identity_map": identity_map,
         },
     )
@@ -208,7 +223,7 @@ def test_audit_marks_phase_b_unbound_when_receipt_names_another_manifest(tmp_pat
         {
             "schema_version": "daa-evidence-phase-receipt-phase-b-v1",
             "manifest_sha256": "d" * 64,
-            "database_target_identity": "synthetic-target-v1",
+            "database_target_identity": production_target_identity(),
             "identity_map": identity_map,
         },
     )
@@ -300,7 +315,7 @@ def test_audit_rejects_a_receipt_with_a_non_exact_phase_b_identity_map_schema(tm
         {
             "schema_version": "daa-evidence-phase-receipt-phase-b-v1",
             "manifest_sha256": manifest_sha256,
-            "database_target_identity": "synthetic-target-v1",
+            "database_target_identity": production_target_identity(),
             "identity_map": malformed_map,
         },
     )
@@ -323,7 +338,7 @@ def test_audit_rejects_a_nonrequired_phase_b_manifest_before_classification(tmp_
         {
             "schema_version": "daa-evidence-phase-receipt-phase-b-v1",
             "manifest_sha256": manifest_sha256,
-            "database_target_identity": "synthetic-target-v1",
+            "database_target_identity": production_target_identity(),
             "identity_map": identity_map,
         },
     )
@@ -344,6 +359,7 @@ def test_audit_rejects_a_nonrequired_phase_b_manifest_before_classification(tmp_
             adapter_sha256=phase.adapter_sha256,
             projection_evidence=phase.projection_evidence,
             authorisation_evidence=phase.authorisation_evidence,
+            database_target_identity_sha256=phase.database_target_identity_sha256,
         )
     ]
 
@@ -366,7 +382,7 @@ def test_receipt_binding_rejects_a_ledger_manifest_hash_that_differs_from_verifi
         {
             "schema_version": "daa-evidence-phase-receipt-phase-b-v1",
             "manifest_sha256": declared_manifest_sha256,
-            "database_target_identity": "synthetic-target-v1",
+            "database_target_identity": production_target_identity(),
             "identity_map": identity_map,
         },
     )
@@ -395,7 +411,7 @@ def test_audit_marks_a_phase_b_receipt_with_only_one_of_551_identities_unbound(t
         {
             "schema_version": "daa-evidence-phase-receipt-phase-b-v1",
             "manifest_sha256": manifest_sha256,
-            "database_target_identity": "synthetic-target-v1",
+            "database_target_identity": production_target_identity(),
             "identity_map": identity_map[:1],
         },
     )
@@ -444,7 +460,7 @@ def test_audit_marks_a_phase_b_receipt_with_a_duplicate_identity_field_unbound(t
         {
             "schema_version": "daa-evidence-phase-receipt-phase-b-v1",
             "manifest_sha256": manifest_sha256,
-            "database_target_identity": "synthetic-target-v1",
+            "database_target_identity": production_target_identity(),
             "identity_map": receipt_map,
         },
     )
@@ -470,8 +486,59 @@ def test_audit_marks_a_phase_b_receipt_with_an_unallowed_publication_status_unbo
         {
             "schema_version": "daa-evidence-phase-receipt-phase-b-v1",
             "manifest_sha256": manifest_sha256,
-            "database_target_identity": "synthetic-target-v1",
+            "database_target_identity": production_target_identity(),
             "identity_map": receipt_map,
+        },
+    )
+
+    result = audit_bundle(tmp_path, phase_b_ledger_with_receipt(manifest_sha256, receipt_sha256))
+
+    assert result.phase("phase-b").error == "EVIDENCE_RECONCILIATION_RECEIPT_UNBOUND"
+
+
+def test_audit_rejects_a_phase_b_receipt_with_a_non_string_publication_status(tmp_path):
+    identity_map = phase_b_identity_map()
+    manifest_sha256 = write_json(
+        tmp_path / "phase-b.json",
+        {
+            "schema_version": "1939-v50-narrative-replacement-manifest-v2",
+            "operations": phase_b_operations(identity_map),
+        },
+    )
+    receipt_map = phase_b_identity_map()
+    receipt_map[-1] = {**receipt_map[-1], "publication_status": []}
+    receipt_sha256 = write_json(
+        tmp_path / "phase-b-receipt.json",
+        {
+            "schema_version": "daa-evidence-phase-receipt-phase-b-v1",
+            "manifest_sha256": manifest_sha256,
+            "database_target_identity": production_target_identity(),
+            "identity_map": receipt_map,
+        },
+    )
+
+    with pytest.raises(AuditError, match="EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID"):
+        audit_bundle(tmp_path, phase_b_ledger_with_receipt(manifest_sha256, receipt_sha256))
+
+
+@pytest.mark.parametrize("environment", ["rehearsal", "synthetic"])
+def test_audit_marks_a_nonproduction_receipt_target_unbound(tmp_path, environment):
+    identity_map = phase_b_identity_map()
+    manifest_sha256 = write_json(
+        tmp_path / "phase-b.json",
+        {
+            "schema_version": "1939-v50-narrative-replacement-manifest-v2",
+            "operations": phase_b_operations(identity_map),
+        },
+    )
+    target = {**production_target_identity(), "environment": environment}
+    receipt_sha256 = write_json(
+        tmp_path / "phase-b-receipt.json",
+        {
+            "schema_version": "daa-evidence-phase-receipt-phase-b-v1",
+            "manifest_sha256": manifest_sha256,
+            "database_target_identity": target,
+            "identity_map": identity_map,
         },
     )
 
@@ -496,7 +563,7 @@ def test_audit_rejects_a_phase_b_receipt_identity_not_matched_by_manifest_operat
         {
             "schema_version": "daa-evidence-phase-receipt-phase-b-v1",
             "manifest_sha256": manifest_sha256,
-            "database_target_identity": "synthetic-target-v1",
+            "database_target_identity": production_target_identity(),
             "identity_map": receipt_map,
         },
     )
@@ -514,7 +581,7 @@ def test_audit_rejects_duplicate_json_keys_before_classification(tmp_path):
         audit_bundle(tmp_path, [phase_b_manifest_phase("phase-b.json", sha256_bytes(raw))])
 
 
-@pytest.mark.parametrize("path", ["/tmp/not-an-artifact.json", "../not-an-artifact.json"])
+@pytest.mark.parametrize("path", ["/tmp/not-an-artifact.json", "../not-an-artifact.json", "nul\x00.json"])
 def test_audit_rejects_absolute_and_traversal_artifact_paths(tmp_path, path):
     with pytest.raises(AuditError, match="EVIDENCE_RECONCILIATION_ARTIFACT_PATH_INVALID"):
         audit_bundle(tmp_path, [phase_b_manifest_phase(path, "a" * 64)])
@@ -542,7 +609,7 @@ def test_audit_reads_a_required_artifact_once_for_hash_and_json_admission(tmp_pa
         {
             "schema_version": "daa-evidence-phase-receipt-phase-b-v1",
             "manifest_sha256": manifest_sha256,
-            "database_target_identity": "synthetic-target-v1",
+            "database_target_identity": production_target_identity(),
             "identity_map": identity_map,
         },
     )
