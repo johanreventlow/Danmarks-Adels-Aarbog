@@ -737,6 +737,14 @@ rå `max(id)` som gulv men `GREATEST(levende max, versioneringshistorikkens max 
 og id-genbrug dér "genopliver" historik på nye, forkerte rækker (fundet empirisk af
 --replace-dry-runens invariantvagt). Gælder alle fire loadere + sekvens-setval i migrationer.
 
+## Roadmapmål #153 aktiveret efter lokal #152-leverance (2026-08-30)
+
+**Besluttet (projektejer):** #152's godkendte lokale leverance er afsluttet
+uden production apply. #153 er derfor det ene aktive programmål og skal
+planlægges før #149 i den eksisterende roadmaprækkefølge. Dette giver ikke
+production-GO til #152 eller #153 og ændrer ikke #152's særskilte
+production-gate.
+
 ## Replay-laget: source-scoped replace, ikke generaliseret journal (2026-07-30)
 
 **Besluttet (bruger-valg efter helhedsreview, issue #123):** re-load af en udgave bevarer

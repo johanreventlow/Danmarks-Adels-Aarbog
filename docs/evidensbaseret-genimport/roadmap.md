@@ -9,7 +9,7 @@ C3 blev 2026-08-29 migreret, anvendt og uafhængigt efterverificeret i
 produktion for det eksakte fem-sagers scope. Se
 [production-apply-rapporten](c3-production-apply-2026-08-29.md).
 
-Projektejeren har derefter aktiveret roadmapmål #152: person-narrativer skal
+Efter C3 var roadmapmål #152 aktivt: person-narrativer skulle
 knyttes entydigt til konkrete source records. Målet var `specificeret` i den
 reviderede
 [#152-designspecifikation](../superpowers/specs/2026-08-29-narrative-source-record-key-design.md),
@@ -30,6 +30,11 @@ et nyt, artifact-bundet projektejer-GO med release-SHA, udløb og eksternt
 writer-traffic hold før nogen produktionsmutation. Frysningen af nye bindinger og
 legacy loaders forbliver aktiv ved design, indtil den atomiske version-2
 cutover er særskilt godkendt og efterverificeret.
+
+**Projektejerbeslutning 2026-08-30:** #152's godkendte lokale leverance er
+færdiggjort på sin isolerede branch uden production apply. Projektejeren har
+aktiveret #153 som det ene aktive programmål. #152's eventuelle production-gate
+forbliver et separat, ikke-autoriseret spor og ændrer ikke roadmaprækkefølgen.
 
 ## Styrende rækkefølge
 

@@ -23,13 +23,17 @@ produktion efter et særskilt GO. Apply-batch
 `447d81a8-5c21-4b22-832e-e0d2a379a20c`, change set `966`, blev `finalized` og
 bestod den uafhængige read-only postverification.
 
-Det aktive programmål er nu #152. Det har en revideret, 2026-08-29 godkendt
+På snapshot-tidspunktet var #152 det aktive programmål. Det har en revideret, 2026-08-29 godkendt
 designspecifikation, som gør den operationelle frysning, granulær
 legacy-nedtagning og den midlertidige blokering af hel-person-sletning
 eksplicit. Task 12 har derefter bevist kontrakten ende-til-ende i en syntetisk,
 disponibel PostgreSQL-restore med reelle samtidighedsræs, klienttests og
 browser-smoke. Task 13 har skrevet den særskilte production-runbook; der er
 stadig ikke givet produktions-GO.
+
+**Projektejerbeslutning 2026-08-30:** Den godkendte lokale #152-leverance er
+færdiggjort uden production apply, og #153 er nu det aktive programmål.
+#152's production-gate er fortsat særskilt og ikke autoriseret.
 
 ## Modenhed pr. værdikædeled
 
@@ -105,10 +109,14 @@ programmets samlede modenhed.
 
 ## Næste tilladte arbejde
 
-Næste tilladte handling er en projektejer-review af
+En særskilt projektejer-review af
 [#152-cutover-runbooken](../runbooks/narrative-record-key-cutover.md) med en
-frisk, læse-kun production-inventory. Ingen #152-produktionsmutation er
-autoriseret uden en ny udtrykkelig GO.
+frisk, læse-kun production-inventory kan kun føre til production mutation efter
+en ny, udtrykkelig GO.
+
+For det aktive #153 er næste tilladte handling at færdiggøre en autoritativ
+designspecifikation og en plan reviewet mod den; ingen #153-write eller
+produktionshandling er autoriseret af denne statusændring.
 
 ## Parkeret arbejde
 
