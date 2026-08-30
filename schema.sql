@@ -7073,7 +7073,7 @@ BEGIN
   IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_BATCH_NOT_FOUND'; END IF;
   SELECT coalesce(jsonb_agg(jsonb_build_object(
     'promotion_id',p.id,'batch_id',p.batch_id,'authorization_id',p.evidence->>'authorization_id',
-    'preview_hash',p.evidence->>'preview_hash','promoted_by',p.promoted_by,
+    'preview_hash',p.evidence->>'preview_hash','evidence',p.evidence,'promoted_by',p.promoted_by,
     'promoted_by_name',p.promoted_by_name,'interpretation_id',p.interpretation_id,'target_type',p.target_type,'target_id',p.target_id,
     'rule_key',p.rule_key,'rule_version',p.rule_version,
     'assertion',jsonb_build_object('id',a.id,'target_type',a.target_type,'target_id',a.target_id,
@@ -7104,11 +7104,17 @@ CREATE OR REPLACE FUNCTION red_authorize_interpretation_promotions(
 ) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE v_actor uuid:=auth.uid(); v_preview jsonb; v_reason text; v_profile jsonb; v_profile_hash text;
   v_request_sha text; v_database_identity jsonb:=private.interpretation_promotion_database_identity();
-  v_existing private.interpretation_promotion_authorization%ROWTYPE; v_id uuid;
+  v_existing private.interpretation_promotion_authorization%ROWTYPE; v_nonce_found boolean; v_id uuid;
 BEGIN
   IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
   IF p_nonce IS NULL OR p_expires_at<=clock_timestamp() OR coalesce(p_preview_hash,'') !~ '^[0-9a-f]{64}$' THEN
     RAISE EXCEPTION 'EVIDENCE_PROMOTION_AUTHORIZATION_INVALID';
+  END IF;
+  SELECT * INTO v_existing FROM private.interpretation_promotion_authorization
+    WHERE actor_id=v_actor AND nonce=p_nonce FOR UPDATE;
+  v_nonce_found:=FOUND;
+  IF v_nonce_found AND v_existing.status<>'issued' THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_NONCE_CONFLICT';
   END IF;
   v_preview:=private.preview_interpretation_promotions(p_items,false);
   IF v_preview->>'preview_hash'<>p_preview_hash THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_PREVIEW_STALE'; END IF;
@@ -7122,9 +7128,7 @@ BEGIN
     'contract','interpretation-promotion-request-v1','items',private.canonical_interpretation_promotion_items(p_items)
   )::text,'sha256'),'hex');
   PERFORM pg_advisory_xact_lock(hashtextextended('daa-evidence-promotion-authorization:'||v_request_sha,0));
-  SELECT * INTO v_existing FROM private.interpretation_promotion_authorization
-    WHERE actor_id=v_actor AND nonce=p_nonce FOR UPDATE;
-  IF FOUND THEN
+  IF v_nonce_found THEN
     IF v_existing.status='issued' AND v_existing.expires_at>clock_timestamp()
        AND v_existing.preview_hash=p_preview_hash AND v_existing.rule_profile_hash=v_profile_hash
        AND v_existing.request_sha256=v_request_sha AND v_existing.database_identity=v_database_identity THEN
@@ -7207,6 +7211,7 @@ BEGIN
             jsonb_array_length(v_preview->'items')) RETURNING id INTO v_batch_id;
   SELECT coalesce(jsonb_agg(jsonb_build_object(
       'batch_id',v_batch_id,'authorization_id',v_auth.id::text,'preview_hash',p_preview_hash,
+      'evidence',jsonb_build_object('promotion_kind','validated_rule','preview_hash',p_preview_hash,'authorization_id',v_auth.id::text),
       'promoted_by',v_actor,'promoted_by_name',v_actor_name,
       'interpretation_id',item->>'interpretation_id','target_type',item->>'target_type','target_id',item->>'target_id',
       'assertion',jsonb_build_object('id',a.id,'target_type',a.target_type,'target_id',a.target_id,
@@ -7225,7 +7230,7 @@ BEGIN
     FROM jsonb_array_elements(v_preview->'items') item;
   SELECT coalesce(jsonb_agg(jsonb_build_object(
       'batch_id',p.batch_id,'authorization_id',p.evidence->>'authorization_id',
-      'preview_hash',p.evidence->>'preview_hash','promoted_by',p.promoted_by,
+      'preview_hash',p.evidence->>'preview_hash','evidence',p.evidence,'promoted_by',p.promoted_by,
       'promoted_by_name',p.promoted_by_name,'interpretation_id',p.interpretation_id::text,'target_type',p.target_type,'target_id',p.target_id::text,
       'assertion',jsonb_build_object('id',a.id,'target_type',a.target_type,'target_id',a.target_id,
         'value',a.vaerdi_tekst,'date_raw',a.date_raw),

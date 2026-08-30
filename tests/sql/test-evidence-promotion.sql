@@ -257,6 +257,7 @@ END $evidence_promotion_canonical_scope_test$;
 DO $evidence_promotion_digest_success_test$
 DECLARE
   v_actor uuid := '11000000-0000-0000-0000-000000000091';
+  v_other_actor uuid := '11000000-0000-0000-0000-000000000092';
   v_run uuid := '22000000-0000-0000-0000-000000000091';
   v_rendition uuid := '33000000-0000-0000-0000-000000000091';
   v_occurrence uuid := '55000000-0000-0000-0000-000000000091';
@@ -269,13 +270,21 @@ DECLARE
   v_items jsonb;
   v_authorization uuid;
   v_receipt jsonb;
+  v_error text;
+  v_before integer;
+  v_current jsonb;
 BEGIN
   BEGIN
     INSERT INTO auth.users(id,email)
       VALUES (v_actor,'promotion-digest-success@test.invalid');
+    INSERT INTO auth.users(id,email)
+      VALUES (v_other_actor,'promotion-digest-other@test.invalid');
     INSERT INTO profiles(id,rolle,navn,email)
       VALUES (v_actor,'redaktion','Promotion Digest Success',
               'promotion-digest-success@test.invalid');
+    INSERT INTO profiles(id,rolle,navn,email)
+      VALUES (v_other_actor,'redaktion','Promotion Digest Other',
+              'promotion-digest-other@test.invalid');
     INSERT INTO person(id,levende,privat,status)
       VALUES (-987650091,false,false,'promotion digest fixture');
     INSERT INTO source(id,titel,import_key)
@@ -351,12 +360,86 @@ BEGIN
       v_items,v_preview->>'preview_hash',
       '91000000-0000-0000-0000-000000000091',clock_timestamp()+interval '5 minutes'
     );
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_authorize_interpretation_promotions(v_items,v_preview->>'preview_hash',
+        '91000000-0000-0000-0000-000000000093',clock_timestamp()+interval '5 minutes');
+    EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+    END;
+    IF v_error IS NULL OR v_error NOT LIKE 'EVIDENCE_PROMOTION_SCOPE_ALREADY_AUTHORIZED%' THEN
+      RAISE EXCEPTION 'EVIDENCE_PROMOTION_DIGEST_TEST_FAILED: duplicate scope guard missing: %',v_error;
+    END IF;
+    RESET ROLE;
+    SELECT count(*) INTO v_before FROM private.interpretation_promotion_batch;
+    SET LOCAL ROLE authenticated;
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_authorize_interpretation_promotions(
+        v_items || jsonb_build_array(jsonb_build_object('interpretation_id',gen_random_uuid(),'target_type','assertion','target_id',-987650091)),
+        v_preview->>'preview_hash','91000000-0000-0000-0000-000000000094',clock_timestamp()+interval '5 minutes');
+    EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+    END;
+    RESET ROLE;
+    IF v_error IS NULL OR (SELECT count(*) FROM private.interpretation_promotion_batch)<>v_before THEN
+      RAISE EXCEPTION 'EVIDENCE_PROMOTION_DIGEST_TEST_FAILED: mixed invalid request was not atomic: %',v_error;
+    END IF;
+    SET session_replication_role=replica;
+    UPDATE private.interpretation_promotion_authorization SET rule_profile='{"unknown":true}'::jsonb WHERE id=v_authorization;
+    SET session_replication_role=origin;
+    SET LOCAL ROLE authenticated;
+    v_error:=NULL;
+    BEGIN PERFORM red_promote_interpretations_batch(v_items,v_preview->>'preview_hash',v_authorization);
+    EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
+    IF v_error IS NULL OR v_error NOT LIKE 'EVIDENCE_PROMOTION_PROFILE_INVALID%' THEN
+      RAISE EXCEPTION 'EVIDENCE_PROMOTION_DIGEST_TEST_FAILED: unknown profile accepted: %',v_error;
+    END IF;
+    RESET ROLE; SET session_replication_role=replica;
+    UPDATE private.interpretation_promotion_authorization SET rule_profile=private.interpretation_promotion_profile(v_preview) WHERE id=v_authorization;
+    SET session_replication_role=origin; SET LOCAL ROLE authenticated;
+    PERFORM set_config('request.jwt.claim.sub',v_other_actor::text,true);
+    v_error:=NULL;
+    BEGIN PERFORM red_promote_interpretations_batch(v_items,v_preview->>'preview_hash',v_authorization);
+    EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
+    IF v_error IS NULL OR v_error NOT LIKE 'EVIDENCE_PROMOTION_AUTHORIZATION_INVALID%' THEN
+      RAISE EXCEPTION 'EVIDENCE_PROMOTION_DIGEST_TEST_FAILED: wrong actor accepted: %',v_error;
+    END IF;
+    PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+    RESET ROLE; SET session_replication_role=replica;
+    UPDATE private.interpretation_promotion_authorization SET database_identity='{"database_name":"wrong","system_identifier":"wrong"}'::jsonb WHERE id=v_authorization;
+    SET session_replication_role=origin; SET LOCAL ROLE authenticated;
+    v_error:=NULL;
+    BEGIN PERFORM red_promote_interpretations_batch(v_items,v_preview->>'preview_hash',v_authorization);
+    EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
+    IF v_error IS NULL OR v_error NOT LIKE 'EVIDENCE_PROMOTION_AUTHORIZATION_INVALID%' THEN
+      RAISE EXCEPTION 'EVIDENCE_PROMOTION_DIGEST_TEST_FAILED: cross-db authorization accepted: %',v_error;
+    END IF;
+    RESET ROLE; SET session_replication_role=replica;
+    UPDATE private.interpretation_promotion_authorization SET database_identity=private.interpretation_promotion_database_identity(),issued_at=clock_timestamp()-interval '2 seconds',expires_at=clock_timestamp()-interval '1 second' WHERE id=v_authorization;
+    SET session_replication_role=origin; SET LOCAL ROLE authenticated;
+    v_error:=NULL;
+    BEGIN PERFORM red_promote_interpretations_batch(v_items,v_preview->>'preview_hash',v_authorization);
+    EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
+    IF v_error IS NULL OR v_error NOT LIKE 'EVIDENCE_PROMOTION_AUTHORIZATION_EXPIRED%' THEN
+      RAISE EXCEPTION 'EVIDENCE_PROMOTION_DIGEST_TEST_FAILED: expired authorization accepted: %',v_error;
+    END IF;
+    RESET ROLE; SET session_replication_role=replica;
+    UPDATE private.interpretation_promotion_authorization SET expires_at=clock_timestamp()+interval '5 minutes' WHERE id=v_authorization;
+    SET session_replication_role=origin; SET LOCAL ROLE authenticated;
     v_receipt:=red_promote_interpretations_batch(
       v_items,v_preview->>'preview_hash',v_authorization
     );
     IF red_promote_interpretations_batch(v_items,v_preview->>'preview_hash',v_authorization)
          IS DISTINCT FROM v_receipt THEN
       RAISE EXCEPTION 'EVIDENCE_PROMOTION_DIGEST_TEST_FAILED: exact replay ændrede receipt';
+    END IF;
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_authorize_interpretation_promotions(v_items,v_preview->>'preview_hash',
+        '91000000-0000-0000-0000-000000000091',clock_timestamp()+interval '5 minutes');
+    EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+    END;
+    IF v_error IS NULL OR v_error NOT LIKE 'EVIDENCE_PROMOTION_NONCE_CONFLICT%' THEN
+      RAISE EXCEPTION 'EVIDENCE_PROMOTION_DIGEST_TEST_FAILED: consumed nonce conflict missing: %',v_error;
     END IF;
     RESET ROLE;
 
@@ -379,7 +462,19 @@ BEGIN
           )->'verified_state' IS DISTINCT FROM v_receipt->'verified_state' THEN
       RAISE EXCEPTION 'EVIDENCE_PROMOTION_DIGEST_TEST_FAILED: promotion/batch mangler';
     END IF;
-    RAISE EXCEPTION 'ROLLBACK_EVIDENCE_PROMOTION_DIGEST_SUCCESS';
+    SET session_replication_role=replica;
+    UPDATE private.interpretation_promotion SET evidence=evidence || '{"postverify_drift":true}'::jsonb
+      WHERE batch_id=(v_receipt->>'operation_id')::uuid;
+    SET session_replication_role=origin;
+    v_current:=private.interpretation_promotion_batch_state((v_receipt->>'operation_id')::uuid);
+    IF v_current->'verified_state' IS NOT DISTINCT FROM v_receipt->'verified_state'
+       OR (SELECT receipt FROM private.interpretation_promotion_batch WHERE id=(v_receipt->>'operation_id')::uuid)
+            IS DISTINCT FROM v_receipt THEN
+      RAISE EXCEPTION 'EVIDENCE_PROMOTION_DIGEST_TEST_FAILED: later drift did not preserve receipt/report state';
+    END IF;
+    IF current_setting('daa.evidence_promotion_keep_fixture',true) IS DISTINCT FROM 'on' THEN
+      RAISE EXCEPTION 'ROLLBACK_EVIDENCE_PROMOTION_DIGEST_SUCCESS';
+    END IF;
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM='ROLLBACK_EVIDENCE_PROMOTION_DIGEST_SUCCESS' THEN
       RAISE NOTICE 'OK: promotion-preview og batch bruger pgcrypto fra extensions';

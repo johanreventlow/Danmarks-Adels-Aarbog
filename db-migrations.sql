@@ -11399,6 +11399,7 @@ BEGIN
   IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_BATCH_NOT_FOUND'; END IF;
   SELECT coalesce(jsonb_agg(jsonb_build_object('interpretation_id',p.interpretation_id,
     'target_type',p.target_type,'target_id',p.target_id,'rule_key',p.rule_key,'rule_version',p.rule_version,
+    'evidence',p.evidence,'promoted_by',p.promoted_by,'promoted_by_name',p.promoted_by_name,
     'assertion',jsonb_build_object('id',x.id,'target_type',x.target_type,'target_id',x.target_id,'value',x.vaerdi_tekst,'date_raw',x.date_raw),
     'fact',jsonb_build_object('id',f.id,'subject_type',f.subjekt_type,'subject_id',f.subjekt_id,'fact_type',f.faktatype))
     ORDER BY p.interpretation_id,p.target_type,p.target_id),'[]'::jsonb) INTO links
@@ -11414,10 +11415,13 @@ END $$;
 CREATE OR REPLACE FUNCTION red_authorize_interpretation_promotions(p_items jsonb,p_preview_hash text,p_nonce uuid,p_expires_at timestamptz)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE actor uuid:=auth.uid(); preview jsonb; reason text; profile jsonb; profile_hash text; request_hash text;
-  db_identity jsonb:=private.interpretation_promotion_database_identity(); existing private.interpretation_promotion_authorization%ROWTYPE; v_id uuid;
+  db_identity jsonb:=private.interpretation_promotion_database_identity(); existing private.interpretation_promotion_authorization%ROWTYPE; nonce_found boolean; v_id uuid;
 BEGIN
   IF actor IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
   IF p_nonce IS NULL OR p_expires_at<=clock_timestamp() OR coalesce(p_preview_hash,'') !~ '^[0-9a-f]{64}$' THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_AUTHORIZATION_INVALID'; END IF;
+  SELECT * INTO existing FROM private.interpretation_promotion_authorization WHERE actor_id=actor AND nonce=p_nonce FOR UPDATE;
+  nonce_found:=FOUND;
+  IF nonce_found AND existing.status<>'issued' THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_NONCE_CONFLICT'; END IF;
   preview:=private.preview_interpretation_promotions(p_items,false);
   IF preview->>'preview_hash'<>p_preview_hash THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_PREVIEW_STALE'; END IF;
   SELECT item->>'reason_code' INTO reason FROM jsonb_array_elements(preview->'items') item WHERE coalesce((item->>'eligible')::boolean,false)=false LIMIT 1;
@@ -11425,8 +11429,7 @@ BEGIN
   profile:=private.interpretation_promotion_profile(preview); profile_hash:=encode(digest(profile::text,'sha256'),'hex');
   request_hash:=encode(digest(jsonb_build_object('contract','interpretation-promotion-request-v1','items',private.canonical_interpretation_promotion_items(p_items))::text,'sha256'),'hex');
   PERFORM pg_advisory_xact_lock(hashtextextended('daa-evidence-promotion-authorization:'||request_hash,0));
-  SELECT * INTO existing FROM private.interpretation_promotion_authorization WHERE actor_id=actor AND nonce=p_nonce FOR UPDATE;
-  IF FOUND THEN
+  IF nonce_found THEN
     IF existing.status='issued' AND existing.expires_at>clock_timestamp() AND existing.preview_hash=p_preview_hash
        AND existing.rule_profile_hash=profile_hash AND existing.request_sha256=request_hash AND existing.database_identity=db_identity THEN RETURN existing.id; END IF;
     RAISE EXCEPTION 'EVIDENCE_PROMOTION_NONCE_CONFLICT';
@@ -11457,12 +11460,12 @@ BEGIN
   profile:=private.interpretation_promotion_profile(preview); profile_hash:=encode(digest(profile::text,'sha256'),'hex');
   IF a.rule_profile_hash<>profile_hash OR a.rule_profile<>profile THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_PROFILE_STALE'; END IF;
   SELECT item->>'reason_code' INTO reason FROM jsonb_array_elements(preview->'items') item WHERE coalesce((item->>'eligible')::boolean,false)=false LIMIT 1; IF reason IS NOT NULL THEN RAISE EXCEPTION '%',reason; END IF;
-  SELECT coalesce(jsonb_agg(jsonb_build_object('interpretation_id',item->>'interpretation_id','target_type',item->>'target_type','target_id',item->>'target_id','assertion',jsonb_build_object('id',x.id,'target_type',x.target_type,'target_id',x.target_id,'value',x.vaerdi_tekst,'date_raw',x.date_raw),'fact',jsonb_build_object('id',f.id,'subject_type',f.subjekt_type,'subject_id',f.subjekt_id,'fact_type',f.faktatype)) ORDER BY item->>'interpretation_id',item->>'target_type',item->>'target_id'),'[]'::jsonb) INTO expected_targets FROM jsonb_array_elements(preview->'items') item LEFT JOIN public.assertion x ON x.id=(item->>'target_id')::bigint LEFT JOIN public.fact f ON f.id=x.target_id;
+  SELECT coalesce(jsonb_agg(jsonb_build_object('interpretation_id',item->>'interpretation_id','target_type',item->>'target_type','target_id',item->>'target_id','evidence',jsonb_build_object('promotion_kind','validated_rule','preview_hash',p_preview_hash,'authorization_id',a.id::text),'assertion',jsonb_build_object('id',x.id,'target_type',x.target_type,'target_id',x.target_id,'value',x.vaerdi_tekst,'date_raw',x.date_raw),'fact',jsonb_build_object('id',f.id,'subject_type',f.subjekt_type,'subject_id',f.subjekt_id,'fact_type',f.faktatype)) ORDER BY item->>'interpretation_id',item->>'target_type',item->>'target_id'),'[]'::jsonb) INTO expected_targets FROM jsonb_array_elements(preview->'items') item LEFT JOIN public.assertion x ON x.id=(item->>'target_id')::bigint LEFT JOIN public.fact f ON f.id=x.target_id;
   INSERT INTO private.interpretation_promotion_batch(authorization_id,rule_profile_hash,preview_hash,database_identity,promoted_by,promoted_by_name,requested_count,status)
     VALUES(a.id,profile_hash,p_preview_hash,db_identity,actor,actor_name,jsonb_array_length(preview->'items'),'open') RETURNING id INTO v_batch_id;
   INSERT INTO private.interpretation_promotion(interpretation_id,rule_key,rule_version,batch_id,target_type,target_id,evidence,promoted_by,promoted_by_name)
     SELECT (item->>'interpretation_id')::uuid,item->>'rule_key',(item->>'rule_version')::integer,v_batch_id,item->>'target_type',(item->>'target_id')::bigint,jsonb_build_object('promotion_kind','validated_rule','preview_hash',p_preview_hash,'authorization_id',a.id::text),actor,actor_name FROM jsonb_array_elements(preview->'items') item;
-  SELECT coalesce(jsonb_agg(jsonb_build_object('interpretation_id',p.interpretation_id::text,'target_type',p.target_type,'target_id',p.target_id::text,'assertion',jsonb_build_object('id',x.id,'target_type',x.target_type,'target_id',x.target_id,'value',x.vaerdi_tekst,'date_raw',x.date_raw),'fact',jsonb_build_object('id',f.id,'subject_type',f.subjekt_type,'subject_id',f.subjekt_id,'fact_type',f.faktatype)) ORDER BY p.interpretation_id,p.target_type,p.target_id),'[]'::jsonb) INTO actual_targets FROM private.interpretation_promotion p LEFT JOIN public.assertion x ON x.id=p.target_id LEFT JOIN public.fact f ON f.id=x.target_id WHERE p.batch_id=v_batch_id;
+  SELECT coalesce(jsonb_agg(jsonb_build_object('interpretation_id',p.interpretation_id::text,'target_type',p.target_type,'target_id',p.target_id::text,'evidence',p.evidence,'assertion',jsonb_build_object('id',x.id,'target_type',x.target_type,'target_id',x.target_id,'value',x.vaerdi_tekst,'date_raw',x.date_raw),'fact',jsonb_build_object('id',f.id,'subject_type',f.subjekt_type,'subject_id',f.subjekt_id,'fact_type',f.faktatype)) ORDER BY p.interpretation_id,p.target_type,p.target_id),'[]'::jsonb) INTO actual_targets FROM private.interpretation_promotion p LEFT JOIN public.assertion x ON x.id=p.target_id LEFT JOIN public.fact f ON f.id=x.target_id WHERE p.batch_id=v_batch_id;
   IF actual_targets IS DISTINCT FROM expected_targets THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_POSTVERIFY_TARGET_DRIFT'; END IF;
   IF EXISTS (SELECT 1 FROM jsonb_array_elements(preview->'items') item WHERE NOT EXISTS (
       SELECT 1 FROM private.interpretation_promotion p WHERE p.batch_id=v_batch_id
