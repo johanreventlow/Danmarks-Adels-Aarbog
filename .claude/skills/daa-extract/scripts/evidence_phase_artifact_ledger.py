@@ -45,6 +45,7 @@ class PhaseEntry:
     projection_evidence: str
     authorisation_evidence: str
     contribution_sha256: str | None = None
+    database_target_identity_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -116,6 +117,7 @@ def _valid_text(value: object) -> bool:
 def _relative_path_identity(path: object) -> str:
     _require(_valid_text(path), "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_INVALID")
     assert isinstance(path, str)
+    _require("\x00" not in path, "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_INVALID")
     candidate = Path(path)
     _require(
         not candidate.is_absolute() and ".." not in candidate.parts,
@@ -160,7 +162,16 @@ def validate_phase_rows(rows: object) -> list[PhaseEntry]:
     }
     for row in rows:
         _require(isinstance(row, dict), "EVIDENCE_RECONCILIATION_LEDGER_PHASE_INVALID")
-        _require(set(row) in (expected, expected | {"contribution_sha256"}), "EVIDENCE_RECONCILIATION_LEDGER_PHASE_INVALID")
+        optional = {"contribution_sha256", "database_target_identity_sha256"}
+        _require(
+            set(row) in (
+                expected,
+                expected | {"contribution_sha256"},
+                expected | {"database_target_identity_sha256"},
+                expected | optional,
+            ),
+            "EVIDENCE_RECONCILIATION_LEDGER_PHASE_INVALID",
+        )
         phase_id = row["phase_id"]
         sequence = row["sequence"]
         _require(_valid_text(phase_id), "EVIDENCE_RECONCILIATION_LEDGER_PHASE_INVALID")
@@ -174,7 +185,8 @@ def validate_phase_rows(rows: object) -> list[PhaseEntry]:
         artifacts = tuple(_validate_artifact(artifact) for artifact in artifacts_raw)
         _require(len({artifact.role for artifact in artifacts}) == len(artifacts), "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_DUPLICATE")
         _require(len({artifact.path for artifact in artifacts}) == len(artifacts), "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_DUPLICATE")
-        _require(_valid_text(row["adapter_id"]), "EVIDENCE_RECONCILIATION_LEDGER_PHASE_INVALID")
+        adapter_id = row["adapter_id"]
+        _require(_valid_text(adapter_id), "EVIDENCE_RECONCILIATION_LEDGER_PHASE_INVALID")
         _require(_is_hex_sha256(row["adapter_sha256"]), "EVIDENCE_RECONCILIATION_LEDGER_PHASE_INVALID")
         projection_evidence = row["projection_evidence"]
         authorisation_evidence = row["authorisation_evidence"]
@@ -192,16 +204,28 @@ def validate_phase_rows(rows: object) -> list[PhaseEntry]:
         if contribution_sha256 is not None:
             _require(projection_evidence == "mechanically_bound", "EVIDENCE_RECONCILIATION_LEDGER_EVIDENCE_INVALID")
             _require(_is_hex_sha256(contribution_sha256), "EVIDENCE_RECONCILIATION_LEDGER_EVIDENCE_INVALID")
+        database_target_identity_sha256 = row.get("database_target_identity_sha256")
+        if adapter_id == "phase-b-v1":
+            _require(
+                _is_hex_sha256(database_target_identity_sha256),
+                "EVIDENCE_RECONCILIATION_LEDGER_PHASE_INVALID",
+            )
+        elif database_target_identity_sha256 is not None:
+            _require(
+                _is_hex_sha256(database_target_identity_sha256),
+                "EVIDENCE_RECONCILIATION_LEDGER_PHASE_INVALID",
+            )
         entries.append(
             PhaseEntry(
                 phase_id=phase_id,
                 sequence=sequence,
                 artifacts=artifacts,
-                adapter_id=row["adapter_id"],
+                adapter_id=adapter_id,
                 adapter_sha256=row["adapter_sha256"],
                 projection_evidence=projection_evidence,
                 authorisation_evidence=authorisation_evidence,
                 contribution_sha256=contribution_sha256,
+                database_target_identity_sha256=database_target_identity_sha256,
             )
         )
     return entries
