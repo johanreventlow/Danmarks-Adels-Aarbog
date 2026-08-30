@@ -10,20 +10,25 @@ produktion for det eksakte fem-sagers scope. Se
 [production-apply-rapporten](c3-production-apply-2026-08-29.md).
 
 Projektejeren har derefter aktiveret roadmapmål #152: person-narrativer skal
-knyttes entydigt til konkrete source records. Målet er `specificeret` i den
+knyttes entydigt til konkrete source records. Målet var `specificeret` i den
 reviderede
 [#152-designspecifikation](../superpowers/specs/2026-08-29-narrative-source-record-key-design.md),
 som efter eksternt review nu også beskriver granulær legacy-nedtagning, den
 midlertidige frysning af nye bindinger/DAA-import og de præcise RLS-, undo- og
 cutover-gates. Projektejeren godkendte 2026-08-29 den skrevne revision,
 overgangsomkostningen som designpræmis og den midlertidige blokering af
-hel-person-sletning ved publication-events.
+hel-person-sletning ved publication-events. Task 12 har bevist den samlede
+kontrakt i en syntetisk, disponibel restore med reelle database-ræs,
+klient-/serversuiter og browser-smoke, så målet nu er `integreret
+ende-til-ende`.
 
-Godkendelsen giver ikke automatisk implementerings- eller produktions-GO. Den
-detaljerede
-[#152-implementeringsplan](../superpowers/plans/2026-08-29-narrative-source-record-key-implementation.md)
-er udarbejdet og afventer review; arbejdet fortsætter ikke automatisk fra den
-reviewede plan til kode eller production apply.
+Denne modenhed er ikke `produktionsverificeret`. Task 13's
+[#152-cutover-runbook](../runbooks/narrative-record-key-cutover.md) kræver en
+frisk, læse-kun inventory, lokal menneskelig review, adskilt hash- og
+databaseidentitetskontrol, restore-rehearsal samt en ny udtrykkelig
+projektejer-GO før nogen produktionsmutation. Frysningen af nye bindinger og
+legacy loaders forbliver aktiv ved design, indtil den atomiske version-2
+cutover er særskilt godkendt og efterverificeret.
 
 ## Styrende rækkefølge
 

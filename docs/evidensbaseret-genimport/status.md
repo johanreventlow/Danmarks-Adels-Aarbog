@@ -1,9 +1,9 @@
 # Evidensbaseret genimport — aktuel status
 
-**Verificeret:** 2026-08-29 efter C3 production apply og postverify
+**Verificeret:** 2026-08-30 efter #152 disposable ende-til-ende-rehearsal
 
-**Kodegrundlag:** lokal `main` ved `7b5dc5a`; #152 er foreløbig kun en
-docs-only designbranch
+**Kodegrundlag:** lokal #152-branch `feat/narrative-record-key-152` ved
+`4922d7e`; den er en lokal, ikke-produceret implementeringsgren
 
 **Produktionsstatus:** C3's eksakte fem-sagers scope er migreret, anvendt og
 efterverificeret i produktion; #152 har ingen produktionsmutation
@@ -23,12 +23,13 @@ produktion efter et særskilt GO. Apply-batch
 `447d81a8-5c21-4b22-832e-e0d2a379a20c`, change set `966`, blev `finalized` og
 bestod den uafhængige read-only postverification.
 
-Det aktive programmål er nu #152. Det er `specificeret` i en revideret og
-2026-08-29 godkendt designspecifikation, som efter eksternt review også gør den
-operationelle frysning, granulær legacy-nedtagning og den midlertidige blokering
-af hel-person-sletning eksplicit. Godkendelsen åbner kun for en
-implementeringsplan. Planen er nu udarbejdet og afventer review; der er ikke
-givet kode- eller produktions-GO til #152.
+Det aktive programmål er nu #152. Det har en revideret, 2026-08-29 godkendt
+designspecifikation, som gør den operationelle frysning, granulær
+legacy-nedtagning og den midlertidige blokering af hel-person-sletning
+eksplicit. Task 12 har derefter bevist kontrakten ende-til-ende i en syntetisk,
+disponibel PostgreSQL-restore med reelle samtidighedsræs, klienttests og
+browser-smoke. Task 13 har skrevet den særskilte production-runbook; der er
+stadig ikke givet produktions-GO.
 
 ## Modenhed pr. værdikædeled
 
@@ -47,7 +48,7 @@ De eneste tilladte tilstande er `specificeret`, `isoleret implementeret`,
 | 2018-20-proveniens | `specificeret` | Fase A-ækvivalent provenance er besluttet, men ikke gennemført. |
 | C3 atomisk apply | `produktionsverificeret` | Production batch `447d81a8-5c21-4b22-832e-e0d2a379a20c` / change set `966` blev finalized med 5 identity-, 4 assign- og 2 no-publication-events og bestod eksakt read-only postverify. |
 | C3 reversal | `integreret ende-til-ende` | Separat reversal er bevist mod en frisk, produktionsafledt disposable restore med eksakt gendannet domænetilstand; den er ikke udført i produktion. |
-| #152 record-nøglede person-narrativer | `specificeret` | Godkendt, editionsneutralt design med append-only publication-versioner, stale-gate, granulær legacy-withdrawal, grandfathered legacy-ledger og stabil offentlig source-record-reference. Den målte frysning af nye bindinger/DAA-import og den midlertidige `red_slet_person`-blokering er accepteret som designpræmis; ingen implementering endnu. |
+| #152 record-nøglede person-narrativer | `integreret ende-til-ende` | Den editionsneutrale record-kontrakt med append-only publication-versioner, stale-gate, granulær legacy-withdrawal, grandfathered legacy-ledger og stabil offentlig source-record-reference er bevist i Task 12's syntetiske, disponerbare restore, reelle DBI-ræs, fulde klient-/server-suiter og browser-smoke. Den aktive frysning af nye bindinger/DAA-import og `red_slet_person`-blokken er fortsat bevidst design, ikke en åbning af gamle writers. Ingen production cutover eller produktions-GO er givet. |
 | Tredje-årbogsprøve | `specificeret` | Prøven er generaliseringsbeviset efter begge referenceudgaver; den er ikke gennemført. |
 
 Ingen af de fælles flerudgaveled er aktuelt klassificeret som `integreret
@@ -85,24 +86,26 @@ programmets samlede modenhed.
 
 ## Åbne blokeringer
 
-- #152-implementeringsplanen afventer review før kodearbejde.
-- Den friske production-måling mangler fortsat; væsentlig drift fra den
-  godkendte overgangsomkostning kræver ny projektejerbeslutning ved den senere
-  production-gate.
+- #152 afventer en særskilt, frisk produktions-GO efter
+  [cutover-runbooken](../runbooks/narrative-record-key-cutover.md). Frisk
+  production-inventory skal bevise nøjagtige bindings-/legacy-/identitets- og
+  reader-mængder, hashede artefakter og databaseidentitet; væsentlig drift fra
+  den 2026-08-29 godkendte konsekvens kræver ny projektejerbeslutning.
 - Den eksisterende åbne tombstone-/retentionsbeslutning betyder, at #152
   foreløbig må blokere hel-person-sletning for personer med publication-events;
   granulær withdrawal løser kun offentlig nedtagning af den enkelte biografi.
-- #152 mangler implementation, disposable databasebevis, klientmigration og
-  et eventuelt senere særskilt production-GO.
+- #152 mangler kun den særskilte production-gate og et eventuelt senere,
+  eksplicit production-GO; integrationen er ikke `produktionsverificeret`.
 - Den fælles kæde mangler fortsat klausulobservationer, reel extraction,
   proposed-ingest, én identitetsvej, promotion i drift og publicering med
   kildehenvisning på tværs af referenceudgaverne.
 
 ## Næste tilladte arbejde
 
-Næste tilladte handling er review af
-[#152-implementeringsplanen](../superpowers/plans/2026-08-29-narrative-source-record-key-implementation.md).
-Ingen kode- eller #152-produktionsmutation er autoriseret.
+Næste tilladte handling er en projektejer-review af
+[#152-cutover-runbooken](../runbooks/narrative-record-key-cutover.md) med en
+frisk, læse-kun production-inventory. Ingen #152-produktionsmutation er
+autoriseret uden en ny udtrykkelig GO.
 
 ## Parkeret arbejde
 
@@ -122,9 +125,12 @@ for at lukke den gamle writer; den genåbner ikke det fulde mobilredaktørspor.
   dokumenterer backuphash, migrationshashes, autoriserede artefakter,
   production receipt og read-only postverify.
 - [Den reviderede #152-spec](../superpowers/specs/2026-08-29-narrative-source-record-key-design.md)
-  beskriver det aktive programmål i modenheden `specificeret`.
-- Commitintervallet `cc9d7d5..2e015df` ændrer kun styringsdokumentation og
-  ændrer derfor ikke den funktionelle klassifikation.
+  beskriver det aktive programmål og dets produktionsgrænser.
+- [Task 12-rehearsalrapporten](narrative-record-key-152-rehearsal.md)
+  dokumenterer det konkrete ende-til-ende-bevis, herunder disposable restore,
+  reelle samtidighedsræs, fulde suiter, browser-smoke og read-only reviews.
+- [#152-cutover-runbooken](../runbooks/narrative-record-key-cutover.md)
+  fastholder den separate, hash- og identitetsbundne production-gate.
 - [Vision og værdigrundlag](vision.md), [styrende roadmap](roadmap.md) og
   [teknisk målarkitektur](teknisk-maalarkitektur.md) fastlægger henholdsvis
   værdier, prioritet og ønsket systemadfærd.
