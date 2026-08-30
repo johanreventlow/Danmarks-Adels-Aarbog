@@ -11,6 +11,7 @@ fire personer. Fase B havde 178 til sammenligning.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
 import sys
@@ -77,8 +78,18 @@ def review_sequence(flags_doc: Dict[str, Any]) -> List[Dict[str, Any]]:
     return sequence
 
 
-def render_review(flags_doc: Dict[str, Any]) -> str:
-    lines = [HEADER]
+def render_review(flags_doc: Dict[str, Any], flags_sha256: str | None = None) -> str:
+    """Render a review sheet bound to the exact raw flags bytes.
+
+    ``None`` is retained only for older in-process synthetic callers; the CLI
+    always supplies a digest calculated from the raw input bytes.
+    """
+    if flags_sha256 is None:
+        flags_sha256 = "a" * 64
+    if (not isinstance(flags_sha256, str) or len(flags_sha256) != 64
+            or any(char not in "0123456789abcdef" for char in flags_sha256)):
+        raise SystemExit("C0F_REVIEW_FLAGS_SHA256_INVALID")
+    lines = ["# DAA 1939 — C0's efterkørsel: ni record-koblinger", "# flags_sha256: " + flags_sha256, *HEADER.splitlines()[1:]]
     for item in review_sequence(flags_doc):
         if item["type"] == "heading":
             lines.extend(("", item["text"]))
@@ -98,8 +109,9 @@ def main(argv=None) -> int:
     out = pathlib.Path(args.output)
     if out.exists():
         raise SystemExit("C0F_REVIEW_OUTPUT_EXISTS")
-    doc = json.loads(pathlib.Path(args.flags).read_text(encoding="utf-8"))
-    out.write_text(render_review(doc), encoding="utf-8")
+    flags_bytes = pathlib.Path(args.flags).read_bytes()
+    doc = json.loads(flags_bytes.decode("utf-8"))
+    out.write_text(render_review(doc, hashlib.sha256(flags_bytes).hexdigest()), encoding="utf-8")
     total = sum(len(op["flags"]) for op in doc["operations"])
     print("personer=%d orddelingsvalg=%d" % (len(doc["operations"]), total))
     return 0

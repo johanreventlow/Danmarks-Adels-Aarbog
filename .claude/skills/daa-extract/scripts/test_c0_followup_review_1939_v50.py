@@ -44,11 +44,24 @@ def _parse(text, doc):
     return conv.parse_review(text, doc, FLAGS_SHA256)
 
 
+def test_review_header_binds_the_exact_flags_sha256():
+    text = build.render_review(_flags_doc(), FLAGS_SHA256)
+    assert "# flags_sha256: " + FLAGS_SHA256 in text
+    assert _parse(text, _flags_doc())["flags_sha256"] == FLAGS_SHA256
+
+
+def test_converter_rejects_a_review_bound_to_other_flags_bytes():
+    text = build.render_review(_flags_doc(), FLAGS_SHA256)
+    text = text.replace(FLAGS_SHA256, "b" * 64, 1)
+    with pytest.raises(SystemExit, match="C0F_REVIEW_FLAGS_SHA256_MISMATCH"):
+        _parse(text, _flags_doc())
+
+
 def test_rendered_review_keeps_existing_fixture_byte_surface():
-    """En refactor af sekvenskilden må ikke ændre menneskearkets bytes."""
+    """Den bevidst ændrede header skal fortsat have en stabil byteoverflade."""
     rendered = build.render_review(_flags_doc()).encode("utf-8")
     assert hashlib.sha256(rendered).hexdigest() == (
-        "1d1096c6ce32bbbfd61c0d90477a042dad3cf415bea0f9951b7db4bff28ba545")
+        "7df3f1b2ba84386dc5b5af358816593de8883a6d939760f6ea2e799d36fc2d3a")
 
 
 def test_sheet_prefills_the_recommended_action():
@@ -275,7 +288,9 @@ def test_cli_hashes_exact_flags_file_bytes(tmp_path):
     flags_bytes = (json.dumps(_flags_doc(), ensure_ascii=False, indent=2)
                    + "\n").encode("utf-8")
     flags_path.write_bytes(flags_bytes)
-    review_path.write_text(build.render_review(_flags_doc()), encoding="utf-8")
+    review_path.write_text(
+        build.render_review(_flags_doc(), hashlib.sha256(flags_bytes).hexdigest()),
+        encoding="utf-8")
 
     assert conv.main([
         "--review", str(review_path),
