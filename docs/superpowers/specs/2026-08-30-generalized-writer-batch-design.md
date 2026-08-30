@@ -6,9 +6,9 @@
 
 ## Formål
 
-#153 etablerer den editionsneutrale kontrakt, som de varige, muterende genimportveje skal opfylde. Kontrakten bruges af fire afgrænsede domæneflows:
+#153 etablerer den editionsneutrale kontrakt, som de varige, muterende genimportveje skal opfylde, og som C3's historiske receipts kan conformance-læses imod. Kontrakten bruges af fire afgrænsede domæneflows:
 
-1. C3-sags apply og reversal;
+1. C3-sagers historiske apply-/reversal-receipts, kun til read-only conformance efter narrative-contract v2;
 2. evidens-promotion, herunder atomiske promotionsbatches;
 3. narrative record-key-cutover;
 4. source-scoped replace af en udgaves kildeejet data, herunder den nu frosne DAA-loaders direkte narrativwrite.

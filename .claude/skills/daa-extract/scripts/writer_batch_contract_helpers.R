@@ -12,6 +12,12 @@
 }
 
 .wb_canonicalize <- function(value, key = NULL) {
+  if (inherits(value, "AsIs")) {
+    if (!is.atomic(value) || anyNA(value) ||
+        (is.numeric(value) && any(!is.finite(value))))
+      .wb_stop("WRITER_BATCH_CANONICAL_VALUE_INVALID")
+    return(value)
+  }
   if (is.list(value)) {
     value_names <- names(value)
     if (!is.null(value_names)) {
@@ -27,9 +33,24 @@
     }
     return(lapply(value, .wb_canonicalize))
   }
-  if (identical(key, "element_ids") && is.character(value)) {
-    return(sort(value, method = "radix"))
+  if (is.object(value) || is.raw(value) || is.complex(value) ||
+      !(is.atomic(value) || is.null(value)))
+    .wb_stop("WRITER_BATCH_CANONICAL_VALUE_INVALID")
+  if (is.null(value)) return(value)
+  if (!is.null(names(value))) {
+    if (anyNA(names(value)) || any(!nzchar(names(value))) || anyDuplicated(names(value)))
+      .wb_stop("WRITER_BATCH_CANONICAL_KEYS_INVALID")
+    return(.wb_canonicalize(as.list(value)))
   }
+  if (anyNA(value) || (is.numeric(value) && any(!is.finite(value))))
+    .wb_stop("WRITER_BATCH_CANONICAL_VALUE_INVALID")
+  if (identical(key, "element_ids") || identical(key, "terminal_statuses")) {
+    if (!is.character(value)) .wb_stop("WRITER_BATCH_CANONICAL_VALUE_INVALID")
+    value <- sort(value, method = "radix")
+  }
+  if (identical(key, "element_ids") || identical(key, "terminal_statuses") ||
+      identical(key, "lock_order") || length(value) > 1L)
+    return(I(value))
   value
 }
 
@@ -38,7 +59,8 @@ wb_canonical_json <- function(value) {
     .wb_canonicalize(value),
     auto_unbox = TRUE,
     null = "null",
-    pretty = FALSE
+    pretty = FALSE,
+    digits = NA
   )
 }
 
@@ -70,6 +92,30 @@ wb_sha256 <- function(value) {
 .wb_string_set <- function(value) {
   is.character(value) && length(value) > 0L && !anyNA(value) &&
     all(nzchar(value)) && !anyDuplicated(value)
+}
+
+.wb_count_tree <- function(value) {
+  if (is.list(value)) {
+    return(.wb_nonempty_named_list(value) &&
+           all(vapply(value, .wb_count_tree, logical(1))))
+  }
+  is.numeric(value) && !is.object(value) && length(value) == 1L &&
+    !is.na(value) && is.finite(value) && value >= 0 && value == floor(value)
+}
+
+.wb_invariant_tree <- function(value) {
+  if (is.list(value)) {
+    return(.wb_nonempty_named_list(value) &&
+           all(vapply(value, .wb_invariant_tree, logical(1))))
+  }
+  if (is.object(value) || length(value) != 1L || is.na(value)) return(FALSE)
+  (is.logical(value)) || (is.character(value) && nzchar(value)) ||
+    (is.numeric(value) && is.finite(value))
+}
+
+.wb_exact_named_list <- function(value, keys) {
+  is.list(value) && !is.null(names(value)) && !anyDuplicated(names(value)) &&
+    length(value) == length(keys) && setequal(names(value), keys)
 }
 
 .wb_nonempty_value <- function(value) {
@@ -122,9 +168,9 @@ wb_validate_profile <- function(profile) {
     .wb_stop("WRITER_BATCH_SCOPE_INVALID")
   if (!.wb_string_set(profile$element_ids))
     .wb_stop("WRITER_BATCH_ELEMENT_IDS_INVALID")
-  if (!.wb_nonempty_named_list(profile$expected_counts))
+  if (!.wb_count_tree(profile$expected_counts))
     .wb_stop("WRITER_BATCH_EXPECTED_COUNTS_INVALID")
-  if (!.wb_nonempty_named_list(profile$adapter_invariants))
+  if (!.wb_invariant_tree(profile$adapter_invariants))
     .wb_stop("WRITER_BATCH_ADAPTER_INVARIANTS_INVALID")
   if (!.wb_string_set(profile$lock_order))
     .wb_stop("WRITER_BATCH_LOCK_ORDER_INVALID")
@@ -134,14 +180,30 @@ wb_validate_profile <- function(profile) {
     .wb_stop("WRITER_BATCH_TERMINAL_STATUSES_INVALID")
   if (!.wb_scalar_string(profile$postverify_schema))
     .wb_stop("WRITER_BATCH_POSTVERIFY_SCHEMA_INVALID")
+  compatible <- switch(profile$execution_kind,
+    apply = identical(profile$reversal_mode, "compensating") &&
+      identical(profile$authorization_mode, "single_use_database_authorization"),
+    reversal = identical(profile$reversal_mode, "exact_restore") &&
+      !identical(profile$authorization_mode, "none"),
+    promotion = identical(profile$reversal_mode, "not_supported") &&
+      identical(profile$authorization_mode, "single_use_database_authorization"),
+    cutover = identical(profile$reversal_mode, "not_supported") &&
+      identical(profile$authorization_mode, "external_go_nonce_authorization"),
+    recover = identical(profile$reversal_mode, "not_supported") &&
+      identical(profile$authorization_mode, "external_go_nonce_authorization"),
+    conformance_read_only = identical(profile$reversal_mode, "exact_restore") &&
+      identical(profile$authorization_mode, "none")
+  )
+  if (!isTRUE(compatible)) .wb_stop("WRITER_BATCH_PROFILE_COMPATIBILITY_INVALID")
   .wb_canonicalize(profile)
 }
 
 wb_validate_receipt <- function(receipt, profile, mode) {
   validated_profile <- wb_validate_profile(profile)
   required_keys <- c(
-    "receipt_schema", "profile_sha256", "mode", "terminal_status",
-    "input_identity", "database_identity", "observed_counts", "postverify_sha256"
+    "receipt_schema", "profile", "profile_sha256", "mode", "terminal_status",
+    "input_identity", "database_identity", "authorization_identity", "operation_id",
+    "observed_counts", "verified_state"
   )
   if (!is.list(receipt) || is.null(names(receipt)) || anyDuplicated(names(receipt)) ||
       !setequal(names(receipt), required_keys) || length(receipt) != length(required_keys))
@@ -151,6 +213,9 @@ wb_validate_receipt <- function(receipt, profile, mode) {
   if (!.wb_scalar_string(receipt$receipt_schema) ||
       !identical(receipt$receipt_schema, validated_profile$receipt_schema))
     .wb_stop("WRITER_BATCH_RECEIPT_SCHEMA_INVALID")
+  if (!identical(wb_canonical_json(receipt$profile),
+                 wb_canonical_json(validated_profile)))
+    .wb_stop("WRITER_BATCH_RECEIPT_PROFILE_DRIFT")
   if (!.wb_hex_sha256(receipt$profile_sha256) ||
       !identical(receipt$profile_sha256, wb_sha256(validated_profile)))
     .wb_stop("WRITER_BATCH_RECEIPT_PROFILE_DRIFT")
@@ -162,20 +227,37 @@ wb_validate_receipt <- function(receipt, profile, mode) {
       !identical(wb_canonical_json(receipt$database_identity),
                  wb_canonical_json(validated_profile$database_identity)))
     .wb_stop("WRITER_BATCH_RECEIPT_IDENTITY_DRIFT")
-  if (!.wb_nonempty_named_list(receipt$observed_counts))
+  if (!.wb_exact_named_list(receipt$authorization_identity,
+                            c("mode", "authority_id", "actor_id")) ||
+      !.wb_scalar_string(receipt$authorization_identity$mode) ||
+      !.wb_scalar_string(receipt$authorization_identity$authority_id) ||
+      !.wb_scalar_string(receipt$authorization_identity$actor_id) ||
+      !identical(receipt$authorization_identity$mode,
+                 validated_profile$authorization_mode))
+    .wb_stop("WRITER_BATCH_RECEIPT_AUTHORIZATION_INVALID")
+  if (!.wb_scalar_string(receipt$operation_id))
+    .wb_stop("WRITER_BATCH_RECEIPT_OPERATION_ID_INVALID")
+  if (!.wb_count_tree(receipt$observed_counts) ||
+      !identical(wb_canonical_json(receipt$observed_counts),
+                 wb_canonical_json(validated_profile$expected_counts)))
     .wb_stop("WRITER_BATCH_RECEIPT_COUNTS_INVALID")
-  if (!.wb_hex_sha256(receipt$postverify_sha256))
+  if (!.wb_exact_named_list(receipt$verified_state, c("schema", "sha256")) ||
+      !.wb_scalar_string(receipt$verified_state$schema) ||
+      !identical(receipt$verified_state$schema, validated_profile$postverify_schema) ||
+      !.wb_hex_sha256(receipt$verified_state$sha256))
     .wb_stop("WRITER_BATCH_RECEIPT_POSTVERIFY_INVALID")
   .wb_canonicalize(receipt)
 }
 
 wb_validate_current_state <- function(state, receipt) {
-  if (!is.list(state) || !identical(names(state), "postverify_sha256") ||
-      !.wb_hex_sha256(state$postverify_sha256))
+  if (!is.list(receipt) || is.null(receipt$profile))
+    .wb_stop("WRITER_BATCH_RECEIPT_KEYS_INVALID")
+  validated_receipt <- wb_validate_receipt(receipt, receipt$profile, "historical")
+  if (!.wb_exact_named_list(state, c("schema", "sha256")) ||
+      !.wb_scalar_string(state$schema) || !.wb_hex_sha256(state$sha256))
     .wb_stop("WRITER_BATCH_CURRENT_STATE_INVALID")
-  if (!is.list(receipt) || !.wb_hex_sha256(receipt$postverify_sha256))
-    .wb_stop("WRITER_BATCH_RECEIPT_POSTVERIFY_INVALID")
-  if (!identical(state$postverify_sha256, receipt$postverify_sha256))
+  if (!identical(state$schema, validated_receipt$verified_state$schema) ||
+      !identical(state$sha256, validated_receipt$verified_state$sha256))
     .wb_stop("WRITER_BATCH_CURRENT_STATE_DRIFT")
   .wb_canonicalize(state)
 }
