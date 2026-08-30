@@ -168,7 +168,20 @@ Se §5. **Anbefaling:** Vedtag fase-pakke-modellen skriftligt i `decisions.md` m
 Narrativ-bindinger (`narrative_record_publication`) er kun delvist fortrydbare og optræder ikke i det almindelige fortryd-panel (jf. C0f-GO-pakken §fortrydelse; C3-designet forsøger at lukke det). C3 (7 records + 1017/1021; invarianter bygget, apply ikke); 16 `[NY]`-records; 7 staged (933, 935, 940, 963, 967, 1014, 1135); C1 udskudt; C2-køen ikke startet; 644 narrativ-løse ægtefæller; to parkerede kodefejl i C0f-kæden (`flags_sha256`, dubleret sekvens); strukturerede fakta usynlige i læserfladen (`fetchPersonDetail` henter aldrig `fact`); hændelsesudtræk aldrig kørt (#130); 16 tomme unioner; `get_advisors` efter `red_slet_person`; ingen draft-PR.
 
 ### 7.13 Dokumentationsdrift — *Teknisk gæld → #157*
-Checkbokse i mindst seks planer (Task 8, Task 14, 08-05 placement, fase B, same-som-paritet, C3-invarianter) modsvarer ikke commits. `docs/database-current-state.md` siger stadig "source 3 = 539 direkte poster". Changelog 08-18 ("v50-strømmen lukket i prod") overdriver. Planerne kan ikke bruges som statuskilde; dette dokument + changelog er det indtil rettet.
+**Historisk fund (2026-08-22):** Checkbokse i mindst seks planer (Task 8,
+Task 14, 08-05 placement, fase B, same-som-paritet, C3-invarianter) modsvarer
+ikke commits. `docs/database-current-state.md` brugte fortsat juli-loaderens
+tal 539 for direkte poster som om det var antallet af evidens-records, og
+08-18-changelogentryen overdrev den afgrænsede prod-skrivning som en lukket
+v50-strøm.
+
+**Dokumentationsrettelse (2026-08-30):** `database-current-state.md`
+skelner nu mellem 539 historiske direkte poster og 592 private
+evidens-records; changloggen afgrænser 08-18-entryen eksplicit. De seks planer,
+som fundet peger på, er nu mærket som historiske arbejdsspor frem for aktuel
+udførelseslog, og `docs/README.md` peger på statusoraklet. Brug
+`docs/evidensbaseret-genimport/status.md` for gældende programstatus og
+`database-current-state.md` for dokumenteret prod-tilstand.
 
 ## 8. Svar på spørgsmålet "er det vi fik bedre?"
 
