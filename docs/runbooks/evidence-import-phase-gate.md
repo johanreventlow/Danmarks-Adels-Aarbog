@@ -49,7 +49,7 @@ dette format før forsegling:
 ```
 
 Alle fem lister er rækker i den dækkede sluttilstand, ikke tællefelter. En
-duplikat i ét bidrag er en blokerende fejl. Mellem faser afgør inventarets
+duplikat i ét bidrag er en blokerende fejl. Mellem faser afgør ledgerets
 `sequence` den sidste kendte værdi for samme `narrative_id` eller
 `(source_id, record_key)`; identiske, append-only rækker bevares kun én gang.
 Det gør fx Task 25 og fase B, der begge berører en narrativ, afstemmelige mod
@@ -69,7 +69,7 @@ GO; redigér aldrig en allerede anvendt pakke. Commit højst en datafri
 GO-kvittering med fase-ID og SHA'er — ikke bidraget, snapshot eller anden
 person-/kildeidentificerende data.
 
-GO-kvitteringen er et obligatorisk, hash-låst faseinventar for den erklærede
+GO-kvitteringen er et obligatorisk, hash-låst faseledger for den erklærede
 afstemning. Den låser det præcise input-sæt og den semantiske rækkefølge; et
 manglende eller ekstra CLI-bidrag er teknisk NO-GO. Den kan ikke i sig selv
 bevise, at inventaret er historisk komplet, eller at et bidrags fem lister er
@@ -77,22 +77,31 @@ udledt korrekt fra originalmanifestet:
 
 ```json
 {
-  "schema_version": "daa-evidence-phase-reconciliation-inventory-v1",
-  "phase_manifests": [{
+  "schema_version": "daa-evidence-phase-artifact-ledger-v2",
+  "phases": [{
     "phase_id": "1939-phase-a",
     "sequence": 1,
-    "reconciliation_content_sha256": "<64 lower-case hex>",
-    "source_manifest_sha256": "<64 lower-case hex>"
+    "artifacts": [{
+      "role": "contribution",
+      "path": "phase-a-contribution.json",
+      "sha256": "<64 lower-case hex>",
+      "schema_version": "daa-evidence-phase-reconciliation-manifest-v1",
+      "required": true
+    }],
+    "adapter_id": "<reviewed adapter id>",
+    "adapter_sha256": "<64 lower-case hex>",
+    "projection_evidence": "mechanically_bound",
+    "authorisation_evidence": "contemporaneous_phase_package",
+    "contribution_sha256": "<64 lower-case hex>"
   }]
 }
 ```
 
-Forsegl inventaret med samme kommando og commit den forseglede, datafri fil:
-
-```bash
-/usr/bin/python3 .claude/skills/daa-extract/scripts/reconcile_evidence_phase_gate.py \
-  --seal applied-phase-inventory.unsealed.json > applied-phase-inventory.json
-```
+Et ledger med blot én fase uden `mechanically_bound` `projection_evidence` og
+`contribution_sha256` returnerer `EVIDENCE_RECONCILIATION_INCOMPLETE` før
+produktionssnapshotet læses eller sammenlignes. Forsegl og commit den
+datafri ledger med den validerede fase-ledger-proces; brug aldrig
+`reconcile_evidence_phase_gate.py --seal` til ledgeret.
 
 ## Læse-kun prod-snapshot
 
@@ -177,24 +186,34 @@ kør afstemningen med alle fasebidrag som eksplicitte argumenter:
 
 /usr/bin/python3 .claude/skills/daa-extract/scripts/reconcile_evidence_phase_gate.py \
   --snapshot prod-source-3.snapshot.json \
-  --inventory applied-phase-inventory.json \
+  --ledger applied-phase-ledger.json \
   --phase-manifest task25-contribution.json \
   --phase-manifest phase-a-contribution.json \
-  --phase-manifest phase-b-contribution.json
+  --phase-manifest phase-b-contribution.json \
+  --private-report .private/reconcile-drift.json
 ```
+
+`--private-report` skal pege på en ignoreret, ny fil. CLI'en opretter den med
+`O_EXCL` og mode `0600` og overskriver aldrig en eksisterende rapport. Kun
+den private rapport indeholder de eksakte drift-rækker; terminalen indeholder
+kun status, stabil fejltoken, fase-ID'er, sektionsoptællinger og
+artefakthashes.
 
 Snapshot-forespørgslen dækker hele den anmeldte source/status-afgrænsning. Den
 må derfor ikke køres som en isoleret kontrol af én ny fase på en allerede
-befolket source: inventaret skal omfatte alle tidligere anvendte bidrag i samme
-afgrænsning. Mangler et historisk bidrag, skal resultatet blive drift og stå
-åbent; man må ikke indsnævre prod-snapshot eller opfinde et bidrag for at få
-`match`.
+befolket source: ledgeret skal omfatte alle tidligere anvendte bidrag i samme
+afgrænsning. Et manglende eller ekstra CLI-bidrag er
+`EVIDENCE_RECONCILIATION_LEDGER_MISMATCH`; en ubundet ledgerfase er
+`EVIDENCE_RECONCILIATION_INCOMPLETE` før produktionssnapshot-sammenligning.
+Man må ikke indsnævre prod-snapshot eller opfinde et bidrag for at få `match`.
 
-Kun JSON med `status: "match"` og `scope:
-"five-projection-final-state-v1"` er en bestået, afgrænset afstemning.
+Kun et terminalresultat med `status: "match"` og en privat rapport med
+`scope: "five-projection-final-state-v1"` er en bestået, afgrænset
+afstemning.
 `EVIDENCE_RECONCILIATION_DRIFT`, dubletter, manglende lister eller en forkert
-SHA er NO-GO: bevar inputs, rapportér det eksakte difference-sæt, og stop.
-Aldrig reparér prod for at få en optælling til at passe.
+SHA er NO-GO: bevar inputs, gennemgå det eksakte difference-sæt kun i den
+private rapport, og stop. Aldrig reparér prod for at få en optælling til at
+passe.
 
 ## Hvad denne gate ikke beviser
 
@@ -208,7 +227,7 @@ fakta.
 En fuld historisk lukning kræver desuden en autoritativ applied-manifest-ledger
 bundet til den faktiske apply-batch samt manifest-specifikke projektorer, som
 beviser hver bidragsrække mod originalmanifestet. Indtil de artefakter findes,
-er inventaret kun en hash-låst erklæring om det valgte input-sæt; det må ikke
+er ledgeret kun en hash-låst erklæring om det valgte input-sæt; det må ikke
 omtales som bevis for fuldstændighed.
 
 ## Historiske undtagelser, der skal efterdokumenteres

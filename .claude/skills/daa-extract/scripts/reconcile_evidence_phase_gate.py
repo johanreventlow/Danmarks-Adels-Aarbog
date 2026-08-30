@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Compare a read-only production snapshot with hash-locked phase manifests.
 
-The program never opens a database connection and never writes an artifact.  A
-separate, explicitly approved read-only SQL capture produces the production
-snapshot; this program verifies a bounded, five-projection final state from an
-ordered set of listed phase contributions.  It is deliberately not a proof of
-the entire database state or of historical manifest completeness.
+The program never opens a database connection. A separate, explicitly approved
+read-only SQL capture produces the production snapshot; this program verifies a
+bounded, five-projection final state from an ordered set of listed phase
+contributions. Reconciliation reports are written only to an explicitly named,
+private output file. It is deliberately not a proof of the entire database
+state or of historical manifest completeness.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Tuple
@@ -274,6 +276,13 @@ def _reconcile_admitted(
         "scope": "five-projection-final-state-v1",
         "phase_ids": [entry.phase_id for entry in sorted(approved, key=lambda item: item.sequence)],
         "ledger_content_sha256": ledger["ledger_content_sha256"],
+        "artifact_hashes": {
+            "ledger_content_sha256": ledger["ledger_content_sha256"],
+            "contribution_sha256": {
+                entry.phase_id: entry.contribution_sha256
+                for entry in sorted(approved, key=lambda item: item.sequence)
+            },
+        },
         "counts": counts,
         "overrides": overrides,
         "withdrawals": withdrawal_counts,
@@ -312,6 +321,54 @@ def load_phase_manifest(path: Path) -> Dict[str, Any]:
     return document
 
 
+def _terminal_summary(report: Mapping[str, Any], error: str | None = None) -> Dict[str, Any]:
+    """Return the deliberately non-identifying CLI result."""
+    result: Dict[str, Any] = {
+        "status": report.get("status", "invalid"),
+        "phase_ids": report.get("phase_ids", []),
+        "counts": report.get("counts", {}),
+        "artifact_hashes": report.get("artifact_hashes", {}),
+    }
+    if error is not None:
+        result["error"] = error
+    return result
+
+
+def _print_terminal_summary(report: Mapping[str, Any], error: str | None = None) -> None:
+    print(json.dumps(_terminal_summary(report, error), ensure_ascii=False, sort_keys=True), file=sys.stderr if error else sys.stdout)
+
+
+def _create_private_report(path: Path) -> int:
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.fchmod(descriptor, 0o600)
+        return descriptor
+    except FileExistsError as error:
+        raise ReconciliationError("EVIDENCE_RECONCILIATION_PRIVATE_REPORT_EXISTS") from error
+    except OSError as error:
+        if descriptor is not None:
+            os.close(descriptor)
+        raise ReconciliationError("EVIDENCE_RECONCILIATION_PRIVATE_REPORT_UNWRITABLE") from error
+
+
+def _write_private_report(descriptor: int, report: Mapping[str, Any]) -> None:
+    raw = json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except OSError as error:
+        raise ReconciliationError("EVIDENCE_RECONCILIATION_PRIVATE_REPORT_UNWRITABLE") from error
+
+
+def _error_private_report(error: ReconciliationError) -> Dict[str, Any]:
+    report = dict(error.report)
+    report["error"] = str(error)
+    return report
+
+
 def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Read-only comparison of prod evidence state with phase manifests.")
     mode = parser.add_mutually_exclusive_group(required=True)
@@ -319,13 +376,28 @@ def main(argv: List[str] | None = None) -> int:
     mode.add_argument("--seal", type=Path, help="Print a hash-locked copy of an unsealed JSON input.")
     parser.add_argument("--phase-manifest", action="append", type=Path)
     parser.add_argument("--ledger", type=Path)
+    parser.add_argument("--private-report", type=Path)
     args = parser.parse_args(argv)
-    try:
-        if args.seal is not None:
-            if args.phase_manifest or args.ledger:
+    if args.seal is not None:
+        try:
+            if args.phase_manifest or args.ledger or args.private_report:
                 raise ReconciliationError("EVIDENCE_RECONCILIATION_SEAL_ARGUMENTS_INVALID")
             print(json.dumps(seal(_load_json(args.seal)), ensure_ascii=False, sort_keys=True))
             return 0
+        except ReconciliationError as error:
+            print(json.dumps(error.report, ensure_ascii=False, sort_keys=True), file=sys.stderr)
+            return 2
+
+    if args.private_report is None:
+        _print_terminal_summary({}, "EVIDENCE_RECONCILIATION_PRIVATE_REPORT_REQUIRED")
+        return 2
+    try:
+        private_descriptor = _create_private_report(args.private_report)
+    except ReconciliationError as error:
+        _print_terminal_summary({}, str(error))
+        return 2
+
+    try:
         if not args.phase_manifest or args.ledger is None:
             raise ReconciliationError("EVIDENCE_RECONCILIATION_MANIFESTS_REQUIRED")
         ledger = _load_json(args.ledger)
@@ -334,9 +406,19 @@ def main(argv: List[str] | None = None) -> int:
         snapshot = _load_json(args.snapshot)
         report = _reconcile_admitted(snapshot, approved, contributions, ledger)
     except ReconciliationError as error:
-        print(json.dumps(error.report, ensure_ascii=False, sort_keys=True), file=sys.stderr)
+        try:
+            _write_private_report(private_descriptor, _error_private_report(error))
+        except ReconciliationError as private_error:
+            _print_terminal_summary({}, str(private_error))
+            return 2
+        _print_terminal_summary(error.report, str(error))
         return 2
-    print(json.dumps(report, ensure_ascii=False, sort_keys=True))
+    try:
+        _write_private_report(private_descriptor, report)
+    except ReconciliationError as error:
+        _print_terminal_summary({}, str(error))
+        return 2
+    _print_terminal_summary(report)
     return 0
 
 
