@@ -23,6 +23,16 @@ compensate for a failed gate. Two named local reviewers are required: one
 reviews every record and legacy decision; the other independently verifies all
 hashes, sets, counts, and database identity.
 
+Before any cutover, the GO control record must contain the reviewed release
+SHA; proof that the additive schema, migration, RLS, and ACL signatures are
+deployed; and proof that the capability-aware web and mobile clients are
+deployed before version-2 writer authority is enabled. It must also bind the
+fresh artifact database name and system identifier, all six raw SHA-256 values,
+the exact record/legacy/hidden ID sets, five inventory quantities, complete
+direct-reader classification, both reviewer approvals, project-owner approval,
+one nonce, and an expiry. It binds the fresh exported bytes; it does not rely
+on invented historical ID sets.
+
 ## 1. Backup and isolation
 
 Run only after the separate GO. This creates a mode-0700 location outside the
@@ -36,8 +46,8 @@ chmod 700 "$CUTOVER_DIR"
 EXPORT_DIR="$CUTOVER_DIR/export"
 REVIEW_DIR="$CUTOVER_DIR/review"
 RECEIPT_DIR="$CUTOVER_DIR/receipt"
-mkdir "$RECEIPT_DIR"
-chmod 700 "$RECEIPT_DIR"
+mkdir "$EXPORT_DIR" "$REVIEW_DIR" "$RECEIPT_DIR"
+chmod 700 "$EXPORT_DIR" "$REVIEW_DIR" "$RECEIPT_DIR"
 git status --short
 git diff --check
 /opt/homebrew/opt/postgresql@17/bin/psql -X -v ON_ERROR_STOP=1 -Atc \
@@ -61,6 +71,16 @@ database and restore the backup there.
 
 ```bash
 set -euo pipefail
+test "$PGHOST" = "$REHEARSAL_APPROVED_HOST"
+test "$PGPORT" = "$REHEARSAL_APPROVED_PORT"
+test "$PGUSER" = "$REHEARSAL_APPROVED_USER"
+test "$PGDATABASE" = "$REHEARSAL_APPROVED_MAINTENANCE_DATABASE"
+test -n "$PGPASSWORD"
+test -n "$REHEARSAL_APPROVED_SYSTEM_IDENTIFIER"
+test "$REHEARSAL_APPROVED_SYSTEM_IDENTIFIER" != "$CUTOVER_APPROVED_SYSTEM_IDENTIFIER"
+/opt/homebrew/opt/postgresql@17/bin/psql -X -v ON_ERROR_STOP=1 -Atc \
+  "SELECT (pg_control_system()).system_identifier::text" | \
+  grep -Fx "$REHEARSAL_APPROVED_SYSTEM_IDENTIFIER"
 REHEARSAL_DATABASE="daa_narrative_record_rehearsal_$(date +%Y%m%d%H%M%S)"
 /opt/homebrew/opt/postgresql@17/bin/createdb \
   --host="$PGHOST" --port="$PGPORT" --username="$PGUSER" \
@@ -240,46 +260,31 @@ Rscript .claude/skills/daa-extract/scripts/apply_narrative_record_cutover.R \
 ```
 
 After `committed` or `recovered`, the reviewers run new read-only postverify
-of contract version, exact receipt, six hashes, event and legacy sets,
-version-2 ACL, revoked legacy writers, and the five inventory counts. This
-query must return version `2`, exactly one receipt, execute for a new writer,
-and no execute for an old writer; compare its hashes to the six reviewed
-SHA-256 values.
+with the version-controlled verifier. It fail-closes on contract version,
+exact receipt and six hashes, event/legacy ID sets, change-set scope, actual
+public v2 `source_record_ref` projections, inventory quantities,
+direct-reader classification, and the v2/legacy ACL inventory.
 
 ```bash
-/opt/homebrew/opt/postgresql@17/bin/psql -X -v ON_ERROR_STOP=1 \
-  -v nonce="$CUTOVER_NONCE" <<'SQL'
-BEGIN READ ONLY;
-SELECT public.narrative_record_contract_version() AS contract_version;
-SELECT nonce, record_candidates_sha256, legacy_candidates_sha256,
-       record_manifest_sha256, legacy_manifest_sha256, inventory_sha256,
-       approval_sha256, database_name, system_identifier, result_sha256,
-       committed_at
-  FROM private.narrative_record_cutover_receipt
- WHERE nonce = :'nonce'::uuid;
-SELECT count(*) AS event_count FROM private.narrative_publication_event;
-SELECT count(*) AS grandfathered_legacy_count
-  FROM private.narrative_legacy_publication
- WHERE status = 'grandfathered_publication';
-SELECT has_function_privilege(
-  'authenticated',
-  'public.red_upsert_person_narrative_record(bigint,bigint,text,text,boolean,text)'::regprocedure,
-  'EXECUTE'
-) AS new_writer_execute;
-SELECT has_function_privilege(
-  'authenticated',
-  'public.red_publicer_narrative_record(bigint,uuid,text,text)'::regprocedure,
-  'EXECUTE'
-) AS legacy_writer_execute;
-ROLLBACK;
-SQL
+set -euo pipefail
+Rscript .claude/skills/daa-extract/scripts/verify_narrative_record_cutover_postverify.R \
+  --record-candidates "$EXPORT_DIR/narrative-record-baseline-candidates-v1.json" \
+  --legacy-candidates "$EXPORT_DIR/narrative-legacy-baseline-candidates-v1.json" \
+  --record-manifest "$REVIEW_DIR/narrative-record-baseline-manifest-v1.json" \
+  --legacy-manifest "$REVIEW_DIR/narrative-legacy-baseline-manifest-v1.json" \
+  --inventory "$EXPORT_DIR/narrative-record-cutover-inventory-v1.json" \
+  --approval "$REVIEW_DIR/narrative-record-cutover-approval-v1.json" \
+  --nonce "$CUTOVER_NONCE" \
+  --expected-database-name "$CUTOVER_DATABASE_NAME" \
+  --expected-system-identifier "$CUTOVER_SYSTEM_IDENTIFIER"
 ```
 
 Before database commit, rollback means database rollback: preflight or
 `--mode rollback` must restore the exact before state. After committed cutover,
 rollback never means deleting append-only events, editing a receipt, or
 opportunistically lowering the version. On postverify failure, preserve the
-artifacts and receipt, run recover, and stop. The project owner then selects
+artifacts and receipt and go directly to containment/incident handling; do not
+run `recover` as a purported repair. The project owner then selects
 documented containment and a new separately approved migration or recovery
 path. Restore from `precutover.backup` requires explicit incident authority;
 it is never routine rollback or a way to hide history.

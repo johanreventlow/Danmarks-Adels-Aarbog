@@ -2,8 +2,8 @@
 
 **Verificeret:** 2026-08-30 efter #152 disposable ende-til-ende-rehearsal
 
-**Kodegrundlag:** lokal #152-branch `feat/narrative-record-key-152` ved
-`4922d7e`; den er en lokal, ikke-produceret implementeringsgren
+**Kodegrundlag:** Task 12's funktionelle bevis er commit `4922d7e`; den
+nuværende dokumentations-HEAD kan være senere og ændrer ikke det bevis
 
 **Produktionsstatus:** C3's eksakte fem-sagers scope er migreret, anvendt og
 efterverificeret i produktion; #152 har ingen produktionsmutation
@@ -51,8 +51,9 @@ De eneste tilladte tilstande er `specificeret`, `isoleret implementeret`,
 | #152 record-nøglede person-narrativer | `integreret ende-til-ende` | Den editionsneutrale record-kontrakt med append-only publication-versioner, stale-gate, granulær legacy-withdrawal, grandfathered legacy-ledger og stabil offentlig source-record-reference er bevist i Task 12's syntetiske, disponerbare restore, reelle DBI-ræs, fulde klient-/server-suiter og browser-smoke. Den aktive frysning af nye bindinger/DAA-import og `red_slet_person`-blokken er fortsat bevidst design, ikke en åbning af gamle writers. Ingen production cutover eller produktions-GO er givet. |
 | Tredje-årbogsprøve | `specificeret` | Prøven er generaliseringsbeviset efter begge referenceudgaver; den er ikke gennemført. |
 
-Ingen af de fælles flerudgaveled er aktuelt klassificeret som `integreret
-ende-til-ende`; C3 er en afgrænset 1939-korrektionskæde. `produktionsverificeret`
+Den afgrænsede #152-kontrakt er `integreret ende-til-ende`; den fælles
+flerudgavekæde er fortsat ikke integreret ende-til-ende, og C3 er en afgrænset
+1939-korrektionskæde. `produktionsverificeret`
 ovenfor er afgrænset til de målte 1939-delleverancer 2026-08-22 og løfter ikke
 programmets samlede modenhed.
 
