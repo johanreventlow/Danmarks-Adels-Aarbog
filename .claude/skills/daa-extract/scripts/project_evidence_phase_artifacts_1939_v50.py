@@ -44,6 +44,19 @@ def _valid_sha256(value: object) -> bool:
     )
 
 
+def adapter_sha256() -> str:
+    """Return the exact bytes hash of this installed projection adapter."""
+    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+
+def _phase_target_matches(value: object, phase: PhaseEntry) -> bool:
+    return (
+        _production_target(value)
+        and _valid_sha256(phase.database_target_identity_sha256)
+        and canonical_sha256(value, "") == phase.database_target_identity_sha256
+    )
+
+
 def _artifact_by_role(phase: PhaseEntry, role: str) -> ArtifactEntry:
     matches = [artifact for artifact in phase.artifacts if artifact.role == role]
     _require(len(matches) == 1 and matches[0].required)
@@ -89,7 +102,9 @@ def _unique(rows: list[dict[str, object]], fields: tuple[str, ...]) -> None:
         values.add(identity)
 
 
-def _task25_rows(manifest_raw: bytes, manifest: dict[str, object], receipt: dict[str, object]) -> dict[str, list[dict[str, object]]]:
+def _task25_rows(
+    manifest_raw: bytes, manifest: dict[str, object], receipt: dict[str, object], phase: PhaseEntry
+) -> dict[str, list[dict[str, object]]]:
     _require(manifest.get("schema_version") == "1939-v50-production-write-manifest-v1")
     source = manifest.get("source")
     creates = manifest.get("person_creates")
@@ -104,7 +119,7 @@ def _task25_rows(manifest_raw: bytes, manifest: dict[str, object], receipt: dict
         }
         and receipt["schema_version"] == "daa-evidence-phase-receipt-task25-v1"
         and receipt["manifest_sha256"] == hashlib.sha256(manifest_raw).hexdigest()
-        and _production_target(receipt["database_target_identity"])
+        and _phase_target_matches(receipt["database_target_identity"], phase)
     )
     identities = receipt["created_person_identities"]
     _require(isinstance(identities, list) and len(identities) == len(creates))
@@ -156,15 +171,19 @@ def _project_task25(bundle_root: Path, phase: PhaseEntry) -> dict[str, list[dict
     receipt_entry = _artifact_by_role(phase, "receipt")
     manifest_raw, manifest = _read_artifact(bundle_root, manifest_entry)
     _, receipt = _read_artifact(bundle_root, receipt_entry)
-    return _task25_rows(manifest_raw, manifest, receipt)
+    return _task25_rows(manifest_raw, manifest, receipt, phase)
 
 
-def _c0_rows(manifest_raw: bytes, manifest: dict[str, object], receipt: dict[str, object]) -> dict[str, list[dict[str, object]]]:
+def _c0_rows(
+    manifest_raw: bytes, manifest: dict[str, object], receipt: dict[str, object], phase: PhaseEntry
+) -> dict[str, list[dict[str, object]]]:
     _require(manifest.get("schema_version") == "1939-v50-c0-followup-manifest-v1")
     source = manifest.get("source")
     operations = manifest.get("operations")
+    database_identity = manifest.get("database_identity")
     _require(isinstance(source, dict) and source.get("database_source_id") == 3)
-    _require(isinstance(operations, list))
+    _require(isinstance(database_identity, str) and bool(database_identity))
+    _require(isinstance(operations, list) and len(operations) == 9)
     _require(
         set(receipt) == {
             "schema_version",
@@ -175,7 +194,9 @@ def _c0_rows(manifest_raw: bytes, manifest: dict[str, object], receipt: dict[str
         }
         and receipt["schema_version"] == "daa-evidence-phase-receipt-c0-v1"
         and receipt["manifest_sha256"] == hashlib.sha256(manifest_raw).hexdigest()
-        and _production_target(receipt["database_target_identity"])
+        and _phase_target_matches(receipt["database_target_identity"], phase)
+        and receipt["database_target_identity"]["system_identifier_sha256"]
+        == hashlib.sha256(database_identity.encode("utf-8")).hexdigest()
         and receipt["change_set"] == 965
     )
     expected: dict[tuple[int, int, str], str] = {}
@@ -198,7 +219,7 @@ def _c0_rows(manifest_raw: bytes, manifest: dict[str, object], receipt: dict[str
         _require(identity not in expected)
         expected[identity] = operation["new_text_sha256"]
     results = receipt["narrative_results"]
-    _require(isinstance(results, list) and len(results) == len(expected))
+    _require(isinstance(results, list) and len(results) == 9 and len(results) == len(expected))
     projected: list[dict[str, object]] = []
     for result in results:
         _require(
@@ -246,7 +267,7 @@ def _project_c0(bundle_root: Path, phase: PhaseEntry) -> dict[str, list[dict[str
     receipt_entry = _artifact_by_role(phase, "receipt")
     manifest_raw, manifest = _read_artifact(bundle_root, manifest_entry)
     _, receipt = _read_artifact(bundle_root, receipt_entry)
-    return _c0_rows(manifest_raw, manifest, receipt)
+    return _c0_rows(manifest_raw, manifest, receipt, phase)
 
 
 def _phase_b_rows(
@@ -267,10 +288,7 @@ def _phase_b_rows(
         }
         and receipt["schema_version"] == "daa-evidence-phase-receipt-phase-b-v1"
         and receipt["manifest_sha256"] == hashlib.sha256(manifest_raw).hexdigest()
-        and _production_target(receipt["database_target_identity"])
-        and _valid_sha256(phase.database_target_identity_sha256)
-        and canonical_sha256(receipt["database_target_identity"], "")
-        == phase.database_target_identity_sha256
+        and _phase_target_matches(receipt["database_target_identity"], phase)
     )
     rows = receipt["identity_map"]
     _require(isinstance(rows, list) and len(rows) == 551 and len(operations) == 551)
@@ -358,6 +376,7 @@ def project_phase(bundle_root: Path, phase: PhaseEntry, summary: PhaseSummary) -
     _require(phase.phase_id == summary.phase_id)
     _require(summary.projection_evidence == "mechanically_bound" and summary.error is None)
     _require(phase.projection_evidence == "mechanically_bound")
+    _require(_valid_sha256(phase.adapter_sha256) and phase.adapter_sha256 == adapter_sha256())
     if phase.adapter_id == "task25-v1":
         sections = _project_task25(bundle_root, phase)
     elif phase.adapter_id == "c0-followup-v1":

@@ -364,7 +364,7 @@ def _task25_receipt_binds(verified: Mapping[str, _VerifiedArtifact], phase: Phas
         raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
     if (
         receipt.document["manifest_sha256"] != hashlib.sha256(manifest.raw).hexdigest()
-        or not _production_target(receipt.document["database_target_identity"])
+        or not _production_target_matches(receipt.document["database_target_identity"], phase)
         or not isinstance(receipt.document["created_person_identities"], list)
     ):
         return False
@@ -408,9 +408,18 @@ def _c0_receipt_binds(verified: Mapping[str, _VerifiedArtifact], phase: PhaseEnt
         return False
     manifest, receipt = pair
     source = manifest.document.get("source")
+    database_identity = manifest.document.get("database_identity")
     operations = manifest.document.get("operations")
-    if not isinstance(source, dict) or source.get("database_source_id") != 3 or not isinstance(operations, list):
+    if (
+        not isinstance(source, dict)
+        or source.get("database_source_id") != 3
+        or not isinstance(database_identity, str)
+        or not database_identity
+        or not isinstance(operations, list)
+    ):
         raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+    if len(operations) != 9:
+        return False
     expected: dict[tuple[int, int, str], str] = {}
     for operation in operations:
         if not isinstance(operation, dict) or not {"person_id", "narrative_id", "source_record_key", "new_text_sha256"} <= set(operation):
@@ -439,10 +448,14 @@ def _c0_receipt_binds(verified: Mapping[str, _VerifiedArtifact], phase: PhaseEnt
         raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
     if (
         receipt.document["manifest_sha256"] != hashlib.sha256(manifest.raw).hexdigest()
-        or not _production_target(receipt.document["database_target_identity"])
+        or not _production_target_matches(receipt.document["database_target_identity"], phase)
+        or receipt.document["database_target_identity"]["system_identifier_sha256"]
+        != hashlib.sha256(database_identity.encode("utf-8")).hexdigest()
         or receipt.document["change_set"] != 965
         or not isinstance(receipt.document["narrative_results"], list)
     ):
+        return False
+    if len(receipt.document["narrative_results"]) != 9:
         return False
     observed: set[tuple[int, int, str]] = set()
     for result in receipt.document["narrative_results"]:
