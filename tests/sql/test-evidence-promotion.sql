@@ -131,6 +131,7 @@ BEGIN
       'private.validate_interpretation_promotion()'::regprocedure,
       'private.validate_interpretation_promotion_items(jsonb,boolean)'::regprocedure,
       'private.preview_interpretation_promotions(jsonb,boolean)'::regprocedure,
+      'private.canonical_interpretation_promotion_items(jsonb)'::regprocedure,
       'private.interpretation_promotion_profile(jsonb)'::regprocedure,
       'private.validate_interpretation_promotion_profile(jsonb)'::regprocedure,
       'private.interpretation_promotion_database_identity()'::regprocedure,
@@ -170,17 +171,11 @@ BEGIN
     END LOOP;
   END LOOP;
 
-  FOREACH v_public_function IN ARRAY ARRAY[
-    'public.red_promote_interpretation(uuid,text,bigint,jsonb)'::regprocedure
-  ] LOOP
-    IF has_function_privilege('anon',v_public_function,'EXECUTE')
-       OR has_function_privilege('authenticated',v_public_function,'EXECUTE') THEN
-      RAISE EXCEPTION 'EVIDENCE_PROMOTION_RLS_TEST_FAILED: gammel promotion-RPC er eksponeret';
-    END IF;
-  END LOOP;
-
   IF to_regprocedure('public.red_promote_interpretations_batch(jsonb,text)') IS NOT NULL THEN
     RAISE EXCEPTION 'EVIDENCE_PROMOTION_RLS_TEST_FAILED: legacy batch-overload findes stadig';
+  END IF;
+  IF to_regprocedure('public.red_promote_interpretation(uuid,text,bigint,jsonb)') IS NOT NULL THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RLS_TEST_FAILED: legacy single-row writer findes stadig';
   END IF;
 
   FOREACH v_public_function IN ARRAY ARRAY[
@@ -228,6 +223,33 @@ BEGIN
 
   RAISE NOTICE 'OK: evidence promotion har deny-all private ACL/RLS og afgrænset redaktions-RPC';
 END $evidence_promotion_rls_test$;
+
+DO $evidence_promotion_canonical_scope_test$
+DECLARE
+  v_forward jsonb:=jsonb_build_array(
+    jsonb_build_object('interpretation_id','c1000000-0000-0000-0000-000000000002','target_type','assertion','target_id',2),
+    jsonb_build_object('interpretation_id','c1000000-0000-0000-0000-000000000001','target_type','assertion','target_id',1)
+  );
+  v_reverse jsonb;
+  v_error text;
+BEGIN
+  v_reverse:=jsonb_build_array(v_forward->1,v_forward->0);
+  IF private.canonical_interpretation_promotion_items(v_forward)
+       IS DISTINCT FROM private.canonical_interpretation_promotion_items(v_reverse) THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_CANONICAL_SCOPE_FAILED: item order changed scope';
+  END IF;
+  v_error:=NULL;
+  BEGIN
+    INSERT INTO private.interpretation_promotion_batch(
+      rule_profile_hash,preview_hash,promoted_by,promoted_by_name,requested_count,status
+    ) VALUES (repeat('0',64),repeat('1',64),gen_random_uuid(),'bypass',1,'legacy_quarantined');
+  EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS NULL THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_CANONICAL_SCOPE_FAILED: new legacy batch bypass succeeded';
+  END IF;
+  RAISE NOTICE 'OK: promotion request scope is canonical across item ordering';
+END $evidence_promotion_canonical_scope_test$;
 
 -- En gyldig, kildebunden promotion skal gennem begge SHA-256-stier med
 -- Supabases faktiske pgcrypto-layout. Hele fixturen rulles tilbage, så testen

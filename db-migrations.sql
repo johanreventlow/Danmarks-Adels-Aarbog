@@ -11244,6 +11244,27 @@ DO $migration$ BEGIN
   END IF;
 END $migration$;
 DO $migration$ BEGIN
+  ALTER TABLE private.interpretation_promotion_batch
+    DROP CONSTRAINT IF EXISTS interpretation_promotion_batch_writer_binding_check;
+  ALTER TABLE private.interpretation_promotion_batch
+    ADD CONSTRAINT interpretation_promotion_batch_writer_binding_check CHECK (
+      status IS NOT NULL AND (
+        (status='legacy_quarantined' AND authorization_id IS NULL AND database_identity IS NULL
+          AND observed_counts IS NULL AND receipt IS NULL AND receipt_sha256 IS NULL AND finalized_at IS NULL)
+        OR (status='open' AND authorization_id IS NOT NULL AND database_identity IS NOT NULL
+          AND rule_profile_hash ~ '^[0-9a-f]{64}$' AND preview_hash ~ '^[0-9a-f]{64}$'
+          AND observed_counts IS NULL AND receipt IS NULL AND receipt_sha256 IS NULL AND finalized_at IS NULL)
+        OR (status='finalized' AND authorization_id IS NOT NULL AND database_identity IS NOT NULL
+          AND rule_profile_hash ~ '^[0-9a-f]{64}$' AND preview_hash ~ '^[0-9a-f]{64}$'
+          AND observed_counts IS NOT NULL AND receipt IS NOT NULL AND receipt_sha256 ~ '^[0-9a-f]{64}$' AND finalized_at IS NOT NULL)
+      )
+    );
+  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='private.interpretation_promotion_batch'::regclass
+      AND conname='interpretation_promotion_batch_authorization_uq') THEN
+    ALTER TABLE private.interpretation_promotion_batch ADD CONSTRAINT interpretation_promotion_batch_authorization_uq UNIQUE(authorization_id);
+  END IF;
+END $migration$;
+DO $migration$ BEGIN
   IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='private.interpretation_promotion_batch'::regclass
       AND conname='interpretation_promotion_batch_writer_binding_check') THEN
     ALTER TABLE private.interpretation_promotion_batch ADD CONSTRAINT interpretation_promotion_batch_writer_binding_check CHECK (
@@ -11291,6 +11312,28 @@ END $$;
 DROP TRIGGER IF EXISTS trg_interpretation_promotion_batch_append_only ON private.interpretation_promotion_batch;
 CREATE TRIGGER trg_interpretation_promotion_batch_append_only BEFORE UPDATE OR DELETE
   ON private.interpretation_promotion_batch FOR EACH ROW EXECUTE FUNCTION private.guard_interpretation_promotion_batch_mutation();
+CREATE OR REPLACE FUNCTION private.guard_interpretation_promotion_batch_insert()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+BEGIN
+  IF NEW.status='legacy_quarantined' THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_LEGACY_INSERT_FORBIDDEN'; END IF;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS trg_interpretation_promotion_batch_no_new_legacy ON private.interpretation_promotion_batch;
+CREATE TRIGGER trg_interpretation_promotion_batch_no_new_legacy BEFORE INSERT
+  ON private.interpretation_promotion_batch FOR EACH ROW EXECUTE FUNCTION private.guard_interpretation_promotion_batch_insert();
+CREATE OR REPLACE FUNCTION private.guard_interpretation_promotion_insert()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,private AS $$
+BEGIN
+  IF NEW.batch_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM private.interpretation_promotion_batch b
+    JOIN private.interpretation_promotion_authorization a ON a.id=b.authorization_id
+     WHERE b.id=NEW.batch_id AND b.status='open' AND a.status='issued'
+  ) THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_AUTHORIZED_BATCH_REQUIRED'; END IF;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS trg_interpretation_promotion_authorized_batch ON private.interpretation_promotion;
+CREATE TRIGGER trg_interpretation_promotion_authorized_batch BEFORE INSERT
+  ON private.interpretation_promotion FOR EACH ROW EXECUTE FUNCTION private.guard_interpretation_promotion_insert();
 
 CREATE OR REPLACE FUNCTION private.interpretation_promotion_profile(p_preview jsonb)
 RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
@@ -11301,6 +11344,26 @@ RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
       FROM jsonb_array_elements(p_preview->'items') item
     ),'[]'::jsonb))
 $$;
+CREATE OR REPLACE FUNCTION private.canonical_interpretation_promotion_items(p_items jsonb)
+RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+  SELECT coalesce(jsonb_agg(item ORDER BY (item->>'interpretation_id')::uuid,
+    item->>'target_type',(item->>'target_id')::bigint),'[]'::jsonb)
+    FROM jsonb_array_elements(p_items) item
+$$;
+CREATE OR REPLACE FUNCTION private.preview_interpretation_promotions(p_items jsonb,p_lock boolean DEFAULT false)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE items jsonb; hash text; envelope jsonb; request jsonb;
+BEGIN
+  request:=private.canonical_interpretation_promotion_items(p_items);
+  SELECT coalesce(jsonb_agg(jsonb_build_object('interpretation_id',checked.interpretation_id,
+    'target_type',checked.target_type,'target_id',checked.target_id,'eligible',checked.eligible,
+    'rule_key',checked.rule_key,'rule_version',checked.rule_version,'reason_code',checked.reason_code)
+    ORDER BY checked.item_ordinal),'[]'::jsonb) INTO items
+    FROM private.validate_interpretation_promotion_items(request,p_lock) checked;
+  envelope:=jsonb_build_object('contract','interpretation-promotion-preview-v1','request',request,'validated_items',items);
+  hash:=encode(digest(envelope::text,'sha256'),'hex');
+  RETURN jsonb_build_object('preview_hash',hash,'items',items);
+END $$;
 CREATE OR REPLACE FUNCTION private.validate_interpretation_promotion_profile(p_profile jsonb)
 RETURNS void LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
 BEGIN
@@ -11360,7 +11423,7 @@ BEGIN
   SELECT item->>'reason_code' INTO reason FROM jsonb_array_elements(preview->'items') item WHERE coalesce((item->>'eligible')::boolean,false)=false LIMIT 1;
   IF reason IS NOT NULL THEN RAISE EXCEPTION '%',reason; END IF;
   profile:=private.interpretation_promotion_profile(preview); profile_hash:=encode(digest(profile::text,'sha256'),'hex');
-  request_hash:=encode(digest(jsonb_build_object('contract','interpretation-promotion-request-v1','items',p_items)::text,'sha256'),'hex');
+  request_hash:=encode(digest(jsonb_build_object('contract','interpretation-promotion-request-v1','items',private.canonical_interpretation_promotion_items(p_items))::text,'sha256'),'hex');
   PERFORM pg_advisory_xact_lock(hashtextextended('daa-evidence-promotion-authorization:'||request_hash,0));
   SELECT * INTO existing FROM private.interpretation_promotion_authorization WHERE actor_id=actor AND nonce=p_nonce FOR UPDATE;
   IF FOUND THEN
@@ -11383,7 +11446,7 @@ BEGIN
   IF actor IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
   SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),actor::text) INTO actor_name FROM public.profiles WHERE id=actor;
   IF actor_name IS NULL OR p_authorization_id IS NULL OR coalesce(p_preview_hash,'') !~ '^[0-9a-f]{64}$' THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_AUTHORIZATION_INVALID'; END IF;
-  request_hash:=encode(digest(jsonb_build_object('contract','interpretation-promotion-request-v1','items',p_items)::text,'sha256'),'hex');
+  request_hash:=encode(digest(jsonb_build_object('contract','interpretation-promotion-request-v1','items',private.canonical_interpretation_promotion_items(p_items))::text,'sha256'),'hex');
   PERFORM pg_advisory_xact_lock(hashtextextended('daa-evidence-promotion-writer',0));
   SELECT * INTO a FROM private.interpretation_promotion_authorization WHERE id=p_authorization_id FOR UPDATE;
   IF NOT FOUND OR a.actor_id<>actor OR a.database_identity<>db_identity OR a.preview_hash<>p_preview_hash OR a.request_sha256<>request_hash THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_AUTHORIZATION_INVALID'; END IF;
@@ -11429,7 +11492,8 @@ BEGIN
   END IF;
   RETURN v_receipt;
 END $$;
-REVOKE ALL ON FUNCTION private.interpretation_promotion_profile(jsonb),private.validate_interpretation_promotion_profile(jsonb),private.interpretation_promotion_database_identity(),private.interpretation_promotion_batch_state(uuid),private.guard_interpretation_promotion_authorization_mutation(),private.guard_interpretation_promotion_batch_mutation() FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION private.interpretation_promotion_profile(jsonb),private.canonical_interpretation_promotion_items(jsonb),private.validate_interpretation_promotion_profile(jsonb),private.interpretation_promotion_database_identity(),private.interpretation_promotion_batch_state(uuid),private.guard_interpretation_promotion_authorization_mutation(),private.guard_interpretation_promotion_batch_mutation(),private.guard_interpretation_promotion_batch_insert(),private.guard_interpretation_promotion_insert() FROM PUBLIC,anon,authenticated;
+DROP FUNCTION IF EXISTS public.red_promote_interpretation(uuid,text,bigint,jsonb);
 DROP FUNCTION IF EXISTS public.red_promote_interpretations_batch(jsonb,text);
 REVOKE ALL ON FUNCTION red_preview_interpretation_promotions(jsonb),red_authorize_interpretation_promotions(jsonb,text,uuid,timestamptz),red_promote_interpretations_batch(jsonb,text,uuid) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION red_preview_interpretation_promotions(jsonb),red_authorize_interpretation_promotions(jsonb,text,uuid,timestamptz),red_promote_interpretations_batch(jsonb,text,uuid) TO authenticated;

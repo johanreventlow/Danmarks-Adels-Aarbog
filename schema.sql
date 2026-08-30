@@ -1022,7 +1022,7 @@ CREATE TABLE private.interpretation_promotion (
   interpretation_id   uuid NOT NULL REFERENCES private.interpretation(id),
   rule_key            text,
   rule_version        integer,
-  batch_id            uuid CONSTRAINT interpretation_promotion_batch_fk
+  batch_id            uuid NOT NULL CONSTRAINT interpretation_promotion_batch_fk
                       REFERENCES private.interpretation_promotion_batch(id),
   target_type         text NOT NULL CHECK (
                         target_type IN (
@@ -6979,12 +6979,20 @@ BEGIN
    ORDER BY validated.item_ordinal;
 END $$;
 
+CREATE OR REPLACE FUNCTION private.canonical_interpretation_promotion_items(p_items jsonb)
+RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+  SELECT coalesce(jsonb_agg(item ORDER BY (item->>'interpretation_id')::uuid,
+    item->>'target_type',(item->>'target_id')::bigint),'[]'::jsonb)
+    FROM jsonb_array_elements(p_items) item
+$$;
+
 CREATE OR REPLACE FUNCTION private.preview_interpretation_promotions(
   p_items jsonb,p_lock boolean DEFAULT false
 ) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
-DECLARE v_items jsonb; v_hash text; v_envelope jsonb;
+DECLARE v_items jsonb; v_hash text; v_envelope jsonb; v_request jsonb;
 BEGIN
+  v_request:=private.canonical_interpretation_promotion_items(p_items);
   SELECT coalesce(jsonb_agg(jsonb_build_object(
       'interpretation_id',checked.interpretation_id,'target_type',checked.target_type,
       'target_id',checked.target_id,'eligible',checked.eligible,
@@ -6992,10 +7000,10 @@ BEGIN
       'reason_code',checked.reason_code
     ) ORDER BY checked.item_ordinal),'[]'::jsonb)
     INTO v_items
-    FROM private.validate_interpretation_promotion_items(p_items,p_lock) checked;
+    FROM private.validate_interpretation_promotion_items(v_request,p_lock) checked;
   v_envelope:=jsonb_build_object(
     'contract','interpretation-promotion-preview-v1',
-    'request',p_items,
+    'request',v_request,
     'validated_items',v_items
   );
   v_hash:=encode(digest(v_envelope::text,'sha256'),'hex');
@@ -7064,7 +7072,9 @@ BEGIN
   SELECT * INTO v_batch FROM private.interpretation_promotion_batch WHERE id=p_batch_id;
   IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_BATCH_NOT_FOUND'; END IF;
   SELECT coalesce(jsonb_agg(jsonb_build_object(
-    'interpretation_id',p.interpretation_id,'target_type',p.target_type,'target_id',p.target_id,
+    'promotion_id',p.id,'batch_id',p.batch_id,'authorization_id',p.evidence->>'authorization_id',
+    'preview_hash',p.evidence->>'preview_hash','promoted_by',p.promoted_by,
+    'promoted_by_name',p.promoted_by_name,'interpretation_id',p.interpretation_id,'target_type',p.target_type,'target_id',p.target_id,
     'rule_key',p.rule_key,'rule_version',p.rule_version,
     'assertion',jsonb_build_object('id',a.id,'target_type',a.target_type,'target_id',a.target_id,
       'value',a.vaerdi_tekst,'date_raw',a.date_raw),
@@ -7109,7 +7119,7 @@ BEGIN
   PERFORM private.validate_interpretation_promotion_profile(v_profile);
   v_profile_hash:=encode(digest(v_profile::text,'sha256'),'hex');
   v_request_sha:=encode(digest(jsonb_build_object(
-    'contract','interpretation-promotion-request-v1','items',p_items
+    'contract','interpretation-promotion-request-v1','items',private.canonical_interpretation_promotion_items(p_items)
   )::text,'sha256'),'hex');
   PERFORM pg_advisory_xact_lock(hashtextextended('daa-evidence-promotion-authorization:'||v_request_sha,0));
   SELECT * INTO v_existing FROM private.interpretation_promotion_authorization
@@ -7155,7 +7165,7 @@ BEGIN
     FROM public.profiles WHERE id=v_actor;
   IF v_actor_name IS NULL THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_INVALID'; END IF;
   v_request_sha:=encode(digest(jsonb_build_object(
-    'contract','interpretation-promotion-request-v1','items',p_items
+    'contract','interpretation-promotion-request-v1','items',private.canonical_interpretation_promotion_items(p_items)
   )::text,'sha256'),'hex');
   PERFORM pg_advisory_xact_lock(hashtextextended('daa-evidence-promotion-writer',0));
   SELECT * INTO v_auth FROM private.interpretation_promotion_authorization WHERE id=p_authorization_id FOR UPDATE;
@@ -7195,6 +7205,17 @@ BEGIN
     authorization_id,rule_profile_hash,preview_hash,database_identity,promoted_by,promoted_by_name,requested_count
   ) VALUES (v_auth.id,v_profile_hash,p_preview_hash,v_database_identity,v_actor,v_actor_name,
             jsonb_array_length(v_preview->'items')) RETURNING id INTO v_batch_id;
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'batch_id',v_batch_id,'authorization_id',v_auth.id::text,'preview_hash',p_preview_hash,
+      'promoted_by',v_actor,'promoted_by_name',v_actor_name,
+      'interpretation_id',item->>'interpretation_id','target_type',item->>'target_type','target_id',item->>'target_id',
+      'assertion',jsonb_build_object('id',a.id,'target_type',a.target_type,'target_id',a.target_id,
+        'value',a.vaerdi_tekst,'date_raw',a.date_raw),
+      'fact',jsonb_build_object('id',f.id,'subject_type',f.subjekt_type,'subject_id',f.subjekt_id,'fact_type',f.faktatype)
+    ) ORDER BY item->>'interpretation_id',item->>'target_type',item->>'target_id'),'[]'::jsonb)
+    INTO v_expected_targets FROM jsonb_array_elements(v_preview->'items') item
+    LEFT JOIN public.assertion a ON a.id=(item->>'target_id')::bigint
+    LEFT JOIN public.fact f ON f.id=a.target_id;
   INSERT INTO private.interpretation_promotion(
     interpretation_id,rule_key,rule_version,batch_id,target_type,target_id,evidence,promoted_by,promoted_by_name
   ) SELECT (item->>'interpretation_id')::uuid,item->>'rule_key',(item->>'rule_version')::integer,
@@ -7203,7 +7224,9 @@ BEGIN
         'authorization_id',v_auth.id::text),v_actor,v_actor_name
     FROM jsonb_array_elements(v_preview->'items') item;
   SELECT coalesce(jsonb_agg(jsonb_build_object(
-      'interpretation_id',p.interpretation_id::text,'target_type',p.target_type,'target_id',p.target_id::text,
+      'batch_id',p.batch_id,'authorization_id',p.evidence->>'authorization_id',
+      'preview_hash',p.evidence->>'preview_hash','promoted_by',p.promoted_by,
+      'promoted_by_name',p.promoted_by_name,'interpretation_id',p.interpretation_id::text,'target_type',p.target_type,'target_id',p.target_id::text,
       'assertion',jsonb_build_object('id',a.id,'target_type',a.target_type,'target_id',a.target_id,
         'value',a.vaerdi_tekst,'date_raw',a.date_raw),
       'fact',jsonb_build_object('id',f.id,'subject_type',f.subjekt_type,'subject_id',f.subjekt_id,'fact_type',f.faktatype)
@@ -7290,19 +7313,38 @@ CREATE TRIGGER trg_interpretation_promotion_batch_append_only
   BEFORE UPDATE OR DELETE ON private.interpretation_promotion_batch
   FOR EACH ROW EXECUTE FUNCTION private.guard_interpretation_promotion_batch_mutation();
 
+CREATE OR REPLACE FUNCTION private.guard_interpretation_promotion_insert()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,private AS $$
+BEGIN
+  IF NEW.batch_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM private.interpretation_promotion_batch b
+    JOIN private.interpretation_promotion_authorization a ON a.id=b.authorization_id
+     WHERE b.id=NEW.batch_id AND b.status='open' AND a.status='issued'
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_AUTHORIZED_BATCH_REQUIRED';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER trg_interpretation_promotion_authorized_batch
+  BEFORE INSERT ON private.interpretation_promotion
+  FOR EACH ROW EXECUTE FUNCTION private.guard_interpretation_promotion_insert();
+
 -- Den tidligere brede enkeltrække-RPC opfylder ikke v1-kontrakten og må derfor
 -- ikke være en klientvej. Alle nye manuelle og bulk-promotions går gennem batch-RPC'en.
 REVOKE EXECUTE ON FUNCTION private.validate_interpretation_promotion_items(jsonb,boolean),
                            private.preview_interpretation_promotions(jsonb,boolean),
+                           private.canonical_interpretation_promotion_items(jsonb),
                            private.interpretation_promotion_profile(jsonb),
                            private.validate_interpretation_promotion_profile(jsonb),
                            private.interpretation_promotion_database_identity(),
                            private.interpretation_promotion_batch_state(uuid),
                            private.guard_interpretation_promotion_authorization_mutation(),
                            private.guard_interpretation_promotion_batch_mutation()
+                           ,private.guard_interpretation_promotion_insert()
   FROM PUBLIC,anon,authenticated;
 REVOKE EXECUTE ON FUNCTION red_promote_interpretation(uuid,text,bigint,jsonb)
   FROM PUBLIC,anon,authenticated;
+DROP FUNCTION IF EXISTS public.red_promote_interpretation(uuid,text,bigint,jsonb);
 DROP FUNCTION IF EXISTS public.red_promote_interpretations_batch(jsonb,text);
 REVOKE ALL ON FUNCTION red_preview_interpretation_promotions(jsonb),
                        red_authorize_interpretation_promotions(jsonb,text,uuid,timestamptz),

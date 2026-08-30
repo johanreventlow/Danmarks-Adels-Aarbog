@@ -732,10 +732,6 @@ REVOKE ALL ON FUNCTION
   public.red_tilbagetraek_legacy_narrative(uuid,text,text),
   public.red_fortryd_person_narrative_publication_event(uuid,text)
   FROM PUBLIC,anon,authenticated,service_role;
--- Den historiske enkeltrække-RPC mangler v1's persona-/regel-/værdikontrol.
--- Den må derfor ikke blive genåbnet af den generelle redaktions-RPC-grant ovenfor.
-revoke execute on function public.red_promote_interpretation(uuid,text,bigint,jsonb)
-  from public, anon, authenticated;
 -- "from public" alene revoker ikke anon/authenticated (Supabase grantér dem direkte,
 -- jf. 2026-07-02-hærdningen nedenfor) — naevn anon eksplicit så hygiejne-hensigten reelt holder.
 revoke all on function public.current_rolle() from public, anon;

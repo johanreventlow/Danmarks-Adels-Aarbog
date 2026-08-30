@@ -2879,17 +2879,12 @@ BEGIN
        'public.red_decide_interpretation(uuid,integer,text,jsonb)'
      ) IS NULL
      OR to_regprocedure(
-       'public.red_promote_interpretation(uuid,text,bigint,jsonb)'
-     ) IS NULL
-     OR to_regprocedure(
        'public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)'
      ) IS NULL THEN
     RAISE EXCEPTION 'FEJL: fortolkningslaget mangler atomiske redaktions-RPCer';
   END IF;
   IF has_function_privilege(
        'anon','public.red_decide_interpretation(uuid,integer,text,jsonb)','EXECUTE'
-     ) OR has_function_privilege(
-       'anon','public.red_promote_interpretation(uuid,text,bigint,jsonb)','EXECUTE'
      ) OR has_function_privilege(
        'anon',
        'public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)',
@@ -2986,7 +2981,7 @@ BEGIN
         v_actor,'Verify Editor'
       );
     EXCEPTION WHEN others THEN v_error := SQLERRM; END;
-    IF v_error NOT LIKE 'EVIDENCE_INTERPRETATION_NOT_ACCEPTED%' THEN
+    IF v_error NOT LIKE 'EVIDENCE_PROMOTION_AUTHORIZED_BATCH_REQUIRED%' THEN
       RAISE EXCEPTION 'FEJL: promotion uden accepted fortolkning blev ikke afvist: %',v_error;
     END IF;
 
@@ -3078,9 +3073,6 @@ BEGIN
     ) THEN
       RAISE EXCEPTION 'FEJL: accepted fortolkning mangler versions-/aktøraudit';
     END IF;
-    PERFORM red_promote_interpretation(
-      v_accepted_interpretation,'person',-987650021,'{"basis":"verified"}'
-    );
     v_error:=NULL;
     BEGIN
       SET LOCAL ROLE service_role;
@@ -3092,7 +3084,7 @@ BEGIN
       );
       RAISE EXCEPTION 'SERVICE_ROLE_FAKE_PROMOTION';
     EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
-    IF v_error NOT LIKE 'EVIDENCE_DECISION_PROVENANCE_REQUIRED%' THEN
+    IF v_error NOT LIKE 'EVIDENCE_PROMOTION_AUTHORIZED_BATCH_REQUIRED%' THEN
       RAISE EXCEPTION 'FEJL: ingestrolle kunne skrive falsk promotion: %',v_error;
     END IF;
     v_error:=NULL;
@@ -3483,7 +3475,7 @@ BEGIN
      OR NOT has_function_privilege('authenticated','public.red_preview_interpretation_promotions(jsonb)','EXECUTE')
      OR NOT has_function_privilege('authenticated','public.red_authorize_interpretation_promotions(jsonb,text,uuid,timestamptz)','EXECUTE')
      OR NOT has_function_privilege('authenticated','public.red_promote_interpretations_batch(jsonb,text,uuid)','EXECUTE')
-     OR has_function_privilege('authenticated','public.red_promote_interpretation(uuid,text,bigint,jsonb)','EXECUTE')
+     OR to_regprocedure('public.red_promote_interpretation(uuid,text,bigint,jsonb)') IS NOT NULL
      OR has_function_privilege('authenticated',
           'private.validate_interpretation_promotion_items(jsonb,boolean)','EXECUTE') THEN
     RAISE EXCEPTION 'FEJL: promotion-RPC/validator ACL er ikke fail-closed';
