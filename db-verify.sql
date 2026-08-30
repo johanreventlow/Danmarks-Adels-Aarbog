@@ -3236,7 +3236,7 @@ DO $promotion_rule_verify$
 DECLARE
   v_required text[] := ARRAY[
     'interpretation_promotion_rule_line','interpretation_promotion_rule',
-    'interpretation_promotion_batch'
+    'interpretation_promotion_authorization','interpretation_promotion_batch'
   ];
   v_missing text[];
   v_error text;
@@ -3276,6 +3276,7 @@ DECLARE
   v_before_facts integer;
   v_before_assertions integer;
   v_rule_version integer;
+  v_authorization uuid;
 BEGIN
   SELECT array_agg(required_name ORDER BY required_name) INTO v_missing
     FROM unnest(v_required) AS required_name
@@ -3323,7 +3324,14 @@ BEGIN
           AND c.relnamespace='private'::regnamespace
           AND c.relname=required_name
           AND t.tgname='trg_'||c.relname||'_append_only'
-          AND t.tgfoid='private.reject_evidence_mutation()'::regprocedure
+          AND (
+            (c.relname IN ('interpretation_promotion_rule_line','interpretation_promotion_rule')
+              AND t.tgfoid='private.reject_evidence_mutation()'::regprocedure)
+            OR (c.relname='interpretation_promotion_authorization'
+              AND t.tgfoid='private.guard_interpretation_promotion_authorization_mutation()'::regprocedure)
+            OR (c.relname='interpretation_promotion_batch'
+              AND t.tgfoid='private.guard_interpretation_promotion_batch_mutation()'::regprocedure)
+          )
           AND t.tgenabled='O'
      )<>1
   ) THEN
@@ -3457,20 +3465,24 @@ BEGIN
      WHERE rule_profile_hash='verify-rule-profile';
   EXCEPTION WHEN others THEN v_error:=SQLERRM;
   END;
-  IF v_error NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN
-    RAISE EXCEPTION 'FEJL: promotionbatches er ikke append-only: %',v_error;
+  IF v_error IS NULL THEN
+    RAISE EXCEPTION 'FEJL: legacy promotionbatch kunne oprettes uden lukket autorisation';
   END IF;
 
   -- Task 2-kontrakten er selvstændig og rulles helt tilbage. Den beviser
   -- både previewets fail-closed begrundelser og batchens all-or-nothing-write.
   IF to_regprocedure('public.red_preview_interpretation_promotions(jsonb)') IS NULL
-     OR to_regprocedure('public.red_promote_interpretations_batch(jsonb,text)') IS NULL THEN
+     OR to_regprocedure('public.red_authorize_interpretation_promotions(jsonb,text,uuid,timestamptz)') IS NULL
+     OR to_regprocedure('public.red_promote_interpretations_batch(jsonb,text,uuid)') IS NULL
+     OR to_regprocedure('public.red_promote_interpretations_batch(jsonb,text)') IS NOT NULL THEN
     RAISE EXCEPTION 'FEJL: promotion-preview/RPC mangler';
   END IF;
   IF has_function_privilege('anon','public.red_preview_interpretation_promotions(jsonb)','EXECUTE')
-     OR has_function_privilege('anon','public.red_promote_interpretations_batch(jsonb,text)','EXECUTE')
+     OR has_function_privilege('anon','public.red_authorize_interpretation_promotions(jsonb,text,uuid,timestamptz)','EXECUTE')
+     OR has_function_privilege('anon','public.red_promote_interpretations_batch(jsonb,text,uuid)','EXECUTE')
      OR NOT has_function_privilege('authenticated','public.red_preview_interpretation_promotions(jsonb)','EXECUTE')
-     OR NOT has_function_privilege('authenticated','public.red_promote_interpretations_batch(jsonb,text)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_authorize_interpretation_promotions(jsonb,text,uuid,timestamptz)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_promote_interpretations_batch(jsonb,text,uuid)','EXECUTE')
      OR has_function_privilege('authenticated','public.red_promote_interpretation(uuid,text,bigint,jsonb)','EXECUTE')
      OR has_function_privilege('authenticated',
           'private.validate_interpretation_promotion_items(jsonb,boolean)','EXECUTE') THEN
@@ -3706,15 +3718,20 @@ BEGIN
     SET LOCAL ROLE authenticated;
     v_error:=NULL;
     BEGIN
+      v_authorization:=red_authorize_interpretation_promotions(
+        jsonb_build_array(jsonb_build_object(
+          'interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650041
+        )),v_preview->>'preview_hash',gen_random_uuid(),clock_timestamp()+interval '5 minutes'
+      );
       PERFORM red_promote_interpretations_batch(
         jsonb_build_array(jsonb_build_object(
           'interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650041
-        )),repeat('0',64)
+        )),repeat('0',64),v_authorization
       );
     EXCEPTION WHEN others THEN v_error:=SQLERRM;
     END;
     RESET ROLE;
-    IF v_error NOT LIKE 'EVIDENCE_PROMOTION_PREVIEW_STALE%'
+    IF v_error NOT LIKE 'EVIDENCE_PROMOTION_AUTHORIZATION_INVALID%'
        OR (SELECT count(*) FROM private.interpretation_promotion)<>v_before_promotions
        OR (SELECT count(*) FROM private.interpretation_promotion_batch)<>v_before_batches THEN
       RAISE EXCEPTION 'FEJL: forfalsket preview-hash kunne ændre promotion-audit: fejl=%',v_error;
@@ -3722,15 +3739,20 @@ BEGIN
     SET LOCAL ROLE authenticated;
     v_error:=NULL;
     BEGIN
+      v_authorization:=red_authorize_interpretation_promotions(
+        jsonb_build_array(jsonb_build_object(
+          'interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650041
+        )),v_preview->>'preview_hash',gen_random_uuid(),clock_timestamp()+interval '5 minutes'
+      );
       PERFORM red_promote_interpretations_batch(
         jsonb_build_array(jsonb_build_object(
           'interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650043
-        )),v_preview->>'preview_hash'
+        )),v_preview->>'preview_hash',v_authorization
       );
     EXCEPTION WHEN others THEN v_error:=SQLERRM;
     END;
     RESET ROLE;
-    IF v_error NOT LIKE 'EVIDENCE_PROMOTION_PREVIEW_STALE%'
+    IF v_error NOT LIKE 'EVIDENCE_PROMOTION_AUTHORIZATION_INVALID%'
        OR (SELECT count(*) FROM private.interpretation_promotion)<>v_before_promotions
        OR (SELECT count(*) FROM private.interpretation_promotion_batch)<>v_before_batches THEN
       RAISE EXCEPTION 'FEJL: preview-hash var ikke bundet til den konkrete request: fejl=%',v_error;
@@ -3739,10 +3761,15 @@ BEGIN
     SELECT count(*) INTO v_before_facts FROM fact;
     SELECT count(*) INTO v_before_assertions FROM assertion;
     SET LOCAL ROLE authenticated;
+    v_authorization:=red_authorize_interpretation_promotions(
+      jsonb_build_array(jsonb_build_object(
+        'interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650041
+      )),v_preview->>'preview_hash',gen_random_uuid(),clock_timestamp()+interval '5 minutes'
+    );
     PERFORM red_promote_interpretations_batch(
       jsonb_build_array(jsonb_build_object(
         'interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650041
-      )),v_preview->>'preview_hash'
+      )),v_preview->>'preview_hash',v_authorization
     );
     RESET ROLE;
     IF (SELECT count(*) FROM private.interpretation_promotion
@@ -3776,10 +3803,14 @@ BEGIN
       jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650041),
       jsonb_build_object('interpretation_id',v_accepted_3,'target_type','assertion','target_id',-987650041)
     ));
+    v_authorization:=red_authorize_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650041),
+      jsonb_build_object('interpretation_id',v_accepted_3,'target_type','assertion','target_id',-987650041)
+    ),v_preview->>'preview_hash',gen_random_uuid(),clock_timestamp()+interval '5 minutes');
     PERFORM red_promote_interpretations_batch(jsonb_build_array(
       jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650041),
       jsonb_build_object('interpretation_id',v_accepted_3,'target_type','assertion','target_id',-987650041)
-    ),v_preview->>'preview_hash');
+    ),v_preview->>'preview_hash',v_authorization);
     RESET ROLE;
     IF (SELECT count(*) FROM private.interpretation_promotion)<>v_before_promotions+2
        OR (SELECT count(*) FROM private.interpretation_promotion_batch)<>v_before_batches+1
@@ -3798,14 +3829,19 @@ BEGIN
     ));
     v_error:=NULL;
     BEGIN
+      v_authorization:=red_authorize_interpretation_promotions(jsonb_build_array(
+        jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650041)
+      ),(red_preview_interpretation_promotions(jsonb_build_array(
+        jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650041)
+      ))->>'preview_hash'),gen_random_uuid(),clock_timestamp()+interval '5 minutes');
       PERFORM red_promote_interpretations_batch(jsonb_build_array(
         jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650041),
         jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650044)
-      ),v_preview->>'preview_hash');
+      ),v_preview->>'preview_hash',v_authorization);
     EXCEPTION WHEN others THEN v_error:=SQLERRM;
     END;
     RESET ROLE;
-    IF v_error NOT LIKE 'EVIDENCE_PROMOTION_IDENTITY_MISMATCH%'
+    IF v_error NOT LIKE 'EVIDENCE_PROMOTION_AUTHORIZATION_INVALID%'
        OR (SELECT count(*) FROM private.interpretation_promotion)<>v_before_promotions
        OR (SELECT count(*) FROM private.interpretation_promotion_batch)<>v_before_batches THEN
       RAISE EXCEPTION 'FEJL: ugyldig batch var ikke atomisk: fejl=%',v_error;
@@ -4047,8 +4083,8 @@ BEGIN
   PERFORM dblink_exec('promotion_b','SET LOCAL ROLE authenticated');
   PERFORM dblink_exec('promotion_b',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
   PERFORM dblink_send_query('promotion_b',format(
-    'SELECT red_promote_interpretations_batch(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb,%L)',
-    v_interpretation_2,v_preview_hash));
+    'WITH a AS (SELECT red_authorize_interpretation_promotions(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb,%L,gen_random_uuid(),clock_timestamp()+interval ''5 minutes'') id) SELECT red_promote_interpretations_batch(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb,%L,a.id) FROM a',
+    v_interpretation_2,v_preview_hash,v_interpretation_2,v_preview_hash));
   v_deadline:=clock_timestamp()+interval '3 seconds';
   LOOP
     EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
@@ -4112,8 +4148,8 @@ BEGIN
   PERFORM dblink_exec('promotion_b','SET LOCAL ROLE authenticated');
   PERFORM dblink_exec('promotion_b',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
   PERFORM dblink_send_query('promotion_b',format(
-    'SELECT red_promote_interpretations_batch(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb,%L)',
-    v_identity_interpretation_2,v_preview_hash));
+    'WITH a AS (SELECT red_authorize_interpretation_promotions(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb,%L,gen_random_uuid(),clock_timestamp()+interval ''5 minutes'') id) SELECT red_promote_interpretations_batch(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb,%L,a.id) FROM a',
+    v_identity_interpretation_2,v_preview_hash,v_identity_interpretation_2,v_preview_hash));
   v_deadline:=clock_timestamp()+interval '3 seconds';
   LOOP
     EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
@@ -4191,8 +4227,8 @@ BEGIN
   PERFORM dblink_exec('promotion_b','SET LOCAL ROLE authenticated');
   PERFORM dblink_exec('promotion_b',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
   PERFORM dblink_send_query('promotion_b',format(
-    'SELECT red_promote_interpretations_batch(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb,%L)',
-    v_identity_interpretation_2,v_preview_hash));
+    'WITH a AS (SELECT red_authorize_interpretation_promotions(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb,%L,gen_random_uuid(),clock_timestamp()+interval ''5 minutes'') id) SELECT red_promote_interpretations_batch(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb,%L,a.id) FROM a',
+    v_identity_interpretation_2,v_preview_hash,v_identity_interpretation_2,v_preview_hash));
   v_deadline:=clock_timestamp()+interval '3 seconds';
   LOOP
     EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
@@ -8715,6 +8751,24 @@ EXCEPTION WHEN others THEN
 END $$;
 
 -- Medie-metadata-faktatyper + RLS-skærpelse (2026-08-06)
+-- #153 Task 3: evidence-promotion writer ledger remains private and exposes
+-- only the redaktion-gated authorize/apply signatures.
+DO $evidence_promotion_writer_contract_verify$
+BEGIN
+  IF to_regclass('private.interpretation_promotion_authorization') IS NULL
+     OR to_regprocedure('public.red_authorize_interpretation_promotions(jsonb,text,uuid,timestamptz)') IS NULL
+     OR to_regprocedure('public.red_promote_interpretations_batch(jsonb,text,uuid)') IS NULL
+     OR has_table_privilege('authenticated','private.interpretation_promotion_authorization','SELECT')
+     OR has_table_privilege('anon','private.interpretation_promotion_batch','SELECT')
+     OR NOT has_function_privilege('authenticated',
+          'public.red_authorize_interpretation_promotions(jsonb,text,uuid,timestamptz)','EXECUTE')
+     OR has_function_privilege('anon',
+          'public.red_promote_interpretations_batch(jsonb,text,uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'FEJL: evidence-promotion writer-autorisation/RLS mangler';
+  END IF;
+  RAISE NOTICE 'OK: evidence-promotion writer har privat authorization/batch og afgrænset RPC-ACL';
+END $evidence_promotion_writer_contract_verify$;
+
 DO $$
 DECLARE v_n int; v_id bigint;
 BEGIN

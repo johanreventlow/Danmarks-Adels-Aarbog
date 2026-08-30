@@ -86,6 +86,7 @@ BEGIN
     FOREACH v_table IN ARRAY ARRAY[
       'private.interpretation_promotion_rule',
       'private.interpretation_promotion_rule_line',
+      'private.interpretation_promotion_authorization',
       'private.interpretation_promotion_batch',
       'private.interpretation_promotion',
       'private.source_record_placement_decision',
@@ -130,6 +131,12 @@ BEGIN
       'private.validate_interpretation_promotion()'::regprocedure,
       'private.validate_interpretation_promotion_items(jsonb,boolean)'::regprocedure,
       'private.preview_interpretation_promotions(jsonb,boolean)'::regprocedure,
+      'private.interpretation_promotion_profile(jsonb)'::regprocedure,
+      'private.validate_interpretation_promotion_profile(jsonb)'::regprocedure,
+      'private.interpretation_promotion_database_identity()'::regprocedure,
+      'private.interpretation_promotion_batch_state(uuid)'::regprocedure,
+      'private.guard_interpretation_promotion_authorization_mutation()'::regprocedure,
+      'private.guard_interpretation_promotion_batch_mutation()'::regprocedure,
       'private.add_interpretation_promotion_rule_version(text,text,text,text,text,text,boolean,boolean,boolean,text)'::regprocedure
     ] LOOP
       IF has_function_privilege(v_role,v_function,'EXECUTE') THEN
@@ -172,9 +179,14 @@ BEGIN
     END IF;
   END LOOP;
 
+  IF to_regprocedure('public.red_promote_interpretations_batch(jsonb,text)') IS NOT NULL THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RLS_TEST_FAILED: legacy batch-overload findes stadig';
+  END IF;
+
   FOREACH v_public_function IN ARRAY ARRAY[
     'public.red_preview_interpretation_promotions(jsonb)'::regprocedure,
-    'public.red_promote_interpretations_batch(jsonb,text)'::regprocedure,
+    'public.red_authorize_interpretation_promotions(jsonb,text,uuid,timestamptz)'::regprocedure,
+    'public.red_promote_interpretations_batch(jsonb,text,uuid)'::regprocedure,
     'public.red_decide_source_record_placement(uuid,integer,text,jsonb)'::regprocedure,
     'public.red_decide_source_persona_placement(uuid,integer,text,jsonb)'::regprocedure
   ] LOOP
@@ -202,14 +214,16 @@ BEGIN
   v_error:=NULL; v_state:=NULL;
   BEGIN
     SET LOCAL ROLE authenticated;
-    PERFORM public.red_promote_interpretations_batch('[]'::jsonb,'not-a-preview');
+    PERFORM public.red_authorize_interpretation_promotions(
+      '[]'::jsonb,'not-a-preview','91000000-0000-0000-0000-000000000099',clock_timestamp()+interval '1 minute'
+    );
   EXCEPTION WHEN OTHERS THEN
     GET STACKED DIAGNOSTICS v_state=RETURNED_SQLSTATE;
     v_error:=SQLERRM;
   END;
   SET LOCAL ROLE NONE;
   IF v_error NOT LIKE 'EVIDENCE_ROLE_FORBIDDEN%' THEN
-    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RLS_TEST_FAILED: authenticated-batch gav %, %',v_state,v_error;
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RLS_TEST_FAILED: authenticated-authorize gav %, %',v_state,v_error;
   END IF;
 
   RAISE NOTICE 'OK: evidence promotion har deny-all private ACL/RLS og afgrænset redaktions-RPC';
@@ -231,6 +245,8 @@ DECLARE
   v_accepted uuid;
   v_preview jsonb;
   v_items jsonb;
+  v_authorization uuid;
+  v_receipt jsonb;
 BEGIN
   BEGIN
     INSERT INTO auth.users(id,email)
@@ -309,14 +325,36 @@ BEGIN
        OR v_preview->>'preview_hash' !~ '^[0-9a-f]{64}$' THEN
       RAISE EXCEPTION 'EVIDENCE_PROMOTION_DIGEST_TEST_FAILED: ugyldigt preview %',v_preview;
     END IF;
-    PERFORM red_promote_interpretations_batch(v_items,v_preview->>'preview_hash');
+    v_authorization:=red_authorize_interpretation_promotions(
+      v_items,v_preview->>'preview_hash',
+      '91000000-0000-0000-0000-000000000091',clock_timestamp()+interval '5 minutes'
+    );
+    v_receipt:=red_promote_interpretations_batch(
+      v_items,v_preview->>'preview_hash',v_authorization
+    );
+    IF red_promote_interpretations_batch(v_items,v_preview->>'preview_hash',v_authorization)
+         IS DISTINCT FROM v_receipt THEN
+      RAISE EXCEPTION 'EVIDENCE_PROMOTION_DIGEST_TEST_FAILED: exact replay ændrede receipt';
+    END IF;
     RESET ROLE;
 
     IF (SELECT count(*) FROM private.interpretation_promotion
          WHERE interpretation_id=v_accepted AND target_id=-987650091)<>1
        OR (SELECT count(*) FROM private.interpretation_promotion_batch
            WHERE promoted_by=v_actor AND requested_count=1
-             AND rule_profile_hash ~ '^[0-9a-f]{64}$')<>1 THEN
+             AND rule_profile_hash ~ '^[0-9a-f]{64}$'
+             AND authorization_id=v_authorization
+             AND status='finalized'
+             AND receipt_sha256 ~ '^[0-9a-f]{64}$')<>1
+       OR v_receipt->>'terminal_status'<>'finalized'
+       OR v_receipt->>'operation_id'<>(SELECT id::text
+         FROM private.interpretation_promotion_batch WHERE authorization_id=v_authorization)
+       OR v_receipt->'authorization_identity'->>'authority_id'<>v_authorization::text
+       OR v_receipt->'database_identity'->>'database_name'<>current_database()
+       OR v_receipt->'observed_counts'->>'promotions'<>'1'
+       OR private.interpretation_promotion_batch_state(
+            (v_receipt->>'operation_id')::uuid
+          )->'verified_state' IS DISTINCT FROM v_receipt->'verified_state' THEN
       RAISE EXCEPTION 'EVIDENCE_PROMOTION_DIGEST_TEST_FAILED: promotion/batch mangler';
     END IF;
     RAISE EXCEPTION 'ROLLBACK_EVIDENCE_PROMOTION_DIGEST_SUCCESS';
