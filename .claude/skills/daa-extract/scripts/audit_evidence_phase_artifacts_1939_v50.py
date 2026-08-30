@@ -294,6 +294,186 @@ def receipt_binds_manifest_and_identities(resolved: Mapping[str, Path], phase: P
     return _receipt_binds_verified_artifacts(verified, phase, adapter)
 
 
+def _production_target(value: object) -> bool:
+    return (
+        isinstance(value, dict)
+        and set(value) == {"schema_version", "environment", "system_identifier_sha256"}
+        and value["schema_version"] == "daa-evidence-production-target-identity-v1"
+        and value["environment"] == "production"
+        and _valid_sha256(value["system_identifier_sha256"])
+    )
+
+
+def _verified_pair(
+    verified: Mapping[str, _VerifiedArtifact],
+    phase: PhaseEntry,
+    *,
+    manifest_schema: str,
+    receipt_schema: str,
+) -> tuple[_VerifiedArtifact, _VerifiedArtifact] | None:
+    manifest_entry = _artifact_for_role(phase, "manifest")
+    receipt_entry = _artifact_for_role(phase, "receipt")
+    if (
+        manifest_entry is None
+        or receipt_entry is None
+        or not manifest_entry.required
+        or not receipt_entry.required
+        or manifest_entry.schema_version != manifest_schema
+        or receipt_entry.schema_version != receipt_schema
+    ):
+        return None
+    manifest = verified.get("manifest")
+    receipt = verified.get("receipt")
+    if manifest is None or receipt is None:
+        return None
+    if manifest.document.get("schema_version") != manifest_schema or receipt.document.get("schema_version") != receipt_schema:
+        raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+    return manifest, receipt
+
+
+def _task25_receipt_binds(verified: Mapping[str, _VerifiedArtifact], phase: PhaseEntry) -> bool:
+    pair = _verified_pair(
+        verified,
+        phase,
+        manifest_schema="1939-v50-production-write-manifest-v1",
+        receipt_schema="daa-evidence-phase-receipt-task25-v1",
+    )
+    if pair is None:
+        return False
+    manifest, receipt = pair
+    creates = manifest.document.get("person_creates")
+    source = manifest.document.get("source")
+    if not isinstance(creates, list) or not isinstance(source, dict) or source.get("database_source_id") != 3:
+        raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+    expected: dict[str, str] = {}
+    for create in creates:
+        if not isinstance(create, dict) or not {"element_id", "source_record_key"} <= set(create):
+            raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+        element_id = create["element_id"]
+        record_key = create["source_record_key"]
+        if not _valid_text(element_id) or not _valid_text(record_key) or element_id in expected:
+            return False
+        expected[element_id] = record_key
+    expected_receipt = {
+        "schema_version",
+        "manifest_sha256",
+        "database_target_identity",
+        "created_person_identities",
+    }
+    if set(receipt.document) != expected_receipt:
+        raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+    if (
+        receipt.document["manifest_sha256"] != hashlib.sha256(manifest.raw).hexdigest()
+        or not _production_target(receipt.document["database_target_identity"])
+        or not isinstance(receipt.document["created_person_identities"], list)
+    ):
+        return False
+    observed: set[str] = set()
+    records: set[str] = set()
+    people: set[int] = set()
+    for identity in receipt.document["created_person_identities"]:
+        if not isinstance(identity, dict) or set(identity) != {"element_id", "source_id", "record_key", "person_id"}:
+            raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+        if (
+            not _valid_text(identity["element_id"])
+            or identity["source_id"] != 3
+            or not _valid_text(identity["record_key"])
+            or type(identity["person_id"]) is not int
+            or identity["person_id"] <= 0
+        ):
+            raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+        element_id = identity["element_id"]
+        if (
+            element_id in observed
+            or identity["record_key"] in records
+            or identity["person_id"] in people
+            or element_id not in expected
+            or expected[element_id] != identity["record_key"]
+        ):
+            return False
+        observed.add(element_id)
+        records.add(identity["record_key"])
+        people.add(identity["person_id"])
+    return observed == set(expected)
+
+
+def _c0_receipt_binds(verified: Mapping[str, _VerifiedArtifact], phase: PhaseEntry) -> bool:
+    pair = _verified_pair(
+        verified,
+        phase,
+        manifest_schema="1939-v50-c0-followup-manifest-v1",
+        receipt_schema="daa-evidence-phase-receipt-c0-v1",
+    )
+    if pair is None:
+        return False
+    manifest, receipt = pair
+    source = manifest.document.get("source")
+    operations = manifest.document.get("operations")
+    if not isinstance(source, dict) or source.get("database_source_id") != 3 or not isinstance(operations, list):
+        raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+    expected: dict[tuple[int, int, str], str] = {}
+    for operation in operations:
+        if not isinstance(operation, dict) or not {"person_id", "narrative_id", "source_record_key", "new_text_sha256"} <= set(operation):
+            raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+        identity = (operation["person_id"], operation["narrative_id"], operation["source_record_key"])
+        if (
+            type(identity[0]) is not int
+            or identity[0] <= 0
+            or type(identity[1]) is not int
+            or identity[1] <= 0
+            or not _valid_text(identity[2])
+            or not _valid_sha256(operation["new_text_sha256"])
+        ):
+            raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+        if identity in expected:
+            return False
+        expected[identity] = operation["new_text_sha256"]
+    expected_receipt = {
+        "schema_version",
+        "manifest_sha256",
+        "database_target_identity",
+        "change_set",
+        "narrative_results",
+    }
+    if set(receipt.document) != expected_receipt:
+        raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+    if (
+        receipt.document["manifest_sha256"] != hashlib.sha256(manifest.raw).hexdigest()
+        or not _production_target(receipt.document["database_target_identity"])
+        or receipt.document["change_set"] != 965
+        or not isinstance(receipt.document["narrative_results"], list)
+    ):
+        return False
+    observed: set[tuple[int, int, str]] = set()
+    for result in receipt.document["narrative_results"]:
+        if not isinstance(result, dict) or set(result) != {"person_id", "narrative_id", "source_id", "record_key", "after_sha256"}:
+            raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+        identity = (result["person_id"], result["narrative_id"], result["record_key"])
+        if (
+            type(identity[0]) is not int
+            or identity[0] <= 0
+            or type(identity[1]) is not int
+            or identity[1] <= 0
+            or result["source_id"] != 3
+            or not _valid_text(identity[2])
+            or not _valid_sha256(result["after_sha256"])
+        ):
+            raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+        if identity in observed or identity not in expected or expected[identity] != result["after_sha256"]:
+            return False
+        observed.add(identity)
+    return observed == set(expected)
+
+
+def _receipt_binds_phase(verified: Mapping[str, _VerifiedArtifact], phase: PhaseEntry) -> bool:
+    if phase.adapter_id == "task25-v1":
+        return _task25_receipt_binds(verified, phase)
+    if phase.adapter_id == "c0-followup-v1":
+        return _c0_receipt_binds(verified, phase)
+    adapter = RECEIPT_ADAPTERS.get(phase.adapter_id)
+    return adapter is not None and _receipt_binds_verified_artifacts(verified, phase, adapter)
+
+
 def audit_bundle(bundle_root: Path, ledger: list[PhaseEntry]) -> AuditResult:
     summaries: list[PhaseSummary] = []
     for phase in ledger:
@@ -312,8 +492,7 @@ def audit_bundle(bundle_root: Path, ledger: list[PhaseEntry]) -> AuditResult:
                 )
             )
             continue
-        adapter = RECEIPT_ADAPTERS.get(phase.adapter_id)
-        if adapter is None or not _receipt_binds_verified_artifacts(verified, phase, adapter):
+        if not _receipt_binds_phase(verified, phase):
             summaries.append(
                 PhaseSummary(
                     phase.phase_id,
