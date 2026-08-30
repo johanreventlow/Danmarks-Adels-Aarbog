@@ -35,7 +35,8 @@ export type Change = {
      | 'opdaterMedia' | 'genopretMedia' | 'mediaRettigheder' // fase 1 filside
      | 'tilknytMedia' // fase 2 — genbrug eksisterende medie på person/objekt
      | 'fjernMedia' // Slice 0h — blødt fjern (upload_status='fjernet'); unlink går via sletRelation
-     | 'erstatMediaFil' | 'udrensMedia' | 'saetPortraet'; // fase 4: identitet og endeligt farvel
+     | 'erstatMediaFil' | 'udrensMedia' | 'saetPortraet'
+     | 'narrativRecord'; // #152: eneste mobile person/DAA-vej ved contract v2
   subjektType: string;
   subjektId: string;
   assertionId?: string;
@@ -59,9 +60,23 @@ export type Change = {
   vaerdi?: string;
   kildeFritekst?: string;
   payload?: Record<string, unknown>;
+  recordKey?: string;
+  expectedStateSha256?: string;
 };
 
 export type RpcCall = { fn: string; args: Record<string, unknown> };
+
+export function buildPersonNarrativeRecordUpsertCall(input: {
+  personId: string; sourceId: number; recordKey: string; tekst: string; privat: boolean; expectedStateSha256: string;
+}): RpcCall | null {
+  const personId = parsePostgresBigintId(input.personId);
+  if (personId == null || !Number.isSafeInteger(input.sourceId) || input.sourceId <= 0
+      || !input.recordKey.trim() || !input.expectedStateSha256.trim()) return null;
+  return { fn: 'red_upsert_person_narrative_record', args: {
+    p_person_id: personId, p_source_id: input.sourceId, p_record_key: input.recordKey,
+    p_tekst: input.tekst, p_privat: input.privat, p_expected_state_sha256: input.expectedStateSha256,
+  } };
+}
 
 function parsePostgresBigintId(value: unknown): number | string | null {
   const raw = typeof value === 'number' ? String(value) : typeof value === 'string' ? value.trim() : '';
@@ -93,6 +108,12 @@ function storyPayloadArgs(p: Record<string, unknown>): Record<string, unknown> {
 export function buildRpcCall(c: Change): RpcCall | null {
   const sid = Number(c.subjektId);
   const aid = c.assertionId != null ? Number(c.assertionId) : null;
+  if (c.art === 'narrativRecord') {
+    if (c.subjektType !== 'person' || c.recordKey == null || c.expectedStateSha256 == null
+        || typeof c.payload?.sourceId !== 'number' || typeof c.vaerdi !== 'string') return null;
+    return buildPersonNarrativeRecordUpsertCall({ personId: c.subjektId, sourceId: c.payload.sourceId,
+      recordKey: c.recordKey, tekst: c.vaerdi, privat: Boolean(c.payload.privat), expectedStateSha256: c.expectedStateSha256 });
+  }
   if (c.art === 'haendelseStatus') {
     if (c.haendelseId == null || !Number.isFinite(c.haendelseId) || !c.status || !['kandidat','interessant','skjult'].includes(c.status)) return null;
     return { fn: 'red_set_haendelse_status', args: { p_haendelse_id: c.haendelseId, p_status: c.status } };
@@ -216,6 +237,9 @@ export function buildRpcCall(c: Change): RpcCall | null {
     return { fn: 'red_tilbagetraek_fakta', args: { p_fact_id: fid } };
   }
   if (c.art === 'narrativ') {
+    // Personens legacy-vej skal være eksplicit capability v1. Uden markøren
+    // kan en v2-readfejl aldrig degradere til red_upsert_narrativ.
+    if (c.subjektType === 'person' && c.payload?.narrativeRecordContractVersion !== 1) return null;
     // p_source_id default 1 (primær DAA-udgave) hvis prefill ikke gav en kilde — mobil
     // redigerer den source-korrekte primær-række (single-narrativ-UI; faner er follow-up).
     return { fn: 'red_upsert_narrativ', args: {
