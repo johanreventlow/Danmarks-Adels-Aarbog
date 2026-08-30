@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
 from audit_evidence_phase_artifacts_1939_v50 import PhaseSummary, audit_bundle
 from evidence_phase_artifact_ledger import ArtifactEntry, PhaseEntry, canonical_sha256, seal_ledger, validate_ledger
+import project_evidence_phase_artifacts_1939_v50 as projector
 from project_evidence_phase_artifacts_1939_v50 import ProjectError, project_phase
 from reconcile_evidence_phase_gate import ReconciliationError, reconcile, seal
 
@@ -15,6 +18,10 @@ def write_json(path, document: object) -> str:
     raw = json.dumps(document, sort_keys=True, separators=(",", ":")).encode("utf-8")
     path.write_bytes(raw)
     return hashlib.sha256(raw).hexdigest()
+
+
+def adapter_sha256() -> str:
+    return hashlib.sha256(Path(projector.__file__).read_bytes()).hexdigest()
 
 
 def mechanically_bound_task25_phase(manifest_sha256: str, receipt_sha256: str) -> PhaseEntry:
@@ -38,9 +45,10 @@ def mechanically_bound_task25_phase(manifest_sha256: str, receipt_sha256: str) -
             ),
         ),
         adapter_id="task25-v1",
-        adapter_sha256="b" * 64,
+        adapter_sha256=adapter_sha256(),
         projection_evidence="mechanically_bound",
         authorisation_evidence="afterdocumented_authorisation_gap",
+        database_target_identity_sha256=canonical_sha256(production_target_identity(), ""),
     )
 
 
@@ -83,9 +91,10 @@ def mechanically_bound_c0_phase(manifest_sha256: str, receipt_sha256: str) -> Ph
             ),
         ),
         adapter_id="c0-followup-v1",
-        adapter_sha256="c" * 64,
+        adapter_sha256=adapter_sha256(),
         projection_evidence="mechanically_bound",
         authorisation_evidence="contemporaneous_phase_package",
+        database_target_identity_sha256=canonical_sha256(production_target_identity(), ""),
     )
 
 
@@ -110,7 +119,7 @@ def mechanically_bound_phase_b_phase(manifest_sha256: str, receipt_sha256: str) 
             ),
         ),
         adapter_id="phase-b-v1",
-        adapter_sha256="b" * 64,
+        adapter_sha256=adapter_sha256(),
         projection_evidence="mechanically_bound",
         authorisation_evidence="afterdocumented_authorisation_gap",
         database_target_identity_sha256=canonical_sha256(production_target_identity(), ""),
@@ -121,8 +130,33 @@ def production_target_identity() -> dict:
     return {
         "schema_version": "daa-evidence-production-target-identity-v1",
         "environment": "production",
-        "system_identifier_sha256": "e" * 64,
+        "system_identifier_sha256": hashlib.sha256(b"synthetic-production-identity").hexdigest(),
     }
+
+
+def c0_operations(narrative_start: int = 7) -> list[dict]:
+    return [
+        {
+            "person_id": person_id,
+            "narrative_id": narrative_start + person_id - 1,
+            "source_record_key": f"record-{person_id}",
+            "new_text_sha256": "d" * 64,
+        }
+        for person_id in range(1, 10)
+    ]
+
+
+def c0_results(narrative_start: int = 7) -> list[dict]:
+    return [
+        {
+            "person_id": person_id,
+            "narrative_id": narrative_start + person_id - 1,
+            "source_id": 3,
+            "record_key": f"record-{person_id}",
+            "after_sha256": "d" * 64,
+        }
+        for person_id in range(1, 10)
+    ]
 
 
 def phase_b_identity_map() -> list[dict]:
@@ -269,9 +303,8 @@ def test_audit_marks_c0_mechanically_bound_only_with_the_receipt_after_values(tm
         {
             "schema_version": "1939-v50-c0-followup-manifest-v1",
             "source": {"database_source_id": 3},
-            "operations": [
-                {"person_id": 1, "narrative_id": 7, "source_record_key": "record-1", "new_text_sha256": "d" * 64}
-            ],
+            "database_identity": "synthetic-production-identity",
+            "operations": c0_operations(),
         },
     )
     receipt_sha256 = write_json(
@@ -281,9 +314,7 @@ def test_audit_marks_c0_mechanically_bound_only_with_the_receipt_after_values(tm
             "manifest_sha256": manifest_sha256,
             "database_target_identity": production_target_identity(),
             "change_set": 965,
-            "narrative_results": [
-                {"person_id": 1, "narrative_id": 7, "source_id": 3, "record_key": "record-1", "after_sha256": "d" * 64}
-            ],
+            "narrative_results": c0_results(),
         },
     )
     phase = mechanically_bound_c0_phase(manifest_sha256, receipt_sha256)
@@ -345,14 +376,8 @@ def test_project_c0_uses_the_receipt_after_sha_and_binding_identity(tmp_path):
         {
             "schema_version": "1939-v50-c0-followup-manifest-v1",
             "source": {"database_source_id": 3},
-            "operations": [
-                {
-                    "person_id": 1,
-                    "narrative_id": 7,
-                    "source_record_key": "record-1",
-                    "new_text_sha256": "d" * 64,
-                }
-            ],
+            "database_identity": "synthetic-production-identity",
+            "operations": c0_operations(),
         },
     )
     receipt_sha256 = write_json(
@@ -360,31 +385,17 @@ def test_project_c0_uses_the_receipt_after_sha_and_binding_identity(tmp_path):
         {
             "schema_version": "daa-evidence-phase-receipt-c0-v1",
             "manifest_sha256": manifest_sha256,
-            "database_target_identity": {
-                "schema_version": "daa-evidence-production-target-identity-v1",
-                "environment": "production",
-                "system_identifier_sha256": "e" * 64,
-            },
+            "database_target_identity": production_target_identity(),
             "change_set": 965,
-            "narrative_results": [
-                {
-                    "person_id": 1,
-                    "narrative_id": 7,
-                    "source_id": 3,
-                    "record_key": "record-1",
-                    "after_sha256": "d" * 64,
-                }
-            ],
+            "narrative_results": c0_results(),
         },
     )
     phase = mechanically_bound_c0_phase(manifest_sha256, receipt_sha256)
 
     contribution = project_phase(tmp_path, phase, bound_summary(phase))
 
-    assert contribution["narrative_sha256"] == [{"narrative_id": 7, "sha256": "d" * 64}]
-    assert contribution["narrative_bindings"] == [
-        {"source_id": 3, "record_key": "record-1", "narrative_id": 7}
-    ]
+    assert contribution["narrative_sha256"][0] == {"narrative_id": 7, "sha256": "d" * 64}
+    assert len(contribution["narrative_bindings"]) == 9
 
 
 def test_audited_projections_seal_into_a_second_ledger_and_reconcile_final_state(tmp_path):
@@ -426,9 +437,8 @@ def test_audited_projections_seal_into_a_second_ledger_and_reconcile_final_state
         {
             "schema_version": "1939-v50-c0-followup-manifest-v1",
             "source": {"database_source_id": 3},
-            "operations": [
-                {"person_id": 1, "narrative_id": 1001, "source_record_key": "record-1", "new_text_sha256": "d" * 64}
-            ],
+            "database_identity": "synthetic-production-identity",
+            "operations": c0_operations(1001),
         },
     )
     c0_receipt_sha256 = write_json(
@@ -438,9 +448,7 @@ def test_audited_projections_seal_into_a_second_ledger_and_reconcile_final_state
             "manifest_sha256": c0_manifest_sha256,
             "database_target_identity": production_target_identity(),
             "change_set": 965,
-            "narrative_results": [
-                {"person_id": 1, "narrative_id": 1001, "source_id": 3, "record_key": "record-1", "after_sha256": "d" * 64}
-            ],
+            "narrative_results": c0_results(1001),
         },
     )
     phases = [
@@ -461,7 +469,7 @@ def test_audited_projections_seal_into_a_second_ledger_and_reconcile_final_state
 
     assert report["status"] == "match"
     assert report["ledger_content_sha256"] == reconciliation_ledger["ledger_content_sha256"]
-    assert contributions["c0"]["narrative_sha256"] == [{"narrative_id": 1001, "sha256": "d" * 64}]
+    assert contributions["c0"]["narrative_sha256"][0] == {"narrative_id": 1001, "sha256": "d" * 64}
 
     unbound = PhaseEntry(
         phase_id="unbound",
@@ -477,3 +485,61 @@ def test_audited_projections_seal_into_a_second_ledger_and_reconcile_final_state
     with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_INCOMPLETE") as caught:
         reconcile({}, [], sealed_ledger([unbound]))
     assert caught.value.report == {"status": "invalid", "error": "EVIDENCE_RECONCILIATION_INCOMPLETE"}
+
+
+def test_task25_rejects_declared_database_target_and_adapter_hash_drift(tmp_path):
+    manifest_sha256 = write_json(
+        tmp_path / "task25.json",
+        {
+            "schema_version": "1939-v50-production-write-manifest-v1",
+            "source": {"database_source_id": 3},
+            "person_creates": [{"element_id": "element-1", "source_record_key": "record-1"}],
+        },
+    )
+    receipt_sha256 = write_json(
+        tmp_path / "task25-receipt.json",
+        {
+            "schema_version": "daa-evidence-phase-receipt-task25-v1",
+            "manifest_sha256": manifest_sha256,
+            "database_target_identity": production_target_identity(),
+            "created_person_identities": [
+                {"element_id": "element-1", "source_id": 3, "record_key": "record-1", "person_id": 1}
+            ],
+        },
+    )
+    phase = mechanically_bound_task25_phase(manifest_sha256, receipt_sha256)
+    wrong_target = replace(phase, database_target_identity_sha256="a" * 64)
+    wrong_adapter = replace(phase, adapter_sha256="0" * 64)
+
+    assert audit_bundle(tmp_path, [wrong_target]).phase("task25").projection_evidence == "afterdocumented_unbound"
+    with pytest.raises(ProjectError, match="EVIDENCE_RECONCILIATION_INCOMPLETE"):
+        project_phase(tmp_path, wrong_target, bound_summary(wrong_target))
+    with pytest.raises(ProjectError, match="EVIDENCE_RECONCILIATION_INCOMPLETE"):
+        project_phase(tmp_path, wrong_adapter, bound_summary(wrong_adapter))
+
+
+def test_c0_requires_exactly_nine_receipt_bound_narrative_identities(tmp_path):
+    manifest_sha256 = write_json(
+        tmp_path / "c0.json",
+        {
+            "schema_version": "1939-v50-c0-followup-manifest-v1",
+            "source": {"database_source_id": 3},
+            "database_identity": "synthetic-production-identity",
+            "operations": c0_operations()[:-1],
+        },
+    )
+    receipt_sha256 = write_json(
+        tmp_path / "c0-receipt.json",
+        {
+            "schema_version": "daa-evidence-phase-receipt-c0-v1",
+            "manifest_sha256": manifest_sha256,
+            "database_target_identity": production_target_identity(),
+            "change_set": 965,
+            "narrative_results": c0_results()[:-1],
+        },
+    )
+    phase = mechanically_bound_c0_phase(manifest_sha256, receipt_sha256)
+
+    assert audit_bundle(tmp_path, [phase]).phase("c0").projection_evidence == "afterdocumented_unbound"
+    with pytest.raises(ProjectError, match="EVIDENCE_RECONCILIATION_INCOMPLETE"):
+        project_phase(tmp_path, phase, bound_summary(phase))
