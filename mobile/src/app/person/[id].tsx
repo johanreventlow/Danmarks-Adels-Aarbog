@@ -12,8 +12,8 @@ import { NarrativRenderer } from '../../components/NarrativRenderer';
 import { StripedPlaceholder } from '../../components/StripedPlaceholder';
 import { TopBar } from '../../components/TopBar';
 import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
-import { lifeJourney } from '@daa/core';
-import type { BioSourceVersion } from '@daa/core';
+import { lifeJourney, selectDefaultPublicBioSourceVersionV2 } from '@daa/core';
+import type { BioSourceVersion, BioSourceVersionV2 } from '@daa/core';
 import { fetchPublicBioVersionsForPerson } from '../../data/publicBioVersions';
 import { childrenByMarriage, parentsOf, spousesOf } from '../../data/selectors';
 import { usePersonMedia } from '../../lib/media';
@@ -107,7 +107,12 @@ export default function PersonScreen() {
   // Vis udfold-toggle hvis bio enten er lang (tegn) ELLER har mange linjeskift — ellers
   // ville en kort men afsnits-opdelt prosa blive klampet til 7 linjer uden mulighed for udfold.
   const bioVersions = bioVersionResult?.personId === personId ? bioVersionResult.versions : null;
-  const bioVersionIdx = selectedBioVersion?.personId === personId ? selectedBioVersion.index : 0;
+  const v2Versions = bioVersions?.length && bioVersions.every((version) => 'sourceId' in version)
+    ? bioVersions as BioSourceVersionV2[]
+    : null;
+  const defaultBioVersion = v2Versions ? selectDefaultPublicBioSourceVersionV2(v2Versions) : null;
+  const defaultBioVersionIdx = defaultBioVersion && bioVersions ? bioVersions.indexOf(defaultBioVersion) : 0;
+  const bioVersionIdx = selectedBioVersion?.personId === personId ? selectedBioVersion.index : defaultBioVersionIdx;
   const activeBio = bioVersions?.[bioVersionIdx]?.narrativeText ?? person.bio;
   const bioNewlines = (activeBio.match(/\n/g)?.length ?? 0);
   const bioLong = activeBio.length > BIO_CLAMP_CHARS || bioNewlines >= BIO_CLAMP_LINES;

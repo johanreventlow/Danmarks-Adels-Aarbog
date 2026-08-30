@@ -3,7 +3,7 @@
 // viser en tom-tilstand frem for at vælte siden — men breakage er ikke HELT tavst (console).
 import { supabase } from '../supabase';
 import type { Model } from './types';
-import { pickPreferredBio, buildBioSourceVersions, buildBioVersions, getAll, buildProvenanceSources, citationRowsTilProveniens, type BioSourceVersion, type NarrativeCand, type RaaCitationRow, type SourceRef } from '@daa/core';
+import { pickPreferredBio, buildBioSourceVersions, mapPublicBioSourceVersionsV2 as mapCorePublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, buildBioVersions, getAll, buildProvenanceSources, citationRowsTilProveniens, type BioSourceVersion, type BioSourceVersionV2, type NarrativeCand, type RaaCitationRow, type SourceRef } from '@daa/core';
 import { fetchPersonMedia, fetchObjectMedia, type MediaItem } from './media';
 
 // Rå narrativ-række med source-join (PostgREST embedded resource).
@@ -46,6 +46,13 @@ export function mapPublicBioSourceVersions(rows: unknown[]): BioSourceVersion[] 
       provenance_kind: kind,
     }];
   }));
+}
+
+// V2 validation and ordering live in core so web and mobile cannot diverge.
+// It throws on malformed RPC rows; callers keep that as an explicit v2 fetch
+// failure instead of guessing from the direct narrative table.
+export function mapPublicBioSourceVersionsV2(rows: unknown[]) {
+  return mapCorePublicBioSourceVersionsV2(rows);
 }
 
 // Behold første forekomst pr. nøgle (rækkefølge-bevarende dedup).
@@ -195,30 +202,47 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
   const ids = memberIds && memberIds.length ? memberIds : [id];
   const numIds = ids.map(Number).filter((n) => !Number.isNaN(n));
   return safe(async () => {
-    const versionRpc = (supabase as unknown as { rpc?: (name: string, args: unknown) => Promise<{ data: unknown[] | null; error: unknown }> }).rpc;
+    const rpcClient = supabase as unknown as { rpc?: (name: string, args: unknown) => Promise<{ data: unknown; error: unknown }> };
+    const hasRpc = typeof rpcClient.rpc === 'function';
+    let contractVersion = 1;
+    if (hasRpc) {
+      const versionResult = await rpcClient.rpc!('narrative_record_contract_version', {});
+      if (versionResult.error || typeof versionResult.data !== 'number' || !Number.isInteger(versionResult.data)) {
+        throw new Error('NARRATIVE_RECORD_CONTRACT_VERSION_UNAVAILABLE');
+      }
+      contractVersion = versionResult.data;
+    }
+    const usesV2 = contractVersion >= 2;
     const [narr, rels, media, rpcVersions] = await Promise.all([
-      // OFFENTLIGE narrativer for alle medlems-id'er (privat filtreret i query — ikke skjult
-      // bagefter, så en privat note først ikke gemmer en senere offentlig bio).
-      supabase.from('narrative').select('id,subjekt_id,tekst,source_id,source:source_id(slags,aar,udgave)')
-        .eq('subjekt_type', 'person').in('subjekt_id', numIds)
-        .eq('privat', false).order('id', { ascending: true }),
+      // V1 keeps its existing fallback query.  At contract v2 this query is
+      // never issued: event text is available only through the v2 RPC.
+      usesV2
+        ? Promise.resolve({ data: [] as RawNarr[], error: null })
+        : supabase.from('narrative').select('id,subjekt_id,tekst,source_id,source:source_id(slags,aar,udgave)')
+          .eq('subjekt_type', 'person').in('subjekt_id', numIds)
+          .eq('privat', false).order('id', { ascending: true }),
       getAll<RawPersonRel>(() => supabase.from('relation').select('objekt_type,objekt_id,rolle,periode_raw')
         .eq('subjekt_type', 'person').in('subjekt_id', numIds).in('objekt_type', ['organisation', 'estate'])),
       // Portræt/materiale: union over foldede medlems-id'er (afbildet person→media). RLS-gatet.
       fetchPersonMedia(numIds),
-      // Additiv deploy-kontrakt: gammel Supabase uden RPC'en fortsætter den kendte
-      // editionsbaserede læsning, mens den nye RPC erstatter den når den findes.
-      typeof versionRpc === 'function'
-        ? versionRpc('public_person_bio_source_versions', { p_person_ids: numIds })
-          .then((res) => res.error ? null : mapPublicBioSourceVersions(res.data ?? []))
-          .catch(() => null)
+      // The contract version, not an RPC error, selects the reader.  A v2
+      // failure rejects the complete biography fetch and never reaches v1.
+      hasRpc
+        ? rpcClient.rpc!(usesV2 ? 'public_person_bio_source_versions_v2' : 'public_person_bio_source_versions', { p_person_ids: numIds })
+          .then((res) => {
+            if (res.error || !Array.isArray(res.data)) {
+              if (usesV2) throw new Error('PUBLIC_BIO_SOURCE_V2_UNAVAILABLE');
+              return null;
+            }
+            return usesV2 ? mapPublicBioSourceVersionsV2(res.data) : mapPublicBioSourceVersions(res.data);
+          })
         : Promise.resolve(null),
     ]);
     // Udgave-versioner (§7.18): ÉN version pr. DAA-udgave, nyeste først. Kandidater ordnet
     // kanonisk (id) FØRST, så en samme_som-foldet person med narrativ i samme udgave fra
     // flere medlemmer sammenføjer den fulde founder-bio før en kort kryds-reference-stub.
     const candsByMember = new Map<string, NarrativeCand[]>();
-    for (const n of (orThrow(narr, 'fetchPersonDetail/narrative') ?? []) as unknown as RawNarr[]) {
+    for (const n of (orThrow(narr as { data: unknown; error: unknown }, 'fetchPersonDetail/narrative') ?? []) as RawNarr[]) {
       const k = String(n.subjekt_id);
       const arr = candsByMember.get(k) ?? [];
       arr.push({ narrativeId: n.id, tekst: n.tekst, sourceId: n.source_id, slags: n.source?.slags ?? null, aar: n.source?.aar ?? null, udgave: n.source?.udgave ?? null });
@@ -234,8 +258,10 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
       citationLabel: '',
       provenanceKind: 'legacy_narrative' as const,
     }));
-    const bioVersions = rpcVersions && rpcVersions.length ? rpcVersions : fallbackVersions;
-    const bio = bioVersions[0]?.narrativeText ?? '';
+    const bioVersions = usesV2 ? (rpcVersions ?? []) : (rpcVersions && rpcVersions.length ? rpcVersions : fallbackVersions);
+    const bio = usesV2
+      ? selectDefaultPublicBioSourceVersionV2((rpcVersions ?? []) as BioSourceVersionV2[])?.narrativeText ?? ''
+      : bioVersions[0]?.narrativeText ?? '';
     const orgIds = rels.filter((r) => r.objekt_type === 'organisation').map((r) => r.objekt_id);
     const estIds = rels.filter((r) => r.objekt_type === 'estate').map((r) => r.objekt_id);
     const { org: orgNavn, estate: estNavn } = await resolveOrgEstateNames(orgIds, estIds);

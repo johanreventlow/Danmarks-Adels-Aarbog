@@ -6,6 +6,7 @@ import type { Model } from '../types';
 
 let byTable: Record<string, unknown[]> = {};
 let inCalls: { table: string; column: string; values: unknown[] }[] = [];
+let rpc = vi.fn();
 function makeResult<T>(data: T[] | null, error: unknown = null) {
   return {
     range: async () => ({ data, error }),
@@ -14,6 +15,7 @@ function makeResult<T>(data: T[] | null, error: unknown = null) {
 }
 vi.mock('../../supabase', () => ({
   supabase: {
+    rpc: (name: string, args: unknown) => rpc(name, args),
     from: (table: string) => {
       const b: Record<string, unknown> = {
         select: () => b,
@@ -34,7 +36,7 @@ vi.mock('../../supabase', () => ({
 
 const { buildFeedBioSubjectIds, buildWebFeedAux, fetchFeedBios, withFeedBios } = await import('../feedAux');
 
-beforeEach(() => { byTable = {}; inCalls = []; });
+beforeEach(() => { byTable = {}; inCalls = []; rpc = vi.fn(); });
 
 describe('buildWebFeedAux', () => {
   it('mapper estates/arms til FeedAux-felterne', () => {
@@ -53,60 +55,55 @@ describe('buildWebFeedAux', () => {
 });
 
 describe('fetchFeedBios', () => {
-  it('afgrænser model+alias-id server-side i chunks', async () => {
-    byTable = { narrative: [], source: [] };
+  it('afgrænser model+alias-id server-side gennem v2-RPCen', async () => {
+    rpc.mockResolvedValueOnce({ data: 2, error: null }).mockResolvedValueOnce({ data: [], error: null });
     const modelIds = Array.from({ length: 401 }, (_, i) => String(i + 1));
     await fetchFeedBios({ alias1: '1', irrelevantAlias: '9999' }, modelIds);
-    const narrativeCalls = inCalls.filter((c) => c.table === 'narrative' && c.column === 'subjekt_id');
-    expect(narrativeCalls.map((c) => c.values.length)).toEqual([200, 200, 2]);
-    expect(narrativeCalls.flatMap((c) => c.values)).toContain('alias1');
-    expect(narrativeCalls.flatMap((c) => c.values)).not.toContain('irrelevantAlias');
+    const args = rpc.mock.calls[1]?.[1] as { p_person_ids: number[] };
+    expect(args.p_person_ids).toHaveLength(401);
+    expect(args.p_person_ids).toContain(1);
+    expect(args.p_person_ids).not.toContain(9999);
   });
 
   it('bygger stabilt subject-id-sæt med relevante aliases', () => {
     expect(buildFeedBioSubjectIds({ a: '1', b: '9' }, ['2', '1'])).toEqual(['1', '2', 'a']);
   });
 
-  it('vælger foretrukken bio pr. person på tværs af flere udgaver (nyeste år vinder)', async () => {
-    byTable = {
-      narrative: [
-        { id: 1, subjekt_id: 'a', tekst: 'Gammel biografi.', source_id: 10, privat: false },
-        { id: 2, subjekt_id: 'a', tekst: 'Ny biografi.', source_id: 20, privat: false },
-      ],
-      source: [
-        { id: 10, slags: 'DAA-udgave', udgave: 'DAA 1939', aar: 1939 },
-        { id: 20, slags: 'DAA-udgave', udgave: 'DAA 2012', aar: 2012 },
-      ],
-    };
-    const bios = await fetchFeedBios({});
-    expect(bios.a).toBe('Ny biografi.');
+  it('vælger den første eligible bundne v2-bio uden tekstsammenføjning', async () => {
+    rpc.mockResolvedValueOnce({ data: 2, error: null }).mockResolvedValueOnce({ data: [
+      { person_id: 1, source_id: 10, source_year: 1939, record_order: 1, source_record_ref: 'gammel', source_label: 'DAA 1939', record_label: 'Post 1', narrative_text: 'Gammel biografi.', citation_label: '', provenance_kind: 'source_record' },
+      { person_id: 1, source_id: 20, source_year: 2012, record_order: 2, source_record_ref: 'ny-anden', source_label: 'DAA 2012', record_label: 'Post 2', narrative_text: 'Ny anden biografi.', citation_label: '', provenance_kind: 'source_record' },
+      { person_id: 1, source_id: 20, source_year: 2012, record_order: 1, source_record_ref: 'ny-foerste', source_label: 'DAA 2012', record_label: 'Post 1', narrative_text: 'Ny biografi.', citation_label: '', provenance_kind: 'source_record' },
+    ], error: null });
+    const bios = await fetchFeedBios({}, ['1']);
+    expect(bios['1']).toBe('Ny biografi.');
   });
   it('kanoniserer person-id', async () => {
-    byTable = {
-      narrative: [{ id: 1, subjekt_id: 'alias1', tekst: 'En historie.', source_id: 10, privat: false }],
-      source: [{ id: 10, slags: 'DAA-udgave', udgave: 'DAA 1939', aar: 1939 }],
-    };
-    const bios = await fetchFeedBios({ alias1: 'canon1' });
+    rpc.mockResolvedValueOnce({ data: 2, error: null }).mockResolvedValueOnce({ data: [
+      { person_id: 1, source_id: 10, source_year: 1939, record_order: 1, source_record_ref: 'r1', source_label: 'DAA 1939', record_label: 'Post 1', narrative_text: 'En historie.', citation_label: '', provenance_kind: 'source_record' },
+    ], error: null });
+    const bios = await fetchFeedBios({ '1': 'canon1' }, ['1']);
     expect(bios.canon1).toBe('En historie.');
-    expect(bios.alias1).toBeUndefined();
+    expect(bios['1']).toBeUndefined();
   });
-  it('private narrativer springes over', async () => {
-    byTable = {
-      narrative: [{ id: 1, subjekt_id: 'a', tekst: 'Hemmelig.', source_id: 10, privat: true }],
-      source: [{ id: 10, slags: 'DAA-udgave', udgave: 'DAA 1939', aar: 1939 }],
-    };
-    const bios = await fetchFeedBios({});
+  it('vælger én v2-default på tværs af same_som-aliaser før kanonisering', async () => {
+    rpc.mockResolvedValueOnce({ data: 2, error: null }).mockResolvedValueOnce({ data: [
+      { person_id: 1, source_id: 30, source_year: 2020, record_order: null, source_record_ref: null, source_label: 'DAA', record_label: 'Overgangsdata', narrative_text: 'Ny legacy', citation_label: '', provenance_kind: 'legacy_narrative' },
+      { person_id: 2, source_id: 1, source_year: 1939, record_order: 1, source_record_ref: 'bound', source_label: 'DAA', record_label: 'Post 1', narrative_text: 'Bundet alias-post', citation_label: '', provenance_kind: 'source_record' },
+    ], error: null });
+    await expect(fetchFeedBios({ '1': 'canon', '2': 'canon' }, ['1', '2'])).resolves.toEqual({ canon: 'Bundet alias-post' });
+  });
+  it('serverens tomme gatede v2-svar giver ingen bio', async () => {
+    rpc.mockResolvedValueOnce({ data: 2, error: null }).mockResolvedValueOnce({ data: [], error: null });
+    const bios = await fetchFeedBios({}, ['1']);
     expect(bios.a).toBeUndefined();
   });
   it('fejl → tomt objekt, aldrig kast', async () => {
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    byTable = {};
-    vi.doMock('../../supabase', () => ({ supabase: { from: () => { throw new Error('boom'); } } }));
-    const { fetchFeedBios: freshFetch } = await import('../feedAux');
-    const bios = await freshFetch({});
+    rpc.mockRejectedValue(new Error('boom'));
+    const bios = await fetchFeedBios({}, ['1']);
     expect(bios).toEqual({});
     spy.mockRestore();
-    vi.doUnmock('../../supabase');
   });
 });
 
