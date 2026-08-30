@@ -54,6 +54,7 @@ export type Change = {
      | 'udrensMedia' // fase 4 (M11): permanent sletning (kun fra 'fjernet'); result = {stier}
      | 'saetPortraet' // fase 4 (M10): {"primaer":true} på afbildet-relationen; mediaId udeladt = ryd
      | 'fortryd' // issue #144: red_fortryd_change_set — historik-panelets fortryd-knap
+     | 'narrativRecord' | 'fortrydNarrativPublicering' // #152: record-keyed person/DAA publication contract
      | 'forslag'; // generisk entitets-feltredigering uden direkte RPC → red_suggest
   subjektType: string;
   subjektId: string;
@@ -152,9 +153,87 @@ function storyPayloadArgs(p: Record<string, unknown>): Record<string, unknown> {
   };
 }
 
+const NARRATIVE_RECORD_ACTIONS = new Set([
+  'create_draft', 'save_draft', 'discard_draft', 'publish', 'publish_revision', 'revalidate', 'withdraw', 'withdraw_legacy',
+]);
+
+function recordMutationBase(c: Change): { personId: number; sourceId: number; recordKey: string; expectedStateSha256: string } | null {
+  const p = c.payload ?? {};
+  const sourceId = p.sourceId;
+  const recordKey = p.recordKey;
+  const expectedStateSha256 = p.expectedStateSha256;
+  const personId = Number(c.subjektId);
+  if (!Number.isSafeInteger(personId) || personId <= 0
+    || typeof sourceId !== 'number' || !Number.isSafeInteger(sourceId) || sourceId <= 0
+    || typeof recordKey !== 'string' || recordKey.trim() === ''
+    || typeof expectedStateSha256 !== 'string' || expectedStateSha256.trim() === '') return null;
+  return { personId, sourceId, recordKey, expectedStateSha256 };
+}
+
+function recordText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() !== '' ? value : null;
+}
+
 export function buildRpcCall(c: Change): RpcCall | null {
   const sid = Number(c.subjektId);
   const aid = c.assertionId != null ? Number(c.assertionId) : null;
+  if (c.art === 'fortrydNarrativPublicering') {
+    const eventId = c.payload?.eventId;
+    const expectedStateSha256 = c.payload?.expectedStateSha256;
+    if (typeof eventId !== 'string' || eventId.trim() === ''
+      || typeof expectedStateSha256 !== 'string' || expectedStateSha256.trim() === '') return null;
+    return { fn: 'red_fortryd_person_narrative_publication_event', args: {
+      p_event_id: eventId, p_expected_state_sha256: expectedStateSha256,
+    } };
+  }
+  if (c.art === 'narrativRecord') {
+    const p = c.payload ?? {};
+    const action = p.action;
+    if (typeof action !== 'string' || !NARRATIVE_RECORD_ACTIONS.has(action)) return null;
+    if (action === 'withdraw_legacy') {
+      const legacyPublicationRef = p.legacyPublicationRef;
+      const expectedStateSha256 = p.expectedStateSha256;
+      const begrundelse = p.begrundelse;
+      if (typeof legacyPublicationRef !== 'string' || legacyPublicationRef.trim() === ''
+        || typeof expectedStateSha256 !== 'string' || expectedStateSha256.trim() === ''
+        || typeof begrundelse !== 'string' || begrundelse.trim() === '') return null;
+      return { fn: 'red_tilbagetraek_legacy_narrative', args: {
+        p_legacy_publication_ref: legacyPublicationRef,
+        p_expected_state_sha256: expectedStateSha256,
+        p_begrundelse: begrundelse,
+      } };
+    }
+    const base = recordMutationBase(c);
+    if (!base) return null;
+    const locatorArgs = {
+      p_person_id: base.personId, p_source_id: base.sourceId, p_record_key: base.recordKey,
+      p_expected_state_sha256: base.expectedStateSha256,
+    };
+    if (action === 'create_draft' || action === 'save_draft') {
+      const tekst = recordText(p.tekst);
+      if (tekst == null || typeof p.privat !== 'boolean') return null;
+      return { fn: 'red_upsert_person_narrative_record', args: {
+        p_person_id: base.personId, p_source_id: base.sourceId, p_record_key: base.recordKey,
+        p_tekst: tekst, p_privat: p.privat, p_expected_state_sha256: base.expectedStateSha256,
+      } };
+    }
+    if (action === 'publish_revision') {
+      const tekst = recordText(p.tekst);
+      if (tekst == null) return null;
+      return { fn: 'red_revider_publiceret_person_narrative_record', args: {
+        p_person_id: base.personId, p_source_id: base.sourceId, p_record_key: base.recordKey,
+        p_tekst: tekst, p_expected_state_sha256: base.expectedStateSha256,
+      } };
+    }
+    const rpcByAction: Record<string, string> = {
+      discard_draft: 'red_kasser_person_narrative_record',
+      publish: 'red_publicer_person_narrative_record',
+      revalidate: 'red_revalider_person_narrative_record',
+      withdraw: 'red_tilbagetraek_person_narrative_record',
+    };
+    const fn = rpcByAction[action];
+    return fn ? { fn, args: locatorArgs } : null;
+  }
   if (c.art === 'haendelseStatus') {
     if (c.haendelseId == null || !Number.isFinite(c.haendelseId) || !c.status || !['kandidat','interessant','skjult'].includes(c.status)) return null;
     return { fn: 'red_set_haendelse_status', args: { p_haendelse_id: c.haendelseId, p_status: c.status } };
@@ -597,12 +676,15 @@ export function buildSuggestCall(c: Change): RpcCall {
 // Arter hvor et ufuldstændigt Change ALDRIG må degradere til red_suggest: de beskriver en
 // struktur-operation på en konkret række, og et forslag uden mål er ikke en svagere udgave af
 // handlingen — det er en tom post der kvitteres som "sendt til staging" (Codex sol, 2026-08-01).
-const KRAEVER_GYLDIGT_KALD = new Set(['tilknytMedia', 'tilfoejPartner']);
+const KRAEVER_GYLDIGT_KALD = new Set(['tilknytMedia', 'tilfoejPartner', 'narrativRecord', 'fortrydNarrativPublicering']);
 
 export function planCall(c: Change, role: string | undefined): RpcCall {
   const bygget = buildRpcCall(c);
   if (KRAEVER_GYLDIGT_KALD.has(c.art) && !bygget) {
     throw new Error(c.art === 'tilknytMedia' ? 'Ugyldig medietilknytning.' : 'Ufuldstændig ændring — handlingen blev ikke sendt.');
+  }
+  if ((c.art === 'narrativRecord' || c.art === 'fortrydNarrativPublicering') && role !== 'redaktion') {
+    throw new Error('Narrativ-publicering kræver redaktør-rettigheder — kan ikke sendes som forslag.');
   }
   const direct = role === 'redaktion' ? bygget : null;
   return direct ?? buildSuggestCall(c);
@@ -626,6 +708,8 @@ export async function submitChange(c: Change, opts: { dryRun: boolean; role?: st
     erstatMediaFil: 'Medieupload', // bærer fil-bytes, samme fælde som uploadMedia
     udrensMedia: 'Udrensning', // destruktiv + afhænger af de RETURNEREDE stier (spec §6)
     fortryd: 'Fortryd', // et "fortryd-forslag" er en tom kø-post der kvitteres, mens intet fortrydes
+    narrativRecord: 'Narrativ-publicering',
+    fortrydNarrativPublicering: 'Narrativ-publicering',
   };
   const gateNavn = IKKE_DEGRADERBAR[c.art];
   if (gateNavn && !direkte) {
@@ -678,8 +762,44 @@ export function erFortrydKonflikt(rawMessage: string): boolean {
   return /afvist.*force/i.test(rawMessage);
 }
 
+export type NarrativeRecordErrorState =
+  | 'stale_state'
+  | 'identity_required'
+  | 'identity_conflict'
+  | 'anchor_required'
+  | 'derived_events'
+  | 'illegal_transition'
+  | 'dedicated_reversal_required'
+  | 'legacy_drift'
+  | 'person_delete_publication_history'
+  | null;
+
+export function narrativeRecordErrorState(message: string): NarrativeRecordErrorState {
+  if (/NARRATIVE_RECORD_(STATE_STALE|PRESTATE_HASH_MISMATCH|PUBLICATION_STALE)/.test(message)) return 'stale_state';
+  if (/NARRATIVE_RECORD_IDENTITY_REQUIRED/.test(message)) return 'identity_required';
+  if (/NARRATIVE_RECORD_(IDENTITY_CONFLICT|IDENTITY_AMBIGUOUS)/.test(message)) return 'identity_conflict';
+  if (/NARRATIVE_RECORD_ANCHOR_REQUIRED/.test(message)) return 'anchor_required';
+  if (/NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT/.test(message)) return 'derived_events';
+  if (/NARRATIVE_RECORD_(TRANSITION_INVALID|PUBLISHED_REQUIRES_REVISION)/.test(message)) return 'illegal_transition';
+  if (/NARRATIVE_RECORD_DEDICATED_REVERSAL_REQUIRED/.test(message)) return 'dedicated_reversal_required';
+  if (/NARRATIVE_LEGACY_(BASELINE_DRIFT|PUBLICATION_PROJECTION_MISMATCH)/.test(message)) return 'legacy_drift';
+  if (/NARRATIVE_PUBLICATION_HISTORY/.test(message)) return 'person_delete_publication_history';
+  return null;
+}
+
 // PostgREST/Postgres-fejl → dansk UI-tekst (spec §9). Fald tilbage til rå besked.
 export function oversaetFejl(message: string): string {
+  switch (narrativeRecordErrorState(message)) {
+    case 'stale_state': return 'Narrativet er ændret siden indlæsning. Genindlæs før du fortsætter.';
+    case 'identity_required': return 'Kildeposten mangler en accepteret identitetsafgørelse for personen.';
+    case 'identity_conflict': return 'Kildepostens accepterede identitet er tvetydig eller i konflikt.';
+    case 'anchor_required': return 'Kildeposten mangler et accepteret kildeanker.';
+    case 'derived_events': return 'Narrativet kan ikke ændres, fordi afledte hændelser stadig findes.';
+    case 'illegal_transition': return 'Denne publiceringstilstand tillader ikke handlingen.';
+    case 'dedicated_reversal_required': return 'Denne ændring skal fortrydes gennem den dedikerede publiceringshistorik.';
+    case 'legacy_drift': return 'Overgangsbiografien afviger fra sit godkendte grundlag og kan ikke ændres her.';
+    case 'person_delete_publication_history': return 'Personen kan ikke slettes, mens der findes narrativ-publiceringshistorik.';
+  }
   if (/kun redaktion/i.test(message)) return 'Kræver redaktør-rettigheder.';
   if (/medie med samme indhold findes allerede/i.test(message)) return "Billedet findes allerede i biblioteket — brug 'Tilknyt eksisterende' i stedet.";
   if (/allerede tilknyttet dette subjekt/i.test(message)) return 'Mediet er allerede tilknyttet dette subjekt.';

@@ -41,12 +41,13 @@ test('mapHistRow markerer fortryd-sæt (operation=fortryd) som erFortryd', () =>
 });
 
 test('fetchHistorik kalder hist_for_subjekt med rå person-id og afleder reverted-mængden', async () => {
-  (supabase.rpc as ReturnType<typeof vi.fn>).mockResolvedValue({
-    data: [
+  (supabase.rpc as ReturnType<typeof vi.fn>).mockImplementation((name: string) => {
+    if (name === 'hist_for_subjekt') return Promise.resolve({ data: [
       raw({ id: 2, operation: 'fortryd', reverterer_id: 1, summary: 'Fortrød: Rettede fødselsdato' }),
       raw({ id: 1 }),
-    ],
-    error: null,
+    ], error: null });
+    if (name === 'red_person_narrative_publication_history') return Promise.resolve({ data: [], error: null });
+    throw new Error(`uventet RPC: ${name}`);
   });
   const poster = await fetchHistorik('7');
   expect(supabase.rpc).toHaveBeenCalledWith('hist_for_subjekt', { p_type: 'person', p_id: 7 });
@@ -54,6 +55,37 @@ test('fetchHistorik kalder hist_for_subjekt med rå person-id og afleder reverte
     ['2', false, true],
     ['1', true, false],
   ]);
+});
+
+test('fetchHistorik merges publication events and marks reversal events without an undo action', async () => {
+  (supabase.rpc as ReturnType<typeof vi.fn>).mockImplementation((name: string) => {
+    if (name === 'hist_for_subjekt') return Promise.resolve({ data: [raw({ id: 44 }), raw({ id: 1 })], error: null });
+    if (name === 'red_person_narrative_publication_history') return Promise.resolve({ data: [{
+      event_id: 'f6f58094-9ed2-4723-ac21-7c0ba25f2cf9', change_set_id: 44, stream_version: 3,
+      event_type: 'reversal', source_record_ref: '92cccd2e-1731-4db3-bffd-e68c8a686e35', legacy_publication_ref: null,
+      before_state_sha256: 'a'.repeat(64), after_state_sha256: 'b'.repeat(64), before_text: 'Før', after_text: 'Efter',
+      decided_by_name: 'Johan', created_at: '2026-08-06T11:00:00Z', can_reverse: false,
+      blocking_reason: 'NARRATIVE_PUBLICATION_REVERSAL_NOT_REVERSIBLE',
+    }], error: null });
+    throw new Error(`uventet RPC: ${name}`);
+  });
+
+  const posts = await fetchHistorik('7');
+  expect(supabase.rpc).toHaveBeenNthCalledWith(1, 'hist_for_subjekt', { p_type: 'person', p_id: 7 });
+  expect(supabase.rpc).toHaveBeenNthCalledWith(2, 'red_person_narrative_publication_history', { p_person_id: 7 });
+  expect(posts).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: '1', undoKind: 'change_set', canReverse: true }),
+    expect.objectContaining({
+      id: 'f6f58094-9ed2-4723-ac21-7c0ba25f2cf9', undoKind: 'publication_event',
+      erFortryd: true, canReverse: false,
+      blockingReason: 'NARRATIVE_PUBLICATION_REVERSAL_NOT_REVERSIBLE',
+      changeSetId: '44',
+      sourceRecordRef: '92cccd2e-1731-4db3-bffd-e68c8a686e35',
+    }),
+  ]));
+  expect(posts).not.toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: '44', undoKind: 'change_set' }),
+  ]));
 });
 
 test('fetchHistorik kaster på RPC-fejl', async () => {

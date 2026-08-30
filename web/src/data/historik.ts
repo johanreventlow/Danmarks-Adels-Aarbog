@@ -15,6 +15,12 @@ export type HistPost = {
   resume: string;
   reverteret: boolean;
   erFortryd: boolean;
+  undoKind?: 'change_set' | 'publication_event';
+  canReverse?: boolean;
+  blockingReason?: string | null;
+  changeSetId?: string;
+  sourceRecordRef?: string | null;
+  legacyPublicationRef?: string | null;
 };
 
 type RawHist = {
@@ -24,6 +30,21 @@ type RawHist = {
   operation: string | null;
   summary: string | null;
   reverterer_id: number | null;
+};
+
+type RawNarrativePublicationHistory = {
+  event_id: string;
+  change_set_id: number | string;
+  stream_version: number;
+  event_type: string;
+  source_record_ref: string | null;
+  legacy_publication_ref: string | null;
+  before_text: string | null;
+  after_text: string | null;
+  decided_by_name: string | null;
+  created_at: string;
+  can_reverse: boolean;
+  blocking_reason: string | null;
 };
 
 // revertedIds: id'er på rækker der ER blevet fortrudt af en ANDEN række i samme liste
@@ -39,13 +60,52 @@ export function mapHistRow(r: RawHist, revertedIds: ReadonlySet<number> = new Se
     resume: r.summary ?? '(uden beskrivelse)',
     reverteret: revertedIds.has(r.id),
     erFortryd: r.operation === 'fortryd',
+    undoKind: 'change_set',
+    canReverse: !revertedIds.has(r.id) && r.operation !== 'fortryd',
+    blockingReason: null,
+  };
+}
+
+export function mapNarrativePublicationHistoryRow(r: RawNarrativePublicationHistory): HistPost {
+  const isReversal = r.event_type === 'reversal';
+  const eventLabel = r.event_type.replace(/_/g, ' ');
+  const text = r.after_text ?? r.before_text ?? '(ingen tekst)';
+  return {
+    id: r.event_id,
+    hvem: r.decided_by_name ?? 'ukendt',
+    hvornaar: formatTidspunkt(r.created_at),
+    resume: `Narrativ-publicering: ${eventLabel} — ${text}`,
+    reverteret: false,
+    erFortryd: isReversal,
+    undoKind: 'publication_event',
+    canReverse: r.can_reverse,
+    blockingReason: r.blocking_reason,
+    changeSetId: String(r.change_set_id),
+    sourceRecordRef: r.source_record_ref,
+    legacyPublicationRef: r.legacy_publication_ref,
   };
 }
 
 export async function fetchHistorik(personId: string): Promise<HistPost[]> {
-  const { data, error } = await supabase.rpc('hist_for_subjekt', { p_type: 'person', p_id: Number(personId) });
-  if (error) throw new Error(error.message);
-  const rows: RawHist[] = data ?? [];
+  const parsedPersonId = Number(personId);
+  const [genericResult, narrativeResult] = await Promise.all([
+    supabase.rpc('hist_for_subjekt', { p_type: 'person', p_id: parsedPersonId }),
+    supabase.rpc('red_person_narrative_publication_history', { p_person_id: parsedPersonId }),
+  ]);
+  if (genericResult.error) throw new Error(genericResult.error.message);
+  if (narrativeResult.error) throw new Error(narrativeResult.error.message);
+  const rows: RawHist[] = genericResult.data ?? [];
+  const publicationRows = (narrativeResult.data ?? []) as RawNarrativePublicationHistory[];
+  const publicationChangeSetIds = new Set(publicationRows.map((row) => String(row.change_set_id)));
   const revertedIds = new Set(rows.map((r) => r.reverterer_id).filter((id): id is number => id != null));
-  return rows.map((r) => mapHistRow(r, revertedIds));
+  // A publication event and its generic change-set row describe one mutation.  Keep
+  // only the typed event, otherwise a record mutation could reach generic undo.
+  const generic = rows
+    .filter((r) => !publicationChangeSetIds.has(String(r.id)))
+    .map((r) => ({ post: mapHistRow(r, revertedIds), createdAt: r.created_at }));
+  const narrative = publicationRows
+    .map((r) => ({ post: mapNarrativePublicationHistoryRow(r), createdAt: r.created_at }));
+  return [...generic, ...narrative]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .map(({ post }) => post);
 }
