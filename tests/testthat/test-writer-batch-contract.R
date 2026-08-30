@@ -188,6 +188,34 @@ test_that("historical receipts remain valid while current-state verification rep
                "WRITER_BATCH_CURRENT_STATE_RECEIPT_DRIFT")
 })
 
+test_that("current state rejects a different persisted receipt hash", {
+  state <- valid_current_state(valid_receipt())
+  state$receipt_sha256 <- strrep("c", 64L)
+  expect_error(wb_validate_current_state(state, valid_receipt()),
+               "WRITER_BATCH_CURRENT_STATE_RECEIPT_DRIFT")
+})
+
+test_that("current state rejects a different persisted profile hash", {
+  state <- valid_current_state(valid_receipt())
+  state$profile_sha256 <- strrep("c", 64L)
+  expect_error(wb_validate_current_state(state, valid_receipt()),
+               "WRITER_BATCH_CURRENT_STATE_RECEIPT_DRIFT")
+})
+
+test_that("current state rejects a different persisted input identity", {
+  state <- valid_current_state(valid_receipt())
+  state$input_identity$schema_version <- "different-input-schema-v1"
+  expect_error(wb_validate_current_state(state, valid_receipt()),
+               "WRITER_BATCH_CURRENT_STATE_RECEIPT_DRIFT")
+})
+
+test_that("current state rejects a different persisted database identity", {
+  state <- valid_current_state(valid_receipt())
+  state$database_identity$system_identifier <- "987654321"
+  expect_error(wb_validate_current_state(state, valid_receipt()),
+               "WRITER_BATCH_CURRENT_STATE_RECEIPT_DRIFT")
+})
+
 test_that("receipt binds its profile, identities, authorization, operation, counts, and state", {
   profile <- valid_profile()
   receipt <- valid_receipt(profile)
