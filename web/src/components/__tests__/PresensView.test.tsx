@@ -1,11 +1,51 @@
 // @vitest-environment jsdom
 import { useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { vi } from 'vitest';
-import { PresensGrenSektion, PresensLinjeSektion } from '../PresensView';
+import { beforeEach, vi } from 'vitest';
+import { buildModel } from '@daa/core';
 import type { PresensGren } from '@daa/core';
 import type { PresensLinjeGruppe } from '@daa/core';
 import type { PresensLinjeInfo } from '../../data/presensLinjer';
+
+const consumerMocks = vi.hoisted(() => ({
+  fetchPersonDetail: vi.fn(),
+  fetchPresensGrundlag: vi.fn(),
+  fetchPresensLinjer: vi.fn(),
+  fetchPresensIntro: vi.fn(),
+  fetchPresensNavneDele: vi.fn(),
+}));
+
+vi.mock('../../data/public', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../data/public')>(),
+  fetchPersonDetail: consumerMocks.fetchPersonDetail,
+}));
+vi.mock('../../data/presens', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../data/presens')>(),
+  fetchPresensGrundlag: consumerMocks.fetchPresensGrundlag,
+  fetchPresensNavneDele: consumerMocks.fetchPresensNavneDele,
+}));
+vi.mock('../../data/presensLinjer', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../data/presensLinjer')>(),
+  fetchPresensLinjer: consumerMocks.fetchPresensLinjer,
+  fetchPresensIntro: consumerMocks.fetchPresensIntro,
+}));
+vi.mock('../../data/auth', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../data/auth')>(),
+  currentSession: () => Promise.resolve({ role: 'redaktion' }),
+}));
+
+import PresensView, { PresensGrenSektion, PresensLinjeSektion } from '../PresensView';
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  consumerMocks.fetchPresensGrundlag.mockResolvedValue({
+    ankre: [{ personId: 'A', linje: 'II', gren: 1, raaVaerdi: 'II linje, 1. gren' }],
+    levendeById: { A: true },
+  });
+  consumerMocks.fetchPresensLinjer.mockResolvedValue({});
+  consumerMocks.fetchPresensIntro.mockResolvedValue(null);
+  consumerMocks.fetchPresensNavneDele.mockResolvedValue({});
+});
 
 const gren: PresensGren = {
   anker: { personId: 'A', linje: 'II', gren: 1, raaVaerdi: 'II linje, 1. gren' },
@@ -153,6 +193,22 @@ test('mangler narrativ (tom streng) viser en dæmpet placeholder, ikke en tom bo
   render(<FoldUdHarness gren={gren} hentBio={hentBio} />);
   fireEvent.click(screen.getByText('Anker Person'));
   expect(await screen.findByText('Ingen biografi registreret')).toBeTruthy();
+});
+
+test('viser en foldet biografi-fejl eksplicit i stedet for ingen biografi', async () => {
+  const model = buildModel({
+    persons: [{ id: 'A', name: 'Anker Person', born: null, died: null, years: '', title: '', bio: '', privat: false }],
+    unions: [],
+    parentChild: [],
+  });
+  consumerMocks.fetchPersonDetail.mockRejectedValue(new Error('PUBLIC_BIO_SOURCE_V2_UNAVAILABLE'));
+
+  render(<PresensView model={model} onPickPerson={vi.fn()} />);
+  fireEvent.click(await screen.findByText('Anker Person'));
+
+  expect((await screen.findByRole('alert')).textContent).toContain('Kunne ikke hente biografien');
+  expect(screen.getByRole('alert').textContent).toContain('PUBLIC_BIO_SOURCE_V2_UNAVAILABLE');
+  expect(screen.queryByText('Ingen biografi registreret')).toBeNull();
 });
 
 test('gentagne fold-ud/-sammen af samme række genhenter ikke bio-teksten', async () => {

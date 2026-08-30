@@ -13,6 +13,7 @@ type Props = {
 };
 
 type Conflict = {
+  recordId: string;
   localText: string;
   serverText: string;
 };
@@ -141,7 +142,7 @@ export function PersonNarrativeRecordEditor({ personId, onChange }: Props) {
           }
           if (currentPersonId.current === personId) {
             const latestRecord = latest.records.find((candidate) => candidate.sourceId === record.sourceId && candidate.recordKey === record.recordKey);
-            setConflict({ localText, serverText: latestRecord?.text ?? '' });
+            setConflict({ recordId: id, localText, serverText: latestRecord?.text ?? '' });
           }
         } catch (reloadError) {
           if (currentPersonId.current === personId) setError(String((reloadError as Error)?.message ?? reloadError));
@@ -270,7 +271,15 @@ export function PersonNarrativeRecordEditor({ personId, onChange }: Props) {
         <div>Seneste servertekst</div>
         <pre>{conflict.serverText}</pre>
         <button type="button" onClick={copyLocalText}>Kopiér lokal tekst</button>
-        <button type="button" onClick={() => { setConflict(null); void load().catch((e) => setError(String((e as Error)?.message ?? e))); }}>Genindlæs</button>
+        <button type="button" onClick={() => {
+          const conflictRecordId = conflict.recordId;
+          setTexts((current) => {
+            const { [conflictRecordId]: _discarded, ...rest } = current;
+            return rest;
+          });
+          setConflict(null);
+          void load().catch((e) => setError(String((e as Error)?.message ?? e)));
+        }}>Genindlæs</button>
       </section> : null}
     </section>
   );

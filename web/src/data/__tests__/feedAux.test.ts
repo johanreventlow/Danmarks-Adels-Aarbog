@@ -98,11 +98,20 @@ describe('fetchFeedBios', () => {
     const bios = await fetchFeedBios({}, ['1']);
     expect(bios.a).toBeUndefined();
   });
-  it('fejl → tomt objekt, aldrig kast', async () => {
+  it('lader en v2 RPC-fejl være en eksplicit hente-fejl', async () => {
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    rpc.mockRejectedValue(new Error('boom'));
-    const bios = await fetchFeedBios({}, ['1']);
-    expect(bios).toEqual({});
+    rpc
+      .mockResolvedValueOnce({ data: 2, error: null })
+      .mockResolvedValueOnce({ data: null, error: { message: 'RPC utilgængelig' } });
+    await expect(fetchFeedBios({}, ['1'])).rejects.toThrow('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
+    spy.mockRestore();
+  });
+  it('bevarer den tolerante v1-fallback når den gamle RPC afviser', async () => {
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    rpc
+      .mockResolvedValueOnce({ data: 1, error: null })
+      .mockRejectedValueOnce(new Error('v1 RPC utilgængelig'));
+    await expect(fetchFeedBios({}, ['1'])).resolves.toEqual({});
     spy.mockRestore();
   });
 });

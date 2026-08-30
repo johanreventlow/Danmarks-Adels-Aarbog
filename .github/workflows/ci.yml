@@ -180,6 +180,75 @@ jobs:
           PGDATABASE: writer_1939
         run: Rscript tests/integration/test-1939-v50-name-completion.R
 
+  narrative-record-contract-db:
+    name: 'narrative record #152 · PostgreSQL 17'
+    runs-on: ubuntu-latest
+    env:
+      PGDATABASE: narrative_record_152_ci
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: narrative_record_152_ci
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d narrative_record_152_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: r-lib/actions/setup-r@v2
+        with: {use-public-rspm: true}
+      - name: Installér DBI-racepakker
+        run: Rscript -e 'install.packages(c("DBI","RPostgres","processx","bit64","jsonlite","digest"))'
+      - name: Bootstrap frisk kontraktdatabase
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql
+          psql -X -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS dblink WITH SCHEMA extensions'
+          psql -X -v ON_ERROR_STOP=1 -f schema.sql
+          psql -X -v ON_ERROR_STOP=1 -f db-migrations.sql
+          psql -X -v ON_ERROR_STOP=1 -f db-rls.sql
+      - name: Fokuseret record-kontrakt
+        run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/test-narrative-record-contract.sql
+      - name: Nulstil til frisk cutover-kontrakt
+        run: |
+          dropdb --force narrative_record_152_ci
+          createdb narrative_record_152_ci
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql
+          psql -X -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS dblink WITH SCHEMA extensions'
+          psql -X -v ON_ERROR_STOP=1 -f schema.sql
+          psql -X -v ON_ERROR_STOP=1 -f db-migrations.sql
+          psql -X -v ON_ERROR_STOP=1 -f db-rls.sql
+      - name: Fokuseret cutover-kontrakt
+        run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/test-narrative-record-cutover.sql
+      - name: Nulstil til fuld historisk db-verify
+        run: |
+          dropdb --force narrative_record_152_ci
+          createdb narrative_record_152_ci
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql
+          psql -X -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS dblink WITH SCHEMA extensions'
+          psql -X -v ON_ERROR_STOP=1 -f schema.sql
+          psql -X -v ON_ERROR_STOP=1 -f db-migrations.sql
+          psql -X -v ON_ERROR_STOP=1 -f db-rls.sql
+      - name: Fuld historisk db-verify
+        run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/run-db-verify-disposable.sql
+      - name: Nulstil til frisk DBI-racedatabase
+        run: |
+          dropdb --force narrative_record_152_ci
+          createdb narrative_record_152_ci
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql
+          psql -X -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS dblink WITH SCHEMA extensions'
+          psql -X -v ON_ERROR_STOP=1 -f schema.sql
+          psql -X -v ON_ERROR_STOP=1 -f db-migrations.sql
+          psql -X -v ON_ERROR_STOP=1 -f db-rls.sql
+      - name: Virkelig multi-session DBI-race
+        run: Rscript tests/integration/test-narrative-record-concurrency.R
+
   web:
     name: web · vitest + build
     runs-on: ubuntu-latest

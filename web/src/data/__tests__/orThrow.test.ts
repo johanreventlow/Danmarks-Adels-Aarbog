@@ -24,6 +24,7 @@ vi.mock('../../supabase', () => ({
   },
 }));
 
+import { supabase } from '../../supabase';
 import { fetchPersonDetail, mapPublicBioSourceVersions, mapPublicBioSourceVersionsV2, orThrow } from '../public';
 
 describe('orThrow', () => {
@@ -94,5 +95,51 @@ describe('fetchPersonDetail v2 RPC', () => {
     await expect(fetchPersonDetail('1')).resolves.toMatchObject({ bio: 'Bundet tekst' });
     expect(rpc).toHaveBeenNthCalledWith(1, 'narrative_record_contract_version', {});
     expect(rpc).toHaveBeenNthCalledWith(2, 'public_person_bio_source_versions_v2', { p_person_ids: [1] });
+  });
+
+  it('lader en v2 RPC-fejl være en eksplicit hente-fejl', async () => {
+    rpc.mockReset();
+    rpc
+      .mockResolvedValueOnce({ data: 2, error: null })
+      .mockResolvedValueOnce({ data: null, error: { message: 'RPC utilgængelig' } });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await expect(fetchPersonDetail('1')).rejects.toThrow('PUBLIC_BIO_SOURCE_V2_UNAVAILABLE');
+    warn.mockRestore();
+  });
+
+  it('lader et synkront v2 RPC-kast være en eksplicit hente-fejl', async () => {
+    rpc.mockReset();
+    rpc
+      .mockResolvedValueOnce({ data: 2, error: null })
+      .mockImplementationOnce(() => { throw new Error('synkront RPC-kast'); });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await expect(fetchPersonDetail('1')).rejects.toThrow('PUBLIC_BIO_SOURCE_V2_UNAVAILABLE');
+    warn.mockRestore();
+  });
+
+  it('lader manglende contract-version RPC være en eksplicit hente-fejl', async () => {
+    const client = supabase as unknown as { rpc?: typeof rpc };
+    const originalRpc = client.rpc;
+    client.rpc = undefined;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      await expect(fetchPersonDetail('1')).rejects.toThrow('NARRATIVE_RECORD_CONTRACT_VERSION_UNAVAILABLE');
+    } finally {
+      client.rpc = originalRpc;
+      warn.mockRestore();
+    }
+  });
+
+  it('bevarer den tolerante v1-fallback når den gamle RPC afviser', async () => {
+    rpc.mockReset();
+    rpc
+      .mockResolvedValueOnce({ data: 1, error: null })
+      .mockRejectedValueOnce(new Error('v1 RPC utilgængelig'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await expect(fetchPersonDetail('1')).resolves.toEqual(expect.objectContaining({ bio: '', bioVersions: [] }));
+    warn.mockRestore();
   });
 });

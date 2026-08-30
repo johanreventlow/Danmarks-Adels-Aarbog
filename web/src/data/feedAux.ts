@@ -63,6 +63,7 @@ export async function fetchFeedBios(
   canonicalIdById: Record<string, string>,
   modelPersonIds?: readonly string[],
 ): Promise<Record<string, string>> {
+  let contractVersion: number | null = null;
   try {
     const subjectIds = buildFeedBioSubjectIds(canonicalIdById, modelPersonIds ?? []);
     if (!subjectIds.length) return {};
@@ -71,13 +72,14 @@ export async function fetchFeedBios(
     if (version.error || typeof version.data !== 'number' || !Number.isInteger(version.data)) {
       throw new Error('NARRATIVE_RECORD_CONTRACT_VERSION_UNAVAILABLE');
     }
-    const rpcName = version.data >= 2
+    contractVersion = version.data;
+    const rpcName = contractVersion >= 2
       ? 'public_person_bio_source_versions_v2'
       : 'public_person_bio_source_versions';
     const result = await supabase.rpc(rpcName, { p_person_ids: personIds });
     if (result.error || !Array.isArray(result.data)) throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
     const bioBy: Record<string, string> = {};
-    if (version.data >= 2) {
+    if (contractVersion >= 2) {
       const versionsByCanonicalPerson = new Map<string, unknown[]>();
       for (const row of result.data) {
         if (typeof row !== 'object' || row === null || typeof (row as Record<string, unknown>).person_id !== 'number') {
@@ -105,8 +107,9 @@ export async function fetchFeedBios(
     }
     return bioBy;
   } catch (e) {
-    console.warn('[feedAux] bio-hentning utilgængelig — feed kører uden portræt/citat-kort:', e);
-    return {};
+    console.warn('[feedAux] bio-hentning fejlede:', e);
+    if (contractVersion !== null && contractVersion < 2) return {};
+    throw e;
   }
 }
 

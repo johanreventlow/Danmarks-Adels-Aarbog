@@ -180,10 +180,13 @@ test('legacy-nedtagning kræver begrundelse og en bekræftelse af netop den valg
 
 test('stale state beholder lokal tekst og henter ny servertilstand uden automatisk replay', async () => {
   const fetch = fetchPersonNarrativeRecords as ReturnType<typeof vi.fn>;
+  const freshRecord = record({ status: 'draft', text: 'Ny servertekst', allowedActions: ['save_draft'], stateSha256: 'c'.repeat(64) });
   fetch
     .mockResolvedValueOnce({ records: [record({ status: 'draft', text: 'Servertekst', allowedActions: ['save_draft'] })], legacyPublications: [] })
-    .mockResolvedValueOnce({ records: [record({ status: 'draft', text: 'Ny servertekst', allowedActions: ['save_draft'], stateSha256: 'c'.repeat(64) })], legacyPublications: [] });
-  const onChange = vi.fn().mockRejectedValue(new Error('NARRATIVE_RECORD_STATE_STALE'));
+    .mockResolvedValue({ records: [freshRecord], legacyPublications: [] });
+  const onChange = vi.fn()
+    .mockRejectedValueOnce(new Error('NARRATIVE_RECORD_STATE_STALE'))
+    .mockResolvedValueOnce(false);
   render(<PersonNarrativeRecordEditor personId={5} onChange={onChange} />);
 
   fireEvent.change(await screen.findByLabelText('Tekst for Kildepost 20'), { target: { value: 'Min lokale tekst' } });
@@ -196,4 +199,16 @@ test('stale state beholder lokal tekst og henter ny servertilstand uden automati
   expect(screen.getByRole('button', { name: 'Genindlæs' })).toBeTruthy();
   expect(onChange).toHaveBeenCalledTimes(1);
   expect(fetch).toHaveBeenCalledTimes(2);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Genindlæs' }));
+  await waitFor(() => expect((screen.getByLabelText('Tekst for Kildepost 20') as HTMLTextAreaElement).value).toBe('Ny servertekst'));
+  fireEvent.click(screen.getByRole('button', { name: 'Gem kladde' }));
+
+  await waitFor(() => expect(onChange).toHaveBeenCalledTimes(2));
+  expect(onChange).toHaveBeenNthCalledWith(2, expect.objectContaining({
+    art: 'narrativRecord',
+    payload: expect.objectContaining({
+      action: 'save_draft', tekst: 'Ny servertekst', expectedStateSha256: 'c'.repeat(64),
+    }),
+  }), 'Gem kladde');
 });

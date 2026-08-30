@@ -179,7 +179,7 @@ nrk_sha_raw <- function(value) {
 
 nrk_export_new_legacy_refs <- function(narrative_ids) {
   if ((!is.integer(narrative_ids) && !inherits(narrative_ids, "integer64")) ||
-      anyNA(narrative_ids) || anyDuplicated(narrative_ids)) {
+      anyNA(narrative_ids) || anyDuplicated(as.character(narrative_ids))) {
     .nrk_fail("INVALID_LEGACY_IDS")
   }
   vapply(narrative_ids, function(unused) {
@@ -262,8 +262,12 @@ nrk_export_build_bundle <- function(records, legacy, counts, identity, database)
   for (field in c("narrative_id", "person_id", "source_id", "binding_match_count")) {
     .nrk_require_integer(legacy[[field]], paste0("INVALID_INTEGER: ", field))
   }
-  if (anyDuplicated(legacy$narrative_id)) .nrk_fail("DUPLICATE_LEGACY_CANDIDATE")
-  if (!identical(legacy$narrative_id, sort(legacy$narrative_id, method = "radix"))) {
+  legacy_narrative_ids <- as.character(legacy$narrative_id)
+  if (anyDuplicated(legacy_narrative_ids)) .nrk_fail("DUPLICATE_LEGACY_CANDIDATE")
+  if (!identical(
+    legacy_narrative_ids,
+    as.character(sort(legacy$narrative_id, method = "radix"))
+  )) {
     .nrk_fail("LEGACY_CANDIDATE_ORDER")
   }
   if (any(legacy$binding_match_count != 0L)) .nrk_fail("AMBIGUOUS_LEGACY_BINDING")
@@ -272,7 +276,13 @@ nrk_export_build_bundle <- function(records, legacy, counts, identity, database)
   .nrk_require_sha(legacy$baseline_sha256)
 
   for (field in names(counts)) .nrk_require_integer(counts[[field]], "COUNTS_INTEGER_REQUIRED")
-  if (anyDuplicated(counts$source_id) || !identical(counts$source_id, sort(counts$source_id))) {
+  # RPostgres exposes bigint as bit64::integer64. Base anyDuplicated() compares
+  # the underlying double payload and can classify distinct bigint values as
+  # duplicates, and identical() treats distinct NaN payloads as equal. Compare
+  # exact decimal representations after retaining integer64's numeric sort.
+  count_source_ids <- as.character(counts$source_id)
+  if (anyDuplicated(count_source_ids) ||
+      !identical(count_source_ids, as.character(sort(counts$source_id)))) {
     .nrk_fail("COUNTS_BY_SOURCE_ORDER")
   }
   expected_source_ids <- sort(unique(c(records$source_id, legacy$source_id)))

@@ -9,7 +9,7 @@ import { navigate, usePath } from './router';
 import { Link } from './Link';
 import { loadModel } from './data/model';
 import { initials } from './data/format';
-import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, TOM_PERSONDETALJE, type AboutSection, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
+import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type AboutSection, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
 import { personMemberIds } from './data/personMembers';
 import type { AppModel, Model } from './data/types';
 import { computeRelationship } from '@daa/core';
@@ -113,6 +113,7 @@ export default function Folgesvend() {
   const [estateOwners, setEstateOwners] = useState<EstateOwner[]>([]);
   const [estateInfo, setEstateInfo] = useState<EstateInfo | null>(null);
   const [detail, setDetail] = useState<PersonDetailData | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   // review 27 R2: udtrukket til en genkaldelig funktion, så fejlskærmens "Prøv igen"-knap
   // kan forsøge indlæsningen igen uden hard-reload (Supabase free-tier pauser efter 7 dages
@@ -176,13 +177,19 @@ export default function Folgesvend() {
   }, [estateId]);
   // Detalje (bio/embeder/godser) for fokus-personen — til højre-panelet.
   useEffect(() => {
-    if (!focusId) { setDetail(null); return; }
+    if (!focusId) { setDetail(null); setDetailError(null); return; }
+    let current = true;
     setDetail(null);
+    setDetailError(null);
     // Foldet person: hent detalje for ALLE medlems-id'er (narrativ/relationer unioneres — spec §8).
     const members = personMemberIds(focusId, model?.byId[focusId]);
     // Ingen bog-nummer (typisk en ægtefælle) → hent proveniens fra citationerne i stedet.
     const manglerBogNummer = !(model?.sourcesBy?.[focusId]?.length);
-    fetchPersonDetail(focusId, members, manglerBogNummer).then(setDetail).catch(() => setDetail(TOM_PERSONDETALJE));
+    fetchPersonDetail(focusId, members, manglerBogNummer).then(
+      (next) => { if (current) setDetail(next); },
+      (e) => { if (current) setDetailError(String((e as Error)?.message ?? e)); },
+    );
+    return () => { current = false; };
   }, [focusId, model]);
 
   const persons = model?.persons ?? [];
@@ -493,7 +500,12 @@ export default function Folgesvend() {
         </div>
 
         {/* Højre: person-detalje (kun i person-centriske visninger) */}
-        {detailOpen && model && focusId && (
+        {detailOpen && model && focusId && (detailError ? (
+          <aside role="alert" style={{ width: 380, padding: 28, color: T.bordeaux, background: T.paper, borderLeft: '1px solid rgba(34,31,26,.1)' }}>
+            <div style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 600 }}>Kunne ikke hente personens biografi</div>
+            <div style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>{detailError}</div>
+          </aside>
+        ) : (
           <DetailPanel
             model={model} focusId={focusId} detail={detail} onPick={mode === 'tree' ? navigateTree : focusOnly}
             backName={backName} onBack={() => window.history.back()} onClose={mode === 'tree' ? closeDetail : undefined}
@@ -504,7 +516,7 @@ export default function Folgesvend() {
             isBookmarked={bookmarks.has(focusId)} onToggleBookmark={() => saveOrPrompt(focusId)}
             geoLoading={geoLoading}
           />
-        )}
+        ))}
       </div>
 
       <SlaegtPicker open={slaegtOpen} slaegter={SLAEGTER} activeId="reventlow" onClose={() => setSlaegtOpen(false)} onPick={() => setSlaegtOpen(false)} />

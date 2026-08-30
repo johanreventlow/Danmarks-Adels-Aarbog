@@ -9,11 +9,19 @@ import { fetchPersonMedia, fetchObjectMedia, type MediaItem } from './media';
 // Rå narrativ-række med source-join (PostgREST embedded resource).
 type RawNarr = { id: number; subjekt_id: number | string; tekst: string | null; source_id: number | null; source: { slags: string | null; aar: number | null; udgave: string | null } | null };
 
+class PublicNarrativeFetchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PublicNarrativeFetchError';
+  }
+}
+
 async function safe<T>(fn: () => Promise<T>, fallback: T, label: string): Promise<T> {
   try {
     return await fn();
   } catch (e) {
     console.warn(`[public] ${label} fejlede:`, e);
+    if (e instanceof PublicNarrativeFetchError) throw e;
     return fallback;
   }
 }
@@ -204,14 +212,19 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
   return safe(async () => {
     const rpcClient = supabase as unknown as { rpc?: (name: string, args: unknown) => Promise<{ data: unknown; error: unknown }> };
     const hasRpc = typeof rpcClient.rpc === 'function';
-    let contractVersion = 1;
-    if (hasRpc) {
-      const versionResult = await rpcClient.rpc!('narrative_record_contract_version', {});
-      if (versionResult.error || typeof versionResult.data !== 'number' || !Number.isInteger(versionResult.data)) {
-        throw new Error('NARRATIVE_RECORD_CONTRACT_VERSION_UNAVAILABLE');
-      }
-      contractVersion = versionResult.data;
+    if (!hasRpc) {
+      throw new PublicNarrativeFetchError('NARRATIVE_RECORD_CONTRACT_VERSION_UNAVAILABLE');
     }
+    let versionResult: { data: unknown; error: unknown };
+    try {
+      versionResult = await rpcClient.rpc!('narrative_record_contract_version', {});
+    } catch {
+      throw new PublicNarrativeFetchError('NARRATIVE_RECORD_CONTRACT_VERSION_UNAVAILABLE');
+    }
+    if (versionResult.error || typeof versionResult.data !== 'number' || !Number.isInteger(versionResult.data)) {
+      throw new PublicNarrativeFetchError('NARRATIVE_RECORD_CONTRACT_VERSION_UNAVAILABLE');
+    }
+    const contractVersion = versionResult.data;
     const usesV2 = contractVersion >= 2;
     const [narr, rels, media, rpcVersions] = await Promise.all([
       // V1 keeps its existing fallback query.  At contract v2 this query is
@@ -227,16 +240,23 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
       fetchPersonMedia(numIds),
       // The contract version, not an RPC error, selects the reader.  A v2
       // failure rejects the complete biography fetch and never reaches v1.
-      hasRpc
-        ? rpcClient.rpc!(usesV2 ? 'public_person_bio_source_versions_v2' : 'public_person_bio_source_versions', { p_person_ids: numIds })
-          .then((res) => {
-            if (res.error || !Array.isArray(res.data)) {
-              if (usesV2) throw new Error('PUBLIC_BIO_SOURCE_V2_UNAVAILABLE');
-              return null;
-            }
-            return usesV2 ? mapPublicBioSourceVersionsV2(res.data) : mapPublicBioSourceVersions(res.data);
-          })
-        : Promise.resolve(null),
+      Promise.resolve()
+        .then(() => rpcClient.rpc!(usesV2 ? 'public_person_bio_source_versions_v2' : 'public_person_bio_source_versions', { p_person_ids: numIds }))
+        .then((res) => {
+          if (res.error || !Array.isArray(res.data)) {
+            if (usesV2) throw new PublicNarrativeFetchError('PUBLIC_BIO_SOURCE_V2_UNAVAILABLE');
+            return null;
+          }
+          if (!usesV2) return mapPublicBioSourceVersions(res.data);
+          try {
+            return mapPublicBioSourceVersionsV2(res.data);
+          } catch (e) {
+            throw new PublicNarrativeFetchError(String((e as Error)?.message ?? 'PUBLIC_BIO_SOURCE_V2_INVALID'));
+          }
+        }, (e) => {
+          if (usesV2) throw new PublicNarrativeFetchError('PUBLIC_BIO_SOURCE_V2_UNAVAILABLE');
+          throw e;
+        }),
     ]);
     // Udgave-versioner (§7.18): ÉN version pr. DAA-udgave, nyeste først. Kandidater ordnet
     // kanonisk (id) FØRST, så en samme_som-foldet person med narrativ i samme udgave fra
