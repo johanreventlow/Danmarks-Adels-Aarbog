@@ -11236,10 +11236,8 @@ ALTER TABLE private.interpretation_promotion_batch
   ADD COLUMN IF NOT EXISTS finalized_at timestamptz;
 -- Older deployments already have the generic evidence append-only trigger.
 -- It must not prevent this one-time, migration-owned quarantine of historical
--- rows. Keep the trigger replacement, backfill, constraints, and replacement
--- trigger in one transaction so a failed legacy conversion cannot leave the
--- table writable.
-BEGIN;
+-- rows. The repository applies this file with psql --single-transaction, so
+-- these statements deliberately remain inside the caller's outer transaction.
 DROP TRIGGER IF EXISTS trg_interpretation_promotion_batch_append_only
   ON private.interpretation_promotion_batch;
 UPDATE private.interpretation_promotion_batch SET status='legacy_quarantined'
@@ -11342,7 +11340,6 @@ END $$;
 DROP TRIGGER IF EXISTS trg_interpretation_promotion_authorized_batch ON private.interpretation_promotion;
 CREATE TRIGGER trg_interpretation_promotion_authorized_batch BEFORE INSERT
   ON private.interpretation_promotion FOR EACH ROW EXECUTE FUNCTION private.guard_interpretation_promotion_insert();
-COMMIT;
 
 CREATE OR REPLACE FUNCTION private.interpretation_promotion_profile(p_preview jsonb)
 RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$

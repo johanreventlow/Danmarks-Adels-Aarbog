@@ -49,6 +49,14 @@ fixture <- Sys.getenv(
 )
 if (!file.exists(fixture)) stop("INTEGRATION_FIXTURE_MISSING", call. = FALSE)
 fixture_sql <- paste(readLines(fixture, warn = FALSE), collapse = "\n")
+migration_lines <- readLines("db-migrations.sql", warn = FALSE)
+migration_start <- grep("^-- #153 Task 3:", migration_lines)[1L]
+migration_end <- grep("^CREATE OR REPLACE FUNCTION private\\.interpretation_promotion_profile", migration_lines)
+migration_end <- migration_end[migration_end > migration_start][1L] - 1L
+if (is.na(migration_start) || is.na(migration_end) ||
+    any(trimws(migration_lines[migration_start:migration_end]) %in% c("BEGIN;", "COMMIT;"))) {
+  stop("INTEGRATION_MIGRATION_NESTED_TRANSACTION", call. = FALSE)
+}
 blocks <- regmatches(
   fixture_sql,
   gregexpr("(?s)DO \\$[^$]+\\$.*?END \\$[^$]+\\$;", fixture_sql, perl = TRUE)
@@ -85,6 +93,7 @@ worker <- function() {
   db <- DBI::dbConnect(RPostgres::Postgres(), dbname = Sys.getenv("PGDATABASE"), host = Sys.getenv("PGHOST"),
     port = Sys.getenv("PGPORT"), user = Sys.getenv("PGUSER"), password = Sys.getenv("PGPASSWORD"))
   on.exit(DBI::dbDisconnect(db), add = TRUE)
+  DBI::dbExecute(db, "SET application_name = 'daa-evidence-promotion-writer-race'")
   DBI::dbExecute(db, "BEGIN")
   on.exit(try(DBI::dbExecute(db, "ROLLBACK"), silent = TRUE), add = TRUE)
   DBI::dbExecute(db, "SET LOCAL ROLE authenticated")
@@ -98,7 +107,32 @@ worker <- function() {
   out
 }
 jobs <- list(parallel::mcparallel(worker()), parallel::mcparallel(worker()))
-Sys.sleep(0.2)
+ready <- data.frame()
+for (attempt in seq_len(100L)) {
+  ready <- DBI::dbGetQuery(con, "
+    SELECT activity.pid, activity.wait_event_type, activity.wait_event,
+           waiting.classid, waiting.objid, holder.pid AS holder_pid
+      FROM pg_stat_activity activity
+      JOIN pg_locks waiting ON waiting.pid=activity.pid
+      JOIN pg_locks holder ON holder.locktype='advisory' AND holder.granted
+        AND holder.pid=pg_backend_pid()
+        AND holder.classid=waiting.classid AND holder.objid=waiting.objid
+     WHERE activity.application_name='daa-evidence-promotion-writer-race'
+       AND waiting.locktype='advisory' AND NOT waiting.granted
+     ORDER BY activity.pid
+  ")
+  if (nrow(ready) == 2L && length(unique(ready$pid)) == 2L &&
+      all(ready$wait_event_type == "Lock") && all(ready$wait_event == "advisory") &&
+      all(ready$holder_pid == pid1) && length(unique(paste(ready$classid, ready$objid))) == 1L) break
+  Sys.sleep(0.05)
+}
+if (nrow(ready) != 2L || length(unique(ready$pid)) != 2L ||
+    !all(ready$wait_event_type == "Lock") || !all(ready$wait_event == "advisory") ||
+    !all(ready$holder_pid == pid1) || length(unique(paste(ready$classid, ready$objid))) != 1L) {
+  DBI::dbExecute(con, "SELECT pg_advisory_unlock(hashtextextended('daa-evidence-promotion-writer',0))")
+  parallel::mccollect(jobs, wait = TRUE)
+  stop("INTEGRATION_WRITER_RACE_BARRIER_NOT_READY", call. = FALSE)
+}
 DBI::dbExecute(con, "SELECT pg_advisory_unlock(hashtextextended('daa-evidence-promotion-writer',0))")
 receipts <- unlist(parallel::mccollect(jobs), use.names = FALSE)
 if (length(receipts) != 2L || !identical(receipts[[1L]], receipts[[2L]])) {
@@ -114,4 +148,7 @@ promotions <- DBI::dbGetQuery(con, sprintf(
   DBI::dbQuoteString(con, race$authorization_id[[1L]])
 ))$n[[1L]]
 if (!identical(as.integer(promotions), 1L)) stop("INTEGRATION_WRITER_RACE_PROMOTION_PARTIAL_STATE", call. = FALSE)
-cat("PASS evidence-promotion writer contract DBI integration (barriered issued-authority finalize race)\n")
+cat(sprintf(
+  "PASS evidence-promotion writer contract DBI integration (barriered issued-authority finalize race; worker_pids=%s; advisory_key=%s/%s)\n",
+  paste(ready$pid, collapse = ","), ready$classid[[1L]], ready$objid[[1L]]
+))
