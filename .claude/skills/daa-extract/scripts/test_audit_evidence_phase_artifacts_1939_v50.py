@@ -587,6 +587,25 @@ def test_audit_rejects_absolute_and_traversal_artifact_paths(tmp_path, path):
         audit_bundle(tmp_path, [phase_b_manifest_phase(path, "a" * 64)])
 
 
+def test_direct_receipt_helper_maps_a_nul_receipt_path_to_the_stable_path_error(tmp_path):
+    identity_map = phase_b_identity_map()
+    manifest_sha256 = write_json(
+        tmp_path / "phase-b.json",
+        {
+            "schema_version": "1939-v50-narrative-replacement-manifest-v2",
+            "operations": phase_b_operations(identity_map),
+        },
+    )
+    receipt_sha256 = sha256_bytes(b"unused")
+    phase = phase_b_ledger_with_receipt(manifest_sha256, receipt_sha256)[0]
+
+    with pytest.raises(AuditError, match="EVIDENCE_RECONCILIATION_ARTIFACT_PATH_INVALID"):
+        receipt_binds_manifest_and_identities(
+            {"manifest": tmp_path / "phase-b.json", "receipt": Path("nul\x00receipt.json")},
+            phase,
+        )
+
+
 def test_audit_rejects_a_symlink_loop_artifact_path(tmp_path):
     (tmp_path / "loop.json").symlink_to("loop.json")
 
