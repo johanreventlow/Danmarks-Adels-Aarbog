@@ -137,6 +137,7 @@ def artifacts() -> dict[str, bytes]:
             {"path": "mobile/src/data/haendelser.ts", "classification": "rls_gated_metadata"},
             {"path": "mobile/src/data/load.ts", "classification": "v2_public_rpc"},
             {"path": "mobile/src/data/presensLinjer.ts", "classification": "non_person_control"},
+            {"path": "mobile/src/data/publicBioVersions.ts", "classification": "v2_public_rpc"},
             {"path": "mobile/src/data/redaktionRead.ts", "classification": "v2_editor_rpc"},
             {"path": "web/src/data/feedAux.ts", "classification": "v2_public_rpc"},
             {"path": "web/src/data/haendelser.ts", "classification": "rls_gated_metadata"},
@@ -358,7 +359,9 @@ def test_changed_candidate_bytes_invalidate_decisions_even_if_json_values_match(
         )
 
 
-@pytest.mark.parametrize("axis", ["counts", "negative_identity", "reader_shape", "reader_missing"])
+@pytest.mark.parametrize(
+    "axis", ["counts", "negative_identity", "reader_shape", "reader_missing", "reader_reordered"]
+)
 def test_inventory_metrics_are_exact_and_reconciled_to_candidates(axis: str) -> None:
     values = artifacts()
     inventory = review.strict_load_json(values["inventory"])
@@ -368,6 +371,10 @@ def test_inventory_metrics_are_exact_and_reconciled_to_candidates(axis: str) -> 
         inventory["identity_blocked_record_count"] = -1
     elif axis == "reader_shape":
         inventory["classified_direct_readers"][0]["unexpected"] = True
+    elif axis == "reader_reordered":
+        inventory["classified_direct_readers"][0], inventory["classified_direct_readers"][1] = (
+            inventory["classified_direct_readers"][1], inventory["classified_direct_readers"][0]
+        )
     else:
         inventory["classified_direct_readers"].pop()
     with pytest.raises(review.ContractError, match="INVENTORY_"):

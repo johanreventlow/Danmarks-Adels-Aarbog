@@ -23,10 +23,11 @@ klient-/serversuiter og browser-smoke, så målet nu er `integreret
 ende-til-ende`.
 
 Denne modenhed er ikke `produktionsverificeret`. Task 13's
-[#152-cutover-runbook](../runbooks/narrative-record-key-cutover.md) kræver en
-frisk, læse-kun inventory, lokal menneskelig review, adskilt hash- og
-databaseidentitetskontrol, restore-rehearsal samt en ny udtrykkelig
-projektejer-GO før nogen produktionsmutation. Frysningen af nye bindinger og
+[#152-cutover-runbook](../runbooks/narrative-record-key-cutover.md) kræver
+preliminær autorisation, backup/restore-rehearsal, frisk læse-kun inventory,
+lokal menneskelig review, adskilt hash- og databaseidentitetskontrol og derefter
+et nyt, artifact-bundet projektejer-GO med release-SHA, udløb og eksternt
+writer-traffic hold før nogen produktionsmutation. Frysningen af nye bindinger og
 legacy loaders forbliver aktiv ved design, indtil den atomiske version-2
 cutover er særskilt godkendt og efterverificeret.
 

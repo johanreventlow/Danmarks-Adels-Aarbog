@@ -91,7 +91,7 @@
 .nrk_cutover_parse <- function(raw, token) {
   if (!is.raw(raw)) .nrk_cutover_fail(token)
   tryCatch(
-    jsonlite::fromJSON(rawToChar(raw), simplifyVector = FALSE),
+    jsonlite::fromJSON(rawToChar(raw), simplifyVector = FALSE, bigint_as_char = TRUE),
     error = function(error) .nrk_cutover_fail(token)
   )
 }

@@ -5,8 +5,11 @@
 This is the only production procedure for moving #152 from contract version 1
 to 2. It invokes exactly
 `private.apply_narrative_record_cutover(text,text,text,text,text,text,uuid,text,text)`.
-It is not a production GO, a bulk approval, or authority to generate artifacts
-before a fresh written project-owner GO.
+It is not a production GO or a bulk approval. A written preliminary
+project-owner authorization permits only private artifact setup, nonce
+generation, the mode-0600 backup and its disposable restore rehearsal, fresh
+non-mutating inventory, and offline review. It is not authority for preflight,
+apply, recovery, or any production write.
 
 The operator uses the reviewed commit and sets `PGDATABASE`, `PGHOST`,
 `PGPORT`, `PGUSER`, and `PGPASSWORD` together. Stop before backup if that
@@ -23,20 +26,31 @@ compensate for a failed gate. Two named local reviewers are required: one
 reviews every record and legacy decision; the other independently verifies all
 hashes, sets, counts, and database identity.
 
-Before any cutover, the GO control record must contain the reviewed release
-SHA; proof that the additive schema, migration, RLS, and ACL signatures are
+After that preliminary authorization has produced the backup/restore rehearsal,
+fresh artifacts, and both reviews, the final, bound project-owner GO control
+record must contain the reviewed release SHA and an unexpired expiry; proof
+that the additive schema, migration, RLS, and ACL signatures are
 deployed; and proof that the capability-aware web and mobile clients are
 deployed before version-2 writer authority is enabled. It must also bind the
 fresh artifact database name and system identifier, all six raw SHA-256 values,
 the exact record/legacy/hidden ID sets, five inventory quantities, complete
 direct-reader classification, both reviewer approvals, project-owner approval,
-one nonce, and an expiry. It binds the fresh exported bytes; it does not rely
-on invented historical ID sets.
+the already-recorded backup SHA-256, one nonce, and an explicit external
+writer-traffic hold owner and control reference. It binds the fresh exported
+bytes; it does not rely on invented historical ID sets. The final GO is signed
+after all bound evidence exists and before preflight; expired, release-SHA-
+drifted, or byte-drifted evidence is invalid.
 
-## 1. Backup and isolation
+The numbered sections are grouped by control, not chronology. The required
+order is: preliminary authorization; sections 1–2 (backup and disposable
+restore rehearsal); sections 3–4 (fresh read-only export and offline review);
+final bound GO; then sections 5–6. A rehearsal in section 2 uses its own
+disposable artifacts and never substitutes for the fresh production-bound
+evidence.
 
-Run only after the separate GO. This creates a mode-0700 location outside the
-repository; `umask 077` and the explicit check require the backup to be 0600.
+Under the preliminary authorization, establish the private artifact location
+and nonce before section 3. Retain these exact values for the final GO and all
+later sections; do not recreate them after review.
 
 ```bash
 set -euo pipefail
@@ -45,9 +59,26 @@ CUTOVER_DIR="$(mktemp -d /private/tmp/daa-narrative-record-cutover.XXXXXX)"
 chmod 700 "$CUTOVER_DIR"
 EXPORT_DIR="$CUTOVER_DIR/export"
 REVIEW_DIR="$CUTOVER_DIR/review"
+mkdir "$EXPORT_DIR" "$REVIEW_DIR"
+chmod 700 "$EXPORT_DIR" "$REVIEW_DIR"
+CUTOVER_NONCE="$(/usr/bin/python3 -c 'import uuid; print(uuid.uuid4())')"
+printf '%s\n' "$CUTOVER_NONCE"
+```
+
+## 1. Backup and isolation
+
+Run under the preliminary authorization before fresh production-bound export
+and final GO. This creates a mode-0700 location outside the repository;
+`umask 077` and the explicit check require the backup to be 0600.
+
+```bash
+set -euo pipefail
+umask 077
 RECEIPT_DIR="$CUTOVER_DIR/receipt"
-mkdir "$EXPORT_DIR" "$REVIEW_DIR" "$RECEIPT_DIR"
-chmod 700 "$EXPORT_DIR" "$REVIEW_DIR" "$RECEIPT_DIR"
+test -d "$EXPORT_DIR"
+test -d "$REVIEW_DIR"
+mkdir "$RECEIPT_DIR"
+chmod 700 "$RECEIPT_DIR"
 git status --short
 git diff --check
 /opt/homebrew/opt/postgresql@17/bin/psql -X -v ON_ERROR_STOP=1 -Atc \
@@ -59,8 +90,8 @@ stat -f '%Lp %N' "$CUTOVER_DIR/precutover.backup"
 shasum -a 256 "$CUTOVER_DIR/precutover.backup"
 ```
 
-Continue only when the contract is `1`, diff check is empty, the backup reports
-mode `600`, and the backup SHA-256 is entered in the GO control record. The
+Continue only when the contract is `1`, diff check is empty, and the backup
+reports mode `600`. Record its SHA-256 for binding in the later final GO; the
 backup is an incident resource, never routine rollback.
 
 ## 2. Restore rehearsal
@@ -129,10 +160,10 @@ PY
 Both reviewers independently inspect the SHA-256 values for record candidates,
 legacy candidates, and inventory. They also inspect fresh counts for bindings,
 grandfathered legacy, accepted identities, blocked new records, and direct
-readers. The 2026-08-29 approved consequence remains usable only if exact ID
-sets, counts, reader classifications, and the
-`database_name`/`system_identifier` pair are unchanged. Material drift returns
-to the project owner; equal counts never approve a drifted set.
+readers. The fresh exact ID sets, counts, reader classifications, and the
+`database_name`/`system_identifier` pair are the review evidence. Material
+drift between export, review, final GO, and preflight returns to the project
+owner; equal counts never approve a drifted set.
 
 ## 4. Human review and approval conversion
 
@@ -192,7 +223,7 @@ database = json.load(open(sys.argv[1], encoding="utf-8"))["database"]
 print(database["database_name"], database["system_identifier"])
 PY
 )
-CUTOVER_NONCE="$(/usr/bin/python3 -c 'import uuid; print(uuid.uuid4())')"
+test -n "$CUTOVER_NONCE"
 Rscript .claude/skills/daa-extract/scripts/apply_narrative_record_cutover.R \
   --mode preflight \
   --record-candidates "$EXPORT_DIR/narrative-record-baseline-candidates-v1.json" \
@@ -213,10 +244,17 @@ six raw artifacts, hashes, and exact live ID sets, then rolls back. Any
 failure, including `CUTOVER_LEGACY_LIVE_SET_DRIFT`, requires a new export,
 review, and project-owner decision.
 
-Only when preflight and the signed control record still match the GO, execute
-the identical command with `--mode apply`. It changes to version 2 as the last
-write of one transaction, writes an append-only receipt, reconnects, and
-requires exactly one receipt for nonce, six hashes, and database identity.
+Only when the signed final control record exists, its release SHA equals the
+reviewed checkout SHA, its expiry has not passed, its backup SHA equals the
+recorded mode-0600 backup, and preflight still matches its bound artifacts,
+execute the identical command with `--mode apply`. Immediately before apply,
+the named owner must activate the final-GO external writer-traffic hold and
+record that control's reference in the operator log. The hold must block all
+application and batch writers that could affect this contract; a shared
+read-only database lock is not a substitute. It remains active through
+postverify. It changes to version 2 as the last write of one transaction,
+writes an append-only receipt, reconnects, and requires exactly one receipt
+for nonce, six hashes, and database identity.
 
 ```bash
 set -euo pipefail
@@ -260,10 +298,12 @@ Rscript .claude/skills/daa-extract/scripts/apply_narrative_record_cutover.R \
 ```
 
 After `committed` or `recovered`, the reviewers run new read-only postverify
-with the version-controlled verifier. It fail-closes on contract version,
-exact receipt and six hashes, event/legacy ID sets, change-set scope, actual
-public v2 `source_record_ref` projections, inventory quantities,
-direct-reader classification, and the v2/legacy ACL inventory.
+with the version-controlled verifier. It holds the shared cutover lock for one
+read-only repeatable-read observation and fail-closes on contract version,
+exact receipt and six hashes, full receipt-bound event rows and change-set
+scope, actual ordered public v2 projections (including text, labels,
+citations, provenance and hidden-legacy absence), inventory quantities,
+direct-reader classification, and the full v2/legacy ACL role matrix.
 
 ```bash
 set -euo pipefail
@@ -282,9 +322,12 @@ Rscript .claude/skills/daa-extract/scripts/verify_narrative_record_cutover_postv
 Before database commit, rollback means database rollback: preflight or
 `--mode rollback` must restore the exact before state. After committed cutover,
 rollback never means deleting append-only events, editing a receipt, or
-opportunistically lowering the version. On postverify failure, preserve the
-artifacts and receipt and go directly to containment/incident handling; do not
-run `recover` as a purported repair. The project owner then selects
+opportunistically lowering the version. Keep the external writer-traffic hold
+active until postverify returns `postverify_passed`; only then may its named
+owner release it and record the release. On postverify failure, preserve the
+artifacts and receipt, keep the hold active, and go directly to
+containment/incident handling; do not run `recover` as a purported repair. The
+project owner then selects
 documented containment and a new separately approved migration or recovery
 path. Restore from `precutover.backup` requires explicit incident authority;
 it is never routine rollback or a way to hide history.

@@ -88,10 +88,12 @@ programmets samlede modenhed.
 ## Åbne blokeringer
 
 - #152 afventer en særskilt, frisk produktions-GO efter
-  [cutover-runbooken](../runbooks/narrative-record-key-cutover.md). Frisk
-  production-inventory skal bevise nøjagtige bindings-/legacy-/identitets- og
-  reader-mængder, hashede artefakter og databaseidentitet; væsentlig drift fra
-  den 2026-08-29 godkendte konsekvens kræver ny projektejerbeslutning.
+  [cutover-runbooken](../runbooks/narrative-record-key-cutover.md). Først
+  kræves preliminær autorisation, mode-0600 backup/restore-rehearsal og frisk
+  production-inventory; derefter kan et final-GO binde release-SHA, udløb,
+  backup- og artifact-hashes, databaseidentitet og et eksternt writer-traffic
+  hold fra apply gennem bestået postverify. Væsentlig drift fra den 2026-08-29
+  godkendte konsekvens kræver ny projektejerbeslutning.
 - Den eksisterende åbne tombstone-/retentionsbeslutning betyder, at #152
   foreløbig må blokere hel-person-sletning for personer med publication-events;
   granulær withdrawal løser kun offentlig nedtagning af den enkelte biografi.

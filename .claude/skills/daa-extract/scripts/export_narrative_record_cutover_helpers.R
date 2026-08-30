@@ -197,12 +197,12 @@ nrk_export_new_legacy_refs <- function(narrative_ids) {
 .nrk_classified_readers <- function() {
   paths <- c(
     "mobile/src/data/about.ts", "mobile/src/data/haendelser.ts", "mobile/src/data/load.ts",
-    "mobile/src/data/presensLinjer.ts", "mobile/src/data/redaktionRead.ts",
+    "mobile/src/data/presensLinjer.ts", "mobile/src/data/publicBioVersions.ts", "mobile/src/data/redaktionRead.ts",
     "web/src/data/feedAux.ts", "web/src/data/haendelser.ts", "web/src/data/presensLinjer.ts",
     "web/src/data/public.ts", "web/src/data/redaktionRead.ts"
   )
   classifications <- c(
-    "non_person_control", "rls_gated_metadata", "v2_public_rpc", "non_person_control",
+    "non_person_control", "rls_gated_metadata", "v2_public_rpc", "non_person_control", "v2_public_rpc",
     "v2_editor_rpc", "v2_public_rpc", "rls_gated_metadata", "non_person_control",
     "v2_public_rpc", "v2_editor_rpc"
   )

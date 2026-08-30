@@ -28,6 +28,7 @@ EXPECTED_CLASSIFIED_READERS = [
     {"path": "mobile/src/data/haendelser.ts", "classification": "rls_gated_metadata"},
     {"path": "mobile/src/data/load.ts", "classification": "v2_public_rpc"},
     {"path": "mobile/src/data/presensLinjer.ts", "classification": "non_person_control"},
+    {"path": "mobile/src/data/publicBioVersions.ts", "classification": "v2_public_rpc"},
     {"path": "mobile/src/data/redaktionRead.ts", "classification": "v2_editor_rpc"},
     {"path": "web/src/data/feedAux.ts", "classification": "v2_public_rpc"},
     {"path": "web/src/data/haendelser.ts", "classification": "rls_gated_metadata"},

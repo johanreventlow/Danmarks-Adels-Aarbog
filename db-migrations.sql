@@ -11462,6 +11462,7 @@ BEGIN
        jsonb_build_object('path','mobile/src/data/haendelser.ts','classification','rls_gated_metadata'),
        jsonb_build_object('path','mobile/src/data/load.ts','classification','v2_public_rpc'),
        jsonb_build_object('path','mobile/src/data/presensLinjer.ts','classification','non_person_control'),
+       jsonb_build_object('path','mobile/src/data/publicBioVersions.ts','classification','v2_public_rpc'),
        jsonb_build_object('path','mobile/src/data/redaktionRead.ts','classification','v2_editor_rpc'),
        jsonb_build_object('path','web/src/data/feedAux.ts','classification','v2_public_rpc'),
        jsonb_build_object('path','web/src/data/haendelser.ts','classification','rls_gated_metadata'),

@@ -224,6 +224,14 @@ test_that("DB result parsing and receipt publication preserve bigint beyond JS r
   )
 })
 
+test_that("artifact JSON parsing preserves bigint decimals before validation", {
+  parsed <- .nrk_cutover_parse(
+    charToRaw('{"narrative_id":9007199254740995}\n'),
+    "CUTOVER_ARTIFACT_JSON_INVALID: bigint"
+  )
+  expect_identical(parsed$narrative_id, "9007199254740995")
+})
+
 test_that("post-commit publication uncertainty always requires recovery", {
   artifacts <- artifact_fixture()
   gateway <- fake_cutover_gateway()

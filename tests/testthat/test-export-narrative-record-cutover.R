@@ -89,7 +89,11 @@ test_that("pure exporter emits canonical exact candidate and inventory bytes", {
   expect_identical(vapply(legacy$rows, `[[`, 0L, "narrative_id"), c(201L, 202L))
   expect_identical(inventory$record_candidate_ids, as.list(record_rows()$binding_id))
   expect_identical(inventory$legacy_candidate_ids, as.list(c(201L, 202L)))
-  expect_true(length(inventory$classified_direct_readers) == 10L)
+  expect_true(length(inventory$classified_direct_readers) == 11L)
+  expect_true(any(vapply(inventory$classified_direct_readers, function(reader) {
+    identical(reader$path, "mobile/src/data/publicBioVersions.ts") &&
+      identical(reader$classification, "v2_public_rpc")
+  }, logical(1))))
   for (row in c(record$rows, legacy$rows)) {
     stated <- row$row_sha256
     row$row_sha256 <- NULL
