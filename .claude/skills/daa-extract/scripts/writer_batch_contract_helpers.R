@@ -13,10 +13,12 @@
 
 .wb_canonicalize <- function(value, key = NULL) {
   if (inherits(value, "AsIs")) {
-    if (!is.atomic(value) || anyNA(value) ||
-        (is.numeric(value) && any(!is.finite(value))))
+    attribute_names <- names(attributes(value))
+    if (!identical(class(value), "AsIs") ||
+        any(!(attribute_names %in% c("class", "names"))))
       .wb_stop("WRITER_BATCH_CANONICAL_VALUE_INVALID")
-    return(value)
+    attr(value, "class") <- NULL
+    return(.wb_canonicalize(value, key))
   }
   if (is.list(value)) {
     value_names <- names(value)
@@ -91,7 +93,7 @@ wb_sha256 <- function(value) {
 
 .wb_string_set <- function(value) {
   is.character(value) && length(value) > 0L && !anyNA(value) &&
-    all(nzchar(value)) && !anyDuplicated(value)
+    is.null(names(value)) && all(nzchar(value)) && !anyDuplicated(value)
 }
 
 .wb_count_tree <- function(value) {
@@ -249,15 +251,38 @@ wb_validate_receipt <- function(receipt, profile, mode) {
   .wb_canonicalize(receipt)
 }
 
+## Validates the trusted current-state projection supplied by an adapter's
+## database query. This pure helper has no database access and cannot establish
+## provenance itself; it therefore requires independent persisted receipt,
+## profile, input, database, and operation bindings in `state`.
 wb_validate_current_state <- function(state, receipt) {
   if (!is.list(receipt) || is.null(receipt$profile))
     .wb_stop("WRITER_BATCH_RECEIPT_KEYS_INVALID")
   validated_receipt <- wb_validate_receipt(receipt, receipt$profile, "historical")
-  if (!.wb_exact_named_list(state, c("schema", "sha256")) ||
-      !.wb_scalar_string(state$schema) || !.wb_hex_sha256(state$sha256))
+  required_keys <- c(
+    "receipt_sha256", "profile_sha256", "input_identity", "database_identity",
+    "operation_id", "verified_state"
+  )
+  if (!.wb_exact_named_list(state, required_keys) ||
+      !.wb_hex_sha256(state$receipt_sha256) ||
+      !.wb_hex_sha256(state$profile_sha256) ||
+      !is.list(state$input_identity) || !is.list(state$database_identity) ||
+      !.wb_scalar_string(state$operation_id))
+    .wb_stop("WRITER_BATCH_CURRENT_STATE_BINDINGS_INVALID")
+  if (!identical(state$receipt_sha256, wb_sha256(validated_receipt)) ||
+      !identical(state$profile_sha256, validated_receipt$profile_sha256) ||
+      !identical(wb_canonical_json(state$input_identity),
+                 wb_canonical_json(validated_receipt$input_identity)) ||
+      !identical(wb_canonical_json(state$database_identity),
+                 wb_canonical_json(validated_receipt$database_identity)) ||
+      !identical(state$operation_id, validated_receipt$operation_id))
+    .wb_stop("WRITER_BATCH_CURRENT_STATE_RECEIPT_DRIFT")
+  if (!.wb_exact_named_list(state$verified_state, c("schema", "sha256")) ||
+      !.wb_scalar_string(state$verified_state$schema) ||
+      !.wb_hex_sha256(state$verified_state$sha256))
     .wb_stop("WRITER_BATCH_CURRENT_STATE_INVALID")
-  if (!identical(state$schema, validated_receipt$verified_state$schema) ||
-      !identical(state$sha256, validated_receipt$verified_state$sha256))
+  if (!identical(state$verified_state$schema, validated_receipt$verified_state$schema) ||
+      !identical(state$verified_state$sha256, validated_receipt$verified_state$sha256))
     .wb_stop("WRITER_BATCH_CURRENT_STATE_DRIFT")
   .wb_canonicalize(state)
 }

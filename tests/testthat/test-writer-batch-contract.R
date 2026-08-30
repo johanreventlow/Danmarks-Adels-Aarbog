@@ -110,6 +110,20 @@ test_that("canonical JSON preserves precision, names, and contract array shapes"
   )
   expect_error(wb_canonical_json(list(value = factor("x"))),
                "WRITER_BATCH_CANONICAL_VALUE_INVALID")
+  expect_error(wb_canonical_json(list(value = I(factor("x")))),
+               "WRITER_BATCH_CANONICAL_VALUE_INVALID")
+  expect_error(wb_canonical_json(list(value = I(as.raw(1L)))),
+               "WRITER_BATCH_CANONICAL_VALUE_INVALID")
+  expect_error(wb_canonical_json(list(value = I(1 + 2i))),
+               "WRITER_BATCH_CANONICAL_VALUE_INVALID")
+  expect_equal(
+    wb_sha256(valid_profile(element_ids = I(c("b", "a")))),
+    wb_sha256(valid_profile(element_ids = I(c("a", "b"))))
+  )
+  expect_equal(
+    wb_sha256(valid_profile(terminal_statuses = I(c("committed", "already_applied")))),
+    wb_sha256(valid_profile(terminal_statuses = I(c("already_applied", "committed"))))
+  )
 })
 
 valid_receipt <- function(profile = valid_profile()) {
@@ -135,18 +149,27 @@ valid_receipt <- function(profile = valid_profile()) {
   )
 }
 
+valid_current_state <- function(receipt) {
+  list(
+    receipt_sha256 = wb_sha256(receipt),
+    profile_sha256 = receipt$profile_sha256,
+    input_identity = receipt$input_identity,
+    database_identity = receipt$database_identity,
+    operation_id = receipt$operation_id,
+    verified_state = receipt$verified_state
+  )
+}
+
 test_that("historical receipts remain valid while current-state verification reports drift", {
   profile <- valid_profile()
   receipt <- valid_receipt(profile)
   expect_no_error(wb_validate_receipt(receipt, profile, "historical"))
 
-  matching_state <- list(
-    schema = profile$postverify_schema,
-    sha256 = strrep("b", 64L)
-  )
+  matching_state <- valid_current_state(receipt)
   expect_no_error(wb_validate_current_state(matching_state, receipt))
 
-  later_state <- list(schema = profile$postverify_schema, sha256 = strrep("c", 64L))
+  later_state <- matching_state
+  later_state$verified_state$sha256 <- strrep("c", 64L)
   expect_no_error(wb_validate_receipt(receipt, profile, "historical"))
   expect_error(wb_validate_current_state(later_state, receipt),
                "WRITER_BATCH_CURRENT_STATE_DRIFT")
@@ -154,6 +177,15 @@ test_that("historical receipts remain valid while current-state verification rep
   expect_error(wb_validate_current_state(
     matching_state, list(postverify_sha256 = strrep("b", 64L))
   ), "WRITER_BATCH_RECEIPT_KEYS_INVALID")
+
+  forged_receipt <- valid_receipt(valid_profile())
+  postverify_only_state <- list(verified_state = forged_receipt$verified_state)
+  expect_error(wb_validate_current_state(postverify_only_state, forged_receipt),
+               "WRITER_BATCH_CURRENT_STATE_BINDINGS_INVALID")
+  wrong_operation_state <- valid_current_state(receipt)
+  wrong_operation_state$operation_id <- "batch-2"
+  expect_error(wb_validate_current_state(wrong_operation_state, receipt),
+               "WRITER_BATCH_CURRENT_STATE_RECEIPT_DRIFT")
 })
 
 test_that("receipt binds its profile, identities, authorization, operation, counts, and state", {
