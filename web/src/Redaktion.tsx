@@ -16,13 +16,15 @@ import {
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
   type HaendelsePost, type StoryPost, type TidslinjePost, type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia, type ForaeldreUkendtMarkering, SLAEGT_SUBJEKT_ID,
   fetchForaeldreSlot, fetchForaeldreKonflikter, fetchBarnFamilie, type ForaeldreSlot, type ForaeldreKonflikt, type BarnFamilie,
-  fetchMediaBibliotek, fetchMediaAnvendelse, fetchUdrensPreview, formatMedieAlder, type MediaBibliotekPost, type MediaAnvendelse, type MedieKoe, type UdrensPreview,
+  fetchMediaBibliotek, fetchMediaAnvendelse, fetchUdrensPreview, formatMedieAlder, fetchPersonNarrativeRecords, type MediaBibliotekPost, type MediaAnvendelse, type MedieKoe, type UdrensPreview,
 } from './data/redaktionRead';
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, insertAt, makeToken, previewSammeSom, type OcrFelt, type PersonKvalitetsarkRow } from '@daa/core';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
 import { submitChange, describeCall, erFortrydKonflikt, oversaetFejl, planCall, resumeMediaUpload, type Change } from './data/redaktionWrite';
 import { HistorikPanel, type FortrydUdfald } from './components/HistorikPanel';
+import { PersonNarrativeRecordEditor } from './components/PersonNarrativeRecordEditor';
+import type { HistPost } from './data/historik';
 import {
   fetchPersonKvalitetsark, fetchOcrHistorik, retOcrFelt, oversaetOcrFejl, type OcrHistorikEntry,
 } from './data/personKvalitetsark';
@@ -200,6 +202,7 @@ export default function Redaktion() {
   const [haendelseNotice, setHaendelseNotice] = useState('');
   // Narrativ pr. udgave: liste (faner) + aktiv kilde + redigerbart udkast for den aktive fane.
   const [narrativer, setNarrativer] = useState<PersonNarrativ[]>([]);
+  const [personNarrativeRefresh, setPersonNarrativeRefresh] = useState(0);
   const [aktivSourceId, setAktivSourceId] = useState<number | null>(null);
   const [narrativUdkast, setNarrativUdkast] = useState<{ tekst: string; privat: boolean; side: string }>({ tekst: '', privat: false, side: '' });
   // Cursor-position i narrativ-textarea'en (billeder-i-narrativer 2026-07-05, Slice C2) — ref, ikke
@@ -508,7 +511,10 @@ export default function Redaktion() {
     fetchPersonEvidence(id).then(setEvidence).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
     fetchHaendelserForPerson(id).then(setHaendelser).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
     fetchStoriesForPerson(id).then(setStories).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
-    loadNarrativer('person', Number(id));
+    // Person/DAA-narrativer læses kun af den record-bundne editor. Den generiske
+    // source-nøglede læser er fortsat kun til slægt/linje-editoren nedenfor.
+    setNarrativer([]); setAktivSourceId(null); setNyUdgave(null);
+    setNarrativUdkast({ tekst: '', privat: false, side: '' });
     fetchPersonFamilie(id, model).then(setFamilie).catch(() => setFamilie({ somPartner: [], somBarn: [] }));
     fetchPersonRelationer(id).then(setRelationer).catch(() => setRelationer([]));
     fetchSammeSomLinks(id).then(setSammeSom).catch(() => setSammeSom([]));
@@ -516,7 +522,7 @@ export default function Redaktion() {
       setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false }); setMediaDetalje(null);
       fetchRedPersonMedia(id).then(setMedia).catch(() => setMedia([]));
     }
-  }, [model, loadNarrativer]);
+  }, [model]);
 
   // Skift aktiv udgave-fane; nulstil udkast fra den fanes gemte narrativ (ugemte edits kasseres,
   // som ved record-skift). sourceId==null når en ny udgave er valgt men endnu ikke gemt.
@@ -702,14 +708,29 @@ export default function Redaktion() {
   // Fortryd fra historik-panelet (issue #144): samme submitChange-flow som run(), men med
   // rå-fejl-klassifikation FØR oversaetFejl — B9-konflikten ("nyere ændring rører samme data")
   // skal tilbage til panelet som et eksplicit force-valg, ikke ende som død fejltekst i writeView.
-  const fortrydChangeSet = useCallback(async (changeSetId: string, force: boolean): Promise<FortrydUdfald> => {
-    const change: Change = { art: 'fortryd', subjektType: 'person', subjektId: recordId ?? '',
-      payload: { changeSetId, force } };
+  const fortrydChangeSet = useCallback(async (post: HistPost, force: boolean): Promise<FortrydUdfald> => {
+    let change: Change;
     try {
+      if (post.undoKind === 'publication_event') {
+        const current = await fetchPersonNarrativeRecords(Number(recordId));
+        const expectedStateSha256 = post.sourceRecordRef
+          ? current.records.find((record) => record.sourceRecordRef === post.sourceRecordRef)?.stateSha256
+          : current.legacyPublications.find((legacy) => legacy.legacyPublicationRef === post.legacyPublicationRef)?.stateSha256;
+        if (!expectedStateSha256) throw new Error('NARRATIVE_RECORD_REVERSAL_STATE_UNAVAILABLE');
+        change = { art: 'fortrydNarrativPublicering', subjektType: 'person', subjektId: recordId ?? '', payload: {
+          eventId: post.id, expectedStateSha256,
+        } };
+      } else {
+        change = { art: 'fortryd', subjektType: 'person', subjektId: recordId ?? '',
+          payload: { changeSetId: post.id, force } };
+      }
       const res = await submitChange(change, { dryRun, role });
       setWriteView({ title: dryRun ? 'Dry-run · dette ville blive sendt' : 'Ændring fortrudt',
         lines: [describeCall(res.call)], error: '', done: !dryRun, dryRun, direkte: res.direkte });
-      if (!dryRun && recordId) loadPerson(recordId, { skipMedia: true });
+      if (!dryRun && recordId) {
+        loadPerson(recordId, { skipMedia: true });
+        if (post.undoKind === 'publication_event') setPersonNarrativeRefresh((version) => version + 1);
+      }
       return 'ok';
     } catch (e) {
       const raw = String((e as Error)?.message ?? e);
@@ -718,6 +739,19 @@ export default function Redaktion() {
       return 'fejl';
     }
   }, [dryRun, role, recordId, loadPerson]);
+
+  const submitNarrativeRecordChange = useCallback(async (change: Change, title: string): Promise<boolean> => {
+    try {
+      const res = await submitChange(change, { dryRun, role });
+      setWriteView({ title: dryRun ? 'Dry-run · dette ville blive sendt' : title,
+        lines: [describeCall(res.call)], error: '', done: !dryRun, dryRun, direkte: res.direkte });
+      return !res.dryRun;
+    } catch (e) {
+      const raw = String((e as Error)?.message ?? e);
+      setWriteView({ title: `${title} fejlede`, lines: [], error: oversaetFejl(raw), done: false, dryRun, direkte: false });
+      throw e;
+    }
+  }, [dryRun, role]);
 
   const nyStoryFraPost = useCallback((post: TidslinjePost) => {
     if (storySaveGuardRef.current.busy) return;
@@ -1294,7 +1328,7 @@ export default function Redaktion() {
 
         {renderFamilieRelationer(p.id)}
 
-        {renderNarrativEditor({ type: 'person', id: p.id })}
+        <PersonNarrativeRecordEditor key={`${p.id}:${personNarrativeRefresh}`} personId={Number(p.id)} onChange={submitNarrativeRecordChange} />
 
         {renderMateriale({ subjektType: 'person', subjektId: p.id, uploadTarget: { afbildetPersonId: p.id } })}
 
