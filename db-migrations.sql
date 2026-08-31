@@ -15156,7 +15156,7 @@ COMMIT;
 -- the Task 4A receipt; that receipt deliberately excludes the new FK below.
 BEGIN;
 DO $source_scoped_evidence_v3_task4b_preflight$
-DECLARE v_expected text; v_actual text;
+DECLARE v_expected text; v_legacy_v1 text; v_actual text; v_helper_sha256 text;
 BEGIN
   IF to_regclass('private.source_scoped_evidence_contract_inventory') IS NOT NULL
      OR to_regclass('private.source_scoped_evidence_v3_deployment') IS NOT NULL
@@ -15181,10 +15181,26 @@ BEGIN
       RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4B_UNTRACKED_FOOTPRINT';
     END IF;
     SELECT contract_sha256 INTO v_expected FROM private.source_scoped_evidence_v3_migration_receipt
-     WHERE contract_version='source-scoped-evidence-v3-task4b-v1';
-    v_actual:=private.source_scoped_evidence_v3_task4b_contract_sha256();
-    IF v_expected IS NULL OR v_expected IS DISTINCT FROM v_actual THEN
-      RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4B_RECEIPT_DRIFT';
+     WHERE contract_version='source-scoped-evidence-v3-task4b-v2';
+    IF v_expected IS NOT NULL THEN
+      v_actual:=private.source_scoped_evidence_v3_task4b_contract_sha256();
+      IF v_expected IS DISTINCT FROM v_actual THEN
+        RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4B_RECEIPT_DRIFT';
+      END IF;
+    ELSE
+      SELECT contract_sha256 INTO v_legacy_v1 FROM private.source_scoped_evidence_v3_migration_receipt
+       WHERE contract_version='source-scoped-evidence-v3-task4b-v1';
+      SELECT encode(extensions.digest(convert_to(
+        pg_get_functiondef('private.source_scoped_evidence_v3_task4b_contract_sha256()'::regprocedure),'UTF8'
+      ),'sha256'),'hex') INTO v_helper_sha256;
+      v_actual:=private.source_scoped_evidence_v3_task4b_contract_sha256();
+      IF v_legacy_v1 IS DISTINCT FROM '46154a670c190170758866621be1b44e7416c8d4a2423ca4fdf11cb9bbf0f290'
+         OR v_helper_sha256 IS DISTINCT FROM '3937aaf073476deae86d2b1f2be4de8b2e35b0cbbca9d9d40cf352f4ceeeebc3' THEN
+        RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4B_RECEIPT_DRIFT';
+      END IF;
+      IF v_actual IS DISTINCT FROM v_legacy_v1 THEN
+        RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4B_RECEIPT_DRIFT';
+      END IF;
     END IF;
   END IF;
 END
@@ -15376,7 +15392,7 @@ BEGIN
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
-     WHERE receipt.contract_version='source-scoped-evidence-v3-task4b-v1'
+     WHERE receipt.contract_version='source-scoped-evidence-v3-task4b-v2'
        AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4b_contract_sha256()
   ) THEN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_DEPLOYMENT_UNCERTIFIED';
@@ -15475,6 +15491,8 @@ REVOKE ALL ON FUNCTION private.source_scoped_evidence_v3_catalog_definition_sha2
   private.reject_source_scoped_evidence_v3_consumer_mutation(),
   private.register_source_scoped_evidence_v3_deployment(uuid,text,text,text,text,text,uuid)
   FROM PUBLIC,anon,authenticated,service_role,daa_source_scoped_evidence_gateway;
+REVOKE ALL ON SCHEMA private FROM daa_source_scoped_evidence_deployer,daa_source_scoped_evidence_gateway;
+GRANT USAGE ON SCHEMA private TO daa_source_scoped_evidence_deployer;
 GRANT EXECUTE ON FUNCTION private.register_source_scoped_evidence_v3_deployment(uuid,text,text,text,text,text,uuid)
  TO daa_source_scoped_evidence_deployer;
 -- A view's dependencies are rooted in its rewrite rule rather than its
@@ -15849,7 +15867,7 @@ BEGIN
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
-     WHERE receipt.contract_version='source-scoped-evidence-v3-task4b-v1'
+     WHERE receipt.contract_version='source-scoped-evidence-v3-task4b-v2'
        AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4b_contract_sha256()
   ) THEN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_DEPLOYMENT_UNCERTIFIED';
@@ -15913,7 +15931,15 @@ $source_scoped_evidence_v3_consumer_guards$;
 CREATE OR REPLACE FUNCTION private.source_scoped_evidence_v3_task4b_contract_sha256()
 RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private,extensions AS $$
   SELECT encode(extensions.digest(jsonb_build_object(
-    'schema','source-scoped-evidence-v3-task4b-v1',
+    'schema','source-scoped-evidence-v3-task4b-v2',
+    'private_schema_acl',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+        'grantee',coalesce(grantee.rolname,'PUBLIC'),'privilege',acl.privilege_type,
+        'grantable',acl.is_grantable,'grantor',grantor.rolname
+      ) ORDER BY coalesce(grantee.rolname,'PUBLIC'),acl.privilege_type,acl.is_grantable,grantor.rolname),'[]'::jsonb)
+      FROM pg_namespace ns CROSS JOIN LATERAL aclexplode(coalesce(ns.nspacl,acldefault('n',ns.nspowner))) acl
+      JOIN pg_roles grantor ON grantor.oid=acl.grantor
+      LEFT JOIN pg_roles grantee ON grantee.oid=acl.grantee
+     WHERE ns.nspname='private'),
     'relations',(SELECT coalesce(jsonb_agg(jsonb_build_object(
       'relation',n.nspname||'.'||c.relname,
       'columns',(SELECT coalesce(jsonb_agg(jsonb_build_object(
@@ -15996,18 +16022,24 @@ $source_scoped_evidence_v3_task4a_receipt_transition$;
 
 REVOKE ALL ON FUNCTION private.source_scoped_evidence_v3_dependency_edges(oid,oid)
   FROM PUBLIC,anon,authenticated,service_role;
-INSERT INTO private.source_scoped_evidence_v3_migration_receipt(contract_version,contract_sha256)
-VALUES ('source-scoped-evidence-v3-task4b-v1',private.source_scoped_evidence_v3_task4b_contract_sha256())
-ON CONFLICT (contract_version) DO NOTHING;
-DO $source_scoped_evidence_v3_task4b_receipt$
+DO $source_scoped_evidence_v3_task4b_receipt_transition$
+DECLARE v_legacy_v1 text; v_v2 text; v_actual text;
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
-     WHERE receipt.contract_version='source-scoped-evidence-v3-task4b-v1'
-       AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4b_contract_sha256()
-  ) THEN
+  SELECT contract_sha256 INTO v_legacy_v1 FROM private.source_scoped_evidence_v3_migration_receipt
+   WHERE contract_version='source-scoped-evidence-v3-task4b-v1';
+  IF v_legacy_v1 IS NOT NULL
+     AND v_legacy_v1 IS DISTINCT FROM '46154a670c190170758866621be1b44e7416c8d4a2423ca4fdf11cb9bbf0f290' THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4B_RECEIPT_DRIFT';
+  END IF;
+  v_actual:=private.source_scoped_evidence_v3_task4b_contract_sha256();
+  SELECT contract_sha256 INTO v_v2 FROM private.source_scoped_evidence_v3_migration_receipt
+   WHERE contract_version='source-scoped-evidence-v3-task4b-v2';
+  IF v_v2 IS NULL THEN
+    INSERT INTO private.source_scoped_evidence_v3_migration_receipt(contract_version,contract_sha256)
+      VALUES ('source-scoped-evidence-v3-task4b-v2',v_actual);
+  ELSIF v_v2 IS DISTINCT FROM v_actual THEN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4B_RECEIPT_DRIFT';
   END IF;
 END
-$source_scoped_evidence_v3_task4b_receipt$;
+$source_scoped_evidence_v3_task4b_receipt_transition$;
 COMMIT;

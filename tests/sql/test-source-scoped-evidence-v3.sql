@@ -54,6 +54,9 @@ BEGIN
        'private.register_source_scoped_evidence_v3_deployment(uuid,text,text,text,text,text,uuid)',
        'EXECUTE'
      )
+     OR NOT has_schema_privilege('daa_source_scoped_evidence_deployer','private','USAGE')
+     OR has_schema_privilege('daa_source_scoped_evidence_deployer','private','CREATE')
+     OR has_schema_privilege('daa_source_scoped_evidence_gateway','private','USAGE')
      OR has_table_privilege('daa_source_scoped_evidence_deployer','private.source_scoped_evidence_contract_inventory','INSERT')
      OR has_table_privilege('daa_source_scoped_evidence_deployer','private.source_scoped_evidence_v3_deployment','INSERT') THEN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TEST_DEPLOYMENT_ACL_INVALID';
@@ -113,6 +116,14 @@ BEGIN
   REVOKE ADMIN OPTION FOR daa_source_scoped_evidence_deployer FROM daa_source_scoped_evidence_gateway;
   IF v_contract_hash_before IS NOT DISTINCT FROM v_contract_hash_after THEN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TEST_GATEWAY_MEMBERSHIP_RECEIPT_UNBOUND';
+  END IF;
+  -- The deployer needs schema lookup for its sole register capability; that
+  -- narrow namespace grant must itself be receipt-bound.
+  REVOKE USAGE ON SCHEMA private FROM daa_source_scoped_evidence_deployer;
+  v_contract_hash_after:=private.source_scoped_evidence_v3_task4b_contract_sha256();
+  GRANT USAGE ON SCHEMA private TO daa_source_scoped_evidence_deployer;
+  IF v_contract_hash_before IS NOT DISTINCT FROM v_contract_hash_after THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TEST_DEPLOYER_SCHEMA_RECEIPT_UNBOUND';
   END IF;
   IF to_regprocedure('private.refresh_source_scoped_evidence_contract_inventory(text)') IS NULL
      OR has_function_privilege(
@@ -252,14 +263,14 @@ BEGIN
   IF to_regprocedure('private.source_scoped_evidence_v3_task4b_contract_sha256()') IS NULL
      OR NOT EXISTS (
        SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
-        WHERE receipt.contract_version='source-scoped-evidence-v3-task4b-v1'
+        WHERE receipt.contract_version='source-scoped-evidence-v3-task4b-v2'
           AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4b_contract_sha256()
      ) THEN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TEST_TASK4B_RECEIPT_DRIFT';
   END IF;
   IF encode(extensions.digest(convert_to(
        pg_get_functiondef('private.source_scoped_evidence_v3_task4b_contract_sha256()'::regprocedure),'UTF8'
-    ),'sha256'),'hex')<>'3937aaf073476deae86d2b1f2be4de8b2e35b0cbbca9d9d40cf352f4ceeeebc3' THEN
+    ),'sha256'),'hex')<>'1fb9fdd14d75701d3a67b730c12a4f07ab4b0e65f9de6123aa776cd63f0b73ba' THEN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TEST_TASK4B_CONTRACT_HASH_FUNCTION_DRIFT';
   END IF;
   IF NOT EXISTS (

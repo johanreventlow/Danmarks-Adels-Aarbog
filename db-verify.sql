@@ -8870,12 +8870,12 @@ BEGIN
      OR to_regprocedure('private.source_scoped_evidence_v3_task4b_contract_sha256()') IS NULL
      OR NOT EXISTS (
        SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
-        WHERE receipt.contract_version='source-scoped-evidence-v3-task4b-v1'
+        WHERE receipt.contract_version='source-scoped-evidence-v3-task4b-v2'
           AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4b_contract_sha256()
      )
      OR encode(extensions.digest(convert_to(
           pg_get_functiondef('private.source_scoped_evidence_v3_task4b_contract_sha256()'::regprocedure),'UTF8'
-        ),'sha256'),'hex')<>'3937aaf073476deae86d2b1f2be4de8b2e35b0cbbca9d9d40cf352f4ceeeebc3'
+        ),'sha256'),'hex')<>'1fb9fdd14d75701d3a67b730c12a4f07ab4b0e65f9de6123aa776cd63f0b73ba'
      OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.source_scoped_evidence_contract_inventory'::regclass)
      OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.source_scoped_evidence_v3_deployment'::regclass)
      OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='daa_source_scoped_evidence_deployer')
@@ -8930,6 +8930,9 @@ BEGIN
      OR has_function_privilege('authenticated',v_signature::regprocedure,'EXECUTE')
      OR has_function_privilege('service_role',v_signature::regprocedure,'EXECUTE')
      OR has_function_privilege('daa_source_scoped_evidence_gateway',v_signature::regprocedure,'EXECUTE')
+     OR NOT has_schema_privilege('daa_source_scoped_evidence_deployer','private','USAGE')
+     OR has_schema_privilege('daa_source_scoped_evidence_deployer','private','CREATE')
+     OR has_schema_privilege('daa_source_scoped_evidence_gateway','private','USAGE')
      OR has_table_privilege('daa_source_scoped_evidence_deployer','private.source_scoped_evidence_contract_inventory','INSERT')
      OR has_table_privilege('daa_source_scoped_evidence_deployer','private.source_scoped_evidence_v3_deployment','INSERT')
      OR position('session_user' IN pg_get_functiondef(v_signature::regprocedure))=0

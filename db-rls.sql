@@ -1186,6 +1186,8 @@ REVOKE INSERT,UPDATE,DELETE ON TABLE public.fact,public.assertion,public.citatio
 REVOKE ALL ON FUNCTION private.register_source_scoped_evidence_v3_deployment(
   uuid,text,text,text,text,text,uuid
 ) FROM PUBLIC,anon,authenticated,service_role,daa_source_scoped_evidence_gateway;
+REVOKE ALL ON SCHEMA private FROM daa_source_scoped_evidence_deployer,daa_source_scoped_evidence_gateway;
+GRANT USAGE ON SCHEMA private TO daa_source_scoped_evidence_deployer;
 GRANT EXECUTE ON FUNCTION private.register_source_scoped_evidence_v3_deployment(
   uuid,text,text,text,text,text,uuid
 ) TO daa_source_scoped_evidence_deployer;
@@ -1197,7 +1199,7 @@ DO $source_scoped_evidence_v3_task4b_receipt$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
-     WHERE receipt.contract_version='source-scoped-evidence-v3-task4b-v1'
+     WHERE receipt.contract_version='source-scoped-evidence-v3-task4b-v2'
        AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4b_contract_sha256()
   ) THEN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4B_RECEIPT_DRIFT';

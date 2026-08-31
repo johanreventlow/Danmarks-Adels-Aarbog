@@ -111,14 +111,14 @@ _WRITER_BLOB_SHA256 = {
     '.claude/skills/daa-presens/scripts/load_presens.R': 'bcfe5d53f578de8a65d0f444912f3fbff785aa781416861933c03e19471c03ab',
     'db-backfill-foraeldrefamilie.sql': '98b8f30a4c1958580fd2f60a7ea02f61dcb35220e03904f5529b3f235695df8c',
     'db-migrations-c3-identity.sql': '81cb181097da6f8f10ec44fd7ea452ad357026bda6acd8bdd0d1785cdd0bec0e',
-    'db-migrations.sql': '133bbd9fb28a21d5dcd91b15bd3b3c51e73757e072bbfe7a80ca4ada6ba7ba1f',
-    'db-rls.sql': '0a78310f6c6f8006ec445ca6a043aec6fa4987e4585b1f2a074869eb9816d66d',
+    'db-migrations.sql': '3d63690f7670d779159f9b2dce9787492a8fa1750d9c036ab60b8de1ed520530',
+    'db-rls.sql': 'afd1eef5559ffac49e44ebc072bc5f683d5124aa9b578876f5e5b2154a5d8017',
     'db-rollback-fase2.sql': '8b453de06c8b413f06bf8ce40cbd5a527309c9dd8d6971f51f56ed4ea3339d01',
     'db-rollback-fase3.sql': '0ccf949bc8fe4597262f4733d220faadf214ad3e46a0f28b6fec2fe6204b81eb',
     'db-rollback-foraeldrefamilie.sql': 'e6246c5f104c738b0ada2b8ffcf2aaf04170398589e750f07e7bfdf73f3fa340',
     'db-verify-media.sql': '6be02d4cc2b3563c6f4374c405ebdb4d26fafaaae26337e630dee7377e86087f',
-    'db-verify.sql': 'a44449ce89147d83af037a1f6df8a2e021740f8a30d1de6a578c32db986991ef',
-    'schema.sql': 'dff5b64c9226fc746c443a29da6d55da24976c10e5ecc6cec129aef37a8b92e3',
+    'db-verify.sql': '7a1f45e141c1903f90be24fb2affdbd8874509a6c3fbb04db1e119c2ced6161d',
+    'schema.sql': 'eb6667f2b5b294a958cb999702e3f6a27b0505c78c84defea0d351e7e05a5405',
 }
 
 
