@@ -1181,6 +1181,26 @@ ALTER TABLE private.source_scoped_evidence_v3_deployment ENABLE ROW LEVEL SECURI
 REVOKE ALL ON TABLE private.source_scoped_evidence_contract_inventory,
   private.source_scoped_evidence_v3_deployment
   FROM PUBLIC,anon,authenticated,service_role,daa_source_scoped_evidence_deployer,daa_source_scoped_evidence_gateway;
+-- A rerun must never normalize a receipt-bound V7 security drift.  Fresh
+-- schema+migration state has no V7 receipt yet, so its initial RLS pass still
+-- reaches the binding block below.
+DO $source_scoped_evidence_v3_task4c_preflight_receipt$
+BEGIN
+  IF EXISTS (
+       SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+        WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v7'
+     ) AND (
+       to_regprocedure('private.source_scoped_evidence_v3_task4c_contract_sha256()') IS NULL
+       OR NOT EXISTS (
+         SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+          WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v7'
+            AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256()
+       )
+     ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4C_RECEIPT_DRIFT';
+  END IF;
+END
+$source_scoped_evidence_v3_task4c_preflight_receipt$;
 REVOKE INSERT,UPDATE,DELETE ON TABLE public.fact,public.assertion,public.citation
   FROM anon,authenticated,service_role;
 DO $source_scoped_evidence_v3_column_acl$
