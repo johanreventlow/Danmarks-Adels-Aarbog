@@ -220,8 +220,12 @@ if (identical(Sys.getenv("SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT"), "1")) {
           "SELECT count(*)::integer AS n FROM pg_locks lock ",
           "JOIN pg_stat_activity activity ON activity.pid=lock.pid ",
           "WHERE lock.locktype='advisory' AND NOT lock.granted ",
-          "AND activity.application_name IN ($1,$2)"
-        ), params = as.list(worker_names))$n[[1L]]
+          "AND activity.application_name IN ($1,$2) ",
+          "AND lock.database=(SELECT oid FROM pg_database WHERE datname=current_database()) ",
+          "AND lock.classid=((hashtextextended($3,0)>>32)&4294967295)::oid ",
+          "AND lock.objid=(hashtextextended($3,0)&4294967295)::oid ",
+          "AND lock.objsubid=1"
+        ), params = c(as.list(worker_names), list(paste0("daa-source-scoped-replace:", source_id))))$n[[1L]]
         if (waiting >= 2L) break
         if (Sys.time() >= deadline) stop(paste0("SOURCE_SCOPED_EVIDENCE_V3_", toupper(decision), "_RACE_NOT_BLOCKED"), call. = FALSE)
         Sys.sleep(0.02)

@@ -16158,14 +16158,26 @@ BEGIN
         SELECT coalesce(jsonb_agg(jsonb_build_object(
           'relation',relation.relname,'rls',relation.relrowsecurity,
           'force_rls',relation.relforcerowsecurity,
-          'acl',coalesce(relation.relacl,'{}'::aclitem[])::text
+          -- relacl text serializes owner and grantor names.  The v4--v6
+          -- bridge must bind every effective non-owner grant, but a
+          -- legitimate database may have a different object owner.
+          'acl',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+            'grantee',coalesce(role.rolname,'PUBLIC'),
+            'privilege',grant_row.privilege_type,
+            'grantable',grant_row.is_grantable
+          ) ORDER BY coalesce(role.rolname,'PUBLIC'),grant_row.privilege_type,
+                   grant_row.is_grantable),'[]'::jsonb)
+            FROM aclexplode(coalesce(relation.relacl,
+                                     acldefault('r',relation.relowner))) grant_row
+            LEFT JOIN pg_roles role ON role.oid=grant_row.grantee
+           WHERE grant_row.grantee<>relation.relowner)
         ) ORDER BY relation.relname),'[]'::jsonb)
           FROM pg_class relation
           JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace
          WHERE namespace.nspname='public'
            AND relation.relname=ANY(ARRAY['fact','assertion','citation'])
       ))::text,'sha256'),'hex') INTO v_base_security_hash;
-      IF v_base_security_hash IS DISTINCT FROM '9a60a8a229c1a67517c8de61c627a45c9b3c0454ca0d7c1670bbb29e49e5e6e2' THEN
+      IF v_base_security_hash IS DISTINCT FROM '24ed14a499e0236420f920311410fc5d3e40a3858059415057123244eb154880' THEN
         RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4C_RECEIPT_DRIFT';
       END IF;
     END IF;

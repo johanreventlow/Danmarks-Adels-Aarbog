@@ -886,6 +886,14 @@ BEGIN
   END IF;
 
   v_contract_hash_before:=private.source_scoped_evidence_v3_task4c_contract_sha256();
+  ALTER TABLE public.fact FORCE ROW LEVEL SECURITY;
+  v_contract_hash_after:=private.source_scoped_evidence_v3_task4c_contract_sha256();
+  ALTER TABLE public.fact NO FORCE ROW LEVEL SECURITY;
+  IF v_contract_hash_before IS NOT DISTINCT FROM v_contract_hash_after THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TEST_PUBLICATION_RECEIPT_FORCE_RLS_UNBOUND';
+  END IF;
+
+  v_contract_hash_before:=private.source_scoped_evidence_v3_task4c_contract_sha256();
   GRANT UPDATE ON public.fact TO anon;
   v_contract_hash_after:=private.source_scoped_evidence_v3_task4c_contract_sha256();
   REVOKE UPDATE ON public.fact FROM anon;
