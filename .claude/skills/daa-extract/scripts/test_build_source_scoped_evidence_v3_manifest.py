@@ -76,6 +76,19 @@ def test_artifact_snapshot_uses_head_not_untracked_or_index(tmp_path: Path) -> N
     assert build_repository_writer_snapshot(root) == baseline
 
 
+def test_current_committed_writer_inventory_builds() -> None:
+    """Every classified writer in the committed repository is reclassified."""
+    repo_root = SCRIPTS.parents[3]
+
+    snapshot = build_repository_writer_snapshot(repo_root)
+
+    expected_tree_id = subprocess.check_output(
+        ["git", "rev-parse", "HEAD^{tree}"], cwd=repo_root, text=True
+    ).strip()
+    assert snapshot["repository_tree_id"] == expected_tree_id
+    assert snapshot["entries"]
+
+
 def test_unknown_dynamic_sql_writer_is_rejected(tmp_path: Path) -> None:
     root = initialized_repo(tmp_path)
     commit(
