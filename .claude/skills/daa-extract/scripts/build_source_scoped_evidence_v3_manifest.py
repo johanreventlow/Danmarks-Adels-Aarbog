@@ -111,7 +111,7 @@ _WRITER_BLOB_SHA256 = {
     '.claude/skills/daa-presens/scripts/load_presens.R': 'bcfe5d53f578de8a65d0f444912f3fbff785aa781416861933c03e19471c03ab',
     'db-backfill-foraeldrefamilie.sql': '98b8f30a4c1958580fd2f60a7ea02f61dcb35220e03904f5529b3f235695df8c',
     'db-migrations-c3-identity.sql': '81cb181097da6f8f10ec44fd7ea452ad357026bda6acd8bdd0d1785cdd0bec0e',
-    'db-migrations.sql': '01f1255ef70ba367567d20228a9b24f372841baef72f2cb3890cc4671d19ea74',
+    'db-migrations.sql': '87e89a75c3ef43e6a4150e037d49531b6d70b1234bbbbb1a2def9e01b2c6603d',
     'db-rls.sql': '5c3e56bb708e2ef95a41060ecb706cddddf1d280287d44d98b64946b6b84205e',
     'db-rollback-fase2.sql': '8b453de06c8b413f06bf8ce40cbd5a527309c9dd8d6971f51f56ed4ea3339d01',
     'db-rollback-fase3.sql': '0ccf949bc8fe4597262f4733d220faadf214ad3e46a0f28b6fec2fe6204b81eb',
