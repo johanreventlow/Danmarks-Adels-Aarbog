@@ -16698,6 +16698,20 @@ BEGIN
           AND identity_state.decision_status='accepted'
           AND identity_state.canonical_person_id=v_chain.canonical_person_id
      ) THEN
+    -- The shared chain locks intentionally precede the terminal authorization
+    -- lock. A concurrent replay can therefore observe the successor state
+    -- before it reaches that lock; return the immutable, hash-verified receipt
+    -- once the first caller has consumed this exact authorization.
+    SELECT * INTO v_authorization
+      FROM private.source_scoped_evidence_publication_v3_authorization authorization_row
+     WHERE authorization_row.id=p_authorization_id FOR UPDATE;
+    IF v_authorization.consumed_at IS NOT NULL THEN
+      IF v_authorization.receipt IS NULL
+         OR v_authorization.receipt_sha256 IS DISTINCT FROM encode(extensions.digest(v_authorization.receipt::text,'sha256'),'hex') THEN
+        RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_AUTHORIZATION_INVALID';
+      END IF;
+      RETURN v_authorization.receipt;
+    END IF;
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_STALE';
   END IF;
   IF v_decision IN ('supersede','withdraw')
@@ -16797,7 +16811,7 @@ SECURITY DEFINER
 SET search_path=pg_catalog,private,extensions
 AS $$
   SELECT encode(extensions.digest(jsonb_build_object(
-    'schema','source-scoped-evidence-v3-task4c-v4',
+    'schema','source-scoped-evidence-v3-task4c-v5',
     'table',(
       SELECT jsonb_build_object(
         'columns',coalesce(jsonb_agg(jsonb_build_object(
@@ -16892,18 +16906,18 @@ REVOKE ALL ON FUNCTION private.source_scoped_evidence_v3_task4c_contract_sha256(
   FROM PUBLIC,anon,authenticated,service_role;
 -- A fresh schema+migration installation has no public gate yet, so it must
 -- remain in the documented fail-closed fallback state until db-rls.sql writes
--- the final v4 receipt.  Once that receipt exists, however, a migration rerun
+-- the final v5 receipt.  Once that receipt exists, however, a migration rerun
 -- may never silently accept drift in the final RLS-bound contract.
 DO $source_scoped_evidence_v3_task4c_rerun_receipt$
 BEGIN
   IF EXISTS (
        SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
-        WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v4'
+        WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v5'
      ) AND (
        to_regprocedure('public.entitet_offentlig(text,bigint)') IS NULL
        OR NOT EXISTS (
          SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
-          WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v4'
+          WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v5'
             AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256()
        )
      ) THEN

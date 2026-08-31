@@ -97,7 +97,7 @@ if (identical(Sys.getenv("SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT"), "1")) {
     "SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT_DEPLOYMENT_BINDING_INVALID"
   )
   expect_true(
-    isTRUE(scalar("SELECT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v4' AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256())")),
+    isTRUE(scalar("SELECT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v5' AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256())")),
     "SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT_RECEIPT_DRIFT"
   )
   expect_true(
@@ -185,6 +185,48 @@ if (identical(Sys.getenv("SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT"), "1")) {
   expect_db_error("SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_DEPLOYMENT_INVALID", function() authorize_attempt(ids$chain, ids$revision, forged_deployment, eligible_hash, forged_payload, "00000000-0000-0000-0000-000000153495"))
   publication_nonce <- "00000000-0000-0000-0000-000000153414"
   authorization <- authorize(ids$chain, ids$revision, deployment$id[[1L]], eligible_hash, payload, publication_nonce)
+  if (identical(Sys.getenv("SOURCE_SCOPED_EVIDENCE_V3_RACE"), "1")) {
+    if (!requireNamespace("processx", quietly = TRUE)) {
+      stop("SOURCE_SCOPED_EVIDENCE_V3_PROCESSX_MISSING", call. = FALSE)
+    }
+    DBI::dbCommit(con)
+    DBI::dbBegin(con)
+    execute("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", list(paste0("daa-source-scoped-replace:", source_id)))
+    worker_program <- paste0(
+      "args<-commandArgs(trailingOnly=TRUE);con<-DBI::dbConnect(RPostgres::Postgres(),dbname=Sys.getenv('PGDATABASE'),host=Sys.getenv('PGHOST'),port=as.integer(Sys.getenv('PGPORT')),user=Sys.getenv('PGUSER'),password=Sys.getenv('PGPASSWORD'));on.exit(DBI::dbDisconnect(con),add=TRUE);DBI::dbGetQuery(con,\"SELECT set_config('application_name',$1,false)\",params=list(args[[1L]]));DBI::dbGetQuery(con,\"SELECT set_config('request.jwt.claim.sub',$1,false)\",params=list(args[[2L]]));result<-tryCatch(DBI::dbGetQuery(con,\"SELECT public.red_publish_source_scoped_evidence_revision_v3($1,$2::jsonb)::text AS receipt\",params=list(args[[3L]],args[[4L]]))$receipt[[1L]],error=function(error)paste0('ERROR:',conditionMessage(error)));cat(result)"
+    )
+    launch_worker <- function(name) processx::process$new(
+      file.path(R.home("bin"), "Rscript"),
+      args = c("--vanilla", "-e", worker_program, name, actor, authorization, payload),
+      env = c(PGDATABASE = pg[["PGDATABASE"]], PGHOST = pg[["PGHOST"]],
+              PGPORT = pg[["PGPORT"]], PGUSER = pg[["PGUSER"]], PGPASSWORD = pg[["PGPASSWORD"]]),
+      stdout = "|", stderr = "|", cleanup_tree = TRUE
+    )
+    jobs <- list(launch_worker("task4c-publish-race-one"), launch_worker("task4c-publish-race-two"))
+    deadline <- Sys.time() + 5
+    repeat {
+      waiting <- DBI::dbGetQuery(con, "SELECT count(*)::integer AS n FROM pg_locks WHERE locktype='advisory' AND NOT granted")$n[[1L]]
+      if (waiting >= 1L) break
+      if (Sys.time() >= deadline) stop("SOURCE_SCOPED_EVIDENCE_V3_PUBLISH_RACE_NOT_BLOCKED", call. = FALSE)
+      Sys.sleep(0.02)
+    }
+    DBI::dbCommit(con)
+    for (job in jobs) job$wait(10000)
+    outputs <- vapply(jobs, function(job) job$read_all_output(), character(1))
+    errors <- vapply(jobs, function(job) job$read_all_error(), character(1))
+    statuses <- vapply(jobs, function(job) job$get_exit_status(), integer(1))
+    if (!(all(statuses == 0L) && all(!nzchar(errors)) &&
+      all(!grepl("ERROR:", outputs, fixed = TRUE)) && identical(outputs[[1L]], outputs[[2L]]))) {
+      stop(paste0("SOURCE_SCOPED_EVIDENCE_V3_PUBLISH_RACE_REPLAY_INVALID: statuses=", paste(statuses, collapse = ","), "; outputs=", paste(outputs, collapse = " | "), "; errors=", paste(errors, collapse = " | ")), call. = FALSE)
+    }
+    state_after_race <- DBI::dbGetQuery(con, "SELECT visible_revision_id::text,state_version FROM private.source_scoped_evidence_v3_chain_state WHERE chain_id=$1", params = list(ids$chain))
+    publication_count <- DBI::dbGetQuery(con, "SELECT count(*)::integer AS n FROM private.source_scoped_evidence_v3_publication WHERE chain_id=$1", params = list(ids$chain))$n[[1L]]
+    expect_true(identical(state_after_race$visible_revision_id[[1L]], ids$revision) &&
+      identical(as.integer(state_after_race$state_version[[1L]]), 3L) && publication_count == 1L,
+      "SOURCE_SCOPED_EVIDENCE_V3_PUBLISH_RACE_STATE_INVALID")
+    cat("PASS source-scoped evidence V3 postcommit publish race\n")
+    quit(save = "no", status = 0L)
+  }
   expect_db_error("SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_NONCE_REPLAY", function() authorize_attempt(ids$chain, ids$revision, deployment$id[[1L]], eligible_hash, payload, publication_nonce))
   mismatched_payload <- sub("Task 4C postcommit", "mismatch", payload, fixed = TRUE)
   expect_db_error("SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_AUTHORIZATION_INVALID", function() execute("SELECT public.red_publish_source_scoped_evidence_revision_v3($1,$2::jsonb)", params = list(authorization, mismatched_payload)))

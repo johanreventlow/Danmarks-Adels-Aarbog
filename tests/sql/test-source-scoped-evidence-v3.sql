@@ -612,7 +612,7 @@ BEGIN
   END IF;
   IF NOT EXISTS (
        SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
-        WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v4'
+        WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v5'
           AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256()
      ) THEN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_RECEIPT_MISSING';

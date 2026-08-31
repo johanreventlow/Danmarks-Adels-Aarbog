@@ -14706,6 +14706,20 @@ BEGIN
           AND identity_state.decision_status='accepted'
           AND identity_state.canonical_person_id=v_chain.canonical_person_id
      ) THEN
+    -- The shared chain locks intentionally precede the terminal authorization
+    -- lock. A concurrent replay can therefore observe the successor state
+    -- before it reaches that lock; return the immutable, hash-verified receipt
+    -- once the first caller has consumed this exact authorization.
+    SELECT * INTO v_authorization
+      FROM private.source_scoped_evidence_publication_v3_authorization authorization_row
+     WHERE authorization_row.id=p_authorization_id FOR UPDATE;
+    IF v_authorization.consumed_at IS NOT NULL THEN
+      IF v_authorization.receipt IS NULL
+         OR v_authorization.receipt_sha256 IS DISTINCT FROM encode(extensions.digest(v_authorization.receipt::text,'sha256'),'hex') THEN
+        RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_AUTHORIZATION_INVALID';
+      END IF;
+      RETURN v_authorization.receipt;
+    END IF;
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_STALE';
   END IF;
   IF v_decision IN ('supersede','withdraw')
@@ -14806,7 +14820,7 @@ SECURITY DEFINER
 SET search_path=pg_catalog,private,extensions
 AS $$
   SELECT encode(extensions.digest(jsonb_build_object(
-    'schema','source-scoped-evidence-v3-task4c-v4',
+    'schema','source-scoped-evidence-v3-task4c-v5',
     'table',(
       SELECT jsonb_build_object(
         'columns',coalesce(jsonb_agg(jsonb_build_object(
