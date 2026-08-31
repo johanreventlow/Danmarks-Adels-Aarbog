@@ -14561,6 +14561,49 @@ GRANT EXECUTE ON FUNCTION
   public.public_person_bio_source_versions(bigint[]),
   public.public_person_bio_source_versions_v2(bigint[])
   TO anon,authenticated;
+
+-- #153 Task 4C: no parameterised private state function can sit behind a
+-- public view, because PostgreSQL then requires public EXECUTE on it.
+DO $source_scoped_evidence_v3_visibility_views$
+BEGIN
+  IF to_regclass('private.source_scoped_evidence_v3_member') IS NULL
+     OR to_regclass('private.source_scoped_evidence_v3_revision') IS NULL
+     OR to_regclass('private.source_scoped_evidence_v3_chain_state') IS NULL THEN
+    NULL;
+  ELSIF to_regprocedure('public.entitet_offentlig(text,bigint)') IS NULL THEN
+    EXECUTE 'CREATE OR REPLACE VIEW public.source_scoped_evidence_visible_fact_ids WITH (security_barrier=true) AS SELECT NULL::bigint AS id WHERE false';
+    EXECUTE 'CREATE OR REPLACE VIEW public.source_scoped_evidence_visible_assertion_ids WITH (security_barrier=true) AS SELECT NULL::bigint AS id WHERE false';
+    EXECUTE 'CREATE OR REPLACE VIEW public.source_scoped_evidence_visible_citation_ids WITH (security_barrier=true) AS SELECT NULL::bigint AS id WHERE false';
+  ELSE
+    EXECUTE $visibility_views$
+      CREATE OR REPLACE VIEW public.source_scoped_evidence_visible_fact_ids WITH (security_barrier=true) AS
+      SELECT fact.id FROM public.fact fact
+       WHERE public.entitet_offentlig(fact.subjekt_type,fact.subjekt_id)
+         AND (NOT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_member member WHERE member.member_kind='fact' AND member.fact_id=fact.id)
+              OR EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_member member JOIN private.source_scoped_evidence_v3_revision revision ON revision.id=member.revision_id JOIN private.source_scoped_evidence_v3_chain_state state ON state.chain_id=revision.chain_id WHERE member.member_kind='fact' AND member.fact_id=fact.id AND state.visible_revision_id=revision.id));
+      CREATE OR REPLACE VIEW public.source_scoped_evidence_visible_assertion_ids WITH (security_barrier=true) AS
+      SELECT assertion.id FROM public.assertion assertion
+       WHERE ((assertion.target_type='fact' AND EXISTS (SELECT 1 FROM public.source_scoped_evidence_visible_fact_ids visible_fact WHERE visible_fact.id=assertion.target_id))
+           OR (assertion.target_type='relation' AND EXISTS (SELECT 1 FROM public.relation relation WHERE relation.id=assertion.target_id AND public.entitet_offentlig(relation.subjekt_type,relation.subjekt_id) AND public.entitet_offentlig(relation.objekt_type,relation.objekt_id))))
+         AND (NOT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_member member WHERE member.member_kind='assertion' AND member.assertion_id=assertion.id)
+              OR EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_member member JOIN private.source_scoped_evidence_v3_revision revision ON revision.id=member.revision_id JOIN private.source_scoped_evidence_v3_chain_state state ON state.chain_id=revision.chain_id WHERE member.member_kind='assertion' AND member.assertion_id=assertion.id AND state.visible_revision_id=revision.id));
+      CREATE OR REPLACE VIEW public.source_scoped_evidence_visible_citation_ids WITH (security_barrier=true) AS
+      SELECT citation.id FROM public.citation citation
+        JOIN public.assertion assertion ON assertion.id=citation.assertion_id
+       WHERE EXISTS (SELECT 1 FROM public.source_scoped_evidence_visible_assertion_ids visible_assertion WHERE visible_assertion.id=citation.assertion_id)
+         AND (NOT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_member member WHERE member.member_kind='citation' AND member.citation_id=citation.id)
+              OR EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_member member JOIN private.source_scoped_evidence_v3_revision revision ON revision.id=member.revision_id JOIN private.source_scoped_evidence_v3_chain_state state ON state.chain_id=revision.chain_id WHERE member.member_kind='citation' AND member.citation_id=citation.id AND state.visible_revision_id=revision.id));
+    $visibility_views$;
+  END IF;
+END
+$source_scoped_evidence_v3_visibility_views$;
+REVOKE ALL ON TABLE public.source_scoped_evidence_visible_fact_ids,
+  public.source_scoped_evidence_visible_assertion_ids,
+  public.source_scoped_evidence_visible_citation_ids
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON TABLE public.source_scoped_evidence_visible_fact_ids,
+  public.source_scoped_evidence_visible_assertion_ids,
+  public.source_scoped_evidence_visible_citation_ids TO anon,authenticated;
 -- 2026-08-29: #152 Task 7 — atomic narrative contract cutover
 -- =====================================================================
 
@@ -14817,6 +14860,7 @@ DECLARE
   v_function_count integer;
   v_recorded_hash text;
   v_transition_hash text;
+  v_task4c_hash text;
   v_current_hash text;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtext('source-scoped-evidence-v3-task4a'));
@@ -14863,10 +14907,14 @@ BEGIN
   SELECT contract_sha256 INTO v_transition_hash
     FROM private.source_scoped_evidence_v3_migration_receipt
    WHERE contract_version='source-scoped-evidence-v3-task4a-v2';
+  SELECT contract_sha256 INTO v_task4c_hash
+    FROM private.source_scoped_evidence_v3_migration_receipt
+   WHERE contract_version='source-scoped-evidence-v3-task4a-v3';
   v_current_hash:=private.source_scoped_evidence_v3_task4a_contract_sha256();
   IF v_recorded_hash IS NULL
      OR (v_recorded_hash IS DISTINCT FROM v_current_hash
-         AND v_transition_hash IS DISTINCT FROM v_current_hash) THEN
+         AND v_transition_hash IS DISTINCT FROM v_current_hash
+         AND v_task4c_hash IS DISTINCT FROM v_current_hash) THEN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_MIGRATION_RECEIPT_DRIFT';
   END IF;
 END
@@ -15138,14 +15186,15 @@ REVOKE ALL ON FUNCTION private.source_scoped_evidence_v3_task4a_contract_sha256(
 DROP TRIGGER IF EXISTS trg_source_scoped_evidence_v3_migration_receipt_append_only ON private.source_scoped_evidence_v3_migration_receipt;
 CREATE TRIGGER trg_source_scoped_evidence_v3_migration_receipt_append_only BEFORE UPDATE OR DELETE ON private.source_scoped_evidence_v3_migration_receipt FOR EACH ROW EXECUTE FUNCTION private.reject_source_scoped_evidence_v3_mutation();
 DO $receipt$
-DECLARE v_expected text; v_transition text; v_actual text;
+DECLARE v_expected text; v_transition text; v_task4c text; v_actual text;
 BEGIN
   v_actual:=private.source_scoped_evidence_v3_task4a_contract_sha256();
   SELECT contract_sha256 INTO v_expected FROM private.source_scoped_evidence_v3_migration_receipt WHERE contract_version='source-scoped-evidence-v3-task4a-v1';
   SELECT contract_sha256 INTO v_transition FROM private.source_scoped_evidence_v3_migration_receipt WHERE contract_version='source-scoped-evidence-v3-task4a-v2';
+  SELECT contract_sha256 INTO v_task4c FROM private.source_scoped_evidence_v3_migration_receipt WHERE contract_version='source-scoped-evidence-v3-task4a-v3';
   IF v_expected IS NULL THEN
     INSERT INTO private.source_scoped_evidence_v3_migration_receipt(contract_version,contract_sha256) VALUES ('source-scoped-evidence-v3-task4a-v1',v_actual);
-  ELSIF v_expected IS DISTINCT FROM v_actual AND v_transition IS DISTINCT FROM v_actual THEN
+  ELSIF v_expected IS DISTINCT FROM v_actual AND v_transition IS DISTINCT FROM v_actual AND v_task4c IS DISTINCT FROM v_actual THEN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_MIGRATION_RECEIPT_DRIFT';
   END IF;
 END
@@ -15999,7 +16048,7 @@ REVOKE ALL ON FUNCTION private.source_scoped_evidence_v3_task4b_contract_sha256(
   FROM PUBLIC,anon,authenticated,service_role;
 
 DO $source_scoped_evidence_v3_task4a_receipt_transition$
-DECLARE v_v1 text; v_v2 text; v_actual text;
+DECLARE v_v1 text; v_v2 text; v_v3 text; v_actual text;
 BEGIN
   SELECT contract_sha256 INTO v_v1
     FROM private.source_scoped_evidence_v3_migration_receipt
@@ -16011,10 +16060,13 @@ BEGIN
   SELECT contract_sha256 INTO v_v2
     FROM private.source_scoped_evidence_v3_migration_receipt
    WHERE contract_version='source-scoped-evidence-v3-task4a-v2';
-  IF v_v2 IS NULL THEN
+  SELECT contract_sha256 INTO v_v3
+    FROM private.source_scoped_evidence_v3_migration_receipt
+   WHERE contract_version='source-scoped-evidence-v3-task4a-v3';
+  IF v_v2 IS NULL AND v_v3 IS NULL THEN
     INSERT INTO private.source_scoped_evidence_v3_migration_receipt(contract_version,contract_sha256)
       VALUES ('source-scoped-evidence-v3-task4a-v2',v_actual);
-  ELSIF v_v2 IS DISTINCT FROM v_actual THEN
+  ELSIF v_v2 IS DISTINCT FROM v_actual AND v_v3 IS DISTINCT FROM v_actual THEN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4A_RECEIPT_V2_DRIFT';
   END IF;
 END
@@ -16042,4 +16094,821 @@ BEGIN
   END IF;
 END
 $source_scoped_evidence_v3_task4b_receipt_transition$;
+COMMIT;
+
+-- #153 Task 4C follows the frozen Task 4A/4B receipt transitions: state is
+-- a server-projected, append-only event stream rather than mutable business state.
+BEGIN;
+DO $source_scoped_evidence_v3_late_visibility_views$
+BEGIN
+  IF to_regprocedure('public.entitet_offentlig(text,bigint)') IS NULL THEN
+    EXECUTE 'CREATE OR REPLACE VIEW public.source_scoped_evidence_visible_fact_ids WITH (security_barrier=true) AS SELECT NULL::bigint AS id WHERE false';
+    EXECUTE 'CREATE OR REPLACE VIEW public.source_scoped_evidence_visible_assertion_ids WITH (security_barrier=true) AS SELECT NULL::bigint AS id WHERE false';
+    EXECUTE 'CREATE OR REPLACE VIEW public.source_scoped_evidence_visible_citation_ids WITH (security_barrier=true) AS SELECT NULL::bigint AS id WHERE false';
+  ELSE
+    EXECUTE $visibility_views$
+CREATE OR REPLACE VIEW public.source_scoped_evidence_visible_fact_ids
+  WITH (security_barrier=true) AS
+SELECT fact.id FROM public.fact fact
+ WHERE public.entitet_offentlig(fact.subjekt_type,fact.subjekt_id)
+   AND (NOT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_member member
+                    WHERE member.member_kind='fact' AND member.fact_id=fact.id)
+        OR EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_member member
+                     JOIN private.source_scoped_evidence_v3_revision revision ON revision.id=member.revision_id
+                     JOIN private.source_scoped_evidence_v3_chain_state state ON state.chain_id=revision.chain_id
+                    WHERE member.member_kind='fact' AND member.fact_id=fact.id
+                      AND state.visible_revision_id=revision.id));
+CREATE OR REPLACE VIEW public.source_scoped_evidence_visible_assertion_ids
+  WITH (security_barrier=true) AS
+SELECT assertion.id FROM public.assertion assertion
+ WHERE ((assertion.target_type='fact' AND EXISTS (
+           SELECT 1 FROM public.source_scoped_evidence_visible_fact_ids visible_fact
+            WHERE visible_fact.id=assertion.target_id))
+     OR (assertion.target_type='relation' AND EXISTS (
+           SELECT 1 FROM public.relation relation WHERE relation.id=assertion.target_id
+             AND public.entitet_offentlig(relation.subjekt_type,relation.subjekt_id)
+             AND public.entitet_offentlig(relation.objekt_type,relation.objekt_id))))
+   AND (NOT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_member member
+                    WHERE member.member_kind='assertion' AND member.assertion_id=assertion.id)
+        OR EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_member member
+                     JOIN private.source_scoped_evidence_v3_revision revision ON revision.id=member.revision_id
+                     JOIN private.source_scoped_evidence_v3_chain_state state ON state.chain_id=revision.chain_id
+                    WHERE member.member_kind='assertion' AND member.assertion_id=assertion.id
+                      AND state.visible_revision_id=revision.id));
+CREATE OR REPLACE VIEW public.source_scoped_evidence_visible_citation_ids
+  WITH (security_barrier=true) AS
+SELECT citation.id FROM public.citation citation
+  JOIN public.assertion assertion ON assertion.id=citation.assertion_id
+ WHERE EXISTS (SELECT 1 FROM public.source_scoped_evidence_visible_assertion_ids visible_assertion
+                WHERE visible_assertion.id=citation.assertion_id)
+   AND (NOT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_member member
+                    WHERE member.member_kind='citation' AND member.citation_id=citation.id)
+        OR EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_member member
+                     JOIN private.source_scoped_evidence_v3_revision revision ON revision.id=member.revision_id
+                     JOIN private.source_scoped_evidence_v3_chain_state state ON state.chain_id=revision.chain_id
+                    WHERE member.member_kind='citation' AND member.citation_id=citation.id
+                      AND state.visible_revision_id=revision.id));
+    $visibility_views$;
+  END IF;
+END
+$source_scoped_evidence_v3_late_visibility_views$;
+REVOKE ALL ON TABLE public.source_scoped_evidence_visible_fact_ids,
+  public.source_scoped_evidence_visible_assertion_ids,
+  public.source_scoped_evidence_visible_citation_ids
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON TABLE public.source_scoped_evidence_visible_fact_ids,
+  public.source_scoped_evidence_visible_assertion_ids,
+  public.source_scoped_evidence_visible_citation_ids TO anon,authenticated;
+CREATE OR REPLACE FUNCTION private.source_scoped_evidence_v3_chain_state_sha256(
+  p_chain_id uuid,p_head_revision_id uuid,p_visible_revision_id uuid,
+  p_state_version integer,p_last_event_id uuid
+) RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,extensions AS $$
+  SELECT encode(extensions.digest(jsonb_build_object(
+    'schema','source-scoped-evidence-v3-chain-state-v1',
+    'chain_id',p_chain_id::text,'head_revision_id',p_head_revision_id::text,
+    'visible_revision_id',p_visible_revision_id::text,
+    'state_version',p_state_version,'last_event_id',p_last_event_id::text
+  )::text,'sha256'),'hex')
+$$;
+
+CREATE OR REPLACE FUNCTION private.enforce_source_scoped_evidence_v3_chain_state_write()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+BEGIN
+  IF TG_OP='DELETE' THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CHAIN_STATE_DIRECT_MUTATION';
+  END IF;
+  IF NOT EXISTS (
+       SELECT 1 FROM private.source_scoped_evidence_v3_chain_event event
+        WHERE event.id=NEW.last_event_id AND event.chain_id=NEW.chain_id
+          AND event.after_state_sha256=NEW.state_sha256
+     ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CHAIN_STATE_DIRECT_MUTATION';
+  END IF;
+  IF TG_OP='UPDATE' AND NEW.last_event_id IS NOT DISTINCT FROM OLD.last_event_id THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CHAIN_STATE_DIRECT_MUTATION';
+  END IF;
+  IF NEW.state_sha256 IS DISTINCT FROM private.source_scoped_evidence_v3_chain_state_sha256(
+       NEW.chain_id,NEW.head_revision_id,NEW.visible_revision_id,NEW.state_version,NEW.last_event_id
+     ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CHAIN_STATE_HASH_INVALID';
+  END IF;
+  IF NEW.head_revision_id IS NULL OR NOT EXISTS (
+       SELECT 1 FROM private.source_scoped_evidence_v3_revision revision
+        WHERE revision.id=NEW.head_revision_id AND revision.chain_id=NEW.chain_id
+     ) OR (NEW.visible_revision_id IS NOT NULL AND NOT EXISTS (
+       SELECT 1 FROM private.source_scoped_evidence_v3_revision revision
+        WHERE revision.id=NEW.visible_revision_id AND revision.chain_id=NEW.chain_id
+          AND revision.revision_kind='content'
+     )) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CHAIN_STATE_SCOPE_INVALID';
+  END IF;
+  IF TG_OP='UPDATE' AND (
+       NEW.state_version<>OLD.state_version+1
+       OR NOT EXISTS (
+         SELECT 1 FROM private.source_scoped_evidence_v3_chain_event event
+          WHERE event.id=NEW.last_event_id AND event.chain_id=NEW.chain_id
+            AND event.predecessor_state_sha256 IS NOT DISTINCT FROM OLD.state_sha256
+       )
+     ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CHAIN_STATE_DIRECT_MUTATION';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION private.enforce_source_scoped_evidence_v3_chain_event()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_state private.source_scoped_evidence_v3_chain_state%ROWTYPE;
+  v_head uuid; v_visible uuid; v_version integer; v_publication text; v_has_state boolean;
+BEGIN
+  PERFORM 1 FROM private.source_scoped_evidence_v3_chain chain WHERE chain.id=NEW.chain_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CHAIN_EVENT_CHAIN_NOT_FOUND'; END IF;
+  SELECT * INTO v_state FROM private.source_scoped_evidence_v3_chain_state state
+   WHERE state.chain_id=NEW.chain_id FOR UPDATE;
+  v_has_state:=FOUND;
+  IF NEW.event_type='source_revision_created' THEN
+    IF NEW.publication_id IS NOT NULL
+       OR (NOT v_has_state AND NEW.predecessor_state_sha256 IS NOT NULL)
+       OR (v_has_state AND NEW.predecessor_state_sha256 IS DISTINCT FROM v_state.state_sha256) THEN
+      RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CHAIN_EVENT_TRANSITION_INVALID';
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM private.source_scoped_evidence_v3_revision revision
+       WHERE revision.id=NEW.revision_id AND revision.chain_id=NEW.chain_id
+         AND ((NOT v_has_state AND revision.revision=1)
+              OR (v_has_state AND revision.predecessor_revision_id=v_state.head_revision_id))
+    ) THEN RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CHAIN_EVENT_TRANSITION_INVALID'; END IF;
+    v_head:=NEW.revision_id; v_visible:=v_state.visible_revision_id;
+  ELSE
+    IF NOT v_has_state OR NEW.predecessor_state_sha256 IS DISTINCT FROM v_state.state_sha256 THEN
+      RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CHAIN_EVENT_STALE_STATE';
+    END IF;
+    v_head:=v_state.head_revision_id; v_visible:=v_state.visible_revision_id;
+    SELECT publication.decision INTO v_publication FROM private.source_scoped_evidence_v3_publication publication
+     WHERE publication.id=NEW.publication_id AND publication.chain_id=NEW.chain_id;
+    IF NEW.event_type='eligible' THEN
+      IF NEW.publication_id IS NOT NULL OR NEW.revision_id IS DISTINCT FROM v_head THEN RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CHAIN_EVENT_TRANSITION_INVALID'; END IF;
+    ELSIF NEW.event_type='published' THEN
+      IF v_visible IS NOT NULL OR NEW.revision_id IS DISTINCT FROM v_head OR v_publication<>'publish' THEN RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CHAIN_EVENT_TRANSITION_INVALID'; END IF;
+      v_visible:=v_head;
+    ELSIF NEW.event_type='superseded' THEN
+      IF v_visible IS NULL OR v_visible=NEW.revision_id OR NEW.revision_id IS DISTINCT FROM v_head OR v_publication<>'supersede' THEN RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CHAIN_EVENT_TRANSITION_INVALID'; END IF;
+      v_visible:=v_head;
+    ELSIF NEW.event_type='withdrawn' THEN
+      IF v_visible IS NULL OR NEW.revision_id IS DISTINCT FROM v_head OR v_publication<>'withdraw' OR NOT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_revision revision WHERE revision.id=v_head AND revision.revision_kind='tombstone') THEN RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CHAIN_EVENT_TRANSITION_INVALID'; END IF;
+      v_visible:=NULL;
+    ELSE RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CHAIN_EVENT_TRANSITION_INVALID';
+    END IF;
+  END IF;
+  v_version:=coalesce(v_state.state_version,0)+1;
+  IF NEW.after_state_sha256 IS DISTINCT FROM private.source_scoped_evidence_v3_chain_state_sha256(NEW.chain_id,v_head,v_visible,v_version,NEW.id) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CHAIN_EVENT_HASH_INVALID';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION private.project_source_scoped_evidence_v3_chain_event()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+BEGIN
+  INSERT INTO private.source_scoped_evidence_v3_chain_state(
+    chain_id,head_revision_id,visible_revision_id,state_version,state_sha256,last_event_id
+  ) SELECT NEW.chain_id,NEW.revision_id,
+      CASE WHEN NEW.event_type IN ('published','superseded') THEN NEW.revision_id
+           WHEN NEW.event_type='withdrawn' THEN NULL ELSE state.visible_revision_id END,
+      coalesce(state.state_version,0)+1,NEW.after_state_sha256,NEW.id
+    FROM (SELECT NEW.chain_id) input
+    LEFT JOIN private.source_scoped_evidence_v3_chain_state state ON state.chain_id=input.chain_id
+  ON CONFLICT (chain_id) DO UPDATE SET
+    head_revision_id=CASE WHEN NEW.event_type='source_revision_created' THEN NEW.revision_id ELSE private.source_scoped_evidence_v3_chain_state.head_revision_id END,
+    visible_revision_id=EXCLUDED.visible_revision_id,
+    state_version=EXCLUDED.state_version,state_sha256=EXCLUDED.state_sha256,last_event_id=EXCLUDED.last_event_id;
+  RETURN NEW;
+END
+$$;
+DROP TRIGGER IF EXISTS trg_source_scoped_evidence_v3_chain_state_guard ON private.source_scoped_evidence_v3_chain_state;
+CREATE TRIGGER trg_source_scoped_evidence_v3_chain_state_guard BEFORE INSERT OR UPDATE OR DELETE ON private.source_scoped_evidence_v3_chain_state FOR EACH ROW EXECUTE FUNCTION private.enforce_source_scoped_evidence_v3_chain_state_write();
+DROP TRIGGER IF EXISTS trg_source_scoped_evidence_v3_chain_event_transition ON private.source_scoped_evidence_v3_chain_event;
+CREATE TRIGGER trg_source_scoped_evidence_v3_chain_event_transition BEFORE INSERT ON private.source_scoped_evidence_v3_chain_event FOR EACH ROW EXECUTE FUNCTION private.enforce_source_scoped_evidence_v3_chain_event();
+DROP TRIGGER IF EXISTS trg_source_scoped_evidence_v3_chain_event_project ON private.source_scoped_evidence_v3_chain_event;
+CREATE TRIGGER trg_source_scoped_evidence_v3_chain_event_project AFTER INSERT ON private.source_scoped_evidence_v3_chain_event FOR EACH ROW EXECUTE FUNCTION private.project_source_scoped_evidence_v3_chain_event();
+REVOKE ALL ON FUNCTION private.source_scoped_evidence_v3_chain_state_sha256(uuid,uuid,uuid,integer,uuid),private.enforce_source_scoped_evidence_v3_chain_state_write(),private.enforce_source_scoped_evidence_v3_chain_event(),private.project_source_scoped_evidence_v3_chain_event() FROM PUBLIC,anon,authenticated,service_role;
+DO $source_scoped_evidence_v3_task4c_receipt_transition$
+DECLARE v_expected text; v_actual text;
+BEGIN
+  v_actual:=private.source_scoped_evidence_v3_task4a_contract_sha256();
+  SELECT contract_sha256 INTO v_expected FROM private.source_scoped_evidence_v3_migration_receipt
+   WHERE contract_version='source-scoped-evidence-v3-task4a-v3';
+  IF v_expected IS NULL THEN
+    INSERT INTO private.source_scoped_evidence_v3_migration_receipt(contract_version,contract_sha256)
+      VALUES ('source-scoped-evidence-v3-task4a-v3',v_actual);
+  ELSIF v_expected IS DISTINCT FROM v_actual THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4C_RECEIPT_DRIFT';
+  END IF;
+END
+$source_scoped_evidence_v3_task4c_receipt_transition$;
+CREATE TABLE IF NOT EXISTS private.source_scoped_evidence_publication_v3_authorization (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), chain_id uuid NOT NULL REFERENCES private.source_scoped_evidence_v3_chain(id),
+  revision_id uuid NOT NULL, deployment_id uuid NOT NULL REFERENCES private.source_scoped_evidence_v3_deployment(id),
+  deployment_sha256 text NOT NULL CHECK (deployment_sha256 ~ '^[0-9a-f]{64}$'), expected_state_sha256 text NOT NULL CHECK (expected_state_sha256 ~ '^[0-9a-f]{64}$'),
+  decision_payload jsonb NOT NULL CHECK (jsonb_typeof(decision_payload)='object'), decision_payload_sha256 text NOT NULL CHECK (decision_payload_sha256 ~ '^[0-9a-f]{64}$'),
+  actor_id uuid NOT NULL, nonce uuid NOT NULL UNIQUE, expires_at timestamptz NOT NULL, consumed_at timestamptz,
+  receipt jsonb CONSTRAINT source_scoped_evidence_pub_auth_receipt_json_ck
+    CHECK (receipt IS NULL OR jsonb_typeof(receipt)='object'),
+  receipt_sha256 text CONSTRAINT source_scoped_evidence_pub_auth_receipt_hash_ck
+    CHECK (receipt_sha256 IS NULL OR receipt_sha256 ~ '^[0-9a-f]{64}$'),
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  CONSTRAINT source_scoped_evidence_pub_auth_receipt_pair_ck
+    CHECK ((receipt IS NULL)=(receipt_sha256 IS NULL)),
+  FOREIGN KEY (revision_id,chain_id) REFERENCES private.source_scoped_evidence_v3_revision(id,chain_id)
+);
+ALTER TABLE private.source_scoped_evidence_publication_v3_authorization
+  ADD COLUMN IF NOT EXISTS receipt jsonb;
+ALTER TABLE private.source_scoped_evidence_publication_v3_authorization
+  ADD COLUMN IF NOT EXISTS receipt_sha256 text;
+DO $source_scoped_evidence_v3_publication_receipt_columns$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint constraint_row
+                  WHERE constraint_row.conrelid='private.source_scoped_evidence_publication_v3_authorization'::regclass
+                    AND constraint_row.conname='source_scoped_evidence_pub_auth_receipt_json_ck') THEN
+    ALTER TABLE private.source_scoped_evidence_publication_v3_authorization
+      ADD CONSTRAINT source_scoped_evidence_pub_auth_receipt_json_ck
+      CHECK (receipt IS NULL OR jsonb_typeof(receipt)='object');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint constraint_row
+                  WHERE constraint_row.conrelid='private.source_scoped_evidence_publication_v3_authorization'::regclass
+                    AND constraint_row.conname='source_scoped_evidence_pub_auth_receipt_hash_ck') THEN
+    ALTER TABLE private.source_scoped_evidence_publication_v3_authorization
+      ADD CONSTRAINT source_scoped_evidence_pub_auth_receipt_hash_ck
+      CHECK (receipt_sha256 IS NULL OR receipt_sha256 ~ '^[0-9a-f]{64}$');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint constraint_row
+                  WHERE constraint_row.conrelid='private.source_scoped_evidence_publication_v3_authorization'::regclass
+                    AND constraint_row.conname='source_scoped_evidence_pub_auth_receipt_pair_ck') THEN
+    ALTER TABLE private.source_scoped_evidence_publication_v3_authorization
+      ADD CONSTRAINT source_scoped_evidence_pub_auth_receipt_pair_ck
+      CHECK ((receipt IS NULL)=(receipt_sha256 IS NULL));
+  END IF;
+END
+$source_scoped_evidence_v3_publication_receipt_columns$;
+CREATE OR REPLACE FUNCTION private.enforce_source_scoped_evidence_publication_v3_authorization_mutation()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,extensions AS $$
+BEGIN
+  IF TG_OP='DELETE' OR OLD.consumed_at IS NOT NULL OR NEW.consumed_at IS NULL
+     OR NEW.receipt IS NULL OR NEW.receipt_sha256 IS NULL
+     OR NEW.receipt_sha256 IS DISTINCT FROM encode(extensions.digest(NEW.receipt::text,'sha256'),'hex')
+     OR (to_jsonb(NEW)-ARRAY['consumed_at','receipt','receipt_sha256'])
+          IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['consumed_at','receipt','receipt_sha256']) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_AUTHORIZATION_APPEND_ONLY';
+  END IF;
+  RETURN NEW;
+END
+$$;
+-- Drop the previous, PostgreSQL-truncated name as well as the canonical name:
+-- schema.sql already creates the latter before db-migrations.sql is replayed.
+DROP TRIGGER IF EXISTS trg_source_scoped_evidence_publication_v3_authorization_append_ ON private.source_scoped_evidence_publication_v3_authorization;
+DROP TRIGGER IF EXISTS trg_source_scoped_evidence_pub_auth_append_only ON private.source_scoped_evidence_publication_v3_authorization;
+CREATE TRIGGER trg_source_scoped_evidence_pub_auth_append_only BEFORE UPDATE OR DELETE ON private.source_scoped_evidence_publication_v3_authorization FOR EACH ROW EXECUTE FUNCTION private.enforce_source_scoped_evidence_publication_v3_authorization_mutation();
+ALTER TABLE private.source_scoped_evidence_publication_v3_authorization ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.source_scoped_evidence_publication_v3_authorization FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION private.enforce_source_scoped_evidence_publication_v3_authorization_mutation() FROM PUBLIC,anon,authenticated,service_role;
+CREATE OR REPLACE FUNCTION private.source_scoped_evidence_v3_publication_decision_sha256(
+  p_payload jsonb
+) RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path=pg_catalog,extensions
+AS $$
+  SELECT encode(extensions.digest(p_payload::text,'sha256'),'hex')
+$$;
+
+-- Task 4C publication decisions have a deliberately closed payload.  The
+-- second-stage RPC must receive these exact canonical bytes again; accepting
+-- an open-ended "reason" object would make the human approval unauditable.
+CREATE OR REPLACE FUNCTION private.validate_source_scoped_evidence_v3_publication_decision(
+  p_chain_id uuid,p_revision_id uuid,p_deployment_id uuid,p_expected_state_sha256 text,
+  p_decision_payload jsonb
+) RETURNS text
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path=pg_catalog,private
+AS $$
+DECLARE v_decision text;
+BEGIN
+  IF p_expected_state_sha256 !~ '^[0-9a-f]{64}$'
+     OR jsonb_typeof(p_decision_payload)<>'object'
+     OR NOT (p_decision_payload ?& ARRAY[
+       'schema','chain_id','revision_id','deployment_id','deployment_sha256',
+       'expected_state_sha256','decision','rationale'
+     ])
+     OR (p_decision_payload - ARRAY[
+       'schema','chain_id','revision_id','deployment_id','deployment_sha256',
+       'expected_state_sha256','decision','rationale'
+     ]) <> '{}'::jsonb
+     OR p_decision_payload->>'schema'<>'source-scoped-evidence-v3-publication-decision-v1'
+     OR p_decision_payload->>'chain_id' IS DISTINCT FROM p_chain_id::text
+     OR p_decision_payload->>'revision_id' IS DISTINCT FROM p_revision_id::text
+     OR p_decision_payload->>'deployment_id' IS DISTINCT FROM p_deployment_id::text
+     OR p_decision_payload->>'expected_state_sha256' IS DISTINCT FROM p_expected_state_sha256
+     OR p_decision_payload->>'deployment_sha256' !~ '^[0-9a-f]{64}$'
+     OR nullif(btrim(p_decision_payload->>'rationale'),'') IS NULL THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_DECISION_INVALID';
+  END IF;
+  v_decision:=p_decision_payload->>'decision';
+  IF v_decision NOT IN ('publish','supersede','withdraw') THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_DECISION_INVALID';
+  END IF;
+  RETURN v_decision;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION private.source_scoped_evidence_v3_publication_consumer_exists(
+  p_revision_id uuid
+) RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path=pg_catalog,public,private
+AS $$
+  WITH members AS (
+    SELECT member.member_kind,coalesce(member.fact_id,member.assertion_id,member.citation_id) AS member_id
+      FROM private.source_scoped_evidence_v3_member member
+     WHERE member.revision_id=p_revision_id
+  )
+  SELECT EXISTS (
+    SELECT 1 FROM public.conclusion conclusion JOIN members member
+      ON (member.member_kind='assertion' AND conclusion.valgt_assertion_id=member.member_id)
+      OR (conclusion.target_type=member.member_kind AND conclusion.target_id=member.member_id)
+    UNION ALL
+    SELECT 1 FROM public.note note JOIN members member
+      ON note.target_type=member.member_kind AND note.target_id=member.member_id
+    UNION ALL
+    SELECT 1 FROM public.relation relation JOIN members member
+      ON (relation.subjekt_type=member.member_kind AND relation.subjekt_id=member.member_id)
+      OR (relation.objekt_type=member.member_kind AND relation.objekt_id=member.member_id)
+    UNION ALL
+    SELECT 1 FROM public.haendelse event JOIN members member
+      ON (member.member_kind='fact' AND event.fact_id=member.member_id)
+      OR (event.subjekt_type=member.member_kind AND event.subjekt_id=member.member_id)
+    UNION ALL
+    SELECT 1 FROM public.story story JOIN members member
+      ON (member.member_kind='fact' AND story.fact_id=member.member_id)
+      OR (story.subjekt_type=member.member_kind AND story.subjekt_id=member.member_id)
+    UNION ALL
+    SELECT 1 FROM public.change_set change_set JOIN members member
+      ON change_set.subjekt_type=member.member_kind AND change_set.subjekt_id=member.member_id
+    UNION ALL
+    SELECT 1 FROM public.entity_description description JOIN members member
+      ON description.subjekt_type=member.member_kind AND description.subjekt_id=member.member_id
+    UNION ALL
+    SELECT 1 FROM public.narrative narrative JOIN members member
+      ON narrative.subjekt_type=member.member_kind AND narrative.subjekt_id=member.member_id
+    UNION ALL
+    SELECT 1 FROM public.suggestion suggestion JOIN members member
+      ON suggestion.subjekt_type=member.member_kind AND suggestion.subjekt_id=member.member_id
+    UNION ALL
+    SELECT 1 FROM private.interpretation_promotion promotion JOIN members member
+      ON promotion.target_type=member.member_kind AND promotion.target_id=member.member_id
+    UNION ALL
+    SELECT 1 FROM private.reimport_1939_name_completion_result completion JOIN members member
+      ON (member.member_kind='fact' AND completion.fact_id=member.member_id)
+      OR (member.member_kind='assertion' AND completion.assertion_id=member.member_id)
+      OR (member.member_kind='citation' AND completion.citation_id=member.member_id)
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION public.red_authorize_source_scoped_evidence_publication_v3(
+  p_chain_id uuid,p_revision_id uuid,p_deployment_id uuid,p_expected_state_sha256 text,
+  p_decision_payload jsonb,p_nonce uuid,p_expires_at timestamptz
+) RETURNS uuid
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path=pg_catalog,public,private,extensions
+AS $$
+DECLARE
+  v_actor uuid:=auth.uid();
+  v_deployment private.source_scoped_evidence_v3_deployment%ROWTYPE;
+  v_chain private.source_scoped_evidence_v3_chain%ROWTYPE;
+  v_revision private.source_scoped_evidence_v3_revision%ROWTYPE;
+  v_state private.source_scoped_evidence_v3_chain_state%ROWTYPE;
+  v_decision text;
+  v_id uuid;
+BEGIN
+  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_ROLE_FORBIDDEN';
+  END IF;
+  IF p_chain_id IS NULL OR p_revision_id IS NULL OR p_deployment_id IS NULL
+     OR p_nonce IS NULL OR p_expires_at IS NULL OR p_expires_at<=clock_timestamp() THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_AUTHORIZATION_INVALID';
+  END IF;
+  v_decision:=private.validate_source_scoped_evidence_v3_publication_decision(
+    p_chain_id,p_revision_id,p_deployment_id,p_expected_state_sha256,p_decision_payload
+  );
+  SELECT * INTO v_deployment
+    FROM private.source_scoped_evidence_v3_deployment deployment
+   WHERE deployment.id=p_deployment_id;
+  IF NOT FOUND
+     OR v_deployment.deployment_sha256 IS DISTINCT FROM p_decision_payload->>'deployment_sha256'
+     OR v_deployment.database_name IS DISTINCT FROM current_database()
+     OR v_deployment.system_identifier IS DISTINCT FROM (pg_control_system()).system_identifier::text THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_DEPLOYMENT_INVALID';
+  END IF;
+  IF v_deployment.inventory_id IS DISTINCT FROM private.refresh_source_scoped_evidence_contract_inventory(
+       v_deployment.schema_contract_version
+     ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_INVENTORY_DRIFT';
+  END IF;
+
+  -- Shared order: narrative contract, source record, audit allocation, person,
+  -- #152 evidence anchors, then V3 chain/model/ledger.
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  SELECT * INTO v_chain FROM private.source_scoped_evidence_v3_chain chain
+   WHERE chain.id=p_chain_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_SCOPE_INVALID'; END IF;
+  PERFORM pg_advisory_xact_lock(
+    hashtextextended('daa-source-scoped-replace:'||v_chain.source_id::text,0)
+  );
+  -- #152 owns the complete record-first lock map. Reusing its locked state
+  -- projection prevents publication from silently omitting a shared resource.
+  PERFORM private.narrative_record_state(
+    v_chain.canonical_person_id,v_chain.source_id,v_chain.source_record_key,true
+  );
+  SELECT * INTO v_chain FROM private.source_scoped_evidence_v3_chain chain
+   WHERE chain.id=p_chain_id FOR UPDATE;
+  SELECT * INTO v_revision FROM private.source_scoped_evidence_v3_revision revision
+   WHERE revision.id=p_revision_id AND revision.chain_id=v_chain.id FOR UPDATE;
+  SELECT * INTO v_state FROM private.source_scoped_evidence_v3_chain_state state
+   WHERE state.chain_id=v_chain.id FOR UPDATE;
+  IF NOT FOUND
+     OR v_state.state_sha256 IS DISTINCT FROM p_expected_state_sha256
+     OR v_state.head_revision_id IS DISTINCT FROM p_revision_id
+     OR NOT EXISTS (
+       SELECT 1 FROM private.source_scoped_evidence_v3_chain_event event
+        WHERE event.id=v_state.last_event_id AND event.event_type='eligible'
+     )
+     OR NOT EXISTS (
+       SELECT 1 FROM private.source_record record
+        WHERE record.id=v_chain.source_record_id AND record.source_id=v_chain.source_id
+          AND record.record_key=v_chain.source_record_key
+     )
+     OR NOT EXISTS (
+       SELECT 1 FROM private.source_persona persona
+        JOIN private.source_persona_placement_current persona_placement
+          ON persona_placement.source_persona_id=persona.id
+        JOIN private.source_record_placement_current record_placement
+          ON record_placement.id=persona_placement.record_placement_id
+        JOIN private.source_persona_identity identity_state
+          ON identity_state.source_persona_id=persona.id
+        WHERE persona.id=v_chain.source_persona_id AND persona.source_id=v_chain.source_id
+          AND record_placement.source_record_id=v_chain.source_record_id
+          AND record_placement.decision_status='accepted'
+          AND persona_placement.decision_status='accepted'
+          AND identity_state.decision_status='accepted'
+          AND identity_state.canonical_person_id=v_chain.canonical_person_id
+     ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_STALE';
+  END IF;
+  IF (v_decision='publish' AND (v_revision.revision_kind<>'content' OR v_state.visible_revision_id IS NOT NULL))
+     OR (v_decision='supersede' AND (v_revision.revision_kind<>'content' OR v_state.visible_revision_id IS NULL
+          OR v_state.visible_revision_id=v_revision.id))
+     OR (v_decision='withdraw' AND (v_revision.revision_kind<>'tombstone' OR v_state.visible_revision_id IS NULL)) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_TRANSITION_INVALID';
+  END IF;
+  IF EXISTS (SELECT 1 FROM private.source_scoped_evidence_publication_v3_authorization auth_row
+              WHERE auth_row.nonce=p_nonce) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_NONCE_REPLAY';
+  END IF;
+  INSERT INTO private.source_scoped_evidence_publication_v3_authorization(
+    chain_id,revision_id,deployment_id,deployment_sha256,expected_state_sha256,
+    decision_payload,decision_payload_sha256,actor_id,nonce,expires_at
+  ) VALUES (
+    p_chain_id,p_revision_id,p_deployment_id,v_deployment.deployment_sha256,p_expected_state_sha256,
+    p_decision_payload,private.source_scoped_evidence_v3_publication_decision_sha256(p_decision_payload),
+    v_actor,p_nonce,p_expires_at
+  ) RETURNING id INTO v_id;
+  RETURN v_id;
+EXCEPTION WHEN unique_violation THEN
+  RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_NONCE_REPLAY';
+END
+$$;
+
+CREATE OR REPLACE FUNCTION public.red_publish_source_scoped_evidence_revision_v3(
+  p_authorization_id uuid,p_decision_payload jsonb
+) RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path=pg_catalog,public,private,extensions
+AS $$
+DECLARE
+  v_actor uuid:=auth.uid();
+  v_authorization private.source_scoped_evidence_publication_v3_authorization%ROWTYPE;
+  v_deployment private.source_scoped_evidence_v3_deployment%ROWTYPE;
+  v_chain private.source_scoped_evidence_v3_chain%ROWTYPE;
+  v_revision private.source_scoped_evidence_v3_revision%ROWTYPE;
+  v_state private.source_scoped_evidence_v3_chain_state%ROWTYPE;
+  v_decision text;
+  v_publication_id uuid;
+  v_event_id uuid:=gen_random_uuid();
+  v_event_type text;
+  v_next_visible uuid;
+  v_next_hash text;
+  v_supersedes_publication_id uuid;
+  v_receipt jsonb;
+BEGIN
+  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_ROLE_FORBIDDEN';
+  END IF;
+  SELECT * INTO v_authorization
+    FROM private.source_scoped_evidence_publication_v3_authorization authorization_row
+   WHERE authorization_row.id=p_authorization_id;
+  IF NOT FOUND OR v_authorization.actor_id IS DISTINCT FROM v_actor
+     OR v_authorization.decision_payload IS DISTINCT FROM p_decision_payload
+     OR v_authorization.decision_payload_sha256 IS DISTINCT FROM
+          private.source_scoped_evidence_v3_publication_decision_sha256(p_decision_payload) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_AUTHORIZATION_INVALID';
+  END IF;
+  IF v_authorization.consumed_at IS NOT NULL THEN
+    IF v_authorization.receipt IS NULL
+       OR v_authorization.receipt_sha256 IS DISTINCT FROM encode(extensions.digest(v_authorization.receipt::text,'sha256'),'hex') THEN
+      RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_AUTHORIZATION_INVALID';
+    END IF;
+    RETURN v_authorization.receipt;
+  END IF;
+  IF v_authorization.expires_at<=clock_timestamp() THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_AUTHORIZATION_INVALID';
+  END IF;
+  v_decision:=private.validate_source_scoped_evidence_v3_publication_decision(
+    v_authorization.chain_id,v_authorization.revision_id,v_authorization.deployment_id,
+    v_authorization.expected_state_sha256,p_decision_payload
+  );
+  SELECT * INTO v_deployment FROM private.source_scoped_evidence_v3_deployment deployment
+   WHERE deployment.id=v_authorization.deployment_id;
+  IF NOT FOUND OR v_deployment.deployment_sha256 IS DISTINCT FROM v_authorization.deployment_sha256
+     OR v_deployment.database_name IS DISTINCT FROM current_database()
+     OR v_deployment.system_identifier IS DISTINCT FROM (pg_control_system()).system_identifier::text
+     OR v_deployment.inventory_id IS DISTINCT FROM private.refresh_source_scoped_evidence_contract_inventory(
+          v_deployment.schema_contract_version
+        ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_DEPLOYMENT_INVALID';
+  END IF;
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  SELECT * INTO v_chain FROM private.source_scoped_evidence_v3_chain chain
+   WHERE chain.id=v_authorization.chain_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_SCOPE_INVALID'; END IF;
+  PERFORM pg_advisory_xact_lock(
+    hashtextextended('daa-source-scoped-replace:'||v_chain.source_id::text,0)
+  );
+  -- Use the same complete #152 prelock before V3 chain/model/ledger locks.
+  PERFORM private.narrative_record_state(
+    v_chain.canonical_person_id,v_chain.source_id,v_chain.source_record_key,true
+  );
+  SELECT * INTO v_chain FROM private.source_scoped_evidence_v3_chain chain
+   WHERE chain.id=v_authorization.chain_id FOR UPDATE;
+  SELECT * INTO v_revision FROM private.source_scoped_evidence_v3_revision revision
+   WHERE revision.id=v_authorization.revision_id AND revision.chain_id=v_chain.id FOR UPDATE;
+  SELECT * INTO v_state FROM private.source_scoped_evidence_v3_chain_state state
+   WHERE state.chain_id=v_chain.id FOR UPDATE;
+  IF v_revision.revision_kind='content' THEN
+    PERFORM 1 FROM private.source_scoped_evidence_v3_member member
+     WHERE member.revision_id=v_revision.id ORDER BY member.member_kind,member.member_key FOR UPDATE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_STALE';
+    END IF;
+  END IF;
+  IF v_state.state_sha256 IS DISTINCT FROM v_authorization.expected_state_sha256
+     OR v_state.head_revision_id IS DISTINCT FROM v_revision.id
+     OR NOT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_chain_event event
+                     WHERE event.id=v_state.last_event_id AND event.event_type='eligible')
+     OR NOT EXISTS (
+       SELECT 1 FROM private.source_persona persona
+        JOIN private.source_persona_placement_current persona_placement
+          ON persona_placement.source_persona_id=persona.id
+        JOIN private.source_record_placement_current record_placement
+          ON record_placement.id=persona_placement.record_placement_id
+        JOIN private.source_persona_identity identity_state
+          ON identity_state.source_persona_id=persona.id
+        WHERE persona.id=v_chain.source_persona_id AND persona.source_id=v_chain.source_id
+          AND record_placement.source_record_id=v_chain.source_record_id
+          AND record_placement.decision_status='accepted'
+          AND persona_placement.decision_status='accepted'
+          AND identity_state.decision_status='accepted'
+          AND identity_state.canonical_person_id=v_chain.canonical_person_id
+     ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_STALE';
+  END IF;
+  IF v_decision IN ('supersede','withdraw')
+     AND private.source_scoped_evidence_v3_publication_consumer_exists(v_state.visible_revision_id) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_CONSUMER_NO_GO';
+  END IF;
+  IF v_decision='publish' AND v_revision.revision_kind='content' AND v_state.visible_revision_id IS NULL THEN
+    v_event_type:='published'; v_next_visible:=v_revision.id;
+  ELSIF v_decision='supersede' AND v_revision.revision_kind='content' AND v_state.visible_revision_id IS NOT NULL THEN
+    v_event_type:='superseded'; v_next_visible:=v_revision.id;
+  ELSIF v_decision='withdraw' AND v_revision.revision_kind='tombstone' AND v_state.visible_revision_id IS NOT NULL THEN
+    v_event_type:='withdrawn'; v_next_visible:=NULL;
+  ELSE
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_TRANSITION_INVALID';
+  END IF;
+  IF v_decision='supersede' THEN
+    SELECT event.publication_id INTO v_supersedes_publication_id
+      FROM private.source_scoped_evidence_v3_chain_event event
+     WHERE event.chain_id=v_chain.id
+       AND event.revision_id=v_state.visible_revision_id
+       AND event.event_type IN ('published','superseded')
+     ORDER BY event.created_at DESC,event.id DESC
+     LIMIT 1;
+    IF v_supersedes_publication_id IS NULL THEN
+      RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_STALE';
+    END IF;
+  END IF;
+  -- Authorisation is deliberately locked last: the preceding calls own the
+  -- shared #152 lock map, while this row is only the terminal single-use
+  -- ledger.  A concurrent first caller therefore yields its stored receipt.
+  SELECT * INTO v_authorization
+    FROM private.source_scoped_evidence_publication_v3_authorization authorization_row
+   WHERE authorization_row.id=p_authorization_id FOR UPDATE;
+  IF NOT FOUND OR v_authorization.actor_id IS DISTINCT FROM v_actor
+     OR v_authorization.decision_payload IS DISTINCT FROM p_decision_payload
+     OR v_authorization.decision_payload_sha256 IS DISTINCT FROM
+          private.source_scoped_evidence_v3_publication_decision_sha256(p_decision_payload) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_AUTHORIZATION_INVALID';
+  END IF;
+  IF v_authorization.consumed_at IS NOT NULL THEN
+    IF v_authorization.receipt IS NULL
+       OR v_authorization.receipt_sha256 IS DISTINCT FROM encode(extensions.digest(v_authorization.receipt::text,'sha256'),'hex') THEN
+      RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_AUTHORIZATION_INVALID';
+    END IF;
+    RETURN v_authorization.receipt;
+  END IF;
+  IF v_authorization.expires_at<=clock_timestamp() THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_AUTHORIZATION_INVALID';
+  END IF;
+  v_next_hash:=private.source_scoped_evidence_v3_chain_state_sha256(
+    v_chain.id,v_revision.id,v_next_visible,v_state.state_version+1,v_event_id
+  );
+  INSERT INTO private.source_scoped_evidence_v3_publication(
+    chain_id,revision_id,decision,decision_state_sha256,decision_payload,decided_by,supersedes_publication_id
+  ) VALUES (
+    v_chain.id,v_revision.id,v_decision,v_state.state_sha256,p_decision_payload,v_actor,
+    v_supersedes_publication_id
+  ) RETURNING id INTO v_publication_id;
+  INSERT INTO private.source_scoped_evidence_v3_chain_event(
+    id,chain_id,event_type,predecessor_state_sha256,after_state_sha256,revision_id,publication_id
+  ) VALUES (
+    v_event_id,v_chain.id,v_event_type,v_state.state_sha256,v_next_hash,v_revision.id,v_publication_id
+  );
+  v_receipt:=jsonb_build_object(
+    'schema','source-scoped-evidence-v3-publication-receipt-v1',
+    'authorization_id',v_authorization.id,'publication_id',v_publication_id,
+    'chain_id',v_chain.id,'revision_id',v_revision.id,'decision',v_decision,
+    'decision_payload_sha256',v_authorization.decision_payload_sha256,
+    'deployment_id',v_deployment.id,'deployment_sha256',v_deployment.deployment_sha256,
+    'database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text,
+    'before_state_sha256',v_state.state_sha256,'after_state_sha256',v_next_hash
+  );
+  UPDATE private.source_scoped_evidence_publication_v3_authorization
+     SET consumed_at=clock_timestamp(),receipt=v_receipt,
+         receipt_sha256=encode(extensions.digest(v_receipt::text,'sha256'),'hex')
+   WHERE id=v_authorization.id;
+  RETURN v_receipt;
+END
+$$;
+
+REVOKE ALL ON FUNCTION
+  private.source_scoped_evidence_v3_publication_decision_sha256(jsonb),
+  private.validate_source_scoped_evidence_v3_publication_decision(uuid,uuid,uuid,text,jsonb),
+  private.source_scoped_evidence_v3_publication_consumer_exists(uuid),
+  public.red_authorize_source_scoped_evidence_publication_v3(uuid,uuid,uuid,text,jsonb,uuid,timestamptz),
+  public.red_publish_source_scoped_evidence_revision_v3(uuid,jsonb)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION
+  public.red_authorize_source_scoped_evidence_publication_v3(uuid,uuid,uuid,text,jsonb,uuid,timestamptz),
+  public.red_publish_source_scoped_evidence_revision_v3(uuid,jsonb)
+  TO authenticated;
+CREATE OR REPLACE FUNCTION private.source_scoped_evidence_v3_task4c_contract_sha256()
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path=pg_catalog,private,extensions
+AS $$
+  SELECT encode(extensions.digest(jsonb_build_object(
+    'schema','source-scoped-evidence-v3-task4c-v4',
+    'table',(
+      SELECT jsonb_build_object(
+        'columns',coalesce(jsonb_agg(jsonb_build_object(
+          'position',attribute.attnum,'name',attribute.attname,
+          'type',format_type(attribute.atttypid,attribute.atttypmod),
+          'not_null',attribute.attnotnull,'default',pg_get_expr(default_value.adbin,default_value.adrelid)
+        ) ORDER BY attribute.attnum),'[]'::jsonb),
+        'constraints',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+          'name',constraint_row.conname,'definition',pg_get_constraintdef(constraint_row.oid,true)
+        ) ORDER BY constraint_row.conname),'[]'::jsonb)
+          FROM pg_constraint constraint_row
+         WHERE constraint_row.conrelid='private.source_scoped_evidence_publication_v3_authorization'::regclass),
+        'triggers',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+          'name',trigger.tgname,'definition',pg_get_triggerdef(trigger.oid,true)
+        ) ORDER BY trigger.tgname),'[]'::jsonb)
+          FROM pg_trigger trigger
+         WHERE trigger.tgrelid='private.source_scoped_evidence_publication_v3_authorization'::regclass
+           AND NOT trigger.tgisinternal),
+        'acl',coalesce((SELECT relation.relacl::text FROM pg_class relation
+                         WHERE relation.oid='private.source_scoped_evidence_publication_v3_authorization'::regclass),'{}')
+      )
+        FROM pg_attribute attribute
+        LEFT JOIN pg_attrdef default_value
+          ON default_value.adrelid=attribute.attrelid AND default_value.adnum=attribute.attnum
+       WHERE attribute.attrelid='private.source_scoped_evidence_publication_v3_authorization'::regclass
+         AND attribute.attnum>0 AND NOT attribute.attisdropped
+    ),
+    'state_projection',(SELECT jsonb_build_object(
+      'relations',coalesce(jsonb_agg(jsonb_build_object(
+        'name',relation.relname,'columns',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+          'position',attribute.attnum,'name',attribute.attname,
+          'type',format_type(attribute.atttypid,attribute.atttypmod),
+          'not_null',attribute.attnotnull
+        ) ORDER BY attribute.attnum),'[]'::jsonb) FROM pg_attribute attribute
+         WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),
+        'rls',relation.relrowsecurity,'force_rls',relation.relforcerowsecurity,
+        'acl',coalesce(relation.relacl,'{}'::aclitem[])::text
+      ) ORDER BY relation.relname),'[]'::jsonb),
+      'triggers',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+        'relation',relation.relname,'name',trigger.tgname,'definition',pg_get_triggerdef(trigger.oid,true)
+      ) ORDER BY relation.relname,trigger.tgname),'[]'::jsonb) FROM pg_trigger trigger
+        JOIN pg_class relation ON relation.oid=trigger.tgrelid
+       WHERE relation.oid=ANY(ARRAY[
+         'private.source_scoped_evidence_v3_chain_state'::regclass,
+         'private.source_scoped_evidence_v3_chain_event'::regclass
+       ]) AND NOT trigger.tgisinternal)
+    ) FROM pg_class relation WHERE relation.oid=ANY(ARRAY[
+      'private.source_scoped_evidence_v3_chain_state'::regclass,
+      'private.source_scoped_evidence_v3_chain_event'::regclass
+    ])),
+    'visibility_views',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'name',relation.relname,'definition',pg_get_viewdef(relation.oid,true),
+      'options',relation.reloptions,'acl',coalesce(relation.relacl,'{}'::aclitem[])::text
+    ) ORDER BY relation.relname),'[]'::jsonb) FROM pg_class relation
+     WHERE relation.oid=ANY(ARRAY[
+       'public.source_scoped_evidence_visible_fact_ids'::regclass,
+       'public.source_scoped_evidence_visible_assertion_ids'::regclass,
+       'public.source_scoped_evidence_visible_citation_ids'::regclass
+     ])),
+    'functions',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'signature',routine.oid::regprocedure::text,
+      'definition',CASE
+        WHEN routine.proname=ANY(ARRAY[
+          'source_scoped_evidence_v3_chain_state_sha256',
+          'enforce_source_scoped_evidence_v3_chain_state_write',
+          'enforce_source_scoped_evidence_v3_chain_event',
+          'project_source_scoped_evidence_v3_chain_event'
+        ]) THEN regexp_replace(pg_get_functiondef(routine.oid),'[[:space:]]+',' ','g')
+        ELSE pg_get_functiondef(routine.oid)
+      END,
+      'acl',coalesce(routine.proacl,acldefault('f',routine.proowner))::text
+    ) ORDER BY routine.oid::regprocedure::text),'[]'::jsonb)
+      FROM pg_proc routine
+      JOIN pg_namespace namespace ON namespace.oid=routine.pronamespace
+     WHERE (namespace.nspname='private' AND routine.proname=ANY(ARRAY[
+              'enforce_source_scoped_evidence_publication_v3_authorization_mutation',
+              'source_scoped_evidence_v3_publication_decision_sha256',
+              'validate_source_scoped_evidence_v3_publication_decision',
+              'source_scoped_evidence_v3_publication_consumer_exists',
+              'source_scoped_evidence_v3_chain_state_sha256',
+              'enforce_source_scoped_evidence_v3_chain_state_write',
+              'enforce_source_scoped_evidence_v3_chain_event',
+              'project_source_scoped_evidence_v3_chain_event'
+            ]))
+        OR (namespace.nspname='public' AND routine.proname=ANY(ARRAY[
+              'red_authorize_source_scoped_evidence_publication_v3',
+              'red_publish_source_scoped_evidence_revision_v3'
+            ])))
+  )::text,'sha256'),'hex')
+$$;
+REVOKE ALL ON FUNCTION private.source_scoped_evidence_v3_task4c_contract_sha256()
+  FROM PUBLIC,anon,authenticated,service_role;
+-- A fresh schema+migration installation has no public gate yet, so it must
+-- remain in the documented fail-closed fallback state until db-rls.sql writes
+-- the final v4 receipt.  Once that receipt exists, however, a migration rerun
+-- may never silently accept drift in the final RLS-bound contract.
+DO $source_scoped_evidence_v3_task4c_rerun_receipt$
+BEGIN
+  IF EXISTS (
+       SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+        WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v4'
+     ) AND (
+       to_regprocedure('public.entitet_offentlig(text,bigint)') IS NULL
+       OR NOT EXISTS (
+         SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+          WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v4'
+            AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256()
+       )
+     ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4C_RECEIPT_DRIFT';
+  END IF;
+END
+$source_scoped_evidence_v3_task4c_rerun_receipt$;
 COMMIT;

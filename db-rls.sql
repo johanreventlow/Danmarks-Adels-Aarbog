@@ -1206,3 +1206,122 @@ BEGIN
   END IF;
 END
 $source_scoped_evidence_v3_task4b_receipt$;
+
+-- #153 Task 4C: keep the historical gate and add the immutable V3 revision
+-- gate.  These default-owner views repeat the public gate explicitly: their
+-- callers must never inherit the owner's RLS bypass. Redaktion remains an
+-- explicit additive exception above.
+CREATE OR REPLACE VIEW public.source_scoped_evidence_visible_fact_ids
+  WITH (security_barrier=true) AS
+SELECT fact.id FROM public.fact fact
+ WHERE public.entitet_offentlig(fact.subjekt_type,fact.subjekt_id)
+   AND (NOT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_member member
+                    WHERE member.member_kind='fact' AND member.fact_id=fact.id)
+        OR EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_member member
+                     JOIN private.source_scoped_evidence_v3_revision revision ON revision.id=member.revision_id
+                     JOIN private.source_scoped_evidence_v3_chain_state state ON state.chain_id=revision.chain_id
+                    WHERE member.member_kind='fact' AND member.fact_id=fact.id
+                      AND state.visible_revision_id=revision.id));
+CREATE OR REPLACE VIEW public.source_scoped_evidence_visible_assertion_ids
+  WITH (security_barrier=true) AS
+SELECT assertion.id FROM public.assertion assertion
+   WHERE ((assertion.target_type='fact' AND EXISTS (
+           SELECT 1 FROM public.source_scoped_evidence_visible_fact_ids visible_fact
+            WHERE visible_fact.id=assertion.target_id))
+     OR (assertion.target_type='relation' AND EXISTS (
+           SELECT 1 FROM public.relation relation WHERE relation.id=assertion.target_id
+             AND public.entitet_offentlig(relation.subjekt_type,relation.subjekt_id)
+             AND public.entitet_offentlig(relation.objekt_type,relation.objekt_id))))
+   AND (NOT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_member member
+                    WHERE member.member_kind='assertion' AND member.assertion_id=assertion.id)
+        OR EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_member member
+                     JOIN private.source_scoped_evidence_v3_revision revision ON revision.id=member.revision_id
+                     JOIN private.source_scoped_evidence_v3_chain_state state ON state.chain_id=revision.chain_id
+                    WHERE member.member_kind='assertion' AND member.assertion_id=assertion.id
+                      AND state.visible_revision_id=revision.id));
+CREATE OR REPLACE VIEW public.source_scoped_evidence_visible_citation_ids
+  WITH (security_barrier=true) AS
+SELECT citation.id FROM public.citation citation
+  JOIN public.assertion assertion ON assertion.id=citation.assertion_id
+ WHERE EXISTS (
+       SELECT 1 FROM public.source_scoped_evidence_visible_assertion_ids visible_assertion
+        WHERE visible_assertion.id=citation.assertion_id)
+   AND (NOT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_member member
+                    WHERE member.member_kind='citation' AND member.citation_id=citation.id)
+        OR EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_member member
+                     JOIN private.source_scoped_evidence_v3_revision revision ON revision.id=member.revision_id
+                     JOIN private.source_scoped_evidence_v3_chain_state state ON state.chain_id=revision.chain_id
+                    WHERE member.member_kind='citation' AND member.citation_id=citation.id
+                      AND state.visible_revision_id=revision.id));
+REVOKE ALL ON TABLE public.source_scoped_evidence_visible_fact_ids,
+  public.source_scoped_evidence_visible_assertion_ids,
+  public.source_scoped_evidence_visible_citation_ids
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON TABLE public.source_scoped_evidence_visible_fact_ids,
+  public.source_scoped_evidence_visible_assertion_ids,
+  public.source_scoped_evidence_visible_citation_ids TO anon,authenticated;
+
+DROP POLICY IF EXISTS anon_read ON public.fact;
+CREATE POLICY anon_read ON public.fact FOR SELECT TO anon
+  USING (public.entitet_offentlig(subjekt_type,subjekt_id)
+    AND EXISTS (SELECT 1 FROM public.source_scoped_evidence_visible_fact_ids visible WHERE visible.id=fact.id));
+DROP POLICY IF EXISTS auth_read ON public.fact;
+CREATE POLICY auth_read ON public.fact FOR SELECT TO authenticated
+  USING (public.entitet_offentlig(subjekt_type,subjekt_id)
+    AND EXISTS (SELECT 1 FROM public.source_scoped_evidence_visible_fact_ids visible WHERE visible.id=fact.id));
+
+DROP POLICY IF EXISTS anon_read ON public.assertion;
+CREATE POLICY anon_read ON public.assertion FOR SELECT TO anon
+  USING (((target_type='fact' AND EXISTS (SELECT 1 FROM public.fact fact WHERE fact.id=target_id))
+       OR (target_type='relation' AND EXISTS (SELECT 1 FROM public.relation relation WHERE relation.id=target_id)))
+    AND EXISTS (SELECT 1 FROM public.source_scoped_evidence_visible_assertion_ids visible WHERE visible.id=assertion.id));
+DROP POLICY IF EXISTS auth_read ON public.assertion;
+CREATE POLICY auth_read ON public.assertion FOR SELECT TO authenticated
+  USING (((target_type='fact' AND EXISTS (SELECT 1 FROM public.fact fact WHERE fact.id=target_id))
+       OR (target_type='relation' AND EXISTS (SELECT 1 FROM public.relation relation WHERE relation.id=target_id)))
+    AND EXISTS (SELECT 1 FROM public.source_scoped_evidence_visible_assertion_ids visible WHERE visible.id=assertion.id));
+
+DROP POLICY IF EXISTS anon_read ON public.citation;
+CREATE POLICY anon_read ON public.citation FOR SELECT TO anon
+  USING (EXISTS (SELECT 1 FROM public.assertion assertion WHERE assertion.id=citation.assertion_id)
+    AND EXISTS (SELECT 1 FROM public.source_scoped_evidence_visible_citation_ids visible WHERE visible.id=citation.id));
+DROP POLICY IF EXISTS auth_read ON public.citation;
+CREATE POLICY auth_read ON public.citation FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.assertion assertion WHERE assertion.id=citation.assertion_id)
+    AND EXISTS (SELECT 1 FROM public.source_scoped_evidence_visible_citation_ids visible WHERE visible.id=citation.id));
+
+-- #153 Task 4C: publication remains a pair of narrowly granted SECURITY
+-- DEFINER RPCs.  The ledger and all helpers stay entirely private.
+ALTER TABLE private.source_scoped_evidence_publication_v3_authorization ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.source_scoped_evidence_publication_v3_authorization
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION
+  private.enforce_source_scoped_evidence_publication_v3_authorization_mutation(),
+  private.source_scoped_evidence_v3_publication_decision_sha256(jsonb),
+  private.validate_source_scoped_evidence_v3_publication_decision(uuid,uuid,uuid,text,jsonb),
+  private.source_scoped_evidence_v3_publication_consumer_exists(uuid),
+  public.red_authorize_source_scoped_evidence_publication_v3(uuid,uuid,uuid,text,jsonb,uuid,timestamptz),
+  public.red_publish_source_scoped_evidence_revision_v3(uuid,jsonb)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION
+  public.red_authorize_source_scoped_evidence_publication_v3(uuid,uuid,uuid,text,jsonb,uuid,timestamptz),
+  public.red_publish_source_scoped_evidence_revision_v3(uuid,jsonb)
+  TO authenticated;
+
+-- Task 4C's final public-view and ACL contract exists only after this RLS
+-- pass installs the shared public gate.  Bind the immutable receipt here,
+-- rather than to schema.sql's deliberately fail-closed fallback views.
+INSERT INTO private.source_scoped_evidence_v3_migration_receipt(contract_version,contract_sha256)
+VALUES ('source-scoped-evidence-v3-task4c-v4',private.source_scoped_evidence_v3_task4c_contract_sha256())
+ON CONFLICT (contract_version) DO NOTHING;
+DO $source_scoped_evidence_v3_task4c_receipt$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+     WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v4'
+       AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256()
+  ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4C_RECEIPT_DRIFT';
+  END IF;
+END
+$source_scoped_evidence_v3_task4c_receipt$;

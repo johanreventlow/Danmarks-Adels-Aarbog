@@ -8842,13 +8842,13 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt r
                    WHERE r.contract_version='source-scoped-evidence-v3-task4a-v1')
      OR NOT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt r
-                     WHERE r.contract_version='source-scoped-evidence-v3-task4a-v2'
+                     WHERE r.contract_version='source-scoped-evidence-v3-task4a-v3'
                        AND r.contract_sha256=private.source_scoped_evidence_v3_task4a_contract_sha256())
      OR (SELECT contract_sha256 FROM private.source_scoped_evidence_v3_migration_receipt
           WHERE contract_version='source-scoped-evidence-v3-task4a-v1')
         IS NOT DISTINCT FROM
         (SELECT contract_sha256 FROM private.source_scoped_evidence_v3_migration_receipt
-          WHERE contract_version='source-scoped-evidence-v3-task4a-v2') THEN
+          WHERE contract_version='source-scoped-evidence-v3-task4a-v3') THEN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4A_RECEIPT_TRANSITION_INVALID';
   END IF;
   IF encode(extensions.digest(convert_to(
@@ -8964,3 +8964,89 @@ BEGIN
   END IF;
 END
 $source_scoped_evidence_v3_inventory_verify$;
+
+-- #153 Task 4C: public visibility is a narrow relational projection; mutable
+-- chain state is reachable only through the append-event trigger path.
+DO $source_scoped_evidence_v3_visibility_verify$
+DECLARE v_signature text;
+BEGIN
+  IF NOT EXISTS (
+       SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+        WHERE receipt.contract_version='source-scoped-evidence-v3-task4a-v3'
+          AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4a_contract_sha256()
+     ) OR (SELECT count(*) FROM pg_class view_class JOIN pg_namespace view_schema ON view_schema.oid=view_class.relnamespace
+             WHERE view_schema.nspname='public' AND view_class.relkind='v'
+               AND view_class.relname=ANY(ARRAY['source_scoped_evidence_visible_fact_ids','source_scoped_evidence_visible_assertion_ids','source_scoped_evidence_visible_citation_ids'])
+               AND view_class.reloptions @> ARRAY['security_barrier=true']
+               AND NOT (view_class.reloptions @> ARRAY['security_invoker=true']))<>3 THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_VISIBILITY_PHYSICAL_CONTRACT_INVALID';
+  END IF;
+  IF EXISTS (
+       SELECT 1 FROM unnest(ARRAY['anon','authenticated','service_role']) role_name
+        CROSS JOIN unnest(ARRAY['source_scoped_evidence_visible_fact_ids','source_scoped_evidence_visible_assertion_ids','source_scoped_evidence_visible_citation_ids']) relation_name
+       WHERE (role_name IN ('anon','authenticated') AND NOT has_table_privilege(role_name,('public.'||relation_name),'SELECT'))
+          OR (role_name='service_role' AND has_table_privilege(role_name,('public.'||relation_name),'SELECT'))
+     ) THEN RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_VISIBILITY_ACL_INVALID'; END IF;
+  FOREACH v_signature IN ARRAY ARRAY[
+    'private.source_scoped_evidence_v3_chain_state_sha256(uuid,uuid,uuid,integer,uuid)',
+    'private.enforce_source_scoped_evidence_v3_chain_state_write()',
+    'private.enforce_source_scoped_evidence_v3_chain_event()',
+    'private.project_source_scoped_evidence_v3_chain_event()'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NULL
+       OR has_function_privilege('anon',v_signature::regprocedure,'EXECUTE')
+       OR has_function_privilege('authenticated',v_signature::regprocedure,'EXECUTE')
+       OR has_function_privilege('service_role',v_signature::regprocedure,'EXECUTE') THEN
+      RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_STATE_ACL_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.source_scoped_evidence_v3_chain_state'::regclass AND tgname='trg_source_scoped_evidence_v3_chain_state_guard' AND NOT tgisinternal)
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.source_scoped_evidence_v3_chain_event'::regclass AND tgname='trg_source_scoped_evidence_v3_chain_event_transition' AND NOT tgisinternal)
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.source_scoped_evidence_v3_chain_event'::regclass AND tgname='trg_source_scoped_evidence_v3_chain_event_project' AND NOT tgisinternal) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_STATE_TRIGGER_INVALID';
+  END IF;
+  IF to_regprocedure('private.source_scoped_evidence_v3_task4c_contract_sha256()') IS NULL
+     OR NOT EXISTS (
+       SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+        WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v4'
+          AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256()
+     )
+     OR NOT (SELECT relrowsecurity FROM pg_class
+              WHERE oid='private.source_scoped_evidence_publication_v3_authorization'::regclass)
+     OR NOT EXISTS (
+       SELECT 1 FROM pg_trigger trigger
+        WHERE trigger.tgrelid='private.source_scoped_evidence_publication_v3_authorization'::regclass
+          AND trigger.tgname='trg_source_scoped_evidence_pub_auth_append_only'
+          AND NOT trigger.tgisinternal
+     ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_RECEIPT_OR_LEDGER_INVALID';
+  END IF;
+  FOREACH v_signature IN ARRAY ARRAY[
+    'private.enforce_source_scoped_evidence_publication_v3_authorization_mutation()',
+    'private.source_scoped_evidence_v3_publication_decision_sha256(jsonb)',
+    'private.validate_source_scoped_evidence_v3_publication_decision(uuid,uuid,uuid,text,jsonb)',
+    'private.source_scoped_evidence_v3_publication_consumer_exists(uuid)',
+    'private.source_scoped_evidence_v3_task4c_contract_sha256()'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NULL
+       OR has_function_privilege('anon',v_signature::regprocedure,'EXECUTE')
+       OR has_function_privilege('authenticated',v_signature::regprocedure,'EXECUTE')
+       OR has_function_privilege('service_role',v_signature::regprocedure,'EXECUTE') THEN
+      RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_PRIVATE_ACL_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+  FOREACH v_signature IN ARRAY ARRAY[
+    'public.red_authorize_source_scoped_evidence_publication_v3(uuid,uuid,uuid,text,jsonb,uuid,timestamp with time zone)',
+    'public.red_publish_source_scoped_evidence_revision_v3(uuid,jsonb)'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NULL
+       OR has_function_privilege('anon',v_signature::regprocedure,'EXECUTE')
+       OR NOT has_function_privilege('authenticated',v_signature::regprocedure,'EXECUTE')
+       OR has_function_privilege('service_role',v_signature::regprocedure,'EXECUTE')
+       OR position('SECURITY DEFINER' IN upper(pg_get_functiondef(v_signature::regprocedure)))=0
+       OR position('auth.uid' IN lower(pg_get_functiondef(v_signature::regprocedure)))=0 THEN
+      RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_RPC_ACL_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+END
+$source_scoped_evidence_v3_visibility_verify$;
