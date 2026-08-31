@@ -222,8 +222,8 @@ if (identical(Sys.getenv("SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT"), "1")) {
           "WHERE lock.locktype='advisory' AND NOT lock.granted ",
           "AND activity.application_name IN ($1,$2) ",
           "AND lock.database=(SELECT oid FROM pg_database WHERE datname=current_database()) ",
-          "AND lock.classid=((hashtextextended($3,0)>>32)&4294967295)::oid ",
-          "AND lock.objid=(hashtextextended($3,0)&4294967295)::oid ",
+          "AND lock.classid::int4=((hashtextextended($3,0)>>32)&4294967295)::int4 ",
+          "AND lock.objid::int4=(hashtextextended($3,0)&4294967295)::int4 ",
           "AND lock.objsubid=1"
         ), params = c(as.list(worker_names), list(paste0("daa-source-scoped-replace:", source_id))))$n[[1L]]
         if (waiting >= 2L) break
