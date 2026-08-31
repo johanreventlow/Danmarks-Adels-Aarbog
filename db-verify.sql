@@ -7369,8 +7369,11 @@ BEGIN
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
 
-  INSERT INTO media(slags,titel,kunstner,datering,upload_status,maa_publiceres)
-    VALUES ('foto','Gammel titel','Gammel kunstner','1699','klar',false)
+  -- media.id har ingen identity/default. Vælg derfor et rent, syntetisk id;
+  -- resten af testen bruger v_id og rulles tilbage af den omgivende verifier.
+  v_id := (SELECT least(coalesce(min(id),0)-1,-1) FROM media);
+  INSERT INTO media(id,slags,titel,kunstner,datering,upload_status,maa_publiceres)
+    VALUES (v_id,'foto','Gammel titel','Gammel kunstner','1699','klar',false)
     RETURNING id INTO v_id;
 
   SELECT count(*) INTO v_cs_foer FROM change_set;
@@ -8312,7 +8315,8 @@ BEGIN
 
   -- Skallen bygges råt: red_opret_union kræver to partnere fra start, og det er netop den
   -- mor-løse børne-familie fra 1939-loaderen vi vil kunne reparere.
-  INSERT INTO family(type) VALUES ('vielse') RETURNING id INTO v_fam;
+  v_fam := (SELECT least(coalesce(min(id),0)-1,-1) FROM family);
+  INSERT INTO family(id,type) VALUES (v_fam,'vielse');
   INSERT INTO family_member(family_id, person_id, rolle) VALUES (v_fam, v_a, 'partner');
   INSERT INTO family_member(family_id, person_id, rolle) VALUES (v_fam, v_barn, 'barn');
 
@@ -8779,3 +8783,69 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: medie-metadata — 12 faktatype-seeds + entitet_offentlig gater media på publicering';
 END $$;
+-- #153 Task 4A: V1 is retained only as a no-DML tombstone; V3 stays private
+-- until the later, versioned public APIs are established.
+DO $source_scoped_evidence_v3_verify$
+DECLARE v_relation text; v_signature text; v_definition text;
+BEGIN
+  FOREACH v_relation IN ARRAY ARRAY[
+    'private.source_scoped_replace_authorization','private.source_scoped_replace_batch','private.source_scoped_replace_event',
+    'private.source_scoped_replace_v3_attestation','private.source_scoped_replace_v3_authorization','private.source_scoped_replace_v3_batch','private.source_scoped_replace_v3_event','private.source_scoped_replace_v3_manifest_artifact',
+    'private.source_scoped_evidence_v3_chain','private.source_scoped_evidence_v3_revision','private.source_scoped_evidence_v3_member','private.source_scoped_evidence_v3_publication','private.source_scoped_evidence_v3_chain_event','private.source_scoped_evidence_v3_chain_state','private.source_scoped_evidence_v3_migration_receipt'
+  ] LOOP
+    IF to_regclass(v_relation) IS NULL
+       OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid=v_relation::regclass)
+       OR has_table_privilege('anon',v_relation,'SELECT')
+       OR has_table_privilege('authenticated',v_relation,'SELECT')
+       OR has_table_privilege('authenticated',v_relation,'INSERT')
+       OR has_table_privilege('service_role',v_relation,'INSERT') THEN
+      RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_LEDGER_ACL_INVALID: %',v_relation;
+    END IF;
+  END LOOP;
+  FOREACH v_signature IN ARRAY ARRAY[
+    'public.red_authorize_source_scoped_replace(text,text,uuid,uuid,jsonb,text,text,timestamptz)',
+    'public.red_apply_source_scoped_replace(uuid,jsonb)',
+    'public.red_verify_source_scoped_replace(uuid)'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NULL
+       OR has_function_privilege('anon',v_signature::regprocedure,'EXECUTE')
+       OR has_function_privilege('authenticated',v_signature::regprocedure,'EXECUTE')
+       OR has_function_privilege('service_role',v_signature::regprocedure,'EXECUTE') THEN
+      RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_V1_ACL_INVALID: %',v_signature;
+    END IF;
+    SELECT pg_get_functiondef(v_signature::regprocedure) INTO v_definition;
+    IF position('SOURCE_SCOPED_REPLACE_V1_RETIRED' IN v_definition)=0
+       OR position('INSERT INTO' IN upper(v_definition))>0
+       OR position('UPDATE ' IN upper(v_definition))>0
+       OR position('DELETE FROM' IN upper(v_definition))>0 THEN
+      RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_V1_BODY_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conrelid='private.source_scoped_evidence_v3_member'::regclass AND pg_get_constraintdef(c.oid,true) LIKE '%num_nonnulls(fact_id, assertion_id, citation_id) = 1%')
+     OR NOT EXISTS (SELECT 1 FROM pg_class WHERE oid='private.source_scoped_evidence_v3_member_fact_uidx'::regclass)
+     OR NOT EXISTS (SELECT 1 FROM pg_class WHERE oid='private.source_scoped_evidence_v3_member_assertion_uidx'::regclass)
+     OR NOT EXISTS (SELECT 1 FROM pg_class WHERE oid='private.source_scoped_evidence_v3_member_citation_uidx'::regclass)
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conrelid='private.source_scoped_evidence_v3_chain_state'::regclass AND pg_get_constraintdef(c.oid,true) LIKE '%last_event_id%source_scoped_evidence_v3_chain_event%') THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PHYSICAL_CONTRACT_INVALID';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conrelid='private.source_scoped_evidence_v3_revision'::regclass AND pg_get_constraintdef(c.oid,true) LIKE '%FOREIGN KEY (predecessor_revision_id, chain_id)%')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid='private.source_scoped_evidence_v3_revision'::regclass AND NOT t.tgisinternal AND t.tgname='trg_source_scoped_evidence_v3_revision_predecessor' AND pg_get_triggerdef(t.oid,true) LIKE '%BEFORE INSERT%')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conrelid='private.source_scoped_evidence_v3_publication'::regclass AND pg_get_constraintdef(c.oid,true) LIKE '%FOREIGN KEY (revision_id, chain_id)%')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conrelid='private.source_scoped_evidence_v3_chain_event'::regclass AND pg_get_constraintdef(c.oid,true) LIKE '%FOREIGN KEY (revision_id, chain_id)%')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conrelid='private.source_scoped_evidence_v3_chain_event'::regclass AND pg_get_constraintdef(c.oid,true) LIKE '%FOREIGN KEY (publication_id, chain_id)%')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conrelid='private.source_scoped_evidence_v3_chain_state'::regclass AND pg_get_constraintdef(c.oid,true) LIKE '%FOREIGN KEY (head_revision_id, chain_id)%')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conrelid='private.source_scoped_evidence_v3_chain_state'::regclass AND pg_get_constraintdef(c.oid,true) LIKE '%FOREIGN KEY (visible_revision_id, chain_id)%')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conrelid='private.source_scoped_evidence_v3_chain_state'::regclass AND pg_get_constraintdef(c.oid,true) LIKE '%FOREIGN KEY (last_event_id, chain_id)%')
+     OR NOT EXISTS (SELECT 1 FROM pg_index i WHERE i.indexrelid='private.source_scoped_evidence_v3_member_fact_uidx'::regclass AND pg_get_indexdef(i.indexrelid) LIKE '%WHERE (fact_id IS NOT NULL)%') THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CHAIN_OR_INDEX_CONTRACT_INVALID';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt r WHERE r.contract_version='source-scoped-evidence-v3-task4a-v1' AND r.contract_sha256=private.source_scoped_evidence_v3_task4a_contract_sha256()) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_MIGRATION_RECEIPT_DRIFT';
+  END IF;
+  IF encode(extensions.digest(convert_to(
+       pg_get_functiondef('private.source_scoped_evidence_v3_task4a_contract_sha256()'::regprocedure),'UTF8'
+     ),'sha256'),'hex')<>'6f9ee99a0b5ff924eee42c05dbd7fc6b8f2eeffa045da340a61b008622eb647c' THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CONTRACT_HASH_FUNCTION_DRIFT';
+  END IF;
+END
+$source_scoped_evidence_v3_verify$;

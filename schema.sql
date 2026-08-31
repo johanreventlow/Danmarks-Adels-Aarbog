@@ -9518,6 +9518,538 @@ REVOKE ALL ON FUNCTION public.narrative_record_contract_version()
   FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.narrative_record_contract_version()
   TO anon,authenticated,service_role;
+
+
+-- =====================================================================
+-- 2026-08-31: #153 Task 4A -- retired V1 and private V3 evidence ledger
+-- =====================================================================
+-- V1 remains queryable only as historical ledger data.  Its public writer
+-- signatures are deliberately retained as fail-closed tombstones, rather than
+-- dropped, so a stale gateway can never silently find a mutating fallback.
+CREATE OR REPLACE FUNCTION private.reject_source_scoped_replace_v1_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path=pg_catalog
+AS $$
+BEGIN
+  RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_V1_RETIRED';
+END
+$$;
+
+CREATE OR REPLACE FUNCTION public.red_authorize_source_scoped_replace(
+  p_database_name text,p_system_identifier text,p_actor_id uuid,p_nonce uuid,
+  p_manifest jsonb,p_dry_run_sha256 text,p_ownership_sha256 text,p_expires_at timestamptz
+) RETURNS uuid
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path=pg_catalog
+AS $$
+BEGIN
+  RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_V1_RETIRED';
+END
+$$;
+
+CREATE OR REPLACE FUNCTION public.red_apply_source_scoped_replace(
+  p_authorization_id uuid,p_manifest jsonb
+) RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path=pg_catalog
+AS $$
+BEGIN
+  RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_V1_RETIRED';
+END
+$$;
+
+CREATE OR REPLACE FUNCTION public.red_verify_source_scoped_replace(
+  p_authorization_id uuid
+) RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path=pg_catalog
+AS $$
+BEGIN
+  RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_V1_RETIRED';
+END
+$$;
+
+-- The V3 source-operation ledger is deliberately separate from V1.  The
+-- deployment FK is added together with the deployment registry in Task 4B;
+-- the UUID column exists now so every later authorization can bind it.
+CREATE TABLE private.source_scoped_replace_v3_attestation (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_id bigint NOT NULL REFERENCES public.source(id),
+  source_record_id uuid NOT NULL REFERENCES private.source_record(id),
+  source_persona_id uuid NOT NULL REFERENCES private.source_persona(id),
+  canonical_person_id bigint NOT NULL REFERENCES public.person(id),
+  attestation_sha256 text NOT NULL CHECK (attestation_sha256 ~ '^[0-9a-f]{64}$'),
+  attestation jsonb NOT NULL CHECK (jsonb_typeof(attestation)='object'),
+  created_by uuid NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  UNIQUE (source_record_id,source_persona_id,canonical_person_id,attestation_sha256)
+);
+
+CREATE TABLE private.source_scoped_replace_v3_authorization (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  deployment_id uuid NOT NULL,
+  deployment_sha256 text NOT NULL CHECK (deployment_sha256 ~ '^[0-9a-f]{64}$'),
+  database_name text NOT NULL CHECK (btrim(database_name)<>''),
+  system_identifier text NOT NULL CHECK (btrim(system_identifier)<>''),
+  actor_id uuid NOT NULL,
+  nonce uuid NOT NULL UNIQUE,
+  source_id bigint NOT NULL REFERENCES public.source(id),
+  manifest jsonb NOT NULL CHECK (jsonb_typeof(manifest)='object'),
+  manifest_semantic_sha256 text NOT NULL CHECK (manifest_semantic_sha256 ~ '^[0-9a-f]{64}$'),
+  dry_run_semantic_sha256 text NOT NULL CHECK (dry_run_semantic_sha256 ~ '^[0-9a-f]{64}$'),
+  ownership_semantic_sha256 text NOT NULL CHECK (ownership_semantic_sha256 ~ '^[0-9a-f]{64}$'),
+  artifact_sha256 text NOT NULL CHECK (artifact_sha256 ~ '^[0-9a-f]{64}$'),
+  expires_at timestamptz NOT NULL,
+  consumed_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+
+CREATE TABLE private.source_scoped_replace_v3_batch (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  authorization_id uuid NOT NULL UNIQUE REFERENCES private.source_scoped_replace_v3_authorization(id),
+  receipt jsonb NOT NULL CHECK (jsonb_typeof(receipt)='object'),
+  receipt_sha256 text NOT NULL CHECK (receipt_sha256 ~ '^[0-9a-f]{64}$'),
+  committed_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+
+CREATE TABLE private.source_scoped_replace_v3_event (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  batch_id uuid NOT NULL REFERENCES private.source_scoped_replace_v3_batch(id),
+  event_type text NOT NULL CHECK (event_type IN ('draft_created','draft_updated')),
+  payload jsonb NOT NULL CHECK (jsonb_typeof(payload)='object'),
+  state_sha256 text NOT NULL CHECK (state_sha256 ~ '^[0-9a-f]{64}$'),
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+
+CREATE TABLE private.source_scoped_replace_v3_manifest_artifact (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  authorization_id uuid NOT NULL REFERENCES private.source_scoped_replace_v3_authorization(id),
+  artifact_kind text NOT NULL CHECK (artifact_kind IN ('manifest','dry_run','ownership','writer_snapshot')),
+  artifact_sha256 text NOT NULL CHECK (artifact_sha256 ~ '^[0-9a-f]{64}$'),
+  artifact jsonb NOT NULL CHECK (jsonb_typeof(artifact) IN ('object','array')),
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  UNIQUE (authorization_id,artifact_kind)
+);
+
+CREATE TABLE private.source_scoped_evidence_v3_chain (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_id bigint NOT NULL REFERENCES public.source(id),
+  source_record_id uuid NOT NULL REFERENCES private.source_record(id),
+  source_record_key text NOT NULL CHECK (btrim(source_record_key)<>''),
+  source_persona_id uuid NOT NULL REFERENCES private.source_persona(id),
+  canonical_person_id bigint NOT NULL REFERENCES public.person(id),
+  chain_key text NOT NULL CHECK (chain_key ~ '^[0-9a-f]{64}$'),
+  created_by_batch uuid REFERENCES private.source_scoped_replace_v3_batch(id),
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  UNIQUE (source_id,chain_key)
+);
+
+CREATE TABLE private.source_scoped_evidence_v3_revision (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  chain_id uuid NOT NULL REFERENCES private.source_scoped_evidence_v3_chain(id),
+  revision integer NOT NULL CHECK (revision>=1),
+  predecessor_revision_id uuid REFERENCES private.source_scoped_evidence_v3_revision(id),
+  fact_id bigint REFERENCES public.fact(id),
+  revision_kind text NOT NULL CHECK (revision_kind IN ('content','tombstone')),
+  chain_sha256 text NOT NULL CHECK (chain_sha256 ~ '^[0-9a-f]{64}$'),
+  manifest_semantic_sha256 text NOT NULL CHECK (manifest_semantic_sha256 ~ '^[0-9a-f]{64}$'),
+  created_by_batch uuid REFERENCES private.source_scoped_replace_v3_batch(id),
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  UNIQUE (chain_id,revision),
+  UNIQUE (id,chain_id),
+  CHECK ((revision_kind='content' AND fact_id IS NOT NULL)
+         OR (revision_kind='tombstone' AND fact_id IS NULL)),
+  CHECK ((revision=1 AND predecessor_revision_id IS NULL)
+         OR (revision>1 AND predecessor_revision_id IS NOT NULL)),
+  FOREIGN KEY (predecessor_revision_id,chain_id)
+    REFERENCES private.source_scoped_evidence_v3_revision(id,chain_id)
+);
+
+CREATE TABLE private.source_scoped_evidence_v3_member (
+  revision_id uuid NOT NULL REFERENCES private.source_scoped_evidence_v3_revision(id),
+  member_kind text NOT NULL CHECK (member_kind IN ('fact','assertion','citation')),
+  member_key text NOT NULL CHECK (btrim(member_key)<>''),
+  fact_id bigint REFERENCES public.fact(id),
+  assertion_id bigint REFERENCES public.assertion(id),
+  citation_id bigint REFERENCES public.citation(id),
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (revision_id,member_kind,member_key),
+  CHECK (num_nonnulls(fact_id,assertion_id,citation_id)=1),
+  CHECK ((member_kind='fact' AND fact_id IS NOT NULL)
+         OR (member_kind='assertion' AND assertion_id IS NOT NULL)
+         OR (member_kind='citation' AND citation_id IS NOT NULL))
+);
+CREATE UNIQUE INDEX source_scoped_evidence_v3_member_fact_uidx
+  ON private.source_scoped_evidence_v3_member(fact_id) WHERE fact_id IS NOT NULL;
+CREATE UNIQUE INDEX source_scoped_evidence_v3_member_assertion_uidx
+  ON private.source_scoped_evidence_v3_member(assertion_id) WHERE assertion_id IS NOT NULL;
+CREATE UNIQUE INDEX source_scoped_evidence_v3_member_citation_uidx
+  ON private.source_scoped_evidence_v3_member(citation_id) WHERE citation_id IS NOT NULL;
+
+CREATE TABLE private.source_scoped_evidence_v3_publication (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  chain_id uuid NOT NULL REFERENCES private.source_scoped_evidence_v3_chain(id),
+  revision_id uuid NOT NULL REFERENCES private.source_scoped_evidence_v3_revision(id),
+  decision text NOT NULL CHECK (decision IN ('adopt_baseline','publish','supersede','withdraw')),
+  decision_state_sha256 text NOT NULL CHECK (decision_state_sha256 ~ '^[0-9a-f]{64}$'),
+  decision_payload jsonb NOT NULL CHECK (jsonb_typeof(decision_payload)='object'),
+  decided_by uuid NOT NULL,
+  decided_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  supersedes_publication_id uuid,
+  UNIQUE (id,chain_id),
+  FOREIGN KEY (revision_id,chain_id)
+    REFERENCES private.source_scoped_evidence_v3_revision(id,chain_id),
+  FOREIGN KEY (supersedes_publication_id,chain_id)
+    REFERENCES private.source_scoped_evidence_v3_publication(id,chain_id)
+);
+
+CREATE TABLE private.source_scoped_evidence_v3_chain_event (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  chain_id uuid NOT NULL REFERENCES private.source_scoped_evidence_v3_chain(id),
+  event_type text NOT NULL CHECK (event_type IN (
+    'source_revision_created','eligible','published','superseded','withdrawn'
+  )),
+  predecessor_state_sha256 text CHECK (predecessor_state_sha256 IS NULL OR predecessor_state_sha256 ~ '^[0-9a-f]{64}$'),
+  after_state_sha256 text NOT NULL CHECK (after_state_sha256 ~ '^[0-9a-f]{64}$'),
+  revision_id uuid,
+  publication_id uuid,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  UNIQUE (id,chain_id),
+  FOREIGN KEY (revision_id,chain_id)
+    REFERENCES private.source_scoped_evidence_v3_revision(id,chain_id),
+  FOREIGN KEY (publication_id,chain_id)
+    REFERENCES private.source_scoped_evidence_v3_publication(id,chain_id)
+);
+
+CREATE TABLE private.source_scoped_evidence_v3_chain_state (
+  chain_id uuid PRIMARY KEY REFERENCES private.source_scoped_evidence_v3_chain(id),
+  head_revision_id uuid,
+  visible_revision_id uuid,
+  state_version integer NOT NULL CHECK (state_version>=1),
+  state_sha256 text NOT NULL CHECK (state_sha256 ~ '^[0-9a-f]{64}$'),
+  last_event_id uuid NOT NULL UNIQUE,
+  FOREIGN KEY (head_revision_id,chain_id)
+    REFERENCES private.source_scoped_evidence_v3_revision(id,chain_id),
+  FOREIGN KEY (visible_revision_id,chain_id)
+    REFERENCES private.source_scoped_evidence_v3_revision(id,chain_id),
+  FOREIGN KEY (last_event_id,chain_id)
+    REFERENCES private.source_scoped_evidence_v3_chain_event(id,chain_id)
+);
+
+CREATE OR REPLACE FUNCTION private.enforce_source_scoped_evidence_v3_revision_predecessor()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path=pg_catalog,private
+AS $$
+BEGIN
+  IF NEW.revision>1 AND NOT EXISTS (
+    SELECT 1
+      FROM private.source_scoped_evidence_v3_revision predecessor
+     WHERE predecessor.id=NEW.predecessor_revision_id
+       AND predecessor.chain_id=NEW.chain_id
+       AND predecessor.revision=NEW.revision-1
+  ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PREDECESSOR_INVALID';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER trg_source_scoped_evidence_v3_revision_predecessor
+  BEFORE INSERT ON private.source_scoped_evidence_v3_revision
+  FOR EACH ROW EXECUTE FUNCTION private.enforce_source_scoped_evidence_v3_revision_predecessor();
+
+CREATE OR REPLACE FUNCTION private.reject_source_scoped_evidence_v3_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path=pg_catalog
+AS $$
+BEGIN
+  RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_APPEND_ONLY';
+END
+$$;
+
+CREATE TRIGGER trg_source_scoped_replace_v3_attestation_append_only
+  BEFORE UPDATE OR DELETE ON private.source_scoped_replace_v3_attestation
+  FOR EACH ROW EXECUTE FUNCTION private.reject_source_scoped_evidence_v3_mutation();
+CREATE TRIGGER trg_source_scoped_replace_v3_batch_append_only
+  BEFORE UPDATE OR DELETE ON private.source_scoped_replace_v3_batch
+  FOR EACH ROW EXECUTE FUNCTION private.reject_source_scoped_evidence_v3_mutation();
+CREATE TRIGGER trg_source_scoped_replace_v3_event_append_only
+  BEFORE UPDATE OR DELETE ON private.source_scoped_replace_v3_event
+  FOR EACH ROW EXECUTE FUNCTION private.reject_source_scoped_evidence_v3_mutation();
+CREATE TRIGGER trg_source_scoped_replace_v3_manifest_artifact_append_only
+  BEFORE UPDATE OR DELETE ON private.source_scoped_replace_v3_manifest_artifact
+  FOR EACH ROW EXECUTE FUNCTION private.reject_source_scoped_evidence_v3_mutation();
+CREATE TRIGGER trg_source_scoped_evidence_v3_chain_append_only
+  BEFORE UPDATE OR DELETE ON private.source_scoped_evidence_v3_chain
+  FOR EACH ROW EXECUTE FUNCTION private.reject_source_scoped_evidence_v3_mutation();
+CREATE TRIGGER trg_source_scoped_evidence_v3_revision_append_only
+  BEFORE UPDATE OR DELETE ON private.source_scoped_evidence_v3_revision
+  FOR EACH ROW EXECUTE FUNCTION private.reject_source_scoped_evidence_v3_mutation();
+CREATE TRIGGER trg_source_scoped_evidence_v3_member_append_only
+  BEFORE UPDATE OR DELETE ON private.source_scoped_evidence_v3_member
+  FOR EACH ROW EXECUTE FUNCTION private.reject_source_scoped_evidence_v3_mutation();
+CREATE TRIGGER trg_source_scoped_evidence_v3_publication_append_only
+  BEFORE UPDATE OR DELETE ON private.source_scoped_evidence_v3_publication
+  FOR EACH ROW EXECUTE FUNCTION private.reject_source_scoped_evidence_v3_mutation();
+CREATE TRIGGER trg_source_scoped_evidence_v3_chain_event_append_only
+  BEFORE UPDATE OR DELETE ON private.source_scoped_evidence_v3_chain_event
+  FOR EACH ROW EXECUTE FUNCTION private.reject_source_scoped_evidence_v3_mutation();
+
+ALTER TABLE private.source_scoped_replace_v3_attestation ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_replace_v3_authorization ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_replace_v3_batch ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_replace_v3_event ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_replace_v3_manifest_artifact ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_evidence_v3_chain ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_evidence_v3_revision ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_evidence_v3_member ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_evidence_v3_publication ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_evidence_v3_chain_event ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_evidence_v3_chain_state ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE private.source_scoped_replace_v3_attestation,
+  private.source_scoped_replace_v3_authorization,
+  private.source_scoped_replace_v3_batch,private.source_scoped_replace_v3_event,
+  private.source_scoped_replace_v3_manifest_artifact,private.source_scoped_evidence_v3_chain,
+  private.source_scoped_evidence_v3_revision,private.source_scoped_evidence_v3_member,
+  private.source_scoped_evidence_v3_publication,private.source_scoped_evidence_v3_chain_event,
+  private.source_scoped_evidence_v3_chain_state
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION private.reject_source_scoped_replace_v1_mutation(),
+  private.reject_source_scoped_evidence_v3_mutation(),
+  private.enforce_source_scoped_evidence_v3_revision_predecessor(),
+  public.red_authorize_source_scoped_replace(text,text,uuid,uuid,jsonb,text,text,timestamptz),
+  public.red_apply_source_scoped_replace(uuid,jsonb),
+  public.red_verify_source_scoped_replace(uuid)
+  FROM PUBLIC,anon,authenticated,service_role;
+
+-- =====================================================================
+-- 2026-08-30: #153 Task 4 -- source-scoped replace adapter ledger
+-- =====================================================================
+
+CREATE TABLE private.source_scoped_replace_authorization (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  database_name text NOT NULL CHECK (btrim(database_name)<>''),
+  system_identifier text NOT NULL CHECK (btrim(system_identifier)<>''),
+  actor_id uuid NOT NULL,
+  nonce uuid NOT NULL UNIQUE,
+  source_id bigint NOT NULL REFERENCES public.source(id),
+  manifest jsonb NOT NULL CHECK (jsonb_typeof(manifest)='object'),
+  manifest_sha256 text NOT NULL CHECK (manifest_sha256 ~ '^[0-9a-f]{64}$'),
+  dry_run_sha256 text NOT NULL CHECK (dry_run_sha256 ~ '^[0-9a-f]{64}$'),
+  ownership_sha256 text NOT NULL CHECK (ownership_sha256 ~ '^[0-9a-f]{64}$'),
+  element_scope jsonb NOT NULL CHECK (jsonb_typeof(element_scope)='array'),
+  expires_at timestamptz NOT NULL,
+  consumed_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+CREATE TABLE private.source_scoped_replace_batch (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  authorization_id uuid NOT NULL UNIQUE REFERENCES private.source_scoped_replace_authorization(id),
+  receipt jsonb NOT NULL CHECK (jsonb_typeof(receipt)='object'),
+  receipt_sha256 text NOT NULL CHECK (receipt_sha256 ~ '^[0-9a-f]{64}$'),
+  committed_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+CREATE TABLE private.source_scoped_replace_event (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  batch_id uuid NOT NULL REFERENCES private.source_scoped_replace_batch(id),
+  element_id bigint NOT NULL,
+  person_id bigint NOT NULL,
+  source_id bigint NOT NULL REFERENCES public.source(id),
+  record_key text NOT NULL CHECK (btrim(record_key)<>''),
+  event_type text NOT NULL CHECK (event_type IN ('draft_created','draft_updated')),
+  text_sha256 text NOT NULL CHECK (text_sha256 ~ '^[0-9a-f]{64}$'),
+  state_sha256 text NOT NULL CHECK (state_sha256 ~ '^[0-9a-f]{64}$'),
+  UNIQUE(batch_id,element_id)
+);
+
+CREATE OR REPLACE FUNCTION private.source_scoped_replace_manifest_sha256(p_manifest jsonb)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+  SELECT encode(extensions.digest(p_manifest::text,'sha256'),'hex')
+$$;
+
+CREATE OR REPLACE FUNCTION private.validate_source_scoped_replace_manifest(p_manifest jsonb)
+RETURNS bigint LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path=pg_catalog AS $$
+DECLARE v_source_id bigint; v_op jsonb; v_key text;
+BEGIN
+  IF jsonb_typeof(p_manifest)<>'object'
+     OR (p_manifest-ARRAY['schema','source_id','record_keys','input_sha256','dry_run_sha256',
+                          'ownership_sha256','expected_counts','policy_decisions','narrative_operations',
+                          'source_operations'])<>'{}'::jsonb
+     OR p_manifest->>'schema'<>'source-scoped-replace-v1'
+     OR (p_manifest->>'source_id') !~ '^[1-9][0-9]*$'
+     OR jsonb_typeof(p_manifest->'record_keys')<>'array'
+     OR jsonb_typeof(p_manifest->'narrative_operations')<>'array'
+     OR jsonb_typeof(p_manifest->'source_operations')<>'array'
+     OR jsonb_typeof(p_manifest->'expected_counts')<>'object'
+     OR jsonb_typeof(p_manifest->'policy_decisions')<>'object' THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_MANIFEST_INVALID';
+  END IF;
+  v_source_id:=(p_manifest->>'source_id')::bigint;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements_text(p_manifest->'record_keys') key
+             WHERE key.value='' OR key.value IS NULL)
+     OR (SELECT count(*) FROM jsonb_array_elements_text(p_manifest->'record_keys'))
+        <> (SELECT count(DISTINCT value) FROM jsonb_array_elements_text(p_manifest->'record_keys')) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_RECORD_SCOPE_INVALID';
+  END IF;
+  FOR v_op IN SELECT value FROM jsonb_array_elements(p_manifest->'narrative_operations') LOOP
+    IF jsonb_typeof(v_op)<>'object'
+       OR (v_op-ARRAY['element_id','person_id','source_id','record_key','text','text_sha256','expected_state_sha256'])<>'{}'::jsonb
+       OR (v_op->>'element_id') !~ '^[1-9][0-9]*$'
+       OR (v_op->>'person_id') !~ '^[1-9][0-9]*$'
+       OR (v_op->>'source_id')::bigint IS DISTINCT FROM v_source_id
+       OR coalesce(v_op->>'record_key','')=''
+       OR coalesce(v_op->>'text','')=''
+       OR coalesce(v_op->>'text_sha256','') !~ '^[0-9a-f]{64}$'
+       OR coalesce(v_op->>'expected_state_sha256','') !~ '^[0-9a-f]{64}$'
+       OR v_op->>'text_sha256' IS DISTINCT FROM encode(extensions.digest(v_op->>'text','sha256'),'hex')
+       OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(p_manifest->'record_keys') key
+                      WHERE key.value=v_op->>'record_key') THEN
+      RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_NARRATIVE_OPERATION_INVALID';
+    END IF;
+  END LOOP;
+  FOR v_op IN SELECT value FROM jsonb_array_elements(p_manifest->'source_operations') LOOP
+    IF jsonb_typeof(v_op)<>'object'
+       OR (v_op-ARRAY['action','record_key'])<>'{}'::jsonb
+       OR v_op->>'action'<>'replace_owned_facts'
+       OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(p_manifest->'record_keys') key
+                      WHERE key.value=v_op->>'record_key') THEN
+      RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_SOURCE_OPERATION_INVALID';
+    END IF;
+  END LOOP;
+  RETURN v_source_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_authorize_source_scoped_replace(
+  p_database_name text,p_system_identifier text,p_actor_id uuid,p_nonce uuid,
+  p_manifest jsonb,p_dry_run_sha256 text,p_ownership_sha256 text,p_expires_at timestamptz
+) RETURNS uuid LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE v_source_id bigint; v_auth uuid; v_scope jsonb; v_manifest_sha256 text;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_CONTRACT_INACTIVE'; END IF;
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' OR auth.uid() IS DISTINCT FROM p_actor_id THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_ROLE_FORBIDDEN';
+  END IF;
+  IF p_nonce IS NULL OR p_expires_at<=clock_timestamp() OR p_database_name IS DISTINCT FROM current_database()
+     OR p_system_identifier IS DISTINCT FROM (SELECT system_identifier::text FROM pg_control_system()) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_AUTHORIZATION_INVALID';
+  END IF;
+  v_source_id:=private.validate_source_scoped_replace_manifest(p_manifest);
+  v_manifest_sha256:=private.source_scoped_replace_manifest_sha256(p_manifest);
+  IF p_dry_run_sha256 IS DISTINCT FROM p_manifest->>'dry_run_sha256'
+     OR p_ownership_sha256 IS DISTINCT FROM p_manifest->>'ownership_sha256' THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_HASH_DRIFT';
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-source-scoped-replace:'||v_source_id::text,0));
+  SELECT coalesce(jsonb_agg(value ORDER BY (value->>'element_id')::bigint),'[]'::jsonb)
+    INTO v_scope FROM jsonb_array_elements(p_manifest->'narrative_operations');
+  INSERT INTO private.source_scoped_replace_authorization(
+    database_name,system_identifier,actor_id,nonce,source_id,manifest,manifest_sha256,
+    dry_run_sha256,ownership_sha256,element_scope,expires_at
+  ) VALUES (p_database_name,p_system_identifier,p_actor_id,p_nonce,v_source_id,p_manifest,
+            v_manifest_sha256,p_dry_run_sha256,p_ownership_sha256,v_scope,p_expires_at)
+  RETURNING id INTO v_auth;
+  RETURN v_auth;
+EXCEPTION WHEN unique_violation THEN
+  SELECT id INTO v_auth FROM private.source_scoped_replace_authorization
+   WHERE nonce=p_nonce AND actor_id=p_actor_id AND manifest_sha256=v_manifest_sha256
+     AND database_name=p_database_name AND system_identifier=p_system_identifier;
+  IF v_auth IS NULL THEN RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_NONCE_REPLAY'; END IF;
+  RETURN v_auth;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_apply_source_scoped_replace(
+  p_authorization_id uuid,p_manifest jsonb
+) RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE v_auth private.source_scoped_replace_authorization%ROWTYPE; v_batch private.source_scoped_replace_batch%ROWTYPE;
+        v_op jsonb; v_before jsonb; v_result jsonb; v_event_type text; v_events jsonb:='[]'::jsonb; v_receipt jsonb;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  SELECT * INTO v_auth FROM private.source_scoped_replace_authorization WHERE id=p_authorization_id FOR UPDATE;
+  IF NOT FOUND OR auth.uid() IS NULL OR auth.uid() IS DISTINCT FROM v_auth.actor_id
+     OR v_auth.database_name IS DISTINCT FROM current_database()
+     OR v_auth.system_identifier IS DISTINCT FROM (SELECT system_identifier::text FROM pg_control_system())
+     OR v_auth.expires_at<=clock_timestamp()
+     OR private.source_scoped_replace_manifest_sha256(p_manifest) IS DISTINCT FROM v_auth.manifest_sha256
+     OR p_manifest IS DISTINCT FROM v_auth.manifest THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_AUTHORIZATION_INVALID';
+  END IF;
+  SELECT * INTO v_batch FROM private.source_scoped_replace_batch WHERE authorization_id=v_auth.id;
+  IF FOUND THEN RETURN v_batch.receipt; END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-source-scoped-replace:'||v_auth.source_id::text,0));
+  PERFORM 1 FROM public.person person WHERE person.id IN (
+    SELECT (value->>'person_id')::bigint FROM jsonb_array_elements(v_auth.element_scope)
+  ) ORDER BY person.id FOR UPDATE;
+  IF (SELECT count(*) FROM public.person person WHERE person.id IN (
+    SELECT (value->>'person_id')::bigint FROM jsonb_array_elements(v_auth.element_scope)
+  )) <> jsonb_array_length(v_auth.element_scope) THEN RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_PERSON_SCOPE_INVALID'; END IF;
+  PERFORM 1 FROM private.source_record record WHERE record.source_id=v_auth.source_id
+    AND record.record_key IN (SELECT value FROM jsonb_array_elements_text(v_auth.manifest->'record_keys'))
+    ORDER BY record.id FOR UPDATE;
+  IF (SELECT count(*) FROM private.source_record record WHERE record.source_id=v_auth.source_id
+    AND record.record_key IN (SELECT value FROM jsonb_array_elements_text(v_auth.manifest->'record_keys')))
+    <> jsonb_array_length(v_auth.manifest->'record_keys') THEN RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_RECORD_SCOPE_INVALID'; END IF;
+  FOR v_op IN SELECT value FROM jsonb_array_elements(v_auth.element_scope) ORDER BY (value->>'element_id')::bigint LOOP
+    v_before:=private.narrative_record_state((v_op->>'person_id')::bigint,v_auth.source_id,v_op->>'record_key',true);
+    IF v_before->>'state_sha256' IS DISTINCT FROM v_op->>'expected_state_sha256' THEN RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_STATE_STALE'; END IF;
+    v_result:=private.mutate_person_narrative_record('upsert',(v_op->>'person_id')::bigint,v_auth.source_id,
+      v_op->>'record_key',v_op->>'text',false,v_op->>'expected_state_sha256');
+    SELECT event_type INTO v_event_type FROM private.narrative_publication_event
+     WHERE id=(v_result->>'event_id')::uuid;
+    IF v_event_type NOT IN ('draft_created','draft_updated') THEN RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_NON_DRAFT_EVENT'; END IF;
+    v_events:=v_events || jsonb_build_array(jsonb_build_object('element_id',v_op->>'element_id','person_id',v_op->>'person_id',
+      'record_key',v_op->>'record_key','event_type',v_event_type,'text_sha256',v_op->>'text_sha256',
+      'state_sha256',v_result->>'state_sha256'));
+  END LOOP;
+  IF current_setting('app.source_scoped_replace_fault',true)='after_source_writes' THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_FAULT_INJECTED';
+  END IF;
+  v_receipt:=jsonb_build_object('schema','source-scoped-replace-receipt-v1','authorization_id',v_auth.id,
+    'manifest_sha256',v_auth.manifest_sha256,'database_name',v_auth.database_name,
+    'system_identifier',v_auth.system_identifier,'actor_id',v_auth.actor_id,'events',v_events,
+    'terminal_status','committed');
+  INSERT INTO private.source_scoped_replace_batch(authorization_id,receipt,receipt_sha256)
+    VALUES(v_auth.id,v_receipt,private.source_scoped_replace_manifest_sha256(v_receipt)) RETURNING * INTO v_batch;
+  INSERT INTO private.source_scoped_replace_event(batch_id,element_id,person_id,source_id,record_key,event_type,text_sha256,state_sha256)
+    SELECT v_batch.id,(value->>'element_id')::bigint,(value->>'person_id')::bigint,v_auth.source_id,
+      value->>'record_key',value->>'event_type',value->>'text_sha256',value->>'state_sha256'
+    FROM jsonb_array_elements(v_events);
+  UPDATE private.source_scoped_replace_authorization SET consumed_at=clock_timestamp() WHERE id=v_auth.id;
+  RETURN v_receipt;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_verify_source_scoped_replace(p_authorization_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE v_batch private.source_scoped_replace_batch%ROWTYPE;
+BEGIN
+  SELECT batch.* INTO v_batch FROM private.source_scoped_replace_batch batch
+   JOIN private.source_scoped_replace_authorization authz ON authz.id=batch.authorization_id
+   WHERE batch.authorization_id=p_authorization_id AND auth.uid()=authz.actor_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_RECEIPT_NOT_FOUND'; END IF;
+  RETURN jsonb_build_object('receipt',v_batch.receipt,'receipt_sha256',v_batch.receipt_sha256,
+    'database_name',current_database(),'system_identifier',(SELECT system_identifier::text FROM pg_control_system()));
+END $$;
+
+ALTER TABLE private.source_scoped_replace_authorization ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_replace_batch ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_replace_event ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON private.source_scoped_replace_authorization,private.source_scoped_replace_batch,
+  private.source_scoped_replace_event FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION private.source_scoped_replace_manifest_sha256(jsonb),
+  private.validate_source_scoped_replace_manifest(jsonb),
+  public.red_authorize_source_scoped_replace(text,text,uuid,uuid,jsonb,text,text,timestamptz),
+  public.red_apply_source_scoped_replace(uuid,jsonb),public.red_verify_source_scoped_replace(uuid)
+  FROM PUBLIC,anon,authenticated,service_role;
 CREATE OR REPLACE FUNCTION private.apply_narrative_record_cutover(
   p_record_candidates_raw text,p_legacy_candidates_raw text,
   p_record_manifest_raw text,p_legacy_manifest_raw text,
@@ -12795,3 +13327,121 @@ REVOKE ALL ON FUNCTION public.narrative_record_contract_version()
   FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.narrative_record_contract_version()
   TO anon,authenticated,service_role;
+
+-- #153 Task 4A: this late override follows the historical V1 implementation
+-- and every historical ACL grant above.
+CREATE OR REPLACE FUNCTION public.red_authorize_source_scoped_replace(
+  p_database_name text,p_system_identifier text,p_actor_id uuid,p_nonce uuid,
+  p_manifest jsonb,p_dry_run_sha256 text,p_ownership_sha256 text,p_expires_at timestamptz
+) RETURNS uuid LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog
+AS $$ BEGIN RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_V1_RETIRED'; END $$;
+CREATE OR REPLACE FUNCTION public.red_apply_source_scoped_replace(
+  p_authorization_id uuid,p_manifest jsonb
+) RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog
+AS $$ BEGIN RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_V1_RETIRED'; END $$;
+CREATE OR REPLACE FUNCTION public.red_verify_source_scoped_replace(
+  p_authorization_id uuid
+) RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog
+AS $$ BEGIN RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_V1_RETIRED'; END $$;
+CREATE TRIGGER trg_source_scoped_replace_authorization_v1_retired
+  BEFORE INSERT OR UPDATE OR DELETE ON private.source_scoped_replace_authorization
+  FOR EACH ROW EXECUTE FUNCTION private.reject_source_scoped_replace_v1_mutation();
+CREATE TRIGGER trg_source_scoped_replace_batch_v1_retired
+  BEFORE INSERT OR UPDATE OR DELETE ON private.source_scoped_replace_batch
+  FOR EACH ROW EXECUTE FUNCTION private.reject_source_scoped_replace_v1_mutation();
+CREATE TRIGGER trg_source_scoped_replace_event_v1_retired
+  BEFORE INSERT OR UPDATE OR DELETE ON private.source_scoped_replace_event
+  FOR EACH ROW EXECUTE FUNCTION private.reject_source_scoped_replace_v1_mutation();
+ALTER TABLE private.source_scoped_replace_authorization ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_replace_batch ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_replace_event ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.source_scoped_replace_authorization,
+  private.source_scoped_replace_batch,private.source_scoped_replace_event
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.red_authorize_source_scoped_replace(text,text,uuid,uuid,jsonb,text,text,timestamptz),
+  public.red_apply_source_scoped_replace(uuid,jsonb),public.red_verify_source_scoped_replace(uuid)
+  FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE TABLE private.source_scoped_evidence_v3_migration_receipt (
+  contract_version text PRIMARY KEY,
+  contract_sha256 text NOT NULL CHECK (contract_sha256 ~ '^[0-9a-f]{64}$'),
+  recorded_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+ALTER TABLE private.source_scoped_evidence_v3_migration_receipt ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.source_scoped_evidence_v3_migration_receipt
+  FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION private.source_scoped_evidence_v3_task4a_contract_sha256()
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path=pg_catalog,private,extensions
+AS $$
+  SELECT encode(extensions.digest(jsonb_build_object(
+    'schema','source-scoped-evidence-v3-task4a-v1',
+    'columns',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'table',n.nspname||'.'||c.relname,'position',a.attnum,'name',a.attname,
+      'type',format_type(a.atttypid,a.atttypmod),'not_null',a.attnotnull,
+      'identity',a.attidentity,'generated',a.attgenerated,
+      'default',pg_get_expr(d.adbin,d.adrelid)
+    ) ORDER BY n.nspname,c.relname,a.attnum),'[]'::jsonb)
+      FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid
+       JOIN pg_namespace n ON n.oid=c.relnamespace
+       LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+      WHERE a.attnum>0 AND NOT a.attisdropped AND n.nspname='private'
+        AND c.relname=ANY(ARRAY[
+          'source_scoped_replace_authorization','source_scoped_replace_batch','source_scoped_replace_event',
+          'source_scoped_replace_v3_attestation','source_scoped_replace_v3_authorization','source_scoped_replace_v3_batch','source_scoped_replace_v3_event','source_scoped_replace_v3_manifest_artifact',
+          'source_scoped_evidence_v3_chain','source_scoped_evidence_v3_revision','source_scoped_evidence_v3_member','source_scoped_evidence_v3_publication','source_scoped_evidence_v3_chain_event','source_scoped_evidence_v3_chain_state','source_scoped_evidence_v3_migration_receipt'
+        ])),
+    'constraints',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'table',n.nspname||'.'||c.relname,'name',co.conname,
+      'definition',pg_get_constraintdef(co.oid,true)) ORDER BY n.nspname,c.relname,co.conname),'[]'::jsonb)
+      FROM pg_constraint co JOIN pg_class c ON c.oid=co.conrelid
+       JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname='private' AND c.relname=ANY(ARRAY[
+        'source_scoped_replace_authorization','source_scoped_replace_batch','source_scoped_replace_event',
+        'source_scoped_replace_v3_attestation','source_scoped_replace_v3_authorization','source_scoped_replace_v3_batch','source_scoped_replace_v3_event','source_scoped_replace_v3_manifest_artifact',
+        'source_scoped_evidence_v3_chain','source_scoped_evidence_v3_revision','source_scoped_evidence_v3_member','source_scoped_evidence_v3_publication','source_scoped_evidence_v3_chain_event','source_scoped_evidence_v3_chain_state','source_scoped_evidence_v3_migration_receipt'
+      ])),
+    'indexes',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'table',n.nspname||'.'||c.relname,'name',ic.relname,
+      'definition',pg_get_indexdef(ic.oid)
+    ) ORDER BY n.nspname,c.relname,ic.relname),'[]'::jsonb)
+      FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid
+       JOIN pg_namespace n ON n.oid=c.relnamespace
+       JOIN pg_class ic ON ic.oid=i.indexrelid
+      WHERE n.nspname='private' AND c.relname=ANY(ARRAY[
+        'source_scoped_replace_authorization','source_scoped_replace_batch','source_scoped_replace_event',
+        'source_scoped_replace_v3_attestation','source_scoped_replace_v3_authorization','source_scoped_replace_v3_batch','source_scoped_replace_v3_event','source_scoped_replace_v3_manifest_artifact',
+        'source_scoped_evidence_v3_chain','source_scoped_evidence_v3_revision','source_scoped_evidence_v3_member','source_scoped_evidence_v3_publication','source_scoped_evidence_v3_chain_event','source_scoped_evidence_v3_chain_state','source_scoped_evidence_v3_migration_receipt'
+      ])),
+    'triggers',(SELECT coalesce(jsonb_agg(jsonb_build_object('table',n.nspname||'.'||c.relname,'name',t.tgname,'definition',pg_get_triggerdef(t.oid,true)) ORDER BY n.nspname,c.relname,t.tgname),'[]'::jsonb)
+      FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE NOT t.tgisinternal AND n.nspname='private'
+        AND (c.relname LIKE 'source_scoped_replace%' OR c.relname LIKE 'source_scoped_evidence_v3%')),
+    'functions',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'signature',p.oid::regprocedure::text,'definition',pg_get_functiondef(p.oid),
+      'acl',coalesce(p.proacl,acldefault('f',p.proowner))::text
+    ) ORDER BY p.oid::regprocedure::text),'[]'::jsonb)
+      FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+      WHERE (n.nspname='public' AND p.proname IN ('red_authorize_source_scoped_replace','red_apply_source_scoped_replace','red_verify_source_scoped_replace'))
+         OR (n.nspname='private' AND p.proname IN ('reject_source_scoped_replace_v1_mutation','reject_source_scoped_evidence_v3_mutation','enforce_source_scoped_evidence_v3_revision_predecessor'))),
+    'acl',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'object',n.nspname||'.'||c.relname,'acl',coalesce(c.relacl,'{}'::aclitem[])::text,
+      'rls',c.relrowsecurity,'force_rls',c.relforcerowsecurity
+    ) ORDER BY n.nspname,c.relname),'[]'::jsonb)
+      FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname='private'
+        AND (c.relname LIKE 'source_scoped_replace%' OR c.relname LIKE 'source_scoped_evidence_v3%'))
+  )::text,'sha256'),'hex')
+$$;
+REVOKE ALL ON FUNCTION private.source_scoped_evidence_v3_task4a_contract_sha256()
+  FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE TRIGGER trg_source_scoped_evidence_v3_migration_receipt_append_only
+  BEFORE UPDATE OR DELETE ON private.source_scoped_evidence_v3_migration_receipt
+  FOR EACH ROW EXECUTE FUNCTION private.reject_source_scoped_evidence_v3_mutation();
+INSERT INTO private.source_scoped_evidence_v3_migration_receipt(contract_version,contract_sha256)
+VALUES ('source-scoped-evidence-v3-task4a-v1',private.source_scoped_evidence_v3_task4a_contract_sha256());

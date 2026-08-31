@@ -1126,3 +1126,49 @@ GRANT EXECUTE ON FUNCTION
 SELECT private.apply_narrative_record_contract_acl(
   public.narrative_record_contract_version()
 );
+
+-- #153 Task 4: the source-scoped adapter has no direct ledger-table access.
+ALTER TABLE private.source_scoped_replace_authorization ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_replace_batch ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_replace_event ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON private.source_scoped_replace_authorization,private.source_scoped_replace_batch,
+  private.source_scoped_replace_event FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.red_authorize_source_scoped_replace(text,text,uuid,uuid,jsonb,text,text,timestamptz),
+  public.red_apply_source_scoped_replace(uuid,jsonb),public.red_verify_source_scoped_replace(uuid)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_authorize_source_scoped_replace(text,text,uuid,uuid,jsonb,text,text,timestamptz),
+  public.red_apply_source_scoped_replace(uuid,jsonb),public.red_verify_source_scoped_replace(uuid)
+  TO authenticated;
+
+-- #153 Task 4A: V1 is a fail-closed compatibility tombstone.  Revoke after
+-- every historical grant block, then deny direct access to all V3 ledgers.
+ALTER TABLE private.source_scoped_replace_authorization ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_replace_batch ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_replace_event ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_replace_v3_attestation ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_replace_v3_authorization ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_replace_v3_batch ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_replace_v3_event ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_replace_v3_manifest_artifact ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_evidence_v3_chain ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_evidence_v3_revision ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_evidence_v3_member ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_evidence_v3_publication ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_evidence_v3_chain_event ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_evidence_v3_chain_state ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE private.source_scoped_replace_authorization,
+  private.source_scoped_replace_batch,private.source_scoped_replace_event,
+  private.source_scoped_replace_v3_attestation,private.source_scoped_replace_v3_authorization,
+  private.source_scoped_replace_v3_batch,private.source_scoped_replace_v3_event,
+  private.source_scoped_replace_v3_manifest_artifact,private.source_scoped_evidence_v3_chain,
+  private.source_scoped_evidence_v3_revision,private.source_scoped_evidence_v3_member,
+  private.source_scoped_evidence_v3_publication,private.source_scoped_evidence_v3_chain_event,
+  private.source_scoped_evidence_v3_chain_state
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.red_authorize_source_scoped_replace(text,text,uuid,uuid,jsonb,text,text,timestamptz),
+  public.red_apply_source_scoped_replace(uuid,jsonb),public.red_verify_source_scoped_replace(uuid),
+  private.reject_source_scoped_replace_v1_mutation(),
+  private.reject_source_scoped_evidence_v3_mutation(),
+  private.enforce_source_scoped_evidence_v3_revision_predecessor()
+  FROM PUBLIC,anon,authenticated,service_role;
