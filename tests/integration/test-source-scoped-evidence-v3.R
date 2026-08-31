@@ -69,4 +69,58 @@ expect_true(
   "SOURCE_SCOPED_EVIDENCE_V3_PRIVATE_STATE_ORACLE_PRESENT"
 )
 
+if (identical(Sys.getenv("SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT"), "1")) {
+  expected_tree_id <- Sys.getenv("SOURCE_SCOPED_EVIDENCE_V3_TREE_ID", unset = "")
+  expected_artifact_sha256 <- Sys.getenv(
+    "SOURCE_SCOPED_EVIDENCE_V3_ARTIFACT_SHA256",
+    unset = ""
+  )
+  if (!grepl("^[0-9a-f]{40}$", expected_tree_id) ||
+      !grepl("^[0-9a-f]{64}$", expected_artifact_sha256)) {
+    stop("SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT_BINDING_ENV_INVALID", call. = FALSE)
+  }
+  deployment <- DBI::dbGetQuery(
+    con,
+    paste0(
+      "SELECT deployment.id::text,deployment.deployment_sha256,",
+      " deployment.repository_tree_id,deployment.repository_writer_artifact_sha256,",
+      " deployment.database_name,deployment.system_identifier,",
+      " inventory.inventory_result_sha256 ",
+      "FROM private.source_scoped_evidence_v3_deployment deployment ",
+      "JOIN private.source_scoped_evidence_contract_inventory inventory ",
+      "  ON inventory.id=deployment.inventory_id ",
+      "WHERE deployment.repository_tree_id=$1 ",
+      "  AND deployment.repository_writer_artifact_sha256=$2 ",
+      "  AND deployment.database_name=current_database() ",
+      "ORDER BY deployment.registered_at DESC,deployment.id DESC"
+    ),
+    params = list(expected_tree_id, expected_artifact_sha256)
+  )
+  expect_true(
+    nrow(deployment) == 1L &&
+      grepl("^[0-9a-f]{64}$", deployment$deployment_sha256[[1L]]) &&
+      identical(deployment$repository_tree_id[[1L]], expected_tree_id) &&
+      identical(
+        deployment$repository_writer_artifact_sha256[[1L]],
+        expected_artifact_sha256
+      ) &&
+      identical(deployment$database_name[[1L]], pg_values[["PGDATABASE"]]) &&
+      grepl("^[0-9]+$", deployment$system_identifier[[1L]]) &&
+      grepl("^[0-9a-f]{64}$", deployment$inventory_result_sha256[[1L]]),
+    "SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT_DEPLOYMENT_BINDING_INVALID"
+  )
+  expect_true(
+    isTRUE(scalar(
+      paste0(
+        "SELECT EXISTS (SELECT 1 ",
+        "FROM private.source_scoped_evidence_v3_migration_receipt receipt ",
+        "WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v4' ",
+        "AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256())"
+      )
+    )),
+    "SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT_RECEIPT_DRIFT"
+  )
+  cat("PASS source-scoped evidence V3 postcommit deployment binding\n")
+}
+
 cat("PASS source-scoped evidence V3 precommit integration boundary\n")
