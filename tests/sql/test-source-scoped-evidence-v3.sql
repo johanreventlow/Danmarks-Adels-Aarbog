@@ -901,6 +901,14 @@ BEGIN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TEST_PUBLICATION_RECEIPT_ACL_UNBOUND';
   END IF;
 
+  v_contract_hash_before:=private.source_scoped_evidence_v3_task4c_contract_sha256();
+  GRANT SELECT(id) ON public.fact TO service_role;
+  v_contract_hash_after:=private.source_scoped_evidence_v3_task4c_contract_sha256();
+  REVOKE SELECT(id) ON public.fact FROM service_role;
+  IF v_contract_hash_before IS NOT DISTINCT FROM v_contract_hash_after THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TEST_PUBLICATION_COLUMN_ACL_UNBOUND';
+  END IF;
+
   IF to_regprocedure('private.source_scoped_evidence_v3_visibility_allowed(text,bigint)') IS NOT NULL
      OR to_regprocedure('private.source_scoped_evidence_v3_public_gate_allowed(text,bigint)') IS NOT NULL THEN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PRIVATE_STATE_ORACLE_EXISTS';

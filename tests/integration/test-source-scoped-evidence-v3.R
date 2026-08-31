@@ -217,19 +217,28 @@ if (identical(Sys.getenv("SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT"), "1")) {
       deadline <- Sys.time() + 5
       repeat {
         waiting <- DBI::dbGetQuery(con, paste0(
-          "SELECT count(*)::integer AS n FROM pg_locks lock ",
+          "SELECT count(DISTINCT activity.pid) FILTER (WHERE ",
+          "lock.classid::int8=((hashtextextended($3,0)>>32)&4294967295) ",
+          "AND lock.objid::int8=(hashtextextended($3,0)&4294967295) ",
+          "AND lock.objsubid=1) AS source_waiting,",
+          "count(DISTINCT activity.pid) FILTER (WHERE ",
+          "(lock.classid::int8=((hashtextextended($3,0)>>32)&4294967295) ",
+          "AND lock.objid::int8=(hashtextextended($3,0)&4294967295) ",
+          "AND lock.objsubid=1) OR ",
+          "(lock.classid=0::oid AND lock.objid=hashtext($4)::oid AND lock.objsubid=1)) ",
+          "AS worker_waiting FROM pg_locks lock ",
           "JOIN pg_stat_activity activity ON activity.pid=lock.pid ",
           "WHERE lock.locktype='advisory' AND NOT lock.granted ",
           "AND activity.application_name IN ($1,$2) ",
-          "AND lock.database=(SELECT oid FROM pg_database WHERE datname=current_database()) ",
-          "AND lock.classid::int8=((hashtextextended($3,0)>>32)&4294967295) ",
-          "AND lock.objid::int8=(hashtextextended($3,0)&4294967295) ",
-          "AND lock.objsubid=1"
-        ), params = c(as.list(worker_names), list(paste0("daa-source-scoped-replace:", source_id))))$n[[1L]]
-        # refresh_source_scoped_evidence_contract_inventory can serialize one
-        # worker earlier; require that at least one named worker has reached
-        # the exact source lock held by this controller transaction.
-        if (waiting >= 1L) break
+          "AND lock.database=(SELECT oid FROM pg_database WHERE datname=current_database())"
+        ), params = c(as.list(worker_names), list(
+          paste0("daa-source-scoped-replace:", source_id),
+          "source-scoped-evidence-v3-inventory:source-scoped-evidence-v3-task4c-v7"
+        )))
+        # Inventory refresh serializes one worker before the source lock.  The
+        # controller may release only after one worker waits on the exact
+        # source key and both named workers wait in inventory/source phases.
+        if (waiting$source_waiting[[1L]] >= 1L && waiting$worker_waiting[[1L]] >= 2L) break
         if (Sys.time() >= deadline) stop(paste0("SOURCE_SCOPED_EVIDENCE_V3_", toupper(decision), "_RACE_NOT_BLOCKED"), call. = FALSE)
         Sys.sleep(0.02)
       }

@@ -16167,17 +16167,33 @@ BEGIN
             'grantable',grant_row.is_grantable
           ) ORDER BY coalesce(role.rolname,'PUBLIC'),grant_row.privilege_type,
                    grant_row.is_grantable),'[]'::jsonb)
-            FROM aclexplode(coalesce(relation.relacl,
+           FROM aclexplode(coalesce(relation.relacl,
                                      acldefault('r',relation.relowner))) grant_row
             LEFT JOIN pg_roles role ON role.oid=grant_row.grantee
-           WHERE grant_row.grantee<>relation.relowner)
+           WHERE grant_row.grantee<>relation.relowner),
+          'column_acl',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+            'column',attribute.attname,
+            'acl',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+              'grantee',coalesce(role.rolname,'PUBLIC'),
+              'privilege',grant_row.privilege_type,
+              'grantable',grant_row.is_grantable
+            ) ORDER BY coalesce(role.rolname,'PUBLIC'),grant_row.privilege_type,
+                     grant_row.is_grantable),'[]'::jsonb)
+              FROM aclexplode(attribute.attacl) grant_row
+              LEFT JOIN pg_roles role ON role.oid=grant_row.grantee
+             WHERE grant_row.grantee<>relation.relowner)
+          ) ORDER BY attribute.attnum),'[]'::jsonb)
+            FROM pg_attribute attribute
+           WHERE attribute.attrelid=relation.oid
+             AND attribute.attnum>0 AND NOT attribute.attisdropped
+             AND attribute.attacl IS NOT NULL)
         ) ORDER BY relation.relname),'[]'::jsonb)
           FROM pg_class relation
           JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace
          WHERE namespace.nspname='public'
            AND relation.relname=ANY(ARRAY['fact','assertion','citation'])
       ))::text,'sha256'),'hex') INTO v_base_security_hash;
-      IF v_base_security_hash IS DISTINCT FROM '24ed14a499e0236420f920311410fc5d3e40a3858059415057123244eb154880' THEN
+      IF v_base_security_hash IS DISTINCT FROM '0e81592120f5603c25b7b6348ff51f95494c4c191ce0da6743336515135f715b' THEN
         RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4C_RECEIPT_DRIFT';
       END IF;
     END IF;
@@ -16933,7 +16949,15 @@ AS $$
         ) ORDER BY attribute.attnum),'[]'::jsonb) FROM pg_attribute attribute
          WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),
         'rls',relation.relrowsecurity,'force_rls',relation.relforcerowsecurity,
-        'acl',coalesce(relation.relacl,'{}'::aclitem[])::text
+        'acl',coalesce(relation.relacl,'{}'::aclitem[])::text,
+        'column_acl',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+          'column',attribute.attname,
+          'acl',coalesce(attribute.attacl,'{}'::aclitem[])::text
+        ) ORDER BY attribute.attnum),'[]'::jsonb)
+          FROM pg_attribute attribute
+         WHERE attribute.attrelid=relation.oid
+           AND attribute.attnum>0 AND NOT attribute.attisdropped
+           AND attribute.attacl IS NOT NULL)
       ) ORDER BY relation.relname),'[]'::jsonb),
       'triggers',(SELECT coalesce(jsonb_agg(jsonb_build_object(
         'relation',relation.relname,'name',trigger.tgname,'definition',pg_get_triggerdef(trigger.oid,true)
@@ -16961,6 +16985,14 @@ AS $$
       'permissive',policy.polpermissive,
       'rls',relation.relrowsecurity,'force_rls',relation.relforcerowsecurity,
       'acl',coalesce(relation.relacl,'{}'::aclitem[])::text,
+      'column_acl',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+        'column',attribute.attname,
+        'acl',coalesce(attribute.attacl,'{}'::aclitem[])::text
+      ) ORDER BY attribute.attnum),'[]'::jsonb)
+        FROM pg_attribute attribute
+       WHERE attribute.attrelid=relation.oid
+         AND attribute.attnum>0 AND NOT attribute.attisdropped
+         AND attribute.attacl IS NOT NULL),
       'roles',(SELECT coalesce(jsonb_agg(role.rolname ORDER BY role.rolname),'[]'::jsonb)
                  FROM pg_roles role WHERE role.oid=ANY(policy.polroles)),
       'using',pg_get_expr(policy.polqual,policy.polrelid,true),

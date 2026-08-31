@@ -14857,7 +14857,15 @@ AS $$
         ) ORDER BY attribute.attnum),'[]'::jsonb) FROM pg_attribute attribute
          WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),
         'rls',relation.relrowsecurity,'force_rls',relation.relforcerowsecurity,
-        'acl',coalesce(relation.relacl,'{}'::aclitem[])::text
+        'acl',coalesce(relation.relacl,'{}'::aclitem[])::text,
+        'column_acl',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+          'column',attribute.attname,
+          'acl',coalesce(attribute.attacl,'{}'::aclitem[])::text
+        ) ORDER BY attribute.attnum),'[]'::jsonb)
+          FROM pg_attribute attribute
+         WHERE attribute.attrelid=relation.oid
+           AND attribute.attnum>0 AND NOT attribute.attisdropped
+           AND attribute.attacl IS NOT NULL)
       ) ORDER BY relation.relname),'[]'::jsonb),
       'triggers',(SELECT coalesce(jsonb_agg(jsonb_build_object(
         'relation',relation.relname,'name',trigger.tgname,'definition',pg_get_triggerdef(trigger.oid,true)
@@ -14885,6 +14893,14 @@ AS $$
       'permissive',policy.polpermissive,
       'rls',relation.relrowsecurity,'force_rls',relation.relforcerowsecurity,
       'acl',coalesce(relation.relacl,'{}'::aclitem[])::text,
+      'column_acl',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+        'column',attribute.attname,
+        'acl',coalesce(attribute.attacl,'{}'::aclitem[])::text
+      ) ORDER BY attribute.attnum),'[]'::jsonb)
+        FROM pg_attribute attribute
+       WHERE attribute.attrelid=relation.oid
+         AND attribute.attnum>0 AND NOT attribute.attisdropped
+         AND attribute.attacl IS NOT NULL),
       'roles',(SELECT coalesce(jsonb_agg(role.rolname ORDER BY role.rolname),'[]'::jsonb)
                  FROM pg_roles role WHERE role.oid=ANY(policy.polroles)),
       'using',pg_get_expr(policy.polqual,policy.polrelid,true),

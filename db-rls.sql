@@ -1183,6 +1183,27 @@ REVOKE ALL ON TABLE private.source_scoped_evidence_contract_inventory,
   FROM PUBLIC,anon,authenticated,service_role,daa_source_scoped_evidence_deployer,daa_source_scoped_evidence_gateway;
 REVOKE INSERT,UPDATE,DELETE ON TABLE public.fact,public.assertion,public.citation
   FROM anon,authenticated,service_role;
+DO $source_scoped_evidence_v3_column_acl$
+DECLARE
+  relation regclass;
+  column_name text;
+BEGIN
+  FOR relation,column_name IN
+    SELECT relation.oid::regclass,attribute.attname
+      FROM pg_class relation
+      JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace
+      JOIN pg_attribute attribute ON attribute.attrelid=relation.oid
+     WHERE namespace.nspname='public'
+       AND relation.relname=ANY(ARRAY['fact','assertion','citation'])
+       AND attribute.attnum>0 AND NOT attribute.attisdropped
+  LOOP
+    EXECUTE format(
+      'REVOKE ALL PRIVILEGES (%I) ON TABLE %s FROM anon,authenticated,service_role',
+      column_name,relation
+    );
+  END LOOP;
+END
+$source_scoped_evidence_v3_column_acl$;
 REVOKE ALL ON FUNCTION private.register_source_scoped_evidence_v3_deployment(
   uuid,text,text,text,text,text,uuid
 ) FROM PUBLIC,anon,authenticated,service_role,daa_source_scoped_evidence_gateway;
