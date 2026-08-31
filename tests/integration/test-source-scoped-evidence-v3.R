@@ -190,41 +190,91 @@ if (identical(Sys.getenv("SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT"), "1")) {
       stop("SOURCE_SCOPED_EVIDENCE_V3_PROCESSX_MISSING", call. = FALSE)
     }
     DBI::dbCommit(con)
-    DBI::dbBegin(con)
-    execute("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", list(paste0("daa-source-scoped-replace:", source_id)))
     worker_program <- paste0(
-      "args<-commandArgs(trailingOnly=TRUE);con<-DBI::dbConnect(RPostgres::Postgres(),dbname=Sys.getenv('PGDATABASE'),host=Sys.getenv('PGHOST'),port=as.integer(Sys.getenv('PGPORT')),user=Sys.getenv('PGUSER'),password=Sys.getenv('PGPASSWORD'));on.exit(DBI::dbDisconnect(con),add=TRUE);DBI::dbGetQuery(con,\"SELECT set_config('application_name',$1,false)\",params=list(args[[1L]]));DBI::dbGetQuery(con,\"SELECT set_config('request.jwt.claim.sub',$1,false)\",params=list(args[[2L]]));result<-tryCatch(DBI::dbGetQuery(con,\"SELECT public.red_publish_source_scoped_evidence_revision_v3($1,$2::jsonb)::text AS receipt\",params=list(args[[3L]],args[[4L]]))$receipt[[1L]],error=function(error)paste0('ERROR:',conditionMessage(error)));cat(result)"
+      "args<-commandArgs(trailingOnly=TRUE);con<-DBI::dbConnect(RPostgres::Postgres(),dbname=Sys.getenv('PGDATABASE'),host=Sys.getenv('PGHOST'),port=as.integer(Sys.getenv('PGPORT')),user=Sys.getenv('PGUSER'),password=Sys.getenv('PGPASSWORD'));on.exit(DBI::dbDisconnect(con),add=TRUE);invisible(DBI::dbGetQuery(con,\"SELECT set_config('application_name',$1,false)\",params=list(args[[1L]])));invisible(DBI::dbGetQuery(con,\"SELECT set_config('request.jwt.claim.sub',$1,false)\",params=list(args[[2L]])));result<-tryCatch(DBI::dbGetQuery(con,\"SELECT public.red_publish_source_scoped_evidence_revision_v3($1,$2::jsonb)::text AS receipt\",params=list(args[[3L]],args[[4L]]))$receipt[[1L]],error=function(error)paste0('ERROR:',conditionMessage(error)));cat(result)"
     )
-    launch_worker <- function(name) processx::process$new(
+    launch_worker <- function(name, authorization_id, decision_payload) processx::process$new(
       file.path(R.home("bin"), "Rscript"),
-      args = c("--vanilla", "-e", worker_program, name, actor, authorization, payload),
+      args = c("--vanilla", "-e", worker_program, name, actor, authorization_id, decision_payload),
       env = c(PGDATABASE = pg[["PGDATABASE"]], PGHOST = pg[["PGHOST"]],
               PGPORT = pg[["PGPORT"]], PGUSER = pg[["PGUSER"]], PGPASSWORD = pg[["PGPASSWORD"]]),
       stdout = "|", stderr = "|", cleanup_tree = TRUE
     )
-    jobs <- list(launch_worker("task4c-publish-race-one"), launch_worker("task4c-publish-race-two"))
-    deadline <- Sys.time() + 5
-    repeat {
-      waiting <- DBI::dbGetQuery(con, "SELECT count(*)::integer AS n FROM pg_locks WHERE locktype='advisory' AND NOT granted")$n[[1L]]
-      if (waiting >= 1L) break
-      if (Sys.time() >= deadline) stop("SOURCE_SCOPED_EVIDENCE_V3_PUBLISH_RACE_NOT_BLOCKED", call. = FALSE)
-      Sys.sleep(0.02)
+    run_publication_race <- function(decision, authorization_id, decision_payload,
+                                     expected_revision_id, expected_state_version,
+                                     expected_publication_count) {
+      DBI::dbBegin(con)
+      execute("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", list(paste0("daa-source-scoped-replace:", source_id)))
+      jobs <- list(
+        launch_worker(paste0("task4c-", decision, "-race-one"), authorization_id, decision_payload),
+        launch_worker(paste0("task4c-", decision, "-race-two"), authorization_id, decision_payload)
+      )
+      deadline <- Sys.time() + 5
+      repeat {
+        waiting <- DBI::dbGetQuery(con, "SELECT count(*)::integer AS n FROM pg_locks WHERE locktype='advisory' AND NOT granted")$n[[1L]]
+        if (waiting >= 1L) break
+        if (Sys.time() >= deadline) stop(paste0("SOURCE_SCOPED_EVIDENCE_V3_", toupper(decision), "_RACE_NOT_BLOCKED"), call. = FALSE)
+        Sys.sleep(0.02)
+      }
+      DBI::dbCommit(con)
+      for (job in jobs) job$wait(10000)
+      outputs <- vapply(jobs, function(job) job$read_all_output(), character(1))
+      errors <- vapply(jobs, function(job) job$read_all_error(), character(1))
+      statuses <- vapply(jobs, function(job) job$get_exit_status(), integer(1))
+      if (!(all(statuses == 0L) && all(!nzchar(errors)) &&
+        all(!grepl("ERROR:", outputs, fixed = TRUE)) && identical(outputs[[1L]], outputs[[2L]]))) {
+        stop(paste0("SOURCE_SCOPED_EVIDENCE_V3_", toupper(decision), "_RACE_REPLAY_INVALID: statuses=", paste(statuses, collapse = ","), "; outputs=", paste(outputs, collapse = " | "), "; errors=", paste(errors, collapse = " | ")), call. = FALSE)
+      }
+      state_after_race <- DBI::dbGetQuery(con, "SELECT visible_revision_id::text,state_version FROM private.source_scoped_evidence_v3_chain_state WHERE chain_id=$1", params = list(ids$chain))
+      publication_count <- DBI::dbGetQuery(con, "SELECT count(*)::integer AS n FROM private.source_scoped_evidence_v3_publication WHERE chain_id=$1", params = list(ids$chain))$n[[1L]]
+      visible_revision_matches <- if (is.na(expected_revision_id)) {
+        is.na(state_after_race$visible_revision_id[[1L]])
+      } else {
+        identical(state_after_race$visible_revision_id[[1L]], expected_revision_id)
+      }
+      expect_true(visible_revision_matches &&
+        identical(as.integer(state_after_race$state_version[[1L]]), expected_state_version) &&
+        publication_count == expected_publication_count,
+        paste0("SOURCE_SCOPED_EVIDENCE_V3_", toupper(decision), "_RACE_STATE_INVALID"))
+      invisible(outputs[[1L]])
     }
-    DBI::dbCommit(con)
-    for (job in jobs) job$wait(10000)
-    outputs <- vapply(jobs, function(job) job$read_all_output(), character(1))
-    errors <- vapply(jobs, function(job) job$read_all_error(), character(1))
-    statuses <- vapply(jobs, function(job) job$get_exit_status(), integer(1))
-    if (!(all(statuses == 0L) && all(!nzchar(errors)) &&
-      all(!grepl("ERROR:", outputs, fixed = TRUE)) && identical(outputs[[1L]], outputs[[2L]]))) {
-      stop(paste0("SOURCE_SCOPED_EVIDENCE_V3_PUBLISH_RACE_REPLAY_INVALID: statuses=", paste(statuses, collapse = ","), "; outputs=", paste(outputs, collapse = " | "), "; errors=", paste(errors, collapse = " | ")), call. = FALSE)
-    }
-    state_after_race <- DBI::dbGetQuery(con, "SELECT visible_revision_id::text,state_version FROM private.source_scoped_evidence_v3_chain_state WHERE chain_id=$1", params = list(ids$chain))
-    publication_count <- DBI::dbGetQuery(con, "SELECT count(*)::integer AS n FROM private.source_scoped_evidence_v3_publication WHERE chain_id=$1", params = list(ids$chain))$n[[1L]]
-    expect_true(identical(state_after_race$visible_revision_id[[1L]], ids$revision) &&
-      identical(as.integer(state_after_race$state_version[[1L]]), 3L) && publication_count == 1L,
-      "SOURCE_SCOPED_EVIDENCE_V3_PUBLISH_RACE_STATE_INVALID")
-    cat("PASS source-scoped evidence V3 postcommit publish race\n")
+    run_publication_race("publish", authorization, payload, ids$revision, 3L, 1L)
+
+    revision_two <- "00000000-0000-0000-0000-000000153415"
+    fact_two <- -9153405L
+    assertion_two <- -9153406L
+    citation_two <- -9153407L
+    state_after_publish <- DBI::dbGetQuery(con, "SELECT state_sha256 FROM private.source_scoped_evidence_v3_chain_state WHERE chain_id=$1", params = list(ids$chain))$state_sha256[[1L]]
+    execute("INSERT INTO public.fact(id,subjekt_type,subjekt_id,faktatype) VALUES($1,'person',$2,'fixture')", list(fact_two, person_id))
+    execute("INSERT INTO public.assertion(id,target_type,target_id,vaerdi_tekst) VALUES($1,'fact',$2,'fixture two')", list(assertion_two, fact_two))
+    execute("INSERT INTO public.citation(id,assertion_id,source_id,side) VALUES($1,$2,$3,'2')", list(citation_two, assertion_two, source_id))
+    execute("INSERT INTO private.source_scoped_evidence_v3_revision(id,chain_id,revision,predecessor_revision_id,fact_id,revision_kind,chain_sha256,manifest_semantic_sha256) VALUES($1,$2,2,$3,$4,'content',repeat('7',64),repeat('8',64))", list(revision_two, ids$chain, ids$revision, fact_two))
+    execute("INSERT INTO private.source_scoped_evidence_v3_member(revision_id,member_kind,member_key,fact_id) VALUES($1,'fact','fact',$2)", list(revision_two, fact_two))
+    execute("INSERT INTO private.source_scoped_evidence_v3_member(revision_id,member_kind,member_key,assertion_id) VALUES($1,'assertion','assertion',$2)", list(revision_two, assertion_two))
+    execute("INSERT INTO private.source_scoped_evidence_v3_member(revision_id,member_kind,member_key,citation_id) VALUES($1,'citation','citation',$2)", list(revision_two, citation_two))
+    revision_two_created <- DBI::dbGetQuery(con, "SELECT gen_random_uuid()::text AS id")$id[[1L]]
+    revision_two_created_hash <- DBI::dbGetQuery(con, "SELECT private.source_scoped_evidence_v3_chain_state_sha256($1,$2,$3,4,$4) AS hash", params = list(ids$chain, revision_two, ids$revision, revision_two_created))$hash[[1L]]
+    execute("INSERT INTO private.source_scoped_evidence_v3_chain_event(id,chain_id,event_type,predecessor_state_sha256,after_state_sha256,revision_id) VALUES($1,$2,'source_revision_created',$3,$4,$5)", list(revision_two_created, ids$chain, state_after_publish, revision_two_created_hash, revision_two))
+    revision_two_eligible <- DBI::dbGetQuery(con, "SELECT gen_random_uuid()::text AS id")$id[[1L]]
+    revision_two_eligible_hash <- DBI::dbGetQuery(con, "SELECT private.source_scoped_evidence_v3_chain_state_sha256($1,$2,$3,5,$4) AS hash", params = list(ids$chain, revision_two, ids$revision, revision_two_eligible))$hash[[1L]]
+    execute("INSERT INTO private.source_scoped_evidence_v3_chain_event(id,chain_id,event_type,predecessor_state_sha256,after_state_sha256,revision_id) VALUES($1,$2,'eligible',$3,$4,$5)", list(revision_two_eligible, ids$chain, revision_two_created_hash, revision_two_eligible_hash, revision_two))
+    supersede_payload <- paste0('{"schema":"source-scoped-evidence-v3-publication-decision-v1","chain_id":"', ids$chain, '","revision_id":"', revision_two, '","deployment_id":"', deployment$id[[1L]], '","deployment_sha256":"', deployment$deployment_sha256[[1L]], '","expected_state_sha256":"', revision_two_eligible_hash, '","decision":"supersede","rationale":"Task 4C postcommit"}')
+    supersede_authorization <- authorize(ids$chain, revision_two, deployment$id[[1L]], revision_two_eligible_hash, supersede_payload, "00000000-0000-0000-0000-000000153416")
+    run_publication_race("supersede", supersede_authorization, supersede_payload, revision_two, 6L, 2L)
+
+    tombstone_revision <- "00000000-0000-0000-0000-000000153417"
+    state_after_supersede <- DBI::dbGetQuery(con, "SELECT state_sha256 FROM private.source_scoped_evidence_v3_chain_state WHERE chain_id=$1", params = list(ids$chain))$state_sha256[[1L]]
+    execute("INSERT INTO private.source_scoped_evidence_v3_revision(id,chain_id,revision,predecessor_revision_id,revision_kind,chain_sha256,manifest_semantic_sha256) VALUES($1,$2,3,$3,'tombstone',repeat('9',64),repeat('a',64))", list(tombstone_revision, ids$chain, revision_two))
+    tombstone_created <- DBI::dbGetQuery(con, "SELECT gen_random_uuid()::text AS id")$id[[1L]]
+    tombstone_created_hash <- DBI::dbGetQuery(con, "SELECT private.source_scoped_evidence_v3_chain_state_sha256($1,$2,$3,7,$4) AS hash", params = list(ids$chain, tombstone_revision, revision_two, tombstone_created))$hash[[1L]]
+    execute("INSERT INTO private.source_scoped_evidence_v3_chain_event(id,chain_id,event_type,predecessor_state_sha256,after_state_sha256,revision_id) VALUES($1,$2,'source_revision_created',$3,$4,$5)", list(tombstone_created, ids$chain, state_after_supersede, tombstone_created_hash, tombstone_revision))
+    tombstone_eligible <- DBI::dbGetQuery(con, "SELECT gen_random_uuid()::text AS id")$id[[1L]]
+    tombstone_eligible_hash <- DBI::dbGetQuery(con, "SELECT private.source_scoped_evidence_v3_chain_state_sha256($1,$2,$3,8,$4) AS hash", params = list(ids$chain, tombstone_revision, revision_two, tombstone_eligible))$hash[[1L]]
+    execute("INSERT INTO private.source_scoped_evidence_v3_chain_event(id,chain_id,event_type,predecessor_state_sha256,after_state_sha256,revision_id) VALUES($1,$2,'eligible',$3,$4,$5)", list(tombstone_eligible, ids$chain, tombstone_created_hash, tombstone_eligible_hash, tombstone_revision))
+    withdraw_payload <- paste0('{"schema":"source-scoped-evidence-v3-publication-decision-v1","chain_id":"', ids$chain, '","revision_id":"', tombstone_revision, '","deployment_id":"', deployment$id[[1L]], '","deployment_sha256":"', deployment$deployment_sha256[[1L]], '","expected_state_sha256":"', tombstone_eligible_hash, '","decision":"withdraw","rationale":"Task 4C postcommit"}')
+    withdraw_authorization <- authorize(ids$chain, tombstone_revision, deployment$id[[1L]], tombstone_eligible_hash, withdraw_payload, "00000000-0000-0000-0000-000000153418")
+    run_publication_race("withdraw", withdraw_authorization, withdraw_payload, NA_character_, 9L, 3L)
+    cat("PASS source-scoped evidence V3 postcommit publish/supersede/withdraw races\n")
     quit(save = "no", status = 0L)
   }
   expect_db_error("SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_NONCE_REPLAY", function() authorize_attempt(ids$chain, ids$revision, deployment$id[[1L]], eligible_hash, payload, publication_nonce))
