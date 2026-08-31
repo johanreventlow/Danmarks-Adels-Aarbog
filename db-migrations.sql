@@ -16107,6 +16107,7 @@ DO $source_scoped_evidence_v3_task4c_preflight_receipt$
 DECLARE
   v_receipt_hash text;
   v_policy_hash text;
+  v_base_security_hash text;
 BEGIN
   IF EXISTS (
        SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
@@ -16153,13 +16154,18 @@ BEGIN
       IF v_policy_hash IS DISTINCT FROM 'd25859cbe6190c4d1bacc492c1376fa356fca8c8aa135eb82df7e09e70483c08' THEN
         RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4C_RECEIPT_DRIFT';
       END IF;
-      IF EXISTS (
-        SELECT 1 FROM pg_class relation
-        JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace
+      SELECT encode(extensions.digest(jsonb_build_object('relations',(
+        SELECT coalesce(jsonb_agg(jsonb_build_object(
+          'relation',relation.relname,'rls',relation.relrowsecurity,
+          'force_rls',relation.relforcerowsecurity,
+          'acl',coalesce(relation.relacl,'{}'::aclitem[])::text
+        ) ORDER BY relation.relname),'[]'::jsonb)
+          FROM pg_class relation
+          JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace
          WHERE namespace.nspname='public'
            AND relation.relname=ANY(ARRAY['fact','assertion','citation'])
-           AND NOT relation.relrowsecurity
-      ) THEN
+      ))::text,'sha256'),'hex') INTO v_base_security_hash;
+      IF v_base_security_hash IS DISTINCT FROM '9a60a8a229c1a67517c8de61c627a45c9b3c0454ca0d7c1670bbb29e49e5e6e2' THEN
         RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4C_RECEIPT_DRIFT';
       END IF;
     END IF;

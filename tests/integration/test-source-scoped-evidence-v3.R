@@ -205,9 +205,10 @@ if (identical(Sys.getenv("SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT"), "1")) {
                                      expected_publication_count) {
       DBI::dbBegin(con)
       execute("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", list(paste0("daa-source-scoped-replace:", source_id)))
+      worker_run_id <- DBI::dbGetQuery(con, "SELECT gen_random_uuid()::text AS id")$id[[1L]]
       worker_names <- c(
-        paste0("task4c-", decision, "-race-one"),
-        paste0("task4c-", decision, "-race-two")
+        paste0("task4c-", decision, "-race-one-", worker_run_id),
+        paste0("task4c-", decision, "-race-two-", worker_run_id)
       )
       jobs <- list(
         launch_worker(worker_names[[1L]], authorization_id, decision_payload),
