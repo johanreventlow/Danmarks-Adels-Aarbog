@@ -97,7 +97,7 @@ if (identical(Sys.getenv("SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT"), "1")) {
     "SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT_DEPLOYMENT_BINDING_INVALID"
   )
   expect_true(
-    isTRUE(scalar("SELECT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v5' AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256())")),
+    isTRUE(scalar("SELECT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v6' AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256())")),
     "SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT_RECEIPT_DRIFT"
   )
   expect_true(
@@ -212,7 +212,7 @@ if (identical(Sys.getenv("SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT"), "1")) {
       deadline <- Sys.time() + 5
       repeat {
         waiting <- DBI::dbGetQuery(con, "SELECT count(*)::integer AS n FROM pg_locks WHERE locktype='advisory' AND NOT granted")$n[[1L]]
-        if (waiting >= 1L) break
+        if (waiting >= 2L) break
         if (Sys.time() >= deadline) stop(paste0("SOURCE_SCOPED_EVIDENCE_V3_", toupper(decision), "_RACE_NOT_BLOCKED"), call. = FALSE)
         Sys.sleep(0.02)
       }

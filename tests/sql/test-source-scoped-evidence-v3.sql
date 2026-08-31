@@ -612,7 +612,7 @@ BEGIN
   END IF;
   IF NOT EXISTS (
        SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
-        WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v5'
+        WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v6'
           AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256()
      ) THEN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_PUBLICATION_RECEIPT_MISSING';
@@ -863,6 +863,18 @@ BEGIN
   v_contract_hash_after:=private.source_scoped_evidence_v3_task4c_contract_sha256();
   IF v_contract_hash_before IS NOT DISTINCT FROM v_contract_hash_after THEN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TEST_PUBLICATION_RECEIPT_STATE_UNBOUND';
+  END IF;
+
+  -- Task 4C's receipt must bind the actual fact/assertion/citation RLS
+  -- policies installed by db-rls.sql, not merely the supporting views.
+  v_contract_hash_before:=private.source_scoped_evidence_v3_task4c_contract_sha256();
+  ALTER POLICY anon_read ON public.fact USING (false);
+  v_contract_hash_after:=private.source_scoped_evidence_v3_task4c_contract_sha256();
+  ALTER POLICY anon_read ON public.fact
+    USING (public.entitet_offentlig(subjekt_type,subjekt_id)
+      AND EXISTS (SELECT 1 FROM public.source_scoped_evidence_visible_fact_ids visible WHERE visible.id=fact.id));
+  IF v_contract_hash_before IS NOT DISTINCT FROM v_contract_hash_after THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TEST_PUBLICATION_RECEIPT_POLICY_UNBOUND';
   END IF;
 
   IF to_regprocedure('private.source_scoped_evidence_v3_visibility_allowed(text,bigint)') IS NOT NULL

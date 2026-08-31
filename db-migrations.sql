@@ -16099,6 +16099,63 @@ COMMIT;
 -- #153 Task 4C follows the frozen Task 4A/4B receipt transitions: state is
 -- a server-projected, append-only event stream rather than mutable business state.
 BEGIN;
+-- An existing Task 4C receipt is a rerun boundary, not a repair instruction.
+-- Check its currently installed contract before this block replaces any views,
+-- triggers, RPCs, ACLs, or policies.  v4/v5 did not hash the public evidence
+-- policies, so their migration bridge binds the frozen policy projection too.
+DO $source_scoped_evidence_v3_task4c_preflight_receipt$
+DECLARE
+  v_receipt_hash text;
+  v_policy_hash text;
+BEGIN
+  IF EXISTS (
+       SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+        WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v6'
+     ) THEN
+    IF to_regprocedure('private.source_scoped_evidence_v3_task4c_contract_sha256()') IS NULL
+       OR NOT EXISTS (
+         SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+          WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v6'
+            AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256()
+       ) THEN
+      RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4C_RECEIPT_DRIFT';
+    END IF;
+  ELSE
+    SELECT receipt.contract_sha256 INTO v_receipt_hash
+      FROM private.source_scoped_evidence_v3_migration_receipt receipt
+     WHERE receipt.contract_version IN (
+       'source-scoped-evidence-v3-task4c-v4',
+       'source-scoped-evidence-v3-task4c-v5'
+     )
+     ORDER BY receipt.contract_version DESC
+     LIMIT 1;
+    IF v_receipt_hash IS NOT NULL THEN
+      IF to_regprocedure('private.source_scoped_evidence_v3_task4c_contract_sha256()') IS NULL
+         OR private.source_scoped_evidence_v3_task4c_contract_sha256() IS DISTINCT FROM v_receipt_hash THEN
+        RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4C_RECEIPT_DRIFT';
+      END IF;
+      SELECT encode(extensions.digest(jsonb_build_object('policies',(
+        SELECT coalesce(jsonb_agg(jsonb_build_object(
+          'relation',relation.relname,'name',policy.polname,'command',policy.polcmd,
+          'permissive',policy.polpermissive,
+          'roles',(SELECT coalesce(jsonb_agg(role.rolname ORDER BY role.rolname),'[]'::jsonb)
+                     FROM pg_roles role WHERE role.oid=ANY(policy.polroles)),
+          'using',pg_get_expr(policy.polqual,policy.polrelid,true),
+          'with_check',pg_get_expr(policy.polwithcheck,policy.polrelid,true)
+        ) ORDER BY relation.relname,policy.polname),'[]'::jsonb)
+          FROM pg_policy policy
+          JOIN pg_class relation ON relation.oid=policy.polrelid
+          JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace
+         WHERE namespace.nspname='public'
+           AND relation.relname=ANY(ARRAY['fact','assertion','citation'])
+      ))::text,'sha256'),'hex') INTO v_policy_hash;
+      IF v_policy_hash IS DISTINCT FROM 'd25859cbe6190c4d1bacc492c1376fa356fca8c8aa135eb82df7e09e70483c08' THEN
+        RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4C_RECEIPT_DRIFT';
+      END IF;
+    END IF;
+  END IF;
+END
+$source_scoped_evidence_v3_task4c_preflight_receipt$;
 DO $source_scoped_evidence_v3_late_visibility_views$
 BEGIN
   IF to_regprocedure('public.entitet_offentlig(text,bigint)') IS NULL THEN
@@ -16811,7 +16868,7 @@ SECURITY DEFINER
 SET search_path=pg_catalog,private,extensions
 AS $$
   SELECT encode(extensions.digest(jsonb_build_object(
-    'schema','source-scoped-evidence-v3-task4c-v5',
+    'schema','source-scoped-evidence-v3-task4c-v6',
     'table',(
       SELECT jsonb_build_object(
         'columns',coalesce(jsonb_agg(jsonb_build_object(
@@ -16871,6 +16928,19 @@ AS $$
        'public.source_scoped_evidence_visible_assertion_ids'::regclass,
        'public.source_scoped_evidence_visible_citation_ids'::regclass
      ])),
+    'visibility_policies',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'relation',relation.relname,'name',policy.polname,'command',policy.polcmd,
+      'permissive',policy.polpermissive,
+      'roles',(SELECT coalesce(jsonb_agg(role.rolname ORDER BY role.rolname),'[]'::jsonb)
+                 FROM pg_roles role WHERE role.oid=ANY(policy.polroles)),
+      'using',pg_get_expr(policy.polqual,policy.polrelid,true),
+      'with_check',pg_get_expr(policy.polwithcheck,policy.polrelid,true)
+    ) ORDER BY relation.relname,policy.polname),'[]'::jsonb)
+      FROM pg_policy policy
+      JOIN pg_class relation ON relation.oid=policy.polrelid
+      JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace
+     WHERE namespace.nspname='public'
+       AND relation.relname=ANY(ARRAY['fact','assertion','citation'])),
     'functions',(SELECT coalesce(jsonb_agg(jsonb_build_object(
       'signature',routine.oid::regprocedure::text,
       'definition',CASE

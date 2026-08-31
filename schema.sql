@@ -14820,7 +14820,7 @@ SECURITY DEFINER
 SET search_path=pg_catalog,private,extensions
 AS $$
   SELECT encode(extensions.digest(jsonb_build_object(
-    'schema','source-scoped-evidence-v3-task4c-v5',
+    'schema','source-scoped-evidence-v3-task4c-v6',
     'table',(
       SELECT jsonb_build_object(
         'columns',coalesce(jsonb_agg(jsonb_build_object(
@@ -14880,6 +14880,19 @@ AS $$
        'public.source_scoped_evidence_visible_assertion_ids'::regclass,
        'public.source_scoped_evidence_visible_citation_ids'::regclass
      ])),
+    'visibility_policies',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'relation',relation.relname,'name',policy.polname,'command',policy.polcmd,
+      'permissive',policy.polpermissive,
+      'roles',(SELECT coalesce(jsonb_agg(role.rolname ORDER BY role.rolname),'[]'::jsonb)
+                 FROM pg_roles role WHERE role.oid=ANY(policy.polroles)),
+      'using',pg_get_expr(policy.polqual,policy.polrelid,true),
+      'with_check',pg_get_expr(policy.polwithcheck,policy.polrelid,true)
+    ) ORDER BY relation.relname,policy.polname),'[]'::jsonb)
+      FROM pg_policy policy
+      JOIN pg_class relation ON relation.oid=policy.polrelid
+      JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace
+     WHERE namespace.nspname='public'
+       AND relation.relname=ANY(ARRAY['fact','assertion','citation'])),
     'functions',(SELECT coalesce(jsonb_agg(jsonb_build_object(
       'signature',routine.oid::regprocedure::text,
       'definition',CASE
