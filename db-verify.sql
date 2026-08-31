@@ -8839,8 +8839,17 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM pg_index i WHERE i.indexrelid='private.source_scoped_evidence_v3_member_fact_uidx'::regclass AND pg_get_indexdef(i.indexrelid) LIKE '%WHERE (fact_id IS NOT NULL)%') THEN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CHAIN_OR_INDEX_CONTRACT_INVALID';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt r WHERE r.contract_version='source-scoped-evidence-v3-task4a-v1' AND r.contract_sha256=private.source_scoped_evidence_v3_task4a_contract_sha256()) THEN
-    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_MIGRATION_RECEIPT_DRIFT';
+  IF NOT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt r
+                   WHERE r.contract_version='source-scoped-evidence-v3-task4a-v1')
+     OR NOT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt r
+                     WHERE r.contract_version='source-scoped-evidence-v3-task4a-v2'
+                       AND r.contract_sha256=private.source_scoped_evidence_v3_task4a_contract_sha256())
+     OR (SELECT contract_sha256 FROM private.source_scoped_evidence_v3_migration_receipt
+          WHERE contract_version='source-scoped-evidence-v3-task4a-v1')
+        IS NOT DISTINCT FROM
+        (SELECT contract_sha256 FROM private.source_scoped_evidence_v3_migration_receipt
+          WHERE contract_version='source-scoped-evidence-v3-task4a-v2') THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4A_RECEIPT_TRANSITION_INVALID';
   END IF;
   IF encode(extensions.digest(convert_to(
        pg_get_functiondef('private.source_scoped_evidence_v3_task4a_contract_sha256()'::regprocedure),'UTF8'
@@ -8849,3 +8858,106 @@ BEGIN
   END IF;
 END
 $source_scoped_evidence_v3_verify$;
+
+-- #153 Task 4B: inventory and deployment form a private, deployment-bound
+-- boundary.  This verifier intentionally does not register a deployment.
+DO $source_scoped_evidence_v3_inventory_verify$
+DECLARE
+  v_signature text;
+BEGIN
+  IF to_regclass('private.source_scoped_evidence_contract_inventory') IS NULL
+     OR to_regclass('private.source_scoped_evidence_v3_deployment') IS NULL
+     OR to_regprocedure('private.source_scoped_evidence_v3_task4b_contract_sha256()') IS NULL
+     OR NOT EXISTS (
+       SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+        WHERE receipt.contract_version='source-scoped-evidence-v3-task4b-v1'
+          AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4b_contract_sha256()
+     )
+     OR encode(extensions.digest(convert_to(
+          pg_get_functiondef('private.source_scoped_evidence_v3_task4b_contract_sha256()'::regprocedure),'UTF8'
+        ),'sha256'),'hex')<>'3937aaf073476deae86d2b1f2be4de8b2e35b0cbbca9d9d40cf352f4ceeeebc3'
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.source_scoped_evidence_contract_inventory'::regclass)
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.source_scoped_evidence_v3_deployment'::regclass)
+     OR NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='daa_source_scoped_evidence_deployer')
+     OR NOT EXISTS (
+       SELECT 1
+         FROM pg_roles gateway
+         JOIN pg_roles deployer
+           ON deployer.rolname='daa_source_scoped_evidence_deployer'
+         JOIN pg_auth_members membership
+           ON membership.roleid=deployer.oid
+          AND membership.member=gateway.oid
+        WHERE gateway.rolname='daa_source_scoped_evidence_gateway'
+          AND gateway.rolcanlogin
+          AND NOT gateway.rolinherit
+          AND NOT gateway.rolbypassrls
+          AND NOT gateway.rolsuper
+          AND NOT gateway.rolcreatedb
+          AND NOT gateway.rolcreaterole
+          AND NOT gateway.rolreplication
+          AND NOT membership.inherit_option
+          AND membership.set_option
+          AND NOT membership.admin_option
+     )
+     OR NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+        WHERE conrelid='private.source_scoped_replace_v3_authorization'::regclass
+          AND conname='source_scoped_replace_v3_authorization_deployment_fk'
+     ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_INVENTORY_PHYSICAL_CONTRACT_INVALID';
+  END IF;
+  FOREACH v_signature IN ARRAY ARRAY[
+    'private.source_scoped_evidence_v3_catalog_definition_sha256()',
+    'private.source_scoped_evidence_v3_reader_probe()',
+    'private.source_scoped_evidence_v3_consumer_probe()',
+    'private.source_scoped_evidence_v3_writer_probe()',
+    'private.refresh_source_scoped_evidence_contract_inventory(text)',
+    'private.source_scoped_evidence_v3_dependency_edges(oid,oid)',
+    'private.source_scoped_evidence_v3_task4b_contract_sha256()'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NULL
+       OR has_function_privilege('anon',v_signature::regprocedure,'EXECUTE')
+       OR has_function_privilege('authenticated',v_signature::regprocedure,'EXECUTE')
+       OR has_function_privilege('service_role',v_signature::regprocedure,'EXECUTE')
+       OR has_function_privilege('daa_source_scoped_evidence_deployer',v_signature::regprocedure,'EXECUTE') THEN
+      RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_INVENTORY_PROBE_ACL_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+  v_signature:='private.register_source_scoped_evidence_v3_deployment(uuid,text,text,text,text,text,uuid)';
+  IF to_regprocedure(v_signature) IS NULL
+     OR NOT has_function_privilege('daa_source_scoped_evidence_deployer',v_signature::regprocedure,'EXECUTE')
+     OR has_function_privilege('anon',v_signature::regprocedure,'EXECUTE')
+     OR has_function_privilege('authenticated',v_signature::regprocedure,'EXECUTE')
+     OR has_function_privilege('service_role',v_signature::regprocedure,'EXECUTE')
+     OR has_function_privilege('daa_source_scoped_evidence_gateway',v_signature::regprocedure,'EXECUTE')
+     OR has_table_privilege('daa_source_scoped_evidence_deployer','private.source_scoped_evidence_contract_inventory','INSERT')
+     OR has_table_privilege('daa_source_scoped_evidence_deployer','private.source_scoped_evidence_v3_deployment','INSERT')
+     OR position('session_user' IN pg_get_functiondef(v_signature::regprocedure))=0
+     OR position('auth.uid' IN lower(pg_get_functiondef(v_signature::regprocedure)))>0 THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_DEPLOYMENT_ACL_INVALID';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM unnest(ARRAY['anon','authenticated','service_role']) role_name
+      CROSS JOIN unnest(ARRAY['fact','assertion','citation']) relation_name
+     WHERE has_table_privilege(role_name,('public.'||relation_name),'INSERT,UPDATE,DELETE')
+  ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_MODEL_DML_ACL_INVALID';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname IN ('public','private') AND c.relkind IN ('r','p')
+       AND c.oid NOT IN ('public.fact'::regclass,'public.assertion'::regclass,'public.citation'::regclass)
+       AND NOT (n.nspname='private' AND c.relname LIKE 'source_scoped_evidence_v3_%')
+       AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0
+                     AND NOT a.attisdropped AND a.attname IN (
+                       'fact_id','assertion_id','citation_id','valgt_assertion_id','target_type','target_id',
+                       'subjekt_type','subjekt_id','objekt_type','objekt_id'))
+       AND NOT EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid=c.oid AND NOT t.tgisinternal
+                         AND t.tgfoid='private.reject_source_scoped_evidence_v3_consumer_mutation()'::regprocedure)
+  ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CONSUMER_GUARD_INCOMPLETE';
+  END IF;
+END
+$source_scoped_evidence_v3_inventory_verify$;

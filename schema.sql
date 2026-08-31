@@ -13445,3 +13445,679 @@ CREATE TRIGGER trg_source_scoped_evidence_v3_migration_receipt_append_only
   FOR EACH ROW EXECUTE FUNCTION private.reject_source_scoped_evidence_v3_mutation();
 INSERT INTO private.source_scoped_evidence_v3_migration_receipt(contract_version,contract_sha256)
 VALUES ('source-scoped-evidence-v3-task4a-v1',private.source_scoped_evidence_v3_task4a_contract_sha256());
+
+-- #153 Task 4B: inventory and deployment are private, append-only capabilities.
+CREATE TABLE private.source_scoped_evidence_contract_inventory (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  schema_contract_version text NOT NULL CHECK (btrim(schema_contract_version)<>''),
+  catalog_definition_sha256 text NOT NULL CHECK (catalog_definition_sha256 ~ '^[0-9a-f]{64}$'),
+  reader_probe_source_sha256 text NOT NULL CHECK (reader_probe_source_sha256 ~ '^[0-9a-f]{64}$'),
+  consumer_probe_source_sha256 text NOT NULL CHECK (consumer_probe_source_sha256 ~ '^[0-9a-f]{64}$'),
+  writer_probe_source_sha256 text NOT NULL CHECK (writer_probe_source_sha256 ~ '^[0-9a-f]{64}$'),
+  inventory_result_sha256 text NOT NULL CHECK (inventory_result_sha256 ~ '^[0-9a-f]{64}$'),
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  UNIQUE(schema_contract_version,catalog_definition_sha256,reader_probe_source_sha256,
+         consumer_probe_source_sha256,writer_probe_source_sha256,inventory_result_sha256)
+);
+
+CREATE TABLE private.source_scoped_evidence_v3_deployment (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  inventory_id uuid NOT NULL REFERENCES private.source_scoped_evidence_contract_inventory(id),
+  repository_tree_id text NOT NULL CHECK (btrim(repository_tree_id)<>''),
+  repository_writer_artifact_sha256 text NOT NULL CHECK (repository_writer_artifact_sha256 ~ '^[0-9a-f]{64}$'),
+  schema_contract_version text NOT NULL CHECK (btrim(schema_contract_version)<>''),
+  database_name text NOT NULL CHECK (btrim(database_name)<>''),
+  system_identifier text NOT NULL CHECK (btrim(system_identifier)<>''),
+  registered_by uuid NOT NULL,
+  registered_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  deployment_sha256 text NOT NULL UNIQUE CHECK (deployment_sha256 ~ '^[0-9a-f]{64}$')
+);
+ALTER TABLE private.source_scoped_replace_v3_authorization
+  ADD CONSTRAINT source_scoped_replace_v3_authorization_deployment_fk
+  FOREIGN KEY (deployment_id) REFERENCES private.source_scoped_evidence_v3_deployment(id);
+
+-- A view's dependencies are rooted in its rewrite rule rather than its
+-- pg_class row.  Keep the whole relevant pg_depend closure in every entry;
+-- function bodies remain separately hashed because PL/pgSQL dependencies are
+-- deliberately incomplete in PostgreSQL's catalog.
+CREATE OR REPLACE FUNCTION private.source_scoped_evidence_v3_dependency_edges(
+  p_classid oid,p_object_id oid
+) RETURNS jsonb
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+  WITH RECURSIVE roots(classid,objid) AS (
+    SELECT p_classid,p_object_id
+    UNION
+    SELECT 'pg_rewrite'::regclass::oid,rewrite.oid
+      FROM pg_rewrite rewrite
+     WHERE p_classid='pg_class'::regclass::oid
+       AND rewrite.ev_class=p_object_id
+  ), closure(classid,objid) AS (
+    SELECT classid,objid FROM roots
+    UNION
+    SELECT dependency.refclassid,dependency.refobjid
+      FROM closure parent
+      JOIN pg_depend dependency
+        ON dependency.classid=parent.classid AND dependency.objid=parent.objid
+  ), edges AS (
+    SELECT DISTINCT dependency.classid::regclass::text AS dependent_class,
+           dependency.objid AS dependent_oid,
+           dependency.objsubid AS dependent_subid,
+           dependency.refclassid::regclass::text AS referenced_class,
+           dependency.refobjid AS referenced_oid,
+           dependency.refobjsubid AS referenced_subid,
+           dependency.deptype AS dependency_type
+      FROM closure parent
+      JOIN pg_depend dependency
+        ON dependency.classid=parent.classid AND dependency.objid=parent.objid
+  )
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+    'dependent_class',dependent_class,'dependent_oid',dependent_oid,
+    'dependent_subid',dependent_subid,'referenced_class',referenced_class,
+    'referenced_oid',referenced_oid,'referenced_subid',referenced_subid,
+    'dependency_type',dependency_type
+  ) ORDER BY dependent_class,dependent_oid,dependent_subid,referenced_class,
+             referenced_oid,referenced_subid,dependency_type),'[]'::jsonb)
+  FROM edges;
+$$;
+
+CREATE OR REPLACE FUNCTION private.source_scoped_evidence_v3_catalog_definition_sha256()
+RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private,extensions AS $$
+  WITH entries AS (
+    SELECT n.nspname AS table_schema,c.relname AS table_name,co.conname,
+      jsonb_build_object(
+        'table_schema',n.nspname,'table_name',c.relname,'constraint_name',co.conname,
+        'column_pairs',(
+          SELECT coalesce(jsonb_agg(jsonb_build_object(
+            'table_column',local_column.attname,'model_column',model_column.attname
+          ) ORDER BY keys.ordinality),'[]'::jsonb)
+          FROM unnest(co.conkey,co.confkey) WITH ORDINALITY AS keys(local_attnum,model_attnum,ordinality)
+          JOIN pg_attribute local_column ON local_column.attrelid=co.conrelid
+            AND local_column.attnum=keys.local_attnum
+          JOIN pg_attribute model_column ON model_column.attrelid=co.confrelid
+            AND model_column.attnum=keys.model_attnum
+        ),
+        'on_update',CASE co.confupdtype WHEN 'a' THEN 'no_action' WHEN 'r' THEN 'restrict'
+          WHEN 'c' THEN 'cascade' WHEN 'n' THEN 'set_null' WHEN 'd' THEN 'set_default' END,
+        'on_delete',CASE co.confdeltype WHEN 'a' THEN 'no_action' WHEN 'r' THEN 'restrict'
+          WHEN 'c' THEN 'cascade' WHEN 'n' THEN 'set_null' WHEN 'd' THEN 'set_default' END,
+        'deferrable',co.condeferrable,'initially_deferred',co.condeferred,
+        'validated',co.convalidated
+      ) AS entry
+    FROM pg_constraint co
+    JOIN pg_class c ON c.oid=co.conrelid
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE co.contype='f'
+      AND co.confrelid IN ('public.fact'::regclass,'public.assertion'::regclass,'public.citation'::regclass)
+  )
+  SELECT encode(extensions.digest(coalesce(jsonb_agg(entry ORDER BY table_schema,table_name,conname),'[]'::jsonb)::text,'sha256'),'hex')
+  FROM entries;
+$$;
+
+-- This is intentionally a closed superset.  A new public view/RPC or any
+-- SECURITY DEFINER function is an inventory change even when pg_depend cannot
+-- see a PL/pgSQL read through a helper or dynamic SQL.
+CREATE OR REPLACE FUNCTION private.source_scoped_evidence_v3_reader_probe()
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private,extensions AS $$
+  WITH security_surface AS MATERIALIZED (
+    SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'relation',n.nspname||'.'||c.relname,'kind',c.relkind,
+      'acl',coalesce(c.relacl,acldefault('r',c.relowner))::text,
+      'rls_enabled',c.relrowsecurity,'force_rls',c.relforcerowsecurity,
+      'reloptions',coalesce(to_jsonb(c.reloptions),'[]'::jsonb),
+      'policies',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+        'name',policy.polname,'command',policy.polcmd,'roles',policy.polroles,
+        'using',pg_get_expr(policy.polqual,policy.polrelid),
+        'with_check',pg_get_expr(policy.polwithcheck,policy.polrelid)
+      ) ORDER BY policy.polname),'[]'::jsonb) FROM pg_policy policy WHERE policy.polrelid=c.oid)
+    ) ORDER BY n.nspname,c.relname),'[]'::jsonb) AS relations
+      FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname IN ('public','private') AND c.relkind IN ('r','p','v','m')
+  ), entries AS (
+    SELECT 'reader_view'::text AS kind,n.nspname AS object_schema,c.relname AS object_name,c.oid AS object_oid,
+      encode(extensions.digest(convert_to(pg_get_viewdef(c.oid,true),'UTF8'),'sha256'),'hex') AS definition_sha256,
+      private.source_scoped_evidence_v3_dependency_edges('pg_class'::regclass::oid,c.oid) AS dependency_edges,
+      'all'::text AS member_kind,
+      jsonb_build_object('object_acl',coalesce(c.relacl,acldefault('r',c.relowner))::text,
+        'rls_enabled',c.relrowsecurity,'force_rls',c.relforcerowsecurity,
+        'security_barrier',coalesce(c.reloptions @> ARRAY['security_barrier=true'],false),
+        'security_invoker',coalesce(c.reloptions @> ARRAY['security_invoker=true'],false),
+        'relation_security_surface',security.relations,
+        'classification',CASE WHEN c.reloptions @> ARRAY['security_invoker=true']
+          THEN 'rls_gated' ELSE 'editorial_exception' END) AS guard
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    CROSS JOIN security_surface security
+    WHERE n.nspname='public' AND c.relkind IN ('v','m')
+    UNION ALL
+    SELECT 'reader_routine',n.nspname,p.proname,p.oid,
+      encode(extensions.digest(convert_to(pg_get_functiondef(p.oid),'UTF8'),'sha256'),'hex'),
+      private.source_scoped_evidence_v3_dependency_edges('pg_proc'::regclass::oid,p.oid),
+      'all',jsonb_build_object('routine_acl',coalesce(p.proacl,acldefault('f',p.proowner))::text,
+        'security_definer',p.prosecdef,
+        'public_execute',EXISTS (
+          SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) privilege
+           WHERE privilege.grantee=0 AND privilege.privilege_type='EXECUTE'
+        ),
+        'relation_security_surface',security.relations,
+        'classification',CASE WHEN p.prosecdef THEN 'editorial_exception' ELSE 'rls_gated' END)
+    FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    CROSS JOIN security_surface security
+    WHERE p.prokind IN ('f','p') AND (n.nspname='public' OR p.prosecdef)
+  )
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+    'kind',kind,'object_schema',object_schema,'object_name',object_name,'object_oid',object_oid,
+    'definition_sha256',definition_sha256,'dependency_edges',dependency_edges,
+    'member_kind',member_kind,'guard',guard
+  ) ORDER BY kind,object_schema,object_name,object_oid),'[]'::jsonb)
+  FROM entries;
+$$;
+
+CREATE OR REPLACE FUNCTION private.source_scoped_evidence_v3_consumer_probe()
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private,extensions AS $$
+  WITH candidate_tables AS (
+    SELECT c.oid,n.nspname,c.relname,c.relrowsecurity
+      FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname IN ('public','private') AND c.relkind IN ('r','p')
+       AND c.oid NOT IN ('public.fact'::regclass,'public.assertion'::regclass,'public.citation'::regclass)
+       AND c.relname NOT LIKE 'source_scoped_evidence_v3_%'
+       AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0
+                     AND NOT a.attisdropped AND a.attname IN (
+                       'fact_id','assertion_id','citation_id','valgt_assertion_id','target_type','target_id',
+                       'subjekt_type','subjekt_id','objekt_type','objekt_id'))
+  ), entries AS (
+    SELECT 'consumer'::text AS kind,nspname AS object_schema,relname AS object_name,oid AS object_oid,
+      encode(extensions.digest(convert_to(jsonb_build_object(
+        'schema',nspname,'table',relname,
+        'columns',(SELECT coalesce(jsonb_agg(jsonb_build_object('name',a.attname,'type',format_type(a.atttypid,a.atttypmod)) ORDER BY a.attnum),'[]'::jsonb)
+                    FROM pg_attribute a WHERE a.attrelid=candidate_tables.oid AND a.attnum>0 AND NOT a.attisdropped
+                      AND a.attname IN ('fact_id','assertion_id','citation_id','valgt_assertion_id','target_type','target_id','subjekt_type','subjekt_id','objekt_type','objekt_id'))
+      )::text,'UTF8'),'sha256'),'hex') AS definition_sha256,
+      private.source_scoped_evidence_v3_dependency_edges('pg_class'::regclass::oid,oid) AS dependency_edges,
+      'all'::text AS member_kind,
+      jsonb_build_object('rls_enabled',relrowsecurity,
+        'candidate_pairs',jsonb_strip_nulls(jsonb_build_array(
+          CASE WHEN EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid=oid AND a.attname='fact_id' AND a.attnum>0 AND NOT a.attisdropped) THEN jsonb_build_object('member_kind','fact','id_column','fact_id') END,
+          CASE WHEN EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid=oid AND a.attname='assertion_id' AND a.attnum>0 AND NOT a.attisdropped) THEN jsonb_build_object('member_kind','assertion','id_column','assertion_id') END,
+          CASE WHEN EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid=oid AND a.attname='citation_id' AND a.attnum>0 AND NOT a.attisdropped) THEN jsonb_build_object('member_kind','citation','id_column','citation_id') END,
+          CASE WHEN EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid=oid AND a.attname='valgt_assertion_id' AND a.attnum>0 AND NOT a.attisdropped) THEN jsonb_build_object('member_kind','assertion','id_column','valgt_assertion_id') END,
+          CASE WHEN EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid=oid AND a.attname='target_type' AND a.attnum>0 AND NOT a.attisdropped)
+                      AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid=oid AND a.attname='target_id' AND a.attnum>0 AND NOT a.attisdropped) THEN jsonb_build_object('type_column','target_type','id_column','target_id') END,
+          CASE WHEN EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid=oid AND a.attname='subjekt_type' AND a.attnum>0 AND NOT a.attisdropped)
+                      AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid=oid AND a.attname='subjekt_id' AND a.attnum>0 AND NOT a.attisdropped) THEN jsonb_build_object('type_column','subjekt_type','id_column','subjekt_id') END,
+          CASE WHEN EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid=oid AND a.attname='objekt_type' AND a.attnum>0 AND NOT a.attisdropped)
+                      AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid=oid AND a.attname='objekt_id' AND a.attnum>0 AND NOT a.attisdropped) THEN jsonb_build_object('type_column','objekt_type','id_column','objekt_id') END
+        )),
+        'consumer_guard_triggers',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+          'name',trigger.tgname,'definition',pg_get_triggerdef(trigger.oid,true)
+        ) ORDER BY trigger.tgname),'[]'::jsonb)
+          FROM pg_trigger trigger
+         WHERE trigger.tgrelid=candidate_tables.oid AND NOT trigger.tgisinternal
+           AND trigger.tgfoid=to_regprocedure('private.reject_source_scoped_evidence_v3_consumer_mutation()'))) AS guard
+    FROM candidate_tables
+    UNION ALL
+    SELECT 'bound_member_guard',n.nspname,c.relname,c.oid,
+      encode(extensions.digest(convert_to(pg_get_triggerdef(trigger.oid,true),'UTF8'),'sha256'),'hex'),
+      private.source_scoped_evidence_v3_dependency_edges('pg_class'::regclass::oid,c.oid),
+      c.relname,jsonb_build_object('trigger_name',trigger.tgname,
+        'trigger_definition',pg_get_triggerdef(trigger.oid,true),
+        'trigger_function',trigger.tgfoid::regprocedure::text)
+      FROM pg_trigger trigger JOIN pg_class c ON c.oid=trigger.tgrelid
+      JOIN pg_namespace n ON n.oid=c.relnamespace
+     WHERE NOT trigger.tgisinternal
+       AND trigger.tgfoid=to_regprocedure('private.reject_source_scoped_evidence_v3_bound_member_mutation()')
+  )
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+    'kind',kind,'object_schema',object_schema,'object_name',object_name,'object_oid',object_oid,
+    'definition_sha256',definition_sha256,'dependency_edges',dependency_edges,
+    'member_kind',member_kind,'guard',guard
+  ) ORDER BY kind,object_schema,object_name,object_oid),'[]'::jsonb)
+  FROM entries;
+$$;
+
+CREATE OR REPLACE FUNCTION private.source_scoped_evidence_v3_writer_probe()
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path=pg_catalog,private,extensions
+AS $$
+DECLARE
+  v_unclassified regprocedure;
+  v_result jsonb;
+BEGIN
+  SELECT p.oid::regprocedure INTO v_unclassified
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid=p.pronamespace
+    JOIN pg_language language ON language.oid=p.prolang
+   WHERE n.nspname IN ('public','private')
+     AND p.prokind IN ('f','p')
+     AND language.lanname='plpgsql'
+     AND pg_get_functiondef(p.oid) ~ '(?i)\mEXECUTE\M'
+     AND p.oid NOT IN (
+       'private.apply_narrative_record_contract_acl(integer)'::regprocedure,
+       'private.apply_narrative_record_cutover(text,text,text,text,text,text,uuid,text,text)'::regprocedure,
+       'public._version_current_row(text,jsonb)'::regprocedure,
+       'public._version_delete_row(text,jsonb)'::regprocedure,
+       'public._version_upsert_row(text,jsonb)'::regprocedure
+     )
+   ORDER BY p.oid::regprocedure::text
+   LIMIT 1;
+  IF v_unclassified IS NOT NULL THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_UNCLASSIFIED_DYNAMIC_SQL';
+  END IF;
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+    'kind','writer','object_schema',n.nspname,'object_name',p.proname,'object_oid',p.oid,
+    'definition_sha256',encode(extensions.digest(convert_to(pg_get_functiondef(p.oid),'UTF8'),'sha256'),'hex'),
+    'dependency_edges',private.source_scoped_evidence_v3_dependency_edges('pg_proc'::regclass::oid,p.oid),
+    'member_kind','all','guard',jsonb_build_object(
+      'security_definer',p.prosecdef,
+      'dynamic_sql_allowlist',CASE
+        WHEN p.oid IN (
+          'public._version_current_row(text,jsonb)'::regprocedure,
+          'public._version_delete_row(text,jsonb)'::regprocedure,
+          'public._version_upsert_row(text,jsonb)'::regprocedure
+        ) THEN jsonb_build_object('mode','version_pk_registry','model_targets',(
+          SELECT coalesce(jsonb_agg(registry.tabel ORDER BY registry.tabel),'[]'::jsonb)
+            FROM public.version_pk_registry registry
+           WHERE registry.tabel IN ('fact','assertion','citation')
+        ))
+        WHEN pg_get_functiondef(p.oid) ~ '(?i)\mEXECUTE\M'
+          THEN jsonb_build_object('mode','explicit','model_targets','[]'::jsonb)
+        ELSE jsonb_build_object('mode','not_applicable','model_targets','[]'::jsonb)
+      END
+    )
+  ) ORDER BY n.nspname,p.proname,p.oid),'[]'::jsonb)
+    INTO v_result
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid=p.pronamespace
+   WHERE n.nspname IN ('public','private')
+     AND p.prokind IN ('f','p')
+     AND (
+       (pg_get_functiondef(p.oid) ~ '(?i)\m(INSERT|UPDATE|DELETE|COPY)\M'
+        AND pg_get_functiondef(p.oid) ~ '(?i)\m(fact|assertion|citation)\M')
+       OR p.oid IN (
+         'public._version_current_row(text,jsonb)'::regprocedure,
+         'public._version_delete_row(text,jsonb)'::regprocedure,
+         'public._version_upsert_row(text,jsonb)'::regprocedure
+       )
+       OR pg_get_functiondef(p.oid) ~ '(?i)\mEXECUTE\M'
+     );
+  RETURN v_result;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION private.refresh_source_scoped_evidence_contract_inventory(
+  p_schema_contract_version text
+) RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path=pg_catalog,private,extensions
+AS $$
+DECLARE
+  v_catalog text;
+  v_reader jsonb;
+  v_consumer jsonb;
+  v_writer jsonb;
+  v_reader_source text;
+  v_consumer_source text;
+  v_writer_source text;
+  v_result text;
+  v_id uuid;
+BEGIN
+  IF p_schema_contract_version IS NULL OR btrim(p_schema_contract_version)='' THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_INVENTORY_VERSION_INVALID';
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('source-scoped-evidence-v3-inventory:'||p_schema_contract_version));
+  v_catalog:=private.source_scoped_evidence_v3_catalog_definition_sha256();
+  v_reader:=private.source_scoped_evidence_v3_reader_probe();
+  v_consumer:=private.source_scoped_evidence_v3_consumer_probe();
+  v_writer:=private.source_scoped_evidence_v3_writer_probe();
+  v_reader_source:=encode(extensions.digest(convert_to(pg_get_functiondef(
+    'private.source_scoped_evidence_v3_reader_probe()'::regprocedure),'UTF8'),'sha256'),'hex');
+  v_consumer_source:=encode(extensions.digest(convert_to(pg_get_functiondef(
+    'private.source_scoped_evidence_v3_consumer_probe()'::regprocedure),'UTF8'),'sha256'),'hex');
+  v_writer_source:=encode(extensions.digest(convert_to(pg_get_functiondef(
+    'private.source_scoped_evidence_v3_writer_probe()'::regprocedure),'UTF8'),'sha256'),'hex');
+  v_result:=encode(extensions.digest(jsonb_build_object(
+    'schema','source-scoped-evidence-v3-inventory-result-v1',
+    'entries',(
+      SELECT coalesce(jsonb_agg(entry ORDER BY entry->>'kind',entry->>'object_schema',entry->>'object_name',
+                                          (entry->>'object_oid')::oid),'[]'::jsonb)
+        FROM (
+          SELECT jsonb_build_object('kind','catalog','object_schema','pg_catalog','object_name','fact-assertion-citation-fks',
+            'object_oid',0,'definition_sha256',v_catalog,'dependency_edges','[]'::jsonb,'member_kind','all','guard',
+            jsonb_build_object('foreign_key_contract','complete')) AS entry
+          UNION ALL SELECT value FROM jsonb_array_elements(v_reader)
+          UNION ALL SELECT value FROM jsonb_array_elements(v_consumer)
+          UNION ALL SELECT value FROM jsonb_array_elements(v_writer)
+          UNION ALL SELECT jsonb_build_object('kind','probe','object_schema','private','object_name','source_scoped_evidence_v3_reader_probe',
+            'object_oid','private.source_scoped_evidence_v3_reader_probe()'::regprocedure::oid,
+            'definition_sha256',v_reader_source,'dependency_edges',private.source_scoped_evidence_v3_dependency_edges(
+              'pg_proc'::regclass::oid,'private.source_scoped_evidence_v3_reader_probe()'::regprocedure::oid),
+            'member_kind','all','guard',jsonb_build_object('probe','reader'))
+          UNION ALL SELECT jsonb_build_object('kind','probe','object_schema','private','object_name','source_scoped_evidence_v3_consumer_probe',
+            'object_oid','private.source_scoped_evidence_v3_consumer_probe()'::regprocedure::oid,
+            'definition_sha256',v_consumer_source,'dependency_edges',private.source_scoped_evidence_v3_dependency_edges(
+              'pg_proc'::regclass::oid,'private.source_scoped_evidence_v3_consumer_probe()'::regprocedure::oid),
+            'member_kind','all','guard',jsonb_build_object('probe','consumer'))
+          UNION ALL SELECT jsonb_build_object('kind','probe','object_schema','private','object_name','source_scoped_evidence_v3_writer_probe',
+            'object_oid','private.source_scoped_evidence_v3_writer_probe()'::regprocedure::oid,
+            'definition_sha256',v_writer_source,'dependency_edges',private.source_scoped_evidence_v3_dependency_edges(
+              'pg_proc'::regclass::oid,'private.source_scoped_evidence_v3_writer_probe()'::regprocedure::oid),
+            'member_kind','all','guard',jsonb_build_object('probe','writer'))
+        ) all_entries
+    )
+  )::text,'sha256'),'hex');
+  SELECT id INTO v_id
+    FROM private.source_scoped_evidence_contract_inventory
+   WHERE schema_contract_version=p_schema_contract_version
+     AND catalog_definition_sha256=v_catalog
+     AND reader_probe_source_sha256=v_reader_source
+     AND consumer_probe_source_sha256=v_consumer_source
+     AND writer_probe_source_sha256=v_writer_source
+     AND inventory_result_sha256=v_result;
+  IF v_id IS NULL THEN
+    INSERT INTO private.source_scoped_evidence_contract_inventory(
+      schema_contract_version,catalog_definition_sha256,reader_probe_source_sha256,
+      consumer_probe_source_sha256,writer_probe_source_sha256,inventory_result_sha256
+    ) VALUES (
+      p_schema_contract_version,v_catalog,v_reader_source,v_consumer_source,v_writer_source,v_result
+    ) RETURNING id INTO v_id;
+  END IF;
+  RETURN v_id;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION private.register_source_scoped_evidence_v3_deployment(
+  p_inventory_id uuid,p_repository_tree_id text,p_repository_writer_artifact_sha256 text,
+  p_schema_contract_version text,p_database_name text,p_system_identifier text,p_registered_by uuid
+) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private,extensions AS $$
+DECLARE
+  v_id uuid;
+  v_registered_at timestamptz:=clock_timestamp();
+  v_hash text;
+  v_gateway_actor constant uuid:='b6677b31-4c1a-5a82-91e4-e9f439eb4236'::uuid;
+BEGIN
+  IF p_inventory_id IS NULL OR p_repository_tree_id IS NULL OR btrim(p_repository_tree_id)=''
+     OR p_repository_writer_artifact_sha256 !~ '^[0-9a-f]{64}$'
+     OR p_schema_contract_version IS NULL OR btrim(p_schema_contract_version)=''
+     OR session_user<>'daa_source_scoped_evidence_gateway'
+     OR p_registered_by IS DISTINCT FROM v_gateway_actor
+     OR p_database_name<>current_database()
+     OR p_system_identifier<>(pg_control_system()).system_identifier::text THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_DEPLOYMENT_INVALID';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+     WHERE receipt.contract_version='source-scoped-evidence-v3-task4b-v1'
+       AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4b_contract_sha256()
+  ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_DEPLOYMENT_UNCERTIFIED';
+  END IF;
+  IF p_inventory_id IS DISTINCT FROM private.refresh_source_scoped_evidence_contract_inventory(
+       p_schema_contract_version
+     ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_INVENTORY_DRIFT';
+  END IF;
+  v_hash:=encode(extensions.digest(jsonb_build_object('schema','source-scoped-evidence-v3-deployment-v1',
+    'inventory_id',p_inventory_id,'repository_tree_id',p_repository_tree_id,
+    'repository_writer_artifact_sha256',p_repository_writer_artifact_sha256,
+    'schema_contract_version',p_schema_contract_version,'database_name',p_database_name,
+    'system_identifier',p_system_identifier,'registered_by',p_registered_by,
+    'registered_at',v_registered_at)::text,'sha256'),'hex');
+  INSERT INTO private.source_scoped_evidence_v3_deployment(
+    inventory_id,repository_tree_id,repository_writer_artifact_sha256,schema_contract_version,
+    database_name,system_identifier,registered_by,registered_at,deployment_sha256
+  ) VALUES (p_inventory_id,p_repository_tree_id,p_repository_writer_artifact_sha256,p_schema_contract_version,
+    p_database_name,p_system_identifier,p_registered_by,v_registered_at,v_hash) RETURNING id INTO v_id;
+  RETURN v_id;
+END
+$$;
+
+DO $source_scoped_evidence_v3_deployer_role$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='daa_source_scoped_evidence_deployer') THEN
+    CREATE ROLE daa_source_scoped_evidence_deployer NOLOGIN NOINHERIT NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='daa_source_scoped_evidence_gateway') THEN
+    CREATE ROLE daa_source_scoped_evidence_gateway LOGIN NOINHERIT NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
+  END IF;
+  IF EXISTS (
+       SELECT 1 FROM pg_roles
+        WHERE rolname='daa_source_scoped_evidence_deployer'
+          AND (rolcanlogin OR rolinherit OR rolbypassrls OR rolsuper
+               OR rolcreatedb OR rolcreaterole OR rolreplication)
+     )
+     OR EXISTS (
+       SELECT 1 FROM pg_roles
+        WHERE rolname='daa_source_scoped_evidence_gateway'
+          AND (NOT rolcanlogin OR rolinherit OR rolbypassrls OR rolsuper
+               OR rolcreatedb OR rolcreaterole OR rolreplication)
+     ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_GATEWAY_ROLE_INVALID';
+  END IF;
+  GRANT daa_source_scoped_evidence_deployer TO daa_source_scoped_evidence_gateway
+    WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
+END
+$source_scoped_evidence_v3_deployer_role$;
+
+CREATE OR REPLACE FUNCTION private.reject_source_scoped_evidence_v3_bound_member_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path=pg_catalog,private
+AS $$
+DECLARE v_member_kind text:=TG_TABLE_NAME;
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM private.source_scoped_evidence_v3_member member
+     WHERE member.member_kind=v_member_kind
+       AND ((v_member_kind='fact' AND member.fact_id=OLD.id)
+         OR (v_member_kind='assertion' AND member.assertion_id=OLD.id)
+         OR (v_member_kind='citation' AND member.citation_id=OLD.id))
+  ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_BOUND_MEMBER_MUTATION';
+  END IF;
+  IF TG_OP='UPDATE' THEN RETURN NEW; END IF;
+  RETURN OLD;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION private.reject_source_scoped_evidence_v3_consumer_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path=pg_catalog,private
+AS $$
+DECLARE v_payload jsonb:=to_jsonb(NEW);
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM (VALUES
+      ('fact',v_payload->>'fact_id'),('assertion',v_payload->>'assertion_id'),('assertion',v_payload->>'valgt_assertion_id'),
+      ('citation',v_payload->>'citation_id'),(v_payload->>'target_type',v_payload->>'target_id'),
+      (v_payload->>'subjekt_type',v_payload->>'subjekt_id'),
+      (v_payload->>'objekt_type',v_payload->>'objekt_id')
+    ) AS candidate(member_kind,member_id)
+    JOIN private.source_scoped_evidence_v3_member member
+      ON member.member_kind=candidate.member_kind AND candidate.member_id ~ '^[0-9]+$'
+     AND ((candidate.member_kind='fact' AND member.fact_id=candidate.member_id::bigint)
+       OR (candidate.member_kind='assertion' AND member.assertion_id=candidate.member_id::bigint)
+       OR (candidate.member_kind='citation' AND member.citation_id=candidate.member_id::bigint))
+  ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CONSUMER_MUTATION';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER trg_source_scoped_evidence_v3_fact_bound_member
+  BEFORE UPDATE OR DELETE ON public.fact FOR EACH ROW
+  EXECUTE FUNCTION private.reject_source_scoped_evidence_v3_bound_member_mutation();
+CREATE TRIGGER trg_source_scoped_evidence_v3_assertion_bound_member
+  BEFORE UPDATE OR DELETE ON public.assertion FOR EACH ROW
+  EXECUTE FUNCTION private.reject_source_scoped_evidence_v3_bound_member_mutation();
+CREATE TRIGGER trg_source_scoped_evidence_v3_citation_bound_member
+  BEFORE UPDATE OR DELETE ON public.citation FOR EACH ROW
+  EXECUTE FUNCTION private.reject_source_scoped_evidence_v3_bound_member_mutation();
+-- Attach the guard to the same catalog-discovered surface that the inventory
+-- hashes.  A newly introduced table is therefore both a deployment-blocking
+-- inventory drift and, once explicitly classified, protected by this trigger.
+DO $source_scoped_evidence_v3_consumer_guards$
+DECLARE v_relation record; v_trigger record; v_name text;
+BEGIN
+  FOR v_trigger IN
+    SELECT n.nspname,c.relname,t.tgname
+      FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
+      JOIN pg_namespace n ON n.oid=c.relnamespace
+     WHERE NOT t.tgisinternal
+       AND t.tgfoid='private.reject_source_scoped_evidence_v3_consumer_mutation()'::regprocedure
+  LOOP
+    EXECUTE format('DROP TRIGGER %I ON %I.%I',v_trigger.tgname,v_trigger.nspname,v_trigger.relname);
+  END LOOP;
+  FOR v_relation IN
+    SELECT n.nspname,c.relname,c.oid
+      FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname IN ('public','private') AND c.relkind IN ('r','p')
+       AND c.oid NOT IN ('public.fact'::regclass,'public.assertion'::regclass,'public.citation'::regclass)
+       AND NOT (n.nspname='private' AND c.relname LIKE 'source_scoped_evidence_v3_%')
+       AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0
+                     AND NOT a.attisdropped AND a.attname IN (
+                       'fact_id','assertion_id','citation_id','valgt_assertion_id','target_type','target_id',
+                       'subjekt_type','subjekt_id','objekt_type','objekt_id'))
+  LOOP
+    v_name:=format('trg_source_scoped_evidence_v3_consumer_%s',v_relation.oid);
+    EXECUTE format('CREATE TRIGGER %I BEFORE INSERT OR UPDATE ON %I.%I FOR EACH ROW EXECUTE FUNCTION private.reject_source_scoped_evidence_v3_consumer_mutation()',
+      v_name,v_relation.nspname,v_relation.relname);
+  END LOOP;
+END
+$source_scoped_evidence_v3_consumer_guards$;
+
+CREATE TRIGGER trg_source_scoped_evidence_contract_inventory_append_only
+  BEFORE UPDATE OR DELETE ON private.source_scoped_evidence_contract_inventory
+  FOR EACH ROW EXECUTE FUNCTION private.reject_source_scoped_evidence_v3_mutation();
+CREATE TRIGGER trg_source_scoped_evidence_v3_deployment_append_only
+  BEFORE UPDATE OR DELETE ON private.source_scoped_evidence_v3_deployment
+  FOR EACH ROW EXECUTE FUNCTION private.reject_source_scoped_evidence_v3_mutation();
+ALTER TABLE private.source_scoped_evidence_contract_inventory ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_evidence_v3_deployment ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.source_scoped_evidence_contract_inventory,private.source_scoped_evidence_v3_deployment
+  FROM PUBLIC,anon,authenticated,service_role,daa_source_scoped_evidence_deployer,daa_source_scoped_evidence_gateway;
+REVOKE INSERT,UPDATE,DELETE ON TABLE public.fact,public.assertion,public.citation
+  FROM anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION private.source_scoped_evidence_v3_catalog_definition_sha256(),
+  private.source_scoped_evidence_v3_reader_probe(),private.source_scoped_evidence_v3_consumer_probe(),
+  private.source_scoped_evidence_v3_writer_probe(),
+  private.refresh_source_scoped_evidence_contract_inventory(text),
+  private.reject_source_scoped_evidence_v3_bound_member_mutation(),
+  private.reject_source_scoped_evidence_v3_consumer_mutation(),
+  private.register_source_scoped_evidence_v3_deployment(uuid,text,text,text,text,text,uuid)
+  FROM PUBLIC,anon,authenticated,service_role,daa_source_scoped_evidence_gateway;
+GRANT EXECUTE ON FUNCTION private.register_source_scoped_evidence_v3_deployment(
+  uuid,text,text,text,text,text,uuid
+) TO daa_source_scoped_evidence_deployer;
+
+-- The Task 4B receipt closes the additive migration: it covers the exact
+-- relations, routines, guards and ACL boundary that an authorization relies
+-- on.  The helper source itself is asserted by the executable verifier.
+CREATE OR REPLACE FUNCTION private.source_scoped_evidence_v3_task4b_contract_sha256()
+RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private,extensions AS $$
+  SELECT encode(extensions.digest(jsonb_build_object(
+    'schema','source-scoped-evidence-v3-task4b-v1',
+    'relations',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'relation',n.nspname||'.'||c.relname,
+      'columns',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+        'position',a.attnum,'name',a.attname,'type',format_type(a.atttypid,a.atttypmod),
+        'not_null',a.attnotnull,'identity',a.attidentity,'generated',a.attgenerated,
+        'default',pg_get_expr(d.adbin,d.adrelid)
+      ) ORDER BY a.attnum),'[]'::jsonb)
+        FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+       WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped),
+      'acl',coalesce(c.relacl,'{}'::aclitem[])::text,'rls',c.relrowsecurity,'force_rls',c.relforcerowsecurity
+    ) ORDER BY n.nspname,c.relname),'[]'::jsonb)
+      FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname='private' AND c.relname IN (
+       'source_scoped_evidence_contract_inventory','source_scoped_evidence_v3_deployment','source_scoped_evidence_v3_migration_receipt')),
+    'constraints',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'relation',n.nspname||'.'||c.relname,'name',co.conname,'definition',pg_get_constraintdef(co.oid,true)
+    ) ORDER BY n.nspname,c.relname,co.conname),'[]'::jsonb)
+      FROM pg_constraint co JOIN pg_class c ON c.oid=co.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+     WHERE (n.nspname='private' AND c.relname IN ('source_scoped_evidence_contract_inventory','source_scoped_evidence_v3_deployment'))
+        OR co.conname='source_scoped_replace_v3_authorization_deployment_fk'),
+    'functions',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'signature',p.oid::regprocedure::text,'definition',pg_get_functiondef(p.oid),
+      'acl',coalesce(p.proacl,acldefault('f',p.proowner))::text
+    ) ORDER BY p.oid::regprocedure::text),'[]'::jsonb)
+      FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+     WHERE n.nspname='private' AND p.proname IN (
+       'source_scoped_evidence_v3_dependency_edges','source_scoped_evidence_v3_catalog_definition_sha256',
+       'source_scoped_evidence_v3_reader_probe','source_scoped_evidence_v3_consumer_probe',
+       'source_scoped_evidence_v3_writer_probe','refresh_source_scoped_evidence_contract_inventory',
+       'register_source_scoped_evidence_v3_deployment','reject_source_scoped_evidence_v3_bound_member_mutation',
+       'reject_source_scoped_evidence_v3_consumer_mutation')),
+    'triggers',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'relation',n.nspname||'.'||c.relname,'name',t.tgname,'definition',pg_get_triggerdef(t.oid,true)
+    ) ORDER BY n.nspname,c.relname,t.tgname),'[]'::jsonb)
+      FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+     WHERE NOT t.tgisinternal AND (
+       t.tgfoid='private.reject_source_scoped_evidence_v3_bound_member_mutation()'::regprocedure OR
+       t.tgfoid='private.reject_source_scoped_evidence_v3_consumer_mutation()'::regprocedure OR
+       (n.nspname='private' AND c.relname IN ('source_scoped_evidence_contract_inventory','source_scoped_evidence_v3_deployment')))),
+    'gateway_roles',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+        'name',rolname,'login',rolcanlogin,'inherit',rolinherit,
+        'bypassrls',rolbypassrls,'superuser',rolsuper,'createdb',rolcreatedb,
+        'createrole',rolcreaterole,'replication',rolreplication
+      ) ORDER BY rolname),'[]'::jsonb)
+      FROM pg_roles
+      WHERE rolname IN ('daa_source_scoped_evidence_deployer','daa_source_scoped_evidence_gateway')),
+    'gateway_membership',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+        'inherit',membership.inherit_option,'set',membership.set_option,'admin',membership.admin_option
+      ) ORDER BY membership.roleid,membership.member),'[]'::jsonb)
+      FROM pg_auth_members membership
+       WHERE membership.roleid='daa_source_scoped_evidence_deployer'::regrole
+       AND membership.member='daa_source_scoped_evidence_gateway'::regrole
+    )
+  )::text,'sha256'),'hex')
+$$;
+REVOKE ALL ON FUNCTION private.source_scoped_evidence_v3_task4b_contract_sha256()
+  FROM PUBLIC,anon,authenticated,service_role;
+
+-- Task 4A's v1 receipt is the immutable pre-Task-4B snapshot.  The broad
+-- historical projection legitimately gains Task 4B objects, so preserve v1
+-- and bind the post-addition projection in a distinct immutable v2 receipt.
+DO $source_scoped_evidence_v3_task4a_receipt_transition$
+DECLARE v_v1 text; v_v2 text; v_actual text;
+BEGIN
+  SELECT contract_sha256 INTO v_v1
+    FROM private.source_scoped_evidence_v3_migration_receipt
+   WHERE contract_version='source-scoped-evidence-v3-task4a-v1';
+  v_actual:=private.source_scoped_evidence_v3_task4a_contract_sha256();
+  IF v_v1 IS NULL OR v_v1 IS NOT DISTINCT FROM v_actual THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4A_RECEIPT_TRANSITION_INVALID';
+  END IF;
+  SELECT contract_sha256 INTO v_v2
+    FROM private.source_scoped_evidence_v3_migration_receipt
+   WHERE contract_version='source-scoped-evidence-v3-task4a-v2';
+  IF v_v2 IS NULL THEN
+    INSERT INTO private.source_scoped_evidence_v3_migration_receipt(contract_version,contract_sha256)
+      VALUES ('source-scoped-evidence-v3-task4a-v2',v_actual);
+  ELSIF v_v2 IS DISTINCT FROM v_actual THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4A_RECEIPT_V2_DRIFT';
+  END IF;
+END
+$source_scoped_evidence_v3_task4a_receipt_transition$;
+
+REVOKE ALL ON FUNCTION private.source_scoped_evidence_v3_dependency_edges(oid,oid)
+  FROM PUBLIC,anon,authenticated,service_role;
+INSERT INTO private.source_scoped_evidence_v3_migration_receipt(contract_version,contract_sha256)
+VALUES ('source-scoped-evidence-v3-task4b-v1',private.source_scoped_evidence_v3_task4b_contract_sha256())
+ON CONFLICT (contract_version) DO NOTHING;
+DO $source_scoped_evidence_v3_task4b_receipt$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+     WHERE receipt.contract_version='source-scoped-evidence-v3-task4b-v1'
+       AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4b_contract_sha256()
+  ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4B_RECEIPT_DRIFT';
+  END IF;
+END
+$source_scoped_evidence_v3_task4b_receipt$;

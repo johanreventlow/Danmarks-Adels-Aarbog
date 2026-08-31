@@ -1172,3 +1172,35 @@ REVOKE ALL ON FUNCTION public.red_authorize_source_scoped_replace(text,text,uuid
   private.reject_source_scoped_evidence_v3_mutation(),
   private.enforce_source_scoped_evidence_v3_revision_predecessor()
   FROM PUBLIC,anon,authenticated,service_role;
+
+-- #153 Task 4B: deployment registration is a private capability.  The role
+-- can execute its single SECURITY DEFINER entry point, but receives no table
+-- privileges and no application role inherits it by default.
+ALTER TABLE private.source_scoped_evidence_contract_inventory ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_evidence_v3_deployment ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.source_scoped_evidence_contract_inventory,
+  private.source_scoped_evidence_v3_deployment
+  FROM PUBLIC,anon,authenticated,service_role,daa_source_scoped_evidence_deployer,daa_source_scoped_evidence_gateway;
+REVOKE INSERT,UPDATE,DELETE ON TABLE public.fact,public.assertion,public.citation
+  FROM anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION private.register_source_scoped_evidence_v3_deployment(
+  uuid,text,text,text,text,text,uuid
+) FROM PUBLIC,anon,authenticated,service_role,daa_source_scoped_evidence_gateway;
+GRANT EXECUTE ON FUNCTION private.register_source_scoped_evidence_v3_deployment(
+  uuid,text,text,text,text,text,uuid
+) TO daa_source_scoped_evidence_deployer;
+
+-- #153 Task 4B: schema.sql and db-migrations.sql certify this complete
+-- boundary atomically.  RLS only confirms that its idempotent ACL pass did
+-- not drift the already-certified deployment capability.
+DO $source_scoped_evidence_v3_task4b_receipt$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+     WHERE receipt.contract_version='source-scoped-evidence-v3-task4b-v1'
+       AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4b_contract_sha256()
+  ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4B_RECEIPT_DRIFT';
+  END IF;
+END
+$source_scoped_evidence_v3_task4b_receipt$;
