@@ -226,7 +226,10 @@ if (identical(Sys.getenv("SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT"), "1")) {
           "AND lock.objid::int8=(hashtextextended($3,0)&4294967295) ",
           "AND lock.objsubid=1"
         ), params = c(as.list(worker_names), list(paste0("daa-source-scoped-replace:", source_id))))$n[[1L]]
-        if (waiting >= 2L) break
+        # refresh_source_scoped_evidence_contract_inventory can serialize one
+        # worker earlier; require that at least one named worker has reached
+        # the exact source lock held by this controller transaction.
+        if (waiting >= 1L) break
         if (Sys.time() >= deadline) stop(paste0("SOURCE_SCOPED_EVIDENCE_V3_", toupper(decision), "_RACE_NOT_BLOCKED"), call. = FALSE)
         Sys.sleep(0.02)
       }
