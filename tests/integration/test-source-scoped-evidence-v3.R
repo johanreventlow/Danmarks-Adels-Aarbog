@@ -97,7 +97,7 @@ if (identical(Sys.getenv("SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT"), "1")) {
     "SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT_DEPLOYMENT_BINDING_INVALID"
   )
   expect_true(
-    isTRUE(scalar("SELECT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v6' AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256())")),
+    isTRUE(scalar("SELECT EXISTS (SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v7' AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256())")),
     "SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT_RECEIPT_DRIFT"
   )
   expect_true(
@@ -205,13 +205,22 @@ if (identical(Sys.getenv("SOURCE_SCOPED_EVIDENCE_V3_POSTCOMMIT"), "1")) {
                                      expected_publication_count) {
       DBI::dbBegin(con)
       execute("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", list(paste0("daa-source-scoped-replace:", source_id)))
+      worker_names <- c(
+        paste0("task4c-", decision, "-race-one"),
+        paste0("task4c-", decision, "-race-two")
+      )
       jobs <- list(
-        launch_worker(paste0("task4c-", decision, "-race-one"), authorization_id, decision_payload),
-        launch_worker(paste0("task4c-", decision, "-race-two"), authorization_id, decision_payload)
+        launch_worker(worker_names[[1L]], authorization_id, decision_payload),
+        launch_worker(worker_names[[2L]], authorization_id, decision_payload)
       )
       deadline <- Sys.time() + 5
       repeat {
-        waiting <- DBI::dbGetQuery(con, "SELECT count(*)::integer AS n FROM pg_locks WHERE locktype='advisory' AND NOT granted")$n[[1L]]
+        waiting <- DBI::dbGetQuery(con, paste0(
+          "SELECT count(*)::integer AS n FROM pg_locks lock ",
+          "JOIN pg_stat_activity activity ON activity.pid=lock.pid ",
+          "WHERE lock.locktype='advisory' AND NOT lock.granted ",
+          "AND activity.application_name IN ($1,$2)"
+        ), params = as.list(worker_names))$n[[1L]]
         if (waiting >= 2L) break
         if (Sys.time() >= deadline) stop(paste0("SOURCE_SCOPED_EVIDENCE_V3_", toupper(decision), "_RACE_NOT_BLOCKED"), call. = FALSE)
         Sys.sleep(0.02)

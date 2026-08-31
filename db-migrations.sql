@@ -16110,12 +16110,12 @@ DECLARE
 BEGIN
   IF EXISTS (
        SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
-        WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v6'
+        WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v7'
      ) THEN
     IF to_regprocedure('private.source_scoped_evidence_v3_task4c_contract_sha256()') IS NULL
        OR NOT EXISTS (
          SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
-          WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v6'
+          WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v7'
             AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256()
        ) THEN
       RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4C_RECEIPT_DRIFT';
@@ -16125,7 +16125,8 @@ BEGIN
       FROM private.source_scoped_evidence_v3_migration_receipt receipt
      WHERE receipt.contract_version IN (
        'source-scoped-evidence-v3-task4c-v4',
-       'source-scoped-evidence-v3-task4c-v5'
+       'source-scoped-evidence-v3-task4c-v5',
+       'source-scoped-evidence-v3-task4c-v6'
      )
      ORDER BY receipt.contract_version DESC
      LIMIT 1;
@@ -16150,6 +16151,15 @@ BEGIN
            AND relation.relname=ANY(ARRAY['fact','assertion','citation'])
       ))::text,'sha256'),'hex') INTO v_policy_hash;
       IF v_policy_hash IS DISTINCT FROM 'd25859cbe6190c4d1bacc492c1376fa356fca8c8aa135eb82df7e09e70483c08' THEN
+        RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4C_RECEIPT_DRIFT';
+      END IF;
+      IF EXISTS (
+        SELECT 1 FROM pg_class relation
+        JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace
+         WHERE namespace.nspname='public'
+           AND relation.relname=ANY(ARRAY['fact','assertion','citation'])
+           AND NOT relation.relrowsecurity
+      ) THEN
         RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4C_RECEIPT_DRIFT';
       END IF;
     END IF;
@@ -16868,7 +16878,7 @@ SECURITY DEFINER
 SET search_path=pg_catalog,private,extensions
 AS $$
   SELECT encode(extensions.digest(jsonb_build_object(
-    'schema','source-scoped-evidence-v3-task4c-v6',
+    'schema','source-scoped-evidence-v3-task4c-v7',
     'table',(
       SELECT jsonb_build_object(
         'columns',coalesce(jsonb_agg(jsonb_build_object(
@@ -16931,6 +16941,8 @@ AS $$
     'visibility_policies',(SELECT coalesce(jsonb_agg(jsonb_build_object(
       'relation',relation.relname,'name',policy.polname,'command',policy.polcmd,
       'permissive',policy.polpermissive,
+      'rls',relation.relrowsecurity,'force_rls',relation.relforcerowsecurity,
+      'acl',coalesce(relation.relacl,'{}'::aclitem[])::text,
       'roles',(SELECT coalesce(jsonb_agg(role.rolname ORDER BY role.rolname),'[]'::jsonb)
                  FROM pg_roles role WHERE role.oid=ANY(policy.polroles)),
       'using',pg_get_expr(policy.polqual,policy.polrelid,true),
@@ -16982,12 +16994,12 @@ DO $source_scoped_evidence_v3_task4c_rerun_receipt$
 BEGIN
   IF EXISTS (
        SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
-        WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v5'
+        WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v7'
      ) AND (
        to_regprocedure('public.entitet_offentlig(text,bigint)') IS NULL
        OR NOT EXISTS (
          SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
-          WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v5'
+          WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v7'
             AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256()
        )
      ) THEN

@@ -1312,13 +1312,13 @@ GRANT EXECUTE ON FUNCTION
 -- pass installs the shared public gate.  Bind the immutable receipt here,
 -- rather than to schema.sql's deliberately fail-closed fallback views.
 INSERT INTO private.source_scoped_evidence_v3_migration_receipt(contract_version,contract_sha256)
-VALUES ('source-scoped-evidence-v3-task4c-v6',private.source_scoped_evidence_v3_task4c_contract_sha256())
+VALUES ('source-scoped-evidence-v3-task4c-v7',private.source_scoped_evidence_v3_task4c_contract_sha256())
 ON CONFLICT (contract_version) DO NOTHING;
 DO $source_scoped_evidence_v3_task4c_receipt$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
-     WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v6'
+     WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v7'
        AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256()
   ) THEN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4C_RECEIPT_DRIFT';

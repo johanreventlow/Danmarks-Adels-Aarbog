@@ -14820,7 +14820,7 @@ SECURITY DEFINER
 SET search_path=pg_catalog,private,extensions
 AS $$
   SELECT encode(extensions.digest(jsonb_build_object(
-    'schema','source-scoped-evidence-v3-task4c-v6',
+    'schema','source-scoped-evidence-v3-task4c-v7',
     'table',(
       SELECT jsonb_build_object(
         'columns',coalesce(jsonb_agg(jsonb_build_object(
@@ -14883,6 +14883,8 @@ AS $$
     'visibility_policies',(SELECT coalesce(jsonb_agg(jsonb_build_object(
       'relation',relation.relname,'name',policy.polname,'command',policy.polcmd,
       'permissive',policy.polpermissive,
+      'rls',relation.relrowsecurity,'force_rls',relation.relforcerowsecurity,
+      'acl',coalesce(relation.relacl,'{}'::aclitem[])::text,
       'roles',(SELECT coalesce(jsonb_agg(role.rolname ORDER BY role.rolname),'[]'::jsonb)
                  FROM pg_roles role WHERE role.oid=ANY(policy.polroles)),
       'using',pg_get_expr(policy.polqual,policy.polrelid,true),
