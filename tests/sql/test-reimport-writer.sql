@@ -1,5 +1,7 @@
 \set ON_ERROR_STOP on
 
+BEGIN;
+
 DO $catalog$
 DECLARE v_relation text; v_signature text;
 BEGIN
@@ -85,10 +87,17 @@ BEGIN
   BEGIN DELETE FROM private.reimport_writer_profile WHERE source_id=-153002 AND profile_id='task-1-unreferenced-profile-v1'; EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
   IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_PROFILE_APPEND_ONLY'
      OR (SELECT to_jsonb(profile) FROM private.reimport_writer_profile profile WHERE source_id=-153002 AND profile_id='task-1-unreferenced-profile-v1') IS DISTINCT FROM v_before THEN RAISE EXCEPTION 'REIMPORT_WRITER_PROFILE_DELETE_ACCEPTED: %',v_error; END IF;
-  v_error:=NULL;
-  BEGIN UPDATE private.reimport_event SET operation='tampered'; EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
-  IF v_error IS NULL THEN RAISE EXCEPTION 'REIMPORT_WRITER_EVENT_MUTATION_ACCEPTED'; END IF;
-  v_error:=NULL;
-  BEGIN DELETE FROM private.reimport_name_completion_result; EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
-  IF v_error IS NULL THEN RAISE EXCEPTION 'REIMPORT_WRITER_RESULT_DELETE_ACCEPTED'; END IF;
 END $profile_identity$;
+
+DO $fixture_visible$
+BEGIN
+  IF public.narrative_record_contract_version()<>2
+     OR NOT EXISTS (
+       SELECT 1 FROM private.narrative_record_cutover_receipt
+        WHERE nonce='15300000-0000-4000-8000-000000000004'
+     ) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_V2_BOOTSTRAP_NOT_VISIBLE';
+  END IF;
+END $fixture_visible$;
+
+ROLLBACK;

@@ -115,21 +115,30 @@ testthat::test_that("generic reimport writer owns every formerly 1939-specific l
   }
   testthat::expect_setequal(expected_keys, observed_keys)
 
-  schema_all <- paste(readLines(file.path(writer_root, "schema.sql"), warn = FALSE), collapse = "\n")
+  generic_sources <- list(
+    schema = paste(readLines(file.path(writer_root, "schema.sql"), warn = FALSE), collapse = "\n"),
+    migration = paste(readLines(file.path(writer_root, "db-migrations.sql"), warn = FALSE), collapse = "\n")
+  )
   generic_names <- c("red_authorize_reimport", "red_begin_reimport", "red_apply_reimport_source_evidence", "red_apply_reimport_person_create", "red_finalize_reimport", "red_authorize_reimport_reversal", "red_reverse_reimport", "red_authorize_reimport_cutover", "red_activate_reimport_batch")
-  generic_definitions <- lapply(generic_names, extract_public_function, text = schema_all); names(generic_definitions) <- generic_names
-  testthat::expect_true(all(lengths(generic_definitions) == 1L))
-  if (any(lengths(generic_definitions) != 1L)) return(invisible())
+  generic_definitions <- lapply(generic_sources, function(source_text) {
+    definitions <- lapply(generic_names, extract_public_function, text = source_text)
+    names(definitions) <- generic_names
+    definitions
+  })
+  testthat::expect_true(all(vapply(generic_definitions, function(definitions) all(lengths(definitions) == 1L), logical(1))))
+  if (any(!vapply(generic_definitions, function(definitions) all(lengths(definitions) == 1L), logical(1)))) return(invisible())
 
   forbidden_literals <- paste(writer_literal_rules$pattern, collapse = "|")
-  for (definition in generic_definitions) {
-    lock <- regexpr("pg_advisory_xact_lock_shared\\(hashtextextended\\('daa-narrative-record-contract',0\\)\\)", definition, perl = TRUE)
-    gate <- regexpr("REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED", definition, perl = TRUE)
-    mutation <- regexpr("\\b(INSERT|UPDATE|DELETE)\\b", definition, perl = TRUE)
-    testthat::expect_true(lock[[1L]] > 0L && gate[[1L]] > lock[[1L]] && (mutation[[1L]] == -1L || mutation[[1L]] > gate[[1L]]))
-    testthat::expect_false(grepl(forbidden_literals, definition, perl = TRUE))
-    testthat::expect_false(grepl("\\b(INSERT|UPDATE|DELETE)\\s+(INTO\\s+)?(public\\.narrative|private\\.narrative_record_publication)\\b", definition, perl = TRUE))
+  for (source_name in names(generic_definitions)) {
+    for (definition in generic_definitions[[source_name]]) {
+      lock <- regexpr("pg_advisory_xact_lock_shared\\(hashtextextended\\('daa-narrative-record-contract',0\\)\\)", definition, perl = TRUE)
+      gate <- regexpr("REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED", definition, perl = TRUE)
+      mutation <- regexpr("\\b(INSERT|UPDATE|DELETE)\\b", definition, perl = TRUE)
+      testthat::expect_true(lock[[1L]] > 0L && gate[[1L]] > lock[[1L]] && (mutation[[1L]] == -1L || mutation[[1L]] > gate[[1L]]))
+      testthat::expect_false(grepl(forbidden_literals, definition, perl = TRUE))
+      testthat::expect_false(grepl("\\b(INSERT|UPDATE|DELETE)\\s+(INTO\\s+)?(public\\.narrative|private\\.narrative_record_publication)\\b", definition, perl = TRUE))
+    }
+    generic_person_create <- generic_definitions[[source_name]][["red_apply_reimport_person_create"]]
+    for (required in c("red_upsert_person_narrative_record", "event_id", "narrative_id", "publication_state_sha256", "state_sha256", "INSERT INTO private.reimport_event")) testthat::expect_match(generic_person_create, required, fixed = TRUE)
   }
-  generic_person_create <- generic_definitions[["red_apply_reimport_person_create"]]
-  for (required in c("red_upsert_person_narrative_record", "event_id", "narrative_id", "publication_state_sha256", "state_sha256", "INSERT INTO private.reimport_event")) testthat::expect_match(generic_person_create, required, fixed = TRUE)
 })

@@ -44,7 +44,7 @@ BEGIN
       RAISE EXCEPTION 'REIMPORT_1939_FACADE_SIGNATURE_OR_RETURN_DRIFT: %',v_legacy[v_index];
     END IF;
     v_definition:=pg_get_functiondef(v_legacy[v_index]::regprocedure);
-    IF length(string_to_array(v_definition,v_generic[v_index]))-1<>1
+    IF cardinality(string_to_array(v_definition,v_generic[v_index]))-1<>1
        OR v_definition ~* '\\m(INSERT|UPDATE|DELETE)\\M|pg_advisory|LOCK TABLE|validate_reimport_1939' THEN
       RAISE EXCEPTION 'REIMPORT_1939_FACADE_DELEGATION_DRIFT: %',v_legacy[v_index];
     END IF;

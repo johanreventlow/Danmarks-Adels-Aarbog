@@ -1,5 +1,7 @@
 \set ON_ERROR_STOP on
 
+BEGIN;
+
 DO $catalog$
 DECLARE v_signature text;
 BEGIN
@@ -35,6 +37,7 @@ DECLARE
   v_authorization_envelope jsonb; v_preflight jsonb; v_result jsonb;
   v_source_payload jsonb; v_person_payload jsonb; v_completion_payload jsonb;
   v_authorized_source jsonb; v_authorized_completion jsonb;
+  v_error text; v_event_before text; v_result_before text;
 BEGIN
   IF public.narrative_record_contract_version()<>2 THEN
     RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_V2_BOOTSTRAP_FAILED';
@@ -91,6 +94,11 @@ BEGIN
     SELECT 1 FROM private.reimport_event event
      WHERE event.batch_id=v_source_batch AND event.element_id='person-create:task-1-name-completion-record'
        AND event.operation='person_create' AND event.canonical_person_id=v_person
+       AND event.payload ?& ARRAY['event_id','narrative_id','publication_state_sha256','state_sha256']
+       AND nullif(event.payload->>'event_id','') IS NOT NULL
+       AND nullif(event.payload->>'narrative_id','') IS NOT NULL
+       AND event.payload->>'publication_state_sha256' ~ '^[0-9a-f]{64}$'
+       AND event.payload->>'state_sha256' ~ '^[0-9a-f]{64}$'
   ) THEN
     RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_SOURCE_RECEIPT_MISSING';
   END IF;
@@ -146,4 +154,79 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_PROFILE_OR_SOURCE_LINKAGE_INVALID';
   END IF;
+
+  SELECT event::text INTO v_event_before
+    FROM private.reimport_event event
+   WHERE event.batch_id=v_child_batch
+     AND event.element_id='name-completion:task-1-name-completion-record';
+  IF v_event_before IS NULL THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_EVENT_SEED_MISSING';
+  END IF;
+  BEGIN
+    UPDATE private.reimport_event
+       SET operation='tampered'
+     WHERE batch_id=v_child_batch
+       AND element_id='name-completion:task-1-name-completion-record';
+  EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_EVENT_APPEND_ONLY'
+     OR (SELECT event::text FROM private.reimport_event event WHERE event.batch_id=v_child_batch AND event.element_id='name-completion:task-1-name-completion-record') IS DISTINCT FROM v_event_before THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_EVENT_UPDATE_ACCEPTED: %',v_error;
+  END IF;
+  v_error:=NULL;
+  BEGIN
+    DELETE FROM private.reimport_event
+     WHERE batch_id=v_child_batch
+       AND element_id='name-completion:task-1-name-completion-record';
+  EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_EVENT_APPEND_ONLY'
+     OR (SELECT event::text FROM private.reimport_event event WHERE event.batch_id=v_child_batch AND event.element_id='name-completion:task-1-name-completion-record') IS DISTINCT FROM v_event_before THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_EVENT_DELETE_ACCEPTED: %',v_error;
+  END IF;
+
+  SELECT result::text INTO v_result_before
+    FROM private.reimport_name_completion_result result
+   WHERE result.batch_id=v_child_batch
+     AND result.source_batch_id=v_source_batch AND result.person_id=v_person
+     AND result.source_record_id=v_record AND result.source_persona_id=v_persona;
+  IF v_result_before IS NULL THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_RESULT_SEED_MISSING';
+  END IF;
+  v_error:=NULL;
+  BEGIN
+    UPDATE private.reimport_name_completion_result
+       SET element_id='tampered'
+     WHERE batch_id=v_child_batch AND source_batch_id=v_source_batch AND person_id=v_person
+       AND source_record_id=v_record AND source_persona_id=v_persona;
+  EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_NAME_COMPLETION_RESULT_APPEND_ONLY'
+     OR (SELECT result::text FROM private.reimport_name_completion_result result WHERE result.batch_id=v_child_batch AND result.source_batch_id=v_source_batch AND result.person_id=v_person AND result.source_record_id=v_record AND result.source_persona_id=v_persona) IS DISTINCT FROM v_result_before THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_RESULT_UPDATE_ACCEPTED: %',v_error;
+  END IF;
+  v_error:=NULL;
+  BEGIN
+    DELETE FROM private.reimport_name_completion_result
+     WHERE batch_id=v_child_batch AND source_batch_id=v_source_batch AND person_id=v_person
+       AND source_record_id=v_record AND source_persona_id=v_persona;
+  EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_NAME_COMPLETION_RESULT_APPEND_ONLY'
+     OR (SELECT result::text FROM private.reimport_name_completion_result result WHERE result.batch_id=v_child_batch AND result.source_batch_id=v_source_batch AND result.person_id=v_person AND result.source_record_id=v_record AND result.source_persona_id=v_persona) IS DISTINCT FROM v_result_before THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_RESULT_DELETE_ACCEPTED: %',v_error;
+  END IF;
 END $generic_lifecycle$;
+
+DO $fixture_visible$
+BEGIN
+  IF public.narrative_record_contract_version()<>2
+     OR NOT EXISTS (
+       SELECT 1 FROM private.narrative_record_cutover_receipt
+        WHERE nonce='15300000-0000-4000-8000-000000000004'
+     ) THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_V2_BOOTSTRAP_NOT_VISIBLE';
+  END IF;
+END $fixture_visible$;
+
+ROLLBACK;
