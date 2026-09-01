@@ -2578,13 +2578,15 @@ END $$;
 
 CREATE FUNCTION public.red_apply_reimport_person_create(p_batch_id uuid,p_element_id text,p_payload jsonb)
 RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
-DECLARE v_batch private.reimport_batch%ROWTYPE; v_evidence jsonb; v_person_id bigint; v_persona uuid; v_state jsonb; v_narrative jsonb; v_record_placement uuid; v_persona_placement uuid; v_placement_version integer; v_identity_version integer; v_payload_sha text;
+DECLARE v_batch private.reimport_batch%ROWTYPE; v_evidence jsonb; v_person_id bigint; v_persona uuid; v_state jsonb; v_narrative jsonb; v_record_placement uuid; v_record_placement_count bigint; v_persona_placement uuid; v_placement_version integer; v_identity_version integer; v_payload_sha text;
 BEGIN
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
   IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
   v_batch:=private.require_reimport_open_batch(p_batch_id);
   IF nullif(btrim(p_payload->>'name'),'') IS NULL OR (p_payload->>'source_id')::bigint IS DISTINCT FROM v_batch.source_id OR p_payload->>'placement_role' NOT IN ('principal_member','co_principal') OR p_payload->>'placement_basis_sha256' !~ '^[0-9a-f]{64}$' OR p_payload->>'placement_review_sha256' !~ '^[0-9a-f]{64}$' OR p_payload->>'placement_decision_sha256' !~ '^[0-9a-f]{64}$' OR EXISTS(SELECT 1 FROM public.person_external_id WHERE source_id=v_batch.source_id AND record_key=p_payload->>'source_record_key') THEN RAISE EXCEPTION 'REIMPORT_WRITER_PERSON_CREATE_INVALID'; END IF;
   v_evidence:=private.ensure_reimport_source_evidence(p_batch_id,p_element_id,p_payload||'{"category":"person"}'::jsonb);
+  SELECT count(*) INTO v_record_placement_count FROM private.source_record_placement_current placement WHERE placement.source_record_id=(v_evidence->>'source_record_id')::uuid AND placement.decision_status='accepted';
+  IF v_record_placement_count<>1 THEN RAISE EXCEPTION 'REIMPORT_WRITER_PERSON_CREATE_INVALID'; END IF;
   SELECT placement.id INTO v_record_placement FROM private.source_record_placement_current placement JOIN private.source_record record ON record.id=placement.source_record_id WHERE placement.id=(p_payload->>'source_record_placement_id')::uuid AND placement.decision_status='accepted' AND record.id=(v_evidence->>'source_record_id')::uuid AND record.source_id=v_batch.source_id;
   IF NOT FOUND THEN RAISE EXCEPTION 'REIMPORT_WRITER_PERSON_CREATE_INVALID'; END IF;
   PERFORM 1 FROM private.source_record_placement WHERE id=v_record_placement FOR UPDATE;
@@ -2803,10 +2805,12 @@ ALTER TABLE private.reimport_batch ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.reimport_event ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.reimport_name_completion_result ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON private.reimport_writer_profile,private.reimport_authorization,private.reimport_batch,private.reimport_event,private.reimport_name_completion_result FROM PUBLIC,anon,authenticated,service_role;
-REVOKE ALL ON FUNCTION private.reject_reimport_writer_mutation(),private.require_reimport_writer_editor(),private.require_reimport_open_batch(uuid),private.ensure_reimport_source_evidence(uuid,text,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION private.reject_reimport_writer_mutation(),private.require_reimport_writer_editor(),private.require_reimport_open_batch(uuid),private.ensure_reimport_source_evidence(uuid,text,jsonb),private.reimport_canonical_json_text(jsonb),private.reimport_canonical_json_sha256(jsonb),private.validate_reimport_name_completion(uuid,uuid,text,jsonb),public.red_lock_reimport_name_completion(text),public.red_authorize_reimport_name_completion(text,uuid,text,text,jsonb,jsonb),public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb),public.red_begin_reimport_name_completion(uuid,text,uuid),public.red_apply_reimport_name_completion(uuid,text,jsonb),public.red_finalize_reimport_name_completion(uuid) FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_finalize_reimport(uuid),public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_reverse_reimport(uuid,uuid),public.red_authorize_reimport_cutover(uuid,uuid,timestamptz),public.red_activate_reimport_batch(uuid,uuid) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_authorize_reimport_cutover(uuid,uuid,timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_finalize_reimport(uuid),public.red_reverse_reimport(uuid,uuid),public.red_activate_reimport_batch(uuid,uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.red_authorize_reimport_name_completion(text,uuid,text,text,jsonb,jsonb) TO service_role;
+GRANT EXECUTE ON FUNCTION public.red_lock_reimport_name_completion(text),public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb),public.red_begin_reimport_name_completion(uuid,text,uuid),public.red_apply_reimport_name_completion(uuid,text,jsonb),public.red_finalize_reimport_name_completion(uuid) TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.public_person_bio_source_versions(p_person_ids bigint[])
 RETURNS TABLE(person_id bigint,record_ref uuid,source_label text,record_label text,narrative_text text,citation_label text,provenance_kind text)

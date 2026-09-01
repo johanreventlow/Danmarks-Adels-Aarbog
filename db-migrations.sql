@@ -11273,7 +11273,7 @@ BEGIN
 END $reimport_writer_constraints$;
 CREATE UNIQUE INDEX IF NOT EXISTS reimport_batch_profile_replay_uidx ON private.reimport_batch(source_id,profile_id,profile_sha256,manifest_sha256,preview_sha256,principal_id);
 
-CREATE OR REPLACE FUNCTION private.reject_reimport_writer_mutation() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$ BEGIN IF TG_TABLE_NAME='reimport_writer_profile' THEN RAISE EXCEPTION 'REIMPORT_WRITER_PROFILE_APPEND_ONLY'; END IF; RAISE EXCEPTION 'REIMPORT_WRITER_APPEND_ONLY'; END $$;
+CREATE OR REPLACE FUNCTION private.reject_reimport_writer_mutation() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$ BEGIN IF TG_TABLE_NAME='reimport_writer_profile' THEN RAISE EXCEPTION 'REIMPORT_WRITER_PROFILE_APPEND_ONLY'; END IF; IF TG_TABLE_NAME='reimport_event' THEN RAISE EXCEPTION 'REIMPORT_EVENT_APPEND_ONLY'; END IF; IF TG_TABLE_NAME='reimport_name_completion_result' THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_RESULT_APPEND_ONLY'; END IF; RAISE EXCEPTION 'REIMPORT_WRITER_APPEND_ONLY'; END $$;
 DROP TRIGGER IF EXISTS trg_reimport_writer_profile_append_only ON private.reimport_writer_profile;
 CREATE TRIGGER trg_reimport_writer_profile_append_only BEFORE UPDATE OR DELETE ON private.reimport_writer_profile FOR EACH ROW EXECUTE FUNCTION private.reject_reimport_writer_mutation();
 DROP TRIGGER IF EXISTS trg_reimport_event_append_only ON private.reimport_event;
@@ -11438,13 +11438,15 @@ END $$;
 
 CREATE OR REPLACE FUNCTION public.red_apply_reimport_person_create(p_batch_id uuid,p_element_id text,p_payload jsonb)
 RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
-DECLARE v_batch private.reimport_batch%ROWTYPE; v_evidence jsonb; v_person_id bigint; v_persona uuid; v_state jsonb; v_narrative jsonb; v_record_placement uuid; v_persona_placement uuid; v_placement_version integer; v_identity_version integer; v_payload_sha text;
+DECLARE v_batch private.reimport_batch%ROWTYPE; v_evidence jsonb; v_person_id bigint; v_persona uuid; v_state jsonb; v_narrative jsonb; v_record_placement uuid; v_record_placement_count bigint; v_persona_placement uuid; v_placement_version integer; v_identity_version integer; v_payload_sha text;
 BEGIN
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
   IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
   v_batch:=private.require_reimport_open_batch(p_batch_id);
   IF nullif(btrim(p_payload->>'name'),'') IS NULL OR (p_payload->>'source_id')::bigint IS DISTINCT FROM v_batch.source_id OR p_payload->>'placement_role' NOT IN ('principal_member','co_principal') OR p_payload->>'placement_basis_sha256' !~ '^[0-9a-f]{64}$' OR p_payload->>'placement_review_sha256' !~ '^[0-9a-f]{64}$' OR p_payload->>'placement_decision_sha256' !~ '^[0-9a-f]{64}$' OR EXISTS(SELECT 1 FROM public.person_external_id WHERE source_id=v_batch.source_id AND record_key=p_payload->>'source_record_key') THEN RAISE EXCEPTION 'REIMPORT_WRITER_PERSON_CREATE_INVALID'; END IF;
   v_evidence:=private.ensure_reimport_source_evidence(p_batch_id,p_element_id,p_payload||'{"category":"person"}'::jsonb);
+  SELECT count(*) INTO v_record_placement_count FROM private.source_record_placement_current placement WHERE placement.source_record_id=(v_evidence->>'source_record_id')::uuid AND placement.decision_status='accepted';
+  IF v_record_placement_count<>1 THEN RAISE EXCEPTION 'REIMPORT_WRITER_PERSON_CREATE_INVALID'; END IF;
   SELECT placement.id INTO v_record_placement FROM private.source_record_placement_current placement JOIN private.source_record record ON record.id=placement.source_record_id WHERE placement.id=(p_payload->>'source_record_placement_id')::uuid AND placement.decision_status='accepted' AND record.id=(v_evidence->>'source_record_id')::uuid AND record.source_id=v_batch.source_id;
   IF NOT FOUND THEN RAISE EXCEPTION 'REIMPORT_WRITER_PERSON_CREATE_INVALID'; END IF;
   PERFORM 1 FROM private.source_record_placement WHERE id=v_record_placement FOR UPDATE;

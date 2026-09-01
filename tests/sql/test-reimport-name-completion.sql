@@ -269,29 +269,196 @@ BEGIN
   END IF;
 END $generic_lifecycle$;
 
+CREATE FUNCTION pg_temp.task3_stage_profile(
+  p_source_id bigint,p_profile_id text,p_profile_sha256 text,p_record_key text,
+  p_label text,p_fixture_id bigint
+) RETURNS jsonb LANGUAGE plpgsql AS $task3_stage_profile$
+DECLARE
+  v_run uuid:=gen_random_uuid(); v_record uuid:=gen_random_uuid(); v_rendition uuid;
+  v_occurrence uuid; v_observation uuid; v_placement uuid; v_persona uuid:=gen_random_uuid();
+  v_source_payload jsonb; v_person_payload jsonb; v_authorization uuid; v_batch uuid; v_person bigint;
+BEGIN
+  INSERT INTO public.source(id,titel,udgave,slags)
+  VALUES(p_source_id,p_label,'fixture','DAA-udgave') ON CONFLICT(id) DO NOTHING;
+  INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
+  VALUES(p_source_id,p_profile_id,'fixture-v1',p_profile_sha256,
+    jsonb_build_object('run_key_prefix','task3-'||p_source_id||':','schema_version','fixture-v1',
+      'extractor_version','fixture-v1','rendition_key','task3-'||p_source_id,
+      'rendition_kind','ocr_text','rendition_metadata','{}'::jsonb,
+      'observation_extraction_method','fixture','citation_label_template','fixture'))
+  ON CONFLICT(source_id,profile_id,profile_sha256) DO NOTHING;
+  INSERT INTO public.slaegt(id,navn,sorteringsnavn,slug)
+  VALUES(p_fixture_id,p_label,p_label,'task-3-profile-'||p_source_id) ON CONFLICT(id) DO NOTHING;
+  INSERT INTO public.lineage_scheme(id,slaegt_id,source_id,kind,label)
+  VALUES(p_fixture_id,p_fixture_id,p_source_id,'stamtavle',p_label) ON CONFLICT(id) DO NOTHING;
+  INSERT INTO public.lineage_scheme_entry(id,scheme_id,slaegt_id,code,label,sort_order)
+  VALUES(p_fixture_id,p_fixture_id,p_fixture_id,'A',p_label,1) ON CONFLICT(id) DO NOTHING;
+  INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+  VALUES(v_run,p_source_id,'task-3-placement-'||p_source_id,'fixture','fixture','fixture',repeat('d',64),'{}');
+  INSERT INTO private.source_rendition(source_id,rendition_key,rendition_kind,content_sha256,metadata)
+  VALUES(p_source_id,'task-3-placement-'||p_source_id,'ocr_text',repeat('d',64),'{}');
+  SELECT id INTO v_rendition FROM private.source_rendition
+   WHERE source_id=p_source_id AND rendition_key='task-3-placement-'||p_source_id;
+  INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
+  VALUES(v_record,p_source_id,p_record_key,'person',v_run);
+  INSERT INTO private.source_record_occurrence(rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id)
+  VALUES(v_rendition,'task-3-placement-'||p_source_id,1,1,0,18,p_label,repeat('d',64),repeat('e',64),v_run)
+  RETURNING id INTO v_occurrence;
+  INSERT INTO private.source_record_anchor_event(occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name)
+  VALUES(v_occurrence,v_record,'accepted',jsonb_build_object('fixture','task-3'),1,'15300000-0000-4000-8000-000000000101','Task 3 fixture');
+  INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id)
+  VALUES(v_occurrence,'header',1,1,0,18,p_label,'clear','fixture',v_run) RETURNING id INTO v_observation;
+  v_placement:=private.propose_source_record_placement(v_record,p_fixture_id,v_observation,jsonb_build_object('fixture','task-3'),'Task 3 fixture');
+  PERFORM public.red_decide_source_record_placement(v_placement,1,'accepted',jsonb_build_object('fixture','task-3'));
+  v_source_payload:=jsonb_build_object(
+    'review_subject_id','task-3-source-'||p_source_id,'source_record_key',p_record_key,
+    'category','person','disposition','retain_source_only','evidence_sha256',repeat('c',64),
+    'canonical_target',jsonb_build_object('canonical_person_id',1),
+    'source_span',jsonb_build_object('char_from',0,'char_to',18),
+    'page_evidence',jsonb_build_object('page_from',1,'page_to',1),
+    'verbatim_text',p_label,'legacy_payload',jsonb_build_object('value',p_label),
+    'rendition_content_sha256',repeat('d',64));
+  v_person_payload:=jsonb_build_object(
+    'source_record_key',p_record_key,'source_id',p_source_id,'edition','fixture',
+    'source_span',v_source_payload->'source_span','page_evidence',v_source_payload->'page_evidence',
+    'verbatim_text',p_label,'verbatim_sha256',encode(extensions.digest(convert_to(p_label,'UTF8'),'sha256'),'hex'),
+    'source_persona_id',v_persona,'persona_key','task-3:'||p_source_id,
+    'source_record_placement_id',v_placement,'placement_role','principal_member',
+    'placement_basis_sha256',repeat('2',64),'placement_review_sha256',repeat('3',64),'placement_decision_sha256',repeat('4',64),
+    'identity_decision_sha256',repeat('f',64),'review_sha256',repeat('1',64),'decision_basis','Task 3 fixture',
+    'name',p_label,'sex',NULL,'narrative',jsonb_build_object('text',p_label||' narrative','source_record_key',p_record_key),
+    'source_mentions','[]'::jsonb,'persona_mention_links','[]'::jsonb,'facts','[]'::jsonb,'relations','[]'::jsonb,
+    'families','[]'::jsonb,'uncertainties','[]'::jsonb,'staged',true,'rendition_content_sha256',repeat('d',64));
+  PERFORM set_config('app.change_set_id','',true);
+  v_authorization:=public.red_authorize_reimport(
+    repeat('9',64),repeat('8',64),current_database(),p_source_id,p_profile_id,p_profile_sha256,
+    '{"person_creates":1,"source_evidence":1}'::jsonb,
+    jsonb_build_object('source-evidence:'||p_record_key,v_source_payload,'person-create:'||p_record_key,v_person_payload),
+    gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  v_batch:=public.red_begin_reimport(v_authorization,repeat('9',64),repeat('8',64));
+  PERFORM public.red_apply_reimport_source_evidence(v_batch,'source-evidence:'||p_record_key,v_source_payload);
+  v_person:=public.red_apply_reimport_person_create(v_batch,'person-create:'||p_record_key,v_person_payload);
+  IF public.red_finalize_reimport(v_batch)->>'status'<>'finalized' THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_TWO_PROFILE_SOURCE_NOT_FINALIZED';
+  END IF;
+  RETURN jsonb_build_object('source_authorization_id',v_authorization,'source_batch_id',v_batch,
+    'person_id',v_person,'source_record_id',v_record,'source_persona_id',v_persona,
+    'source_element_id','person-create:'||p_record_key,'person_payload',v_person_payload);
+END $task3_stage_profile$;
+
+CREATE FUNCTION pg_temp.task3_complete_profile(p_state jsonb)
+RETURNS jsonb LANGUAGE plpgsql AS $task3_complete_profile$
+DECLARE
+  v_payload jsonb; v_payloads jsonb; v_envelope jsonb; v_child_auth uuid; v_child_batch uuid; v_result jsonb;
+BEGIN
+  v_payload:=jsonb_build_object(
+    'source_batch_id',p_state->>'source_batch_id','source_person_create_element_id',p_state->>'source_element_id',
+    'person_id',p_state->>'person_id','source_id',(p_state->'person_payload'->>'source_id')::bigint,
+    'edition','fixture','source_record_key',p_state->'person_payload'->>'source_record_key',
+    'source_persona_id',p_state->>'source_persona_id','name',p_state->'person_payload'->>'name',
+    'source_span',p_state->'person_payload'->'source_span','page_evidence',p_state->'person_payload'->'page_evidence',
+    'verbatim_text',p_state->'person_payload'->>'verbatim_text','verbatim_sha256',p_state->'person_payload'->>'verbatim_sha256',
+    'source_payload_sha256',private.reimport_canonical_json_sha256(p_state->'person_payload'),
+    'expected_before',jsonb_build_object('staged',true,'name_cache_empty',true,'name_facts',0),
+    'expected_after',jsonb_build_object('name_fact',1,'selected_assertion',1,'citation',1,'conclusion',1));
+  v_payloads:=jsonb_build_object('name-completion:'||(p_state->'person_payload'->>'source_record_key'),v_payload);
+  v_envelope:=public.red_authorize_reimport_name_completion(
+    repeat('7',64),(p_state->>'source_batch_id')::uuid,repeat('8',64),repeat('9',64),
+    '{"name_completions":1,"operations":1}'::jsonb,v_payloads);
+  v_child_auth:=(v_envelope->>'authorization_id')::uuid;
+  PERFORM public.red_preflight_reimport_name_completion(v_child_auth,(p_state->>'source_batch_id')::uuid,repeat('7',64),v_payloads);
+  v_child_batch:=public.red_begin_reimport_name_completion(v_child_auth,repeat('7',64),(p_state->>'source_batch_id')::uuid);
+  PERFORM public.red_apply_reimport_name_completion(v_child_batch,'name-completion:'||(p_state->'person_payload'->>'source_record_key'),v_payload);
+  v_result:=public.red_finalize_reimport_name_completion(v_child_batch);
+  IF v_result->>'status'<>'finalized' THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_TWO_PROFILE_CHILD_NOT_FINALIZED'; END IF;
+  RETURN p_state||jsonb_build_object('child_authorization_id',v_child_auth,'child_batch_id',v_child_batch,
+    'completion_payload',v_payload,'fact_id',v_result#>>ARRAY['result_map','name-completion:'||(p_state->'person_payload'->>'source_record_key'),'fact_id'],
+    'assertion_id',v_result#>>ARRAY['result_map','name-completion:'||(p_state->'person_payload'->>'source_record_key'),'assertion_id'],
+    'citation_id',v_result#>>ARRAY['result_map','name-completion:'||(p_state->'person_payload'->>'source_record_key'),'citation_id']);
+END $task3_complete_profile$;
+
 DO $two_profile_scope$
 DECLARE
-  a4 uuid; a5 uuid; b4 uuid; b5 uuid; c4 jsonb; c5 jsonb; ca4 uuid; ca5 uuid; cb4 uuid; cb5 uuid; ra4 uuid; err text; observed jsonb; expected jsonb; event_count bigint; broken boolean;
+  v_actor uuid:='15300000-0000-4000-8000-000000000101'; a jsonb; b jsonb;
+  v_error text; v_cutover_a uuid; v_cutover_b uuid; v_activation_a jsonb; v_activation_b jsonb;
+  v_reversal_a uuid; v_reversal_b uuid; v_reverse_a jsonb; v_reverse_b jsonb;
 BEGIN
-  INSERT INTO public.source(id,titel,udgave,slags) VALUES(4,'Task 3 profile four','fixture','DAA-udgave'),(5,'Task 3 profile five','fixture','DAA-udgave') ON CONFLICT(id) DO NOTHING;
-  INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
-  VALUES(4,'task-3-profile-four','fixture-v1',repeat('c',64),'{"run_key_prefix":"task3-4:","schema_version":"fixture-v1","extractor_version":"fixture-v1","rendition_key":"task3-4","rendition_kind":"ocr_text","rendition_metadata":{},"observation_extraction_method":"fixture","citation_label_template":"fixture"}'),(5,'task-3-profile-five','fixture-v1',repeat('d',64),'{"run_key_prefix":"task3-5:","schema_version":"fixture-v1","extractor_version":"fixture-v1","rendition_key":"task3-5","rendition_kind":"ocr_text","rendition_metadata":{},"observation_extraction_method":"fixture","citation_label_template":"fixture"}') ON CONFLICT(source_id,profile_id,profile_sha256) DO NOTHING;
-  a4:=public.red_authorize_reimport(repeat('9',64),repeat('8',64),current_database(),4,'task-3-profile-four',repeat('c',64),'{"person_creates":0,"source_evidence":0}','{}','15300000-0000-4000-8000-000000000201',clock_timestamp()+interval '5 minutes');
-  a5:=public.red_authorize_reimport(repeat('9',64),repeat('8',64),current_database(),5,'task-3-profile-five',repeat('d',64),'{"person_creates":0,"source_evidence":0}','{}','15300000-0000-4000-8000-000000000202',clock_timestamp()+interval '5 minutes');
-  b4:=public.red_begin_reimport(a4,repeat('9',64),repeat('8',64)); b5:=public.red_begin_reimport(a5,repeat('9',64),repeat('8',64));
-  PERFORM public.red_finalize_reimport(b4); PERFORM public.red_finalize_reimport(b5);
-  c4:=public.red_authorize_reimport_name_completion(repeat('7',64),b4,repeat('8',64),repeat('9',64),'{"name_completions":0,"operations":0}','{}');
-  c5:=public.red_authorize_reimport_name_completion(repeat('7',64),b5,repeat('8',64),repeat('9',64),'{"name_completions":0,"operations":0}','{}');
-  ca4:=(c4->>'authorization_id')::uuid; ca5:=(c5->>'authorization_id')::uuid; cb4:=public.red_begin_reimport_name_completion(ca4,repeat('7',64),b4); cb5:=public.red_begin_reimport_name_completion(ca5,repeat('7',64),b5);
-  SELECT expected_counts INTO expected FROM private.reimport_batch WHERE id=cb4; SELECT jsonb_build_object('name_completions',count(*),'operations',count(*)) INTO observed FROM private.reimport_name_completion_result WHERE batch_id=cb4; SELECT count(*) INTO event_count FROM private.reimport_event WHERE batch_id=cb4 AND operation='canonical_delta'; SELECT EXISTS(SELECT 1 FROM private.reimport_name_completion_result r LEFT JOIN public.fact f ON f.id=r.fact_id AND f.subjekt_id=r.person_id AND f.faktatype='navn' LEFT JOIN public.assertion x ON x.id=r.assertion_id AND x.target_id=r.fact_id LEFT JOIN public.citation c ON c.id=r.citation_id AND c.assertion_id=r.assertion_id LEFT JOIN public.conclusion n ON n.id=r.conclusion_id AND n.valgt_assertion_id=r.assertion_id WHERE r.batch_id=cb4 AND (f.id IS NULL OR x.id IS NULL OR c.id IS NULL OR n.id IS NULL)) INTO broken;
-  IF observed<>expected OR event_count<>(observed->>'operations')::bigint OR broken THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_ZERO_DIAGNOSTIC expected=% observed=% events=% broken=%',expected,observed,event_count,broken; END IF;
-  PERFORM public.red_finalize_reimport_name_completion(cb4); PERFORM public.red_finalize_reimport_name_completion(cb5);
-  IF a4=a5 OR b4=b5 OR ca4=ca5 OR cb4=cb5 OR (SELECT source_id FROM private.reimport_batch WHERE id=cb4)=(SELECT source_id FROM private.reimport_batch WHERE id=cb5) THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_TWO_PROFILE_COLLISION'; END IF;
-  BEGIN PERFORM public.red_preflight_reimport_name_completion(ca4,b5,repeat('7',64),'{}'); EXCEPTION WHEN OTHERS THEN err:=SQLERRM; END;
-  IF err IS DISTINCT FROM 'REIMPORT_NAME_COMPLETION_INVALID' THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_CROSS_PROFILE_CHILD_ACCEPTED: %',err; END IF;
-  ra4:=public.red_authorize_reimport_reversal(b4,'15300000-0000-4000-8000-000000000203',clock_timestamp()+interval '5 minutes'); err:=NULL;
-  BEGIN PERFORM public.red_reverse_reimport(b5,ra4); EXCEPTION WHEN OTHERS THEN err:=SQLERRM; END;
-  IF err IS DISTINCT FROM 'REIMPORT_WRITER_REVERSAL_INVALID' OR EXISTS(SELECT 1 FROM private.reimport_batch WHERE id IN(b4,b5) AND status<>'finalized') THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_CROSS_PROFILE_REVERSAL_ACCEPTED: %',err; END IF;
+  INSERT INTO auth.users(id,email) VALUES(v_actor,'reimport-name-completion-153@example.invalid') ON CONFLICT(id) DO NOTHING;
+  INSERT INTO public.profiles(id,email,rolle,navn)
+  VALUES(v_actor,'reimport-name-completion-153@example.invalid','redaktion','Task 3 generic fixture')
+  ON CONFLICT(id) DO UPDATE SET rolle='redaktion',navn='Task 3 generic fixture';
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  PERFORM set_config('app.change_set_id','',true);
+  a:=pg_temp.task3_stage_profile(4,'task-3-profile-four',repeat('c',64),'task-3-profile-four-record','Task 3 profile four',-153104);
+  b:=pg_temp.task3_stage_profile(5,'task-3-profile-five',repeat('d',64),'task-3-profile-five-record','Task 3 profile five',-153105);
+  a:=pg_temp.task3_complete_profile(a);
+  -- A's child is valid and finalized.  B has no child yet, so its activation
+  -- must fail after the profile-scoped child lookup rather than borrowing A's.
+  v_cutover_b:=public.red_authorize_reimport_cutover((b->>'source_batch_id')::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  BEGIN
+    PERFORM public.red_activate_reimport_batch((b->>'source_batch_id')::uuid,v_cutover_b);
+  EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_CUTOVER_INVALID'
+     OR NOT EXISTS(SELECT 1 FROM private.reimport_batch WHERE id=(a->>'child_batch_id')::uuid AND status='finalized')
+     OR EXISTS(SELECT 1 FROM private.reimport_batch WHERE id=(b->>'source_batch_id')::uuid AND status<>'finalized') THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_FOREIGN_VALID_CHILD_ACCEPTED: %',v_error;
+  END IF;
+  b:=pg_temp.task3_complete_profile(b);
+  IF a->>'source_authorization_id'=b->>'source_authorization_id'
+     OR a->>'source_batch_id'=b->>'source_batch_id'
+     OR a->>'child_authorization_id'=b->>'child_authorization_id'
+     OR a->>'child_batch_id'=b->>'child_batch_id'
+     OR a->>'person_id'=b->>'person_id'
+     OR a->>'fact_id'=b->>'fact_id'
+     OR a->>'assertion_id'=b->>'assertion_id'
+     OR a->>'citation_id'=b->>'citation_id' THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_TWO_PROFILE_ID_COLLISION';
+  END IF;
+  IF NOT EXISTS(
+       SELECT 1 FROM private.reimport_name_completion_result r
+        JOIN private.reimport_batch child ON child.id=r.batch_id
+        JOIN private.reimport_batch source ON source.id=r.source_batch_id
+        JOIN public.fact f ON f.id=r.fact_id AND f.subjekt_id=r.person_id AND f.faktatype='navn'
+        JOIN public.assertion x ON x.id=r.assertion_id AND x.target_id=r.fact_id
+        JOIN public.citation c ON c.id=r.citation_id AND c.assertion_id=r.assertion_id AND c.source_id=source.source_id
+       WHERE child.id=(a->>'child_batch_id')::uuid AND source.id=(a->>'source_batch_id')::uuid AND source.source_id=4
+     ) OR NOT EXISTS(
+       SELECT 1 FROM private.reimport_name_completion_result r
+        JOIN private.reimport_batch child ON child.id=r.batch_id
+        JOIN private.reimport_batch source ON source.id=r.source_batch_id
+        JOIN public.fact f ON f.id=r.fact_id AND f.subjekt_id=r.person_id AND f.faktatype='navn'
+        JOIN public.assertion x ON x.id=r.assertion_id AND x.target_id=r.fact_id
+        JOIN public.citation c ON c.id=r.citation_id AND c.assertion_id=r.assertion_id AND c.source_id=source.source_id
+       WHERE child.id=(b->>'child_batch_id')::uuid AND source.id=(b->>'source_batch_id')::uuid AND source.source_id=5
+     ) OR (SELECT count(*) FROM private.reimport_name_completion_result WHERE batch_id IN((a->>'child_batch_id')::uuid,(b->>'child_batch_id')::uuid))<>2 THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_TWO_PROFILE_FACT_IDENTITY_CITATION_SCOPE_INVALID';
+  END IF;
+  PERFORM set_config('app.change_set_id','',true);
+  v_cutover_a:=public.red_authorize_reimport_cutover((a->>'source_batch_id')::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  v_activation_a:=public.red_activate_reimport_batch((a->>'source_batch_id')::uuid,v_cutover_a);
+  PERFORM set_config('app.change_set_id','',true);
+  v_activation_b:=public.red_activate_reimport_batch((b->>'source_batch_id')::uuid,v_cutover_b);
+  IF v_activation_a->>'status'<>'activated' OR v_activation_b->>'status'<>'activated'
+     OR NOT EXISTS(SELECT 1 FROM private.reimport_event e WHERE e.batch_id=(a->>'source_batch_id')::uuid AND e.operation='activation'
+                     AND e.payload->'post_activation_receipts'->(a->>'person_id')->>'source_person_create_event_id' IS NOT NULL
+                     AND e.payload->'post_activation_receipts'->(a->>'person_id')->>'event_id' IS NOT NULL)
+     OR NOT EXISTS(SELECT 1 FROM private.reimport_event e WHERE e.batch_id=(b->>'source_batch_id')::uuid AND e.operation='activation'
+                     AND e.payload->'post_activation_receipts'->(b->>'person_id')->>'source_person_create_event_id' IS NOT NULL
+                     AND e.payload->'post_activation_receipts'->(b->>'person_id')->>'event_id' IS NOT NULL)
+     OR EXISTS(SELECT 1 FROM public.person WHERE id IN((a->>'person_id')::bigint,(b->>'person_id')::bigint) AND staged) THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_TWO_PROFILE_POSTACTIVATION_RECEIPT_INVALID';
+  END IF;
+  v_reversal_a:=public.red_authorize_reimport_reversal((a->>'source_batch_id')::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  v_reversal_b:=public.red_authorize_reimport_reversal((b->>'source_batch_id')::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  v_reverse_a:=public.red_reverse_reimport((a->>'source_batch_id')::uuid,v_reversal_a);
+  v_reverse_b:=public.red_reverse_reimport((b->>'source_batch_id')::uuid,v_reversal_b);
+  IF v_reverse_a->>'status'<>'reversed' OR v_reverse_b->>'status'<>'reversed'
+     OR EXISTS(SELECT 1 FROM private.reimport_batch WHERE id IN((a->>'source_batch_id')::uuid,(a->>'child_batch_id')::uuid,(b->>'source_batch_id')::uuid,(b->>'child_batch_id')::uuid) AND status<>'reversed')
+     OR EXISTS(SELECT 1 FROM public.fact WHERE id IN((a->>'fact_id')::bigint,(b->>'fact_id')::bigint))
+     OR NOT EXISTS(SELECT 1 FROM private.narrative_record_publication binding JOIN public.narrative narrative ON narrative.id=binding.narrative_id WHERE binding.status='withdrawn' AND narrative.subjekt_type='person' AND narrative.subjekt_id IN((a->>'person_id')::bigint,(b->>'person_id')::bigint)) THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_TWO_PROFILE_EVENT_REVERSAL_INVALID';
+  END IF;
 END $two_profile_scope$;
 
 DO $fixture_visible$

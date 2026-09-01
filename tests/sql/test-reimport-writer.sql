@@ -68,6 +68,60 @@ END $v1_gate$;
 
 \ir reimport-writer-v2-bootstrap.sql
 
+DO $acl_parity$
+DECLARE
+  v_signature text; v_expect_authenticated boolean; v_expect_service_role boolean;
+  v_public boolean; v_anon boolean; v_authenticated boolean; v_service_role boolean;
+BEGIN
+  FOR v_signature,v_expect_authenticated,v_expect_service_role IN
+    SELECT * FROM unnest(ARRAY[
+      'private.reject_reimport_writer_mutation()',
+      'private.require_reimport_writer_editor()',
+      'private.require_reimport_open_batch(uuid)',
+      'private.ensure_reimport_source_evidence(uuid,text,jsonb)',
+      'private.reimport_canonical_json_text(jsonb)',
+      'private.reimport_canonical_json_sha256(jsonb)',
+      'private.validate_reimport_name_completion(uuid,uuid,text,jsonb)',
+      'public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz)',
+      'public.red_begin_reimport(uuid,text,text)',
+      'public.red_apply_reimport_source_evidence(uuid,text,jsonb)',
+      'public.red_apply_reimport_person_create(uuid,text,jsonb)',
+      'public.red_finalize_reimport(uuid)',
+      'public.red_authorize_reimport_reversal(uuid,uuid,timestamptz)',
+      'public.red_reverse_reimport(uuid,uuid)',
+      'public.red_authorize_reimport_cutover(uuid,uuid,timestamptz)',
+      'public.red_activate_reimport_batch(uuid,uuid)',
+      'public.red_lock_reimport_name_completion(text)',
+      'public.red_authorize_reimport_name_completion(text,uuid,text,text,jsonb,jsonb)',
+      'public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb)',
+      'public.red_begin_reimport_name_completion(uuid,text,uuid)',
+      'public.red_apply_reimport_name_completion(uuid,text,jsonb)',
+      'public.red_finalize_reimport_name_completion(uuid)'
+    ],ARRAY[
+      false,false,false,false,false,false,false,
+      false,true,true,true,true,false,true,false,true,
+      true,false,true,true,true,true
+    ],ARRAY[
+      false,false,false,false,false,false,false,
+      true,false,false,false,false,true,false,true,false,
+      false,true,false,false,false,false
+    ]) AS acl(signature,expect_authenticated,expect_service_role)
+  LOOP
+    SELECT EXISTS(
+      SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl
+       WHERE p.oid=to_regprocedure(v_signature) AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
+    ) INTO v_public;
+    v_anon:=has_function_privilege('anon',v_signature,'EXECUTE');
+    v_authenticated:=has_function_privilege('authenticated',v_signature,'EXECUTE');
+    v_service_role:=has_function_privilege('service_role',v_signature,'EXECUTE');
+    IF v_public OR v_anon OR v_authenticated IS DISTINCT FROM v_expect_authenticated
+       OR v_service_role IS DISTINCT FROM v_expect_service_role THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_ACL_PARITY_INVALID: % public=% anon=% authenticated=% service_role=%',
+        v_signature,v_public,v_anon,v_authenticated,v_service_role;
+    END IF;
+  END LOOP;
+END $acl_parity$;
+
 DO $profile_identity$
 DECLARE v_error text; v_before jsonb; v_authorizations_before bigint;
 BEGIN
@@ -206,6 +260,112 @@ BEGIN
     RAISE EXCEPTION 'REIMPORT_WRITER_FINALIZED_REPLAY_INVALID';
   END IF;
 END $migration_writer_behavior$;
+
+CREATE FUNCTION pg_temp.task3_source_record_placement(
+  p_source_id bigint,p_record_key text,p_fixture_id bigint,p_accepted boolean
+) RETURNS uuid LANGUAGE plpgsql AS $task3_source_record_placement$
+DECLARE
+  v_run uuid:=gen_random_uuid(); v_record uuid; v_rendition uuid; v_occurrence uuid;
+  v_observation uuid; v_placement uuid;
+BEGIN
+  INSERT INTO public.slaegt(id,navn,sorteringsnavn,slug)
+  VALUES(p_fixture_id,'Task 3 placement fixture','Task 3 placement fixture','task-3-placement-'||abs(p_fixture_id))
+  ON CONFLICT(id) DO NOTHING;
+  INSERT INTO public.lineage_scheme(id,slaegt_id,source_id,kind,label)
+  VALUES(p_fixture_id,p_fixture_id,p_source_id,'stamtavle','Task 3 placement fixture') ON CONFLICT(id) DO NOTHING;
+  INSERT INTO public.lineage_scheme_entry(id,scheme_id,slaegt_id,code,label,sort_order)
+  VALUES(p_fixture_id,p_fixture_id,p_fixture_id,'A','Task 3 placement fixture',1) ON CONFLICT(id) DO NOTHING;
+  INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+  VALUES(v_run,p_source_id,'task-3-placement-'||abs(p_fixture_id),'fixture','fixture','fixture',repeat('d',64),'{}');
+  INSERT INTO private.source_rendition(source_id,rendition_key,rendition_kind,content_sha256,metadata)
+  VALUES(p_source_id,'task-3-placement-'||abs(p_fixture_id),'ocr_text',repeat('d',64),'{}');
+  SELECT id INTO v_rendition FROM private.source_rendition
+   WHERE source_id=p_source_id AND rendition_key='task-3-placement-'||abs(p_fixture_id);
+  INSERT INTO private.source_record(source_id,record_key,record_kind,created_run_id)
+  VALUES(p_source_id,p_record_key,'person',v_run) ON CONFLICT(source_id,record_key) DO NOTHING;
+  SELECT id INTO v_record FROM private.source_record WHERE source_id=p_source_id AND record_key=p_record_key;
+  INSERT INTO private.source_record_occurrence(rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id)
+  VALUES(v_rendition,'task-3-placement-'||abs(p_fixture_id),1,1,0,18,p_record_key,repeat('d',64),repeat('e',64),v_run)
+  RETURNING id INTO v_occurrence;
+  INSERT INTO private.source_record_anchor_event(occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name)
+  VALUES(v_occurrence,v_record,'accepted',jsonb_build_object('fixture','task-3'),1,'15300000-0000-4000-8000-000000000001','Task 3 fixture');
+  INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id)
+  VALUES(v_occurrence,'header',1,1,0,18,p_record_key,'clear','fixture',v_run) RETURNING id INTO v_observation;
+  v_placement:=private.propose_source_record_placement(v_record,p_fixture_id,v_observation,jsonb_build_object('fixture','task-3'),'Task 3 fixture');
+  IF p_accepted THEN
+    PERFORM public.red_decide_source_record_placement(v_placement,1,'accepted',jsonb_build_object('fixture','task-3'));
+  END IF;
+  RETURN v_placement;
+END $task3_source_record_placement$;
+
+CREATE FUNCTION pg_temp.task3_assert_person_create_rejected(
+  p_label text,p_authorized_payload jsonb,p_attempt_payload jsonb,p_expected_error text
+) RETURNS void LANGUAGE plpgsql AS $task3_assert_person_create_rejected$
+DECLARE
+  v_auth uuid; v_batch uuid; v_error text; v_before_persons bigint; v_before_events bigint;
+  v_manifest text:=encode(extensions.digest(convert_to(p_label,'UTF8'),'sha256'),'hex');
+  v_preview text:=encode(extensions.digest(convert_to(p_label||':preview','UTF8'),'sha256'),'hex');
+BEGIN
+  SELECT count(*) INTO v_before_persons FROM public.person;
+  SELECT count(*) INTO v_before_events FROM private.reimport_event;
+  v_auth:=public.red_authorize_reimport(
+    v_manifest,v_preview,current_database(),3,'daa-1939-v50-production-write-v1',repeat('a',64),
+    '{"person_creates":1,"source_evidence":0}'::jsonb,jsonb_build_object('person-create:'||p_label,p_authorized_payload),
+    gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  v_batch:=public.red_begin_reimport(v_auth,v_manifest,v_preview);
+  BEGIN
+    PERFORM public.red_apply_reimport_person_create(v_batch,'person-create:'||p_label,p_attempt_payload);
+  EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS DISTINCT FROM p_expected_error
+     OR (SELECT count(*) FROM public.person)<>v_before_persons
+     OR (SELECT count(*) FROM private.reimport_event)<>v_before_events
+     OR EXISTS(SELECT 1 FROM public.person_external_id WHERE source_id=3 AND record_key=p_attempt_payload->>'source_record_key')
+     OR EXISTS(SELECT 1 FROM private.source_persona WHERE id=(p_attempt_payload->>'source_persona_id')::uuid)
+     OR (p_attempt_payload->>'source_record_key' NOT IN ('writer-placement-good','writer-placement-nonaccepted','writer-placement-ambiguous')
+         AND EXISTS(SELECT 1 FROM private.source_record WHERE source_id=3 AND record_key=p_attempt_payload->>'source_record_key')) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_PLACEMENT_NO_RESIDUE_INVALID: % error=%',p_label,v_error;
+  END IF;
+END $task3_assert_person_create_rejected$;
+
+DO $placement_negative_no_residue$
+DECLARE
+  v_actor uuid:='15300000-0000-4000-8000-000000000001'; v_good uuid; v_foreign uuid;
+  v_nonaccepted uuid; v_ambiguous_one uuid; v_ambiguous_two uuid; v_payload jsonb; v_variant jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  v_good:=pg_temp.task3_source_record_placement(3,'writer-placement-good',-153106,true);
+  v_foreign:=pg_temp.task3_source_record_placement(4,'writer-placement-foreign',-153107,true);
+  v_nonaccepted:=pg_temp.task3_source_record_placement(3,'writer-placement-nonaccepted',-153108,false);
+  v_ambiguous_one:=pg_temp.task3_source_record_placement(3,'writer-placement-ambiguous',-153109,true);
+  v_ambiguous_two:=pg_temp.task3_source_record_placement(3,'writer-placement-ambiguous',-153110,true);
+  v_payload:=jsonb_build_object(
+    'source_record_key','writer-placement-good','source_id',3,'source_span',jsonb_build_object('char_from',0,'char_to',18),
+    'page_evidence',jsonb_build_object('page_from',1,'page_to',1),'verbatim_text','Task 3 placement payload',
+    'rendition_content_sha256',repeat('1',64),'source_persona_id',gen_random_uuid(),'persona_key','task-3-placement-good',
+    'source_record_placement_id',v_good,'placement_role','principal_member',
+    'placement_basis_sha256',repeat('2',64),'placement_review_sha256',repeat('3',64),'placement_decision_sha256',repeat('4',64),
+    'name','Task 3 placement','narrative',jsonb_build_object('text','Task 3 placement narrative'));
+  PERFORM pg_temp.task3_assert_person_create_rejected('missing-placement',v_payload-'source_record_placement_id',v_payload-'source_record_placement_id','REIMPORT_WRITER_PERSON_CREATE_INVALID');
+  v_variant:=jsonb_set(v_payload,'{source_record_key}','"writer-placement-foreign"')||jsonb_build_object('source_record_placement_id',v_foreign,'source_persona_id',gen_random_uuid(),'persona_key','task-3-placement-foreign');
+  PERFORM pg_temp.task3_assert_person_create_rejected('foreign-placement',v_variant,v_variant,'REIMPORT_WRITER_PERSON_CREATE_INVALID');
+  v_variant:=jsonb_set(v_payload,'{source_record_key}','"writer-placement-wrong"')||jsonb_build_object('source_persona_id',gen_random_uuid(),'persona_key','task-3-placement-wrong');
+  PERFORM pg_temp.task3_assert_person_create_rejected('wrong-record',v_variant,v_variant,'REIMPORT_WRITER_PERSON_CREATE_INVALID');
+  v_variant:=jsonb_set(v_payload,'{source_record_key}','"writer-placement-nonaccepted"')||jsonb_build_object('source_record_placement_id',v_nonaccepted,'source_persona_id',gen_random_uuid(),'persona_key','task-3-placement-nonaccepted');
+  PERFORM pg_temp.task3_assert_person_create_rejected('nonaccepted-placement',v_variant,v_variant,'REIMPORT_WRITER_PERSON_CREATE_INVALID');
+  v_variant:=jsonb_set(v_payload,'{source_record_key}','"writer-placement-ambiguous"')||jsonb_build_object('source_record_placement_id',v_ambiguous_one,'source_persona_id',gen_random_uuid(),'persona_key','task-3-placement-ambiguous');
+  PERFORM pg_temp.task3_assert_person_create_rejected('ambiguous-placement',v_variant,v_variant,'REIMPORT_WRITER_PERSON_CREATE_INVALID');
+  v_variant:=v_payload||jsonb_build_object('source_persona_id',gen_random_uuid(),'persona_key','task-3-placement-role','placement_role','child');
+  PERFORM pg_temp.task3_assert_person_create_rejected('invalid-role',v_variant,v_variant,'REIMPORT_WRITER_PERSON_CREATE_INVALID');
+  v_variant:=v_payload||jsonb_build_object('source_persona_id',gen_random_uuid(),'persona_key','task-3-placement-basis','placement_basis_sha256','invalid');
+  PERFORM pg_temp.task3_assert_person_create_rejected('invalid-basis-hash',v_variant,v_variant,'REIMPORT_WRITER_PERSON_CREATE_INVALID');
+  v_variant:=v_payload||jsonb_build_object('source_persona_id',gen_random_uuid(),'persona_key','task-3-placement-review','placement_review_sha256','invalid');
+  PERFORM pg_temp.task3_assert_person_create_rejected('invalid-review-hash',v_variant,v_variant,'REIMPORT_WRITER_PERSON_CREATE_INVALID');
+  v_variant:=v_payload||jsonb_build_object('source_persona_id',gen_random_uuid(),'persona_key','task-3-placement-decision','placement_decision_sha256','invalid');
+  PERFORM pg_temp.task3_assert_person_create_rejected('invalid-decision-hash',v_variant,v_variant,'REIMPORT_WRITER_PERSON_CREATE_INVALID');
+  v_variant:=v_payload||jsonb_build_object('source_persona_id',gen_random_uuid(),'persona_key','task-3-placement-replay');
+  PERFORM pg_temp.task3_assert_person_create_rejected('replay-tamper',v_variant,v_variant||jsonb_build_object('name','tampered'),'REIMPORT_WRITER_ELEMENT_NOT_AUTHORIZED');
+END $placement_negative_no_residue$;
 
 DO $fixture_visible$
 BEGIN
