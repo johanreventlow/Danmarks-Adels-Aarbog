@@ -1,20 +1,55 @@
 \set ON_ERROR_STOP on
 
-DO $test$
+DO $facade_matrix$
+DECLARE
+  v_legacy text[]:=ARRAY[
+    'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_begin_1939_v50_reimport(uuid,text,text)',
+    'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_person_create(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',
+    'public.red_finalize_1939_v50_reimport(uuid)',
+    'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)',
+    'public.red_reverse_1939_v50_reimport(uuid,uuid)',
+    'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)',
+    'public.red_activate_1939_v50_batch(uuid,uuid)',
+    'public.red_lock_1939_v50_name_completion(text)',
+    'public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)',
+    'public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)',
+    'public.red_begin_1939_v50_name_completion(uuid,text,uuid)',
+    'public.red_apply_1939_v50_name_completion(uuid,text,jsonb)',
+    'public.red_finalize_1939_v50_name_completion(uuid)'
+  ];
+  v_generic text[]:=ARRAY[
+    'red_authorize_reimport','red_begin_reimport','red_apply_reimport_source_evidence',
+    'red_apply_reimport_person_create','red_apply_reimport_name_completion','red_finalize_reimport',
+    'red_authorize_reimport_reversal','red_reverse_reimport','red_authorize_reimport_cutover',
+    'red_activate_reimport_batch','red_lock_reimport_name_completion',
+    'red_authorize_reimport_name_completion','red_preflight_reimport_name_completion',
+    'red_begin_reimport_name_completion','red_apply_reimport_name_completion',
+    'red_finalize_reimport_name_completion'
+  ];
+  v_return text[]:=ARRAY['uuid','uuid','void','bigint','void','jsonb','uuid','jsonb','uuid','jsonb','void','uuid','jsonb','uuid','void','jsonb'];
+  v_index integer; v_definition text;
 BEGIN
   IF (SELECT relkind FROM pg_class WHERE oid='private.reimport_1939_authorization'::regclass)<>'v'
      OR (SELECT relkind FROM pg_class WHERE oid='private.reimport_1939_write_batch'::regclass)<>'v'
-     OR (SELECT relkind FROM pg_class WHERE oid='private.reimport_1939_write_event'::regclass)<>'v' THEN
+     OR (SELECT relkind FROM pg_class WHERE oid='private.reimport_1939_write_event'::regclass)<>'v'
+     OR (SELECT relkind FROM pg_class WHERE oid='private.reimport_1939_name_completion_result'::regclass)<>'v' THEN
     RAISE EXCEPTION 'REIMPORT_1939_FACADE_VIEW_REQUIRED';
   END IF;
-  IF to_regprocedure('public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz)') IS NULL
-     OR strpos(pg_get_functiondef('public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)'::regprocedure),'red_authorize_reimport')=0
-     OR strpos(pg_get_functiondef('public.red_begin_1939_v50_reimport(uuid,text,text)'::regprocedure),'red_begin_reimport')=0
-     OR strpos(pg_get_functiondef('public.red_apply_1939_v50_person_create(uuid,text,jsonb)'::regprocedure),'red_apply_reimport_person_create')=0
-     OR strpos(pg_get_functiondef('public.red_finalize_1939_v50_reimport(uuid)'::regprocedure),'red_finalize_reimport')=0 THEN
-    RAISE EXCEPTION 'REIMPORT_1939_FACADE_GENERIC_WRITER_MISSING';
-  END IF;
-END $test$;
+  FOR v_index IN 1..array_length(v_legacy,1) LOOP
+    IF to_regprocedure(v_legacy[v_index]) IS NULL
+       OR pg_get_function_result(v_legacy[v_index]::regprocedure) IS DISTINCT FROM v_return[v_index] THEN
+      RAISE EXCEPTION 'REIMPORT_1939_FACADE_SIGNATURE_OR_RETURN_DRIFT: %',v_legacy[v_index];
+    END IF;
+    v_definition:=pg_get_functiondef(v_legacy[v_index]::regprocedure);
+    IF length(string_to_array(v_definition,v_generic[v_index]))-1<>1
+       OR v_definition ~* '\\m(INSERT|UPDATE|DELETE)\\M|pg_advisory|LOCK TABLE|validate_reimport_1939' THEN
+      RAISE EXCEPTION 'REIMPORT_1939_FACADE_DELEGATION_DRIFT: %',v_legacy[v_index];
+    END IF;
+  END LOOP;
+END $facade_matrix$;
 
 DO $test$
 DECLARE

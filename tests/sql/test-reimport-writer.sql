@@ -22,9 +22,25 @@ BEGIN
   FOREACH v_relation IN ARRAY ARRAY['reimport_writer_profile','reimport_authorization','reimport_batch'] LOOP
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='private' AND table_name=v_relation AND column_name='profile_sha256') THEN RAISE EXCEPTION 'REIMPORT_WRITER_PROFILE_HASH_MISSING: %',v_relation; END IF;
   END LOOP;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.reimport_authorization'::regclass AND contype='f' AND confrelid='private.reimport_writer_profile'::regclass AND pg_get_constraintdef(oid) LIKE '%FOREIGN KEY (source_id, profile_id, profile_sha256)%')
-     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.reimport_batch'::regclass AND contype='f' AND confrelid='private.reimport_writer_profile'::regclass AND pg_get_constraintdef(oid) LIKE '%FOREIGN KEY (source_id, profile_id, profile_sha256)%')
-     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.reimport_batch'::regclass AND contype='f' AND confrelid='private.reimport_authorization'::regclass AND pg_get_constraintdef(oid) LIKE '%FOREIGN KEY (authorization_id, source_id, profile_id, profile_sha256)%') THEN
+  IF NOT EXISTS (
+       SELECT 1 FROM pg_constraint constraint_row
+       WHERE conrelid='private.reimport_authorization'::regclass AND contype='f'
+         AND confrelid='private.reimport_writer_profile'::regclass
+         AND ARRAY(SELECT attribute.attname FROM unnest(constraint_row.conkey) WITH ORDINALITY key_column(attnum,ordinality) JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.conrelid AND attribute.attnum=key_column.attnum ORDER BY key_column.ordinality)=ARRAY['source_id','profile_id','profile_sha256']
+         AND ARRAY(SELECT attribute.attname FROM unnest(constraint_row.confkey) WITH ORDINALITY key_column(attnum,ordinality) JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.confrelid AND attribute.attnum=key_column.attnum ORDER BY key_column.ordinality)=ARRAY['source_id','profile_id','profile_sha256']
+     ) OR NOT EXISTS (
+       SELECT 1 FROM pg_constraint constraint_row
+       WHERE conrelid='private.reimport_batch'::regclass AND contype='f'
+         AND confrelid='private.reimport_writer_profile'::regclass
+         AND ARRAY(SELECT attribute.attname FROM unnest(constraint_row.conkey) WITH ORDINALITY key_column(attnum,ordinality) JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.conrelid AND attribute.attnum=key_column.attnum ORDER BY key_column.ordinality)=ARRAY['source_id','profile_id','profile_sha256']
+         AND ARRAY(SELECT attribute.attname FROM unnest(constraint_row.confkey) WITH ORDINALITY key_column(attnum,ordinality) JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.confrelid AND attribute.attnum=key_column.attnum ORDER BY key_column.ordinality)=ARRAY['source_id','profile_id','profile_sha256']
+     ) OR NOT EXISTS (
+       SELECT 1 FROM pg_constraint constraint_row
+       WHERE conrelid='private.reimport_batch'::regclass AND contype='f'
+         AND confrelid='private.reimport_authorization'::regclass
+         AND ARRAY(SELECT attribute.attname FROM unnest(constraint_row.conkey) WITH ORDINALITY key_column(attnum,ordinality) JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.conrelid AND attribute.attnum=key_column.attnum ORDER BY key_column.ordinality)=ARRAY['authorization_id','source_id','profile_id','profile_sha256']
+         AND ARRAY(SELECT attribute.attname FROM unnest(constraint_row.confkey) WITH ORDINALITY key_column(attnum,ordinality) JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.confrelid AND attribute.attnum=key_column.attnum ORDER BY key_column.ordinality)=ARRAY['id','source_id','profile_id','profile_sha256']
+     ) THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_PROFILE_FOREIGN_KEYS_MISSING';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.reimport_writer_profile'::regclass AND NOT tgisinternal)
@@ -51,17 +67,24 @@ END $v1_gate$;
 \ir reimport-writer-v2-bootstrap.sql
 
 DO $profile_identity$
-DECLARE v_error text;
+DECLARE v_error text; v_before jsonb;
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM private.reimport_writer_profile WHERE source_id=3
       AND profile_id='daa-1939-v50-production-write-v1' AND profile_sha256=repeat('a',64)) THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_1939_PROFILE_MISSING';
   END IF;
-  BEGIN UPDATE private.reimport_writer_profile SET profile_sha256=repeat('f',64) WHERE source_id=3 AND profile_id='daa-1939-v50-production-write-v1'; EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
-  IF v_error IS NULL THEN RAISE EXCEPTION 'REIMPORT_WRITER_PROFILE_MUTATION_ACCEPTED'; END IF;
+  INSERT INTO public.source(id,titel,udgave,slags) VALUES(-153002,'Task 1 unreferenced profile','fixture','DAA-udgave') ON CONFLICT(id) DO NOTHING;
+  INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
+  VALUES(-153002,'task-1-unreferenced-profile-v1','fixture-v1',repeat('f',64),
+    '{"run_key_prefix":"task-1:","schema_version":"fixture-v1","extractor_version":"fixture-v1","rendition_key":"task-1","rendition_kind":"ocr_text","rendition_metadata":{},"observation_extraction_method":"fixture","citation_label_template":"Task 1 side {page_from}"}'::jsonb);
+  SELECT to_jsonb(profile) INTO v_before FROM private.reimport_writer_profile profile WHERE source_id=-153002 AND profile_id='task-1-unreferenced-profile-v1';
+  BEGIN UPDATE private.reimport_writer_profile SET profile_version='tampered' WHERE source_id=-153002 AND profile_id='task-1-unreferenced-profile-v1'; EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_PROFILE_APPEND_ONLY'
+     OR (SELECT to_jsonb(profile) FROM private.reimport_writer_profile profile WHERE source_id=-153002 AND profile_id='task-1-unreferenced-profile-v1') IS DISTINCT FROM v_before THEN RAISE EXCEPTION 'REIMPORT_WRITER_PROFILE_MUTATION_ACCEPTED: %',v_error; END IF;
   v_error:=NULL;
-  BEGIN DELETE FROM private.reimport_writer_profile WHERE source_id=3 AND profile_id='daa-1939-v50-production-write-v1'; EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
-  IF v_error IS NULL THEN RAISE EXCEPTION 'REIMPORT_WRITER_PROFILE_DELETE_ACCEPTED'; END IF;
+  BEGIN DELETE FROM private.reimport_writer_profile WHERE source_id=-153002 AND profile_id='task-1-unreferenced-profile-v1'; EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_PROFILE_APPEND_ONLY'
+     OR (SELECT to_jsonb(profile) FROM private.reimport_writer_profile profile WHERE source_id=-153002 AND profile_id='task-1-unreferenced-profile-v1') IS DISTINCT FROM v_before THEN RAISE EXCEPTION 'REIMPORT_WRITER_PROFILE_DELETE_ACCEPTED: %',v_error; END IF;
   v_error:=NULL;
   BEGIN UPDATE private.reimport_event SET operation='tampered'; EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
   IF v_error IS NULL THEN RAISE EXCEPTION 'REIMPORT_WRITER_EVENT_MUTATION_ACCEPTED'; END IF;
