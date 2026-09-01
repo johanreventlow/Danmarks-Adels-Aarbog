@@ -11206,9 +11206,6 @@ REVOKE ALL ON FUNCTION private.validate_narrative_publication_event(),
   FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON FUNCTION public.narrative_record_contract_version()
   FROM PUBLIC,anon,authenticated,service_role;
-GRANT EXECUTE ON FUNCTION public.narrative_record_contract_version()
-  TO anon,authenticated,service_role;
-
 -- #153: convert the legacy 1939 journal into the profile-bound v2 writer.
 -- The identity check happens before any DDL so an ambiguous historical ledger
 -- cannot be silently assigned to a profile.
@@ -11337,6 +11334,345 @@ REVOKE ALL ON FUNCTION private.reject_reimport_writer_mutation(),private.require
 GRANT EXECUTE ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_authorize_reimport_cutover(uuid,uuid,timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_finalize_reimport(uuid),public.red_reverse_reimport(uuid,uuid),public.red_activate_reimport_batch(uuid,uuid) TO authenticated;
 COMMIT;
+GRANT EXECUTE ON FUNCTION public.narrative_record_contract_version()
+  TO anon,authenticated,service_role;
+CREATE OR REPLACE FUNCTION private.reimport_1939_canonical_json_sha256(p_value jsonb)
+RETURNS text LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog,extensions AS $$
+BEGIN RETURN encode(digest(convert_to(private.reimport_1939_canonical_json_text(p_value),'UTF8'),'sha256'),'hex'); END $$;
+
+-- Shared writer canonicalization.  The 1939 names remain below as legacy
+-- aliases for the C3 surface, but generic writers must not depend on them.
+CREATE OR REPLACE FUNCTION private.reimport_canonical_json_text(p_value jsonb)
+RETURNS text LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE v_piece text; v_key text; v_item jsonb;
+BEGIN
+  CASE jsonb_typeof(p_value)
+    WHEN 'object' THEN v_piece:='{'; FOR v_key IN SELECT jsonb_object_keys(p_value) ORDER BY 1 LOOP IF v_piece<>'{' THEN v_piece:=v_piece||','; END IF; v_piece:=v_piece||to_jsonb(v_key)::text||':'||private.reimport_canonical_json_text(p_value->v_key); END LOOP; RETURN v_piece||'}';
+    WHEN 'array' THEN v_piece:='['; FOR v_item IN SELECT value FROM jsonb_array_elements(p_value) LOOP IF v_piece<>'[' THEN v_piece:=v_piece||','; END IF; v_piece:=v_piece||private.reimport_canonical_json_text(v_item); END LOOP; RETURN v_piece||']';
+    ELSE RETURN p_value::text;
+  END CASE;
+END $$;
+CREATE OR REPLACE FUNCTION private.reimport_canonical_json_sha256(p_value jsonb)
+RETURNS text LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog,extensions AS $$
+BEGIN RETURN encode(digest(convert_to(private.reimport_canonical_json_text(p_value),'UTF8'),'sha256'),'hex'); END $$;
+CREATE OR REPLACE FUNCTION private.reimport_1939_canonical_json_text(p_value jsonb)
+RETURNS text LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog AS $$ SELECT private.reimport_canonical_json_text(p_value) $$;
+CREATE OR REPLACE FUNCTION private.reimport_1939_canonical_json_sha256(p_value jsonb)
+RETURNS text LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog,extensions AS $$ SELECT private.reimport_canonical_json_sha256(p_value) $$;
+CREATE OR REPLACE FUNCTION private.ensure_reimport_source_evidence(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE; v_profile private.reimport_writer_profile%ROWTYPE;
+  v_run uuid; v_rendition uuid; v_record uuid; v_occurrence uuid; v_observation uuid; v_mention uuid; v_actor uuid; v_actor_name text;
+  v_span jsonb:=p_payload->'source_span'; v_page jsonb:=p_payload->'page_evidence'; v_text text:=p_payload->>'verbatim_text';
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_batch:=private.require_reimport_open_batch(p_batch_id); v_actor:=private.require_reimport_writer_editor();
+  SELECT * INTO v_auth FROM private.reimport_authorization WHERE id=v_batch.authorization_id;
+  SELECT * INTO v_profile FROM private.reimport_writer_profile WHERE source_id=v_batch.source_id AND profile_id=v_batch.profile_id AND profile_sha256=v_batch.profile_sha256;
+  IF NOT FOUND OR v_auth.source_id<>v_batch.source_id OR v_auth.profile_id<>v_batch.profile_id OR v_auth.profile_sha256<>v_batch.profile_sha256
+     OR NOT v_auth.authorized_elements ? p_element_id
+     OR (v_auth.authorized_elements->p_element_id IS DISTINCT FROM p_payload AND v_auth.authorized_elements->p_element_id IS DISTINCT FROM (p_payload-'category')) THEN RAISE EXCEPTION 'REIMPORT_WRITER_ELEMENT_NOT_AUTHORIZED'; END IF;
+  IF nullif(btrim(p_payload->>'source_record_key'),'') IS NULL OR v_span IS NULL OR v_page IS NULL OR nullif(v_text,'') IS NULL
+     OR (v_span->>'char_from')::int<0 OR (v_span->>'char_to')::int<=(v_span->>'char_from')::int
+     OR (v_page->>'page_from')::int<1 OR (v_page->>'page_to')::int<(v_page->>'page_from')::int
+     OR p_payload->>'rendition_content_sha256' !~ '^[0-9a-f]{64}$' THEN RAISE EXCEPTION 'REIMPORT_WRITER_SOURCE_EVIDENCE_INVALID'; END IF;
+  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text) INTO v_actor_name FROM public.profiles WHERE id=v_actor;
+  INSERT INTO private.extraction_run(source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+  VALUES(v_batch.source_id,(v_profile.writer_config->>'run_key_prefix')||v_batch.manifest_sha256,v_profile.writer_config->>'schema_version',v_profile.writer_config->>'extractor_version',v_profile.profile_version,v_batch.manifest_sha256,jsonb_build_object('batch_id',p_batch_id,'profile_sha256',v_batch.profile_sha256)) ON CONFLICT(source_id,run_key) DO NOTHING;
+  SELECT id INTO v_run FROM private.extraction_run WHERE source_id=v_batch.source_id AND run_key=(v_profile.writer_config->>'run_key_prefix')||v_batch.manifest_sha256;
+  INSERT INTO private.source_rendition(source_id,rendition_key,rendition_kind,content_sha256,metadata)
+  VALUES(v_batch.source_id,v_profile.writer_config->>'rendition_key',v_profile.writer_config->>'rendition_kind',p_payload->>'rendition_content_sha256',v_profile.writer_config->'rendition_metadata') ON CONFLICT(source_id,rendition_key) DO NOTHING;
+  SELECT id INTO v_rendition FROM private.source_rendition WHERE source_id=v_batch.source_id AND rendition_key=v_profile.writer_config->>'rendition_key';
+  IF NOT EXISTS(SELECT 1 FROM private.source_rendition WHERE id=v_rendition AND content_sha256=p_payload->>'rendition_content_sha256') THEN RAISE EXCEPTION 'REIMPORT_WRITER_RENDITION_DRIFT'; END IF;
+  INSERT INTO private.source_record(source_id,record_key,record_kind,created_run_id) VALUES(v_batch.source_id,p_payload->>'source_record_key',coalesce(p_payload->>'category','person'),v_run) ON CONFLICT(source_id,record_key) DO NOTHING;
+  SELECT id INTO v_record FROM private.source_record WHERE source_id=v_batch.source_id AND record_key=p_payload->>'source_record_key';
+  INSERT INTO private.source_record_occurrence(rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id)
+  VALUES(v_rendition,p_element_id,(v_page->>'page_from')::int,(v_page->>'page_to')::int,(v_span->>'char_from')::int,(v_span->>'char_to')::int,v_text,encode(digest(v_text,'sha256'),'hex'),encode(digest(p_payload::text,'sha256'),'hex'),v_run) ON CONFLICT(rendition_id,extraction_run_id,occurrence_key) DO NOTHING;
+  SELECT id INTO v_occurrence FROM private.source_record_occurrence WHERE rendition_id=v_rendition AND extraction_run_id=v_run AND occurrence_key=p_element_id;
+  INSERT INTO private.source_record_anchor_event(occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name) VALUES(v_occurrence,v_record,'accepted',jsonb_build_object('batch_id',p_batch_id,'element_id',p_element_id),1,v_actor,v_actor_name) ON CONFLICT(occurrence_id,source_record_id,version) DO NOTHING;
+  INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id) VALUES(v_occurrence,coalesce(p_payload->>'category','person'),(v_page->>'page_from')::int,(v_page->>'page_to')::int,(v_span->>'char_from')::int,(v_span->>'char_to')::int,v_text,'clear',v_profile.writer_config->>'observation_extraction_method',v_run) RETURNING id INTO v_observation;
+  INSERT INTO private.source_mention(observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id) VALUES(v_observation,coalesce(p_payload->>'category','person'),0,char_length(v_text),v_text,v_run) RETURNING id INTO v_mention;
+  RETURN jsonb_build_object('run_id',v_run,'source_record_id',v_record,'observation_id',v_observation,'mention_id',v_mention);
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_authorize_reimport(p_manifest_sha256 text,p_preview_sha256 text,p_database_identity text,p_source_id bigint,p_profile_id text,p_profile_sha256 text,p_expected_counts jsonb,p_authorized_elements jsonb,p_nonce uuid,p_expires_at timestamptz)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_id uuid; v_actor uuid;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM private.reimport_writer_profile WHERE source_id=p_source_id AND profile_id=p_profile_id AND profile_sha256=p_profile_sha256) THEN RAISE EXCEPTION 'REIMPORT_WRITER_PROFILE_INVALID'; END IF;
+  IF p_database_identity<>current_database() OR p_expires_at<=clock_timestamp() OR jsonb_typeof(p_expected_counts)<>'object' OR jsonb_typeof(p_authorized_elements)<>'object' THEN RAISE EXCEPTION 'REIMPORT_WRITER_AUTHORIZATION_INVALID'; END IF;
+  v_actor:=private.require_reimport_writer_editor();
+  INSERT INTO private.reimport_authorization(operation,manifest_sha256,preview_sha256,database_identity,source_id,profile_id,profile_sha256,expected_counts,authorized_elements,principal_id,nonce,expires_at) VALUES('reimport',p_manifest_sha256,p_preview_sha256,p_database_identity,p_source_id,p_profile_id,p_profile_sha256,p_expected_counts,p_authorized_elements,v_actor,p_nonce,p_expires_at) RETURNING id INTO v_id;
+  RETURN v_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_begin_reimport(p_authorization_id uuid,p_manifest_sha256 text,p_preview_sha256 text)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_auth private.reimport_authorization%ROWTYPE; v_id uuid; v_actor uuid;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_actor:=private.require_reimport_writer_editor(); SELECT * INTO v_auth FROM private.reimport_authorization WHERE id=p_authorization_id FOR UPDATE;
+  IF NOT FOUND OR v_auth.operation<>'reimport' OR v_auth.status<>'issued' OR v_auth.expires_at<=clock_timestamp() OR v_auth.principal_id<>v_actor OR v_auth.manifest_sha256<>p_manifest_sha256 OR v_auth.preview_sha256<>p_preview_sha256 THEN RAISE EXCEPTION 'REIMPORT_WRITER_AUTHORIZATION_INVALID'; END IF;
+  UPDATE private.reimport_authorization SET status='consumed',consumed_at=clock_timestamp() WHERE id=v_auth.id;
+  SELECT id INTO v_id FROM private.reimport_batch WHERE source_id=v_auth.source_id AND profile_id=v_auth.profile_id AND profile_sha256=v_auth.profile_sha256 AND manifest_sha256=v_auth.manifest_sha256 AND preview_sha256=v_auth.preview_sha256 AND principal_id=v_actor AND status='finalized' ORDER BY finalized_at DESC,id LIMIT 1;
+  IF v_id IS NOT NULL THEN RETURN v_id; END IF;
+  INSERT INTO private.reimport_batch(authorization_id,manifest_sha256,preview_sha256,source_id,profile_id,profile_sha256,principal_id,expected_counts) VALUES(v_auth.id,v_auth.manifest_sha256,v_auth.preview_sha256,v_auth.source_id,v_auth.profile_id,v_auth.profile_sha256,v_actor,v_auth.expected_counts) RETURNING id INTO v_id;
+  RETURN v_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_apply_reimport_source_evidence(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_batch private.reimport_batch%ROWTYPE;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_batch:=private.require_reimport_open_batch(p_batch_id);
+  IF p_payload->>'disposition'<>'retain_source_only' THEN RAISE EXCEPTION 'REIMPORT_WRITER_SOURCE_EVIDENCE_INVALID'; END IF;
+  PERFORM private.ensure_reimport_source_evidence(p_batch_id,p_element_id,p_payload);
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256) VALUES(p_batch_id,p_element_id,'source_evidence',p_payload->>'source_record_key',p_payload,encode(digest(p_payload::text,'sha256'),'hex'));
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_apply_reimport_person_create(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_batch private.reimport_batch%ROWTYPE; v_evidence jsonb; v_person_id bigint; v_persona uuid; v_state jsonb; v_narrative jsonb; v_record_placement uuid; v_persona_placement uuid; v_placement_version integer; v_identity_version integer; v_payload_sha text;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_batch:=private.require_reimport_open_batch(p_batch_id);
+  IF nullif(btrim(p_payload->>'name'),'') IS NULL OR (p_payload->>'source_id')::bigint IS DISTINCT FROM v_batch.source_id OR p_payload->>'placement_role' NOT IN ('principal_member','co_principal') OR p_payload->>'placement_basis_sha256' !~ '^[0-9a-f]{64}$' OR p_payload->>'placement_review_sha256' !~ '^[0-9a-f]{64}$' OR p_payload->>'placement_decision_sha256' !~ '^[0-9a-f]{64}$' OR EXISTS(SELECT 1 FROM public.person_external_id WHERE source_id=v_batch.source_id AND record_key=p_payload->>'source_record_key') THEN RAISE EXCEPTION 'REIMPORT_WRITER_PERSON_CREATE_INVALID'; END IF;
+  v_evidence:=private.ensure_reimport_source_evidence(p_batch_id,p_element_id,p_payload||'{"category":"person"}'::jsonb);
+  SELECT placement.id INTO v_record_placement FROM private.source_record_placement_current placement JOIN private.source_record record ON record.id=placement.source_record_id WHERE placement.id=(p_payload->>'source_record_placement_id')::uuid AND placement.decision_status='accepted' AND record.id=(v_evidence->>'source_record_id')::uuid AND record.source_id=v_batch.source_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'REIMPORT_WRITER_PERSON_CREATE_INVALID'; END IF;
+  PERFORM 1 FROM private.source_record_placement WHERE id=v_record_placement FOR UPDATE;
+  PERFORM 1 FROM private.source_record WHERE id=(v_evidence->>'source_record_id')::uuid FOR UPDATE;
+  v_payload_sha:=private.reimport_canonical_json_sha256(p_payload);
+  INSERT INTO public.person(staged,visning_navn) VALUES(true,NULL) RETURNING id INTO v_person_id;
+  INSERT INTO public.person_external_id(person_id,source_id,record_key) VALUES(v_person_id,v_batch.source_id,p_payload->>'source_record_key');
+  v_persona:=(p_payload->>'source_persona_id')::uuid;
+  INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES(v_persona,v_batch.source_id,p_payload->>'persona_key',(v_evidence->>'run_id')::uuid);
+  INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) VALUES(v_persona,(v_evidence->>'mention_id')::uuid,'primary',1);
+  v_persona_placement:=private.propose_source_persona_placement(v_persona,v_record_placement,p_payload->>'placement_role',(v_evidence->>'observation_id')::uuid,jsonb_build_object('batch_id',p_batch_id,'authorized_payload_sha256',v_payload_sha,'basis_sha256',p_payload->>'placement_basis_sha256'),'reimport writer');
+  v_placement_version:=public.red_decide_source_persona_placement(v_persona_placement,1,'accepted',jsonb_build_object('batch_id',p_batch_id,'review_sha256',p_payload->>'placement_review_sha256','decision_sha256',p_payload->>'placement_decision_sha256'));
+  v_identity_version:=public.red_decide_source_persona_identity(v_persona,v_person_id,0,'accepted',jsonb_build_object('batch_id',p_batch_id,'profile_sha256',v_batch.profile_sha256,'placement_id',v_persona_placement));
+  v_state:=private.narrative_record_state(v_person_id,v_batch.source_id,p_payload->>'source_record_key',true);
+  IF v_state->>'eligibility_status'<>'eligible' OR v_state->>'blocking_reason' IS NOT NULL OR v_state->>'authority_kind'<>'accepted_identity'
+     OR v_state #> '{publication_state,target}' IS DISTINCT FROM jsonb_build_object('person_id',v_person_id,'source_id',v_batch.source_id,'record_key',p_payload->>'source_record_key','source_record_id',(v_evidence->>'source_record_id')::uuid,'source_record_ref',(v_state #>> '{publication_state,target,source_record_ref}')::uuid)
+     OR v_state #> '{publication_state,authority,identity_people}' IS DISTINCT FROM jsonb_build_array(v_person_id) THEN RAISE EXCEPTION 'REIMPORT_WRITER_PERSON_CREATE_INVALID'; END IF;
+  v_narrative:=public.red_upsert_person_narrative_record(v_person_id,v_batch.source_id,p_payload->>'source_record_key',p_payload->'narrative'->>'text',false,v_state->>'state_sha256');
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,canonical_person_id,payload,after_sha256) VALUES(p_batch_id,p_element_id,'person_create',p_payload->>'source_record_key',v_person_id,p_payload||jsonb_build_object('authorized_payload_sha256',v_payload_sha,'record_placement_id',v_record_placement,'persona_placement_id',v_persona_placement,'persona_placement_version',v_placement_version,'identity_version',v_identity_version,'event_id',v_narrative->>'event_id','narrative_id',v_narrative->>'narrative_id','publication_state_sha256',v_narrative->>'publication_state_sha256','state_sha256',v_narrative->>'state_sha256'),v_narrative->>'state_sha256');
+  RETURN v_person_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_finalize_reimport(p_batch_id uuid) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_batch private.reimport_batch%ROWTYPE; v_counts jsonb;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_batch:=private.require_reimport_open_batch(p_batch_id);
+  SELECT jsonb_build_object('person_creates',count(*) FILTER(WHERE operation='person_create'),'source_evidence',count(*) FILTER(WHERE operation='source_evidence')) INTO v_counts FROM private.reimport_event WHERE batch_id=p_batch_id;
+  IF v_counts<>v_batch.expected_counts THEN RAISE EXCEPTION 'REIMPORT_WRITER_FINALIZE_COUNT_MISMATCH'; END IF;
+  UPDATE private.reimport_batch SET status='finalized',observed_counts=v_counts,finalized_at=clock_timestamp() WHERE id=p_batch_id;
+  RETURN jsonb_build_object('batch_id',p_batch_id,'status','finalized','counts',v_counts);
+END $$;
+
+CREATE OR REPLACE FUNCTION private.validate_reimport_name_completion(p_authorization_id uuid,p_source_batch_id uuid,p_manifest_sha256 text,p_payloads jsonb)
+RETURNS private.reimport_batch LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE a private.reimport_authorization%ROWTYPE; b private.reimport_batch%ROWTYPE; sa private.reimport_authorization%ROWTYPE;
+  k text; p jsonb; e private.reimport_event%ROWTYPE; expected_count bigint;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  SELECT * INTO a FROM private.reimport_authorization WHERE id=p_authorization_id FOR UPDATE;
+  SELECT * INTO b FROM private.reimport_batch WHERE id=p_source_batch_id FOR UPDATE;
+  IF NOT FOUND OR a.operation<>'name_completion' OR a.status<>'issued' OR a.principal_id<>private.require_reimport_writer_editor()
+     OR a.expires_at<=clock_timestamp() OR a.manifest_sha256<>p_manifest_sha256 OR b.status<>'finalized'
+     OR a.source_id<>b.source_id OR a.profile_id<>b.profile_id OR a.profile_sha256<>b.profile_sha256
+     OR a.authorized_elements->'source_batch_id' IS DISTINCT FROM to_jsonb(p_source_batch_id)
+     OR a.authorized_elements->'payloads' IS DISTINCT FROM p_payloads THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID'; END IF;
+  SELECT * INTO sa FROM private.reimport_authorization WHERE id=b.authorization_id;
+  IF NOT FOUND OR sa.operation<>'reimport' OR sa.source_id<>b.source_id OR sa.profile_id<>b.profile_id OR sa.profile_sha256<>b.profile_sha256
+     OR a.authorized_elements->>'source_manifest_content_sha256'<>b.manifest_sha256
+     OR a.authorized_elements->>'source_manifest_bytes_sha256'<>b.preview_sha256
+     OR jsonb_typeof(p_payloads)<>'object' THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID'; END IF;
+  expected_count:=coalesce((a.expected_counts->>'name_completions')::bigint,-1);
+  IF expected_count<0 OR a.expected_counts->>'operations' IS DISTINCT FROM expected_count::text
+     OR (SELECT count(*) FROM jsonb_object_keys(p_payloads))<>expected_count THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID'; END IF;
+  FOR k,p IN SELECT key,value FROM jsonb_each(p_payloads) LOOP
+    IF k<>('name-completion:'||(p->>'source_record_key')) OR p->>'source_batch_id'<>b.id::text
+       OR (p->>'source_id')::bigint IS DISTINCT FROM b.source_id OR nullif(btrim(p->>'name'),'') IS NULL
+       OR p->>'source_payload_sha256' !~ '^[0-9a-f]{64}$' THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID'; END IF;
+    SELECT * INTO e FROM private.reimport_event WHERE batch_id=b.id AND element_id=p->>'source_person_create_element_id' AND operation='person_create';
+    IF NOT FOUND OR e.canonical_person_id IS DISTINCT FROM (p->>'person_id')::bigint OR e.source_record_key IS DISTINCT FROM p->>'source_record_key'
+       OR e.payload->>'authorized_payload_sha256' IS DISTINCT FROM p->>'source_payload_sha256'
+       OR e.payload->>'source_persona_id' IS DISTINCT FROM p->>'source_persona_id'
+       OR NOT EXISTS(SELECT 1 FROM private.source_record r WHERE r.source_id=b.source_id AND r.record_key=p->>'source_record_key')
+       OR NOT EXISTS(SELECT 1 FROM private.source_persona sp JOIN private.source_persona_identity si ON si.source_persona_id=sp.id AND si.decision_status='accepted'
+                       WHERE sp.id=(p->>'source_persona_id')::uuid AND sp.source_id=b.source_id AND si.canonical_person_id=(p->>'person_id')::bigint)
+       OR NOT EXISTS(SELECT 1 FROM public.person q WHERE q.id=(p->>'person_id')::bigint AND q.staged AND q.visning_navn IS NULL)
+       OR EXISTS(SELECT 1 FROM public.fact f WHERE f.subjekt_type='person' AND f.subjekt_id=(p->>'person_id')::bigint AND f.faktatype='navn') THEN
+      RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID';
+    END IF;
+  END LOOP;
+  RETURN b;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_lock_reimport_name_completion(p_manifest_sha256 text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 OR p_manifest_sha256 !~ '^[0-9a-f]{64}$' THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID'; END IF;
+  PERFORM private.require_reimport_writer_editor();
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-reimport-name-completion',0));
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_authorize_reimport_name_completion(p_manifest_sha256 text,p_source_batch_id uuid,p_source_manifest_bytes_sha256 text,p_source_manifest_content_sha256 text,p_expected_counts jsonb,p_payloads jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE b private.reimport_batch%ROWTYPE; a private.reimport_authorization%ROWTYPE; v_id uuid; v_actor uuid;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 OR p_manifest_sha256 !~ '^[0-9a-f]{64}$' OR p_source_manifest_bytes_sha256 !~ '^[0-9a-f]{64}$' OR p_source_manifest_content_sha256 !~ '^[0-9a-f]{64}$' OR jsonb_typeof(p_expected_counts)<>'object' OR jsonb_typeof(p_payloads)<>'object' THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID'; END IF;
+  v_actor:=private.require_reimport_writer_editor(); SELECT * INTO b FROM private.reimport_batch WHERE id=p_source_batch_id FOR UPDATE; SELECT * INTO a FROM private.reimport_authorization WHERE id=b.authorization_id;
+  IF NOT FOUND OR b.status<>'finalized' OR a.operation<>'reimport' OR a.principal_id<>v_actor OR b.source_id<>a.source_id OR b.profile_id<>a.profile_id OR b.profile_sha256<>a.profile_sha256 OR b.preview_sha256<>p_source_manifest_bytes_sha256 OR b.manifest_sha256<>p_source_manifest_content_sha256 THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID'; END IF;
+  INSERT INTO private.reimport_authorization(operation,manifest_sha256,preview_sha256,database_identity,source_id,profile_id,profile_sha256,expected_counts,authorized_elements,principal_id,nonce,expires_at)
+  VALUES('name_completion',p_manifest_sha256,p_source_manifest_content_sha256,current_database(),b.source_id,b.profile_id,b.profile_sha256,p_expected_counts,jsonb_build_object('source_batch_id',p_source_batch_id,'payloads',p_payloads,'source_manifest_bytes_sha256',p_source_manifest_bytes_sha256,'source_manifest_content_sha256',p_source_manifest_content_sha256),v_actor,gen_random_uuid(),clock_timestamp()+interval '5 minutes') RETURNING id INTO v_id;
+  PERFORM private.validate_reimport_name_completion(v_id,p_source_batch_id,p_manifest_sha256,p_payloads);
+  RETURN jsonb_build_object('authorization_id',v_id,'database_name',current_database(),'source_id',b.source_id,'profile_id',b.profile_id,'profile_sha256',b.profile_sha256);
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_preflight_reimport_name_completion(p_authorization_id uuid,p_source_batch_id uuid,p_manifest_sha256 text,p_payloads jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE b private.reimport_batch%ROWTYPE; a private.reimport_authorization%ROWTYPE;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0)); b:=private.validate_reimport_name_completion(p_authorization_id,p_source_batch_id,p_manifest_sha256,p_payloads); SELECT * INTO a FROM private.reimport_authorization WHERE id=p_authorization_id;
+  RETURN jsonb_build_object('authorization',jsonb_build_object('authorization_id',a.id,'database_name',current_database(),'source_id',b.source_id,'profile_id',b.profile_id,'profile_sha256',b.profile_sha256),'preflight',jsonb_build_object('valid',true,'source_batch_id',p_source_batch_id,'manifest_sha256',p_manifest_sha256));
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_begin_reimport_name_completion(p_authorization_id uuid,p_manifest_sha256 text,p_source_batch_id uuid)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE a private.reimport_authorization%ROWTYPE; b private.reimport_batch%ROWTYPE; v_id uuid;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0)); SELECT * INTO a FROM private.reimport_authorization WHERE id=p_authorization_id FOR UPDATE; SELECT * INTO b FROM private.reimport_batch WHERE id=p_source_batch_id FOR UPDATE;
+  IF NOT FOUND OR a.operation<>'name_completion' OR a.status<>'issued' OR a.principal_id<>private.require_reimport_writer_editor() OR a.expires_at<=clock_timestamp() OR a.manifest_sha256<>p_manifest_sha256 OR b.status<>'finalized' OR a.source_id<>b.source_id OR a.profile_id<>b.profile_id OR a.profile_sha256<>b.profile_sha256 OR a.authorized_elements->'source_batch_id' IS DISTINCT FROM to_jsonb(p_source_batch_id) THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID'; END IF;
+  UPDATE private.reimport_authorization SET status='consumed',consumed_at=clock_timestamp() WHERE id=a.id;
+  INSERT INTO private.reimport_batch(authorization_id,manifest_sha256,preview_sha256,source_id,profile_id,profile_sha256,principal_id,expected_counts) VALUES(a.id,a.manifest_sha256,a.preview_sha256,a.source_id,a.profile_id,a.profile_sha256,a.principal_id,a.expected_counts) RETURNING id INTO v_id; RETURN v_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_apply_reimport_name_completion(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE b private.reimport_batch%ROWTYPE; a private.reimport_authorization%ROWTYPE; v_fact bigint; v_assertion bigint; v_citation bigint; v_conclusion bigint; v_record uuid; v_hash text;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0)); PERFORM pg_advisory_xact_lock(hashtextextended('daa-reimport-name-completion',0)); LOCK TABLE public.fact,public.assertion,public.citation,public.conclusion IN SHARE ROW EXCLUSIVE MODE;
+  b:=private.require_reimport_open_batch(p_batch_id); SELECT * INTO a FROM private.reimport_authorization WHERE id=b.authorization_id;
+  IF NOT FOUND OR a.operation<>'name_completion' OR a.authorized_elements->'payloads'->p_element_id IS DISTINCT FROM p_payload OR a.authorized_elements->'source_batch_id' IS DISTINCT FROM to_jsonb((p_payload->>'source_batch_id')::uuid) OR EXISTS(SELECT 1 FROM private.reimport_name_completion_result WHERE batch_id=p_batch_id AND element_id=p_element_id) THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID'; END IF;
+  SELECT id INTO v_record FROM private.source_record WHERE source_id=b.source_id AND record_key=p_payload->>'source_record_key' FOR UPDATE;
+  IF NOT FOUND OR NOT EXISTS(SELECT 1 FROM private.reimport_event e JOIN private.reimport_batch sb ON sb.id=e.batch_id WHERE e.batch_id=(p_payload->>'source_batch_id')::uuid AND sb.status='finalized' AND sb.source_id=b.source_id AND sb.profile_id=b.profile_id AND sb.profile_sha256=b.profile_sha256 AND e.operation='person_create' AND e.element_id=p_payload->>'source_person_create_element_id' AND e.canonical_person_id=(p_payload->>'person_id')::bigint AND e.payload->>'authorized_payload_sha256'=p_payload->>'source_payload_sha256') THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID'; END IF;
+  SELECT coalesce(max(id),0)+1 INTO v_fact FROM public.fact; SELECT coalesce(max(id),0)+1 INTO v_citation FROM public.citation;
+  INSERT INTO public.fact(id,subjekt_type,subjekt_id,faktatype) VALUES(v_fact,'person',(p_payload->>'person_id')::bigint,'navn'); INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst,uforanderlig) VALUES('fact',v_fact,p_payload->>'name',true) RETURNING id INTO v_assertion; INSERT INTO public.citation(id,assertion_id,source_id,side,citat_tekst,kvalitet) VALUES(v_citation,v_assertion,b.source_id,p_payload->'page_evidence'->>'page_from',p_payload->>'verbatim_text','primær'); INSERT INTO public.conclusion(target_type,target_id,valgt_assertion_id,status,blaastemplet_af,blaastemplet_naar) VALUES('fact',v_fact,v_assertion,'afklaret',b.profile_id||' name completion',current_date) RETURNING id INTO v_conclusion;
+  v_hash:=private.reimport_canonical_json_sha256(jsonb_build_object('fact_id',v_fact,'assertion_id',v_assertion,'citation_id',v_citation,'conclusion_id',v_conclusion)); INSERT INTO private.reimport_name_completion_result(batch_id,element_id,source_batch_id,person_id,source_record_id,source_persona_id,fact_id,assertion_id,citation_id,conclusion_id,payload_sha256,result_sha256) VALUES(p_batch_id,p_element_id,(p_payload->>'source_batch_id')::uuid,(p_payload->>'person_id')::bigint,v_record,(p_payload->>'source_persona_id')::uuid,v_fact,v_assertion,v_citation,v_conclusion,private.reimport_canonical_json_sha256(p_payload),v_hash); INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,canonical_person_id,payload,after_sha256) VALUES(p_batch_id,p_element_id,'canonical_delta',p_payload->>'source_record_key',(p_payload->>'person_id')::bigint,p_payload,v_hash);
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_finalize_reimport_name_completion(p_batch_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE b private.reimport_batch%ROWTYPE; v_counts jsonb; v_map jsonb;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0)); b:=private.require_reimport_open_batch(p_batch_id); SELECT jsonb_build_object('name_completions',coalesce(count(*),0)::bigint,'operations',coalesce(count(*),0)::bigint) INTO v_counts FROM private.reimport_name_completion_result WHERE batch_id=p_batch_id;
+  IF v_counts<>b.expected_counts OR (SELECT count(*) FROM private.reimport_event WHERE batch_id=p_batch_id AND operation='canonical_delta')<>(v_counts->>'operations')::bigint OR EXISTS(SELECT 1 FROM private.reimport_name_completion_result r LEFT JOIN public.fact f ON f.id=r.fact_id AND f.subjekt_id=r.person_id AND f.faktatype='navn' LEFT JOIN public.assertion x ON x.id=r.assertion_id AND x.target_id=r.fact_id LEFT JOIN public.citation c ON c.id=r.citation_id AND c.assertion_id=r.assertion_id LEFT JOIN public.conclusion n ON n.id=r.conclusion_id AND n.valgt_assertion_id=r.assertion_id WHERE r.batch_id=p_batch_id AND (f.id IS NULL OR x.id IS NULL OR c.id IS NULL OR n.id IS NULL)) THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID'; END IF;
+  SELECT jsonb_object_agg(element_id,jsonb_build_object('person_id',person_id,'fact_id',fact_id,'assertion_id',assertion_id,'citation_id',citation_id,'conclusion_id',conclusion_id) ORDER BY element_id) INTO v_map FROM private.reimport_name_completion_result WHERE batch_id=p_batch_id; UPDATE private.reimport_batch SET status='finalized',observed_counts=v_counts,finalized_at=clock_timestamp() WHERE id=p_batch_id; RETURN jsonb_build_object('batch_id',p_batch_id,'status','finalized','counts',v_counts,'result_map',v_map);
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_authorize_reimport_reversal(p_batch_id uuid,p_nonce uuid,p_expires_at timestamptz) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_id uuid; v_batch private.reimport_batch%ROWTYPE; v_actor uuid;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_actor:=private.require_reimport_writer_editor(); SELECT * INTO v_batch FROM private.reimport_batch WHERE id=p_batch_id AND status IN ('finalized','activated') FOR UPDATE;
+  IF NOT FOUND OR p_expires_at<=clock_timestamp() THEN RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID'; END IF;
+  INSERT INTO private.reimport_authorization(operation,manifest_sha256,preview_sha256,database_identity,source_id,profile_id,profile_sha256,expected_counts,authorized_elements,principal_id,nonce,expires_at) VALUES('reversal',v_batch.manifest_sha256,v_batch.preview_sha256,'batch:'||v_batch.id::text,v_batch.source_id,v_batch.profile_id,v_batch.profile_sha256,'{}','{}',v_actor,p_nonce,p_expires_at) RETURNING id INTO v_id; RETURN v_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_reverse_reimport(p_batch_id uuid,p_authorization_id uuid) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_actor uuid; b private.reimport_batch%ROWTYPE; a private.reimport_authorization%ROWTYPE; cb private.reimport_batch%ROWTYPE; r private.reimport_name_completion_result%ROWTYPE; e private.reimport_event%ROWTYPE; activation private.reimport_event%ROWTYPE; v_child_count bigint; v_child_id uuid; v_identity_version integer; v_state jsonb; v_receipt jsonb; v_reversed jsonb;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_actor:=private.require_reimport_writer_editor(); PERFORM pg_advisory_xact_lock(hashtextextended('daa-reimport-name-completion',0)); LOCK TABLE public.fact,public.assertion,public.citation,public.conclusion IN SHARE ROW EXCLUSIVE MODE;
+  SELECT * INTO b FROM private.reimport_batch WHERE id=p_batch_id FOR UPDATE; SELECT * INTO a FROM private.reimport_authorization WHERE id=p_authorization_id FOR UPDATE;
+  IF b.id IS NULL OR a.id IS NULL OR a.operation<>'reversal' OR a.status<>'issued' OR a.principal_id<>v_actor OR a.expires_at<=clock_timestamp() OR a.source_id<>b.source_id OR a.profile_id<>b.profile_id OR a.profile_sha256<>b.profile_sha256 OR b.status<>'activated' THEN RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID'; END IF;
+  SELECT count(*),(array_agg(child_batch.id ORDER BY child_batch.id))[1] INTO v_child_count,v_child_id FROM private.reimport_batch child_batch JOIN private.reimport_authorization child_authorization ON child_authorization.id=child_batch.authorization_id WHERE child_authorization.operation='name_completion' AND child_batch.status='finalized' AND child_authorization.source_id=b.source_id AND child_authorization.profile_id=b.profile_id AND child_authorization.profile_sha256=b.profile_sha256 AND child_authorization.authorized_elements->'source_batch_id'=to_jsonb(b.id);
+  IF v_child_count<>1 THEN RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID'; END IF;
+  SELECT * INTO cb FROM private.reimport_batch WHERE id=v_child_id FOR UPDATE;
+  IF cb.expected_counts IS DISTINCT FROM cb.observed_counts OR (SELECT count(*) FROM private.reimport_name_completion_result WHERE batch_id=cb.id)<>(cb.expected_counts->>'name_completions')::bigint OR (SELECT count(*) FROM private.reimport_event WHERE batch_id=cb.id AND operation='canonical_delta')<>(cb.expected_counts->>'operations')::bigint THEN RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID'; END IF;
+  SELECT * INTO activation FROM private.reimport_event WHERE batch_id=b.id AND operation='activation' ORDER BY id DESC LIMIT 1 FOR UPDATE;
+  IF activation.id IS NULL OR jsonb_typeof(activation.payload->'post_activation_receipts')<>'object' THEN RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID'; END IF;
+  FOR r IN SELECT * FROM private.reimport_name_completion_result WHERE batch_id=cb.id ORDER BY person_id LOOP
+    SELECT * INTO e FROM private.reimport_event WHERE batch_id=b.id AND operation='person_create' AND canonical_person_id=r.person_id AND source_record_key=(SELECT record_key FROM private.source_record WHERE id=r.source_record_id);
+    v_receipt:=activation.payload->'post_activation_receipts'->r.person_id::text;
+    IF e.id IS NULL OR private.reimport_canonical_json_sha256(jsonb_build_object('fact_id',r.fact_id,'assertion_id',r.assertion_id,'citation_id',r.citation_id,'conclusion_id',r.conclusion_id))<>r.result_sha256 OR e.payload->>'event_id' IS NULL OR jsonb_typeof(v_receipt)<>'object' OR v_receipt->>'source_person_create_event_id' IS DISTINCT FROM e.payload->>'event_id' OR v_receipt->>'source_record_key' IS DISTINCT FROM e.source_record_key OR v_receipt->>'state_sha256' !~ '^[0-9a-f]{64}$' OR v_receipt->>'event_id' IS NULL THEN RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID'; END IF;
+    v_state:=private.narrative_record_state(r.person_id,b.source_id,e.source_record_key,true);
+    IF v_state->>'state_sha256' IS DISTINCT FROM v_receipt->>'state_sha256' THEN RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID'; END IF;
+    v_reversed:=public.red_fortryd_person_narrative_publication_event((v_receipt->>'event_id')::uuid,v_receipt->>'state_sha256');
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM public.red_kasser_person_narrative_record(r.person_id,b.source_id,e.source_record_key,v_reversed->>'state_sha256');
+    PERFORM set_config('app.change_set_id','',true);
+    DELETE FROM public.conclusion WHERE id=r.conclusion_id; DELETE FROM public.citation WHERE id=r.citation_id; DELETE FROM public.assertion WHERE id=r.assertion_id; DELETE FROM public.fact WHERE id=r.fact_id;
+    SELECT version INTO v_identity_version FROM private.source_persona_identity WHERE source_persona_id=r.source_persona_id ORDER BY version DESC LIMIT 1 FOR UPDATE;
+    IF v_identity_version IS NULL THEN RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID'; END IF;
+    PERFORM public.red_decide_source_persona_identity(r.source_persona_id,NULL,v_identity_version,'superseded',jsonb_build_object('reversed_batch_id',b.id,'profile_sha256',b.profile_sha256)); UPDATE public.person SET staged=true WHERE id=r.person_id;
+  END LOOP;
+  UPDATE private.reimport_authorization SET status='consumed',consumed_at=clock_timestamp() WHERE id=a.id; UPDATE private.reimport_batch SET status='reversed' WHERE id IN (b.id,cb.id); INSERT INTO private.reimport_event(batch_id,element_id,operation,payload,after_sha256) VALUES(b.id,'reversal:'||a.id::text,'reversal',jsonb_build_object('authorization_id',a.id,'child_batch_id',cb.id),private.reimport_canonical_json_sha256(jsonb_build_object('authorization_id',a.id,'child_batch_id',cb.id))); RETURN jsonb_build_object('batch_id',b.id,'status','reversed','child_batch_id',cb.id);
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_authorize_reimport_cutover(p_batch_id uuid,p_nonce uuid,p_expires_at timestamptz) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_id uuid; v_batch private.reimport_batch%ROWTYPE; v_actor uuid;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_actor:=private.require_reimport_writer_editor(); SELECT * INTO v_batch FROM private.reimport_batch WHERE id=p_batch_id AND status='finalized';
+  IF NOT FOUND OR p_expires_at<=clock_timestamp() THEN RAISE EXCEPTION 'REIMPORT_WRITER_CUTOVER_INVALID'; END IF;
+  INSERT INTO private.reimport_authorization(operation,manifest_sha256,preview_sha256,database_identity,source_id,profile_id,profile_sha256,expected_counts,authorized_elements,principal_id,nonce,expires_at) VALUES('cutover',v_batch.manifest_sha256,v_batch.preview_sha256,'batch:'||v_batch.id::text,v_batch.source_id,v_batch.profile_id,v_batch.profile_sha256,'{}','{}',v_actor,p_nonce,p_expires_at) RETURNING id INTO v_id; RETURN v_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_activate_reimport_batch(p_batch_id uuid,p_authorization_id uuid) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_actor uuid; v_count bigint; b private.reimport_batch%ROWTYPE; a private.reimport_authorization%ROWTYPE; cb private.reimport_batch%ROWTYPE; v_child_count bigint; v_child_id uuid; e private.reimport_event%ROWTYPE; v_state jsonb; v_refreshed jsonb; v_receipts jsonb:='{}'::jsonb;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_actor:=private.require_reimport_writer_editor(); PERFORM pg_advisory_xact_lock(hashtextextended('daa-reimport-name-completion',0)); SELECT * INTO b FROM private.reimport_batch WHERE id=p_batch_id FOR UPDATE; SELECT * INTO a FROM private.reimport_authorization WHERE id=p_authorization_id FOR UPDATE;
+  IF b.id IS NULL OR a.id IS NULL OR a.operation<>'cutover' OR a.status<>'issued' OR a.principal_id<>v_actor OR a.expires_at<=clock_timestamp() OR a.source_id<>b.source_id OR a.profile_id<>b.profile_id OR a.profile_sha256<>b.profile_sha256 OR b.status<>'finalized' THEN RAISE EXCEPTION 'REIMPORT_WRITER_CUTOVER_INVALID'; END IF;
+  SELECT count(*),(array_agg(child_batch.id ORDER BY child_batch.id))[1] INTO v_child_count,v_child_id FROM private.reimport_batch child_batch JOIN private.reimport_authorization child_authorization ON child_authorization.id=child_batch.authorization_id WHERE child_authorization.operation='name_completion' AND child_batch.status='finalized' AND child_authorization.source_id=b.source_id AND child_authorization.profile_id=b.profile_id AND child_authorization.profile_sha256=b.profile_sha256 AND child_authorization.authorized_elements->'source_batch_id'=to_jsonb(b.id); IF v_child_count<>1 THEN RAISE EXCEPTION 'REIMPORT_WRITER_CUTOVER_INVALID'; END IF; SELECT * INTO cb FROM private.reimport_batch WHERE id=v_child_id FOR UPDATE; IF cb.observed_counts IS DISTINCT FROM cb.expected_counts OR (SELECT count(*) FROM private.reimport_name_completion_result WHERE batch_id=cb.id)<>(cb.expected_counts->>'name_completions')::bigint THEN RAISE EXCEPTION 'REIMPORT_WRITER_CUTOVER_INVALID'; END IF;
+  UPDATE public.person SET staged=false WHERE id IN(SELECT canonical_person_id FROM private.reimport_event WHERE batch_id=p_batch_id AND operation='person_create'); GET DIAGNOSTICS v_count=ROW_COUNT;
+  FOR e IN SELECT * FROM private.reimport_event WHERE batch_id=p_batch_id AND operation='person_create' ORDER BY canonical_person_id LOOP
+    v_state:=private.narrative_record_state(e.canonical_person_id,b.source_id,e.source_record_key,true);
+    IF e.payload->>'event_id' IS NULL OR v_state #> '{publication_state,target}' IS DISTINCT FROM jsonb_build_object('person_id',e.canonical_person_id,'source_id',b.source_id,'record_key',e.source_record_key,'source_record_id',(v_state #>> '{publication_state,target,source_record_id}')::uuid,'source_record_ref',(v_state #>> '{publication_state,target,source_record_ref}')::uuid) THEN RAISE EXCEPTION 'REIMPORT_WRITER_CUTOVER_INVALID'; END IF;
+    v_refreshed:=public.red_upsert_person_narrative_record(e.canonical_person_id,b.source_id,e.source_record_key,e.payload->'narrative'->>'text',false,v_state->>'state_sha256');
+    PERFORM set_config('app.change_set_id','',true);
+    v_receipts:=v_receipts||jsonb_build_object(e.canonical_person_id::text,jsonb_build_object('event_id',v_refreshed->>'event_id','source_person_create_event_id',e.payload->>'event_id','source_record_key',e.source_record_key,'state_sha256',v_refreshed->>'state_sha256'));
+  END LOOP;
+  UPDATE private.reimport_authorization SET status='consumed',consumed_at=clock_timestamp() WHERE id=p_authorization_id;
+  UPDATE private.reimport_batch SET status='activated' WHERE id=p_batch_id;
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,payload,after_sha256) VALUES(p_batch_id,'activation:'||p_authorization_id::text,'activation',jsonb_build_object('authorization_id',p_authorization_id,'persons_activated',v_count,'post_activation_receipts',v_receipts),private.reimport_canonical_json_sha256(jsonb_build_object('authorization_id',p_authorization_id,'persons_activated',v_count,'post_activation_receipts',v_receipts)));
+  RETURN jsonb_build_object('batch_id',p_batch_id,'status','activated','persons_activated',v_count);
+END $$;
+
+REVOKE ALL ON FUNCTION
+  private.reimport_canonical_json_text(jsonb),
+  private.reimport_canonical_json_sha256(jsonb),
+  private.ensure_reimport_source_evidence(uuid,text,jsonb),
+  private.validate_reimport_name_completion(uuid,uuid,text,jsonb),
+  public.red_lock_reimport_name_completion(text),
+  public.red_authorize_reimport_name_completion(text,uuid,text,text,jsonb,jsonb),
+  public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb),
+  public.red_begin_reimport_name_completion(uuid,text,uuid),
+  public.red_apply_reimport_name_completion(uuid,text,jsonb),
+  public.red_finalize_reimport_name_completion(uuid)
+FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_authorize_reimport_name_completion(text,uuid,text,text,jsonb,jsonb) TO service_role;
+GRANT EXECUTE ON FUNCTION public.red_lock_reimport_name_completion(text),public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb),public.red_begin_reimport_name_completion(uuid,text,uuid),public.red_apply_reimport_name_completion(uuid,text,jsonb),public.red_finalize_reimport_name_completion(uuid) TO authenticated;
+
 CREATE OR REPLACE FUNCTION private.apply_narrative_record_cutover(
   p_record_candidates_raw text,p_legacy_candidates_raw text,
   p_record_manifest_raw text,p_legacy_manifest_raw text,
