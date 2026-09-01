@@ -10,25 +10,8 @@ writer_literal_rules <- data.frame(
 )
 
 writer_inventory_groups <- read.table(text = "
-schema private.ensure_reimport_1939_source_evidence#1 run_key 2
-schema public.red_apply_1939_v50_person_create#1 citation_label 1
-schema public.red_reverse_1939_v50_reimport#1 name_completion_lock 1
-schema public.red_reverse_1939_v50_reimport#1 not_equals_8 8
-schema public.red_reverse_1939_v50_reimport#1 sr_source_id_not_3 1
-schema public.red_reverse_1939_v50_reimport#1 sp_source_id_not_3 1
-schema public.red_reverse_1939_v50_reimport#1 run_key 1
-schema public.red_activate_1939_v50_batch#1 name_completion_lock 1
-schema public.red_activate_1939_v50_batch#1 not_equals_8 9
-schema public.red_activate_1939_v50_batch#1 sr_source_id_not_3 1
-schema public.red_activate_1939_v50_batch#1 sp_source_id_not_3 1
-schema public.red_activate_1939_v50_batch#1 not_equals_8 1
-schema private.validate_reimport_1939_name_completion#1 name_completion_lock 1
-schema private.validate_reimport_1939_name_completion#1 not_equals_8 2
-schema private.validate_reimport_1939_name_completion#1 source_id_3 3
-schema public.red_lock_1939_v50_name_completion#1 name_completion_lock 1
-schema public.red_apply_1939_v50_name_completion#1 name_completion_lock 1
-schema public.red_apply_1939_v50_name_completion#1 source_id_3 3
-schema public.red_finalize_1939_v50_name_completion#1 not_equals_8 1
+schema private.reject_reimport_writer_mutation#1 citation_label 1
+schema private.reject_reimport_writer_mutation#1 run_key 1
 migration private.ensure_reimport_1939_source_evidence#1 run_key 2
 migration public.red_apply_1939_v50_person_create#1 citation_label 1
 migration public.red_reverse_1939_v50_reimport#1 run_key 1
@@ -104,22 +87,26 @@ testthat::test_that("generic extractor recognizes a valid CREATE OR REPLACE func
   testthat::expect_match(extract_public_function(fixture, "red_fixture"), "red_fixture", fixed = TRUE)
 })
 
-testthat::test_that("Task 1 literal inventory retains exact schema and migration classification coverage", {
-  segment_counts <- table(writer_inventory_groups$segment)
-  testthat::expect_identical(names(segment_counts), c("migration", "schema"))
-  testthat::expect_identical(unname(as.integer(segment_counts)), c(34L, 19L))
-  classification_counts <- table(writer_inventory$classification)
-  testthat::expect_identical(names(classification_counts), c("generic_invariant", "legacy_wrapper", "manifest", "profile"))
-  testthat::expect_identical(unname(as.integer(classification_counts)), c(12L, 13L, 71L, 17L))
-  testthat::expect_identical(
-    writer_literal_rules[, c("literal", "classification", "generic_target")],
-    data.frame(
-      literal = c("source_id_3", "sr_source_id_not_3", "sp_source_id_not_3", "equals_8", "not_equals_8", "citation_label", "run_key", "name_completion_lock"),
-      classification = c("profile", "generic_invariant", "generic_invariant", "manifest", "manifest", "profile", "manifest", "legacy_wrapper"),
-      generic_target = c("source_id", "source_profile_validation", "source_profile_validation", "expected_counts", "expected_counts", "citation_label_template", "run_key_prefix", "generic_name_completion_lock"),
-      stringsAsFactors = FALSE
-    )
+testthat::test_that("Task 1 literal inventory exactly covers the designated schema and migration ranges", {
+  observed <- rbind(
+    writer_segment_occurrences("schema.sql", 2324L, 3098L, "schema"),
+    writer_segment_occurrences("db-migrations.sql", 7559L, 8407L, "migration")
   )
+  key_columns <- c("literal", "classification", "generic_target", "test_name")
+  expected_keys <- do.call(paste, c(writer_inventory[key_columns], sep = "|"))
+  observed_keys <- do.call(paste, c(observed[key_columns], sep = "|"))
+  missing_keys <- setdiff(expected_keys, observed_keys)
+  unexpected_keys <- setdiff(observed_keys, expected_keys)
+
+  if (length(missing_keys) || length(unexpected_keys)) {
+    testthat::fail(paste(
+      "writer literal inventory drift",
+      if (length(missing_keys)) paste("missing:", paste(missing_keys, collapse = ", ")),
+      if (length(unexpected_keys)) paste("unexpected:", paste(unexpected_keys, collapse = ", ")),
+      sep = "\n"
+    ))
+  }
+  testthat::expect_setequal(observed_keys, expected_keys)
 })
 
 testthat::test_that("generic reimport writer owns every formerly 1939-specific literal", {
