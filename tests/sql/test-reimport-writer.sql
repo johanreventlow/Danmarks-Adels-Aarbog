@@ -28,20 +28,20 @@ BEGIN
        SELECT 1 FROM pg_constraint constraint_row
        WHERE conrelid='private.reimport_authorization'::regclass AND contype='f'
          AND confrelid='private.reimport_writer_profile'::regclass
-         AND ARRAY(SELECT attribute.attname FROM unnest(constraint_row.conkey) WITH ORDINALITY key_column(attnum,ordinality) JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.conrelid AND attribute.attnum=key_column.attnum ORDER BY key_column.ordinality)=ARRAY['source_id','profile_id','profile_sha256']
-         AND ARRAY(SELECT attribute.attname FROM unnest(constraint_row.confkey) WITH ORDINALITY key_column(attnum,ordinality) JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.confrelid AND attribute.attnum=key_column.attnum ORDER BY key_column.ordinality)=ARRAY['source_id','profile_id','profile_sha256']
+         AND ARRAY(SELECT attribute.attname::text FROM unnest(constraint_row.conkey) WITH ORDINALITY key_column(attnum,ordinality) JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.conrelid AND attribute.attnum=key_column.attnum ORDER BY key_column.ordinality)=ARRAY['source_id','profile_id','profile_sha256']
+         AND ARRAY(SELECT attribute.attname::text FROM unnest(constraint_row.confkey) WITH ORDINALITY key_column(attnum,ordinality) JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.confrelid AND attribute.attnum=key_column.attnum ORDER BY key_column.ordinality)=ARRAY['source_id','profile_id','profile_sha256']
      ) OR NOT EXISTS (
        SELECT 1 FROM pg_constraint constraint_row
        WHERE conrelid='private.reimport_batch'::regclass AND contype='f'
          AND confrelid='private.reimport_writer_profile'::regclass
-         AND ARRAY(SELECT attribute.attname FROM unnest(constraint_row.conkey) WITH ORDINALITY key_column(attnum,ordinality) JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.conrelid AND attribute.attnum=key_column.attnum ORDER BY key_column.ordinality)=ARRAY['source_id','profile_id','profile_sha256']
-         AND ARRAY(SELECT attribute.attname FROM unnest(constraint_row.confkey) WITH ORDINALITY key_column(attnum,ordinality) JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.confrelid AND attribute.attnum=key_column.attnum ORDER BY key_column.ordinality)=ARRAY['source_id','profile_id','profile_sha256']
+         AND ARRAY(SELECT attribute.attname::text FROM unnest(constraint_row.conkey) WITH ORDINALITY key_column(attnum,ordinality) JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.conrelid AND attribute.attnum=key_column.attnum ORDER BY key_column.ordinality)=ARRAY['source_id','profile_id','profile_sha256']
+         AND ARRAY(SELECT attribute.attname::text FROM unnest(constraint_row.confkey) WITH ORDINALITY key_column(attnum,ordinality) JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.confrelid AND attribute.attnum=key_column.attnum ORDER BY key_column.ordinality)=ARRAY['source_id','profile_id','profile_sha256']
      ) OR NOT EXISTS (
        SELECT 1 FROM pg_constraint constraint_row
        WHERE conrelid='private.reimport_batch'::regclass AND contype='f'
          AND confrelid='private.reimport_authorization'::regclass
-         AND ARRAY(SELECT attribute.attname FROM unnest(constraint_row.conkey) WITH ORDINALITY key_column(attnum,ordinality) JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.conrelid AND attribute.attnum=key_column.attnum ORDER BY key_column.ordinality)=ARRAY['authorization_id','source_id','profile_id','profile_sha256']
-         AND ARRAY(SELECT attribute.attname FROM unnest(constraint_row.confkey) WITH ORDINALITY key_column(attnum,ordinality) JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.confrelid AND attribute.attnum=key_column.attnum ORDER BY key_column.ordinality)=ARRAY['id','source_id','profile_id','profile_sha256']
+         AND ARRAY(SELECT attribute.attname::text FROM unnest(constraint_row.conkey) WITH ORDINALITY key_column(attnum,ordinality) JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.conrelid AND attribute.attnum=key_column.attnum ORDER BY key_column.ordinality)=ARRAY['authorization_id','source_id','profile_id','profile_sha256']
+         AND ARRAY(SELECT attribute.attname::text FROM unnest(constraint_row.confkey) WITH ORDINALITY key_column(attnum,ordinality) JOIN pg_attribute attribute ON attribute.attrelid=constraint_row.confrelid AND attribute.attnum=key_column.attnum ORDER BY key_column.ordinality)=ARRAY['id','source_id','profile_id','profile_sha256']
      ) THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_PROFILE_FOREIGN_KEYS_MISSING';
   END IF;
@@ -69,8 +69,15 @@ END $v1_gate$;
 \ir reimport-writer-v2-bootstrap.sql
 
 DO $profile_identity$
-DECLARE v_error text; v_before jsonb;
+DECLARE v_error text; v_before jsonb; v_authorizations_before bigint;
 BEGIN
+  INSERT INTO public.source(id,titel,udgave,slags)
+  VALUES(3,'Task 2 primary profile','fixture','DAA-udgave') ON CONFLICT(id) DO NOTHING;
+  INSERT INTO private.reimport_writer_profile
+    (source_id,profile_id,profile_version,profile_sha256,writer_config)
+  VALUES(3,'daa-1939-v50-production-write-v1','production-writer-v1',repeat('a',64),
+    '{"run_key_prefix":"fixture-1939:","schema_version":"fixture-v1","extractor_version":"fixture-v1","rendition_key":"fixture-rendition-3","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"observation_extraction_method":"human_reviewed","citation_label_template":"Fixture 1939 side {page_from}"}'::jsonb)
+  ON CONFLICT (source_id,profile_id,profile_sha256) DO NOTHING;
   IF NOT EXISTS (SELECT 1 FROM private.reimport_writer_profile WHERE source_id=3
       AND profile_id='daa-1939-v50-production-write-v1' AND profile_sha256=repeat('a',64)) THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_1939_PROFILE_MISSING';
@@ -87,6 +94,34 @@ BEGIN
   BEGIN DELETE FROM private.reimport_writer_profile WHERE source_id=-153002 AND profile_id='task-1-unreferenced-profile-v1'; EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
   IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_PROFILE_APPEND_ONLY'
      OR (SELECT to_jsonb(profile) FROM private.reimport_writer_profile profile WHERE source_id=-153002 AND profile_id='task-1-unreferenced-profile-v1') IS DISTINCT FROM v_before THEN RAISE EXCEPTION 'REIMPORT_WRITER_PROFILE_DELETE_ACCEPTED: %',v_error; END IF;
+  INSERT INTO public.source(id,titel,udgave,slags) VALUES(4,'Task 2 second profile','fixture','DAA-udgave') ON CONFLICT(id) DO NOTHING;
+  INSERT INTO private.reimport_writer_profile
+    (source_id,profile_id,profile_version,profile_sha256,writer_config)
+  VALUES
+    (3,'daa-1939-v50-production-write-v1','production-writer-v1',repeat('a',64),
+     '{"run_key_prefix":"fixture-1939:","schema_version":"fixture-v1","extractor_version":"fixture-v1","rendition_key":"fixture-rendition-3","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"observation_extraction_method":"human_reviewed","citation_label_template":"Fixture 1939 side {page_from}"}'::jsonb),
+    (4,'synthetic-second-profile-v1','synthetic-v1',repeat('b',64),
+     '{"run_key_prefix":"fixture-second:","schema_version":"fixture-v1","extractor_version":"fixture-v1","rendition_key":"fixture-rendition-4","rendition_kind":"ocr_text","rendition_metadata":{"edition":"synthetic"},"observation_extraction_method":"human_reviewed","citation_label_template":"Fixture second side {page_from}"}'::jsonb)
+  ON CONFLICT (source_id,profile_id,profile_sha256) DO NOTHING;
+  SELECT count(*) INTO v_authorizations_before FROM private.reimport_authorization;
+  v_error:=NULL;
+  BEGIN
+    PERFORM public.red_authorize_reimport(repeat('a',64),repeat('b',64),current_database(),3,
+      'daa-1939-v50-production-write-v1',repeat('c',64),'{}'::jsonb,'{}'::jsonb,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_PROFILE_INVALID'
+     OR (SELECT count(*) FROM private.reimport_authorization)<>v_authorizations_before THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_PROFILE_HASH_MISMATCH_ACCEPTED: %',v_error;
+  END IF;
+  v_error:=NULL;
+  BEGIN
+    PERFORM public.red_authorize_reimport(repeat('a',64),repeat('b',64),current_database(),4,
+      'daa-1939-v50-production-write-v1',repeat('a',64),'{}'::jsonb,'{}'::jsonb,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_PROFILE_INVALID'
+     OR (SELECT count(*) FROM private.reimport_authorization)<>v_authorizations_before THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_PROFILE_SOURCE_MISMATCH_ACCEPTED: %',v_error;
+  END IF;
 END $profile_identity$;
 
 DO $fixture_visible$

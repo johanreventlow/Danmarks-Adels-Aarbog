@@ -2,6 +2,54 @@
 
 -- Local, disposable #152 fixture. The artifacts are constructed in the same
 -- canonical shapes and passed through the real atomic cutover kernel.
+--
+-- Fresh Task 2 DDL deliberately does not retain the historical 1939 public
+-- writer wrappers. The #152 ACL kernel still inventories their exact old
+-- signatures while executing cutover. Supply disabled, private-to-this-test
+-- shims only for signatures that the fresh fixture lacks; they cannot perform
+-- a write, expose no client EXECUTE privilege, and are removed again below.
+CREATE TEMP TABLE pg_temp.reimport_writer_v2_fixture_shims (
+  signature text PRIMARY KEY
+) ON COMMIT DROP;
+
+DO $fixture_legacy_signature_shims$
+DECLARE
+  v_signature text;
+BEGIN
+  FOREACH v_signature IN ARRAY ARRAY[
+    'public.red_publicer_narrative_record(bigint,uuid,text,text)',
+    'public.red_tilbagetraek_narrative_record(bigint)',
+    'public.red_begin_1939_v50_reimport(uuid,text,text)',
+    'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_person_create(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',
+    'public.red_finalize_1939_v50_reimport(uuid)',
+    'public.red_reverse_1939_v50_reimport(uuid,uuid)',
+    'public.red_activate_1939_v50_batch(uuid,uuid)',
+    'public.red_apply_reimport_cases(uuid,text,text)',
+    'public.red_reverse_reimport_cases(uuid,uuid)',
+    'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)',
+    'public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NULL THEN
+      EXECUTE format(
+        'CREATE FUNCTION %s RETURNS void LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $shim$ BEGIN RAISE EXCEPTION ''NARRATIVE_RECORD_LEGACY_WRITER_DISABLED''; END $shim$',
+        v_signature
+      );
+      EXECUTE format(
+        'REVOKE ALL ON FUNCTION %s FROM PUBLIC,anon,authenticated,service_role',
+        v_signature
+      );
+      INSERT INTO pg_temp.reimport_writer_v2_fixture_shims(signature)
+      VALUES(v_signature);
+    END IF;
+  END LOOP;
+END
+$fixture_legacy_signature_shims$;
+
 DO $v2fixture$
 DECLARE
   v_actor uuid := '15300000-0000-4000-8000-000000000001';
@@ -46,3 +94,53 @@ BEGIN
     RAISE EXCEPTION 'REIMPORT_WRITER_V2_BOOTSTRAP_RECEIPT_MISSING';
   END IF;
 END $v2fixture$;
+
+DO $fixture_legacy_signature_guards$
+DECLARE
+  v_signature text; v_error text; v_function_name text; v_arguments text;
+BEGIN
+  FOR v_signature IN
+    SELECT signature FROM pg_temp.reimport_writer_v2_fixture_shims ORDER BY signature
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_proc procedure_row
+       WHERE procedure_row.oid=to_regprocedure(v_signature)
+         AND procedure_row.proowner=(SELECT oid FROM pg_roles WHERE rolname=current_user)
+    ) THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_V2_FIXTURE_SHIM_OWNER_INVALID: %',v_signature;
+    END IF;
+    IF has_function_privilege('anon',v_signature,'EXECUTE')
+       OR has_function_privilege('authenticated',v_signature,'EXECUTE')
+       OR has_function_privilege('service_role',v_signature,'EXECUTE') THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_V2_FIXTURE_SHIM_CLIENT_EXECUTE: %',v_signature;
+    END IF;
+    v_function_name:=regexp_replace(v_signature,'\(.*$','');
+    v_arguments:=regexp_replace(
+      regexp_replace(v_signature,'^.*\((.*)\)$','\1'),
+      '([^,]+)','NULL::\1','g'
+    );
+    v_error:=NULL;
+    BEGIN
+      EXECUTE format('SELECT %s(%s)',v_function_name,v_arguments);
+    EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+    END;
+    IF v_error IS DISTINCT FROM 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED' THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_V2_FIXTURE_SHIM_OWNER_GUARD: %: %',v_signature,v_error;
+    END IF;
+  END LOOP;
+END
+$fixture_legacy_signature_guards$;
+
+DO $fixture_legacy_signature_cleanup$
+DECLARE v_signature text;
+BEGIN
+  FOR v_signature IN
+    SELECT signature FROM pg_temp.reimport_writer_v2_fixture_shims ORDER BY signature
+  LOOP
+    EXECUTE format('DROP FUNCTION %s',v_signature);
+    IF to_regprocedure(v_signature) IS NOT NULL THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_V2_FIXTURE_SHIM_REMAINS: %',v_signature;
+    END IF;
+  END LOOP;
+END
+$fixture_legacy_signature_cleanup$;

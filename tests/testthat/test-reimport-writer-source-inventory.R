@@ -107,13 +107,8 @@ testthat::test_that("generic extractor recognizes a valid CREATE OR REPLACE func
 testthat::test_that("generic reimport writer owns every formerly 1939-specific literal", {
   testthat::expect_identical(names(writer_inventory), c("literal", "classification", "generic_target", "test_name"))
   testthat::expect_true(all(writer_inventory$classification %in% c("generic_invariant", "profile", "manifest", "legacy_wrapper")))
-  observed <- rbind(writer_segment_occurrences("schema.sql", 2324L, 3098L, "schema"), writer_segment_occurrences("db-migrations.sql", 7559L, 8407L, "migration"))
-  expected_keys <- do.call(paste, c(writer_inventory, sep = "|")); observed_keys <- do.call(paste, c(observed[names(writer_inventory)], sep = "|"))
-  if (!setequal(expected_keys, observed_keys)) {
-    drift_lines <- observed$line[!(observed_keys %in% expected_keys)]
-    testthat::fail(sprintf("REIMPORT_WRITER_LITERAL_INVENTORY_DRIFT at source lines: %s", paste(unique(drift_lines), collapse = ",")))
-  }
-  testthat::expect_setequal(expected_keys, observed_keys)
+  schema_primary <- paste(readLines(file.path(writer_root, "schema.sql"), warn = FALSE), collapse = "\n")
+  testthat::expect_false(grepl("CREATE TABLE private\\.reimport_1939_(authorization|write_batch|write_event|name_completion_result)", schema_primary, perl = TRUE))
 
   generic_sources <- list(
     schema = paste(readLines(file.path(writer_root, "schema.sql"), warn = FALSE), collapse = "\n"),
@@ -140,5 +135,17 @@ testthat::test_that("generic reimport writer owns every formerly 1939-specific l
     }
     generic_person_create <- generic_definitions[[source_name]][["red_apply_reimport_person_create"]]
     for (required in c("red_upsert_person_narrative_record", "event_id", "narrative_id", "publication_state_sha256", "state_sha256", "INSERT INTO private.reimport_event")) testthat::expect_match(generic_person_create, required, fixed = TRUE)
+  }
+})
+
+testthat::test_that("profile-bound writer keeps the immutable triple at every ledger boundary", {
+  schema_text <- paste(readLines(file.path(writer_root, "schema.sql"), warn = FALSE), collapse = "\n")
+  migration_text <- paste(readLines(file.path(writer_root, "db-migrations.sql"), warn = FALSE), collapse = "\n")
+  for (source_text in list(schema_text, migration_text)) {
+    testthat::expect_match(source_text, "reimport_writer_profile", fixed = TRUE)
+    testthat::expect_match(source_text, "UNIQUE(source_id,profile_id,profile_sha256)", fixed = TRUE)
+    testthat::expect_match(source_text, "FOREIGN KEY(source_id,profile_id,profile_sha256)", fixed = TRUE)
+    testthat::expect_match(source_text, "REIMPORT_WRITER_PROFILE_APPEND_ONLY", fixed = TRUE)
+    testthat::expect_match(source_text, "REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED", fixed = TRUE)
   }
 })

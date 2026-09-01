@@ -1129,3 +1129,30 @@ GRANT EXECUTE ON FUNCTION
 SELECT private.apply_narrative_record_contract_acl(
   public.narrative_record_contract_version()
 );
+
+-- #153 generic profile-bound writer: no table/helper capability is exposed.
+ALTER TABLE private.reimport_writer_profile ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_authorization ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_batch ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_event ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_name_completion_result ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON private.reimport_writer_profile,private.reimport_authorization,
+  private.reimport_batch,private.reimport_event,private.reimport_name_completion_result
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION private.reject_reimport_writer_mutation(),
+  private.require_reimport_writer_editor(),private.require_reimport_open_batch(uuid),
+  private.ensure_reimport_source_evidence(uuid,text,jsonb)
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),
+  public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),
+  public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_finalize_reimport(uuid),
+  public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_reverse_reimport(uuid,uuid),
+  public.red_authorize_reimport_cutover(uuid,uuid,timestamptz),public.red_activate_reimport_batch(uuid,uuid)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),
+  public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_authorize_reimport_cutover(uuid,uuid,timestamptz)
+  TO service_role;
+GRANT EXECUTE ON FUNCTION public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),
+  public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_finalize_reimport(uuid),
+  public.red_reverse_reimport(uuid,uuid),public.red_activate_reimport_batch(uuid,uuid)
+  TO authenticated;
