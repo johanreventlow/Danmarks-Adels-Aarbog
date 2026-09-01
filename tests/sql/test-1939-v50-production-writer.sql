@@ -2,10 +2,17 @@
 
 DO $test$
 BEGIN
-  IF to_regclass('private.reimport_1939_authorization') IS NULL
-     OR to_regclass('private.reimport_1939_write_batch') IS NULL
-     OR to_regclass('private.reimport_1939_write_event') IS NULL THEN
-    RAISE EXCEPTION 'REIMPORT_1939_WRITER_CONTRACT_MISSING';
+  IF (SELECT relkind FROM pg_class WHERE oid='private.reimport_1939_authorization'::regclass)<>'v'
+     OR (SELECT relkind FROM pg_class WHERE oid='private.reimport_1939_write_batch'::regclass)<>'v'
+     OR (SELECT relkind FROM pg_class WHERE oid='private.reimport_1939_write_event'::regclass)<>'v' THEN
+    RAISE EXCEPTION 'REIMPORT_1939_FACADE_VIEW_REQUIRED';
+  END IF;
+  IF to_regprocedure('public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz)') IS NULL
+     OR strpos(pg_get_functiondef('public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)'::regprocedure),'red_authorize_reimport')=0
+     OR strpos(pg_get_functiondef('public.red_begin_1939_v50_reimport(uuid,text,text)'::regprocedure),'red_begin_reimport')=0
+     OR strpos(pg_get_functiondef('public.red_apply_1939_v50_person_create(uuid,text,jsonb)'::regprocedure),'red_apply_reimport_person_create')=0
+     OR strpos(pg_get_functiondef('public.red_finalize_1939_v50_reimport(uuid)'::regprocedure),'red_finalize_reimport')=0 THEN
+    RAISE EXCEPTION 'REIMPORT_1939_FACADE_GENERIC_WRITER_MISSING';
   END IF;
 END $test$;
 
@@ -35,6 +42,12 @@ BEGIN
     jsonb_build_object('source-evidence:fixture',v_source_payload,'person-create:record-fixture',v_person_payload),
     '22222222-2222-4222-8222-222222222222',clock_timestamp()+interval '5 minutes');
   v_batch := public.red_begin_1939_v50_reimport(v_auth,repeat('a',64),repeat('b',64));
+  IF NOT EXISTS (SELECT 1 FROM private.reimport_authorization WHERE id=v_auth AND source_id=3
+      AND profile_id='daa-1939-v50-production-write-v1' AND profile_sha256=repeat('a',64))
+     OR NOT EXISTS (SELECT 1 FROM private.reimport_batch WHERE id=v_batch AND authorization_id=v_auth
+      AND source_id=3 AND profile_id='daa-1939-v50-production-write-v1' AND profile_sha256=repeat('a',64)) THEN
+    RAISE EXCEPTION 'REIMPORT_1939_FACADE_PROFILE_PARITY_FAILED';
+  END IF;
   BEGIN
     PERFORM public.red_apply_1939_v50_source_evidence(v_batch,'source-evidence:fixture',v_source_payload||'{"verbatim_text":"tampered"}'::jsonb);
     RAISE EXCEPTION 'REIMPORT_1939_TAMPERED_PAYLOAD_ACCEPTED';

@@ -21,8 +21,14 @@ DECLARE
   v_person bigint; v_record text; v_persona uuid; v_name text; v_page integer; v_element text;
   v_index integer; v_busy integer; v_temp_fact bigint;
 BEGIN
-  IF to_regclass('private.reimport_1939_name_completion_result') IS NULL THEN
-    RAISE EXCEPTION 'NAME_COMPLETION_1939_RESULT_TABLE_MISSING';
+  IF (SELECT relkind FROM pg_class WHERE oid='private.reimport_1939_name_completion_result'::regclass)<>'v' THEN
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_FACADE_VIEW_REQUIRED';
+  END IF;
+  IF to_regprocedure('public.red_authorize_reimport_name_completion(text,uuid,text,text,jsonb,jsonb)') IS NULL
+     OR strpos(pg_get_functiondef('public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)'::regprocedure),'red_authorize_reimport_name_completion')=0
+     OR strpos(pg_get_functiondef('public.red_apply_1939_v50_name_completion(uuid,text,jsonb)'::regprocedure),'red_apply_reimport_name_completion')=0
+     OR strpos(pg_get_functiondef('public.red_finalize_1939_v50_name_completion(uuid)'::regprocedure),'red_finalize_reimport_name_completion')=0 THEN
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_FACADE_GENERIC_WRITER_MISSING';
   END IF;
   IF to_regprocedure('public.red_lock_1939_v50_name_completion(text)') IS NULL
      OR to_regprocedure('public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)') IS NULL
@@ -45,6 +51,12 @@ BEGIN
   VALUES(v_source_batch,v_source_auth,repeat('a',64),repeat('b',64),v_actor,'finalized',
     '{"person_creates":8,"source_evidence":0,"canonical_delta":0}'::jsonb,
     '{"person_creates":8,"source_evidence":0,"canonical_delta":0}'::jsonb,clock_timestamp());
+  IF NOT EXISTS (SELECT 1 FROM private.reimport_authorization WHERE id=v_source_auth AND source_id=3
+      AND profile_id='daa-1939-v50-production-write-v1' AND profile_sha256=repeat('a',64))
+     OR NOT EXISTS (SELECT 1 FROM private.reimport_batch WHERE id=v_source_batch AND authorization_id=v_source_auth
+      AND source_id=3 AND profile_id='daa-1939-v50-production-write-v1' AND profile_sha256=repeat('a',64)) THEN
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_FACADE_PROFILE_PARITY_FAILED';
+  END IF;
 
   FOR v_index IN 1..8 LOOP
     v_person := 1845 + v_index;
