@@ -450,6 +450,23 @@ BEGIN
     RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_TWO_PROFILE_POSTACTIVATION_RECEIPT_INVALID';
   END IF;
   v_reversal_a:=public.red_authorize_reimport_reversal((a->>'source_batch_id')::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  v_error:=NULL;
+  BEGIN
+    PERFORM public.red_reverse_reimport((b->>'source_batch_id')::uuid,v_reversal_a);
+  EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_REVERSAL_INVALID'
+     OR EXISTS(SELECT 1 FROM private.reimport_batch
+                WHERE id IN((a->>'source_batch_id')::uuid,(b->>'source_batch_id')::uuid)
+                  AND status<>'activated')
+     OR EXISTS(SELECT 1
+                 FROM private.narrative_record_publication binding
+                 JOIN public.narrative narrative ON narrative.id=binding.narrative_id
+                WHERE binding.status='withdrawn'
+                  AND narrative.subjekt_type='person'
+                  AND narrative.subjekt_id=(b->>'person_id')::bigint) THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_CROSS_PROFILE_REVERSAL_ACCEPTED: %',v_error;
+  END IF;
   v_reversal_b:=public.red_authorize_reimport_reversal((b->>'source_batch_id')::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
   v_reverse_a:=public.red_reverse_reimport((a->>'source_batch_id')::uuid,v_reversal_a);
   v_reverse_b:=public.red_reverse_reimport((b->>'source_batch_id')::uuid,v_reversal_b);
