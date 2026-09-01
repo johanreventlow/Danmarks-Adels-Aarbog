@@ -104,6 +104,24 @@ testthat::test_that("generic extractor recognizes a valid CREATE OR REPLACE func
   testthat::expect_match(extract_public_function(fixture, "red_fixture"), "red_fixture", fixed = TRUE)
 })
 
+testthat::test_that("Task 1 literal inventory retains exact schema and migration classification coverage", {
+  segment_counts <- table(writer_inventory_groups$segment)
+  testthat::expect_identical(names(segment_counts), c("migration", "schema"))
+  testthat::expect_identical(unname(as.integer(segment_counts)), c(34L, 19L))
+  classification_counts <- table(writer_inventory$classification)
+  testthat::expect_identical(names(classification_counts), c("generic_invariant", "legacy_wrapper", "manifest", "profile"))
+  testthat::expect_identical(unname(as.integer(classification_counts)), c(12L, 13L, 71L, 17L))
+  testthat::expect_identical(
+    writer_literal_rules[, c("literal", "classification", "generic_target")],
+    data.frame(
+      literal = c("source_id_3", "sr_source_id_not_3", "sp_source_id_not_3", "equals_8", "not_equals_8", "citation_label", "run_key", "name_completion_lock"),
+      classification = c("profile", "generic_invariant", "generic_invariant", "manifest", "manifest", "profile", "manifest", "legacy_wrapper"),
+      generic_target = c("source_id", "source_profile_validation", "source_profile_validation", "expected_counts", "expected_counts", "citation_label_template", "run_key_prefix", "generic_name_completion_lock"),
+      stringsAsFactors = FALSE
+    )
+  )
+})
+
 testthat::test_that("generic reimport writer owns every formerly 1939-specific literal", {
   testthat::expect_identical(names(writer_inventory), c("literal", "classification", "generic_target", "test_name"))
   testthat::expect_true(all(writer_inventory$classification %in% c("generic_invariant", "profile", "manifest", "legacy_wrapper")))
@@ -148,4 +166,18 @@ testthat::test_that("profile-bound writer keeps the immutable triple at every le
     testthat::expect_match(source_text, "REIMPORT_WRITER_PROFILE_APPEND_ONLY", fixed = TRUE)
     testthat::expect_match(source_text, "REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED", fixed = TRUE)
   }
+})
+
+testthat::test_that("migration writer keeps fresh-equivalent finalize, replay, and helper ACL guards", {
+  migration_text <- paste(readLines(file.path(writer_root, "db-migrations.sql"), warn = FALSE), collapse = "\n")
+  migration_begin <- extract_public_function(migration_text, "red_begin_reimport")
+  migration_finalize <- extract_public_function(migration_text, "red_finalize_reimport")
+  testthat::expect_match(migration_begin, "private.require_reimport_writer_editor", fixed = TRUE)
+  testthat::expect_match(migration_begin, "profile_sha256=a.profile_sha256", fixed = TRUE)
+  testthat::expect_match(migration_begin, "status='finalized'", fixed = TRUE)
+  testthat::expect_match(migration_finalize, "private.require_reimport_open_batch", fixed = TRUE)
+  testthat::expect_match(migration_finalize, "REIMPORT_WRITER_FINALIZE_COUNT_MISMATCH", fixed = TRUE)
+  testthat::expect_match(migration_text, "private.ensure_reimport_source_evidence(uuid,text,jsonb)", fixed = TRUE)
+  testthat::expect_match(migration_text, "private.require_reimport_open_batch(uuid)", fixed = TRUE)
+  testthat::expect_match(migration_text, "FROM PUBLIC,anon,authenticated,service_role", fixed = TRUE)
 })

@@ -709,6 +709,28 @@ BEGIN
     'public.red_vaelg_foraeldre(bigint,text)'
   ] LOOP
     IF to_regprocedure(v_signature) IS NULL THEN
+      IF v_signature IN (
+        'public.red_activate_1939_v50_batch(uuid,uuid)',
+        'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',
+        'public.red_apply_1939_v50_name_completion(uuid,text,jsonb)',
+        'public.red_apply_1939_v50_person_create(uuid,text,jsonb)',
+        'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)',
+        'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)',
+        'public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)',
+        'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)',
+        'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)',
+        'public.red_begin_1939_v50_name_completion(uuid,text,uuid)',
+        'public.red_begin_1939_v50_reimport(uuid,text,text)',
+        'public.red_finalize_1939_v50_name_completion(uuid)',
+        'public.red_finalize_1939_v50_reimport(uuid)',
+        'public.red_lock_1939_v50_name_completion(text)',
+        'public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)',
+        'public.red_publicer_narrative_record(bigint,uuid,text,text)',
+        'public.red_reverse_1939_v50_reimport(uuid,uuid)',
+        'public.red_tilbagetraek_narrative_record(bigint)'
+      ) THEN
+        CONTINUE;
+      END IF;
       RAISE EXCEPTION 'RLS_REDACTION_RPC_ALLOW_LIST_SIGNATURE_MISSING: %',v_signature;
     END IF;
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated',v_signature);
@@ -984,56 +1006,66 @@ USING (
   END
 );
 
--- DAA 1939 v50 production-writer: private journal state is never a client table.
-ALTER TABLE private.reimport_1939_authorization ENABLE ROW LEVEL SECURITY;
-ALTER TABLE private.reimport_1939_write_batch ENABLE ROW LEVEL SECURITY;
-ALTER TABLE private.reimport_1939_write_event ENABLE ROW LEVEL SECURITY;
-ALTER TABLE private.reimport_1939_name_completion_result ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON private.reimport_1939_authorization,private.reimport_1939_write_batch,
-  private.reimport_1939_write_event,private.reimport_1939_name_completion_result FROM PUBLIC,anon,authenticated;
-REVOKE ALL ON FUNCTION private.reject_reimport_1939_event_mutation(),
-  private.require_reimport_1939_editor(),private.require_reimport_1939_open_batch(uuid),
-  private.ensure_reimport_1939_source_evidence(uuid,text,jsonb)
-  FROM PUBLIC,anon,authenticated;
-REVOKE ALL ON FUNCTION public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz),
-  public.red_begin_1939_v50_reimport(uuid,text,text),
-  public.red_apply_1939_v50_source_evidence(uuid,text,jsonb),
-  public.red_apply_1939_v50_person_create(uuid,text,jsonb),
-  public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb),
-  public.red_finalize_1939_v50_reimport(uuid),
-  public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz),
-  public.red_reverse_1939_v50_reimport(uuid,uuid),
-  public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz),
-  public.red_activate_1939_v50_batch(uuid,uuid)
-  FROM PUBLIC,anon,authenticated;
-REVOKE ALL ON FUNCTION private.reimport_1939_canonical_json_text(jsonb),
-  private.reimport_1939_canonical_json_sha256(jsonb),
-  private.validate_reimport_1939_name_completion(uuid,uuid,text,jsonb),
-  public.red_lock_1939_v50_name_completion(text),
-  public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb),
-  public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb),
-  public.red_begin_1939_v50_name_completion(uuid,text,uuid),
-  public.red_apply_1939_v50_name_completion(uuid,text,jsonb),
-  public.red_finalize_1939_v50_name_completion(uuid)
-  FROM PUBLIC,anon,authenticated;
-GRANT EXECUTE ON FUNCTION public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz),
-  public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz),
-  public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)
-  TO service_role;
-GRANT EXECUTE ON FUNCTION public.red_begin_1939_v50_reimport(uuid,text,text),
-  public.red_apply_1939_v50_source_evidence(uuid,text,jsonb),
-  public.red_apply_1939_v50_person_create(uuid,text,jsonb),
-  public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb),
-  public.red_finalize_1939_v50_reimport(uuid),
-  public.red_reverse_1939_v50_reimport(uuid,uuid),
-  public.red_activate_1939_v50_batch(uuid,uuid)
-  TO authenticated;
-GRANT EXECUTE ON FUNCTION public.red_lock_1939_v50_name_completion(text),
-  public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb),
-  public.red_begin_1939_v50_name_completion(uuid,text,uuid),
-  public.red_apply_1939_v50_name_completion(uuid,text,jsonb),
-  public.red_finalize_1939_v50_name_completion(uuid)
-  TO authenticated;
+-- DAA 1939 v50 production-writer may only exist before the #153 rename. Keep
+-- its historical ACLs fail-closed when present, but never make current generic
+-- fresh installs depend on removed relations or wrappers.
+DO $legacy_1939_writer_acl$
+DECLARE v_relation text; v_signature text;
+BEGIN
+  FOREACH v_relation IN ARRAY ARRAY[
+    'private.reimport_1939_authorization','private.reimport_1939_write_batch',
+    'private.reimport_1939_write_event','private.reimport_1939_name_completion_result'
+  ] LOOP
+    IF to_regclass(v_relation) IS NOT NULL THEN
+      EXECUTE format('ALTER TABLE %s ENABLE ROW LEVEL SECURITY',v_relation);
+      EXECUTE format('REVOKE ALL ON TABLE %s FROM PUBLIC,anon,authenticated,service_role',v_relation);
+    END IF;
+  END LOOP;
+  FOREACH v_signature IN ARRAY ARRAY[
+    'private.reject_reimport_1939_event_mutation()',
+    'private.require_reimport_1939_editor()',
+    'private.require_reimport_1939_open_batch(uuid)',
+    'private.ensure_reimport_1939_source_evidence(uuid,text,jsonb)',
+    'private.reimport_1939_canonical_json_text(jsonb)',
+    'private.reimport_1939_canonical_json_sha256(jsonb)',
+    'private.validate_reimport_1939_name_completion(uuid,uuid,text,jsonb)'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NOT NULL THEN
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC,anon,authenticated,service_role',v_signature);
+    END IF;
+  END LOOP;
+  FOREACH v_signature IN ARRAY ARRAY[
+    'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NOT NULL THEN
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC,anon,authenticated,service_role',v_signature);
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role',v_signature);
+    END IF;
+  END LOOP;
+  FOREACH v_signature IN ARRAY ARRAY[
+    'public.red_begin_1939_v50_reimport(uuid,text,text)',
+    'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_person_create(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',
+    'public.red_finalize_1939_v50_reimport(uuid)',
+    'public.red_reverse_1939_v50_reimport(uuid,uuid)',
+    'public.red_activate_1939_v50_batch(uuid,uuid)',
+    'public.red_lock_1939_v50_name_completion(text)',
+    'public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)',
+    'public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)',
+    'public.red_begin_1939_v50_name_completion(uuid,text,uuid)',
+    'public.red_apply_1939_v50_name_completion(uuid,text,jsonb)',
+    'public.red_finalize_1939_v50_name_completion(uuid)'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NOT NULL THEN
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC,anon,authenticated,service_role',v_signature);
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated',v_signature);
+    END IF;
+  END LOOP;
+END
+$legacy_1939_writer_acl$;
 
 -- C3 apply plan Task 5: generic reimport case ledger. No RPCs exist yet (Task 6
 -- builds those against service_role/authenticated); until then the ledger has
@@ -1125,10 +1157,33 @@ GRANT EXECUTE ON FUNCTION
   TO anon,authenticated;
 
 -- #152 Task 7: one version-aware ACL source of truth is applied after every
--- historical grant block. The cutover kernel calls the same helper atomically.
-SELECT private.apply_narrative_record_contract_acl(
-  public.narrative_record_contract_version()
-);
+-- historical grant block. A fresh #153 schema intentionally lacks legacy
+-- public wrappers; its test-only cutover fixture supplies disabled signatures
+-- transactionally. Do not make the durable ACL script recreate those wrappers.
+DO $narrative_contract_acl_if_complete$
+DECLARE v_signature text; v_complete boolean:=true;
+BEGIN
+  FOREACH v_signature IN ARRAY ARRAY[
+    'public.red_begin_1939_v50_reimport(uuid,text,text)',
+    'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_person_create(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',
+    'public.red_finalize_1939_v50_reimport(uuid)',
+    'public.red_reverse_1939_v50_reimport(uuid,uuid)',
+    'public.red_activate_1939_v50_batch(uuid,uuid)',
+    'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)'
+  ] LOOP
+    v_complete:=v_complete AND to_regprocedure(v_signature) IS NOT NULL;
+  END LOOP;
+  IF v_complete THEN
+    PERFORM private.apply_narrative_record_contract_acl(
+      public.narrative_record_contract_version()
+    );
+  END IF;
+END
+$narrative_contract_acl_if_complete$;
 
 -- #153 generic profile-bound writer: no table/helper capability is exposed.
 ALTER TABLE private.reimport_writer_profile ENABLE ROW LEVEL SECURITY;

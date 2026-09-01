@@ -124,6 +124,89 @@ BEGIN
   END IF;
 END $profile_identity$;
 
+DO $migration_writer_behavior$
+DECLARE
+  v_actor uuid:='15300000-0000-4000-8000-000000000001';
+  v_other_actor uuid:='15300000-0000-4000-8000-000000000006';
+  v_authorization uuid; v_replay_authorization uuid; v_batch uuid; v_replay_batch uuid;
+  v_source_payload jsonb; v_elements jsonb; v_error text;
+  v_observations_before bigint; v_batches_before bigint; v_direct_denied boolean:=false;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  v_source_payload:=jsonb_build_object(
+    'disposition','retain_source_only','source_record_key','migration-behavior-source-153',
+    'source_span',jsonb_build_object('char_from',0,'char_to',28),
+    'page_evidence',jsonb_build_object('page_from',1,'page_to',1),
+    'verbatim_text','migration source evidence 153',
+    'rendition_content_sha256',repeat('1',64)
+  );
+  v_elements:=jsonb_build_object('source-evidence:migration-153',v_source_payload);
+  IF has_function_privilege('anon','private.ensure_reimport_source_evidence(uuid,text,jsonb)','EXECUTE')
+     OR has_function_privilege('authenticated','private.ensure_reimport_source_evidence(uuid,text,jsonb)','EXECUTE')
+     OR has_function_privilege('service_role','private.ensure_reimport_source_evidence(uuid,text,jsonb)','EXECUTE') THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_SOURCE_HELPER_ACL_LEAK';
+  END IF;
+  v_authorization:=public.red_authorize_reimport(
+    repeat('1',64),repeat('2',64),current_database(),3,
+    'daa-1939-v50-production-write-v1',repeat('a',64),
+    '{"person_creates":0,"source_evidence":1}'::jsonb,v_elements,
+    '15300000-0000-4000-8000-000000000008',clock_timestamp()+interval '5 minutes'
+  );
+  v_batch:=public.red_begin_reimport(v_authorization,repeat('1',64),repeat('2',64));
+  SELECT count(*) INTO v_observations_before FROM private.source_observation;
+  BEGIN
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    BEGIN
+      PERFORM private.ensure_reimport_source_evidence(v_batch,'source-evidence:migration-153',v_source_payload);
+    EXCEPTION WHEN insufficient_privilege THEN
+      v_direct_denied:=true;
+    END;
+    EXECUTE 'RESET ROLE';
+  EXCEPTION WHEN OTHERS THEN
+    EXECUTE 'RESET ROLE';
+    RAISE;
+  END;
+  IF NOT v_direct_denied
+     OR (SELECT count(*) FROM private.source_observation)<>v_observations_before THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_SOURCE_HELPER_DIRECT_WRITE_ACCEPTED';
+  END IF;
+  v_error:=NULL;
+  BEGIN PERFORM public.red_finalize_reimport(v_batch); EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_FINALIZE_COUNT_MISMATCH'
+     OR (SELECT status FROM private.reimport_batch WHERE id=v_batch)<>'open' THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_FINALIZE_COUNT_GUARD_INVALID: %',v_error;
+  END IF;
+  INSERT INTO auth.users(id,email) VALUES(v_other_actor,'migration-other-editor@example.invalid') ON CONFLICT(id) DO NOTHING;
+  INSERT INTO public.profiles(id,email,rolle,navn)
+  VALUES(v_other_actor,'migration-other-editor@example.invalid','redaktion','Migration other editor')
+  ON CONFLICT(id) DO UPDATE SET rolle='redaktion',navn='Migration other editor';
+  PERFORM set_config('request.jwt.claim.sub',v_other_actor::text,true);
+  v_error:=NULL;
+  BEGIN PERFORM public.red_finalize_reimport(v_batch); EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_BATCH_INVALID'
+     OR (SELECT status FROM private.reimport_batch WHERE id=v_batch)<>'open' THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_FINALIZE_OWNER_GUARD_INVALID: %',v_error;
+  END IF;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  PERFORM public.red_apply_reimport_source_evidence(v_batch,'source-evidence:migration-153',v_source_payload);
+  IF (public.red_finalize_reimport(v_batch)->>'status')<>'finalized' THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_FINALIZE_FAILED';
+  END IF;
+  SELECT count(*) INTO v_batches_before FROM private.reimport_batch;
+  v_replay_authorization:=public.red_authorize_reimport(
+    repeat('1',64),repeat('2',64),current_database(),3,
+    'daa-1939-v50-production-write-v1',repeat('a',64),
+    '{"person_creates":0,"source_evidence":1}'::jsonb,v_elements,
+    '15300000-0000-4000-8000-000000000009',clock_timestamp()+interval '5 minutes'
+  );
+  v_replay_batch:=public.red_begin_reimport(v_replay_authorization,repeat('1',64),repeat('2',64));
+  IF v_replay_batch IS DISTINCT FROM v_batch
+     OR (SELECT count(*) FROM private.reimport_batch)<>v_batches_before
+     OR (SELECT status FROM private.reimport_authorization WHERE id=v_replay_authorization)<>'consumed' THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_FINALIZED_REPLAY_INVALID';
+  END IF;
+END $migration_writer_behavior$;
+
 DO $fixture_visible$
 BEGIN
   IF public.narrative_record_contract_version()<>2
