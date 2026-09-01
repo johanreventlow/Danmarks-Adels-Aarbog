@@ -52,7 +52,6 @@ not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_bat
 not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/009
 sr_source_id_not_3|generic_invariant|source_profile_validation|migration/public.red_activate_1939_v50_batch#2/sr_source_id_not_3/001
 sp_source_id_not_3|generic_invariant|source_profile_validation|migration/public.red_activate_1939_v50_batch#2/sp_source_id_not_3/001
-not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/001
 name_completion_lock|legacy_wrapper|generic_name_completion_lock|migration/public.red_reverse_1939_v50_reimport#3/name_completion_lock/001
 not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#3/not_equals_8/001
 not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#3/not_equals_8/002
@@ -77,7 +76,6 @@ not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_bat
 not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/009
 sr_source_id_not_3|generic_invariant|source_profile_validation|migration/public.red_activate_1939_v50_batch#3/sr_source_id_not_3/001
 sp_source_id_not_3|generic_invariant|source_profile_validation|migration/public.red_activate_1939_v50_batch#3/sp_source_id_not_3/001
-not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/001
 not_equals_8|manifest|expected_counts|migration/public.red_finalize_1939_v50_name_completion#2/not_equals_8/001
 name_completion_lock|legacy_wrapper|generic_name_completion_lock|migration/private.validate_reimport_1939_name_completion#2/name_completion_lock/001
 not_equals_8|manifest|expected_counts|migration/private.validate_reimport_1939_name_completion#2/not_equals_8/001
@@ -128,18 +126,26 @@ testthat::test_that("Task 1 literal inventory exactly covers the designated sche
   key_columns <- c("literal", "classification", "generic_target", "test_name")
   expected_keys <- do.call(paste, c(writer_expected_inventory[key_columns], sep = "|"))
   observed_keys <- do.call(paste, c(observed[key_columns], sep = "|"))
-  missing_keys <- setdiff(expected_keys, observed_keys)
-  unexpected_keys <- setdiff(observed_keys, expected_keys)
+  all_keys <- sort(unique(c(expected_keys, observed_keys)))
+  expected_counts <- tabulate(match(expected_keys, all_keys), nbins = length(all_keys))
+  observed_counts <- tabulate(match(observed_keys, all_keys), nbins = length(all_keys))
+  names(expected_counts) <- all_keys
+  names(observed_counts) <- all_keys
+  mismatched_keys <- all_keys[expected_counts != observed_counts]
 
-  if (length(missing_keys) || length(unexpected_keys)) {
+  if (length(mismatched_keys)) {
     testthat::fail(paste(
       "writer literal inventory drift",
-      if (length(missing_keys)) paste("missing:", paste(missing_keys, collapse = ", ")),
-      if (length(unexpected_keys)) paste("unexpected:", paste(unexpected_keys, collapse = ", ")),
+      paste(sprintf(
+        "%s (expected %d, observed %d)",
+        mismatched_keys,
+        expected_counts[mismatched_keys],
+        observed_counts[mismatched_keys]
+      ), collapse = "\n"),
       sep = "\n"
     ))
   }
-  testthat::expect_setequal(observed_keys, expected_keys)
+  testthat::expect_identical(observed_counts, expected_counts)
 })
 
 testthat::test_that("generic reimport writer owns every formerly 1939-specific literal", {
