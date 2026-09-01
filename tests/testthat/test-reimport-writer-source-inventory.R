@@ -9,50 +9,83 @@ writer_literal_rules <- data.frame(
   stringsAsFactors = FALSE
 )
 
-writer_inventory_groups <- read.table(text = "
-schema private.reject_reimport_writer_mutation#1 citation_label 1
-schema private.reject_reimport_writer_mutation#1 run_key 1
-migration private.ensure_reimport_1939_source_evidence#1 run_key 2
-migration public.red_apply_1939_v50_person_create#1 citation_label 1
-migration public.red_reverse_1939_v50_reimport#1 run_key 1
-migration private.validate_reimport_1939_name_completion#1 name_completion_lock 1
-migration private.validate_reimport_1939_name_completion#1 not_equals_8 2
-migration private.validate_reimport_1939_name_completion#1 source_id_3 3
-migration public.red_lock_1939_v50_name_completion#1 name_completion_lock 1
-migration public.red_apply_1939_v50_name_completion#1 name_completion_lock 1
-migration public.red_apply_1939_v50_name_completion#1 source_id_3 3
-migration public.red_finalize_1939_v50_name_completion#1 not_equals_8 1
-migration public.red_reverse_1939_v50_reimport#2 name_completion_lock 1
-migration public.red_reverse_1939_v50_reimport#2 not_equals_8 8
-migration public.red_reverse_1939_v50_reimport#2 sr_source_id_not_3 1
-migration public.red_reverse_1939_v50_reimport#2 sp_source_id_not_3 1
-migration public.red_reverse_1939_v50_reimport#2 run_key 1
-migration public.red_activate_1939_v50_batch#2 name_completion_lock 1
-migration public.red_activate_1939_v50_batch#2 not_equals_8 9
-migration public.red_activate_1939_v50_batch#2 sr_source_id_not_3 1
-migration public.red_activate_1939_v50_batch#2 sp_source_id_not_3 1
-migration public.red_activate_1939_v50_batch#2 not_equals_8 1
-migration public.red_reverse_1939_v50_reimport#3 name_completion_lock 1
-migration public.red_reverse_1939_v50_reimport#3 not_equals_8 8
-migration public.red_reverse_1939_v50_reimport#3 sr_source_id_not_3 1
-migration public.red_reverse_1939_v50_reimport#3 sp_source_id_not_3 1
-migration public.red_reverse_1939_v50_reimport#3 run_key 1
-migration public.red_activate_1939_v50_batch#3 name_completion_lock 1
-migration public.red_activate_1939_v50_batch#3 not_equals_8 9
-migration public.red_activate_1939_v50_batch#3 sr_source_id_not_3 1
-migration public.red_activate_1939_v50_batch#3 sp_source_id_not_3 1
-migration public.red_activate_1939_v50_batch#3 not_equals_8 1
-migration public.red_finalize_1939_v50_name_completion#2 not_equals_8 1
-migration private.validate_reimport_1939_name_completion#2 name_completion_lock 1
-migration private.validate_reimport_1939_name_completion#2 not_equals_8 2
-migration private.validate_reimport_1939_name_completion#2 source_id_3 3
-", col.names = c("segment", "function_name", "literal", "count"), comment.char = "", stringsAsFactors = FALSE)
-
-writer_inventory <- do.call(rbind, lapply(seq_len(nrow(writer_inventory_groups)), function(index) {
-  group <- writer_inventory_groups[index, ]
-  rule <- writer_literal_rules[writer_literal_rules$literal == group$literal, ]
-  data.frame(literal = rep(group$literal, group$count), classification = rep(rule$classification, group$count), generic_target = rep(rule$generic_target, group$count), test_name = sprintf("%s/%s/%s/%03d", group$segment, group$function_name, group$literal, seq_len(group$count)), stringsAsFactors = FALSE)
-}))
+writer_expected_inventory <- read.table(text = "
+citation_label|profile|citation_label_template|schema/private.reject_reimport_writer_mutation#1/citation_label/001
+run_key|manifest|run_key_prefix|schema/private.reject_reimport_writer_mutation#1/run_key/001
+run_key|manifest|run_key_prefix|migration/private.ensure_reimport_1939_source_evidence#1/run_key/001
+run_key|manifest|run_key_prefix|migration/private.ensure_reimport_1939_source_evidence#1/run_key/002
+citation_label|profile|citation_label_template|migration/public.red_apply_1939_v50_person_create#1/citation_label/001
+run_key|manifest|run_key_prefix|migration/public.red_reverse_1939_v50_reimport#1/run_key/001
+name_completion_lock|legacy_wrapper|generic_name_completion_lock|migration/private.validate_reimport_1939_name_completion#1/name_completion_lock/001
+not_equals_8|manifest|expected_counts|migration/private.validate_reimport_1939_name_completion#1/not_equals_8/001
+not_equals_8|manifest|expected_counts|migration/private.validate_reimport_1939_name_completion#1/not_equals_8/002
+source_id_3|profile|source_id|migration/private.validate_reimport_1939_name_completion#1/source_id_3/001
+source_id_3|profile|source_id|migration/private.validate_reimport_1939_name_completion#1/source_id_3/002
+source_id_3|profile|source_id|migration/private.validate_reimport_1939_name_completion#1/source_id_3/003
+name_completion_lock|legacy_wrapper|generic_name_completion_lock|migration/public.red_lock_1939_v50_name_completion#1/name_completion_lock/001
+name_completion_lock|legacy_wrapper|generic_name_completion_lock|migration/public.red_apply_1939_v50_name_completion#1/name_completion_lock/001
+source_id_3|profile|source_id|migration/public.red_apply_1939_v50_name_completion#1/source_id_3/001
+source_id_3|profile|source_id|migration/public.red_apply_1939_v50_name_completion#1/source_id_3/002
+source_id_3|profile|source_id|migration/public.red_apply_1939_v50_name_completion#1/source_id_3/003
+not_equals_8|manifest|expected_counts|migration/public.red_finalize_1939_v50_name_completion#1/not_equals_8/001
+name_completion_lock|legacy_wrapper|generic_name_completion_lock|migration/public.red_reverse_1939_v50_reimport#2/name_completion_lock/001
+not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#2/not_equals_8/001
+not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#2/not_equals_8/002
+not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#2/not_equals_8/003
+not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#2/not_equals_8/004
+not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#2/not_equals_8/005
+not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#2/not_equals_8/006
+not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#2/not_equals_8/007
+not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#2/not_equals_8/008
+sr_source_id_not_3|generic_invariant|source_profile_validation|migration/public.red_reverse_1939_v50_reimport#2/sr_source_id_not_3/001
+sp_source_id_not_3|generic_invariant|source_profile_validation|migration/public.red_reverse_1939_v50_reimport#2/sp_source_id_not_3/001
+run_key|manifest|run_key_prefix|migration/public.red_reverse_1939_v50_reimport#2/run_key/001
+name_completion_lock|legacy_wrapper|generic_name_completion_lock|migration/public.red_activate_1939_v50_batch#2/name_completion_lock/001
+not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/001
+not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/002
+not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/003
+not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/004
+not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/005
+not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/006
+not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/007
+not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/008
+not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/009
+sr_source_id_not_3|generic_invariant|source_profile_validation|migration/public.red_activate_1939_v50_batch#2/sr_source_id_not_3/001
+sp_source_id_not_3|generic_invariant|source_profile_validation|migration/public.red_activate_1939_v50_batch#2/sp_source_id_not_3/001
+not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/001
+name_completion_lock|legacy_wrapper|generic_name_completion_lock|migration/public.red_reverse_1939_v50_reimport#3/name_completion_lock/001
+not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#3/not_equals_8/001
+not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#3/not_equals_8/002
+not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#3/not_equals_8/003
+not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#3/not_equals_8/004
+not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#3/not_equals_8/005
+not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#3/not_equals_8/006
+not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#3/not_equals_8/007
+not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#3/not_equals_8/008
+sr_source_id_not_3|generic_invariant|source_profile_validation|migration/public.red_reverse_1939_v50_reimport#3/sr_source_id_not_3/001
+sp_source_id_not_3|generic_invariant|source_profile_validation|migration/public.red_reverse_1939_v50_reimport#3/sp_source_id_not_3/001
+run_key|manifest|run_key_prefix|migration/public.red_reverse_1939_v50_reimport#3/run_key/001
+name_completion_lock|legacy_wrapper|generic_name_completion_lock|migration/public.red_activate_1939_v50_batch#3/name_completion_lock/001
+not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/001
+not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/002
+not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/003
+not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/004
+not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/005
+not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/006
+not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/007
+not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/008
+not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/009
+sr_source_id_not_3|generic_invariant|source_profile_validation|migration/public.red_activate_1939_v50_batch#3/sr_source_id_not_3/001
+sp_source_id_not_3|generic_invariant|source_profile_validation|migration/public.red_activate_1939_v50_batch#3/sp_source_id_not_3/001
+not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/001
+not_equals_8|manifest|expected_counts|migration/public.red_finalize_1939_v50_name_completion#2/not_equals_8/001
+name_completion_lock|legacy_wrapper|generic_name_completion_lock|migration/private.validate_reimport_1939_name_completion#2/name_completion_lock/001
+not_equals_8|manifest|expected_counts|migration/private.validate_reimport_1939_name_completion#2/not_equals_8/001
+not_equals_8|manifest|expected_counts|migration/private.validate_reimport_1939_name_completion#2/not_equals_8/002
+source_id_3|profile|source_id|migration/private.validate_reimport_1939_name_completion#2/source_id_3/001
+source_id_3|profile|source_id|migration/private.validate_reimport_1939_name_completion#2/source_id_3/002
+source_id_3|profile|source_id|migration/private.validate_reimport_1939_name_completion#2/source_id_3/003
+", sep = "|", col.names = c("literal", "classification", "generic_target", "test_name"), comment.char = "", stringsAsFactors = FALSE)
 
 writer_segment_occurrences <- function(path, first_line, last_line, segment_name) {
   lines <- readLines(file.path(writer_root, path), warn = FALSE)[first_line:last_line]
@@ -93,7 +126,7 @@ testthat::test_that("Task 1 literal inventory exactly covers the designated sche
     writer_segment_occurrences("db-migrations.sql", 7559L, 8407L, "migration")
   )
   key_columns <- c("literal", "classification", "generic_target", "test_name")
-  expected_keys <- do.call(paste, c(writer_inventory[key_columns], sep = "|"))
+  expected_keys <- do.call(paste, c(writer_expected_inventory[key_columns], sep = "|"))
   observed_keys <- do.call(paste, c(observed[key_columns], sep = "|"))
   missing_keys <- setdiff(expected_keys, observed_keys)
   unexpected_keys <- setdiff(observed_keys, expected_keys)
@@ -110,8 +143,8 @@ testthat::test_that("Task 1 literal inventory exactly covers the designated sche
 })
 
 testthat::test_that("generic reimport writer owns every formerly 1939-specific literal", {
-  testthat::expect_identical(names(writer_inventory), c("literal", "classification", "generic_target", "test_name"))
-  testthat::expect_true(all(writer_inventory$classification %in% c("generic_invariant", "profile", "manifest", "legacy_wrapper")))
+  testthat::expect_identical(names(writer_expected_inventory), c("literal", "classification", "generic_target", "test_name"))
+  testthat::expect_true(all(writer_expected_inventory$classification %in% c("generic_invariant", "profile", "manifest", "legacy_wrapper")))
   schema_primary <- paste(readLines(file.path(writer_root, "schema.sql"), warn = FALSE), collapse = "\n")
   testthat::expect_false(grepl("CREATE TABLE private\\.reimport_1939_(authorization|write_batch|write_event|name_completion_result)", schema_primary, perl = TRUE))
 
