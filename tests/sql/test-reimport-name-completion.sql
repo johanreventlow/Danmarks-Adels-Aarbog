@@ -447,10 +447,9 @@ BEGIN
     'citation_id',v_result#>>ARRAY['result_map','name-completion:'||(p_state->'person_payload'->>'source_record_key'),'citation_id']);
 END $task3_complete_profile$;
 
--- Task 11 defense-in-depth RED: first create and finalize the parent through
--- public writer RPCs, then deliberately corrupt its private ledger with a
--- second identity.  A one-person child authorization must fail before any
--- child authorization or batch is durable.
+-- Task 11 RED: create and finalize a two-person parent entirely through public
+-- writer RPCs.  A one-person child authorization must fail before any child
+-- authorization or batch is durable.
 DO $task11_exact_parent_person_coverage$
 DECLARE
   v_actor uuid:='15300000-0000-4000-8000-000000000101'; v_state jsonb;

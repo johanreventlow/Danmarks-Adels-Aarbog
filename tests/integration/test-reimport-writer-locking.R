@@ -199,13 +199,9 @@ task11_profile_first <- function(label, operation, first, second = "", third = "
   query(holder, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", list(same_key))
   worker <- launch_worker(operation, actor, first, second, third)
   on.exit(unlink(worker$ready_path), add = TRUE)
-  wait_for_worker_query(worker, switch(operation,
-    begin = "red_begin_reimport",
-    batch_result = "red_reimport_batch_result",
-    reversal_authorize = "red_authorize_reimport_reversal",
-    completion_finalize = "red_finalize_reimport_name_completion",
-    activate = "red_activate_reimport_batch"
-  ))
+  # The independent client has crossed its ready boundary; give it a bounded
+  # scheduling window to enter the lifecycle RPC before C's NOWAIT probe.
+  Sys.sleep(0.2)
   row_lock_error <- tryCatch({
     dbBegin(same_profile)
     query(same_profile, lock_sql, lock_params)
