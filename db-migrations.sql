@@ -11735,9 +11735,9 @@ ALTER TABLE private.reimport_batch ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.reimport_event ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.reimport_name_completion_result ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON private.reimport_writer_profile,private.reimport_authorization,private.reimport_batch,private.reimport_event,private.reimport_name_completion_result FROM PUBLIC,anon,authenticated,service_role;
-REVOKE ALL ON FUNCTION private.reject_reimport_writer_mutation(),private.require_reimport_writer_editor(),private.require_reimport_open_batch(uuid),private.ensure_reimport_source_evidence(uuid,text,jsonb),public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),public.red_preflight_reimport_authorization(uuid,text,text),public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_finalize_reimport(uuid),public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_reverse_reimport(uuid,uuid),public.red_authorize_reimport_cutover(uuid,uuid,timestamptz),public.red_activate_reimport_batch(uuid,uuid) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION private.reject_reimport_writer_mutation(),private.require_reimport_writer_editor(),private.require_reimport_open_batch(uuid),private.ensure_reimport_source_evidence(uuid,text,jsonb),public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_finalize_reimport(uuid),public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_reverse_reimport(uuid,uuid),public.red_authorize_reimport_cutover(uuid,uuid,timestamptz),public.red_activate_reimport_batch(uuid,uuid) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_authorize_reimport_cutover(uuid,uuid,timestamptz) TO service_role;
-GRANT EXECUTE ON FUNCTION public.red_preflight_reimport_authorization(uuid,text,text),public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_finalize_reimport(uuid),public.red_reverse_reimport(uuid,uuid),public.red_activate_reimport_batch(uuid,uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_finalize_reimport(uuid),public.red_reverse_reimport(uuid,uuid),public.red_activate_reimport_batch(uuid,uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.narrative_record_contract_version()
   TO anon,authenticated,service_role;
 CREATE OR REPLACE FUNCTION private.reimport_1939_canonical_json_sha256(p_value jsonb)
@@ -11852,6 +11852,11 @@ BEGIN
     'source',jsonb_build_object('id',v_auth.source_id,'profile_id',v_auth.profile_id,'profile_sha256',v_auth.profile_sha256),
     'manifest_sha256',v_auth.manifest_sha256,'preview_sha256',v_auth.preview_sha256);
 END $$;
+
+REVOKE ALL ON FUNCTION public.red_preflight_reimport_authorization(uuid,text,text)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_preflight_reimport_authorization(uuid,text,text)
+  TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.red_begin_reimport(p_authorization_id uuid,p_manifest_sha256 text,p_preview_sha256 text)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
