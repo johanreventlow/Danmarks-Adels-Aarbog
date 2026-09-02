@@ -216,6 +216,28 @@ if (!file.exists(ready_a)) {
   worker_a_error <- parallel::mccollect(worker_a, wait = TRUE)[[1L]]
   stop("Task 9 writer A did not reach the post-allocation hold: ", worker_a_error)
 }
+
+# Task 10 follow-up: this ordinary writer does not participate in the reimport
+# writer lock.  It must still allocate distinct default IDs and commit while A
+# is held after its identity-backed inserts, before A is released.
+ordinary <- connect()
+on.exit(try(dbDisconnect(ordinary), silent = TRUE), add = TRUE)
+dbBegin(ordinary)
+execute(ordinary, "SET LOCAL lock_timeout='500ms'")
+ordinary_fact <- query(ordinary, paste(
+  "INSERT INTO public.fact(subjekt_type,subjekt_id,faktatype)",
+  "VALUES('person',$1,'task10-ordinary-concurrent') RETURNING id"
+), list(as.numeric(state_a$person_id)))$id[[1L]]
+ordinary_assertion <- query(ordinary, paste(
+  "INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst,uforanderlig)",
+  "VALUES('fact',$1,'Task 10 ordinary concurrent',true) RETURNING id"
+), list(ordinary_fact))$id[[1L]]
+ordinary_citation <- query(ordinary, paste(
+  "INSERT INTO public.citation(assertion_id,source_id,side,citat_tekst,kvalitet)",
+  "VALUES($1,$2,'1','Task 10 ordinary concurrent','primær') RETURNING id"
+), list(ordinary_assertion, task9_source_a))$id[[1L]]
+dbCommit(ordinary)
+
 worker_b <- parallel::mcparallel(worker(state_b_json, "task9-name-completion-b"), silent = TRUE)
 stopifnot(file.create(release_a))
 completed_a <- parallel::mccollect(worker_a, wait = TRUE)[[1L]]
@@ -224,7 +246,7 @@ stopifnot(!inherits(completed_a, "try-error"), !inherits(completed_b, "try-error
 stopifnot(jsonlite::fromJSON(completed_a)$status == "finalized", jsonlite::fromJSON(completed_b)$status == "finalized")
 
 receipts <- query(holder, paste(
-  "SELECT b.id batch_id,b.status,r.fact_id,r.citation_id,e.element_id,e.operation,c.citat_tekst",
+  "SELECT b.id batch_id,b.status,r.fact_id,r.assertion_id,r.citation_id,e.element_id,e.operation,c.citat_tekst",
   "FROM private.reimport_batch b JOIN private.reimport_name_completion_result r ON r.batch_id=b.id",
   "JOIN private.reimport_event e ON e.batch_id=b.id AND e.element_id=r.element_id",
   "JOIN public.citation c ON c.id=r.citation_id",
@@ -232,6 +254,8 @@ receipts <- query(holder, paste(
 ), list(state_a$child_batch_id, state_b$child_batch_id))
 stopifnot(nrow(receipts) == 2L, all(receipts$status == "finalized"), all(receipts$operation == "canonical_delta"))
 stopifnot(length(unique(receipts$fact_id)) == 2L, length(unique(receipts$citation_id)) == 2L)
+stopifnot(!(ordinary_fact %in% receipts$fact_id), !(ordinary_assertion %in% receipts$assertion_id),
+          !(ordinary_citation %in% receipts$citation_id))
 stopifnot(all(c(paste(task9_profile_a, "side 1"), paste(task9_profile_b, "side 1")) %in% receipts$citat_tekst))
 
-cat("PASS Task 8 source/profile writer lock concurrency; Task 9 RED max(id)+1 collision and Task 10 concurrent identity-backed name-completion writes\n")
+cat("PASS Task 8 source/profile writer lock concurrency; Task 9 RED max(id)+1 collision and Task 10 concurrent ordinary/default identity-backed writes\n")

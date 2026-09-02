@@ -2849,7 +2849,11 @@ BEGIN
   FOR k,p IN SELECT key,value FROM jsonb_each(p_payloads) LOOP
     IF k<>('name-completion:'||(p->>'source_record_key')) OR p->>'source_batch_id'<>b.id::text
        OR (p->>'source_id')::bigint IS DISTINCT FROM b.source_id OR nullif(btrim(p->>'name'),'') IS NULL
-       OR p->>'source_payload_sha256' !~ '^[0-9a-f]{64}$' THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID'; END IF;
+       OR p->>'source_payload_sha256' !~ '^[0-9a-f]{64}$'
+       OR jsonb_typeof(p->'page_evidence') IS DISTINCT FROM 'object'
+       OR NOT (CASE WHEN coalesce(p#>>'{page_evidence,page_from}','') ~ '^[0-9]+$'
+                    THEN ((p#>>'{page_evidence,page_from}')::numeric BETWEEN 1 AND 2147483647)
+                    ELSE false END) THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID'; END IF;
     SELECT * INTO e FROM private.reimport_event WHERE batch_id=b.id AND element_id=p->>'source_person_create_element_id' AND operation='person_create';
     IF NOT FOUND OR e.canonical_person_id IS DISTINCT FROM (p->>'person_id')::bigint OR e.source_record_key IS DISTINCT FROM p->>'source_record_key'
        OR e.payload->>'authorized_payload_sha256' IS DISTINCT FROM p->>'source_payload_sha256'

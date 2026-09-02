@@ -523,6 +523,71 @@ BEGIN
   END IF;
 END $two_profile_scope$;
 
+-- Task 10 follow-up: reject unusable page evidence during child authorization,
+-- before preflight or begin can mint durable writer state.  The failed
+-- authorization's nested transaction must leave every writer/domain receipt
+-- count unchanged.
+DO $authorization_page_evidence_contract$
+DECLARE
+  v_actor uuid:='15300000-0000-4000-8000-000000000101'; v_state jsonb;
+  v_payload jsonb; v_payloads jsonb; v_candidate jsonb; v_error text;
+  v_authorizations bigint; v_batches bigint; v_results bigint; v_events bigint;
+  v_facts bigint; v_assertions bigint; v_citations bigint; v_conclusions bigint;
+  v_case integer;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  v_state:=pg_temp.task3_stage_profile(
+    8,'task10-authorization-page-evidence',repeat('a',64),'task10-authorization-page-evidence-record',
+    'Task 10 authorization page evidence',-153108,repeat('b',64),repeat('c',64));
+  v_payload:=jsonb_build_object(
+    'source_batch_id',v_state->>'source_batch_id','source_person_create_element_id',v_state->>'source_element_id',
+    'person_id',v_state->>'person_id','source_id',(v_state->'person_payload'->>'source_id')::bigint,
+    'edition','fixture','source_record_key',v_state->'person_payload'->>'source_record_key',
+    'source_persona_id',v_state->>'source_persona_id','name',v_state->'person_payload'->>'name',
+    'source_span',v_state->'person_payload'->'source_span','page_evidence',v_state->'person_payload'->'page_evidence',
+    'verbatim_text',v_state->'person_payload'->>'verbatim_text','verbatim_sha256',v_state->'person_payload'->>'verbatim_sha256',
+    'source_payload_sha256',private.reimport_canonical_json_sha256(v_state->'person_payload'),
+    'expected_before',jsonb_build_object('staged',true,'name_cache_empty',true,'name_facts',0),
+    'expected_after',jsonb_build_object('name_fact',1,'selected_assertion',1,'citation',1,'conclusion',1));
+  SELECT count(*) INTO v_authorizations FROM private.reimport_authorization;
+  SELECT count(*) INTO v_batches FROM private.reimport_batch;
+  SELECT count(*) INTO v_results FROM private.reimport_name_completion_result;
+  SELECT count(*) INTO v_events FROM private.reimport_event;
+  SELECT count(*) INTO v_facts FROM public.fact;
+  SELECT count(*) INTO v_assertions FROM public.assertion;
+  SELECT count(*) INTO v_citations FROM public.citation;
+  SELECT count(*) INTO v_conclusions FROM public.conclusion;
+  FOR v_case IN 0..4 LOOP
+    v_candidate:=CASE v_case
+      WHEN 0 THEN v_payload-'page_evidence'
+      WHEN 1 THEN jsonb_set(v_payload,'{page_evidence}',jsonb_build_object('page_from',NULL))
+      WHEN 2 THEN jsonb_set(v_payload,'{page_evidence}',jsonb_build_object('page_from',1.5))
+      WHEN 3 THEN jsonb_set(v_payload,'{page_evidence}',jsonb_build_object('page_from',0))
+      ELSE jsonb_set(v_payload,'{page_evidence}',jsonb_build_object('page_from',-1))
+    END;
+    v_payloads:=jsonb_build_object('name-completion:'||(v_state->'person_payload'->>'source_record_key'),v_candidate);
+    v_error:=NULL;
+    BEGIN
+      PERFORM public.red_authorize_reimport_name_completion(
+        repeat('8',64),(v_state->>'source_batch_id')::uuid,v_state->>'preview_sha256',v_state->>'manifest_sha256',
+        (v_state->>'source_id')::bigint,v_state->>'profile_id',v_state->>'profile_sha256',
+        '{"name_completions":1,"operations":1}'::jsonb,v_payloads);
+    EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+    END;
+    IF v_error IS DISTINCT FROM 'REIMPORT_NAME_COMPLETION_INVALID'
+       OR (SELECT count(*) FROM private.reimport_authorization)<>v_authorizations
+       OR (SELECT count(*) FROM private.reimport_batch)<>v_batches
+       OR (SELECT count(*) FROM private.reimport_name_completion_result)<>v_results
+       OR (SELECT count(*) FROM private.reimport_event)<>v_events
+       OR (SELECT count(*) FROM public.fact)<>v_facts
+       OR (SELECT count(*) FROM public.assertion)<>v_assertions
+       OR (SELECT count(*) FROM public.citation)<>v_citations
+       OR (SELECT count(*) FROM public.conclusion)<>v_conclusions THEN
+      RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_AUTHORIZATION_PAGE_EVIDENCE_ACCEPTED: %, %',v_case,v_error;
+    END IF;
+  END LOOP;
+END $authorization_page_evidence_contract$;
+
 -- Task 10: allocation is a shared identity contract, not a cooperative
 -- writer-only lock.  An ordinary default writer must receive its own ID, and
 -- a completion after earlier receipts were reversed must never reuse any
