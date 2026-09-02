@@ -1,8 +1,8 @@
 # #153 generalized reimport-writer: disposable rehearsal
 
 **Observed:** 2026-09-02
-**Code commits exercised:** `92d71dc`, `3af0986`, `13cf3a4`, `ab7b92e`, and
-`b5dd0da` (catalog allowlist)
+**Code commits exercised:** Task 7/8 evidence through `b5dd0da`, Task 9 through
+`120b953`, and Task 10 through `09a2bf6`
 **Result:** **OBSERVED GREEN for #153 code-integration evidence.**
 
 This is bounded local-disposable evidence, not a production authorization. No
@@ -307,3 +307,61 @@ approval evidence. Focused v2 C3 public-surface probes passed fail-closed on
 both clean v2 baselines. No #152 inventory/cutover/C3 policy, production data,
 network service, protected review artifact or `work/` content was changed or
 accessed.
+
+## Task 9 and Task 10 final correction evidence
+
+Task 9 completed the generic RPC, server-bound source/profile identity,
+closed profile configuration, cross-profile concurrency and terminal
+source-record integrity work through `120b953`. The first integrated Sol
+review then correctly rejected its private `max(id)+1` allocation premise:
+that lock did not coordinate ordinary default writers and reversal could make
+an append-only result ID reusable. Task 10 replaced that premise with shared
+identity/default allocation and added exact same-source provenance checks,
+typed page evidence, order-independent R count comparison, and the missing
+preflight ACL.
+
+The bounded implementation commits are `396bf68`, `67859d4`, `a2b3664`,
+`7489b64`, and `09a2bf6`. Focused RED evidence covered reordered R
+expected-count keys, invalid page evidence reaching the gateway/SQL
+authorization, retained result-ID reuse after reversal, acceptance of the JSON
+string `\"1\"` as a page, upgraded migration referencing preflight before
+creation, and locale-dependent catalog receipt ordering.
+
+All corresponding GREEN checks passed. Final fresh-v2
+`daa153_sol2_freshv2_20260902a` and clean upgraded-v2
+`daa153_sol2_upgv2_20260902a` both had contract version 2. Before
+`db-rls.sql`, the fresh schema and upgraded migration each exposed preflight
+only to its owner and `authenticated` (`anon=false`,
+`authenticated=true`, `service_role=false`). The complete name-completion
+SQL suite, including the numeric-string case, exited 0 on both databases.
+
+Historical terminal-v1 `daa153_sol2_terminal_20260902a` retained contract
+version 1. Its failpoint migration exited 3 with
+`REIMPORT_WRITER_ATOMICITY_TEST_FAILURE`; rollback assertion, normal
+migration, RLS and terminal migration suite then exited 0. The separate
+`source_record_wrong` fixture was rejected before DDL with
+`REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED` and retained its physical
+legacy ledger. These are local disposable checks, not production authority.
+
+Fresh/upgraded effective catalog receipts were raw-byte-identical without
+post-processing: 33,466 bytes and SHA-256
+`e72f65f6d764c32ee0e217d4425b40f40eae70b1721503313934afd310f6eeeb`.
+Final focused R checks passed with 34 expectations for name completion and 200
+for source inventory. The generic R writer suite, ordinary-writer/two-profile
+concurrency, reversal non-reuse, same-source provenance negatives, full
+disposable `db-verify.sql` (all five dblink gates), core tests (29 files, 417
+tests), core typecheck, web tests (72 files, 927 tests), and web build were
+green. One first full web run hit a timing failure in an unchanged feed-media
+test; the isolated test passed 8/8 and the complete rerun passed 927/927.
+
+The independent read-only Sol review at `7489b64` marked the original
+allocation, reversal, provenance, R key-order and citation findings addressed,
+and confirmed the upgraded ACL ordering fix. It returned NO-GO only for fresh
+immediate ACL, numeric-string acceptance, catalog ordering and durable
+evidence. Commit `09a2bf6` closes those code/harness findings, and the checks
+above are their observed rerun. These follow-ups do not alter the reviewed
+design or risk profile, so the repository cost-discipline rule does not require
+another model-to-model review loop.
+
+This closes the local #153 implementation and review gate only. It does not
+authorize a production database change, deployment, merge or push.

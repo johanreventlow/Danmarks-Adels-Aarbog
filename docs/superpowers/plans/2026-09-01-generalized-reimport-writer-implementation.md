@@ -116,7 +116,7 @@ GitHub Actions.
   catalog, generic RPC signatures, contract-v2 gate, profile identity,
   generic lifecycle, and legacy facade parity.
 
-- [ ] **Step 1: Write the static literal and direct-writer RED test**
+- [x] **Step 1: Write the static literal and direct-writer RED test**
 
   In `test-reimport-writer-source-inventory.R`, parse the 1939 writer segment
   in both `schema.sql` and `db-migrations.sql`. Assert that every occurrence
@@ -134,7 +134,7 @@ GitHub Actions.
   expect_false(grepl("INSERT INTO private\\.narrative_record_publication", generic_person_create))
   ```
 
-- [ ] **Step 2: Run the RED inventory test**
+- [x] **Step 2: Run the RED inventory test**
 
   Run:
 
@@ -145,7 +145,7 @@ GitHub Actions.
   Expected: FAIL because generic functions, a literal inventory and v2-only
   writer guards do not yet exist.
 
-- [ ] **Step 3: Write generic SQL catalog and v2-gate RED assertions**
+- [x] **Step 3: Write generic SQL catalog and v2-gate RED assertions**
 
   In `test-reimport-writer.sql`, require these primary relations:
 
@@ -177,7 +177,7 @@ GitHub Actions.
   and require `REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED` before any ledger
   row is inserted.
 
-- [ ] **Step 4: Add reusable disposable v2 bootstrap and run RED SQL**
+- [x] **Step 4: Add reusable disposable v2 bootstrap and run RED SQL**
 
   Extract only the existing synthetic #152 cutover prerequisites into
   `reimport-writer-v2-bootstrap.sql`: create a disposable editor principal,
@@ -193,7 +193,7 @@ GitHub Actions.
 
   Expected: FAIL at the first missing generic relation or signature.
 
-- [ ] **Step 5: Convert legacy tests into facade-only RED tests**
+- [x] **Step 5: Convert legacy tests into facade-only RED tests**
 
   Keep the files `test-1939-v50-production-writer.sql` and
   `test-1939-v50-name-completion.sql`, but change their first assertions to
@@ -203,7 +203,7 @@ GitHub Actions.
   signature, result type, idempotence, role rejection, tamper rejection and
   observed legacy error tokens.
 
-- [ ] **Step 6: Commit the RED suite**
+- [x] **Step 6: Commit the RED suite**
 
   ```bash
   git add tests/testthat/test-reimport-writer-source-inventory.R \
@@ -233,7 +233,7 @@ GitHub Actions.
 - Produces the primary generic ledger and source-evidence/person-create/finalize
   RPCs, all bound to a sealed profile hash and v2 narrative event path.
 
-- [ ] **Step 1: Add focused profile ledger RED cases**
+- [x] **Step 1: Add focused profile ledger RED cases**
 
   Extend `test-reimport-writer.sql` to seed two sources and immutable profiles:
 
@@ -250,12 +250,12 @@ GitHub Actions.
   Verify `UPDATE`/`DELETE` fail, a profile hash mismatch fails before a ledger
   row, and source/profile mismatch fails before a ledger row.
 
-- [ ] **Step 2: Run the focused profile RED cases**
+- [x] **Step 2: Run the focused profile RED cases**
 
   Run the same SQL file on the disposable v2 database. Expected: failures at
   missing profile table, immutable trigger and generic authorization.
 
-- [ ] **Step 3: Replace fresh-install primaries with generic relations**
+- [x] **Step 3: Replace fresh-install primaries with generic relations**
 
   In `schema.sql`, replace the old primary table block with
   `reimport_writer_profile`, `reimport_authorization`, `reimport_batch`,
@@ -274,7 +274,7 @@ GitHub Actions.
   all inventory fields classified as `profile`; counts and payloads remain in
   the manifest.
 
-- [ ] **Step 4: Implement main generic helpers and RPCs**
+- [x] **Step 4: Implement main generic helpers and RPCs**
 
   Rename the primary helper implementations to generic names and implement the
   full authorization envelope. `red_authorize_reimport` verifies the supplied
@@ -296,7 +296,7 @@ GitHub Actions.
   narrative and state hashes in the generic event payload. It must not directly
   insert/update/delete `narrative` or `narrative_record_publication`.
 
-- [ ] **Step 5: Apply the same transformation to `db-migrations.sql`**
+- [x] **Step 5: Apply the same transformation to `db-migrations.sql`**
 
   Append an idempotent transactional upgrade that creates the profile registry,
   seeds the 1939 profile/hash, renames the old three ledger tables, adds and
@@ -305,7 +305,7 @@ GitHub Actions.
   unchanged. A missing/multiple legacy source identity must raise an exception
   before DDL commits.
 
-- [ ] **Step 6: Make generic ACLs explicit and run GREEN**
+- [x] **Step 6: Make generic ACLs explicit and run GREEN**
 
   In `schema.sql`, `db-migrations.sql` and `db-rls.sql`, revoke all private
   tables/helpers and grant only the specific generic authorizers to
@@ -313,7 +313,7 @@ GitHub Actions.
   Execute Task 1's inventory and generic SQL tests; require both profiles to
   reach source-evidence/person-create/finalize through v2 events.
 
-- [ ] **Step 7: Self-review and commit**
+- [x] **Step 7: Self-review and commit**
 
   Inspect the staged diff for old primary references, direct narrative DML,
   omitted profile-scoped uniqueness and ACL broadening. Rerun the two tests,
@@ -342,7 +342,7 @@ GitHub Actions.
 - Produces generic name-completion, reversal and activation APIs that work for
   both profiles without source-3 or eight-row assumptions.
 
-- [ ] **Step 1: Write full two-profile lifecycle RED cases**
+- [x] **Step 1: Write full two-profile lifecycle RED cases**
 
   For each profile, create the same number of staged persons through the
   generic main writer, authorize name completion, apply completion payloads,
@@ -351,7 +351,7 @@ GitHub Actions.
   different authorization/batch IDs. Include a cross-profile reversal and
   child-batch lookup attempt that must fail.
 
-- [ ] **Step 2: Run lifecycle RED SQL**
+- [x] **Step 2: Run lifecycle RED SQL**
 
   Run:
 
@@ -362,7 +362,7 @@ GitHub Actions.
   Expected: FAIL because generic name-completion/lifecycle signatures and
   profile-scoped child lookup do not exist.
 
-- [ ] **Step 3: Implement generic continuation functions**
+- [x] **Step 3: Implement generic continuation functions**
 
   Implement `red_lock_reimport_name_completion`,
   `red_authorize_reimport_name_completion`,
@@ -375,7 +375,7 @@ GitHub Actions.
   result rows and generic event rows. Put citation/source labels and extraction
   values in profile config or authorized payload according to Task 1 inventory.
 
-- [ ] **Step 4: Implement generic activation and reversal**
+- [x] **Step 4: Implement generic activation and reversal**
 
   Implement generic reversal/cutover functions that scope all child batches,
   facts, identities, citations and record publication events to the locked
@@ -384,7 +384,7 @@ GitHub Actions.
   foreign child batch, mismatched event hash, non-finalized completion or
   profile collision must abort before the first mutation.
 
-- [ ] **Step 5: Preserve C3 boundary and run GREEN**
+- [x] **Step 5: Preserve C3 boundary and run GREEN**
 
   Do not rename or alter `reimport_case_*`. Change only shared canonical JSON
   helper callers to the generic helper name and retain an explicit legacy alias
@@ -392,7 +392,7 @@ GitHub Actions.
   `tests/sql/test-1939-v50-c3-apply.sql`; the latter must retain its current
   C3 semantics and #152 fail-closed behavior.
 
-- [ ] **Step 6: Self-review and commit**
+- [x] **Step 6: Self-review and commit**
 
   Verify every current literal is accounted for by the Task 1 inventory, every
   lock begins with the global v2 contract lock, and no profile-unscoped child
@@ -427,7 +427,7 @@ GitHub Actions.
   history is read-compatible; an in-flight legacy write is deliberately not
   executable after upgrade.
 
-- [ ] **Step 1: Write facade and migration-parity RED tests**
+- [x] **Step 1: Write facade and migration-parity RED tests**
 
   Require `to_regclass('private.reimport_1939_authorization')` and the other
   three old relation names to have `relkind='v'`, not table kind. Require every
@@ -442,7 +442,7 @@ GitHub Actions.
   references; the latter must fail with
   `REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED` before any schema conversion.
 
-- [ ] **Step 2: Bootstrap an actual pre-#153 schema and run migration RED**
+- [x] **Step 2: Bootstrap an actual pre-#153 schema and run migration RED**
 
   In CI and locally, create a disposable `reimport_legacy_153` database,
   install `tests/sql/evidence-promotion-bootstrap.sql`, then feed
@@ -454,7 +454,7 @@ GitHub Actions.
   authorization, then one otherwise-valid `finalized` batch; each migration
   attempt must initially fail only because the quiescence gate is absent.
 
-- [ ] **Step 3: Implement fresh views and pinned public wrappers**
+- [x] **Step 3: Implement fresh views and pinned public wrappers**
 
   After generic fresh DDL, create the four 1939 relation views. Define each
   old public function at its exact current signature as a SQL/plpgsql wrapper
@@ -462,7 +462,7 @@ GitHub Actions.
   to a generic RPC. Wrappers contain no DML, locks or input validation beyond
   converting a generic domain error through the explicit error map.
 
-- [ ] **Step 4: Complete transactional upgrade DDL**
+- [x] **Step 4: Complete transactional upgrade DDL**
 
   At the start of the one-transaction migration, lock/check the old ledgers
   and raise `REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED` if any authorization
@@ -476,7 +476,7 @@ GitHub Actions.
   owned sequence, index definition, function signature, trigger parent, RLS
   state and grants between a fresh and upgraded database.
 
-- [ ] **Step 5: Materialize the ACL/error matrices and run GREEN**
+- [x] **Step 5: Materialize the ACL/error matrices and run GREEN**
 
   Add a catalog-driven SQL matrix covering every generic and wrapper signature:
   owner, security-definer bit, exact `search_path`, each role's EXECUTE state
@@ -494,7 +494,7 @@ GitHub Actions.
   registry and all four legacy relation views in the migration catalog receipt
   and relkind assertions.
 
-- [ ] **Step 6: Self-review and commit**
+- [x] **Step 6: Self-review and commit**
 
   Confirm the migration does not drop or recreate terminal historic ledger
   identities, rejects every in-flight legacy state before conversion, old
@@ -557,7 +557,7 @@ the private-ledger boundary.
 - The generic reimport DBI gateway may use only generic public RPCs, including
   the approved result surface above; it may not read `private.reimport_*`.
 
-- [ ] **Step 1: Write generic manifest/gateway RED unit tests**
+- [x] **Step 1: Write generic manifest/gateway RED unit tests**
 
   In both new testthat files, construct an in-memory manifest with required
   `source$id`, `source$profile_id` and `source$profile_sha256`. Assert failure
@@ -569,7 +569,7 @@ the private-ledger boundary.
   expect_false(any(grepl("1939_v50|source_id=3", unlist(calls))))
   ```
 
-- [ ] **Step 2: Run R RED tests**
+- [x] **Step 2: Run R RED tests**
 
   Run:
 
@@ -581,7 +581,7 @@ the private-ledger boundary.
   Expected: FAIL because generic helper files and envelope validation do not
   exist.
 
-- [ ] **Step 3: Implement generic helpers and CLIs**
+- [x] **Step 3: Implement generic helpers and CLIs**
 
   Implement shared validation that checks the complete manifest identity,
   profile hash, current database identity, actor, transaction/read-only status
@@ -590,14 +590,14 @@ the private-ledger boundary.
   DBI parameter binding. Keep `on.exit`/error rollback idempotent and preserve
   dry-run versus apply semantics.
 
-- [ ] **Step 4: Reduce 1939 scripts to adapters**
+- [x] **Step 4: Reduce 1939 scripts to adapters**
 
   Keep their old command-line flags and 1939 manifest validation. Add the
   pinned profile ID/hash, call the generic helper and remove every `DBI::`,
   `red_*_1939_v50_*` and literal database source-ID use from the adapters.
   Existing old testthat files must prove this compatibility contract.
 
-- [ ] **Step 5: Run all R tests and commit**
+- [x] **Step 5: Run all R tests and commit**
 
   Run new and old testthat files, then the existing production-writer and
   name-completion DBI integrations against the disposable v2 database. Self
@@ -635,7 +635,7 @@ the private-ledger boundary.
   types, function signatures, triggers, constraints and policies named
   `_1939` in `public`/`private`.
 
-- [ ] **Step 1: Write positive and negative catalog RED tests**
+- [x] **Step 1: Write positive and negative catalog RED tests**
 
   In `test-reimport-edition-catalog.sql`, call the new verifier against the
   clean current catalog, then in savepoints create one extra `_1939` function,
@@ -643,7 +643,7 @@ the private-ledger boundary.
   Each must raise `REIMPORT_EDITION_OBJECT_ALLOWLIST_DRIFT`; roll back the
   savepoint and assert the normal catalog remains unchanged.
 
-- [ ] **Step 2: Run catalog RED**
+- [x] **Step 2: Run catalog RED**
 
   Run:
 
@@ -653,7 +653,7 @@ the private-ledger boundary.
 
   Expected: FAIL because `db-verify.sql` has no complete allowlist assertion.
 
-- [ ] **Step 3: Implement canonical catalog serialization and allowlist**
+- [x] **Step 3: Implement canonical catalog serialization and allowlist**
 
   Add one `db-verify.sql` assertion that emits comparable rows for `pg_class`,
   `pg_type`, `pg_proc`, `pg_trigger`, `pg_constraint` and `pg_policy`, with
@@ -662,7 +662,7 @@ the private-ledger boundary.
   1939 views, public wrappers and explicit helper aliases. Reject an omitted,
   additional or kind/signature/parent-drifted entry.
 
-- [ ] **Step 4: Run disposable db-verify GREEN and commit**
+- [x] **Step 4: Run disposable db-verify GREEN and commit**
 
   Extend `run-db-verify-disposable.sql` only with the generic writer's local
   fixture prerequisites. Run the catalog test, the complete disposable
@@ -756,7 +756,7 @@ fail-closed. Do not restore C3 privileges under v2 or change C3's data model.
   rollback leaves no ledger/domain rows, unauthorized caller rejection and
   reversal/activation cannot cross profile identity.
 
-- [ ] **Step 4: Perform final self-review and independent Sol review**
+- [x] **Step 4: Perform final self-review and independent Sol review**
 
   Review the final diff against every §1 and §6 requirement in the spec.
   Confirm all permanent primaries are generic, all old names are allowlisted
@@ -765,7 +765,7 @@ fail-closed. Do not restore C3 privileges under v2 or change C3's data model.
   independent read-only GPT-5.6-Sol review of the final diff and critically
   resolve valid findings; rerun the affected verification after each fix.
 
-- [ ] **Step 5: Update evidence and commit**
+- [x] **Step 5: Update evidence and commit**
 
   Document only observed disposable evidence, including any unresolved test or
   environment limitation. State explicitly that #153 is a code-integration
@@ -869,7 +869,7 @@ change, production action, or expansion to a new edition.
   independence through a disposable two-connection test. Do not rely on the
   cooperative R lock or use a global name-completion lock for this property.
 
-- [ ] **Step 6: Full verification, self-review and independent SOL re-review**
+- [x] **Step 6: Full verification, self-review and independent SOL re-review**
 
   Re-run affected fresh/upgraded v1-C3 and v2 generic suites, DBI integrations,
   catalog byte parity, migration/terminal-chain fixture and concurrency proof.
@@ -911,7 +911,7 @@ history semantics, production authority, or support for another real edition.
   complete routine-body parity and exact terminal result/source-record
   integrity.
 
-- [ ] **Step 1: Specify the missing generic RPC contract RED**
+- [x] **Step 1: Specify the missing generic RPC contract RED**
 
   Add behavior-first SQL assertions for these exact generic signatures:
 
@@ -937,7 +937,7 @@ history semantics, production authority, or support for another real edition.
   Run the focused SQL tests and record the expected missing-signature or wrong-
   behavior failures before changing DDL.
 
-- [ ] **Step 2: Implement the RPCs and server-bind apply-mode name completion**
+- [x] **Step 2: Implement the RPCs and server-bind apply-mode name completion**
 
   Implement the three signatures identically in fresh and migration DDL,
   update exact revokes/grants and all 1939 wrappers, and remove the facade's
@@ -952,7 +952,7 @@ history semantics, production authority, or support for another real edition.
   database/profile mismatch token before any child batch is created. Run the R
   and SQL tests to GREEN.
 
-- [ ] **Step 3: Close and consume `writer_config` RED/GREEN**
+- [x] **Step 3: Close and consume `writer_config` RED/GREEN**
 
   Add fresh/migration tests proving a profile is rejected unless
   `writer_config` is a JSON object with exactly these eight keys and no others:
@@ -973,7 +973,7 @@ history semantics, production authority, or support for another real edition.
   null, wrong-typed and malformed-template fixtures before a profile row is
   stored. Re-run profile, name-completion, migration and parity tests.
 
-- [ ] **Step 4: Prove collision-safe cross-profile writes RED/GREEN**
+- [x] **Step 4: Prove collision-safe cross-profile writes RED/GREEN**
 
   Extend the disposable two-connection integration test from lock acquisition
   to two real, authorized name-completion writes for different profiles. Hold
@@ -989,7 +989,7 @@ history semantics, production authority, or support for another real edition.
   broaden this task into identity-column conversion or unrelated writer
   changes.
 
-- [ ] **Step 5: Complete routine parity and terminal source-record integrity**
+- [x] **Step 5: Complete routine parity and terminal source-record integrity**
 
   Replace the hand-selected routine subset in
   `inspect-reimport-writer-catalog.sql` with the complete explicitly versioned
@@ -1011,7 +1011,7 @@ history semantics, production authority, or support for another real edition.
   both approved historical terminal topologies, every invalid topology,
   atomicity and clean-upgrade parity to GREEN.
 
-- [ ] **Step 6: Review, verify and close Task 8/9**
+- [x] **Step 6: Review, verify and close Task 8/9**
 
   Self-review the full Task 9 diff against all six SOL findings and every
   relevant §3-§5 specification clause. Run the complete disposable fresh-v2,
@@ -1041,7 +1041,7 @@ real edition.
   catalog/parity and R tests only
 - Modify: this plan and the #153 rehearsal only with observed evidence
 
-- [ ] **Step 1: Add RED coverage for every valid finding**
+- [x] **Step 1: Add RED coverage for every valid finding**
 
   Prove that name completion cannot collide with an ordinary writer, that a
   reversed append-only result's IDs are never reused, that same-source
@@ -1050,7 +1050,7 @@ real edition.
   before writes. Add focused R coverage for JSON object key-order independence
   and SQL coverage for the immediate preflight ACL.
 
-- [ ] **Step 2: Implement the bounded corrections**
+- [x] **Step 2: Implement the bounded corrections**
 
   Bring clean-slate `fact.id` and `citation.id` into parity with the already
   migrated `GENERATED BY DEFAULT AS IDENTITY` contract. Allocate all four
@@ -1062,7 +1062,7 @@ real edition.
   than incoming JSON order, and apply the exact generic preflight revoke/grant
   in schema and migration DDL immediately.
 
-- [ ] **Step 3: Re-run focused and full disposable verification**
+- [x] **Step 3: Re-run focused and full disposable verification**
 
   Run the focused RED/GREEN suites, two-profile and ordinary-writer
   concurrency, reversal non-reuse, same-source profile drift, R gateways,
@@ -1070,7 +1070,7 @@ real edition.
   fresh/upgraded catalog parity, ACL/db-verify, all relevant testthat/core/web
   tests and build. Use all five PG variables for every local disposable DB.
 
-- [ ] **Step 4: Review and close**
+- [x] **Step 4: Review and close**
 
   Self-review the fix range, then obtain one scoped read-only GPT-5.6-Sol
   re-review of the valid findings. Critically resolve only regressions caused
