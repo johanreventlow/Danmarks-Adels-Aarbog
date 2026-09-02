@@ -538,7 +538,7 @@ END $task11_exact_parent_person_coverage$;
 DO $task11_multi_person_successful_reversal$
 DECLARE
   v_actor uuid:='15300000-0000-4000-8000-000000000101'; v_state jsonb;
-  v_cutover uuid; v_reversal uuid; v_result jsonb;
+  v_cutover uuid; v_reversal uuid; v_result jsonb; v_binding_ids uuid[];
 BEGIN
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   v_state:=pg_temp.task3_stage_profile(
@@ -551,8 +551,28 @@ BEGIN
   v_cutover:=public.red_authorize_reimport_cutover((v_state->>'source_batch_id')::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
   PERFORM set_config('app.change_set_id','',true);
   v_result:=public.red_activate_reimport_batch((v_state->>'source_batch_id')::uuid,v_cutover);
+  SELECT coalesce(array_agg(binding.id ORDER BY binding.id),ARRAY[]::uuid[]) INTO v_binding_ids
+    FROM private.narrative_record_publication binding
+    JOIN public.narrative narrative ON narrative.id=binding.narrative_id
+   WHERE narrative.subjekt_type='person'
+     AND narrative.subjekt_id IN((v_state->>'person_id')::bigint,(v_state->>'second_person_id')::bigint)
+     AND binding.source_record_id IN((v_state->>'source_record_id')::uuid,(v_state->>'second_source_record_id')::uuid)
+     AND binding.status='draft';
   IF v_result->>'status'<>'activated'
-     OR EXISTS(SELECT 1 FROM public.person WHERE id IN((v_state->>'person_id')::bigint,(v_state->>'second_person_id')::bigint) AND staged) THEN
+     OR EXISTS(SELECT 1 FROM public.person WHERE id IN((v_state->>'person_id')::bigint,(v_state->>'second_person_id')::bigint) AND staged)
+     OR (SELECT count(*) FROM private.reimport_name_completion_result result
+          JOIN public.fact fact ON fact.id=result.fact_id AND fact.subjekt_type='person' AND fact.subjekt_id=result.person_id AND fact.faktatype='navn'
+          JOIN public.assertion assertion ON assertion.id=result.assertion_id AND assertion.target_type='fact' AND assertion.target_id=fact.id
+          JOIN public.citation citation ON citation.id=result.citation_id AND citation.assertion_id=assertion.id AND citation.source_id=(v_state->>'source_id')::bigint
+          JOIN public.conclusion conclusion ON conclusion.id=result.conclusion_id AND conclusion.target_type='fact' AND conclusion.target_id=fact.id AND conclusion.valgt_assertion_id=assertion.id
+         WHERE result.batch_id=(v_state->>'child_batch_id')::uuid)<>2
+     OR cardinality(v_binding_ids)<>2
+     OR EXISTS(SELECT 1 FROM private.narrative_record_publication binding
+               JOIN public.narrative narrative ON narrative.id=binding.narrative_id
+               WHERE narrative.subjekt_type='person'
+                 AND narrative.subjekt_id IN((v_state->>'person_id')::bigint,(v_state->>'second_person_id')::bigint)
+                 AND binding.status IN('draft','published')
+                 AND (binding.status<>'draft' OR binding.id<>ALL(v_binding_ids))) THEN
     RAISE EXCEPTION 'TASK11_MULTI_PERSON_ACTIVATION_INVALID';
   END IF;
   v_reversal:=public.red_authorize_reimport_reversal((v_state->>'source_batch_id')::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
@@ -565,7 +585,12 @@ BEGIN
      OR EXISTS(SELECT 1 FROM public.citation WHERE id IN((v_state->>'citation_id')::bigint,(v_state->>'second_citation_id')::bigint))
      OR EXISTS(SELECT 1 FROM public.conclusion WHERE id IN((v_state->>'conclusion_id')::bigint,(v_state->>'second_conclusion_id')::bigint))
      OR (SELECT count(*) FROM private.reimport_name_completion_result WHERE batch_id=(v_state->>'child_batch_id')::uuid)<>2
-     OR (SELECT count(*) FROM private.narrative_record_publication binding JOIN public.narrative narrative ON narrative.id=binding.narrative_id WHERE binding.status='withdrawn' AND narrative.subjekt_type='person' AND narrative.subjekt_id IN((v_state->>'person_id')::bigint,(v_state->>'second_person_id')::bigint))<>2 THEN
+     OR (SELECT count(*) FROM private.narrative_record_publication binding WHERE binding.id=ANY(v_binding_ids) AND binding.status='withdrawn')<>2
+     OR EXISTS(SELECT 1 FROM private.narrative_record_publication binding
+                JOIN public.narrative narrative ON narrative.id=binding.narrative_id
+               WHERE narrative.subjekt_type='person'
+                 AND narrative.subjekt_id IN((v_state->>'person_id')::bigint,(v_state->>'second_person_id')::bigint)
+                 AND binding.status IN('draft','published')) THEN
     RAISE EXCEPTION 'TASK11_MULTI_PERSON_REVERSAL_INVALID';
   END IF;
 END $task11_multi_person_successful_reversal$;
