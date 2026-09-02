@@ -24,7 +24,7 @@ DECLARE
   v_result_sha256 text;
   v_ledger_source_id bigint := CASE WHEN v_case='identity_wrong_source' THEN 4 ELSE 3 END;
 BEGIN
-  IF v_case NOT IN ('orphan','reversed_finalized_child','broken_result','ambiguous_child',
+  IF v_case NOT IN ('orphan','reversed_finalized_child','broken_result','ambiguous_child','source_record_wrong',
                     'identity_wrong_source','identity_multi_source') THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_INVALID_TERMINAL_FIXTURE_CASE_UNKNOWN';
   END IF;
@@ -34,6 +34,17 @@ BEGIN
     INSERT INTO public.source(id,titel,udgave,slags)
     VALUES(4,'Other','1939','DAA-udgave') ON CONFLICT(id) DO NOTHING;
   END IF;
+  -- Keep the terminal cases structurally valid through source-record linkage.
+  -- `source_record_wrong` changes only the stored result reference below.
+  INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+  VALUES('15300000-0000-4000-8000-000000000210',3,'legacy-invalid-terminal','fixture','fixture','fixture',repeat('a',64),'{}')
+  ON CONFLICT(id) DO NOTHING;
+  INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
+  VALUES('15300000-0000-4000-8000-000000000211',3,'legacy-invalid-terminal','person','15300000-0000-4000-8000-000000000210')
+  ON CONFLICT(id) DO NOTHING;
+  INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
+  VALUES('15300000-0000-4000-8000-000000000212',3,'legacy-invalid-terminal-wrong','person','15300000-0000-4000-8000-000000000210')
+  ON CONFLICT(id) DO NOTHING;
 
   IF v_case='orphan' THEN
     INSERT INTO private.reimport_1939_authorization(
@@ -130,7 +141,9 @@ BEGIN
   ) VALUES(
     v_child_id,'name-completion:legacy-invalid-terminal',v_source_id,
     CASE WHEN v_case='broken_result' THEN 153299 ELSE 153201 END,
-    '15300000-0000-4000-8000-000000000210','15300000-0000-4000-8000-000000000208',
+    CASE WHEN v_case='source_record_wrong' THEN '15300000-0000-4000-8000-000000000212'::uuid
+         ELSE '15300000-0000-4000-8000-000000000211'::uuid END,
+    '15300000-0000-4000-8000-000000000208',
     153202,153203,153204,153205,private.reimport_1939_canonical_json_sha256(v_payload),v_result_sha256
   );
   INSERT INTO private.reimport_1939_authorization(

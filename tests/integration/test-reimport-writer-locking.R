@@ -67,4 +67,111 @@ dbRollback(other_profile)
 dbRollback(holder)
 
 stopifnot(!same_acquired, other_acquired)
-cat("PASS Task 8 source/profile writer lock concurrency\n")
+
+# Task 9: two profiles must serialize the load-bearing max(id)+1 allocation,
+# not merely acquire their independent source/profile writer locks.
+fixture_sql <- paste(readLines("tests/sql/reimport-writer-locking-fixture.sql", warn = FALSE), collapse = "\n")
+execute(holder, fixture_sql)
+
+task9_source_a <- -153902L
+task9_source_b <- -153903L
+task9_profile_a <- "task9-name-lock-a"
+task9_profile_b <- "task9-name-lock-b"
+task9_actor <- "15390000-0000-4000-8000-000000000001"
+execute(holder, "INSERT INTO auth.users(id,email) VALUES($1,'task9-lock@example.invalid') ON CONFLICT(id) DO NOTHING", list(task9_actor))
+execute(holder, paste(
+  "INSERT INTO public.profiles(id,email,rolle,navn) VALUES($1,'task9-lock@example.invalid','redaktion','Task 9 lock')",
+  "ON CONFLICT(id) DO UPDATE SET rolle='redaktion'"
+), list(task9_actor))
+seed_state <- function(source_id, profile_id, tag) {
+  query(holder, "SELECT pg_temp.task9_seed_name_completion($1,$2,$3,$4::uuid) state",
+        list(source_id, profile_id, tag, task9_actor))$state[[1L]]
+}
+state_a_json <- seed_state(task9_source_a, task9_profile_a, "a")
+state_b_json <- seed_state(task9_source_b, task9_profile_b, "b")
+state_a <- jsonlite::fromJSON(state_a_json, simplifyVector = FALSE)
+state_b <- jsonlite::fromJSON(state_b_json, simplifyVector = FALSE)
+
+# RED evidence for the historic unprotected allocation shape: two sessions read
+# the same next id, then the second stale insert collides after the first commits.
+collision_other <- connect()
+on.exit(try(dbDisconnect(collision_other), silent = TRUE), add = TRUE)
+dbBegin(holder)
+dbBegin(collision_other)
+next_a <- query(holder, "SELECT coalesce(max(id),0)+1 id FROM public.fact")$id[[1L]]
+next_b <- query(collision_other, "SELECT coalesce(max(id),0)+1 id FROM public.fact")$id[[1L]]
+stopifnot(identical(next_a, next_b))
+execute(holder, "INSERT INTO public.fact(id,subjekt_type,subjekt_id,faktatype) VALUES($1,'person',$2,'task9-red-max-id')",
+        list(next_a, as.numeric(state_a$person_id)))
+dbCommit(holder)
+collision_error <- tryCatch({
+  execute(collision_other, "INSERT INTO public.fact(id,subjekt_type,subjekt_id,faktatype) VALUES($1,'person',$2,'task9-red-max-id')",
+          list(next_b, as.numeric(state_b$person_id)))
+  ""
+}, error = function(e) conditionMessage(e))
+dbRollback(collision_other)
+stopifnot(grepl("duplicate key|unique", collision_error, ignore.case = TRUE))
+
+worker <- function(state_json, application_name, ready_path = NULL, release_path = NULL) {
+  state <- jsonlite::fromJSON(state_json, simplifyVector = FALSE)
+  con <- connect()
+  on.exit(try(dbDisconnect(con), silent = TRUE), add = TRUE)
+  dbBegin(con)
+  execute(con, "SELECT set_config('request.jwt.claim.sub',$1,true)", list(task9_actor))
+  execute(con, "SELECT set_config('application_name',$1,true)", list(application_name))
+  payload <- jsonlite::toJSON(state$payload, auto_unbox = TRUE, null = "null")
+  query(con, "SELECT public.red_apply_reimport_name_completion($1::uuid,$2,$3::jsonb)",
+        list(state$child_batch_id, state$element_id, payload))
+  if (!is.null(ready_path)) {
+    stopifnot(file.create(ready_path))
+    for (i in seq_len(100L)) {
+      if (file.exists(release_path)) break
+      Sys.sleep(0.05)
+    }
+    stopifnot(file.exists(release_path))
+  }
+  finalized <- query(con, "SELECT public.red_finalize_reimport_name_completion($1::uuid) result", list(state$child_batch_id))$result[[1L]]
+  dbCommit(con)
+  finalized
+}
+
+ready_a <- tempfile("task9-name-completion-a-")
+release_a <- tempfile("task9-name-completion-release-")
+worker_a <- parallel::mcparallel(worker(state_a_json, "task9-name-completion-a", ready_a, release_a), silent = TRUE)
+for (i in seq_len(100L)) {
+  if (file.exists(ready_a)) break
+  Sys.sleep(0.05)
+}
+if (!file.exists(ready_a)) {
+  worker_a_error <- parallel::mccollect(worker_a, wait = TRUE)[[1L]]
+  stop("Task 9 writer A did not reach the post-allocation hold: ", worker_a_error)
+}
+worker_b <- parallel::mcparallel(worker(state_b_json, "task9-name-completion-b"), silent = TRUE)
+waiting_for_allocation_lock <- FALSE
+for (i in seq_len(100L)) {
+  waiting_for_allocation_lock <- query(holder, paste(
+    "SELECT EXISTS(SELECT 1 FROM pg_stat_activity",
+    "WHERE application_name='task9-name-completion-b' AND wait_event_type='Lock' AND wait_event='advisory') waiting"
+  ))$waiting[[1L]]
+  if (waiting_for_allocation_lock) break
+  Sys.sleep(0.05)
+}
+stopifnot(waiting_for_allocation_lock)
+stopifnot(file.create(release_a))
+completed_a <- parallel::mccollect(worker_a, wait = TRUE)[[1L]]
+completed_b <- parallel::mccollect(worker_b, wait = TRUE)[[1L]]
+stopifnot(!inherits(completed_a, "try-error"), !inherits(completed_b, "try-error"))
+stopifnot(jsonlite::fromJSON(completed_a)$status == "finalized", jsonlite::fromJSON(completed_b)$status == "finalized")
+
+receipts <- query(holder, paste(
+  "SELECT b.id batch_id,b.status,r.fact_id,r.citation_id,e.element_id,e.operation,c.citat_tekst",
+  "FROM private.reimport_batch b JOIN private.reimport_name_completion_result r ON r.batch_id=b.id",
+  "JOIN private.reimport_event e ON e.batch_id=b.id AND e.element_id=r.element_id",
+  "JOIN public.citation c ON c.id=r.citation_id",
+  "WHERE b.id IN ($1::uuid,$2::uuid) ORDER BY b.id"
+), list(state_a$child_batch_id, state_b$child_batch_id))
+stopifnot(nrow(receipts) == 2L, all(receipts$status == "finalized"), all(receipts$operation == "canonical_delta"))
+stopifnot(length(unique(receipts$fact_id)) == 2L, length(unique(receipts$citation_id)) == 2L)
+stopifnot(all(c(paste(task9_profile_a, "side 1"), paste(task9_profile_b, "side 1")) %in% receipts$citat_tekst))
+
+cat("PASS Task 8 source/profile writer lock concurrency; Task 9 RED max(id)+1 collision and GREEN serialized name-completion writes\n")

@@ -27,7 +27,7 @@ DECLARE
   ];
   v_generic text[]:=ARRAY[
     'red_authorize_reimport','red_begin_reimport','red_apply_reimport_source_evidence',
-    'red_apply_reimport_person_create','red_apply_reimport_name_completion','red_finalize_reimport',
+    'red_apply_reimport_person_create','red_apply_reimport_canonical_delta','red_finalize_reimport',
     'red_authorize_reimport_reversal','red_reverse_reimport','red_authorize_reimport_cutover',
     'red_activate_reimport_batch','red_lock_reimport_name_completion',
     'red_authorize_reimport_name_completion','red_preflight_reimport_name_completion',

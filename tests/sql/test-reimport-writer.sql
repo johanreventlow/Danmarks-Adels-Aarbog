@@ -60,7 +60,13 @@ DECLARE v_config jsonb := '{"run_key_prefix":"task9:","schema_version":"v1","ext
 BEGIN
   INSERT INTO public.source(id,titel,udgave,slags) VALUES(-153009,'Task 9 config','fixture','DAA-udgave') ON CONFLICT(id) DO NOTHING;
   FOREACH v_invalid IN ARRAY ARRAY[
-    v_config-'rendition_key',v_config||jsonb_build_object('extra','x'),jsonb_set(v_config,'{rendition_metadata}','null'::jsonb),jsonb_set(v_config,'{run_key_prefix}','1'::jsonb),jsonb_set(v_config,'{citation_label_template}','"no placeholder"'::jsonb),jsonb_set(v_config,'{citation_label_template}','"{page_from} {other}"'::jsonb)
+    v_config-'rendition_key',v_config||jsonb_build_object('extra','x'),
+    jsonb_set(v_config,'{rendition_metadata}','null'::jsonb),jsonb_set(v_config,'{rendition_metadata}','[]'::jsonb),
+    jsonb_set(v_config,'{run_key_prefix}','1'::jsonb),jsonb_set(v_config,'{schema_version}','null'::jsonb),
+    jsonb_set(v_config,'{extractor_version}','""'::jsonb),jsonb_set(v_config,'{rendition_key}','null'::jsonb),
+    jsonb_set(v_config,'{rendition_kind}','1'::jsonb),jsonb_set(v_config,'{observation_extraction_method}','null'::jsonb),
+    jsonb_set(v_config,'{citation_label_template}','null'::jsonb),
+    jsonb_set(v_config,'{citation_label_template}','"no placeholder"'::jsonb),jsonb_set(v_config,'{citation_label_template}','"{page_from} {other}"'::jsonb)
   ] LOOP
     v_error:=NULL;
     BEGIN
@@ -70,6 +76,9 @@ BEGIN
     END;
     IF v_error IS NULL THEN RAISE EXCEPTION 'REIMPORT_WRITER_CONFIG_INVALID_ACCEPTED'; END IF;
   END LOOP;
+  IF EXISTS(SELECT 1 FROM private.reimport_writer_profile WHERE source_id=-153009 AND profile_id LIKE 'task9-invalid-%') THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_CONFIG_INVALID_STORED';
+  END IF;
 END $writer_config_contract$;
 
 DO $v1_gate$

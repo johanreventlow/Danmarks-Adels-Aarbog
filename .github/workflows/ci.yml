@@ -222,7 +222,7 @@ jobs:
             grep -Fq 'REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED' "${database}.out"
             psql -h localhost -U postgres -d "$database" -Atc "SELECT relkind FROM pg_class WHERE oid='private.reimport_1939_authorization'::regclass" | grep -Fx r
           done
-          for terminal_case in orphan reversed_finalized_child broken_result ambiguous_child; do
+          for terminal_case in orphan reversed_finalized_child broken_result ambiguous_child source_record_wrong; do
             database="reimport_legacy_153_${terminal_case}"
             createdb -h localhost -U postgres "$database"
             psql -h localhost -U postgres -d "$database" -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql

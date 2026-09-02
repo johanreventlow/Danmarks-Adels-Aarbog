@@ -12379,6 +12379,8 @@ RETURNS boolean LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path=pg_catal
 $$;
 DO $task9_writer_config_constraint$
 BEGIN
+  ALTER TABLE private.reimport_writer_profile
+    DROP CONSTRAINT IF EXISTS reimport_writer_profile_writer_config_check;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.reimport_writer_profile'::regclass AND conname='reimport_writer_profile_config_valid') THEN
     ALTER TABLE private.reimport_writer_profile ADD CONSTRAINT reimport_writer_profile_config_valid CHECK (private.validate_reimport_writer_config(writer_config));
   END IF;
