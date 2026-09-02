@@ -127,7 +127,7 @@ testthat::test_that("generic extractor recognizes a valid CREATE OR REPLACE func
 testthat::test_that("Task 1 literal inventory exactly covers the designated schema and migration ranges", {
   observed <- rbind(
     writer_segment_occurrences("schema.sql", 2324L, 3098L, "schema"),
-    writer_segment_occurrences("db-migrations.sql", 7559L, 8417L, "migration")
+    writer_segment_occurrences("db-migrations.sql", 7559L, 8419L, "migration")
   )
   key_columns <- c("literal", "classification", "generic_target", "test_name")
   expected_keys <- do.call(paste, c(writer_expected_inventory[key_columns], sep = "|"))
