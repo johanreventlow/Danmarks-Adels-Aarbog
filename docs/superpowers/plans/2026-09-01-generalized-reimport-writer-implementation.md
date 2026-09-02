@@ -822,12 +822,44 @@ change, production action, or expansion to a new edition.
 
 - [x] **Step 4: Correct terminal migration and parity proof RED/GREEN**
 
-  Permit only genuinely terminal historical chains: a finalized
-  name-completion child whose source batch is activated/reversed is terminal;
-  unfinished open/finalized reimport work remains blocked. Repair the CI and
-  disposable fixtures to represent that real topology. Add function-body
-  digests to fresh/upgraded catalog serialization so behavioral drift cannot
-  pass byte parity.
+  Permit only genuinely terminal historical chains: an activated source with
+  one finalized name-completion child, or a reversed source with its reversed
+  child. Reject issued authorization, open work, finalized reimport sources,
+  orphan/finalized children without exactly one activated parent, finalized
+  children beneath reversed parents, and broken/ambiguous parent-result
+  references. Repair the CI and disposable fixtures to represent both real
+  topologies. Add function-body digests to fresh/upgraded catalog serialization
+  so behavioral drift cannot pass byte parity.
+
+  **Owner-approved evidence extension (2026-09-02):** Build the terminal
+  historical fixture through the pre-#153 name-completion RPC path (or an
+  equivalently complete, RPC-valid fixture) with its actual eight
+  `canonical_delta` events and result rows. A status-only synthetic child is
+  insufficient. Re-run atomicity, actual migration, preserved-history and
+  fresh/upgraded body-digest parity evidence. This remains disposable
+  fixture/test work only; it must not modify C3, production data or the
+  generic writer contract.
+
+  **Owner-approved two-track ruling (2026-09-02, SOL GO):** Verify both real
+  historical forms on a v1-compatible migration track without v2 bootstrap.
+  Verify v2 generic writer behavior separately on fresh v2 and a clean
+  upgraded baseline using the existing truthful #152 bootstrap. The rehearsal
+  must state that this does not prove #152 cutover of the eight-record
+  historical fixture. Do not alter #152 inventory/cutover policy or fabricate
+  candidate/approval evidence.
+
+  **Observed completion (2026-09-02):** The pre-fix migration rejected a
+  source-3 physical ledger with zero authorization rows
+  (`REIMPORT_WRITER_LEGACY_SOURCE_IDENTITY_INVALID`). The completed narrow
+  correction permits only that zero-row path; every nonempty ledger still must
+  identify exactly source 3. Named local disposable tests prove the two
+  RPC-created eight-row terminal forms, atomic rollback, exact parent/child/
+  result linkage, four malformed-terminal rejections, wrong-source and
+  multi-source nonempty rejection, a separate clean historical upgrade through
+  the existing v2 bootstrap, and byte-identical fresh/clean-upgraded effective
+  catalog output. The terminal history path stays v1-compatible and is not
+  bootstrapped to v2; its attempted #152 bootstrap correctly fails closed on
+  live cutover inventory drift. No #152 inventory/cutover/C3 policy changed.
 
 - [x] **Step 5: Enforce source/profile writer locking RED/GREEN**
 

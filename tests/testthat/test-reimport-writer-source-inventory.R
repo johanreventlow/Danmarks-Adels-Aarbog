@@ -252,20 +252,29 @@ testthat::test_that("every generic writer lifecycle locks its source/profile aft
   }
 })
 
-testthat::test_that("upgrade quiescence permits only completed name-completion children", {
+testthat::test_that("upgrade guard permits only exact terminal children and an empty legacy ledger", {
   migration_text <- paste(readLines(file.path(writer_root, "db-migrations.sql"), warn = FALSE), collapse = "\n")
+  empty_fixture <- paste(readLines(file.path(writer_root, "tests", "sql", "reimport-writer-legacy-empty-fixture.sql"), warn = FALSE), collapse = "\n")
+  invalid_fixture <- paste(readLines(file.path(writer_root, "tests", "sql", "reimport-writer-legacy-invalid-terminal-fixture.sql"), warn = FALSE), collapse = "\n")
   testthat::expect_match(migration_text, "a.operation='reimport' AND b.status='finalized'", fixed = TRUE)
   testthat::expect_match(migration_text, "REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED", fixed = TRUE)
+  testthat::expect_match(migration_text, "IF v_source_count<>0", fixed = TRUE)
+  testthat::expect_match(migration_text, "REIMPORT_WRITER_LEGACY_SOURCE_IDENTITY_INVALID", fixed = TRUE)
+  testthat::expect_match(empty_fixture, "REIMPORT_WRITER_LEGACY_EMPTY_FIXTURE_INVALID", fixed = TRUE)
+  testthat::expect_match(invalid_fixture, "identity_wrong_source", fixed = TRUE)
+  testthat::expect_match(invalid_fixture, "identity_multi_source", fixed = TRUE)
 })
 
-testthat::test_that("catalog parity includes effective function bodies and terminal-child fixture", {
+testthat::test_that("catalog parity includes effective function bodies and both terminal-child fixtures", {
   receipt <- paste(readLines(file.path(writer_root, "tests", "sql", "inspect-reimport-writer-catalog.sql"), warn = FALSE), collapse = "\n")
   migration_fixture <- paste(readLines(file.path(writer_root, "tests", "sql", "test-reimport-writer-migration.sql"), warn = FALSE), collapse = "\n")
   testthat::expect_match(receipt, "pg_get_functiondef", fixed = TRUE)
   testthat::expect_match(receipt, "encode(extensions.digest", fixed = TRUE)
   testthat::expect_match(migration_fixture, "operation='name_completion'", fixed = TRUE)
   testthat::expect_match(migration_fixture, "status='finalized'", fixed = TRUE)
-  testthat::expect_match(migration_fixture, "source_batch_id='15300000-0000-4000-8000-000000000102'", fixed = TRUE)
+  testthat::expect_match(migration_fixture, "source_batch.status='activated'", fixed = TRUE)
+  testthat::expect_match(migration_fixture, "source_batch.status='reversed'", fixed = TRUE)
+  testthat::expect_match(migration_fixture, "jsonb_build_object('source_batch_id',source_batch.id::text)", fixed = TRUE)
 })
 
 testthat::test_that("migration writer keeps fresh-equivalent finalize, replay, and helper ACL guards", {

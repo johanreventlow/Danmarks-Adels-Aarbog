@@ -11226,7 +11226,14 @@ REVOKE ALL ON FUNCTION public.narrative_record_contract_version()
 -- cannot be silently assigned to a profile.
 BEGIN;
 DO $reimport_writer_upgrade$
-DECLARE v_source_count bigint; v_constraint record; v_constraint_name text;
+DECLARE
+  v_source_count bigint;
+  v_constraint record;
+  v_constraint_name text;
+  v_source record;
+  v_child record;
+  v_child_count bigint;
+  v_payload_count bigint;
 BEGIN
   -- A legacy ledger is executable until every authorization and batch has
   -- reached a terminal state.  Take the locks and reject it before *any* DDL
@@ -11234,12 +11241,10 @@ BEGIN
   IF (SELECT relkind FROM pg_class WHERE oid=to_regclass('private.reimport_1939_authorization'))='r' THEN
     LOCK TABLE private.reimport_1939_authorization,
       private.reimport_1939_write_batch,
-      private.reimport_1939_write_event IN ACCESS EXCLUSIVE MODE;
+      private.reimport_1939_write_event,
+      private.reimport_1939_name_completion_result IN ACCESS EXCLUSIVE MODE;
     IF EXISTS(SELECT 1 FROM private.reimport_1939_authorization WHERE status='issued')
        OR EXISTS(SELECT 1 FROM private.reimport_1939_write_batch WHERE status='open')
-       -- A finalized name-completion child is terminal once its parent has
-       -- activated or reversed.  Only a still-finalized *reimport* parent can
-       -- retain executable authority and must block conversion.
        OR EXISTS(
          SELECT 1
            FROM private.reimport_1939_write_batch b
@@ -11248,12 +11253,200 @@ BEGIN
        ) THEN
       RAISE EXCEPTION 'REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED';
     END IF;
+
+    -- The old writer does not encode the source/child relationship in a
+    -- relational FK.  Before assigning its rows the generic profile identity,
+    -- accept only the two terminal topologies that its public v1 lifecycle can
+    -- create.  In particular, a finalized child is not independently terminal:
+    -- it must be the one complete name-completion child of an activated source.
+    IF EXISTS(
+      SELECT 1
+        FROM private.reimport_1939_write_batch b
+        JOIN private.reimport_1939_authorization a ON a.id=b.authorization_id
+       WHERE a.operation NOT IN ('reimport','name_completion')
+          OR a.status<>'consumed'
+          OR (a.operation='reimport' AND b.status NOT IN ('activated','reversed'))
+          OR (a.operation='name_completion' AND b.status NOT IN ('finalized','reversed'))
+    ) THEN
+      RAISE EXCEPTION 'REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED';
+    END IF;
+
+    -- Every child must name exactly one reimport parent in every authorized
+    -- payload.  This first global check rejects orphaned/ambiguous children
+    -- before the per-parent result and event checks below.
+    IF EXISTS(
+      SELECT 1
+        FROM private.reimport_1939_write_batch child_batch
+        JOIN private.reimport_1939_authorization child_authorization
+          ON child_authorization.id=child_batch.authorization_id
+       WHERE child_authorization.operation='name_completion'
+         AND (
+           jsonb_typeof(child_authorization.authorized_elements->'payloads')<>'object'
+           OR NOT EXISTS(SELECT 1 FROM jsonb_object_keys(child_authorization.authorized_elements->'payloads'))
+           OR (SELECT count(DISTINCT payload.value->>'source_batch_id')
+                 FROM jsonb_each(child_authorization.authorized_elements->'payloads') payload)<>1
+           OR NOT EXISTS(
+             SELECT 1
+              FROM private.reimport_1939_write_batch source_batch
+               JOIN private.reimport_1939_authorization source_authorization
+                 ON source_authorization.id=source_batch.authorization_id
+              WHERE source_authorization.operation='reimport'
+                AND source_batch.id::text=(SELECT min(payload.value->>'source_batch_id')
+                                            FROM jsonb_each(child_authorization.authorized_elements->'payloads') payload)
+           )
+         )
+    ) THEN
+      RAISE EXCEPTION 'REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED';
+    END IF;
+
+    FOR v_source IN
+      SELECT source_batch.*, source_authorization.id AS authorization_id,
+             source_authorization.manifest_sha256,
+             source_authorization.preview_sha256,
+             source_authorization.source_id,
+             source_authorization.status AS authorization_status,
+             source_authorization.expected_counts AS authorization_expected_counts
+        FROM private.reimport_1939_write_batch source_batch
+        JOIN private.reimport_1939_authorization source_authorization
+          ON source_authorization.id=source_batch.authorization_id
+       WHERE source_authorization.operation='reimport'
+    LOOP
+      SELECT count(*) INTO v_child_count
+       FROM private.reimport_1939_write_batch candidate_batch
+        JOIN private.reimport_1939_authorization candidate_authorization
+          ON candidate_authorization.id=candidate_batch.authorization_id
+       WHERE candidate_authorization.operation='name_completion'
+         AND EXISTS(
+           SELECT 1 FROM jsonb_each(candidate_authorization.authorized_elements->'payloads') payload
+            WHERE payload.value->>'source_batch_id'=v_source.id::text
+         );
+      IF v_child_count<>1 THEN
+        RAISE EXCEPTION 'REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED';
+      END IF;
+      SELECT candidate_batch.*, candidate_authorization.id AS authorization_id,
+             candidate_authorization.manifest_sha256,
+             candidate_authorization.preview_sha256,
+             candidate_authorization.source_id,
+             candidate_authorization.status AS authorization_status,
+             candidate_authorization.expected_counts AS authorization_expected_counts,
+             candidate_authorization.authorized_elements
+        INTO v_child
+       FROM private.reimport_1939_write_batch candidate_batch
+        JOIN private.reimport_1939_authorization candidate_authorization
+          ON candidate_authorization.id=candidate_batch.authorization_id
+       WHERE candidate_authorization.operation='name_completion'
+         AND EXISTS(
+           SELECT 1 FROM jsonb_each(candidate_authorization.authorized_elements->'payloads') payload
+            WHERE payload.value->>'source_batch_id'=v_source.id::text
+         );
+
+      SELECT count(*) INTO v_payload_count
+        FROM jsonb_object_keys(v_child.authorized_elements->'payloads');
+      IF v_payload_count=0
+         OR v_source.authorization_expected_counts IS DISTINCT FROM v_source.expected_counts
+         OR v_source.observed_counts IS DISTINCT FROM v_source.expected_counts
+         OR v_child.authorization_status<>'consumed'
+         OR v_child.source_id<>v_source.source_id
+         -- A v1 name-completion child has its own manifest/preview.  Its
+         -- authorization instead binds the source content hash explicitly.
+         OR v_child.authorized_elements->>'source_manifest_content_sha256' IS DISTINCT FROM v_source.manifest_sha256
+         OR v_child.authorization_expected_counts IS DISTINCT FROM jsonb_build_object(
+              'name_completions',v_payload_count,'operations',v_payload_count)
+         OR v_child.expected_counts IS DISTINCT FROM v_child.authorization_expected_counts
+         OR v_child.observed_counts IS DISTINCT FROM v_child.expected_counts
+         OR EXISTS(
+           SELECT 1 FROM jsonb_each(v_child.authorized_elements->'payloads') payload
+            WHERE payload.value->>'source_batch_id' IS DISTINCT FROM v_source.id::text
+         )
+      THEN
+        RAISE EXCEPTION 'REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED';
+      END IF;
+
+      IF (v_source.status='activated' AND v_child.status<>'finalized')
+         OR (v_source.status='reversed' AND v_child.status<>'reversed')
+         OR NOT EXISTS(
+           SELECT 1 FROM private.reimport_1939_authorization terminal_authorization
+            WHERE terminal_authorization.operation=CASE WHEN v_source.status='activated' THEN 'cutover' ELSE 'reversal' END
+              AND terminal_authorization.status='consumed'
+              AND terminal_authorization.database_identity='batch:'||v_source.id::text
+              AND terminal_authorization.source_id=v_source.source_id
+              AND terminal_authorization.manifest_sha256=v_source.manifest_sha256
+              AND terminal_authorization.preview_sha256=v_source.preview_sha256
+         )
+      THEN
+        RAISE EXCEPTION 'REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED';
+      END IF;
+
+      -- Bind each result and canonical-delta event to the authorized child
+      -- payload and to its source person-create event.  The same evidence is
+      -- retained by the old reversal RPC, so this applies to both terminal
+      -- states without inventing a v2 anchor.
+      IF (SELECT count(*) FROM private.reimport_1939_write_event source_event
+            WHERE source_event.batch_id=v_source.id
+              AND source_event.operation='person_create')<>v_payload_count
+         OR (SELECT count(*) FROM private.reimport_1939_write_event child_event
+              WHERE child_event.batch_id=v_child.id
+                AND child_event.operation='canonical_delta')<>v_payload_count
+         OR (SELECT count(*) FROM private.reimport_1939_name_completion_result result
+              WHERE result.batch_id=v_child.id
+                AND result.source_batch_id=v_source.id)<>v_payload_count
+         OR EXISTS(
+           SELECT 1
+             FROM jsonb_each(v_child.authorized_elements->'payloads') payload
+             LEFT JOIN private.reimport_1939_write_event source_event
+               ON source_event.batch_id=v_source.id
+              AND source_event.operation='person_create'
+              AND source_event.element_id=payload.value->>'source_person_create_element_id'
+             LEFT JOIN private.reimport_1939_write_event child_event
+               ON child_event.batch_id=v_child.id
+              AND child_event.operation='canonical_delta'
+              AND child_event.element_id=payload.key
+             LEFT JOIN private.reimport_1939_name_completion_result result
+               ON result.batch_id=v_child.id
+              AND result.element_id=payload.key
+            WHERE payload.key IS DISTINCT FROM 'name-completion:'||(payload.value->>'source_record_key')
+               OR source_event.id IS NULL
+               OR source_event.canonical_person_id<>(payload.value->>'person_id')::bigint
+               OR source_event.source_record_key IS DISTINCT FROM payload.value->>'source_record_key'
+               OR private.reimport_1939_canonical_json_sha256(source_event.payload) IS DISTINCT FROM payload.value->>'source_payload_sha256'
+               OR child_event.id IS NULL
+               OR child_event.payload IS DISTINCT FROM payload.value
+               OR child_event.canonical_person_id<>(payload.value->>'person_id')::bigint
+               OR child_event.source_record_key IS DISTINCT FROM payload.value->>'source_record_key'
+               OR result.id IS NULL
+               OR result.source_batch_id<>v_source.id
+               OR result.person_id<>(payload.value->>'person_id')::bigint
+               OR result.source_persona_id<>(payload.value->>'source_persona_id')::uuid
+               OR result.payload_sha256 IS DISTINCT FROM private.reimport_1939_canonical_json_sha256(payload.value)
+               OR result.result_sha256 IS DISTINCT FROM private.reimport_1939_canonical_json_sha256(
+                    jsonb_build_object('fact_id',result.fact_id,'assertion_id',result.assertion_id,
+                                       'citation_id',result.citation_id,'conclusion_id',result.conclusion_id))
+               OR child_event.after_sha256 IS DISTINCT FROM result.result_sha256
+         )
+         OR EXISTS(
+           SELECT 1
+             FROM private.reimport_1939_name_completion_result result
+            WHERE result.batch_id=v_child.id
+              AND NOT EXISTS(
+                SELECT 1 FROM jsonb_each(v_child.authorized_elements->'payloads') payload
+                 WHERE payload.key=result.element_id
+              )
+         )
+      THEN
+        RAISE EXCEPTION 'REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED';
+      END IF;
+    END LOOP;
   END IF;
   IF to_regclass('private.reimport_authorization') IS NULL
      AND to_regclass('private.reimport_1939_authorization') IS NOT NULL THEN
     SELECT count(DISTINCT source_id) INTO v_source_count
       FROM private.reimport_1939_authorization;
-    IF v_source_count<>1 OR NOT EXISTS(SELECT 1 FROM private.reimport_1939_authorization WHERE source_id=3) THEN
+    -- An empty physical v1 ledger has no profile identity to backfill, but is
+    -- otherwise a safe historical upgrade: the source row is still retained
+    -- for the subsequent v2 bootstrap.  Any nonempty ledger remains bound to
+    -- exactly the one supported 1939 source before its rows are renamed.
+    IF v_source_count<>0
+       AND (v_source_count<>1 OR NOT EXISTS(SELECT 1 FROM private.reimport_1939_authorization WHERE source_id=3)) THEN
       RAISE EXCEPTION 'REIMPORT_WRITER_LEGACY_SOURCE_IDENTITY_INVALID';
     END IF;
     ALTER TABLE private.reimport_1939_authorization RENAME TO reimport_authorization;

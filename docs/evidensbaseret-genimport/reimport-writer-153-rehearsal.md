@@ -260,3 +260,50 @@ PostgreSQL integration` and `PASS DAA 1939 v50 name completion PostgreSQL
 integration`. Focused R gateway suites passed with 20, 14, 7, 6, and 188
 expectations. This remains local code-integration evidence only, not
 production authority; the independent Task 8 Sol re-review remains required.
+
+### Task 8 terminal-topology correction (latest observed evidence)
+
+This subsection supersedes the earlier status-only terminal description above.
+The migration now accepts only an activated reimport source with exactly one
+finalized name-completion child, or a reversed source with exactly one reversed
+child. It verifies the old authorization, batch, event and result linkage
+before renaming any ledger relation.
+
+The RED case was `daa153_t8_empty_red_bootstrap_20260902`: bootstrap plus
+exact `2d6aabf:schema.sql`, source 3, and all four physical v1 ledger tables
+empty. The prior migration stopped with
+`REIMPORT_WRITER_LEGACY_SOURCE_IDENTITY_INVALID`. The narrow correction permits
+only this zero-authorization legacy ledger. It does not relax a nonempty
+ledger: `daa153_t8_identity_wrong_source_green_20260902` and
+`daa153_t8_identity_multi_source_green_20260902` both rejected with that same
+identity error and retained `private.reimport_1939_authorization` as a physical
+table.
+
+The real v1 history proof used
+`daa153_t8_terminal_green3_20260902`: pre-#153 RPCs created two independent
+eight-row chains, one activated/finalized and one reversed/reversed, each with
+eight `person_create` events, eight `canonical_delta` events and eight retained
+name-completion results. The migration failpoint produced only
+`REIMPORT_WRITER_ATOMICITY_TEST_FAILURE`; the rollback assertion, normal
+migration, post-migration terminal assertions and full v1 C3 regression then
+all exited 0. Four malformed terminal fixtures (orphan child, finalized child
+under reversed source, broken result and ambiguous child) were rejected before
+DDL with `REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED`.
+
+The separate clean upgraded-v2 baseline was
+`daa153_t8_empty_green2_20260902`: exact `2d6aabf` schema, source 3 and empty
+physical ledger, current migration/RLS, then the existing truthful v2 bootstrap.
+Generic writer/name-completion/legacy SQL, full disposable `db-verify.sql`
+(including all five `dblink` gates), edition catalog and generic R/DBI writer
+integration all exited 0. Its effective catalog receipt was byte-identical to
+the separate clean-fresh v2 database `daa153_t8_cleanv2_20260902`: 31,504
+bytes and SHA-256
+`4e3bf726292c6d4be08ca6c6bf9d01a4d3fed36a6ad254b8169f5a60bfdcb437`.
+
+The real eight-row historical database deliberately remains a v1-only
+migration/C3 track. Applying the existing #152 v2 bootstrap there correctly
+stops with `CUTOVER_INVENTORY_LIVE_DRIFT`; this is not candidate, cutover or
+approval evidence. Focused v2 C3 public-surface probes passed fail-closed on
+both clean v2 baselines. No #152 inventory/cutover/C3 policy, production data,
+network service, protected review artifact or `work/` content was changed or
+accessed.

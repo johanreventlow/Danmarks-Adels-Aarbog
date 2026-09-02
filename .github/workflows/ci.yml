@@ -168,11 +168,7 @@ jobs:
           createdb -h localhost -U postgres reimport_legacy_153
           psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql
           git show 2d6aabf:schema.sql | psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1
-          psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -c "INSERT INTO public.source(id,titel,udgave,slags) VALUES(3,'DAA','1939','DAA-udgave') ON CONFLICT DO NOTHING; INSERT INTO private.reimport_1939_authorization(id,operation,manifest_sha256,preview_sha256,database_identity,source_id,expected_counts,authorized_elements,principal_id,nonce,expires_at,status,consumed_at) VALUES ('15300000-0000-4000-8000-000000000101','reimport',repeat('a',64),repeat('b',64),current_database(),3,'{}','{}','15300000-0000-4000-8000-000000000107','15300000-0000-4000-8000-000000000108',clock_timestamp()+interval '1 hour','consumed',clock_timestamp()), ('15300000-0000-4000-8000-000000000103','name_completion',repeat('a',64),repeat('b',64),'batch:15300000-0000-4000-8000-000000000102',3,'{}','{}','15300000-0000-4000-8000-000000000113','15300000-0000-4000-8000-000000000109',clock_timestamp()+interval '1 hour','consumed',clock_timestamp()), ('15300000-0000-4000-8000-000000000104','reversal',repeat('c',64),repeat('b',64),'batch:15300000-0000-4000-8000-000000000102',3,'{}','{}','15300000-0000-4000-8000-000000000107','15300000-0000-4000-8000-000000000110',clock_timestamp()-interval '1 hour','expired',NULL); INSERT INTO private.reimport_1939_write_batch(id,authorization_id,manifest_sha256,preview_sha256,principal_id,status,expected_counts,observed_counts,finalized_at) VALUES ('15300000-0000-4000-8000-000000000102','15300000-0000-4000-8000-000000000101',repeat('a',64),repeat('b',64),'15300000-0000-4000-8000-000000000107','reversed','{}','{}',clock_timestamp()), ('15300000-0000-4000-8000-000000000105','15300000-0000-4000-8000-000000000103',repeat('a',64),repeat('b',64),'15300000-0000-4000-8000-000000000113','finalized','{}','{}',clock_timestamp()); INSERT INTO private.reimport_1939_write_event(id,batch_id,element_id,operation,payload,after_sha256) VALUES (153101,'15300000-0000-4000-8000-000000000102','legacy:153:reversal','reversal','{}',repeat('d',64)), (153102,'15300000-0000-4000-8000-000000000105','legacy:153:activation','activation','{}',repeat('e',64)); INSERT INTO private.reimport_1939_name_completion_result(id,batch_id,element_id,source_batch_id,person_id,source_record_id,source_persona_id,fact_id,assertion_id,citation_id,conclusion_id,payload_sha256,result_sha256) VALUES ('15300000-0000-4000-8000-000000000106','15300000-0000-4000-8000-000000000105','legacy:153:name','15300000-0000-4000-8000-000000000102',-153001,'15300000-0000-4000-8000-000000000111','15300000-0000-4000-8000-000000000112',-153002,-153003,-153004,-153005,repeat('f',64),repeat('0',64));"
-          # A finalized name-completion child remains terminal after its source
-          # batch was reversed.  It must not be treated as executable work by
-          # the generic migration quiescence gate.
-          psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -c "INSERT INTO private.reimport_1939_authorization(id,operation,manifest_sha256,preview_sha256,database_identity,source_id,expected_counts,authorized_elements,principal_id,nonce,expires_at,status,consumed_at) VALUES ('15300000-0000-4000-8000-000000000114','name_completion',repeat('c',64),repeat('d',64),jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,3,'{\"name_completions\":1,\"operations\":1}','{}','15300000-0000-4000-8000-000000000107','15300000-0000-4000-8000-000000000115',clock_timestamp()+interval '1 hour','consumed',clock_timestamp()); INSERT INTO private.reimport_1939_write_batch(id,authorization_id,manifest_sha256,preview_sha256,principal_id,status,expected_counts,observed_counts,finalized_at) VALUES ('15300000-0000-4000-8000-000000000116','15300000-0000-4000-8000-000000000114',repeat('c',64),repeat('d',64),'15300000-0000-4000-8000-000000000107','finalized','{\"name_completions\":1,\"operations\":1}','{\"name_completions\":1,\"operations\":1}',clock_timestamp()); INSERT INTO private.reimport_1939_write_event(batch_id,element_id,operation,payload,after_sha256) VALUES ('15300000-0000-4000-8000-000000000116','legacy:153:terminal-name','canonical_delta','{}',repeat('1',64)); INSERT INTO private.reimport_1939_name_completion_result(id,batch_id,element_id,source_batch_id,person_id,source_record_id,source_persona_id,fact_id,assertion_id,citation_id,conclusion_id,payload_sha256,result_sha256) VALUES ('15300000-0000-4000-8000-000000000117','15300000-0000-4000-8000-000000000116','legacy:153:terminal-name','15300000-0000-4000-8000-000000000102',-153101,'15300000-0000-4000-8000-000000000118','15300000-0000-4000-8000-000000000119',-153102,-153103,-153104,-153105,repeat('2',64),repeat('3',64));"
+          psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f tests/sql/reimport-writer-legacy-terminal-fixture.sql
           if PGOPTIONS='-c app.reimport_writer_atomicity_test_failpoint=on' psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f db-migrations.sql > reimport-atomicity-rollback.out 2>&1; then
             echo "expected late #153 atomicity failure" >&2; exit 1
           fi
@@ -181,9 +177,25 @@ jobs:
           psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f db-migrations.sql
           psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f db-rls.sql
           psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-writer-migration.sql
-          psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f tests/sql/run-db-verify-disposable.sql
-          psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-edition-catalog.sql
-          psql -h localhost -U postgres -d reimport_legacy_153 -At -f tests/sql/inspect-reimport-writer-catalog.sql > reimport-writer-upgraded-catalog.json
+          psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f tests/sql/test-1939-v50-c3-apply.sql
+          if psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -c 'BEGIN' -f tests/sql/reimport-writer-v2-bootstrap.sql > reimport-legacy-v2-bootstrap.out 2>&1; then
+            echo "expected historical-ledger v2 bootstrap to fail closed on live cutover inventory" >&2; exit 1
+          fi
+          grep -Fq 'CUTOVER_INVENTORY_LIVE_DRIFT' reimport-legacy-v2-bootstrap.out
+          createdb -h localhost -U postgres reimport_legacy_empty_153
+          psql -h localhost -U postgres -d reimport_legacy_empty_153 -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql
+          git show 2d6aabf:schema.sql | psql -h localhost -U postgres -d reimport_legacy_empty_153 -v ON_ERROR_STOP=1
+          psql -h localhost -U postgres -d reimport_legacy_empty_153 -v ON_ERROR_STOP=1 -f tests/sql/reimport-writer-legacy-empty-fixture.sql
+          psql -h localhost -U postgres -d reimport_legacy_empty_153 -v ON_ERROR_STOP=1 -f db-migrations.sql
+          psql -h localhost -U postgres -d reimport_legacy_empty_153 -v ON_ERROR_STOP=1 -f db-rls.sql
+          psql -h localhost -U postgres -d reimport_legacy_empty_153 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-writer.sql
+          psql -h localhost -U postgres -d reimport_legacy_empty_153 -v ON_ERROR_STOP=1 -f db-rls.sql
+          psql -h localhost -U postgres -d reimport_legacy_empty_153 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-name-completion.sql
+          psql -h localhost -U postgres -d reimport_legacy_empty_153 -v ON_ERROR_STOP=1 -f tests/sql/test-1939-v50-production-writer.sql
+          psql -h localhost -U postgres -d reimport_legacy_empty_153 -v ON_ERROR_STOP=1 -f tests/sql/test-1939-v50-name-completion.sql
+          psql -h localhost -U postgres -d reimport_legacy_empty_153 -v ON_ERROR_STOP=1 -f tests/sql/run-db-verify-disposable.sql
+          psql -h localhost -U postgres -d reimport_legacy_empty_153 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-edition-catalog.sql
+          psql -h localhost -U postgres -d reimport_legacy_empty_153 -At -f tests/sql/inspect-reimport-writer-catalog.sql > reimport-writer-upgraded-catalog.json
           createdb -h localhost -U postgres reimport_fresh_153
           psql -h localhost -U postgres -d reimport_fresh_153 -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql
           psql -h localhost -U postgres -d reimport_fresh_153 -v ON_ERROR_STOP=1 -f schema.sql
@@ -208,6 +220,30 @@ jobs:
               echo "expected in-flight migration rejection for $state" >&2; exit 1
             fi
             grep -Fq 'REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED' "${database}.out"
+            psql -h localhost -U postgres -d "$database" -Atc "SELECT relkind FROM pg_class WHERE oid='private.reimport_1939_authorization'::regclass" | grep -Fx r
+          done
+          for terminal_case in orphan reversed_finalized_child broken_result ambiguous_child; do
+            database="reimport_legacy_153_${terminal_case}"
+            createdb -h localhost -U postgres "$database"
+            psql -h localhost -U postgres -d "$database" -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql
+            git show 2d6aabf:schema.sql | psql -h localhost -U postgres -d "$database" -v ON_ERROR_STOP=1
+            psql -h localhost -U postgres -d "$database" -v ON_ERROR_STOP=1 -v terminal_negative_case="$terminal_case" -f tests/sql/reimport-writer-legacy-invalid-terminal-fixture.sql
+            if psql -h localhost -U postgres -d "$database" -v ON_ERROR_STOP=1 -f db-migrations.sql > "${database}.out" 2>&1; then
+              echo "expected terminal-topology migration rejection for $terminal_case" >&2; exit 1
+            fi
+            grep -Fq 'REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED' "${database}.out"
+            psql -h localhost -U postgres -d "$database" -Atc "SELECT relkind FROM pg_class WHERE oid='private.reimport_1939_authorization'::regclass" | grep -Fx r
+          done
+          for identity_case in identity_wrong_source identity_multi_source; do
+            database="reimport_legacy_153_${identity_case}"
+            createdb -h localhost -U postgres "$database"
+            psql -h localhost -U postgres -d "$database" -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql
+            git show 2d6aabf:schema.sql | psql -h localhost -U postgres -d "$database" -v ON_ERROR_STOP=1
+            psql -h localhost -U postgres -d "$database" -v ON_ERROR_STOP=1 -v terminal_negative_case="$identity_case" -f tests/sql/reimport-writer-legacy-invalid-terminal-fixture.sql
+            if psql -h localhost -U postgres -d "$database" -v ON_ERROR_STOP=1 -f db-migrations.sql > "${database}.out" 2>&1; then
+              echo "expected nonempty legacy source-identity rejection for $identity_case" >&2; exit 1
+            fi
+            grep -Fq 'REIMPORT_WRITER_LEGACY_SOURCE_IDENTITY_INVALID' "${database}.out"
             psql -h localhost -U postgres -d "$database" -Atc "SELECT relkind FROM pg_class WHERE oid='private.reimport_1939_authorization'::regclass" | grep -Fx r
           done
       - name: Nulstil database til name completion integration
