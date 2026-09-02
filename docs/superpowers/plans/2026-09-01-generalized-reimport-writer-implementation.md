@@ -678,16 +678,16 @@ the private-ledger boundary.
 
 ### Task 7: Run complete disposable verification and final evidence audit
 
-**Observed Task 7 status (2026-09-02): INCOMPLETE / NO-GO.** Fresh and
-upgraded generic-writer, R, migration-parity, catalog and `dblink` concurrency
-evidence was observed in named local disposable databases. The legacy C3
-regression fails reproducibly because `red_preview_reimport_cases()` calls the
-dropped `private.require_reimport_1939_editor()`. The required generic DBI
-file `tests/integration/test-reimport-writer.R` is absent. The bounded
-rehearsal evidence is recorded in
+**Observed Task 7 status (2026-09-02): GREEN for bounded code-integration
+evidence.** Separate named local disposable fresh/upgraded tracks now cover
+generic writer, migration parity, catalog, complete `dblink` verifier,
+generic/legacy DBI and focused R suites. Full C3 is green on both v1-compatible
+tracks; focused v2 probes prove the specified C3 public surface is fail-closed.
+The exact two private/revoked C3 aliases are catalog-allowlisted and fresh/
+upgraded v2 catalog serialization is byte-identical. The durable evidence is
 `docs/evidensbaseret-genimport/reimport-writer-153-rehearsal.md`; it is not
-production authority. An independent read-only Sol review remains for the
-controller after the C3 finding is resolved or explicitly dispositioned.
+production authority. The controller still owns the required independent
+read-only Sol review.
 
 **Files:**
 
@@ -697,6 +697,7 @@ controller after the C3 finding is resolved or explicitly dispositioned.
 **Task 7 corrective completion scope (2026-09-02):**
 
 - Modify: `db-migrations.sql`
+- Modify: `db-verify.sql`
 - Modify: `tests/sql/test-1939-v50-c3-apply.sql`
 - Create: `tests/integration/test-reimport-writer.R`
 
@@ -712,28 +713,42 @@ named disposable database. Repeat affected fresh/upgraded and C3 verification
 and replace the observed NO-GO rehearsal conclusion only with new observed
 evidence.
 
+The exact edition-object catalog must allowlist those two retained private,
+revoked helper signatures and no other new edition-specific object.
+
+**Task 7 contract-track ruling (2026-09-02):** The generic writer requires the
+v2 bootstrap. C3 remains a separate v1 contract: the existing #152
+version-aware ACL authority deliberately fail-closes the C3 public RPCs after
+v2 bootstrap. Therefore, run the full C3 regression on separate fresh and
+upgraded v1-compatible disposable databases (schema/migration/RLS, without v2
+bootstrap), and record a focused v2 assertion that the C3 public surface stays
+fail-closed. Do not restore C3 privileges under v2 or change C3's data model.
+
 **Interfaces:**
 
 - Consumes all completed tasks and their clean fresh/upgraded local databases.
 - Produces a bounded evidence report for code integration only, not a
   production authorization.
 
-- [ ] **Step 1: Run fresh-install verification**
+- [x] **Step 1: Run fresh-install verification**
 
   Build a disposable database with bootstrap → `schema.sql` →
   `db-migrations.sql` → `db-rls.sql` → v2 bootstrap. Run generic SQL writer,
-  generic name-completion, legacy facade, C3 regression, catalog and full
-  `run-db-verify-disposable.sql` tests. Record exact commands, database name,
-  commit and exit status in the rehearsal report.
+  generic name-completion, legacy facade, catalog and full
+  `run-db-verify-disposable.sql` tests. On a separate fresh v1-compatible
+  database without v2 bootstrap, run the complete C3 regression; on the v2
+  database, assert that C3's public surface fails closed. Record exact
+  commands, database name, commit and exit status in the rehearsal report.
 
-- [ ] **Step 2: Run upgraded-install verification**
+- [x] **Step 2: Run upgraded-install verification**
 
   Build a separate disposable database from `git show 2d6aabf:schema.sql`, then
   current migrations/RLS. Run migration parity serialization, generic and
-  legacy SQL tests, and compare the fresh/upgraded canonical catalog output
-  byte-for-byte with `cmp`.
+  legacy SQL tests after its v2 bootstrap, and compare the fresh/upgraded v2
+  canonical catalog output byte-for-byte with `cmp`. Separately run the full
+  C3 regression on an upgraded v1-compatible database without v2 bootstrap.
 
-- [ ] **Step 3: Run R and concurrency verification**
+- [x] **Step 3: Run R and concurrency verification**
 
   Run both generic and compatibility testthat suites plus
   `tests/integration/test-reimport-writer.R`. The integration test must prove:
