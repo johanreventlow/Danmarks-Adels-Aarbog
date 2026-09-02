@@ -11934,9 +11934,7 @@ DROP FUNCTION IF EXISTS public.red_finalize_1939_v50_name_completion(uuid);
 -- remaining private 1939 implementation so fresh and upgraded catalogs expose
 -- the same generic helper surface.
 DROP FUNCTION IF EXISTS private.reject_reimport_1939_event_mutation();
-DROP FUNCTION IF EXISTS private.require_reimport_1939_editor();
 DROP FUNCTION IF EXISTS private.reimport_1939_canonical_json_text(jsonb);
-DROP FUNCTION IF EXISTS private.reimport_1939_canonical_json_sha256(jsonb);
 CREATE OR REPLACE VIEW private.reimport_1939_authorization AS SELECT * FROM private.reimport_authorization;
 CREATE OR REPLACE VIEW private.reimport_1939_write_batch AS SELECT * FROM private.reimport_batch;
 CREATE OR REPLACE VIEW private.reimport_1939_write_event AS SELECT * FROM private.reimport_event;

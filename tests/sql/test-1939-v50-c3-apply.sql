@@ -22,6 +22,20 @@ BEGIN
   IF to_regprocedure('private.reject_reimport_case_event_mutation()') IS NULL THEN
     RAISE EXCEPTION 'C3_APPLY_EVENT_APPEND_ONLY_TRIGGER_FUNCTION_MISSING';
   END IF;
+  -- Task 7: this test is also run after the current migration of a pre-#153
+  -- schema.  C3 remains entitled to these private helper aliases; neither is
+  -- a client surface, so both must exist and stay revoked from every client
+  -- role after the generic writer transition.
+  IF to_regprocedure('private.require_reimport_1939_editor()') IS NULL
+     OR to_regprocedure('private.reimport_1939_canonical_json_sha256(jsonb)') IS NULL
+     OR has_function_privilege('anon','private.require_reimport_1939_editor()','EXECUTE')
+     OR has_function_privilege('authenticated','private.require_reimport_1939_editor()','EXECUTE')
+     OR has_function_privilege('service_role','private.require_reimport_1939_editor()','EXECUTE')
+     OR has_function_privilege('anon','private.reimport_1939_canonical_json_sha256(jsonb)','EXECUTE')
+     OR has_function_privilege('authenticated','private.reimport_1939_canonical_json_sha256(jsonb)','EXECUTE')
+     OR has_function_privilege('service_role','private.reimport_1939_canonical_json_sha256(jsonb)','EXECUTE') THEN
+    RAISE EXCEPTION 'C3_APPLY_PRIVATE_HELPER_TRANSITION_DRIFT';
+  END IF;
 
   -- UUID primary keys on authorization and batch (event stays bigint identity,
   -- matching the append-only ledger style of the reimport_1939_write_event family).
