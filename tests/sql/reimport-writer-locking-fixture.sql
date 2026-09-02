@@ -39,7 +39,7 @@ BEGIN
     id,operation,manifest_sha256,preview_sha256,database_identity,source_id,profile_id,profile_sha256,
     expected_counts,authorized_elements,principal_id,nonce,expires_at,status,consumed_at
   ) VALUES(
-    v_source_authorization,'reimport',repeat('a',64),repeat('b',64),current_database(),p_source_id,p_profile_id,v_profile_sha256,
+    v_source_authorization,'reimport',repeat('a',64),repeat('b',64),jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,p_source_id,p_profile_id,v_profile_sha256,
     '{}'::jsonb,'{}'::jsonb,p_actor,gen_random_uuid(),clock_timestamp()+interval '5 minutes','consumed',clock_timestamp()
   );
   INSERT INTO private.reimport_batch(
@@ -50,8 +50,8 @@ BEGIN
   );
   INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,canonical_person_id,payload,after_sha256)
   VALUES(v_source_batch,'person-create:task9-'||p_tag,'person_create','task9-record-'||p_tag,v_person,
-    jsonb_build_object('authorized_payload_sha256',private.reimport_canonical_json_sha256(v_source_payload)),repeat('a',64));
-  v_element_id:='name-completion:task9-'||p_tag;
+    jsonb_build_object('authorized_payload_sha256',private.reimport_canonical_json_sha256(v_source_payload),'source_persona_id',v_persona),repeat('a',64));
+  v_element_id:='name-completion:task9-record-'||p_tag;
   v_payload:=jsonb_build_object(
     'source_batch_id',v_source_batch,'source_person_create_element_id','person-create:task9-'||p_tag,
     'person_id',v_person,'source_id',p_source_id,'edition','synthetic','source_record_key','task9-record-'||p_tag,
@@ -66,7 +66,7 @@ BEGIN
     id,operation,manifest_sha256,preview_sha256,database_identity,source_id,profile_id,profile_sha256,
     expected_counts,authorized_elements,principal_id,nonce,expires_at
   ) VALUES(
-    v_child_authorization,'name_completion',repeat('c',64),repeat('d',64),current_database(),p_source_id,p_profile_id,v_profile_sha256,
+    v_child_authorization,'name_completion',repeat('c',64),repeat('d',64),jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,p_source_id,p_profile_id,v_profile_sha256,
     '{"name_completions":1,"operations":1}'::jsonb,
     jsonb_build_object('payloads',jsonb_build_object(v_element_id,v_payload),'source_batch_id',v_source_batch),
     p_actor,gen_random_uuid(),clock_timestamp()+interval '5 minutes'
@@ -78,7 +78,7 @@ BEGIN
     'open','{"name_completions":1,"operations":1}'::jsonb
   );
   RETURN jsonb_build_object('source_id',p_source_id,'profile_id',p_profile_id,'profile_sha256',v_profile_sha256,
-    'source_batch_id',v_source_batch,'child_batch_id',v_child_batch,'person_id',v_person,
+    'source_batch_id',v_source_batch,'child_authorization_id',v_child_authorization,'child_batch_id',v_child_batch,'person_id',v_person,
     'element_id',v_element_id,'payload',v_payload);
 END
 $task9_seed_name_completion$;

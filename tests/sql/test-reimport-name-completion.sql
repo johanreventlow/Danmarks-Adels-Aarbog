@@ -146,6 +146,8 @@ BEGIN
   v_preflight:=public.red_preflight_reimport_name_completion(v_child_auth,v_source_batch,repeat('1',64),v_authorized_completion);
   IF v_preflight->'authorization' IS DISTINCT FROM v_authorization_envelope
      OR v_preflight->'preflight'->>'valid'<>'true'
+     OR v_preflight->'preflight'->>'database_name' IS DISTINCT FROM current_database()
+     OR v_preflight->'preflight'->>'system_identifier' IS DISTINCT FROM (pg_control_system()).system_identifier::text
      OR (v_preflight->'preflight'->>'source_batch_id')::uuid IS DISTINCT FROM v_source_batch THEN
     RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_PREFLIGHT_INVALID';
   END IF;
@@ -271,6 +273,42 @@ BEGIN
     RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_REVERSAL_INVALID';
   END IF;
 END $generic_lifecycle$;
+
+-- The public lock is intentionally scoped to its fixed `(manifest, source,
+-- profile)` signature.  It must reject absent source/profile combinations
+-- without creating authorization or batch state, and hold the writer key for
+-- the accepted source/profile combination.
+DO $public_lock_contract$
+DECLARE
+  v_actor uuid := '15300000-0000-4000-8000-000000000101';
+  v_authorizations_before bigint; v_batches_before bigint; v_error text;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SELECT count(*) INTO v_authorizations_before FROM private.reimport_authorization;
+  SELECT count(*) INTO v_batches_before FROM private.reimport_batch;
+  BEGIN
+    PERFORM public.red_lock_reimport_name_completion(repeat('6',64),999999,'daa-1939-v50-production-write-v1');
+  EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_NAME_COMPLETION_INVALID' THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_LOCK_MISSING_SOURCE_ACCEPTED: %',v_error;
+  END IF;
+  v_error:=NULL;
+  BEGIN
+    PERFORM public.red_lock_reimport_name_completion(repeat('6',64),3,'task-9-missing-profile');
+  EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_NAME_COMPLETION_INVALID'
+     OR (SELECT count(*) FROM private.reimport_authorization)<>v_authorizations_before
+     OR (SELECT count(*) FROM private.reimport_batch)<>v_batches_before THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_LOCK_PROFILE_OR_MUTATION_INVALID: %',v_error;
+  END IF;
+  PERFORM public.red_lock_reimport_name_completion(repeat('6',64),3,'daa-1939-v50-production-write-v1');
+  IF (SELECT count(*) FROM private.reimport_authorization)<>v_authorizations_before
+     OR (SELECT count(*) FROM private.reimport_batch)<>v_batches_before THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_LOCK_CORRECT_PATH_MUTATED';
+  END IF;
+END $public_lock_contract$;
 
 CREATE FUNCTION pg_temp.task3_stage_profile(
   p_source_id bigint,p_profile_id text,p_profile_sha256 text,p_record_key text,

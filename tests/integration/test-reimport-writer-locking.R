@@ -1,6 +1,7 @@
 # Disposable Task 8 proof: the SQL lifecycle, not a cooperative R mutex,
 # holds a transaction-scoped `(source_id, profile_id)` writer lock.
 suppressPackageStartupMessages({ library(DBI); library(RPostgres) })
+source(".claude/skills/daa-extract/scripts/apply_name_completion_helpers.R")
 
 required_pg <- c("PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD")
 stopifnot(!any(is.na(Sys.getenv(required_pg, unset = NA_character_))))
@@ -68,6 +69,35 @@ dbRollback(holder)
 
 stopifnot(!same_acquired, other_acquired)
 
+# Public lock behavior: its fixed contract binds only manifest + source/profile.
+# Wrong source/profile combinations must fail without minting writer state, while
+# the correct combination holds the same writer key seen by another connection.
+lock_authorizations_before <- query(holder, "SELECT count(*) count FROM private.reimport_authorization")$count[[1L]]
+for (lock_args in list(
+  list(strrep("8", 64L), source_id + 1L, profile_id),
+  list(strrep("8", 64L), source_id, "task8-lock-missing")
+)) {
+  lock_error <- tryCatch({
+    dbBegin(holder)
+    execute(holder, "SELECT set_config('request.jwt.claim.sub',$1,true)", list(actor))
+    query(holder, "SELECT public.red_lock_reimport_name_completion($1,$2,$3)", lock_args)
+    dbRollback(holder)
+    ""
+  }, error = function(e) {
+    try(dbRollback(holder), silent = TRUE)
+    conditionMessage(e)
+  })
+  stopifnot(grepl("REIMPORT_NAME_COMPLETION_INVALID", lock_error, fixed = TRUE))
+}
+dbBegin(holder)
+execute(holder, "SELECT set_config('request.jwt.claim.sub',$1,true)", list(actor))
+query(holder, "SELECT public.red_lock_reimport_name_completion($1,$2,$3)", list(strrep("8", 64L), source_id, profile_id))
+dbBegin(same_profile)
+public_lock_blocks_other <- !query(same_profile, "SELECT pg_try_advisory_xact_lock(hashtextextended($1,0)) acquired", list(same_key))$acquired[[1L]]
+dbRollback(same_profile)
+dbRollback(holder)
+stopifnot(public_lock_blocks_other, query(holder, "SELECT count(*) count FROM private.reimport_authorization")$count[[1L]] == lock_authorizations_before)
+
 # Task 9: two profiles must serialize the load-bearing max(id)+1 allocation,
 # not merely acquire their independent source/profile writer locks.
 fixture_sql <- paste(readLines("tests/sql/reimport-writer-locking-fixture.sql", warn = FALSE), collapse = "\n")
@@ -91,6 +121,46 @@ state_a_json <- seed_state(task9_source_a, task9_profile_a, "a")
 state_b_json <- seed_state(task9_source_b, task9_profile_b, "b")
 state_a <- jsonlite::fromJSON(state_a_json, simplifyVector = FALSE)
 state_b <- jsonlite::fromJSON(state_b_json, simplifyVector = FALSE)
+
+# This must use the actual DBI gateway response, rather than a fake that adds
+# fields the server did not return.  Before the Task 9 review correction, the
+# real preflight object lacks its database identity and this call fails closed.
+task9_source_c <- 153904L
+task9_profile_c <- "task9-dbi-preflight"
+state_c_json <- seed_state(task9_source_c, task9_profile_c, "dbi")
+state_c <- jsonlite::fromJSON(state_c_json, simplifyVector = FALSE)
+operation_c <- state_c$payload
+operation_c$element_id <- state_c$element_id
+manifest_c <- list(
+  manifest_content_sha256 = paste(rep("c", 64L), collapse = ""),
+  source = list(id = as.integer(state_c$source_id), profile_id = state_c$profile_id, profile_sha256 = state_c$profile_sha256),
+  source_batch_id = state_c$source_batch_id,
+  source_manifest_bytes_sha256 = paste(rep("b", 64L), collapse = ""),
+  source_manifest_content_sha256 = paste(rep("a", 64L), collapse = ""),
+  expected_counts = list(name_completions = 1L, operations = 1L), operations = list(operation_c)
+)
+Sys.setenv(DAA_REIMPORT_ACTOR_ID = task9_actor)
+authorization_c <- list(
+  authorization_id = state_c$child_authorization_id,
+  database_name = query(holder, "SELECT current_database() name")$name[[1L]],
+  system_identifier = as.character(query(holder, "SELECT (pg_control_system()).system_identifier::text id")$id[[1L]]),
+  source = manifest_c$source
+)
+dbi_gateway_c <- new_name_completion_dbi_gateway(connect)
+dbi_gateway_c$call("connect")
+dbi_gateway_c$call("begin")
+dbi_gateway_c$call("advisory_lock", manifest_c$source)
+validate_generic_name_completion_preflight(dbi_gateway_c$call("preflight", manifest_c), manifest_c)
+payloads_c <- jsonlite::fromJSON(query(holder, paste(
+  "SELECT a.authorized_elements->'payloads'::text payloads FROM private.reimport_authorization a",
+  "WHERE a.id=$1::uuid"
+), list(state_c$child_authorization_id))$payloads[[1L]], simplifyVector = FALSE)
+dbi_server_preflight_c <- dbi_gateway_c$call(
+  "preflight_authorization", authorization_c, manifest_c, manifest_c$manifest_content_sha256,
+  payloads_c
+)
+validate_name_completion_server_preflight(dbi_server_preflight_c, authorization_c, manifest_c, manifest_c$manifest_content_sha256)
+dbi_gateway_c$call("rollback")
 
 # RED evidence for the historic unprotected allocation shape: two sessions read
 # the same next id, then the second stale insert collides after the first commits.

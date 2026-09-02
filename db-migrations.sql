@@ -12104,7 +12104,7 @@ BEGIN
   b:=private.validate_reimport_name_completion(p_authorization_id,p_source_batch_id,p_manifest_sha256,p_payloads);
   PERFORM private.lock_reimport_writer(b.source_id,b.profile_id);
   SELECT * INTO a FROM private.reimport_authorization WHERE id=p_authorization_id;
-  RETURN jsonb_build_object('authorization',jsonb_build_object('authorization_id',a.id,'database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text,'source',jsonb_build_object('id',b.source_id,'profile_id',b.profile_id,'profile_sha256',b.profile_sha256)),'preflight',jsonb_build_object('valid',true,'source_batch_id',p_source_batch_id,'manifest_sha256',p_manifest_sha256));
+  RETURN jsonb_build_object('authorization',jsonb_build_object('authorization_id',a.id,'database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text,'source',jsonb_build_object('id',b.source_id,'profile_id',b.profile_id,'profile_sha256',b.profile_sha256)),'preflight',jsonb_build_object('valid',true,'database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text,'source_batch_id',p_source_batch_id,'manifest_sha256',p_manifest_sha256));
 END $$;
 
 CREATE OR REPLACE FUNCTION public.red_begin_reimport_name_completion(p_authorization_id uuid,p_manifest_sha256 text,p_source_batch_id uuid)
