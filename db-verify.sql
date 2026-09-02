@@ -555,6 +555,164 @@ BEGIN
 END
 $verify_reimport_batch_result$;
 
+-- #153 Task 6: `_1939` is a closed compatibility namespace.  The generic
+-- writer and its public replay receipt deliberately have no edition suffix and
+-- are therefore absent from this transition-surface allowlist.
+CREATE OR REPLACE FUNCTION private.assert_reimport_edition_catalog()
+RETURNS void
+LANGUAGE plpgsql
+SET search_path TO pg_catalog, public, private
+AS $assert_reimport_edition_catalog$
+DECLARE v_drift jsonb;
+BEGIN
+  WITH expected(object_kind,object_schema,object_name,parent_identity) AS (
+    VALUES
+      ('relation:v','private','reimport_1939_authorization',NULL),
+      ('relation:v','private','reimport_1939_name_completion_result',NULL),
+      ('relation:v','private','reimport_1939_write_batch',NULL),
+      ('relation:v','private','reimport_1939_write_event',NULL),
+      ('type:b','private','_reimport_1939_authorization',NULL),
+      ('type:b','private','_reimport_1939_name_completion_result',NULL),
+      ('type:b','private','_reimport_1939_write_batch',NULL),
+      ('type:b','private','_reimport_1939_write_event',NULL),
+      ('type:c','private','reimport_1939_authorization','private.reimport_1939_authorization'),
+      ('type:c','private','reimport_1939_name_completion_result','private.reimport_1939_name_completion_result'),
+      ('type:c','private','reimport_1939_write_batch','private.reimport_1939_write_batch'),
+      ('type:c','private','reimport_1939_write_event','private.reimport_1939_write_event'),
+      ('function:f','public','red_activate_1939_v50_batch(uuid,uuid)',NULL),
+      ('function:f','public','red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',NULL),
+      ('function:f','public','red_apply_1939_v50_name_completion(uuid,text,jsonb)',NULL),
+      ('function:f','public','red_apply_1939_v50_person_create(uuid,text,jsonb)',NULL),
+      ('function:f','public','red_apply_1939_v50_source_evidence(uuid,text,jsonb)',NULL),
+      ('function:f','public','red_authorize_1939_v50_cutover(uuid,uuid,timestamp with time zone)',NULL),
+      ('function:f','public','red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)',NULL),
+      ('function:f','public','red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamp with time zone)',NULL),
+      ('function:f','public','red_authorize_1939_v50_reversal(uuid,uuid,timestamp with time zone)',NULL),
+      ('function:f','public','red_begin_1939_v50_name_completion(uuid,text,uuid)',NULL),
+      ('function:f','public','red_begin_1939_v50_reimport(uuid,text,text)',NULL),
+      ('function:f','public','red_finalize_1939_v50_name_completion(uuid)',NULL),
+      ('function:f','public','red_finalize_1939_v50_reimport(uuid)',NULL),
+      ('function:f','public','red_lock_1939_v50_name_completion(text)',NULL),
+      ('function:f','public','red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)',NULL),
+      ('function:f','public','red_reverse_1939_v50_reimport(uuid,uuid)',NULL)
+  ), actual(object_kind,object_schema,object_name,parent_identity) AS (
+    SELECT 'relation:' || c.relkind::text, n.nspname, c.relname,
+      CASE c.relkind
+        WHEN 'i' THEN (
+          SELECT format('%I.%I',parent_namespace.nspname,parent_relation.relname)
+          FROM pg_index index_row
+          JOIN pg_class parent_relation ON parent_relation.oid=index_row.indrelid
+          JOIN pg_namespace parent_namespace ON parent_namespace.oid=parent_relation.relnamespace
+          WHERE index_row.indexrelid=c.oid
+        )
+        WHEN 'S' THEN (
+          SELECT format('%I.%I.%I',parent_namespace.nspname,parent_relation.relname,parent_attribute.attname)
+          FROM pg_depend dependency
+          JOIN pg_class parent_relation ON parent_relation.oid=dependency.refobjid
+          JOIN pg_namespace parent_namespace ON parent_namespace.oid=parent_relation.relnamespace
+          JOIN pg_attribute parent_attribute ON parent_attribute.attrelid=parent_relation.oid
+            AND parent_attribute.attnum=dependency.refobjsubid
+          WHERE dependency.classid='pg_class'::regclass
+            AND dependency.objid=c.oid
+            AND dependency.refclassid='pg_class'::regclass
+            AND dependency.deptype='a'
+          LIMIT 1
+        )
+      END
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname IN ('public','private')
+      AND c.relname LIKE '%\_1939%' ESCAPE E'\\'
+
+    UNION ALL
+
+    SELECT 'type:' || t.typtype::text, n.nspname, t.typname,
+      CASE WHEN t.typrelid<>0 THEN (
+        SELECT format('%I.%I',parent_namespace.nspname,parent_relation.relname)
+        FROM pg_class parent_relation
+        JOIN pg_namespace parent_namespace ON parent_namespace.oid=parent_relation.relnamespace
+        WHERE parent_relation.oid=t.typrelid
+      ) END
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid=t.typnamespace
+    WHERE n.nspname IN ('public','private')
+      AND t.typname LIKE '%\_1939%' ESCAPE E'\\'
+
+    UNION ALL
+
+    SELECT 'function:' || p.prokind::text, n.nspname, p.oid::regprocedure::text,NULL::text
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname IN ('public','private')
+      AND p.proname LIKE '%\_1939%' ESCAPE E'\\'
+
+    UNION ALL
+
+    SELECT 'trigger',n.nspname,t.tgname,format('%I.%I',n.nspname,c.relname)
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid=t.tgrelid
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE NOT t.tgisinternal
+      AND n.nspname IN ('public','private')
+      AND t.tgname LIKE '%\_1939%' ESCAPE E'\\'
+
+    UNION ALL
+
+    SELECT 'constraint:' || constraint_row.contype::text,
+      coalesce(relation_namespace.nspname,type_namespace.nspname),constraint_row.conname,
+      CASE
+        WHEN constraint_row.conrelid<>0 THEN format('%I.%I',relation_namespace.nspname,relation_row.relname)
+        ELSE format('%I.%I',type_namespace.nspname,type_row.typname)
+      END
+    FROM pg_constraint constraint_row
+    LEFT JOIN pg_class relation_row ON relation_row.oid=constraint_row.conrelid
+    LEFT JOIN pg_namespace relation_namespace ON relation_namespace.oid=relation_row.relnamespace
+    LEFT JOIN pg_type type_row ON type_row.oid=constraint_row.contypid
+    LEFT JOIN pg_namespace type_namespace ON type_namespace.oid=type_row.typnamespace
+    WHERE coalesce(relation_namespace.nspname,type_namespace.nspname) IN ('public','private')
+      AND constraint_row.conname LIKE '%\_1939%' ESCAPE E'\\'
+
+    UNION ALL
+
+    SELECT 'policy',n.nspname,p.polname,format('%I.%I',n.nspname,c.relname)
+    FROM pg_policy p
+    JOIN pg_class c ON c.oid=p.polrelid
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname IN ('public','private')
+      AND p.polname LIKE '%\_1939%' ESCAPE E'\\'
+  ), drift AS (
+    SELECT 'additional' AS drift_kind,actual.* FROM actual
+    EXCEPT
+    SELECT 'additional',expected.* FROM expected
+    UNION ALL
+    SELECT 'omitted' AS drift_kind,expected.* FROM expected
+    EXCEPT
+    SELECT 'omitted',actual.* FROM actual
+  )
+  SELECT jsonb_agg(
+           jsonb_build_object(
+             'drift',drift_kind,'kind',object_kind,'schema',object_schema,
+             'name',object_name,'parent',parent_identity
+           ) ORDER BY drift_kind,object_kind,object_schema,object_name,parent_identity
+         )
+    INTO v_drift
+    FROM drift;
+
+  IF v_drift IS NOT NULL THEN
+    RAISE EXCEPTION 'REIMPORT_EDITION_OBJECT_ALLOWLIST_DRIFT';
+  END IF;
+END
+$assert_reimport_edition_catalog$;
+
+REVOKE ALL ON FUNCTION private.assert_reimport_edition_catalog() FROM PUBLIC,anon,authenticated,service_role;
+
+DO $verify_reimport_edition_catalog$
+BEGIN
+  PERFORM private.assert_reimport_edition_catalog();
+  RAISE NOTICE 'OK: #153 edition-named reimport catalog is an exact allowlist';
+END
+$verify_reimport_edition_catalog$;
+
 -- #152 Task 7: exact version/ACL/receipt cutover verification.
 DO $verify_narrative_record_cutover$
 DECLARE

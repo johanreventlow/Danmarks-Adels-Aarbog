@@ -177,12 +177,16 @@ jobs:
           psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f db-migrations.sql
           psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f db-rls.sql
           psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-writer-migration.sql
+          psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f tests/sql/run-db-verify-disposable.sql
+          psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-edition-catalog.sql
           psql -h localhost -U postgres -d reimport_legacy_153 -At -f tests/sql/inspect-reimport-writer-catalog.sql > reimport-writer-upgraded-catalog.json
           createdb -h localhost -U postgres reimport_fresh_153
           psql -h localhost -U postgres -d reimport_fresh_153 -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql
           psql -h localhost -U postgres -d reimport_fresh_153 -v ON_ERROR_STOP=1 -f schema.sql
           psql -h localhost -U postgres -d reimport_fresh_153 -v ON_ERROR_STOP=1 -f db-migrations.sql
           psql -h localhost -U postgres -d reimport_fresh_153 -v ON_ERROR_STOP=1 -f db-rls.sql
+          psql -h localhost -U postgres -d reimport_fresh_153 -v ON_ERROR_STOP=1 -f tests/sql/run-db-verify-disposable.sql
+          psql -h localhost -U postgres -d reimport_fresh_153 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-edition-catalog.sql
           psql -h localhost -U postgres -d reimport_fresh_153 -At -f tests/sql/inspect-reimport-writer-catalog.sql > reimport-writer-fresh-catalog.json
           cmp reimport-writer-fresh-catalog.json reimport-writer-upgraded-catalog.json
           for state in issued open finalized; do
@@ -279,6 +283,8 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -f db-rls.sql
       - name: Fuld historisk db-verify
         run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/run-db-verify-disposable.sql
+      - name: 1939 editions-katalog
+        run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-edition-catalog.sql
       - name: Nulstil til frisk DBI-racedatabase
         run: |
           dropdb --force narrative_record_152_ci

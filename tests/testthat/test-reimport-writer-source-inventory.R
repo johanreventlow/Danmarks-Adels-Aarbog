@@ -207,3 +207,35 @@ testthat::test_that("migration writer keeps fresh-equivalent finalize, replay, a
   testthat::expect_match(migration_text, "private.require_reimport_open_batch(uuid)", fixed = TRUE)
   testthat::expect_match(migration_text, "FROM PUBLIC,anon,authenticated,service_role", fixed = TRUE)
 })
+
+testthat::test_that("edition-named reimport surface is a closed, generic-free catalog", {
+  verify_text <- paste(readLines(file.path(writer_root, "db-verify.sql"), warn = FALSE), collapse = "\n")
+  catalog_test <- paste(readLines(file.path(writer_root, "tests", "sql", "test-reimport-edition-catalog.sql"), warn = FALSE), collapse = "\n")
+  ci_text <- paste(readLines(file.path(writer_root, ".github", "workflows", "ci.yml"), warn = FALSE), collapse = "\n")
+  expected_surface <- c(
+    "reimport_1939_authorization", "reimport_1939_write_batch", "reimport_1939_write_event", "reimport_1939_name_completion_result",
+    "red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamp with time zone)",
+    "red_begin_1939_v50_reimport(uuid,text,text)", "red_apply_1939_v50_source_evidence(uuid,text,jsonb)",
+    "red_apply_1939_v50_person_create(uuid,text,jsonb)", "red_apply_1939_v50_canonical_delta(uuid,text,jsonb)",
+    "red_finalize_1939_v50_reimport(uuid)", "red_authorize_1939_v50_reversal(uuid,uuid,timestamp with time zone)",
+    "red_reverse_1939_v50_reimport(uuid,uuid)", "red_authorize_1939_v50_cutover(uuid,uuid,timestamp with time zone)",
+    "red_activate_1939_v50_batch(uuid,uuid)", "red_lock_1939_v50_name_completion(text)",
+    "red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)",
+    "red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)", "red_begin_1939_v50_name_completion(uuid,text,uuid)",
+    "red_apply_1939_v50_name_completion(uuid,text,jsonb)", "red_finalize_1939_v50_name_completion(uuid)"
+  )
+  catalog_start <- regexpr("WITH expected\\(object_kind,object_schema,object_name,parent_identity\\) AS \\(", verify_text, perl = TRUE)
+  testthat::expect_true(catalog_start[[1L]] > 0L)
+  catalog_allowlist <- substring(verify_text, catalog_start[[1L]])
+  catalog_end <- regexpr("\\), actual\\(object_kind,object_schema,object_name,parent_identity\\) AS", catalog_allowlist, perl = TRUE)
+  testthat::expect_true(catalog_end[[1L]] > 0L)
+  catalog_allowlist <- substring(catalog_allowlist, 1L, catalog_end[[1L]] - 1L)
+  testthat::expect_match(verify_text, "CREATE OR REPLACE FUNCTION private.assert_reimport_edition_catalog", fixed = TRUE)
+  testthat::expect_match(verify_text, "REIMPORT_EDITION_OBJECT_ALLOWLIST_DRIFT", fixed = TRUE)
+  testthat::expect_true(all(vapply(expected_surface, function(item) grepl(item, catalog_allowlist, fixed = TRUE), logical(1))))
+  testthat::expect_false(grepl("red_reimport_batch_result\\(uuid,uuid\\)", catalog_allowlist, perl = TRUE))
+  for (kind in c("FUNCTION", "RELATION", "TYPE", "CONSTRAINT", "POLICY", "OWNED_SEQUENCE", "INDEX", "TRIGGER")) {
+    testthat::expect_match(catalog_test, sprintf("task6_expect_catalog_drift('%s')", kind), fixed = TRUE)
+  }
+  testthat::expect_match(ci_text, "test-reimport-edition-catalog.sql", fixed = TRUE)
+})

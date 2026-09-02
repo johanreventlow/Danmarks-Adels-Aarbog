@@ -61,6 +61,13 @@ WITH inserted AS (
 INSERT INTO task3_db_verify_seeded_vocab(code)
 SELECT code FROM inserted;
 
+-- Task 6 needs the generic writer's local v2 contract fixture before the
+-- historical verifier checks the approved 1939 transition facade.  The
+-- bootstrap creates only disposable fixture state and removes its own shims.
+BEGIN;
+\ir reimport-writer-v2-bootstrap.sql
+COMMIT;
+
 \ir ../../db-verify.sql
 
 DO $all_dblink_gates_executed$
