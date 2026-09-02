@@ -589,6 +589,54 @@ BEGIN
   END IF;
 END $two_profile_scope$;
 
+-- Task 11 defense-in-depth: after a valid public parent/child chain exists,
+-- controlled test-only corruption of the immutable child receipt must be
+-- rejected by both activation and reversal without consuming authorization or
+-- changing either batch state.
+DO $task11_coverage_drift_rechecks$
+DECLARE
+  v_actor uuid:='15300000-0000-4000-8000-000000000101'; a jsonb; b jsonb;
+  v_cutover uuid; v_reversal uuid; v_error text; v_source_status text; v_child_status text;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  a:=pg_temp.task3_stage_profile(12,'task11-drift-activation',repeat('a',64),'task11-drift-activation-record','Task 11 drift activation',-153112,repeat('b',64),repeat('c',64));
+  a:=pg_temp.task3_complete_profile(a);
+  v_cutover:=public.red_authorize_reimport_cutover((a->>'source_batch_id')::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  SELECT status INTO v_source_status FROM private.reimport_batch WHERE id=(a->>'source_batch_id')::uuid;
+  SELECT status INTO v_child_status FROM private.reimport_batch WHERE id=(a->>'child_batch_id')::uuid;
+  ALTER TABLE private.reimport_event DISABLE TRIGGER ALL;
+  UPDATE private.reimport_event SET payload=jsonb_set(payload,'{source_person_create_element_id}','"drift"')
+   WHERE batch_id=(a->>'child_batch_id')::uuid AND operation='canonical_delta';
+  ALTER TABLE private.reimport_event ENABLE TRIGGER ALL;
+  BEGIN PERFORM public.red_activate_reimport_batch((a->>'source_batch_id')::uuid,v_cutover); EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_CUTOVER_INVALID'
+     OR (SELECT status FROM private.reimport_batch WHERE id=(a->>'source_batch_id')::uuid) IS DISTINCT FROM v_source_status
+     OR (SELECT status FROM private.reimport_batch WHERE id=(a->>'child_batch_id')::uuid) IS DISTINCT FROM v_child_status
+     OR (SELECT status FROM private.reimport_authorization WHERE id=v_cutover)<>'issued' THEN
+    RAISE EXCEPTION 'TASK11_ACTIVATION_COVERAGE_DRIFT_ACCEPTED: %',v_error;
+  END IF;
+  b:=pg_temp.task3_stage_profile(13,'task11-drift-reversal',repeat('d',64),'task11-drift-reversal-record','Task 11 drift reversal',-153113,repeat('e',64),repeat('f',64));
+  b:=pg_temp.task3_complete_profile(b);
+  v_cutover:=public.red_authorize_reimport_cutover((b->>'source_batch_id')::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM public.red_activate_reimport_batch((b->>'source_batch_id')::uuid,v_cutover);
+  v_reversal:=public.red_authorize_reimport_reversal((b->>'source_batch_id')::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  SELECT status INTO v_source_status FROM private.reimport_batch WHERE id=(b->>'source_batch_id')::uuid;
+  SELECT status INTO v_child_status FROM private.reimport_batch WHERE id=(b->>'child_batch_id')::uuid;
+  ALTER TABLE private.reimport_event DISABLE TRIGGER ALL;
+  UPDATE private.reimport_event SET payload=jsonb_set(payload,'{source_person_create_element_id}','"drift"')
+   WHERE batch_id=(b->>'child_batch_id')::uuid AND operation='canonical_delta';
+  ALTER TABLE private.reimport_event ENABLE TRIGGER ALL;
+  v_error:=NULL;
+  BEGIN PERFORM public.red_reverse_reimport((b->>'source_batch_id')::uuid,v_reversal); EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_REVERSAL_INVALID'
+     OR (SELECT status FROM private.reimport_batch WHERE id=(b->>'source_batch_id')::uuid) IS DISTINCT FROM v_source_status
+     OR (SELECT status FROM private.reimport_batch WHERE id=(b->>'child_batch_id')::uuid) IS DISTINCT FROM v_child_status
+     OR (SELECT status FROM private.reimport_authorization WHERE id=v_reversal)<>'issued' THEN
+    RAISE EXCEPTION 'TASK11_REVERSAL_COVERAGE_DRIFT_ACCEPTED: %',v_error;
+  END IF;
+END $task11_coverage_drift_rechecks$;
+
 -- Task 10 follow-up: reject unusable page evidence during child authorization,
 -- before preflight or begin can mint durable writer state.  The failed
 -- authorization's nested transaction must leave every writer/domain receipt
