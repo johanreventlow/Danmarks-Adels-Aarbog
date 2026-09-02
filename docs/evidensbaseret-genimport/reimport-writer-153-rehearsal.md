@@ -178,3 +178,45 @@ read-only GPT-5.6-Sol review. The reviewer package should inspect the final
 diff, `db-migrations.sql:9407` and `:11937`, this rehearsal, the generic SQL
 tests, and the R replay-result path. The reviewer must not modify files. This
 report itself grants no production authority.
+
+## Corrective round (2026-09-02, commit `3af0986`)
+
+The original red evidence was preserved: the missing generic integration exited
+2, and the new upgraded-C3 helper/ACL gate exited 3 with
+`C3_APPLY_PRIVATE_HELPER_TRANSITION_DRIFT`. The migration now retains exactly
+`private.require_reimport_1939_editor()` and
+`private.reimport_1939_canonical_json_sha256(jsonb)` while continuing to
+remove the obsolete 1939 writer helpers. The C3 SQL regression now contains
+the explicit existence-and-revocation gate.
+
+On the named local disposable upgraded database
+`daa153_t7_c3upgraded_20260902`, constructed from `2d6aabf:schema.sql`, the
+following all-five-variable migration/RLS commands returned exit 0 before C3:
+
+```bash
+env PGHOST=127.0.0.1 PGPORT=55441 PGDATABASE=daa153_t7_c3upgraded_20260902 PGUSER=johanreventlow PGPASSWORD='' /opt/homebrew/opt/postgresql@17/bin/psql -X -v ON_ERROR_STOP=1 -f db-migrations.sql
+env PGHOST=127.0.0.1 PGPORT=55441 PGDATABASE=daa153_t7_c3upgraded_20260902 PGUSER=johanreventlow PGPASSWORD='' /opt/homebrew/opt/postgresql@17/bin/psql -X -v ON_ERROR_STOP=1 -f db-rls.sql
+```
+
+The updated C3 test passed its new helper/ACL catalog gate and reached the
+real preview path, proving the undefined-helper regression is removed. It then
+exited 3 at the later existing Task 6 assertion with `permission denied for
+schema auth` while executing `auth.uid()` under `service_role`. This is a
+separate C3 test/runtime permission blocker; it is not repaired here because
+the approved corrective scope is limited to retaining the two private helpers.
+Consequently full C3, fresh/upgraded `cmp`, catalog and full concurrency
+reruns are still **not green** in this corrective round.
+
+The required generic DBI file now exists. On the named local v2 disposable
+database `daa153_t7_corrected2_20260902`, this command returned exit 0:
+
+```bash
+env PGHOST=127.0.0.1 PGPORT=55441 PGDATABASE=daa153_t7_corrected2_20260902 PGUSER=johanreventlow PGPASSWORD='' Rscript tests/integration/test-reimport-writer.R
+```
+
+It directly exercises generic authorization/begin/finalize, equal-hash
+separation for two synthetic source/profile identities, rollback cleanup,
+unauthorised rejection, cross-profile reversal/activation rejection, and the
+v2 event-backed person-create contract. Its output ends `PASS generic reimport
+writer DBI integration` (RPostgres emitted non-fatal open-result warnings).
+This positive single DBI observation does not upgrade the overall NO-GO.

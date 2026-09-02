@@ -692,7 +692,25 @@ controller after the C3 finding is resolved or explicitly dispositioned.
 **Files:**
 
 - Modify: `docs/superpowers/plans/2026-09-01-generalized-reimport-writer-implementation.md`
-- Create: `docs/evidensbaseret-genimport/reimport-writer-153-rehearsal.md`
+- Modify: `docs/evidensbaseret-genimport/reimport-writer-153-rehearsal.md`
+
+**Task 7 corrective completion scope (2026-09-02):**
+
+- Modify: `db-migrations.sql`
+- Modify: `tests/sql/test-1939-v50-c3-apply.sql`
+- Create: `tests/integration/test-reimport-writer.R`
+
+The Task 7 rehearsal found an upgrade-only C3 regression: the #153 migration
+drops `private.require_reimport_1939_editor()` and
+`private.reimport_1939_canonical_json_sha256(jsonb)` although the unaffected
+C3 case-ledger RPCs still call them. Retain exactly these private, revoked C3
+helper aliases in the upgrade catalog, matching fresh install; do not restore
+any legacy 1939 writer table, public writer RPC, grant, or generic-writer
+dependency. Add an upgraded C3 regression assertion. Add the already-required
+generic DBI integration and prove its listed Task 7 invariants using only a
+named disposable database. Repeat affected fresh/upgraded and C3 verification
+and replace the observed NO-GO rehearsal conclusion only with new observed
+evidence.
 
 **Interfaces:**
 
