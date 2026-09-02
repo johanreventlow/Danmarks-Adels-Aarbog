@@ -1200,6 +1200,7 @@ REVOKE ALL ON FUNCTION private.reject_reimport_writer_mutation(),
   private.require_reimport_writer_editor(),private.require_reimport_open_batch(uuid),
   private.lock_reimport_writer(bigint,text),
   private.validate_reimport_authorization_payload(jsonb,jsonb),
+  private.validate_reimport_writer_config(jsonb),
   private.ensure_reimport_source_evidence(uuid,text,jsonb),
   private.validate_reimport_name_completion(uuid,uuid,text,jsonb)
   FROM PUBLIC,anon,authenticated,service_role;
@@ -1207,19 +1208,19 @@ REVOKE ALL ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,
   public.red_preflight_reimport_authorization(uuid,text,text),public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),
   public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_finalize_reimport(uuid),public.red_reimport_batch_result(uuid,uuid),
   public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_reverse_reimport(uuid,uuid),
-  public.red_authorize_reimport_cutover(uuid,uuid,timestamptz),public.red_activate_reimport_batch(uuid,uuid),
-  public.red_lock_reimport_name_completion(text),public.red_authorize_reimport_name_completion(text,uuid,text,text,jsonb,jsonb),
+  public.red_authorize_reimport_cutover(uuid,uuid,timestamptz),public.red_activate_reimport_batch(uuid,uuid),public.red_apply_reimport_canonical_delta(uuid,text,jsonb),
+  public.red_lock_reimport_name_completion(text,bigint,text),public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb),
   public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb),public.red_begin_reimport_name_completion(uuid,text,uuid),
   public.red_apply_reimport_name_completion(uuid,text,jsonb),public.red_finalize_reimport_name_completion(uuid)
   FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),
   public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_authorize_reimport_cutover(uuid,uuid,timestamptz),
-  public.red_authorize_reimport_name_completion(text,uuid,text,text,jsonb,jsonb)
+  public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb)
   TO service_role;
 GRANT EXECUTE ON FUNCTION public.red_preflight_reimport_authorization(uuid,text,text),public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),
   public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_finalize_reimport(uuid),public.red_reimport_batch_result(uuid,uuid),
-  public.red_reverse_reimport(uuid,uuid),public.red_activate_reimport_batch(uuid,uuid),
-  public.red_lock_reimport_name_completion(text),public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb),
+  public.red_reverse_reimport(uuid,uuid),public.red_activate_reimport_batch(uuid,uuid),public.red_apply_reimport_canonical_delta(uuid,text,jsonb),
+  public.red_lock_reimport_name_completion(text,bigint,text),public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb),
   public.red_begin_reimport_name_completion(uuid,text,uuid),public.red_apply_reimport_name_completion(uuid,text,jsonb),
   public.red_finalize_reimport_name_completion(uuid)
   TO authenticated;

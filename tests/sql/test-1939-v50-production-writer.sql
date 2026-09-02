@@ -67,7 +67,7 @@ DECLARE
     'public.red_apply_reimport_person_create(uuid,text,jsonb)','public.red_finalize_reimport(uuid)',
     'public.red_authorize_reimport_reversal(uuid,uuid,timestamptz)','public.red_reverse_reimport(uuid,uuid)',
     'public.red_authorize_reimport_cutover(uuid,uuid,timestamptz)','public.red_activate_reimport_batch(uuid,uuid)',
-    'public.red_lock_reimport_name_completion(text)','public.red_authorize_reimport_name_completion(text,uuid,text,text,jsonb,jsonb)',
+    'public.red_lock_reimport_name_completion(text,bigint,text)','public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb)',
     'public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb)','public.red_begin_reimport_name_completion(uuid,text,uuid)',
     'public.red_apply_reimport_name_completion(uuid,text,jsonb)','public.red_finalize_reimport_name_completion(uuid)'
   ];
@@ -237,7 +237,7 @@ BEGIN
     'expected_after',jsonb_build_object('name_fact',1,'selected_assertion',1,'citation',1,'conclusion',1)
   );
   v_name_authorization:=(public.red_authorize_reimport_name_completion(
-    repeat('1',64),v_batch,repeat('b',64),repeat('a',64),
+    repeat('1',64),v_batch,repeat('b',64),repeat('a',64),3,'daa-1939-v50-production-write-v1',v_profile_sha,
     '{"name_completions":1,"operations":1}'::jsonb,
     jsonb_build_object('name-completion:record-fixture',v_completion_payload)
   )->>'authorization_id')::uuid;

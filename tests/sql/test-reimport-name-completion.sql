@@ -6,8 +6,8 @@ DO $catalog$
 DECLARE v_signature text;
 BEGIN
   FOREACH v_signature IN ARRAY ARRAY[
-    'public.red_lock_reimport_name_completion(text)',
-    'public.red_authorize_reimport_name_completion(text,uuid,text,text,jsonb,jsonb)',
+    'public.red_lock_reimport_name_completion(text,bigint,text)',
+    'public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb)',
     'public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb)',
     'public.red_begin_reimport_name_completion(uuid,text,uuid)',
     'public.red_apply_reimport_name_completion(uuid,text,jsonb)',
@@ -139,7 +139,7 @@ BEGIN
   );
   v_authorized_completion:=jsonb_build_object('name-completion:task-1-name-completion-record',v_completion_payload);
   v_authorization_envelope:=public.red_authorize_reimport_name_completion(
-    repeat('1',64),v_source_batch,repeat('b',64),repeat('a',64),
+    repeat('1',64),v_source_batch,repeat('b',64),repeat('a',64),3,'daa-1939-v50-production-write-v1',v_profile_sha,
     '{"name_completions":1,"operations":1}'::jsonb,v_authorized_completion
   );
   v_child_auth:=(v_authorization_envelope->>'authorization_id')::uuid;
@@ -288,7 +288,7 @@ BEGIN
   v_profile_config:=jsonb_build_object('run_key_prefix','task3-'||p_source_id||':','schema_version','fixture-v1',
     'extractor_version','fixture-v1','rendition_key','task3-'||p_source_id,
     'rendition_kind','ocr_text','rendition_metadata','{}'::jsonb,
-    'observation_extraction_method','fixture','citation_label_template','fixture');
+    'observation_extraction_method','fixture','citation_label_template',p_profile_id||' side {page_from}');
   v_profile_hash:=private.reimport_canonical_json_sha256(v_profile_config);
   INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
   VALUES(p_source_id,p_profile_id,'fixture-v1',v_profile_hash,v_profile_config)
@@ -347,7 +347,7 @@ BEGIN
   IF public.red_finalize_reimport(v_batch)->>'status'<>'finalized' THEN
     RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_TWO_PROFILE_SOURCE_NOT_FINALIZED';
   END IF;
-  RETURN jsonb_build_object('source_authorization_id',v_authorization,'source_batch_id',v_batch,
+  RETURN jsonb_build_object('source_authorization_id',v_authorization,'source_batch_id',v_batch,'source_id',p_source_id,'profile_id',p_profile_id,'profile_sha256',v_profile_hash,
     'person_id',v_person,'source_record_id',v_record,'source_persona_id',v_persona,
     'source_element_id','person-create:'||p_record_key,'person_payload',v_person_payload,
     'manifest_sha256',p_manifest_sha256,'preview_sha256',p_preview_sha256);
@@ -370,7 +370,7 @@ BEGIN
     'expected_after',jsonb_build_object('name_fact',1,'selected_assertion',1,'citation',1,'conclusion',1));
   v_payloads:=jsonb_build_object('name-completion:'||(p_state->'person_payload'->>'source_record_key'),v_payload);
   v_envelope:=public.red_authorize_reimport_name_completion(
-    repeat('7',64),(p_state->>'source_batch_id')::uuid,p_state->>'preview_sha256',p_state->>'manifest_sha256',
+    repeat('7',64),(p_state->>'source_batch_id')::uuid,p_state->>'preview_sha256',p_state->>'manifest_sha256',(p_state->>'source_id')::bigint,p_state->>'profile_id',p_state->>'profile_sha256',
     '{"name_completions":1,"operations":1}'::jsonb,v_payloads);
   v_child_auth:=(v_envelope->>'authorization_id')::uuid;
   PERFORM public.red_preflight_reimport_name_completion(v_child_auth,(p_state->>'source_batch_id')::uuid,repeat('7',64),v_payloads);
@@ -429,7 +429,7 @@ BEGIN
         JOIN public.fact f ON f.id=r.fact_id AND f.subjekt_id=r.person_id AND f.faktatype='navn'
         JOIN public.assertion x ON x.id=r.assertion_id AND x.target_id=r.fact_id
         JOIN public.citation c ON c.id=r.citation_id AND c.assertion_id=r.assertion_id AND c.source_id=source.source_id
-       WHERE child.id=(a->>'child_batch_id')::uuid AND source.id=(a->>'source_batch_id')::uuid AND source.source_id=4
+       WHERE child.id=(a->>'child_batch_id')::uuid AND source.id=(a->>'source_batch_id')::uuid AND source.source_id=4 AND c.citat_tekst='task-3-profile-four side 1'
      ) OR NOT EXISTS(
        SELECT 1 FROM private.reimport_name_completion_result r
         JOIN private.reimport_batch child ON child.id=r.batch_id
@@ -437,7 +437,7 @@ BEGIN
         JOIN public.fact f ON f.id=r.fact_id AND f.subjekt_id=r.person_id AND f.faktatype='navn'
         JOIN public.assertion x ON x.id=r.assertion_id AND x.target_id=r.fact_id
         JOIN public.citation c ON c.id=r.citation_id AND c.assertion_id=r.assertion_id AND c.source_id=source.source_id
-       WHERE child.id=(b->>'child_batch_id')::uuid AND source.id=(b->>'source_batch_id')::uuid AND source.source_id=5
+       WHERE child.id=(b->>'child_batch_id')::uuid AND source.id=(b->>'source_batch_id')::uuid AND source.source_id=5 AND c.citat_tekst='task-3-profile-five side 1'
      ) OR (SELECT count(*) FROM private.reimport_name_completion_result WHERE batch_id IN((a->>'child_batch_id')::uuid,(b->>'child_batch_id')::uuid))<>2 THEN
     RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_TWO_PROFILE_FACT_IDENTITY_CITATION_SCOPE_INVALID';
   END IF;

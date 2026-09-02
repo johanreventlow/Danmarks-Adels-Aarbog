@@ -68,11 +68,16 @@ validate_generic_name_completion_authorization <- function(authorization, manife
 
 validate_name_completion_server_preflight <- function(result, authorization, manifest, manifest_sha256) {
   required <- c("valid", "database_name", "system_identifier", "source_batch_id", "manifest_sha256")
-  if (!name_completion_named(result, required) || !identical(result$valid, TRUE) ||
-      !identical(result$source_batch_id, manifest$source_batch_id) ||
-      !identical(result$manifest_sha256, manifest_sha256) ||
-      !is.character(authorization$database_name) || !identical(result$database_name, authorization$database_name) ||
-      !is.character(authorization$system_identifier) || !identical(result$system_identifier, authorization$system_identifier))
+  if (!name_completion_named(result, c("authorization", "preflight")))
+    stop_name_completion("REIMPORT_NAME_COMPLETION_PREFLIGHT_INVALID")
+  validate_generic_name_completion_authorization(result$authorization, manifest)
+  if (!identical(result$authorization, authorization))
+    stop_name_completion("REIMPORT_NAME_COMPLETION_AUTHORIZATION_REQUIRED")
+  if (!name_completion_named(result$preflight, required) || !identical(result$preflight$valid, TRUE) ||
+      !identical(result$preflight$source_batch_id, manifest$source_batch_id) ||
+      !identical(result$preflight$manifest_sha256, manifest_sha256) ||
+      !is.character(authorization$database_name) || !identical(result$preflight$database_name, authorization$database_name) ||
+      !is.character(authorization$system_identifier) || !identical(result$preflight$system_identifier, authorization$system_identifier))
     stop_name_completion("REIMPORT_NAME_COMPLETION_PREFLIGHT_INVALID")
   invisible(result)
 }
@@ -160,9 +165,9 @@ new_name_completion_dbi_gateway <- function(connection_factory) {
         mode <- args[[3L]]
         supplied <- args[[4L]]
         if (identical(mode, "apply")) return(supplied)
-        jsonlite::fromJSON(query("SELECT public.red_authorize_reimport_name_completion($1,$2,$3,$4,$5::jsonb,$6::jsonb)::text AS value", list(
+        jsonlite::fromJSON(query("SELECT public.red_authorize_reimport_name_completion($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb)::text AS value", list(
           manifest_sha256, manifest$source_batch_id, manifest$source_manifest_bytes_sha256,
-          manifest$source_manifest_content_sha256, jsonlite::toJSON(manifest$expected_counts, auto_unbox = TRUE),
+          manifest$source_manifest_content_sha256, manifest$source$id, manifest$source$profile_id, manifest$source$profile_sha256, jsonlite::toJSON(manifest$expected_counts, auto_unbox = TRUE),
           jsonlite::toJSON(name_completion_payloads(manifest), auto_unbox = TRUE, null = "null")))$value[[1L]], simplifyVector = FALSE)
       },
       preflight_authorization = {
@@ -171,9 +176,7 @@ new_name_completion_dbi_gateway <- function(connection_factory) {
         response <- jsonlite::fromJSON(query("SELECT public.red_preflight_reimport_name_completion($1,$2,$3,$4::jsonb)::text AS value", list(
           authorization$authorization_id, manifest$source_batch_id, args[[3L]],
           jsonlite::toJSON(args[[4L]], auto_unbox = TRUE, null = "null")))$value[[1L]], simplifyVector = FALSE)
-        response$preflight$database_name <- response$authorization$database_name
-        response$preflight$system_identifier <- response$authorization$system_identifier
-        response$preflight
+        response
       },
       begin_batch = query("SELECT public.red_begin_reimport_name_completion($1,$2,$3) AS id", list(
         args[[1L]]$authorization_id, args[[3L]], args[[2L]]$source_batch_id))$id[[1L]],

@@ -708,6 +708,30 @@ $assert_reimport_edition_catalog$;
 
 REVOKE ALL ON FUNCTION private.assert_reimport_edition_catalog() FROM PUBLIC,anon,authenticated,service_role;
 
+DO $verify_reimport_writer_task9_surface$
+DECLARE v_signature text;
+BEGIN
+  FOREACH v_signature IN ARRAY ARRAY[
+    'private.validate_reimport_writer_config(jsonb)',
+    'public.red_apply_reimport_canonical_delta(uuid,text,jsonb)',
+    'public.red_lock_reimport_name_completion(text,bigint,text)',
+    'public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb)'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NULL THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_TASK9_SURFACE_MISSING: %',v_signature;
+    END IF;
+  END LOOP;
+  IF has_function_privilege('anon','public.red_apply_reimport_canonical_delta(uuid,text,jsonb)','EXECUTE')
+     OR has_function_privilege('anon','public.red_lock_reimport_name_completion(text,bigint,text)','EXECUTE')
+     OR has_function_privilege('anon','public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_apply_reimport_canonical_delta(uuid,text,jsonb)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_lock_reimport_name_completion(text,bigint,text)','EXECUTE')
+     OR has_function_privilege('authenticated','public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb)','EXECUTE')
+     OR NOT has_function_privilege('service_role','public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb)','EXECUTE') THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_TASK9_ACL_INVALID';
+  END IF;
+END $verify_reimport_writer_task9_surface$;
+
 DO $verify_reimport_edition_catalog$
 BEGIN
   PERFORM private.assert_reimport_edition_catalog();

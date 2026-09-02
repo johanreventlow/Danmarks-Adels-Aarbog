@@ -16,6 +16,7 @@ BEGIN
     'public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz)',
     'public.red_begin_reimport(uuid,text,text)','public.red_apply_reimport_source_evidence(uuid,text,jsonb)',
     'public.red_apply_reimport_person_create(uuid,text,jsonb)','public.red_finalize_reimport(uuid)',
+    'public.red_apply_reimport_canonical_delta(uuid,text,jsonb)',
     'public.red_reimport_batch_result(uuid,uuid)',
     'public.red_authorize_reimport_reversal(uuid,uuid,timestamptz)','public.red_reverse_reimport(uuid,uuid)',
     'public.red_authorize_reimport_cutover(uuid,uuid,timestamptz)','public.red_activate_reimport_batch(uuid,uuid)'
@@ -52,6 +53,24 @@ BEGIN
     RAISE EXCEPTION 'REIMPORT_WRITER_APPEND_ONLY_TRIGGER_MISSING';
   END IF;
 END $catalog$;
+
+DO $writer_config_contract$
+DECLARE v_config jsonb := '{"run_key_prefix":"task9:","schema_version":"v1","extractor_version":"v1","rendition_key":"task9","rendition_kind":"ocr_text","rendition_metadata":{},"observation_extraction_method":"fixture","citation_label_template":"Task 9 side {page_from}"}'::jsonb;
+  v_invalid jsonb; v_error text;
+BEGIN
+  INSERT INTO public.source(id,titel,udgave,slags) VALUES(-153009,'Task 9 config','fixture','DAA-udgave') ON CONFLICT(id) DO NOTHING;
+  FOREACH v_invalid IN ARRAY ARRAY[
+    v_config-'rendition_key',v_config||jsonb_build_object('extra','x'),jsonb_set(v_config,'{rendition_metadata}','null'::jsonb),jsonb_set(v_config,'{run_key_prefix}','1'::jsonb),jsonb_set(v_config,'{citation_label_template}','"no placeholder"'::jsonb),jsonb_set(v_config,'{citation_label_template}','"{page_from} {other}"'::jsonb)
+  ] LOOP
+    v_error:=NULL;
+    BEGIN
+      INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
+      VALUES(-153009,'task9-invalid-'||substr(md5(v_invalid::text),1,8),'v1',private.reimport_canonical_json_sha256(v_invalid),v_invalid);
+    EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+    END;
+    IF v_error IS NULL THEN RAISE EXCEPTION 'REIMPORT_WRITER_CONFIG_INVALID_ACCEPTED'; END IF;
+  END LOOP;
+END $writer_config_contract$;
 
 DO $v1_gate$
 DECLARE v_before bigint; v_error text;
@@ -95,19 +114,20 @@ BEGIN
       'public.red_reverse_reimport(uuid,uuid)',
       'public.red_authorize_reimport_cutover(uuid,uuid,timestamptz)',
       'public.red_activate_reimport_batch(uuid,uuid)',
-      'public.red_lock_reimport_name_completion(text)',
-      'public.red_authorize_reimport_name_completion(text,uuid,text,text,jsonb,jsonb)',
+      'public.red_apply_reimport_canonical_delta(uuid,text,jsonb)',
+      'public.red_lock_reimport_name_completion(text,bigint,text)',
+      'public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb)',
       'public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb)',
       'public.red_begin_reimport_name_completion(uuid,text,uuid)',
       'public.red_apply_reimport_name_completion(uuid,text,jsonb)',
       'public.red_finalize_reimport_name_completion(uuid)'
     ],ARRAY[
       false,false,false,false,false,false,false,false,false,
-      false,true,true,true,true,true,false,true,false,true,
+      false,true,true,true,true,true,false,true,false,true,true,
       true,false,true,true,true,true
     ],ARRAY[
       false,false,false,false,false,false,false,false,false,
-      true,false,false,false,false,false,true,false,true,false,
+      true,false,false,false,false,false,true,false,true,false,false,
       false,true,false,false,false,false
     ]) AS acl(signature,expect_authenticated,expect_service_role)
   LOOP

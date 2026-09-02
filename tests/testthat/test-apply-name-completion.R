@@ -31,7 +31,7 @@ name_completion_gateway <- function(manifest, preflight = NULL) {
   calls <- list()
   sql <- c(
     preflight = "SELECT current_database(), current_setting('transaction_read_only')",
-    authorize = "SELECT public.red_authorize_reimport_name_completion($1,$2,$3,$4,$5::jsonb,$6::jsonb)",
+    authorize = "SELECT public.red_authorize_reimport_name_completion($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb)",
     begin_batch = "SELECT public.red_begin_reimport_name_completion($1,$2,$3)",
     name_completion = "SELECT public.red_apply_reimport_name_completion($1,$2,$3::jsonb)",
     finalize = "SELECT public.red_finalize_reimport_name_completion($1)"
@@ -53,8 +53,8 @@ name_completion_gateway <- function(manifest, preflight = NULL) {
       database_name = "completion-test", system_identifier = "system-1", source = manifest$source
     ))
     if (identical(name, "preflight_authorization")) return(list(
-      valid = TRUE, database_name = "completion-test", system_identifier = "system-1",
-      source_batch_id = manifest$source_batch_id, manifest_sha256 = list(...)[[3L]]
+      authorization = list(authorization_id = "22222222-2222-4222-8222-222222222222", database_name = "completion-test", system_identifier = "system-1", source = manifest$source),
+      preflight = list(valid = TRUE, database_name = "completion-test", system_identifier = "system-1", source_batch_id = manifest$source_batch_id, manifest_sha256 = list(...)[[3L]])
     ))
     if (identical(name, "begin_batch")) return("44444444-4444-4444-8444-444444444444")
     if (identical(name, "finalize")) return(list(
@@ -123,13 +123,30 @@ test_that("name completion rejects an authorization preflight from another syste
   original <- gateway$gateway$call
   gateway$gateway$call <- function(name, ...) {
     if (identical(name, "preflight_authorization")) return(list(
-      valid = TRUE, database_name = "completion-test", system_identifier = "other-system",
-      source_batch_id = manifest$source_batch_id, manifest_sha256 = sha("a")
+      authorization = list(authorization_id = "22222222-2222-4222-8222-222222222222", database_name = "completion-test", system_identifier = "system-1", source = manifest$source),
+      preflight = list(valid = TRUE, database_name = "completion-test", system_identifier = "other-system", source_batch_id = manifest$source_batch_id, manifest_sha256 = sha("a"))
     ))
     original(name, ...)
   }
   expect_error(execute_name_completion(manifest, sha("a"), "dry-run", gateway$gateway),
     "REIMPORT_NAME_COMPLETION_PREFLIGHT_INVALID")
+  expect_false("begin_batch" %in% names(gateway$calls()))
+})
+
+test_that("apply mode rolls back when the server returns another profile before child begin", {
+  manifest <- name_completion_manifest()
+  gateway <- name_completion_gateway(manifest)
+  supplied <- list(authorization_id = "22222222-2222-4222-8222-222222222222", database_name = "completion-test", system_identifier = "system-1", source = manifest$source)
+  original <- gateway$gateway$call
+  gateway$gateway$call <- function(name, ...) {
+    if (identical(name, "preflight_authorization")) return(list(
+      authorization = utils::modifyList(supplied, list(source = utils::modifyList(manifest$source, list(profile_sha256 = sha("f"))))),
+      preflight = list(valid = TRUE, database_name = "completion-test", system_identifier = "system-1", source_batch_id = manifest$source_batch_id, manifest_sha256 = sha("a"))
+    ))
+    original(name, ...)
+  }
+  expect_error(execute_name_completion(manifest, sha("a"), "apply", gateway$gateway, supplied), "REIMPORT_NAME_COMPLETION_AUTHORIZATION_REQUIRED")
+  expect_true("rollback" %in% names(gateway$calls()))
   expect_false("begin_batch" %in% names(gateway$calls()))
 })
 

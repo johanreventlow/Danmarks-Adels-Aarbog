@@ -16,7 +16,7 @@ WITH targets AS (
     encode(extensions.digest(convert_to(pg_get_functiondef(p.oid),'UTF8'),'sha256'),'hex') AS body_sha256
   FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_roles r ON r.oid=p.proowner
   WHERE (n.nspname='public' AND p.proname IN (
-    'red_authorize_reimport','red_begin_reimport','red_apply_reimport_source_evidence','red_apply_reimport_person_create','red_finalize_reimport','red_reimport_batch_result',
+    'red_authorize_reimport','red_preflight_reimport_authorization','red_begin_reimport','red_apply_reimport_source_evidence','red_apply_reimport_person_create','red_apply_reimport_canonical_delta','red_finalize_reimport','red_reimport_batch_result',
     'red_authorize_reimport_reversal','red_reverse_reimport','red_authorize_reimport_cutover','red_activate_reimport_batch',
     'red_lock_reimport_name_completion','red_authorize_reimport_name_completion','red_preflight_reimport_name_completion',
     'red_begin_reimport_name_completion','red_apply_reimport_name_completion','red_finalize_reimport_name_completion',
@@ -26,7 +26,7 @@ WITH targets AS (
     'red_authorize_1939_v50_name_completion','red_preflight_1939_v50_name_completion','red_begin_1939_v50_name_completion',
     'red_apply_1939_v50_name_completion','red_finalize_1939_v50_name_completion'
   )) OR (n.nspname='private' AND p.proname IN (
-    'require_reimport_writer_editor','require_reimport_open_batch','ensure_reimport_source_evidence',
+    'require_reimport_writer_editor','require_reimport_open_batch','lock_reimport_writer','validate_reimport_authorization_payload','validate_reimport_writer_config','ensure_reimport_source_evidence',
     'validate_reimport_name_completion','reject_reimport_writer_mutation',
     'reimport_canonical_json_text','reimport_canonical_json_sha256',
     'require_reimport_1939_editor','require_reimport_1939_open_batch',

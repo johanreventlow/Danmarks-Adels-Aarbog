@@ -211,9 +211,9 @@ stopifnot(inherits(blocked, "try-error"), grepl("statement timeout", as.characte
 generic_manifest <- as_generic_name_completion_manifest(manifest)
 generic_payloads <- jsonlite::toJSON(name_completion_payloads(generic_manifest), auto_unbox = TRUE, null = "null")
 authorization <- jsonlite::fromJSON(query(con,
-  "SELECT public.red_authorize_reimport_name_completion($1,$2,$3,$4,$5::jsonb,$6::jsonb)::text value",
+  "SELECT public.red_authorize_reimport_name_completion($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb)::text value",
   list(manifest_sha, source_batch, name_completion_source_manifest_bytes_sha256,
-    name_completion_source_manifest_content_sha256,
+    name_completion_source_manifest_content_sha256, 3L, profile_id, profile_sha,
     jsonlite::toJSON(generic_manifest$expected_counts, auto_unbox = TRUE),
     generic_payloads))$value[[1L]], simplifyVector = FALSE)
 DBI::dbDisconnect(con); con <- NULL
@@ -228,9 +228,9 @@ stopifnot(completion$results[[1L]] == before$results[[1L]] + 8,
   completion$events[[1L]] == before$completion_events[[1L]] + 8)
 
 replay_authorization <- try(query(con,
-  "SELECT public.red_authorize_reimport_name_completion($1,$2,$3,$4,$5::jsonb,$6::jsonb)::text value",
+  "SELECT public.red_authorize_reimport_name_completion($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb)::text value",
   list(manifest_sha, source_batch, name_completion_source_manifest_bytes_sha256,
-    name_completion_source_manifest_content_sha256,
+    name_completion_source_manifest_content_sha256, 3L, profile_id, profile_sha,
     jsonlite::toJSON(generic_manifest$expected_counts, auto_unbox = TRUE),
     generic_payloads)), silent = TRUE)
 stopifnot(inherits(replay_authorization, "try-error"), grepl("REIMPORT_NAME_COMPLETION_INVALID",

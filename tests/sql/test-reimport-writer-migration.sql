@@ -91,6 +91,10 @@ BEGIN
      ) THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_MIGRATION_PROFILE_HASH_INVALID';
   END IF;
+  IF to_regprocedure('private.validate_reimport_writer_config(jsonb)') IS NULL
+     OR NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='private.reimport_writer_profile'::regclass AND conname='reimport_writer_profile_config_valid') THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_MIGRATION_PROFILE_CONFIG_CONTRACT_MISSING';
+  END IF;
   IF NOT EXISTS(
     SELECT 1
     FROM private.reimport_batch source_batch
