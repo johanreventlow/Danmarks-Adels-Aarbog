@@ -6,6 +6,16 @@ source(file.path(root, ".claude/skills/daa-extract/scripts/apply_name_completion
 sha <- function(letter) paste(rep(letter, 64L), collapse = "")
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
+test_that("server authorization source id normalizes only representable R integers", {
+  valid <- normalize_name_completion_server_authorization(list(source = list(id = 17)))
+  expect_identical(valid$source$id, 17L)
+
+  boundary <- expect_no_error(normalize_name_completion_server_authorization(
+    list(source = list(id = -2147483648))
+  ))
+  expect_identical(boundary$source$id, -2147483648)
+})
+
 name_completion_manifest <- function() {
   list(
     manifest_content_sha256 = sha("a"),

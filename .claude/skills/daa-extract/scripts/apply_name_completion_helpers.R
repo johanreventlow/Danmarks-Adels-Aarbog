@@ -50,7 +50,7 @@ normalize_name_completion_server_authorization <- function(authorization) {
   if (is.list(authorization) && is.list(authorization$source) &&
       is.numeric(authorization$source$id) && length(authorization$source$id) == 1L &&
       is.finite(authorization$source$id) &&
-      authorization$source$id >= -as.numeric(.Machine$integer.max) - 1 &&
+      authorization$source$id >= -as.numeric(.Machine$integer.max) &&
       authorization$source$id <= .Machine$integer.max &&
       authorization$source$id == as.integer(authorization$source$id))
     authorization$source$id <- as.integer(authorization$source$id)
