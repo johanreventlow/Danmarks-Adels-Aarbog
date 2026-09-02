@@ -8,7 +8,9 @@ source_auth <- "560c39f8-5c87-4c0d-a768-025d97fa2973"
 source_run <- "560c39f8-5c87-4c0d-a768-025d97fa2972"
 manifest_sha <- paste(rep("1", 64L), collapse = "")
 sha <- function(letter) paste(rep(letter, 64L), collapse = "")
-source_preview_sha <- sha("9")
+source_preview_sha <- name_completion_source_manifest_bytes_sha256
+profile_id <- "daa-1939-v50-production-write-v1"
+profile_sha <- sha("a")
 
 connect <- function(statement_timeout = NULL) {
   con <- DBI::dbConnect(RPostgres::Postgres(), dbname = Sys.getenv("PGDATABASE"),
@@ -94,14 +96,16 @@ on.exit(try(DBI::dbDisconnect(con), silent = TRUE), add = TRUE)
 DBI::dbBegin(con)
 DBI::dbExecute(con, "INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) VALUES($1,3,'name-completion-r-integration','fixture','fixture','fixture',$2,'{}')",
   params = list(source_run, sha("a")))
-DBI::dbExecute(con, "INSERT INTO private.reimport_1939_authorization(id,operation,manifest_sha256,preview_sha256,database_identity,source_id,expected_counts,authorized_elements,principal_id,nonce,expires_at,status,consumed_at) VALUES($1,'reimport',$2,$3,current_database(),3,$4::jsonb,'{}',$5,gen_random_uuid(),clock_timestamp()+interval '1 hour','consumed',clock_timestamp())",
+DBI::dbExecute(con, "INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config) VALUES(3,$1,'fixture-v2',$2,$3::jsonb) ON CONFLICT(source_id,profile_id,profile_sha256) DO NOTHING",
+  params = list(profile_id, profile_sha, '{\"run_key_prefix\":\"reimport-1939-v50:\",\"schema_version\":\"1939-v50-production-write-manifest-v1\",\"extractor_version\":\"production-writer-v1\",\"rendition_key\":\"daa-1939-calamari-r6-clean\",\"rendition_kind\":\"ocr_text\",\"rendition_metadata\":{\"edition\":\"1939\"},\"observation_extraction_method\":\"fixture\",\"citation_label_template\":\"DAA 1939 side {page_from}\"}'))
+source_counts <- jsonlite::toJSON(list(person_creates = 8L, source_evidence = 0L), auto_unbox = TRUE)
+DBI::dbExecute(con, "INSERT INTO private.reimport_authorization(id,operation,manifest_sha256,preview_sha256,database_identity,source_id,profile_id,profile_sha256,expected_counts,authorized_elements,principal_id,nonce,expires_at,status,consumed_at) VALUES($1,'reimport',$2,$3,current_database(),3,$4,$5,$6::jsonb,'{}',$7,gen_random_uuid(),clock_timestamp()+interval '1 hour','consumed',clock_timestamp())",
   params = list(source_auth, name_completion_source_manifest_content_sha256,
     source_preview_sha,
-    jsonlite::toJSON(list(person_creates = 8L, source_evidence = 0L, canonical_delta = 0L), auto_unbox = TRUE), actor))
-DBI::dbExecute(con, "INSERT INTO private.reimport_1939_write_batch(id,authorization_id,manifest_sha256,preview_sha256,principal_id,status,expected_counts,observed_counts,finalized_at) VALUES($1,$2,$3,$4,$5,'finalized',$6::jsonb,$6::jsonb,clock_timestamp())",
+    profile_id, profile_sha, source_counts, actor))
+DBI::dbExecute(con, "INSERT INTO private.reimport_batch(id,authorization_id,manifest_sha256,preview_sha256,source_id,profile_id,profile_sha256,principal_id,status,expected_counts,observed_counts,finalized_at) VALUES($1,$2,$3,$4,3,$5,$6,$7,'finalized',$8::jsonb,$8::jsonb,clock_timestamp())",
   params = list(source_batch, source_auth, name_completion_source_manifest_content_sha256,
-    source_preview_sha, actor,
-    jsonlite::toJSON(list(person_creates = 8L, source_evidence = 0L, canonical_delta = 0L), auto_unbox = TRUE)))
+    source_preview_sha, profile_id, profile_sha, actor, source_counts))
 
 for (index in seq_along(locked_rows)) {
   row <- locked_rows[[index]]
@@ -114,9 +118,11 @@ for (index in seq_along(locked_rows)) {
     params = list(persona, row[[2L]], actor))
   DBI::dbExecute(con, "INSERT INTO private.source_persona_identity_event(source_persona_id,canonical_person_id,decision_status,version,evidence,decided_by,decided_by_name,decided_at) SELECT source_persona_id,canonical_person_id,decision_status,version,evidence,decided_by,decided_by_name,decided_at FROM private.source_persona_identity WHERE source_persona_id=$1",
     params = list(persona))
-  DBI::dbExecute(con, "INSERT INTO private.reimport_1939_write_event(batch_id,element_id,operation,source_record_key,canonical_person_id,payload,after_sha256) VALUES($1,$2,'person_create',$3,$4,$5::jsonb,$6)",
+  event_payload <- fixture$source_payloads[[index]]
+  event_payload$authorized_payload_sha256 <- manifest$operations[[index]]$source_payload_sha256
+  DBI::dbExecute(con, "INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,canonical_person_id,payload,after_sha256) VALUES($1,$2,'person_create',$3,$4,$5::jsonb,$6)",
     params = list(source_batch, paste0("person-create:", row[[1L]]), row[[1L]], row[[2L]],
-      jsonlite::toJSON(fixture$source_payloads[[index]], auto_unbox = TRUE, null = "null"), sha("d")))
+      jsonlite::toJSON(event_payload, auto_unbox = TRUE, null = "null"), sha("d")))
 }
 DBI::dbCommit(con)
 
@@ -219,7 +225,7 @@ replay_authorization <- try(query(con,
     name_completion_source_manifest_content_sha256,
     jsonlite::toJSON(manifest$counts, auto_unbox = TRUE),
     jsonlite::toJSON(payloads, auto_unbox = TRUE, null = "null"))), silent = TRUE)
-stopifnot(inherits(replay_authorization, "try-error"), grepl("NAME_COMPLETION_1939_PREFLIGHT_INVALID",
+stopifnot(inherits(replay_authorization, "try-error"), grepl("NAME_COMPLETION_1939_AUTHORIZATION_INVALID",
   as.character(replay_authorization), fixed = TRUE))
 
 for (role in c("anon", "authenticated")) {
@@ -242,13 +248,14 @@ stopifnot(inherits(self_authorize, "try-error"),
 
 completion_batch <- query(con, "SELECT id FROM private.reimport_1939_write_batch WHERE manifest_sha256=$1 AND status='finalized'", list(manifest_sha))$id[[1L]]
 reversal_auth <- query(con, "SELECT public.red_authorize_1939_v50_reversal($1,gen_random_uuid(),clock_timestamp()+interval '5 minutes') id", list(source_batch))$id[[1L]]
-reversed <- jsonlite::fromJSON(query(con, "SELECT public.red_reverse_1939_v50_reimport($1,$2)::text value", list(source_batch, reversal_auth))$value[[1L]], simplifyVector = FALSE)
-stopifnot(identical(reversed$status, "reversed"))
+reversed <- try(query(con, "SELECT public.red_reverse_1939_v50_reimport($1,$2)::text value", list(source_batch, reversal_auth)), silent = TRUE)
+stopifnot(inherits(reversed, "try-error"), grepl("REIMPORT_1939_REVERSAL_INVALID",
+  as.character(reversed), fixed = TRUE))
 after_reversal <- query(con, "SELECT id,visning_navn,staged,status FROM public.person WHERE id BETWEEN 1846 AND 1853 ORDER BY id")
-stopifnot(all(is.na(after_reversal$visning_navn)), all(after_reversal$staged),
-  all(after_reversal$status == "reimport_1939_reversed"))
-stopifnot(query(con, "SELECT count(*) n FROM public.fact WHERE subjekt_type='person' AND subjekt_id BETWEEN 1846 AND 1853 AND faktatype='navn'")$n[[1L]] == 0)
-stopifnot(query(con, "SELECT status FROM private.reimport_1939_write_batch WHERE id=$1", list(completion_batch))$status[[1L]] == "reversed")
+stopifnot(identical(after_reversal$visning_navn, expected_names), all(after_reversal$staged),
+  all(is.na(after_reversal$status)))
+stopifnot(query(con, "SELECT count(*) n FROM public.fact WHERE subjekt_type='person' AND subjekt_id BETWEEN 1846 AND 1853 AND faktatype='navn'")$n[[1L]] == 8)
+stopifnot(query(con, "SELECT status FROM private.reimport_1939_write_batch WHERE id=$1", list(completion_batch))$status[[1L]] == "finalized")
 
 DBI::dbDisconnect(con); con <- NULL
 cat("PASS DAA 1939 v50 name completion PostgreSQL integration\n")

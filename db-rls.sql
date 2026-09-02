@@ -1017,7 +1017,9 @@ BEGIN
     'private.reimport_1939_write_event','private.reimport_1939_name_completion_result'
   ] LOOP
     IF to_regclass(v_relation) IS NOT NULL THEN
-      EXECUTE format('ALTER TABLE %s ENABLE ROW LEVEL SECURITY',v_relation);
+      IF (SELECT relkind FROM pg_class WHERE oid=to_regclass(v_relation)) IN ('r','p') THEN
+        EXECUTE format('ALTER TABLE %s ENABLE ROW LEVEL SECURITY',v_relation);
+      END IF;
       EXECUTE format('REVOKE ALL ON TABLE %s FROM PUBLIC,anon,authenticated,service_role',v_relation);
     END IF;
   END LOOP;
@@ -1196,18 +1198,56 @@ REVOKE ALL ON private.reimport_writer_profile,private.reimport_authorization,
   FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON FUNCTION private.reject_reimport_writer_mutation(),
   private.require_reimport_writer_editor(),private.require_reimport_open_batch(uuid),
-  private.ensure_reimport_source_evidence(uuid,text,jsonb)
+  private.ensure_reimport_source_evidence(uuid,text,jsonb),
+  private.validate_reimport_name_completion(uuid,uuid,text,jsonb)
   FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),
   public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),
   public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_finalize_reimport(uuid),
   public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_reverse_reimport(uuid,uuid),
-  public.red_authorize_reimport_cutover(uuid,uuid,timestamptz),public.red_activate_reimport_batch(uuid,uuid)
+  public.red_authorize_reimport_cutover(uuid,uuid,timestamptz),public.red_activate_reimport_batch(uuid,uuid),
+  public.red_lock_reimport_name_completion(text),public.red_authorize_reimport_name_completion(text,uuid,text,text,jsonb,jsonb),
+  public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb),public.red_begin_reimport_name_completion(uuid,text,uuid),
+  public.red_apply_reimport_name_completion(uuid,text,jsonb),public.red_finalize_reimport_name_completion(uuid)
   FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),
-  public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_authorize_reimport_cutover(uuid,uuid,timestamptz)
+  public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_authorize_reimport_cutover(uuid,uuid,timestamptz),
+  public.red_authorize_reimport_name_completion(text,uuid,text,text,jsonb,jsonb)
   TO service_role;
 GRANT EXECUTE ON FUNCTION public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),
   public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_finalize_reimport(uuid),
-  public.red_reverse_reimport(uuid,uuid),public.red_activate_reimport_batch(uuid,uuid)
+  public.red_reverse_reimport(uuid,uuid),public.red_activate_reimport_batch(uuid,uuid),
+  public.red_lock_reimport_name_completion(text),public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb),
+  public.red_begin_reimport_name_completion(uuid,text,uuid),public.red_apply_reimport_name_completion(uuid,text,jsonb),
+  public.red_finalize_reimport_name_completion(uuid)
   TO authenticated;
+
+-- #153 retains the historic 1939 entry points only as pinned compatibility
+-- adapters.  The views never expose their generic private base tables.  Reset
+-- all facade ACLs here, then let the one #152 version-aware authority apply
+-- the exact v2 compatibility split; do not re-grant in a trailing block.
+REVOKE ALL ON FUNCTION
+  public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz),
+  public.red_begin_1939_v50_reimport(uuid,text,text),
+  public.red_apply_1939_v50_source_evidence(uuid,text,jsonb),
+  public.red_apply_1939_v50_person_create(uuid,text,jsonb),
+  public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb),
+  public.red_finalize_1939_v50_reimport(uuid),
+  public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz),
+  public.red_reverse_1939_v50_reimport(uuid,uuid),
+  public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz),
+  public.red_activate_1939_v50_batch(uuid,uuid),
+  public.red_lock_1939_v50_name_completion(text),
+  public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb),
+  public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb),
+  public.red_begin_1939_v50_name_completion(uuid,text,uuid),
+  public.red_apply_1939_v50_name_completion(uuid,text,jsonb),
+  public.red_finalize_1939_v50_name_completion(uuid)
+  FROM PUBLIC,anon,authenticated,service_role;
+DO $reimport_1939_v2_facade_acl$
+BEGIN
+  PERFORM private.apply_narrative_record_contract_acl(
+    public.narrative_record_contract_version()
+  );
+END
+$reimport_1939_v2_facade_acl$;

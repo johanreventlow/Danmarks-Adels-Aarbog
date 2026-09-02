@@ -46,6 +46,22 @@ GitHub Actions.
   and child-batch lookup includes that identity.
 - New editions use only generic interfaces. The one transition facade pins
   source 3, `daa-1939-v50-production-write-v1`, and its seeded profile hash.
+- The upgrade is a fail-closed writer cutover, not a second writer version:
+  historical terminal ledgers are preserved, but an old authorization with
+  `status='issued'` or an old batch with `status IN ('open','finalized')`
+  blocks the transaction with `REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED`.
+  Operators must finish or explicitly expire/reverse such work before the
+  upgrade; after the upgrade every mutation, including a 1939-wrapper call,
+  goes through the generic v2 kernel. Do not add `writer_contract_version`,
+  a generic v1 activation/reversal path, synthetic v2 anchors, or a fallback
+  based on absent legacy payload fields.
+- User-approved 2026-09-02 ACL interpretation: the exact 1939 facade
+  signatures are v2-compatible adapters, not executable legacy writers. The
+  version-aware #152 ACL authority therefore grants only those enumerated
+  facade signatures to their historic authenticated/service-role classes when
+  the narrative-record contract is version 2; it must still revoke every
+  other legacy writer signature. `db-rls.sql`, v2 cutover and `db-verify.sql`
+  must converge on that same matrix in either application order.
 - Public/private ACLs must be proven per function signature for `PUBLIC`,
   `anon`, `authenticated` and `service_role`; no blanket EXECUTE grant is
   acceptable.
@@ -205,6 +221,7 @@ GitHub Actions.
 - Modify: `schema.sql:2324-2797`
 - Modify: `db-migrations.sql` after the current 1939 writer migration block
 - Modify: `db-rls.sql`
+- Modify: `db-verify.sql`
 - Modify: `tests/sql/test-reimport-writer.sql`
 - Modify: `tests/testthat/test-reimport-writer-source-inventory.R`
 
@@ -405,8 +422,10 @@ GitHub Actions.
 - Consumes generic primaries from Tasks 2-3 and the pre-#153 schema at commit
   `2d6aabf`.
 - Produces read-compatible private 1939 views, exact public 1939 wrappers,
-  complete error/ACL matrices, and byte-comparable fresh/upgraded catalog
-  receipts.
+  complete error/ACL matrices, byte-comparable fresh/upgraded catalog
+  receipts, and a fail-closed pre-upgrade quiescence gate. Terminal legacy
+  history is read-compatible; an in-flight legacy write is deliberately not
+  executable after upgrade.
 
 - [ ] **Step 1: Write facade and migration-parity RED tests**
 
@@ -416,17 +435,24 @@ GitHub Actions.
   corresponding generic primary with source 3/profile/hash. Build an explicit
   expected error mapping in the SQL test for each legacy
   `REIMPORT_1939_*`, `NAME_COMPLETION_1939_*` and cutover failure exercised by
-  the legacy tests.
+  the legacy tests. Add two migration fixtures: a terminal chain with only
+  consumed/expired authorizations and activated/reversed batches, and an
+  in-flight chain containing one `issued` authorization or one `open`/
+  `finalized` batch. The former must upgrade with preserved IDs, hashes and
+  references; the latter must fail with
+  `REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED` before any schema conversion.
 
 - [ ] **Step 2: Bootstrap an actual pre-#153 schema and run migration RED**
 
   In CI and locally, create a disposable `reimport_legacy_153` database,
   install `tests/sql/evidence-promotion-bootstrap.sql`, then feed
-  `git show 2d6aabf:schema.sql` to `psql`. Insert a minimal legacy
-  authorization/batch/event/name-completion chain with source 3. Apply current
-  `db-migrations.sql` and `db-rls.sql`, then run
-  `test-reimport-writer-migration.sql`. Expected: FAIL until the migration
-  preserves rows and installs generic/view contract.
+  `git show 2d6aabf:schema.sql` to `psql`. In one disposable database insert a
+  terminal legacy authorization/batch/event/name-completion chain with source
+  3; applying current `db-migrations.sql` and `db-rls.sql` must initially
+  fail until it preserves rows and installs the generic/view contract. In a
+  separate disposable database insert one otherwise-valid issued
+  authorization, then one otherwise-valid `finalized` batch; each migration
+  attempt must initially fail only because the quiescence gate is absent.
 
 - [ ] **Step 3: Implement fresh views and pinned public wrappers**
 
@@ -438,12 +464,17 @@ GitHub Actions.
 
 - [ ] **Step 4: Complete transactional upgrade DDL**
 
-  In the migration path, rename old tables/indexes/triggers to generic names,
-  retain their row IDs, create generic replacement constraints and profile
-  foreign keys, then create views/wrappers only after all generic functions are
-  defined. Serialize and compare relation kind/name, `pg_constraint` type and
-  parent, `pg_policy`, owned sequence, index definition, function signature,
-  trigger parent, RLS state and grants between a fresh and upgraded database.
+  At the start of the one-transaction migration, lock/check the old ledgers
+  and raise `REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED` if any authorization
+  is `issued` or any batch is `open` or `finalized`. Do not rewrite old payloads
+  into synthetic v2 event/record anchors and do not attempt to complete,
+  activate or reverse an old chain through a new v1 branch. Once quiescent,
+  rename old tables/indexes/triggers to generic names, retain their row IDs,
+  create generic replacement constraints and profile foreign keys, then create
+  views/wrappers only after all generic functions are defined. Serialize and
+  compare relation kind/name, `pg_constraint` type and parent, `pg_policy`,
+  owned sequence, index definition, function signature, trigger parent, RLS
+  state and grants between a fresh and upgraded database.
 
 - [ ] **Step 5: Materialize the ACL/error matrices and run GREEN**
 
@@ -451,16 +482,28 @@ GitHub Actions.
   owner, security-definer bit, exact `search_path`, each role's EXECUTE state
   and required redaktion principal. Test all legacy error tokens with a
   deliberately invalid generic condition and assert the wrapper emits the
-  mapped token, while an unknown error is not silently translated.
+  mapped token, while an unknown error is not silently translated. The
+  historic canonical-delta signature must delegate once to a generic
+  fail-closed endpoint and return `REIMPORT_1939_CANONICAL_DELTA_UNSUPPORTED`
+  with no created fact/assertion/citation/conclusion/result/event. Amend the
+  #152 version-aware ACL authority, rather than re-granting afterward: at v2
+  it grants exactly the approved facade signatures and their historic role
+  split, while unrelated legacy writers remain revoked. Exercise both
+  orderings (v2 cutover then `db-rls.sql`; `db-rls.sql` then v2 ACL apply),
+  assert the same matrix and run `db-verify.sql` in each. Include the profile
+  registry and all four legacy relation views in the migration catalog receipt
+  and relkind assertions.
 
 - [ ] **Step 6: Self-review and commit**
 
-  Confirm the migration does not drop or recreate historic ledger identities,
-  old private names are views only, and the CI old-schema bootstrap never
-  contacts production. Run the fresh and upgraded test paths, then commit:
+  Confirm the migration does not drop or recreate terminal historic ledger
+  identities, rejects every in-flight legacy state before conversion, old
+  private names are views only, and the CI old-schema bootstrap never contacts
+  production. Run the fresh, terminal-upgrade and rejected-in-flight-upgrade
+  test paths, then commit:
 
   ```bash
-  git add schema.sql db-migrations.sql db-rls.sql .github/workflows/ci.yml \
+  git add schema.sql db-migrations.sql db-rls.sql db-verify.sql .github/workflows/ci.yml \
     tests/sql/test-1939-v50-production-writer.sql \
     tests/sql/test-1939-v50-name-completion.sql \
     tests/sql/test-reimport-writer-migration.sql \

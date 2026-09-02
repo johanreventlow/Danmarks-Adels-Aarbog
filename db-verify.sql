@@ -551,6 +551,14 @@ DECLARE
   v_legacy_authenticated text[]:=ARRAY[
     'public.red_publicer_narrative_record(bigint,uuid,text,text)',
     'public.red_tilbagetraek_narrative_record(bigint)',
+    'public.red_apply_reimport_cases(uuid,text,text)',
+    'public.red_reverse_reimport_cases(uuid,uuid)'
+  ];
+  v_legacy_service text[]:=ARRAY[
+    'public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)'
+  ];
+  v_v2_facade_authenticated text[]:=ARRAY[
     'public.red_begin_1939_v50_reimport(uuid,text,text)',
     'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)',
     'public.red_apply_1939_v50_person_create(uuid,text,jsonb)',
@@ -558,15 +566,17 @@ DECLARE
     'public.red_finalize_1939_v50_reimport(uuid)',
     'public.red_reverse_1939_v50_reimport(uuid,uuid)',
     'public.red_activate_1939_v50_batch(uuid,uuid)',
-    'public.red_apply_reimport_cases(uuid,text,text)',
-    'public.red_reverse_reimport_cases(uuid,uuid)'
+    'public.red_lock_1939_v50_name_completion(text)',
+    'public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)',
+    'public.red_begin_1939_v50_name_completion(uuid,text,uuid)',
+    'public.red_apply_1939_v50_name_completion(uuid,text,jsonb)',
+    'public.red_finalize_1939_v50_name_completion(uuid)'
   ];
-  v_legacy_service text[]:=ARRAY[
+  v_v2_facade_service text[]:=ARRAY[
     'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)',
     'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)',
     'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)',
-    'public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)',
-    'public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)'
+    'public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)'
   ];
 BEGIN
   IF to_regclass('private.narrative_record_cutover_receipt') IS NULL
@@ -608,6 +618,22 @@ BEGIN
        OR has_function_privilege('anon',v_signature,'EXECUTE')
        OR has_function_privilege('authenticated',v_signature,'EXECUTE') THEN
       RAISE EXCEPTION 'VERIFY_NARRATIVE_RECORD_LEGACY_SERVICE_ACL_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+  FOREACH v_signature IN ARRAY v_v2_facade_authenticated LOOP
+    IF has_function_privilege('authenticated',v_signature,'EXECUTE') IS DISTINCT FROM
+         (v_version=2)
+       OR has_function_privilege('anon',v_signature,'EXECUTE')
+       OR has_function_privilege('service_role',v_signature,'EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_NARRATIVE_RECORD_V2_FACADE_AUTH_ACL_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+  FOREACH v_signature IN ARRAY v_v2_facade_service LOOP
+    IF has_function_privilege('service_role',v_signature,'EXECUTE') IS DISTINCT FROM
+         (v_version=2)
+       OR has_function_privilege('anon',v_signature,'EXECUTE')
+       OR has_function_privilege('authenticated',v_signature,'EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_NARRATIVE_RECORD_V2_FACADE_SERVICE_ACL_INVALID: %',v_signature;
     END IF;
   END LOOP;
   RAISE NOTICE 'OK: narrative record contract v% ACL/receipt',v_version;
@@ -1334,6 +1360,15 @@ BEGIN
   PERFORM set_config('app.change_set_id','',true);
   PERFORM set_config('app.change_seq','',true);
   BEGIN
+    -- This fixture's preceding identity writers may materialize a change_set
+    -- with an explicit ID.  Keep the owned sequence in step before the undo
+    -- writer performs its normal automatic INSERT, so this verifier exercises
+    -- the intended contradiction path rather than a fixture-only PK collision.
+    PERFORM setval(
+      pg_get_serial_sequence('public.change_set','id'),
+      (SELECT coalesce(max(id),1) FROM public.change_set),
+      true
+    );
     PERFORM red_fortryd_change_set(v_remove_change_set,true);
     RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_UNDO_COMPONENT_REJECTION';
   EXCEPTION WHEN others THEN
@@ -7309,6 +7344,14 @@ BEGIN
     RAISE EXCEPTION 'Fase2: RPC satte ikke interessant';
   END IF;
   PERFORM set_config('app.change_set_id','',true);
+  -- red_set_haendelse_status opens its legacy change_set via max(id)+1.
+  -- Synchronize the owned sequence before the undo writer's normal automatic
+  -- INSERT so this fixture reaches its intended restoration assertions.
+  PERFORM setval(
+    pg_get_serial_sequence('public.change_set','id'),
+    (SELECT coalesce(max(id),1) FROM public.change_set),
+    true
+  );
   v_result := red_fortryd_change_set(v_cs,false);
   v_undo := (v_result->>'reversal_change_set')::bigint;
   SELECT to_jsonb(h)-'feed_status' INTO v_after FROM haendelse h WHERE id=-987656024;
