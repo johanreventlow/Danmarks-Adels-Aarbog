@@ -28,7 +28,12 @@ stopifnot(file.exists(psql_binary))
 writeLines(c(
   "#!/bin/sh",
   "touch \"$1\"",
-  paste0("exec ", shQuote(psql_binary), " -X -v ON_ERROR_STOP=1 -At -f \"$2\" > \"$3\" 2> \"$4\"")
+  "tmp=\"$3.pending.$$\"",
+  paste0(shQuote(psql_binary), " -X -v ON_ERROR_STOP=1 -At -f \"$2\" > \"$tmp\" 2> \"$4\""),
+  "rc=$?",
+  "if [ \"$rc\" -eq 0 ]; then mv \"$tmp\" \"$3\"; else mv \"$tmp\" \"$3.failed\"; fi",
+  "printf '%s\\n' \"$rc\" > \"$5\"",
+  "exit \"$rc\""
 ), worker_script)
 on.exit(unlink(worker_script), add = TRUE)
 
@@ -38,6 +43,7 @@ launch_worker <- function(operation, actor, first, second = "", third = "", hold
   ready_path <- tempfile(paste0("reimport-writer-lock-ready-", operation, "-"))
   result_path <- tempfile(paste0("reimport-writer-lock-", operation, "-"))
   log_path <- tempfile(paste0("reimport-writer-lock-log-", operation, "-"))
+  status_path <- tempfile(paste0("reimport-writer-lock-status-", operation, "-"))
   sql_path <- tempfile(paste0("reimport-writer-lock-sql-", operation, "-"), fileext = ".sql")
   worker_application <- paste0("reimport-lock-", operation)
   prefix <- c(
@@ -47,6 +53,7 @@ launch_worker <- function(operation, actor, first, second = "", third = "", hold
   )
   select_result <- switch(operation,
     begin = paste0("SELECT 'OK:' || public.red_begin_reimport(", sql_literal(first), "::uuid,", sql_literal(second), ",", sql_literal(third), ");"),
+    batch_result = paste0("SELECT 'OK:' || public.red_reimport_batch_result(", sql_literal(first), "::uuid,", sql_literal(second), "::uuid)::text;"),
     reversal_authorize = paste0("SELECT 'OK:' || public.red_authorize_reimport_reversal(", sql_literal(first), "::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');"),
     completion_finalize = paste0("SELECT 'OK:' || public.red_finalize_reimport_name_completion(", sql_literal(first), "::uuid)::text;"),
     activate = paste0("SELECT 'OK:' || public.red_activate_reimport_batch(", sql_literal(first), "::uuid,", sql_literal(second), "::uuid)::text;"),
@@ -62,9 +69,9 @@ launch_worker <- function(operation, actor, first, second = "", third = "", hold
     }
   )
   writeLines(c(prefix, select_result, "COMMIT;"), sql_path)
-  system2("/bin/sh", c(worker_script, ready_path, sql_path, result_path, log_path), wait = FALSE)
+  system2("/bin/sh", c(worker_script, ready_path, sql_path, result_path, log_path, status_path), wait = FALSE)
   for (i in seq_len(200L)) {
-    if (file.exists(ready_path)) return(list(ready_path = ready_path, result_path = result_path, log_path = log_path, sql_path = sql_path, application_name = worker_application))
+    if (file.exists(ready_path)) return(list(ready_path = ready_path, result_path = result_path, log_path = log_path, status_path = status_path, sql_path = sql_path, application_name = worker_application))
     if (file.exists(result_path)) stop(operation, " worker failed before its query boundary: ", paste(readLines(result_path, warn = FALSE), collapse = " "))
     Sys.sleep(0.05)
   }
@@ -73,6 +80,9 @@ launch_worker <- function(operation, actor, first, second = "", third = "", hold
 
 wait_for_worker_query <- function(worker, function_name) {
   for (i in seq_len(200L)) {
+    if (file.exists(worker$status_path) && readLines(worker$status_path, warn = FALSE)[[1L]] != "0") {
+      stop("worker failed before ", function_name, ": ", paste(readLines(worker$log_path, warn = FALSE), collapse = " "))
+    }
     active <- query(holder, "SELECT count(*) count FROM pg_stat_activity WHERE application_name=$1 AND query LIKE $2", list(worker$application_name, paste0("%", function_name, "%")))$count[[1L]]
     if (active == 1L) return(invisible())
     Sys.sleep(0.05)
@@ -81,11 +91,11 @@ wait_for_worker_query <- function(worker, function_name) {
 }
 await_worker <- function(worker, label) {
   for (i in seq_len(200L)) {
-    if (file.exists(worker$result_path)) {
+    if (file.exists(worker$status_path) && readLines(worker$status_path, warn = FALSE)[[1L]] == "0" && file.exists(worker$result_path)) {
       result <- readLines(worker$result_path, warn = FALSE)
       complete <- result[startsWith(result, "OK:")]
       if (length(complete) == 1L) {
-        unlink(c(worker$ready_path, worker$result_path, worker$log_path, worker$sql_path))
+        unlink(c(worker$ready_path, worker$result_path, worker$log_path, worker$status_path, worker$sql_path))
         return(invisible(complete))
       }
     }
@@ -191,6 +201,7 @@ task11_profile_first <- function(label, operation, first, second = "", third = "
   on.exit(unlink(worker$ready_path), add = TRUE)
   wait_for_worker_query(worker, switch(operation,
     begin = "red_begin_reimport",
+    batch_result = "red_reimport_batch_result",
     reversal_authorize = "red_authorize_reimport_reversal",
     completion_finalize = "red_finalize_reimport_name_completion",
     activate = "red_activate_reimport_batch"
@@ -215,6 +226,12 @@ task11_begin_result <- task11_profile_first(
 )
 task11_source_batch <- sub("^OK:", "", task11_begin_result)
 stopifnot(query(holder, "SELECT public.red_finalize_reimport($1::uuid)->>'status' status", list(task11_source_batch))$status[[1L]] == "finalized")
+
+task11_result <- task11_profile_first(
+  "Task 11 batch result", "batch_result", task11_begin_auth, task11_source_batch,
+  lock_sql = "SELECT id FROM private.reimport_authorization WHERE id=$1::uuid FOR UPDATE NOWAIT", lock_params = list(task11_begin_auth)
+)
+stopifnot(grepl('"status": "finalized"|"status":"finalized"', task11_result))
 
 task11_reversal_result <- task11_profile_first(
   "Task 11 reversal authorization", "reversal_authorize", task11_source_batch,

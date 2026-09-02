@@ -313,12 +313,13 @@ END $public_lock_contract$;
 CREATE FUNCTION pg_temp.task3_stage_profile(
   p_source_id bigint,p_profile_id text,p_profile_sha256 text,p_record_key text,
   p_label text,p_fixture_id bigint,p_manifest_sha256 text DEFAULT repeat('9',64),
-  p_preview_sha256 text DEFAULT repeat('8',64)
+  p_preview_sha256 text DEFAULT repeat('8',64), p_second_record_key text DEFAULT NULL
 ) RETURNS jsonb LANGUAGE plpgsql AS $task3_stage_profile$
 DECLARE
   v_run uuid:=gen_random_uuid(); v_record uuid:=gen_random_uuid(); v_rendition uuid;
   v_occurrence uuid; v_observation uuid; v_placement uuid; v_persona uuid:=gen_random_uuid();
-  v_source_payload jsonb; v_person_payload jsonb; v_authorization uuid; v_batch uuid; v_person bigint;
+  v_source_payload jsonb; v_person_payload jsonb; v_second_source_payload jsonb; v_second_person_payload jsonb; v_authorization uuid; v_batch uuid; v_person bigint; v_second_person bigint;
+  v_second_record uuid:=gen_random_uuid(); v_second_occurrence uuid; v_second_observation uuid; v_second_placement uuid; v_second_persona uuid:=gen_random_uuid();
   v_profile_config jsonb; v_profile_hash text;
 BEGIN
   INSERT INTO public.source(id,titel,udgave,slags)
@@ -354,6 +355,17 @@ BEGIN
   VALUES(v_occurrence,'header',1,1,0,18,p_label,'clear','fixture',v_run) RETURNING id INTO v_observation;
   v_placement:=private.propose_source_record_placement(v_record,p_fixture_id,v_observation,jsonb_build_object('fixture','task-3'),'Task 3 fixture');
   PERFORM public.red_decide_source_record_placement(v_placement,1,'accepted',jsonb_build_object('fixture','task-3'));
+  IF p_second_record_key IS NOT NULL THEN
+    INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id) VALUES(v_second_record,p_source_id,p_second_record_key,'person',v_run);
+    INSERT INTO private.source_record_occurrence(rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id)
+    VALUES(v_rendition,'task-3-placement-'||p_source_id||'-second',1,1,0,18,p_label||' second',repeat('d',64),repeat('e',64),v_run) RETURNING id INTO v_second_occurrence;
+    INSERT INTO private.source_record_anchor_event(occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name)
+    VALUES(v_second_occurrence,v_second_record,'accepted',jsonb_build_object('fixture','task-3'),1,'15300000-0000-4000-8000-000000000101','Task 3 fixture');
+    INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id)
+    VALUES(v_second_occurrence,'header',1,1,0,18,p_label||' second','clear','fixture',v_run) RETURNING id INTO v_second_observation;
+    v_second_placement:=private.propose_source_record_placement(v_second_record,p_fixture_id,v_second_observation,jsonb_build_object('fixture','task-3'),'Task 3 fixture');
+    PERFORM public.red_decide_source_record_placement(v_second_placement,1,'accepted',jsonb_build_object('fixture','task-3'));
+  END IF;
   v_source_payload:=jsonb_build_object(
     'review_subject_id','task-3-source-'||p_source_id,'source_record_key',p_record_key,
     'category','person','disposition','retain_source_only','evidence_sha256',repeat('c',64),
@@ -373,22 +385,35 @@ BEGIN
     'name',p_label,'sex',NULL,'narrative',jsonb_build_object('text',p_label||' narrative','source_record_key',p_record_key),
     'source_mentions','[]'::jsonb,'persona_mention_links','[]'::jsonb,'facts','[]'::jsonb,'relations','[]'::jsonb,
     'families','[]'::jsonb,'uncertainties','[]'::jsonb,'staged',true,'rendition_content_sha256',repeat('d',64));
+  IF p_second_record_key IS NOT NULL THEN
+    v_second_source_payload:=jsonb_set(v_source_payload,'{source_record_key}',to_jsonb(p_second_record_key));
+    v_second_person_payload:=v_person_payload||jsonb_build_object('source_record_key',p_second_record_key,'source_persona_id',v_second_persona,'persona_key','task-3:'||p_source_id||':'||p_second_record_key,'source_record_placement_id',v_second_placement,'name',p_label||' second','verbatim_text',p_label||' second','narrative',jsonb_build_object('text',p_label||' second narrative','source_record_key',p_second_record_key));
+  END IF;
   PERFORM set_config('app.change_set_id','',true);
   v_authorization:=public.red_authorize_reimport(
     p_manifest_sha256,p_preview_sha256,jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,p_source_id,p_profile_id,v_profile_hash,
-    '{"person_creates":1,"source_evidence":1}'::jsonb,
-    jsonb_build_object('source-evidence:'||p_record_key,v_source_payload,'person-create:'||p_record_key,v_person_payload),
+    CASE WHEN p_second_record_key IS NULL THEN '{"person_creates":1,"source_evidence":1}'::jsonb ELSE '{"person_creates":2,"source_evidence":2}'::jsonb END,
+    CASE WHEN p_second_record_key IS NULL THEN jsonb_build_object('source-evidence:'||p_record_key,v_source_payload,'person-create:'||p_record_key,v_person_payload) ELSE jsonb_build_object('source-evidence:'||p_record_key,v_source_payload,'person-create:'||p_record_key,v_person_payload,'source-evidence:'||p_second_record_key,v_second_source_payload,'person-create:'||p_second_record_key,v_second_person_payload) END,
     gen_random_uuid(),clock_timestamp()+interval '5 minutes');
   v_batch:=public.red_begin_reimport(v_authorization,p_manifest_sha256,p_preview_sha256);
   PERFORM public.red_apply_reimport_source_evidence(v_batch,'source-evidence:'||p_record_key,v_source_payload);
   v_person:=public.red_apply_reimport_person_create(v_batch,'person-create:'||p_record_key,v_person_payload);
+  IF p_second_record_key IS NOT NULL THEN
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM public.red_apply_reimport_source_evidence(v_batch,'source-evidence:'||p_second_record_key,v_second_source_payload);
+    v_second_person:=public.red_apply_reimport_person_create(v_batch,'person-create:'||p_second_record_key,v_second_person_payload);
+  END IF;
   IF public.red_finalize_reimport(v_batch)->>'status'<>'finalized' THEN
     RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_TWO_PROFILE_SOURCE_NOT_FINALIZED';
   END IF;
   RETURN jsonb_build_object('source_authorization_id',v_authorization,'source_batch_id',v_batch,'source_id',p_source_id,'profile_id',p_profile_id,'profile_sha256',v_profile_hash,
     'person_id',v_person,'source_record_id',v_record,'source_persona_id',v_persona,
     'source_element_id','person-create:'||p_record_key,'person_payload',v_person_payload,
-    'manifest_sha256',p_manifest_sha256,'preview_sha256',p_preview_sha256);
+    'manifest_sha256',p_manifest_sha256,'preview_sha256',p_preview_sha256,
+    'second_person_id',v_second_person,'second_source_record_id',CASE WHEN p_second_record_key IS NULL THEN NULL ELSE v_second_record END,
+    'second_source_persona_id',CASE WHEN p_second_record_key IS NULL THEN NULL ELSE v_second_persona END,
+    'second_source_element_id',CASE WHEN p_second_record_key IS NULL THEN NULL ELSE 'person-create:'||p_second_record_key END,
+    'second_person_payload',v_second_person_payload);
 END $task3_stage_profile$;
 
 CREATE FUNCTION pg_temp.task3_complete_profile(p_state jsonb)
@@ -422,32 +447,19 @@ BEGIN
     'citation_id',v_result#>>ARRAY['result_map','name-completion:'||(p_state->'person_payload'->>'source_record_key'),'citation_id']);
 END $task3_complete_profile$;
 
--- Task 11 RED: a child authorization is a complete ledger assertion, not a
--- permissive subset.  The parent below is deliberately finalized with two
--- distinct person-create identities; authorizing only the first must fail
--- before a child authorization or batch is durable.
+-- Task 11 defense-in-depth RED: first create and finalize the parent through
+-- public writer RPCs, then deliberately corrupt its private ledger with a
+-- second identity.  A one-person child authorization must fail before any
+-- child authorization or batch is durable.
 DO $task11_exact_parent_person_coverage$
 DECLARE
   v_actor uuid:='15300000-0000-4000-8000-000000000101'; v_state jsonb;
-  v_extra_person bigint; v_extra_record uuid:=gen_random_uuid();
   v_payloads jsonb; v_error text; v_authorizations bigint; v_batches bigint;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   v_state:=pg_temp.task3_stage_profile(
     11,'task11-exact-coverage',repeat('a',64),'task11-exact-coverage-record-a',
-    'Task 11 coverage A',-153111,repeat('b',64),repeat('c',64));
-  INSERT INTO public.person(staged) VALUES(true) RETURNING id INTO v_extra_person;
-  INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
-  VALUES(v_extra_record,11,'task11-exact-coverage-record-b','person',
-         (SELECT created_run_id FROM private.source_record WHERE id=(v_state->>'source_record_id')::uuid));
-  UPDATE private.reimport_batch
-     SET expected_counts='{"person_creates":2,"source_evidence":1}'::jsonb,
-         observed_counts='{"person_creates":2,"source_evidence":1}'::jsonb
-   WHERE id=(v_state->>'source_batch_id')::uuid;
-  INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,canonical_person_id,payload,after_sha256)
-  VALUES((v_state->>'source_batch_id')::uuid,'person-create:task11-exact-coverage-record-b','person_create',
-         'task11-exact-coverage-record-b',v_extra_person,
-         jsonb_build_object('source_persona_id',gen_random_uuid(),'authorized_payload_sha256',repeat('d',64)),repeat('d',64));
+    'Task 11 coverage A',-153111,repeat('b',64),repeat('c',64),'task11-exact-coverage-record-b');
   v_payloads:=jsonb_build_object(
     'name-completion:'||(v_state->'person_payload'->>'source_record_key'),
     jsonb_build_object(
