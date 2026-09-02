@@ -12047,13 +12047,19 @@ GRANT EXECUTE ON FUNCTION public.red_lock_reimport_name_completion(text),public.
 -- transition.  Move the only permitted legacy ledger into those shells rather
 -- than overwriting either ledger or recreating IDs.  Any occupied target is an
 -- ambiguous merge and must stop fail-closed.
-DO $reimport_writer_coexistence$
+-- The terminal rename path above leaves no old physical table.  Keep the
+-- coexistence fallback dynamically dispatched so PL/pgSQL does not resolve
+-- its old-table references while compiling that renamed path.
+DO $reimport_writer_coexistence_dispatch$
+BEGIN
+  IF (SELECT relkind FROM pg_class WHERE oid=to_regclass('private.reimport_1939_authorization'))='r' THEN
+    EXECUTE $reimport_writer_coexistence_body$
+DO $reimport_writer_coexistence_body_inner$
 BEGIN
   -- The rename branch has already migrated a populated legacy table and later
   -- migration sections may recreate an empty compatibility shell.  Only an
   -- independently populated old ledger can be a coexistence candidate.
-  IF (SELECT relkind FROM pg_class WHERE oid=to_regclass('private.reimport_1939_authorization'))='r'
-     AND EXISTS(SELECT 1 FROM private.reimport_1939_authorization) THEN
+  IF EXISTS(SELECT 1 FROM private.reimport_1939_authorization) THEN
     IF (SELECT count(*) FROM private.reimport_authorization)<>0
        OR (SELECT count(*) FROM private.reimport_batch)<>0
        OR (SELECT count(*) FROM private.reimport_event)<>0
@@ -12093,7 +12099,10 @@ BEGIN
     DROP TABLE private.reimport_1939_write_batch;
     DROP TABLE private.reimport_1939_authorization;
   END IF;
-END $reimport_writer_coexistence$;
+END $reimport_writer_coexistence_body_inner$;
+$reimport_writer_coexistence_body$;
+  END IF;
+END $reimport_writer_coexistence_dispatch$;
 
 -- #153 transition facade.  The table rename above preserves the historic row
 -- identities; the old names become views only after every generic primary is

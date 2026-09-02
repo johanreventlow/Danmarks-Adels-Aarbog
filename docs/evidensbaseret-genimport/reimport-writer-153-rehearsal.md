@@ -220,6 +220,43 @@ Focused R gateway tests also exited 0 for generic reimport, generic
 name-completion, and both compatibility adapters. The new negative cases
 reject a server authorization preflight cloned to another system identifier,
 and prevent `begin` after rejection. `git diff --check` exited 0 after these
-updates. This is still local code-integration evidence only, not production
-authority or a replacement for the remaining Task 8 migration/parity and
-independent-review steps.
+updates.
+
+Task 8 Step 4's terminal-upgrade and parity proof was then rerun from a clean
+pre-#153 schema at `2d6aabf` in the named local database
+`daa153_t8v_upg_v2b_20260902`. Its historical source batch is `reversed`; its
+consumed name-completion child is `finalized`; and its child result points back
+to that source batch. With
+`app.reimport_writer_atomicity_test_failpoint=on`, the migration failed only
+with `REIMPORT_WRITER_ATOMICITY_TEST_FAILURE`; the rollback assertion then
+passed before the actual migration and RLS application. The post-upgrade
+terminal migration assertion, generic and legacy SQL suites, catalog
+negatives, and complete disposable verifier all exited 0. The verifier again
+reported `OK: all five dblink concurrency gates executed`.
+
+The migration correction is limited to the private coexistence fallback in
+`db-migrations.sql`: it dynamically dispatches old-physical-table statements
+only when such a table exists. This avoids PL/pgSQL resolving a table that the
+terminal rename path has already moved to its generic primary. It changes
+neither the C3 model nor any C3 ACL. The CI terminal fixture now matches its
+own assertion: authorization `...103` is a consumed `name_completion` child
+and batch `...105` is `finalized`, with source batch `...102` reversed.
+
+Fresh/upgraded v2 catalog receipts, including `pg_get_functiondef` body
+digests, were byte-identical:
+
+```text
+31,504 bytes
+SHA-256 5f38e10575d52d22b3aef41b5f82e90f4b920afc369bdd5931f52cf2f0cbe269
+```
+
+Fresh v1 (`daa153_t8v_fresh_v1_c3_20260902`) and upgraded v1
+(`daa153_t8v_upg_v1_c3_20260902`) both passed the full C3 SQL regression after
+the migration-only correction. Fresh/upgraded v2 probes confirmed that C3's
+public writer surface remains fail-closed. The dedicated compatibility DBI
+fixtures `daa153_t8v_legacy_prod_20260902` and
+`daa153_t8v_legacy_name_20260902` respectively printed `PASS DAA 1939 v50
+PostgreSQL integration` and `PASS DAA 1939 v50 name completion PostgreSQL
+integration`. Focused R gateway suites passed with 20, 14, 7, 6, and 188
+expectations. This remains local code-integration evidence only, not
+production authority; the independent Task 8 Sol re-review remains required.

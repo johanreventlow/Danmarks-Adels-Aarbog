@@ -820,7 +820,7 @@ change, production action, or expansion to a new edition.
   same-hash but changed-element/count authorization attempts and preserve
   idempotent matching replay.
 
-- [ ] **Step 4: Correct terminal migration and parity proof RED/GREEN**
+- [x] **Step 4: Correct terminal migration and parity proof RED/GREEN**
 
   Permit only genuinely terminal historical chains: a finalized
   name-completion child whose source batch is activated/reversed is terminal;
