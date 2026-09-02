@@ -22,8 +22,8 @@ END $atomicity$;
 \else
 
 -- Run only after a pre-#153 terminal ledger has been populated, then migrated.
--- The fixture deliberately has no executable legacy work: each authorization
--- is consumed or expired and each batch is reversed or activated.
+-- The fixture deliberately has no executable legacy work: the source batch is
+-- reversed and its already-finalized name-completion child is terminal.
 DO $migration$
 BEGIN
   IF (SELECT relkind FROM pg_class WHERE oid='private.reimport_1939_authorization'::regclass)<>'v'
@@ -41,20 +41,27 @@ BEGIN
      OR NOT EXISTS(SELECT 1 FROM private.reimport_name_completion_result WHERE id='15300000-0000-4000-8000-000000000106') THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_MIGRATION_LEDGER_IDENTITY_LOST';
   END IF;
+  IF NOT EXISTS(
+       SELECT 1 FROM private.reimport_writer_profile
+        WHERE source_id=3 AND profile_id='daa-1939-v50-production-write-v1'
+          AND profile_sha256=private.reimport_canonical_json_sha256(writer_config)
+     ) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_MIGRATION_PROFILE_HASH_INVALID';
+  END IF;
   IF NOT EXISTS(SELECT 1 FROM private.reimport_authorization WHERE id='15300000-0000-4000-8000-000000000101'
                   AND operation='reimport' AND status='consumed' AND manifest_sha256=repeat('a',64)
                   AND preview_sha256=repeat('b',64) AND source_id=3
-                  AND profile_id='daa-1939-v50-production-write-v1' AND profile_sha256=repeat('a',64))
+                  AND profile_id='daa-1939-v50-production-write-v1' AND profile_sha256=(SELECT profile_sha256 FROM private.reimport_writer_profile WHERE source_id=3 AND profile_id='daa-1939-v50-production-write-v1'))
      OR NOT EXISTS(SELECT 1 FROM private.reimport_authorization WHERE id='15300000-0000-4000-8000-000000000103'
-                    AND operation='cutover' AND status='consumed' AND manifest_sha256=repeat('a',64))
+                    AND operation='name_completion' AND status='consumed' AND manifest_sha256=repeat('a',64))
      OR NOT EXISTS(SELECT 1 FROM private.reimport_authorization WHERE id='15300000-0000-4000-8000-000000000104'
                     AND operation='reversal' AND status='expired' AND manifest_sha256=repeat('c',64))
      OR NOT EXISTS(SELECT 1 FROM private.reimport_batch WHERE id='15300000-0000-4000-8000-000000000102'
                     AND authorization_id='15300000-0000-4000-8000-000000000101' AND status='reversed'
                     AND manifest_sha256=repeat('a',64) AND preview_sha256=repeat('b',64)
-                    AND source_id=3 AND profile_id='daa-1939-v50-production-write-v1' AND profile_sha256=repeat('a',64))
+                    AND source_id=3 AND profile_id='daa-1939-v50-production-write-v1' AND profile_sha256=(SELECT profile_sha256 FROM private.reimport_writer_profile WHERE source_id=3 AND profile_id='daa-1939-v50-production-write-v1'))
      OR NOT EXISTS(SELECT 1 FROM private.reimport_batch WHERE id='15300000-0000-4000-8000-000000000105'
-                    AND authorization_id='15300000-0000-4000-8000-000000000103' AND status='activated'
+                    AND authorization_id='15300000-0000-4000-8000-000000000103' AND status='finalized'
                     AND manifest_sha256=repeat('a',64) AND preview_sha256=repeat('b',64))
      OR NOT EXISTS(SELECT 1 FROM private.reimport_event WHERE id=153101
                     AND batch_id='15300000-0000-4000-8000-000000000102'
@@ -65,7 +72,19 @@ BEGIN
      OR NOT EXISTS(SELECT 1 FROM private.reimport_name_completion_result WHERE id='15300000-0000-4000-8000-000000000106'
                     AND batch_id='15300000-0000-4000-8000-000000000105'
                     AND source_batch_id='15300000-0000-4000-8000-000000000102'
-                    AND payload_sha256=repeat('f',64) AND result_sha256=repeat('0',64)) THEN
+                    AND payload_sha256=repeat('f',64) AND result_sha256=repeat('0',64))
+     OR NOT EXISTS(SELECT 1 FROM private.reimport_authorization WHERE id='15300000-0000-4000-8000-000000000114'
+                    AND operation='name_completion' AND status='consumed'
+                    AND source_id=3 AND profile_id='daa-1939-v50-production-write-v1'
+                    AND profile_sha256=(SELECT profile_sha256 FROM private.reimport_writer_profile WHERE source_id=3 AND profile_id='daa-1939-v50-production-write-v1'))
+     OR NOT EXISTS(SELECT 1 FROM private.reimport_batch WHERE id='15300000-0000-4000-8000-000000000116'
+                    AND authorization_id='15300000-0000-4000-8000-000000000114'
+                    AND status='finalized' AND source_id=3 AND profile_id='daa-1939-v50-production-write-v1'
+                    AND profile_sha256=(SELECT profile_sha256 FROM private.reimport_writer_profile WHERE source_id=3 AND profile_id='daa-1939-v50-production-write-v1'))
+     OR NOT EXISTS(SELECT 1 FROM private.reimport_name_completion_result WHERE id='15300000-0000-4000-8000-000000000117'
+                    AND batch_id='15300000-0000-4000-8000-000000000116'
+                    AND source_batch_id='15300000-0000-4000-8000-000000000102'
+                    AND payload_sha256=repeat('2',64) AND result_sha256=repeat('3',64)) THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_MIGRATION_PROFILE_PARITY_FAILED';
   END IF;
   IF has_table_privilege('anon','private.reimport_1939_write_event','SELECT')

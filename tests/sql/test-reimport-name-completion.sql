@@ -40,6 +40,8 @@ DECLARE
   v_source_payload jsonb; v_person_payload jsonb; v_completion_payload jsonb;
   v_authorized_source jsonb; v_authorized_completion jsonb;
   v_error text; v_event_before text; v_result_before text; v_cutover_authorization uuid; v_reversal_authorization uuid; v_activation jsonb; v_reversal jsonb;
+  v_1939_config jsonb := '{"run_key_prefix":"reimport-1939-v50:","schema_version":"1939-v50-production-write-manifest-v1","extractor_version":"production-writer-v1","rendition_key":"daa-1939-calamari-r6-clean","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"observation_extraction_method":"human_reviewed_1939_v50","citation_label_template":"DAA 1939 side {page_from}"}'::jsonb;
+  v_profile_sha text;
 BEGIN
   IF public.narrative_record_contract_version()<>2 THEN
     RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_V2_BOOTSTRAP_FAILED';
@@ -50,9 +52,10 @@ BEGIN
   ON CONFLICT(id) DO UPDATE SET rolle='redaktion',navn='Task 1 generic name-completion fixture';
   INSERT INTO public.source(id,titel,udgave,slags) VALUES(3,'DAA','1939','DAA-udgave') ON CONFLICT(id) DO NOTHING;
   INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
-  VALUES(3,'daa-1939-v50-production-write-v1','fixture-v1',repeat('a',64),
-    '{"run_key_prefix":"fixture-1939:","schema_version":"fixture-v1","extractor_version":"fixture-v1","rendition_key":"fixture-rendition-3","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"observation_extraction_method":"fixture","citation_label_template":"Fixture 1939 side {page_from}"}'::jsonb)
+  VALUES(3,'daa-1939-v50-production-write-v1','production-writer-v1',private.reimport_canonical_json_sha256(v_1939_config),v_1939_config)
   ON CONFLICT (source_id,profile_id,profile_sha256) DO NOTHING;
+  SELECT profile_sha256 INTO v_profile_sha FROM private.reimport_writer_profile
+   WHERE source_id=3 AND profile_id='daa-1939-v50-production-write-v1';
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   INSERT INTO public.slaegt(id,navn,sorteringsnavn,slug) VALUES(-153101,'Task 3 fixture slægt','Task 3 fixture slægt','task-3-fixture') ON CONFLICT(id) DO NOTHING;
   INSERT INTO public.lineage_scheme(id,slaegt_id,source_id,kind,label) VALUES(-153101,-153101,3,'stamtavle','Task 3 fixture scheme') ON CONFLICT(id) DO NOTHING;
@@ -98,8 +101,8 @@ BEGIN
     'person-create:task-1-name-completion-record',v_person_payload
   );
   v_source_auth:=public.red_authorize_reimport(
-    repeat('a',64),repeat('b',64),current_database(),3,
-    'daa-1939-v50-production-write-v1',repeat('a',64),
+    repeat('a',64),repeat('b',64),jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,3,
+    'daa-1939-v50-production-write-v1',v_profile_sha,
     '{"person_creates":1,"source_evidence":1}'::jsonb,
     v_authorized_source,'15300000-0000-4000-8000-000000000103',clock_timestamp()+interval '5 minutes'
   );
@@ -278,15 +281,17 @@ DECLARE
   v_run uuid:=gen_random_uuid(); v_record uuid:=gen_random_uuid(); v_rendition uuid;
   v_occurrence uuid; v_observation uuid; v_placement uuid; v_persona uuid:=gen_random_uuid();
   v_source_payload jsonb; v_person_payload jsonb; v_authorization uuid; v_batch uuid; v_person bigint;
+  v_profile_config jsonb; v_profile_hash text;
 BEGIN
   INSERT INTO public.source(id,titel,udgave,slags)
   VALUES(p_source_id,p_label,'fixture','DAA-udgave') ON CONFLICT(id) DO NOTHING;
+  v_profile_config:=jsonb_build_object('run_key_prefix','task3-'||p_source_id||':','schema_version','fixture-v1',
+    'extractor_version','fixture-v1','rendition_key','task3-'||p_source_id,
+    'rendition_kind','ocr_text','rendition_metadata','{}'::jsonb,
+    'observation_extraction_method','fixture','citation_label_template','fixture');
+  v_profile_hash:=private.reimport_canonical_json_sha256(v_profile_config);
   INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
-  VALUES(p_source_id,p_profile_id,'fixture-v1',p_profile_sha256,
-    jsonb_build_object('run_key_prefix','task3-'||p_source_id||':','schema_version','fixture-v1',
-      'extractor_version','fixture-v1','rendition_key','task3-'||p_source_id,
-      'rendition_kind','ocr_text','rendition_metadata','{}'::jsonb,
-      'observation_extraction_method','fixture','citation_label_template','fixture'))
+  VALUES(p_source_id,p_profile_id,'fixture-v1',v_profile_hash,v_profile_config)
   ON CONFLICT(source_id,profile_id,profile_sha256) DO NOTHING;
   INSERT INTO public.slaegt(id,navn,sorteringsnavn,slug)
   VALUES(p_fixture_id,p_label,p_label,'task-3-profile-'||abs(p_fixture_id)) ON CONFLICT(id) DO NOTHING;
@@ -332,7 +337,7 @@ BEGIN
     'families','[]'::jsonb,'uncertainties','[]'::jsonb,'staged',true,'rendition_content_sha256',repeat('d',64));
   PERFORM set_config('app.change_set_id','',true);
   v_authorization:=public.red_authorize_reimport(
-    p_manifest_sha256,p_preview_sha256,current_database(),p_source_id,p_profile_id,p_profile_sha256,
+    p_manifest_sha256,p_preview_sha256,jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,p_source_id,p_profile_id,v_profile_hash,
     '{"person_creates":1,"source_evidence":1}'::jsonb,
     jsonb_build_object('source-evidence:'||p_record_key,v_source_payload,'person-create:'||p_record_key,v_person_payload),
     gen_random_uuid(),clock_timestamp()+interval '5 minutes');

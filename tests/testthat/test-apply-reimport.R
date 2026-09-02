@@ -28,6 +28,7 @@ reimport_gateway <- function(manifest, preflight = NULL) {
   sql <- c(
     preflight = "SELECT current_database(), current_setting('transaction_read_only')",
     authorize = "SELECT public.red_authorize_reimport($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,$10)",
+    preflight_authorization = "SELECT public.red_preflight_reimport_authorization($1,$2,$3)",
     begin_batch = "SELECT public.red_begin_reimport($1,$2,$3)",
     batch_result = "SELECT public.red_reimport_batch_result($1,$2)",
     source_evidence = "SELECT public.red_apply_reimport_source_evidence($1,$2,$3::jsonb)",
@@ -47,6 +48,11 @@ reimport_gateway <- function(manifest, preflight = NULL) {
       ))
     }
     if (identical(name, "authorize")) return(list(id = "22222222-2222-4222-8222-222222222222"))
+    if (identical(name, "preflight_authorization")) return(list(
+      authorization_id = "22222222-2222-4222-8222-222222222222",
+      database_identity = "reimport-test:system-1", source = manifest$source,
+      manifest_sha256 = manifest$manifest_content_sha256, preview_sha256 = list(...)[[3L]]
+    ))
     if (identical(name, "begin_batch")) return("33333333-3333-4333-8333-333333333333")
     if (identical(name, "batch_result")) return(list(
       batch_id = "33333333-3333-4333-8333-333333333333", status = "open",
@@ -91,6 +97,41 @@ test_that("reimport refuses a database profile mismatch before authorization", {
   expect_false("authorize" %in% names(gateway$calls()))
 })
 
+test_that("reimport rejects an authorization whose server profile differs from the manifest", {
+  manifest <- reimport_manifest()
+  gateway <- reimport_gateway(manifest)
+  original <- gateway$gateway$call
+  gateway$gateway$call <- function(name, ...) {
+    if (identical(name, "preflight_authorization")) return(list(
+      authorization_id = "22222222-2222-4222-8222-222222222222",
+      database_identity = "reimport-test:system-1",
+      source = utils::modifyList(manifest$source, list(profile_sha256 = sha("f"))),
+      manifest_sha256 = manifest$manifest_content_sha256, preview_sha256 = sha("d")
+    ))
+    original(name, ...)
+  }
+  expect_error(execute_reimport(manifest, sha("d"), "dry-run", gateway$gateway),
+    "REIMPORT_AUTHORIZATION_BINDING_INVALID")
+  expect_false("begin_batch" %in% names(gateway$calls()))
+})
+
+test_that("reimport rejects an authorization preflight bound to a different database identity", {
+  manifest <- reimport_manifest()
+  gateway <- reimport_gateway(manifest)
+  original <- gateway$gateway$call
+  gateway$gateway$call <- function(name, ...) {
+    if (identical(name, "preflight_authorization")) return(list(
+      authorization_id = "22222222-2222-4222-8222-222222222222",
+      database_identity = "reimport-test:other-system", source = manifest$source,
+      manifest_sha256 = manifest$manifest_content_sha256, preview_sha256 = sha("d")
+    ))
+    original(name, ...)
+  }
+  expect_error(execute_reimport(manifest, sha("d"), "dry-run", gateway$gateway),
+    "REIMPORT_AUTHORIZATION_BINDING_INVALID")
+  expect_false("begin_batch" %in% names(gateway$calls()))
+})
+
 test_that("reimport gateway uses only generic writer RPCs", {
   manifest <- reimport_manifest()
   gateway <- reimport_gateway(manifest)
@@ -125,6 +166,9 @@ test_that("reimport returns an existing finalized batch without replaying operat
         actor_id = "11111111-1111-4111-8111-111111111111", transaction_read_only = "off",
         source = manifest$source, locked_payload_count = 1L),
       authorize = list(id = "22222222-2222-4222-8222-222222222222"),
+      preflight_authorization = list(authorization_id = "22222222-2222-4222-8222-222222222222",
+        database_identity = "reimport-test:system-1", source = manifest$source,
+        manifest_sha256 = manifest$manifest_content_sha256, preview_sha256 = sha("d")),
       begin_batch = "33333333-3333-4333-8333-333333333333",
       batch_result = list(batch_id = "33333333-3333-4333-8333-333333333333",
         status = "finalized", replayed = TRUE, person_id_map = list("fixture-1" = 91L)),

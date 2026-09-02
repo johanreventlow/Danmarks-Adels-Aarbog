@@ -58,7 +58,7 @@ DECLARE v_before bigint; v_error text;
 BEGIN
   SELECT count(*) INTO v_before FROM private.reimport_authorization;
   BEGIN
-    PERFORM public.red_authorize_reimport(repeat('a',64),repeat('b',64),current_database(),3,
+    PERFORM public.red_authorize_reimport(repeat('a',64),repeat('b',64),jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,3,
       'daa-1939-v50-production-write-v1',repeat('a',64),'{}'::jsonb,'{}'::jsonb,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
   EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
   IF v_error IS DISTINCT FROM 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'
@@ -79,6 +79,8 @@ BEGIN
       'private.reject_reimport_writer_mutation()',
       'private.require_reimport_writer_editor()',
       'private.require_reimport_open_batch(uuid)',
+      'private.lock_reimport_writer(bigint,text)',
+      'private.validate_reimport_authorization_payload(jsonb,jsonb)',
       'private.ensure_reimport_source_evidence(uuid,text,jsonb)',
       'private.reimport_canonical_json_text(jsonb)',
       'private.reimport_canonical_json_sha256(jsonb)',
@@ -100,11 +102,11 @@ BEGIN
       'public.red_apply_reimport_name_completion(uuid,text,jsonb)',
       'public.red_finalize_reimport_name_completion(uuid)'
     ],ARRAY[
-      false,false,false,false,false,false,false,
+      false,false,false,false,false,false,false,false,false,
       false,true,true,true,true,true,false,true,false,true,
       true,false,true,true,true,true
     ],ARRAY[
-      false,false,false,false,false,false,false,
+      false,false,false,false,false,false,false,false,false,
       true,false,false,false,false,false,true,false,true,false,
       false,true,false,false,false,false
     ]) AS acl(signature,expect_authenticated,expect_service_role)
@@ -125,23 +127,28 @@ BEGIN
 END $acl_parity$;
 
 DO $profile_identity$
-DECLARE v_error text; v_before jsonb; v_authorizations_before bigint;
+DECLARE
+  v_error text; v_before jsonb; v_authorizations_before bigint;
+  v_profile_sha text;
+  v_1939_config jsonb := '{"run_key_prefix":"reimport-1939-v50:","schema_version":"1939-v50-production-write-manifest-v1","extractor_version":"production-writer-v1","rendition_key":"daa-1939-calamari-r6-clean","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"observation_extraction_method":"human_reviewed_1939_v50","citation_label_template":"DAA 1939 side {page_from}"}'::jsonb;
+  v_unreferenced_config jsonb := '{"run_key_prefix":"task-1:","schema_version":"fixture-v1","extractor_version":"fixture-v1","rendition_key":"task-1","rendition_kind":"ocr_text","rendition_metadata":{},"observation_extraction_method":"fixture","citation_label_template":"Task 1 side {page_from}"}'::jsonb;
+  v_second_config jsonb := '{"run_key_prefix":"fixture-second:","schema_version":"fixture-v1","extractor_version":"fixture-v1","rendition_key":"fixture-rendition-4","rendition_kind":"ocr_text","rendition_metadata":{"edition":"synthetic"},"observation_extraction_method":"human_reviewed","citation_label_template":"Fixture second side {page_from}"}'::jsonb;
 BEGIN
   INSERT INTO public.source(id,titel,udgave,slags)
   VALUES(3,'Task 2 primary profile','fixture','DAA-udgave') ON CONFLICT(id) DO NOTHING;
-  INSERT INTO private.reimport_writer_profile
-    (source_id,profile_id,profile_version,profile_sha256,writer_config)
-  VALUES(3,'daa-1939-v50-production-write-v1','production-writer-v1',repeat('a',64),
-    '{"run_key_prefix":"fixture-1939:","schema_version":"fixture-v1","extractor_version":"fixture-v1","rendition_key":"fixture-rendition-3","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"observation_extraction_method":"human_reviewed","citation_label_template":"Fixture 1939 side {page_from}"}'::jsonb)
-  ON CONFLICT (source_id,profile_id,profile_sha256) DO NOTHING;
+  INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
+  VALUES(3,'daa-1939-v50-production-write-v1','production-writer-v1',private.reimport_canonical_json_sha256(v_1939_config),v_1939_config)
+  ON CONFLICT(source_id,profile_id,profile_sha256) DO NOTHING;
+  SELECT profile_sha256 INTO v_profile_sha FROM private.reimport_writer_profile
+   WHERE source_id=3 AND profile_id='daa-1939-v50-production-write-v1';
   IF NOT EXISTS (SELECT 1 FROM private.reimport_writer_profile WHERE source_id=3
-      AND profile_id='daa-1939-v50-production-write-v1' AND profile_sha256=repeat('a',64)) THEN
+      AND profile_id='daa-1939-v50-production-write-v1' AND profile_sha256=v_profile_sha
+      AND profile_sha256=private.reimport_canonical_json_sha256(writer_config)) THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_1939_PROFILE_MISSING';
   END IF;
   INSERT INTO public.source(id,titel,udgave,slags) VALUES(-153002,'Task 1 unreferenced profile','fixture','DAA-udgave') ON CONFLICT(id) DO NOTHING;
   INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
-  VALUES(-153002,'task-1-unreferenced-profile-v1','fixture-v1',repeat('f',64),
-    '{"run_key_prefix":"task-1:","schema_version":"fixture-v1","extractor_version":"fixture-v1","rendition_key":"task-1","rendition_kind":"ocr_text","rendition_metadata":{},"observation_extraction_method":"fixture","citation_label_template":"Task 1 side {page_from}"}'::jsonb);
+  VALUES(-153002,'task-1-unreferenced-profile-v1','fixture-v1',private.reimport_canonical_json_sha256(v_unreferenced_config),v_unreferenced_config);
   SELECT to_jsonb(profile) INTO v_before FROM private.reimport_writer_profile profile WHERE source_id=-153002 AND profile_id='task-1-unreferenced-profile-v1';
   BEGIN UPDATE private.reimport_writer_profile SET profile_version='tampered' WHERE source_id=-153002 AND profile_id='task-1-unreferenced-profile-v1'; EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
   IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_PROFILE_APPEND_ONLY'
@@ -153,26 +160,22 @@ BEGIN
   INSERT INTO public.source(id,titel,udgave,slags) VALUES(4,'Task 2 second profile','fixture','DAA-udgave') ON CONFLICT(id) DO NOTHING;
   INSERT INTO private.reimport_writer_profile
     (source_id,profile_id,profile_version,profile_sha256,writer_config)
-  VALUES
-    (3,'daa-1939-v50-production-write-v1','production-writer-v1',repeat('a',64),
-     '{"run_key_prefix":"fixture-1939:","schema_version":"fixture-v1","extractor_version":"fixture-v1","rendition_key":"fixture-rendition-3","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"observation_extraction_method":"human_reviewed","citation_label_template":"Fixture 1939 side {page_from}"}'::jsonb),
-    (4,'synthetic-second-profile-v1','synthetic-v1',repeat('b',64),
-     '{"run_key_prefix":"fixture-second:","schema_version":"fixture-v1","extractor_version":"fixture-v1","rendition_key":"fixture-rendition-4","rendition_kind":"ocr_text","rendition_metadata":{"edition":"synthetic"},"observation_extraction_method":"human_reviewed","citation_label_template":"Fixture second side {page_from}"}'::jsonb)
+  VALUES(4,'synthetic-second-profile-v1','synthetic-v1',private.reimport_canonical_json_sha256(v_second_config),v_second_config)
   ON CONFLICT (source_id,profile_id,profile_sha256) DO NOTHING;
   SELECT count(*) INTO v_authorizations_before FROM private.reimport_authorization;
   v_error:=NULL;
   BEGIN
-    PERFORM public.red_authorize_reimport(repeat('a',64),repeat('b',64),current_database(),3,
+    PERFORM public.red_authorize_reimport(repeat('a',64),repeat('b',64),jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,3,
       'daa-1939-v50-production-write-v1',repeat('c',64),'{}'::jsonb,'{}'::jsonb,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
   EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
-  IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_PROFILE_INVALID'
+  IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_PROFILE_HASH_INVALID'
      OR (SELECT count(*) FROM private.reimport_authorization)<>v_authorizations_before THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_PROFILE_HASH_MISMATCH_ACCEPTED: %',v_error;
   END IF;
   v_error:=NULL;
   BEGIN
-    PERFORM public.red_authorize_reimport(repeat('a',64),repeat('b',64),current_database(),4,
-      'daa-1939-v50-production-write-v1',repeat('a',64),'{}'::jsonb,'{}'::jsonb,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+    PERFORM public.red_authorize_reimport(repeat('a',64),repeat('b',64),jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,4,
+    'daa-1939-v50-production-write-v1',v_profile_sha,'{}'::jsonb,'{}'::jsonb,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
   EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
   IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_PROFILE_INVALID'
      OR (SELECT count(*) FROM private.reimport_authorization)<>v_authorizations_before THEN
@@ -185,10 +188,12 @@ DECLARE
   v_actor uuid:='15300000-0000-4000-8000-000000000001';
   v_other_actor uuid:='15300000-0000-4000-8000-000000000006';
   v_authorization uuid; v_replay_authorization uuid; v_batch uuid; v_replay_batch uuid; v_result jsonb;
-  v_source_payload jsonb; v_elements jsonb; v_error text;
+  v_source_payload jsonb; v_elements jsonb; v_error text; v_profile_sha text;
   v_observations_before bigint; v_batches_before bigint; v_direct_denied boolean:=false; v_private_read_denied boolean:=false;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SELECT profile_sha256 INTO v_profile_sha FROM private.reimport_writer_profile
+   WHERE source_id=3 AND profile_id='daa-1939-v50-production-write-v1';
   v_source_payload:=jsonb_build_object(
     'disposition','retain_source_only','source_record_key','migration-behavior-source-153',
     'source_span',jsonb_build_object('char_from',0,'char_to',28),
@@ -229,8 +234,8 @@ BEGIN
     RAISE EXCEPTION 'REIMPORT_WRITER_PRIVATE_LEDGER_READ_ACCEPTED';
   END IF;
   v_authorization:=public.red_authorize_reimport(
-    repeat('1',64),repeat('2',64),current_database(),3,
-    'daa-1939-v50-production-write-v1',repeat('a',64),
+    repeat('1',64),repeat('2',64),jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,3,
+    'daa-1939-v50-production-write-v1',v_profile_sha,
     '{"person_creates":0,"source_evidence":1}'::jsonb,v_elements,
     '15300000-0000-4000-8000-000000000008',clock_timestamp()+interval '5 minutes'
   );
@@ -280,8 +285,8 @@ BEGIN
   END IF;
   SELECT count(*) INTO v_batches_before FROM private.reimport_batch;
   v_replay_authorization:=public.red_authorize_reimport(
-    repeat('1',64),repeat('2',64),current_database(),3,
-    'daa-1939-v50-production-write-v1',repeat('a',64),
+    repeat('1',64),repeat('2',64),jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,3,
+    'daa-1939-v50-production-write-v1',v_profile_sha,
     '{"person_creates":0,"source_evidence":1}'::jsonb,v_elements,
     '15300000-0000-4000-8000-000000000009',clock_timestamp()+interval '5 minutes'
   );
@@ -345,7 +350,8 @@ BEGIN
   SELECT count(*) INTO v_before_persons FROM public.person;
   SELECT count(*) INTO v_before_events FROM private.reimport_event;
   v_auth:=public.red_authorize_reimport(
-    v_manifest,v_preview,current_database(),3,'daa-1939-v50-production-write-v1',repeat('a',64),
+    v_manifest,v_preview,jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,3,'daa-1939-v50-production-write-v1',
+    (SELECT profile_sha256 FROM private.reimport_writer_profile WHERE source_id=3 AND profile_id='daa-1939-v50-production-write-v1'),
     '{"person_creates":1,"source_evidence":0}'::jsonb,jsonb_build_object('person-create:'||p_label,p_authorized_payload),
     gen_random_uuid(),clock_timestamp()+interval '5 minutes');
   v_batch:=public.red_begin_reimport(v_auth,v_manifest,v_preview);

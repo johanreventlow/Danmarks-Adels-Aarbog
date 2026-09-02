@@ -154,6 +154,8 @@ DECLARE
   v_conclusion_count bigint; v_name_result_count bigint; v_name_event_count bigint;
   v_run uuid:='15300000-0000-4000-8000-000000000201'; v_record uuid:='15300000-0000-4000-8000-000000000202';
   v_rendition uuid; v_occurrence uuid; v_observation uuid; v_placement uuid;
+  v_1939_config jsonb := '{"run_key_prefix":"reimport-1939-v50:","schema_version":"1939-v50-production-write-manifest-v1","extractor_version":"production-writer-v1","rendition_key":"daa-1939-calamari-r6-clean","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"observation_extraction_method":"human_reviewed_1939_v50","citation_label_template":"DAA 1939 side {page_from}"}'::jsonb;
+  v_profile_sha text;
 BEGIN
   INSERT INTO public.source(id,titel,udgave,slags) VALUES(3,'DAA','1939','DAA-udgave') ON CONFLICT DO NOTHING;
   INSERT INTO auth.users(id,email) VALUES(v_actor,'writer-test@example.invalid') ON CONFLICT DO NOTHING;
@@ -161,9 +163,10 @@ BEGIN
     ON CONFLICT(id) DO UPDATE SET rolle='redaktion',navn='Writer test';
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
-  VALUES(3,'daa-1939-v50-production-write-v1','fixture-v1',repeat('a',64),
-    '{"run_key_prefix":"reimport-1939-v50:","schema_version":"1939-v50-production-write-manifest-v1","extractor_version":"production-writer-v1","rendition_key":"daa-1939-calamari-r6-clean","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"observation_extraction_method":"fixture","citation_label_template":"DAA 1939 side {page_from}"}'::jsonb)
+  VALUES(3,'daa-1939-v50-production-write-v1','production-writer-v1',private.reimport_canonical_json_sha256(v_1939_config),v_1939_config)
   ON CONFLICT(source_id,profile_id,profile_sha256) DO NOTHING;
+  SELECT profile_sha256 INTO v_profile_sha FROM private.reimport_writer_profile
+   WHERE source_id=3 AND profile_id='daa-1939-v50-production-write-v1';
   INSERT INTO public.slaegt(id,navn,sorteringsnavn,slug) VALUES(-153201,'Facade fixture','Facade fixture','facade-fixture') ON CONFLICT(id) DO NOTHING;
   INSERT INTO public.lineage_scheme(id,slaegt_id,source_id,kind,label) VALUES(-153201,-153201,3,'stamtavle','Facade fixture') ON CONFLICT(id) DO NOTHING;
   INSERT INTO public.lineage_scheme_entry(id,scheme_id,slaegt_id,code,label,sort_order) VALUES(-153201,-153201,-153201,'A','Facade fixture',1) ON CONFLICT(id) DO NOTHING;
@@ -194,15 +197,15 @@ BEGIN
     IF SQLERRM<>'REIMPORT_1939_AUTHORIZATION_INVALID' THEN RAISE; END IF;
   END;
   v_auth := public.red_authorize_1939_v50_reimport(
-    repeat('a',64),repeat('b',64),current_database(),3,
+    repeat('a',64),repeat('b',64),jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,3,
     '{"person_creates":1,"source_evidence":1}'::jsonb,
     jsonb_build_object('source-evidence:fixture',v_source_payload,'person-create:record-fixture',v_person_payload),
     '22222222-2222-4222-8222-222222222222',clock_timestamp()+interval '5 minutes');
   v_batch := public.red_begin_1939_v50_reimport(v_auth,repeat('a',64),repeat('b',64));
   IF NOT EXISTS (SELECT 1 FROM private.reimport_authorization WHERE id=v_auth AND source_id=3
-      AND profile_id='daa-1939-v50-production-write-v1' AND profile_sha256=repeat('a',64))
+      AND profile_id='daa-1939-v50-production-write-v1' AND profile_sha256=v_profile_sha)
      OR NOT EXISTS (SELECT 1 FROM private.reimport_batch WHERE id=v_batch AND authorization_id=v_auth
-      AND source_id=3 AND profile_id='daa-1939-v50-production-write-v1' AND profile_sha256=repeat('a',64)) THEN
+      AND source_id=3 AND profile_id='daa-1939-v50-production-write-v1' AND profile_sha256=v_profile_sha) THEN
     RAISE EXCEPTION 'REIMPORT_1939_FACADE_PROFILE_PARITY_FAILED';
   END IF;
   BEGIN

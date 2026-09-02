@@ -50,10 +50,10 @@ name_completion_gateway <- function(manifest, preflight = NULL) {
     }
     if (identical(name, "authorize")) return(list(
       authorization_id = "22222222-2222-4222-8222-222222222222",
-      database_name = "completion-test", system_identifier = "system-1"
+      database_name = "completion-test", system_identifier = "system-1", source = manifest$source
     ))
     if (identical(name, "preflight_authorization")) return(list(
-      valid = TRUE, database_name = "completion-test",
+      valid = TRUE, database_name = "completion-test", system_identifier = "system-1",
       source_batch_id = manifest$source_batch_id, manifest_sha256 = list(...)[[3L]]
     ))
     if (identical(name, "begin_batch")) return("44444444-4444-4444-8444-444444444444")
@@ -98,6 +98,39 @@ test_that("name completion refuses a database profile mismatch before authorizat
     "REIMPORT_NAME_COMPLETION_DATABASE_PROFILE_MISMATCH")
   expect_true("preflight" %in% names(gateway$calls()))
   expect_false("authorize" %in% names(gateway$calls()))
+})
+
+test_that("name completion rejects a server authorization profile mismatch before child begin", {
+  manifest <- name_completion_manifest()
+  gateway <- name_completion_gateway(manifest)
+  original <- gateway$gateway$call
+  gateway$gateway$call <- function(name, ...) {
+    if (identical(name, "authorize")) return(list(
+      authorization_id = "22222222-2222-4222-8222-222222222222",
+      database_name = "completion-test", system_identifier = "system-1",
+      source = utils::modifyList(manifest$source, list(profile_id = "other"))
+    ))
+    original(name, ...)
+  }
+  expect_error(execute_name_completion(manifest, sha("a"), "dry-run", gateway$gateway),
+    "REIMPORT_NAME_COMPLETION_AUTHORIZATION_REQUIRED")
+  expect_false("preflight_authorization" %in% names(gateway$calls()))
+})
+
+test_that("name completion rejects an authorization preflight from another system identity", {
+  manifest <- name_completion_manifest()
+  gateway <- name_completion_gateway(manifest)
+  original <- gateway$gateway$call
+  gateway$gateway$call <- function(name, ...) {
+    if (identical(name, "preflight_authorization")) return(list(
+      valid = TRUE, database_name = "completion-test", system_identifier = "other-system",
+      source_batch_id = manifest$source_batch_id, manifest_sha256 = sha("a")
+    ))
+    original(name, ...)
+  }
+  expect_error(execute_name_completion(manifest, sha("a"), "dry-run", gateway$gateway),
+    "REIMPORT_NAME_COMPLETION_PREFLIGHT_INVALID")
+  expect_false("begin_batch" %in% names(gateway$calls()))
 })
 
 test_that("name completion gateway uses only generic writer RPCs", {

@@ -12,7 +12,8 @@ test_that("1939 reimport adapter pins its legacy manifest to the generic profile
   profile <- legacy_reimport_profile(list(source = list(database_source_id = 3L)))
   expect_identical(profile$id, 3L)
   expect_identical(profile$profile_id, "daa-1939-v50-production-write-v1")
-  expect_match(profile$profile_sha256, "^[0-9a-f]{64}$")
+  expect_identical(profile$profile_sha256,
+    "25349caff16f2c13002a4950e80fe8697ffcf49e196dbcd9d1550919caf52fd3")
 })
 
 test_that("1939 reimport files contain no direct database or legacy RPC gateway", {

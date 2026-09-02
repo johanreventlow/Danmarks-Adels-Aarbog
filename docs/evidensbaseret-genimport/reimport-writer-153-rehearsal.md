@@ -195,3 +195,31 @@ source-specific generic writer primary: the only retained 1939 helper names
 are the exact C3 compatibility aliases, private and revoked. This record does
 not replace the controller-owned independent read-only Sol review and is not a
 production GO.
+
+## Task 8 correction evidence (2026-09-02)
+
+Task 8 seals the profile hash against the canonical writer configuration,
+binds generic gateway authorization to the full server identity, validates
+authorized count/element envelopes before issuing authorization, and replaces
+the cooperative global name-completion mutex with a transaction-scoped
+`source_id + profile_id` writer lock. The compatibility adapters now derive
+the 1939 profile hash from the same canonical configuration; the verified hash
+is `25349caff16f2c13002a4950e80fe8697ffcf49e196dbcd9d1550919caf52fd3`.
+
+The following additional named local disposable databases exited 0; every
+command used the five-variable environment shown above.
+
+| Database | Observed verification |
+| --- | --- |
+| `daa153_t8_final_20260902` | Fresh v2 generic DBI writer integration: full database/system identity, canonical profile hash, malformed count/element rejection, same-hash changed-element replay drift and event-backed person creation. |
+| `daa153_t8_lock_20260902` | Real multi-connection source/profile lock proof: same profile cannot acquire the advisory lock while a writer transaction holds it; a different profile can. |
+| `daa153_t8_legacy2_20260902` | Clean ordered compatibility DBI sequence: `PASS DAA 1939 v50 PostgreSQL integration` and `PASS DAA 1939 v50 name completion PostgreSQL integration`. |
+| `daa153_t8_sql2_20260902` | Fresh generic writer SQL, generic name-completion SQL, legacy production-writer SQL and legacy name-completion SQL suites. Each exited 0. |
+
+Focused R gateway tests also exited 0 for generic reimport, generic
+name-completion, and both compatibility adapters. The new negative cases
+reject a server authorization preflight cloned to another system identifier,
+and prevent `begin` after rejection. `git diff --check` exited 0 after these
+updates. This is still local code-integration evidence only, not production
+authority or a replacement for the remaining Task 8 migration/parity and
+independent-review steps.

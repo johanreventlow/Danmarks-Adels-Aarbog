@@ -50,9 +50,21 @@ execute_reimport_generic <- execute_reimport
 new_dbi_writer_gateway <- new_reimport_dbi_gateway
 
 legacy_reimport_profile <- function(manifest) {
+  profile_config <- list(
+    citation_label_template = "DAA 1939 side {page_from}",
+    extractor_version = "production-writer-v1",
+    observation_extraction_method = "human_reviewed_1939_v50",
+    rendition_key = "daa-1939-calamari-r6-clean",
+    rendition_kind = "ocr_text",
+    rendition_metadata = list(edition = "1939"),
+    run_key_prefix = "reimport-1939-v50:",
+    schema_version = "1939-v50-production-write-manifest-v1"
+  )
   list(id = as.integer(manifest$source$database_source_id),
     profile_id = "daa-1939-v50-production-write-v1",
-    profile_sha256 = paste(rep("a", 64L), collapse = ""))
+    profile_sha256 = digest::digest(charToRaw(jsonlite::toJSON(
+      profile_config, auto_unbox = TRUE, null = "null")),
+      algo = "sha256", serialize = FALSE))
 }
 
 as_generic_reimport_manifest <- function(manifest) {

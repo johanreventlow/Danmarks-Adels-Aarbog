@@ -776,3 +776,71 @@ fail-closed. Do not restore C3 privileges under v2 or change C3's data model.
     docs/evidensbaseret-genimport/reimport-writer-153-rehearsal.md
   git commit -m "docs: record generalized reimport writer rehearsal"
   ```
+
+### Task 8: Correct final SOL review findings
+
+**Authority:** Owner-approved 2026-09-02 after the required independent
+read-only SOL review returned NO-GO. This is a bounded correctness completion
+of the existing #153 specification, not a new writer feature, C3 policy
+change, production action, or expansion to a new edition.
+
+**Files:**
+
+- Modify: `schema.sql`, `db-migrations.sql`, `db-rls.sql`, `db-verify.sql`
+- Modify: generic R gateway helpers and their generic/legacy adapters only as
+  required to bind server-authorized identity
+- Modify: generic SQL, migration, catalog/parity, concurrency and R tests;
+  `.github/workflows/ci.yml` only if its disposable fixture must model the
+  corrected terminal legacy chain
+- Modify: this plan and the bounded #153 rehearsal only with observed evidence
+
+- [x] **Step 1: Seal profile identity and configuration bytes RED/GREEN**
+
+  Enforce the specification's `(source_id, profile_id)` primary identity,
+  append-only row and deterministic `profile_sha256` binding to the exact
+  canonical `writer_config`. Replace the synthetic 1939 hash with the derived
+  value and make fresh/migration/wrapper tests reject a duplicate profile key,
+  arbitrary hash or mismatched configuration. Do not add profile mutation or
+  a second profile version under one `profile_id`.
+
+- [x] **Step 2: Bind gateway apply paths to server identity RED/GREEN**
+
+  Make generic reimport and name-completion apply validate the supplied
+  authorization against server-returned source/profile/hash and manifest
+  hashes. The server, not a locally echoed manifest object, is the source of
+  this identity. Preserve the restricted public-RPC boundary; do not grant
+  private ledger access. Restore name-completion's full
+  database-name/system-identifier binding and test profile, hash and cloned
+  database-identity mismatch rejection.
+
+- [x] **Step 3: Restore authorization/replay tamper invariants RED/GREEN**
+
+  Reject malformed expected counts/elements and require equivalent
+  authorized-element/count state before finalized replay is returned. Cover
+  same-hash but changed-element/count authorization attempts and preserve
+  idempotent matching replay.
+
+- [ ] **Step 4: Correct terminal migration and parity proof RED/GREEN**
+
+  Permit only genuinely terminal historical chains: a finalized
+  name-completion child whose source batch is activated/reversed is terminal;
+  unfinished open/finalized reimport work remains blocked. Repair the CI and
+  disposable fixtures to represent that real topology. Add function-body
+  digests to fresh/upgraded catalog serialization so behavioral drift cannot
+  pass byte parity.
+
+- [x] **Step 5: Enforce source/profile writer locking RED/GREEN**
+
+  Take the specified `(source_id, profile_id)` writer lock inside every generic
+  SQL mutation/lifecycle path, including name completion, after the shared v2
+  contract lock. Prove same-profile serialization and unrelated-profile
+  independence through a disposable two-connection test. Do not rely on the
+  cooperative R lock or use a global name-completion lock for this property.
+
+- [ ] **Step 6: Full verification, self-review and independent SOL re-review**
+
+  Re-run affected fresh/upgraded v1-C3 and v2 generic suites, DBI integrations,
+  catalog byte parity, migration/terminal-chain fixture and concurrency proof.
+  Critically self-review every original SOL finding, then request one fresh
+  read-only SOL re-review only after the fixes and evidence are complete.
+  Update the rehearsal with observed facts and commit; no production GO.

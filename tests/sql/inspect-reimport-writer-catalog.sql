@@ -12,7 +12,8 @@ WITH targets AS (
   )
 ), functions AS (
   SELECT p.oid,p.oid::regprocedure::text AS signature,r.rolname AS owner,p.prosecdef,
-    coalesce(array_to_string(p.proconfig,','),'') AS config
+    coalesce(array_to_string(p.proconfig,','),'') AS config,
+    encode(extensions.digest(convert_to(pg_get_functiondef(p.oid),'UTF8'),'sha256'),'hex') AS body_sha256
   FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_roles r ON r.oid=p.proowner
   WHERE (n.nspname='public' AND p.proname IN (
     'red_authorize_reimport','red_begin_reimport','red_apply_reimport_source_evidence','red_apply_reimport_person_create','red_finalize_reimport','red_reimport_batch_result',
@@ -84,7 +85,7 @@ WITH targets AS (
   JOIN pg_roles grantee ON grantee.oid=grant_row.grantee
   WHERE grantee.rolname IN ('anon','authenticated','service_role')
   UNION ALL
-  SELECT jsonb_build_object('kind','function','name',signature,'owner',owner,'definer',prosecdef,'path',config,
+  SELECT jsonb_build_object('kind','function','name',signature,'owner',owner,'definer',prosecdef,'path',config,'body_sha256',body_sha256,
     'anon',has_function_privilege('anon',oid,'EXECUTE'),'authenticated',has_function_privilege('authenticated',oid,'EXECUTE'),
     'service_role',has_function_privilege('service_role',oid,'EXECUTE')) FROM functions
 )

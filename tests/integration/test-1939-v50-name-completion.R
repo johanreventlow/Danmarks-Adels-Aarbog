@@ -11,7 +11,8 @@ manifest_sha <- paste(rep("1", 64L), collapse = "")
 sha <- function(letter) paste(rep(letter, 64L), collapse = "")
 source_preview_sha <- name_completion_source_manifest_bytes_sha256
 profile_id <- "daa-1939-v50-production-write-v1"
-profile_sha <- sha("a")
+profile_sha <- NULL
+profile_config <- '{"run_key_prefix":"reimport-1939-v50:","schema_version":"1939-v50-production-write-manifest-v1","extractor_version":"production-writer-v1","rendition_key":"daa-1939-calamari-r6-clean","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"observation_extraction_method":"human_reviewed_1939_v50","citation_label_template":"DAA 1939 side {page_from}"}'
 
 connect <- function(statement_timeout = NULL) {
   con <- DBI::dbConnect(RPostgres::Postgres(), dbname = Sys.getenv("PGDATABASE"),
@@ -95,12 +96,15 @@ expected_names <- vapply(locked_rows, function(row) row[[3L]], character(1))
 con <- connect()
 on.exit(try(DBI::dbDisconnect(con), silent = TRUE), add = TRUE)
 DBI::dbBegin(con)
+profile_sha <- query(con, "SELECT private.reimport_canonical_json_sha256($1::jsonb) hash", list(profile_config))$hash[[1L]]
+stopifnot(identical(profile_sha,
+  legacy_name_completion_profile(list(source = list(source_id = 3L)))$profile_sha256))
 DBI::dbExecute(con, "INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) VALUES($1,3,'name-completion-r-integration','fixture','fixture','fixture',$2,'{}')",
   params = list(source_run, sha("a")))
 DBI::dbExecute(con, "INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config) VALUES(3,$1,'fixture-v2',$2,$3::jsonb) ON CONFLICT(source_id,profile_id,profile_sha256) DO NOTHING",
-  params = list(profile_id, profile_sha, '{\"run_key_prefix\":\"reimport-1939-v50:\",\"schema_version\":\"1939-v50-production-write-manifest-v1\",\"extractor_version\":\"production-writer-v1\",\"rendition_key\":\"daa-1939-calamari-r6-clean\",\"rendition_kind\":\"ocr_text\",\"rendition_metadata\":{\"edition\":\"1939\"},\"observation_extraction_method\":\"fixture\",\"citation_label_template\":\"DAA 1939 side {page_from}\"}'))
+  params = list(profile_id, profile_sha, profile_config))
 source_counts <- jsonlite::toJSON(list(person_creates = 8L, source_evidence = 0L), auto_unbox = TRUE)
-DBI::dbExecute(con, "INSERT INTO private.reimport_authorization(id,operation,manifest_sha256,preview_sha256,database_identity,source_id,profile_id,profile_sha256,expected_counts,authorized_elements,principal_id,nonce,expires_at,status,consumed_at) VALUES($1,'reimport',$2,$3,current_database(),3,$4,$5,$6::jsonb,'{}',$7,gen_random_uuid(),clock_timestamp()+interval '1 hour','consumed',clock_timestamp())",
+DBI::dbExecute(con, "INSERT INTO private.reimport_authorization(id,operation,manifest_sha256,preview_sha256,database_identity,source_id,profile_id,profile_sha256,expected_counts,authorized_elements,principal_id,nonce,expires_at,status,consumed_at) VALUES($1,'reimport',$2,$3,jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,3,$4,$5,$6::jsonb,'{}',$7,gen_random_uuid(),clock_timestamp()+interval '1 hour','consumed',clock_timestamp())",
   params = list(source_auth, name_completion_source_manifest_content_sha256,
     source_preview_sha,
     profile_id, profile_sha, source_counts, actor))
@@ -220,7 +224,8 @@ con <- connect()
 names_after <- query(con, "SELECT id,visning_navn,staged FROM public.person WHERE id BETWEEN 1846 AND 1853 ORDER BY id")
 stopifnot(identical(names_after$visning_navn, expected_names), all(names_after$staged))
 completion <- query(con, "SELECT (SELECT count(*) FROM private.reimport_1939_name_completion_result) results,(SELECT count(*) FROM private.reimport_1939_write_event WHERE operation='canonical_delta') events")
-stopifnot(completion$results[[1L]] == 8, completion$events[[1L]] == 8)
+stopifnot(completion$results[[1L]] == before$results[[1L]] + 8,
+  completion$events[[1L]] == before$completion_events[[1L]] + 8)
 
 replay_authorization <- try(query(con,
   "SELECT public.red_authorize_reimport_name_completion($1,$2,$3,$4,$5::jsonb,$6::jsonb)::text value",

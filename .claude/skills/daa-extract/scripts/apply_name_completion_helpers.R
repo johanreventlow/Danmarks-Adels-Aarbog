@@ -57,18 +57,22 @@ validate_generic_name_completion_preflight <- function(preflight, manifest) {
   invisible(preflight)
 }
 
-validate_generic_name_completion_authorization <- function(authorization) {
-  if (!is.list(authorization) || !generic_name_completion_uuid(authorization$authorization_id))
+validate_generic_name_completion_authorization <- function(authorization, manifest = NULL) {
+  if (!is.list(authorization) || !generic_name_completion_uuid(authorization$authorization_id) ||
+      !is.character(authorization$database_name) || length(authorization$database_name) != 1L ||
+      !is.character(authorization$system_identifier) || length(authorization$system_identifier) != 1L ||
+      !is.list(authorization$source) || (!is.null(manifest) && !identical(authorization$source, manifest$source)))
     stop_name_completion("REIMPORT_NAME_COMPLETION_AUTHORIZATION_REQUIRED")
   invisible(authorization)
 }
 
 validate_name_completion_server_preflight <- function(result, authorization, manifest, manifest_sha256) {
-  required <- c("valid", "database_name", "source_batch_id", "manifest_sha256")
+  required <- c("valid", "database_name", "system_identifier", "source_batch_id", "manifest_sha256")
   if (!name_completion_named(result, required) || !identical(result$valid, TRUE) ||
       !identical(result$source_batch_id, manifest$source_batch_id) ||
       !identical(result$manifest_sha256, manifest_sha256) ||
-      !is.character(authorization$database_name) || !identical(result$database_name, authorization$database_name))
+      !is.character(authorization$database_name) || !identical(result$database_name, authorization$database_name) ||
+      !is.character(authorization$system_identifier) || !identical(result$system_identifier, authorization$system_identifier))
     stop_name_completion("REIMPORT_NAME_COMPLETION_PREFLIGHT_INVALID")
   invisible(result)
 }
@@ -79,7 +83,7 @@ execute_name_completion <- function(manifest, manifest_sha256, mode = c("dry-run
   if (!generic_name_completion_hash(manifest_sha256))
     stop_name_completion("REIMPORT_NAME_COMPLETION_MANIFEST_HASH_INVALID")
   if (!is.list(gateway) || !is.function(gateway$call)) stop_name_completion("REIMPORT_NAME_COMPLETION_GATEWAY_INVALID")
-  if (identical(mode, "apply")) validate_generic_name_completion_authorization(authorization)
+  if (identical(mode, "apply")) validate_generic_name_completion_authorization(authorization, manifest)
   call <- gateway$call
   connected <- FALSE
   rolled_back <- FALSE
@@ -96,7 +100,7 @@ execute_name_completion <- function(manifest, manifest_sha256, mode = c("dry-run
     call("advisory_lock", manifest$source)
     validate_generic_name_completion_preflight(call("preflight", manifest), manifest)
     resolved_authorization <- call("authorize", manifest, manifest_sha256, mode, authorization)
-    validate_generic_name_completion_authorization(resolved_authorization)
+    validate_generic_name_completion_authorization(resolved_authorization, manifest)
     server_preflight <- call("preflight_authorization", resolved_authorization, manifest, manifest_sha256, name_completion_payloads(manifest))
     validate_name_completion_server_preflight(server_preflight, resolved_authorization, manifest, manifest_sha256)
     batch_id <- call("begin_batch", resolved_authorization, manifest, manifest_sha256)
@@ -145,7 +149,7 @@ new_name_completion_dbi_gateway <- function(connection_factory) {
         actor <- Sys.getenv("DAA_REIMPORT_ACTOR_ID")
         if (!generic_name_completion_uuid(actor)) stop_name_completion("REIMPORT_NAME_COMPLETION_ACTOR_REQUIRED")
         query("SELECT set_config('request.jwt.claim.sub',$1,true)", list(actor))
-        state <- query("SELECT current_database() AS database_identity, current_setting('request.jwt.claim.sub',true) AS actor_id, current_setting('transaction_read_only') AS transaction_read_only")
+        state <- query("SELECT jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text AS database_identity, current_setting('request.jwt.claim.sub',true) AS actor_id, current_setting('transaction_read_only') AS transaction_read_only")
         list(database_identity = state$database_identity[[1L]], actor_id = state$actor_id[[1L]],
           transaction_read_only = state$transaction_read_only[[1L]], source = manifest$source,
           locked_payload_count = as.integer(length(manifest$operations)))
@@ -168,6 +172,7 @@ new_name_completion_dbi_gateway <- function(connection_factory) {
           authorization$authorization_id, manifest$source_batch_id, args[[3L]],
           jsonlite::toJSON(args[[4L]], auto_unbox = TRUE, null = "null")))$value[[1L]], simplifyVector = FALSE)
         response$preflight$database_name <- response$authorization$database_name
+        response$preflight$system_identifier <- response$authorization$system_identifier
         response$preflight
       },
       begin_batch = query("SELECT public.red_begin_reimport_name_completion($1,$2,$3) AS id", list(

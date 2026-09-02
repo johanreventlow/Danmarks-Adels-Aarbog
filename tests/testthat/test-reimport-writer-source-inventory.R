@@ -113,6 +113,12 @@ extract_public_function <- function(text, name) {
   regmatches(text, regexpr(pattern, text, perl = TRUE))
 }
 
+extract_final_public_function <- function(text, name) {
+  pattern <- paste0("(?s)CREATE(?: OR REPLACE)? FUNCTION public\\.", name, "\\s*\\([^)]*\\).*?AS \\$\\$.*?\\$\\$;")
+  matches <- regmatches(text, gregexpr(pattern, text, perl = TRUE))[[1L]]
+  if (!length(matches)) "" else matches[[length(matches)]]
+}
+
 testthat::test_that("generic extractor recognizes a valid CREATE OR REPLACE function", {
   fixture <- paste("CREATE OR REPLACE FUNCTION public.red_fixture(p_value text)", "RETURNS void LANGUAGE plpgsql AS $$ BEGIN NULL; END $$;", sep = "\n")
   testthat::expect_match(extract_public_function(fixture, "red_fixture"), "red_fixture", fixed = TRUE)
@@ -192,6 +198,74 @@ testthat::test_that("profile-bound writer keeps the immutable triple at every le
     testthat::expect_match(source_text, "REIMPORT_WRITER_PROFILE_APPEND_ONLY", fixed = TRUE)
     testthat::expect_match(source_text, "REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED", fixed = TRUE)
   }
+})
+
+testthat::test_that("writer profile identity is one sealed configuration per source/profile key", {
+  schema_text <- paste(readLines(file.path(writer_root, "schema.sql"), warn = FALSE), collapse = "\n")
+  migration_text <- paste(readLines(file.path(writer_root, "db-migrations.sql"), warn = FALSE), collapse = "\n")
+  for (source_text in list(schema_text, migration_text)) {
+    testthat::expect_match(source_text, "PRIMARY KEY(source_id,profile_id)", fixed = TRUE)
+    testthat::expect_match(source_text, "profile_sha256=private.reimport_canonical_json_sha256(writer_config)", fixed = TRUE)
+    testthat::expect_match(source_text, "REIMPORT_WRITER_PROFILE_HASH_INVALID", fixed = TRUE)
+  }
+})
+
+testthat::test_that("generic replay is bound to the authorized counts and exact element set", {
+  for (source_text in list(
+    paste(readLines(file.path(writer_root, "schema.sql"), warn = FALSE), collapse = "\n"),
+    paste(readLines(file.path(writer_root, "db-migrations.sql"), warn = FALSE), collapse = "\n")
+  )) {
+    result <- extract_public_function(source_text, "red_reimport_batch_result")
+    testthat::expect_match(source_text, "REIMPORT_WRITER_REPLAY_DRIFT", fixed = TRUE)
+    testthat::expect_match(source_text, "v_replay_auth.authorized_elements", fixed = TRUE)
+    testthat::expect_match(result, "jsonb_object_keys", fixed = TRUE)
+    testthat::expect_match(result, "REIMPORT_WRITER_BATCH_RESULT_INVALID", fixed = TRUE)
+  }
+})
+
+testthat::test_that("every generic writer lifecycle locks its source/profile after the v2 gate", {
+  sources <- list(
+    schema = paste(readLines(file.path(writer_root, "schema.sql"), warn = FALSE), collapse = "\n"),
+    migration = paste(readLines(file.path(writer_root, "db-migrations.sql"), warn = FALSE), collapse = "\n")
+  )
+  lifecycles <- c(
+    "red_authorize_reimport", "red_preflight_reimport_authorization",
+    "red_begin_reimport", "red_apply_reimport_source_evidence",
+    "red_apply_reimport_person_create", "red_finalize_reimport",
+    "red_authorize_reimport_reversal", "red_reverse_reimport",
+    "red_authorize_reimport_cutover", "red_activate_reimport_batch",
+    "red_authorize_reimport_name_completion", "red_preflight_reimport_name_completion",
+    "red_begin_reimport_name_completion", "red_apply_reimport_name_completion",
+    "red_finalize_reimport_name_completion"
+  )
+  for (source_text in sources) {
+    testthat::expect_match(source_text,
+      "CREATE(?: OR REPLACE)? FUNCTION private\\.lock_reimport_writer\\(p_source_id bigint,p_profile_id text\\)",
+      perl = TRUE)
+    for (lifecycle in lifecycles) {
+      definition <- extract_final_public_function(source_text, lifecycle)
+      testthat::expect_true(nzchar(definition), info = lifecycle)
+      gate <- regexpr("REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED", definition, fixed = TRUE)
+      writer_lock <- regexpr("private.lock_reimport_writer", definition, fixed = TRUE)
+      testthat::expect_true(gate[[1L]] > 0L && writer_lock[[1L]] > gate[[1L]], info = lifecycle)
+    }
+  }
+})
+
+testthat::test_that("upgrade quiescence permits only completed name-completion children", {
+  migration_text <- paste(readLines(file.path(writer_root, "db-migrations.sql"), warn = FALSE), collapse = "\n")
+  testthat::expect_match(migration_text, "a.operation='reimport' AND b.status='finalized'", fixed = TRUE)
+  testthat::expect_match(migration_text, "REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED", fixed = TRUE)
+})
+
+testthat::test_that("catalog parity includes effective function bodies and terminal-child fixture", {
+  receipt <- paste(readLines(file.path(writer_root, "tests", "sql", "inspect-reimport-writer-catalog.sql"), warn = FALSE), collapse = "\n")
+  migration_fixture <- paste(readLines(file.path(writer_root, "tests", "sql", "test-reimport-writer-migration.sql"), warn = FALSE), collapse = "\n")
+  testthat::expect_match(receipt, "pg_get_functiondef", fixed = TRUE)
+  testthat::expect_match(receipt, "encode(extensions.digest", fixed = TRUE)
+  testthat::expect_match(migration_fixture, "operation='name_completion'", fixed = TRUE)
+  testthat::expect_match(migration_fixture, "status='finalized'", fixed = TRUE)
+  testthat::expect_match(migration_fixture, "source_batch_id='15300000-0000-4000-8000-000000000102'", fixed = TRUE)
 })
 
 testthat::test_that("migration writer keeps fresh-equivalent finalize, replay, and helper ACL guards", {

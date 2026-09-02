@@ -85,6 +85,18 @@ validate_reimport_authorization <- function(authorization) {
   invisible(authorization)
 }
 
+validate_reimport_authorization_binding <- function(binding, authorization, manifest, preview_sha256, database_identity) {
+  required <- c("authorization_id", "database_identity", "source", "manifest_sha256", "preview_sha256")
+  if (!reimport_named(binding, required) || !reimport_uuid(binding$authorization_id) ||
+      !identical(binding$authorization_id, authorization$id) ||
+      !identical(binding$database_identity, database_identity) ||
+      !identical(binding$source, manifest$source) ||
+      !identical(binding$manifest_sha256, manifest$manifest_content_sha256) ||
+      !identical(binding$preview_sha256, preview_sha256))
+    stop_reimport("REIMPORT_AUTHORIZATION_BINDING_INVALID")
+  invisible(binding)
+}
+
 validate_reimport_batch_result <- function(result, batch_id) {
   required <- c("batch_id", "status", "replayed", "person_id_map")
   if (!reimport_named(result, required) || !identical(result$batch_id, batch_id) ||
@@ -126,9 +138,13 @@ execute_reimport <- function(manifest, preview_sha256, mode = c("dry-run", "appl
     connected <- TRUE
     call("begin")
     call("advisory_lock", manifest$source)
-    validate_reimport_preflight(call("preflight", manifest), manifest)
+    server_preflight <- call("preflight", manifest)
+    validate_reimport_preflight(server_preflight, manifest)
     resolved_authorization <- call("authorize", manifest, preview_sha256, mode, authorization)
     validate_reimport_authorization(resolved_authorization)
+    validate_reimport_authorization_binding(
+      call("preflight_authorization", resolved_authorization, manifest, preview_sha256),
+      resolved_authorization, manifest, preview_sha256, server_preflight$database_identity)
     batch_id <- call("begin_batch", resolved_authorization, manifest, preview_sha256)
     if (!reimport_uuid(batch_id)) stop_reimport("REIMPORT_BATCH_RESULT_INVALID")
     batch_result <- call("batch_result", resolved_authorization, batch_id)
@@ -162,6 +178,7 @@ execute_reimport <- function(manifest, preview_sha256, mode = c("dry-run", "appl
 
 new_reimport_dbi_gateway <- function(connection_factory, sql_observer = NULL) {
   con <- NULL
+  server_identity <- NULL
   query <- function(sql, params = list()) {
     if (is.function(sql_observer)) sql_observer(sql)
     if (length(params)) DBI::dbGetQuery(con, sql, params = params) else DBI::dbGetQuery(con, sql)
@@ -186,7 +203,8 @@ new_reimport_dbi_gateway <- function(connection_factory, sql_observer = NULL) {
         actor <- Sys.getenv("DAA_REIMPORT_ACTOR_ID")
         if (!reimport_uuid(actor)) stop_reimport("REIMPORT_ACTOR_REQUIRED")
         query("SELECT set_config('request.jwt.claim.sub',$1,true)", list(actor))
-        state <- query("SELECT current_database() AS database_identity, current_setting('request.jwt.claim.sub',true) AS actor_id, current_setting('transaction_read_only') AS transaction_read_only")
+        state <- query("SELECT jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text AS database_identity, current_setting('request.jwt.claim.sub',true) AS actor_id, current_setting('transaction_read_only') AS transaction_read_only")
+        server_identity <<- state$database_identity[[1L]]
         list(database_identity = state$database_identity[[1L]], actor_id = state$actor_id[[1L]],
           transaction_read_only = state$transaction_read_only[[1L]], source = manifest$source,
           locked_payload_count = as.integer(length(manifest$operations)))
@@ -198,12 +216,17 @@ new_reimport_dbi_gateway <- function(connection_factory, sql_observer = NULL) {
         supplied <- args[[4L]]
         if (identical(mode, "apply")) return(supplied)
         nonce <- query("SELECT gen_random_uuid() AS id")$id[[1L]]
-        id <- query("SELECT public.red_authorize_reimport($1,$2,current_database(),$3,$4,$5,$6::jsonb,$7::jsonb,$8,clock_timestamp()+interval '10 minutes') AS id",
-          list(manifest$manifest_content_sha256, preview_sha256, manifest$source$id,
+        id <- query("SELECT public.red_authorize_reimport($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,clock_timestamp()+interval '10 minutes') AS id",
+          list(manifest$manifest_content_sha256, preview_sha256, server_identity, manifest$source$id,
             manifest$source$profile_id, manifest$source$profile_sha256,
             jsonlite::toJSON(reimport_writer_expected_counts(manifest), auto_unbox = TRUE),
             jsonlite::toJSON(reimport_authorized_payloads(manifest), auto_unbox = TRUE, null = "null"), nonce))$id[[1L]]
         list(id = id)
+      },
+      preflight_authorization = {
+        authorization <- args[[1L]]
+        jsonlite::fromJSON(query("SELECT public.red_preflight_reimport_authorization($1,$2,$3)::text AS value", list(
+          authorization$id, args[[2L]]$manifest_content_sha256, args[[3L]]))$value[[1L]], simplifyVector = FALSE)
       },
       begin_batch = {
         query("SELECT public.red_begin_reimport($1,$2,$3) AS id", list(

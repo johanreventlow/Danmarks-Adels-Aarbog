@@ -67,15 +67,18 @@ DECLARE
   v_run uuid := '560c39f8-5c87-4c0d-a768-025d97fa2972';
   v_persona uuid := '00000000-0000-4000-8000-000000000001';
   v_payload jsonb; v_source_payload jsonb;
+  v_1939_config jsonb := '{"run_key_prefix":"reimport-1939-v50:","schema_version":"1939-v50-production-write-manifest-v1","extractor_version":"production-writer-v1","rendition_key":"daa-1939-calamari-r6-clean","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"observation_extraction_method":"human_reviewed_1939_v50","citation_label_template":"DAA 1939 side {page_from}"}'::jsonb;
+  v_profile_sha text;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   INSERT INTO auth.users(id,email) VALUES(v_actor,'writer-ci@example.invalid') ON CONFLICT(id) DO NOTHING;
   INSERT INTO public.profiles(id,email,rolle,navn) VALUES(v_actor,'writer-ci@example.invalid','redaktion','Writer CI') ON CONFLICT(id) DO UPDATE SET rolle='redaktion',navn='Writer CI';
   INSERT INTO public.source(id,titel,udgave,slags) VALUES(3,'DAA','1939','DAA-udgave') ON CONFLICT(id) DO NOTHING;
   INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
-  VALUES(3,'daa-1939-v50-production-write-v1','fixture-v1',repeat('a',64),
-    '{"run_key_prefix":"fixture:","schema_version":"fixture","extractor_version":"fixture","rendition_key":"fixture","rendition_kind":"ocr_text","rendition_metadata":{},"observation_extraction_method":"fixture","citation_label_template":"Fixture"}'::jsonb)
+  VALUES(3,'daa-1939-v50-production-write-v1','production-writer-v1',private.reimport_canonical_json_sha256(v_1939_config),v_1939_config)
   ON CONFLICT(source_id,profile_id,profile_sha256) DO NOTHING;
+  SELECT profile_sha256 INTO v_profile_sha FROM private.reimport_writer_profile
+   WHERE source_id=3 AND profile_id='daa-1939-v50-production-write-v1';
   INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
   VALUES(v_run,3,'name-completion-legacy-facade','fixture','fixture','fixture',repeat('a',64),'{}') ON CONFLICT(id) DO NOTHING;
   INSERT INTO public.person(id,staged) VALUES(1846,true) ON CONFLICT(id) DO NOTHING;
@@ -89,11 +92,11 @@ BEGIN
   SELECT source_persona_id,canonical_person_id,decision_status,version,evidence,decided_by,decided_by_name,decided_at
     FROM private.source_persona_identity WHERE source_persona_id=v_persona AND canonical_person_id=1846;
   INSERT INTO private.reimport_1939_authorization(id,operation,manifest_sha256,preview_sha256,database_identity,source_id,profile_id,profile_sha256,expected_counts,authorized_elements,principal_id,nonce,expires_at,status,consumed_at)
-  VALUES(v_source_auth,'reimport',repeat('c',64),repeat('d',64),current_database(),3,
-    'daa-1939-v50-production-write-v1',repeat('a',64),'{"person_creates":1,"source_evidence":0}'::jsonb,'{}',v_actor,
+  VALUES(v_source_auth,'reimport',repeat('c',64),repeat('d',64),jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,3,
+    'daa-1939-v50-production-write-v1',v_profile_sha,'{"person_creates":1,"source_evidence":0}'::jsonb,'{}',v_actor,
     '560c39f8-5c87-4c0d-a768-025d97fa2901',clock_timestamp()+interval '1 hour','consumed',clock_timestamp());
   INSERT INTO private.reimport_1939_write_batch(id,authorization_id,manifest_sha256,preview_sha256,source_id,profile_id,profile_sha256,principal_id,status,expected_counts,observed_counts,finalized_at)
-  VALUES(v_source_batch,v_source_auth,repeat('c',64),repeat('d',64),3,'daa-1939-v50-production-write-v1',repeat('a',64),v_actor,'finalized',
+  VALUES(v_source_batch,v_source_auth,repeat('c',64),repeat('d',64),3,'daa-1939-v50-production-write-v1',v_profile_sha,v_actor,'finalized',
     '{"person_creates":1,"source_evidence":0}'::jsonb,'{"person_creates":1,"source_evidence":0}'::jsonb,clock_timestamp());
   v_source_payload:=jsonb_build_object('source_record_key','legacy-name-record','source_id',3,'source_persona_id',v_persona,
     'source_span',jsonb_build_object('char_from',0,'char_to',10),'page_evidence',jsonb_build_object('page_from',1,'page_to',1),
