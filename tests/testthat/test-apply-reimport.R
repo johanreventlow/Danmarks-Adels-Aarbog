@@ -1,0 +1,128 @@
+library(testthat)
+
+root <- normalizePath(file.path(getwd(), "../.."), mustWork = TRUE)
+source(file.path(root, ".claude/skills/daa-extract/scripts/apply_reimport_helpers.R"), local = TRUE)
+
+sha <- function(letter) paste(rep(letter, 64L), collapse = "")
+
+reimport_manifest <- function() {
+  list(
+    manifest_content_sha256 = sha("a"),
+    source = list(
+      id = 17L,
+      profile_id = "test-reimport-profile-v1",
+      profile_sha256 = sha("b")
+    ),
+    expected_counts = list(source_evidence = 1L, person_creates = 0L, canonical_delta = 0L),
+    operations = list(list(
+      element_id = "source-evidence:fixture-1",
+      dependency_class = "source_evidence",
+      source_record_key = "fixture-1",
+      payload_sha256 = sha("c")
+    ))
+  )
+}
+
+reimport_gateway <- function(manifest, preflight = NULL) {
+  calls <- list()
+  sql <- c(
+    preflight = "SELECT current_database(), current_setting('transaction_read_only')",
+    authorize = "SELECT public.red_authorize_reimport($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,$10)",
+    begin_batch = "SELECT public.red_begin_reimport($1,$2,$3)",
+    source_evidence = "SELECT public.red_apply_reimport_source_evidence($1,$2,$3::jsonb)",
+    person_create = "SELECT public.red_apply_reimport_person_create($1,$2,$3::jsonb)",
+    finalize = "SELECT public.red_finalize_reimport($1)"
+  )
+  gateway <- list(call = function(name, ...) {
+    statement <- if (name %in% names(sql)) sql[[name]] else name
+    calls[[name]] <<- c(calls[[name]], statement)
+    if (identical(name, "preflight")) {
+      return(preflight %||% list(
+        database_identity = "reimport-test:system-1",
+        actor_id = "11111111-1111-4111-8111-111111111111",
+        transaction_read_only = "off",
+        source = manifest$source,
+        locked_payload_count = 1L
+      ))
+    }
+    if (identical(name, "authorize")) return(list(id = "22222222-2222-4222-8222-222222222222"))
+    if (identical(name, "begin_batch")) return("33333333-3333-4333-8333-333333333333")
+    if (identical(name, "person_create")) return(91L)
+    if (identical(name, "finalize")) return(list(status = "finalized"))
+    invisible(NULL)
+  })
+  list(gateway = gateway, calls = function() calls)
+}
+
+`%||%` <- function(x, y) if (is.null(x)) y else x
+
+test_that("reimport manifest rejects incomplete or malformed profile identity before gateway use", {
+  manifest <- reimport_manifest()
+  missing <- manifest
+  missing$source$profile_id <- NULL
+  gateway <- reimport_gateway(manifest)
+  expect_error(execute_reimport(missing, sha("d"), "dry-run", gateway$gateway),
+    "REIMPORT_MANIFEST_PROFILE_INVALID")
+  expect_length(gateway$calls(), 0L)
+
+  malformed <- manifest
+  malformed$source$profile_sha256 <- "not-a-sha256"
+  expect_error(execute_reimport(malformed, sha("d"), "dry-run", gateway$gateway),
+    "REIMPORT_MANIFEST_PROFILE_INVALID")
+  expect_length(gateway$calls(), 0L)
+})
+
+test_that("reimport refuses a database profile mismatch before authorization", {
+  manifest <- reimport_manifest()
+  gateway <- reimport_gateway(manifest, list(
+    database_identity = "reimport-test:system-1",
+    actor_id = "11111111-1111-4111-8111-111111111111",
+    transaction_read_only = "off",
+    source = utils::modifyList(manifest$source, list(profile_sha256 = sha("e"))),
+    locked_payload_count = 1L
+  ))
+  expect_error(execute_reimport(manifest, sha("d"), "dry-run", gateway$gateway),
+    "REIMPORT_DATABASE_PROFILE_MISMATCH")
+  expect_true("preflight" %in% names(gateway$calls()))
+  expect_false("authorize" %in% names(gateway$calls()))
+})
+
+test_that("reimport gateway uses only generic writer RPCs", {
+  manifest <- reimport_manifest()
+  gateway <- reimport_gateway(manifest)
+  result <- execute_reimport(manifest, sha("d"), "dry-run", gateway$gateway)
+  calls <- gateway$calls()
+  expect_identical(result$status, "finalized")
+  expect_match(calls[["authorize"]], "red_authorize_reimport")
+  expect_false(any(grepl("1939_v50|source_id=3", unlist(calls))))
+})
+
+test_that("reimport projects canonical-delta validation out of writer counts", {
+  manifest <- reimport_manifest()
+  expect_identical(reimport_writer_expected_counts(manifest),
+    list(person_creates = 0L, source_evidence = 1L))
+})
+
+test_that("reimport returns an existing finalized batch without replaying operations", {
+  manifest <- reimport_manifest()
+  calls <- character()
+  gateway <- list(call = function(name, ...) {
+    calls <<- c(calls, name)
+    switch(name,
+      connect = invisible(NULL), begin = invisible(NULL), advisory_lock = invisible(NULL),
+      preflight = list(database_identity = "reimport-test:system-1",
+        actor_id = "11111111-1111-4111-8111-111111111111", transaction_read_only = "off",
+        source = manifest$source, locked_payload_count = 1L),
+      authorize = list(id = "22222222-2222-4222-8222-222222222222"),
+      begin_batch = list(id = "33333333-3333-4333-8333-333333333333", status = "finalized"),
+      person_id_map = list("fixture-1" = 91L),
+      commit = invisible(NULL), rollback = invisible(NULL),
+      stop("unexpected gateway operation", call. = FALSE)
+    )
+  })
+  result <- execute_reimport(manifest, sha("d"), "apply", gateway,
+    list(id = "22222222-2222-4222-8222-222222222222"))
+  expect_identical(result$status, "already_applied")
+  expect_identical(result$person_id_map, list("fixture-1" = 91L))
+  expect_false("source_evidence" %in% calls)
+})

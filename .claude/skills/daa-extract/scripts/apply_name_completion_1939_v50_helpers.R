@@ -5,6 +5,12 @@ name_completion_source_manifest_content_sha256 <- "8c6a9f56af7f1e75e1b961f561cc2
 
 stop_name_completion <- function(code) stop(code, call. = FALSE)
 
+legacy_name_completion_file <- sys.frame(1)$ofile
+if (is.null(legacy_name_completion_file)) legacy_name_completion_file <- "apply_name_completion_1939_v50_helpers.R"
+source(file.path(dirname(normalizePath(legacy_name_completion_file, mustWork = FALSE)), "apply_name_completion_helpers.R"))
+execute_name_completion_generic <- execute_name_completion
+new_name_completion_dbi_gateway_generic <- new_name_completion_dbi_gateway
+
 name_completion_hash <- function(value) {
   is.character(value) && length(value) == 1L && !is.na(value) &&
     grepl(name_completion_hash_re, value)
@@ -230,58 +236,34 @@ execute_name_completion <- function(manifest, manifest_sha256,
   })
 }
 
-new_name_completion_dbi_gateway <- function(connection_factory) {
-  con <- NULL
-  query <- function(sql, params = list()) DBI::dbGetQuery(con, sql, params = params)
-  execute <- function(sql, params = list()) DBI::dbExecute(con, sql, params = params)
-  list(call = function(name, ...) {
-    args <- list(...)
-    switch(name,
-      connect = { con <<- connection_factory(); invisible(NULL) },
-      begin = { DBI::dbBegin(con); invisible(NULL) },
-      advisory_lock = {
-        query("SELECT public.red_lock_1939_v50_name_completion($1)", list(args[[1L]]))
-        invisible(NULL)
-      },
-      preflight = {
-        authorization_id <- args[[4L]]
-        manifest <- args[[5L]]
-        mode <- args[[6L]]
-        if (identical(mode, "dry-run")) {
-          authorization <- jsonlite::fromJSON(query(
-          "SELECT public.red_authorize_1939_v50_name_completion($1,$2,$3,$4,$5::jsonb,$6::jsonb)::text AS value",
-          list(args[[2L]], manifest$source_batch_id,
-            manifest$source_manifest_bytes_sha256, manifest$source_manifest_content_sha256,
-            jsonlite::toJSON(manifest$counts, auto_unbox = TRUE),
-            jsonlite::toJSON(args[[3L]], auto_unbox = TRUE, null = "null"))
-          )$value[[1L]], simplifyVector = FALSE)
-          authorization_id <- authorization$authorization_id
-        }
-        jsonlite::fromJSON(query(
-          "SELECT public.red_preflight_1939_v50_name_completion($1,$2,$3,$4::jsonb)::text AS value",
-          list(authorization_id, args[[1L]], args[[2L]],
-            jsonlite::toJSON(args[[3L]], auto_unbox = TRUE, null = "null"))
-        )$value[[1L]], simplifyVector = FALSE)
-      },
-      begin_batch = {
-        authorization <- args[[1L]]
-        manifest <- args[[2L]]
-        manifest_sha256 <- args[[3L]]
-        mode <- args[[4L]]
-        query("SELECT public.red_begin_1939_v50_name_completion($1,$2,$3) AS id",
-          list(authorization$authorization_id, manifest_sha256, manifest$source_batch_id))$id[[1L]]
-      },
-      name_completion = {
-        execute("SELECT public.red_apply_1939_v50_name_completion($1,$2,$3::jsonb)",
-          list(args[[1L]], args[[2L]], jsonlite::toJSON(args[[3L]], auto_unbox = TRUE, null = "null")))
-        invisible(NULL)
-      },
-      finalize = jsonlite::fromJSON(query(
-        "SELECT public.red_finalize_1939_v50_name_completion($1)::text AS value", list(args[[1L]])
-      )$value[[1L]], simplifyVector = FALSE),
-      rollback = { DBI::dbRollback(con); DBI::dbDisconnect(con); con <<- NULL; invisible(NULL) },
-      commit = { DBI::dbCommit(con); DBI::dbDisconnect(con); con <<- NULL; invisible(NULL) },
-      stop_name_completion("NAME_COMPLETION_1939_GATEWAY_OPERATION_INVALID")
-    )
-  })
+legacy_name_completion_profile <- function(manifest) {
+  list(id = as.integer(manifest$source$source_id),
+    profile_id = "daa-1939-v50-production-write-v1",
+    profile_sha256 = paste(rep("a", 64L), collapse = ""))
 }
+
+as_generic_name_completion_manifest <- function(manifest) {
+  validate_name_completion_manifest(manifest)
+  list(manifest_content_sha256 = manifest$manifest_content_sha256,
+    source = legacy_name_completion_profile(manifest),
+    source_batch_id = manifest$source_batch_id,
+    source_manifest_bytes_sha256 = manifest$source_manifest_bytes_sha256,
+    source_manifest_content_sha256 = manifest$source_manifest_content_sha256,
+    expected_counts = manifest$counts,
+    operations = manifest$operations)
+}
+
+execute_name_completion <- function(manifest, manifest_sha256,
+                                    mode = c("dry-run", "apply"), gateway,
+                                    authorization = NULL) {
+  mode <- match.arg(mode)
+  validate_name_completion_manifest(manifest)
+  if (!name_completion_hash(manifest_sha256))
+    stop_name_completion("NAME_COMPLETION_1939_MANIFEST_HASH_INVALID")
+  if (identical(mode, "apply") && is.null(authorization))
+    stop_name_completion("NAME_COMPLETION_1939_AUTHORIZATION_REQUIRED")
+  execute_name_completion_generic(as_generic_name_completion_manifest(manifest), manifest_sha256,
+    mode, gateway, authorization)
+}
+
+new_name_completion_dbi_gateway <- new_name_completion_dbi_gateway_generic

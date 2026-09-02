@@ -11,6 +11,6 @@ raw <- readBin(value("--manifest"),"raw",n=file.info(value("--manifest"))$size)
 if (!identical(digest::digest(raw,algo="sha256",serialize=FALSE),value("--manifest-sha256"))) stop("REIMPORT_1939_MANIFEST_HASH_INVALID",call.=FALSE)
 manifest <- jsonlite::fromJSON(rawToChar(raw),simplifyVector=FALSE)
 authorization <- if(mode=="apply") jsonlite::fromJSON(value("--authorization"),simplifyVector=FALSE) else NULL
-gateway <- new_dbi_writer_gateway(function() DBI::dbConnect(RPostgres::Postgres(),dbname=Sys.getenv("PGDATABASE"),host=Sys.getenv("PGHOST"),port=Sys.getenv("PGPORT"),user=Sys.getenv("PGUSER"),password=Sys.getenv("PGPASSWORD")))
+gateway <- new_default_reimport_dbi_gateway()
 result <- execute_reimport(manifest,value("--preview-sha256"),mode,gateway,authorization)
 cat(jsonlite::toJSON(result,auto_unbox=TRUE,pretty=TRUE),"\n")

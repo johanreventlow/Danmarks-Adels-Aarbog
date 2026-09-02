@@ -36,19 +36,6 @@ authorization <- if (identical(mode, "apply")) {
 actor <- Sys.getenv("DAA_REIMPORT_ACTOR_ID")
 if (!name_completion_uuid(actor))
   stop("NAME_COMPLETION_1939_ACTOR_REQUIRED", call. = FALSE)
-connection_factory <- function() {
-  con <- DBI::dbConnect(
-    RPostgres::Postgres(), dbname = Sys.getenv("PGDATABASE"), host = Sys.getenv("PGHOST"),
-    port = Sys.getenv("PGPORT"), user = Sys.getenv("PGUSER"), password = Sys.getenv("PGPASSWORD")
-  )
-  tryCatch({
-    DBI::dbGetQuery(con, "SELECT set_config('request.jwt.claim.sub',$1,false)", params = list(actor))
-    con
-  }, error = function(error) {
-    DBI::dbDisconnect(con)
-    stop(conditionMessage(error), call. = FALSE)
-  })
-}
-gateway <- new_name_completion_dbi_gateway(connection_factory)
+gateway <- new_default_name_completion_dbi_gateway()
 result <- execute_name_completion(manifest, manifest_sha256, mode, gateway, authorization)
 writeLines(jsonlite::toJSON(result, auto_unbox = TRUE, pretty = TRUE), output, useBytes = TRUE)

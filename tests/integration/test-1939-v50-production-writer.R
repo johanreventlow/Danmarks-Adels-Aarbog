@@ -38,49 +38,7 @@ seed_v2_record_placements <- function(con) {
 }
 preview <- paste(rep("b",64),collapse="")
 gateway <- function() {
-  writer_con <- NULL
-  replay_batch <- FALSE
-  writer_query <- function(sql,params=list()) if(length(params)) DBI::dbGetQuery(writer_con,sql,params=params) else DBI::dbGetQuery(writer_con,sql)
-  writer_execute <- function(sql,params=list()) if(length(params)) DBI::dbExecute(writer_con,sql,params=params) else DBI::dbExecute(writer_con,sql)
-  list(call=function(name, ...) {
-    args <- list(...)
-    switch(name,
-      connect={writer_con <<- connect(); invisible(NULL)},
-      begin={DBI::dbBegin(writer_con); invisible(NULL)},
-      advisory_lock={writer_query("SELECT pg_advisory_xact_lock(hashtextextended('daa-1939-v50-production-writer',0))"); invisible(NULL)},
-      preflight={
-        writer_query("SELECT set_config('request.jwt.claim.sub',$1,true)",list(actor))
-        writer_query("SELECT current_setting('transaction_read_only') AS transaction_read_only, current_database() AS database_name")
-      },
-      begin_batch={
-        auth <- args[[1]]; manifest_arg <- args[[2]]; preview_arg <- args[[3]]; mode <- args[[4]]
-        if (mode=="dry-run") {
-          nonce <- writer_query("SELECT gen_random_uuid() AS id")$id[[1]]
-          counts <- v2_expected_counts
-          elements <- jsonlite::toJSON(authorized_element_payloads(manifest_arg),auto_unbox=TRUE,null="null")
-          auth <- list(id=writer_query("SELECT public.red_authorize_1939_v50_reimport($1,$2,current_database(),3,$3::jsonb,$4::jsonb,$5,clock_timestamp()+interval '10 minutes') AS id",list(manifest_arg$manifest_content_sha256,preview_arg,counts,elements,nonce))$id[[1]])
-        }
-        batch_id <- writer_query("SELECT public.red_begin_1939_v50_reimport($1,$2,$3) AS id",list(auth$id,manifest_arg$manifest_content_sha256,preview_arg))$id[[1]]
-        replay_batch <<- isTRUE(writer_query("SELECT status='finalized' AS finalized FROM private.reimport_batch WHERE id=$1",list(batch_id))$finalized[[1]])
-        batch_id
-      },
-      source_evidence={if (!replay_batch) writer_execute("SELECT public.red_apply_1939_v50_source_evidence($1,$2,$3::jsonb)",list(args[[1]],args[[2]],jsonlite::toJSON(args[[3]],auto_unbox=TRUE,null="null"))); invisible(NULL)},
-      person_create={
-        if (replay_batch) return(writer_query("SELECT canonical_person_id AS id FROM private.reimport_event WHERE batch_id=$1 AND element_id=$2 AND operation='person_create'",list(args[[1]],args[[2]]))$id[[1]])
-        person_id <- writer_query("SELECT public.red_apply_1939_v50_person_create($1,$2,$3::jsonb) AS id",list(args[[1]],args[[2]],jsonlite::toJSON(args[[3]],auto_unbox=TRUE,null="null")))$id[[1]]
-        # The v2 narrative kernel owns a per-record audit set. The fixture
-        # explicitly closes that local context before its next independent
-        # facade mutation; it does not restore a v1 writer branch.
-        writer_query("SELECT set_config('app.change_set_id','',true)")
-        person_id
-      },
-      canonical_delta={writer_execute("SELECT public.red_apply_1939_v50_canonical_delta($1,$2,$3::jsonb)",list(args[[1]],args[[2]],jsonlite::toJSON(args[[3]],auto_unbox=TRUE,null="null"))); invisible(NULL)},
-      finalize=if (replay_batch) list(status="already_applied") else jsonlite::fromJSON(writer_query("SELECT public.red_finalize_1939_v50_reimport($1)::text AS value",list(args[[1]]))$value[[1]],simplifyVector=FALSE),
-      rollback={DBI::dbRollback(writer_con); DBI::dbDisconnect(writer_con); writer_con <<- NULL; invisible(NULL)},
-      commit={DBI::dbCommit(writer_con); DBI::dbDisconnect(writer_con); writer_con <<- NULL; invisible(NULL)},
-      stop_writer("REIMPORT_1939_GATEWAY_OPERATION_INVALID")
-    )
-  })
+  new_dbi_writer_gateway(function() connect())
 }
 con <- connect(); on.exit(try(DBI::dbDisconnect(con),silent=TRUE),add=TRUE)
 placement_ids <- seed_v2_record_placements(con)
@@ -97,10 +55,16 @@ manifest <- list(
  counts=list(existing_anchors=543L,person_creates=8L,provenance_dispositions=305L,source_evidence_operations=305L,canonical_delta=0L,operations=313L),
  expected_changes=list(persons_created=8L,source_evidence_written=305L,canonical_rows_changed=0L,persons_activated=0L),
  manifest_content_sha256=paste(rep("c",64),collapse=""),production_authorized=FALSE,apply_gate="NO-GO",cutover_gate="NO-GO")
-v2_expected_counts <- '{"person_creates":8,"source_evidence":305}'
+generic_manifest <- as_generic_reimport_manifest(manifest)
+generic_expected_counts <- jsonlite::toJSON(reimport_writer_expected_counts(generic_manifest), auto_unbox=TRUE)
+generic_authorized <- jsonlite::toJSON(reimport_authorized_payloads(generic_manifest), auto_unbox=TRUE, null="null")
+DBI::dbExecute(con, "INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config) VALUES($1,$2,'fixture-v2',$3,$4::jsonb)", list(
+  generic_manifest$source$id, generic_manifest$source$profile_id,
+  generic_manifest$source$profile_sha256,
+  '{"run_key_prefix":"reimport-1939-v50:","schema_version":"1939-v50-production-write-manifest-v1","extractor_version":"production-writer-v1","rendition_key":"daa-1939-calamari-r6-clean","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"observation_extraction_method":"fixture","citation_label_template":"DAA 1939 side {page_from}"}'))
 race <- connect(); DBI::dbBegin(con); DBI::dbBegin(race)
-q(con,"SELECT pg_advisory_xact_lock(hashtextextended('daa-1939-v50-production-writer',0))")
-stopifnot(!q(race,"SELECT pg_try_advisory_xact_lock(hashtextextended('daa-1939-v50-production-writer',0)) acquired")$acquired[[1]])
+q(con,"SELECT pg_advisory_xact_lock(hashtextextended($1,0))",list("daa-reimport:3:daa-1939-v50-production-write-v1"))
+stopifnot(!q(race,"SELECT pg_try_advisory_xact_lock(hashtextextended($1,0)) acquired",list("daa-reimport:3:daa-1939-v50-production-write-v1"))$acquired[[1]])
 DBI::dbRollback(race); DBI::dbDisconnect(race); DBI::dbRollback(con)
 before <- q(con,"SELECT (SELECT count(*) FROM person) persons,(SELECT count(*) FROM private.reimport_1939_write_batch) batches,(SELECT count(*) FROM private.reimport_1939_write_event) events")
 DBI::dbDisconnect(con); con <- NULL
@@ -109,8 +73,7 @@ stopifnot(dry$status %in% c("finalized","already_applied"),!dry$committed)
 con <- connect(); after <- q(con,"SELECT (SELECT count(*) FROM person) persons,(SELECT count(*) FROM private.reimport_1939_write_batch) batches,(SELECT count(*) FROM private.reimport_1939_write_event) events")
 stopifnot(identical(before,after))
 q(con,"SELECT set_config('request.jwt.claim.sub',$1,false)",list(actor))
-authorized <- jsonlite::toJSON(authorized_element_payloads(manifest),auto_unbox=TRUE,null="null")
-auth <- q(con,"SELECT red_authorize_1939_v50_reimport($1,$2,current_database(),3,$3::jsonb,$4::jsonb,gen_random_uuid(),clock_timestamp()+interval '10 minutes') id",list(manifest$manifest_content_sha256,preview,v2_expected_counts,authorized))$id[[1]]
+auth <- q(con,"SELECT red_authorize_reimport($1,$2,current_database(),$3,$4,$5,$6::jsonb,$7::jsonb,gen_random_uuid(),clock_timestamp()+interval '10 minutes') id",list(generic_manifest$manifest_content_sha256,preview,generic_manifest$source$id,generic_manifest$source$profile_id,generic_manifest$source$profile_sha256,generic_expected_counts,generic_authorized))$id[[1]]
 DBI::dbDisconnect(con); con <- NULL
 applied <- execute_reimport(manifest,preview,"apply",gateway(),list(id=auth))
 stopifnot(applied$committed,length(applied$person_id_map)==8L)
@@ -119,16 +82,17 @@ state <- q(con,"SELECT (SELECT count(*) FROM person_external_id WHERE record_key
 stopifnot(state$persons[[1]]==8,state$evidence[[1]]==305,state$profile_bound[[1]]==1)
 provenance <- q(con,"SELECT (SELECT count(*) FROM private.source_record WHERE record_key LIKE 'record-ci-%' OR record_key LIKE 'record-source-%') records,(SELECT count(*) FROM private.source_observation o JOIN private.extraction_run r ON r.id=o.extraction_run_id WHERE r.run_key='reimport-1939-v50:'||$1) observations,(SELECT count(*) FROM private.source_persona WHERE persona_key LIKE '1939:record-ci-%') personas,(SELECT count(*) FROM private.source_persona_identity i JOIN private.source_persona p ON p.id=i.source_persona_id WHERE p.persona_key LIKE '1939:record-ci-%' AND i.decision_status='accepted') identities,(SELECT count(*) FROM narrative WHERE subjekt_type='person' AND tekst LIKE 'CI person %') narratives",list(manifest$manifest_content_sha256))
 stopifnot(provenance$records[[1]]==313,provenance$observations[[1]]==313,provenance$personas[[1]]==8,provenance$identities[[1]]==8,provenance$narratives[[1]]==8)
-auth2 <- q(con,"SELECT red_authorize_1939_v50_reimport($1,$2,current_database(),3,$3::jsonb,$4::jsonb,gen_random_uuid(),clock_timestamp()+interval '10 minutes') id",list(manifest$manifest_content_sha256,preview,v2_expected_counts,authorized))$id[[1]]
+auth2 <- q(con,"SELECT red_authorize_reimport($1,$2,current_database(),$3,$4,$5,$6::jsonb,$7::jsonb,gen_random_uuid(),clock_timestamp()+interval '10 minutes') id",list(generic_manifest$manifest_content_sha256,preview,generic_manifest$source$id,generic_manifest$source$profile_id,generic_manifest$source$profile_sha256,generic_expected_counts,generic_authorized))$id[[1]]
 DBI::dbDisconnect(con); con <- NULL
 replayed <- execute_reimport(manifest,preview,"apply",gateway(),list(id=auth2))
 stopifnot(replayed$status=="already_applied",replayed$committed,length(replayed$person_id_map)==8L)
 con <- connect(); q(con,"SELECT set_config('request.jwt.claim.sub',$1,false)",list(actor))
-tamper_auth <- q(con,"SELECT red_authorize_1939_v50_reimport($1,$2,current_database(),3,$3::jsonb,$4::jsonb,gen_random_uuid(),clock_timestamp()+interval '10 minutes') id",list(paste(rep("f",64),collapse=""),preview,v2_expected_counts,authorized))$id[[1]]
-tamper_batch <- q(con,"SELECT red_begin_1939_v50_reimport($1,$2,$3) id",list(tamper_auth,paste(rep("f",64),collapse=""),preview))$id[[1]]
-tampered <- authorized_element_payloads(manifest); tampered[[1]]$verbatim_text <- paste0(tampered[[1]]$verbatim_text,"!")
-drift <- try(q(con,"SELECT red_apply_1939_v50_source_evidence($1,$2,$3::jsonb)",list(tamper_batch,"source-evidence:ci-1",jsonlite::toJSON(tampered[[1]],auto_unbox=TRUE,null="null"))),silent=TRUE)
-stopifnot(inherits(drift,"try-error"),grepl("REIMPORT_1939_ELEMENT_NOT_AUTHORIZED",as.character(drift),fixed=TRUE))
+tamper_manifest_sha <- paste(rep("f",64),collapse="")
+tamper_auth <- q(con,"SELECT red_authorize_reimport($1,$2,current_database(),$3,$4,$5,$6::jsonb,$7::jsonb,gen_random_uuid(),clock_timestamp()+interval '10 minutes') id",list(tamper_manifest_sha,preview,generic_manifest$source$id,generic_manifest$source$profile_id,generic_manifest$source$profile_sha256,generic_expected_counts,generic_authorized))$id[[1]]
+tamper_batch <- q(con,"SELECT red_begin_reimport($1,$2,$3) id",list(tamper_auth,tamper_manifest_sha,preview))$id[[1]]
+tampered <- reimport_authorized_payloads(generic_manifest); tampered[[1]]$verbatim_text <- paste0(tampered[[1]]$verbatim_text,"!")
+drift <- try(q(con,"SELECT red_apply_reimport_source_evidence($1,$2,$3::jsonb)",list(tamper_batch,"source-evidence:ci-1",jsonlite::toJSON(tampered[[1]],auto_unbox=TRUE,null="null"))),silent=TRUE)
+stopifnot(inherits(drift,"try-error"),grepl("REIMPORT_WRITER_ELEMENT_NOT_AUTHORIZED",as.character(drift),fixed=TRUE))
 invisible(q(con,"SET ROLE anon")); visible <- q(con,"SELECT count(*) n FROM person_external_id WHERE record_key LIKE 'record-ci-%'")$n[[1]]; invisible(q(con,"RESET ROLE")); stopifnot(visible==0)
 q(con,"SELECT set_config('request.jwt.claim.sub',$1,false)",list(actor))
 batch <- q(con,"SELECT id FROM private.reimport_1939_write_batch WHERE manifest_sha256=$1 AND status='finalized'",list(manifest$manifest_content_sha256))$id[[1]]

@@ -3,6 +3,7 @@ root <- normalizePath(file.path(dirname(sub("^--file=", "", script_arg)), "../..
 source(file.path(root, ".claude/skills/daa-extract/scripts/apply_name_completion_1939_v50_helpers.R"))
 
 actor <- "11111111-1111-4111-8111-111111111111"
+Sys.setenv(DAA_REIMPORT_ACTOR_ID = actor)
 source_batch <- "560c39f8-5c87-4c0d-a768-025d97fa2974"
 source_auth <- "560c39f8-5c87-4c0d-a768-025d97fa2973"
 source_run <- "560c39f8-5c87-4c0d-a768-025d97fa2972"
@@ -160,7 +161,7 @@ stopifnot(identical(as.integer(attr(missing_actor, "status")), 1L),
   !file.exists(cli_outputs[[1L]]), identical(protected_counts(con), before))
 wrong_actor <- run_cli("22222222-2222-4222-8222-222222222222", cli_outputs[[2L]])
 stopifnot(identical(as.integer(attr(wrong_actor, "status")), 1L),
-  any(grepl("REIMPORT_1939_ROLE_FORBIDDEN", wrong_actor, fixed = TRUE)),
+  any(grepl("REIMPORT_WRITER_ROLE_FORBIDDEN", wrong_actor, fixed = TRUE)),
   !file.exists(cli_outputs[[2L]]), identical(protected_counts(con), before))
 correct_actor <- run_cli(actor, cli_outputs[[3L]])
 stopifnot(is.null(attr(correct_actor, "status")), file.exists(cli_outputs[[3L]]),
@@ -203,12 +204,14 @@ DBI::dbRollback(holder); DBI::dbDisconnect(holder)
 stopifnot(inherits(blocked, "try-error"), grepl("statement timeout", as.character(blocked), fixed = TRUE),
   identical(protected_counts(con), before))
 
+generic_manifest <- as_generic_name_completion_manifest(manifest)
+generic_payloads <- jsonlite::toJSON(name_completion_payloads(generic_manifest), auto_unbox = TRUE, null = "null")
 authorization <- jsonlite::fromJSON(query(con,
-  "SELECT public.red_authorize_1939_v50_name_completion($1,$2,$3,$4,$5::jsonb,$6::jsonb)::text value",
+  "SELECT public.red_authorize_reimport_name_completion($1,$2,$3,$4,$5::jsonb,$6::jsonb)::text value",
   list(manifest_sha, source_batch, name_completion_source_manifest_bytes_sha256,
     name_completion_source_manifest_content_sha256,
-    jsonlite::toJSON(manifest$counts, auto_unbox = TRUE),
-    jsonlite::toJSON(payloads, auto_unbox = TRUE, null = "null")))$value[[1L]], simplifyVector = FALSE)
+    jsonlite::toJSON(generic_manifest$expected_counts, auto_unbox = TRUE),
+    generic_payloads))$value[[1L]], simplifyVector = FALSE)
 DBI::dbDisconnect(con); con <- NULL
 applied <- execute_name_completion(manifest, manifest_sha, "apply", gateway(), authorization)
 stopifnot(applied$committed, length(applied$result_map) == 8L)
@@ -220,12 +223,12 @@ completion <- query(con, "SELECT (SELECT count(*) FROM private.reimport_1939_nam
 stopifnot(completion$results[[1L]] == 8, completion$events[[1L]] == 8)
 
 replay_authorization <- try(query(con,
-  "SELECT public.red_authorize_1939_v50_name_completion($1,$2,$3,$4,$5::jsonb,$6::jsonb)::text value",
+  "SELECT public.red_authorize_reimport_name_completion($1,$2,$3,$4,$5::jsonb,$6::jsonb)::text value",
   list(manifest_sha, source_batch, name_completion_source_manifest_bytes_sha256,
     name_completion_source_manifest_content_sha256,
-    jsonlite::toJSON(manifest$counts, auto_unbox = TRUE),
-    jsonlite::toJSON(payloads, auto_unbox = TRUE, null = "null"))), silent = TRUE)
-stopifnot(inherits(replay_authorization, "try-error"), grepl("NAME_COMPLETION_1939_AUTHORIZATION_INVALID",
+    jsonlite::toJSON(generic_manifest$expected_counts, auto_unbox = TRUE),
+    generic_payloads)), silent = TRUE)
+stopifnot(inherits(replay_authorization, "try-error"), grepl("REIMPORT_NAME_COMPLETION_INVALID",
   as.character(replay_authorization), fixed = TRUE))
 
 for (role in c("anon", "authenticated")) {
