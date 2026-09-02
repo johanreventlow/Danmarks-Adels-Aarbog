@@ -29,6 +29,7 @@ reimport_gateway <- function(manifest, preflight = NULL) {
     preflight = "SELECT current_database(), current_setting('transaction_read_only')",
     authorize = "SELECT public.red_authorize_reimport($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,$10)",
     begin_batch = "SELECT public.red_begin_reimport($1,$2,$3)",
+    batch_result = "SELECT public.red_reimport_batch_result($1,$2)",
     source_evidence = "SELECT public.red_apply_reimport_source_evidence($1,$2,$3::jsonb)",
     person_create = "SELECT public.red_apply_reimport_person_create($1,$2,$3::jsonb)",
     finalize = "SELECT public.red_finalize_reimport($1)"
@@ -47,6 +48,9 @@ reimport_gateway <- function(manifest, preflight = NULL) {
     }
     if (identical(name, "authorize")) return(list(id = "22222222-2222-4222-8222-222222222222"))
     if (identical(name, "begin_batch")) return("33333333-3333-4333-8333-333333333333")
+    if (identical(name, "batch_result")) return(list(
+      batch_id = "33333333-3333-4333-8333-333333333333", status = "open",
+      replayed = FALSE, person_id_map = list()))
     if (identical(name, "person_create")) return(91L)
     if (identical(name, "finalize")) return(list(status = "finalized"))
     invisible(NULL)
@@ -103,6 +107,13 @@ test_that("reimport projects canonical-delta validation out of writer counts", {
     list(person_creates = 0L, source_evidence = 1L))
 })
 
+test_that("reimport rejects malformed public batch-result envelopes", {
+  result <- list(batch_id = "33333333-3333-4333-8333-333333333333",
+    status = c("open", "finalized"), replayed = FALSE, person_id_map = list())
+  expect_error(validate_reimport_batch_result(result, result$batch_id),
+    "REIMPORT_BATCH_RESULT_INVALID")
+})
+
 test_that("reimport returns an existing finalized batch without replaying operations", {
   manifest <- reimport_manifest()
   calls <- character()
@@ -114,8 +125,9 @@ test_that("reimport returns an existing finalized batch without replaying operat
         actor_id = "11111111-1111-4111-8111-111111111111", transaction_read_only = "off",
         source = manifest$source, locked_payload_count = 1L),
       authorize = list(id = "22222222-2222-4222-8222-222222222222"),
-      begin_batch = list(id = "33333333-3333-4333-8333-333333333333", status = "finalized"),
-      person_id_map = list("fixture-1" = 91L),
+      begin_batch = "33333333-3333-4333-8333-333333333333",
+      batch_result = list(batch_id = "33333333-3333-4333-8333-333333333333",
+        status = "finalized", replayed = TRUE, person_id_map = list("fixture-1" = 91L)),
       commit = invisible(NULL), rollback = invisible(NULL),
       stop("unexpected gateway operation", call. = FALSE)
     )
@@ -124,5 +136,6 @@ test_that("reimport returns an existing finalized batch without replaying operat
     list(id = "22222222-2222-4222-8222-222222222222"))
   expect_identical(result$status, "already_applied")
   expect_identical(result$person_id_map, list("fixture-1" = 91L))
+  expect_true("batch_result" %in% calls)
   expect_false("source_evidence" %in% calls)
 })

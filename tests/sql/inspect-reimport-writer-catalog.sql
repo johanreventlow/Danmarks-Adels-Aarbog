@@ -15,7 +15,7 @@ WITH targets AS (
     coalesce(array_to_string(p.proconfig,','),'') AS config
   FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_roles r ON r.oid=p.proowner
   WHERE (n.nspname='public' AND p.proname IN (
-    'red_authorize_reimport','red_begin_reimport','red_apply_reimport_source_evidence','red_apply_reimport_person_create','red_finalize_reimport',
+    'red_authorize_reimport','red_begin_reimport','red_apply_reimport_source_evidence','red_apply_reimport_person_create','red_finalize_reimport','red_reimport_batch_result',
     'red_authorize_reimport_reversal','red_reverse_reimport','red_authorize_reimport_cutover','red_activate_reimport_batch',
     'red_lock_reimport_name_completion','red_authorize_reimport_name_completion','red_preflight_reimport_name_completion',
     'red_begin_reimport_name_completion','red_apply_reimport_name_completion','red_finalize_reimport_name_completion',

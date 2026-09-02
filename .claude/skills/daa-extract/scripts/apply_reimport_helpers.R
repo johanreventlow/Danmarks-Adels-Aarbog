@@ -85,6 +85,26 @@ validate_reimport_authorization <- function(authorization) {
   invisible(authorization)
 }
 
+validate_reimport_batch_result <- function(result, batch_id) {
+  required <- c("batch_id", "status", "replayed", "person_id_map")
+  if (!reimport_named(result, required) || !identical(result$batch_id, batch_id) ||
+      !is.character(result$status) || length(result$status) != 1L || is.na(result$status) ||
+      !result$status %in% c("open", "finalized") || !is.logical(result$replayed) ||
+      length(result$replayed) != 1L || is.na(result$replayed) || !is.list(result$person_id_map))
+    stop_reimport("REIMPORT_BATCH_RESULT_INVALID")
+  map_names <- names(result$person_id_map)
+  if (length(result$person_id_map) && (is.null(map_names) || any(!nzchar(map_names)) ||
+      anyDuplicated(map_names) || any(!vapply(result$person_id_map, function(value)
+        (is.integer(value) || is.numeric(value)) && length(value) == 1L && !is.na(value) && value > 0 &&
+          identical(value, as.integer(value)), logical(1)))))
+    stop_reimport("REIMPORT_BATCH_RESULT_INVALID")
+  if (identical(result$status, "open") && (isTRUE(result$replayed) || length(result$person_id_map)))
+    stop_reimport("REIMPORT_BATCH_RESULT_INVALID")
+  if (identical(result$status, "finalized") && !isTRUE(result$replayed))
+    stop_reimport("REIMPORT_BATCH_RESULT_INVALID")
+  invisible(result)
+}
+
 execute_reimport <- function(manifest, preview_sha256, mode = c("dry-run", "apply"), gateway,
                              authorization = NULL) {
   mode <- match.arg(mode)
@@ -109,10 +129,12 @@ execute_reimport <- function(manifest, preview_sha256, mode = c("dry-run", "appl
     validate_reimport_preflight(call("preflight", manifest), manifest)
     resolved_authorization <- call("authorize", manifest, preview_sha256, mode, authorization)
     validate_reimport_authorization(resolved_authorization)
-    batch <- call("begin_batch", resolved_authorization, manifest, preview_sha256)
-    batch_id <- if (is.list(batch)) batch$id else batch
-    if (is.list(batch) && identical(batch$status, "finalized")) {
-      person_id_map <- call("person_id_map", batch_id)
+    batch_id <- call("begin_batch", resolved_authorization, manifest, preview_sha256)
+    if (!reimport_uuid(batch_id)) stop_reimport("REIMPORT_BATCH_RESULT_INVALID")
+    batch_result <- call("batch_result", resolved_authorization, batch_id)
+    validate_reimport_batch_result(batch_result, batch_id)
+    if (identical(batch_result$status, "finalized")) {
+      person_id_map <- batch_result$person_id_map
       if (identical(mode, "dry-run")) rollback_once() else call("commit")
       return(list(mode = mode, status = "already_applied", person_id_map = person_id_map,
         authorization = resolved_authorization, committed = identical(mode, "apply")))
@@ -138,12 +160,14 @@ execute_reimport <- function(manifest, preview_sha256, mode = c("dry-run", "appl
   })
 }
 
-new_reimport_dbi_gateway <- function(connection_factory) {
+new_reimport_dbi_gateway <- function(connection_factory, sql_observer = NULL) {
   con <- NULL
   query <- function(sql, params = list()) {
+    if (is.function(sql_observer)) sql_observer(sql)
     if (length(params)) DBI::dbGetQuery(con, sql, params = params) else DBI::dbGetQuery(con, sql)
   }
   execute <- function(sql, params = list()) {
+    if (is.function(sql_observer)) sql_observer(sql)
     if (length(params)) DBI::dbExecute(con, sql, params = params) else DBI::dbExecute(con, sql)
   }
   list(call = function(name, ...) {
@@ -182,15 +206,11 @@ new_reimport_dbi_gateway <- function(connection_factory) {
         list(id = id)
       },
       begin_batch = {
-        id <- query("SELECT public.red_begin_reimport($1,$2,$3) AS id", list(
+        query("SELECT public.red_begin_reimport($1,$2,$3) AS id", list(
           args[[1L]]$id, args[[2L]]$manifest_content_sha256, args[[3L]]))$id[[1L]]
-        status <- query("SELECT status FROM private.reimport_batch WHERE id=$1", list(id))$status[[1L]]
-        list(id = id, status = status)
       },
-      person_id_map = {
-        rows <- query("SELECT source_record_key,canonical_person_id FROM private.reimport_event WHERE batch_id=$1 AND operation='person_create' ORDER BY element_id", list(args[[1L]]))
-        stats::setNames(as.list(as.integer(rows$canonical_person_id)), rows$source_record_key)
-      },
+      batch_result = jsonlite::fromJSON(query("SELECT public.red_reimport_batch_result($1,$2)::text AS value", list(
+        args[[1L]]$id, args[[2L]]))$value[[1L]], simplifyVector = FALSE),
       source_evidence = { execute("SELECT public.red_apply_reimport_source_evidence($1,$2,$3::jsonb)", list(
         args[[1L]], args[[2L]], jsonlite::toJSON(args[[3L]], auto_unbox = TRUE, null = "null"))); invisible(NULL) },
       person_create = {

@@ -198,3 +198,58 @@ public begin RPC returns only a UUID. This is still profile-bound, local to the
 generic gateway, and has explicit replay coverage; adding a public replay
 status RPC would remove that read-side coupling in a future, separately scoped
 database task.
+
+## Fix round 1 — public generic replay receipt
+
+Root cause: the generic DBI gateway read `private.reimport_batch` after begin
+and `private.reimport_event` for replay maps. Those reads contradict the
+private-ledger ACL. The initial RED was
+`Rscript -e 'testthat::test_file("tests/testthat/test-apply-reimport.R")'`:
+the revised finalized-replay test failed `unexpected gateway operation`; the
+schema RED was `psql -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-writer.sql`,
+which stopped with `REIMPORT_WRITER_RPC_MISSING:
+public.red_reimport_batch_result(uuid,uuid)`.
+
+GREEN implementation adds authenticated-only, security-definer
+`public.red_reimport_batch_result(uuid,uuid)` in fresh schema and the atomic
+migration. It contract-gates before ledger access; validates consumed reimport
+authorization/current editor and all profile/source/manifest/preview bindings;
+returns only batch id/status/server-side replay flag/person map; and fails
+closed for malformed/open/finalized state. The R gateway uses that RPC after
+begin, validates the exact response shape, and has no `private.reimport_*`
+SQL. The unreachable legacy name-completion executor and its old authorization
+and preflight helpers were removed; the retained legacy facade adapter only
+converts its pinned manifest to the generic helper.
+
+GREEN commands/results (all five PG variables were set for each database/R
+command, using only `daa_153_task5_disposable`):
+
+```bash
+Rscript -e 'testthat::test_file("tests/testthat/test-apply-reimport.R")'
+for test_file in tests/testthat/test-apply-reimport.R tests/testthat/test-apply-name-completion.R tests/testthat/test-apply-reimport-1939-v50.R tests/testthat/test-apply-name-completion-1939-v50.R; do Rscript -e "testthat::test_file('$test_file')" || exit 1; done
+PGHOST=/tmp PGPORT=5432 PGDATABASE=daa_153_task5_disposable PGUSER=johanreventlow PGPASSWORD='' Rscript tests/integration/test-1939-v50-production-writer.R
+PGHOST=/tmp PGPORT=5432 PGDATABASE=daa_153_task5_disposable PGUSER=johanreventlow PGPASSWORD='' Rscript tests/integration/test-1939-v50-name-completion.R
+```
+
+The unit suite passed 16/10/8/6 expectations; both integrations printed their
+`PASS` marker. The production-writer integration records the real emitted DBI
+SQL, requires the public result RPC and rejects any private-ledger query. It
+uses `service_role` only to authorize, checks authenticated generic begin/result
+on an open batch, then proves initial apply and authenticated finalized replay.
+Fresh schema SQL writer and clean schema+migration+RLS completed; the new
+`db-verify.sql` check printed its `OK` notice. The full verifier later stopped
+at its unrelated local `DB_VERIFY_DBLINK_REQUIRED` prerequisite.
+
+Changed files are the Task 5 helpers, schema/migration/RLS/verifier, writer
+SQL/catalog/migration tests, the authorized production-writer integration, the
+Task 5 reimport unit test, and the controller-amended Task 5 plan. Self-review:
+no `work/` or protected artifact was read/changed; no production DB, push,
+merge, or deployment occurred; no payload/history is exposed by the new RPC;
+all ledger tables remain revoked from anon/authenticated/service_role.
+
+Additional strict-validation RED/GREEN: the malformed two-status response test
+first produced `length = 2 in coercion to logical(1)`; after requiring a
+single non-missing character status it passes with
+`REIMPORT_BATCH_RESULT_INVALID`. The final fresh SQL writer regression also
+completed with `ROLLBACK` and no error after loading the disposable bootstrap,
+schema, RLS, writer fixture, and `test-reimport-writer.sql`.

@@ -11372,6 +11372,7 @@ DROP FUNCTION IF EXISTS public.red_begin_reimport(uuid,text,text);
 DROP FUNCTION IF EXISTS public.red_apply_reimport_source_evidence(uuid,text,jsonb);
 DROP FUNCTION IF EXISTS public.red_apply_reimport_person_create(uuid,text,jsonb);
 DROP FUNCTION IF EXISTS public.red_finalize_reimport(uuid);
+DROP FUNCTION IF EXISTS public.red_reimport_batch_result(uuid,uuid);
 DROP FUNCTION IF EXISTS public.red_authorize_reimport_reversal(uuid,uuid,timestamptz);
 DROP FUNCTION IF EXISTS public.red_reverse_reimport(uuid,uuid);
 DROP FUNCTION IF EXISTS public.red_authorize_reimport_cutover(uuid,uuid,timestamptz);
@@ -11590,6 +11591,79 @@ BEGIN
   UPDATE private.reimport_batch SET status='finalized',observed_counts=v_counts,finalized_at=clock_timestamp() WHERE id=p_batch_id;
   RETURN jsonb_build_object('batch_id',p_batch_id,'status','finalized','counts',v_counts);
 END $$;
+
+CREATE OR REPLACE FUNCTION public.red_reimport_batch_result(p_authorization_id uuid,p_batch_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_authorization private.reimport_authorization%ROWTYPE;
+  v_batch private.reimport_batch%ROWTYPE;
+  v_actor uuid;
+  v_expected_person_creates bigint;
+  v_person_create_count bigint;
+  v_valid_person_create_count bigint;
+  v_distinct_record_key_count bigint;
+  v_distinct_element_id_count bigint;
+  v_distinct_person_id_count bigint;
+  v_person_id_map jsonb;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN
+    RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED';
+  END IF;
+  v_actor:=private.require_reimport_writer_editor();
+  SELECT * INTO v_authorization FROM private.reimport_authorization
+    WHERE id=p_authorization_id FOR UPDATE;
+  IF NOT FOUND OR v_authorization.operation<>'reimport'
+     OR v_authorization.status<>'consumed' OR v_authorization.principal_id<>v_actor THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+  END IF;
+  SELECT * INTO v_batch FROM private.reimport_batch WHERE id=p_batch_id FOR UPDATE;
+  IF NOT FOUND
+     OR v_batch.principal_id<>v_actor
+     OR v_batch.source_id<>v_authorization.source_id
+     OR v_batch.profile_id<>v_authorization.profile_id
+     OR v_batch.profile_sha256<>v_authorization.profile_sha256
+     OR v_batch.manifest_sha256<>v_authorization.manifest_sha256
+     OR v_batch.preview_sha256<>v_authorization.preview_sha256 THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+  END IF;
+  IF v_batch.status='open' THEN
+    IF v_batch.authorization_id<>v_authorization.id THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+    END IF;
+    RETURN jsonb_build_object('batch_id',v_batch.id,'status','open','replayed',false,'person_id_map','{}'::jsonb);
+  END IF;
+  IF v_batch.status<>'finalized' OR v_batch.finalized_at IS NULL
+     OR v_batch.observed_counts IS DISTINCT FROM v_batch.expected_counts
+     OR jsonb_typeof(v_batch.expected_counts)<>'object'
+     OR coalesce(v_batch.expected_counts->>'person_creates','') !~ '^[0-9]+$' THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+  END IF;
+  v_expected_person_creates:=(v_batch.expected_counts->>'person_creates')::bigint;
+  SELECT count(*),
+    count(*) FILTER (WHERE e.source_record_key IS NOT NULL AND e.source_record_key<>''
+      AND e.canonical_person_id IS NOT NULL AND e.canonical_person_id>0
+      AND e.element_id='person-create:'||e.source_record_key
+      AND e.payload->>'source_record_key'=e.source_record_key),
+    count(DISTINCT e.source_record_key),count(DISTINCT e.element_id),count(DISTINCT e.canonical_person_id),
+    coalesce(jsonb_object_agg(e.source_record_key,e.canonical_person_id ORDER BY e.element_id),'{}'::jsonb)
+  INTO v_person_create_count,v_valid_person_create_count,v_distinct_record_key_count,
+    v_distinct_element_id_count,v_distinct_person_id_count,v_person_id_map
+  FROM private.reimport_event e
+  WHERE e.batch_id=v_batch.id AND e.operation='person_create';
+  IF v_person_create_count<>v_expected_person_creates
+     OR v_valid_person_create_count<>v_person_create_count
+     OR v_distinct_record_key_count<>v_person_create_count
+     OR v_distinct_element_id_count<>v_person_create_count
+     OR v_distinct_person_id_count<>v_person_create_count THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+  END IF;
+  RETURN jsonb_build_object('batch_id',v_batch.id,'status','finalized','replayed',true,'person_id_map',v_person_id_map);
+END $$;
+
+REVOKE ALL ON FUNCTION public.red_reimport_batch_result(uuid,uuid)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_reimport_batch_result(uuid,uuid) TO authenticated;
 
 CREATE OR REPLACE FUNCTION private.validate_reimport_name_completion(p_authorization_id uuid,p_source_batch_id uuid,p_manifest_sha256 text,p_payloads jsonb)
 RETURNS private.reimport_batch LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$

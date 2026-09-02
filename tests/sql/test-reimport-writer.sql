@@ -16,6 +16,7 @@ BEGIN
     'public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz)',
     'public.red_begin_reimport(uuid,text,text)','public.red_apply_reimport_source_evidence(uuid,text,jsonb)',
     'public.red_apply_reimport_person_create(uuid,text,jsonb)','public.red_finalize_reimport(uuid)',
+    'public.red_reimport_batch_result(uuid,uuid)',
     'public.red_authorize_reimport_reversal(uuid,uuid,timestamptz)','public.red_reverse_reimport(uuid,uuid)',
     'public.red_authorize_reimport_cutover(uuid,uuid,timestamptz)','public.red_activate_reimport_batch(uuid,uuid)'
   ] LOOP
@@ -87,6 +88,7 @@ BEGIN
       'public.red_apply_reimport_source_evidence(uuid,text,jsonb)',
       'public.red_apply_reimport_person_create(uuid,text,jsonb)',
       'public.red_finalize_reimport(uuid)',
+      'public.red_reimport_batch_result(uuid,uuid)',
       'public.red_authorize_reimport_reversal(uuid,uuid,timestamptz)',
       'public.red_reverse_reimport(uuid,uuid)',
       'public.red_authorize_reimport_cutover(uuid,uuid,timestamptz)',
@@ -99,11 +101,11 @@ BEGIN
       'public.red_finalize_reimport_name_completion(uuid)'
     ],ARRAY[
       false,false,false,false,false,false,false,
-      false,true,true,true,true,false,true,false,true,
+      false,true,true,true,true,true,false,true,false,true,
       true,false,true,true,true,true
     ],ARRAY[
       false,false,false,false,false,false,false,
-      true,false,false,false,false,true,false,true,false,
+      true,false,false,false,false,false,true,false,true,false,
       false,true,false,false,false,false
     ]) AS acl(signature,expect_authenticated,expect_service_role)
   LOOP
@@ -182,9 +184,9 @@ DO $migration_writer_behavior$
 DECLARE
   v_actor uuid:='15300000-0000-4000-8000-000000000001';
   v_other_actor uuid:='15300000-0000-4000-8000-000000000006';
-  v_authorization uuid; v_replay_authorization uuid; v_batch uuid; v_replay_batch uuid;
+  v_authorization uuid; v_replay_authorization uuid; v_batch uuid; v_replay_batch uuid; v_result jsonb;
   v_source_payload jsonb; v_elements jsonb; v_error text;
-  v_observations_before bigint; v_batches_before bigint; v_direct_denied boolean:=false;
+  v_observations_before bigint; v_batches_before bigint; v_direct_denied boolean:=false; v_private_read_denied boolean:=false;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   v_source_payload:=jsonb_build_object(
@@ -200,6 +202,32 @@ BEGIN
      OR has_function_privilege('service_role','private.ensure_reimport_source_evidence(uuid,text,jsonb)','EXECUTE') THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_SOURCE_HELPER_ACL_LEAK';
   END IF;
+  IF has_table_privilege('anon','private.reimport_authorization','SELECT')
+     OR has_table_privilege('authenticated','private.reimport_authorization','SELECT')
+     OR has_table_privilege('service_role','private.reimport_authorization','SELECT')
+     OR has_table_privilege('anon','private.reimport_batch','SELECT')
+     OR has_table_privilege('authenticated','private.reimport_batch','SELECT')
+     OR has_table_privilege('service_role','private.reimport_batch','SELECT')
+     OR has_table_privilege('anon','private.reimport_event','SELECT')
+     OR has_table_privilege('authenticated','private.reimport_event','SELECT')
+     OR has_table_privilege('service_role','private.reimport_event','SELECT') THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_PRIVATE_LEDGER_ACL_LEAK';
+  END IF;
+  BEGIN
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    BEGIN
+      PERFORM 1 FROM private.reimport_batch LIMIT 1;
+    EXCEPTION WHEN insufficient_privilege THEN
+      v_private_read_denied:=true;
+    END;
+    EXECUTE 'RESET ROLE';
+  EXCEPTION WHEN OTHERS THEN
+    EXECUTE 'RESET ROLE';
+    RAISE;
+  END;
+  IF NOT v_private_read_denied THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_PRIVATE_LEDGER_READ_ACCEPTED';
+  END IF;
   v_authorization:=public.red_authorize_reimport(
     repeat('1',64),repeat('2',64),current_database(),3,
     'daa-1939-v50-production-write-v1',repeat('a',64),
@@ -207,6 +235,10 @@ BEGIN
     '15300000-0000-4000-8000-000000000008',clock_timestamp()+interval '5 minutes'
   );
   v_batch:=public.red_begin_reimport(v_authorization,repeat('1',64),repeat('2',64));
+  v_result:=public.red_reimport_batch_result(v_authorization,v_batch);
+  IF v_result IS DISTINCT FROM jsonb_build_object('batch_id',v_batch,'status','open','replayed',false,'person_id_map','{}'::jsonb) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_OPEN_BATCH_RESULT_INVALID: %',v_result;
+  END IF;
   SELECT count(*) INTO v_observations_before FROM private.source_observation;
   BEGIN
     EXECUTE 'SET LOCAL ROLE authenticated';
@@ -258,6 +290,10 @@ BEGIN
      OR (SELECT count(*) FROM private.reimport_batch)<>v_batches_before
      OR (SELECT status FROM private.reimport_authorization WHERE id=v_replay_authorization)<>'consumed' THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_FINALIZED_REPLAY_INVALID';
+  END IF;
+  v_result:=public.red_reimport_batch_result(v_replay_authorization,v_replay_batch);
+  IF v_result IS DISTINCT FROM jsonb_build_object('batch_id',v_batch,'status','finalized','replayed',true,'person_id_map','{}'::jsonb) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_FINALIZED_BATCH_RESULT_INVALID: %',v_result;
   END IF;
 END $migration_writer_behavior$;
 

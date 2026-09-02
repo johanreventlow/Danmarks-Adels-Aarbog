@@ -2,7 +2,11 @@ root <- normalizePath(file.path(dirname(sub("^--file=","",grep("^--file=",comman
 source(file.path(root,".claude/skills/daa-extract/scripts/apply_reimport_1939_v50_helpers.R"))
 actor <- "11111111-1111-4111-8111-111111111111"
 Sys.setenv(DAA_REIMPORT_ACTOR_ID=actor)
-connect <- function() DBI::dbConnect(RPostgres::Postgres(),dbname=Sys.getenv("PGDATABASE"),host=Sys.getenv("PGHOST","localhost"),port=Sys.getenv("PGPORT","5432"),user=Sys.getenv("PGUSER","postgres"),password=Sys.getenv("PGPASSWORD"))
+connect <- function() {
+  con <- DBI::dbConnect(RPostgres::Postgres(),dbname=Sys.getenv("PGDATABASE"),host=Sys.getenv("PGHOST","localhost"),port=Sys.getenv("PGPORT","5432"),user=Sys.getenv("PGUSER","postgres"),password=Sys.getenv("PGPASSWORD"))
+  if (identical(Sys.getenv("DAA_REIMPORT_TEST_ROLE"), "authenticated")) DBI::dbExecute(con,"SET ROLE authenticated")
+  con
+}
 q <- function(con,sql,params=list()) if(length(params)) DBI::dbGetQuery(con,sql,params=params) else DBI::dbGetQuery(con,sql)
 make_create <- function(i, placement_id) {
  key<-paste0("record-ci-",i); text<-paste0("CI person ",i); persona<-sprintf("00000000-0000-5000-8000-%012d",i)
@@ -37,9 +41,8 @@ seed_v2_record_placements <- function(con) {
   },character(1))
 }
 preview <- paste(rep("b",64),collapse="")
-gateway <- function() {
-  new_dbi_writer_gateway(function() connect())
-}
+emitted_sql <- character()
+gateway <- function() new_dbi_writer_gateway(function() connect(), function(sql) emitted_sql <<- c(emitted_sql, sql))
 con <- connect(); on.exit(try(DBI::dbDisconnect(con),silent=TRUE),add=TRUE)
 placement_ids <- seed_v2_record_placements(con)
 creates <- mapply(make_create,seq_len(8L),placement_ids,SIMPLIFY=FALSE)
@@ -73,19 +76,40 @@ stopifnot(dry$status %in% c("finalized","already_applied"),!dry$committed)
 con <- connect(); after <- q(con,"SELECT (SELECT count(*) FROM person) persons,(SELECT count(*) FROM private.reimport_1939_write_batch) batches,(SELECT count(*) FROM private.reimport_1939_write_event) events")
 stopifnot(identical(before,after))
 q(con,"SELECT set_config('request.jwt.claim.sub',$1,false)",list(actor))
+q(con,"SET ROLE service_role")
 auth <- q(con,"SELECT red_authorize_reimport($1,$2,current_database(),$3,$4,$5,$6::jsonb,$7::jsonb,gen_random_uuid(),clock_timestamp()+interval '10 minutes') id",list(generic_manifest$manifest_content_sha256,preview,generic_manifest$source$id,generic_manifest$source$profile_id,generic_manifest$source$profile_sha256,generic_expected_counts,generic_authorized))$id[[1]]
+q(con,"RESET ROLE")
+role_manifest <- paste(rep("9",64),collapse="")
+q(con,"SET ROLE service_role")
+role_auth <- q(con,"SELECT red_authorize_reimport($1,$2,current_database(),$3,$4,$5,'{\"person_creates\":0,\"source_evidence\":0}'::jsonb,'{}'::jsonb,gen_random_uuid(),clock_timestamp()+interval '10 minutes') id",list(role_manifest,preview,generic_manifest$source$id,generic_manifest$source$profile_id,generic_manifest$source$profile_sha256))$id[[1]]
+q(con,"RESET ROLE")
+q(con,"SET ROLE authenticated")
+role_batch <- q(con,"SELECT red_begin_reimport($1,$2,$3) id",list(role_auth,role_manifest,preview))$id[[1]]
+role_result <- jsonlite::fromJSON(q(con,"SELECT red_reimport_batch_result($1,$2)::text value",list(role_auth,role_batch))$value[[1]],simplifyVector=FALSE)
+q(con,"RESET ROLE")
+stopifnot(identical(role_result$status,"open"),identical(role_result$replayed,FALSE),length(role_result$person_id_map)==0L)
 DBI::dbDisconnect(con); con <- NULL
+emitted_sql <- character()
 applied <- execute_reimport(manifest,preview,"apply",gateway(),list(id=auth))
 stopifnot(applied$committed,length(applied$person_id_map)==8L)
+stopifnot(any(grepl("public.red_reimport_batch_result", emitted_sql, fixed=TRUE)),
+  !any(grepl("private.reimport_", emitted_sql, fixed=TRUE)))
 con <- connect(); q(con,"SELECT set_config('request.jwt.claim.sub',$1,false)",list(actor))
 state <- q(con,"SELECT (SELECT count(*) FROM person_external_id WHERE record_key LIKE 'record-ci-%') persons,(SELECT count(*) FROM private.reimport_1939_write_event e JOIN private.reimport_1939_write_batch b ON b.id=e.batch_id WHERE e.operation='source_evidence' AND b.manifest_sha256=$1) evidence,(SELECT count(*) FROM private.reimport_batch WHERE manifest_sha256=$1 AND source_id=3 AND profile_id='daa-1939-v50-production-write-v1' AND profile_sha256=repeat('a',64)) profile_bound",list(manifest$manifest_content_sha256))
 stopifnot(state$persons[[1]]==8,state$evidence[[1]]==305,state$profile_bound[[1]]==1)
 provenance <- q(con,"SELECT (SELECT count(*) FROM private.source_record WHERE record_key LIKE 'record-ci-%' OR record_key LIKE 'record-source-%') records,(SELECT count(*) FROM private.source_observation o JOIN private.extraction_run r ON r.id=o.extraction_run_id WHERE r.run_key='reimport-1939-v50:'||$1) observations,(SELECT count(*) FROM private.source_persona WHERE persona_key LIKE '1939:record-ci-%') personas,(SELECT count(*) FROM private.source_persona_identity i JOIN private.source_persona p ON p.id=i.source_persona_id WHERE p.persona_key LIKE '1939:record-ci-%' AND i.decision_status='accepted') identities,(SELECT count(*) FROM narrative WHERE subjekt_type='person' AND tekst LIKE 'CI person %') narratives",list(manifest$manifest_content_sha256))
 stopifnot(provenance$records[[1]]==313,provenance$observations[[1]]==313,provenance$personas[[1]]==8,provenance$identities[[1]]==8,provenance$narratives[[1]]==8)
+q(con,"SET ROLE service_role")
 auth2 <- q(con,"SELECT red_authorize_reimport($1,$2,current_database(),$3,$4,$5,$6::jsonb,$7::jsonb,gen_random_uuid(),clock_timestamp()+interval '10 minutes') id",list(generic_manifest$manifest_content_sha256,preview,generic_manifest$source$id,generic_manifest$source$profile_id,generic_manifest$source$profile_sha256,generic_expected_counts,generic_authorized))$id[[1]]
+q(con,"RESET ROLE")
 DBI::dbDisconnect(con); con <- NULL
+Sys.setenv(DAA_REIMPORT_TEST_ROLE="authenticated")
+emitted_sql <- character()
 replayed <- execute_reimport(manifest,preview,"apply",gateway(),list(id=auth2))
+Sys.unsetenv("DAA_REIMPORT_TEST_ROLE")
 stopifnot(replayed$status=="already_applied",replayed$committed,length(replayed$person_id_map)==8L)
+stopifnot(any(grepl("public.red_reimport_batch_result", emitted_sql, fixed=TRUE)),
+  !any(grepl("private.reimport_", emitted_sql, fixed=TRUE)))
 con <- connect(); q(con,"SELECT set_config('request.jwt.claim.sub',$1,false)",list(actor))
 tamper_manifest_sha <- paste(rep("f",64),collapse="")
 tamper_auth <- q(con,"SELECT red_authorize_reimport($1,$2,current_database(),$3,$4,$5,$6::jsonb,$7::jsonb,gen_random_uuid(),clock_timestamp()+interval '10 minutes') id",list(tamper_manifest_sha,preview,generic_manifest$source$id,generic_manifest$source$profile_id,generic_manifest$source$profile_sha256,generic_expected_counts,generic_authorized))$id[[1]]

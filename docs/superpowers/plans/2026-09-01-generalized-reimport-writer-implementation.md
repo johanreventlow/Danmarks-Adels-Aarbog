@@ -527,12 +527,35 @@ GitHub Actions.
 - Create: `tests/testthat/test-apply-name-completion.R`
 - Modify: `tests/testthat/test-apply-reimport-1939-v50.R`
 - Modify: `tests/testthat/test-apply-name-completion-1939-v50.R`
+- Modify: `tests/integration/test-1939-v50-production-writer.R`
+- Modify: `tests/integration/test-1939-v50-name-completion.R`
+
+**Approved 2026-09-02 replay-boundary amendment:**
+
+- Modify: `schema.sql`, `db-migrations.sql`, `db-rls.sql` and `db-verify.sql`
+- Modify: `tests/sql/test-reimport-writer.sql`,
+  `tests/sql/test-reimport-writer-migration.sql` and
+  `tests/sql/inspect-reimport-writer-catalog.sql`
+
+Add exactly one generic, authenticated-writer-only result surface:
+`public.red_reimport_batch_result(p_authorization_id uuid, p_batch_id uuid)
+RETURNS jsonb`. It replaces R-side reads of `private.reimport_batch` and
+`private.reimport_event`; no private-table grant is permitted. It must bind a
+consumed reimport authorization and its current editor to the complete
+source/profile/hash and manifest/preview identity of the batch, return only a
+deterministic `batch_id`, `status`, `replayed` and finalized `person_id_map`,
+and fail closed for every other state or identity. The same definition and
+ACL must reach fresh and upgraded catalogs. This narrow addition is required
+to preserve the approved finalized-batch replay contract without weakening
+the private-ledger boundary.
 
 **Interfaces:**
 
 - Consumes generic SQL signatures and the manifest envelope from Tasks 2-3.
 - Produces generic DBI gateways and legacy scripts that adapt only a pinned
   1939 manifest to generic helpers.
+- The generic reimport DBI gateway may use only generic public RPCs, including
+  the approved result surface above; it may not read `private.reimport_*`.
 
 - [ ] **Step 1: Write generic manifest/gateway RED unit tests**
 

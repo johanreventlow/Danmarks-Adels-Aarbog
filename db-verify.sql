@@ -533,6 +533,28 @@ BEGIN
   RAISE NOTICE 'OK: DAA 1939 v50 production-writer contract er installeret og privat';
 END $$;
 
+-- #153 Task 5: generic reimport replay receipt is the only public ledger read.
+DO $verify_reimport_batch_result$
+DECLARE v_definition text;
+BEGIN
+  IF to_regprocedure('public.red_reimport_batch_result(uuid,uuid)') IS NULL THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_RPC_MISSING';
+  END IF;
+  SELECT pg_get_functiondef('public.red_reimport_batch_result(uuid,uuid)'::regprocedure)
+    INTO v_definition;
+  IF NOT (SELECT prosecdef FROM pg_proc WHERE oid='public.red_reimport_batch_result(uuid,uuid)'::regprocedure)
+     OR strpos(coalesce(v_definition,''),'SET search_path TO')=0
+     OR strpos(v_definition,'pg_catalog')=0 OR strpos(v_definition,'public')=0 OR strpos(v_definition,'private')=0
+     OR strpos(v_definition,'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED')=0
+     OR has_function_privilege('anon','public.red_reimport_batch_result(uuid,uuid)','EXECUTE')
+     OR has_function_privilege('service_role','public.red_reimport_batch_result(uuid,uuid)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_reimport_batch_result(uuid,uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_ACL_INVALID';
+  END IF;
+  RAISE NOTICE 'OK: #153 generic reimport replay receipt is contract-gated and authenticated-only';
+END
+$verify_reimport_batch_result$;
+
 -- #152 Task 7: exact version/ACL/receipt cutover verification.
 DO $verify_narrative_record_cutover$
 DECLARE

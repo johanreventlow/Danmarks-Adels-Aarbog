@@ -72,6 +72,15 @@ BEGIN
      OR has_table_privilege('authenticated','private.reimport_1939_write_event','SELECT') THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_MIGRATION_PRIVATE_ACL_INVALID';
   END IF;
+  IF to_regprocedure('public.red_reimport_batch_result(uuid,uuid)') IS NULL
+     OR has_function_privilege('anon','public.red_reimport_batch_result(uuid,uuid)','EXECUTE')
+     OR has_function_privilege('service_role','public.red_reimport_batch_result(uuid,uuid)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_reimport_batch_result(uuid,uuid)','EXECUTE')
+     OR has_table_privilege('authenticated','private.reimport_authorization','SELECT')
+     OR has_table_privilege('authenticated','private.reimport_batch','SELECT')
+     OR has_table_privilege('authenticated','private.reimport_event','SELECT') THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_MIGRATION_RESULT_ACL_INVALID';
+  END IF;
   IF EXISTS(
     SELECT 1
     FROM pg_constraint c

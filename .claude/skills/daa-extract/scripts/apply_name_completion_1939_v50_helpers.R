@@ -142,100 +142,6 @@ validate_name_completion_manifest <- function(x) {
   invisible(x)
 }
 
-strip_transport <- function(operation) {
-  payload <- operation
-  payload$element_id <- NULL
-  payload
-}
-
-authorized_name_payloads <- function(x) {
-  validate_name_completion_manifest(x)
-  payloads <- lapply(x$operations, strip_transport)
-  names(payloads) <- vapply(x$operations, function(op) op$element_id, character(1))
-  payloads
-}
-
-validate_name_completion_authorization <- function(authorization) {
-  required <- c("authorization_id", "database_name", "system_identifier")
-  if (!name_completion_names(authorization, required) ||
-      !name_completion_uuid(authorization$authorization_id) ||
-      !is.character(authorization$database_name) || length(authorization$database_name) != 1L ||
-      is.na(authorization$database_name) || !nzchar(authorization$database_name) ||
-      !is.character(authorization$system_identifier) || length(authorization$system_identifier) != 1L ||
-      is.na(authorization$system_identifier) || !nzchar(authorization$system_identifier))
-    stop_name_completion("NAME_COMPLETION_1939_AUTHORIZATION_INVALID")
-  invisible(authorization)
-}
-
-validate_name_completion_preflight <- function(result, authorization, source_batch_id, manifest_sha256) {
-  required <- c("valid", "database_name", "system_identifier", "source_batch_id", "manifest_sha256")
-  if (!name_completion_names(result, required) || !identical(result$valid, TRUE) ||
-      !identical(result$database_name, authorization$database_name) ||
-      !identical(result$system_identifier, authorization$system_identifier) ||
-      !identical(result$source_batch_id, source_batch_id) ||
-      !identical(result$manifest_sha256, manifest_sha256))
-    stop_name_completion("NAME_COMPLETION_1939_PREFLIGHT_INVALID")
-  invisible(result)
-}
-
-execute_name_completion <- function(manifest, manifest_sha256,
-                                    mode = c("dry-run", "apply"), gateway,
-                                    authorization = NULL) {
-  mode <- match.arg(mode)
-  validate_name_completion_manifest(manifest)
-  if (!name_completion_hash(manifest_sha256))
-    stop_name_completion("NAME_COMPLETION_1939_MANIFEST_HASH_INVALID")
-  if (!is.list(gateway) || !is.function(gateway$call))
-    stop_name_completion("NAME_COMPLETION_1939_GATEWAY_INVALID")
-  if (identical(mode, "apply") && is.null(authorization))
-    stop_name_completion("NAME_COMPLETION_1939_AUTHORIZATION_REQUIRED")
-  if (identical(mode, "apply")) validate_name_completion_authorization(authorization)
-  call <- gateway$call
-  connected <- FALSE
-  rolled_back <- FALSE
-  rollback_once <- function() {
-    if (connected && !rolled_back) {
-      rolled_back <<- TRUE
-      call("rollback")
-    }
-  }
-  tryCatch({
-    call("connect")
-    connected <- TRUE
-    call("begin")
-    call("advisory_lock", manifest_sha256)
-    resolved <- call("preflight", manifest$source_batch_id, manifest_sha256,
-      authorized_name_payloads(manifest), if (identical(mode, "apply")) authorization$authorization_id else NULL,
-      manifest, mode)
-    if (!name_completion_names(resolved, c("authorization", "preflight")))
-      stop_name_completion("NAME_COMPLETION_1939_PREFLIGHT_INVALID")
-    resolved_authorization <- resolved$authorization
-    validate_name_completion_authorization(resolved_authorization)
-    if (identical(mode, "apply") && !identical(resolved_authorization, authorization))
-      stop_name_completion("NAME_COMPLETION_1939_PREFLIGHT_INVALID")
-    authorization <- resolved_authorization
-    validate_name_completion_preflight(resolved$preflight, authorization,
-      manifest$source_batch_id, manifest_sha256)
-    batch <- call("begin_batch", authorization, manifest, manifest_sha256, mode)
-    for (op in manifest$operations)
-      call("name_completion", batch, op$element_id, strip_transport(op))
-    final <- call("finalize", batch)
-    expected_result_keys <- vapply(manifest$operations, function(op) op$element_id, character(1))
-    expected_result_fields <- c("person_id", "fact_id", "assertion_id", "citation_id", "conclusion_id")
-    if (!name_completion_names(final, c("batch_id", "status", "counts", "result_map")) ||
-        !is.list(final$result_map) || !identical(names(final$result_map), expected_result_keys) ||
-        !all(vapply(final$result_map, name_completion_names, logical(1), expected_result_fields)))
-      stop_name_completion("NAME_COMPLETION_1939_FINALIZE_INVALID")
-    if (identical(mode, "dry-run")) rollback_once() else call("commit")
-    list(mode = mode, status = final$status, batch_id = final$batch_id,
-      authorization = authorization, result_map = final$result_map,
-      committed = identical(mode, "apply"))
-  }, error = function(e) {
-    rollback_once()
-    stop(conditionMessage(e), call. = FALSE)
-  })
-}
-
 legacy_name_completion_profile <- function(manifest) {
   list(id = as.integer(manifest$source$source_id),
     profile_id = "daa-1939-v50-production-write-v1",
@@ -251,6 +157,10 @@ as_generic_name_completion_manifest <- function(manifest) {
     source_manifest_content_sha256 = manifest$source_manifest_content_sha256,
     expected_counts = manifest$counts,
     operations = manifest$operations)
+}
+
+authorized_name_payloads <- function(manifest) {
+  name_completion_payloads(as_generic_name_completion_manifest(manifest))
 }
 
 execute_name_completion <- function(manifest, manifest_sha256,
