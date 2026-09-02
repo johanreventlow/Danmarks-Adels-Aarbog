@@ -1076,3 +1076,281 @@ real edition.
   re-review of the valid findings. Critically resolve only regressions caused
   by this fix, update observed evidence, mark the completed plan steps and
   commit. No production action, push, merge, deploy or production GO.
+
+### Task 11: Close lifecycle authorization and lock-order defects
+
+**Authority:** Owner-approved 2026-09-02 bounded correction after the complete
+#153 review at `19c1d6f` returned NO-GO. This task repairs existing §3.1–§3.3
+lifecycle invariants; it does not add a new writer mode, profile, edition,
+public API or production authority.
+
+**Files:**
+
+- Modify: `schema.sql`, `db-migrations.sql`
+- Modify: `tests/sql/test-reimport-name-completion.sql`
+- Modify: `tests/integration/test-reimport-writer-locking.R`
+- Modify only if required for a real public-RPC fixture:
+  `tests/integration/test-reimport-writer.R`
+
+**Interfaces:**
+
+- Consumes the finalized generic parent/child ledger, cutover authorization
+  rows and `(source_id, profile_id)` advisory-lock key from Tasks 8–10.
+- Produces exact parent-person coverage, batch-bound cutover authorization and
+  one lock hierarchy: global v2 contract lock → source/profile writer lock →
+  authorization/batch/result/domain row locks.
+
+- [ ] **Step 1: Add lifecycle-integrity RED coverage**
+
+  Extend the real SQL lifecycle fixture with a finalized parent containing two
+  distinct `person_create` events and a child authorization/payload set for
+  only one of them. Require
+  `REIMPORT_NAME_COMPLETION_INVALID` before a child batch can be created, and
+  assert that neither activation nor reversal can leave a parent person live
+  while the parent/child chain is recorded as reversed. The expected coverage
+  is the exact set of parent `person_create` element/person/source-record
+  identities, not a hardcoded edition count.
+
+- [ ] **Step 2: Add cutover-token RED coverage**
+
+  Create two independently finalized parent/child chains with the same
+  `(source_id, profile_id, profile_sha256)` but different batch IDs, manifests
+  and previews. Authorize cutover for batch A, call
+  `red_activate_reimport_batch(batch_B, authorization_A)`, require the existing
+  generic cutover-invalid token, and assert zero state or authorization
+  consumption changes for both chains.
+
+- [ ] **Step 3: Add lock-order RED coverage**
+
+  In the three-connection disposable PostgreSQL test, hold only the target
+  profile advisory lock on connection A. Start each affected lifecycle RPC on
+  connection B and, while B waits, prove from connection C that its target
+  authorization/batch row is still obtainable with `FOR UPDATE NOWAIT`.
+  Release A and require B to finish normally. Cover at least replay/begin,
+  reversal authorization, name-completion finalize and activation so the test
+  fails when any path takes a mutable row lock before the profile lock.
+
+- [ ] **Step 4: Run the new tests and observe the expected RED failures**
+
+  Load a newly named local disposable v2 database with all five PG variables.
+  Run `tests/sql/test-reimport-name-completion.sql` and
+  `tests/integration/test-reimport-writer-locking.R`. Record the exact current
+  subset acceptance, cross-batch activation or row-before-profile failure;
+  harness/setup errors are not valid RED evidence.
+
+- [ ] **Step 5: Implement the minimum lifecycle correction**
+
+  In fresh and migration DDL, require child authorized payload/result coverage
+  to equal the parent batch's complete `person_create` event set before
+  finalize/activation/reversal. During activation, validate the cutover row's
+  `database_identity = 'batch:' || target_batch_id`, manifest and preview
+  against the target batch before consuming it. For every lifecycle path,
+  obtain source/profile with an unlocked read, acquire the profile advisory
+  lock, then re-read and validate mutable rows `FOR UPDATE`; never trust the
+  pre-lock snapshot.
+
+- [ ] **Step 6: Run focused GREEN and parity verification**
+
+  Re-run both RED suites on fresh-v2 and clean-upgraded-v2 disposable
+  databases. Require the new negative cases, existing positive two-profile
+  activation/reversal flows and catalog body-digest parity to pass. Run
+  `git diff --check`, self-review the fresh/migration definitions, and commit
+  only this task's files with `fix: seal reimport lifecycle transitions`.
+
+### Task 12: Restore exact one-version 1939 caller compatibility
+
+**Authority:** The same owner-approved correction round. This task implements
+the compatibility promise in spec §4.1 for the two active legacy callers. It
+must adapt only the legacy representation at the facade boundary and must not
+weaken or widen the generic contract.
+
+**Files:**
+
+- Modify: `schema.sql`, `db-migrations.sql`
+- Modify: `.claude/skills/daa-extract/scripts/apply_name_completion_1939_v50_helpers.R`
+- Modify: `tests/sql/test-1939-v50-production-writer.sql`
+- Modify: `tests/sql/test-1939-v50-name-completion.sql`
+- Modify: `tests/testthat/test-apply-name-completion-1939-v50.R`
+- Modify: `tests/integration/test-1939-v50-production-writer.R`
+- Modify: `tests/integration/test-1939-v50-name-completion.R`
+
+**Interfaces:**
+
+- Preserves every existing `red_*_1939_v50_*` SQL signature, return type,
+  legacy error mapping and role/ACL split.
+- Converts the historic database-name string and zero-valued
+  `canonical_delta` count only inside the 1939 reimport facade; generic callers
+  continue to require canonical JSON database identity and exactly the two
+  supported generic count keys.
+- Preserves the three-field legacy name-completion authorization token on the
+  SQL wire and enriches it with the pinned source/profile identity only inside
+  the legacy R adapter before entering the generic gateway.
+
+- [ ] **Step 1: Add exact legacy-call RED coverage**
+
+  Call `red_authorize_1939_v50_reimport` with `current_database()` and the
+  historic three-key counts object
+  `{person_creates, source_evidence, canonical_delta: 0}`. Require success and
+  generic storage of only the supported person/source counts; require nonzero,
+  missing, malformed or extra legacy counts to retain the historic invalid
+  token. Keep a separate assertion that the generic authorizer rejects these
+  legacy representations.
+
+- [ ] **Step 2: Add legacy name-completion token RED coverage**
+
+  Obtain the exact three-field token from
+  `red_authorize_1939_v50_name_completion`, pass that unmodified token to the
+  existing 1939 R helper/CLI path, and require the generic server preflight,
+  child write and finalize flow to succeed. Assert that adding `source` to the
+  SQL facade return would fail the exact legacy return-shape test, while a
+  source supplied by the caller rather than the pinned adapter is rejected.
+
+- [ ] **Step 3: Run and record the expected RED failures**
+
+  Run both legacy SQL files, the focused legacy name-completion testthat file
+  and both existing 1939 DBI integrations against a newly named disposable v2
+  database. The failures must occur at the representation boundaries described
+  above, not during fixture setup.
+
+- [ ] **Step 4: Implement boundary-only compatibility adapters**
+
+  In both DDL paths, map `d = current_database()` to the generic canonical
+  `{database_name, system_identifier}` text and remove `canonical_delta` only
+  when the complete historic count object has that field equal to numeric zero;
+  otherwise allow the generic validator to reject it and translate its error.
+  In the legacy R helper, recognize only the exact historic three-field
+  authorization object and add `legacy_name_completion_profile(manifest)`
+  internally before calling the generic helper. Do not change the generic R
+  validator or the SQL facade's return shape.
+
+- [ ] **Step 5: Run GREEN, ACL and facade-parity verification**
+
+  Re-run the four focused suites, exact facade signature/return/ACL tests,
+  generic R tests and fresh/upgraded catalog body-digest comparison. Parse all
+  affected R files, run `git diff --check`, self-review for generic-contract
+  leakage, and commit with `fix: preserve reimport v1 facade callers`.
+
+### Task 13: Make migration and CI evidence truthful and rollback-safe
+
+**Authority:** The same owner-approved correction round. This task repairs
+verification and rollback guarantees already required by spec §§4.2 and 6;
+it introduces no runtime feature or production migration execution.
+
+**Files:**
+
+- Modify: `db-migrations.sql`
+- Modify: `.github/workflows/ci.yml`
+- Modify: `tests/sql/test-reimport-writer-migration.sql`
+- Modify or create one narrowly named coexistence migration fixture under
+  `tests/sql/`
+- Modify: `tests/testthat/test-reimport-writer-source-inventory.R`
+
+**Interfaces:**
+
+- Produces a CI checkout that contains the pinned base commit `2d6aabf` before
+  any `git show` call.
+- Preserves `private.reimport_event_id_seq` across failed coexistence upgrades
+  and positions its next value strictly above every migrated event ID after a
+  successful upgrade.
+- Locates the final schema and #153 migration sections by unique semantic
+  anchors, never mutable absolute line numbers.
+
+- [ ] **Step 1: Add coexistence rollback RED coverage**
+
+  Build a disposable pre-#153 database containing a populated terminal legacy
+  ledger plus pre-existing empty generic shells and sequence. Record the
+  sequence state, run the late `REIMPORT_WRITER_ATOMICITY_TEST_FAILURE`
+  failpoint, and require relation contents, object identities and exact sequence
+  state to match the pre-migration snapshot. Then run the migration without the
+  failpoint and require the first new default event ID to be greater than the
+  maximum migrated legacy ID.
+
+- [ ] **Step 2: Add semantic inventory RED coverage**
+
+  Replace the test helper's line-number API with unique start/end anchor
+  extraction for the final schema writer/facade section and the migration block
+  beginning `#153: convert the legacy 1939 journal`. Unit-test the extractor on
+  an in-memory fixture with content before/after the anchors and a forbidden
+  literal inside them. Require missing, duplicate or reversed anchors to fail
+  closed. Run the real inventory and observe its current mismatch against the
+  true final sections before updating the reviewed expected inventory.
+
+- [ ] **Step 3: Add a CI fixture-availability gate**
+
+  Configure only the database migration job's `actions/checkout@v4` step with
+  `fetch-depth: 0`, and make its first historical-fixture command run
+  `git cat-file -e 2d6aabf^{commit}` before `git show`. Validate the workflow as
+  YAML and execute the two git commands in a clean local clone/worktree
+  equivalent; no remote push or workflow dispatch is allowed.
+
+- [ ] **Step 4: Implement transactional sequence repositioning**
+
+  Replace the coexistence branch's nontransactional `setval` with a transaction-
+  safe sequence restart at `max(migrated_event_id) + 1`, using the existing
+  sequence identity and a value derived after the rows are copied. Do not move
+  sequence repair outside the single #153 transaction or add a second migration
+  phase.
+
+- [ ] **Step 5: Review and freeze the exact final inventory**
+
+  Generate the anchored schema/migration occurrence list, manually classify
+  every occurrence against the spec's four categories, store the literal
+  expected rows in the test, and prove multiplicity-sensitive equality. Add a
+  mutation check showing that one extra forbidden literal inside either final
+  section fails while the same text outside the anchors cannot alter the
+  result.
+
+- [ ] **Step 6: Run GREEN migration/evidence verification**
+
+  Run atomic rollback and successful coexistence migration, all approved
+  terminal-v1 fixtures, source inventory, CI YAML validation, clean historical
+  `git show`, catalog parity and `git diff --check`. Self-review the migration
+  for any remaining nontransactional operation in the #153 block and commit
+  with `fix: make reimport migration evidence durable`.
+
+### Task 14: Re-run the complete #153 completion gate
+
+**Authority:** Closing gate for the owner-approved correction round. This is
+code-integration evidence only, never production authorization.
+
+**Files:**
+
+- Modify: `docs/evidensbaseret-genimport/reimport-writer-153-rehearsal.md`
+- Modify: this plan only with observed completion marks/evidence
+
+- [ ] **Step 1: Run complete disposable database verification**
+
+  From the final committed tree, rebuild uniquely named fresh-v2,
+  clean-upgraded-v2 and both historical terminal-v1 databases. Run every
+  generic/legacy writer, name-completion, reversal, activation, RLS/ACL,
+  db-verify, C3 fail-closed, atomicity/coexistence and catalog test. Compare the
+  fresh/upgraded catalog receipts byte-for-byte and record database names,
+  identities, commit, commands, exit codes, sizes and hashes.
+
+- [ ] **Step 2: Run application and gateway verification**
+
+  Run all affected R/testthat and DBI integrations, the complete core test
+  suite and typecheck, the complete web test suite and production build. Treat
+  any flake as unresolved until reproduced and diagnosed; do not record a
+  rerun alone as evidence.
+
+- [ ] **Step 3: Perform Codex self-review**
+
+  Review the complete base `2d6aabf` to final HEAD diff against the issue
+  mission, every spec §6 proof, all seven correction findings and the task
+  ledger rulings. Require no unclassified `_1939` debt, generic-contract
+  weakening, missing negative test or unrecorded environment limitation.
+
+- [ ] **Step 4: Obtain one final independent SOL xhigh review**
+
+  Send the committed whole-branch diff and observed evidence to a fresh
+  GPT-5.6-Sol xhigh reviewer under a strict read-only/no-network/no-database/
+  no-`work/`/no-Fable contract. Critically resolve every valid finding. Because
+  the correction changes authorization, concurrency and migration atomicity,
+  any code fix requires affected evidence plus one scoped SOL re-review.
+
+- [ ] **Step 5: Close evidence and report status**
+
+  Update the rehearsal and checkbox state only with observed results, commit
+  the documentation, and report branch, commits, clean/dirty worktree status
+  and exact verification. Do not push, merge, deploy or make a production GO.
