@@ -678,6 +678,17 @@ the private-ledger boundary.
 
 ### Task 7: Run complete disposable verification and final evidence audit
 
+**Observed Task 7 status (2026-09-02): INCOMPLETE / NO-GO.** Fresh and
+upgraded generic-writer, R, migration-parity, catalog and `dblink` concurrency
+evidence was observed in named local disposable databases. The legacy C3
+regression fails reproducibly because `red_preview_reimport_cases()` calls the
+dropped `private.require_reimport_1939_editor()`. The required generic DBI
+file `tests/integration/test-reimport-writer.R` is absent. The bounded
+rehearsal evidence is recorded in
+`docs/evidensbaseret-genimport/reimport-writer-153-rehearsal.md`; it is not
+production authority. An independent read-only Sol review remains for the
+controller after the C3 finding is resolved or explicitly dispositioned.
+
 **Files:**
 
 - Modify: `docs/superpowers/plans/2026-09-01-generalized-reimport-writer-implementation.md`
