@@ -103,6 +103,19 @@ await_worker <- function(worker, label) {
   }
   stop(label, " worker did not finish: ", paste(readLines(worker$log_path, warn = FALSE), collapse = " "))
 }
+await_worker_error <- function(worker, token, label) {
+  for (i in seq_len(200L)) {
+    if (file.exists(worker$status_path)) {
+      status <- readLines(worker$status_path, warn = FALSE)
+      log <- paste(readLines(worker$log_path, warn = FALSE), collapse = " ")
+      unlink(c(worker$ready_path, worker$result_path, paste0(worker$result_path, ".failed"), worker$log_path, worker$status_path, worker$sql_path))
+      stopifnot(length(status) == 1L, status[[1L]] != "0", grepl(token, log, fixed = TRUE))
+      return(invisible())
+    }
+    Sys.sleep(0.05)
+  }
+  stop(label, " worker did not fail")
+}
 
 holder <- connect()
 same_profile <- connect()
@@ -192,6 +205,25 @@ task11_begin_auth <- query(holder, paste(
   "jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,",
   "$1,$2,$3,'{\"person_creates\":0,\"source_evidence\":0}'::jsonb,'{}'::jsonb,gen_random_uuid(),clock_timestamp()+interval '5 minutes') id"
 ), list(source_id, profile_id, profile_hash))$id[[1L]]
+
+# Discovery-to-lock drift: B has discovered the old tuple and is waiting for
+# A's old writer key before C changes only the authorization tuple.  On release
+# B must reject its post-lock reread without consuming the authorization.
+dbBegin(holder)
+execute(holder, "SELECT set_config('request.jwt.claim.sub',$1,true)", list(actor))
+query(holder, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", list(same_key))
+drift_worker <- launch_worker("begin", actor, task11_begin_auth, strrep("1", 64L), strrep("2", 64L))
+for (i in seq_len(200L)) {
+  waiting <- query(same_profile, "SELECT count(*) count FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE '%red_begin_reimport%'", list(drift_worker$application_name))$count[[1L]]
+  if (waiting == 1L) break
+  Sys.sleep(0.05)
+}
+stopifnot(waiting == 1L)
+execute(same_profile, "UPDATE private.reimport_authorization SET profile_id=$2 WHERE id=$1::uuid", list(task11_begin_auth, other_profile_id))
+dbRollback(holder)
+await_worker_error(drift_worker, "REIMPORT_WRITER_AUTHORIZATION_INVALID", "Task 11 discovery drift")
+stopifnot(query(same_profile, "SELECT status FROM private.reimport_authorization WHERE id=$1::uuid", list(task11_begin_auth))$status[[1L]] == "issued")
+execute(same_profile, "UPDATE private.reimport_authorization SET profile_id=$2 WHERE id=$1::uuid", list(task11_begin_auth, profile_id))
 
 task11_profile_first <- function(label, operation, first, second = "", third = "", lock_sql, lock_params) {
   dbBegin(holder)
