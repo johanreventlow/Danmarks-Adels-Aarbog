@@ -1060,13 +1060,16 @@ BEGIN
     IF SQLERRM <> 'REIMPORT_1939_ROLE_FORBIDDEN' THEN RAISE; END IF;
   END;
   PERFORM set_config('request.jwt.claim.sub', v_actor::text, true);
+  IF auth.uid() <> v_actor THEN
+    RAISE EXCEPTION 'C3_APPLY_ROLE_CONTEXT_INVALID';
+  END IF;
 
   -- public.current_rolle() is granted to authenticated only (db-rls.sql), so
   -- under service_role the profile/role gate is proven by the authorize call
   -- itself: it runs private.require_reimport_1939_editor() as owner and refuses
   -- any JWT subject whose profiles.rolle is not 'redaktion' (proven above).
   EXECUTE 'SET LOCAL ROLE service_role';
-  IF current_user <> 'service_role' OR auth.uid() <> v_actor THEN
+  IF current_user <> 'service_role' THEN
     RAISE EXCEPTION 'C3_APPLY_ROLE_CONTEXT_INVALID';
   END IF;
   v_nonce := gen_random_uuid();
@@ -1084,8 +1087,7 @@ BEGIN
   EXECUTE 'RESET ROLE';
 
   EXECUTE 'SET LOCAL ROLE authenticated';
-  IF current_user <> 'authenticated' OR auth.uid() <> v_actor
-     OR public.current_rolle() <> 'redaktion' THEN
+  IF current_user <> 'authenticated' OR public.current_rolle() <> 'redaktion' THEN
     RAISE EXCEPTION 'C3_APPLY_ROLE_CONTEXT_INVALID';
   END IF;
   -- authenticated may NOT authorize.
