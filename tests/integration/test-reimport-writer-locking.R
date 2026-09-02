@@ -29,15 +29,27 @@ writeLines(c(
   "#!/bin/sh",
   "touch \"$1\"",
   "tmp=\"$3.pending.$$\"",
+  "status_tmp=\"$5.pending.$$\"",
   paste0(shQuote(psql_binary), " -X -v ON_ERROR_STOP=1 -At -f \"$2\" > \"$tmp\" 2> \"$4\""),
   "rc=$?",
   "if [ \"$rc\" -eq 0 ]; then mv \"$tmp\" \"$3\"; else mv \"$tmp\" \"$3.failed\"; fi",
-  "printf '%s\\n' \"$rc\" > \"$5\"",
+  "printf '%s\\n' \"$rc\" > \"$status_tmp\"",
+  "mv \"$status_tmp\" \"$5\"",
   "exit \"$rc\""
 ), worker_script)
 on.exit(unlink(worker_script), add = TRUE)
 
 sql_literal <- function(value) paste0("'", gsub("'", "''", value, fixed = TRUE), "'")
+
+# The worker writes status only by atomic rename after psql has committed or
+# exited with an error.  A missing or empty status is therefore still pending,
+# never evidence of either success or failure.
+worker_status <- function(worker) {
+  if (!file.exists(worker$status_path)) return(NULL)
+  status <- readLines(worker$status_path, warn = FALSE)
+  if (length(status) != 1L || !nzchar(status[[1L]])) return(NULL)
+  status[[1L]]
+}
 
 launch_worker <- function(operation, actor, first, second = "", third = "", hold_after_apply = FALSE) {
   ready_path <- tempfile(paste0("reimport-writer-lock-ready-", operation, "-"))
@@ -55,6 +67,7 @@ launch_worker <- function(operation, actor, first, second = "", third = "", hold
     begin = paste0("SELECT 'OK:' || public.red_begin_reimport(", sql_literal(first), "::uuid,", sql_literal(second), ",", sql_literal(third), ");"),
     batch_result = paste0("SELECT 'OK:' || public.red_reimport_batch_result(", sql_literal(first), "::uuid,", sql_literal(second), "::uuid)::text;"),
     reversal_authorize = paste0("SELECT 'OK:' || public.red_authorize_reimport_reversal(", sql_literal(first), "::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');"),
+    finalize_reimport = paste0("SELECT 'OK:' || public.red_finalize_reimport(", sql_literal(first), "::uuid)::text;"),
     completion_finalize = paste0("SELECT 'OK:' || public.red_finalize_reimport_name_completion(", sql_literal(first), "::uuid)::text;"),
     activate = paste0("SELECT 'OK:' || public.red_activate_reimport_batch(", sql_literal(first), "::uuid,", sql_literal(second), "::uuid)::text;"),
     completion_apply = {
@@ -80,7 +93,8 @@ launch_worker <- function(operation, actor, first, second = "", third = "", hold
 
 wait_for_worker_query <- function(worker, function_name) {
   for (i in seq_len(200L)) {
-    if (file.exists(worker$status_path) && readLines(worker$status_path, warn = FALSE)[[1L]] != "0") {
+    status <- worker_status(worker)
+    if (!is.null(status) && status != "0") {
       stop("worker failed before ", function_name, ": ", paste(readLines(worker$log_path, warn = FALSE), collapse = " "))
     }
     active <- query(holder, "SELECT count(*) count FROM pg_stat_activity WHERE application_name=$1 AND query LIKE $2", list(worker$application_name, paste0("%", function_name, "%")))$count[[1L]]
@@ -91,7 +105,7 @@ wait_for_worker_query <- function(worker, function_name) {
 }
 await_worker <- function(worker, label) {
   for (i in seq_len(200L)) {
-    if (file.exists(worker$status_path) && readLines(worker$status_path, warn = FALSE)[[1L]] == "0" && file.exists(worker$result_path)) {
+    if (identical(worker_status(worker), "0") && file.exists(worker$result_path)) {
       result <- readLines(worker$result_path, warn = FALSE)
       complete <- result[startsWith(result, "OK:")]
       if (length(complete) == 1L) {
@@ -105,11 +119,11 @@ await_worker <- function(worker, label) {
 }
 await_worker_error <- function(worker, token, label) {
   for (i in seq_len(200L)) {
-    if (file.exists(worker$status_path)) {
-      status <- readLines(worker$status_path, warn = FALSE)
+    status <- worker_status(worker)
+    if (!is.null(status)) {
       log <- paste(readLines(worker$log_path, warn = FALSE), collapse = " ")
       unlink(c(worker$ready_path, worker$result_path, paste0(worker$result_path, ".failed"), worker$log_path, worker$status_path, worker$sql_path))
-      stopifnot(length(status) == 1L, status[[1L]] != "0", grepl(token, log, fixed = TRUE))
+      stopifnot(status != "0", grepl(token, log, fixed = TRUE))
       return(invisible())
     }
     Sys.sleep(0.05)
@@ -258,6 +272,64 @@ task11_begin_result <- task11_profile_first(
 )
 task11_source_batch <- sub("^OK:", "", task11_begin_result)
 stopifnot(query(holder, "SELECT public.red_finalize_reimport($1::uuid)->>'status' status", list(task11_source_batch))$status[[1L]] == "finalized")
+
+# The shared open-batch helper is used by several lifecycle RPCs.  This probe
+# changes the discovered tuple while finalization is observably waiting on its
+# old writer key; its re-read must reject without finalizing the batch.
+task11_finalize_drift_auth <- query(holder, paste(
+  "SELECT public.red_authorize_reimport(repeat('9',64),repeat('8',64),",
+  "jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,",
+  "$1,$2,$3,'{\"person_creates\":0,\"source_evidence\":0}'::jsonb,'{}'::jsonb,gen_random_uuid(),clock_timestamp()+interval '5 minutes') id"
+), list(source_id, profile_id, profile_hash))$id[[1L]]
+task11_finalize_drift_batch <- query(holder,
+  "SELECT public.red_begin_reimport($1::uuid,repeat('9',64),repeat('8',64)) id",
+  list(task11_finalize_drift_auth))$id[[1L]]
+dbBegin(holder)
+execute(holder, "SELECT set_config('request.jwt.claim.sub',$1,true)", list(actor))
+query(holder, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", list(same_key))
+finalize_drift_worker <- launch_worker("finalize_reimport", actor, task11_finalize_drift_batch)
+for (i in seq_len(200L)) {
+  waiting <- query(same_profile, "SELECT count(*) count FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE '%red_finalize_reimport%'", list(finalize_drift_worker$application_name))$count[[1L]]
+  if (waiting == 1L) break
+  Sys.sleep(0.05)
+}
+stopifnot(waiting == 1L)
+execute(same_profile, "ALTER TABLE private.reimport_batch DISABLE TRIGGER ALL")
+execute(same_profile, "UPDATE private.reimport_batch SET profile_id=$2 WHERE id=$1::uuid", list(task11_finalize_drift_batch, other_profile_id))
+execute(same_profile, "ALTER TABLE private.reimport_batch ENABLE TRIGGER ALL")
+dbRollback(holder)
+await_worker_error(finalize_drift_worker, "REIMPORT_WRITER_BATCH_INVALID", "Task 11 shared open-batch discovery drift")
+stopifnot(query(same_profile, "SELECT status FROM private.reimport_batch WHERE id=$1::uuid", list(task11_finalize_drift_batch))$status[[1L]] == "open")
+execute(same_profile, "ALTER TABLE private.reimport_batch DISABLE TRIGGER ALL")
+execute(same_profile, "UPDATE private.reimport_batch SET profile_id=$2 WHERE id=$1::uuid", list(task11_finalize_drift_batch, profile_id))
+execute(same_profile, "ALTER TABLE private.reimport_batch ENABLE TRIGGER ALL")
+
+# A direct lifecycle authorization follows the same discovery-to-lock rule.
+# While B waits on the old writer key, C changes only the batch profile; no
+# reversal authorization may be minted when B re-reads the changed row.
+reversal_authorizations_before <- query(holder, "SELECT count(*) count FROM private.reimport_authorization")$count[[1L]]
+dbBegin(holder)
+execute(holder, "SELECT set_config('request.jwt.claim.sub',$1,true)", list(actor))
+query(holder, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", list(same_key))
+reversal_drift_worker <- launch_worker("reversal_authorize", actor, task11_source_batch)
+for (i in seq_len(200L)) {
+  waiting <- query(same_profile, "SELECT count(*) count FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE '%red_authorize_reimport_reversal%'", list(reversal_drift_worker$application_name))$count[[1L]]
+  if (waiting == 1L) break
+  Sys.sleep(0.05)
+}
+stopifnot(waiting == 1L)
+execute(same_profile, "ALTER TABLE private.reimport_batch DISABLE TRIGGER ALL")
+execute(same_profile, "UPDATE private.reimport_batch SET profile_id=$2 WHERE id=$1::uuid", list(task11_source_batch, other_profile_id))
+execute(same_profile, "ALTER TABLE private.reimport_batch ENABLE TRIGGER ALL")
+dbRollback(holder)
+await_worker_error(reversal_drift_worker, "REIMPORT_WRITER_REVERSAL_INVALID", "Task 11 reversal discovery drift")
+stopifnot(
+  query(same_profile, "SELECT status FROM private.reimport_batch WHERE id=$1::uuid", list(task11_source_batch))$status[[1L]] == "finalized",
+  query(same_profile, "SELECT count(*) count FROM private.reimport_authorization")$count[[1L]] == reversal_authorizations_before
+)
+execute(same_profile, "ALTER TABLE private.reimport_batch DISABLE TRIGGER ALL")
+execute(same_profile, "UPDATE private.reimport_batch SET profile_id=$2 WHERE id=$1::uuid", list(task11_source_batch, profile_id))
+execute(same_profile, "ALTER TABLE private.reimport_batch ENABLE TRIGGER ALL")
 
 task11_result <- task11_profile_first(
   "Task 11 batch result", "batch_result", task11_begin_auth, task11_source_batch,

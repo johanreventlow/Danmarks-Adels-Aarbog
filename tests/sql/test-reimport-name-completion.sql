@@ -419,7 +419,7 @@ END $task3_stage_profile$;
 CREATE FUNCTION pg_temp.task3_complete_profile(p_state jsonb)
 RETURNS jsonb LANGUAGE plpgsql AS $task3_complete_profile$
 DECLARE
-  v_payload jsonb; v_payloads jsonb; v_envelope jsonb; v_child_auth uuid; v_child_batch uuid; v_result jsonb;
+  v_payload jsonb; v_second_payload jsonb; v_payloads jsonb; v_envelope jsonb; v_child_auth uuid; v_child_batch uuid; v_result jsonb;
 BEGIN
   v_payload:=jsonb_build_object(
     'source_batch_id',p_state->>'source_batch_id','source_person_create_element_id',p_state->>'source_element_id',
@@ -432,20 +432,63 @@ BEGIN
     'expected_before',jsonb_build_object('staged',true,'name_cache_empty',true,'name_facts',0),
     'expected_after',jsonb_build_object('name_fact',1,'selected_assertion',1,'citation',1,'conclusion',1));
   v_payloads:=jsonb_build_object('name-completion:'||(p_state->'person_payload'->>'source_record_key'),v_payload);
+  IF p_state->>'second_person_id' IS NOT NULL THEN
+    v_second_payload:=v_payload||jsonb_build_object(
+      'source_person_create_element_id',p_state->>'second_source_element_id',
+      'person_id',p_state->>'second_person_id',
+      'source_record_key',p_state->'second_person_payload'->>'source_record_key',
+      'source_persona_id',p_state->>'second_source_persona_id',
+      'name',p_state->'second_person_payload'->>'name',
+      'source_span',p_state->'second_person_payload'->'source_span',
+      'page_evidence',p_state->'second_person_payload'->'page_evidence',
+      'verbatim_text',p_state->'second_person_payload'->>'verbatim_text',
+      'verbatim_sha256',p_state->'second_person_payload'->>'verbatim_sha256',
+      'source_payload_sha256',private.reimport_canonical_json_sha256(p_state->'second_person_payload'));
+    v_payloads:=v_payloads||jsonb_build_object('name-completion:'||(p_state->'second_person_payload'->>'source_record_key'),v_second_payload);
+  END IF;
   v_envelope:=public.red_authorize_reimport_name_completion(
     repeat('7',64),(p_state->>'source_batch_id')::uuid,p_state->>'preview_sha256',p_state->>'manifest_sha256',(p_state->>'source_id')::bigint,p_state->>'profile_id',p_state->>'profile_sha256',
-    '{"name_completions":1,"operations":1}'::jsonb,v_payloads);
+    CASE WHEN p_state->>'second_person_id' IS NULL THEN '{"name_completions":1,"operations":1}'::jsonb ELSE '{"name_completions":2,"operations":2}'::jsonb END,v_payloads);
   v_child_auth:=(v_envelope->>'authorization_id')::uuid;
   PERFORM public.red_preflight_reimport_name_completion(v_child_auth,(p_state->>'source_batch_id')::uuid,repeat('7',64),v_payloads);
   v_child_batch:=public.red_begin_reimport_name_completion(v_child_auth,repeat('7',64),(p_state->>'source_batch_id')::uuid);
   PERFORM public.red_apply_reimport_name_completion(v_child_batch,'name-completion:'||(p_state->'person_payload'->>'source_record_key'),v_payload);
+  IF p_state->>'second_person_id' IS NOT NULL THEN
+    PERFORM public.red_apply_reimport_name_completion(v_child_batch,'name-completion:'||(p_state->'second_person_payload'->>'source_record_key'),v_second_payload);
+  END IF;
   v_result:=public.red_finalize_reimport_name_completion(v_child_batch);
   IF v_result->>'status'<>'finalized' THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_TWO_PROFILE_CHILD_NOT_FINALIZED'; END IF;
   RETURN p_state||jsonb_build_object('child_authorization_id',v_child_auth,'child_batch_id',v_child_batch,
     'completion_payload',v_payload,'fact_id',v_result#>>ARRAY['result_map','name-completion:'||(p_state->'person_payload'->>'source_record_key'),'fact_id'],
     'assertion_id',v_result#>>ARRAY['result_map','name-completion:'||(p_state->'person_payload'->>'source_record_key'),'assertion_id'],
-    'citation_id',v_result#>>ARRAY['result_map','name-completion:'||(p_state->'person_payload'->>'source_record_key'),'citation_id']);
+    'citation_id',v_result#>>ARRAY['result_map','name-completion:'||(p_state->'person_payload'->>'source_record_key'),'citation_id'],
+    'conclusion_id',v_result#>>ARRAY['result_map','name-completion:'||(p_state->'person_payload'->>'source_record_key'),'conclusion_id'],
+    'second_fact_id',CASE WHEN p_state->>'second_person_id' IS NULL THEN NULL ELSE v_result#>>ARRAY['result_map','name-completion:'||(p_state->'second_person_payload'->>'source_record_key'),'fact_id'] END,
+    'second_assertion_id',CASE WHEN p_state->>'second_person_id' IS NULL THEN NULL ELSE v_result#>>ARRAY['result_map','name-completion:'||(p_state->'second_person_payload'->>'source_record_key'),'assertion_id'] END,
+    'second_citation_id',CASE WHEN p_state->>'second_person_id' IS NULL THEN NULL ELSE v_result#>>ARRAY['result_map','name-completion:'||(p_state->'second_person_payload'->>'source_record_key'),'citation_id'] END,
+    'second_conclusion_id',CASE WHEN p_state->>'second_person_id' IS NULL THEN NULL ELSE v_result#>>ARRAY['result_map','name-completion:'||(p_state->'second_person_payload'->>'source_record_key'),'conclusion_id'] END);
 END $task3_complete_profile$;
+
+-- Snapshot every mutable lifecycle/domain surface that a rejected coverage
+-- recheck must leave untouched.  The caller captures it after controlled test
+-- corruption, so equality proves the failed RPC introduced no additional
+-- mutation.
+CREATE FUNCTION pg_temp.task11_lifecycle_snapshot(
+  p_source_batch_id uuid,p_child_batch_id uuid,p_extra_authorization_id uuid,
+  p_first_person_id bigint,p_second_person_id bigint DEFAULT NULL
+) RETURNS jsonb LANGUAGE sql AS $task11_lifecycle_snapshot$
+  SELECT jsonb_build_object(
+    'batches',coalesce((SELECT jsonb_agg(to_jsonb(b) ORDER BY b.id) FROM private.reimport_batch b WHERE b.id IN(p_source_batch_id,p_child_batch_id)),'[]'::jsonb),
+    'authorizations',coalesce((SELECT jsonb_agg(to_jsonb(a) ORDER BY a.id) FROM private.reimport_authorization a WHERE a.id=p_extra_authorization_id OR a.id IN(SELECT authorization_id FROM private.reimport_batch WHERE id IN(p_source_batch_id,p_child_batch_id))),'[]'::jsonb),
+    'events',coalesce((SELECT jsonb_agg(to_jsonb(e) ORDER BY e.id) FROM private.reimport_event e WHERE e.batch_id IN(p_source_batch_id,p_child_batch_id)),'[]'::jsonb),
+    'persons',coalesce((SELECT jsonb_agg(to_jsonb(p) ORDER BY p.id) FROM public.person p WHERE p.id IN(p_first_person_id,p_second_person_id)),'[]'::jsonb),
+    'facts',coalesce((SELECT jsonb_agg(to_jsonb(f) ORDER BY f.id) FROM public.fact f WHERE f.id IN(SELECT fact_id FROM private.reimport_name_completion_result WHERE batch_id=p_child_batch_id)),'[]'::jsonb),
+    'assertions',coalesce((SELECT jsonb_agg(to_jsonb(x) ORDER BY x.id) FROM public.assertion x WHERE x.id IN(SELECT assertion_id FROM private.reimport_name_completion_result WHERE batch_id=p_child_batch_id)),'[]'::jsonb),
+    'citations',coalesce((SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id) FROM public.citation c WHERE c.id IN(SELECT citation_id FROM private.reimport_name_completion_result WHERE batch_id=p_child_batch_id)),'[]'::jsonb),
+    'conclusions',coalesce((SELECT jsonb_agg(to_jsonb(n) ORDER BY n.id) FROM public.conclusion n WHERE n.id IN(SELECT conclusion_id FROM private.reimport_name_completion_result WHERE batch_id=p_child_batch_id)),'[]'::jsonb),
+    'publications',coalesce((SELECT jsonb_agg(to_jsonb(binding) ORDER BY binding.id) FROM private.narrative_record_publication binding JOIN public.narrative narrative ON narrative.id=binding.narrative_id WHERE narrative.subjekt_type='person' AND narrative.subjekt_id IN(p_first_person_id,p_second_person_id)),'[]'::jsonb)
+  )
+$task11_lifecycle_snapshot$;
 
 -- Task 11 RED: create and finalize a two-person parent entirely through public
 -- writer RPCs.  A one-person child authorization must fail before any child
@@ -487,6 +530,45 @@ BEGIN
     RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_SUBSET_PARENT_PERSON_COVERAGE_ACCEPTED: %',v_error;
   END IF;
 END $task11_exact_parent_person_coverage$;
+
+-- A valid two-person parent must also complete through the public lifecycle:
+-- both people become live on activation, then both return to staged while the
+-- child/source chain is reversed, domain rows are removed, receipts remain
+-- auditable and publications are withdrawn.
+DO $task11_multi_person_successful_reversal$
+DECLARE
+  v_actor uuid:='15300000-0000-4000-8000-000000000101'; v_state jsonb;
+  v_cutover uuid; v_reversal uuid; v_result jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  v_state:=pg_temp.task3_stage_profile(
+    15,'task11-multi-success',repeat('1',64),'task11-multi-success-a',
+    'Task 11 multi success',-153115,repeat('2',64),repeat('3',64),'task11-multi-success-b');
+  v_state:=pg_temp.task3_complete_profile(v_state);
+  IF (SELECT count(*) FROM private.reimport_name_completion_result WHERE batch_id=(v_state->>'child_batch_id')::uuid)<>2 THEN
+    RAISE EXCEPTION 'TASK11_MULTI_PERSON_CHILD_NOT_COMPLETE';
+  END IF;
+  v_cutover:=public.red_authorize_reimport_cutover((v_state->>'source_batch_id')::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  PERFORM set_config('app.change_set_id','',true);
+  v_result:=public.red_activate_reimport_batch((v_state->>'source_batch_id')::uuid,v_cutover);
+  IF v_result->>'status'<>'activated'
+     OR EXISTS(SELECT 1 FROM public.person WHERE id IN((v_state->>'person_id')::bigint,(v_state->>'second_person_id')::bigint) AND staged) THEN
+    RAISE EXCEPTION 'TASK11_MULTI_PERSON_ACTIVATION_INVALID';
+  END IF;
+  v_reversal:=public.red_authorize_reimport_reversal((v_state->>'source_batch_id')::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  v_result:=public.red_reverse_reimport((v_state->>'source_batch_id')::uuid,v_reversal);
+  IF v_result->>'status'<>'reversed'
+     OR EXISTS(SELECT 1 FROM private.reimport_batch WHERE id IN((v_state->>'source_batch_id')::uuid,(v_state->>'child_batch_id')::uuid) AND status<>'reversed')
+     OR EXISTS(SELECT 1 FROM public.person WHERE id IN((v_state->>'person_id')::bigint,(v_state->>'second_person_id')::bigint) AND NOT staged)
+     OR EXISTS(SELECT 1 FROM public.fact WHERE id IN((v_state->>'fact_id')::bigint,(v_state->>'second_fact_id')::bigint))
+     OR EXISTS(SELECT 1 FROM public.assertion WHERE id IN((v_state->>'assertion_id')::bigint,(v_state->>'second_assertion_id')::bigint))
+     OR EXISTS(SELECT 1 FROM public.citation WHERE id IN((v_state->>'citation_id')::bigint,(v_state->>'second_citation_id')::bigint))
+     OR EXISTS(SELECT 1 FROM public.conclusion WHERE id IN((v_state->>'conclusion_id')::bigint,(v_state->>'second_conclusion_id')::bigint))
+     OR (SELECT count(*) FROM private.reimport_name_completion_result WHERE batch_id=(v_state->>'child_batch_id')::uuid)<>2
+     OR (SELECT count(*) FROM private.narrative_record_publication binding JOIN public.narrative narrative ON narrative.id=binding.narrative_id WHERE binding.status='withdrawn' AND narrative.subjekt_type='person' AND narrative.subjekt_id IN((v_state->>'person_id')::bigint,(v_state->>'second_person_id')::bigint))<>2 THEN
+    RAISE EXCEPTION 'TASK11_MULTI_PERSON_REVERSAL_INVALID';
+  END IF;
+END $task11_multi_person_successful_reversal$;
 
 DO $two_profile_scope$
 DECLARE
@@ -596,7 +678,7 @@ END $two_profile_scope$;
 DO $task11_coverage_drift_rechecks$
 DECLARE
   v_actor uuid:='15300000-0000-4000-8000-000000000101'; a jsonb; b jsonb;
-  c jsonb; v_cutover uuid; v_reversal uuid; v_error text; v_source_status text; v_child_status text;
+  c jsonb; v_cutover uuid; v_reversal uuid; v_error text; v_source_status text; v_child_status text; v_before jsonb;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   c:=pg_temp.task3_stage_profile(14,'task11-drift-finalize',repeat('1',64),'task11-drift-finalize-record','Task 11 drift finalize',-153114,repeat('2',64),repeat('3',64));
@@ -605,9 +687,11 @@ BEGIN
   ALTER TABLE private.reimport_event DISABLE TRIGGER ALL;
   UPDATE private.reimport_event SET payload=jsonb_set(payload,'{source_person_create_element_id}','"drift"') WHERE batch_id=(c->>'child_batch_id')::uuid AND operation='canonical_delta';
   ALTER TABLE private.reimport_event ENABLE TRIGGER ALL;
+  v_before:=pg_temp.task11_lifecycle_snapshot((c->>'source_batch_id')::uuid,(c->>'child_batch_id')::uuid,(c->>'child_authorization_id')::uuid,(c->>'person_id')::bigint);
   v_error:=NULL;
   BEGIN PERFORM public.red_finalize_reimport_name_completion((c->>'child_batch_id')::uuid); EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
-  IF v_error IS DISTINCT FROM 'REIMPORT_NAME_COMPLETION_INVALID' OR (SELECT status FROM private.reimport_batch WHERE id=(c->>'child_batch_id')::uuid)<>'open' THEN
+  IF v_error IS DISTINCT FROM 'REIMPORT_NAME_COMPLETION_INVALID' OR (SELECT status FROM private.reimport_batch WHERE id=(c->>'child_batch_id')::uuid)<>'open'
+     OR pg_temp.task11_lifecycle_snapshot((c->>'source_batch_id')::uuid,(c->>'child_batch_id')::uuid,(c->>'child_authorization_id')::uuid,(c->>'person_id')::bigint) IS DISTINCT FROM v_before THEN
     RAISE EXCEPTION 'TASK11_FINALIZE_COVERAGE_DRIFT_ACCEPTED: %',v_error;
   END IF;
   a:=pg_temp.task3_stage_profile(12,'task11-drift-activation',repeat('a',64),'task11-drift-activation-record','Task 11 drift activation',-153112,repeat('b',64),repeat('c',64));
@@ -619,11 +703,14 @@ BEGIN
   UPDATE private.reimport_event SET payload=jsonb_set(payload,'{source_person_create_element_id}','"drift"')
    WHERE batch_id=(a->>'child_batch_id')::uuid AND operation='canonical_delta';
   ALTER TABLE private.reimport_event ENABLE TRIGGER ALL;
+  v_before:=pg_temp.task11_lifecycle_snapshot((a->>'source_batch_id')::uuid,(a->>'child_batch_id')::uuid,v_cutover,(a->>'person_id')::bigint);
+  v_error:=NULL;
   BEGIN PERFORM public.red_activate_reimport_batch((a->>'source_batch_id')::uuid,v_cutover); EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
   IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_CUTOVER_INVALID'
      OR (SELECT status FROM private.reimport_batch WHERE id=(a->>'source_batch_id')::uuid) IS DISTINCT FROM v_source_status
      OR (SELECT status FROM private.reimport_batch WHERE id=(a->>'child_batch_id')::uuid) IS DISTINCT FROM v_child_status
-     OR (SELECT status FROM private.reimport_authorization WHERE id=v_cutover)<>'issued' THEN
+     OR (SELECT status FROM private.reimport_authorization WHERE id=v_cutover)<>'issued'
+     OR pg_temp.task11_lifecycle_snapshot((a->>'source_batch_id')::uuid,(a->>'child_batch_id')::uuid,v_cutover,(a->>'person_id')::bigint) IS DISTINCT FROM v_before THEN
     RAISE EXCEPTION 'TASK11_ACTIVATION_COVERAGE_DRIFT_ACCEPTED: %',v_error;
   END IF;
   b:=pg_temp.task3_stage_profile(13,'task11-drift-reversal',repeat('d',64),'task11-drift-reversal-record','Task 11 drift reversal',-153113,repeat('e',64),repeat('f',64));
@@ -638,12 +725,14 @@ BEGIN
   UPDATE private.reimport_event SET payload=jsonb_set(payload,'{source_person_create_element_id}','"drift"')
    WHERE batch_id=(b->>'child_batch_id')::uuid AND operation='canonical_delta';
   ALTER TABLE private.reimport_event ENABLE TRIGGER ALL;
+  v_before:=pg_temp.task11_lifecycle_snapshot((b->>'source_batch_id')::uuid,(b->>'child_batch_id')::uuid,v_reversal,(b->>'person_id')::bigint);
   v_error:=NULL;
   BEGIN PERFORM public.red_reverse_reimport((b->>'source_batch_id')::uuid,v_reversal); EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
   IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_REVERSAL_INVALID'
      OR (SELECT status FROM private.reimport_batch WHERE id=(b->>'source_batch_id')::uuid) IS DISTINCT FROM v_source_status
      OR (SELECT status FROM private.reimport_batch WHERE id=(b->>'child_batch_id')::uuid) IS DISTINCT FROM v_child_status
-     OR (SELECT status FROM private.reimport_authorization WHERE id=v_reversal)<>'issued' THEN
+     OR (SELECT status FROM private.reimport_authorization WHERE id=v_reversal)<>'issued'
+     OR pg_temp.task11_lifecycle_snapshot((b->>'source_batch_id')::uuid,(b->>'child_batch_id')::uuid,v_reversal,(b->>'person_id')::bigint) IS DISTINCT FROM v_before THEN
     RAISE EXCEPTION 'TASK11_REVERSAL_COVERAGE_DRIFT_ACCEPTED: %',v_error;
   END IF;
 END $task11_coverage_drift_rechecks$;
