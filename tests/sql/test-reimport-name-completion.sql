@@ -552,11 +552,11 @@ BEGIN
   PERFORM set_config('app.change_set_id','',true);
   v_result:=public.red_activate_reimport_batch((v_state->>'source_batch_id')::uuid,v_cutover);
   SELECT coalesce(array_agg(binding.id ORDER BY binding.id),ARRAY[]::uuid[]) INTO v_binding_ids
-    FROM private.narrative_record_publication binding
+    FROM private.reimport_name_completion_result result
+    JOIN private.narrative_record_publication binding ON binding.source_record_id=result.source_record_id
     JOIN public.narrative narrative ON narrative.id=binding.narrative_id
-   WHERE narrative.subjekt_type='person'
-     AND narrative.subjekt_id IN((v_state->>'person_id')::bigint,(v_state->>'second_person_id')::bigint)
-     AND binding.source_record_id IN((v_state->>'source_record_id')::uuid,(v_state->>'second_source_record_id')::uuid)
+      AND narrative.subjekt_type='person' AND narrative.subjekt_id=result.person_id
+   WHERE result.batch_id=(v_state->>'child_batch_id')::uuid
      AND binding.status='draft';
   IF v_result->>'status'<>'activated'
      OR EXISTS(SELECT 1 FROM public.person WHERE id IN((v_state->>'person_id')::bigint,(v_state->>'second_person_id')::bigint) AND staged)
