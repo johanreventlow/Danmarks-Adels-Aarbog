@@ -44,7 +44,8 @@ validate_reimport_manifest <- function(manifest) {
       identical(operation$dependency_class, "person_create"), logical(1))),
     canonical_delta = 0L
   )
-  if (!identical(unname(as.integer(manifest$expected_counts)), unname(as.integer(counts))))
+  if (!all(vapply(names(counts), function(name)
+    identical(manifest$expected_counts[[name]], counts[[name]]), logical(1))))
     stop_reimport("REIMPORT_MANIFEST_COUNTS_INVALID")
   invisible(manifest)
 }

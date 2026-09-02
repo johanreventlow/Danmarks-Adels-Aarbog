@@ -15,6 +15,12 @@ name_completion_named <- function(value, expected) {
   is.list(value) && identical(sort(names(value)), sort(expected))
 }
 
+name_completion_positive_pg_integer <- function(value) {
+  (is.integer(value) || is.numeric(value)) && length(value) == 1L && !is.na(value) &&
+    is.finite(value) && value >= 1 && value <= .Machine$integer.max &&
+    value == as.integer(value)
+}
+
 validate_generic_name_completion_manifest <- function(manifest) {
   required <- c("manifest_content_sha256", "source", "source_batch_id", "source_manifest_bytes_sha256", "source_manifest_content_sha256", "expected_counts", "operations")
   if (!name_completion_named(manifest, required) || !generic_name_completion_hash(manifest$manifest_content_sha256) ||
@@ -23,6 +29,10 @@ validate_generic_name_completion_manifest <- function(manifest) {
       !is.character(manifest$source$profile_id) || length(manifest$source$profile_id) != 1L || is.na(manifest$source$profile_id) || !nzchar(manifest$source$profile_id) ||
       !generic_name_completion_hash(manifest$source$profile_sha256))
     stop_name_completion("REIMPORT_NAME_COMPLETION_MANIFEST_PROFILE_INVALID")
+  if (!is.list(manifest$operations) || !all(vapply(manifest$operations, function(operation)
+    is.list(operation$page_evidence) &&
+      name_completion_positive_pg_integer(operation$page_evidence$page_from), logical(1))))
+    stop_name_completion("REIMPORT_NAME_COMPLETION_INVALID")
   if (!generic_name_completion_uuid(manifest$source_batch_id) || !generic_name_completion_hash(manifest$source_manifest_bytes_sha256) ||
       !generic_name_completion_hash(manifest$source_manifest_content_sha256) ||
       !name_completion_named(manifest$expected_counts, c("name_completions", "operations")) ||

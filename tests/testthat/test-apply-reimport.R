@@ -148,6 +148,17 @@ test_that("reimport projects canonical-delta validation out of writer counts", {
     list(person_creates = 0L, source_evidence = 1L))
 })
 
+test_that("reimport accepts semantically identical expected counts in another JSON key order", {
+  manifest <- reimport_manifest()
+  manifest$expected_counts <- list(
+    canonical_delta = 0L,
+    person_creates = 0L,
+    source_evidence = 1L
+  )
+
+  expect_no_error(validate_reimport_manifest(manifest))
+})
+
 test_that("reimport rejects malformed public batch-result envelopes", {
   result <- list(batch_id = "33333333-3333-4333-8333-333333333333",
     status = c("open", "finalized"), replayed = FALSE, person_id_map = list())

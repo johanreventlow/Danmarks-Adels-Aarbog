@@ -98,8 +98,8 @@ dbRollback(same_profile)
 dbRollback(holder)
 stopifnot(public_lock_blocks_other, query(holder, "SELECT count(*) count FROM private.reimport_authorization")$count[[1L]] == lock_authorizations_before)
 
-# Task 9: two profiles must serialize the load-bearing max(id)+1 allocation,
-# not merely acquire their independent source/profile writer locks.
+# Task 10: two profiles use database identities.  Their concurrent successful
+# writes prove allocation safety without a private allocation lock.
 fixture_sql <- paste(readLines("tests/sql/reimport-writer-locking-fixture.sql", warn = FALSE), collapse = "\n")
 execute(holder, fixture_sql)
 
@@ -217,16 +217,6 @@ if (!file.exists(ready_a)) {
   stop("Task 9 writer A did not reach the post-allocation hold: ", worker_a_error)
 }
 worker_b <- parallel::mcparallel(worker(state_b_json, "task9-name-completion-b"), silent = TRUE)
-waiting_for_allocation_lock <- FALSE
-for (i in seq_len(100L)) {
-  waiting_for_allocation_lock <- query(holder, paste(
-    "SELECT EXISTS(SELECT 1 FROM pg_stat_activity",
-    "WHERE application_name='task9-name-completion-b' AND wait_event_type='Lock' AND wait_event='advisory') waiting"
-  ))$waiting[[1L]]
-  if (waiting_for_allocation_lock) break
-  Sys.sleep(0.05)
-}
-stopifnot(waiting_for_allocation_lock)
 stopifnot(file.create(release_a))
 completed_a <- parallel::mccollect(worker_a, wait = TRUE)[[1L]]
 completed_b <- parallel::mccollect(worker_b, wait = TRUE)[[1L]]
@@ -244,4 +234,4 @@ stopifnot(nrow(receipts) == 2L, all(receipts$status == "finalized"), all(receipt
 stopifnot(length(unique(receipts$fact_id)) == 2L, length(unique(receipts$citation_id)) == 2L)
 stopifnot(all(c(paste(task9_profile_a, "side 1"), paste(task9_profile_b, "side 1")) %in% receipts$citat_tekst))
 
-cat("PASS Task 8 source/profile writer lock concurrency; Task 9 RED max(id)+1 collision and GREEN serialized name-completion writes\n")
+cat("PASS Task 8 source/profile writer lock concurrency; Task 9 RED max(id)+1 collision and Task 10 concurrent identity-backed name-completion writes\n")

@@ -114,6 +114,7 @@ BEGIN
       'private.reimport_canonical_json_sha256(jsonb)',
       'private.validate_reimport_name_completion(uuid,uuid,text,jsonb)',
       'public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz)',
+      'public.red_preflight_reimport_authorization(uuid,text,text)',
       'public.red_begin_reimport(uuid,text,text)',
       'public.red_apply_reimport_source_evidence(uuid,text,jsonb)',
       'public.red_apply_reimport_person_create(uuid,text,jsonb)',
@@ -132,11 +133,11 @@ BEGIN
       'public.red_finalize_reimport_name_completion(uuid)'
     ],ARRAY[
       false,false,false,false,false,false,false,false,false,
-      false,true,true,true,true,true,false,true,false,true,true,
+      false,true,true,true,true,true,true,false,true,false,true,true,
       true,false,true,true,true,true
     ],ARRAY[
       false,false,false,false,false,false,false,false,false,
-      true,false,false,false,false,false,true,false,true,false,false,
+      true,false,false,false,false,false,false,true,false,true,false,false,
       false,true,false,false,false,false
     ]) AS acl(signature,expect_authenticated,expect_service_role)
   LOOP
@@ -330,6 +331,77 @@ BEGIN
     RAISE EXCEPTION 'REIMPORT_WRITER_FINALIZED_BATCH_RESULT_INVALID: %',v_result;
   END IF;
 END $migration_writer_behavior$;
+
+-- Task 10: source-scoped profiles may share neither an incompatible extraction
+-- run nor an incompatible rendition.  A rejected reuse rolls back its attempt
+-- before it can add evidence rows or events.
+DO $same_source_profile_provenance$
+DECLARE
+  v_actor uuid:='15300000-0000-4000-8000-000000000001';
+  v_run_config jsonb; v_rendition_config jsonb; v_hash text; v_auth uuid; v_batch uuid;
+  v_payload jsonb; v_error text; v_runs bigint; v_renditions bigint; v_records bigint;
+  v_observations bigint; v_events bigint;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  v_payload:=jsonb_build_object('disposition','retain_source_only','source_record_key','task10-same-source-record',
+    'source_span',jsonb_build_object('char_from',0,'char_to',20),
+    'page_evidence',jsonb_build_object('page_from',1,'page_to',1),
+    'verbatim_text','Task 10 same source','rendition_content_sha256',repeat('1',64));
+  SELECT count(*) INTO v_runs FROM private.extraction_run;
+  SELECT count(*) INTO v_renditions FROM private.source_rendition;
+  SELECT count(*) INTO v_records FROM private.source_record;
+  SELECT count(*) INTO v_observations FROM private.source_observation;
+  SELECT count(*) INTO v_events FROM private.reimport_event;
+  v_run_config:=jsonb_build_object('run_key_prefix','reimport-1939-v50:',
+    'schema_version','task10-incompatible-run','extractor_version','production-writer-v1',
+    'rendition_key','daa-1939-calamari-r6-clean','rendition_kind','ocr_text',
+    'rendition_metadata',jsonb_build_object('edition','1939'),
+    'observation_extraction_method','human_reviewed_1939_v50',
+    'citation_label_template','DAA 1939 side {page_from}');
+  v_hash:=private.reimport_canonical_json_sha256(v_run_config);
+  INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
+  VALUES(3,'task10-incompatible-run','production-writer-v1',v_hash,v_run_config);
+  v_auth:=public.red_authorize_reimport(repeat('1',64),repeat('2',64),jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,3,'task10-incompatible-run',v_hash,
+    '{"person_creates":0,"source_evidence":1}'::jsonb,jsonb_build_object('source-evidence:task10-run',v_payload),gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  v_batch:=public.red_begin_reimport(v_auth,repeat('1',64),repeat('2',64));
+  BEGIN
+    PERFORM public.red_apply_reimport_source_evidence(v_batch,'source-evidence:task10-run',v_payload);
+  EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_SOURCE_EVIDENCE_INVALID'
+     OR (SELECT count(*) FROM private.extraction_run)<>v_runs
+     OR (SELECT count(*) FROM private.source_rendition)<>v_renditions
+     OR (SELECT count(*) FROM private.source_record)<>v_records
+     OR (SELECT count(*) FROM private.source_observation)<>v_observations
+     OR (SELECT count(*) FROM private.reimport_event)<>v_events THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_SAME_SOURCE_RUN_REUSE_ACCEPTED: %',v_error;
+  END IF;
+  v_error:=NULL;
+  v_rendition_config:=jsonb_build_object('run_key_prefix','task10-rendition:',
+    'schema_version','1939-v50-production-write-manifest-v1','extractor_version','production-writer-v1',
+    'rendition_key','daa-1939-calamari-r6-clean','rendition_kind','ocr_text',
+    'rendition_metadata',jsonb_build_object('edition','task10-drift'),
+    'observation_extraction_method','human_reviewed_1939_v50',
+    'citation_label_template','DAA 1939 side {page_from}');
+  v_hash:=private.reimport_canonical_json_sha256(v_rendition_config);
+  INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
+  VALUES(3,'task10-incompatible-rendition','production-writer-v1',v_hash,v_rendition_config);
+  v_auth:=public.red_authorize_reimport(repeat('3',64),repeat('4',64),jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,3,'task10-incompatible-rendition',v_hash,
+    '{"person_creates":0,"source_evidence":1}'::jsonb,jsonb_build_object('source-evidence:task10-rendition',v_payload),gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  v_batch:=public.red_begin_reimport(v_auth,repeat('3',64),repeat('4',64));
+  BEGIN
+    PERFORM public.red_apply_reimport_source_evidence(v_batch,'source-evidence:task10-rendition',v_payload);
+  EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_RENDITION_DRIFT'
+     OR (SELECT count(*) FROM private.extraction_run)<>v_runs
+     OR (SELECT count(*) FROM private.source_rendition)<>v_renditions
+     OR (SELECT count(*) FROM private.source_record)<>v_records
+     OR (SELECT count(*) FROM private.source_observation)<>v_observations
+     OR (SELECT count(*) FROM private.reimport_event)<>v_events THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_SAME_SOURCE_RENDITION_REUSE_ACCEPTED: %',v_error;
+  END IF;
+END $same_source_profile_provenance$;
 
 CREATE FUNCTION pg_temp.task3_source_record_placement(
   p_source_id bigint,p_record_key text,p_fixture_id bigint,p_accepted boolean

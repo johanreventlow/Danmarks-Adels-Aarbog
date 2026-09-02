@@ -32,7 +32,8 @@ name_completion_manifest <- function() {
       element_id = "name-completion:fixture-1",
       person_id = 91L,
       source_record_key = "fixture-1",
-      payload_sha256 = sha("e")
+      payload_sha256 = sha("e"),
+      page_evidence = list(page_from = 1L)
     ))
   )
 }
@@ -93,6 +94,34 @@ test_that("name-completion manifest rejects incomplete or malformed profile iden
   expect_error(execute_name_completion(malformed, sha("a"), "dry-run", gateway$gateway),
     "REIMPORT_NAME_COMPLETION_MANIFEST_PROFILE_INVALID")
   expect_length(gateway$calls(), 0L)
+})
+
+test_that("name-completion manifest rejects missing, null, fractional, and non-positive page_from before gateway use", {
+  cases <- list(
+    missing = list(),
+    null = list(page_from = NULL),
+    fractional = list(page_from = 1.5),
+    zero = list(page_from = 0L),
+    negative = list(page_from = -1L)
+  )
+  for (page_evidence in cases) {
+    manifest <- name_completion_manifest()
+    manifest$operations[[1L]]$page_evidence <- page_evidence
+    gateway <- name_completion_gateway(manifest)
+    expect_error(
+      execute_name_completion(manifest, sha("a"), "dry-run", gateway$gateway),
+      "REIMPORT_NAME_COMPLETION_INVALID"
+    )
+    expect_length(gateway$calls(), 0L)
+  }
+})
+
+test_that("name-completion manifest accepts a JSON-decoded integral page_from", {
+  manifest <- name_completion_manifest()
+  manifest$operations[[1L]]$page_evidence$page_from <- 1
+  gateway <- name_completion_gateway(manifest)
+  expect_no_error(execute_name_completion(manifest, sha("a"), "dry-run", gateway$gateway))
+  expect_true("preflight" %in% names(gateway$calls()))
 })
 
 test_that("name completion refuses a database profile mismatch before authorization", {

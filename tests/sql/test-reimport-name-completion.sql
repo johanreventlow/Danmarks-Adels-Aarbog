@@ -523,6 +523,48 @@ BEGIN
   END IF;
 END $two_profile_scope$;
 
+-- Task 10: allocation is a shared identity contract, not a cooperative
+-- writer-only lock.  An ordinary default writer must receive its own ID, and
+-- a completion after earlier receipts were reversed must never reuse any
+-- retained receipt ID.
+DO $identity_allocation_contract$
+DECLARE
+  v_actor uuid:='15300000-0000-4000-8000-000000000101'; v_state jsonb;
+  v_ordinary_fact bigint; v_retained_fact_ids bigint[]; v_retained_assertion_ids bigint[];
+  v_retained_citation_ids bigint[]; v_retained_conclusion_ids bigint[];
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SELECT array_agg(result.fact_id),array_agg(result.assertion_id),
+         array_agg(result.citation_id),array_agg(result.conclusion_id)
+    INTO v_retained_fact_ids,v_retained_assertion_ids,v_retained_citation_ids,v_retained_conclusion_ids
+    FROM private.reimport_name_completion_result result
+    JOIN private.reimport_batch child ON child.id=result.batch_id
+   WHERE child.status='reversed';
+  IF coalesce(array_length(v_retained_fact_ids,1),0)<2 THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_RETAINED_RECEIPTS_MISSING';
+  END IF;
+  INSERT INTO public.fact(subjekt_type,subjekt_id,faktatype)
+  VALUES('person',-153109,'task10-ordinary-default-writer')
+  RETURNING id INTO v_ordinary_fact;
+  IF v_ordinary_fact IS NULL THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_ORDINARY_DEFAULT_ID_MISSING';
+  END IF;
+  v_state:=pg_temp.task3_stage_profile(
+    7,'task-10-post-reversal',repeat('f',64),'task-10-post-reversal-record',
+    'Task 10 post reversal',-153109,repeat('5',64),repeat('6',64));
+  v_state:=pg_temp.task3_complete_profile(v_state);
+  IF (v_state->>'fact_id')::bigint=ANY(v_retained_fact_ids)
+     OR (v_state->>'assertion_id')::bigint=ANY(v_retained_assertion_ids)
+     OR (v_state->>'citation_id')::bigint=ANY(v_retained_citation_ids)
+     OR EXISTS(
+       SELECT 1 FROM private.reimport_name_completion_result result
+        WHERE result.batch_id=(v_state->>'child_batch_id')::uuid
+          AND result.conclusion_id=ANY(v_retained_conclusion_ids)
+     ) THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_RETAINED_ID_REUSED';
+  END IF;
+END $identity_allocation_contract$;
+
 DO $same_profile_manifest_scope$
 DECLARE
   v_actor uuid:='15300000-0000-4000-8000-000000000101'; a jsonb; b jsonb;
