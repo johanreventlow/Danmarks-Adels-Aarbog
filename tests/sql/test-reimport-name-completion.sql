@@ -557,13 +557,14 @@ BEGIN
   SELECT count(*) INTO v_assertions FROM public.assertion;
   SELECT count(*) INTO v_citations FROM public.citation;
   SELECT count(*) INTO v_conclusions FROM public.conclusion;
-  FOR v_case IN 0..4 LOOP
+  FOR v_case IN 0..5 LOOP
     v_candidate:=CASE v_case
       WHEN 0 THEN v_payload-'page_evidence'
       WHEN 1 THEN jsonb_set(v_payload,'{page_evidence}',jsonb_build_object('page_from',NULL))
       WHEN 2 THEN jsonb_set(v_payload,'{page_evidence}',jsonb_build_object('page_from',1.5))
       WHEN 3 THEN jsonb_set(v_payload,'{page_evidence}',jsonb_build_object('page_from',0))
-      ELSE jsonb_set(v_payload,'{page_evidence}',jsonb_build_object('page_from',-1))
+      WHEN 4 THEN jsonb_set(v_payload,'{page_evidence}',jsonb_build_object('page_from',-1))
+      ELSE jsonb_set(v_payload,'{page_evidence}',jsonb_build_object('page_from','1'))
     END;
     v_payloads:=jsonb_build_object('name-completion:'||(v_state->'person_payload'->>'source_record_key'),v_candidate);
     v_error:=NULL;

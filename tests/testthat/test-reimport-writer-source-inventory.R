@@ -252,6 +252,31 @@ testthat::test_that("every generic writer lifecycle locks its source/profile aft
   }
 })
 
+testthat::test_that("fresh preflight drops PUBLIC execute before the next function is created", {
+  schema_text <- paste(readLines(file.path(writer_root, "schema.sql"), warn = FALSE), collapse = "\n")
+  start <- regexpr(
+    "CREATE FUNCTION public.red_preflight_reimport_authorization",
+    schema_text, fixed = TRUE
+  )[[1L]]
+  next_function <- regexpr(
+    "CREATE FUNCTION public.red_begin_reimport",
+    schema_text, fixed = TRUE
+  )[[1L]]
+  testthat::expect_gt(start, 0L)
+  testthat::expect_gt(next_function, start)
+  immediate_contract <- substr(schema_text, start, next_function - 1L)
+  testthat::expect_match(
+    immediate_contract,
+    "REVOKE ALL ON FUNCTION public.red_preflight_reimport_authorization(uuid,text,text)",
+    fixed = TRUE
+  )
+  testthat::expect_match(
+    immediate_contract,
+    "GRANT EXECUTE ON FUNCTION public.red_preflight_reimport_authorization(uuid,text,text)",
+    fixed = TRUE
+  )
+})
+
 testthat::test_that("upgrade guard permits only exact terminal children and an empty legacy ledger", {
   migration_text <- paste(readLines(file.path(writer_root, "db-migrations.sql"), warn = FALSE), collapse = "\n")
   empty_fixture <- paste(readLines(file.path(writer_root, "tests", "sql", "reimport-writer-legacy-empty-fixture.sql"), warn = FALSE), collapse = "\n")
@@ -270,6 +295,7 @@ testthat::test_that("catalog parity includes effective function bodies and both 
   migration_fixture <- paste(readLines(file.path(writer_root, "tests", "sql", "test-reimport-writer-migration.sql"), warn = FALSE), collapse = "\n")
   testthat::expect_match(receipt, "pg_get_functiondef", fixed = TRUE)
   testthat::expect_match(receipt, "encode(extensions.digest", fixed = TRUE)
+  testthat::expect_match(receipt, "row_value::text COLLATE \"C\"", fixed = TRUE)
   testthat::expect_match(migration_fixture, "operation='name_completion'", fixed = TRUE)
   testthat::expect_match(migration_fixture, "status='finalized'", fixed = TRUE)
   testthat::expect_match(migration_fixture, "source_batch.status='activated'", fixed = TRUE)

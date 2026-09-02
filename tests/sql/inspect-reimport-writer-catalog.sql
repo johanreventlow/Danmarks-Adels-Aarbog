@@ -89,4 +89,4 @@ WITH targets AS (
     'anon',has_function_privilege('anon',oid,'EXECUTE'),'authenticated',has_function_privilege('authenticated',oid,'EXECUTE'),
     'service_role',has_function_privilege('service_role',oid,'EXECUTE')) FROM functions
 )
-SELECT jsonb_agg(row_value ORDER BY row_value::text) FROM rows;
+SELECT jsonb_agg(row_value ORDER BY row_value::text COLLATE "C") FROM rows;

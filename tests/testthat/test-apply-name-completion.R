@@ -96,10 +96,11 @@ test_that("name-completion manifest rejects incomplete or malformed profile iden
   expect_length(gateway$calls(), 0L)
 })
 
-test_that("name-completion manifest rejects missing, null, fractional, and non-positive page_from before gateway use", {
+test_that("name-completion manifest rejects missing, null, strings, fractional, and non-positive page_from before gateway use", {
   cases <- list(
     missing = list(),
     null = list(page_from = NULL),
+    numeric_string = list(page_from = "1"),
     fractional = list(page_from = 1.5),
     zero = list(page_from = 0L),
     negative = list(page_from = -1L)
