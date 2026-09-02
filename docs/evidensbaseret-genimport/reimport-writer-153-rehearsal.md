@@ -216,7 +216,10 @@ env PGHOST=127.0.0.1 PGPORT=55441 PGDATABASE=daa153_t7_corrected2_20260902 PGUSE
 
 It directly exercises generic authorization/begin/finalize, equal-hash
 separation for two synthetic source/profile identities, rollback cleanup,
-unauthorised rejection, cross-profile reversal/activation rejection, and the
-v2 event-backed person-create contract. Its output ends `PASS generic reimport
-writer DBI integration` (RPostgres emitted non-fatal open-result warnings).
-This positive single DBI observation does not upgrade the overall NO-GO.
+unauthorised rejection and cross-profile reversal/activation rejection. It
+checks the v2 event-backed person-create implementation contract, but does
+**not** yet execute a successful person-create/name-completion lifecycle.
+Thus it does not fully discharge Task 7's required actual narrative-creation
+proof. Its output ends `PASS generic reimport writer DBI integration`
+(RPostgres emitted non-fatal open-result warnings). This positive partial DBI
+observation does not upgrade the overall NO-GO.
