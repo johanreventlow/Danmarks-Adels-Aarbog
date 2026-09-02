@@ -422,6 +422,61 @@ BEGIN
     'citation_id',v_result#>>ARRAY['result_map','name-completion:'||(p_state->'person_payload'->>'source_record_key'),'citation_id']);
 END $task3_complete_profile$;
 
+-- Task 11 RED: a child authorization is a complete ledger assertion, not a
+-- permissive subset.  The parent below is deliberately finalized with two
+-- distinct person-create identities; authorizing only the first must fail
+-- before a child authorization or batch is durable.
+DO $task11_exact_parent_person_coverage$
+DECLARE
+  v_actor uuid:='15300000-0000-4000-8000-000000000101'; v_state jsonb;
+  v_extra_person bigint; v_extra_record uuid:=gen_random_uuid();
+  v_payloads jsonb; v_error text; v_authorizations bigint; v_batches bigint;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  v_state:=pg_temp.task3_stage_profile(
+    11,'task11-exact-coverage',repeat('a',64),'task11-exact-coverage-record-a',
+    'Task 11 coverage A',-153111,repeat('b',64),repeat('c',64));
+  INSERT INTO public.person(staged) VALUES(true) RETURNING id INTO v_extra_person;
+  INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
+  VALUES(v_extra_record,11,'task11-exact-coverage-record-b','person',
+         (SELECT created_run_id FROM private.source_record WHERE id=(v_state->>'source_record_id')::uuid));
+  UPDATE private.reimport_batch
+     SET expected_counts='{"person_creates":2,"source_evidence":1}'::jsonb,
+         observed_counts='{"person_creates":2,"source_evidence":1}'::jsonb
+   WHERE id=(v_state->>'source_batch_id')::uuid;
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,canonical_person_id,payload,after_sha256)
+  VALUES((v_state->>'source_batch_id')::uuid,'person-create:task11-exact-coverage-record-b','person_create',
+         'task11-exact-coverage-record-b',v_extra_person,
+         jsonb_build_object('source_persona_id',gen_random_uuid(),'authorized_payload_sha256',repeat('d',64)),repeat('d',64));
+  v_payloads:=jsonb_build_object(
+    'name-completion:'||(v_state->'person_payload'->>'source_record_key'),
+    jsonb_build_object(
+      'source_batch_id',v_state->>'source_batch_id',
+      'source_person_create_element_id',v_state->>'source_element_id',
+      'person_id',v_state->>'person_id','source_id',(v_state->>'source_id')::bigint,
+      'source_record_key',v_state->'person_payload'->>'source_record_key',
+      'source_persona_id',v_state->>'source_persona_id','name',v_state->'person_payload'->>'name',
+      'source_span',v_state->'person_payload'->'source_span','page_evidence',v_state->'person_payload'->'page_evidence',
+      'verbatim_text',v_state->'person_payload'->>'verbatim_text','verbatim_sha256',v_state->'person_payload'->>'verbatim_sha256',
+      'source_payload_sha256',private.reimport_canonical_json_sha256(v_state->'person_payload'),
+      'expected_before',jsonb_build_object('staged',true,'name_cache_empty',true,'name_facts',0),
+      'expected_after',jsonb_build_object('name_fact',1,'selected_assertion',1,'citation',1,'conclusion',1)));
+  SELECT count(*) INTO v_authorizations FROM private.reimport_authorization;
+  SELECT count(*) INTO v_batches FROM private.reimport_batch;
+  BEGIN
+    PERFORM public.red_authorize_reimport_name_completion(
+      repeat('e',64),(v_state->>'source_batch_id')::uuid,v_state->>'preview_sha256',v_state->>'manifest_sha256',
+      (v_state->>'source_id')::bigint,v_state->>'profile_id',v_state->>'profile_sha256',
+      '{"name_completions":1,"operations":1}'::jsonb,v_payloads);
+  EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_NAME_COMPLETION_INVALID'
+     OR (SELECT count(*) FROM private.reimport_authorization)<>v_authorizations
+     OR (SELECT count(*) FROM private.reimport_batch)<>v_batches THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_SUBSET_PARENT_PERSON_COVERAGE_ACCEPTED: %',v_error;
+  END IF;
+END $task11_exact_parent_person_coverage$;
+
 DO $two_profile_scope$
 DECLARE
   v_actor uuid:='15300000-0000-4000-8000-000000000101'; a jsonb; b jsonb;
@@ -652,9 +707,22 @@ BEGIN
   b:=pg_temp.task3_complete_profile(b);
   PERFORM set_config('app.change_set_id','',true);
   v_cutover_a:=public.red_authorize_reimport_cutover((a->>'source_batch_id')::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  v_cutover_b:=public.red_authorize_reimport_cutover((b->>'source_batch_id')::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  v_error:=NULL;
+  BEGIN
+    PERFORM public.red_activate_reimport_batch((b->>'source_batch_id')::uuid,v_cutover_a);
+  EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_CUTOVER_INVALID'
+     OR EXISTS(SELECT 1 FROM private.reimport_batch
+                WHERE id IN((a->>'source_batch_id')::uuid,(b->>'source_batch_id')::uuid)
+                  AND status<>'finalized')
+     OR EXISTS(SELECT 1 FROM private.reimport_authorization
+                WHERE id IN(v_cutover_a,v_cutover_b) AND status<>'issued') THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_CROSS_BATCH_CUTOVER_ACCEPTED: %',v_error;
+  END IF;
   v_activation_a:=public.red_activate_reimport_batch((a->>'source_batch_id')::uuid,v_cutover_a);
   PERFORM set_config('app.change_set_id','',true);
-  v_cutover_b:=public.red_authorize_reimport_cutover((b->>'source_batch_id')::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
   v_activation_b:=public.red_activate_reimport_batch((b->>'source_batch_id')::uuid,v_cutover_b);
   IF v_activation_a->>'status'<>'activated' OR v_activation_b->>'status'<>'activated' THEN
     RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_SAME_PROFILE_MANIFEST_ACTIVATION_INVALID';
