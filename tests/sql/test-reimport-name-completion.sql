@@ -596,9 +596,20 @@ END $two_profile_scope$;
 DO $task11_coverage_drift_rechecks$
 DECLARE
   v_actor uuid:='15300000-0000-4000-8000-000000000101'; a jsonb; b jsonb;
-  v_cutover uuid; v_reversal uuid; v_error text; v_source_status text; v_child_status text;
+  c jsonb; v_cutover uuid; v_reversal uuid; v_error text; v_source_status text; v_child_status text;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  c:=pg_temp.task3_stage_profile(14,'task11-drift-finalize',repeat('1',64),'task11-drift-finalize-record','Task 11 drift finalize',-153114,repeat('2',64),repeat('3',64));
+  c:=pg_temp.task3_complete_profile(c);
+  UPDATE private.reimport_batch SET status='open',finalized_at=NULL WHERE id=(c->>'child_batch_id')::uuid;
+  ALTER TABLE private.reimport_event DISABLE TRIGGER ALL;
+  UPDATE private.reimport_event SET payload=jsonb_set(payload,'{source_person_create_element_id}','"drift"') WHERE batch_id=(c->>'child_batch_id')::uuid AND operation='canonical_delta';
+  ALTER TABLE private.reimport_event ENABLE TRIGGER ALL;
+  v_error:=NULL;
+  BEGIN PERFORM public.red_finalize_reimport_name_completion((c->>'child_batch_id')::uuid); EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
+  IF v_error IS DISTINCT FROM 'REIMPORT_NAME_COMPLETION_INVALID' OR (SELECT status FROM private.reimport_batch WHERE id=(c->>'child_batch_id')::uuid)<>'open' THEN
+    RAISE EXCEPTION 'TASK11_FINALIZE_COVERAGE_DRIFT_ACCEPTED: %',v_error;
+  END IF;
   a:=pg_temp.task3_stage_profile(12,'task11-drift-activation',repeat('a',64),'task11-drift-activation-record','Task 11 drift activation',-153112,repeat('b',64),repeat('c',64));
   a:=pg_temp.task3_complete_profile(a);
   v_cutover:=public.red_authorize_reimport_cutover((a->>'source_batch_id')::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
