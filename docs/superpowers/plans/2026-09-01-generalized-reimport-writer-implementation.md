@@ -921,8 +921,9 @@ history semantics, production authority, or support for another real edition.
   public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb)
   ```
 
-  The lock and authorizer must reject a mismatched `(source_id, profile_id,
-  profile_sha256)` before mutation. The dedicated canonical-delta entry point
+  The lock must reject invalid or missing `(source_id, profile_id)` before
+  mutation; the authorizer must reject a mismatched complete `(source_id,
+  profile_id, profile_sha256)` triple. The dedicated canonical-delta entry point
   must take the shared v2 lock, validate the open batch/profile writer boundary
   and then fail closed with
   `REIMPORT_WRITER_CANONICAL_DELTA_UNSUPPORTED`; it must never call the
