@@ -12394,7 +12394,34 @@ CREATE OR REPLACE VIEW private.reimport_1939_write_batch AS SELECT * FROM privat
 CREATE OR REPLACE VIEW private.reimport_1939_write_event AS SELECT * FROM private.reimport_event;
 CREATE OR REPLACE VIEW private.reimport_1939_name_completion_result AS SELECT * FROM private.reimport_name_completion_result;
 
-CREATE OR REPLACE FUNCTION public.red_authorize_1939_v50_reimport(m text,p text,d text,s bigint,c jsonb,e jsonb,n uuid,x timestamptz) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$ BEGIN RETURN public.red_authorize_reimport(m,p,d,3,'daa-1939-v50-production-write-v1',(SELECT profile_sha256 FROM private.reimport_writer_profile WHERE source_id=3 AND profile_id='daa-1939-v50-production-write-v1'),c,e,n,x); EXCEPTION WHEN OTHERS THEN IF SQLERRM IN ('REIMPORT_WRITER_AUTHORIZATION_INVALID','REIMPORT_WRITER_PROFILE_INVALID','REIMPORT_WRITER_PROFILE_HASH_INVALID') THEN RAISE EXCEPTION 'REIMPORT_1939_AUTHORIZATION_INVALID'; END IF; IF SQLERRM='REIMPORT_WRITER_ROLE_FORBIDDEN' THEN RAISE EXCEPTION 'REIMPORT_1939_ROLE_FORBIDDEN'; END IF; RAISE; END $$;
+CREATE OR REPLACE FUNCTION public.red_authorize_1939_v50_reimport(m text,p text,d text,s bigint,c jsonb,e jsonb,n uuid,x timestamptz)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_database_identity text; v_expected_counts jsonb;
+BEGIN
+  -- The one-version facade accepts only the historic Phase-A representation:
+  -- current_database() plus exactly its two supported counts and a numeric
+  -- zero canonical_delta.  Every other value continues into the generic
+  -- validator unchanged so the historic invalid-token mapping is preserved.
+  IF d=current_database() AND jsonb_typeof(c)='object'
+     AND (SELECT count(*) FROM jsonb_object_keys(c))=3
+     AND c ?& ARRAY['person_creates','source_evidence','canonical_delta']
+     AND jsonb_typeof(c->'canonical_delta')='number'
+     AND (c->>'canonical_delta')::numeric=0 THEN
+    v_database_identity:=jsonb_build_object('database_name',current_database(),
+      'system_identifier',(pg_control_system()).system_identifier::text)::text;
+    v_expected_counts:=c-'canonical_delta';
+  ELSE
+    v_database_identity:=d;
+    v_expected_counts:=c;
+  END IF;
+  RETURN public.red_authorize_reimport(m,p,v_database_identity,3,'daa-1939-v50-production-write-v1',
+    (SELECT profile_sha256 FROM private.reimport_writer_profile
+      WHERE (source_id,profile_id)=(3,'daa-1939-v50-production-write-v1')),v_expected_counts,e,n,x);
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM IN ('REIMPORT_WRITER_AUTHORIZATION_INVALID','REIMPORT_WRITER_PROFILE_INVALID','REIMPORT_WRITER_PROFILE_HASH_INVALID') THEN RAISE EXCEPTION 'REIMPORT_1939_AUTHORIZATION_INVALID'; END IF;
+  IF SQLERRM='REIMPORT_WRITER_ROLE_FORBIDDEN' THEN RAISE EXCEPTION 'REIMPORT_1939_ROLE_FORBIDDEN'; END IF;
+  RAISE;
+END $$;
 CREATE OR REPLACE FUNCTION public.red_begin_1939_v50_reimport(i uuid,m text,p text) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$ BEGIN RETURN public.red_begin_reimport(i,m,p); EXCEPTION WHEN OTHERS THEN IF SQLERRM IN ('REIMPORT_WRITER_AUTHORIZATION_INVALID','REIMPORT_WRITER_BATCH_INVALID') THEN RAISE EXCEPTION 'REIMPORT_1939_AUTHORIZATION_INVALID'; END IF; RAISE; END $$;
 CREATE OR REPLACE FUNCTION public.red_apply_1939_v50_source_evidence(b uuid,e text,p jsonb) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$ BEGIN PERFORM public.red_apply_reimport_source_evidence(b,e,p); EXCEPTION WHEN OTHERS THEN IF SQLERRM='REIMPORT_WRITER_BATCH_INVALID' THEN RAISE EXCEPTION 'REIMPORT_1939_BATCH_INVALID'; END IF; IF SQLERRM='REIMPORT_WRITER_ELEMENT_NOT_AUTHORIZED' THEN RAISE EXCEPTION 'REIMPORT_1939_ELEMENT_NOT_AUTHORIZED'; END IF; IF SQLERRM='REIMPORT_WRITER_SOURCE_EVIDENCE_INVALID' THEN RAISE EXCEPTION 'REIMPORT_1939_SOURCE_EVIDENCE_INVALID'; END IF; IF SQLERRM='REIMPORT_WRITER_RENDITION_DRIFT' THEN RAISE EXCEPTION 'REIMPORT_1939_RENDITION_DRIFT'; END IF; RAISE; END $$;
 CREATE OR REPLACE FUNCTION public.red_apply_1939_v50_person_create(b uuid,e text,p jsonb) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$ BEGIN RETURN public.red_apply_reimport_person_create(b,e,p); EXCEPTION WHEN OTHERS THEN IF SQLERRM='REIMPORT_WRITER_BATCH_INVALID' THEN RAISE EXCEPTION 'REIMPORT_1939_BATCH_INVALID'; END IF; IF SQLERRM='REIMPORT_WRITER_PERSON_CREATE_INVALID' THEN RAISE EXCEPTION 'REIMPORT_1939_PERSON_CREATE_INVALID'; END IF; IF SQLERRM='REIMPORT_WRITER_ELEMENT_NOT_AUTHORIZED' THEN RAISE EXCEPTION 'REIMPORT_1939_ELEMENT_NOT_AUTHORIZED'; END IF; IF SQLERRM='REIMPORT_WRITER_SOURCE_EVIDENCE_INVALID' THEN RAISE EXCEPTION 'REIMPORT_1939_SOURCE_EVIDENCE_INVALID'; END IF; IF SQLERRM='REIMPORT_WRITER_RENDITION_DRIFT' THEN RAISE EXCEPTION 'REIMPORT_1939_RENDITION_DRIFT'; END IF; RAISE; END $$;

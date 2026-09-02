@@ -160,6 +160,21 @@ legacy_name_completion_profile <- function(manifest) {
       algo = "sha256", serialize = FALSE))
 }
 
+legacy_name_completion_authorization <- function(authorization, manifest) {
+  required <- c("authorization_id", "database_name", "system_identifier")
+  if (!name_completion_names(authorization, required) ||
+      !name_completion_uuid(authorization$authorization_id) ||
+      !is.character(authorization$database_name) || length(authorization$database_name) != 1L ||
+      is.na(authorization$database_name) || !nzchar(authorization$database_name) ||
+      !is.character(authorization$system_identifier) || length(authorization$system_identifier) != 1L ||
+      is.na(authorization$system_identifier) || !nzchar(authorization$system_identifier))
+    stop_name_completion("NAME_COMPLETION_1939_AUTHORIZATION_INVALID")
+  list(authorization_id = authorization$authorization_id,
+    database_name = authorization$database_name,
+    system_identifier = authorization$system_identifier,
+    source = legacy_name_completion_profile(manifest))
+}
+
 as_generic_name_completion_manifest <- function(manifest) {
   validate_name_completion_manifest(manifest)
   list(manifest_content_sha256 = manifest$manifest_content_sha256,
@@ -184,6 +199,8 @@ execute_name_completion <- function(manifest, manifest_sha256,
     stop_name_completion("NAME_COMPLETION_1939_MANIFEST_HASH_INVALID")
   if (identical(mode, "apply") && is.null(authorization))
     stop_name_completion("NAME_COMPLETION_1939_AUTHORIZATION_REQUIRED")
+  if (!is.null(authorization))
+    authorization <- legacy_name_completion_authorization(authorization, manifest)
   execute_name_completion_generic(as_generic_name_completion_manifest(manifest), manifest_sha256,
     mode, gateway, authorization)
 }

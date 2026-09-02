@@ -211,11 +211,13 @@ stopifnot(inherits(blocked, "try-error"), grepl("statement timeout", as.characte
 generic_manifest <- as_generic_name_completion_manifest(manifest)
 generic_payloads <- jsonlite::toJSON(name_completion_payloads(generic_manifest), auto_unbox = TRUE, null = "null")
 authorization <- jsonlite::fromJSON(query(con,
-  "SELECT public.red_authorize_reimport_name_completion($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb)::text value",
+  "SELECT public.red_authorize_1939_v50_name_completion($1,$2,$3,$4,$5::jsonb,$6::jsonb)::text value",
   list(manifest_sha, source_batch, name_completion_source_manifest_bytes_sha256,
-    name_completion_source_manifest_content_sha256, 3L, profile_id, profile_sha,
-    jsonlite::toJSON(generic_manifest$expected_counts, auto_unbox = TRUE),
-    generic_payloads))$value[[1L]], simplifyVector = FALSE)
+    name_completion_source_manifest_content_sha256,
+    jsonlite::toJSON(manifest$counts, auto_unbox = TRUE),
+    jsonlite::toJSON(payloads, auto_unbox = TRUE, null = "null")))$value[[1L]], simplifyVector = FALSE)
+stopifnot(identical(sort(names(authorization)),
+  c("authorization_id", "database_name", "system_identifier")))
 DBI::dbDisconnect(con); con <- NULL
 applied <- execute_name_completion(manifest, manifest_sha, "apply", gateway(), authorization)
 stopifnot(applied$committed, length(applied$result_map) == 8L)

@@ -196,18 +196,65 @@ BEGIN
     IF SQLERRM='REIMPORT_1939_DATABASE_DRIFT_ACCEPTED' THEN RAISE; END IF;
     IF SQLERRM<>'REIMPORT_1939_AUTHORIZATION_INVALID' THEN RAISE; END IF;
   END;
+  -- The active Phase-A caller still sends its historic database name and the
+  -- zero canonical-delta count.  The facade alone must normalize both before
+  -- the generic authorization is persisted.
   v_auth := public.red_authorize_1939_v50_reimport(
-    repeat('a',64),repeat('b',64),jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,3,
-    '{"person_creates":1,"source_evidence":1}'::jsonb,
+    repeat('a',64),repeat('b',64),current_database(),3,
+    '{"person_creates":1,"source_evidence":1,"canonical_delta":0}'::jsonb,
     jsonb_build_object('source-evidence:fixture',v_source_payload,'person-create:record-fixture',v_person_payload),
     '22222222-2222-4222-8222-222222222222',clock_timestamp()+interval '5 minutes');
   v_batch := public.red_begin_1939_v50_reimport(v_auth,repeat('a',64),repeat('b',64));
   IF NOT EXISTS (SELECT 1 FROM private.reimport_authorization WHERE id=v_auth AND source_id=3
-      AND profile_id='daa-1939-v50-production-write-v1' AND profile_sha256=v_profile_sha)
+      AND profile_id='daa-1939-v50-production-write-v1' AND profile_sha256=v_profile_sha
+      AND expected_counts='{"person_creates":1,"source_evidence":1}'::jsonb
+      AND database_identity=jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text)
      OR NOT EXISTS (SELECT 1 FROM private.reimport_batch WHERE id=v_batch AND authorization_id=v_auth
       AND source_id=3 AND profile_id='daa-1939-v50-production-write-v1' AND profile_sha256=v_profile_sha) THEN
     RAISE EXCEPTION 'REIMPORT_1939_FACADE_PROFILE_PARITY_FAILED';
   END IF;
+  -- Missing/nonzero/malformed/extra historic counts must keep the historic
+  -- invalid-token behavior.  They must never be silently coerced by the
+  -- compatibility facade.
+  FOR v_error IN SELECT value FROM unnest(ARRAY[
+    '{"person_creates":1,"source_evidence":1}'::text,
+    '{"person_creates":1,"source_evidence":1,"canonical_delta":1}'::text,
+    '{"person_creates":1,"source_evidence":1,"canonical_delta":"0"}'::text,
+    '{"person_creates":1,"source_evidence":1,"canonical_delta":0,"extra":0}'::text
+  ]) AS values(value) LOOP
+    BEGIN
+      PERFORM public.red_authorize_1939_v50_reimport(repeat('9',64),repeat('8',64),current_database(),3,
+        v_error::jsonb,'{}'::jsonb,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+      RAISE EXCEPTION 'REIMPORT_1939_HISTORIC_COUNT_DRIFT_ACCEPTED';
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM='REIMPORT_1939_HISTORIC_COUNT_DRIFT_ACCEPTED' THEN RAISE; END IF;
+      IF SQLERRM<>'REIMPORT_1939_AUTHORIZATION_INVALID' THEN RAISE; END IF;
+    END;
+  END LOOP;
+  -- The generic authority remains closed over the canonical database identity
+  -- and its two supported count keys.  Keep the probes independent: either
+  -- legacy representation alone is invalid at the generic boundary.
+  BEGIN
+    PERFORM public.red_authorize_reimport(repeat('7',64),repeat('6',64),current_database(),3,
+      'daa-1939-v50-production-write-v1',v_profile_sha,
+      '{"person_creates":1,"source_evidence":1}'::jsonb,'{}'::jsonb,
+      gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+    RAISE EXCEPTION 'REIMPORT_WRITER_LEGACY_DATABASE_IDENTITY_ACCEPTED';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='REIMPORT_WRITER_LEGACY_DATABASE_IDENTITY_ACCEPTED' THEN RAISE; END IF;
+    IF SQLERRM<>'REIMPORT_WRITER_AUTHORIZATION_INVALID' THEN RAISE; END IF;
+  END;
+  BEGIN
+    PERFORM public.red_authorize_reimport(repeat('5',64),repeat('4',64),
+      jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,
+      3,'daa-1939-v50-production-write-v1',v_profile_sha,
+      '{"person_creates":1,"source_evidence":1,"canonical_delta":0}'::jsonb,'{}'::jsonb,
+      gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+    RAISE EXCEPTION 'REIMPORT_WRITER_LEGACY_COUNTS_ACCEPTED';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='REIMPORT_WRITER_LEGACY_COUNTS_ACCEPTED' THEN RAISE; END IF;
+    IF SQLERRM<>'REIMPORT_WRITER_AUTHORIZATION_INVALID' THEN RAISE; END IF;
+  END;
   BEGIN
     PERFORM public.red_apply_1939_v50_source_evidence(v_batch,'source-evidence:fixture',v_source_payload||'{"verbatim_text":"tampered"}'::jsonb);
     RAISE EXCEPTION 'REIMPORT_1939_TAMPERED_PAYLOAD_ACCEPTED';

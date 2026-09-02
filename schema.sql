@@ -3154,12 +3154,29 @@ CREATE OR REPLACE VIEW private.reimport_1939_name_completion_result AS
 
 CREATE OR REPLACE FUNCTION public.red_authorize_1939_v50_reimport(m text,p text,d text,s bigint,c jsonb,e jsonb,n uuid,x timestamptz)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_database_identity text; v_expected_counts jsonb;
 BEGIN
-  RETURN public.red_authorize_reimport(m,p,d,3,'daa-1939-v50-production-write-v1',
+  -- The one-version facade accepts only the historic Phase-A representation:
+  -- current_database() plus exactly its two supported counts and a numeric
+  -- zero canonical_delta.  Every other value continues into the generic
+  -- validator unchanged so the historic invalid-token mapping is preserved.
+  IF d=current_database() AND jsonb_typeof(c)='object'
+     AND (SELECT count(*) FROM jsonb_object_keys(c))=3
+     AND c ?& ARRAY['person_creates','source_evidence','canonical_delta']
+     AND jsonb_typeof(c->'canonical_delta')='number'
+     AND (c->>'canonical_delta')::numeric=0 THEN
+    v_database_identity:=jsonb_build_object('database_name',current_database(),
+      'system_identifier',(pg_control_system()).system_identifier::text)::text;
+    v_expected_counts:=c-'canonical_delta';
+  ELSE
+    v_database_identity:=d;
+    v_expected_counts:=c;
+  END IF;
+  RETURN public.red_authorize_reimport(m,p,v_database_identity,3,'daa-1939-v50-production-write-v1',
     (SELECT profile_sha256 FROM private.reimport_writer_profile
-      WHERE (source_id,profile_id)=(3,'daa-1939-v50-production-write-v1')),c,e,n,x);
+      WHERE (source_id,profile_id)=(3,'daa-1939-v50-production-write-v1')),v_expected_counts,e,n,x);
 EXCEPTION WHEN OTHERS THEN
-  IF SQLERRM IN ('REIMPORT_WRITER_AUTHORIZATION_INVALID','REIMPORT_WRITER_PROFILE_INVALID') THEN RAISE EXCEPTION 'REIMPORT_1939_AUTHORIZATION_INVALID'; END IF;
+  IF SQLERRM IN ('REIMPORT_WRITER_AUTHORIZATION_INVALID','REIMPORT_WRITER_PROFILE_INVALID','REIMPORT_WRITER_PROFILE_HASH_INVALID') THEN RAISE EXCEPTION 'REIMPORT_1939_AUTHORIZATION_INVALID'; END IF;
   IF SQLERRM='REIMPORT_WRITER_ROLE_FORBIDDEN' THEN RAISE EXCEPTION 'REIMPORT_1939_ROLE_FORBIDDEN'; END IF;
   RAISE;
 END $$;
