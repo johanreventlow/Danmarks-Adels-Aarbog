@@ -19,6 +19,81 @@ execute <- function(con, sql, params = list()) {
   if (length(params)) dbExecute(con, sql, params = params) else dbExecute(con, sql)
 }
 
+# Each concurrent probe is an independently exec'd psql client.  Forking after
+# RPostgres/libpq connections exist is unsafe on macOS and inherits native state.
+worker_script <- tempfile("reimport-writer-lock-worker-", fileext = ".sh")
+psql_binary <- Sys.which("psql")
+if (!nzchar(psql_binary)) psql_binary <- "/opt/homebrew/opt/postgresql@17/bin/psql"
+stopifnot(file.exists(psql_binary))
+writeLines(c(
+  "#!/bin/sh",
+  "touch \"$1\"",
+  paste0("exec ", shQuote(psql_binary), " -X -v ON_ERROR_STOP=1 -At -f \"$2\" > \"$3\" 2> \"$4\"")
+), worker_script)
+on.exit(unlink(worker_script), add = TRUE)
+
+sql_literal <- function(value) paste0("'", gsub("'", "''", value, fixed = TRUE), "'")
+
+launch_worker <- function(operation, actor, first, second = "", third = "", hold_after_apply = FALSE) {
+  ready_path <- tempfile(paste0("reimport-writer-lock-ready-", operation, "-"))
+  result_path <- tempfile(paste0("reimport-writer-lock-", operation, "-"))
+  log_path <- tempfile(paste0("reimport-writer-lock-log-", operation, "-"))
+  sql_path <- tempfile(paste0("reimport-writer-lock-sql-", operation, "-"), fileext = ".sql")
+  worker_application <- paste0("reimport-lock-", operation)
+  prefix <- c(
+    "BEGIN;",
+    paste0("SELECT set_config('request.jwt.claim.sub',", sql_literal(actor), ",true);"),
+    paste0("SELECT set_config('application_name',", sql_literal(worker_application), ",true);")
+  )
+  select_result <- switch(operation,
+    begin = paste0("SELECT 'OK:' || public.red_begin_reimport(", sql_literal(first), "::uuid,", sql_literal(second), ",", sql_literal(third), ");"),
+    reversal_authorize = paste0("SELECT 'OK:' || public.red_authorize_reimport_reversal(", sql_literal(first), "::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');"),
+    completion_finalize = paste0("SELECT 'OK:' || public.red_finalize_reimport_name_completion(", sql_literal(first), "::uuid)::text;"),
+    activate = paste0("SELECT 'OK:' || public.red_activate_reimport_batch(", sql_literal(first), "::uuid,", sql_literal(second), "::uuid)::text;"),
+    completion_apply = {
+      state <- jsonlite::fromJSON(first, simplifyVector = FALSE)
+      payload <- jsonlite::toJSON(state$payload, auto_unbox = TRUE, null = "null")
+      prefix <- c(prefix, paste0("SELECT set_config('application_name',", sql_literal(second), ",true);"))
+      c(
+        paste0("SELECT public.red_apply_reimport_name_completion(", sql_literal(state$child_batch_id), "::uuid,", sql_literal(state$element_id), ",", sql_literal(payload), "::jsonb);"),
+        if (hold_after_apply) "SELECT pg_sleep(5);" else character(),
+        paste0("SELECT 'OK:' || public.red_finalize_reimport_name_completion(", sql_literal(state$child_batch_id), "::uuid)::text;")
+      )
+    }
+  )
+  writeLines(c(prefix, select_result, "COMMIT;"), sql_path)
+  system2("/bin/sh", c(worker_script, ready_path, sql_path, result_path, log_path), wait = FALSE)
+  for (i in seq_len(200L)) {
+    if (file.exists(ready_path)) return(list(ready_path = ready_path, result_path = result_path, log_path = log_path, sql_path = sql_path, application_name = worker_application))
+    if (file.exists(result_path)) stop(operation, " worker failed before its query boundary: ", paste(readLines(result_path, warn = FALSE), collapse = " "))
+    Sys.sleep(0.05)
+  }
+  stop(operation, " worker did not reach its query boundary: ", paste(readLines(log_path, warn = FALSE), collapse = " "))
+}
+
+wait_for_worker_query <- function(worker, function_name) {
+  for (i in seq_len(200L)) {
+    active <- query(holder, "SELECT count(*) count FROM pg_stat_activity WHERE application_name=$1 AND query LIKE $2", list(worker$application_name, paste0("%", function_name, "%")))$count[[1L]]
+    if (active == 1L) return(invisible())
+    Sys.sleep(0.05)
+  }
+  stop("worker did not reach ", function_name, ": ", paste(readLines(worker$log_path, warn = FALSE), collapse = " "))
+}
+await_worker <- function(worker, label) {
+  for (i in seq_len(200L)) {
+    if (file.exists(worker$result_path)) {
+      result <- readLines(worker$result_path, warn = FALSE)
+      complete <- result[startsWith(result, "OK:")]
+      if (length(complete) == 1L) {
+        unlink(c(worker$ready_path, worker$result_path, worker$log_path, worker$sql_path))
+        return(invisible(complete))
+      }
+    }
+    Sys.sleep(0.05)
+  }
+  stop(label, " worker did not finish: ", paste(readLines(worker$log_path, warn = FALSE), collapse = " "))
+}
+
 holder <- connect()
 same_profile <- connect()
 other_profile <- connect()
@@ -97,6 +172,78 @@ public_lock_blocks_other <- !query(same_profile, "SELECT pg_try_advisory_xact_lo
 dbRollback(same_profile)
 dbRollback(holder)
 stopifnot(public_lock_blocks_other, query(holder, "SELECT count(*) count FROM private.reimport_authorization")$count[[1L]] == lock_authorizations_before)
+
+# Task 11: profile lock must be acquired before any mutable authorization or
+# batch row lock.  Every worker is an independent process; C's NOWAIT lock is
+# the observable proof that B is waiting only on A's advisory lock.
+execute(holder, "SELECT set_config('request.jwt.claim.sub',$1,false)", list(actor))
+task11_begin_auth <- query(holder, paste(
+  "SELECT public.red_authorize_reimport(repeat('1',64),repeat('2',64),",
+  "jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,",
+  "$1,$2,$3,'{\"person_creates\":0,\"source_evidence\":0}'::jsonb,'{}'::jsonb,gen_random_uuid(),clock_timestamp()+interval '5 minutes') id"
+), list(source_id, profile_id, profile_hash))$id[[1L]]
+
+task11_profile_first <- function(label, operation, first, second = "", third = "", lock_sql, lock_params) {
+  dbBegin(holder)
+  execute(holder, "SELECT set_config('request.jwt.claim.sub',$1,true)", list(actor))
+  query(holder, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", list(same_key))
+  worker <- launch_worker(operation, actor, first, second, third)
+  on.exit(unlink(worker$ready_path), add = TRUE)
+  wait_for_worker_query(worker, switch(operation,
+    begin = "red_begin_reimport",
+    reversal_authorize = "red_authorize_reimport_reversal",
+    completion_finalize = "red_finalize_reimport_name_completion",
+    activate = "red_activate_reimport_batch"
+  ))
+  row_lock_error <- tryCatch({
+    dbBegin(same_profile)
+    query(same_profile, lock_sql, lock_params)
+    dbRollback(same_profile)
+    ""
+  }, error = function(e) {
+    try(dbRollback(same_profile), silent = TRUE)
+    conditionMessage(e)
+  })
+  dbRollback(holder)
+  stopifnot(!nzchar(row_lock_error))
+  await_worker(worker, label)
+}
+
+task11_begin_result <- task11_profile_first(
+  "Task 11 begin", "begin", task11_begin_auth, strrep("1", 64L), strrep("2", 64L),
+  "SELECT id FROM private.reimport_authorization WHERE id=$1::uuid FOR UPDATE NOWAIT", list(task11_begin_auth)
+)
+task11_source_batch <- sub("^OK:", "", task11_begin_result)
+stopifnot(query(holder, "SELECT public.red_finalize_reimport($1::uuid)->>'status' status", list(task11_source_batch))$status[[1L]] == "finalized")
+
+task11_reversal_result <- task11_profile_first(
+  "Task 11 reversal authorization", "reversal_authorize", task11_source_batch,
+  lock_sql = "SELECT id FROM private.reimport_batch WHERE id=$1::uuid FOR UPDATE NOWAIT", lock_params = list(task11_source_batch)
+)
+stopifnot(nzchar(sub("^OK:", "", task11_reversal_result)))
+
+task11_child_auth <- query(holder, paste(
+  "INSERT INTO private.reimport_authorization(operation,manifest_sha256,preview_sha256,database_identity,source_id,profile_id,profile_sha256,expected_counts,authorized_elements,principal_id,nonce,expires_at)",
+  "VALUES('name_completion',repeat('3',64),repeat('4',64),jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,$1,$2,$3,'{\"name_completions\":0,\"operations\":0}'::jsonb,jsonb_build_object('source_batch_id',$4::uuid,'payloads','{}'::jsonb),$5::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes') RETURNING id"
+), list(source_id, profile_id, profile_hash, task11_source_batch, actor))$id[[1L]]
+task11_child_batch <- query(holder, paste(
+  "INSERT INTO private.reimport_batch(authorization_id,manifest_sha256,preview_sha256,source_id,profile_id,profile_sha256,principal_id,expected_counts)",
+  "VALUES($1::uuid,repeat('3',64),repeat('4',64),$2,$3,$4,$5::uuid,'{\"name_completions\":0,\"operations\":0}'::jsonb) RETURNING id"
+), list(task11_child_auth, source_id, profile_id, profile_hash, actor))$id[[1L]]
+task11_finalize_result <- task11_profile_first(
+  "Task 11 name-completion finalize", "completion_finalize", task11_child_batch,
+  lock_sql = "SELECT id FROM private.reimport_batch WHERE id=$1::uuid FOR UPDATE NOWAIT", lock_params = list(task11_child_batch)
+)
+stopifnot(grepl('"status": "finalized"|"status":"finalized"', task11_finalize_result))
+
+task11_cutover_auth <- query(holder,
+  "SELECT public.red_authorize_reimport_cutover($1::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes') id",
+  list(task11_source_batch))$id[[1L]]
+task11_activate_result <- task11_profile_first(
+  "Task 11 activation", "activate", task11_source_batch, task11_cutover_auth,
+  lock_sql = "SELECT id FROM private.reimport_authorization WHERE id=$1::uuid FOR UPDATE NOWAIT", lock_params = list(task11_cutover_auth)
+)
+stopifnot(grepl('"status": "activated"|"status":"activated"', task11_activate_result))
 
 # Task 10: two profiles use database identities.  Their concurrent successful
 # writes prove allocation safety without a private allocation lock.
@@ -181,40 +328,23 @@ collision_error <- tryCatch({
 }, error = function(e) conditionMessage(e))
 dbRollback(collision_other)
 stopifnot(grepl("duplicate key|unique", collision_error, ignore.case = TRUE))
+# The historic stale-id collision uses an explicit fixture id; restore the
+# sequence baseline before exercising production default-id allocation.
+query(holder, "SELECT setval(pg_get_serial_sequence('public.fact','id'),(SELECT max(id) FROM public.fact),true)")
 
-worker <- function(state_json, application_name, ready_path = NULL, release_path = NULL) {
-  state <- jsonlite::fromJSON(state_json, simplifyVector = FALSE)
-  con <- connect()
-  on.exit(try(dbDisconnect(con), silent = TRUE), add = TRUE)
-  dbBegin(con)
-  execute(con, "SELECT set_config('request.jwt.claim.sub',$1,true)", list(task9_actor))
-  execute(con, "SELECT set_config('application_name',$1,true)", list(application_name))
-  payload <- jsonlite::toJSON(state$payload, auto_unbox = TRUE, null = "null")
-  query(con, "SELECT public.red_apply_reimport_name_completion($1::uuid,$2,$3::jsonb)",
-        list(state$child_batch_id, state$element_id, payload))
-  if (!is.null(ready_path)) {
-    stopifnot(file.create(ready_path))
-    for (i in seq_len(100L)) {
-      if (file.exists(release_path)) break
-      Sys.sleep(0.05)
-    }
-    stopifnot(file.exists(release_path))
-  }
-  finalized <- query(con, "SELECT public.red_finalize_reimport_name_completion($1::uuid) result", list(state$child_batch_id))$result[[1L]]
-  dbCommit(con)
-  finalized
-}
+worker_a <- launch_worker("completion_apply", task9_actor, state_a_json, "task9-name-completion-a", hold_after_apply = TRUE)
 
-ready_a <- tempfile("task9-name-completion-a-")
-release_a <- tempfile("task9-name-completion-release-")
-worker_a <- parallel::mcparallel(worker(state_a_json, "task9-name-completion-a", ready_a, release_a), silent = TRUE)
-for (i in seq_len(100L)) {
-  if (file.exists(ready_a)) break
+# Wait until A has completed its name-completion writes and is holding the
+# transaction open in pg_sleep; this replaces the former fork-only ready file.
+for (i in seq_len(200L)) {
+  active_a <- query(holder, "SELECT count(*) count FROM pg_stat_activity WHERE application_name='task9-name-completion-a' AND query LIKE '%pg_sleep(5)%'")$count[[1L]]
+  if (active_a == 1L) break
   Sys.sleep(0.05)
 }
-if (!file.exists(ready_a)) {
-  worker_a_error <- parallel::mccollect(worker_a, wait = TRUE)[[1L]]
-  stop("Task 9 writer A did not reach the post-allocation hold: ", worker_a_error)
+if (active_a != 1L) {
+  stop("Task 9 worker A did not reach its post-apply hold: result=",
+       paste(readLines(worker_a$result_path, warn = FALSE), collapse = " "),
+       " log=", paste(readLines(worker_a$log_path, warn = FALSE), collapse = " "))
 }
 
 # Task 10 follow-up: this ordinary writer does not participate in the reimport
@@ -238,11 +368,9 @@ ordinary_citation <- query(ordinary, paste(
 ), list(ordinary_assertion, task9_source_a))$id[[1L]]
 dbCommit(ordinary)
 
-worker_b <- parallel::mcparallel(worker(state_b_json, "task9-name-completion-b"), silent = TRUE)
-stopifnot(file.create(release_a))
-completed_a <- parallel::mccollect(worker_a, wait = TRUE)[[1L]]
-completed_b <- parallel::mccollect(worker_b, wait = TRUE)[[1L]]
-stopifnot(!inherits(completed_a, "try-error"), !inherits(completed_b, "try-error"))
+worker_b <- launch_worker("completion_apply", task9_actor, state_b_json, "task9-name-completion-b")
+completed_a <- sub("^OK:", "", await_worker(worker_a, "Task 9 writer A"))
+completed_b <- sub("^OK:", "", await_worker(worker_b, "Task 9 writer B"))
 stopifnot(jsonlite::fromJSON(completed_a)$status == "finalized", jsonlite::fromJSON(completed_b)$status == "finalized")
 
 receipts <- query(holder, paste(
