@@ -579,6 +579,8 @@ BEGIN
       ('type:c','private','reimport_1939_name_completion_result','private.reimport_1939_name_completion_result'),
       ('type:c','private','reimport_1939_write_batch','private.reimport_1939_write_batch'),
       ('type:c','private','reimport_1939_write_event','private.reimport_1939_write_event'),
+      ('function:f','private','reimport_1939_canonical_json_sha256(jsonb)',NULL),
+      ('function:f','private','require_reimport_1939_editor()',NULL),
       ('function:f','public','red_activate_1939_v50_batch(uuid,uuid)',NULL),
       ('function:f','public','red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',NULL),
       ('function:f','public','red_apply_1939_v50_name_completion(uuid,text,jsonb)',NULL),
