@@ -103,6 +103,45 @@ produktionssnapshotet læses eller sammenlignes. Forsegl og commit den
 datafri ledger med den validerede fase-ledger-proces; brug aldrig
 `reconcile_evidence_phase_gate.py --seal` til ledgeret.
 
+## Privat artefaktaudit før prod-snapshot
+
+Før en mulig afstemning skal operatøren køre den datafri artefaktaudit mod den
+ignorerede, retained bundle. Både kataloget og outputmappen lever kun i denne
+private bundle; de må aldrig committes, kopieres til terminaloutput eller
+erstattes af artefakter fra repositoryet. Kataloget har schema
+`daa-evidence-phase-artifact-catalog-v1` og indeholder alene fase-ID,
+positiv unik sekvens, adapter-ID, evidenstilstande, eventuel
+database-target-identity-hash og artefaktmetadata (`role`, relativ `path`,
+`schema_version`, `required`) — aldrig artefakt-SHA'er, projektionsidentiteter
+eller private rækker.
+
+Med bundle-specifikke, private stier er den eksakte kørsel:
+
+```bash
+/usr/bin/python3 .claude/skills/daa-extract/scripts/run_evidence_phase_artifact_audit_1939_v50.py \
+  --bundle-root /private/retained/1939-v50-evidence-bundle \
+  --catalog /private/retained/1939-v50-evidence-bundle/artifact-catalog.json \
+  --private-output-dir /private/retained/1939-v50-evidence-bundle/private-artifact-audit
+```
+
+CLI'en afviser symlinks, path-escapes, manglende eller ikke-tomme
+outputmapper og eksisterende mål før den overskriver noget. Den hasher de
+præcise artefaktbytes og den registrerede projectorkilde, forsegler
+`audit-ledger.json`, skriver `audit-summary.json` og skriver kun
+fasebidrag for mekanisk bundne faser. Alle private outputfiler oprettes
+eksklusivt med mode `0600`.
+
+Historiske huller er fortsat `INCOMPLETE`: hvis blot én fase ikke er mekanisk
+bundet, er exitkoden `2`, `reconciliation-ledger.json` udelades, og auditten
+må ikke opfinde en kvittering eller promovere fasen. Terminalen er bevidst
+begrænset til status, stabile fejltokens, fase-/evidenstilstande, hasher og
+optællinger; de eksakte private rækker bliver i bundle-outputtet.
+
+En komplet audit er alene en artifact-admission. Stop her, indtil en separat
+autorisation udtrykkeligt tillader det nedenstående read-only
+produktionssnapshot; denne kommando åbner ingen database og giver ingen
+autorisation til snapshot, apply eller anden produktionshandling.
+
 ## Læse-kun prod-snapshot
 
 Efter eksplicit autorisation til prod-læsning tages ét snapshot i en `READ

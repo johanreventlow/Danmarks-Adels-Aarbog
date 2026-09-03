@@ -10,6 +10,7 @@ from typing import Mapping
 
 
 LEDGER_SCHEMA = "daa-evidence-phase-artifact-ledger-v2"
+CATALOG_SCHEMA = "daa-evidence-phase-artifact-catalog-v1"
 PROJECTION_STATES = {
     "mechanically_bound",
     "afterdocumented_unbound",
@@ -36,6 +37,16 @@ class ArtifactEntry:
 
 
 @dataclass(frozen=True)
+class CatalogArtifactEntry:
+    """Hash-free artifact metadata admitted from the private operator catalog."""
+
+    role: str
+    path: str
+    schema_version: str
+    required: bool
+
+
+@dataclass(frozen=True)
 class PhaseEntry:
     phase_id: str
     sequence: int
@@ -45,6 +56,19 @@ class PhaseEntry:
     projection_evidence: str
     authorisation_evidence: str
     contribution_sha256: str | None = None
+    database_target_identity_sha256: str | None = None
+
+
+@dataclass(frozen=True)
+class CatalogPhaseEntry:
+    """A catalog phase before the CLI records immutable artifact hashes."""
+
+    phase_id: str
+    sequence: int
+    artifacts: tuple[CatalogArtifactEntry, ...]
+    adapter_id: str
+    projection_evidence: str
+    authorisation_evidence: str
     database_target_identity_sha256: str | None = None
 
 
@@ -188,7 +212,84 @@ def _validate_artifact(row: object) -> ArtifactEntry:
     )
 
 
-def validate_phase_rows(rows: object) -> list[PhaseEntry]:
+def _validate_catalog_artifact(row: object) -> CatalogArtifactEntry:
+    _require(isinstance(row, dict), "EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_INVALID")
+    _require(
+        set(row) == {"role", "path", "schema_version", "required"},
+        "EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_INVALID",
+    )
+    _require(_valid_text(row["role"]), "EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_INVALID")
+    path = _relative_path_identity(row["path"])
+    _require(_valid_text(row["schema_version"]), "EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_INVALID")
+    _require(type(row["required"]) is bool, "EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_INVALID")
+    return CatalogArtifactEntry(
+        role=row["role"],
+        path=path,
+        schema_version=row["schema_version"],
+        required=row["required"],
+    )
+
+
+def validate_catalog(document: object) -> list[CatalogPhaseEntry]:
+    """Validate the deliberately hash-free, private artifact catalog."""
+    _require(isinstance(document, dict), "EVIDENCE_RECONCILIATION_CATALOG_INVALID")
+    _require(document.get("schema_version") == CATALOG_SCHEMA, "EVIDENCE_RECONCILIATION_CATALOG_SCHEMA_INVALID")
+    _require(set(document) == {"schema_version", "phases"}, "EVIDENCE_RECONCILIATION_CATALOG_INVALID")
+    rows = document["phases"]
+    _require(isinstance(rows, list) and bool(rows), "EVIDENCE_RECONCILIATION_CATALOG_INVALID")
+    phase_ids: set[str] = set()
+    sequences: set[int] = set()
+    entries: list[CatalogPhaseEntry] = []
+    required = {
+        "phase_id",
+        "sequence",
+        "artifacts",
+        "adapter_id",
+        "projection_evidence",
+        "authorisation_evidence",
+    }
+    optional = {"database_target_identity_sha256"}
+    for row in rows:
+        _require(isinstance(row, dict) and set(row) in (required, required | optional), "EVIDENCE_RECONCILIATION_CATALOG_PHASE_INVALID")
+        phase_id = row["phase_id"]
+        sequence = row["sequence"]
+        _require(_valid_text(phase_id), "EVIDENCE_RECONCILIATION_CATALOG_PHASE_INVALID")
+        _require("/" not in phase_id and "\\" not in phase_id and "\x00" not in phase_id, "EVIDENCE_RECONCILIATION_CATALOG_PHASE_INVALID")
+        _require(type(sequence) is int and sequence > 0, "EVIDENCE_RECONCILIATION_CATALOG_PHASE_INVALID")
+        _require(phase_id not in phase_ids, "EVIDENCE_RECONCILIATION_CATALOG_PHASE_DUPLICATE")
+        _require(sequence not in sequences, "EVIDENCE_RECONCILIATION_CATALOG_SEQUENCE_DUPLICATE")
+        phase_ids.add(phase_id)
+        sequences.add(sequence)
+        artifacts_raw = row["artifacts"]
+        _require(isinstance(artifacts_raw, list) and bool(artifacts_raw), "EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_INVALID")
+        artifacts = tuple(_validate_catalog_artifact(artifact) for artifact in artifacts_raw)
+        _require(len({artifact.role for artifact in artifacts}) == len(artifacts), "EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_DUPLICATE")
+        _require(len({artifact.path for artifact in artifacts}) == len(artifacts), "EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_DUPLICATE")
+        _require(_valid_text(row["adapter_id"]), "EVIDENCE_RECONCILIATION_CATALOG_PHASE_INVALID")
+        projection_evidence = row["projection_evidence"]
+        authorisation_evidence = row["authorisation_evidence"]
+        _require(_valid_text(projection_evidence) and projection_evidence in PROJECTION_STATES, "EVIDENCE_RECONCILIATION_CATALOG_EVIDENCE_INVALID")
+        _require(_valid_text(authorisation_evidence) and authorisation_evidence in AUTHORISATION_STATES, "EVIDENCE_RECONCILIATION_CATALOG_EVIDENCE_INVALID")
+        target_hash = row.get("database_target_identity_sha256")
+        if target_hash is not None:
+            _require(_is_hex_sha256(target_hash), "EVIDENCE_RECONCILIATION_CATALOG_PHASE_INVALID")
+        entries.append(
+            CatalogPhaseEntry(
+                phase_id=phase_id,
+                sequence=sequence,
+                artifacts=artifacts,
+                adapter_id=row["adapter_id"],
+                projection_evidence=projection_evidence,
+                authorisation_evidence=authorisation_evidence,
+                database_target_identity_sha256=target_hash,
+            )
+        )
+    return entries
+
+
+def validate_phase_rows(
+    rows: object, *, allow_missing_target_for_incomplete: bool = False
+) -> list[PhaseEntry]:
     _require(isinstance(rows, list) and bool(rows), "EVIDENCE_RECONCILIATION_LEDGER_INVALID")
     phase_ids: set[str] = set()
     sequences: set[int] = set()
@@ -247,7 +348,11 @@ def validate_phase_rows(rows: object) -> list[PhaseEntry]:
             _require(projection_evidence == "mechanically_bound", "EVIDENCE_RECONCILIATION_LEDGER_EVIDENCE_INVALID")
             _require(_is_hex_sha256(contribution_sha256), "EVIDENCE_RECONCILIATION_LEDGER_EVIDENCE_INVALID")
         database_target_identity_sha256 = row.get("database_target_identity_sha256")
-        if adapter_id in RECEIPT_ADAPTERS:
+        if adapter_id in RECEIPT_ADAPTERS and not (
+            allow_missing_target_for_incomplete
+            and projection_evidence != "mechanically_bound"
+            and database_target_identity_sha256 is None
+        ):
             _require(
                 _is_hex_sha256(database_target_identity_sha256),
                 "EVIDENCE_RECONCILIATION_LEDGER_PHASE_INVALID",
@@ -274,7 +379,10 @@ def validate_phase_rows(rows: object) -> list[PhaseEntry]:
 
 
 def validate_ledger(
-    document: object, *, require_contribution_hashes: bool = False
+    document: object,
+    *,
+    require_contribution_hashes: bool = False,
+    allow_missing_target_for_incomplete: bool = False,
 ) -> list[PhaseEntry]:
     _require(isinstance(document, dict), "EVIDENCE_RECONCILIATION_LEDGER_INVALID")
     _require(document.get("schema_version") == LEDGER_SCHEMA, "EVIDENCE_RECONCILIATION_LEDGER_SCHEMA_INVALID")
@@ -283,7 +391,12 @@ def validate_ledger(
         == canonical_sha256(document, "ledger_content_sha256"),
         "EVIDENCE_RECONCILIATION_LEDGER_HASH_INVALID",
     )
-    entries = validate_phase_rows(document.get("phases"))
+    entries = validate_phase_rows(
+        document.get("phases"),
+        allow_missing_target_for_incomplete=(
+            allow_missing_target_for_incomplete or require_contribution_hashes
+        ),
+    )
     if require_contribution_hashes:
         _require(
             all(
