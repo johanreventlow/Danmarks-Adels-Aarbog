@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from evidence_phase_artifact_ledger import CatalogArtifactEntry, CatalogPhaseEntry
+from audit_evidence_phase_artifacts_1939_v50 import AuditError, audit_bundle
+from evidence_phase_artifact_ledger import CatalogArtifactEntry, CatalogPhaseEntry, validate_ledger
 from run_evidence_phase_artifact_audit_1939_v50 import (
     CliError,
     _FdBundleRoot,
@@ -83,7 +84,9 @@ def target_identity() -> dict:
     return {
         "schema_version": "daa-evidence-production-target-identity-v1",
         "environment": "production",
-        "system_identifier_sha256": "e" * 64,
+        "system_identifier_sha256": hashlib.sha256(
+            b"synthetic-capability-only-target"
+        ).hexdigest(),
     }
 
 
@@ -121,6 +124,171 @@ def bound_task25_catalog(manifest_sha256: str, receipt_sha256: str) -> dict:
             }
         ],
     }
+
+
+def _catalog_phase(
+    phase_id: str,
+    sequence: int,
+    adapter_id: str,
+    manifest_path: str,
+    manifest_schema: str,
+    receipt_path: str | None = None,
+    receipt_schema: str | None = None,
+) -> dict:
+    artifacts = [
+        {
+            "role": "manifest",
+            "path": manifest_path,
+            "schema_version": manifest_schema,
+            "required": True,
+        }
+    ]
+    if receipt_path is not None:
+        assert receipt_schema is not None
+        artifacts.append(
+            {
+                "role": "receipt",
+                "path": receipt_path,
+                "schema_version": receipt_schema,
+                "required": True,
+            }
+        )
+    return {
+        "phase_id": phase_id,
+        "sequence": sequence,
+        "adapter_id": adapter_id,
+        "projection_evidence": "afterdocumented_unbound",
+        "authorisation_evidence": "afterdocumented_authorisation_gap",
+        "database_target_identity_sha256": canonical_hash(target_identity()),
+        "artifacts": artifacts,
+    }
+
+
+def _phase_a_identity_map() -> list[dict]:
+    return [
+        {"record_key": f"synthetic-a-record-{number}", "occurrence_key": f"synthetic-a-occurrence-{number}"}
+        for number in range(1, 585)
+    ]
+
+
+def _phase_b_identity_map() -> list[dict]:
+    return [
+        {
+            "person_id": 1000 + number,
+            "record_key": f"synthetic-b-record-{number}",
+            "narrative_id": 2000 + number,
+            "before_sha256": f"{number:064x}",
+            "after_sha256": f"{number + 551:064x}",
+            "publication_status": "published",
+        }
+        for number in range(1, 552)
+    ]
+
+
+def _write_synthetic_supported_phase_artifacts(
+    bundle: Path, *, bound_phase_ids: frozenset[str]
+) -> list[dict]:
+    """Return the six non-D1 phases of a wholly synthetic capability fixture."""
+    target = target_identity()
+    phases: list[dict] = []
+
+    task25_manifest = {
+        "schema_version": "1939-v50-production-write-manifest-v1",
+        "source": {"database_source_id": 3},
+        "person_creates": [{"element_id": "synthetic-task25-element", "source_record_key": "synthetic-task25-record"}],
+    }
+    task25_hash = write_json(bundle / "task25-manifest.json", task25_manifest)
+    if "task25" in bound_phase_ids:
+        write_json(
+            bundle / "task25-receipt.json",
+            {
+                "schema_version": "daa-evidence-phase-receipt-task25-v1",
+                "manifest_sha256": task25_hash,
+                "database_target_identity": target,
+                "created_person_identities": [
+                    {"element_id": "synthetic-task25-element", "source_id": 3, "record_key": "synthetic-task25-record", "person_id": 9001}
+                ],
+            },
+        )
+    phases.append(_catalog_phase("task25", 1, "task25-v1", "task25-manifest.json", task25_manifest["schema_version"], *( ("task25-receipt.json", "daa-evidence-phase-receipt-task25-v1") if "task25" in bound_phase_ids else () )))
+
+    phase_a_identities = _phase_a_identity_map()
+    phase_a_manifest = {
+        "schema_version": "1939-v50-phase-a-anchor-manifest-v1",
+        "source": {"database_source_id": 3},
+        "operations": [
+            {"source_record_key": row["record_key"], "element_id": row["occurrence_key"]}
+            for row in phase_a_identities
+        ],
+    }
+    phase_a_hash = write_json(bundle / "phase-a-manifest.json", phase_a_manifest)
+    if "phase-a" in bound_phase_ids:
+        write_json(bundle / "phase-a-receipt.json", {"schema_version": "daa-evidence-phase-receipt-phase-a-v1", "manifest_sha256": phase_a_hash, "database_target_identity": target, "identity_map": phase_a_identities})
+    phases.append(_catalog_phase("phase-a", 2, "phase-a-v1", "phase-a-manifest.json", phase_a_manifest["schema_version"], *( ("phase-a-receipt.json", "daa-evidence-phase-receipt-phase-a-v1") if "phase-a" in bound_phase_ids else () )))
+
+    phase_b_identities = _phase_b_identity_map()
+    phase_b_manifest = {
+        "schema_version": "1939-v50-narrative-replacement-manifest-v2",
+        "operations": [
+            {"person_id": row["person_id"], "source_record_key": row["record_key"], "expected_old_narrative_sha256": row["before_sha256"], "normalized_sha256": row["after_sha256"]}
+            for row in phase_b_identities
+        ],
+    }
+    phase_b_hash = write_json(bundle / "phase-b-manifest.json", phase_b_manifest)
+    if "phase-b" in bound_phase_ids:
+        write_json(bundle / "phase-b-receipt.json", {"schema_version": "daa-evidence-phase-receipt-phase-b-v1", "manifest_sha256": phase_b_hash, "database_target_identity": target, "identity_map": phase_b_identities})
+    phases.append(_catalog_phase("phase-b", 3, "phase-b-v1", "phase-b-manifest.json", phase_b_manifest["schema_version"], *( ("phase-b-receipt.json", "daa-evidence-phase-receipt-phase-b-v1") if "phase-b" in bound_phase_ids else () )))
+
+    publication_identities = [
+        {"source_id": 3, "record_key": f"synthetic-publication-record-{number}", "narrative_id": 3000 + number, "binding_id": f"synthetic-binding-{number}"}
+        for number in range(1, 9)
+    ]
+    publication_manifest = {
+        "schema_version": "1939-v50-narrative-publication-manifest-v1",
+        "bindings": [{key: row[key] for key in ("record_key", "narrative_id", "binding_id")} for row in publication_identities],
+    }
+    publication_hash = write_json(bundle / "narrative-publication-manifest.json", publication_manifest)
+    if "narrative-publication" in bound_phase_ids:
+        write_json(bundle / "narrative-publication-receipt.json", {"schema_version": "daa-evidence-phase-receipt-narrative-publication-v1", "manifest_sha256": publication_hash, "database_target_identity": target, "identity_map": publication_identities})
+    phases.append(_catalog_phase("narrative-publication", 4, "narrative-publication-v1", "narrative-publication-manifest.json", publication_manifest["schema_version"], *( ("narrative-publication-receipt.json", "daa-evidence-phase-receipt-narrative-publication-v1") if "narrative-publication" in bound_phase_ids else () )))
+
+    completion_results = [
+        {"person_id": 4000 + number, "fact_id": 5000 + number, "assertion_id": 6000 + number, "citation_id": 7000 + number, "conclusion_id": 8000 + number}
+        for number in range(1, 9)
+    ]
+    completion_manifest = {
+        "schema_version": "1939-v50-name-completion-manifest-v1",
+        "operations": [{"person_id": row["person_id"]} for row in completion_results],
+    }
+    completion_hash = write_json(bundle / "name-completion-manifest.json", completion_manifest)
+    if "name-completion" in bound_phase_ids:
+        write_json(bundle / "name-completion-receipt.json", {"schema_version": "daa-evidence-phase-receipt-name-completion-v1", "manifest_sha256": completion_hash, "database_target_identity": target, "completion_results": completion_results})
+    phases.append(_catalog_phase("name-completion", 5, "name-completion-v1", "name-completion-manifest.json", completion_manifest["schema_version"], *( ("name-completion-receipt.json", "daa-evidence-phase-receipt-name-completion-v1") if "name-completion" in bound_phase_ids else () )))
+
+    c0_operations = [
+        {"person_id": 10000 + number, "narrative_id": 11000 + number, "source_record_key": f"synthetic-c0-record-{number}", "new_text_sha256": f"{12000 + number:064x}"}
+        for number in range(1, 10)
+    ]
+    c0_manifest = {
+        "schema_version": "1939-v50-c0-followup-manifest-v1",
+        "source": {"database_source_id": 3},
+        "database_identity": "synthetic-capability-only-target",
+        "operations": c0_operations,
+    }
+    c0_hash = write_json(bundle / "c0-manifest.json", c0_manifest)
+    if "c0" in bound_phase_ids:
+        write_json(bundle / "c0-receipt.json", {"schema_version": "daa-evidence-phase-receipt-c0-v1", "manifest_sha256": c0_hash, "database_target_identity": target, "change_set": 965, "narrative_results": [{"person_id": row["person_id"], "narrative_id": row["narrative_id"], "source_id": 3, "record_key": row["source_record_key"], "after_sha256": row["new_text_sha256"]} for row in c0_operations]})
+    phases.append(_catalog_phase("c0", 6, "c0-followup-v1", "c0-manifest.json", c0_manifest["schema_version"], *( ("c0-receipt.json", "daa-evidence-phase-receipt-c0-v1") if "c0" in bound_phase_ids else () )))
+    return phases
+
+
+def _synthetic_catalog(phases: list[dict]) -> dict:
+    return {"schema_version": "daa-evidence-phase-artifact-catalog-v1", "phases": phases}
+
+
+def _synthetic_capability_only_catalog(phases: list[dict]) -> dict:
+    """This fixture proves adapter capability only; it is not historical evidence."""
+    return _synthetic_catalog(phases)
 
 
 def test_cli_writes_a_sealed_private_incomplete_audit_without_a_reconciliation_ledger(tmp_path):
@@ -390,3 +558,149 @@ def test_cli_writes_through_the_checked_output_directory_fd_after_a_swap(tmp_pat
     capsys.readouterr()
     assert not (external / "audit-ledger.json").exists()
     assert (bundle / "private-output-held" / "audit-ledger.json").is_file()
+
+
+def test_historical_shape_stops_before_snapshot_and_never_seals_a_reconciliation_ledger(
+    tmp_path, monkeypatch, capsys
+):
+    """A missing receipt must keep the actual historical sequence visibly incomplete."""
+    bundle = tmp_path / "synthetic-historical-shape"
+    bundle.mkdir()
+    output = bundle / "private-output"
+    output.mkdir()
+    phases = _write_synthetic_supported_phase_artifacts(
+        bundle, bound_phase_ids=frozenset({"task25", "phase-b", "c0"})
+    )
+    phases.append(
+        {
+            "phase_id": "d1",
+            "sequence": 7,
+            "adapter_id": "d1-historical-exception-v1",
+            "projection_evidence": "unavailable",
+            "authorisation_evidence": "unavailable",
+            "artifacts": [
+                {
+                    "role": "legacy-apply",
+                    "path": "d1-historical-exception.placeholder",
+                    "schema_version": "1939-v50-d1-legacy-apply-v1",
+                    "required": False,
+                }
+            ],
+        }
+    )
+    write_json(
+        bundle / "d1-historical-exception.placeholder",
+        {"schema_version": "1939-v50-d1-legacy-apply-v1"},
+    )
+    catalog = bundle / "catalog.json"
+    write_json(catalog, _synthetic_catalog(phases))
+    snapshot = bundle / "synthetic-production-snapshot.json"
+    snapshot.write_text("must never be read", encoding="utf-8")
+    reads: list[tuple[str, ...]] = []
+    original_read_bytes = _FdBundleRoot.read_bytes
+
+    def record_reads(self, parts, *, token):
+        reads.append(parts)
+        return original_read_bytes(self, parts, token=token)
+
+    monkeypatch.setattr(_FdBundleRoot, "read_bytes", record_reads)
+
+    assert main(["--bundle-root", str(bundle), "--catalog", str(catalog), "--private-output-dir", str(output)]) == 2
+
+    terminal = json.loads(capsys.readouterr().err)
+    assert terminal["status"] == "incomplete"
+    assert terminal["error"] == "EVIDENCE_RECONCILIATION_INCOMPLETE"
+    assert snapshot.name not in {part for read in reads for part in read}
+    audit = json.loads((output / "audit-ledger.json").read_text(encoding="utf-8"))
+    assert [phase["phase_id"] for phase in audit["phases"]] == [
+        "task25",
+        "phase-a",
+        "phase-b",
+        "narrative-publication",
+        "name-completion",
+        "c0",
+        "d1",
+    ]
+    expected_evidence_states = [
+        ("task25", "mechanically_bound"),
+        ("phase-a", "afterdocumented_unbound"),
+        ("phase-b", "mechanically_bound"),
+        ("narrative-publication", "afterdocumented_unbound"),
+        ("name-completion", "afterdocumented_unbound"),
+        ("c0", "mechanically_bound"),
+        ("d1", "unavailable"),
+    ]
+    assert [(phase["phase_id"], phase["projection_evidence"]) for phase in terminal["evidence_states"]] == expected_evidence_states
+    assert [(phase["phase_id"], phase["projection_evidence"]) for phase in audit["phases"]] == expected_evidence_states
+    assert not (output / "reconciliation-ledger.json").exists()
+    assert {path.name for path in output.glob("*.contribution.json")} == {
+        "1-task25.contribution.json",
+        "3-phase-b.contribution.json",
+        "6-c0.contribution.json",
+    }
+
+
+def test_synthetic_capability_only_fixture_seals_all_supported_contributions_but_excludes_d1(tmp_path):
+    """The all-bound fixture exercises adapter mechanics, never historical authorisation."""
+    bundle = tmp_path / "synthetic-capability-only"
+    bundle.mkdir()
+    output = bundle / "private-output"
+    output.mkdir()
+    catalog = bundle / "synthetic-capability-only-catalog.json"
+    phases = _write_synthetic_supported_phase_artifacts(
+        bundle,
+        bound_phase_ids=frozenset(
+            {"task25", "phase-a", "phase-b", "narrative-publication", "name-completion", "c0"}
+        ),
+    )
+    write_json(catalog, _synthetic_capability_only_catalog(phases))
+
+    completed = run_cli(bundle, catalog, output)
+
+    assert completed.returncode == 0
+    terminal = json.loads(completed.stdout)
+    assert terminal["status"] == "complete"
+    assert terminal["phase_ids"] == [
+        "task25",
+        "phase-a",
+        "phase-b",
+        "narrative-publication",
+        "name-completion",
+        "c0",
+    ]
+    reconciliation = json.loads((output / "reconciliation-ledger.json").read_text(encoding="utf-8"))
+    assert [phase["phase_id"] for phase in reconciliation["phases"]] == terminal["phase_ids"]
+    assert "d1" not in terminal["phase_ids"]
+    assert all(phase["projection_evidence"] == "mechanically_bound" for phase in reconciliation["phases"])
+    assert len(list(output.glob("*.contribution.json"))) == 6
+
+
+def test_tampering_an_artifact_after_capability_ledger_sealing_fails_before_projection(tmp_path):
+    """The second audit must reject changed bytes before it can write a contribution."""
+    bundle = tmp_path / "synthetic-capability-only"
+    bundle.mkdir()
+    first_output = bundle / "first-private-output"
+    first_output.mkdir()
+    catalog = bundle / "synthetic-capability-only-catalog.json"
+    write_json(
+        catalog,
+        _synthetic_capability_only_catalog(
+            _write_synthetic_supported_phase_artifacts(
+                bundle,
+                bound_phase_ids=frozenset(
+                    {"task25", "phase-a", "phase-b", "narrative-publication", "name-completion", "c0"}
+                ),
+            )
+        ),
+    )
+
+    first = run_cli(bundle, catalog, first_output)
+
+    assert first.returncode == 0
+    assert (first_output / "reconciliation-ledger.json").is_file()
+    task25 = bundle / "task25-manifest.json"
+    task25.write_text('{"schema_version":"1939-v50-production-write-manifest-v1","tampered":true}', encoding="utf-8")
+    sealed_audit = json.loads((first_output / "audit-ledger.json").read_text(encoding="utf-8"))
+
+    with pytest.raises(AuditError, match="EVIDENCE_RECONCILIATION_ARTIFACT_HASH_INVALID"):
+        audit_bundle(bundle, validate_ledger(sealed_audit))

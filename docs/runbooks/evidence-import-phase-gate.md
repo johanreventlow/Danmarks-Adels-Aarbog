@@ -142,6 +142,24 @@ autorisation udtrykkeligt tillader det nedenstående read-only
 produktionssnapshot; denne kommando åbner ingen database og giver ingen
 autorisation til snapshot, apply eller anden produktionshandling.
 
+### Syntetisk fail-closed bevis
+
+Den automatiske ende-til-ende-test bruger kun syntetiske manifest-, receipt-
+og target-identiteter. Den første, historisk formede fixture kører Task 25,
+fase A, fase B, narrativ-publicering, name-completion, C0 og D1 i denne
+rækkefølge. Task 25, fase B og C0 har bundne syntetiske receipts, mens fase A,
+narrativ-publicering og name-completion er ubundne; D1 er `unavailable`.
+Resultatet skal være exitkode `2`, ingen `reconciliation-ledger.json` og ingen
+læsning af noget snapshot.
+
+En separat fixture med navnet `synthetic_capability_only` afprøver kun, at de
+seks understøttede adaptere kan forsegle bidrag og et reconciliation-ledger
+med helt syntetiske receipts. Den udelader D1 og er ikke historisk evidens,
+historisk autorisation eller en GO for snapshot eller apply. Testen muterer
+derefter et artefakt efter forseglingen og kræver hash-afvisning før
+projektion. Reconcilerens admission afviser fortsat både `afterdocumented_unbound`
+og `unavailable` faser, før den validerer et snapshot.
+
 ## Læse-kun prod-snapshot
 
 Efter eksplicit autorisation til prod-læsning tages ét snapshot i en `READ

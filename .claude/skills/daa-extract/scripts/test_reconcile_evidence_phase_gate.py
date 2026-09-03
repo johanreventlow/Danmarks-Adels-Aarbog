@@ -118,6 +118,33 @@ def _unbound_ledger() -> dict:
     )
 
 
+def _unavailable_ledger() -> dict:
+    return seal_ledger(
+        {
+            "schema_version": "daa-evidence-phase-artifact-ledger-v2",
+            "phases": [
+                {
+                    "phase_id": "d1",
+                    "sequence": 1,
+                    "artifacts": [
+                        {
+                            "role": "legacy-apply",
+                            "path": "d1-historical-exception.placeholder",
+                            "sha256": "a" * 64,
+                            "schema_version": "1939-v50-d1-legacy-apply-v1",
+                            "required": False,
+                        }
+                    ],
+                    "adapter_id": "d1-historical-exception-v1",
+                    "adapter_sha256": "b" * 64,
+                    "projection_evidence": "unavailable",
+                    "authorisation_evidence": "unavailable",
+                }
+            ],
+        }
+    )
+
+
 def _write_cli_reconciliation_inputs(tmp_path, snapshot: dict, *manifests: dict) -> list[str]:
     contributions = []
     bound_manifests = []
@@ -175,6 +202,12 @@ def test_reconcile_matches_snapshot_against_ordered_phase_final_state():
 def test_reconcile_refuses_an_incomplete_ledger_with_an_afterdocumented_phase_before_snapshot_comparison():
     with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_INCOMPLETE"):
         reconcile({}, [], _unbound_ledger())
+
+
+def test_reconcile_refuses_an_unavailable_historical_phase_before_snapshot_validation():
+    """An invalid snapshot must remain unread when D1 is still unavailable."""
+    with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_INCOMPLETE"):
+        reconcile({"not": "a snapshot"}, [], _unavailable_ledger())
 
 
 def test_reconcile_rejects_a_missing_ledger_contribution_before_snapshot_validation():
