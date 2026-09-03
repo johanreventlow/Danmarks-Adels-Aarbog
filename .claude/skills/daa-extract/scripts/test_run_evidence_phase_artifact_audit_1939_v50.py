@@ -13,6 +13,7 @@ from audit_evidence_phase_artifacts_1939_v50 import AuditError, audit_bundle
 from evidence_phase_artifact_ledger import (
     CatalogArtifactEntry,
     CatalogPhaseEntry,
+    HISTORICAL_PHASE_AUTHORISATIONS,
     seal_ledger,
     validate_catalog,
     validate_ledger,
@@ -111,6 +112,38 @@ def test_cli_rejects_every_historical_inventory_or_authorisation_bypass(tmp_path
 
     assert completed.returncode == 2
     assert json.loads(completed.stderr)["status"] == "invalid"
+    assert list(output.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("phase_id", "override"),
+    [
+        ("task25", "contemporaneous_phase_package"),
+        ("phase-a", "afterdocumented_authorisation_gap"),
+        ("phase-b", "afterdocumented_authorisation_gap"),
+        ("narrative-publication", "afterdocumented_authorisation_gap"),
+        ("name-completion", "afterdocumented_authorisation_gap"),
+        ("c0", "afterdocumented_authorisation_gap"),
+        ("d1", "afterdocumented_authorisation_gap"),
+    ],
+)
+def test_public_audit_cli_rejects_every_canonical_authorisation_override_before_artifact_work(
+    tmp_path, phase_id, override
+):
+    bundle = tmp_path / "synthetic-bundle"
+    bundle.mkdir()
+    output = bundle / "private-output"
+    output.mkdir()
+    document = _write_historical_catalog(bundle, bound_phase_ids=frozenset())
+    phase = next(phase for phase in document["phases"] if phase["phase_id"] == phase_id)
+    phase["authorisation_evidence"] = override
+    catalog = bundle / "catalog.json"
+    write_json(catalog, document)
+
+    completed = run_cli(bundle, catalog, output)
+
+    assert completed.returncode == 2
+    assert json.loads(completed.stderr)["error"] == "EVIDENCE_RECONCILIATION_HISTORICAL_AUTHORISATION_INVALID"
     assert list(output.iterdir()) == []
 
 
@@ -237,7 +270,9 @@ def _catalog_phase(
         "sequence": sequence,
         "adapter_id": adapter_id,
         "projection_evidence": "afterdocumented_unbound",
-        "authorisation_evidence": "afterdocumented_authorisation_gap",
+        "authorisation_evidence": HISTORICAL_PHASE_AUTHORISATIONS.get(
+            phase_id, "afterdocumented_authorisation_gap"
+        ),
         "database_target_identity_sha256": canonical_hash(target_identity()),
         "artifacts": artifacts,
     }

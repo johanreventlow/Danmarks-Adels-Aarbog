@@ -149,6 +149,17 @@ HISTORICAL_PHASE_CONTRACTS = (
 )
 
 
+HISTORICAL_PHASE_AUTHORISATIONS: Mapping[str, str] = {
+    "task25": "afterdocumented_authorisation_gap",
+    "phase-a": "contemporaneous_phase_package",
+    "phase-b": "contemporaneous_phase_package",
+    "narrative-publication": "contemporaneous_phase_package",
+    "name-completion": "contemporaneous_phase_package",
+    "c0": "contemporaneous_phase_package",
+    "d1": "unavailable",
+}
+
+
 ADAPTER_SOURCE_FILENAMES = (
     "audit_evidence_phase_artifacts_1939_v50.py",
     "evidence_phase_artifact_ledger.py",
@@ -439,17 +450,19 @@ def validate_historical_catalog(document: object) -> list[CatalogPhaseEntry]:
     )
     observed = tuple((entry.phase_id, entry.sequence, entry.adapter_id) for entry in entries)
     _require(observed == expected, "EVIDENCE_RECONCILIATION_HISTORICAL_INVENTORY_INVALID")
+    _validate_historical_authorisations(entries)
+    return entries
+
+
+def _validate_historical_authorisations(
+    entries: tuple[CatalogPhaseEntry, ...] | list[CatalogPhaseEntry] | list[PhaseEntry],
+) -> None:
     by_id = {entry.phase_id: entry for entry in entries}
     _require(
-        by_id["task25"].authorisation_evidence == "afterdocumented_authorisation_gap",
+        all(by_id[phase_id].authorisation_evidence == value for phase_id, value in HISTORICAL_PHASE_AUTHORISATIONS.items()),
         "EVIDENCE_RECONCILIATION_HISTORICAL_AUTHORISATION_INVALID",
     )
-    _require(
-        by_id["d1"].projection_evidence == "unavailable"
-        and by_id["d1"].authorisation_evidence == "unavailable",
-        "EVIDENCE_RECONCILIATION_HISTORICAL_AUTHORISATION_INVALID",
-    )
-    return entries
+    _require(by_id["d1"].projection_evidence == "unavailable", "EVIDENCE_RECONCILIATION_HISTORICAL_AUTHORISATION_INVALID")
 
 
 def validate_phase_rows(
@@ -604,21 +617,7 @@ def validate_historical_reconciliation_ledger(document: object) -> list[PhaseEnt
     observed = tuple((entry.phase_id, entry.sequence, entry.adapter_id) for entry in entries)
     _require(observed == expected, "EVIDENCE_RECONCILIATION_HISTORICAL_INVENTORY_INVALID")
 
-    by_id = {entry.phase_id: entry for entry in entries}
-    expected_authorisations = {
-        "task25": "afterdocumented_authorisation_gap",
-        "phase-a": "contemporaneous_phase_package",
-        "phase-b": "contemporaneous_phase_package",
-        "narrative-publication": "contemporaneous_phase_package",
-        "name-completion": "contemporaneous_phase_package",
-        "c0": "contemporaneous_phase_package",
-        "d1": "unavailable",
-    }
-    _require(
-        all(by_id[phase_id].authorisation_evidence == value for phase_id, value in expected_authorisations.items()),
-        "EVIDENCE_RECONCILIATION_HISTORICAL_AUTHORISATION_INVALID",
-    )
-    _require(by_id["d1"].projection_evidence == "unavailable", "EVIDENCE_RECONCILIATION_HISTORICAL_AUTHORISATION_INVALID")
+    _validate_historical_authorisations(entries)
 
     target_hashes: set[str] = set()
     for entry in entries:
