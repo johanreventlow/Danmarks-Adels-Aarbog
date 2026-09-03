@@ -3,6 +3,10 @@
 **Dato:** 2026-09-03
 **Issue:** #149
 **Status:** Godkendt design (projektejer, 2026-09-03 aften). Ikke implementeret.
+**Revision samme aften:** opdelt i **149a** (dette dokument: kilderegnskab uden
+bindinger) og **149b** (egen spec: legacy-migration til record-binding), fordi
+#152's kontrakt (§4.3, §6.2) afviser upsert på legacy-narrativer og reserverer
+eventtypen `legacy_migrated` til #149 uden at bygge en writer til den.
 **Roadmapmål:** trin 3 i `docs/evidensbaseret-genimport/roadmap.md`.
 
 ## 1. Adgangskrav (roadmap §"Adgangskrav til nye planer")
@@ -10,22 +14,23 @@
 | # | Krav | Svar |
 |---|---|---|
 | 1 | Roadmapmål | Trin 3: 2018-20 får fase A-ækvivalent provenance. |
-| 2 | Led i værdikæden | Kilde → rendition → source record → forekomst/anker → narrativ-binding, for `source_id = 1`. |
+| 2 | Led i værdikæden | Kilde → rendition → source record → forekomst/anker for `source_id = 1`. Narrativ-bindingen er 149b. |
 | 3 | Generel, profil eller legacy-afvikling | **Generel** mekanik (writer og RPC'er fra #153/#152) plus **én lille udgaveprofil** `daa-2018-20`. Ingen nye DB-objekter, scripts eller tabeller med `2018` i navnet; nye scripts parametriseres på profil. |
-| 4 | Redaktionel/brugerrettet værdi | De 591 biografier fra 2018-20 får en stabil, offentlig kildehenvisning (`public_ref`) og ophører med at være "overgangsdata". Forudsætning for senere sammenligning på tværs af udgaver. |
-| 5 | Bevis for færdig | Rehearsal mod en restore af prod-dump: eksakte tal for records, forekomster, ankre og bindinger; **nul kanonisk delta** (aggregat-hash af `person`, `fact`, `family_member`, `narrative` uændret); replay giver `already_applied`; reversal gendanner tilstanden. Prod-apply er en separat gate. |
-| 6 | Erstatter | Visningen af 2018-20-narrativer uden kildebinding. Pilotens artefakter i `work/task16-2018-pilot` bliver regression, ikke input. |
+| 4 | Redaktionel/brugerrettet værdi | 2018-20 får samme kilderegnskab som 1939: hver af de 591 poster er en varig `source_record` med `public_ref` og byte-anker i en frosset rendition. Det er forudsætningen for, at 149b kan give biografierne kildehenvisning, og for sammenligning på tværs af udgaver. |
+| 5 | Bevis for færdig | Rehearsal mod en restore af prod-dump: eksakte tal for rendition (1), records (591), forekomster (591) og accepterede ankre (591); **nul kanonisk delta** (aggregat-hash af `person`, `fact`, `family_member`, `narrative` og `narrative_record_publication` uændret); replay giver `already_applied`; reversal gendanner tilstanden. Prod-apply er en separat gate. |
+| 6 | Erstatter | Pilotens artefakter i `work/task16-2018-pilot` bliver regression, ikke input. 149b erstatter senere visningen "overgangsdata". |
 
 ## 2. Afgrænsning
 
-**I scope:** én rendition, 591 personposter som source records, én forekomst og ét
-accepteret anker pr. post, narrativ-bindinger efter reglen i §5, en ledger med
-præcis én disposition pr. narrativ, fase-pakke-gate.
+**I scope (149a):** én rendition, 591 personposter som source records, én
+forekomst og ét accepteret anker pr. post, ét hash-låst manifest gennem den
+generelle writer, fase-pakke-gate, den læse-kun inventering i §8.
 
-**Ikke i scope:** tekstændringer i narrativer (fase B-ækvivalent), strukturelle
-records (linjeindledninger, slægtled-overskrifter, våbenbeskrivelser), klausul-
-observationer (#148), fortolkning (#147), placement/membership (#150),
-identitetsvej (#151), personoprettelse, modelkald af enhver art.
+**Ikke i scope:** narrativ-bindinger og identitet (149b, se §5), tekstændringer
+i narrativer (fase B-ækvivalent), strukturelle records (linjeindledninger,
+slægtled-overskrifter, våbenbeskrivelser), klausul-observationer (#148),
+fortolkning (#147), placement/membership (#150), identitetsvej (#151),
+personoprettelse, modelkald af enhver art.
 
 ## 3. Rendition
 
@@ -61,40 +66,48 @@ identitetsvej (#151), personoprettelse, modelkald af enhver art.
   rendition_content_sha256, raw_text_sha256}`, `decided_by_name` = operatøren.
   Ankre er deterministiske; der er ingen menneskelig gennemgang i fase A.
 
-## 5. Narrativ-bindinger: den målte gate
+## 5. Narrativ-bindinger: udskudt til 149b
 
-For hver narrativ med `source_id = 1` og `subjekt_type = 'person'`:
+149a skriver **ingen** bindinger. Årsag, målt i #152's spec: upsert på en
+legacy-narrativ afvises (§6.2, "Legacy uden binding → Afvis"), en ny binding
+kræver en entydig *accepteret identitetsmængde* i persona-laget (prod har 8
+rækker), og eventtypen `legacy_migrated` er reserveret til #149 uden writer
+(§4.3). Bindingen af 2018-20 er derfor en ny, editionsneutral mekanisme, ikke
+en gentagelse af 1939's narrativ-publikation.
+
+149b får egen spec efter inventeringen og skal som minimum bære disse regler
+videre, som projektejeren godkendte 2026-09-03:
 
 1. **Identitet, positiv evidens.** Personen skal have præcis én `external_id`
    for source 1, og den `record_key` må kun pege på præcis én person.
    Tekstlighed er aldrig et anker (spec 2026-08-02, invariant 14).
 2. **Tekstlighed.** `narrative_norm_v1(narrativ.tekst)` skal være byte-lig
    `narrative_norm_v1(forekomst.verbatim_text)`.
-3. **Disposition** (præcis én pr. narrativ, i ledgeren):
-   - `bound_published`: 1 og 2 opfyldt, personen er hverken `levende`, `staged`
-     eller `privat`.
-   - `bound_draft`: 1 og 2 opfyldt, personen er `levende`, `staged` eller
-     `privat`. Bindingen skrives med `status = 'draft'` (fail-closed synlighed).
-   - `unresolved_identity`: 1 ikke opfyldt.
-   - `unresolved_text`: 2 ikke opfyldt. Teksten ændres **ikke**.
-4. **Stopgrænse.** Er andelen af `unresolved_*` over 10 % af narrativerne,
-   stopper fasen før prod med rapport. Fase B for 2018-20 er da projektejerens
-   separate beslutning.
-
-Ingen narrativ ændres, ingen person oprettes, ingen kanonisk række rører sig.
+3. **Disposition** (præcis én pr. narrativ, i ledgeren): `bound_published`,
+   `bound_draft` (levende/staged/privat → `draft`), `unresolved_identity`,
+   `unresolved_text`. Teksten ændres aldrig.
+4. **Stopgrænse.** Over 10 % `unresolved_*` stopper fasen før prod.
+5. **Mekanik.** Én generel writer, der lukker en grandfathered legacy-stream
+   med `legacy_migrated` og opretter record-bindingen atomisk gennem #152's
+   event-kontrakt. Identiteten record ↔ person indlæses som accepteret
+   persona-identitet ud fra `person_external_id` med egen ledger.
 
 ## 6. Writer, kontrakt og rækkefølge
 
 - Manifest: ét hash-låst manifest efter den generelle writers kontrakt (#153)
   med `source_evidence`-elementer (rendition, records, forekomster, ankre) og
-  **nul** `person_create`-elementer. Writer-profil: én række i
+  **nul** `person_create`-elementer; `expected_counts = {"person_creates": 0,
+  "source_evidence": 591}`. Writer-profil: én række i
   `private.reimport_writer_profile` for `source_id = 1`, `profile_id =
-  'daa-2018-20'`.
-- Bindinger: skrives gennem #152's record-nøglede publicerings-RPC
-  (kontraktversion 2), aldrig gennem den gamle `(subjekt, source_id)`-vej.
-- Prod-rækkefølge: #152 cutover og #153 prod-verifikation **før** #149's
-  prod-apply. Rehearsal må gerne køres nu mod en restore med aktuelle
-  migrationer.
+  'daa-2018-20-source-evidence-v1'` med `writer_config` efter #153's lukkede
+  feltmængde (`run_key_prefix`, `schema_version`, `extractor_version`,
+  `rendition_key`, `rendition_kind`, `rendition_metadata`,
+  `observation_extraction_method`, `citation_label_template`).
+- Kontrakt: den generelle writer kræver `narrative_record_contract_version() = 2`.
+  Rehearsal-basen skal derfor migreres til v2 efter #152's cutover-runbook,
+  før 149a kan øves.
+- Prod-rækkefølge: #152 cutover og #153 prod-verifikation **før** 149a's
+  prod-apply.
 - Gate: fase-pakke-gaten (`docs/runbooks/evidence-import-phase-gate.md`):
   backup 0600+SHA, restore-rehearsal, hash-låst manifest, projektejer-GO, ét
   apply, replay = `already_applied`, reversal bevist mod restore. Manifestet
@@ -128,10 +141,11 @@ med tal og hashes alene.
 - Byggeren (Python): syntetiske fixtures uden rigtige navne; tests for eksakt
   delstreng, sideafledning, injektivitetsbrud, tekstafvigelse, stopgrænse,
   deterministisk output (samme input → samme manifest-SHA).
-- Apply (R, generisk writer): dry-run og apply mod engangs-restore; asserts på
-  eksakte antal, nul kanonisk delta via aggregat-hash, replay, reversal.
-- Bindinger: dispositionsfordeling matcher ledgeren; `draft`-reglen for
-  levende/staged/privat verificeres med `SET LOCAL ROLE anon`.
+- Apply (R, generisk gateway `apply_reimport.R`): dry-run og apply mod
+  engangs-restore; asserts på eksakte antal, nul kanonisk delta via
+  aggregat-hash, replay, reversal.
+- Synlighed: ingen offentlig projektion ændres; verificeres med
+  `SET LOCAL ROLE anon` før og efter apply.
 
 ## 10. Ændringsmyndighed
 
