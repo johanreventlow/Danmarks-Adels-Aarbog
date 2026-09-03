@@ -11,14 +11,14 @@
     "rendition_kind": "pdf_text_layer",
     "rendition_metadata": {
       "edition": "2018-20",
-      "pdf_sha256": "<UDFYLDES FRA INVENTERING>",
-      "pdftotext_version": "<UDFYLDES FRA INVENTERING>"
+      "pdf_sha256": "3beadfc15e3fa1a4090589af56cd4e95599a9231e8f979dfb60c4e27bbd8252a",
+      "pdftotext_version": "26.07.0"
     },
     "run_key_prefix": "reimport-source-evidence:",
     "schema_version": "source-evidence-manifest-v1"
   },
-  "pdf_sha256": "<UDFYLDES FRA INVENTERING>",
-  "raw_text_sha256": "<UDFYLDES FRA INVENTERING>",
+  "pdf_sha256": "3beadfc15e3fa1a4090589af56cd4e95599a9231e8f979dfb60c4e27bbd8252a",
+  "raw_text_sha256": "2dd5cf8408943ccc50ac4d89dcbd08ac3b49a90fdabd1ddcbd7b22d218026563",
   "segment_version": "segment.py@2018-20-v1",
   "expected_counts": {
     "person_creates": 0,
@@ -26,8 +26,8 @@
   },
   "pdftotext_args": {
     "layout": true,
-    "first_page": "<UDFYLDES FRA INVENTERING>",
-    "last_page": "<UDFYLDES FRA INVENTERING>",
+    "first_page": 93,
+    "last_page": 247,
     "page_marker": "### PAGE {page} ###"
   }
 }
