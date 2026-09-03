@@ -70,6 +70,28 @@ apply-JSON'er med tilstanden `afterdocumented`, C3-adapter tilføjes, derefter
 ét autoriseret læse-kun prod-snapshot og én afstemning. INCOMPLETE/DRIFT er en
 lukning med restpunkt, ikke anledning til nye adaptere.
 
+**149b-spec skrevet af PM-rollen (2026-09-03, sen aften) — to valg kræver projektejerens
+kvittering før prod-GO** (`docs/superpowers/specs/2026-09-03-2018-20-fase-b-legacy-migration-design.md`):
+**(A) Identitet uden placement-kæde.** #152 §6.1(9) beregner »entydig identitetsmængde«
+gennem record-placement → persona-placement → persona-identitet. Placement kræver en
+`header`-observation (`EVIDENCE_PLACEMENT_HEADER_REQUIRED`); ingen udgave har dem, og prod
+har 0 placements — kæden er ubrugt uden for tests og er roadmap-trin 5 (#150/#151). 149b
+skriver derfor persona + mention + accepteret identitet med `person_external_id` som evidens
+(egen ledger, som #166 kræver), men ingen placements. Bindingens autoritet bliver
+`existing_exact_binding` — samme som 1939's 550 bindinger. Kendt pris: når #150/#151
+bagudfylder placements, bliver publiceringerne `stale_published` og skal revalideres; det
+gælder 1939 i samme grad, så udgaverne forbliver symmetriske. Fravalgt: at bygge
+placement-kæden for 2018-20 alene (omprioriterer roadmappen, giver asymmetri).
+**(B) Reversal.** Per narrativ gennem #152's dedikerede reversal, udvidet med en
+`legacy_migrated`-gren gatet på at record-bindingen allerede er trukket tilbage
+(published → draft → withdrawn → ledger tilbage til grandfathered). Batch-reversal =
+per-narrativ reversals i omvendt rækkefølge under én autorisation; `red_reverse_reimport`
+afviser fortsat (som 149a). Fravalgt: kun restore (for grov, når offentlig synlighed
+ændres) og en ny hel-batch-RPC (ny mekanik uden for #152's kontrakt).
+**Målt grundlag** (dump 2026-08-21): 544 ikke-levende / 47 levende / 0 NULL; 4 tekstulige
+(3 ikke-levende, 1 levende) → forventet 541 `bound_published`, 46 `bound_draft`,
+4 `unresolved_text`, 0 `unresolved_identity` (0,7 % < 10 %-stopgrænsen).
+
 ## BESLUTTET: #152's målte overgangsomkostning og sikkerhedsminimum (2026-08-29)
 
 Et eksternt read-only review af den reviderede #152-spec rapporterede et
