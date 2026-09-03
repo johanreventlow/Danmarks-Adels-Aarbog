@@ -365,3 +365,110 @@ another model-to-model review loop.
 
 This closes the local #153 implementation and review gate only. It does not
 authorize a production database change, deployment, merge or push.
+
+## Tasks 11–14 correction-round evidence (2026-09-03)
+
+The owner-approved correction round is implemented through `df2d8ac`. Task 11
+adds exact parent-person coverage at authorization, finalize, activation and
+reversal; binds cutover authorization to the target batch identity, manifest
+and preview; and establishes the observed lifecycle hierarchy as global v2
+contract lock, unlocked source/profile discovery, profile advisory lock, then
+post-lock mutable-row reads with tuple-drift rejection. The PostgreSQL-kernel
+three-connection suite exercised begin/replay, batch result, reversal
+authorization, name-completion finalize and activation. It also forced
+discovery-tuple drift and proved that no authorization or batch state was
+consumed on rejection.
+
+Task 12 keeps the generic boundary strict while adapting only the pinned 1939
+facade: the historic database-name string becomes canonical database identity,
+the exact zero-valued `canonical_delta` count is removed, and the exact
+three-field legacy name-completion token is enriched only inside the legacy R
+adapter. Both legacy SQL and DBI paths passed without widening the generic
+authorizer or generic R token contract.
+
+Task 13 replaces coexistence `setval` with transactional `ALTER SEQUENCE ...
+RESTART WITH`, makes the database CI job fetch the pinned historical commit and
+verify it with `git cat-file` before `git show`, and replaces mutable line-range
+inventory with unique semantic anchors and multiplicity-sensitive expected
+rows. The adjacent #152 narrative inventory was updated only to recognize the
+new thin facade and generic mutation owner. The sourced cutover verifier now
+locates its own file through `sys.frames()` and retains direct-`Rscript`
+fallback; this makes the repository's official `Rscript run-tests.R` runner
+truthful without changing cutover semantics.
+
+### Complete local disposable database gate
+
+Every database below was local on `127.0.0.1:55441`, used
+`PGUSER=johanreventlow` and `PGPASSWORD=''`, and reported PostgreSQL system
+identifier `7680906716015365850`. No Supabase MCP or production endpoint was
+used.
+
+| Database | Observed result |
+| --- | --- |
+| `daa153_t14_freshv2_20260903c` | Fresh schema, migrations/RLS, generic and legacy writer/name suites, disposable `db-verify` and edition catalog all exited 0; contract v2. |
+| `daa153_t14_upgv2_20260903e` | Exact `2d6aabf:schema.sql`, empty legacy fixture, migration/RLS and the same complete v2 gate all exited 0; contract v2. |
+| `daa153_t14_terminal_20260903c` | Real activated/finalized and reversed/reversed historical chains; late failpoint and exact rollback proof, normal migration/RLS, terminal assertion and full C3 all passed; contract v1. Its attempted v2 bootstrap failed closed with `CUTOVER_INVENTORY_LIVE_DRIFT` as required. |
+| `daa153_t14_coexist_20260903c` | Coexisting legacy and generic shells retained exact relation, sequence and contents state after the late failpoint; successful migration then allocated a default event ID above all migrated IDs; contract v1. |
+| `daa153_t14_freshv1c3_20260903c` | Fresh v1 full C3 regression passed; contract v1. |
+
+Fresh and clean-upgraded v2 catalog receipts were byte-identical: 33,466
+bytes, SHA-256
+`16704827d59af5012a2ab70940e549a9f7d679f44deaf4703bdad115438f9a0c`;
+`cmp` exited 0. The eight negative migration fixtures also exited 0 as tests:
+issued, open and finalized histories failed with
+`REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED`; orphan, wrong-status child,
+broken result, ambiguous child and wrong source-record topology failed with the
+same topology token; wrong-source and multi-source identities failed with
+`REIMPORT_WRITER_LEGACY_SOURCE_IDENTITY_INVALID`. Each rejection retained the
+legacy authorization relation as a physical table.
+
+Two setup deviations were diagnosed rather than treated as product evidence:
+one earlier upgraded-v2 rehearsal applied the terminal assertion to the empty
+fixture, and one earlier shell loop created a disposable database with a
+literal variable name. Correctly orchestrated, newly named runs above passed.
+An initial legacy DBI fixture omitted the required v2 bootstrap and correctly
+failed closed; the corrected fixture passed.
+
+### Gateway and application gate
+
+The following local DBI integrations exited 0:
+
+- generic writer on `daa153_t14_rwriter_20260903`;
+- 1939 production writer on `daa153_t14_rlegacy2_20260903`;
+- 1939 name completion on `daa153_t14_rname_20260903`;
+- generic writer concurrency on `daa153_t14_rlock_20260903`; and
+- C3/global-lock ordering on `daa1939_t14_c3lock_20260903`, including all 12
+  scenarios and their power controls.
+
+The five focused R suites for generic/legacy reimport, generic/legacy name
+completion and writer inventory passed. The adjacent #152 narrative inventory
+passed 1,482 expectations and the #153 inventory passed 230. The official full
+R runner exited 0 with
+`[ FAIL 0 | WARN 14 | SKIP 1 | PASS 2773 ]`; the single skip is the explicit
+local-DB smoke condition in `test-load-daa.R`, and the warnings are known
+runner-path/stringi diagnostics rather than failed assertions. A separate,
+non-official direct `testthat::test_dir` invocation exposed a pre-existing
+preview wrapper assumption about `--file`; it is outside this correction and
+does not affect the green repository runner.
+
+`npm run test -w @daa/core` passed 29 files and 417 tests, and
+`npm run typecheck -w @daa/core` exited 0. With test-only dummy Vite variables,
+`npm run test -w web` passed 72 files and 927 tests, and `npm run build -w web`
+exited 0 with only the existing chunk-size warning. `git diff --check
+2d6aabf..df2d8ac` exited 0.
+
+### Codex self-review
+
+The complete `2d6aabf..df2d8ac` range was reviewed against the issue mission,
+design §§1–6, all correction findings and the task-ledger rulings. The review
+found the permanent mechanism remains generic and profile-bound; the retained
+`_1939` objects are the explicit one-version facade/C3 allowlist; the generic
+v2 mutation contract is not weakened; every corrected authorization,
+concurrency, migration and inventory boundary has a negative test; and fresh
+and upgrade definitions converge by byte-comparable catalog evidence. No new
+actionable finding was identified. The final independent read-only Sol xhigh
+review remains the only incomplete Task 14 gate at this checkpoint.
+
+This evidence is local code-integration evidence only. It is not production
+authorization and involved no production database change, network service,
+push, merge, deploy, Fable, protected review artifact or `work/` access.

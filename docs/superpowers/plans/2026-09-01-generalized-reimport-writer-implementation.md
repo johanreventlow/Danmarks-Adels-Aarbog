@@ -1100,7 +1100,7 @@ public API or production authority.
   one lock hierarchy: global v2 contract lock → source/profile writer lock →
   authorization/batch/result/domain row locks.
 
-- [ ] **Step 1: Add lifecycle-integrity RED coverage**
+- [x] **Step 1: Add lifecycle-integrity RED coverage**
 
   Extend the real SQL lifecycle fixture with a finalized parent containing two
   distinct `person_create` events and a child authorization/payload set for
@@ -1111,7 +1111,7 @@ public API or production authority.
   is the exact set of parent `person_create` element/person/source-record
   identities, not a hardcoded edition count.
 
-- [ ] **Step 2: Add cutover-token RED coverage**
+- [x] **Step 2: Add cutover-token RED coverage**
 
   Create two independently finalized parent/child chains with the same
   `(source_id, profile_id, profile_sha256)` but different batch IDs, manifests
@@ -1120,7 +1120,7 @@ public API or production authority.
   generic cutover-invalid token, and assert zero state or authorization
   consumption changes for both chains.
 
-- [ ] **Step 3: Add lock-order RED coverage**
+- [x] **Step 3: Add lock-order RED coverage**
 
   In the three-connection disposable PostgreSQL test, hold only the target
   profile advisory lock on connection A. Start each affected lifecycle RPC on
@@ -1130,7 +1130,7 @@ public API or production authority.
   reversal authorization, name-completion finalize and activation so the test
   fails when any path takes a mutable row lock before the profile lock.
 
-- [ ] **Step 4: Run the new tests and observe the expected RED failures**
+- [x] **Step 4: Run the new tests and observe the expected RED failures**
 
   Load a newly named local disposable v2 database with all five PG variables.
   Run `tests/sql/test-reimport-name-completion.sql` and
@@ -1138,7 +1138,7 @@ public API or production authority.
   subset acceptance, cross-batch activation or row-before-profile failure;
   harness/setup errors are not valid RED evidence.
 
-- [ ] **Step 5: Implement the minimum lifecycle correction**
+- [x] **Step 5: Implement the minimum lifecycle correction**
 
   In fresh and migration DDL, require child authorized payload/result coverage
   to equal the parent batch's complete `person_create` event set before
@@ -1149,7 +1149,7 @@ public API or production authority.
   lock, then re-read and validate mutable rows `FOR UPDATE`; never trust the
   pre-lock snapshot.
 
-- [ ] **Step 6: Run focused GREEN and parity verification**
+- [x] **Step 6: Run focused GREEN and parity verification**
 
   Re-run both RED suites on fresh-v2 and clean-upgraded-v2 disposable
   databases. Require the new negative cases, existing positive two-profile
@@ -1186,7 +1186,7 @@ weaken or widen the generic contract.
   SQL wire and enriches it with the pinned source/profile identity only inside
   the legacy R adapter before entering the generic gateway.
 
-- [ ] **Step 1: Add exact legacy-call RED coverage**
+- [x] **Step 1: Add exact legacy-call RED coverage**
 
   Call `red_authorize_1939_v50_reimport` with `current_database()` and the
   historic three-key counts object
@@ -1196,7 +1196,7 @@ weaken or widen the generic contract.
   token. Keep a separate assertion that the generic authorizer rejects these
   legacy representations.
 
-- [ ] **Step 2: Add legacy name-completion token RED coverage**
+- [x] **Step 2: Add legacy name-completion token RED coverage**
 
   Obtain the exact three-field token from
   `red_authorize_1939_v50_name_completion`, pass that unmodified token to the
@@ -1205,14 +1205,14 @@ weaken or widen the generic contract.
   SQL facade return would fail the exact legacy return-shape test, while a
   source supplied by the caller rather than the pinned adapter is rejected.
 
-- [ ] **Step 3: Run and record the expected RED failures**
+- [x] **Step 3: Run and record the expected RED failures**
 
   Run both legacy SQL files, the focused legacy name-completion testthat file
   and both existing 1939 DBI integrations against a newly named disposable v2
   database. The failures must occur at the representation boundaries described
   above, not during fixture setup.
 
-- [ ] **Step 4: Implement boundary-only compatibility adapters**
+- [x] **Step 4: Implement boundary-only compatibility adapters**
 
   In both DDL paths, map `d = current_database()` to the generic canonical
   `{database_name, system_identifier}` text and remove `canonical_delta` only
@@ -1223,7 +1223,7 @@ weaken or widen the generic contract.
   internally before calling the generic helper. Do not change the generic R
   validator or the SQL facade's return shape.
 
-- [ ] **Step 5: Run GREEN, ACL and facade-parity verification**
+- [x] **Step 5: Run GREEN, ACL and facade-parity verification**
 
   Re-run the four focused suites, exact facade signature/return/ACL tests,
   generic R tests and fresh/upgraded catalog body-digest comparison. Parse all
@@ -1255,7 +1255,7 @@ it introduces no runtime feature or production migration execution.
 - Locates the final schema and #153 migration sections by unique semantic
   anchors, never mutable absolute line numbers.
 
-- [ ] **Step 1: Add coexistence rollback RED coverage**
+- [x] **Step 1: Add coexistence rollback RED coverage**
 
   Build a disposable pre-#153 database containing a populated terminal legacy
   ledger plus pre-existing empty generic shells and sequence. Record the
@@ -1265,7 +1265,7 @@ it introduces no runtime feature or production migration execution.
   failpoint and require the first new default event ID to be greater than the
   maximum migrated legacy ID.
 
-- [ ] **Step 2: Add semantic inventory RED coverage**
+- [x] **Step 2: Add semantic inventory RED coverage**
 
   Replace the test helper's line-number API with unique start/end anchor
   extraction for the final schema writer/facade section and the migration block
@@ -1275,7 +1275,7 @@ it introduces no runtime feature or production migration execution.
   closed. Run the real inventory and observe its current mismatch against the
   true final sections before updating the reviewed expected inventory.
 
-- [ ] **Step 3: Add a CI fixture-availability gate**
+- [x] **Step 3: Add a CI fixture-availability gate**
 
   Configure only the database migration job's `actions/checkout@v4` step with
   `fetch-depth: 0`, and make its first historical-fixture command run
@@ -1283,7 +1283,7 @@ it introduces no runtime feature or production migration execution.
   YAML and execute the two git commands in a clean local clone/worktree
   equivalent; no remote push or workflow dispatch is allowed.
 
-- [ ] **Step 4: Implement transactional sequence repositioning**
+- [x] **Step 4: Implement transactional sequence repositioning**
 
   Replace the coexistence branch's nontransactional `setval` with a transaction-
   safe sequence restart at `max(migrated_event_id) + 1`, using the existing
@@ -1291,7 +1291,7 @@ it introduces no runtime feature or production migration execution.
   sequence repair outside the single #153 transaction or add a second migration
   phase.
 
-- [ ] **Step 5: Review and freeze the exact final inventory**
+- [x] **Step 5: Review and freeze the exact final inventory**
 
   Generate the anchored schema/migration occurrence list, manually classify
   every occurrence against the spec's four categories, store the literal
@@ -1300,7 +1300,7 @@ it introduces no runtime feature or production migration execution.
   section fails while the same text outside the anchors cannot alter the
   result.
 
-- [ ] **Step 6: Run GREEN migration/evidence verification**
+- [x] **Step 6: Run GREEN migration/evidence verification**
 
   Run atomic rollback and successful coexistence migration, all approved
   terminal-v1 fixtures, source inventory, CI YAML validation, clean historical
@@ -1318,7 +1318,7 @@ code-integration evidence only, never production authorization.
 - Modify: `docs/evidensbaseret-genimport/reimport-writer-153-rehearsal.md`
 - Modify: this plan only with observed completion marks/evidence
 
-- [ ] **Step 1: Run complete disposable database verification**
+- [x] **Step 1: Run complete disposable database verification**
 
   From the final committed tree, rebuild uniquely named fresh-v2,
   clean-upgraded-v2 and both historical terminal-v1 databases. Run every
@@ -1327,14 +1327,14 @@ code-integration evidence only, never production authorization.
   fresh/upgraded catalog receipts byte-for-byte and record database names,
   identities, commit, commands, exit codes, sizes and hashes.
 
-- [ ] **Step 2: Run application and gateway verification**
+- [x] **Step 2: Run application and gateway verification**
 
   Run all affected R/testthat and DBI integrations, the complete core test
   suite and typecheck, the complete web test suite and production build. Treat
   any flake as unresolved until reproduced and diagnosed; do not record a
   rerun alone as evidence.
 
-- [ ] **Step 3: Perform Codex self-review**
+- [x] **Step 3: Perform Codex self-review**
 
   Review the complete base `2d6aabf` to final HEAD diff against the issue
   mission, every spec §6 proof, all seven correction findings and the task
