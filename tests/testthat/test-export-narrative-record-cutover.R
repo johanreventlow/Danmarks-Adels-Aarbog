@@ -245,7 +245,13 @@ test_that("export rolls back and publishes nothing on any query failure", {
 })
 
 test_that("exporter requires explicit safe output and complete five-variable DB profile", {
-  expect_error(nrk_validate_output_path(root), "OUTPUT_INSIDE_REPOSITORY", fixed = TRUE)
+  root_components <- strsplit(root, "/", fixed = TRUE)[[1L]]
+  root_error <- if ("work" %in% root_components) {
+    "OUTPUT_WORK_PATH"
+  } else {
+    "OUTPUT_INSIDE_REPOSITORY"
+  }
+  expect_error(nrk_validate_output_path(root), root_error, fixed = TRUE)
   expect_error(
     nrk_validate_output_path("/private/tmp/work/task7"), "OUTPUT_WORK_PATH", fixed = TRUE
   )

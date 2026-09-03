@@ -5364,9 +5364,10 @@ END
 $narrative_record_task3_person_policy_lock$;
 RESET search_path;
 
--- Task 6: every legacy mutation surface joins the cutover lock protocol. The
--- shared advisory lock must be the first lock in each body, with the version
--- recheck before role, authorization, journal, or domain state access.
+-- Task 6: every remaining legacy mutation surface joins the cutover lock
+-- protocol. The #153 red_*_1939_v50_* transition facade is deliberately not
+-- legacy storage: its active one-version adapters delegate to the generic v2
+-- writer and are covered by the 1939 writer contracts.
 DO $narrative_record_task6_structure$
 DECLARE
   v_signature text;
@@ -5383,16 +5384,6 @@ BEGIN
     'public.red_tilbagetraek_narrative_record(bigint)',
     'public.red_slet_person(bigint)',
     'public.red_fortryd_change_set(bigint,boolean)',
-    'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)',
-    'public.red_begin_1939_v50_reimport(uuid,text,text)',
-    'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)',
-    'public.red_apply_1939_v50_person_create(uuid,text,jsonb)',
-    'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',
-    'public.red_finalize_1939_v50_reimport(uuid)',
-    'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)',
-    'public.red_reverse_1939_v50_reimport(uuid,uuid)',
-    'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)',
-    'public.red_activate_1939_v50_batch(uuid,uuid)',
     'public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)',
     'public.red_apply_reimport_cases(uuid,text,text)',
     'public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)',
@@ -5471,31 +5462,17 @@ DECLARE
   v_acl text;
   v_calls text[]:=ARRAY[
     'SELECT public.red_upsert_narrativ(''person'',-91526001,''task6 order A'',false,-91526001,NULL)',
-    'SELECT public.red_apply_1939_v50_source_evidence(NULL,NULL,NULL)',
-    'SELECT public.red_reverse_1939_v50_reimport(NULL,NULL)',
     'SELECT public.red_apply_reimport_cases(NULL,NULL,NULL)',
     'SELECT public.red_reverse_reimport_cases(NULL,NULL)'
   ];
   v_errors text[]:=ARRAY[
     'NARRATIVE_RECORD_REQUIRED',
     'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED',
-    'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED',
-    'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED',
     'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'
   ];
   v_disabled_calls text[]:=ARRAY[
     'SELECT public.red_publicer_narrative_record(NULL,NULL,NULL,NULL)',
     'SELECT public.red_tilbagetraek_narrative_record(NULL)',
-    'SELECT public.red_authorize_1939_v50_reimport(NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL)',
-    'SELECT public.red_begin_1939_v50_reimport(NULL,NULL,NULL)',
-    'SELECT public.red_apply_1939_v50_source_evidence(NULL,NULL,NULL)',
-    'SELECT public.red_apply_1939_v50_person_create(NULL,NULL,NULL)',
-    'SELECT public.red_apply_1939_v50_canonical_delta(NULL,NULL,NULL)',
-    'SELECT public.red_finalize_1939_v50_reimport(NULL)',
-    'SELECT public.red_authorize_1939_v50_reversal(NULL,NULL,NULL)',
-    'SELECT public.red_reverse_1939_v50_reimport(NULL,NULL)',
-    'SELECT public.red_authorize_1939_v50_cutover(NULL,NULL,NULL)',
-    'SELECT public.red_activate_1939_v50_batch(NULL,NULL)',
     'SELECT public.red_authorize_reimport_cases(NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL)',
     'SELECT public.red_apply_reimport_cases(NULL,NULL,NULL)',
     'SELECT public.red_authorize_reimport_case_reversal(NULL,NULL,NULL,NULL)',
@@ -5591,7 +5568,7 @@ BEGIN
     -- before their first advisory lock. A real cutover may legitimately hold
     -- exclusive for longer: the old call must remain queued, then wake and
     -- return the exact version error rather than a generic lock timeout.
-    IF v_index IN (4,5) THEN PERFORM pg_sleep(5.25); END IF;
+    IF v_index IN (2,3) THEN PERFORM pg_sleep(5.25); END IF;
     PERFORM extensions.dblink_exec('task6_b','COMMIT');
     SELECT result INTO v_result FROM extensions.dblink_get_result('task6_a') AS t(result text);
     PERFORM result FROM extensions.dblink_get_result('task6_a') AS t(result text);

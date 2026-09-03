@@ -413,7 +413,19 @@ BEGIN
     'public.red_kasser_person_narrative_record(bigint,bigint,text,text)',
     'public.red_tilbagetraek_person_narrative_record(bigint,bigint,text,text)',
     'public.red_tilbagetraek_legacy_narrative(uuid,text,text)',
-    'public.red_fortryd_person_narrative_publication_event(uuid,text)'
+    'public.red_fortryd_person_narrative_publication_event(uuid,text)',
+    'public.red_begin_1939_v50_reimport(uuid,text,text)',
+    'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_person_create(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',
+    'public.red_finalize_1939_v50_reimport(uuid)',
+    'public.red_reverse_1939_v50_reimport(uuid,uuid)',
+    'public.red_activate_1939_v50_batch(uuid,uuid)',
+    'public.red_lock_1939_v50_name_completion(text)',
+    'public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)',
+    'public.red_begin_1939_v50_name_completion(uuid,text,uuid)',
+    'public.red_apply_1939_v50_name_completion(uuid,text,jsonb)',
+    'public.red_finalize_1939_v50_name_completion(uuid)'
   ] LOOP
     IF NOT has_function_privilege('authenticated',v_signature,'EXECUTE')
        OR has_function_privilege('service_role',v_signature,'EXECUTE') THEN
@@ -421,10 +433,19 @@ BEGIN
     END IF;
   END LOOP;
   FOREACH v_signature IN ARRAY ARRAY[
+    'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)'
+  ] LOOP
+    IF NOT has_function_privilege('service_role',v_signature,'EXECUTE')
+       OR has_function_privilege('authenticated',v_signature,'EXECUTE') THEN
+      RAISE EXCEPTION 'CUTOVER_1939_FACADE_SERVICE_ACL_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+  FOREACH v_signature IN ARRAY ARRAY[
     'public.red_publicer_narrative_record(bigint,uuid,text,text)',
     'public.red_tilbagetraek_narrative_record(bigint)',
-    'public.red_begin_1939_v50_reimport(uuid,text,text)',
-    'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)',
     'public.red_apply_reimport_cases(uuid,text,text)',
     'public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)'
   ] LOOP
@@ -469,8 +490,8 @@ BEGIN
   PERFORM extensions.dblink_connect(
     'task7_cutover_observer',
     format(
-      'dbname=%s host=127.0.0.1 port=5432 user=%s password=',
-      current_database(),current_user
+      'dbname=%s host=127.0.0.1 port=%s user=%s password=',
+      current_database(),current_setting('port'),current_user
     )
   );
 END
@@ -595,8 +616,8 @@ BEGIN;
 DO $cutover_source_truth_concurrency$
 DECLARE
   v_connection text:=format(
-    'dbname=%s host=127.0.0.1 port=5432 user=%s password=',
-    current_database(),current_user
+    'dbname=%s host=127.0.0.1 port=%s user=%s password=',
+    current_database(),current_setting('port'),current_user
   );
   v_cutover_connected boolean:=false;
   v_writer_connected boolean:=false;

@@ -71,13 +71,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.R_LIBS_USER }}
-          key: ${{ runner.os }}-rlib-${{ steps.setup-r.outputs.installed-r-version }}-v1
+          key: ${{ runner.os }}-rlib-${{ steps.setup-r.outputs.installed-r-version }}-v2
       # Test-træet er DB-service-frit, men updater-testen sourcer et script, der
       # indlæser RPostgres. Installér derfor alle pakker, som testtræet loader.
       # Kun de manglende installeres, så et cache-hit ikke bygger duckdb igen.
       - name: Installér R-testpakker
         run: |
-          Rscript -e 'pkgs <- c("testthat","jsonlite","DBI","duckdb","RPostgres","stringdist","stringi","withr","digest")
+          Rscript -e 'pkgs <- c("testthat","jsonlite","yaml","DBI","duckdb","RPostgres","stringdist","stringi","withr","digest")
             mangler <- setdiff(pkgs, rownames(installed.packages()))
             cat("mangler:", if (length(mangler)) paste(mangler, collapse = ", ") else "ingen", "\n")
             if (length(mangler)) install.packages(mangler)'
