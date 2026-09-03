@@ -97,8 +97,8 @@ programmets samlede modenhed.
   verificeres læse-kun mod prod før #153's prod-GO; blokerer 149a's ægte
   rehearsal indtil guarden eller batchen disponeres (kommentar på #153).
 - **149a: reversal findes ikke for en ren source_evidence-batch** (plan-afvigelse 4).
-  Erstatningsbevis: nul kanonisk delta + fail-closed reversal + restore. Afventer
-  projektejerens kvittering i `docs/decisions.md`.
+  Erstatningsbevis: nul kanonisk delta + fail-closed reversal + restore. Kvitteret af
+  projektejeren 2026-09-03 (`docs/decisions.md`).
 - #152 afventer en særskilt, frisk produktions-GO efter
   [cutover-runbooken](../runbooks/narrative-record-key-cutover.md). Først
   kræves preliminær autorisation, mode-0600 backup/restore-rehearsal og frisk

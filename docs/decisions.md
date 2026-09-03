@@ -39,7 +39,7 @@ en ren source_evidence-batch*: `red_reverse_reimport` kræver `activated` + ét
 name_completion-barn, og der er ingen sletningsvej for source records/ankre.
 Erstatningsbevis: nul kanonisk delta (aggregat-hash), observeret fail-closed
 `REIMPORT_WRITER_REVERSAL_INVALID`, gendannelse ved restore fra 0600-backup.
-**Afventer projektejerens kvittering** (spec §10) før prod-GO. (2) »Eksakt
+**Kvitteret af projektejeren 2026-09-03 aften** (spec §10): fortryd af 149a sker ved restore, ikke ved et kald. (2) »Eksakt
 delstreng« måles i en whitespace-normaliseret projektion med offset-kort, fordi
 `segment.py` selv normaliserer; ingen fuzzy-match. (3) Anker-evidens bæres i
 payload (`anchor_method`, `segment_version`, `verbatim_sha256`), da writeren
