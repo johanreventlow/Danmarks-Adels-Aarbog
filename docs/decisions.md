@@ -2,6 +2,46 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: Styringsregler efter PM-gennemgang + opdeling af #149 (2026-09-03)
+
+**Baggrund.** En læse-kun gennemgang 2026-09-03 viste, at retningen fra 25/8
+følges (C3 → #152 → #153 → #154/#155 → #157), men at roadmappens trin 3-4
+(#149, #147/#148) stod på nul, mens ~180 commits/~54k linjer siden 29/8 gik
+til trin 1-2, hærdning og tests. Styringsdokumenterne holdt ikke alene, fordi
+(a) "ét aktivt programmål ad gangen" ikke blev håndhævet — seks spor kørte
+parallelt samme uge — og (b) den, der skrev planen, også besvarede de seks
+adgangskrav selv.
+
+**Besluttet (projektejer):**
+1. **Ét aktivt programmål ad gangen** håndhæves: nye worktrees åbnes kun for
+   det aktive mål og for en registreret kontrolleret afbrydelse.
+2. **Anden læser før kode.** Adgangskravene i `roadmap.md` besvares af den,
+   der planlægger, og efterprøves af en anden (PM-rollen) før implementering.
+3. **Én dags synligt trin.** En plan leverer ét synligt, testbart trin på højst
+   én dag; større arbejde deles.
+4. **Færdig = én rigtig kørsel.** Definition of done for enhver task er én
+   kørsel mod rigtige data i en øvebase (restore), ikke grønne syntetiske
+   fixtures alene.
+5. **Issues mærkes** `roadmap` / `afventer-prod-GO` / `parkeret` /
+   `uden-for-genimport` / `kontrolleret-afbrydelse`; #160-#163 er parkeret,
+   #164 er kandidat til kontrolleret afbrydelse, #159 er løst i kode.
+
+**#149 opdelt i 149a og 149b.** #152's kontrakt afviser upsert på
+legacy-narrativer (§6.2), kræver accepteret persona-identitet og reserverer
+`legacy_migrated` til #149 uden writer (§4.3). 149a = kilderegnskab (rendition,
+591 records, forekomster, ankre) gennem #153's writer, nul kanonisk delta.
+149b = generel `legacy_migrated`-writer + identitet fra `person_external_id`,
+egen spec efter inventeringen. Roadmap-trin 3 er uændret; rækkefølgen inden i
+trinnet er 149a → 149b.
+
+**#156 (fase-pakke-afstemning): fund.** Runbookens bundle-sti var opdigtet, og
+auditorens receipt-skemaer (`daa-evidence-phase-receipt-*-v1`) er yngre end de
+kørsler, de skal beskrive; ingen historisk apply-kvittering bærer dem, og C3
+manglede som bidrag. Valgt vej: adaptere bindes til de faktiske manifester og
+apply-JSON'er med tilstanden `afterdocumented`, C3-adapter tilføjes, derefter
+ét autoriseret læse-kun prod-snapshot og én afstemning. INCOMPLETE/DRIFT er en
+lukning med restpunkt, ikke anledning til nye adaptere.
+
 ## BESLUTTET: #152's målte overgangsomkostning og sikkerhedsminimum (2026-08-29)
 
 Et eksternt read-only review af den reviderede #152-spec rapporterede et
