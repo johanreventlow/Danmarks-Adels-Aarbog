@@ -253,11 +253,31 @@ END $task2_counts$;
 
 - [ ] **Step 3: Implementér i `schema.sql`**
 
-`schema.sql:2442`:
+`schema.sql:2442` (navngiv constrainten eksplicit, så frisk og migreret katalog er ens):
 
 ```sql
-  operation text NOT NULL CHECK(operation IN ('source_evidence','person_create','legacy_migration','canonical_delta','reversal','activation')),
+  operation text NOT NULL CONSTRAINT reimport_event_operation_check CHECK(operation IN ('source_evidence','person_create','legacy_migration','canonical_delta','reversal','activation')),
 ```
+
+I `db-migrations.sql` er tabellen et omdøbt `reimport_1939_write_event` (`db-migrations.sql:11539`), så constrainten hedder formentlig `reimport_1939_write_event_operation_check` på migrerede baser. Drop derfor dynamisk og tilføj med det kanoniske navn:
+
+```sql
+DO $lm_operation_check$
+DECLARE v_name text;
+BEGIN
+  FOR v_name IN
+    SELECT conname FROM pg_constraint
+     WHERE conrelid='private.reimport_event'::regclass AND contype='c'
+       AND pg_get_constraintdef(oid) LIKE '%operation%'
+  LOOP
+    EXECUTE format('ALTER TABLE private.reimport_event DROP CONSTRAINT %I',v_name);
+  END LOOP;
+  ALTER TABLE private.reimport_event ADD CONSTRAINT reimport_event_operation_check
+    CHECK(operation IN ('source_evidence','person_create','legacy_migration','canonical_delta','reversal','activation'));
+END $lm_operation_check$;
+```
+
+Tilføj til `tests/sql/test-reimport-writer-migration.sql` (som CI kører på den præ-153-migrerede sti, jf. `ci.yml:203-230`) i success-grenen (`task13_coexistence_expect_success`): præcis én CHECK på `private.reimport_event` hvis definition indeholder `operation`, og definitionen indeholder `legacy_migration`; ellers `RAISE EXCEPTION 'REIMPORT_EVENT_OPERATION_CHECK_DRIFT'`.
 
 `validate_reimport_authorization_payload` — erstat kroppen:
 
@@ -334,16 +354,30 @@ Tilføj til `tests/sql/test-reimport-legacy-migration.sql` (efter Task 2-blokken
 CREATE FUNCTION pg_temp.task3_fixture(p_key text, p_levende boolean)
 RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE
-  v_source bigint; v_profile text; v_sha text; v_actor uuid; v_person bigint; v_narrative bigint;
+  -- Egen syntetisk source + profil pr. fixture: undgår REIMPORT_WRITER_RENDITION_DRIFT
+  -- mod basens eksisterende rendition og REPLAY_DRIFT på genbrugte manifest-hashes.
+  v_source bigint := 149000 + abs(hashtext(p_key)) % 100000; v_profile text := 'fixture-lm-'||p_key; v_sha text;
+  v_config jsonb; v_actor uuid; v_person bigint; v_narrative bigint;
   v_text text := 'Alfa '||p_key||' Bravo, f. 1801, d. 1860.';
-  v_auth uuid; v_batch uuid; v_payload jsonb; v_ref uuid := gen_random_uuid(); v_state jsonb;
-  v_occ_sha text; v_baseline text; v_verbatim text;
+  v_msha text := encode(extensions.digest('manifest:'||p_key,'sha256'),'hex');
+  v_psha text := encode(extensions.digest('preview:'||p_key,'sha256'),'hex');
+  v_auth uuid; v_batch uuid; v_payload jsonb; v_ref uuid := gen_random_uuid(); v_state jsonb; v_baseline text;
 BEGIN
-  SELECT p.source_id,p.profile_id,p.profile_sha256 INTO v_source,v_profile,v_sha
-    FROM private.reimport_writer_profile p ORDER BY p.created_at LIMIT 1;
+  INSERT INTO public.source(id,titel,udgave,slags) VALUES(v_source,'Fixture '||p_key,'synthetic','DAA-udgave') ON CONFLICT(id) DO NOTHING;
+  v_config:=jsonb_build_object('citation_label_template','Synthetic side {page_from}','extractor_version','fixture-v1',
+    'observation_extraction_method','deterministic_segment_v1','rendition_key','fixture-r1','rendition_kind','pdf_text_layer',
+    'rendition_metadata',jsonb_build_object('edition','fixture','pdf_sha256',repeat('a',64),'pdftotext_version','fixture 0.0'),
+    'run_key_prefix','reimport-source-evidence:','schema_version','source-evidence-manifest-v1');
+  v_sha:=private.reimport_canonical_json_sha256(v_config);
+  INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
+  VALUES(v_source,v_profile,'source-evidence-v1',v_sha,v_config) ON CONFLICT DO NOTHING;
   SELECT id INTO v_actor FROM public.profiles WHERE rolle='redaktion' ORDER BY id LIMIT 1;
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
-  INSERT INTO public.person(levende,privat,staged,visning_navn) VALUES(p_levende,false,false,'Fixture '||p_key) RETURNING id INTO v_person;
+  IF NOT EXISTS (SELECT 1 FROM public.change_set) THEN
+    INSERT INTO public.change_set(actor_navn,actor_rolle,operation,summary,subjekt_synlighed) VALUES('fixture','system','fixture','fixture','offentlig');
+  END IF;
+  -- visning_navn er en cache-kolonne (invariant 4): skrives aldrig direkte.
+  INSERT INTO public.person(levende,privat,staged,visning_navn) VALUES(p_levende,false,false,NULL) RETURNING id INTO v_person;
   INSERT INTO public.person_external_id(person_id,source_id,record_key) VALUES(v_person,v_source,p_key);
   INSERT INTO public.narrative(subjekt_type,subjekt_id,source_id,tekst,privat) VALUES('person',v_person,v_source,v_text,false) RETURNING id INTO v_narrative;
   -- 149a-ækvivalent: source record + forekomst + anker + observation + mention
@@ -354,12 +388,12 @@ BEGIN
     'verbatim_text',v_text,'verbatim_sha256',encode(extensions.digest(v_text,'sha256'),'hex'),
     'anchor_method','deterministic-segment','segment_version','fixture');
   PERFORM set_config('role','service_role',true);
-  v_auth:=public.red_authorize_reimport(repeat('1',64),repeat('2',64),
+  v_auth:=public.red_authorize_reimport(v_msha,v_psha,
     jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,
     v_source,v_profile,v_sha,'{"person_creates":0,"source_evidence":1}'::jsonb,
     jsonb_build_object('source-evidence:'||p_key,v_payload),gen_random_uuid(),clock_timestamp()+interval '5 minutes');
   PERFORM set_config('role','authenticated',true);
-  v_batch:=public.red_begin_reimport(v_auth,repeat('1',64),repeat('2',64));
+  v_batch:=public.red_begin_reimport(v_auth,v_msha,v_psha);
   PERFORM public.red_apply_reimport_source_evidence(v_batch,'source-evidence:'||p_key,v_payload);
   PERFORM public.red_finalize_reimport(v_batch);
   RESET role;
@@ -384,7 +418,16 @@ END $$;
 CREATE FUNCTION pg_temp.task3_migrate(p_fx jsonb, p_disposition text, p_manifest_nonce text)
 RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE v_payload jsonb; v_auth uuid; v_batch uuid; v_result jsonb; v_msha text := encode(extensions.digest(p_manifest_nonce,'sha256'),'hex');
+  v_lm_profile text := (p_fx->>'profile_id')||'-lm'; v_lm_config jsonb; v_lm_sha text;
 BEGIN
+  -- Legacy-migration-profil for fixturens source (spec §6.1: egen profil, samme lukkede feltmængde).
+  v_lm_config:=jsonb_build_object('citation_label_template','Synthetic side {page_from}','extractor_version','legacy-migration-v1',
+    'observation_extraction_method','none','rendition_key','fixture-r1','rendition_kind','pdf_text_layer',
+    'rendition_metadata',jsonb_build_object('edition','fixture','pdf_sha256',repeat('a',64),'pdftotext_version','fixture 0.0'),
+    'run_key_prefix','reimport-legacy-migration:','schema_version','legacy-migration-manifest-v1');
+  v_lm_sha:=private.reimport_canonical_json_sha256(v_lm_config);
+  INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
+  VALUES((p_fx->>'source_id')::bigint,v_lm_profile,'legacy-migration-v1',v_lm_sha,v_lm_config) ON CONFLICT DO NOTHING;
   v_payload:=jsonb_build_object(
     'source_record_key',p_fx->>'record_key','source_id',(p_fx->>'source_id')::bigint,
     'person_id',(p_fx->>'person_id')::bigint,'narrative_id',(p_fx->>'narrative_id')::bigint,
@@ -399,7 +442,7 @@ BEGIN
   PERFORM set_config('role','service_role',true);
   v_auth:=public.red_authorize_reimport(v_msha,repeat('9',64),
     jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,
-    (p_fx->>'source_id')::bigint,p_fx->>'profile_id',p_fx->>'profile_sha256',
+    (p_fx->>'source_id')::bigint,v_lm_profile,v_lm_sha,
     '{"person_creates":0,"source_evidence":0,"legacy_migrations":1}'::jsonb,
     jsonb_build_object('legacy-migration:'||(p_fx->>'record_key'),v_payload),gen_random_uuid(),clock_timestamp()+interval '5 minutes');
   PERFORM set_config('role','authenticated',true);
@@ -559,7 +602,8 @@ BEGIN
   SELECT o.* INTO v_occurrence FROM private.source_record_anchor_current a JOIN private.source_record_occurrence o ON o.id=a.occurrence_id
    WHERE a.source_record_id=v_record.id AND a.decision_status='accepted';
   IF encode(digest(v_occurrence.verbatim_text,'sha256'),'hex')<>p_payload->>'occurrence_verbatim_sha256' THEN RAISE EXCEPTION 'LEGACY_MIGRATION_OCCURRENCE_TEXT_DRIFT'; END IF;
-  SELECT count(*),min(m.id) INTO v_mention_count,v_mention_id FROM private.source_observation ob JOIN private.source_mention m ON m.observation_id=ob.id WHERE ob.occurrence_id=v_occurrence.id;
+  -- min() findes ikke for uuid; brug array_agg.
+  SELECT count(*),(array_agg(m.id ORDER BY m.id))[1] INTO v_mention_count,v_mention_id FROM private.source_observation ob JOIN private.source_mention m ON m.observation_id=ob.id WHERE ob.occurrence_id=v_occurrence.id;
   IF v_mention_count<>1 THEN RAISE EXCEPTION 'LEGACY_MIGRATION_MENTION_AMBIGUOUS'; END IF;
   IF (SELECT count(*) FROM public.person_external_id x WHERE x.source_id=v_batch.source_id AND x.record_key=v_record.record_key)<>1
      OR NOT EXISTS (SELECT 1 FROM public.person_external_id x WHERE x.source_id=v_batch.source_id AND x.record_key=v_record.record_key AND x.person_id=v_person_id)
@@ -1273,6 +1317,21 @@ Profilen `daa-2018-20-legacy-migration-v1.json`:
 
 - [ ] **Step 3: Commit**: `test(genimport): integrationstest og CI-trin for legacy-migration-writeren`
 
+### Task 9b: Batch-reversal-script (spec §8)
+
+**Files:**
+- Create: `.claude/skills/daa-extract/scripts/reverse_reimport_legacy_migration.R` + `reverse_reimport_legacy_migration_helpers.R`
+- Modify: `tests/integration/test-reimport-legacy-migration.R` (Task 9's trin 7 udføres gennem scriptet i stedet for tre håndkald)
+
+**Interfaces:**
+- Consumes: `private.reimport_event` (operation `legacy_migration`, payload `published_event_id`, `draft_event_id`, `legacy_event_id`), `public.red_fortryd_person_narrative_publication_event(uuid,text)`, `public.red_person_narrative_records(bigint)` (for `state_sha256`), `private.narrative_legacy_state` er privat → brug `red_person_narrative_records`' legacy-række (`state_sha256`) — men den udelader `migrated` rækker efter Task 1. Derfor: læs `state_sha256` for legacy-streamen via `public.red_person_narrative_publication_history(person_id)`s seneste event for `legacy_publication_ref`, eller tilføj i Task 1 en read-only privat hjælper `private.legacy_migration_reversal_state(legacy_publication_ref)` der returnerer `narrative_legacy_state(ref,false)->>'state_sha256'` (REVOKE fra alle, kaldes af scriptet som `service_role`).
+- Produces: `Rscript reverse_reimport_legacy_migration.R --batch-id UUID --authorization-nonce UUID --apply|--dry-run` → for hvert `legacy_migration`-event i batchen i **omvendt `element_id`-orden**: reverse `published` (hvis sat) → `draft_created` → `legacy_migrated` (hvis sat); efter alle: assert ledger source = før-billedets tal (`grandfathered_publication` tilbage, 0 `migrated` for batchens narrativer) og bindinger `withdrawn`. Én transaktion; dry-run ruller tilbage. Autorisation = `red_authorize_reimport_reversal(batch_id, nonce, expiry)` (findes; udstedes som `service_role`) og scriptet verificerer, at den er `issued` og matcher batchen, før første reversal; markerer den `consumed` via `UPDATE private.reimport_authorization` er IKKE tilladt (privat tabel) → registrér i stedet et `reimport_event(operation='reversal', element_id='legacy-migration-reversal:'||authorization_id)` gennem en lille ny privat funktion `private.record_reimport_legacy_reversal(p_batch_id,p_authorization_id,p_receipts jsonb)` (SECURITY DEFINER, kun kaldbar som `authenticated`, kræver autorisationen `issued`, operation `reversal`, sætter den `consumed`, batch-status forbliver `finalized`). Tilføj funktionen til Task 5's ACL-inventar.
+
+- [ ] **Step 1:** Udvid integrationstesten: efter replay kaldes scriptets `execute_legacy_reversal(batch_id, gateway, "dry-run")` → ingen ændring; derefter `"apply"` → ledger `grandfathered_publication`, bindinger `withdrawn`, `reimport_event` har én `reversal`-række, `public_person_bio_source_versions_v2` viser legacy-rækken igen for den døde person.
+- [ ] **Step 2:** Implementér script + privat funktion (`schema.sql`, `db-migrations.sql`, ACL, `test-reimport-legacy-migration.sql` får en `task9b`-blok, der kalder `private.record_reimport_legacy_reversal` med forkert batch → `REIMPORT_WRITER_REVERSAL_INVALID`).
+- [ ] **Step 3:** Kør integrationstesten + SQL-gaten grønne.
+- [ ] **Step 4: Commit**: `feat(genimport): batch-reversal af legacy-migration via de dedikerede per-narrativ reversals`
+
 ---
 
 # Leverance 3 — rehearsal, rapport og dokumentation (én dag; »én rigtig kørsel« = Del B-kæden mod restore af prod-dumpet)
@@ -1290,7 +1349,7 @@ Profilen `daa-2018-20-legacy-migration-v1.json`:
 
 - [ ] **Step 2: Eksport, byg, preview, dry-run, autorisation, apply** — Task 7's eksport til en 0700-mappe under `$CLAUDE_JOB_DIR/tmp` (ikke `work/`), Task 8's bygger med 149a's `rendition.txt` som corpus, Task 6's preview (`export_reimport_preview.R --profile <legacy-profil>`), `apply_reimport.R --dry-run`, autorisation som `service_role` + `request.jwt.claim.sub` (runbook §5), `apply_reimport.R --apply`.
 
-  Forventet efter apply (spec §10): 587 personas, 587 accepterede identiteter, 587 `draft_created`, 541 `published`, 541 `legacy_migrated`; ledger source 1 = 541 `migrated` + 3 `grandfathered_publication`; bindinger 541 `published` + 46 `draft`; `public_person_bio_source_versions_v2` for de 591 personer: 541 `source_record`, 0 `legacy_narrative` for source 1; `anon`-hashes for de otte tabeller identiske med før; `person`/`fact`/`family_member`/`narrative`-aggregat-hash uændrede (kun `narrative_record_publication` og private tabeller ændres); replay `already_applied`; tre-trins reversal for ét narrativ (`I-1` eller det første i manifestet) gendanner ledger + `withdrawn` binding; `red_reverse_reimport` afviser med `REIMPORT_WRITER_REVERSAL_INVALID`.
+  Forventet efter apply (spec §10): 587 personas, 587 accepterede identiteter, 587 `draft_created`, 541 `published`, 541 `legacy_migrated`; ledger source 1 = 541 `migrated` + 3 `grandfathered_publication`; bindinger 541 `published` + 46 `draft`; `public_person_bio_source_versions_v2` for de 591 personer: 541 `source_record`, 0 `legacy_narrative` for source 1; `anon`-hashes for de otte tabeller identiske med før; `person`/`fact`/`family_member`/`narrative`-aggregat-hash uændrede (kun `narrative_record_publication` og private tabeller ændres); replay `already_applied`; tre-trins reversal for ét narrativ (`I-1` eller det første i manifestet) gendanner ledger + `withdrawn` binding; `red_reverse_reimport` afviser med `REIMPORT_WRITER_REVERSAL_INVALID`; Task 9b's batch-reversal køres som **dry-run** mod hele batchen (587 elementer) og skal ende med `rolled_back` og uændrede tal — den fulde apply-reversal bevises i integrationstesten, ikke i rehearsal (ville koste en ny restore for at gentage apply).
 
 - [ ] **Step 3: Skriv rapporten** (`legacy-migration-149b-rehearsal.md`) med præcis: afgrænsning (»lokalt bevis, ikke produktionsautorisation«), basetabel, låste inputhashes (profil, manifest indhold/bytes, preview), tal pr. disposition og eventtype, de 4 `unresolved_text`-nøgler, hash-tabel før/efter, replay, reversal, restpunkter (de 13 mulige `NOISE_RE`-prosalinjer; valg A/B afventer kvittering).
 
@@ -1324,7 +1383,7 @@ Profilen `daa-2018-20-legacy-migration-v1.json`:
 | §6.4 | låserække, events, efterkontrol, gate-tjek | Task 3 |
 | §6.5 | narrativrækken urørt | Task 3-test `TASK3_TEXT_CHANGED` |
 | §7 | eksport, bygger, validator, preview, gate | Task 6, 7, 8, 10 |
-| §8 | reversal-gren, batch-reversal = per-narrativ i omvendt rækkefølge, `red_reverse_reimport` afviser | Task 4, Task 10 Step 2 |
+| §8 | reversal-gren, batch-reversal = per-narrativ i omvendt rækkefølge, `red_reverse_reimport` afviser | Task 4, Task 9b, Task 10 Step 2 |
 | §9 | ingen tekst i artefakter, 0600/0700, `work` afvises | Task 7, 8, 10 |
 | §10 | SQL/R/Python-tests, CI, rehearsal med eksakte tal | Task 1-5, 6, 8, 9, 10 |
 
