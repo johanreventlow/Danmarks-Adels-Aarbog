@@ -1,12 +1,14 @@
 # Evidensbaseret genimport — aktuel status
 
-**Verificeret:** 2026-08-30 efter #152 disposable ende-til-ende-rehearsal
+**Verificeret:** 2026-09-03 efter #156 read-only production-snapshot og
+fail-closed admission
 
-**Kodegrundlag:** Task 12's funktionelle bevis er commit `4922d7e`; den
-nuværende dokumentations-HEAD kan være senere og ændrer ikke det bevis
+**Kodegrundlag:** #156-resultatet er dokumenteret på den aktuelle branch;
+Task 12's tidligere funktionelle bevis er commit `4922d7e`
 
-**Produktionsstatus:** C3's eksakte fem-sagers scope er migreret, anvendt og
-efterverificeret i produktion; #152 har ingen produktionsmutation
+**Produktionsstatus:** #156 udførte én autoriseret read-only,
+repeatable-read snapshottransaktion for source 3 og ingen
+produktionsskrivning
 
 ## Samlet dom
 
@@ -15,6 +17,26 @@ narrativpublicering er en væsentlig delleverance, men den fælles kæde
 observation → fortolkning → identitet → promotion → publicering er ikke
 integreret ende-til-ende. Skabelonen for en fremtidig årbog er derfor ikke
 færdig, og genimporten er samlet **NO-GO som generel leverance**.
+
+## #156 — faktisk udfald
+
+Det operatørforfattede katalog bandt de faktiske beholdte manifests og
+apply-records for Task 25, fase A, fase B, narrativ-publicering,
+name-completion, C0 og C3; D1 er `unavailable`. De historiske apply-records
+har ikke de senere `daa-evidence-phase-receipt-*-v1`-skemaer, så ingen fase
+blev promoveret til `mechanically_bound`. Artefaktauditten sluttede derfor
+`EVIDENCE_RECONCILIATION_INCOMPLETE` med 8 ufuldstændige faser, 0 mekanisk
+bundne og ledger-hash
+`9f43e38665c17f8c7bddfc20c6b2bc07410e402f4d7594e858af6e03429bfc43`.
+
+Det ene forseglede production-snapshot har content-hash
+`f7a9d1a3e6a20e6308473df3f880097d848e397066aa80e0652567f8d9e3cf5a`
+og ikke-identificerende sektionsoptællinger 592 source records, 897 accepted
+anchors, 563 published bindinger, 563 narrativ-hashes og 563 personer.
+Reconcilerens admission stoppede før rækkeafstemning med samme
+`EVIDENCE_RECONCILIATION_INCOMPLETE`; der er derfor hverken match- eller
+driftpåstand for de enkelte rækker. #156 lukkes med dette dokumenterede
+restpunkt og uden retroaktiv GO for Task 25 eller D1.
 
 ## Aktivt programmål og stopport
 

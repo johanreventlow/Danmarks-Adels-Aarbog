@@ -32,7 +32,7 @@ class ArtifactEntry:
     role: str
     path: str
     sha256: str
-    schema_version: str
+    schema_version: str | None
     required: bool
 
 
@@ -42,7 +42,7 @@ class CatalogArtifactEntry:
 
     role: str
     path: str
-    schema_version: str
+    schema_version: str | None
     required: bool
 
 
@@ -93,7 +93,7 @@ class ReceiptAdapter:
 @dataclass(frozen=True)
 class ArtifactContract:
     role: str
-    schema_version: str
+    schema_version: str | None
     required: bool = True
 
 
@@ -137,15 +137,36 @@ ADAPTER_ARTIFACT_CONTRACTS: Mapping[str, tuple[ArtifactContract, ...]] = {
 
 
 HISTORICAL_PHASE_CONTRACTS = (
-    HistoricalPhaseContract("task25", 1, "task25-v1", ADAPTER_ARTIFACT_CONTRACTS["task25-v1"]),
-    HistoricalPhaseContract("phase-a", 2, "phase-a-v1", ADAPTER_ARTIFACT_CONTRACTS["phase-a-v1"]),
-    HistoricalPhaseContract("phase-b", 3, "phase-b-v1", ADAPTER_ARTIFACT_CONTRACTS["phase-b-v1"]),
+    HistoricalPhaseContract("task25", 1, "task25-v1", (
+        ArtifactContract("manifest", "1939-v50-production-write-manifest-v1"),
+        ArtifactContract("apply_record", None),
+    )),
+    HistoricalPhaseContract("phase-a", 2, "phase-a-v1", (
+        ArtifactContract("manifest", "1939-v50-phase-a-anchor-manifest-v1"),
+        ArtifactContract("apply_record", None),
+    )),
+    HistoricalPhaseContract("phase-b", 3, "phase-b-v1", (
+        ArtifactContract("manifest", "1939-v50-narrative-replacement-manifest-v1"),
+        ArtifactContract("apply_record", None),
+    )),
     HistoricalPhaseContract(
-        "narrative-publication", 4, "narrative-publication-v1", ADAPTER_ARTIFACT_CONTRACTS["narrative-publication-v1"]
+        "narrative-publication", 4, "narrative-publication-v1", (
+            ArtifactContract("manifest", "1939-v50-narrative-publication-manifest-v1"),
+            ArtifactContract("apply_record", None),
+        )
     ),
-    HistoricalPhaseContract("name-completion", 5, "name-completion-v1", ADAPTER_ARTIFACT_CONTRACTS["name-completion-v1"]),
-    HistoricalPhaseContract("c0", 6, "c0-followup-v1", ADAPTER_ARTIFACT_CONTRACTS["c0-followup-v1"]),
-    HistoricalPhaseContract("d1", 7, "d1-historical-exception-v1", ADAPTER_ARTIFACT_CONTRACTS["d1-historical-exception-v1"]),
+    HistoricalPhaseContract("name-completion", 5, "name-completion-v1", (
+        ArtifactContract("manifest", "1939-v50-name-completion-manifest-v1"),
+        ArtifactContract("apply_record", None),
+    )),
+    HistoricalPhaseContract("c0", 6, "c0-followup-v1", (
+        ArtifactContract("manifest", "1939-v50-c0-followup-manifest-v1"),
+    )),
+    HistoricalPhaseContract("d1", 7, "d1-historical-exception-v1", ()),
+    HistoricalPhaseContract("c3", 8, "c3-apply-v1", (
+        ArtifactContract("manifest", "1939-v50-c3-apply-manifest-v1"),
+        ArtifactContract("apply_record", None),
+    )),
 )
 
 
@@ -157,6 +178,7 @@ HISTORICAL_PHASE_AUTHORISATIONS: Mapping[str, str] = {
     "name-completion": "contemporaneous_phase_package",
     "c0": "contemporaneous_phase_package",
     "d1": "unavailable",
+    "c3": "contemporaneous_phase_package",
 }
 
 
@@ -308,7 +330,11 @@ def _validate_artifact(row: object) -> ArtifactEntry:
     _require(_valid_text(row["role"]), "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_INVALID")
     path = _relative_path_identity(row["path"])
     _require(_is_hex_sha256(row["sha256"]), "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_INVALID")
-    _require(_valid_text(row["schema_version"]), "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_INVALID")
+    _require(
+        _valid_text(row["schema_version"])
+        or (row["role"] == "apply_record" and row["schema_version"] is None),
+        "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_INVALID",
+    )
     _require(type(row["required"]) is bool, "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_INVALID")
     return ArtifactEntry(
         role=row["role"],
@@ -327,7 +353,11 @@ def _validate_catalog_artifact(row: object) -> CatalogArtifactEntry:
     )
     _require(_valid_text(row["role"]), "EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_INVALID")
     path = _relative_path_identity(row["path"])
-    _require(_valid_text(row["schema_version"]), "EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_INVALID")
+    _require(
+        _valid_text(row["schema_version"])
+        or (row["role"] == "apply_record" and row["schema_version"] is None),
+        "EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_INVALID",
+    )
     _require(type(row["required"]) is bool, "EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_INVALID")
     return CatalogArtifactEntry(
         role=row["role"],
@@ -344,23 +374,47 @@ def _validate_artifact_contract(
     token: str,
     require_complete: bool = False,
 ) -> None:
-    expected = ADAPTER_ARTIFACT_CONTRACTS.get(adapter_id)
-    if expected is None:
+    expected_variants = [
+        contract
+        for contract in (
+            ADAPTER_ARTIFACT_CONTRACTS.get(adapter_id),
+            next(
+                (
+                    phase.artifacts
+                    for phase in HISTORICAL_PHASE_CONTRACTS
+                    if phase.adapter_id == adapter_id
+                ),
+                None,
+            ),
+        )
+        if contract is not None
+    ]
+    if not expected_variants:
         return
-    expected_by_role = {
-        artifact.role: (artifact.schema_version, artifact.required) for artifact in expected
-    }
     observed_by_role = {
         artifact.role: (artifact.schema_version, artifact.required) for artifact in artifacts
     }
     _require(
-        observed_by_role == expected_by_role if require_complete else observed_by_role.items() <= expected_by_role.items(),
+        any(
+            observed_by_role == expected_by_role
+            if require_complete
+            else observed_by_role.items() <= expected_by_role.items()
+            for expected_by_role in (
+                {
+                    artifact.role: (artifact.schema_version, artifact.required)
+                    for artifact in expected
+                }
+                for expected in expected_variants
+            )
+        ),
         token,
     )
     _require(
-        "historical_apply_script" in observed_by_role
-        if adapter_id == "d1-historical-exception-v1"
-        else "manifest" in observed_by_role,
+        (
+            not observed_by_role or "historical_apply_script" in observed_by_role
+            if adapter_id == "d1-historical-exception-v1"
+            else "manifest" in observed_by_role
+        ),
         token,
     )
 
@@ -410,7 +464,17 @@ def validate_catalog(document: object) -> list[CatalogPhaseEntry]:
         phase_ids.add(phase_id)
         sequences.add(sequence)
         artifacts_raw = row["artifacts"]
-        _require(isinstance(artifacts_raw, list) and bool(artifacts_raw), "EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_INVALID")
+        _require(
+            isinstance(artifacts_raw, list)
+            and (
+                bool(artifacts_raw)
+                or (
+                    row["adapter_id"] == "d1-historical-exception-v1"
+                    and row["projection_evidence"] == "unavailable"
+                )
+            ),
+            "EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_INVALID",
+        )
         artifacts = tuple(_validate_catalog_artifact(artifact) for artifact in artifacts_raw)
         _require(len({artifact.role for artifact in artifacts}) == len(artifacts), "EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_DUPLICATE")
         _require(len({artifact.path for artifact in artifacts}) == len(artifacts), "EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_DUPLICATE")
@@ -450,6 +514,26 @@ def validate_historical_catalog(document: object) -> list[CatalogPhaseEntry]:
     )
     observed = tuple((entry.phase_id, entry.sequence, entry.adapter_id) for entry in entries)
     _require(observed == expected, "EVIDENCE_RECONCILIATION_HISTORICAL_INVENTORY_INVALID")
+    for entry, contract in zip(entries, HISTORICAL_PHASE_CONTRACTS):
+        _require(
+            tuple(
+                (artifact.role, artifact.schema_version, artifact.required)
+                for artifact in entry.artifacts
+            )
+            == tuple(
+                (artifact.role, artifact.schema_version, artifact.required)
+                for artifact in contract.artifacts
+            ),
+            "EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_CONTRACT_INVALID",
+        )
+    _require(
+        all(
+            entry.projection_evidence == "afterdocumented_unbound"
+            for entry in entries
+            if entry.phase_id != "d1"
+        ),
+        "EVIDENCE_RECONCILIATION_HISTORICAL_AUTHORISATION_INVALID",
+    )
     _validate_historical_authorisations(entries)
     return entries
 
@@ -502,7 +586,17 @@ def validate_phase_rows(
         phase_ids.add(phase_id)
         sequences.add(sequence)
         artifacts_raw = row["artifacts"]
-        _require(isinstance(artifacts_raw, list) and bool(artifacts_raw), "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_INVALID")
+        _require(
+            isinstance(artifacts_raw, list)
+            and (
+                bool(artifacts_raw)
+                or (
+                    row["adapter_id"] == "d1-historical-exception-v1"
+                    and row["projection_evidence"] == "unavailable"
+                )
+            ),
+            "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_INVALID",
+        )
         artifacts = tuple(_validate_artifact(artifact) for artifact in artifacts_raw)
         _require(len({artifact.role for artifact in artifacts}) == len(artifacts), "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_DUPLICATE")
         _require(len({artifact.path for artifact in artifacts}) == len(artifacts), "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_DUPLICATE")
@@ -623,19 +717,24 @@ def validate_historical_reconciliation_ledger(document: object) -> list[PhaseEnt
     for entry in entries:
         if entry.phase_id == "d1":
             continue
-        _require(
-            entry.projection_evidence == "mechanically_bound",
-            "EVIDENCE_RECONCILIATION_INCOMPLETE",
-        )
+        if entry.projection_evidence != "mechanically_bound":
+            continue
         _require(
             entry.contribution_sha256 is not None,
             "EVIDENCE_RECONCILIATION_INCOMPLETE",
         )
-        _validate_artifact_contract(
-            entry.adapter_id,
-            entry.artifacts,
-            token="EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_CONTRACT_INVALID",
-            require_complete=True,
+        receipt_contract = ADAPTER_ARTIFACT_CONTRACTS.get(entry.adapter_id)
+        _require(
+            receipt_contract is not None
+            and {
+                artifact.role: (artifact.schema_version, artifact.required)
+                for artifact in entry.artifacts
+            }
+            == {
+                artifact.role: (artifact.schema_version, artifact.required)
+                for artifact in receipt_contract
+            },
+            "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_CONTRACT_INVALID",
         )
         _require(
             _is_hex_sha256(entry.database_target_identity_sha256),
@@ -643,6 +742,14 @@ def validate_historical_reconciliation_ledger(document: object) -> list[PhaseEnt
         )
         assert entry.database_target_identity_sha256 is not None
         target_hashes.add(entry.database_target_identity_sha256)
+    _require(
+        all(
+            entry.projection_evidence == "mechanically_bound"
+            for entry in entries
+            if entry.phase_id != "d1"
+        ),
+        "EVIDENCE_RECONCILIATION_INCOMPLETE",
+    )
     _require(len(target_hashes) == 1, "EVIDENCE_RECONCILIATION_DATABASE_TARGET_MISMATCH")
     return entries
 

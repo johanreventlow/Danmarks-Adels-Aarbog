@@ -6,7 +6,12 @@ import os
 
 import pytest
 
-from evidence_phase_artifact_ledger import adapter_sha256, seal_ledger
+from evidence_phase_artifact_ledger import (
+    HISTORICAL_PHASE_AUTHORISATIONS,
+    HISTORICAL_PHASE_CONTRACTS,
+    adapter_sha256,
+    seal_ledger,
+)
 from reconcile_evidence_phase_gate import (
     ReconciliationError,
     _create_private_report,
@@ -595,6 +600,71 @@ def test_cli_requires_a_private_report_path_for_reconciliation(tmp_path, capsys)
 
     terminal = json.loads(capsys.readouterr().err)
     assert terminal["error"] == "EVIDENCE_RECONCILIATION_PRIVATE_REPORT_REQUIRED"
+
+
+def test_cli_reports_the_afterdocumented_historical_ledger_incomplete_without_fabricated_contributions(
+    tmp_path, capsys
+):
+    phases = []
+    for contract in HISTORICAL_PHASE_CONTRACTS:
+        phases.append(
+            {
+                "phase_id": contract.phase_id,
+                "sequence": contract.sequence,
+                "artifacts": [
+                    {
+                        "role": artifact.role,
+                        "path": f"{contract.phase_id}-{artifact.role}",
+                        "sha256": "a" * 64,
+                        "schema_version": artifact.schema_version,
+                        "required": artifact.required,
+                    }
+                    for artifact in contract.artifacts
+                ],
+                "adapter_id": contract.adapter_id,
+                "adapter_sha256": adapter_sha256(),
+                "projection_evidence": (
+                    "unavailable"
+                    if contract.phase_id == "d1"
+                    else "afterdocumented_unbound"
+                ),
+                "authorisation_evidence": HISTORICAL_PHASE_AUTHORISATIONS[contract.phase_id],
+            }
+        )
+    ledger = seal_ledger(
+        {"schema_version": "daa-evidence-phase-artifact-ledger-v2", "phases": phases}
+    )
+    ledger_path = tmp_path / "audit-ledger.json"
+    ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+    snapshot_path = tmp_path / "must-not-be-read.json"
+    snapshot_path.write_text("not json", encoding="utf-8")
+    report_path = tmp_path / "private-report.json"
+
+    assert main(
+        [
+            "--snapshot",
+            str(snapshot_path),
+            "--ledger",
+            str(ledger_path),
+            "--private-report",
+            str(report_path),
+        ]
+    ) == 2
+
+    terminal = json.loads(capsys.readouterr().err)
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert terminal == {
+        "status": "incomplete",
+        "phase_ids": [contract.phase_id for contract in HISTORICAL_PHASE_CONTRACTS],
+        "counts": {"incomplete": 8, "mechanically_bound": 0, "phases": 8},
+        "artifact_hashes": {"ledger_content_sha256": ledger["ledger_content_sha256"]},
+        "error": "EVIDENCE_RECONCILIATION_INCOMPLETE",
+    }
+    assert report["evidence_states"][-1] == {
+        "phase_id": "c3",
+        "projection_evidence": "afterdocumented_unbound",
+        "authorisation_evidence": "contemporaneous_phase_package",
+    }
 
 
 def test_cli_rejects_a_capability_only_ledger_to_a_mode_0600_private_report(tmp_path, capsys):

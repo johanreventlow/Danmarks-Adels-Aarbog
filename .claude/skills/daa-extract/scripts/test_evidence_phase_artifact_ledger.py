@@ -14,6 +14,86 @@ from evidence_phase_artifact_ledger import (
 )
 
 
+def test_historical_contracts_name_the_retained_runtime_artifacts_without_invented_receipt_schemas():
+    assert {
+        phase.adapter_id: tuple((artifact.role, artifact.schema_version) for artifact in phase.artifacts)
+        for phase in HISTORICAL_PHASE_CONTRACTS
+    } == {
+        "task25-v1": (
+            ("manifest", "1939-v50-production-write-manifest-v1"),
+            ("apply_record", None),
+        ),
+        "phase-a-v1": (
+            ("manifest", "1939-v50-phase-a-anchor-manifest-v1"),
+            ("apply_record", None),
+        ),
+        "phase-b-v1": (
+            ("manifest", "1939-v50-narrative-replacement-manifest-v1"),
+            ("apply_record", None),
+        ),
+        "narrative-publication-v1": (
+            ("manifest", "1939-v50-narrative-publication-manifest-v1"),
+            ("apply_record", None),
+        ),
+        "name-completion-v1": (
+            ("manifest", "1939-v50-name-completion-manifest-v1"),
+            ("apply_record", None),
+        ),
+        "c0-followup-v1": (
+            ("manifest", "1939-v50-c0-followup-manifest-v1"),
+        ),
+        "d1-historical-exception-v1": (),
+        "c3-apply-v1": (
+            ("manifest", "1939-v50-c3-apply-manifest-v1"),
+            ("apply_record", None),
+        ),
+    }
+    assert [(phase.phase_id, phase.sequence, phase.adapter_id) for phase in HISTORICAL_PHASE_CONTRACTS] == [
+        ("task25", 1, "task25-v1"),
+        ("phase-a", 2, "phase-a-v1"),
+        ("phase-b", 3, "phase-b-v1"),
+        ("narrative-publication", 4, "narrative-publication-v1"),
+        ("name-completion", 5, "name-completion-v1"),
+        ("c0", 6, "c0-followup-v1"),
+        ("d1", 7, "d1-historical-exception-v1"),
+        ("c3", 8, "c3-apply-v1"),
+    ]
+
+
+def test_catalog_accepts_an_unversioned_retained_apply_record_without_promoting_it_to_a_receipt():
+    catalog = {
+        "schema_version": "daa-evidence-phase-artifact-catalog-v1",
+        "phases": [
+            {
+                "phase_id": "task25",
+                "sequence": 1,
+                "adapter_id": "task25-v1",
+                "projection_evidence": "afterdocumented_unbound",
+                "authorisation_evidence": "afterdocumented_authorisation_gap",
+                "artifacts": [
+                    {
+                        "role": "manifest",
+                        "path": "manifest.json",
+                        "schema_version": "1939-v50-production-write-manifest-v1",
+                        "required": True,
+                    },
+                    {
+                        "role": "apply_record",
+                        "path": "production-apply.json",
+                        "schema_version": None,
+                        "required": True,
+                    },
+                ],
+            }
+        ],
+    }
+
+    phase = validate_catalog(catalog)[0]
+
+    assert phase.projection_evidence == "afterdocumented_unbound"
+    assert phase.artifacts[1].schema_version is None
+
+
 def sealed_unbound_phase_with(*, contribution_sha256: str) -> dict:
     return seal_ledger(
         {
@@ -284,6 +364,30 @@ def _complete_historical_reconciliation_ledger(*, authorisations: dict[str, str]
             }
         )
     return seal_ledger({"schema_version": "daa-evidence-phase-artifact-ledger-v2", "phases": phases})
+
+
+def test_historical_reconciliation_rejects_afterdocumented_artifact_pairs_promoted_to_bound():
+    with pytest.raises(
+        LedgerError,
+        match="EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_CONTRACT_INVALID",
+    ):
+        validate_historical_reconciliation_ledger(
+            _complete_historical_reconciliation_ledger()
+        )
+
+
+def test_historical_reconciliation_checks_promoted_phases_before_reporting_incomplete():
+    ledger = _complete_historical_reconciliation_ledger()
+    ledger.pop("ledger_content_sha256")
+    ledger["phases"][0]["projection_evidence"] = "afterdocumented_unbound"
+    ledger["phases"][0].pop("contribution_sha256")
+    ledger["phases"][0].pop("database_target_identity_sha256")
+
+    with pytest.raises(
+        LedgerError,
+        match="EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_CONTRACT_INVALID",
+    ):
+        validate_historical_reconciliation_ledger(seal_ledger(ledger))
 
 
 @pytest.mark.parametrize(

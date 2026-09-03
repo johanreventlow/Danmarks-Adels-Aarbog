@@ -75,20 +75,22 @@ historisk komplet, eller at et bidrags fem lister er udledt korrekt fra
 originalmanifestet:
 
 Den offentlige reconciler accepterer ikke et brugerudvalgt ledger som denne
-generelle skitse. Den validerer først den faste historiske rækkefølge Task 25,
-fase A, fase B, narrativ-publicering, name-completion, C0 og D1 med de
-kanoniske adapter-ID'er og den aktuelle hash af audit-/ledger-/projector-koden.
-Alle seks mekanisk bundne faser skal have hele deres deklarerede
-manifest+receipt-kontrakt, contribution-hash og samme
-`database_target_identity_sha256`; Task 25 skal fortsat erklære den
-efterdokumenterede autorisationsmangel, mens fase A, fase B,
-narrativ-publicering, name-completion og C0 hver skal erklære
-`contemporaneous_phase_package`. D1 skal fortsat være `unavailable`.
-Dermed er en en-fase-ledger, en ukendt adapter, en manglende receipt eller en
-selvvalgt evidenstilstand NO-GO før et snapshot åbnes. D1 betyder aktuelt, at
-den offentlige afstemning stopper som `EVIDENCE_RECONCILIATION_INCOMPLETE`;
-den syntetiske capability-fixture er kun intern adaptertest og er aldrig en
-offentlig reconciliation-bypass.
+generelle skitse. Den validerer den faste historiske rækkefølge Task 25, fase
+A, fase B, narrativ-publicering, name-completion, C0, D1 og til sidst C3. C3
+skal med, fordi kørslen den 2026-08-29 ændrede source 3-bindinger og
+narrativ-hashes efter de øvrige faser. C0-kørslen med `change_set 965` dækkes
+af `work/task30-1939-v50-c0-efterkoersel/prod-manifest.json`; den er derfor
+ikke en skjult ekstra fase bag `6-c0`.
+
+De historiske apply-filer har ikke de senere
+`daa-evidence-phase-receipt-*-v1`-skemaer eller et `schema_version`-felt. De må
+derfor kun registreres som hash-låste `apply_record`-artefakter. De kan ikke
+promoveres til `mechanically_bound`, og de historiske ledgerfaser hedder
+ærligt `afterdocumented_unbound`. Fase B bindes til
+`narrative-replacement-manifest-v1.json`, som var det anvendte manifest, ikke
+den senere v2. D1 er fortsat `unavailable`. Dermed stopper den offentlige
+afstemning som `EVIDENCE_RECONCILIATION_INCOMPLETE`; ingen receipt eller noget
+fasebidrag må konstrueres for at omgå dette resultat.
 
 ```json
 {
@@ -119,23 +121,35 @@ det og alle bidrag forbliver i den private bundle-outputmappe.
 
 ## Privat artefaktaudit før prod-snapshot
 
-Før en mulig afstemning skal operatøren køre den datafri artefaktaudit mod den
-ignorerede, retained bundle. Både kataloget og outputmappen lever kun i denne
-private bundle; de må aldrig committes, kopieres til terminaloutput eller
-erstattes af artefakter fra repositoryet. Kataloget har schema
+Før en mulig afstemning skal operatøren selv forfatte det private katalog over
+de faktisk beholdte artefakter. Der findes ingen samlet retained bundle på
+`/private/retained/1939-v50-evidence-bundle`; den tidligere sti var opdigtet.
+De faktiske placeringer er:
+
+- `work/task25-1939-v50-production-writer/` for Task 25, fase A, fase B,
+  narrativ-publicering og name-completion;
+- `work/task30-1939-v50-c0-efterkoersel/` for C0; og
+- `work/task27-1939-v50-c3-apply/` for C3.
+
+Stierne er relative til den oprindelige `evidensbaseret-genimport`-worktree.
+C3's beholdte produktionsslutbevis er desuden efterdokumenteret i
+`docs/evidensbaseret-genimport/c3-production-apply-2026-08-29.md`. Katalog og
+audit-output skal ligge under en ignoreret `.private/`-mappe og må aldrig
+committes. Kataloget har schema
 `daa-evidence-phase-artifact-catalog-v1` og indeholder alene fase-ID,
 positiv unik sekvens, adapter-ID, evidenstilstande, eventuel
 database-target-identity-hash og artefaktmetadata (`role`, relativ `path`,
 `schema_version`, `required`) — aldrig artefakt-SHA'er, projektionsidentiteter
-eller private rækker.
+eller private rækker. `schema_version` er `null` for de uversionerede
+apply-records; det er ikke et nyt eller tilbageprojekteret receipt-skema.
 
 Med bundle-specifikke, private stier er den eksakte kørsel:
 
 ```bash
 /usr/bin/python3 .claude/skills/daa-extract/scripts/run_evidence_phase_artifact_audit_1939_v50.py \
-  --bundle-root /private/retained/1939-v50-evidence-bundle \
-  --catalog /private/retained/1939-v50-evidence-bundle/artifact-catalog.json \
-  --private-output-dir /private/retained/1939-v50-evidence-bundle/private-artifact-audit
+  --bundle-root <repository-root> \
+  --catalog <repository-root>/.private/issue-156/artifact-catalog.json \
+  --private-output-dir <repository-root>/.private/issue-156/artifact-audit
 ```
 
 CLI'en afviser symlinks, path-escapes, manglende eller ikke-tomme
@@ -145,9 +159,10 @@ præcise artefaktbytes og den registrerede projectorkilde, forsegler
 fasebidrag for mekanisk bundne faser. Alle private outputfiler oprettes
 eksklusivt med mode `0600`.
 
-Historiske huller er fortsat `INCOMPLETE`: hvis blot én fase ikke er mekanisk
-bundet, er exitkoden `2`, `reconciliation-ledger.json` udelades, og auditten
-må ikke opfinde en kvittering eller promovere fasen. Terminalen er bevidst
+Historiske huller er fortsat `INCOMPLETE`: de syv efterdokumenterede faser og
+D1 giver exitkode `2`, `reconciliation-ledger.json` udelades, og auditten må
+ikke opfinde en kvittering, promovere en fase eller skrive et bidrag.
+Terminalen er bevidst
 begrænset til status, stabile fejltokens, fase-/evidenstilstande, hasher og
 optællinger; de eksakte private rækker bliver i bundle-outputtet.
 
@@ -158,51 +173,21 @@ autorisation til snapshot, apply eller anden produktionshandling.
 
 ### Auditor-output, der kan gives direkte til reconciler
 
-Hvis — og kun hvis — alle anvendelige faser er mekanisk bundne, producerer
-auditten præcis disse private filer i den angivne `--private-output-dir`:
-
-- `reconciliation-ledger.json`
-- `1-task25.contribution.json`
-- `2-phase-a.contribution.json`
-- `3-phase-b.contribution.json`
-- `4-narrative-publication.contribution.json`
-- `5-name-completion.contribution.json`
-- `6-c0.contribution.json`
-
-De er de eksakte argumenter til reconciliation; bidragsfilerne må ikke
-kopieres sammen med deres oprindelige manifests eller omskrives. Med den
-private outputmappe fra eksemplet ovenfor ville den autoriserede, read-only
-kørsel derfor bruge følgende stier direkte:
-
-```bash
-/usr/bin/python3 .claude/skills/daa-extract/scripts/reconcile_evidence_phase_gate.py \
-  --snapshot /private/retained/1939-v50-evidence-bundle/prod-source-3.snapshot.json \
-  --ledger /private/retained/1939-v50-evidence-bundle/private-artifact-audit/reconciliation-ledger.json \
-  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/1-task25.contribution.json \
-  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/2-phase-a.contribution.json \
-  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/3-phase-b.contribution.json \
-  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/4-narrative-publication.contribution.json \
-  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/5-name-completion.contribution.json \
-  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/6-c0.contribution.json \
-  --private-report /private/retained/1939-v50-evidence-bundle/private-reconcile-report.json
-```
-
-Denne kommando er **i øjeblikket uopnåelig for historiske data**: D1 er
-`unavailable`, så den historiske audit-CLI emitterer hverken
-`reconciliation-ledger.json` eller en autorisation til at tage et
-produktionssnapshot. En syntetisk `synthetic_capability_only`-fixture kan
-alene bevise adapterkapaciteten for de seks nævnte contribution-filer; den er
-ikke historisk evidens eller produktionsautorisation.
+Den historiske audit producerer kun `audit-ledger.json` og
+`audit-summary.json`. Den producerer ingen contribution-filer og intet
+`reconciliation-ledger.json`, fordi de beholdte apply-records er
+`afterdocumented_unbound`. `audit-ledger.json` kan gives til reconcilerens
+admission for at få det eksplicitte `EVIDENCE_RECONCILIATION_INCOMPLETE`-
+resultat; den kan ikke bruges til en datamæssig match-afstemning.
 
 ### Syntetisk fail-closed bevis
 
-Den automatiske ende-til-ende-test bruger kun syntetiske manifest-, receipt-
-og target-identiteter. Den første, historisk formede fixture kører Task 25,
-fase A, fase B, narrativ-publicering, name-completion, C0 og D1 i denne
-rækkefølge. Task 25, fase B og C0 har bundne syntetiske receipts, mens fase A,
-narrativ-publicering og name-completion er ubundne; D1 er `unavailable`.
-Resultatet skal være exitkode `2`, ingen `reconciliation-ledger.json` og ingen
-læsning af noget snapshot.
+Den automatiske historiske test bruger kun syntetiske, ikke-identificerende
+artefakter med den samme kontrakt som de beholdte filer: uversionerede
+apply-records, C0's kombinerede prod-manifest, D1 som `unavailable` og C3 som
+sidste fase. Resultatet skal være exitkode `2`, otte ufuldstændige faser,
+ingen contributions, intet `reconciliation-ledger.json` og ingen læsning af
+noget snapshot.
 
 En separat fixture med navnet `synthetic_capability_only` afprøver kun, at de
 seks understøttede adaptere kan forsegle bidrag og et reconciliation-ledger
@@ -304,8 +289,8 @@ den UTF-8-tekstuelle `system_identifier`, der hashes i præcis samme form som i
 receipt-kontrakten. Snapshotets `database_target_identity` skal derfor have
 samme kanoniske hash som den ene fælles target-hash i alle admitted ledgerfaser;
 en anden target-identitet er NO-GO. Forsegl den og
-kør afstemningen med de eksakte auditor-genererede paths ovenfor som
-eksplicitte argumenter:
+kør derefter admission med det eksakte audit-ledger. Der er ingen
+`--phase-manifest`-argumenter, fordi auditten ikke producerede bidrag:
 
 ```bash
 /usr/bin/python3 .claude/skills/daa-extract/scripts/reconcile_evidence_phase_gate.py \
@@ -314,15 +299,15 @@ eksplicitte argumenter:
 
 /usr/bin/python3 .claude/skills/daa-extract/scripts/reconcile_evidence_phase_gate.py \
   --snapshot .private/prod-source-3.snapshot.json \
-  --ledger /private/retained/1939-v50-evidence-bundle/private-artifact-audit/reconciliation-ledger.json \
-  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/1-task25.contribution.json \
-  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/2-phase-a.contribution.json \
-  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/3-phase-b.contribution.json \
-  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/4-narrative-publication.contribution.json \
-  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/5-name-completion.contribution.json \
-  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/6-c0.contribution.json \
-  --private-report .private/reconcile-drift.json
+  --ledger .private/issue-156/artifact-audit/audit-ledger.json \
+  --private-report .private/issue-156/reconcile-report.json
 ```
+
+Admission returnerer `EVIDENCE_RECONCILIATION_INCOMPLETE` med faser,
+optællinger og ledger-hash uden at læse eller sammenligne snapshotrækkerne.
+Det er det korrekte slutresultat, når ingen historisk fase er mekanisk bundet;
+snapshotet bevares alene som det ene autoriserede, forseglede billede af
+source 3 på kørselstidspunktet.
 
 `--sealed-output` skal pege på en ny, ignoreret privat fil. CLI'en opretter
 snapshotet eksklusivt med mode `0600`; brug ikke shell-redirection. Terminalen
@@ -368,18 +353,15 @@ omtales som bevis for fuldstændighed.
 
 ## Historiske undtagelser, der skal efterdokumenteres
 
-To allerede udførte prod-skrivninger var ikke dækket af en committet GO-pakke
-efter denne model:
-
-- Task 25-apply den 2026-08-18, inklusive deploy af det private evidenslag.
-  Readiness-dokumentet registrerede NO-GO, mens changelog registrerer apply;
-  den efterfølgende pakke skal derfor eksplicit markere denne mangel i stedet
-  for at udlede en GO retroaktivt.
-- Fase D1 den 2026-08-19 (`change_set 955`), hvor 68 personer blev publiceret.
-  Den oprindelige kørsel var ikke bundet til en committet fase-pakke.
-
-Afstemningen kan vise den nuværende datatilstand og dens manglende eller
-ekstra identiteter. Den kan ikke skabe den samtidige backup, rehearsal eller
-godkendelse, som de to historiske skrivninger manglede. Se
+Task 25-apply den 2026-08-18 og D1-kørslen med `change_set 955` havde ikke en
+beholdt, mekanisk binding mellem den anvendte backup, en restore-rehearsal og
+den samtidige menneskelige GO. #156-kørslen den 2026-09-03 forseglede ét
+read-only source 3-snapshot med 592 source records, 897 accepted anchors, 563
+published bindinger, 563 narrativ-hashes og 563 personer, men admission
+stoppede som `EVIDENCE_RECONCILIATION_INCOMPLETE` før rækkeafstemning, fordi
+alle apply-records kun er `afterdocumented_unbound` og D1 er `unavailable`.
+Kørslen viser derfor den aktuelle optalte datatilstand, men ikke hvilke rækker
+der kan tilskrives Task 25 eller D1, og den udleder udtrykkeligt ingen
+retroaktiv GO for nogen af dem. Se
 `docs/superpowers/reviews/2026-08-22-evidensbaseret-genimport-afvigelsesvurdering.md`
 §§5 og 7.11 for den fulde vurdering.

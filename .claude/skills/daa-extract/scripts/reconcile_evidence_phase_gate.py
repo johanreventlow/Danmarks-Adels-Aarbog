@@ -219,7 +219,44 @@ def _validate_ledger_admission(ledger: object) -> list[PhaseEntry]:
     try:
         return validate_historical_reconciliation_ledger(ledger)
     except LedgerError as error:
-        raise ReconciliationError(str(error)) from error
+        token = str(error)
+        if token == "EVIDENCE_RECONCILIATION_INCOMPLETE":
+            try:
+                entries = validate_ledger(
+                    ledger, allow_missing_target_for_incomplete=True
+                )
+            except LedgerError:
+                raise ReconciliationError(token) from error
+            report = {
+                "status": "incomplete",
+                "phase_ids": [entry.phase_id for entry in entries],
+                "evidence_states": [
+                    {
+                        "phase_id": entry.phase_id,
+                        "projection_evidence": entry.projection_evidence,
+                        "authorisation_evidence": entry.authorisation_evidence,
+                    }
+                    for entry in entries
+                ],
+                "counts": {
+                    "phases": len(entries),
+                    "mechanically_bound": sum(
+                        entry.projection_evidence == "mechanically_bound"
+                        for entry in entries
+                    ),
+                    "incomplete": sum(
+                        entry.projection_evidence != "mechanically_bound"
+                        for entry in entries
+                    ),
+                },
+                "artifact_hashes": {
+                    "ledger_content_sha256": ledger.get("ledger_content_sha256")
+                }
+                if isinstance(ledger, dict)
+                else {},
+            }
+            raise ReconciliationError(token, report) from error
+        raise ReconciliationError(token) from error
 
 
 def _validate_capability_ledger_admission(ledger: object) -> list[PhaseEntry]:
@@ -522,9 +559,12 @@ def main(argv: List[str] | None = None) -> int:
         return 2
 
     try:
-        if not args.phase_manifest or args.ledger is None:
+        if args.ledger is None:
             raise ReconciliationError("EVIDENCE_RECONCILIATION_MANIFESTS_REQUIRED")
         ledger = _load_json(args.ledger)
+        if not args.phase_manifest:
+            _validate_ledger_admission(ledger)
+            raise ReconciliationError("EVIDENCE_RECONCILIATION_MANIFESTS_REQUIRED")
         manifests = [load_phase_manifest(path) for path in args.phase_manifest]
         approved, contributions = _validate_contribution_admission(manifests, ledger)
         snapshot = _load_json(args.snapshot)

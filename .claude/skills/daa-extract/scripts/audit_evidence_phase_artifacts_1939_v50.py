@@ -131,6 +131,8 @@ def resolve_artifact(bundle_root: Path, artifact: ArtifactEntry) -> Path:
 
 def _verify_required_artifact(bundle_root: Path, artifact: ArtifactEntry) -> _VerifiedArtifact:
     path, raw = _read_artifact_bytes(bundle_root, artifact)
+    if artifact.schema_version is None:
+        return _VerifiedArtifact(artifact, path, raw, {})
     document = _parse_json(raw)
     if document.get("schema_version") != artifact.schema_version:
         raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
@@ -664,6 +666,19 @@ def audit_bundle(bundle_root: Path, ledger: list[PhaseEntry]) -> AuditResult:
             for artifact in phase.artifacts
             if artifact.required
         }
+        if (
+            phase.projection_evidence == "afterdocumented_unbound"
+            and "receipt" not in verified
+        ):
+            summaries.append(
+                PhaseSummary(
+                    phase.phase_id,
+                    "afterdocumented_unbound",
+                    phase.authorisation_evidence,
+                    "EVIDENCE_RECONCILIATION_RECEIPT_UNBOUND",
+                )
+            )
+            continue
         if not _receipt_binds_phase(verified, phase):
             summaries.append(
                 PhaseSummary(

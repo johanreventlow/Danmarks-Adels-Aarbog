@@ -34,6 +34,45 @@ def production_target_identity_sha256() -> str:
     return canonical_sha256(production_target_identity(), "")
 
 
+def test_audit_hash_locks_an_unversioned_apply_record_but_keeps_the_phase_afterdocumented(tmp_path):
+    manifest_hash = write_json(
+        tmp_path / "manifest.json",
+        {"schema_version": "1939-v50-production-write-manifest-v1"},
+    )
+    apply_bytes = b"retained production apply record\n"
+    (tmp_path / "production-apply-report.md").write_bytes(apply_bytes)
+    apply_hash = sha256_bytes(apply_bytes)
+    phase = PhaseEntry(
+        phase_id="task25",
+        sequence=1,
+        artifacts=(
+            ArtifactEntry(
+                role="manifest",
+                path="manifest.json",
+                sha256=manifest_hash,
+                schema_version="1939-v50-production-write-manifest-v1",
+                required=True,
+            ),
+            ArtifactEntry(
+                role="apply_record",
+                path="production-apply-report.md",
+                sha256=apply_hash,
+                schema_version=None,
+                required=True,
+            ),
+        ),
+        adapter_id="task25-v1",
+        adapter_sha256=adapter_sha256(),
+        projection_evidence="afterdocumented_unbound",
+        authorisation_evidence="afterdocumented_authorisation_gap",
+    )
+
+    summary = audit_bundle(tmp_path, [phase]).phase("task25")
+
+    assert summary.projection_evidence == "afterdocumented_unbound"
+    assert summary.error == "EVIDENCE_RECONCILIATION_RECEIPT_UNBOUND"
+
+
 def sealed_phase_b_ledger(manifest_sha256: str) -> list:
     return validate_ledger(
         seal_ledger(

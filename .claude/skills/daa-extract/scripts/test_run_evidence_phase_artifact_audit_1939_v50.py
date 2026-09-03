@@ -279,10 +279,43 @@ def _catalog_phase(
 
 
 def _write_historical_catalog(bundle: Path, *, bound_phase_ids: frozenset[str]) -> dict:
-    phases = _write_synthetic_supported_phase_artifacts(bundle, bound_phase_ids=bound_phase_ids)
-    write_json(
-        bundle / "d1-historical-exception.json",
-        {"schema_version": "1939-v50-d1-historical-apply-v1"},
+    del bound_phase_ids
+    retained = [
+        ("task25", 1, "task25-v1", "task25-manifest.json", "1939-v50-production-write-manifest-v1", "task25-apply.json", "afterdocumented_authorisation_gap"),
+        ("phase-a", 2, "phase-a-v1", "phase-a-manifest.json", "1939-v50-phase-a-anchor-manifest-v1", "phase-a-apply.json", "contemporaneous_phase_package"),
+        ("phase-b", 3, "phase-b-v1", "phase-b-manifest.json", "1939-v50-narrative-replacement-manifest-v1", "phase-b-apply.json", "contemporaneous_phase_package"),
+        ("narrative-publication", 4, "narrative-publication-v1", "narrative-publication-manifest.json", "1939-v50-narrative-publication-manifest-v1", "narrative-publication-apply.json", "contemporaneous_phase_package"),
+        ("name-completion", 5, "name-completion-v1", "name-completion-manifest.json", "1939-v50-name-completion-manifest-v1", "name-completion-apply.json", "contemporaneous_phase_package"),
+    ]
+    phases = []
+    for phase_id, sequence, adapter_id, manifest_path, manifest_schema, apply_path, authorisation in retained:
+        write_json(bundle / manifest_path, {"schema_version": manifest_schema})
+        write_json(bundle / apply_path, {"retained": True})
+        phases.append(
+            {
+                "phase_id": phase_id,
+                "sequence": sequence,
+                "adapter_id": adapter_id,
+                "projection_evidence": "afterdocumented_unbound",
+                "authorisation_evidence": authorisation,
+                "artifacts": [
+                    {"role": "manifest", "path": manifest_path, "schema_version": manifest_schema, "required": True},
+                    {"role": "apply_record", "path": apply_path, "schema_version": None, "required": True},
+                ],
+            }
+        )
+    write_json(bundle / "c0-manifest.json", {"schema_version": "1939-v50-c0-followup-manifest-v1"})
+    phases.append(
+        {
+            "phase_id": "c0",
+            "sequence": 6,
+            "adapter_id": "c0-followup-v1",
+            "projection_evidence": "afterdocumented_unbound",
+            "authorisation_evidence": "contemporaneous_phase_package",
+            "artifacts": [
+                {"role": "manifest", "path": "c0-manifest.json", "schema_version": "1939-v50-c0-followup-manifest-v1", "required": True}
+            ],
+        }
     )
     phases.append(
         {
@@ -291,13 +324,21 @@ def _write_historical_catalog(bundle: Path, *, bound_phase_ids: frozenset[str]) 
             "adapter_id": "d1-historical-exception-v1",
             "projection_evidence": "unavailable",
             "authorisation_evidence": "unavailable",
+            "artifacts": [],
+        }
+    )
+    write_json(bundle / "c3-manifest.json", {"schema_version": "1939-v50-c3-apply-manifest-v1"})
+    write_json(bundle / "c3-apply.json", {"retained": True})
+    phases.append(
+        {
+            "phase_id": "c3",
+            "sequence": 8,
+            "adapter_id": "c3-apply-v1",
+            "projection_evidence": "afterdocumented_unbound",
+            "authorisation_evidence": "contemporaneous_phase_package",
             "artifacts": [
-                {
-                    "role": "historical_apply_script",
-                    "path": "d1-historical-exception.json",
-                    "schema_version": "1939-v50-d1-historical-apply-v1",
-                    "required": True,
-                }
+                {"role": "manifest", "path": "c3-manifest.json", "schema_version": "1939-v50-c3-apply-manifest-v1", "required": True},
+                {"role": "apply_record", "path": "c3-apply.json", "schema_version": None, "required": True},
             ],
         }
     )
@@ -601,7 +642,7 @@ def test_cli_writes_a_sealed_private_incomplete_audit_without_a_reconciliation_l
     assert not (output / "reconciliation-ledger.json").exists()
 
 
-def test_cli_hash_seals_bound_artifacts_and_private_outputs_without_terminal_leaks(tmp_path):
+def test_cli_hash_seals_afterdocumented_artifacts_without_terminal_leaks(tmp_path):
     bundle = tmp_path / "synthetic-bundle"
     bundle.mkdir()
     output = bundle / "private-output"
@@ -624,7 +665,7 @@ def test_cli_hash_seals_bound_artifacts_and_private_outputs_without_terminal_lea
     audit_ledger = json.loads((output / "audit-ledger.json").read_text(encoding="utf-8"))
     assert audit_ledger["phases"][0]["artifacts"][0]["sha256"]
     assert audit_ledger["phases"][0]["adapter_sha256"] == adapter_sha256()
-    assert (output / "1-task25.contribution.json").is_file()
+    assert not list(output.glob("*.contribution.json"))
     assert not (output / "reconciliation-ledger.json").exists()
     for private_file in output.iterdir():
         assert private_file.stat().st_mode & 0o777 == 0o600
@@ -868,24 +909,22 @@ def test_historical_shape_stops_before_snapshot_and_never_seals_a_reconciliation
         "name-completion",
         "c0",
         "d1",
+        "c3",
     ]
     expected_evidence_states = [
-        ("task25", "mechanically_bound"),
+        ("task25", "afterdocumented_unbound"),
         ("phase-a", "afterdocumented_unbound"),
-        ("phase-b", "mechanically_bound"),
+        ("phase-b", "afterdocumented_unbound"),
         ("narrative-publication", "afterdocumented_unbound"),
         ("name-completion", "afterdocumented_unbound"),
-        ("c0", "mechanically_bound"),
+        ("c0", "afterdocumented_unbound"),
         ("d1", "unavailable"),
+        ("c3", "afterdocumented_unbound"),
     ]
     assert [(phase["phase_id"], phase["projection_evidence"]) for phase in terminal["evidence_states"]] == expected_evidence_states
     assert [(phase["phase_id"], phase["projection_evidence"]) for phase in audit["phases"]] == expected_evidence_states
     assert not (output / "reconciliation-ledger.json").exists()
-    assert {path.name for path in output.glob("*.contribution.json")} == {
-        "1-task25.contribution.json",
-        "3-phase-b.contribution.json",
-        "6-c0.contribution.json",
-    }
+    assert not list(output.glob("*.contribution.json"))
 
 
 def test_synthetic_capability_only_fixture_seals_all_supported_contributions_but_excludes_d1(tmp_path):

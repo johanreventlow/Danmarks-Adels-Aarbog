@@ -62,6 +62,7 @@ __pycache__/
 
 # Prod-dumps til read-only analyse (PII — invariant 8, aldrig commit)
 tmp/
+.private/
 
 # Affald fra fejlagtige pnpm-kald — repoet bruger npm workspaces (én rod-lockfile)
 .pnpm-store/
