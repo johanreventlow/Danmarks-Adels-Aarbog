@@ -1341,7 +1341,7 @@ code-integration evidence only, never production authorization.
   ledger rulings. Require no unclassified `_1939` debt, generic-contract
   weakening, missing negative test or unrecorded environment limitation.
 
-- [ ] **Step 4: Obtain one final independent SOL xhigh review**
+- [x] **Step 4: Obtain one final independent SOL xhigh review**
 
   Send the committed whole-branch diff and observed evidence to a fresh
   GPT-5.6-Sol xhigh reviewer under a strict read-only/no-network/no-database/
@@ -1349,7 +1349,7 @@ code-integration evidence only, never production authorization.
   the correction changes authorization, concurrency and migration atomicity,
   any code fix requires affected evidence plus one scoped SOL re-review.
 
-- [ ] **Step 5: Close evidence and report status**
+- [x] **Step 5: Close evidence and report status**
 
   Update the rehearsal and checkbox state only with observed results, commit
   the documentation, and report branch, commits, clean/dirty worktree status

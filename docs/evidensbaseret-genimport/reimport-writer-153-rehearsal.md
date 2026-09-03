@@ -472,3 +472,55 @@ review remains the only incomplete Task 14 gate at this checkpoint.
 This evidence is local code-integration evidence only. It is not production
 authorization and involved no production database change, network service,
 push, merge, deploy, Fable, protected review artifact or `work/` access.
+
+## Final Sol correction and closure (2026-09-03)
+
+The independent whole-branch Sol review found two remaining P2 completion
+blockers after the correction round. First, name-completion authorization did
+not yet require an exact, typed two-key count envelope, so string/fractional or
+extra values could escape the domain token or leave an unusable ledger path.
+Second, the fresh/upgraded catalog receipt did not serialize the table-column
+contract. Both findings were accepted and corrected in `e0e9d40`.
+
+The count validator in both installation paths now accepts only the exact
+`name_completions` and `operations` keys as nonnegative JSON integers, checks
+the `name_completions` value against the `bigint` upper bound before casting,
+and requires both values to agree. Generic and 1939 SQL regressions cover
+strings, fractions, `9223372036854775808`, missing and extra keys. Each case
+returned its stable generic or legacy domain token and left authorization and
+batch row counts unchanged. On the fresh disposable database
+`daa153_solfix_edge_20260903`, the generic test, the prerequisite 1939 writer
+fixture/test and the legacy name-completion test all exited 0.
+
+The catalog inspector now emits every target column's ordinal, name, formatted
+type, `NOT NULL`, identity, generated state and qualified collation. This
+exposed a real declaration-order difference between fresh tables and the
+historical upgrade; the fresh declarations were reordered to the existing
+migration order without changing column names or runtime writer semantics. On
+contract v2, the final committed fresh receipt and a new clean upgrade from
+`2d6aabf` in `daa153_solfix_edge_upg_20260903` were byte-identical: 55,783
+bytes, SHA-256
+`e4c3c0aece5d1438a6e785a18879765fa5efc2e74d6982586e122878e91fdf23`.
+Dropping `NOT NULL` from `private.reimport_batch.expected_counts` in the
+disposable fresh database changed the receipt to 55,784 bytes and SHA-256
+`600d66bed8fa6d7ecd9d027810103a0ce7142e3e3da2431575ff47233478bb24`;
+the negative comparison rejected it as required. This supersedes the earlier,
+pre-column receipt hash recorded above.
+
+After `e0e9d40`, both semantic source-inventory tests were rerun and passed
+230/230 and 1,482/1,482 expectations. The previously recorded official full R
+runner, DBI/concurrency, complete SQL/database, core test/typecheck and web
+test/build results remain applicable; the final correction changed only SQL
+DDL, SQL tests and the database CI receipt probe.
+
+A fresh scoped GPT-5.6-Sol xhigh reviewer then inspected committed diff
+`c89d129..e0e9d40` and relevant surrounding code under the required strict
+read-only/no-network/no-database/no-`work/`/no-Fable boundary. It reported no
+findings and gave **GO** for declaring #153 locally complete, explicitly not a
+production-deployment authorization. Codex critically accepted that verdict
+because the reported static guarantees match the independently observed
+token, rollback, fresh/upgrade parity and negative-drift executions above.
+
+Task 14 is therefore complete as local branch evidence. No production
+database, push, merge, deploy, Fable, protected review artifact or `work/`
+path was touched.
