@@ -313,7 +313,7 @@ eksplicitte argumenter:
   --sealed-output .private/prod-source-3.snapshot.json
 
 /usr/bin/python3 .claude/skills/daa-extract/scripts/reconcile_evidence_phase_gate.py \
-  --snapshot prod-source-3.snapshot.json \
+  --snapshot .private/prod-source-3.snapshot.json \
   --ledger /private/retained/1939-v50-evidence-bundle/private-artifact-audit/reconciliation-ledger.json \
   --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/1-task25.contribution.json \
   --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/2-phase-a.contribution.json \
