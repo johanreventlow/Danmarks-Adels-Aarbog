@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 
 import pytest
 
 from evidence_phase_artifact_ledger import adapter_sha256, seal_ledger
 from reconcile_evidence_phase_gate import (
     ReconciliationError,
+    _create_private_report,
     _load_json,
     _reconcile_capability,
     _validate_snapshot,
+    _write_private_report,
     load_phase_manifest,
     main,
     reconcile,
@@ -401,6 +404,95 @@ def test_seal_adds_a_canonical_hash_without_mutating_the_capture_document():
 
     assert "snapshot_content_sha256" not in raw_snapshot
     assert sealed["snapshot_content_sha256"] == _with_hash(raw_snapshot, "snapshot_content_sha256")["snapshot_content_sha256"]
+
+
+def _unsealed_snapshot(*manifests: dict) -> dict:
+    snapshot = _snapshot(*manifests)
+    del snapshot["snapshot_content_sha256"]
+    return snapshot
+
+
+def test_cli_seal_requires_an_explicit_private_output_path(tmp_path, capsys):
+    source = tmp_path / "unsealed-snapshot.json"
+    source.write_text(json.dumps(_unsealed_snapshot()), encoding="utf-8")
+
+    assert main(["--seal", str(source)]) == 2
+
+    assert json.loads(capsys.readouterr().err) == {
+        "error": "EVIDENCE_RECONCILIATION_SEALED_OUTPUT_REQUIRED",
+        "status": "invalid",
+    }
+
+
+def test_cli_seal_writes_a_mode_0600_snapshot_and_redacted_terminal_receipt(tmp_path, capsys):
+    source = tmp_path / "unsealed-snapshot.json"
+    output = tmp_path / "sealed-snapshot.json"
+    source.write_text(json.dumps(_unsealed_snapshot(_manifest(
+        "phase-a", record_key="synthetic-record", occurrence_key="synthetic-occurrence", person_id=701, narrative_id=801
+    ))), encoding="utf-8")
+
+    assert main(["--seal", str(source), "--sealed-output", str(output)]) == 0
+
+    terminal = json.loads(capsys.readouterr().out)
+    sealed = json.loads(output.read_text(encoding="utf-8"))
+    assert terminal == {"sealed_content_sha256": sealed["snapshot_content_sha256"], "status": "sealed"}
+    assert oct(output.stat().st_mode & 0o777) == "0o600"
+    assert "synthetic-record" not in json.dumps(terminal)
+    assert "701" not in json.dumps(terminal)
+    assert "801" not in json.dumps(terminal)
+
+
+def test_cli_seal_refuses_to_overwrite_an_existing_private_output(tmp_path, capsys):
+    source = tmp_path / "unsealed-snapshot.json"
+    output = tmp_path / "sealed-snapshot.json"
+    source.write_text(json.dumps(_unsealed_snapshot()), encoding="utf-8")
+    output.write_text("do not overwrite", encoding="utf-8")
+
+    assert main(["--seal", str(source), "--sealed-output", str(output)]) == 2
+
+    assert json.loads(capsys.readouterr().err) == {
+        "error": "EVIDENCE_RECONCILIATION_PRIVATE_REPORT_EXISTS",
+        "status": "invalid",
+    }
+    assert output.read_text(encoding="utf-8") == "do not overwrite"
+
+
+def test_cli_seal_redacts_malformed_input_and_creates_no_output(tmp_path, capsys):
+    source = tmp_path / "unsealed-snapshot.json"
+    output = tmp_path / "sealed-snapshot.json"
+    source.write_bytes(b'{"person_id":701,"person_id":702}')
+
+    assert main(["--seal", str(source), "--sealed-output", str(output)]) == 2
+
+    assert json.loads(capsys.readouterr().err) == {
+        "error": "EVIDENCE_RECONCILIATION_INPUT_UNREADABLE",
+        "status": "invalid",
+    }
+    assert not output.exists()
+
+
+def test_private_writer_closes_its_descriptor_when_serialization_fails(tmp_path):
+    descriptor = _create_private_report(tmp_path / "private-output.json")
+
+    with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_PRIVATE_REPORT_UNWRITABLE"):
+        _write_private_report(descriptor, {"not_json": object()})
+
+    with pytest.raises(OSError):
+        os.fstat(descriptor)
+
+
+def test_private_writer_closes_its_descriptor_when_fdopen_fails(tmp_path, monkeypatch):
+    descriptor = _create_private_report(tmp_path / "private-output.json")
+
+    def reject_fdopen(*args, **kwargs):
+        raise OSError("synthetic fdopen failure")
+
+    monkeypatch.setattr("reconcile_evidence_phase_gate.os.fdopen", reject_fdopen)
+    with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_PRIVATE_REPORT_UNWRITABLE"):
+        _write_private_report(descriptor, {"safe": "value"})
+
+    with pytest.raises(OSError):
+        os.fstat(descriptor)
 
 
 def test_snapshot_rejects_a_missing_production_target_identity():

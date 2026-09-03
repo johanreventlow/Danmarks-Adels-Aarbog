@@ -309,7 +309,8 @@ eksplicitte argumenter:
 
 ```bash
 /usr/bin/python3 .claude/skills/daa-extract/scripts/reconcile_evidence_phase_gate.py \
-  --seal prod-source-3.unsealed.json > prod-source-3.snapshot.json
+  --seal prod-source-3.unsealed.json \
+  --sealed-output .private/prod-source-3.snapshot.json
 
 /usr/bin/python3 .claude/skills/daa-extract/scripts/reconcile_evidence_phase_gate.py \
   --snapshot prod-source-3.snapshot.json \
@@ -322,6 +323,11 @@ eksplicitte argumenter:
   --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/6-c0.contribution.json \
   --private-report .private/reconcile-drift.json
 ```
+
+`--sealed-output` skal pege på en ny, ignoreret privat fil. CLI'en opretter
+snapshotet eksklusivt med mode `0600`; brug ikke shell-redirection. Terminalen
+viser kun en redigeret seal-kvittering med status og content-hash, aldrig
+snapshotrækker eller identiteter.
 
 `--private-report` skal pege på en ignoreret, ny fil. CLI'en opretter den med
 `O_EXCL` og mode `0600` og overskriver aldrig en eksisterende rapport. Kun

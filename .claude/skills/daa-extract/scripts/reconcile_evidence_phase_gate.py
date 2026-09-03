@@ -455,13 +455,17 @@ def _create_private_report(path: Path) -> int:
 
 
 def _write_private_report(descriptor: int, report: Mapping[str, Any]) -> None:
-    raw = json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     try:
         with os.fdopen(descriptor, "wb") as handle:
+            raw = json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
             handle.write(raw)
             handle.flush()
             os.fsync(handle.fileno())
-    except OSError as error:
+    except (OSError, TypeError, ValueError) as error:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
         raise ReconciliationError("EVIDENCE_RECONCILIATION_PRIVATE_REPORT_UNWRITABLE") from error
 
 
@@ -471,25 +475,43 @@ def _error_private_report(error: ReconciliationError) -> Dict[str, Any]:
     return report
 
 
+def _print_seal_receipt(sealed: Mapping[str, Any], error: str | None = None) -> None:
+    if error is not None:
+        receipt = {"status": "invalid", "error": error}
+    else:
+        hash_value = sealed.get("snapshot_content_sha256", sealed.get("reconciliation_content_sha256"))
+        receipt = {"status": "sealed", "sealed_content_sha256": hash_value}
+    print(json.dumps(receipt, ensure_ascii=False, sort_keys=True), file=sys.stderr if error else sys.stdout)
+
+
 def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Read-only comparison of prod evidence state with phase manifests.")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--snapshot", type=Path)
-    mode.add_argument("--seal", type=Path, help="Print a hash-locked copy of an unsealed JSON input.")
+    mode.add_argument("--seal", type=Path, help="Seal an unsealed JSON input to --sealed-output.")
     parser.add_argument("--phase-manifest", action="append", type=Path)
     parser.add_argument("--ledger", type=Path)
     parser.add_argument("--private-report", type=Path)
+    parser.add_argument("--sealed-output", type=Path)
     args = parser.parse_args(argv)
     if args.seal is not None:
         try:
             if args.phase_manifest or args.ledger or args.private_report:
                 raise ReconciliationError("EVIDENCE_RECONCILIATION_SEAL_ARGUMENTS_INVALID")
-            print(json.dumps(seal(_load_json(args.seal)), ensure_ascii=False, sort_keys=True))
+            if args.sealed_output is None:
+                raise ReconciliationError("EVIDENCE_RECONCILIATION_SEALED_OUTPUT_REQUIRED")
+            sealed = seal(_load_json(args.seal))
+            descriptor = _create_private_report(args.sealed_output)
+            _write_private_report(descriptor, sealed)
+            _print_seal_receipt(sealed)
             return 0
         except ReconciliationError as error:
-            print(json.dumps(error.report, ensure_ascii=False, sort_keys=True), file=sys.stderr)
+            _print_seal_receipt({}, str(error))
             return 2
 
+    if args.sealed_output is not None:
+        _print_terminal_summary({}, "EVIDENCE_RECONCILIATION_SEAL_ARGUMENTS_INVALID")
+        return 2
     if args.private_report is None:
         _print_terminal_summary({}, "EVIDENCE_RECONCILIATION_PRIVATE_REPORT_REQUIRED")
         return 2
