@@ -508,8 +508,11 @@ the negative comparison rejected it as required. This supersedes the earlier,
 pre-column receipt hash recorded above.
 
 After `e0e9d40`, both semantic source-inventory tests were rerun and passed
-230/230 and 1,482/1,482 expectations. The previously recorded official full R
-runner, DBI/concurrency, complete SQL/database, core test/typecheck and web
+230/230 and 1,482/1,482 expectations. After the initial evidence commit
+`e97c1a5`, the official full R runner was rerun on the closed tree and exited 0
+after 76.8 seconds with `[ FAIL 0 | WARN 14 | SKIP 1 | PASS 2773 ]`; the known
+warnings and explicit local-DB skip are classified above. The previously
+recorded DBI/concurrency, complete SQL/database, core test/typecheck and web
 test/build results remain applicable; the final correction changed only SQL
 DDL, SQL tests and the database CI receipt probe.
 
