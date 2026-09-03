@@ -2,114 +2,59 @@ writer_root <- normalizePath(file.path(testthat::test_path(), "..", ".."))
 `%||%` <- function(value, fallback) if (is.null(value)) fallback else value
 
 writer_literal_rules <- data.frame(
-  literal = c("source_id_3", "sr_source_id_not_3", "sp_source_id_not_3", "equals_8", "not_equals_8", "citation_label", "run_key", "name_completion_lock"),
-  classification = c("profile", "generic_invariant", "generic_invariant", "manifest", "manifest", "profile", "manifest", "legacy_wrapper"),
-  generic_target = c("source_id", "source_profile_validation", "source_profile_validation", "expected_counts", "expected_counts", "citation_label_template", "run_key_prefix", "generic_name_completion_lock"),
-  pattern = c("source_id\\s*=\\s*3", "sr\\.source_id\\s*<>\\s*3", "sp\\.source_id\\s*<>\\s*3", "=8", "<>8", "DAA 1939 side", "reimport-1939-v50:", "daa-1939-v50-name-completion"),
+  literal = c("integer_3", "equals_8", "not_equals_8", "citation_label", "run_key", "name_completion_lock"),
+  pattern = c("\\b3\\b", "=8", "<>8", "DAA 1939 side", "reimport-1939-v50:", "daa-1939-v50-name-completion"),
   stringsAsFactors = FALSE
 )
 
-writer_expected_inventory <- read.table(text = "
-citation_label|profile|citation_label_template|schema/private.reject_reimport_writer_mutation#1/citation_label/001
-run_key|manifest|run_key_prefix|schema/private.reject_reimport_writer_mutation#1/run_key/001
-run_key|manifest|run_key_prefix|migration/private.ensure_reimport_1939_source_evidence#1/run_key/001
-run_key|manifest|run_key_prefix|migration/private.ensure_reimport_1939_source_evidence#1/run_key/002
-citation_label|profile|citation_label_template|migration/public.red_apply_1939_v50_person_create#1/citation_label/001
-run_key|manifest|run_key_prefix|migration/public.red_reverse_1939_v50_reimport#1/run_key/001
-name_completion_lock|legacy_wrapper|generic_name_completion_lock|migration/private.validate_reimport_1939_name_completion#1/name_completion_lock/001
-not_equals_8|manifest|expected_counts|migration/private.validate_reimport_1939_name_completion#1/not_equals_8/001
-not_equals_8|manifest|expected_counts|migration/private.validate_reimport_1939_name_completion#1/not_equals_8/002
-source_id_3|profile|source_id|migration/private.validate_reimport_1939_name_completion#1/source_id_3/001
-source_id_3|profile|source_id|migration/private.validate_reimport_1939_name_completion#1/source_id_3/002
-source_id_3|profile|source_id|migration/private.validate_reimport_1939_name_completion#1/source_id_3/003
-name_completion_lock|legacy_wrapper|generic_name_completion_lock|migration/public.red_lock_1939_v50_name_completion#1/name_completion_lock/001
-name_completion_lock|legacy_wrapper|generic_name_completion_lock|migration/public.red_apply_1939_v50_name_completion#1/name_completion_lock/001
-source_id_3|profile|source_id|migration/public.red_apply_1939_v50_name_completion#1/source_id_3/001
-source_id_3|profile|source_id|migration/public.red_apply_1939_v50_name_completion#1/source_id_3/002
-source_id_3|profile|source_id|migration/public.red_apply_1939_v50_name_completion#1/source_id_3/003
-not_equals_8|manifest|expected_counts|migration/public.red_finalize_1939_v50_name_completion#1/not_equals_8/001
-name_completion_lock|legacy_wrapper|generic_name_completion_lock|migration/public.red_reverse_1939_v50_reimport#2/name_completion_lock/001
-not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#2/not_equals_8/001
-not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#2/not_equals_8/002
-not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#2/not_equals_8/003
-not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#2/not_equals_8/004
-not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#2/not_equals_8/005
-not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#2/not_equals_8/006
-not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#2/not_equals_8/007
-not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#2/not_equals_8/008
-sr_source_id_not_3|generic_invariant|source_profile_validation|migration/public.red_reverse_1939_v50_reimport#2/sr_source_id_not_3/001
-sp_source_id_not_3|generic_invariant|source_profile_validation|migration/public.red_reverse_1939_v50_reimport#2/sp_source_id_not_3/001
-run_key|manifest|run_key_prefix|migration/public.red_reverse_1939_v50_reimport#2/run_key/001
-name_completion_lock|legacy_wrapper|generic_name_completion_lock|migration/public.red_activate_1939_v50_batch#2/name_completion_lock/001
-not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/001
-not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/002
-not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/003
-not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/004
-not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/005
-not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/006
-not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/007
-not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/008
-not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#2/not_equals_8/009
-sr_source_id_not_3|generic_invariant|source_profile_validation|migration/public.red_activate_1939_v50_batch#2/sr_source_id_not_3/001
-sp_source_id_not_3|generic_invariant|source_profile_validation|migration/public.red_activate_1939_v50_batch#2/sp_source_id_not_3/001
-name_completion_lock|legacy_wrapper|generic_name_completion_lock|migration/public.red_reverse_1939_v50_reimport#3/name_completion_lock/001
-not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#3/not_equals_8/001
-not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#3/not_equals_8/002
-not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#3/not_equals_8/003
-not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#3/not_equals_8/004
-not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#3/not_equals_8/005
-not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#3/not_equals_8/006
-not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#3/not_equals_8/007
-not_equals_8|manifest|expected_counts|migration/public.red_reverse_1939_v50_reimport#3/not_equals_8/008
-sr_source_id_not_3|generic_invariant|source_profile_validation|migration/public.red_reverse_1939_v50_reimport#3/sr_source_id_not_3/001
-sp_source_id_not_3|generic_invariant|source_profile_validation|migration/public.red_reverse_1939_v50_reimport#3/sp_source_id_not_3/001
-run_key|manifest|run_key_prefix|migration/public.red_reverse_1939_v50_reimport#3/run_key/001
-name_completion_lock|legacy_wrapper|generic_name_completion_lock|migration/public.red_activate_1939_v50_batch#3/name_completion_lock/001
-not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/001
-not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/002
-not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/003
-not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/004
-not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/005
-not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/006
-not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/007
-not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/008
-not_equals_8|manifest|expected_counts|migration/public.red_activate_1939_v50_batch#3/not_equals_8/009
-sr_source_id_not_3|generic_invariant|source_profile_validation|migration/public.red_activate_1939_v50_batch#3/sr_source_id_not_3/001
-sp_source_id_not_3|generic_invariant|source_profile_validation|migration/public.red_activate_1939_v50_batch#3/sp_source_id_not_3/001
-not_equals_8|manifest|expected_counts|migration/public.red_finalize_1939_v50_name_completion#2/not_equals_8/001
-name_completion_lock|legacy_wrapper|generic_name_completion_lock|migration/private.validate_reimport_1939_name_completion#2/name_completion_lock/001
-not_equals_8|manifest|expected_counts|migration/private.validate_reimport_1939_name_completion#2/not_equals_8/001
-not_equals_8|manifest|expected_counts|migration/private.validate_reimport_1939_name_completion#2/not_equals_8/002
-source_id_3|profile|source_id|migration/private.validate_reimport_1939_name_completion#2/source_id_3/001
-source_id_3|profile|source_id|migration/private.validate_reimport_1939_name_completion#2/source_id_3/002
-source_id_3|profile|source_id|migration/private.validate_reimport_1939_name_completion#2/source_id_3/003
-", sep = "|", col.names = c("literal", "classification", "generic_target", "test_name"), comment.char = "", stringsAsFactors = FALSE)
-
 writer_literal_occurrences <- function(lines, segment_name, first_line = 1L) {
-  function_name <- "top_level"; function_instances <- list(); literal_ordinals <- list(); observed <- list()
+  context_name <- "top_level"
+  function_instances <- list()
+  literal_ordinals <- list()
+  observed <- list()
+  body_delimiter <- NULL
   for (index in seq_along(lines)) {
     function_match <- regexec("^\\s*CREATE(?: OR REPLACE)? FUNCTION ([[:alnum:]_.]+)", lines[[index]], perl = TRUE)
     captures <- regmatches(lines[[index]], function_match)[[1L]]
     if (length(captures) > 1L) {
-      base <- captures[[2L]]; function_instances[[base]] <- (function_instances[[base]] %||% 0L) + 1L
-      function_name <- sprintf("%s#%d", base, function_instances[[base]]); literal_ordinals <- list()
+      if (!identical(context_name, "top_level")) stop("nested writer function declaration", call. = FALSE)
+      base <- captures[[2L]]
+      function_instances[[base]] <- (function_instances[[base]] %||% 0L) + 1L
+      context_name <- sprintf("%s#%d", base, function_instances[[base]])
+      body_delimiter <- NULL
     }
     for (rule_index in seq_len(nrow(writer_literal_rules))) {
       rule <- writer_literal_rules[rule_index, ]; matches <- gregexpr(rule$pattern, lines[[index]], perl = TRUE)[[1L]]
       if (matches[[1L]] == -1L) next
-      ordinal_key <- paste(function_name, rule$literal, sep = "|")
+      ordinal_key <- paste(context_name, rule$literal, sep = "|")
       for (ignored in matches) {
         literal_ordinals[[ordinal_key]] <- (literal_ordinals[[ordinal_key]] %||% 0L) + 1L
-        observed[[length(observed) + 1L]] <- data.frame(literal = rule$literal, classification = rule$classification, generic_target = rule$generic_target, test_name = sprintf("%s/%s/%s/%03d", segment_name, function_name, rule$literal, literal_ordinals[[ordinal_key]]), line = first_line + index - 1L, stringsAsFactors = FALSE)
+        observed[[length(observed) + 1L]] <- data.frame(literal = rule$literal, test_name = sprintf("%s/%s/%s/%03d", segment_name, context_name, rule$literal, literal_ordinals[[ordinal_key]]), line = first_line + index - 1L, stringsAsFactors = FALSE)
+      }
+    }
+
+    if (!identical(context_name, "top_level")) {
+      opened_here <- FALSE
+      if (is.null(body_delimiter)) {
+        delimiter_match <- regexec("\\bAS\\s+(\\$[[:alnum:]_]*\\$)", lines[[index]], perl = TRUE)
+        delimiter_captures <- regmatches(lines[[index]], delimiter_match)[[1L]]
+        if (length(delimiter_captures) > 1L) {
+          body_delimiter <- delimiter_captures[[2L]]
+          opened_here <- TRUE
+        }
+      }
+      if (!is.null(body_delimiter)) {
+        delimiter_positions <- gregexpr(body_delimiter, lines[[index]], fixed = TRUE)[[1L]]
+        delimiter_count <- if (delimiter_positions[[1L]] == -1L) 0L else length(delimiter_positions)
+        if ((!opened_here && delimiter_count >= 1L) || (opened_here && delimiter_count >= 2L)) {
+          context_name <- "top_level"
+          body_delimiter <- NULL
+        }
       }
     }
   }
+  if (!identical(context_name, "top_level")) stop("unterminated writer function", call. = FALSE)
   do.call(rbind, observed)
-}
-
-writer_segment_occurrences <- function(path, first_line, last_line, segment_name) {
-  lines <- readLines(file.path(writer_root, path), warn = FALSE)[first_line:last_line]
-  writer_literal_occurrences(lines, segment_name, first_line)
 }
 
 writer_unique_anchor_index <- function(lines, anchor, anchor_name) {
@@ -136,21 +81,71 @@ writer_semantic_section_occurrences <- function(path, start_anchor, end_anchor, 
 }
 
 writer_final_expected_inventory <- read.table(text = "
-citation_label|profile|citation_label_template|final-schema/private.reject_reimport_writer_mutation#1/citation_label/001
-run_key|manifest|run_key_prefix|final-schema/private.reject_reimport_writer_mutation#1/run_key/001
-source_id_3|profile|source_id|final-schema/public.red_authorize_1939_v50_name_completion#1/source_id_3/001
-source_id_3|profile|source_id|final-migration/top_level/source_id_3/001
-citation_label|profile|citation_label_template|final-migration/private.reimport_canonical_json_sha256#1/citation_label/001
-run_key|manifest|run_key_prefix|final-migration/private.reimport_canonical_json_sha256#1/run_key/001
-source_id_3|profile|source_id|final-migration/public.red_activate_reimport_batch#2/source_id_3/001
-source_id_3|profile|source_id|final-migration/public.red_activate_reimport_batch#2/source_id_3/002
-source_id_3|profile|source_id|final-migration/public.red_authorize_1939_v50_name_completion#2/source_id_3/001
+integer_3|profile|source_id|final-schema/top_level/integer_3/001
+citation_label|profile|citation_label_template|final-schema/top_level/citation_label/001
+run_key|profile|run_key_prefix|final-schema/top_level/run_key/001
+integer_3|profile|source_id|final-schema/top_level/integer_3/002
+integer_3|legacy_wrapper|legacy_expected_count_shape|final-schema/public.red_authorize_1939_v50_reimport#1/integer_3/001
+integer_3|profile|source_id|final-schema/public.red_authorize_1939_v50_reimport#1/integer_3/002
+integer_3|profile|source_id|final-schema/public.red_authorize_1939_v50_reimport#1/integer_3/003
+integer_3|profile|source_id|final-schema/public.red_lock_1939_v50_name_completion#1/integer_3/001
+integer_3|profile|source_id|final-schema/public.red_authorize_1939_v50_name_completion#1/integer_3/001
+integer_3|profile|source_id|final-schema/public.red_authorize_1939_v50_name_completion#1/integer_3/002
+integer_3|profile|source_id|final-migration/top_level/integer_3/001
+integer_3|profile|source_id|final-migration/top_level/integer_3/002
+citation_label|profile|citation_label_template|final-migration/top_level/citation_label/001
+run_key|profile|run_key_prefix|final-migration/top_level/run_key/001
+integer_3|profile|source_id|final-migration/top_level/integer_3/003
+integer_3|generic_invariant|profile_foreign_key_arity|final-migration/top_level/integer_3/004
+integer_3|generic_invariant|profile_foreign_key_arity|final-migration/top_level/integer_3/005
+integer_3|profile|source_id|final-migration/top_level/integer_3/006
+integer_3|profile|source_id|final-migration/top_level/integer_3/007
+integer_3|profile|source_id|final-migration/top_level/integer_3/008
+integer_3|legacy_wrapper|legacy_expected_count_shape|final-migration/public.red_authorize_1939_v50_reimport#1/integer_3/001
+integer_3|profile|source_id|final-migration/public.red_authorize_1939_v50_reimport#1/integer_3/002
+integer_3|profile|source_id|final-migration/public.red_authorize_1939_v50_reimport#1/integer_3/003
+integer_3|profile|source_id|final-migration/public.red_lock_1939_v50_name_completion#2/integer_3/001
+integer_3|profile|source_id|final-migration/public.red_authorize_1939_v50_name_completion#2/integer_3/001
+integer_3|profile|source_id|final-migration/public.red_authorize_1939_v50_name_completion#2/integer_3/002
 ", sep = "|", col.names = c("literal", "classification", "generic_target", "test_name"), comment.char = "", stringsAsFactors = FALSE)
 
-writer_final_inventory_key_counts <- function(inventory) {
-  key_columns <- c("literal", "classification", "generic_target", "test_name")
+writer_inventory_detection_counts <- function(inventory) {
+  key_columns <- c("literal", "test_name")
   keys <- do.call(paste, c(inventory[key_columns], sep = "|"))
   table(keys)
+}
+
+writer_validate_ci_history_contract <- function(workflow) {
+  full_history <- list()
+  for (job_name in names(workflow$jobs)) {
+    steps <- workflow$jobs[[job_name]]$steps %||% list()
+    for (step_index in seq_along(steps)) {
+      step <- steps[[step_index]]
+      if (identical(step$uses %||% "", "actions/checkout@v4") &&
+          identical(as.integer(step$with[["fetch-depth"]] %||% NA_integer_), 0L)) {
+        full_history[[length(full_history) + 1L]] <- list(job = job_name, step = step_index)
+      }
+    }
+  }
+  if (length(full_history) != 1L) stop("expected exactly one full-history checkout", call. = FALSE)
+  if (!identical(full_history[[1L]]$job, "writer-1939-v50-db")) {
+    stop("full-history checkout must belong to writer-1939-v50-db", call. = FALSE)
+  }
+
+  migration_steps <- workflow$jobs[["writer-1939-v50-db"]]$steps %||% list()
+  matching_steps <- which(vapply(
+    migration_steps,
+    function(step) identical(step$name %||% "", "Reimport writer migration from pre-153 ledger"),
+    logical(1)
+  ))
+  if (length(matching_steps) != 1L) stop("expected exactly one historical migration step", call. = FALSE)
+  run <- migration_steps[[matching_steps]]$run %||% ""
+  cat_file <- regexpr("git cat-file -e 2d6aabf^{commit}", run, fixed = TRUE)[[1L]]
+  git_shows <- gregexpr("git show ", run, fixed = TRUE)[[1L]]
+  if (cat_file < 1L || git_shows[[1L]] < 1L || cat_file >= min(git_shows)) {
+    stop("cat-file must precede the first historical git show in the migration step", call. = FALSE)
+  }
+  invisible(TRUE)
 }
 
 extract_public_function <- function(text, name) {
@@ -169,36 +164,6 @@ testthat::test_that("generic extractor recognizes a valid CREATE OR REPLACE func
   testthat::expect_match(extract_public_function(fixture, "red_fixture"), "red_fixture", fixed = TRUE)
 })
 
-testthat::test_that("Task 1 literal inventory exactly covers the designated schema and migration ranges", {
-  observed <- rbind(
-    writer_segment_occurrences("schema.sql", 2324L, 3098L, "schema"),
-    writer_segment_occurrences("db-migrations.sql", 7559L, 8419L, "migration")
-  )
-  key_columns <- c("literal", "classification", "generic_target", "test_name")
-  expected_keys <- do.call(paste, c(writer_expected_inventory[key_columns], sep = "|"))
-  observed_keys <- do.call(paste, c(observed[key_columns], sep = "|"))
-  all_keys <- sort(unique(c(expected_keys, observed_keys)))
-  expected_counts <- tabulate(match(expected_keys, all_keys), nbins = length(all_keys))
-  observed_counts <- tabulate(match(observed_keys, all_keys), nbins = length(all_keys))
-  names(expected_counts) <- all_keys
-  names(observed_counts) <- all_keys
-  mismatched_keys <- all_keys[expected_counts != observed_counts]
-
-  if (length(mismatched_keys)) {
-    testthat::fail(paste(
-      "writer literal inventory drift",
-      paste(sprintf(
-        "%s (expected %d, observed %d)",
-        mismatched_keys,
-        expected_counts[mismatched_keys],
-        observed_counts[mismatched_keys]
-      ), collapse = "\n"),
-      sep = "\n"
-    ))
-  }
-  testthat::expect_identical(observed_counts, expected_counts)
-})
-
 testthat::test_that("semantic writer-section anchors are unique, ordered, and scope literals", {
   start_anchor <- "-- WRITER START"
   end_anchor <- "-- WRITER END"
@@ -206,7 +171,7 @@ testthat::test_that("semantic writer-section anchors are unique, ordered, and sc
   section <- writer_semantic_section(fixture, start_anchor, end_anchor, "fixture")
   observed <- writer_literal_occurrences(section$lines, "fixture", section$first_line)
   testthat::expect_equal(nrow(observed), 1L)
-  testthat::expect_identical(observed$literal, "source_id_3")
+  testthat::expect_identical(observed$literal, "integer_3")
   testthat::expect_error(
     writer_semantic_section(c("before", end_anchor, "after"), start_anchor, end_anchor, "fixture"),
     "start anchor must occur exactly once"
@@ -241,9 +206,56 @@ testthat::test_that("semantic writer-section anchors are unique, ordered, and sc
     nrow(observed)
   )
   testthat::expect_identical(
-    writer_final_inventory_key_counts(writer_literal_occurrences(outside_mutation$lines, "fixture", outside_mutation$first_line)),
-    writer_final_inventory_key_counts(observed)
+    writer_inventory_detection_counts(writer_literal_occurrences(outside_mutation$lines, "fixture", outside_mutation$first_line)),
+    writer_inventory_detection_counts(observed)
   )
+})
+
+testthat::test_that("literal detection covers source-id SQL forms and resets function context", {
+  fixture <- c(
+    "CREATE FUNCTION private.fixture() RETURNS void LANGUAGE plpgsql AS $$",
+    "BEGIN PERFORM source_id = 3; END",
+    "$$;",
+    "SELECT 3,'daa-1939-v50-production-write-v1';",
+    "WHERE EXISTS(SELECT 1 FROM public.source WHERE id=3);",
+    "PERFORM public.red_lock_reimport_name_completion(m,3,'daa-1939-v50-production-write-v1');"
+  )
+  observed <- writer_literal_occurrences(fixture, "fixture")
+  testthat::expect_equal(sum(observed$literal == "integer_3"), 4L)
+  testthat::expect_true(any(grepl("fixture/private.fixture#1/integer_3/001", observed$test_name, fixed = TRUE)))
+  testthat::expect_equal(sum(grepl("fixture/top_level/integer_3/", observed$test_name, fixed = TRUE)), 3L)
+
+  top_level <- writer_literal_occurrences(c(
+    "source_id = 3;",
+    "CREATE FUNCTION private.fixture() RETURNS void LANGUAGE plpgsql AS $$ BEGIN NULL; END $$;"
+  ), "movement")
+  inside_function <- writer_literal_occurrences(c(
+    "CREATE FUNCTION private.fixture() RETURNS void LANGUAGE plpgsql AS $$ BEGIN source_id = 3; END $$;"
+  ), "movement")
+  testthat::expect_false(identical(
+    writer_inventory_detection_counts(top_level),
+    writer_inventory_detection_counts(inside_function)
+  ))
+})
+
+testthat::test_that("CI history contract is bound to exactly the migration job and step", {
+  workflow <- yaml::read_yaml(file.path(writer_root, ".github", "workflows", "ci.yml"))
+  testthat::expect_silent(writer_validate_ci_history_contract(workflow))
+
+  extra_history <- workflow
+  extra_history$jobs[[1L]]$steps[[1L]]$with <- list(`fetch-depth` = 0L)
+  testthat::expect_error(writer_validate_ci_history_contract(extra_history), "exactly one full-history checkout")
+
+  reordered <- workflow
+  migration_steps <- reordered$jobs[["writer-1939-v50-db"]]$steps
+  migration_index <- which(vapply(migration_steps, function(step) identical(step$name %||% "", "Reimport writer migration from pre-153 ledger"), logical(1)))
+  migration_steps[[migration_index]]$run <- sub(
+    "git cat-file -e 2d6aabf\\^\\{commit\\}\\n",
+    "",
+    migration_steps[[migration_index]]$run
+  )
+  reordered$jobs[["writer-1939-v50-db"]]$steps <- migration_steps
+  testthat::expect_error(writer_validate_ci_history_contract(reordered), "precede the first historical git show")
 })
 
 testthat::test_that("final writer inventory is anchored and multiplicity-sensitive", {
@@ -256,27 +268,33 @@ testthat::test_that("final writer inventory is anchored and multiplicity-sensiti
   })
   observed <- do.call(rbind, observed_parts)
   testthat::expect_identical(
-    writer_final_inventory_key_counts(observed),
-    writer_final_inventory_key_counts(writer_final_expected_inventory)
+    writer_inventory_detection_counts(observed),
+    writer_inventory_detection_counts(writer_final_expected_inventory)
   )
 
   for (index in seq_along(sections)) {
     section <- sections[[index]]
     lines <- readLines(file.path(writer_root, section$path), warn = FALSE)
     extracted <- writer_semantic_section(lines, section$start, section$end, section$name)
-    inside <- append(lines, "source_id = 3", after = extracted$first_line)
-    outside <- append(lines, "source_id = 3", after = length(lines))
-    mutated_inside <- writer_semantic_section(inside, section$start, section$end, section$name)
-    mutated_outside <- writer_semantic_section(outside, section$start, section$end, section$name)
-    testthat::expect_false(identical(
-      writer_final_inventory_key_counts(writer_literal_occurrences(mutated_inside$lines, section$name, mutated_inside$first_line)),
-      writer_final_inventory_key_counts(observed_parts[[index]])
-    ), info = paste(section$name, "inside mutation"))
-    testthat::expect_identical(
-      writer_final_inventory_key_counts(writer_literal_occurrences(mutated_outside$lines, section$name, mutated_outside$first_line)),
-      writer_final_inventory_key_counts(observed_parts[[index]]),
-      info = paste(section$name, "outside mutation")
-    )
+    for (mutation in c(
+      "source_id = 3",
+      "SELECT 3,'daa-1939-v50-production-write-v1';",
+      "PERFORM public.red_lock_reimport_name_completion(m,3,'daa-1939-v50-production-write-v1');"
+    )) {
+      inside <- append(lines, mutation, after = extracted$first_line)
+      outside <- append(lines, mutation, after = length(lines))
+      mutated_inside <- writer_semantic_section(inside, section$start, section$end, section$name)
+      mutated_outside <- writer_semantic_section(outside, section$start, section$end, section$name)
+      testthat::expect_false(identical(
+        writer_inventory_detection_counts(writer_literal_occurrences(mutated_inside$lines, section$name, mutated_inside$first_line)),
+        writer_inventory_detection_counts(observed_parts[[index]])
+      ), info = paste(section$name, "inside mutation", mutation))
+      testthat::expect_identical(
+        writer_inventory_detection_counts(writer_literal_occurrences(mutated_outside$lines, section$name, mutated_outside$first_line)),
+        writer_inventory_detection_counts(observed_parts[[index]]),
+        info = paste(section$name, "outside mutation", mutation)
+      )
+    }
   }
 })
 
@@ -289,20 +307,13 @@ testthat::test_that("#153 coexistence sequence repair is transactional and CI re
     "final-migration"
   )
   conversion_text <- paste(conversion$lines, collapse = "\n")
-  ci_text <- paste(readLines(file.path(writer_root, ".github", "workflows", "ci.yml"), warn = FALSE), collapse = "\n")
   testthat::expect_false(grepl("PERFORM setval\\(pg_get_serial_sequence\\('private.reimport_event','id'\\)", conversion_text, perl = TRUE))
   testthat::expect_match(conversion_text, "ALTER SEQUENCE %s RESTART WITH %s", fixed = TRUE)
-  testthat::expect_match(ci_text, "fetch-depth: 0", fixed = TRUE)
-  testthat::expect_match(ci_text, "git cat-file -e 2d6aabf^{commit}", fixed = TRUE)
-  testthat::expect_lt(
-    regexpr("git cat-file -e 2d6aabf^{commit}", ci_text, fixed = TRUE)[[1L]],
-    regexpr("git show 2d6aabf:schema.sql", ci_text, fixed = TRUE)[[1L]]
-  )
 })
 
 testthat::test_that("generic reimport writer owns every formerly 1939-specific literal", {
-  testthat::expect_identical(names(writer_expected_inventory), c("literal", "classification", "generic_target", "test_name"))
-  testthat::expect_true(all(writer_expected_inventory$classification %in% c("generic_invariant", "profile", "manifest", "legacy_wrapper")))
+  testthat::expect_identical(names(writer_final_expected_inventory), c("literal", "classification", "generic_target", "test_name"))
+  testthat::expect_true(all(writer_final_expected_inventory$classification %in% c("generic_invariant", "profile", "manifest", "legacy_wrapper")))
   schema_primary <- paste(readLines(file.path(writer_root, "schema.sql"), warn = FALSE), collapse = "\n")
   testthat::expect_false(grepl("CREATE TABLE private\\.reimport_1939_(authorization|write_batch|write_event|name_completion_result)", schema_primary, perl = TRUE))
 
