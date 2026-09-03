@@ -143,6 +143,20 @@ kæden for 2018-20 alene ville omprioritere roadmappen og give asymmetri med
   REVOKE fra PUBLIC/anon/authenticated/service_role, GRANT kun `authenticated`
   (samme ACL-mønster som `red_apply_reimport_source_evidence`). `get_advisors`
   køres efter DDL.
+- **#152's læsefunktioner (fund ved kodelæsning 2026-09-03):** legacy-grenen i
+  `public.public_person_bio_source_versions_v2` og `public.public_person_bio_source_versions`
+  joiner `narrative_legacy_publication` på `narrative_id` uden filter på `status`,
+  og `person_daa_narrative_publication_allowed` returnerer fra binding-grenen uden
+  at se på ledgeren. Et narrativ med `published` binding **og** `migrated`
+  ledger-række ville derfor vises to gange (`source_record` + `Overgangsdata`
+  bygget af `legacy_migrated`-eventets `after_state`). #152 havde aldrig
+  tilfældet; 149b skaber det 541 gange. Rettelse i 149b: begge legacy-grene
+  filtrerer `legacy.status='grandfathered_publication'`; `red_person_narrative_records`'
+  legacy-forespørgsel udelader `migrated` rækker (record-rækken bærer nu
+  narrativet; `legacy_migrated`-eventet ses fortsat i
+  `red_person_narrative_publication_history`). `withdrawn` legacy-rækker vises
+  uændret. Klienten (`web/src/data/redaktionRead.ts`, `public.ts`) kræver ingen
+  ændring.
 - Writer-profil: én række `private.reimport_writer_profile` for `source_id = 1`,
   `profile_id = 'daa-2018-20-legacy-migration-v1'`, `writer_config` med
   #153's lukkede feltmængde (samme `rendition_key`/`rendition_kind`/
@@ -186,7 +200,16 @@ persona_key                -- = record_key
 
 ### 6.4 Projektion og events (ét change set pr. element)
 
-1. Identitet (§5): run, persona, mention, `red_decide_source_persona_identity`.
+Låserække (#152 §6.1 og legacy-writernes mønster): `LOCK TABLE public.change_set
+IN ACCESS EXCLUSIVE MODE` → `private.source_record FOR UPDATE` → den aktive
+narrativrække → ledger, seneste legacy-event og narrativ via
+`narrative_legacy_state(ref, true)` (kun `bound_published`). Bindingen låses
+aldrig før recorden. Prod-apply kører under det eksterne writer-traffic hold fra
+#152's cutover-runbook, fordi 541 offentlige publiceringer skifter form.
+
+1. Identitet (§5): run, persona, mention, `red_decide_source_persona_identity`
+   (GRANTED `authenticated`, `schema.sql:6979-6986`; bruges allerede af
+   `red_apply_reimport_person_create`).
 2. `v_before := private.narrative_publication_state(person, source, record_key)`
    (autoritet `missing_identity` er sandfærdig og registreres).
 3. `begin_change_set('narrative_record_legacy_migrated', …, 'person', person_id)`.
@@ -287,8 +310,11 @@ publiceringsgaten. Synthetiske fixtures bruger opdigtede navne.
   v2-fladen viser præcis én række; `bound_draft` giver binding `draft`, ingen
   legacy-event, v2-fladen viser ingen; replay = `already_applied`; reversal-kæden
   §8 gendanner eksakt før-hash for begge streams; `red_tilbagetraek_legacy_narrative`
-  på `migrated` afvises; editionskatalog-gaten forbliver ren; 149a's to-nøgle-manifest
-  autoriseres stadig. Kørsel i CI som nyt job ved siden af
+  på `migrated` afvises; `public_person_bio_source_versions_v2`, `public_person_bio_source_versions`
+  og `red_person_narrative_records` viser et migreret narrativ præcis én gang og
+  aldrig som `legacy_narrative`/`grandfathered_legacy`, mens en `withdrawn` legacy-række
+  stadig optræder i redaktørlisten; editionskatalog-gaten forbliver ren; 149a's
+  to-nøgle-manifest autoriseres stadig. Kørsel i CI som nyt job ved siden af
   `reimport_legacy_source_evidence_153`.
 - **R:** enhedstests for validator/expected_counts/dispatch; integrationstest
   mod syntetisk v2-base (dry-run, apply, replay), idempotent pr. kørsel.
@@ -296,7 +322,13 @@ publiceringsgaten. Synthetiske fixtures bruger opdigtede navne.
   determinisme, ingen tekst i output.
 - **Rehearsal (definition of done, beslutning 2026-09-03 pkt. 4):** restore af
   prod-dump → migrations → #152-cutover → 149a-apply → 149b preview/dry-run/apply
-  med de forventede tal 541/46/4/0, `anon`-hashes uændrede for de otte tabeller,
+  med de forventede tal 541/46/4/0 — målt som **eksakte eventtal**: 587 personas,
+  587 accepterede identiteter, 587 `draft_created`, 541 `published`, 541
+  `legacy_migrated`, ledger for source 1 = 541 `migrated` + 3 `grandfathered_publication`
+  + 0 `withdrawn`, 587 bindinger (541 `published`, 46 `draft`) — `anon`-hashes
+  uændrede for de otte tabeller (publication-tilstandshashes indeholder
+  `published_at = clock_timestamp()` og sammenlignes ikke på tværs af baser;
+  sammenlign rækketal og status),
   `public_person_bio_source_versions_v2` for de 591 personer viser 541
   `source_record`-rækker og 0 `legacy_narrative` for source 1, replay, tre-trins
   reversal for ét narrativ.
