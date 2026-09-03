@@ -53,6 +53,7 @@ def _target_identity() -> dict:
     return {
         "schema_version": "daa-evidence-production-target-identity-v1",
         "environment": "production",
+        "database_name": "synthetic_production",
         "system_identifier_sha256": "d" * 64,
     }
 
@@ -243,6 +244,13 @@ def test_public_cli_rejects_a_one_phase_or_unknown_adapter_ledger_before_snapsho
     assert json.loads(capsys.readouterr().err)["error"] == "EVIDENCE_RECONCILIATION_HISTORICAL_INVENTORY_INVALID"
 
 
+def test_public_reconcile_rejects_a_one_phase_ledger_before_snapshot_validation():
+    phase_a = _manifest("phase-a", record_key="1939:1", occurrence_key="occ-1", person_id=101, narrative_id=201)
+
+    with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_HISTORICAL_INVENTORY_INVALID"):
+        reconcile({"not": "a snapshot"}, [phase_a], _ledger(phase_a))
+
+
 def test_reconcile_refuses_an_unavailable_historical_phase_before_snapshot_validation():
     """An invalid snapshot must remain unread when D1 is still unavailable."""
     with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_INCOMPLETE"):
@@ -410,6 +418,30 @@ def test_snapshot_rejects_a_missing_production_target_identity():
 def test_snapshot_rejects_a_target_identity_other_than_the_admitted_ledger_target():
     with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_SNAPSHOT_TARGET_MISMATCH"):
         _validate_snapshot(_snapshot(), expected_target_identity_sha256="a" * 64)
+
+
+def test_snapshot_rejects_a_different_database_in_the_same_cluster():
+    snapshot = _snapshot()
+    snapshot["database_target_identity"] = {
+        "schema_version": "daa-evidence-production-target-identity-v1",
+        "environment": "production",
+        "database_name": "production_a",
+        "system_identifier_sha256": "d" * 64,
+    }
+    snapshot = _with_hash(
+        {key: value for key, value in snapshot.items() if key != "snapshot_content_sha256"},
+        "snapshot_content_sha256",
+    )
+    other_database = {
+        **snapshot["database_target_identity"],
+        "database_name": "production_b",
+    }
+    expected = hashlib.sha256(
+        json.dumps(other_database, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+    with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_SNAPSHOT_TARGET_MISMATCH"):
+        _validate_snapshot(snapshot, expected_target_identity_sha256=expected)
 
 
 @pytest.mark.parametrize("raw", [b'{"phase_id":"first","phase_id":"second"}', b'\xff'])

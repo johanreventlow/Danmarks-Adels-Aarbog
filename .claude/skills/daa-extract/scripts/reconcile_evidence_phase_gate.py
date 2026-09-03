@@ -149,9 +149,12 @@ def _validate_manifest(document: object) -> Tuple[str, Dict[str, List[Dict[str, 
 def _validate_database_target_identity(value: object) -> Dict[str, str]:
     _require(
         isinstance(value, dict)
-        and set(value) == {"schema_version", "environment", "system_identifier_sha256"}
+        and set(value) == {"schema_version", "environment", "database_name", "system_identifier_sha256"}
         and value.get("schema_version") == "daa-evidence-production-target-identity-v1"
         and value.get("environment") == "production"
+        and isinstance(value.get("database_name"), str)
+        and bool(value["database_name"])
+        and value["database_name"].strip() == value["database_name"]
         and _is_hex_sha256(value.get("system_identifier_sha256")),
         "EVIDENCE_RECONCILIATION_SNAPSHOT_TARGET_INVALID",
     )
@@ -384,8 +387,9 @@ def _reconcile_admitted(
 
 
 def reconcile(snapshot: object, manifests: Iterable[object], ledger: object) -> Dict[str, Any]:
-    """Internal compatibility entrypoint for capability-level comparison tests."""
-    return _reconcile_capability(snapshot, manifests, ledger)
+    """Return a public historical reconciliation report or fail closed."""
+    approved, contributions = _validate_contribution_admission(manifests, ledger)
+    return _reconcile_admitted(snapshot, approved, contributions, ledger)
 
 
 def _reconcile_capability(snapshot: object, manifests: Iterable[object], ledger: object) -> Dict[str, Any]:

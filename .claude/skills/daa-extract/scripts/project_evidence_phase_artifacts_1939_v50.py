@@ -98,9 +98,10 @@ def _read_artifact(bundle_root: Path, artifact: ArtifactEntry) -> tuple[bytes, d
 def _production_target(value: object) -> bool:
     return (
         isinstance(value, dict)
-        and set(value) == {"schema_version", "environment", "system_identifier_sha256"}
+        and set(value) == {"schema_version", "environment", "database_name", "system_identifier_sha256"}
         and value["schema_version"] == "daa-evidence-production-target-identity-v1"
         and value["environment"] == "production"
+        and _valid_text(value["database_name"])
         and _valid_sha256(value["system_identifier_sha256"])
     )
 

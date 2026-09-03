@@ -4,6 +4,7 @@ import pytest
 
 from evidence_phase_artifact_ledger import (
     LedgerError,
+    HISTORICAL_PHASE_CONTRACTS,
     RECEIPT_ADAPTERS,
     adapter_sha256,
     seal_ledger,
@@ -243,6 +244,66 @@ def test_historical_reconciliation_rejects_a_one_phase_ledger_before_admission()
     )
 
     with pytest.raises(LedgerError, match="EVIDENCE_RECONCILIATION_HISTORICAL_INVENTORY_INVALID"):
+        validate_historical_reconciliation_ledger(ledger)
+
+
+def _complete_historical_reconciliation_ledger(*, authorisations: dict[str, str] | None = None) -> dict:
+    authorisations = authorisations or {}
+    phases = []
+    for contract in HISTORICAL_PHASE_CONTRACTS:
+        unavailable = contract.phase_id == "d1"
+        phases.append(
+            {
+                "phase_id": contract.phase_id,
+                "sequence": contract.sequence,
+                "artifacts": [
+                    {
+                        "role": artifact.role,
+                        "path": f"{contract.phase_id}-{artifact.role}.json",
+                        "sha256": "a" * 64,
+                        "schema_version": artifact.schema_version,
+                        "required": artifact.required,
+                    }
+                    for artifact in contract.artifacts
+                ],
+                "adapter_id": contract.adapter_id,
+                "adapter_sha256": adapter_sha256(),
+                "projection_evidence": "unavailable" if unavailable else "mechanically_bound",
+                "authorisation_evidence": authorisations.get(
+                    contract.phase_id,
+                    "unavailable" if unavailable else (
+                        "afterdocumented_authorisation_gap"
+                        if contract.phase_id == "task25"
+                        else "contemporaneous_phase_package"
+                    ),
+                ),
+                **({} if unavailable else {
+                    "contribution_sha256": "b" * 64,
+                    "database_target_identity_sha256": "c" * 64,
+                }),
+            }
+        )
+    return seal_ledger({"schema_version": "daa-evidence-phase-artifact-ledger-v2", "phases": phases})
+
+
+@pytest.mark.parametrize(
+    ("phase_id", "override"),
+    [
+        ("task25", "contemporaneous_phase_package"),
+        ("phase-a", "afterdocumented_authorisation_gap"),
+        ("phase-b", "afterdocumented_authorisation_gap"),
+        ("narrative-publication", "afterdocumented_authorisation_gap"),
+        ("name-completion", "afterdocumented_authorisation_gap"),
+        ("c0", "afterdocumented_authorisation_gap"),
+        ("d1", "afterdocumented_authorisation_gap"),
+    ],
+)
+def test_historical_reconciliation_rejects_caller_authorisation_override(phase_id, override):
+    ledger = _complete_historical_reconciliation_ledger(
+        authorisations={phase_id: override}
+    )
+
+    with pytest.raises(LedgerError, match="EVIDENCE_RECONCILIATION_HISTORICAL_AUTHORISATION_INVALID"):
         validate_historical_reconciliation_ledger(ledger)
 
 

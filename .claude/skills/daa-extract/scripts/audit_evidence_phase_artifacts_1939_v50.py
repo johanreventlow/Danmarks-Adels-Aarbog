@@ -302,12 +302,14 @@ def _production_target_matches(value: object, phase: PhaseEntry) -> bool:
     if not isinstance(value, dict) or set(value) != {
         "schema_version",
         "environment",
+        "database_name",
         "system_identifier_sha256",
     }:
         raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
     if (
         value["schema_version"] != "daa-evidence-production-target-identity-v1"
         or not _valid_text(value["environment"])
+        or not _valid_text(value["database_name"])
         or not _valid_sha256(value["system_identifier_sha256"])
     ):
         raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
@@ -398,9 +400,10 @@ def receipt_binds_manifest_and_identities(resolved: Mapping[str, Path], phase: P
 def _production_target(value: object) -> bool:
     return (
         isinstance(value, dict)
-        and set(value) == {"schema_version", "environment", "system_identifier_sha256"}
+        and set(value) == {"schema_version", "environment", "database_name", "system_identifier_sha256"}
         and value["schema_version"] == "daa-evidence-production-target-identity-v1"
         and value["environment"] == "production"
+        and _valid_text(value["database_name"])
         and _valid_sha256(value["system_identifier_sha256"])
     )
 

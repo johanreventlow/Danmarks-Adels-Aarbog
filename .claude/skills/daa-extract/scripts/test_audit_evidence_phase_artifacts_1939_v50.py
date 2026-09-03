@@ -25,6 +25,7 @@ def production_target_identity() -> dict:
     return {
         "schema_version": "daa-evidence-production-target-identity-v1",
         "environment": "production",
+        "database_name": "synthetic_production",
         "system_identifier_sha256": "e" * 64,
     }
 

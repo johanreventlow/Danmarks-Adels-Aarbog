@@ -139,6 +139,7 @@ def target_identity() -> dict:
     return {
         "schema_version": "daa-evidence-production-target-identity-v1",
         "environment": "production",
+        "database_name": "synthetic_production",
         "system_identifier_sha256": hashlib.sha256(
             b"synthetic-capability-only-target"
         ).hexdigest(),

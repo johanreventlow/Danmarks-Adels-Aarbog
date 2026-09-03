@@ -11,7 +11,7 @@ from audit_evidence_phase_artifacts_1939_v50 import PhaseSummary, audit_bundle
 from evidence_phase_artifact_ledger import ArtifactEntry, PhaseEntry, canonical_sha256, seal_ledger, validate_ledger
 import project_evidence_phase_artifacts_1939_v50 as projector
 from project_evidence_phase_artifacts_1939_v50 import ProjectError, project_phase
-from reconcile_evidence_phase_gate import ReconciliationError, reconcile, seal
+from reconcile_evidence_phase_gate import ReconciliationError, _reconcile_capability, seal
 
 
 def write_json(path, document: object) -> str:
@@ -130,6 +130,7 @@ def production_target_identity() -> dict:
     return {
         "schema_version": "daa-evidence-production-target-identity-v1",
         "environment": "production",
+        "database_name": "synthetic_production",
         "system_identifier_sha256": hashlib.sha256(b"synthetic-production-identity").hexdigest(),
     }
 
@@ -633,7 +634,7 @@ def test_audited_projections_seal_into_a_second_ledger_and_reconcile_final_state
     assert len(snapshot["source_anchors"]) == 313
     assert len(snapshot["persons"]) == 559
 
-    report = reconcile(snapshot, list(contributions.values()), reconciliation_ledger)
+    report = _reconcile_capability(snapshot, list(contributions.values()), reconciliation_ledger)
 
     assert report["status"] == "match"
     assert report["ledger_content_sha256"] == reconciliation_ledger["ledger_content_sha256"]
@@ -651,7 +652,7 @@ def test_audited_projections_seal_into_a_second_ledger_and_reconcile_final_state
         authorisation_evidence="afterdocumented_authorisation_gap",
     )
     with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_INCOMPLETE") as caught:
-        reconcile({}, [], sealed_ledger([unbound]))
+        _reconcile_capability({}, [], sealed_ledger([unbound]))
     assert caught.value.report == {"status": "invalid", "error": "EVIDENCE_RECONCILIATION_INCOMPLETE"}
 
 

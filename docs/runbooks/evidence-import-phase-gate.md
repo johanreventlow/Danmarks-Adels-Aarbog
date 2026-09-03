@@ -81,7 +81,9 @@ kanoniske adapter-ID'er og den aktuelle hash af audit-/ledger-/projector-koden.
 Alle seks mekanisk bundne faser skal have hele deres deklarerede
 manifest+receipt-kontrakt, contribution-hash og samme
 `database_target_identity_sha256`; Task 25 skal fortsat erklære den
-efterdokumenterede autorisationsmangel. D1 skal fortsat være `unavailable`.
+efterdokumenterede autorisationsmangel, mens fase A, fase B,
+narrativ-publicering, name-completion og C0 hver skal erklære
+`contemporaneous_phase_package`. D1 skal fortsat være `unavailable`.
 Dermed er en en-fase-ledger, en ukendt adapter, en manglende receipt eller en
 selvvalgt evidenstilstand NO-GO før et snapshot åbnes. D1 betyder aktuelt, at
 den offentlige afstemning stopper som `EVIDENCE_RECONCILIATION_INCOMPLETE`;
@@ -279,6 +281,7 @@ SELECT jsonb_pretty(jsonb_build_object(
   'database_target_identity', jsonb_build_object(
     'schema_version', 'daa-evidence-production-target-identity-v1',
     'environment', 'production',
+    'database_name', database_target.database_name,
     'system_identifier_sha256',
     encode(extensions.digest(convert_to(database_target.system_identifier, 'UTF8'), 'sha256'), 'hex')
   ),
@@ -294,7 +297,9 @@ COMMIT;
 ```
 
 Gem den returnerede JSON som et lokalt, uforseglet snapshot. `current_database()`
-og `pg_control_system().system_identifier` fastlægger capture-databasen; det er
+og `pg_control_system().system_identifier` fastlægger capture-databasen;
+`database_name` og system-identifikatoren forsegles begge, så to databaser i
+samme PostgreSQL-klynge ikke kan forveksles. Det er
 den UTF-8-tekstuelle `system_identifier`, der hashes i præcis samme form som i
 receipt-kontrakten. Snapshotets `database_target_identity` skal derfor have
 samme kanoniske hash som den ene fælles target-hash i alle admitted ledgerfaser;
