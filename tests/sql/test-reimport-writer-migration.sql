@@ -371,4 +371,20 @@ BEGIN
     RAISE EXCEPTION 'REIMPORT_WRITER_COEXISTENCE_SEQUENCE_NOT_ADVANCED';
   END IF;
 END $coexistence_success$;
+
+-- #166 149b: den migrerede sti skal have præcis én operation-CHECK på
+-- private.reimport_event, og den skal kende legacy_migration.
+DO $coexistence_operation_check$
+DECLARE v_count integer; v_def text;
+BEGIN
+  SELECT count(*),min(pg_get_constraintdef(oid))
+    INTO v_count,v_def
+    FROM pg_constraint
+   WHERE conrelid='private.reimport_event'::regclass
+     AND contype='c'
+     AND pg_get_constraintdef(oid) LIKE '%operation%';
+  IF v_count<>1 OR v_def NOT LIKE '%legacy_migration%' THEN
+    RAISE EXCEPTION 'REIMPORT_EVENT_OPERATION_CHECK_DRIFT';
+  END IF;
+END $coexistence_operation_check$;
 \endif

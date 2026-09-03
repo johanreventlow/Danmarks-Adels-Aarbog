@@ -16370,6 +16370,176 @@ END
 $$;
 
 
+
+-- Task 2: elementoperationen legacy_migration i #153's lukkede mængder.
+-- Constraint-navnet normaliseres, så frisk og migreret katalog er ens.
+-- Kun værdilisten for operation droppes (defs der både nævner operation og
+-- source_evidence); andre CHECKs på tabellen røres ikke.
+DO $lm_operation_check$
+DECLARE v_name text;
+BEGIN
+  FOR v_name IN
+    SELECT conname FROM pg_constraint
+     WHERE conrelid='private.reimport_event'::regclass AND contype='c'
+       AND pg_get_constraintdef(oid) LIKE '%operation%'
+       AND pg_get_constraintdef(oid) LIKE '%source_evidence%'
+  LOOP
+    EXECUTE format('ALTER TABLE private.reimport_event DROP CONSTRAINT %I',v_name);
+  END LOOP;
+  ALTER TABLE private.reimport_event ADD CONSTRAINT reimport_event_operation_check
+    CHECK(operation IN ('source_evidence','person_create','legacy_migration','canonical_delta','reversal','activation'));
+END $lm_operation_check$;
+
+CREATE OR REPLACE FUNCTION private.validate_reimport_authorization_payload(p_expected_counts jsonb,p_authorized_elements jsonb)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE v_person_creates bigint; v_source_evidence bigint; v_legacy_migrations bigint; v_authorized_count bigint;
+BEGIN
+  IF jsonb_typeof(p_expected_counts)<>'object' OR jsonb_typeof(p_authorized_elements)<>'object'
+     OR jsonb_typeof(p_expected_counts->'person_creates')<>'number'
+     OR jsonb_typeof(p_expected_counts->'source_evidence')<>'number'
+     OR coalesce(p_expected_counts->>'person_creates','') !~ '^[0-9]+$'
+     OR coalesce(p_expected_counts->>'source_evidence','') !~ '^[0-9]+$'
+     OR (p_expected_counts ? 'legacy_migrations' AND (jsonb_typeof(p_expected_counts->'legacy_migrations')<>'number' OR coalesce(p_expected_counts->>'legacy_migrations','') !~ '^[0-9]+$'))
+     OR (SELECT count(*) FROM jsonb_object_keys(p_expected_counts)) NOT IN (2,3)
+     OR EXISTS(SELECT 1 FROM jsonb_object_keys(p_expected_counts) key WHERE key NOT IN ('person_creates','source_evidence','legacy_migrations')) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_AUTHORIZATION_INVALID';
+  END IF;
+  v_person_creates:=(p_expected_counts->>'person_creates')::bigint;
+  v_source_evidence:=(p_expected_counts->>'source_evidence')::bigint;
+  v_legacy_migrations:=coalesce((p_expected_counts->>'legacy_migrations')::bigint,0);
+  SELECT count(*) INTO v_authorized_count FROM jsonb_object_keys(p_authorized_elements);
+  IF v_authorized_count<>(v_person_creates+v_source_evidence+v_legacy_migrations)
+     OR EXISTS(SELECT 1 FROM jsonb_each(p_authorized_elements) element
+                WHERE jsonb_typeof(element.value)<>'object'
+                   OR (element.key !~ '^person-create:.+$' AND element.key !~ '^source-evidence:.+$' AND element.key !~ '^legacy-migration:.+$'))
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^person-create:.+$')<>v_person_creates
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^source-evidence:.+$')<>v_source_evidence
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^legacy-migration:.+$')<>v_legacy_migrations THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_AUTHORIZATION_INVALID';
+  END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_finalize_reimport(p_batch_id uuid) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_batch private.reimport_batch%ROWTYPE; v_counts jsonb;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_batch:=private.require_reimport_open_batch(p_batch_id);
+  PERFORM private.lock_reimport_writer(v_batch.source_id,v_batch.profile_id);
+  SELECT jsonb_build_object('person_creates',count(*) FILTER(WHERE operation='person_create'),'source_evidence',count(*) FILTER(WHERE operation='source_evidence'))
+         || CASE WHEN v_batch.expected_counts ? 'legacy_migrations'
+                 THEN jsonb_build_object('legacy_migrations',count(*) FILTER(WHERE operation='legacy_migration')) ELSE '{}'::jsonb END
+    INTO v_counts FROM private.reimport_event WHERE batch_id=p_batch_id;
+  IF v_counts<>v_batch.expected_counts THEN RAISE EXCEPTION 'REIMPORT_WRITER_FINALIZE_COUNT_MISMATCH'; END IF;
+  UPDATE private.reimport_batch SET status='finalized',observed_counts=v_counts,finalized_at=clock_timestamp() WHERE id=p_batch_id;
+  RETURN jsonb_build_object('batch_id',p_batch_id,'status','finalized','counts',v_counts);
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_reimport_batch_result(p_authorization_id uuid,p_batch_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_authorization private.reimport_authorization%ROWTYPE;
+  v_batch private.reimport_batch%ROWTYPE;
+  v_actor uuid;
+  v_expected_person_creates bigint;
+  v_person_create_count bigint;
+  v_valid_person_create_count bigint;
+  v_distinct_record_key_count bigint;
+  v_distinct_element_id_count bigint;
+  v_distinct_person_id_count bigint;
+  v_expected_source_evidence bigint;
+  v_expected_legacy_migrations bigint;
+  v_authorized_element_count bigint;
+  v_person_id_map jsonb;
+  v_discovered_source_id bigint;
+  v_discovered_profile_id text;
+  v_discovered_auth_source_id bigint;
+  v_discovered_auth_profile_id text;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN
+    RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED';
+  END IF;
+  v_actor:=private.require_reimport_writer_editor();
+  SELECT source_id,profile_id INTO v_discovered_source_id,v_discovered_profile_id
+    FROM private.reimport_batch WHERE id=p_batch_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID'; END IF;
+  SELECT source_id,profile_id INTO v_discovered_auth_source_id,v_discovered_auth_profile_id
+    FROM private.reimport_authorization WHERE id=p_authorization_id;
+  IF NOT FOUND OR v_discovered_auth_source_id IS DISTINCT FROM v_discovered_source_id OR v_discovered_auth_profile_id IS DISTINCT FROM v_discovered_profile_id THEN RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID'; END IF;
+  PERFORM private.lock_reimport_writer(v_discovered_source_id,v_discovered_profile_id);
+  SELECT * INTO v_authorization FROM private.reimport_authorization WHERE id=p_authorization_id FOR UPDATE;
+  IF NOT FOUND OR v_authorization.operation<>'reimport'
+     OR v_authorization.status<>'consumed' OR v_authorization.principal_id<>v_actor THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+  END IF;
+  SELECT * INTO v_batch FROM private.reimport_batch WHERE id=p_batch_id FOR UPDATE;
+  IF NOT FOUND
+     OR v_batch.source_id IS DISTINCT FROM v_discovered_source_id
+     OR v_batch.profile_id IS DISTINCT FROM v_discovered_profile_id
+     OR v_authorization.source_id IS DISTINCT FROM v_discovered_auth_source_id
+     OR v_authorization.profile_id IS DISTINCT FROM v_discovered_auth_profile_id
+     OR v_batch.principal_id<>v_actor
+     OR v_batch.source_id<>v_authorization.source_id
+     OR v_batch.profile_id<>v_authorization.profile_id
+     OR v_batch.profile_sha256<>v_authorization.profile_sha256
+     OR v_batch.manifest_sha256<>v_authorization.manifest_sha256
+     OR v_batch.preview_sha256<>v_authorization.preview_sha256 THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+  END IF;
+  IF v_batch.status='open' THEN
+    IF v_batch.authorization_id<>v_authorization.id THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+    END IF;
+    RETURN jsonb_build_object('batch_id',v_batch.id,'status','open','replayed',false,'person_id_map','{}'::jsonb);
+  END IF;
+  IF v_batch.status<>'finalized' OR v_batch.finalized_at IS NULL
+     OR v_batch.observed_counts IS DISTINCT FROM v_batch.expected_counts
+     OR jsonb_typeof(v_batch.expected_counts)<>'object'
+     OR coalesce(v_batch.expected_counts->>'person_creates','') !~ '^[0-9]+$'
+     OR coalesce(v_batch.expected_counts->>'source_evidence','') !~ '^[0-9]+$'
+     OR (v_batch.expected_counts ? 'legacy_migrations' AND (jsonb_typeof(v_batch.expected_counts->'legacy_migrations')<>'number' OR coalesce(v_batch.expected_counts->>'legacy_migrations','') !~ '^[0-9]+$'))
+     OR (SELECT count(*) FROM jsonb_object_keys(v_batch.expected_counts)) NOT IN (2,3)
+     OR EXISTS(SELECT 1 FROM jsonb_object_keys(v_batch.expected_counts) key WHERE key NOT IN ('person_creates','source_evidence','legacy_migrations')) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+  END IF;
+  v_expected_person_creates:=(v_batch.expected_counts->>'person_creates')::bigint;
+  v_expected_source_evidence:=(v_batch.expected_counts->>'source_evidence')::bigint;
+  v_expected_legacy_migrations:=coalesce((v_batch.expected_counts->>'legacy_migrations')::bigint,0);
+  SELECT count(*) INTO v_authorized_element_count FROM jsonb_object_keys(v_authorization.authorized_elements);
+  IF v_authorized_element_count<>(v_expected_person_creates+v_expected_source_evidence+v_expected_legacy_migrations)
+     OR EXISTS(SELECT 1 FROM jsonb_each(v_authorization.authorized_elements) item
+                WHERE jsonb_typeof(item.value)<>'object'
+                   OR (item.key !~ '^person-create:' AND item.key !~ '^source-evidence:' AND item.key !~ '^legacy-migration:'))
+     OR EXISTS(SELECT 1 FROM jsonb_object_keys(v_authorization.authorized_elements) key
+                LEFT JOIN private.reimport_event event ON event.batch_id=v_batch.id AND event.element_id=key
+                WHERE event.id IS NULL)
+     OR EXISTS(SELECT 1 FROM private.reimport_event event
+                LEFT JOIN jsonb_object_keys(v_authorization.authorized_elements) key ON key=event.element_id
+                WHERE event.batch_id=v_batch.id AND event.operation IN ('person_create','source_evidence','legacy_migration') AND key IS NULL) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+  END IF;
+  SELECT count(*),
+    count(*) FILTER (WHERE e.source_record_key IS NOT NULL AND e.source_record_key<>''
+      AND e.canonical_person_id IS NOT NULL AND e.canonical_person_id>0
+      AND e.element_id='person-create:'||e.source_record_key
+      AND e.payload->>'source_record_key'=e.source_record_key),
+    count(DISTINCT e.source_record_key),count(DISTINCT e.element_id),count(DISTINCT e.canonical_person_id),
+    coalesce(jsonb_object_agg(e.source_record_key,e.canonical_person_id ORDER BY e.element_id),'{}'::jsonb)
+  INTO v_person_create_count,v_valid_person_create_count,v_distinct_record_key_count,
+    v_distinct_element_id_count,v_distinct_person_id_count,v_person_id_map
+  FROM private.reimport_event e
+  WHERE e.batch_id=v_batch.id AND e.operation='person_create';
+  IF v_person_create_count<>v_expected_person_creates
+     OR v_valid_person_create_count<>v_person_create_count
+     OR v_distinct_record_key_count<>v_person_create_count
+     OR v_distinct_element_id_count<>v_person_create_count
+     OR v_distinct_person_id_count<>v_person_create_count THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+  END IF;
+  RETURN jsonb_build_object('batch_id',v_batch.id,'status','finalized','replayed',true,'person_id_map',v_person_id_map);
+END $$;
+
 -- #154: close every inherited/default EXECUTE grant and classify the complete
 -- public.red_* overload catalog after #153's contract-v2 cutover. A new RPC
 -- must be added to exactly one array or the migration fails closed.

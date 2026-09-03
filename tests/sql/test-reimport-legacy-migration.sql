@@ -57,4 +57,39 @@ BEGIN
   RAISE NOTICE 'task1 read filter OK';
 END $task1_read_filter$;
 
+-- Task 2: elementoperationen legacy_migration i de lukkede mængder.
+DO $task2_counts$
+DECLARE v_err text; v_ok boolean:=false;
+BEGIN
+  -- (a) to-nøgle-manifest skal stadig valideres (149a-kompatibilitet)
+  PERFORM private.validate_reimport_authorization_payload('{"person_creates":0,"source_evidence":1}'::jsonb,
+    jsonb_build_object('source-evidence:x','{}'::jsonb));
+  -- (b) tre nøgler med legacy-migration-præfiks skal valideres
+  BEGIN
+    PERFORM private.validate_reimport_authorization_payload('{"person_creates":0,"source_evidence":0,"legacy_migrations":1}'::jsonb,
+      jsonb_build_object('legacy-migration:x','{}'::jsonb));
+    v_ok:=true;
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT; END;
+  IF NOT v_ok THEN RAISE EXCEPTION 'TASK2_THREE_KEY_REJECTED: %',v_err; END IF;
+  -- (c) forkert nøgle afvises fortsat
+  v_ok:=false;
+  BEGIN
+    PERFORM private.validate_reimport_authorization_payload('{"person_creates":0,"source_evidence":0,"canonical_delta":0}'::jsonb,'{}'::jsonb);
+  EXCEPTION WHEN OTHERS THEN v_ok:=true; END;
+  IF NOT v_ok THEN RAISE EXCEPTION 'TASK2_UNKNOWN_KEY_ACCEPTED'; END IF;
+  -- (d) præfiks/antal-mismatch afvises
+  v_ok:=false;
+  BEGIN
+    PERFORM private.validate_reimport_authorization_payload('{"person_creates":0,"source_evidence":0,"legacy_migrations":1}'::jsonb,
+      jsonb_build_object('source-evidence:x','{}'::jsonb));
+  EXCEPTION WHEN OTHERS THEN v_ok:=true; END;
+  IF NOT v_ok THEN RAISE EXCEPTION 'TASK2_PREFIX_MISMATCH_ACCEPTED'; END IF;
+  -- (e) CHECK-constraint accepterer den nye operation
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.reimport_event'::regclass AND contype='c'
+                 AND pg_get_constraintdef(oid) LIKE '%legacy_migration%') THEN
+    RAISE EXCEPTION 'TASK2_OPERATION_CHECK_MISSING';
+  END IF;
+  RAISE NOTICE 'task2 counts OK';
+END $task2_counts$;
+
 ROLLBACK;
