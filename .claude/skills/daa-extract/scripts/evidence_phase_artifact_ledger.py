@@ -149,6 +149,27 @@ HISTORICAL_PHASE_CONTRACTS = (
 )
 
 
+ADAPTER_SOURCE_FILENAMES = (
+    "audit_evidence_phase_artifacts_1939_v50.py",
+    "evidence_phase_artifact_ledger.py",
+    "project_evidence_phase_artifacts_1939_v50.py",
+)
+
+
+def adapter_sha256() -> str:
+    """Bind every admission component's relative filename and exact source bytes."""
+    digest = hashlib.sha256()
+    source_dir = Path(__file__).parent
+    for filename in ADAPTER_SOURCE_FILENAMES:
+        raw = (source_dir / filename).read_bytes()
+        encoded_name = filename.encode("utf-8")
+        digest.update(len(encoded_name).to_bytes(2, "big"))
+        digest.update(encoded_name)
+        digest.update(len(raw).to_bytes(8, "big"))
+        digest.update(raw)
+    return digest.hexdigest()
+
+
 RECEIPT_ADAPTERS: Mapping[str, ReceiptAdapter] = {
     "phase-b-v1": ReceiptAdapter(
         adapter_id="phase-b-v1",
@@ -440,7 +461,16 @@ def validate_phase_rows(
         _require(len({artifact.path for artifact in artifacts}) == len(artifacts), "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_DUPLICATE")
         adapter_id = row["adapter_id"]
         _require(_valid_text(adapter_id), "EVIDENCE_RECONCILIATION_LEDGER_PHASE_INVALID")
-        _require(_is_hex_sha256(row["adapter_sha256"]), "EVIDENCE_RECONCILIATION_LEDGER_PHASE_INVALID")
+        _validate_artifact_contract(
+            adapter_id,
+            artifacts,
+            token="EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_CONTRACT_INVALID",
+        )
+        _require(
+            _is_hex_sha256(row["adapter_sha256"])
+            and row["adapter_sha256"] == adapter_sha256(),
+            "EVIDENCE_RECONCILIATION_LEDGER_ADAPTER_HASH_INVALID",
+        )
         projection_evidence = row["projection_evidence"]
         authorisation_evidence = row["authorisation_evidence"]
         _require(

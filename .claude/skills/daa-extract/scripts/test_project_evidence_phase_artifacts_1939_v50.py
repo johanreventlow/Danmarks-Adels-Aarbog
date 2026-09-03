@@ -21,7 +21,7 @@ def write_json(path, document: object) -> str:
 
 
 def adapter_sha256() -> str:
-    return hashlib.sha256(Path(projector.__file__).read_bytes()).hexdigest()
+    return projector.adapter_sha256()
 
 
 def mechanically_bound_task25_phase(manifest_sha256: str, receipt_sha256: str) -> PhaseEntry:
@@ -393,7 +393,7 @@ def test_project_rejects_phase_b_without_the_required_551_row_bound_identity_map
         sequence=2,
         artifacts=(),
         adapter_id="phase-b-v1",
-        adapter_sha256="b" * 64,
+        adapter_sha256=adapter_sha256(),
         projection_evidence="afterdocumented_unbound",
         authorisation_evidence="afterdocumented_authorisation_gap",
     )
@@ -543,7 +543,7 @@ def test_audited_projections_seal_into_a_second_ledger_and_reconcile_final_state
             ArtifactEntry("manifest", "unbound.json", "a" * 64, "synthetic-v1", True),
         ),
         adapter_id="unbound-v1",
-        adapter_sha256="b" * 64,
+        adapter_sha256=adapter_sha256(),
         projection_evidence="afterdocumented_unbound",
         authorisation_evidence="afterdocumented_authorisation_gap",
     )
@@ -581,6 +581,31 @@ def test_task25_rejects_declared_database_target_and_adapter_hash_drift(tmp_path
         project_phase(tmp_path, wrong_target, bound_summary(wrong_target))
     with pytest.raises(ProjectError, match="EVIDENCE_RECONCILIATION_INCOMPLETE"):
         project_phase(tmp_path, wrong_adapter, bound_summary(wrong_adapter))
+
+
+def test_project_rejects_the_well_formed_projector_only_legacy_hash(tmp_path):
+    manifest_sha256 = write_json(
+        tmp_path / "task25.json",
+        {
+            "schema_version": "1939-v50-production-write-manifest-v1",
+            "source": {"database_source_id": 3},
+            "person_creates": [{"element_id": "element-1", "source_record_key": "record-1"}],
+        },
+    )
+    receipt_sha256 = write_json(
+        tmp_path / "task25-receipt.json",
+        {
+            "schema_version": "daa-evidence-phase-receipt-task25-v1",
+            "manifest_sha256": manifest_sha256,
+            "database_target_identity": production_target_identity(),
+            "created_person_identities": [{"element_id": "element-1", "source_id": 3, "record_key": "record-1", "person_id": 1}],
+        },
+    )
+    phase = mechanically_bound_task25_phase(manifest_sha256, receipt_sha256)
+    legacy = replace(phase, adapter_sha256=hashlib.sha256(Path(projector.__file__).read_bytes()).hexdigest())
+
+    with pytest.raises(ProjectError, match="EVIDENCE_RECONCILIATION_INCOMPLETE"):
+        project_phase(tmp_path, legacy, bound_summary(legacy))
 
 
 def test_c0_requires_exactly_nine_receipt_bound_narrative_identities(tmp_path):

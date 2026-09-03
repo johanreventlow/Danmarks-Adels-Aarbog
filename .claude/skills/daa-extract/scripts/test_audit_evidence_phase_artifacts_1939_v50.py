@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from audit_evidence_phase_artifacts_1939_v50 import AuditError, audit_bundle, receipt_binds_manifest_and_identities
-from evidence_phase_artifact_ledger import ArtifactEntry, PhaseEntry, canonical_sha256, seal_ledger, validate_ledger
+from evidence_phase_artifact_ledger import ArtifactEntry, PhaseEntry, adapter_sha256, canonical_sha256, seal_ledger, validate_ledger
 
 
 def sha256_bytes(value: bytes) -> str:
@@ -51,7 +52,7 @@ def sealed_phase_b_ledger(manifest_sha256: str) -> list:
                             }
                         ],
                         "adapter_id": "phase-b-v1",
-                        "adapter_sha256": "a" * 64,
+                        "adapter_sha256": adapter_sha256(),
                         "database_target_identity_sha256": production_target_identity_sha256(),
                         "projection_evidence": "afterdocumented_unbound",
                         "authorisation_evidence": "afterdocumented_authorisation_gap",
@@ -136,7 +137,9 @@ def phase_b_operations(identity_map: list[dict]) -> list[dict]:
     ]
 
 
-def sealed_d1_ledger() -> list:
+def sealed_d1_ledger(tmp_path: Path) -> list:
+    raw = b"synthetic historical apply script\n"
+    (tmp_path / "d1.apply").write_bytes(raw)
     return validate_ledger(
         seal_ledger(
             {
@@ -147,15 +150,15 @@ def sealed_d1_ledger() -> list:
                         "sequence": 1,
                         "artifacts": [
                             {
-                                "role": "legacy-apply",
+                                "role": "historical_apply_script",
                                 "path": "d1.apply",
-                                "sha256": "b" * 64,
-                                "schema_version": "1939-v50-d1-legacy-apply-v1",
-                                "required": False,
+                                "sha256": sha256_bytes(raw),
+                                "schema_version": "1939-v50-d1-historical-apply-v1",
+                                "required": True,
                             }
                         ],
                         "adapter_id": "d1-historical-exception-v1",
-                        "adapter_sha256": "c" * 64,
+                        "adapter_sha256": adapter_sha256(),
                         "projection_evidence": "unavailable",
                         "authorisation_evidence": "unavailable",
                     }
@@ -282,7 +285,7 @@ def new_adapter_phase(adapter_id: str, manifest_sha256: str, receipt_sha256: str
         sequence=1,
         artifacts=tuple(artifacts),
         adapter_id=adapter_id,
-        adapter_sha256="a" * 64,
+        adapter_sha256=adapter_sha256(),
         projection_evidence="afterdocumented_unbound",
         authorisation_evidence="afterdocumented_authorisation_gap",
         database_target_identity_sha256=production_target_identity_sha256(),
@@ -302,10 +305,17 @@ def test_audit_marks_a_phase_b_baseline_without_a_manifest_bound_receipt_unbound
 
 
 def test_audit_marks_d1_as_a_manifestless_historical_exception(tmp_path):
-    result = audit_bundle(tmp_path, sealed_d1_ledger())
+    result = audit_bundle(tmp_path, sealed_d1_ledger(tmp_path))
 
     assert result.phase("d1").projection_evidence == "unavailable"
     assert result.phase("d1").error == "EVIDENCE_RECONCILIATION_HISTORICAL_EXCEPTION_NO_MANIFEST"
+
+
+def test_direct_audit_rejects_a_well_formed_noncomposite_adapter_hash(tmp_path):
+    phase = replace(sealed_d1_ledger(tmp_path)[0], adapter_sha256="f" * 64)
+
+    with pytest.raises(AuditError, match="EVIDENCE_RECONCILIATION_LEDGER_ADAPTER_HASH_INVALID"):
+        audit_bundle(tmp_path, [phase])
 
 
 def test_audit_marks_phase_b_mechanically_bound_only_for_an_exact_manifest_and_identity_map(tmp_path):
@@ -393,7 +403,7 @@ def test_audit_rejects_a_required_artifact_path_escaping_the_bundle(tmp_path):
             ),
         ),
         adapter_id="phase-b-v1",
-        adapter_sha256="a" * 64,
+        adapter_sha256=adapter_sha256(),
         projection_evidence="afterdocumented_unbound",
         authorisation_evidence="afterdocumented_authorisation_gap",
     )
@@ -883,7 +893,7 @@ def test_audit_classifies_d1_before_parsing_a_hash_locked_non_json_historical_sc
             ),
         ),
         adapter_id="d1-historical-exception-v1",
-        adapter_sha256="c" * 64,
+        adapter_sha256=adapter_sha256(),
         projection_evidence="unavailable",
         authorisation_evidence="unavailable",
     )

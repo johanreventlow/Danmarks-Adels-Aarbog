@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 
 from audit_evidence_phase_artifacts_1939_v50 import PhaseSummary
-from evidence_phase_artifact_ledger import ArtifactEntry, PhaseEntry, canonical_sha256
+from evidence_phase_artifact_ledger import ArtifactEntry, PhaseEntry, adapter_sha256, canonical_sha256
 from reconcile_evidence_phase_gate import seal
 
 
@@ -28,13 +28,6 @@ SECTIONS = (
     "persons",
 )
 
-ADAPTER_SOURCE_FILENAMES = (
-    "audit_evidence_phase_artifacts_1939_v50.py",
-    "evidence_phase_artifact_ledger.py",
-    "project_evidence_phase_artifacts_1939_v50.py",
-)
-
-
 def _require(condition: bool, token: str = "EVIDENCE_RECONCILIATION_INCOMPLETE") -> None:
     if not condition:
         raise ProjectError(token)
@@ -48,25 +41,6 @@ def _valid_sha256(value: object) -> bool:
     return isinstance(value, str) and len(value) == 64 and all(
         character in "0123456789abcdef" for character in value
     )
-
-
-def adapter_sha256() -> str:
-    """Bind every admission component's relative filename and exact source bytes."""
-    digest = hashlib.sha256()
-    source_dir = Path(__file__).parent
-    for filename in ADAPTER_SOURCE_FILENAMES:
-        raw = (source_dir / filename).read_bytes()
-        encoded_name = filename.encode("utf-8")
-        digest.update(len(encoded_name).to_bytes(2, "big"))
-        digest.update(encoded_name)
-        digest.update(len(raw).to_bytes(8, "big"))
-        digest.update(raw)
-    return digest.hexdigest()
-
-
-def _legacy_projector_sha256() -> str:
-    """Keep direct, synthetic capability callers compatible with their local fixture hash."""
-    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
 def _phase_target_matches(value: object, phase: PhaseEntry) -> bool:
@@ -570,10 +544,7 @@ def project_phase(bundle_root: Path, phase: PhaseEntry, summary: PhaseSummary) -
     _require(phase.phase_id == summary.phase_id)
     _require(summary.projection_evidence == "mechanically_bound" and summary.error is None)
     _require(phase.projection_evidence == "mechanically_bound")
-    _require(
-        _valid_sha256(phase.adapter_sha256)
-        and phase.adapter_sha256 in {adapter_sha256(), _legacy_projector_sha256()}
-    )
+    _require(_valid_sha256(phase.adapter_sha256) and phase.adapter_sha256 == adapter_sha256())
     if phase.adapter_id == "task25-v1":
         sections = _project_task25(bundle_root, phase)
     elif phase.adapter_id == "c0-followup-v1":

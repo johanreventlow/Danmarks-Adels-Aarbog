@@ -5,6 +5,7 @@ import pytest
 from evidence_phase_artifact_ledger import (
     LedgerError,
     RECEIPT_ADAPTERS,
+    adapter_sha256,
     seal_ledger,
     validate_catalog,
     validate_ledger,
@@ -29,7 +30,7 @@ def sealed_unbound_phase_with(*, contribution_sha256: str) -> dict:
                         }
                     ],
                     "adapter_id": "task25-v1",
-                    "adapter_sha256": "b" * 64,
+                    "adapter_sha256": adapter_sha256(),
                     "projection_evidence": "afterdocumented_unbound",
                     "authorisation_evidence": "afterdocumented_authorisation_gap",
                     "contribution_sha256": contribution_sha256,
@@ -57,7 +58,7 @@ def test_audit_input_ledger_has_no_contribution_hash_until_projection_is_complet
                         }
                     ],
                     "adapter_id": "task25-v1",
-                    "adapter_sha256": "b" * 64,
+                    "adapter_sha256": adapter_sha256(),
                     "projection_evidence": "mechanically_bound",
                     "authorisation_evidence": "afterdocumented_authorisation_gap",
                 }
@@ -124,6 +125,55 @@ def test_catalog_rejects_a_manifest_receipt_schema_swap_for_task25():
         validate_catalog(catalog)
 
 
+def test_direct_ledger_rejects_a_well_formed_noncomposite_adapter_hash():
+    ledger = seal_ledger(
+        {
+            "schema_version": "daa-evidence-phase-artifact-ledger-v2",
+            "phases": [
+                {
+                    "phase_id": "synthetic",
+                    "sequence": 1,
+                    "artifacts": [
+                        {"role": "manifest", "path": "synthetic.json", "sha256": "a" * 64, "schema_version": "synthetic-v1", "required": True}
+                    ],
+                    "adapter_id": "synthetic-v1",
+                    "adapter_sha256": "f" * 64,
+                    "projection_evidence": "afterdocumented_unbound",
+                    "authorisation_evidence": "afterdocumented_authorisation_gap",
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(LedgerError, match="EVIDENCE_RECONCILIATION_LEDGER_ADAPTER_HASH_INVALID"):
+        validate_ledger(ledger)
+
+
+def test_direct_ledger_rejects_an_undeclared_task25_role_before_audit_or_projection():
+    ledger = seal_ledger(
+        {
+            "schema_version": "daa-evidence-phase-artifact-ledger-v2",
+            "phases": [
+                {
+                    "phase_id": "task25",
+                    "sequence": 1,
+                    "artifacts": [
+                        {"role": "manifest", "path": "manifest.json", "sha256": "a" * 64, "schema_version": "1939-v50-production-write-manifest-v1", "required": True},
+                        {"role": "unexpected", "path": "unexpected.json", "sha256": "b" * 64, "schema_version": "synthetic-v1", "required": True},
+                    ],
+                    "adapter_id": "task25-v1",
+                    "adapter_sha256": "f" * 64,
+                    "projection_evidence": "afterdocumented_unbound",
+                    "authorisation_evidence": "afterdocumented_authorisation_gap",
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(LedgerError, match="EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_CONTRACT_INVALID"):
+        validate_ledger(ledger)
+
+
 def test_reconciliation_ledger_rejects_an_unbound_phase_that_claims_a_contribution():
     ledger = sealed_unbound_phase_with(contribution_sha256="c" * 64)
 
@@ -152,7 +202,7 @@ def test_reconciliation_requires_a_contribution_hash_for_every_mechanically_boun
                         }
                     ],
                     "adapter_id": "task25-v1",
-                    "adapter_sha256": "b" * 64,
+                    "adapter_sha256": adapter_sha256(),
                     "projection_evidence": "mechanically_bound",
                     "authorisation_evidence": "afterdocumented_authorisation_gap",
                 }
@@ -189,7 +239,7 @@ def test_ledger_rejects_artifacts_with_the_same_normalized_relative_path():
                         },
                     ],
                     "adapter_id": "task25-v1",
-                    "adapter_sha256": "c" * 64,
+                    "adapter_sha256": adapter_sha256(),
                     "projection_evidence": "mechanically_bound",
                     "authorisation_evidence": "afterdocumented_authorisation_gap",
                 }
@@ -222,7 +272,7 @@ def test_ledger_rejects_a_nul_artifact_path_before_path_resolution():
                         }
                     ],
                     "adapter_id": "task25-v1",
-                    "adapter_sha256": "b" * 64,
+                    "adapter_sha256": adapter_sha256(),
                     "projection_evidence": "afterdocumented_unbound",
                     "authorisation_evidence": "afterdocumented_authorisation_gap",
                 }
@@ -252,7 +302,7 @@ def test_ledger_requires_a_hash_declared_production_target_for_phase_b():
                         }
                     ],
                     "adapter_id": "phase-b-v1",
-                    "adapter_sha256": "b" * 64,
+                    "adapter_sha256": adapter_sha256(),
                     "projection_evidence": "afterdocumented_unbound",
                     "authorisation_evidence": "afterdocumented_authorisation_gap",
                 }
@@ -332,7 +382,7 @@ def test_ledger_rejects_non_string_evidence_states_with_a_stable_token(field: st
                         }
                     ],
                     "adapter_id": "task25-v1",
-                    "adapter_sha256": "b" * 64,
+                    "adapter_sha256": adapter_sha256(),
                     "projection_evidence": "mechanically_bound",
                     "authorisation_evidence": "afterdocumented_authorisation_gap",
                 }

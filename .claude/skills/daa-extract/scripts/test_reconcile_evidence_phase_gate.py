@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from evidence_phase_artifact_ledger import seal_ledger
+from evidence_phase_artifact_ledger import adapter_sha256, seal_ledger
 from reconcile_evidence_phase_gate import ReconciliationError, load_phase_manifest, main, reconcile, seal
 
 
@@ -75,12 +75,12 @@ def _ledger(*manifests: dict) -> dict:
                             "role": "contribution",
                             "path": f"{manifest['phase_id']}.json",
                             "sha256": manifest["reconciliation_content_sha256"],
-                            "schema_version": "daa-evidence-phase-reconciliation-manifest-v1",
+                            "schema_version": "1939-v50-phase-a-anchor-manifest-v1",
                             "required": True,
                         }
                     ],
                     "adapter_id": f"{manifest['phase_id']}-adapter-v1",
-                    "adapter_sha256": "b" * 64,
+                    "adapter_sha256": adapter_sha256(),
                     "projection_evidence": "mechanically_bound",
                     "authorisation_evidence": "contemporaneous_phase_package",
                     "contribution_sha256": manifest["reconciliation_content_sha256"],
@@ -104,12 +104,12 @@ def _unbound_ledger() -> dict:
                             "role": "manifest",
                             "path": "phase-a.json",
                             "sha256": "a" * 64,
-                            "schema_version": "daa-evidence-phase-reconciliation-manifest-v1",
+                            "schema_version": "1939-v50-phase-a-anchor-manifest-v1",
                             "required": True,
                         }
                     ],
                     "adapter_id": "phase-a-v1",
-                    "adapter_sha256": "b" * 64,
+                    "adapter_sha256": adapter_sha256(),
                     "projection_evidence": "afterdocumented_unbound",
                     "authorisation_evidence": "afterdocumented_authorisation_gap",
                 }
@@ -128,15 +128,15 @@ def _unavailable_ledger() -> dict:
                     "sequence": 1,
                     "artifacts": [
                         {
-                            "role": "legacy-apply",
+                            "role": "historical_apply_script",
                             "path": "d1-historical-exception.placeholder",
                             "sha256": "a" * 64,
-                            "schema_version": "1939-v50-d1-legacy-apply-v1",
-                            "required": False,
+                            "schema_version": "1939-v50-d1-historical-apply-v1",
+                            "required": True,
                         }
                     ],
                     "adapter_id": "d1-historical-exception-v1",
-                    "adapter_sha256": "b" * 64,
+                    "adapter_sha256": adapter_sha256(),
                     "projection_evidence": "unavailable",
                     "authorisation_evidence": "unavailable",
                 }
@@ -208,6 +208,31 @@ def test_reconcile_refuses_an_unavailable_historical_phase_before_snapshot_valid
     """An invalid snapshot must remain unread when D1 is still unavailable."""
     with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_INCOMPLETE"):
         reconcile({"not": "a snapshot"}, [], _unavailable_ledger())
+
+
+def test_reconcile_rejects_a_direct_ledger_with_an_undeclared_task25_role():
+    ledger = seal_ledger(
+        {
+            "schema_version": "daa-evidence-phase-artifact-ledger-v2",
+            "phases": [
+                {
+                    "phase_id": "task25",
+                    "sequence": 1,
+                    "artifacts": [
+                        {"role": "manifest", "path": "manifest.json", "sha256": "a" * 64, "schema_version": "1939-v50-production-write-manifest-v1", "required": True},
+                        {"role": "undeclared", "path": "undeclared.json", "sha256": "b" * 64, "schema_version": "synthetic-v1", "required": True},
+                    ],
+                    "adapter_id": "task25-v1",
+                    "adapter_sha256": adapter_sha256(),
+                    "projection_evidence": "afterdocumented_unbound",
+                    "authorisation_evidence": "afterdocumented_authorisation_gap",
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_CONTRACT_INVALID"):
+        reconcile({}, [], ledger)
 
 
 def test_reconcile_rejects_a_missing_ledger_contribution_before_snapshot_validation():

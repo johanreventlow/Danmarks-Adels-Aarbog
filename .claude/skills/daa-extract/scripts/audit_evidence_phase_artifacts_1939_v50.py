@@ -13,6 +13,7 @@ from evidence_phase_artifact_ledger import (
     PhaseEntry,
     RECEIPT_ADAPTERS,
     ReceiptAdapter,
+    adapter_sha256,
     canonical_sha256,
 )
 
@@ -587,6 +588,8 @@ def _receipt_binds_phase(verified: Mapping[str, _VerifiedArtifact], phase: Phase
 def audit_bundle(bundle_root: Path, ledger: list[PhaseEntry]) -> AuditResult:
     summaries: list[PhaseSummary] = []
     for phase in ledger:
+        if phase.adapter_sha256 != adapter_sha256():
+            raise AuditError("EVIDENCE_RECONCILIATION_LEDGER_ADAPTER_HASH_INVALID")
         if phase.phase_id == "d1":
             for artifact in phase.artifacts:
                 if artifact.required:
