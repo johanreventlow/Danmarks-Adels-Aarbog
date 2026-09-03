@@ -157,10 +157,27 @@ BEGIN
     'legacy_baseline_sha256',CASE WHEN p_levende THEN NULL ELSE v_baseline END);
 END $fixture$;
 
--- Hjælper: kør én legacy-migration-batch med præcis ét element og returnér RPC-resultatet.
-CREATE FUNCTION pg_temp.task3_migrate(p_fx jsonb, p_disposition text, p_manifest_nonce text)
-RETURNS jsonb LANGUAGE plpgsql AS $migrate$
-DECLARE v_payload jsonb; v_auth uuid; v_batch uuid; v_result jsonb; v_msha text := encode(extensions.digest(p_manifest_nonce,'sha256'),'hex');
+-- Hjælper: byg 149b-payloaden (lukket 11-nøglemængde) for en fixture.
+CREATE FUNCTION pg_temp.task3_payload(p_fx jsonb, p_disposition text)
+RETURNS jsonb LANGUAGE sql AS $payload$
+  SELECT jsonb_build_object(
+    'source_record_key',p_fx->>'record_key','source_id',(p_fx->>'source_id')::bigint,
+    'person_id',(p_fx->>'person_id')::bigint,'narrative_id',(p_fx->>'narrative_id')::bigint,
+    'disposition',p_disposition,
+    'narrative_text_sha256',p_fx->>'narrative_text_sha256',
+    'occurrence_verbatim_sha256',p_fx->>'occurrence_verbatim_sha256',
+    'normalized_text_sha256',p_fx->>'narrative_text_sha256',
+    'legacy_publication_ref',p_fx->'legacy_publication_ref',
+    'legacy_baseline_sha256',p_fx->'legacy_baseline_sha256',
+    'persona_key',p_fx->>'record_key')
+$payload$;
+
+-- Hjælper: kør én legacy-migration-batch med præcis ét element og en vilkårlig
+-- payload/elementnøgle. Autorisationen hash-binder payloaden, så mutationer skal
+-- gå gennem denne vej og ikke gennem en efterfølgende ændring.
+CREATE FUNCTION pg_temp.task3_migrate_raw(p_fx jsonb, p_payload jsonb, p_element_key text, p_manifest_nonce text)
+RETURNS jsonb LANGUAGE plpgsql AS $raw$
+DECLARE v_auth uuid; v_batch uuid; v_result jsonb; v_msha text := encode(extensions.digest(p_manifest_nonce,'sha256'),'hex');
   v_lm_profile text := (p_fx->>'profile_id')||'-lm'; v_lm_config jsonb; v_lm_sha text;
 BEGIN
   -- Legacy-migration-profil for fixturens source (spec 6.1: egen profil, samme lukkede feltmængde).
@@ -171,30 +188,27 @@ BEGIN
   v_lm_sha:=private.reimport_canonical_json_sha256(v_lm_config);
   INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
   VALUES((p_fx->>'source_id')::bigint,v_lm_profile,'legacy-migration-v1',v_lm_sha,v_lm_config) ON CONFLICT DO NOTHING;
-  v_payload:=jsonb_build_object(
-    'source_record_key',p_fx->>'record_key','source_id',(p_fx->>'source_id')::bigint,
-    'person_id',(p_fx->>'person_id')::bigint,'narrative_id',(p_fx->>'narrative_id')::bigint,
-    'disposition',p_disposition,
-    'narrative_text_sha256',p_fx->>'narrative_text_sha256',
-    'occurrence_verbatim_sha256',p_fx->>'occurrence_verbatim_sha256',
-    'normalized_text_sha256',p_fx->>'narrative_text_sha256',
-    'legacy_publication_ref',p_fx->'legacy_publication_ref',
-    'legacy_baseline_sha256',p_fx->'legacy_baseline_sha256',
-    'persona_key',p_fx->>'record_key');
   PERFORM set_config('request.jwt.claim.sub',p_fx->>'actor',true);
   PERFORM set_config('role','service_role',true);
   v_auth:=public.red_authorize_reimport(v_msha,repeat('9',64),
     jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,
     (p_fx->>'source_id')::bigint,v_lm_profile,v_lm_sha,
     '{"person_creates":0,"source_evidence":0,"legacy_migrations":1}'::jsonb,
-    jsonb_build_object('legacy-migration:'||(p_fx->>'record_key'),v_payload),gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+    jsonb_build_object('legacy-migration:'||p_element_key,p_payload),gen_random_uuid(),clock_timestamp()+interval '5 minutes');
   PERFORM set_config('role','authenticated',true);
   v_batch:=public.red_begin_reimport(v_auth,v_msha,repeat('9',64));
-  v_result:=public.red_apply_reimport_legacy_migration(v_batch,'legacy-migration:'||(p_fx->>'record_key'),v_payload);
+  v_result:=public.red_apply_reimport_legacy_migration(v_batch,'legacy-migration:'||p_element_key,p_payload);
   PERFORM set_config('app.change_set_id','',true);
   PERFORM public.red_finalize_reimport(v_batch);
   RESET role;
   RETURN v_result||jsonb_build_object('batch_id',v_batch,'authorization_id',v_auth);
+END $raw$;
+
+-- Hjælper: den almindelige vej — kanonisk payload for fixturen.
+CREATE FUNCTION pg_temp.task3_migrate(p_fx jsonb, p_disposition text, p_manifest_nonce text)
+RETURNS jsonb LANGUAGE plpgsql AS $migrate$
+BEGIN
+  RETURN pg_temp.task3_migrate_raw(p_fx,pg_temp.task3_payload(p_fx,p_disposition),p_fx->>'record_key',p_manifest_nonce);
 END $migrate$;
 
 DO $task3_happy_path$
@@ -232,6 +246,89 @@ BEGIN
   IF v_rows<>0 THEN RAISE EXCEPTION 'TASK3_DRAFT_PUBLIC_ROWS: %',v_rows; END IF;
   RAISE NOTICE 'task3 happy path OK';
 END $task3_happy_path$;
+
+-- Spec §10: replay = already_applied, begge offentlige funktioner + redaktørlisten
+-- efter en ÆGTE migration, og narrativrækken bit-for-bit urørt (§6.5).
+DO $task3_reads_and_replay$
+DECLARE
+  fx jsonb; r jsonb; v_rows integer; v_kind text; v_status text;
+  v_tekst_før text; v_privat_før boolean; v_side_før text;
+  v_tekst_efter text; v_privat_efter boolean; v_side_efter text;
+  v_events_før integer; v_events_efter integer;
+  v_lm_profile text; v_lm_sha text; v_payload jsonb;
+  v_msha text := encode(extensions.digest('t3x','sha256'),'hex');
+  v_auth uuid; v_batch2 uuid; v_res jsonb; v_ok boolean; v_err text;
+BEGIN
+  fx:=pg_temp.task3_fixture('T3X',false);
+  SELECT tekst,coalesce(privat,false),side INTO v_tekst_før,v_privat_før,v_side_før
+    FROM public.narrative WHERE id=(fx->>'narrative_id')::bigint;
+  r:=pg_temp.task3_migrate(fx,'bound_published','t3x');
+
+  -- (iii) narrativrækken er urørt: tekst, privat OG side
+  SELECT tekst,coalesce(privat,false),side INTO v_tekst_efter,v_privat_efter,v_side_efter
+    FROM public.narrative WHERE id=(fx->>'narrative_id')::bigint;
+  IF v_tekst_efter IS DISTINCT FROM v_tekst_før THEN RAISE EXCEPTION 'TASK3X_NARRATIVE_TEKST_CHANGED'; END IF;
+  IF v_privat_efter IS DISTINCT FROM v_privat_før THEN RAISE EXCEPTION 'TASK3X_NARRATIVE_PRIVAT_CHANGED'; END IF;
+  IF v_side_efter IS DISTINCT FROM v_side_før THEN RAISE EXCEPTION 'TASK3X_NARRATIVE_SIDE_CHANGED'; END IF;
+
+  -- (ii) redaktørlisten: præcis én række, source_record, published, ingen grandfathered_legacy
+  PERFORM set_config('request.jwt.claim.sub',fx->>'actor',true);
+  SELECT count(*) INTO v_rows FROM public.red_person_narrative_records((fx->>'person_id')::bigint);
+  IF v_rows<>1 THEN RAISE EXCEPTION 'TASK3X_EDITOR_ROWS: %',v_rows; END IF;
+  SELECT provenance_kind,publication_status INTO v_kind,v_status
+    FROM public.red_person_narrative_records((fx->>'person_id')::bigint);
+  IF v_kind<>'source_record' OR v_status<>'published' THEN RAISE EXCEPTION 'TASK3X_EDITOR_ROW: % %',v_kind,v_status; END IF;
+  SELECT count(*) INTO v_rows FROM public.red_person_narrative_records((fx->>'person_id')::bigint) WHERE provenance_kind='grandfathered_legacy';
+  IF v_rows<>0 THEN RAISE EXCEPTION 'TASK3X_EDITOR_LEGACY_LEAK: %',v_rows; END IF;
+
+  -- (ii) v1-navnet: præcis én række, source_record
+  SELECT count(*) INTO v_rows FROM public.public_person_bio_source_versions(ARRAY[(fx->>'person_id')::bigint]);
+  IF v_rows<>1 THEN RAISE EXCEPTION 'TASK3X_PUBLIC_V1_ROWS: %',v_rows; END IF;
+  SELECT provenance_kind INTO v_kind FROM public.public_person_bio_source_versions(ARRAY[(fx->>'person_id')::bigint]);
+  IF v_kind<>'source_record' THEN RAISE EXCEPTION 'TASK3X_PUBLIC_V1_KIND: %',v_kind; END IF;
+
+  -- (i) replay: samme manifest/preview/profil/elementer -> samme finaliserede batch,
+  -- already_applied-vejen, og ingen nye events.
+  SELECT count(*) INTO v_events_før FROM private.narrative_publication_event WHERE narrative_id=(fx->>'narrative_id')::bigint;
+  v_lm_profile:=(fx->>'profile_id')||'-lm';
+  SELECT profile_sha256 INTO v_lm_sha FROM private.reimport_writer_profile
+   WHERE source_id=(fx->>'source_id')::bigint AND profile_id=v_lm_profile;
+  v_payload:=pg_temp.task3_payload(fx,'bound_published');
+  PERFORM set_config('role','service_role',true);
+  v_auth:=public.red_authorize_reimport(v_msha,repeat('9',64),
+    jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,
+    (fx->>'source_id')::bigint,v_lm_profile,v_lm_sha,
+    '{"person_creates":0,"source_evidence":0,"legacy_migrations":1}'::jsonb,
+    jsonb_build_object('legacy-migration:'||(fx->>'record_key'),v_payload),gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  PERFORM set_config('role','authenticated',true);
+  v_batch2:=public.red_begin_reimport(v_auth,v_msha,repeat('9',64));
+  v_res:=public.red_reimport_batch_result(v_auth,v_batch2);
+  RESET role;
+  IF v_batch2::text IS DISTINCT FROM r->>'batch_id' THEN RAISE EXCEPTION 'TASK3X_REPLAY_NEW_BATCH: % vs %',v_batch2,r->>'batch_id'; END IF;
+  IF v_res->>'status'<>'finalized' OR (v_res->>'replayed')::boolean IS NOT TRUE THEN RAISE EXCEPTION 'TASK3X_REPLAY_RESULT: %',v_res; END IF;
+  SELECT count(*) INTO v_events_efter FROM private.narrative_publication_event WHERE narrative_id=(fx->>'narrative_id')::bigint;
+  IF v_events_efter<>v_events_før THEN RAISE EXCEPTION 'TASK3X_REPLAY_WROTE_EVENTS: % -> %',v_events_før,v_events_efter; END IF;
+  SELECT count(*) INTO v_rows FROM private.reimport_event WHERE batch_id=v_batch2 AND operation='legacy_migration';
+  IF v_rows<>1 THEN RAISE EXCEPTION 'TASK3X_REPLAY_REIMPORT_EVENTS: %',v_rows; END IF;
+
+  -- Spec §8: batch-reversal af en ren legacy_migration-batch afvises fail-closed,
+  -- og hverken ledger, binding eller batch må ændre sig.
+  PERFORM set_config('request.jwt.claim.sub',fx->>'actor',true);
+  v_ok:=false;
+  BEGIN
+    v_auth:=public.red_authorize_reimport_reversal((r->>'batch_id')::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+    PERFORM public.red_reverse_reimport((r->>'batch_id')::uuid,v_auth);
+  EXCEPTION WHEN OTHERS THEN v_ok:=SQLERRM LIKE 'REIMPORT_WRITER_REVERSAL_INVALID%'; v_err:=SQLERRM; END;
+  PERFORM set_config('app.change_set_id','',true);
+  IF NOT v_ok THEN RAISE EXCEPTION 'TASK3X_BATCH_REVERSAL_ACCEPTED got %',coalesce(v_err,'(success)'); END IF;
+  SELECT status INTO v_status FROM private.narrative_legacy_publication WHERE legacy_publication_ref=(fx->>'legacy_publication_ref')::uuid;
+  IF v_status<>'migrated' THEN RAISE EXCEPTION 'TASK3X_BATCH_REVERSAL_TOUCHED_LEDGER: %',v_status; END IF;
+  SELECT status INTO v_status FROM private.narrative_record_publication WHERE narrative_id=(fx->>'narrative_id')::bigint;
+  IF v_status<>'published' THEN RAISE EXCEPTION 'TASK3X_BATCH_REVERSAL_TOUCHED_BINDING: %',v_status; END IF;
+  SELECT status INTO v_status FROM private.reimport_batch WHERE id=(r->>'batch_id')::uuid;
+  IF v_status<>'finalized' THEN RAISE EXCEPTION 'TASK3X_BATCH_REVERSAL_TOUCHED_BATCH: %',v_status; END IF;
+  RAISE NOTICE 'task3 reads and replay OK';
+END $task3_reads_and_replay$;
 
 -- Hjælper: forvent en bestemt fejlkode fra én migration (subtransaktion ruller tilbage).
 CREATE FUNCTION pg_temp.task3_expect(p_code text, p_fx jsonb, p_disposition text, p_nonce text)
@@ -277,6 +374,122 @@ BEGIN
   IF NOT v_ok THEN RAISE EXCEPTION 'TASK3_EXPECTED_WRITER_GATE'; END IF;
   RAISE NOTICE 'task3 rejections OK';
 END $task3_rejections$;
+
+-- Hjælper: forvent en bestemt fejlkode fra én migration med vilkårlig payload.
+CREATE FUNCTION pg_temp.task3_expect_raw(p_code text, p_fx jsonb, p_payload jsonb, p_element_key text, p_nonce text)
+RETURNS void LANGUAGE plpgsql AS $expectraw$
+BEGIN
+  BEGIN
+    PERFORM pg_temp.task3_migrate_raw(p_fx,p_payload,p_element_key,p_nonce);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE p_code||'%' THEN RETURN; END IF;
+    RAISE EXCEPTION 'TASK3P_EXPECTED_% GOT %',p_code,SQLERRM;
+  END;
+  RAISE EXCEPTION 'TASK3P_EXPECTED_%_BUT_SUCCEEDED',p_code;
+END $expectraw$;
+
+-- Spec §10: ALLE §6.3-preconditions skal fejle med deres egen kode.
+DO $task3_preconditions$
+DECLARE
+  fx jsonb; fx2 jsonb; p jsonb; v_person bigint; v_narrative bigint; v_occ uuid; v_obs uuid; v_run uuid; v_cs text;
+BEGIN
+  -- ---- LEGACY_MIGRATION_PAYLOAD_INVALID (fem former) ----
+  fx:=pg_temp.task3_fixture('P1',false);
+  p:=pg_temp.task3_payload(fx,'bound_published');
+  -- (1) ekstra nøgle
+  PERFORM pg_temp.task3_expect_raw('LEGACY_MIGRATION_PAYLOAD_INVALID',fx,p||'{"extra_key":1}'::jsonb,fx->>'record_key','p1a');
+  -- (2) manglende nøgle
+  PERFORM pg_temp.task3_expect_raw('LEGACY_MIGRATION_PAYLOAD_INVALID',fx,p-'persona_key',fx->>'record_key','p1b');
+  -- (3) ukendt disposition
+  PERFORM pg_temp.task3_expect_raw('LEGACY_MIGRATION_PAYLOAD_INVALID',fx,jsonb_set(p,'{disposition}','"bound_elsewhere"'),fx->>'record_key','p1c');
+  -- (4) bound_published uden legacy_publication_ref
+  PERFORM pg_temp.task3_expect_raw('LEGACY_MIGRATION_PAYLOAD_INVALID',fx,jsonb_set(p,'{legacy_publication_ref}','null'),fx->>'record_key','p1d');
+  -- (5) bound_draft MED legacy_publication_ref/baseline
+  PERFORM pg_temp.task3_expect_raw('LEGACY_MIGRATION_PAYLOAD_INVALID',fx,jsonb_set(p,'{disposition}','"bound_draft"'),fx->>'record_key','p1e');
+  -- (6) forkert hash-format
+  PERFORM pg_temp.task3_expect_raw('LEGACY_MIGRATION_PAYLOAD_INVALID',fx,jsonb_set(p,'{normalized_text_sha256}','"ikke-en-hash"'),fx->>'record_key','p1f');
+
+  -- ---- NARRATIVE_RECORD_FOREIGN_CHANGE_SET ----
+  v_cs:=(SELECT max(id)::text FROM public.change_set);
+  PERFORM set_config('app.change_set_id',v_cs,true);
+  BEGIN
+    PERFORM pg_temp.task3_expect_raw('NARRATIVE_RECORD_FOREIGN_CHANGE_SET',fx,p,fx->>'record_key','p1g');
+  EXCEPTION WHEN OTHERS THEN PERFORM set_config('app.change_set_id','',true); RAISE; END;
+  PERFORM set_config('app.change_set_id','',true);
+
+  -- ---- LEGACY_MIGRATION_RECORD_MISSING ----
+  PERFORM pg_temp.task3_expect_raw('LEGACY_MIGRATION_RECORD_MISSING',fx,
+    jsonb_set(p,'{source_record_key}','"P1-FINDES-IKKE"'),'P1-FINDES-IKKE','p2');
+
+  -- ---- LEGACY_MIGRATION_OCCURRENCE_TEXT_DRIFT ----
+  PERFORM pg_temp.task3_expect_raw('LEGACY_MIGRATION_OCCURRENCE_TEXT_DRIFT',fx,
+    jsonb_set(p,'{occurrence_verbatim_sha256}',to_jsonb(repeat('b',64))),fx->>'record_key','p3');
+
+  -- ---- LEGACY_MIGRATION_ANCHOR_AMBIGUOUS (to accepterede ankre) ----
+  fx:=pg_temp.task3_fixture('P4',false);
+  SELECT o.id,o.rendition_id,o.extraction_run_id INTO v_occ,v_obs,v_run
+    FROM private.source_record_anchor_current a
+    JOIN private.source_record_occurrence o ON o.id=a.occurrence_id
+    JOIN private.source_record r ON r.id=a.source_record_id
+   WHERE r.source_id=(fx->>'source_id')::bigint AND r.record_key=fx->>'record_key';
+  INSERT INTO private.source_record_occurrence(rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id)
+  SELECT o.rendition_id,'dublet:'||(fx->>'record_key'),o.page_from,o.page_to,o.char_from,o.char_to,o.verbatim_text,o.physical_fingerprint,o.structural_fingerprint,o.extraction_run_id
+    FROM private.source_record_occurrence o WHERE o.id=v_occ
+  RETURNING id INTO v_occ;
+  INSERT INTO private.source_record_anchor_event(occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name)
+  SELECT v_occ,r.id,'accepted',jsonb_build_object('fixture','anchor-ambiguous'),1,(fx->>'actor')::uuid,'fixture'
+    FROM private.source_record r WHERE r.source_id=(fx->>'source_id')::bigint AND r.record_key=fx->>'record_key';
+  PERFORM pg_temp.task3_expect('LEGACY_MIGRATION_ANCHOR_AMBIGUOUS',fx,'bound_published','p4');
+
+  -- ---- LEGACY_MIGRATION_MENTION_AMBIGUOUS (to mentions på samme observation) ----
+  fx:=pg_temp.task3_fixture('P5',false);
+  SELECT ob.id,ob.extraction_run_id INTO v_obs,v_run
+    FROM private.source_record_anchor_current a
+    JOIN private.source_observation ob ON ob.occurrence_id=a.occurrence_id
+    JOIN private.source_record r ON r.id=a.source_record_id
+   WHERE r.source_id=(fx->>'source_id')::bigint AND r.record_key=fx->>'record_key';
+  INSERT INTO private.source_mention(observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id)
+  SELECT m.observation_id,m.mention_kind,m.char_from,m.char_to,m.verbatim_text,m.created_run_id
+    FROM private.source_mention m WHERE m.observation_id=v_obs LIMIT 1;
+  PERFORM pg_temp.task3_expect('LEGACY_MIGRATION_MENTION_AMBIGUOUS',fx,'bound_published','p5');
+
+  -- ---- LEGACY_MIGRATION_NARRATIVE_AMBIGUOUS: to narrativer for samme person/source ----
+  fx:=pg_temp.task3_fixture('P6',false);
+  INSERT INTO public.narrative(subjekt_type,subjekt_id,source_id,side,tekst,privat)
+  VALUES('person',(fx->>'person_id')::bigint,(fx->>'source_id')::bigint,'11','Alfa P6 ekstra Bravo.',false);
+  PERFORM pg_temp.task3_expect('LEGACY_MIGRATION_NARRATIVE_AMBIGUOUS',fx,'bound_published','p6');
+
+  -- ---- LEGACY_MIGRATION_NARRATIVE_AMBIGUOUS: narrative_id peger et andet sted hen ----
+  fx:=pg_temp.task3_fixture('P7',false);
+  fx2:=pg_temp.task3_fixture('P7B',false);
+  PERFORM pg_temp.task3_expect_raw('LEGACY_MIGRATION_NARRATIVE_AMBIGUOUS',fx,
+    jsonb_set(pg_temp.task3_payload(fx,'bound_published'),'{narrative_id}',to_jsonb((fx2->>'narrative_id')::bigint)),
+    fx->>'record_key','p7');
+
+  -- ---- NARRATIVE_LEGACY_BASELINE_DRIFT (baseline er immutabel; kandidattilstanden driver) ----
+  fx:=pg_temp.task3_fixture('P8',false);
+  UPDATE public.narrative SET side='99' WHERE id=(fx->>'narrative_id')::bigint;
+  PERFORM pg_temp.task3_expect('NARRATIVE_LEGACY_BASELINE_DRIFT',fx,'bound_published','p8');
+
+  -- ---- LEGACY_MIGRATION_PERSONA_EXISTS ----
+  fx:=pg_temp.task3_fixture('P9',false);
+  SELECT id INTO v_run FROM private.extraction_run WHERE source_id=(fx->>'source_id')::bigint ORDER BY id LIMIT 1;
+  INSERT INTO private.source_persona(source_id,persona_key,created_run_id)
+  VALUES((fx->>'source_id')::bigint,fx->>'record_key',v_run);
+  PERFORM pg_temp.task3_expect('LEGACY_MIGRATION_PERSONA_EXISTS',fx,'bound_published','p9');
+
+  -- ---- LEGACY_MIGRATION_PRESTATE_INVALID (aktiv binding fra et andet narrativ på samme record) ----
+  fx:=pg_temp.task3_fixture('P10',false);
+  INSERT INTO public.person(levende,privat,staged) VALUES(false,false,false) RETURNING id INTO v_person;
+  INSERT INTO public.narrative(subjekt_type,subjekt_id,source_id,side,tekst,privat)
+  VALUES('person',v_person,(fx->>'source_id')::bigint,'12','Alfa P10 anden Bravo.',false) RETURNING id INTO v_narrative;
+  INSERT INTO private.narrative_record_publication(narrative_id,source_record_id,record_label,citation_label,status)
+  SELECT v_narrative,r.id,'fixture-label','fixture-citation','draft'
+    FROM private.source_record r WHERE r.source_id=(fx->>'source_id')::bigint AND r.record_key=fx->>'record_key';
+  PERFORM pg_temp.task3_expect('LEGACY_MIGRATION_PRESTATE_INVALID',fx,'bound_published','p10');
+
+  RAISE NOTICE 'task3 preconditions OK';
+END $task3_preconditions$;
 
 -- Task 4: legacy_migrated-grenen i den dedikerede reversal.
 -- Bemærk: rollen skiftes ikke i denne blok. private.narrative_legacy_state og
