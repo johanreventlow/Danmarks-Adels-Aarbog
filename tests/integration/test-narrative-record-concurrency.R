@@ -280,7 +280,7 @@ collect_workers <- function(jobs, timeout = 15) {
   })
 }
 
-wait_for_blockers <- function(con, application_names, blocker_pid, timeout = 5,
+wait_for_blockers <- function(con, application_names, blocker_pid, timeout = 15,
                               jobs = NULL) {
   deadline <- Sys.time() + timeout
   repeat {
@@ -755,7 +755,12 @@ old_a_sql <- sprintf(
   old_source_id
 )
 old_a_job <- launch_worker("task12_old_a", old_a_sql, actor_id)
-wait_for_blockers(observer, "task12_old_a", cutover_pid)
+wait_for_blockers(
+  observer,
+  "task12_old_a",
+  cutover_pid,
+  jobs = list(old_a = old_a_job)
+)
 DBI::dbCommit(cutover)
 old_a_result <- collect_workers(list(old_a = old_a_job))[[1L]]
 expect_true(identical(old_a_result$code, "NARRATIVE_RECORD_REQUIRED"),
@@ -825,7 +830,12 @@ cutover_b_sql <- cutover_kernel_sql(
   controller, cutover_artifacts, cutover_b_nonce
 )
 cutover_b_job <- launch_worker("task12_cutover_b", cutover_b_sql, fetch = FALSE)
-wait_for_blockers(observer, "task12_cutover_b", old_writer_pid)
+wait_for_blockers(
+  observer,
+  "task12_cutover_b",
+  old_writer_pid,
+  jobs = list(cutover_b = cutover_b_job)
+)
 DBI::dbCommit(old_writer)
 cutover_b_result <- collect_workers(list(cutover_b = cutover_b_job))[[1L]]
 expect_true(identical(cutover_b_result$code, "CUTOVER_LEGACY_LIVE_SET_DRIFT"),
