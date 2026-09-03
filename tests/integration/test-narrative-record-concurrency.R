@@ -236,6 +236,21 @@ worker_program <- paste0(
 )
 
 launch_worker <- function(application_name, sql, actor_id = NULL, fetch = TRUE) {
+  worker_env <- c(
+    PGDATABASE = pg$PGDATABASE,
+    PGHOST = pg$PGHOST,
+    PGPORT = as.character(pg$PGPORT),
+    PGUSER = pg$PGUSER,
+    PGPASSWORD = pg$PGPASSWORD
+  )
+  inherited_library_env <- Sys.getenv(
+    c("R_LIBS", "R_LIBS_USER", "R_LIBS_SITE"),
+    unset = NA_character_
+  )
+  inherited_library_env <- inherited_library_env[
+    !is.na(inherited_library_env) & nzchar(inherited_library_env)
+  ]
+
   processx::process$new(
     file.path(R.home("bin"), "Rscript"),
     args = c(
@@ -243,13 +258,7 @@ launch_worker <- function(application_name, sql, actor_id = NULL, fetch = TRUE) 
       application_name, sql, if (is.null(actor_id)) "" else actor_id,
       if (fetch) "true" else "false"
     ),
-    env = c(
-      PGDATABASE = pg$PGDATABASE,
-      PGHOST = pg$PGHOST,
-      PGPORT = as.character(pg$PGPORT),
-      PGUSER = pg$PGUSER,
-      PGPASSWORD = pg$PGPASSWORD
-    ),
+    env = c(worker_env, inherited_library_env),
     stdout = "|",
     stderr = "|",
     cleanup_tree = TRUE
