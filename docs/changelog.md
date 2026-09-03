@@ -463,12 +463,14 @@ byte-identiske baselines og bevist idempotent replay. Backup før apply:
 Næste: fase B — narrativ-erstatning (478 ændrede) inkl.
 ombrydnings-normalisering.
 
-## 1939 v50-strømmen lukket i prod: publikation + cutover (2026-08-18)
+## Afgrænset 1939 v50-production-writer kørt i prod: publikation + cutover (2026-08-18)
 
-Hele den evidensbaserede 1939 v50-strøm er nu udført og verificeret i produktion.
-Tidligere på dagen (Codex): production apply (8 staged summary-personer 1846-1853 +
-305 source-only evidensobjekter, batch `560c39f8…`) og name-completion apply
-(8 kildebundne navnefakta, batch `0b0055f6…`). Derefter (denne session):
+Denne afgrænsede production-writer-leverance er udført og verificeret i
+produktion; entryen dokumenterer ikke, at hele den evidensbaserede 1939
+v50-strøm eller det generelle genimportprogram er afsluttet. Tidligere på dagen
+(Codex): production apply (8 staged summary-personer 1846-1853 + 305
+source-only evidensobjekter, batch `560c39f8…`) og name-completion apply (8
+kildebundne navnefakta, batch `0b0055f6…`). Derefter (denne session):
 
 - **Narrativ-publikation:** `red_publicer_narrative_record` hærdet til
   draft→published med eksakt felt-match (`FOR UPDATE`, mismatch fejler uden

@@ -12,9 +12,10 @@
 > personer, 7.197 facts, 2.258 `family_member`, 592 source_records, 905
 > write-events; `anon` ser 1.713. Se changelog 2026-08-20).
 >
-> Forudgående afstemning: 2026-08-18 (1939 v50-strømmen lukket i prod: 8 nye
-> summary-personer 1846-1853 oprettet, navngivet, narrativ-publiceret og
-> cutover'et til offentlig synlighed; `red_publicer_narrative_record` hærdet
+> Forudgående afstemning: 2026-08-18 (den afgrænsede v50-production-writer
+> kørt i prod: 8 nye summary-personer 1846-1853 oprettet, navngivet,
+> narrativ-publiceret og cutover'et til offentlig synlighed;
+> `red_publicer_narrative_record` hærdet
 > (draft→published m. eksakt felt-match); prod = 1.812 personer, 7.199 facts,
 > 321 write-events; backups + rapporter i `work/task25-1939-v50-production-writer/`.
 > Se changelog 2026-08-18). Forudgående afstemning 2026-08-06

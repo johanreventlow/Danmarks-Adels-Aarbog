@@ -5,6 +5,11 @@
 > superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax.
 > BEMÆRK: Task 3 er et HÅRDT menneskeligt checkpoint — eksekvering
 > standser dér, indtil brugeren har afgjort flag-arket.
+>
+> **Historisk status (2026-09-03):** Checkboksene er den oprindelige fase
+> B-arbejdsgang, ikke aktuel status for v50 eller det samlede
+> genimportprogram. Brug `docs/evidensbaseret-genimport/status.md`, changelog,
+> commits og aktuelle tests ved status- eller gate-spørgsmål.
 
 **Goal:** Erstat de 551 kanoniske 1939-narrativer (543 eksisterende + 8 nye
 personers) med den menneskeverificerede Calamari-tekst, normaliseret

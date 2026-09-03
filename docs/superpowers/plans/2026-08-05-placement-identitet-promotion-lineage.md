@@ -1,6 +1,12 @@
 # Placement, identitet, promotion og lineage Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **Historisk status (2026-09-03):** Checkboksene er planens oprindelige
+> arbejdsspor, ikke en aktuel udførelseslog. Kontrollér den levende SQL,
+> changelog, commits og aktuelle tests før nye status- eller completionpåstande.
+> Genimportprogrammets samlede status står i
+> `docs/evidensbaseret-genimport/status.md`.
 
 **Goal:** Gør placement- og promotionlivscyklusser reelt versionerbare, ensret identitetsinvarianterne og gør cross-clan lineage-mapping umulig i databasen.
 
