@@ -497,7 +497,7 @@ def test_audit_rejects_a_nonrequired_phase_b_manifest_before_classification(tmp_
         )
     ]
 
-    with pytest.raises(AuditError, match="EVIDENCE_RECONCILIATION_MANIFEST_REQUIRED"):
+    with pytest.raises(AuditError, match="EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_CONTRACT_INVALID"):
         audit_bundle(tmp_path, ledger)
 
 
@@ -888,7 +888,7 @@ def test_audit_classifies_d1_before_parsing_a_hash_locked_non_json_historical_sc
                 "historical_apply_script",
                 "d1.apply",
                 sha256_bytes(raw),
-                "1939-v50-d1-legacy-apply-v1",
+                "1939-v50-d1-historical-apply-v1",
                 True,
             ),
         ),
@@ -901,3 +901,22 @@ def test_audit_classifies_d1_before_parsing_a_hash_locked_non_json_historical_sc
     result = audit_bundle(tmp_path, [phase])
 
     assert result.phase("d1").error == "EVIDENCE_RECONCILIATION_HISTORICAL_EXCEPTION_NO_MANIFEST"
+
+
+@pytest.mark.parametrize(
+    "phase",
+    [
+        lambda tmp_path: replace(
+            sealed_d1_ledger(tmp_path)[0],
+            artifacts=sealed_d1_ledger(tmp_path)[0].artifacts
+            + (ArtifactEntry("undeclared", "optional.json", "a" * 64, "synthetic-v1", False),),
+        ),
+        lambda tmp_path: replace(
+            sealed_d1_ledger(tmp_path)[0],
+            artifacts=(ArtifactEntry("historical_apply_script", "d1.apply", sha256_bytes((tmp_path / "d1.apply").read_bytes()), "synthetic-wrong-d1-v1", True),),
+        ),
+    ],
+)
+def test_direct_audit_rejects_extra_optional_roles_and_wrong_d1_schema(tmp_path, phase):
+    with pytest.raises(AuditError, match="EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_CONTRACT_INVALID"):
+        audit_bundle(tmp_path, [phase(tmp_path)])

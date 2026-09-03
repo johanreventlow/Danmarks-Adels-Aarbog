@@ -12,7 +12,14 @@ import json
 from pathlib import Path
 
 from audit_evidence_phase_artifacts_1939_v50 import PhaseSummary
-from evidence_phase_artifact_ledger import ArtifactEntry, PhaseEntry, adapter_sha256, canonical_sha256
+from evidence_phase_artifact_ledger import (
+    ArtifactEntry,
+    LedgerError,
+    PhaseEntry,
+    adapter_sha256,
+    canonical_sha256,
+    validate_phase_contract,
+)
 from reconcile_evidence_phase_gate import seal
 
 
@@ -541,6 +548,10 @@ def _project_name_completion(
 
 def project_phase(bundle_root: Path, phase: PhaseEntry, summary: PhaseSummary) -> dict[str, object]:
     """Return one sealed five-projection contribution for an audited phase."""
+    try:
+        validate_phase_contract(phase)
+    except LedgerError as error:
+        raise ProjectError(str(error)) from error
     _require(phase.phase_id == summary.phase_id)
     _require(summary.projection_evidence == "mechanically_bound" and summary.error is None)
     _require(phase.projection_evidence == "mechanically_bound")

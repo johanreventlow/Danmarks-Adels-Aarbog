@@ -334,6 +334,20 @@ def _validate_artifact_contract(
     )
 
 
+def validate_phase_contract(phase: PhaseEntry) -> None:
+    """Reject roles and schemas that the phase adapter has not declared."""
+    _require(
+        len({artifact.role for artifact in phase.artifacts}) == len(phase.artifacts)
+        and len({artifact.path for artifact in phase.artifacts}) == len(phase.artifacts),
+        "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_DUPLICATE",
+    )
+    _validate_artifact_contract(
+        phase.adapter_id,
+        phase.artifacts,
+        token="EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_CONTRACT_INVALID",
+    )
+
+
 def validate_catalog(document: object) -> list[CatalogPhaseEntry]:
     """Validate the deliberately hash-free, private artifact catalog."""
     _require(isinstance(document, dict), "EVIDENCE_RECONCILIATION_CATALOG_INVALID")
@@ -461,10 +475,16 @@ def validate_phase_rows(
         _require(len({artifact.path for artifact in artifacts}) == len(artifacts), "EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_DUPLICATE")
         adapter_id = row["adapter_id"]
         _require(_valid_text(adapter_id), "EVIDENCE_RECONCILIATION_LEDGER_PHASE_INVALID")
-        _validate_artifact_contract(
-            adapter_id,
-            artifacts,
-            token="EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_CONTRACT_INVALID",
+        validate_phase_contract(
+            PhaseEntry(
+                phase_id=phase_id,
+                sequence=sequence,
+                artifacts=artifacts,
+                adapter_id=adapter_id,
+                adapter_sha256=row["adapter_sha256"],
+                projection_evidence="afterdocumented_unbound",
+                authorisation_evidence="afterdocumented_authorisation_gap",
+            )
         )
         _require(
             _is_hex_sha256(row["adapter_sha256"])

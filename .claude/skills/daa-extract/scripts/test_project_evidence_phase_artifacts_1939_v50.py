@@ -398,7 +398,7 @@ def test_project_rejects_phase_b_without_the_required_551_row_bound_identity_map
         authorisation_evidence="afterdocumented_authorisation_gap",
     )
 
-    with pytest.raises(ProjectError, match="EVIDENCE_RECONCILIATION_INCOMPLETE"):
+    with pytest.raises(ProjectError, match="EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_CONTRACT_INVALID"):
         project_phase(tmp_path, phase, unbound_summary(phase))
 
 
@@ -606,6 +606,25 @@ def test_project_rejects_the_well_formed_projector_only_legacy_hash(tmp_path):
 
     with pytest.raises(ProjectError, match="EVIDENCE_RECONCILIATION_INCOMPLETE"):
         project_phase(tmp_path, legacy, bound_summary(legacy))
+
+
+def test_direct_projection_rejects_an_extra_optional_undeclared_artifact(tmp_path):
+    manifest_sha256 = write_json(
+        tmp_path / "task25.json",
+        {"schema_version": "1939-v50-production-write-manifest-v1", "source": {"database_source_id": 3}, "person_creates": [{"element_id": "element-1", "source_record_key": "record-1"}]},
+    )
+    receipt_sha256 = write_json(
+        tmp_path / "task25-receipt.json",
+        {"schema_version": "daa-evidence-phase-receipt-task25-v1", "manifest_sha256": manifest_sha256, "database_target_identity": production_target_identity(), "created_person_identities": [{"element_id": "element-1", "source_id": 3, "record_key": "record-1", "person_id": 1}]},
+    )
+    phase = replace(
+        mechanically_bound_task25_phase(manifest_sha256, receipt_sha256),
+        artifacts=mechanically_bound_task25_phase(manifest_sha256, receipt_sha256).artifacts
+        + (ArtifactEntry("undeclared", "optional.json", "a" * 64, "synthetic-v1", False),),
+    )
+
+    with pytest.raises(ProjectError, match="EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_CONTRACT_INVALID"):
+        project_phase(tmp_path, phase, bound_summary(phase))
 
 
 def test_c0_requires_exactly_nine_receipt_bound_narrative_identities(tmp_path):
