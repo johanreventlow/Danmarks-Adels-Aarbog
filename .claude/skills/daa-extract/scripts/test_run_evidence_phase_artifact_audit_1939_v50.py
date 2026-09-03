@@ -22,7 +22,6 @@ from reconcile_evidence_phase_gate import seal
 from run_evidence_phase_artifact_audit_1939_v50 import (
     CliError,
     _FdBundleRoot,
-    _audit,
     _materialize_phase,
     _open_absolute_root,
     main,
@@ -442,14 +441,9 @@ def _run_synthetic_capability_only_audit(bundle: Path, output: Path, monkeypatch
     monkeypatch.setattr(
         "run_evidence_phase_artifact_audit_1939_v50.validate_historical_catalog", validate_catalog
     )
-    root = _FdBundleRoot(_open_absolute_root(bundle))
-    output_fd = root.open_directory((output.name,), token="EVIDENCE_RECONCILIATION_PRIVATE_OUTPUT_INVALID")
-    try:
-        _, complete = _audit(root, ("catalog.json",), output_fd)
-    finally:
-        os.close(output_fd)
-        root.close()
-    assert complete
+    assert main(
+        ["--bundle-root", str(bundle), "--catalog", str(bundle / "catalog.json"), "--private-output-dir", str(output)]
+    ) == 0
     return [
         f"{sequence}-{phase_id}.contribution.json"
         for sequence, phase_id in enumerate(
@@ -477,13 +471,16 @@ def _snapshot_from_contributions(contributions: list[dict]) -> dict:
     return seal(snapshot)
 
 
-def test_generated_capability_outputs_reconcile_without_reopening_the_sealed_manifest_artifacts(tmp_path, monkeypatch):
+def test_generated_capability_outputs_reconcile_without_reopening_the_sealed_manifest_artifacts(tmp_path, monkeypatch, capsys):
     """The public audit CLI is historical and necessarily incomplete because D1 is unavailable."""
     bundle = tmp_path / "synthetic-capability-only"
     bundle.mkdir()
     output = bundle / "private-output"
     output.mkdir()
     contribution_names = _run_synthetic_capability_only_audit(bundle, output, monkeypatch)
+    audit_terminal = json.loads(capsys.readouterr().out)
+    assert audit_terminal["status"] == "complete"
+    assert set(audit_terminal) == COMPLETE_TERMINAL_KEYS
     contribution_paths = [output / name for name in contribution_names]
     contributions = [json.loads(path.read_text(encoding="utf-8")) for path in contribution_paths]
     snapshot = bundle / "synthetic-snapshot.json"
@@ -509,6 +506,26 @@ def test_generated_capability_outputs_reconcile_without_reopening_the_sealed_man
     assert completed.returncode == 0
     assert json.loads(completed.stdout)["status"] == "match"
     assert json.loads(private_report.read_text(encoding="utf-8"))["status"] == "match"
+
+
+def test_public_cli_rejects_the_identical_six_phase_capability_catalog_before_output_processing(tmp_path, capsys):
+    bundle = tmp_path / "synthetic-capability-only"
+    bundle.mkdir()
+    output = bundle / "private-output"
+    output.mkdir()
+    phases = _write_synthetic_supported_phase_artifacts(
+        bundle,
+        bound_phase_ids=frozenset(
+            {"task25", "phase-a", "phase-b", "narrative-publication", "name-completion", "c0"}
+        ),
+    )
+    catalog = bundle / "catalog.json"
+    write_json(catalog, _synthetic_capability_only_catalog(phases))
+
+    assert main(["--bundle-root", str(bundle), "--catalog", str(catalog), "--private-output-dir", str(output)]) == 2
+
+    assert json.loads(capsys.readouterr().err)["error"] == "EVIDENCE_RECONCILIATION_HISTORICAL_INVENTORY_INVALID"
+    assert list(output.iterdir()) == []
 
 
 def test_generated_contribution_source_binding_mismatch_skips_snapshot_loading(tmp_path, monkeypatch):
