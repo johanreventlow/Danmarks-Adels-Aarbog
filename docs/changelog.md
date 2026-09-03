@@ -1,5 +1,34 @@
 # Changelog
 
+## 149a: 2018-20 kilderegnskab bygget og bevist mod bogen, ægte rehearsal blokeret (2026-09-03)
+
+Ingen prod-skrivning. Dagen begyndte med en læse-kun retningsvurdering (retningen
+fra 25/8 følges, men roadmap-trin 3-4 stod på nul), fire styringsregler i
+`docs/decisions.md`, mærkning af hele backloggen, lukning af #156 med restpunkt
+(INCOMPLETE-afstemning, snapshot forseglet, draft-PR #165) og opdeling af #149 i
+149a (kilderegnskab) og 149b (#166, legacy-migration til binding).
+
+**149a bygget og målt.** Spec, plan (6 tasks) og Task 1-5 på
+`feat/149-2018-20-fase-a`: profil-JSON med låste konstanter, `reimport_profile.py`
+(kanonisk hash identisk med `private.reimport_canonical_json_sha256`, verificeret
+mod databasen), `build_source_evidence_rendition.py` (PDF-/tekst-SHA-gate,
+591/591 paritet), `build_source_evidence_manifest.py` (591 elementer, eksakt
+delstreng i normaliseret projektion, `manifest_content_sha256 c7d19c01…`),
+`export_reimport_preview.R` (læse-kun før-billede), idempotent integrationstest
+mod syntetisk v2-base (dry-run, apply, nul kanonisk delta, anon uændret, replay
+`already_applied`, reversal fail-closed) og CI-gate. Inventering mod restore af
+prod-dumpet: alle stopkriterier opfyldt (`docs/superpowers/reviews/2026-09-03-2018-20-fase-a-inventering.md`).
+
+**To fund.** (1) #153's migrationsguard afviser en base med 1939 fase A-batchen i
+status `finalized` — en ren source_evidence-batch kan aldrig aktiveres, så
+guarden blokerer formentlig også prod (kommentar på #153; verificeres læse-kun
+før #153's prod-GO). (2) Fire 2018-20-narrativer i prod er 2.000-3.900 tegn
+kortere end bogteksten, og segmenteringens støjfilter fjerner 100 linjer midt i
+poster (13 muligvis prosa) — begge til 149b.
+
+**Codex-begrænsning:** Codex' sandbox kan ikke nå lokal PostgreSQL; databasearbejde
+kørte i Claude-subagenter, ren kode hos Codex.
+
 ## Bindende styringsgrundlag for evidensbaseret genimport indført (2026-08-25)
 
 Dokumentpakken og dens LLM-/dokumentindgange er indført. Det stabile

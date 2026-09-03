@@ -34,6 +34,22 @@ legacy-narrativer (§6.2), kræver accepteret persona-identitet og reserverer
 egen spec efter inventeringen. Roadmap-trin 3 er uændret; rækkefølgen inden i
 trinnet er 149a → 149b.
 
+**149a: afvigelser målt i koden (2026-09-03 aften).** (1) *Reversal findes ikke for
+en ren source_evidence-batch*: `red_reverse_reimport` kræver `activated` + ét
+name_completion-barn, og der er ingen sletningsvej for source records/ankre.
+Erstatningsbevis: nul kanonisk delta (aggregat-hash), observeret fail-closed
+`REIMPORT_WRITER_REVERSAL_INVALID`, gendannelse ved restore fra 0600-backup.
+**Afventer projektejerens kvittering** (spec §10) før prod-GO. (2) »Eksakt
+delstreng« måles i en whitespace-normaliseret projektion med offset-kort, fordi
+`segment.py` selv normaliserer; ingen fuzzy-match. (3) Anker-evidens bæres i
+payload (`anchor_method`, `segment_version`, `verbatim_sha256`), da writeren
+hardkoder evidensfeltet. (4) Paritet mod juni-udtrækket måles på mængden af
+post-adresser. (5) `preview_sha256` bindes til preview-artefaktets filbytes;
+batchen kan derfor ikke kædes til name_completion (irrelevant for 149a).
+**Fund mod #153:** migrationsguarden `REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED`
+afviser `finalized` reimport-batches; 1939 fase A-batchen er og forbliver
+`finalized` → blokerer 149a's ægte rehearsal og formentlig #153 i prod.
+
 **#156 (fase-pakke-afstemning): fund.** Runbookens bundle-sti var opdigtet, og
 auditorens receipt-skemaer (`daa-evidence-phase-receipt-*-v1`) er yngre end de
 kørsler, de skal beskrive; ingen historisk apply-kvittering bærer dem, og C3

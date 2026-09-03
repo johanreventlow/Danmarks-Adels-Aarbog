@@ -5,6 +5,8 @@
 **Kodegrundlag:** Task 12's funktionelle bevis er commit `4922d7e`; den
 nuværende dokumentations-HEAD kan være senere og ændrer ikke det bevis
 
+**Tillæg 2026-09-03:** 149a (2018-20 kilderegnskab) er `isoleret implementeret`, se tabellen og blokeringerne; #156 lukket med restpunkt (INCOMPLETE-afstemning, snapshot forseglet).
+
 **Produktionsstatus:** C3's eksakte fem-sagers scope er migreret, anvendt og
 efterverificeret i produktion; #152 har ingen produktionsmutation
 
@@ -45,7 +47,7 @@ De eneste tilladte tilstande er `specificeret`, `isoleret implementeret`,
 | Proposed-ingest og promotion | `isoleret implementeret` | Skema, regler, RPC'er og tests udgør et fundament, men ingen reel extractor-kørsel føder kæden. `project_evidence.R` er fortsat dry-run og ikke en integreret promotionvej. |
 | Source persona, identitetskandidater og webkø | `isoleret implementeret` | Moduler, databaseflader og redaktørkø findes, men den virkelige 1939-vej er parallel og bruger ikke denne fælles beslutningsvej. |
 | Placement og membership | `isoleret implementeret` | Skema og fundament findes, men de eksisterende personer føres fortsat ikke gennem placement-/membership-datavejen. |
-| 2018-20-proveniens | `specificeret` | Fase A-ækvivalent provenance er besluttet, men ikke gennemført. |
+| 2018-20-proveniens (149a) | `isoleret implementeret` | 2026-09-03: profil, rendition-reproduktion, manifest-bygger og læse-kun preview er bygget og bevist mod den rigtige bog (PDF `3beadfc1…`, rå tekst `2dd5cf84…`, 591/591 poster, manifest `c7d19c01…` med 591 elementer) og mod en syntetisk v2-base gennem #153's generelle writer (integrationstest grøn, replay `already_applied`, reversal fail-closed). Den ægte rehearsal mod restore af prod-dumpet stoppede i #153's migrationsguard (`REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED`, se blokeringer). Ikke `integreret ende-til-ende`, ingen prod. Bindinger er 149b (#166). |
 | C3 atomisk apply | `produktionsverificeret` | Production batch `447d81a8-5c21-4b22-832e-e0d2a379a20c` / change set `966` blev finalized med 5 identity-, 4 assign- og 2 no-publication-events og bestod eksakt read-only postverify. |
 | C3 reversal | `integreret ende-til-ende` | Separat reversal er bevist mod en frisk, produktionsafledt disposable restore med eksakt gendannet domænetilstand; den er ikke udført i produktion. |
 | #152 record-nøglede person-narrativer | `integreret ende-til-ende` | Den editionsneutrale record-kontrakt med append-only publication-versioner, stale-gate, granulær legacy-withdrawal, grandfathered legacy-ledger og stabil offentlig source-record-reference er bevist i Task 12's syntetiske, disponerbare restore, reelle DBI-ræs, fulde klient-/server-suiter og browser-smoke. Den aktive frysning af nye bindinger/DAA-import og `red_slet_person`-blokken er fortsat bevidst design, ikke en åbning af gamle writers. Ingen production cutover eller produktions-GO er givet. |
@@ -87,6 +89,16 @@ programmets samlede modenhed.
 
 ## Åbne blokeringer
 
+- **#153's migrationsguard blokerer på 1939 fase A-batchen.** `db-migrations.sql`'s
+  `reimport_writer_upgrade`-blok kræver at alle `reimport`-batches er `activated`
+  eller `reversed`; fase A-batchen (source 3, 584 source_evidence-events,
+  2026-08-18) er `finalized` og kan pr. konstruktion aldrig aktiveres (ingen
+  name_completion-barn). Målt 2026-09-03 på restore af `pre-c0f-20260821`. Skal
+  verificeres læse-kun mod prod før #153's prod-GO; blokerer 149a's ægte
+  rehearsal indtil guarden eller batchen disponeres (kommentar på #153).
+- **149a: reversal findes ikke for en ren source_evidence-batch** (plan-afvigelse 4).
+  Erstatningsbevis: nul kanonisk delta + fail-closed reversal + restore. Afventer
+  projektejerens kvittering i `docs/decisions.md`.
 - #152 afventer en særskilt, frisk produktions-GO efter
   [cutover-runbooken](../runbooks/narrative-record-key-cutover.md). Først
   kræves preliminær autorisation, mode-0600 backup/restore-rehearsal og frisk
