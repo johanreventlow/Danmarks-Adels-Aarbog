@@ -2,7 +2,10 @@
 
 -- Consumes the 2d6aabf-only RPC fixture.  Its marker locates the preserved
 -- chain without assuming generated UUID or identity-sequence values.
-\if :{?task4_atomicity_expect_rollback}
+\if :{?task13_coexistence_expect_rollback}
+-- The coexistence-specific snapshot assertion below runs before a successful
+-- upgrade, so it deliberately skips the normal post-upgrade catalog checks.
+\elif :{?task4_atomicity_expect_rollback}
 DO $atomicity$
 BEGIN
   IF (SELECT relkind FROM pg_class WHERE oid='private.reimport_1939_authorization'::regclass)<>'r'
@@ -243,4 +246,70 @@ BEGIN
     RAISE EXCEPTION 'REIMPORT_WRITER_MIGRATION_LEGACY_INDEX_IDENTITY_RETAINED';
   END IF;
 END $migration$;
+\endif
+
+\if :{?task13_coexistence_expect_rollback}
+DO $coexistence_rollback$
+DECLARE
+  snapshot record;
+  current_oid oid;
+  current_filenode oid;
+  current_kind "char";
+  current_contents_sha256 text;
+  current_sequence_oid oid;
+  current_sequence_last_value bigint;
+  current_sequence_is_called boolean;
+BEGIN
+  IF to_regclass('private.reimport_writer_coexistence_snapshot') IS NULL THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_COEXISTENCE_SNAPSHOT_MISSING';
+  END IF;
+  FOR snapshot IN
+    SELECT * FROM private.reimport_writer_coexistence_snapshot ORDER BY relation_name
+  LOOP
+    SELECT c.oid,c.relfilenode,c.relkind
+      INTO current_oid,current_filenode,current_kind
+      FROM pg_class c
+     WHERE c.oid=snapshot.relation_name::regclass;
+    EXECUTE format(
+      'SELECT encode(extensions.digest(convert_to(coalesce(string_agg(row_to_json(row_value)::text,E''\\n'' ORDER BY row_value.id::text),''''),''UTF8''),''sha256''),''hex'') FROM %s row_value',
+      snapshot.relation_name
+    ) INTO current_contents_sha256;
+    SELECT 'private.reimport_event_id_seq'::regclass,sequence_state.last_value,sequence_state.is_called
+      INTO current_sequence_oid,current_sequence_last_value,current_sequence_is_called
+      FROM private.reimport_event_id_seq sequence_state;
+    IF current_oid IS DISTINCT FROM snapshot.relation_oid
+       OR current_filenode IS DISTINCT FROM snapshot.relfilenode
+       OR current_kind IS DISTINCT FROM snapshot.relkind
+       OR current_contents_sha256 IS DISTINCT FROM snapshot.contents_sha256
+       OR current_sequence_oid IS DISTINCT FROM snapshot.sequence_oid
+       OR current_sequence_last_value IS DISTINCT FROM snapshot.sequence_last_value
+       OR current_sequence_is_called IS DISTINCT FROM snapshot.sequence_is_called THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_COEXISTENCE_ATOMIC_ROLLBACK_FAILED';
+    END IF;
+  END LOOP;
+END $coexistence_rollback$;
+\endif
+
+\if :{?task13_coexistence_expect_success}
+DO $coexistence_success$
+DECLARE
+  max_migrated_event_id bigint;
+  first_default_event_id bigint;
+  source_batch_id uuid;
+BEGIN
+  SELECT max(id) INTO max_migrated_event_id
+    FROM private.reimport_event;
+  SELECT batch_id INTO source_batch_id
+    FROM private.reimport_event
+   ORDER BY id
+   LIMIT 1;
+  INSERT INTO private.reimport_event(
+    batch_id,element_id,operation,payload,after_sha256
+  ) VALUES (
+    source_batch_id,'task13-coexistence-sequence-default','activation','{}'::jsonb,repeat('0',64)
+  ) RETURNING id INTO first_default_event_id;
+  IF first_default_event_id<=max_migrated_event_id THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_COEXISTENCE_SEQUENCE_NOT_ADVANCED';
+  END IF;
+END $coexistence_success$;
 \endif

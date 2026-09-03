@@ -12304,6 +12304,9 @@ BEGIN
   IF (SELECT relkind FROM pg_class WHERE oid=to_regclass('private.reimport_1939_authorization'))='r' THEN
     EXECUTE $reimport_writer_coexistence_body$
 DO $reimport_writer_coexistence_body_inner$
+DECLARE
+  v_event_sequence text;
+  v_event_restart_with bigint;
 BEGIN
   -- The rename branch has already migrated a populated legacy table and later
   -- migration sections may recreate an empty compatibility shell.  Only an
@@ -12330,9 +12333,17 @@ BEGIN
       JOIN private.reimport_writer_profile profile ON profile.source_id=3 AND profile.profile_id='daa-1939-v50-production-write-v1';
     INSERT INTO private.reimport_event(id,batch_id,element_id,operation,source_record_key,canonical_person_id,payload,before_sha256,after_sha256,created_at)
     SELECT id,batch_id,element_id,operation,source_record_key,canonical_person_id,payload,before_sha256,after_sha256,created_at FROM private.reimport_1939_write_event;
-    IF EXISTS(SELECT 1 FROM private.reimport_event) THEN
-      PERFORM setval(pg_get_serial_sequence('private.reimport_event','id'),(SELECT max(id) FROM private.reimport_event),true);
+    -- RESTART is transactional, unlike setval: if a later #153 step fails,
+    -- rollback restores both the copied ledger and this owned sequence's exact
+    -- state.  Preserve the existing sequence identity and derive its first
+    -- post-copy value only after every legacy event row has been transferred.
+    SELECT pg_get_serial_sequence('private.reimport_event','id') INTO v_event_sequence;
+    IF v_event_sequence IS NULL THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_EVENT_SEQUENCE_MISSING';
     END IF;
+    SELECT coalesce(max(id),0)+1 INTO v_event_restart_with
+      FROM private.reimport_event;
+    EXECUTE format('ALTER SEQUENCE %s RESTART WITH %s',v_event_sequence,v_event_restart_with);
     IF (SELECT relkind FROM pg_class WHERE oid=to_regclass('private.reimport_1939_name_completion_result'))='r' THEN
       INSERT INTO private.reimport_name_completion_result SELECT * FROM private.reimport_1939_name_completion_result;
       DROP TABLE private.reimport_1939_name_completion_result;

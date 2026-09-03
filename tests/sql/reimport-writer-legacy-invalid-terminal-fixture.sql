@@ -37,13 +37,13 @@ BEGIN
   -- Keep the terminal cases structurally valid through source-record linkage.
   -- `source_record_wrong` changes only the stored result reference below.
   INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
-  VALUES('15300000-0000-4000-8000-000000000210',3,'legacy-invalid-terminal','fixture','fixture','fixture',repeat('a',64),'{}')
+  VALUES('15300000-0000-4000-8000-000000000210',v_ledger_source_id,'legacy-invalid-terminal','fixture','fixture','fixture',repeat('a',64),'{}')
   ON CONFLICT(id) DO NOTHING;
   INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
-  VALUES('15300000-0000-4000-8000-000000000211',3,'legacy-invalid-terminal','person','15300000-0000-4000-8000-000000000210')
+  VALUES('15300000-0000-4000-8000-000000000211',v_ledger_source_id,'legacy-invalid-terminal','person','15300000-0000-4000-8000-000000000210')
   ON CONFLICT(id) DO NOTHING;
   INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
-  VALUES('15300000-0000-4000-8000-000000000212',3,'legacy-invalid-terminal-wrong','person','15300000-0000-4000-8000-000000000210')
+  VALUES('15300000-0000-4000-8000-000000000212',v_ledger_source_id,'legacy-invalid-terminal-wrong','person','15300000-0000-4000-8000-000000000210')
   ON CONFLICT(id) DO NOTHING;
 
   IF v_case='orphan' THEN

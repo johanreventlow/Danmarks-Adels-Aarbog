@@ -140,6 +140,8 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: r-lib/actions/setup-r@v2
         with: {use-public-rspm: true}
       - run: Rscript -e 'install.packages(c("DBI","RPostgres","jsonlite","digest"))'
@@ -165,18 +167,19 @@ jobs:
       - name: Reimport writer migration from pre-153 ledger
         env: {PGPASSWORD: postgres}
         run: |
+          git cat-file -e 2d6aabf^{commit}
           createdb -h localhost -U postgres reimport_legacy_153
           psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql
           git show 2d6aabf:schema.sql | psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1
-          psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f tests/sql/reimport-writer-legacy-terminal-fixture.sql
+          psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f tests/sql/reimport-writer-coexistence-fixture.sql
           if PGOPTIONS='-c app.reimport_writer_atomicity_test_failpoint=on' psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f db-migrations.sql > reimport-atomicity-rollback.out 2>&1; then
             echo "expected late #153 atomicity failure" >&2; exit 1
           fi
           grep -Fq 'REIMPORT_WRITER_ATOMICITY_TEST_FAILURE' reimport-atomicity-rollback.out
-          psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -v task4_atomicity_expect_rollback=1 -f tests/sql/test-reimport-writer-migration.sql
+          psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -v task13_coexistence_expect_rollback=1 -f tests/sql/test-reimport-writer-migration.sql
           psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f db-migrations.sql
           psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f db-rls.sql
-          psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-writer-migration.sql
+          psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -v task13_coexistence_expect_success=1 -f tests/sql/test-reimport-writer-migration.sql
           psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -f tests/sql/test-1939-v50-c3-apply.sql
           if psql -h localhost -U postgres -d reimport_legacy_153 -v ON_ERROR_STOP=1 -c 'BEGIN' -f tests/sql/reimport-writer-v2-bootstrap.sql > reimport-legacy-v2-bootstrap.out 2>&1; then
             echo "expected historical-ledger v2 bootstrap to fail closed on live cutover inventory" >&2; exit 1

@@ -85,8 +85,7 @@ source_id_3|profile|source_id|migration/private.validate_reimport_1939_name_comp
 source_id_3|profile|source_id|migration/private.validate_reimport_1939_name_completion#2/source_id_3/003
 ", sep = "|", col.names = c("literal", "classification", "generic_target", "test_name"), comment.char = "", stringsAsFactors = FALSE)
 
-writer_segment_occurrences <- function(path, first_line, last_line, segment_name) {
-  lines <- readLines(file.path(writer_root, path), warn = FALSE)[first_line:last_line]
+writer_literal_occurrences <- function(lines, segment_name, first_line = 1L) {
   function_name <- "top_level"; function_instances <- list(); literal_ordinals <- list(); observed <- list()
   for (index in seq_along(lines)) {
     function_match <- regexec("^\\s*CREATE(?: OR REPLACE)? FUNCTION ([[:alnum:]_.]+)", lines[[index]], perl = TRUE)
@@ -106,6 +105,52 @@ writer_segment_occurrences <- function(path, first_line, last_line, segment_name
     }
   }
   do.call(rbind, observed)
+}
+
+writer_segment_occurrences <- function(path, first_line, last_line, segment_name) {
+  lines <- readLines(file.path(writer_root, path), warn = FALSE)[first_line:last_line]
+  writer_literal_occurrences(lines, segment_name, first_line)
+}
+
+writer_unique_anchor_index <- function(lines, anchor, anchor_name) {
+  matches <- which(grepl(anchor, lines, fixed = TRUE))
+  if (length(matches) != 1L) {
+    stop(sprintf("%s anchor must occur exactly once (observed %d)", anchor_name, length(matches)), call. = FALSE)
+  }
+  matches[[1L]]
+}
+
+writer_semantic_section <- function(lines, start_anchor, end_anchor, section_name) {
+  start <- writer_unique_anchor_index(lines, start_anchor, sprintf("%s start", section_name))
+  end <- writer_unique_anchor_index(lines, end_anchor, sprintf("%s end", section_name))
+  if (end <= start) {
+    stop(sprintf("%s anchors are reversed", section_name), call. = FALSE)
+  }
+  list(lines = lines[start:(end - 1L)], first_line = start)
+}
+
+writer_semantic_section_occurrences <- function(path, start_anchor, end_anchor, section_name) {
+  lines <- readLines(file.path(writer_root, path), warn = FALSE)
+  section <- writer_semantic_section(lines, start_anchor, end_anchor, section_name)
+  writer_literal_occurrences(section$lines, section_name, section$first_line)
+}
+
+writer_final_expected_inventory <- read.table(text = "
+citation_label|profile|citation_label_template|final-schema/private.reject_reimport_writer_mutation#1/citation_label/001
+run_key|manifest|run_key_prefix|final-schema/private.reject_reimport_writer_mutation#1/run_key/001
+source_id_3|profile|source_id|final-schema/public.red_authorize_1939_v50_name_completion#1/source_id_3/001
+source_id_3|profile|source_id|final-migration/top_level/source_id_3/001
+citation_label|profile|citation_label_template|final-migration/private.reimport_canonical_json_sha256#1/citation_label/001
+run_key|manifest|run_key_prefix|final-migration/private.reimport_canonical_json_sha256#1/run_key/001
+source_id_3|profile|source_id|final-migration/public.red_activate_reimport_batch#2/source_id_3/001
+source_id_3|profile|source_id|final-migration/public.red_activate_reimport_batch#2/source_id_3/002
+source_id_3|profile|source_id|final-migration/public.red_authorize_1939_v50_name_completion#2/source_id_3/001
+", sep = "|", col.names = c("literal", "classification", "generic_target", "test_name"), comment.char = "", stringsAsFactors = FALSE)
+
+writer_final_inventory_key_counts <- function(inventory) {
+  key_columns <- c("literal", "classification", "generic_target", "test_name")
+  keys <- do.call(paste, c(inventory[key_columns], sep = "|"))
+  table(keys)
 }
 
 extract_public_function <- function(text, name) {
@@ -152,6 +197,107 @@ testthat::test_that("Task 1 literal inventory exactly covers the designated sche
     ))
   }
   testthat::expect_identical(observed_counts, expected_counts)
+})
+
+testthat::test_that("semantic writer-section anchors are unique, ordered, and scope literals", {
+  start_anchor <- "-- WRITER START"
+  end_anchor <- "-- WRITER END"
+  fixture <- c("outside source_id = 3", start_anchor, "inside source_id = 3", end_anchor, "outside source_id = 3")
+  section <- writer_semantic_section(fixture, start_anchor, end_anchor, "fixture")
+  observed <- writer_literal_occurrences(section$lines, "fixture", section$first_line)
+  testthat::expect_equal(nrow(observed), 1L)
+  testthat::expect_identical(observed$literal, "source_id_3")
+  testthat::expect_error(
+    writer_semantic_section(c("before", end_anchor, "after"), start_anchor, end_anchor, "fixture"),
+    "start anchor must occur exactly once"
+  )
+  testthat::expect_error(
+    writer_semantic_section(c("before", start_anchor, "after"), start_anchor, end_anchor, "fixture"),
+    "end anchor must occur exactly once"
+  )
+  testthat::expect_error(
+    writer_semantic_section(c(start_anchor, start_anchor, end_anchor), start_anchor, end_anchor, "fixture"),
+    "start anchor must occur exactly once"
+  )
+  testthat::expect_error(
+    writer_semantic_section(c(start_anchor, end_anchor, end_anchor), start_anchor, end_anchor, "fixture"),
+    "end anchor must occur exactly once"
+  )
+  testthat::expect_error(
+    writer_semantic_section(c(end_anchor, start_anchor), start_anchor, end_anchor, "fixture"),
+    "anchors are reversed"
+  )
+
+  inside_mutation <- writer_semantic_section(
+    c("outside source_id = 3", start_anchor, "inside source_id = 3", "extra source_id = 3", end_anchor, "outside source_id = 3"),
+    start_anchor, end_anchor, "fixture"
+  )
+  outside_mutation <- writer_semantic_section(
+    c("outside source_id = 3", "extra source_id = 3", start_anchor, "inside source_id = 3", end_anchor, "outside source_id = 3"),
+    start_anchor, end_anchor, "fixture"
+  )
+  testthat::expect_gt(
+    nrow(writer_literal_occurrences(inside_mutation$lines, "fixture", inside_mutation$first_line)),
+    nrow(observed)
+  )
+  testthat::expect_identical(
+    writer_final_inventory_key_counts(writer_literal_occurrences(outside_mutation$lines, "fixture", outside_mutation$first_line)),
+    writer_final_inventory_key_counts(observed)
+  )
+})
+
+testthat::test_that("final writer inventory is anchored and multiplicity-sensitive", {
+  sections <- list(
+    list(path = "schema.sql", start = "-- #153: these are generic primaries. 1939 is a sealed profile, never a", end = "CREATE OR REPLACE FUNCTION public.public_person_bio_source_versions(p_person_ids bigint[])", name = "final-schema"),
+    list(path = "db-migrations.sql", start = "-- #153: convert the legacy 1939 journal into the profile-bound v2 writer.", end = "CREATE OR REPLACE FUNCTION private.apply_narrative_record_cutover", name = "final-migration")
+  )
+  observed_parts <- lapply(sections, function(section) {
+    writer_semantic_section_occurrences(section$path, section$start, section$end, section$name)
+  })
+  observed <- do.call(rbind, observed_parts)
+  testthat::expect_identical(
+    writer_final_inventory_key_counts(observed),
+    writer_final_inventory_key_counts(writer_final_expected_inventory)
+  )
+
+  for (index in seq_along(sections)) {
+    section <- sections[[index]]
+    lines <- readLines(file.path(writer_root, section$path), warn = FALSE)
+    extracted <- writer_semantic_section(lines, section$start, section$end, section$name)
+    inside <- append(lines, "source_id = 3", after = extracted$first_line)
+    outside <- append(lines, "source_id = 3", after = length(lines))
+    mutated_inside <- writer_semantic_section(inside, section$start, section$end, section$name)
+    mutated_outside <- writer_semantic_section(outside, section$start, section$end, section$name)
+    testthat::expect_false(identical(
+      writer_final_inventory_key_counts(writer_literal_occurrences(mutated_inside$lines, section$name, mutated_inside$first_line)),
+      writer_final_inventory_key_counts(observed_parts[[index]])
+    ), info = paste(section$name, "inside mutation"))
+    testthat::expect_identical(
+      writer_final_inventory_key_counts(writer_literal_occurrences(mutated_outside$lines, section$name, mutated_outside$first_line)),
+      writer_final_inventory_key_counts(observed_parts[[index]]),
+      info = paste(section$name, "outside mutation")
+    )
+  }
+})
+
+testthat::test_that("#153 coexistence sequence repair is transactional and CI resolves the historical fixture", {
+  migration_text <- paste(readLines(file.path(writer_root, "db-migrations.sql"), warn = FALSE), collapse = "\n")
+  conversion <- writer_semantic_section(
+    strsplit(migration_text, "\n", fixed = TRUE)[[1L]],
+    "-- #153: convert the legacy 1939 journal into the profile-bound v2 writer.",
+    "CREATE OR REPLACE FUNCTION private.apply_narrative_record_cutover",
+    "final-migration"
+  )
+  conversion_text <- paste(conversion$lines, collapse = "\n")
+  ci_text <- paste(readLines(file.path(writer_root, ".github", "workflows", "ci.yml"), warn = FALSE), collapse = "\n")
+  testthat::expect_false(grepl("PERFORM setval\\(pg_get_serial_sequence\\('private.reimport_event','id'\\)", conversion_text, perl = TRUE))
+  testthat::expect_match(conversion_text, "ALTER SEQUENCE %s RESTART WITH %s", fixed = TRUE)
+  testthat::expect_match(ci_text, "fetch-depth: 0", fixed = TRUE)
+  testthat::expect_match(ci_text, "git cat-file -e 2d6aabf^{commit}", fixed = TRUE)
+  testthat::expect_lt(
+    regexpr("git cat-file -e 2d6aabf^{commit}", ci_text, fixed = TRUE)[[1L]],
+    regexpr("git show 2d6aabf:schema.sql", ci_text, fixed = TRUE)[[1L]]
+  )
 })
 
 testthat::test_that("generic reimport writer owns every formerly 1939-specific literal", {
