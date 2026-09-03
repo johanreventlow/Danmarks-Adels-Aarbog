@@ -9,9 +9,23 @@ from pathlib import Path
 import pytest
 
 from evidence_phase_artifact_ledger import CatalogArtifactEntry, CatalogPhaseEntry
-from run_evidence_phase_artifact_audit_1939_v50 import CliError, _materialize_phase
+from run_evidence_phase_artifact_audit_1939_v50 import (
+    CliError,
+    _FdBundleRoot,
+    _materialize_phase,
+    _open_absolute_root,
+    main,
+)
 
 SCRIPT = Path(__file__).with_name("run_evidence_phase_artifact_audit_1939_v50.py")
+TERMINAL_KEYS = {
+    "status",
+    "error",
+    "phase_ids",
+    "evidence_states",
+    "artifact_hashes",
+    "counts",
+}
 
 
 def write_json(path: Path, document: object) -> str:
@@ -120,7 +134,9 @@ def test_cli_writes_a_sealed_private_incomplete_audit_without_a_reconciliation_l
     completed = run_cli(bundle, catalog, output)
 
     assert completed.returncode == 2
-    assert json.loads(completed.stderr)["status"] == "incomplete"
+    terminal = json.loads(completed.stderr)
+    assert terminal["status"] == "incomplete"
+    assert set(terminal) <= TERMINAL_KEYS
     audit_ledger = json.loads((output / "audit-ledger.json").read_text(encoding="utf-8"))
     assert audit_ledger["ledger_content_sha256"]
     assert (output / "audit-summary.json").is_file()
@@ -165,6 +181,7 @@ def test_cli_hash_seals_bound_artifacts_and_private_outputs_without_terminal_lea
     assert completed.returncode == 0
     terminal = json.loads(completed.stdout)
     assert terminal["status"] == "complete"
+    assert set(terminal) <= TERMINAL_KEYS
     assert "terminal-secret" not in completed.stdout + completed.stderr
     assert str(bundle) not in completed.stdout + completed.stderr
     audit_ledger = json.loads((output / "audit-ledger.json").read_text(encoding="utf-8"))
@@ -244,6 +261,12 @@ def test_cli_reports_invalid_arguments_as_redacted_json():
     assert str(SCRIPT) not in completed.stderr
 
 
+def test_cli_error_terminal_uses_only_the_allowlisted_keys(capsys):
+    assert main([]) == 2
+
+    assert set(json.loads(capsys.readouterr().err)) <= TERMINAL_KEYS
+
+
 def test_cli_rejects_duplicate_catalog_keys_before_artifact_admission(tmp_path):
     bundle = tmp_path / "synthetic-bundle"
     bundle.mkdir()
@@ -281,14 +304,88 @@ def test_cli_converts_an_artifact_read_race_to_a_stable_error(tmp_path, monkeypa
         projection_evidence="afterdocumented_unbound",
         authorisation_evidence="afterdocumented_authorisation_gap",
     )
-    original = Path.read_bytes
+    root = _FdBundleRoot(_open_absolute_root(tmp_path))
+    original_open = os.open
 
-    def fail_only_for_artifact(path: Path) -> bytes:
-        if path == artifact:
+    def fail_only_for_artifact(path, flags, mode=0o777, *, dir_fd=None):
+        if path == artifact.name and dir_fd is not None:
             raise OSError("synthetic read race")
-        return original(path)
+        return original_open(path, flags, mode, dir_fd=dir_fd)
 
-    monkeypatch.setattr(Path, "read_bytes", fail_only_for_artifact)
+    monkeypatch.setattr(os, "open", fail_only_for_artifact)
+    try:
+        with pytest.raises(CliError, match="EVIDENCE_RECONCILIATION_ARTIFACT_UNREADABLE"):
+            _materialize_phase(phase, root)
+    finally:
+        root.close()
 
-    with pytest.raises(CliError, match="EVIDENCE_RECONCILIATION_ARTIFACT_UNREADABLE"):
-        _materialize_phase(phase, tmp_path)
+
+def test_cli_reads_the_checked_artifact_ancestor_without_following_a_swap(tmp_path, monkeypatch, capsys):
+    bundle = tmp_path / "synthetic-bundle"
+    bundle.mkdir()
+    safe = bundle / "safe"
+    safe.mkdir()
+    external = tmp_path / "external"
+    external.mkdir()
+    original_hash = write_json(safe / "synthetic-manifest.json", {"schema_version": "synthetic-manifest-v1"})
+    write_json(external / "synthetic-manifest.json", {"schema_version": "terminal-secret"})
+    catalog = bundle / "catalog.json"
+    document = unbound_catalog()
+    document["phases"][0]["artifacts"][0]["path"] = "safe/synthetic-manifest.json"
+    write_json(catalog, document)
+    output = bundle / "private-output"
+    output.mkdir()
+    original_open = os.open
+    original_read_bytes = Path.read_bytes
+
+    def swap_after_open(path, flags, mode=0o777, *, dir_fd=None):
+        descriptor = original_open(path, flags, mode, dir_fd=dir_fd)
+        if path == "safe" and flags & os.O_DIRECTORY and dir_fd is not None:
+            safe.rename(bundle / "safe-held")
+            safe.symlink_to(external, target_is_directory=True)
+        return descriptor
+
+    monkeypatch.setattr(os, "open", swap_after_open)
+
+    def reject_external_read(path: Path) -> bytes:
+        if path == external / "synthetic-manifest.json":
+            raise AssertionError("external artifact was read")
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", reject_external_read)
+
+    assert main(["--bundle-root", str(bundle), "--catalog", str(catalog), "--private-output-dir", str(output)]) == 2
+
+    terminal = capsys.readouterr().err
+    assert "terminal-secret" not in terminal
+    assert json.loads(terminal)["error"] == "EVIDENCE_RECONCILIATION_ARTIFACT_MISSING"
+    assert not (output / "audit-ledger.json").exists()
+    assert hashlib.sha256((bundle / "safe-held" / "synthetic-manifest.json").read_bytes()).hexdigest() == original_hash
+
+
+def test_cli_writes_through_the_checked_output_directory_fd_after_a_swap(tmp_path, monkeypatch, capsys):
+    bundle = tmp_path / "synthetic-bundle"
+    bundle.mkdir()
+    write_json(bundle / "synthetic-manifest.json", {"schema_version": "synthetic-manifest-v1"})
+    catalog = bundle / "catalog.json"
+    write_json(catalog, unbound_catalog())
+    output = bundle / "private-output"
+    output.mkdir()
+    external = tmp_path / "external-output"
+    external.mkdir()
+    original_open = os.open
+
+    def swap_after_output_open(path, flags, mode=0o777, *, dir_fd=None):
+        descriptor = original_open(path, flags, mode, dir_fd=dir_fd)
+        if path == "private-output" and flags & os.O_DIRECTORY and dir_fd is not None:
+            output.rename(bundle / "private-output-held")
+            output.symlink_to(external, target_is_directory=True)
+        return descriptor
+
+    monkeypatch.setattr(os, "open", swap_after_output_open)
+
+    assert main(["--bundle-root", str(bundle), "--catalog", str(catalog), "--private-output-dir", str(output)]) == 2
+
+    capsys.readouterr()
+    assert not (external / "audit-ledger.json").exists()
+    assert (bundle / "private-output-held" / "audit-ledger.json").is_file()
