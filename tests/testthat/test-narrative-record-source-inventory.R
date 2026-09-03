@@ -31,6 +31,25 @@ expect_acl <- function(sql, prefix, signature, principal_clause) {
               info = paste(signature, principal_clause))
 }
 
+sql_text_array <- function(block, name) {
+  assignment <- regmatches(
+    block,
+    regexec(
+      paste0("(?s)\\b", name, "\\s+text\\[\\]\\s*:=\\s*ARRAY\\[(.*?)\\];"),
+      block,
+      perl = TRUE
+    )
+  )[[1]]
+  expect_true(length(assignment) == 2L, info = name)
+  if (length(assignment) != 2L) return(character())
+  quoted <- regmatches(
+    assignment[[2L]],
+    gregexpr("'[^']+'", assignment[[2L]], perl = TRUE)
+  )[[1]]
+  expect_true(length(quoted) > 0L && !identical(quoted, ""), info = name)
+  substring(quoted, 2L, nchar(quoted) - 1L)
+}
+
 direct_narrative_sql_writers <- function(path) {
   lines <- read_repo(path)
   starts <- grep("^CREATE(?: OR REPLACE)? FUNCTION[[:space:]]+", lines, perl = TRUE)
@@ -131,17 +150,48 @@ test_that("Task 6 pins every legacy SQL writer and its cutover classification", 
   gate <- "pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0))"
   legacy_disabled <- c(
     "red_publicer_narrative_record", "red_tilbagetraek_narrative_record",
-    "red_authorize_1939_v50_reimport", "red_begin_1939_v50_reimport",
-    "red_apply_1939_v50_source_evidence", "red_apply_1939_v50_person_create",
-    "red_apply_1939_v50_canonical_delta", "red_finalize_1939_v50_reimport",
-    "red_authorize_1939_v50_reversal", "red_reverse_1939_v50_reimport",
-    "red_authorize_1939_v50_cutover", "red_activate_1939_v50_batch",
     "red_authorize_reimport_cases", "red_apply_reimport_cases",
     "red_authorize_reimport_case_reversal", "red_reverse_reimport_cases"
+  )
+  # #153 deliberately keeps these exact public signatures for one transition
+  # version. They are thin adapters; the generic target owns the v2 gate and
+  # mutation path, so requiring the old disabled token in the adapter would
+  # contradict the approved compatibility contract.
+  legacy_1939_adapters <- c(
+    red_authorize_1939_v50_reimport = "red_authorize_reimport",
+    red_begin_1939_v50_reimport = "red_begin_reimport",
+    red_apply_1939_v50_source_evidence = "red_apply_reimport_source_evidence",
+    red_apply_1939_v50_person_create = "red_apply_reimport_person_create",
+    red_apply_1939_v50_canonical_delta = "red_apply_reimport_canonical_delta",
+    red_finalize_1939_v50_reimport = "red_finalize_reimport",
+    red_authorize_1939_v50_reversal = "red_authorize_reimport_reversal",
+    red_reverse_1939_v50_reimport = "red_reverse_reimport",
+    red_authorize_1939_v50_cutover = "red_authorize_reimport_cutover",
+    red_activate_1939_v50_batch = "red_activate_reimport_batch"
   )
   participates_without_disable <- c("red_slet_person", "red_fortryd_change_set")
   read_only <- c("red_preview_reimport_cases")
   private_read_only <- c("reimport_case_receipt", "reimport_case_reversal_plan")
+  v2_facade_authenticated <- c(
+    "public.red_begin_1939_v50_reimport(uuid,text,text)",
+    "public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)",
+    "public.red_apply_1939_v50_person_create(uuid,text,jsonb)",
+    "public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)",
+    "public.red_finalize_1939_v50_reimport(uuid)",
+    "public.red_reverse_1939_v50_reimport(uuid,uuid)",
+    "public.red_activate_1939_v50_batch(uuid,uuid)",
+    "public.red_lock_1939_v50_name_completion(text)",
+    "public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)",
+    "public.red_begin_1939_v50_name_completion(uuid,text,uuid)",
+    "public.red_apply_1939_v50_name_completion(uuid,text,jsonb)",
+    "public.red_finalize_1939_v50_name_completion(uuid)"
+  )
+  v2_facade_service <- c(
+    "public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)",
+    "public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)",
+    "public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)",
+    "public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)"
+  )
 
   for (path in sql_files) {
     sql <- paste(read_repo(path), collapse = "\n")
@@ -150,6 +200,20 @@ test_that("Task 6 pins every legacy SQL writer and its cutover classification", 
       expect_match(block, gate, fixed = TRUE, info = paste(path, name))
       expect_match(block, "NARRATIVE_RECORD_LEGACY_WRITER_DISABLED", fixed = TRUE,
                    info = paste(path, name))
+    }
+    for (name in names(legacy_1939_adapters)) {
+      target <- legacy_1939_adapters[[name]]
+      adapter <- last_function_block(sql, "public", name)
+      expect_match(adapter, paste0("public.", target, "("), fixed = TRUE,
+                   info = paste(path, name, "delegates to", target))
+      expect_false(grepl("NARRATIVE_RECORD_LEGACY_WRITER_DISABLED", adapter, fixed = TRUE),
+                   info = paste(path, name))
+
+      target_block <- last_function_block(sql, "public", target)
+      expect_match(target_block, gate, fixed = TRUE,
+                   info = paste(path, name, "inherits gate from", target))
+      expect_match(target_block, "narrative_record_contract_version()<>2", fixed = TRUE,
+                   info = paste(path, name, "inherits v2 contract from", target))
     }
     for (name in participates_without_disable) {
       block <- last_function_block(sql, "public", name)
@@ -179,21 +243,11 @@ test_that("Task 6 pins every legacy SQL writer and its cutover classification", 
     authenticated <- c(
       "red_publicer_narrative_record(bigint,uuid,text,text)",
       "red_tilbagetraek_narrative_record(bigint)",
-      "public.red_begin_1939_v50_reimport(uuid,text,text)",
-      "public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)",
-      "public.red_apply_1939_v50_person_create(uuid,text,jsonb)",
-      "public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)",
-      "public.red_finalize_1939_v50_reimport(uuid)",
-      "public.red_reverse_1939_v50_reimport(uuid,uuid)",
-      "public.red_activate_1939_v50_batch(uuid,uuid)",
       "public.red_preview_reimport_cases(bigint,text,jsonb)",
       "public.red_apply_reimport_cases(uuid,text,text)",
       "public.red_reverse_reimport_cases(uuid,uuid)"
     )
     service_role <- c(
-      "public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)",
-      "public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)",
-      "public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)",
       "public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)",
       "public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)"
     )
@@ -203,6 +257,15 @@ test_that("Task 6 pins every legacy SQL writer and its cutover classification", 
     for (signature in service_role) {
       expect_acl(sql, "GRANT EXECUTE ON FUNCTION", signature, "TO service_role")
     }
+    acl <- last_function_block(sql, "private", "apply_narrative_record_contract_acl")
+    expect_setequal(
+      sql_text_array(acl, "v_v2_facade_authenticated"),
+      v2_facade_authenticated
+    )
+    expect_setequal(
+      sql_text_array(acl, "v_v2_facade_service"),
+      v2_facade_service
+    )
     for (signature in c(
       "private.reimport_case_receipt(uuid)",
       "private.reimport_case_reversal_plan(uuid)",
@@ -246,8 +309,15 @@ test_that("Task 6 pins loader, updater and historical gated consumers", {
     expect_match(text, "NARRATIVE_RECORD_LOADER_MIGRATION_REQUIRED", fixed = TRUE, info = path)
   }
 
+  generic_adapter <- paste(
+    read_repo(".claude/skills/daa-extract/scripts/apply_reimport_1939_v50_helpers.R"),
+    collapse = "\n"
+  )
+  expect_match(generic_adapter, "apply_reimport_helpers.R", fixed = TRUE)
+  expect_match(generic_adapter, "execute_reimport_generic", fixed = TRUE)
+  expect_false(grepl("red_apply_1939_v50_canonical_delta", generic_adapter, fixed = TRUE))
+
   gated_consumers <- c(
-    ".claude/skills/daa-extract/scripts/apply_reimport_1939_v50_helpers.R" = "red_apply_1939_v50_canonical_delta",
     ".claude/skills/daa-extract/scripts/apply_phase_a_1939_v50_helpers.R" = "red_apply_1939_v50_source_evidence"
   )
   for (path in names(gated_consumers)) {
@@ -306,9 +376,11 @@ test_that("Task 7 pins the atomic cutover, receipt, sequence and ACL source of t
   rls <- paste(read_repo("db-rls.sql"), collapse = "\n")
   expect_match(
     gsub("[[:space:]]+", " ", rls),
-    "SELECT private.apply_narrative_record_contract_acl( public.narrative_record_contract_version() );",
+    "PERFORM private.apply_narrative_record_contract_acl( public.narrative_record_contract_version() );",
     fixed = TRUE
   )
+  expect_match(rls, "$narrative_contract_acl_if_complete$", fixed = TRUE)
+  expect_match(rls, "$reimport_1939_v2_facade_acl$", fixed = TRUE)
   verify <- paste(read_repo("db-verify.sql"), collapse = "\n")
   expect_match(verify, "VERIFY_NARRATIVE_RECORD_NEW_WRITER_ACL_INVALID", fixed = TRUE)
   expect_match(verify, "VERIFY_NARRATIVE_RECORD_LEGACY_AUTH_ACL_INVALID", fixed = TRUE)
@@ -322,8 +394,6 @@ test_that("direct narrative mutation sources remain an exact closed inventory", 
     "private.mutate_person_narrative_record(text,bigint,bigint,text,text,boolean,text)",
     "private.reverse_narrative_publication_event(uuid,text)",
     "private.write_reimport_case_narrative(bigint,bigint,bigint,text,boolean,text)",
-    "public.red_apply_1939_v50_person_create(uuid,text,jsonb)",
-    "public.red_reverse_1939_v50_reimport(uuid,uuid)",
     "public.red_slet_person(bigint)",
     "public.red_upsert_narrativ(text,bigint,text,boolean,bigint,text)"
   ))
