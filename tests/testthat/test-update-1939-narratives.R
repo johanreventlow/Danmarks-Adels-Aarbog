@@ -45,3 +45,49 @@ test_that("plan marks text and nullable side changes", {
   expect_equal(plan$side_changed, c(FALSE, TRUE, TRUE))
   expect_equal(plan$changed, c(FALSE, TRUE, TRUE))
 })
+
+test_that("legacy updater takes the shared cutover gate and fails closed at v2", {
+  calls <- character()
+  execute <- function(con, sql) {
+    calls <<- c(calls, sql)
+    0L
+  }
+  query_v2 <- function(con, sql) {
+    calls <<- c(calls, sql)
+    data.frame(version = 2L)
+  }
+
+  expect_error(
+    require_narrative_record_loader_contract(NULL, execute = execute, query = query_v2),
+    "^NARRATIVE_RECORD_LOADER_MIGRATION_REQUIRED$"
+  )
+  expect_length(calls, 2L)
+  expect_match(calls[[1]], "pg_advisory_xact_lock_shared")
+  expect_match(calls[[1]], "daa-narrative-record-contract", fixed = TRUE)
+  expect_match(calls[[2]], "narrative_record_contract_version")
+})
+
+test_that("legacy updater preserves v1 and gates before its existing work", {
+  calls <- character()
+  execute <- function(con, sql) {
+    calls <<- c(calls, sql)
+    0L
+  }
+  query_v1 <- function(con, sql) {
+    calls <<- c(calls, sql)
+    data.frame(version = 1L)
+  }
+
+  expect_identical(
+    require_narrative_record_loader_contract(NULL, execute = execute, query = query_v1),
+    1L
+  )
+  expect_length(calls, 2L)
+
+  code <- readLines(script, warn = FALSE)
+  begin <- grep("dbBegin\\(con\\)", code)[1]
+  isolation <- grep("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE", code, fixed = TRUE)[1]
+  gate <- grep("require_narrative_record_loader_contract\\(con\\)", code)[1]
+  timeout <- grep("SET LOCAL lock_timeout", code, fixed = TRUE)[1]
+  expect_true(begin < isolation && isolation < gate && gate < timeout)
+})

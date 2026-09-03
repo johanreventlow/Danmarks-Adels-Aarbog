@@ -9,11 +9,12 @@ const mediaMocks = vi.hoisted(() => ({
   resolveFeedMediaForCards: vi.fn(),
 }));
 const streamMocks = vi.hoisted(() => ({ createFeedStream: vi.fn(), resumeStream: vi.fn() }));
+const feedAuxMocks = vi.hoisted(() => ({ fetchFeedBios: vi.fn() }));
 
 vi.mock('../../data/feedMedia', () => mediaMocks);
 vi.mock('../../data/feedAux', () => ({
   buildWebFeedAux: () => ({ godsListe: [], vaabenListe: [], officesBy: {} }),
-  fetchFeedBios: () => Promise.resolve({}),
+  fetchFeedBios: feedAuxMocks.fetchFeedBios,
   withFeedBios: (model: unknown) => model,
 }));
 vi.mock('../../data/livsdato', () => ({ loadLivsdatoBy: () => Promise.resolve({}) }));
@@ -77,6 +78,7 @@ describe('FeedStreamView media lifecycle', () => {
       };
     });
     streamMocks.resumeStream.mockReset().mockImplementation((stream) => stream);
+    feedAuxMocks.fetchFeedBios.mockReset().mockResolvedValue({});
     mediaMocks.fetchFeedMediaCandidates.mockReset();
     mediaMocks.resolveFeedMediaForCards.mockReset().mockImplementation(async (requests, candidates) => Object.fromEntries(
       requests.map((request: { cardId: string; personId: string }) => [request.cardId, (candidates[request.personId] ?? []).map((candidate: { id: string; titel: string }) => ({
@@ -139,6 +141,16 @@ describe('FeedStreamView media lifecycle', () => {
     expect(mediaMocks.resolveFeedMediaForCards.mock.calls.some(([, candidates]) => (
       candidates['1']?.some((candidate: { titel: string }) => candidate.titel === 'Må ikke vises')
     ))).toBe(false);
+  });
+
+  it('viser en eksplicit biografi-fejl i stedet for en tavs tom feed-model', async () => {
+    feedAuxMocks.fetchFeedBios.mockRejectedValue(new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE'));
+    mediaMocks.fetchFeedMediaCandidates.mockResolvedValue({});
+
+    render(<FeedStreamView {...feedProps(null)} />);
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Kunne ikke hente feedets biografier');
+    expect(screen.getByRole('alert').textContent).toContain('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
   });
 });
 

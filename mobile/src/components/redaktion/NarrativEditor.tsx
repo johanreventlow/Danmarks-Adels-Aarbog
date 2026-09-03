@@ -14,7 +14,7 @@ import { SkrivePreviewSheet } from './SkrivePreviewSheet';
 import { Body, BtnLabel, Mono } from '../Typography';
 import { Border, Colors, Radius } from '../../theme/tokens';
 import { insertAt } from '@daa/core';
-import { fetchNarrativer, fetchSources, type PersonNarrativ, type SourceRow, type PersonMedia } from '../../data/redaktionRead';
+import { fetchNarrativeEditorState, fetchSources, type MobileNarrativeEditorState, type PersonNarrativ, type SourceRow, type PersonMedia } from '../../data/redaktionRead';
 import { type Change } from '../../data/redaktionWrite';
 
 export function NarrativEditor({ subjektType, subjektId, media, mediaThumbUris }: {
@@ -28,24 +28,36 @@ export function NarrativEditor({ subjektType, subjektId, media, mediaThumbUris }
   const [aktivSourceId, setAktivSourceId] = useState<number | null>(null);
   const [udkast, setUdkast] = useState({ tekst: '', privat: false, side: '' });
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [editorState, setEditorState] = useState<MobileNarrativeEditorState | null>(null);
   const [nyUdgave, setNyUdgave] = useState<{ titel: string; udgave: string } | null>(null);
   const [pending, setPending] = useState<Change | null>(null);
+  const [pendingOwner, setPendingOwner] = useState<string | null>(null);
   const selPos = useRef(0);
+  const loadGeneration = useRef(0);
   const [mentionPickerÅben, setMentionPickerÅben] = useState(false);
   const [mediaMentionPickerÅben, setMediaMentionPickerÅben] = useState(false);
 
   const indlæs = useCallback(() => {
+    const generation = ++loadGeneration.current;
+    setPending(null);
+    setPendingOwner(null);
     setStatus('loading');
-    fetchNarrativer(subjektType, Number(subjektId)).then((ns) => {
-      setNarrativer(ns);
-      const first = ns[0];
-      setAktivSourceId(first?.sourceId ?? 1);
-      setUdkast({ tekst: first?.tekst ?? '', privat: first?.privat ?? false, side: first?.side ?? '' });
+    fetchNarrativeEditorState(subjektType, Number(subjektId)).then((state) => {
+      if (generation !== loadGeneration.current) return;
+      setEditorState(state);
+      const first = state.kind === 'legacy' ? state.narrativer[0] : undefined;
+      setNarrativer(state.kind === 'legacy' ? state.narrativer : []);
+      setAktivSourceId(state.kind === 'legacy' ? first?.sourceId ?? 1 : state.kind === 'editable' ? state.sourceId : null);
+      setUdkast({ tekst: state.tekst, privat: state.privat, side: state.side });
       setStatus('ready');
-    }).catch(() => setStatus('error'));
+    }).catch(() => {
+      if (generation === loadGeneration.current) setStatus('error');
+    });
   }, [subjektType, subjektId]);
   useEffect(indlæs, [indlæs]);
-  useEffect(() => { fetchSources().then(setSources).catch(() => setSources([])); }, []);
+  useEffect(() => {
+    if (editorState?.kind === 'legacy') fetchSources().then(setSources).catch(() => setSources([]));
+  }, [editorState?.kind]);
 
   const vaelgUdgave = (sourceId: number | null) => {
     setAktivSourceId(sourceId); setNyUdgave(null);
@@ -53,38 +65,66 @@ export function NarrativEditor({ subjektType, subjektId, media, mediaThumbUris }
     setUdkast({ tekst: n?.tekst ?? '', privat: n?.privat ?? false, side: n?.side ?? '' });
   };
   const ledigeSources = sources.filter((s) => !narrativer.some((n) => n.sourceId === s.id));
+  const isLegacyEditor = editorState?.kind === 'legacy';
+  const isEditableRecord = editorState?.kind === 'editable';
+  const isReadOnly = editorState?.kind === 'readonly';
+  const editorOwner = `${subjektType}:${subjektId}`;
 
   return (
     <View style={styles.sektion}>
       <Mono size={10} color={Colors.textMuted} style={{ marginBottom: 6 }}>Narrativ / biografi</Mono>
       {status === 'error' ? (
         <Mono size={11} color={Colors.liveRoed}>Kunne ikke hente narrativ. Genindlæs.</Mono>
+      ) : status === 'loading' || editorState == null ? (
+        <Mono size={11} color={Colors.textMuted}>Henter narrativ…</Mono>
+      ) : isReadOnly ? (
+        <View>
+          {!!editorState.label && <Mono size={10} color={Colors.textMuted} style={{ marginBottom: 6 }}>{editorState.label}</Mono>}
+          <Mono size={11} color={Colors.liveRoed} style={{ marginBottom: 8 }}>Brug webredaktionen</Mono>
+          {(editorState.records.length ? editorState.records : [{ label: '', tekst: udkast.tekst, privat: udkast.privat, side: udkast.side }]).map((record, index) => (
+            <View key={`${record.label}-${index}`} style={index ? { marginTop: 10 } : undefined}>
+              {!!record.label && <Mono size={10} color={Colors.textMuted} style={{ marginBottom: 4 }}>{record.label}</Mono>}
+              <TextInput multiline editable={false} value={record.tekst} style={[styles.input, { opacity: 0.65 }]}
+                placeholder="Skriv biografi her…" placeholderTextColor={Colors.textMuted2} textAlignVertical="top" />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 9 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Switch disabled value={record.privat} thumbColor={record.privat ? Colors.bordeaux : Colors.textMuted2}
+                    trackColor={{ false: Colors.beige3, true: Colors.bordeauxFillLight2 }} />
+                  <Body size={11} color={Colors.textMuted}>privat</Body>
+                </View>
+                <TextInput editable={false} value={record.side} placeholder="side, fx 209-211"
+                  placeholderTextColor={Colors.textMuted2} style={[styles.sideInput, { opacity: 0.65 }]} />
+              </View>
+            </View>
+          ))}
+        </View>
       ) : (
         <>
-          {/* Udgave-faner: én pr. kilde subjektet har en narrativ i, + evt. ny (ugemt) udgave + "+ Ny udgave" */}
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-            {narrativer.map((n) => {
-              const aktiv = n.sourceId === aktivSourceId;
-              return (
-                <Pressable key={n.id} onPress={() => vaelgUdgave(n.sourceId)}
-                  style={[styles.fane, aktiv && styles.faneAktiv]}>
-                  <Mono size={10.5} color={aktiv ? '#fff' : Colors.textMuted}>
-                    {(n.udgave ?? n.sourceTitel ?? `Kilde ${n.sourceId ?? '—'}`) + (n.privat ? ' · privat' : '')}
-                  </Mono>
-                </Pressable>
-              );
-            })}
-            {aktivSourceId != null && !narrativer.some((n) => n.sourceId === aktivSourceId) && (
-              <View style={[styles.fane, styles.faneAktiv]}>
-                <Mono size={10.5} color="#fff">{(sources.find((s) => s.id === aktivSourceId)?.udgave ?? `Kilde ${aktivSourceId}`) + ' · ny'}</Mono>
-              </View>
-            )}
-            <Pressable onPress={() => setNyUdgave({ titel: '', udgave: '' })} style={styles.faneNy}>
-              <Mono size={10.5} color={Colors.textMuted2}>+ Ny udgave</Mono>
-            </Pressable>
-          </View>
+          {isLegacyEditor && <>
+            {/* Den generiske slægt/linje-editor beholder sine eksisterende kildefaner. */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+              {narrativer.map((n) => {
+                const aktiv = n.sourceId === aktivSourceId;
+                return (
+                  <Pressable key={n.id} onPress={() => vaelgUdgave(n.sourceId)} style={[styles.fane, aktiv && styles.faneAktiv]}>
+                    <Mono size={10.5} color={aktiv ? '#fff' : Colors.textMuted}>
+                      {(n.udgave ?? n.sourceTitel ?? `Kilde ${n.sourceId ?? '—'}`) + (n.privat ? ' · privat' : '')}
+                    </Mono>
+                  </Pressable>
+                );
+              })}
+              {aktivSourceId != null && !narrativer.some((n) => n.sourceId === aktivSourceId) && (
+                <View style={[styles.fane, styles.faneAktiv]}>
+                  <Mono size={10.5} color="#fff">{(sources.find((s) => s.id === aktivSourceId)?.udgave ?? `Kilde ${aktivSourceId}`) + ' · ny'}</Mono>
+                </View>
+              )}
+              <Pressable onPress={() => setNyUdgave({ titel: '', udgave: '' })} style={styles.faneNy}>
+                <Mono size={10.5} color={Colors.textMuted2}>+ Ny udgave</Mono>
+              </Pressable>
+            </View>
+          </>}
 
-          {nyUdgave != null && (
+          {isLegacyEditor && nyUdgave != null && (
             <View style={styles.nyUdgaveBoks}>
               <Mono size={9.5} color={Colors.textMuted}>Vælg en udgave subjektet ikke har endnu:</Mono>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
@@ -105,6 +145,7 @@ export function NarrativEditor({ subjektType, subjektId, media, mediaThumbUris }
                   if (!nyUdgave.titel.trim()) return;
                   setPending({ art: 'opretKilde', subjektType: 'source', subjektId: '',
                     payload: { titel: nyUdgave.titel.trim(), slags: 'DAA-udgave', udgave: nyUdgave.udgave.trim() || null } });
+                  setPendingOwner(editorOwner);
                 }}>
                 <BtnLabel size={12} color="#fff">Opret</BtnLabel>
               </Pressable>
@@ -121,12 +162,12 @@ export function NarrativEditor({ subjektType, subjektId, media, mediaThumbUris }
           </View>
           <TextInput
             multiline
-            editable={status === 'ready'}
+            editable
             value={udkast.tekst}
             onChangeText={(v) => setUdkast((u) => ({ ...u, tekst: v }))}
             onSelectionChange={(e) => { selPos.current = e.nativeEvent.selection.start; }}
             style={styles.input}
-            placeholder={status === 'loading' ? 'Henter…' : 'Skriv biografi her…'}
+            placeholder="Skriv biografi her…"
             placeholderTextColor={Colors.textMuted2}
             textAlignVertical="top"
           />
@@ -144,14 +185,25 @@ export function NarrativEditor({ subjektType, subjektId, media, mediaThumbUris }
                 thumbColor={udkast.privat ? Colors.bordeaux : Colors.textMuted2} trackColor={{ false: Colors.beige3, true: Colors.bordeauxFillLight2 }} />
               <Body size={11} color={Colors.textMuted}>privat</Body>
             </View>
-            <TextInput value={udkast.side} onChangeText={(v) => setUdkast((u) => ({ ...u, side: v }))}
+            <TextInput editable={isLegacyEditor} value={udkast.side} onChangeText={(v) => setUdkast((u) => ({ ...u, side: v }))}
               placeholder="side, fx 209-211" placeholderTextColor={Colors.textMuted2} style={styles.sideInput} />
           </View>
           <Pressable
-            style={[styles.gemKnap, status !== 'ready' && { opacity: 0.5 }]}
-            disabled={status !== 'ready'}
-            onPress={() => setPending({ art: 'narrativ', subjektType, subjektId, vaerdi: udkast.tekst,
-              payload: { privat: udkast.privat, sourceId: aktivSourceId, side: udkast.side.trim() || null } })}
+            style={styles.gemKnap}
+            disabled={false}
+            onPress={() => {
+              if (isEditableRecord) {
+                setPending({ art: 'narrativRecord', subjektType: 'person', subjektId, vaerdi: udkast.tekst,
+                  recordKey: editorState.recordKey, expectedStateSha256: editorState.stateSha256,
+                  payload: { privat: udkast.privat, sourceId: editorState.sourceId } });
+                setPendingOwner(editorOwner);
+              } else if (isLegacyEditor) {
+                setPending({ art: 'narrativ', subjektType, subjektId, vaerdi: udkast.tekst,
+                  payload: { privat: udkast.privat, sourceId: aktivSourceId, side: udkast.side.trim() || null,
+                    narrativeRecordContractVersion: 1 } });
+                setPendingOwner(editorOwner);
+              }
+            }}
           >
             <BtnLabel color="#fff">Gem narrativ</BtnLabel>
           </Pressable>
@@ -181,18 +233,19 @@ export function NarrativEditor({ subjektType, subjektId, media, mediaThumbUris }
         </>
       )}
       <SkrivePreviewSheet
-        change={pending}
-        onClose={() => setPending(null)}
+        change={pendingOwner === editorOwner ? pending : null}
+        onClose={() => { setPending(null); setPendingOwner(null); }}
         onApplied={(result) => {
           const art = pending?.art;
           setPending(null);
+          setPendingOwner(null);
           if (art === 'opretKilde' && result != null) {
             // Ny udgave oprettet LIVE: brug den straks som aktiv (ugemt) fane, som web's opretUdgave.
             fetchSources().then(setSources).catch(() => {});
             setNyUdgave(null);
             setAktivSourceId(Number(result));
             setUdkast({ tekst: '', privat: false, side: '' });
-          } else if (art === 'narrativ') {
+          } else if (art === 'narrativ' || art === 'narrativRecord') {
             indlæs();
           }
         }}

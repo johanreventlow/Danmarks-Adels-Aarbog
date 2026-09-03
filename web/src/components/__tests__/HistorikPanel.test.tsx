@@ -45,8 +45,8 @@ test('fejl ved hentning vises i panelet', async () => {
 test('Fortryd-klik delegerer til onFortryd uden force og genindlæser ved ok', async () => {
   const onFortryd = vi.fn().mockResolvedValue('ok');
   render(<HistorikPanel personId="7" onFortryd={onFortryd} />);
-  fireEvent.click(await screen.findByText('Fortryd'));
-  await waitFor(() => expect(onFortryd).toHaveBeenCalledWith('42', false));
+  fireEvent.click(await screen.findByRole('button', { name: 'Fortryd' }));
+  await waitFor(() => expect(onFortryd).toHaveBeenCalledWith(expect.objectContaining({ id: '42' }), false));
   expect(fetchHistorik).toHaveBeenCalledTimes(2); // init + refetch efter ok
 });
 
@@ -66,20 +66,48 @@ test('fortryd-sæt (erFortryd) har ingen Fortryd-knap — der er ingen events at
   expect(screen.queryByText('Fortryd')).toBeNull();
 });
 
+test('en publication-historikrække uden reverseringsret viser serverens begrundelse uden Fortryd-knap', async () => {
+  (fetchHistorik as ReturnType<typeof vi.fn>).mockResolvedValue([
+    post({
+      id: 'publication-event',
+      undoKind: 'publication_event',
+      canReverse: false,
+      blockingReason: 'NARRATIVE_PUBLICATION_REVERSAL_NOT_REVERSIBLE',
+      resume: 'Narrativ-publicering: reversal',
+    }),
+  ]);
+
+  render(<HistorikPanel personId="7" onFortryd={vi.fn()} />);
+
+  expect(await screen.findByText('NARRATIVE_PUBLICATION_REVERSAL_NOT_REVERSIBLE')).toBeTruthy();
+  expect(screen.queryByText('Fortryd')).toBeNull();
+});
+
+test('en reversibel publication-historikrække delegerer det konkrete event til den dedikerede handler', async () => {
+  const publication = post({ id: 'publication-event', undoKind: 'publication_event', canReverse: true, resume: 'Narrativ-publicering: publiceret' });
+  const onFortryd = vi.fn().mockResolvedValue('ok');
+  (fetchHistorik as ReturnType<typeof vi.fn>).mockResolvedValue([publication]);
+  render(<HistorikPanel personId="7" onFortryd={onFortryd} />);
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Fortryd' }));
+
+  await waitFor(() => expect(onFortryd).toHaveBeenCalledWith(publication, false));
+});
+
 test('konflikt (B9) viser eksplicit force-valg; "Fortryd alligevel" kalder igen med force', async () => {
   const onFortryd = vi.fn().mockResolvedValueOnce('konflikt').mockResolvedValueOnce('ok');
   render(<HistorikPanel personId="7" onFortryd={onFortryd} />);
-  fireEvent.click(await screen.findByText('Fortryd'));
+  fireEvent.click(await screen.findByRole('button', { name: 'Fortryd' }));
   expect(await screen.findByText(/Nyere ændring rører samme data/)).toBeTruthy();
-  fireEvent.click(screen.getByText('Fortryd alligevel'));
-  await waitFor(() => expect(onFortryd).toHaveBeenLastCalledWith('42', true));
+  fireEvent.click(screen.getByRole('button', { name: 'Fortryd alligevel' }));
+  await waitFor(() => expect(onFortryd).toHaveBeenLastCalledWith(expect.objectContaining({ id: '42' }), true));
 });
 
 test('konflikt-valget kan annulleres uden nyt kald', async () => {
   const onFortryd = vi.fn().mockResolvedValue('konflikt');
   render(<HistorikPanel personId="7" onFortryd={onFortryd} />);
-  fireEvent.click(await screen.findByText('Fortryd'));
-  fireEvent.click(await screen.findByText('Annullér'));
+  fireEvent.click(await screen.findByRole('button', { name: 'Fortryd' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Annullér' }));
   expect(screen.queryByText(/Nyere ændring rører samme data/)).toBeNull();
   expect(onFortryd).toHaveBeenCalledTimes(1);
 });

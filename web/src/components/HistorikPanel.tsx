@@ -12,7 +12,7 @@ export type FortrydUdfald = 'ok' | 'konflikt' | 'fejl';
 
 export function HistorikPanel({ personId, onFortryd }: {
   personId: string;
-  onFortryd: (changeSetId: string, force: boolean) => Promise<FortrydUdfald>;
+  onFortryd: (post: HistPost, force: boolean) => Promise<FortrydUdfald>;
 }) {
   const [poster, setPoster] = useState<HistPost[]>([]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -32,7 +32,7 @@ export function HistorikPanel({ personId, onFortryd }: {
     setKonfliktId(null);
     setBusyId(post.id);
     try {
-      const udfald = await onFortryd(post.id, force);
+      const udfald = await onFortryd(post, force);
       if (udfald === 'konflikt') setKonfliktId(post.id);
       if (udfald === 'ok') indlaes();
     } finally {
@@ -43,6 +43,9 @@ export function HistorikPanel({ personId, onFortryd }: {
   // Fire gensidigt udelukkende handlings-tilstande pr. post — tidlige returns frem for
   // indlejrede ternaries, så hver gren kan læses isoleret (/simplify-fund).
   function fortrydAction(post: HistPost) {
+    if (post.undoKind === 'publication_event' && post.canReverse === false) {
+      return <div style={{ fontSize: 11, color: T.muted3, marginTop: 5 }}>{post.blockingReason ?? 'Denne publiceringshændelse kan ikke fortrydes.'}</div>;
+    }
     if (post.reverteret) return <div style={{ fontSize: 11, color: T.muted3, marginTop: 5 }}>Fortrudt</div>;
     if (post.erFortryd) return null; // ingen events at spille baglæns — knappen ville være et tavst no-op
     if (konfliktId === post.id) {
@@ -51,23 +54,23 @@ export function HistorikPanel({ personId, onFortryd }: {
           <div style={{ fontSize: 12.5, color: T.ink, marginBottom: 6 }}>
             Nyere ændring rører samme data — fortrydes der alligevel, overskrives den.
           </div>
-          <span onClick={() => startFortryd(post, true)}
-            style={{ fontSize: 12, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', marginRight: 14 }}>
+          <button type="button" onClick={() => startFortryd(post, true)}
+            style={{ fontSize: 12, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', marginRight: 14, border: 0, background: 'transparent', padding: 0 }}>
             Fortryd alligevel
-          </span>
-          <span onClick={() => setKonfliktId(null)}
-            style={{ fontSize: 12, fontWeight: 600, color: T.muted, cursor: 'pointer' }}>
+          </button>
+          <button type="button" onClick={() => setKonfliktId(null)}
+            style={{ fontSize: 12, fontWeight: 600, color: T.muted, cursor: 'pointer', border: 0, background: 'transparent', padding: 0 }}>
             Annullér
-          </span>
+          </button>
         </div>
       );
     }
     return (
-      <span onClick={() => (busyId ? undefined : startFortryd(post, false))}
+      <button type="button" disabled={busyId !== null} onClick={() => startFortryd(post, false)}
         style={{ display: 'inline-block', marginTop: 5, fontSize: 12, fontWeight: 600,
-          color: T.bordeaux, cursor: busyId ? 'wait' : 'pointer', opacity: busyId === post.id ? 0.5 : 1 }}>
+          color: T.bordeaux, cursor: busyId ? 'wait' : 'pointer', opacity: busyId === post.id ? 0.5 : 1, border: 0, background: 'transparent', padding: 0 }}>
         Fortryd
-      </span>
+      </button>
     );
   }
 

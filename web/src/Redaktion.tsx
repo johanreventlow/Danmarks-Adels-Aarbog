@@ -16,13 +16,15 @@ import {
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
   type HaendelsePost, type StoryPost, type TidslinjePost, type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia, type ForaeldreUkendtMarkering, SLAEGT_SUBJEKT_ID,
   fetchForaeldreSlot, fetchForaeldreKonflikter, fetchBarnFamilie, type ForaeldreSlot, type ForaeldreKonflikt, type BarnFamilie,
-  fetchMediaBibliotek, fetchMediaAnvendelse, fetchUdrensPreview, formatMedieAlder, type MediaBibliotekPost, type MediaAnvendelse, type MedieKoe, type UdrensPreview,
+  fetchMediaBibliotek, fetchMediaAnvendelse, fetchUdrensPreview, formatMedieAlder, fetchPersonNarrativeRecords, type MediaBibliotekPost, type MediaAnvendelse, type MedieKoe, type UdrensPreview,
 } from './data/redaktionRead';
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, insertAt, makeToken, previewSammeSom, type OcrFelt, type PersonKvalitetsarkRow } from '@daa/core';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
 import { submitChange, describeCall, erFortrydKonflikt, oversaetFejl, planCall, resumeMediaUpload, type Change } from './data/redaktionWrite';
 import { HistorikPanel, type FortrydUdfald } from './components/HistorikPanel';
+import { PersonNarrativeRecordEditor } from './components/PersonNarrativeRecordEditor';
+import type { HistPost } from './data/historik';
 import {
   fetchPersonKvalitetsark, fetchOcrHistorik, retOcrFelt, oversaetOcrFejl, type OcrHistorikEntry,
 } from './data/personKvalitetsark';
@@ -44,6 +46,7 @@ import { initials } from './data/format';
 import { NarrativRenderer } from './components/NarrativRenderer';
 import { Lightbox } from './components/Lightbox';
 import { MediaDetaljeOverlay } from './components/MediaDetaljeOverlay';
+import { KildepersonaKo } from './components/KildepersonaKo';
 
 const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 const MEDIA_RETTIGHED_STATUS = ['ukendt', 'public_domain', 'licenseret', 'tilladelse_givet', 'begraenset', 'spaerret'] as const;
@@ -85,6 +88,7 @@ const ENTITIES = [
   { key: 'feed', label: 'Feed-styring', icon: '⚑' },
   { key: 'sammenlign', label: 'Sammenlign udgaver', icon: '⇄' },
   { key: 'foraeldre-konflikter', label: 'Forældre-konflikter', icon: '⚠' },
+  { key: 'kildepersonaer', label: 'Kildepersonaer', icon: '⌕' },
 ];
 const FELT_DEFS: [string, string][] = [
   ['navn', 'Navn'], ['foedt', 'Født'], ['doed', 'Død'], ['titel', 'Titel/rang'],
@@ -198,6 +202,7 @@ export default function Redaktion() {
   const [haendelseNotice, setHaendelseNotice] = useState('');
   // Narrativ pr. udgave: liste (faner) + aktiv kilde + redigerbart udkast for den aktive fane.
   const [narrativer, setNarrativer] = useState<PersonNarrativ[]>([]);
+  const [personNarrativeRefresh, setPersonNarrativeRefresh] = useState(0);
   const [aktivSourceId, setAktivSourceId] = useState<number | null>(null);
   const [narrativUdkast, setNarrativUdkast] = useState<{ tekst: string; privat: boolean; side: string }>({ tekst: '', privat: false, side: '' });
   // Cursor-position i narrativ-textarea'en (billeder-i-narrativer 2026-07-05, Slice C2) — ref, ikke
@@ -506,7 +511,10 @@ export default function Redaktion() {
     fetchPersonEvidence(id).then(setEvidence).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
     fetchHaendelserForPerson(id).then(setHaendelser).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
     fetchStoriesForPerson(id).then(setStories).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
-    loadNarrativer('person', Number(id));
+    // Person/DAA-narrativer læses kun af den record-bundne editor. Den generiske
+    // source-nøglede læser er fortsat kun til slægt/linje-editoren nedenfor.
+    setNarrativer([]); setAktivSourceId(null); setNyUdgave(null);
+    setNarrativUdkast({ tekst: '', privat: false, side: '' });
     fetchPersonFamilie(id, model).then(setFamilie).catch(() => setFamilie({ somPartner: [], somBarn: [] }));
     fetchPersonRelationer(id).then(setRelationer).catch(() => setRelationer([]));
     fetchSammeSomLinks(id).then(setSammeSom).catch(() => setSammeSom([]));
@@ -514,7 +522,7 @@ export default function Redaktion() {
       setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false }); setMediaDetalje(null);
       fetchRedPersonMedia(id).then(setMedia).catch(() => setMedia([]));
     }
-  }, [model, loadNarrativer]);
+  }, [model]);
 
   // Skift aktiv udgave-fane; nulstil udkast fra den fanes gemte narrativ (ugemte edits kasseres,
   // som ved record-skift). sourceId==null når en ny udgave er valgt men endnu ikke gemt.
@@ -700,14 +708,29 @@ export default function Redaktion() {
   // Fortryd fra historik-panelet (issue #144): samme submitChange-flow som run(), men med
   // rå-fejl-klassifikation FØR oversaetFejl — B9-konflikten ("nyere ændring rører samme data")
   // skal tilbage til panelet som et eksplicit force-valg, ikke ende som død fejltekst i writeView.
-  const fortrydChangeSet = useCallback(async (changeSetId: string, force: boolean): Promise<FortrydUdfald> => {
-    const change: Change = { art: 'fortryd', subjektType: 'person', subjektId: recordId ?? '',
-      payload: { changeSetId, force } };
+  const fortrydChangeSet = useCallback(async (post: HistPost, force: boolean): Promise<FortrydUdfald> => {
+    let change: Change;
     try {
+      if (post.undoKind === 'publication_event') {
+        const current = await fetchPersonNarrativeRecords(Number(recordId));
+        const expectedStateSha256 = post.sourceRecordRef
+          ? current.records.find((record) => record.sourceRecordRef === post.sourceRecordRef)?.stateSha256
+          : current.legacyPublications.find((legacy) => legacy.legacyPublicationRef === post.legacyPublicationRef)?.stateSha256;
+        if (!expectedStateSha256) throw new Error('NARRATIVE_RECORD_REVERSAL_STATE_UNAVAILABLE');
+        change = { art: 'fortrydNarrativPublicering', subjektType: 'person', subjektId: recordId ?? '', payload: {
+          eventId: post.id, expectedStateSha256,
+        } };
+      } else {
+        change = { art: 'fortryd', subjektType: 'person', subjektId: recordId ?? '',
+          payload: { changeSetId: post.id, force } };
+      }
       const res = await submitChange(change, { dryRun, role });
       setWriteView({ title: dryRun ? 'Dry-run · dette ville blive sendt' : 'Ændring fortrudt',
         lines: [describeCall(res.call)], error: '', done: !dryRun, dryRun, direkte: res.direkte });
-      if (!dryRun && recordId) loadPerson(recordId, { skipMedia: true });
+      if (!dryRun && recordId) {
+        loadPerson(recordId, { skipMedia: true });
+        if (post.undoKind === 'publication_event') setPersonNarrativeRefresh((version) => version + 1);
+      }
       return 'ok';
     } catch (e) {
       const raw = String((e as Error)?.message ?? e);
@@ -716,6 +739,19 @@ export default function Redaktion() {
       return 'fejl';
     }
   }, [dryRun, role, recordId, loadPerson]);
+
+  const submitNarrativeRecordChange = useCallback(async (change: Change, title: string): Promise<boolean> => {
+    try {
+      const res = await submitChange(change, { dryRun, role });
+      setWriteView({ title: dryRun ? 'Dry-run · dette ville blive sendt' : title,
+        lines: [describeCall(res.call)], error: '', done: !dryRun, dryRun, direkte: res.direkte });
+      return !res.dryRun;
+    } catch (e) {
+      const raw = String((e as Error)?.message ?? e);
+      setWriteView({ title: `${title} fejlede`, lines: [], error: oversaetFejl(raw), done: false, dryRun, direkte: false });
+      throw e;
+    }
+  }, [dryRun, role]);
 
   const nyStoryFraPost = useCallback((post: TidslinjePost) => {
     if (storySaveGuardRef.current.busy) return;
@@ -810,13 +846,15 @@ export default function Redaktion() {
       {renderTopBar()}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {renderSidebar()}
-        {entity === 'feed' || entity === 'sammenlign' || entity === 'foraeldre-konflikter' ? (
+        {entity === 'feed' || entity === 'sammenlign' || entity === 'foraeldre-konflikter' || entity === 'kildepersonaer' ? (
           <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: T.paper }}>
             {entity === 'feed'
               ? <FeedStyring role={role} model={model} run={run} />
               : entity === 'sammenlign'
               ? <SammenlignUdgaver role={role} dryRun={dryRun} />
-              : <ForaeldreKonflikterListe onOpen={(id) => openRecord('person', id)} />}
+              : entity === 'foraeldre-konflikter'
+              ? <ForaeldreKonflikterListe onOpen={(id) => openRecord('person', id)} />
+              : <KildepersonaKo role={role} />}
           </div>
         ) : visKvalitetsark ? (
           renderKvalitetsark()
@@ -1045,7 +1083,7 @@ export default function Redaktion() {
                   {[{ linje: null as string | null, navn: null as string | null }, ...linjeList].map((l) => {
                     const on = activeLinje === l.linje;
                     return (
-                      <div key={l.linje ?? 'all'} onClick={() => setActiveLinje(l.linje)} title={l.navn ?? undefined} style={{ padding: '5px 11px', borderRadius: 15, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: on ? T.bordeaux : 'transparent', color: on ? T.paper : T.muted, border: `1px solid ${on ? T.bordeaux : 'rgba(34,31,26,.18)'}` }}>{l.linje ? `Linje ${l.linje}` : 'Hele slægten'}</div>
+                      <div key={l.linje ?? 'all'} onClick={() => setActiveLinje(l.linje)} title={l.navn ?? undefined} style={{ padding: '5px 11px', borderRadius: 15, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: on ? T.bordeaux : 'transparent', color: on ? T.paper : T.muted, border: `1px solid ${on ? T.bordeaux : 'rgba(34,31,26,.18)'}` }}>{l.linje ? (l.navn ?? `Linje ${l.linje}`) : 'Hele slægten'}</div>
                     );
                   })}
                 </div>
@@ -1053,7 +1091,7 @@ export default function Redaktion() {
             )}
 
             <div style={{ padding: '0 14px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <span style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>{`${activeLinje ? `Linje ${activeLinje} · ` : ''}${b.flat.length} ${query ? 'træffere' : 'personer'}`}</span>
+              <span style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>{`${activeLinje ? `${linjeList.find((l) => l.linje === activeLinje)?.navn ?? `Linje ${activeLinje}`} · ` : ''}${b.flat.length} ${query ? 'træffere' : 'personer'}`}</span>
               <div style={{ display: 'flex', background: '#e6ddcc', borderRadius: 7, padding: 2, gap: 2, flex: 'none' }}>
                 {(['navn', 'aar'] as const).map((s) => (
                   <span key={s} onClick={() => setBrowseSort(s)} style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 5, cursor: 'pointer', background: browseSort === s ? T.bordeaux : 'transparent', color: browseSort === s ? T.paper : '#3d382f' }}>{s === 'navn' ? 'A–Å' : 'Født'}</span>
@@ -1290,7 +1328,7 @@ export default function Redaktion() {
 
         {renderFamilieRelationer(p.id)}
 
-        {renderNarrativEditor({ type: 'person', id: p.id })}
+        <PersonNarrativeRecordEditor key={`${p.id}:${personNarrativeRefresh}`} personId={Number(p.id)} onChange={submitNarrativeRecordChange} />
 
         {renderMateriale({ subjektType: 'person', subjektId: p.id, uploadTarget: { afbildetPersonId: p.id } })}
 
@@ -2373,8 +2411,13 @@ export default function Redaktion() {
             </div>
           </div>
           <div style={{ margin: '0 22px', background: '#f8ecef', border: '1px solid rgba(138,43,43,.25)', borderRadius: 11, padding: '13px 15px' }}>
-            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.red, marginBottom: 6 }}>Relationer der brydes</div>
-            <div style={{ fontSize: 13.5, lineHeight: 1.5, color: '#3d382f' }}>{pv ? `${pv.antalRelationer} relation(er) og ${pv.antalFacts} fakta knyttet til personen.` : 'Henter relations-overblik…'}</div>
+            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.red, marginBottom: 6 }}>Det her forsvinder</div>
+            <div style={{ fontSize: 13.5, lineHeight: 1.5, color: '#3d382f' }}>{pv ? `${pv.antalRelationer} relation(er), ${pv.antalFacts} fakta, ${pv.antalNarrativer} biografi(er) og ${pv.antalMedlemskaber} slægts-/linjemedlemskab(er) knyttet til personen.` : 'Henter overblik…'}</div>
+            {pv && pv.antalBindinger > 0 ? (
+              <div style={{ fontSize: 12.5, lineHeight: 1.45, color: '#5a5147', marginTop: 6 }}>
+                {`Heraf er ${pv.antalBindinger} biografi(er) bundet til en kildepost. Bindingen fjernes med biografien — selve registreringen af, at teksten står på siden, bevares.`}
+              </div>
+            ) : null}
           </div>
           <div style={{ padding: '16px 22px 4px' }}>
             <label onClick={() => setConfirmDel((c) => c && { ...c, ack: !c.ack })} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>

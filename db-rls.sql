@@ -1,4 +1,59 @@
 -- =====================================================================
+
+-- ---------- PRIVAT KILDEEVIDENS ----------
+-- Ingen API-rolle har direkte adgang. Default privileges gælder for den
+-- DDL-ejer, som kører filen; kør derfor deployment med den normale ejerrolle.
+revoke all on schema private from public, anon, authenticated;
+alter default privileges in schema private
+  revoke all on tables from public, anon, authenticated;
+alter default privileges in schema private
+  revoke all on sequences from public, anon, authenticated;
+-- PostgreSQLs implicitte PUBLIC-EXECUTE på nye funktioner er global; et
+-- schema-lokalt REVOKE kan ikke fjerne den. Fremtidige funktioner skal derfor
+-- altid have en eksplicit, gennemset grant (også hvis private senere får USAGE).
+alter default privileges
+  revoke execute on functions from public, anon, authenticated, service_role;
+alter default privileges in schema private
+  revoke execute on functions from public, anon, authenticated;
+
+do $$
+declare v_table text;
+begin
+  foreach v_table in array array[
+    'extraction_run','source_rendition','source_record','source_record_occurrence',
+    'source_record_anchor_event','source_record_revision_event','source_observation',
+    'source_observation_text','source_mention','source_persona','source_persona_mention',
+    'interpretation','interpretation_observation','interpretation_promotion_rule',
+    'interpretation_promotion_batch','interpretation_promotion',
+    'source_persona_identity','source_persona_identity_event',
+    'narrative_record_publication','narrative_publication_event',
+    'narrative_legacy_publication'
+  ] loop
+    if to_regclass(format('private.%I',v_table)) is not null then
+      execute format('alter table private.%I enable row level security',v_table);
+      execute format('revoke all on table private.%I from public,anon,authenticated',v_table);
+    end if;
+  end loop;
+end $$;
+revoke all on all sequences in schema private from public, anon, authenticated;
+revoke execute on all functions in schema private from public, anon, authenticated;
+
+-- #152 additive event foundation: service_role has no direct table/helper path.
+-- The safe public capability function is explicitly callable, but no writer is
+-- granted while the contract remains at version 1.
+revoke all on table private.narrative_publication_event,
+  private.narrative_legacy_publication
+  from public, anon, authenticated, service_role;
+revoke all on function private.validate_narrative_publication_event(),
+  private.reject_narrative_publication_event_mutation(),
+  private.validate_narrative_legacy_publication()
+  from public, anon, authenticated, service_role;
+revoke all on function public.narrative_record_contract_version()
+  from public, anon, authenticated, service_role;
+grant execute on function public.narrative_record_contract_version()
+  to anon, authenticated, service_role;
+
+-- =====================================================================
 --  RLS-LAG · offentlig (anon) læseadgang med GDPR-filtrering
 --
 --  Erstatter den midlertidige permissive dev-RLS (web/dev-rls.sql, "USING true").
@@ -139,7 +194,7 @@ returns boolean language sql stable security definer set search_path = public as
     -- Redaktionen ser fortsat alt via det additive redaktion_read-lag.
     when p_type = 'media' then public.media_rettigheder_ok(p_id)
     -- det faste ikke-PII-entitetssæt (sted/gods/våben/linje/organisation/begivenhed/kilde/arkiv)
-    when p_type in ('place','estate','coat_of_arms','lineage','organisation',
+    when p_type in ('place','estate','coat_of_arms','slaegt','lineage','organisation',
                     'historical_event','source','repository') then true
     else false  -- ukendt/fejlstavet type → fail-closed
   end;
@@ -206,7 +261,8 @@ begin
   -- =========================================================
   foreach t in array array[
     'vocab','repository','source','place','organisation','estate',
-    'coat_of_arms','lineage','family','historical_event'
+    'coat_of_arms','slaegt','lineage','lineage_scheme','lineage_scheme_entry',
+    'lineage_scheme_entry_lineage','family','historical_event'
   ] loop
     execute format('grant select on table public.%I to anon, authenticated;', t);
     execute format('alter table public.%I enable row level security;', t);
@@ -220,6 +276,29 @@ begin
     execute format('create policy auth_read on public.%I for select to authenticated using (true);', t);
   end loop;
 end $$;
+
+-- Overgangs-viewet er læsbart, men security_invoker lader fortsat de underliggende
+-- person_external_id-politikker afgøre hvilke personkoordinater en klient ser.
+GRANT SELECT ON public.person_source_coordinate_legacy TO anon, authenticated;
+
+-- Generelle beskrivelser: publicerede, ikke-private beskrivelser følger deres
+-- kanoniske subjekts synlighed. Kildekoblinger forbliver i private schema og
+-- må kun læses gennem en senere redaktions-RPC.
+GRANT SELECT ON public.entity_description TO anon, authenticated;
+ALTER TABLE public.entity_description ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS anon_read ON public.entity_description;
+CREATE POLICY anon_read ON public.entity_description FOR SELECT TO anon
+  USING (status='published' AND privat=false
+         AND public.entitet_offentlig(subjekt_type,subjekt_id));
+DROP POLICY IF EXISTS auth_read ON public.entity_description;
+CREATE POLICY auth_read ON public.entity_description FOR SELECT TO authenticated
+  USING (status='published' AND privat=false
+         AND public.entitet_offentlig(subjekt_type,subjekt_id));
+DROP POLICY IF EXISTS redaktion_read ON public.entity_description;
+CREATE POLICY redaktion_read ON public.entity_description FOR SELECT TO authenticated
+  USING ((select public.current_rolle())='redaktion');
+ALTER TABLE private.entity_description_source ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.entity_description_source FROM PUBLIC,anon,authenticated;
 
 -- 'media' har ingen egen levende/privat-kolonne; synligheden afledes af de personer billedet
 -- AFBILDER (relation rolle='afbildet' → person), via SECURITY DEFINER-helperne ovenfor.
@@ -344,15 +423,13 @@ create policy anon_read on public.relation for select to anon
     and public.entitet_offentlig(objekt_type, objekt_id)
   );
 
--- narrative: ikke-privat OG (ikke-person ELLER person offentlig).
+-- narrative: version 1 preserves the historical privacy/person gate. At
+-- version 2 the helper exhaustively gates person/DAA rows by event or ledger.
 grant select on table public.narrative to anon;
 alter table public.narrative enable row level security;
 drop policy if exists anon_read on public.narrative;
 create policy anon_read on public.narrative for select to anon
-  using (
-    coalesce(privat, false) = false
-    and public.entitet_offentlig(subjekt_type, subjekt_id)
-  );
+  using (public.person_daa_narrative_publication_allowed(id));
 
 -- haendelse: kun ikke-skjulte projektioner hvis både subjekt og substrat er offentlige.
 revoke all on table public.haendelse from public, anon, authenticated;
@@ -450,13 +527,10 @@ create policy auth_read on public.relation for select to authenticated
     public.entitet_offentlig(subjekt_type, subjekt_id)
     and public.entitet_offentlig(objekt_type, objekt_id)
   );
--- narrative/note: eget privat-flag OG (ikke-person ELLER refereret person offentlig).
--- Cycle 02 H3 — manglede person-gating (ikke-flagget bio/note om privat person lækkede).
+-- narrative uses the same exhaustive, version-aware server predicate as anon.
+-- The separate redaktion_read policy below remains additive and unchanged.
 create policy auth_read on public.narrative for select to authenticated
-  using (
-    coalesce(privat,false)=false
-    and public.entitet_offentlig(subjekt_type, subjekt_id)
-  );
+  using (public.person_daa_narrative_publication_allowed(id));
 create policy auth_read on public.haendelse for select to authenticated
   using (
     feed_status <> 'skjult'
@@ -513,13 +587,176 @@ drop policy if exists bookmark_delete_own on public.bookmark;
 create policy bookmark_delete_own on public.bookmark
   for delete to authenticated using (user_id = auth.uid());
 
--- RPC-grants: alle red_*-funktioner kaldbare af authenticated (rolle-tjek er INDE i dem).
-do $$
-declare fn text;
-begin
-  for fn in select proname from pg_proc where proname like 'red\_%' escape '\'
-  loop execute format('grant execute on function public.%I to authenticated;', fn); end loop;
-end $$;
+-- RPC-grants: signature-aware allow-list. A new red_* overload receives no
+-- privilege merely because of its name; it must be classified here or in a
+-- later, purpose-specific ACL block.
+DO $redaction_rpc_allow_list$
+DECLARE v_signature text;
+BEGIN
+  -- Functions are installed before this file on a fresh deployment, so default
+  -- privileges alone cannot close an already-created, unclassified overload.
+  -- Reset the complete current red_* surface before reopening exact signatures.
+  FOR v_signature IN
+    SELECT 'public.'||function.oid::regprocedure::text
+      FROM pg_proc function
+      JOIN pg_namespace namespace ON namespace.oid=function.pronamespace
+     WHERE namespace.nspname='public'
+       AND function.proname LIKE 'red\_%' ESCAPE '\'
+     ORDER BY function.oid
+  LOOP
+    EXECUTE format(
+      'REVOKE ALL ON FUNCTION %s FROM PUBLIC,anon,authenticated,service_role',
+      v_signature
+    );
+  END LOOP;
+
+  FOREACH v_signature IN ARRAY ARRAY[
+    'public.red_activate_1939_v50_batch(uuid,uuid)',
+    'public.red_afgoer_source_persona(uuid,integer,text,bigint,text)',
+    'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_name_completion(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_person_create(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)',
+    'public.red_apply_reimport_cases(uuid,text,text)',
+    'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)',
+    'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)',
+    'public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)',
+    'public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_begin_1939_v50_name_completion(uuid,text,uuid)',
+    'public.red_begin_1939_v50_reimport(uuid,text,text)',
+    'public.red_bekraeft_media_upload(bigint,bigint,text)',
+    'public.red_decide_interpretation(uuid,integer,text,jsonb)',
+    'public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)',
+    'public.red_decide_source_persona_placement(uuid,integer,text,jsonb)',
+    'public.red_decide_source_record_placement(uuid,integer,text,jsonb)',
+    'public.red_edit_oplysning(bigint,text,text,text)',
+    'public.red_erstat_media_fil(bigint,text,text,bigint,integer,integer,text,text,jsonb)',
+    'public.red_finalize_1939_v50_name_completion(uuid)',
+    'public.red_finalize_1939_v50_reimport(uuid)',
+    'public.red_fjern_feed_pin(text)',
+    'public.red_fjern_ikke_samme_som(bigint)',
+    'public.red_fjern_media(bigint)',
+    'public.red_fjern_samme_som(bigint)',
+    'public.red_flyt_barn(bigint,bigint,bigint,text)',
+    'public.red_fortryd_change_set(bigint,boolean)',
+    'public.red_genopret_media(bigint)',
+    'public.red_ikke_samme_som(bigint,bigint)',
+    'public.red_lock_1939_v50_name_completion(text)',
+    'public.red_match_personer()',
+    'public.red_ocr_historik(text,text,text)',
+    'public.red_opdater_media(bigint,text,text,text,text)',
+    'public.red_opret_estate(text,text,bigint)',
+    'public.red_opret_fakta(text,bigint,text,text,date,date,text,text,text)',
+    'public.red_opret_kilde(text,text,text,boolean,smallint)',
+    'public.red_opret_media(text,text,text,text,text,text,text,bigint,integer,integer,text,text,text,boolean)',
+    'public.red_opret_organisation(text,text)',
+    'public.red_opret_person(text,text,boolean,text,text,text)',
+    'public.red_opret_story(text,bigint,text,text,bigint,bigint,bigint,bigint,date,date,text,text,boolean)',
+    'public.red_opret_union(bigint,bigint,text,integer)',
+    'public.red_person_grid()',
+    'public.red_person_narrative_publication_history(bigint)',
+    'public.red_person_narrative_records(bigint)',
+    'public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)',
+    'public.red_preview_interpretation_promotions(jsonb)',
+    'public.red_preview_reimport_cases(bigint,text,jsonb)',
+    'public.red_promote_interpretations_batch(jsonb,text)',
+    'public.red_publicer_narrative_record(bigint,uuid,text,text)',
+    'public.red_publicer_personer(bigint[])',
+    'public.red_publicer_udgave(bigint)',
+    'public.red_rediger_story(bigint,text,text,bigint,bigint,bigint,bigint,date,date,text,text,boolean)',
+    'public.red_registrer_media_variant(bigint,text,text,text,bigint,integer,integer)',
+    'public.red_relation(text,bigint,text,bigint,text,text)',
+    'public.red_ret_ocr_felt(bigint,text,text,text,text,jsonb,text,text)',
+    'public.red_reverse_1939_v50_reimport(uuid,uuid)',
+    'public.red_reverse_reimport_cases(uuid,uuid)',
+    'public.red_saet_portraet(bigint,bigint)',
+    'public.red_samme_som(bigint,bigint)',
+    'public.red_set_familie_konfidens(bigint,bigint,text,text)',
+    'public.red_set_familie_ordinal(bigint,bigint,text,integer)',
+    'public.red_set_feed_pin(text,text)',
+    'public.red_set_haendelse_status(bigint,text)',
+    'public.red_set_koen(bigint,text)',
+    'public.red_set_konklusion(bigint)',
+    'public.red_set_media_rettigheder(bigint,text,boolean,text,text,text,text)',
+    'public.red_set_privat(bigint,boolean)',
+    'public.red_set_story_kilder(bigint,jsonb)',
+    'public.red_set_story_status(bigint,text)',
+    'public.red_slet_familie_link(bigint,bigint,text)',
+    'public.red_slet_medierelation_uden_evidens(bigint)',
+    'public.red_slet_oplysning(bigint)',
+    'public.red_slet_person(bigint)',
+    'public.red_slet_person_preview(bigint)',
+    'public.red_slet_relation(bigint)',
+    'public.red_slet_story(bigint)',
+    'public.red_source_persona_detail(uuid)',
+    'public.red_source_persona_history(uuid)',
+    'public.red_source_persona_queue(text,bigint,uuid,integer)',
+    'public.red_suggest(text,text,bigint,text,text,text,jsonb,text)',
+    'public.red_tilbagetraek_fakta(bigint)',
+    'public.red_tilbagetraek_narrative_record(bigint)',
+    'public.red_tilfoej_barn(bigint,bigint,text,text)',
+    'public.red_tilfoej_foraeldre_paastand(bigint,bigint,bigint,text,text,text)',
+    'public.red_tilfoej_oplysning(bigint,text,date,date,text,text,text)',
+    'public.red_tilfoej_partner(bigint,bigint,integer)',
+    'public.red_tilfoej_relation(bigint,text,bigint,text,text)',
+    'public.red_udrens_media(bigint)',
+    'public.red_udrens_media_preview(bigint)',
+    'public.red_upload_media(text,text,text,text,text,text,bigint,text,bigint,bigint,integer,integer,text,text,text,boolean)',
+    'public.red_upsert_fakta(text,bigint,text,text,date,date,text,text,text)',
+    'public.red_upsert_narrativ(text,bigint,text,boolean,bigint,text)',
+    'public.red_vaelg_foraeldre(bigint,text)'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NULL THEN
+      IF v_signature IN (
+        'public.red_activate_1939_v50_batch(uuid,uuid)',
+        'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',
+        'public.red_apply_1939_v50_name_completion(uuid,text,jsonb)',
+        'public.red_apply_1939_v50_person_create(uuid,text,jsonb)',
+        'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)',
+        'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)',
+        'public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)',
+        'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)',
+        'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)',
+        'public.red_begin_1939_v50_name_completion(uuid,text,uuid)',
+        'public.red_begin_1939_v50_reimport(uuid,text,text)',
+        'public.red_finalize_1939_v50_name_completion(uuid)',
+        'public.red_finalize_1939_v50_reimport(uuid)',
+        'public.red_lock_1939_v50_name_completion(text)',
+        'public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)',
+        'public.red_publicer_narrative_record(bigint,uuid,text,text)',
+        'public.red_reverse_1939_v50_reimport(uuid,uuid)',
+        'public.red_tilbagetraek_narrative_record(bigint)'
+      ) THEN
+        CONTINUE;
+      END IF;
+      RAISE EXCEPTION 'RLS_REDACTION_RPC_ALLOW_LIST_SIGNATURE_MISSING: %',v_signature;
+    END IF;
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated',v_signature);
+  END LOOP;
+END
+$redaction_rpc_allow_list$;
+
+-- #152 Tasks 3-4 remain additive and uncallable until Task 7's atomic cutover.
+-- The private kernels are denied alongside every currently installed wrapper.
+REVOKE ALL ON FUNCTION
+  private.mutate_person_narrative_record(text,bigint,bigint,text,text,boolean,text),
+  private.withdraw_legacy_narrative(uuid,text,text),
+  private.reverse_narrative_publication_event(uuid,text),
+  public.red_upsert_person_narrative_record(bigint,bigint,text,text,boolean,text),
+  public.red_publicer_person_narrative_record(bigint,bigint,text,text),
+  public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text),
+  public.red_revalider_person_narrative_record(bigint,bigint,text,text),
+  public.red_kasser_person_narrative_record(bigint,bigint,text,text),
+  public.red_tilbagetraek_person_narrative_record(bigint,bigint,text,text),
+  public.red_tilbagetraek_legacy_narrative(uuid,text,text),
+  public.red_fortryd_person_narrative_publication_event(uuid,text)
+  FROM PUBLIC,anon,authenticated,service_role;
+-- Den historiske enkeltrække-RPC mangler v1's persona-/regel-/værdikontrol.
+-- Den må derfor ikke blive genåbnet af den generelle redaktions-RPC-grant ovenfor.
+revoke execute on function public.red_promote_interpretation(uuid,text,bigint,jsonb)
+  from public, anon, authenticated;
 -- "from public" alene revoker ikke anon/authenticated (Supabase grantér dem direkte,
 -- jf. 2026-07-02-hærdningen nedenfor) — naevn anon eksplicit så hygiejne-hensigten reelt holder.
 revoke all on function public.current_rolle() from public, anon;
@@ -716,6 +953,18 @@ REVOKE EXECUTE ON FUNCTION
   _version_delete_row(text, jsonb)
   FROM PUBLIC, anon, authenticated;
 
+-- C3 identitets-UPDATE: prelock-beviset er intern transaktionsstate, ikke API-data.
+-- Tabellen har ingen ekstern læse-/skriveflade; alle legitime kald går gennem ejerens
+-- SECURITY DEFINER-kæde, og cleanup-triggeren fjerner rækkerne ved transaktionsslut.
+ALTER TABLE private.identity_relation_update_prelock ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.identity_relation_update_prelock
+  FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION
+  private.lock_identity_people(bigint[]),
+  private.prelock_identity_relation_update(jsonb,jsonb),
+  private.cleanup_identity_relation_update_prelock()
+  FROM PUBLIC, anon, authenticated;
+
 -- 2026-07-17 (post-cutover advisor-lint): _ensure_foraeldrefamilie_redaktionel er en intern
 -- Problem 2-helper tilføjet EFTER F-01 REVOKE-sweepet ovenfor, så den manglede samme REVOKE.
 -- Den HAR allerede current_rolle()-guarden (belt-and-suspenders, ikke exploiterbar) — dette er
@@ -756,3 +1005,252 @@ USING (
     ELSE public.entitet_offentlig(maal_type, maal_id)
   END
 );
+
+-- DAA 1939 v50 production-writer may only exist before the #153 rename. Keep
+-- its historical ACLs fail-closed when present, but never make current generic
+-- fresh installs depend on removed relations or wrappers.
+DO $legacy_1939_writer_acl$
+DECLARE v_relation text; v_signature text;
+BEGIN
+  FOREACH v_relation IN ARRAY ARRAY[
+    'private.reimport_1939_authorization','private.reimport_1939_write_batch',
+    'private.reimport_1939_write_event','private.reimport_1939_name_completion_result'
+  ] LOOP
+    IF to_regclass(v_relation) IS NOT NULL THEN
+      IF (SELECT relkind FROM pg_class WHERE oid=to_regclass(v_relation)) IN ('r','p') THEN
+        EXECUTE format('ALTER TABLE %s ENABLE ROW LEVEL SECURITY',v_relation);
+      END IF;
+      EXECUTE format('REVOKE ALL ON TABLE %s FROM PUBLIC,anon,authenticated,service_role',v_relation);
+    END IF;
+  END LOOP;
+  FOREACH v_signature IN ARRAY ARRAY[
+    'private.reject_reimport_1939_event_mutation()',
+    'private.require_reimport_1939_editor()',
+    'private.require_reimport_1939_open_batch(uuid)',
+    'private.ensure_reimport_1939_source_evidence(uuid,text,jsonb)',
+    'private.reimport_1939_canonical_json_text(jsonb)',
+    'private.reimport_1939_canonical_json_sha256(jsonb)',
+    'private.validate_reimport_1939_name_completion(uuid,uuid,text,jsonb)'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NOT NULL THEN
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC,anon,authenticated,service_role',v_signature);
+    END IF;
+  END LOOP;
+  FOREACH v_signature IN ARRAY ARRAY[
+    'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NOT NULL THEN
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC,anon,authenticated,service_role',v_signature);
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role',v_signature);
+    END IF;
+  END LOOP;
+  FOREACH v_signature IN ARRAY ARRAY[
+    'public.red_begin_1939_v50_reimport(uuid,text,text)',
+    'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_person_create(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',
+    'public.red_finalize_1939_v50_reimport(uuid)',
+    'public.red_reverse_1939_v50_reimport(uuid,uuid)',
+    'public.red_activate_1939_v50_batch(uuid,uuid)',
+    'public.red_lock_1939_v50_name_completion(text)',
+    'public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)',
+    'public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)',
+    'public.red_begin_1939_v50_name_completion(uuid,text,uuid)',
+    'public.red_apply_1939_v50_name_completion(uuid,text,jsonb)',
+    'public.red_finalize_1939_v50_name_completion(uuid)'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NOT NULL THEN
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC,anon,authenticated,service_role',v_signature);
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated',v_signature);
+    END IF;
+  END LOOP;
+END
+$legacy_1939_writer_acl$;
+
+-- C3 apply plan Task 5: generic reimport case ledger. No RPCs exist yet (Task 6
+-- builds those against service_role/authenticated); until then the ledger has
+-- no direct DML grant to any role -- table owner only.
+ALTER TABLE private.reimport_case_authorization ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_case_batch ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_case_event ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON private.reimport_case_authorization,
+  private.reimport_case_batch,
+  private.reimport_case_event
+  FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION private.reject_reimport_case_event_mutation()
+  FROM PUBLIC,anon,authenticated;
+
+-- C3 apply plan Task 6: least-privilege ACL for the generic reimport case RPCs.
+-- The ledger tables above stay without any direct DML grant; the only way in is
+-- through these three SECURITY DEFINER entry points. Two-step principal split:
+-- the service-role gateway issues the short-lived authorization, an
+-- authenticated redaktion principal consumes it through apply. Both still pass
+-- private.require_reimport_1939_editor(), so role membership is the gateway and
+-- the JWT subject is the actor. Every privileged helper is private and revoked
+-- from every role including service_role.
+REVOKE ALL ON FUNCTION private.reimport_case_source_record_state(bigint,text),
+  private.reimport_case_narrative_state(bigint,bigint),
+  private.reimport_case_binding_state(uuid,bigint),
+  private.validate_reimport_case_selection(jsonb),
+  private.validate_reimport_case_elements(jsonb,jsonb),
+  private.validate_reimport_case_counts(jsonb),
+  private.reimport_case_receipt(uuid),
+  private.write_reimport_case_narrative(bigint,bigint,bigint,text,boolean,text)
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.red_preview_reimport_cases(bigint,text,jsonb),
+  public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz),
+  public.red_apply_reimport_cases(uuid,text,text)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_preview_reimport_cases(bigint,text,jsonb)
+  TO authenticated;
+GRANT EXECUTE ON FUNCTION public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)
+  TO service_role;
+GRANT EXECUTE ON FUNCTION public.red_apply_reimport_cases(uuid,text,text)
+  TO authenticated;
+
+-- ---------- DAA 1939 v50 fase C3: reversal RPCs (Task 7) ----------
+-- Same principal split as the apply family: service_role authorises the
+-- reversal, authenticated performs it, and the plan oracle stays private to
+-- every Supabase role.
+REVOKE ALL ON FUNCTION private.reimport_case_reversal_plan(uuid)
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz),
+  public.red_reverse_reimport_cases(uuid,uuid)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)
+  TO service_role;
+GRANT EXECUTE ON FUNCTION public.red_reverse_reimport_cases(uuid,uuid)
+  TO authenticated;
+
+-- #152 Task 2: the two typed editor reads are authenticated entry points,
+-- but perform their own fail-closed redaktion role check. All canonical state
+-- projectors remain private even though PostgreSQL grants new functions to
+-- PUBLIC by default.
+REVOKE ALL ON FUNCTION private.narrative_record_labels(uuid),
+  private.narrative_publication_state(bigint,bigint,text),
+  private.narrative_record_state(bigint,bigint,text,boolean),
+  private.narrative_legacy_publication_state(uuid),
+  private.narrative_legacy_state(uuid,boolean)
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.red_person_narrative_records(bigint),
+  public.red_person_narrative_publication_history(bigint)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_person_narrative_records(bigint),
+  public.red_person_narrative_publication_history(bigint)
+  TO authenticated;
+
+-- #152 Task 5: the RLS helper is a boolean-only SECURITY DEFINER capability;
+-- the two public biography RPCs expose no private identifiers or event state.
+REVOKE ALL ON TABLE private.narrative_record_publication,
+  private.narrative_publication_event,
+  private.narrative_legacy_publication
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION
+  public.person_daa_narrative_publication_allowed(bigint),
+  public.public_person_bio_source_versions(bigint[]),
+  public.public_person_bio_source_versions_v2(bigint[])
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION
+  public.person_daa_narrative_publication_allowed(bigint),
+  public.public_person_bio_source_versions(bigint[]),
+  public.public_person_bio_source_versions_v2(bigint[])
+  TO anon,authenticated;
+
+-- #152 Task 7: one version-aware ACL source of truth is applied after every
+-- historical grant block. A fresh #153 schema intentionally lacks legacy
+-- public wrappers; its test-only cutover fixture supplies disabled signatures
+-- transactionally. Do not make the durable ACL script recreate those wrappers.
+DO $narrative_contract_acl_if_complete$
+DECLARE v_signature text; v_complete boolean:=true;
+BEGIN
+  FOREACH v_signature IN ARRAY ARRAY[
+    'public.red_begin_1939_v50_reimport(uuid,text,text)',
+    'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_person_create(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',
+    'public.red_finalize_1939_v50_reimport(uuid)',
+    'public.red_reverse_1939_v50_reimport(uuid,uuid)',
+    'public.red_activate_1939_v50_batch(uuid,uuid)',
+    'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)'
+  ] LOOP
+    v_complete:=v_complete AND to_regprocedure(v_signature) IS NOT NULL;
+  END LOOP;
+  IF v_complete THEN
+    PERFORM private.apply_narrative_record_contract_acl(
+      public.narrative_record_contract_version()
+    );
+  END IF;
+END
+$narrative_contract_acl_if_complete$;
+
+-- #153 generic profile-bound writer: no table/helper capability is exposed.
+ALTER TABLE private.reimport_writer_profile ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_authorization ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_batch ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_event ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.reimport_name_completion_result ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON private.reimport_writer_profile,private.reimport_authorization,
+  private.reimport_batch,private.reimport_event,private.reimport_name_completion_result
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION private.reject_reimport_writer_mutation(),
+  private.require_reimport_writer_editor(),private.require_reimport_open_batch(uuid),
+  private.lock_reimport_writer(bigint,text),
+  private.validate_reimport_authorization_payload(jsonb,jsonb),
+  private.validate_reimport_writer_config(jsonb),
+  private.ensure_reimport_source_evidence(uuid,text,jsonb),
+  private.validate_reimport_name_completion(uuid,uuid,text,jsonb)
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),
+  public.red_preflight_reimport_authorization(uuid,text,text),public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),
+  public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_finalize_reimport(uuid),public.red_reimport_batch_result(uuid,uuid),
+  public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_reverse_reimport(uuid,uuid),
+  public.red_authorize_reimport_cutover(uuid,uuid,timestamptz),public.red_activate_reimport_batch(uuid,uuid),public.red_apply_reimport_canonical_delta(uuid,text,jsonb),
+  public.red_lock_reimport_name_completion(text,bigint,text),public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb),
+  public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb),public.red_begin_reimport_name_completion(uuid,text,uuid),
+  public.red_apply_reimport_name_completion(uuid,text,jsonb),public.red_finalize_reimport_name_completion(uuid)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),
+  public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_authorize_reimport_cutover(uuid,uuid,timestamptz),
+  public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb)
+  TO service_role;
+GRANT EXECUTE ON FUNCTION public.red_preflight_reimport_authorization(uuid,text,text),public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),
+  public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_finalize_reimport(uuid),public.red_reimport_batch_result(uuid,uuid),
+  public.red_reverse_reimport(uuid,uuid),public.red_activate_reimport_batch(uuid,uuid),public.red_apply_reimport_canonical_delta(uuid,text,jsonb),
+  public.red_lock_reimport_name_completion(text,bigint,text),public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb),
+  public.red_begin_reimport_name_completion(uuid,text,uuid),public.red_apply_reimport_name_completion(uuid,text,jsonb),
+  public.red_finalize_reimport_name_completion(uuid)
+  TO authenticated;
+
+-- #153 retains the historic 1939 entry points only as pinned compatibility
+-- adapters.  The views never expose their generic private base tables.  Reset
+-- all facade ACLs here, then let the one #152 version-aware authority apply
+-- the exact v2 compatibility split; do not re-grant in a trailing block.
+REVOKE ALL ON FUNCTION
+  public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz),
+  public.red_begin_1939_v50_reimport(uuid,text,text),
+  public.red_apply_1939_v50_source_evidence(uuid,text,jsonb),
+  public.red_apply_1939_v50_person_create(uuid,text,jsonb),
+  public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb),
+  public.red_finalize_1939_v50_reimport(uuid),
+  public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz),
+  public.red_reverse_1939_v50_reimport(uuid,uuid),
+  public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz),
+  public.red_activate_1939_v50_batch(uuid,uuid),
+  public.red_lock_1939_v50_name_completion(text),
+  public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb),
+  public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb),
+  public.red_begin_1939_v50_name_completion(uuid,text,uuid),
+  public.red_apply_1939_v50_name_completion(uuid,text,jsonb),
+  public.red_finalize_1939_v50_name_completion(uuid)
+  FROM PUBLIC,anon,authenticated,service_role;
+DO $reimport_1939_v2_facade_acl$
+BEGIN
+  PERFORM private.apply_narrative_record_contract_acl(
+    public.narrative_record_contract_version()
+  );
+END
+$reimport_1939_v2_facade_acl$;

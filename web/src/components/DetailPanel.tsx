@@ -121,20 +121,20 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
         {(() => {
           const versions = detail?.bioVersions ?? [];
           const active = versions[bioVersionIdx] ?? versions[0];
-          const bioText = active?.tekst ?? detail?.bio ?? '';
+          const bioText = active?.narrativeText ?? detail?.bio ?? '';
           if (!bioText) return null;
           return (
             <div style={{ marginTop: 14 }}>
               {versions.length > 1 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 9 }}>
                   {versions.map((v, i) => (
-                    <div key={v.sourceId ?? i} onClick={() => setBioVersionIdx(i)} style={{
+                    <div key={v.recordRef ?? `${v.sourceLabel}:${v.recordLabel}:${i}`} onClick={() => setBioVersionIdx(i)} style={{
                       fontFamily: T.mono, fontSize: 10.5, fontWeight: 600, cursor: 'pointer',
                       color: i === bioVersionIdx ? T.paper : T.muted,
                       background: i === bioVersionIdx ? T.bordeaux : T.beige,
                       border: '1px solid rgba(34,31,26,.12)', padding: '4px 9px', borderRadius: 6,
                     }}>
-                      {v.udgave || (v.aar != null ? String(v.aar) : 'udgave')}
+                      {v.sourceLabel}{v.provenanceKind === 'source_record' ? ` · ${v.recordLabel}` : ' · overgangsdata'}
                     </div>
                   ))}
                 </div>

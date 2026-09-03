@@ -14,7 +14,13 @@ WORK = Path(__file__).resolve().parents[4] / "work_1939_stamtavle"
 # lokatorerne ikke længere, og passets forudsætning er væk — testene skipper
 # så i stedet for at fejle. Reproduktion: peg register_path på backupfilen
 # identitetsregister-1939.omnoegl-v2-2026-07-31.bak.json.
-_reg = json.loads((WORK / "identitetsregister-1939.json").read_text())
+_register_path = WORK / "identitetsregister-1939.json"
+if not _register_path.exists():
+    pytest.skip(
+        "evidenspasset kræver den gitignorerede 1939-registerartefakt",
+        allow_module_level=True,
+    )
+_reg = json.loads(_register_path.read_text())
 _legacy_til_stede = any(
     p["lokal_id"] == "VIIC.1" and str(p["side"]) == "503" for p in _reg["poster"])
 pytestmark = pytest.mark.skipif(

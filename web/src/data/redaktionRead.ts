@@ -317,6 +317,168 @@ export async function fetchNarrativer(subjektType: string, subjektId: number): P
   return mapNarrativer((data ?? []) as unknown as RawNarrativRow[]);
 }
 
+// #152 v2 editor contract.  This is deliberately separate from fetchNarrativer:
+// generic editors still use the old source-level narrative model, while a person/DAA
+// editor must opt into the record RPC and can never fall back after a v2 failure.
+export type NarrativeRecordAction =
+  | 'create_draft'
+  | 'save_draft'
+  | 'discard_draft'
+  | 'publish'
+  | 'publish_revision'
+  | 'revalidate'
+  | 'withdraw'
+  | 'withdraw_legacy';
+
+export type PersonNarrativeRecord = {
+  sourceId: number;
+  sourceYear: number | null;
+  sourceLabel: string;
+  recordKey: string;
+  sourceRecordRef: string;
+  status: 'none' | 'draft' | 'published' | 'stale_published' | 'withdrawn' | 'blocked';
+  stateSha256: string;
+  text: string;
+  recordLabel: string;
+  citationLabel: string;
+  allowedActions: readonly Exclude<NarrativeRecordAction, 'withdraw_legacy'>[];
+  blockingReason: string | null;
+};
+
+export type LegacyNarrativePublication = {
+  legacyPublicationRef: string;
+  status: 'legacy_active' | 'legacy_withdrawn';
+  stateSha256: string;
+  text: string;
+  allowedActions: readonly Extract<NarrativeRecordAction, 'withdraw_legacy'>[];
+  blockingReason: string | null;
+};
+
+export type PersonNarrativeRecordRead = {
+  records: PersonNarrativeRecord[];
+  legacyPublications: LegacyNarrativePublication[];
+};
+
+type RawNarrativeRecordRow = {
+  source_id: unknown;
+  source_year: unknown;
+  source_label: unknown;
+  provenance_kind: unknown;
+  record_key: unknown;
+  source_record_ref: unknown;
+  legacy_publication_ref: unknown;
+  record_label: unknown;
+  citation_label: unknown;
+  narrative_text: unknown;
+  publication_status: unknown;
+  state_sha256: unknown;
+  allowed_actions: unknown;
+  blocking_reason: unknown;
+};
+
+const RECORD_ACTIONS = new Set<NarrativeRecordAction>([
+  'create_draft', 'save_draft', 'discard_draft', 'publish', 'publish_revision', 'revalidate', 'withdraw', 'withdraw_legacy',
+]);
+const RECORD_STATUSES = new Set<PersonNarrativeRecord['status']>(['none', 'draft', 'published', 'stale_published', 'withdrawn', 'blocked']);
+
+function recordContractError(): never {
+  throw new Error('NARRATIVE_RECORD_EDITOR_RESPONSE_INVALID');
+}
+
+function requiredString(value: unknown): string {
+  if (typeof value !== 'string') return recordContractError();
+  return value;
+}
+
+function nullableString(value: unknown): string | null {
+  if (value == null) return null;
+  return typeof value === 'string' ? value : recordContractError();
+}
+
+function requiredPositiveInt(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) return recordContractError();
+  return value;
+}
+
+function nullableInt(value: unknown): number | null {
+  if (value == null) return null;
+  return typeof value === 'number' && Number.isSafeInteger(value) ? value : recordContractError();
+}
+
+function mapAllowedActions(value: unknown): NarrativeRecordAction[] {
+  if (!Array.isArray(value) || value.some((action) => typeof action !== 'string' || !RECORD_ACTIONS.has(action as NarrativeRecordAction))) {
+    return recordContractError();
+  }
+  return value as NarrativeRecordAction[];
+}
+
+export function mapNarrativeRecordRows(rows: RawNarrativeRecordRow[]): PersonNarrativeRecordRead {
+  const records: PersonNarrativeRecord[] = [];
+  const legacyPublications: LegacyNarrativePublication[] = [];
+  for (const row of rows) {
+    const kind = requiredString(row.provenance_kind);
+    const actions = mapAllowedActions(row.allowed_actions);
+    const blockingReason = nullableString(row.blocking_reason);
+    if (kind === 'source_record') {
+      const publicationStatus = requiredString(row.publication_status);
+      if (!RECORD_STATUSES.has(publicationStatus as PersonNarrativeRecord['status']) || actions.includes('withdraw_legacy')) return recordContractError();
+      records.push({
+        sourceId: requiredPositiveInt(row.source_id),
+        sourceYear: nullableInt(row.source_year),
+        sourceLabel: requiredString(row.source_label),
+        recordKey: requiredString(row.record_key),
+        sourceRecordRef: requiredString(row.source_record_ref),
+        status: blockingReason == null ? publicationStatus as PersonNarrativeRecord['status'] : 'blocked',
+        stateSha256: requiredString(row.state_sha256),
+        text: nullableString(row.narrative_text) ?? '',
+        recordLabel: requiredString(row.record_label),
+        citationLabel: requiredString(row.citation_label),
+        allowedActions: actions as Exclude<NarrativeRecordAction, 'withdraw_legacy'>[],
+        blockingReason,
+      });
+      continue;
+    }
+    if (kind === 'grandfathered_legacy') {
+      const publicationStatus = requiredString(row.publication_status);
+      const status = publicationStatus === 'withdrawn'
+        ? 'legacy_withdrawn'
+        : publicationStatus === 'published' || publicationStatus === 'stale_published'
+          ? 'legacy_active'
+          : null;
+      if (status == null || actions.some((action) => action !== 'withdraw_legacy')) return recordContractError();
+      legacyPublications.push({
+        legacyPublicationRef: requiredString(row.legacy_publication_ref),
+        status,
+        stateSha256: requiredString(row.state_sha256),
+        text: requiredString(row.narrative_text),
+        allowedActions: actions as Extract<NarrativeRecordAction, 'withdraw_legacy'>[],
+        blockingReason,
+      });
+      continue;
+    }
+    return recordContractError();
+  }
+  return { records, legacyPublications };
+}
+
+export async function fetchNarrativeRecordContractVersion(): Promise<number> {
+  const { data, error } = await supabase.rpc('narrative_record_contract_version', {});
+  if (error || typeof data !== 'number' || !Number.isInteger(data)) {
+    throw new Error(error?.message ?? 'NARRATIVE_RECORD_CONTRACT_VERSION_UNAVAILABLE');
+  }
+  return data;
+}
+
+export async function fetchPersonNarrativeRecords(personId: number): Promise<PersonNarrativeRecordRead> {
+  if (!Number.isSafeInteger(personId) || personId <= 0) throw new Error('NARRATIVE_RECORD_PERSON_INVALID');
+  const contractVersion = await fetchNarrativeRecordContractVersion();
+  if (contractVersion < 2) throw new Error('NARRATIVE_RECORD_CONTRACT_VERSION_UNSUPPORTED');
+  const { data, error } = await supabase.rpc('red_person_narrative_records', { p_person_id: personId });
+  if (error) throw new Error(error.message);
+  if (!Array.isArray(data)) throw new Error('NARRATIVE_RECORD_EDITOR_RESPONSE_INVALID');
+  return mapNarrativeRecordRows(data as RawNarrativeRecordRow[]);
+}
+
 // --- Hændelses-tidslinje (levende feed fase 2) ---
 export type HaendelsePost = {
   id: number; klausul: string; kategori: string | null;
@@ -547,16 +709,24 @@ export async function fetchEntityRecords(entity: string): Promise<EntityRecord[]
 export type SletPreview = {
   antalRelationer: number;
   antalFacts: number;
+  // 2026-08-20: biografien og dens kildebinding fulgte hele tiden med i sletningen, men
+  // preview nævnte dem ikke. Medlemskaber er slaegt + lineage lagt sammen.
+  antalNarrativer: number;
+  antalBindinger: number;
+  antalMedlemskaber: number;
   relationer: { rolle: string; retning: string; modpartId: number }[];
 };
 
 export async function fetchSletPreview(personId: string): Promise<SletPreview> {
-  const tom: SletPreview = { antalRelationer: 0, antalFacts: 0, relationer: [] };
+  const tom: SletPreview = { antalRelationer: 0, antalFacts: 0, antalNarrativer: 0, antalBindinger: 0, antalMedlemskaber: 0, relationer: [] };
   const { data, error } = await supabase.rpc('red_slet_person_preview', { p_person_id: Number(personId) });
   if (error || !data) return tom;
   return {
     antalRelationer: data.antal_relationer ?? 0,
     antalFacts: data.antal_facts ?? 0,
+    antalNarrativer: data.antal_narrativer ?? 0,
+    antalBindinger: data.antal_bindinger ?? 0,
+    antalMedlemskaber: data.antal_medlemskaber ?? 0,
     relationer: (data.relationer ?? []).map((r: { rolle: string; retning: string; modpart_id: number }) => ({
       rolle: r.rolle,
       retning: r.retning,

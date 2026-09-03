@@ -2,6 +2,706 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: #152's målte overgangsomkostning og sikkerhedsminimum (2026-08-29)
+
+Et eksternt read-only review af den reviderede #152-spec rapporterede et
+produktionssnapshot med 563 eksisterende publication-bindinger, 591 ubundne
+2018-20-personnarrativer og kun 8 accepterede `source_persona_identity`-rækker.
+Tallene skal genmåles ved en senere production-gate, men konsekvensen er
+arkitektonisk allerede klar: eksisterende eksakte bindinger kan fortsætte,
+mens hovedparten af nye bindinger og alle direkte DAA-loaderkørsler fryses
+fail-closed efter cutover, indtil senere roadmapmål leverer den generaliserede
+writer, recordproveniens og fælles identitetsvej.
+
+Append-only publication-events gør også den eksisterende åbne
+tombstone-/retentionsbeslutning konkret: `red_slet_person` må efter #152 ikke
+slette en projektion og ødelægge eller efterlade inkonsistent historik. Indtil
+den permanente beslutning er truffet, afviser den derfor personer med
+publication-events tidligt; den granulære withdrawal dækker offentlig
+nedtagning af den enkelte biografi.
+
+Designspecifikationen er revideret, så denne omkostning ikke er skjult. Den
+tilføjer samtidig et nødvendigt sikkerhedsminimum: én grandfathered
+legacy-biografi kan tages ned gennem en særskilt, append-only og reversibel
+legacy-withdrawal uden at skjule hele personen eller gøre legacy-teksten
+redigerbar.
+
+Projektejeren godkendte 2026-08-29 både denne målte overgangsomkostning som
+designpræmis og den midlertidige fail-closed blokering af `red_slet_person` for
+personer med publication-events. Godkendelsen autoriserer implementeringsplanen,
+men hverken kodearbejde eller production cutover. Før production-GO skal den
+friske bestand genmåles; væsentlig afvigelse fra den godkendte konsekvens kræver
+ny projektejerbeslutning.
+
+## BESLUTTET: #152 bruger privat recordbinding, append-only publication-versioner og stabil offentlig record-reference (2026-08-29)
+
+Projektejeren har valgt og efter tværgående DAA-arkitekturgennemgang bedt om
+revision af
+[designspecifikationen](superpowers/specs/2026-08-29-narrative-source-record-key-design.md).
+
+Følgende er den gældende retning for person/DAA-narrativer:
+
+1. `private.narrative_record_publication` forbliver den aktuelle binding mellem
+   narrativ og source record. Der tilføjes ikke en privat
+   `source_record_id`-kolonne til den offentligt læsbare narrative-tabel.
+2. Redaktionelle RPC'er adresserer recorden med `(source_id, record_key)` og
+   resolver den private UUID internt. `record_key` er ikke personidentitet.
+3. `private.source_record` får en tilfældig, unik og uforanderlig `public_ref`.
+   Den gamle publication-bindings `record_ref` bevares for kompatibilitet, men
+   er ikke en stabil source-record-reference og bruges ikke i nye eksterne
+   links eller citationer.
+4. En editionsneutral append-only `private.narrative_publication_event`
+   bevarer hver draft-, publicerings-, revisions-, revalidation-, withdraw- og
+   reversalbeslutning med konkret tekst-, occurrence-, rendition-, identity-,
+   policy- og tilstandshash. Den mutable binding/narrative-række er kun aktuel
+   projektion.
+5. En publiceret tekst kan ikke ændres gennem almindelig save. En eksplicit
+   `Publicér ændring` opretter en ny publiceret eventversion. Drift i tekst,
+   provenance, identity, privacy eller policy gør publiceringen stale og
+   fail-closed usynlig, indtil en ny eksplicit revision eller revalidation.
+6. Publication-change sets fortrydes kun gennem en dedikeret, append-only
+   reversal. Den generiske `red_fortryd_change_set` må ikke fortryde narrative
+   uden samtidig at håndtere den private publication-projektion.
+7. Offentligt synlige ubundne legacy-narrativer bevares kun gennem et eksakt,
+   hash-låst og menneskegodkendt grandfathered manifest. Nye eller driftede
+   ubundne rækker er usynlige. Exit er eksplicit record-disposition; 2018-20
+   får provenance gennem #153 → #149.
+8. Eksisterende eksakte C3-/recordbindinger kan fungere som en kontrolleret
+   stående redigeringsautoritet for samme record, narrativ og person, når ingen
+   accepted identity peger på en anden person. Der konstrueres ingen identity-
+   backfill; legacy-broen får disposition ved #151.
+9. Web får den fulde recordredaktør. Mobilen får kun den minimale
+   capability-aware, fail-closed klientmigration, der kræves for at lukke den
+   gamle writer; det parkerede fulde mobilredaktørspor genåbnes ikke.
+
+Beslutningen erstatter for person/DAA-sporet både 2026-07-03-beslutningens
+source-nøgle `(subjekt, source_id)` og 2026-08-22-afsnittets illustrative
+`public.narrative.source_record_id`-backfill. De historiske afsnit bevares som
+beslutningshistorik, men er ikke implementeringskontrakt for #152.
+
+Udrulningen er additiv forberedelse efterfulgt af ét atomisk write-authority-
+cutover med hash-låste baselines, RLS-/ACL-gate, gamle writer-revokes og
+contract-version som sidste logiske skridt. Beslutningen giver ikke i sig selv
+produktions-GO.
+
+## BESLUTTET: model 2 — lagdelt styringsmodel for evidensbaseret genimport (2026-08-25)
+
+[Designspecifikationen](superpowers/specs/2026-08-25-evidensbaseret-genimport-styringsgrundlag-design.md)
+vedtages som model 2: fire autoritative dokumenter med adskilte roller og
+myndighed. [Visionen](evidensbaseret-genimport/vision.md) fastlægger det stabile
+værdigrundlag, [roadmapet](evidensbaseret-genimport/roadmap.md) den bindende
+prioritering, [målarkitekturen](evidensbaseret-genimport/teknisk-maalarkitektur.md)
+den stabile tekniske retning og [status](evidensbaseret-genimport/status.md) et
+dateret, driftfølsomt snapshot. Status er ikke kilde til stabile værdier eller
+til tekniske detaljer, som levende kode og schema har ændret.
+
+Vision og målarkitektur må kun ændres ved projektejerens udtrykkelige
+beslutning. Roadmaprækkefølgen må kun ændres gennem en begrundet
+beslutningspost. Roadmapet har ét aktivt programmål, og nye planer inden for
+scope skal opfylde alle seks adgangskrav i roadmapet.
+
+CI-håndhævelse er bevidst udskudt, indtil den manuelle styringsmodel er
+afprøvet. Beslutningen giver ingen produktions-GO og ændrer ikke andre
+projektspors styring.
+
+## C3 apply: fire ikke-oplagte valg i apply-kontrakten (2026-08-22)
+
+Truffet under revisionen efter Codex sols adversarial review. Alle fire kunne
+være gået den anden vej, og begrundelsen er ikke synlig af koden alene.
+
+**1. Tekstgodkendelsen bindes til `text_bundle_sha256`, ikke til manifestet.**
+Finalmanifestet binder databasenavn og system identifier, så et prod-bundet
+manifest afvises mod rehearsal-basen og omvendt — der er nødvendigvis **to**
+databasebundne artefaktforløb. Havde godkendelsen været bundet til manifestet,
+skulle mennesket godkende de samme fem tekstdiffs to gange. *Afvist alternativ:*
+lade det ske. Begrundelse for at afvise: den anden godkendelse ville blive en
+formalitet, man klikker igennem, og en godkendelse man ikke reelt læser er
+værre end ingen. Teksten afhænger af record-verbatim og normaliseringsprofil,
+ikke af databasen, så bindingen til en teksthash er den ærlige afgrænsning.
+Manifestet binder fortsat bundle-hashen, så tekstændringer stadig invaliderer
+alt.
+
+**2. Source-record-eksklusivitet håndhæves deklarativt, ikke kun med låse.**
+`narrative_record_publication` har unikhed på `narrative_id` og `record_ref`,
+men **ikke** på `source_record_id`. En binding, der ikke findes, kan ikke
+`FOR UPDATE`-låses, så to writere kan hver oprette en binding for samme record
+og begge committe. *Valgt:* partielt unikt indeks
+(`WHERE status IN ('draft','published')`) **plus** delt lås på
+`private.source_record`. *Afvist alternativ:* kun låsedisciplin — den beskytter
+ikke mod en fremtidig writer, der glemmer låsen, og det er præcis den slags
+regression, ingen opdager før den rammer produktion.
+
+**3. `phase` og `operation` holdes ortogonale.** Spec'en foreslog
+operationskoder `c3_apply|c3_reversal`. Valgt i stedet: `phase='c3'` +
+`operation='apply'|'reversal'` som separate felter. Begrundelse: fasen er et
+kontrolleret vokabular, senere faser udvider det med en migration, og
+sammensatte koder ville betyde, at hver ny fase fordobler antallet af
+operationsværdier. `payload_schema_version` tilføjet, så en senere fase ikke kan
+flytte C3-eventets betydning.
+
+**4. `haendelse`-kravet nedskaleret fra regenerering til »kræv sættet tomt«.**
+`red_upsert_narrativ` opdaterer kun `narrative`; `haendelse` er en
+tekstafhængig envejsprojektion uden regenereringstrigger, så en tekstændring
+kan efterlade forældede spans. Måling: `haendelse` har **0 rækker** i hele
+prod. Derfor bygges ingen regenerering — previewet måler ID-sættet og kræver
+det tomt. Kravet skal genbesøges, hvis hændelsesudtrækket køres (#130). Dette
+er anvendelsen af princippet om, at målingen afgør *hvor meget der skal bygges*
+— ikke om problemet er reelt.
+
+**Metodisk sidegevinst:** tre af rettelserne lå oprindeligt kun i planens
+filkort og noter uden et step, der udførte dem — samme fejltype som
+reviewfundet H6. En udførende agent følger tasken, ikke indledningen. Enhver
+rettelse skal derfor være et step med sin egen test, ikke en note.
+
+## BESLUTTET: evidensbaseret genimport — retning efter afvigelsesvurderingen (2026-08-22)
+
+Fem uafhængige audits + læse-kun prod-måling + Codex-krydskontrol viste, at
+programmet pivoterede ~2026-08-06 uden skriftlig beslutning: det byggede er et
+provenance-lag for 1939 (592 records, 559 bindinger) oven på juli-loaderens
+data — ikke spec'ens evidensbaserede genimport (fortolkningslag 0 rækker,
+2018-20 0 records, placement/membership 0 rækker). Fuld opgørelse:
+`docs/superpowers/reviews/2026-08-22-evidensbaseret-genimport-afvigelsesvurdering.md`.
+
+**Tre beslutninger (brugeren, 2026-08-22):**
+
+1. **Fortolkningslaget SKAL fyldes.** Provenance-laget er ikke det færdige
+   produkt. Extractor-runner + `proposed`-ingest + vokabular-mapping til
+   promotion bygges (#147), med klausulgranularitet som forudsætning (#148).
+   Spec §20 er fortsat målet.
+2. **2018-20 SKAL have fase A-ækvivalent** (rendition, records, ankre,
+   bindinger) uafhængigt af udtræk (#149) — kildeversionerne i UI skal være
+   symmetriske. Forudsætter at writeren generaliseres først (#153).
+3. **Fase-pakke-modellen er den gældende prod-gate** i stedet for planens
+   parallelle DB + samlet cutover: backup (0600+SHA) → restore-rehearsal m.
+   byte-identiske baselines → hash-låst manifest → brugergodkendelse → ét
+   apply. Kendt svaghed: ingen uafhængig gammel↔ny-sammenligning; kompenseres
+   af en »prod = sum af manifester«-afstemning (#156).
+
+**Anti-creep-regler, der følger af beslutningerne:**
+
+- Ingen ny v50-fase (C3-apply, `[NY]`, C1, C2) før narrativ-nøglen (#152) er
+  afgjort — C3 må ikke bygges på en model, der skal skiftes.
+
+  **Præcisering 2026-08-22 (efter måling):** reglen blev skrevet på påstanden
+  om, at #152 »blokerer« C3. Den påstand var ikke udledt, og målingen viste
+  desuden, at der ikke findes nogen unique-constraint på
+  `(subjekt, source_id)` — én-pr-udgave bor i `red_upsert_narrativ` og
+  læserne, ikke i skemaet. Reglen gælder derfor kun, indtil ét spørgsmål er
+  besvaret: **er C3's apply-operationer bindinger eller tekstkirurgi?**
+  Bindinger (»pensionér person X, ombind record R til person Y«) er
+  fremadkompatible med en senere nøgleændring, og så kan C3 køre først.
+  Tekstkirurgi (»føj fragment til 1017's `tekst`, slet 1021's narrativ«)
+  skal rulles tilbage af en nøgleændring, og så går #152 først. Afgøres af
+  gennemgangen af `2026-08-22-1939-v50-c3-atomisk-apply.md` — ikke af skøn.
+  Merge-patologien er til gengæld nu empirisk bekræftet (1017 rummer hele
+  record A + starten af record B; 1021 rummer B's hale), så #152's
+  berettigelse står, uanset hvordan sekvensen falder ud. Se
+  afvigelsesvurderingens §7.6b-c.
+
+  **AFGJORT samme dag — gaten ophæves.** Gennemgangen af
+  `specs/2026-08-22-1939-v50-fase-c3-apply-design.md` viser, at C3's fem
+  sager er **bindinger, ikke tekstkirurgi**, og dermed fremadkompatible:
+
+  - `TIL`-semantikken kræver, at target-narrativet under lås har
+    bindingstilstand `absent` (eller en eksakt draft til samme record), og at
+    **ingen anden binding findes for samme source-record** (§Record- og
+    publiceringsinvarianter). Hver sag etablerer altså præcis ét
+    record ↔ ét narrativ ↔ én person — nøjagtig den invariant, record-nøgling
+    ville håndhæve.
+  - »Implicit rebind eller withdrawal af eksisterende publiceringer« og »de
+    øvrige lowercase-start- eller `[NY]`-sager« er eksplicit **uden for
+    scope**. Merge-sagerne (1017/1021, 929/930, 1013/1014, 1791) er parkeret
+    og røres ikke; 1017 og 1021 nævnes slet ikke i C3's apply-dokumenter.
+  - Teksten skrives ganske vist om, men konvergerer mod netop den tilstand,
+    en senere `narrative.source_record_id` ville udtrykke. Backfill efter
+    #152 bliver triviel og tabsfri:
+    `UPDATE narrative SET source_record_id = pub.source_record_id FROM
+    narrative_record_publication pub WHERE pub.narrative_id = narrative.id`.
+
+  **Ny rækkefølge: C3-apply først, #152 derefter.** C3 leverer redaktionel
+  værdi nu uden at male os op i et hjørne, og #152 tager bagefter præcis de
+  sager, C3 måtte parkere — de bliver først *udtrykkelige* med en
+  record-nøglet model i stedet for at kræve tekstkirurgi. Rækkefølgen for
+  resten er uændret: #153 (generalisér writer) før #149 (2018-20 fase A).
+
+  Forbehold: verifikationen hviler på designets invarianter og dets
+  menneskelige før/efter-tekstgodkendelse, ikke på en optælling af de fem
+  konkrete personer — beslutnings-JSON'en ligger i gitignoreret `work/`.
+- Ingen ny plan uden henvisning til et §7-punkt i afvigelsesvurderingen eller
+  et af issues #147-#158.
+- Ingen prod-skrivning uden committet GO-pakke.
+- Spor H (heraldik) og M (mobil redaktør) er parkeret, ikke glemt; de får
+  ingen issues, før kernen (#147-#150) står.
+
+Øvrige issues fra vurderingen: #151 (én identitetsvej), #154 (global REVOKE
+EXECUTE), #155 (DB-hærdning), #157 (dokumentationsdrift), #158 (1939 v50
+lukning).
+
+## ÅBENT: hvor langt er bio-udtrækket nået? (2026-08-20)
+
+Målt mod prod, så spørgsmålet »har vi udtrukket de ekstra bio-oplysninger?«
+kan besvares med tal frem for indtryk.
+
+**Rygraden er bredt dækket.** 7.197 fakta på 15 typer:
+
+| Mål | Antal | Af 1.811 |
+|---|---:|---:|
+| Har mindst ét faktum ud over navn | 1.473 | 81 % |
+| Har fødsels- eller dødsdato | 1.335 | 74 % |
+| Har narrativ | 1.167 | 64 % |
+| Har gods (`relation`→`estate`) | 308 | 17 % |
+| Har embede (`relation`→`organisation`) | **150** | **8 %** |
+| Har kun navn og intet andet | 263 | 15 % |
+
+Typefordeling: navn 1.815 · død 1.137 · fødsel 1.104 · forældrefamilie 922 ·
+titel 806 · begravelse 325 · dåb 293 · dekoration 131 · floruit 105 ·
+dødsårsag 21 · klosterindgang 8 · tilnavn 5 · forældre_ukendt 4 · overhoved 4 ·
+adling 4.
+
+**Det rige lag er derimod aldrig kørt.** `haendelse`-tabellen indeholder
+**0 rækker**. Hændelsesudtrækket (`/daa-haendelser`) blev parkeret som issue
+#130 til efter genimporten — og genimporten er nu nået til fase D2/C0. Det er
+her de daterede begivenheder fra prosaen skulle blive struktur: udnævnelser,
+slag, rejser, godskøb, studier.
+
+**Størrelsesordenen af det uudnyttede:** 1939-narrativerne alene er 166.518
+tegn prosa fordelt på 576 biografier. Til sammenligning er kun 150 personer
+knyttet til et embede, selv om embedsroller optræder tæt i teksten
+(amtmand 34, kaptajn 14, gehejmeråd 11, landråd 12 …). Rygraden er udtrukket;
+karriereforløbene ligger stadig i prosaen.
+
+**Ikke besluttet:** om hændelsesudtrækket skal køres nu, hvor genimporten har
+stabiliseret teksten. Det er forudsætningen for både det levende feed og for
+at persondetaljen kan vise mere end leveår — jf. »strukturerede fakta er
+usynlige i fladen« nedenfor. De to hænger sammen: der er ingen grund til at
+udtrække mere, før der er et sted at vise det, og ingen grund til at bygge
+visningen, hvis den kun kan vise fødsel og død.
+
+## UDFØRT: C0-efterkørslen kørt i prod 2026-08-21 — 1017 flyttet til C3 (2026-08-20)
+
+Afgjort ved måling, ikke ræsonnement. Fuld dokumentation i
+`docs/superpowers/reviews/1939-v50-fase-c0-efterkoersel-afklaringer.md`.
+
+**Person 1017 hører ikke til C0.** Koblingen ville fjerne afsnit B) (149 tegn),
+og fragmentet findes ikke ordret nogen steder i korpus. Længste delvise match
+er 57 tegn — og det match *er* person **1021's samlede narrativ**, som begynder
+midt i det orddelte »Revent- low«. 1021 er altså ikke en post, men halen af
+1017's afsnit B). C0's antagelse om at B)-delen »følger med i C3« holder kun
+for de sidste 57 tegn; de første ~92 ville forsvinde. **Den rigtige rettelse er
+en C3-sammenlægning af 1021 ind i 1017's afsnit B).** Den, der scoper C3, skal
+kende dette.
+
+**Person 1297 bliver i batchen.** Det fjernede er »Børn: Ottende Slægtled IIl.«
+— en trykt krydshenvisning, samme klasse som de 73 sidemarkører og 499
+søskende-ordenstal, fase B allerede fjernede.
+
+**963/967's synligheds-spørgsmål er ikke reelt.** `private` er ikke eksponeret
+gennem API'et, `anon` har nul grants på `narrative_record_publication` og får
+»permission denied for schema private«, og ser 0 af de 7 staged personer og 0
+af deres narrativer. Rækkefølgen mellem »bind record« og »publicér person« er
+derfor ligegyldig for synligheden.
+
+**Status 2026-08-21: UDFØRT.** De ni koblinger er skrevet til prod (`change_set 965`, bindinger 550 → 559). Se changelog. 1017/1021 er stadig åben og hører til C3. Det oprindelige forbehold nedenfor er indfriet ved at bygge en dedikeret writer med en gate-kæde stærkere end D2's:
+`narrative_record_publication` står ikke i `version_pk_registry`, så en forkert
+kobling kan ikke fortrydes — dumpen er eneste udvej. Gate-kæden skal være
+stærkere end D2's, og fasen erstatter narrativtekst frem for at sætte et flag.
+Det kræver egen spec.
+
+## ÅBENT: 1021 er ikke enestående — 12 narrativer begynder midt i en sætning (2026-08-20)
+
+Scannet over alle 576 1939-narrativer for 1021's signatur (teksten begynder med
+lille bogstav = fortsættelse af noget afskåret):
+
+```
+ 929 (302 tegn)   930 (302 tegn)   956 (433)   977 (79)   1013 (127)
+1014 (127)       1021 (57)        1308 (110)  1413 (191) 1771 (58)
+1772 (66)        1791 (1439)
+```
+
+To iøjnefaldende mønstre: **929/930 og 1013/1014 er par med byte-identisk
+tekst** — altså både afskårne *og* duplikerede. Og fem af de tolv (929, 930,
+977, 1013, 1014) står på C0's uafklarede-liste, mens 1014 desuden er en af de
+7 staged.
+
+Ingen narrativer *ender* på en bindestreg, så modstykkerne er enten allerede
+afkortet eller ligger i en anden post, som 1021's gør hos 1017.
+
+**Dette er ikke fikset — kun talt.** Tallet er relevant, fordi det antyder
+C3's reelle størrelse: grænsefejlene er en klasse på mindst 12, ikke et
+enkelttilfælde.
+
+## ÅBENT: strukturerede fakta er usynlige i fladen (2026-08-20)
+
+**Fundet under D2's web-verifikation.** Persondetaljen viser aldrig en
+fakta-liste. `fetchPersonDetail` (`web/src/data/public.ts:171`) henter
+narrativ, embeder, godser, medier og evt. kilder — den forespørger **ikke**
+`fact`. De eneste fakta, der når skærmen, er:
+
+- `p.years` — leveårene som lille monospace under navnet (`DetailPanel.tsx:88`),
+  bygget af cache-kolonnerne `visning_foedt`/`visning_doed`
+- `p.title` — titel som badge (`DetailPanel.tsx:96`)
+
+Fødsel, dåb, død, navneformer og alt andet står i basen med afklarede
+konklusioner, men har ingen vej til brugeren. Verificeret hele kæden ned for
+person 1651 og 1268: fakta findes, konklusioner er `afklaret`, cachen er
+udfyldt, `anon` får dem udleveret, og `getAll` paginerer korrekt. Der er
+**ingen fejl** — visningen findes bare ikke.
+
+**Hvorfor det først falder i øjnene nu:** fase D2 publicerede 21 gift-ind-
+stubbe uden narrativ. Deres sider består af navn + leveår og intet andet, så
+det tomrum, der hidtil var skjult bag lange biografier, blev synligt.
+
+Det er en spænding mod invariant 6: prosaen bevares ordret *og* rygraden
+udtrækkes selektivt — men kun prosaen vises. For en person uden prosa er der
+derfor intet at se, selv om rygraden er der.
+
+**Ikke besluttet:** om persondetaljen skal have en fakta-sektion, og i så fald
+om den skal vise konklusionen alene eller også påstand/kilde (evidenskæden).
+Redaktionsfladen viser allerede fakta; læserfladen gør ikke.
+
+## ÅBENT: 16 tomme unioner i prod (2026-08-20)
+
+Målt under D2's efterkontrol: 16 af 682 familier har **præcis én partner og
+nul børn** — altså et registreret ægteskab uden nogen at være gift med.
+
+```
+familie 396→977 · 715→931 · 717→995 · 718→996 · 719→998 · 720→1025
+        721→1040 · 723→1112 · 724→1136 · 725→1148 · 726→1198 · 727→1220
+        728→1291 · 729→1356 · 730→1367 · 731→1403
+```
+
+To ting gør dem mistænkelige frem for blot ufuldstændige:
+
+1. **Familie-id 715–731 er en næsten sammenhængende blok.** Det peger på én
+   loader-kørsel, ikke på spredte redaktionelle fejl. Det passer med den
+   udestående loader-guard (`navn ≠ ref`), som ellers genskaber
+   spøgelses-unioner ved reload — samme klasse som oprydningen i change_sets 3-7.
+2. **977, 1220 og 1291 står på C0's uafklarede-liste**, så der er overlap med
+   et spor, der allerede er åbent.
+
+**Ingen af fase D2's 21 sidder i en tom union**, og alle 16 fandtes før D2.
+Fasen har hverken skabt eller forværret dem. Men de vises formentlig som
+"ægteskab" i fladen, og person 996 er en af dem — netop den person, D2's
+nye ægtefælle 1487 blev koblet til.
+
+**Ikke besluttet:** om de skal ryddes, eller om loader-guarden skal komme
+først, så oprydningen ikke bliver gjort om ved næste reload.
+
+## RETTET OG DEPLOYET: `red_slet_person` var brudt for alle 551 narrativ-bundne personer (2026-08-20)
+
+**Symptom:** `red_slet_person(p_person_id)` fejler med
+
+```
+update or delete on table "narrative" violates foreign key constraint
+"narrative_record_publication_narrative_id_fkey"
+```
+
+for enhver person, hvis 1939-narrativ har en binding i
+`private.narrative_record_publication`. Det er **alle 551**, fase B bandt —
+altså hovedparten af 1939-bestanden. Redaktørfladens slet-knap vil fejle på
+dem alle.
+
+**Årsag:** funktionen er ældre end bindingstabellen (som kom med v50-arbejdet
+i august) og kender den ikke. Dens sletteorden går
+citation → assertion → fact/relation → narrative → person, og FK'en fra
+`narrative_record_publication.narrative_id` blokerer narrativ-sletningen.
+`red_slet_person_preview` er tilsvarende ufuldstændig: den rapporterer fakta
+og relationer, men hverken narrativer eller bindinger.
+
+**Opdaget** da person 975 skulle pensioneres (2026-08-20). Dér blev det løst
+ved at slette bindingen først i samme transaktion — en engangsomgåelse, ikke
+en rettelse.
+
+**Rettelse (skrevet 2026-08-20, IKKE kørt mod nogen base):** begge funktioner
+er genudgivet som en ny blok i bunden af `db-migrations.sql` og opdateret i
+`schema.sql`. De tidligere blokke (linje 451 og 1714) står urørt som historik —
+det er husets konvention i en replayet migrationsfil, og den sidste definition
+vinder. `red_slet_person` fjerner nu bindingerne før narrativerne.
+
+Gennemgangen fandt **to blokerende fremmednøgler mere**, som noten ovenfor ikke
+kendte: `person_slaegt_membership` og `person_lineage_membership` har begge
+`person_id NOT NULL` uden `ON DELETE CASCADE`. De ryddes nu i samme omgang.
+
+`red_slet_person_preview` returnerer nu også `antal_narrativer`,
+`antal_bindinger` og `antal_medlemskaber`, og begge slet-flader (web
+`Redaktion.tsx`, mobil `SletBekraeftSheet.tsx`) viser tallene — ellers var
+udvidelsen usynlig for redaktøren.
+
+**Fælde værd at huske:** begge funktioner er `SECURITY DEFINER` med
+`SET search_path=public`, så `private.`-tabeller **skal** skema-kvalificeres.
+Uden præfikset fejler funktionen ved *deploy* med »relation does not exist«,
+ikke ved kørsel.
+
+**Status:** deployet til prod 2026-08-20 efter backup. Alle tre nye
+db-verify-blokke bestod, og sletningen er verificeret på ægte data (person 924
+med kildebinding, i en rullet-tilbage transaktion). Eneste udestående er
+`get_advisors(security)`, som kræver dashboard-adgang — en SQL-lint for
+`search_path` på SECURITY DEFINER-funktioner gav 0 fund.
+
+**Bemærk om semantikken:** bindingen siger »dette narrativ stammer fra denne
+kilderecord«. Når narrativet slettes, er udsagnet meningsløst, så bindingen
+skal med. `private.source_record` skal derimod **aldrig** røres af en
+person-sletning — registreringen af, at teksten står på siden, er stadig sand.
+
+---
+
+## ÅBEN: hvad skal en person-sletning gøre ved `source_persona_identity`? (2026-08-20)
+
+**Spørgsmålet dukkede op** under rettelsen af `red_slet_person` ovenfor.
+`private.source_persona_identity` og `private.source_persona_identity_event`
+har begge `canonical_person_id` med fremmednøgle mod `person(id)` og **uden**
+`ON DELETE`. De blokerer altså en sletning på præcis samme måde som
+bindingstabellen gjorde — men de er bevidst **ikke** rørt af rettelsen.
+
+**Hvorfor ikke:** en source persona er bogens beskrivelse af en person — en
+påstand fra kilden, ikke et faktum om vores kanoniske person. At slette den,
+fordi vi sletter personen, er samme kategorifejl som at slette
+`private.source_record` (invariant 1: påstande overskrives aldrig).
+`_event`-tabellen er desuden et append-only beslutningsspor.
+
+Nulstilling er heller ikke en udvej: `source_persona_identity_target_check`
+kræver at `canonical_person_id IS NOT NULL` præcis når
+`decision_status='accepted'`. Man kan altså ikke nulstille feltet uden samtidig
+at flytte beslutningen til fx `superseded` — og *det* er en redaktionel
+afgørelse (»denne identifikation gælder ikke længere«), ikke en teknisk
+oprydning der hører hjemme i en slette-rutine.
+
+**Konsekvens indtil videre:** sletning af en person, som har en *accepteret*
+persona-identifikation, vil stadig fejle på fremmednøglen. Det rammer ikke de
+551 (de blokerede på bindingen), men skal afklares før persona-materialiseringen
+bruges bredt.
+
+**Rettelse efter review (Codex sol, 2026-08-20):** forslag (a) — »supersede og
+tillad så sletning« — **virker ikke**. `source_persona_identity_event` er
+append-only (kun en `BEFORE INSERT`-trigger, ingen UPDATE/DELETE-sti), og hver
+historisk event bærer sin egen `canonical_person_id` med fremmednøgle mod
+`person`. En ny `superseded`-event fjerner altså ikke den gamle accepterede
+events reference. Konsekvensen er skarpere end først noteret: **har en person
+én gang været mål for en accepteret identitetsbeslutning, kan den aldrig
+hard-slettes** — uanset hvad `red_slet_person` gør. Det er en egenskab ved
+v50'ens auditdesign, ikke en fejl i slette-rutinen.
+
+**Valgmuligheder, revideret:** (b) lade `red_slet_person` afvise tidligt med en
+forståelig domænefejl (»personen har en accepteret kilde-identifikation — træk
+den tilbage først«) i stedet for en rå FK-fejl. Det er ærligt og billigt, men
+løser ikke det underliggende. (c) soft-delete/tombstone af kanoniske personer,
+så identitetshistorikken kan pege på et bevaret id. (d) et auditdesign hvor
+historiske person-id'er bevares uden blokerende fremmednøgle.
+
+**Dette er et arkitekturvalg, ikke en oprydning** — (c) og (d) ændrer hvad
+»slet en person« overhovedet betyder i modellen, og bør besluttes bevidst.
+
+**Status:** (b) er implementeret — `red_slet_person` afviser nu tidligt med
+`PERSON_HAR_KILDEIDENTITET` i stedet for at lade en rå FK-violation slippe ud
+midt i en halvt udført sletning. Det er en ærlig fejlbesked, ikke en løsning.
+
+Gaten fyrer **præcis** når fremmednøglen alligevel ville blokere, så den gør
+ingen sletning umulig, der før var mulig. Men den rejser et spørgsmål, som ikke
+kan besvares uden et opslag i basen: **hvor stor en del af de 551 narrativ-bundne
+er også persona-bundne?** De er i så fald fortsat ikke-slettelige — ikke på grund
+af bindingen, som nu er rettet, men på grund af det uforanderlige beslutningsspor.
+V50-materialiseringen skrev `identity_status: "accepted"`, og cutover-kontrollen
+omfattede personae, så overlappet er sandsynligt, men ikke målt.
+
+Kør dette mod prod for at afgøre, hvor meget rettelsen faktisk frigør:
+
+```sql
+SELECT
+  count(*)                                              AS narrativ_bundne_personer,
+  count(*) FILTER (WHERE EXISTS (
+    SELECT 1 FROM private.source_persona_identity_event e
+     WHERE e.canonical_person_id = nb.person_id))       AS blokeret_af_kildeidentitet
+FROM (
+  SELECT DISTINCT n.subjekt_id AS person_id
+    FROM public.narrative n
+    JOIN private.narrative_record_publication p ON p.narrative_id = n.id
+   WHERE n.subjekt_type = 'person'
+) nb;
+```
+
+**MÅLT mod prod 2026-08-20 (read-only):**
+
+| | |
+|---|---:|
+| narrativ-bundne personer | **550** |
+| heraf blokeret af kilde-identitet | **8** |
+
+550 og ikke 551, fordi person 975 blev slettet samme morgen — tallet stemmer med
+den kendte historik. **Rettelsen frigør altså 542 af 550.** De 8 er dem fra
+v50-cutoveren, hvis integritetskontrol netop omfattede personae.
+
+**Konsekvens for tombstone-valget:** det haster ikke. Det angår 8 personer, ikke
+hovedparten af bestanden, og hard delete med dokumenteret forbehold er derfor et
+holdbart valg indtil videre. Bemærk dog at tallet vokser, efterhånden som flere
+identitetsbeslutninger accepteres — det er ikke et engangstal, og det bør måles
+igen før den næste udgave lægges ind.
+
+**Anbefaling fra arkitekturvurdering (fable, 2026-08-20): vælg (c), i varianten
+tombstone + udtømning.** `red_slet_person` ville da tømme alt det, den allerede
+sletter (fakta, evidenskæde, narrativer, bindinger, medlemskaber, external ids,
+`visning_*`), men bevare den nøgne person-række med et eksplicit slettet-state,
+så `canonical_person_id`-fremmednøglerne forbliver gyldige. Begrundelsen ligger
+i modellens egne invarianter: personen er reelt en *konklusion*
+(`datamodel-oversigt.md`), og rettelse sker ved ny tilstand ovenpå — aldrig ved
+destruktion (invariant 1). Hard delete er anomalien i denne model, ikke normen.
+Huset praktiserer i forvejen tombstones: 1939-reversal sletter ikke personer,
+den sætter `staged=true, status='reimport_1939_reversed'`.
+
+GDPR (invariant 8) taler ikke imod: en udtømt tombstone er et nøgent surrogat-id
+uden persondata. Den reelle eksponering ved en sletteanmodning ligger i
+`private.source_persona`/`source_record` — bogens egen tekst — og den består
+uanset om person-rækken slettes hårdt. Hard delete ville altså ikke have løst
+det GDPR-problem, tombstonen får skylden for.
+
+**Vigtigste indvending mod (c):** tombstones skal ekskluderes konsistent i
+*alle* læseflader — RLS, anon-RPC'er, finderen, `samme_som`-collapse, tællinger.
+Én overset gate genopliver en »slettet« person offentligt. `staged` kan ikke
+genbruges (det betyder kuratering, ikke sletning), så det kræver et nyt,
+distinkt state plus en audit af samtlige læsestier og lockstep-opdatering af
+web og mobil. **Beslutningen er ikke truffet — den afventer brugeren.**
+
+---
+
+## Hændelses-ankre: subjekt/objekt-asymmetrien (2026-08-20)
+
+`red_slet_person` samler relationer hvor personen er **subjekt eller objekt**,
+mens hændelses-loaderen (`load_haendelser.R`) forankrer hændelser efter
+**subjekt alene**. En relation Q→P kan derfor bære en hændelse under *Q's*
+narrativ, som ikke cascade-slettes når P's narrativer forsvinder — og
+`haendelse.relation_id` har fremmednøgle uden `ON DELETE`. Sletningen af P ville
+strande på Q's hændelse.
+
+**Løsning:** ankeret løsnes (`SET NULL`) i stedet for at slette en anden persons
+hændelse. Hændelseslaget er per design regenererbart, og begge kolonner er
+allerede `skip_cols` i versioneringen, så en nulstilling er konsistent med
+husets eget valg om ikke at versionere dem.
+
+`haendelse.fact_id` tages med for symmetri, men den sti er **ikke** påvist:
+loaderen filtrerer fakta til narrativets egen person, så et krydsanker kan i dag
+ikke opstå. Det er billig forsikring mod en fremtidig writer, ikke en rettelse
+af en kendt fejl.
+
+---
+
+## Narrativ-bindingens tab ved fortryd er publicerings-tilstand, ikke evidens (2026-08-20)
+
+`private.narrative_record_publication` kan ikke registreres i
+`version_pk_registry`: registret er nøglet på skemaløst `tabel TEXT`,
+trigger-loopet bruger `%I` uden skema, og `_version_pk_where` slår kolonner op
+med `table_schema='public'` hårdkodet. Sletning af en binding giver derfor ingen
+`change_event` og kan ikke fortrydes.
+
+**Vurdering:** koblingen narrativ→kilderecord er *funktionelt* rekonstruerbar for
+1939-flowets rækker — labels dannes efter en deterministisk konvention, og
+`record_key` er unik pr. kilde. Reelt tabt er derimod `record_ref` (en
+`gen_random_uuid()`, UNIQUE og uforanderlig — en genopbygget binding ville mønte
+en **ny** offentlig identitet), `published_at`, og de frit kalder-leverede labels
+på den manuelle publiceringssti.
+
+**Det er ikke tabt evidens** i invariant 1's forstand: evidensen er
+`private.source_record`, som aldrig røres. Det er tabt *publicerings-tilstand*.
+Alvoren i dag er lav — `record_ref` eksponeres for `anon` via
+`public_person_bio_source_versions`, men ingen konsument fastholder den (kun
+listenøgle og sorterings-tiebreak i web/mobil). Alvoren bliver reel, hvis
+`record_ref` nogensinde bruges som citérbar reference udadtil — hvilket er
+præcis, hvad den er designet til. **Bør genbesøges før den bruges eksternt.**
+
+---
+
+---
+
+## Fase C1 udskudt: værdien udløses først af den anden udgave (2026-08-19)
+
+**Beslutning:** C1 (promovering af 1.078 literal fakta + 212 ægteskaber til
+det private fortolkningslag) bygges ikke nu. Fase D tages i stedet.
+
+**Hvad målingen viste.** Programplanen kaldte C1 »mekanisk: manifest + writer
+efter fase A-mønstret«. Tre tal modsiger det:
+
+- `private.interpretation` og `private.interpretation_promotion` er **tomme**
+  (0 rækker). Der er intet at promovere; fortolkningerne skal først skabes.
+- Promotion-reglerne dækker **979 af 1.078** fakta (fødsel/titel/død). Dåb (50)
+  og begravelse (49) mangler regler; alle **212 ægteskaber** mangler en
+  regelklasse, fordi de fem eksisterende regler er `person.*`-prædikater mod
+  `assertion`, mens et ægteskab er en relation.
+- Fakta er **allerede kildebundne**: 3.211 citations mod DAA 1939, alle med
+  `assertion_id`, fordelt på 87 sider. De 1.233 uden `citat_tekst` er
+  hovedsagelig `forældrefamilie` (356, en relation uden naturligt citat) og
+  `navn` (337, hvor citatet ville gentage værdien). Indholdsfakta — fødsel,
+  død, titel, vielse — har citat i 366-369 tilfælde og mangler kun i 80-93.
+
+**Hvad der reelt mangler** er koblingen fra faktum til den granulære
+`source_record` (posten på siden), som narrativerne fik i fase A og B. Én side
+rummer flere personer, så »DAA 1939, s. 574« er grovere end »posten om
+Ferdinand, s. 574-575«. Det betyder lidt for én udgave og meget når 2018-20
+skal stilles op mod 1939.
+
+**Hvorfor udskydelsen ikke koster noget.** Fase A's 592 source records ligger
+allerede uforanderligt i prod. Fakta kan bindes til dem når som helst —
+rækkefølgen er fri. Det omvendte gælder ikke: bygger vi regelklassen for
+ægteskaber nu, låser vi et design **før** vi har set 2018-20's ægteskabsdata.
+Døren lukker sig af at gå i gang, ikke af at vente.
+
+**Hvis C1 alligevel skal give noget nu:** det billigste med reel effekt er at
+udfylde de 80-93 manglende citater på fødsel og død — de tal folk læser efter
+— uden at røre fortolkningslaget og uden DDL.
+
+---
+
+## Grænsekontrollen som redigerbar tekst: tre valg der bærer resten (2026-08-09/10)
+
+**Annoteringssyntaksen må ikke dele tegn med det, den annoterer.** Kildeteksten
+indeholder allerede 86 `### PAGE nnnn ###`-linjer, så fladens egne markører fik `===`.
+Havde begge brugt `###`, ville integritetskontrollens strip fjerne bogens egne linjer
+sammen med vores — og en sletning i kilden kunne passere ubemærket. Reglen er derfor
+skarp: `===` er fladens, `###` er bogens, og strip matcher eksakte navngivne mønstre,
+aldrig et catch-all.
+
+**Tavshed er godkendelse for den enkelte skæring — men ikke for en side.**
+Brugervalgt: en urørt markør er en accepteret skæring (446 klik ville flytte den
+gamle arbejdsbyrde ind i en ny flade). Eksporten registrerer derfor *ændringen* mod
+det forudsatte sæt, ikke en dom pr. grænse. Men "antal manglende sider" kan kun være
+ærligt, hvis noget markerer en side som set, så sidevisningen fik en kvittering pr.
+side: 86 klik, ikke 446 domme. Kvitteringen er deaktiveret mens siden har en fejl.
+*Fravalgt:* auto-besøgt (et hurtigt gennemblad ville tælle som en gennemgang).
+
+**Identitet skal være entydig, ikke bare trykt.** Sidefremskridtet blev først nøglet
+på det trykte PDF-sidetal — men bogens to sidste sider bærer begge tallet 598, så to
+sider delte én plads: 86/86 var uopnåeligt, og kvittering for den ene fik den anden
+til at fremstå gennemgået. Nøglen er nu kildesiden (1-86). Samme mønster som
+lokal_id-valget 2026-07-30: alt beregnet eller genbrugt taber, kun entydige etiketter
+står fast. Gamle eksporter oversættes fail-closed — et tvetydigt tal markerer ingen
+side, fordi et gæt ville påstå at en uset side var gennemgået.
+
+**Fladen giver review-/fil-GO, ikke materialisering.** Grænsen fra 2026-08-08 står:
+afløsning af accepteret evidens kræver en selvstændig, autoriseret operation. Runde 2
+— hvem der ejer hvilket stykke — er bevidst adskilt fra runde 1, så "hvor brydes
+teksten" (afgøres af teksten selv) ikke blandes med "hvem er det" (kræver bogens numre).
+
+## Menneskevalg: approval er identitetsankeret; råbroen er valgfri (2026-08-06)
+
+**Besluttet:** Et valideret menneskevalg bindes til det eksakte, hash-fastlåste
+Calamari-span med `approval.kind = human_approved_span_v1`. En invariant
+Calamari↔rå-OCR-occurrence-bro registreres, når den findes entydigt, men er ikke
+et krav for et menneskegodkendt valg: mennesket har allerede truffet
+identitetsafgørelsen, og råbroen tilføjer redundant proveniens. Automatiske
+afgørelser beholder kravet om dual-rendition-evidens. Globale krav om entydigt
+ejerskab, kandidat-id-injektivitet og ikke-overlappende spans er uændrede.
+
+**Evidence- og GO-grænse:** Adapteren kræver et komplet source-bundet
+base-evidence-bundle og erstatter kun samme evidensfrie baseline-key med en
+valideret human-entry. Task-5-filen `{decisions, audit_results}` og dette composed
+bundle joines i `prepare_review_queue_1939.py`. Der findes ingen approval-capable
+privat coverage-materializer; workflowet stopper ved review-/fil-GO. En senere
+materialisering kræver selvstændigt design, godkendelse og replay.
+
+**Udskudt backlog:** Slutarkets store occurrence på side 597–598 resegmenteres
+ikke nu. Approval-stien gør den manglende invariante råbro ikke-blokerende, mens en
+resegmentering ville ændre occurrence-identiteter og alignment på tværs af de
+fastlåste artefakter uden at tilføje identitetssikkerhed til de allerede
+menneskegodkendte valg. Arbejdet genåbnes kun, hvis senere automatisk behandling
+kræver finere occurrence-grænser.
+
 ## Hvad der bevidst IKKE blev et link (2026-08-01)
 
 **Besluttet ved link-konverteringen af web-fladen.** Reglen er "ingen fabrikerede
@@ -1274,3 +1974,59 @@ advisory-låsen gav deadlock). Peer-review er ikke monotont forbedrende. Og
 `get_advisors(security)` fangede efter deploy noget ingen af de otte runder så: to nye
 `SECURITY DEFINER`-trigger-funktioner stod åbne for `anon` via Supabases default-grants.
 Codex læser SQL; advisoren læser den kørende bases ACL.
+
+## Grænsekontrollen ligger før materialisering, og massebekræftelse er droppet (2026-08-08)
+
+**Placering.** Grænsekontrollen kræver eksakte, hash-låste spænd og skal ligge før
+materialisering. Begge betingelser er opfyldt straks efter forankringen, så kontrollen
+lægges der — ikke efter komponeringen, hvor en ugyldig rettelse er dyrere at kassere.
+Efter materialisering er teksterne påstande, og påstande overskrives aldrig (invariant 1).
+Første udgave hævdede at der kun fandtes ét muligt sted; det holdt ikke.
+
+**Afløsning af accepteret evidens er forbudt i dag, og guarden skal ikke løsnes.**
+`compose_human_evidence_bundle()` afviser at menneske-evidens erstatter en entry med
+kandidater eller positiv proveniens. En grænserettelse ER en sådan erstatning, så fase 2
+kræver én navngiven, autoriseret afløsningsoperation med eksplicit invalideringsgraf —
+seks punkter, herunder stikprøve/audit og op til tre incidente grænser, fordi en flytning
+ændrer begge nabospænd. Kandidat*formatet* kræver derimod ingen ny evidensart; det er
+producent-neutralt. Formatet rakte, operationen manglede.
+
+**Massebekræftelses-bunken er fjernet.** Den lovede at et hul var positivt bevist tomt,
+herunder at der ikke var et trykt hoved i rå OCR's modsvarende stykke. Men det modsvarende
+stykke findes ikke: et menneskeforankret Calamari-spænd er et delspænd inde i en
+forekomst, mens dets `raw_structure_bridge` dækker hele den parrede rå-forekomst. **Målt:
+0 af 352 forankrede spænd er spændpræcise; 349 er delspænd; kun 110 har en rå-bro.** Rå-
+vinduet begyndte derfor at læse for sent i hvert enkelt tilfælde. Valgt løsning: drop
+bunken, alle 446 grænser til individuel vurdering. Rå-kontrollen er ikke slettet men
+**vendt** — et positivt fund er troværdigt, fraværet af et fund beviser intet — så den er
+nu signalet `hoved_i_raa_ocr`. En spændpræcis kontrol via `align_renditions` er
+forudsætningen for at genindføre en bunke. Afvist: at portere på Calamari alene, fordi det
+er præcis den fejlmåde designet findes for.
+
+**Revision 0 i fase 1 er tilsigtet.** Grænse-id bærer et revisionsnummer, men fase 1
+ændrer aldrig et spænd, så der findes ingen anden revision. Bumpning og forældrekæde bygges
+i fase 2 sammen med afløsningen. Reviewet kaldte det en spec-fejl; afgjort at planen gælder.
+
+**Dagens gennemgående fejlmønster: fravær af bevis læst som bevis på fravær.** Otte
+tilfælde. Sidemodellen der talte sider i stedet for at slå dem op; porten der kaldte et
+ukontrolleret hul tomt; en opsummering hvor `har_broedtekst=0` slap igennem; et
+injektivitetskald der udregnede sin egen godkendelseshash og dermed gjorde kontrollen
+indholdsløs; et rå-OCR-vindue der ledte i den forkerte tekst; søskendegrupper bygget kun af
+spænd-ejere, så `slugt_hoved` fyrede **0 gange** i et datasæt med fire kendte grænsefejl; en
+tom kasse i UI'et der læstes som frikendelse; og kontekst der rakte ud over spændets kant
+uden nogen markering. Fælles: koden bestod sine tests, fordi testene fodrede den med
+sandheden. **Nul er et signal** — et signal bygget til en kendt fejl, der aldrig fyrer, er
+et resultat om koden, ikke om dataene.
+
+**Testværn skal måle egenskaben, ikke teksten.** Task 8's tests hævdede at de rigtige
+strenge stod i den genererede HTML; filen var alligevel uparsebar, fordi generatoren skrev
+`";\\n"` i stedet for et linjeskift — blank side, fundet af brugeren efter otte tasks, tre
+reviews og en fix-bølge. Begge generatorer har nu en test der **parser** scriptblokken med
+`node --check`, mutationstestet ved at genindsætte fejlen. Og gaten for det delte UI-modul
+var **tallet 88**, ikke "grønne tests": et tal fanger en adfærdsændring som en farve skjuler.
+
+**Delegering til Codex: arbejdsdelingen blev omvendt af sandkassen.** Delegaten kan ikke
+committe (`index.lock` nægtet) og har ingen PyPI-adgang, og runtimen kører kun én opgave ad
+gangen — et parallelt dispatch afvises, og en død proces kan efterlade en forældet
+"kører"-lås der blokerer alt. Arbejdsdeling: delegaten skriver kode og tests, kontrol-
+sessionen kører testene og committer med delegaten navngivet.

@@ -20,7 +20,8 @@ rapporten (stderr) flagger manglende linje-kontekst og huller/dubletter i nr.
 """
 import contextlib
 import io
-import sys, re, json
+import sys, re, json, hashlib
+import clause_ledger
 from ordinals import ordinal_to_int
 
 PAGE_RE    = re.compile(r'^###\s*PAGE\s+(\d+)\s*###\s*$')
@@ -71,6 +72,7 @@ PAGE_NOISE_1939_RE = re.compile(r'^\s*(?:Reventlow\s*\.?|\d{1,4})[\s.•*]*$', r
 # centreret romertal (evt. med .,-suffiks; OCR: IL=II) + navnelinje + "(S. nn).".
 LINJE_BLOK_ROMAN_1939_RE = re.compile(r'^\s{15,}([IVXL]{1,6})[.,]?\s*$')
 LINJE_NAVN_1939_RE = re.compile(r'\bLinjen?\b.*\.\s*$', re.I)
+CALAMARI_LINJE_ROMAN_1939_RE = re.compile(r'^\s*([IVXL]{1,6})[.,]?\s*$', re.I)
 SIDEHENVISNING_1939_RE = re.compile(r'^\s*\(S\.\s*\d+\)\.?\s*$')
 UNNUMBERED_1939_RE = re.compile(
     r"^\s{0,4}'?(?:[^\W\d_]|1)(?:\s+(?:[^\W\d_]|1)){1,}",
@@ -78,6 +80,13 @@ UNNUMBERED_1939_RE = re.compile(
 )
 SPAERRET_NAVN_1939_RE = re.compile(
     r"'?(?:[^\W\d_]|1)(?:\s+(?:[^\W\d_]|1)){1,}",
+    re.UNICODE,
+)
+# Calamari samler ofte den trykte navnesats for korte personposter. En enkelt
+# stor navneform er kun tilstrækkelig, når den straks efterfølges af en trykt
+# fødsels- eller dødsmarkør; ren prosa og løse navnereferencer forbliver ude.
+CALAMARI_SHORT_POST_HEADER_1939_RE = re.compile(
+    r"^[A-ZÆØÅ][A-Za-zÆØÅæøå-]{2,}(?:,?\s+(?:†|\*|f\.\s|d\.\s)|\.\s+(?:f\.\s|d\.\s))",
     re.UNICODE,
 )
 DATO_FORTSAETTELSE_1939_RE = re.compile(r'^\d+\s+s\.\s*M\.', re.I)
@@ -107,6 +116,22 @@ ORDINALER_1939 = {
 
 def norm(s):
     return re.sub(r'\s+', ' ', s).strip()
+
+
+def segmentation_summary_1939(posts, source_text):
+    """Returnér kun reproducerbar 1939-strukturstatistik, aldrig posttekst."""
+    by_linje = {}
+    for post in posts:
+        linje = post.get("linje") or "<none>"
+        by_linje[linje] = by_linje.get(linje, 0) + 1
+    with_lokal_id = sum(bool(post.get("lokal_id")) for post in posts)
+    return {
+        "source_sha256": hashlib.sha256(source_text.encode("utf-8")).hexdigest(),
+        "posts": len(posts),
+        "with_lokal_id": with_lokal_id,
+        "without_lokal_id": len(posts) - with_lokal_id,
+        "by_linje": dict(sorted(by_linje.items())),
+    }
 
 
 def flush(posts, cur):
@@ -258,6 +283,16 @@ def _linje_header_1939(lines, i, profile):
     afsnit og navnelinjen som gruppekontekst.
     """
     line = lines[i]
+    # Calamari mister centreringen, men bevarer på en frisk side den komplette
+    # trykte blok: romertal efterfulgt af linjenavn. En løs romerreference i
+    # prosa kan aldrig opfylde side- og navnekravet samtidig.
+    calamari = CALAMARI_LINJE_ROMAN_1939_RE.match(line)
+    if (calamari and i > 0 and profile['page_re'].match(lines[i - 1])
+            and i + 1 < len(lines) and profile['linje_navn_re'].search(lines[i + 1])):
+        forbrug = 2
+        if i + 2 < len(lines) and profile['sidehenvisning_re'].match(lines[i + 2]):
+            forbrug = 3
+        return _normaliser_romertal_1939(calamari.group(1), profile), forbrug
     m = profile['linje_blok_roman_re'].match(line)
     if m and i + 1 < len(lines):
         naeste = lines[i + 1]
@@ -273,7 +308,7 @@ def _linje_header_1939(lines, i, profile):
     return None
 
 
-def _slaegtled_header_1939(line, profile):
+def _slaegtled_header_1939(line, profile, *, fresh_page=False):
     """OCR spreder bogstaverne; kun centreret sats må ændre gruppe-state.
 
     Venstrestillede ``Slægtled I.`` er ombrudte krydshenvisninger inde i
@@ -285,7 +320,7 @@ def _slaegtled_header_1939(line, profile):
     """
     kerne = re.sub(r'^[\s"“”\'’•*^]+', '', line)
     indryk = len(line) - len(kerne)
-    if indryk < 8:
+    if indryk < 8 and not fresh_page:
         return None
     uden_mellemrum = re.sub(r'\s+', '', kerne)
     match = profile['slaegtled_re'].match(uden_mellemrum.lower())
@@ -320,6 +355,7 @@ def _post_start_1939(line, profile):
         not efter_markoer and profile['rent_spoergsmaalstegn_re'].match(rest)
         or profile['navnloest_barn_re'].match(efter_markoer)
         or profile['spaerret_navn_re'].search(efter_markoer[:80])
+        or profile['calamari_short_post_header_re'].search(efter_markoer[:80])
     )
     if not gyldigt_hoved:
         return None
@@ -352,6 +388,10 @@ def _flush_1939(posts, cur, pre_linje_label=None):
         cur['lokal_id'] = None
     cur['raw_text'] = norm(' '.join(cur.pop('_lines')))
     cur.pop('_pages')
+    linje_fra = cur.pop('_linje_fra', None)
+    linje_til = cur.pop('_linje_til', None)
+    if linje_fra is not None:
+        cur['linjer'] = {'fra': linje_fra, 'til': linje_til}
     posts.append(cur)
 
 
@@ -486,7 +526,9 @@ def _unummereret_post_1939(lines, start, slut, *, lokal_id, postklasse,
             if side_match:
                 aktiv_side = int(side_match.group(1))
                 break
-    for line in lines[start:slut]:
+    foerste = sidste = None
+    for indeks in range(start, slut):
+        line = lines[indeks]
         side_match = PAGE_RE.match(line)
         if side_match:
             aktiv_side = int(side_match.group(1))
@@ -494,6 +536,9 @@ def _unummereret_post_1939(lines, start, slut, *, lokal_id, postklasse,
         if not line.strip() or PAGE_NOISE_1939_RE.match(line):
             continue
         tekstlinjer.append(line.strip())
+        if foerste is None:
+            foerste = indeks
+        sidste = indeks
         if aktiv_side is not None and (not sider or sider[-1] != aktiv_side):
             sider.append(aktiv_side)
     if not tekstlinjer:
@@ -509,6 +554,7 @@ def _unummereret_post_1939(lines, start, slut, *, lokal_id, postklasse,
         'sider': sidefelt, 'lokal_id': lokal_id,
         'raw_text': norm(' '.join(tekstlinjer)), 'postklasse': postklasse,
         'dublet_af_stamtavle': dublet,
+        'linjer': {'fra': foerste, 'til': sidste + 1},
     }
 
 
@@ -784,7 +830,10 @@ def _segment_1939(lines, profile):
                 afsnit_frisk = False
                 i += 1; continue
 
-        slaegtled_header = _slaegtled_header_1939(line, profile)
+        slaegtled_header = _slaegtled_header_1939(
+            line, profile,
+            fresh_page=(i > 0 and bool(profile['page_re'].match(lines[i - 1]))),
+        )
         if slaegtled_header:
             _flush_1939(posts, cur, pre_label); cur = None
             slaegtled, ukendt = slaegtled_header
@@ -830,6 +879,7 @@ def _segment_1939(lines, profile):
                 'slaegtled_lokal': ordinal_to_int(slaegtled) if slaegtled else None,
                 'slaegtled_gennem': None, 'aegteskab_kontekst': None,
                 '_lines': [m.group(4)], '_pages': [page],
+                '_linje_fra': i, '_linje_til': i + 1,
             }
             i += 1; continue
 
@@ -839,6 +889,7 @@ def _segment_1939(lines, profile):
 
         if cur is not None:
             cur['_lines'].append(line.strip())
+            cur['_linje_til'] = i + 1
         else:
             # Mellem strukturheader og første nummererede post er teksten en
             # gruppebeskrivelse, ikke en del af nogen persons kildetekst.
@@ -885,7 +936,8 @@ UDGAVE_PROFILER = {
         'pre_linje_label': 'Stamme',
         'page_noise_re': PAGE_NOISE_1939_RE,
         'unnumbered_re': UNNUMBERED_1939_RE,
-        'spaerret_navn_re': SPAERRET_NAVN_1939_RE,
+    'spaerret_navn_re': SPAERRET_NAVN_1939_RE,
+        'calamari_short_post_header_re': CALAMARI_SHORT_POST_HEADER_1939_RE,
         'dato_fortsaettelse_re': DATO_FORTSAETTELSE_1939_RE,
         'kildelinje_re': KILDELINJE_1939_RE,
         'navnloest_barn_re': NAVNLOEST_BARN_1939_RE,
@@ -912,17 +964,94 @@ UDGAVE_PROFILER['1939-v2'] = {
 }
 
 
-def main(path, udgave=None):
+def _evidence_ledger(source_text):
+    """Emit source clauses without turning printed locators into record identity.
+
+    A record occurrence is local to this rendition.  ``record_key`` remains
+    null until a reviewer accepts an anchor in the private evidence layer.
+    """
+    clauses = []
+    observations = []
+    offset = 0
+    occurrence_counter = 0
+    current_occurrence = None
+    for raw_line in source_text.splitlines(True):
+        line_end = offset + len(raw_line)
+        line = raw_line.rstrip('\r\n')
+        classification = 'record_text'
+        observation_ids = []
+        if not line.strip() or PAGE_RE.match(line):
+            classification = 'layout'
+        elif (LINJE_NAME.search(line) or ROMAN_RE.match(line) or SLGT_RE.match(line)
+              or MARR_RE.match(line)):
+            classification = 'structural_header'
+            observation_id = 'obs-%08x' % offset
+            observation_ids = [observation_id]
+            observation = {
+                'observation_id': observation_id,
+                'kind': 'structural_header',
+                'verbatim_text': line,
+                'span': {'char_from': offset, 'char_to': offset + len(line)},
+            }
+            generation = SLGT_RE.match(line)
+            if generation:
+                observation.update({
+                    'kind': 'printed_generation_header',
+                    'generation_label_raw': generation.group(1),
+                    'generation_local': ordinal_to_int(generation.group(1)),
+                    'generation_global': (ordinal_to_int(generation.group(2))
+                                          if generation.group(2) else None),
+                })
+            observations.append(observation)
+            current_occurrence = None
+        elif POST_RE.match(line) or POST_1939_RE.match(line):
+            occurrence_counter += 1
+            current_occurrence = 'occ-%s-%04d' % (
+                hashlib.sha256(source_text.encode('utf-8')).hexdigest()[:12], occurrence_counter)
+        if classification == 'record_text' and current_occurrence is None:
+            # Unclassified prose is preserved as a distinct, unanchored source occurrence.
+            occurrence_counter += 1
+            current_occurrence = 'occ-%s-%04d' % (
+                hashlib.sha256(source_text.encode('utf-8')).hexdigest()[:12], occurrence_counter)
+        clauses.append({
+            'char_from': offset, 'char_to': line_end, 'classification': classification,
+            'observation_ids': observation_ids, 'record_key': None,
+            'occurrence_id': current_occurrence or 'layout-%08x' % offset,
+        })
+        offset = line_end
+    return {
+        'schema_version': '1.0',
+        'source_length': len(source_text),
+        'clauses': clause_ledger.build_ledger(source_text, clauses),
+        'observations': observations,
+        # No source_record exists until an explicit anchor decision.  Keeping
+        # this empty is fail-closed and prevents accidental locator identity.
+        'record_placements': [],
+    }
+
+
+def main(path, udgave=None, emit_evidence_ledger=None):
     profile = UDGAVE_PROFILER[udgave or '2018-20']
-    lines = open(path, encoding='utf-8', errors='replace').read().splitlines()
-    return profile['segmenter'](lines, profile)
+    source_text = open(path, encoding='utf-8', errors='replace').read()
+    posts = profile['segmenter'](source_text.splitlines(), profile)
+    if emit_evidence_ledger:
+        json.dump(_evidence_ledger(source_text),
+                  open(emit_evidence_ledger, 'w', encoding='utf-8'),
+                  ensure_ascii=False, indent=2)
+    return posts
 
 
 if __name__ == '__main__':
     if len(sys.argv) == 2:
         main(sys.argv[1])
+    elif len(sys.argv) == 4 and sys.argv[2] == '--emit-evidence-ledger':
+        main(sys.argv[1], emit_evidence_ledger=sys.argv[3])
+    elif (len(sys.argv) == 6 and sys.argv[2] == '--udgave'
+          and sys.argv[3] in ('1939', '1939-v2')
+          and sys.argv[4] == '--emit-evidence-ledger'):
+        main(sys.argv[1], udgave=sys.argv[3], emit_evidence_ledger=sys.argv[5])
     elif (len(sys.argv) == 4 and sys.argv[2] == '--udgave'
           and sys.argv[3] in ('1939', '1939-v2')):
         main(sys.argv[1], udgave=sys.argv[3])
     else:
-        sys.exit('brug: segment.py raw.txt [--udgave 1939|1939-v2] > posts.json')
+        sys.exit('brug: segment.py raw.txt [--udgave 1939|1939-v2] [--emit-evidence-ledger ledger.json] > posts.json')

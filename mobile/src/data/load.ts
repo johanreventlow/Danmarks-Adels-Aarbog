@@ -4,9 +4,10 @@
 import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
 import {
-  buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, pickPreferredBio, fmtYears, parseYear, getAll, EMPTY_GEO,
+  buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, buildBioSourceVersions,
+  mapPublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, fmtYears, parseYear, getAll, EMPTY_GEO,
   citationRowsTilProveniens,
-  type GenCoord, type ParentsUnknown, type NarrativeCand, type CitationProvenanceRow, type RaaCitationRow,
+  type GenCoord, type ParentsUnknown, type CitationProvenanceRow, type RaaCitationRow,
 } from '@daa/core';
 import {
   buildHaendelserBy,
@@ -36,7 +37,6 @@ import type {
   RawLineage,
   RawMedia,
   RawMember,
-  RawNarrative,
   RawOrg,
   RawPerson,
   RawPlace,
@@ -105,6 +105,54 @@ export function mapAppPersons(
     }));
 }
 
+export function mapPublicBioVersionsByPersonV2(
+  rows: readonly unknown[],
+  canonicalIdById: Record<string, string>,
+): Record<string, string> {
+  const rowsByCanonicalPerson = new Map<string, unknown[]>();
+  for (const row of rows) {
+    if (typeof row !== 'object' || row === null || typeof (row as Record<string, unknown>).person_id !== 'number') {
+      throw new Error('PUBLIC_BIO_SOURCE_VERSION_V2_INVALID_person_id');
+    }
+    const personId = (row as Record<string, number>).person_id;
+    const canonicalId = canonicalIdById[String(personId)] ?? String(personId);
+    const personRows = rowsByCanonicalPerson.get(canonicalId);
+    if (personRows) personRows.push(row); else rowsByCanonicalPerson.set(canonicalId, [row]);
+  }
+  const bioBy: Record<string, string> = {};
+  for (const [canonicalId, personRows] of rowsByCanonicalPerson) {
+    const selected = selectDefaultPublicBioSourceVersionV2(mapPublicBioSourceVersionsV2(personRows));
+    if (selected) bioBy[canonicalId] = selected.narrativeText;
+  }
+  return bioBy;
+}
+
+function mapPublicBioVersionsByPersonV1(
+  rows: readonly unknown[],
+  canonicalIdById: Record<string, string>,
+): Record<string, string> {
+  const bioBy: Record<string, string> = {};
+  for (const row of rows) {
+    if (typeof row !== 'object' || row === null) continue;
+    const value = row as Record<string, unknown>;
+    if (typeof value.person_id !== 'number'
+      || (value.provenance_kind !== 'source_record' && value.provenance_kind !== 'legacy_narrative')
+      || (value.record_ref !== null && typeof value.record_ref !== 'string')
+      || typeof value.source_label !== 'string' || typeof value.record_label !== 'string'
+      || typeof value.narrative_text !== 'string' || typeof value.citation_label !== 'string') continue;
+    const text = buildBioSourceVersions([{
+      record_ref: value.record_ref,
+      source_label: value.source_label,
+      record_label: value.record_label,
+      narrative_text: value.narrative_text,
+      citation_label: value.citation_label,
+      provenance_kind: value.provenance_kind,
+    }])[0]?.narrativeText;
+    if (text) bioBy[canonicalIdById[String(value.person_id)] ?? String(value.person_id)] ??= text;
+  }
+  return bioBy;
+}
+
 // Sorterer forældre (partner-rolle-medlemmer af en familie) så far kommer før mor —
 // DAA er patrilineær, linje/nr følger mandslinjen. `ordinal` er ægteskabs-nummer
 // (1./2. ægteskab for DEN person), ikke en far/mor-markør: to forældre har typisk
@@ -145,7 +193,6 @@ export async function loadFromSupabase(opts?: {
   const [
     persons,
     members,
-    narratives,
     extIds,
     sources,
     relations,
@@ -164,12 +211,6 @@ export async function loadFromSupabase(opts?: {
         sb.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_titel,koen,privat'),
       ),
       getAll<RawMember>(() => sb.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens')),
-      getAll<RawNarrative>(() =>
-        sb
-          .from('narrative')
-          .select('id,subjekt_id,subjekt_type,tekst,privat,source_id')
-          .eq('subjekt_type', 'person'),
-      ),
       // Linje/nr + slægtled-koordinater pr. person — tolerant: kolonnerne kan mangle på en
       // ikke-migreret base. Uden .catch ville en manglende kolonne fælde HELE Promise.all'et og
       // erstatte det levende datasæt med det indlejrede SEED (F1, dual-review 2026-07-05) —
@@ -230,25 +271,23 @@ export async function loadFromSupabase(opts?: {
       // queries (uændrede) + degradering.
     ]);
 
-  // Biografi pr. person — foretrukne offentlige narrativ (nyeste DAA-udgave) via pickPreferredBio.
-  // Deterministisk pr. udgave i stedet for "første mødte" (som blev nondeterministisk når en
-  // person fik flere narrativ-rækker). collapseSameAs-merge nedenfor er uændret.
-  const srcById = new Map((sources || []).map((s) => [Number(s.id), s]));
-  const candsBy: Record<string, NarrativeCand[]> = {};
-  (narratives || []).forEach((n) => {
-    if (n.privat) return;
-    const k = String(n.subjekt_id);
-    const s = n.source_id != null ? srcById.get(Number(n.source_id)) : undefined;
-    (candsBy[k] ??= []).push({ narrativeId: n.id, tekst: n.tekst, sourceId: n.source_id ?? null,
-      slags: s?.slags ?? null, aar: s?.aar ?? null, udgave: s?.udgave ?? null });
-  });
-  const bioBy: Record<string, string> = {};
-  for (const k of Object.keys(candsBy)) {
-    const best = pickPreferredBio(candsBy[k]);
-    if (best?.tekst) bioBy[k] = best.tekst;
+  // A contract-gated RPC is the sole person biography reader.  After v2 the
+  // model sees only the event text; an RPC failure rejects this load rather
+  // than reaching back to public.narrative.tekst.
+  const contract = await sb.rpc('narrative_record_contract_version', {});
+  if (contract.error || typeof contract.data !== 'number' || !Number.isInteger(contract.data)) {
+    throw new Error('NARRATIVE_RECORD_CONTRACT_VERSION_UNAVAILABLE');
   }
-
-  const appPersons = mapAppPersons(persons || [], bioBy, opts?.includePrivat ?? false);
+  const publicRows = await sb.rpc(
+    contract.data >= 2 ? 'public_person_bio_source_versions_v2' : 'public_person_bio_source_versions',
+    { p_person_ids: (persons || []).map((person) => Number(person.id)).filter(Number.isFinite) },
+  );
+  if (publicRows.error || !Array.isArray(publicRows.data)) {
+    throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
+  }
+  // Bios are applied only after identity collapse.  This prevents v2 event
+  // text from being concatenated across aliases by collapseSameAs.
+  const appPersons = mapAppPersons(persons || [], {}, opts?.includePrivat ?? false);
 
   // koen pr. person — bruges KUN til at afgøre forælder-rækkefølge nedenfor (ordinal er
   // ægteskabs-nummer, ikke far/mor-markør; to forældre i samme familie har typisk begge
@@ -314,6 +353,10 @@ export async function loadFromSupabase(opts?: {
     console.warn('[samme_som] karantæne (foldes ikke):', collapsed.quarantined);
   }
   const db = collapsed.db;
+  const bioBy = contract.data >= 2
+    ? mapPublicBioVersionsByPersonV2(publicRows.data, collapsed.canonicalIdById)
+    : mapPublicBioVersionsByPersonV1(publicRows.data, collapsed.canonicalIdById);
+  db.persons.forEach((person) => { person.bio = bioBy[person.id] ?? ''; });
 
   // Billedstørrelser (Slice B3 'thumb' + Slice C 'medium'): berig hver media-række med sine
   // variant-stier (hvis nogen) — downstream (buildAux/lib/media.ts) forbruger dermed bare to
