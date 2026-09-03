@@ -165,6 +165,130 @@ def sealed_d1_ledger() -> list:
     )
 
 
+NEW_ADAPTERS = {
+    "phase-a-v1": (
+        "phase-a",
+        "1939-v50-phase-a-anchor-manifest-v1",
+        "daa-evidence-phase-receipt-phase-a-v1",
+        "identity_map",
+    ),
+    "narrative-publication-v1": (
+        "narrative-publication",
+        "1939-v50-narrative-publication-manifest-v1",
+        "daa-evidence-phase-receipt-narrative-publication-v1",
+        "identity_map",
+    ),
+    "name-completion-v1": (
+        "name-completion",
+        "1939-v50-name-completion-manifest-v1",
+        "daa-evidence-phase-receipt-name-completion-v1",
+        "completion_results",
+    ),
+}
+
+
+def phase_a_identities() -> list[dict]:
+    return [
+        {"record_key": f"record-{number}", "occurrence_key": f"occurrence-{number}"}
+        for number in range(1, 585)
+    ]
+
+
+def narrative_publication_identities() -> list[dict]:
+    return [
+        {
+            "source_id": 3,
+            "record_key": f"record-{number}",
+            "narrative_id": number,
+            "binding_id": f"binding-{number}",
+        }
+        for number in range(1, 9)
+    ]
+
+
+def name_completion_results() -> list[dict]:
+    return [
+        {
+            "person_id": number,
+            "fact_id": 100 + number,
+            "assertion_id": 200 + number,
+            "citation_id": 300 + number,
+            "conclusion_id": 400 + number,
+        }
+        for number in range(1, 9)
+    ]
+
+
+def new_adapter_manifest(adapter_id: str) -> dict:
+    if adapter_id == "phase-a-v1":
+        return {
+            "schema_version": NEW_ADAPTERS[adapter_id][1],
+            "source": {"database_source_id": 3},
+            "operations": [
+                {
+                    "source_record_key": row["record_key"],
+                    "element_id": row["occurrence_key"],
+                }
+                for row in phase_a_identities()
+            ],
+        }
+    if adapter_id == "narrative-publication-v1":
+        return {
+            "schema_version": NEW_ADAPTERS[adapter_id][1],
+            "bindings": [
+                {
+                    "record_key": row["record_key"],
+                    "narrative_id": row["narrative_id"],
+                    "binding_id": row["binding_id"],
+                }
+                for row in narrative_publication_identities()
+            ],
+        }
+    assert adapter_id == "name-completion-v1"
+    return {
+        "schema_version": NEW_ADAPTERS[adapter_id][1],
+        "operations": [{"person_id": row["person_id"]} for row in name_completion_results()],
+    }
+
+
+def new_adapter_receipt(adapter_id: str, manifest_sha256: str) -> dict:
+    identity_field = NEW_ADAPTERS[adapter_id][3]
+    identities = (
+        phase_a_identities()
+        if adapter_id == "phase-a-v1"
+        else narrative_publication_identities()
+        if adapter_id == "narrative-publication-v1"
+        else name_completion_results()
+    )
+    return {
+        "schema_version": NEW_ADAPTERS[adapter_id][2],
+        "manifest_sha256": manifest_sha256,
+        "database_target_identity": production_target_identity(),
+        identity_field: identities,
+    }
+
+
+def new_adapter_phase(adapter_id: str, manifest_sha256: str, receipt_sha256: str | None) -> PhaseEntry:
+    phase_id, manifest_schema, receipt_schema, _ = NEW_ADAPTERS[adapter_id]
+    artifacts = [
+        ArtifactEntry("manifest", f"{phase_id}.json", manifest_sha256, manifest_schema, True),
+    ]
+    if receipt_sha256 is not None:
+        artifacts.append(
+            ArtifactEntry("receipt", f"{phase_id}-receipt.json", receipt_sha256, receipt_schema, True)
+        )
+    return PhaseEntry(
+        phase_id=phase_id,
+        sequence=1,
+        artifacts=tuple(artifacts),
+        adapter_id=adapter_id,
+        adapter_sha256="a" * 64,
+        projection_evidence="afterdocumented_unbound",
+        authorisation_evidence="afterdocumented_authorisation_gap",
+        database_target_identity_sha256=production_target_identity_sha256(),
+    )
+
+
 def test_audit_marks_a_phase_b_baseline_without_a_manifest_bound_receipt_unbound(tmp_path):
     manifest_sha256 = write_json(
         tmp_path / "phase-b.json",
@@ -649,3 +773,110 @@ def test_audit_reads_a_required_artifact_once_for_hash_and_json_admission(tmp_pa
 
     assert result.phase("phase-b").projection_evidence == "mechanically_bound"
     assert opens == 1
+
+
+@pytest.mark.parametrize("adapter_id", NEW_ADAPTERS)
+def test_audit_binds_each_new_adapter_to_its_exact_manifest_identities(tmp_path, adapter_id: str):
+    phase_id = NEW_ADAPTERS[adapter_id][0]
+    manifest_sha256 = write_json(tmp_path / f"{phase_id}.json", new_adapter_manifest(adapter_id))
+    receipt_sha256 = write_json(
+        tmp_path / f"{phase_id}-receipt.json", new_adapter_receipt(adapter_id, manifest_sha256)
+    )
+
+    result = audit_bundle(tmp_path, [new_adapter_phase(adapter_id, manifest_sha256, receipt_sha256)])
+
+    assert result.phase(phase_id).projection_evidence == "mechanically_bound"
+    assert result.phase(phase_id).error is None
+
+
+@pytest.mark.parametrize("adapter_id", NEW_ADAPTERS)
+def test_audit_marks_each_new_adapter_unbound_when_its_receipt_names_another_manifest(tmp_path, adapter_id: str):
+    phase_id = NEW_ADAPTERS[adapter_id][0]
+    manifest_sha256 = write_json(tmp_path / f"{phase_id}.json", new_adapter_manifest(adapter_id))
+    receipt = new_adapter_receipt(adapter_id, "d" * 64)
+    receipt_sha256 = write_json(tmp_path / f"{phase_id}-receipt.json", receipt)
+
+    result = audit_bundle(tmp_path, [new_adapter_phase(adapter_id, manifest_sha256, receipt_sha256)])
+
+    assert result.phase(phase_id).error == "EVIDENCE_RECONCILIATION_RECEIPT_UNBOUND"
+
+
+@pytest.mark.parametrize("adapter_id", NEW_ADAPTERS)
+def test_audit_marks_each_new_adapter_unbound_on_target_hash_drift(tmp_path, adapter_id: str):
+    phase_id = NEW_ADAPTERS[adapter_id][0]
+    manifest_sha256 = write_json(tmp_path / f"{phase_id}.json", new_adapter_manifest(adapter_id))
+    receipt_sha256 = write_json(
+        tmp_path / f"{phase_id}-receipt.json", new_adapter_receipt(adapter_id, manifest_sha256)
+    )
+    phase = new_adapter_phase(adapter_id, manifest_sha256, receipt_sha256)
+    phase = PhaseEntry(
+        **{**phase.__dict__, "database_target_identity_sha256": "f" * 64}
+    )
+
+    result = audit_bundle(tmp_path, [phase])
+
+    assert result.phase(phase_id).error == "EVIDENCE_RECONCILIATION_RECEIPT_UNBOUND"
+
+
+@pytest.mark.parametrize("adapter_id", NEW_ADAPTERS)
+@pytest.mark.parametrize("mutation", ["duplicate", "missing", "extra"])
+def test_audit_marks_each_new_adapter_unbound_for_non_exact_identity_maps(
+    tmp_path, adapter_id: str, mutation: str
+):
+    phase_id, _, _, identity_field = NEW_ADAPTERS[adapter_id]
+    manifest_sha256 = write_json(tmp_path / f"{phase_id}.json", new_adapter_manifest(adapter_id))
+    receipt = new_adapter_receipt(adapter_id, manifest_sha256)
+    rows = receipt[identity_field]
+    assert isinstance(rows, list)
+    if mutation == "duplicate":
+        rows[-1] = dict(rows[0])
+    elif mutation == "missing":
+        del rows[-1]
+    else:
+        rows.append(dict(rows[0]))
+    receipt_sha256 = write_json(tmp_path / f"{phase_id}-receipt.json", receipt)
+
+    result = audit_bundle(tmp_path, [new_adapter_phase(adapter_id, manifest_sha256, receipt_sha256)])
+
+    assert result.phase(phase_id).error == "EVIDENCE_RECONCILIATION_RECEIPT_UNBOUND"
+
+
+def test_audit_marks_name_completion_unbound_when_a_completion_result_id_is_reused(tmp_path):
+    manifest_sha256 = write_json(tmp_path / "name-completion.json", new_adapter_manifest("name-completion-v1"))
+    receipt = new_adapter_receipt("name-completion-v1", manifest_sha256)
+    results = receipt["completion_results"]
+    assert isinstance(results, list)
+    results[-1]["fact_id"] = results[0]["fact_id"]
+    receipt_sha256 = write_json(tmp_path / "name-completion-receipt.json", receipt)
+
+    result = audit_bundle(
+        tmp_path, [new_adapter_phase("name-completion-v1", manifest_sha256, receipt_sha256)]
+    )
+
+    assert result.phase("name-completion").error == "EVIDENCE_RECONCILIATION_RECEIPT_UNBOUND"
+
+
+def test_audit_classifies_d1_before_parsing_a_hash_locked_non_json_historical_script(tmp_path):
+    raw = b"#!/bin/sh\nprintf '%s\\n' synthetic-historical-apply\n"
+    (tmp_path / "d1.apply").write_bytes(raw)
+    phase = PhaseEntry(
+        phase_id="d1",
+        sequence=1,
+        artifacts=(
+            ArtifactEntry(
+                "historical_apply_script",
+                "d1.apply",
+                sha256_bytes(raw),
+                "1939-v50-d1-legacy-apply-v1",
+                True,
+            ),
+        ),
+        adapter_id="d1-historical-exception-v1",
+        adapter_sha256="c" * 64,
+        projection_evidence="unavailable",
+        authorisation_evidence="unavailable",
+    )
+
+    result = audit_bundle(tmp_path, [phase])
+
+    assert result.phase("d1").error == "EVIDENCE_RECONCILIATION_HISTORICAL_EXCEPTION_NO_MANIFEST"

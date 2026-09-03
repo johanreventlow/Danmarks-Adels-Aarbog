@@ -134,6 +134,71 @@ def production_target_identity() -> dict:
     }
 
 
+def phase_a_identities() -> list[dict]:
+    return [
+        {"record_key": f"record-{number}", "occurrence_key": f"occurrence-{number}"}
+        for number in range(1, 585)
+    ]
+
+
+def narrative_publication_identities() -> list[dict]:
+    return [
+        {
+            "source_id": 3,
+            "record_key": f"record-{number}",
+            "narrative_id": number,
+            "binding_id": f"binding-{number}",
+        }
+        for number in range(1, 9)
+    ]
+
+
+def name_completion_results() -> list[dict]:
+    return [
+        {
+            "person_id": number,
+            "fact_id": 100 + number,
+            "assertion_id": 200 + number,
+            "citation_id": 300 + number,
+            "conclusion_id": 400 + number,
+        }
+        for number in range(1, 9)
+    ]
+
+
+def mechanically_bound_new_phase(adapter_id: str, manifest_sha256: str, receipt_sha256: str) -> PhaseEntry:
+    phase_id, manifest_schema, receipt_schema = {
+        "phase-a-v1": (
+            "phase-a",
+            "1939-v50-phase-a-anchor-manifest-v1",
+            "daa-evidence-phase-receipt-phase-a-v1",
+        ),
+        "narrative-publication-v1": (
+            "narrative-publication",
+            "1939-v50-narrative-publication-manifest-v1",
+            "daa-evidence-phase-receipt-narrative-publication-v1",
+        ),
+        "name-completion-v1": (
+            "name-completion",
+            "1939-v50-name-completion-manifest-v1",
+            "daa-evidence-phase-receipt-name-completion-v1",
+        ),
+    }[adapter_id]
+    return PhaseEntry(
+        phase_id=phase_id,
+        sequence=4,
+        artifacts=(
+            ArtifactEntry("manifest", f"{phase_id}.json", manifest_sha256, manifest_schema, True),
+            ArtifactEntry("receipt", f"{phase_id}-receipt.json", receipt_sha256, receipt_schema, True),
+        ),
+        adapter_id=adapter_id,
+        adapter_sha256=adapter_sha256(),
+        projection_evidence="mechanically_bound",
+        authorisation_evidence="afterdocumented_authorisation_gap",
+        database_target_identity_sha256=canonical_sha256(production_target_identity(), ""),
+    )
+
+
 def c0_operations(narrative_start: int = 7) -> list[dict]:
     return [
         {
@@ -543,3 +608,118 @@ def test_c0_requires_exactly_nine_receipt_bound_narrative_identities(tmp_path):
     assert audit_bundle(tmp_path, [phase]).phase("c0").projection_evidence == "afterdocumented_unbound"
     with pytest.raises(ProjectError, match="EVIDENCE_RECONCILIATION_INCOMPLETE"):
         project_phase(tmp_path, phase, bound_summary(phase))
+
+
+def test_project_phase_a_emits_only_the_exact_source_records_and_anchors(tmp_path):
+    identities = phase_a_identities()
+    manifest_sha256 = write_json(
+        tmp_path / "phase-a.json",
+        {
+            "schema_version": "1939-v50-phase-a-anchor-manifest-v1",
+            "source": {"database_source_id": 3},
+            "operations": [
+                {"source_record_key": row["record_key"], "element_id": row["occurrence_key"]}
+                for row in identities
+            ],
+        },
+    )
+    receipt_sha256 = write_json(
+        tmp_path / "phase-a-receipt.json",
+        {
+            "schema_version": "daa-evidence-phase-receipt-phase-a-v1",
+            "manifest_sha256": manifest_sha256,
+            "database_target_identity": production_target_identity(),
+            "identity_map": identities,
+        },
+    )
+    phase = mechanically_bound_new_phase("phase-a-v1", manifest_sha256, receipt_sha256)
+
+    contribution = project_phase(tmp_path, phase, bound_summary(phase))
+
+    assert contribution["source_records"] == [
+        {"source_id": 3, "record_key": row["record_key"]} for row in identities
+    ]
+    assert contribution["source_anchors"] == [
+        {"source_id": 3, **row} for row in identities
+    ]
+    assert contribution["narrative_bindings"] == []
+    assert contribution["narrative_sha256"] == []
+    assert contribution["persons"] == []
+    assert contribution["withdrawals"] == {
+        "source_records": [],
+        "source_anchors": [],
+        "narrative_bindings": [],
+        "narrative_sha256": [],
+        "persons": [],
+    }
+
+
+def test_project_narrative_publication_emits_only_the_exact_narrative_bindings(tmp_path):
+    identities = narrative_publication_identities()
+    manifest_sha256 = write_json(
+        tmp_path / "narrative-publication.json",
+        {
+            "schema_version": "1939-v50-narrative-publication-manifest-v1",
+            "bindings": [
+                {
+                    "record_key": row["record_key"],
+                    "narrative_id": row["narrative_id"],
+                    "binding_id": row["binding_id"],
+                }
+                for row in identities
+            ],
+        },
+    )
+    receipt_sha256 = write_json(
+        tmp_path / "narrative-publication-receipt.json",
+        {
+            "schema_version": "daa-evidence-phase-receipt-narrative-publication-v1",
+            "manifest_sha256": manifest_sha256,
+            "database_target_identity": production_target_identity(),
+            "identity_map": identities,
+        },
+    )
+    phase = mechanically_bound_new_phase("narrative-publication-v1", manifest_sha256, receipt_sha256)
+
+    contribution = project_phase(tmp_path, phase, bound_summary(phase))
+
+    assert contribution["source_records"] == []
+    assert contribution["source_anchors"] == []
+    assert contribution["narrative_bindings"] == [
+        {
+            "source_id": row["source_id"],
+            "record_key": row["record_key"],
+            "narrative_id": row["narrative_id"],
+        }
+        for row in identities
+    ]
+    assert contribution["narrative_sha256"] == []
+    assert contribution["persons"] == []
+    assert all(not withdrawals for withdrawals in contribution["withdrawals"].values())
+
+
+def test_project_name_completion_emits_a_sealed_empty_dependency_contribution(tmp_path):
+    results = name_completion_results()
+    manifest_sha256 = write_json(
+        tmp_path / "name-completion.json",
+        {
+            "schema_version": "1939-v50-name-completion-manifest-v1",
+            "operations": [{"person_id": row["person_id"]} for row in results],
+        },
+    )
+    receipt_sha256 = write_json(
+        tmp_path / "name-completion-receipt.json",
+        {
+            "schema_version": "daa-evidence-phase-receipt-name-completion-v1",
+            "manifest_sha256": manifest_sha256,
+            "database_target_identity": production_target_identity(),
+            "completion_results": results,
+        },
+    )
+    phase = mechanically_bound_new_phase("name-completion-v1", manifest_sha256, receipt_sha256)
+
+    contribution = project_phase(tmp_path, phase, bound_summary(phase))
+
+    assert contribution["reconciliation_content_sha256"]
+    assert all(contribution[section] == [] for section in ("source_records", "source_anchors", "narrative_bindings", "narrative_sha256", "persons"))
+    assert all(not withdrawals for withdrawals in contribution["withdrawals"].values())

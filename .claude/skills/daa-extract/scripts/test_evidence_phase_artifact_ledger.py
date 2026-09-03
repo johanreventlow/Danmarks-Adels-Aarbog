@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from evidence_phase_artifact_ledger import LedgerError, seal_ledger, validate_ledger
+from evidence_phase_artifact_ledger import (
+    LedgerError,
+    RECEIPT_ADAPTERS,
+    seal_ledger,
+    validate_ledger,
+)
 
 
 def sealed_unbound_phase_with(*, contribution_sha256: str) -> dict:
@@ -200,6 +205,47 @@ def test_ledger_requires_a_hash_declared_production_target_for_phase_b():
 
     with pytest.raises(LedgerError, match="EVIDENCE_RECONCILIATION_LEDGER_PHASE_INVALID"):
         validate_ledger(ledger)
+
+
+@pytest.mark.parametrize(
+    ("adapter_id", "manifest_schema", "receipt_schema", "identity_fields", "identity_count"),
+    [
+        (
+            "phase-a-v1",
+            "1939-v50-phase-a-anchor-manifest-v1",
+            "daa-evidence-phase-receipt-phase-a-v1",
+            ("record_key", "occurrence_key"),
+            584,
+        ),
+        (
+            "narrative-publication-v1",
+            "1939-v50-narrative-publication-manifest-v1",
+            "daa-evidence-phase-receipt-narrative-publication-v1",
+            ("source_id", "record_key", "narrative_id", "binding_id"),
+            8,
+        ),
+        (
+            "name-completion-v1",
+            "1939-v50-name-completion-manifest-v1",
+            "daa-evidence-phase-receipt-name-completion-v1",
+            ("person_id", "fact_id", "assertion_id", "citation_id", "conclusion_id"),
+            8,
+        ),
+    ],
+)
+def test_ledger_declares_each_historical_receipt_adapter_contract(
+    adapter_id: str,
+    manifest_schema: str,
+    receipt_schema: str,
+    identity_fields: tuple[str, ...],
+    identity_count: int,
+):
+    adapter = RECEIPT_ADAPTERS[adapter_id]
+
+    assert adapter.manifest_schema_version == manifest_schema
+    assert adapter.receipt_schema_version == receipt_schema
+    assert adapter.identity_fields == identity_fields
+    assert adapter.identity_count == identity_count
 
 
 @pytest.mark.parametrize(

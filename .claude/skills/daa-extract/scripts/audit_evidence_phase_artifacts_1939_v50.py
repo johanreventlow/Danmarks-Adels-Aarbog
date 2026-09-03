@@ -174,6 +174,103 @@ def _validate_phase_b_identity_map(value: object, adapter: ReceiptAdapter) -> li
     return rows if len(rows) == adapter.identity_count else None
 
 
+def _validate_exact_identity_map(value: object, adapter: ReceiptAdapter) -> list[dict[str, object]] | None:
+    if not isinstance(value, list) or len(value) != adapter.identity_count:
+        return None
+    rows: list[dict[str, object]] = []
+    observed: set[tuple[object, ...]] = set()
+    result_ids: dict[str, set[int]] = {
+        field: set() for field in ("fact_id", "assertion_id", "citation_id", "conclusion_id")
+    }
+    for row in value:
+        if not isinstance(row, dict) or set(row) != set(adapter.identity_fields):
+            raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+        if adapter.adapter_id == "phase-a-v1":
+            valid = all(_valid_text(row[field]) for field in adapter.identity_fields)
+        elif adapter.adapter_id == "narrative-publication-v1":
+            valid = (
+                row["source_id"] == 3
+                and _valid_text(row["record_key"])
+                and type(row["narrative_id"]) is int
+                and row["narrative_id"] > 0
+                and _valid_text(row["binding_id"])
+            )
+        else:
+            valid = all(type(row[field]) is int and row[field] > 0 for field in adapter.identity_fields)
+        if not valid:
+            raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+        identity = tuple(row[field] for field in adapter.identity_unique_fields)
+        if identity in observed:
+            return None
+        observed.add(identity)
+        if adapter.adapter_id == "name-completion-v1":
+            for field, values in result_ids.items():
+                if row[field] in values:
+                    return None
+                values.add(row[field])
+        rows.append(row)
+    return rows
+
+
+def _manifest_identity_map(
+    manifest: dict[str, object], adapter: ReceiptAdapter
+) -> set[tuple[object, ...]] | None:
+    if adapter.adapter_id == "phase-a-v1":
+        source = manifest.get("source")
+        rows = manifest.get("operations")
+        if not isinstance(source, dict) or source.get("database_source_id") != 3 or not isinstance(rows, list):
+            raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+        identities = []
+        for row in rows:
+            if not isinstance(row, dict) or not {"source_record_key", "element_id"} <= set(row):
+                raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+            if not _valid_text(row["source_record_key"]) or not _valid_text(row["element_id"]):
+                raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+            identities.append((row["source_record_key"], row["element_id"]))
+    elif adapter.adapter_id == "narrative-publication-v1":
+        rows = manifest.get("bindings")
+        if not isinstance(rows, list):
+            raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+        identities = []
+        for row in rows:
+            if not isinstance(row, dict) or not {"record_key", "narrative_id", "binding_id"} <= set(row):
+                raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+            if (
+                not _valid_text(row["record_key"])
+                or type(row["narrative_id"]) is not int
+                or row["narrative_id"] <= 0
+                or not _valid_text(row["binding_id"])
+            ):
+                raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+            identities.append((3, row["record_key"], row["narrative_id"], row["binding_id"]))
+    elif adapter.adapter_id == "name-completion-v1":
+        rows = manifest.get("operations")
+        if not isinstance(rows, list):
+            raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+        identities = []
+        for row in rows:
+            if not isinstance(row, dict) or type(row.get("person_id")) is not int or row["person_id"] <= 0:
+                raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+            identities.append((row["person_id"],))
+    else:
+        raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+    if len(identities) != adapter.identity_count or len(set(identities)) != len(identities):
+        return None
+    return set(identities)
+
+
+def _identity_map_matches_manifest(
+    manifest: dict[str, object], identity_map: list[dict[str, object]], adapter: ReceiptAdapter
+) -> bool:
+    expected = _manifest_identity_map(manifest, adapter)
+    if expected is None:
+        return False
+    observed = {
+        tuple(row[field] for field in adapter.identity_unique_fields) for row in identity_map
+    }
+    return observed == expected
+
+
 def _phase_b_operations_match(manifest: dict[str, object], identity_map: list[dict[str, object]]) -> bool:
     operations = manifest.get("operations")
     if not isinstance(operations, list) or len(operations) != len(identity_map):
@@ -253,13 +350,21 @@ def _receipt_binds_verified_artifacts(
     target_matches = _production_target_matches(
         receipt.document[adapter.database_target_identity_field], phase
     )
-    identity_map = _validate_phase_b_identity_map(receipt.document[adapter.identity_map_field], adapter)
+    identity_map = (
+        _validate_phase_b_identity_map(receipt.document[adapter.identity_map_field], adapter)
+        if adapter.adapter_id == "phase-b-v1"
+        else _validate_exact_identity_map(receipt.document[adapter.identity_map_field], adapter)
+    )
     if identity_map is None:
         return False
     return (
         target_matches
         and receipt.document[adapter.manifest_sha256_field] == hashlib.sha256(manifest.raw).hexdigest()
-        and _phase_b_operations_match(manifest.document, identity_map)
+        and (
+            _phase_b_operations_match(manifest.document, identity_map)
+            if adapter.adapter_id == "phase-b-v1"
+            else _identity_map_matches_manifest(manifest.document, identity_map, adapter)
+        )
     )
 
 
@@ -490,12 +595,10 @@ def _receipt_binds_phase(verified: Mapping[str, _VerifiedArtifact], phase: Phase
 def audit_bundle(bundle_root: Path, ledger: list[PhaseEntry]) -> AuditResult:
     summaries: list[PhaseSummary] = []
     for phase in ledger:
-        verified = {
-            artifact.role: _verify_required_artifact(bundle_root, artifact)
-            for artifact in phase.artifacts
-            if artifact.required
-        }
         if phase.phase_id == "d1":
+            for artifact in phase.artifacts:
+                if artifact.required:
+                    _read_artifact_bytes(bundle_root, artifact)
             summaries.append(
                 PhaseSummary(
                     phase.phase_id,
@@ -505,6 +608,11 @@ def audit_bundle(bundle_root: Path, ledger: list[PhaseEntry]) -> AuditResult:
                 )
             )
             continue
+        verified = {
+            artifact.role: _verify_required_artifact(bundle_root, artifact)
+            for artifact in phase.artifacts
+            if artifact.required
+        }
         if not _receipt_binds_phase(verified, phase):
             summaries.append(
                 PhaseSummary(

@@ -88,6 +88,48 @@ RECEIPT_ADAPTERS: Mapping[str, ReceiptAdapter] = {
         identity_count=551,
         publication_statuses=frozenset({"published"}),
     ),
+    "phase-a-v1": ReceiptAdapter(
+        adapter_id="phase-a-v1",
+        manifest_role="manifest",
+        manifest_schema_version="1939-v50-phase-a-anchor-manifest-v1",
+        receipt_role="receipt",
+        receipt_schema_version="daa-evidence-phase-receipt-phase-a-v1",
+        manifest_sha256_field="manifest_sha256",
+        database_target_identity_field="database_target_identity",
+        identity_map_field="identity_map",
+        identity_fields=("record_key", "occurrence_key"),
+        identity_unique_fields=("record_key", "occurrence_key"),
+        identity_count=584,
+        publication_statuses=frozenset(),
+    ),
+    "narrative-publication-v1": ReceiptAdapter(
+        adapter_id="narrative-publication-v1",
+        manifest_role="manifest",
+        manifest_schema_version="1939-v50-narrative-publication-manifest-v1",
+        receipt_role="receipt",
+        receipt_schema_version="daa-evidence-phase-receipt-narrative-publication-v1",
+        manifest_sha256_field="manifest_sha256",
+        database_target_identity_field="database_target_identity",
+        identity_map_field="identity_map",
+        identity_fields=("source_id", "record_key", "narrative_id", "binding_id"),
+        identity_unique_fields=("source_id", "record_key", "narrative_id", "binding_id"),
+        identity_count=8,
+        publication_statuses=frozenset(),
+    ),
+    "name-completion-v1": ReceiptAdapter(
+        adapter_id="name-completion-v1",
+        manifest_role="manifest",
+        manifest_schema_version="1939-v50-name-completion-manifest-v1",
+        receipt_role="receipt",
+        receipt_schema_version="daa-evidence-phase-receipt-name-completion-v1",
+        manifest_sha256_field="manifest_sha256",
+        database_target_identity_field="database_target_identity",
+        identity_map_field="completion_results",
+        identity_fields=("person_id", "fact_id", "assertion_id", "citation_id", "conclusion_id"),
+        identity_unique_fields=("person_id",),
+        identity_count=8,
+        publication_statuses=frozenset(),
+    ),
 }
 
 
@@ -205,7 +247,7 @@ def validate_phase_rows(rows: object) -> list[PhaseEntry]:
             _require(projection_evidence == "mechanically_bound", "EVIDENCE_RECONCILIATION_LEDGER_EVIDENCE_INVALID")
             _require(_is_hex_sha256(contribution_sha256), "EVIDENCE_RECONCILIATION_LEDGER_EVIDENCE_INVALID")
         database_target_identity_sha256 = row.get("database_target_identity_sha256")
-        if adapter_id == "phase-b-v1":
+        if adapter_id in RECEIPT_ADAPTERS:
             _require(
                 _is_hex_sha256(database_target_identity_sha256),
                 "EVIDENCE_RECONCILIATION_LEDGER_PHASE_INVALID",

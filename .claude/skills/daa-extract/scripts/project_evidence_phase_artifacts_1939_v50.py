@@ -371,6 +371,184 @@ def _project_phase_b(bundle_root: Path, phase: PhaseEntry) -> dict[str, list[dic
     return _phase_b_rows(manifest_raw, manifest, receipt, phase)
 
 
+def _phase_a_rows(
+    manifest_raw: bytes, manifest: dict[str, object], receipt: dict[str, object], phase: PhaseEntry
+) -> dict[str, list[dict[str, object]]]:
+    _require(manifest.get("schema_version") == "1939-v50-phase-a-anchor-manifest-v1")
+    source = manifest.get("source")
+    operations = manifest.get("operations")
+    _require(isinstance(source, dict) and source.get("database_source_id") == 3)
+    _require(isinstance(operations, list) and len(operations) == 584)
+    expected: set[tuple[str, str]] = set()
+    for operation in operations:
+        _require(isinstance(operation, dict))
+        record_key = operation.get("source_record_key")
+        occurrence_key = operation.get("element_id")
+        _require(_valid_text(record_key) and _valid_text(occurrence_key))
+        _require((record_key, occurrence_key) not in expected)
+        expected.add((record_key, occurrence_key))
+    _require(
+        set(receipt) == {"schema_version", "manifest_sha256", "database_target_identity", "identity_map"}
+        and receipt["schema_version"] == "daa-evidence-phase-receipt-phase-a-v1"
+        and receipt["manifest_sha256"] == hashlib.sha256(manifest_raw).hexdigest()
+        and _phase_target_matches(receipt["database_target_identity"], phase)
+    )
+    rows = receipt["identity_map"]
+    _require(isinstance(rows, list) and len(rows) == 584)
+    observed: set[tuple[str, str]] = set()
+    projected: list[dict[str, object]] = []
+    for row in rows:
+        _require(
+            isinstance(row, dict)
+            and set(row) == {"record_key", "occurrence_key"}
+            and _valid_text(row["record_key"])
+            and _valid_text(row["occurrence_key"])
+        )
+        identity = (row["record_key"], row["occurrence_key"])
+        _require(identity not in observed)
+        observed.add(identity)
+        projected.append(row)
+    _require(observed == expected)
+    return {
+        "source_records": [{"source_id": 3, "record_key": row["record_key"]} for row in projected],
+        "source_anchors": [
+            {"source_id": 3, "record_key": row["record_key"], "occurrence_key": row["occurrence_key"]}
+            for row in projected
+        ],
+        "narrative_bindings": [],
+        "narrative_sha256": [],
+        "persons": [],
+    }
+
+
+def _project_phase_a(bundle_root: Path, phase: PhaseEntry) -> dict[str, list[dict[str, object]]]:
+    manifest_entry = _artifact_by_role(phase, "manifest")
+    receipt_entry = _artifact_by_role(phase, "receipt")
+    manifest_raw, manifest = _read_artifact(bundle_root, manifest_entry)
+    _, receipt = _read_artifact(bundle_root, receipt_entry)
+    return _phase_a_rows(manifest_raw, manifest, receipt, phase)
+
+
+def _narrative_publication_rows(
+    manifest_raw: bytes, manifest: dict[str, object], receipt: dict[str, object], phase: PhaseEntry
+) -> dict[str, list[dict[str, object]]]:
+    _require(manifest.get("schema_version") == "1939-v50-narrative-publication-manifest-v1")
+    bindings = manifest.get("bindings")
+    _require(isinstance(bindings, list) and len(bindings) == 8)
+    expected: set[tuple[int, str, int, str]] = set()
+    for binding in bindings:
+        _require(isinstance(binding, dict))
+        record_key = binding.get("record_key")
+        narrative_id = binding.get("narrative_id")
+        binding_id = binding.get("binding_id")
+        _require(
+            _valid_text(record_key)
+            and type(narrative_id) is int
+            and narrative_id > 0
+            and _valid_text(binding_id)
+        )
+        identity = (3, record_key, narrative_id, binding_id)
+        _require(identity not in expected)
+        expected.add(identity)
+    _require(
+        set(receipt) == {"schema_version", "manifest_sha256", "database_target_identity", "identity_map"}
+        and receipt["schema_version"] == "daa-evidence-phase-receipt-narrative-publication-v1"
+        and receipt["manifest_sha256"] == hashlib.sha256(manifest_raw).hexdigest()
+        and _phase_target_matches(receipt["database_target_identity"], phase)
+    )
+    rows = receipt["identity_map"]
+    _require(isinstance(rows, list) and len(rows) == 8)
+    observed: set[tuple[int, str, int, str]] = set()
+    projected: list[dict[str, object]] = []
+    for row in rows:
+        _require(
+            isinstance(row, dict)
+            and set(row) == {"source_id", "record_key", "narrative_id", "binding_id"}
+            and row["source_id"] == 3
+            and _valid_text(row["record_key"])
+            and type(row["narrative_id"]) is int
+            and row["narrative_id"] > 0
+            and _valid_text(row["binding_id"])
+        )
+        identity = (row["source_id"], row["record_key"], row["narrative_id"], row["binding_id"])
+        _require(identity not in observed)
+        observed.add(identity)
+        projected.append(row)
+    _require(observed == expected)
+    return {
+        "source_records": [],
+        "source_anchors": [],
+        "narrative_bindings": [
+            {"source_id": row["source_id"], "record_key": row["record_key"], "narrative_id": row["narrative_id"]}
+            for row in projected
+        ],
+        "narrative_sha256": [],
+        "persons": [],
+    }
+
+
+def _project_narrative_publication(
+    bundle_root: Path, phase: PhaseEntry
+) -> dict[str, list[dict[str, object]]]:
+    manifest_entry = _artifact_by_role(phase, "manifest")
+    receipt_entry = _artifact_by_role(phase, "receipt")
+    manifest_raw, manifest = _read_artifact(bundle_root, manifest_entry)
+    _, receipt = _read_artifact(bundle_root, receipt_entry)
+    return _narrative_publication_rows(manifest_raw, manifest, receipt, phase)
+
+
+def _name_completion_rows(
+    manifest_raw: bytes, manifest: dict[str, object], receipt: dict[str, object], phase: PhaseEntry
+) -> dict[str, list[dict[str, object]]]:
+    _require(manifest.get("schema_version") == "1939-v50-name-completion-manifest-v1")
+    operations = manifest.get("operations")
+    _require(isinstance(operations, list) and len(operations) == 8)
+    expected_people: set[int] = set()
+    for operation in operations:
+        _require(isinstance(operation, dict) and type(operation.get("person_id")) is int)
+        person_id = operation["person_id"]
+        _require(person_id > 0 and person_id not in expected_people)
+        expected_people.add(person_id)
+    _require(
+        set(receipt) == {
+            "schema_version",
+            "manifest_sha256",
+            "database_target_identity",
+            "completion_results",
+        }
+        and receipt["schema_version"] == "daa-evidence-phase-receipt-name-completion-v1"
+        and receipt["manifest_sha256"] == hashlib.sha256(manifest_raw).hexdigest()
+        and _phase_target_matches(receipt["database_target_identity"], phase)
+    )
+    results = receipt["completion_results"]
+    _require(isinstance(results, list) and len(results) == 8)
+    observed_people: set[int] = set()
+    output_ids: dict[str, set[int]] = {field: set() for field in ("fact_id", "assertion_id", "citation_id", "conclusion_id")}
+    for result in results:
+        _require(
+            isinstance(result, dict)
+            and set(result) == {"person_id", "fact_id", "assertion_id", "citation_id", "conclusion_id"}
+            and all(type(result[field]) is int and result[field] > 0 for field in result)
+        )
+        _require(result["person_id"] not in observed_people)
+        observed_people.add(result["person_id"])
+        for field, values in output_ids.items():
+            _require(result[field] not in values)
+            values.add(result[field])
+    _require(observed_people == expected_people)
+    return {section: [] for section in SECTIONS}
+
+
+def _project_name_completion(
+    bundle_root: Path, phase: PhaseEntry
+) -> dict[str, list[dict[str, object]]]:
+    manifest_entry = _artifact_by_role(phase, "manifest")
+    receipt_entry = _artifact_by_role(phase, "receipt")
+    manifest_raw, manifest = _read_artifact(bundle_root, manifest_entry)
+    _, receipt = _read_artifact(bundle_root, receipt_entry)
+    return _name_completion_rows(manifest_raw, manifest, receipt, phase)
+
+
 def project_phase(bundle_root: Path, phase: PhaseEntry, summary: PhaseSummary) -> dict[str, object]:
     """Return one sealed five-projection contribution for an audited phase."""
     _require(phase.phase_id == summary.phase_id)
@@ -383,6 +561,12 @@ def project_phase(bundle_root: Path, phase: PhaseEntry, summary: PhaseSummary) -
         sections = _project_c0(bundle_root, phase)
     elif phase.adapter_id == "phase-b-v1":
         sections = _project_phase_b(bundle_root, phase)
+    elif phase.adapter_id == "phase-a-v1":
+        sections = _project_phase_a(bundle_root, phase)
+    elif phase.adapter_id == "narrative-publication-v1":
+        sections = _project_narrative_publication(bundle_root, phase)
+    elif phase.adapter_id == "name-completion-v1":
+        sections = _project_name_completion(bundle_root, phase)
     else:
         raise ProjectError("EVIDENCE_RECONCILIATION_INCOMPLETE")
     manifest = _artifact_by_role(phase, "manifest")
