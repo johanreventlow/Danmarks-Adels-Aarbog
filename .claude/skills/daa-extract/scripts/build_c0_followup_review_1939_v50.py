@@ -78,14 +78,8 @@ def review_sequence(flags_doc: Dict[str, Any]) -> List[Dict[str, Any]]:
     return sequence
 
 
-def render_review(flags_doc: Dict[str, Any], flags_sha256: str | None = None) -> str:
-    """Render a review sheet bound to the exact raw flags bytes.
-
-    ``None`` is retained only for older in-process synthetic callers; the CLI
-    always supplies a digest calculated from the raw input bytes.
-    """
-    if flags_sha256 is None:
-        flags_sha256 = "a" * 64
+def render_review(flags_doc: Dict[str, Any], flags_sha256: str) -> str:
+    """Render a review sheet bound to the exact raw flags bytes."""
     if (not isinstance(flags_sha256, str) or len(flags_sha256) != 64
             or any(char not in "0123456789abcdef" for char in flags_sha256)):
         raise SystemExit("C0F_REVIEW_FLAGS_SHA256_INVALID")
