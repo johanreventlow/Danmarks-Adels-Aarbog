@@ -1,7 +1,15 @@
 #!/usr/bin/env Rscript
 
+sourced_paths <- unlist(lapply(sys.frames(), function(frame) {
+  path <- frame$ofile
+  if (is.character(path) && length(path) == 1L && !is.na(path) && nzchar(path)) path else NULL
+}), use.names = FALSE)
+sourced_path <- if (length(sourced_paths)) tail(sourced_paths, 1L) else NULL
 script_arg <- grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)
-script_path <- if (length(script_arg)) {
+script_path <- if (is.character(sourced_path) && length(sourced_path) == 1L &&
+                   !is.na(sourced_path) && nzchar(sourced_path)) {
+  normalizePath(sourced_path)
+} else if (length(script_arg)) {
   normalizePath(sub("^--file=", "", script_arg[[1L]]))
 } else {
   normalizePath(file.path(
