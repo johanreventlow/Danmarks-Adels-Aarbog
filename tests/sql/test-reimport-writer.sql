@@ -15,7 +15,8 @@ BEGIN
   FOREACH v_signature IN ARRAY ARRAY[
     'public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz)',
     'public.red_begin_reimport(uuid,text,text)','public.red_apply_reimport_source_evidence(uuid,text,jsonb)',
-    'public.red_apply_reimport_person_create(uuid,text,jsonb)','public.red_finalize_reimport(uuid)',
+    'public.red_apply_reimport_person_create(uuid,text,jsonb)',
+    'public.red_apply_reimport_legacy_migration(uuid,text,jsonb)','public.red_finalize_reimport(uuid)',
     'public.red_apply_reimport_canonical_delta(uuid,text,jsonb)',
     'public.red_reimport_batch_result(uuid,uuid)',
     'public.red_authorize_reimport_reversal(uuid,uuid,timestamptz)','public.red_reverse_reimport(uuid,uuid)',
@@ -113,11 +114,13 @@ BEGIN
       'private.reimport_canonical_json_text(jsonb)',
       'private.reimport_canonical_json_sha256(jsonb)',
       'private.validate_reimport_name_completion(uuid,uuid,text,jsonb)',
+      'private.migrate_legacy_narrative_record(uuid,text,jsonb)',
       'public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz)',
       'public.red_preflight_reimport_authorization(uuid,text,text)',
       'public.red_begin_reimport(uuid,text,text)',
       'public.red_apply_reimport_source_evidence(uuid,text,jsonb)',
       'public.red_apply_reimport_person_create(uuid,text,jsonb)',
+      'public.red_apply_reimport_legacy_migration(uuid,text,jsonb)',
       'public.red_finalize_reimport(uuid)',
       'public.red_reimport_batch_result(uuid,uuid)',
       'public.red_authorize_reimport_reversal(uuid,uuid,timestamptz)',
@@ -132,12 +135,12 @@ BEGIN
       'public.red_apply_reimport_name_completion(uuid,text,jsonb)',
       'public.red_finalize_reimport_name_completion(uuid)'
     ],ARRAY[
-      false,false,false,false,false,false,false,false,false,
-      false,true,true,true,true,true,true,false,true,false,true,true,
+      false,false,false,false,false,false,false,false,false,false,
+      false,true,true,true,true,true,true,true,false,true,false,true,true,
       true,false,true,true,true,true
     ],ARRAY[
-      false,false,false,false,false,false,false,false,false,
-      true,false,false,false,false,false,false,true,false,true,false,false,
+      false,false,false,false,false,false,false,false,false,false,
+      true,false,false,false,false,false,false,false,true,false,true,false,false,
       false,true,false,false,false,false
     ]) AS acl(signature,expect_authenticated,expect_service_role)
   LOOP

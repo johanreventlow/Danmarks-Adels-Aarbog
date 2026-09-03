@@ -85,6 +85,8 @@ integer_3|profile|source_id|final-schema/top_level/integer_3/001
 citation_label|profile|citation_label_template|final-schema/top_level/citation_label/001
 run_key|profile|run_key_prefix|final-schema/top_level/run_key/001
 integer_3|profile|source_id|final-schema/top_level/integer_3/002
+integer_3|generic_invariant|expected_counts_key_arity|final-schema/private.validate_reimport_authorization_payload#1/integer_3/001
+integer_3|generic_invariant|expected_counts_key_arity|final-schema/public.red_reimport_batch_result#1/integer_3/001
 integer_3|legacy_wrapper|legacy_expected_count_shape|final-schema/public.red_authorize_1939_v50_reimport#1/integer_3/001
 integer_3|profile|source_id|final-schema/public.red_authorize_1939_v50_reimport#1/integer_3/002
 integer_3|profile|source_id|final-schema/public.red_authorize_1939_v50_reimport#1/integer_3/003

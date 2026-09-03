@@ -332,6 +332,9 @@ jobs:
           PGPASSWORD: postgres
           PGDATABASE: writer_1939
         run: Rscript tests/integration/test-reimport-source-evidence.R
+      - name: Legacy migration writer SQL (149b)
+        env: {PGPASSWORD: postgres}
+        run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-legacy-migration.sql
 
   narrative-record-contract-db:
     name: 'narrative record #152 · PostgreSQL 17'
