@@ -1172,7 +1172,9 @@ REVOKE ALL ON FUNCTION private.reject_reimport_writer_mutation(),
   private.validate_reimport_writer_config(jsonb),
   private.ensure_reimport_source_evidence(uuid,text,jsonb),
   private.validate_reimport_name_completion(uuid,uuid,text,jsonb),
-  private.migrate_legacy_narrative_record(uuid,text,jsonb)
+  private.migrate_legacy_narrative_record(uuid,text,jsonb),
+  private.legacy_migration_reversal_state(uuid),
+  private.record_reimport_legacy_reversal(uuid,uuid,jsonb)
   FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),
   public.red_preflight_reimport_authorization(uuid,text,text),public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),

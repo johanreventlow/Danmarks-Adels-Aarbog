@@ -28,6 +28,7 @@ WITH targets AS (
   )) OR (n.nspname='private' AND p.proname IN (
     'require_reimport_writer_editor','require_reimport_open_batch','lock_reimport_writer','validate_reimport_authorization_payload','validate_reimport_writer_config','ensure_reimport_source_evidence',
     'validate_reimport_name_completion','reject_reimport_writer_mutation','migrate_legacy_narrative_record',
+    'legacy_migration_reversal_state','record_reimport_legacy_reversal',
     'reimport_canonical_json_text','reimport_canonical_json_sha256',
     'require_reimport_1939_editor','require_reimport_1939_open_batch',
     'ensure_reimport_1939_source_evidence','validate_reimport_1939_name_completion',

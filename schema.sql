@@ -3327,6 +3327,136 @@ BEGIN
   UPDATE private.reimport_authorization SET status='consumed',consumed_at=clock_timestamp() WHERE id=a.id; UPDATE private.reimport_batch SET status='reversed' WHERE id IN (b.id,cb.id); INSERT INTO private.reimport_event(batch_id,element_id,operation,payload,after_sha256) VALUES(b.id,'reversal:'||a.id::text,'reversal',jsonb_build_object('authorization_id',a.id,'child_batch_id',cb.id),private.reimport_canonical_json_sha256(jsonb_build_object('authorization_id',a.id,'child_batch_id',cb.id))); RETURN jsonb_build_object('batch_id',b.id,'status','reversed','child_batch_id',cb.id);
 END $$;
 
+-- #166 149b Task 9b: læse-hjælper til batch-reversal-scriptet. red_person_narrative_records
+-- udelader migrerede legacy-rækker (Task 1), og narrative_legacy_state er privat — scriptet
+-- har derfor ingen anden vej til det state_sha256, som den dedikerede reversal kræver.
+-- Læse-kun; ingen GRANT: intet klientrolle har USAGE på schema private, og alle øvrige
+-- private writer-hjælpere er ligeledes REVOKED for alle roller.
+CREATE FUNCTION private.legacy_migration_reversal_state(p_legacy_publication_ref uuid)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_state jsonb;
+BEGIN
+  PERFORM private.require_reimport_writer_editor();
+  v_state:=private.narrative_legacy_state(p_legacy_publication_ref,false);
+  RETURN jsonb_build_object(
+    'legacy_publication_ref',p_legacy_publication_ref,
+    'state_sha256',v_state->>'state_sha256',
+    'ledger_status',v_state->>'ledger_status',
+    'latest_event_id',v_state->>'latest_event_id',
+    'latest_event_type',v_state->>'latest_event_type');
+END $$;
+
+-- #166 149b Task 9b: registrér en gennemført batch-reversal af en ren legacy-migration-batch.
+-- Selve fortrydelsen sker per narrativ gennem #152's dedikerede RPC'er (spec §8); denne
+-- funktion forbruger reversal-autorisationen og efterprøver mod databasen, at kvitteringen
+-- passer. Batch-status forbliver 'finalized': 'reversed' er reserveret til
+-- red_reverse_reimport's fulde tilbagerulning (som kræver 'activated' og en child-batch), og
+-- red_begin_reimport's replay-opslag filtrerer på 'finalized' — en statusændring ville få
+-- samme manifest til at åbne en ny batch, der først dør på LEGACY_MIGRATION_ALREADY_BOUND.
+-- Den registrerede reversal-hændelse er derfor den autoritative markør for »fortrudt«.
+CREATE FUNCTION private.record_reimport_legacy_reversal(p_batch_id uuid,p_authorization_id uuid,p_receipts jsonb)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE
+  v_actor uuid; v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE;
+  v_discovered_source_id bigint; v_discovered_profile_id text;
+  v_element private.reimport_event%ROWTYPE; v_receipt jsonb;
+  v_narrative_id bigint; v_binding_status text; v_ledger_status text;
+  v_payload jsonb; v_payload_sha text; v_elements bigint;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_actor:=private.require_reimport_writer_editor();
+  SELECT source_id,profile_id INTO v_discovered_source_id,v_discovered_profile_id FROM private.reimport_batch WHERE id=p_batch_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID'; END IF;
+  PERFORM private.lock_reimport_writer(v_discovered_source_id,v_discovered_profile_id);
+  -- Samme låserække som red_reverse_reimport: batch før autorisation.
+  SELECT * INTO v_batch FROM private.reimport_batch WHERE id=p_batch_id FOR UPDATE;
+  SELECT * INTO v_auth FROM private.reimport_authorization WHERE id=p_authorization_id FOR UPDATE;
+  IF v_batch.id IS NULL
+     OR v_batch.source_id IS DISTINCT FROM v_discovered_source_id
+     OR v_batch.profile_id IS DISTINCT FROM v_discovered_profile_id
+     OR v_batch.status<>'finalized'
+     OR v_auth.id IS NULL OR v_auth.operation<>'reversal' OR v_auth.status<>'issued'
+     OR v_auth.principal_id<>v_actor OR v_auth.expires_at<=clock_timestamp()
+     OR v_auth.database_identity IS DISTINCT FROM 'batch:'||p_batch_id::text
+     OR v_auth.source_id<>v_batch.source_id OR v_auth.profile_id<>v_batch.profile_id
+     OR v_auth.profile_sha256<>v_batch.profile_sha256
+     OR v_auth.manifest_sha256<>v_batch.manifest_sha256
+     OR v_auth.preview_sha256<>v_batch.preview_sha256 THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID';
+  END IF;
+  -- Ren legacy-migration-batch, mindst ét element, og ikke allerede registreret fortrudt.
+  -- (UNIQUE(batch_id,element_id) fanger ikke en anden autorisation, derfor et eksplicit tjek.)
+  SELECT count(*) INTO v_elements FROM private.reimport_event e
+   WHERE e.batch_id=p_batch_id AND e.operation='legacy_migration';
+  IF v_elements=0
+     OR EXISTS (SELECT 1 FROM private.reimport_event e WHERE e.batch_id=p_batch_id
+                 AND e.operation IN ('person_create','source_evidence','canonical_delta','activation'))
+     OR EXISTS (SELECT 1 FROM private.reimport_event e WHERE e.batch_id=p_batch_id AND e.operation='reversal') THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID';
+  END IF;
+  -- Kvitteringen skal have præcis én nøgle pr. element — hverken flere eller færre.
+  IF jsonb_typeof(p_receipts)<>'object'
+     OR ARRAY(SELECT key FROM jsonb_object_keys(p_receipts) key ORDER BY key)
+        IS DISTINCT FROM ARRAY(SELECT e.element_id FROM private.reimport_event e
+                                WHERE e.batch_id=p_batch_id AND e.operation='legacy_migration'
+                                ORDER BY e.element_id) THEN
+    RAISE EXCEPTION 'REIMPORT_LEGACY_REVERSAL_RECEIPT_MISMATCH';
+  END IF;
+  FOR v_element IN SELECT * FROM private.reimport_event e
+                    WHERE e.batch_id=p_batch_id AND e.operation='legacy_migration'
+                    ORDER BY e.element_id LOOP
+    v_receipt:=p_receipts->v_element.element_id;
+    IF jsonb_typeof(v_receipt)<>'object'
+       OR ARRAY(SELECT key FROM jsonb_object_keys(v_receipt) key ORDER BY key)
+          IS DISTINCT FROM ARRAY['final_binding_status','final_ledger_status','reversal_event_ids']
+       OR v_receipt->>'final_binding_status'<>'withdrawn'
+       OR jsonb_typeof(v_receipt->'reversal_event_ids')<>'array'
+       OR jsonb_array_length(v_receipt->'reversal_event_ids')=0
+       OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_receipt->'reversal_event_ids') item
+                   WHERE jsonb_typeof(item.value)<>'string'
+                      OR (item.value #>> '{}') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') THEN
+      RAISE EXCEPTION 'REIMPORT_LEGACY_REVERSAL_RECEIPT_MISMATCH';
+    END IF;
+    -- Hver kvitteret hændelse skal findes og faktisk være en fortrydelse.
+    IF (SELECT count(*) FROM jsonb_array_elements_text(v_receipt->'reversal_event_ids') item
+          JOIN private.narrative_publication_event ev
+            ON ev.id=item::uuid AND ev.event_type='reversal' AND ev.reversed_event_id IS NOT NULL)
+       <> jsonb_array_length(v_receipt->'reversal_event_ids') THEN
+      RAISE EXCEPTION 'REIMPORT_LEGACY_REVERSAL_RECEIPT_MISMATCH';
+    END IF;
+    v_narrative_id:=(v_element.payload->>'narrative_id')::bigint;
+    SELECT status INTO v_binding_status FROM private.narrative_record_publication
+     WHERE id=(v_element.payload->>'binding_id')::uuid;
+    IF v_binding_status IS DISTINCT FROM 'withdrawn'
+       OR EXISTS (SELECT 1 FROM private.narrative_record_publication b
+                   WHERE b.narrative_id=v_narrative_id AND b.status IN ('draft','published')) THEN
+      RAISE EXCEPTION 'REIMPORT_LEGACY_REVERSAL_RECEIPT_MISMATCH';
+    END IF;
+    IF v_element.payload->>'legacy_event_id' IS NOT NULL THEN
+      SELECT status INTO v_ledger_status FROM private.narrative_legacy_publication
+       WHERE legacy_publication_ref=(v_element.payload->>'legacy_publication_ref')::uuid;
+      IF v_ledger_status IS DISTINCT FROM 'grandfathered_publication'
+         OR v_receipt->>'final_ledger_status' IS DISTINCT FROM 'grandfathered_publication' THEN
+        RAISE EXCEPTION 'REIMPORT_LEGACY_REVERSAL_RECEIPT_MISMATCH';
+      END IF;
+    ELSE
+      IF jsonb_typeof(v_receipt->'final_ledger_status')<>'null'
+         OR EXISTS (SELECT 1 FROM private.narrative_legacy_publication l WHERE l.narrative_id=v_narrative_id) THEN
+        RAISE EXCEPTION 'REIMPORT_LEGACY_REVERSAL_RECEIPT_MISMATCH';
+      END IF;
+    END IF;
+  END LOOP;
+
+  UPDATE private.reimport_authorization SET status='consumed',consumed_at=clock_timestamp() WHERE id=v_auth.id;
+  v_payload:=p_receipts||jsonb_build_object('authorization_id',p_authorization_id,'batch_id',p_batch_id);
+  v_payload_sha:=private.reimport_canonical_json_sha256(v_payload);
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,payload,after_sha256)
+  VALUES(p_batch_id,'legacy-migration-reversal:'||p_authorization_id::text,'reversal',v_payload,v_payload_sha);
+  RETURN jsonb_build_object('batch_id',p_batch_id,'authorization_id',p_authorization_id,
+    'batch_status',v_batch.status,'reversed_elements',v_elements,'receipts_sha256',v_payload_sha);
+END $$;
+
 CREATE FUNCTION public.red_authorize_reimport_cutover(p_batch_id uuid,p_nonce uuid,p_expires_at timestamptz) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE v_id uuid; v_batch private.reimport_batch%ROWTYPE; v_actor uuid;
   v_discovered_source_id bigint; v_discovered_profile_id text;
@@ -3375,7 +3505,7 @@ ALTER TABLE private.reimport_batch ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.reimport_event ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.reimport_name_completion_result ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON private.reimport_writer_profile,private.reimport_authorization,private.reimport_batch,private.reimport_event,private.reimport_name_completion_result FROM PUBLIC,anon,authenticated,service_role;
-REVOKE ALL ON FUNCTION private.reject_reimport_writer_mutation(),private.require_reimport_writer_editor(),private.require_reimport_open_batch(uuid),private.lock_reimport_writer(bigint,text),private.validate_reimport_authorization_payload(jsonb,jsonb),private.validate_reimport_writer_config(jsonb),private.ensure_reimport_source_evidence(uuid,text,jsonb),private.reimport_canonical_json_text(jsonb),private.reimport_canonical_json_sha256(jsonb),private.validate_reimport_name_completion(uuid,uuid,text,jsonb),private.migrate_legacy_narrative_record(uuid,text,jsonb),public.red_apply_reimport_canonical_delta(uuid,text,jsonb),public.red_lock_reimport_name_completion(text,bigint,text),public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb),public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb),public.red_begin_reimport_name_completion(uuid,text,uuid),public.red_apply_reimport_name_completion(uuid,text,jsonb),public.red_finalize_reimport_name_completion(uuid) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION private.reject_reimport_writer_mutation(),private.require_reimport_writer_editor(),private.require_reimport_open_batch(uuid),private.lock_reimport_writer(bigint,text),private.validate_reimport_authorization_payload(jsonb,jsonb),private.validate_reimport_writer_config(jsonb),private.ensure_reimport_source_evidence(uuid,text,jsonb),private.reimport_canonical_json_text(jsonb),private.reimport_canonical_json_sha256(jsonb),private.validate_reimport_name_completion(uuid,uuid,text,jsonb),private.migrate_legacy_narrative_record(uuid,text,jsonb),private.legacy_migration_reversal_state(uuid),private.record_reimport_legacy_reversal(uuid,uuid,jsonb),public.red_apply_reimport_canonical_delta(uuid,text,jsonb),public.red_lock_reimport_name_completion(text,bigint,text),public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb),public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb),public.red_begin_reimport_name_completion(uuid,text,uuid),public.red_apply_reimport_name_completion(uuid,text,jsonb),public.red_finalize_reimport_name_completion(uuid) FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),public.red_preflight_reimport_authorization(uuid,text,text),public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_apply_reimport_legacy_migration(uuid,text,jsonb),public.red_finalize_reimport(uuid),public.red_reimport_batch_result(uuid,uuid),public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_reverse_reimport(uuid,uuid),public.red_authorize_reimport_cutover(uuid,uuid,timestamptz),public.red_activate_reimport_batch(uuid,uuid) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_authorize_reimport_cutover(uuid,uuid,timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.red_preflight_reimport_authorization(uuid,text,text),public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_apply_reimport_legacy_migration(uuid,text,jsonb),public.red_finalize_reimport(uuid),public.red_reimport_batch_result(uuid,uuid),public.red_reverse_reimport(uuid,uuid),public.red_activate_reimport_batch(uuid,uuid) TO authenticated;

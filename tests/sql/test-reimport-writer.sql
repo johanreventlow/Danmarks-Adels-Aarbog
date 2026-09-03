@@ -115,6 +115,8 @@ BEGIN
       'private.reimport_canonical_json_sha256(jsonb)',
       'private.validate_reimport_name_completion(uuid,uuid,text,jsonb)',
       'private.migrate_legacy_narrative_record(uuid,text,jsonb)',
+      'private.legacy_migration_reversal_state(uuid)',
+      'private.record_reimport_legacy_reversal(uuid,uuid,jsonb)',
       'public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz)',
       'public.red_preflight_reimport_authorization(uuid,text,text)',
       'public.red_begin_reimport(uuid,text,text)',
@@ -135,11 +137,11 @@ BEGIN
       'public.red_apply_reimport_name_completion(uuid,text,jsonb)',
       'public.red_finalize_reimport_name_completion(uuid)'
     ],ARRAY[
-      false,false,false,false,false,false,false,false,false,false,
+      false,false,false,false,false,false,false,false,false,false,false,false,
       false,true,true,true,true,true,true,true,false,true,false,true,true,
       true,false,true,true,true,true
     ],ARRAY[
-      false,false,false,false,false,false,false,false,false,false,
+      false,false,false,false,false,false,false,false,false,false,false,false,
       true,false,false,false,false,false,false,false,true,false,true,false,false,
       false,true,false,false,false,false
     ]) AS acl(signature,expect_authenticated,expect_service_role)

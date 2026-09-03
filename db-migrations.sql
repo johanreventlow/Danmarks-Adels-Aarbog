@@ -17213,6 +17213,129 @@ BEGIN
 END
 $$;
 
+-- Task 9b: læse-hjælper og registrering af batch-reversal for legacy-migration.
+
+CREATE OR REPLACE FUNCTION private.legacy_migration_reversal_state(p_legacy_publication_ref uuid)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_state jsonb;
+BEGIN
+  PERFORM private.require_reimport_writer_editor();
+  v_state:=private.narrative_legacy_state(p_legacy_publication_ref,false);
+  RETURN jsonb_build_object(
+    'legacy_publication_ref',p_legacy_publication_ref,
+    'state_sha256',v_state->>'state_sha256',
+    'ledger_status',v_state->>'ledger_status',
+    'latest_event_id',v_state->>'latest_event_id',
+    'latest_event_type',v_state->>'latest_event_type');
+END $$;
+
+CREATE OR REPLACE FUNCTION private.record_reimport_legacy_reversal(p_batch_id uuid,p_authorization_id uuid,p_receipts jsonb)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE
+  v_actor uuid; v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE;
+  v_discovered_source_id bigint; v_discovered_profile_id text;
+  v_element private.reimport_event%ROWTYPE; v_receipt jsonb;
+  v_narrative_id bigint; v_binding_status text; v_ledger_status text;
+  v_payload jsonb; v_payload_sha text; v_elements bigint;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_actor:=private.require_reimport_writer_editor();
+  SELECT source_id,profile_id INTO v_discovered_source_id,v_discovered_profile_id FROM private.reimport_batch WHERE id=p_batch_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID'; END IF;
+  PERFORM private.lock_reimport_writer(v_discovered_source_id,v_discovered_profile_id);
+  -- Samme låserække som red_reverse_reimport: batch før autorisation.
+  SELECT * INTO v_batch FROM private.reimport_batch WHERE id=p_batch_id FOR UPDATE;
+  SELECT * INTO v_auth FROM private.reimport_authorization WHERE id=p_authorization_id FOR UPDATE;
+  IF v_batch.id IS NULL
+     OR v_batch.source_id IS DISTINCT FROM v_discovered_source_id
+     OR v_batch.profile_id IS DISTINCT FROM v_discovered_profile_id
+     OR v_batch.status<>'finalized'
+     OR v_auth.id IS NULL OR v_auth.operation<>'reversal' OR v_auth.status<>'issued'
+     OR v_auth.principal_id<>v_actor OR v_auth.expires_at<=clock_timestamp()
+     OR v_auth.database_identity IS DISTINCT FROM 'batch:'||p_batch_id::text
+     OR v_auth.source_id<>v_batch.source_id OR v_auth.profile_id<>v_batch.profile_id
+     OR v_auth.profile_sha256<>v_batch.profile_sha256
+     OR v_auth.manifest_sha256<>v_batch.manifest_sha256
+     OR v_auth.preview_sha256<>v_batch.preview_sha256 THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID';
+  END IF;
+  -- Ren legacy-migration-batch, mindst ét element, og ikke allerede registreret fortrudt.
+  -- (UNIQUE(batch_id,element_id) fanger ikke en anden autorisation, derfor et eksplicit tjek.)
+  SELECT count(*) INTO v_elements FROM private.reimport_event e
+   WHERE e.batch_id=p_batch_id AND e.operation='legacy_migration';
+  IF v_elements=0
+     OR EXISTS (SELECT 1 FROM private.reimport_event e WHERE e.batch_id=p_batch_id
+                 AND e.operation IN ('person_create','source_evidence','canonical_delta','activation'))
+     OR EXISTS (SELECT 1 FROM private.reimport_event e WHERE e.batch_id=p_batch_id AND e.operation='reversal') THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID';
+  END IF;
+  -- Kvitteringen skal have præcis én nøgle pr. element — hverken flere eller færre.
+  IF jsonb_typeof(p_receipts)<>'object'
+     OR ARRAY(SELECT key FROM jsonb_object_keys(p_receipts) key ORDER BY key)
+        IS DISTINCT FROM ARRAY(SELECT e.element_id FROM private.reimport_event e
+                                WHERE e.batch_id=p_batch_id AND e.operation='legacy_migration'
+                                ORDER BY e.element_id) THEN
+    RAISE EXCEPTION 'REIMPORT_LEGACY_REVERSAL_RECEIPT_MISMATCH';
+  END IF;
+  FOR v_element IN SELECT * FROM private.reimport_event e
+                    WHERE e.batch_id=p_batch_id AND e.operation='legacy_migration'
+                    ORDER BY e.element_id LOOP
+    v_receipt:=p_receipts->v_element.element_id;
+    IF jsonb_typeof(v_receipt)<>'object'
+       OR ARRAY(SELECT key FROM jsonb_object_keys(v_receipt) key ORDER BY key)
+          IS DISTINCT FROM ARRAY['final_binding_status','final_ledger_status','reversal_event_ids']
+       OR v_receipt->>'final_binding_status'<>'withdrawn'
+       OR jsonb_typeof(v_receipt->'reversal_event_ids')<>'array'
+       OR jsonb_array_length(v_receipt->'reversal_event_ids')=0
+       OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_receipt->'reversal_event_ids') item
+                   WHERE jsonb_typeof(item.value)<>'string'
+                      OR (item.value #>> '{}') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') THEN
+      RAISE EXCEPTION 'REIMPORT_LEGACY_REVERSAL_RECEIPT_MISMATCH';
+    END IF;
+    -- Hver kvitteret hændelse skal findes og faktisk være en fortrydelse.
+    IF (SELECT count(*) FROM jsonb_array_elements_text(v_receipt->'reversal_event_ids') item
+          JOIN private.narrative_publication_event ev
+            ON ev.id=item::uuid AND ev.event_type='reversal' AND ev.reversed_event_id IS NOT NULL)
+       <> jsonb_array_length(v_receipt->'reversal_event_ids') THEN
+      RAISE EXCEPTION 'REIMPORT_LEGACY_REVERSAL_RECEIPT_MISMATCH';
+    END IF;
+    v_narrative_id:=(v_element.payload->>'narrative_id')::bigint;
+    SELECT status INTO v_binding_status FROM private.narrative_record_publication
+     WHERE id=(v_element.payload->>'binding_id')::uuid;
+    IF v_binding_status IS DISTINCT FROM 'withdrawn'
+       OR EXISTS (SELECT 1 FROM private.narrative_record_publication b
+                   WHERE b.narrative_id=v_narrative_id AND b.status IN ('draft','published')) THEN
+      RAISE EXCEPTION 'REIMPORT_LEGACY_REVERSAL_RECEIPT_MISMATCH';
+    END IF;
+    IF v_element.payload->>'legacy_event_id' IS NOT NULL THEN
+      SELECT status INTO v_ledger_status FROM private.narrative_legacy_publication
+       WHERE legacy_publication_ref=(v_element.payload->>'legacy_publication_ref')::uuid;
+      IF v_ledger_status IS DISTINCT FROM 'grandfathered_publication'
+         OR v_receipt->>'final_ledger_status' IS DISTINCT FROM 'grandfathered_publication' THEN
+        RAISE EXCEPTION 'REIMPORT_LEGACY_REVERSAL_RECEIPT_MISMATCH';
+      END IF;
+    ELSE
+      IF jsonb_typeof(v_receipt->'final_ledger_status')<>'null'
+         OR EXISTS (SELECT 1 FROM private.narrative_legacy_publication l WHERE l.narrative_id=v_narrative_id) THEN
+        RAISE EXCEPTION 'REIMPORT_LEGACY_REVERSAL_RECEIPT_MISMATCH';
+      END IF;
+    END IF;
+  END LOOP;
+
+  UPDATE private.reimport_authorization SET status='consumed',consumed_at=clock_timestamp() WHERE id=v_auth.id;
+  v_payload:=p_receipts||jsonb_build_object('authorization_id',p_authorization_id,'batch_id',p_batch_id);
+  v_payload_sha:=private.reimport_canonical_json_sha256(v_payload);
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,payload,after_sha256)
+  VALUES(p_batch_id,'legacy-migration-reversal:'||p_authorization_id::text,'reversal',v_payload,v_payload_sha);
+  RETURN jsonb_build_object('batch_id',p_batch_id,'authorization_id',p_authorization_id,
+    'batch_status',v_batch.status,'reversed_elements',v_elements,'receipts_sha256',v_payload_sha);
+END $$;
+
+REVOKE ALL ON FUNCTION private.legacy_migration_reversal_state(uuid),
+  private.record_reimport_legacy_reversal(uuid,uuid,jsonb)
+  FROM PUBLIC,anon,authenticated,service_role;
+
 
 -- #154: close every inherited/default EXECUTE grant and classify the complete
 -- public.red_* overload catalog after #153's contract-v2 cutover. A new RPC
