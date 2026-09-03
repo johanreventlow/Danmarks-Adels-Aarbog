@@ -26,6 +26,7 @@ TERMINAL_KEYS = {
     "artifact_hashes",
     "counts",
 }
+COMPLETE_TERMINAL_KEYS = TERMINAL_KEYS - {"error"}
 
 
 def write_json(path: Path, document: object) -> str:
@@ -136,7 +137,7 @@ def test_cli_writes_a_sealed_private_incomplete_audit_without_a_reconciliation_l
     assert completed.returncode == 2
     terminal = json.loads(completed.stderr)
     assert terminal["status"] == "incomplete"
-    assert set(terminal) <= TERMINAL_KEYS
+    assert set(terminal) == TERMINAL_KEYS
     audit_ledger = json.loads((output / "audit-ledger.json").read_text(encoding="utf-8"))
     assert audit_ledger["ledger_content_sha256"]
     assert (output / "audit-summary.json").is_file()
@@ -181,7 +182,7 @@ def test_cli_hash_seals_bound_artifacts_and_private_outputs_without_terminal_lea
     assert completed.returncode == 0
     terminal = json.loads(completed.stdout)
     assert terminal["status"] == "complete"
-    assert set(terminal) <= TERMINAL_KEYS
+    assert set(terminal) == COMPLETE_TERMINAL_KEYS
     assert "terminal-secret" not in completed.stdout + completed.stderr
     assert str(bundle) not in completed.stdout + completed.stderr
     audit_ledger = json.loads((output / "audit-ledger.json").read_text(encoding="utf-8"))
@@ -264,7 +265,7 @@ def test_cli_reports_invalid_arguments_as_redacted_json():
 def test_cli_error_terminal_uses_only_the_allowlisted_keys(capsys):
     assert main([]) == 2
 
-    assert set(json.loads(capsys.readouterr().err)) <= TERMINAL_KEYS
+    assert set(json.loads(capsys.readouterr().err)) == TERMINAL_KEYS
 
 
 def test_cli_rejects_duplicate_catalog_keys_before_artifact_admission(tmp_path):
