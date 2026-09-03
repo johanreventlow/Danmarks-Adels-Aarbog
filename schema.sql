@@ -12059,7 +12059,8 @@ BEGIN
     RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_NOT_LATEST';
   ELSIF v_target.event_type NOT IN (
     'draft_created','draft_updated','draft_discarded','published',
-    'published_revision','revalidated','withdrawn','legacy_withdrawn'
+    'published_revision','revalidated','withdrawn','legacy_withdrawn',
+    'legacy_migrated'
   ) THEN
     RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_NOT_REVERSIBLE';
   END IF;
@@ -12067,7 +12068,8 @@ BEGIN
   v_before_publication:=v_before_editor->'publication_state';
   v_live_hash:=v_before_editor->>'publication_state_sha256';
   v_would_publish:=v_target.event_type IN (
-    'published_revision','revalidated','withdrawn','legacy_withdrawn'
+    'published_revision','revalidated','withdrawn','legacy_withdrawn',
+    'legacy_migrated'
   );
   IF v_would_publish AND (
        NOT coalesce((
@@ -12105,6 +12107,21 @@ BEGIN
      ) THEN
     RAISE EXCEPTION 'NARRATIVE_LEGACY_BASELINE_DRIFT';
   END IF;
+  -- #166 149b: en legacy-migration fortrydes kun, når record-bindingen allerede
+  -- er trukket tilbage; ellers ville narrativet stå både bundet og grandfathered.
+  IF v_target.event_type='legacy_migrated' THEN
+    IF v_before_editor->>'ledger_status' IS DISTINCT FROM 'migrated'
+       OR NOT coalesce((v_before_editor->>'baseline_matches')::boolean,false) THEN
+      RAISE EXCEPTION 'NARRATIVE_LEGACY_BASELINE_DRIFT';
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM private.narrative_record_publication binding
+       WHERE binding.narrative_id=v_target.narrative_id
+         AND binding.status IN ('draft','published')
+    ) THEN
+      RAISE EXCEPTION 'NARRATIVE_LEGACY_MIGRATION_BINDING_ACTIVE';
+    END IF;
+  END IF;
   IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN
     RAISE EXCEPTION 'NARRATIVE_RECORD_FOREIGN_CHANGE_SET';
   END IF;
@@ -12115,11 +12132,12 @@ BEGIN
     'person',v_person_id
   );
 
-  IF v_target.event_type='legacy_withdrawn' THEN
+  IF v_target.event_type IN ('legacy_withdrawn','legacy_migrated') THEN
     UPDATE private.narrative_legacy_publication legacy
        SET status='grandfathered_publication'
      WHERE legacy.legacy_publication_ref=v_target.legacy_publication_ref
-       AND legacy.status='withdrawn';
+       AND legacy.status=CASE v_target.event_type
+             WHEN 'legacy_withdrawn' THEN 'withdrawn' ELSE 'migrated' END;
     IF NOT FOUND THEN
       RAISE EXCEPTION 'NARRATIVE_LEGACY_PUBLICATION_PROJECTION_MISMATCH';
     END IF;

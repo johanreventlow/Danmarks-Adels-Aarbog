@@ -278,4 +278,72 @@ BEGIN
   RAISE NOTICE 'task3 rejections OK';
 END $task3_rejections$;
 
+-- Task 4: legacy_migrated-grenen i den dedikerede reversal.
+-- Bemærk: rollen skiftes ikke i denne blok. private.narrative_legacy_state og
+-- private.narrative_record_state er revoked for authenticated, og testen måler
+-- reversal-semantik, ikke RPC-ACL (den dækkes af Task 5's inventar).
+DO $task4_reversal$
+DECLARE fx jsonb; r jsonb; v_state jsonb; v_res jsonb; v_status text; v_err text; v_ok boolean;
+BEGIN
+  fx:=pg_temp.task3_fixture('T4',false);
+  r:=pg_temp.task3_migrate(fx,'bound_published','t4');
+  PERFORM set_config('request.jwt.claim.sub',fx->>'actor',true);
+  -- (a) legacy_migrated kan ikke fortrydes, mens bindingen er aktiv
+  v_state:=private.narrative_legacy_state((fx->>'legacy_publication_ref')::uuid,false);
+  v_ok:=false;
+  BEGIN
+    PERFORM public.red_fortryd_person_narrative_publication_event((r->>'legacy_event_id')::uuid,v_state->>'state_sha256');
+  EXCEPTION WHEN OTHERS THEN v_ok:=SQLERRM LIKE 'NARRATIVE_LEGACY_MIGRATION_BINDING_ACTIVE%'; v_err:=SQLERRM; END;
+  IF NOT v_ok THEN RAISE EXCEPTION 'TASK4_EXPECTED_BINDING_ACTIVE got %',v_err; END IF;
+  -- (b) published -> draft
+  v_state:=private.narrative_record_state((fx->>'person_id')::bigint,(fx->>'source_id')::bigint,fx->>'record_key',false);
+  v_res:=public.red_fortryd_person_narrative_publication_event((r->>'published_event_id')::uuid,v_state->>'state_sha256');
+  PERFORM set_config('app.change_set_id','',true);
+  IF v_res->>'status'<>'draft' THEN RAISE EXCEPTION 'TASK4_STEP_B: %',v_res->>'status'; END IF;
+  -- (c) draft -> withdrawn. Fortrydelse af selve draft_created-eventet er umulig her:
+  -- reversal af published har appendet et reversal-event, så draft_created ikke længere
+  -- er streamens seneste (#152: NARRATIVE_PUBLICATION_EVENT_NOT_LATEST). Den reelle
+  -- redaktørvej til en inaktiv binding er discard_draft; spec §8's gate kræver netop
+  -- kun, at bindingen ikke er aktiv.
+  v_state:=private.narrative_record_state((fx->>'person_id')::bigint,(fx->>'source_id')::bigint,fx->>'record_key',false);
+  v_res:=public.red_kasser_person_narrative_record((fx->>'person_id')::bigint,(fx->>'source_id')::bigint,fx->>'record_key',v_state->>'state_sha256');
+  PERFORM set_config('app.change_set_id','',true);
+  SELECT status INTO v_status FROM private.narrative_record_publication WHERE narrative_id=(fx->>'narrative_id')::bigint;
+  IF v_status<>'withdrawn' THEN RAISE EXCEPTION 'TASK4_STEP_C: %',v_status; END IF;
+  -- (d) legacy_migrated -> ledger tilbage til grandfathered_publication
+  v_state:=private.narrative_legacy_state((fx->>'legacy_publication_ref')::uuid,false);
+  v_res:=public.red_fortryd_person_narrative_publication_event((r->>'legacy_event_id')::uuid,v_state->>'state_sha256');
+  PERFORM set_config('app.change_set_id','',true);
+  SELECT status INTO v_status FROM private.narrative_legacy_publication WHERE legacy_publication_ref=(fx->>'legacy_publication_ref')::uuid;
+  IF v_status<>'grandfathered_publication' THEN RAISE EXCEPTION 'TASK4_STEP_D: %',v_status; END IF;
+  IF v_res->>'status'<>'published' THEN RAISE EXCEPTION 'TASK4_STEP_D_STREAM_STATUS: %',v_res->>'status'; END IF;
+  v_state:=private.narrative_legacy_state((fx->>'legacy_publication_ref')::uuid,false);
+  IF v_state->>'publication_status'<>'published' OR NOT coalesce((v_state->>'baseline_matches')::boolean,false) THEN
+    RAISE EXCEPTION 'TASK4_STEP_D_EDITOR_STATE: % %',v_state->>'publication_status',v_state->>'baseline_matches';
+  END IF;
+  -- BEMÆRK (åben bekymring, rapporteret): person_daa_narrative_publication_allowed
+  -- returnerer false, så længe narrativet har en binding-række med status<>'published',
+  -- og returnerer derfor false efter fuld fortrydelse. Offentlig genvisning af det
+  -- grandfathered narrativ kræver en ændring i #152's gate og dermed en beslutning
+  -- (spec §11). Testen måler derfor kun ledger- og streamtilstand her.
+  -- (e) bound_draft: draft_created ER streamens seneste og kan fortrydes direkte.
+  fx:=pg_temp.task3_fixture('T4D',true);
+  r:=pg_temp.task3_migrate(fx,'bound_draft','t4d');
+  PERFORM set_config('request.jwt.claim.sub',fx->>'actor',true);
+  v_state:=private.narrative_record_state((fx->>'person_id')::bigint,(fx->>'source_id')::bigint,fx->>'record_key',false);
+  v_res:=public.red_fortryd_person_narrative_publication_event((r->>'draft_event_id')::uuid,v_state->>'state_sha256');
+  PERFORM set_config('app.change_set_id','',true);
+  IF v_res->>'status'<>'withdrawn' THEN RAISE EXCEPTION 'TASK4_STEP_E: %',v_res->>'status'; END IF;
+  -- (f) red_tilbagetraek_legacy_narrative på en migreret række afvises
+  fx:=pg_temp.task3_fixture('T4E',false); r:=pg_temp.task3_migrate(fx,'bound_published','t4e');
+  PERFORM set_config('request.jwt.claim.sub',fx->>'actor',true);
+  v_state:=private.narrative_legacy_state((fx->>'legacy_publication_ref')::uuid,false);
+  v_ok:=false;
+  BEGIN
+    PERFORM public.red_tilbagetraek_legacy_narrative((fx->>'legacy_publication_ref')::uuid,v_state->>'state_sha256','test');
+  EXCEPTION WHEN OTHERS THEN v_ok:=SQLERRM LIKE 'NARRATIVE_LEGACY_PUBLICATION_TRANSITION_INVALID%'; v_err:=SQLERRM; END;
+  IF NOT v_ok THEN RAISE EXCEPTION 'TASK4_WITHDRAW_MIGRATED_ACCEPTED got %',coalesce(v_err,'(success)'); END IF;
+  RAISE NOTICE 'task4 reversal OK';
+END $task4_reversal$;
+
 ROLLBACK;

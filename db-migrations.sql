@@ -16737,6 +16737,354 @@ REVOKE ALL ON FUNCTION private.migrate_legacy_narrative_record(uuid,text,jsonb),
 GRANT EXECUTE ON FUNCTION public.red_apply_reimport_legacy_migration(uuid,text,jsonb)
   TO authenticated;
 
+
+-- Task 4: legacy_migrated i den dedikerede reversals reversible mængde.
+CREATE OR REPLACE FUNCTION private.reverse_narrative_publication_event(
+  p_event_id uuid,
+  p_expected_state_sha256 text
+) RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  v_actor uuid;
+  v_actor_name text;
+  v_target private.narrative_publication_event%ROWTYPE;
+  v_predecessor private.narrative_publication_event%ROWTYPE;
+  v_person_id bigint;
+  v_record_key text;
+  v_source_record_ref uuid;
+  v_before_editor jsonb;
+  v_before_publication jsonb;
+  v_live_hash text;
+  v_after_editor jsonb;
+  v_after_publication jsonb;
+  v_after_hash text;
+  v_event_after_state jsonb;
+  v_event_after_hash text;
+  v_event_id uuid;
+  v_stream_version integer;
+  v_change_set_id bigint;
+  v_would_publish boolean;
+  v_binding_status text;
+  v_binding_record_label text;
+  v_binding_citation_label text;
+  v_binding_published_at timestamptz;
+  v_narrative_text text;
+  v_narrative_private boolean;
+  v_narrative_side text;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(
+    hashtextextended('daa-narrative-record-contract',0)
+  );
+  IF public.narrative_record_contract_version()<>2 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_CONTRACT_INACTIVE';
+  END IF;
+
+  v_actor:=auth.uid();
+  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_ROLE_FORBIDDEN';
+  END IF;
+  SELECT event.* INTO v_target
+    FROM private.narrative_publication_event event
+   WHERE event.id=p_event_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_NOT_FOUND';
+  END IF;
+  SELECT narrative.subjekt_id INTO v_person_id
+    FROM public.narrative narrative
+   WHERE narrative.id=v_target.narrative_id
+     AND narrative.subjekt_type='person';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_TARGET_INVALID';
+  END IF;
+
+  IF v_target.source_record_id IS NOT NULL THEN
+    SELECT record.record_key,record.public_ref
+      INTO v_record_key,v_source_record_ref
+      FROM private.source_record record
+     WHERE record.id=v_target.source_record_id;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_TARGET_INVALID';
+    END IF;
+    v_before_editor:=private.narrative_record_state(
+      v_person_id,v_target.source_id,v_record_key,true
+    );
+  ELSE
+    -- The record path owns record -> audit ordering; legacy has no record
+    -- absence owner and therefore takes audit allocation before its ledger.
+    LOCK TABLE public.change_set IN ACCESS EXCLUSIVE MODE;
+    v_before_editor:=private.narrative_legacy_state(
+      v_target.legacy_publication_ref,true
+    );
+  END IF;
+
+  IF p_expected_state_sha256 IS NULL
+     OR p_expected_state_sha256 !~ '^[0-9a-f]{64}$'
+     OR p_expected_state_sha256 IS DISTINCT FROM
+          v_before_editor->>'state_sha256' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_STATE_STALE';
+  END IF;
+  SELECT event.* INTO STRICT v_target
+    FROM private.narrative_publication_event event
+   WHERE event.id=p_event_id;
+  SELECT event.* INTO v_predecessor
+    FROM private.narrative_publication_event event
+   WHERE event.stream_ref=v_target.stream_ref
+     AND event.stream_version<v_target.stream_version
+   ORDER BY event.stream_version DESC,event.id DESC
+   LIMIT 1;
+  IF v_target.event_type='baseline' THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_BASELINE_NOT_REVERSIBLE';
+  ELSIF v_target.event_type='reversal' THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_REVERSAL_NOT_REVERSIBLE';
+  ELSIF EXISTS (
+    SELECT 1 FROM private.narrative_publication_event reversal
+     WHERE reversal.reversed_event_id=v_target.id
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_ALREADY_REVERSED';
+  ELSIF v_before_editor->>'latest_event_id' IS DISTINCT FROM v_target.id::text
+        OR EXISTS (
+          SELECT 1 FROM private.narrative_publication_event later
+           WHERE later.stream_ref=v_target.stream_ref
+             AND later.stream_version>v_target.stream_version
+        ) THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_NOT_LATEST';
+  ELSIF v_target.event_type NOT IN (
+    'draft_created','draft_updated','draft_discarded','published',
+    'published_revision','revalidated','withdrawn','legacy_withdrawn',
+    'legacy_migrated'
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_NOT_REVERSIBLE';
+  END IF;
+
+  v_before_publication:=v_before_editor->'publication_state';
+  v_live_hash:=v_before_editor->>'publication_state_sha256';
+  v_would_publish:=v_target.event_type IN (
+    'published_revision','revalidated','withdrawn','legacy_withdrawn',
+    'legacy_migrated'
+  );
+  IF v_would_publish AND (
+       NOT coalesce((
+         v_target.before_state #>> '{publication_policy,publication_allowed}'
+       )::boolean,false)
+       OR EXISTS (
+         SELECT 1 FROM public.person person
+          WHERE person.id=v_person_id
+            AND (person.levende IS NOT FALSE
+                 OR coalesce(person.privat,false)
+                 OR coalesce(person.staged,false))
+       )
+       OR EXISTS (
+         SELECT 1 FROM public.narrative narrative
+          WHERE narrative.id=v_target.narrative_id
+            AND coalesce(narrative.privat,false)
+       )
+     ) THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_REVERSAL_POLICY_BLOCKED';
+  END IF;
+  IF v_live_hash IS DISTINCT FROM v_target.after_state_sha256
+     OR v_before_publication IS DISTINCT FROM v_target.after_state THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_STATE_DRIFT';
+  END IF;
+  IF v_target.before_state_sha256 IS DISTINCT FROM encode(
+       extensions.digest(v_target.before_state::text,'sha256'),'hex'
+     ) OR v_target.after_state_sha256 IS DISTINCT FROM encode(
+       extensions.digest(v_target.after_state::text,'sha256'),'hex'
+     ) THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_HASH_MISMATCH';
+  END IF;
+  IF v_target.event_type='legacy_withdrawn' AND (
+       v_before_editor->>'ledger_status' IS DISTINCT FROM 'withdrawn'
+       OR NOT coalesce((v_before_editor->>'baseline_matches')::boolean,false)
+     ) THEN
+    RAISE EXCEPTION 'NARRATIVE_LEGACY_BASELINE_DRIFT';
+  END IF;
+  -- #166 149b: en legacy-migration fortrydes kun, når record-bindingen allerede
+  -- er trukket tilbage; ellers ville narrativet stå både bundet og grandfathered.
+  IF v_target.event_type='legacy_migrated' THEN
+    IF v_before_editor->>'ledger_status' IS DISTINCT FROM 'migrated'
+       OR NOT coalesce((v_before_editor->>'baseline_matches')::boolean,false) THEN
+      RAISE EXCEPTION 'NARRATIVE_LEGACY_BASELINE_DRIFT';
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM private.narrative_record_publication binding
+       WHERE binding.narrative_id=v_target.narrative_id
+         AND binding.status IN ('draft','published')
+    ) THEN
+      RAISE EXCEPTION 'NARRATIVE_LEGACY_MIGRATION_BINDING_ACTIVE';
+    END IF;
+  END IF;
+  IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_FOREIGN_CHANGE_SET';
+  END IF;
+
+  v_change_set_id:=public.begin_change_set(
+    'narrative_record_reversal',
+    format('Fortrød narrativpubliceringshændelse %s',p_event_id),
+    'person',v_person_id
+  );
+
+  IF v_target.event_type IN ('legacy_withdrawn','legacy_migrated') THEN
+    UPDATE private.narrative_legacy_publication legacy
+       SET status='grandfathered_publication'
+     WHERE legacy.legacy_publication_ref=v_target.legacy_publication_ref
+       AND legacy.status=CASE v_target.event_type
+             WHEN 'legacy_withdrawn' THEN 'withdrawn' ELSE 'migrated' END;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'NARRATIVE_LEGACY_PUBLICATION_PROJECTION_MISMATCH';
+    END IF;
+  ELSIF v_target.event_type='draft_created' THEN
+    UPDATE private.narrative_record_publication binding
+       SET status='withdrawn'
+     WHERE binding.id=v_target.binding_id
+       AND binding.status='draft';
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PROJECTION_MISMATCH';
+    END IF;
+  ELSE
+    v_binding_status:=v_target.before_state #>> '{binding,status}';
+    v_binding_record_label:=v_target.before_state #>> '{binding,record_label}';
+    v_binding_citation_label:=v_target.before_state #>> '{binding,citation_label}';
+    v_binding_published_at:=CASE
+      WHEN v_target.before_state #>> '{binding,published_at}' IS NULL THEN NULL
+      ELSE (v_target.before_state #>> '{binding,published_at}')::timestamptz
+    END;
+    v_narrative_text:=v_target.before_state #>> '{narrative,text}';
+    v_narrative_private:=(v_target.before_state #>> '{narrative,private}')::boolean;
+    v_narrative_side:=v_target.before_state #>> '{narrative,side}';
+    IF v_binding_status IS NULL OR v_narrative_text IS NULL THEN
+      RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_BEFORE_STATE_INVALID';
+    END IF;
+    UPDATE private.narrative_record_publication binding
+       SET status=v_binding_status,
+           record_label=v_binding_record_label,
+           citation_label=v_binding_citation_label,
+           published_at=v_binding_published_at
+     WHERE binding.id=v_target.binding_id
+       AND (binding.status,binding.record_label,binding.citation_label,
+            binding.published_at) IS DISTINCT FROM
+           (v_binding_status,v_binding_record_label,v_binding_citation_label,
+            v_binding_published_at);
+    UPDATE public.narrative narrative
+       SET tekst=v_narrative_text,privat=v_narrative_private,
+           side=v_narrative_side
+     WHERE narrative.id=v_target.narrative_id
+       AND (narrative.tekst,coalesce(narrative.privat,false),narrative.side)
+           IS DISTINCT FROM
+           (v_narrative_text,v_narrative_private,v_narrative_side);
+  END IF;
+
+  IF v_target.source_record_id IS NOT NULL THEN
+    v_after_publication:=private.narrative_publication_state(
+      v_person_id,v_target.source_id,v_record_key
+    );
+  ELSE
+    v_after_publication:=private.narrative_legacy_publication_state(
+      v_target.legacy_publication_ref
+    );
+  END IF;
+  v_after_hash:=encode(
+    extensions.digest(v_after_publication::text,'sha256'),'hex'
+  );
+  IF v_target.event_type NOT IN ('draft_created','revalidated')
+     AND (v_after_publication IS DISTINCT FROM v_target.before_state
+          OR v_after_hash IS DISTINCT FROM v_target.before_state_sha256) THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_REVERSAL_RESTORE_MISMATCH';
+  END IF;
+  IF v_target.event_type='draft_created' AND NOT EXISTS (
+    SELECT 1
+      FROM private.narrative_record_publication binding
+      JOIN public.narrative narrative ON narrative.id=binding.narrative_id
+     WHERE binding.id=v_target.binding_id
+       AND binding.narrative_id=v_target.narrative_id
+       AND binding.status='withdrawn'
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_REVERSAL_RESTORE_MISMATCH';
+  END IF;
+  IF v_target.event_type='revalidated'
+     AND v_after_publication IS DISTINCT FROM v_target.after_state THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_REVERSAL_RESTORE_MISMATCH';
+  END IF;
+
+  -- Usually the target's semantic before-state is the restored authority. A
+  -- revalidation, or a withdrawal entered from stale_published, did not have a
+  -- matching predecessor attestation: reversing it must restore that older
+  -- attestation, not silently turn current provenance drift into a fresh
+  -- publication decision. The projection itself still restores target.before.
+  v_event_after_state:=v_target.before_state;
+  v_event_after_hash:=v_target.before_state_sha256;
+  IF v_target.event_type IN ('revalidated','withdrawn')
+     AND v_predecessor.id IS NOT NULL
+     AND v_predecessor.after_state_sha256 IS DISTINCT FROM
+           v_target.before_state_sha256 THEN
+    IF v_predecessor.after_state_sha256 IS DISTINCT FROM encode(
+         extensions.digest(v_predecessor.after_state::text,'sha256'),'hex'
+       ) THEN
+      RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_HASH_MISMATCH';
+    END IF;
+    v_event_after_state:=v_predecessor.after_state;
+    v_event_after_hash:=v_predecessor.after_state_sha256;
+  END IF;
+  SELECT coalesce(nullif(btrim(profile.navn),''),
+                  nullif(btrim(profile.email),''),v_actor::text)
+    INTO v_actor_name
+    FROM public.profiles profile
+   WHERE profile.id=v_actor;
+  v_actor_name:=coalesce(v_actor_name,v_actor::text);
+  SELECT coalesce(max(event.stream_version),0)+1
+    INTO v_stream_version
+    FROM private.narrative_publication_event event
+   WHERE event.stream_ref=v_target.stream_ref;
+  INSERT INTO private.narrative_publication_event(
+    change_set_id,stream_ref,stream_version,event_type,binding_id,narrative_id,
+    source_id,source_record_id,legacy_publication_ref,decision_basis,
+    before_state,after_state,before_state_sha256,after_state_sha256,
+    reversed_event_id,decided_by,decided_by_name
+  ) VALUES (
+    v_change_set_id,v_target.stream_ref,v_stream_version,'reversal',
+    v_target.binding_id,v_target.narrative_id,v_target.source_id,
+    v_target.source_record_id,v_target.legacy_publication_ref,
+    format('Fortrød narrativpubliceringshændelse %s',p_event_id),
+    v_before_publication,v_event_after_state,v_live_hash,v_event_after_hash,
+    v_target.id,v_actor,v_actor_name
+  ) RETURNING id INTO v_event_id;
+  IF v_target.legacy_publication_ref IS NOT NULL THEN
+    UPDATE private.narrative_legacy_publication legacy
+       SET latest_event_id=v_event_id
+     WHERE legacy.legacy_publication_ref=v_target.legacy_publication_ref;
+  END IF;
+
+  IF v_target.source_record_id IS NOT NULL THEN
+    v_after_editor:=private.narrative_record_state(
+      v_person_id,v_target.source_id,v_record_key,false
+    );
+  ELSE
+    v_after_editor:=private.narrative_legacy_state(
+      v_target.legacy_publication_ref,false
+    );
+  END IF;
+  IF v_after_editor->>'latest_event_id' IS DISTINCT FROM v_event_id::text THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_REVERSAL_EVENT_APPEND_MISMATCH';
+  END IF;
+
+  RETURN jsonb_build_object(
+    'person_id',v_person_id,
+    'source_id',v_target.source_id,
+    'source_record_ref',v_source_record_ref,
+    'legacy_publication_ref',v_target.legacy_publication_ref,
+    'event_id',v_event_id,
+    'reversed_event_id',v_target.id,
+    'narrative_id',v_target.narrative_id,
+    'status',v_after_editor->>'publication_status',
+    'publication_state_sha256',v_after_hash,
+    'state_sha256',v_after_editor->>'state_sha256'
+  );
+END
+$$;
+
 -- #154: close every inherited/default EXECUTE grant and classify the complete
 -- public.red_* overload catalog after #153's contract-v2 cutover. A new RPC
 -- must be added to exactly one array or the migration fails closed.
