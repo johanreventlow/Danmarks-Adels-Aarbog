@@ -12075,8 +12075,21 @@ BEGIN
      OR a.authorized_elements->>'source_manifest_content_sha256'<>b.manifest_sha256
      OR a.authorized_elements->>'source_manifest_bytes_sha256'<>b.preview_sha256
      OR jsonb_typeof(p_payloads)<>'object' THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID'; END IF;
-  expected_count:=coalesce((a.expected_counts->>'name_completions')::bigint,-1);
-  IF expected_count<0 OR a.expected_counts->>'operations' IS DISTINCT FROM expected_count::text
+  IF jsonb_typeof(a.expected_counts)<>'object'
+     OR jsonb_typeof(a.expected_counts->'name_completions')<>'number'
+     OR jsonb_typeof(a.expected_counts->'operations')<>'number'
+     OR coalesce(a.expected_counts->>'name_completions','') !~ '^[0-9]+$'
+     OR coalesce(a.expected_counts->>'operations','') !~ '^[0-9]+$'
+     OR (SELECT count(*) FROM jsonb_object_keys(a.expected_counts))<>2
+     OR EXISTS(SELECT 1 FROM jsonb_object_keys(a.expected_counts) key
+                WHERE key NOT IN ('name_completions','operations')) THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID';
+  END IF;
+  IF (a.expected_counts->>'name_completions')::numeric > 9223372036854775807 THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID';
+  END IF;
+  expected_count:=(a.expected_counts->>'name_completions')::bigint;
+  IF a.expected_counts->>'operations' IS DISTINCT FROM expected_count::text
      OR (SELECT count(*) FROM jsonb_object_keys(p_payloads))<>expected_count THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID'; END IF;
   PERFORM 1 FROM public.person q JOIN jsonb_each(p_payloads) j ON q.id=(j.value->>'person_id')::bigint ORDER BY q.id FOR UPDATE OF q;
   PERFORM 1 FROM private.source_record r JOIN jsonb_each(p_payloads) j ON r.source_id=b.source_id AND r.record_key=j.value->>'source_record_key' ORDER BY r.id FOR UPDATE OF r;

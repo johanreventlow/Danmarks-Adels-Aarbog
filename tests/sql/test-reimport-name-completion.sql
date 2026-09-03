@@ -39,6 +39,7 @@ DECLARE
   v_authorization_envelope jsonb; v_preflight jsonb; v_result jsonb;
   v_source_payload jsonb; v_person_payload jsonb; v_completion_payload jsonb;
   v_authorized_source jsonb; v_authorized_completion jsonb;
+  v_invalid_counts jsonb; v_authorizations_before bigint; v_batches_before bigint;
   v_error text; v_event_before text; v_result_before text; v_cutover_authorization uuid; v_reversal_authorization uuid; v_activation jsonb; v_reversal jsonb;
   v_1939_config jsonb := '{"run_key_prefix":"reimport-1939-v50:","schema_version":"1939-v50-production-write-manifest-v1","extractor_version":"production-writer-v1","rendition_key":"daa-1939-calamari-r6-clean","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"observation_extraction_method":"human_reviewed_1939_v50","citation_label_template":"DAA 1939 side {page_from}"}'::jsonb;
   v_profile_sha text;
@@ -138,6 +139,33 @@ BEGIN
     'expected_after',jsonb_build_object('name_fact',1,'selected_assertion',1,'citation',1,'conclusion',1)
   );
   v_authorized_completion:=jsonb_build_object('name-completion:task-1-name-completion-record',v_completion_payload);
+  SELECT count(*) INTO v_authorizations_before FROM private.reimport_authorization;
+  SELECT count(*) INTO v_batches_before FROM private.reimport_batch;
+  FOR v_invalid_counts IN
+    SELECT value FROM jsonb_array_elements('[
+      {"name_completions":"1","operations":"1"},
+      {"name_completions":1.5,"operations":1.5},
+      {"name_completions":9223372036854775808,"operations":9223372036854775808},
+      {"name_completions":1},
+      {"name_completions":1,"operations":1,"extra":0}
+    ]'::jsonb)
+  LOOP
+    v_error:=NULL;
+    BEGIN
+      PERFORM public.red_authorize_reimport_name_completion(
+        repeat('1',64),v_source_batch,repeat('b',64),repeat('a',64),3,
+        'daa-1939-v50-production-write-v1',v_profile_sha,
+        v_invalid_counts,v_authorized_completion
+      );
+    EXCEPTION WHEN OTHERS THEN
+      v_error:=SQLERRM;
+    END;
+    IF v_error IS DISTINCT FROM 'REIMPORT_NAME_COMPLETION_INVALID'
+       OR (SELECT count(*) FROM private.reimport_authorization)<>v_authorizations_before
+       OR (SELECT count(*) FROM private.reimport_batch)<>v_batches_before THEN
+      RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_COUNT_ENVELOPE_ACCEPTED: %, %',v_invalid_counts,v_error;
+    END IF;
+  END LOOP;
   v_authorization_envelope:=public.red_authorize_reimport_name_completion(
     repeat('1',64),v_source_batch,repeat('b',64),repeat('a',64),3,'daa-1939-v50-production-write-v1',v_profile_sha,
     '{"name_completions":1,"operations":1}'::jsonb,v_authorized_completion

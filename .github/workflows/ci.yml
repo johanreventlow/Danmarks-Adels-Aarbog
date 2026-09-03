@@ -208,6 +208,11 @@ jobs:
           psql -h localhost -U postgres -d reimport_fresh_153 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-edition-catalog.sql
           psql -h localhost -U postgres -d reimport_fresh_153 -At -f tests/sql/inspect-reimport-writer-catalog.sql > reimport-writer-fresh-catalog.json
           cmp reimport-writer-fresh-catalog.json reimport-writer-upgraded-catalog.json
+          psql -h localhost -U postgres -d reimport_fresh_153 -v ON_ERROR_STOP=1 -c "ALTER TABLE private.reimport_batch ALTER COLUMN expected_counts DROP NOT NULL"
+          psql -h localhost -U postgres -d reimport_fresh_153 -At -f tests/sql/inspect-reimport-writer-catalog.sql > reimport-writer-column-drift-catalog.json
+          if cmp -s reimport-writer-fresh-catalog.json reimport-writer-column-drift-catalog.json; then
+            echo "writer catalog receipt failed to detect column contract drift" >&2; exit 1
+          fi
           for state in issued open finalized; do
             database="reimport_legacy_153_${state}"
             createdb -h localhost -U postgres "$database"

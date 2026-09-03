@@ -134,7 +134,8 @@ DECLARE
   v_persona uuid := '15300000-0000-4000-8000-000000000604';
   v_rendition uuid; v_occurrence uuid; v_observation uuid; v_placement uuid;
   v_profile_sha text; v_source_payload jsonb; v_person_payload jsonb; v_completion_payload jsonb;
-  v_authorized jsonb; v_envelope jsonb;
+  v_authorized jsonb; v_envelope jsonb; v_invalid_counts jsonb; v_error text;
+  v_authorizations_before bigint; v_batches_before bigint;
   v_1939_config jsonb := '{"run_key_prefix":"reimport-1939-v50:","schema_version":"1939-v50-production-write-manifest-v1","extractor_version":"production-writer-v1","rendition_key":"daa-1939-calamari-r6-clean","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"observation_extraction_method":"human_reviewed_1939_v50","citation_label_template":"DAA 1939 side {page_from}"}'::jsonb;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
@@ -165,6 +166,32 @@ BEGIN
   v_person:=public.red_apply_reimport_person_create(v_source_batch,'person-create:name-shape-record',v_person_payload);
   IF public.red_finalize_reimport(v_source_batch)->>'status'<>'finalized' THEN RAISE EXCEPTION 'NAME_COMPLETION_1939_RETURN_SHAPE_SOURCE_NOT_FINALIZED'; END IF;
   v_completion_payload:=jsonb_build_object('source_batch_id',v_source_batch,'source_person_create_element_id','person-create:name-shape-record','person_id',v_person,'source_id',3,'edition','1939','source_record_key','name-shape-record','source_persona_id',v_persona,'name','Name shape','source_span',v_person_payload->'source_span','page_evidence',v_person_payload->'page_evidence','verbatim_text',v_person_payload->>'verbatim_text','verbatim_sha256',v_person_payload->>'verbatim_sha256','source_payload_sha256',private.reimport_canonical_json_sha256(v_person_payload),'expected_before',jsonb_build_object('staged',true,'name_cache_empty',true,'name_facts',0),'expected_after',jsonb_build_object('name_fact',1,'selected_assertion',1,'citation',1,'conclusion',1));
+  SELECT count(*) INTO v_authorizations_before FROM private.reimport_authorization;
+  SELECT count(*) INTO v_batches_before FROM private.reimport_batch;
+  FOR v_invalid_counts IN
+    SELECT value FROM jsonb_array_elements('[
+      {"name_completions":"1","operations":"1"},
+      {"name_completions":1.5,"operations":1.5},
+      {"name_completions":9223372036854775808,"operations":9223372036854775808},
+      {"operations":1},
+      {"name_completions":1,"operations":1,"extra":0}
+    ]'::jsonb)
+  LOOP
+    v_error:=NULL;
+    BEGIN
+      PERFORM public.red_authorize_1939_v50_name_completion(
+        repeat('4',64),v_source_batch,repeat('5',64),repeat('6',64),
+        v_invalid_counts,jsonb_build_object('name-completion:name-shape-record',v_completion_payload)
+      );
+    EXCEPTION WHEN OTHERS THEN
+      v_error:=SQLERRM;
+    END;
+    IF v_error IS DISTINCT FROM 'NAME_COMPLETION_1939_AUTHORIZATION_INVALID'
+       OR (SELECT count(*) FROM private.reimport_authorization)<>v_authorizations_before
+       OR (SELECT count(*) FROM private.reimport_batch)<>v_batches_before THEN
+      RAISE EXCEPTION 'NAME_COMPLETION_1939_COUNT_ENVELOPE_ACCEPTED: %, %',v_invalid_counts,v_error;
+    END IF;
+  END LOOP;
   v_envelope:=public.red_authorize_1939_v50_name_completion(repeat('4',64),v_source_batch,repeat('5',64),repeat('6',64),'{"name_completions":1,"operations":1}'::jsonb,jsonb_build_object('name-completion:name-shape-record',v_completion_payload));
   IF (SELECT array_agg(key ORDER BY key) FROM jsonb_object_keys(v_envelope) key) IS DISTINCT FROM ARRAY['authorization_id','database_name','system_identifier']
      OR v_envelope ? 'source' OR nullif(v_envelope->>'authorization_id','') IS NULL

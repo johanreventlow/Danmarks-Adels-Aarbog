@@ -38,6 +38,19 @@ WITH targets AS (
   SELECT jsonb_build_object('kind','relation','name',nspname||'.'||relname,'relkind',relkind,
     'rls',relrowsecurity,'force_rls',relforcerowsecurity) row_value FROM targets
   UNION ALL
+  SELECT jsonb_build_object('kind','column','table',target.nspname||'.'||target.relname,
+    'ordinal',attribute.attnum,'name',attribute.attname,
+    'type',format_type(attribute.atttypid,attribute.atttypmod),
+    'not_null',attribute.attnotnull,'identity',attribute.attidentity::text,
+    'generated',attribute.attgenerated::text,
+    'collation',CASE WHEN attribute.attcollation=0 THEN ''
+      ELSE collation_namespace.nspname||'.'||collation_row.collname END)
+  FROM targets target
+  JOIN pg_attribute attribute ON attribute.attrelid=target.oid
+    AND attribute.attnum>0 AND NOT attribute.attisdropped
+  LEFT JOIN pg_collation collation_row ON collation_row.oid=attribute.attcollation
+  LEFT JOIN pg_namespace collation_namespace ON collation_namespace.oid=collation_row.collnamespace
+  UNION ALL
   SELECT jsonb_build_object('kind','constraint','table',n.nspname||'.'||c.relname,
     'type',x.contype,'parent',coalesce(x.conparentid::regclass::text,''),'definition',pg_get_constraintdef(x.oid,true))
   FROM pg_constraint x JOIN pg_class c ON c.oid=x.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace

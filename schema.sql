@@ -2372,8 +2372,6 @@ CREATE TABLE private.reimport_authorization (
   preview_sha256 text NOT NULL CHECK(preview_sha256 ~ '^[0-9a-f]{64}$'),
   database_identity text NOT NULL CHECK(btrim(database_identity)<>''),
   source_id bigint NOT NULL REFERENCES public.source(id),
-  profile_id text NOT NULL,
-  profile_sha256 text NOT NULL CHECK(profile_sha256 ~ '^[0-9a-f]{64}$'),
   expected_counts jsonb NOT NULL CHECK(jsonb_typeof(expected_counts)='object'),
   authorized_elements jsonb NOT NULL CHECK(jsonb_typeof(authorized_elements)='object'),
   principal_id uuid NOT NULL,
@@ -2382,6 +2380,8 @@ CREATE TABLE private.reimport_authorization (
   status text NOT NULL DEFAULT 'issued' CHECK(status IN ('issued','consumed','expired')),
   consumed_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  profile_id text NOT NULL,
+  profile_sha256 text NOT NULL CHECK(profile_sha256 ~ '^[0-9a-f]{64}$'),
   CHECK((status='consumed')=(consumed_at IS NOT NULL)),
   UNIQUE(id,source_id,profile_id,profile_sha256),
   FOREIGN KEY(source_id,profile_id,profile_sha256)
@@ -2393,15 +2393,15 @@ CREATE TABLE private.reimport_batch (
   authorization_id uuid NOT NULL UNIQUE,
   manifest_sha256 text NOT NULL CHECK(manifest_sha256 ~ '^[0-9a-f]{64}$'),
   preview_sha256 text NOT NULL CHECK(preview_sha256 ~ '^[0-9a-f]{64}$'),
-  source_id bigint NOT NULL,
-  profile_id text NOT NULL,
-  profile_sha256 text NOT NULL CHECK(profile_sha256 ~ '^[0-9a-f]{64}$'),
   principal_id uuid NOT NULL,
   status text NOT NULL DEFAULT 'open' CHECK(status IN ('open','finalized','reversed','activated')),
   expected_counts jsonb NOT NULL CHECK(jsonb_typeof(expected_counts)='object'),
   observed_counts jsonb,
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   finalized_at timestamptz,
+  source_id bigint NOT NULL,
+  profile_id text NOT NULL,
+  profile_sha256 text NOT NULL CHECK(profile_sha256 ~ '^[0-9a-f]{64}$'),
   FOREIGN KEY(source_id,profile_id,profile_sha256)
     REFERENCES private.reimport_writer_profile(source_id,profile_id,profile_sha256),
   FOREIGN KEY(authorization_id,source_id,profile_id,profile_sha256)
@@ -2874,8 +2874,21 @@ BEGIN
      OR a.authorized_elements->>'source_manifest_content_sha256'<>b.manifest_sha256
      OR a.authorized_elements->>'source_manifest_bytes_sha256'<>b.preview_sha256
      OR jsonb_typeof(p_payloads)<>'object' THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID'; END IF;
-  expected_count:=coalesce((a.expected_counts->>'name_completions')::bigint,-1);
-  IF expected_count<0 OR a.expected_counts->>'operations' IS DISTINCT FROM expected_count::text
+  IF jsonb_typeof(a.expected_counts)<>'object'
+     OR jsonb_typeof(a.expected_counts->'name_completions')<>'number'
+     OR jsonb_typeof(a.expected_counts->'operations')<>'number'
+     OR coalesce(a.expected_counts->>'name_completions','') !~ '^[0-9]+$'
+     OR coalesce(a.expected_counts->>'operations','') !~ '^[0-9]+$'
+     OR (SELECT count(*) FROM jsonb_object_keys(a.expected_counts))<>2
+     OR EXISTS(SELECT 1 FROM jsonb_object_keys(a.expected_counts) key
+                WHERE key NOT IN ('name_completions','operations')) THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID';
+  END IF;
+  IF (a.expected_counts->>'name_completions')::numeric > 9223372036854775807 THEN
+    RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID';
+  END IF;
+  expected_count:=(a.expected_counts->>'name_completions')::bigint;
+  IF a.expected_counts->>'operations' IS DISTINCT FROM expected_count::text
      OR (SELECT count(*) FROM jsonb_object_keys(p_payloads))<>expected_count THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_INVALID'; END IF;
   PERFORM 1 FROM public.person q JOIN jsonb_each(p_payloads) j ON q.id=(j.value->>'person_id')::bigint ORDER BY q.id FOR UPDATE OF q;
   PERFORM 1 FROM private.source_record r JOIN jsonb_each(p_payloads) j ON r.source_id=b.source_id AND r.record_key=j.value->>'source_record_key' ORDER BY r.id FOR UPDATE OF r;
