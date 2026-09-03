@@ -72,9 +72,9 @@ def _ledger(*manifests: dict) -> dict:
                     "sequence": sequence,
                     "artifacts": [
                         {
-                            "role": "contribution",
-                            "path": f"{manifest['phase_id']}.json",
-                            "sha256": manifest["reconciliation_content_sha256"],
+                            "role": "manifest",
+                            "path": manifest["source_manifest_path"],
+                            "sha256": manifest["source_manifest_sha256"],
                             "schema_version": "1939-v50-phase-a-anchor-manifest-v1",
                             "required": True,
                         }
@@ -355,7 +355,7 @@ def test_seal_adds_a_canonical_hash_without_mutating_the_capture_document():
     assert sealed["snapshot_content_sha256"] == _with_hash(raw_snapshot, "snapshot_content_sha256")["snapshot_content_sha256"]
 
 
-def test_loading_a_phase_contribution_verifies_its_original_manifest_bytes(tmp_path):
+def test_loading_a_phase_contribution_does_not_reopen_its_original_manifest(tmp_path):
     original = tmp_path / "original-manifest.json"
     original.write_bytes(b'{"original":true}\n')
     phase_a = _manifest("phase-a", record_key="1939:1", occurrence_key="occ-1", person_id=101, narrative_id=201)
@@ -364,11 +364,40 @@ def test_loading_a_phase_contribution_verifies_its_original_manifest_bytes(tmp_p
     contribution = tmp_path / "phase-a.json"
     contribution.write_text(json.dumps(phase_a), encoding="utf-8")
 
+    original.unlink()
     assert load_phase_manifest(contribution) == phase_a
 
-    original.write_bytes(b'{"original":false}\n')
-    with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_SOURCE_MANIFEST_HASH_INVALID"):
-        load_phase_manifest(contribution)
+
+def test_reconcile_rejects_a_contribution_with_a_source_manifest_binding_mismatch_before_snapshot_validation():
+    original = _manifest("phase-a", record_key="1939:1", occurrence_key="occ-1", person_id=101, narrative_id=201)
+    changed = dict(original)
+    changed["source_manifest_path"] = "other-original-manifest.json"
+    changed = _with_hash(
+        {key: value for key, value in changed.items() if key != "reconciliation_content_sha256"},
+        "reconciliation_content_sha256",
+    )
+    ledger = _ledger(original)
+    ledger["phases"][0]["contribution_sha256"] = changed["reconciliation_content_sha256"]
+    ledger = seal_ledger({key: value for key, value in ledger.items() if key != "ledger_content_sha256"})
+
+    with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_SOURCE_MANIFEST_MISMATCH"):
+        reconcile({"not": "a snapshot"}, [changed], ledger)
+
+
+def test_reconcile_checks_source_manifest_binding_when_contributions_are_an_iterator():
+    original = _manifest("phase-a", record_key="1939:1", occurrence_key="occ-1", person_id=101, narrative_id=201)
+    changed = dict(original)
+    changed["source_manifest_sha256"] = "b" * 64
+    changed = _with_hash(
+        {key: value for key, value in changed.items() if key != "reconciliation_content_sha256"},
+        "reconciliation_content_sha256",
+    )
+    ledger = _ledger(original)
+    ledger["phases"][0]["contribution_sha256"] = changed["reconciliation_content_sha256"]
+    ledger = seal_ledger({key: value for key, value in ledger.items() if key != "ledger_content_sha256"})
+
+    with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_SOURCE_MANIFEST_MISMATCH"):
+        reconcile({"not": "a snapshot"}, iter([changed]), ledger)
 
 
 def test_cli_requires_a_private_report_path_for_reconciliation(tmp_path, capsys):

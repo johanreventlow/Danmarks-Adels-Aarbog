@@ -197,10 +197,11 @@ def _validate_contribution_admission(
     Dict[str, Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, List[Dict[str, Any]]]]],
 ]:
     approved = _validate_ledger_admission(ledger)
+    documents = list(manifests)
     phase_ids: List[str] = []
     manifest_hashes: Dict[str, str] = {}
     contributions: Dict[str, Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, List[Dict[str, Any]]]]] = {}
-    for manifest in manifests:
+    for manifest in documents:
         phase_id, sections, withdrawals = _validate_manifest(manifest)
         if phase_id in phase_ids:
             raise ReconciliationError("EVIDENCE_RECONCILIATION_DUPLICATE_PHASE")
@@ -212,6 +213,20 @@ def _validate_contribution_admission(
     approved_hashes = {entry.phase_id: entry.contribution_sha256 for entry in approved}
     if manifest_hashes != approved_hashes:
         raise ReconciliationError("EVIDENCE_RECONCILIATION_LEDGER_MISMATCH")
+    approved_by_phase = {entry.phase_id: entry for entry in approved}
+    for phase_id, manifest in zip(phase_ids, documents):
+        assert isinstance(manifest, dict)  # narrowed by _validate_manifest
+        source_manifests = [
+            artifact for artifact in approved_by_phase[phase_id].artifacts if artifact.role == "manifest"
+        ]
+        if len(source_manifests) != 1:
+            raise ReconciliationError("EVIDENCE_RECONCILIATION_SOURCE_MANIFEST_MISMATCH")
+        source_manifest = source_manifests[0]
+        if (
+            manifest["source_manifest_path"] != source_manifest.path
+            or manifest["source_manifest_sha256"] != source_manifest.sha256
+        ):
+            raise ReconciliationError("EVIDENCE_RECONCILIATION_SOURCE_MANIFEST_MISMATCH")
     return approved, contributions
 
 
@@ -307,17 +322,10 @@ def _load_json(path: Path) -> object:
 
 
 def load_phase_manifest(path: Path) -> Dict[str, Any]:
-    """Load a contribution and prove its declared original manifest is unchanged."""
+    """Load one sealed contribution without reopening its original manifest."""
     document = _load_json(path)
     _validate_manifest(document)
     assert isinstance(document, dict)  # narrowed by _validate_manifest
-    original = path.parent / document["source_manifest_path"]
-    try:
-        raw = original.read_bytes()
-    except OSError as error:
-        raise ReconciliationError("EVIDENCE_RECONCILIATION_SOURCE_MANIFEST_UNREADABLE") from error
-    if hashlib.sha256(raw).hexdigest() != document["source_manifest_sha256"]:
-        raise ReconciliationError("EVIDENCE_RECONCILIATION_SOURCE_MANIFEST_HASH_INVALID")
     return document
 
 

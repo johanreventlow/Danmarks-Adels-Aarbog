@@ -65,6 +65,15 @@ def _artifact_by_role(phase: PhaseEntry, role: str) -> ArtifactEntry:
     return matches[0]
 
 
+def _source_manifest_binding(manifest: ArtifactEntry) -> dict[str, str]:
+    """Carry the ledger's canonical manifest identity into its contribution."""
+    _require(_valid_text(manifest.path) and _valid_sha256(manifest.sha256))
+    return {
+        "source_manifest_path": manifest.path,
+        "source_manifest_sha256": manifest.sha256,
+    }
+
+
 def _read_artifact(bundle_root: Path, artifact: ArtifactEntry) -> tuple[bytes, dict[str, object]]:
     _require(_valid_text(artifact.path) and "\x00" not in artifact.path)
     relative = Path(artifact.path)
@@ -617,8 +626,7 @@ def project_phase(bundle_root: Path, phase: PhaseEntry, summary: PhaseSummary) -
     contribution: dict[str, object] = {
         "schema_version": "daa-evidence-phase-reconciliation-manifest-v1",
         "phase_id": phase.phase_id,
-        "source_manifest_sha256": manifest.sha256,
-        "source_manifest_path": manifest.path,
+        **_source_manifest_binding(manifest),
         **sections,
         "withdrawals": {section: [] for section in SECTIONS},
     }

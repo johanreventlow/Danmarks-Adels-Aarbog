@@ -21,11 +21,15 @@ Denne runbook autoriserer ingen af dem. `reconcile_evidence_phase_gate.py`
 
 ## Fasebidrag
 
-For hver anvendt originalmanifest oprettes et lille reconciliation-bidrag ved
-siden af den hash-låste pakke i den ignorerede fase-mappe. Feltet
-`source_manifest_sha256` binder bidraget til de rå bytes i den originale,
-hash-låste pakke; controlleren kontrollerer den binding. Bidraget bruger præcis
-dette format før forsegling:
+For hver mekanisk bundet fase opretter artefaktauditten ét lille
+reconciliation-bidrag i sin private outputmappe. Felterne
+`source_manifest_path` og `source_manifest_sha256` binder bidraget til den
+tilsvarende `manifest`-artefakt, som allerede er forseglet i
+`reconciliation-ledger.json`. Stien er bundle-relativ i ledgeret — den må
+aldrig fortolkes relativt til audit-outputmappen. Reconcilerens admission
+kontrollerer den eksakte sti/hash-binding mod ledgeret, men genåbner eller
+kopierer ikke det originale manifest. Bidraget bruger præcis dette format før
+forsegling:
 
 ```json
 {
@@ -55,25 +59,20 @@ duplikat i ét bidrag er en blokerende fejl. Mellem faser afgør ledgerets
 Det gør fx Task 25 og fase B, der begge berører en narrativ, afstemmelige mod
 den endelige værdi. `withdrawals` indeholder kun identiteten fra den forrige
 sluttilstand og skal eksplicit fjerne fx en erstattet binding eller udgået
-narrativ-hash, før fasens nye rækker lægges på. Før review forsegles filen uden
-at skrive til produktion:
+narrativ-hash, før fasens nye rækker lægges på. Dette er et format-eksempel:
+operatøren må ikke manuelt forsegle eller konstruere et bidrag med
+`reconcile_evidence_phase_gate.py --seal`. Audit-CLI'en forsegler det
+auditerede bidrag og dets `reconciliation_content_sha256`. En ændret
+originalmanifest kræver en ny audit, ny hash, ny rehearsal og en ny GO;
+redigér aldrig en allerede anvendt pakke. Audit-output, bidrag, snapshot og
+anden person-/kildeidentificerende data forbliver private og må ikke committes.
 
-```bash
-/usr/bin/python3 .claude/skills/daa-extract/scripts/reconcile_evidence_phase_gate.py \
-  --seal phase-a-contribution.unsealed.json > phase-a-contribution.json
-```
-
-Forseglingen beregner `reconciliation_content_sha256` over kanonisk JSON. En
-ændret originalmanifest kræver et nyt bidrag, ny hash, ny rehearsal og en ny
-GO; redigér aldrig en allerede anvendt pakke. Commit højst en datafri
-GO-kvittering med fase-ID og SHA'er — ikke bidraget, snapshot eller anden
-person-/kildeidentificerende data.
-
-GO-kvitteringen er et obligatorisk, hash-låst faseledger for den erklærede
-afstemning. Den låser det præcise input-sæt og den semantiske rækkefølge; et
-manglende eller ekstra CLI-bidrag er teknisk NO-GO. Den kan ikke i sig selv
-bevise, at inventaret er historisk komplet, eller at et bidrags fem lister er
-udledt korrekt fra originalmanifestet:
+Det private `reconciliation-ledger.json` er et obligatorisk, hash-låst
+faseledger for den erklærede afstemning. Det låser det præcise input-sæt,
+manifestbindingerne og den semantiske rækkefølge; et manglende eller ekstra
+CLI-bidrag er teknisk NO-GO. Det kan ikke i sig selv bevise, at inventaret er
+historisk komplet, eller at et bidrags fem lister er udledt korrekt fra
+originalmanifestet:
 
 ```json
 {
@@ -82,10 +81,10 @@ udledt korrekt fra originalmanifestet:
     "phase_id": "1939-phase-a",
     "sequence": 1,
     "artifacts": [{
-      "role": "contribution",
-      "path": "phase-a-contribution.json",
+      "role": "manifest",
+      "path": "phase-a-manifest.json",
       "sha256": "<64 lower-case hex>",
-      "schema_version": "daa-evidence-phase-reconciliation-manifest-v1",
+      "schema_version": "1939-v50-phase-a-anchor-manifest-v1",
       "required": true
     }],
     "adapter_id": "<reviewed adapter id>",
@@ -99,9 +98,8 @@ udledt korrekt fra originalmanifestet:
 
 Et ledger med blot én fase uden `mechanically_bound` `projection_evidence` og
 `contribution_sha256` returnerer `EVIDENCE_RECONCILIATION_INCOMPLETE` før
-produktionssnapshotet læses eller sammenlignes. Forsegl og commit den
-datafri ledger med den validerede fase-ledger-proces; brug aldrig
-`reconcile_evidence_phase_gate.py --seal` til ledgeret.
+produktionssnapshotet læses eller sammenlignes. Auditoren forsegler ledgeret;
+det og alle bidrag forbliver i den private bundle-outputmappe.
 
 ## Privat artefaktaudit før prod-snapshot
 
@@ -141,6 +139,44 @@ En komplet audit er alene en artifact-admission. Stop her, indtil en separat
 autorisation udtrykkeligt tillader det nedenstående read-only
 produktionssnapshot; denne kommando åbner ingen database og giver ingen
 autorisation til snapshot, apply eller anden produktionshandling.
+
+### Auditor-output, der kan gives direkte til reconciler
+
+Hvis — og kun hvis — alle anvendelige faser er mekanisk bundne, producerer
+auditten præcis disse private filer i den angivne `--private-output-dir`:
+
+- `reconciliation-ledger.json`
+- `1-task25.contribution.json`
+- `2-phase-a.contribution.json`
+- `3-phase-b.contribution.json`
+- `4-narrative-publication.contribution.json`
+- `5-name-completion.contribution.json`
+- `6-c0.contribution.json`
+
+De er de eksakte argumenter til reconciliation; bidragsfilerne må ikke
+kopieres sammen med deres oprindelige manifests eller omskrives. Med den
+private outputmappe fra eksemplet ovenfor ville den autoriserede, read-only
+kørsel derfor bruge følgende stier direkte:
+
+```bash
+/usr/bin/python3 .claude/skills/daa-extract/scripts/reconcile_evidence_phase_gate.py \
+  --snapshot /private/retained/1939-v50-evidence-bundle/prod-source-3.snapshot.json \
+  --ledger /private/retained/1939-v50-evidence-bundle/private-artifact-audit/reconciliation-ledger.json \
+  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/1-task25.contribution.json \
+  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/2-phase-a.contribution.json \
+  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/3-phase-b.contribution.json \
+  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/4-narrative-publication.contribution.json \
+  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/5-name-completion.contribution.json \
+  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/6-c0.contribution.json \
+  --private-report /private/retained/1939-v50-evidence-bundle/private-reconcile-report.json
+```
+
+Denne kommando er **i øjeblikket uopnåelig for historiske data**: D1 er
+`unavailable`, så den historiske audit-CLI emitterer hverken
+`reconciliation-ledger.json` eller en autorisation til at tage et
+produktionssnapshot. En syntetisk `synthetic_capability_only`-fixture kan
+alene bevise adapterkapaciteten for de seks nævnte contribution-filer; den er
+ikke historisk evidens eller produktionsautorisation.
 
 ### Syntetisk fail-closed bevis
 
@@ -235,7 +271,8 @@ COMMIT;
 ```
 
 Gem den returnerede JSON som et lokalt, uforseglet snapshot. Forsegl den og
-kør afstemningen med alle fasebidrag som eksplicitte argumenter:
+kør afstemningen med de eksakte auditor-genererede paths ovenfor som
+eksplicitte argumenter:
 
 ```bash
 /usr/bin/python3 .claude/skills/daa-extract/scripts/reconcile_evidence_phase_gate.py \
@@ -243,10 +280,13 @@ kør afstemningen med alle fasebidrag som eksplicitte argumenter:
 
 /usr/bin/python3 .claude/skills/daa-extract/scripts/reconcile_evidence_phase_gate.py \
   --snapshot prod-source-3.snapshot.json \
-  --ledger applied-phase-ledger.json \
-  --phase-manifest task25-contribution.json \
-  --phase-manifest phase-a-contribution.json \
-  --phase-manifest phase-b-contribution.json \
+  --ledger /private/retained/1939-v50-evidence-bundle/private-artifact-audit/reconciliation-ledger.json \
+  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/1-task25.contribution.json \
+  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/2-phase-a.contribution.json \
+  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/3-phase-b.contribution.json \
+  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/4-narrative-publication.contribution.json \
+  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/5-name-completion.contribution.json \
+  --phase-manifest /private/retained/1939-v50-evidence-bundle/private-artifact-audit/6-c0.contribution.json \
   --private-report .private/reconcile-drift.json
 ```
 
