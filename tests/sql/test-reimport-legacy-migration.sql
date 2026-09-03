@@ -321,11 +321,16 @@ BEGIN
   IF v_state->>'publication_status'<>'published' OR NOT coalesce((v_state->>'baseline_matches')::boolean,false) THEN
     RAISE EXCEPTION 'TASK4_STEP_D_EDITOR_STATE: % %',v_state->>'publication_status',v_state->>'baseline_matches';
   END IF;
-  -- BEMÆRK (åben bekymring, rapporteret): person_daa_narrative_publication_allowed
-  -- returnerer false, så længe narrativet har en binding-række med status<>'published',
-  -- og returnerer derfor false efter fuld fortrydelse. Offentlig genvisning af det
-  -- grandfathered narrativ kræver en ændring i #152's gate og dermed en beslutning
-  -- (spec §11). Testen måler derfor kun ledger- og streamtilstand her.
+  -- Task 1b: efter fuld fortrydelse er narrativet offentligt igen som legacy —
+  -- præcis én gang, og aldrig som source_record (den withdrawn binding må ikke
+  -- give en dublet i nogen af de to offentlige funktioner).
+  IF NOT public.person_daa_narrative_publication_allowed((fx->>'narrative_id')::bigint) THEN RAISE EXCEPTION 'TASK4_LEGACY_NOT_PUBLIC_AGAIN'; END IF;
+  IF (SELECT count(*) FROM public.public_person_bio_source_versions_v2(ARRAY[(fx->>'person_id')::bigint]) WHERE provenance_kind='legacy_narrative')<>1 THEN RAISE EXCEPTION 'TASK4_LEGACY_ROW_MISSING'; END IF;
+  IF (SELECT count(*) FROM public.public_person_bio_source_versions_v2(ARRAY[(fx->>'person_id')::bigint]) WHERE provenance_kind='source_record')<>0 THEN RAISE EXCEPTION 'TASK4_WITHDRAWN_BINDING_LEAKED_V2'; END IF;
+  IF (SELECT count(*) FROM public.public_person_bio_source_versions_v2(ARRAY[(fx->>'person_id')::bigint]))<>1 THEN RAISE EXCEPTION 'TASK4_DUPLICATE_ROWS_V2'; END IF;
+  IF (SELECT count(*) FROM public.public_person_bio_source_versions(ARRAY[(fx->>'person_id')::bigint]) WHERE provenance_kind='legacy_narrative')<>1 THEN RAISE EXCEPTION 'TASK4_LEGACY_ROW_MISSING_V1'; END IF;
+  IF (SELECT count(*) FROM public.public_person_bio_source_versions(ARRAY[(fx->>'person_id')::bigint]) WHERE provenance_kind='source_record')<>0 THEN RAISE EXCEPTION 'TASK4_WITHDRAWN_BINDING_LEAKED_V1'; END IF;
+  IF (SELECT count(*) FROM public.public_person_bio_source_versions(ARRAY[(fx->>'person_id')::bigint]))<>1 THEN RAISE EXCEPTION 'TASK4_DUPLICATE_ROWS_V1'; END IF;
   -- (e) bound_draft: draft_created ER streamens seneste og kan fortrydes direkte.
   fx:=pg_temp.task3_fixture('T4D',true);
   r:=pg_temp.task3_migrate(fx,'bound_draft','t4d');

@@ -12371,9 +12371,13 @@ BEGIN
     RETURN true;
   END IF;
 
+  -- #166 149b: kun en AKTIV binding kortslutter gaten. En withdrawn binding er
+  -- ikke længere en publiceringsautoritet, og et narrativ, hvis legacy-migration
+  -- er fortrudt, skal kunne falde igennem til grandfathered-legacy-grenen.
   SELECT binding.* INTO v_binding
     FROM private.narrative_record_publication binding
-   WHERE binding.narrative_id=p_narrative_id;
+   WHERE binding.narrative_id=p_narrative_id
+     AND binding.status IN ('draft','published');
   IF FOUND THEN
     IF v_binding.status IS DISTINCT FROM 'published' THEN
       RETURN false;
@@ -12555,7 +12559,7 @@ BEGIN
       JOIN public.source source
         ON source.id=narrative.source_id AND source.slags='DAA-udgave'
       JOIN private.narrative_record_publication binding
-        ON binding.narrative_id=narrative.id
+        ON binding.narrative_id=narrative.id AND binding.status='published'
       JOIN LATERAL (
         SELECT publication_event.after_state
           FROM private.narrative_publication_event publication_event
@@ -12680,7 +12684,7 @@ BEGIN
     JOIN public.source source
       ON source.id=narrative.source_id AND source.slags='DAA-udgave'
     JOIN private.narrative_record_publication binding
-      ON binding.narrative_id=narrative.id
+      ON binding.narrative_id=narrative.id AND binding.status='published'
     JOIN LATERAL (
       SELECT publication_event.after_state
         FROM private.narrative_publication_event publication_event
