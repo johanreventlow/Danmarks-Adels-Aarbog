@@ -412,8 +412,31 @@ wrong directory and the runbook does not use the exact generated files.
   scope, run the full evidence-phase suite, and commit as
   `fix(evidens): align record and person projections`.
 
+---
+
+### Task 9: Make snapshot sealing private by construction
+
+**Files:**
+- Modify: `.claude/skills/daa-extract/scripts/reconcile_evidence_phase_gate.py`
+- Modify: `.claude/skills/daa-extract/scripts/test_reconcile_evidence_phase_gate.py`
+- Modify: `docs/runbooks/evidence-import-phase-gate.md`
+
+**Acceptance:**
+
+- `--seal` never emits the full sealed document to stdout and never relies on
+  shell redirection or the operator's umask for private snapshot storage.
+- Snapshot sealing requires an explicit output path, creates it exclusively at
+  mode `0600`, refuses to overwrite an existing path, and closes or consumes
+  its descriptor on every success and failure path.
+- Terminal output is a strict redacted receipt containing no snapshot rows or
+  person/source/narrative identities.
+- The runbook invokes the private writer directly without `>` redirection.
+- Add RED tests for mode, exclusive creation, redacted output, invalid input,
+  and descriptor cleanup; then run all reconciliation/evidence-phase tests,
+  `py_compile`, and `git diff --check`.
+
 ## Explicit stop gate
 
-After Task 8, stop. Do not run the CLI against retained artifacts, do not read
+After Task 9, stop. Do not run the CLI against retained artifacts, do not read
 a production snapshot, do not modify production, do not push, and do not close
 #156 or #158 without a new explicit user authorisation.
