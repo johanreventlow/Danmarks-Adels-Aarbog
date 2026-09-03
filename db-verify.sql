@@ -557,7 +557,8 @@ $verify_reimport_batch_result$;
 
 -- #153 Task 6: `_1939` is a closed compatibility namespace.  The generic
 -- writer and its public replay receipt deliberately have no edition suffix and
--- are therefore absent from this transition-surface allowlist.
+-- are therefore absent from this transition-surface allowlist. `_2018` er en
+-- tom allowlist: #149a's udgave bor i én profil-JSON, ikke i katalogen.
 CREATE OR REPLACE FUNCTION private.assert_reimport_edition_catalog()
 RETURNS void
 LANGUAGE plpgsql
@@ -624,7 +625,8 @@ BEGIN
     FROM pg_class c
     JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname IN ('public','private')
-      AND c.relname LIKE '%\_1939%' ESCAPE E'\\'
+      AND (c.relname LIKE '%\_1939%' ESCAPE E'\\'
+           OR c.relname LIKE '%\_2018%' ESCAPE E'\\')
 
     UNION ALL
 
@@ -638,7 +640,8 @@ BEGIN
     FROM pg_type t
     JOIN pg_namespace n ON n.oid=t.typnamespace
     WHERE n.nspname IN ('public','private')
-      AND t.typname LIKE '%\_1939%' ESCAPE E'\\'
+      AND (t.typname LIKE '%\_1939%' ESCAPE E'\\'
+           OR t.typname LIKE '%\_2018%' ESCAPE E'\\')
 
     UNION ALL
 
@@ -646,7 +649,8 @@ BEGIN
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid=p.pronamespace
     WHERE n.nspname IN ('public','private')
-      AND p.proname LIKE '%\_1939%' ESCAPE E'\\'
+      AND (p.proname LIKE '%\_1939%' ESCAPE E'\\'
+           OR p.proname LIKE '%\_2018%' ESCAPE E'\\')
 
     UNION ALL
 
@@ -656,7 +660,8 @@ BEGIN
     JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE NOT t.tgisinternal
       AND n.nspname IN ('public','private')
-      AND t.tgname LIKE '%\_1939%' ESCAPE E'\\'
+      AND (t.tgname LIKE '%\_1939%' ESCAPE E'\\'
+           OR t.tgname LIKE '%\_2018%' ESCAPE E'\\')
 
     UNION ALL
 
@@ -672,7 +677,8 @@ BEGIN
     LEFT JOIN pg_type type_row ON type_row.oid=constraint_row.contypid
     LEFT JOIN pg_namespace type_namespace ON type_namespace.oid=type_row.typnamespace
     WHERE coalesce(relation_namespace.nspname,type_namespace.nspname) IN ('public','private')
-      AND constraint_row.conname LIKE '%\_1939%' ESCAPE E'\\'
+      AND (constraint_row.conname LIKE '%\_1939%' ESCAPE E'\\'
+           OR constraint_row.conname LIKE '%\_2018%' ESCAPE E'\\')
 
     UNION ALL
 
@@ -681,7 +687,8 @@ BEGIN
     JOIN pg_class c ON c.oid=p.polrelid
     JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname IN ('public','private')
-      AND p.polname LIKE '%\_1939%' ESCAPE E'\\'
+      AND (p.polname LIKE '%\_1939%' ESCAPE E'\\'
+           OR p.polname LIKE '%\_2018%' ESCAPE E'\\')
   ), drift AS (
     SELECT 'additional' AS drift_kind,actual.* FROM actual
     EXCEPT
