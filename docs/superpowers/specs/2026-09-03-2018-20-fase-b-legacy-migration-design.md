@@ -276,22 +276,44 @@ aldrig før recorden. Prod-apply kører under det eksterne writer-traffic hold f
 
 ## 8. Reversal (valg B, PM — kræver kvittering før prod-GO)
 
+**Revideret 2026-09-04 efter implementeringsfund (leverance 1):** #152's reversal
+appender et `reversal`-event til samme stream, så efter fortrydelse af `published`
+er `draft_created` ikke længere streamens seneste event og kan ikke fortrydes
+(`NARRATIVE_PUBLICATION_EVENT_NOT_LATEST`, empirisk bekræftet). Kæden er derfor:
+
 - **Per narrativ, dedikeret:** `private.reverse_narrative_publication_event`
-  håndterer allerede `published` (→ draft) og `draft_created` (→ withdrawn).
-  Der tilføjes `legacy_migrated` til den reversible mængde med gaten: eventet
-  er streamens seneste, ledgeren står `migrated`, `baseline_matches = true`,
-  policy tillader publicering, **og** narrativets record-binding er ikke aktiv
-  (status `withdrawn`), ellers `NARRATIVE_LEGACY_MIGRATION_BINDING_ACTIVE`.
-  Reversal sætter ledgeren tilbage til `grandfathered_publication` og appender
-  `reversal`. Rækkefølgen for fuld fortrydelse af ét narrativ er derfor:
-  reverse `published` → reverse `draft_created` → reverse `legacy_migrated`
-  (tre events, fuld historik bevaret).
+  håndterer allerede `published` (→ draft). Kladden trækkes tilbage med den
+  eksisterende `red_kasser_person_narrative_record` (`draft_discarded` → binding
+  `withdrawn`). Der tilføjes `legacy_migrated` til den reversible mængde med
+  gaten: eventet er streamens seneste, ledgeren står `migrated`,
+  `baseline_matches = true`, policy tillader publicering, **og** narrativets
+  record-binding er ikke aktiv (status `withdrawn`), ellers
+  `NARRATIVE_LEGACY_MIGRATION_BINDING_ACTIVE`. Reversal sætter ledgeren tilbage
+  til `grandfathered_publication` og appender `reversal`. Fuld fortrydelse af ét
+  `bound_published`-narrativ er derfor: reverse `published` → discard draft →
+  reverse `legacy_migrated` (tre nye events, fuld historik bevaret). For
+  `bound_draft` er det ét trin: reverse `draft_created` (→ withdrawn).
+- **Læsegaten efter fuld fortrydelse (fund 2026-09-04):**
+  `person_daa_narrative_publication_allowed` returnerede `false`, så snart
+  narrativet havde en binding-række uanset status, og nåede aldrig legacy-grenen;
+  record-grenene i `public_person_bio_source_versions(_v2)` joiner bindingen uden
+  statusfilter. Kombinationen (withdrawn binding + grandfathered ledger) findes
+  først med 149b. 149b retter derfor begge i #152's læsefunktioner: gaten ser kun
+  bindinger med status `draft`/`published`, og record-grenene kræver
+  `binding.status='published'`. Efter fuld fortrydelse vises det grandfathered
+  narrativ igen præcis én gang som `legacy_narrative`.
+- **Kendt begrænsning:** fuld fortrydelse er endelig for narrativet.
+  `narrative_record_publication.narrative_id` er UNIQUE, og writeren afviser et
+  narrativ med enhver eksisterende binding (`LEGACY_MIGRATION_ALREADY_BOUND`).
+  Genmigrering af et fortrudt narrativ er uden for 149b og kræver en ny beslutning
+  (fx en `withdrawn`-only-gren i writeren, jf. #152 §6.2's mønster for nye
+  narrativer).
 - **Batch:** `red_reverse_reimport` afviser fortsat en ren `legacy_migration`-batch
   (`REIMPORT_WRITER_REVERSAL_INVALID`); en samlet fortrydelse er de per-narrativ
-  reversals kørt i omvendt elementrækkefølge af et R-script under én
+  trin kørt i omvendt elementrækkefølge af et R-script under én
   reversal-autorisation, med efterkontrol af at legacy-tal og bindings-tal er
   tilbage på før-billedet. Restore fra 0600-backup er den sidste udvej.
-- `red_tilbagetraek_legacy_narrative` på en `migrated` række fejler allerede med
+- `red_tilbagetraek_legacy_narrative` på en `migrated` række fejler med
   `NARRATIVE_LEGACY_PUBLICATION_TRANSITION_INVALID`; det testes.
 
 ## 9. Persondata

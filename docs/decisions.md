@@ -92,6 +92,19 @@ afviser fortsat (som 149a). Fravalgt: kun restore (for grov, når offentlig synl
 (3 ikke-levende, 1 levende) → forventet 541 `bound_published`, 46 `bound_draft`,
 4 `unresolved_text`, 0 `unresolved_identity` (0,7 % < 10 %-stopgrænsen).
 
+**149b, leverance 1 implementeret (2026-09-04) — to præciseringer af valg B og én #152-rettelse.**
+(1) Fortryd-kæden er »reverse published → discard draft → reverse legacy_migrated«, ikke
+»reverse published → reverse draft_created«: #152's reversal appender til samme stream, så
+`draft_created` er ikke seneste event efter første fortrydelse (bekræftet empirisk). (2) Fuld
+fortrydelse er endelig for narrativet: `narrative_record_publication.narrative_id` er UNIQUE og
+writeren afviser enhver eksisterende binding; genmigrering kræver en ny beslutning. (3) #152's
+læsefunktioner rettes i 149b: `person_daa_narrative_publication_allowed` så kun aktive bindinger
+(`draft`/`published`) blokerer legacy-grenen, og record-grenene i `public_person_bio_source_versions(_v2)`
+kræver `binding.status='published'` — ellers forsvandt et fuldt fortrudt grandfathered narrativ
+fra den offentlige flade (målt), og étlinje-rettelsen alene ville give en dublet. Kombinationen
+(withdrawn binding + grandfathered ledger) findes først med 149b. Kvittering: indgår i valg B's
+kvittering før prod-GO.
+
 ## BESLUTTET: #152's målte overgangsomkostning og sikkerhedsminimum (2026-08-29)
 
 Et eksternt read-only review af den reviderede #152-spec rapporterede et
