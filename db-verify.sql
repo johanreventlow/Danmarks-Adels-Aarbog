@@ -2692,6 +2692,7 @@ DECLARE
     'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_canonical_delta(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_name_completion(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_legacy_migration(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_person_create(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_source_evidence(uuid,text,jsonb)'::regprocedure,
     'public.red_begin_1939_v50_name_completion(uuid,text,uuid)'::regprocedure,

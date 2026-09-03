@@ -16540,6 +16540,203 @@ BEGIN
   RETURN jsonb_build_object('batch_id',v_batch.id,'status','finalized','replayed',true,'person_id_map',v_person_id_map);
 END $$;
 
+
+-- Task 3: legacy-migration-writeren og dens offentlige RPC.
+CREATE OR REPLACE FUNCTION private.migrate_legacy_narrative_record(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE
+  v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE; v_profile private.reimport_writer_profile%ROWTYPE;
+  v_actor uuid; v_actor_name text; v_run uuid; v_payload_sha text;
+  v_record private.source_record%ROWTYPE; v_occurrence private.source_record_occurrence%ROWTYPE;
+  v_anchor_count bigint; v_mention_count bigint; v_mention_id uuid;
+  v_person_id bigint; v_narrative_id bigint; v_disposition text; v_narrative public.narrative%ROWTYPE;
+  v_person_levende boolean; v_person_private boolean; v_person_staged boolean; v_publishable boolean;
+  -- Skalarer frem for %ROWTYPE: private.narrative_legacy_publication defineres senere i
+  -- denne fil, og plpgsql-validatoren opløser %ROWTYPE allerede ved CREATE FUNCTION.
+  v_legacy_ref uuid; v_legacy_status text; v_legacy_baseline_sha256 text; v_legacy_editor jsonb;
+  v_legacy_before jsonb; v_legacy_before_sha text; v_legacy_after jsonb; v_legacy_after_sha text; v_legacy_event_id uuid;
+  v_persona uuid; v_identity_version integer;
+  v_initial jsonb; v_initial_sha text; v_before jsonb; v_before_sha text; v_after jsonb; v_after_sha text;
+  v_labels jsonb; v_binding_id uuid; v_change_set_id bigint; v_stream_version integer;
+  v_draft_event_id uuid; v_published_event_id uuid; v_editor jsonb; v_expected_status text;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_batch:=private.require_reimport_open_batch(p_batch_id);
+  v_actor:=private.require_reimport_writer_editor();
+  PERFORM private.lock_reimport_writer(v_batch.source_id,v_batch.profile_id);
+  SELECT * INTO v_auth FROM private.reimport_authorization WHERE id=v_batch.authorization_id;
+  SELECT * INTO v_profile FROM private.reimport_writer_profile WHERE source_id=v_batch.source_id AND profile_id=v_batch.profile_id AND profile_sha256=v_batch.profile_sha256;
+  IF NOT FOUND OR v_auth.source_id<>v_batch.source_id OR v_auth.profile_id<>v_batch.profile_id OR v_auth.profile_sha256<>v_batch.profile_sha256
+     OR NOT v_auth.authorized_elements ? p_element_id OR v_auth.authorized_elements->p_element_id IS DISTINCT FROM p_payload THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_ELEMENT_NOT_AUTHORIZED';
+  END IF;
+  IF jsonb_typeof(p_payload)<>'object'
+     OR ARRAY(SELECT key FROM jsonb_object_keys(p_payload) key ORDER BY key)
+        <> ARRAY['disposition','legacy_baseline_sha256','legacy_publication_ref','narrative_id','narrative_text_sha256','normalized_text_sha256','occurrence_verbatim_sha256','person_id','persona_key','source_id','source_record_key']
+     OR p_element_id<>'legacy-migration:'||coalesce(p_payload->>'source_record_key','')
+     OR (p_payload->>'source_id')::bigint IS DISTINCT FROM v_batch.source_id
+     OR coalesce(p_payload->>'disposition','') NOT IN ('bound_published','bound_draft')
+     OR jsonb_typeof(p_payload->'person_id')<>'number' OR jsonb_typeof(p_payload->'narrative_id')<>'number'
+     OR coalesce(p_payload->>'narrative_text_sha256','') !~ '^[0-9a-f]{64}$'
+     OR coalesce(p_payload->>'occurrence_verbatim_sha256','') !~ '^[0-9a-f]{64}$'
+     OR coalesce(p_payload->>'normalized_text_sha256','') !~ '^[0-9a-f]{64}$'
+     OR nullif(btrim(coalesce(p_payload->>'persona_key','')),'') IS NULL
+     OR (p_payload->>'disposition'='bound_published') <> (jsonb_typeof(p_payload->'legacy_publication_ref')='string')
+     OR (p_payload->>'disposition'='bound_published') <> (jsonb_typeof(p_payload->'legacy_baseline_sha256')='string') THEN
+    RAISE EXCEPTION 'LEGACY_MIGRATION_PAYLOAD_INVALID';
+  END IF;
+  v_disposition:=p_payload->>'disposition'; v_person_id:=(p_payload->>'person_id')::bigint; v_narrative_id:=(p_payload->>'narrative_id')::bigint;
+  IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN RAISE EXCEPTION 'NARRATIVE_RECORD_FOREIGN_CHANGE_SET'; END IF;
+
+  -- Låserække (spec §6.4): change_set → source_record → narrativ → ledger/events.
+  LOCK TABLE public.change_set IN ACCESS EXCLUSIVE MODE;
+  SELECT * INTO v_record FROM private.source_record WHERE source_id=v_batch.source_id AND record_key=p_payload->>'source_record_key' FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'LEGACY_MIGRATION_RECORD_MISSING'; END IF;
+  SELECT count(*) INTO v_anchor_count FROM private.source_record_anchor_current a WHERE a.source_record_id=v_record.id AND a.decision_status='accepted';
+  IF v_anchor_count<>1 THEN RAISE EXCEPTION 'LEGACY_MIGRATION_ANCHOR_AMBIGUOUS'; END IF;
+  SELECT o.* INTO v_occurrence FROM private.source_record_anchor_current a JOIN private.source_record_occurrence o ON o.id=a.occurrence_id
+   WHERE a.source_record_id=v_record.id AND a.decision_status='accepted';
+  IF encode(digest(v_occurrence.verbatim_text,'sha256'),'hex')<>p_payload->>'occurrence_verbatim_sha256' THEN RAISE EXCEPTION 'LEGACY_MIGRATION_OCCURRENCE_TEXT_DRIFT'; END IF;
+  -- min() findes ikke for uuid; brug array_agg.
+  SELECT count(*),(array_agg(m.id ORDER BY m.id))[1] INTO v_mention_count,v_mention_id FROM private.source_observation ob JOIN private.source_mention m ON m.observation_id=ob.id WHERE ob.occurrence_id=v_occurrence.id;
+  IF v_mention_count<>1 THEN RAISE EXCEPTION 'LEGACY_MIGRATION_MENTION_AMBIGUOUS'; END IF;
+  IF (SELECT count(*) FROM public.person_external_id x WHERE x.source_id=v_batch.source_id AND x.record_key=v_record.record_key)<>1
+     OR NOT EXISTS (SELECT 1 FROM public.person_external_id x WHERE x.source_id=v_batch.source_id AND x.record_key=v_record.record_key AND x.person_id=v_person_id)
+     OR (SELECT count(*) FROM public.person_external_id x WHERE x.source_id=v_batch.source_id AND x.person_id=v_person_id)<>1 THEN
+    RAISE EXCEPTION 'LEGACY_MIGRATION_IDENTITY_AMBIGUOUS';
+  END IF;
+  IF (SELECT count(*) FROM public.narrative n WHERE n.subjekt_type='person' AND n.subjekt_id=v_person_id AND n.source_id=v_batch.source_id)<>1 THEN
+    RAISE EXCEPTION 'LEGACY_MIGRATION_NARRATIVE_AMBIGUOUS';
+  END IF;
+  SELECT * INTO v_narrative FROM public.narrative WHERE id=v_narrative_id AND subjekt_type='person' AND subjekt_id=v_person_id AND source_id=v_batch.source_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'LEGACY_MIGRATION_NARRATIVE_AMBIGUOUS'; END IF;
+  IF EXISTS (SELECT 1 FROM private.narrative_record_publication b WHERE b.narrative_id=v_narrative_id) THEN RAISE EXCEPTION 'LEGACY_MIGRATION_ALREADY_BOUND'; END IF;
+  IF encode(digest(v_narrative.tekst,'sha256'),'hex')<>p_payload->>'narrative_text_sha256' THEN RAISE EXCEPTION 'LEGACY_MIGRATION_NARRATIVE_TEXT_DRIFT'; END IF;
+  SELECT levende,coalesce(privat,false),coalesce(staged,false) INTO v_person_levende,v_person_private,v_person_staged FROM public.person WHERE id=v_person_id;
+  v_publishable:=v_person_levende IS FALSE AND NOT v_person_private AND NOT v_person_staged AND NOT coalesce(v_narrative.privat,false);
+  SELECT legacy_publication_ref,status,baseline_sha256 INTO v_legacy_ref,v_legacy_status,v_legacy_baseline_sha256 FROM private.narrative_legacy_publication WHERE narrative_id=v_narrative_id;
+  IF v_disposition='bound_published' THEN
+    IF NOT FOUND OR NOT v_publishable OR v_legacy_ref<>(p_payload->>'legacy_publication_ref')::uuid
+       OR v_legacy_status<>'grandfathered_publication' OR v_legacy_baseline_sha256<>p_payload->>'legacy_baseline_sha256' THEN
+      RAISE EXCEPTION 'LEGACY_MIGRATION_LEDGER_INCONSISTENT';
+    END IF;
+    v_legacy_editor:=private.narrative_legacy_state(v_legacy_ref,true);
+    IF NOT coalesce((v_legacy_editor->>'baseline_matches')::boolean,false) OR v_legacy_editor->>'publication_status'<>'published' THEN
+      RAISE EXCEPTION 'NARRATIVE_LEGACY_BASELINE_DRIFT';
+    END IF;
+  ELSE
+    IF FOUND OR v_publishable THEN RAISE EXCEPTION 'LEGACY_MIGRATION_LEDGER_INCONSISTENT'; END IF;
+  END IF;
+
+  -- Identitetsledger (spec §5): run, persona, mention, accepteret identitet.
+  v_payload_sha:=private.reimport_canonical_json_sha256(p_payload);
+  INSERT INTO private.extraction_run(source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+  VALUES(v_batch.source_id,(v_profile.writer_config->>'run_key_prefix')||v_batch.manifest_sha256,v_profile.writer_config->>'schema_version',v_profile.writer_config->>'extractor_version',v_profile.profile_version,v_batch.manifest_sha256,jsonb_build_object('batch_id',p_batch_id,'profile_sha256',v_batch.profile_sha256))
+  ON CONFLICT(source_id,run_key) DO NOTHING;
+  SELECT id INTO v_run FROM private.extraction_run WHERE source_id=v_batch.source_id AND run_key=(v_profile.writer_config->>'run_key_prefix')||v_batch.manifest_sha256;
+  IF EXISTS (SELECT 1 FROM private.source_persona WHERE source_id=v_batch.source_id AND persona_key=p_payload->>'persona_key') THEN RAISE EXCEPTION 'LEGACY_MIGRATION_PERSONA_EXISTS'; END IF;
+  INSERT INTO private.source_persona(source_id,persona_key,created_run_id) VALUES(v_batch.source_id,p_payload->>'persona_key',v_run) RETURNING id INTO v_persona;
+  INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) VALUES(v_persona,v_mention_id,'primary',1);
+  v_identity_version:=public.red_decide_source_persona_identity(v_persona,v_person_id,0,'accepted',jsonb_build_object(
+    'authority','person_external_id',
+    'person_external_id',jsonb_build_object('person_id',v_person_id,'source_id',v_batch.source_id,'record_key',v_record.record_key),
+    'batch_id',p_batch_id,'element_id',p_element_id,'profile_sha256',v_batch.profile_sha256,'authorized_payload_sha256',v_payload_sha));
+
+  v_initial:=private.narrative_publication_state(v_person_id,v_batch.source_id,v_record.record_key);
+  v_initial_sha:=encode(digest(v_initial::text,'sha256'),'hex');
+  -- Førtilstanden accepteres, når den enten er eligible (fremtidige placements) eller
+  -- blokeret ALENE af manglende identitet (valg A). Manglende anker eller konflikt er stop.
+  IF v_initial->>'publication_status'<>'none' OR jsonb_typeof(v_initial->'binding')<>'null'
+     OR NOT ((v_initial #>> '{authority,eligibility_status}')='eligible'
+             OR (v_initial #>> '{authority,blocking_reason}')='NARRATIVE_RECORD_IDENTITY_REQUIRED') THEN
+    RAISE EXCEPTION 'LEGACY_MIGRATION_PRESTATE_INVALID';
+  END IF;
+  v_labels:=v_initial->'labels';
+  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text) INTO v_actor_name FROM public.profiles WHERE id=v_actor;
+  v_actor_name:=coalesce(v_actor_name,v_actor::text);
+  v_change_set_id:=public.begin_change_set('narrative_record_legacy_migrated',
+    format('Legacy-migration: person %s, source %s, record %s, batch %s',v_person_id,v_batch.source_id,v_record.record_key,p_batch_id),'person',v_person_id);
+
+  -- Legacy-stream lukkes først (kun bound_published).
+  IF v_disposition='bound_published' THEN
+    v_legacy_before:=v_legacy_editor->'publication_state'; v_legacy_before_sha:=v_legacy_editor->>'publication_state_sha256';
+    UPDATE private.narrative_legacy_publication SET status='migrated' WHERE legacy_publication_ref=v_legacy_ref AND status='grandfathered_publication';
+    IF NOT FOUND THEN RAISE EXCEPTION 'NARRATIVE_LEGACY_PUBLICATION_PROJECTION_MISMATCH'; END IF;
+    v_legacy_after:=private.narrative_legacy_publication_state(v_legacy_ref);
+    v_legacy_after_sha:=encode(digest(v_legacy_after::text,'sha256'),'hex');
+    SELECT coalesce(max(stream_version),0)+1 INTO v_stream_version FROM private.narrative_publication_event WHERE stream_ref=v_legacy_ref;
+    INSERT INTO private.narrative_publication_event(change_set_id,stream_ref,stream_version,event_type,narrative_id,source_id,legacy_publication_ref,decision_basis,before_state,after_state,before_state_sha256,after_state_sha256,decided_by,decided_by_name)
+    VALUES(v_change_set_id,v_legacy_ref,v_stream_version,'legacy_migrated',v_narrative_id,v_batch.source_id,v_legacy_ref,
+      format('Legacy-migration til source record %s (batch %s)',v_record.record_key,p_batch_id),v_legacy_before,v_legacy_after,v_legacy_before_sha,v_legacy_after_sha,v_actor,v_actor_name)
+    RETURNING id INTO v_legacy_event_id;
+    UPDATE private.narrative_legacy_publication SET latest_event_id=v_legacy_event_id WHERE legacy_publication_ref=v_legacy_ref;
+    v_legacy_editor:=private.narrative_legacy_state(v_legacy_ref,false);
+    IF v_legacy_editor->>'latest_event_id' IS DISTINCT FROM v_legacy_event_id::text OR v_legacy_editor->>'ledger_status' IS DISTINCT FROM 'migrated' THEN
+      RAISE EXCEPTION 'LEGACY_MIGRATION_EVENT_APPEND_MISMATCH';
+    END IF;
+  END IF;
+
+  -- Record-stream: draft_created, derefter published ved bound_published.
+  v_before:=v_initial; v_before_sha:=v_initial_sha;
+  INSERT INTO private.narrative_record_publication(narrative_id,source_record_id,record_label,citation_label,status)
+  VALUES(v_narrative_id,v_record.id,v_labels->>'record_label',v_labels->>'citation_label','draft') RETURNING id INTO v_binding_id;
+  v_after:=private.narrative_publication_state(v_person_id,v_batch.source_id,v_record.record_key);
+  v_after_sha:=encode(digest(v_after::text,'sha256'),'hex');
+  INSERT INTO private.narrative_publication_event(change_set_id,stream_ref,stream_version,event_type,binding_id,narrative_id,source_id,source_record_id,decision_basis,before_state,after_state,before_state_sha256,after_state_sha256,decided_by,decided_by_name)
+  VALUES(v_change_set_id,v_binding_id,1,'draft_created',v_binding_id,v_narrative_id,v_batch.source_id,v_record.id,
+    format('Legacy-migration: record-binding fra person_external_id (batch %s)',p_batch_id),v_before,v_after,v_before_sha,v_after_sha,v_actor,v_actor_name)
+  RETURNING id INTO v_draft_event_id;
+  v_expected_status:='draft';
+  IF v_disposition='bound_published' THEN
+    v_before:=v_after; v_before_sha:=v_after_sha;
+    UPDATE private.narrative_record_publication SET status='published' WHERE id=v_binding_id AND status='draft';
+    IF NOT FOUND THEN RAISE EXCEPTION 'NARRATIVE_RECORD_PROJECTION_MISMATCH'; END IF;
+    v_after:=private.narrative_publication_state(v_person_id,v_batch.source_id,v_record.record_key);
+    v_after_sha:=encode(digest(v_after::text,'sha256'),'hex');
+    INSERT INTO private.narrative_publication_event(change_set_id,stream_ref,stream_version,event_type,binding_id,narrative_id,source_id,source_record_id,decision_basis,before_state,after_state,before_state_sha256,after_state_sha256,decided_by,decided_by_name)
+    VALUES(v_change_set_id,v_binding_id,2,'published',v_binding_id,v_narrative_id,v_batch.source_id,v_record.id,
+      format('Legacy-migration: publiceret record-bundet narrativ (batch %s)',p_batch_id),v_before,v_after,v_before_sha,v_after_sha,v_actor,v_actor_name)
+    RETURNING id INTO v_published_event_id;
+    v_expected_status:='published';
+  END IF;
+
+  v_editor:=private.narrative_record_state(v_person_id,v_batch.source_id,v_record.record_key,false);
+  IF v_editor->>'latest_event_id' IS DISTINCT FROM coalesce(v_published_event_id,v_draft_event_id)::text
+     OR v_editor->>'publication_state_sha256' IS DISTINCT FROM v_after_sha
+     OR v_editor->'publication_state' IS DISTINCT FROM v_after
+     OR v_editor->>'publication_status' IS DISTINCT FROM v_expected_status
+     OR v_editor->>'eligibility_status' IS DISTINCT FROM 'eligible'
+     OR v_after #>> '{authority,kind}' IS DISTINCT FROM 'existing_exact_binding' THEN
+    RAISE EXCEPTION 'LEGACY_MIGRATION_EVENT_APPEND_MISMATCH';
+  END IF;
+  IF (v_disposition='bound_published')<>public.person_daa_narrative_publication_allowed(v_narrative_id) THEN
+    RAISE EXCEPTION 'LEGACY_MIGRATION_PUBLICATION_GATE_MISMATCH';
+  END IF;
+
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,canonical_person_id,payload,before_sha256,after_sha256)
+  VALUES(p_batch_id,p_element_id,'legacy_migration',v_record.record_key,v_person_id,
+    p_payload||jsonb_build_object('authorized_payload_sha256',v_payload_sha,'persona_id',v_persona,'identity_version',v_identity_version,
+      'legacy_event_id',v_legacy_event_id,'binding_id',v_binding_id,'draft_event_id',v_draft_event_id,'published_event_id',v_published_event_id,
+      'publication_state_sha256',v_after_sha,'state_sha256',v_editor->>'state_sha256'),
+    v_initial_sha,v_after_sha);
+  RETURN jsonb_build_object('persona_id',v_persona,'identity_version',v_identity_version,'legacy_event_id',v_legacy_event_id,
+    'binding_id',v_binding_id,'draft_event_id',v_draft_event_id,'published_event_id',v_published_event_id,
+    'publication_state_sha256',v_after_sha,'state_sha256',v_editor->>'state_sha256');
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_apply_reimport_legacy_migration(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  RETURN private.migrate_legacy_narrative_record(p_batch_id,p_element_id,p_payload);
+END $$;
+
+REVOKE ALL ON FUNCTION private.migrate_legacy_narrative_record(uuid,text,jsonb),
+  public.red_apply_reimport_legacy_migration(uuid,text,jsonb)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_apply_reimport_legacy_migration(uuid,text,jsonb)
+  TO authenticated;
+
 -- #154: close every inherited/default EXECUTE grant and classify the complete
 -- public.red_* overload catalog after #153's contract-v2 cutover. A new RPC
 -- must be added to exactly one array or the migration fails closed.
@@ -16556,6 +16753,7 @@ DECLARE
     'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_canonical_delta(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_name_completion(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_legacy_migration(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_person_create(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_source_evidence(uuid,text,jsonb)'::regprocedure,
     'public.red_begin_1939_v50_name_completion(uuid,text,uuid)'::regprocedure,
