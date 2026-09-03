@@ -302,61 +302,131 @@ def final_snapshot(*contributions: dict) -> dict:
     )
 
 
-def test_project_task25_uses_manifest_element_id_as_occurrence_key(tmp_path):
-    manifest_sha256 = write_json(
-        tmp_path / "task25.json",
+def task25_operations() -> list[dict]:
+    return [
         {
-            "schema_version": "1939-v50-production-write-manifest-v1",
-            "source": {"database_source_id": 3},
-            "person_creates": [
-                {"element_id": "element-1", "source_record_key": "record-1"}
-            ],
+            "element_id": f"source-evidence:{number}",
+            "dependency_class": "source_evidence",
+            "source_record_key": f"source-record-{number}",
+        }
+        for number in range(1, 306)
+    ] + [
+        {
+            "element_id": f"person-create:{number}",
+            "dependency_class": "person_create",
+            "source_record_key": f"person-record-{number}",
+        }
+        for number in range(1, 9)
+    ]
+
+
+def task25_operation_identities() -> list[dict]:
+    return [
+        {
+            "element_id": operation["element_id"],
+            "source_id": 3,
+            "record_key": operation["source_record_key"],
+            "person_id": None,
+        }
+        for operation in task25_operations()[:305]
+    ] + [
+        {
+            "element_id": operation["element_id"],
+            "source_id": 3,
+            "record_key": operation["source_record_key"],
+            "person_id": 9000 + number,
+        }
+        for number, operation in enumerate(task25_operations()[305:], start=1)
+    ]
+
+
+def task25_manifest() -> dict:
+    operations = task25_operations()
+    return {
+        "schema_version": "1939-v50-production-write-manifest-v1",
+        "source": {"database_source_id": 3},
+        "person_creates": [
+            operation for operation in operations if operation["dependency_class"] == "person_create"
+        ],
+        "operations": operations,
+    }
+
+
+def task25_receipt(manifest_sha256: str) -> dict:
+    return {
+        "schema_version": "daa-evidence-phase-receipt-task25-v1",
+        "manifest_sha256": manifest_sha256,
+        "database_target_identity": production_target_identity(),
+        "operation_identities": task25_operation_identities(),
+    }
+
+
+def test_project_task25_projects_all_manifest_operations_including_305_source_evidence_anchors(tmp_path):
+    manifest_sha256 = write_json(tmp_path / "task25.json", task25_manifest())
+    receipt_sha256 = write_json(tmp_path / "task25-receipt.json", task25_receipt(manifest_sha256))
+
+    contribution = project_phase(
+        tmp_path,
+        mechanically_bound_task25_phase(manifest_sha256, receipt_sha256),
+        bound_summary(mechanically_bound_task25_phase(manifest_sha256, receipt_sha256)),
+    )
+
+    assert len(contribution["source_records"]) == 313
+    assert len(contribution["source_anchors"]) == 313
+    assert contribution["source_anchors"][304] == {
+        "source_id": 3,
+        "record_key": "source-record-305",
+        "occurrence_key": "source-evidence:305",
+    }
+    assert contribution["persons"] == [{"person_id": 9000 + number} for number in range(1, 9)]
+
+
+def test_project_phase_b_projects_the_distinct_positive_receipt_person_ids(tmp_path):
+    identity_map = phase_b_identity_map()
+    manifest_sha256 = write_json(
+        tmp_path / "phase-b.json",
+        {
+            "schema_version": "1939-v50-narrative-replacement-manifest-v2",
+            "operations": phase_b_operations(identity_map),
         },
     )
     receipt_sha256 = write_json(
-        tmp_path / "task25-receipt.json",
+        tmp_path / "phase-b-receipt.json",
         {
-            "schema_version": "daa-evidence-phase-receipt-task25-v1",
+            "schema_version": "daa-evidence-phase-receipt-phase-b-v1",
             "manifest_sha256": manifest_sha256,
             "database_target_identity": production_target_identity(),
-            "created_person_identities": [
-                {
-                    "element_id": "element-1",
-                    "source_id": 3,
-                    "record_key": "record-1",
-                    "person_id": 1,
-                }
-            ],
+            "identity_map": identity_map,
         },
     )
+
+    contribution = project_phase(
+        tmp_path,
+        mechanically_bound_phase_b_phase(manifest_sha256, receipt_sha256),
+        bound_summary(mechanically_bound_phase_b_phase(manifest_sha256, receipt_sha256)),
+    )
+
+    assert contribution["persons"] == [{"person_id": person_id} for person_id in range(1, 552)]
+
+
+def test_project_task25_uses_manifest_element_id_as_occurrence_key(tmp_path):
+    manifest_sha256 = write_json(tmp_path / "task25.json", task25_manifest())
+    receipt_sha256 = write_json(tmp_path / "task25-receipt.json", task25_receipt(manifest_sha256))
     phase = mechanically_bound_task25_phase(manifest_sha256, receipt_sha256)
     contribution = project_phase(tmp_path, phase, bound_summary(phase))
 
     assert contribution["source_anchors"] == [
-        {"source_id": 3, "record_key": "record-1", "occurrence_key": "element-1"}
+        {"source_id": 3, "record_key": f"source-record-{number}", "occurrence_key": f"source-evidence:{number}"}
+        for number in range(1, 306)
+    ] + [
+        {"source_id": 3, "record_key": f"person-record-{number}", "occurrence_key": f"person-create:{number}"}
+        for number in range(1, 9)
     ]
 
 
 def test_audit_marks_task25_mechanically_bound_only_with_the_receipt_identity_map(tmp_path):
-    manifest_sha256 = write_json(
-        tmp_path / "task25.json",
-        {
-            "schema_version": "1939-v50-production-write-manifest-v1",
-            "source": {"database_source_id": 3},
-            "person_creates": [{"element_id": "element-1", "source_record_key": "record-1"}],
-        },
-    )
-    receipt_sha256 = write_json(
-        tmp_path / "task25-receipt.json",
-        {
-            "schema_version": "daa-evidence-phase-receipt-task25-v1",
-            "manifest_sha256": manifest_sha256,
-            "database_target_identity": production_target_identity(),
-            "created_person_identities": [
-                {"element_id": "element-1", "source_id": 3, "record_key": "record-1", "person_id": 1}
-            ],
-        },
-    )
+    manifest_sha256 = write_json(tmp_path / "task25.json", task25_manifest())
+    receipt_sha256 = write_json(tmp_path / "task25-receipt.json", task25_receipt(manifest_sha256))
     phase = mechanically_bound_task25_phase(manifest_sha256, receipt_sha256)
 
     assert audit_bundle(tmp_path, [phase]).phase("task25").projection_evidence == "mechanically_bound"
@@ -461,27 +531,13 @@ def test_project_c0_uses_the_receipt_after_sha_and_binding_identity(tmp_path):
 
     assert contribution["narrative_sha256"][0] == {"narrative_id": 7, "sha256": "d" * 64}
     assert len(contribution["narrative_bindings"]) == 9
+    assert contribution["persons"] == []
 
 
 def test_audited_projections_seal_into_a_second_ledger_and_reconcile_final_state(tmp_path):
-    task25_manifest_sha256 = write_json(
-        tmp_path / "task25.json",
-        {
-            "schema_version": "1939-v50-production-write-manifest-v1",
-            "source": {"database_source_id": 3},
-            "person_creates": [{"element_id": "element-1", "source_record_key": "record-1"}],
-        },
-    )
+    task25_manifest_sha256 = write_json(tmp_path / "task25.json", task25_manifest())
     task25_receipt_sha256 = write_json(
-        tmp_path / "task25-receipt.json",
-        {
-            "schema_version": "daa-evidence-phase-receipt-task25-v1",
-            "manifest_sha256": task25_manifest_sha256,
-            "database_target_identity": production_target_identity(),
-            "created_person_identities": [
-                {"element_id": "element-1", "source_id": 3, "record_key": "record-1", "person_id": 1}
-            ],
-        },
+        tmp_path / "task25-receipt.json", task25_receipt(task25_manifest_sha256)
     )
     phase_b_map = phase_b_identity_map()
     phase_b_manifest_sha256 = write_json(
@@ -530,7 +586,54 @@ def test_audited_projections_seal_into_a_second_ledger_and_reconcile_final_state
     }
     reconciliation_ledger = sealed_ledger(audit_phases, contributions)
 
-    report = reconcile(final_snapshot(*contributions.values()), list(contributions.values()), reconciliation_ledger)
+    snapshot = seal(
+        {
+            "schema_version": "daa-evidence-production-snapshot-v1",
+            "source_records": [
+                {"source_id": 3, "record_key": f"source-record-{number}"}
+                for number in range(1, 306)
+            ] + [
+                {"source_id": 3, "record_key": f"person-record-{number}"}
+                for number in range(1, 9)
+            ],
+            "source_anchors": [
+                {
+                    "source_id": 3,
+                    "record_key": f"source-record-{number}",
+                    "occurrence_key": f"source-evidence:{number}",
+                }
+                for number in range(1, 306)
+            ] + [
+                {
+                    "source_id": 3,
+                    "record_key": f"person-record-{number}",
+                    "occurrence_key": f"person-create:{number}",
+                }
+                for number in range(1, 9)
+            ],
+            "narrative_bindings": [
+                {"source_id": 3, "record_key": f"record-{number}", "narrative_id": 1000 + number}
+                for number in range(10, 552)
+            ] + [
+                {"source_id": 3, "record_key": f"record-{number}", "narrative_id": 1000 + number}
+                for number in range(1, 10)
+            ],
+            "narrative_sha256": [
+                {"narrative_id": 1000 + number, "sha256": f"{number + 551:064x}"}
+                for number in range(10, 552)
+            ] + [
+                {"narrative_id": 1000 + number, "sha256": "d" * 64}
+                for number in range(1, 10)
+            ],
+            "persons": [{"person_id": person_id} for person_id in range(1, 552)]
+            + [{"person_id": 9000 + number} for number in range(1, 9)],
+        }
+    )
+    assert len(snapshot["source_records"]) == 313
+    assert len(snapshot["source_anchors"]) == 313
+    assert len(snapshot["persons"]) == 559
+
+    report = reconcile(snapshot, list(contributions.values()), reconciliation_ledger)
 
     assert report["status"] == "match"
     assert report["ledger_content_sha256"] == reconciliation_ledger["ledger_content_sha256"]
@@ -553,25 +656,8 @@ def test_audited_projections_seal_into_a_second_ledger_and_reconcile_final_state
 
 
 def test_task25_rejects_declared_database_target_and_adapter_hash_drift(tmp_path):
-    manifest_sha256 = write_json(
-        tmp_path / "task25.json",
-        {
-            "schema_version": "1939-v50-production-write-manifest-v1",
-            "source": {"database_source_id": 3},
-            "person_creates": [{"element_id": "element-1", "source_record_key": "record-1"}],
-        },
-    )
-    receipt_sha256 = write_json(
-        tmp_path / "task25-receipt.json",
-        {
-            "schema_version": "daa-evidence-phase-receipt-task25-v1",
-            "manifest_sha256": manifest_sha256,
-            "database_target_identity": production_target_identity(),
-            "created_person_identities": [
-                {"element_id": "element-1", "source_id": 3, "record_key": "record-1", "person_id": 1}
-            ],
-        },
-    )
+    manifest_sha256 = write_json(tmp_path / "task25.json", task25_manifest())
+    receipt_sha256 = write_json(tmp_path / "task25-receipt.json", task25_receipt(manifest_sha256))
     phase = mechanically_bound_task25_phase(manifest_sha256, receipt_sha256)
     wrong_target = replace(phase, database_target_identity_sha256="a" * 64)
     wrong_adapter = replace(phase, adapter_sha256="0" * 64)
@@ -584,23 +670,8 @@ def test_task25_rejects_declared_database_target_and_adapter_hash_drift(tmp_path
 
 
 def test_project_rejects_the_well_formed_projector_only_legacy_hash(tmp_path):
-    manifest_sha256 = write_json(
-        tmp_path / "task25.json",
-        {
-            "schema_version": "1939-v50-production-write-manifest-v1",
-            "source": {"database_source_id": 3},
-            "person_creates": [{"element_id": "element-1", "source_record_key": "record-1"}],
-        },
-    )
-    receipt_sha256 = write_json(
-        tmp_path / "task25-receipt.json",
-        {
-            "schema_version": "daa-evidence-phase-receipt-task25-v1",
-            "manifest_sha256": manifest_sha256,
-            "database_target_identity": production_target_identity(),
-            "created_person_identities": [{"element_id": "element-1", "source_id": 3, "record_key": "record-1", "person_id": 1}],
-        },
-    )
+    manifest_sha256 = write_json(tmp_path / "task25.json", task25_manifest())
+    receipt_sha256 = write_json(tmp_path / "task25-receipt.json", task25_receipt(manifest_sha256))
     phase = mechanically_bound_task25_phase(manifest_sha256, receipt_sha256)
     legacy = replace(phase, adapter_sha256=hashlib.sha256(Path(projector.__file__).read_bytes()).hexdigest())
 
@@ -609,14 +680,8 @@ def test_project_rejects_the_well_formed_projector_only_legacy_hash(tmp_path):
 
 
 def test_direct_projection_rejects_an_extra_optional_undeclared_artifact(tmp_path):
-    manifest_sha256 = write_json(
-        tmp_path / "task25.json",
-        {"schema_version": "1939-v50-production-write-manifest-v1", "source": {"database_source_id": 3}, "person_creates": [{"element_id": "element-1", "source_record_key": "record-1"}]},
-    )
-    receipt_sha256 = write_json(
-        tmp_path / "task25-receipt.json",
-        {"schema_version": "daa-evidence-phase-receipt-task25-v1", "manifest_sha256": manifest_sha256, "database_target_identity": production_target_identity(), "created_person_identities": [{"element_id": "element-1", "source_id": 3, "record_key": "record-1", "person_id": 1}]},
-    )
+    manifest_sha256 = write_json(tmp_path / "task25.json", task25_manifest())
+    receipt_sha256 = write_json(tmp_path / "task25-receipt.json", task25_receipt(manifest_sha256))
     phase = replace(
         mechanically_bound_task25_phase(manifest_sha256, receipt_sha256),
         artifacts=mechanically_bound_task25_phase(manifest_sha256, receipt_sha256).artifacts

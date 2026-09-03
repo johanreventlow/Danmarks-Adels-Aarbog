@@ -170,6 +170,22 @@ def adapter_sha256() -> str:
     return digest.hexdigest()
 
 
+TASK25_RECEIPT_ADAPTER = ReceiptAdapter(
+    adapter_id="task25-v1",
+    manifest_role="manifest",
+    manifest_schema_version="1939-v50-production-write-manifest-v1",
+    receipt_role="receipt",
+    receipt_schema_version="daa-evidence-phase-receipt-task25-v1",
+    manifest_sha256_field="manifest_sha256",
+    database_target_identity_field="database_target_identity",
+    identity_map_field="operation_identities",
+    identity_fields=("element_id", "source_id", "record_key", "person_id"),
+    identity_unique_fields=("element_id", "record_key"),
+    identity_count=313,
+    publication_statuses=frozenset(),
+)
+
+
 RECEIPT_ADAPTERS: Mapping[str, ReceiptAdapter] = {
     "phase-b-v1": ReceiptAdapter(
         adapter_id="phase-b-v1",

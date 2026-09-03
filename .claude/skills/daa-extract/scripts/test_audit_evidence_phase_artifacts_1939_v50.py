@@ -137,6 +137,101 @@ def phase_b_operations(identity_map: list[dict]) -> list[dict]:
     ]
 
 
+def task25_operations() -> list[dict]:
+    return [
+        {
+            "element_id": f"source-evidence:{number}",
+            "dependency_class": "source_evidence",
+            "source_record_key": f"source-record-{number}",
+        }
+        for number in range(1, 306)
+    ] + [
+        {
+            "element_id": f"person-create:{number}",
+            "dependency_class": "person_create",
+            "source_record_key": f"person-record-{number}",
+        }
+        for number in range(1, 9)
+    ]
+
+
+def task25_receipt(manifest_sha256: str) -> dict:
+    operations = task25_operations()
+    return {
+        "schema_version": "daa-evidence-phase-receipt-task25-v1",
+        "manifest_sha256": manifest_sha256,
+        "database_target_identity": production_target_identity(),
+        "operation_identities": [
+            {
+                "element_id": operation["element_id"],
+                "source_id": 3,
+                "record_key": operation["source_record_key"],
+                "person_id": None,
+            }
+            for operation in operations[:305]
+        ]
+        + [
+            {
+                "element_id": operation["element_id"],
+                "source_id": 3,
+                "record_key": operation["source_record_key"],
+                "person_id": 9000 + number,
+            }
+            for number, operation in enumerate(operations[305:], start=1)
+        ],
+    }
+
+
+def task25_phase(manifest_sha256: str, receipt_sha256: str) -> PhaseEntry:
+    return PhaseEntry(
+        phase_id="task25",
+        sequence=1,
+        artifacts=(
+            ArtifactEntry("manifest", "task25.json", manifest_sha256, "1939-v50-production-write-manifest-v1", True),
+            ArtifactEntry("receipt", "task25-receipt.json", receipt_sha256, "daa-evidence-phase-receipt-task25-v1", True),
+        ),
+        adapter_id="task25-v1",
+        adapter_sha256=adapter_sha256(),
+        projection_evidence="mechanically_bound",
+        authorisation_evidence="afterdocumented_authorisation_gap",
+        database_target_identity_sha256=production_target_identity_sha256(),
+    )
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda identities: identities.pop(),
+        lambda identities: identities.append(dict(identities[-1])),
+        lambda identities: identities.__setitem__(1, {**identities[1], "element_id": identities[0]["element_id"]}),
+        lambda identities: identities.reverse(),
+        lambda identities: identities.__setitem__(0, {**identities[0], "person_id": 9001}),
+        lambda identities: identities.__setitem__(305, {**identities[305], "person_id": None}),
+        lambda identities: identities.__setitem__(0, {**identities[0], "record_key": "source-record-drift"}),
+    ],
+)
+def test_audit_rejects_task25_missing_extra_duplicate_reordered_misclassified_or_drifting_operation_identities(
+    tmp_path, mutate
+):
+    operations = task25_operations()
+    manifest_sha256 = write_json(
+        tmp_path / "task25.json",
+        {
+            "schema_version": "1939-v50-production-write-manifest-v1",
+            "source": {"database_source_id": 3},
+            "person_creates": [operation for operation in operations if operation["dependency_class"] == "person_create"],
+            "operations": operations,
+        },
+    )
+    receipt = task25_receipt(manifest_sha256)
+    mutate(receipt["operation_identities"])
+    receipt_sha256 = write_json(tmp_path / "task25-receipt.json", receipt)
+
+    result = audit_bundle(tmp_path, [task25_phase(manifest_sha256, receipt_sha256)])
+
+    assert result.phase("task25").error == "EVIDENCE_RECONCILIATION_RECEIPT_UNBOUND"
+
+
 def sealed_d1_ledger(tmp_path: Path) -> list:
     raw = b"synthetic historical apply script\n"
     (tmp_path / "d1.apply").write_bytes(raw)

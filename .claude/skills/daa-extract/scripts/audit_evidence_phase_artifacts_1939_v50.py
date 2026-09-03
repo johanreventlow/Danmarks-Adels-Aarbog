@@ -14,6 +14,7 @@ from evidence_phase_artifact_ledger import (
     PhaseEntry,
     RECEIPT_ADAPTERS,
     ReceiptAdapter,
+    TASK25_RECEIPT_ADAPTER,
     adapter_sha256,
     canonical_sha256,
     validate_phase_contract,
@@ -441,60 +442,101 @@ def _task25_receipt_binds(verified: Mapping[str, _VerifiedArtifact], phase: Phas
     if pair is None:
         return False
     manifest, receipt = pair
+    adapter = TASK25_RECEIPT_ADAPTER
     creates = manifest.document.get("person_creates")
+    operations = manifest.document.get("operations")
     source = manifest.document.get("source")
-    if not isinstance(creates, list) or not isinstance(source, dict) or source.get("database_source_id") != 3:
+    if (
+        not isinstance(creates, list)
+        or not isinstance(operations, list)
+        or not isinstance(source, dict)
+        or source.get("database_source_id") != 3
+    ):
         raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
-    expected: dict[str, str] = {}
+    expected: list[tuple[str, str, str]] = []
+    expected_create_rows: list[tuple[str, str]] = []
+    element_ids: set[str] = set()
+    record_keys: set[str] = set()
+    source_evidence_count = 0
     for create in creates:
         if not isinstance(create, dict) or not {"element_id", "source_record_key"} <= set(create):
             raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
         element_id = create["element_id"]
         record_key = create["source_record_key"]
-        if not _valid_text(element_id) or not _valid_text(record_key) or element_id in expected:
+        if not _valid_text(element_id) or not _valid_text(record_key):
+            raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+        expected_create_rows.append((element_id, record_key))
+    for operation in operations:
+        if not isinstance(operation, dict) or not {
+            "element_id", "dependency_class", "source_record_key"
+        } <= set(operation):
+            raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
+        element_id = operation["element_id"]
+        dependency_class = operation["dependency_class"]
+        record_key = operation["source_record_key"]
+        if (
+            not _valid_text(element_id)
+            or not _valid_text(record_key)
+            or dependency_class not in {"source_evidence", "person_create"}
+            or element_id in element_ids
+            or record_key in record_keys
+        ):
             return False
-        expected[element_id] = record_key
+        element_ids.add(element_id)
+        record_keys.add(record_key)
+        expected.append((element_id, dependency_class, record_key))
+        if dependency_class == "source_evidence":
+            source_evidence_count += 1
+    expected_create_operations = [
+        (element_id, record_key)
+        for element_id, dependency_class, record_key in expected
+        if dependency_class == "person_create"
+    ]
+    if (
+        len(expected) != adapter.identity_count
+        or source_evidence_count != 305
+        or len(expected_create_operations) != 8
+        or expected_create_rows != expected_create_operations
+    ):
+        return False
     expected_receipt = {
         "schema_version",
         "manifest_sha256",
         "database_target_identity",
-        "created_person_identities",
+        adapter.identity_map_field,
     }
     if set(receipt.document) != expected_receipt:
         raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
     if (
         receipt.document["manifest_sha256"] != hashlib.sha256(manifest.raw).hexdigest()
         or not _production_target_matches(receipt.document["database_target_identity"], phase)
-        or not isinstance(receipt.document["created_person_identities"], list)
+        or not isinstance(receipt.document[adapter.identity_map_field], list)
     ):
         return False
-    observed: set[str] = set()
-    records: set[str] = set()
+    identities = receipt.document[adapter.identity_map_field]
+    if len(identities) != adapter.identity_count:
+        return False
     people: set[int] = set()
-    for identity in receipt.document["created_person_identities"]:
-        if not isinstance(identity, dict) or set(identity) != {"element_id", "source_id", "record_key", "person_id"}:
+    for identity, (element_id, dependency_class, record_key) in zip(identities, expected):
+        if not isinstance(identity, dict) or set(identity) != set(adapter.identity_fields):
             raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
         if (
             not _valid_text(identity["element_id"])
             or identity["source_id"] != 3
             or not _valid_text(identity["record_key"])
-            or type(identity["person_id"]) is not int
-            or identity["person_id"] <= 0
         ):
             raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
-        element_id = identity["element_id"]
-        if (
-            element_id in observed
-            or identity["record_key"] in records
-            or identity["person_id"] in people
-            or element_id not in expected
-            or expected[element_id] != identity["record_key"]
-        ):
+        if identity["element_id"] != element_id or identity["record_key"] != record_key:
             return False
-        observed.add(element_id)
-        records.add(identity["record_key"])
-        people.add(identity["person_id"])
-    return observed == set(expected)
+        person_id = identity["person_id"]
+        if dependency_class == "source_evidence":
+            if person_id is not None:
+                return False
+        elif type(person_id) is not int or person_id <= 0 or person_id in people:
+            return False
+        else:
+            people.add(person_id)
+    return len(people) == 8
 
 
 def _c0_receipt_binds(verified: Mapping[str, _VerifiedArtifact], phase: PhaseEntry) -> bool:

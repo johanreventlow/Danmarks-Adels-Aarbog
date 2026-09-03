@@ -287,6 +287,44 @@ def _phase_b_identity_map() -> list[dict]:
     ]
 
 
+def _task25_operations() -> list[dict]:
+    return [
+        {
+            "element_id": f"synthetic-source-evidence:{number}",
+            "dependency_class": "source_evidence",
+            "source_record_key": f"synthetic-source-record-{number}",
+        }
+        for number in range(1, 306)
+    ] + [
+        {
+            "element_id": f"synthetic-person-create:{number}",
+            "dependency_class": "person_create",
+            "source_record_key": f"synthetic-person-record-{number}",
+        }
+        for number in range(1, 9)
+    ]
+
+
+def _task25_operation_identities(operations: list[dict]) -> list[dict]:
+    return [
+        {
+            "element_id": operation["element_id"],
+            "source_id": 3,
+            "record_key": operation["source_record_key"],
+            "person_id": None,
+        }
+        for operation in operations[:305]
+    ] + [
+        {
+            "element_id": operation["element_id"],
+            "source_id": 3,
+            "record_key": operation["source_record_key"],
+            "person_id": 9000 + number,
+        }
+        for number, operation in enumerate(operations[305:], start=1)
+    ]
+
+
 def _write_synthetic_supported_phase_artifacts(
     bundle: Path, *, bound_phase_ids: frozenset[str]
 ) -> list[dict]:
@@ -294,10 +332,14 @@ def _write_synthetic_supported_phase_artifacts(
     target = target_identity()
     phases: list[dict] = []
 
+    task25_operations = _task25_operations()
     task25_manifest = {
         "schema_version": "1939-v50-production-write-manifest-v1",
         "source": {"database_source_id": 3},
-        "person_creates": [{"element_id": "synthetic-task25-element", "source_record_key": "synthetic-task25-record"}],
+        "person_creates": [
+            operation for operation in task25_operations if operation["dependency_class"] == "person_create"
+        ],
+        "operations": task25_operations,
     }
     task25_hash = write_json(bundle / "task25-manifest.json", task25_manifest)
     write_json(
@@ -306,9 +348,7 @@ def _write_synthetic_supported_phase_artifacts(
                 "schema_version": "daa-evidence-phase-receipt-task25-v1",
                 "manifest_sha256": task25_hash,
                 "database_target_identity": target,
-                "created_person_identities": [
-                    {"element_id": "synthetic-task25-element", "source_id": 3, "record_key": "synthetic-task25-record", "person_id": 9001}
-                ],
+                "operation_identities": _task25_operation_identities(task25_operations),
             },
         )
     phases.append(_catalog_phase("task25", 1, "task25-v1", "task25-manifest.json", task25_manifest["schema_version"], "task25-receipt.json", "daa-evidence-phase-receipt-task25-v1"))

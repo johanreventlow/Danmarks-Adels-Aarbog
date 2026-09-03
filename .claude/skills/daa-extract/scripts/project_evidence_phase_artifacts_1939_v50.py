@@ -16,6 +16,7 @@ from evidence_phase_artifact_ledger import (
     ArtifactEntry,
     LedgerError,
     PhaseEntry,
+    TASK25_RECEIPT_ADAPTER,
     adapter_sha256,
     canonical_sha256,
     validate_phase_contract,
@@ -108,47 +109,89 @@ def _task25_rows(
 ) -> dict[str, list[dict[str, object]]]:
     _require(manifest.get("schema_version") == "1939-v50-production-write-manifest-v1")
     source = manifest.get("source")
+    adapter = TASK25_RECEIPT_ADAPTER
     creates = manifest.get("person_creates")
+    operations = manifest.get("operations")
     _require(isinstance(source, dict) and source.get("database_source_id") == 3)
-    _require(isinstance(creates, list))
+    _require(isinstance(creates, list) and isinstance(operations, list))
     _require(
         set(receipt) == {
             "schema_version",
             "manifest_sha256",
             "database_target_identity",
-            "created_person_identities",
+            adapter.identity_map_field,
         }
         and receipt["schema_version"] == "daa-evidence-phase-receipt-task25-v1"
         and receipt["manifest_sha256"] == hashlib.sha256(manifest_raw).hexdigest()
         and _phase_target_matches(receipt["database_target_identity"], phase)
     )
-    identities = receipt["created_person_identities"]
-    _require(isinstance(identities, list) and len(identities) == len(creates))
-    expected: dict[str, str] = {}
+    identities = receipt[adapter.identity_map_field]
+    _require(isinstance(identities, list) and len(identities) == adapter.identity_count)
+    expected: list[tuple[str, str, str]] = []
+    expected_creates: list[tuple[str, str]] = []
     for create in creates:
         _require(isinstance(create, dict) and set(create) >= {"element_id", "source_record_key"})
         element_id = create["element_id"]
         record_key = create["source_record_key"]
-        _require(_valid_text(element_id) and _valid_text(record_key) and element_id not in expected)
-        expected[element_id] = record_key
+        _require(_valid_text(element_id) and _valid_text(record_key))
+        expected_creates.append((element_id, record_key))
+    element_ids: set[str] = set()
+    record_keys: set[str] = set()
+    source_evidence_count = 0
+    for operation in operations:
+        _require(
+            isinstance(operation, dict)
+            and set(operation) >= {"element_id", "dependency_class", "source_record_key"}
+        )
+        element_id = operation["element_id"]
+        dependency_class = operation["dependency_class"]
+        record_key = operation["source_record_key"]
+        _require(
+            _valid_text(element_id)
+            and _valid_text(record_key)
+            and dependency_class in {"source_evidence", "person_create"}
+            and element_id not in element_ids
+            and record_key not in record_keys
+        )
+        element_ids.add(element_id)
+        record_keys.add(record_key)
+        expected.append((element_id, dependency_class, record_key))
+        if dependency_class == "source_evidence":
+            source_evidence_count += 1
+    expected_create_operations = [
+        (element_id, record_key)
+        for element_id, dependency_class, record_key in expected
+        if dependency_class == "person_create"
+    ]
+    _require(
+        len(expected) == adapter.identity_count
+        and source_evidence_count == 305
+        and len(expected_create_operations) == 8
+        and expected_creates == expected_create_operations
+    )
     projected: list[dict[str, object]] = []
-    for identity in identities:
+    people: set[int] = set()
+    for identity, (element_id, dependency_class, record_key) in zip(identities, expected):
         _require(
             isinstance(identity, dict)
-            and set(identity) == {"element_id", "source_id", "record_key", "person_id"}
+            and set(identity) == set(adapter.identity_fields)
             and _valid_text(identity["element_id"])
             and identity["source_id"] == 3
             and _valid_text(identity["record_key"])
-            and type(identity["person_id"]) is int
-            and identity["person_id"] > 0
-            and identity["element_id"] in expected
-            and expected[identity["element_id"]] == identity["record_key"]
+            and identity["element_id"] == element_id
+            and identity["record_key"] == record_key
         )
+        if dependency_class == "source_evidence":
+            _require(identity["person_id"] is None)
+        else:
+            _require(
+                type(identity["person_id"]) is int
+                and identity["person_id"] > 0
+                and identity["person_id"] not in people
+            )
+            people.add(identity["person_id"])
         projected.append(identity)
-    _require({row["element_id"] for row in projected} == set(expected))
-    _unique(projected, ("element_id",))
-    _unique(projected, ("record_key",))
-    _unique(projected, ("person_id",))
+    _require(len(people) == 8)
     return {
         "source_records": [
             {"source_id": 3, "record_key": row["record_key"]} for row in projected
@@ -163,7 +206,7 @@ def _task25_rows(
         ],
         "narrative_bindings": [],
         "narrative_sha256": [],
-        "persons": [{"person_id": row["person_id"]} for row in projected],
+        "persons": [{"person_id": row["person_id"]} for row in projected if row["person_id"] is not None],
     }
 
 
@@ -360,7 +403,7 @@ def _phase_b_rows(
             {"narrative_id": row["narrative_id"], "sha256": row["after_sha256"]}
             for row in projected
         ],
-        "persons": [],
+        "persons": [{"person_id": row["person_id"]} for row in projected],
     }
 
 
