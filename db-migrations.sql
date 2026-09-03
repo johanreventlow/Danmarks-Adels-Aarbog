@@ -5648,6 +5648,9 @@ BEGIN
     RAISE EXCEPTION 'EVIDENCE_DECISION_METADATA_REQUIRED';
   END IF;
   PERFORM 1 FROM private.source_record_occurrence WHERE id=NEW.occurrence_id FOR UPDATE;
+  IF NEW.decision_status='accepted' THEN
+    PERFORM pg_advisory_xact_lock(hashtextextended(NEW.source_record_id::text,154155));
+  END IF;
   SELECT r.source_id INTO v_occurrence_source FROM private.source_record_occurrence o
     JOIN private.source_rendition r ON r.id=o.rendition_id WHERE o.id=NEW.occurrence_id;
   SELECT source_id INTO v_record_source FROM private.source_record WHERE id=NEW.source_record_id;
@@ -5679,12 +5682,25 @@ BEGIN
   END IF;
   PERFORM id FROM private.source_record
     WHERE id IN(NEW.predecessor_record_id,NEW.successor_record_id) ORDER BY id FOR UPDATE;
+  IF NEW.decision_status='accepted' THEN
+    PERFORM pg_advisory_xact_lock(hashtextextended(NEW.successor_record_id::text,154155));
+  END IF;
+  PERFORM 1 FROM private.source_record_anchor_event
+    WHERE source_record_id=NEW.successor_record_id
+    ORDER BY occurrence_id,version,id FOR UPDATE;
   SELECT source_id INTO v_predecessor_source FROM private.source_record
     WHERE id=NEW.predecessor_record_id;
   SELECT source_id INTO v_successor_source FROM private.source_record
     WHERE id=NEW.successor_record_id;
   IF v_predecessor_source IS DISTINCT FROM v_successor_source THEN
     RAISE EXCEPTION 'EVIDENCE_SOURCE_MISMATCH: source_record_revision_event';
+  END IF;
+  IF NEW.decision_status='accepted' AND EXISTS(
+    SELECT 1 FROM private.source_record_anchor_current c
+     WHERE c.source_record_id=NEW.successor_record_id
+       AND c.decision_status='accepted'
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_REVISION_SUCCESSOR_ALREADY_ANCHORED';
   END IF;
   SELECT coalesce(max(version),0)+1 INTO v_expected_version
     FROM private.source_record_revision_event
@@ -5723,6 +5739,9 @@ BEGIN
     v_trigger='trg_'||v_table||'_append_only';
     EXECUTE format('DROP TRIGGER IF EXISTS %I ON private.%I',v_trigger,v_table);
     EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON private.%I FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation()',v_trigger,v_table);
+    v_trigger='trg_'||v_table||'_append_only_truncate';
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON private.%I',v_trigger,v_table);
+    EXECUTE format('CREATE TRIGGER %I BEFORE TRUNCATE ON private.%I FOR EACH STATEMENT EXECUTE FUNCTION private.reject_evidence_mutation()',v_trigger,v_table);
     EXECUTE format('ALTER TABLE private.%I ENABLE ROW LEVEL SECURITY',v_table);
     EXECUTE format('REVOKE ALL ON TABLE private.%I FROM PUBLIC,anon,authenticated',v_table);
   END LOOP;
@@ -6399,6 +6418,9 @@ BEGIN
   SELECT * INTO v_current FROM private.interpretation
     WHERE id=p_interpretation_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_INTERPRETATION_NOT_FOUND'; END IF;
+  IF v_current.status<>'proposed' THEN
+    RAISE EXCEPTION 'EVIDENCE_INTERPRETATION_NOT_PROPOSED';
+  END IF;
   IF v_current.version<>p_expected_version OR EXISTS(
     SELECT 1 FROM private.interpretation newer
      WHERE newer.interpretation_key=v_current.interpretation_key
@@ -11740,6 +11762,7 @@ GRANT EXECUTE ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,te
 GRANT EXECUTE ON FUNCTION public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_finalize_reimport(uuid),public.red_reverse_reimport(uuid,uuid),public.red_activate_reimport_batch(uuid,uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.narrative_record_contract_version()
   TO anon,authenticated,service_role;
+
 CREATE OR REPLACE FUNCTION private.reimport_1939_canonical_json_sha256(p_value jsonb)
 RETURNS text LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog,extensions AS $$
 BEGIN RETURN encode(digest(convert_to(private.reimport_1939_canonical_json_text(p_value),'UTF8'),'sha256'),'hex'); END $$;
@@ -15850,3 +15873,159 @@ REVOKE ALL ON FUNCTION public.narrative_record_contract_version()
   FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.narrative_record_contract_version()
   TO anon,authenticated,service_role;
+
+-- #154: close every inherited/default EXECUTE grant and classify the complete
+-- public.red_* overload catalog after #153's contract-v2 cutover. A new RPC
+-- must be added to exactly one array or the migration fails closed.
+DO $public_red_revoke$
+DECLARE
+  fn regprocedure;
+  v_authenticated regprocedure[] := ARRAY[
+    'public.red_activate_1939_v50_batch(uuid,uuid)'::regprocedure,
+    'public.red_activate_reimport_batch(uuid,uuid)'::regprocedure,
+    'public.red_afgoer_source_persona(uuid,integer,text,bigint,text)'::regprocedure,
+    'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_1939_v50_name_completion(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_1939_v50_person_create(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_canonical_delta(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_name_completion(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_person_create(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_source_evidence(uuid,text,jsonb)'::regprocedure,
+    'public.red_begin_1939_v50_name_completion(uuid,text,uuid)'::regprocedure,
+    'public.red_begin_1939_v50_reimport(uuid,text,text)'::regprocedure,
+    'public.red_begin_reimport(uuid,text,text)'::regprocedure,
+    'public.red_begin_reimport_name_completion(uuid,text,uuid)'::regprocedure,
+    'public.red_bekraeft_media_upload(bigint,bigint,text)'::regprocedure,
+    'public.red_decide_interpretation(uuid,integer,text,jsonb)'::regprocedure,
+    'public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)'::regprocedure,
+    'public.red_decide_source_persona_placement(uuid,integer,text,jsonb)'::regprocedure,
+    'public.red_decide_source_record_placement(uuid,integer,text,jsonb)'::regprocedure,
+    'public.red_edit_oplysning(bigint,text,text,text)'::regprocedure,
+    'public.red_erstat_media_fil(bigint,text,text,bigint,integer,integer,text,text,jsonb)'::regprocedure,
+    'public.red_finalize_1939_v50_name_completion(uuid)'::regprocedure,
+    'public.red_finalize_1939_v50_reimport(uuid)'::regprocedure,
+    'public.red_finalize_reimport(uuid)'::regprocedure,
+    'public.red_finalize_reimport_name_completion(uuid)'::regprocedure,
+    'public.red_fjern_feed_pin(text)'::regprocedure,
+    'public.red_fjern_ikke_samme_som(bigint)'::regprocedure,
+    'public.red_fjern_media(bigint)'::regprocedure,
+    'public.red_fjern_samme_som(bigint)'::regprocedure,
+    'public.red_flyt_barn(bigint,bigint,bigint,text)'::regprocedure,
+    'public.red_fortryd_change_set(bigint,boolean)'::regprocedure,
+    'public.red_fortryd_person_narrative_publication_event(uuid,text)'::regprocedure,
+    'public.red_genopret_media(bigint)'::regprocedure,
+    'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
+    'public.red_kasser_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
+    'public.red_lock_1939_v50_name_completion(text)'::regprocedure,
+    'public.red_lock_reimport_name_completion(text,bigint,text)'::regprocedure,
+    'public.red_match_personer()'::regprocedure,
+    'public.red_ocr_historik(text,text,text)'::regprocedure,
+    'public.red_opdater_media(bigint,text,text,text,text)'::regprocedure,
+    'public.red_opret_estate(text,text,bigint)'::regprocedure,
+    'public.red_opret_fakta(text,bigint,text,text,date,date,text,text,text)'::regprocedure,
+    'public.red_opret_kilde(text,text,text,boolean,smallint)'::regprocedure,
+    'public.red_opret_media(text,text,text,text,text,text,text,bigint,integer,integer,text,text,text,boolean)'::regprocedure,
+    'public.red_opret_organisation(text,text)'::regprocedure,
+    'public.red_opret_person(text,text,boolean,text,text,text)'::regprocedure,
+    'public.red_opret_story(text,bigint,text,text,bigint,bigint,bigint,bigint,date,date,text,text,boolean)'::regprocedure,
+    'public.red_opret_union(bigint,bigint,text,integer)'::regprocedure,
+    'public.red_person_grid()'::regprocedure,
+    'public.red_person_narrative_publication_history(bigint)'::regprocedure,
+    'public.red_person_narrative_records(bigint)'::regprocedure,
+    'public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)'::regprocedure,
+    'public.red_preflight_reimport_authorization(uuid,text,text)'::regprocedure,
+    'public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb)'::regprocedure,
+    'public.red_preview_interpretation_promotions(jsonb)'::regprocedure,
+    'public.red_preview_reimport_cases(bigint,text,jsonb)'::regprocedure,
+    'public.red_promote_interpretations_batch(jsonb,text)'::regprocedure,
+    'public.red_publicer_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
+    'public.red_publicer_personer(bigint[])'::regprocedure,
+    'public.red_publicer_udgave(bigint)'::regprocedure,
+    'public.red_rediger_story(bigint,text,text,bigint,bigint,bigint,bigint,date,date,text,text,boolean)'::regprocedure,
+    'public.red_registrer_media_variant(bigint,text,text,text,bigint,integer,integer)'::regprocedure,
+    'public.red_reimport_batch_result(uuid,uuid)'::regprocedure,
+    'public.red_relation(text,bigint,text,bigint,text,text)'::regprocedure,
+    'public.red_ret_ocr_felt(bigint,text,text,text,text,jsonb,text,text)'::regprocedure,
+    'public.red_revalider_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
+    'public.red_reverse_1939_v50_reimport(uuid,uuid)'::regprocedure,
+    'public.red_reverse_reimport(uuid,uuid)'::regprocedure,
+    'public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)'::regprocedure,
+    'public.red_saet_portraet(bigint,bigint)'::regprocedure,
+    'public.red_samme_som(bigint,bigint)'::regprocedure,
+    'public.red_set_familie_konfidens(bigint,bigint,text,text)'::regprocedure,
+    'public.red_set_familie_ordinal(bigint,bigint,text,integer)'::regprocedure,
+    'public.red_set_feed_pin(text,text)'::regprocedure,
+    'public.red_set_haendelse_status(bigint,text)'::regprocedure,
+    'public.red_set_koen(bigint,text)'::regprocedure,
+    'public.red_set_konklusion(bigint)'::regprocedure,
+    'public.red_set_media_rettigheder(bigint,text,boolean,text,text,text,text)'::regprocedure,
+    'public.red_set_privat(bigint,boolean)'::regprocedure,
+    'public.red_set_story_kilder(bigint,jsonb)'::regprocedure,
+    'public.red_set_story_status(bigint,text)'::regprocedure,
+    'public.red_slet_familie_link(bigint,bigint,text)'::regprocedure,
+    'public.red_slet_medierelation_uden_evidens(bigint)'::regprocedure,
+    'public.red_slet_oplysning(bigint)'::regprocedure,
+    'public.red_slet_person(bigint)'::regprocedure,
+    'public.red_slet_person_preview(bigint)'::regprocedure,
+    'public.red_slet_relation(bigint)'::regprocedure,
+    'public.red_slet_story(bigint)'::regprocedure,
+    'public.red_source_persona_detail(uuid)'::regprocedure,
+    'public.red_source_persona_history(uuid)'::regprocedure,
+    'public.red_source_persona_queue(text,bigint,uuid,integer)'::regprocedure,
+    'public.red_suggest(text,text,bigint,text,text,text,jsonb,text)'::regprocedure,
+    'public.red_tilbagetraek_fakta(bigint)'::regprocedure,
+    'public.red_tilbagetraek_legacy_narrative(uuid,text,text)'::regprocedure,
+    'public.red_tilbagetraek_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
+    'public.red_tilfoej_barn(bigint,bigint,text,text)'::regprocedure,
+    'public.red_tilfoej_foraeldre_paastand(bigint,bigint,bigint,text,text,text)'::regprocedure,
+    'public.red_tilfoej_oplysning(bigint,text,date,date,text,text,text)'::regprocedure,
+    'public.red_tilfoej_partner(bigint,bigint,integer)'::regprocedure,
+    'public.red_tilfoej_relation(bigint,text,bigint,text,text)'::regprocedure,
+    'public.red_udrens_media(bigint)'::regprocedure,
+    'public.red_udrens_media_preview(bigint)'::regprocedure,
+    'public.red_upload_media(text,text,text,text,text,text,bigint,text,bigint,bigint,integer,integer,text,text,text,boolean)'::regprocedure,
+    'public.red_upsert_fakta(text,bigint,text,text,date,date,text,text,text)'::regprocedure,
+    'public.red_upsert_narrativ(text,bigint,text,boolean,bigint,text)'::regprocedure,
+    'public.red_upsert_person_narrative_record(bigint,bigint,text,text,boolean,text)'::regprocedure,
+    'public.red_vaelg_foraeldre(bigint,text)'::regprocedure
+  ];
+  v_service_only regprocedure[] := ARRAY[
+    'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)'::regprocedure,
+    'public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)'::regprocedure,
+    'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)'::regprocedure,
+    'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)'::regprocedure,
+    'public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz)'::regprocedure,
+    'public.red_authorize_reimport_cutover(uuid,uuid,timestamptz)'::regprocedure,
+    'public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb)'::regprocedure,
+    'public.red_authorize_reimport_reversal(uuid,uuid,timestamptz)'::regprocedure
+  ];
+  v_disabled regprocedure[] := ARRAY[
+    'public.red_apply_reimport_cases(uuid,text,text)'::regprocedure,
+    'public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)'::regprocedure,
+    'public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)'::regprocedure,
+    'public.red_promote_interpretation(uuid,text,bigint,jsonb)'::regprocedure,
+    'public.red_publicer_narrative_record(bigint,uuid,text,text)'::regprocedure,
+    'public.red_reverse_reimport_cases(uuid,uuid)'::regprocedure,
+    'public.red_tilbagetraek_narrative_record(bigint)'::regprocedure
+  ];
+BEGIN
+  FOR fn IN
+    SELECT p.oid::regprocedure
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid=p.pronamespace
+     WHERE n.nspname='public' AND p.proname LIKE 'red\_%' ESCAPE '\'
+  LOOP
+    EXECUTE format(
+      'REVOKE ALL ON FUNCTION %s FROM PUBLIC,anon,authenticated,service_role',fn
+    );
+    IF fn=ANY(v_authenticated) THEN
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated',fn);
+    ELSIF fn=ANY(v_service_only) THEN
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role',fn);
+    ELSIF fn<>ALL(v_disabled) THEN
+      RAISE EXCEPTION 'EVIDENCE_PUBLIC_RED_ACL_UNCLASSIFIED: %',fn;
+    END IF;
+  END LOOP;
+END
+$public_red_revoke$;

@@ -721,6 +721,11 @@ BEGIN
     RAISE EXCEPTION 'EVIDENCE_DECISION_METADATA_REQUIRED';
   END IF;
   PERFORM 1 FROM private.source_record_occurrence WHERE id=NEW.occurrence_id FOR UPDATE;
+  IF NEW.decision_status='accepted' THEN
+    -- Deles med revision-validatoren: også et hidtil tomt anchor-sæt skal
+    -- serialiseres mod en accepted split/merge til samme source record.
+    PERFORM pg_advisory_xact_lock(hashtextextended(NEW.source_record_id::text,154155));
+  END IF;
   SELECT r.source_id INTO v_occurrence_source
     FROM private.source_record_occurrence o
     JOIN private.source_rendition r ON r.id=o.rendition_id
@@ -762,10 +767,25 @@ BEGIN
   PERFORM id FROM private.source_record
    WHERE id IN (NEW.predecessor_record_id,NEW.successor_record_id)
    ORDER BY id FOR UPDATE;
+  IF NEW.decision_status='accepted' THEN
+    -- Samme nøgle som accepted anchor-events, også når der endnu ikke findes
+    -- en anchor-række at FOR UPDATE-låse.
+    PERFORM pg_advisory_xact_lock(hashtextextended(NEW.successor_record_id::text,154155));
+  END IF;
+  PERFORM 1 FROM private.source_record_anchor_event
+   WHERE source_record_id=NEW.successor_record_id
+   ORDER BY occurrence_id,version,id FOR UPDATE;
   SELECT source_id INTO v_predecessor_source FROM private.source_record WHERE id=NEW.predecessor_record_id;
   SELECT source_id INTO v_successor_source FROM private.source_record WHERE id=NEW.successor_record_id;
   IF v_predecessor_source IS DISTINCT FROM v_successor_source THEN
     RAISE EXCEPTION 'EVIDENCE_SOURCE_MISMATCH: source_record_revision_event';
+  END IF;
+  IF NEW.decision_status='accepted' AND EXISTS (
+    SELECT 1 FROM private.source_record_anchor_current c
+     WHERE c.source_record_id=NEW.successor_record_id
+       AND c.decision_status='accepted'
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_REVISION_SUCCESSOR_ALREADY_ANCHORED';
   END IF;
   SELECT coalesce(max(version),0)+1 INTO v_expected_version
     FROM private.source_record_revision_event
@@ -812,6 +832,11 @@ BEGIN
       'CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON private.%I '
       || 'FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation()',
       'trg_' || v_table || '_append_only',v_table
+    );
+    EXECUTE format(
+      'CREATE TRIGGER %I BEFORE TRUNCATE ON private.%I '
+      || 'FOR EACH STATEMENT EXECUTE FUNCTION private.reject_evidence_mutation()',
+      'trg_' || v_table || '_append_only_truncate',v_table
     );
     EXECUTE format('ALTER TABLE private.%I ENABLE ROW LEVEL SECURITY',v_table);
     EXECUTE format('REVOKE ALL ON TABLE private.%I FROM PUBLIC,anon,authenticated',v_table);
@@ -2469,6 +2494,10 @@ CREATE OR REPLACE FUNCTION private.reimport_1939_canonical_json_text(p_value jso
 RETURNS text LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog AS $$ SELECT private.reimport_canonical_json_text(p_value) $$;
 CREATE OR REPLACE FUNCTION private.reimport_1939_canonical_json_sha256(p_value jsonb)
 RETURNS text LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog,extensions AS $$ SELECT private.reimport_canonical_json_sha256(p_value) $$;
+-- The compatibility namespace exposes only the digest primitive.  The generic
+-- helper above is the sole canonical-text implementation, matching the
+-- cumulative migration's final catalog.
+DROP FUNCTION private.reimport_1939_canonical_json_text(jsonb);
 
 
 CREATE UNIQUE INDEX IF NOT EXISTS reimport_batch_profile_replay_uidx ON private.reimport_batch
@@ -6679,6 +6708,9 @@ BEGIN
   SELECT * INTO v_current FROM private.interpretation
    WHERE id=p_interpretation_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_INTERPRETATION_NOT_FOUND'; END IF;
+  IF v_current.status<>'proposed' THEN
+    RAISE EXCEPTION 'EVIDENCE_INTERPRETATION_NOT_PROPOSED';
+  END IF;
   IF v_current.version<>p_expected_version OR EXISTS (
     SELECT 1 FROM private.interpretation newer
      WHERE newer.interpretation_key=v_current.interpretation_key

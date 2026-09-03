@@ -19,7 +19,9 @@ BEGIN
 END $dblink_required$;
 
 SELECT set_config('daa.verify_dblink_evidence_anchor','pending',false);
+SELECT set_config('daa.verify_dblink_revision_anchor','pending',false);
 SELECT set_config('daa.verify_dblink_promotion','pending',false);
+SELECT set_config('daa.verify_dblink_interpretation','pending',false);
 SELECT set_config('daa.verify_dblink_identity','pending',false);
 SELECT set_config('daa.verify_dblink_placement','pending',false);
 SELECT set_config('daa.verify_dblink_ocr_lock','pending',false);
@@ -77,7 +79,9 @@ BEGIN
   SELECT array_agg(gate ORDER BY gate) INTO v_missing
   FROM (VALUES
     ('evidence_anchor',current_setting('daa.verify_dblink_evidence_anchor',true)),
+    ('revision_anchor',current_setting('daa.verify_dblink_revision_anchor',true)),
     ('promotion',current_setting('daa.verify_dblink_promotion',true)),
+    ('interpretation',current_setting('daa.verify_dblink_interpretation',true)),
     ('identity',current_setting('daa.verify_dblink_identity',true)),
     ('placement',current_setting('daa.verify_dblink_placement',true)),
     ('ocr_lock',current_setting('daa.verify_dblink_ocr_lock',true))
@@ -86,7 +90,7 @@ BEGIN
   IF v_missing IS NOT NULL THEN
     RAISE EXCEPTION 'DB_VERIFY_DBLINK_GATES_NOT_EXECUTED: %',v_missing;
   END IF;
-  RAISE NOTICE 'OK: all five dblink concurrency gates executed';
+  RAISE NOTICE 'OK: all seven dblink concurrency gates executed';
 END $all_dblink_gates_executed$;
 
 DELETE FROM vocab v
