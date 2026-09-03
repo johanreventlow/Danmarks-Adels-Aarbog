@@ -1,8 +1,8 @@
 # 149a source_evidence: rehearsal-rapport
 
 **Observeret:** 2026-09-03
-**Kodegrundlag:** `feat/149-2018-20-fase-a` t.o.m. Task 5
-**Resultat:** Del A (syntetisk v2-base) **GRØN**; Del B (restore af prod-dump) **STOPPET** i #153's migrationsguard
+**Kodegrundlag:** `feat/149-2018-20-fase-a` t.o.m. Task 5 + guard-rettelsen (commit efter 1a82f8a)
+**Resultat:** Del A (syntetisk v2-base) **GRØN**; Del B (restore af prod-dump) **GENNEMFØRT** efter rettelse af #153's migrationsguard (samme aften)
 
 Dette er afgrænset, lokalt disponerbart bevis, ikke en produktionsautorisation.
 Ingen produktionsdatabase, push, merge, deploy eller netværkshandling er brugt.
@@ -50,6 +50,26 @@ poster fundet som eksakte spænd i den normaliserede projektion;
 
 Basen `daa149a_rehearsal_20260903` er delvist migreret og må ikke genbruges.
 
+## Del B, andet forsøg: `daa149a_rehearsal2_20260903` (kopi af ren restore)
+
+| Trin | Resultat |
+| --- | --- |
+| `db-migrations.sql` med guard-rettelsen | exit 0; batch `328a813a…` migreret til `private.reimport_batch` som `finalized` (0/584, profil `daa-1939-v50-production-write-v1`) |
+| #152-cutover (§3b, den ægte kæde) | export, review, convert, preflight `preflight_rolled_back`, apply `committed` → kontraktversion **2** |
+| Writer-profil | `profile_sha256 = 5919b603…` (matcher profilindlæseren) |
+| Preview (`export_reimport_preview.R`) | SHA `80709daf…`; før-billede 0/0/0/0/0 for source 1 |
+| Dry-run | exit 0, intet skrevet |
+| Autorisation / apply | autorisation `628eb264…`; batch `a3304ce1-7004-4d01-97d4-83eab2ad84f8` `finalized`, committet |
+| Tal efter apply | **1 rendition / 591 records / 591 forekomster / 591 accepterede ankre** |
+| Kanonisk delta (`person`, `fact`, `family_member`, `narrative`, `narrative_record_publication`) | fem aggregat-hashes identiske før/efter (`PGTZ=UTC`) |
+| `SET LOCAL ROLE anon` | ni hashes identiske mod referencebasen `daa149a_anonref_20260903` (dump + migrationer + cutover uden reimport) |
+| Replay | `already_applied` |
+| `red_reverse_reimport` | afvist `REIMPORT_WRITER_REVERSAL_INVALID` |
+| Gendannelsesbevis (§6.6) | ingen frisk restore (ingen baser måtte droppes); `daa149a_dumpbase_20260903` viser 0/0/0/0 for source 1 |
+
+Uafhængig efterkontrol af forælderen: `db-migrations.sql` kørt på en ny kopi
+af den rene restore → exit 0, batch `328a813a…` = `finalized`, 3 batches i alt.
+
 ## Dokumenterede afvigelser
 
 Se planens afsnit »Dokumenterede afvigelser fra spec-teksten« og
@@ -58,8 +78,8 @@ kvittering.
 
 ## Restpunkter
 
-1. #153's guard skal disponeres (accept af `finalized` som terminal for
-   batches med 0 person_creates, eller et terminalt trin for fase A-batchen)
-   og verificeres læse-kun mod prod, før #153's prod-GO og 149a's ægte rehearsal.
-2. Fase-pakke-bidrag med receipt kan først skrives efter en gennemført Del B.
-3. Editionskatalog-gaten (`_2018`-allowlist, plan Task 6 Step 1-4) er ikke udført.
+1. Guard-rettelsen er på grenen og bevist mod dumpet; prod (bekræftet læse-kun
+   2026-09-03) har samme finalized fase A-batch, så rettelsen SKAL med i #153's
+   prod-migration.
+2. Fase-pakke-bidrag med receipt for Del B (batch `a3304ce1…`) er ikke skrevet.
+3. Runbookens §6.2/§6.5 er rettet som noter (PGTZ, reversal-grant).

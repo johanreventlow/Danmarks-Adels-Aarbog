@@ -50,6 +50,18 @@ batchen kan derfor ikke kædes til name_completion (irrelevant for 149a).
 afviser `finalized` reimport-batches; 1939 fase A-batchen er og forbliver
 `finalized` → blokerer 149a's ægte rehearsal og formentlig #153 i prod.
 
+**BESLUTTET (projektejer, 2026-09-03 sen aften): #153-guarden rettes generelt.** Prod
+bekræftede læse-kun, at 1939 fase A-batchen `328a813a…` står `finalized` (584
+source_evidence / 0 person_creates); `reimport_writer_upgrade`-guarden ville derfor
+blokere #153 i prod. Valgt vej (a): `finalized` accepteres som terminal for
+reimport-batches uden personoprettelser, evidensbundet (consumed autorisation,
+observed = expected = autorisationens expected; ingen børn, kun source_evidence-events
+i autoriseret antal, intet name_completion-resultat, ingen cutover/reversal-
+autorisation). Fravalgt (b): et engangs-terminaltrin i prod for netop denne batch —
+dækker ikke næste bog. Bevist: positiv fixture blokerer mod HEAD uden rettelsen og
+migrerer med den; to negative cases blokerer fortsat; migration gennemført på restore
+af prod-dump, hvorefter 149a's ægte rehearsal gav 1/591/591/591 med nul kanonisk delta.
+
 **#156 (fase-pakke-afstemning): fund.** Runbookens bundle-sti var opdigtet, og
 auditorens receipt-skemaer (`daa-evidence-phase-receipt-*-v1`) er yngre end de
 kørsler, de skal beskrive; ingen historisk apply-kvittering bærer dem, og C3

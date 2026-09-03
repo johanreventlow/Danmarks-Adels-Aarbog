@@ -305,6 +305,15 @@ Rscript .claude/skills/daa-extract/scripts/apply_reimport.R \
 
 ## 6. Verifikation
 
+> **Målt 2026-09-03 (Del B gennemført):** (1) aggregat-hashes i §6.2 er
+> tidszoneafhængige — kør alle hash-forespørgsler med `PGTZ=UTC`, ellers ser et
+> rent apply ud som drift; (2) `red_reverse_reimport` er GRANTED til
+> `authenticated`, ikke `service_role` — reversal-afvisningen i §6.5 skal kaldes
+> som redaktionsaktøren; (3) #152-kæden kræver kvitteringsfilnavnet
+> `narrative-record-cutover-receipt-v1.json`, afviser stier med en
+> `work`-komponent, og `apply_reimport.R` kræver `DAA_REIMPORT_ACTOR_ID` også i
+> dry-run.
+
 Alt nedenfor er tal og hashes; intet skrives ud i klartekst.
 
 1. **Fire antal** for `source_id`: 1 rendition, N source records, N occurrences

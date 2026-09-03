@@ -26,6 +26,14 @@ før #153's prod-GO). (2) Fire 2018-20-narrativer i prod er 2.000-3.900 tegn
 kortere end bogteksten, og segmenteringens støjfilter fjerner 100 linjer midt i
 poster (13 muligvis prosa) — begge til 149b.
 
+**Sen aften: guard rettet og ægte rehearsal gennemført.** Prod bekræftede fase
+A-batchen som `finalized`; guarden fik en evidensbundet undtagelse (tests: positiv
+fixture blokerer mod HEAD, migrerer med rettelsen; to negative cases blokerer). Derefter
+restore → migrationer → #152-cutover (kontrakt v2) → profil → preview → dry-run → apply:
+1 rendition / 591 records / 591 forekomster / 591 ankre, fem kanoniske aggregat-hashes
+og ni `anon`-hashes identiske, replay `already_applied`, reversal fail-closed. 149a er
+`integreret ende-til-ende`. Draft-PR #167. Reversal-afvigelsen kvitteret.
+
 **Codex-begrænsning:** Codex' sandbox kan ikke nå lokal PostgreSQL; databasearbejde
 kørte i Claude-subagenter, ren kode hos Codex.
 
