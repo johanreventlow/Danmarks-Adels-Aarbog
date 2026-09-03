@@ -81,5 +81,7 @@ kvittering.
 1. Guard-rettelsen er på grenen og bevist mod dumpet; prod (bekræftet læse-kun
    2026-09-03) har samme finalized fase A-batch, så rettelsen SKAL med i #153's
    prod-migration.
-2. Fase-pakke-bidrag med receipt for Del B (batch `a3304ce1…`) er ikke skrevet.
+2. Fase-pakke-bidrag med receipt for Del B (batch `a3304ce1…`): skrevet 2026-09-03 som
+   [`source-evidence-149a-phase-package-contribution.md`](source-evidence-149a-phase-package-contribution.md),
+   tilstand `afterdocumented`.
 3. Runbookens §6.2/§6.5 er rettet som noter (PGTZ, reversal-grant).
