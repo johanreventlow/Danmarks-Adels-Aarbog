@@ -18,7 +18,7 @@ from evidence_phase_artifact_ledger import (
     validate_ledger,
 )
 from project_evidence_phase_artifacts_1939_v50 import adapter_sha256, project_phase
-from reconcile_evidence_phase_gate import seal
+from reconcile_evidence_phase_gate import ReconciliationError, _reconcile_capability, seal
 from run_evidence_phase_artifact_audit_1939_v50 import (
     CliError,
     _FdBundleRoot,
@@ -461,7 +461,10 @@ def _snapshot_from_contributions(contributions: list[dict]) -> dict:
         "narrative_sha256": ("narrative_id",),
         "persons": ("person_id",),
     }
-    snapshot = {"schema_version": "daa-evidence-production-snapshot-v1"}
+    snapshot = {
+        "schema_version": "daa-evidence-production-snapshot-v1",
+        "database_target_identity": target_identity(),
+    }
     for section in sections:
         rows = {}
         for contribution in contributions:
@@ -471,7 +474,7 @@ def _snapshot_from_contributions(contributions: list[dict]) -> dict:
     return seal(snapshot)
 
 
-def test_generated_capability_outputs_reconcile_without_reopening_the_sealed_manifest_artifacts(tmp_path, monkeypatch, capsys):
+def test_generated_capability_outputs_match_only_through_internal_reconciliation(tmp_path, monkeypatch, capsys):
     """The public audit CLI is historical and necessarily incomplete because D1 is unavailable."""
     bundle = tmp_path / "synthetic-capability-only"
     bundle.mkdir()
@@ -483,29 +486,13 @@ def test_generated_capability_outputs_reconcile_without_reopening_the_sealed_man
     assert set(audit_terminal) == COMPLETE_TERMINAL_KEYS
     contribution_paths = [output / name for name in contribution_names]
     contributions = [json.loads(path.read_text(encoding="utf-8")) for path in contribution_paths]
-    snapshot = bundle / "synthetic-snapshot.json"
-    write_json(snapshot, _snapshot_from_contributions(contributions))
+    snapshot = _snapshot_from_contributions(contributions)
     ledger = json.loads((output / "reconciliation-ledger.json").read_text(encoding="utf-8"))
     for phase in ledger["phases"]:
         manifest = next(artifact for artifact in phase["artifacts"] if artifact["role"] == "manifest")
         (bundle / manifest["path"]).unlink()
 
-    private_report = bundle / "synthetic-private-report.json"
-    completed = subprocess.run(
-        [
-            "/usr/bin/python3", str(RECONCILE_SCRIPT), "--snapshot", str(snapshot),
-            "--ledger", str(output / "reconciliation-ledger.json"),
-            *[argument for path in contribution_paths for argument in ("--phase-manifest", str(path))],
-            "--private-report", str(private_report),
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 0
-    assert json.loads(completed.stdout)["status"] == "match"
-    assert json.loads(private_report.read_text(encoding="utf-8"))["status"] == "match"
+    assert _reconcile_capability(snapshot, contributions, ledger)["status"] == "match"
 
 
 def test_public_cli_rejects_the_identical_six_phase_capability_catalog_before_output_processing(tmp_path, capsys):
@@ -528,7 +515,7 @@ def test_public_cli_rejects_the_identical_six_phase_capability_catalog_before_ou
     assert list(output.iterdir()) == []
 
 
-def test_generated_contribution_source_binding_mismatch_skips_snapshot_loading(tmp_path, monkeypatch):
+def test_generated_capability_contribution_source_binding_mismatch_skips_snapshot_loading(tmp_path, monkeypatch):
     bundle = tmp_path / "synthetic-capability-only"
     bundle.mkdir()
     output = bundle / "private-output"
@@ -543,26 +530,13 @@ def test_generated_contribution_source_binding_mismatch_skips_snapshot_loading(t
     ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
     ledger["phases"][0]["contribution_sha256"] = document["reconciliation_content_sha256"]
     write_json(ledger_path, seal_ledger({key: value for key, value in ledger.items() if key != "ledger_content_sha256"}))
-    private_report = bundle / "synthetic-private-report.json"
-
-    completed = subprocess.run(
-        [
-            "/usr/bin/python3", str(RECONCILE_SCRIPT), "--snapshot", str(bundle / "missing-snapshot.json"),
-            "--ledger", str(ledger_path), "--phase-manifest", str(contribution),
-            "--phase-manifest", str(output / contribution_names[1]),
-            "--phase-manifest", str(output / contribution_names[2]),
-            "--phase-manifest", str(output / contribution_names[3]),
-            "--phase-manifest", str(output / contribution_names[4]),
-            "--phase-manifest", str(output / contribution_names[5]),
-            "--private-report", str(private_report),
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 2
-    assert json.loads(completed.stderr)["error"] == "EVIDENCE_RECONCILIATION_SOURCE_MANIFEST_MISMATCH"
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    documents = [
+        json.loads((output / name).read_text(encoding="utf-8"))
+        for name in contribution_names
+    ]
+    with pytest.raises(ReconciliationError, match="EVIDENCE_RECONCILIATION_SOURCE_MANIFEST_MISMATCH"):
+        _reconcile_capability({"not": "a snapshot"}, documents, ledger)
 
 
 def test_cli_writes_a_sealed_private_incomplete_audit_without_a_reconciliation_ledger(tmp_path):

@@ -331,6 +331,7 @@ def _validate_artifact_contract(
     artifacts: tuple[ArtifactEntry, ...] | tuple[CatalogArtifactEntry, ...],
     *,
     token: str,
+    require_complete: bool = False,
 ) -> None:
     expected = ADAPTER_ARTIFACT_CONTRACTS.get(adapter_id)
     if expected is None:
@@ -341,7 +342,10 @@ def _validate_artifact_contract(
     observed_by_role = {
         artifact.role: (artifact.schema_version, artifact.required) for artifact in artifacts
     }
-    _require(observed_by_role.items() <= expected_by_role.items(), token)
+    _require(
+        observed_by_role == expected_by_role if require_complete else observed_by_role.items() <= expected_by_role.items(),
+        token,
+    )
     _require(
         "historical_apply_script" in observed_by_role
         if adapter_id == "d1-historical-exception-v1"
@@ -582,6 +586,60 @@ def validate_ledger(
             ),
             "EVIDENCE_RECONCILIATION_INCOMPLETE",
         )
+    return entries
+
+
+def validate_historical_reconciliation_ledger(document: object) -> list[PhaseEntry]:
+    """Admit only the fixed historical scope before any public reconciliation.
+
+    The private audit ledger may preserve incomplete evidence.  Public
+    reconciliation has a narrower contract: callers cannot select their own
+    subset, evidence states, receipt set, or database target.
+    """
+    entries = validate_ledger(document, allow_missing_target_for_incomplete=True)
+    expected = tuple(
+        (contract.phase_id, contract.sequence, contract.adapter_id)
+        for contract in HISTORICAL_PHASE_CONTRACTS
+    )
+    observed = tuple((entry.phase_id, entry.sequence, entry.adapter_id) for entry in entries)
+    _require(observed == expected, "EVIDENCE_RECONCILIATION_HISTORICAL_INVENTORY_INVALID")
+
+    by_id = {entry.phase_id: entry for entry in entries}
+    _require(
+        by_id["task25"].authorisation_evidence == "afterdocumented_authorisation_gap",
+        "EVIDENCE_RECONCILIATION_HISTORICAL_AUTHORISATION_INVALID",
+    )
+    _require(
+        by_id["d1"].projection_evidence == "unavailable"
+        and by_id["d1"].authorisation_evidence == "unavailable",
+        "EVIDENCE_RECONCILIATION_HISTORICAL_AUTHORISATION_INVALID",
+    )
+
+    target_hashes: set[str] = set()
+    for entry in entries:
+        if entry.phase_id == "d1":
+            continue
+        _require(
+            entry.projection_evidence == "mechanically_bound",
+            "EVIDENCE_RECONCILIATION_INCOMPLETE",
+        )
+        _require(
+            entry.contribution_sha256 is not None,
+            "EVIDENCE_RECONCILIATION_INCOMPLETE",
+        )
+        _validate_artifact_contract(
+            entry.adapter_id,
+            entry.artifacts,
+            token="EVIDENCE_RECONCILIATION_LEDGER_ARTIFACT_CONTRACT_INVALID",
+            require_complete=True,
+        )
+        _require(
+            _is_hex_sha256(entry.database_target_identity_sha256),
+            "EVIDENCE_RECONCILIATION_DATABASE_TARGET_REQUIRED",
+        )
+        assert entry.database_target_identity_sha256 is not None
+        target_hashes.add(entry.database_target_identity_sha256)
+    _require(len(target_hashes) == 1, "EVIDENCE_RECONCILIATION_DATABASE_TARGET_MISMATCH")
     return entries
 
 

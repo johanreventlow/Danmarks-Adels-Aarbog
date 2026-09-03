@@ -74,6 +74,20 @@ CLI-bidrag er teknisk NO-GO. Det kan ikke i sig selv bevise, at inventaret er
 historisk komplet, eller at et bidrags fem lister er udledt korrekt fra
 originalmanifestet:
 
+Den offentlige reconciler accepterer ikke et brugerudvalgt ledger som denne
+generelle skitse. Den validerer først den faste historiske rækkefølge Task 25,
+fase A, fase B, narrativ-publicering, name-completion, C0 og D1 med de
+kanoniske adapter-ID'er og den aktuelle hash af audit-/ledger-/projector-koden.
+Alle seks mekanisk bundne faser skal have hele deres deklarerede
+manifest+receipt-kontrakt, contribution-hash og samme
+`database_target_identity_sha256`; Task 25 skal fortsat erklære den
+efterdokumenterede autorisationsmangel. D1 skal fortsat være `unavailable`.
+Dermed er en en-fase-ledger, en ukendt adapter, en manglende receipt eller en
+selvvalgt evidenstilstand NO-GO før et snapshot åbnes. D1 betyder aktuelt, at
+den offentlige afstemning stopper som `EVIDENCE_RECONCILIATION_INCOMPLETE`;
+den syntetiske capability-fixture er kun intern adaptertest og er aldrig en
+offentlig reconciliation-bypass.
+
 ```json
 {
   "schema_version": "daa-evidence-phase-artifact-ledger-v2",
@@ -216,7 +230,10 @@ BEGIN
 END
 $$;
 
-WITH source_records AS (
+WITH database_target AS (
+  SELECT current_database() AS database_name,
+         (pg_control_system()).system_identifier::text AS system_identifier
+), source_records AS (
   SELECT coalesce(jsonb_agg(jsonb_build_object(
     'source_id', source_id, 'record_key', record_key
   ) ORDER BY record_key), '[]'::jsonb) AS rows
@@ -259,18 +276,29 @@ WITH source_records AS (
 )
 SELECT jsonb_pretty(jsonb_build_object(
   'schema_version', 'daa-evidence-production-snapshot-v1',
+  'database_target_identity', jsonb_build_object(
+    'schema_version', 'daa-evidence-production-target-identity-v1',
+    'environment', 'production',
+    'system_identifier_sha256',
+    encode(extensions.digest(convert_to(database_target.system_identifier, 'UTF8'), 'sha256'), 'hex')
+  ),
   'source_records', source_records.rows,
   'source_anchors', source_anchors.rows,
   'narrative_bindings', bindings.rows,
   'narrative_sha256', narrative_sha256.rows,
   'persons', persons.rows
 ))
-FROM source_records, source_anchors, bindings, narrative_sha256, persons;
+FROM database_target, source_records, source_anchors, bindings, narrative_sha256, persons;
 
 COMMIT;
 ```
 
-Gem den returnerede JSON som et lokalt, uforseglet snapshot. Forsegl den og
+Gem den returnerede JSON som et lokalt, uforseglet snapshot. `current_database()`
+og `pg_control_system().system_identifier` fastlægger capture-databasen; det er
+den UTF-8-tekstuelle `system_identifier`, der hashes i præcis samme form som i
+receipt-kontrakten. Snapshotets `database_target_identity` skal derfor have
+samme kanoniske hash som den ene fælles target-hash i alle admitted ledgerfaser;
+en anden target-identitet er NO-GO. Forsegl den og
 kør afstemningen med de eksakte auditor-genererede paths ovenfor som
 eksplicitte argumenter:
 

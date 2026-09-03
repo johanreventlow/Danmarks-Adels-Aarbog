@@ -8,6 +8,7 @@ from evidence_phase_artifact_ledger import (
     adapter_sha256,
     seal_ledger,
     validate_catalog,
+    validate_historical_reconciliation_ledger,
     validate_ledger,
 )
 
@@ -212,6 +213,37 @@ def test_reconciliation_requires_a_contribution_hash_for_every_mechanically_boun
 
     with pytest.raises(LedgerError, match="EVIDENCE_RECONCILIATION_INCOMPLETE"):
         validate_ledger(ledger, require_contribution_hashes=True)
+
+
+def test_historical_reconciliation_rejects_a_one_phase_ledger_before_admission():
+    """A caller cannot turn one adapter into the historical reconciliation scope."""
+    ledger = seal_ledger(
+        {
+            "schema_version": "daa-evidence-phase-artifact-ledger-v2",
+            "phases": [
+                {
+                    "phase_id": "phase-a",
+                    "sequence": 1,
+                    "artifacts": [
+                        {
+                            "role": "manifest",
+                            "path": "phase-a.json",
+                            "sha256": "a" * 64,
+                            "schema_version": "1939-v50-phase-a-anchor-manifest-v1",
+                            "required": True,
+                        }
+                    ],
+                    "adapter_id": "phase-a-v1",
+                    "adapter_sha256": adapter_sha256(),
+                    "projection_evidence": "afterdocumented_unbound",
+                    "authorisation_evidence": "afterdocumented_authorisation_gap",
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(LedgerError, match="EVIDENCE_RECONCILIATION_HISTORICAL_INVENTORY_INVALID"):
+        validate_historical_reconciliation_ledger(ledger)
 
 
 def test_ledger_rejects_artifacts_with_the_same_normalized_relative_path():

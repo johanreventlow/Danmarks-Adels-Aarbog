@@ -19,7 +19,12 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Tuple
 
-from evidence_phase_artifact_ledger import LedgerError, PhaseEntry, validate_ledger
+from evidence_phase_artifact_ledger import (
+    LedgerError,
+    PhaseEntry,
+    validate_historical_reconciliation_ledger,
+    validate_ledger,
+)
 
 
 MANIFEST_SCHEMA = "daa-evidence-phase-reconciliation-manifest-v1"
@@ -141,11 +146,35 @@ def _validate_manifest(document: object) -> Tuple[str, Dict[str, List[Dict[str, 
     return phase_id, _validate_sections(document), _validate_withdrawals(document)
 
 
-def _validate_snapshot(document: object) -> Dict[str, List[Dict[str, Any]]]:
+def _validate_database_target_identity(value: object) -> Dict[str, str]:
+    _require(
+        isinstance(value, dict)
+        and set(value) == {"schema_version", "environment", "system_identifier_sha256"}
+        and value.get("schema_version") == "daa-evidence-production-target-identity-v1"
+        and value.get("environment") == "production"
+        and _is_hex_sha256(value.get("system_identifier_sha256")),
+        "EVIDENCE_RECONCILIATION_SNAPSHOT_TARGET_INVALID",
+    )
+    return dict(value)
+
+
+def _validate_snapshot(
+    document: object, *, expected_target_identity_sha256: str | None = None, require_target_identity: bool = True
+) -> Dict[str, List[Dict[str, Any]]]:
     _require(isinstance(document, dict), "EVIDENCE_RECONCILIATION_SNAPSHOT_INVALID")
     _require(document.get("schema_version") == SNAPSHOT_SCHEMA, "EVIDENCE_RECONCILIATION_SNAPSHOT_SCHEMA_INVALID")
     _require(_is_hex_sha256(document.get("snapshot_content_sha256")), "EVIDENCE_RECONCILIATION_SNAPSHOT_HASH_INVALID")
     _require(_canonical_sha256(document, "snapshot_content_sha256") == document["snapshot_content_sha256"], "EVIDENCE_RECONCILIATION_SNAPSHOT_HASH_INVALID")
+    target_identity = document.get("database_target_identity")
+    if require_target_identity or target_identity is not None:
+        target_identity = _validate_database_target_identity(target_identity)
+    if expected_target_identity_sha256 is not None:
+        _require(isinstance(target_identity, dict), "EVIDENCE_RECONCILIATION_SNAPSHOT_TARGET_INVALID")
+        _require(
+            _is_hex_sha256(expected_target_identity_sha256)
+            and _canonical_sha256(target_identity, "") == expected_target_identity_sha256,
+            "EVIDENCE_RECONCILIATION_SNAPSHOT_TARGET_MISMATCH",
+        )
     return _validate_sections(document)
 
 
@@ -163,7 +192,7 @@ def seal(document: object) -> Dict[str, Any]:
     _require(hash_field not in result, "EVIDENCE_RECONCILIATION_ALREADY_SEALED")
     result[hash_field] = _canonical_sha256(result, hash_field)
     if schema == SNAPSHOT_SCHEMA:
-        _validate_snapshot(result)
+        _validate_snapshot(result, require_target_identity=False)
     else:
         _validate_manifest(result)
     return result
@@ -185,18 +214,39 @@ def _index(section: str, rows: Iterable[Dict[str, Any]], token: str) -> Dict[Tup
 
 def _validate_ledger_admission(ledger: object) -> list[PhaseEntry]:
     try:
+        return validate_historical_reconciliation_ledger(ledger)
+    except LedgerError as error:
+        raise ReconciliationError(str(error)) from error
+
+
+def _validate_capability_ledger_admission(ledger: object) -> list[PhaseEntry]:
+    """Validate synthetic adapter mechanics without exposing a public bypass."""
+    try:
         return validate_ledger(ledger, require_contribution_hashes=True)
     except LedgerError as error:
         raise ReconciliationError(str(error)) from error
 
 
 def _validate_contribution_admission(
-    manifests: Iterable[object], ledger: object
+    manifests: Iterable[object], ledger: object, *, capability_only: bool = False
 ) -> Tuple[
     list[PhaseEntry],
     Dict[str, Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, List[Dict[str, Any]]]]],
 ]:
-    approved = _validate_ledger_admission(ledger)
+    approved = (
+        _validate_capability_ledger_admission(ledger)
+        if capability_only
+        else _validate_ledger_admission(ledger)
+    )
+    if not capability_only:
+        _require(
+            all(
+                entry.projection_evidence == "mechanically_bound"
+                and entry.contribution_sha256 is not None
+                for entry in approved
+            ),
+            "EVIDENCE_RECONCILIATION_INCOMPLETE",
+        )
     documents = list(manifests)
     phase_ids: List[str] = []
     manifest_hashes: Dict[str, str] = {}
@@ -230,13 +280,38 @@ def _validate_contribution_admission(
     return approved, contributions
 
 
+def _common_database_target_identity_sha256(approved: Iterable[PhaseEntry]) -> str | None:
+    """Return the one sealed target for a target-bound admission set."""
+    bound = [entry for entry in approved if entry.projection_evidence == "mechanically_bound"]
+    hashes = {entry.database_target_identity_sha256 for entry in bound}
+    if hashes == {None}:
+        return None
+    _require(
+        len(hashes) == 1 and all(_is_hex_sha256(value) for value in hashes),
+        "EVIDENCE_RECONCILIATION_DATABASE_TARGET_MISMATCH",
+    )
+    value = next(iter(hashes))
+    assert isinstance(value, str)
+    return value
+
+
 def _reconcile_admitted(
     snapshot: object,
     approved: list[PhaseEntry],
     contributions: Dict[str, Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, List[Dict[str, Any]]]]],
     ledger: object,
+    *,
+    require_target_identity: bool = True,
 ) -> Dict[str, Any]:
-    actual = _validate_snapshot(snapshot)
+    actual = _validate_snapshot(
+        snapshot,
+        expected_target_identity_sha256=(
+            _common_database_target_identity_sha256(approved)
+            if require_target_identity
+            else None
+        ),
+        require_target_identity=require_target_identity,
+    )
 
     expected_rows: Dict[str, Dict[Tuple[Any, ...], Dict[str, Any]]] = {section: {} for section in SECTIONS}
     overrides: Dict[str, int] = {section: 0 for section in SECTIONS}
@@ -309,15 +384,30 @@ def _reconcile_admitted(
 
 
 def reconcile(snapshot: object, manifests: Iterable[object], ledger: object) -> Dict[str, Any]:
-    """Return a match report or raise a fail-closed ReconciliationError."""
-    approved, contributions = _validate_contribution_admission(manifests, ledger)
-    return _reconcile_admitted(snapshot, approved, contributions, ledger)
+    """Internal compatibility entrypoint for capability-level comparison tests."""
+    return _reconcile_capability(snapshot, manifests, ledger)
+
+
+def _reconcile_capability(snapshot: object, manifests: Iterable[object], ledger: object) -> Dict[str, Any]:
+    """Exercise adapter projection mechanics below the public historical gate."""
+    approved, contributions = _validate_contribution_admission(manifests, ledger, capability_only=True)
+    return _reconcile_admitted(
+        snapshot, approved, contributions, ledger, require_target_identity=False
+    )
 
 
 def _load_json(path: Path) -> object:
+    def reject_duplicate_keys(pairs: List[Tuple[str, object]]) -> Dict[str, object]:
+        result: Dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate JSON key")
+            result[key] = value
+        return result
+
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+        return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicate_keys)
+    except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError) as error:
         raise ReconciliationError("EVIDENCE_RECONCILIATION_INPUT_UNREADABLE") from error
 
 
