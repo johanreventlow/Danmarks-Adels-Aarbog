@@ -445,6 +445,15 @@ testthat::test_that("upgrade guard permits only exact terminal children and an e
   testthat::expect_match(empty_fixture, "REIMPORT_WRITER_LEGACY_EMPTY_FIXTURE_INVALID", fixed = TRUE)
   testthat::expect_match(invalid_fixture, "identity_wrong_source", fixed = TRUE)
   testthat::expect_match(invalid_fixture, "identity_multi_source", fixed = TRUE)
+  # #153/#149a: a finalized reimport batch that created no person is terminal,
+  # so the guard exempts exactly that shape.  Pin both sides of the exemption.
+  source_evidence_fixture <- paste(readLines(file.path(writer_root, "tests", "sql", "reimport-writer-legacy-source-evidence-fixture.sql"), warn = FALSE), collapse = "\n")
+  testthat::expect_match(migration_text, "v_terminal_source_evidence_ids", fixed = TRUE)
+  testthat::expect_match(migration_text, "b.expected_counts->>'person_creates'='0'", fixed = TRUE)
+  testthat::expect_match(migration_text, "a.expected_counts IS NOT DISTINCT FROM b.expected_counts", fixed = TRUE)
+  testthat::expect_match(source_evidence_fixture, "'source_evidence'", fixed = TRUE)
+  testthat::expect_match(invalid_fixture, "finalized_person_creates", fixed = TRUE)
+  testthat::expect_match(invalid_fixture, "finalized_count_mismatch", fixed = TRUE)
 })
 
 testthat::test_that("catalog parity includes effective function bodies and both terminal-child fixtures", {

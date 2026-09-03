@@ -25,7 +25,8 @@ DECLARE
   v_ledger_source_id bigint := CASE WHEN v_case='identity_wrong_source' THEN 4 ELSE 3 END;
 BEGIN
   IF v_case NOT IN ('orphan','reversed_finalized_child','broken_result','ambiguous_child','source_record_wrong',
-                    'identity_wrong_source','identity_multi_source') THEN
+                    'identity_wrong_source','identity_multi_source',
+                    'finalized_person_creates','finalized_count_mismatch') THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_INVALID_TERMINAL_FIXTURE_CASE_UNKNOWN';
   END IF;
   INSERT INTO public.source(id,titel,udgave,slags)
@@ -66,6 +67,60 @@ BEGIN
       '15300000-0000-4000-8000-000000000206','finalized',
       '{"name_completions":1,"operations":1}','{"name_completions":1,"operations":1}',clock_timestamp()
     );
+    RETURN;
+  END IF;
+
+  -- The #153 upgrade exempts one narrow shape from the in-flight guard: a
+  -- consumed reimport authorization whose finalized batch declares zero
+  -- person creates and whose observed counts equal both its own and the
+  -- authorization's expected counts.  These two cases sit just outside that
+  -- shape and must still be rejected: the first creates a person (so a
+  -- cutover is genuinely still owed), the second under-counts its evidence
+  -- (so the ledger is not provably complete).
+  IF v_case IN ('finalized_person_creates','finalized_count_mismatch') THEN
+    INSERT INTO private.reimport_1939_authorization(
+      id,operation,manifest_sha256,preview_sha256,database_identity,source_id,
+      expected_counts,authorized_elements,principal_id,nonce,expires_at,status,consumed_at
+    ) VALUES(
+      v_source_authorization,'reimport',repeat('a',64),repeat('b',64),current_database(),3,
+      CASE WHEN v_case='finalized_person_creates'
+        THEN '{"person_creates":1,"source_evidence":0,"canonical_delta":0}'::jsonb
+        ELSE '{"person_creates":0,"source_evidence":2,"canonical_delta":0}'::jsonb END,
+      '{}'::jsonb,
+      '15300000-0000-4000-8000-000000000206','15300000-0000-4000-8000-000000000207',
+      clock_timestamp()+interval '1 hour','consumed',clock_timestamp()
+    );
+    INSERT INTO private.reimport_1939_write_batch(
+      id,authorization_id,manifest_sha256,preview_sha256,principal_id,status,
+      expected_counts,observed_counts,finalized_at
+    ) VALUES(
+      v_source_id,v_source_authorization,repeat('a',64),repeat('b',64),
+      '15300000-0000-4000-8000-000000000206','finalized',
+      CASE WHEN v_case='finalized_person_creates'
+        THEN '{"person_creates":1,"source_evidence":0,"canonical_delta":0}'::jsonb
+        ELSE '{"person_creates":0,"source_evidence":2,"canonical_delta":0}'::jsonb END,
+      CASE WHEN v_case='finalized_person_creates'
+        THEN '{"person_creates":1,"source_evidence":0,"canonical_delta":0}'::jsonb
+        ELSE '{"person_creates":0,"source_evidence":1,"canonical_delta":0}'::jsonb END,
+      clock_timestamp()
+    );
+    IF v_case='finalized_person_creates' THEN
+      INSERT INTO private.reimport_1939_write_event(
+        batch_id,element_id,operation,source_record_key,canonical_person_id,payload,after_sha256
+      ) VALUES(
+        v_source_id,'person-create:legacy-invalid-terminal','person_create',
+        'legacy-invalid-terminal',153201,
+        jsonb_build_object('source_record_key','legacy-invalid-terminal'),repeat('a',64)
+      );
+    ELSE
+      INSERT INTO private.reimport_1939_write_event(
+        batch_id,element_id,operation,source_record_key,payload,after_sha256
+      ) VALUES(
+        v_source_id,'source-evidence:legacy-invalid-terminal','source_evidence',
+        'legacy-invalid-terminal',
+        jsonb_build_object('source_record_key','legacy-invalid-terminal'),repeat('a',64)
+      );
+    END IF;
     RETURN;
   END IF;
 

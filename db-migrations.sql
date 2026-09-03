@@ -11258,6 +11258,7 @@ DECLARE
   v_child record;
   v_child_count bigint;
   v_payload_count bigint;
+  v_terminal_source_evidence_ids uuid[];
 BEGIN
   -- A legacy ledger is executable until every authorization and batch has
   -- reached a terminal state.  Take the locks and reject it before *any* DDL
@@ -11267,6 +11268,26 @@ BEGIN
       private.reimport_1939_write_batch,
       private.reimport_1939_write_event,
       private.reimport_1939_name_completion_result IN ACCESS EXCLUSIVE MODE;
+    -- A reimport batch that creates no person can never be activated: the v1
+    -- cutover RPC requires exactly one complete name-completion child, and a
+    -- child can only exist for an authorized person_create.  For such a batch
+    -- `finalized` *is* the terminal state, so treating it as in-flight would
+    -- reject a legitimately complete ledger forever.  The exemption is bound
+    -- to evidence, not to an edition: the authorization must be consumed, the
+    -- batch must declare zero person creates, and its observed counts must
+    -- match both its own and its authorization's expected counts.  Every other
+    -- finalized reimport batch (person_creates>0, or a count mismatch, or an
+    -- expected_counts object without the key at all) remains blocking.
+    SELECT coalesce(array_agg(b.id),'{}'::uuid[]) INTO v_terminal_source_evidence_ids
+      FROM private.reimport_1939_write_batch b
+      JOIN private.reimport_1939_authorization a ON a.id=b.authorization_id
+     WHERE a.operation='reimport'
+       AND a.status='consumed'
+       AND b.status='finalized'
+       AND b.finalized_at IS NOT NULL
+       AND b.expected_counts->>'person_creates'='0'
+       AND b.observed_counts IS NOT DISTINCT FROM b.expected_counts
+       AND a.expected_counts IS NOT DISTINCT FROM b.expected_counts;
     IF EXISTS(SELECT 1 FROM private.reimport_1939_authorization WHERE status='issued')
        OR EXISTS(SELECT 1 FROM private.reimport_1939_write_batch WHERE status='open')
        OR EXISTS(
@@ -11274,6 +11295,7 @@ BEGIN
            FROM private.reimport_1939_write_batch b
            JOIN private.reimport_1939_authorization a ON a.id=b.authorization_id
           WHERE a.operation='reimport' AND b.status='finalized'
+            AND b.id<>ALL(v_terminal_source_evidence_ids)
        ) THEN
       RAISE EXCEPTION 'REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED';
     END IF;
@@ -11289,7 +11311,8 @@ BEGIN
         JOIN private.reimport_1939_authorization a ON a.id=b.authorization_id
        WHERE a.operation NOT IN ('reimport','name_completion')
           OR a.status<>'consumed'
-          OR (a.operation='reimport' AND b.status NOT IN ('activated','reversed'))
+          OR (a.operation='reimport' AND b.status NOT IN ('activated','reversed')
+              AND b.id<>ALL(v_terminal_source_evidence_ids))
           OR (a.operation='name_completion' AND b.status NOT IN ('finalized','reversed'))
     ) THEN
       RAISE EXCEPTION 'REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED';
@@ -11344,6 +11367,38 @@ BEGIN
            SELECT 1 FROM jsonb_each(candidate_authorization.authorized_elements->'payloads') payload
             WHERE payload.value->>'source_batch_id'=v_source.id::text
          );
+      -- The exempted terminal batch has no child by construction, so it skips
+      -- the parent/child contract below.  Prove that construction instead of
+      -- assuming it: no child may claim it, it may only have written
+      -- source_evidence events, their number must equal the authorized count,
+      -- no name-completion result may reference it, and no cutover/reversal
+      -- authorization may already point at it (that would be an interrupted
+      -- cutover, not a terminal state).
+      IF v_source.id=ANY(v_terminal_source_evidence_ids) THEN
+        IF v_child_count<>0
+           OR EXISTS(
+             SELECT 1 FROM private.reimport_1939_write_event source_event
+              WHERE source_event.batch_id=v_source.id
+                AND source_event.operation<>'source_evidence'
+           )
+           OR (SELECT count(*) FROM private.reimport_1939_write_event source_event
+                WHERE source_event.batch_id=v_source.id
+                  AND source_event.operation='source_evidence')
+              IS DISTINCT FROM (v_source.expected_counts->>'source_evidence')::bigint
+           OR EXISTS(
+             SELECT 1 FROM private.reimport_1939_name_completion_result result
+              WHERE result.source_batch_id=v_source.id OR result.batch_id=v_source.id
+           )
+           OR EXISTS(
+             SELECT 1 FROM private.reimport_1939_authorization terminal_authorization
+              WHERE terminal_authorization.operation IN ('cutover','reversal')
+                AND terminal_authorization.database_identity='batch:'||v_source.id::text
+           )
+        THEN
+          RAISE EXCEPTION 'REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED';
+        END IF;
+        CONTINUE;
+      END IF;
       IF v_child_count<>1 THEN
         RAISE EXCEPTION 'REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED';
       END IF;

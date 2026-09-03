@@ -221,6 +221,13 @@ jobs:
             echo "expected historical-ledger v2 bootstrap to fail closed on live cutover inventory" >&2; exit 1
           fi
           grep -Fq 'CUTOVER_INVENTORY_LIVE_DRIFT' reimport-legacy-v2-bootstrap.out
+          createdb -h localhost -U postgres reimport_legacy_source_evidence_153
+          psql -h localhost -U postgres -d reimport_legacy_source_evidence_153 -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql
+          git show 2d6aabf:schema.sql | psql -h localhost -U postgres -d reimport_legacy_source_evidence_153 -v ON_ERROR_STOP=1
+          psql -h localhost -U postgres -d reimport_legacy_source_evidence_153 -v ON_ERROR_STOP=1 -f tests/sql/reimport-writer-legacy-source-evidence-fixture.sql
+          psql -h localhost -U postgres -d reimport_legacy_source_evidence_153 -v ON_ERROR_STOP=1 -f db-migrations.sql
+          psql -h localhost -U postgres -d reimport_legacy_source_evidence_153 -v ON_ERROR_STOP=1 -f db-rls.sql
+          psql -h localhost -U postgres -d reimport_legacy_source_evidence_153 -v ON_ERROR_STOP=1 -v task34_source_evidence_expect_success=1 -f tests/sql/test-reimport-writer-migration.sql
           createdb -h localhost -U postgres reimport_legacy_empty_153
           psql -h localhost -U postgres -d reimport_legacy_empty_153 -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql
           git show 2d6aabf:schema.sql | psql -h localhost -U postgres -d reimport_legacy_empty_153 -v ON_ERROR_STOP=1
@@ -266,7 +273,7 @@ jobs:
             grep -Fq 'REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED' "${database}.out"
             psql -h localhost -U postgres -d "$database" -Atc "SELECT relkind FROM pg_class WHERE oid='private.reimport_1939_authorization'::regclass" | grep -Fx r
           done
-          for terminal_case in orphan reversed_finalized_child broken_result ambiguous_child source_record_wrong; do
+          for terminal_case in orphan reversed_finalized_child broken_result ambiguous_child source_record_wrong finalized_person_creates finalized_count_mismatch; do
             database="reimport_legacy_153_${terminal_case}"
             createdb -h localhost -U postgres "$database"
             psql -h localhost -U postgres -d "$database" -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql
