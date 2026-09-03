@@ -146,6 +146,8 @@ def _task25_rows(
         _require(_valid_text(element_id) and _valid_text(record_key))
         expected_creates.append((element_id, record_key))
     element_ids: set[str] = set()
+    source_evidence_record_keys: set[str] = set()
+    person_create_record_keys: set[str] = set()
     source_evidence_count = 0
     for operation in operations:
         _require(
@@ -165,6 +167,9 @@ def _task25_rows(
         expected.append((element_id, dependency_class, record_key))
         if dependency_class == "source_evidence":
             source_evidence_count += 1
+            source_evidence_record_keys.add(record_key)
+        else:
+            person_create_record_keys.add(record_key)
     expected_create_operations = [
         (element_id, record_key)
         for element_id, dependency_class, record_key in expected
@@ -175,6 +180,9 @@ def _task25_rows(
         and source_evidence_count == 305
         and len(expected_create_operations) == 8
         and expected_creates == expected_create_operations
+        and len(source_evidence_record_keys) == 235
+        and len(person_create_record_keys) == 8
+        and source_evidence_record_keys.isdisjoint(person_create_record_keys)
     )
     projected: list[dict[str, object]] = []
     people: set[int] = set()
@@ -206,6 +214,7 @@ def _task25_rows(
         if identity not in source_record_identities:
             source_record_identities.add(identity)
             source_records.append({"source_id": 3, "record_key": row["record_key"]})
+    _require(len(source_records) == 243)
     return {
         "source_records": source_records,
         "source_anchors": [

@@ -321,7 +321,8 @@ def task25_operations() -> list[dict]:
     ]
 
 
-def task25_operation_identities() -> list[dict]:
+def task25_operation_identities(operations: list[dict] | None = None) -> list[dict]:
+    operations = task25_operations() if operations is None else operations
     return [
         {
             "element_id": operation["element_id"],
@@ -329,7 +330,7 @@ def task25_operation_identities() -> list[dict]:
             "record_key": operation["source_record_key"],
             "person_id": None,
         }
-        for operation in task25_operations()[:305]
+        for operation in operations[:305]
     ] + [
         {
             "element_id": operation["element_id"],
@@ -337,7 +338,7 @@ def task25_operation_identities() -> list[dict]:
             "record_key": operation["source_record_key"],
             "person_id": 9000 + number,
         }
-        for number, operation in enumerate(task25_operations()[305:], start=1)
+        for number, operation in enumerate(operations[305:], start=1)
     ]
 
 
@@ -353,12 +354,12 @@ def task25_manifest() -> dict:
     }
 
 
-def task25_receipt(manifest_sha256: str) -> dict:
+def task25_receipt(manifest_sha256: str, operations: list[dict] | None = None) -> dict:
     return {
         "schema_version": "daa-evidence-phase-receipt-task25-v1",
         "manifest_sha256": manifest_sha256,
         "database_target_identity": production_target_identity(),
-        "operation_identities": task25_operation_identities(),
+        "operation_identities": task25_operation_identities(operations),
     }
 
 
@@ -380,6 +381,39 @@ def test_project_task25_projects_unique_records_and_all_manifest_operation_ancho
         "occurrence_key": "source-evidence:305",
     }
     assert contribution["persons"] == [{"person_id": 9000 + number} for number in range(1, 9)]
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda operations: operations.__setitem__(
+            234, {**operations[234], "source_record_key": "source-record-1"}
+        ),
+        lambda operations: operations.__setitem__(
+            312, {**operations[312], "source_record_key": "person-record-1"}
+        ),
+        lambda operations: operations.__setitem__(
+            312, {**operations[312], "source_record_key": "source-record-1"}
+        ),
+    ],
+)
+def test_project_rejects_task25_invalid_record_key_composition(tmp_path, mutate):
+    operations = task25_operations()
+    mutate(operations)
+    manifest = {
+        "schema_version": "1939-v50-production-write-manifest-v1",
+        "source": {"database_source_id": 3},
+        "person_creates": [operation for operation in operations if operation["dependency_class"] == "person_create"],
+        "operations": operations,
+    }
+    manifest_sha256 = write_json(tmp_path / "task25.json", manifest)
+    receipt_sha256 = write_json(
+        tmp_path / "task25-receipt.json", task25_receipt(manifest_sha256, operations)
+    )
+    phase = mechanically_bound_task25_phase(manifest_sha256, receipt_sha256)
+
+    with pytest.raises(ProjectError, match="EVIDENCE_RECONCILIATION_INCOMPLETE"):
+        project_phase(tmp_path, phase, bound_summary(phase))
 
 
 def test_project_phase_b_projects_the_distinct_positive_receipt_person_ids(tmp_path):

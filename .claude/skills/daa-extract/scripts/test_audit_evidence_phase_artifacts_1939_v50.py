@@ -156,8 +156,8 @@ def task25_operations() -> list[dict]:
     ]
 
 
-def task25_receipt(manifest_sha256: str) -> dict:
-    operations = task25_operations()
+def task25_receipt(manifest_sha256: str, operations: list[dict] | None = None) -> dict:
+    operations = task25_operations() if operations is None else operations
     return {
         "schema_version": "daa-evidence-phase-receipt-task25-v1",
         "manifest_sha256": manifest_sha256,
@@ -249,6 +249,41 @@ def test_audit_accepts_task25_repeated_record_keys_for_distinct_element_ids(tmp_
     assert audit_bundle(tmp_path, [task25_phase(manifest_sha256, receipt_sha256)]).phase(
         "task25"
     ).projection_evidence == "mechanically_bound"
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda operations: operations.__setitem__(
+            234, {**operations[234], "source_record_key": "source-record-1"}
+        ),
+        lambda operations: operations.__setitem__(
+            312, {**operations[312], "source_record_key": "person-record-1"}
+        ),
+        lambda operations: operations.__setitem__(
+            312, {**operations[312], "source_record_key": "source-record-1"}
+        ),
+    ],
+)
+def test_audit_rejects_task25_invalid_record_key_composition(tmp_path, mutate):
+    operations = task25_operations()
+    mutate(operations)
+    manifest_sha256 = write_json(
+        tmp_path / "task25.json",
+        {
+            "schema_version": "1939-v50-production-write-manifest-v1",
+            "source": {"database_source_id": 3},
+            "person_creates": [operation for operation in operations if operation["dependency_class"] == "person_create"],
+            "operations": operations,
+        },
+    )
+    receipt_sha256 = write_json(
+        tmp_path / "task25-receipt.json", task25_receipt(manifest_sha256, operations)
+    )
+
+    assert audit_bundle(tmp_path, [task25_phase(manifest_sha256, receipt_sha256)]).phase(
+        "task25"
+    ).error == "EVIDENCE_RECONCILIATION_RECEIPT_UNBOUND"
 
 
 def sealed_d1_ledger(tmp_path: Path) -> list:
