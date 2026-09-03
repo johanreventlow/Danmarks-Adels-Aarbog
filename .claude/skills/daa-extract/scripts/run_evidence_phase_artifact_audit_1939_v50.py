@@ -26,7 +26,7 @@ from evidence_phase_artifact_ledger import (
     LedgerError,
     PhaseEntry,
     seal_ledger,
-    validate_catalog,
+    validate_historical_catalog,
     validate_ledger,
 )
 from project_evidence_phase_artifacts_1939_v50 import ProjectError, adapter_sha256, project_phase
@@ -330,7 +330,7 @@ def _emit(result: Mapping[str, object], *, error: bool) -> None:
 def _audit(
     bundle_root: _FdBundleRoot, catalog_parts: tuple[str, ...], output_fd: int
 ) -> tuple[dict[str, object], bool]:
-    catalog = validate_catalog(
+    catalog = validate_historical_catalog(
         _json_load(
             bundle_root.read_bytes(
                 catalog_parts, token="EVIDENCE_RECONCILIATION_CATALOG_UNREADABLE"

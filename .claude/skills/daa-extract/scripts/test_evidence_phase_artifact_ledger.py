@@ -6,6 +6,7 @@ from evidence_phase_artifact_ledger import (
     LedgerError,
     RECEIPT_ADAPTERS,
     seal_ledger,
+    validate_catalog,
     validate_ledger,
 )
 
@@ -65,6 +66,62 @@ def test_audit_input_ledger_has_no_contribution_hash_until_projection_is_complet
     )
 
     assert validate_ledger(ledger)[0].phase_id == "task25"
+
+
+def test_catalog_rejects_an_undeclared_artifact_role_for_task25():
+    catalog = (
+        {
+            "schema_version": "daa-evidence-phase-artifact-catalog-v1",
+            "phases": [
+                {
+                    "phase_id": "task25",
+                    "sequence": 1,
+                    "artifacts": [
+                        {
+                            "role": "manifest",
+                            "path": "task25.json",
+                            "schema_version": "1939-v50-production-write-manifest-v1",
+                            "required": True,
+                        },
+                        {
+                            "role": "unexpected",
+                            "path": "unexpected.json",
+                            "schema_version": "synthetic-v1",
+                            "required": True,
+                        },
+                    ],
+                    "adapter_id": "task25-v1",
+                    "projection_evidence": "afterdocumented_unbound",
+                    "authorisation_evidence": "afterdocumented_authorisation_gap",
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(LedgerError, match="EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_CONTRACT_INVALID"):
+        validate_catalog(catalog)
+
+
+def test_catalog_rejects_a_manifest_receipt_schema_swap_for_task25():
+    catalog = {
+        "schema_version": "daa-evidence-phase-artifact-catalog-v1",
+        "phases": [
+            {
+                "phase_id": "task25",
+                "sequence": 1,
+                "adapter_id": "task25-v1",
+                "projection_evidence": "afterdocumented_unbound",
+                "authorisation_evidence": "afterdocumented_authorisation_gap",
+                "artifacts": [
+                    {"role": "manifest", "path": "manifest.json", "schema_version": "daa-evidence-phase-receipt-task25-v1", "required": True},
+                    {"role": "receipt", "path": "receipt.json", "schema_version": "1939-v50-production-write-manifest-v1", "required": True},
+                ],
+            }
+        ],
+    }
+
+    with pytest.raises(LedgerError, match="EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_CONTRACT_INVALID"):
+        validate_catalog(catalog)
 
 
 def test_reconciliation_ledger_rejects_an_unbound_phase_that_claims_a_contribution():

@@ -90,6 +90,65 @@ class ReceiptAdapter:
     publication_statuses: frozenset[str]
 
 
+@dataclass(frozen=True)
+class ArtifactContract:
+    role: str
+    schema_version: str
+    required: bool = True
+
+
+@dataclass(frozen=True)
+class HistoricalPhaseContract:
+    phase_id: str
+    sequence: int
+    adapter_id: str
+    artifacts: tuple[ArtifactContract, ...]
+
+
+ADAPTER_ARTIFACT_CONTRACTS: Mapping[str, tuple[ArtifactContract, ...]] = {
+    "task25-v1": (
+        ArtifactContract("manifest", "1939-v50-production-write-manifest-v1"),
+        ArtifactContract("receipt", "daa-evidence-phase-receipt-task25-v1"),
+    ),
+    "phase-a-v1": (
+        ArtifactContract("manifest", "1939-v50-phase-a-anchor-manifest-v1"),
+        ArtifactContract("receipt", "daa-evidence-phase-receipt-phase-a-v1"),
+    ),
+    "phase-b-v1": (
+        ArtifactContract("manifest", "1939-v50-narrative-replacement-manifest-v2"),
+        ArtifactContract("receipt", "daa-evidence-phase-receipt-phase-b-v1"),
+    ),
+    "narrative-publication-v1": (
+        ArtifactContract("manifest", "1939-v50-narrative-publication-manifest-v1"),
+        ArtifactContract("receipt", "daa-evidence-phase-receipt-narrative-publication-v1"),
+    ),
+    "name-completion-v1": (
+        ArtifactContract("manifest", "1939-v50-name-completion-manifest-v1"),
+        ArtifactContract("receipt", "daa-evidence-phase-receipt-name-completion-v1"),
+    ),
+    "c0-followup-v1": (
+        ArtifactContract("manifest", "1939-v50-c0-followup-manifest-v1"),
+        ArtifactContract("receipt", "daa-evidence-phase-receipt-c0-v1"),
+    ),
+    "d1-historical-exception-v1": (
+        ArtifactContract("historical_apply_script", "1939-v50-d1-historical-apply-v1"),
+    ),
+}
+
+
+HISTORICAL_PHASE_CONTRACTS = (
+    HistoricalPhaseContract("task25", 1, "task25-v1", ADAPTER_ARTIFACT_CONTRACTS["task25-v1"]),
+    HistoricalPhaseContract("phase-a", 2, "phase-a-v1", ADAPTER_ARTIFACT_CONTRACTS["phase-a-v1"]),
+    HistoricalPhaseContract("phase-b", 3, "phase-b-v1", ADAPTER_ARTIFACT_CONTRACTS["phase-b-v1"]),
+    HistoricalPhaseContract(
+        "narrative-publication", 4, "narrative-publication-v1", ADAPTER_ARTIFACT_CONTRACTS["narrative-publication-v1"]
+    ),
+    HistoricalPhaseContract("name-completion", 5, "name-completion-v1", ADAPTER_ARTIFACT_CONTRACTS["name-completion-v1"]),
+    HistoricalPhaseContract("c0", 6, "c0-followup-v1", ADAPTER_ARTIFACT_CONTRACTS["c0-followup-v1"]),
+    HistoricalPhaseContract("d1", 7, "d1-historical-exception-v1", ADAPTER_ARTIFACT_CONTRACTS["d1-historical-exception-v1"]),
+)
+
+
 RECEIPT_ADAPTERS: Mapping[str, ReceiptAdapter] = {
     "phase-b-v1": ReceiptAdapter(
         adapter_id="phase-b-v1",
@@ -230,6 +289,30 @@ def _validate_catalog_artifact(row: object) -> CatalogArtifactEntry:
     )
 
 
+def _validate_artifact_contract(
+    adapter_id: str,
+    artifacts: tuple[ArtifactEntry, ...] | tuple[CatalogArtifactEntry, ...],
+    *,
+    token: str,
+) -> None:
+    expected = ADAPTER_ARTIFACT_CONTRACTS.get(adapter_id)
+    if expected is None:
+        return
+    expected_by_role = {
+        artifact.role: (artifact.schema_version, artifact.required) for artifact in expected
+    }
+    observed_by_role = {
+        artifact.role: (artifact.schema_version, artifact.required) for artifact in artifacts
+    }
+    _require(observed_by_role.items() <= expected_by_role.items(), token)
+    _require(
+        "historical_apply_script" in observed_by_role
+        if adapter_id == "d1-historical-exception-v1"
+        else "manifest" in observed_by_role,
+        token,
+    )
+
+
 def validate_catalog(document: object) -> list[CatalogPhaseEntry]:
     """Validate the deliberately hash-free, private artifact catalog."""
     _require(isinstance(document, dict), "EVIDENCE_RECONCILIATION_CATALOG_INVALID")
@@ -266,6 +349,11 @@ def validate_catalog(document: object) -> list[CatalogPhaseEntry]:
         _require(len({artifact.role for artifact in artifacts}) == len(artifacts), "EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_DUPLICATE")
         _require(len({artifact.path for artifact in artifacts}) == len(artifacts), "EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_DUPLICATE")
         _require(_valid_text(row["adapter_id"]), "EVIDENCE_RECONCILIATION_CATALOG_PHASE_INVALID")
+        _validate_artifact_contract(
+            row["adapter_id"],
+            artifacts,
+            token="EVIDENCE_RECONCILIATION_CATALOG_ARTIFACT_CONTRACT_INVALID",
+        )
         projection_evidence = row["projection_evidence"]
         authorisation_evidence = row["authorisation_evidence"]
         _require(_valid_text(projection_evidence) and projection_evidence in PROJECTION_STATES, "EVIDENCE_RECONCILIATION_CATALOG_EVIDENCE_INVALID")
@@ -284,6 +372,28 @@ def validate_catalog(document: object) -> list[CatalogPhaseEntry]:
                 database_target_identity_sha256=target_hash,
             )
         )
+    return entries
+
+
+def validate_historical_catalog(document: object) -> list[CatalogPhaseEntry]:
+    """Admit only the complete, canonical 1939-v50 phase inventory for the CLI."""
+    entries = validate_catalog(document)
+    expected = tuple(
+        (contract.phase_id, contract.sequence, contract.adapter_id)
+        for contract in HISTORICAL_PHASE_CONTRACTS
+    )
+    observed = tuple((entry.phase_id, entry.sequence, entry.adapter_id) for entry in entries)
+    _require(observed == expected, "EVIDENCE_RECONCILIATION_HISTORICAL_INVENTORY_INVALID")
+    by_id = {entry.phase_id: entry for entry in entries}
+    _require(
+        by_id["task25"].authorisation_evidence == "afterdocumented_authorisation_gap",
+        "EVIDENCE_RECONCILIATION_HISTORICAL_AUTHORISATION_INVALID",
+    )
+    _require(
+        by_id["d1"].projection_evidence == "unavailable"
+        and by_id["d1"].authorisation_evidence == "unavailable",
+        "EVIDENCE_RECONCILIATION_HISTORICAL_AUTHORISATION_INVALID",
+    )
     return entries
 
 
