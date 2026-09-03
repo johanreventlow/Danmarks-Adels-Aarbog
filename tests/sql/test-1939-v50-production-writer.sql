@@ -224,7 +224,8 @@ BEGIN
   ]) AS values(value) LOOP
     BEGIN
       PERFORM public.red_authorize_1939_v50_reimport(repeat('9',64),repeat('8',64),current_database(),3,
-        v_error::jsonb,'{}'::jsonb,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+        v_error::jsonb,jsonb_build_object('source-evidence:fixture',v_source_payload,'person-create:record-fixture',v_person_payload),
+        gen_random_uuid(),clock_timestamp()+interval '5 minutes');
       RAISE EXCEPTION 'REIMPORT_1939_HISTORIC_COUNT_DRIFT_ACCEPTED';
     EXCEPTION WHEN OTHERS THEN
       IF SQLERRM='REIMPORT_1939_HISTORIC_COUNT_DRIFT_ACCEPTED' THEN RAISE; END IF;
@@ -237,7 +238,8 @@ BEGIN
   BEGIN
     PERFORM public.red_authorize_reimport(repeat('7',64),repeat('6',64),current_database(),3,
       'daa-1939-v50-production-write-v1',v_profile_sha,
-      '{"person_creates":1,"source_evidence":1}'::jsonb,'{}'::jsonb,
+      '{"person_creates":1,"source_evidence":1}'::jsonb,
+      jsonb_build_object('source-evidence:fixture',v_source_payload,'person-create:record-fixture',v_person_payload),
       gen_random_uuid(),clock_timestamp()+interval '5 minutes');
     RAISE EXCEPTION 'REIMPORT_WRITER_LEGACY_DATABASE_IDENTITY_ACCEPTED';
   EXCEPTION WHEN OTHERS THEN
@@ -248,7 +250,8 @@ BEGIN
     PERFORM public.red_authorize_reimport(repeat('5',64),repeat('4',64),
       jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,
       3,'daa-1939-v50-production-write-v1',v_profile_sha,
-      '{"person_creates":1,"source_evidence":1,"canonical_delta":0}'::jsonb,'{}'::jsonb,
+      '{"person_creates":1,"source_evidence":1,"canonical_delta":0}'::jsonb,
+      jsonb_build_object('source-evidence:fixture',v_source_payload,'person-create:record-fixture',v_person_payload),
       gen_random_uuid(),clock_timestamp()+interval '5 minutes');
     RAISE EXCEPTION 'REIMPORT_WRITER_LEGACY_COUNTS_ACCEPTED';
   EXCEPTION WHEN OTHERS THEN

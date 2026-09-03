@@ -121,3 +121,55 @@ BEGIN
     RAISE EXCEPTION 'NAME_COMPLETION_1939_LEGACY_CHAIN_MUTATED';
   END IF;
 END $legacy_chain$;
+
+-- A successful legacy authorization is intentionally a three-field object.
+-- The adapter, not SQL, supplies the pinned profile/source for the generic
+-- gateway; adding it here would silently widen the historic caller contract.
+DO $return_shape$
+DECLARE
+  v_actor uuid := '15300000-0000-4000-8000-000000000601';
+  v_source_auth uuid; v_source_batch uuid; v_person bigint;
+  v_run uuid := '15300000-0000-4000-8000-000000000602';
+  v_record uuid := '15300000-0000-4000-8000-000000000603';
+  v_persona uuid := '15300000-0000-4000-8000-000000000604';
+  v_rendition uuid; v_occurrence uuid; v_observation uuid; v_placement uuid;
+  v_profile_sha text; v_source_payload jsonb; v_person_payload jsonb; v_completion_payload jsonb;
+  v_authorized jsonb; v_envelope jsonb;
+  v_1939_config jsonb := '{"run_key_prefix":"reimport-1939-v50:","schema_version":"1939-v50-production-write-manifest-v1","extractor_version":"production-writer-v1","rendition_key":"daa-1939-calamari-r6-clean","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"observation_extraction_method":"human_reviewed_1939_v50","citation_label_template":"DAA 1939 side {page_from}"}'::jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  INSERT INTO auth.users(id,email) VALUES(v_actor,'name-shape-ci@example.invalid') ON CONFLICT(id) DO NOTHING;
+  INSERT INTO public.profiles(id,email,rolle,navn) VALUES(v_actor,'name-shape-ci@example.invalid','redaktion','Name shape CI') ON CONFLICT(id) DO UPDATE SET rolle='redaktion',navn='Name shape CI';
+  INSERT INTO public.source(id,titel,udgave,slags) VALUES(3,'DAA','1939','DAA-udgave') ON CONFLICT(id) DO NOTHING;
+  INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
+  VALUES(3,'daa-1939-v50-production-write-v1','production-writer-v1',private.reimport_canonical_json_sha256(v_1939_config),v_1939_config)
+  ON CONFLICT(source_id,profile_id,profile_sha256) DO NOTHING;
+  SELECT profile_sha256 INTO v_profile_sha FROM private.reimport_writer_profile WHERE source_id=3 AND profile_id='daa-1939-v50-production-write-v1';
+  INSERT INTO public.slaegt(id,navn,sorteringsnavn,slug) VALUES(-153601,'Name shape fixture','Name shape fixture','name-shape-fixture') ON CONFLICT(id) DO NOTHING;
+  INSERT INTO public.lineage_scheme(id,slaegt_id,source_id,kind,label) VALUES(-153601,-153601,3,'stamtavle','Name shape fixture') ON CONFLICT(id) DO NOTHING;
+  INSERT INTO public.lineage_scheme_entry(id,scheme_id,slaegt_id,code,label,sort_order) VALUES(-153601,-153601,-153601,'A','Name shape fixture',1) ON CONFLICT(id) DO NOTHING;
+  INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) VALUES(v_run,3,'name-shape-source','fixture','fixture','fixture',repeat('6',64),'{}') ON CONFLICT(id) DO NOTHING;
+  INSERT INTO private.source_rendition(source_id,rendition_key,rendition_kind,content_sha256,metadata) VALUES(3,'name-shape-source','ocr_text',repeat('7',64),'{}') RETURNING id INTO v_rendition;
+  INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id) VALUES(v_record,3,'name-shape-record','person',v_run);
+  INSERT INTO private.source_record_occurrence(rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id) VALUES(v_rendition,'name-shape-source',1,1,0,16,'Name shape source',repeat('8',64),repeat('9',64),v_run) RETURNING id INTO v_occurrence;
+  INSERT INTO private.source_record_anchor_event(occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name) VALUES(v_occurrence,v_record,'accepted','{"fixture":"name-shape"}',1,v_actor,'Name shape CI');
+  INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id) VALUES(v_occurrence,'header',1,1,0,16,'Name shape source','clear','fixture',v_run) RETURNING id INTO v_observation;
+  v_placement:=private.propose_source_record_placement(v_record,-153601,v_observation,jsonb_build_object('fixture','name-shape'),'Name shape CI');
+  PERFORM public.red_decide_source_record_placement(v_placement,1,'accepted',jsonb_build_object('fixture','name-shape'));
+  v_source_payload:=jsonb_build_object('review_subject_id','name-shape-evidence','source_record_key','name-shape-record','category','person','disposition','retain_source_only','evidence_sha256',repeat('c',64),'canonical_target',jsonb_build_object('canonical_person_id',1),'source_span',jsonb_build_object('char_from',0,'char_to',16),'page_evidence',jsonb_build_object('page_from',1,'page_to',1),'verbatim_text','Name shape source','legacy_payload',jsonb_build_object('value','Name shape source'),'rendition_content_sha256',repeat('d',64));
+  v_person_payload:=jsonb_build_object('source_record_key','name-shape-record','source_id',3,'edition','1939','source_span',jsonb_build_object('char_from',0,'char_to',16),'page_evidence',jsonb_build_object('page_from',1,'page_to',1),'verbatim_text','Name shape source','verbatim_sha256',encode(extensions.digest(convert_to('Name shape source','UTF8'),'sha256'),'hex'),'source_persona_id',v_persona,'persona_key','1939:name-shape-record','source_record_placement_id',v_placement,'placement_role','principal_member','placement_basis_sha256',repeat('2',64),'placement_review_sha256',repeat('3',64),'placement_decision_sha256',repeat('4',64),'identity_decision_sha256',repeat('f',64),'review_sha256',repeat('1',64),'decision_basis','name-shape fixture','name','Name shape','sex',NULL,'narrative',jsonb_build_object('text','Name shape source','source_record_key','name-shape-record'),'source_mentions','[]'::jsonb,'persona_mention_links','[]'::jsonb,'facts','[]'::jsonb,'relations','[]'::jsonb,'families','[]'::jsonb,'uncertainties','[]'::jsonb,'staged',true,'rendition_content_sha256',repeat('d',64));
+  v_authorized:=jsonb_build_object('source-evidence:name-shape',v_source_payload,'person-create:name-shape-record',v_person_payload);
+  v_source_auth:=public.red_authorize_reimport(repeat('6',64),repeat('5',64),jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,3,'daa-1939-v50-production-write-v1',v_profile_sha,'{"person_creates":1,"source_evidence":1}'::jsonb,v_authorized,'15300000-0000-4000-8000-000000000605',clock_timestamp()+interval '5 minutes');
+  v_source_batch:=public.red_begin_reimport(v_source_auth,repeat('6',64),repeat('5',64));
+  PERFORM public.red_apply_reimport_source_evidence(v_source_batch,'source-evidence:name-shape',v_source_payload);
+  v_person:=public.red_apply_reimport_person_create(v_source_batch,'person-create:name-shape-record',v_person_payload);
+  IF public.red_finalize_reimport(v_source_batch)->>'status'<>'finalized' THEN RAISE EXCEPTION 'NAME_COMPLETION_1939_RETURN_SHAPE_SOURCE_NOT_FINALIZED'; END IF;
+  v_completion_payload:=jsonb_build_object('source_batch_id',v_source_batch,'source_person_create_element_id','person-create:name-shape-record','person_id',v_person,'source_id',3,'edition','1939','source_record_key','name-shape-record','source_persona_id',v_persona,'name','Name shape','source_span',v_person_payload->'source_span','page_evidence',v_person_payload->'page_evidence','verbatim_text',v_person_payload->>'verbatim_text','verbatim_sha256',v_person_payload->>'verbatim_sha256','source_payload_sha256',private.reimport_canonical_json_sha256(v_person_payload),'expected_before',jsonb_build_object('staged',true,'name_cache_empty',true,'name_facts',0),'expected_after',jsonb_build_object('name_fact',1,'selected_assertion',1,'citation',1,'conclusion',1));
+  v_envelope:=public.red_authorize_1939_v50_name_completion(repeat('4',64),v_source_batch,repeat('5',64),repeat('6',64),'{"name_completions":1,"operations":1}'::jsonb,jsonb_build_object('name-completion:name-shape-record',v_completion_payload));
+  IF (SELECT array_agg(key ORDER BY key) FROM jsonb_object_keys(v_envelope) key) IS DISTINCT FROM ARRAY['authorization_id','database_name','system_identifier']
+     OR v_envelope ? 'source' OR nullif(v_envelope->>'authorization_id','') IS NULL
+     OR v_envelope->>'database_name' IS DISTINCT FROM current_database()
+     OR v_envelope->>'system_identifier' IS DISTINCT FROM (pg_control_system()).system_identifier::text THEN
+    RAISE EXCEPTION 'NAME_COMPLETION_1939_AUTHORIZATION_RETURN_SHAPE_INVALID';
+  END IF;
+END $return_shape$;

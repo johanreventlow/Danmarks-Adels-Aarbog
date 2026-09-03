@@ -61,6 +61,7 @@ manifest <- list(
 generic_manifest <- as_generic_reimport_manifest(manifest)
 generic_expected_counts <- jsonlite::toJSON(reimport_writer_expected_counts(generic_manifest), auto_unbox=TRUE)
 generic_authorized <- jsonlite::toJSON(reimport_authorized_payloads(generic_manifest), auto_unbox=TRUE, null="null")
+historic_expected_counts <- jsonlite::toJSON(list(person_creates=8L,source_evidence=305L,canonical_delta=0L), auto_unbox=TRUE)
 profile_config <- '{"run_key_prefix":"reimport-1939-v50:","schema_version":"1939-v50-production-write-manifest-v1","extractor_version":"production-writer-v1","rendition_key":"daa-1939-calamari-r6-clean","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"observation_extraction_method":"human_reviewed_1939_v50","citation_label_template":"DAA 1939 side {page_from}"}'
 profile_sha <- q(con,"SELECT private.reimport_canonical_json_sha256($1::jsonb) hash",list(profile_config))$hash[[1]]
 stopifnot(identical(profile_sha,generic_manifest$source$profile_sha256))
@@ -80,8 +81,10 @@ stopifnot(identical(before,after))
 q(con,"SELECT set_config('request.jwt.claim.sub',$1,false)",list(actor))
 q(con,"SET ROLE service_role")
 database_identity <- q(con,"SELECT jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text identity")$identity[[1]]
-auth <- q(con,"SELECT red_authorize_reimport($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,gen_random_uuid(),clock_timestamp()+interval '10 minutes') id",list(generic_manifest$manifest_content_sha256,preview,database_identity,generic_manifest$source$id,generic_manifest$source$profile_id,generic_manifest$source$profile_sha256,generic_expected_counts,generic_authorized))$id[[1]]
+auth <- q(con,"SELECT red_authorize_1939_v50_reimport($1,$2,current_database(),$3,$4::jsonb,$5::jsonb,gen_random_uuid(),clock_timestamp()+interval '10 minutes') id",list(manifest$manifest_content_sha256,preview,generic_manifest$source$id,historic_expected_counts,generic_authorized))$id[[1]]
 q(con,"RESET ROLE")
+facade_auth <- q(con,"SELECT database_identity=$2 AS canonical_database_identity,expected_counts='{\"person_creates\":8,\"source_evidence\":305}'::jsonb AS generic_counts,NOT (expected_counts ? 'canonical_delta') AS canonical_delta_stripped FROM private.reimport_authorization WHERE id=$1",list(auth,database_identity))
+stopifnot(facade_auth$canonical_database_identity[[1]],facade_auth$generic_counts[[1]],facade_auth$canonical_delta_stripped[[1]])
 role_manifest <- paste(rep("9",64),collapse="")
 q(con,"SET ROLE service_role")
 role_auth <- q(con,"SELECT red_authorize_reimport($1,$2,$3,$4,$5,$6,'{\"person_creates\":0,\"source_evidence\":0}'::jsonb,'{}'::jsonb,gen_random_uuid(),clock_timestamp()+interval '10 minutes') id",list(role_manifest,preview,database_identity,generic_manifest$source$id,generic_manifest$source$profile_id,generic_manifest$source$profile_sha256))$id[[1]]
@@ -103,7 +106,7 @@ stopifnot(state$persons[[1]]==8,state$evidence[[1]]==305,state$profile_bound[[1]
 provenance <- q(con,"SELECT (SELECT count(*) FROM private.source_record WHERE record_key LIKE 'record-ci-%' OR record_key LIKE 'record-source-%') records,(SELECT count(*) FROM private.source_observation o JOIN private.extraction_run r ON r.id=o.extraction_run_id WHERE r.run_key='reimport-1939-v50:'||$1) observations,(SELECT count(*) FROM private.source_persona WHERE persona_key LIKE '1939:record-ci-%') personas,(SELECT count(*) FROM private.source_persona_identity i JOIN private.source_persona p ON p.id=i.source_persona_id WHERE p.persona_key LIKE '1939:record-ci-%' AND i.decision_status='accepted') identities,(SELECT count(*) FROM narrative WHERE subjekt_type='person' AND tekst LIKE 'CI person %') narratives",list(manifest$manifest_content_sha256))
 stopifnot(provenance$records[[1]]==313,provenance$observations[[1]]==313,provenance$personas[[1]]==8,provenance$identities[[1]]==8,provenance$narratives[[1]]==8)
 q(con,"SET ROLE service_role")
-auth2 <- q(con,"SELECT red_authorize_reimport($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,gen_random_uuid(),clock_timestamp()+interval '10 minutes') id",list(generic_manifest$manifest_content_sha256,preview,database_identity,generic_manifest$source$id,generic_manifest$source$profile_id,generic_manifest$source$profile_sha256,generic_expected_counts,generic_authorized))$id[[1]]
+auth2 <- q(con,"SELECT red_authorize_1939_v50_reimport($1,$2,current_database(),$3,$4::jsonb,$5::jsonb,gen_random_uuid(),clock_timestamp()+interval '10 minutes') id",list(manifest$manifest_content_sha256,preview,generic_manifest$source$id,historic_expected_counts,generic_authorized))$id[[1]]
 q(con,"RESET ROLE")
 DBI::dbDisconnect(con); con <- NULL
 Sys.setenv(DAA_REIMPORT_TEST_ROLE="authenticated")
