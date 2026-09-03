@@ -100,6 +100,7 @@ jobs:
           python-version: '3.11'
       - run: python3 -m pip install --disable-pip-version-check -r .claude/skills/daa-extract/requirements-test.txt
       - run: python3 -m pytest .claude/skills/daa-extract/scripts/test_evidence_contract.py -q
+      - run: python3 -m pytest .claude/skills/daa-extract/scripts/test_reimport_profile.py .claude/skills/daa-extract/scripts/test_build_source_evidence_rendition.py .claude/skills/daa-extract/scripts/test_build_source_evidence_manifest.py -q
 
   evidence-promotion-db:
     name: evidence promotion · PostgreSQL 17
@@ -316,6 +317,14 @@ jobs:
           PGPASSWORD: postgres
           PGDATABASE: writer_1939
         run: Rscript tests/integration/test-reimport-writer-locking.R
+      - name: Source evidence writer integration
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: writer_1939
+        run: Rscript tests/integration/test-reimport-source-evidence.R
 
   narrative-record-contract-db:
     name: 'narrative record #152 · PostgreSQL 17'
