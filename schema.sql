@@ -11068,6 +11068,7 @@ BEGIN
       JOIN public.narrative narrative ON narrative.id=legacy.narrative_id
      WHERE narrative.subjekt_type='person'
        AND narrative.subjekt_id=p_person_id
+       AND legacy.status<>'migrated'
   )
   SELECT p_person_id,
          (measured.state #>> '{publication_state,target,source_id}')::bigint,
@@ -12366,6 +12367,7 @@ BEGIN
         ON source.id=narrative.source_id AND source.slags='DAA-udgave'
       JOIN private.narrative_legacy_publication legacy
         ON legacy.narrative_id=narrative.id
+       AND legacy.status='grandfathered_publication'
       JOIN private.narrative_publication_event event
         ON event.id=legacy.latest_event_id
      WHERE narrative.subjekt_type='person'
@@ -12482,6 +12484,7 @@ BEGIN
       ON source.id=narrative.source_id AND source.slags='DAA-udgave'
     JOIN private.narrative_legacy_publication legacy
       ON legacy.narrative_id=narrative.id
+     AND legacy.status='grandfathered_publication'
     JOIN private.narrative_publication_event event
       ON event.id=legacy.latest_event_id
    WHERE narrative.subjekt_type='person'

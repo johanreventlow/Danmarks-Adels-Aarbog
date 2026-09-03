@@ -15929,6 +15929,447 @@ REVOKE ALL ON FUNCTION public.narrative_record_contract_version()
 GRANT EXECUTE ON FUNCTION public.narrative_record_contract_version()
   TO anon,authenticated,service_role;
 
+-- =====================================================================
+-- 2026-09-03: #166 149b legacy-migration — læsefunktioner, elementoperation,
+-- writer, reversal-gren og ACL. Idempotent: CREATE OR REPLACE / IF NOT EXISTS.
+-- Blokken ligger FØR #154's $public_red_revoke$, fordi den blok caster nye
+-- public.red_*-navne til regprocedure i sin DECLARE og derfor kræver, at
+-- funktionerne allerede findes på en base migreret fra en ældre schema.sql.
+-- =====================================================================
+
+-- Task 1: legacy-læsefunktioner filtrerer på ledger-status, så et migreret
+-- narrativ aldrig vises som legacy/overgangsdata.
+CREATE OR REPLACE FUNCTION public.red_person_narrative_records(
+  p_person_id bigint
+) RETURNS TABLE(
+  person_id bigint,
+  source_id bigint,
+  source_year integer,
+  source_label text,
+  provenance_kind text,
+  record_key text,
+  source_record_ref uuid,
+  legacy_publication_ref uuid,
+  record_order integer,
+  record_label text,
+  citation_label text,
+  narrative_id bigint,
+  narrative_text text,
+  narrative_private boolean,
+  narrative_side text,
+  publication_status text,
+  text_editable boolean,
+  allowed_actions jsonb,
+  withdrawn_history jsonb,
+  latest_event_version integer,
+  published_text_sha256 text,
+  eligibility_status text,
+  blocking_reason text,
+  state_sha256 text
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path=pg_catalog
+AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_ROLE_FORBIDDEN';
+  END IF;
+
+  RETURN QUERY
+  WITH candidates AS (
+    SELECT record.id,record.source_id,record.record_key
+      FROM private.source_record record
+     WHERE EXISTS (
+       SELECT 1
+         FROM private.narrative_record_publication binding
+         JOIN public.narrative narrative ON narrative.id=binding.narrative_id
+        WHERE binding.source_record_id=record.id
+          AND narrative.subjekt_type='person'
+          AND narrative.subjekt_id=p_person_id
+          AND narrative.source_id=record.source_id
+     )
+    UNION
+    SELECT DISTINCT record.id,record.source_id,record.record_key
+      FROM private.source_record record
+      JOIN private.source_record_anchor_current anchor
+        ON anchor.source_record_id=record.id AND anchor.decision_status='accepted'
+      JOIN private.source_record_placement_current record_placement
+        ON record_placement.source_record_id=record.id
+       AND record_placement.decision_status='accepted'
+      JOIN private.source_persona_placement_current persona_placement
+        ON persona_placement.record_placement_id=record_placement.id
+       AND persona_placement.decision_status='accepted'
+       AND persona_placement.placement_role IN ('principal_member','co_principal')
+      JOIN private.source_persona_identity identity_state
+        ON identity_state.source_persona_id=persona_placement.source_persona_id
+       AND identity_state.decision_status='accepted'
+       AND identity_state.canonical_person_id=p_person_id
+  ), measured AS (
+    SELECT candidate.id,candidate.source_id,candidate.record_key,
+           private.narrative_record_state(
+             p_person_id,candidate.source_id,candidate.record_key,false
+           ) AS state
+      FROM candidates candidate
+  )
+  SELECT p_person_id,
+         measured.source_id,
+         (measured.state #>> '{publication_state,source,source_year}')::integer,
+         measured.state #>> '{publication_state,source,source_label}',
+         'source_record'::text,
+         measured.record_key,
+         (measured.state #>> '{publication_state,target,source_record_ref}')::uuid,
+         NULL::uuid,
+         (measured.state #>> '{publication_state,labels,record_order}')::integer,
+         measured.state #>> '{publication_state,labels,record_label}',
+         measured.state #>> '{publication_state,labels,citation_label}',
+         CASE WHEN measured.state->>'blocking_reason'=
+                        'NARRATIVE_RECORD_ACTIVE_BINDING_CONFLICT'
+              THEN NULL::bigint
+              ELSE (measured.state #>> '{publication_state,narrative,narrative_id}')::bigint
+          END,
+         CASE WHEN measured.state->>'blocking_reason'=
+                        'NARRATIVE_RECORD_ACTIVE_BINDING_CONFLICT'
+              THEN NULL::text
+              ELSE measured.state #>> '{publication_state,narrative,text}'
+          END,
+         CASE WHEN measured.state->>'blocking_reason'=
+                        'NARRATIVE_RECORD_ACTIVE_BINDING_CONFLICT'
+              THEN NULL::boolean
+              ELSE (measured.state #>> '{publication_state,narrative,private}')::boolean
+          END,
+         CASE WHEN measured.state->>'blocking_reason'=
+                        'NARRATIVE_RECORD_ACTIVE_BINDING_CONFLICT'
+              THEN NULL::text
+              ELSE measured.state #>> '{publication_state,narrative,side}'
+          END,
+         measured.state->>'publication_status',
+         (measured.state->>'text_editable')::boolean,
+         measured.state->'allowed_actions',
+         coalesce((
+           SELECT jsonb_agg(jsonb_build_object(
+                    'narrative_id',item->'narrative_id',
+                    'status',item->'status',
+                    'text_sha256',item->'text_sha256',
+                    'record_label',item->'record_label',
+                    'citation_label',item->'citation_label',
+                    'created_at',item->'created_at'
+                  ) ORDER BY item->>'created_at',item->>'narrative_id')
+             FROM jsonb_array_elements(measured.state->'withdrawn_history') item
+         ),'[]'::jsonb),
+         (measured.state->>'latest_event_version')::integer,
+         measured.state->>'published_text_sha256',
+         measured.state->>'eligibility_status',
+         measured.state->>'blocking_reason',
+         measured.state->>'state_sha256'
+    FROM measured
+   ORDER BY (measured.state #>> '{publication_state,labels,record_order}')::integer
+              NULLS LAST,
+            measured.record_key;
+
+  RETURN QUERY
+  WITH measured AS (
+    SELECT legacy.legacy_publication_ref,legacy.created_at,
+           private.narrative_legacy_state(
+             legacy.legacy_publication_ref,false
+           ) AS state
+      FROM private.narrative_legacy_publication legacy
+      JOIN public.narrative narrative ON narrative.id=legacy.narrative_id
+     WHERE narrative.subjekt_type='person'
+       AND narrative.subjekt_id=p_person_id
+       AND legacy.status<>'migrated'
+  )
+  SELECT p_person_id,
+         (measured.state #>> '{publication_state,target,source_id}')::bigint,
+         (measured.state #>> '{publication_state,source,source_year}')::integer,
+         measured.state #>> '{publication_state,source,source_label}',
+         'grandfathered_legacy'::text,
+         NULL::text,
+         NULL::uuid,
+         measured.legacy_publication_ref,
+         NULL::integer,
+         'Overgangsdata — kildepost ikke fastlagt'::text,
+         (measured.state #>> '{publication_state,source,source_label}')
+           ||CASE WHEN nullif(
+                     measured.state #>> '{publication_state,narrative,side}',''
+                   ) IS NULL THEN ''
+                 ELSE ', s. '||(
+                   measured.state #>> '{publication_state,narrative,side}'
+                 ) END,
+         (measured.state #>> '{publication_state,narrative,narrative_id}')::bigint,
+         measured.state #>> '{publication_state,narrative,text}',
+         (measured.state #>> '{publication_state,narrative,private}')::boolean,
+         measured.state #>> '{publication_state,narrative,side}',
+         measured.state->>'publication_status',
+         (measured.state->>'text_editable')::boolean,
+         measured.state->'allowed_actions',
+         measured.state->'withdrawn_history',
+         (measured.state->>'latest_event_version')::integer,
+         measured.state->>'published_text_sha256',
+         measured.state->>'eligibility_status',
+         measured.state->>'blocking_reason',
+         measured.state->>'state_sha256'
+    FROM measured
+   ORDER BY measured.created_at,measured.legacy_publication_ref;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION public.public_person_bio_source_versions_v2(
+  p_person_ids bigint[]
+) RETURNS TABLE(
+  person_id bigint,
+  source_id bigint,
+  source_year integer,
+  record_order integer,
+  source_record_ref uuid,
+  source_label text,
+  record_label text,
+  narrative_text text,
+  citation_label text,
+  provenance_kind text
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path=pg_catalog
+AS $$
+BEGIN
+  IF public.narrative_record_contract_version()<2 THEN
+    RETURN QUERY
+    WITH public_rows AS (
+      SELECT narrative.subjekt_id AS row_person_id,
+             narrative.source_id AS row_source_id,
+             source.aar::integer AS row_source_year,
+             (labels #>> '{record_order}')::integer AS row_record_order,
+             record.public_ref AS row_source_record_ref,
+             coalesce(
+               nullif(btrim(source.udgave),''),
+               nullif(btrim(source.titel),''),'DAA-udgave'
+             ) AS row_source_label,
+             binding.record_label AS row_record_label,
+             narrative.tekst AS row_narrative_text,
+             binding.citation_label AS row_citation_label,
+             'source_record'::text AS row_provenance_kind,
+             0 AS row_kind
+        FROM public.narrative narrative
+        JOIN public.source source
+          ON source.id=narrative.source_id AND source.slags='DAA-udgave'
+        JOIN private.narrative_record_publication binding
+          ON binding.narrative_id=narrative.id AND binding.status='published'
+        JOIN private.source_record record ON record.id=binding.source_record_id
+        CROSS JOIN LATERAL private.narrative_record_labels(record.id)
+          AS label_state(labels)
+       WHERE narrative.subjekt_type='person'
+         AND narrative.subjekt_id=ANY(p_person_ids)
+         AND public.person_daa_narrative_publication_allowed(narrative.id)
+      UNION ALL
+      SELECT narrative.subjekt_id,narrative.source_id,source.aar::integer,NULL::integer,
+             NULL::uuid,
+             coalesce(
+               nullif(btrim(source.udgave),''),
+               nullif(btrim(source.titel),''),'DAA-udgave'
+             ),
+             'Overgangsdata'::text,narrative.tekst,
+             coalesce(nullif(btrim(narrative.side),''),'')::text,
+             'legacy_narrative'::text,1
+        FROM public.narrative narrative
+        JOIN public.source source
+          ON source.id=narrative.source_id AND source.slags='DAA-udgave'
+       WHERE narrative.subjekt_type='person'
+         AND narrative.subjekt_id=ANY(p_person_ids)
+         AND public.person_daa_narrative_publication_allowed(narrative.id)
+         AND NOT EXISTS (
+           SELECT 1 FROM private.narrative_record_publication binding
+            WHERE binding.narrative_id=narrative.id
+         )
+    )
+    SELECT row_person_id,row_source_id,row_source_year,row_record_order,
+           row_source_record_ref,row_source_label,row_record_label,
+           row_narrative_text,row_citation_label,row_provenance_kind
+      FROM public_rows
+     ORDER BY row_source_year DESC NULLS LAST,row_source_id,row_kind,
+              row_record_order NULLS LAST,row_record_label,row_source_record_ref;
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  WITH public_rows AS (
+    SELECT (event.after_state #>> '{target,person_id}')::bigint AS row_person_id,
+           (event.after_state #>> '{target,source_id}')::bigint AS row_source_id,
+           (event.after_state #>> '{source,source_year}')::integer AS row_source_year,
+           (event.after_state #>> '{labels,record_order}')::integer AS row_record_order,
+           (event.after_state #>> '{target,source_record_ref}')::uuid
+             AS row_source_record_ref,
+           event.after_state #>> '{source,source_label}' AS row_source_label,
+           event.after_state #>> '{labels,record_label}' AS row_record_label,
+           event.after_state #>> '{narrative,text}' AS row_narrative_text,
+           event.after_state #>> '{labels,citation_label}' AS row_citation_label,
+           'source_record'::text AS row_provenance_kind,
+           0 AS row_kind,
+           (event.after_state #>> '{target,source_record_ref}')::uuid
+             AS row_stable_tiebreak
+      FROM public.narrative narrative
+      JOIN public.source source
+        ON source.id=narrative.source_id AND source.slags='DAA-udgave'
+      JOIN private.narrative_record_publication binding
+        ON binding.narrative_id=narrative.id
+      JOIN LATERAL (
+        SELECT publication_event.after_state
+          FROM private.narrative_publication_event publication_event
+         WHERE publication_event.binding_id=binding.id
+         ORDER BY publication_event.stream_version DESC,publication_event.id DESC
+         LIMIT 1
+      ) event ON true
+     WHERE narrative.subjekt_type='person'
+       AND narrative.subjekt_id=ANY(p_person_ids)
+       AND public.person_daa_narrative_publication_allowed(narrative.id)
+    UNION ALL
+    SELECT (event.after_state #>> '{target,person_id}')::bigint,
+           (event.after_state #>> '{target,source_id}')::bigint,
+           (event.after_state #>> '{source,source_year}')::integer,
+           NULL::integer,NULL::uuid,
+           event.after_state #>> '{source,source_label}',
+           'Overgangsdata'::text,
+           event.after_state #>> '{narrative,text}',
+           (event.after_state #>> '{source,source_label}')
+             ||CASE
+                 WHEN nullif(event.after_state #>> '{narrative,side}','') IS NULL
+                   THEN ''
+                 ELSE ', s. '||(event.after_state #>> '{narrative,side}')
+               END,
+           'legacy_narrative'::text,1,legacy.legacy_publication_ref
+      FROM public.narrative narrative
+      JOIN public.source source
+        ON source.id=narrative.source_id AND source.slags='DAA-udgave'
+      JOIN private.narrative_legacy_publication legacy
+        ON legacy.narrative_id=narrative.id
+       AND legacy.status='grandfathered_publication'
+      JOIN private.narrative_publication_event event
+        ON event.id=legacy.latest_event_id
+     WHERE narrative.subjekt_type='person'
+       AND narrative.subjekt_id=ANY(p_person_ids)
+       AND public.person_daa_narrative_publication_allowed(narrative.id)
+  )
+  SELECT row_person_id,row_source_id,row_source_year,row_record_order,
+         row_source_record_ref,row_source_label,row_record_label,
+         row_narrative_text,row_citation_label,row_provenance_kind
+    FROM public_rows
+   ORDER BY row_source_year DESC NULLS LAST,row_source_id,row_kind,
+            row_record_order NULLS LAST,row_record_label,row_source_record_ref,
+            row_stable_tiebreak;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION public.public_person_bio_source_versions(
+  p_person_ids bigint[]
+) RETURNS TABLE(
+  person_id bigint,
+  record_ref uuid,
+  source_label text,
+  record_label text,
+  narrative_text text,
+  citation_label text,
+  provenance_kind text
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path=pg_catalog
+AS $$
+BEGIN
+  IF public.narrative_record_contract_version()<2 THEN
+    RETURN QUERY
+    SELECT narrative.subjekt_id,binding.record_ref,
+           coalesce(
+             nullif(btrim(source.udgave),''),
+             nullif(btrim(source.titel),''),'DAA-udgave'
+           ),
+           binding.record_label,narrative.tekst,binding.citation_label,
+           'source_record'::text
+      FROM public.narrative narrative
+      JOIN public.person person ON person.id=narrative.subjekt_id
+      JOIN public.source source
+        ON source.id=narrative.source_id AND source.slags='DAA-udgave'
+      JOIN private.narrative_record_publication binding
+        ON binding.narrative_id=narrative.id AND binding.status='published'
+     WHERE narrative.subjekt_type='person'
+       AND narrative.subjekt_id=ANY(p_person_ids)
+       AND coalesce(narrative.privat,false)=false
+       AND person.levende=false
+       AND coalesce(person.privat,false)=false
+       AND coalesce(person.staged,false)=false
+       AND public.person_daa_narrative_publication_allowed(narrative.id)
+    UNION ALL
+    SELECT narrative.subjekt_id,NULL::uuid,
+           coalesce(
+             nullif(btrim(source.udgave),''),
+             nullif(btrim(source.titel),''),'DAA-udgave'
+           ),
+           'Overgangsdata'::text,narrative.tekst,
+           coalesce(nullif(btrim(narrative.side),''),'')::text,
+           'legacy_narrative'::text
+      FROM public.narrative narrative
+      JOIN public.person person ON person.id=narrative.subjekt_id
+      JOIN public.source source
+        ON source.id=narrative.source_id AND source.slags='DAA-udgave'
+     WHERE narrative.subjekt_type='person'
+       AND narrative.subjekt_id=ANY(p_person_ids)
+       AND coalesce(narrative.privat,false)=false
+       AND person.levende=false
+       AND coalesce(person.privat,false)=false
+       AND coalesce(person.staged,false)=false
+       AND public.person_daa_narrative_publication_allowed(narrative.id)
+       AND NOT EXISTS (
+         SELECT 1 FROM private.narrative_record_publication binding
+          WHERE binding.narrative_id=narrative.id
+       );
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  SELECT narrative.subjekt_id,binding.record_ref,
+         event.after_state #>> '{source,source_label}',
+         event.after_state #>> '{labels,record_label}',
+         event.after_state #>> '{narrative,text}',
+         event.after_state #>> '{labels,citation_label}',
+         'source_record'::text
+    FROM public.narrative narrative
+    JOIN public.source source
+      ON source.id=narrative.source_id AND source.slags='DAA-udgave'
+    JOIN private.narrative_record_publication binding
+      ON binding.narrative_id=narrative.id
+    JOIN LATERAL (
+      SELECT publication_event.after_state
+        FROM private.narrative_publication_event publication_event
+       WHERE publication_event.binding_id=binding.id
+       ORDER BY publication_event.stream_version DESC,publication_event.id DESC
+       LIMIT 1
+    ) event ON true
+   WHERE narrative.subjekt_type='person'
+     AND narrative.subjekt_id=ANY(p_person_ids)
+     AND public.person_daa_narrative_publication_allowed(narrative.id)
+  UNION ALL
+  SELECT narrative.subjekt_id,NULL::uuid,
+         event.after_state #>> '{source,source_label}',
+         'Overgangsdata'::text,
+         event.after_state #>> '{narrative,text}',
+         coalesce(nullif(event.after_state #>> '{narrative,side}',''),'')::text,
+         'legacy_narrative'::text
+    FROM public.narrative narrative
+    JOIN public.source source
+      ON source.id=narrative.source_id AND source.slags='DAA-udgave'
+    JOIN private.narrative_legacy_publication legacy
+      ON legacy.narrative_id=narrative.id
+     AND legacy.status='grandfathered_publication'
+    JOIN private.narrative_publication_event event
+      ON event.id=legacy.latest_event_id
+   WHERE narrative.subjekt_type='person'
+     AND narrative.subjekt_id=ANY(p_person_ids)
+     AND public.person_daa_narrative_publication_allowed(narrative.id);
+END
+$$;
+
+
 -- #154: close every inherited/default EXECUTE grant and classify the complete
 -- public.red_* overload catalog after #153's contract-v2 cutover. A new RPC
 -- must be added to exactly one array or the migration fails closed.
