@@ -587,9 +587,11 @@ drop policy if exists bookmark_delete_own on public.bookmark;
 create policy bookmark_delete_own on public.bookmark
   for delete to authenticated using (user_id = auth.uid());
 
--- RPC-grants: signature-aware allow-list. A new red_* overload receives no
--- privilege merely because of its name; it must be classified here or in a
--- later, purpose-specific ACL block.
+-- RPC reset + stable editor allow-list. A new red_* overload receives no
+-- privilege merely because of its name. Writer-, narrative-version- and
+-- superseded C3-signatures stay revoked here and are owned by later
+-- purpose-specific ACL blocks, so a non-transactional deploy cannot expose
+-- their authorization boundary between blocks.
 DO $redaction_rpc_allow_list$
 DECLARE v_signature text;
 BEGIN
@@ -611,21 +613,7 @@ BEGIN
   END LOOP;
 
   FOREACH v_signature IN ARRAY ARRAY[
-    'public.red_activate_1939_v50_batch(uuid,uuid)',
     'public.red_afgoer_source_persona(uuid,integer,text,bigint,text)',
-    'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',
-    'public.red_apply_1939_v50_name_completion(uuid,text,jsonb)',
-    'public.red_apply_1939_v50_person_create(uuid,text,jsonb)',
-    'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)',
-    'public.red_apply_reimport_cases(uuid,text,text)',
-    'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)',
-    'public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)',
-    'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)',
-    'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)',
-    'public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)',
-    'public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)',
-    'public.red_begin_1939_v50_name_completion(uuid,text,uuid)',
-    'public.red_begin_1939_v50_reimport(uuid,text,text)',
     'public.red_bekraeft_media_upload(bigint,bigint,text)',
     'public.red_decide_interpretation(uuid,integer,text,jsonb)',
     'public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)',
@@ -633,8 +621,6 @@ BEGIN
     'public.red_decide_source_record_placement(uuid,integer,text,jsonb)',
     'public.red_edit_oplysning(bigint,text,text,text)',
     'public.red_erstat_media_fil(bigint,text,text,bigint,integer,integer,text,text,jsonb)',
-    'public.red_finalize_1939_v50_name_completion(uuid)',
-    'public.red_finalize_1939_v50_reimport(uuid)',
     'public.red_fjern_feed_pin(text)',
     'public.red_fjern_ikke_samme_som(bigint)',
     'public.red_fjern_media(bigint)',
@@ -643,7 +629,6 @@ BEGIN
     'public.red_fortryd_change_set(bigint,boolean)',
     'public.red_genopret_media(bigint)',
     'public.red_ikke_samme_som(bigint,bigint)',
-    'public.red_lock_1939_v50_name_completion(text)',
     'public.red_match_personer()',
     'public.red_ocr_historik(text,text,text)',
     'public.red_opdater_media(bigint,text,text,text,text)',
@@ -658,19 +643,15 @@ BEGIN
     'public.red_person_grid()',
     'public.red_person_narrative_publication_history(bigint)',
     'public.red_person_narrative_records(bigint)',
-    'public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)',
     'public.red_preview_interpretation_promotions(jsonb)',
     'public.red_preview_reimport_cases(bigint,text,jsonb)',
     'public.red_promote_interpretations_batch(jsonb,text)',
-    'public.red_publicer_narrative_record(bigint,uuid,text,text)',
     'public.red_publicer_personer(bigint[])',
     'public.red_publicer_udgave(bigint)',
     'public.red_rediger_story(bigint,text,text,bigint,bigint,bigint,bigint,date,date,text,text,boolean)',
     'public.red_registrer_media_variant(bigint,text,text,text,bigint,integer,integer)',
     'public.red_relation(text,bigint,text,bigint,text,text)',
     'public.red_ret_ocr_felt(bigint,text,text,text,text,jsonb,text,text)',
-    'public.red_reverse_1939_v50_reimport(uuid,uuid)',
-    'public.red_reverse_reimport_cases(uuid,uuid)',
     'public.red_saet_portraet(bigint,bigint)',
     'public.red_samme_som(bigint,bigint)',
     'public.red_set_familie_konfidens(bigint,bigint,text,text)',
@@ -695,7 +676,6 @@ BEGIN
     'public.red_source_persona_queue(text,bigint,uuid,integer)',
     'public.red_suggest(text,text,bigint,text,text,text,jsonb,text)',
     'public.red_tilbagetraek_fakta(bigint)',
-    'public.red_tilbagetraek_narrative_record(bigint)',
     'public.red_tilfoej_barn(bigint,bigint,text,text)',
     'public.red_tilfoej_foraeldre_paastand(bigint,bigint,bigint,text,text,text)',
     'public.red_tilfoej_oplysning(bigint,text,date,date,text,text,text)',
@@ -709,28 +689,6 @@ BEGIN
     'public.red_vaelg_foraeldre(bigint,text)'
   ] LOOP
     IF to_regprocedure(v_signature) IS NULL THEN
-      IF v_signature IN (
-        'public.red_activate_1939_v50_batch(uuid,uuid)',
-        'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',
-        'public.red_apply_1939_v50_name_completion(uuid,text,jsonb)',
-        'public.red_apply_1939_v50_person_create(uuid,text,jsonb)',
-        'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)',
-        'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)',
-        'public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)',
-        'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)',
-        'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)',
-        'public.red_begin_1939_v50_name_completion(uuid,text,uuid)',
-        'public.red_begin_1939_v50_reimport(uuid,text,text)',
-        'public.red_finalize_1939_v50_name_completion(uuid)',
-        'public.red_finalize_1939_v50_reimport(uuid)',
-        'public.red_lock_1939_v50_name_completion(text)',
-        'public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)',
-        'public.red_publicer_narrative_record(bigint,uuid,text,text)',
-        'public.red_reverse_1939_v50_reimport(uuid,uuid)',
-        'public.red_tilbagetraek_narrative_record(bigint)'
-      ) THEN
-        CONTINUE;
-      END IF;
       RAISE EXCEPTION 'RLS_REDACTION_RPC_ALLOW_LIST_SIGNATURE_MISSING: %',v_signature;
     END IF;
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated',v_signature);
@@ -1055,7 +1013,6 @@ BEGIN
     'public.red_reverse_1939_v50_reimport(uuid,uuid)',
     'public.red_activate_1939_v50_batch(uuid,uuid)',
     'public.red_lock_1939_v50_name_completion(text)',
-    'public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)',
     'public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)',
     'public.red_begin_1939_v50_name_completion(uuid,text,uuid)',
     'public.red_apply_1939_v50_name_completion(uuid,text,jsonb)',
@@ -1105,10 +1062,16 @@ REVOKE ALL ON FUNCTION public.red_preview_reimport_cases(bigint,text,jsonb),
   FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_preview_reimport_cases(bigint,text,jsonb)
   TO authenticated;
-GRANT EXECUTE ON FUNCTION public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)
-  TO service_role;
-GRANT EXECUTE ON FUNCTION public.red_apply_reimport_cases(uuid,text,text)
-  TO authenticated;
+DO $legacy_c3_apply_acl_if_not_superseded$
+BEGIN
+  IF to_regprocedure(
+    'public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz)'
+  ) IS NULL THEN
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz) TO service_role';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.red_apply_reimport_cases(uuid,text,text) TO authenticated';
+  END IF;
+END
+$legacy_c3_apply_acl_if_not_superseded$;
 
 -- ---------- DAA 1939 v50 fase C3: reversal RPCs (Task 7) ----------
 -- Same principal split as the apply family: service_role authorises the
@@ -1119,10 +1082,16 @@ REVOKE ALL ON FUNCTION private.reimport_case_reversal_plan(uuid)
 REVOKE ALL ON FUNCTION public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz),
   public.red_reverse_reimport_cases(uuid,uuid)
   FROM PUBLIC,anon,authenticated,service_role;
-GRANT EXECUTE ON FUNCTION public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)
-  TO service_role;
-GRANT EXECUTE ON FUNCTION public.red_reverse_reimport_cases(uuid,uuid)
-  TO authenticated;
+DO $legacy_c3_reversal_acl_if_not_superseded$
+BEGIN
+  IF to_regprocedure(
+    'public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz)'
+  ) IS NULL THEN
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz) TO service_role';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.red_reverse_reimport_cases(uuid,uuid) TO authenticated';
+  END IF;
+END
+$legacy_c3_reversal_acl_if_not_superseded$;
 
 -- #152 Task 2: the two typed editor reads are authenticated entry points,
 -- but perform their own fail-closed redaktion role check. All canonical state

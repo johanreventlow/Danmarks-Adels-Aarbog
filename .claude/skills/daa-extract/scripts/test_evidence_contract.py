@@ -23,6 +23,24 @@ from evidence_contract import (
 )
 
 
+def interpretation_table_status_values(schema_sql):
+    table = re.search(
+        r"CREATE TABLE private\.interpretation\s*\((.*?)\n\);\s*"
+        r"CREATE TABLE private\.interpretation_observation",
+        schema_sql,
+        re.DOTALL,
+    )
+    assert table is not None
+    status_check = re.search(
+        r"\bstatus\s+text\s+NOT NULL\s+CHECK\s*\(\s*"
+        r"status\s+IN\s*\(([^)]*)\)\s*\)",
+        table.group(1),
+        re.DOTALL,
+    )
+    assert status_check is not None
+    return re.findall(r"'([^']+)'", status_check.group(1))
+
+
 def span(text="Gift 12. Maj 1814 med Anna."):
     return SourceSpan(
         rendition_id="rendition-2018-pdftext-v1",
@@ -414,11 +432,24 @@ def test_json_schemas_use_the_current_interpretation_status_vocabulary():
     with (references / "interpretation-schema.json").open(encoding="utf-8") as handle:
         interpretation_schema = json.load(handle)
     schema_sql = (Path(__file__).parents[4] / "schema.sql").read_text(encoding="utf-8")
-    decision_values = re.search(
-        r"p_decision_status NOT IN \(([^)]*)\)", schema_sql, re.DOTALL,
+    assert interpretation_schema["properties"]["status"]["enum"] == (
+        interpretation_table_status_values(schema_sql)
     )
-    assert decision_values is not None
-    assert interpretation_schema["properties"]["status"]["enum"] == [
-        "proposed",
-        *re.findall(r"'([^']+)'", decision_values.group(1)),
-    ]
+
+
+def test_interpretation_status_vocabulary_comes_from_table_not_rpc_body():
+    schema_sql = """
+CREATE TABLE private.interpretation (
+  status text NOT NULL CHECK (status IN ('proposed','accepted'))
+);
+CREATE TABLE private.interpretation_observation (
+  interpretation_id uuid NOT NULL
+);
+CREATE FUNCTION red_decide_interpretation(p_decision_status text) RETURNS void AS $$
+BEGIN
+  IF p_decision_status NOT IN ('accepted','rejected','unresolved','superseded') THEN
+    RAISE EXCEPTION 'invalid';
+  END IF;
+END $$ LANGUAGE plpgsql;
+"""
+    assert interpretation_table_status_values(schema_sql) == ["proposed", "accepted"]
