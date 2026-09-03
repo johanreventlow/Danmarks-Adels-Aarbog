@@ -140,3 +140,70 @@ def test_repository_profile_has_the_locked_identity():
     assert raw["expected_counts"] == {"person_creates": 0, "source_evidence": 591}
     assert raw["writer_config"]["rendition_key"] == "daa-2018-20-pdftotext-r1"
     assert raw["writer_config"]["rendition_kind"] == "pdf_text_layer"
+
+
+def legacy_profile_dict(**overrides):
+    profile = {
+        "profile_schema_version": "reimport-legacy-migration-profile-v1",
+        "source_id": 4242,
+        "profile_id": "fixture-legacy-migration-v1",
+        "profile_version": "fixture-v1",
+        "writer_config": json.loads(json.dumps(FIXTURE_WRITER_CONFIG)),
+        "raw_text_sha256": "b" * 64,
+        "expected_counts": {
+            "person_creates": 0,
+            "source_evidence": 0,
+            "legacy_migrations": 2,
+        },
+        "expected_dispositions": {
+            "bound_published": 1,
+            "bound_draft": 1,
+            "unresolved_text": 0,
+            "unresolved_identity": 0,
+        },
+        "stop_threshold": {"unresolved_max_share_percent": 10},
+    }
+    profile.update(overrides)
+    return profile
+
+
+def test_load_legacy_migration_profile_returns_profile_sha256(tmp_path):
+    loaded = rp.load_profile(write(tmp_path, legacy_profile_dict()))
+    assert loaded["profile_sha256"] == KNOWN_VECTOR
+
+
+def test_legacy_migration_profile_rejects_extra_key(tmp_path):
+    with pytest.raises(rp.ProfileError) as error:
+        rp.load_profile(write(tmp_path, legacy_profile_dict(extra="x")))
+    assert str(error.value) == "PROFILE_KEYS_INVALID"
+
+
+def test_legacy_migration_profile_rejects_invalid_rendition_pdf_hash(tmp_path):
+    config = json.loads(json.dumps(FIXTURE_WRITER_CONFIG))
+    config["rendition_metadata"]["pdf_sha256"] = "not-a-hash"
+    with pytest.raises(rp.ProfileError) as error:
+        rp.load_profile(write(tmp_path, legacy_profile_dict(writer_config=config)))
+    assert str(error.value) == "PROFILE_MEASURED_HASH_INVALID"
+
+
+@pytest.mark.parametrize("threshold", [-1, 101, True])
+def test_legacy_migration_profile_requires_percentage_threshold(tmp_path, threshold):
+    with pytest.raises(rp.ProfileError) as error:
+        rp.load_profile(write(tmp_path, legacy_profile_dict(
+            stop_threshold={"unresolved_max_share_percent": threshold})))
+    assert str(error.value) == "PROFILE_STOP_THRESHOLD_INVALID"
+
+
+@pytest.mark.parametrize("expected_dispositions", [
+    {"bound_published": 1, "bound_draft": 1, "unresolved_text": 0},
+    {"bound_published": 1, "bound_draft": 1, "unresolved_text": 0,
+     "unresolved_identity": -1},
+    {"bound_published": 1, "bound_draft": 1, "unresolved_text": 0,
+     "unresolved_identity": True},
+])
+def test_legacy_migration_profile_requires_exact_nonnegative_dispositions(
+        tmp_path, expected_dispositions):
+    with pytest.raises(rp.ProfileError) as error:
+        rp.load_profile(write(tmp_path, legacy_profile_dict(
+            expected_dispositions=expected_dispositions)))
+    assert str(error.value) == "PROFILE_EXPECTED_DISPOSITIONS_INVALID"
