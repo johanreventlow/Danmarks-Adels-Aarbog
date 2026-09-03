@@ -523,7 +523,6 @@ def _name_completion_rows(
     results = receipt["completion_results"]
     _require(isinstance(results, list) and len(results) == 8)
     observed_people: set[int] = set()
-    output_ids: dict[str, set[int]] = {field: set() for field in ("fact_id", "assertion_id", "citation_id", "conclusion_id")}
     for result in results:
         _require(
             isinstance(result, dict)
@@ -532,9 +531,6 @@ def _name_completion_rows(
         )
         _require(result["person_id"] not in observed_people)
         observed_people.add(result["person_id"])
-        for field, values in output_ids.items():
-            _require(result[field] not in values)
-            values.add(result[field])
     _require(observed_people == expected_people)
     return {section: [] for section in SECTIONS}
 

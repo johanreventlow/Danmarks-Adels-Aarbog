@@ -179,9 +179,6 @@ def _validate_exact_identity_map(value: object, adapter: ReceiptAdapter) -> list
         return None
     rows: list[dict[str, object]] = []
     observed: set[tuple[object, ...]] = set()
-    result_ids: dict[str, set[int]] = {
-        field: set() for field in ("fact_id", "assertion_id", "citation_id", "conclusion_id")
-    }
     for row in value:
         if not isinstance(row, dict) or set(row) != set(adapter.identity_fields):
             raise AuditError("EVIDENCE_RECONCILIATION_ARTIFACT_SCHEMA_INVALID")
@@ -203,11 +200,6 @@ def _validate_exact_identity_map(value: object, adapter: ReceiptAdapter) -> list
         if identity in observed:
             return None
         observed.add(identity)
-        if adapter.adapter_id == "name-completion-v1":
-            for field, values in result_ids.items():
-                if row[field] in values:
-                    return None
-                values.add(row[field])
         rows.append(row)
     return rows
 

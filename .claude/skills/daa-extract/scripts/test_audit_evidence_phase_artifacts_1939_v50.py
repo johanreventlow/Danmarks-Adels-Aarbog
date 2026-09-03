@@ -819,7 +819,7 @@ def test_audit_marks_each_new_adapter_unbound_on_target_hash_drift(tmp_path, ada
 
 
 @pytest.mark.parametrize("adapter_id", NEW_ADAPTERS)
-@pytest.mark.parametrize("mutation", ["duplicate", "missing", "extra"])
+@pytest.mark.parametrize("mutation", ["duplicate", "missing", "extra", "replacement"])
 def test_audit_marks_each_new_adapter_unbound_for_non_exact_identity_maps(
     tmp_path, adapter_id: str, mutation: str
 ):
@@ -832,8 +832,19 @@ def test_audit_marks_each_new_adapter_unbound_for_non_exact_identity_maps(
         rows[-1] = dict(rows[0])
     elif mutation == "missing":
         del rows[-1]
-    else:
+    elif mutation == "extra":
         rows.append(dict(rows[0]))
+    elif adapter_id == "phase-a-v1":
+        rows[-1] = {"record_key": "unexpected-record", "occurrence_key": "unexpected-occurrence"}
+    elif adapter_id == "narrative-publication-v1":
+        rows[-1] = {
+            "source_id": 3,
+            "record_key": "unexpected-record",
+            "narrative_id": rows[-1]["narrative_id"],
+            "binding_id": rows[-1]["binding_id"],
+        }
+    else:
+        rows[-1] = {**rows[-1], "person_id": 999}
     receipt_sha256 = write_json(tmp_path / f"{phase_id}-receipt.json", receipt)
 
     result = audit_bundle(tmp_path, [new_adapter_phase(adapter_id, manifest_sha256, receipt_sha256)])
@@ -841,7 +852,7 @@ def test_audit_marks_each_new_adapter_unbound_for_non_exact_identity_maps(
     assert result.phase(phase_id).error == "EVIDENCE_RECONCILIATION_RECEIPT_UNBOUND"
 
 
-def test_audit_marks_name_completion_unbound_when_a_completion_result_id_is_reused(tmp_path):
+def test_audit_binds_name_completion_when_completion_result_ids_are_shared(tmp_path):
     manifest_sha256 = write_json(tmp_path / "name-completion.json", new_adapter_manifest("name-completion-v1"))
     receipt = new_adapter_receipt("name-completion-v1", manifest_sha256)
     results = receipt["completion_results"]
@@ -853,7 +864,7 @@ def test_audit_marks_name_completion_unbound_when_a_completion_result_id_is_reus
         tmp_path, [new_adapter_phase("name-completion-v1", manifest_sha256, receipt_sha256)]
     )
 
-    assert result.phase("name-completion").error == "EVIDENCE_RECONCILIATION_RECEIPT_UNBOUND"
+    assert result.phase("name-completion").projection_evidence == "mechanically_bound"
 
 
 def test_audit_classifies_d1_before_parsing_a_hash_locked_non_json_historical_script(tmp_path):

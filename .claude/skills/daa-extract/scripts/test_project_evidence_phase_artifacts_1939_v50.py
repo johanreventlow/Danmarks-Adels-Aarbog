@@ -700,6 +700,7 @@ def test_project_narrative_publication_emits_only_the_exact_narrative_bindings(t
 
 def test_project_name_completion_emits_a_sealed_empty_dependency_contribution(tmp_path):
     results = name_completion_results()
+    results[-1]["fact_id"] = results[0]["fact_id"]
     manifest_sha256 = write_json(
         tmp_path / "name-completion.json",
         {
