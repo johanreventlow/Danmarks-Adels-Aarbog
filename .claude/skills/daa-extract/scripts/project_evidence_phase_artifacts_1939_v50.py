@@ -146,7 +146,6 @@ def _task25_rows(
         _require(_valid_text(element_id) and _valid_text(record_key))
         expected_creates.append((element_id, record_key))
     element_ids: set[str] = set()
-    record_keys: set[str] = set()
     source_evidence_count = 0
     for operation in operations:
         _require(
@@ -161,10 +160,8 @@ def _task25_rows(
             and _valid_text(record_key)
             and dependency_class in {"source_evidence", "person_create"}
             and element_id not in element_ids
-            and record_key not in record_keys
         )
         element_ids.add(element_id)
-        record_keys.add(record_key)
         expected.append((element_id, dependency_class, record_key))
         if dependency_class == "source_evidence":
             source_evidence_count += 1
@@ -202,10 +199,15 @@ def _task25_rows(
             people.add(identity["person_id"])
         projected.append(identity)
     _require(len(people) == 8)
+    source_records: list[dict[str, object]] = []
+    source_record_identities: set[tuple[int, str]] = set()
+    for row in projected:
+        identity = (3, row["record_key"])
+        if identity not in source_record_identities:
+            source_record_identities.add(identity)
+            source_records.append({"source_id": 3, "record_key": row["record_key"]})
     return {
-        "source_records": [
-            {"source_id": 3, "record_key": row["record_key"]} for row in projected
-        ],
+        "source_records": source_records,
         "source_anchors": [
             {
                 "source_id": 3,
@@ -312,7 +314,7 @@ def _c0_rows(
             {"narrative_id": row["narrative_id"], "sha256": row["after_sha256"]}
             for row in projected
         ],
-        "persons": [],
+        "persons": [{"person_id": row["person_id"]} for row in projected],
     }
 
 

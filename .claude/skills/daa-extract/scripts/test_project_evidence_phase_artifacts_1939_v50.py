@@ -200,10 +200,10 @@ def mechanically_bound_new_phase(adapter_id: str, manifest_sha256: str, receipt_
     )
 
 
-def c0_operations(narrative_start: int = 7) -> list[dict]:
+def c0_operations(narrative_start: int = 7, person_start: int = 10000) -> list[dict]:
     return [
         {
-            "person_id": person_id,
+            "person_id": person_start + person_id,
             "narrative_id": narrative_start + person_id - 1,
             "source_record_key": f"record-{person_id}",
             "new_text_sha256": "d" * 64,
@@ -212,10 +212,10 @@ def c0_operations(narrative_start: int = 7) -> list[dict]:
     ]
 
 
-def c0_results(narrative_start: int = 7) -> list[dict]:
+def c0_results(narrative_start: int = 7, person_start: int = 10000) -> list[dict]:
     return [
         {
-            "person_id": person_id,
+            "person_id": person_start + person_id,
             "narrative_id": narrative_start + person_id - 1,
             "source_id": 3,
             "record_key": f"record-{person_id}",
@@ -308,7 +308,7 @@ def task25_operations() -> list[dict]:
         {
             "element_id": f"source-evidence:{number}",
             "dependency_class": "source_evidence",
-            "source_record_key": f"source-record-{number}",
+            "source_record_key": f"source-record-{number if number <= 235 else number - 235}",
         }
         for number in range(1, 306)
     ] + [
@@ -362,7 +362,7 @@ def task25_receipt(manifest_sha256: str) -> dict:
     }
 
 
-def test_project_task25_projects_all_manifest_operations_including_305_source_evidence_anchors(tmp_path):
+def test_project_task25_projects_unique_records_and_all_manifest_operation_anchors(tmp_path):
     manifest_sha256 = write_json(tmp_path / "task25.json", task25_manifest())
     receipt_sha256 = write_json(tmp_path / "task25-receipt.json", task25_receipt(manifest_sha256))
 
@@ -372,11 +372,11 @@ def test_project_task25_projects_all_manifest_operations_including_305_source_ev
         bound_summary(mechanically_bound_task25_phase(manifest_sha256, receipt_sha256)),
     )
 
-    assert len(contribution["source_records"]) == 313
+    assert len(contribution["source_records"]) == 243
     assert len(contribution["source_anchors"]) == 313
     assert contribution["source_anchors"][304] == {
         "source_id": 3,
-        "record_key": "source-record-305",
+        "record_key": "source-record-70",
         "occurrence_key": "source-evidence:305",
     }
     assert contribution["persons"] == [{"person_id": 9000 + number} for number in range(1, 9)]
@@ -417,11 +417,12 @@ def test_project_task25_uses_manifest_element_id_as_occurrence_key(tmp_path):
     contribution = project_phase(tmp_path, phase, bound_summary(phase))
 
     assert contribution["source_anchors"] == [
-        {"source_id": 3, "record_key": f"source-record-{number}", "occurrence_key": f"source-evidence:{number}"}
-        for number in range(1, 306)
-    ] + [
-        {"source_id": 3, "record_key": f"person-record-{number}", "occurrence_key": f"person-create:{number}"}
-        for number in range(1, 9)
+        {
+            "source_id": 3,
+            "record_key": operation["source_record_key"],
+            "occurrence_key": operation["element_id"],
+        }
+        for operation in task25_operations()
     ]
 
 
@@ -532,7 +533,7 @@ def test_project_c0_uses_the_receipt_after_sha_and_binding_identity(tmp_path):
 
     assert contribution["narrative_sha256"][0] == {"narrative_id": 7, "sha256": "d" * 64}
     assert len(contribution["narrative_bindings"]) == 9
-    assert contribution["persons"] == []
+    assert contribution["persons"] == [{"person_id": 10000 + person_id} for person_id in range(1, 10)]
 
 
 def test_audited_projections_seal_into_a_second_ledger_and_reconcile_final_state(tmp_path):
@@ -592,7 +593,7 @@ def test_audited_projections_seal_into_a_second_ledger_and_reconcile_final_state
             "schema_version": "daa-evidence-production-snapshot-v1",
             "source_records": [
                 {"source_id": 3, "record_key": f"source-record-{number}"}
-                for number in range(1, 306)
+                for number in range(1, 236)
             ] + [
                 {"source_id": 3, "record_key": f"person-record-{number}"}
                 for number in range(1, 9)
@@ -600,17 +601,10 @@ def test_audited_projections_seal_into_a_second_ledger_and_reconcile_final_state
             "source_anchors": [
                 {
                     "source_id": 3,
-                    "record_key": f"source-record-{number}",
-                    "occurrence_key": f"source-evidence:{number}",
+                    "record_key": operation["source_record_key"],
+                    "occurrence_key": operation["element_id"],
                 }
-                for number in range(1, 306)
-            ] + [
-                {
-                    "source_id": 3,
-                    "record_key": f"person-record-{number}",
-                    "occurrence_key": f"person-create:{number}",
-                }
-                for number in range(1, 9)
+                for operation in task25_operations()
             ],
             "narrative_bindings": [
                 {"source_id": 3, "record_key": f"record-{number}", "narrative_id": 1000 + number}
@@ -627,12 +621,13 @@ def test_audited_projections_seal_into_a_second_ledger_and_reconcile_final_state
                 for number in range(1, 10)
             ],
             "persons": [{"person_id": person_id} for person_id in range(1, 552)]
-            + [{"person_id": 9000 + number} for number in range(1, 9)],
+            + [{"person_id": 9000 + number} for number in range(1, 9)]
+            + [{"person_id": 10000 + person_id} for person_id in range(1, 10)],
         }
     )
-    assert len(snapshot["source_records"]) == 313
+    assert len(snapshot["source_records"]) == 243
     assert len(snapshot["source_anchors"]) == 313
-    assert len(snapshot["persons"]) == 559
+    assert len(snapshot["persons"]) == 568
 
     report = _reconcile_capability(snapshot, list(contributions.values()), reconciliation_ledger)
 

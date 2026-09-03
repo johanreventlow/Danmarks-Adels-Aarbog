@@ -143,7 +143,7 @@ def task25_operations() -> list[dict]:
         {
             "element_id": f"source-evidence:{number}",
             "dependency_class": "source_evidence",
-            "source_record_key": f"source-record-{number}",
+            "source_record_key": f"source-record-{number if number <= 235 else number - 235}",
         }
         for number in range(1, 306)
     ] + [
@@ -231,6 +231,24 @@ def test_audit_rejects_task25_missing_extra_duplicate_reordered_misclassified_or
     result = audit_bundle(tmp_path, [task25_phase(manifest_sha256, receipt_sha256)])
 
     assert result.phase("task25").error == "EVIDENCE_RECONCILIATION_RECEIPT_UNBOUND"
+
+
+def test_audit_accepts_task25_repeated_record_keys_for_distinct_element_ids(tmp_path):
+    operations = task25_operations()
+    manifest_sha256 = write_json(
+        tmp_path / "task25.json",
+        {
+            "schema_version": "1939-v50-production-write-manifest-v1",
+            "source": {"database_source_id": 3},
+            "person_creates": [operation for operation in operations if operation["dependency_class"] == "person_create"],
+            "operations": operations,
+        },
+    )
+    receipt_sha256 = write_json(tmp_path / "task25-receipt.json", task25_receipt(manifest_sha256))
+
+    assert audit_bundle(tmp_path, [task25_phase(manifest_sha256, receipt_sha256)]).phase(
+        "task25"
+    ).projection_evidence == "mechanically_bound"
 
 
 def sealed_d1_ledger(tmp_path: Path) -> list:

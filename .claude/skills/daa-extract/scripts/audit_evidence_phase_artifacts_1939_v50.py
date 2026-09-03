@@ -459,7 +459,6 @@ def _task25_receipt_binds(verified: Mapping[str, _VerifiedArtifact], phase: Phas
     expected: list[tuple[str, str, str]] = []
     expected_create_rows: list[tuple[str, str]] = []
     element_ids: set[str] = set()
-    record_keys: set[str] = set()
     source_evidence_count = 0
     for create in creates:
         if not isinstance(create, dict) or not {"element_id", "source_record_key"} <= set(create):
@@ -482,11 +481,9 @@ def _task25_receipt_binds(verified: Mapping[str, _VerifiedArtifact], phase: Phas
             or not _valid_text(record_key)
             or dependency_class not in {"source_evidence", "person_create"}
             or element_id in element_ids
-            or record_key in record_keys
         ):
             return False
         element_ids.add(element_id)
-        record_keys.add(record_key)
         expected.append((element_id, dependency_class, record_key))
         if dependency_class == "source_evidence":
             source_evidence_count += 1

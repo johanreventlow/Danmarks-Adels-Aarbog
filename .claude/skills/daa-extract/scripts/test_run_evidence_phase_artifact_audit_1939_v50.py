@@ -330,7 +330,7 @@ def _task25_operations() -> list[dict]:
         {
             "element_id": f"synthetic-source-evidence:{number}",
             "dependency_class": "source_evidence",
-            "source_record_key": f"synthetic-source-record-{number}",
+            "source_record_key": f"synthetic-source-record-{number if number <= 235 else number - 235}",
         }
         for number in range(1, 306)
     ] + [
@@ -523,6 +523,12 @@ def test_generated_capability_outputs_match_only_through_internal_reconciliation
     contribution_paths = [output / name for name in contribution_names]
     contributions = [json.loads(path.read_text(encoding="utf-8")) for path in contribution_paths]
     snapshot = _snapshot_from_contributions(contributions)
+    assert len(contributions[0]["source_records"]) == 243
+    assert len(contributions[0]["source_anchors"]) == 313
+    assert {row["person_id"] for row in contributions[-1]["persons"]} == set(range(10001, 10010))
+    assert {row["person_id"] for row in contributions[-1]["persons"]}.isdisjoint(
+        {row["person_id"] for row in contributions[2]["persons"]}
+    )
     ledger = json.loads((output / "reconciliation-ledger.json").read_text(encoding="utf-8"))
     for phase in ledger["phases"]:
         manifest = next(artifact for artifact in phase["artifacts"] if artifact["role"] == "manifest")
