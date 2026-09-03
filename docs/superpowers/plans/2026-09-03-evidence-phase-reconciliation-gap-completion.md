@@ -235,8 +235,120 @@ Expected: tests pass, compilation succeeds, and the diff is clean.
   GPT-5.6-Sol whole-branch review. Resolve only valid findings and rerun the
   complete verification once.
 
+---
+
+### Task 4: Lock the applicable phase inventory and adapter implementation
+
+**Files:**
+- Modify: `.claude/skills/daa-extract/scripts/evidence_phase_artifact_ledger.py`
+- Modify: `.claude/skills/daa-extract/scripts/run_evidence_phase_artifact_audit_1939_v50.py`
+- Modify: `.claude/skills/daa-extract/scripts/project_evidence_phase_artifacts_1939_v50.py`
+- Modify: `.claude/skills/daa-extract/scripts/test_evidence_phase_artifact_ledger.py`
+- Modify: `.claude/skills/daa-extract/scripts/test_run_evidence_phase_artifact_audit_1939_v50.py`
+
+**Review findings addressed:** omitted phases, caller-controlled Task 25
+authorisation, ignored unknown artifact roles, and incomplete adapter source
+hashing.
+
+**Acceptance:**
+
+- Public CLI catalogs represent exactly the historical 1939-v50 applicability
+  set in sequence: `task25/task25-v1`, `phase-a/phase-a-v1`,
+  `phase-b/phase-b-v1`,
+  `narrative-publication/narrative-publication-v1`,
+  `name-completion/name-completion-v1`, `c0-followup/c0-followup-v1`, and
+  `d1/d1-historical-exception-v1`. Missing, extra, renamed, reordered, or
+  remapped phases fail before artifacts are read.
+- Task 25 authorisation is always
+  `afterdocumented_authorisation_gap`; D1 is always `unavailable`.
+- Each adapter has an exact allowed role/schema contract. Manifest and receipt
+  roles use their declared JSON schemas; D1 permits only its required,
+  hash-locked `historical_apply_script`. Unknown/extra roles, schema swaps,
+  and optional undeclared families fail closed.
+- Remove the public one-phase “complete” path. The capability-only test may
+  exercise projectors and ledger sealing directly, but cannot select a weaker
+  CLI applicability set.
+- `adapter_sha256` canonically binds the exact bytes and relative filenames of
+  the ledger registry, auditor, and projector implementation. Changing any of
+  those sources changes the hash.
+- Write RED tests for each bypass and source-hash component, then implement and
+  run the Task 2/ledger suites.
+- Commit as `fix(evidens): lock historical phase inventory`.
+
+---
+
+### Task 5: Correct Task 25 and Phase B final-state projections
+
+**Files:**
+- Modify: `.claude/skills/daa-extract/scripts/evidence_phase_artifact_ledger.py`
+- Modify: `.claude/skills/daa-extract/scripts/audit_evidence_phase_artifacts_1939_v50.py`
+- Modify: `.claude/skills/daa-extract/scripts/project_evidence_phase_artifacts_1939_v50.py`
+- Modify: `.claude/skills/daa-extract/scripts/test_audit_evidence_phase_artifacts_1939_v50.py`
+- Modify: `.claude/skills/daa-extract/scripts/test_project_evidence_phase_artifacts_1939_v50.py`
+- Modify: `.claude/skills/daa-extract/scripts/test_run_evidence_phase_artifact_audit_1939_v50.py`
+
+**Review findings addressed:** Task 25 binds/projects only eight person creates,
+and Phase B omits persons that the production snapshot includes.
+
+**Acceptance:**
+
+- Task 25’s receipt binds all 313 manifest operations, not just the eight
+  `person_creates`. Its exact `operation_identities` map contains one row per
+  manifest operation with `element_id`, `source_id: 3`, `record_key`, and
+  nullable `person_id`; `person_id` is positive only for the eight
+  `person_create` operations and null for 305 `source_evidence` operations.
+- Audit rejects missing, extra, duplicate, reordered/misclassified, or
+  record-key-drifting operation identities.
+- Projection emits all 313 Task 25 `source_records` and `source_anchors`,
+  using every manifest `element_id` as `occurrence_key`, plus exactly the
+  eight created persons.
+- Phase B emits the distinct positive `person_id` set from its exact 551-row
+  bound receipt in `persons`, in addition to its existing binding/hash rows.
+- Synthetic final snapshots include these person rows so they cannot pass by
+  deriving both sides from an incomplete projection.
+- Write RED tests proving the 305-anchor omission and Phase B person mismatch,
+  then implement, run all ledger/audit/projector/runner/reconciler tests, and
+  commit as `fix(evidens): project complete historical effects`.
+
+---
+
+### Task 6: Make auditor outputs directly consumable by reconciliation
+
+**Files:**
+- Modify: `.claude/skills/daa-extract/scripts/reconcile_evidence_phase_gate.py`
+- Modify: `.claude/skills/daa-extract/scripts/project_evidence_phase_artifacts_1939_v50.py`
+- Modify: `.claude/skills/daa-extract/scripts/test_reconcile_evidence_phase_gate.py`
+- Modify: `.claude/skills/daa-extract/scripts/test_run_evidence_phase_artifact_audit_1939_v50.py`
+- Modify: `docs/runbooks/evidence-import-phase-gate.md`
+
+**Review finding addressed:** generated contribution paths are resolved from the
+wrong directory and the runbook does not use the exact generated files.
+
+**Acceptance:**
+
+- Reconciliation admission verifies each contribution’s
+  `source_manifest_path` and `source_manifest_sha256` against the matching
+  manifest artifact path/hash already sealed into the v2 ledger. It must not
+  resolve a bundle-root-relative path against the output directory or require
+  copying a private manifest.
+- The reconciliation CLI consumes the exact generated
+  `reconciliation-ledger.json` and sequence-prefixed contribution files
+  without reopening or copying original artifact content. Hash/path mismatch
+  fails before snapshot loading.
+- Tests invoke the actual audit CLI in a wholly synthetic complete-capability
+  construction, then pass its exact generated ledger/contribution paths to the
+  actual reconciliation CLI and obtain `match`. A separate mismatch test
+  proves snapshot loading is skipped.
+- The runbook names the generated paths and every supported contribution, but
+  explicitly says the command is currently unreachable for historical data:
+  D1 is unavailable, therefore the historical CLI emits no reconciliation
+  ledger and no production snapshot is authorised.
+- Run the complete 159-test-equivalent suite plus new tests, `py_compile`, and
+  `git diff --check`; commit as
+  `fix(evidens): align audit and reconciliation outputs`.
+
 ## Explicit stop gate
 
-After Task 3, stop. Do not run the CLI against retained artifacts, do not read
+After Task 6, stop. Do not run the CLI against retained artifacts, do not read
 a production snapshot, do not modify production, do not push, and do not close
 #156 or #158 without a new explicit user authorisation.
