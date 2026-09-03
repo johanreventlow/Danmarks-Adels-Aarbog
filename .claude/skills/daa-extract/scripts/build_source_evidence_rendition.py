@@ -134,7 +134,7 @@ def main() -> None:
     rendition_path.write_bytes(extracted.stdout)
 
     segmented = subprocess.run(
-        ["python3", str(SCRIPT_DIR / "segment.py"), str(rendition_path)],
+        ["python3", str(SCRIPT_DIR / "segment.py"), str(rendition_path.resolve())],
         capture_output=True, check=True, cwd=SCRIPT_DIR)
     posts = json.loads(segmented.stdout.decode("utf-8"))
     (output_dir / "posts.json").write_bytes(segmented.stdout)
