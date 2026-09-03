@@ -347,8 +347,73 @@ wrong directory and the runbook does not use the exact generated files.
   `git diff --check`; commit as
   `fix(evidens): align audit and reconciliation outputs`.
 
+---
+
+### Task 7: Lock reconciliation scope and production snapshot identity
+
+**Files:**
+- Modify: `.claude/skills/daa-extract/scripts/evidence_phase_artifact_ledger.py`
+- Modify: `.claude/skills/daa-extract/scripts/reconcile_evidence_phase_gate.py`
+- Modify: `.claude/skills/daa-extract/scripts/test_evidence_phase_artifact_ledger.py`
+- Modify: `.claude/skills/daa-extract/scripts/test_reconcile_evidence_phase_gate.py`
+- Modify: `.claude/skills/daa-extract/scripts/test_run_evidence_phase_artifact_audit_1939_v50.py`
+- Modify: `docs/runbooks/evidence-import-phase-gate.md`
+
+**Acceptance:**
+
+- Add a historical reconciliation validator that requires the same exact seven
+  canonical phases, order, adapter IDs, Task 25 authorisation gap, D1
+  unavailable state, and adapter source hash as the public audit catalog.
+  Public reconciliation must use it; unknown adapters, missing/extra phases,
+  caller-selected evidence states, manifest-only mechanically-bound phases,
+  or missing target hashes fail before snapshot loading.
+- A mechanically-bound phase requires the complete declared artifact contract,
+  including its required receipt. Audit-ledger validation may still represent a
+  missing receipt as unbound, but reconciliation admission may not.
+- Extend `daa-evidence-production-snapshot-v1` with exact
+  `database_target_identity`; its canonical hash must equal the single common
+  target hash sealed for every admitted contribution. The runbook query builds
+  the production identity from `current_database()` and
+  `pg_control_system().system_identifier` and hashes the same system
+  identifier string used by the receipt contract.
+- JSON loading rejects duplicate keys and invalid UTF-8 with stable redacted
+  tokens. Every private report descriptor is closed or consumed on all
+  malformed-input paths.
+- Capability-only match tests stay below public CLI validation. Add public
+  negative tests for one-phase/unknown-adapter ledgers and wrong snapshot
+  target, all proving snapshot load is skipped.
+- Follow TDD, run all evidence-phase tests, and commit as
+  `fix(evidens): bind reconciliation scope and target`.
+
+---
+
+### Task 8: Correct Task 25 record cardinality and C0 person scope
+
+**Files:**
+- Modify: `.claude/skills/daa-extract/scripts/audit_evidence_phase_artifacts_1939_v50.py`
+- Modify: `.claude/skills/daa-extract/scripts/project_evidence_phase_artifacts_1939_v50.py`
+- Modify: `.claude/skills/daa-extract/scripts/test_audit_evidence_phase_artifacts_1939_v50.py`
+- Modify: `.claude/skills/daa-extract/scripts/test_project_evidence_phase_artifacts_1939_v50.py`
+- Modify: `.claude/skills/daa-extract/scripts/test_run_evidence_phase_artifact_audit_1939_v50.py`
+
+**Acceptance:**
+
+- Task 25 continues to bind all 313 ordered operation identities and emit all
+  313 anchors, but repeated record keys across different element IDs are valid.
+  Emit deduplicated `source_records` by `(source_id, record_key)`.
+- Synthetic Task 25 mirrors the authoritative cardinality: 305 source-evidence
+  operations over 235 unique claim record keys plus eight distinct
+  person-create record keys, yielding 243 source records, 313 anchors, and
+  eight persons.
+- C0 emits the nine distinct positive receipt-bound person IDs in `persons`.
+  The synthetic fixture uses C0 person IDs outside Phase B so the final snapshot
+  requires all nine additional persons.
+- Add RED tests for repeated Task 25 record keys and non-overlapping C0 person
+  scope, run the full evidence-phase suite, and commit as
+  `fix(evidens): align record and person projections`.
+
 ## Explicit stop gate
 
-After Task 6, stop. Do not run the CLI against retained artifacts, do not read
+After Task 8, stop. Do not run the CLI against retained artifacts, do not read
 a production snapshot, do not modify production, do not push, and do not close
 #156 or #158 without a new explicit user authorisation.
