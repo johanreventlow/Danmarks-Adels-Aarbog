@@ -3361,6 +3361,7 @@ DECLARE
   v_discovered_source_id bigint; v_discovered_profile_id text;
   v_element private.reimport_event%ROWTYPE; v_receipt jsonb;
   v_narrative_id bigint; v_binding_status text; v_ledger_status text;
+  v_binding_stream uuid; v_legacy_stream uuid; v_binding_base integer; v_legacy_base integer;
   v_payload jsonb; v_payload_sha text; v_elements bigint;
 BEGIN
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
@@ -3418,14 +3419,45 @@ BEGIN
                       OR (item.value #>> '{}') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') THEN
       RAISE EXCEPTION 'REIMPORT_LEGACY_REVERSAL_RECEIPT_MISMATCH';
     END IF;
-    -- Hver kvitteret hændelse skal findes og faktisk være en fortrydelse.
-    IF (SELECT count(*) FROM jsonb_array_elements_text(v_receipt->'reversal_event_ids') item
-          JOIN private.narrative_publication_event ev
-            ON ev.id=item::uuid AND ev.event_type='reversal' AND ev.reversed_event_id IS NOT NULL)
-       <> jsonb_array_length(v_receipt->'reversal_event_ids') THEN
+    v_narrative_id:=(v_element.payload->>'narrative_id')::bigint;
+    -- Kvitteringen skal citere PRÆCIS de fortrydelser, der er sket på elementets egne
+    -- to streams EFTER migrationen — hverken fremmede, dublerede eller manglende id'er.
+    -- Mængden udledes af databasen: alle 'reversal'/'draft_discarded'-hændelser på
+    -- bindings-streamen efter migrationens sidste event dér, plus tilsvarende på
+    -- legacy-streamen efter 'legacy_migrated'. Versionsgrænsen udelukker en eventuel
+    -- ældre withdraw/fortryd-runde på legacy-streamen fra før migrationen.
+    v_binding_stream:=(v_element.payload->>'binding_id')::uuid;
+    v_legacy_stream:=(v_element.payload->>'legacy_publication_ref')::uuid;
+    SELECT ev.stream_version INTO v_binding_base
+      FROM private.narrative_publication_event ev
+     WHERE ev.id=coalesce(v_element.payload->>'published_event_id',
+                          v_element.payload->>'draft_event_id')::uuid;
+    v_legacy_base:=NULL;
+    IF v_element.payload->>'legacy_event_id' IS NOT NULL THEN
+      SELECT ev.stream_version INTO v_legacy_base
+        FROM private.narrative_publication_event ev
+       WHERE ev.id=(v_element.payload->>'legacy_event_id')::uuid;
+    END IF;
+    IF v_binding_base IS NULL
+       OR (v_element.payload->>'legacy_event_id' IS NOT NULL AND v_legacy_base IS NULL) THEN
       RAISE EXCEPTION 'REIMPORT_LEGACY_REVERSAL_RECEIPT_MISMATCH';
     END IF;
-    v_narrative_id:=(v_element.payload->>'narrative_id')::bigint;
+    IF ARRAY(SELECT DISTINCT (item #>> '{}')
+               FROM jsonb_array_elements(v_receipt->'reversal_event_ids') item ORDER BY 1)
+       IS DISTINCT FROM
+       ARRAY(SELECT ev.id::text
+               FROM private.narrative_publication_event ev
+              WHERE ev.narrative_id=v_narrative_id
+                AND ev.event_type IN ('reversal','draft_discarded')
+                AND ((ev.stream_ref=v_binding_stream AND ev.stream_version>v_binding_base)
+                     OR (v_legacy_stream IS NOT NULL AND ev.stream_ref=v_legacy_stream
+                         AND ev.stream_version>v_legacy_base))
+              ORDER BY 1)
+       OR jsonb_array_length(v_receipt->'reversal_event_ids')
+          <> (SELECT count(DISTINCT (item #>> '{}'))
+                FROM jsonb_array_elements(v_receipt->'reversal_event_ids') item) THEN
+      RAISE EXCEPTION 'REIMPORT_LEGACY_REVERSAL_RECEIPT_MISMATCH';
+    END IF;
     SELECT status INTO v_binding_status FROM private.narrative_record_publication
      WHERE id=(v_element.payload->>'binding_id')::uuid;
     IF v_binding_status IS DISTINCT FROM 'withdrawn'

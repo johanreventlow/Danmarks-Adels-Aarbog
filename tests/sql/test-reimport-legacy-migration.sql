@@ -579,8 +579,10 @@ BEGIN
     -- Kladden trækkes tilbage med discard (spec §8: draft_created kan ikke fortrydes,
     -- når reversal-eventet allerede er streamens seneste).
     v_state:=private.narrative_record_state((p_fx->>'person_id')::bigint,(p_fx->>'source_id')::bigint,p_fx->>'record_key',false);
-    PERFORM public.red_kasser_person_narrative_record((p_fx->>'person_id')::bigint,(p_fx->>'source_id')::bigint,p_fx->>'record_key',v_state->>'state_sha256');
+    v_res:=public.red_kasser_person_narrative_record((p_fx->>'person_id')::bigint,(p_fx->>'source_id')::bigint,p_fx->>'record_key',v_state->>'state_sha256');
     PERFORM set_config('app.change_set_id','',true);
+    -- draft_discarded er også en fortrydelse på bindings-streamen og skal kvitteres.
+    v_ids:=v_ids||to_jsonb(v_res->>'event_id');
   ELSE
     v_state:=private.narrative_record_state((p_fx->>'person_id')::bigint,(p_fx->>'source_id')::bigint,p_fx->>'record_key',false);
     v_res:=public.red_fortryd_person_narrative_publication_event((p_migrate->>'draft_event_id')::uuid,v_state->>'state_sha256');
@@ -604,7 +606,7 @@ END $undo$;
 DO $task9b$
 DECLARE
   fx_p jsonb; fx_d jsonb; fx_r jsonb; r_p jsonb; r_d jsonb; r_r jsonb;
-  rec_p jsonb; rec_d jsonb; res jsonb; v_auth uuid; v_auth2 uuid; v_rows integer; v_status text; v_ok boolean; v_err text;
+  rec_p jsonb; rec_d jsonb; rec_r jsonb; res jsonb; v_auth uuid; v_auth2 uuid; v_rows integer; v_status text; v_ok boolean; v_err text;
   k_p text; k_d text; k_r text;
 BEGIN
   -- ---- lykkelig vej A: bound_published (to reversals + discard, ledger tilbage) ----
@@ -612,7 +614,7 @@ BEGIN
   r_p:=pg_temp.task3_migrate(fx_p,'bound_published','t9p');
   k_p:='legacy-migration:'||(fx_p->>'record_key');
   rec_p:=pg_temp.task9b_undo(fx_p,r_p);
-  IF jsonb_array_length(rec_p->'reversal_event_ids')<>2 THEN RAISE EXCEPTION 'TASK9B_EVENT_IDS_P: %',rec_p; END IF;
+  IF jsonb_array_length(rec_p->'reversal_event_ids')<>3 THEN RAISE EXCEPTION 'TASK9B_EVENT_IDS_P: %',rec_p; END IF;
   PERFORM set_config('request.jwt.claim.sub',fx_p->>'actor',true);
   v_auth:=public.red_authorize_reimport_reversal((r_p->>'batch_id')::uuid,gen_random_uuid(),clock_timestamp()+interval '5 minutes');
   res:=private.record_reimport_legacy_reversal((r_p->>'batch_id')::uuid,v_auth,jsonb_build_object(k_p,rec_p));
@@ -683,7 +685,37 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN v_ok:=SQLERRM LIKE 'REIMPORT_LEGACY_REVERSAL_RECEIPT_MISMATCH%'; v_err:=SQLERRM; END;
   IF NOT v_ok THEN RAISE EXCEPTION 'TASK9B_PUBLISHED_BINDING_ACCEPTED got %',coalesce(v_err,'(success)'); END IF;
 
-  -- (e) uden redaktion-aktør
+  -- ingen af afvisningerne (a)-(d) må have skrevet noget
+  SELECT status INTO v_status FROM private.reimport_authorization WHERE id=v_auth;
+  IF v_status<>'issued' THEN RAISE EXCEPTION 'TASK9B_AUTH_CONSUMED_ON_REJECT: %',v_status; END IF;
+  SELECT count(*) INTO v_rows FROM private.reimport_event WHERE batch_id=(r_r->>'batch_id')::uuid AND operation='reversal';
+  IF v_rows<>0 THEN RAISE EXCEPTION 'TASK9B_REJECTED_WROTE_EVENT: %',v_rows; END IF;
+
+  -- (e1) kvittering der citerer et fremmed narrativs fortrydelses-event
+  --      (T9R er fuldt migreret, men ikke fortrudt — vi fortryder den nu, så kun
+  --       event-id-mængden kan afvige)
+  rec_r:=pg_temp.task9b_undo(fx_r,r_r);
+  PERFORM set_config('request.jwt.claim.sub',fx_r->>'actor',true);
+  v_ok:=false;
+  BEGIN PERFORM private.record_reimport_legacy_reversal((r_r->>'batch_id')::uuid,v_auth,
+    jsonb_build_object(k_r,jsonb_set(rec_r,'{reversal_event_ids}',
+      (rec_r->'reversal_event_ids')||(rec_p->'reversal_event_ids'->0))));
+  EXCEPTION WHEN OTHERS THEN v_ok:=SQLERRM LIKE 'REIMPORT_LEGACY_REVERSAL_RECEIPT_MISMATCH%'; v_err:=SQLERRM; END;
+  IF NOT v_ok THEN RAISE EXCEPTION 'TASK9B_FOREIGN_EVENT_ID_ACCEPTED got %',coalesce(v_err,'(success)'); END IF;
+
+  -- (e2) kvittering med ét manglende id
+  v_ok:=false;
+  BEGIN PERFORM private.record_reimport_legacy_reversal((r_r->>'batch_id')::uuid,v_auth,
+    jsonb_build_object(k_r,jsonb_set(rec_r,'{reversal_event_ids}',
+      jsonb_build_array(rec_r->'reversal_event_ids'->0))));
+  EXCEPTION WHEN OTHERS THEN v_ok:=SQLERRM LIKE 'REIMPORT_LEGACY_REVERSAL_RECEIPT_MISMATCH%'; v_err:=SQLERRM; END;
+  IF NOT v_ok THEN RAISE EXCEPTION 'TASK9B_MISSING_EVENT_ID_ACCEPTED got %',coalesce(v_err,'(success)'); END IF;
+
+  -- (e3) den korrekte, fuldt sporede kvittering accepteres (positiv kontrol)
+  res:=private.record_reimport_legacy_reversal((r_r->>'batch_id')::uuid,v_auth,jsonb_build_object(k_r,rec_r));
+  IF (res->>'reversed_elements')::int<>1 THEN RAISE EXCEPTION 'TASK9B_RESULT_R: %',res; END IF;
+
+  -- (f) uden redaktion-aktør
   PERFORM set_config('request.jwt.claim.sub','',true);
   v_ok:=false;
   BEGIN PERFORM private.record_reimport_legacy_reversal((r_r->>'batch_id')::uuid,v_auth,jsonb_build_object(k_r,rec_p));
@@ -695,11 +727,11 @@ BEGIN
   IF NOT v_ok THEN RAISE EXCEPTION 'TASK9B_STATE_NO_ACTOR_ACCEPTED got %',coalesce(v_err,'(success)'); END IF;
   PERFORM set_config('request.jwt.claim.sub',fx_r->>'actor',true);
 
-  -- autorisationen for den ikke-fortrudte batch er stadig issued, og batchen har ingen reversal-hændelse
+  -- efter den accepterede (e3) er autorisationen forbrugt og der er præcis én reversal-hændelse
   SELECT status INTO v_status FROM private.reimport_authorization WHERE id=v_auth;
-  IF v_status<>'issued' THEN RAISE EXCEPTION 'TASK9B_AUTH_CONSUMED_ON_REJECT: %',v_status; END IF;
+  IF v_status<>'consumed' THEN RAISE EXCEPTION 'TASK9B_AUTH_NOT_CONSUMED_R: %',v_status; END IF;
   SELECT count(*) INTO v_rows FROM private.reimport_event WHERE batch_id=(r_r->>'batch_id')::uuid AND operation='reversal';
-  IF v_rows<>0 THEN RAISE EXCEPTION 'TASK9B_REJECTED_WROTE_EVENT: %',v_rows; END IF;
+  IF v_rows<>1 THEN RAISE EXCEPTION 'TASK9B_REVERSAL_EVENTS_R: %',v_rows; END IF;
   RAISE NOTICE 'task9b batch reversal OK';
 END $task9b$;
 
