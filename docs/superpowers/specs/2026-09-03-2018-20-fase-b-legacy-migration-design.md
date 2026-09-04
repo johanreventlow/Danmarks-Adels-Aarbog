@@ -313,6 +313,22 @@ er `draft_created` ikke længere streamens seneste event og kan ikke fortrydes
   trin kørt i omvendt elementrækkefølge af et R-script under én
   reversal-autorisation, med efterkontrol af at legacy-tal og bindings-tal er
   tilbage på før-billedet. Restore fra 0600-backup er den sidste udvej.
+- **Batch-status efter fuld fortrydelse (fund 2026-09-04):** batchen forbliver
+  `finalized`. `reversed` er reserveret til `red_reverse_reimport`'s fulde
+  tilbagerulning (som kræver `activated` + en `name_completion`-child-batch), og
+  `red_begin_reimport`'s replay-opslag filtrerer på `status='finalized'` — en
+  statusændring ville lade samme manifest åbne en **ny** batch, der først dør på
+  `LEGACY_MIGRATION_ALREADY_BOUND`. Den autoritative markør for »fortrudt« er
+  derfor `private.reimport_event` med `operation='reversal'` og
+  `element_id='legacy-migration-reversal:<authorization_id>'`, ikke batch-status.
+  **Operatørfælde:** en genkørsel af samme manifest efter en fortrydelse svarer
+  fortsat `already_applied` (replay-vejen), selv om virkningerne er rullet
+  tilbage. `already_applied` må derfor aldrig læses som »stadig anvendt« uden at
+  reversal-markøren er tjekket:
+  ```sql
+  SELECT count(*) FROM private.reimport_event
+   WHERE batch_id = :batch AND operation = 'reversal';   -- >0 = batchen er fortrudt
+  ```
 - `red_tilbagetraek_legacy_narrative` på en `migrated` række fejler med
   `NARRATIVE_LEGACY_PUBLICATION_TRANSITION_INVALID`; det testes.
 

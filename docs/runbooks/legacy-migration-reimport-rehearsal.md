@@ -326,6 +326,25 @@ batch-dry-run):
 RPC-kald i kæden (samme mønster som SQL-testen) — den efterlades ikke tom
 automatisk.
 
+**Batch-status og replay efter en fuld batch-fortrydelse (gælder `--apply`, ikke
+dry-run):** batchen forbliver `finalized`. Den autoritative markør for »fortrudt«
+er reversal-hændelsen, ikke batch-status:
+
+```sql
+SELECT count(*) FROM private.reimport_event
+ WHERE batch_id = :batch AND operation = 'reversal';   -- >0 = batchen er fortrudt
+-- element_id er 'legacy-migration-reversal:<authorization_id>'
+```
+
+Konsekvens, som operatøren SKAL kende: kører man samme manifest igen efter en
+fortrydelse, svarer `apply_reimport.R` fortsat `already_applied`, fordi
+`red_begin_reimport`'s replay-opslag filtrerer på `status='finalized'` og finder
+den fortrudte batch. **`already_applied` betyder derfor ikke »data er stadig
+anvendt«.** Tjek altid reversal-markøren ovenfor, før konklusionen drages. (At
+statussen ikke ændres er bevidst: `reversed` er reserveret til
+`red_reverse_reimport`, og en statusændring ville lade manifestet åbne en ny
+batch, der først dør på `LEGACY_MIGRATION_ALREADY_BOUND`.)
+
 **Batch-reversal — kun dry-run i rehearsal:**
 
 ```bash

@@ -160,6 +160,18 @@ apply-reversal-vej er bevist **kun** i integrationstesten
 (`tests/integration/test-reimport-legacy-migration.R`), ikke i denne rehearsal
 — en gentagelse i rehearsal ville kræve en ny restore for at gentage apply.
 
+**Batch-status og replay efter en `--apply`-fortrydelse** (ikke udført her, men
+en fælde operatøren skal kende): batchen forbliver `finalized`, og den
+autoritative markør for »fortrudt« er `private.reimport_event` med
+`operation='reversal'` og `element_id='legacy-migration-reversal:<authorization_id>'`.
+Kører man samme manifest igen bagefter, svarer gatewayen fortsat
+`already_applied`, fordi `red_begin_reimport`'s replay-opslag filtrerer på
+`status='finalized'` — `already_applied` er altså ikke bevis for, at data stadig
+er anvendt. Adfærden er bevidst (`reversed` er reserveret til
+`red_reverse_reimport`, og en statusændring ville lade manifestet åbne en ny
+batch, der først dør på `LEGACY_MIGRATION_ALREADY_BOUND`) og er testet i
+`tests/integration/test-reimport-legacy-migration.R` trin 7.
+
 `red_reverse_reimport` kaldt som `authenticated`-aktøren afvises korrekt med
 `REIMPORT_WRITER_REVERSAL_INVALID` (batchen er `finalized`, ikke `activated`,
 intet `name_completion`-barn) — fail-closed-bevis, ikke gendannelsesbevis.
