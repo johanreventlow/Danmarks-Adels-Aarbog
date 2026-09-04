@@ -16711,7 +16711,7 @@ BEGIN
     RAISE EXCEPTION 'REIMPORT_WRITER_ELEMENT_NOT_AUTHORIZED';
   END IF;
   IF jsonb_typeof(p_payload)<>'object'
-     OR ARRAY(SELECT key FROM jsonb_object_keys(p_payload) key ORDER BY key)
+     OR ARRAY(SELECT key FROM jsonb_object_keys(p_payload) key ORDER BY key COLLATE "C")
         <> ARRAY['disposition','legacy_baseline_sha256','legacy_publication_ref','narrative_id','narrative_text_sha256','normalized_text_sha256','occurrence_verbatim_sha256','person_id','persona_key','source_id','source_record_key']
      OR p_element_id<>'legacy-migration:'||coalesce(p_payload->>'source_record_key','')
      OR (p_payload->>'source_id')::bigint IS DISTINCT FROM v_batch.source_id
@@ -17284,7 +17284,7 @@ BEGIN
   END IF;
   -- Kvitteringen skal have præcis én nøgle pr. element — hverken flere eller færre.
   IF jsonb_typeof(p_receipts)<>'object'
-     OR ARRAY(SELECT key FROM jsonb_object_keys(p_receipts) key ORDER BY key)
+     OR ARRAY(SELECT key FROM jsonb_object_keys(p_receipts) key ORDER BY key COLLATE "C")
         IS DISTINCT FROM ARRAY(SELECT e.element_id FROM private.reimport_event e
                                 WHERE e.batch_id=p_batch_id AND e.operation='legacy_migration'
                                 ORDER BY e.element_id) THEN
@@ -17295,7 +17295,7 @@ BEGIN
                     ORDER BY e.element_id LOOP
     v_receipt:=p_receipts->v_element.element_id;
     IF jsonb_typeof(v_receipt)<>'object'
-       OR ARRAY(SELECT key FROM jsonb_object_keys(v_receipt) key ORDER BY key)
+       OR ARRAY(SELECT key FROM jsonb_object_keys(v_receipt) key ORDER BY key COLLATE "C")
           IS DISTINCT FROM ARRAY['final_binding_status','final_ledger_status','reversal_event_ids']
        OR v_receipt->>'final_binding_status'<>'withdrawn'
        OR jsonb_typeof(v_receipt->'reversal_event_ids')<>'array'
