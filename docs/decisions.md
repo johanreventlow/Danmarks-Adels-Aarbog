@@ -92,6 +92,16 @@ afviser fortsat (som 149a). Fravalgt: kun restore (for grov, når offentlig synl
 (3 ikke-levende, 1 levende) → forventet 541 `bound_published`, 46 `bound_draft`,
 4 `unresolved_text`, 0 `unresolved_identity` (0,7 % < 10 %-stopgrænsen).
 
+**KVITTERET af projektejeren 2026-09-04: valg A og valg B.** (A) Identiteten record ↔ person
+for 2018-20 indlæses som accepteret persona-identitet med `person_external_id` som evidens,
+uden placement-kæde; bindingens autoritet er `existing_exact_binding` som for 1939's 550
+bindinger, og begge udgaver revalideres samlet, når #150/#151 leverer placements. (B)
+Fortrydelse sker pr. narrativ gennem #152's dedikerede reversal (reverse published → discard
+draft → reverse legacy_migrated); fuld fortrydelse er endelig for narrativet, batch-fortrydelse
+er per-narrativ trin under én autorisation. Projektejeren godkendte samtidig merge af PR #167
+og prod-rækkefølgen #152-cutover → #153 (m. guard-rettelse) → 149a → 149b som én samlet
+prod-dag med tre GO'er.
+
 **149b, leverance 1 implementeret (2026-09-04) — to præciseringer af valg B og én #152-rettelse.**
 (1) Fortryd-kæden er »reverse published → discard draft → reverse legacy_migrated«, ikke
 »reverse published → reverse draft_created«: #152's reversal appender til samme stream, så
