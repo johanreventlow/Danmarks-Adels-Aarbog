@@ -497,6 +497,7 @@ END $task3_preconditions$;
 -- reversal-semantik, ikke RPC-ACL (den dækkes af Task 5's inventar).
 DO $task4_reversal$
 DECLARE fx jsonb; r jsonb; v_state jsonb; v_res jsonb; v_status text; v_err text; v_ok boolean;
+  v_can_reverse boolean; v_block text;
 BEGIN
   fx:=pg_temp.task3_fixture('T4',false);
   r:=pg_temp.task3_migrate(fx,'bound_published','t4');
@@ -508,6 +509,13 @@ BEGIN
     PERFORM public.red_fortryd_person_narrative_publication_event((r->>'legacy_event_id')::uuid,v_state->>'state_sha256');
   EXCEPTION WHEN OTHERS THEN v_ok:=SQLERRM LIKE 'NARRATIVE_LEGACY_MIGRATION_BINDING_ACTIVE%'; v_err:=SQLERRM; END;
   IF NOT v_ok THEN RAISE EXCEPTION 'TASK4_EXPECTED_BINDING_ACTIVE got %',v_err; END IF;
+  -- I-1: redaktørfladens historik skal sige det samme som RPC'en — blokeret nu ...
+  SELECT can_reverse,blocking_reason INTO v_can_reverse,v_block
+    FROM public.red_person_narrative_publication_history((fx->>'person_id')::bigint)
+   WHERE event_type='legacy_migrated';
+  IF v_can_reverse IS NOT FALSE OR v_block IS DISTINCT FROM 'NARRATIVE_LEGACY_MIGRATION_BINDING_ACTIVE' THEN
+    RAISE EXCEPTION 'TASK4_HISTORY_ACTIVE_BINDING: % %',v_can_reverse,v_block;
+  END IF;
   -- (b) published -> draft
   v_state:=private.narrative_record_state((fx->>'person_id')::bigint,(fx->>'source_id')::bigint,fx->>'record_key',false);
   v_res:=public.red_fortryd_person_narrative_publication_event((r->>'published_event_id')::uuid,v_state->>'state_sha256');
@@ -523,6 +531,13 @@ BEGIN
   PERFORM set_config('app.change_set_id','',true);
   SELECT status INTO v_status FROM private.narrative_record_publication WHERE narrative_id=(fx->>'narrative_id')::bigint;
   IF v_status<>'withdrawn' THEN RAISE EXCEPTION 'TASK4_STEP_C: %',v_status; END IF;
+  -- I-1: ... og fortrydelig, når bindingen er trukket tilbage.
+  SELECT can_reverse,blocking_reason INTO v_can_reverse,v_block
+    FROM public.red_person_narrative_publication_history((fx->>'person_id')::bigint)
+   WHERE event_type='legacy_migrated';
+  IF v_can_reverse IS NOT TRUE OR v_block IS NOT NULL THEN
+    RAISE EXCEPTION 'TASK4_HISTORY_WITHDRAWN_BINDING: % %',v_can_reverse,v_block;
+  END IF;
   -- (d) legacy_migrated -> ledger tilbage til grandfathered_publication
   v_state:=private.narrative_legacy_state((fx->>'legacy_publication_ref')::uuid,false);
   v_res:=public.red_fortryd_person_narrative_publication_event((r->>'legacy_event_id')::uuid,v_state->>'state_sha256');

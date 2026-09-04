@@ -259,6 +259,12 @@ BEGIN
       JOIN pg_namespace namespace ON namespace.oid=function.pronamespace
      WHERE namespace.nspname='public'
        AND function.prosrc LIKE '%legacy_migrated%'
+       -- #166 149b: publiceringshistorikken NAVNGIVER eventtypen for at kunne
+       -- markere spec §8's tredje fortryd-trin som reversibelt i redaktørfladen.
+       -- Den er ren læsning uden skrivevej, og er derfor den eneste bevidste
+       -- undtagelse; enhver anden ny public-funktion, der nævner legacy_migrated
+       -- og er kaldbar for en klientrolle, skal fortsat fejle her.
+       AND function.oid<>'public.red_person_narrative_publication_history(bigint)'::regprocedure
        AND (
          has_function_privilege('anon',function.oid,'EXECUTE')
          OR has_function_privilege('authenticated',function.oid,'EXECUTE')

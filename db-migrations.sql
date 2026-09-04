@@ -14325,9 +14325,20 @@ BEGIN
                THEN 'NARRATIVE_PUBLICATION_REVERSAL_NOT_REVERSIBLE'
              WHEN classified.event_type NOT IN (
                     'draft_created','draft_updated','draft_discarded','published',
-                    'published_revision','revalidated','withdrawn','legacy_withdrawn'
+                    'published_revision','revalidated','withdrawn','legacy_withdrawn',
+                    'legacy_migrated'
                   )
                THEN 'NARRATIVE_PUBLICATION_EVENT_NOT_REVERSIBLE'
+             -- #166 149b: samme gate som private.reverse_narrative_publication_event —
+             -- en legacy-migration kan først fortrydes, når record-bindingen er
+             -- trukket tilbage. Uden denne gren ville fladen tilbyde en knap, RPC'en
+             -- afviser.
+             WHEN classified.event_type='legacy_migrated' AND EXISTS (
+                    SELECT 1 FROM private.narrative_record_publication binding
+                     WHERE binding.narrative_id=classified.narrative_id
+                       AND binding.status IN ('draft','published')
+                  )
+               THEN 'NARRATIVE_LEGACY_MIGRATION_BINDING_ACTIVE'
              WHEN classified.has_reversal
                THEN 'NARRATIVE_PUBLICATION_EVENT_ALREADY_REVERSED'
              WHEN classified.has_later_event
