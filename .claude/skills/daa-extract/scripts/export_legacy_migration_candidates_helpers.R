@@ -27,6 +27,7 @@ lmc_sql <- list(
     "coalesce(narrative.privat,false) AS narrative_privat,",
     "encode(extensions.digest(narrative.tekst,'sha256'),'hex') AS narrative_text_sha256,",
     "encode(extensions.digest(occurrence.verbatim_text,'sha256'),'hex') AS occurrence_verbatim_sha256,",
+    "(occurrence.id IS NOT NULL) AS has_occurrence,",
     "legacy.legacy_publication_ref::text AS legacy_publication_ref, legacy.status::text AS legacy_status,",
     "legacy.baseline_sha256::text AS legacy_baseline_sha256,",
     "count(*) OVER (PARTITION BY scoped.record_key)::integer AS persons_for_record_key,",
@@ -131,6 +132,29 @@ lmc_build_texts <- function(rows) {
   out
 }
 
+# Ren funktion (ingen DB): fejler højt, hvis en kandidat-række har en hash der
+# burde være sat, men er NULL. En kandidat uden narrativ (narrative_id NA,
+# narratives_for_person=0) er en legitim tilstand — byggeren afgør den senere
+# som unresolved_identity — så guarden gælder kun rækker, hvor narrativet
+# (hhv. forekomsten) faktisk blev fundet. Rows uden en `has_occurrence`-kolonne
+# behandles konservativt som "forekomst ikke fundet" (ingen fejl af den grund).
+lmc_validate_candidate_hashes <- function(rows) {
+  if (!nrow(rows)) return(invisible(rows))
+  narrative_present <- !is.na(rows$narrative_id)
+  if (any(narrative_present & is.na(rows$narrative_text_sha256)))
+    lmc_fail("LEGACY_MIGRATION_EXPORT_HASH_MISSING")
+  occurrence_present <- if (!is.null(rows$has_occurrence)) {
+    present <- as.logical(rows$has_occurrence)
+    present[is.na(present)] <- FALSE
+    present
+  } else {
+    rep(FALSE, nrow(rows))
+  }
+  if (any(occurrence_present & is.na(rows$occurrence_verbatim_sha256)))
+    lmc_fail("LEGACY_MIGRATION_EXPORT_HASH_MISSING")
+  invisible(rows)
+}
+
 lmc_export_run <- function(query, source_id) {
   if (!is.function(query)) lmc_fail("LMC_QUERY_INVALID")
   if (!is.integer(source_id) || length(source_id) != 1L || is.na(source_id) || source_id <= 0L)
@@ -142,10 +166,7 @@ lmc_export_run <- function(query, source_id) {
     "SELECT to_regclass('private.narrative_legacy_publication') IS NOT NULL AS present")$present[[1L]]))
   if (!has_ledger) lmc_fail("LEGACY_MIGRATION_LEDGER_TABLE_MISSING")
   candidate_rows <- query(lmc_sql$candidates, list(source_id))
-  # Fail-closed: en NULL-hash for en post med narrativ ville ellers stille blive
-  # til `null` i outputtet — det skal i stedet stoppe eksporten.
-  if (nrow(candidate_rows) && anyNA(candidate_rows$narrative_text_sha256))
-    lmc_fail("LEGACY_MIGRATION_EXPORT_HASH_MISSING")
+  lmc_validate_candidate_hashes(candidate_rows)
   text_rows <- query(lmc_sql$texts, list(source_id))
   list(
     candidates = lmc_build_candidates(candidate_rows),

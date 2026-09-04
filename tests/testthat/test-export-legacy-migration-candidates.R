@@ -73,6 +73,7 @@ test_that("teksterne nøgles på record_key", {
     record_key = "K1", person_id = 1L, narrative_id = 2L, person_levende = FALSE,
     person_privat = FALSE, person_staged = FALSE, narrative_privat = FALSE,
     narrative_text_sha256 = strrep("1", 64L), occurrence_verbatim_sha256 = strrep("1", 64L),
+    has_occurrence = TRUE,
     legacy_publication_ref = NA_character_, legacy_status = NA_character_,
     legacy_baseline_sha256 = NA_character_, persons_for_record_key = 1L,
     external_ids_for_person = 1L, narratives_for_person = 1L, already_bound = FALSE
@@ -81,6 +82,30 @@ test_that("teksterne nøgles på record_key", {
   base[names(overrides)] <- overrides
   do.call(data.frame, c(base, list(stringsAsFactors = FALSE)))
 }
+
+# Ren funktion, ingen DB (fix-runde 2 / ruling N-1): guarden må kun ramme rækker,
+# hvor narrativet (hhv. forekomsten) faktisk blev fundet — en narrativløs kandidat
+# er en legitim tilstand, byggeren afgør den som unresolved_identity.
+test_that("narrativløs kandidat passerer guarden", {
+  row <- .lmc_fake_candidate_row(
+    narrative_id = NA_integer_, narrative_text_sha256 = NA_character_,
+    narratives_for_person = 0L)
+  expect_silent(lmc_validate_candidate_hashes(row))
+})
+test_that("kandidat med narrativ men NA-hash fejler guarden", {
+  row <- .lmc_fake_candidate_row(narrative_text_sha256 = NA_character_)
+  expect_error(lmc_validate_candidate_hashes(row), "LEGACY_MIGRATION_EXPORT_HASH_MISSING")
+})
+test_that("forekomstløs kandidat passerer guarden (ingen source_record/anker/occurrence)", {
+  row <- .lmc_fake_candidate_row(
+    has_occurrence = FALSE, occurrence_verbatim_sha256 = NA_character_)
+  expect_silent(lmc_validate_candidate_hashes(row))
+})
+test_that("kandidat med fundet forekomst men NA-hash fejler guarden", {
+  row <- .lmc_fake_candidate_row(
+    has_occurrence = TRUE, occurrence_verbatim_sha256 = NA_character_)
+  expect_error(lmc_validate_candidate_hashes(row), "LEGACY_MIGRATION_EXPORT_HASH_MISSING")
+})
 
 test_that("lmc_export_run fejler højt når ledger-tabellen mangler (#152)", {
   fake_query <- function(sql, params = list()) {
@@ -111,4 +136,21 @@ test_that("lmc_export_run lykkes, når ledger-tabellen findes og hashen er sat",
   expect_length(result$candidates, 1L)
   expect_identical(result$candidates[[1L]]$record_key, "K1")
   expect_identical(names(result$texts), "K1")
+})
+test_that("lmc_export_run lader en narrativløs kandidat passere (unresolved_identity er byggerens ansvar)", {
+  fake_query <- function(sql, params = list()) {
+    if (grepl("to_regclass", sql, fixed = TRUE)) return(data.frame(present = TRUE))
+    if (grepl("LMC_EXPORT_CANDIDATES", sql, fixed = TRUE)) return(.lmc_fake_candidate_row(
+      narrative_id = NA_integer_, narrative_text_sha256 = NA_character_, narratives_for_person = 0L,
+      has_occurrence = FALSE, occurrence_verbatim_sha256 = NA_character_))
+    if (grepl("LMC_EXPORT_TEXTS", sql, fixed = TRUE)) return(data.frame(
+      record_key = "K1", narrative_text = NA_character_, occurrence_text = NA_character_,
+      stringsAsFactors = FALSE))
+    stop("UNEXPECTED_QUERY_CALLED")
+  }
+  result <- lmc_export_run(fake_query, 1L)
+  expect_length(result$candidates, 1L)
+  expect_null(result$candidates[[1L]]$narrative_id)
+  expect_null(result$candidates[[1L]]$narrative_text_sha256)
+  expect_identical(result$candidates[[1L]]$narratives_for_person, 0L)
 })
