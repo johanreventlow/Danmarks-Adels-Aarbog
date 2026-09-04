@@ -41,9 +41,12 @@ DBI::dbExecute(con, "ROLLBACK")
 
 jsonlite::write_json(result$candidates, candidates_path,
   auto_unbox = TRUE, null = "null", digits = NA, pretty = TRUE)
+# Opret tekstfilen restriktivt FØR den bærer indhold — intet vindue hvor en
+# fil med levende personers narrativtekst ligger med standardrettigheder.
+file.create(texts_path)
+Sys.chmod(texts_path, "0600")
 jsonlite::write_json(result$texts, texts_path,
   auto_unbox = TRUE, null = "null", digits = NA, pretty = TRUE)
-Sys.chmod(texts_path, "0600")
 
 cat(jsonlite::toJSON(list(
   candidates = length(result$candidates),

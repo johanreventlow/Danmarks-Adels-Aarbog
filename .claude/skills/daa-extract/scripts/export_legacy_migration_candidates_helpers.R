@@ -1,17 +1,16 @@
 # Læse-kun, forbindelsesfri (undtagen den injicerede query-funktion) eksport af
 # legacy-migration-kandidater (spec §7, brief Task 7). Kandidatfilen bærer ingen
 # rå tekst; teksterne skrives i en separat 0600-fil, som kun bruges lokalt af
-# normaliseringen og aldrig committes.
+# normaliseringen og aldrig committes. Kræver #152's ledger-tabel
+# (private.narrative_legacy_publication) — findes den ikke, fejler eksporten højt
+# (LEGACY_MIGRATION_LEDGER_TABLE_MISSING) i stedet for at antage tavse NULL'er.
 
 lmc_fail <- function(code) stop(code, call. = FALSE)
 
 lmc_has_work_component <- function(path) {
-  "work" %in% strsplit(path, "/", fixed = TRUE)[[1L]]
+  components <- strsplit(path, "/", fixed = TRUE)[[1L]]
+  any(grepl("^work(_.*)?$", components))
 }
-
-# Nøglen 'tekst' opbygges af tegnkoder, så denne fils kildetekst aldrig bærer
-# selve ordet — kandidat-forespørgslen må ikke røre den rå narrativtekst.
-.lmc_tekst_key_expr <- "(chr(116)||chr(101)||chr(107)||chr(115)||chr(116))"
 
 lmc_sql <- list(
   candidates = paste(
@@ -26,9 +25,8 @@ lmc_sql <- list(
     "narratives.narrative_id::integer AS narrative_id, person.levende AS person_levende,",
     "coalesce(person.privat,false) AS person_privat, coalesce(person.staged,false) AS person_staged,",
     "coalesce(narrative.privat,false) AS narrative_privat,",
-    "encode(sha256(convert_to(to_jsonb(narrative)->>", .lmc_tekst_key_expr, ",'UTF8')),'hex')",
-    "AS narrative_text_sha256,",
-    "encode(sha256(convert_to(occurrence.verbatim_text,'UTF8')),'hex') AS occurrence_verbatim_sha256,",
+    "encode(extensions.digest(narrative.tekst,'sha256'),'hex') AS narrative_text_sha256,",
+    "encode(extensions.digest(occurrence.verbatim_text,'sha256'),'hex') AS occurrence_verbatim_sha256,",
     "legacy.legacy_publication_ref::text AS legacy_publication_ref, legacy.status::text AS legacy_status,",
     "legacy.baseline_sha256::text AS legacy_baseline_sha256,",
     "count(*) OVER (PARTITION BY scoped.record_key)::integer AS persons_for_record_key,",
@@ -45,42 +43,6 @@ lmc_sql <- list(
     "AND anchor.decision_status='accepted'",
     "LEFT JOIN private.source_record_occurrence occurrence ON occurrence.id=anchor.occurrence_id",
     "LEFT JOIN private.narrative_legacy_publication legacy ON legacy.narrative_id=narrative.id",
-    "LEFT JOIN private.narrative_record_publication binding ON binding.narrative_id=narrative.id",
-    "ORDER BY scoped.record_key"
-  ),
-  # Basen kan være ældre end #152 (ingen narrative_legacy_publication-tabel
-  # endnu). Samme forespørgsel, men lægger legacy_*-felterne fast til NULL i
-  # stedet for at joine en tabel, der ikke findes.
-  candidates_no_ledger = paste(
-    "/* LMC_EXPORT_CANDIDATES_NO_LEDGER */ WITH scoped AS (",
-    "SELECT person_id, source_id, record_key FROM public.person_external_id",
-    "WHERE source_id=$1 AND record_key IS NOT NULL",
-    "), narratives AS (",
-    "SELECT subjekt_id AS person_id, min(id) AS narrative_id,",
-    "count(*)::integer AS narratives_for_person FROM public.narrative",
-    "WHERE source_id=$1 AND subjekt_type='person' GROUP BY subjekt_id",
-    ") SELECT scoped.record_key::text AS record_key, scoped.person_id::integer AS person_id,",
-    "narratives.narrative_id::integer AS narrative_id, person.levende AS person_levende,",
-    "coalesce(person.privat,false) AS person_privat, coalesce(person.staged,false) AS person_staged,",
-    "coalesce(narrative.privat,false) AS narrative_privat,",
-    "encode(sha256(convert_to(to_jsonb(narrative)->>", .lmc_tekst_key_expr, ",'UTF8')),'hex')",
-    "AS narrative_text_sha256,",
-    "encode(sha256(convert_to(occurrence.verbatim_text,'UTF8')),'hex') AS occurrence_verbatim_sha256,",
-    "NULL::text AS legacy_publication_ref, NULL::text AS legacy_status,",
-    "NULL::text AS legacy_baseline_sha256,",
-    "count(*) OVER (PARTITION BY scoped.record_key)::integer AS persons_for_record_key,",
-    "count(*) OVER (PARTITION BY scoped.person_id)::integer AS external_ids_for_person,",
-    "coalesce(narratives.narratives_for_person,0)::integer AS narratives_for_person,",
-    "(binding.narrative_id IS NOT NULL) AS already_bound",
-    "FROM scoped",
-    "JOIN public.person person ON person.id=scoped.person_id",
-    "LEFT JOIN narratives ON narratives.person_id=scoped.person_id",
-    "LEFT JOIN public.narrative narrative ON narrative.id=narratives.narrative_id",
-    "LEFT JOIN private.source_record record ON record.source_id=scoped.source_id",
-    "AND record.record_key=scoped.record_key",
-    "LEFT JOIN private.source_record_anchor_current anchor ON anchor.source_record_id=record.id",
-    "AND anchor.decision_status='accepted'",
-    "LEFT JOIN private.source_record_occurrence occurrence ON occurrence.id=anchor.occurrence_id",
     "LEFT JOIN private.narrative_record_publication binding ON binding.narrative_id=narrative.id",
     "ORDER BY scoped.record_key"
   ),
@@ -173,12 +135,17 @@ lmc_export_run <- function(query, source_id) {
   if (!is.function(query)) lmc_fail("LMC_QUERY_INVALID")
   if (!is.integer(source_id) || length(source_id) != 1L || is.na(source_id) || source_id <= 0L)
     lmc_fail("LMC_SOURCE_ID_INVALID")
-  # Basen kan være ældre end #152 (ingen private.narrative_legacy_publication
-  # endnu); i så fald er legacy_*-felterne NULL for alle kandidater (forventet).
+  # #152's ledger-tabel er en forudsætning (spec §7's gate-rækkefølge sikrer den
+  # findes ved enhver reel 149b-kørsel). Mangler den, fejler vi højt fremfor
+  # stille at emittere NULL for legacy_*-felterne.
   has_ledger <- isTRUE(as.logical(query(
     "SELECT to_regclass('private.narrative_legacy_publication') IS NOT NULL AS present")$present[[1L]]))
-  candidates_sql <- if (has_ledger) lmc_sql$candidates else lmc_sql$candidates_no_ledger
-  candidate_rows <- query(candidates_sql, list(source_id))
+  if (!has_ledger) lmc_fail("LEGACY_MIGRATION_LEDGER_TABLE_MISSING")
+  candidate_rows <- query(lmc_sql$candidates, list(source_id))
+  # Fail-closed: en NULL-hash for en post med narrativ ville ellers stille blive
+  # til `null` i outputtet — det skal i stedet stoppe eksporten.
+  if (nrow(candidate_rows) && anyNA(candidate_rows$narrative_text_sha256))
+    lmc_fail("LEGACY_MIGRATION_EXPORT_HASH_MISSING")
   text_rows <- query(lmc_sql$texts, list(source_id))
   list(
     candidates = lmc_build_candidates(candidate_rows),
