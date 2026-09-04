@@ -105,6 +105,14 @@ fra den offentlige flade (målt), og étlinje-rettelsen alene ville give en dubl
 (withdrawn binding + grandfathered ledger) findes først med 149b. Kvittering: indgår i valg B's
 kvittering før prod-GO.
 
+**149b: rehearsal gennemført (2026-09-04) med de forventede tal** (541
+`bound_published`, 46 `bound_draft`, 4 `unresolved_text`, 0
+`unresolved_identity`; se `docs/evidensbaseret-genimport/legacy-migration-149b-rehearsal.md`).
+Batch-status forbliver `finalized` efter batch-reversal — reversal-`reimport_event`
+er markøren, fordi `red_begin_reimport`s replay-opslag filtrerer på `finalized`,
+ikke på batchens tilstand efter reversal. Valg A og valg B afventer fortsat
+projektejerens kvittering før prod-GO.
+
 ## BESLUTTET: #152's målte overgangsomkostning og sikkerhedsminimum (2026-08-29)
 
 Et eksternt read-only review af den reviderede #152-spec rapporterede et

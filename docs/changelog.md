@@ -1,5 +1,73 @@
 # Changelog
 
+## 149b: legacy-migration til narrativ-binding bygget og integreret ende-til-ende (2026-09-04)
+
+Ingen prod-skrivning, intet pushet, intet deployet. #166 (149b) leverer den
+generelle `legacy_migration`-elementoperation, der binder 2018-20's 591
+eksisterende narrativer til de 591 source records, 149a byggede, og afslutter
+deres grandfathered legacy-streams.
+
+**Leveret.** Én ny elementoperation `legacy_migration` i #153's generelle
+writer (`private.migrate_legacy_narrative_record` +
+`public.red_apply_reimport_legacy_migration`, klassificeret i #154's
+ACL-arrays); egen identitetsledger pr. record (`source_persona` +
+`source_persona_mention` + accepteret `source_persona_identity` med
+`person_external_id` som evidens, ingen placement-kæde — valg A); en
+`legacy_migrated`-gren i #152's dedikerede reversal, udvidet med
+»reverse `published` → discard draft → reverse `legacy_migrated`« (valg B,
+revideret efter empirisk fund: #152's reversal appender til samme stream, så
+den oprindelige spec-kæde »reverse `published` → reverse `draft_created`« var
+uopnåelig); en rettelse i #152's læsefunktioner
+(`person_daa_narrative_publication_allowed` og record-grenene i
+`public_person_bio_source_versions(_v2)` filtrerer nu på bindingsstatus, så en
+kombination »withdrawn binding + grandfathered ledger« — som først opstår med
+149b's fulde fortrydelseskæde — ikke længere giver en dublet på den offentlige
+flade); R-gateway/preview/eksport
+(`export_legacy_migration_candidates.R`, `export_reimport_preview_helpers.R`,
+`apply_reimport_helpers.R` udvidet); Python-bygger og -profil
+(`build_legacy_migration_manifest.py`, egen `reimport-legacy-migration-profile-v1`);
+et batch-reversal-script (`reverse_reimport_legacy_migration.R`, per-narrativ
+reversals i omvendt rækkefølge under én autorisation); integrationstests
+(`tests/sql/test-reimport-legacy-migration.sql`,
+`tests/integration/test-reimport-legacy-migration.R`) og et nyt CI-trin ved
+siden af `reimport_legacy_source_evidence_153`.
+
+**Rehearsal (2026-09-04) — GENNEMFØRT.** Restore af prod-dumpet →
+migrationer → #152-cutover (kontrakt v2) → 149a-apply → 149b: manifest 587
+elementer, **541 `bound_published`**, **46 `bound_draft`**, **4
+`unresolved_text`** (`I-133, II-35, III-129, IV-94`), **0
+`unresolved_identity`** (0,7 % under 10 %-stopgrænsen); ledger source 1 = 541
+`migrated` + 3 `grandfathered_publication` + 0 `withdrawn`; 587 `source_persona`
++ 587 accepterede identiteter; offentlig v2-flade viser 541 `source_record` og
+kun 3 `legacy_narrative` for source 1 (fra 544); nul kanonisk delta (4
+aggregat-hashes: `person`, `fact`, `family_member`, `narrative`) og `anon`
+uændret (8 hashes); replay `already_applied`; per-narrativ reversal gendanner
+begge streams eksakt; batch-reversal bevist som **dry-run** (587 elementer,
+`committed=false` — den fulde apply-vej er kun bevist syntetisk i
+integrationstesten); `red_reverse_reimport` afvist
+(`REIMPORT_WRITER_REVERSAL_INVALID`). Detaljer:
+[`legacy-migration-149b-rehearsal.md`](evidensbaseret-genimport/legacy-migration-149b-rehearsal.md),
+runbook:
+[`legacy-migration-reimport-rehearsal.md`](runbooks/legacy-migration-reimport-rehearsal.md).
+
+**To implementeringsfund undervejs.** (1) Fortryd-kæden i spec §8 var
+uopnåelig som skrevet — #152's reversal appender et event til samme stream,
+så `draft_created` ikke længere er streamens seneste event efter én
+fortrydelse; rettet til den tre-trins kæde ovenfor, spec og
+`docs/decisions.md` opdateret. (2) Kombinationen »withdrawn binding +
+grandfathered ledger« fandtes ikke før 149b og blottede en dublet-risiko i
+#152's læsefunktioner; rettet i samme leverance, ikke udskudt.
+
+**Ikke rørt.** De 4 `unresolved_text`-narrativer forbliver `grandfathered_publication`
+(hhv. ubundet for `IV-94`, som er levende); de 13 mulige `NOISE_RE`-prosalinjer
+fra 149a-inventeringen (måling 8) er ikke rettet. Begge er separate, endnu
+utrufne beslutninger, uden for 149b's scope.
+
+**Intet pushet, intet deployet.** Prod-apply kræver #152-cutover → #153 (med
+guard-rettelsen) → 149a i prod (alle tre kun rehearsal-bevist), projektejerens
+kvittering for valg A og valg B, og en frisk neutralitetsmåling i prod før
+apply.
+
 ## 149a: 2018-20 kilderegnskab bygget og bevist mod bogen, ægte rehearsal blokeret (2026-09-03)
 
 Ingen prod-skrivning. Dagen begyndte med en læse-kun retningsvurdering (retningen
