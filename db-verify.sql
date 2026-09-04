@@ -2683,6 +2683,27 @@ BEGIN
   END;
 END $evidence_verify$;
 
+-- #166 149b (M-5): private.reimport_event må have præcis én CHECK på operation, og
+-- den skal kende legacy_migration. Fanger både en glemt migration og en gendannet
+-- gammel constraint fra den omdøbte reimport_1939_write_event-sti. Assert'en fandtes
+-- kun i tests/sql/test-reimport-writer-migration.sql, som alene dækker CI's
+-- præ-153-migrerede sti; db-verify.sql er prod-siden.
+DO $reimport_event_operation_check_verify$
+DECLARE v_count integer; v_definition text;
+BEGIN
+  SELECT count(*),min(pg_get_constraintdef(oid))
+    INTO v_count,v_definition
+    FROM pg_constraint
+   WHERE conrelid='private.reimport_event'::regclass
+     AND contype='c'
+     AND pg_get_constraintdef(oid) LIKE '%operation%';
+  IF v_count<>1 OR v_definition NOT LIKE '%legacy_migration%' THEN
+    RAISE EXCEPTION 'REIMPORT_EVENT_OPERATION_CHECK_DRIFT';
+  END IF;
+  RAISE NOTICE 'OK: private.reimport_event operation-CHECK er entydig og kender legacy_migration';
+END
+$reimport_event_operation_check_verify$;
+
 -- #154: Global default revoke må ikke efterlade eksisterende public.red_*
 -- RPC'er med implicit PUBLIC-adgang eller gøre en ny klient-RPC tavst
 -- ukaldbar. Alle undtagelser er eksplicitte og versionsstyrede her.
