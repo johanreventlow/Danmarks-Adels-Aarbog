@@ -259,6 +259,12 @@ BEGIN
       JOIN pg_namespace namespace ON namespace.oid=function.pronamespace
      WHERE namespace.nspname='public'
        AND function.prosrc LIKE '%legacy_migrated%'
+       -- #166 149b: publiceringshistorikken NAVNGIVER eventtypen for at kunne
+       -- markere spec §8's tredje fortryd-trin som reversibelt i redaktørfladen.
+       -- Den er ren læsning uden skrivevej, og er derfor den eneste bevidste
+       -- undtagelse; enhver anden ny public-funktion, der nævner legacy_migrated
+       -- og er kaldbar for en klientrolle, skal fortsat fejle her.
+       AND function.oid<>'public.red_person_narrative_publication_history(bigint)'::regprocedure
        AND (
          has_function_privilege('anon',function.oid,'EXECUTE')
          OR has_function_privilege('authenticated',function.oid,'EXECUTE')
@@ -557,7 +563,8 @@ $verify_reimport_batch_result$;
 
 -- #153 Task 6: `_1939` is a closed compatibility namespace.  The generic
 -- writer and its public replay receipt deliberately have no edition suffix and
--- are therefore absent from this transition-surface allowlist.
+-- are therefore absent from this transition-surface allowlist. `_2018` er en
+-- tom allowlist: #149a's udgave bor i én profil-JSON, ikke i katalogen.
 CREATE OR REPLACE FUNCTION private.assert_reimport_edition_catalog()
 RETURNS void
 LANGUAGE plpgsql
@@ -624,7 +631,8 @@ BEGIN
     FROM pg_class c
     JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname IN ('public','private')
-      AND c.relname LIKE '%\_1939%' ESCAPE E'\\'
+      AND (c.relname LIKE '%\_1939%' ESCAPE E'\\'
+           OR c.relname LIKE '%\_2018%' ESCAPE E'\\')
 
     UNION ALL
 
@@ -638,7 +646,8 @@ BEGIN
     FROM pg_type t
     JOIN pg_namespace n ON n.oid=t.typnamespace
     WHERE n.nspname IN ('public','private')
-      AND t.typname LIKE '%\_1939%' ESCAPE E'\\'
+      AND (t.typname LIKE '%\_1939%' ESCAPE E'\\'
+           OR t.typname LIKE '%\_2018%' ESCAPE E'\\')
 
     UNION ALL
 
@@ -646,7 +655,8 @@ BEGIN
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid=p.pronamespace
     WHERE n.nspname IN ('public','private')
-      AND p.proname LIKE '%\_1939%' ESCAPE E'\\'
+      AND (p.proname LIKE '%\_1939%' ESCAPE E'\\'
+           OR p.proname LIKE '%\_2018%' ESCAPE E'\\')
 
     UNION ALL
 
@@ -656,7 +666,8 @@ BEGIN
     JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE NOT t.tgisinternal
       AND n.nspname IN ('public','private')
-      AND t.tgname LIKE '%\_1939%' ESCAPE E'\\'
+      AND (t.tgname LIKE '%\_1939%' ESCAPE E'\\'
+           OR t.tgname LIKE '%\_2018%' ESCAPE E'\\')
 
     UNION ALL
 
@@ -672,7 +683,8 @@ BEGIN
     LEFT JOIN pg_type type_row ON type_row.oid=constraint_row.contypid
     LEFT JOIN pg_namespace type_namespace ON type_namespace.oid=type_row.typnamespace
     WHERE coalesce(relation_namespace.nspname,type_namespace.nspname) IN ('public','private')
-      AND constraint_row.conname LIKE '%\_1939%' ESCAPE E'\\'
+      AND (constraint_row.conname LIKE '%\_1939%' ESCAPE E'\\'
+           OR constraint_row.conname LIKE '%\_2018%' ESCAPE E'\\')
 
     UNION ALL
 
@@ -681,7 +693,8 @@ BEGIN
     JOIN pg_class c ON c.oid=p.polrelid
     JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname IN ('public','private')
-      AND p.polname LIKE '%\_1939%' ESCAPE E'\\'
+      AND (p.polname LIKE '%\_1939%' ESCAPE E'\\'
+           OR p.polname LIKE '%\_2018%' ESCAPE E'\\')
   ), drift AS (
     SELECT 'additional' AS drift_kind,actual.* FROM actual
     EXCEPT
@@ -2670,6 +2683,27 @@ BEGIN
   END;
 END $evidence_verify$;
 
+-- #166 149b (M-5): private.reimport_event må have præcis én CHECK på operation, og
+-- den skal kende legacy_migration. Fanger både en glemt migration og en gendannet
+-- gammel constraint fra den omdøbte reimport_1939_write_event-sti. Assert'en fandtes
+-- kun i tests/sql/test-reimport-writer-migration.sql, som alene dækker CI's
+-- præ-153-migrerede sti; db-verify.sql er prod-siden.
+DO $reimport_event_operation_check_verify$
+DECLARE v_count integer; v_definition text;
+BEGIN
+  SELECT count(*),min(pg_get_constraintdef(oid))
+    INTO v_count,v_definition
+    FROM pg_constraint
+   WHERE conrelid='private.reimport_event'::regclass
+     AND contype='c'
+     AND pg_get_constraintdef(oid) LIKE '%operation%';
+  IF v_count<>1 OR v_definition NOT LIKE '%legacy_migration%' THEN
+    RAISE EXCEPTION 'REIMPORT_EVENT_OPERATION_CHECK_DRIFT';
+  END IF;
+  RAISE NOTICE 'OK: private.reimport_event operation-CHECK er entydig og kender legacy_migration';
+END
+$reimport_event_operation_check_verify$;
+
 -- #154: Global default revoke må ikke efterlade eksisterende public.red_*
 -- RPC'er med implicit PUBLIC-adgang eller gøre en ny klient-RPC tavst
 -- ukaldbar. Alle undtagelser er eksplicitte og versionsstyrede her.
@@ -2685,6 +2719,7 @@ DECLARE
     'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_canonical_delta(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_name_completion(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_legacy_migration(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_person_create(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_source_evidence(uuid,text,jsonb)'::regprocedure,
     'public.red_begin_1939_v50_name_completion(uuid,text,uuid)'::regprocedure,

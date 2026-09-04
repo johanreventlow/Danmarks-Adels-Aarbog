@@ -1,5 +1,110 @@
 # Changelog
 
+## 149b: legacy-migration til narrativ-binding bygget og integreret ende-til-ende (2026-09-04)
+
+Ingen prod-skrivning, intet pushet, intet deployet. #166 (149b) leverer den
+generelle `legacy_migration`-elementoperation, der binder 2018-20's 591
+eksisterende narrativer til de 591 source records, 149a byggede, og afslutter
+deres grandfathered legacy-streams.
+
+**Leveret.** Én ny elementoperation `legacy_migration` i #153's generelle
+writer (`private.migrate_legacy_narrative_record` +
+`public.red_apply_reimport_legacy_migration`, klassificeret i #154's
+ACL-arrays); egen identitetsledger pr. record (`source_persona` +
+`source_persona_mention` + accepteret `source_persona_identity` med
+`person_external_id` som evidens, ingen placement-kæde — valg A); en
+`legacy_migrated`-gren i #152's dedikerede reversal, udvidet med
+»reverse `published` → discard draft → reverse `legacy_migrated`« (valg B,
+revideret efter empirisk fund: #152's reversal appender til samme stream, så
+den oprindelige spec-kæde »reverse `published` → reverse `draft_created`« var
+uopnåelig); en rettelse i #152's læsefunktioner
+(`person_daa_narrative_publication_allowed` og record-grenene i
+`public_person_bio_source_versions(_v2)` filtrerer nu på bindingsstatus, så en
+kombination »withdrawn binding + grandfathered ledger« — som først opstår med
+149b's fulde fortrydelseskæde — ikke længere giver en dublet på den offentlige
+flade); R-gateway/preview/eksport
+(`export_legacy_migration_candidates.R`, `export_reimport_preview_helpers.R`,
+`apply_reimport_helpers.R` udvidet); Python-bygger og -profil
+(`build_legacy_migration_manifest.py`, egen `reimport-legacy-migration-profile-v1`);
+et batch-reversal-script (`reverse_reimport_legacy_migration.R`, per-narrativ
+reversals i omvendt rækkefølge under én autorisation); integrationstests
+(`tests/sql/test-reimport-legacy-migration.sql`,
+`tests/integration/test-reimport-legacy-migration.R`) og et nyt CI-trin ved
+siden af `reimport_legacy_source_evidence_153`.
+
+**Rehearsal (2026-09-04) — GENNEMFØRT.** Restore af prod-dumpet →
+migrationer → #152-cutover (kontrakt v2) → 149a-apply → 149b: manifest 587
+elementer, **541 `bound_published`**, **46 `bound_draft`**, **4
+`unresolved_text`** (`I-133, II-35, III-129, IV-94`), **0
+`unresolved_identity`** (0,7 % under 10 %-stopgrænsen); ledger source 1 = 541
+`migrated` + 3 `grandfathered_publication` + 0 `withdrawn`; 587 `source_persona`
++ 587 accepterede identiteter; offentlig v2-flade viser 541 `source_record` og
+kun 3 `legacy_narrative` for source 1 (fra 544); nul kanonisk delta (4
+aggregat-hashes: `person`, `fact`, `family_member`, `narrative`) og `anon`
+uændret (8 hashes); replay `already_applied`; per-narrativ reversal gendanner
+begge streams eksakt; batch-reversal bevist som **dry-run** (587 elementer,
+`committed=false` — den fulde apply-vej er kun bevist syntetisk i
+integrationstesten); `red_reverse_reimport` afvist
+(`REIMPORT_WRITER_REVERSAL_INVALID`). Detaljer:
+[`legacy-migration-149b-rehearsal.md`](evidensbaseret-genimport/legacy-migration-149b-rehearsal.md),
+runbook:
+[`legacy-migration-reimport-rehearsal.md`](runbooks/legacy-migration-reimport-rehearsal.md).
+
+**To implementeringsfund undervejs.** (1) Fortryd-kæden i spec §8 var
+uopnåelig som skrevet — #152's reversal appender et event til samme stream,
+så `draft_created` ikke længere er streamens seneste event efter én
+fortrydelse; rettet til den tre-trins kæde ovenfor, spec og
+`docs/decisions.md` opdateret. (2) Kombinationen »withdrawn binding +
+grandfathered ledger« fandtes ikke før 149b og blottede en dublet-risiko i
+#152's læsefunktioner; rettet i samme leverance, ikke udskudt.
+
+**Ikke rørt.** De 4 `unresolved_text`-narrativer forbliver `grandfathered_publication`
+(hhv. ubundet for `IV-94`, som er levende); de 13 mulige `NOISE_RE`-prosalinjer
+fra 149a-inventeringen (måling 8) er ikke rettet. Begge er separate, endnu
+utrufne beslutninger, uden for 149b's scope.
+
+**Intet pushet, intet deployet.** Prod-apply kræver #152-cutover → #153 (med
+guard-rettelsen) → 149a i prod (alle tre kun rehearsal-bevist), projektejerens
+kvittering for valg A og valg B, og en frisk neutralitetsmåling i prod før
+apply.
+
+## 149a: 2018-20 kilderegnskab bygget og bevist mod bogen, ægte rehearsal blokeret (2026-09-03)
+
+Ingen prod-skrivning. Dagen begyndte med en læse-kun retningsvurdering (retningen
+fra 25/8 følges, men roadmap-trin 3-4 stod på nul), fire styringsregler i
+`docs/decisions.md`, mærkning af hele backloggen, lukning af #156 med restpunkt
+(INCOMPLETE-afstemning, snapshot forseglet, draft-PR #165) og opdeling af #149 i
+149a (kilderegnskab) og 149b (#166, legacy-migration til binding).
+
+**149a bygget og målt.** Spec, plan (6 tasks) og Task 1-5 på
+`feat/149-2018-20-fase-a`: profil-JSON med låste konstanter, `reimport_profile.py`
+(kanonisk hash identisk med `private.reimport_canonical_json_sha256`, verificeret
+mod databasen), `build_source_evidence_rendition.py` (PDF-/tekst-SHA-gate,
+591/591 paritet), `build_source_evidence_manifest.py` (591 elementer, eksakt
+delstreng i normaliseret projektion, `manifest_content_sha256 c7d19c01…`),
+`export_reimport_preview.R` (læse-kun før-billede), idempotent integrationstest
+mod syntetisk v2-base (dry-run, apply, nul kanonisk delta, anon uændret, replay
+`already_applied`, reversal fail-closed) og CI-gate. Inventering mod restore af
+prod-dumpet: alle stopkriterier opfyldt (`docs/superpowers/reviews/2026-09-03-2018-20-fase-a-inventering.md`).
+
+**To fund.** (1) #153's migrationsguard afviser en base med 1939 fase A-batchen i
+status `finalized` — en ren source_evidence-batch kan aldrig aktiveres, så
+guarden blokerer formentlig også prod (kommentar på #153; verificeres læse-kun
+før #153's prod-GO). (2) Fire 2018-20-narrativer i prod er 2.000-3.900 tegn
+kortere end bogteksten, og segmenteringens støjfilter fjerner 100 linjer midt i
+poster (13 muligvis prosa) — begge til 149b.
+
+**Sen aften: guard rettet og ægte rehearsal gennemført.** Prod bekræftede fase
+A-batchen som `finalized`; guarden fik en evidensbundet undtagelse (tests: positiv
+fixture blokerer mod HEAD, migrerer med rettelsen; to negative cases blokerer). Derefter
+restore → migrationer → #152-cutover (kontrakt v2) → profil → preview → dry-run → apply:
+1 rendition / 591 records / 591 forekomster / 591 ankre, fem kanoniske aggregat-hashes
+og ni `anon`-hashes identiske, replay `already_applied`, reversal fail-closed. 149a er
+`integreret ende-til-ende`. Draft-PR #167. Reversal-afvigelsen kvitteret.
+
+**Codex-begrænsning:** Codex' sandbox kan ikke nå lokal PostgreSQL; databasearbejde
+kørte i Claude-subagenter, ren kode hos Codex.
+
 ## Bindende styringsgrundlag for evidensbaseret genimport indført (2026-08-25)
 
 Dokumentpakken og dens LLM-/dokumentindgange er indført. Det stabile

@@ -2,6 +2,127 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: Styringsregler efter PM-gennemgang + opdeling af #149 (2026-09-03)
+
+**Baggrund.** En læse-kun gennemgang 2026-09-03 viste, at retningen fra 25/8
+følges (C3 → #152 → #153 → #154/#155 → #157), men at roadmappens trin 3-4
+(#149, #147/#148) stod på nul, mens ~180 commits/~54k linjer siden 29/8 gik
+til trin 1-2, hærdning og tests. Styringsdokumenterne holdt ikke alene, fordi
+(a) "ét aktivt programmål ad gangen" ikke blev håndhævet — seks spor kørte
+parallelt samme uge — og (b) den, der skrev planen, også besvarede de seks
+adgangskrav selv.
+
+**Besluttet (projektejer):**
+1. **Ét aktivt programmål ad gangen** håndhæves: nye worktrees åbnes kun for
+   det aktive mål og for en registreret kontrolleret afbrydelse.
+2. **Anden læser før kode.** Adgangskravene i `roadmap.md` besvares af den,
+   der planlægger, og efterprøves af en anden (PM-rollen) før implementering.
+3. **Én dags synligt trin.** En plan leverer ét synligt, testbart trin på højst
+   én dag; større arbejde deles.
+4. **Færdig = én rigtig kørsel.** Definition of done for enhver task er én
+   kørsel mod rigtige data i en øvebase (restore), ikke grønne syntetiske
+   fixtures alene.
+5. **Issues mærkes** `roadmap` / `afventer-prod-GO` / `parkeret` /
+   `uden-for-genimport` / `kontrolleret-afbrydelse`; #160-#163 er parkeret,
+   #164 er kandidat til kontrolleret afbrydelse, #159 er løst i kode.
+
+**#149 opdelt i 149a og 149b.** #152's kontrakt afviser upsert på
+legacy-narrativer (§6.2), kræver accepteret persona-identitet og reserverer
+`legacy_migrated` til #149 uden writer (§4.3). 149a = kilderegnskab (rendition,
+591 records, forekomster, ankre) gennem #153's writer, nul kanonisk delta.
+149b = generel `legacy_migrated`-writer + identitet fra `person_external_id`,
+egen spec efter inventeringen. Roadmap-trin 3 er uændret; rækkefølgen inden i
+trinnet er 149a → 149b.
+
+**149a: afvigelser målt i koden (2026-09-03 aften).** (1) *Reversal findes ikke for
+en ren source_evidence-batch*: `red_reverse_reimport` kræver `activated` + ét
+name_completion-barn, og der er ingen sletningsvej for source records/ankre.
+Erstatningsbevis: nul kanonisk delta (aggregat-hash), observeret fail-closed
+`REIMPORT_WRITER_REVERSAL_INVALID`, gendannelse ved restore fra 0600-backup.
+**Kvitteret af projektejeren 2026-09-03 aften** (spec §10): fortryd af 149a sker ved restore, ikke ved et kald. (2) »Eksakt
+delstreng« måles i en whitespace-normaliseret projektion med offset-kort, fordi
+`segment.py` selv normaliserer; ingen fuzzy-match. (3) Anker-evidens bæres i
+payload (`anchor_method`, `segment_version`, `verbatim_sha256`), da writeren
+hardkoder evidensfeltet. (4) Paritet mod juni-udtrækket måles på mængden af
+post-adresser. (5) `preview_sha256` bindes til preview-artefaktets filbytes;
+batchen kan derfor ikke kædes til name_completion (irrelevant for 149a).
+**Fund mod #153:** migrationsguarden `REIMPORT_LEGACY_IN_FLIGHT_MIGRATION_BLOCKED`
+afviser `finalized` reimport-batches; 1939 fase A-batchen er og forbliver
+`finalized` → blokerer 149a's ægte rehearsal og formentlig #153 i prod.
+
+**BESLUTTET (projektejer, 2026-09-03 sen aften): #153-guarden rettes generelt.** Prod
+bekræftede læse-kun, at 1939 fase A-batchen `328a813a…` står `finalized` (584
+source_evidence / 0 person_creates); `reimport_writer_upgrade`-guarden ville derfor
+blokere #153 i prod. Valgt vej (a): `finalized` accepteres som terminal for
+reimport-batches uden personoprettelser, evidensbundet (consumed autorisation,
+observed = expected = autorisationens expected; ingen børn, kun source_evidence-events
+i autoriseret antal, intet name_completion-resultat, ingen cutover/reversal-
+autorisation). Fravalgt (b): et engangs-terminaltrin i prod for netop denne batch —
+dækker ikke næste bog. Bevist: positiv fixture blokerer mod HEAD uden rettelsen og
+migrerer med den; to negative cases blokerer fortsat; migration gennemført på restore
+af prod-dump, hvorefter 149a's ægte rehearsal gav 1/591/591/591 med nul kanonisk delta.
+
+**#156 (fase-pakke-afstemning): fund.** Runbookens bundle-sti var opdigtet, og
+auditorens receipt-skemaer (`daa-evidence-phase-receipt-*-v1`) er yngre end de
+kørsler, de skal beskrive; ingen historisk apply-kvittering bærer dem, og C3
+manglede som bidrag. Valgt vej: adaptere bindes til de faktiske manifester og
+apply-JSON'er med tilstanden `afterdocumented`, C3-adapter tilføjes, derefter
+ét autoriseret læse-kun prod-snapshot og én afstemning. INCOMPLETE/DRIFT er en
+lukning med restpunkt, ikke anledning til nye adaptere.
+
+**149b-spec skrevet af PM-rollen (2026-09-03, sen aften) — to valg kræver projektejerens
+kvittering før prod-GO** (`docs/superpowers/specs/2026-09-03-2018-20-fase-b-legacy-migration-design.md`):
+**(A) Identitet uden placement-kæde.** #152 §6.1(9) beregner »entydig identitetsmængde«
+gennem record-placement → persona-placement → persona-identitet. Placement kræver en
+`header`-observation (`EVIDENCE_PLACEMENT_HEADER_REQUIRED`); ingen udgave har dem, og prod
+har 0 placements — kæden er ubrugt uden for tests og er roadmap-trin 5 (#150/#151). 149b
+skriver derfor persona + mention + accepteret identitet med `person_external_id` som evidens
+(egen ledger, som #166 kræver), men ingen placements. Bindingens autoritet bliver
+`existing_exact_binding` — samme som 1939's 550 bindinger. Kendt pris: når #150/#151
+bagudfylder placements, bliver publiceringerne `stale_published` og skal revalideres; det
+gælder 1939 i samme grad, så udgaverne forbliver symmetriske. Fravalgt: at bygge
+placement-kæden for 2018-20 alene (omprioriterer roadmappen, giver asymmetri).
+**(B) Reversal.** Per narrativ gennem #152's dedikerede reversal, udvidet med en
+`legacy_migrated`-gren gatet på at record-bindingen allerede er trukket tilbage
+(published → draft → withdrawn → ledger tilbage til grandfathered). Batch-reversal =
+per-narrativ reversals i omvendt rækkefølge under én autorisation; `red_reverse_reimport`
+afviser fortsat (som 149a). Fravalgt: kun restore (for grov, når offentlig synlighed
+ændres) og en ny hel-batch-RPC (ny mekanik uden for #152's kontrakt).
+**Målt grundlag** (dump 2026-08-21): 544 ikke-levende / 47 levende / 0 NULL; 4 tekstulige
+(3 ikke-levende, 1 levende) → forventet 541 `bound_published`, 46 `bound_draft`,
+4 `unresolved_text`, 0 `unresolved_identity` (0,7 % < 10 %-stopgrænsen).
+
+**KVITTERET af projektejeren 2026-09-04: valg A og valg B.** (A) Identiteten record ↔ person
+for 2018-20 indlæses som accepteret persona-identitet med `person_external_id` som evidens,
+uden placement-kæde; bindingens autoritet er `existing_exact_binding` som for 1939's 550
+bindinger, og begge udgaver revalideres samlet, når #150/#151 leverer placements. (B)
+Fortrydelse sker pr. narrativ gennem #152's dedikerede reversal (reverse published → discard
+draft → reverse legacy_migrated); fuld fortrydelse er endelig for narrativet, batch-fortrydelse
+er per-narrativ trin under én autorisation. Projektejeren godkendte samtidig merge af PR #167
+og prod-rækkefølgen #152-cutover → #153 (m. guard-rettelse) → 149a → 149b som én samlet
+prod-dag med tre GO'er.
+
+**149b, leverance 1 implementeret (2026-09-04) — to præciseringer af valg B og én #152-rettelse.**
+(1) Fortryd-kæden er »reverse published → discard draft → reverse legacy_migrated«, ikke
+»reverse published → reverse draft_created«: #152's reversal appender til samme stream, så
+`draft_created` er ikke seneste event efter første fortrydelse (bekræftet empirisk). (2) Fuld
+fortrydelse er endelig for narrativet: `narrative_record_publication.narrative_id` er UNIQUE og
+writeren afviser enhver eksisterende binding; genmigrering kræver en ny beslutning. (3) #152's
+læsefunktioner rettes i 149b: `person_daa_narrative_publication_allowed` så kun aktive bindinger
+(`draft`/`published`) blokerer legacy-grenen, og record-grenene i `public_person_bio_source_versions(_v2)`
+kræver `binding.status='published'` — ellers forsvandt et fuldt fortrudt grandfathered narrativ
+fra den offentlige flade (målt), og étlinje-rettelsen alene ville give en dublet. Kombinationen
+(withdrawn binding + grandfathered ledger) findes først med 149b. Kvittering: indgår i valg B's
+kvittering før prod-GO.
+
+**149b: rehearsal gennemført (2026-09-04) med de forventede tal** (541
+`bound_published`, 46 `bound_draft`, 4 `unresolved_text`, 0
+`unresolved_identity`; se `docs/evidensbaseret-genimport/legacy-migration-149b-rehearsal.md`).
+Batch-status forbliver `finalized` efter batch-reversal — reversal-`reimport_event`
+er markøren, fordi `red_begin_reimport`s replay-opslag filtrerer på `finalized`,
+ikke på batchens tilstand efter reversal. Valg A og valg B afventer fortsat
+projektejerens kvittering før prod-GO.
+
 ## BESLUTTET: #152's målte overgangsomkostning og sikkerhedsminimum (2026-08-29)
 
 Et eksternt read-only review af den reviderede #152-spec rapporterede et

@@ -3732,8 +3732,11 @@ BEGIN
     RAISE EXCEPTION 'TASK4_HISTORY_REVERSED_TARGET_INVALID: %',v_history;
   END IF;
 
-  -- Reserved migration events are not legal reversal targets even when they
-  -- are the exact current stream head.
+  -- #166 149b: legacy_migrated ER et lovligt fortryd-mål, når record-bindingen
+  -- ikke er aktiv (spec §8's tredje trin). Denne fixture har ingen binding, så
+  -- historikken skal markere det som reversibelt. Gaten for en AKTIV binding
+  -- (NARRATIVE_LEGACY_MIGRATION_BINDING_ACTIVE) dækkes af task4-blokken i
+  -- tests/sql/test-reimport-legacy-migration.sql, hvor en ægte binding findes.
   v_before:=private.narrative_legacy_publication_state(v_legacy_sibling);
   v_baseline_hash:=encode(extensions.digest(v_before::text,'sha256'),'hex');
   PERFORM set_config('app.change_set_id','',true);
@@ -3758,10 +3761,9 @@ BEGIN
   SELECT to_jsonb(row) INTO STRICT v_history
     FROM public.red_person_narrative_publication_history(v_person) row
    WHERE row.event_id=v_event_legacy_migrated;
-  IF (v_history->>'can_reverse')::boolean IS DISTINCT FROM false
-     OR v_history->>'blocking_reason' IS DISTINCT FROM
-          'NARRATIVE_PUBLICATION_EVENT_NOT_REVERSIBLE' THEN
-    RAISE EXCEPTION 'TASK4_HISTORY_RESERVED_EVENT_INVALID: %',v_history;
+  IF (v_history->>'can_reverse')::boolean IS DISTINCT FROM true
+     OR v_history->>'blocking_reason' IS NOT NULL THEN
+    RAISE EXCEPTION 'TASK4_HISTORY_LEGACY_MIGRATED_INVALID: %',v_history;
   END IF;
 
   -- Every requested reversible event class has a dedicated reversal event.

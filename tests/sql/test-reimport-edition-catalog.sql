@@ -88,4 +88,18 @@ ROLLBACK TO SAVEPOINT task6_extra_trigger;
 SELECT private.assert_reimport_edition_catalog();
 
 SELECT private.assert_reimport_edition_catalog();
+
+SAVEPOINT task149a_extra_2018_relation;
+CREATE TABLE private.task149a_extra_relation_2018(id bigint);
+SELECT pg_temp.task6_expect_catalog_drift('RELATION_2018');
+ROLLBACK TO SAVEPOINT task149a_extra_2018_relation;
+SELECT private.assert_reimport_edition_catalog();
+
+SAVEPOINT task149a_extra_2018_function;
+CREATE FUNCTION private.task149a_extra_function_2018()
+RETURNS void LANGUAGE sql AS 'SELECT NULL::void';
+SELECT pg_temp.task6_expect_catalog_drift('FUNCTION_2018');
+ROLLBACK TO SAVEPOINT task149a_extra_2018_function;
+SELECT private.assert_reimport_edition_catalog();
+
 ROLLBACK;

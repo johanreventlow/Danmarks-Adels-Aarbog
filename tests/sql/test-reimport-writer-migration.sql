@@ -72,6 +72,65 @@ BEGIN
     RAISE EXCEPTION 'REIMPORT_WRITER_MIGRATION_ATOMIC_ROLLBACK_FAILED';
   END IF;
 END $atomicity$;
+\elif :{?task34_source_evidence_expect_success}
+-- reimport-writer-legacy-source-evidence-fixture.sql: the ledger whose only
+-- reimport batch created no person.  `finalized` is that batch's terminal
+-- state, so the #153 upgrade must carry it across with its status intact and
+-- give it the same generic profile identity as any other migrated batch.
+DO $source_evidence_success$
+DECLARE
+  v_batch uuid := '15300000-0000-4000-8000-000000000301';
+BEGIN
+  IF (SELECT relkind FROM pg_class WHERE oid='private.reimport_1939_write_batch'::regclass)<>'v'
+     OR to_regclass('private.reimport_batch') IS NULL
+     OR (SELECT relkind FROM pg_class WHERE oid='private.reimport_batch'::regclass)<>'r' THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_MIGRATION_SOURCE_EVIDENCE_RELATION_SHAPE';
+  END IF;
+  IF NOT EXISTS(
+    SELECT 1
+      FROM private.reimport_batch batch
+      JOIN private.reimport_authorization batch_authorization
+        ON batch_authorization.id=batch.authorization_id
+      JOIN private.reimport_writer_profile profile
+        ON profile.source_id=batch.source_id
+       AND profile.profile_id=batch.profile_id
+       AND profile.profile_sha256=batch.profile_sha256
+     WHERE batch.id=v_batch
+       AND batch.status='finalized'
+       AND batch.finalized_at IS NOT NULL
+       AND batch.source_id=3
+       AND batch.expected_counts->>'person_creates'='0'
+       AND batch.observed_counts=batch.expected_counts
+       AND batch_authorization.operation='reimport'
+       AND batch_authorization.status='consumed'
+       AND batch_authorization.expected_counts=batch.expected_counts
+       AND batch_authorization.source_id=batch.source_id
+       AND batch_authorization.profile_id=batch.profile_id
+       AND batch_authorization.profile_sha256=batch.profile_sha256
+  ) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_MIGRATION_SOURCE_EVIDENCE_BATCH_LOST';
+  END IF;
+  IF (SELECT count(*) FROM private.reimport_event event
+       WHERE event.batch_id=v_batch
+         AND event.operation='source_evidence'
+         AND event.source_record_key LIKE 'legacy-source-evidence-153-%')
+     IS DISTINCT FROM 3::bigint
+     OR EXISTS(
+       SELECT 1 FROM private.reimport_event event
+        WHERE event.batch_id=v_batch AND event.operation<>'source_evidence'
+     ) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_MIGRATION_SOURCE_EVIDENCE_EVENTS_LOST';
+  END IF;
+  -- No cutover is owed, and none may have been invented by the upgrade.
+  IF EXISTS(
+       SELECT 1 FROM private.reimport_authorization terminal_authorization
+        WHERE terminal_authorization.operation IN ('cutover','reversal')
+          AND terminal_authorization.database_identity='batch:'||v_batch::text
+     )
+     OR EXISTS(SELECT 1 FROM private.reimport_name_completion_result) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_MIGRATION_SOURCE_EVIDENCE_TERMINAL_DRIFT';
+  END IF;
+END $source_evidence_success$;
 \else
 DO $migration$
 BEGIN
@@ -312,4 +371,20 @@ BEGIN
     RAISE EXCEPTION 'REIMPORT_WRITER_COEXISTENCE_SEQUENCE_NOT_ADVANCED';
   END IF;
 END $coexistence_success$;
+
+-- #166 149b: den migrerede sti skal have præcis én operation-CHECK på
+-- private.reimport_event, og den skal kende legacy_migration.
+DO $coexistence_operation_check$
+DECLARE v_count integer; v_def text;
+BEGIN
+  SELECT count(*),min(pg_get_constraintdef(oid))
+    INTO v_count,v_def
+    FROM pg_constraint
+   WHERE conrelid='private.reimport_event'::regclass
+     AND contype='c'
+     AND pg_get_constraintdef(oid) LIKE '%operation%';
+  IF v_count<>1 OR v_def NOT LIKE '%legacy_migration%' THEN
+    RAISE EXCEPTION 'REIMPORT_EVENT_OPERATION_CHECK_DRIFT';
+  END IF;
+END $coexistence_operation_check$;
 \endif
