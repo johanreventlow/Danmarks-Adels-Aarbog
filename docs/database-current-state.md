@@ -248,6 +248,17 @@ Afsnittet nedenfor beskriver den oprindelige situation og bevares som historik.
 
 ---
 
+### #152 fase 1, #153 og 149b — DDL LIVE i prod (2026-09-05, GO 1)
+
+`db-migrations.sql` + `db-rls.sql` fra main `21ff44b` er kørt mod prod (hver i én
+transaktion, exit 0). Kontraktversionen er fortsat **1**: #152's cutover er IKKE kørt,
+og ingen data er ændret (1811/1169/563/7197/2258 uændrede). Nyt i kataloget: den
+generelle reimport-writer (#153) inkl. `legacy_migration`-operation og
+`red_apply_reimport_legacy_migration`, #152's kontrakt-, ledger- og eventtabeller
+(tomme), reversal-gren for `legacy_migrated`, statusfiltre i læsefunktionerne og
+publiceringsgaten. 1939's tre reimport-batches er migreret til `private.reimport_batch`
+(1 activated, 2 finalized). Backup før apply: SHA `5d1dc497…`. Se changelog 2026-09-05.
+
 ## 4. Hvad er ikke live / bevidst udskudt
 
 | Emne | Status |
