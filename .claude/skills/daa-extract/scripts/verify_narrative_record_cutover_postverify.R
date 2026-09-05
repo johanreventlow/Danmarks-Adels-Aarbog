@@ -23,6 +23,19 @@ source(file.path(script_dir, "export_narrative_record_cutover_helpers.R"))
 
 .nrk_postverify_fail <- function(token) stop(token, call. = FALSE)
 
+.nrk_reader_keys <- function(readers) {
+  if (!is.list(readers)) .nrk_postverify_fail("POSTVERIFY_DIRECT_READER_CLASSIFICATION_MISMATCH")
+  keys <- vapply(readers, function(reader) {
+    if (!is.list(reader) || is.null(reader$path) || is.null(reader$classification) ||
+        !setequal(names(reader), c("path", "classification"))) {
+      .nrk_postverify_fail("POSTVERIFY_DIRECT_READER_CLASSIFICATION_MISMATCH")
+    }
+    paste(as.character(reader$path), as.character(reader$classification), sep = "=")
+  }, "")
+  if (anyDuplicated(keys)) .nrk_postverify_fail("POSTVERIFY_DIRECT_READER_CLASSIFICATION_MISMATCH")
+  sort(keys, method = "radix")
+}
+
 nrk_postverify_direct_readers <- function() {
   classified <- .nrk_classified_readers()
   repository <- normalizePath(file.path(script_dir, "../../../.."), mustWork = TRUE)
@@ -46,6 +59,11 @@ nrk_postverify_direct_readers <- function() {
 }
 
 nrk_postverify_required_acl <- function() {
+  # Version-2-ACL'en er den, private.apply_narrative_record_contract_acl(2) i
+  # schema.sql sætter som cutoverens sidste skridt: #152's nye writer-RPC'er og
+  # #153's tolv 1939-v50-facader er `authenticated`, de fire facade-autorisationer
+  # er `service_role`, og de historiske C3-/v1-writere er lukkede for alle roller.
+  # Listen SKAL følge schema.sql (source of truth) — ikke omvendt.
   authenticated <- c(
     "public.red_upsert_person_narrative_record(bigint,bigint,text,text,boolean,text)" = TRUE,
     "public.red_publicer_person_narrative_record(bigint,bigint,text,text)" = TRUE,
@@ -57,20 +75,26 @@ nrk_postverify_required_acl <- function() {
     "public.red_fortryd_person_narrative_publication_event(uuid,text)" = TRUE,
     "public.red_publicer_narrative_record(bigint,uuid,text,text)" = FALSE,
     "public.red_tilbagetraek_narrative_record(bigint)" = FALSE,
-    "public.red_begin_1939_v50_reimport(uuid,text,text)" = FALSE,
-    "public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)" = FALSE,
-    "public.red_apply_1939_v50_person_create(uuid,text,jsonb)" = FALSE,
-    "public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)" = FALSE,
-    "public.red_finalize_1939_v50_reimport(uuid)" = FALSE,
-    "public.red_reverse_1939_v50_reimport(uuid,uuid)" = FALSE,
-    "public.red_activate_1939_v50_batch(uuid,uuid)" = FALSE,
+    "public.red_begin_1939_v50_reimport(uuid,text,text)" = TRUE,
+    "public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)" = TRUE,
+    "public.red_apply_1939_v50_person_create(uuid,text,jsonb)" = TRUE,
+    "public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)" = TRUE,
+    "public.red_finalize_1939_v50_reimport(uuid)" = TRUE,
+    "public.red_reverse_1939_v50_reimport(uuid,uuid)" = TRUE,
+    "public.red_activate_1939_v50_batch(uuid,uuid)" = TRUE,
+    "public.red_lock_1939_v50_name_completion(text)" = TRUE,
+    "public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)" = TRUE,
+    "public.red_begin_1939_v50_name_completion(uuid,text,uuid)" = TRUE,
+    "public.red_apply_1939_v50_name_completion(uuid,text,jsonb)" = TRUE,
+    "public.red_finalize_1939_v50_name_completion(uuid)" = TRUE,
     "public.red_apply_reimport_cases(uuid,text,text)" = FALSE,
     "public.red_reverse_reimport_cases(uuid,uuid)" = FALSE
   )
   service <- c(
-    "public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)" = FALSE,
-    "public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)" = FALSE,
-    "public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)" = FALSE,
+    "public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)" = TRUE,
+    "public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)" = TRUE,
+    "public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)" = TRUE,
+    "public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)" = TRUE,
     "public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)" = FALSE,
     "public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)" = FALSE
   )
@@ -80,6 +104,8 @@ nrk_postverify_required_acl <- function() {
     values <- setNames(rep(FALSE, length(roles)), paste(signature, roles, sep = "|"))
     values[[paste(signature, "authenticated", sep = "|")]] <-
       if (signature %in% names(authenticated)) authenticated[[signature]] else FALSE
+    values[[paste(signature, "service_role", sep = "|")]] <-
+      if (signature %in% names(service)) service[[signature]] else FALSE
     values
   }), use.names = TRUE)
   expected
@@ -201,6 +227,12 @@ nrk_postverify_order_v2_rows <- function(events, legacy_keep_ids) {
   wrapped <- lapply(events, function(event) {
     state <- event$after_state
     if (!is.list(state)) .nrk_postverify_fail("POSTVERIFY_EVENT_STATE_SHAPE_MISMATCH")
+    # Publiceringspolitikken i baseline-tilstanden afgør offentlig synlighed:
+    # en record-binding for en staged/levende/privat person er korrekt usynlig
+    # i v2-fladen og må derfor ikke forventes dér. Mangler feltet (syntetisk
+    # fixture), behandles rækken som tilladt.
+    if (!is.null(event$binding_id) && !is.na(event$binding_id) &&
+        isFALSE(state$publication_policy$publication_allowed)) return(NULL)
     if (!is.null(event$binding_id) && !is.na(event$binding_id)) return(list(
       row = list(
         person_id = state$target$person_id, source_id = state$target$source_id,
@@ -358,8 +390,16 @@ nrk_verify_narrative_record_cutover_postverify <- function(
   if (length(observed$hidden_legacy_ids)) {
     .nrk_postverify_fail("POSTVERIFY_HIDDEN_LEGACY_PRESENT")
   }
+  # Kun bindinger, hvis baseline-politik tillader publicering, skal findes i den
+  # offentlige v2-flade; de øvrige (fx staged personer) er skjult ved design.
+  expected_public_allowed_refs <- unlist(lapply(observed$receipt_event_rows, function(row) {
+    if (is.null(row$binding_id) || is.na(row$binding_id)) return(NULL)
+    if (isFALSE(row$after_state$publication_policy$publication_allowed)) return(NULL)
+    as.character(row$after_state$target$source_record_ref)
+  }))
+  if (is.null(expected_public_allowed_refs)) expected_public_allowed_refs <- character()
   .nrk_postverify_equal_set(snapshot$public_v2_refs,
-                             expected_public_record_refs,
+                             expected_public_allowed_refs,
                              "POSTVERIFY_PUBLIC_RECORD_REF_SET_MISMATCH")
   expected_public_v2_rows <- nrk_postverify_order_v2_rows(
     observed$receipt_event_rows, approval$legacy_keep_ids
@@ -388,8 +428,12 @@ nrk_verify_narrative_record_cutover_postverify <- function(
   .nrk_postverify_equal_scalar(observed$blocked_new_records,
                                 inventory$identity_blocked_record_count,
                                 "POSTVERIFY_BLOCKED_RECORD_COUNT_MISMATCH")
-  if (!identical(observed$direct_readers, inventory$classified_direct_readers) ||
-      !identical(observed$direct_readers, nrk_postverify_direct_readers())) {
+  # Sammenlign som mængde af (sti, klassifikation) — inventory-JSON'en er kanonisk
+  # (sorterede nøgler), så feltrækkefølgen i listerne er ikke bærende.
+  if (!identical(.nrk_reader_keys(observed$direct_readers),
+                 .nrk_reader_keys(inventory$classified_direct_readers)) ||
+      !identical(.nrk_reader_keys(observed$direct_readers),
+                 .nrk_reader_keys(nrk_postverify_direct_readers()))) {
     .nrk_postverify_fail("POSTVERIFY_DIRECT_READER_CLASSIFICATION_MISMATCH")
   }
   if (!identical(observed$acl, nrk_postverify_required_acl())) {

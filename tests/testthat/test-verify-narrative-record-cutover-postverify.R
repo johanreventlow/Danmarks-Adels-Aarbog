@@ -292,3 +292,41 @@ test_that("postverify rejects independently observed poststate drift", {
     )
   }
 })
+
+test_that("version-2-ACL-forventningen følger schema.sql's kontrakt-ACL (#153-facader åbne, C3/v1 lukkede)", {
+  expected <- nrk_postverify_required_acl()
+  expect_true(expected[["public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)|authenticated"]])
+  expect_true(expected[["public.red_finalize_1939_v50_name_completion(uuid)|authenticated"]])
+  expect_true(expected[["public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)|service_role"]])
+  expect_false(expected[["public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)|authenticated"]])
+  expect_false(expected[["public.red_apply_reimport_cases(uuid,text,text)|authenticated"]])
+  expect_false(expected[["public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)|service_role"]])
+  expect_false(expected[["public.red_publicer_narrative_record(bigint,uuid,text,text)|authenticated"]])
+  expect_false(any(expected[grepl("\\|(PUBLIC|anon)$", names(expected))]))
+})
+
+test_that("record-bindinger med publication_allowed=FALSE forventes ikke i v2-fladen", {
+  make_event <- function(binding_id, ref, allowed) list(
+    binding_id = binding_id, narrative_id = 1L, legacy_publication_ref = NULL,
+    after_state = list(target = list(person_id = 1L, source_id = 1939L, source_record_ref = ref),
+      source = list(source_year = 1939L, source_label = "DAA 1939"),
+      labels = list(record_order = 1L, record_label = "Record", citation_label = "DAA"),
+      narrative = list(text = "bound", side = "7"),
+      publication_policy = list(publication_allowed = allowed)))
+  rows <- nrk_postverify_order_v2_rows(list(
+    make_event("70000000-0000-0000-0000-000000000001", "70000000-0000-0000-0000-000000000901", TRUE),
+    make_event("70000000-0000-0000-0000-000000000002", "70000000-0000-0000-0000-000000000902", FALSE)
+  ), legacy_keep_ids = character())
+  expect_length(rows, 1L)
+  expect_identical(rows[[1L]]$source_record_ref, "70000000-0000-0000-0000-000000000901")
+})
+
+test_that("direkte-læser-klassifikation sammenlignes ordensuafhængigt (kanonisk JSON-nøgleorden)", {
+  a <- list(list(path = "web/src/data/public.ts", classification = "v2_public_rpc"),
+            list(path = "web/src/data/haendelser.ts", classification = "rls_gated_metadata"))
+  b <- list(list(classification = "rls_gated_metadata", path = "web/src/data/haendelser.ts"),
+            list(classification = "v2_public_rpc", path = "web/src/data/public.ts"))
+  expect_identical(.nrk_reader_keys(a), .nrk_reader_keys(b))
+  c <- list(list(path = "web/src/data/public.ts", classification = "rls_gated_metadata"))
+  expect_false(identical(.nrk_reader_keys(a), .nrk_reader_keys(c)))
+})
