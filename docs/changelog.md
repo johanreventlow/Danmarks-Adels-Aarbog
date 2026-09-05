@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-09-05 — GO 1: DB-migration main → prod (149b-forberedelse)
+
+**Deployet til prod** (projektejer-GO 1, 2026-09-05): `db-migrations.sql` (SHA `a1a52941…`)
+og `db-rls.sql` (SHA `8450caee…`) fra main `21ff44b`, hver i én transaktion, exit 0.
+Preflight: kontraktfunktion fandtes ikke, sysid `7642734024280108049`. Backup før apply:
+`pre-149b-prod-20260904-*.dump` (SHA `5d1dc497…`, mode 0600, uden for git);
+restore-rehearsal af samme dump med samme filer: exit 0, tal uændrede.
+
+Efter apply (læse-kun): `narrative_record_contract_version() = 1` (kun additiv: #152 fase 1,
+#153 med guard-rettelsen, 149b's writer/reversal/læsegate), `reimport_batch` 1 `activated` +
+2 `finalized` (1939's tre batches migreret uden guard-stop), 1811 personer / 1169 narrativer /
+563 bindinger / 7197 fakta / 2258 family_member uændrede, 0 ledger-rækker, 124 `red_*`-RPC'er
+(95 før), `red_apply_reimport_legacy_migration` GRANTED authenticated (ikke anon),
+`reimport_event`-CHECK inkl. `legacy_migration`. Web deployes fra main via Vercel (v2-parat).
+
+Næste: GO 2 (#152-cutover pr. runbook), GO 3 (149a), GO 4 (149b).
+
 ## 149b: legacy-migration til narrativ-binding bygget og integreret ende-til-ende (2026-09-04)
 
 Ingen prod-skrivning, intet pushet, intet deployet. #166 (149b) leverer den
