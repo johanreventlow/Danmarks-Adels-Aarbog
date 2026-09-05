@@ -2,6 +2,23 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: #152-cutover-runbookens reviewer-krav tilpasset enkeltmandsprojekt (2026-09-05)
+
+**Baggrund.** `docs/runbooks/narrative-record-key-cutover.md` kræver to navngivne lokale
+reviewere (én for record-/legacy-beslutningerne, én for hashes, mængder og databaseidentitet)
+samt en skriftlig foreløbig autorisation og en ekstern ejer af writer-traffic-holdet.
+Projektet har én udvikler.
+
+**Besluttet (projektejer, 2026-09-05):** Projektejeren er eneste menneskelige reviewer og
+godkender beslutningslisterne (alle record-baselines »godkend«, alle legacy-kandidater »bevar
+som overgangsdata« — samme som rehearsalen). Kontrol-sessionen (Claude) udfører den
+uafhængige verifikation af hashes, ID-mængder, tællinger og databaseidentitet og dokumenterer
+den i cutover-rapporten. Projektejerens »GO 2« i chatten er både foreløbig autorisation og
+slut-GO; writer-traffic-holdet ejes af projektejeren (ingen redigering under cutover).
+Prod-skrivninger udføres af projektejeren selv via forberedte scripts, fordi harnesset
+blokerer sessionens egne prod-skrivninger. Fravalgt: at finde en anden reviewer (ingen findes)
+eller at springe hash-verifikationen over (den er billig og fanger drift).
+
 ## BESLUTTET: Styringsregler efter PM-gennemgang + opdeling af #149 (2026-09-03)
 
 **Baggrund.** En læse-kun gennemgang 2026-09-03 viste, at retningen fra 25/8
