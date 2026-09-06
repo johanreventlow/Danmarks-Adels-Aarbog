@@ -5,31 +5,22 @@
 
 ## Aktivt programmål
 
-C3 blev 2026-08-29 migreret, anvendt og uafhængigt efterverificeret i
-produktion for det eksakte fem-sagers scope. Se
-[production-apply-rapporten](c3-production-apply-2026-08-29.md).
+Trin 1-3 er `produktionsverificeret` pr. 2026-09-06: #152's cutover til
+narrativ-record-kontrakt version 2, #153's generelle writer, 149a (2018-20
+kilderegnskab) og 149b (2018-20 narrativ-binding) blev anvendt og efterverificeret
+i produktion 2026-09-05/06 (GO 1-4, se `docs/changelog.md`). C3's fem-sagers scope
+var anvendt 2026-08-29 ([production-apply-rapporten](c3-production-apply-2026-08-29.md)).
 
-Projektejeren har derefter aktiveret roadmapmål #152: person-narrativer skal
-knyttes entydigt til konkrete source records. Målet var `specificeret` i den
-reviderede
-[#152-designspecifikation](../superpowers/specs/2026-08-29-narrative-source-record-key-design.md),
-som efter eksternt review nu også beskriver granulær legacy-nedtagning, den
-midlertidige frysning af nye bindinger/DAA-import og de præcise RLS-, undo- og
-cutover-gates. Projektejeren godkendte 2026-08-29 den skrevne revision,
-overgangsomkostningen som designpræmis og den midlertidige blokering af
-hel-person-sletning ved publication-events. Task 12 har bevist den samlede
-kontrakt i en syntetisk, disponibel restore med reelle database-ræs,
-klient-/serversuiter og browser-smoke, så målet nu er `integreret
-ende-til-ende`.
-
-Denne modenhed er ikke `produktionsverificeret`. Task 13's
-[#152-cutover-runbook](../runbooks/narrative-record-key-cutover.md) kræver
-preliminær autorisation, backup/restore-rehearsal, frisk læse-kun inventory,
-lokal menneskelig review, adskilt hash- og databaseidentitetskontrol og derefter
-et nyt, artifact-bundet projektejer-GO med release-SHA, udløb og eksternt
-writer-traffic hold før nogen produktionsmutation. Frysningen af nye bindinger og
-legacy loaders forbliver aktiv ved design, indtil den atomiske version-2
-cutover er særskilt godkendt og efterverificeret.
+Projektejeren har 2026-09-06 aktiveret **trin 4: den fælles fortolkningskæde og
+klausulgranularitet (#147/#148)**. Målet er `specificeret` i
+[trin 4-spec'en](../superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md)
+(revision 3 efter to uafhængige læsninger) med seks projektejer-valg registreret i
+`docs/decisions.md` samme dato: `codex exec` som model-backend, to nye
+elementoperationer i den generelle writer, uafhængig anden læser pr. plan,
+GDPR-udelukkelsesregler for modelkald, ChatGPT-abonnement som behandlingsgrundlag for
+afdødes tekst, og promotion som binding til eksisterende assertions. Arbejdet er delt
+i otte dagsværk; planer for 4.1a-4.2 findes, 4.3-4.5 skrives efter de målinger, de
+afhænger af. Ingen del af trin 4 er implementeret eller anvendt i produktion.
 
 ## Styrende rækkefølge
 

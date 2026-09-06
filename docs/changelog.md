@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-09-06 — Roadmap-trin 4 planlagt: fortolkningskæde og klausulgranularitet (#147/#148)
+
+Spec (revision 3 efter to uafhængige læsninger, 37 fund indarbejdet) og fire
+implementeringsplaner (4.1a skema, 4.1b segmenter, 4.1c `clause_evidence`-writer, 4.2
+prædikatnavnerum) på gren `docs/trin4-fortolkningskaede-spec`. Seks projektejer-valg
+registreret i `decisions.md`. Ingen kode, ingen databaseændring, ingen prod-mutation.
+Planer for 4.3-4.5 (runner, ingest, pilot) skrives efter 4.1b's tegnsætsmåling og 4.3a's
+forbrugsprobe; Codex-kvoten nulstilles 2026-09-09. Åbne punkter: fase-pakke-runbookens
+projektioner dækker ikke observationer/fortolkninger; `status.md`/`roadmap.md` afstemmes
+med GO 1-4 i samme PR.
+
 ## 2026-09-06 — GO 4: 149b legacy-migration anvendt i prod — 2018-20 er kildebundet
 
 **Deployet til prod** (projektejer-GO 4). Writer-profil `daa-2018-20-legacy-migration-v1`
