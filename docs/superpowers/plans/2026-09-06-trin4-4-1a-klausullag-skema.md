@@ -116,7 +116,8 @@ BEGIN
     END IF;
   END LOOP;
   IF to_regclass('private.vocab') IS NULL THEN RAISE EXCEPTION 'CLAUSE_SCHEMA_PRIVATE_VOCAB_MISSING'; END IF;
-  FOREACH v_kind IN ARRAY ARRAY['person_post','person','fact','marriage','relationship','structural_context','cross_reference','clause'] LOOP
+  FOREACH v_kind IN ARRAY ARRAY['person_post','person','fact','marriage','relationship','structural_context','cross_reference','clause',
+    'header','name_clause','death_clause','person_name','identity_setup','interpretation_setup','placement_setup','promotion_setup','stamtavle','verify'] LOOP
     IF NOT EXISTS (SELECT 1 FROM private.vocab WHERE scheme='observation_kind' AND code=v_kind) THEN
       RAISE EXCEPTION 'CLAUSE_SCHEMA_OBSERVATION_KIND_NOT_SEEDED: %', v_kind;
     END IF;
@@ -280,6 +281,19 @@ INSERT INTO private.vocab(scheme,code,label) VALUES
   ('observation_kind','structural_context','Strukturel kontekst (1939 fase A)'),
   ('observation_kind','cross_reference','Krydshenvisning (1939 fase A)'),
   ('observation_kind','clause','Klausul under helpost (#148)'),
+  -- Koder brugt af produktionsstien for placements og af db-verify/tests (kørte mod prod før
+  -- vokabularet blev lukket). Inventeret 2026-09-06 med:
+  --   grep -rhoE "observation_kind[^;]*" schema.sql db-verify.sql tests/ | grep -oE "'[a-z_]+'"
+  ('observation_kind','header','Slægtledsoverskrift (placement-header, validate_source_record_placement)'),
+  ('observation_kind','name_clause','Fixture-kode (test-evidence-promotion)'),
+  ('observation_kind','death_clause','Fixture-kode (db-verify)'),
+  ('observation_kind','person_name','Fixture-kode (db-verify, evidence_contract-fixture)'),
+  ('observation_kind','identity_setup','Fixture-kode (db-verify)'),
+  ('observation_kind','interpretation_setup','Fixture-kode (db-verify)'),
+  ('observation_kind','placement_setup','Fixture-kode (db-verify)'),
+  ('observation_kind','promotion_setup','Fixture-kode (db-verify)'),
+  ('observation_kind','stamtavle','Fixture-kode (db-verify)'),
+  ('observation_kind','verify','Fixture-kode (db-verify)'),
   ('clause_classification','record_text','Meningsbærende tekstklausul'),
   ('clause_classification','structural_header','Strukturel overskrift inde i posten'),
   ('clause_disposition_machine','afventer_fortolkning','Maskinel: afventer fortolkning'),
@@ -398,7 +412,21 @@ WITH (security_invoker=true) AS
 SELECT DISTINCT ON (observation_id) *
   FROM private.clause_disposition
  ORDER BY observation_id, version DESC;
+
+-- Append-only + RLS efter projektmønstret (schema.sql DO-blokken med reject_evidence_mutation).
+DO $$
+DECLARE v_table text;
+BEGIN
+  FOREACH v_table IN ARRAY ARRAY['vocab','clause_disposition'] LOOP
+    EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON private.%I FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation()','trg_'||v_table||'_append_only',v_table);
+    EXECUTE format('CREATE TRIGGER %I BEFORE TRUNCATE ON private.%I FOR EACH STATEMENT EXECUTE FUNCTION private.reject_evidence_mutation()','trg_'||v_table||'_append_only_truncate',v_table);
+    EXECUTE format('ALTER TABLE private.%I ENABLE ROW LEVEL SECURITY',v_table);
+    EXECUTE format('REVOKE ALL ON TABLE private.%I FROM PUBLIC,anon,authenticated',v_table);
+  END LOOP;
+END $$;
 ```
+
+Bemærk: `private.vocab` bliver dermed append-only; en kode udgår ved at seede en afløser, ikke ved sletning. Denne DO-blok skal stå **efter** den eksisterende `reject_evidence_mutation`-definition i `schema.sql` (søg `CREATE FUNCTION private.reject_evidence_mutation`); ligger den senere end linje 583, placeres hele 4.1a-blokken umiddelbart efter den eksisterende append-only-DO-blok (søg `'trg_' || v_table || '_append_only'`) i stedet.
 
 - [ ] **Step 2: Byg en frisk base og kør Task 1's test**
 
@@ -423,7 +451,13 @@ psql -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-writer.sql
 psql -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-legacy-migration.sql
 ```
 
-Forventet: alle grønne. `test-evidence-promotion.sql` indsætter observationer med `observation_kind`-værdier; findes en værdi, der ikke er seedet, fejler den med `EVIDENCE_OBSERVATION_KIND_UNKNOWN` — tilføj så koden til seed-listen i både `schema.sql` og Task 3, aldrig ved at slække triggeren.
+Forventet: alle grønne. Kør derefter **hele** inventeringen, fordi triggeren lukker vokabularet for alle stier, også `db-verify.sql`, der kører mod prod:
+
+```bash
+grep -rhoE "observation_kind[^;]{0,400}" schema.sql db-migrations.sql db-verify.sql tests/ .claude/skills/daa-extract/scripts/*.R tests/integration/*.R | grep -oE "'[a-z_]+'" | sort -u
+```
+
+Enhver kode i outputtet, der ikke står i seed-listen, tilføjes i **både** `schema.sql` og Task 3's migration (label "Fixture-kode (…)" eller den reelle betydning). Kør til sidst `psql -v ON_ERROR_STOP=1 -f tests/sql/run-db-verify-disposable.sql`; den må ikke give `EVIDENCE_OBSERVATION_KIND_UNKNOWN`. Slæk aldrig triggeren.
 
 - [ ] **Step 4: Commit**
 
@@ -463,6 +497,19 @@ INSERT INTO private.vocab(scheme,code,label) VALUES
   ('observation_kind','structural_context','Strukturel kontekst (1939 fase A)'),
   ('observation_kind','cross_reference','Krydshenvisning (1939 fase A)'),
   ('observation_kind','clause','Klausul under helpost (#148)'),
+  -- Koder brugt af produktionsstien for placements og af db-verify/tests (kørte mod prod før
+  -- vokabularet blev lukket). Inventeret 2026-09-06 med:
+  --   grep -rhoE "observation_kind[^;]*" schema.sql db-verify.sql tests/ | grep -oE "'[a-z_]+'"
+  ('observation_kind','header','Slægtledsoverskrift (placement-header, validate_source_record_placement)'),
+  ('observation_kind','name_clause','Fixture-kode (test-evidence-promotion)'),
+  ('observation_kind','death_clause','Fixture-kode (db-verify)'),
+  ('observation_kind','person_name','Fixture-kode (db-verify, evidence_contract-fixture)'),
+  ('observation_kind','identity_setup','Fixture-kode (db-verify)'),
+  ('observation_kind','interpretation_setup','Fixture-kode (db-verify)'),
+  ('observation_kind','placement_setup','Fixture-kode (db-verify)'),
+  ('observation_kind','promotion_setup','Fixture-kode (db-verify)'),
+  ('observation_kind','stamtavle','Fixture-kode (db-verify)'),
+  ('observation_kind','verify','Fixture-kode (db-verify)'),
   ('clause_classification','record_text','Meningsbærende tekstklausul'),
   ('clause_classification','structural_header','Strukturel overskrift inde i posten'),
   ('clause_disposition_machine','afventer_fortolkning','Maskinel: afventer fortolkning'),
@@ -534,6 +581,18 @@ WITH (security_invoker=true) AS
 SELECT DISTINCT ON (observation_id) *
   FROM private.clause_disposition
  ORDER BY observation_id, version DESC;
+DO $$
+DECLARE v_table text;
+BEGIN
+  FOREACH v_table IN ARRAY ARRAY['vocab','clause_disposition'] LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_'||v_table||'_append_only') THEN
+      EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON private.%I FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation()','trg_'||v_table||'_append_only',v_table);
+      EXECUTE format('CREATE TRIGGER %I BEFORE TRUNCATE ON private.%I FOR EACH STATEMENT EXECUTE FUNCTION private.reject_evidence_mutation()','trg_'||v_table||'_append_only_truncate',v_table);
+    END IF;
+    EXECUTE format('ALTER TABLE private.%I ENABLE ROW LEVEL SECURITY',v_table);
+    EXECUTE format('REVOKE ALL ON TABLE private.%I FROM PUBLIC,anon,authenticated',v_table);
+  END LOOP;
+END $$;
 ```
 
 De tre "(kopiér … ordret)"-markeringer er instruktion til dig: sæt den fulde tekst fra Task 2 ind. Migrationen må ikke afvige fra `schema.sql` med ét tegn i funktionskroppene, ellers giver `db-verify` drift.
@@ -637,7 +696,7 @@ med
   SELECT count(*),(array_agg(m.id ORDER BY m.id))[1] INTO v_mention_count,v_mention_id FROM private.source_observation ob JOIN private.source_mention m ON m.observation_id=ob.id WHERE ob.occurrence_id=v_occurrence.id AND ob.parent_observation_id IS NULL;
 ```
 
-Gentag ændringen i `db-migrations.sql` ved at kopiere hele den nu ændrede funktion fra `schema.sql` (linje 2773-2955) ind som `CREATE OR REPLACE FUNCTION` i 4.1a-blokken.
+Gentag ændringen i `db-migrations.sql` **i den eksisterende kopi** af funktionen (søg `CREATE OR REPLACE FUNCTION private.migrate_legacy_narrative_record`, omkring linje 16741) — ret samme linje dér, i stedet for at tilføje en anden kopi senere i filen. To kopier virker ("sidste vinder"), men er en driftfælde. Funktionen i `schema.sql` spænder linje 2773-2954.
 
 - [ ] **Step 4: Kør testen igen på begge stier**
 
@@ -716,6 +775,12 @@ BEGIN
      OR has_table_privilege('anon','private.vocab','SELECT') THEN
     RAISE EXCEPTION 'CLAUSE_SCHEMA_ACL_INVALID';
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_clause_disposition_append_only')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_vocab_append_only')
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.clause_disposition'::regclass)
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.vocab'::regclass) THEN
+    RAISE EXCEPTION 'CLAUSE_SCHEMA_APPEND_ONLY_MISSING';
+  END IF;
   RAISE NOTICE 'OK: #148 klausullagets skema, vokabular, triggere, ACL og hærdet legacy-writer';
 END $clause_schema_verify$;
 ```
@@ -764,62 +829,97 @@ git commit -m "chore(db): ACL, db-verify og CI for klausullagets skema (#148 4.1
 
 - [ ] **Step 1: Skriv de fejlende tests**
 
-Tilføj til `test_evidence_contract.py` (brug den eksisterende hjælpe-fixture i filen til at bygge et gyldigt 1.1-bundle; navnet står i filen som den funktion, der returnerer et gyldigt strict bundle — genbrug den, og sæt `schema_version` til `"1.2"`):
+Filens eneste strict-fixture er funktionen `linked_bundle()` (linje 100); dens observation `obs-1` er teksten `"Anna"` (4 tegn) inde i occurrence `"Anna blev født 1801."`. Klausul-testene bygger derfor deres egen forælder oven på `linked_bundle()`: en ny helpost-observation `obs-post`, der dækker hele occurrence-teksten. Tilføj til `test_evidence_contract.py`:
 
 ```python
-def _clause(parent, ordinal, char_from, char_to, text, classification="record_text", flags=()):
+def _clause_bundle():
+    """linked_bundle() + en helpost 'obs-post' over hele occurrence-teksten, schema 1.2."""
+    bundle = json.loads(json.dumps(linked_bundle()))
+    bundle["schema_version"] = "1.2"
+    occ = bundle["source_record_occurrences"][0]
+    bundle["observations"].append({
+        "observation_id": "obs-post", "occurrence_id": "occurrence-1", "kind": "person_post",
+        "verbatim_text": occ["verbatim_text"], "span": dict(occ["span"]),
+        "extraction_method": "deterministic", "extraction_run_id": "run-1",
+    })
+    return bundle
+
+
+def _clause(bundle, ordinal, rel_from, rel_to, classification="record_text", flags=()):
+    parent = next(o for o in bundle["observations"] if o["observation_id"] == "obs-post")
+    base = parent["span"]["char_from"]
+    text = parent["verbatim_text"][rel_from:rel_to]
     return {
-        "observation_id": f"{parent['observation_id']}-c{ordinal}",
-        "occurrence_id": parent["occurrence_id"],
-        "kind": "clause",
+        "observation_id": f"obs-post-c{ordinal}", "occurrence_id": parent["occurrence_id"], "kind": "clause",
         "verbatim_text": text,
-        "span": {**parent["span"], "char_from": char_from, "char_to": char_to},
-        "extraction_method": "clause_segment_v1",
-        "extraction_run_id": parent["extraction_run_id"],
-        "parent_observation_id": parent["observation_id"],
-        "clause_ordinal": ordinal,
-        "clause_classification": classification,
-        "clause_flags": list(flags),
+        "span": {**parent["span"], "char_from": base + rel_from, "char_to": base + rel_to},
+        "extraction_method": "clause_segment_v1", "extraction_run_id": parent["extraction_run_id"],
+        "parent_observation_id": "obs-post", "clause_ordinal": ordinal,
+        "clause_classification": classification, "clause_flags": list(flags),
     }
 
 
-def test_bundle_1_2_accepts_clause_under_parent(strict_bundle):
-    bundle = json.loads(json.dumps(strict_bundle))
-    bundle["schema_version"] = "1.2"
-    parent = bundle["observations"][0]
-    text = parent["verbatim_text"]
-    bundle["observations"].append(_clause(parent, 1, parent["span"]["char_from"], parent["span"]["char_from"] + 5, text[:5]))
+def test_bundle_1_2_accepts_clause_under_parent():
+    bundle = _clause_bundle()
+    bundle["observations"].append(_clause(bundle, 1, 0, 9))   # "Anna blev"
+    bundle["observations"].append(_clause(bundle, 2, 10, 20))  # "født 1801."
     validate_bundle(bundle)
 
 
 def test_bundle_1_1_rejects_clause_fields():
-    # 1.1 er strict og kender ikke klausulfelterne.
-    bundle = json.loads(json.dumps(strict_bundle_factory()))
-    parent = bundle["observations"][0]
-    bundle["observations"].append(_clause(parent, 1, parent["span"]["char_from"], parent["span"]["char_from"] + 5, parent["verbatim_text"][:5]))
-    with pytest.raises(ContractError):
+    bundle = _clause_bundle()
+    bundle["schema_version"] = "1.1"
+    bundle["observations"].append(_clause(bundle, 1, 0, 9))
+    with pytest.raises(ContractError):  # _exact_fields afviser de ukendte felter i strict 1.1
         validate_bundle(bundle)
 
 
-@pytest.mark.parametrize("mutate,expected", [
-    (lambda c, p: c.update(parent_observation_id=None), "clause requires parent"),
-    (lambda c, p: c["span"].update(char_to=p["span"]["char_to"] + 1), "clause span outside parent"),
-    (lambda c, p: c.update(verbatim_text="X" * 5), "clause verbatim_text must equal the parent slice"),
-    (lambda c, p: c.update(clause_classification="layout"), "unknown clause classification"),
-    (lambda c, p: p.update(parent_observation_id="other"), "parent observation must be top level"),
-])
-def test_bundle_1_2_rejects_invalid_clause(strict_bundle, mutate, expected):
-    bundle = json.loads(json.dumps(strict_bundle))
-    bundle["schema_version"] = "1.2"
-    parent = bundle["observations"][0]
-    clause = _clause(parent, 1, parent["span"]["char_from"], parent["span"]["char_from"] + 5, parent["verbatim_text"][:5])
+def test_bundle_1_2_rejects_clause_without_parent():
+    bundle = _clause_bundle()
+    clause = _clause(bundle, 1, 0, 9)
+    clause["parent_observation_id"] = "obs-missing"
     bundle["observations"].append(clause)
-    mutate(clause, parent)
-    with pytest.raises(ContractError, match=expected):
+    with pytest.raises(ContractError, match="clause requires parent"):
+        validate_bundle(bundle)
+
+
+def test_bundle_1_2_rejects_span_outside_parent():
+    # Klausulen ligger i renditionen (så Observation selv validerer), men uden for helposten.
+    bundle = _clause_bundle()
+    rendition_text = bundle["source_rendition"][0]["verbatim_text"]  # "Forord. Anna blev født 1801. Efterskrift."
+    clause = _clause(bundle, 1, 0, 9)
+    clause["span"]["char_from"] = 0; clause["span"]["char_to"] = 6
+    clause["verbatim_text"] = rendition_text[0:6]  # "Forord"
+    bundle["observations"].append(clause)
+    with pytest.raises(ContractError, match="clause span outside parent"):
+        validate_bundle(bundle)
+
+
+def test_bundle_1_2_rejects_parent_that_is_itself_a_clause():
+    bundle = _clause_bundle()
+    first = _clause(bundle, 1, 0, 9)
+    second = _clause(bundle, 2, 10, 20)
+    second["parent_observation_id"] = first["observation_id"]
+    bundle["observations"] += [first, second]
+    with pytest.raises(ContractError, match="parent observation must be top level"):
+        validate_bundle(bundle)
+
+
+def test_observation_level_clause_invariants():
+    # Observation.validate() fanger selv tekst ≠ span og ulovlige klausulfelter, før bundle-niveauet.
+    bundle = _clause_bundle()
+    clause = _clause(bundle, 1, 0, 9)
+    clause["clause_classification"] = "layout"
+    bundle["observations"].append(clause)
+    with pytest.raises(ContractError, match="unknown clause classification"):
+        validate_bundle(bundle)
+    post = next(o for o in bundle["observations"] if o["observation_id"] == "obs-post")
+    post["parent_observation_id"] = "obs-1"
+    with pytest.raises(ContractError, match="clause fields are only allowed on kind clause"):
         validate_bundle(bundle)
 ```
 
-Tilpas `strict_bundle`/`strict_bundle_factory` til det navn, filen faktisk bruger for sin gyldige strict-fixture (søg efter `"schema_version": "1.1"` i testfilen). Findes der ingen genbrugelig fixture, byg én i en `@pytest.fixture` ud fra den eksisterende `tests/fixtures/evidence-observation.synthetic.json` med `schema_version` sat til `"1.1"` og de felter, `_strict_renditions` kræver (`source_rendition[].verbatim_text` med matchende sha256).
+Rækkefølgen af kontroller er bindende for `match`-strengene: `Observation.validate()` (tekst = span, klausulfelter kun på `clause`, klassifikation) kører i `__post_init__`, **før** bundle-niveauets forælder-/span-kontroller. En klausul med forkert `verbatim_text` fejler derfor altid med "verbatim_text must exactly equal the source span" og testes ikke særskilt.
 
 - [ ] **Step 2: Kør og se dem fejle**
 
@@ -957,11 +1057,11 @@ PGDATABASE="$DB" $PG/psql -X -v ON_ERROR_STOP=1 -Atc "
 SELECT (SELECT count(*) FROM private.source_observation WHERE observation_kind='person_post'),
        (SELECT count(*) FROM private.source_observation WHERE observation_kind='clause'),
        (SELECT count(*) FROM private.source_observation WHERE parent_observation_id IS NOT NULL),
-       (SELECT count(*) FROM private.vocab WHERE scheme='observation_kind'),
+       (SELECT count(*) FROM private.vocab WHERE scheme='observation_kind')>=18,
        (SELECT count(*) FROM private.clause_disposition)"
 ```
 
-Forventet: `591|0|0|8|0` og `OK: #148 …`.
+Forventet: `591|0|0|t|0` og `OK: #148 …`.
 
 - [ ] **Step 3: Kør 149b's SQL-suite mod restoren for regressionsbeviset (fixtures er syntetiske og ruller tilbage)**
 
@@ -984,7 +1084,7 @@ Forventet: alle `… OK`-notices inkl. `task3 clause mentions OK`; ingen `ERROR`
 | --- | --- | --- |
 | `person_post`-observationer (source 1) | 591 | 591 |
 | `clause`-observationer | 0 | 0 |
-| `private.vocab` `observation_kind`-koder | – | 8 |
+| `private.vocab` `observation_kind`-koder | – | ≥18 (8 reelle + fixture-koder) |
 | `db-migrations.sql` kørt to gange | – | exit 0 / exit 0 |
 | `run-db-verify-disposable.sql` | – | `OK: #148 …` |
 | `test-reimport-legacy-migration.sql` mod restoren | – | alle notices OK |

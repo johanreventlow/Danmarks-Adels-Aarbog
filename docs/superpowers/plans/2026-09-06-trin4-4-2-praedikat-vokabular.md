@@ -10,10 +10,13 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md` §5.
 
+> **Linjetal** i denne plan gælder `origin/main` ved `6770451`; efter 4.1a-4.1c er `schema.sql` forskudt. Brug de navngivne ankre.
+
 ## Global Constraints
 
 - `schema.sql` = source of truth; `db-migrations.sql` idempotent (to kørsler).
 - Promoverbarhed **udledes ved join** på `interpretation_promotion_rule_line.predicate`; tabellen har ingen `rule_key` (ingen cirkulær FK).
+- **Ingen FK fra `interpretation_promotion_rule_line.predicate`** til prædikattabellen: `db-verify.sql` (søg `verify-relation-target` og `verify-name-no-bulk`) indsætter bevidst syntetiske prædikater (`person.name.relation`, `verify.person.name.no_bulk`, `verify.person.name.principal`) som negative promotion-fixtures mod prod, og `rule_line.predicate` er UNIQUE, så de kan ikke genbruge seedede prædikater. Bindingen regel↔prædikat håndhæves i stedet (a) i `add_interpretation_promotion_rule_version` og en trigger på `interpretation_promotion_rule` — ukendt prædikat afvises, undtagen for `rule_key LIKE 'verify-%'`; kendt prædikat kræver `value_kind`-lighed og `text`/`date_raw` — og (b) med en db-verify-assert om, at alle aktive regler med `rule_key NOT LIKE 'verify-%'` peger på et seedet prædikat. FK'en på `interpretation.predicate` bevares.
 - `value_kind`-binding: en promotion-regel må kun findes for prædikater med `value_kind IN ('text','date_raw')`, og reglens `value_kind` skal være lig prædikatets (spec §5.1, fund 1). Værdier for `text`/`date_raw` er JSON-skalarer.
 - "Prod har 0 fortolkninger" er en antagelse, der måles (læse-kun) før FK-migration; migrationen fejler hårdt, hvis en eksisterende `interpretation.predicate` ikke findes i tabellen.
 - Ingen prod-mutation. Commits: ét pr. task, dansk Conventional Commit, ingen push. Gren `feat/147-praedikat-vokabular`.
@@ -29,7 +32,7 @@
 
 ## Filoversigt
 
-- Modify: `schema.sql` (efter `private.interpretation_promotion_rule_line` … `interpretation_promotion_rule` (linje 923-950): ny tabel før `rule_line`, FK'er, trigger, view; seed efter de eksisterende `INSERT INTO private.interpretation_promotion_rule_line` (linje 961))
+- Modify: `schema.sql` — hele 4.2-blokken (vocab-seed, tabel, triggere, prædikat-seed) indsættes **umiddelbart før** `CREATE TABLE private.interpretation` (søg det), fordi `interpretation` skal kunne referere den; FK'en på `interpretation` som `ALTER TABLE` umiddelbart efter `interpretation`-tabellen; regel-triggeren efter `interpretation_promotion_rule`; view'et efter `interpretation_promotion_rule_current`.
 - Modify: `db-migrations.sql` (ny blok før `$public_red_revoke$`)
 - Modify: `db-rls.sql`, `db-verify.sql`
 - Create: `tests/sql/test-interpretation-predicate.sql`
@@ -131,9 +134,10 @@ BEGIN
   IF EXISTS (SELECT 1 FROM private.interpretation_predicate WHERE predicate IN ('life_event.birth','title.title','honour.honour')) THEN RAISE EXCEPTION 'PREDICATE_OLD_NAMES_PRESENT'; END IF;
   -- interpretation.predicate → FK.
   PERFORM pg_temp.expect_error($q$INSERT INTO private.interpretation(interpretation_key,version,source_id,interpretation_kind,predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id)
-    VALUES(gen_random_uuid(),1,1,'property','life_event.birth','"1801"','1.1','model_inference',0.5,'proposed','model',gen_random_uuid())$q$,'insert or update on table "interpretation" violates foreign key constraint');
-  -- rule_line.predicate → FK.
-  PERFORM pg_temp.expect_error($q$INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate) VALUES('x-v1','person.nonexistent')$q$,'insert or update on table "interpretation_promotion_rule_line" violates foreign key constraint');
+    VALUES(gen_random_uuid(),1,1,'property','life_event.birth','"1801"','1.1','model_inference',0.5,'proposed','model',gen_random_uuid())$q$,'insert or update on table "interpretation" violates foreign key constraint "interpretation_predicate_fk"');
+  -- rule_line har bevidst ingen FK (db-verify's syntetiske fixtures), men en regel på et ukendt prædikat afvises.
+  INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate) VALUES('x-v1','person.nonexistent');
+  PERFORM pg_temp.expect_error($q$SELECT private.add_interpretation_promotion_rule_version('x-v1','person.nonexistent','property','assertion','navn','text',true,false,true,'active')$q$,'EVIDENCE_PROMOTION_RULE_PREDICATE_UNKNOWN');
   -- Regel for et prædikat med objekt-værdiform afvises (value_kind-binding).
   INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate) VALUES('event-marriage-test','event.marriage');
   PERFORM pg_temp.expect_error($q$SELECT private.add_interpretation_promotion_rule_version('event-marriage-test','event.marriage','property','assertion','navn','text',true,false,true,'active')$q$,'EVIDENCE_PROMOTION_RULE_VALUE_KIND_MISMATCH');
@@ -203,6 +207,22 @@ BEGIN
 END $$;
 CREATE TRIGGER trg_interpretation_predicate_validate BEFORE INSERT OR UPDATE ON private.interpretation_predicate
   FOR EACH ROW EXECUTE FUNCTION private.validate_interpretation_predicate();
+-- Referencetabel: kun status må ændres (active→retired), aldrig slettes; RLS som de øvrige private tabeller.
+CREATE FUNCTION private.reject_interpretation_predicate_mutation() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'EVIDENCE_PREDICATE_DELETE_FORBIDDEN'; END IF;
+  IF NEW.predicate<>OLD.predicate OR NEW.interpretation_kind<>OLD.interpretation_kind OR NEW.value_kind<>OLD.value_kind
+     OR NEW.category IS DISTINCT FROM OLD.category OR NEW.introduced_in<>OLD.introduced_in THEN
+    RAISE EXCEPTION 'EVIDENCE_PREDICATE_IMMUTABLE_FIELD';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER trg_interpretation_predicate_mutation BEFORE UPDATE OR DELETE ON private.interpretation_predicate
+  FOR EACH ROW EXECUTE FUNCTION private.reject_interpretation_predicate_mutation();
+CREATE TRIGGER trg_interpretation_predicate_truncate BEFORE TRUNCATE ON private.interpretation_predicate
+  FOR EACH STATEMENT EXECUTE FUNCTION private.reject_evidence_mutation();
+ALTER TABLE private.interpretation_predicate ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.interpretation_predicate FROM PUBLIC,anon,authenticated;
 
 INSERT INTO private.interpretation_predicate(predicate,interpretation_kind,category,value_kind,status,introduced_in) VALUES
   ('person.name','property',NULL,'text','active','trin4-4.2'),
@@ -249,24 +269,21 @@ INSERT INTO private.interpretation_predicate(predicate,interpretation_kind,categ
   ('reference.cross_reference','mention',NULL,'mention','active','trin4-4.2');
 ```
 
-Efter `interpretation_promotion_rule_line`-tabellen (linje 928):
+Ingen FK på `interpretation_promotion_rule_line` (se Global Constraints). I `private.add_interpretation_promotion_rule_version` (søg funktionsnavnet), efter `IF v_predicate<>p_predicate THEN ...`:
 
 ```sql
-ALTER TABLE private.interpretation_promotion_rule_line
-  ADD CONSTRAINT interpretation_promotion_rule_line_predicate_fk FOREIGN KEY (predicate) REFERENCES private.interpretation_predicate(predicate);
-```
-
-I `private.add_interpretation_promotion_rule_version` (linje 984-1005), efter `IF v_predicate<>p_predicate THEN ...`:
-
-```sql
-  IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=p_predicate AND pr.status='active' AND pr.value_kind=p_value_kind AND pr.value_kind IN ('text','date_raw')) THEN
+  IF p_rule_key NOT LIKE 'verify-%' AND NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=p_predicate AND pr.status='active') THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_PREDICATE_UNKNOWN';
+  END IF;
+  IF EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=p_predicate)
+     AND NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=p_predicate AND pr.status='active' AND pr.value_kind=p_value_kind AND pr.value_kind IN ('text','date_raw')) THEN
     RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_VALUE_KIND_MISMATCH';
   END IF;
 ```
 
-Samme kontrol som en trigger på `private.interpretation_promotion_rule` (BEFORE INSERT), så de fem seed-rækker (linje 968-978) og enhver direkte INSERT også er dækket — seed-rækkerne opfylder den (alle `text`/`date_raw`).
+Samme to kontroller som trigger `private.validate_interpretation_promotion_rule_predicate()` BEFORE INSERT på `private.interpretation_promotion_rule` (undtagelsen `verify-%` gælder db-verify's egne negative fixtures og dokumenteres i triggerens kommentar). De fem seed-rækker (søg `('person-name-v1',1,'person.name'`) opfylder begge.
 
-Efter `interpretation`-tabellen: `ALTER TABLE private.interpretation ADD CONSTRAINT interpretation_predicate_fk FOREIGN KEY (predicate) REFERENCES private.interpretation_predicate(predicate);` — placér efter tabeldefinitionen, men da prædikattabellen står senere i filen end `interpretation` (linje 860), flyttes hele 4.2-blokken (vocab-seed, tabel, seed) til **før** `CREATE TABLE private.interpretation` (linje 860); FK'erne på `rule_line` og `interpretation` tilføjes umiddelbart efter de respektive tabeller.
+Efter `interpretation`-tabellen: `ALTER TABLE private.interpretation ADD CONSTRAINT interpretation_predicate_fk FOREIGN KEY (predicate) REFERENCES private.interpretation_predicate(predicate);` (prædikatblokken står allerede før `interpretation`, jf. filoversigten). Før FK'en: `grep -nE "INSERT INTO private\.interpretation\(" db-verify.sql tests/sql/*.sql` og kontrollér, at hver sådan fixture bruger et seedet prædikat (i dag kun `person.name`/`person.byname`/`person.title`/`person.birth`/`person.death`); en syntetisk fixture med et ikke-seedet prædikat rettes til et seedet.
 
 View efter `interpretation_promotion_rule_current`:
 
@@ -305,12 +322,12 @@ psql -v ON_ERROR_STOP=1 -f tests/sql/test-interpretation-predicate.sql
 psql -v ON_ERROR_STOP=1 -f tests/sql/test-evidence-promotion.sql
 ```
 
-Forventet: grønt (promotion-suiten bruger kun de fem seedede prædikater). Fejler `db-verify`'s egne interpretation-fixtures (linje 3590-3760) på FK'en, er det fordi de bruger et ikke-seedet prædikat: læs hvilket, og tilføj det til seed'et **kun** hvis det er et ægte prædikat; ellers ret fixturen til et seedet.
+Forventet: grønt (promotion-suiten bruger kun de fem seedede prædikater). Kør også `tests/sql/run-db-verify-disposable.sql`: fejler en af db-verify's `INSERT INTO private.interpretation(...)`-fixtures på `interpretation_predicate_fk`, bruger den et ikke-seedet prædikat — ret fixturen til et seedet prædikat (den er syntetisk), medmindre det er et ægte prædikat, der mangler i §5.2; så tilføjes det i seed'et med begrundelse.
 
 - [ ] **Step 4: db-rls + db-verify + commit**
 
-`db-rls.sql`: `REVOKE ALL ON FUNCTION private.validate_interpretation_predicate() FROM PUBLIC,anon,authenticated,service_role; REVOKE ALL ON TABLE private.interpretation_predicate FROM PUBLIC,anon,authenticated;`
-`db-verify.sql`: blok, der asserterer tabel, 42 aktive rækker, begge FK'er, view med 5 rækker, `value_kind`-paritet regel↔prædikat, og at `add_interpretation_promotion_rule_version`'s definition indeholder `EVIDENCE_PROMOTION_RULE_VALUE_KIND_MISMATCH`.
+`db-rls.sql`: `REVOKE ALL ON FUNCTION private.validate_interpretation_predicate(), private.reject_interpretation_predicate_mutation(), private.validate_interpretation_promotion_rule_predicate() FROM PUBLIC,anon,authenticated,service_role; REVOKE ALL ON TABLE private.interpretation_predicate FROM PUBLIC,anon,authenticated;`
+`db-verify.sql`: blok, der asserterer tabel, 42 aktive rækker, FK'en `interpretation_predicate_fk`, view med 5 rækker, `value_kind`-paritet regel↔prædikat, at alle aktive regler med `rule_key NOT LIKE 'verify-%'` peger på et seedet prædikat, RLS + mutations-trigger på tabellen, og at `add_interpretation_promotion_rule_version`'s definition indeholder både `EVIDENCE_PROMOTION_RULE_PREDICATE_UNKNOWN` og `EVIDENCE_PROMOTION_RULE_VALUE_KIND_MISMATCH`. Kør derefter `tests/sql/run-db-verify-disposable.sql` og bekræft, at db-verify's egne `verify-%`-fixtures stadig passerer.
 
 ```bash
 git branch --show-current

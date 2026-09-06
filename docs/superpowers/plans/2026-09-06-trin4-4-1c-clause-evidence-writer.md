@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md` §4.1.4-4.1.6 og §3.
 
+> **Linjetal** i denne plan gælder `origin/main` ved `6770451`. Efter 4.1a er `schema.sql` forskudt ~150 linjer; brug altid de navngivne ankre (funktions-/constraint-navne, søg med grep), ikke linjetallene.
+
 ## Global Constraints
 
 - Forudsætter 4.1a (skema) og 4.1b (ledger-artefakt + profilversion med GO) merget/anvendt.
@@ -110,10 +112,13 @@ CREATE FUNCTION pg_temp.ce_payload(p_fx jsonb, p_clauses jsonb) RETURNS jsonb LA
     'parent_verbatim_sha256',p_fx->>'parent_sha256','clause_rules_version','clause-rules-fixture-v1','segmenter_version','clause_segment.py@v1',
     'ledger_sha256',repeat('d',64),'gap_charset',jsonb_build_array(' '),'clauses',p_clauses)
 $$;
+-- Datadrevet: klausul 1 = til og med første '. '-punktum (1-baseret position p), klausul 2 fra p+1 (0-baseret).
 CREATE FUNCTION pg_temp.ce_clauses(p_text text) RETURNS jsonb LANGUAGE sql AS $$
+  WITH s AS (SELECT position('. ' in p_text) AS p)
   SELECT jsonb_build_array(
-    jsonb_build_object('ordinal',1,'char_from',0,'char_to',29,'classification','record_text','flags','[]'::jsonb,'verbatim_sha256',encode(extensions.digest(substr(p_text,1,29),'sha256'),'hex')),
-    jsonb_build_object('ordinal',2,'char_from',30,'char_to',char_length(p_text),'classification','record_text','flags','["uncertain_marker"]'::jsonb,'verbatim_sha256',encode(extensions.digest(substr(p_text,31),'sha256'),'hex')))
+    jsonb_build_object('ordinal',1,'char_from',0,'char_to',s.p,'classification','record_text','flags','[]'::jsonb,'verbatim_sha256',encode(extensions.digest(substr(p_text,1,s.p),'sha256'),'hex')),
+    jsonb_build_object('ordinal',2,'char_from',s.p+1,'char_to',char_length(p_text),'classification','record_text','flags','["uncertain_marker"]'::jsonb,'verbatim_sha256',encode(extensions.digest(substr(p_text,s.p+2),'sha256'),'hex')))
+  FROM s
 $$;
 
 -- Kør én clause_evidence-batch med ét element og vilkårlig payload.
@@ -162,8 +167,8 @@ BEGIN
   SELECT count(*) INTO v_n FROM private.source_observation ob JOIN private.source_record_occurrence o ON o.id=ob.occurrence_id JOIN private.source_rendition rd ON rd.id=o.rendition_id
    WHERE rd.source_id=(fx->>'source_id')::bigint AND ob.observation_kind='clause';
   IF v_n<>2 THEN RAISE EXCEPTION 'T2_CLAUSE_ROWS: %', v_n; END IF;
-  -- Absolutte offsets: helposten starter ved 100.
-  IF NOT EXISTS (SELECT 1 FROM private.source_observation WHERE observation_kind='clause' AND clause_ordinal=1 AND char_from=100 AND char_to=129 AND page_from=10 AND page_to=10) THEN RAISE EXCEPTION 'T2_ABSOLUTE_OFFSETS'; END IF;
+  -- Absolutte offsets: helposten starter ved 100; klausul 1 slutter ved første '. '-punktum.
+  IF NOT EXISTS (SELECT 1 FROM private.source_observation WHERE observation_kind='clause' AND clause_ordinal=1 AND char_from=100 AND char_to=100+position('. ' in v_text) AND page_from=10 AND page_to=10) THEN RAISE EXCEPTION 'T2_ABSOLUTE_OFFSETS'; END IF;
   SELECT array_agg(d.disposition ORDER BY ob.clause_ordinal) INTO v_disp FROM private.clause_disposition_current d JOIN private.source_observation ob ON ob.id=d.observation_id WHERE ob.observation_kind='clause' AND ob.extraction_run_id IN (SELECT id FROM private.extraction_run WHERE source_id=(fx->>'source_id')::bigint AND run_key LIKE 'reimport-clause-evidence:%');
   IF v_disp<>ARRAY['afventer_fortolkning','maskinelt_flagget'] THEN RAISE EXCEPTION 'T2_DISPOSITIONS: %', v_disp; END IF;
   IF (SELECT count(*) FROM private.reimport_event WHERE batch_id=(r->>'batch_id')::uuid AND operation='clause_evidence')<>1 THEN RAISE EXCEPTION 'T2_EVENT_MISSING'; END IF;
@@ -193,8 +198,8 @@ BEGIN
   -- Klausulhash matcher ikke udsnittet.
   p := pg_temp.ce_payload(fx, jsonb_set(c,'{0,verbatim_sha256}',to_jsonb(repeat('f',64))));
   PERFORM pg_temp.expect_error(format('SELECT pg_temp.ce_apply(%L::jsonb,%L::jsonb,%L,%L)',fx,p,'CE2','n2'),'CLAUSE_EVIDENCE_TEXT_HASH_MISMATCH');
-  -- Mellemrum indeholder ikke-hvidlistet tegn (klausul 2 starter ved 31 → tegn 30 = 'G' bliver "gap").
-  p := pg_temp.ce_payload(fx, jsonb_set(jsonb_set(c,'{1,char_from}','31'),'{1,verbatim_sha256}',to_jsonb(encode(extensions.digest(substr(v_text,32),'sha256'),'hex'))));
+  -- Mellemrum indeholder ikke-hvidlistet tegn: skub klausul 2 ét tegn frem, så første bogstav efter mellemrummet bliver "gap".
+  p := pg_temp.ce_payload(fx, jsonb_set(jsonb_set(c,'{1,char_from}',to_jsonb(position('. ' in v_text)+2)),'{1,verbatim_sha256}',to_jsonb(encode(extensions.digest(substr(v_text,position('. ' in v_text)+3),'sha256'),'hex'))));
   PERFORM pg_temp.expect_error(format('SELECT pg_temp.ce_apply(%L::jsonb,%L::jsonb,%L,%L)',fx,p,'CE2','n3'),'CLAUSE_EVIDENCE_GAP_INVALID');
   -- Ordinal-hul.
   p := pg_temp.ce_payload(fx, jsonb_set(c,'{1,ordinal}','3'));
@@ -223,7 +228,7 @@ END $t4_acl$;
 ROLLBACK;
 ```
 
-Bemærk til t3's gap-case: `substr(v_text,31)` er 1-indekseret i SQL og svarer til helpost-relativ `char_from=30`; ved at flytte klausul 2 til 31 bliver tegnet på indeks 30 (`G`) et "mellemrum", som ikke er i `gap_charset`.
+Bemærk offsets: payloadens `char_from` er 0-baseret helpost-relativ; SQL's `substr` og `position` er 1-baserede. Med `p = position('. ' in tekst)` (positionen for punktummet) er klausul 1 `[0, p)` = `substr(tekst,1,p)`, og klausul 2 starter ved `p+1` (0-baseret) = `substr(tekst,p+2)`. Gap-casen flytter klausul 2 til `p+2`, så tegnet på 0-baseret indeks `p+1` (første bogstav efter mellemrummet) havner i mellemrummet.
 
 - [ ] **Step 2: Kør og se den fejle**
 
@@ -562,7 +567,8 @@ def build_manifest(profile: dict[str, Any], ledger: dict[str, Any]) -> dict[str,
     if ledger.get("schema_version") != "clause-ledger-v1": _fail("LEDGER_SCHEMA_INVALID")
     if ledger.get("rules_version") != profile["clause_rules_version"]: _fail("LEDGER_RULES_VERSION_MISMATCH")
     if ledger.get("segmenter_version") != profile["segmenter_version"]: _fail("LEDGER_SEGMENTER_VERSION_MISMATCH")
-    gap_charset = ledger.get("gap_charset") or [" "]
+    if not isinstance(ledger.get("gap_charset"), list) or not ledger["gap_charset"]: _fail("LEDGER_GAP_CHARSET_MISSING")
+    gap_charset = ledger["gap_charset"]
     operations, seen = [], set()
     for rec in sorted(ledger["records"], key=lambda r: r["record_key"].encode("utf-8")):
         key = rec["record_key"]
@@ -600,7 +606,7 @@ def main() -> None:
 if __name__ == "__main__": main()
 ```
 
-Bemærk: `gap_charset` skal komme fra ledger-artefaktet; udvid 4.1b's `build_clause_ledger.py` til at skrive `"gap_charset": rules["gap_charset"]` i ledgerens topniveau (én linje), så manifestet er hash-bundet til profilens frosne tegnsæt.
+`gap_charset` kommer fra ledger-artefaktets topniveau (4.1b skriver det); mangler det, stopper builderen — intet tavst default, fordi writeren verificerer mellemrummene mod netop dette hash-bundne sæt.
 
 - [ ] **Step 5: Kør tests, tilføj til CI, commit**
 
@@ -628,7 +634,7 @@ git commit -m "feat(evidens): clause_evidence-profil og manifest-builder fra kla
 
 - [ ] **Step 1: Skriv integrationstesten (fejler først)**
 
-Følg `tests/integration/test-reimport-legacy-migration.R` linje 1-95 ordret for opsætning (nonce, aktør, source, source-evidence-profil, `authorize`, en source_evidence-batch med én afdød record D1 med tekst `"Alfa <run_key> Bravo, f. 1801, d. 1860. Gift 1830 m. Charlie."`). Derefter:
+Kopiér fra `tests/integration/test-reimport-legacy-migration.R` linje 1-61 (pakker, `root`, `connect`, `q`/`e`/`sha`/`count1`, nonce, `run_key`, `source_id`, kontrakt-assert, `actor`, `profile_id`, `writer_config`, profil-INSERT, `set_config`, `env_gateway`, `database_identity`, `authorize`) og linje 63-71 (`operation`-hjælperen). **Afvig** fra originalen ved kun at bygge én record: `key_dead`, `text_dead <- paste0("Alfa ", run_key, " Bravo, f. 1801, d. 1860. Gift 1830 m. Charlie.")`, og `manifest_se` med `expected_counts = list(source_evidence = 1L, person_creates = 0L, canonical_delta = 0L)` og én `operation(...)`. Kør `execute_reimport(manifest_se, …, "apply", …)` og assertér `finalized`/`committed`. Personer, narrativer og ledger fra originalens linje 74-95 er ikke nødvendige her. Derefter:
 
 ```r
 # ---- clause_evidence: manifest fra en syntetisk ledger ---------------------------
@@ -640,10 +646,12 @@ ce_sha <- q("SELECT private.reimport_canonical_json_sha256($1::jsonb) h", list(c
 e("INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config) VALUES($1,$2,'clause-evidence-v1',$3,$4::jsonb) ON CONFLICT(source_id,profile_id,profile_sha256) DO NOTHING",
   list(source_id, ce_profile_id, ce_sha, ce_config))
 sha_text <- function(x) digest::digest(x, algo = "sha256", serialize = FALSE)
-c1 <- substr(text_dead, 1L, 29L); c2 <- substr(text_dead, 31L, nchar(text_dead))
+# Datadrevet skæring ved første ". " (regexpr er 1-baseret og peger på punktummet).
+p <- regexpr(". ", text_dead, fixed = TRUE)[[1L]]; stopifnot(p > 0L)
+c1 <- substr(text_dead, 1L, p); c2 <- substr(text_dead, p + 2L, nchar(text_dead))
 clauses <- list(
-  list(ordinal = 1L, char_from = 0L, char_to = 29L, classification = "record_text", flags = list(), verbatim_sha256 = sha_text(c1)),
-  list(ordinal = 2L, char_from = 30L, char_to = nchar(text_dead), classification = "record_text", flags = list(), verbatim_sha256 = sha_text(c2)))
+  list(ordinal = 1L, char_from = 0L, char_to = p, classification = "record_text", flags = list(), verbatim_sha256 = sha_text(c1)),
+  list(ordinal = 2L, char_from = p + 1L, char_to = nchar(text_dead), classification = "record_text", flags = list(), verbatim_sha256 = sha_text(c2)))
 manifest_ce <- list(
   manifest_content_sha256 = run_hash("manifest-ce"),
   source = list(id = source_id, profile_id = ce_profile_id, profile_sha256 = ce_sha),
@@ -678,16 +686,51 @@ Forventet: FAIL med `REIMPORT_MANIFEST_COUNTS_INVALID` (R-klienten kender ikke `
 
 - [ ] **Step 3: Udvid R-klienten**
 
-I `validate_reimport_manifest`:
-- `base_counts` uændret; tillad nøglemængderne `base`, `base+legacy_migrations`, `base+clause_evidence` (ikke begge samtidig):
+Erstat hele `validate_reimport_manifest` (linje 20-68) med denne version; linjer mærket `# NY` er de eneste ændringer:
 
 ```r
-  allowed_sets <- list(base_counts, c(base_counts, "legacy_migrations"), c(base_counts, "clause_evidence"))
+validate_reimport_manifest <- function(manifest) {
+  required <- c("manifest_content_sha256", "source", "expected_counts", "operations")
+  optional <- "dispositions"
+  if (!is.list(manifest) || !all(required %in% names(manifest)) ||
+      !all(names(manifest) %in% c(required, optional)) || anyDuplicated(names(manifest)) ||
+      !reimport_hash(manifest$manifest_content_sha256) ||
+      !reimport_named(manifest$source, c("id", "profile_id", "profile_sha256")) ||
+      !is.integer(manifest$source$id) || length(manifest$source$id) != 1L ||
+      is.na(manifest$source$id) || manifest$source$id <= 0L ||
+      !is.character(manifest$source$profile_id) || length(manifest$source$profile_id) != 1L ||
+      is.na(manifest$source$profile_id) || !nzchar(manifest$source$profile_id) ||
+      !reimport_hash(manifest$source$profile_sha256))
+    stop_reimport("REIMPORT_MANIFEST_PROFILE_INVALID")
+  count_names <- names(manifest$expected_counts)
+  base_counts <- c("source_evidence", "person_creates", "canonical_delta")
+  allowed_sets <- list(base_counts, c(base_counts, "legacy_migrations"), c(base_counts, "clause_evidence"))   # NY
   if (!is.list(manifest$expected_counts) ||
-      !any(vapply(allowed_sets, function(s) identical(sort(count_names), sort(s)), logical(1))) || ...
+      !any(vapply(allowed_sets, function(s) identical(sort(count_names), sort(s)), logical(1))) ||          # NY
+      any(!vapply(manifest$expected_counts, function(value) is.integer(value) && length(value) == 1L &&
+        !is.na(value) && value >= 0L, logical(1))) || !is.list(manifest$operations))
+    stop_reimport("REIMPORT_MANIFEST_COUNTS_INVALID")
+  if (!all(vapply(manifest$operations, function(operation)
+    is.list(operation) && is.character(operation$element_id) && length(operation$element_id) == 1L &&
+      nzchar(operation$element_id) &&
+      operation$dependency_class %in% c("source_evidence", "person_create", "legacy_migration", "clause_evidence"),  # NY
+    logical(1))) || anyDuplicated(vapply(manifest$operations, `[[`, "", "element_id")))
+    stop_reimport("REIMPORT_MANIFEST_OPERATIONS_INVALID")
+  n_of <- function(class) sum(vapply(manifest$operations, function(operation)                              # NY
+    identical(operation$dependency_class, class), logical(1)))
+  counts <- c(source_evidence = n_of("source_evidence"), person_creates = n_of("person_create"), canonical_delta = 0L)
+  if ("legacy_migrations" %in% count_names) counts[["legacy_migrations"]] <- n_of("legacy_migration")
+  else if (n_of("legacy_migration") > 0L) stop_reimport("REIMPORT_MANIFEST_COUNTS_INVALID")
+  if ("clause_evidence" %in% count_names) counts[["clause_evidence"]] <- n_of("clause_evidence")             # NY
+  else if (n_of("clause_evidence") > 0L) stop_reimport("REIMPORT_MANIFEST_COUNTS_INVALID")                   # NY
+  if (!all(vapply(names(counts), function(name)
+    identical(manifest$expected_counts[[name]], counts[[name]]), logical(1))))
+    stop_reimport("REIMPORT_MANIFEST_COUNTS_INVALID")
+  if (!is.null(manifest$dispositions) && !is.list(manifest$dispositions))
+    stop_reimport("REIMPORT_MANIFEST_DISPOSITIONS_INVALID")
+  invisible(manifest)
+}
 ```
-- `dependency_class %in% c("source_evidence", "person_create", "legacy_migration", "clause_evidence")`.
-- Tællinger: samme mønster som `legacy_migrations` for `clause_evidence` (`has_clause_evidence_ops`; nøglen skal findes, hvis der er operationer, og tælle rigtigt).
 
 I `reimport_writer_expected_counts`: `intersect(c("person_creates", "source_evidence", "legacy_migrations", "clause_evidence"), ...)`.
 
@@ -769,8 +812,12 @@ Forudsætning: restore `$DB` med 4.1a-migration og 4.1c-migration anvendt (`db-m
 set -euo pipefail; umask 077; export PGTZ=UTC PGDATABASE="$DB"
 P=.claude/skills/daa-extract/references/reimport-profiles/daa-2018-20-clause-evidence-v1.json
 PROFILE_SHA=$(cd .claude/skills/daa-extract/scripts && /usr/bin/python3 -c "import json,sys;from reimport_profile import load_profile;print(load_profile(sys.argv[1])['profile_sha256'])" "$OLDPWD/$P")
-psql -X -v ON_ERROR_STOP=1 -v cfg="$(python3 -c "import json;print(json.dumps(json.load(open('$P'))['writer_config'],ensure_ascii=False,separators=(',',':'),sort_keys=True))")" -c \
- "INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config) VALUES(1,'daa-2018-20-clause-evidence-v1','clause-evidence-v1',private.reimport_canonical_json_sha256(:'cfg'::jsonb),:'cfg'::jsonb)"
+CFG="$(python3 -c "import json;print(json.dumps(json.load(open('$P'))['writer_config'],ensure_ascii=False,separators=(',',':'),sort_keys=True))")"
+# psql -c interpolerer IKKE :'var'; brug -f - med heredoc.
+psql -X -v ON_ERROR_STOP=1 -v cfg="$CFG" -f - <<'SQL'
+INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
+VALUES(1,'daa-2018-20-clause-evidence-v1','clause-evidence-v1',private.reimport_canonical_json_sha256(:'cfg'::jsonb),:'cfg'::jsonb);
+SQL
 psql -X -Atc "SELECT profile_sha256='$PROFILE_SHA' FROM private.reimport_writer_profile WHERE profile_id='daa-2018-20-clause-evidence-v1'"   # t
 cd .claude/skills/daa-extract/scripts
 /usr/bin/python3 build_clause_evidence_manifest.py --profile "$OLDPWD/$P" --ledger "$ART/ledger/clause-ledger-v1.json" --output "$ART/clause-evidence-manifest-v1.json"

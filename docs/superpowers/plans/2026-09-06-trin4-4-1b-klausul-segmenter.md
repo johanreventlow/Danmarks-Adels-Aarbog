@@ -74,8 +74,9 @@ Tilføj til `test_evidence_extract.py`:
 def test_profile_clause_rules_are_validated(tmp_path):
     payload = json.loads(evidence_extract.PROFILES.read_text(encoding="utf-8"))
     profile = payload["profiles"]["daa-2018-20-v1"]
-    assert profile["version"] == "1.1.0"
+    assert profile["version"] != "1.0.0"          # bumpet; præcis værdi pinnes ikke (Task 5 kan give 1.2.0)
     rules = profile["clause_rules"]
+    assert rules["version"].startswith("clause-rules-2018-20-v")
     assert set(rules) == {"version", "terminators", "non_terminal_abbreviations", "initial_pattern",
                           "ordinal_number_pattern", "structural_header_patterns", "min_clause_chars",
                           "gap_charset", "intraword_chars"}
@@ -201,16 +202,18 @@ git commit -m "feat(evidens): clause_rules i 2018-20-profilen v1.1.0 med valider
 
 - [ ] **Step 1: Skriv fixturen (syntetisk, ingen rigtige personer)**
 
-Task 2's syv tilfælde fra 2026-08-02-planen, som records med forventet klausulantal og flag:
+Task 2's syv tilfælde fra 2026-08-02-planen plus fire regel-tilfælde, som records med forventet klausulantal og flag. Tallene er efterprøvet mod Task 3's algoritme (anden læser kørte den); ændres reglerne, ændres forventningerne med begrundelse:
 
 ```json
 {
   "schema_version": "evidence-clauses-fixture-1.0",
   "cases": [
-    {"key": "samme-mand-tre-gange", "text": "Alfa Bravo, f. 12. maj 1801 i Charlie, d. 3. jan. 1860 sst. Gift 1830 m. Delta Echo. Alfa Bravo nævnes 1845 som ejer af Foxtrot. Alfa Bravo, den samme, solgte Foxtrot 1852.",
+    {"key": "samme-mand-tre-gange", "text": "Alfa Bravo, f. 12. maj 1801 i Charlie, d. 3. jan. 1860 i Delta. Gift 1830 m. Delta Echo. Alfa Bravo nævnes 1845 som ejer af Foxtrot. Alfa Bravo, den samme, solgte Foxtrot 1852.",
      "expect_clauses": 4, "expect_flags": []},
-    {"key": "barn-og-grundlaegger", "text": "Golf Hotel, f. 1770, søn af nr. 3. Stamfader til den yngre linje, se II. Gift 1795 m. India Juliet.",
+    {"key": "barn-og-grundlaegger", "text": "Golf Hotel, f. 1770, søn af nr. 3 i samme linje. Stamfader til den yngre linje, se II. Gift 1795 m. India Juliet.",
      "expect_clauses": 3, "expect_flags": []},
+    {"key": "ordinal-foer-punktum-splitter-ikke", "text": "Hotel India, f. 1780, søn af nr. 3. Gift 1805 m. Juliet.",
+     "expect_clauses": 1, "expect_flags": [], "note": "'nr. 3.' matcher ordinal_number_pattern og må ikke splitte — konservativt, én klausul"},
     {"key": "gift-med-niece", "text": "Kilo Lima, f. 1800, d. 1870. Gift 1825 m. sin broderdatter Mike November af 7. slægtled, f. 1806, d. 1880, datter af nr. 12.",
      "expect_clauses": 2, "expect_flags": []},
     {"key": "indgiftet-uden-slaegtsnavn", "text": "Oscar Papa, f. 1810. Gift 1835 m. Quebec, f. 1815, d. 1890, datter af gårdejer Romeo Sierra og Tango.",
@@ -220,12 +223,12 @@ Task 2's syv tilfælde fra 2026-08-02-planen, som records med forventet klausula
     {"key": "usikker-ukendt-manglende-dato", "text": "Zulu Alfa, f. ca. 1790 (?), d. efter 1850. Gift m. Bravo, hvis herkomst er ukendt. Død i Charlie, år ukendt.",
      "expect_clauses": 3, "expect_flags": ["uncertain_marker"]},
     {"key": "modstridende-kilder", "text": "Delta Echo, f. 1805 (ifølge DAA 1901: 1806), d. 1877. Gift 1830 m. Foxtrot Golf; gift 2. gang 1850 m. Hotel India.",
-     "expect_clauses": 3, "expect_flags": ["multiple_marriages"]},
+     "expect_clauses": 2, "expect_flags": ["multiple_marriages"], "note": "'; gift' med lille g splitter ikke; de to ægteskaber bliver i én klausul og flagges"},
     {"key": "ukendt-forkortelse", "text": "Juliet Kilo, f. 1830, xyzq. 1850 i Lima. Gift 1855 m. Mike.",
      "expect_clauses": 2, "expect_flags": ["unknown_abbreviation"]},
     {"key": "ubalanceret-parentes", "text": "November Oscar, f. 1840 (søn af nr. 5. Gift 1865 m. Papa.",
      "expect_clauses": 1, "expect_flags": ["unbalanced_parentheses"]},
-    {"key": "kort-post", "text": "Quebec Romeo.", "expect_clauses": 1, "expect_flags": ["short_clause"]},
+    {"key": "kort-post", "text": "Quebec Rom.", "expect_clauses": 1, "expect_flags": ["short_clause"], "note": "11 tegn < min_clause_chars 12"},
     {"key": "struktur-overskrift", "text": "Femte slægtled. Sierra Tango, f. 1850, d. 1910.",
      "expect_clauses": 2, "expect_flags": [], "expect_structural": 1}
   ]
@@ -287,9 +290,19 @@ class TestClauseSegment(unittest.TestCase):
                 self.assertRegex(oid, r"^rec-1#\d+$")
 
     def test_gap_outside_charset_is_reported_not_swallowed(self):
-        text = "Alfa Bravo, f. 1801. Gift 1830 m. Charlie."  # NBSP mellem klausuler
+        # Efterfølgende NBSP bliver et layout-span (ingen hård fejl på whitespace i enderne),
+        # og NBSP står ikke i gap_charset -> rapporteres, ikke slugt.
+        text = "Alfa Bravo, f. 1801. Gift 1830 m. Charlie.\u00a0"
         result = clause_segment.build_record_ledger("k", "source-evidence:k", text, self.rules)
-        self.assertEqual(result["gap_violations"], [" "])
+        self.assertEqual(result["gap_violations"], ["\u00a0"])
+        self.assertEqual(len(result["clauses"]), 2)
+
+    def test_leading_and_trailing_whitespace_become_layout_spans(self):
+        text = "  Alfa Bravo, f. 1801. "
+        result = clause_segment.build_record_ledger("k", "source-evidence:k", text, self.rules)
+        self.assertEqual(result["ledger"][0]["classification"], "layout")
+        self.assertEqual(result["ledger"][-1]["classification"], "layout")
+        self.assertEqual(result["gap_violations"], [])
 
     def test_ledger_sha_is_stable_for_same_input(self):
         a = clause_segment.build_record_ledger("k", "source-evidence:k", self.cases[0]["text"], self.rules)
@@ -404,9 +417,9 @@ def _split_points(text: str, rules: Mapping[str, Any]) -> list[tuple[int, list[s
 
 
 def segment_clauses(text: str, rules: Mapping[str, Any]) -> list[dict[str, Any]]:
-    if text != text.strip() or "\n" in text:
-        raise ValueError("CLAUSE_TEXT_NOT_NORMALIZED")
-    if not text:
+    # Førende/efterfølgende whitespace og linjeskift bliver layout-spans og måles som
+    # gap-tegn i build_record_ledger; kun tom tekst er en hård fejl.
+    if not text or not text.strip():
         raise ValueError("CLAUSE_TEXT_EMPTY")
     raw_points = _split_points(text, rules)
     starts = sorted({p for p, _ in raw_points if p > 0})
@@ -542,6 +555,7 @@ git commit -m "feat(evidens): deterministisk klausul-segmentering med flag og fu
 - [ ] **Step 1: Skriv CLI-testen**
 
 ```python
+import hashlib
 import json
 import os
 import subprocess
@@ -557,10 +571,12 @@ class TestBuildClauseLedger(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             os.chmod(tmp, 0o700)
             texts = os.path.join(tmp, "texts.json")
+            text = "Alfa Bravo, f. 1801, d. 1860. Gift 1830 m. Charlie."
             with open(texts, "w", encoding="utf-8") as fh:
                 json.dump([{"record_key": "I.1", "occurrence_key": "source-evidence:I.1", "page_from": 10, "page_to": 10,
-                            "char_from": 100, "char_to": 145, "verbatim_text": "Alfa Bravo, f. 1801, d. 1860. Gift 1830 m. Charlie.",
-                            "verbatim_sha256": "0" * 64, "rendition_content_sha256": "1" * 64}], fh)
+                            "char_from": 100, "char_to": 100 + len(text), "verbatim_text": text,
+                            "verbatim_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                            "rendition_content_sha256": "1" * 64}], fh)
             out = os.path.join(tmp, "out"); os.mkdir(out); os.chmod(out, 0o700)
             proc = subprocess.run([sys.executable, os.path.join(HERE, "build_clause_ledger.py"), "--profile", "daa-2018-20-v1",
                                    "--texts", texts, "--output-dir", out], capture_output=True, text=True)
@@ -568,6 +584,7 @@ class TestBuildClauseLedger(unittest.TestCase):
             with open(os.path.join(out, "clause-ledger-v1.json"), encoding="utf-8") as fh:
                 ledger = json.load(fh)
             self.assertEqual(ledger["schema_version"], "clause-ledger-v1")
+            self.assertEqual(ledger["gap_charset"], [" "])
             self.assertEqual(len(ledger["records"]), 1)
             self.assertNotIn("verbatim_text", json.dumps(ledger))
             with open(os.path.join(out, "clause-ledger-summary.json"), encoding="utf-8") as fh:
@@ -669,7 +686,7 @@ def main() -> None:
     structural = 0
     for row in rows:
         text = row["verbatim_text"]
-        if hashlib.sha256(text.encode("utf-8")).hexdigest() != row["verbatim_sha256"] and row["verbatim_sha256"] != "0" * 64:
+        if hashlib.sha256(text.encode("utf-8")).hexdigest() != row["verbatim_sha256"]:
             _fail("TEXT_HASH_MISMATCH:" + row["record_key"])
         result = clause_segment.build_record_ledger(row["record_key"], row["occurrence_key"], text, rules)
         for ch in result["gap_violations"]:
@@ -693,7 +710,9 @@ def main() -> None:
                         "rendition_content_sha256": row["rendition_content_sha256"],
                         "rules_version": rules["version"], "ledger_sha256": result["ledger_sha256"], "clauses": clauses})
     ledger = {"schema_version": "clause-ledger-v1", "profile_id": args.profile, "profile_version": profile["version"],
-              "rules_version": rules["version"], "segmenter_version": "clause_segment.py@v1", "records": records}
+              "rules_version": rules["version"], "segmenter_version": "clause_segment.py@v1",
+              "gap_charset": list(rules["gap_charset"]),   # 4.1c's manifest hash-binder tegnsættet herfra
+              "records": records}
     _write_private(out / "clause-ledger-v1.json", ledger)
     _write_private(out / "clause-ledger-texts-v1.json", texts)
     summary = {"records": len(records), "clauses": {"total": sum(counts), "min": min(counts) if counts else 0,
