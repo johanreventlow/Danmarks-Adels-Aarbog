@@ -297,6 +297,13 @@ class TestClauseSegment(unittest.TestCase):
         self.assertEqual(result["gap_violations"], ["\u00a0"])
         self.assertEqual(len(result["clauses"]), 2)
 
+    def test_non_gap_whitespace_between_clauses_is_flagged_not_swallowed(self):
+        # ". " + NBSP splitter ikke (næste tegn er ikke stort); klausulen bliver én, men flagges.
+        text = "Alfa Bravo, f. 1801.\u00a0Gift 1830 m. Charlie."
+        result = clause_segment.build_record_ledger("k", "source-evidence:k", text, self.rules)
+        self.assertEqual(len(result["clauses"]), 1)
+        self.assertIn("non_gap_whitespace_in_clause", result["clauses"][0]["flags"])
+
     def test_leading_and_trailing_whitespace_become_layout_spans(self):
         text = "  Alfa Bravo, f. 1801. "
         result = clause_segment.build_record_ledger("k", "source-evidence:k", text, self.rules)
@@ -361,7 +368,7 @@ from typing import Any, Mapping
 import clause_ledger
 
 FLAGS = ("unknown_abbreviation", "unbalanced_parentheses", "short_clause",
-         "multiple_marriages", "uncertain_marker")
+         "multiple_marriages", "uncertain_marker", "non_gap_whitespace_in_clause")
 _MARRIAGE_RE = re.compile(r"\bgift\b", re.IGNORECASE)
 _WORD_BEFORE_DOT_RE = re.compile(r"(\S+)\.$")
 
@@ -446,6 +453,10 @@ def segment_clauses(text: str, rules: Mapping[str, Any]) -> list[dict[str, Any]]
                 flags.append("uncertain_marker")
             if len(clause_text) < rules["min_clause_chars"]:
                 flags.append("short_clause")
+            # Whitespace inde i klausulen, som ikke er et tilladt mellemrumstegn (NBSP, linjeskift):
+            # segmenteringen kan have sluppet en klausulgrænse, så det flagges frem for at forsvinde.
+            if any(ch.isspace() and ch not in rules["gap_charset"] for ch in clause_text):
+                flags.append("non_gap_whitespace_in_clause")
             classification = "structural_header" if any(re.search(p, clause_text) for p in rules["structural_header_patterns"]) else "record_text"
             clauses.append({"char_from": cf, "char_to": ct, "classification": classification, "flags": sorted(set(flags))})
         if trail:
@@ -829,7 +840,7 @@ Regelversion `<clause_rules.version>`, profilversion `<version>`, ledger-fil-SHA
 | --- | --- |
 | Records | 591 |
 | Klausuler i alt / min / median / max pr. record | … |
-| Flag-fordeling | unknown_abbreviation …, unbalanced_parentheses …, short_clause …, multiple_marriages …, uncertain_marker … |
+| Flag-fordeling | unknown_abbreviation …, unbalanced_parentheses …, short_clause …, multiple_marriages …, uncertain_marker …, non_gap_whitespace_in_clause … |
 | `structural_header`-klausuler | … (0 betyder: ingen strukturelt kildemateriale i 2018-20's helposter, jf. spec 4.1.3) |
 | Mellemrumstegn uden for hvidlisten | ingen |
 | Tokens tilføjet i regelversion 2 (antal) | … |

@@ -117,7 +117,7 @@ BEGIN
   END LOOP;
   IF to_regclass('private.vocab') IS NULL THEN RAISE EXCEPTION 'CLAUSE_SCHEMA_PRIVATE_VOCAB_MISSING'; END IF;
   FOREACH v_kind IN ARRAY ARRAY['person_post','person','fact','marriage','relationship','structural_context','cross_reference','clause',
-    'header','name_clause','death_clause','person_name','identity_setup','interpretation_setup','placement_setup','promotion_setup','stamtavle','verify'] LOOP
+    'header','name_clause','death_clause','person_name','name'] LOOP
     IF NOT EXISTS (SELECT 1 FROM private.vocab WHERE scheme='observation_kind' AND code=v_kind) THEN
       RAISE EXCEPTION 'CLAUSE_SCHEMA_OBSERVATION_KIND_NOT_SEEDED: %', v_kind;
     END IF;
@@ -282,18 +282,13 @@ INSERT INTO private.vocab(scheme,code,label) VALUES
   ('observation_kind','cross_reference','Krydshenvisning (1939 fase A)'),
   ('observation_kind','clause','Klausul under helpost (#148)'),
   -- Koder brugt af produktionsstien for placements og af db-verify/tests (kørte mod prod før
-  -- vokabularet blev lukket). Inventeret 2026-09-06 med:
-  --   grep -rhoE "observation_kind[^;]*" schema.sql db-verify.sql tests/ | grep -oE "'[a-z_]+'"
+  -- vokabularet blev lukket). Inventeret 2026-09-06 ved at køre hele suiten med en
+  -- NOTICE-udgave af triggeren (se Task 2 Step 3); reelt sæt = 8 + 5.
   ('observation_kind','header','Slægtledsoverskrift (placement-header, validate_source_record_placement)'),
   ('observation_kind','name_clause','Fixture-kode (test-evidence-promotion)'),
   ('observation_kind','death_clause','Fixture-kode (db-verify)'),
   ('observation_kind','person_name','Fixture-kode (db-verify, evidence_contract-fixture)'),
-  ('observation_kind','identity_setup','Fixture-kode (db-verify)'),
-  ('observation_kind','interpretation_setup','Fixture-kode (db-verify)'),
-  ('observation_kind','placement_setup','Fixture-kode (db-verify)'),
-  ('observation_kind','promotion_setup','Fixture-kode (db-verify)'),
-  ('observation_kind','stamtavle','Fixture-kode (db-verify)'),
-  ('observation_kind','verify','Fixture-kode (db-verify)'),
+  ('observation_kind','name','Fixture-kode (db-verify)'),
   ('clause_classification','record_text','Meningsbærende tekstklausul'),
   ('clause_classification','structural_header','Strukturel overskrift inde i posten'),
   ('clause_disposition_machine','afventer_fortolkning','Maskinel: afventer fortolkning'),
@@ -451,13 +446,13 @@ psql -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-writer.sql
 psql -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-legacy-migration.sql
 ```
 
-Forventet: alle grønne. Kør derefter **hele** inventeringen, fordi triggeren lukker vokabularet for alle stier, også `db-verify.sql`, der kører mod prod:
+Forventet: alle grønne. Kør derefter **hele** inventeringen empirisk, fordi triggeren lukker vokabularet for alle stier, også `db-verify.sql`, der kører mod prod (en grep på `observation_kind` fanger ikke positionelle INSERT-værdier): i en **engangs-base** erstattes `RAISE EXCEPTION 'EVIDENCE_OBSERVATION_KIND_UNKNOWN: %'` i triggeren midlertidigt med `RAISE NOTICE 'KIND_UNKNOWN:%'`, hvorefter alle SQL-suiter og `run-db-verify-disposable.sql` køres, og notices samles:
 
 ```bash
-grep -rhoE "observation_kind[^;]{0,400}" schema.sql db-migrations.sql db-verify.sql tests/ .claude/skills/daa-extract/scripts/*.R tests/integration/*.R | grep -oE "'[a-z_]+'" | sort -u
+for f in tests/sql/test-*.sql tests/sql/run-db-verify-disposable.sql; do psql -v ON_ERROR_STOP=0 -f "$f"; done 2>&1 | grep -oE 'KIND_UNKNOWN:[a-z_]+' | sort -u
 ```
 
-Enhver kode i outputtet, der ikke står i seed-listen, tilføjes i **både** `schema.sql` og Task 3's migration (label "Fixture-kode (…)" eller den reelle betydning). Kør til sidst `psql -v ON_ERROR_STOP=1 -f tests/sql/run-db-verify-disposable.sql`; den må ikke give `EVIDENCE_OBSERVATION_KIND_UNKNOWN`. Slæk aldrig triggeren.
+Forventet (målt 2026-09-06 af anden læser): tom liste med de 13 seedede koder; dukker en kode op, tilføjes den i **både** `schema.sql` og Task 3's migration (label "Fixture-kode (…)" eller den reelle betydning). Drop engangs-basen bagefter; i den rigtige base forbliver triggeren en EXCEPTION. Slæk aldrig triggeren.
 
 - [ ] **Step 4: Commit**
 
@@ -498,18 +493,13 @@ INSERT INTO private.vocab(scheme,code,label) VALUES
   ('observation_kind','cross_reference','Krydshenvisning (1939 fase A)'),
   ('observation_kind','clause','Klausul under helpost (#148)'),
   -- Koder brugt af produktionsstien for placements og af db-verify/tests (kørte mod prod før
-  -- vokabularet blev lukket). Inventeret 2026-09-06 med:
-  --   grep -rhoE "observation_kind[^;]*" schema.sql db-verify.sql tests/ | grep -oE "'[a-z_]+'"
+  -- vokabularet blev lukket). Inventeret 2026-09-06 ved at køre hele suiten med en
+  -- NOTICE-udgave af triggeren (se Task 2 Step 3); reelt sæt = 8 + 5.
   ('observation_kind','header','Slægtledsoverskrift (placement-header, validate_source_record_placement)'),
   ('observation_kind','name_clause','Fixture-kode (test-evidence-promotion)'),
   ('observation_kind','death_clause','Fixture-kode (db-verify)'),
   ('observation_kind','person_name','Fixture-kode (db-verify, evidence_contract-fixture)'),
-  ('observation_kind','identity_setup','Fixture-kode (db-verify)'),
-  ('observation_kind','interpretation_setup','Fixture-kode (db-verify)'),
-  ('observation_kind','placement_setup','Fixture-kode (db-verify)'),
-  ('observation_kind','promotion_setup','Fixture-kode (db-verify)'),
-  ('observation_kind','stamtavle','Fixture-kode (db-verify)'),
-  ('observation_kind','verify','Fixture-kode (db-verify)'),
+  ('observation_kind','name','Fixture-kode (db-verify)'),
   ('clause_classification','record_text','Meningsbærende tekstklausul'),
   ('clause_classification','structural_header','Strukturel overskrift inde i posten'),
   ('clause_disposition_machine','afventer_fortolkning','Maskinel: afventer fortolkning'),
@@ -884,12 +874,11 @@ def test_bundle_1_2_rejects_clause_without_parent():
 
 
 def test_bundle_1_2_rejects_span_outside_parent():
-    # Klausulen ligger i renditionen (så Observation selv validerer), men uden for helposten.
+    # Klausulen "Anna blev" (occurrence-relativ 0-9) ligger inde i occurrencen, men peger på obs-1
+    # ("Anna", 0-4) som forælder: gyldig som observation, ugyldig som klausul under obs-1.
     bundle = _clause_bundle()
-    rendition_text = bundle["source_rendition"][0]["verbatim_text"]  # "Forord. Anna blev født 1801. Efterskrift."
     clause = _clause(bundle, 1, 0, 9)
-    clause["span"]["char_from"] = 0; clause["span"]["char_to"] = 6
-    clause["verbatim_text"] = rendition_text[0:6]  # "Forord"
+    clause["parent_observation_id"] = "obs-1"
     bundle["observations"].append(clause)
     with pytest.raises(ContractError, match="clause span outside parent"):
         validate_bundle(bundle)
@@ -1057,7 +1046,7 @@ PGDATABASE="$DB" $PG/psql -X -v ON_ERROR_STOP=1 -Atc "
 SELECT (SELECT count(*) FROM private.source_observation WHERE observation_kind='person_post'),
        (SELECT count(*) FROM private.source_observation WHERE observation_kind='clause'),
        (SELECT count(*) FROM private.source_observation WHERE parent_observation_id IS NOT NULL),
-       (SELECT count(*) FROM private.vocab WHERE scheme='observation_kind')>=18,
+       (SELECT count(*) FROM private.vocab WHERE scheme='observation_kind')=13,
        (SELECT count(*) FROM private.clause_disposition)"
 ```
 
@@ -1084,7 +1073,7 @@ Forventet: alle `… OK`-notices inkl. `task3 clause mentions OK`; ingen `ERROR`
 | --- | --- | --- |
 | `person_post`-observationer (source 1) | 591 | 591 |
 | `clause`-observationer | 0 | 0 |
-| `private.vocab` `observation_kind`-koder | – | ≥18 (8 reelle + fixture-koder) |
+| `private.vocab` `observation_kind`-koder | – | 13 (8 reelle + 5 fixture-koder) |
 | `db-migrations.sql` kørt to gange | – | exit 0 / exit 0 |
 | `run-db-verify-disposable.sql` | – | `OK: #148 …` |
 | `test-reimport-legacy-migration.sql` mod restoren | – | alle notices OK |

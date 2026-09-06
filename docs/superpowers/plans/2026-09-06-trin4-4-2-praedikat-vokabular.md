@@ -16,7 +16,7 @@
 
 - `schema.sql` = source of truth; `db-migrations.sql` idempotent (to kørsler).
 - Promoverbarhed **udledes ved join** på `interpretation_promotion_rule_line.predicate`; tabellen har ingen `rule_key` (ingen cirkulær FK).
-- **Ingen FK fra `interpretation_promotion_rule_line.predicate`** til prædikattabellen: `db-verify.sql` (søg `verify-relation-target` og `verify-name-no-bulk`) indsætter bevidst syntetiske prædikater (`person.name.relation`, `verify.person.name.no_bulk`, `verify.person.name.principal`) som negative promotion-fixtures mod prod, og `rule_line.predicate` er UNIQUE, så de kan ikke genbruge seedede prædikater. Bindingen regel↔prædikat håndhæves i stedet (a) i `add_interpretation_promotion_rule_version` og en trigger på `interpretation_promotion_rule` — ukendt prædikat afvises, undtagen for `rule_key LIKE 'verify-%'`; kendt prædikat kræver `value_kind`-lighed og `text`/`date_raw` — og (b) med en db-verify-assert om, at alle aktive regler med `rule_key NOT LIKE 'verify-%'` peger på et seedet prædikat. FK'en på `interpretation.predicate` bevares.
+- **db-verify's syntetiske prædikater.** `db-verify.sql` kører mod prod og indsætter bevidst syntetiske prædikater som negative promotion-fixtures: i `rule_line` (`person.name.relation`, `verify.person.name.no_bulk`, `verify.person.name.principal`; søg `verify-relation-target`, `verify-name-no-bulk`) **og i `private.interpretation`** (`verify.person.name.no_bulk`, `verify.person.name.principal`, `verify.concurrent.name`; søg `verify.concurrent.name`). `rule_line.predicate` er UNIQUE, så fixtures kan ikke genbruge seedede prædikater. Derfor: (1) ingen FK på `rule_line.predicate`; (2) FK'en på `interpretation.predicate` bevares, og de fire `verify.*`/`person.name.relation`-prædikater seedes som `status='active'`, `introduced_in='db-verify-fixture'`, `value_kind='text'`, så fixtures kan indsættes; PK-CHECK'et tillader flerleddede navne (`^[a-z_]+(\.[a-z_]+)+$`); (3) "42 aktive"-asserter og den genererede fil filtrerer på `introduced_in<>'db-verify-fixture'`; (4) guardene i `add_interpretation_promotion_rule_version` og triggeren springes helt over for `rule_key LIKE 'verify-%'` (både ukendt-prædikat og `value_kind`-kontrollen), så db-verify's negative tests fortsat rammer de fejl, de er skrevet til; (5) db-verify-assert: alle aktive regler med `rule_key NOT LIKE 'verify-%'` peger på et seedet, ikke-fixture-prædikat med samme `value_kind`.
 - `value_kind`-binding: en promotion-regel må kun findes for prædikater med `value_kind IN ('text','date_raw')`, og reglens `value_kind` skal være lig prædikatets (spec §5.1, fund 1). Værdier for `text`/`date_raw` er JSON-skalarer.
 - "Prod har 0 fortolkninger" er en antagelse, der måles (læse-kun) før FK-migration; migrationen fejler hårdt, hvis en eksisterende `interpretation.predicate` ikke findes i tabellen.
 - Ingen prod-mutation. Commits: ét pr. task, dansk Conventional Commit, ingen push. Gren `feat/147-praedikat-vokabular`.
@@ -116,7 +116,8 @@ DO $t1_table_and_seed$
 DECLARE v_n integer; v_pred text;
 BEGIN
   IF to_regclass('private.interpretation_predicate') IS NULL THEN RAISE EXCEPTION 'PREDICATE_TABLE_MISSING'; END IF;
-  SELECT count(*) INTO v_n FROM private.interpretation_predicate WHERE status='active'; IF v_n<>42 THEN RAISE EXCEPTION 'PREDICATE_SEED_COUNT: %', v_n; END IF;
+  SELECT count(*) INTO v_n FROM private.interpretation_predicate WHERE status='active' AND introduced_in<>'db-verify-fixture'; IF v_n<>42 THEN RAISE EXCEPTION 'PREDICATE_SEED_COUNT: %', v_n; END IF;
+  SELECT count(*) INTO v_n FROM private.interpretation_predicate WHERE introduced_in='db-verify-fixture'; IF v_n<>4 THEN RAISE EXCEPTION 'PREDICATE_FIXTURE_SEED_COUNT: %', v_n; END IF;
   FOREACH v_pred IN ARRAY ARRAY['person.name','person.byname','person.title','person.birth','person.death'] LOOP
     IF NOT EXISTS (SELECT 1 FROM private.interpretation_promotion_rule_line l JOIN private.interpretation_predicate p ON p.predicate=l.predicate WHERE l.predicate=v_pred) THEN
       RAISE EXCEPTION 'PREDICATE_RULE_JOIN_MISSING: %', v_pred; END IF;
@@ -189,7 +190,7 @@ INSERT INTO private.vocab(scheme,code,label) VALUES
   ('interpretation_category','dekoration','Dekoration eller æresbevisning (§7.3)');
 
 CREATE TABLE private.interpretation_predicate (
-  predicate           text PRIMARY KEY CHECK (predicate ~ '^[a-z_]+\.[a-z_]+$'),
+  predicate           text PRIMARY KEY CHECK (predicate ~ '^[a-z_]+(\.[a-z_]+)+$'),
   interpretation_kind text NOT NULL CHECK (interpretation_kind IN ('property','relation','event','mention')),
   category            text,
   value_kind          text NOT NULL CHECK (value_kind IN ('text','date_raw','name','event','relation','mention')),
@@ -266,24 +267,31 @@ INSERT INTO private.interpretation_predicate(predicate,interpretation_kind,categ
   ('heraldry.description','property',NULL,'text','active','trin4-4.2'),
   ('heraldry.blazon','property',NULL,'text','active','trin4-4.2'),
   ('image.caption','property',NULL,'text','active','trin4-4.2'),
-  ('reference.cross_reference','mention',NULL,'mention','active','trin4-4.2');
+  ('reference.cross_reference','mention',NULL,'mention','active','trin4-4.2'),
+  -- db-verify's syntetiske fixtures (kører mod prod; se Global Constraints). Ikke i den genererede fil.
+  ('person.name.relation','property',NULL,'text','active','db-verify-fixture'),
+  ('verify.person.name.no_bulk','property',NULL,'text','active','db-verify-fixture'),
+  ('verify.person.name.principal','property',NULL,'text','active','db-verify-fixture'),
+  ('verify.concurrent.name','property',NULL,'text','active','db-verify-fixture');
 ```
 
 Ingen FK på `interpretation_promotion_rule_line` (se Global Constraints). I `private.add_interpretation_promotion_rule_version` (søg funktionsnavnet), efter `IF v_predicate<>p_predicate THEN ...`:
 
 ```sql
-  IF p_rule_key NOT LIKE 'verify-%' AND NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=p_predicate AND pr.status='active') THEN
-    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_PREDICATE_UNKNOWN';
-  END IF;
-  IF EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=p_predicate)
-     AND NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=p_predicate AND pr.status='active' AND pr.value_kind=p_value_kind AND pr.value_kind IN ('text','date_raw')) THEN
-    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_VALUE_KIND_MISMATCH';
+  -- db-verify's negative fixtures (rule_key 'verify-%') skal ramme de fejl, de tester, ikke disse guards.
+  IF p_rule_key NOT LIKE 'verify-%' THEN
+    IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=p_predicate AND pr.status='active' AND pr.introduced_in<>'db-verify-fixture') THEN
+      RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_PREDICATE_UNKNOWN';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=p_predicate AND pr.value_kind=p_value_kind AND pr.value_kind IN ('text','date_raw')) THEN
+      RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_VALUE_KIND_MISMATCH';
+    END IF;
   END IF;
 ```
 
 Samme to kontroller som trigger `private.validate_interpretation_promotion_rule_predicate()` BEFORE INSERT på `private.interpretation_promotion_rule` (undtagelsen `verify-%` gælder db-verify's egne negative fixtures og dokumenteres i triggerens kommentar). De fem seed-rækker (søg `('person-name-v1',1,'person.name'`) opfylder begge.
 
-Efter `interpretation`-tabellen: `ALTER TABLE private.interpretation ADD CONSTRAINT interpretation_predicate_fk FOREIGN KEY (predicate) REFERENCES private.interpretation_predicate(predicate);` (prædikatblokken står allerede før `interpretation`, jf. filoversigten). Før FK'en: `grep -nE "INSERT INTO private\.interpretation\(" db-verify.sql tests/sql/*.sql` og kontrollér, at hver sådan fixture bruger et seedet prædikat (i dag kun `person.name`/`person.byname`/`person.title`/`person.birth`/`person.death`); en syntetisk fixture med et ikke-seedet prædikat rettes til et seedet.
+Efter `interpretation`-tabellen: `ALTER TABLE private.interpretation ADD CONSTRAINT interpretation_predicate_fk FOREIGN KEY (predicate) REFERENCES private.interpretation_predicate(predicate);` (prædikatblokken står allerede før `interpretation`, jf. filoversigten). Før FK'en: `grep -nE "INSERT INTO private\.interpretation\(" db-verify.sql tests/sql/*.sql` og kontrollér, at hver fixtures prædikat er seedet: de fem regel-prædikater plus de fire `db-verify-fixture`-prædikater (målt 2026-09-06: `verify.person.name.no_bulk`, `verify.person.name.principal`, `verify.concurrent.name` i `db-verify.sql`). Dukker et nyt syntetisk prædikat op, seedes det som `db-verify-fixture`.
 
 View efter `interpretation_promotion_rule_current`:
 
@@ -293,7 +301,7 @@ SELECT p.predicate, p.interpretation_kind, p.category, p.value_kind, r.rule_key,
   FROM private.interpretation_predicate p
   JOIN private.interpretation_promotion_rule_line l ON l.predicate=p.predicate
   JOIN private.interpretation_promotion_rule_current r ON r.rule_key=l.rule_key
- WHERE p.status='active' AND r.status='active';
+ WHERE p.status='active' AND p.introduced_in<>'db-verify-fixture' AND r.status='active' AND r.rule_key NOT LIKE 'verify-%';
 ```
 
 - [ ] **Step 2: Migration**
@@ -327,7 +335,7 @@ Forventet: grønt (promotion-suiten bruger kun de fem seedede prædikater). Kør
 - [ ] **Step 4: db-rls + db-verify + commit**
 
 `db-rls.sql`: `REVOKE ALL ON FUNCTION private.validate_interpretation_predicate(), private.reject_interpretation_predicate_mutation(), private.validate_interpretation_promotion_rule_predicate() FROM PUBLIC,anon,authenticated,service_role; REVOKE ALL ON TABLE private.interpretation_predicate FROM PUBLIC,anon,authenticated;`
-`db-verify.sql`: blok, der asserterer tabel, 42 aktive rækker, FK'en `interpretation_predicate_fk`, view med 5 rækker, `value_kind`-paritet regel↔prædikat, at alle aktive regler med `rule_key NOT LIKE 'verify-%'` peger på et seedet prædikat, RLS + mutations-trigger på tabellen, og at `add_interpretation_promotion_rule_version`'s definition indeholder både `EVIDENCE_PROMOTION_RULE_PREDICATE_UNKNOWN` og `EVIDENCE_PROMOTION_RULE_VALUE_KIND_MISMATCH`. Kør derefter `tests/sql/run-db-verify-disposable.sql` og bekræft, at db-verify's egne `verify-%`-fixtures stadig passerer.
+`db-verify.sql`: blok, der asserterer tabel, 42 aktive ikke-fixture-rækker + 4 fixture-rækker, FK'en `interpretation_predicate_fk`, view med 5 rækker, `value_kind`-paritet regel↔prædikat for `rule_key NOT LIKE 'verify-%'`, at alle sådanne aktive regler peger på et seedet ikke-fixture-prædikat, RLS + mutations-trigger på tabellen, og at `add_interpretation_promotion_rule_version`'s definition indeholder både `EVIDENCE_PROMOTION_RULE_PREDICATE_UNKNOWN` og `EVIDENCE_PROMOTION_RULE_VALUE_KIND_MISMATCH`. Kør derefter `tests/sql/run-db-verify-disposable.sql` og bekræft, at db-verify's egne `verify-%`-fixtures stadig passerer.
 
 ```bash
 git branch --show-current
@@ -356,7 +364,7 @@ git commit -m "feat(db): private.interpretation_predicate — ét navnerum med v
 }
 ```
 
-Sorteret på `predicate` (bytesortering), én række pr. aktiv tabelrække, `promotable` = findes i `interpretation_predicate_promotable`.
+Sorteret på `predicate` (bytesortering), én række pr. aktiv tabelrække med `introduced_in<>'db-verify-fixture'` (fixture-prædikaterne er ikke en del af extractorens vokabular), `promotable` = findes i `interpretation_predicate_promotable`.
 
 - [ ] **Step 2: Check-script**
 
@@ -370,7 +378,7 @@ from pathlib import Path
 FILE = Path(__file__).resolve().parents[1] / "references" / "interpretation-predicates.json"
 SQL = """SELECT coalesce(json_agg(json_build_object('predicate',p.predicate,'interpretation_kind',p.interpretation_kind,'category',p.category,
   'value_kind',p.value_kind,'promotable',EXISTS(SELECT 1 FROM private.interpretation_predicate_promotable v WHERE v.predicate=p.predicate))
-  ORDER BY p.predicate COLLATE "C"),'[]'::json) FROM private.interpretation_predicate p WHERE p.status='active'"""
+  ORDER BY p.predicate COLLATE "C"),'[]'::json) FROM private.interpretation_predicate p WHERE p.status='active' AND p.introduced_in<>'db-verify-fixture'"""
 
 def from_db() -> dict:
     out = subprocess.run(["psql", "-X", "-At", "-v", "ON_ERROR_STOP=1", "-c", SQL], capture_output=True, text=True, check=True).stdout.strip()
@@ -532,7 +540,7 @@ psql -X -v ON_ERROR_STOP=1 -f db-migrations.sql
 psql -X -v ON_ERROR_STOP=1 -f db-migrations.sql
 psql -X -v ON_ERROR_STOP=1 -f db-rls.sql
 psql -X -v ON_ERROR_STOP=1 -f tests/sql/run-db-verify-disposable.sql 2>&1 | grep -E 'OK: #147|ERROR'
-psql -X -Atc "SELECT (SELECT count(*) FROM private.interpretation_predicate WHERE status='active'),(SELECT count(*) FROM private.interpretation_predicate_promotable)"   # 42|5
+psql -X -Atc "SELECT (SELECT count(*) FROM private.interpretation_predicate WHERE status='active' AND introduced_in<>'db-verify-fixture'),(SELECT count(*) FROM private.interpretation_predicate_promotable)"   # 42|5
 /usr/bin/python3 .claude/skills/daa-extract/scripts/check_interpretation_predicates.py   # PREDICATE_FILE_OK
 psql -X -v ON_ERROR_STOP=1 -f tests/sql/test-evidence-promotion.sql 2>&1 | tail -3
 ```

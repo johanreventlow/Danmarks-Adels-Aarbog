@@ -112,9 +112,9 @@ CREATE FUNCTION pg_temp.ce_payload(p_fx jsonb, p_clauses jsonb) RETURNS jsonb LA
     'parent_verbatim_sha256',p_fx->>'parent_sha256','clause_rules_version','clause-rules-fixture-v1','segmenter_version','clause_segment.py@v1',
     'ledger_sha256',repeat('d',64),'gap_charset',jsonb_build_array(' '),'clauses',p_clauses)
 $$;
--- Datadrevet: klausul 1 = til og med første '. '-punktum (1-baseret position p), klausul 2 fra p+1 (0-baseret).
+-- Datadrevet: klausul 1 = til og med punktummet før ' Gift' (1-baseret position p), klausul 2 fra p+1 (0-baseret).
 CREATE FUNCTION pg_temp.ce_clauses(p_text text) RETURNS jsonb LANGUAGE sql AS $$
-  WITH s AS (SELECT position('. ' in p_text) AS p)
+  WITH s AS (SELECT position('. Gift' in p_text) AS p)
   SELECT jsonb_build_array(
     jsonb_build_object('ordinal',1,'char_from',0,'char_to',s.p,'classification','record_text','flags','[]'::jsonb,'verbatim_sha256',encode(extensions.digest(substr(p_text,1,s.p),'sha256'),'hex')),
     jsonb_build_object('ordinal',2,'char_from',s.p+1,'char_to',char_length(p_text),'classification','record_text','flags','["uncertain_marker"]'::jsonb,'verbatim_sha256',encode(extensions.digest(substr(p_text,s.p+2),'sha256'),'hex')))
@@ -168,7 +168,7 @@ BEGIN
    WHERE rd.source_id=(fx->>'source_id')::bigint AND ob.observation_kind='clause';
   IF v_n<>2 THEN RAISE EXCEPTION 'T2_CLAUSE_ROWS: %', v_n; END IF;
   -- Absolutte offsets: helposten starter ved 100; klausul 1 slutter ved første '. '-punktum.
-  IF NOT EXISTS (SELECT 1 FROM private.source_observation WHERE observation_kind='clause' AND clause_ordinal=1 AND char_from=100 AND char_to=100+position('. ' in v_text) AND page_from=10 AND page_to=10) THEN RAISE EXCEPTION 'T2_ABSOLUTE_OFFSETS'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM private.source_observation WHERE observation_kind='clause' AND clause_ordinal=1 AND char_from=100 AND char_to=100+position('. Gift' in v_text) AND page_from=10 AND page_to=10) THEN RAISE EXCEPTION 'T2_ABSOLUTE_OFFSETS'; END IF;
   SELECT array_agg(d.disposition ORDER BY ob.clause_ordinal) INTO v_disp FROM private.clause_disposition_current d JOIN private.source_observation ob ON ob.id=d.observation_id WHERE ob.observation_kind='clause' AND ob.extraction_run_id IN (SELECT id FROM private.extraction_run WHERE source_id=(fx->>'source_id')::bigint AND run_key LIKE 'reimport-clause-evidence:%');
   IF v_disp<>ARRAY['afventer_fortolkning','maskinelt_flagget'] THEN RAISE EXCEPTION 'T2_DISPOSITIONS: %', v_disp; END IF;
   IF (SELECT count(*) FROM private.reimport_event WHERE batch_id=(r->>'batch_id')::uuid AND operation='clause_evidence')<>1 THEN RAISE EXCEPTION 'T2_EVENT_MISSING'; END IF;
@@ -199,7 +199,7 @@ BEGIN
   p := pg_temp.ce_payload(fx, jsonb_set(c,'{0,verbatim_sha256}',to_jsonb(repeat('f',64))));
   PERFORM pg_temp.expect_error(format('SELECT pg_temp.ce_apply(%L::jsonb,%L::jsonb,%L,%L)',fx,p,'CE2','n2'),'CLAUSE_EVIDENCE_TEXT_HASH_MISMATCH');
   -- Mellemrum indeholder ikke-hvidlistet tegn: skub klausul 2 ét tegn frem, så første bogstav efter mellemrummet bliver "gap".
-  p := pg_temp.ce_payload(fx, jsonb_set(jsonb_set(c,'{1,char_from}',to_jsonb(position('. ' in v_text)+2)),'{1,verbatim_sha256}',to_jsonb(encode(extensions.digest(substr(v_text,position('. ' in v_text)+3),'sha256'),'hex'))));
+  p := pg_temp.ce_payload(fx, jsonb_set(jsonb_set(c,'{1,char_from}',to_jsonb(position('. Gift' in v_text)+2)),'{1,verbatim_sha256}',to_jsonb(encode(extensions.digest(substr(v_text,position('. Gift' in v_text)+3),'sha256'),'hex'))));
   PERFORM pg_temp.expect_error(format('SELECT pg_temp.ce_apply(%L::jsonb,%L::jsonb,%L,%L)',fx,p,'CE2','n3'),'CLAUSE_EVIDENCE_GAP_INVALID');
   -- Ordinal-hul.
   p := pg_temp.ce_payload(fx, jsonb_set(c,'{1,ordinal}','3'));
@@ -228,7 +228,7 @@ END $t4_acl$;
 ROLLBACK;
 ```
 
-Bemærk offsets: payloadens `char_from` er 0-baseret helpost-relativ; SQL's `substr` og `position` er 1-baserede. Med `p = position('. ' in tekst)` (positionen for punktummet) er klausul 1 `[0, p)` = `substr(tekst,1,p)`, og klausul 2 starter ved `p+1` (0-baseret) = `substr(tekst,p+2)`. Gap-casen flytter klausul 2 til `p+2`, så tegnet på 0-baseret indeks `p+1` (første bogstav efter mellemrummet) havner i mellemrummet.
+Bemærk offsets: payloadens `char_from` er 0-baseret helpost-relativ; SQL's `substr` og `position` er 1-baserede. Med `p = position('. Gift' in tekst)` (positionen for punktummet før ' Gift') er klausul 1 `[0, p)` = `substr(tekst,1,p)`, og klausul 2 starter ved `p+1` (0-baseret) = `substr(tekst,p+2)`. Gap-casen flytter klausul 2 til `p+2`, så tegnet på 0-baseret indeks `p+1` (første bogstav efter mellemrummet) havner i mellemrummet.
 
 - [ ] **Step 2: Kør og se den fejle**
 
@@ -634,7 +634,7 @@ git commit -m "feat(evidens): clause_evidence-profil og manifest-builder fra kla
 
 - [ ] **Step 1: Skriv integrationstesten (fejler først)**
 
-Kopiér fra `tests/integration/test-reimport-legacy-migration.R` linje 1-61 (pakker, `root`, `connect`, `q`/`e`/`sha`/`count1`, nonce, `run_key`, `source_id`, kontrakt-assert, `actor`, `profile_id`, `writer_config`, profil-INSERT, `set_config`, `env_gateway`, `database_identity`, `authorize`) og linje 63-71 (`operation`-hjælperen). **Afvig** fra originalen ved kun at bygge én record: `key_dead`, `text_dead <- paste0("Alfa ", run_key, " Bravo, f. 1801, d. 1860. Gift 1830 m. Charlie.")`, og `manifest_se` med `expected_counts = list(source_evidence = 1L, person_creates = 0L, canonical_delta = 0L)` og én `operation(...)`. Kør `execute_reimport(manifest_se, …, "apply", …)` og assertér `finalized`/`committed`. Personer, narrativer og ledger fra originalens linje 74-95 er ikke nødvendige her. Derefter:
+Kopiér fra `tests/integration/test-reimport-legacy-migration.R` linje 1-64 (pakker, `root`, `connect`, `q`/`e`/`sha`/`count1`, nonce, `run_key`, `source_id`, kontrakt-assert, `actor`, `profile_id`, `writer_config`, profil-INSERT, `set_config`, `env_gateway`, `database_identity`, `authorize` (l. 58-64)) og linje 67-75 (`operation`-hjælperen). **Afvig** fra originalen ved kun at bygge én record: `key_dead`, `text_dead <- paste0("Alfa ", run_key, " Bravo, f. 1801, d. 1860. Gift 1830 m. Charlie.")`, og `manifest_se` med `expected_counts = list(source_evidence = 1L, person_creates = 0L, canonical_delta = 0L)` og én `operation(...)`. Kør `execute_reimport(manifest_se, …, "apply", …)` og assertér `finalized`/`committed`. Personer, narrativer og ledger fra originalens linje 74-95 er ikke nødvendige her. Derefter:
 
 ```r
 # ---- clause_evidence: manifest fra en syntetisk ledger ---------------------------
@@ -646,8 +646,8 @@ ce_sha <- q("SELECT private.reimport_canonical_json_sha256($1::jsonb) h", list(c
 e("INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config) VALUES($1,$2,'clause-evidence-v1',$3,$4::jsonb) ON CONFLICT(source_id,profile_id,profile_sha256) DO NOTHING",
   list(source_id, ce_profile_id, ce_sha, ce_config))
 sha_text <- function(x) digest::digest(x, algo = "sha256", serialize = FALSE)
-# Datadrevet skæring ved første ". " (regexpr er 1-baseret og peger på punktummet).
-p <- regexpr(". ", text_dead, fixed = TRUE)[[1L]]; stopifnot(p > 0L)
+# Datadrevet skæring ved ". Gift" (regexpr er 1-baseret og peger på punktummet).
+p <- regexpr(". Gift", text_dead, fixed = TRUE)[[1L]]; stopifnot(p > 0L)
 c1 <- substr(text_dead, 1L, p); c2 <- substr(text_dead, p + 2L, nchar(text_dead))
 clauses <- list(
   list(ordinal = 1L, char_from = 0L, char_to = p, classification = "record_text", flags = list(), verbatim_sha256 = sha_text(c1)),
