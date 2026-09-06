@@ -123,10 +123,12 @@ programmets samlede modenhed.
 
 ## Næste tilladte arbejde
 
-Næste tilladte handling er en projektejer-review af
-[#152-cutover-runbooken](../runbooks/narrative-record-key-cutover.md) med en
-frisk, læse-kun production-inventory. Ingen #152-produktionsmutation er
-autoriseret uden en ny udtrykkelig GO.
+Roadmap-trin 1-3 (#152, #153, #149) er `produktionsverificeret` pr. 2026-09-06. Næste
+aktive programmål er **trin 4: den fælles fortolkningskæde og klausulgranularitet
+(#147/#148)** — extractor-runneren med modelkald, proposed-ingest og promotion i drift
+på begge referenceudgaver. Planen skal besvare roadmappens seks adgangskrav og
+efterprøves af PM-rollen før implementering (decisions 2026-09-03). Prod-mutationer
+kræver fortsat en udtrykkelig GO pr. apply.
 
 ## Parkeret arbejde
 
