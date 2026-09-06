@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-09-06 — GO 3: 149a kilderegnskab for 2018-20 anvendt i prod
+
+**Deployet til prod** (projektejer-GO 3). Writer-profil `daa-2018-20-source-evidence-v1`
+(`profile_sha256 = 5919b603…`) indsat; manifest `c7d19c01…` (bytes `db58e407…`, 591
+`source_evidence`, 0 `person_create`); preview mod prod `74edd30a…` (før-billede 0/0/0/0,
+nøgledækning 591/591); dry-run `finalized`/ikke committet; autorisation `c4113958…`
+(service_role + redaktionsaktør); apply `finalized`, `committed=true`, batch `30469676…`
+(observed = expected). Efter: 1 rendition / 591 source records / 591 forekomster / 591
+accepterede ankre for source 1; aggregat-hashes for `person`, `fact`, `family_member`,
+`narrative`, `narrative_record_publication` identiske før/efter. Første forsøg stoppede
+fail-closed (`REIMPORT_AUTHORIZATION_REQUIRED`) pga. et fejlagtigt id-udtræk i
+operatørscriptet — intet skrevet; rettet og genkørt med samme autorisation.
+
 ## 2026-09-06 — GO 2: #152-cutover i prod (kontraktversion 1 → 2)
 
 **Deployet til prod** (projektejer-GO 2). Kæde: backup `c932273b…` (0600) → restore-rehearsal

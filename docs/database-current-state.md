@@ -267,6 +267,13 @@ record-baselines + 552 grandfathered legacy-rækker (544 fra 2018-20, 8 fra 1939
 redaktørerne bruger de nye `red_*_person_narrative_record`-RPC'er. Nye bindinger er frosset
 indtil 149a/149b er anvendt (GO 3-4). Se changelog 2026-09-06.
 
+### 149a — 2018-20 kilderegnskab LIVE i prod (2026-09-06, GO 3)
+
+Batch `30469676…` (`finalized`, 591 `source_evidence`): 1 rendition
+(`daa-2018-20-pdftotext-r1`, rå tekst `2dd5cf84…`), 591 `source_record` (`person_post`),
+591 forekomster og 591 accepterede ankre for source 1. Ingen ændring i `person`/`fact`/
+`family_member`/`narrative`/bindinger. Bindingerne følger med 149b (GO 4).
+
 ## 4. Hvad er ikke live / bevidst udskudt
 
 | Emne | Status |
