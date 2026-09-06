@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-09-06 — GO 4: 149b legacy-migration anvendt i prod — 2018-20 er kildebundet
+
+**Deployet til prod** (projektejer-GO 4). Writer-profil `daa-2018-20-legacy-migration-v1`
+(`954f3bb3…`); læse-kun kandidateksport fra prod (591 kandidater, 544 grandfathered + 47 uden
+ledger, injektiv, 0 allerede bundet); manifest `b51f83ac…` (bytes `7efcdaac…`, 587
+elementer; dispositioner 541 `bound_published` / 46 `bound_draft` / 4 `unresolved_text`
+= `I-133`, `II-35`, `III-129`, `IV-94` / 0 `unresolved_identity`); preview `6d19c23d…`
+(149a på plads 1/591/591/591, ledger 544, kontrakt 2); dry-run `finalized`/ikke committet;
+autorisation `19a2029d…`; apply `finalized`, `committed=true`, batch `0854a091…`
+(observed = expected, `legacy_migrations 587`).
+
+Efter apply (læse-kun): 587 personas og accepterede identiteter (evidens
+`person_external_id`), bindinger 541 `published` + 46 `draft`, ledger source 1 = 541
+`migrated` + 3 `grandfathered_publication` + 0 `withdrawn`, events 587 `draft_created` /
+541 `published` / 541 `legacy_migrated`; offentlig flade (v1 og v2) for de 591 personer:
+541 `source_record` (alle med »DAA 2018-20, s. N«) + 3 `legacy_narrative`, 0 rækker for de
+47 levende; `person`/`fact`/`family_member`/`narrative` aggregat-hashes identiske og
+`narrative.tekst/privat/side` uændret for alle 591.
+
+Roadmap-trin 3 (2018-20 fase A-ækvivalent provenance) er dermed `produktionsverificeret`.
+Restpunkter: de 4 `unresolved_text` og de 13 mulige `NOISE_RE`-prosalinjer er uændrede;
+`get_advisors` skal tjekkes i Supabase-dashboardet (MCP peger på andet projekt).
+
 ## 2026-09-06 — GO 3: 149a kilderegnskab for 2018-20 anvendt i prod
 
 **Deployet til prod** (projektejer-GO 3). Writer-profil `daa-2018-20-source-evidence-v1`

@@ -274,6 +274,14 @@ Batch `30469676…` (`finalized`, 591 `source_evidence`): 1 rendition
 591 forekomster og 591 accepterede ankre for source 1. Ingen ændring i `person`/`fact`/
 `family_member`/`narrative`/bindinger. Bindingerne følger med 149b (GO 4).
 
+### 149b — 2018-20 narrativ-binding LIVE i prod (2026-09-06, GO 4)
+
+Batch `0854a091…` (`finalized`, 587 `legacy_migration`): 541 biografier kildebundne og
+publicerede med »DAA 2018-20, s. N« og stabil `source_record_ref`, 46 levende som skjulte
+kladder, 3 fortsat overgangsdata (`I-133`, `II-35`, `III-129`), 1 uafklaret levende
+(`IV-94`) uden binding. 587 persona-identiteter (evidens `person_external_id`, valg A).
+Frysningen af nye bindinger fra #152 er dermed ophævet for 2018-20 og 1939.
+
 ## 4. Hvad er ikke live / bevidst udskudt
 
 | Emne | Status |
