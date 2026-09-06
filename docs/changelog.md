@@ -1,5 +1,56 @@
 # Changelog
 
+## 2026-09-06 — GO 4: 149b legacy-migration anvendt i prod — 2018-20 er kildebundet
+
+**Deployet til prod** (projektejer-GO 4). Writer-profil `daa-2018-20-legacy-migration-v1`
+(`954f3bb3…`); læse-kun kandidateksport fra prod (591 kandidater, 544 grandfathered + 47 uden
+ledger, injektiv, 0 allerede bundet); manifest `b51f83ac…` (bytes `7efcdaac…`, 587
+elementer; dispositioner 541 `bound_published` / 46 `bound_draft` / 4 `unresolved_text`
+= `I-133`, `II-35`, `III-129`, `IV-94` / 0 `unresolved_identity`); preview `6d19c23d…`
+(149a på plads 1/591/591/591, ledger 544, kontrakt 2); dry-run `finalized`/ikke committet;
+autorisation `19a2029d…`; apply `finalized`, `committed=true`, batch `0854a091…`
+(observed = expected, `legacy_migrations 587`).
+
+Efter apply (læse-kun): 587 personas og accepterede identiteter (evidens
+`person_external_id`), bindinger 541 `published` + 46 `draft`, ledger source 1 = 541
+`migrated` + 3 `grandfathered_publication` + 0 `withdrawn`, events 587 `draft_created` /
+541 `published` / 541 `legacy_migrated`; offentlig flade (v1 og v2) for de 591 personer:
+541 `source_record` (alle med »DAA 2018-20, s. N«) + 3 `legacy_narrative`, 0 rækker for de
+47 levende; `person`/`fact`/`family_member`/`narrative` aggregat-hashes identiske og
+`narrative.tekst/privat/side` uændret for alle 591.
+
+Roadmap-trin 3 (2018-20 fase A-ækvivalent provenance) er dermed `produktionsverificeret`.
+Restpunkter: de 4 `unresolved_text` og de 13 mulige `NOISE_RE`-prosalinjer er uændrede;
+`get_advisors` skal tjekkes i Supabase-dashboardet (MCP peger på andet projekt).
+
+## 2026-09-06 — GO 3: 149a kilderegnskab for 2018-20 anvendt i prod
+
+**Deployet til prod** (projektejer-GO 3). Writer-profil `daa-2018-20-source-evidence-v1`
+(`profile_sha256 = 5919b603…`) indsat; manifest `c7d19c01…` (bytes `db58e407…`, 591
+`source_evidence`, 0 `person_create`); preview mod prod `74edd30a…` (før-billede 0/0/0/0,
+nøgledækning 591/591); dry-run `finalized`/ikke committet; autorisation `c4113958…`
+(service_role + redaktionsaktør); apply `finalized`, `committed=true`, batch `30469676…`
+(observed = expected). Efter: 1 rendition / 591 source records / 591 forekomster / 591
+accepterede ankre for source 1; aggregat-hashes for `person`, `fact`, `family_member`,
+`narrative`, `narrative_record_publication` identiske før/efter. Første forsøg stoppede
+fail-closed (`REIMPORT_AUTHORIZATION_REQUIRED`) pga. et fejlagtigt id-udtræk i
+operatørscriptet — intet skrevet; rettet og genkørt med samme autorisation.
+
+## 2026-09-06 — GO 2: #152-cutover i prod (kontraktversion 1 → 2)
+
+**Deployet til prod** (projektejer-GO 2). Kæde: backup `c932273b…` (0600) → restore-rehearsal
+lokalt (apply OK; postverify fejlede 3× → verifier rettet, PR #168) → frisk læse-kun eksport
+(563 bindinger, 552 grandfathered legacy = 544 source 1 + 8 source 3, 8 identiteter, 592
+blokerede, 11 direkte læsere; sysid `7642734024280108049`) → review + beslutninger (alle
+»godkend baseline« / »bevar som grandfathered«; projektejer eneste reviewer, se decisions
+2026-09-05) → konvertering (seks hashes) → preflight `preflight_rolled_back` → apply
+`committed` (change set 967, nonce `71f9fc65…`, receipt `512068f804cb52ce…`, 1115
+baseline-events, 0 skjulte) → postverify `postverify_passed` fra checkout `c8b76e9`.
+Kontraktversion i prod: **2**. Web (main, Vercel) var v2-parat før cutover.
+
+Konsekvens: nye bindinger og DAA-loaders er frosset indtil 149a/149b (GO 3-4);
+`red_slet_person` blokerer hel-person-sletning ved publication-events (#152 §11).
+
 ## 2026-09-05 — GO 1: DB-migration main → prod (149b-forberedelse)
 
 **Deployet til prod** (projektejer-GO 1, 2026-09-05): `db-migrations.sql` (SHA `a1a52941…`)

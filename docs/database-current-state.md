@@ -259,6 +259,29 @@ generelle reimport-writer (#153) inkl. `legacy_migration`-operation og
 publiceringsgaten. 1939's tre reimport-batches er migreret til `private.reimport_batch`
 (1 activated, 2 finalized). Backup før apply: SHA `5d1dc497…`. Se changelog 2026-09-05.
 
+### #152-cutover — LIVE i prod, kontraktversion 2 (2026-09-06, GO 2)
+
+`private.apply_narrative_record_cutover` kørt via runbooken fra checkout `c8b76e9`: 563
+record-baselines + 552 grandfathered legacy-rækker (544 fra 2018-20, 8 fra 1939), change set
+967, receipt `512068f804cb52ce…`, postverify bestået. Gamle person/DAA-skriveveje er lukkede;
+redaktørerne bruger de nye `red_*_person_narrative_record`-RPC'er. Nye bindinger er frosset
+indtil 149a/149b er anvendt (GO 3-4). Se changelog 2026-09-06.
+
+### 149a — 2018-20 kilderegnskab LIVE i prod (2026-09-06, GO 3)
+
+Batch `30469676…` (`finalized`, 591 `source_evidence`): 1 rendition
+(`daa-2018-20-pdftotext-r1`, rå tekst `2dd5cf84…`), 591 `source_record` (`person_post`),
+591 forekomster og 591 accepterede ankre for source 1. Ingen ændring i `person`/`fact`/
+`family_member`/`narrative`/bindinger. Bindingerne følger med 149b (GO 4).
+
+### 149b — 2018-20 narrativ-binding LIVE i prod (2026-09-06, GO 4)
+
+Batch `0854a091…` (`finalized`, 587 `legacy_migration`): 541 biografier kildebundne og
+publicerede med »DAA 2018-20, s. N« og stabil `source_record_ref`, 46 levende som skjulte
+kladder, 3 fortsat overgangsdata (`I-133`, `II-35`, `III-129`), 1 uafklaret levende
+(`IV-94`) uden binding. 587 persona-identiteter (evidens `person_external_id`, valg A).
+Frysningen af nye bindinger fra #152 er dermed ophævet for 2018-20 og 1939.
+
 ## 4. Hvad er ikke live / bevidst udskudt
 
 | Emne | Status |
