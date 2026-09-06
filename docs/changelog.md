@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-09-06 — GO 2: #152-cutover i prod (kontraktversion 1 → 2)
+
+**Deployet til prod** (projektejer-GO 2). Kæde: backup `c932273b…` (0600) → restore-rehearsal
+lokalt (apply OK; postverify fejlede 3× → verifier rettet, PR #168) → frisk læse-kun eksport
+(563 bindinger, 552 grandfathered legacy = 544 source 1 + 8 source 3, 8 identiteter, 592
+blokerede, 11 direkte læsere; sysid `7642734024280108049`) → review + beslutninger (alle
+»godkend baseline« / »bevar som grandfathered«; projektejer eneste reviewer, se decisions
+2026-09-05) → konvertering (seks hashes) → preflight `preflight_rolled_back` → apply
+`committed` (change set 967, nonce `71f9fc65…`, receipt `512068f804cb52ce…`, 1115
+baseline-events, 0 skjulte) → postverify `postverify_passed` fra checkout `c8b76e9`.
+Kontraktversion i prod: **2**. Web (main, Vercel) var v2-parat før cutover.
+
+Konsekvens: nye bindinger og DAA-loaders er frosset indtil 149a/149b (GO 3-4);
+`red_slet_person` blokerer hel-person-sletning ved publication-events (#152 §11).
+
 ## 2026-09-05 — GO 1: DB-migration main → prod (149b-forberedelse)
 
 **Deployet til prod** (projektejer-GO 1, 2026-09-05): `db-migrations.sql` (SHA `a1a52941…`)

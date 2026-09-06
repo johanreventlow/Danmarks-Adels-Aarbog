@@ -259,6 +259,14 @@ generelle reimport-writer (#153) inkl. `legacy_migration`-operation og
 publiceringsgaten. 1939's tre reimport-batches er migreret til `private.reimport_batch`
 (1 activated, 2 finalized). Backup før apply: SHA `5d1dc497…`. Se changelog 2026-09-05.
 
+### #152-cutover — LIVE i prod, kontraktversion 2 (2026-09-06, GO 2)
+
+`private.apply_narrative_record_cutover` kørt via runbooken fra checkout `c8b76e9`: 563
+record-baselines + 552 grandfathered legacy-rækker (544 fra 2018-20, 8 fra 1939), change set
+967, receipt `512068f804cb52ce…`, postverify bestået. Gamle person/DAA-skriveveje er lukkede;
+redaktørerne bruger de nye `red_*_person_narrative_record`-RPC'er. Nye bindinger er frosset
+indtil 149a/149b er anvendt (GO 3-4). Se changelog 2026-09-06.
+
 ## 4. Hvad er ikke live / bevidst udskudt
 
 | Emne | Status |
