@@ -81,9 +81,10 @@ en produktionskvittering. Kun nøgler, tal og hashes; ingen persondata.
 ## Restpunkter
 
 1. **Fase-pakke-gaten kan ikke lukkes af 149b alene**, af samme grund som
-   149a's bidrag: `docs/runbooks/evidence-import-phase-gate.md` og
-   receipt-skemaerne findes ikke som maskinelt kørende gate endnu (#156
-   lukket med restpunkt). Indtil da er tilstanden `afterdocumented`.
+   149a's bidrag: runbooken `docs/runbooks/evidence-import-phase-gate.md` er i
+   repoet (fra PR #165, lukket uden merge), men receipt-skemaerne findes ikke
+   som maskinelt kørende gate (#156 lukket med restpunkt, afstemning
+   INCOMPLETE). Indtil da er tilstanden `afterdocumented`.
 2. **De 4 `unresolved_text`-narrativer og de 13 mulige `NOISE_RE`-prosalinjer
    er ikke rettet** — rapporteret i
    [rehearsal-rapporten](legacy-migration-149b-rehearsal.md) og

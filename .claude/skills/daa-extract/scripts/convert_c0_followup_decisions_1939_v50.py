@@ -121,10 +121,13 @@ def parse_review(text: str, flags_doc: Dict[str, Any],
                  flags_sha256: str) -> Dict[str, Any]:
     if not isinstance(flags_sha256, str) or _SHA256_RE.fullmatch(flags_sha256) is None:
         _fail("C0F_REVIEW_FLAGS_SHA256_INVALID")
+    lines = text.splitlines()
+    if len(lines) < 2 or lines[1] != "# flags_sha256: " + flags_sha256:
+        _fail("C0F_REVIEW_FLAGS_SHA256_MISMATCH")
     expected = _expected_sequence(flags_doc)
 
     content_lines = [
-        (number, line) for number, line in enumerate(text.splitlines(), start=1)
+        (number, line) for number, line in enumerate(lines, start=1)
         if line.strip() and not line.lstrip().startswith("#") and not line.startswith("==")
     ]
 
