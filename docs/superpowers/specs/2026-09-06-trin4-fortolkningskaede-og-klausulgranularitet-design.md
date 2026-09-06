@@ -295,10 +295,25 @@ Ingen databaseskrivning.
 
 ### 6.6 Første skridt i planen er en verifikation, ikke en antagelse
 
-Det skal bekræftes empirisk mod den installerede `codex-cli` (0.153.4), at
-`exec` kan køre ikke-interaktivt med fast model, JSON-hændelser med
-token-forbrug og output-skema. Kan den ikke rapportere forbrug, stopper 4.3 med
-et navngivet fund; et estimat er ikke et regnskab.
+Målt 2026-09-06 mod den installerede `codex-cli` (0.153.4): `exec` har flagene
+`--model`, `--sandbox read-only`, `--ephemeral`, `--ignore-rules`, `--json` og
+`--output-schema`, og `--json` udsender hændelser (`thread.started`,
+`turn.started`, `turn.failed`). Om hændelserne bærer token-forbrug er **ikke**
+verificeret, fordi proben fejlede før svar (se nedenfor). Plan 4.3's første
+skridt er derfor at bekræfte forbrugsrapporteringen med en syntetisk prompt; kan
+CLI'en ikke rapportere forbrug, stopper 4.3 med et navngivet fund. Et estimat
+er ikke et regnskab.
+
+### 6.7 Kendt begrænsning: kvote, ikke betaling pr. token
+
+`codex exec` kører på projektejerens ChatGPT-abonnement, ikke på en API-nøgle.
+Proben 2026-09-06 ramte abonnementets forbrugsgrænse (`turn.failed`, nulstilling
+2026-09-09). Konsekvens: en kørsel kan stoppe midt i en batch uden fejl i
+input. Runneren skal behandle kvotefejl som en almindelig ikke-grøn batch
+(intet delvist merge, manifest forbliver `pending`, genkørsel via `reusable`),
+og plan 4.3 skal måle kvoteforbrug pr. record, så trin 6's fulde kørsel kan
+budgetteres, før den startes. Et skift til API-nøgle er en profil- og
+databehandlerbeslutning for projektejeren, ikke noget runneren gør stille.
 
 ## 7. Dagsværk 4.4: proposed-ingest (#147 leverance 2)
 
