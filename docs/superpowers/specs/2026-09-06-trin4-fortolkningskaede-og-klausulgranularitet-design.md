@@ -141,7 +141,12 @@ forælderens tekst udskåret på barnets offsets (substring-check);
 `private.vocab(scheme, code, label)` med samme form som `public.vocab`, fordi
 `public.vocab` er anon-læsbar. Håndhæves med trigger-opslag. Migrationen
 inventerer først de `observation_kind`-værdier, der faktisk findes, seeder dem
-og fejler ved en værdi, den ikke kan seede.
+og fejler ved en værdi, den ikke kan seede. Fordi triggeren lukker vokabularet
+for *alle* skrivestier, seedes også de koder, som `db-verify.sql` (der kører
+mod prod) og testfixtures bruger (`header`, `verify`, `stamtavle` m.fl.), mærket
+som fixture-koder; en glemt kode giver `EVIDENCE_OBSERVATION_KIND_UNKNOWN`,
+aldrig en slækket trigger. `private.vocab` og `clause_disposition` er
+append-only med RLS som de øvrige private tabeller.
 
 **Dækningsinvariant, to lag:** (1) Python-ledgeren fra `clause_ledger` er den
 *fulde* dækningskontrakt (hvert tegn, inkl. `layout`/`noise`); dens SHA-256
@@ -279,9 +284,15 @@ value_kind, status, introduced_in, created_at)`:
   (regel `person-name-v1`, `text`) har derfor `value_kind='text'` (skalar);
   `name` som objektform bruges kun af `person.name_part`/`name_variant`, som
   ikke er promoverbare.
-- **Promoverbarhed udledes ved join** på `interpretation_promotion_rule_line.predicate`
-  (som får FK til tabellen); tabellen har ingen `rule_key`-kolonne, så der er
-  ingen cirkulær FK. `interpretation.predicate` får FK til tabellen.
+- **Promoverbarhed udledes ved join** på `interpretation_promotion_rule_line.predicate`;
+  tabellen har ingen `rule_key`-kolonne, så der er ingen cirkulær FK.
+  `interpretation.predicate` får FK til tabellen. `rule_line.predicate` får
+  **ingen** FK: `db-verify.sql` indsætter syntetiske prædikater som negative
+  promotion-fixtures mod prod, og `rule_line.predicate` er UNIQUE, så de kan ikke
+  genbruge seedede prædikater. Bindingen regel↔prædikat håndhæves i stedet i
+  `add_interpretation_promotion_rule_version` og en trigger på reglerne (ukendt
+  prædikat afvises undtagen for `verify-%`-regler; kendt prædikat kræver
+  `value_kind`-lighed) plus en db-verify-assert for alle ikke-`verify-%`-regler.
 
 **Værdiform (fund 1):** `validate_interpretation_promotion_items` sammenligner
 `value #>> '{}'` som tekst. For `value_kind` `text` og `date_raw` er værdien
