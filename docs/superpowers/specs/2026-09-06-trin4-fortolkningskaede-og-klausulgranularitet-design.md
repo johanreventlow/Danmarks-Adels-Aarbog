@@ -1,446 +1,536 @@
 # Roadmap-trin 4: den fælles fortolkningskæde og klausulgranularitet (#147/#148)
 
-**Dato:** 2026-09-06
-**Status:** Designspecifikation, godkendt sektionsvis af projektejeren i samtale;
-afventer anden læser (Codex `gpt-5.6-sol`) og projektejerens afgørelse på
-læserens fund, før nogen plan implementeres (decisions 2026-09-03, regel 2).
+**Dato:** 2026-09-06 (revision 2 samme dag efter uafhængig Opus-læsning, 27 fund)
+**Status:** Designspecifikation. Sektionerne er godkendt af projektejeren i samtale;
+revision 2 indarbejder anden læsers fund og projektejerens tre afgørelser på dem.
+Afventer projektejerens læsning af den skrevne spec, før planer skrives.
 **Roadmapmål:** trin 4 i `docs/evidensbaseret-genimport/roadmap.md`.
-**Forudsætninger opfyldt:** trin 1-3 (#152, #153, #149) er `produktionsverificeret`
-2026-09-06; prod kører narrativ-record-kontrakt version 2.
-**Autoriserer:** planlægning af fem dagsværk (afsnit 3). Autoriserer hverken kode,
-modelkald mod rigtige data, databasemigration eller produktionsmutation; hvert af
-disse har sin egen gate (afsnit 10).
+**Forudsætning:** trin 1-3 (#152, #153, #149) er anvendt og efterverificeret i prod
+2026-09-05/06 (GO 1-4, `docs/changelog.md`); prod kører narrativ-record-kontrakt
+version 2. `status.md`/`roadmap.md` er endnu ikke fuldt afstemt med det
+(åbent punkt 11.6).
+**Autoriserer:** planlægning af de otte dagsværk i afsnit 3. Autoriserer hverken
+kode, modelkald mod rigtige data, databasemigration eller produktionsmutation;
+hver af disse har sin egen gate (afsnit 10).
 
 ---
 
 ## 1. Beslutning
 
 Fortolkningslaget fyldes gennem den fælles motor, ikke gennem en ny udgaveparallel
-vej. Det sker i fem adskilte dagsværk, hver med præcis én rigtig kørsel mod en frisk
-restore af produktionsdumpet som definition of done:
+vej. Arbejdet deles i otte dagsværk (afsnit 3), hver med præcis én rigtig kørsel
+mod en restore af produktionsdumpet som definition of done.
 
-| Dagsværk | Issue | Lukker | Rigtig kørsel |
-| --- | --- | --- | --- |
-| 4.1 Klausullaget | #148 | klausulobservationer + dækningsinvariant | alle 591 2018-20-records segmenteret og skrevet i restore |
-| 4.2 Vokabular | #147 (3+4) | ét prædikat-navnerum, §7.3's syv kategorier | migration + verify på restore |
-| 4.3 Runner | #147 (1) | modelkald bag den frosne profil med reelt regnskab | 10 afdøde records gennem `gpt-5.6-terra` |
-| 4.4 Proposed-ingest | #147 (2) | `interpretation` + observationslinks atomisk | 4.3's grønne batch ingestet i restore |
-| 4.5 Pilot | #147 (5) | afgørelse + promotion i drift | ≥30 person- + ≥10 strukturelle records, kæden ende-til-ende |
+Seks valg er truffet af projektejeren 2026-09-06 og gælder for alle dagsværk:
 
-Tre valg er truffet af projektejeren 2026-09-06 og gælder for alle fem:
-
-- **Model-backend:** `codex exec` med de model-id'er, udgaveprofilen allerede
-  låser (`gpt-5.6-terra`, eskalering `gpt-5.6-sol`). Profilen ændres ikke.
-  Fravalgt: `claude -p`/Sonnet, som ville kræve profil v2, ny GO og et skift af
-  den leverandør, der behandler kildeteksten.
-- **Skrivevej:** to nye elementoperationer i #153's generelle writer
-  (`clause_evidence`, `interpretation_proposal`). Fravalgt: separate ingest-RPC'er
-  uden for writeren, fordi det er den anden skrivevej, #153 og fase-pakke-gaten
-  blev lavet for at afskaffe.
-- **Anden læser:** Codex `gpt-5.6-sol` reviewer spec og hver plan, derefter afgør
-  projektejeren på fundene.
+1. **Model-backend:** `codex exec` med de model-id'er, udgaveprofilen låser
+   (`gpt-5.6-terra`, eskalering `gpt-5.6-sol`). Profilen ændres ikke. Fravalgt:
+   `claude -p`/Sonnet (profil v2, ny GO, leverandørskift).
+2. **Skrivevej:** to nye elementoperationer i #153's generelle writer
+   (`clause_evidence`, `interpretation_proposal`). Fravalgt: separate RPC'er uden
+   for writeren.
+3. **Anden læser:** uafhængig maskinel læser (Opus 2026-09-06; Codex `gpt-5.6-sol`
+   når kvoten tillader) af spec og hver plan, derefter projektejerens afgørelse.
+4. **Udelukkelseskriterium for modelkald (GDPR):** regel 1-4 i afsnit 9.2 med
+   1950 som årsgrænse.
+5. **Behandlingsgrundlag:** projektejeren accepterer, at `codex exec` kører på
+   projektejerens ChatGPT-abonnement (ikke API-nøgle med særskilte
+   databehandlervilkår) som grundlag for behandling af *afdøde* personers
+   kildetekst. Et skift til API-nøgle er en ny projektejerbeslutning.
+6. **Promotion i trin 4 er binding, ikke oprettelse:** en accepteret fortolkning
+   bindes til en allerede eksisterende, tekstidentisk assertion på den kanoniske
+   person. Oprettelse af nye fakta, assertions eller personer fra fortolkninger er
+   uden for trin 4 (afsnit 8.3).
 
 ## 2. Roadmappens seks adgangskrav
 
 1. **Roadmapmål:** trin 4, "den fælles fortolkningskæde og klausulgranularitet
    (#147/#148)".
 2. **Værdikædeled, der lukkes:** `klausulobservationer og mentions → proposed
-   interpretations → menneskelig afgørelse → promotion` for 2018-20; tilstanden
-   flytter fra `specificeret`/`isoleret implementeret` til `integreret ende-til-ende`.
-   1939 får samme kæde i roadmap-trin 6, ikke her.
+   interpretations → menneskelig afgørelse → promotion (binding)` for 2018-20,
+   **for hovedpersonens source persona**. Leddet `source personas og
+   identitetskandidater` genbruges fra 149b (587 personaer) og udvides ikke; claims
+   om andre aktører parkeres med dispositionen `afventer_identitet` til trin 5.
+   Tilstanden for "Extractor-runner og modelkald" og "Proposed-ingest" flytter til
+   `integreret ende-til-ende` for 2018-20; "promotion" flytter kun for
+   *bindingsdelen*. 1939 får kæden i trin 6.
 3. **Generel, profil eller legacy:** generel motor (segmenter-kontrakt,
-   vokabulartabel, runner, to writer-operationer, afgørelses- og promotionkald)
-   plus en 2018-20-profiludvidelse (klausulregler, pristabel, udelukkelsesliste).
-   Ingen legacy-afvikling.
+   prædikattabel, runner, svar-cache, to writer-operationer, afgørelses- og
+   promotionskript) plus 2018-20-profiludvidelse (klausulregler, hvidlistet
+   mellemrumstegnsæt, pristabel, udelukkelsesregler). Ingen legacy-afvikling.
 4. **Redaktionel værdi:** strukturerede, kildebundne fakta med belæg pr. klausul,
-   som redaktøren kan acceptere, afvise eller lade stå uafklaret én ad gangen;
-   §7.3's kategorier (embede, hofstilling, erhverv, uddannelse, dekoration) og
-   indgiftedes egne oplysninger bliver producerbare uden nyt grundudtræk (§20).
-5. **Bevis:** den navngivne rigtige kørsel pr. dagsværk (tabellen i afsnit 1) med
-   tal, hashes og uændrede kanoniske aggregat-hashes, dokumenteret i
-   `docs/evidensbaseret-genimport/`.
-6. **Erstatter:** den gamle skills trin ③-④ (Sonnet-udtræk uden kildebelæg,
-   `validate.py`'s flet), `project_evidence.R`'s dry-run som "promotionvej", og
-   extractorens Python-liste `ALLOWED_PREDICATES` som selvstændigt vokabular.
+   som redaktøren accepterer, afviser eller lader stå uafklaret én ad gangen;
+   §7.3's kategorier og indgiftedes egne oplysninger bliver *registrerbare* som
+   forslag uden nyt grundudtræk (§20). Promotion af dem til kanoniske fakta kræver
+   regler, der ikke findes endnu (åbent punkt 11.2).
+5. **Bevis:** den navngivne rigtige kørsel pr. dagsværk (afsnit 3) med tal og
+   hashes. "Uændrede kanoniske aggregat-hashes" er et *neutralitetsbevis*
+   (operationen rørte ikke det, den ikke måtte), ikke et funktionsbevis;
+   funktionsbeviset er pr. dagsværk angivet særskilt.
+6. **Erstatter (muliggør):** trin 4 leverer ikke selv nedtagning af den gamle
+   skills trin ③-④, `validate.py`'s flet eller `project_evidence.R`; det kræver
+   paritet og disposition for alle berørte rækker (målarkitekturen, "Overgang fra
+   legacy"). Trin 4 gør erstatningen *mulig* ved at levere den vej, trin 6 skal
+   bevise paritet for. `ALLOWED_PREDICATES` som selvstændigt vokabular erstattes
+   dog reelt i 4.2.
 
 ## 3. Dekomposition og rækkefølge
 
-Rækkefølgen er 4.1 → 4.2 → 4.3 → 4.4 → 4.5 og kan ikke byttes: runneren skal citere
-klausul-id'er (4.1), ingest afviser prædikater uden for tabellen (4.2), og piloten
-kræver alle fire. Hvert dagsværk får sin egen plan i
-`docs/superpowers/plans/`, som selv besvarer de seks adgangskrav og læses af
-Codex før implementering. Et dagsværk må ikke begynde, før det foregående har
-sin rigtige kørsel dokumenteret.
+| Dagsværk | Issue | Indhold | Rigtig kørsel (DoD) |
+| --- | --- | --- | --- |
+| 4.1a Skema | #148 | kolonner, triggere, privat vokabular, dispositionsledger, legacy-writer-hærdning, kontraktbump | migration + verify på restore; 149a/149b-autorisationsformer valideres uændret |
+| 4.1b Segmenter | #148 | `clause_segment.py`, profilregler, hvidlistet tegnsæt, syntetisk fixture | ledger for alle 591 2018-20-records (privat artefakt), dækning 100 %, tal |
+| 4.1c Writer | #148 | `clause_evidence` + ACL + CI | 591 records skrevet i restore, neutralitetshashes, replay |
+| 4.2 Vokabular | #147 (3+4) | prædikattabel, genereret fil, kind-afledning | migration + verify på restore |
+| 4.3a Runner | #147 (1) | forbrugsprobe, svar-cache, fejltaksonomi, runner, udelukkelsesliste | syntetisk record gennem terra med reelt forbrug i manifest |
+| 4.3b Rigtig kørsel | #147 (1) | 10 afdøde records | manifest `green`, claims citerer klausuler; tidligst efter kvotenulstilling 2026-09-09 |
+| 4.4 Ingest | #147 (2) | `interpretation_proposal` + ACL + CI | 4.3b's batch ingestet i restore |
+| 4.5 Pilot | #147 (5) | udvalg, afgørelse, binding, rapport | ≥30 person- + ≥10 strukturelle records, kæden ende-til-ende i én restore |
 
-Ingen af de fem dagsværk muterer produktion. Første kandidat til en senere prod-GO
-er 4.1 alene, fordi klausuler kun er privat kildeevidens med nul kanonisk delta.
+Rækkefølgen er bindende. Hvert dagsværk får sin egen plan, som besvarer de seks
+adgangskrav, læses af anden læser og afgøres af projektejeren, før det begynder.
+4.3b-4.5 deler **én** restore (`clause`-id'er er database-genererede; se 4.1.4 om
+nøgling), så "frisk restore" gælder 4.1a-4.3a og 4.5's start, ikke hvert trin.
 
-## 4. Dagsværk 4.1: klausullaget (#148)
+Ingen af de otte dagsværk muterer produktion. Første kandidat til en senere
+prod-GO er 4.1c alene (privat kildeevidens, nul kanonisk delta), med sin egen
+fortrydelseskvittering (afsnit 4.1.5).
+
+## 4. Klausullaget (#148, dagsværk 4.1a-4.1c)
 
 ### 4.1.1 Målt udgangspunkt
 
-Begge udgaver har i dag præcis én helpost-observation pr. source record, skrevet af
-`private.ensure_reimport_source_evidence` (2018-20: 591, `observation_kind` =
-recordens kategori, fx `person_post`) eller af 1939's fase A (897 observationer =
-897 occurrences), hver med én mention over hele teksten. Der findes ingen
-klausuler, ingen del-span-mentions og intet klausulregnskab. `clause_ledger.py`
-findes som ren Python-kontrakt (dækning, ikke-overlap) uden databasevej.
+Begge udgaver har én helpost-observation pr. source record med én mention over
+hele teksten: 2018-20's 591 er skrevet af `private.ensure_reimport_source_evidence`
+(`observation_kind` = recordens kategori, `person_post`); 1939's tal (897) stammer
+fra afvigelsesvurderingen 2026-08-22 og genmåles i 4.1a's inventering. Der findes
+ingen klausuler, ingen del-span-mentions og intet klausulregnskab.
+`clause_ledger.py` er en ren Python-kontrakt uden databasevej.
 
 ### 4.1.2 Datamodel (additivt, append-only)
 
-- `private.source_observation` får en nullable kolonne `parent_observation_id`
-  (FK til samme tabel). En trigger håndhæver: barn og forælder deler
-  `occurrence_id`; barnets `[char_from,char_to)` ligger inde i forælderens;
-  forælderen har selv `parent_observation_id IS NULL` (ét niveau);
-  `observation_kind='clause'` kræver forælder; alle andre kinds forbyder forælder.
-  Barnets `verbatim_text` skal være lig forælderens tekst udskåret på
-  barnets relative offsets (mekanisk substring-check i triggeren).
-- `observation_kind` og klausulklassifikation får lukket vokabular i `public.vocab`
-  (`scheme='observation_kind'` og `scheme='clause_classification'`), håndhævet
-  ved FK-lignende trigger. Migrationen inventerer først de værdier, der faktisk
-  findes i prod, seeder dem, og fejler, hvis en eksisterende værdi ikke kan
-  seedes.
-- Klausulklassifikation følger `clause_ledger`: `record_text`,
-  `structural_header`, `layout`, `noise`. Kun `record_text` og
-  `structural_header` skrives som observationer; `layout`/`noise`-spans
-  (linjeskift, orddelingsstreger, sidetal) skrives ikke som rækker. I stedet
-  håndhæver writeren, at mellemrummene mellem søskende-klausuler inde i en
-  forælder udelukkende består af whitespace og orddelingsstreg. Det holder
-  dækningsinvarianten mekanisk uden at fylde tabellen med tomme spans.
-- Ny append-only ledger `private.clause_disposition(id, observation_id, version,
-  disposition, decided_by, decided_by_name, decided_at, evidence jsonb,
-  created_at)` med `UNIQUE(observation_id, version)`. Dispositionsvokabularet
-  (`vocab.scheme='clause_disposition'`) er §15.1's seks endelige tilstande
-  (`struktureret`, `relevant_uklassificeret`, `ikke_biografisk`, `layout_stoej`,
-  `ulaeselig_ocr`, `kraever_menneske`) plus tre mellemtilstande
-  (`afventer_fortolkning`, `fortolkning_foreslaaet`, `afventer_identitet`).
-  Seneste version pr. observation er gældende; en view `clause_disposition_current`
-  i `private` afleder den.
-- `private.source_mention.observation_id` må fremover pege på en klausul;
-  mention-offsets er relative til den observation, de peger på (uændret
-  semantik). Kontrakten `evidence_contract.Mention` udvides tilsvarende, så
-  `validate_bundle` accepterer mentions under klausuler.
+`private.source_observation` får fire nullable kolonner:
 
-### 4.1.3 Segmentering
+- `parent_observation_id` (FK til samme tabel),
+- `clause_ordinal integer`,
+- `clause_classification text` (`record_text` | `structural_header`),
+- `clause_flags jsonb` (liste af segmenterings-flag, tom liste tilladt).
+
+Trigger-regler: `observation_kind='clause'` ⇔ alle fire kolonner sat; andre kinds
+⇒ alle fire NULL. Barn og forælder deler `occurrence_id`; forælderen har selv
+`parent_observation_id IS NULL` (ét niveau); barnets rendition-absolutte
+`[char_from,char_to)` ligger inde i forælderens; barnets `verbatim_text` er lig
+forælderens tekst udskåret på barnets offsets (substring-check);
+`UNIQUE(parent_observation_id, clause_ordinal)`.
+
+**Offset-konvention:** databasen er rendition-absolut (som
+`validate_evidence_scope` kræver). Ledger, payload og prompt er helpost-relative
+(offset 0 = helpostens `char_from`). Writeren oversætter ved at lægge helpostens
+`char_from` til, og verificerer hash pr. klausul efter oversættelsen.
+
+**Vokabular:** `observation_kind`, `clause_classification` og
+`clause_disposition` er interne workflow-vokabularer og lægges i en ny
+`private.vocab(scheme, code, label)` med samme form som `public.vocab`, fordi
+`public.vocab` er anon-læsbar. Håndhæves med trigger-opslag. Migrationen
+inventerer først de `observation_kind`-værdier, der faktisk findes, seeder dem
+og fejler ved en værdi, den ikke kan seede.
+
+**Dækningsinvariant, to lag:** (1) Python-ledgeren fra `clause_ledger` er den
+*fulde* dækningskontrakt (hvert tegn, inkl. `layout`/`noise`); dens SHA-256
+går i manifestet. (2) Databasen projicerer kun `record_text` og
+`structural_header`. Writeren håndhæver, at mellemrummene mellem søskende
+inde i forælderen udelukkende består af tegn fra profilens **hvidlistede
+mellemrumstegnsæt**, som 4.1b måler empirisk over alle 591 tekster og fryser i
+profilen (forventet: whitespace, linjeskift, orddelingsstreg; *ikke* sidetal,
+som ikke forekommer inde i en helpost efter 149a's rendition, hvilket 4.1b
+skal bekræfte ved måling, ellers udvides klassifikationen). "Dækning 100 %"
+måles i ledgeren, ikke i databasen alene.
+
+**Dispositionsledger:** `private.clause_disposition(id, observation_id, version,
+disposition, decided_by_kind ('machine'|'human'), decided_by, decided_by_name,
+decided_at, evidence jsonb, created_at)` med `UNIQUE(observation_id, version)`
+og CHECK: `decided_by_kind='human'` ⇒ aktørfelter sat og `evidence<>'{}'`;
+`'machine'` ⇒ aktørfelter NULL og `evidence` bærer run-/manifest-hash.
+Maskinelle tilstande og §15.1's endelige tilstande er adskilte koder:
+
+- maskinelle: `afventer_fortolkning`, `fortolkning_foreslaaet`,
+  `afventer_identitet`, `maskinelt_flagget`, `strukturel`;
+- endelige (kun `human`): `struktureret`, `relevant_uklassificeret`,
+  `ikke_biografisk`, `layout_stoej`, `ulaeselig_ocr`, `kraever_menneske`.
+
+Seneste version pr. observation er gældende (`clause_disposition_current`).
+
+**Legacy-writer-hærdning (fund 3b):** `private.migrate_legacy_narrative_record`
+tæller i dag mentions over *alle* occurrencens observationer og kaster
+`LEGACY_MIGRATION_MENTION_AMBIGUOUS` ved >1. Med klausul-mentions ville det lukke
+vejen for de fire `unresolved_text`-records og for 1939. 4.1a ændrer tællingen
+til kun helpost-observationer (`parent_observation_id IS NULL`), med
+regressionstest på både positiv og negativ side.
+
+**Kontrakt:** `evidence_contract._as_observation` (strict feltsæt) udvides med de
+fire kolonner; bundle-skemaversion bumpes 1.1 → 1.2, og `validate_output`
+accepterer 1.2. `Mention` er allerede offset-relativ til sin observation og
+ændres ikke.
+
+### 4.1.3 Segmentering (4.1b)
 
 - Nyt motor-script `clause_segment.py` (deterministisk, ingen modelkald, ingen
-  netværk). Input: helpostens ordrette tekst og profilens `clause_rules`. Output:
-  en klausulliste i `clause_ledger`-format, som `build_ledger`/`validate_ledger`
-  godkender (fuld dækning, ikke-overlap, eksakt tekst).
-- Reglerne bor i udgaveprofilen (`extraction-profiles.json` → `clause_rules` med
-  egen `version`): skilletegn, DAA-forkortelser der ikke afslutter en klausul
-  (`f.`, `†`, `gm.`, `Kmh.`, `Hofjgm.`, `Kmjkr.`, `St.`, `Kbh.` osv.),
-  mønstre for "Børn:"-lister og for slægtledsoverskrifter. Motoren validerer
-  reglernes form; en regelændring er en ny `clause_rules.version` og gør gamle
-  klausulmanifester ikke-genbrugelige.
-- Alt, reglerne ikke kan afgøre sikkert (ubalancerede parenteser, ukendt
-  forkortelse før punktum, klausul under en mindstelængde, flere "gift"-udsagn
-  uden skilletegn), segmenteres konservativt (længere klausul frem for gæt) og
-  markeres med et `flag`; sådanne klausuler får startdispositionen
-  `kraever_menneske`. Alle andre `record_text`-klausuler får
-  `afventer_fortolkning`; `structural_header` får `ikke_biografisk`.
-- Første test, før nogen rigtig tekst rører koden: Task 2's syv svære tilfælde som
-  syntetisk fixture (samme mand omtalt tre gange; barn i én linje og grundlægger i
-  en anden; mand gift med sin niece fra andet trykt slægtled; indgiftet uden
-  afledt slægtsnavn; titel og embede i samme klausul; usikker/ukendt/manglende
-  dato; modstridende kilder). Fixturen fylder den eksisterende tomme
-  `evidence-observation.synthetic.json` og er ikke-identificerende.
+  netværk). Input: helpostens tekst og profilens `clause_rules`. Output:
+  klausulliste i `clause_ledger`-format, godkendt af `build_ledger`/`validate_ledger`.
+- Reglerne bor i profilen (`extraction-profiles.json` → `clause_rules` med egen
+  `version` og `gap_charset`): skilletegn, DAA-forkortelser der ikke afslutter en
+  klausul, mønstre for "Børn:"-lister og slægtledsoverskrifter. Motoren validerer
+  reglernes form; en regelændring er en ny version og gør gamle klausulmanifester
+  ikke-genbrugelige.
+- Tvivl (ubalancerede parenteser, ukendt forkortelse før punktum, klausul under
+  mindstelængde, flere "gift"-udsagn uden skilletegn) segmenteres konservativt og
+  får `clause_flags`; startdisposition `maskinelt_flagget`. Øvrige `record_text`:
+  `afventer_fortolkning`. `structural_header`: `strukturel`.
+- Første test: Task 2's syv svære tilfælde i en **ny** syntetisk fixture
+  `tests/fixtures/evidence-clauses.synthetic.json` (den eksisterende
+  `evidence-observation.synthetic.json` bruges af `test_evidence_contract.py` og
+  røres ikke).
+- Rigtig kørsel: ledger for alle 591 records som privat artefakt (0600); tal:
+  klausuler pr. record (min/median/max), flag-andel, mellemrumstegn observeret
+  uden for hvidlisten (skal være 0, ellers stop).
 
-### 4.1.4 Writer-operation `clause_evidence`
+### 4.1.4 Writer-operation `clause_evidence` (4.1c)
 
 - Payload pr. element (= én source record): `source_record_key`,
-  `rendition_content_sha256`, `clause_rules_version`, `segmenter_version`,
-  `parent_verbatim_sha256` og `clauses[]` med `ordinal`, `char_from`, `char_to`
-  (relative til helposten), `classification`, `verbatim_sha256`, `flags[]`.
-  Payloaden bærer ingen tekst; writeren udskærer teksten fra helposten og
-  verificerer hash pr. klausul. Dermed er manifestet hash-låst, uden at
-  persontekst ligger i autorisationen.
-- Writeren finder helposten som den observation under recordens accepterede
-  occurrence, der har `parent_observation_id IS NULL`; findes der ikke præcis én,
-  afvises elementet. Findes der allerede klausuler under den, afvises elementet
-  (`REIMPORT_WRITER_CLAUSE_EVIDENCE_EXISTS`); replay håndteres på batchniveau af
-  `red_begin_reimport`s eksisterende `already_applied`.
-- `expected_counts` får den valgfri nøgle `clause_evidence` (antal elementer);
-  `reimport_event.operation` udvides med `clause_evidence`; præfiks i
-  `authorized_elements` er `clause-evidence:`.
-- Fortrydelse: ved restore, som 149a, fordi operationen kun rører privat
-  kildeevidens og giver nul kanonisk delta. `red_reverse_reimport` afviser
-  fortsat batches uden personoprettelser (eksisterende adfærd, dokumenteret).
-- Fase-pakke-bidrag: bidraget erklærer nul ændring i de fem dækkede projektioner.
-  Runbookens fem lister dækker ikke observationer; det registreres som et
-  åbent punkt (afsnit 11), ikke som noget 4.1 løser.
+  `rendition_content_sha256`, `parent_verbatim_sha256`, `clause_rules_version`,
+  `segmenter_version`, `ledger_sha256`, `clauses[]` med `ordinal`, `char_from`,
+  `char_to` (helpost-relative), `classification`, `verbatim_sha256`, `flags[]`.
+  Ingen tekst i payload; writeren udskærer og hash-verificerer.
+- Writeren tager `FOR UPDATE` på helpost-observationen (radlås; profil-låsen
+  `lock_reimport_writer` er pr. (source, profil) og dækker ikke to profiler på
+  samme source). Findes der ikke præcis én helpost under recordens accepterede
+  occurrence, eller findes der allerede klausuler, afvises elementet
+  (`REIMPORT_WRITER_CLAUSE_EVIDENCE_EXISTS`); batch-replay via `already_applied`.
+- **Nøgling af klausuler udadtil:** klausul-UUID'er er `gen_random_uuid()` og
+  overlever ikke en restore. Al ekstern reference (runner, claims, ingest) bruger
+  derfor `(source_record_key, clause_ordinal, verbatim_sha256)`; writeren slår
+  UUID op. Prompten ser kun ordinal og tekst.
+- **Hårdkodede steder i writeren, som operationen rører (fund 8):**
+  `private.validate_reimport_authorization_payload` (lukket nøglesæt,
+  obligatoriske `person_creates`/`source_evidence`, tre faste præfiks-regexer),
+  `public.red_finalize_reimport` og `red_reimport_batch_result` (count-mapping),
+  `reimport_event.operation`-CHECK, ny public RPC med REVOKE/GRANT, #154's
+  ACL-arrays i `db-rls.sql`, CI-allowlist-test. 4.1c kræver en
+  regressionsassertion om, at 149a's og 149b's autorisationsformer valideres
+  uændret, og en ny `reimport_writer_profile`-række for operationen (samme
+  `profile_id` med ny hash afvises af `REIMPORT_WRITER_PROFILE_HASH_INVALID`).
+- `expected_counts` får den valgfri nøgle `clause_evidence`; præfiks
+  `clause-evidence:`.
 
-### 4.1.5 Rigtig kørsel
+### 4.1.5 Fortrydelse og fase-pakke
 
-Alle 591 2018-20-records i en frisk restore af prod. Levende personers tekst må
-indgå her, fordi trinnet er lokalt og deterministisk uden modelkald (invariant 8
-handler om at sende tekst til en model). Beviset er tal: klausuler pr. record
-(min/median/max), dækning 100 % pr. record, andel klausuler med `flag`,
-`kraever_menneske`-andel, uændrede kanoniske aggregat-hashes og `anon`-hashes,
-replay `already_applied`. 1939 segmenteres ikke i dette trin.
+Fortrydelse ved restore, som 149a. Kvitteringen fra 2026-09-03 gjaldt 149a og
+arves ikke: før 4.1c's eventuelle prod-GO skal projektejeren kvittere særskilt
+for "fortryd ved restore" for `clause_evidence`. Fase-pakke-bidraget erklærer
+nul ændring i de fem dækkede projektioner; at runbookens projektioner ikke
+dækker observationer, er åbent punkt 11.1.
 
-## 5. Dagsværk 4.2: vokabular og kategorier (#147 leverance 3+4)
+### 4.1.6 Rigtig kørsel (4.1c)
+
+Alle 591 records i restore. Levende personers tekst må indgå, fordi trinnet er
+lokalt og deterministisk. Bevis: antal klausul-rækker = ledgerens
+`record_text`+`structural_header`; dispositionsfordeling; neutralitets- og
+`anon`-hashes uændrede; replay `already_applied`; 149b's fire `unresolved_text`
+kan stadig migreres (test mod den hærdede legacy-writer).
+
+## 5. Vokabular og kategorier (#147 leverance 3+4, dagsværk 4.2)
 
 ### 5.1 Ét navnerum, én tabel
 
-Ny tabel `private.interpretation_predicate(predicate PK, interpretation_kind,
-category, value_kind, promotable boolean, rule_key nullable, status,
-introduced_in, created_at)`:
+`private.interpretation_predicate(predicate PK, interpretation_kind, category,
+value_kind, status, introduced_in, created_at)`:
 
-- `interpretation_kind` er §7.2's fire former (`property`, `relation`, `event`,
-  `mention`), samme CHECK som `interpretation`.
-- `category` er §7.3's syv kategorier eller NULL.
-- `value_kind` fastlægger værdiformen (`text`, `date_raw`, `name`, `event`,
-  `relation`, `mention`); JSON-skemaet pr. værdiform ligger i
-  `references/interpretation-schema.json` (versionsbump), og hver værdi bærer
-  altid feltet `raw` med den ordrette betegnelse; `normalized` er valgfri og
-  må aldrig erstatte `raw`.
-- `promotable=true` kræver `rule_key`, som refererer
-  `interpretation_promotion_rule_line`; `promotable=false` betyder "bevares
-  kildebundet indtil et behov er bevist" (§8.2).
-- `interpretation.predicate` og `interpretation_promotion_rule_line.predicate`
-  får FK til tabellen. Prod har 0 fortolkninger, så FK'en er sikker; migrationen
-  asserterer det.
+- `interpretation_kind` = §7.2's fire former, samme CHECK som `interpretation`.
+- `category` = §7.3's syv eller NULL.
+- `value_kind` ∈ `text`, `date_raw`, `name`, `event`, `relation`, `mention`.
+- **Promoverbarhed udledes ved join** på `interpretation_promotion_rule_line.predicate`
+  (som får FK til tabellen); tabellen har ingen `rule_key`-kolonne, så der er
+  ingen cirkulær FK. `interpretation.predicate` får FK til tabellen.
 
-Der laves **ingen** oversættelsestabel mellem extractor- og promotion-navne: det
-ville være et tredje vokabular. Extractoren skifter til databasens navne.
+**Værdiform (fund 1):** `validate_interpretation_promotion_items` sammenligner
+`value #>> '{}'` som tekst. For `value_kind` `text` og `date_raw` er værdien
+derfor en **JSON-skalar** (den ordrette betegnelse); normaliseret form gemmes
+ikke i værdien men i `decision_evidence`/rapport. For `name`, `event`, `relation`,
+`mention` er værdien et objekt med obligatorisk `raw` og valgfri `normalized`.
+JSON-skemaerne pr. `value_kind` ligger i `interpretation-schema.json`
+(versionsbump). Promotion-RPC'en ændres ikke i 4.2.
+
+**Antagelse, der skal verificeres i 4.2:** "prod har 0 fortolkninger" (bærer
+FK-migrationens sikkerhed) måles læse-kun i restoren og i prod før migration.
 
 ### 5.2 Prædikatliste (første seed)
 
 Egenskaber (`person.*`): `name`, `name_part`, `name_variant`, `byname`,
 `identity`, `uncertainty`, `negation`, `unknown`, `birth`, `baptism`, `death`,
-`burial`, `title`, `form_of_address`, `rank` (militær rang), `office` (embede),
-`court_office` (hofstilling, ny), `occupation` (erhverv, ny), `education`,
-`decoration` (dekoration/æresbevisning, afløser `honour.honour`), `estate`,
-`residence`, `military_service`, `publication`.
+`burial`, `title`, `form_of_address`, `rank`, `office`, `court_office` (ny),
+`occupation` (ny), `education`, `decoration` (afløser `honour.honour`),
+`estate`, `residence`, `military_service`, `publication`.
 Relationer (`relation.*`): `marriage`, `parent`, `child`.
 Hændelser (`event.*`): `marriage`, `appointment`, `dismissal`, `acquisition`,
-`travel` (deltagere, roller, dato/periode, sted; ikke promoverbare i 4.2).
+`travel` (ikke promoverbare).
 Omtaler (`mention.*`): `person`, `place`, `organisation`, `estate`.
 Strukturelle: `lineage.introduction`, `genealogy.generation_header`,
 `heraldry.description`, `heraldry.blazon`, `image.caption`,
 `reference.cross_reference`.
 
-Promoverbare fra start: de fem eksisterende regler (`person.name`, `person.byname`,
-`person.title`, `person.birth`, `person.death`). De øvrige seks §7.3-kategorier
-får promotion-regler, når faktatyperne i `vocab.scheme='faktatype'` er afklaret;
-det er en redaktionel beslutning uden for 4.2.
+Promoverbare fra start: de fem eksisterende regler. Regler for de øvrige seks
+§7.3-kategorier er åbent punkt 11.2.
 
 ### 5.3 Indgiftede (§13)
 
-Ingen særprædikater. En indgiftets oplysninger er almindelige prædikater på
-indgiftets egen source persona; forskellen bæres af personaen. Se 4.4 for,
-hvorfor det først bliver bindbart i roadmap-trin 5.
+Ingen særprædikater; forskellen bæres af personaen. Bindbart først i trin 5.
 
-### 5.4 Genereret Python-liste
+### 5.4 Genereret Python-liste og kind-afledning (fund 12)
 
-`references/interpretation-predicates.json` genereres fra tabellen af et
-motor-script og indeholder prædikat, form, kategori, værdiform og promoverbar.
-`evidence_extract.ALLOWED_PREDICATES` læses derfra. En kontrakttest i CI's
-Postgres-job asserterer byte-identitet mellem tabel og fil; drift = rød.
+`references/interpretation-predicates.json` genereres fra tabellen med
+prædikat, `interpretation_kind`, kategori, `value_kind`, promoverbar.
+`evidence_extract` læser `ALLOWED_PREDICATES` **og** `interpretation_kind`
+derfra; `build_interpretation_candidates` gætter ikke længere på
+prædikatfamilien. CI's Postgres-job asserterer byte-identitet tabel ↔ fil.
 
 ### 5.5 Rigtig kørsel
 
-Migration på frisk restore af prod; `db-verify`-asserts: alle fem regler løser
-gennem tabellen, FK'erne holder, genereret fil = tabel, `validate_output` afviser
-`life_event.birth` og accepterer `person.birth`.
+Migration på restore; verify: fem regler løser via join, FK'er holder, fil = tabel,
+`validate_output` afviser `life_event.birth` og accepterer `person.birth`,
+kind-afledning giver `event` for `event.marriage`.
 
-## 6. Dagsværk 4.3: model-runneren (#147 leverance 1)
+## 6. Model-runneren (#147 leverance 1, dagsværk 4.3a-4.3b)
 
 ### 6.1 Runner
 
-Nyt motor-script `evidence_runner.py`. Input: et batch-manifest fra
-`evidence_extract.prepare_batch` (profil, model, promptversion, record-nøgler,
-inputhash) og en privat JSON-eksport (læse-kun fra restore) med helpost + klausuler
-(id, ordinal, tekst) pr. record. Modellen ser én record ad gangen (§19) og skal
-returnere claims, der citerer klausul-id'er; fri tekst uden citation afvises af
-`validate_output`.
+Nyt motor-script `evidence_runner.py`. Input: batch-manifest fra
+`evidence_extract.prepare_batch` og en privat, record-scoped eksport fra restoren:
+pr. record helposten og dens klausuler som `(ordinal, verbatim_text,
+verbatim_sha256)`. Modellen ser én record ad gangen (§19) og returnerer claims,
+der citerer klausul-**ordinaler**.
+
+**Record-scoped claim-kontrakt (fund 10):** `validate_output`'s strict bundle-vej
+kræver hele renditionens tekst og rendition-absolutte offsets og passer ikke til
+et record-scoped artefakt. Runneren bruger derfor en ny kontrakt
+`evidence-claims-1.0` (`references/`), valideret i Python (`validate_record_claims`)
+og igen i writeren: hvert claim citerer ≥1 ordinal, der findes i eksporten med
+matchende hash; prædikat og `interpretation_kind` fra 5.4; værdi mod `value_kind`;
+confidence i [0,1]. Persona-reglen (fund 3a): et `principal`-claim må citere
+klausuler under den helpost, personaen har mention i (ikke længere "delmængde af
+personaens egne mention-observationer").
 
 ### 6.2 Codex-kald
 
-- `codex exec` ikke-interaktivt, modellen fra manifestet, JSON-output tvunget
-  gennem et output-skema, sandbox uden skriveadgang, ingen værktøjskald.
-- Prompten er en versioneret fil `references/evidence-extract-prompt-<version>.md`;
-  dens SHA-256 går i manifestet, og profilens `prompt_version` skal matche filens
-  header. Ændret prompt = ny version = gamle grønne batches er ikke genbrugelige
-  (`reusable` findes allerede).
-- `BatchManifest` udvides med `prompt_sha256`, `exclusion_sha256`,
-  `pricing_version`, `usage` (input/output/cached tokens fra det faktiske svar).
+`codex exec` ikke-interaktivt: `--model` fra manifestet, `--sandbox read-only`,
+`--ephemeral`, `--ignore-rules`, `--json`, `--output-schema`, stdin lukket.
+Prompten er `references/evidence-extract-prompt-<version>.md` (den eksisterende
+uversionerede `extract-prompt.md` omdøbes/versioneres som et skridt i 4.3a, så
+profilens `prompt_version` får en matchende fil); SHA-256 i manifestet.
+`BatchManifest` udvides med `prompt_sha256`, `exclusion_sha256`, `pricing_version`,
+`usage`.
 
-### 6.3 Regnskab
+### 6.3 Svar-cache og fejltaksonomi (fund 15)
 
-Token-tal læses fra Codex' JSON-hændelser, aldrig estimeres. Omkostning i USD
-beregnes fra en pinnet pristabel i profilen (`pricing` pr. model-id med egen
-`version`); et model-id uden pris stopper kørslen. `green` kræver, at alle
-records i batchen bestod `validate_output`; delvist output merges aldrig.
-Batches holdes på 5-10 records. Eskalering til `gpt-5.6-sol` kræver fortsat
-`escalation_reason` pr. batch (eksisterende gate) og kører kun records, som
-validatoren har flagget.
+- **Per-record uforanderlig svar-cache** før batch-manifestet: nøgle =
+  `(profil, profilversion, model, prompt_sha256, record_input_sha256)`; værdi =
+  rå JSON-svar + usage. `green` for en batch samles fra cachen; et kvotestop
+  midt i en batch koster ikke genkørsel af besvarede records. `reusable`
+  udvides tilsvarende.
+- **Fejltaksonomi**, alle fail-closed (batch forbliver `pending`, intet merge):
+  `quota_exhausted`, `model_refusal`, `schema_violation`, `timeout`,
+  `validation_failed`, `unknown`. Hver fejl logges med typen, aldrig med tekst.
 
-### 6.4 Fail-closed privatliv
+### 6.4 Regnskab
 
-En udelukkelsesliste (record-nøgler for records, hvis bundne person er levende,
-uafklaret eller uden binding) eksporteres læse-kun fra restoren; dens SHA-256
-står i manifestet. Runneren nægter at kalde modellen for en record på listen,
-og nægter helt at køre, hvis listen mangler eller hashen afviger. Alle
-runner-artefakter (eksport, svar, manifester) oprettes med mode 0600 under en
-ignoreret privat mappe og committes aldrig.
+Token-tal fra Codex' JSON-hændelser; omkostning fra profilens pinnede `pricing`
+(pr. model-id, egen version); model uden pris stopper. Batches 5-10 records.
+Eskalering til `gpt-5.6-sol` kræver `escalation_reason` og kun validator-flaggede
+records.
 
-### 6.5 Rigtig kørsel
+### 6.5 Rigtige kørsler
 
-10 afdøde 2018-20-records fra restoren gennem `gpt-5.6-terra`: manifest `green`
-med reelle token-tal og pris; alle claims citerer eksisterende klausul-id'er;
-`build_interpretation_candidates` giver kandidater med `status='proposed'`.
-Ingen databaseskrivning.
+- **4.3a:** én syntetisk, ikke-identificerende record gennem `gpt-5.6-terra` med
+  reelt forbrug i manifestet; beviser forbrugsrapportering, cache, output-skema og
+  fejltaksonomi (kvote simuleres ikke; den observerede `turn.failed` fra proben
+  2026-09-06 er fixturen).
+- **4.3b:** 10 afdøde records (udelukkelsesregler i 9.2) fra restoren: manifest
+  `green`, alle claims citerer eksisterende ordinaler, kandidater `proposed`,
+  kvoteforbrug pr. record målt. Tidligst 2026-09-09.
 
-### 6.6 Første skridt i planen er en verifikation, ikke en antagelse
+### 6.6 Målt, ikke antaget
 
-Målt 2026-09-06 mod den installerede `codex-cli` (0.153.4): `exec` har flagene
-`--model`, `--sandbox read-only`, `--ephemeral`, `--ignore-rules`, `--json` og
-`--output-schema`, og `--json` udsender hændelser (`thread.started`,
-`turn.started`, `turn.failed`). Om hændelserne bærer token-forbrug er **ikke**
-verificeret, fordi proben fejlede før svar (se nedenfor). Plan 4.3's første
-skridt er derfor at bekræfte forbrugsrapporteringen med en syntetisk prompt; kan
-CLI'en ikke rapportere forbrug, stopper 4.3 med et navngivet fund. Et estimat
-er ikke et regnskab.
+Probe 2026-09-06 mod `codex-cli` 0.153.4: flagene i 6.2 findes; `--json` udsender
+`thread.started`, `turn.started`, `turn.failed`. Token-rapportering er **ikke**
+verificeret (turen fejlede på kvote). 4.3a's første skridt er at bekræfte den;
+kan CLI'en ikke rapportere forbrug, stopper 4.3 med et navngivet fund.
 
-### 6.7 Kendt begrænsning: kvote, ikke betaling pr. token
+### 6.7 Kvote
 
-`codex exec` kører på projektejerens ChatGPT-abonnement, ikke på en API-nøgle.
-Proben 2026-09-06 ramte abonnementets forbrugsgrænse (`turn.failed`, nulstilling
-2026-09-09). Konsekvens: en kørsel kan stoppe midt i en batch uden fejl i
-input. Runneren skal behandle kvotefejl som en almindelig ikke-grøn batch
-(intet delvist merge, manifest forbliver `pending`, genkørsel via `reusable`),
-og plan 4.3 skal måle kvoteforbrug pr. record, så trin 6's fulde kørsel kan
-budgetteres, før den startes. Et skift til API-nøgle er en profil- og
-databehandlerbeslutning for projektejeren, ikke noget runneren gør stille.
+`codex exec` kører på abonnement (afsnit 1, valg 5). Konsekvenser: kørsler kan
+stoppe uden fejl i input; cachen i 6.3 gør stop billige; plan 4.3b måler
+kvoteforbrug pr. record, så trin 6 kan budgetteres, før den startes.
 
-## 7. Dagsværk 4.4: proposed-ingest (#147 leverance 2)
+## 7. Proposed-ingest (#147 leverance 2, dagsværk 4.4)
 
 ### 7.1 Writer-operation `interpretation_proposal`
 
 - Payload pr. element (= én record fra ét grønt manifest): `source_record_key`,
   `runner_manifest_sha256`, `model_version`, `prompt_version`, `claims[]` med
   `claim_id`, `predicate`, `interpretation_kind`, `value`, `confidence`,
-  `observation_ids[]` (klausul-id'er), `persona_role` (`principal` | `other`).
+  `cited_clauses[]` = `(ordinal, verbatim_sha256)`, `persona_role`
+  (`principal` | `other`).
 - Writeren opretter (idempotent på `run_key`) én `extraction_run` for manifestet
-  med token-regnskabet i `manifest`, og skriver pr. claim én `interpretation`
-  (`status='proposed'`, `derivation_kind='model_inference'`, `method='model'`,
-  version 1) plus `interpretation_observation`-rækker (`supporting`, ordinal) i
-  samme transaktion. Den eksisterende deferred constraint
-  `interpretation_has_observation` sikrer mindst ét link ved commit.
-- Afvisninger: ukendt klausul-id, klausul der ikke hører til recordens helpost,
-  prædikat uden for 4.2's tabel eller med `status<>'active'`, værdi der ikke
-  validerer mod prædikatets `value_kind`, confidence uden for [0,1].
-- `expected_counts` får nøglen `interpretation_proposals`; `reimport_event.operation`
-  udvides; præfiks `interpretation-proposal:`.
+  med usage i `manifest`, slår klausul-UUID'er op via `(record, ordinal, hash)`,
+  og skriver pr. claim én `interpretation` (`proposed`, `model_inference`,
+  `method='model'`, version 1) plus `interpretation_observation` (`supporting`,
+  ordinal) i samme transaktion under den eksisterende deferred constraint
+  `interpretation_has_observation`.
+- **`interpretation_key` (fund 11):** deterministisk
+  `uuid_v5(ns, source_id|record_key|predicate|cited ordinals|value_sha256)`.
+  Findes nøglen allerede, afvises elementet
+  (`REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS`). Genudtræk af en allerede
+  ingestet record kræver en menneskelig `superseded`-beslutning og er trin 6.
+- Afvisninger: ukendt/hash-afvigende klausul, klausul uden for recordens helpost,
+  prædikat ikke `active` i 5.1, værdi ≠ `value_kind`, confidence uden for [0,1],
+  `principal`-claim på en record uden persona (de fire `unresolved_text`; fund 19).
+- `expected_counts`-nøgle `interpretation_proposals`; operation-CHECK, præfiks
+  `interpretation-proposal:`, ACL, CI som i 4.1.4.
 
 ### 7.2 Hvem claims handler om
 
-2018-20 har 587 personaer fra 149b, én pr. records hovedperson med accepteret
-identitet. `persona_role='principal'` bindes til den persona (opslag: recordens
-helpost-observation → mention → `source_persona_mention`). `persona_role='other'`
-(ægtefælle, svigerfar, tredjeperson) skrives med `source_persona_id IS NULL`,
-form `mention` eller `relation`, og de citerede klausuler får dispositionen
-`afventer_identitet`. Persona-oprettelse for andre aktører er roadmap-trin 5
-(#150/#151) og bygges ikke her.
+`principal` → recordens persona (helpost-observation → mention →
+`source_persona_mention`, som 149b skriver med rolle `primary`). `other` →
+`source_persona_id IS NULL`, form `mention`/`relation`, citerede klausuler får
+`afventer_identitet`. Persona-oprettelse for andre aktører er trin 5.
 
 ### 7.3 Klausulregnskab
 
-Pr. claim: hver citeret klausul får ny dispositionsversion `fortolkning_foreslaaet`
-(eller `afventer_identitet`, se ovenfor). Klausuler uden claims beholder deres
-disposition. Efter ingest kan §15.1's regnskab aflæses som tal pr. record.
+Pr. claim: citerede klausuler får ny maskinel dispositionsversion
+`fortolkning_foreslaaet` (eller `afventer_identitet`). Uciterede beholder deres.
 
 ### 7.4 Fortrydelse
 
-Ved restore, som 149a: intet forslag er kanonisk eller offentligt. Forkerte
-forslag afvises af mennesket i 4.5 og bliver stående som `rejected` (append-only).
+Ved restore i restore-baser. Forkerte forslag afvises af mennesket i 4.5 og
+bliver `rejected`. Prod-fortrydelse for denne operation er ikke designet og er
+en forudsætning for et senere prod-GO (åbent punkt 11.5).
 
 ### 7.5 Rigtig kørsel
 
-4.3's grønne batch ingestes i restoren: antal fortolkninger og links = manifestets
-antal; alle links løser; kanoniske aggregat-hashes og `anon`-hashes uændrede;
-replay `already_applied`; klausulregnskabet viser de forventede dispositioner.
+4.3b's batch ingestet: antal = manifest; alle links løser; neutralitets- og
+`anon`-hashes uændrede; replay `already_applied`; dispositionsfordeling som
+forventet; `principal`-claim på en persona-løs record afvises (negativ test).
 
-## 8. Dagsværk 4.5: pilot, afgørelse og promotion i drift (#147 leverance 5)
+## 8. Pilot, afgørelse og binding (#147 leverance 5, dagsværk 4.5)
 
 ### 8.1 Udvalg
 
-Deterministisk og hash-bundet: mindst 30 afdøde 2018-20-personposter,
-stratificeret på simple, lange, flere ægteskaber, indgiftede, titler/embeder og
-usikre datoer (kriterier måles maskinelt på recordteksten), plus mindst 10
-strukturelle poster. Udvalget skæres mod 4.3's udelukkelsesliste. Repo-notatet
-indeholder kun record-nøgler og aggregater.
+Deterministisk, hash-bundet: ≥30 afdøde personposter, stratificeret maskinelt på
+tekstlængde, antal "gift"-udsagn, indgiftede, titler/embeder, usikre datoer, plus
+≥10 strukturelle poster. Skåret mod udelukkelseslisten (9.2). Repo-notat kun med
+record-nøgler og aggregater.
 
-### 8.2 Kæden i drift på restoren
+### 8.2 Kæden i én restore
 
-4.1-klausuler → 4.3-runner → 4.4-ingest → afgørelse → promotion, alt i samme
-restore. Afgørelsen bruger projektets etablerede menneske-ark: en
-token-pr-linje-tekstfil med forudfyldt anbefaling pr. fortolkning, som
-projektejeren redigerer; arket hashes ved godkendelse, og et script oversætter
-det til `red_decide_interpretation`-kald (`accepted` / `rejected` / `unresolved`)
-under projektejerens redaktionsprofil med `request.jwt.claim.sub` sat. Ingen ny UI;
-webkøen fra Task 11 røres ikke (trin 5-beslutning).
+4.1-klausuler → 4.3-runner → 4.4-ingest → afgørelse → binding, i **samme**
+restore. Afgørelsen bruger projektets menneske-ark (token-pr-linje med
+forudfyldt anbefaling), hashes ved godkendelse og oversættes til
+`red_decide_interpretation` (`accepted`/`rejected`/`unresolved`) under
+projektejerens redaktionsprofil med `request.jwt.claim.sub`. Ingen ny UI.
 
-### 8.3 Promotion
+### 8.3 Binding (valg 6)
 
-Kun `accepted` fortolkninger med `promotable=true` går gennem
-`red_preview_interpretation_promotions` og `red_promote_interpretations_batch`
-med preview-hash. Mål: assertions på den person, hovedpersonens persona har
-accepteret identitet til. Alt andet forbliver `accepted` uden promotion (§8.2).
+`red_promote_interpretations_batch` opretter intet kanonisk: den kræver en
+eksisterende `assertion` → `fact` på den identificerede person med matchende
+`faktatype` og tekstidentisk værdi, og skriver kun `interpretation_promotion`.
+Trin 4's "promotion" er derfor en **dokumenteret binding** af en accepteret
+fortolkning til den gamle loaders assertion. `target_id` findes maskinelt af et
+script, der for hver accepteret, promoverbar fortolkning slår assertions op på
+personen med reglens `expected_fact_type` og vælger den, hvis normaliserede
+værdi matcher; ingen match ⇒ fortolkningen forbliver `accepted` uden binding og
+tælles. Succeskriteriet er en *målt andel*, ikke en tærskel: rapporten angiver
+accepterede promoverbare fortolkninger, hvor mange fandt en assertion, og hvor
+mange ikke gjorde (og hvorfor). Oprettelse af nye fakta/personer er uden for
+trin 4 (åbent punkt 11.3).
 
 ### 8.4 Måling (§15.3)
 
-Pr. prædikattype: præcision mod projektejerens afgørelse, exact-span-rate, andel
-klausuler med endelig disposition, ubegrundede normaliseringer (`normalized`
-uden `raw`-belæg), token/pris pr. record, antal promoverbare og promoverede.
-Absurd lav eller høj dækning i en kategori blokerer rapporten som `NO-GO` for
-fuld kørsel. Rapport: `docs/evidensbaseret-genimport/interpretation-pilot-2018-20.md`
-(kun aggregater).
+Pr. prædikattype: præcision mod projektejerens afgørelse, exact-span-rate,
+dispositionsdækning, `normalized` uden `raw`-belæg, token/pris/kvote pr. record,
+bindingsandel. Absurd lav/høj dækning i en kategori blokerer som `NO-GO` for
+fuld kørsel. Rapport: `docs/evidensbaseret-genimport/interpretation-pilot-2018-20.md`.
 
 ### 8.5 Hvad beviset flytter
 
-`Extractor-runner og modelkald` og `Proposed-ingest og promotion` går til
-`integreret ende-til-ende` for 2018-20 i `status.md`. Ikke `produktionsverificeret`:
-det kræver prod-GO pr. apply. Fuld 2018-20-kørsel og 1939 er roadmap-trin 6.
+"Extractor-runner og modelkald" og "Proposed-ingest" → `integreret
+ende-til-ende` for 2018-20 (hovedpersonens persona). "Promotion" flytter kun for
+bindingsdelen og markeres sådan i `status.md`. Intet bliver
+`produktionsverificeret`. En restore af 4.5's base sletter projektejerens egne
+afgørelser; derfor tages en 0600-backup af basen efter afgørelserne og før
+binding.
 
 ## 9. Privatliv og databehandling
 
-- Modelkald sker kun for records på den positive side af udelukkelseslisten
-  (afdøde, bundet, afklaret). Levende og uafklarede sendes aldrig til en model.
+### 9.1 Principper
+
 - 4.1 (deterministisk, lokalt) må behandle alle records.
-- Alle private artefakter: mode 0600, ignoreret mappe, aldrig commit, slettes
-  efter projektejerens ja.
-- Codex' sandbox er uden skriveadgang; prompten indeholder kun den ene records
-  tekst og klausul-id'er, aldrig database-UUID'er eller andre records.
+- Modelkald kun for records, der består alle regler i 9.2.
+- Private artefakter: 0600, ignoreret mappe, aldrig commit, slettes efter
+  projektejerens ja. Prompten indeholder én records tekst og ordinaler, aldrig
+  database-UUID'er eller andre records.
+- Codex' sandbox uden skriveadgang; behandlingsgrundlag jf. valg 5.
+
+### 9.2 Udelukkelsesregler (valg 4; målt 2026-09-06 i lokal prod-kopi)
+
+En record udelukkes fra modelkald, hvis mindst én regel rammer:
+
+1. Hovedpersonen er levende eller uafklaret (46 + 4 records).
+2. En partner eller et barn i databasen (`family_member` i samme `family`) er
+   markeret levende (13 records ekstra).
+3. En partner er uden dødsdato, *og* ægteskabet er indgået 1950 eller senere
+   (partnerstatus er upålidelig: 62 poster har en partner markeret ikke-levende
+   uden dødsdato).
+4. Tekstfilter: posten indeholder "f." efterfulgt af et fødselsår 1950 eller
+   senere (i dag 2 poster) → manuel udelukkelse.
+
+Listen eksporteres læse-kun fra restoren som record-nøgler, dens SHA-256 står i
+manifestet, og runneren nægter at køre uden den. Udelukkede records bliver stående
+i køen; de er ikke tab. Målt baggrund: 541 afdøde hovedpersoner, 156 af dem uden
+registreret dødsår (ældre generationer), 14 døde 1990 eller senere.
 
 ## 10. Gater
 
 | Handling | Gate |
 | --- | --- |
-| Plan pr. dagsværk | besvarer de seks adgangskrav; Codex sol-læsning; projektejerens afgørelse |
-| Kode | TDD; syntetiske fixtures først; CI's seks jobs grønne |
-| Rigtig kørsel | frisk restore af prod-dump (0600), tal + hashes dokumenteret |
-| Modelkald mod rigtige data (4.3, 4.5) | udelukkelsesliste hash-bundet; projektejerens GO pr. kørsel med manifest-hash og budget |
-| Prod-apply | særskilt GO pr. apply efter fase-pakke-gaten; ikke omfattet af denne spec |
+| Plan pr. dagsværk | seks adgangskrav; anden læser; projektejerens afgørelse |
+| Kode | TDD; syntetiske fixtures først; CI's seks jobs grønne; regressionsassertion 149a/149b-autorisation |
+| Rigtig kørsel | restore af prod-dump (0600); tal + hashes dokumenteret |
+| Første modelkald mod rigtige data (4.3b) | udelukkelsesliste hash-bundet efter 9.2; behandlingsgrundlag jf. valg 5 kvitteret; projektejerens GO med manifest-hash og budget; efter kvotenulstilling |
+| Efterfølgende modelkald (4.5) | som ovenfor, pr. kørsel |
+| Prod-apply | særskilt GO pr. apply efter fase-pakke-gaten og særskilt fortrydelseskvittering pr. operation; uden for denne spec |
 
 ## 11. Åbne punkter (registreres, løses ikke her)
 
 1. Fase-pakke-runbookens fem projektioner dækker hverken observationer eller
-   fortolkninger. En sjette/syvende projektion (klausul-hashes pr. record,
-   fortolkninger pr. record) er nødvendig, før 4.1/4.4 kan afstemmes i prod.
-   Skal rejses som issue før første prod-GO for 4.1.
-2. Promotion-regler for embede, hofstilling, militær rang, erhverv, uddannelse og
-   dekoration afventer afklaring af faktatyper i `vocab`.
-3. 1939's klausulregler (OCR-støj, orddelinger) er en profilopgave i trin 6.
-4. Persona-oprettelse for andre aktører (§13 fuldt) er trin 5.
+   fortolkninger; en klausul- og en fortolkningsprojektion skal defineres, før
+   4.1c/4.4 kan afstemmes i prod. Issue før første prod-GO.
+2. Promotion-regler for embede, hofstilling, militær rang, erhverv, uddannelse,
+   dekoration afventer faktatype-afklaring i `vocab`.
+3. Oprettelse af nye kanoniske mål (fakta, assertions, personer) fra fortolkninger
+   er ikke designet; den eksisterende RPC binder kun.
+4. 1939's klausulregler (OCR, orddelinger) og fuld 2018-20-kørsel er trin 6.
+5. Prod-fortrydelse for `interpretation_proposal` og for menneskelige
+   afgørelser er ikke designet (restore sletter afgørelser).
+6. `status.md` (tabel vs. "Åbne blokeringer") og `roadmap.md` ("Aktivt
+   programmål" peger på #152) er ikke afstemt med GO 1-4; rettes i en
+   docs-PR før plan 4.1a.
+7. Persona-oprettelse for andre aktører (§13 fuldt) er trin 5.
 
 ## 12. Fravalgt
 
-- Model-foreslåede klausul-spans i 4.1 (spec §19 lægger klausulfortegnelsen på
-  den deterministiske side; modelvejen får de flaggede records i 4.3).
+- Model-foreslåede klausul-spans i 4.1 (§19; modelvejen får flaggede records i 4.3).
 - Oversættelsestabel mellem extractor- og promotion-prædikater.
 - Separate ingest-RPC'er uden for den generelle writer.
 - Ny redaktør-UI for fortolkninger i dette trin.
-- Reversal-RPC for klausuler og forslag (restore er tilstrækkelig, nul kanonisk delta).
-- Kørsel af 1939 eller fuld 2018-20 (trin 6).
+- Reversal-RPC for klausuler og forslag i restore-baser (restore er nok der).
+- Objekt-værdier for promoverbare prædikater (bryder promotion-valideringen).
+- Layout-/støj-rækker i databasen (ledgeren bærer den fulde dækning).
