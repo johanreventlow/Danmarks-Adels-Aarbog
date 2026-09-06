@@ -4,7 +4,9 @@
 
 Spec (revision 3 efter to uafhængige læsninger, 37 fund indarbejdet) og fire
 implementeringsplaner (4.1a skema, 4.1b segmenter, 4.1c `clause_evidence`-writer, 4.2
-prædikatnavnerum) på gren `docs/trin4-fortolkningskaede-spec`. Seks projektejer-valg
+prædikatnavnerum) på gren `docs/trin4-fortolkningskaede-spec` (13 commits, upushet). Planerne
+er læst uafhængigt i to runder (18 + 6 fund, herunder empirisk kørsel af segmenteren mod
+fixturen) og rettet; sidste rettelsesrunde er ikke genlæst. Seks projektejer-valg
 registreret i `decisions.md`. Ingen kode, ingen databaseændring, ingen prod-mutation.
 Planer for 4.3-4.5 (runner, ingest, pilot) skrives efter 4.1b's tegnsætsmåling og 4.3a's
 forbrugsprobe; Codex-kvoten nulstilles 2026-09-09. Åbne punkter: fase-pakke-runbookens
