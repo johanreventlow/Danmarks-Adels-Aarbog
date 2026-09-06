@@ -62,10 +62,12 @@ produktionskvittering. Kun nøgler, tal og hashes; ingen persondata.
 ## Restpunkter
 
 1. **Fase-pakke-gaten kan ikke lukkes af 149a alene.**
-   `docs/runbooks/evidence-import-phase-gate.md` findes ikke i repoet, og
-   receipt-skemaerne `daa-evidence-phase-receipt-*-v1` er kun nævnt i
-   `docs/decisions.md`. #156 (lukket med restpunkt, draft-PR #165) skal levere
-   dem, før bidraget kan bindes maskinelt; indtil da er tilstanden
+   Runbooken `docs/runbooks/evidence-import-phase-gate.md` er nu i repoet (flyttet fra
+   PR #165, som blev lukket uden merge 2026-09-06), men receipt-skemaerne
+   `daa-evidence-phase-receipt-*-v1` findes ikke som maskinelt kørende gate;
+   #156's afstemning endte INCOMPLETE (se
+   `evidence-phase-reconciliation-156-2026-09-03.md`). Indtil en generel gate
+   findes, er tilstanden
    `afterdocumented`.
 2. **Ingen 0600-backup af rehearsal-basen selv.** Del B tog ikke en separat
    backup af `daa149a_rehearsal2_20260903` før apply; gendannelse er bevist
