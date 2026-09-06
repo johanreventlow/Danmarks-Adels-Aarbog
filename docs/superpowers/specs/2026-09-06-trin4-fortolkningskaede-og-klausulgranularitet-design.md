@@ -286,8 +286,10 @@ value_kind, status, introduced_in, created_at)`:
   ikke er promoverbare.
 - **Promoverbarhed udledes ved join** på `interpretation_promotion_rule_line.predicate`;
   tabellen har ingen `rule_key`-kolonne, så der er ingen cirkulær FK.
-  `interpretation.predicate` får FK til tabellen. `rule_line.predicate` får
-  **ingen** FK: `db-verify.sql` indsætter syntetiske prædikater som negative
+  `interpretation.predicate` får FK til tabellen; de syntetiske prædikater,
+  `db-verify.sql` indsætter i `interpretation` som fixtures mod prod, seedes
+  derfor som `introduced_in='db-verify-fixture'` og holdes ude af extractorens
+  fil. `rule_line.predicate` får **ingen** FK: `db-verify.sql` indsætter syntetiske prædikater som negative
   promotion-fixtures mod prod, og `rule_line.predicate` er UNIQUE, så de kan ikke
   genbruge seedede prædikater. Bindingen regel↔prædikat håndhæves i stedet i
   `add_interpretation_promotion_rule_version` og en trigger på reglerne (ukendt

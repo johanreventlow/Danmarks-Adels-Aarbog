@@ -119,8 +119,9 @@ aktive programmål er **trin 4: den fælles fortolkningskæde og klausulgranular
 (#147/#148)**, aktiveret af projektejeren 2026-09-06 (decisions samme dato, seks valg).
 Spec: `docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md`.
 Næste tilladte arbejde er plan 4.1a (`docs/superpowers/plans/2026-09-06-trin4-4-1a-klausullag-skema.md`),
-derefter 4.1b, 4.1c og 4.2 i den rækkefølge; hver plan er læst af anden læser og
-afgøres af projektejeren før udførelse. Prod-mutationer kræver fortsat en udtrykkelig
+derefter 4.1b, 4.1c og 4.2 i den rækkefølge. Planerne er læst af en uafhængig
+anden læser i to runder (18 + 6 fund) og rettet; sidste rettelsesrunde er ikke
+genlæst. Projektejeren afgør før udførelse. Prod-mutationer kræver fortsat en udtrykkelig
 GO pr. apply.
 
 ## Parkeret arbejde
