@@ -729,6 +729,17 @@ BEGIN
   END IF;
   SELECT coalesce(max(version),0)+1 INTO v_next FROM private.clause_disposition WHERE observation_id=NEW.observation_id;
   IF NEW.version<>v_next THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_VERSION_INVALID: forventede %', v_next; END IF;
+  -- Spec 4.1.2: en maskinel disposition SKAL bære run-/manifest-hash, ellers kan
+  -- den ikke føres tilbage til den kørsel, der traf den. Kontrollen ligger sidst,
+  -- så de øvrige fejltokens ikke skygges.
+  IF NEW.decided_by_kind='machine' THEN
+    IF NEW.evidence->>'extraction_run_id' IS NULL
+       OR NEW.evidence->>'extraction_run_id' !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+       OR NEW.evidence->>'manifest_sha256' IS NULL
+       OR NEW.evidence->>'manifest_sha256' !~ '^[0-9a-f]{64}$' THEN
+      RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_PROVENANCE_INVALID: machine kræver extraction_run_id (uuid) og manifest_sha256 (64 hex)';
+    END IF;
+  END IF;
   RETURN NEW;
 END $$;
 

@@ -118,9 +118,17 @@ BEGIN
   END IF;
   INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,clause_ordinal,clause_classification,clause_flags)
   VALUES((fx->>'occ')::uuid,'clause',10,10,100,130,substr(fx->>'text',1,30),'clear','clause_segment_v1',(fx->>'run')::uuid,(fx->>'parent')::uuid,1,'record_text','["unknown_abbreviation"]'::jsonb) RETURNING id INTO v_clause;
-  -- Maskinel version 1.
+  -- Maskinel version 1 med gyldig proveniens.
   INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence)
-  VALUES(v_clause,1,'maskinelt_flagget','machine','{"manifest_sha256":"fixture"}');
+  VALUES(v_clause,1,'maskinelt_flagget','machine',
+    jsonb_build_object('extraction_run_id',fx->>'run','manifest_sha256',repeat('d',64)));
+  -- Maskinel disposition uden run-/manifest-hash afvises (spec 4.1.2).
+  PERFORM pg_temp.expect_error(format(
+    $q$INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence) VALUES(%L,2,'afventer_fortolkning','machine','{"manifest_sha256":"fixture"}')$q$, v_clause),
+    'EVIDENCE_CLAUSE_DISPOSITION_PROVENANCE_INVALID');
+  PERFORM pg_temp.expect_error(format(
+    $q$INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence) VALUES(%L,2,'afventer_fortolkning','machine',jsonb_build_object('extraction_run_id',%L))$q$, v_clause, fx->>'run'),
+    'EVIDENCE_CLAUSE_DISPOSITION_PROVENANCE_INVALID');
   -- Version skal være fortløbende.
   PERFORM pg_temp.expect_error(format(
     $q$INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence) VALUES(%L,3,'afventer_fortolkning','machine','{"x":1}')$q$, v_clause),
