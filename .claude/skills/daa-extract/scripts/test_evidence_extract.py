@@ -281,3 +281,20 @@ def test_interpretation_candidate_requires_explicit_model_confidence():
         build({"evidence_bundle": _anchored_bundle(), "claims": [{
             "predicate": "heraldry.blazon", "record_key": "rk-1", "observation_ids": ["obs-1"], "value": "tre roser",
         }]}, source_id=1939, extraction_run_id="run-1")
+
+
+def test_profile_clause_rules_are_validated(tmp_path):
+    payload = json.loads(evidence_extract.PROFILES.read_text(encoding="utf-8"))
+    profile = payload["profiles"]["daa-2018-20-v1"]
+    assert profile["version"] != "1.0.0"          # bumpet; præcis værdi pinnes ikke (Task 5 kan give 1.2.0)
+    rules = profile["clause_rules"]
+    assert rules["version"].startswith("clause-rules-2018-20-v")
+    assert set(rules) == {"version", "terminators", "non_terminal_abbreviations", "initial_pattern",
+                          "ordinal_number_pattern", "structural_header_patterns", "min_clause_chars",
+                          "gap_charset", "intraword_chars"}
+    broken = json.loads(json.dumps(payload))
+    del broken["profiles"]["daa-2018-20-v1"]["clause_rules"]["gap_charset"]
+    path = tmp_path / "profiles.json"
+    path.write_text(json.dumps(broken), encoding="utf-8")
+    with pytest.raises(evidence_extract.ExtractionError, match="EXTRACTION_CLAUSE_RULES_INVALID"):
+        evidence_extract.load_profile("daa-2018-20-v1", path)
