@@ -1,5 +1,50 @@
 # Changelog
 
+## 2026-09-10 — Trin 4, dagsværk 4.2: ét prædikat-navnerum (#147)
+
+Gren `feat/147-praedikat-vokabular` (upushet). Ingen skrivning mod prod.
+
+**Leveret.** `private.interpretation_predicate` som eneste sandhed om, hvilke prædikater
+fortolkningslaget kender — med udsagnsform, §7.3-kategori og værdiform. 42 aktive
+prædikater plus 8 fixture-rækker til db-verify's egne negative tests. `private.interpretation`
+har fået en **komposit-FK** på `(predicate, interpretation_kind)`, så udsagnsformen bindes
+til prædikatet i stedet for blot at sameksistere med tabellens eget fireværdi-CHECK.
+Promotion-reglernes `value_kind` bindes både i `add_interpretation_promotion_rule_version`
+og som trigger. Extractorens hårdkodede `ALLOWED_PREDICATES` er væk: den læser nu en
+byte-verificeret projektion af tabellen (`references/interpretation-predicates.json`,
+SHA-256 `5e51c55b…`), og `interpretation_kind` **udledes af tabellen** frem for at gættes
+af prædikatets præfiks — det gamle gæt kunne ikke skelne `event.marriage` fra
+`relation.marriage`. `interpretation-schema.json` er bumpet til 1.1 med `$defs` for de seks
+værdiformer, og en test asserterer, at hver værdiform i den genererede fil har et skema.
+
+**Planen fik NO-GO og blev revideret to gange.** En uafhængig gennemlæsning (Codex
+`gpt-5.6-sol`) fandt otte blokerende fund — vigtigst at `db-verify.sql` indsætter
+prædikater **uden punktum** (`death_date`, `fake_approval`, `terminal_status`), som ikke kan
+seedes under formatinvarianten, og at db-verify kører **mod prod**: en FK ville have
+standset produktionsverifikationen. Revision 2 blev derefter selv efterprøvet (Fable), som
+fandt tre ting til: et prædikat, der ikke fandtes (`assertion` er `p_target_type`, fjerde
+positionelle argument, ikke et prædikat); et **overset** prædikat i en `dblink_exec`-streng
+med fordoblede apostroffer (`db-verify.sql:4048`), som en almindelig tekstsøgning ikke
+fanger; og at FK'en som `ALTER TABLE` mellem to tabeller ville bryde et regex i
+`test_evidence_contract.py` og vælte et andet CI-job. FK'en er derfor erklæret **inline**
+som tabel-constraint.
+
+**Prod-side-assertion tilføjet.** 4.2's verifikation lå kun i `tests/sql/`, som alene kører
+i CI. `db-verify.sql` har nu en `OK: #147`-blok, der dækker tabel, komposit-FK, triggere,
+RLS, kategori-vokabular, regelbinding og ACL for alle fire roller. To negative prober viser,
+at den bider (`PREDICATE_COMPOSITE_FK_MISSING`, `PREDICATE_RULE_BINDING_DRIFT`).
+
+**Rigtig kørsel.** Migreret på en frisk restore af prod-dumpet og på fire lokalt byggede
+CI-stier (kumulativ, frisk, `2d6aabf`-skema, `reimport_fresh`) — `OK: #147` alle fem steder,
+`PREDICATE_FILE_OK`, `42 | 5`. Antagelsen om nul fortolkninger er **målt** både i restoren og
+læse-kun mod prod, og prods fem promotion-regler er alle dækket af seedet, så promotion-
+adfærden er uændret. To narrative tests fejler på restoren; en kontrolbase migreret med
+`origin/main` fejler med præcis de samme tokens — de hører til en frisk base på
+kontraktversion 1, ikke til en prod-restore. Rapport:
+`docs/evidensbaseret-genimport/interpretation-predicate-147-rehearsal.md`.
+
+**Udestår:** push, draft-PR og en selvstændig prod-GO for trin 4's migrationer.
+
 ## 2026-09-10 — Trin 4, dagsværk 4.1b: deterministisk klausul-segmentering (#148)
 
 Gren `feat/148-klausul-segmenter` (6 commits, upushet, oven på 4.1a-grenen). Ingen
