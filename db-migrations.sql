@@ -17488,6 +17488,19 @@ BEGIN
   IF substr(v_parent.verbatim_text, NEW.char_from-v_parent.char_from+1, NEW.char_to-NEW.char_from)<>NEW.verbatim_text THEN
     RAISE EXCEPTION 'EVIDENCE_CLAUSE_TEXT_MISMATCH';
   END IF;
+  -- Provenance (spec 4.1.2): klausulen arver forælderens kvalitetsklassifikation
+  -- og bæres af den versionerede segmenteringsregel. En klausul må ikke kunne
+  -- påstå 'clear' under en ocr_uncertain helpost.
+  IF NEW.quality_status<>v_parent.quality_status THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_QUALITY_MISMATCH: forælderen er %', v_parent.quality_status;
+  END IF;
+  IF NEW.extraction_method NOT LIKE 'clause_segment_v1%' THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_EXTRACTION_METHOD_INVALID: %', NEW.extraction_method;
+  END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.clause_flags) e
+              WHERE jsonb_typeof(e)<>'string' OR btrim(e#>>'{}')='') THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_FLAGS_INVALID';
+  END IF;
   RETURN NEW;
 END $$;
 DROP TRIGGER IF EXISTS trg_source_observation_clause ON private.source_observation;
