@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -49,6 +50,35 @@ def _sha(value: Any) -> str:
     return hashlib.sha256(_canonical(value).encode("utf-8")).hexdigest()
 
 
+CLAUSE_RULE_KEYS = {"version", "terminators", "non_terminal_abbreviations", "initial_pattern",
+                    "ordinal_number_pattern", "structural_header_patterns", "min_clause_chars",
+                    "gap_charset", "intraword_chars"}
+
+
+def validate_clause_rules(rules: Any) -> None:
+    if not isinstance(rules, Mapping) or set(rules) != CLAUSE_RULE_KEYS:
+        raise ExtractionError("EXTRACTION_CLAUSE_RULES_INVALID")
+    if not isinstance(rules["version"], str) or not rules["version"].strip():
+        raise ExtractionError("EXTRACTION_CLAUSE_RULES_INVALID")
+    for key in ("terminators", "non_terminal_abbreviations", "structural_header_patterns", "gap_charset", "intraword_chars"):
+        if not isinstance(rules[key], list) or not all(isinstance(v, str) and v for v in rules[key]):
+            raise ExtractionError("EXTRACTION_CLAUSE_RULES_INVALID")
+    if not rules["terminators"] or not rules["gap_charset"]:
+        raise ExtractionError("EXTRACTION_CLAUSE_RULES_INVALID")
+    for key in ("initial_pattern", "ordinal_number_pattern"):
+        try:
+            re.compile(rules[key])
+        except (re.error, TypeError):
+            raise ExtractionError("EXTRACTION_CLAUSE_RULES_INVALID")
+    for pattern in rules["structural_header_patterns"]:
+        try:
+            re.compile(pattern)
+        except re.error:
+            raise ExtractionError("EXTRACTION_CLAUSE_RULES_INVALID")
+    if not isinstance(rules["min_clause_chars"], int) or isinstance(rules["min_clause_chars"], bool) or rules["min_clause_chars"] < 1:
+        raise ExtractionError("EXTRACTION_CLAUSE_RULES_INVALID")
+
+
 def load_profile(profile_id: str, path: Path = PROFILES) -> Mapping[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     profile = payload.get("profiles", {}).get(profile_id)
@@ -59,6 +89,8 @@ def load_profile(profile_id: str, path: Path = PROFILES) -> Mapping[str, Any]:
         raise ExtractionError("EXTRACTION_MODEL_POLICY_INVALID")
     if not all(isinstance(profile[key], str) and profile[key].strip() for key in required):
         raise ExtractionError("EXTRACTION_PROFILE_INVALID")
+    if "clause_rules" in profile:
+        validate_clause_rules(profile["clause_rules"])
     return {"profile_id": profile_id, **profile}
 
 
