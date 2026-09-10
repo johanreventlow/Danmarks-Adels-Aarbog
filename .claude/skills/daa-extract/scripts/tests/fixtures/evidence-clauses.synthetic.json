@@ -1,0 +1,28 @@
+{
+  "schema_version": "evidence-clauses-fixture-1.0",
+  "cases": [
+    {"key": "samme-mand-tre-gange", "text": "Alfa Bravo, f. 12. maj 1801 i Charlie, d. 3. jan. 1860 i Delta. Gift 1830 m. Delta Echo. Alfa Bravo nævnes 1845 som ejer af Foxtrot. Alfa Bravo, den samme, solgte Foxtrot 1852.",
+     "expect_clauses": 4, "expect_flags": []},
+    {"key": "barn-og-grundlaegger", "text": "Golf Hotel, f. 1770, søn af nr. 3 i samme linje. Stamfader til den yngre linje, se II. Gift 1795 m. India Juliet.",
+     "expect_clauses": 3, "expect_flags": []},
+    {"key": "ordinal-foer-punktum-splitter-ikke", "text": "Hotel India, f. 1780, søn af nr. 3. Gift 1805 m. Juliet.",
+     "expect_clauses": 1, "expect_flags": [], "note": "'nr. 3.' matcher ordinal_number_pattern og må ikke splitte — konservativt, én klausul"},
+    {"key": "gift-med-niece", "text": "Kilo Lima, f. 1800, d. 1870. Gift 1825 m. sin broderdatter Mike November af 7. slægtled, f. 1806, d. 1880, datter af nr. 12.",
+     "expect_clauses": 2, "expect_flags": []},
+    {"key": "indgiftet-uden-slaegtsnavn", "text": "Oscar Papa, f. 1810. Gift 1835 m. Quebec, f. 1815, d. 1890, datter af gårdejer Romeo Sierra og Tango.",
+     "expect_clauses": 2, "expect_flags": []},
+    {"key": "titel-og-embede", "text": "Uniform Victor, f. 1820, Kmh., amtmand over Whiskey Amt 1860-1875, R. af Dbg. Gift 1848 m. X-ray Yankee.",
+     "expect_clauses": 2, "expect_flags": []},
+    {"key": "usikker-ukendt-manglende-dato", "text": "Zulu Alfa, f. ca. 1790 (?), d. efter 1850. Gift m. Bravo, hvis herkomst er ukendt. Død i Charlie, år ukendt.",
+     "expect_clauses": 3, "expect_flags": ["uncertain_marker"]},
+    {"key": "modstridende-kilder", "text": "Delta Echo, f. 1805 (ifølge DAA 1901: 1806), d. 1877. Gift 1830 m. Foxtrot Golf; gift 2. gang 1850 m. Hotel India.",
+     "expect_clauses": 2, "expect_flags": ["multiple_marriages"], "note": "'; gift' med lille g splitter ikke; de to ægteskaber bliver i én klausul og flagges"},
+    {"key": "ukendt-forkortelse", "text": "Juliet Kilo, f. 1830, xyzq. 1850 i Lima. Gift 1855 m. Mike.",
+     "expect_clauses": 2, "expect_flags": ["unknown_abbreviation"]},
+    {"key": "ubalanceret-parentes", "text": "November Oscar, f. 1840 (søn af nr. 5. Gift 1865 m. Papa.",
+     "expect_clauses": 1, "expect_flags": ["unbalanced_parentheses"]},
+    {"key": "kort-post", "text": "Quebec Rom.", "expect_clauses": 1, "expect_flags": ["short_clause"], "note": "11 tegn < min_clause_chars 12"},
+    {"key": "struktur-overskrift", "text": "Femte slægtled. Sierra Tango, f. 1850, d. 1910.",
+     "expect_clauses": 2, "expect_flags": [], "expect_structural": 1}
+  ]
+}
