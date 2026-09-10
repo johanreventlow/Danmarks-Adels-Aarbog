@@ -19,7 +19,10 @@ reimport_named <- function(value, expected) {
 
 validate_reimport_manifest <- function(manifest) {
   required <- c("manifest_content_sha256", "source", "expected_counts", "operations")
-  optional <- "dispositions"
+  # "provenance" (#148 4.1c) er en ikke-autoriserende blok, der binder manifestet til
+  # ledgerfilens og renditionens hashes. Den sendes aldrig til databasen; den gør det
+  # muligt at se, hvilket artefakt et manifest er bygget af.
+  optional <- c("dispositions", "provenance")
   if (!is.list(manifest) || !all(required %in% names(manifest)) ||
       !all(names(manifest) %in% c(required, optional)) || anyDuplicated(names(manifest)) ||
       !reimport_hash(manifest$manifest_content_sha256) ||

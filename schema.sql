@@ -624,6 +624,14 @@ INSERT INTO private.vocab(scheme,code,label) VALUES
 
 ALTER TABLE private.source_observation
   ADD COLUMN parent_observation_id uuid REFERENCES private.source_observation(id),
+  -- Klausulens offsets INDE i forælderens tekst. char_from/char_to er
+  -- rendition-absolutte som for alle andre observationer, men forælderens gemte
+  -- tekst er en whitespace-foldet projektion af sit rå spænd, så man kan IKKE
+  -- regne sig fra det ene til det andet. Målt: 494 af 591 helposter afviger, og
+  -- 370 af 868 klausuler ville få forkert tekst ved subtraktion. Det post-relative
+  -- par bærer derfor den eksakte substring-kontrol.
+  ADD COLUMN post_char_from        integer CHECK (post_char_from IS NULL OR post_char_from >= 0),
+  ADD COLUMN post_char_to          integer CHECK (post_char_to IS NULL OR post_char_to > post_char_from),
   ADD COLUMN clause_ordinal        integer CHECK (clause_ordinal IS NULL OR clause_ordinal >= 1),
   ADD COLUMN clause_classification text,
   ADD COLUMN clause_flags          jsonb CHECK (clause_flags IS NULL OR jsonb_typeof(clause_flags)='array');
@@ -643,13 +651,15 @@ BEGIN
   END IF;
   IF NEW.observation_kind<>'clause' THEN
     IF NEW.parent_observation_id IS NOT NULL OR NEW.clause_ordinal IS NOT NULL
-       OR NEW.clause_classification IS NOT NULL OR NEW.clause_flags IS NOT NULL THEN
+       OR NEW.clause_classification IS NOT NULL OR NEW.clause_flags IS NOT NULL
+       OR NEW.post_char_from IS NOT NULL OR NEW.post_char_to IS NOT NULL THEN
       RAISE EXCEPTION 'EVIDENCE_CLAUSE_PARENT_FORBIDDEN';
     END IF;
     RETURN NEW;
   END IF;
   IF NEW.parent_observation_id IS NULL OR NEW.clause_ordinal IS NULL
-     OR NEW.clause_classification IS NULL OR NEW.clause_flags IS NULL THEN
+     OR NEW.clause_classification IS NULL OR NEW.clause_flags IS NULL
+     OR NEW.post_char_from IS NULL OR NEW.post_char_to IS NULL THEN
     RAISE EXCEPTION 'EVIDENCE_CLAUSE_PARENT_REQUIRED';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM private.vocab WHERE scheme='clause_classification' AND code=NEW.clause_classification) THEN
@@ -668,8 +678,18 @@ BEGIN
   IF NEW.page_from<>v_parent.page_from OR NEW.page_to<>v_parent.page_to THEN
     RAISE EXCEPTION 'EVIDENCE_CLAUSE_PAGE_OUTSIDE_PARENT';
   END IF;
-  IF substr(v_parent.verbatim_text, NEW.char_from-v_parent.char_from+1, NEW.char_to-NEW.char_from)<>NEW.verbatim_text THEN
+  -- Det post-relative par skal ligge inde i forælderens tekst ...
+  IF NEW.post_char_to>char_length(v_parent.verbatim_text) THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_POST_SPAN_OUTSIDE_PARENT';
+  END IF;
+  -- ... og udskæringen dér skal være ordret lig klausulens tekst. Denne kontrol
+  -- kan IKKE laves med char_from/char_to, fordi forælderens tekst er foldet.
+  IF substr(v_parent.verbatim_text, NEW.post_char_from+1, NEW.post_char_to-NEW.post_char_from)<>NEW.verbatim_text THEN
     RAISE EXCEPTION 'EVIDENCE_CLAUSE_TEXT_MISMATCH';
+  END IF;
+  -- De to par skal beskrive lige lange udsnit, ellers påstår de hver sit.
+  IF (NEW.char_to-NEW.char_from)<(NEW.post_char_to-NEW.post_char_from) THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_SPAN_PAIR_INCONSISTENT';
   END IF;
   -- Provenance (spec 4.1.2): klausulen arver forælderens kvalitetsklassifikation
   -- og bæres af den versionerede segmenteringsregel. En klausul må ikke kunne
@@ -3262,10 +3282,10 @@ BEGIN
     v_text:=substr(v_parent.verbatim_text, v_from+1, v_to-v_from);
     IF encode(digest(v_text,'sha256'),'hex')<>v_clause->>'verbatim_sha256' THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_TEXT_HASH_MISMATCH'; END IF;
     INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,
-      parent_observation_id,clause_ordinal,clause_classification,clause_flags)
+      parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags)
     VALUES(v_occurrence.id,'clause',v_parent.page_from,v_parent.page_to,v_abs_from,v_abs_to,v_text,v_parent.quality_status,
       (v_profile.writer_config->>'observation_extraction_method')||':'||(p_payload->>'clause_rules_version'),v_run,
-      v_parent.id,v_expected_ordinal,v_clause->>'classification',v_clause->'flags') RETURNING id INTO v_obs;
+      v_parent.id,v_from,v_to,v_expected_ordinal,v_clause->>'classification',v_clause->'flags') RETURNING id INTO v_obs;
     v_disposition:=CASE WHEN v_clause->>'classification'='structural_header' THEN 'strukturel'
                         WHEN jsonb_array_length(v_clause->'flags')>0 THEN 'maskinelt_flagget'
                         ELSE 'afventer_fortolkning' END;

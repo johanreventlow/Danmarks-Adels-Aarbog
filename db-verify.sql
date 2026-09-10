@@ -2715,8 +2715,8 @@ BEGIN
   END IF;
   SELECT count(*) INTO v_count FROM information_schema.columns
    WHERE table_schema='private' AND table_name='source_observation'
-     AND column_name IN ('parent_observation_id','clause_ordinal','clause_classification','clause_flags');
-  IF v_count<>4 THEN RAISE EXCEPTION 'CLAUSE_SCHEMA_COLUMNS_MISSING: %', v_count; END IF;
+     AND column_name IN ('parent_observation_id','clause_ordinal','clause_classification','clause_flags','post_char_from','post_char_to');
+  IF v_count<>6 THEN RAISE EXCEPTION 'CLAUSE_SCHEMA_COLUMNS_MISSING: %', v_count; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.source_observation'::regclass AND tgname='trg_source_observation_clause')
      OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.clause_disposition'::regclass AND tgname='trg_clause_disposition_validate') THEN
     RAISE EXCEPTION 'CLAUSE_SCHEMA_TRIGGER_MISSING';
