@@ -3169,7 +3169,7 @@ CREATE FUNCTION private.write_clause_evidence(p_batch_id uuid,p_element_id text,
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE; v_profile private.reimport_writer_profile%ROWTYPE;
   v_record private.source_record%ROWTYPE; v_occurrence private.source_record_occurrence%ROWTYPE; v_parent private.source_observation%ROWTYPE;
-  v_run uuid; v_clause jsonb; v_expected_ordinal integer := 0; v_prev_end integer := 0; v_from integer; v_to integer; v_gap text; v_text text;
+  v_run uuid; v_clause jsonb; v_expected_ordinal integer := 0; v_prev_end integer := 0; v_from integer; v_to integer; v_abs_from integer; v_abs_to integer; v_prev_abs_end integer := 0; v_gap text; v_text text;
   v_gap_chars text[]; v_obs uuid; v_count integer := 0; v_disposition text; v_run_key text;
 BEGIN
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
@@ -3184,11 +3184,12 @@ BEGIN
   END IF;
   IF jsonb_typeof(p_payload)<>'object'
      OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(p_payload) k)
-        <> ARRAY['clause_rules_version','clauses','gap_charset','ledger_sha256','parent_verbatim_sha256','rendition_content_sha256','segmenter_version','source_record_key']
+        <> ARRAY['clause_rules_version','clauses','gap_charset','ledger_sha256','parent_verbatim_sha256','rendition_content_sha256','rendition_projection_sha256','segmenter_version','source_record_key']
      OR p_element_id<>'clause-evidence:'||coalesce(p_payload->>'source_record_key','')
      OR coalesce(p_payload->>'rendition_content_sha256','') !~ '^[0-9a-f]{64}$'
      OR coalesce(p_payload->>'parent_verbatim_sha256','') !~ '^[0-9a-f]{64}$'
      OR coalesce(p_payload->>'ledger_sha256','') !~ '^[0-9a-f]{64}$'
+     OR coalesce(p_payload->>'rendition_projection_sha256','') !~ '^[0-9a-f]{64}$'
      OR nullif(btrim(coalesce(p_payload->>'clause_rules_version','')),'') IS NULL
      OR nullif(btrim(coalesce(p_payload->>'segmenter_version','')),'') IS NULL
      OR jsonb_typeof(p_payload->'gap_charset')<>'array' OR jsonb_array_length(p_payload->'gap_charset')=0
@@ -3221,11 +3222,29 @@ BEGIN
   FOR v_clause IN SELECT value FROM jsonb_array_elements(p_payload->'clauses') LOOP
     v_expected_ordinal:=v_expected_ordinal+1;
     IF jsonb_typeof(v_clause)<>'object' OR (v_clause->>'ordinal')::int IS DISTINCT FROM v_expected_ordinal THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_ORDINAL_INVALID'; END IF;
+    -- Lukket nøglesæt på klausulen: uden det kan en autoriseret payload bære fx
+    -- verbatim_text og lagre kildetekst permanent i private.reimport_event.
+    IF (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(v_clause) k)
+       <> ARRAY['char_from','char_to','classification','flags','ordinal','rendition_char_from','rendition_char_to','verbatim_sha256'] THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_EVIDENCE_INVALID';
+    END IF;
     v_from:=(v_clause->>'char_from')::int; v_to:=(v_clause->>'char_to')::int;
+    v_abs_from:=(v_clause->>'rendition_char_from')::int; v_abs_to:=(v_clause->>'rendition_char_to')::int;
     IF v_from IS NULL OR v_to IS NULL OR v_from<v_prev_end OR v_to<=v_from OR v_to>char_length(v_parent.verbatim_text)
        OR coalesce(v_clause->>'verbatim_sha256','') !~ '^[0-9a-f]{64}$' OR jsonb_typeof(v_clause->'flags')<>'array'
+       OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_clause->'flags') f WHERE jsonb_typeof(f)<>'string' OR btrim(f#>>'{}')='')
        OR NOT EXISTS (SELECT 1 FROM private.vocab WHERE scheme='clause_classification' AND code=v_clause->>'classification') THEN
       RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_EVIDENCE_INVALID';
+    END IF;
+    -- Renditions-absolutte offsets kommer fra manifest-builderens offset-kort.
+    -- Helposten er IKKE en litteral delstreng af renditionen (whitespace er foldet
+    -- i segment.py), så parent.char_from + post-relativ offset peger forkert i 494
+    -- af 591 poster. Basen kan ikke bygge kortet — renditionsteksten findes ikke her —
+    -- men den håndhæver, at intervallet ligger inde i forælderens og er monotont.
+    IF v_abs_from IS NULL OR v_abs_to IS NULL OR v_abs_to<=v_abs_from
+       OR v_abs_from<v_parent.char_from OR v_abs_to>v_parent.char_to
+       OR v_abs_from<v_prev_abs_end THEN
+      RAISE EXCEPTION 'CLAUSE_EVIDENCE_RENDITION_SPAN_INVALID';
     END IF;
     v_gap:=substr(v_parent.verbatim_text, v_prev_end+1, v_from-v_prev_end);
     IF v_gap<>'' AND EXISTS (SELECT 1 FROM regexp_split_to_table(v_gap,'') ch WHERE NOT (ch = ANY(v_gap_chars))) THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_GAP_INVALID'; END IF;
@@ -3233,7 +3252,7 @@ BEGIN
     IF encode(digest(v_text,'sha256'),'hex')<>v_clause->>'verbatim_sha256' THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_TEXT_HASH_MISMATCH'; END IF;
     INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,
       parent_observation_id,clause_ordinal,clause_classification,clause_flags)
-    VALUES(v_occurrence.id,'clause',v_parent.page_from,v_parent.page_to,v_parent.char_from+v_from,v_parent.char_from+v_to,v_text,v_parent.quality_status,
+    VALUES(v_occurrence.id,'clause',v_parent.page_from,v_parent.page_to,v_abs_from,v_abs_to,v_text,v_parent.quality_status,
       (v_profile.writer_config->>'observation_extraction_method')||':'||(p_payload->>'clause_rules_version'),v_run,
       v_parent.id,v_expected_ordinal,v_clause->>'classification',v_clause->'flags') RETURNING id INTO v_obs;
     v_disposition:=CASE WHEN v_clause->>'classification'='structural_header' THEN 'strukturel'
@@ -3241,7 +3260,7 @@ BEGIN
                         ELSE 'afventer_fortolkning' END;
     INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence)
     VALUES(v_obs,1,v_disposition,'machine',jsonb_build_object('batch_id',p_batch_id,'element_id',p_element_id,'manifest_sha256',v_batch.manifest_sha256,'clause_rules_version',p_payload->>'clause_rules_version'));
-    v_prev_end:=v_to; v_count:=v_count+1;
+    v_prev_end:=v_to; v_prev_abs_end:=v_abs_to; v_count:=v_count+1;
   END LOOP;
   v_gap:=substr(v_parent.verbatim_text, v_prev_end+1);
   IF v_gap<>'' AND EXISTS (SELECT 1 FROM regexp_split_to_table(v_gap,'') ch WHERE NOT (ch = ANY(v_gap_chars))) THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_GAP_INVALID'; END IF;

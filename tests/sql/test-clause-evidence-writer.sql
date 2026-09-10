@@ -44,14 +44,14 @@ END $$;
 CREATE FUNCTION pg_temp.ce_payload(p_fx jsonb, p_clauses jsonb) RETURNS jsonb LANGUAGE sql AS $$
   SELECT jsonb_build_object('source_record_key',p_fx->>'record_key','rendition_content_sha256',repeat('c',64),
     'parent_verbatim_sha256',p_fx->>'parent_sha256','clause_rules_version','clause-rules-fixture-v1','segmenter_version','clause_segment.py@v1',
-    'ledger_sha256',repeat('d',64),'gap_charset',jsonb_build_array(' '),'clauses',p_clauses)
+    'ledger_sha256',repeat('d',64),'rendition_projection_sha256',repeat('e',64),'gap_charset',jsonb_build_array(' '),'clauses',p_clauses)
 $$;
 -- Datadrevet: klausul 1 = til og med punktummet før ' Gift' (1-baseret position p), klausul 2 fra p+1 (0-baseret).
 CREATE FUNCTION pg_temp.ce_clauses(p_text text) RETURNS jsonb LANGUAGE sql AS $$
   WITH s AS (SELECT position('. Gift' in p_text) AS p)
   SELECT jsonb_build_array(
-    jsonb_build_object('ordinal',1,'char_from',0,'char_to',s.p,'classification','record_text','flags','[]'::jsonb,'verbatim_sha256',encode(extensions.digest(substr(p_text,1,s.p),'sha256'),'hex')),
-    jsonb_build_object('ordinal',2,'char_from',s.p+1,'char_to',char_length(p_text),'classification','record_text','flags','["uncertain_marker"]'::jsonb,'verbatim_sha256',encode(extensions.digest(substr(p_text,s.p+2),'sha256'),'hex')))
+    jsonb_build_object('ordinal',1,'char_from',0,'char_to',s.p,'rendition_char_from',100,'rendition_char_to',100+s.p,'classification','record_text','flags','[]'::jsonb,'verbatim_sha256',encode(extensions.digest(substr(p_text,1,s.p),'sha256'),'hex')),
+    jsonb_build_object('ordinal',2,'char_from',s.p+1,'char_to',char_length(p_text),'rendition_char_from',100+s.p+1,'rendition_char_to',100+char_length(p_text),'classification','record_text','flags','["uncertain_marker"]'::jsonb,'verbatim_sha256',encode(extensions.digest(substr(p_text,s.p+2),'sha256'),'hex')))
   FROM s
 $$;
 
@@ -137,6 +137,20 @@ BEGIN
   -- Klausulhash matcher ikke udsnittet.
   p := pg_temp.ce_payload(fx, jsonb_set(c,'{0,verbatim_sha256}',to_jsonb(repeat('f',64))));
   PERFORM pg_temp.expect_error(format('SELECT pg_temp.ce_apply(%L::jsonb,%L::jsonb,%L,%L)',fx,p,'CE2','n2'),'CLAUSE_EVIDENCE_TEXT_HASH_MISMATCH');
+  -- #148 4.1c: renditions-absolut span uden for forælderens afvises. Uden denne
+  -- kontrol kunne en klausul påstå en kildeposition, der slet ikke er i helposten.
+  p := pg_temp.ce_payload(fx, jsonb_set(c,'{0,rendition_char_from}',to_jsonb(1)));
+  PERFORM pg_temp.expect_error(format('SELECT pg_temp.ce_apply(%L::jsonb,%L::jsonb,%L,%L)',fx,p,'CE2','n2a'),'CLAUSE_EVIDENCE_RENDITION_SPAN_INVALID');
+  -- Ikke-monotont absolut span afvises (klausul 2 begynder før klausul 1 slutter).
+  p := pg_temp.ce_payload(fx, jsonb_set(c,'{1,rendition_char_from}',to_jsonb(100)));
+  PERFORM pg_temp.expect_error(format('SELECT pg_temp.ce_apply(%L::jsonb,%L::jsonb,%L,%L)',fx,p,'CE2','n2b'),'CLAUSE_EVIDENCE_RENDITION_SPAN_INVALID');
+  -- PII: en ekstra nøgle i klausulen — fx smuglet kildetekst — afvises, fordi hele
+  -- payloaden ellers ville blive gemt permanent i private.reimport_event.
+  p := pg_temp.ce_payload(fx, jsonb_set(c,'{0,verbatim_text}',to_jsonb('Echo Foxtrot, f. 1811'::text)));
+  PERFORM pg_temp.expect_error(format('SELECT pg_temp.ce_apply(%L::jsonb,%L::jsonb,%L,%L)',fx,p,'CE2','n2c'),'REIMPORT_WRITER_CLAUSE_EVIDENCE_INVALID');
+  -- Tomt flag afvises (flag skal være ikke-tomme strenge, som databasen kræver).
+  p := pg_temp.ce_payload(fx, jsonb_set(c,'{1,flags}','["  "]'::jsonb));
+  PERFORM pg_temp.expect_error(format('SELECT pg_temp.ce_apply(%L::jsonb,%L::jsonb,%L,%L)',fx,p,'CE2','n2d'),'REIMPORT_WRITER_CLAUSE_EVIDENCE_INVALID');
   -- Mellemrum indeholder ikke-hvidlistet tegn: skub klausul 2 ét tegn frem, så første bogstav efter mellemrummet bliver "gap".
   p := pg_temp.ce_payload(fx, jsonb_set(jsonb_set(c,'{1,char_from}',to_jsonb(position('. Gift' in v_text)+2)),'{1,verbatim_sha256}',to_jsonb(encode(extensions.digest(substr(v_text,position('. Gift' in v_text)+3),'sha256'),'hex'))));
   PERFORM pg_temp.expect_error(format('SELECT pg_temp.ce_apply(%L::jsonb,%L::jsonb,%L,%L)',fx,p,'CE2','n3'),'CLAUSE_EVIDENCE_GAP_INVALID');
