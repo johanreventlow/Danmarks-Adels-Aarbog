@@ -2707,7 +2707,7 @@ $reimport_event_operation_check_verify$;
 -- #148 4.1a: klausullagets skema er til stede, vokabularet er lukket, og
 -- legacy-writeren tæller kun helpostens mentions.
 DO $clause_schema_verify$
-DECLARE v_def text; v_count integer;
+DECLARE v_def text; v_count integer; v_rel text; v_role text;
 BEGIN
   IF to_regclass('private.vocab') IS NULL OR to_regclass('private.clause_disposition') IS NULL
      OR to_regclass('private.clause_disposition_current') IS NULL THEN
@@ -2728,11 +2728,21 @@ BEGIN
   IF v_def NOT LIKE '%ob.occurrence_id=v_occurrence.id AND ob.parent_observation_id IS NULL%' THEN
     RAISE EXCEPTION 'CLAUSE_SCHEMA_LEGACY_WRITER_NOT_HARDENED';
   END IF;
+  -- Alle fire roller kontrolleres på alle tre relationer: Supabase default-granter
+  -- direkte til anon/authenticated/service_role, så REVOKE FROM PUBLIC er ikke nok.
   IF has_function_privilege('authenticated','private.validate_clause_observation()','EXECUTE')
-     OR has_table_privilege('anon','private.vocab','SELECT')
-     OR has_table_privilege('anon','private.clause_disposition_current','SELECT') THEN
-    RAISE EXCEPTION 'CLAUSE_SCHEMA_ACL_INVALID';
+     OR has_function_privilege('service_role','private.validate_clause_observation()','EXECUTE')
+     OR has_function_privilege('authenticated','private.validate_clause_disposition()','EXECUTE')
+     OR has_function_privilege('service_role','private.validate_clause_disposition()','EXECUTE') THEN
+    RAISE EXCEPTION 'CLAUSE_SCHEMA_ACL_INVALID: funktion';
   END IF;
+  FOREACH v_rel IN ARRAY ARRAY['private.vocab','private.clause_disposition','private.clause_disposition_current'] LOOP
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+      IF has_table_privilege(v_role,v_rel,'SELECT') OR has_table_privilege(v_role,v_rel,'INSERT') THEN
+        RAISE EXCEPTION 'CLAUSE_SCHEMA_ACL_INVALID: % har adgang til %', v_role, v_rel;
+      END IF;
+    END LOOP;
+  END LOOP;
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_clause_disposition_append_only' AND tgrelid='private.clause_disposition'::regclass)
      OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_vocab_append_only' AND tgrelid='private.vocab'::regclass)
      OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.clause_disposition'::regclass)

@@ -999,10 +999,13 @@ BEGIN
     EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON private.%I FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation()','trg_'||v_table||'_append_only',v_table);
     EXECUTE format('CREATE TRIGGER %I BEFORE TRUNCATE ON private.%I FOR EACH STATEMENT EXECUTE FUNCTION private.reject_evidence_mutation()','trg_'||v_table||'_append_only_truncate',v_table);
     EXECUTE format('ALTER TABLE private.%I ENABLE ROW LEVEL SECURITY',v_table);
-    EXECUTE format('REVOKE ALL ON TABLE private.%I FROM PUBLIC,anon,authenticated',v_table);
+    -- service_role er med her (modsat de ældre private tabeller): Supabase
+    -- default-granter direkte til rollen, og en service-role-klient må ikke
+    -- kunne udvide det lukkede vokabular eller skrive i dispositionsledgeren.
+    EXECUTE format('REVOKE ALL ON TABLE private.%I FROM PUBLIC,anon,authenticated,service_role',v_table);
   END LOOP;
 END $$;
-REVOKE ALL ON TABLE private.clause_disposition_current FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON TABLE private.clause_disposition_current FROM PUBLIC,anon,authenticated,service_role;
 
 REVOKE ALL ON TABLE private.source_record_anchor_current,
                     private.source_record_revision_current,
