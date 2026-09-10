@@ -1054,6 +1054,110 @@ REVOKE EXECUTE ON FUNCTION private.reject_evidence_mutation(),
                            private.validate_source_record_revision_event()
   FROM PUBLIC,anon,authenticated;
 
+-- ---------- #147 4.2: ÉT PRÆDIKAT-NAVNERUM ----------
+INSERT INTO private.vocab(scheme,code,label) VALUES
+  ('interpretation_category','titel','Adelig eller standsmæssig titel (§7.3)'),
+  ('interpretation_category','embede','Embede (§7.3)'),
+  ('interpretation_category','hofstilling','Hofstilling (§7.3)'),
+  ('interpretation_category','militaer_rang','Militær rang (§7.3)'),
+  ('interpretation_category','erhverv','Erhverv eller civil stilling (§7.3)'),
+  ('interpretation_category','uddannelse','Uddannelse eller grad (§7.3)'),
+  ('interpretation_category','dekoration','Dekoration eller æresbevisning (§7.3)');
+
+CREATE TABLE private.interpretation_predicate (
+  predicate           text PRIMARY KEY CHECK (predicate ~ '^[a-z_]+(\.[a-z_]+)+$'),
+  interpretation_kind text NOT NULL CHECK (interpretation_kind IN ('property','relation','event','mention')),
+  category            text,
+  value_kind          text NOT NULL CHECK (value_kind IN ('text','date_raw','name','event','relation','mention')),
+  status              text NOT NULL CHECK (status IN ('active','retired')),
+  introduced_in       text NOT NULL CHECK (btrim(introduced_in)<>''),
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  -- Revision 3 (R4): FK-mål for private.interpretation, så udsagnsformen bindes til
+  -- prædikatet og ikke kun sameksisterer med tabellens eget fireværdi-CHECK.
+  UNIQUE (predicate, interpretation_kind)
+);
+CREATE FUNCTION private.validate_interpretation_predicate()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+BEGIN
+  IF NEW.category IS NOT NULL AND NOT EXISTS (SELECT 1 FROM private.vocab WHERE scheme='interpretation_category' AND code=NEW.category) THEN
+    RAISE EXCEPTION 'EVIDENCE_PREDICATE_CATEGORY_UNKNOWN: %', NEW.category;
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER trg_interpretation_predicate_validate BEFORE INSERT OR UPDATE ON private.interpretation_predicate
+  FOR EACH ROW EXECUTE FUNCTION private.validate_interpretation_predicate();
+-- Referencetabel: kun status må ændres (active→retired), aldrig slettes; RLS som de øvrige private tabeller.
+CREATE FUNCTION private.reject_interpretation_predicate_mutation() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'EVIDENCE_PREDICATE_DELETE_FORBIDDEN'; END IF;
+  IF NEW.predicate<>OLD.predicate OR NEW.interpretation_kind<>OLD.interpretation_kind OR NEW.value_kind<>OLD.value_kind
+     OR NEW.category IS DISTINCT FROM OLD.category OR NEW.introduced_in<>OLD.introduced_in THEN
+    RAISE EXCEPTION 'EVIDENCE_PREDICATE_IMMUTABLE_FIELD';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER trg_interpretation_predicate_mutation BEFORE UPDATE OR DELETE ON private.interpretation_predicate
+  FOR EACH ROW EXECUTE FUNCTION private.reject_interpretation_predicate_mutation();
+CREATE TRIGGER trg_interpretation_predicate_truncate BEFORE TRUNCATE ON private.interpretation_predicate
+  FOR EACH STATEMENT EXECUTE FUNCTION private.reject_evidence_mutation();
+ALTER TABLE private.interpretation_predicate ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.interpretation_predicate FROM PUBLIC,anon,authenticated;
+
+INSERT INTO private.interpretation_predicate(predicate,interpretation_kind,category,value_kind,status,introduced_in) VALUES
+  ('person.name','property',NULL,'text','active','trin4-4.2'),
+  ('person.name_part','property',NULL,'name','active','trin4-4.2'),
+  ('person.name_variant','property',NULL,'name','active','trin4-4.2'),
+  ('person.byname','property',NULL,'text','active','trin4-4.2'),
+  ('person.identity','property',NULL,'text','active','trin4-4.2'),
+  ('person.uncertainty','property',NULL,'text','active','trin4-4.2'),
+  ('person.negation','property',NULL,'text','active','trin4-4.2'),
+  ('person.unknown','property',NULL,'text','active','trin4-4.2'),
+  ('person.birth','property',NULL,'date_raw','active','trin4-4.2'),
+  ('person.baptism','property',NULL,'date_raw','active','trin4-4.2'),
+  ('person.death','property',NULL,'date_raw','active','trin4-4.2'),
+  ('person.burial','property',NULL,'date_raw','active','trin4-4.2'),
+  ('person.title','property','titel','text','active','trin4-4.2'),
+  ('person.form_of_address','property',NULL,'text','active','trin4-4.2'),
+  ('person.rank','property','militaer_rang','text','active','trin4-4.2'),
+  ('person.office','property','embede','text','active','trin4-4.2'),
+  ('person.court_office','property','hofstilling','text','active','trin4-4.2'),
+  ('person.occupation','property','erhverv','text','active','trin4-4.2'),
+  ('person.education','property','uddannelse','text','active','trin4-4.2'),
+  ('person.decoration','property','dekoration','text','active','trin4-4.2'),
+  ('person.estate','property',NULL,'text','active','trin4-4.2'),
+  ('person.residence','property',NULL,'text','active','trin4-4.2'),
+  ('person.military_service','property',NULL,'text','active','trin4-4.2'),
+  ('person.publication','property',NULL,'text','active','trin4-4.2'),
+  ('relation.marriage','relation',NULL,'relation','active','trin4-4.2'),
+  ('relation.parent','relation',NULL,'relation','active','trin4-4.2'),
+  ('relation.child','relation',NULL,'relation','active','trin4-4.2'),
+  ('event.marriage','event',NULL,'event','active','trin4-4.2'),
+  ('event.appointment','event',NULL,'event','active','trin4-4.2'),
+  ('event.dismissal','event',NULL,'event','active','trin4-4.2'),
+  ('event.acquisition','event',NULL,'event','active','trin4-4.2'),
+  ('event.travel','event',NULL,'event','active','trin4-4.2'),
+  ('mention.person','mention',NULL,'mention','active','trin4-4.2'),
+  ('mention.place','mention',NULL,'mention','active','trin4-4.2'),
+  ('mention.organisation','mention',NULL,'mention','active','trin4-4.2'),
+  ('mention.estate','mention',NULL,'mention','active','trin4-4.2'),
+  ('lineage.introduction','property',NULL,'text','active','trin4-4.2'),
+  ('genealogy.generation_header','property',NULL,'text','active','trin4-4.2'),
+  ('heraldry.description','property',NULL,'text','active','trin4-4.2'),
+  ('heraldry.blazon','property',NULL,'text','active','trin4-4.2'),
+  ('image.caption','property',NULL,'text','active','trin4-4.2'),
+  ('reference.cross_reference','mention',NULL,'mention','active','trin4-4.2'),
+  -- db-verify's syntetiske fixtures (kører mod prod; se Global Constraints). Ikke i den genererede fil.
+  ('person.name.relation','property',NULL,'text','active','db-verify-fixture'),
+  ('verify.person.name.no_bulk','property',NULL,'text','active','db-verify-fixture'),
+  ('verify.person.name.principal','property',NULL,'text','active','db-verify-fixture'),
+  ('verify.concurrent.name','property',NULL,'text','active','db-verify-fixture'),
+  -- Revision 3 (R1'): omdøbt i db-verify.sql fra death_date / fake_approval /
+  -- terminal_status / name, som alle manglede punktum og derfor brød PK-CHECK'et.
+  ('verify.death_date','property',NULL,'text','active','db-verify-fixture'),
+  ('verify.fake_approval','property',NULL,'text','active','db-verify-fixture'),
+  ('verify.terminal_status','property',NULL,'text','active','db-verify-fixture'),
+  ('verify.name','property',NULL,'text','active','db-verify-fixture');
+
 -- ---------- PRIVAT FORTOLKNING, PROMOTION OG IDENTITET ----------
 -- interpretation er selv sin versionslog: en afgørelse indsætter en ny række,
 -- og observationerne kopieres. Den tidligere version omskrives aldrig.
@@ -1106,7 +1210,13 @@ CREATE TABLE private.interpretation (
   CONSTRAINT interpretation_proposal_actor_check CHECK (
     status<>'proposed'
     OR (decided_by IS NULL AND decided_by_name IS NULL AND decided_at IS NULL)
-  )
+  ),
+  -- #147 4.2 (revision 3, R4+R9): prædikattabellen er eneste sandhed om BÅDE prædikatet
+  -- og dets udsagnsform. FK'en står inline og ikke som et ALTER TABLE bagefter, fordi
+  -- test_evidence_contract.py matcher på, at interpretation_observation følger umiddelbart
+  -- efter denne tabel.
+  CONSTRAINT interpretation_predicate_fk FOREIGN KEY (predicate,interpretation_kind)
+    REFERENCES private.interpretation_predicate(predicate,interpretation_kind)
 );
 
 CREATE TABLE private.interpretation_observation (
@@ -1181,6 +1291,36 @@ SELECT DISTINCT ON (rule_key) *
   FROM private.interpretation_promotion_rule
  ORDER BY rule_key,rule_version DESC;
 
+-- #147 4.2 (revision 3, R3'): samme tre kontroller som i
+-- add_interpretation_promotion_rule_version, så en direkte INSERT ikke kan omgå dem.
+CREATE FUNCTION private.validate_interpretation_promotion_rule_predicate()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=NEW.predicate AND pr.status='active') THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_PREDICATE_UNKNOWN';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=NEW.predicate AND pr.value_kind=NEW.value_kind AND pr.value_kind IN ('text','date_raw')) THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_VALUE_KIND_MISMATCH';
+  END IF;
+  IF (NEW.rule_key LIKE 'verify-%') <> EXISTS (SELECT 1 FROM private.interpretation_predicate pr
+                                                WHERE pr.predicate=NEW.predicate AND pr.introduced_in='db-verify-fixture') THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_FIXTURE_SCOPE_INVALID';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER trg_interpretation_promotion_rule_predicate
+  BEFORE INSERT ON private.interpretation_promotion_rule
+  FOR EACH ROW EXECUTE FUNCTION private.validate_interpretation_promotion_rule_predicate();
+
+-- Promoverbarhed udledes ved join; tabellen har ingen rule_key (ingen cirkulær FK).
+CREATE VIEW private.interpretation_predicate_promotable WITH (security_invoker=true) AS
+SELECT p.predicate, p.interpretation_kind, p.category, p.value_kind, r.rule_key, r.rule_version, r.expected_fact_type
+  FROM private.interpretation_predicate p
+  JOIN private.interpretation_promotion_rule_line l ON l.predicate=p.predicate
+  JOIN private.interpretation_promotion_rule_current r ON r.rule_key=l.rule_key
+ WHERE p.status='active' AND p.introduced_in<>'db-verify-fixture' AND r.status='active' AND r.rule_key NOT LIKE 'verify-%';
+REVOKE ALL ON TABLE private.interpretation_predicate_promotable FROM PUBLIC,anon,authenticated,service_role;
+
 CREATE FUNCTION private.add_interpretation_promotion_rule_version(
   p_rule_key text,p_predicate text,p_interpretation_kind text,p_target_type text,
   p_expected_fact_type text,p_value_kind text,p_requires_persona_identity boolean,
@@ -1193,6 +1333,19 @@ BEGIN
    WHERE rule_key=p_rule_key FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_LINE_NOT_FOUND'; END IF;
   IF v_predicate<>p_predicate THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_PREDICATE_MISMATCH'; END IF;
+  -- #147 4.2 (revision 3, R3'): INGEN undtagelse. Eksistens og value_kind-lighed
+  -- håndhæves for ALLE regler; det eneste 'verify-%' må, er at pege på et
+  -- fixture-prædikat — og almindelige regler må kun pege på ikke-fixtures.
+  IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=p_predicate AND pr.status='active') THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_PREDICATE_UNKNOWN';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=p_predicate AND pr.value_kind=p_value_kind AND pr.value_kind IN ('text','date_raw')) THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_VALUE_KIND_MISMATCH';
+  END IF;
+  IF (p_rule_key LIKE 'verify-%') <> EXISTS (SELECT 1 FROM private.interpretation_predicate pr
+                                              WHERE pr.predicate=p_predicate AND pr.introduced_in='db-verify-fixture') THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_FIXTURE_SCOPE_INVALID';
+  END IF;
   SELECT coalesce(max(rule_version),0)+1 INTO v_version
     FROM private.interpretation_promotion_rule WHERE rule_key=p_rule_key;
   INSERT INTO private.interpretation_promotion_rule(

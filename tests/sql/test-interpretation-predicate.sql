@@ -26,12 +26,26 @@ BEGIN
 END $t1_table_and_seed$;
 
 DO $t2_fks_and_binding$
+DECLARE v_run uuid := gen_random_uuid();
 BEGIN
   -- Gamle extractor-navne findes ikke.
   IF EXISTS (SELECT 1 FROM private.interpretation_predicate WHERE predicate IN ('life_event.birth','title.title','honour.honour')) THEN RAISE EXCEPTION 'PREDICATE_OLD_NAMES_PRESENT'; END IF;
-  -- interpretation.predicate → FK.
-  PERFORM pg_temp.expect_error($q$INSERT INTO private.interpretation(interpretation_key,version,source_id,interpretation_kind,predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id)
-    VALUES(gen_random_uuid(),1,1,'property','life_event.birth','"1801"','1.1','model_inference',0.5,'proposed','model',gen_random_uuid())$q$,'insert or update on table "interpretation" violates foreign key constraint "interpretation_predicate_fk"');
+  -- R6: gyldige præmisser, så prædikat-FK'en er den ENESTE ugyldige værdi. Uden dem
+  -- fyrer interpretation_source_id_fkey først, og testen ville bevise noget andet.
+  INSERT INTO public.source(id,slags,titel,udgave,aar)
+  VALUES(-147001,'DAA-udgave','Predicate fixture','synthetic',1900) ON CONFLICT(id) DO NOTHING;
+  INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+  VALUES(v_run,-147001,'predicate-test-'||v_run::text,'fixture','fixture','fixture',repeat('1',64),'{}');
+
+  -- interpretation.predicate → FK: ukendt prædikat.
+  PERFORM pg_temp.expect_error(format($q$INSERT INTO private.interpretation(interpretation_key,version,source_id,interpretation_kind,predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id)
+    VALUES(gen_random_uuid(),1,-147001,'property','life_event.birth','"1801"','1.1','model_inference',0.5,'proposed','model',%L)$q$, v_run),
+    'insert or update on table "interpretation" violates foreign key constraint "interpretation_predicate_fk"');
+  -- R4': KENDT prædikat, men forkert udsagnsform. Komposit-FK'en skal bide her — ellers
+  -- ville tabellen ikke være eneste sandhed om udsagnsformen, som målet lover.
+  PERFORM pg_temp.expect_error(format($q$INSERT INTO private.interpretation(interpretation_key,version,source_id,interpretation_kind,predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id)
+    VALUES(gen_random_uuid(),1,-147001,'event','person.name','"Alfa"','1.1','model_inference',0.5,'proposed','model',%L)$q$, v_run),
+    'insert or update on table "interpretation" violates foreign key constraint "interpretation_predicate_fk"');
   -- rule_line har bevidst ingen FK (db-verify's syntetiske fixtures), men en regel på et ukendt prædikat afvises.
   INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate) VALUES('x-v1','person.nonexistent');
   PERFORM pg_temp.expect_error($q$SELECT private.add_interpretation_promotion_rule_version('x-v1','person.nonexistent','property','assertion','navn','text',true,false,true,'active')$q$,'EVIDENCE_PROMOTION_RULE_PREDICATE_UNKNOWN');
@@ -41,6 +55,13 @@ BEGIN
   -- Regel med forkert value_kind for et text-prædikat afvises.
   INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate) VALUES('office-test','person.office');
   PERFORM pg_temp.expect_error($q$SELECT private.add_interpretation_promotion_rule_version('office-test','person.office','property','assertion','titel','date_raw',true,false,true,'active')$q$,'EVIDENCE_PROMOTION_RULE_VALUE_KIND_MISMATCH');
+  -- R3': en almindelig regel må ikke pege på et fixture-prædikat.
+  INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate) VALUES('scope-test','verify.name');
+  PERFORM pg_temp.expect_error($q$SELECT private.add_interpretation_promotion_rule_version('scope-test','verify.name','property','assertion','navn','text',true,false,true,'active')$q$,'EVIDENCE_PROMOTION_RULE_FIXTURE_SCOPE_INVALID');
+  -- ... og en verify-regel må ikke pege på et rigtigt prædikat.
+  -- rule_line.predicate er UNIQUE, så proben bruger et andet rigtigt prædikat.
+  INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate) VALUES('verify-scope-test','person.rank');
+  PERFORM pg_temp.expect_error($q$SELECT private.add_interpretation_promotion_rule_version('verify-scope-test','person.rank','property','assertion','titel','text',true,false,true,'active')$q$,'EVIDENCE_PROMOTION_RULE_FIXTURE_SCOPE_INVALID');
   -- Korrekt value_kind går igennem.
   PERFORM private.add_interpretation_promotion_rule_version('office-test','person.office','property','assertion','titel','text',true,false,true,'active');
   RAISE NOTICE 't2 fks and binding OK';

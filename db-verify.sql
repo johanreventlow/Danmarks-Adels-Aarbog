@@ -3642,7 +3642,7 @@ BEGIN
       ) VALUES (
         'c1000000-0000-0000-0000-000000000020',
         'c0000000-0000-0000-0000-000000000020',1,-987650021,v_persona,
-        'property','death_date','{"raw":"1"}','1.0','source_statement',
+        'property','verify.death_date','{"raw":"1"}','1.0','source_statement',
         1,'proposed','verify',v_run
       );
       SET CONSTRAINTS private.interpretation_has_observation IMMEDIATE;
@@ -3658,7 +3658,7 @@ BEGIN
       confidence,status,method,extraction_run_id
     ) VALUES (
       v_interpretation,'c0000000-0000-0000-0000-000000000021',1,
-      -987650021,v_persona,'property','death_date','{"raw":"1"}','1.0',
+      -987650021,v_persona,'property','verify.death_date','{"raw":"1"}','1.0',
       'source_statement',1,'proposed','verify',v_run
     );
     INSERT INTO private.interpretation_observation(
@@ -3750,7 +3750,7 @@ BEGIN
       ) VALUES (
         'c1000000-0000-0000-0000-000000000029',
         'c0000000-0000-0000-0000-000000000029',1,-987650021,v_persona,
-        'property','fake_approval','{}','1.0','human_judgement',1,'accepted',
+        'property','verify.fake_approval','{}','1.0','human_judgement',1,'accepted',
         'forged',v_run,'{"basis":"forged"}',v_actor,'Forged',clock_timestamp()
       );
       RAISE EXCEPTION 'SERVICE_ROLE_FAKE_ACCEPTED';
@@ -3791,7 +3791,7 @@ BEGIN
         confidence,status,method,extraction_run_id
       ) VALUES (
         v_terminal_proposal,gen_random_uuid(),1,-987650021,v_persona,
-        'property','terminal_status','{}','1.0','source_statement',1,
+        'property','verify.terminal_status','{}','1.0','source_statement',1,
         'proposed','verify',v_run
       );
       INSERT INTO private.interpretation_observation(
@@ -4045,7 +4045,7 @@ BEGIN
   PERFORM dblink_exec('interpretation_setup','SET CONSTRAINTS ALL DEFERRED');
   PERFORM dblink_exec('interpretation_setup',
     'INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id) '
-    || 'VALUES (''c1000000-0000-0000-0000-000000000061'',''c0000000-0000-0000-0000-000000000061'',1,-987650061,''88000000-0000-0000-0000-000000000061'',''property'',''name'',''{}'',''1.0'',''source_statement'',1,''proposed'',''verify'',''22000000-0000-0000-0000-000000000061'')');
+    || 'VALUES (''c1000000-0000-0000-0000-000000000061'',''c0000000-0000-0000-0000-000000000061'',1,-987650061,''88000000-0000-0000-0000-000000000061'',''property'',''verify.name'',''{}'',''1.0'',''source_statement'',1,''proposed'',''verify'',''22000000-0000-0000-0000-000000000061'')');
   PERFORM dblink_exec('interpretation_setup',
     'INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) VALUES (''c1000000-0000-0000-0000-000000000061'',''66000000-0000-0000-0000-000000000061'',''supporting'',1)');
   PERFORM dblink_exec('interpretation_setup','COMMIT');
