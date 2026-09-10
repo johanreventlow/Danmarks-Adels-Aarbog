@@ -2697,7 +2697,7 @@ BEGIN
    WHERE conrelid='private.reimport_event'::regclass
      AND contype='c'
      AND pg_get_constraintdef(oid) LIKE '%operation%';
-  IF v_count<>1 OR v_definition NOT LIKE '%legacy_migration%' THEN
+  IF v_count<>1 OR v_definition NOT LIKE '%legacy_migration%' OR v_definition NOT LIKE '%clause_evidence%' THEN
     RAISE EXCEPTION 'REIMPORT_EVENT_OPERATION_CHECK_DRIFT';
   END IF;
   RAISE NOTICE 'OK: private.reimport_event operation-CHECK er entydig og kender legacy_migration';
@@ -2752,6 +2752,23 @@ BEGIN
   RAISE NOTICE 'OK: #148 klausullagets skema, vokabular, triggere, ACL og hærdet legacy-writer';
 END $clause_schema_verify$;
 
+DO $clause_evidence_writer_verify$
+BEGIN
+  IF to_regprocedure('private.write_clause_evidence(uuid,text,jsonb)') IS NULL
+     OR to_regprocedure('public.red_apply_reimport_clause_evidence(uuid,text,jsonb)') IS NULL THEN
+    RAISE EXCEPTION 'CLAUSE_EVIDENCE_WRITER_MISSING';
+  END IF;
+  IF has_function_privilege('authenticated','private.write_clause_evidence(uuid,text,jsonb)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_apply_reimport_clause_evidence(uuid,text,jsonb)','EXECUTE')
+     OR has_function_privilege('anon','public.red_apply_reimport_clause_evidence(uuid,text,jsonb)','EXECUTE') THEN
+    RAISE EXCEPTION 'CLAUSE_EVIDENCE_WRITER_ACL_INVALID';
+  END IF;
+  IF pg_get_functiondef('private.validate_reimport_authorization_payload(jsonb,jsonb)'::regprocedure) NOT LIKE '%clause-evidence:%' THEN
+    RAISE EXCEPTION 'CLAUSE_EVIDENCE_AUTHORIZATION_FORM_MISSING';
+  END IF;
+  RAISE NOTICE 'OK: #148 clause_evidence-writer, ACL og autorisationsform';
+END $clause_evidence_writer_verify$;
+
 -- #154: Global default revoke må ikke efterlade eksisterende public.red_*
 -- RPC'er med implicit PUBLIC-adgang eller gøre en ny klient-RPC tavst
 -- ukaldbar. Alle undtagelser er eksplicitte og versionsstyrede her.
@@ -2768,6 +2785,7 @@ DECLARE
     'public.red_apply_reimport_canonical_delta(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_name_completion(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_legacy_migration(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_clause_evidence(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_person_create(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_source_evidence(uuid,text,jsonb)'::regprocedure,
     'public.red_begin_1939_v50_name_completion(uuid,text,uuid)'::regprocedure,
