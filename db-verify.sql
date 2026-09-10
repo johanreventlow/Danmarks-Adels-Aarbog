@@ -2752,6 +2752,76 @@ BEGIN
   RAISE NOTICE 'OK: #148 klausullagets skema, vokabular, triggere, ACL og hærdet legacy-writer';
 END $clause_schema_verify$;
 
+-- #147 4.2: prædikat-navnerummet. tests/sql/test-interpretation-predicate.sql dækker
+-- CI; denne blok er prod-siden, hvor tabellen skal bevises til stede, bundet og lukket.
+-- Bevidst uden nøjagtigt seed-antal: hvert senere dagsværk må kunne tilføje prædikater
+-- uden at gøre produktionsverifikationen rød. Fixture-rækkerne tælles derimod præcist,
+-- fordi db-verify's egne negative tests afhænger af netop dem.
+DO $interpretation_predicate_verify$
+DECLARE v_count integer; v_rel text; v_role text;
+BEGIN
+  IF to_regclass('private.interpretation_predicate') IS NULL
+     OR to_regclass('private.interpretation_predicate_promotable') IS NULL THEN
+    RAISE EXCEPTION 'PREDICATE_SCHEMA_OBJECTS_MISSING';
+  END IF;
+  -- Komposit-FK'en er hele pointen: udsagnsformen bindes til prædikatet, ikke kun til
+  -- interpretation-tabellens eget CHECK.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid='private.interpretation'::regclass AND contype='f'
+       AND confrelid='private.interpretation_predicate'::regclass
+       AND pg_get_constraintdef(oid) LIKE 'FOREIGN KEY (predicate, interpretation_kind)%'
+  ) THEN
+    RAISE EXCEPTION 'PREDICATE_COMPOSITE_FK_MISSING';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.interpretation_predicate'::regclass AND tgname='trg_interpretation_predicate_validate')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.interpretation_predicate'::regclass AND tgname='trg_interpretation_predicate_mutation')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.interpretation_predicate'::regclass AND tgname='trg_interpretation_predicate_truncate') THEN
+    RAISE EXCEPTION 'PREDICATE_TRIGGER_MISSING';
+  END IF;
+  IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.interpretation_predicate'::regclass) THEN
+    RAISE EXCEPTION 'PREDICATE_RLS_MISSING';
+  END IF;
+  SELECT count(*) INTO v_count FROM private.interpretation_predicate
+   WHERE status='active' AND introduced_in<>'db-verify-fixture';
+  IF v_count<42 THEN RAISE EXCEPTION 'PREDICATE_SEED_INCOMPLETE: %', v_count; END IF;
+  SELECT count(*) INTO v_count FROM private.interpretation_predicate
+   WHERE introduced_in='db-verify-fixture';
+  IF v_count<>8 THEN RAISE EXCEPTION 'PREDICATE_FIXTURE_SEED_COUNT: %', v_count; END IF;
+  -- Kategorien skal være et seedet vokabular-kodeord, ikke fritekst.
+  IF EXISTS (SELECT 1 FROM private.interpretation_predicate p WHERE p.category IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM private.vocab v WHERE v.scheme='interpretation_category' AND v.code=p.category)) THEN
+    RAISE EXCEPTION 'PREDICATE_CATEGORY_UNSEEDED';
+  END IF;
+  -- Reglerne bærer ingen FK (fixture-rækker skal kunne stå der), så deres dækning
+  -- måles her i stedet: en regel, hvis prædikat mangler eller har en anden udsagns-
+  -- eller værdiform, ville tavst falde ud af promotable-viewet.
+  IF EXISTS (
+    SELECT 1 FROM private.interpretation_promotion_rule r
+     WHERE r.status='active' AND r.rule_key NOT LIKE 'verify-%'
+       AND NOT EXISTS (SELECT 1 FROM private.interpretation_predicate p
+                        WHERE p.predicate=r.predicate AND p.interpretation_kind=r.interpretation_kind
+                          AND p.value_kind=r.value_kind AND p.status='active')
+  ) THEN
+    RAISE EXCEPTION 'PREDICATE_RULE_BINDING_DRIFT';
+  END IF;
+  -- Supabase default-granter direkte til rollerne, så REVOKE FROM PUBLIC er ikke nok.
+  FOREACH v_rel IN ARRAY ARRAY['private.interpretation_predicate','private.interpretation_predicate_promotable'] LOOP
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+      IF has_table_privilege(v_role,v_rel,'SELECT') OR has_table_privilege(v_role,v_rel,'INSERT') THEN
+        RAISE EXCEPTION 'PREDICATE_ACL_INVALID: % har adgang til %', v_role, v_rel;
+      END IF;
+    END LOOP;
+  END LOOP;
+  IF has_function_privilege('authenticated','private.validate_interpretation_predicate()','EXECUTE')
+     OR has_function_privilege('service_role','private.validate_interpretation_predicate()','EXECUTE')
+     OR has_function_privilege('authenticated','private.reject_interpretation_predicate_mutation()','EXECUTE')
+     OR has_function_privilege('service_role','private.reject_interpretation_predicate_mutation()','EXECUTE') THEN
+    RAISE EXCEPTION 'PREDICATE_ACL_INVALID: funktion';
+  END IF;
+  RAISE NOTICE 'OK: #147 prædikat-navnerummet — tabel, komposit-FK, triggere, regelbinding og ACL';
+END $interpretation_predicate_verify$;
+
 -- #154: Global default revoke må ikke efterlade eksisterende public.red_*
 -- RPC'er med implicit PUBLIC-adgang eller gøre en ny klient-RPC tavst
 -- ukaldbar. Alle undtagelser er eksplicitte og versionsstyrede her.
