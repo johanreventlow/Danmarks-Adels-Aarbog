@@ -259,8 +259,8 @@ BEGIN
     JOIN private.source_rendition rd ON rd.id=o.rendition_id
    WHERE rd.source_id=(fx->>'source_id')::bigint AND ob.parent_observation_id IS NULL;
   INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,
-    parent_observation_id,clause_ordinal,clause_classification,clause_flags)
-  VALUES(v_occ,'clause',10,10,0,10,substr(v_text,1,10),'clear','clause_segment_v1',v_run,v_parent,1,'record_text','[]') RETURNING id INTO v_clause;
+    parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags)
+  VALUES(v_occ,'clause',10,10,0,10,substr(v_text,1,10),'clear','clause_segment_v1',v_run,v_parent,0,10,1,'record_text','[]') RETURNING id INTO v_clause;
   INSERT INTO private.source_mention(observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id)
   VALUES(v_clause,'person',0,4,substr(v_text,1,4),v_run);
   r := pg_temp.task3_migrate(fx,'bound_published','T3CL1-nonce');
