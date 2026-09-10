@@ -29,17 +29,46 @@ ALLOWED_MODELS = {"gpt-5.6-terra", "gpt-5.6-sol"}
 # Det er med vilje en lukket, editionsneutral vokabularliste. En profil må ændre
 # layoutgenkendelse, aldrig gøre en ny semantisk claim-type gyldig uden kode,
 # test og menneskelig GO.
-ALLOWED_PREDICATES = frozenset({
-    "person.name", "person.name_part", "person.name_variant", "person.identity",
-    "person.uncertainty", "person.negation", "person.unknown",
-    "life_event.birth", "life_event.baptism", "life_event.death", "life_event.burial",
-    "relationship.marriage", "relationship.parent", "relationship.child",
-    "title.title", "form_of_address.form_of_address", "rank.rank", "office.office",
-    "education.education", "estate.estate", "residence.residence",
-    "military_service.military_service", "honour.honour", "publication.publication",
-    "lineage.introduction", "genealogy.generation_header",
-    "heraldry.description", "heraldry.blazon", "image.caption", "reference.cross_reference",
-})
+PREDICATES_FILE = ROOT / ".claude/skills/daa-extract/references/interpretation-predicates.json"
+
+
+def _load_predicates() -> dict[str, dict[str, Any]]:
+    """#147 4.2: prædikatvokabularet ejes af private.interpretation_predicate.
+
+    Filen er en byte-verificeret projektion af tabellen; extractoren har ikke
+    længere sin egen liste, der kan drive fra databasen.
+    """
+    payload = json.loads(PREDICATES_FILE.read_text(encoding="utf-8"))
+    if payload.get("schema_version") != "interpretation-predicates-1.0":
+        raise ExtractionError("EXTRACTION_PREDICATE_FILE_INVALID")
+    return {row["predicate"]: row for row in payload["predicates"]}
+
+
+PREDICATES = _load_predicates()
+ALLOWED_PREDICATES = frozenset(PREDICATES)
+SCALAR_VALUE_KINDS = {"text", "date_raw"}
+
+
+def predicate_kind(predicate: str) -> str:
+    if predicate not in PREDICATES:
+        raise ExtractionError("EXTRACTION_PREDICATE_INVALID")
+    return PREDICATES[predicate]["interpretation_kind"]
+
+
+def validate_claim_value(predicate: str, value: Any) -> None:
+    """Værdiformen følger prædikatets value_kind — skalar for text/date_raw,
+    ellers et objekt med en ordret raw."""
+    kind = PREDICATES.get(predicate, {}).get("value_kind")
+    if kind is None:
+        raise ExtractionError("EXTRACTION_PREDICATE_INVALID")
+    if kind in SCALAR_VALUE_KINDS:
+        if not isinstance(value, str) or not value.strip():
+            raise ExtractionError("EXTRACTION_CLAIM_VALUE_INVALID")
+        return
+    if not isinstance(value, Mapping) or not isinstance(value.get("raw"), str) or not value["raw"].strip():
+        raise ExtractionError("EXTRACTION_CLAIM_VALUE_INVALID")
+    if "normalized" in value and value["normalized"] is not None and not isinstance(value["normalized"], str):
+        raise ExtractionError("EXTRACTION_CLAIM_VALUE_INVALID")
 
 
 def _canonical(value: Any) -> str:
@@ -216,6 +245,7 @@ def validate_output(output: Mapping[str, Any]) -> None:
             raise ExtractionError("EXTRACTION_OBSERVATION_REQUIRED")
         if "value" not in claim:
             raise ExtractionError("EXTRACTION_CLAIM_VALUE_REQUIRED")
+        validate_claim_value(predicate, claim["value"])
         expected_keys = {accepted_record_by_occurrence.get(observation_occurrence[observation_id], "")
                          for observation_id in cited}
         record_key = claim.get("record_key")
@@ -242,8 +272,9 @@ def build_interpretation_candidates(output: Mapping[str, Any], *, source_id: int
     candidates = []
     for claim in output.get("claims", []):
         predicate = str(claim["predicate"])
-        family = predicate.split(".", 1)[0]
-        kind = "relation" if family == "relationship" else "event" if family == "life_event" else "property"
+        # #147 4.2: udsagnsformen kommer fra prædikattabellen, ikke fra et gæt på
+        # præfikset. 'event.marriage' og 'relation.marriage' er forskellige udsagn.
+        kind = predicate_kind(predicate)
         confidence = claim.get("confidence")
         if not isinstance(confidence, (int, float)) or isinstance(confidence, bool) or not 0 <= confidence <= 1:
             raise ExtractionError("EXTRACTION_CONFIDENCE_INVALID")

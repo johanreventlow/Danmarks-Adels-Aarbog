@@ -167,17 +167,49 @@ def test_granular_claim_rejects_unknown_predicate_and_missing_observation():
 
 def test_known_granular_predicates_are_explicit_and_unknown_subtypes_fail_closed():
     bundle = _anchored_bundle()
+    # #147 4.2: navnene kommer nu fra prædikattabellen. Værdiformen følger
+    # prædikatets value_kind — skalar for text/date_raw, objekt med raw for
+    # name/event/relation/mention — så prøven skal bygge begge former.
     expected_predicates = [
-        "life_event.birth", "life_event.baptism", "life_event.death", "life_event.burial",
-        "relationship.marriage", "relationship.parent", "relationship.child",
-        "title.title", "form_of_address.form_of_address", "rank.rank", "office.office",
-        "education.education", "estate.estate", "residence.residence",
-        "military_service.military_service", "honour.honour", "publication.publication",
-        "lineage.introduction", "genealogy.generation_header", "heraldry.blazon",
-        "image.caption", "reference.cross_reference",
+        "person.birth",
+        "person.baptism",
+        "person.death",
+        "person.burial",
+        "relation.marriage",
+        "relation.parent",
+        "relation.child",
+        "person.title",
+        "person.form_of_address",
+        "person.rank",
+        "person.office",
+        "person.education",
+        "person.estate",
+        "person.residence",
+        "person.military_service",
+        "person.decoration",
+        "person.publication",
+        "lineage.introduction",
+        "genealogy.generation_header",
+        "heraldry.blazon",
+        "image.caption",
+        "reference.cross_reference",
     ]
+    scalar_kinds = {"text", "date_raw"}
+    def _value(predicate):
+        return "x" if evidence_extract.PREDICATES[predicate]["value_kind"] in scalar_kinds else {"raw": "x"}
+    # person.*-claims kræver en persona, der ejer observationen. Kæden bygges her
+    # frem for at udelade den: prøven skal ligne det, extractoren faktisk leverer.
+    bundle["mentions"].append({
+        "mention_id": "mention-1", "observation_id": "obs-1",
+        "char_from": 0, "char_to": 5, "verbatim_text": bundle["observations"][0]["verbatim_text"][:5],
+    })
+    bundle["source_personas"].append({
+        "persona_id": "persona-1", "source_id": "2018-20", "mention_ids": ["mention-1"],
+    })
     validate_output({"evidence_bundle": bundle, "claims": [{
-        "predicate": predicate, "record_key": "rk-1", "observation_ids": ["obs-1"], "value": "x",
+        "predicate": predicate, "record_key": "rk-1", "observation_ids": ["obs-1"],
+        "value": _value(predicate),
+        **({"source_persona_id": "persona-1"} if predicate.startswith("person.") else {}),
     } for predicate in expected_predicates]})
 
     with pytest.raises(ExtractionError, match="PREDICATE"):
@@ -298,3 +330,40 @@ def test_profile_clause_rules_are_validated(tmp_path):
     path.write_text(json.dumps(broken), encoding="utf-8")
     with pytest.raises(evidence_extract.ExtractionError, match="EXTRACTION_CLAUSE_RULES_INVALID"):
         evidence_extract.load_profile("daa-2018-20-v1", path)
+
+
+def test_predicates_come_from_generated_file():
+    assert "person.birth" in evidence_extract.ALLOWED_PREDICATES
+    assert "life_event.birth" not in evidence_extract.ALLOWED_PREDICATES
+    assert evidence_extract.predicate_kind("event.marriage") == "event"
+    assert evidence_extract.predicate_kind("relation.marriage") == "relation"
+    assert evidence_extract.predicate_kind("mention.place") == "mention"
+    assert evidence_extract.predicate_kind("person.title") == "property"
+
+
+@pytest.mark.parametrize("predicate,value,ok", [
+    ("person.birth", "12. maj 1801", True),
+    ("person.birth", {"raw": "12. maj 1801"}, False),
+    ("person.name_part", {"raw": "Bravo", "normalized": "Bravo"}, True),
+    ("person.name_part", "Bravo", False),
+    ("event.marriage", {"raw": "Gift 1830 m. Charlie", "date_raw": "1830", "participants": []}, True),
+    ("event.marriage", {"normalized": "x"}, False),
+])
+def test_claim_value_form_follows_value_kind(predicate, value, ok):
+    if ok:
+        evidence_extract.validate_claim_value(predicate, value)
+    else:
+        with pytest.raises(evidence_extract.ExtractionError, match="EXTRACTION_CLAIM_VALUE_INVALID"):
+            evidence_extract.validate_claim_value(predicate, value)
+
+
+def test_interpretation_schema_defines_all_six_value_forms():
+    """#147 4.2: skemaet skal kende de seks værdiformer, tabellen kan udtrykke."""
+    import json as _json
+    from pathlib import Path as _Path
+    schema = _json.loads((_Path(evidence_extract.PREDICATES_FILE).parent / "interpretation-schema.json").read_text(encoding="utf-8"))
+    assert schema["$id"].endswith("evidence-interpretation-1.1.json")
+    assert set(schema["$defs"]) == {"text", "date_raw", "name", "event", "relation", "mention"}
+    # Enhver værdiform i den genererede fil skal have et skema.
+    kinds = {row["value_kind"] for row in _json.loads(_Path(evidence_extract.PREDICATES_FILE).read_text(encoding="utf-8"))["predicates"]}
+    assert kinds <= set(schema["$defs"])
