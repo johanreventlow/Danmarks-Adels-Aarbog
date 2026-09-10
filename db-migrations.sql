@@ -17542,12 +17542,65 @@ WITH (security_invoker=true) AS
 SELECT DISTINCT ON (observation_id) *
   FROM private.clause_disposition
  ORDER BY observation_id, version DESC;
+-- CREATE TABLE IF NOT EXISTS springer stiltiende over, hvis en tabel med samme
+-- navn men anden facon allerede findes. Migrationen fail-closer derfor på
+-- kontrakten i stedet for at konvergere halvt (spec 4.1.2).
+DO $clause_table_contract$
+DECLARE v_missing text;
+BEGIN
+  SELECT string_agg(t.col, ', ') INTO v_missing FROM (
+    VALUES ('private.vocab','scheme','text',true),
+           ('private.vocab','code','text',true),
+           ('private.vocab','label','text',true),
+           ('private.clause_disposition','id','uuid',true),
+           ('private.clause_disposition','observation_id','uuid',true),
+           ('private.clause_disposition','version','integer',true),
+           ('private.clause_disposition','disposition','text',true),
+           ('private.clause_disposition','decided_by_kind','text',true),
+           ('private.clause_disposition','decided_by','uuid',false),
+           ('private.clause_disposition','decided_by_name','text',false),
+           ('private.clause_disposition','decided_at','timestamp with time zone',false),
+           ('private.clause_disposition','evidence','jsonb',true),
+           ('private.clause_disposition','created_at','timestamp with time zone',true)
+  ) AS t(rel,col,typ,is_required)
+  WHERE NOT EXISTS (
+    SELECT 1 FROM information_schema.columns c
+     WHERE c.table_schema='private'
+       AND c.table_schema||'.'||c.table_name=t.rel
+       AND c.column_name=t.col
+       AND c.data_type=t.typ
+       AND (c.is_nullable='NO')=t.is_required);
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'CLAUSE_MIGRATION_TABLE_CONTRACT_DRIFT: kolonner %', v_missing;
+  END IF;
+
+  SELECT string_agg(t.conname, ', ') INTO v_missing FROM (
+    VALUES ('private.vocab'::text,'vocab_pkey'::text),
+           ('private.clause_disposition','clause_disposition_pkey'),
+           ('private.clause_disposition','clause_disposition_actor_check'),
+           ('private.clause_disposition','clause_disposition_version_check'),
+           ('private.clause_disposition','clause_disposition_evidence_check'),
+           ('private.clause_disposition','clause_disposition_decided_by_kind_check'),
+           ('private.clause_disposition','clause_disposition_observation_id_version_key'),
+           ('private.clause_disposition','clause_disposition_observation_id_fkey')
+  ) AS t(rel,conname)
+  WHERE NOT EXISTS (
+    SELECT 1 FROM pg_constraint c WHERE c.conrelid=t.rel::regclass AND c.conname=t.conname);
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'CLAUSE_MIGRATION_TABLE_CONTRACT_DRIFT: constraints %', v_missing;
+  END IF;
+END $clause_table_contract$;
+
 DO $$
 DECLARE v_table text;
 BEGIN
   FOREACH v_table IN ARRAY ARRAY['vocab','clause_disposition'] LOOP
+    -- De to append-only-triggere tjekkes hver for sig: en deltilstand med kun
+    -- update/delete-triggeren ville ellers stå tilbage uden truncate-beskyttelse.
     IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_'||v_table||'_append_only' AND tgrelid=('private.'||v_table)::regclass) THEN
       EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON private.%I FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation()','trg_'||v_table||'_append_only',v_table);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_'||v_table||'_append_only_truncate' AND tgrelid=('private.'||v_table)::regclass) THEN
       EXECUTE format('CREATE TRIGGER %I BEFORE TRUNCATE ON private.%I FOR EACH STATEMENT EXECUTE FUNCTION private.reject_evidence_mutation()','trg_'||v_table||'_append_only_truncate',v_table);
     END IF;
     EXECUTE format('ALTER TABLE private.%I ENABLE ROW LEVEL SECURITY',v_table);
