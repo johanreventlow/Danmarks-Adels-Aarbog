@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-09-10 — Trin 4, dagsværk 4.1b: deterministisk klausul-segmentering (#148)
+
+Gren `feat/148-klausul-segmenter` (6 commits, upushet, oven på 4.1a-grenen). Ingen
+modelkald, ingen netværk, ingen databaseskrivning.
+
+**Leveret.** `clause_rules` i 2018-20-profilen som version **1.1.0** på projektejerens GO
+(1939-profilen urørt); `validate_clause_rules` i `load_profile`; motoren
+`clause_segment.py`; en syntetisk fixture med 17 svære tilfælde; læse-kun eksporten
+`export_clause_source_texts.R` og ledger-CLI'en `build_clause_ledger.py` med testet
+PII-guard (afviser output-mappe med `work`-komponent eller forkert filmode).
+
+**Rigtig kørsel på alle 591 helposter** fra 4.1a's prod-restore: 866 klausuler (min 1,
+median 1, max 29), 0 `structural_header`, og **ingen mellemrumstegn uden for hvidlisten** —
+`gap_charset` `[" "]` er dermed rigtigt målt, hvilket var dagsværkets stopport. Flag:
+`unknown_abbreviation` 424, `multiple_marriages` 92, `unbalanced_parentheses` 80,
+`uncertain_marker` 42, `short_clause` 29, `non_gap_whitespace_in_clause` 0.
+
+**To fejl fundet ved at måle frem for at læse.** (1) Et dobbelt mellemrum efter et punktum
+forhindrede en split uden at sætte noget flag — fundet med en stikprøve på 4000 tilfældigt
+sammensatte tekster, som de tolv håndskrevne fixture-cases ikke ramte. (2) Alvorligere: 394
+splits faldt lige efter en forkortelse med indlejret punktum (`s.å.` 238, `m.a.` 58,
+`s.st.` 23, `cand.jur.` 14, `D.M.` 13 …) i 152 af 591 records og klippede grader, embeder og
+dekorationer midt over — uden flag, fordi `bare.isalpha()` er falsk, når tokenet selv
+indeholder et punktum. Motoren behandler dem nu som al anden tvivl: konservativ
+segmentering plus flag. Klausultallet faldt fra 1297 til 866, og flagtallet steg fra 141 til
+424, fordi tvivlen er blevet synlig i stedet for at være afgjort forkert i stilhed.
+
+Planens egen gennemgangsmekanisme var blind for fejlklassen: summaryens
+`unknown_abbreviation_tokens` opsamler kun tokens i klausuler, der allerede er flagget, så
+netop de tokens ville aldrig have nået den liste, projektejeren skulle godkende.
+
+**Udestår.** Regelversion 2 / profilversion 1.2.0: de 51 tokens, der faktisk blokerede en
+split, ligger klar i rapporten og afventer projektejerens GO. At tilføje dem ændrer ikke
+segmenteringen, kun flagtallet. Rapport:
+`docs/evidensbaseret-genimport/clause-evidence-148-rehearsal.md`.
+
 ## 2026-09-10 — Trin 4, dagsværk 4.1a: klausullagets skema implementeret (#148)
 
 Gren `feat/148-klausullag-skema` (15 commits, upushet). PR #172 er merget, og projektejeren

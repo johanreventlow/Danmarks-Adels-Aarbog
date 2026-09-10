@@ -57,3 +57,78 @@ som bærer prods rigtige GRANTs:
 
 Der er altså intet efterslæb at rydde op i. `REVOKE … FROM service_role` på klausullagets
 tre nye relationer er defence-in-depth, og `db-verify` håndhæver det nu.
+
+## Dagsværk 4.1b (segmentering)
+
+Regelversion `clause-rules-2018-20-v1`, profilversion `1.1.0` (projektejerens GO
+2026-09-10). Samme restore-base som 4.1a.
+
+| Artefakt | Værdi |
+| --- | --- |
+| Eksport-SHA-256 (`clause-source-texts-v1.json`) | `aaa5f7ecb9c276670b427d23ff832805c5f88f460757d2b0d92f8569d389b7e9` |
+| Ledger-fil-SHA-256 | `0e873b1613934bf0bd9d06ed4dc84ef1a8e29e19b95ff48ba805e5811fbd9ac0` |
+
+Eksporten kørte i en `REPEATABLE READ READ ONLY`-transaktion, der altid rulles tilbage, og
+med `R_ENVIRON_USER=/dev/null`, så child-R'et umuligt kunne nå prod. En fail-closed probe
+bekræftede, at R ikke kunne se prod-credentials.
+
+| Måling | Værdi |
+| --- | --- |
+| Records | 591 |
+| Klausuler i alt / min / median / max pr. record | 866 / 1 / 1 / 29 |
+| `unknown_abbreviation` | 424 |
+| `multiple_marriages` | 92 |
+| `unbalanced_parentheses` | 80 |
+| `uncertain_marker` | 42 |
+| `short_clause` | 29 |
+| `non_gap_whitespace_in_clause` | 0 |
+| `structural_header`-klausuler | 0 (ingen strukturelt kildemateriale i 2018-20's helposter, som spec 4.1.3 forudsagde) |
+| Mellemrumstegn uden for hvidlisten | **ingen** — `gap_charset` `[" "]` er rigtigt målt |
+
+### Fund: flerpunkts-forkortelser gav tavse splits
+
+Første kørsel gav 1297 klausuler. En måling af, hvor splittene faktisk faldt, viste at
+**394 af dem lå lige efter en forkortelse med indlejret punktum**, fordelt på 152 af de 591
+records:
+
+| Token | Splits / forekomster |
+| --- | --- |
+| `s.å.` | 238 / 569 |
+| `m.a.` | 58 / 189 |
+| `s.st.` | 23 / 63 |
+| `cand.jur.` | 14 / 34 |
+| `D.M.` | 13 / 13 |
+| `s.m.`, `S.K.`, `cand.med.`, `a.d.`, `R.St.`, `Pr.R.Ø.1.`, `dr.phil.`, `Feld-Art.-Reg.` m.fl. | 1-6 hver |
+
+De klippede grader, embeder og dekorationer midt over — og **uden flag**, fordi
+`_is_non_terminal` afgjorde sagen med `bare.isalpha()`, som er falsk, når tokenet selv
+indeholder et punktum. Motoren behandler dem nu som al anden tvivl: konservativ
+segmentering plus `unknown_abbreviation`. Efter rettelsen: 0 splits efter
+flerpunkts-forkortelser, 866 klausuler, og flagtallet steg fra 141 til 424, fordi tvivlen nu
+er synlig i stedet for at være afgjort forkert i stilhed.
+
+**Planens egen gennemgangsmekanisme var blind for fejlklassen.** Summaryens
+`unknown_abbreviation_tokens` opsamler kun tokens i klausuler, der *allerede* er flagget, og
+den skærer ved de 50 hyppigste. `s.å.`, `cand.jur.` og `D.M.` ville derfor aldrig være dukket
+op på den liste, projektejeren skulle godkende. Listen indeholdt til gengæld uskyldige
+naboer — datotal som `1.` og `(30.` — fordi den tæller alle korte punktum-tokens i en
+flagget klausul, ikke det token der blokerede. Skal listen bruges som beslutningsgrundlag,
+skal den udtrække det faktisk blokerende token.
+
+### Åbent: regelversion 2 (profilversion 1.2.0)
+
+Efter rettelsen er 424 klausuler flagget `unknown_abbreviation`. De 51 tokens, der faktisk
+blokerede en split, fordeler sig i to grupper (kun tokens, ingen kontekst):
+
+- **Ægte danske forkortelser, hyppige:** `best.` 60, `fmd.` 42, `vedr.` 16, `u.` 7,
+  `komp.` 4, `ml.` 4, `reg.` 4, `rdl.`/`rdlr.` 3+3, `gl.` 2, `afd.`, `div.`, `dr.`, `begr.`,
+  `diss.` m.fl.
+- **Kendte forkortelser bag en parentes,** som listen ikke matcher, fordi tokenet bærer
+  parentesen med: `(b.` 12, `(ca.` 9, `(udst.` 6, `(k.` 2, `(if.`, `(iflg.`, `(ml.`, `(udg.`,
+  `[ca.`, `[jf.`
+- **Flerpunkts-forkortelser** fra tabellen ovenfor: `s.å.`, `s.m.`, `s.st.`, `s.d.`, `m.a.`,
+  `bl.a.`, `m.fl.`, `f.eks.`, `cand.*`, `dr.*`, `D.M.`, `S.K.`, `R.St.` m.fl.
+
+At føje dem til `non_terminal_abbreviations` ændrer **ikke** segmenteringen — de blokerer
+allerede — men fjerner flaget, så de 424 reduceres til den ægte rest. Det er en
+profilændring med `requires_human_go_for_change` og afventer projektejerens afgørelse.
