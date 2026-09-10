@@ -39,6 +39,17 @@ def _is_non_terminal(prefix: str, rules: Mapping[str, Any]) -> tuple[bool, bool]
     bare = match.group(1).strip("()[]")
     if bare and bare.isalpha() and len(bare) <= 4 and not bare[0].isupper():
         return True, True  # ukendt kort forkortelse: split ikke, men flag
+    # Flerpunkts-forkortelser (s.å., cand.jur., D.M., R.St. …): bare.isalpha() er
+    # falsk på grund af den indlejrede prik, så tokenet hverken blokerede eller
+    # flagede — splitten skete tavst midt i en titel eller en dekoration.
+    # Tvivl segmenteres konservativt og flagges, som resten af motoren.
+    inner = bare.strip(".")
+    def _wordish(part: str) -> bool:
+        stripped = part.replace("-", "")
+        return bool(stripped) and (stripped.isalpha() or stripped.isdigit())
+
+    if inner and "." in bare and all(_wordish(part) for part in inner.split(".") if part):
+        return True, True
     return False, False
 
 

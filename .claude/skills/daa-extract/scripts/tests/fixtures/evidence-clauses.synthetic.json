@@ -102,6 +102,33 @@
         "non_gap_whitespace_in_clause"
       ],
       "note": "tabulator matcher ikke terminatoren '. '; klausulerne smelter sammen, men flagges"
+    },
+    {
+      "key": "flerpunkts-forkortelse",
+      "text": "Alfa Bravo, f. 1801, d. s.å. Gift 1830 m. Delta Echo.",
+      "expect_clauses": 1,
+      "expect_flags": [
+        "unknown_abbreviation"
+      ],
+      "note": "s.å. må ikke give en tavs split; tvivl segmenteres konservativt og flagges"
+    },
+    {
+      "key": "grad-med-punktummer",
+      "text": "Charlie Delta, f. 1840, cand.jur. 1865, amtmand 1880.",
+      "expect_clauses": 1,
+      "expect_flags": [
+        "unknown_abbreviation"
+      ],
+      "note": "cand.jur. efterfulgt af et årstal må ikke klippe graden fra sit år"
+    },
+    {
+      "key": "dekoration-med-punktummer",
+      "text": "Echo Foxtrot, f. 1850, R.St. 1890, d. 1920.",
+      "expect_clauses": 1,
+      "expect_flags": [
+        "unknown_abbreviation"
+      ],
+      "note": "dekorationsforkortelser med indlejrede punktummer må heller ikke splitte"
     }
   ]
 }
