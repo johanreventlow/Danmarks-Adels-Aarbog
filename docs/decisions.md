@@ -2,6 +2,22 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: GO på extraction-profil v1.1.0 + implementering af trin 4 (2026-09-10)
+
+**Baggrund.** PR #172 (spec rev. 3 + planer 4.1a-4.2) blev merget til `main` 2026-09-10.
+Beslutning 1 ovenfor kræver projektejerens GO, før profilen får en ny version; plan 4.1b
+indfører `clause_rules` i 2018-20-profilen som version 1.1.0.
+
+**Besluttet (projektejer, 2026-09-10):**
+1. **GO på profil v1.1.0.** `clause_rules` må tilføjes additivt til 2018-20-profilen i
+   `.claude/skills/daa-extract/references/extraction-profiles.json` som version 1.1.0.
+   En senere v1.2.0 (fx justeret `gap_charset` efter 4.1b's måling) kræver et nyt GO.
+2. **Implementeringen udføres af sessionen, ikke af projektejeren.** Den oprindelige plan
+   (»jeg implementerer selv med en anden model«) er ændret: Claude implementerer planerne
+   ét dagsværk ad gangen, og Codex (`gpt-5.6-sol`/`terra`) bruges til kodning og især til
+   review — herunder anden-læser-rollen i beslutning 3 ovenfor, nu hvor Codex-kvoten er
+   nulstillet.
+
 ## BESLUTTET: Roadmap-trin 4 aktiveret — seks valg for fortolkningskæden (2026-09-06)
 
 **Baggrund.** Trin 1-3 (#152, #153, #149) blev anvendt og efterverificeret i prod
