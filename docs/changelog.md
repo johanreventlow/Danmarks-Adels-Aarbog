@@ -49,10 +49,18 @@ strenge, og at en maskinel disposition bærer `manifest_sha256` (64 hex) plus mi
 run-reference (`batch_id` eller `extraction_run_id`, uuid-formet). 4.1c-planens writer
 skriver allerede alle fire, så planen behøver ingen ændring.
 
-**Udestår.** Task 7 (rigtig kørsel på en frisk prod-restore med de forventede tal
-`591|0|0|t|0`) og dens rapport. Restoren skal desuden afgøre et åbent spørgsmål, den lokale
-shim ikke kan svare på: om `service_role` har grants på de elleve ældre private
-evidenstabeller i prod.
+**Task 7 udført 2026-09-10 mod en frisk prod-restore** (dump-SHA `c1c13f76…`, base
+`daa148a_rehearsal_20260910162112`): restore ren bortset fra de forventede
+`supabase_vault`-fejl, migration to gange i træk, `db-verify` skriver `OK: #148 …`, tallene
+er `591|0|0|t|0`, 149b-suiten og klausul-kontrakttesten grønne mod restoren. Det åbne
+ACL-spørgsmål er besvaret: **ingen** af de 53 relationer i `private` giver `service_role`
+adgang i prod, så der er intet efterslæb bag Codex' fund — kun defence-in-depth på de nye
+relationer. Rapport: `docs/evidensbaseret-genimport/clause-evidence-148-rehearsal.md`.
+
+Runbook-mangel fundet undervejs: et Supabase-dump bærer GRANTs til fem platformroller
+(`dashboard_user`, `supabase_auth_admin`, `supabase_storage_admin`,
+`supabase_realtime_admin`, `pgbouncer`), som runbookens §1 ikke nævner. Uden dem fejler 111
+GRANT-sætninger, og ACL'erne restorer ikke trofast.
 
 ## 2026-09-06 — Roadmap-trin 4 planlagt: fortolkningskæde og klausulgranularitet (#147/#148)
 
