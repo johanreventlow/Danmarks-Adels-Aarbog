@@ -247,6 +247,27 @@ BEGIN
   RAISE NOTICE 'task3 happy path OK';
 END $task3_happy_path$;
 
+-- 4.1a (#148 fund 3b): klausul-mentions under helposten må ikke gøre legacy-migration
+-- tvetydig. Tællingen skal kun se helpost-observationer (parent_observation_id IS NULL).
+DO $task3_clause_mentions$
+DECLARE fx jsonb; r jsonb; v_occ uuid; v_parent uuid; v_run uuid; v_clause uuid; v_text text;
+BEGIN
+  fx := pg_temp.task3_fixture('T3CL1', false);
+  SELECT ob.id, ob.occurrence_id, ob.extraction_run_id, ob.verbatim_text INTO v_parent, v_occ, v_run, v_text
+    FROM private.source_observation ob
+    JOIN private.source_record_occurrence o ON o.id=ob.occurrence_id
+    JOIN private.source_rendition rd ON rd.id=o.rendition_id
+   WHERE rd.source_id=(fx->>'source_id')::bigint AND ob.parent_observation_id IS NULL;
+  INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,
+    parent_observation_id,clause_ordinal,clause_classification,clause_flags)
+  VALUES(v_occ,'clause',10,10,0,10,substr(v_text,1,10),'clear','clause_segment_v1',v_run,v_parent,1,'record_text','[]') RETURNING id INTO v_clause;
+  INSERT INTO private.source_mention(observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id)
+  VALUES(v_clause,'person',0,4,substr(v_text,1,4),v_run);
+  r := pg_temp.task3_migrate(fx,'bound_published','T3CL1-nonce');
+  IF (r->>'legacy_event_id') IS NULL THEN RAISE EXCEPTION 'TASK3_CLAUSE_MENTION_BLOCKED_MIGRATION: %', r; END IF;
+  RAISE NOTICE 'task3 clause mentions OK';
+END $task3_clause_mentions$;
+
 -- Spec §10: replay = already_applied, begge offentlige funktioner + redaktørlisten
 -- efter en ÆGTE migration, og narrativrækken bit-for-bit urørt (§6.5).
 DO $task3_reads_and_replay$

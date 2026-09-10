@@ -2704,6 +2704,54 @@ BEGIN
 END
 $reimport_event_operation_check_verify$;
 
+-- #148 4.1a: klausullagets skema er til stede, vokabularet er lukket, og
+-- legacy-writeren tæller kun helpostens mentions.
+DO $clause_schema_verify$
+DECLARE v_def text; v_count integer; v_rel text; v_role text;
+BEGIN
+  IF to_regclass('private.vocab') IS NULL OR to_regclass('private.clause_disposition') IS NULL
+     OR to_regclass('private.clause_disposition_current') IS NULL THEN
+    RAISE EXCEPTION 'CLAUSE_SCHEMA_OBJECTS_MISSING';
+  END IF;
+  SELECT count(*) INTO v_count FROM information_schema.columns
+   WHERE table_schema='private' AND table_name='source_observation'
+     AND column_name IN ('parent_observation_id','clause_ordinal','clause_classification','clause_flags');
+  IF v_count<>4 THEN RAISE EXCEPTION 'CLAUSE_SCHEMA_COLUMNS_MISSING: %', v_count; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.source_observation'::regclass AND tgname='trg_source_observation_clause')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.clause_disposition'::regclass AND tgname='trg_clause_disposition_validate') THEN
+    RAISE EXCEPTION 'CLAUSE_SCHEMA_TRIGGER_MISSING';
+  END IF;
+  SELECT count(*) INTO v_count FROM private.source_observation ob
+   WHERE NOT EXISTS (SELECT 1 FROM private.vocab v WHERE v.scheme='observation_kind' AND v.code=ob.observation_kind);
+  IF v_count<>0 THEN RAISE EXCEPTION 'CLAUSE_SCHEMA_OBSERVATION_KIND_UNSEEDED: %', v_count; END IF;
+  SELECT pg_get_functiondef('private.migrate_legacy_narrative_record(uuid,text,jsonb)'::regprocedure) INTO v_def;
+  IF v_def NOT LIKE '%ob.occurrence_id=v_occurrence.id AND ob.parent_observation_id IS NULL%' THEN
+    RAISE EXCEPTION 'CLAUSE_SCHEMA_LEGACY_WRITER_NOT_HARDENED';
+  END IF;
+  -- Alle fire roller kontrolleres på alle tre relationer: Supabase default-granter
+  -- direkte til anon/authenticated/service_role, så REVOKE FROM PUBLIC er ikke nok.
+  IF has_function_privilege('authenticated','private.validate_clause_observation()','EXECUTE')
+     OR has_function_privilege('service_role','private.validate_clause_observation()','EXECUTE')
+     OR has_function_privilege('authenticated','private.validate_clause_disposition()','EXECUTE')
+     OR has_function_privilege('service_role','private.validate_clause_disposition()','EXECUTE') THEN
+    RAISE EXCEPTION 'CLAUSE_SCHEMA_ACL_INVALID: funktion';
+  END IF;
+  FOREACH v_rel IN ARRAY ARRAY['private.vocab','private.clause_disposition','private.clause_disposition_current'] LOOP
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+      IF has_table_privilege(v_role,v_rel,'SELECT') OR has_table_privilege(v_role,v_rel,'INSERT') THEN
+        RAISE EXCEPTION 'CLAUSE_SCHEMA_ACL_INVALID: % har adgang til %', v_role, v_rel;
+      END IF;
+    END LOOP;
+  END LOOP;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_clause_disposition_append_only' AND tgrelid='private.clause_disposition'::regclass)
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_vocab_append_only' AND tgrelid='private.vocab'::regclass)
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.clause_disposition'::regclass)
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.vocab'::regclass) THEN
+    RAISE EXCEPTION 'CLAUSE_SCHEMA_APPEND_ONLY_MISSING';
+  END IF;
+  RAISE NOTICE 'OK: #148 klausullagets skema, vokabular, triggere, ACL og hærdet legacy-writer';
+END $clause_schema_verify$;
+
 -- #154: Global default revoke må ikke efterlade eksisterende public.red_*
 -- RPC'er med implicit PUBLIC-adgang eller gøre en ny klient-RPC tavst
 -- ukaldbar. Alle undtagelser er eksplicitte og versionsstyrede her.

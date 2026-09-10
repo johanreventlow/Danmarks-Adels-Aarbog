@@ -453,3 +453,149 @@ BEGIN
 END $$ LANGUAGE plpgsql;
 """
     assert interpretation_table_status_values(schema_sql) == ["proposed", "accepted"]
+
+
+def _clause_bundle():
+    """linked_bundle() + en helpost 'obs-post' over hele occurrence-teksten, schema 1.2."""
+    bundle = json.loads(json.dumps(linked_bundle()))
+    bundle["schema_version"] = "1.2"
+    occ = bundle["source_record_occurrences"][0]
+    bundle["observations"].append({
+        "observation_id": "obs-post", "occurrence_id": "occurrence-1", "kind": "person_post",
+        "verbatim_text": occ["verbatim_text"], "span": dict(occ["span"]),
+        "extraction_method": "deterministic", "extraction_run_id": "run-1",
+    })
+    return bundle
+
+
+def _clause(bundle, ordinal, rel_from, rel_to, classification="record_text", flags=()):
+    parent = next(o for o in bundle["observations"] if o["observation_id"] == "obs-post")
+    base = parent["span"]["char_from"]
+    text = parent["verbatim_text"][rel_from:rel_to]
+    return {
+        "observation_id": f"obs-post-c{ordinal}", "occurrence_id": parent["occurrence_id"], "kind": "clause",
+        "verbatim_text": text,
+        "span": {**parent["span"], "char_from": base + rel_from, "char_to": base + rel_to},
+        "extraction_method": "clause_segment_v1", "extraction_run_id": parent["extraction_run_id"],
+        "parent_observation_id": "obs-post", "clause_ordinal": ordinal,
+        "clause_classification": classification, "clause_flags": list(flags),
+    }
+
+
+def test_bundle_1_2_accepts_clause_under_parent():
+    bundle = _clause_bundle()
+    bundle["observations"].append(_clause(bundle, 1, 0, 9))   # "Anna blev"
+    bundle["observations"].append(_clause(bundle, 2, 10, 20))  # "født 1801."
+    validate_bundle(bundle)
+
+
+def test_bundle_1_1_rejects_clause_fields():
+    bundle = _clause_bundle()
+    bundle["schema_version"] = "1.1"
+    bundle["observations"].append(_clause(bundle, 1, 0, 9))
+    with pytest.raises(ContractError):  # _exact_fields afviser de ukendte felter i strict 1.1
+        validate_bundle(bundle)
+
+
+def test_bundle_1_2_rejects_clause_without_parent():
+    bundle = _clause_bundle()
+    clause = _clause(bundle, 1, 0, 9)
+    clause["parent_observation_id"] = "obs-missing"
+    bundle["observations"].append(clause)
+    with pytest.raises(ContractError, match="clause requires parent"):
+        validate_bundle(bundle)
+
+
+def test_bundle_1_2_rejects_span_outside_parent():
+    # Klausulen "Anna blev" (occurrence-relativ 0-9) ligger inde i occurrencen, men peger på obs-1
+    # ("Anna", 0-4) som forælder: gyldig som observation, ugyldig som klausul under obs-1.
+    bundle = _clause_bundle()
+    clause = _clause(bundle, 1, 0, 9)
+    clause["parent_observation_id"] = "obs-1"
+    bundle["observations"].append(clause)
+    with pytest.raises(ContractError, match="clause span outside parent"):
+        validate_bundle(bundle)
+
+
+def test_bundle_1_2_rejects_parent_that_is_itself_a_clause():
+    bundle = _clause_bundle()
+    first = _clause(bundle, 1, 0, 9)
+    second = _clause(bundle, 2, 10, 20)
+    second["parent_observation_id"] = first["observation_id"]
+    bundle["observations"] += [first, second]
+    with pytest.raises(ContractError, match="parent observation must be top level"):
+        validate_bundle(bundle)
+
+
+def test_observation_level_clause_invariants():
+    # Observation.validate() fanger selv tekst ≠ span og ulovlige klausulfelter, før bundle-niveauet.
+    bundle = _clause_bundle()
+    clause = _clause(bundle, 1, 0, 9)
+    clause["clause_classification"] = "layout"
+    bundle["observations"].append(clause)
+    with pytest.raises(ContractError, match="unknown clause classification"):
+        validate_bundle(bundle)
+    post = next(o for o in bundle["observations"] if o["observation_id"] == "obs-post")
+    post["parent_observation_id"] = "obs-1"
+    with pytest.raises(ContractError, match="clause fields are only allowed on kind clause"):
+        validate_bundle(bundle)
+
+
+
+# --- #148 4.1a (Codex-review): kontrakten skal afvise det samme som databasen ---
+
+def test_bundle_1_2_requires_clause_flags_key():
+    bundle = _clause_bundle()
+    clause = _clause(bundle, 1, 0, 9)
+    del clause["clause_flags"]
+    bundle["observations"].append(clause)
+    with pytest.raises(ContractError, match="clause requires parent, ordinal, classification and flags"):
+        validate_bundle(bundle)
+
+
+def test_bundle_1_2_rejects_non_string_clause_flags():
+    bundle = _clause_bundle()
+    clause = _clause(bundle, 1, 0, 9, flags=("ok", ""))
+    bundle["observations"].append(clause)
+    with pytest.raises(ContractError, match="clause flags must be non-empty strings"):
+        validate_bundle(bundle)
+
+
+def test_bundle_1_2_rejects_boolean_clause_ordinal():
+    bundle = _clause_bundle()
+    clause = _clause(bundle, 1, 0, 9)
+    clause["clause_ordinal"] = True
+    bundle["observations"].append(clause)
+    with pytest.raises(ContractError, match="clause ordinal must be a positive integer"):
+        validate_bundle(bundle)
+
+
+def test_bundle_1_2_rejects_duplicate_sibling_ordinal():
+    bundle = _clause_bundle()
+    first = _clause(bundle, 1, 0, 9)
+    second = _clause(bundle, 2, 10, 20)
+    second["clause_ordinal"] = 1
+    second["observation_id"] = "obs-post-c2"
+    bundle["observations"] += [first, second]
+    with pytest.raises(ContractError, match="duplicate clause ordinal under parent"):
+        validate_bundle(bundle)
+
+
+def test_bundle_1_2_rejects_foreign_clause_extraction_method():
+    bundle = _clause_bundle()
+    clause = _clause(bundle, 1, 0, 9)
+    clause["extraction_method"] = "clauseXsegmentXv1"  # '_' er jokertegn i SQL LIKE
+    bundle["observations"].append(clause)
+    with pytest.raises(ContractError, match="clause extraction_method must be the versioned clause_segment_v1 rule"):
+        validate_bundle(bundle)
+
+
+def test_bundle_1_2_rejects_clause_pages_narrower_than_parent():
+    bundle = _clause_bundle()
+    parent = next(o for o in bundle["observations"] if o["observation_id"] == "obs-post")
+    parent["span"]["page_to"] = parent["span"]["page_from"] + 1
+    clause = _clause(bundle, 1, 0, 9)
+    clause["span"]["page_to"] = parent["span"]["page_from"]
+    bundle["observations"].append(clause)
+    with pytest.raises(ContractError, match="clause pages must equal parent pages"):
+        validate_bundle(bundle)

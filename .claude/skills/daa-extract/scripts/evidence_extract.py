@@ -141,7 +141,7 @@ def validate_output(output: Mapping[str, Any]) -> None:
     bundle = output.get("evidence_bundle")
     if not isinstance(bundle, Mapping):
         raise ExtractionError("EXTRACTION_EVIDENCE_BUNDLE_REQUIRED")
-    if bundle.get("schema_version") != "1.1":
+    if bundle.get("schema_version") not in ("1.1", "1.2"):
         raise ExtractionError("EXTRACTION_EVIDENCE_BUNDLE_VERSION_REQUIRED")
     try:
         validate_bundle(bundle)

@@ -581,6 +581,190 @@ CREATE TABLE private.source_observation_text (
   UNIQUE (observation_id,rendition_id,version),
   CHECK (supersedes_id IS NULL OR supersedes_id <> id)
 );
+-- ---------- #148 4.1a: KLAUSULLAG ----------
+-- Privat vokabular for interne workflow-koder. public.vocab er anon-læsbar og
+-- må ikke bære interne tilstande (spec 4.1.2).
+CREATE TABLE private.vocab (
+  scheme text NOT NULL CHECK (btrim(scheme)<>''),
+  code   text NOT NULL CHECK (btrim(code)<>''),
+  label  text NOT NULL CHECK (btrim(label)<>''),
+  PRIMARY KEY (scheme, code)
+);
+
+INSERT INTO private.vocab(scheme,code,label) VALUES
+  ('observation_kind','person_post','Helpost (2018-20, source_evidence-writer)'),
+  ('observation_kind','person','Personobservation (1939 fase A)'),
+  ('observation_kind','fact','Faktumobservation (1939 fase A)'),
+  ('observation_kind','marriage','Ægteskabsobservation (1939 fase A)'),
+  ('observation_kind','relationship','Relationsobservation (1939 fase A)'),
+  ('observation_kind','structural_context','Strukturel kontekst (1939 fase A)'),
+  ('observation_kind','cross_reference','Krydshenvisning (1939 fase A)'),
+  ('observation_kind','clause','Klausul under helpost (#148)'),
+  -- Koder brugt af produktionsstien for placements og af db-verify/tests (kørte mod prod før
+  -- vokabularet blev lukket). Inventeret 2026-09-06 ved at køre hele suiten med en
+  -- NOTICE-udgave af triggeren (se Task 2 Step 3); reelt sæt = 8 + 5.
+  ('observation_kind','header','Slægtledsoverskrift (placement-header, validate_source_record_placement)'),
+  ('observation_kind','name_clause','Fixture-kode (test-evidence-promotion)'),
+  ('observation_kind','death_clause','Fixture-kode (db-verify)'),
+  ('observation_kind','person_name','Fixture-kode (db-verify, evidence_contract-fixture)'),
+  ('observation_kind','name','Fixture-kode (db-verify)'),
+  ('clause_classification','record_text','Meningsbærende tekstklausul'),
+  ('clause_classification','structural_header','Strukturel overskrift inde i posten'),
+  ('clause_disposition_machine','afventer_fortolkning','Maskinel: afventer fortolkning'),
+  ('clause_disposition_machine','fortolkning_foreslaaet','Maskinel: mindst ét forslag citerer klausulen'),
+  ('clause_disposition_machine','afventer_identitet','Maskinel: forslag om anden aktør end hovedpersonen'),
+  ('clause_disposition_machine','maskinelt_flagget','Maskinel: segmenteringen var i tvivl'),
+  ('clause_disposition_machine','strukturel','Maskinel: strukturel overskrift'),
+  ('clause_disposition_human','struktureret','§15.1: struktureret'),
+  ('clause_disposition_human','relevant_uklassificeret','§15.1: relevant, men uklassificeret'),
+  ('clause_disposition_human','ikke_biografisk','§15.1: ikke-biografisk'),
+  ('clause_disposition_human','layout_stoej','§15.1: layout-/bibliografisk støj'),
+  ('clause_disposition_human','ulaeselig_ocr','§15.1: ulæselig OCR'),
+  ('clause_disposition_human','kraever_menneske','§15.1: kræver menneskelig vurdering');
+
+ALTER TABLE private.source_observation
+  ADD COLUMN parent_observation_id uuid REFERENCES private.source_observation(id),
+  ADD COLUMN clause_ordinal        integer CHECK (clause_ordinal IS NULL OR clause_ordinal >= 1),
+  ADD COLUMN clause_classification text,
+  ADD COLUMN clause_flags          jsonb CHECK (clause_flags IS NULL OR jsonb_typeof(clause_flags)='array');
+
+CREATE UNIQUE INDEX ux_source_observation_clause_ordinal
+  ON private.source_observation(parent_observation_id, clause_ordinal)
+  WHERE parent_observation_id IS NOT NULL;
+
+-- Klausul-invarianter (spec 4.1.2): ét niveau, samme occurrence, span inde i
+-- forælderen, ordret udsnit, lukket vokabular. Offsets er rendition-absolutte.
+CREATE FUNCTION private.validate_clause_observation()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_parent private.source_observation%ROWTYPE;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM private.vocab WHERE scheme='observation_kind' AND code=NEW.observation_kind) THEN
+    RAISE EXCEPTION 'EVIDENCE_OBSERVATION_KIND_UNKNOWN: %', NEW.observation_kind;
+  END IF;
+  IF NEW.observation_kind<>'clause' THEN
+    IF NEW.parent_observation_id IS NOT NULL OR NEW.clause_ordinal IS NOT NULL
+       OR NEW.clause_classification IS NOT NULL OR NEW.clause_flags IS NOT NULL THEN
+      RAISE EXCEPTION 'EVIDENCE_CLAUSE_PARENT_FORBIDDEN';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW.parent_observation_id IS NULL OR NEW.clause_ordinal IS NULL
+     OR NEW.clause_classification IS NULL OR NEW.clause_flags IS NULL THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_PARENT_REQUIRED';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM private.vocab WHERE scheme='clause_classification' AND code=NEW.clause_classification) THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_CLASSIFICATION_UNKNOWN: %', NEW.clause_classification;
+  END IF;
+  SELECT * INTO v_parent FROM private.source_observation WHERE id=NEW.parent_observation_id FOR SHARE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_PARENT_REQUIRED'; END IF;
+  IF v_parent.parent_observation_id IS NOT NULL THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_PARENT_NOT_TOP_LEVEL'; END IF;
+  IF v_parent.occurrence_id<>NEW.occurrence_id THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_OCCURRENCE_MISMATCH'; END IF;
+  IF NEW.char_from<v_parent.char_from OR NEW.char_to>v_parent.char_to THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_SPAN_OUTSIDE_PARENT';
+  END IF;
+  -- Sider er grænser, ikke en påstand om præcis side (spec 4.1.2): klausulen
+  -- arver forælderens sideinterval uændret. Et snævrere interval ville påstå en
+  -- finere sidelokalisering, end segmenteringen kan vide.
+  IF NEW.page_from<>v_parent.page_from OR NEW.page_to<>v_parent.page_to THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_PAGE_OUTSIDE_PARENT';
+  END IF;
+  IF substr(v_parent.verbatim_text, NEW.char_from-v_parent.char_from+1, NEW.char_to-NEW.char_from)<>NEW.verbatim_text THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_TEXT_MISMATCH';
+  END IF;
+  -- Provenance (spec 4.1.2): klausulen arver forælderens kvalitetsklassifikation
+  -- og bæres af den versionerede segmenteringsregel. En klausul må ikke kunne
+  -- påstå 'clear' under en ocr_uncertain helpost.
+  IF NEW.quality_status<>v_parent.quality_status THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_QUALITY_MISMATCH: forælderen er %', v_parent.quality_status;
+  END IF;
+  -- starts_with, ikke LIKE: '_' er et jokertegn i LIKE, så 'clauseXsegmentXv1'
+  -- ville ellers passere metodekontrollen.
+  IF NOT starts_with(NEW.extraction_method, 'clause_segment_v1') THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_EXTRACTION_METHOD_INVALID: %', NEW.extraction_method;
+  END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.clause_flags) e
+              WHERE jsonb_typeof(e)<>'string' OR btrim(e#>>'{}')='') THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_FLAGS_INVALID';
+  END IF;
+  RETURN NEW;
+END $$;
+
+CREATE TRIGGER trg_source_observation_clause
+  BEFORE INSERT ON private.source_observation
+  FOR EACH ROW EXECUTE FUNCTION private.validate_clause_observation();
+
+-- Append-only dispositionsledger pr. klausul (spec 4.1.2, §15.1).
+CREATE TABLE private.clause_disposition (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  observation_id   uuid NOT NULL REFERENCES private.source_observation(id),
+  version          integer NOT NULL CHECK (version >= 1),
+  disposition      text NOT NULL CHECK (btrim(disposition)<>''),
+  decided_by_kind  text NOT NULL CHECK (decided_by_kind IN ('machine','human')),
+  decided_by       uuid,
+  decided_by_name  text,
+  decided_at       timestamptz,
+  evidence         jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(evidence)='object'),
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (observation_id, version),
+  CONSTRAINT clause_disposition_actor_check CHECK (
+    (decided_by_kind='human' AND decided_by IS NOT NULL
+      AND nullif(btrim(decided_by_name),'') IS NOT NULL AND decided_at IS NOT NULL
+      AND evidence<>'{}'::jsonb)
+    OR
+    (decided_by_kind='machine' AND decided_by IS NULL AND decided_by_name IS NULL
+      AND decided_at IS NULL AND evidence<>'{}'::jsonb)
+  )
+);
+
+CREATE FUNCTION private.validate_clause_disposition()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_kind text; v_scheme text; v_next integer;
+BEGIN
+  SELECT observation_kind INTO v_kind FROM private.source_observation WHERE id=NEW.observation_id FOR UPDATE;
+  IF NOT FOUND OR v_kind<>'clause' THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_TARGET_INVALID'; END IF;
+  v_scheme := CASE NEW.decided_by_kind WHEN 'machine' THEN 'clause_disposition_machine' ELSE 'clause_disposition_human' END;
+  IF NOT EXISTS (SELECT 1 FROM private.vocab WHERE code=NEW.disposition AND scheme IN ('clause_disposition_machine','clause_disposition_human')) THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_UNKNOWN: %', NEW.disposition;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM private.vocab WHERE scheme=v_scheme AND code=NEW.disposition) THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_KIND_MISMATCH: % er ikke %', NEW.disposition, NEW.decided_by_kind;
+  END IF;
+  SELECT coalesce(max(version),0)+1 INTO v_next FROM private.clause_disposition WHERE observation_id=NEW.observation_id;
+  IF NEW.version<>v_next THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_VERSION_INVALID: forventede %', v_next; END IF;
+  -- Spec 4.1.2: en maskinel disposition SKAL bære run-/manifest-hash, ellers kan
+  -- den ikke føres tilbage til den kørsel, der traf den. Kontrollen ligger sidst,
+  -- så de øvrige fejltokens ikke skygges.
+  IF NEW.decided_by_kind='machine' THEN
+    -- Manifest-hashen er obligatorisk; run-referencen må være enten den
+    -- writer-batch, 4.1c skriver, eller et extraction_run for andre maskinelle
+    -- afsendere. Mindst én skal være der, og en tilstedeværende skal være uuid.
+    IF NEW.evidence->>'manifest_sha256' IS NULL
+       OR NEW.evidence->>'manifest_sha256' !~ '^[0-9a-f]{64}$' THEN
+      RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_PROVENANCE_INVALID: machine kræver manifest_sha256 (64 hex)';
+    END IF;
+    IF NEW.evidence->>'batch_id' IS NULL AND NEW.evidence->>'extraction_run_id' IS NULL THEN
+      RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_PROVENANCE_INVALID: machine kræver batch_id eller extraction_run_id';
+    END IF;
+    IF (NEW.evidence->>'batch_id' IS NOT NULL
+        AND NEW.evidence->>'batch_id' !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+       OR (NEW.evidence->>'extraction_run_id' IS NOT NULL
+        AND NEW.evidence->>'extraction_run_id' !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') THEN
+      RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_PROVENANCE_INVALID: run-referencen skal være uuid';
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+
+CREATE TRIGGER trg_clause_disposition_validate
+  BEFORE INSERT ON private.clause_disposition
+  FOR EACH ROW EXECUTE FUNCTION private.validate_clause_disposition();
+
+CREATE VIEW private.clause_disposition_current
+WITH (security_invoker=true) AS
+SELECT DISTINCT ON (observation_id) *
+  FROM private.clause_disposition
+ ORDER BY observation_id, version DESC;
+
 CREATE TABLE private.source_mention (
   id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   observation_id   uuid NOT NULL REFERENCES private.source_observation(id),
@@ -842,6 +1026,22 @@ BEGIN
     EXECUTE format('REVOKE ALL ON TABLE private.%I FROM PUBLIC,anon,authenticated',v_table);
   END LOOP;
 END $$;
+
+-- #148 4.1a: klausullagets to nye tabeller følger samme append-only/RLS-mønster.
+DO $$
+DECLARE v_table text;
+BEGIN
+  FOREACH v_table IN ARRAY ARRAY['vocab','clause_disposition'] LOOP
+    EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON private.%I FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation()','trg_'||v_table||'_append_only',v_table);
+    EXECUTE format('CREATE TRIGGER %I BEFORE TRUNCATE ON private.%I FOR EACH STATEMENT EXECUTE FUNCTION private.reject_evidence_mutation()','trg_'||v_table||'_append_only_truncate',v_table);
+    EXECUTE format('ALTER TABLE private.%I ENABLE ROW LEVEL SECURITY',v_table);
+    -- service_role er med her (modsat de ældre private tabeller): Supabase
+    -- default-granter direkte til rollen, og en service-role-klient må ikke
+    -- kunne udvide det lukkede vokabular eller skrive i dispositionsledgeren.
+    EXECUTE format('REVOKE ALL ON TABLE private.%I FROM PUBLIC,anon,authenticated,service_role',v_table);
+  END LOOP;
+END $$;
+REVOKE ALL ON TABLE private.clause_disposition_current FROM PUBLIC,anon,authenticated,service_role;
 
 REVOKE ALL ON TABLE private.source_record_anchor_current,
                     private.source_record_revision_current,
@@ -2827,7 +3027,8 @@ BEGIN
    WHERE a.source_record_id=v_record.id AND a.decision_status='accepted';
   IF encode(digest(v_occurrence.verbatim_text,'sha256'),'hex')<>p_payload->>'occurrence_verbatim_sha256' THEN RAISE EXCEPTION 'LEGACY_MIGRATION_OCCURRENCE_TEXT_DRIFT'; END IF;
   -- min() findes ikke for uuid; brug array_agg.
-  SELECT count(*),(array_agg(m.id ORDER BY m.id))[1] INTO v_mention_count,v_mention_id FROM private.source_observation ob JOIN private.source_mention m ON m.observation_id=ob.id WHERE ob.occurrence_id=v_occurrence.id;
+  -- #148 4.1a: kun helpostens mentions tæller; klausul-mentions er under-niveau.
+  SELECT count(*),(array_agg(m.id ORDER BY m.id))[1] INTO v_mention_count,v_mention_id FROM private.source_observation ob JOIN private.source_mention m ON m.observation_id=ob.id WHERE ob.occurrence_id=v_occurrence.id AND ob.parent_observation_id IS NULL;
   IF v_mention_count<>1 THEN RAISE EXCEPTION 'LEGACY_MIGRATION_MENTION_AMBIGUOUS'; END IF;
   IF (SELECT count(*) FROM public.person_external_id x WHERE x.source_id=v_batch.source_id AND x.record_key=v_record.record_key)<>1
      OR NOT EXISTS (SELECT 1 FROM public.person_external_id x WHERE x.source_id=v_batch.source_id AND x.record_key=v_record.record_key AND x.person_id=v_person_id)

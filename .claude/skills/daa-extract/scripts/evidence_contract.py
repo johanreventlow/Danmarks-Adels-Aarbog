@@ -50,6 +50,10 @@ class Observation:
     span: SourceSpan
     extraction_method: str
     extraction_run_id: str
+    parent_observation_id: Optional[str] = None
+    clause_ordinal: Optional[int] = None
+    clause_classification: Optional[str] = None
+    clause_flags: Tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         self.validate()
@@ -65,6 +69,28 @@ class Observation:
         source_slice = self.span.source_text[self.span.char_from:self.span.char_to]
         if source_slice != self.verbatim_text:
             raise ContractError("verbatim_text must exactly equal the source span")
+        is_clause = self.kind == "clause"
+        has_clause_fields = any([self.parent_observation_id, self.clause_ordinal is not None,
+                                 self.clause_classification, self.clause_flags])
+        if not is_clause and has_clause_fields:
+            raise ContractError("clause fields are only allowed on kind clause")
+        if not is_clause:
+            return
+        if not (self.parent_observation_id and self.clause_ordinal is not None
+                and self.clause_classification is not None and self.clause_flags is not None):
+            raise ContractError("clause requires parent, ordinal, classification and flags")
+        if self.clause_classification not in ("record_text", "structural_header"):
+            raise ContractError("unknown clause classification")
+        # bool er en int-subklasse i Python; True ville ellers passere som ordinal 1.
+        if isinstance(self.clause_ordinal, bool) or not isinstance(self.clause_ordinal, int) \
+                or self.clause_ordinal < 1:
+            raise ContractError("clause ordinal must be a positive integer")
+        if any(not isinstance(flag, str) or not flag.strip() for flag in self.clause_flags):
+            raise ContractError("clause flags must be non-empty strings")
+        # Spec 4.1.2: klausulen bæres af den versionerede segmenteringsregel — samme
+        # krav som trg_source_observation_clause håndhæver i databasen.
+        if not self.extraction_method.startswith("clause_segment_v1"):
+            raise ContractError("clause extraction_method must be the versioned clause_segment_v1 rule")
 
 
 @dataclass(frozen=True)
@@ -222,6 +248,14 @@ def _exact_fields(value: Mapping[str, Any], allowed: set[str], label: str) -> No
         raise ContractError("unknown %s fields: %s" % (label, ", ".join(sorted(unknown))))
 
 
+def _exact_fields_subset(value: Mapping[str, Any], allowed: set[str],
+                         required: set[str], label: str) -> None:
+    _exact_fields(value, allowed, label)
+    missing = required - set(value)
+    if missing:
+        raise ContractError("missing %s fields: %s" % (label, ", ".join(sorted(missing))))
+
+
 def _mapping(value: Any, label: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise ContractError("%s must be an object" % label)
@@ -273,15 +307,21 @@ def _as_occurrence(value: Union[RecordOccurrence, Mapping[str, Any]],
 
 
 def _as_observation(value: Union[Observation, Mapping[str, Any]],
-                    rendition_texts: Optional[Mapping[str, str]] = None) -> Observation:
+                    rendition_texts: Optional[Mapping[str, str]] = None,
+                    schema_version: str = "1.1") -> Observation:
     if isinstance(value, Observation):
         return value
     strict = rendition_texts is not None
+    required = {
+        "observation_id", "occurrence_id", "kind", "verbatim_text", "span",
+        "extraction_method", "extraction_run_id",
+    }
+    allowed = set(required)
+    if schema_version == "1.2":
+        allowed |= {"parent_observation_id", "clause_ordinal",
+                    "clause_classification", "clause_flags"}
     if strict:
-        _exact_fields(value, {
-            "observation_id", "occurrence_id", "kind", "verbatim_text", "span",
-            "extraction_method", "extraction_run_id",
-        }, "observation")
+        _exact_fields_subset(value, allowed, required, "observation")
     text = value["verbatim_text"]
     span_value = _mapping(value["span"], "observation span")
     source_text = text
@@ -298,6 +338,11 @@ def _as_observation(value: Union[Observation, Mapping[str, Any]],
         span=_span_from_dict(span_value, source_text, strict=strict),
         extraction_method=value["extraction_method"],
         extraction_run_id=value["extraction_run_id"],
+        parent_observation_id=value.get("parent_observation_id"),
+        clause_ordinal=value.get("clause_ordinal"),
+        clause_classification=value.get("clause_classification"),
+        clause_flags=(tuple(value["clause_flags"]) if isinstance(value.get("clause_flags"), (list, tuple))
+                      else value.get("clause_flags")),
     )
 
 
@@ -382,10 +427,10 @@ def validate_bundle(bundle: Union[Path, Mapping[str, Any]]) -> None:
     if missing_fields:
         raise ContractError("missing evidence bundle fields: %s" % ", ".join(sorted(missing_fields)))
     schema_version = bundle.get("schema_version")
-    if schema_version not in ("1.0", "1.1"):
+    if schema_version not in ("1.0", "1.1", "1.2"):
         raise ContractError("unsupported schema version")
 
-    strict = schema_version == "1.1"
+    strict = schema_version in ("1.1", "1.2")
     rendition_texts: Optional[Mapping[str, str]] = None
     rendition_sources: Mapping[str, str] = {}
     if strict:
@@ -416,7 +461,8 @@ def validate_bundle(bundle: Union[Path, Mapping[str, Any]]) -> None:
             }, "interpretation")
 
     occurrences = [_as_occurrence(value, rendition_texts) for value in bundle["source_record_occurrences"]]
-    observations = [_as_observation(value, rendition_texts) for value in bundle.get("observations", ())]
+    observations = [_as_observation(value, rendition_texts, schema_version)
+                    for value in bundle.get("observations", ())]
     anchors = [_as_anchor(value) for value in bundle["source_record_anchor_events"]]
     revisions = [_as_revision(value) for value in bundle["source_record_revision_events"]]
     interpretations = [_as_interpretation(value) for value in bundle.get("interpretations", ())]
@@ -472,6 +518,38 @@ def validate_bundle(bundle: Union[Path, Mapping[str, Any]]) -> None:
             raise ContractError("duplicate observation id")
         observation_ids.add(item.observation_id)
         observation_by_id[item.observation_id] = item
+
+    if schema_version == "1.2":
+        seen_ordinals = set()
+        for item in observations:
+            if item.kind != "clause":
+                continue
+            # Databasen har et unikt indeks på (parent_observation_id, clause_ordinal).
+            ordinal_key = (item.parent_observation_id, item.clause_ordinal)
+            if ordinal_key in seen_ordinals:
+                raise ContractError("duplicate clause ordinal under parent")
+            seen_ordinals.add(ordinal_key)
+            parent = observation_by_id.get(item.parent_observation_id or "")
+            if parent is None:
+                raise ContractError("clause requires parent")
+            if parent.kind == "clause" or parent.parent_observation_id:
+                raise ContractError("parent observation must be top level")
+            if parent.occurrence_id != item.occurrence_id:
+                raise ContractError("clause occurrence differs from parent")
+            if item.span.char_from < parent.span.char_from or item.span.char_to > parent.span.char_to:
+                raise ContractError("clause span outside parent")
+            # Sider er grænser, ikke en påstand om præcis side (spec 4.1.2): klausulen
+            # arver forælderens sideinterval uændret, som trg_source_observation_clause
+            # håndhæver i databasen.
+            if (item.span.page_from != parent.span.page_from
+                    or item.span.page_to != parent.span.page_to):
+                raise ContractError("clause pages must equal parent pages")
+            start = item.span.char_from - parent.span.char_from
+            length = item.span.char_to - item.span.char_from
+            if parent.verbatim_text[start:start + length] != item.verbatim_text:
+                raise ContractError("clause verbatim_text must equal the parent slice")
+    elif any(item.parent_observation_id for item in observations):
+        raise ContractError("clause fields require schema version 1.2")
 
     accepted_by_occurrence = {}
     for item in anchors:

@@ -1176,6 +1176,12 @@ REVOKE ALL ON FUNCTION private.reject_reimport_writer_mutation(),
   private.legacy_migration_reversal_state(uuid),
   private.record_reimport_legacy_reversal(uuid,uuid,jsonb)
   FROM PUBLIC,anon,authenticated,service_role;
+
+-- #148 4.1a: trigger-funktioner og privat vokabular er interne.
+REVOKE ALL ON FUNCTION private.validate_clause_observation(), private.validate_clause_disposition()
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON TABLE private.vocab, private.clause_disposition, private.clause_disposition_current
+  FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),
   public.red_preflight_reimport_authorization(uuid,text,text),public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),
   public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_apply_reimport_legacy_migration(uuid,text,jsonb),
