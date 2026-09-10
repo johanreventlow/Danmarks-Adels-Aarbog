@@ -165,3 +165,58 @@ fordeler sig på 45 records:
 - `(if.` (sandsynlig OCR-variant af `iflg.`)
 
 Til sammenligning blokerer de kendte regler nu 5719 gange fordelt på 199 distinkte tokens.
+
+## Dagsværk 4.1c (writer) — rigtig kørsel
+
+Samme restore som 4.1a/4.1b. Manifestet er bygget af 4.1b's ledger med
+`build_clause_evidence_manifest.py`, som oversætter klausulernes offsets gennem
+`project_rendition`-kortet og hash-verificerer hver enkelt undervejs.
+
+| Binding | Værdi |
+| --- | --- |
+| Rendition (genskabt fra PDF, = basens `content_sha256`) | `2dd5cf8408943ccc50ac4d89dcbd08ac3b49a90fdabd1ddcbd7b22d218026563` |
+| PDF | `3beadfc15e3fa1a4090589af56cd4e95599a9231e8f979dfb60c4e27bbd8252a` |
+| Projektion | `645f6f33101057953b912c2ebbe3ca67f90f1025398e6bb363cb1d8193df017f` |
+| Ledger-fil (fra 4.1b) | `8f4a88f5803287778666c120fa36bc5e770cebe685286f0e2a4eb9bc08980210` |
+| Manifest | `0b31c5a22c1045fcfb0528b8099f1e118cb235882ca92a6341808eb56c8655f6` |
+| Profil (`daa-2018-20-clause-evidence-v1`) | `7696cb87b9d5fecb3693d201d023ec84d27d25b35dee92f09bd6b75e88ce31f5` |
+
+| Måling | Værdi |
+| --- | --- |
+| Operationer / klausuler i manifestet | 591 / 868 |
+| Dry-run | `finalized`, ikke committet, 868 klausuler rullet tilbage, 3,7 s |
+| Apply | `finalized`, committet, 2,8 s |
+| Klausuler i basen efter apply | 868 |
+| Heraf uden post-relativt par | 0 |
+| Heraf med span uden for forælderens | 0 |
+| Dispositioner | 868 (`afventer_fortolkning` 617, `maskinelt_flagget` 251) |
+| `clause_evidence`-hændelser | 591 (én pr. record) |
+| Helposter | 591, uændret |
+| Kanonisk lag før / efter | `3dfdc1ef827f583697b9cbe73e5ebd09` / **identisk** |
+| Replay | `already_applied`, 0,6 s |
+| `db-verify` | begge `#148`-blokke `OK` |
+
+**Intet kanonisk delta.** Klausullaget er ren evidens: person, fact, assertion,
+conclusion, narrative, relation og family_member er uændrede, målt som én hash før og
+efter skrivningen.
+
+### Fund: en modsigelse i spec §4.1.2, som først kunne vise sig her
+
+Dry-run stoppede første gang i 4.1a's trigger med `EVIDENCE_CLAUSE_TEXT_MISMATCH`.
+Triggeren udskar klausulen som
+`substr(parent.verbatim_text, NEW.char_from - parent.char_from + 1, længde)` — en
+aritmetik, der forudsætter en lineær afbildning mellem helpostens rå spænd og dens gemte
+tekst. Den afbildning findes ikke: `segment.py` folder whitespace, så kun 97 af 591
+helposter har `char_to - char_from = length(verbatim_text)`.
+
+Spec'en kræver begge dele på én gang: at klausulens offsets er rendition-absolutte, **og**
+at klausulens tekst er forælderens tekst udskåret på de offsets. Målt på de 868 klausuler
+matcher post-relativ udskæring hashen 868/868, mens triggerens subtraktion rammer rigtigt
+498 og forkert 370.
+
+Med planens oprindelige — forkerte — offsets var triggeren tilfreds hver gang, fordi begge
+sider regnede galt på samme måde. Fejlen kunne først opdages, da den ene side blev rigtig.
+
+**Løst** ved at lade `char_from`/`char_to` forblive rendition-absolutte for alle
+observationer og tilføje et post-relativt par `post_char_from`/`post_char_to`, som bærer
+den eksakte substring-kontrol. Begge fakta er nu sande og hver for sig kontrollerbare.

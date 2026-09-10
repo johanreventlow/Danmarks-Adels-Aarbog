@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+"""Byg clause_evidence-manifest fra 4.1b's ledger-artefakt (#148 4.1c).
+
+Ingen tekst i output. Scriptet rører aldrig en database og autoriserer aldrig
+en skrivning.
+
+**Hvorfor renditionen skal med.** `segment.py` gemmer helposten som
+`norm(' '.join(lines))`, så posten er ALDRIG en litteral delstreng af
+pdftotext-outputtet: whitespace er foldet. Målt på prod har kun 97 af 591
+helposter `char_to - char_from == length(verbatim_text)`. En klausul kan derfor
+ikke placeres i renditionen som `parent.char_from + post-relativ offset` — det
+ville påstå en kildeposition, der er forkert for 84 % af posterne, uden at nogen
+database-kontrol kunne opdage det.
+
+Builderen bygger derfor samme projektion som `build_source_evidence_manifest`
+(`project_rendition`), ankrer hver helpost på databasens egen `char_from` fra
+ledgeren, verificerer ankeret mod `parent_verbatim_sha256`, og oversætter hver
+klausuls offsets gennem kortet. Hver oversættelse hash-verificeres mod
+ledgerens `verbatim_sha256`. Alt fejler lukket.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import sys
+from collections import defaultdict
+from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import build_source_evidence_manifest as sem
+from reimport_profile import load_profile
+
+LEDGER_SCHEMA_VERSION = "clause-ledger-v1"
+CLAUSE_KEYS = ("char_from", "char_to", "classification", "flags", "ordinal",
+               "rendition_char_from", "rendition_char_to", "verbatim_sha256")
+PROJECTED_CLASSIFICATIONS = ("record_text", "structural_header")
+
+
+class BuildError(ValueError):
+    """Fejl der stopper bygningen. Ingen delvise manifester."""
+
+
+def _fail(code: str) -> None:
+    raise BuildError(code)
+
+
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _anchor(projected: str, offsets: list[int], kandidater: dict[int, list[int]],
+            record: dict[str, Any]) -> tuple[int, int]:
+    """Find (p, q) i projektionen for helposten, verificeret mod dens hash."""
+    pcf, pct = record["parent_char_from"], record["parent_char_to"]
+    for p in kandidater.get(pcf, ()):
+        q = p
+        while q < len(offsets) and offsets[q] < pct:
+            q += 1
+        if q > p and offsets[q - 1] + 1 == pct \
+                and _sha(projected[p:q]) == record["parent_verbatim_sha256"]:
+            return p, q
+    _fail("CLAUSE_EVIDENCE_PARENT_ANCHOR_FAILED")
+
+
+def build_manifest(profile: dict[str, Any], ledger: dict[str, Any],
+                   rendition: str, ledger_file_sha256: str) -> dict[str, Any]:
+    if _sha(rendition) != profile["raw_text_sha256"]:
+        _fail("RENDITION_SHA_MISMATCH")
+    if ledger.get("schema_version") != LEDGER_SCHEMA_VERSION:
+        _fail("LEDGER_SCHEMA_INVALID")
+    if ledger.get("rules_version") != profile["clause_rules_version"]:
+        _fail("LEDGER_RULES_VERSION_MISMATCH")
+    if ledger.get("segmenter_version") != profile["segmenter_version"]:
+        _fail("LEDGER_SEGMENTER_VERSION_MISMATCH")
+    gap_charset = ledger.get("gap_charset")
+    if not isinstance(gap_charset, list) or not gap_charset \
+            or not all(isinstance(g, str) and len(g) == 1 for g in gap_charset):
+        _fail("LEDGER_GAP_CHARSET_INVALID")
+
+    projected, offsets = sem.project_rendition(rendition)
+    kandidater: dict[int, list[int]] = defaultdict(list)
+    for i, o in enumerate(offsets):
+        kandidater[o].append(i)
+    projection_sha = _sha(projected)
+
+    operations: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for record in sorted(ledger["records"], key=lambda r: r["record_key"].encode("utf-8")):
+        key = record["record_key"]
+        if key in seen:
+            _fail("LEDGER_RECORD_KEY_DUPLICATE")
+        seen.add(key)
+        p, q = _anchor(projected, offsets, kandidater, record)
+        post_length = q - p
+
+        clauses: list[dict[str, Any]] = []
+        forrige_slut = 0
+        for clause in sorted(record["clauses"], key=lambda c: c["ordinal"]):
+            if clause["ordinal"] != len(clauses) + 1:
+                _fail("LEDGER_ORDINALS_INVALID")
+            if clause["classification"] not in PROJECTED_CLASSIFICATIONS:
+                _fail("LEDGER_CLASSIFICATION_NOT_PROJECTABLE")
+            flags = clause["flags"]
+            if not isinstance(flags, list) or any(not isinstance(f, str) or not f.strip() for f in flags):
+                _fail("LEDGER_FLAGS_INVALID")
+            cf, ct = clause["char_from"], clause["char_to"]
+            if not (0 <= forrige_slut <= cf < ct <= post_length):
+                _fail("LEDGER_CLAUSE_SPAN_INVALID")
+            if _sha(projected[p + cf:p + ct]) != clause["verbatim_sha256"]:
+                _fail("CLAUSE_EVIDENCE_TEXT_HASH_MISMATCH")
+            raw_from = offsets[p + cf]
+            raw_to = offsets[p + ct - 1] + 1
+            if not (record["parent_char_from"] <= raw_from < raw_to <= record["parent_char_to"]):
+                _fail("CLAUSE_EVIDENCE_RENDITION_SPAN_INVALID")
+            clauses.append({
+                "ordinal": clause["ordinal"], "char_from": cf, "char_to": ct,
+                "rendition_char_from": raw_from, "rendition_char_to": raw_to,
+                "classification": clause["classification"], "flags": list(flags),
+                "verbatim_sha256": clause["verbatim_sha256"],
+            })
+            forrige_slut = ct
+        if not clauses:
+            _fail("LEDGER_RECORD_WITHOUT_CLAUSES")
+
+        operations.append({
+            "element_id": f"clause-evidence:{key}",
+            "dependency_class": "clause_evidence",
+            "source_record_key": key,
+            "rendition_content_sha256": record["rendition_content_sha256"],
+            "rendition_projection_sha256": projection_sha,
+            "parent_verbatim_sha256": record["parent_verbatim_sha256"],
+            "clause_rules_version": record["rules_version"],
+            "segmenter_version": ledger["segmenter_version"],
+            "ledger_sha256": record["ledger_sha256"],
+            "gap_charset": list(gap_charset),
+            "clauses": clauses,
+        })
+
+    if len(operations) != profile["expected_counts"]["clause_evidence"]:
+        _fail("LEDGER_COUNT_MISMATCH")
+
+    manifest = {
+        "source": {"id": profile["source_id"], "profile_id": profile["profile_id"],
+                   "profile_sha256": profile["profile_sha256"]},
+        "provenance": {"ledger_file_sha256": ledger_file_sha256,
+                       "raw_text_sha256": profile["raw_text_sha256"],
+                       "rendition_projection_sha256": projection_sha,
+                       "clause_rules_version": profile["clause_rules_version"],
+                       "segmenter_version": profile["segmenter_version"]},
+        "expected_counts": {"source_evidence": 0, "person_creates": 0,
+                            "canonical_delta": 0, "clause_evidence": len(operations)},
+        "operations": operations,
+    }
+    manifest["manifest_content_sha256"] = hashlib.sha256(
+        json.dumps(manifest, ensure_ascii=False, sort_keys=True,
+                   separators=(",", ":")).encode("utf-8")).hexdigest()
+    return manifest
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    for flag in ("--profile", "--ledger", "--rendition", "--output"):
+        parser.add_argument(flag, required=True)
+    parser.add_argument("--expect-ledger-sha256", required=True,
+                        help="ledgerfilens SHA-256 fra 4.1b's rapport — bygningen "
+                             "stopper, hvis filen ikke er præcis den reviewede")
+    args = parser.parse_args()
+
+    profile = load_profile(Path(args.profile))
+    ledger_bytes = Path(args.ledger).read_bytes()
+    ledger_file_sha256 = hashlib.sha256(ledger_bytes).hexdigest()
+    if ledger_file_sha256 != args.expect_ledger_sha256:
+        _fail("LEDGER_FILE_SHA_MISMATCH")
+    ledger = json.loads(ledger_bytes.decode("utf-8"))
+    rendition = Path(args.rendition).read_text(encoding="utf-8")
+
+    out = Path(args.output)
+    if out.exists():
+        _fail("CLAUSE_EVIDENCE_OUTPUT_EXISTS")
+    manifest = build_manifest(profile, ledger, rendition, ledger_file_sha256)
+    out.write_text(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                   encoding="utf-8")
+    out.chmod(0o600)
+    print(json.dumps({"operations": len(manifest["operations"]),
+                      "clauses": sum(len(o["clauses"]) for o in manifest["operations"]),
+                      "manifest_content_sha256": manifest["manifest_content_sha256"],
+                      "ledger_file_sha256": ledger_file_sha256}, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()

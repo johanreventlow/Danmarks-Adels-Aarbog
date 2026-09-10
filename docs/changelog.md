@@ -1,5 +1,49 @@
 # Changelog
 
+## 2026-09-10 — Trin 4, dagsværk 4.1c: writer-operationen `clause_evidence` (#148)
+
+Gren `feat/148-clause-evidence-writer` (8 commits, upushet). Klausullaget har for
+første gang rækker i en database.
+
+**Leveret.** `private.write_clause_evidence` + wrapperen
+`public.red_apply_reimport_clause_evidence`; writerens lukkede mængder udvidet fire
+steder plus `db-rls`, `db-verify` og testlisterne; en tredje profiltype i
+`reimport_profile.py`; manifest-builderen `build_clause_evidence_manifest.py`;
+R-klientens dispatch, et læse-kun preview og en integrationstest; CI-trin for både
+SQL- og R-testen.
+
+**Rigtig kørsel på restoren:** 591 operationer, 868 klausuler. Dry-run `finalized` og
+rullet tilbage (3,7 s), apply `finalized` og committet (2,8 s), replay
+`already_applied` (0,6 s). Efter apply: 868 klausuler, ingen uden post-relativt par,
+ingen med span uden for forælderens, 868 dispositioner (617 `afventer_fortolkning`,
+251 `maskinelt_flagget`), 591 hændelser, 591 uændrede helposter. **Det kanoniske lag er
+uændret** — samme hash før og efter — så klausullaget er ren evidens uden delta.
+
+**Offset-blokkeren.** Codex' review fandt, at writeren gemte
+`parent.char_from + post-relativ offset`. Målt på prod-restoren holder den aritmetik
+ikke: kun 97 af 591 helposter har `char_to - char_from = length(verbatim_text)`, fordi
+`segment.py` folder whitespace. Payloaden bærer nu `rendition_char_from/to` beregnet af
+manifest-builderen gennem `project_rendition`-kortet — bevist mod restoren før koden blev
+skrevet: renditionen genskabt fra PDF'en hasher til basens egen `content_sha256`, alle 591
+helposter kan ankres og hash-verificeres, og alle 868 klausuler oversættes og
+hash-verificeres.
+
+**Modsigelse i spec §4.1.2, fundet af dry-run.** Spec'en kræver både rendition-absolutte
+offsets og at klausulens tekst er forælderens tekst udskåret på de offsets. De to kan ikke
+begge holde, når forælderens tekst er en foldet projektion: post-relativ udskæring matcher
+hashen 868/868, mens triggerens subtraktion rammer forkert i 370 tilfælde. Med planens
+oprindelige, forkerte offsets var triggeren tilfreds hver gang — begge sider regnede galt
+på samme måde. Løst med et post-relativt par `post_char_from`/`post_char_to`, der bærer den
+eksakte substring-kontrol, mens `char_from`/`char_to` forbliver rendition-absolutte for alle
+observationer.
+
+**Codex' øvrige fund lukket:** ledgerfilens SHA kræves og bindes i manifestets provenance;
+`extraction_run` har fået post-conflict-lighedskontrol; klausul-objektet i payloaden har
+lukket nøglesæt og flag skal være ikke-tomme strenge, så kildetekst ikke kan smugles ind i
+et flag og lagres permanent i `private.reimport_event`.
+
+Rapport: `docs/evidensbaseret-genimport/clause-evidence-148-rehearsal.md`.
+
 ## 2026-09-10 — Trin 4, dagsværk 4.1b: deterministisk klausul-segmentering (#148)
 
 Gren `feat/148-klausul-segmenter` (6 commits, upushet, oven på 4.1a-grenen). Ingen
