@@ -16738,7 +16738,8 @@ BEGIN
    WHERE a.source_record_id=v_record.id AND a.decision_status='accepted';
   IF encode(digest(v_occurrence.verbatim_text,'sha256'),'hex')<>p_payload->>'occurrence_verbatim_sha256' THEN RAISE EXCEPTION 'LEGACY_MIGRATION_OCCURRENCE_TEXT_DRIFT'; END IF;
   -- min() findes ikke for uuid; brug array_agg.
-  SELECT count(*),(array_agg(m.id ORDER BY m.id))[1] INTO v_mention_count,v_mention_id FROM private.source_observation ob JOIN private.source_mention m ON m.observation_id=ob.id WHERE ob.occurrence_id=v_occurrence.id;
+  -- #148 4.1a: kun helpostens mentions tæller; klausul-mentions er under-niveau.
+  SELECT count(*),(array_agg(m.id ORDER BY m.id))[1] INTO v_mention_count,v_mention_id FROM private.source_observation ob JOIN private.source_mention m ON m.observation_id=ob.id WHERE ob.occurrence_id=v_occurrence.id AND ob.parent_observation_id IS NULL;
   IF v_mention_count<>1 THEN RAISE EXCEPTION 'LEGACY_MIGRATION_MENTION_AMBIGUOUS'; END IF;
   IF (SELECT count(*) FROM public.person_external_id x WHERE x.source_id=v_batch.source_id AND x.record_key=v_record.record_key)<>1
      OR NOT EXISTS (SELECT 1 FROM public.person_external_id x WHERE x.source_id=v_batch.source_id AND x.record_key=v_record.record_key AND x.person_id=v_person_id)
