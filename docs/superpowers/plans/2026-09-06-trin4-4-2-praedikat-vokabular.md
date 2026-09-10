@@ -4,13 +4,133 @@
 
 **Goal:** Én tabel `private.interpretation_predicate` som eneste sandhed om, hvilke prædikater fortolkningslaget kender, med udsagnsform, §7.3-kategori og værdiform; promotion-reglerne og `interpretation` refererer den; extractoren læser en genereret, byte-verificeret fil i stedet for sin egen liste.
 
-**Architecture:** Additiv DDL (tabel + seed + to FK'er + trigger for `value_kind`-binding + view), en `references/interpretation-predicates.json` der er en projektion af tabellen, et lille sync/check-script, og ombytning af `evidence_extract.ALLOWED_PREDICATES` til filen med `interpretation_kind` pr. prædikat. Ingen oversættelsestabel.
+**Architecture:** Additiv DDL (tabel + seed + ÉN komposit-FK på `interpretation` (revision R2/R4) + trigger for `value_kind`-binding + view), en `references/interpretation-predicates.json` der er en projektion af tabellen, et lille sync/check-script, og ombytning af `evidence_extract.ALLOWED_PREDICATES` til filen med `interpretation_kind` pr. prædikat. Ingen oversættelsestabel.
 
 **Tech Stack:** PostgreSQL 17, psql-SQL-tests, Python 3 + pytest, GitHub Actions.
 
 **Spec:** `docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md` §5.
 
 > **Linjetal** i denne plan gælder `origin/main` ved `6770451`; efter 4.1a-4.1c er `schema.sql` forskudt. Brug de navngivne ankre.
+
+## Revision 2 (2026-09-10) — efter anden læsning, otte blokerende fund
+
+> Denne revision er **bindende** og går forud for teksten længere nede, hvor de er uenige.
+> Anledningen er en uafhængig gennemlæsning (Codex `gpt-5.6-sol`), der gav NO-GO, plus
+> egne målinger mod `main` efter 4.1a/4.1b. Hvert punkt nedenfor er efterprøvet i koden,
+> ikke sluttet fra planen.
+
+### R1. Prædikat-inventaret var ufuldstændigt — og tre navne kan ikke seedes
+
+**Målt:** ud over de fire fixture-prædikater, planen nævnte, indsætter `db-verify.sql` også
+`death_date` (linje 3645 og 3661), `fake_approval` (3753) og `terminal_status` (3794) i
+`private.interpretation`. Ingen af dem har punktum, så de bryder PK-CHECK'et
+`^[a-z_]+(\.[a-z_]+)+$` og kan ikke seedes uændret. Planens egen kontrakttest bruger
+tilsvarende `assertion`.
+
+**Hvorfor det er blokerende, ikke kosmetisk:** `db-verify.sql` kører **mod prod**. Den
+første `death_date`-insert ligger i en `BEGIN … EXCEPTION`-blok, der forventer præcis
+`EVIDENCE_INTERPRETATION_OBSERVATION_REQUIRED`; en FK-overtrædelse ville fyre først og få
+den negative test til at melde »fortolkning uden observation blev ikke afvist«. Den anden
+insert skal derimod lykkes. En FK på `predicate` stopper altså produktionsverifikationen.
+
+**Besluttet:** de tre navne omdøbes i `db-verify.sql` til punktumformen `verify.death_date`,
+`verify.fake_approval`, `verify.terminal_status`, og kontrakttestens `assertion` til
+`verify.assertion`. Efterprøvet: navnene optræder aldrig i en assertion — `v_terminal_status`
+er en anden variabel om status, ikke om prædikatet — så omdøbningen er mekanisk og ændrer
+ingen testsemantik. Formatinvarianten bevares dermed, i stedet for at blive slækket for at
+rumme fixtures.
+
+**Fixture-seed bliver dermed otte, ikke fire:** `person.name.relation`,
+`verify.person.name.no_bulk`, `verify.person.name.principal`, `verify.concurrent.name`,
+`verify.death_date`, `verify.fake_approval`, `verify.terminal_status`, `verify.assertion` —
+alle `status='active'`, `introduced_in='db-verify-fixture'`, `value_kind='text'`,
+`interpretation_kind='property'`.
+
+**Krav til Task 2:** før FK'en tilføjes, køres en fuldstændig optælling af enhver
+prædikat-værdi, der indsættes i `private.interpretation` og
+`interpretation_promotion_rule_line` i `db-verify.sql` og hele `tests/sql/`. Dukker et navn
+op, der ikke er seedet, er det en stopport — ikke noget, der seedes stiltiende bagefter.
+
+### R2. Præcis én fremmednøgle
+
+Planen modsagde sig selv: arkitekturresuméet lovede »to FK'er«, og Task 2's filoversigt bad
+om en FK på `interpretation_promotion_rule_line`, mens Global Constraints og DDL-teksten
+forbød den. **Besluttet:** der er **én** FK, på `private.interpretation(predicate)`. På
+`rule_line.predicate` er der ingen FK — netop fordi db-verify's negative fixtures skal kunne
+indsætte et bevidst ukendt prædikat dér. Begge de modstridende steder rettes.
+
+### R3. `verify-%` må ikke kunne springe typebindingen over
+
+Planen sprang **både** kendt-prædikat- og `value_kind`-kontrollen over for ethvert
+`rule_key LIKE 'verify-%'`. Det er en brugbar bypass: den ægte promotionvej læser
+`interpretation_promotion_rule_current` uden at udelukke `verify-%`, og regel-tabellens eget
+CHECK kræver kun `text` eller `date_raw`, ikke lighed med prædikattabellen.
+
+**Besluttet:** eksistens og `value_kind`-lighed håndhæves for **alle** regler, uden
+undtagelse. Det eneste, `verify-%` må, er at pege på et fixture-prædikat
+(`introduced_in='db-verify-fixture'`); almindelige regler skal pege på et ikke-fixture
+prædikat. **Efterprøvet gennemførligt:** alle tre eksisterende `verify-`regler bruger
+`value_kind='text'`, og de fem rigtige regler matcher deres prædikaters `value_kind`
+(`person.name`/`byname`/`title` = `text`, `person.birth`/`death` = `date_raw`).
+
+### R4. `interpretation_kind` skal bindes, ellers holder planens eget mål ikke
+
+Målet siger, at tabellen er **eneste sandhed** om prædikatets udsagnsform. Med en FK kun på
+`predicate` beholder `private.interpretation` sit uafhængige fireværdi-CHECK, så
+`predicate='person.name'` med `interpretation_kind='event'` fortsat accepteres.
+
+**Besluttet:** `UNIQUE (predicate, interpretation_kind)` på prædikattabellen og en
+komposit-FK fra `private.interpretation(predicate, interpretation_kind)`. Før migrationen
+inventeres eksisterende par (læse-kun), og migrationen fejler hårdt på et par, tabellen ikke
+kender.
+
+### R5. FK-migrationens guard skal ramme den rigtige constraint
+
+`IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='…')` er utilstrækkelig:
+constraintnavne er ikke databaseglobalt unikke, og guarden ser hverken relation, kolonner
+eller `convalidated`. En efterladt `NOT VALID`-constraint eller en navnekollision ville få
+migrationen til at springe valideringen over i stilhed.
+
+**Besluttet:** guard på `conrelid`, `confrelid` og kolonnesættet; en eksisterende korrekt
+men `NOT VALID` constraint valideres eksplicit; forkert definition er en stopport; til sidst
+asserteres `convalidated=true`.
+
+### R6. Kontrakttestens FK-probe skal kun være ugyldig ét sted
+
+Testens negative FK-insert bruger `source_id=1` og et tilfældigt `extraction_run_id`, mens
+tabellen kræver en gyldig source og et gyldigt `(extraction_run_id, source_id)`-par. På
+frisk-skema-stien seedes ingen source, så testen ville fejle af den forkerte grund.
+
+**Besluttet:** testen opretter gyldige source-, run- og persona-præmisser inde i sin egen
+transaktion, så prædikat-FK'en er den eneste ugyldige værdi. Testen tilføjes til **både**
+frisk-skema-stien og den kumulative migrationssti i CI.
+
+### R7. Python-omlægningen kunne ikke blive grøn
+
+Omdøbningslisten udelod `life_event.baptism` og `life_event.burial`, som begge findes i den
+aktuelle test. Og fordi størstedelen af bulklisten bliver til `person.*`, mens validatoren
+kræver en gyldig persona for alle `person.*`, ville testens bulkprøve uden persona-id fejle.
+
+**Besluttet:** begge omdøbninger medtages, og bulkprøven bygges med en fuld
+persona-/mention-/observationskæde — eller splittes, så `person.*`-claims har persona og de
+øvrige ikke.
+
+### R8. Byte-checket skal dække begge CI-stier
+
+Planen lagde checket alene på »Evidens-hardening på frisk schema-sti«. CI har også en
+kumulativ migrationssti, hvor en forskel i migrationsseed eller view kunne passere
+ubemærket, selv om den genererede fil kommer fra frisk `schema.sql`.
+
+**Besluttet:** checkerens ikke-skrivende tilstand køres efter **begge** stier.
+
+### Rækkefølge efter revisionen
+
+Task 1's kontrakttest er allerede skrevet og verificeret rød (`PREDICATE_TABLE_MISSING`);
+den skal rettes efter R1 og R6, før Task 2 begynder. Task 2 udvides med R1's fuldstændige
+optælling som stopport, R2's ene FK, R3's undtagelsesfri håndhævelse, R4's komposit-binding
+og R5's guard. Task 3-4 følger R7 og R8.
+
+---
 
 ## Global Constraints
 
@@ -173,7 +293,7 @@ git commit -m "test(db): kontrakttest for prædikattabellen (#147 4.2) — fejle
 ### Task 2: DDL i `schema.sql` + migration
 
 **Files:**
-- Modify: `schema.sql` (indsæt tabel + vocab-seed **før** linje 923; FK på `rule_line` som `ALTER TABLE` efter linje 928; seed af 42 rækker efter linje 960 men **før** `INSERT INTO private.interpretation_promotion_rule_line` (linje 961), fordi FK'en kræver prædikaterne først; trigger + FK på `interpretation` efter `interpretation`-tabellen; view efter `interpretation_promotion_rule_current` (linje ~981))
+- Modify: `schema.sql` (indsæt tabel + vocab-seed **før** linje 923; INGEN FK på `rule_line` (revision R2); seed af 42 rækker efter linje 960 men **før** `INSERT INTO private.interpretation_promotion_rule_line` (linje 961), fordi FK'en kræver prædikaterne først; trigger + FK på `interpretation` efter `interpretation`-tabellen; view efter `interpretation_promotion_rule_current` (linje ~981))
 - Modify: `db-migrations.sql`
 
 - [ ] **Step 1: DDL**
