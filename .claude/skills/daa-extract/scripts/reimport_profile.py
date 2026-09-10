@@ -19,6 +19,7 @@ KEY_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 PLACEHOLDER = "<UDFYLDES FRA INVENTERING>"
 PROFILE_SCHEMA_VERSION = "reimport-source-evidence-profile-v1"
 LEGACY_PROFILE_SCHEMA_VERSION = "reimport-legacy-migration-profile-v1"
+CLAUSE_PROFILE_SCHEMA_VERSION = "reimport-clause-evidence-profile-v1"
 
 PROFILE_KEYS = {
     "profile_schema_version", "source_id", "profile_id", "profile_version",
@@ -30,6 +31,12 @@ LEGACY_PROFILE_KEYS = {
     "writer_config", "raw_text_sha256", "expected_counts",
     "expected_dispositions", "stop_threshold",
 }
+CLAUSE_PROFILE_KEYS = {
+    "profile_schema_version", "source_id", "profile_id", "profile_version",
+    "writer_config", "raw_text_sha256", "clause_rules_version",
+    "segmenter_version", "expected_counts",
+}
+CLAUSE_EXPECTED_COUNTS_KEYS = {"person_creates", "source_evidence", "clause_evidence"}
 WRITER_CONFIG_KEYS = {
     "citation_label_template", "extractor_version", "observation_extraction_method",
     "rendition_key", "rendition_kind", "rendition_metadata", "run_key_prefix",
@@ -210,6 +217,36 @@ def _validate_legacy_migration_profile(profile: dict[str, Any]) -> None:
     _validate_writer_config(config, metadata["pdf_sha256"])
 
 
+def _validate_clause_evidence_profile(profile: dict[str, Any]) -> None:
+    """#148 4.1c: profilen for clause_evidence-writeren.
+
+    raw_text_sha256 er renditionens hash — manifest-builderen nægter at bygge,
+    hvis pdftotext-outputtet ikke hasher til netop den, for offset-kortet gælder
+    kun for præcis den tekst.
+    """
+    if set(profile) != CLAUSE_PROFILE_KEYS:
+        _fail("PROFILE_KEYS_INVALID")
+    if not _positive_int(profile["source_id"]) or not _text(profile["profile_id"]) \
+            or not _text(profile["profile_version"]) or not _text(profile["clause_rules_version"]) \
+            or not _text(profile["segmenter_version"]):
+        _fail("PROFILE_FIELD_SET_INVALID")
+    if not isinstance(profile["raw_text_sha256"], str) \
+            or not HASH_RE.match(profile["raw_text_sha256"]):
+        _fail("PROFILE_MEASURED_HASH_INVALID")
+    counts = profile["expected_counts"]
+    if not isinstance(counts, dict) or set(counts) != CLAUSE_EXPECTED_COUNTS_KEYS \
+            or counts["person_creates"] != 0 or counts["source_evidence"] != 0 \
+            or not _positive_int(counts["clause_evidence"]):
+        _fail("PROFILE_EXPECTED_COUNTS_INVALID")
+    _assert_collation_stable(profile["writer_config"])
+    config = profile["writer_config"]
+    metadata = config.get("rendition_metadata") if isinstance(config, dict) else None
+    if not isinstance(metadata, dict) or not isinstance(metadata.get("pdf_sha256"), str) \
+            or not HASH_RE.match(metadata["pdf_sha256"]):
+        _fail("PROFILE_MEASURED_HASH_INVALID")
+    _validate_writer_config(config, metadata["pdf_sha256"])
+
+
 def load_profile(path: Path) -> dict[str, Any]:
     try:
         profile = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -222,6 +259,8 @@ def load_profile(path: Path) -> dict[str, Any]:
         _validate_source_evidence_profile(profile)
     elif profile.get("profile_schema_version") == LEGACY_PROFILE_SCHEMA_VERSION:
         _validate_legacy_migration_profile(profile)
+    elif profile.get("profile_schema_version") == CLAUSE_PROFILE_SCHEMA_VERSION:
+        _validate_clause_evidence_profile(profile)
     else:
         _fail("PROFILE_FIELD_SET_INVALID")
     profile["profile_sha256"] = canonical_json_sha256(profile["writer_config"])

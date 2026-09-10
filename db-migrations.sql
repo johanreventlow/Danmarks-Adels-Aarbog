@@ -17876,6 +17876,17 @@ BEGIN
   VALUES(v_batch.source_id,v_run_key,v_profile.writer_config->>'schema_version',v_profile.writer_config->>'extractor_version',v_profile.profile_version,v_batch.manifest_sha256,
          jsonb_build_object('batch_id',p_batch_id,'profile_sha256',v_batch.profile_sha256)) ON CONFLICT(source_id,run_key) DO NOTHING;
   SELECT id INTO v_run FROM private.extraction_run WHERE source_id=v_batch.source_id AND run_key=v_run_key;
+  -- ON CONFLICT DO NOTHING kan genbruge en tidligere kørsel med ANDEN proveniens.
+  -- Samme efterkontrol som ensure_reimport_source_evidence: alt skal stemme, ellers stop.
+  IF NOT EXISTS(SELECT 1 FROM private.extraction_run
+                 WHERE id=v_run AND source_id=v_batch.source_id AND run_key=v_run_key
+                   AND schema_version=v_profile.writer_config->>'schema_version'
+                   AND extractor_version=v_profile.writer_config->>'extractor_version'
+                   AND profile_version=v_profile.profile_version
+                   AND input_sha256=v_batch.manifest_sha256
+                   AND manifest=jsonb_build_object('batch_id',p_batch_id,'profile_sha256',v_batch.profile_sha256)) THEN
+    RAISE EXCEPTION 'CLAUSE_EVIDENCE_EXTRACTION_RUN_DRIFT';
+  END IF;
   FOR v_clause IN SELECT value FROM jsonb_array_elements(p_payload->'clauses') LOOP
     v_expected_ordinal:=v_expected_ordinal+1;
     IF jsonb_typeof(v_clause)<>'object' OR (v_clause->>'ordinal')::int IS DISTINCT FROM v_expected_ordinal THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_ORDINAL_INVALID'; END IF;
