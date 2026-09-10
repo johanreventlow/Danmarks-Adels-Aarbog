@@ -1,6 +1,7 @@
 # Evidensbaseret genimport — aktuel status
 
-**Verificeret:** 2026-08-30 efter #152 disposable ende-til-ende-rehearsal
+**Verificeret:** 2026-09-06 efter GO 1-4 i prod (#152-cutover, #153, 149a, 149b);
+detaljer i `docs/changelog.md` 2026-09-05/06
 
 **Kodegrundlag:** Task 12's funktionelle bevis er commit `4922d7e`; den
 nuværende dokumentations-HEAD kan være senere og ændrer ikke det bevis
@@ -10,8 +11,10 @@ er `integreret ende-til-ende`, se tabellen og blokeringerne; 149a
 (2018-20 kilderegnskab) er `integreret ende-til-ende`, se tabellen; #156
 lukket med restpunkt (INCOMPLETE-afstemning, snapshot forseglet).
 
-**Produktionsstatus:** C3's eksakte fem-sagers scope er migreret, anvendt og
-efterverificeret i produktion; #152 har ingen produktionsmutation
+**Produktionsstatus:** C3 (2026-08-29), #152-cutover (kontrakt 2), #153's generelle
+writer, 149a (591 records/forekomster/ankre) og 149b (541 publicerede + 46 kladde-bindinger)
+er anvendt og efterverificeret i prod 2026-09-05/06. Trin 4 (#147/#148) er `specificeret`
+med planer for 4.1a-4.2; ingen kode og ingen prod-mutation for trin 4.
 
 ## Samlet dom
 
@@ -93,42 +96,33 @@ programmets samlede modenhed.
 
 ## Åbne blokeringer
 
-- **#153's migrationsguard afviste 1939 fase A-batchen** (`finalized`, 0 person_creates,
-  kan aldrig aktiveres) — bekræftet i prod læse-kun 2026-09-03. Rettet generelt på
-  `feat/149-2018-20-fase-a` (evidensbundet undtagelse + tests, bevist mod dumpet).
-  Rettelsen SKAL indgå i #153's prod-migration; #153's `afventer-prod-GO` gælder
-  først med den.
-- #152 afventer en særskilt, frisk produktions-GO efter
-  [cutover-runbooken](../runbooks/narrative-record-key-cutover.md). Først
-  kræves preliminær autorisation, mode-0600 backup/restore-rehearsal og frisk
-  production-inventory; derefter kan et final-GO binde release-SHA, udløb,
-  backup- og artifact-hashes, databaseidentitet og et eksternt writer-traffic
-  hold fra apply gennem bestået postverify. Væsentlig drift fra den 2026-08-29
-  godkendte konsekvens kræver ny projektejerbeslutning.
-- Den eksisterende åbne tombstone-/retentionsbeslutning betyder, at #152
-  foreløbig må blokere hel-person-sletning for personer med publication-events;
-  granulær withdrawal løser kun offentlig nedtagning af den enkelte biografi.
-- #152 mangler kun den særskilte production-gate og et eventuelt senere,
-  eksplicit production-GO; integrationen er ikke `produktionsverificeret`.
+- **Trin 4 (#147/#148) er kun specificeret.** Spec revision 3 og planerne 4.1a-4.2
+  findes; 4.3-4.5 afventer målinger (mellemrumstegnsæt fra 4.1b, Codex-forbrugsprobe fra
+  4.3a, kvotenulstilling 2026-09-09). Første prod-GO-kandidat er 4.1c (klausuler, nul
+  kanonisk delta) og kræver særskilt fortrydelseskvittering samt en klausul-projektion i
+  fase-pakke-runbooken, som ikke findes endnu.
+- Den eksisterende åbne tombstone-/retentionsbeslutning betyder, at #152 fortsat
+  blokerer hel-person-sletning for personer med publication-events; granulær
+  withdrawal løser kun offentlig nedtagning af den enkelte biografi.
 - Den fælles kæde mangler fortsat klausulobservationer, reel extraction,
   proposed-ingest, én identitetsvej, promotion i drift og publicering med
-  kildehenvisning på tværs af referenceudgaverne.
-- **149b's prod-apply kræver, i rækkefølge:** #152-cutover → #153 (med
-  guard-rettelsen) → 149a — alle tre gennemført og verificeret i prod, ikke
-  kun i rehearsal; projektejerens eksplicitte kvittering for valg A (identitet
-  uden placement-kæde, spec §5) og valg B (reversal-designet, spec §8); samt en
-  frisk neutralitetsmåling i prod (`withdrawn` binding ∧ `grandfathered_publication`
-  ledger = 0) umiddelbart før apply. Ingen af disse er givet; rehearsal alene
-  autoriserer intet.
+  kildehenvisning på tværs af referenceudgaverne; trin 4 leverer de tre første for
+  2018-20 (hovedpersonens persona), trin 5 identitetsvejen, trin 6 begge udgaver.
+- Restpunkter fra GO 4: de fire `unresolved_text`-records (`I-133`, `II-35`, `III-129`,
+  `IV-94`) og 13 mulige `NOISE_RE`-prosalinjer er uændrede; `get_advisors` skal
+  tjekkes i Supabase-dashboardet.
 
 ## Næste tilladte arbejde
 
-Roadmap-trin 1-3 (#152, #153, #149) er `produktionsverificeret` pr. 2026-09-06. Næste
+Roadmap-trin 1-3 (#152, #153, #149) er `produktionsverificeret` pr. 2026-09-06. Det
 aktive programmål er **trin 4: den fælles fortolkningskæde og klausulgranularitet
-(#147/#148)** — extractor-runneren med modelkald, proposed-ingest og promotion i drift
-på begge referenceudgaver. Planen skal besvare roadmappens seks adgangskrav og
-efterprøves af PM-rollen før implementering (decisions 2026-09-03). Prod-mutationer
-kræver fortsat en udtrykkelig GO pr. apply.
+(#147/#148)**, aktiveret af projektejeren 2026-09-06 (decisions samme dato, seks valg).
+Spec: `docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md`.
+Næste tilladte arbejde er plan 4.1a (`docs/superpowers/plans/2026-09-06-trin4-4-1a-klausullag-skema.md`),
+derefter 4.1b, 4.1c og 4.2 i den rækkefølge. Planerne er læst af en uafhængig
+anden læser i to runder (18 + 6 fund) og rettet; sidste rettelsesrunde er ikke
+genlæst. Projektejeren afgør før udførelse. Prod-mutationer kræver fortsat en udtrykkelig
+GO pr. apply.
 
 ## Parkeret arbejde
 

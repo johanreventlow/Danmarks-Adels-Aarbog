@@ -2,6 +2,39 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: Roadmap-trin 4 aktiveret — seks valg for fortolkningskæden (2026-09-06)
+
+**Baggrund.** Trin 1-3 (#152, #153, #149) blev anvendt og efterverificeret i prod
+2026-09-05/06 (GO 1-4). Projektejeren bad om at fortsætte til trin 4 (#147/#148).
+Spec'en `docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md`
+blev skrevet af PM-rollen, godkendt sektionsvis, læst uafhængigt to gange (Opus; Codex-kvoten
+var opbrugt til 2026-09-09) og revideret til revision 3. Fire planer (4.1a-4.1c, 4.2) er
+skrevet; planer for 4.3-4.5 afventer målinger fra 4.1b/4.3a.
+
+**Besluttet (projektejer, 2026-09-06):**
+1. **Model-backend:** `codex exec` med profilens frosne `gpt-5.6-terra`/`gpt-5.6-sol`;
+   modelpolitikken ændres ikke, profilen får additive nøgler i nye versioner med GO.
+   Fravalgt: `claude -p`/Sonnet.
+2. **Skrivevej:** to nye elementoperationer i #153's generelle writer (`clause_evidence`,
+   `interpretation_proposal`). Fravalgt: separate ingest-RPC'er.
+3. **Anden læser:** uafhængig maskinel læser (Opus; Codex `gpt-5.6-sol` når kvoten tillader)
+   af spec og hver plan, derefter projektejerens afgørelse.
+4. **GDPR-udelukkelse for modelkald:** regel 1-4 (hovedperson levende/uafklaret; partner
+   eller barn markeret levende; partner uden dødsdato med vielse 1950+ eller uden vielsesdato;
+   tekstfilter "f." + fødselsår 1950+), målt 2026-09-06: 541 afdøde hovedpersoner, 13 ekstra
+   udelukkes af regel 2, 62 poster berørt af regel 3's grundlag, 2 af regel 4.
+5. **Behandlingsgrundlag:** projektejeren accepterer ChatGPT-abonnementet (ikke API-nøgle med
+   særskilte databehandlervilkår) som grundlag for behandling af afdødes kildetekst; skift til
+   API-nøgle er en ny beslutning.
+6. **Promotion i trin 4 er binding, ikke oprettelse:** accepterede fortolkninger bindes til
+   eksisterende, tekstidentiske assertions; nye fakta/personer fra fortolkninger er uden for
+   trin 4.
+
+**Målt undervejs (læse-kun, lokal prod-kopi):** begge udgaver har én helpost-observation pr.
+record med 1:1-mention; 2018-20 har ingen strukturelle records; helposter har ingen
+linjeskift; promotion-RPC'en opretter intet kanonisk; `red_decide_interpretation` og
+promotion-RPC'erne findes men kaldes af ingen.
+
 ## BESLUTTET: #152-cutover-runbookens reviewer-krav tilpasset enkeltmandsprojekt (2026-09-05)
 
 **Baggrund.** `docs/runbooks/narrative-record-key-cutover.md` kræver to navngivne lokale
