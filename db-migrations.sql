@@ -17494,7 +17494,9 @@ BEGIN
   IF NEW.quality_status<>v_parent.quality_status THEN
     RAISE EXCEPTION 'EVIDENCE_CLAUSE_QUALITY_MISMATCH: forælderen er %', v_parent.quality_status;
   END IF;
-  IF NEW.extraction_method NOT LIKE 'clause_segment_v1%' THEN
+  -- starts_with, ikke LIKE: '_' er et jokertegn i LIKE, så 'clauseXsegmentXv1'
+  -- ville ellers passere metodekontrollen.
+  IF NOT starts_with(NEW.extraction_method, 'clause_segment_v1') THEN
     RAISE EXCEPTION 'EVIDENCE_CLAUSE_EXTRACTION_METHOD_INVALID: %', NEW.extraction_method;
   END IF;
   IF EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.clause_flags) e

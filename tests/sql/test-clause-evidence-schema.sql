@@ -222,6 +222,13 @@ BEGIN
     v_occ, substr(v_text,1,14), v_run, v_parent),
     'EVIDENCE_CLAUSE_EXTRACTION_METHOD_INVALID');
 
+  -- '_' er et jokertegn i LIKE; kontrollen skal være tegn-for-tegn.
+  PERFORM pg_temp.expect_error(format(
+    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,clause_ordinal,clause_classification,clause_flags)
+       VALUES(%L,'clause',30,30,0,14,%L,'ocr_uncertain','clauseXsegmentXv1',%L,%L,1,'record_text','[]')$q$,
+    v_occ, substr(v_text,1,14), v_run, v_parent),
+    'EVIDENCE_CLAUSE_EXTRACTION_METHOD_INVALID');
+
   -- Flag skal være ikke-tomme strenge.
   PERFORM pg_temp.expect_error(format(
     $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,clause_ordinal,clause_classification,clause_flags)

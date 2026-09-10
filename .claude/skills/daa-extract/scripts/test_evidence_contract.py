@@ -584,7 +584,7 @@ def test_bundle_1_2_rejects_duplicate_sibling_ordinal():
 def test_bundle_1_2_rejects_foreign_clause_extraction_method():
     bundle = _clause_bundle()
     clause = _clause(bundle, 1, 0, 9)
-    clause["extraction_method"] = "deterministic"
+    clause["extraction_method"] = "clauseXsegmentXv1"  # '_' er jokertegn i SQL LIKE
     bundle["observations"].append(clause)
     with pytest.raises(ContractError, match="clause extraction_method must be the versioned clause_segment_v1 rule"):
         validate_bundle(bundle)
