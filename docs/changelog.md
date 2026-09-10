@@ -11,6 +11,9 @@ modelkald, ingen netværk, ingen databaseskrivning.
 `export_clause_source_texts.R` og ledger-CLI'en `build_clause_ledger.py` med testet
 PII-guard (afviser output-mappe med `work`-komponent eller forkert filmode).
 
+**Testmiljø-note.** Tallene »48 failed« i 4.1a-posten nedenfor skyldtes en ødelagt
+`NODE_OPTIONS` i sessionens miljø, ikke repoet; se rettelsen dér.
+
 **Rigtig kørsel på alle 591 helposter** fra 4.1a's prod-restore: 866 klausuler (min 1,
 median 1, max 29), 0 `structural_header`, og **ingen mellemrumstegn uden for hvidlisten** —
 `gap_charset` `[" "]` er dermed rigtigt målt, hvilket var dagsværkets stopport. Flag:
@@ -59,8 +62,14 @@ klausul-mention-task. Hele SQL-suiten kørt med vokabular-triggeren slækket til
 ingen useedede `observation_kind` ud over den bevidste negative fixture, og alle seks
 writer-fixtures giver kun `person`. De fire R-integrationstests i `writer_1939`-jobbet
 kører grønt mod det lukkede vokabular, også i CI's rækkefølge med SQL-trinnene efter.
-Python: 37 grønne i `test_evidence_contract.py`; hele skill-suiten 2402 passed / 48 failed
-/ 41 skipped — samme 48 node-baserede fejl som på `main`.
+Python: 37 grønne i `test_evidence_contract.py`. Hele skill-suiten gav undervejs 48 fejl,
+som blev noteret som »samme node-baserede fejl som på `main`«. **Det var en fejlslutning om
+årsagen:** sessionens `NODE_OPTIONS` pegede på en `--require`-fil i `/var/folders/…`, der var
+blevet ryddet væk, så *enhver* `node`-start fejlede. I et rent miljø (`env -u NODE_OPTIONS`)
+er facit **2458 passed / 2 failed / 41 skipped**, og de to sidste fejler kun, fordi `rg`
+findes som shell-funktion og ikke som binær på PATH, så `subprocess` ikke kan starte den.
+Ingen af fejlene stammer fra repoet eller fra denne ændring — men sammenligningen »før og
+efter« var gyldig, fordi begge sider blev målt i samme ødelagte miljø.
 
 **Fire planfejl fundet ved at køre planen** (append-only-blokken lå før
 `reject_evidence_mutation()` defineres; migrationsstiens opskrift startede fra en tom base i
