@@ -343,6 +343,9 @@ jobs:
       - name: Legacy migration writer SQL (149b)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-legacy-migration.sql
+      - name: Klausul-skema SQL (#148 4.1a)
+        env: {PGPASSWORD: postgres}
+        run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-clause-evidence-schema.sql
       - name: Legacy migration writer integration (149b)
         env:
           PGHOST: localhost
