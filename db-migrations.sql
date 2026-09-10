@@ -17550,11 +17550,21 @@ BEGIN
   -- den ikke føres tilbage til den kørsel, der traf den. Kontrollen ligger sidst,
   -- så de øvrige fejltokens ikke skygges.
   IF NEW.decided_by_kind='machine' THEN
-    IF NEW.evidence->>'extraction_run_id' IS NULL
-       OR NEW.evidence->>'extraction_run_id' !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-       OR NEW.evidence->>'manifest_sha256' IS NULL
+    -- Manifest-hashen er obligatorisk; run-referencen må være enten den
+    -- writer-batch, 4.1c skriver, eller et extraction_run for andre maskinelle
+    -- afsendere. Mindst én skal være der, og en tilstedeværende skal være uuid.
+    IF NEW.evidence->>'manifest_sha256' IS NULL
        OR NEW.evidence->>'manifest_sha256' !~ '^[0-9a-f]{64}$' THEN
-      RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_PROVENANCE_INVALID: machine kræver extraction_run_id (uuid) og manifest_sha256 (64 hex)';
+      RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_PROVENANCE_INVALID: machine kræver manifest_sha256 (64 hex)';
+    END IF;
+    IF NEW.evidence->>'batch_id' IS NULL AND NEW.evidence->>'extraction_run_id' IS NULL THEN
+      RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_PROVENANCE_INVALID: machine kræver batch_id eller extraction_run_id';
+    END IF;
+    IF (NEW.evidence->>'batch_id' IS NOT NULL
+        AND NEW.evidence->>'batch_id' !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+       OR (NEW.evidence->>'extraction_run_id' IS NOT NULL
+        AND NEW.evidence->>'extraction_run_id' !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') THEN
+      RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_PROVENANCE_INVALID: run-referencen skal være uuid';
     END IF;
   END IF;
   RETURN NEW;

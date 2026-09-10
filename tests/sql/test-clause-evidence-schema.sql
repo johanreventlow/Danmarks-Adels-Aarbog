@@ -129,21 +129,33 @@ BEGIN
   PERFORM pg_temp.expect_error(format(
     $q$INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence) VALUES(%L,2,'afventer_fortolkning','machine',jsonb_build_object('extraction_run_id',%L))$q$, v_clause, fx->>'run'),
     'EVIDENCE_CLAUSE_DISPOSITION_PROVENANCE_INVALID');
+  -- Manifest uden nogen run-reference afvises.
+  PERFORM pg_temp.expect_error(format(
+    $q$INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence) VALUES(%L,2,'afventer_fortolkning','machine',jsonb_build_object('manifest_sha256',%L))$q$, v_clause, repeat('e',64)),
+    'EVIDENCE_CLAUSE_DISPOSITION_PROVENANCE_INVALID');
+  -- Run-reference der ikke er uuid afvises.
+  PERFORM pg_temp.expect_error(format(
+    $q$INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence) VALUES(%L,2,'afventer_fortolkning','machine',jsonb_build_object('manifest_sha256',%L,'batch_id','ikke-en-uuid'))$q$, v_clause, repeat('e',64)),
+    'EVIDENCE_CLAUSE_DISPOSITION_PROVENANCE_INVALID');
+  -- 4.1c's egen form (batch_id + manifest_sha256) accepteres.
+  INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence)
+  VALUES(v_clause,2,'afventer_fortolkning','machine',
+    jsonb_build_object('batch_id',gen_random_uuid(),'element_id','clause-evidence:T1','manifest_sha256',repeat('f',64),'clause_rules_version','1.1.0'));
   -- Version skal være fortløbende.
   PERFORM pg_temp.expect_error(format(
-    $q$INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence) VALUES(%L,3,'afventer_fortolkning','machine','{"x":1}')$q$, v_clause),
+    $q$INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence) VALUES(%L,4,'afventer_fortolkning','machine','{"x":1}')$q$, v_clause),
     'EVIDENCE_CLAUSE_DISPOSITION_VERSION_INVALID');
   -- Maskine må ikke skrive en endelig (menneskelig) disposition.
   PERFORM pg_temp.expect_error(format(
-    $q$INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence) VALUES(%L,2,'struktureret','machine','{"x":1}')$q$, v_clause),
+    $q$INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence) VALUES(%L,3,'struktureret','machine','{"x":1}')$q$, v_clause),
     'EVIDENCE_CLAUSE_DISPOSITION_KIND_MISMATCH');
   -- Ukendt disposition.
   PERFORM pg_temp.expect_error(format(
-    $q$INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence) VALUES(%L,2,'noget_andet','machine','{"x":1}')$q$, v_clause),
+    $q$INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence) VALUES(%L,3,'noget_andet','machine','{"x":1}')$q$, v_clause),
     'EVIDENCE_CLAUSE_DISPOSITION_UNKNOWN');
   -- Menneske uden aktørfelter → CHECK.
   PERFORM pg_temp.expect_error(format(
-    $q$INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence) VALUES(%L,2,'struktureret','human','{"basis":"test"}')$q$, v_clause),
+    $q$INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence) VALUES(%L,3,'struktureret','human','{"basis":"test"}')$q$, v_clause),
     'new row for relation "clause_disposition" violates check constraint');
   -- Disposition på en ikke-klausul afvises.
   PERFORM pg_temp.expect_error(format(
@@ -151,7 +163,7 @@ BEGIN
     'EVIDENCE_CLAUSE_DISPOSITION_TARGET_INVALID');
   -- Menneskelig version 2 og view.
   INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,decided_by,decided_by_name,decided_at,evidence)
-  VALUES(v_clause,2,'struktureret','human',v_actor,'Fixture redaktør',clock_timestamp(),'{"basis":"test"}');
+  VALUES(v_clause,3,'struktureret','human',v_actor,'Fixture redaktør',clock_timestamp(),'{"basis":"test"}');
   SELECT disposition INTO v_current FROM private.clause_disposition_current WHERE observation_id=v_clause;
   IF v_current<>'struktureret' THEN RAISE EXCEPTION 'CLAUSE_SCHEMA_CURRENT_VIEW_WRONG: %', v_current; END IF;
   RAISE NOTICE 't3 disposition ledger OK';
