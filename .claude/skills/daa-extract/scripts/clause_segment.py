@@ -53,6 +53,13 @@ def _split_points(text: str, rules: Mapping[str, Any]) -> list[tuple[int, list[s
                 break
             end_of_clause = idx + len(terminator.rstrip())
             next_start = idx + len(terminator)
+            # Spring yderligere whitespace over, før næste tegn bedømmes. Uden dette
+            # forhindrer et dobbelt mellemrum (eller et linjeskift) stiltiende en split:
+            # næste tegn er da whitespace, ikke et versal, og de to klausuler smelter
+            # sammen UDEN flag. Whitespacen bliver i stedet et layout-span, og et
+            # tegn uden for gap_charset dukker op som gap_violation, hvor det kan måles.
+            while next_start < len(text) and text[next_start].isspace():
+                next_start += 1
             flags: list[str] = []
             if terminator.startswith("."):
                 blocked, unknown = _is_non_terminal(text[:idx + 1], rules)
