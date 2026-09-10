@@ -1,5 +1,59 @@
 # Changelog
 
+## 2026-09-10 — Trin 4, dagsværk 4.1a: klausullagets skema implementeret (#148)
+
+Gren `feat/148-klausullag-skema` (15 commits, upushet). PR #172 er merget, og projektejeren
+gav GO på extraction-profil v1.1.0 samt overdrog implementeringen til sessionen med Codex
+som kode- og reviewhjælp; begge dele står i `decisions.md`.
+
+**Leveret.** Fire nullable klausul-kolonner på `private.source_observation` med triggeren
+`private.validate_clause_observation()`; `private.vocab` som privat, lukket vokabular (13
+`observation_kind`-koder, 2 klausulklassifikationer, 5 maskinelle og 6 menneskelige
+dispositionskoder); append-only-tabellen `private.clause_disposition` med validerende
+trigger og view `clause_disposition_current`; idempotent spejling i `db-migrations.sql`
+med en fail-closed kontraktassertion; hærdning af `private.migrate_legacy_narrative_record`,
+så den kun tæller helpostens mentions; ACL i `db-rls.sql`, assertionsblok i `db-verify.sql`,
+nyt CI-trin i `writer_1939`-jobbet; bundle-skema 1.2 i `evidence_contract.py`.
+
+**Empirisk bevis (lokalt, ingen prod-mutation).** Kontrakttesten var rød før DDL'en med det
+ventede token og er grøn på frisk skema, på migreret base og på CI's opgraderingsbaser.
+`db-migrations.sql` kører rent to gange i træk ad begge CI-stier; `db-verify` skriver
+`OK: #148 …`. 149b-suitens otte eksisterende tasks er fortsat grønne sammen med den nye
+klausul-mention-task. Hele SQL-suiten kørt med vokabular-triggeren slækket til NOTICE gav
+ingen useedede `observation_kind` ud over den bevidste negative fixture, og alle seks
+writer-fixtures giver kun `person`. De fire R-integrationstests i `writer_1939`-jobbet
+kører grønt mod det lukkede vokabular, også i CI's rækkefølge med SQL-trinnene efter.
+Python: 37 grønne i `test_evidence_contract.py`; hele skill-suiten 2402 passed / 48 failed
+/ 41 skipped — samme 48 node-baserede fejl som på `main`.
+
+**Fire planfejl fundet ved at køre planen** (append-only-blokken lå før
+`reject_evidence_mutation()` defineres; migrationsstiens opskrift startede fra en tom base i
+stedet for CI's allerede loadede; kontrakttesten kræver en redaktør-profil, som opskriften
+ikke seeder; vokabular-inventeringens glob rammer ikke CI's fixture-byggede
+opgraderingsbaser). Alle fire er rettet eller efterprøvet empirisk.
+
+**Codex-review (`gpt-5.6-sol`).** Læsningen af planen fandt, at triggeren tillod et
+snævrere sideinterval end forælderens, i strid med spec §4.1.2 (»en finere sidelokalisering
+påstås ikke og fabrikeres ikke«). Den adversarial gennemgang af diffen fandt fem MAJOR:
+manglende `service_role` i REVOKE, en migration der ikke konvergerer fra en afvigende tabel,
+manglende håndhævelse af klausulens provenance (kvalitet, versioneret regel, flagform),
+maskinelle dispositioner uden run-/manifest-hash, og en Python-kontrakt der accepterede fire
+bundles, databasen afviser. Fire er rettet som selvstændige commits; den femte
+(vokabularvalidering i Python) er afvist med begrundelse, fordi vokabularet ejes af
+`private.vocab` og hullet ikke er nyt. Efterfølgende fandt en egen gennemgang, at
+metodekontrollen brugte `LIKE`, hvor `_` er jokertegn — rettet til `starts_with`.
+
+**Bindende for 4.1c.** Triggeren kræver nu, at klausulen arver forælderens `quality_status`,
+at `extraction_method` begynder med `clause_segment_v1`, at `clause_flags` er ikke-tomme
+strenge, og at en maskinel disposition bærer `manifest_sha256` (64 hex) plus mindst én
+run-reference (`batch_id` eller `extraction_run_id`, uuid-formet). 4.1c-planens writer
+skriver allerede alle fire, så planen behøver ingen ændring.
+
+**Udestår.** Task 7 (rigtig kørsel på en frisk prod-restore med de forventede tal
+`591|0|0|t|0`) og dens rapport. Restoren skal desuden afgøre et åbent spørgsmål, den lokale
+shim ikke kan svare på: om `service_role` har grants på de elleve ældre private
+evidenstabeller i prod.
+
 ## 2026-09-06 — Roadmap-trin 4 planlagt: fortolkningskæde og klausulgranularitet (#147/#148)
 
 Spec (revision 3 efter to uafhængige læsninger, 37 fund indarbejdet) og fire
