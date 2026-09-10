@@ -113,6 +113,9 @@ DECLARE fx jsonb; v_clause uuid; v_actor uuid; v_current text;
 BEGIN
   fx := pg_temp.fixture();
   SELECT id INTO v_actor FROM public.profiles WHERE rolle='redaktion' ORDER BY id LIMIT 1;
+  IF v_actor IS NULL THEN
+    RAISE EXCEPTION 'CLAUSE_TEST_ACTOR_MISSING: kør tests/sql/reimport-writer-v2-bootstrap.sql først';
+  END IF;
   INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,clause_ordinal,clause_classification,clause_flags)
   VALUES((fx->>'occ')::uuid,'clause',10,10,100,130,substr(fx->>'text',1,30),'clear','x',(fx->>'run')::uuid,(fx->>'parent')::uuid,1,'record_text','["unknown_abbreviation"]'::jsonb) RETURNING id INTO v_clause;
   -- Maskinel version 1.

@@ -17380,6 +17380,180 @@ REVOKE ALL ON FUNCTION private.legacy_migration_reversal_state(uuid),
   FROM PUBLIC,anon,authenticated,service_role;
 
 
+-- ===== #148 4.1a: klausullag (kolonner, privat vokabular, dispositionsledger) =====
+CREATE TABLE IF NOT EXISTS private.vocab (
+  scheme text NOT NULL CHECK (btrim(scheme)<>''),
+  code   text NOT NULL CHECK (btrim(code)<>''),
+  label  text NOT NULL CHECK (btrim(label)<>''),
+  PRIMARY KEY (scheme, code)
+);
+INSERT INTO private.vocab(scheme,code,label) VALUES
+  ('observation_kind','person_post','Helpost (2018-20, source_evidence-writer)'),
+  ('observation_kind','person','Personobservation (1939 fase A)'),
+  ('observation_kind','fact','Faktumobservation (1939 fase A)'),
+  ('observation_kind','marriage','Ægteskabsobservation (1939 fase A)'),
+  ('observation_kind','relationship','Relationsobservation (1939 fase A)'),
+  ('observation_kind','structural_context','Strukturel kontekst (1939 fase A)'),
+  ('observation_kind','cross_reference','Krydshenvisning (1939 fase A)'),
+  ('observation_kind','clause','Klausul under helpost (#148)'),
+  -- Koder brugt af produktionsstien for placements og af db-verify/tests (kørte mod prod før
+  -- vokabularet blev lukket). Inventeret 2026-09-06 ved at køre hele suiten med en
+  -- NOTICE-udgave af triggeren (se Task 2 Step 3); reelt sæt = 8 + 5.
+  ('observation_kind','header','Slægtledsoverskrift (placement-header, validate_source_record_placement)'),
+  ('observation_kind','name_clause','Fixture-kode (test-evidence-promotion)'),
+  ('observation_kind','death_clause','Fixture-kode (db-verify)'),
+  ('observation_kind','person_name','Fixture-kode (db-verify, evidence_contract-fixture)'),
+  ('observation_kind','name','Fixture-kode (db-verify)'),
+  ('clause_classification','record_text','Meningsbærende tekstklausul'),
+  ('clause_classification','structural_header','Strukturel overskrift inde i posten'),
+  ('clause_disposition_machine','afventer_fortolkning','Maskinel: afventer fortolkning'),
+  ('clause_disposition_machine','fortolkning_foreslaaet','Maskinel: mindst ét forslag citerer klausulen'),
+  ('clause_disposition_machine','afventer_identitet','Maskinel: forslag om anden aktør end hovedpersonen'),
+  ('clause_disposition_machine','maskinelt_flagget','Maskinel: segmenteringen var i tvivl'),
+  ('clause_disposition_machine','strukturel','Maskinel: strukturel overskrift'),
+  ('clause_disposition_human','struktureret','§15.1: struktureret'),
+  ('clause_disposition_human','relevant_uklassificeret','§15.1: relevant, men uklassificeret'),
+  ('clause_disposition_human','ikke_biografisk','§15.1: ikke-biografisk'),
+  ('clause_disposition_human','layout_stoej','§15.1: layout-/bibliografisk støj'),
+  ('clause_disposition_human','ulaeselig_ocr','§15.1: ulæselig OCR'),
+  ('clause_disposition_human','kraever_menneske','§15.1: kræver menneskelig vurdering')
+ON CONFLICT (scheme,code) DO NOTHING;
+
+-- Inventering (spec 4.1.2): en eksisterende observation_kind, der ikke er seedet,
+-- er en stopport — ikke noget, der stiltiende slækkes.
+DO $clause_kind_inventory$
+DECLARE v_missing text;
+BEGIN
+  SELECT string_agg(DISTINCT observation_kind, ', ') INTO v_missing
+    FROM private.source_observation ob
+   WHERE NOT EXISTS (SELECT 1 FROM private.vocab v WHERE v.scheme='observation_kind' AND v.code=ob.observation_kind);
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'CLAUSE_MIGRATION_OBSERVATION_KIND_UNSEEDED: %', v_missing;
+  END IF;
+END $clause_kind_inventory$;
+
+ALTER TABLE private.source_observation
+  ADD COLUMN IF NOT EXISTS parent_observation_id uuid REFERENCES private.source_observation(id),
+  ADD COLUMN IF NOT EXISTS clause_ordinal        integer,
+  ADD COLUMN IF NOT EXISTS clause_classification text,
+  ADD COLUMN IF NOT EXISTS clause_flags          jsonb;
+DO $clause_column_checks$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.source_observation'::regclass AND conname='source_observation_clause_ordinal_check') THEN
+    ALTER TABLE private.source_observation ADD CONSTRAINT source_observation_clause_ordinal_check CHECK (clause_ordinal IS NULL OR clause_ordinal >= 1);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.source_observation'::regclass AND conname='source_observation_clause_flags_check') THEN
+    ALTER TABLE private.source_observation ADD CONSTRAINT source_observation_clause_flags_check CHECK (clause_flags IS NULL OR jsonb_typeof(clause_flags)='array');
+  END IF;
+END $clause_column_checks$;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_source_observation_clause_ordinal
+  ON private.source_observation(parent_observation_id, clause_ordinal)
+  WHERE parent_observation_id IS NOT NULL;
+
+CREATE OR REPLACE FUNCTION private.validate_clause_observation()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_parent private.source_observation%ROWTYPE;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM private.vocab WHERE scheme='observation_kind' AND code=NEW.observation_kind) THEN
+    RAISE EXCEPTION 'EVIDENCE_OBSERVATION_KIND_UNKNOWN: %', NEW.observation_kind;
+  END IF;
+  IF NEW.observation_kind<>'clause' THEN
+    IF NEW.parent_observation_id IS NOT NULL OR NEW.clause_ordinal IS NOT NULL
+       OR NEW.clause_classification IS NOT NULL OR NEW.clause_flags IS NOT NULL THEN
+      RAISE EXCEPTION 'EVIDENCE_CLAUSE_PARENT_FORBIDDEN';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW.parent_observation_id IS NULL OR NEW.clause_ordinal IS NULL
+     OR NEW.clause_classification IS NULL OR NEW.clause_flags IS NULL THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_PARENT_REQUIRED';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM private.vocab WHERE scheme='clause_classification' AND code=NEW.clause_classification) THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_CLASSIFICATION_UNKNOWN: %', NEW.clause_classification;
+  END IF;
+  SELECT * INTO v_parent FROM private.source_observation WHERE id=NEW.parent_observation_id FOR SHARE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_PARENT_REQUIRED'; END IF;
+  IF v_parent.parent_observation_id IS NOT NULL THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_PARENT_NOT_TOP_LEVEL'; END IF;
+  IF v_parent.occurrence_id<>NEW.occurrence_id THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_OCCURRENCE_MISMATCH'; END IF;
+  IF NEW.char_from<v_parent.char_from OR NEW.char_to>v_parent.char_to THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_SPAN_OUTSIDE_PARENT';
+  END IF;
+  -- Sider er grænser, ikke en påstand om præcis side (spec 4.1.2).
+  IF NEW.page_from<v_parent.page_from OR NEW.page_to>v_parent.page_to THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_PAGE_OUTSIDE_PARENT';
+  END IF;
+  IF substr(v_parent.verbatim_text, NEW.char_from-v_parent.char_from+1, NEW.char_to-NEW.char_from)<>NEW.verbatim_text THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_TEXT_MISMATCH';
+  END IF;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS trg_source_observation_clause ON private.source_observation;
+CREATE TRIGGER trg_source_observation_clause
+  BEFORE INSERT ON private.source_observation
+  FOR EACH ROW EXECUTE FUNCTION private.validate_clause_observation();
+
+CREATE TABLE IF NOT EXISTS private.clause_disposition (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  observation_id   uuid NOT NULL REFERENCES private.source_observation(id),
+  version          integer NOT NULL CHECK (version >= 1),
+  disposition      text NOT NULL CHECK (btrim(disposition)<>''),
+  decided_by_kind  text NOT NULL CHECK (decided_by_kind IN ('machine','human')),
+  decided_by       uuid,
+  decided_by_name  text,
+  decided_at       timestamptz,
+  evidence         jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(evidence)='object'),
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (observation_id, version),
+  CONSTRAINT clause_disposition_actor_check CHECK (
+    (decided_by_kind='human' AND decided_by IS NOT NULL
+      AND nullif(btrim(decided_by_name),'') IS NOT NULL AND decided_at IS NOT NULL
+      AND evidence<>'{}'::jsonb)
+    OR
+    (decided_by_kind='machine' AND decided_by IS NULL AND decided_by_name IS NULL
+      AND decided_at IS NULL AND evidence<>'{}'::jsonb)
+  )
+);
+CREATE OR REPLACE FUNCTION private.validate_clause_disposition()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_kind text; v_scheme text; v_next integer;
+BEGIN
+  SELECT observation_kind INTO v_kind FROM private.source_observation WHERE id=NEW.observation_id FOR UPDATE;
+  IF NOT FOUND OR v_kind<>'clause' THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_TARGET_INVALID'; END IF;
+  v_scheme := CASE NEW.decided_by_kind WHEN 'machine' THEN 'clause_disposition_machine' ELSE 'clause_disposition_human' END;
+  IF NOT EXISTS (SELECT 1 FROM private.vocab WHERE code=NEW.disposition AND scheme IN ('clause_disposition_machine','clause_disposition_human')) THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_UNKNOWN: %', NEW.disposition;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM private.vocab WHERE scheme=v_scheme AND code=NEW.disposition) THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_KIND_MISMATCH: % er ikke %', NEW.disposition, NEW.decided_by_kind;
+  END IF;
+  SELECT coalesce(max(version),0)+1 INTO v_next FROM private.clause_disposition WHERE observation_id=NEW.observation_id;
+  IF NEW.version<>v_next THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_VERSION_INVALID: forventede %', v_next; END IF;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS trg_clause_disposition_validate ON private.clause_disposition;
+CREATE TRIGGER trg_clause_disposition_validate
+  BEFORE INSERT ON private.clause_disposition
+  FOR EACH ROW EXECUTE FUNCTION private.validate_clause_disposition();
+CREATE OR REPLACE VIEW private.clause_disposition_current
+WITH (security_invoker=true) AS
+SELECT DISTINCT ON (observation_id) *
+  FROM private.clause_disposition
+ ORDER BY observation_id, version DESC;
+DO $$
+DECLARE v_table text;
+BEGIN
+  FOREACH v_table IN ARRAY ARRAY['vocab','clause_disposition'] LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_'||v_table||'_append_only' AND tgrelid=('private.'||v_table)::regclass) THEN
+      EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON private.%I FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation()','trg_'||v_table||'_append_only',v_table);
+      EXECUTE format('CREATE TRIGGER %I BEFORE TRUNCATE ON private.%I FOR EACH STATEMENT EXECUTE FUNCTION private.reject_evidence_mutation()','trg_'||v_table||'_append_only_truncate',v_table);
+    END IF;
+    EXECUTE format('ALTER TABLE private.%I ENABLE ROW LEVEL SECURITY',v_table);
+    EXECUTE format('REVOKE ALL ON TABLE private.%I FROM PUBLIC,anon,authenticated',v_table);
+  END LOOP;
+END $$;
+REVOKE ALL ON TABLE private.clause_disposition_current FROM PUBLIC,anon,authenticated;
+
+
 -- #154: close every inherited/default EXECUTE grant and classify the complete
 -- public.red_* overload catalog after #153's contract-v2 cutover. A new RPC
 -- must be added to exactly one array or the migration fails closed.
