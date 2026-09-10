@@ -34,9 +34,14 @@ Planens egen gennemgangsmekanisme var blind for fejlklassen: summaryens
 `unknown_abbreviation_tokens` opsamler kun tokens i klausuler, der allerede er flagget, så
 netop de tokens ville aldrig have nået den liste, projektejeren skulle godkende.
 
-**Udestår.** Regelversion 2 / profilversion 1.2.0: de 51 tokens, der faktisk blokerede en
-split, ligger klar i rapporten og afventer projektejerens GO. At tilføje dem ændrer ikke
-segmenteringen, kun flagtallet. Rapport:
+**Regelversion 2 udført samme dag** på projektejerens GO: `clause-rules-2018-20-v2`,
+profilversion **1.2.0**, 113 kuraterede forkortelser tilføjet (91 → 204).
+`unknown_abbreviation` falder fra 424 til **53** flag i 45 records, og klausultallet stiger
+fra 866 til 868, fordi en motorrettelse gav to ægte splits tilbage: et punktum efter en
+lukkeparentes afslutter sætningen (`(5000 Kr.). Gift …`), hvor flerpunkts-reglen ellers
+smeltede to klausuler sammen. 26 tokens er bevidst udeladt af profilen — enkeltbogstaver,
+almindelige ord som `død.` og `maj.` og dato-intervaller — og står stadig som flag, fordi
+det er dét, flaget er til. Rapport:
 `docs/evidensbaseret-genimport/clause-evidence-148-rehearsal.md`.
 
 ## 2026-09-10 — Trin 4, dagsværk 4.1a: klausullagets skema implementeret (#148)

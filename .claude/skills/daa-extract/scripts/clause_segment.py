@@ -32,6 +32,15 @@ def _is_non_terminal(prefix: str, rules: Mapping[str, Any]) -> tuple[bool, bool]
     token = match.group(1) + "."
     if token in rules["non_terminal_abbreviations"]:
         return True, False
+    # Forkortelser bag en åbnende parentes bærer parentesen med i tokenet:
+    # "(ca." ville ellers ikke findes i listen, selv om "ca." står der.
+    if token.lstrip("([") in rules["non_terminal_abbreviations"]:
+        return True, False
+    # Et punktum EFTER en lukkeparentes afslutter sætningen — "(5000 Kr.). Gift".
+    # Uden denne regel fanger flerpunkts-reglen nedenfor "Kr.)." og smelter to
+    # ægte klausuler sammen.
+    if match.group(1).endswith((")", "]")):
+        return False, False
     if re.search(rules["initial_pattern"], prefix):
         return True, False
     if re.search(rules["ordinal_number_pattern"], prefix):

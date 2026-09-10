@@ -2,6 +2,29 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: Regelversion 2 for klausul-segmenteringen — profil v1.2.0 (2026-09-10)
+
+**Baggrund.** 4.1b's kørsel på alle 591 helposter viste 424 klausuler flagget
+`unknown_abbreviation`, fordelt på 332 records. De 153 tokens, der faktisk blokerede en
+split, blev udtrukket og lagt frem for projektejeren som tokens uden kontekst — jf.
+profilens `requires_human_go_for_change`.
+
+**Besluttet (projektejer, 2026-09-10):** GO til `clause-rules-2018-20-v2` og profilversion
+`1.2.0`.
+
+**Sådan blev listen kurateret.** 113 tokens er tilføjet (91 → 204 forkortelser): almindelige
+danske forkortelser, flerpunkts-forkortelser (`s.å.`, `m.a.`, `bl.a.` …), akademiske grader
+(`cand.*`, `dr.*`, `Ph.d.` …), ordener og dekorationer (`D.M.`, `R.St.`, `Pr.R.Ø.1.` …) og
+militære enheder. **Kun tokens, der med sikkerhed er standardforkortelser, kom med.** 26
+tokens er bevidst udeladt og står stadig som flag: enkeltbogstaver (`a.`, `u.`, `(b.`),
+almindelige ord foran et ægte punktum (`død.`, `maj.`) og dato-/talintervaller
+(`febr.-31.`, `95.-97.`). At tilføje dem ville slukke et flag uden at vide hvorfor; flaget er
+netop den redaktionelle kø for ægte tvivl.
+
+**Virkning.** Tilføjelserne ændrer ikke segmenteringen — tokenerne blokerede allerede — kun
+flagtallet: 424 → 53, fordelt på 45 records. En separat motorrettelse gav to klausuler
+tilbage: et punktum efter en lukkeparentes afslutter sætningen.
+
 ## BESLUTTET: GO på extraction-profil v1.1.0 + implementering af trin 4 (2026-09-10)
 
 **Baggrund.** PR #172 (spec rev. 3 + planer 4.1a-4.2) blev merget til `main` 2026-09-10.

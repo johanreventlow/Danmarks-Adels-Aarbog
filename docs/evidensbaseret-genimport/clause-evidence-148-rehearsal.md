@@ -132,3 +132,36 @@ blokerede en split, fordeler sig i to grupper (kun tokens, ingen kontekst):
 At føje dem til `non_terminal_abbreviations` ændrer **ikke** segmenteringen — de blokerer
 allerede — men fjerner flaget, så de 424 reduceres til den ægte rest. Det er en
 profilændring med `requires_human_go_for_change` og afventer projektejerens afgørelse.
+
+### Regelversion 2 (profilversion 1.2.0) — udført
+
+Projektejerens GO 2026-09-10. `clause_rules.version` `clause-rules-2018-20-v2`,
+profilversion `1.2.0`, 113 forkortelser tilføjet (91 → 204). Samme eksport
+(`aaa5f7ec…`), ny ledger-fil-SHA `8f4a88f5803287778666c120fa36bc5e770cebe685286f0e2a4eb9bc08980210`.
+
+| Måling | Regler v1 | Regler v2 |
+| --- | --- | --- |
+| Klausuler i alt | 866 | 868 |
+| `unknown_abbreviation` | 424 | **53** |
+| Records med mindst ét ukendt token | 332 | 45 |
+| Distinkte ukendte tokens | 153 | 26 |
+| `multiple_marriages` / `unbalanced_parentheses` / `uncertain_marker` / `short_clause` | 92 / 80 / 42 / 29 | uændret |
+| `gap_violations` | ingen | ingen |
+| `structural_header` | 0 | 0 |
+
+De to ekstra klausuler kommer fra en motorrettelse, ikke fra profilen: et punktum **efter en
+lukkeparentes** afslutter sætningen (`(5000 Kr.). Gift …`). Uden den regel fangede
+flerpunkts-reglen `Kr.).` (24 forekomster) og `H.).` (12) og smeltede to ægte klausuler
+sammen. Samtidig slår opslaget i forkortelseslisten nu også til, når tokenet bærer en
+åbnende parentes med (`(ca.` → `ca.`).
+
+**Hvad der bevidst IKKE kom i profilen.** Kun tokens, der med sikkerhed er standard­forkortelser,
+blev tilføjet. Resten står stadig som flag — det er dét, flaget er til. De 26 tilbageværende
+fordeler sig på 45 records:
+
+- enkeltbogstaver, hvis betydning ikke kan afgøres: `a.` 12, `(b.` 12, `u.` 7, `(k.` 2, `e.`, `h.`
+- almindelige ord foran et ægte punktum: `død.` 3, `maj.` 3, `krig.`, `lidt.`, `mor.`, `or.`, `pest.`, `ses.`, `ung.`, `gr.`, `anc.`
+- dato- og talintervaller: `(6.-13.`, `(7.-13.`, `(8.-15.`, `95.-97.`, `aug.-13.`, `febr.-1.`, `febr.-31.`, `jan.-30.`
+- `(if.` (sandsynlig OCR-variant af `iflg.`)
+
+Til sammenligning blokerer de kendte regler nu 5719 gange fordelt på 199 distinkte tokens.
