@@ -93,7 +93,7 @@ BEGIN
 END $t1_authorization_forms$;
 
 DO $t2_happy_path_and_replay$
-DECLARE fx jsonb; r jsonb; v_text text := 'Alfa Bravo, f. 1801, d. 1860. Gift 1830 m. Charlie Delta.'; v_n integer; v_disp text[]; v_auth uuid; v_batch uuid; v_res jsonb;
+DECLARE fx jsonb; r jsonb; v_text text := 'Alfa Bravo, f. 1801, d. 1860. Gift 1830 m. Charlie Delta.'; v_n integer; v_disp text[]; v_auth uuid; v_batch uuid; v_res jsonb; v_psha text; v_payload jsonb;
 BEGIN
   fx := pg_temp.se_fixture('CE1', v_text);
   r := pg_temp.ce_apply(fx, pg_temp.ce_payload(fx, pg_temp.ce_clauses(v_text)), 'CE1', 'ce1-nonce');
@@ -108,10 +108,15 @@ BEGIN
   IF (SELECT count(*) FROM private.reimport_event WHERE batch_id=(r->>'batch_id')::uuid AND operation='clause_evidence')<>1 THEN RAISE EXCEPTION 'T2_EVENT_MISSING'; END IF;
   IF (SELECT observed_counts FROM private.reimport_batch WHERE id=(r->>'batch_id')::uuid)<>'{"person_creates":0,"source_evidence":0,"clause_evidence":1}'::jsonb THEN RAISE EXCEPTION 'T2_OBSERVED_COUNTS'; END IF;
   -- Replay: samme manifest/preview/profil → already_applied (samme batch-id fra red_begin_reimport).
+  -- Profil-hashen læses FØR rolleskiftet: service_role har ingen adgang til private
+  -- (bekræftet mod prod-restoren i 4.1a), så opslaget skal ske som den privilegerede rolle.
+  SELECT profile_sha256 INTO v_psha FROM private.reimport_writer_profile
+   WHERE source_id=(fx->>'source_id')::bigint AND profile_id='fixture-ce-CE1';
+  v_payload := pg_temp.ce_payload(fx, pg_temp.ce_clauses(v_text));
   PERFORM set_config('request.jwt.claim.sub',fx->>'actor',true); PERFORM set_config('role','service_role',true);
   v_auth:=public.red_authorize_reimport(r->>'manifest_sha256',repeat('9',64),jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,
-    (fx->>'source_id')::bigint,'fixture-ce-CE1',(SELECT profile_sha256 FROM private.reimport_writer_profile WHERE source_id=(fx->>'source_id')::bigint AND profile_id='fixture-ce-CE1'),
-    '{"person_creates":0,"source_evidence":0,"clause_evidence":1}'::jsonb,jsonb_build_object('clause-evidence:CE1',pg_temp.ce_payload(fx, pg_temp.ce_clauses(v_text))),gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+    (fx->>'source_id')::bigint,'fixture-ce-CE1',v_psha,
+    '{"person_creates":0,"source_evidence":0,"clause_evidence":1}'::jsonb,jsonb_build_object('clause-evidence:CE1',v_payload),gen_random_uuid(),clock_timestamp()+interval '5 minutes');
   PERFORM set_config('role','authenticated',true);
   v_batch:=public.red_begin_reimport(v_auth,r->>'manifest_sha256',repeat('9',64));
   IF v_batch<>(r->>'batch_id')::uuid THEN RAISE EXCEPTION 'T2_REPLAY_NEW_BATCH'; END IF;
