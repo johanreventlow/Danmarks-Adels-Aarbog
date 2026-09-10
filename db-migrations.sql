@@ -17479,8 +17479,10 @@ BEGIN
   IF NEW.char_from<v_parent.char_from OR NEW.char_to>v_parent.char_to THEN
     RAISE EXCEPTION 'EVIDENCE_CLAUSE_SPAN_OUTSIDE_PARENT';
   END IF;
-  -- Sider er grænser, ikke en påstand om præcis side (spec 4.1.2).
-  IF NEW.page_from<v_parent.page_from OR NEW.page_to>v_parent.page_to THEN
+  -- Sider er grænser, ikke en påstand om præcis side (spec 4.1.2): klausulen
+  -- arver forælderens sideinterval uændret. Et snævrere interval ville påstå en
+  -- finere sidelokalisering, end segmenteringen kan vide.
+  IF NEW.page_from<>v_parent.page_from OR NEW.page_to<>v_parent.page_to THEN
     RAISE EXCEPTION 'EVIDENCE_CLAUSE_PAGE_OUTSIDE_PARENT';
   END IF;
   IF substr(v_parent.verbatim_text, NEW.char_from-v_parent.char_from+1, NEW.char_to-NEW.char_from)<>NEW.verbatim_text THEN

@@ -149,4 +149,36 @@ BEGIN
   RAISE NOTICE 't3 disposition ledger OK';
 END $t3_disposition_ledger$;
 
+-- #148 4.1a (Codex-review): en flersidet helpost må ikke få klausuler med et
+-- snævrere sideinterval — det ville påstå en finere sidelokalisering end
+-- segmenteringen kan vide (spec 4.1.2). Klausulen arver intervallet uændret.
+DO $t4_multipage_parent$
+DECLARE v_source bigint := -148002; v_run uuid := gen_random_uuid(); v_rend uuid; v_occ uuid; v_parent uuid;
+  v_text text := 'Foxtrot Golf, f. 1750. Til Hotel. Død 1799.';
+BEGIN
+  INSERT INTO public.source(id,slags,titel,udgave,aar) VALUES(v_source,'DAA-udgave','Clause fixture 2','synthetic',1900) ON CONFLICT(id) DO NOTHING;
+  INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+  VALUES(v_run,v_source,'clause-mp-'||v_run::text,'fixture','fixture','fixture',repeat('5',64),'{}');
+  INSERT INTO private.source_rendition(source_id,rendition_key,rendition_kind,content_sha256,metadata)
+  VALUES(v_source,'clause-mp-r-'||v_run::text,'pdf_text_layer',repeat('6',64),'{}') RETURNING id INTO v_rend;
+  INSERT INTO private.source_record_occurrence(rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id)
+  VALUES(v_rend,'occ-mp',20,21,0,char_length(v_text),v_text,repeat('7',64),repeat('8',64),v_run) RETURNING id INTO v_occ;
+  INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id)
+  VALUES(v_occ,'person_post',20,21,0,char_length(v_text),v_text,'clear','fixture',v_run) RETURNING id INTO v_parent;
+
+  -- Negativ: klausul kun på side 20 under en forælder på 20-21.
+  PERFORM pg_temp.expect_error(format(
+    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,clause_ordinal,clause_classification,clause_flags)
+       VALUES(%L,'clause',20,20,0,13,%L,'clear','fixture',%L,%L,1,'record_text','[]')$q$,
+    v_occ, substr(v_text,1,13), v_run, v_parent),
+    'EVIDENCE_CLAUSE_PAGE_OUTSIDE_PARENT');
+
+  -- Positiv: samme sideinterval som forælderen accepteres.
+  INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,
+    parent_observation_id,clause_ordinal,clause_classification,clause_flags)
+  VALUES(v_occ,'clause',20,21,0,13,substr(v_text,1,13),'clear','fixture',v_run,v_parent,1,'record_text','[]');
+
+  RAISE NOTICE 't4 multipage parent OK';
+END $t4_multipage_parent$;
+
 ROLLBACK;
