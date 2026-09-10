@@ -539,3 +539,63 @@ def test_observation_level_clause_invariants():
     post["parent_observation_id"] = "obs-1"
     with pytest.raises(ContractError, match="clause fields are only allowed on kind clause"):
         validate_bundle(bundle)
+
+
+
+# --- #148 4.1a (Codex-review): kontrakten skal afvise det samme som databasen ---
+
+def test_bundle_1_2_requires_clause_flags_key():
+    bundle = _clause_bundle()
+    clause = _clause(bundle, 1, 0, 9)
+    del clause["clause_flags"]
+    bundle["observations"].append(clause)
+    with pytest.raises(ContractError, match="clause requires parent, ordinal, classification and flags"):
+        validate_bundle(bundle)
+
+
+def test_bundle_1_2_rejects_non_string_clause_flags():
+    bundle = _clause_bundle()
+    clause = _clause(bundle, 1, 0, 9, flags=("ok", ""))
+    bundle["observations"].append(clause)
+    with pytest.raises(ContractError, match="clause flags must be non-empty strings"):
+        validate_bundle(bundle)
+
+
+def test_bundle_1_2_rejects_boolean_clause_ordinal():
+    bundle = _clause_bundle()
+    clause = _clause(bundle, 1, 0, 9)
+    clause["clause_ordinal"] = True
+    bundle["observations"].append(clause)
+    with pytest.raises(ContractError, match="clause ordinal must be a positive integer"):
+        validate_bundle(bundle)
+
+
+def test_bundle_1_2_rejects_duplicate_sibling_ordinal():
+    bundle = _clause_bundle()
+    first = _clause(bundle, 1, 0, 9)
+    second = _clause(bundle, 2, 10, 20)
+    second["clause_ordinal"] = 1
+    second["observation_id"] = "obs-post-c2"
+    bundle["observations"] += [first, second]
+    with pytest.raises(ContractError, match="duplicate clause ordinal under parent"):
+        validate_bundle(bundle)
+
+
+def test_bundle_1_2_rejects_foreign_clause_extraction_method():
+    bundle = _clause_bundle()
+    clause = _clause(bundle, 1, 0, 9)
+    clause["extraction_method"] = "deterministic"
+    bundle["observations"].append(clause)
+    with pytest.raises(ContractError, match="clause extraction_method must be the versioned clause_segment_v1 rule"):
+        validate_bundle(bundle)
+
+
+def test_bundle_1_2_rejects_clause_pages_narrower_than_parent():
+    bundle = _clause_bundle()
+    parent = next(o for o in bundle["observations"] if o["observation_id"] == "obs-post")
+    parent["span"]["page_to"] = parent["span"]["page_from"] + 1
+    clause = _clause(bundle, 1, 0, 9)
+    clause["span"]["page_to"] = parent["span"]["page_from"]
+    bundle["observations"].append(clause)
+    with pytest.raises(ContractError, match="clause pages must equal parent pages"):
+        validate_bundle(bundle)

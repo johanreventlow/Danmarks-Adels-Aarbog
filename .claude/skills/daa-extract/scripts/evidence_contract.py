@@ -72,15 +72,25 @@ class Observation:
         is_clause = self.kind == "clause"
         has_clause_fields = any([self.parent_observation_id, self.clause_ordinal is not None,
                                  self.clause_classification, self.clause_flags])
-        if is_clause and not (self.parent_observation_id and self.clause_ordinal
-                              and self.clause_classification is not None):
-            raise ContractError("clause requires parent, ordinal and classification")
         if not is_clause and has_clause_fields:
             raise ContractError("clause fields are only allowed on kind clause")
-        if is_clause and self.clause_classification not in ("record_text", "structural_header"):
+        if not is_clause:
+            return
+        if not (self.parent_observation_id and self.clause_ordinal is not None
+                and self.clause_classification is not None and self.clause_flags is not None):
+            raise ContractError("clause requires parent, ordinal, classification and flags")
+        if self.clause_classification not in ("record_text", "structural_header"):
             raise ContractError("unknown clause classification")
-        if is_clause and self.clause_ordinal < 1:
-            raise ContractError("clause ordinal must be positive")
+        # bool er en int-subklasse i Python; True ville ellers passere som ordinal 1.
+        if isinstance(self.clause_ordinal, bool) or not isinstance(self.clause_ordinal, int) \
+                or self.clause_ordinal < 1:
+            raise ContractError("clause ordinal must be a positive integer")
+        if any(not isinstance(flag, str) or not flag.strip() for flag in self.clause_flags):
+            raise ContractError("clause flags must be non-empty strings")
+        # Spec 4.1.2: klausulen bæres af den versionerede segmenteringsregel — samme
+        # krav som trg_source_observation_clause håndhæver i databasen.
+        if not self.extraction_method.startswith("clause_segment_v1"):
+            raise ContractError("clause extraction_method must be the versioned clause_segment_v1 rule")
 
 
 @dataclass(frozen=True)
@@ -331,7 +341,8 @@ def _as_observation(value: Union[Observation, Mapping[str, Any]],
         parent_observation_id=value.get("parent_observation_id"),
         clause_ordinal=value.get("clause_ordinal"),
         clause_classification=value.get("clause_classification"),
-        clause_flags=tuple(value.get("clause_flags") or ()),
+        clause_flags=(tuple(value["clause_flags"]) if isinstance(value.get("clause_flags"), (list, tuple))
+                      else value.get("clause_flags")),
     )
 
 
@@ -509,9 +520,15 @@ def validate_bundle(bundle: Union[Path, Mapping[str, Any]]) -> None:
         observation_by_id[item.observation_id] = item
 
     if schema_version == "1.2":
+        seen_ordinals = set()
         for item in observations:
             if item.kind != "clause":
                 continue
+            # Databasen har et unikt indeks på (parent_observation_id, clause_ordinal).
+            ordinal_key = (item.parent_observation_id, item.clause_ordinal)
+            if ordinal_key in seen_ordinals:
+                raise ContractError("duplicate clause ordinal under parent")
+            seen_ordinals.add(ordinal_key)
             parent = observation_by_id.get(item.parent_observation_id or "")
             if parent is None:
                 raise ContractError("clause requires parent")
