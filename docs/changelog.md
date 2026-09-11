@@ -1,8 +1,27 @@
 # Changelog
 
+## 2026-09-11 — Flaky record-key-test rettet (#177)
+
+Fundet under 4.2-arbejdet, uden sammenhæng med den gren — derfor sin egen PR.
+
+`test_record_key_is_minted_opaque_and_not_from_layout_or_name` søgte efter delstrengene
+`"Anna"` og `"101"` i én mintet nøgle. `mint_record_key()` returnerer `"record-" + uuid4`,
+så `"Anna"` kan aldrig optræde i hex — mens `"101"` optræder tilfældigt i **0,47 %** af alle
+nøgler (målt over 200.000 mintninger). Testen var altså rød på skift på vilkårlige PR'er,
+uden at et eneste bogstav i koden havde ændret sig.
+
+Det alvorligere problem var, hvad den **ikke** målte: den kaldte funktionen uden argumenter
+og kiggede kun på resultatet, så en mintning, der faktisk afledte af navn eller layout,
+ville være sluppet igennem. Invarianten er, at mintningen ikke *har* noget at aflede fra —
+testen asserterer nu signaturen (ingen argumenter) plus at 256 nøgler er indbyrdes
+forskellige og hver har formen `record-` + et uuid4. To prober mod `evidence_contract.py`,
+begge rullet tilbage igen, viser at den nye form bider, hvor den gamle ikke gjorde.
+
+Merget som **#177** (`a9ccc83`).
+
 ## 2026-09-10 — Trin 4, dagsværk 4.2: ét prædikat-navnerum (#147)
 
-Gren `feat/147-praedikat-vokabular` (upushet). Ingen skrivning mod prod.
+Gren `feat/147-praedikat-vokabular`, merget som **#176** (`c803eed`). Ingen skrivning mod prod.
 
 **Leveret.** `private.interpretation_predicate` som eneste sandhed om, hvilke prædikater
 fortolkningslaget kender — med udsagnsform, §7.3-kategori og værdiform. 42 aktive
@@ -43,8 +62,8 @@ adfærden er uændret. To narrative tests fejler på restoren; en kontrolbase mi
 kontraktversion 1, ikke til en prod-restore. Rapport:
 `docs/evidensbaseret-genimport/interpretation-predicate-147-rehearsal.md`.
 
-**Udestår:** draft-PR #176 afventer merge, og en selvstændig prod-GO for trin 4's
-migrationer.
+**Udestår:** en selvstændig prod-GO for trin 4's tre migrationer. Prod-databasen har
+hverken klausulkolonnerne, writeren eller prædikattabellen.
 
 ## 2026-09-10 — Trin 4, dagsværk 4.1c: writer-operationen `clause_evidence` (#148)
 

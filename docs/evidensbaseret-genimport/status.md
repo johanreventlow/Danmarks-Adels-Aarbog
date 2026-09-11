@@ -1,7 +1,8 @@
 # Evidensbaseret genimport — aktuel status
 
 **Verificeret:** 2026-09-06 efter GO 1-4 i prod (#152-cutover, #153, 149a, 149b);
-detaljer i `docs/changelog.md` 2026-09-05/06
+detaljer i `docs/changelog.md` 2026-09-05/06. **Kodestatus opdateret 2026-09-11**
+efter merge af trin 4's dagsværk 4.1a-4.2 — se tillægget under Produktionsstatus.
 
 **Kodegrundlag:** Task 12's funktionelle bevis er commit `4922d7e`; den
 nuværende dokumentations-HEAD kan være senere og ændrer ikke det bevis
@@ -13,8 +14,16 @@ lukket med restpunkt (INCOMPLETE-afstemning, snapshot forseglet).
 
 **Produktionsstatus:** C3 (2026-08-29), #152-cutover (kontrakt 2), #153's generelle
 writer, 149a (591 records/forekomster/ankre) og 149b (541 publicerede + 46 kladde-bindinger)
-er anvendt og efterverificeret i prod 2026-09-05/06. Trin 4 (#147/#148) er `specificeret`
-med planer for 4.1a-4.2; ingen kode og ingen prod-mutation for trin 4.
+er anvendt og efterverificeret i prod 2026-09-05/06.
+
+**Tillæg 2026-09-11 — trin 4's dagsværk 4.1a-4.2 er `implementeret og merget`.**
+#173, #174, #175, #176 og #177 er i `main` med grøn CI: klausullagets skema, den
+deterministiske segmentering, `clause_evidence`-writeren og prædikat-navnerummet.
+Hvert dagsværk er kørt mod en frisk restore af prod-dumpet, og 4.1c skrev 868
+klausuler på 591 helposter **uden delta i det kanoniske lag**. Trin 4 har dermed
+kode — men **stadig ingen prod-mutation**: prod-databasen har hverken
+klausulkolonnerne, writeren eller prædikattabellen. Prod-GO er en selvstændig,
+ustartet beslutning.
 
 ## Samlet dom
 
@@ -96,11 +105,14 @@ programmets samlede modenhed.
 
 ## Åbne blokeringer
 
-- **Trin 4 (#147/#148) er kun specificeret.** Spec revision 3 og planerne 4.1a-4.2
-  findes; 4.3-4.5 afventer målinger (mellemrumstegnsæt fra 4.1b, Codex-forbrugsprobe fra
-  4.3a, kvotenulstilling 2026-09-09). Første prod-GO-kandidat er 4.1c (klausuler, nul
-  kanonisk delta) og kræver særskilt fortrydelseskvittering samt en klausul-projektion i
-  fase-pakke-runbooken, som ikke findes endnu.
+- **Trin 4 er implementeret, men ikke i prod-databasen.** 4.1a-4.2 er merget til `main`
+  (2026-09-10/11). Tre additive, idempotente migrationer venter på en prod-kørsel;
+  rehearsal-bevis foreligger for alle tre. Første prod-GO-kandidat er fortsat 4.1c
+  (klausuler, nul kanonisk delta) og kræver særskilt fortrydelseskvittering samt en
+  klausul-projektion i fase-pakke-runbooken, som ikke findes endnu.
+- **4.3-4.5 mangler planer.** Gaten var 4.1b's mellemrumstegnsæt — den **foreligger nu**
+  (hvidlisten `[" "]` bekræftet på alle 591 records), så planerne kan skrives.
+  4.3a's Codex-forbrugsprobe udestår stadig som input til 4.3.
 - Den eksisterende åbne tombstone-/retentionsbeslutning betyder, at #152 fortsat
   blokerer hel-person-sletning for personer med publication-events; granulær
   withdrawal løser kun offentlig nedtagning af den enkelte biografi.
@@ -118,11 +130,14 @@ Roadmap-trin 1-3 (#152, #153, #149) er `produktionsverificeret` pr. 2026-09-06. 
 aktive programmål er **trin 4: den fælles fortolkningskæde og klausulgranularitet
 (#147/#148)**, aktiveret af projektejeren 2026-09-06 (decisions samme dato, seks valg).
 Spec: `docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md`.
-Næste tilladte arbejde er plan 4.1a (`docs/superpowers/plans/2026-09-06-trin4-4-1a-klausullag-skema.md`),
-derefter 4.1b, 4.1c og 4.2 i den rækkefølge. Planerne er læst af en uafhængig
-anden læser i to runder (18 + 6 fund) og rettet; sidste rettelsesrunde er ikke
-genlæst. Projektejeren afgør før udførelse. Prod-mutationer kræver fortsat en udtrykkelig
-GO pr. apply.
+Planerne 4.1a, 4.1b, 4.1c og 4.2 er **udført og merget** i den rækkefølge (2026-09-10/11).
+Næste tilladte arbejde er derfor ét af to, og projektejeren afgør hvilket:
+
+1. **Planerne for 4.3-4.5** — gaten (4.1b's mellemrumstegnsæt) er åbnet.
+2. **Prod-GO for trin 4's tre migrationer** — rehearsal-bevis foreligger for hver,
+   men selve beslutningen er ikke påbegyndt.
+
+Prod-mutationer kræver fortsat en udtrykkelig GO pr. apply.
 
 ## Parkeret arbejde
 
