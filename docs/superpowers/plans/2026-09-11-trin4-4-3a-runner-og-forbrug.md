@@ -131,6 +131,41 @@ tokens består af netop AGENTS.md, `config.toml` og tre skills, er en *slutning*
 tokendifference — indholdet blev ikke observeret. Hvert grundlag mærkes nu `målt`,
 `observeret`, `kodeeftersyn`, `rekonstrueret` eller `antaget`.
 
+### R13 (2026-09-11): isolationsgaten er efterprøvet og BESTÅET
+
+R1 krævede en OS-håndhævet læsegrænse, ellers NO-GO for 4.3. Den er nu målt, ikke antaget.
+
+**Mekanismen:** macOS Seatbelt (`sandbox-exec`) om `codex exec`. Profil-skabelon og
+adgangstest ligger i `.claude/skills/daa-extract/scripts/sandbox/`.
+
+**Tre målinger:**
+
+1. **Deterministisk adgangstest, ingen model:** `work/`, `work_1939_stamtavle/`,
+   `work_presens/` og `~/.private/` nægtes alle (`rc=1`); `docs/` og call-dir forbliver
+   tilgængelige. Testen er selv efterprøvet mod en profil **uden** spærringer, hvor den
+   korrekt melder `GATE_FAILED` — et værn, der aldrig er set fejle, er ikke et værn.
+2. **Modellen forsøgte og blev nægtet:** bedt om at hente en fil i en *syntetisk* spærret
+   mappe (og opfordret til at prøve flere metoder) svarede den `KAN IKKE LÆSE` efter eget
+   udsagn at have prøvet »en alternativ læsemetode«. Kanariestrengen optrådte ikke i
+   hændelsesstrømmen. Fixture: `sandbox-gate-denies-model.jsonl`.
+3. **Codex kører normalt inde i grænsen:** `usage` rapporteres (15.256 input-tokens).
+
+**Vejen dertil er værd at kende.** Codex' egen `--sandbox-state-readable-root` ser ud til at
+være præcis mekanismen, men kræver et udokumenteret internt JSON-skema (`permissionProfile`),
+som ikke kunne gættes — og en runner, der afhang af det, ville knække ved næste CLI-version.
+En ren allowlist-profil blev forsøgt først og fik Codex til at fejle med `EPERM`: CLI'en har
+brug for flere stier i hjemmemappen end forudset. Og `codex exec --sandbox read-only` inde i
+en ydre Seatbelt fejler ligeledes; nestet Seatbelt går ikke.
+
+**To ærlige forbehold, som Task 2 skal lukke:**
+
+- Profilen er **deny-baseret**, ikke den allowlist anden læser anbefalede. Den nægter de
+  *kendte* PII-mapper; en **ny** mappe med persondata ville ikke automatisk være dækket. At
+  finde det minimale sæt stier, Codex faktisk behøver, er ingeniørarbejde — ikke et
+  principspørgsmål — men det er ikke gjort.
+- Codex' egen `~/.codex/auth.json` er stadig læsbar for modellen. Det er ingen forværring
+  (den er det også i dag, helt uden grænse), men det er ikke lukket.
+
 ### R12 (MINOR): §19 findes ikke
 
 Planen henviste gennemgående til »spec §19«. **Efterprøvet: spec'en ender ved §12.** »§19«
@@ -141,7 +176,13 @@ selvstændigt punkt til en senere spec-revision.
 
 ---
 
-## Spec-afvigelser, der kræver projektejerens GO før kodning
+## Spec-afvigelser — GODKENDT af projektejeren 2026-09-11
+
+> **Status:** A og B godkendt ubetinget. **C godkendt betinget** (»hvis det er muligt«) — og
+> muligheden er efterprøvet samme dag: **isolationsgaten er BESTÅET**, se R13 nedenfor.
+> Beslutningen er registreret i `docs/decisions.md`, så den ikke kun lever i chatten.
+
+
 
 Tre steder afviger denne plan fra den godkendte spec. De er planens vigtigste indhold og skal afgøres før Task 1. Grundlaget er forskelligt og mærkes derfor eksplicit: **A** hviler på en *måling* (tokendifference) plus en *slutning* om, hvad differencen består af; **B** på *kodeeftersyn*; **C** på en *observation* (kanariekørslen) — afhjælpningen i C er indtil Task 2's gate en *hypotese*, ikke et bevis.
 
@@ -231,9 +272,8 @@ Kører runneren et sted, hvorfra `work/`, `work_1939_stamtavle/`, restore-ekspor
 
 Denne task kommer **før** runneren, fordi dens resultat bestemmer runnerens form — og fordi den kan standse dagsværket. Task 1 må gerne ligge før: claim-validatoren er uafhængig af processen. **Ingen subproceskode skrives, før gaten er bestået.**
 
-- [ ] **Step 1 — GATE, fail-closed.** Etablér en OS-håndhævet læsegrænse om modelkaldet (isoleret container/VM, eller en sandbox-policy der kun monterer prompt, record og skema). Verificér den **deterministisk** med et testprogram, der fra kaldets kontekst forsøger: repoets rod, `work/`, `work_1939_stamtavle/`, hjemmemappen, `~/.private/`, `/private/tmp`, og en absolut sti til call-dir'ets søskende. **Hver af dem skal give `EACCES` eller »not found«.**
-
-  **Denne gate er et adgangskrav til resten af dagsværket.** Kan grænsen ikke etableres på denne maskine, er udfaldet **NO-GO** for 4.3: dagsværket standser med et navngivet blocker-fund, og isolationen redesignes (eller løftes til projektejeren) frem for at fortsætte. Modeladfærd må aldrig være sikkerhedsoraklet.
+- [x] **Step 1 — GATE, fail-closed. BESTÅET 2026-09-11 (se R13).** Mekanismen er macOS Seatbelt om `codex exec`; profil-skabelon og adgangstest ligger i `.claude/skills/daa-extract/scripts/sandbox/`. Gaten er bevist både positivt (spærrede stier nægtes, nødvendige forbliver tilgængelige) og negativt (testen melder `GATE_FAILED` mod en profil uden spærringer). Modellen forsøgte aktivt og blev nægtet.
+- [ ] **Step 1b — stram profilen mod en allowlist.** Den beståede profil er **deny-baseret**: den nægter de *kendte* PII-mapper, så en ny mappe med persondata ikke automatisk er dækket. Find det minimale sæt stier, Codex faktisk behøver (et første allowlist-forsøg gav `EPERM`), og vend profilen om. Overvej samtidig, om `~/.codex/auth.json` kan lukkes for modellen. **Indtil da gælder deny-listen, og adgangstesten skal udvides, hver gang en ny PII-mappe opstår** — det er svagheden ved formen og skal stå i rapporten.
 - [ ] **Step 2.** `evidence_runner.prepare_call_dir(record_input)` opretter call-dir'et med præcis to filer: recordens input og outputskemaet. Mappe `0700`, filer `0600`, atomisk oprettelse, ingen symlinks, ingen forældrereference (§9.1).
 - [ ] **Step 3.** Mappen ryddes i `finally` — også ved kvotestop, timeout og exception. En efterladt mappe er et fund, ikke et restprodukt. Det samme gælder rå svar-cache og fejloutput.
 - [ ] **Step 4.** To adskilte tests, der ikke må forveksles: (a) **adgangstesten** fra Step 1 — deterministisk, uden model; (b) **kanarietesten** — en model bedt om at hente en fil uden for grænsen, som supplement. Fixturen `sandbox-canary-read-outside-cwd.jsonl` er det **negative** eksempel: sådan så det ud, da grænsen manglede. En grøn kanarietest alene beviser intet, fordi modellen kan have ladet være med at forsøge.

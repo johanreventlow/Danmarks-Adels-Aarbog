@@ -1,0 +1,34 @@
+; Seatbelt-profil for modelkald i dagsværk 4.3a (#147).
+;
+; Formål: gøre spec §6.1/§9.1's "modellen ser én record ad gangen" til en grænse,
+; operativsystemet håndhæver — ikke en henstilling i prompten. Baggrund:
+; --sandbox read-only forbyder skrivning og netværk, IKKE kommandokørsel, og -C
+; sætter arbejdsmappen, ikke en læsegrænse. Se
+; docs/evidensbaseret-genimport/runner-usage-probe-147-4-3a.md.
+;
+; ADVARSEL — denne profil er DENY-baseret, ikke en allowlist. Den nægter de KENDTE
+; PII-mapper. En ny mappe med persondata er IKKE automatisk dækket. En ren allowlist
+; er det rigtige mål (anden læsers anbefaling, R1) og er Task 2's arbejde; et første
+; forsøg fik Codex til at fejle med EPERM, fordi CLI'en har brug for flere stier i
+; hjemmemappen end forudset.
+;
+; Placeholders erstattes af kalderen: __REPO__, __HOME__, __EXTRA_DENY__
+;
+; Brug:
+;   sandbox-exec -f <udfyldt profil> codex exec --model … -C <call-dir> …
+;
+; Verificér ALTID med adgangstesten (gate-access-test.sh) før et rigtigt kald.
+
+(version 1)
+(allow default)
+
+; --- Persondata: prosa om levende personer (invariant 8) ---
+(deny file-read* (subpath "__REPO__/work"))
+(deny file-read* (subpath "__REPO__/work_1939_stamtavle"))
+(deny file-read* (subpath "__REPO__/work_presens"))
+
+; --- Produktionsdumps og private artefakter ---
+(deny file-read* (subpath "__HOME__/.private"))
+
+; --- Ekstra spærringer fra kalderen (fx en syntetisk mappe under test) ---
+__EXTRA_DENY__
