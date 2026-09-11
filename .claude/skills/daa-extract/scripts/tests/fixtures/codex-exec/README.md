@@ -9,6 +9,7 @@ Fanget 2026-09-11 under forbrugsproben til dagsværk 4.3a (#147) mod
 | `turn-completed-with-usage.jsonl` | Fuld probe: syntetisk post + `--output-schema`. Fire hændelser, `usage` i `turn.completed`. |
 | `baseline-with-user-config.jsonl` | Tom prompt med brugerkonfiguration indlæst (21.554 input-tokens). |
 | `baseline-ignore-user-config.jsonl` | Samme kald med `--ignore-user-config` (15.266 input-tokens). |
+| `sandbox-canary-read-outside-cwd.jsonl` | Kanarietest: modellen eksekverer en shell-kommando og læser en fil UDEN FOR `-C`. Viser at `--sandbox read-only` ikke er en læsegrænse. |
 
 Alt indhold er syntetisk eller trivielt (»Svar kun med ordet: ok«). Ingen
 persondata, ingen tekst fra `work/` eller databasen.

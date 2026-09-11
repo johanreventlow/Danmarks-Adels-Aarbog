@@ -88,6 +88,38 @@ mod det medsendte skema, med fire claims der hver citerer en klausul-ordinal.
 Det bekræfter, at kontrakten `evidence-claims-1.0` (§6.1) kan håndhæves på
 CLI-niveau og ikke kun i Python-validatoren.
 
+## Sidefund: `--sandbox read-only` afgrænser ikke, hvad modellen kan LÆSE
+
+Spec §19 hviler på, at modellen ser **én record ad gangen**. Proben viser, at den
+garanti i dag er en instruktion i prompten, ikke en grænse i værktøjet.
+
+En kanariefil blev lagt uden for kaldets `-C`-mappe, og modellen blev bedt om at
+læse den. Den svarede ikke »kan ikke« — den **eksekverede en shell-kommando**:
+
+```
+/bin/zsh -lc "pwd; rg --files ../canary | rg 'uden-for-cwd\.txt' && sed -n '1,20p' ../canary/uden-for-cwd.txt"
+```
+
+og gengav kanariestrengen ordret. `--sandbox read-only` betyder altså »modellen
+må køre kommandoer, men ikke skrive og ikke gå på nettet« — ikke »modellen kan kun
+se det, du gav den«. `-C` sætter arbejdsmappen, ikke en læsegrænse, og
+`codex exec` har ingen flag til at slå værktøjsbrugen fra (efterprøvet i `--help`).
+
+**Hvorfor det betyder noget for 4.3b.** Kører runneren fra repoets rod eller fra en
+mappe, hvorfra `work/`, `work_1939_stamtavle/`, restore-eksporten eller
+`~/.private/` kan nås, så er prosa om levende personer inden for rækkevidde —
+uanset hvad prompten siger. Det ville bryde invariant 8 og §9.2's
+udelukkelsesregler, ikke ved en fejl i vores kode, men ved at modellen er
+hjælpsom. En kildetekst, der indeholder en instruktion, er en ekstra vej til
+samme sted.
+
+**Konsekvens, som plan 4.3a skal bære:** runneren skal `-C`'e en **per-kald
+midlertidig mappe uden for repoet**, som kun indeholder netop den records input,
+og mappen skal ryddes efter kaldet. Kanarietesten bliver en regressionstest: en
+fil uden for kaldets mappe, som modellen ikke må kunne gengive. Rækkevidden er
+ikke kortlagt yderligere her (en måling mod hjemmemappen blev afvist af
+sessionens egne værn) — 4.3a bør kortlægge den, før den fastlægger mappens plads.
+
 ## Hvad proben **ikke** viser
 
 - Fejltaksonomien (§6.3) er uprøvet her. `quota_exhausted` har stadig kun
@@ -105,10 +137,12 @@ Planerne for 4.3-4.5 kan skrives. Plan 4.3a bør bære to ting med videre:
 
 1. Batchstørrelsen begrundes på overheadmålingen frem for på spec'ens
    oprindelige skøn.
-2. **En spec-rettelse af §6.2:** `--ignore-user-config` tilføjes til
-   flaglisten, så `prompt_sha256` faktisk dækker den kontekst, modellen ser.
-   Det er en ændring af en godkendt spec og hører derfor til planens
-   adgangskrav, ikke til implementeringen.
+2. **To spec-rettelser af §6.2:** (a) `--ignore-user-config` tilføjes til
+   flaglisten, så `prompt_sha256` faktisk dækker den kontekst, modellen ser;
+   (b) §19's »én record ad gangen« skal håndhæves af en per-kald arbejdsmappe
+   uden for repoet, fordi `--sandbox read-only` ikke begrænser læsning. Begge er
+   ændringer af en godkendt spec og hører til planens adgangskrav, ikke til
+   implementeringen.
 
 Hændelsesstrømmene fra alle tre kørsler er lagt i
 `.claude/skills/daa-extract/scripts/tests/fixtures/codex-exec/` som fixtures for
