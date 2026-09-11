@@ -1,5 +1,50 @@
 # Changelog
 
+## 2026-09-11 — Trin 4: forbrugsproben til 4.3a lukker 4.3's stopbetingelse (#147)
+
+Gren `feat/147-runner-forbrugsprobe`. Ingen prod-berøring, ingen rigtige data.
+
+**Spørgsmålet.** Spec §6.6 lod ét forhold stå ubekræftet: rapporterer
+`codex exec --json` overhovedet tokenforbrug? Proben 2026-09-06 kunne ikke svare,
+fordi turen døde på kvote. Spec'en er kategorisk om følgen — kan CLI'en ikke
+rapportere forbrug, **stopper dagsværk 4.3 med et navngivet fund**.
+
+**Svaret er ja.** `turn.completed` bærer et `usage`-objekt med fem felter,
+herunder `reasoning_output_tokens` særskilt. §6.4's regnskab kan bygges som
+beskrevet. Kørt på en opdigtet post (»Testperson Opdigtsen«, Fiktivby); ingen
+tekst fra `work/` eller databasen forlod maskinen. `--output-schema` blev
+respekteret — outputtet var ren JSON med fire claims, der hver citerer en
+klausul-ordinal, hvilket bekræfter at `evidence-claims-1.0` kan håndhæves på
+CLI-niveau og ikke kun i Python-validatoren.
+
+**Overheadet er næsten hele regningen.** Et tomt kald koster 21.554
+input-tokens; den fulde prompt + record kostede 21.801. Nyttelasten var altså
+~250 tokens, **1,1 %** af kaldet. Det gør §6.4's »batches 5-10 records« bærende
+for økonomien frem for en optimering: én record pr. kald ville koste ~12,7 M
+input-tokens for 591 records, hvoraf under 1 % er data.
+
+**En tredjedel af overheadet er brugerens private konfiguration — og det bryder
+reproducerbarheden.** Påstanden om, at overheadet var CLI'ens egen
+systeminstruktion, var et gæt og blev dekomponeret: en tredje kørsel med
+`--ignore-user-config` kostede 15.266 mod 21.554 input-tokens. De 6.288 tokens
+er `~/.codex/AGENTS.md`, `config.toml` og tre brugerskills. Besparelsen er det
+mindst interessante. Alvorligt er, at §6.2 hash-binder prompten
+(`prompt_sha256`) netop for at gøre kaldet reproducerbart, mens brugerens
+private AGENTS.md ligger uden for den hash og kan ændre sig usynligt mellem to
+kørsler. `--ignore-user-config` bør ind i §6.2's flagliste — en rettelse af en
+godkendt spec, som hører til plan 4.3a's adgangskrav.
+
+Udbyderens prompt-cache genbrugte halvdelen af overheadet ved andet kald
+(`cached_input_tokens: 11008`); effekten bør måles pr. batch i 4.3b, ikke
+antages. Hændelsesstrømmene fra alle tre kørsler ligger som fixtures i
+`.claude/skills/daa-extract/scripts/tests/fixtures/codex-exec/`, så 4.3a's
+usage-parser kan testes uden kvote. Rapport:
+`docs/evidensbaseret-genimport/runner-usage-probe-147-4-3a.md`.
+
+**Udestår:** planerne for 4.3-4.5 er nu ublokerede og kan skrives. Fejltaksonomien
+(§6.3) har stadig kun `quota_exhausted` som observation; priser er ikke aflæst og
+kræver en profilversion med GO.
+
 ## 2026-09-11 — Flaky record-key-test rettet (#177)
 
 Fundet under 4.2-arbejdet, uden sammenhæng med den gren — derfor sin egen PR.
