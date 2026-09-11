@@ -17969,6 +17969,234 @@ REVOKE ALL ON FUNCTION private.write_clause_evidence(uuid,text,jsonb),public.red
   FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_apply_reimport_clause_evidence(uuid,text,jsonb) TO authenticated;
 
+-- ===== #147 4.2: ét prædikat-navnerum =====
+-- R10: blokken SKAL ligge efter private.vocab opstår (db-migrations.sql ~17385) — på de
+-- kumulative CI-stier bygges basen af et ældre schema, hvor tabellen endnu ikke findes.
+
+INSERT INTO private.vocab(scheme,code,label) VALUES
+  ('interpretation_category','titel','Adelig eller standsmæssig titel (§7.3)'),
+  ('interpretation_category','embede','Embede (§7.3)'),
+  ('interpretation_category','hofstilling','Hofstilling (§7.3)'),
+  ('interpretation_category','militaer_rang','Militær rang (§7.3)'),
+  ('interpretation_category','erhverv','Erhverv eller civil stilling (§7.3)'),
+  ('interpretation_category','uddannelse','Uddannelse eller grad (§7.3)'),
+  ('interpretation_category','dekoration','Dekoration eller æresbevisning (§7.3)')
+ON CONFLICT (scheme,code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS private.interpretation_predicate (
+  predicate           text PRIMARY KEY CHECK (predicate ~ '^[a-z_]+(\.[a-z_]+)+$'),
+  interpretation_kind text NOT NULL CHECK (interpretation_kind IN ('property','relation','event','mention')),
+  category            text,
+  value_kind          text NOT NULL CHECK (value_kind IN ('text','date_raw','name','event','relation','mention')),
+  status              text NOT NULL CHECK (status IN ('active','retired')),
+  introduced_in       text NOT NULL CHECK (btrim(introduced_in)<>''),
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  -- Revision 3 (R4): FK-mål for private.interpretation, så udsagnsformen bindes til
+  -- prædikatet og ikke kun sameksisterer med tabellens eget fireværdi-CHECK.
+  UNIQUE (predicate, interpretation_kind)
+);
+
+CREATE OR REPLACE FUNCTION private.validate_interpretation_predicate()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+BEGIN
+  IF NEW.category IS NOT NULL AND NOT EXISTS (SELECT 1 FROM private.vocab WHERE scheme='interpretation_category' AND code=NEW.category) THEN
+    RAISE EXCEPTION 'EVIDENCE_PREDICATE_CATEGORY_UNKNOWN: %', NEW.category;
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_interpretation_predicate_validate ON private.interpretation_predicate;
+CREATE TRIGGER trg_interpretation_predicate_validate BEFORE INSERT OR UPDATE ON private.interpretation_predicate
+  FOR EACH ROW EXECUTE FUNCTION private.validate_interpretation_predicate();
+
+CREATE OR REPLACE FUNCTION private.reject_interpretation_predicate_mutation() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'EVIDENCE_PREDICATE_DELETE_FORBIDDEN'; END IF;
+  IF NEW.predicate<>OLD.predicate OR NEW.interpretation_kind<>OLD.interpretation_kind OR NEW.value_kind<>OLD.value_kind
+     OR NEW.category IS DISTINCT FROM OLD.category OR NEW.introduced_in<>OLD.introduced_in THEN
+    RAISE EXCEPTION 'EVIDENCE_PREDICATE_IMMUTABLE_FIELD';
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_interpretation_predicate_mutation ON private.interpretation_predicate;
+CREATE TRIGGER trg_interpretation_predicate_mutation BEFORE UPDATE OR DELETE ON private.interpretation_predicate
+  FOR EACH ROW EXECUTE FUNCTION private.reject_interpretation_predicate_mutation();
+DROP TRIGGER IF EXISTS trg_interpretation_predicate_truncate ON private.interpretation_predicate;
+CREATE TRIGGER trg_interpretation_predicate_truncate BEFORE TRUNCATE ON private.interpretation_predicate
+  FOR EACH STATEMENT EXECUTE FUNCTION private.reject_evidence_mutation();
+ALTER TABLE private.interpretation_predicate ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.interpretation_predicate FROM PUBLIC,anon,authenticated,service_role;
+
+INSERT INTO private.interpretation_predicate(predicate,interpretation_kind,category,value_kind,status,introduced_in) VALUES
+  ('person.name','property',NULL,'text','active','trin4-4.2'),
+  ('person.name_part','property',NULL,'name','active','trin4-4.2'),
+  ('person.name_variant','property',NULL,'name','active','trin4-4.2'),
+  ('person.byname','property',NULL,'text','active','trin4-4.2'),
+  ('person.identity','property',NULL,'text','active','trin4-4.2'),
+  ('person.uncertainty','property',NULL,'text','active','trin4-4.2'),
+  ('person.negation','property',NULL,'text','active','trin4-4.2'),
+  ('person.unknown','property',NULL,'text','active','trin4-4.2'),
+  ('person.birth','property',NULL,'date_raw','active','trin4-4.2'),
+  ('person.baptism','property',NULL,'date_raw','active','trin4-4.2'),
+  ('person.death','property',NULL,'date_raw','active','trin4-4.2'),
+  ('person.burial','property',NULL,'date_raw','active','trin4-4.2'),
+  ('person.title','property','titel','text','active','trin4-4.2'),
+  ('person.form_of_address','property',NULL,'text','active','trin4-4.2'),
+  ('person.rank','property','militaer_rang','text','active','trin4-4.2'),
+  ('person.office','property','embede','text','active','trin4-4.2'),
+  ('person.court_office','property','hofstilling','text','active','trin4-4.2'),
+  ('person.occupation','property','erhverv','text','active','trin4-4.2'),
+  ('person.education','property','uddannelse','text','active','trin4-4.2'),
+  ('person.decoration','property','dekoration','text','active','trin4-4.2'),
+  ('person.estate','property',NULL,'text','active','trin4-4.2'),
+  ('person.residence','property',NULL,'text','active','trin4-4.2'),
+  ('person.military_service','property',NULL,'text','active','trin4-4.2'),
+  ('person.publication','property',NULL,'text','active','trin4-4.2'),
+  ('relation.marriage','relation',NULL,'relation','active','trin4-4.2'),
+  ('relation.parent','relation',NULL,'relation','active','trin4-4.2'),
+  ('relation.child','relation',NULL,'relation','active','trin4-4.2'),
+  ('event.marriage','event',NULL,'event','active','trin4-4.2'),
+  ('event.appointment','event',NULL,'event','active','trin4-4.2'),
+  ('event.dismissal','event',NULL,'event','active','trin4-4.2'),
+  ('event.acquisition','event',NULL,'event','active','trin4-4.2'),
+  ('event.travel','event',NULL,'event','active','trin4-4.2'),
+  ('mention.person','mention',NULL,'mention','active','trin4-4.2'),
+  ('mention.place','mention',NULL,'mention','active','trin4-4.2'),
+  ('mention.organisation','mention',NULL,'mention','active','trin4-4.2'),
+  ('mention.estate','mention',NULL,'mention','active','trin4-4.2'),
+  ('lineage.introduction','property',NULL,'text','active','trin4-4.2'),
+  ('genealogy.generation_header','property',NULL,'text','active','trin4-4.2'),
+  ('heraldry.description','property',NULL,'text','active','trin4-4.2'),
+  ('heraldry.blazon','property',NULL,'text','active','trin4-4.2'),
+  ('image.caption','property',NULL,'text','active','trin4-4.2'),
+  ('reference.cross_reference','mention',NULL,'mention','active','trin4-4.2'),
+  -- db-verify's syntetiske fixtures (kører mod prod; se Global Constraints). Ikke i den genererede fil.
+  ('person.name.relation','property',NULL,'text','active','db-verify-fixture'),
+  ('verify.person.name.no_bulk','property',NULL,'text','active','db-verify-fixture'),
+  ('verify.person.name.principal','property',NULL,'text','active','db-verify-fixture'),
+  ('verify.concurrent.name','property',NULL,'text','active','db-verify-fixture'),
+  -- Revision 3 (R1'): omdøbt i db-verify.sql fra death_date / fake_approval /
+  -- terminal_status / name, som alle manglede punktum og derfor brød PK-CHECK'et.
+  ('verify.death_date','property',NULL,'text','active','db-verify-fixture'),
+  ('verify.fake_approval','property',NULL,'text','active','db-verify-fixture'),
+  ('verify.terminal_status','property',NULL,'text','active','db-verify-fixture'),
+  ('verify.name','property',NULL,'text','active','db-verify-fixture')
+ON CONFLICT (predicate) DO NOTHING;
+
+
+-- R4': inventér PARRET, ikke kun prædikatet, før FK'en tilføjes.
+DO $predicate_inventory$
+DECLARE v_missing text;
+BEGIN
+  SELECT string_agg(DISTINCT i.predicate||'/'||i.interpretation_kind, ', ') INTO v_missing
+    FROM private.interpretation i
+   WHERE NOT EXISTS (SELECT 1 FROM private.interpretation_predicate p
+                      WHERE p.predicate=i.predicate AND p.interpretation_kind=i.interpretation_kind);
+  IF v_missing IS NOT NULL THEN RAISE EXCEPTION 'PREDICATE_MIGRATION_UNSEEDED_PAIRS: %', v_missing; END IF;
+  SELECT string_agg(DISTINCT l.predicate, ', ') INTO v_missing
+    FROM private.interpretation_promotion_rule_line l
+   WHERE NOT EXISTS (SELECT 1 FROM private.interpretation_predicate p WHERE p.predicate=l.predicate);
+  IF v_missing IS NOT NULL THEN RAISE EXCEPTION 'PREDICATE_MIGRATION_UNSEEDED_RULE_LINES: %', v_missing; END IF;
+END $predicate_inventory$;
+
+-- R5: guarden rammer relation, referencemål og kolonner — ikke kun navnet — og en
+-- eksisterende men uvalideret constraint valideres eksplicit i stedet for at blive sprunget over.
+DO $predicate_fk$
+DECLARE v_oid oid; v_valid boolean;
+BEGIN
+  SELECT c.oid, c.convalidated INTO v_oid, v_valid FROM pg_constraint c
+   WHERE c.conrelid='private.interpretation'::regclass
+     AND c.confrelid='private.interpretation_predicate'::regclass
+     AND c.contype='f'
+     AND (SELECT array_agg(a.attname::text ORDER BY a.attname::text) FROM unnest(c.conkey) k
+           JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k)
+         = ARRAY['interpretation_kind','predicate'];
+  IF v_oid IS NULL THEN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='interpretation_predicate_fk'
+                AND conrelid='private.interpretation'::regclass) THEN
+      RAISE EXCEPTION 'PREDICATE_MIGRATION_FK_DEFINITION_WRONG';
+    END IF;
+    ALTER TABLE private.interpretation ADD CONSTRAINT interpretation_predicate_fk
+      FOREIGN KEY (predicate,interpretation_kind)
+      REFERENCES private.interpretation_predicate(predicate,interpretation_kind);
+  ELSIF NOT v_valid THEN
+    ALTER TABLE private.interpretation VALIDATE CONSTRAINT interpretation_predicate_fk;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint c
+                  WHERE c.conrelid='private.interpretation'::regclass
+                    AND c.confrelid='private.interpretation_predicate'::regclass
+                    AND c.contype='f' AND c.convalidated) THEN
+    RAISE EXCEPTION 'PREDICATE_MIGRATION_FK_NOT_VALIDATED';
+  END IF;
+END $predicate_fk$;
+
+CREATE OR REPLACE FUNCTION private.add_interpretation_promotion_rule_version(
+  p_rule_key text,p_predicate text,p_interpretation_kind text,p_target_type text,
+  p_expected_fact_type text,p_value_kind text,p_requires_persona_identity boolean,
+  p_requires_principal_placement boolean,p_bulk_eligible boolean,p_status text
+) RETURNS integer LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+DECLARE v_predicate text; v_version integer;
+BEGIN
+  SELECT predicate INTO v_predicate
+    FROM private.interpretation_promotion_rule_line
+   WHERE rule_key=p_rule_key FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_LINE_NOT_FOUND'; END IF;
+  IF v_predicate<>p_predicate THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_PREDICATE_MISMATCH'; END IF;
+  -- #147 4.2 (revision 3, R3'): INGEN undtagelse. Eksistens og value_kind-lighed
+  -- håndhæves for ALLE regler; det eneste 'verify-%' må, er at pege på et
+  -- fixture-prædikat — og almindelige regler må kun pege på ikke-fixtures.
+  IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=p_predicate AND pr.status='active') THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_PREDICATE_UNKNOWN';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=p_predicate AND pr.value_kind=p_value_kind AND pr.value_kind IN ('text','date_raw')) THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_VALUE_KIND_MISMATCH';
+  END IF;
+  IF (p_rule_key LIKE 'verify-%') <> EXISTS (SELECT 1 FROM private.interpretation_predicate pr
+                                              WHERE pr.predicate=p_predicate AND pr.introduced_in='db-verify-fixture') THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_FIXTURE_SCOPE_INVALID';
+  END IF;
+  SELECT coalesce(max(rule_version),0)+1 INTO v_version
+    FROM private.interpretation_promotion_rule WHERE rule_key=p_rule_key;
+  INSERT INTO private.interpretation_promotion_rule(
+    rule_key,rule_version,predicate,interpretation_kind,target_type,expected_fact_type,
+    value_kind,requires_persona_identity,requires_principal_placement,bulk_eligible,status
+  ) VALUES (p_rule_key,v_version,p_predicate,p_interpretation_kind,p_target_type,
+    p_expected_fact_type,p_value_kind,p_requires_persona_identity,
+    p_requires_principal_placement,p_bulk_eligible,p_status);
+  RETURN v_version;
+END $$;
+
+CREATE OR REPLACE FUNCTION private.validate_interpretation_promotion_rule_predicate()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=NEW.predicate AND pr.status='active') THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_PREDICATE_UNKNOWN';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=NEW.predicate AND pr.value_kind=NEW.value_kind AND pr.value_kind IN ('text','date_raw')) THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_VALUE_KIND_MISMATCH';
+  END IF;
+  IF (NEW.rule_key LIKE 'verify-%') <> EXISTS (SELECT 1 FROM private.interpretation_predicate pr
+                                                WHERE pr.predicate=NEW.predicate AND pr.introduced_in='db-verify-fixture') THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_FIXTURE_SCOPE_INVALID';
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_interpretation_promotion_rule_predicate ON private.interpretation_promotion_rule;
+CREATE TRIGGER trg_interpretation_promotion_rule_predicate
+  BEFORE INSERT ON private.interpretation_promotion_rule
+  FOR EACH ROW EXECUTE FUNCTION private.validate_interpretation_promotion_rule_predicate();
+
+CREATE OR REPLACE VIEW private.interpretation_predicate_promotable WITH (security_invoker=true) AS
+SELECT p.predicate, p.interpretation_kind, p.category, p.value_kind, r.rule_key, r.rule_version, r.expected_fact_type
+  FROM private.interpretation_predicate p
+  JOIN private.interpretation_promotion_rule_line l ON l.predicate=p.predicate
+  JOIN private.interpretation_promotion_rule_current r ON r.rule_key=l.rule_key
+ WHERE p.status='active' AND p.introduced_in<>'db-verify-fixture' AND r.status='active' AND r.rule_key NOT LIKE 'verify-%';
+
+REVOKE ALL ON TABLE private.interpretation_predicate_promotable FROM PUBLIC,anon,authenticated,service_role;
+
 DO $public_red_revoke$
 DECLARE
   fn regprocedure;

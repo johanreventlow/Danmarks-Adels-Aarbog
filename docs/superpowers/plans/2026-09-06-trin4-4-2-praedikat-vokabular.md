@@ -4,13 +4,232 @@
 
 **Goal:** Én tabel `private.interpretation_predicate` som eneste sandhed om, hvilke prædikater fortolkningslaget kender, med udsagnsform, §7.3-kategori og værdiform; promotion-reglerne og `interpretation` refererer den; extractoren læser en genereret, byte-verificeret fil i stedet for sin egen liste.
 
-**Architecture:** Additiv DDL (tabel + seed + to FK'er + trigger for `value_kind`-binding + view), en `references/interpretation-predicates.json` der er en projektion af tabellen, et lille sync/check-script, og ombytning af `evidence_extract.ALLOWED_PREDICATES` til filen med `interpretation_kind` pr. prædikat. Ingen oversættelsestabel.
+**Architecture:** Additiv DDL (tabel + seed + ÉN komposit-FK på `interpretation` (revision R2/R4) + trigger for `value_kind`-binding + view), en `references/interpretation-predicates.json` der er en projektion af tabellen, et lille sync/check-script, og ombytning af `evidence_extract.ALLOWED_PREDICATES` til filen med `interpretation_kind` pr. prædikat. Ingen oversættelsestabel.
 
 **Tech Stack:** PostgreSQL 17, psql-SQL-tests, Python 3 + pytest, GitHub Actions.
 
 **Spec:** `docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md` §5.
 
 > **Linjetal** i denne plan gælder `origin/main` ved `6770451`; efter 4.1a-4.1c er `schema.sql` forskudt. Brug de navngivne ankre.
+
+## Revision 3 (2026-09-10) — efter adversarial gennemgang af revision 2
+
+> Revision 2 blev selv efterprøvet af en uafhængig læser (Fable), som fik besked på at
+> koncentrere skepsissen om netop de afgørelser, der sparede forfatteren arbejde. Den fandt
+> én faktisk fejllæsning, ét overset prædikat og to fund, ingen tidligere havde set.
+> **Revision 3 går forud for revision 2, hvor de er uenige.**
+
+### R1′ (retter R1): et fantom ud, et overset prædikat ind
+
+**Fejllæsning, som var min egen:** `verify.assertion` findes ikke som prædikat. I
+`tests/sql/test-interpretation-predicate.sql` er `'assertion'` **fjerde positionelle
+argument** til `add_interpretation_promotion_rule_version`, altså `p_target_type`
+(`schema.sql:1184-1188`) — ikke et prædikat. Efterprøvet i funktionens signatur.
+`verify.assertion` udgår af seedet.
+
+**Overset prædikat:** `db-verify.sql:4048` indsætter `''property'',''name''` i
+`private.interpretation` gennem et `dblink_exec`-kald i samtidighedstesten. Min egen
+optælling missede det, fordi literalen står inde i en SQL-streng med fordoblede
+apostroffer og uden `INSERT INTO private.interpretation(` i samme statement-form.
+`SET CONSTRAINTS ALL DEFERRED` (4045) redder det ikke: en FK er ikke udskydelig, med
+mindre den er erklæret sådan. Testen kører i CI tre gange gennem
+`run-db-verify-disposable.sql` og mod prod, hvis dblink er installeret.
+**Omdøbes til `verify.name`** — et fixture-navn frem for `person.name`, fordi testen
+handler om låsning, ikke om promotion, og de to bekymringer skal holdes adskilt.
+
+**Det korrekte fixture-sæt er stadig otte, men ikke de otte revision 2 nævnte:**
+`person.name.relation`, `verify.person.name.no_bulk`, `verify.person.name.principal`,
+`verify.concurrent.name`, `verify.death_date`, `verify.fake_approval`,
+`verify.terminal_status`, `verify.name`.
+
+**Følgeændring:** `PREDICATE_FIXTURE_SEED_COUNT` i kontrakttesten asserterer i dag 4 og
+skal være 8.
+
+**Lære til optællingen i Task 2:** en ren tekstsøgning efter
+`INSERT INTO private.interpretation(` er utilstrækkelig. Optællingen skal også dække
+`dblink_exec`-strenge, `INSERT … SELECT` og dynamisk SQL — eller udføres mod en base ved
+at læse `private.interpretation` efter en fuld db-verify-kørsel.
+
+### R2′ (skærper R2): ret kroppen, ikke kun forordet
+
+Revision 2 erklærede sig gældende frem for planteksten, men lod Global Constraints og
+Task 2's DDL-blok stå med den gamle bypass-kode. En, der arbejder ud fra DDL-blokken,
+kopierer den ordret. **Selve blokken skal rettes**, ikke kun overskrives af et forord.
+
+### R3′ (udfylder R3): fejltokenet skal have et navn
+
+Reglen »`verify-%` må kun pege på et fixture-prædikat, andre kun på et ikke-fixture« havde
+intet fejltoken og ingen probe. Token:
+`EVIDENCE_PROMOTION_RULE_FIXTURE_SCOPE_INVALID`, med en positiv og en negativ probe i
+kontrakttesten.
+
+### R4′ (udfylder R4): parret skal inventeres og prøves
+
+Komposit-bindingen er sammenhængende — alle seed- og fixture-rækker er `'property'`, og
+regel-tabellens `interpretation_kind` er CHECK-bundet til `'property'`
+(`schema.sql:1134`) — men to ting mangler: (a) `$predicate_inventory$` i Task 2 Step 2
+tjekker stadig kun `predicate`; den skal inventere **parret**; (b) kontrakttesten har ingen
+negativ probe på den nye dimension. Tilføj en, der indsætter
+`('person.name','event')` og forventer `interpretation_predicate_fk`. En constraint, en
+revision indfører, skal have en test, der beviser, at den bider.
+
+### R7′ (udfylder R7): værdiformen, ikke kun personaen
+
+Bulk-testen i `test_evidence_contract.py` bruger `"value": "x"` for alle prædikater. Efter
+omdøbningen kræver `relation.*` (værdiform `relation`) og `reference.cross_reference`
+(`mention`) objektværdier med `raw`, så `validate_claim_value` vil kaste
+`EXTRACTION_CLAIM_VALUE_INVALID`. Prøven skal bygges med korrekte værdiformer pr.
+værdiform — ikke kun med persona.
+
+### R8′ (retter R8): env er pr. trin, ikke pr. job
+
+CI's `env:` sættes pr. **step**, ikke pr. job. Et nyt trin skal have sin egen `env:`-blok,
+eller linjen skal føjes ind i et eksisterende trins `run:`.
+
+### R9 (nyt fund): FK'ens placering vælter et andet CI-job
+
+`test_evidence_contract.py:26-33` matcher
+`CREATE TABLE private\.interpretation\s*\((.*?)\n\);\s*CREATE TABLE private\.interpretation_observation`
+og asserterer, at matchet findes. Planens filoversigt lægger FK'en som `ALTER TABLE`
+»umiddelbart efter `interpretation`-tabellen« — altså mellem de to tabeller — hvilket
+bryder matchet og sender jobbet `evidence contract · pytest` rødt.
+
+**Besluttet:** erklær FK'en **inline som tabel-constraint inde i**
+`CREATE TABLE private.interpretation`. Prædikattabellen står allerede før den, så
+rækkefølgen holder. (Alternativt: placér `ALTER TABLE` efter
+`interpretation_observation`.)
+
+### R10 (nyt fund): to placeringsfælder i migrationen
+
+1. På CI's kumulative stier bygges basen af `git show 2d6aabf:schema.sql`, hvor
+   `private.vocab` først findes fra `db-migrations.sql:17385`. Kravet »før
+   `$public_red_revoke$`« er derfor ikke præcist nok — blokken skal ligge **efter 17385**.
+2. `db-verify.sql:4212-4217` kræver, at hver tabel i sin liste har en trigger
+   `trg_<tabel>_append_only` bundet til `reject_evidence_mutation()`. Den nye tabels
+   mutations-trigger hedder noget andet og bruger en anden funktion.
+   **`interpretation_predicate` må ikke føjes til den liste.**
+
+---
+
+## Revision 2 (2026-09-10) — efter anden læsning, otte blokerende fund
+
+> Denne revision er **bindende** og går forud for teksten længere nede, hvor de er uenige.
+> Anledningen er en uafhængig gennemlæsning (Codex `gpt-5.6-sol`), der gav NO-GO, plus
+> egne målinger mod `main` efter 4.1a/4.1b. Hvert punkt nedenfor er efterprøvet i koden,
+> ikke sluttet fra planen.
+
+### R1. Prædikat-inventaret var ufuldstændigt — og tre navne kan ikke seedes
+
+**Målt:** ud over de fire fixture-prædikater, planen nævnte, indsætter `db-verify.sql` også
+`death_date` (linje 3645 og 3661), `fake_approval` (3753) og `terminal_status` (3794) i
+`private.interpretation`. Ingen af dem har punktum, så de bryder PK-CHECK'et
+`^[a-z_]+(\.[a-z_]+)+$` og kan ikke seedes uændret. Planens egen kontrakttest bruger
+tilsvarende `assertion`.
+
+**Hvorfor det er blokerende, ikke kosmetisk:** `db-verify.sql` kører **mod prod**. Den
+første `death_date`-insert ligger i en `BEGIN … EXCEPTION`-blok, der forventer præcis
+`EVIDENCE_INTERPRETATION_OBSERVATION_REQUIRED`; en FK-overtrædelse ville fyre først og få
+den negative test til at melde »fortolkning uden observation blev ikke afvist«. Den anden
+insert skal derimod lykkes. En FK på `predicate` stopper altså produktionsverifikationen.
+
+**Besluttet:** de tre navne omdøbes i `db-verify.sql` til punktumformen `verify.death_date`,
+`verify.fake_approval`, `verify.terminal_status`, og kontrakttestens `assertion` til
+`verify.assertion`. Efterprøvet: navnene optræder aldrig i en assertion — `v_terminal_status`
+er en anden variabel om status, ikke om prædikatet — så omdøbningen er mekanisk og ændrer
+ingen testsemantik. Formatinvarianten bevares dermed, i stedet for at blive slækket for at
+rumme fixtures.
+
+**Fixture-seed bliver dermed otte, ikke fire:** `person.name.relation`,
+`verify.person.name.no_bulk`, `verify.person.name.principal`, `verify.concurrent.name`,
+`verify.death_date`, `verify.fake_approval`, `verify.terminal_status`, `verify.assertion` —
+alle `status='active'`, `introduced_in='db-verify-fixture'`, `value_kind='text'`,
+`interpretation_kind='property'`.
+
+**Krav til Task 2:** før FK'en tilføjes, køres en fuldstændig optælling af enhver
+prædikat-værdi, der indsættes i `private.interpretation` og
+`interpretation_promotion_rule_line` i `db-verify.sql` og hele `tests/sql/`. Dukker et navn
+op, der ikke er seedet, er det en stopport — ikke noget, der seedes stiltiende bagefter.
+
+### R2. Præcis én fremmednøgle
+
+Planen modsagde sig selv: arkitekturresuméet lovede »to FK'er«, og Task 2's filoversigt bad
+om en FK på `interpretation_promotion_rule_line`, mens Global Constraints og DDL-teksten
+forbød den. **Besluttet:** der er **én** FK, på `private.interpretation(predicate)`. På
+`rule_line.predicate` er der ingen FK — netop fordi db-verify's negative fixtures skal kunne
+indsætte et bevidst ukendt prædikat dér. Begge de modstridende steder rettes.
+
+### R3. `verify-%` må ikke kunne springe typebindingen over
+
+Planen sprang **både** kendt-prædikat- og `value_kind`-kontrollen over for ethvert
+`rule_key LIKE 'verify-%'`. Det er en brugbar bypass: den ægte promotionvej læser
+`interpretation_promotion_rule_current` uden at udelukke `verify-%`, og regel-tabellens eget
+CHECK kræver kun `text` eller `date_raw`, ikke lighed med prædikattabellen.
+
+**Besluttet:** eksistens og `value_kind`-lighed håndhæves for **alle** regler, uden
+undtagelse. Det eneste, `verify-%` må, er at pege på et fixture-prædikat
+(`introduced_in='db-verify-fixture'`); almindelige regler skal pege på et ikke-fixture
+prædikat. **Efterprøvet gennemførligt:** alle tre eksisterende `verify-`regler bruger
+`value_kind='text'`, og de fem rigtige regler matcher deres prædikaters `value_kind`
+(`person.name`/`byname`/`title` = `text`, `person.birth`/`death` = `date_raw`).
+
+### R4. `interpretation_kind` skal bindes, ellers holder planens eget mål ikke
+
+Målet siger, at tabellen er **eneste sandhed** om prædikatets udsagnsform. Med en FK kun på
+`predicate` beholder `private.interpretation` sit uafhængige fireværdi-CHECK, så
+`predicate='person.name'` med `interpretation_kind='event'` fortsat accepteres.
+
+**Besluttet:** `UNIQUE (predicate, interpretation_kind)` på prædikattabellen og en
+komposit-FK fra `private.interpretation(predicate, interpretation_kind)`. Før migrationen
+inventeres eksisterende par (læse-kun), og migrationen fejler hårdt på et par, tabellen ikke
+kender.
+
+### R5. FK-migrationens guard skal ramme den rigtige constraint
+
+`IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='…')` er utilstrækkelig:
+constraintnavne er ikke databaseglobalt unikke, og guarden ser hverken relation, kolonner
+eller `convalidated`. En efterladt `NOT VALID`-constraint eller en navnekollision ville få
+migrationen til at springe valideringen over i stilhed.
+
+**Besluttet:** guard på `conrelid`, `confrelid` og kolonnesættet; en eksisterende korrekt
+men `NOT VALID` constraint valideres eksplicit; forkert definition er en stopport; til sidst
+asserteres `convalidated=true`.
+
+### R6. Kontrakttestens FK-probe skal kun være ugyldig ét sted
+
+Testens negative FK-insert bruger `source_id=1` og et tilfældigt `extraction_run_id`, mens
+tabellen kræver en gyldig source og et gyldigt `(extraction_run_id, source_id)`-par. På
+frisk-skema-stien seedes ingen source, så testen ville fejle af den forkerte grund.
+
+**Besluttet:** testen opretter gyldige source-, run- og persona-præmisser inde i sin egen
+transaktion, så prædikat-FK'en er den eneste ugyldige værdi. Testen tilføjes til **både**
+frisk-skema-stien og den kumulative migrationssti i CI.
+
+### R7. Python-omlægningen kunne ikke blive grøn
+
+Omdøbningslisten udelod `life_event.baptism` og `life_event.burial`, som begge findes i den
+aktuelle test. Og fordi størstedelen af bulklisten bliver til `person.*`, mens validatoren
+kræver en gyldig persona for alle `person.*`, ville testens bulkprøve uden persona-id fejle.
+
+**Besluttet:** begge omdøbninger medtages, og bulkprøven bygges med en fuld
+persona-/mention-/observationskæde — eller splittes, så `person.*`-claims har persona og de
+øvrige ikke.
+
+### R8. Byte-checket skal dække begge CI-stier
+
+Planen lagde checket alene på »Evidens-hardening på frisk schema-sti«. CI har også en
+kumulativ migrationssti, hvor en forskel i migrationsseed eller view kunne passere
+ubemærket, selv om den genererede fil kommer fra frisk `schema.sql`.
+
+**Besluttet:** checkerens ikke-skrivende tilstand køres efter **begge** stier.
+
+### Rækkefølge efter revisionen
+
+Task 1's kontrakttest er allerede skrevet og verificeret rød (`PREDICATE_TABLE_MISSING`);
+den skal rettes efter R1 og R6, før Task 2 begynder. Task 2 udvides med R1's fuldstændige
+optælling som stopport, R2's ene FK, R3's undtagelsesfri håndhævelse, R4's komposit-binding
+og R5's guard. Task 3-4 følger R7 og R8.
+
+---
 
 ## Global Constraints
 
@@ -117,7 +336,7 @@ DECLARE v_n integer; v_pred text;
 BEGIN
   IF to_regclass('private.interpretation_predicate') IS NULL THEN RAISE EXCEPTION 'PREDICATE_TABLE_MISSING'; END IF;
   SELECT count(*) INTO v_n FROM private.interpretation_predicate WHERE status='active' AND introduced_in<>'db-verify-fixture'; IF v_n<>42 THEN RAISE EXCEPTION 'PREDICATE_SEED_COUNT: %', v_n; END IF;
-  SELECT count(*) INTO v_n FROM private.interpretation_predicate WHERE introduced_in='db-verify-fixture'; IF v_n<>4 THEN RAISE EXCEPTION 'PREDICATE_FIXTURE_SEED_COUNT: %', v_n; END IF;
+  SELECT count(*) INTO v_n FROM private.interpretation_predicate WHERE introduced_in='db-verify-fixture'; IF v_n<>8 THEN RAISE EXCEPTION 'PREDICATE_FIXTURE_SEED_COUNT: %', v_n; END IF;
   FOREACH v_pred IN ARRAY ARRAY['person.name','person.byname','person.title','person.birth','person.death'] LOOP
     IF NOT EXISTS (SELECT 1 FROM private.interpretation_promotion_rule_line l JOIN private.interpretation_predicate p ON p.predicate=l.predicate WHERE l.predicate=v_pred) THEN
       RAISE EXCEPTION 'PREDICATE_RULE_JOIN_MISSING: %', v_pred; END IF;
@@ -173,7 +392,7 @@ git commit -m "test(db): kontrakttest for prædikattabellen (#147 4.2) — fejle
 ### Task 2: DDL i `schema.sql` + migration
 
 **Files:**
-- Modify: `schema.sql` (indsæt tabel + vocab-seed **før** linje 923; FK på `rule_line` som `ALTER TABLE` efter linje 928; seed af 42 rækker efter linje 960 men **før** `INSERT INTO private.interpretation_promotion_rule_line` (linje 961), fordi FK'en kræver prædikaterne først; trigger + FK på `interpretation` efter `interpretation`-tabellen; view efter `interpretation_promotion_rule_current` (linje ~981))
+- Modify: `schema.sql` (indsæt tabel + vocab-seed **før** linje 923; INGEN FK på `rule_line` (revision R2); seed af 42 rækker efter linje 960 men **før** `INSERT INTO private.interpretation_promotion_rule_line` (linje 961), fordi FK'en kræver prædikaterne først; trigger + FK på `interpretation` efter `interpretation`-tabellen; view efter `interpretation_promotion_rule_current` (linje ~981))
 - Modify: `db-migrations.sql`
 
 - [ ] **Step 1: DDL**
@@ -272,20 +491,29 @@ INSERT INTO private.interpretation_predicate(predicate,interpretation_kind,categ
   ('person.name.relation','property',NULL,'text','active','db-verify-fixture'),
   ('verify.person.name.no_bulk','property',NULL,'text','active','db-verify-fixture'),
   ('verify.person.name.principal','property',NULL,'text','active','db-verify-fixture'),
-  ('verify.concurrent.name','property',NULL,'text','active','db-verify-fixture');
+  ('verify.concurrent.name','property',NULL,'text','active','db-verify-fixture'),
+  -- Revision 3 (R1'): omdøbt i db-verify.sql fra death_date / fake_approval /
+  -- terminal_status / name, som alle manglede punktum og derfor brød PK-CHECK'et.
+  ('verify.death_date','property',NULL,'text','active','db-verify-fixture'),
+  ('verify.fake_approval','property',NULL,'text','active','db-verify-fixture'),
+  ('verify.terminal_status','property',NULL,'text','active','db-verify-fixture'),
+  ('verify.name','property',NULL,'text','active','db-verify-fixture');
 ```
 
 Ingen FK på `interpretation_promotion_rule_line` (se Global Constraints). I `private.add_interpretation_promotion_rule_version` (søg funktionsnavnet), efter `IF v_predicate<>p_predicate THEN ...`:
 
 ```sql
-  -- db-verify's negative fixtures (rule_key 'verify-%') skal ramme de fejl, de tester, ikke disse guards.
-  IF p_rule_key NOT LIKE 'verify-%' THEN
-    IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=p_predicate AND pr.status='active' AND pr.introduced_in<>'db-verify-fixture') THEN
-      RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_PREDICATE_UNKNOWN';
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=p_predicate AND pr.value_kind=p_value_kind AND pr.value_kind IN ('text','date_raw')) THEN
-      RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_VALUE_KIND_MISMATCH';
-    END IF;
+  -- Revision 3 (R3/R3'): INGEN undtagelse. Eksistens og value_kind-lighed håndhæves for
+  -- ALLE regler. Det eneste, 'verify-%' må, er at pege på et fixture-prædikat.
+  IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=p_predicate AND pr.status='active') THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_PREDICATE_UNKNOWN';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=p_predicate AND pr.value_kind=p_value_kind AND pr.value_kind IN ('text','date_raw')) THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_VALUE_KIND_MISMATCH';
+  END IF;
+  IF (p_rule_key LIKE 'verify-%') <> EXISTS (SELECT 1 FROM private.interpretation_predicate pr
+                                              WHERE pr.predicate=p_predicate AND pr.introduced_in='db-verify-fixture') THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_FIXTURE_SCOPE_INVALID';
   END IF;
 ```
 

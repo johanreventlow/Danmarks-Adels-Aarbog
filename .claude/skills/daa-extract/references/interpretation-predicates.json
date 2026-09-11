@@ -1,0 +1,299 @@
+{
+  "predicates": [
+    {
+      "category": null,
+      "interpretation_kind": "event",
+      "predicate": "event.acquisition",
+      "promotable": false,
+      "value_kind": "event"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "event",
+      "predicate": "event.appointment",
+      "promotable": false,
+      "value_kind": "event"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "event",
+      "predicate": "event.dismissal",
+      "promotable": false,
+      "value_kind": "event"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "event",
+      "predicate": "event.marriage",
+      "promotable": false,
+      "value_kind": "event"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "event",
+      "predicate": "event.travel",
+      "promotable": false,
+      "value_kind": "event"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "genealogy.generation_header",
+      "promotable": false,
+      "value_kind": "text"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "heraldry.blazon",
+      "promotable": false,
+      "value_kind": "text"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "heraldry.description",
+      "promotable": false,
+      "value_kind": "text"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "image.caption",
+      "promotable": false,
+      "value_kind": "text"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "lineage.introduction",
+      "promotable": false,
+      "value_kind": "text"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "mention",
+      "predicate": "mention.estate",
+      "promotable": false,
+      "value_kind": "mention"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "mention",
+      "predicate": "mention.organisation",
+      "promotable": false,
+      "value_kind": "mention"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "mention",
+      "predicate": "mention.person",
+      "promotable": false,
+      "value_kind": "mention"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "mention",
+      "predicate": "mention.place",
+      "promotable": false,
+      "value_kind": "mention"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "person.baptism",
+      "promotable": false,
+      "value_kind": "date_raw"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "person.birth",
+      "promotable": true,
+      "value_kind": "date_raw"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "person.burial",
+      "promotable": false,
+      "value_kind": "date_raw"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "person.byname",
+      "promotable": true,
+      "value_kind": "text"
+    },
+    {
+      "category": "hofstilling",
+      "interpretation_kind": "property",
+      "predicate": "person.court_office",
+      "promotable": false,
+      "value_kind": "text"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "person.death",
+      "promotable": true,
+      "value_kind": "date_raw"
+    },
+    {
+      "category": "dekoration",
+      "interpretation_kind": "property",
+      "predicate": "person.decoration",
+      "promotable": false,
+      "value_kind": "text"
+    },
+    {
+      "category": "uddannelse",
+      "interpretation_kind": "property",
+      "predicate": "person.education",
+      "promotable": false,
+      "value_kind": "text"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "person.estate",
+      "promotable": false,
+      "value_kind": "text"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "person.form_of_address",
+      "promotable": false,
+      "value_kind": "text"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "person.identity",
+      "promotable": false,
+      "value_kind": "text"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "person.military_service",
+      "promotable": false,
+      "value_kind": "text"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "person.name",
+      "promotable": true,
+      "value_kind": "text"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "person.name_part",
+      "promotable": false,
+      "value_kind": "name"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "person.name_variant",
+      "promotable": false,
+      "value_kind": "name"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "person.negation",
+      "promotable": false,
+      "value_kind": "text"
+    },
+    {
+      "category": "erhverv",
+      "interpretation_kind": "property",
+      "predicate": "person.occupation",
+      "promotable": false,
+      "value_kind": "text"
+    },
+    {
+      "category": "embede",
+      "interpretation_kind": "property",
+      "predicate": "person.office",
+      "promotable": false,
+      "value_kind": "text"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "person.publication",
+      "promotable": false,
+      "value_kind": "text"
+    },
+    {
+      "category": "militaer_rang",
+      "interpretation_kind": "property",
+      "predicate": "person.rank",
+      "promotable": false,
+      "value_kind": "text"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "person.residence",
+      "promotable": false,
+      "value_kind": "text"
+    },
+    {
+      "category": "titel",
+      "interpretation_kind": "property",
+      "predicate": "person.title",
+      "promotable": true,
+      "value_kind": "text"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "person.uncertainty",
+      "promotable": false,
+      "value_kind": "text"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "property",
+      "predicate": "person.unknown",
+      "promotable": false,
+      "value_kind": "text"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "mention",
+      "predicate": "reference.cross_reference",
+      "promotable": false,
+      "value_kind": "mention"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "relation",
+      "predicate": "relation.child",
+      "promotable": false,
+      "value_kind": "relation"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "relation",
+      "predicate": "relation.marriage",
+      "promotable": false,
+      "value_kind": "relation"
+    },
+    {
+      "category": null,
+      "interpretation_kind": "relation",
+      "predicate": "relation.parent",
+      "promotable": false,
+      "value_kind": "relation"
+    }
+  ],
+  "schema_version": "interpretation-predicates-1.0"
+}
