@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"01a09199-900b-7ed1-ad7b-b0f5d2f6cdd9"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"claims\":[{\"clause_ordinals\":[1],\"predicate\":\"person.birth_date\",\"value\":\"1800-01-01\",\"confidence\":1},{\"clause_ordinals\":[2],\"predicate\":\"person.education\",\"value\":\"cand.jur. (1825)\",\"confidence\":1},{\"clause_ordinals\":[3],\"predicate\":\"relation.marriage\",\"value\":\"Prøve Fiktivsdatter, 1830-05-03\",\"confidence\":1},{\"clause_ordinals\":[4],\"predicate\":\"person.death_date\",\"value\":\"1870-12-12\",\"confidence\":1}]}"}}
+{"type":"turn.completed","usage":{"input_tokens":21801,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":218,"reasoning_output_tokens":84}}

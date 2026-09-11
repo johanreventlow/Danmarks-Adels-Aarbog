@@ -112,7 +112,11 @@ programmets samlede modenhed.
   klausul-projektion i fase-pakke-runbooken, som ikke findes endnu.
 - **4.3-4.5 mangler planer.** Gaten var 4.1b's mellemrumstegnsæt — den **foreligger nu**
   (hvidlisten `[" "]` bekræftet på alle 591 records), så planerne kan skrives.
-  4.3a's Codex-forbrugsprobe udestår stadig som input til 4.3.
+  4.3a's Codex-forbrugsprobe er **kørt 2026-09-11** og lukket: `codex exec --json`
+  rapporterer forbrug i `turn.completed`, så spec §6.6's stopbetingelse for 4.3 er ikke
+  udløst. Proben målte samtidig, at ~21,5k input-tokens er fast CLI-overhead pr. kald —
+  batchstørrelsen i §6.4 er derfor bærende for økonomien, ikke en optimering
+  (`runner-usage-probe-147-4-3a.md`).
 - Den eksisterende åbne tombstone-/retentionsbeslutning betyder, at #152 fortsat
   blokerer hel-person-sletning for personer med publication-events; granulær
   withdrawal løser kun offentlig nedtagning af den enkelte biografi.
