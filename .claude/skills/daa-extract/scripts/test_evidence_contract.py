@@ -1,8 +1,10 @@
 """Acceptance tests for the edition-neutral evidence extraction contract."""
 
 import hashlib
+import inspect
 import json
 import re
+import uuid
 from pathlib import Path
 
 import pytest
@@ -229,11 +231,21 @@ def test_source_persona_is_scoped_to_one_source_edition():
 
 
 def test_record_key_is_minted_opaque_and_not_from_layout_or_name():
-    first = mint_record_key()
-    second = mint_record_key()
-    assert first != second
-    assert "Anna" not in first
-    assert "101" not in first
+    # Den egentlige invariant er, at mintningen ikke HAR noget at aflede fra:
+    # funktionen tager ingen argumenter. Den tidligere form søgte i stedet efter
+    # delstrengene "Anna" og "101" i én nøgle. "Anna" kan aldrig optræde i hex,
+    # og "101" optræder tilfældigt i 0,47 % af alle UUID'er (målt over 200.000
+    # mintninger) — så testen var rød på skift uden at et eneste bogstav i koden
+    # havde ændret sig, og den ville desuden ikke have opdaget en mintning, der
+    # FAKTISK afledte af navn eller layout, fordi den kaldte uden argumenter.
+    assert not inspect.signature(mint_record_key).parameters
+
+    keys = {mint_record_key() for _ in range(256)}
+    assert len(keys) == 256
+    for key in keys:
+        prefix, _, rest = key.partition("-")
+        assert prefix == "record"
+        assert uuid.UUID(rest).version == 4
 
 
 def test_occurrence_can_remain_unanchored_without_data_loss():
