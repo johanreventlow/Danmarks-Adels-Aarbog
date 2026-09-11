@@ -2,6 +2,49 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: Prædikatvokabularet ejes af databasen, ikke af extractoren (2026-09-11)
+
+**Baggrund.** Fortolkningslagets lovlige prædikater fandtes to steder: en hårdkodet
+`ALLOWED_PREDICATES` i `evidence_extract.py` og ingenting i databasen. De to kunne drive
+fra hinanden, uden at noget opdagede det.
+
+**Besluttet.** `private.interpretation_predicate` er eneste sandhed — navn, udsagnsform
+(`interpretation_kind`), §7.3-kategori og værdiform (`value_kind`). Extractoren læser en
+**genereret, byte-verificeret projektion** af tabellen
+(`references/interpretation-predicates.json`), som CI sammenligner med databasen på begge
+migrationsstier. Filen kan kun ændres via `--write` mod en base med gældende skema.
+
+**Afvist alternativ:** en oversættelsestabel mellem extractorens navne og databasens. Den
+ville have bevaret to navnerum og gjort driften mulig igen, blot ét led længere væk.
+
+**Udsagnsformen udledes af tabellen, ikke af præfikset.** Det gamle gæt
+(`life_event.*` → event, `relationship.*` → relation, ellers property) kan ikke skelne
+`event.marriage` fra `relation.marriage`, som er to forskellige udsagn om samme begivenhed.
+
+**Komposit-FK frem for to uafhængige kontroller.** `private.interpretation` refererer
+`(predicate, interpretation_kind)` samlet, så udsagnsformen bindes til prædikatet i stedet
+for blot at sameksistere med tabellens eget fireværdi-CHECK. FK'en er erklæret **inline**
+som tabel-constraint, ikke som `ALTER TABLE`: en kontrakttest matcher på, at
+`CREATE TABLE private.interpretation` og `CREATE TABLE private.interpretation_observation`
+står som naboer, og en `ALTER TABLE` imellem dem ville vælte et andet CI-job.
+
+**Fixture-prædikater omdøbt frem for at slække formatinvarianten.** `db-verify.sql` — som
+kører **mod prod** — indsatte fire prædikater uden punktum (`death_date`, `fake_approval`,
+`terminal_status` og ét skjult i en `dblink_exec`-streng med fordoblede apostroffer). De er
+omdøbt til `verify.*`, så PK-formatet `^[a-z_]+(\.[a-z_]+)+$` kan stå uændret. Alternativet
+— at løsne formatet, så fixtures passede — ville have gjort produktionsverifikationens
+behov til datamodellens regel.
+
+**Prod-siden skal have sin egen assertion.** 4.2's verifikation lå først kun i
+`tests/sql/`, som alene kører i CI. `db-verify.sql` har nu en `OK: #147`-blok; seed-antallet
+asserteres som `>= 42`, så senere dagsværk kan tilføje prædikater uden at gøre
+produktionsverifikationen rød, mens fixture-rækkerne tælles præcist.
+
+**Målt før beslutningen.** Prod har 0 fortolkninger og 5 promotion-regler, alle dækket af
+seedet med samme udsagns- og værdiform — så FK'en kan indføres uden at ændre prods
+promotion-adfærd. Rapport:
+`docs/evidensbaseret-genimport/interpretation-predicate-147-rehearsal.md`.
+
 ## BESLUTTET: Regelversion 2 for klausul-segmenteringen — profil v1.2.0 (2026-09-10)
 
 **Baggrund.** 4.1b's kørsel på alle 591 helposter viste 424 klausuler flagget
