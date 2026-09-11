@@ -58,7 +58,7 @@ Kører runneren et sted, hvorfra `work/`, `work_1939_stamtavle/`, restore-ekspor
 - **Ingen prod-mutation.** Dagsværket rører hverken produktionsdatabasen eller kanoniske tabeller. Al databaseadgang er læse-kun mod en restore.
 - **Ingen rigtige records gennem modellen.** 4.3a's eneste modelkald er på en syntetisk, ikke-identificerende record. De 10 afdøde records er 4.3b og kræver sin egen GO med hash-bundet udelukkelsesliste.
 - **Fail-closed overalt.** Enhver fejl efterlader batchen `pending`. Der findes ingen delvis merge og ingen »grøn med forbehold«.
-- **Ingen kildetekst i logs eller fejl.** Fejl logges med type, aldrig med tekst. Det gælder også `stderr` fra Codex.
+- **Ingen kildetekst i logs, fejl eller fixtures.** Fejl logges med type, aldrig med tekst — det gælder også `stderr` fra Codex. Og en fejl fanget under 4.3b må **ikke** gemmes som fixture med sit rigtige indhold: fixtures bygges syntetisk og mærkes som sådan.
 - **Ingen opfundne priser.** Planen fastlægger `pricing`-strukturen; tallene leveres ved profil-GO fra en citeret kilde.
 - **Modelpolitikken ændres ikke.** `gpt-5.6-terra` er arbejdshesten; `gpt-5.6-sol` kræver `escalation_reason` og kun på validator-flaggede records.
 
@@ -125,7 +125,11 @@ Denne task kommer **før** runneren, fordi dens resultat bestemmer runnerens for
 - [ ] **Step 1.** `BatchManifest` udvides med `prompt_sha256`, `exclusion_sha256`, `pricing_version`, `usage`. **Afgør eksplicit**, om `token_count` bliver et afledt felt af `usage` eller bevares — `complete_batch` og `reusable` (`evidence_extract.py:~296`) læser det i dag, og begge skal forblive grønne.
 - [ ] **Step 2.** `pricing` i profilen: pr. model-id, med egen version. Model uden pris **stopper** kørslen (§6.4). Planen fastlægger strukturen; **tallene indsættes ved profil-GO fra en citeret kilde** og opfindes ikke her.
 - [ ] **Step 3.** Skriv i manifestets dokumentation, at `cost_usd` er et *referencetal*: kørslen betales over abonnement (§6.7), så beløbet er en sammenlignelighedsstørrelse, ikke en faktura.
-- [ ] **Step 4.** Batchstørrelse: §6.4 siger 5-10 records. **Begrund valget på probens måling** — 21.554 input-tokens er fast overhead pr. kald, nyttelasten var 1,1 %. Ved én record pr. kald koster 591 records ~12,7 M input-tokens, hvoraf under 1 % er data. Skriv regnestykket ind, så efterfølgeren ser hvorfor, ikke bare hvad. Bemærk samtidig, at §6.1 kræver **én record ad gangen** i modellens kontekst: batchen er en regnskabs- og cache-enhed, ikke et fælles kald. Er de to krav i modstrid, vinder §6.1, og batchstørrelsen får kun betydning for kvotestyring.
+- [ ] **Step 4.** Batchstørrelse og budget. De to spec-krav ser ud til at trække hver sin vej, men gør det ikke: §6.1 er ubetinget (modellen ser **én record ad gangen**, og claims citerer ordinaler fra netop den records klausuler), §6.3's cache-nøgle er **pr. record**, og §6.4's »batches 5-10 records« er granulariteten for *manifest og regnskab* — ikke et fælles kald. Batchen er en regnskabs- og kvoteenhed.
+
+  **Konsekvensen skal skrives eksplicit ind, fordi den er ubehagelig:** ét kald pr. record betyder, at probens ~21.554 input-tokens i fast overhead betales **pr. record**. De ~12,7 M input-tokens for 591 records er derfor den *faktiske* projektion, ikke et skrækeksempel, som batchning kan fjerne. Batchning amortiserer intet her.
+
+  Den eneste tilgængelige amortisering er udbyderens egen prompt-cache — proben så 11.008 af 21.554 tokens cachet ved andet kald. Den effekt **skal måles i 4.3b** pr. batch og må ikke antages: den afhænger af, hvor tæt kaldene ligger i tid, og den er uden for vores kontrol.
 - [ ] **Step 5.** Profil 2018-20 → **v1.3.0** (`pricing` + ny `prompt_version`). 1939-profilen urørt. `requires_human_go_for_change` gælder: bumpet kræver projektejerens GO.
 
 **Verify:** `test_reimport_profile.py` og `test_evidence_extract.py` grønne; en profil uden `pricing` for den valgte model afvises med navngivet token.
@@ -172,4 +176,4 @@ Planen skal læses af Codex `gpt-5.6-sol` før kodning, jf. decisions 2026-09-06
 1. **De tre spec-afvigelser.** De er alle til planforfatterens fordel (mere kontrol, nyere fil, ekstra flag) — netop derfor skal de efterprøves af en, der ikke har skrevet dem. Jf. `bekvemme-argumenter-i-egne-rulings`.
 2. **Om afvigelse C er tilstrækkelig.** En per-kald mappe uden for repoet er en grænse, hvis sandboxen respekterer den. Kanariemålingen i Task 2 Step 1 skal afgøre det — planen må ikke hvile på, at den *formentlig* gør.
 3. **Om `validate_record_claims` genbruger nok.** Et parallelt vokabular eller en anden datoform ville drive fra 4.2's tabel og først vise sig i 4.4.
-4. **Om batchstørrelsen giver mening**, når §6.1 samtidig kræver én record ad gangen i modellens kontekst.
+4. **Om budgettallet i Task 4 Step 4 er ærligt.** Ét kald pr. record gør probens overhead til den faktiske regning (~12,7 M input-tokens for 591 records). Er der en amortisering, planen har overset — eller taler den tallet ned?
