@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-09-12 — Trin 4, dagsværk 4.3a: runneren er kørt ende til ende (#147)
+
+Gren `feat/147-eligibility-ledger`. Ingen prod-berøring, ingen rigtige records.
+
+**Hele kæden kørt på én opdigtet post:** eligibility-ledger → preflight → call-dir →
+Seatbelt-gate → `codex exec` → usage → claim-validering → cache → gentagelse. Alle otte
+krav opfyldt: udelukkede og ukendte records nåede aldrig modellen (sømmen kastede ikke),
+`GATE_OK` før kaldet, forbrug rapporteret, outputskemaet holdt med 4 claims, cache-hit ved
+gentagelse, kanariestrengen lækkede ikke, 3/3 fejltyper klassificeret.
+
+**Modellen udtrak det rigtige.** `person.birth` »f. 21. Juni 1710«, `mention.place`
+»Fiktivborg«, `person.title` »Kammerjunker«, `person.death` »Død 4. Maj 1789« — datoerne
+**ordret**, ikke omskrevet til ISO, og stedet klassificeret som omtale frem for
+fødselsfaktum. Hvert claim citerer sin klausul. Forbrug: 17.376 input / 352 output / 177
+reasoning mod 15.266 i probens baseline, så prompt + post koster ~2.100 tokens.
+
+**To fejl, kun kørslen kunne finde.** Kontraktfilen validerede fint i Python og blev afvist
+to gange af API'et: `oneOf` er ikke tilladt i et structured-output-skema (rettet til
+`anyOf`), og **alle** felter skal stå i `required` — valgfrihed udtrykkes med `null`, ikke
+med fravær. Begge er nu kommenteret i skemaet med måledato, så de ikke »ryddes op« igen.
+Samme mønster som stderr-fejlen i Task 3: prisen for »ingen test starter Codex« er, at den
+sti skal køres for alvor mindst én gang.
+
+**Ærligt om kanarietesten.** Den svarede `{"claims":[]}` frem for `KAN IKKE LÆSE`, fordi
+`--output-schema` tvinger svarets form. Kanarien beviser derfor kun, at strengen ikke
+optrådte i strømmen; det stærke bevis er adgangstesten, som kører uden model og
+deterministisk får `EACCES`. Testen er beviset, kanarien er en stikprøve.
+
+**Task 5 samme dag:** eligibility-ledgeren. Grundreglen er, at *fravær ikke er tilladelse* —
+en record, der ikke står som `eligible`, afvises, og preflighten kører før prompt, call-dir
+og subproces bygges. Beviset er en søm, der kaster, hvis den overhovedet kaldes.
+
+**Udestår:** `export_model_eligibility.R` er aldrig kørt mod en database, så §9.2's tal
+(46+4 / 13 / 62 / 2) er ikke genmålt. Ledgeren må ikke bruges til et rigtigt modelkald før
+den kørsel. Rapport: `docs/evidensbaseret-genimport/runner-rehearsal-147-4-3a.md`.
+
 ## 2026-09-11 — Trin 4: forbrugsproben til 4.3a lukker 4.3's stopbetingelse (#147)
 
 Gren `feat/147-runner-forbrugsprobe`. Ingen prod-berøring, ingen rigtige data.
