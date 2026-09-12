@@ -139,17 +139,26 @@ text_filter AS (
    WHERE sr.source_id = $1
    GROUP BY sr.record_key
 ),
--- record-input-hashen binder ledgerens godkendelse til ÉT bestemt input
+-- Record-input-hashen binder ledgerens godkendelse til ÉT bestemt input.
+--
+-- Definitionen SKAL være identisk med `evidence_runner.canonical_record_input`:
+-- sha256 af HELPOSTENS ordrette tekst, intet andet. Et tidligere udkast hashede
+-- string_agg over alle observationer — inklusive klausulbørnene, når writeren var
+-- kørt — mens Python hashede en JSON-serialisering af record-objektet. De to kunne
+-- aldrig matche, så kontrollen ville enten afvise alt eller blive omgået.
+-- (Anden læsers fund 3 ved reviewet af plan 4.3b.)
+--
+-- Helposten er det rigtige anker: klausulerne er udskåret af netop den tekst, så
+-- ændrer teksten sig, er klausulerne også andre.
 record_input AS (
   SELECT sr.record_key,
-         encode(extensions.digest(string_agg(ob.verbatim_text, E'\\n'
-                                             ORDER BY ob.char_from), 'sha256'), 'hex') AS input_sha
+         encode(extensions.digest(ob.verbatim_text, 'sha256'), 'hex') AS input_sha
     FROM private.source_record sr
     JOIN private.source_record_anchor_current a ON a.source_record_id = sr.id
                                                AND a.decision_status = 'accepted'
     JOIN private.source_observation ob ON ob.occurrence_id = a.occurrence_id
+                                      AND ob.parent_observation_id IS NULL
    WHERE sr.source_id = $1
-   GROUP BY sr.record_key
 )
 SELECT sr.record_key,
        COALESCE(principal.hit, TRUE)   AS principal_living,

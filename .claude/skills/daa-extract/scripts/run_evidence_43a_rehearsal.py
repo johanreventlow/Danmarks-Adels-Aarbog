@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import evidence_extract
 import evidence_runner
 from evidence_runner import (LEDGER_SCHEMA_VERSION, ResponseCache, RunnerError,
+                             canonical_record_input,
                              build_gate_profile, build_gated_argv, prepare_call_dir,
                              run_record_guarded, sha256_text)
 
@@ -54,7 +55,9 @@ RECORD = {
 for clause in RECORD["clauses"]:
     clause["verbatim_sha256"] = sha256_text(clause["verbatim_text"])
 
-RECORD_INPUT_SHA = sha256_text(json.dumps(RECORD, ensure_ascii=False, sort_keys=True))
+# Helposten er ankeret for input-identiteten (se canonical_record_input).
+RECORD["post_verbatim_text"] = " ".join(c["verbatim_text"] for c in RECORD["clauses"])
+RECORD_INPUT_SHA = canonical_record_input(RECORD)
 
 
 def make_ledger(status="eligible", reasons=()):
@@ -107,8 +110,7 @@ def main() -> int:
     print(f"  [1/6] udelukket record stoppet før kaldet: {spaerret.log_line()}")
 
     ukendt = run_record_guarded({**RECORD, "record_key": "FINDES-IKKE"},
-                                ledger=make_ledger(), record_input_sha256=RECORD_INPUT_SHA,
-                                ident=ident, cache=cache, run=eksploderende_soem)
+                                ledger=make_ledger(), ident=ident, cache=cache, run=eksploderende_soem)
     assert ukendt.error_kind == "not_eligible"
     rapport["trin"]["ukendt_record_stoppes"] = {"kind": ukendt.error_kind, "codex_startet": False}
     print(f"  [2/6] ukendt record stoppet (fravær er ikke tilladelse): {ukendt.log_line()}")
@@ -136,14 +138,18 @@ def main() -> int:
             print("GATE_FAILED — stopper. Intet modelkald må køre gennem denne profil.")
             return 1
 
+        # Bind prompten til PRÆCIS det objekt, guarden så — ikke til en global
+        # variabel. Anden læsers fund 2: ellers beviser værnet ikke, at det
+        # guardede input er det afsendte.
+        afsendt = RECORD
+
         def gated_run(argv, *, cwd=None, timeout=600):
             fuld = build_gated_argv(profile_path=str(profil_sti), model=profile["model_id"],
                                     call_dir=str(call_dir), schema_path=str(call_dir / "schema.json"),
-                                    prompt=prompt + "\n\n" + json.dumps(RECORD, ensure_ascii=False))
+                                    prompt=prompt + "\n\n" + json.dumps(afsendt, ensure_ascii=False))
             return evidence_runner.run_codex(fuld, cwd=str(call_dir), timeout=timeout)
 
         foerste = run_record_guarded(RECORD, ledger=make_ledger(),
-                                     record_input_sha256=RECORD_INPUT_SHA,
                                      ident=ident, cache=cache, run=gated_run)
         rapport["trin"]["foerste_kald"] = {"status": foerste.status, "kind": foerste.error_kind,
                                            "usage": dict(foerste.usage or {}),
@@ -165,7 +171,7 @@ def main() -> int:
         print(f"  [5/6] kanarie: lækket={laekket} svar={svar[:40]!r}")
 
     # --- 3. gentagelsen skal ramme cachen ----------------------------------
-    andet = run_record_guarded(RECORD, ledger=make_ledger(), record_input_sha256=RECORD_INPUT_SHA,
+    andet = run_record_guarded(RECORD, ledger=make_ledger(),
                                ident=ident, cache=cache, run=eksploderende_soem)
     rapport["trin"]["andet_kald"] = {"status": andet.status, "fra_cache": andet.from_cache}
     print(f"  [6/6] andet kald: {andet.log_line()}")

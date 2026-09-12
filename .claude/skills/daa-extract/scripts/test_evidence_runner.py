@@ -23,6 +23,7 @@ def export(**overrides):
     base = {
         "record_key": "I-42",
         "persona_id": "persona-1",
+        "post_verbatim_text": "Født 1. jan. 1800 i Fiktivby. Blev cand.jur. 1825.",
         "clauses": [
             {"ordinal": 1, "verbatim_text": "Født 1. jan. 1800 i Fiktivby.",
              "verbatim_sha256": evidence_runner.sha256_text("Født 1. jan. 1800 i Fiktivby.")},
@@ -523,14 +524,14 @@ def test_the_legacy_trin3_prompt_is_left_alone():
 # i øvrigt er gyldig og hashen passer.
 # ===========================================================================
 
-from evidence_runner import (EligibilityError, LEDGER_SCHEMA_VERSION, check_eligibility,
-                             load_ledger, run_record_guarded)
+from evidence_runner import (EligibilityError, LEDGER_SCHEMA_VERSION, canonical_record_input,
+                             check_eligibility, load_ledger, run_record_guarded)
 
 
 def ledger_rows(**overrides):
     rows = {
         "I-42": {"status": "eligible", "reasons": [],
-                 "record_input_sha256": "b" * 64},
+                 "record_input_sha256": canonical_record_input(export())},
         "I-99": {"status": "excluded", "reasons": ["principal_living"],
                  "record_input_sha256": "c" * 64},
         "I-50": {"status": "excluded",
@@ -599,7 +600,7 @@ def test_reasons_must_come_from_the_closed_rule_set():
 # --- opslaget: fravær er ikke tilladelse ---------------------------------
 
 def test_an_eligible_record_passes():
-    assert check_eligibility(ledger(), "I-42", "b" * 64) == "eligible"
+    assert check_eligibility(ledger(), "I-42", canonical_record_input(export())) == "eligible"
 
 
 @pytest.mark.parametrize("aarsag", ["principal_living", "relative_living",
@@ -630,21 +631,36 @@ def test_an_unknown_record_is_refused_not_allowed():
 def test_an_eligible_row_with_a_drifted_input_hash_is_refused():
     """Ledgeren godkendte ét input. Sendes et andet, gælder godkendelsen ikke."""
     with pytest.raises(EligibilityError, match="RECORD_INPUT_DRIFT"):
-        check_eligibility(ledger(), "I-42", "0" * 64)
+        check_eligibility(ledger(), "I-42", canonical_record_input(
+            export(post_verbatim_text="En anden tekst end den godkendte.")))
+
+
+def test_the_canonical_hash_is_the_post_text_alone():
+    """ÉN definition, brugt af både ledger-eksporten (SQL) og runneren (Python).
+    Et tidligere udkast hashede forskellige ting de to steder, så kontrollen enten
+    afviste alt eller blev omgået (anden læsers fund 3)."""
+    e = export()
+    assert canonical_record_input(e) == evidence_runner.sha256_text(e["post_verbatim_text"])
+
+
+def test_a_record_without_post_text_cannot_be_hashed():
+    """Fail-closed: uden et input at binde godkendelsen til er der intet at godkende."""
+    uden = {k: v for k, v in export().items() if k != "post_verbatim_text"}
+    with pytest.raises(EligibilityError, match="RECORD_INPUT_TEXT_MISSING"):
+        canonical_record_input(uden)
 
 
 # --- værnet foran runneren ------------------------------------------------
 
-@pytest.mark.parametrize("record_key,input_sha", [
-    ("I-99", "c" * 64),            # excluded
-    ("I-UKENDT", "a" * 64),        # står ikke i ledgeren
-    ("I-42", "0" * 64),            # eligible, men forkert input
+@pytest.mark.parametrize("record_key,overrides", [
+    ("I-99", {}),                                              # excluded
+    ("I-UKENDT", {}),                                          # står ikke i ledgeren
+    ("I-42", {"post_verbatim_text": "En HELT anden tekst."}),   # eligible nøgle, andet input
 ])
-def test_codex_is_never_started_for_a_non_eligible_record(tmp_path, record_key, input_sha):
+def test_codex_is_never_started_for_a_non_eligible_record(tmp_path, record_key, overrides):
     """BEVISET, ikke blot en returværdi: sømmen kaster, hvis den overhovedet kaldes.
     Består testen, er modellen aldrig blevet spurgt."""
-    outcome = run_record_guarded(export(record_key=record_key), ledger=ledger(),
-                                 record_input_sha256=input_sha,
+    outcome = run_record_guarded(export(record_key=record_key, **overrides), ledger=ledger(),
                                  ident=cache_ident(), cache=ResponseCache(tmp_path),
                                  run=exploding_seam)
     assert outcome.status == "failed"
@@ -654,7 +670,6 @@ def test_codex_is_never_started_for_a_non_eligible_record(tmp_path, record_key, 
 def test_the_guard_lets_an_eligible_record_through(tmp_path):
     last = json.dumps({"claims": []})
     outcome = run_record_guarded(export(record_key="I-42"), ledger=ledger(),
-                                 record_input_sha256="b" * 64,
                                  ident=cache_ident(), cache=ResponseCache(tmp_path),
                                  run=seam_returning("turn-completed-with-usage.jsonl", last))
     assert outcome.status == "green"
@@ -663,7 +678,6 @@ def test_the_guard_lets_an_eligible_record_through(tmp_path):
 def test_an_excluded_record_stays_visible_in_the_accounting(tmp_path):
     """Step 6: udelukkede records er ikke tab. De skal kunne ses i logget."""
     outcome = run_record_guarded(export(record_key="I-50"), ledger=ledger(),
-                                 record_input_sha256="d" * 64,
                                  ident=cache_ident(), cache=ResponseCache(tmp_path),
                                  run=exploding_seam)
     linje = outcome.log_line()
