@@ -2,6 +2,40 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: tærskler og opdeling for dagsværk 4.3b (2026-09-12)
+
+**Baggrund.** Plan 4.3b afgør, om modellen kan udtrække brugbare fakta af ægte DAA-prosa.
+Anden læser påpegede, at et enkelt procenttal kun måler præcision: en model, der returnerer
+ét sikkert claim og overspringer resten, ville score 100 % og dermed få grønt lys til et
+ubrugeligt spor. Kriteriet blev derfor delt i fem mål, og planen fik til opgave at foreslå
+tal frem for at bede projektejeren opfinde målemetoden.
+
+**Besluttet (projektejer, 2026-09-12):** de foreslåede tærskler gælder, og afvigelse E
+(ti records kørt som 5 + 5) er godkendt.
+
+| Mål | Nævner | Tærskel |
+| --- | --- | --- |
+| Præcision — claimet er sandt ifølge teksten | alle claims | ≥ 90 % |
+| Klausulbinding — citerer den rigtige klausul | alle claims | ≥ 90 % |
+| Ordrethed — værdien er ordret hvor prædikatet kræver det | claims m. ordret krav | ≥ 95 % |
+| Dækning — andel af annoterede udsagn, modellen fandt | annoterede udsagn | ≥ 60 % |
+| Brugbarhed — records med mindst ét korrekt claim | ti records | 10/10 |
+
+Uanset procenterne standser sporet øjeblikkeligt ved to fejltyper: et claim om en **levende**
+person, eller et claim der citerer en klausul fra en **anden** record.
+
+**Grundlaget er et kvalificeret skøn, ikke empiri.** Projektejeren tilkendegav, at der ikke
+foreligger et informeret grundlag for at ændre tallene, og accepterede dem som de er. Det er
+en bevidst afgørelse, ikke en forglemmelse: pointen er ikke, at 90 er det rigtige tal, men at
+**der står et tal før kørslen**, så et resultat ikke kan bortforklares bagefter. Første
+kørsel er netop det grundlag, der mangler — tærsklerne revideres efter 4.3b, hvis den viser,
+at de sidder forkert.
+
+**Afvigelse E.** §6.5 kræver ti records. De køres som to bundter på fem, så prisen for at
+opdage en promptfejl halveres. Alle ti defineres **før** første kald og køres under samme
+frosne profil, prompt, model og outputskema; ændres prompten undervejs, nulstilles beviset,
+og ti nye records køres under den nye version.
+
 ## BESLUTTET: ingen prisberegning i fortolkningskæden — afvigelse D (2026-09-12)
 
 **Baggrund.** Spec §6.4 (godkendt 2026-09-06) kræver, at manifestet bærer en omkostning
