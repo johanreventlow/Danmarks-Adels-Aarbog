@@ -84,6 +84,32 @@ CLAUSE_RULE_KEYS = {"version", "terminators", "non_terminal_abbreviations", "ini
                     "gap_charset", "intraword_chars"}
 
 
+REFERENCES = ROOT / ".claude/skills/daa-extract/references"
+
+
+def resolve_prompt(prompt_file: str, prompt_sha256: str) -> str:
+    """Læs den prompt, en profil peger på, og bekræft dens hash (#147 4.3a).
+
+    Før dette var `prompt_version` en ren streng, som ingen kode bandt til en fil:
+    profilen sagde `evidence-extract-1.0.0`, mens `extract-prompt.md` sagde
+    `2026-07-29b`, og de to havde intet med hinanden at gøre.  Nu er `prompt_sha256`
+    i manifestet et bevis frem for en påstand — de bytes, der sendes til modellen,
+    er de samme, der blev hashet.
+
+    Filnavnet må ikke kunne pege ud af `references/`.
+    """
+    if (not isinstance(prompt_file, str) or not prompt_file
+            or "/" in prompt_file or "\\" in prompt_file or prompt_file.startswith(".")):
+        raise ExtractionError("EXTRACTION_PROMPT_FILE_INVALID")
+    path = REFERENCES / prompt_file
+    if not path.is_file():
+        raise ExtractionError("EXTRACTION_PROMPT_FILE_MISSING")
+    text = path.read_text(encoding="utf-8")
+    if hashlib.sha256(text.encode("utf-8")).hexdigest() != prompt_sha256:
+        raise ExtractionError("EXTRACTION_PROMPT_FILE_DRIFT")
+    return text
+
+
 def validate_clause_rules(rules: Any) -> None:
     if not isinstance(rules, Mapping) or set(rules) != CLAUSE_RULE_KEYS:
         raise ExtractionError("EXTRACTION_CLAUSE_RULES_INVALID")
@@ -120,6 +146,13 @@ def load_profile(profile_id: str, path: Path = PROFILES) -> Mapping[str, Any]:
         raise ExtractionError("EXTRACTION_PROFILE_INVALID")
     if "clause_rules" in profile:
         validate_clause_rules(profile["clause_rules"])
+    # En profil MÅ mangle prompt-bindingen — 1939 gør, indtil trin 6 giver den en.
+    # Men bærer den én, skal filen findes og hashen holde; runneren afviser en profil
+    # uden binding frem for at gætte en prompt.
+    if "prompt_file" in profile or "prompt_sha256" in profile:
+        if "prompt_file" not in profile or "prompt_sha256" not in profile:
+            raise ExtractionError("EXTRACTION_PROMPT_BINDING_INCOMPLETE")
+        resolve_prompt(profile["prompt_file"], profile["prompt_sha256"])
     return {"profile_id": profile_id, **profile}
 
 
@@ -137,6 +170,21 @@ class BatchManifest:
     token_count: int | None = None
     cost_usd: float | None = None
     validation_status: str = "pending"
+    # 4.3a (spec §6.2): det, kaldet faktisk blev bundet af.  `prompt_sha256` dækker
+    # prompten, `exclusion_sha256` den eligibility-ledger runneren slog op i.  `usage`
+    # er Codex' eget femfeltsregnskab — RÅ TOKENTAL, der kommer gratis med svaret.
+    #
+    # Der er BEVIDST ingen prisberegning: kørslerne afregnes over abonnement, ikke pr.
+    # token, så en kroneomregning ville være et tal uden modstykke i virkeligheden
+    # (projektejerens afgørelse 2026-09-12).  Tokentallene beholdes, fordi de er det,
+    # der siger, om en større kørsel kan gennemføres inden for kvoten.
+    #
+    # `token_count` BEVARES som selvstændigt felt frem for at blive afledt af `usage`:
+    # `complete_batch` og `reusable` læser det i dag, og manifests skrevet før 4.3a har
+    # ingen `usage`.  De to må ikke modsige hinanden — se `validate`.
+    prompt_sha256: str | None = None
+    exclusion_sha256: str | None = None
+    usage: Mapping[str, Any] | None = None
 
     def validate(self) -> None:
         if (not self.record_keys or len(self.record_keys) != len(set(self.record_keys))
@@ -152,6 +200,13 @@ class BatchManifest:
             raise ExtractionError("EXTRACTION_VALIDATION_STATUS_INVALID")
         if self.validation_status == "green" and (not self.output_hash or self.token_count is None or self.cost_usd is None):
             raise ExtractionError("EXTRACTION_GREEN_ACCOUNTING_REQUIRED")
+        if self.usage is not None:
+            if not isinstance(self.usage, Mapping):
+                raise ExtractionError("EXTRACTION_USAGE_INVALID")
+            # Et regnskab, der modsiger sin egen totalsum, er værre end intet.
+            billed = self.usage.get("input_tokens", 0) + self.usage.get("output_tokens", 0)
+            if self.token_count is not None and billed and self.token_count != billed:
+                raise ExtractionError("EXTRACTION_USAGE_TOKEN_COUNT_CONFLICT")
 
 
 def manifest_payload(manifest: BatchManifest) -> dict[str, Any]:
@@ -290,7 +345,12 @@ def build_interpretation_candidates(output: Mapping[str, Any], *, source_id: int
 
 def reusable(existing: BatchManifest, candidate: BatchManifest) -> bool:
     """A changed input, profile, prompt or model always forces a fresh run."""
+    # 4.3a / anden læsers R7: de nye felter skal indgå i GENBRUGSBESLUTNINGEN, ikke
+    # kun bæres i payloaden.  Ændret prompt, ændret udelukkelsesgrundlag eller ændret
+    # pristabel betyder, at det gamle svar ikke længere svarer på det samme spørgsmål.
     return (existing.validation_status == "green" and existing.input_hash == candidate.input_hash
             and existing.profile_id == candidate.profile_id and existing.profile_version == candidate.profile_version
             and existing.effective_model_id == candidate.effective_model_id
-            and existing.prompt_version == candidate.prompt_version and existing.record_keys == candidate.record_keys)
+            and existing.prompt_version == candidate.prompt_version and existing.record_keys == candidate.record_keys
+            and existing.prompt_sha256 == candidate.prompt_sha256
+            and existing.exclusion_sha256 == candidate.exclusion_sha256)

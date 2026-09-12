@@ -2,6 +2,89 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: ingen prisberegning i fortolkningskæden — afvigelse D (2026-09-12)
+
+**Baggrund.** Spec §6.4 (godkendt 2026-09-06) kræver, at manifestet bærer en omkostning
+regnet ud fra en pinnet `pricing`-tabel pr. model, og at en model uden pris stopper kørslen.
+`cost_usd` har ligget som felt i `BatchManifest` siden før trin 4. Plan 4.3a's Task 4 skulle
+fastlægge skema og cost-formel; anden læser (R10) påpegede, at formlen krævede flere
+selvstændige afgørelser — tæller `reasoning_output_tokens` som output, hvordan prissættes
+`cached_input_tokens` og `cache_write_input_tokens`, valuta, kildedato, afrunding.
+
+**Besluttet (projektejer, 2026-09-12): prisberegningen udgår.** Kørslerne afregnes over
+abonnement, ikke pr. token (§6.7 anerkender det selv), så en kroneomregning ville være et tal
+uden modstykke i virkeligheden — og et tal, der ville se lige så autoritativt ud i manifestet
+som et målt. Vurderingen er, at det er overengineering i forhold til opgaven: at importere
+årbøgerne.
+
+**Hvad der beholdes.** De rå tokental fra Codex' `usage` (fem felter) registreres fortsat.
+De koster intet at samle op, de kommer med svaret, og de er det, der faktisk afgør, om en
+større kørsel kan gennemføres inden for kvoten. Det er kvoten, ikke kronebeløbet, der er den
+bindende grænse.
+
+**Samme afgørelse omfatter eskaleringsgaten.** §6.4 kræver også, at kun validator-flaggede
+records må bruge `gpt-5.6-sol`. Den implementeres ikke: runneren vælger ikke selv model, og
+der findes ingen automatisk eskalering at gardere sig imod — gaten ville værne mod noget, der
+ikke kan ske af sig selv. `escalation_reason` håndhæves fortsat af den eksisterende kode.
+Tilføjes den dag, en kørsel faktisk har brug for den stærkere model.
+
+**Virkning.** `pricing_version` er fjernet fra `BatchManifest` og fra `reusable`. Task 4's
+Step 2-3 og Step 7 udgår, så dagsværkets Task 4 er reduceret til prompt-bindingen alene.
+Budgetter opgøres i tokens. `BatchManifest` bærer en kommentar om, at fraværet er bevidst, så
+en senere læser ikke tilføjer det igen som en oversigelse.
+
+## BESLUTTET: Tre spec-afvigelser for dagsværk 4.3a — A, B og C (2026-09-11)
+
+**Baggrund.** Plan 4.3a (`docs/superpowers/plans/2026-09-11-trin4-4-3a-runner-og-forbrug.md`)
+rejste tre afvigelser fra den godkendte trin 4-spec. To blev fundet ved måling, én ved
+kodeeftersyn. Codex `gpt-5.6-sol` læste planen som anden læser (decisions 2026-09-06, valg 3)
+og fandt 12 fund, heraf tre blokerende.
+
+**Besluttet (projektejer, 2026-09-11): GO til alle tre.** C blev givet betinget — »hvis det er
+muligt« — og muligheden er efterprøvet empirisk samme dag, se nedenfor.
+
+**A. `--ignore-user-config` ind i §6.2's flagliste.** `--ignore-rules` dækker kun
+execpolicy-filer; brugerens `~/.codex/AGENTS.md`, `config.toml` og tre brugerskills injiceres
+stadig og udgør 6.288 af 21.554 input-tokens. Afgørende er ikke besparelsen, men at §6.2
+hash-binder prompten (`prompt_sha256`) for at gøre kaldet reproducerbart — mens brugerens
+private AGENTS.md ligger uden for hashen og kan ændre sig usynligt mellem to kørsler.
+*Fravalgt:* at leve med en hash, der kun dækker en del af konteksten.
+
+**B. `extract-prompt.md` omdøbes ikke; der skrives en ny prompt.** Spec §6.2's formulering
+byggede på en antagelse, som ikke holdt ved eftersyn: ingen kode binder profilens
+`prompt_version` til en fil (det er en ren streng), versionerne er forskellige
+(`evidence-extract-1.0.0` mod filens `2026-07-29b`), filens indhold er den gamle trin ③-vej
+(skriver `work/extracted/*.json` med Write, validerer mod `extraction-schema.json`), og
+`SKILL.md:104` bruger den stadig. En omdøbning ville give en fil, hvis navn lyver om
+indholdet, og samtidig bryde den gamle vej. *Fravalgt:* omdøbning som spec'en foreskrev.
+
+**C. »Én record ad gangen« håndhæves af operativsystemet, ikke af prompten.** Kanarietesten
+viste, at `--sandbox read-only` ikke er en læsegrænse: modellen eksekverede en
+shell-kommando og læste en fil uden for `-C`. Kravet er derfor en OS-håndhævet grænse.
+
+**C's mulighed er MÅLT, ikke antaget (2026-09-11).** macOS Seatbelt (`sandbox-exec`) kan
+håndhæve grænsen om `codex exec`:
+
+- Deterministisk adgangstest uden model: `work/`, `work_1939_stamtavle/`, `work_presens/`
+  og `~/.private/` gav alle `rc=1` (nægtet), mens `docs/` og call-dir forblev tilgængelige.
+- Modeltest mod en **syntetisk** spærret mappe: modellen forsøgte aktivt (»med en alternativ
+  læsemetode«) og svarede `KAN IKKE LÆSE`. Kanariestrengen optrådte ikke i hændelsesstrømmen.
+- Codex kører normalt inde i profilen (`usage` rapporteres; 15.256 input-tokens).
+
+**Formen blev strammet samme dag til en ægte allowlist.** Første udgave var deny-baseret
+(nægt de kendte PII-mapper) med den svaghed, at en ny mappe ikke ville være dækket. Den
+endelige form lukker **hele hjemmemappen** for læsning og åbner kun `~/.codex`, `~/.local` og
+call-dir. De tidligere `EPERM`-fejl skyldtes ikke manglende stier, men at kaldet blev startet
+fra en mappe, profilen selv spærrede — processens arbejdsmappe skal ligge uden for
+spærringen.
+
+**Restpunkt.** Codex' egen `~/.codex/auth.json` er stadig læsbar for modellen; det er en
+forudsætning for at CLI'en kan køre. Ingen forværring i forhold til i dag, men ikke lukket.
+Registreret som Task 2 Step 1c.
+
+**Konsekvens for planen:** Task 2's isolationsgate er bestået i princippet, så 4.3 standser
+ikke. Task 2 strammer profilen mod en allowlist og gør adgangstesten til et fast trin.
+
 ## BESLUTTET: Prædikatvokabularet ejes af databasen, ikke af extractoren (2026-09-11)
 
 **Baggrund.** Fortolkningslagets lovlige prædikater fandtes to steder: en hårdkodet
