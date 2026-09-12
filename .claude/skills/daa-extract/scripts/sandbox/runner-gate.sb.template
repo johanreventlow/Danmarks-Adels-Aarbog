@@ -38,15 +38,22 @@
 ; --- Hele hjemmemappen er lukket land ---
 (deny file-read* (subpath "__HOME__"))
 
-; --- Undtagelse 1: Codex' egen installation, login og runtime ---
+; --- Undtagelse 1: Codex' egen installation og login ---
+; Holdes så snæver som muligt. ~/Library var med i et tidligt udkast som et GÆT
+; ("macOS bruger den massivt") og blev efterprøvet: Codex kører fint uden. Den er
+; fjernet igen, fordi ~/Library/Keychains var læsbar med den åben — og fordi
+; Messages, Mail og Safari-historik bor samme sted. Tilføj den ikke tilbage uden
+; at have målt, at et kald faktisk fejler uden den.
 (allow file-read* (subpath "__HOME__/.codex"))
 (allow file-read* (subpath "__HOME__/.local"))
-(allow file-read* (subpath "__HOME__/Library"))
 
 ; --- Undtagelse 2: kaldets egen mappe — det ENESTE, modellen skal se ---
 (allow file-read* (subpath "__CALL_DIR__"))
 
 ; Metadata (stat) må læses; indhold er stadig spærret af reglerne ovenfor.
+; BEMÆRK: denne regel vinder over HOME-spærringen, så filnavne og -størrelser kan
+; aflæses (fx at ~/.private rummer et dump og hvor stort det er). Indholdet kan ikke.
+; Bevidst afvejning: uden metadata-læsning bliver almindelig værktøjsbrug upålidelig.
 (allow file-read-metadata)
 
 ; --- Ekstra spærringer fra kalderen (fx en syntetisk mappe under test) ---

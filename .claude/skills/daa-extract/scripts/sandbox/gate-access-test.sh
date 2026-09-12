@@ -35,6 +35,12 @@ naegtet      "work_presens/"           "$REPO/work_presens"
 naegtet      "~/.private/ (prod-dump)" "$HOME/.private"
 naegtet      "hele repoet"             "$REPO"
 naegtet      "hjemmemappen"            "$HOME"
+# Undermapper testes SÆRSKILT: "ls $HOME fejler" beviser ikke, at hele træet er
+# lukket — en åben understi ville ikke fremgå. ~/Library rummer nøgleringe, Mail,
+# Beskeder og Safari-historik og var faktisk læsbar i et tidligere udkast.
+naegtet      "~/Library/Keychains"     "$HOME/Library/Keychains"
+naegtet      "~/Library/Application Support" "$HOME/Library/Application Support"
+naegtet      "~/Documents"             "$HOME/Documents"
 echo "— skal være tilgængelige —"
 tilgaengelig "call-dir"                "$CALLDIR"
 if [ $fejl -ne 0 ]; then

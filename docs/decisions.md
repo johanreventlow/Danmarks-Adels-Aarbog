@@ -40,13 +40,16 @@ håndhæve grænsen om `codex exec`:
   læsemetode«) og svarede `KAN IKKE LÆSE`. Kanariestrengen optrådte ikke i hændelsesstrømmen.
 - Codex kører normalt inde i profilen (`usage` rapporteres; 15.256 input-tokens).
 
-**To ting, gaten IKKE viste, og som Task 2 skal lukke.** (1) Profilen er **deny-baseret** —
-den nægter de kendte PII-mapper — ikke en ren allowlist, som anden læser anbefalede. En ny
-PII-mappe ville ikke automatisk være dækket. En ren allowlist blev forsøgt først og fik Codex
-til at fejle med `EPERM`, fordi CLI'en har brug for flere stier i hjemmemappen end forudset;
-at finde det præcise minimum er ingeniørarbejde, ikke et principspørgsmål. (2) Codex' egen
-`~/.codex/auth.json` er stadig læsbar for modellen — det er ikke en forværring (den er det
-også i dag uden nogen grænse), men det er ikke lukket.
+**Formen blev strammet samme dag til en ægte allowlist.** Første udgave var deny-baseret
+(nægt de kendte PII-mapper) med den svaghed, at en ny mappe ikke ville være dækket. Den
+endelige form lukker **hele hjemmemappen** for læsning og åbner kun `~/.codex`, `~/.local` og
+call-dir. De tidligere `EPERM`-fejl skyldtes ikke manglende stier, men at kaldet blev startet
+fra en mappe, profilen selv spærrede — processens arbejdsmappe skal ligge uden for
+spærringen.
+
+**Restpunkt.** Codex' egen `~/.codex/auth.json` er stadig læsbar for modellen; det er en
+forudsætning for at CLI'en kan køre. Ingen forværring i forhold til i dag, men ikke lukket.
+Registreret som Task 2 Step 1c.
 
 **Konsekvens for planen:** Task 2's isolationsgate er bestået i princippet, så 4.3 standser
 ikke. Task 2 strammer profilen mod en allowlist og gør adgangstesten til et fast trin.
