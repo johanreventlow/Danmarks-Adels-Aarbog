@@ -425,10 +425,9 @@ def manifest(**overrides):
 @pytest.mark.parametrize("felt,vaerdi", [
     ("prompt_sha256", "f" * 64),
     ("exclusion_sha256", "e" * 64),
-    ("pricing_version", "pricing-2"),
 ])
 def test_reusable_is_false_when_a_new_manifest_field_changes(felt, vaerdi):
     """R7: de nye felter skal indgå i genbrugsbeslutningen, ikke bare i payloaden."""
-    existing = manifest(**{felt: "0" * 64 if felt.endswith("sha256") else "pricing-1"})
+    existing = manifest(**{felt: "0" * 64})
     candidate = manifest(**{felt: vaerdi})
     assert evidence_extract.reusable(existing, candidate) is False

@@ -227,7 +227,7 @@ Kører runneren et sted, hvorfra `work/`, `work_1939_stamtavle/`, restore-ekspor
 - **Ingen rigtige records gennem modellen.** 4.3a's eneste modelkald er på en syntetisk, ikke-identificerende record. De 10 afdøde records er 4.3b og kræver sin egen GO med hash-bundet eligibility-ledger — og at Task 2's isolationsgate er bestået.
 - **Fail-closed overalt.** Enhver fejl efterlader batchen `pending`. Der findes ingen delvis merge og ingen »grøn med forbehold«.
 - **Ingen kildetekst i logs, fejl eller fixtures.** Fejl logges med type, aldrig med tekst — det gælder også `stderr` fra Codex. Og en fejl fanget under 4.3b må **ikke** gemmes som fixture med sit rigtige indhold: fixtures bygges syntetisk og mærkes som sådan.
-- **Ingen opfundne priser.** Planen fastlægger `pricing`-skema og cost-formel; tallene leveres ved profil-GO fra en citeret kilde med dato.
+- **Ingen prisberegning.** Projektejerens afgørelse 2026-09-12: `pricing`/`cost_usd` udgår af dagsværket. Kørslerne afregnes over abonnement, ikke pr. token, så en kroneomregning ville være et tal uden modstykke. **Rå tokental beholdes** — de kommer gratis med svaret og er det, der siger, om en større kørsel kan gennemføres inden for kvoten.
 - **Private artefakter efter §9.1.** Call-dir `0700`, alle filer `0600`, atomisk oprettelse uden symlinks, privat placering uden for repoet, eksplicit ignore-regel for varige lokale artefakter. `tempfile`-standarder og brugerens `umask` er ikke kontrakten — rettighederne testes.
 - **Modelpolitikken ændres ikke.** `gpt-5.6-terra` er arbejdshesten; `gpt-5.6-sol` kræver `escalation_reason` og kun på validator-flaggede records.
 
@@ -299,11 +299,13 @@ Denne task kommer **før** runneren, fordi dens resultat bestemmer runnerens for
 ### Task 4: Regnskab, manifest og profilbump
 
 - [x] **Step 1. UDFØRT i Task 3.** `BatchManifest` er udvidet med `prompt_sha256`, `exclusion_sha256`, `pricing_version`, `usage`, og `reusable` bruger de tre første i genbrugsbeslutningen. **Afgjort:** `token_count` **bevares** som selvstændigt felt — `complete_batch` og `reusable` læser det, og manifests skrevet før 4.3a har ingen `usage`; i stedet afviser `validate` nu et `usage`, der modsiger `token_count` (`EXTRACTION_USAGE_TOKEN_COUNT_CONFLICT`). Oprindelig formulering — `complete_batch` og `reusable` (`evidence_extract.py:~296`) læser det i dag, og begge skal forblive grønne.
-- [ ] **Step 2.** `pricing` i profilen: pr. model-id, med egen version. Model uden pris **stopper** kørslen (§6.4). **Skema og cost-formel skal ligge fast før profil-GO** (R10) og besvare: tælles `reasoning_output_tokens` som output? Hvordan prissættes `cached_input_tokens` og `cache_write_input_tokens`? Enhed (pr. million tokens), valuta, kilde-URL og kildedato, samt decimalbaseret afrunding. Håndregnede tests pr. felt. **Tallene indsættes ved profil-GO fra en citeret kilde** og opfindes ikke her.
-- [ ] **Step 3.** Skriv i manifestets dokumentation, at `cost_usd` er et *referencetal*: kørslen betales over abonnement (§6.7), så beløbet er en sammenlignelighedsstørrelse, ikke en faktura.
+- [x] **Step 2. UDGÅR — afgjort af projektejeren 2026-09-12.** Spec §6.4's `pricing` og `cost_usd` implementeres ikke. Begrundelse: kørslerne afregnes over abonnement, ikke pr. token, så en kroneomregning ville være et tal uden modstykke i virkeligheden — og anden læsers R10 viste, at formlen ville kræve flere afgørelser (tæller reasoning som output? hvordan prissættes cachede tokens?) for at producere netop dét tal. **Afvigelse D fra spec §6.4**, registreret i `docs/decisions.md`. `pricing_version` er fjernet igen fra `BatchManifest` og `reusable`.
+- [x] **Step 3. UDGÅR** med Step 2. I stedet står det eksplicit i `BatchManifest`, at der bevidst ikke beregnes pris, og hvorfor — så en senere læser ikke tilføjer det igen som en oversigelse.
 - [ ] **Step 4.** Batchstørrelse og budget. De to spec-krav ser ud til at trække hver sin vej, men gør det ikke: §6.1 er ubetinget (modellen ser **én record ad gangen**, og claims citerer ordinaler fra netop den records klausuler), §6.3's cache-nøgle er **pr. record**, og §6.4's »batches 5-10 records« er granulariteten for *manifest og regnskab* — ikke et fælles kald. Batchen er en regnskabs- og kvoteenhed.
 
   Konsekvensen er, at probens faste overhead betales **pr. record**; batchning amortiserer intet. **Budgettet opgives som scenarier, ikke som ét tal** (R5 — den oprindelige plan brugte 21.554, målingen *med* brugerkonfiguration, selv om afvigelse A gør `--ignore-user-config` obligatorisk):
+
+  Budgettet opgøres i **tokens**, ikke i kroner (Step 2 udgår):
 
   | Scenarie | Overhead/kald | 591 records, før recordindhold | Status |
   | --- | --- | --- | --- |

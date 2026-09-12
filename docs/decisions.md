@@ -2,6 +2,30 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: ingen prisberegning i fortolkningskæden — afvigelse D (2026-09-12)
+
+**Baggrund.** Spec §6.4 (godkendt 2026-09-06) kræver, at manifestet bærer en omkostning
+regnet ud fra en pinnet `pricing`-tabel pr. model, og at en model uden pris stopper kørslen.
+`cost_usd` har ligget som felt i `BatchManifest` siden før trin 4. Plan 4.3a's Task 4 skulle
+fastlægge skema og cost-formel; anden læser (R10) påpegede, at formlen krævede flere
+selvstændige afgørelser — tæller `reasoning_output_tokens` som output, hvordan prissættes
+`cached_input_tokens` og `cache_write_input_tokens`, valuta, kildedato, afrunding.
+
+**Besluttet (projektejer, 2026-09-12): prisberegningen udgår.** Kørslerne afregnes over
+abonnement, ikke pr. token (§6.7 anerkender det selv), så en kroneomregning ville være et tal
+uden modstykke i virkeligheden — og et tal, der ville se lige så autoritativt ud i manifestet
+som et målt. Vurderingen er, at det er overengineering i forhold til opgaven: at importere
+årbøgerne.
+
+**Hvad der beholdes.** De rå tokental fra Codex' `usage` (fem felter) registreres fortsat.
+De koster intet at samle op, de kommer med svaret, og de er det, der faktisk afgør, om en
+større kørsel kan gennemføres inden for kvoten. Det er kvoten, ikke kronebeløbet, der er den
+bindende grænse.
+
+**Virkning.** `pricing_version` er fjernet fra `BatchManifest` og fra `reusable`. Task 4's
+Step 2-3 udgår. Budgetter opgøres i tokens. `BatchManifest` bærer en kommentar om, at
+fraværet er bevidst, så en senere læser ikke tilføjer det igen som en oversigelse.
+
 ## BESLUTTET: Tre spec-afvigelser for dagsværk 4.3a — A, B og C (2026-09-11)
 
 **Baggrund.** Plan 4.3a (`docs/superpowers/plans/2026-09-11-trin4-4-3a-runner-og-forbrug.md`)

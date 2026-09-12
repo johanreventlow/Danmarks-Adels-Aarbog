@@ -138,16 +138,19 @@ class BatchManifest:
     cost_usd: float | None = None
     validation_status: str = "pending"
     # 4.3a (spec §6.2): det, kaldet faktisk blev bundet af.  `prompt_sha256` dækker
-    # prompten, `exclusion_sha256` den eligibility-ledger runneren slog op i, og
-    # `pricing_version` den pristabel, `cost_usd` blev regnet med.  `usage` er Codex'
-    # eget femfeltsregnskab.
+    # prompten, `exclusion_sha256` den eligibility-ledger runneren slog op i.  `usage`
+    # er Codex' eget femfeltsregnskab — RÅ TOKENTAL, der kommer gratis med svaret.
+    #
+    # Der er BEVIDST ingen prisberegning: kørslerne afregnes over abonnement, ikke pr.
+    # token, så en kroneomregning ville være et tal uden modstykke i virkeligheden
+    # (projektejerens afgørelse 2026-09-12).  Tokentallene beholdes, fordi de er det,
+    # der siger, om en større kørsel kan gennemføres inden for kvoten.
     #
     # `token_count` BEVARES som selvstændigt felt frem for at blive afledt af `usage`:
     # `complete_batch` og `reusable` læser det i dag, og manifests skrevet før 4.3a har
     # ingen `usage`.  De to må ikke modsige hinanden — se `validate`.
     prompt_sha256: str | None = None
     exclusion_sha256: str | None = None
-    pricing_version: str | None = None
     usage: Mapping[str, Any] | None = None
 
     def validate(self) -> None:
@@ -317,5 +320,4 @@ def reusable(existing: BatchManifest, candidate: BatchManifest) -> bool:
             and existing.effective_model_id == candidate.effective_model_id
             and existing.prompt_version == candidate.prompt_version and existing.record_keys == candidate.record_keys
             and existing.prompt_sha256 == candidate.prompt_sha256
-            and existing.exclusion_sha256 == candidate.exclusion_sha256
-            and existing.pricing_version == candidate.pricing_version)
+            and existing.exclusion_sha256 == candidate.exclusion_sha256)
