@@ -6,29 +6,48 @@
 ; sætter arbejdsmappen, ikke en læsegrænse. Se
 ; docs/evidensbaseret-genimport/runner-usage-probe-147-4-3a.md.
 ;
-; ADVARSEL — denne profil er DENY-baseret, ikke en allowlist. Den nægter de KENDTE
-; PII-mapper. En ny mappe med persondata er IKKE automatisk dækket. En ren allowlist
-; er det rigtige mål (anden læsers anbefaling, R1) og er Task 2's arbejde; et første
-; forsøg fik Codex til at fejle med EPERM, fordi CLI'en har brug for flere stier i
-; hjemmemappen end forudset.
+; FORM: ægte allowlist inden for hjemmemappen. HELE __HOME__ er lukket for læsning —
+; herunder repoet med work/, work_1939_stamtavle/ og work_presens/ — og kun de stier,
+; Codex selv behøver, plus kaldets egen mappe, er åbne. En NY mappe med persondata
+; under hjemmemappen er dermed dækket automatisk; det var den svaghed, en tidligere
+; deny-baseret form havde.
 ;
-; Placeholders erstattes af kalderen: __REPO__, __HOME__, __EXTRA_DENY__
+; TO FÆLDER, som kostede tid første gang:
+;  1. Processens ARBEJDSMAPPE skal ligge uden for det spærrede område. Kører du
+;     `sandbox-exec ... codex exec` fra en mappe i __HOME__, fejler kaldet med
+;     "Operation not permitted" — ikke fordi profilen er forkert, men fordi cwd er
+;     spærret. Kald ALTID med call-dir som cwd.
+;  2. `(deny file-read*)` som udgangspunkt (ren allowlist over HELE filsystemet)
+;     knækker dyld: selv /bin/echo dør med SIGABRT. Systemstierne skal forblive
+;     åbne; det er hjemmemappen, der er den interessante grænse, fordi al PII bor der.
 ;
-; Brug:
-;   sandbox-exec -f <udfyldt profil> codex exec --model … -C <call-dir> …
+; Codex må IKKE sandboxe sig selv indeni: nestet Seatbelt fejler. Brug enten
+; `--sandbox read-only` UDEN ydre sandbox, eller denne ydre grænse — ikke begge som
+; indbyrdes afhængige. (Målt: `--sandbox read-only` virker fint inde i denne profil.)
 ;
-; Verificér ALTID med adgangstesten (gate-access-test.sh) før et rigtigt kald.
+; Placeholders erstattes af kalderen: __HOME__, __CALL_DIR__, __EXTRA_DENY__
+;
+; Brug (bemærk cd):
+;   cd <call-dir> && sandbox-exec -f <udfyldt profil> codex exec --model … -C <call-dir> …
+;
+; Verificér ALTID med gate-access-test.sh før et rigtigt kald.
 
 (version 1)
 (allow default)
 
-; --- Persondata: prosa om levende personer (invariant 8) ---
-(deny file-read* (subpath "__REPO__/work"))
-(deny file-read* (subpath "__REPO__/work_1939_stamtavle"))
-(deny file-read* (subpath "__REPO__/work_presens"))
+; --- Hele hjemmemappen er lukket land ---
+(deny file-read* (subpath "__HOME__"))
 
-; --- Produktionsdumps og private artefakter ---
-(deny file-read* (subpath "__HOME__/.private"))
+; --- Undtagelse 1: Codex' egen installation, login og runtime ---
+(allow file-read* (subpath "__HOME__/.codex"))
+(allow file-read* (subpath "__HOME__/.local"))
+(allow file-read* (subpath "__HOME__/Library"))
+
+; --- Undtagelse 2: kaldets egen mappe — det ENESTE, modellen skal se ---
+(allow file-read* (subpath "__CALL_DIR__"))
+
+; Metadata (stat) må læses; indhold er stadig spærret af reglerne ovenfor.
+(allow file-read-metadata)
 
 ; --- Ekstra spærringer fra kalderen (fx en syntetisk mappe under test) ---
 __EXTRA_DENY__

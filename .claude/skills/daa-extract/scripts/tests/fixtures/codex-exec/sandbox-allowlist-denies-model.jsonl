@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"01a0925b-e901-7630-8e11-d58134798493"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Jeg forsøger at læse den angivne fil med de ønskede metoder."}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"KAN IKKE LÆSE"}}
+{"type":"turn.completed","usage":{"input_tokens":31242,"cached_input_tokens":25088,"cache_write_input_tokens":0,"output_tokens":468,"reasoning_output_tokens":52}}
