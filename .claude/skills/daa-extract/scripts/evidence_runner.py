@@ -36,6 +36,24 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def canonical_record_input(export: Mapping[str, Any]) -> str:
+    """Den ENE definition af en records input-identitet.
+
+    Anden læser (4.3b-review, fund 3) fandt, at ledgeren og runneren hashede to
+    forskellige ting: R-eksporten `string_agg(verbatim_text)` over observationer,
+    Python en JSON-serialisering af hele record-objektet.  De kan aldrig matche, så
+    kontrollen ville enten afvise alt eller blive omgået for at komme videre.
+
+    Definitionen her er valgt, fordi BÅDE SQL og Python kan producere den bit for
+    bit: helpostens ordrette tekst, intet andet.  Klausulerne er udskåret af netop
+    den tekst, så ændrer den sig, er klausulerne også andre.
+    """
+    text = export.get("post_verbatim_text")
+    if not isinstance(text, str) or not text:
+        raise EligibilityError("RECORD_INPUT_TEXT_MISSING")
+    return sha256_text(text)
+
+
 def _clause_index(export: Mapping[str, Any]) -> dict[int, Mapping[str, Any]]:
     """Ordinal → klausul, med hashen efterprøvet undervejs.
 
@@ -523,20 +541,26 @@ def check_eligibility(ledger: Mapping[str, Any], record_key: str,
 
 
 def run_record_guarded(export: Mapping[str, Any], *, ledger: Mapping[str, Any],
-                       record_input_sha256: str, **kwargs) -> RecordOutcome:
+                       **kwargs) -> RecordOutcome:
     """`run_record` med eligibility-værnet foran.
 
     Preflighten kører FØR prompt, call-dir og subproces overhovedet bygges: en
     record, der ikke må sendes, efterlader intet spor på disken og starter aldrig
-    Codex.  Det er hele pointen med rækkefølgen — et værn, der først spørger efter
-    at have skrevet kildeteksten til en midlertidig mappe, har allerede fejlet.
+    Codex.  Et værn, der først spørger efter at have skrevet kildeteksten til en
+    midlertidig mappe, har allerede fejlet.
+
+    **Hashen beregnes HER af `export`** — den modtages ikke længere som argument.
+    Anden læser (4.3b-review, fund 2) påviste hullet: da kalderen selv angav
+    `record_input_sha256`, kunne den opgive en godkendt records nøgle og hash og
+    derefter sende et andet indhold videre.  Værnet beviste altså ikke, at det
+    guardede input var det afsendte.  Nu er de to pr. konstruktion det samme.
 
     Udelukkede records forsvinder ikke ud af regnskabet (§9.2): de får et synligt
     `not_eligible`-udfald med record-nøglen, så de kan tælles og ses i køen.
     """
     record_key = str(export.get("record_key", ""))
     try:
-        check_eligibility(ledger, record_key, record_input_sha256)
+        check_eligibility(ledger, record_key, canonical_record_input(export))
     except EligibilityError:
         return RecordOutcome(record_key, "failed", error_kind="not_eligible")
     return run_record(export, **kwargs)
