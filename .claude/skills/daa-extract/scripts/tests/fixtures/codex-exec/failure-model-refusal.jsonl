@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"00000000-0000-0000-0000-00000000r001"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"SYNTETISK FIXTURE — modellen afviser opgaven"}}
+{"type":"turn.failed","error":{"type":"refusal","message":"SYNTETISK FIXTURE — ikke et observeret svar"}}

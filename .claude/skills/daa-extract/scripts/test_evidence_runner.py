@@ -147,3 +147,231 @@ def test_claims_contract_file_matches_the_validator():
     claim_schema = schema["properties"]["claims"]["items"]
     assert claim_schema["additionalProperties"] is False
     assert set(claim_schema["required"]) == {"clause_ordinals", "predicate", "value", "confidence"}
+
+
+# ===========================================================================
+# Task 3: runneren, cachen og fejltaksonomien
+#
+# Ingen test i denne fil må starte Codex.  Sømmen `run_codex` erstattes overalt
+# af en fixture-leverandør, og standardsømmen i testmiljø kaster.
+# ===========================================================================
+
+import evidence_extract
+from evidence_runner import (CACHE_KEY_FIELDS, ERROR_KINDS, ResponseCache, build_argv,
+                             classify_failure, parse_usage, run_record)
+
+
+FIXTURES = Path(__file__).resolve().parent / "tests" / "fixtures" / "codex-exec"
+
+
+def read_fixture(name):
+    return (FIXTURES / name).read_text(encoding="utf-8")
+
+
+def exploding_seam(*args, **kwargs):
+    """Bevis for at intet kald slipper ud: sømmen kaster, hvis den bruges."""
+    raise AssertionError("run_codex blev kaldt i en test — sømmen skulle have været injiceret")
+
+
+# --- argv (spec §6.2 + afvigelse A) ---------------------------------------
+
+def test_argv_carries_every_required_flag():
+    argv = build_argv(model="gpt-5.6-terra", call_dir="/tmp/kald",
+                      schema_path="/tmp/kald/schema.json", prompt_path="/tmp/kald/prompt.md")
+    for flag in ("--model", "--sandbox", "--ephemeral", "--ignore-rules",
+                 "--ignore-user-config", "--json", "--output-schema"):
+        assert flag in argv, f"{flag} mangler i argv"
+    assert argv[argv.index("--sandbox") + 1] == "read-only"
+    assert argv[argv.index("--model") + 1] == "gpt-5.6-terra"
+
+
+def test_argv_refuses_a_model_outside_the_pinned_set():
+    """Modelpolitikken er frossen; runneren må ikke kunne kalde noget andet."""
+    with pytest.raises(RunnerError, match="RUNNER_MODEL_NOT_ALLOWED"):
+        build_argv(model="gpt-4o", call_dir="/tmp/kald",
+                   schema_path="/tmp/kald/s.json", prompt_path="/tmp/kald/p.md")
+
+
+# --- usage-parser (spec §6.4) ---------------------------------------------
+
+def test_usage_is_read_from_the_observed_fixture():
+    usage = parse_usage(read_fixture("turn-completed-with-usage.jsonl"))
+    assert usage == {"input_tokens": 21801, "cached_input_tokens": 0, "cache_write_input_tokens": 0,
+                     "output_tokens": 218, "reasoning_output_tokens": 84}
+
+
+def test_missing_usage_on_a_successful_turn_is_unknown_not_zero():
+    """Et manglende regnskab er ukendt forbrug. Nul ville være en løgn i budgettet."""
+    events = '{"type":"thread.started"}\n{"type":"turn.started"}\n{"type":"turn.completed"}\n'
+    with pytest.raises(RunnerError, match="RUNNER_USAGE_UNKNOWN"):
+        parse_usage(events)
+
+
+# --- fejltaksonomi (spec §6.3) --------------------------------------------
+
+def test_every_taxonomy_kind_from_the_spec_exists():
+    assert ERROR_KINDS == {"quota_exhausted", "model_refusal", "schema_violation",
+                           "timeout", "validation_failed", "unknown"}
+
+
+@pytest.mark.parametrize("fixture,forventet", [
+    ("failure-quota-exhausted.jsonl", "quota_exhausted"),
+    ("failure-model-refusal.jsonl", "model_refusal"),
+    ("failure-schema-violation.jsonl", "schema_violation"),
+])
+def test_failures_are_classified_from_the_event_stream(fixture, forventet):
+    assert classify_failure(read_fixture(fixture), exit_code=1) == forventet
+
+
+def test_timeout_is_classified_from_the_seam_not_the_stream():
+    assert classify_failure("", exit_code=None, timed_out=True) == "timeout"
+
+
+def test_an_unrecognised_failure_is_unknown_never_silently_ok():
+    assert classify_failure('{"type":"turn.failed","error":{"kode":42}}', exit_code=1) == "unknown"
+
+
+# --- cache-identitet (spec §6.3 + anden læsers R7) ------------------------
+
+def test_cache_key_covers_schema_and_runner_version():
+    """R7: uden claim-skemaets SHA og runner-kontrakten kan et ændret outputskema
+    genbruge et gammelt råsvar."""
+    assert CACHE_KEY_FIELDS == ("profile_id", "profile_version", "model", "prompt_sha256",
+                                "record_input_sha256", "claims_schema_sha256", "runner_contract_version")
+
+
+def cache_ident(**overrides):
+    base = {"profile_id": "daa-2018-20-v1", "profile_version": "1.3.0", "model": "gpt-5.6-terra",
+            "prompt_sha256": "a" * 64, "record_input_sha256": "b" * 64,
+            "claims_schema_sha256": "c" * 64, "runner_contract_version": "evidence-runner-1.0"}
+    base.update(overrides)
+    return base
+
+
+def test_cache_round_trip(tmp_path):
+    cache = ResponseCache(tmp_path)
+    cache.put(cache_ident(), raw='{"claims":[]}', usage={"input_tokens": 1})
+    hit = cache.get(cache_ident())
+    assert hit["raw"] == '{"claims":[]}' and hit["usage"] == {"input_tokens": 1}
+
+
+def test_cache_miss_returns_none(tmp_path):
+    assert ResponseCache(tmp_path).get(cache_ident()) is None
+
+
+@pytest.mark.parametrize("felt", CACHE_KEY_FIELDS)
+def test_every_key_field_changes_the_identity(tmp_path, felt):
+    """Én negativ test pr. felt — ellers ved vi ikke, at feltet faktisk indgår."""
+    cache = ResponseCache(tmp_path)
+    cache.put(cache_ident(), raw="{}", usage={})
+    assert cache.get(cache_ident(**{felt: "ANDERLEDES"})) is None
+
+
+def test_cache_is_append_only(tmp_path):
+    """En eksisterende nøgle med afvigende værdi er en konflikt, ikke en overskrivning."""
+    cache = ResponseCache(tmp_path)
+    cache.put(cache_ident(), raw='{"claims":[]}', usage={})
+    with pytest.raises(RunnerError, match="RUNNER_CACHE_CONFLICT"):
+        cache.put(cache_ident(), raw='{"claims":[{"noget":"andet"}]}', usage={})
+
+
+def test_rewriting_the_identical_value_is_not_a_conflict(tmp_path):
+    cache = ResponseCache(tmp_path)
+    cache.put(cache_ident(), raw="{}", usage={"input_tokens": 1})
+    cache.put(cache_ident(), raw="{}", usage={"input_tokens": 1})
+
+
+def test_cache_files_are_private(tmp_path):
+    """§9.1: private artefakter er 0600 i en 0700-mappe — ikke hvad umask tilfældigvis giver."""
+    cache = ResponseCache(tmp_path / "cache")
+    cache.put(cache_ident(), raw="{}", usage={})
+    assert (cache.root.stat().st_mode & 0o777) == 0o700
+    for path in cache.root.iterdir():
+        assert (path.stat().st_mode & 0o777) == 0o600
+
+
+# --- orkestrering ---------------------------------------------------------
+
+def seam_returning(fixture_name, last_message):
+    def seam(argv, **kwargs):
+        return read_fixture(fixture_name), last_message
+    return seam
+
+
+def test_run_record_validates_and_caches(tmp_path):
+    cache = ResponseCache(tmp_path)
+    last = json.dumps({"claims": [{"clause_ordinals": [1], "predicate": "person.birth",
+                                   "value": "1800-01-01", "confidence": 1.0,
+                                   "source_persona_id": "persona-1"}]})
+    outcome = run_record(export(), ident=cache_ident(), cache=cache,
+                         run=seam_returning("turn-completed-with-usage.jsonl", last))
+    assert outcome.status == "green" and not outcome.from_cache
+    assert outcome.usage["input_tokens"] == 21801
+
+    # Andet kald rammer cachen og starter ikke modellen.
+    again = run_record(export(), ident=cache_ident(), cache=cache, run=exploding_seam)
+    assert again.status == "green" and again.from_cache
+
+
+def test_invalid_claims_fail_closed_as_validation_failed(tmp_path):
+    last = json.dumps({"claims": [{"clause_ordinals": [99], "predicate": "person.birth",
+                                   "value": "1800", "confidence": 1.0,
+                                   "source_persona_id": "persona-1"}]})
+    outcome = run_record(export(), ident=cache_ident(), cache=ResponseCache(tmp_path),
+                         run=seam_returning("turn-completed-with-usage.jsonl", last))
+    assert outcome.status == "failed" and outcome.error_kind == "validation_failed"
+
+
+def test_a_failed_record_is_never_cached(tmp_path):
+    """Fail-closed: et afvist svar må ikke kunne genbruges som grønt senere."""
+    cache = ResponseCache(tmp_path)
+    last = json.dumps({"claims": [{"clause_ordinals": [99], "predicate": "person.birth",
+                                   "value": "1800", "confidence": 1.0,
+                                   "source_persona_id": "persona-1"}]})
+    run_record(export(), ident=cache_ident(), cache=cache,
+               run=seam_returning("turn-completed-with-usage.jsonl", last))
+    assert cache.get(cache_ident()) is None
+
+
+def test_failure_log_carries_type_and_record_key_but_never_text(tmp_path):
+    """§6.3: fejl logges med typen, aldrig med tekst — heller ikke modellens svar."""
+    hemmelig = "Hemmelig prosa om en nulevende person"
+    outcome = run_record(export(), ident=cache_ident(), cache=ResponseCache(tmp_path),
+                         run=seam_returning("failure-model-refusal.jsonl", hemmelig))
+    assert outcome.status == "failed"
+    rendered = outcome.log_line()
+    assert "model_refusal" in rendered and "I-42" in rendered
+    assert hemmelig not in rendered
+
+
+# --- batch-optælling (spec §6.3) ------------------------------------------
+
+def test_batch_is_green_only_when_every_record_has_a_validated_entry(tmp_path):
+    from evidence_runner import batch_status
+    assert batch_status([("I-1", "green"), ("I-2", "green")]) == "green"
+    assert batch_status([("I-1", "green"), ("I-2", "failed")]) == "pending"
+    assert batch_status([]) == "pending"
+
+
+# --- reusable udvides (anden læsers R7) -----------------------------------
+
+def manifest(**overrides):
+    base = dict(profile_id="daa-2018-20-v1", profile_version="1.3.0",
+                effective_model_id="gpt-5.6-terra", prompt_version="evidence-extract-1.0.0",
+                record_keys=("I-42",), input_hash="a" * 64, extraction_version="ex-1",
+                escalation_reason=None, output_hash="d" * 64, token_count=1, cost_usd=0.0,
+                validation_status="green")
+    base.update(overrides)
+    return evidence_extract.BatchManifest(**base)
+
+
+@pytest.mark.parametrize("felt,vaerdi", [
+    ("prompt_sha256", "f" * 64),
+    ("exclusion_sha256", "e" * 64),
+    ("pricing_version", "pricing-2"),
+])
+def test_reusable_is_false_when_a_new_manifest_field_changes(felt, vaerdi):
+    """R7: de nye felter skal indgå i genbrugsbeslutningen, ikke bare i payloaden."""
+    existing = manifest(**{felt: "0" * 64 if felt.endswith("sha256") else "pricing-1"})
+    candidate = manifest(**{felt: vaerdi})
+    assert evidence_extract.reusable(existing, candidate) is False

@@ -21,12 +21,29 @@ mappe — `turn-completed-with-usage.jsonl`, `baseline-with-user-config.jsonl`,
 `baseline-ignore-user-config.jsonl` og `sandbox-canary-read-outside-cwd.jsonl`.
 De to grene er skrevet parallelt, så denne liste samles, når begge er merget.
 
+## Fejltaksonomien (Task 3) — **alle syntetiske**
+
+Spec §6.3 kræver seks fejltyper. **Ingen af dem er observeret.** Filerne nedenfor er
+håndskrevne ud fra den dokumenterede hændelsesform, og hver bærer strengen
+`SYNTETISK FIXTURE` i sin egen tekst, så en læser ikke kan forveksle dem med en
+rigtig kørsel.
+
+| Fil | Type | Grundlag |
+| --- | --- | --- |
+| `failure-quota-exhausted.jsonl` | `quota_exhausted` | **Rekonstrueret.** Spec §6.5 kalder proben 2026-09-06's `turn.failed` »fixturen«, men den rå JSON findes ikke i repoet og blev eftersøgt forgæves. Formen er gengivet efter beskrivelsen — ikke efter et gemt svar. |
+| `failure-model-refusal.jsonl` | `model_refusal` | Syntetisk. |
+| `failure-schema-violation.jsonl` | `schema_violation` | Syntetisk. |
+| `failure-timeout.jsonl` | `timeout` | Syntetisk; timeout afgøres i øvrigt af sømmen, ikke af strømmen. |
+| `failure-unknown.jsonl` | `unknown` | Syntetisk — en `turn.failed` uden genkendelig `error.type`. |
+
+Bliver en af typerne observeret i en rigtig kørsel, så **erstat** filen og ret denne
+tabel. Skellet mellem observeret og opdigtet er hele pointen med at føre det.
+
 ## Hvad fixturene er til
 
-4.3a's usage-parser og gate-tests kan køre uden at bruge Codex-kvote. Bemærk
-skellet: `turn.completed` med `usage` er **observeret**; fixtures for de øvrige
-fejltyper i §6.3 (`model_refusal`, `schema_violation`, `timeout`,
-`validation_failed`) vil være **syntetiske**, og `quota_exhausted` er
-**rekonstrueret** ud fra den dokumenterede form — den rå JSON fra proben
-2026-09-06 findes ikke i repoet. Det skel skal holdes, også når fixturene
-vokser.
+4.3a's usage-parser, fejlklassifikation og gate-tests kan køre uden at bruge
+Codex-kvote. Testene injicerer en søm i stedet for at starte CLI'en, og
+standardsømmen i testmiljø kaster, hvis den alligevel skulle blive kaldt.
+
+Kun **én** ting i denne mappe er et observeret modelsvar: `turn.completed` med
+`usage`. Alt om fejl er opdigtet. Hold det skel.
