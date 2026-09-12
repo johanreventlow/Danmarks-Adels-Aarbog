@@ -713,3 +713,41 @@ def test_gated_argv_wraps_codex_in_sandbox_exec():
     assert argv[:3] == ["sandbox-exec", "-f", "/tmp/k/gate.sb"]
     assert argv[3] == "codex"
     assert "--ignore-user-config" in argv and argv[-1] == "Udtræk claims."
+
+
+# --- claim-niveau afvisning (projektejerens afgørelse efter bundt 1) --------
+
+def test_one_bad_claim_does_not_fell_the_good_ones():
+    """Bundt 1: ét objekt hvor der skulle stå en streng fældede hele posten og
+    dens seks korrekte claims. Ved 97 % formnøjagtighed ville hver tredje rige
+    post gå tabt — ikke af dårligt udtræk, men af ét forkert felt."""
+    from evidence_runner import partition_record_claims
+    god = claim()
+    daarlig = claim(value={"raw": "objekt hvor der skulle stå en streng"})
+    gyldige, afviste = partition_record_claims([god, daarlig, god], export())
+    assert len(gyldige) == 2 and len(afviste) == 1
+    assert "RUNNER_CLAIM_VALUE_INVALID" in afviste[0]["fejl"]
+
+
+def test_a_record_where_everything_fails_is_still_a_failure(tmp_path):
+    """Delvis er ikke det samme som tilgivende: kommer intet brugbart igennem,
+    er det en ægte fejl."""
+    last = json.dumps({"claims": [claim(value={"raw": "forkert form"})]})
+    outcome = run_record(export(), ident=cache_ident(), cache=ResponseCache(tmp_path),
+                         run=seam_returning("turn-completed-with-usage.jsonl", last))
+    assert outcome.status == "failed" and outcome.error_kind == "validation_failed"
+
+
+def test_a_partial_record_is_marked_and_its_loss_is_visible(tmp_path):
+    last = json.dumps({"claims": [claim(), claim(value={"raw": "forkert form"})]})
+    outcome = run_record(export(), ident=cache_ident(), cache=ResponseCache(tmp_path),
+                         run=seam_returning("turn-completed-with-usage.jsonl", last))
+    assert outcome.status == "delvis"
+    assert len(outcome.claims) == 1 and len(outcome.rejected) == 1
+    assert "afviste=1" in outcome.log_line()
+
+
+def test_partial_records_still_count_towards_a_green_batch():
+    from evidence_runner import batch_status
+    assert batch_status([("I-1", "green"), ("I-2", "delvis")]) == "green"
+    assert batch_status([("I-1", "green"), ("I-2", "failed")]) == "pending"
