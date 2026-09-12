@@ -144,7 +144,11 @@ ALLOWED_MODELS = ("gpt-5.6-terra", "gpt-5.6-sol")
 
 #: Spec §6.3.  Alle er fail-closed: batchen forbliver `pending`, intet merges.
 ERROR_KINDS = {"quota_exhausted", "model_refusal", "schema_violation",
-               "timeout", "validation_failed", "unknown"}
+               "timeout", "validation_failed", "unknown",
+               # Ikke en kørselsfejl: recorden måtte slet ikke sendes (§9.2).
+               # Den står i taksonomien, så udelukkede records kan tælles frem for
+               # at forsvinde ud af regnskabet.
+               "not_eligible"}
 
 #: Spec §6.3 + anden læsers R7.  De to sidste felter er R7's tilføjelse: uden dem
 #: kan et ændret outputskema eller en ændret runner genbruge et gammelt råsvar.
@@ -412,3 +416,123 @@ def batch_status(record_states: Sequence[tuple[str, str]]) -> str:
     if not record_states:
         return "pending"
     return "green" if all(state == "green" for _, state in record_states) else "pending"
+
+
+# ===========================================================================
+# Eligibility-ledgeren (dagsværk 4.3a, Task 5 — spec §9.1-9.2)
+#
+# Invariant 8 er projektets hårdeste: prosa om levende personer må aldrig sendes
+# til en model.  Ledgeren er den ene af to mekanismer, der håndhæver det —
+# Seatbelt-gaten er den anden.  De dækker hver sin halvdel:
+#
+#   ledgeren  styrer hvad vi SENDER
+#   gaten     styrer hvad modellen selv kan HENTE
+#
+# GRUNDREGLEN ER, AT FRAVÆR IKKE ER TILLADELSE.  En record, der ikke står i
+# ledgeren som eksplicit `eligible`, sendes ikke — heller ikke når ledgeren i
+# øvrigt er gyldig.  En udelukkelsesliste, man kun tjekker for tilstedeværelse,
+# beskytter intet: den siger, hvem der er forbudt, men ikke hvem der er godkendt.
+# ===========================================================================
+
+LEDGER_SCHEMA_VERSION = "evidence-eligibility-1.0"
+
+#: §9.2's fire regler.  Lukket sæt: en årsag uden for listen betyder, at ledgeren
+#: er skrevet af noget, denne kode ikke kender — og så er den ikke troværdig.
+EXCLUSION_REASONS = {
+    "principal_living",           # 1. hovedpersonen er levende eller uafklaret
+    "relative_living",            # 2. partner eller barn i samme family er levende
+    "spouse_undated_marriage",    # 3. partner uden dødsdato, vielse >=1950 eller udateret
+    "birth_year_text_filter",     # 4. teksten rummer "f." + fødselsår >=1950
+}
+
+_LEDGER_FIELDS = ("schema_version", "policy_version", "rules_script_sha256",
+                  "source_id", "restore_identity", "records")
+
+
+class EligibilityError(RunnerError):
+    """Rejst når en record ikke må sendes — eller når ledgeren ikke kan stoles på.
+
+    Arver fra `RunnerError`, så den fanges af de samme fail-closed veje, men har
+    egen type, fordi den er et PERSONDATA-værn og ikke en almindelig kørselsfejl.
+    """
+
+
+def load_ledger(ledger: Mapping[str, Any]) -> dict:
+    """Validér ledgerens skema og provenance (R3).
+
+    Hashen over selve eksportresultatet er ikke nok: uden regelversion,
+    script-hash og snapshot-identitet kan en gammel eller fejlimplementeret
+    ledger være internt konsistent og alligevel forkert.  Og fordi *fravær*
+    læses som tilladelse i den forkerte implementering, er netop det farligt.
+    """
+    if not isinstance(ledger, Mapping):
+        raise EligibilityError("LEDGER_INCOMPLETE")
+    for field in _LEDGER_FIELDS:
+        if field not in ledger or ledger[field] in (None, ""):
+            raise EligibilityError("LEDGER_INCOMPLETE")
+    if ledger["schema_version"] != LEDGER_SCHEMA_VERSION:
+        raise EligibilityError("LEDGER_SCHEMA_UNKNOWN")
+
+    records = ledger["records"]
+    if not isinstance(records, Mapping):
+        raise EligibilityError("LEDGER_INCOMPLETE")
+    for record_key, row in records.items():
+        if not isinstance(row, Mapping):
+            raise EligibilityError("LEDGER_INCOMPLETE")
+        status = row.get("status")
+        if status not in ("eligible", "excluded"):
+            raise EligibilityError("LEDGER_STATUS_INVALID")
+        reasons = row.get("reasons")
+        if not isinstance(reasons, Sequence) or isinstance(reasons, (str, bytes)):
+            raise EligibilityError("LEDGER_REASON_REQUIRED")
+        if status == "excluded" and not reasons:
+            # En udelukkelse uden årsag kan ikke efterprøves af et menneske.
+            raise EligibilityError("LEDGER_REASON_REQUIRED")
+        for reason in reasons:
+            if reason not in EXCLUSION_REASONS:
+                raise EligibilityError("LEDGER_REASON_UNKNOWN")
+        sha = row.get("record_input_sha256")
+        if not isinstance(sha, str) or len(sha) != 64:
+            raise EligibilityError("LEDGER_INCOMPLETE")
+    return dict(ledger)
+
+
+def check_eligibility(ledger: Mapping[str, Any], record_key: str,
+                      record_input_sha256: str) -> str:
+    """Må denne record sendes til en model?  Kaster, hvis svaret ikke er et klart ja.
+
+    Rækkefølgen er en del af værnet: ledgeren valideres, FØR nogen record slås op,
+    så en utroværdig ledger ikke kan nå at godkende noget.
+    """
+    validated = load_ledger(ledger)
+    row = validated["records"].get(str(record_key))
+    if row is None:
+        # Fravær er ikke tilladelse.
+        raise EligibilityError(f"RECORD_UNKNOWN record={record_key}")
+    if row["status"] != "eligible":
+        raise EligibilityError(
+            f"RECORD_EXCLUDED record={record_key} reasons={','.join(row['reasons'])}")
+    if row["record_input_sha256"] != record_input_sha256:
+        # Ledgeren godkendte ét bestemt input; et andet er ikke dækket af den godkendelse.
+        raise EligibilityError(f"RECORD_INPUT_DRIFT record={record_key}")
+    return "eligible"
+
+
+def run_record_guarded(export: Mapping[str, Any], *, ledger: Mapping[str, Any],
+                       record_input_sha256: str, **kwargs) -> RecordOutcome:
+    """`run_record` med eligibility-værnet foran.
+
+    Preflighten kører FØR prompt, call-dir og subproces overhovedet bygges: en
+    record, der ikke må sendes, efterlader intet spor på disken og starter aldrig
+    Codex.  Det er hele pointen med rækkefølgen — et værn, der først spørger efter
+    at have skrevet kildeteksten til en midlertidig mappe, har allerede fejlet.
+
+    Udelukkede records forsvinder ikke ud af regnskabet (§9.2): de får et synligt
+    `not_eligible`-udfald med record-nøglen, så de kan tælles og ses i køen.
+    """
+    record_key = str(export.get("record_key", ""))
+    try:
+        check_eligibility(ledger, record_key, record_input_sha256)
+    except EligibilityError:
+        return RecordOutcome(record_key, "failed", error_kind="not_eligible")
+    return run_record(export, **kwargs)

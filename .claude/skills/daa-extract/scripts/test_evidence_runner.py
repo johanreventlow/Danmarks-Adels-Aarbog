@@ -268,7 +268,7 @@ def test_missing_usage_on_a_successful_turn_is_unknown_not_zero():
 
 def test_every_taxonomy_kind_from_the_spec_exists():
     assert ERROR_KINDS == {"quota_exhausted", "model_refusal", "schema_violation",
-                           "timeout", "validation_failed", "unknown"}
+                           "timeout", "validation_failed", "unknown", "not_eligible"}
 
 
 @pytest.mark.parametrize("fixture,forventet", [
@@ -487,3 +487,158 @@ def test_the_legacy_trin3_prompt_is_left_alone():
     legacy = REFERENCES / "extract-prompt.md"
     assert legacy.exists()
     assert "prompt-version: 2026-07-29b" in legacy.read_text(encoding="utf-8")[:200]
+
+
+# ===========================================================================
+# Task 5: eligibility-ledgeren (spec §9.1-9.2, omskrevet af anden læsers R2/R3)
+#
+# Grundreglen: FRAVÆR ER IKKE TILLADELSE. En record, der ikke står i ledgeren som
+# eksplicit `eligible`, må ikke sendes til en model — heller ikke hvis ledgeren
+# i øvrigt er gyldig og hashen passer.
+# ===========================================================================
+
+from evidence_runner import (EligibilityError, LEDGER_SCHEMA_VERSION, check_eligibility,
+                             load_ledger, run_record_guarded)
+
+
+def ledger_rows(**overrides):
+    rows = {
+        "I-42": {"status": "eligible", "reasons": [],
+                 "record_input_sha256": "b" * 64},
+        "I-99": {"status": "excluded", "reasons": ["principal_living"],
+                 "record_input_sha256": "c" * 64},
+        "I-50": {"status": "excluded",
+                 "reasons": ["principal_living", "relative_living", "spouse_undated_marriage"],
+                 "record_input_sha256": "d" * 64},
+    }
+    rows.update(overrides)
+    return rows
+
+
+def ledger(**overrides):
+    base = {"schema_version": LEDGER_SCHEMA_VERSION,
+            "policy_version": "exclusion-2018-20-v1",
+            "rules_script_sha256": "e" * 64,
+            "source_id": 1,
+            "restore_identity": "daa-restore-20260912",
+            "records": ledger_rows()}
+    base.update(overrides)
+    return base
+
+
+# --- ledgerens egen gyldighed --------------------------------------------
+
+def test_a_valid_ledger_loads():
+    assert load_ledger(ledger())["policy_version"] == "exclusion-2018-20-v1"
+
+
+@pytest.mark.parametrize("felt", ["schema_version", "policy_version", "rules_script_sha256",
+                                  "source_id", "restore_identity", "records"])
+def test_every_provenance_field_is_required(felt):
+    """R3: hashen må ikke kun dække eksportresultatet. Uden regler, script og
+    snapshot kan en gammel eller fejlimplementeret liste se gyldig ud."""
+    ufuldstaendig = {k: v for k, v in ledger().items() if k != felt}
+    with pytest.raises(EligibilityError, match="LEDGER_INCOMPLETE"):
+        load_ledger(ufuldstaendig)
+
+
+def test_a_ledger_from_another_schema_version_is_rejected():
+    with pytest.raises(EligibilityError, match="LEDGER_SCHEMA_UNKNOWN"):
+        load_ledger(ledger(schema_version="noget-andet-1.0"))
+
+
+def test_a_row_with_an_unknown_status_is_rejected():
+    """Kun `eligible` og `excluded` findes. Et tredje ord må ikke kunne tolkes."""
+    rows = ledger_rows(**{"I-7": {"status": "maaske", "reasons": [],
+                                  "record_input_sha256": "f" * 64}})
+    with pytest.raises(EligibilityError, match="LEDGER_STATUS_INVALID"):
+        load_ledger(ledger(records=rows))
+
+
+def test_an_excluded_row_must_carry_at_least_one_reason():
+    """En udelukkelse uden årsag kan ikke efterprøves af et menneske."""
+    rows = ledger_rows(**{"I-8": {"status": "excluded", "reasons": [],
+                                  "record_input_sha256": "f" * 64}})
+    with pytest.raises(EligibilityError, match="LEDGER_REASON_REQUIRED"):
+        load_ledger(ledger(records=rows))
+
+
+def test_reasons_must_come_from_the_closed_rule_set():
+    rows = ledger_rows(**{"I-9": {"status": "excluded", "reasons": ["fordi-jeg-synes"],
+                                  "record_input_sha256": "f" * 64}})
+    with pytest.raises(EligibilityError, match="LEDGER_REASON_UNKNOWN"):
+        load_ledger(ledger(records=rows))
+
+
+# --- opslaget: fravær er ikke tilladelse ---------------------------------
+
+def test_an_eligible_record_passes():
+    assert check_eligibility(ledger(), "I-42", "b" * 64) == "eligible"
+
+
+@pytest.mark.parametrize("aarsag", ["principal_living", "relative_living",
+                                    "spouse_undated_marriage", "birth_year_text_filter"])
+def test_each_of_the_four_rules_blocks_on_its_own(aarsag):
+    """§9.2's fire regler. Hver skal kunne stoppe en record alene."""
+    rows = ledger_rows(**{"I-1": {"status": "excluded", "reasons": [aarsag],
+                                  "record_input_sha256": "a" * 64}})
+    with pytest.raises(EligibilityError, match="RECORD_EXCLUDED"):
+        check_eligibility(ledger(records=rows), "I-1", "a" * 64)
+
+
+def test_multiple_reasons_are_all_carried():
+    """En record kan rammes af flere regler; alle årsager skal med i fejlen."""
+    with pytest.raises(EligibilityError) as exc:
+        check_eligibility(ledger(), "I-50", "d" * 64)
+    for aarsag in ("principal_living", "relative_living", "spouse_undated_marriage"):
+        assert aarsag in str(exc.value)
+
+
+def test_an_unknown_record_is_refused_not_allowed():
+    """KERNEREGLEN. En record, ledgeren ikke kender, er ikke tilladt — den er ukendt,
+    og ukendt betyder nej."""
+    with pytest.raises(EligibilityError, match="RECORD_UNKNOWN"):
+        check_eligibility(ledger(), "I-DENNE-FINDES-IKKE", "a" * 64)
+
+
+def test_an_eligible_row_with_a_drifted_input_hash_is_refused():
+    """Ledgeren godkendte ét input. Sendes et andet, gælder godkendelsen ikke."""
+    with pytest.raises(EligibilityError, match="RECORD_INPUT_DRIFT"):
+        check_eligibility(ledger(), "I-42", "0" * 64)
+
+
+# --- værnet foran runneren ------------------------------------------------
+
+@pytest.mark.parametrize("record_key,input_sha", [
+    ("I-99", "c" * 64),            # excluded
+    ("I-UKENDT", "a" * 64),        # står ikke i ledgeren
+    ("I-42", "0" * 64),            # eligible, men forkert input
+])
+def test_codex_is_never_started_for_a_non_eligible_record(tmp_path, record_key, input_sha):
+    """BEVISET, ikke blot en returværdi: sømmen kaster, hvis den overhovedet kaldes.
+    Består testen, er modellen aldrig blevet spurgt."""
+    outcome = run_record_guarded(export(record_key=record_key), ledger=ledger(),
+                                 record_input_sha256=input_sha,
+                                 ident=cache_ident(), cache=ResponseCache(tmp_path),
+                                 run=exploding_seam)
+    assert outcome.status == "failed"
+    assert outcome.error_kind == "not_eligible"
+
+
+def test_the_guard_lets_an_eligible_record_through(tmp_path):
+    last = json.dumps({"claims": []})
+    outcome = run_record_guarded(export(record_key="I-42"), ledger=ledger(),
+                                 record_input_sha256="b" * 64,
+                                 ident=cache_ident(), cache=ResponseCache(tmp_path),
+                                 run=seam_returning("turn-completed-with-usage.jsonl", last))
+    assert outcome.status == "green"
+
+
+def test_an_excluded_record_stays_visible_in_the_accounting(tmp_path):
+    """Step 6: udelukkede records er ikke tab. De skal kunne ses i logget."""
+    outcome = run_record_guarded(export(record_key="I-50"), ledger=ledger(),
+                                 record_input_sha256="d" * 64,
+                                 ident=cache_ident(), cache=ResponseCache(tmp_path),
+                                 run=exploding_seam)
+    linje = outcome.log_line()
+    assert "I-50" in linje and "not_eligible" in linje
