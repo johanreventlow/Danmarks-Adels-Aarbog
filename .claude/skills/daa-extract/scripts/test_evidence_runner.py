@@ -175,9 +175,12 @@ def exploding_seam(*args, **kwargs):
 
 # --- argv (spec §6.2 + afvigelse A) ---------------------------------------
 
+PROMPT = "Udtræk claims fra posten nedenfor."
+
+
 def test_argv_carries_every_required_flag():
     argv = build_argv(model="gpt-5.6-terra", call_dir="/tmp/kald",
-                      schema_path="/tmp/kald/schema.json", prompt_path="/tmp/kald/prompt.md")
+                      schema_path="/tmp/kald/schema.json", prompt=PROMPT)
     for flag in ("--model", "--sandbox", "--ephemeral", "--ignore-rules",
                  "--ignore-user-config", "--json", "--output-schema"):
         assert flag in argv, f"{flag} mangler i argv"
@@ -185,11 +188,65 @@ def test_argv_carries_every_required_flag():
     assert argv[argv.index("--model") + 1] == "gpt-5.6-terra"
 
 
+def test_prompt_is_passed_by_value_never_as_a_stdin_placeholder():
+    """`-` ville betyde "læs prompten fra stdin", og stdin er lukket — kaldet ville
+    få en TOM prompt. Fejlen findes kun i produktionsstien, som sømmen skjuler for
+    de øvrige tests, så den asserteres eksplicit her."""
+    argv = build_argv(model="gpt-5.6-terra", call_dir="/tmp/kald",
+                      schema_path="/tmp/kald/schema.json", prompt=PROMPT)
+    assert argv[-1] == PROMPT
+    assert "-" not in argv
+
+
+def test_argv_refuses_an_empty_prompt():
+    with pytest.raises(RunnerError, match="RUNNER_PROMPT_REQUIRED"):
+        build_argv(model="gpt-5.6-terra", call_dir="/tmp/kald",
+                   schema_path="/tmp/kald/s.json", prompt="   ")
+
+
 def test_argv_refuses_a_model_outside_the_pinned_set():
     """Modelpolitikken er frossen; runneren må ikke kunne kalde noget andet."""
     with pytest.raises(RunnerError, match="RUNNER_MODEL_NOT_ALLOWED"):
         build_argv(model="gpt-4o", call_dir="/tmp/kald",
-                   schema_path="/tmp/kald/s.json", prompt_path="/tmp/kald/p.md")
+                   schema_path="/tmp/kald/s.json", prompt=PROMPT)
+
+
+# --- svaret hentes af strømmen, ikke af stderr ----------------------------
+
+def test_last_message_comes_from_the_event_stream():
+    """stderr bærer "Reading additional input from stdin..." og kan aldrig parses
+    som JSON. Svaret ligger i det sidste agent_message."""
+    from evidence_runner import extract_last_message
+    besked = extract_last_message(read_fixture("turn-completed-with-usage.jsonl"))
+    assert json.loads(besked)["claims"][0]["predicate"] == "person.birth_date"
+
+
+def test_last_message_takes_the_final_answer_when_several_exist():
+    """En tur kan begynde med "Jeg forsøger…" og først derefter svare."""
+    from evidence_runner import extract_last_message
+    assert extract_last_message(read_fixture("sandbox-allowlist-denies-model.jsonl")) == "KAN IKKE LÆSE"
+
+
+# --- call-dir (Task 2 Step 2-3) -------------------------------------------
+
+def test_call_dir_holds_only_the_record_and_the_schema():
+    from evidence_runner import prepare_call_dir
+    with prepare_call_dir({"record_key": "I-42"}, {"type": "object"}) as call_dir:
+        assert sorted(p.name for p in call_dir.iterdir()) == ["record.json", "schema.json"]
+        assert (call_dir.stat().st_mode & 0o777) == 0o700
+        for path in call_dir.iterdir():
+            assert (path.stat().st_mode & 0o777) == 0o600
+
+
+def test_call_dir_is_removed_even_when_the_call_raises():
+    """En efterladt mappe med kildetekst er et fund, ikke et restprodukt."""
+    from evidence_runner import prepare_call_dir
+    set_aside = None
+    with pytest.raises(ZeroDivisionError):
+        with prepare_call_dir({"record_key": "I-42"}, {}) as call_dir:
+            set_aside = call_dir
+            1 / 0
+    assert set_aside is not None and not set_aside.exists()
 
 
 # --- usage-parser (spec §6.4) ---------------------------------------------

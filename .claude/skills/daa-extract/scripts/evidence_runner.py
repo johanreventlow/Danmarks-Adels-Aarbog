@@ -126,9 +126,12 @@ def validate_record_claims(claims: Any, export: Mapping[str, Any]) -> None:
 # Runneren, svar-cachen og fejltaksonomien (dagsværk 4.3a, Task 3)
 # ===========================================================================
 
+import contextlib
 import json
 import os
+import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -161,19 +164,26 @@ _FAILURE_TYPES = {
 }
 
 
-def build_argv(*, model: str, call_dir: str, schema_path: str, prompt_path: str) -> list[str]:
+def build_argv(*, model: str, call_dir: str, schema_path: str, prompt: str) -> list[str]:
     """Argv for ét modelkald (spec §6.2 + afvigelse A).
 
     `--ignore-user-config` er afvigelse A: uden den injicerer CLI'en brugerens
     `~/.codex/AGENTS.md` i hvert kald, og den ligger uden for `prompt_sha256` —
     så et "reproducerbart" kald ville ikke være det.  Målt: 6.288 af 21.554
     input-tokens.
+
+    Prompten sendes som det POSITIONELLE argument — dens indhold, ikke en sti.
+    `-` ville betyde "læs prompten fra stdin", og stdin er lukket (`DEVNULL`),
+    så kaldet ville få en tom prompt.  Kalderen læser filen og hasher de samme
+    bytes til `prompt_sha256`, så hashen og det afsendte ikke kan divergere.
     """
     if model not in ALLOWED_MODELS:
         raise RunnerError("RUNNER_MODEL_NOT_ALLOWED")
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise RunnerError("RUNNER_PROMPT_REQUIRED")
     return ["codex", "exec", "--model", model, "--sandbox", "read-only", "--ephemeral",
             "--ignore-rules", "--ignore-user-config", "--skip-git-repo-check",
-            "-C", call_dir, "--json", "--output-schema", schema_path, "-", prompt_path]
+            "-C", call_dir, "--json", "--output-schema", schema_path, prompt]
 
 
 def _events(jsonl: str) -> list[dict]:
@@ -282,16 +292,39 @@ class RecordOutcome:
         return f"record={self.record_key} status=failed kind={self.error_kind}"
 
 
+def extract_last_message(jsonl: str) -> str:
+    """Modellens sidste svar, hentet ud af selve hændelsesstrømmen.
+
+    Svaret ligger i det SIDSTE `item.completed` med `type: agent_message`.  Der kan
+    være flere: en tur kan begynde med "Jeg forsøger at læse filen…" og først
+    derefter give svaret.  stderr er IKKE svaret — den bærer fx
+    "Reading additional input from stdin...", som aldrig kan parses som JSON.
+    """
+    sidste = ""
+    for event in _events(jsonl):
+        if event.get("type") == "item.completed":
+            item = event.get("item")
+            if isinstance(item, Mapping) and item.get("type") == "agent_message":
+                text = item.get("text")
+                if isinstance(text, str):
+                    sidste = text
+    return sidste
+
+
 def run_codex(argv: Sequence[str], *, cwd: str | None = None, timeout: int = 600):
     """Produktionssømmen: ét ikke-interaktivt Codex-kald med lukket stdin.
 
     Kaldet forventes at køre bag Seatbelt-gaten
     (`scripts/sandbox/runner-gate.sb.template`) med `cwd` sat til call-dir — se
     gatens hoved for hvorfor begge dele er nødvendige.
+
+    Returnerer `(hændelsesstrøm, sidste besked)`.  Begge udledes af stdout;
+    `--json` gør strømmen selvbærende, så der behøves ingen `-o`-fil — og dermed
+    ét privat artefakt mindre at rydde op efter.
     """
     completed = subprocess.run(list(argv), cwd=cwd, stdin=subprocess.DEVNULL,
                                capture_output=True, text=True, timeout=timeout)
-    return completed.stdout, completed.stderr
+    return completed.stdout, extract_last_message(completed.stdout)
 
 
 def run_record(export: Mapping[str, Any], *, ident: Mapping[str, Any], cache: ResponseCache,
@@ -305,8 +338,15 @@ def run_record(export: Mapping[str, Any], *, ident: Mapping[str, Any], cache: Re
 
     hit = cache.get(ident)
     if hit is not None:
-        claims = json.loads(hit["raw"]).get("claims", [])
-        validate_record_claims(claims, export)   # cachen er data, ikke en garanti
+        # Cachen er data, ikke en garanti: den revalideres.  Fejler den, er udfaldet
+        # et fail-closed resultat som alle andre steder — ikke en exception, der
+        # ville vælte hele batchen i stedet for at markere én record.
+        try:
+            claims = json.loads(hit["raw"])["claims"]
+            validate_record_claims(claims, export)
+        except (json.JSONDecodeError, KeyError, TypeError, RunnerError):
+            return RecordOutcome(record_key, "failed", error_kind="validation_failed",
+                                 usage=hit.get("usage"), from_cache=True)
         return RecordOutcome(record_key, "green", usage=hit["usage"],
                              claims=tuple(claims), from_cache=True)
 
@@ -325,7 +365,9 @@ def run_record(export: Mapping[str, Any], *, ident: Mapping[str, Any], cache: Re
         payload = json.loads(last_message)
         claims = payload["claims"]
     except (json.JSONDecodeError, KeyError, TypeError):
-        return RecordOutcome(record_key, "failed", error_kind="schema_violation")
+        # Forbruget er brugt, selv om svaret er ubrugeligt — og budgettet er hele
+        # grunden til 4.3a, så tallet må ikke tabes her.
+        return RecordOutcome(record_key, "failed", error_kind="schema_violation", usage=usage)
 
     try:
         validate_record_claims(claims, export)
@@ -334,6 +376,31 @@ def run_record(export: Mapping[str, Any], *, ident: Mapping[str, Any], cache: Re
 
     cache.put(ident, raw=last_message, usage=usage)
     return RecordOutcome(record_key, "green", usage=usage, claims=tuple(claims))
+
+
+@contextlib.contextmanager
+def prepare_call_dir(record_input: Mapping[str, Any], schema: Mapping[str, Any], *, root=None):
+    """Kaldets egen mappe: præcis det, modellen skal se — og intet andet.
+
+    Sammen med Seatbelt-gaten er dette afvigelse C's afhjælpning: mappen er den
+    ENESTE læsbare del af brugerens data under kaldet, og gaten håndhæver det.
+    Mappen ligger uden for repoet, er `0700`, og filerne oprettes `0600` med
+    `O_EXCL` (§9.1) — aldrig via umask.
+
+    Ryddes i `finally`, også ved kvotestop, timeout og exception: en efterladt
+    mappe med kildetekst er et fund, ikke et restprodukt.
+    """
+    call_dir = Path(tempfile.mkdtemp(prefix="daa-evidence-", dir=root))
+    os.chmod(call_dir, 0o700)
+    try:
+        for navn, indhold in (("record.json", record_input), ("schema.json", schema)):
+            sti = call_dir / navn
+            fd = os.open(sti, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(indhold, handle, ensure_ascii=False, sort_keys=True)
+        yield call_dir
+    finally:
+        shutil.rmtree(call_dir, ignore_errors=True)
 
 
 def batch_status(record_states: Sequence[tuple[str, str]]) -> str:
