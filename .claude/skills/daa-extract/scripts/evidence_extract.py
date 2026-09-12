@@ -84,6 +84,32 @@ CLAUSE_RULE_KEYS = {"version", "terminators", "non_terminal_abbreviations", "ini
                     "gap_charset", "intraword_chars"}
 
 
+REFERENCES = ROOT / ".claude/skills/daa-extract/references"
+
+
+def resolve_prompt(prompt_file: str, prompt_sha256: str) -> str:
+    """Læs den prompt, en profil peger på, og bekræft dens hash (#147 4.3a).
+
+    Før dette var `prompt_version` en ren streng, som ingen kode bandt til en fil:
+    profilen sagde `evidence-extract-1.0.0`, mens `extract-prompt.md` sagde
+    `2026-07-29b`, og de to havde intet med hinanden at gøre.  Nu er `prompt_sha256`
+    i manifestet et bevis frem for en påstand — de bytes, der sendes til modellen,
+    er de samme, der blev hashet.
+
+    Filnavnet må ikke kunne pege ud af `references/`.
+    """
+    if (not isinstance(prompt_file, str) or not prompt_file
+            or "/" in prompt_file or "\\" in prompt_file or prompt_file.startswith(".")):
+        raise ExtractionError("EXTRACTION_PROMPT_FILE_INVALID")
+    path = REFERENCES / prompt_file
+    if not path.is_file():
+        raise ExtractionError("EXTRACTION_PROMPT_FILE_MISSING")
+    text = path.read_text(encoding="utf-8")
+    if hashlib.sha256(text.encode("utf-8")).hexdigest() != prompt_sha256:
+        raise ExtractionError("EXTRACTION_PROMPT_FILE_DRIFT")
+    return text
+
+
 def validate_clause_rules(rules: Any) -> None:
     if not isinstance(rules, Mapping) or set(rules) != CLAUSE_RULE_KEYS:
         raise ExtractionError("EXTRACTION_CLAUSE_RULES_INVALID")
@@ -120,6 +146,13 @@ def load_profile(profile_id: str, path: Path = PROFILES) -> Mapping[str, Any]:
         raise ExtractionError("EXTRACTION_PROFILE_INVALID")
     if "clause_rules" in profile:
         validate_clause_rules(profile["clause_rules"])
+    # En profil MÅ mangle prompt-bindingen — 1939 gør, indtil trin 6 giver den en.
+    # Men bærer den én, skal filen findes og hashen holde; runneren afviser en profil
+    # uden binding frem for at gætte en prompt.
+    if "prompt_file" in profile or "prompt_sha256" in profile:
+        if "prompt_file" not in profile or "prompt_sha256" not in profile:
+            raise ExtractionError("EXTRACTION_PROMPT_BINDING_INCOMPLETE")
+        resolve_prompt(profile["prompt_file"], profile["prompt_sha256"])
     return {"profile_id": profile_id, **profile}
 
 

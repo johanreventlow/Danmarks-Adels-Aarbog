@@ -431,3 +431,59 @@ def test_reusable_is_false_when_a_new_manifest_field_changes(felt, vaerdi):
     existing = manifest(**{felt: "0" * 64})
     candidate = manifest(**{felt: vaerdi})
     assert evidence_extract.reusable(existing, candidate) is False
+
+
+# ===========================================================================
+# Task 4: prompt-bindingen (afvigelse B + anden læsers R9)
+#
+# Før 4.3a var `prompt_version` en ren streng, som ingen kode bandt til en fil.
+# Profilen sagde `evidence-extract-1.0.0`; filen `extract-prompt.md` sagde
+# `2026-07-29b`. Nu skal en profil, der bruges af runneren, pege på en RIGTIG fil
+# og bære dens hash.
+# ===========================================================================
+
+def test_the_2018_20_profile_binds_a_prompt_file():
+    profile = evidence_extract.load_profile("daa-2018-20-v1")
+    assert profile["prompt_file"] == "evidence-extract-prompt-1.0.0.md"
+    assert len(profile["prompt_sha256"]) == 64
+
+
+def test_the_bound_hash_matches_the_file_on_disk():
+    """Hashen og de bytes, der sendes til modellen, må ikke kunne divergere."""
+    profile = evidence_extract.load_profile("daa-2018-20-v1")
+    path = REFERENCES / profile["prompt_file"]
+    assert evidence_runner.sha256_text(path.read_text(encoding="utf-8")) == profile["prompt_sha256"]
+
+
+def test_a_drifted_prompt_hash_is_rejected(tmp_path, monkeypatch):
+    """En prompt, der ændrer sig uden en ny version, skal stoppe kørslen — ellers
+    er `prompt_sha256` i manifestet en påstand, ikke et bevis."""
+    with pytest.raises(evidence_extract.ExtractionError, match="EXTRACTION_PROMPT_FILE_DRIFT"):
+        evidence_extract.resolve_prompt("evidence-extract-prompt-1.0.0.md", "0" * 64)
+
+
+def test_a_missing_prompt_file_is_rejected():
+    with pytest.raises(evidence_extract.ExtractionError, match="EXTRACTION_PROMPT_FILE_MISSING"):
+        evidence_extract.resolve_prompt("findes-ikke-1.0.0.md", "0" * 64)
+
+
+@pytest.mark.parametrize("ondsindet", ["../../../etc/passwd", "/etc/passwd", "under/mappe.md"])
+def test_prompt_file_cannot_escape_the_references_directory(ondsindet):
+    """R9: filnavnet må ikke kunne pege ud af references/."""
+    with pytest.raises(evidence_extract.ExtractionError, match="EXTRACTION_PROMPT_FILE_INVALID"):
+        evidence_extract.resolve_prompt(ondsindet, "0" * 64)
+
+
+def test_the_1939_profile_is_untouched_and_has_no_prompt_file():
+    """1939 bruges ikke af runneren før trin 6. Den skal IKKE have en tom eller
+    gættet binding — fraværet er det ærlige svar, og runneren afviser den."""
+    profile = evidence_extract.load_profile("daa-1939-v1")
+    assert "prompt_file" not in profile
+    assert profile["version"] == "1.0.0"
+
+
+def test_the_legacy_trin3_prompt_is_left_alone():
+    """extract-prompt.md er den gamle vejs kontrakt og bruges stadig af SKILL.md."""
+    legacy = REFERENCES / "extract-prompt.md"
+    assert legacy.exists()
+    assert "prompt-version: 2026-07-29b" in legacy.read_text(encoding="utf-8")[:200]

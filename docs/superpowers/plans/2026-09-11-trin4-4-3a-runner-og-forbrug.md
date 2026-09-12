@@ -229,7 +229,7 @@ Kører runneren et sted, hvorfra `work/`, `work_1939_stamtavle/`, restore-ekspor
 - **Ingen kildetekst i logs, fejl eller fixtures.** Fejl logges med type, aldrig med tekst — det gælder også `stderr` fra Codex. Og en fejl fanget under 4.3b må **ikke** gemmes som fixture med sit rigtige indhold: fixtures bygges syntetisk og mærkes som sådan.
 - **Ingen prisberegning.** Projektejerens afgørelse 2026-09-12: `pricing`/`cost_usd` udgår af dagsværket. Kørslerne afregnes over abonnement, ikke pr. token, så en kroneomregning ville være et tal uden modstykke. **Rå tokental beholdes** — de kommer gratis med svaret og er det, der siger, om en større kørsel kan gennemføres inden for kvoten.
 - **Private artefakter efter §9.1.** Call-dir `0700`, alle filer `0600`, atomisk oprettelse uden symlinks, privat placering uden for repoet, eksplicit ignore-regel for varige lokale artefakter. `tempfile`-standarder og brugerens `umask` er ikke kontrakten — rettighederne testes.
-- **Modelpolitikken ændres ikke.** `gpt-5.6-terra` er arbejdshesten; `gpt-5.6-sol` kræver `escalation_reason` og kun på validator-flaggede records.
+- **Modelpolitikken ændres ikke.** `gpt-5.6-terra` er arbejdshesten; `gpt-5.6-sol` kræver `escalation_reason` (håndhævet af eksisterende kode). Kravet om validator-flag udgår, jf. afvigelse D.
 
 ## Roadmappens seks adgangskrav
 
@@ -314,9 +314,9 @@ Denne task kommer **før** runneren, fordi dens resultat bestemmer runnerens for
   | Legacy-konfiguration (med brugerkonfig) | 21.554 | ≈ 12,7 M | kun til sammenligning |
 
   Payload, output og reasoning opgøres særskilt. Udbyderens prompt-cache (proben så 11.008 af 21.554 cachet ved andet kald) er uden for vores kontrol og afhænger af, hvor tæt kaldene ligger i tid — den **måles** i 4.3b, antages ikke. Baseline genmåles med den endelige argv og den isolationsmekanisme, Task 2 ender med.
-- [ ] **Step 5.** Profil 2018-20 → **v1.3.0** (`pricing` + `prompt_file`/`prompt_sha256`). `requires_human_go_for_change` gælder: bumpet kræver projektejerens GO.
-- [ ] **Step 6 (R9).** Promptens mapping gøres entydig: **hver** profil får et eksplicit `prompt_file` + `prompt_sha256`, valideret mod en tilladt references-mappe uden path traversal. I dag har begge profiler samme `prompt_version`, så en global filbinding i `load_profile` ville efterlade uafklaret, hvad 1939 resolver til. 1939 peger fortsat på sin nuværende adfærd. Tests for **begge** profiler plus en regressionstest af legacy-trin ③.
-- [ ] **Step 7 (R6).** Eskaleringsgaten gøres hel. §6.4 kræver både `escalation_reason` **og** at kun validator-flaggede records må bruge `gpt-5.6-sol`; koden håndhæver i dag kun årsagen (`evidence_extract.py:147`). Tilføj et hash-bundet validator-resultat pr. record til manifest/preflight, og afvis Sol, med mindre **alle** valgte records har et tilladt flag og en årsag. Negative tests: Sol uden flag; flag fra forkert inputhash; blandet batch.
+- [x] **Step 5.** Profil 2018-20 → **v1.3.0** (`pricing` + `prompt_file`/`prompt_sha256`). `requires_human_go_for_change` gælder: bumpet kræver projektejerens GO.
+- [x] **Step 6 (R9). UDFØRT.** Bindingen er gjort entydig — men **valgfri** frem for global: en profil må mangle `prompt_file`, og 1939 gør det. Fraværet er det ærlige svar (1939 bruges først af runneren i trin 6), og runneren afviser en profil uden binding frem for at gætte en prompt. Bærer en profil én halvdel af parret, kræves den anden (`EXTRACTION_PROMPT_BINDING_INCOMPLETE`). Filnavnet kan ikke pege ud af `references/` — tre negative tests dækker `../`, absolut sti og undermappe. `extract-prompt.md` er urørt, og en regressionstest holder fast i, at den gamle trin ③-vej stadig findes.
+- [x] **Step 7 (R6). UDGÅR — afgjort af projektejeren 2026-09-12.** §6.4's krav om, at kun validator-flaggede records må bruge `gpt-5.6-sol`, implementeres ikke. Begrundelse: runneren vælger ikke selv model, og der findes ingen automatisk eskalering at gardere sig imod — gaten ville værne mod noget, der ikke kan ske af sig selv. `escalation_reason` håndhæves fortsat af den eksisterende kode. Del af **afvigelse D**. Tilføjes den dag, en kørsel faktisk har brug for den stærkere model.
 
 **Verify:** `test_reimport_profile.py` og `test_evidence_extract.py` grønne; en profil uden `pricing` for den valgte model afvises med navngivet token.
 

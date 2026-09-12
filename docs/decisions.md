@@ -22,9 +22,16 @@ De koster intet at samle op, de kommer med svaret, og de er det, der faktisk afg
 større kørsel kan gennemføres inden for kvoten. Det er kvoten, ikke kronebeløbet, der er den
 bindende grænse.
 
+**Samme afgørelse omfatter eskaleringsgaten.** §6.4 kræver også, at kun validator-flaggede
+records må bruge `gpt-5.6-sol`. Den implementeres ikke: runneren vælger ikke selv model, og
+der findes ingen automatisk eskalering at gardere sig imod — gaten ville værne mod noget, der
+ikke kan ske af sig selv. `escalation_reason` håndhæves fortsat af den eksisterende kode.
+Tilføjes den dag, en kørsel faktisk har brug for den stærkere model.
+
 **Virkning.** `pricing_version` er fjernet fra `BatchManifest` og fra `reusable`. Task 4's
-Step 2-3 udgår. Budgetter opgøres i tokens. `BatchManifest` bærer en kommentar om, at
-fraværet er bevidst, så en senere læser ikke tilføjer det igen som en oversigelse.
+Step 2-3 og Step 7 udgår, så dagsværkets Task 4 er reduceret til prompt-bindingen alene.
+Budgetter opgøres i tokens. `BatchManifest` bærer en kommentar om, at fraværet er bevidst, så
+en senere læser ikke tilføjer det igen som en oversigelse.
 
 ## BESLUTTET: Tre spec-afvigelser for dagsværk 4.3a — A, B og C (2026-09-11)
 
