@@ -135,16 +135,16 @@ der rummer levende personer, og det er indirekte persondata. Kun tal er rapporte
 
 ## Hvad kørslen ikke viser
 
-- **Ingen rigtige records.** Det er 4.3b og kræver sin egen GO samt en
-  eligibility-ledger, der faktisk er kørt mod en database.
-- **Ledgeren her er syntetisk.** `export_model_eligibility.R` er stadig aldrig
-  kørt mod en base (Task 5 Step 3), så §9.2's tal er ikke genmålt.
+- **Ingen rigtige records gennem modellen.** Det er 4.3b og kræver sin egen GO.
+- **Modelkørslen brugte en syntetisk ledger.** Den rigtige ledger er målt (afsnittet
+  ovenfor), men de to ting er ikke kørt sammen endnu: ende-til-ende-kørslen brugte én
+  opdigtet post, og ledgeren dækker de 591 virkelige. At koble dem er 4.3b.
 - **`timeout` og `validation_failed`** er ikke fremprovokeret ende til ende; de
   er dækket af enhedstests mod syntetiske fixtures.
 
 ## Udestår før 4.3b
 
-1. Kør `export_model_eligibility.R` mod en restore og sammenlign med §9.2's tal
-   fra 2026-09-06 (46+4 / 13 / 62 / 2).
-2. Projektejerens GO til første kald mod rigtige records, med ledgerens hash og
-   budget.
+1. ~~Kør `export_model_eligibility.R` mod en restore~~ — **udført 2026-09-12**, se ovenfor.
+2. Projektejerens GO til første kald mod rigtige records, med ledgerens hash og budget.
+3. Koble de to: kør 4.3b's udvalgte records gennem runneren med den *rigtige* ledger,
+   ikke den syntetiske.
