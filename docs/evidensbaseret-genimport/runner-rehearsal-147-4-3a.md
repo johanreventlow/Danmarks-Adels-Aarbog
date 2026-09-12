@@ -81,6 +81,58 @@ hændelsesstrømmen. Det stærke bevis er **adgangstesten**, som kører uden mod
 deterministisk får `EACCES` på hver spærret sti. Sådan skal de to læses: testen
 er beviset, kanarien er en stikprøve.
 
+## Eligibility-ledgeren kørt mod en restore (Task 5 Step 3)
+
+**Kørt 2026-09-12** mod en frisk restore af prod-dumpet `daa-prod-20260910161728.dump`
+(10. september), migreret op med `db-migrations.sql`, fordi trin 4's migrationer endnu
+ikke er i produktionen. Basen havde 1.811 personer og 1.183 source records; 2018-20 er
+`source_id = 1` med 591 records, alle koblet til en person.
+
+**Resultat: 591 records, 488 `eligible`, 103 `excluded`.**
+
+| Regel | Ramt (inkrementelt) | §9.2 (2026-09-06) | |
+| --- | ---: | ---: | --- |
+| 1. hovedperson levende/uafklaret | 47 | 50 (46+4) | −3 |
+| 2. partner eller barn levende | 10 | 13 | −3 |
+| 3. partner uden dødsdato | 46 | 62 | −16 |
+| 4. tekstfilter | 2 | 2 | ✓ |
+
+**Alle afvigelser går i den usikre retning** — færre udelukkede end §9.2 — så de er
+efterprøvet frem for accepteret.
+
+**Regel 1 er kontrolleret direkte mod rådata:** 47 records har `levende IS TRUE`, og
+**nul** har `levende IS NULL`. §9.2's »46 + 4« bestod af 46 levende plus 4 *uafklarede*;
+de fire uafklarede findes ikke længere i dumpet. Forskellen er altså **data, ikke kode** —
+dumpet er fra 10. september, §9.2 målte 6. september, og 149a/149b blev anvendt i
+produktionen 5.-6. september. Det er ikke et bevis, men det er den forklaring, tallene
+peger på, og implementeringen er efterprøvet korrekt mod de data, der faktisk ligger der.
+
+**Regel 3's −16 har samme karakter:** 297 records har en partner, 225 af dem har en
+partner med dødsdato, og **nul** har et dødsfaktum uden dato. §9.2's 62 talte »poster med
+en partner markeret ikke-levende uden dødsdato« — en beslægtet, men ikke identisk
+måling.
+
+### To fejl fundet ved kørslen
+
+1. **Tekstfilteret fandt 0 i stedet for 2.** Mønsteret krævede årstallet umiddelbart
+   efter `f.`, men bogen skriver `f. 12. Maj 1955`. Udvidet til at tillade op til 20
+   ikke-cifre imellem. De to træf viser sig at være *falske* positiver — »f. Bechs Legat,
+   1966«, hvor `f.` betyder født som pigenavn — og det er netop meningen: §9.2 kalder selv
+   reglen en **manuel** udelukkelse, så filteret skal rejse tvivlen, ikke afgøre den.
+2. **Ledgerens JSON-form var forkert.** `jsonlite` skrev `{"status":["excluded"]}` og
+   `{"reasons":[["…"]]}` frem for skalarer og en flad liste. **Python-validatoren afviste
+   den korrekt** med `LEDGER_STATUS_INVALID` — værnet fangede sin egen eksports fejl,
+   hvilket er den bedste slags bekræftelse på, at det virker.
+
+### Værnet prøvet på ægte data
+
+Efter rettelsen validerer alle 591 rækker. En `eligible` record slipper igennem; en
+`excluded` afvises med sine årsager (`RECORD_EXCLUDED … reasons=spouse_undated_marriage`);
+en ukendt record afvises som `RECORD_UNKNOWN`.
+
+**Ledgerfilen er ikke committet.** Den nævner ingen navne, men den udpeger hvilke poster
+der rummer levende personer, og det er indirekte persondata. Kun tal er rapporteret her.
+
 ## Hvad kørslen ikke viser
 
 - **Ingen rigtige records.** Det er 4.3b og kræver sin egen GO samt en

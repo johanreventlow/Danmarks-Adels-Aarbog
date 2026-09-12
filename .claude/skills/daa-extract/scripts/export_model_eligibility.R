@@ -120,10 +120,17 @@ spouse_risk AS (
     ) marriage ON TRUE
    GROUP BY rp.record_key
 ),
--- 4. tekstfilter: posten skriver 'f.' efterfulgt af et fødselsår >=1950
+-- 4. tekstfilter: posten skriver 'f.' efterfulgt af et fødselsår >=1950.
+--    Mønsteret tillader op til 20 ikke-cifre mellem 'f.' og årstallet, fordi
+--    bogen skriver 'f. 12. Maj 1955' — ikke 'f. 1955'. En snæver \\s*-form fandt 0.
+--    Den brede form fanger også FALSKE positiver som 'f. Bechs Legat, 1966' (hvor
+--    'f.' betyder *født* som pigenavn). Det er med vilje: §9.2 kalder selv reglen
+--    en MANUEL udelukkelse, så filteret skal rejse tvivlen, ikke afgøre den.
+--    Fail-closed — hellere en post for meget i køen end en levende person i et
+--    modelkald.
 text_filter AS (
   SELECT sr.record_key,
-         bool_or(ob.verbatim_text ~ 'f\\.\\s*(19[5-9][0-9]|20[0-9][0-9])') AS hit
+         bool_or(ob.verbatim_text ~ 'f\\.[^0-9]{0,20}(19[5-9][0-9]|20[0-9][0-9])') AS hit
     FROM private.source_record sr
     JOIN private.source_record_anchor_current a ON a.source_record_id = sr.id
                                                AND a.decision_status = 'accepted'
@@ -179,9 +186,13 @@ for (i in seq_len(nrow(rows))) {
     reasons <- c(reasons, "principal_living")
     input_sha <- strrep("0", 64)
   }
+  # unbox() på skalarerne og en ren character-vektor til reasons. Uden unbox
+  # skriver jsonlite {"status":["excluded"]} og {"reasons":[["..."]]}, som
+  # Python-validatoren korrekt afviser (LEDGER_STATUS_INVALID). Fanget ved den
+  # første rigtige kørsel 2026-09-12.
   records[[rows$record_key[i]]] <- list(
-    status = if (length(reasons) == 0L) "eligible" else "excluded",
-    reasons = as.list(reasons),
+    status = jsonlite::unbox(if (length(reasons) == 0L) "eligible" else "excluded"),
+    reasons = reasons,
     record_input_sha256 = jsonlite::unbox(input_sha)
   )
 }
