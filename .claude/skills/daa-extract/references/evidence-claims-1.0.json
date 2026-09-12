@@ -6,7 +6,9 @@
   "description": "Sendes til codex exec som --output-schema. Modellen ser ÉN helpost med dens klausuler og citerer klausul-ordinaler — ikke rendition-absolutte offsets. Nøglesættet er lukket hele vejen ned: payloaden lagres permanent i private.reimport_event, så et frit felt ville være en vej for kildetekst.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["claims"],
+  "required": [
+    "claims"
+  ],
   "properties": {
     "claims": {
       "type": "array",
@@ -14,13 +16,22 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["clause_ordinals", "predicate", "value", "confidence"],
+        "required": [
+          "clause_ordinals",
+          "predicate",
+          "value",
+          "confidence",
+          "source_persona_id"
+        ],
         "properties": {
           "clause_ordinals": {
             "type": "array",
             "description": "Ordinaler fra netop denne records eksport. Mindst én.",
             "minItems": 1,
-            "items": {"type": "integer", "minimum": 1}
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
           },
           "predicate": {
             "type": "string",
@@ -28,25 +39,45 @@
             "minLength": 1
           },
           "value": {
-            "description": "Formen følger prædikatets value_kind: skalar streng for text/date_raw, ellers et objekt med en ordret raw.",
-            "oneOf": [
-              {"type": "string", "minLength": 1},
+            "description": "Formen følger prædikatets value_kind: skalar streng for text/date_raw, ellers et objekt med en ordret raw. NB: anyOf, ikke oneOf — structured outputs afviser oneOf (målt 2026-09-12).",
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
               {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["raw"],
+                "required": [
+                  "raw",
+                  "normalized"
+                ],
                 "properties": {
-                  "raw": {"type": "string", "minLength": 1},
-                  "normalized": {"type": ["string", "null"]}
+                  "raw": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "normalized": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
                 }
               }
             ]
           },
-          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
           "source_persona_id": {
-            "type": "string",
-            "description": "Kræves for person.*-prædikater: recordens egen persona.",
-            "minLength": 1
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Recordens egen persona. KRÆVES for person.*-prædikater; null for øvrige. (Structured outputs kræver alle felter i required, så valgfriheden udtrykkes med null frem for fravær — målt 2026-09-12.)"
           }
         }
       }

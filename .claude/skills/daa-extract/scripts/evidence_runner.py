@@ -116,6 +116,10 @@ def validate_record_claims(claims: Any, export: Mapping[str, Any]) -> None:
         # bredere end `validate_output`'s "delmængde af personaens egne
         # mention-observationer" — klausullaget har ikke mentions pr. klausul.
         # Ret ikke dette tilbage uden at læse §6.1.
+        # `source_persona_id` er ALTID en nøgle i svaret: structured outputs kræver,
+        # at hvert felt står i `required`, så valgfriheden udtrykkes med null frem
+        # for fravær (målt mod API'et 2026-09-12).  Et null er derfor legitimt for
+        # ikke-person-claims — men ikke for person.*.
         if predicate.startswith("person."):
             claimed = claim.get("source_persona_id")
             if not isinstance(claimed, str) or not claimed.strip() or claimed != persona_id:
@@ -536,3 +540,30 @@ def run_record_guarded(export: Mapping[str, Any], *, ledger: Mapping[str, Any],
     except EligibilityError:
         return RecordOutcome(record_key, "failed", error_kind="not_eligible")
     return run_record(export, **kwargs)
+
+
+def build_gate_profile(*, call_dir: str, home: str, extra_deny: Sequence[str] = ()) -> str:
+    """Udfyld Seatbelt-skabelonen for ét kald.
+
+    Skabelonen ligger i `sandbox/runner-gate.sb.template` og bærer selv
+    begrundelserne.  Kort: hele hjemmemappen er lukket for læsning, og kun
+    `~/.codex`, `~/.local` og call-dir er åbne.  `~/Library` er bevidst IKKE med —
+    den var åben i et tidligere udkast, og `~/Library/Keychains` var læsbar med den.
+    """
+    template = (Path(__file__).resolve().parent / "sandbox" / "runner-gate.sb.template")
+    profile = template.read_text(encoding="utf-8")
+    denies = "\n".join(f'(deny file-read* (subpath "{path}"))' for path in extra_deny)
+    return (profile.replace("__HOME__", home)
+                   .replace("__CALL_DIR__", call_dir)
+                   .replace("__EXTRA_DENY__", denies))
+
+
+def build_gated_argv(*, profile_path: str, **kwargs) -> list[str]:
+    """`build_argv` pakket ind i Seatbelt-gaten.
+
+    Det er DENNE form, der må bruges mod rigtige data: `codex exec --sandbox
+    read-only` alene er ikke en læsegrænse (se profilens hoved).  Kaldet skal køre
+    med call-dir som arbejdsmappe — ellers fejler det med »Operation not
+    permitted«, fordi cwd selv er spærret.
+    """
+    return ["sandbox-exec", "-f", profile_path] + build_argv(**kwargs)

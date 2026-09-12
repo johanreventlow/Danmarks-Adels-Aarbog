@@ -141,12 +141,38 @@ def test_unknown_key_on_a_claim_is_rejected():
 # --- kontraktfilen ---------------------------------------------------------
 
 def test_claims_contract_file_matches_the_validator():
-    """--output-schema sendes til CLI'en; filen skal findes og være lukket."""
+    """--output-schema sendes til CLI'en; filen skal findes og være lukket.
+
+    ALLE felter står i `required` — også `source_persona_id`. Det er ikke en
+    skødesløshed: structured outputs afviste skemaet, indtil hvert felt var
+    påkrævet (målt mod API'et 2026-09-12). Valgfrihed udtrykkes med `null`.
+    Sænk ikke kravet tilbage uden at køre et rigtigt kald igen."""
     schema = json.loads((REFERENCES / "evidence-claims-1.0.json").read_text(encoding="utf-8"))
     assert schema["schema_version"] == "evidence-claims-1.0"
     claim_schema = schema["properties"]["claims"]["items"]
     assert claim_schema["additionalProperties"] is False
-    assert set(claim_schema["required"]) == {"clause_ordinals", "predicate", "value", "confidence"}
+    assert set(claim_schema["required"]) == {"clause_ordinals", "predicate", "value",
+                                             "confidence", "source_persona_id"}
+    assert "null" in claim_schema["properties"]["source_persona_id"]["type"]
+
+
+def test_the_contract_uses_anyof_not_oneof():
+    """`oneOf` er ikke tilladt i et structured-output-skema — API'et afviste det
+    med `invalid_json_schema` (målt 2026-09-12).
+
+    Tjekker STRUKTUREN, ikke teksten: ordet "oneOf" står med vilje i skemaets egen
+    forklaring, og en tekstsøgning ville derfor fejle på sin egen dokumentation."""
+    schema = json.loads((REFERENCES / "evidence-claims-1.0.json").read_text(encoding="utf-8"))
+
+    def nogen_oneof(node):
+        if isinstance(node, dict):
+            return "oneOf" in node or any(nogen_oneof(v) for v in node.values())
+        if isinstance(node, list):
+            return any(nogen_oneof(v) for v in node)
+        return False
+
+    assert not nogen_oneof(schema)
+    assert "anyOf" in schema["properties"]["claims"]["items"]["properties"]["value"]
 
 
 # ===========================================================================
@@ -642,3 +668,34 @@ def test_an_excluded_record_stays_visible_in_the_accounting(tmp_path):
                                  run=exploding_seam)
     linje = outcome.log_line()
     assert "I-50" in linje and "not_eligible" in linje
+
+
+# ===========================================================================
+# Task 6: kaldet bag gaten
+# ===========================================================================
+
+from evidence_runner import build_gate_profile, build_gated_argv
+
+
+def test_gate_profile_closes_the_home_directory(tmp_path):
+    profil = build_gate_profile(call_dir="/tmp/kald", home="/Users/x", extra_deny=[])
+    assert '(deny file-read* (subpath "/Users/x"))' in profil
+    assert '(allow file-read* (subpath "/tmp/kald"))' in profil
+    # ~/Library må IKKE stå der: den var åben i et tidligere udkast, og
+    # ~/Library/Keychains var læsbar med den.
+    assert "/Users/x/Library" not in profil
+
+
+def test_gate_profile_takes_extra_denies():
+    profil = build_gate_profile(call_dir="/tmp/k", home="/Users/x",
+                                extra_deny=["/tmp/syntetisk-pii"])
+    assert '(deny file-read* (subpath "/tmp/syntetisk-pii"))' in profil
+
+
+def test_gated_argv_wraps_codex_in_sandbox_exec():
+    argv = build_gated_argv(profile_path="/tmp/k/gate.sb", model="gpt-5.6-terra",
+                            call_dir="/tmp/k", schema_path="/tmp/k/schema.json",
+                            prompt="Udtræk claims.")
+    assert argv[:3] == ["sandbox-exec", "-f", "/tmp/k/gate.sb"]
+    assert argv[3] == "codex"
+    assert "--ignore-user-config" in argv and argv[-1] == "Udtræk claims."

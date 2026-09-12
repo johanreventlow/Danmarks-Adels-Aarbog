@@ -335,11 +335,11 @@ Den oprindelige task krævede kun, at en udelukkelsesliste *fandtes* og havde ri
 
 ### Task 6: Rigtig kørsel + CI + rapport
 
-- [ ] **Step 1.** `test_evidence_runner.py` tilføjes til `ci.yml:103`'s eksplicitte pytest-liste. **Uden det kører testen ingen steder** — 4.2's R8-lære.
-- [ ] **Step 2.** Den rigtige kørsel (§6.5): **én syntetisk, ikke-identificerende record** gennem `gpt-5.6-terra`, med reelt forbrug i manifestet. Beviser forbrugsrapportering, cache-hit ved gentagelse, output-skema og mindst én fejltype ende-til-ende.
-- [ ] **Step 3.** Både adgangstesten og kanarietesten køres som del af den rigtige kørsel — grænsen skal bevises på præcis den opsætning, der sendes videre til 4.3b, ikke på en tidligere.
-- [ ] **Step 4.** Rapport i `docs/evidensbaseret-genimport/` med alle hashes (prompt, kontrakt, profil, eligibility-ledger, manifest), de målte forbrugstal og **isolationsgatens denial-resultater**. Changelog-post. Opdatér `status.md`'s modenhedstabel for »Extractor-runner og modelkald«.
-- [ ] **Step 5.** Ryd op: midlertidige mapper, lokale baser oprettet af dagsværket, og enhver cache-fil med indhold fra restoren.
+- [x] **Step 1.** `test_evidence_runner.py` tilføjes til `ci.yml:103`'s eksplicitte pytest-liste. **Uden det kører testen ingen steder** — 4.2's R8-lære.
+- [x] **Step 2.** Den rigtige kørsel (§6.5): **én syntetisk, ikke-identificerende record** gennem `gpt-5.6-terra`, med reelt forbrug i manifestet. Beviser forbrugsrapportering, cache-hit ved gentagelse, output-skema og mindst én fejltype ende-til-ende.
+- [x] **Step 3.** Både adgangstesten og kanarietesten køres som del af den rigtige kørsel — grænsen skal bevises på præcis den opsætning, der sendes videre til 4.3b, ikke på en tidligere.
+- [x] **Step 4.** Rapport i `docs/evidensbaseret-genimport/` med alle hashes (prompt, kontrakt, profil, eligibility-ledger, manifest), de målte forbrugstal og **isolationsgatens denial-resultater**. Changelog-post. Opdatér `status.md`'s modenhedstabel for »Extractor-runner og modelkald«.
+- [x] **Step 5.** Ryd op: midlertidige mapper, lokale baser oprettet af dagsværket, og enhver cache-fil med indhold fra restoren.
 
 **Verify:** CI grøn på alle seks jobs; rapportens tal genfindes i manifestet.
 
