@@ -117,6 +117,7 @@ def main() -> int:
             "record_key": key, "status": udfald.status, "error_kind": udfald.error_kind,
             "antal_klausuler": len(rec["clauses"]), "antal_claims": len(udfald.claims),
             "praedikater": praedikater, "usage": dict(udfald.usage or {}),
+            "afviste": [r["fejl"] for r in udfald.rejected],
             "fra_cache": udfald.from_cache,
         })
         print(f"  {key:10} {udfald.status:7} klausuler={len(rec['clauses']):2} "
@@ -137,9 +138,13 @@ def main() -> int:
                                   "have givet et claim? (grundlag for dækningsmålet)",
         })
 
-    green = sum(1 for r in resultater if r["status"] == "green")
+    # `delvis` TÆLLER MED: recorden har en valideret post, blot ikke alle claims.
+    # Tabet står i regnskabet via antallet af afviste. Samme regel som batch_status —
+    # den blev rettet dér, men ikke her, så bundt 2 meldte falsk PENDING.
+    green = sum(1 for r in resultater if r["status"] in ("green", "delvis"))
     tokens = sum(r["usage"].get("input_tokens", 0) for r in resultater)
-    print(f"\n== {green}/{len(keys)} green · {sum(r['antal_claims'] for r in resultater)} claims "
+    delvise = sum(1 for r in resultater if r["status"] == "delvis")
+    print(f"\n== {green}/{len(keys)} dækket ({delvise} delvis) · {sum(r['antal_claims'] for r in resultater)} claims "
           f"· {tokens:,} input-tokens ==")
     if green != len(keys):
         print("BATCH_PENDING — ikke alle records har en valideret post.")

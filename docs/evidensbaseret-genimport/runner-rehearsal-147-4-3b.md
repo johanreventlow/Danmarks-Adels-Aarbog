@@ -88,11 +88,19 @@ en person, ikke en biografi, og databasen bekræfter det: 50 tegn, en
 »se«-henvisning, intet årstal, intet `f.`/`d.`.
 
 Modellens tavshed var altså **korrekt tilbageholdenhed**, ikke en udeladelse.
-Men målt bredt ligner **38 af de 591 poster** den (korte, uden årstal). De kan
-per definition ikke give claims, og de koster fuld pris i tokens. Et filter før
-modelkaldet ville spare ~6 % af en fuld kørsel for garanteret nul udbytte.
+Bundt 2 gav en post mere af samme slags: III-104, 70 tegn med »se«-henvisning,
+også nul claims.
 
-Brugbarhedsmålet er derfor opgjort mod de **fire biografiske** poster, ikke fem.
+**Hvor mange der findes, er ikke afklaret.** En første måling sagde 38, men den
+talte »kort **eller** uden årstal«, hvilket er noget andet. Præcist målt har kun
+**3 af de 591** en eksplicit »se«-henvisning — og to af dem er netop I-29 og
+III-104, som udvalget tilfældigvis ramte. Til gengæld er **96 poster under 80
+tegn**, og de giver næppe meget uanset.
+
+Et filter før modelkaldet er derfor stadig værd at overveje, men gevinsten er
+mindre end først antaget, og signalet skal findes bedre end »se«.
+
+Brugbarhedsmålet er opgjort mod de **biografiske** poster, ikke mod henvisningerne.
 
 ### 4. En segmenteringsfejl, som ikke er modellens
 
