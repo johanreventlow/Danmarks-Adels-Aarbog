@@ -174,8 +174,14 @@ ERROR_KINDS = {"quota_exhausted", "model_refusal", "schema_violation",
 
 #: Spec §6.3 + anden læsers R7.  De to sidste felter er R7's tilføjelse: uden dem
 #: kan et ændret outputskema eller en ændret runner genbruge et gammelt råsvar.
+#: `record_key` er MED, selv om `record_input_sha256` afleder af teksten: to records
+#: kan have identisk helposttekst.  Målt i 2018-20: 591 records, kun 588 unikke
+#: teksthashes — TRE kollisioner i de faktiske data.  Uden nøglen ville to poster
+#: dele cachepost, og et cachet svar kunne ikke henføres til den record, det
+#: beskriver.  (Anden læsers fund 2 ved reviewet af plan 4.4.)
 CACHE_KEY_FIELDS = ("profile_id", "profile_version", "model", "prompt_sha256",
-                    "record_input_sha256", "claims_schema_sha256", "runner_contract_version")
+                    "record_key", "record_input_sha256", "claims_schema_sha256",
+                    "runner_contract_version")
 
 #: Fejltyper aflæses af `turn.failed`'s `error.type`.  Ukendte former bliver
 #: `unknown` — aldrig stiltiende accepteret.

@@ -317,16 +317,30 @@ def test_an_unrecognised_failure_is_unknown_never_silently_ok():
 
 # --- cache-identitet (spec §6.3 + anden læsers R7) ------------------------
 
+def test_two_records_with_identical_text_do_not_share_a_cache_entry():
+    """Målt i 2018-20: 591 records, kun 588 unikke helposthashes. Uden record_key
+    i nøglen ville tre par dele cachepost, og et cachet svar kunne ikke henføres
+    til den record, det beskriver."""
+    import tempfile
+    cache = ResponseCache(tempfile.mkdtemp())
+    a = cache_ident(record_key="I-42")
+    b = cache_ident(record_key="I-99")     # samme tekst, anden record
+    assert a["record_input_sha256"] == b["record_input_sha256"]
+    cache.put(a, raw='{"claims":[]}', usage={})
+    assert cache.get(b) is None
+
+
 def test_cache_key_covers_schema_and_runner_version():
     """R7: uden claim-skemaets SHA og runner-kontrakten kan et ændret outputskema
     genbruge et gammelt råsvar."""
     assert CACHE_KEY_FIELDS == ("profile_id", "profile_version", "model", "prompt_sha256",
-                                "record_input_sha256", "claims_schema_sha256", "runner_contract_version")
+                                "record_key", "record_input_sha256", "claims_schema_sha256",
+                                "runner_contract_version")
 
 
 def cache_ident(**overrides):
     base = {"profile_id": "daa-2018-20-v1", "profile_version": "1.3.0", "model": "gpt-5.6-terra",
-            "prompt_sha256": "a" * 64, "record_input_sha256": "b" * 64,
+            "prompt_sha256": "a" * 64, "record_key": "I-42", "record_input_sha256": "b" * 64,
             "claims_schema_sha256": "c" * 64, "runner_contract_version": "evidence-runner-1.0"}
     base.update(overrides)
     return base
