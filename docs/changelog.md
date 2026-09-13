@@ -1,5 +1,63 @@
 # Changelog
 
+## 2026-09-13 — Trin 4, dagsværk 4.3b: modellen kan læse bogen (#147)
+
+Første gang ægte DAA-prosa er sendt til en model i dette projekt. Fem poster, valgt
+stratificeret fra ledgerens 488 eligible, kørt bag Seatbelt-gaten med adgangstesten bestået
+umiddelbart før hvert kald.
+
+**Alle fem tærskler bestået:** præcision 40/41 (98 %), klausulbinding 41/41 (100 %),
+ordrethed 9/9 datoer (100 %), dækning 100 % (intet oversprunget noteret), brugbarhed 4/4
+biografiske poster. ~17.700 input-tokens pr. post.
+
+**Men de vigtigste fund er dem, tærsklerne ikke fanger.**
+
+*Modellen opfandt en præcision, kilden ikke har.* I-11 fik to dødsclaims: det tvetydige
+`† 1342/1353`, som bogen faktisk skriver, og `død 1353 (23. april)`, der vælger det ene år og
+tilføjer en dato. Prompten forbyder udtrykkeligt at udlede, og invariant 5 findes netop for
+at bære fuzzy datoer. Et claim, der ser MERE præcist ud end kilden, er farligere end et
+åbenlyst forkert: det ligner kvalitet.
+
+*Halvdelen af relations-claimene identificerer ingen.* `relation.marriage` = »NN.« og
+`relation.child` = »4 sønner« er begge sande og formelt gyldige, men peger ikke på nogen.
+Kontrakten kontrollerer form, ikke om et relations-claim udpeger en modpart. Hullet er i
+valideringen, ikke i modellen, og det skal lukkes før 4.4's ingest.
+
+*Seks procent af korpus er ikke biografier.* I-29 gav nul claims; projektejeren vurderede den
+som en henvisning, og databasen bekræfter det (50 tegn, »se«-henvisning, intet årstal, intet
+f./d.). Tavsheden var korrekt. Men 38 af 591 poster ligner den og koster fuld pris i tokens
+for garanteret nul udbytte — et filter før modelkaldet ville spare ~6 % af en fuld kørsel.
+
+**Claim-niveau afvisning, fremtvunget af kørslen.** I-11 fejlede først: ét `person.name` med
+objekt hvor der skulle stå en streng fældede posten og dens seks korrekte claims. Ved
+genkørsel kom alle syv igennem — fejlen er modellens variabilitet, ikke en misforstået
+prompt, og man kan ikke skrive sig ud af noget, der kun sker nogle gange. Projektejeren
+afgjorde, at et ugyldigt claim kun fælder sig selv; posten markeres `delvis` og tabet står i
+logget. Sikkerheden er uændret — et afvist claim lagres aldrig.
+
+**Metodefejl rettet undervejs:** den maskinelle ordrethedsforudfyldning målte alle værdier
+(28/34) i stedet for planens nævner »claims m. ordret krav«, altså datoprædikaterne. De seks
+afvigelser var titler, modellen med rette havde skåret ud af længere sætninger. Rigtigt tal:
+9/9.
+
+**Bundt 2 kørt samme dag.** Samlet over alle ti poster: **86 claims, 99 % præcision (85/86),
+100 % klausulbinding (86/86), 100 % ordrette datoer (17/17)**, ingen udeladelser noteret,
+8/8 biografiske poster brugbare. 175.840 input-tokens, ~17.600 pr. post.
+
+IV-34 blev den første post, hvor claim-niveau afvisning trådte i kraft: nogle claims kom
+igennem, resten blev afvist, posten gik ikke tabt. Under den gamle regel var alle elleve røget.
+
+**4.3b er dermed gennemført, og sporet bærer.** To ting skal lukkes i 4.4 før promotion: et
+`relation.*`-claim uden identificerbar modpart må ikke kunne blive et forslag, og et claim,
+der er mere præcist end kilden, må ikke kunne promoveres.
+
+To målefejl var mine egne: ordrethed blev først målt på alle værdier (28/34) i stedet for
+planens nævner, datoprædikaterne (17/17); og optællingen meldte falsk PENDING, fordi den
+talte `green` men ikke `delvis`.
+
+Restoren og artefakterne BEVARES til efter 4.5 (spec §3: 4.3b-4.5 deler én restore). Rapport:
+`docs/evidensbaseret-genimport/runner-rehearsal-147-4-3b.md`.
+
 ## 2026-09-12 — Trin 4, dagsværk 4.3a: runneren er kørt ende til ende (#147)
 
 Gren `feat/147-eligibility-ledger`. Ingen prod-berøring, ingen rigtige records.

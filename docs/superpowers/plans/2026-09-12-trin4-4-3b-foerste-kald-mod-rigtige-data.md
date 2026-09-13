@@ -188,28 +188,28 @@ en restore, aldrig mod produktionen. Uden dette trin er der intet at sende.
 
 Hvert led har et navngivet mellemprodukt. »Kør 4.1b og 4.1c« var ikke en procedure (R3).
 
-- [ ] **Step 1.** Frisk restore af prod-dumpet. Platformrollerne (`dashboard_user`,
+- [x] **Step 1.** Frisk restore af prod-dumpet. Platformrollerne (`dashboard_user`,
   `supabase_auth_admin`, `supabase_storage_admin`, `supabase_realtime_admin`, `pgbouncer`
   m.fl.) oprettes **før** `pg_restore --no-owner --no-privileges`, ellers fejler ~111
   GRANT-sætninger. **Basen navngives og bevares** — 4.4 og 4.5 skal bruge netop den (R4).
-- [ ] **Step 2.** `db-migrations.sql` for trin 4's skema (klausulkolonner, writer,
+- [x] **Step 2.** `db-migrations.sql` for trin 4's skema (klausulkolonner, writer,
   prædikattabel). Verificér, at `private.source_observation.parent_observation_id` findes.
-- [ ] **Step 3.** **Eksportér helposterne** med `export_clause_source_texts.R` →
+- [x] **Step 3.** **Eksportér helposterne** med `export_clause_source_texts.R` →
   `clause-source-texts-v1.json` + `clause-source-index-v1.json`.
-- [ ] **Step 4.** **Byg og validér klausulledgeren** med `build_clause_ledger.py` (4.1b's
+- [x] **Step 4.** **Byg og validér klausulledgeren** med `build_clause_ledger.py` (4.1b's
   segmentering, profilens `clause_rules` v1.2.0) → ledgerfil + dens SHA-256.
-- [ ] **Step 5.** **Byg writer-payloaden** med `build_clause_evidence_manifest.py`, bundet
+- [x] **Step 5.** **Byg writer-payloaden** med `build_clause_evidence_manifest.py`, bundet
   til ledgerfilens SHA via `--expect-ledger-sha256`. Kræver renditionen genskabt fra PDF'en
   og hash-verificeret mod basens `content_sha256` — uden det kan offsets ikke oversættes.
-- [ ] **Step 6.** **Kør writeren** (`red_apply_reimport_clause_evidence`) og verificér med
+- [x] **Step 6.** **Kør writeren** (`red_apply_reimport_clause_evidence`) og verificér med
   `db-verify`'s `#148`-blokke. Forvent 591 records / 868 klausuler som i 4.1c's rehearsal;
   **afvigelser rapporteres frem for at accepteres**.
-- [ ] **Step 7.** **Eksportér eligibility-ledgeren** mod netop denne base; gem dens SHA-256.
+- [x] **Step 7.** **Eksportér eligibility-ledgeren** mod netop denne base; gem dens SHA-256.
   Det er **den** ledger, kørslen bindes til.
-- [ ] **Step 8.** **Eksportér runner-inputtet**: pr. record helposten (`post_verbatim_text`,
+- [x] **Step 8.** **Eksportér runner-inputtet**: pr. record helposten (`post_verbatim_text`,
   ankeret for `canonical_record_input`), dens klausuler som `(ordinal, verbatim_text,
   verbatim_sha256)` og personaen. Det er objektet, `run_record_guarded` modtager.
-- [ ] **Step 9 — model-fri preflight.** Byg og validér **alle ti** runner-input uden at kalde
+- [x] **Step 9 — model-fri preflight.** Byg og validér **alle ti** runner-input uden at kalde
   modellen: hver record er `eligible`, `canonical_record_input` matcher ledgerens hash, alle
   ordinaler er sammenhængende, og hver klausultekst matcher sin egen `verbatim_sha256`.
   Fejler ét af dem, stopper dagsværket her — før noget sendes.
@@ -219,34 +219,34 @@ og ti preflight-validerede runner-input.
 
 ### Task 1: Udvalget
 
-- [ ] **Step 1 — stratificér, vælg så deterministisk (R11).** Et alfabetisk prefix er
+- [x] **Step 1 — stratificér, vælg så deterministisk (R11).** Et alfabetisk prefix er
   deterministisk, men kan let være homogent, og dagsværkets formål er netop at møde
   forkortelser, OCR-støj, indskud og ortografi. Definér strata på **målbare signaler**:
   tekstlængde (kort/middel/lang), klausulantal, tilstedeværelse af segmenteringsflag
   (`unknown_abbreviation` m.fl.), og om posten rummer ægteskabs- eller usikre datomønstre.
   Inden for hvert stratum vælges deterministisk (første efter `record_key COLLATE "C"`).
   Strata-definitionen hashes og skrives ned **før** udvælgelsen.
-- [ ] **Step 2.** Vælg **alle ti** records nu — fem til første bundt, fem til andet. Ingen af
+- [x] **Step 2.** Vælg **alle ti** records nu — fem til første bundt, fem til andet. Ingen af
   dem er betinget af, hvordan de første går (R10).
-- [ ] **Step 3.** Bekræft for hver: `status = eligible`, alle fire regler grønne, og
+- [x] **Step 3.** Bekræft for hver: `status = eligible`, alle fire regler grønne, og
   `canonical_record_input(export)` er lig ledgerens `record_input_sha256`. Det er preflighten
   fra Task 0 Step 9; her dokumenteres blot resultatet.
-- [ ] **Step 4.** Skriv record-nøgler, strata og ledgerens SHA i GO-anmodningen. **Ingen tekst.**
+- [x] **Step 4.** Skriv record-nøgler, strata og ledgerens SHA i GO-anmodningen. **Ingen tekst.**
 
 ### Task 2: Gaten — projektejerens GO
 
 Spec §10 kræver tre ting før første kald mod rigtige data. Planen tilføjer en fjerde, som er
 et **additivt dagsværksgreb** — ikke et krav fra §10 (R9 rettede den påstand).
 
-- [ ] **Step 1 (§10).** Hash-bundet eligibility-ledger (Task 0 Step 7). ✓ når SHA er noteret.
-- [ ] **Step 2 (§10).** Behandlingsgrundlaget kvitteret (spec valg 5).
-- [ ] **Step 3 (§10) — pre-run-manifestet.** §10 kræver GO med **manifest-hash og budget**,
+- [x] **Step 1 (§10).** Hash-bundet eligibility-ledger (Task 0 Step 7). ✓ når SHA er noteret.
+- [x] **Step 2 (§10).** Behandlingsgrundlaget kvitteret (spec valg 5).
+- [x] **Step 3 (§10) — pre-run-manifestet.** §10 kræver GO med **manifest-hash og budget**,
   ikke kun ledger-SHA (R5). Byg derfor et `pending`-manifest **før** modellen kaldes, med:
   de ti record-nøgler, hver records `canonical_record_input`, ledgerens SHA, profil-id og
   -version, promptfil og -hash, model, outputskemaets SHA og det forventede tokenbudget.
   **Manifestets hash er GO-grundlaget.** Efter kørslen afledes et resultatmanifest uden at
   ændre den godkendte inputidentitet.
-- [ ] **Step 4 (additivt) — stopkriteriet, skriftligt, før kørslen.** Uden tal på forhånd
+- [x] **Step 4 (additivt) — stopkriteriet, skriftligt, før kørslen.** Uden tal på forhånd
   bliver »det ser da fornuftigt ud« til et ja.
 
   Planen **foreslår** nedenstående; projektejeren godkender eller ændrer dem (R9 — det er
@@ -271,22 +271,22 @@ et **additivt dagsværksgreb** — ikke et krav fra §10 (R9 rettede den påstan
   **Kritiske fejltyper får selvstændig stopregel**, uanset procenterne: et claim om en
   **levende** person, eller et claim der citerer en klausul fra en anden record, standser
   sporet øjeblikkeligt.
-- [ ] **Step 5.** Projektejerens GO med **manifest-hash**, budget og de godkendte tærskler.
+- [x] **Step 5.** Projektejerens GO med **manifest-hash**, budget og de godkendte tærskler.
 
 **Uden alle fem: intet kald.**
 
 ### Task 3: Kørslen
 
-- [ ] **Step 1.** Adgangstesten umiddelbart før kaldet. `GATE_FAILED` ⇒ stop.
-- [ ] **Step 2.** Kør de 5 records gennem `run_record_guarded` med den rigtige ledger.
+- [x] **Step 1.** Adgangstesten umiddelbart før kaldet. `GATE_FAILED` ⇒ stop.
+- [x] **Step 2.** Kør de 5 records gennem `run_record_guarded` med den rigtige ledger.
   Én record ad gangen (§6.1).
-- [ ] **Step 3.** Mål forbrug **pr. record** — det er tallet, trin 6 skal budgetteres på.
-- [ ] **Step 4.** Manifest `green` kræver, at **hver** record har en valideret cachepost.
+- [x] **Step 3.** Mål forbrug **pr. record** — det er tallet, trin 6 skal budgetteres på.
+- [x] **Step 4.** Manifest `green` kræver, at **hver** record har en valideret cachepost.
   Delvis dækning er `pending`, og så stopper dagsværket med et navngivet fund.
-- [ ] **Step 5.** Resultatet er **validerede forslag til senere ingest**. Der oprettes
+- [x] **Step 5.** Resultatet er **validerede forslag til senere ingest**. Der oprettes
   **ingen** `interpretation_proposal` — den tilstand kommer først i 4.4 (R12: kontraktstatus
   er ikke databasetilstand). Intet promoveres, intet skrives til det kanoniske lag.
-- [ ] **Step 6.** Kør første bundt på fem, derefter andet bundt på fem — **samme frosne
+- [x] **Step 6.** Kør første bundt på fem, derefter andet bundt på fem — **samme frosne
   kontrakt for begge**. Ændres prompten undervejs, nulstilles beviset (afvigelse E).
 
 ### Task 4: Bedømmelsen — dagsværkets egentlige leverance
@@ -296,30 +296,30 @@ projektejeren læser kildetekst lokalt — konflikten er, at domme om sandhed og
 **ikke kan efterprøves ud fra claims alene** (R7). Artefaktet gør dem auditerbare uden at
 kildeteksten havner i repoet.
 
-- [ ] **Step 1 — opret bedømmelsesarket.** Lokalt, `0600`, uden for repoet. Én række pr.
+- [x] **Step 1 — opret bedømmelsesarket.** Lokalt, `0600`, uden for repoet. Én række pr.
   claim: claim-id, record-nøgle, klausulordinal, prædikat, værdi, **og klausulens tekst** —
   det sidste kun her. Plus en særskilt sektion pr. record: *hvilke udsagn i teksten burde
   have givet et claim?* Den liste er forudsætningen for at kunne måle dækning.
-- [ ] **Step 2 — døm hvert claim** på de tre kriterier: sandt ifølge teksten, citerer rigtig
+- [x] **Step 2 — døm hvert claim** på de tre kriterier: sandt ifølge teksten, citerer rigtig
   klausul, ordret hvor prædikatet kræver det. Menneskelig bedømmelse, projektejerens.
-- [ ] **Step 3 — tæl de fem mål** fra Task 2 Step 4 og sammenhold med tærsklerne.
-- [ ] **Step 4 — udeladelserne.** Sammenhold de forventede udtræk fra Step 1 med de faktiske
+- [x] **Step 3 — tæl de fem mål** fra Task 2 Step 4 og sammenhold med tærsklerne.
+- [x] **Step 4 — udeladelserne.** Sammenhold de forventede udtræk fra Step 1 med de faktiske
   claims. Udeladelser er sværere at få øje på end fejl, og de afgør, om laget kan bære en
   senere promotion.
-- [ ] **Step 5 — hash arket.** Kun hashen, metoden og aggregaterne går i rapporten.
+- [x] **Step 5 — hash arket.** Kun hashen, metoden og aggregaterne går i rapporten.
   **Arket slettes først efter projektejerens godkendelse** — ikke automatisk ved dagsværkets
   slutning, for så kan konklusionen ikke efterprøves.
-- [ ] **Step 6 — beslut.** Er tærsklerne opfyldt: videre til 4.4. Ellers: stop, og revidér
+- [x] **Step 6 — beslut.** Er tærsklerne opfyldt: videre til 4.4. Ellers: stop, og revidér
   prompten frem for at sænke tærsklen.
 
 ### Task 5: Rapport
 
-- [ ] **Step 1.** Rapport med: strata og udvalg, ledger-SHA, **manifest-hash**, forbrug pr.
+- [x] **Step 1.** Rapport med: strata og udvalg, ledger-SHA, **manifest-hash**, forbrug pr.
   record, antal claims pr. record, de fem måls tal, udeladelser og bedømmelsesarkets hash.
   **Ingen rå claim-værdier** — flere prædikater er ordrette, så værdien *er* kildetekst (R6).
-- [ ] **Step 2.** Changelog + `status.md`. Hvis tærsklerne ikke er opfyldt, skal det stå
+- [x] **Step 2.** Changelog + `status.md`. Hvis tærsklerne ikke er opfyldt, skal det stå
   lige så tydeligt, som hvis de var.
-- [ ] **Step 3 — oprydning, vendt om (R4).** Spec §3: **4.3b-4.5 deler én restore**, fordi
+- [x] **Step 3 — oprydning, vendt om (R4).** Spec §3: **4.3b-4.5 deler én restore**, fordi
   klausul-id'erne er database-genererede. Basen må derfor **ikke** droppes her.
 
   | Ryddes straks | Bevares til efter 4.5 |

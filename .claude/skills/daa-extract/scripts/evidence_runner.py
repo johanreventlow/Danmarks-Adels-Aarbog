@@ -79,8 +79,37 @@ def _clause_index(export: Mapping[str, Any]) -> dict[int, Mapping[str, Any]]:
     return index
 
 
+def partition_record_claims(claims: Any, export: Mapping[str, Any]) -> tuple[list, list]:
+    """Del claims i (gyldige, afviste) — ét ugyldigt claim fælder ikke resten.
+
+    Projektejerens afgørelse 2026-09-12 efter bundt 1: modellen ramte værdiformen
+    i 34 af 35 tilfælde, men ét objekt hvor der skulle stå en streng fældede hele
+    posten og dens seks øvrige, korrekte claims.  Ved den fejlrate ville omtrent
+    hver tredje rige post gå tabt — ikke fordi udtrækket var dårligt, men fordi ét
+    felt havde forkert type.
+
+    Det er lige så sikkert: et afvist claim lagres aldrig.  Forskellen er kun, hvor
+    meget der reddes.  Posten markeres `delvis`, så tabet forbliver synligt.
+
+    Afviste bærer deres fejltoken, så mønstre kan tælles frem for at forsvinde.
+    """
+    gyldige, afviste = [], []
+    for claim in (claims if isinstance(claims, Sequence)
+                  and not isinstance(claims, (str, bytes)) else []):
+        try:
+            validate_record_claims([claim], export)
+        except RunnerError as exc:
+            afviste.append({"claim": claim, "fejl": str(exc)})
+        else:
+            gyldige.append(claim)
+    return gyldige, afviste
+
+
 def validate_record_claims(claims: Any, export: Mapping[str, Any]) -> None:
     """Validér modellens claims mod den record, den faktisk fik at se.
+
+    Kaster ved FØRSTE ugyldige claim.  Brug `partition_record_claims`, når et
+    enkelt dårligt claim ikke skal fælde de øvrige.
 
     En tom liste er gyldig: en record uden udtrækbare fakta er ikke en fejl.
     """
@@ -305,6 +334,7 @@ class RecordOutcome:
     error_kind: str | None = None
     usage: Mapping[str, Any] | None = None
     claims: tuple = ()
+    rejected: tuple = ()
     from_cache: bool = False
 
     def log_line(self) -> str:
@@ -313,8 +343,10 @@ class RecordOutcome:
         Hverken modellens svar, kildeteksten eller fejlbeskeder må herind — en
         logfil er ikke et sted, persondata skal kunne ende.
         """
-        if self.status == "green":
-            return f"record={self.record_key} status=green cached={str(self.from_cache).lower()}"
+        if self.status in ("green", "delvis"):
+            afvist = f" afviste={len(self.rejected)}" if self.rejected else ""
+            return (f"record={self.record_key} status={self.status}"
+                    f" cached={str(self.from_cache).lower()}{afvist}")
         return f"record={self.record_key} status=failed kind={self.error_kind}"
 
 
@@ -368,13 +400,17 @@ def run_record(export: Mapping[str, Any], *, ident: Mapping[str, Any], cache: Re
         # et fail-closed resultat som alle andre steder — ikke en exception, der
         # ville vælte hele batchen i stedet for at markere én record.
         try:
-            claims = json.loads(hit["raw"])["claims"]
-            validate_record_claims(claims, export)
-        except (json.JSONDecodeError, KeyError, TypeError, RunnerError):
+            raa = json.loads(hit["raw"])["claims"]
+        except (json.JSONDecodeError, KeyError, TypeError):
             return RecordOutcome(record_key, "failed", error_kind="validation_failed",
                                  usage=hit.get("usage"), from_cache=True)
-        return RecordOutcome(record_key, "green", usage=hit["usage"],
-                             claims=tuple(claims), from_cache=True)
+        gyldige, afviste = partition_record_claims(raa, export)
+        if afviste and not gyldige:
+            return RecordOutcome(record_key, "failed", error_kind="validation_failed",
+                                 usage=hit.get("usage"), from_cache=True)
+        return RecordOutcome(record_key, "green" if not afviste else "delvis",
+                             usage=hit["usage"], claims=tuple(gyldige),
+                             rejected=tuple(afviste), from_cache=True)
 
     try:
         events, last_message = run(argv or [], cwd=cwd)
@@ -395,13 +431,16 @@ def run_record(export: Mapping[str, Any], *, ident: Mapping[str, Any], cache: Re
         # grunden til 4.3a, så tallet må ikke tabes her.
         return RecordOutcome(record_key, "failed", error_kind="schema_violation", usage=usage)
 
-    try:
-        validate_record_claims(claims, export)
-    except RunnerError:
+    gyldige, afviste = partition_record_claims(claims, export)
+    if afviste and not gyldige:
+        # Intet brugbart kom igennem — det er en ægte fejl, ikke en delvis succes.
         return RecordOutcome(record_key, "failed", error_kind="validation_failed", usage=usage)
 
+    # Cachen gemmer det RÅ svar; valideringen køres igen ved hvert opslag, så en
+    # senere regelændring ikke stiltiende godkender noget, der blev afvist i dag.
     cache.put(ident, raw=last_message, usage=usage)
-    return RecordOutcome(record_key, "green", usage=usage, claims=tuple(claims))
+    return RecordOutcome(record_key, "green" if not afviste else "delvis",
+                         usage=usage, claims=tuple(gyldige), rejected=tuple(afviste))
 
 
 @contextlib.contextmanager
@@ -437,7 +476,9 @@ def batch_status(record_states: Sequence[tuple[str, str]]) -> str:
     """
     if not record_states:
         return "pending"
-    return "green" if all(state == "green" for _, state in record_states) else "pending"
+    # `delvis` tæller med: recorden HAR en valideret post, blot ikke alle claims.
+    # Tabet står i regnskabet via antallet af afviste claims.
+    return "green" if all(state in ("green", "delvis") for _, state in record_states) else "pending"
 
 
 # ===========================================================================
