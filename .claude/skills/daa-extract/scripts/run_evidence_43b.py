@@ -77,6 +77,10 @@ def main() -> int:
         ident = {
             "profile_id": manifest["profile_id"], "profile_version": manifest["profile_version"],
             "model": manifest["model"], "prompt_sha256": manifest["prompt_sha256"],
+            # record_key er MED i cache-identiteten: 591 records har kun 588 unikke
+            # helposthashes, så tre par ville ellers dele cachepost (#147, fund 2
+            # ved reviewet af plan 4.4).
+            "record_key": key,
             "record_input_sha256": canonical_record_input(rec),
             "claims_schema_sha256": manifest["claims_schema_sha256"],
             "runner_contract_version": manifest["runner_contract_version"],
