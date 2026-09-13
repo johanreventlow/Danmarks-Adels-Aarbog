@@ -1,6 +1,6 @@
 # Changelog
 
-## 2026-09-13 — Trin 4, 4.3b bundt 1: modellen kan læse bogen (#147)
+## 2026-09-13 — Trin 4, dagsværk 4.3b: modellen kan læse bogen (#147)
 
 Første gang ægte DAA-prosa er sendt til en model i dette projekt. Fem poster, valgt
 stratificeret fra ledgerens 488 eligible, kørt bag Seatbelt-gaten med adgangstesten bestået
@@ -40,7 +40,22 @@ logget. Sikkerheden er uændret — et afvist claim lagres aldrig.
 afvigelser var titler, modellen med rette havde skåret ud af længere sætninger. Rigtigt tal:
 9/9.
 
-Bundt 2 er defineret i manifestet og ikke kørt. Rapport:
+**Bundt 2 kørt samme dag.** Samlet over alle ti poster: **86 claims, 99 % præcision (85/86),
+100 % klausulbinding (86/86), 100 % ordrette datoer (17/17)**, ingen udeladelser noteret,
+8/8 biografiske poster brugbare. 175.840 input-tokens, ~17.600 pr. post.
+
+IV-34 blev den første post, hvor claim-niveau afvisning trådte i kraft: nogle claims kom
+igennem, resten blev afvist, posten gik ikke tabt. Under den gamle regel var alle elleve røget.
+
+**4.3b er dermed gennemført, og sporet bærer.** To ting skal lukkes i 4.4 før promotion: et
+`relation.*`-claim uden identificerbar modpart må ikke kunne blive et forslag, og et claim,
+der er mere præcist end kilden, må ikke kunne promoveres.
+
+To målefejl var mine egne: ordrethed blev først målt på alle værdier (28/34) i stedet for
+planens nævner, datoprædikaterne (17/17); og optællingen meldte falsk PENDING, fordi den
+talte `green` men ikke `delvis`.
+
+Restoren og artefakterne BEVARES til efter 4.5 (spec §3: 4.3b-4.5 deler én restore). Rapport:
 `docs/evidensbaseret-genimport/runner-rehearsal-147-4-3b.md`.
 
 ## 2026-09-12 — Trin 4, dagsværk 4.3a: runneren er kørt ende til ende (#147)
