@@ -81,7 +81,7 @@ må enten kontrakten kræve en identificerbar modpart, eller også må denne sla
 klassificeres som noget andet end en relation — fx et `person.*`-faktum om antal
 børn.
 
-### 3. Seks procent af korpus er ikke biografier
+### 3. Nogle poster er henvisninger, ikke biografier
 
 I-29 gav nul claims. Projektejeren vurderede, at posten er en **henvisning** til
 en person, ikke en biografi, og databasen bekræfter det: 50 tegn, en
@@ -136,15 +136,14 @@ hver tredje rige post ellers gå tabt af ét forkert felt.
 
 ## Status og næste skridt
 
-Bundt 1 er **grønt på alle fem tærskler**. Bundt 2 (`III-104, I-101, I-21,
-I-120, IV-34`) er defineret i manifestet og ikke kørt.
+Bundt 1 er **grønt på alle fem tærskler**.
 
-Til afgørelse:
+**Bundt 2 er kørt** (`III-104, I-101, I-21, I-120, IV-34`): 5/5 dækket, heraf én
+`delvis`, 45 claims, 87.464 input-tokens. IV-34 er den første post, hvor
+claim-niveau afvisning faktisk trådte i kraft — nogle claims kom igennem, resten
+blev afvist, og posten gik ikke tabt. Bedømmelsen af bundt 2 udestår, og de
+samlede tal for alle ti poster skrives, når den foreligger.
 
-1. **Kør bundt 2 uændret** og afslut 4.3b's ti-record-bevis. Ændres prompten
-   først, nulstilles beviset (afvigelse E), og ti nye poster skal køres.
-2. **Ret først** de to fund — udledt præcision og relationer uden modpart — og kør
-   derefter ti nye. Dyrere, men bundt 2 måler så det rettede.
-
-Fundene i afsnit 2 og 3 hører under alle omstændigheder til 4.4's ingest: et
-`relation.*`-claim uden modpart bør ikke kunne blive en `interpretation_proposal`.
+Fundene i afsnit 1-3 hører under alle omstændigheder til 4.4's ingest: et
+`relation.*`-claim uden modpart bør ikke kunne blive en `interpretation_proposal`,
+og et claim, der er mere præcist end kilden, bør ikke kunne promoveres.
