@@ -16,6 +16,131 @@
 
 ---
 
+---
+
+## Revision 1 (2026-09-13) — efter adversarial gennemgang (Codex `gpt-5.6-sol`)
+
+> **Samlet dom: »Ikke klar til udførelse.«** 13 fund, heraf 3 blokerende. Alle accepteret.
+> Ét af dem var en brist i **allerede merget kode** og er rettet særskilt i PR med
+> `fix/147-cache-record-identity`.
+
+### R1 (BLOKERENDE): H1 ville gentage præcis den fejl, 4.3b lige havde lært os
+
+Planen ville afvise H1-claims i writeren. Men **ét writer-element er en hel record** —
+rejser PL/pgSQL et fejltoken for ét claim, ruller hele elementet tilbage, og postens
+korrekte søsterclaims går tabt.
+
+Det er nøjagtig det, projektejeren afgjorde imod efter bundt 1. Planen ville have
+genindført fejlen ét lag længere nede. Og »definition of done« var selvmodsigende:
+apply skulle både skrive »antal = manifestets« og afvise to af de 86.
+
+**Rettet:** H1-klassifikationen flyttes til **manifest-builderen**, som kun sender
+ingestible claims videre og fører de afviste i et særskilt, hash-bundet regnskab.
+Writeren afviser stadig fail-closed, men på noget, den kan afgøre alene. Tre tal
+afstemmes: **inputclaims, afviste claims, faktisk oprettede interpretationer.**
+
+### R2 (BLOKERENDE, rettet i kode): cachen kunne ikke henføre et svar til en record
+
+Cache-nøglen bar ikke `record_key`, kun en hash af helpostens tekst. **Målt: 591 records
+har kun 588 unikke helposthashes** — tre par deler tekst i de faktiske data. To poster
+ville dele cachepost, og et cachet svar kunne ikke henføres til den record, det beskriver.
+
+Desuden indeholder cacheposten kun `raw` og `usage`; råsvaret har hverken `record_key`,
+`claim_id`, `interpretation_kind`, `persona_role` eller klausulhashes. Planen sagde ikke,
+hvilken hash-bundet eksport der leverer dem.
+
+**Rettet:** `record_key` er nu i cache-nøglen (kode). Og Task 4 kræver nu et
+**hash-verificeret join**: manifestets recordpost peger på cache-key, record-input-hash og
+eksport-hash; builderen genvaliderer identiteten og henter hver ordinals `verbatim_sha256`
+fra den hash-bundne eksport. `claim_id` defineres deterministisk.
+
+### R3 (BLOKERENDE): H2's detektor sammenlignede modeloutput med modeloutput
+
+Planen ville opdage »mere præcist end kilden« ved at sammenligne to `person.death`-claims
+på samme record. Men to sande udsagn kan legitimt have forskellig præcision, og et enkelt
+overpræcist claim slipper igennem, hvis der ikke findes et bredere søsterclaim.
+**Detektoren sammenlignede aldrig claimet med kilden.**
+
+**Rettet:** den eneste sikre maskinelle form er begrænset til datoværdier, hvor `raw` selv
+kan parses uden tvivl: kræv, at `date_min`/`date_max` ikke er **snævrere** end det
+interval, `raw` deterministisk udleder. Alt andet går til claim-niveau menneskelig kontrol
+i 4.5.
+
+### R4 (MAJOR): en klausul-disposition kan ikke bære en claim-fejl
+
+§7.3's disposition gælder den **citerede klausul**, ikke det enkelte claim. Flere claims
+kan citere samme klausul, så et H2-flag dér ville både mistænkeliggøre korrekte claims og
+undlade at pege på det forkerte. **Rettet:** reviewsignalet ligger på claim-/
+interpretationniveau med lukket vokabular — eller forslaget oprettes normalt og optages i
+et hash-bundet menneskeark. Klausulens disposition ændres ikke for at repræsentere en
+claimfejl.
+
+### R5 (MAJOR): `deterministic_uuid` er ikke en ægte UUIDv5
+
+»Første 16 bytes af SHA-256 med versionsnibble 5« har korrekte bitpositioner, men er en
+**privat konstruktion mislabeled som UUIDv5** — v5 betegner SHA-1 over et namespace.
+Spec §7.1 foreskriver formen, så den fastholdes, men **dokumenteres som projektets egen
+deterministiske UUID**, ikke som RFC-konform v5. Kræver en fast testvektor.
+
+### R6 (MAJOR): nøgleinputtet var ikke entydigt
+
+En separatorbaseret streng kolliderer, hvis et felt indeholder separatoren; serialisering
+af Unicode, ordinaler og `value_sha256` var uspecificeret; og `interpretation_kind` og
+`persona_role` indgik slet ikke, så forskellige forslag kunne få samme nøgle.
+**Rettet:** versioneret, kanonisk byteformat med faste feltnavne, UTF-8, sorterede og
+**unikke** ordinaler, og kollisionskanttests — ikke kun rækkefølgetesten.
+
+### R7 (MAJOR): klausulopslaget manglede kardinalitet
+
+`(record, ordinal, verbatim_sha256)` er nødvendigt, men planen krævede ikke, at opslaget
+giver **præcis én** klausul under recordens ene accepterede anchor → occurrence → helpost.
+Et løst join kunne ramme en parallel occurrence eller en klausul fra forkert forælder.
+**Rettet:** hele vejen specificeret, kardinalitet præcis 1, med tre negative fixtures.
+
+### R8 (MAJOR): `persona_role` blev gættet
+
+Planen sagde ikke, hvordan runnerens `source_persona_id` bliver til §7.2's
+`principal`/`other`. Gættes rollen ud fra prædikatpræfikset, gentages 4.2's
+kind-afledningsfejl. **Rettet:** `interpretation_kind` afledes af den aktive prædikatrække
+(writeren), og `persona_role` af en **verificeret lighed** med recordens entydige primary
+persona.
+
+### R9 (MAJOR): payloadlisten var ufuldstændig
+
+§7.1 kræver også `source_record_key`, `runner_manifest_sha256`, `model_version` og
+`prompt_version` i payloaden. Planen nævnte manifestbinding som CLI-argument.
+**Rettet:** hele skemaet ordret efter §7.1, og usage-aggregeringen fra cacheposterne
+defineret og testet.
+
+### R10 (MAJOR): H1's mønster var ikke implementerbart som beskrevet
+
+»Talord« er et åbent sprogligt sæt; en regex kan ikke afgøre identificerbarhed generelt.
+**Rettet:** H1 er nu en **lukket denylist** af dokumenterede hele-streng-former (`NN`-varianter
+og et eksplicit dansk mængdegrammatik-sæt), anchored fra start til slut. Alt uden for sættet
+accepteres. Positive tests for initialer, patronymer, regnalnumre, fremmedsprogede navne og
+navne der begynder med talord. **Reglen kaldes ikke en generel »identificerbar
+person«-detektor.**
+
+### R11 (MAJOR): »ingen kildetekst i payload« var faktuelt forkert
+
+`value.raw` **kan være** et ordret kildeudsnit, og §7.1 kræver `value` i payloaden, som
+lagres permanent i `reimport_event`. Min egen constraint ville have tvunget implementøren
+til enten at bryde §7 eller undervurdere eventtabellens GDPR-egenskaber.
+**Rettet:** ingen hel klausul- eller helposttekst må med, men claimets `value.raw` er
+**autoriseret privat evidens** — med RLS/ACL, ingen anon-adgang og binding til den allerede
+godkendte 4.3b-batch.
+
+### R12-R13 (MINOR): tre eller fire persona-løse; og antaget forklædt som målt
+
+Planen skrev »tre persona-løse records«, spec §7.1 siger fire `unresolved_text`. Ingen
+måling forklarede skiftet — behold spec'ens fire som forventning og mål efter. Og flere tal
+var præsenteret som kendte: at H1 giver præcis to afvisninger, at dispositionsfordelingen er
+»som forventet«, og at 86 er både manifest- og ingestantal. **4.3b målte 86
+kontraktvaliderede claims, hvoraf 85 var sande** — »valideret« må ikke bruges som synonym
+for redaktionelt korrekt.
+
+---
+
 ## To huller fra 4.3b, som skal lukkes her
 
 4.3b bestod alle fem tærskler, men den menneskelige bedømmelse fandt to ting,
