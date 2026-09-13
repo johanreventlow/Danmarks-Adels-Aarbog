@@ -2,349 +2,250 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Få 4.3b's 86 validerede claims ind i databasen som **forslag** — `proposed`, aldrig kanoniske fakta — bundet til de klausuler, de citerer, så et menneske i 4.5 kan tage stilling til dem én ad gangen.
+**Goal:** Få 4.3b's kontraktvaliderede claims ind i databasen som **forslag** — `proposed`, aldrig kanoniske fakta — bundet til de klausuler, de citerer, så et menneske i 4.5 kan tage stilling til dem én ad gangen.
 
-**Architecture:** En tredje elementoperation i #153's generelle writer, `interpretation_proposal`, bygget efter samme mønster som 4.1c's `clause_evidence`. Ingen ny motor, ingen ny transaktionsmodel.
+**Architecture:** En tredje elementoperation i #153's generelle writer, `interpretation_proposal`, bygget efter samme mønster som 4.1c's `clause_evidence`. Ingen ny motor, ingen ny model-kørsel, ingen ny restore.
 
 **Tech Stack:** PostgreSQL 17 (DDL + PL/pgSQL), Python 3 til manifest-builder, R til apply-klienten, pytest + psql-tests.
 
 **Spec:** `docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md` §7.
 
-**Forudgående:** `docs/evidensbaseret-genimport/runner-rehearsal-147-4-3b.md` — 4.3b's kørsel, dens tal og de to fund nedenfor.
+**Restore:** **samme base som 4.3b** (spec §3: 4.3b-4.5 deler én restore, fordi klausul-id'erne er database-genererede). Der oprettes ingen ny.
 
-**Restore:** dagsværket kører mod **samme base som 4.3b** (spec §3: 4.3b-4.5 deler én restore, fordi klausul-id'erne er database-genererede). Der oprettes ingen ny.
-
----
-
-## Revision 1 (2026-09-13) — efter adversarial gennemgang (Codex `gpt-5.6-sol`)
-
-> **Samlet dom: »Ikke klar til udførelse.«** 13 fund, heraf 3 blokerende. Alle accepteret.
-> Ét af dem var en brist i **allerede merget kode** og er rettet særskilt i PR med
-> `fix/147-cache-record-identity`.
-
-### R1 (BLOKERENDE): H1 ville gentage præcis den fejl, 4.3b lige havde lært os
-
-Planen ville afvise H1-claims i writeren. Men **ét writer-element er en hel record** —
-rejser PL/pgSQL et fejltoken for ét claim, ruller hele elementet tilbage, og postens
-korrekte søsterclaims går tabt.
-
-Det er nøjagtig det, projektejeren afgjorde imod efter bundt 1. Planen ville have
-genindført fejlen ét lag længere nede. Og »definition of done« var selvmodsigende:
-apply skulle både skrive »antal = manifestets« og afvise to af de 86.
-
-**Rettet:** H1-klassifikationen flyttes til **manifest-builderen**, som kun sender
-ingestible claims videre og fører de afviste i et særskilt, hash-bundet regnskab.
-Writeren afviser stadig fail-closed, men på noget, den kan afgøre alene. Tre tal
-afstemmes: **inputclaims, afviste claims, faktisk oprettede interpretationer.**
-
-### R2 (BLOKERENDE, rettet i kode): cachen kunne ikke henføre et svar til en record
-
-Cache-nøglen bar ikke `record_key`, kun en hash af helpostens tekst. **Målt: 591 records
-har kun 588 unikke helposthashes** — tre par deler tekst i de faktiske data. To poster
-ville dele cachepost, og et cachet svar kunne ikke henføres til den record, det beskriver.
-
-Desuden indeholder cacheposten kun `raw` og `usage`; råsvaret har hverken `record_key`,
-`claim_id`, `interpretation_kind`, `persona_role` eller klausulhashes. Planen sagde ikke,
-hvilken hash-bundet eksport der leverer dem.
-
-**Rettet:** `record_key` er nu i cache-nøglen (kode). Og Task 4 kræver nu et
-**hash-verificeret join**: manifestets recordpost peger på cache-key, record-input-hash og
-eksport-hash; builderen genvaliderer identiteten og henter hver ordinals `verbatim_sha256`
-fra den hash-bundne eksport. `claim_id` defineres deterministisk.
-
-### R3 (BLOKERENDE): H2's detektor sammenlignede modeloutput med modeloutput
-
-Planen ville opdage »mere præcist end kilden« ved at sammenligne to `person.death`-claims
-på samme record. Men to sande udsagn kan legitimt have forskellig præcision, og et enkelt
-overpræcist claim slipper igennem, hvis der ikke findes et bredere søsterclaim.
-**Detektoren sammenlignede aldrig claimet med kilden.**
-
-**Rettet:** den eneste sikre maskinelle form er begrænset til datoværdier, hvor `raw` selv
-kan parses uden tvivl: kræv, at `date_min`/`date_max` ikke er **snævrere** end det
-interval, `raw` deterministisk udleder. Alt andet går til claim-niveau menneskelig kontrol
-i 4.5.
-
-### R4 (MAJOR): en klausul-disposition kan ikke bære en claim-fejl
-
-§7.3's disposition gælder den **citerede klausul**, ikke det enkelte claim. Flere claims
-kan citere samme klausul, så et H2-flag dér ville både mistænkeliggøre korrekte claims og
-undlade at pege på det forkerte. **Rettet:** reviewsignalet ligger på claim-/
-interpretationniveau med lukket vokabular — eller forslaget oprettes normalt og optages i
-et hash-bundet menneskeark. Klausulens disposition ændres ikke for at repræsentere en
-claimfejl.
-
-### R5 (MAJOR): `deterministic_uuid` er ikke en ægte UUIDv5
-
-»Første 16 bytes af SHA-256 med versionsnibble 5« har korrekte bitpositioner, men er en
-**privat konstruktion mislabeled som UUIDv5** — v5 betegner SHA-1 over et namespace.
-Spec §7.1 foreskriver formen, så den fastholdes, men **dokumenteres som projektets egen
-deterministiske UUID**, ikke som RFC-konform v5. Kræver en fast testvektor.
-
-### R6 (MAJOR): nøgleinputtet var ikke entydigt
-
-En separatorbaseret streng kolliderer, hvis et felt indeholder separatoren; serialisering
-af Unicode, ordinaler og `value_sha256` var uspecificeret; og `interpretation_kind` og
-`persona_role` indgik slet ikke, så forskellige forslag kunne få samme nøgle.
-**Rettet:** versioneret, kanonisk byteformat med faste feltnavne, UTF-8, sorterede og
-**unikke** ordinaler, og kollisionskanttests — ikke kun rækkefølgetesten.
-
-### R7 (MAJOR): klausulopslaget manglede kardinalitet
-
-`(record, ordinal, verbatim_sha256)` er nødvendigt, men planen krævede ikke, at opslaget
-giver **præcis én** klausul under recordens ene accepterede anchor → occurrence → helpost.
-Et løst join kunne ramme en parallel occurrence eller en klausul fra forkert forælder.
-**Rettet:** hele vejen specificeret, kardinalitet præcis 1, med tre negative fixtures.
-
-### R8 (MAJOR): `persona_role` blev gættet
-
-Planen sagde ikke, hvordan runnerens `source_persona_id` bliver til §7.2's
-`principal`/`other`. Gættes rollen ud fra prædikatpræfikset, gentages 4.2's
-kind-afledningsfejl. **Rettet:** `interpretation_kind` afledes af den aktive prædikatrække
-(writeren), og `persona_role` af en **verificeret lighed** med recordens entydige primary
-persona.
-
-### R9 (MAJOR): payloadlisten var ufuldstændig
-
-§7.1 kræver også `source_record_key`, `runner_manifest_sha256`, `model_version` og
-`prompt_version` i payloaden. Planen nævnte manifestbinding som CLI-argument.
-**Rettet:** hele skemaet ordret efter §7.1, og usage-aggregeringen fra cacheposterne
-defineret og testet.
-
-### R10 (MAJOR): H1's mønster var ikke implementerbart som beskrevet
-
-»Talord« er et åbent sprogligt sæt; en regex kan ikke afgøre identificerbarhed generelt.
-**Rettet:** H1 er nu en **lukket denylist** af dokumenterede hele-streng-former (`NN`-varianter
-og et eksplicit dansk mængdegrammatik-sæt), anchored fra start til slut. Alt uden for sættet
-accepteres. Positive tests for initialer, patronymer, regnalnumre, fremmedsprogede navne og
-navne der begynder med talord. **Reglen kaldes ikke en generel »identificerbar
-person«-detektor.**
-
-### R11 (MAJOR): »ingen kildetekst i payload« var faktuelt forkert
-
-`value.raw` **kan være** et ordret kildeudsnit, og §7.1 kræver `value` i payloaden, som
-lagres permanent i `reimport_event`. Min egen constraint ville have tvunget implementøren
-til enten at bryde §7 eller undervurdere eventtabellens GDPR-egenskaber.
-**Rettet:** ingen hel klausul- eller helposttekst må med, men claimets `value.raw` er
-**autoriseret privat evidens** — med RLS/ACL, ingen anon-adgang og binding til den allerede
-godkendte 4.3b-batch.
-
-### R12-R13 (MINOR): tre eller fire persona-løse; og antaget forklædt som målt
-
-Planen skrev »tre persona-løse records«, spec §7.1 siger fire `unresolved_text`. Ingen
-måling forklarede skiftet — behold spec'ens fire som forventning og mål efter. Og flere tal
-var præsenteret som kendte: at H1 giver præcis to afvisninger, at dispositionsfordelingen er
-»som forventet«, og at 86 er både manifest- og ingestantal. **4.3b målte 86
-kontraktvaliderede claims, hvoraf 85 var sande** — »valideret« må ikke bruges som synonym
-for redaktionelt korrekt.
+> ## Denne plan er skrevet om fra bunden (2026-09-13)
+>
+> En tidligere udgave fik 13 fund af første læser. Rettelserne blev skrevet som et
+> revisionsafsnit **øverst**, mens task-kroppen forblev uændret — `git show 1a14102`
+> viser **+125 / −0 linjer**. Anden læser (Fable) konstaterede, at »revisionen er en
+> præambel, ikke en revision«: en implementør, der fulgte checkboxene, ville bygge
+> den plan, første læser havde afvist.
+>
+> Det er samme fejl, plan 4.2's revision selv advarede mod (»ret kroppen, ikke kun
+> forordet«). Derfor er denne udgave skrevet forfra. **Der er ingen præambel — alt
+> står i de steps, der skal udføres.** Ændringsloggen ligger til sidst.
 
 ---
 
-## To huller fra 4.3b, som skal lukkes her
+## Hvad 4.3b faktisk viste
 
-4.3b bestod alle fem tærskler, men den menneskelige bedømmelse fandt to ting,
-ingen tærskel fangede. Begge har samme rod: **kontrakten kontrollerer form.** Et
-claim kan være velformet, sandt og alligevel ubrugeligt — og netop derfor er
-ingest-laget det rigtige sted at standse dem.
+Tre ting fra forrige dagsværk styrer denne plan. To af dem blev først forstået, da
+**selve sætningen** blev læst — efter to forkerte diagnoser.
 
-### H1. Et `relation.*`-claim uden identificerbar modpart
+### A. Det ene usande claim var en sproglig fejl, ikke overpræcision
 
-To af seks relations-claims i 4.3b pegede ikke på nogen: `relation.marriage` =
-`NN.` og `relation.child` = `4 sønner`. Begge **sande** — bogen siger netop det —
-og begge formelt gyldige, fordi kontrakten kun kræver et objekt med ordret `raw`.
+Bogen skriver: *»…var død 1353 (23. april), **da** hans sønner … solgte landsbyen.«*
+**23. april 1353 er salgets dato, ikke dødsfaldets.** Modellen læste konstruktionen
+»var død [dato], da [begivenhed]« som en dødsdato.
 
-Men »4 sønner« er et **antal**, ikke et barn. Bliver det en
-`interpretation_proposal`, foreslår vi et barn, der ikke findes, og et menneske i
-4.5 skal bruge tid på at afvise noget, maskinen kunne have set.
+Begge dødsclaims stod **ordret** i teksten; modellen udledte intet. Fejlen kan derfor
+**ikke** fanges ved at sammenligne datointervaller — der er intet interval at
+sammenligne. Den kræver forståelse af sætningens grammatik.
 
-**Afvises i writeren** med eget fejltoken. Grænsen er ikke »værdien er tom«, men
-»værdien identificerer ingen«: et navneløst `NN.`, eller en ren mængdeangivelse
-(`4 sønner`, `to døtre`, `flere børn`). Mønstret skal være **snævert og testet** —
-det må ikke ramme et rigtigt navn, der tilfældigvis begynder med et tal.
+**Konsekvens: der bygges ingen maskinel detektor for dette i 4.4.** Det hører til
+menneskets arbejde i 4.5. To tidligere udgaver af planen foreslog detektorer
+(sammenlign søsterclaims; sammenlign `date_min/max` med `raw`) — den første
+sammenlignede modeloutput med modeloutput, den anden refererede til felter, et
+`date_raw`-claim slet ikke har. Begge er skrottet.
 
-### H2. Et claim, der er mere præcist end kilden
+### B. To relations-claims identificerer ingen
 
-I-11 fik to dødsclaims: `† 1342/1353` — bogens egen tvetydighed — og
-`død 1353 (23. april)`, som **vælger** det ene år og tilføjer en dato. Det sidste
-er 4.3b's eneste usande claim, og den farligste slags: det ser ud som kvalitet.
+`relation.marriage` = `NN.` og `relation.child` = `4 sønner`. Sande og formelt
+gyldige, men uden modpart at binde til. Det er **den fejl, 4.4 kan og skal fange** —
+og den fanges i **builderen**, ikke i writeren (se C).
 
-Invariant 5 findes netop for at bære fuzzy datoer som `(date_min, date_max)`.
-Et forslag, der afgør en tvetydighed, kilden ikke afgør, må ikke kunne promoveres.
+### C. Ét writer-element er én record
 
-**Dette er sværere end H1**, fordi det kræver at sammenligne to claims om samme
-forhold på samme record. Task 3 Step 4 afgør formen; hvis den ikke kan lukkes
-maskinelt med rimelig sikkerhed, **flages den i stedet til mennesket i 4.5** frem
-for at blive gættet på. En detektor, der rammer forkert, er værre end ingen.
+Rejser writeren en exception for ét claim, ruller **hele recorden** tilbage. Det er
+præcis den fejl, projektejeren afgjorde imod efter 4.3b's bundt 1, hvor ét ugyldigt
+claim fældede seks korrekte. Enhver pr.-claim-afvisning, der kan afgøres på forhånd,
+hører derfor i builderen.
 
 ## Global Constraints
 
-- **Ingen prod-mutation.** Alt sker mod 4.3b's restore. Trin 4's migrationer er
-  stadig ikke i produktionen.
-- **Intet promoveres.** Alle interpretationer er `proposed`, `method='model'`,
-  version 1. Kanoniske tabeller må ikke ændres — neutralitetsbevis kræves.
-- **Ingen ny model-kørsel.** 4.4 ingester 4.3b's eksisterende batch. Skulle en
-  genkørsel blive nødvendig, er det et nyt GO.
-- **Ingen kildetekst i payload, logs eller rapport.** Claims bærer værdier, som
-  kan være ordrette udsnit — de hører i databasen, ikke i et manifest, der
-  rejser, eller i en commit-besked.
-- **Fortrydelse findes ikke i prod.** §7.4: fortrydelse sker ved restore i
-  restore-baser. At prod-fortrydelse mangler, er en forudsætning for et senere
-  prod-GO (åbent punkt 11.5) og skal stå i rapporten.
+- **Ingen prod-mutation.** Alt mod 4.3b's restore. Trin 4's migrationer er stadig ikke i produktionen.
+- **Intet promoveres.** Alle interpretationer er `proposed`, `method='model'`, version 1. Kanoniske aggregat-hashes skal være uændrede.
+- **Ingen ny model-kørsel.** 4.4 ingester 4.3b's eksisterende svar. En genkørsel er et nyt GO.
+- **`value.raw` ER autoriseret privat evidens.** §7.1 kræver `value` i payloaden, og et claims værdi kan være et ordret kildeudsnit. Det, der **ikke** må med, er hel klausul- eller helposttekst. Payloaden lagres permanent i `private.reimport_event` — derfor RLS/ACL, ingen anon-adgang, og ingen udvidelse af recordmængden ud over den godkendte manifestliste.
+- **Ingen kildetekst i logs, rapporter eller commit-beskeder.**
+- **Prod-fortrydelse findes ikke** (§7.4). Fortrydelse sker ved restore. Det er en forudsætning for et senere prod-GO (åbent punkt 11.5) og skal stå i rapporten.
 
 ## Roadmappens seks adgangskrav
 
 1. **Roadmapmål:** trin 4, den fælles fortolkningskæde (#147 leverance 2).
-2. **Værdikædeled:** »Proposed-ingest og promotion« flyttes fra `isoleret
-   implementeret` mod `integreret ende-til-ende` for 2018-20 — promotionsdelen
-   først i 4.5.
-3. **Generel, profil eller legacy:** generel motor. Tredje elementoperation i
-   #153's writer; ingen profilændring.
-4. **Redaktionel værdi:** for første gang ligger der forslag i databasen, som en
-   redaktør kan tage stilling til. Uden dette trin er 4.3b's claims kun en fil.
-5. **Bevis:** 4.3b's batch ingestet (§7.5) — antal = manifest, alle links løser,
-   neutralitets- og `anon`-hashes uændrede, replay `already_applied`,
-   dispositionsfordeling som forventet, og en negativ test pr. afvisningsgrund.
+2. **Værdikædeled:** »Proposed-ingest og promotion« mod `integreret ende-til-ende` for 2018-20; promotionsdelen først i 4.5.
+3. **Generel, profil eller legacy:** generel motor; tredje elementoperation i #153's writer.
+4. **Redaktionel værdi:** for første gang ligger der forslag i databasen, en redaktør kan tage stilling til. Uden dette trin er 4.3b's claims kun en fil.
+5. **Bevis:** 4.3b's batch ingestet (§7.5) — fem afstemte tal, alle links løser, neutralitets- og `anon`-hashes uændrede, replay `already_applied`, negativ test pr. afvisningsgrund.
 6. **Erstatter:** intet. `project_evidence.R` forbliver dry-run til trin 6.
 
 ## Filoversigt
 
 | Fil | Ændring |
 | --- | --- |
-| `schema.sql` | `private.deterministic_uuid(text)`; writer-operationen; operation-CHECK; dispositionskoder. |
+| `schema.sql` | `private.deterministic_uuid(text)`; writer-operationen; operation-CHECK; dispositionskoder; evt. `proposal_flags`. |
 | `db-migrations.sql` | Samme, idempotent, med kontrakt-drift-guard som 4.1c. |
 | `db-rls.sql` | ACL for den nye operation. |
 | `db-verify.sql` | `OK: #147 4.4`-blok + negative prober. |
 | `tests/sql/test-interpretation-proposal.sql` | **Ny.** Kontrakttest, rød først. |
-| `.claude/skills/daa-extract/scripts/build_43b_proposal_manifest.py` | **Ny.** Fra 4.3b's cache til writer-payload. |
+| `.claude/skills/daa-extract/scripts/build_43b_proposal_manifest.py` | **Ny.** Fra 4.3b's cache til writer-payload, med klassifikation og fem-tals-regnskab. |
+| `.claude/skills/daa-extract/scripts/test_build_43b_proposal_manifest.py` | **Ny.** Uden den kører builderens logik ingen steder i CI. |
 | `.claude/skills/daa-extract/scripts/apply_reimport_helpers.R` | `interpretation_proposal` fire steder. |
-| `.claude/skills/daa-extract/references/reimport-profiles/daa-2018-20-interpretation-proposal-v1.json` | **Ny.** |
+| `.claude/skills/daa-extract/references/reimport-profiles/daa-2018-20-interpretation-proposal-v1.json` | **Ny.** Rummer også `nn_denylist` (se Task 4). |
 | `.github/workflows/ci.yml` | SQL-testen + Python-testen. |
 
 ---
 
+### Task 0: Målinger, der skal foreligge før noget bygges
+
+Flere af de tidligere udgavers tal var antagelser. Disse måles først, read-only, mod
+4.3b's restore og cache — **uden modelkald**.
+
+- [ ] **Step 1.** Er nogen af de 10 records blandt de **3 tekstkollisions-par**? Cache-nøglen bærer nu `record_key` (PR #188), men 4.3b's cachefiler blev skrevet før rettelsen. Er ingen af de 10 ramt, er kollisionen uden konsekvens for 4.4 — og det skal stå som **målt**, ikke antaget.
+- [ ] **Step 2.** Hvor mange claims blev **kontrakt-afvist** i IV-34? Rapporten siger »nogle … resten« uden tal. Det tal er første led i regnskabskæden.
+- [ ] **Step 3.** Fordeling pr. `interpretation_kind` i de kontraktvaliderede claims. Findes der `event.*` eller `property`-claims uden `person.`-præfiks (`heraldry.*`, `lineage.*`, `genealogy.*`, `image.*`)? Det afgør Task 5's rolleproblem.
+- [ ] **Step 4.** Persona-vej-paritet: giver `persona_key = record_key` (eksportens vej) og helpost → mention → `source_persona_mention` med rolle `primary` (spec §7.2's vej) **samme** svar for hele 2018-20 — ikke kun de 10?
+- [ ] **Step 5.** Antal persona-løse records. Spec §7.1 siger **fire** (`unresolved_text`); en tidligere planudgave skrev tre uden måling. Mål, og brug spec'ens fire som forventning indtil andet er dokumenteret.
+
+**Verify:** fem målte tal skrevet ned, før Task 1 begynder.
+
 ### Task 1: Kontrakttesten (rød først)
 
-- [ ] **Step 1.** `tests/sql/test-interpretation-proposal.sql` — skal fejle med
-  `REIMPORT_WRITER_AUTHORIZATION_INVALID`, før DDL'en findes. Samme mønster som
-  4.1c's Task 1.
-- [ ] **Step 2.** Positive blokke: ét `principal`-claim med én citeret klausul; ét
-  med flere; ét `other`-claim (persona `NULL`, disposition `afventer_identitet`).
-- [ ] **Step 3.** Negative blokke, én pr. afvisningsgrund fra §7.1 — ukendt
-  klausul, hash-afvigende klausul, klausul uden for recordens helpost, inaktivt
-  prædikat, værdi ≠ `value_kind`, confidence uden for [0,1], `principal` på en
-  record uden persona.
-- [ ] **Step 4.** Negative blokke for **H1 og H2** (se Task 3).
+- [ ] **Step 1.** `tests/sql/test-interpretation-proposal.sql` skal fejle med `REIMPORT_WRITER_AUTHORIZATION_INVALID`, før DDL'en findes.
+- [ ] **Step 2.** Positive blokke: ét `principal`-claim med én citeret klausul; ét med flere; ét `other`-claim (persona `NULL`, disposition `afventer_identitet`).
+- [ ] **Step 3.** Negative blokke, én pr. afvisningsgrund fra §7.1: ukendt klausul; hash-afvigende klausul; klausul uden for recordens helpost; inaktivt prædikat; værdi ≠ `value_kind`; confidence uden for [0,1]; `principal` på en record uden persona.
+- [ ] **Step 4.** **Ingen H1-test i SQL.** Relations-claims uden modpart afvises i builderen (Task 4), ikke i writeren — se »Hvad 4.3b viste«, punkt C.
 
 ### Task 2: `deterministic_uuid` og nøglen
 
-- [ ] **Step 1.** `private.deterministic_uuid(text)`: første 16 bytes af
-  `digest(input,'sha256')`, versionsnibble 5, variantbits efter RFC 4122. Basen
-  har kun `pgcrypto` — ingen `uuid-ossp`, ingen PG18 `uuidv5()` (spec §7.1 fund 11).
-- [ ] **Step 2.** `interpretation_key` = `deterministic_uuid(source_id | record_key
-  | predicate | cited ordinals | value_sha256)`. Skriv rækkefølgen og separatoren
-  **eksplicit** i en kommentar — to implementeringer, der er uenige om formatet,
-  giver tavse dubletter.
-- [ ] **Step 3.** Findes nøglen, afvises elementet
-  (`REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS`). Genudtræk kræver en
-  menneskelig `superseded`-beslutning og er trin 6.
-- [ ] **Step 4.** Test: samme claim to gange giver samme nøgle; ændret værdi giver
-  en anden; ændret ordinal-rækkefølge giver **samme** (sorteret før hashning).
+- [ ] **Step 1.** `private.deterministic_uuid(text)`: første 16 bytes af `digest(input,'sha256')`, versionsnibble 5, variantbits efter RFC 4122. Kvalificér `extensions.digest` og pin `search_path` som i `write_clause_evidence`.
+- [ ] **Step 2 — dokumentér ærligt.** Dette er **ikke** en RFC-konform UUIDv5: v5 betegner SHA-1 over et namespace. Konstruktionen er projektets egen deterministiske UUID, som spec §7.1 foreskriver formen for. **Skriv det i funktionens kommentar**, så en senere læser ikke tror, den er standard.
+- [ ] **Step 3 — kanonisk nøgleinput.** Ikke en separatorstreng: et **versioneret, kanonisk JSON-format** med faste feltnavne, UTF-8, og **sorterede, unikke** ordinaler. Spec §7.1's fem felter er grundlaget: `source_id`, `record_key`, `predicate`, ordinaler, `value_sha256`. Definér `value_sha256` som sha256 af `value`'s kanoniske JSON.
+- [ ] **Step 4 — spec-errata eller ej.** Tilføjes `interpretation_kind` og `persona_role` til nøglen, er det en **ændring af spec §7.1** og kræver errata. Standpunkt: **tilføj dem ikke.** `interpretation_kind` er funktionelt bestemt af `predicate`; `persona_role` ville kun være nødvendig, hvis samme record + prædikat + værdi + ordinaler legitimt kunne optræde i begge roller — og det er ikke vist.
+- [ ] **Step 5.** Tests: fast **testvektor** (kendt input → kendt UUID); samme claim to gange giver samme nøgle; ændret værdi giver en anden; ombyttet ordinal-rækkefølge giver **samme**; og en kollisionskanttest, hvor et felt indeholder tegn, der ville bryde en separatorbaseret form.
+- [ ] **Step 6.** Findes nøglen, afvises elementet (`REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS`). Genudtræk kræver en menneskelig `superseded`-beslutning og er trin 6.
 
 ### Task 3: Writeren
 
-- [ ] **Step 1.** `private.write_interpretation_proposal` + wrapperen
-  `public.red_apply_reimport_interpretation_proposal`. Udvid de lukkede mængder
-  **fire steder** (event-CHECK, `validate_reimport_authorization_payload`,
-  `red_finalize_reimport`, `red_reimport_batch_result`) plus `db-rls`'s to lister.
-  4.1c's lære: glemmes ét sted, fejler writeren først ved apply.
-- [ ] **Step 2.** Idempotent `extraction_run` pr. manifest (`run_key`), med usage i
-  `manifest`. Post-conflict-lighedskontrol som 4.1c's, så en tidligere run-række
-  med anden provenance ikke genbruges.
-- [ ] **Step 3.** Klausulopslag via `(record, ordinal, verbatim_sha256)` — aldrig
-  via UUID i payloaden. Hashen er det, der binder forslaget til den tekst, modellen
-  faktisk så.
-- [ ] **Step 4 — H1 og H2.**
-  - **H1:** afvis `relation.*`-claims, hvis `value.raw` ikke identificerer nogen.
-    Snævert mønster: rent `NN.`/`N.N.`, eller en ren mængdeangivelse
-    (`<tal|talord> <søn|sønner|datter|døtre|børn>`) uden navn. Token:
-    `REIMPORT_WRITER_RELATION_WITHOUT_COUNTERPART`. **Fire positive kontroller**
-    skal bevise, at rigtige navne slipper igennem — herunder et navn med tal
-    (»Christian 4.«) og et med forkortelse.
-  - **H2:** afgør formen her. Kan to `person.death`-claims på samme record, hvor
-    det ene spænd indeholder det andet, opdages maskinelt med rimelig sikkerhed?
-    I så fald afvis det snævrere (`REIMPORT_WRITER_NARROWER_THAN_SOURCE`).
-    **Kan det ikke, så lad være:** skriv begge som forslag, markér dem med en
-    disposition, mennesket i 4.5 kan se, og skriv i rapporten hvorfor. En detektor,
-    der rammer forkert, er værre end ingen.
-- [ ] **Step 5.** Pr. claim: én `interpretation` (`proposed`, `model_inference`,
-  `method='model'`, version 1) + `interpretation_observation` (`supporting`,
-  ordinal) i **samme transaktion** under den deferred constraint
-  `interpretation_has_observation`.
-- [ ] **Step 6.** Klausulregnskab (§7.3): citerede klausuler får ny maskinel
-  dispositionsversion `fortolkning_foreslaaet` eller `afventer_identitet`.
-  Uciterede beholder deres — det skal **testes**, ikke antages.
+- [ ] **Step 1.** `private.write_interpretation_proposal` + wrapperen `public.red_apply_reimport_interpretation_proposal`. Udvid de lukkede mængder **fire steder** (event-CHECK, `validate_reimport_authorization_payload`, `red_finalize_reimport`, `red_reimport_batch_result`) plus `db-rls`'s to lister. Operation-præfiks `interpretation-proposal:` (§7.1). 4.1c's lære: glemmes ét sted, fejler writeren først ved apply.
+- [ ] **Step 2.** Idempotent `extraction_run` pr. manifest (`run_key`), usage i `manifest`, med post-conflict-lighedskontrol som 4.1c's.
+- [ ] **Step 3 — klausulopslag med kardinalitet præcis 1.** Hele vejen: recordens **ene accepterede** anchor → occurrence → **præcis én** helpost → barn med `(ordinal, verbatim_sha256)`. Et løst join på record og ordinal kan ramme en parallel occurrence eller en klausul fra forkert forælder. Tre negative fixtures: samme ordinal/hash under forkert occurrence, forkert parent, og en konstrueret dublet.
+- [ ] **Step 4 — `interpretation_kind` afledes af tabellen**, aldrig af payloaden eller prædikatpræfikset. 4.2's lære: gættet ud fra præfikset kunne ikke skelne `event.marriage` fra `relation.marriage`.
+- [ ] **Step 5.** Pr. claim: én `interpretation` (`proposed`, `model_inference`, `method='model'`, version 1) + `interpretation_observation` (`supporting`, ordinal) i **samme transaktion** under den deferred constraint `interpretation_has_observation`.
+- [ ] **Step 6 — klausulregnskab (§7.3).** Citerede klausuler får ny maskinel dispositionsversion `fortolkning_foreslaaet` eller `afventer_identitet`. Fastlæg to ting, spec'en ikke afgør: (a) **præcedens**, når samme klausul citeres af både et `principal`- og et `other`-claim; (b) at der skrives **præcis én** ny version pr. klausul pr. element — triggeren kræver `max+1`, så to opdateringer i samme transaktion kolliderer. Uciterede klausuler beholder deres — **testet**, ikke antaget.
+- [ ] **Step 7.** Writeren returnerer `interpretations_written` pr. element, så R-klienten kan afstemme mod manifestets claim-antal (4.1c's `clauses_written`-mønster).
 
-### Task 4: Manifest-builder og R-klient
+### Task 4: Manifest-builderen — hvor claims klassificeres
 
-- [ ] **Step 1.** `build_43b_proposal_manifest.py`: fra 4.3b's svar-cache til
-  writer-payload. Ét element pr. record. Bind til 4.3b's manifest-hash via
-  `--expect-runner-manifest-sha256`, så forslagene ikke kan bygges fra en anden
-  kørsel end den, projektejeren gav GO til.
-- [ ] **Step 2.** Payloaden bærer `claim_id`, `predicate`, `interpretation_kind`,
-  `value`, `confidence`, `cited_clauses[]` = `(ordinal, verbatim_sha256)`,
-  `persona_role`. **Lukket nøglesæt** — payloaden lagres permanent i
-  `private.reimport_event`.
-- [ ] **Step 3.** `apply_reimport_helpers.R` kender operationen fire steder
-  (`expected_counts`-nøgle `interpretation_proposals`, `dependency_class`, tælling,
-  gateway-dispatch).
-- [ ] **Step 4.** Ny reimport-profil, registreret i basen som 4.1c's.
+Alt, der kan afgøres før writeren, afgøres her. Det er det, der forhindrer, at ét
+claim fælder en hel record.
 
-### Task 5: Rigtig kørsel (§7.5)
+- [ ] **Step 1 — adressér 4.3b's cache eksplicit.** Cache-nøgleudledningen ændrede sig med PR #188, så 4.3b's filer findes ikke under den nuværende `key()`. Builderen adresserer dem via en **hash-bundet filliste** (filnavne + indholdshashes) og genvaliderer identiteten ved at re-udlede med den nøgleudledning, der **gjaldt ved kørslen** (`evidence-runner-1.0`, syv felter) — eksplicit, ikke via den aktuelle funktion. Bump `RUNNER_CONTRACT_VERSION`, så gamle og nye nøgler ikke kan blandes.
+- [ ] **Step 2 — hash-verificeret join.** Manifestets recordpost peger på cache-key, `record_input_sha256` og den hash-bundne runner-eksports hash. Builderen henter hver ordinals `verbatim_sha256` fra **eksporten**, ikke fra modellens svar. `claim_id` defineres deterministisk.
+- [ ] **Step 3 — re-kør kontraktvalideringen.** Cachens `raw` rummer **alle** modellens claims, inklusive de kontrakt-afviste (IV-34). Builderen kører `partition_record_claims` mod eksporten med **pinnet** `interpretation-predicates.json`-sha og `RUNNER_CONTRACT_VERSION`.
+- [ ] **Step 4 — H1: relations-claims uden modpart.** Afvis `relation.*`, hvis værdien ikke identificerer nogen. **Lukket denylist** af hele-streng-former, ikke en generel detektor: normalisér først (NFKC, casefold, whitespace-kollaps, strip afsluttende tegnsætning), match derefter `NN`/`N.N.`/`N. N.`-varianter og et eksplicit dansk mængdesæt (`4 sønner`, `en søn`, `et barn`, `tvillinger`, `børn`, …), anchored fra start til slut.
 
-Mod **4.3b's base**, ikke en ny.
+  **Listen hører i reimport-profilen**, ikke i kode: den er udgavespecifik (2018-20 er moderne retskrivning, 1939 skriver »Sønner/Døtre«) og ændres under den eksisterende GO-gate.
+
+  Anchored match giver **falske negativer** (»4 sønner, som døde små« slipper igennem). Det er acceptabelt, fordi 4.5 er menneskegatet — **sig det i koden**, så reglen ikke forveksles med en korrekthedsgaranti. Positive tests: initialer, forkortede fornavne, patronymer, regnalnumre (»Christian 4.«), fremmedsprogede navne, og navne der begynder med et talord.
+- [ ] **Step 5 — dedup.** Modellen kan gentage et claim inden for samme record (IV-19 gav 25). Uden dedup taber en dublet hele recorden på `..._PROPOSAL_EXISTS`. Deduplikér på `interpretation_key` i builderen.
+- [ ] **Step 6 — fem tal i manifestet.** `rå claims` → `kontrakt-afviste` → `H1-afviste` → `dubletter` → `ingestible`. Ikke tre. Bind manifestet til 4.3b's resultatfil-hash og til `runner_manifest_sha256`.
+- [ ] **Step 7 — payloaden ordret efter §7.1.** Lukket nøglesæt: `source_record_key`, `runner_manifest_sha256`, `model_version`, `prompt_version`, og pr. claim `claim_id`, `predicate`, `interpretation_kind`, `value`, `confidence`, `cited_clauses[]` = `(ordinal, verbatim_sha256)`, `persona_role`. Definér og test usage-aggregeringen fra cacheposterne.
+- [ ] **Step 8.** `apply_reimport_helpers.R` kender operationen fire steder (`expected_counts`-nøgle `interpretation_proposals`, `dependency_class`, tælling, gateway-dispatch) og **afstemmer** writerens `interpretations_written` mod manifestets tal pr. element.
+
+### Task 5: `persona_role` — og hullet i spec §7.2
+
+Spec §7.2 definerer `principal` (recordens persona) og `other` (`NULL`, form
+`mention`/`relation`). Men et `event.appointment` om hovedpersonen er hverken: det
+er `property`-agtigt uden `person.`-præfiks. Med en ren »ikke-`person.*` → `other`«-regel
+ville det få persona `NULL` og dets klausuler `afventer_identitet` — **forkert**.
+
+Det samme gælder `heraldry.*`, `lineage.*`, `genealogy.*`, `image.*`.
+
+- [ ] **Step 1.** Task 0 Step 3 har målt, om sådanne claims overhovedet findes i de
+  kontraktvaliderede. Gør de ikke, er problemet teoretisk her — **skriv det som målt**
+  og luk det for dette dagsværk.
+- [ ] **Step 2.** Gør de, så vælg **én** vej og skriv den i spec-errata: enten en
+  rollekolonne i `interpretation_predicate`, eller en eksplicit tabel i den nye
+  reimport-profil. **Gæt ikke ud fra præfikset** — det er 4.2's fejl igen.
+- [ ] **Step 3.** `persona_role = principal` kræver **verificeret lighed** mellem
+  runnerens persona og recordens entydige primary persona, fundet ad spec §7.2's vej
+  (helpost → mention → `source_persona_mention` rolle `primary`) med kardinalitet 1.
+  Builder og writer skal bruge **samme** forespørgsel — Task 0 Step 4 har målt, at de
+  to veje er enige.
+
+### Task 6: Reviewsignal for claims, mennesket skal se nærmere på (punkt A)
+
+Den sproglige fejlklasse fra 4.3b kan ikke fanges maskinelt. Men 4.5 skal kunne se,
+hvilke claims der fortjener ekstra opmærksomhed — og **en klausul-disposition kan
+ikke bære det**: flere claims kan citere samme klausul, så et flag dér ville både
+mistænkeliggøre korrekte claims og undlade at pege på det forkerte.
+
+- [ ] **Step 1 — vælg nu, ikke i 4.5.** Enten en additiv `proposal_flags jsonb` på
+  `private.interpretation` med CHECK på lukket vokabular (DDL hører så i Filoversigten),
+  **eller** et hash-bundet menneskeark som eneste kanal, ejet af 4.5's plan. Ikke »eller«
+  som udsættelse.
+- [ ] **Step 2.** Hvis flagkolonne: bemærk at `value` indgår i nøglen, og at
+  `interpretation_proposal_actor_check` forbyder `decided_*` på `proposed`. Flaget må
+  ikke kollidere med afgørelsens felter.
+- [ ] **Step 3 — ingen maskinel H2-regel.** Skriv eksplicit i planen og koden, at
+  »mere præcist end kilden« **ikke** afgøres maskinelt i dette dagsværk, og hvorfor:
+  fejlen i 4.3b var sproglig (`terminus ante quem` læst som dødsdato), begge claims stod
+  ordret i teksten, og `date_raw`-claims har intet interval at sammenligne.
+
+### Task 7: Rigtig kørsel (§7.5)
+
+Mod **4.3b's base**.
 
 - [ ] **Step 1.** Dry-run: `finalized`, rullet tilbage, nul rækker efter.
-- [ ] **Step 2.** Apply: antal interpretationer = manifestets; alle
-  klausul-links løser; **kanoniske aggregat-hashes uændrede**; `anon`-hashes
-  uændrede.
+- [ ] **Step 2.** Apply: `interpretations_written` = manifestets ingestible-tal pr. element; alle klausul-links løser; **kanoniske aggregat-hashes uændrede**; `anon`-hashes uændrede.
 - [ ] **Step 3.** Replay: `already_applied`.
-- [ ] **Step 4.** Dispositionsfordeling opgjort og sammenholdt med det forventede
-  (86 claims, heraf de to H1-afvisninger).
-- [ ] **Step 5.** Negativ test mod basen: `principal`-claim på en af de tre
-  persona-løse records afvises.
+- [ ] **Step 4.** **Skriv den forventede dispositionsfordeling ned FØR kørslen** — ellers er »som forventet« ikke en kontrol. Sammenhold bagefter.
+- [ ] **Step 5.** Negativ test: `principal`-claim på en persona-løs record afvises. **Bemærk:** den kan ikke køres inde i batchen, fordi alle 10 records har persona og eksporten afviser persona-løse. Kræver en separat autorisation med rollback, mod en af de records, Task 0 Step 5 målte.
 
-### Task 6: Rapport
+### Task 8: Rapport
 
-- [ ] **Step 1.** Rapport med tal, hashes, dispositionsfordeling og — vigtigst —
-  hvad H1 og H2 endte med. Hvis H2 ikke kunne lukkes maskinelt, skal det stå
-  **tydeligt**, ikke gemmes som et forbehold.
+- [ ] **Step 1.** Rapport med de fem tal, alle hashes, dispositionsfordeling (forventet vs. målt), og hvad Task 5 og 6 endte med.
 - [ ] **Step 2.** Changelog + `status.md`-modenhed.
-- [ ] **Step 3.** **Ryd ikke restoren** — 4.5 skal bruge den. Kun call-dirs og
-  overflødige kopier.
+- [ ] **Step 3.** Skriv eksplicit, at **prod-fortrydelse ikke findes** (§7.4, åbent punkt 11.5).
+- [ ] **Step 4.** **Ryd ikke restoren** — 4.5 skal bruge den. Kun call-dirs og overflødige kopier.
 
 ---
 
 ## Selvreview-checkliste
 
+- [ ] Foreligger Task 0's fem målinger, før noget blev bygget?
 - [ ] Er de lukkede mængder udvidet **alle** fire steder plus `db-rls`?
-- [ ] Giver samme claim samme nøgle — og forskellig værdi en anden?
-- [ ] Slipper et rigtigt navn med tal igennem H1-mønstret?
-- [ ] Blev H2 lukket maskinelt, eller flaget til mennesket — og står valget i rapporten?
+- [ ] Har `deterministic_uuid` en fast testvektor, og står det i koden, at den ikke er RFC-konform v5?
+- [ ] Kan et enkelt dårligt claim stadig fælde en hel record? (H1 og dubletter i builderen, ikke writeren.)
+- [ ] Afstemmer R-klienten writerens returtal mod manifestets pr. element?
+- [ ] Slipper et rigtigt navn med tal igennem denylisten — og ligger listen i profilen, ikke i kode?
+- [ ] Står det i koden, at denylisten er en tidsbesparelse og ikke en korrekthedsgate?
+- [ ] Er der skrevet en forventet dispositionsfordeling **før** kørslen?
 - [ ] Er de kanoniske aggregat-hashes uændrede efter apply?
-- [ ] Beholder uciterede klausuler deres disposition? (Testet, ikke antaget.)
-- [ ] Er der kildetekst i manifest, logs eller commit-beskeder?
-- [ ] Står det i rapporten, at prod-fortrydelse ikke findes (§7.4, åbent punkt 11.5)?
+- [ ] Står det i rapporten, at prod-fortrydelse ikke findes?
 - [ ] Er restoren bevaret til 4.5?
 
-## Anden læser
+## Ændringslog
 
-Planen læses af Codex `gpt-5.6-sol` før Task 1, jf. decisions 2026-09-06 (valg 3).
-Bed læseren særligt efterprøve:
+**2026-09-13, omskrevet fra bunden.** Første udgave fik 13 fund af første læser
+(Codex `gpt-5.6-sol`); rettelserne blev skrevet som præambel uden at ændre
+task-kroppen, hvilket anden læser (Fable) fandt som blokerende fund F1. Denne udgave
+bærer rettelserne i selve stepsene.
 
-1. **Om H1's mønster er snævert nok.** Det skal fange »4 sønner« og `NN.` uden at
-   ramme et rigtigt navn. Hvor knækker det?
-2. **Om H2 overhovedet bør forsøges maskinelt.** Planen tillader at opgive det —
-   er det den rigtige afvejning, eller er der en sikker form, den har overset?
-3. **Om `deterministic_uuid` er korrekt** efter RFC 4122, og om nøgleinputtets
-   format er entydigt nok til at to implementeringer ikke kan divergere.
-4. **Om noget i kæden fra 4.3b's cache til writeren kan tabe eller forveksle et
-   claim** — særligt bindingen mellem citeret ordinal og klausul-UUID.
+Væsentlige ændringer i forhold til første udgave:
+
+| | |
+| --- | --- |
+| H1 (relation uden modpart) | flyttet fra writeren til **builderen** — ét element er én record |
+| H2 (mere præcist end kilden) | **opgivet som maskinel regel**; fejlen var sproglig, ikke numerisk |
+| Denylisten | lukket, normaliseret, anchored — og i **profilen**, ikke i kode |
+| Cache-adressering | eksplicit filliste + re-udledning med kørslens egen nøgleudledning |
+| Regnskab | **fem** tal, ikke tre; writeren returnerer pr. element |
+| Nøgleinput | kanonisk JSON; spec'ens fem felter fastholdt (ingen errata) |
+| Klausulopslag | kardinalitet præcis 1, hele vejen fra anchor |
+| `persona_role` | målt først; spec §7.2's hul for `event.*` erkendt |
+| Reviewsignal | afgøres **her**, ikke udskudt til 4.5 |
+| Task 0 | ny — fem målinger, der tidligere var antagelser |
+
+Segmenteringsfejlen bag 4.3b's sønderdelte sætning (`VI.` som egen klausul) hører til
+4.1b's motor og er registreret som **issue #189**.
