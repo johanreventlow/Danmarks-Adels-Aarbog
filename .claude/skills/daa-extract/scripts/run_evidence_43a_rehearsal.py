@@ -86,7 +86,8 @@ def main() -> int:
 
     rapport: dict = {"profil": PROFILE_ID, "profil_version": profile["version"],
                      "model": profile["model_id"], "prompt_sha256": profile["prompt_sha256"],
-                     "record_input_sha256": RECORD_INPUT_SHA, "trin": {}}
+                     "record_key": RECORD["record_key"],
+             "record_input_sha256": RECORD_INPUT_SHA, "trin": {}}
 
     cache_root = Path(tempfile.mkdtemp(prefix="daa-43a-cache-"))
     cache = ResponseCache(cache_root)
