@@ -60,16 +60,30 @@ steder, datoer og navne, ikke prosaen selv.
 Her ligger dagsværkets egentlige udbytte. Begge fund har samme rod: **kontrakten
 kontrollerer form.** Et claim kan være velformet, sandt og alligevel ubrugeligt.
 
-### 1. Modellen kan opfinde en præcision, kilden ikke har
+### 1. Modellen misforstod en tidsangivelse — den opfandt ikke præcision
 
-I-11 fik **to** dødsclaims: `† 1342/1353` — det tvetydige spænd, bogen faktisk
-skriver — og `død 1353 (23. april)`, som **vælger** det ene år og tilføjer en
-dato. Det andet er dagsværkets eneste usande claim.
+**Rettet 2026-09-13 efter at have læst selve sætningen.** Denne rapport påstod
+først, at modellen havde opfundet en præcision, kilden ikke har. Det holder ikke.
 
-Fejlen er værre, end tallet antyder. Prompten forbyder udtrykkeligt at udlede, og
-invariant 5 findes netop for at bære fuzzy datoer som `(date_min, date_max)`.
-**Et claim, der ser mere præcist ud end kilden, er farligere end et åbenlyst
-forkert:** det ligner kvalitet og fanges ikke af en redaktør uden siden foran sig.
+I-11 fik to dødsclaims: `† 1342/1353` fra overskriften, og
+`død 1353 (23. april)` fra en senere passage. **Begge står ordret i teksten** —
+modellen har intet udledt. Men passagen lyder:
+
+> »…var død 1353 (23. april), **da** hans sønner … solgte landsbyen Dunkelstorf.«
+
+**23. april 1353 er datoen for sønnernes salg, ikke for dødsfaldet.** Bogen siger,
+at han på det tidspunkt allerede *var død* — en `terminus ante quem`. Modellen
+læste konstruktionen »var død [dato], da [begivenhed]« som en dødsdato.
+
+Det er en **sproglig** fejl, ikke en præcisionsfejl, og konsekvensen er vigtig:
+den kan ikke fanges ved at sammenligne datointervaller, for der er intet interval
+at sammenligne. Den kræver forståelse af sætningens grammatik og hører derfor til
+menneskets arbejde i 4.5 — ikke til en maskinel regel i 4.4.
+
+Fejlen blev først kaldt »overpræcision« (denne rapport), derefter
+»fejlattribution« (anden læsers hypotese). Ingen af delene kunne afgøres uden at
+læse sætningen. **Tre gæt på samme fejl er et argument for at læse teksten, før
+man designer en detektor.**
 
 ### 2. To af seks relations-claims identificerer ingen
 
@@ -102,9 +116,17 @@ først antaget, og signalet skal findes bedre end »se«.
 
 ### 4. En segmenteringsfejl, som ikke er modellens
 
-I-11's klausuler er 1.958, **3** og 410 tegn. En klausul på tre tegn er ikke en
-meningsbærende enhed. Det er 4.1b's motor, ikke udtrækket, og det er ikke
-undersøgt her.
+I-11's klausuler er 1.958, **3** og 410 tegn. Den på tre tegn er `VI.` — et
+**romertal, der er en sektionsoverskrift**, klippet ud som sin egen klausul.
+
+Værre: den splittede Nicolaus' biografi **midt i en sætning**. Klausul 3 begynder
+med »Den holstenske linje, nr. 9) panteforskrivning…«, som er fortsættelsen af
+klausul 1. Modellen fik altså en sønderdelt sætning at læse — og det er
+sandsynligvis medvirkende til fejllæsningen i afsnit 1.
+
+Klausulledgerens flag sagde `structural_header: 0`. Segmenteringen så altså ikke
+`VI.` som en overskrift. Det er et konkret, målbart hul i 4.1b's motor og er
+registreret som selvstændigt punkt.
 
 Bredere: **409 af de 485 klargjorte poster har kun én klausul.** Segmenteringen
 deler altså sjældent op. Udvalget blev derfor bevidst skævt mod de svære strata —
