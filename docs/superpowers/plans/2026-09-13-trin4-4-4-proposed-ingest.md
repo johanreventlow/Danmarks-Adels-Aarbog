@@ -16,8 +16,6 @@
 
 ---
 
----
-
 ## Revision 1 (2026-09-13) — efter adversarial gennemgang (Codex `gpt-5.6-sol`)
 
 > **Samlet dom: »Ikke klar til udførelse.«** 13 fund, heraf 3 blokerende. Alle accepteret.
