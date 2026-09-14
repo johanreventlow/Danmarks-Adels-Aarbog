@@ -225,7 +225,11 @@ def main() -> int:
 
         if claims:
             elementer.append({
+                # R-klienten kræver `dependency_class` og `element_id` på hver
+                # operation — se apply_reimport_helpers.R's validate-blok.
+                "dependency_class": "interpretation_proposal",
                 "element_id": f"interpretation-proposal:{key}",
+                "source_record_key": key,
                 "payload": {
                     "source_record_key": key,
                     "runner_manifest_sha256": runner_manifest["manifest_sha256"],
@@ -236,35 +240,50 @@ def main() -> int:
             })
 
     n_ingestible = sum(len(e["payload"]["claims"]) for e in elementer)
+    # Manifestets nøglesæt er LUKKET af R-klienten: kun manifest_content_sha256,
+    # source, expected_counts og operations — plus de valgfrie dispositions og
+    # provenance. Regnskabet hører derfor i `provenance`, som netop er den
+    # ikke-autoriserende blok, der binder manifestet til de artefakter, det er
+    # bygget af (4.1c's mønster).
     manifest = {
-        "schema_version": "interpretation-proposal-manifest-1.0",
-        "operation": "interpretation_proposal",
-        "profile_id": profil["profile_id"],
-        "profile_version": profil["profile_version"],
-        "runner_manifest_sha256": runner_manifest["manifest_sha256"],
-        "eligibility_ledger_sha256": runner_manifest["eligibility_ledger_sha256"],
-        "cache_files": filliste,
-        "predicates_sha256": sha256_text(
-            (Path(__file__).resolve().parents[1] / "references"
-             / "interpretation-predicates.json").read_text(encoding="utf-8")),
-        "runner_contract_version": LEGACY_RUNNER_CONTRACT_VERSION,
-        "denylist_version": denylist["version"],
-        # FEM tal, ikke tre. Uden dem kan "antal = manifestets" ikke kontrolleres.
-        "regnskab": {
-            "raa_claims": n_raa,
-            "kontrakt_afviste": n_kontrakt_afvist,
-            "h1_afviste": len(afvist_h1),
-            "dubletter": len(dubletter),
-            "ukendt_rolle": len(ukendt_rolle),
-            "ingestible": n_ingestible,
+        "source": {
+            "id": runner_manifest.get("source_id", 1),
+            "profile_id": profil["profile_id"],
+            "profile_sha256": sha256_text(Path(args.profile).read_text(encoding="utf-8")),
         },
-        "h1_afviste": afvist_h1,
-        "dublet_claims": dubletter,
-        "ukendt_rolle": ukendt_rolle,
-        "usage": usage_sum,
+        # `canonical_delta` skal med: R-klientens sidste kontrol sammenligner ALLE
+        # navne i sin egen counts-vektor mod manifestet, og den vektor rummer
+        # canonical_delta = 0 uanset operation.
         "expected_counts": {"person_creates": 0, "source_evidence": 0,
+                            "canonical_delta": 0,
                             "interpretation_proposals": len(elementer)},
-        "elements": elementer,
+        "operations": elementer,
+        "provenance": {
+            "schema_version": "interpretation-proposal-manifest-1.0",
+            "runner_manifest_sha256": runner_manifest["manifest_sha256"],
+            "eligibility_ledger_sha256": runner_manifest["eligibility_ledger_sha256"],
+            "cache_files": filliste,
+            "predicates_sha256": sha256_text(
+                (Path(__file__).resolve().parents[1] / "references"
+                 / "interpretation-predicates.json").read_text(encoding="utf-8")),
+            "runner_contract_version": LEGACY_RUNNER_CONTRACT_VERSION,
+            "denylist_version": denylist["version"],
+            "persona_role_map_version": rolle_map["version"],
+            # FEM tal, ikke tre. Uden dem kan "antal = manifestets" ikke
+            # kontrolleres mod noget.
+            "regnskab": {
+                "raa_claims": n_raa,
+                "kontrakt_afviste": n_kontrakt_afvist,
+                "h1_afviste": len(afvist_h1),
+                "dubletter": len(dubletter),
+                "ukendt_rolle": len(ukendt_rolle),
+                "ingestible": n_ingestible,
+            },
+            "h1_afviste": afvist_h1,
+            "dublet_claims": dubletter,
+            "ukendt_rolle_claims": ukendt_rolle,
+            "usage": usage_sum,
+        },
     }
     krop = json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     manifest["manifest_content_sha256"] = hashlib.sha256(krop.encode("utf-8")).hexdigest()
@@ -273,7 +292,7 @@ def main() -> int:
     out.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     out.chmod(0o600)
 
-    r = manifest["regnskab"]
+    r = manifest["provenance"]["regnskab"]
     print(f"PROPOSAL_MANIFEST_OK elementer={len(elementer)}")
     print(f"  rå claims        {r['raa_claims']}")
     print(f"  kontrakt-afviste {r['kontrakt_afviste']}")
