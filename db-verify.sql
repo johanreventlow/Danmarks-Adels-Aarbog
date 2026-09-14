@@ -2769,6 +2769,22 @@ BEGIN
   RAISE NOTICE 'OK: #148 clause_evidence-writer, ACL og autorisationsform';
 END $clause_evidence_writer_verify$;
 
+DO $interpretation_proposal_writer_verify$
+BEGIN
+  IF to_regprocedure('private.deterministic_uuid(text)') IS NULL
+     OR to_regprocedure('private.write_interpretation_proposal(uuid,text,jsonb)') IS NULL
+     OR to_regprocedure('public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)') IS NULL THEN
+    RAISE EXCEPTION 'MISSING: #147 4.4 interpretation_proposal writer';
+  END IF;
+  IF pg_get_functiondef('private.validate_reimport_authorization_payload(jsonb,jsonb)'::regprocedure) NOT LIKE '%interpretation-proposal:%'
+     OR has_function_privilege('anon','public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)','EXECUTE')
+     OR has_function_privilege('authenticated','private.write_interpretation_proposal(uuid,text,jsonb)','EXECUTE') THEN
+    RAISE EXCEPTION 'INVALID: #147 4.4 authorization/ACL';
+  END IF;
+  RAISE NOTICE 'OK: #147 4.4 interpretation_proposal writer, key and ACL';
+END $interpretation_proposal_writer_verify$;
+
 -- #147 4.2: prædikat-navnerummet. tests/sql/test-interpretation-predicate.sql dækker
 -- CI; denne blok er prod-siden, hvor tabellen skal bevises til stede, bundet og lukket.
 -- Bevidst uden nøjagtigt seed-antal: hvert senere dagsværk må kunne tilføje prædikater
@@ -2856,6 +2872,7 @@ DECLARE
     'public.red_apply_reimport_name_completion(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_legacy_migration(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_clause_evidence(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_person_create(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_source_evidence(uuid,text,jsonb)'::regprocedure,
     'public.red_begin_1939_v50_name_completion(uuid,text,uuid)'::regprocedure,
