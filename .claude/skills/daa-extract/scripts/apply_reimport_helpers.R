@@ -209,9 +209,13 @@ execute_reimport <- function(manifest, preview_sha256, mode = c("dry-run", "appl
       } else if (identical(operation$dependency_class, "clause_evidence")) {
         call("clause_evidence", batch_id, operation$element_id, payload)
       } else if (identical(operation$dependency_class, "interpretation_proposal")) {
-        # Writeren returnerer interpretations_written pr. element, så antallet kan
-        # afstemmes mod manifestets claim-antal — en kontrol, ikke en hensigt.
-        call("interpretation_proposal", batch_id, operation$element_id, payload)
+        # Writeren returnerer interpretations_written pr. element. Batchens
+        # expected_counts tæller kun ELEMENTER, så et tabt claim ville slippe
+        # igennem serverens finalize. Denne kontrol er den eneste, der er på
+        # claim-niveau.
+        written <- call("interpretation_proposal", batch_id, operation$element_id, payload)
+        if (!identical(as.integer(written$interpretations_written), length(operation$claims)))
+          stop_reimport("REIMPORT_WRITER_INTERPRETATION_COUNT_MISMATCH")
       } else {
         person_id_map[[operation$source_record_key]] <- call("person_create", batch_id, operation$element_id, payload)
       }
