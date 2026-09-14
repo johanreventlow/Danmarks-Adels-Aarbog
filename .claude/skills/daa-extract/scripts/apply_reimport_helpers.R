@@ -304,6 +304,12 @@ new_reimport_dbi_gateway <- function(connection_factory, sql_observer = NULL) {
         query("SELECT set_config('app.change_set_id','',true)")
         jsonlite::fromJSON(result, simplifyVector = FALSE)
       },
+      interpretation_proposal = {
+        result <- query("SELECT public.red_apply_reimport_interpretation_proposal($1,$2,$3::jsonb)::text AS value", list(
+          args[[1L]], args[[2L]], jsonlite::toJSON(args[[3L]], auto_unbox = TRUE, null = "null")))$value[[1L]]
+        query("SELECT set_config('app.change_set_id','',true)")
+        jsonlite::fromJSON(result, simplifyVector = FALSE)
+      },
       finalize = jsonlite::fromJSON(query("SELECT public.red_finalize_reimport($1)::text AS value", list(args[[1L]]))$value[[1L]], simplifyVector = FALSE),
       rollback = { DBI::dbRollback(con); DBI::dbDisconnect(con); con <<- NULL; invisible(NULL) },
       commit = { DBI::dbCommit(con); DBI::dbDisconnect(con); con <<- NULL; invisible(NULL) },

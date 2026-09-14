@@ -6,13 +6,18 @@
   "operation": "interpretation_proposal",
   "requires_human_go_for_change": true,
   "writer_config": {
-    "operation": "interpretation_proposal",
-    "element_prefix": "interpretation-proposal:",
-    "expected_counts_key": "interpretation_proposals",
-    "interpretation_status": "proposed",
-    "interpretation_method": "model",
-    "interpretation_basis": "model_inference",
-    "interpretation_version": 1
+    "citation_label_template": "DAA 2018-20 side {page_from}",
+    "extractor_version": "interpretation-proposal-v1",
+    "observation_extraction_method": "clause_segment_v1",
+    "rendition_key": "daa-2018-20-pdftotext-r1",
+    "rendition_kind": "pdf_text_layer",
+    "rendition_metadata": {
+      "edition": "2018-20",
+      "pdf_sha256": "3beadfc15e3fa1a4090589af56cd4e95599a9231e8f979dfb60c4e27bbd8252a",
+      "pdftotext_version": "26.07.0"
+    },
+    "run_key_prefix": "reimport-interpretation-proposal:",
+    "schema_version": "interpretation-proposal-manifest-v1"
   },
   "no_counterpart_denylist": {
     "version": "nn-denylist-2018-20-v1",
@@ -125,5 +130,14 @@
       "relation.",
       "reference."
     ]
+  },
+  "operation_settings": {
+    "_kommentar": "writer_config har en fast form (otte nøgler, håndhævet af private.validate_reimport_writer_config). Operationens egne indstillinger ligger derfor her.",
+    "element_prefix": "interpretation-proposal:",
+    "expected_counts_key": "interpretation_proposals",
+    "interpretation_status": "proposed",
+    "interpretation_method": "model",
+    "interpretation_basis": "model_inference",
+    "interpretation_version": 1
   }
 }

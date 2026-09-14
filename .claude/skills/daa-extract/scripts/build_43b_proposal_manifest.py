@@ -227,19 +227,24 @@ def main() -> int:
             elementer.append({
                 # R-klienten kræver `dependency_class` og `element_id` på hver
                 # operation — se apply_reimport_helpers.R's validate-blok.
+                #
+                # Operationen er FLAD: writer-payloaden er operationen MINUS
+                # `element_id` og `dependency_class` (apply_reimport_helpers.R,
+                # `reimport_authorized_payloads`). En nøgle `payload` ville derfor
+                # selv blive en payload-nøgle og fælde writerens lukkede nøglesæt
+                # (`ARRAY['claims','model_version','prompt_version',
+                # 'runner_manifest_sha256','source_record_key']`). Autorisationen
+                # fanger det ikke: den sammenligner kun de to sider med hinanden.
                 "dependency_class": "interpretation_proposal",
                 "element_id": f"interpretation-proposal:{key}",
                 "source_record_key": key,
-                "payload": {
-                    "source_record_key": key,
-                    "runner_manifest_sha256": runner_manifest["manifest_sha256"],
-                    "model_version": runner_manifest["model"],
-                    "prompt_version": runner_manifest["prompt_sha256"],
-                    "claims": claims,
-                },
+                "runner_manifest_sha256": runner_manifest["manifest_sha256"],
+                "model_version": runner_manifest["model"],
+                "prompt_version": runner_manifest["prompt_sha256"],
+                "claims": claims,
             })
 
-    n_ingestible = sum(len(e["payload"]["claims"]) for e in elementer)
+    n_ingestible = sum(len(e["claims"]) for e in elementer)
     # Manifestets nøglesæt er LUKKET af R-klienten: kun manifest_content_sha256,
     # source, expected_counts og operations — plus de valgfrie dispositions og
     # provenance. Regnskabet hører derfor i `provenance`, som netop er den
@@ -249,7 +254,12 @@ def main() -> int:
         "source": {
             "id": runner_manifest.get("source_id", 1),
             "profile_id": profil["profile_id"],
-            "profile_sha256": sha256_text(Path(args.profile).read_text(encoding="utf-8")),
+            # SAMME definition som databasens private.reimport_canonical_json_sha256:
+            # kanonisk JSON af writer_config, ikke en hash af hele filen. Verificeret
+            # at Postgres og Python giver bit-identisk resultat.
+            "profile_sha256": sha256_text(json.dumps(
+                profil["writer_config"], ensure_ascii=False,
+                separators=(",", ":"), sort_keys=True)),
         },
         # `canonical_delta` skal med: R-klientens sidste kontrol sammenligner ALLE
         # navne i sin egen counts-vektor mod manifestet, og den vektor rummer
