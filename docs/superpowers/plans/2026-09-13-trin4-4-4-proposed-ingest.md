@@ -245,10 +245,21 @@ Mod **4.3b's base**.
 
 ### Task 8: Rapport
 
-- [ ] **Step 1.** Rapport med de fem tal, alle hashes, dispositionsfordeling (forventet vs. målt), og hvad Task 5 og 6 endte med.
-- [ ] **Step 2.** Changelog + `status.md`-modenhed.
-- [ ] **Step 3.** Skriv eksplicit, at **prod-fortrydelse ikke findes** (§7.4, åbent punkt 11.5).
-- [ ] **Step 4.** **Ryd ikke restoren** — 4.5 skal bruge den. Kun call-dirs og overflødige kopier.
+- [x] **Step 1.** `docs/evidensbaseret-genimport/proposal-ingest-147-4-4-rehearsal.md`.
+  **Det blev seks tal, ikke fem** — Task 5's `persona_role_map` er fail-closed og har derfor
+  sin egen afvisningsgrund (`ukendt_rolle`, målt til 0). Alle hashes, dispositionsfordeling
+  forventet vs. målt (otte tal, nul afvigelser), og udfaldet af Task 5 og 6 står i rapporten.
+  **Ud over planen:** Task 0's måling 2 var uafklaret (»blev aldrig gemt«); en read-only probe
+  har nu fordelt de syv kontrakt-afviste pr. record — **alle syv er IV-34's**, ingen anden
+  post bidrog. Attributionen er dermed målt, ikke sluttet af at IV-34 var markeret `delvis`.
+- [x] **Step 2.** Changelog-post og `status.md` skrevet i `19cf97f`, afstemt efter Task 6 i
+  `0f5e10c`, og henviser nu til rapporten. **Modenheden hæves ikke:** rækken dækker også
+  promotion, som er urørt, og grenen er umerget.
+- [x] **Step 3.** Rapportens afsnit 9, med konsekvensen sagt i hverdagssprog: kører ingesten
+  mod prod, kan den ikke fortrydes uden at rulle hele databasen tilbage.
+- [x] **Step 4.** Restoren `daa43b_20260912192527` er **bevaret** og markeret som sådan i
+  rapportens afsnit 11. Sletning er en gate efter 4.5, fordi klausul-id'erne er
+  database-genererede (spec §3).
 
 ---
 

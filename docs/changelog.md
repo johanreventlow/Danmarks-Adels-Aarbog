@@ -57,7 +57,16 @@ også er kørt.
 **Gates:** R-suite FAIL 0 / PASS 2995 · pytest 225 passed · `db-verify.sql` grøn mod restoren
 med de 84 live rækker (119 asserts).
 
-**Ikke lukket:** Task 8 (rapport). Intet er merget, og restoren skal bevares: 4.5 bruger den.
+**Rapport:** `docs/evidensbaseret-genimport/proposal-ingest-147-4-4-rehearsal.md` — regnskab,
+hashes, forventet vs. målt fordeling, negativ test, gates og udestående. Regnskabet blev
+**seks** tal, ikke fem: `persona_role_map` er fail-closed og har sin egen afvisningsgrund
+(målt til 0). Og Task 0's uafklarede måling 2 er lukket — en read-only probe fordelte de syv
+kontrakt-afviste pr. record, og **alle syv er IV-34's**.
+
+**Ikke lukket:** intet er merget, og restoren `daa43b_20260912192527` skal bevares — 4.5
+bruger den, fordi klausul-id'erne er database-genererede. `44-apply.R` re-autoriserer ved
+hver kørsel og mangler `--jeg-mener-det`-guard; prod-fortrydelse for operationen findes
+stadig ikke (åbent punkt 11.5).
 
 **Task 6 afgjort 2026-09-15 — reviewsignalet bor i menneskearket.** Valget stod mellem en
 additiv `proposal_flags jsonb` på `private.interpretation` og bedømmelsesarkets forudfyldte
