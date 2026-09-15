@@ -12,6 +12,14 @@ er `integreret ende-til-ende`, se tabellen og blokeringerne; 149a
 (2018-20 kilderegnskab) er `integreret ende-til-ende`, se tabellen; #156
 lukket med restpunkt (INCOMPLETE-afstemning, snapshot forseglet).
 
+**Tillæg 2026-09-15 — trin 4's dagsværk 4.4 er kørt, men ikke lukket.** Proposed-ingest er
+bevist mod 4.3b's restore (manifest `a328ede9…`, runner-manifest `56a57a56…`, profil
+`4e39fff4…`): 84 forslag, forventet fordeling nedskrevet før kørslen og ramt på alle otte tal.
+`db-verify.sql` er grøn mod basen **med** de live rækker. Grenen `feat/147-4-4-builder` er
+ikke merget og har ingen PR; Task 6 (hvor reviewsignalet til 4.5 bor) afventer projektejerens
+valg, og Task 8 (rapport) kan ikke skrives før. Restoren `daa43b_20260912192527` skal bevares
+— 4.5 bruger den.
+
 **Produktionsstatus:** C3 (2026-08-29), #152-cutover (kontrakt 2), #153's generelle
 writer, 149a (591 records/forekomster/ankre) og 149b (541 publicerede + 46 kladde-bindinger)
 er anvendt og efterverificeret i prod 2026-09-05/06.
@@ -59,7 +67,7 @@ De eneste tilladte tilstande er `specificeret`, `isoleret implementeret`,
 | 1939 narrativpublicering og kildebinding | `produktionsverificeret` | Den læse-kun måling 2026-08-22 dokumenterede den daværende bundne bestand; C3 postverify 2026-08-29 beviste yderligere fire eksakte production record-assignments. Det beviser en væsentlig 1939-delleverance, ikke den fælles genimportkæde. |
 | Klausulgranularitet og coverage | `specificeret` | Helpost- og linjegrundlag findes, men den krævede mindste meningsbærende klausul og dens disposition er ikke implementeret ende-til-ende. |
 | Extractor-runner og modelkald | `isoleret implementeret` (2026-09-12) | `evidence_runner.py` kalder en model gennem `codex exec` bag en OS-håndhævet Seatbelt-grænse, validerer record-scoped claims, fører forbrugsregnskab og stopper fail-closed på hver fejltype. Kørt ende til ende på én opdigtet post (`runner-rehearsal-147-4-3a.md`), og derefter på **ti virkelige poster fra 2018-20** (`runner-rehearsal-147-4-3b.md`, 2026-09-13): 86 claims, **99 % præcision, 100 % klausulbinding, 100 % ordrette datoer**, ingen udeladelser noteret. Modellen udtrækker altså sande, kildebundne fakta af ægte DAA-prosa. **Promotion mangler stadig** (4.4-4.5), og to fund skal lukkes først: et `relation.*`-claim uden identificerbar modpart (»NN.«, »4 sønner«) og et claim, der er mere præcist end kilden (valgte ét år ud af et tvetydigt spænd). |
-| Proposed-ingest og promotion | `isoleret implementeret` | Skema, regler, RPC'er og tests udgør et fundament, men ingen reel extractor-kørsel føder kæden. `project_evidence.R` er fortsat dry-run og ikke en integreret promotionvej. |
+| Proposed-ingest og promotion | `isoleret implementeret` (uændret 2026-09-15) | **Ingest-halvdelen er nu født af en reel modelkørsel**, men rækken dækker også promotion, som er urørt. 4.4 (`interpretation_proposal`) skrev 2026-09-14 4.3b's 84 claims som `proposed` i en restore: 8 elementer, 68 `principal` / 16 `other`, 19 klausuldispositioner (13 `fortolkning_foreslaaet`, 6 `afventer_identitet`), nul kanonisk delta, `anon` uberørt (strukturelt bevist), replay `already_applied`, negativ test `REIMPORT_WRITER_PRINCIPAL_WITHOUT_PERSONA` bestået. **Modenheden hæves ikke:** arbejdet ligger på en umerget gren uden PR, dagsværkets Task 6 og 8 er åbne, og `project_evidence.R` er fortsat dry-run og ikke en integreret promotionvej. Prod-fortrydelse for operationen er stadig ikke designet (åbent punkt 11.5). |
 | Source persona, identitetskandidater og webkø | `isoleret implementeret` | Moduler, databaseflader og redaktørkø findes, men den virkelige 1939-vej er parallel og bruger ikke denne fælles beslutningsvej. |
 | Placement og membership | `isoleret implementeret` | Skema og fundament findes, men de eksisterende personer føres fortsat ikke gennem placement-/membership-datavejen. |
 | 2018-20-proveniens (149a) | `produktionsverificeret` (2026-09-06) | 2026-09-03: hele kæden bevist mod den rigtige bog og mod en restore af prod-dumpet migreret til kontrakt v2: PDF `3beadfc1…`, rå tekst `2dd5cf84…`, manifest `c7d19c01…` (591 elementer) → 1 rendition / 591 records / 591 forekomster / 591 ankre, nul kanonisk delta (5 aggregat-hashes), `anon` uændret (9 hashes), replay `already_applied`, reversal fail-closed (`docs/evidensbaseret-genimport/source-evidence-149a-rehearsal.md`). Krævede rettelse af #153's migrationsguard (finalized terminal ved 0 person_creates). Ikke `produktionsverificeret`; prod-rækkefølge #152 → #153 (med guard-rettelsen) → 149a. Bindinger er nu leveret af 149b (#166), se næste række. |

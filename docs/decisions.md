@@ -2,6 +2,41 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: `persona_role` bor i genimportprofilen, ikke i prædikatvokabularet (2026-09-15)
+
+**Baggrund.** Spec §7.2 deler claims i to: dem om recordens persona (`principal`) og dem i
+form `mention`/`relation`, som får `source_persona_id IS NULL` og stempler deres klausuler
+`afventer_identitet`. 4.3b målte 8 `event.*`-claims — `event.appointment`, `event.dismissal`,
+`event.acquisition` — som handler om hovedpersonen, men ikke har `person.`-præfiks. Det samme
+gælder `heraldry.*`, `lineage.*`, `genealogy.*` og `image.*`. De er ingen af §7.2's to slags.
+
+**Forkastet: »ikke `person.*` → `other`«.** Den ville give de otte persona `NULL` og stemple
+deres klausuler `afventer_identitet` — claims om hovedpersonen ville se ud som claims om en
+uidentificeret tredjepart.
+
+**Forkastet: udled rollen af præfiksets form.** Det er 4.2's kind-afledningsfejl igen. Det gæt
+kunne ikke skelne `event.marriage` fra `relation.marriage`, og et gæt her kan det heller ikke.
+
+**Forkastet: rollekolonne i `private.interpretation_predicate`.** Den ville kræve DDL og
+hævde, at rollen er en egenskab ved prædikatet globalt. Det er den ikke: `relation.marriage`
+og `event.marriage` kan beskrive samme begivenhed og have hver sin rolle, fordi rollen
+handler om *hvis record* claimet sidder i — en operations-egenskab, ikke en vokabular-egenskab.
+
+**Besluttet: et eksplicit, versioneret `persona_role_map` i genimportprofilen.** Profilen er
+under `requires_human_go_for_change`, så en ændring kræver en ny profilversion; kortets
+version skrives i manifestets `provenance`, så hver kørsel bærer hvilket kort der gav
+rollerne. Kortet er fail-closed — et ukendt prædikat giver ingen rolle, og builderen afviser
+claimet frem for at gætte (»ukendt rolle« er et af femtals-regnskabets tal, og det var 0).
+
+**Prisen, sagt højt:** kortet er udgavespecifikt og skal skrives igen for 1939. Og matchningen
+er præfiksbaseret, så et nyt prædikat under et kendt præfiks arver rollen stiltiende. Det er
+acceptabelt, fordi 4.5 er menneskegatet, men et prædikat hvis rolle afviger fra præfiksets
+**skal** have sin egen længere nøgle. Derfor vinder længste præfiks, og et selvmodsigende kort
+rejser frem for at vælge.
+
+Skrevet som errata til §7.2 i
+`docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md`.
+
 ## BESLUTTET: tærskler og opdeling for dagsværk 4.3b (2026-09-12)
 
 **Baggrund.** Plan 4.3b afgør, om modellen kan udtrække brugbare fakta af ægte DAA-prosa.

@@ -1,5 +1,65 @@
 # Changelog
 
+## 2026-09-14/15 — Trin 4, dagsværk 4.4: forslagene er i databasen (#147)
+
+84 modeludtrukne claims fra 4.3b står nu som `proposed`-fortolkninger i en restore, bundet
+til de klausuler de citerer. Kæden fra bogens prosa til en struktureret, kildebunden påstand
+er dermed hel — men afgørelsen er stadig 4.5's, og intet er rørt i prod.
+
+**Regnskabet:** 93 rå claims → 7 kontraktafviste → 2 H1-afviste → 0 dubletter → **84
+ingestible** fordelt på 8 elementer. 68 `principal`, 16 `other`. 19 klausuler fik ny maskinel
+disposition: 13 `fortolkning_foreslaaet`, 6 `afventer_identitet`. Kanonisk lag uændret.
+Replay `already_applied` uden nye rækker.
+
+**Den forventede fordeling blev skrevet ned FØR kørslen** og ramte på alle otte tal. Det er
+forskellen på en kontrol og en efterrationalisering.
+
+**Tre fejl i lukkede nøglesæt fældede første kørsel.** Writer-payloaden er defineret som
+operationen *minus* `element_id` og `dependency_class`; builderen lagde felterne under en
+`payload`-nøgle, som dermed selv blev en payload-nøgle. Autorisationen fangede det ikke —
+den sammenligner kun de to sider med hinanden, ikke med formen, så begge var forkerte på
+samme måde. Dertil er `writer_config` låst til otte nøgler af
+`private.validate_reimport_writer_config` (operationens egne indstillinger flyttet til
+`operation_settings`), og R-gateway'en manglede sin `interpretation_proposal`-gren.
+
+**Negativ test (Task 7 Step 5).** Et `principal`-claim på `III-129` — en af fire records uden
+entydig primary persona — afvises med `REIMPORT_WRITER_PRINCIPAL_WITHOUT_PERSONA`. Samme
+claim med rollen `other` går igennem og rulles tilbage; uden den spejlkørsel kunne
+afvisningen være kommet af hvad som helst andet i payloaden.
+
+**`anon`-neutraliteten blev bevist strukturelt, ikke som delta.** Apply var allerede
+committet, da hullet blev opdaget, så et før/efter kunne ikke måles bagudrettet. I stedet:
+`anon` og `authenticated` har `SELECT = f` på alle seks berørte tabeller, ingen `public`-view
+læser dem, og ingen anon-eksekverbar `public`-funktion gør det. Kombineret med det uændrede
+kanoniske aggregat kan læsersidens flade ikke have flyttet sig.
+
+**Spec §7.2 fik errata.** Specen kender kun claims om recordens persona og claims i form
+`mention`/`relation`. 4.3b målte 8 `event.*`-claims om hovedpersonen uden `person.`-præfiks —
+de er ingen af delene, og en regel »ikke `person.*` → `other`« ville stemple deres klausuler
+`afventer_identitet`. Valgt vej: eksplicit, versioneret `persona_role_map` i genimportprofilen.
+Se `docs/decisions.md`.
+
+**To huller lukket undervejs.** R-klienten kastede writerens `interpretations_written` væk,
+selv om kommentaren lovede en afstemning; batchens `expected_counts` tæller kun *elementer*,
+så et tabt claim ville slippe gennem serverens finalize. Afstemningen er nu implementeret pr.
+element med test. Og builderens klassifikationsregler — det sted hvor det afgøres om et claim
+overhovedet kommer med — havde ingen test; ny testfil med 23 tests er føjet til CI.
+
+**Rolleudledningen hærdet:** længste præfiks vinder nu, så et fremtidigt `event.marriage`
+under `other` ikke taber til `event.` under `principal` alene på listerækkefølge. Et
+selvmodsigende kort rejser frem for at vælge. Output er bit-identisk med det anvendte manifest.
+
+**Miljøfund:** restoren manglede `dblink`, som db-verifys samtidighedstest kræver, og
+ACL-revoke'en for klausullagets triggerfunktioner bor i `db-rls.sql` — ikke i
+`db-migrations.sql`. En migreret base er altså ikke en verificerbar base før `db-rls.sql`
+også er kørt.
+
+**Gates:** R-suite FAIL 0 / PASS 2995 · pytest 225 passed · `db-verify.sql` grøn mod restoren
+med de 84 live rækker (119 asserts).
+
+**Ikke lukket:** Task 6 (hvor reviewsignalet til 4.5 skal bo — afventer projektejerens valg)
+og Task 8 (rapport). Intet er merget, og restoren skal bevares: 4.5 bruger den.
+
 ## 2026-09-13 — Trin 4, dagsværk 4.3b: modellen kan læse bogen (#147)
 
 Første gang ægte DAA-prosa er sendt til en model i dette projekt. Fem poster, valgt
