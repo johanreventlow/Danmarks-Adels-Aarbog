@@ -57,8 +57,19 @@ også er kørt.
 **Gates:** R-suite FAIL 0 / PASS 2995 · pytest 225 passed · `db-verify.sql` grøn mod restoren
 med de 84 live rækker (119 asserts).
 
-**Ikke lukket:** Task 6 (hvor reviewsignalet til 4.5 skal bo — afventer projektejerens valg)
-og Task 8 (rapport). Intet er merget, og restoren skal bevares: 4.5 bruger den.
+**Ikke lukket:** Task 8 (rapport). Intet er merget, og restoren skal bevares: 4.5 bruger den.
+
+**Task 6 afgjort 2026-09-15 — reviewsignalet bor i menneskearket.** Valget stod mellem en
+additiv `proposal_flags jsonb` på `private.interpretation` og bedømmelsesarkets forudfyldte
+anbefalingskolonne. Arket vandt, og det afgørende var **rækkefølgen, ikke designet**: ingesten
+var allerede kørt, så de 84 forslag stod i den restore, 4.3b-4.5 deler. En kolonne skulle ind
+via writerens lukkede payload-nøglesæt, men guarden er fail-closed pr. `interpretation_key` og
+replay kortslutter på batch-niveau — kolonnen ville derfor koste enten en genkørsel af hele
+4.4 på frisk base eller et `UPDATE` uden om `private.reimport_event`. Dertil foreskriver spec
+§8.2 allerede arket, og efter at H2 er opgivet som maskinel regel er alt, et flag kunne bære,
+afledeligt af `confidence`, `persona_role`, antal citerede klausuler, `clause_flags` og
+`value_kind` (invariant 4). Skrevet som errata til §8.2 med genåbningskriterium; builderen
+bærer nu en note om, at H2's fravær er et valg og ikke en mangel.
 
 ## 2026-09-13 — Trin 4, dagsværk 4.3b: modellen kan læse bogen (#147)
 
