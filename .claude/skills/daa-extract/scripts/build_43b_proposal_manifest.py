@@ -83,23 +83,36 @@ def uden_modpart(value, denylist: dict) -> bool:
 
 
 def persona_rolle(predicate: str, rolle_map: dict) -> str | None:
-    """`principal` eller `other` efter profilens EKSPLICITTE kort — ikke efter præfiks.
+    """`principal` eller `other` efter profilens eksplicitte kort.
 
     Spec §7.2 dækker kun `person.*` og mention/relation, men 4.3b's data rummer otte
     `event.*`-claims, som handler om hovedpersonen uden at have `person.`-præfiks.
     En naiv »ikke person.* → other« ville give dem persona NULL og stemple deres
-    klausuler `afventer_identitet`.
+    klausuler `afventer_identitet`. Se spec-errata til §7.2.
+
+    Matchningen er præfiksbaseret, men præfikserne og deres roller er DATA i
+    profilen — ikke en regel udledt af prædikatstrengens form. Det er forskellen
+    på dette og 4.2's kind-afledningsfejl.
+
+    LÆNGSTE præfiks vinder, så et senere `event.marriage` kan få en anden rolle end
+    `event.`. Uden det ville listernes rækkefølge afgøre det stiltiende. Står samme
+    præfiks i begge lister, er kortet selvmodsigende, og vi rejser frem for at vælge.
 
     Returnerer None for et prædikat, kortet ikke kender — så afviser kalderen det
     frem for at gætte.
     """
-    for præfiks in rolle_map["principal"]:
-        if predicate.startswith(præfiks):
-            return "principal"
-    for præfiks in rolle_map["other"]:
-        if predicate.startswith(præfiks):
-            return "other"
-    return None
+    traeffere = [(len(p), rolle)
+                 for rolle in ("principal", "other")
+                 for p in rolle_map[rolle]
+                 if predicate.startswith(p)]
+    if not traeffere:
+        return None
+    laengste = max(n for n, _ in traeffere)
+    roller = {rolle for n, rolle in traeffere if n == laengste}
+    if len(roller) != 1:
+        raise ValueError(
+            f"persona_role_map er selvmodsigende for {predicate!r}: {sorted(roller)}")
+    return roller.pop()
 
 
 def interpretation_key_input(source_id: int, record_key: str, predicate: str,

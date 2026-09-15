@@ -161,13 +161,13 @@ ville det få persona `NULL` og dets klausuler `afventer_identitet` — **forker
 
 Det samme gælder `heraldry.*`, `lineage.*`, `genealogy.*`, `image.*`.
 
-- [ ] **Step 1.** Task 0 Step 3 har målt, om sådanne claims overhovedet findes i de
+- [x] **Step 1.** Task 0 Step 3 har målt, om sådanne claims overhovedet findes i de
   kontraktvaliderede. Gør de ikke, er problemet teoretisk her — **skriv det som målt**
   og luk det for dette dagsværk.
-- [ ] **Step 2.** Gør de, så vælg **én** vej og skriv den i spec-errata: enten en
+- [x] **Step 2.** Gør de, så vælg **én** vej og skriv den i spec-errata: enten en
   rollekolonne i `interpretation_predicate`, eller en eksplicit tabel i den nye
   reimport-profil. **Gæt ikke ud fra præfikset** — det er 4.2's fejl igen.
-- [ ] **Step 3.** `persona_role = principal` kræver **verificeret lighed** mellem
+- [x] **Step 3.** `persona_role = principal` kræver **verificeret lighed** mellem
   runnerens persona og recordens entydige primary persona, fundet ad spec §7.2's vej
   (helpost → mention → `source_persona_mention` rolle `primary`) med kardinalitet 1.
   Builder og writer skal bruge **samme** forespørgsel — Task 0 Step 4 har målt, at de
@@ -196,11 +196,11 @@ mistænkeliggøre korrekte claims og undlade at pege på det forkerte.
 
 Mod **4.3b's base**.
 
-- [ ] **Step 1.** Dry-run: `finalized`, rullet tilbage, nul rækker efter.
-- [ ] **Step 2.** Apply: `interpretations_written` = manifestets ingestible-tal pr. element; alle klausul-links løser; **kanoniske aggregat-hashes uændrede**; `anon`-hashes uændrede.
-- [ ] **Step 3.** Replay: `already_applied`.
-- [ ] **Step 4.** **Skriv den forventede dispositionsfordeling ned FØR kørslen** — ellers er »som forventet« ikke en kontrol. Sammenhold bagefter.
-- [ ] **Step 5.** Negativ test: `principal`-claim på en persona-løs record afvises. **Bemærk:** den kan ikke køres inde i batchen, fordi alle 10 records har persona og eksporten afviser persona-løse. Kræver en separat autorisation med rollback, mod en af de records, Task 0 Step 5 målte.
+- [x] **Step 1.** Dry-run: `finalized`, rullet tilbage, nul rækker efter.
+- [x] **Step 2.** Apply: `interpretations_written` = manifestets ingestible-tal pr. element; alle klausul-links løser; **kanoniske aggregat-hashes uændrede**; `anon`-hashes uændrede.
+- [x] **Step 3.** Replay: `already_applied`.
+- [x] **Step 4.** **Skriv den forventede dispositionsfordeling ned FØR kørslen** — ellers er »som forventet« ikke en kontrol. Sammenhold bagefter.
+- [x] **Step 5.** Negativ test: `principal`-claim på en persona-løs record afvises. **Bemærk:** den kan ikke køres inde i batchen, fordi alle 10 records har persona og eksporten afviser persona-løse. Kræver en separat autorisation med rollback, mod en af de records, Task 0 Step 5 målte.
 
 ### Task 8: Rapport
 

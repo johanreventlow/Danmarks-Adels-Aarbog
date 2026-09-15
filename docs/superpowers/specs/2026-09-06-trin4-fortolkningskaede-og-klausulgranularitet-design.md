@@ -450,6 +450,48 @@ kvoteforbrug pr. record, så trin 6 kan budgetteres, før den startes.
 `source_persona_id IS NULL`, form `mention`/`relation`, citerede klausuler får
 `afventer_identitet`. Persona-oprettelse for andre aktører er trin 5.
 
+#### 7.2 ERRATA (2026-09-15, dagsværk 4.4 Task 5)
+
+§7.2 som skrevet ovenfor har **et hul**. Den kender to slags claims: dem om
+recordens persona (fundet ad helpost → mention → `source_persona_mention` rolle
+`primary`) og dem i form `mention`/`relation`, som får `source_persona_id IS NULL`.
+
+**Målt i 4.3b:** 8 af de 84 ingestible claims er `event.*` — `event.appointment`,
+`event.dismissal`, `event.acquisition`. De handler om hovedpersonen, men har ikke
+`person.`-præfiks. Det samme gælder `heraldry.*`, `lineage.*`, `genealogy.*` og
+`image.*`. De er hverken af §7.2's to slags. Problemet er altså ikke teoretisk.
+
+**Hvad der ville være forkert:**
+
+- »Ikke `person.*` → `other`« ville give de otte persona `NULL` og stemple deres
+  klausuler `afventer_identitet`. Claims om hovedpersonen ville dermed se ud som
+  claims om en uidentificeret tredjepart.
+- At udlede rollen af præfiksets form er 4.2's kind-afledningsfejl igen. Det gæt
+  kunne ikke skelne `event.marriage` fra `relation.marriage`, og det kan et gæt
+  her heller ikke.
+
+**Valgt vej: eksplicit kort i genimportprofilen**, ikke en rollekolonne i
+`private.interpretation_predicate`. Kortet hedder `persona_role_map` og er
+versioneret (`persona-role-2018-20-v1`); dets version skrives i manifestets
+`provenance`, så enhver kørsel bærer hvilket kort der gav rollerne.
+
+Begrundelsen for profilen frem for vokabularet: rollen er ikke en egenskab ved
+prædikatet i sig selv, men ved hvis record claimet sidder i — `relation.marriage`
+og `event.marriage` kan beskrive samme begivenhed og have hver sin rolle. Den
+slags hører i operationens profil, som er under `requires_human_go_for_change`,
+frem for i et navnerum, der deles af alle operationer. Prisen er, at kortet er
+udgavespecifikt og skal skrives igen for 1939.
+
+**Kortet er fail-closed.** Et prædikat, kortet ikke kender, giver ingen rolle, og
+builderen afviser claimet frem for at gætte (»ukendt rolle« er et af femtals-
+regnskabets tal og var 0 i 4.3b). Matchningen er præfiksbaseret med **længste
+præfiks vinder**, så et senere prædikat kan få en anden rolle end sine præfiks-
+fæller; står samme præfiks i begge lister, rejser builderen frem for at vælge.
+
+**Kendt grænse:** et nyt prædikat under et kendt præfiks arver rollen stiltiende.
+Det er acceptabelt, fordi 4.5 er menneskegatet, men et prædikat, hvis rolle
+afviger fra præfiksets, **skal** have sin egen længere nøgle i kortet.
+
 ### 7.3 Klausulregnskab
 
 Pr. claim: citerede klausuler får ny maskinel dispositionsversion
