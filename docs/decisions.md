@@ -2,6 +2,47 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: reviewsignalet bor i menneskearket, ikke i en kolonne (2026-09-15)
+
+**Baggrund.** 4.3b's ene usande claim var en **sproglig** fejl: »…var død 1353 (23. april),
+**da** hans sønner … solgte landsbyen« — datoen er salgets, ikke dødsfaldets. Begge claims
+stod ordret i teksten. Fejlen kan altså ikke fanges maskinelt, men 4.5's menneske skal
+alligevel kunne se, hvilke claims der fortjener ekstra opmærksomhed. Hvor bor det signal?
+En klausul-disposition kan ikke bære det: flere claims kan citere samme klausul.
+
+**Forkastet: `proposal_flags jsonb` på `private.interpretation`.** Forespørgbar og følger
+claimet — men **rækkefølgen havde allerede afgjort prisen**. 4.4's ingest var kørt, så de 84
+forslag stod i den restore, 4.3b-4.5 deler (spec §3). Kolonnen skulle ind via writerens
+lukkede payload-nøglesæt, og writerens guard er fail-closed pr. `interpretation_key`
+(`REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS`), mens replay kortslutter på batch-niveau.
+Valget ville derfor koste enten en genkørsel af hele 4.4 på frisk base — altså kassere den
+base, 4.5 skal bruge — eller et `UPDATE` uden om `private.reimport_event` og uden om
+tabellens versionsdisciplin (`interpretation_key`/`version`/`supersedes_id`).
+
+**Forkastet: udskyd valget til 4.5.** Planens eget krav var et valg, ikke et »eller«. Efter
+4.4's ingest bliver kolonnen kun dyrere, aldrig billigere.
+
+**Besluttet: bedømmelsesarkets forudfyldte anbefalingskolonne er eneste kanal.** Spec §8.2
+foreskriver allerede arket (token pr. linje, forudfyldt anbefaling, hash-bundet ved
+godkendelse), og `build_43b_judgement_sheet.py` renderer det mønster i forvejen. Ingen DDL i
+trin 4, ingen fjerde umigreret migration oven i de tre, der allerede venter på prod-GO.
+
+Dertil: efter at H2 er opgivet som maskinel regel, er alt et flag kunne bære i dag
+**afledeligt** af eksisterende kolonner — `confidence`, `persona_role`, antal citerede
+klausuler, klausulens `clause_flags` (`unknown_abbreviation`, #189's 3-tegns `VI.`) og
+`value_kind`. Datamodellens invariant 4 siger netop, at afledte værdier ikke persisteres.
+
+**Prisen, sagt højt:** signalet lever uden for databasen, indtil afgørelsen skrives ind med
+`red_decide_interpretation`. Mistes arket, mistes signalet — derfor er hash-bindingen ikke
+valgfri.
+
+**Genåbningskriterium:** måler 4.5, at redaktøren har brug for signalet forespørgbart *efter*
+afgørelsen (fx til trin 6's UI), er `proposal_flags` en additiv kolonne på en base, der
+alligevel skal bygges om. Beslutningen lukker ikke den dør; den omvendte vej findes ikke.
+
+Skrevet som errata til §8.2 i
+`docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md`.
+
 ## BESLUTTET: `persona_role` bor i genimportprofilen, ikke i prædikatvokabularet (2026-09-15)
 
 **Baggrund.** Spec §7.2 deler claims i to: dem om recordens persona (`principal`) og dem i

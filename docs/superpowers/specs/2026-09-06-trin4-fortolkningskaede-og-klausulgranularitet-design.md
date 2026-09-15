@@ -527,6 +527,37 @@ forudfyldt anbefaling), hashes ved godkendelse og oversættes til
 `red_decide_interpretation` (`accepted`/`rejected`/`unresolved`) under
 projektejerens redaktionsprofil med `request.jwt.claim.sub`. Ingen ny UI.
 
+#### 8.2 ERRATA (2026-09-15, dagsværk 4.4 Task 6)
+
+§8.2 nævner arket som afgørelsens kanal, men siger ikke, om **reviewsignalet** —
+»se nærmere på dette claim« — også hører der, eller om det skal bo i databasen.
+Dagsværk 4.4 afgjorde spørgsmålet, fordi 4.4 var sidste chance for at få en kolonne
+med i writerens payload.
+
+**Valgt: arket er eneste kanal.** Ingen `proposal_flags`-kolonne på
+`private.interpretation` i trin 4.
+
+**Hvorfor, i vægtrækkefølge.** (1) 4.4's ingest er allerede kørt: de 84 forslag står
+i restoren, 4.3b-4.5 deler (§3), og writerens guard er fail-closed pr.
+`interpretation_key`. En kolonne ville derfor koste enten en genkørsel af hele 4.4 på
+en frisk base eller et `UPDATE` uden om `private.reimport_event` og uden om tabellens
+versionsdisciplin. (2) Den forudfyldte anbefaling, §8.2 allerede foreskriver, **er**
+signalet; en kolonne ville lave en anden kopi af det inde i basen. (3) Efter at H2 er
+opgivet som maskinel regel (plan 4.4 Task 6 Step 3), er alt, et flag kunne bære,
+afledeligt af eksisterende kolonner — `confidence`, `persona_role`, antal citerede
+klausuler, klausulens `clause_flags`, `value_kind` — og invariant 4 siger, at afledte
+værdier ikke persisteres som data.
+
+**Forpligtelse for 4.5's plan.** Arkets anbefalingskolonner udledes af netop de
+forespørgbare felter ovenfor, efter mønsteret i `build_43b_judgement_sheet.py`:
+forudfyldt hvor maskinen kan afgøre det, tomt hvor kun mennesket kan. Hash-bindingen
+ved godkendelse er ikke valgfri — mistes arket, mistes signalet, fordi det først når
+databasen med `red_decide_interpretation`.
+
+**Genåbning.** Måler 4.5, at redaktøren har brug for signalet forespørgbart *efter*
+afgørelsen (fx til trin 6's UI), er `proposal_flags` en additiv kolonne, der kan komme
+til på en base, som alligevel skal bygges om. Denne errata lukker ikke den dør.
+
 ### 8.3 Binding (valg 6)
 
 `red_promote_interpretations_batch` opretter intet kanonisk: den kræver en
