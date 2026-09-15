@@ -82,7 +82,7 @@ hører derfor i builderen.
 
 | Fil | Ændring |
 | --- | --- |
-| `schema.sql` | `private.deterministic_uuid(text)`; writer-operationen; operation-CHECK; dispositionskoder; evt. `proposal_flags`. |
+| `schema.sql` | `private.deterministic_uuid(text)`; writer-operationen; operation-CHECK; dispositionskoder. |
 | `db-migrations.sql` | Samme, idempotent, med kontrakt-drift-guard som 4.1c. |
 | `db-rls.sql` | ACL for den nye operation. |
 | `db-verify.sql` | `OK: #147 4.4`-blok + negative prober. |
@@ -180,17 +180,58 @@ hvilke claims der fortjener ekstra opmærksomhed — og **en klausul-disposition
 ikke bære det**: flere claims kan citere samme klausul, så et flag dér ville både
 mistænkeliggøre korrekte claims og undlade at pege på det forkerte.
 
-- [ ] **Step 1 — vælg nu, ikke i 4.5.** Enten en additiv `proposal_flags jsonb` på
-  `private.interpretation` med CHECK på lukket vokabular (DDL hører så i Filoversigten),
-  **eller** et hash-bundet menneskeark som eneste kanal, ejet af 4.5's plan. Ikke »eller«
-  som udsættelse.
-- [ ] **Step 2.** Hvis flagkolonne: bemærk at `value` indgår i nøglen, og at
-  `interpretation_proposal_actor_check` forbyder `decided_*` på `proposed`. Flaget må
-  ikke kollidere med afgørelsens felter.
-- [ ] **Step 3 — ingen maskinel H2-regel.** Skriv eksplicit i planen og koden, at
-  »mere præcist end kilden« **ikke** afgøres maskinelt i dette dagsværk, og hvorfor:
-  fejlen i 4.3b var sproglig (`terminus ante quem` læst som dødsdato), begge claims stod
-  ordret i teksten, og `date_raw`-claims har intet interval at sammenligne.
+- [x] **Step 1 — VALGT 2026-09-15: menneskearket, ikke en flagkolonne.**
+  Signalet bor i bedømmelsesarkets forudfyldte anbefalingskolonner (spec §8.2), som
+  `build_43b_judgement_sheet.py` allerede renderer for 4.3b. **Ingen DDL i dette
+  dagsværk.** Tre grunde, i vægtrækkefølge:
+
+  1. **Task 7 er allerede kørt.** De 84 forslag står i restoren
+     `daa43b_20260912192527`, som 4.5 skal bruge (spec §3). En `proposal_flags`-kolonne
+     skulle ind via writer-payloadens lukkede nøglesæt (§7.1) → nyt manifest → ny batch;
+     men writerens guard er fail-closed pr. `interpretation_key`
+     (`REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS`) og replay kortslutter på
+     batch-niveau. Valget i dag ville altså koste enten en genkørsel af hele 4.4 på en
+     frisk base, eller et `UPDATE` uden om `private.reimport_event` og uden om tabellens
+     versionsdisciplin (`interpretation_key`/`version`/`supersedes_id`). Begge er dyrere
+     end det, flaget skulle løse.
+  2. **Arket ER spec'ens kanal.** §8.2 foreskriver allerede »menneske-ark (token-pr-linje
+     med forudfyldt anbefaling), hashes ved godkendelse«. Den forudfyldte anbefaling er
+     reviewsignalet. En flagkolonne ville lave en anden kopi af den inde i basen og kræve
+     errata til §8.2; arket kræver ingen.
+  3. **Flaget ville persistere en projektion.** Efter Step 3 (ingen maskinel H2-regel) er
+     der intet tilbage, et flag kunne bære, som ikke allerede er forespørgbart:
+     `confidence`, `persona_role`, antal citerede klausuler, klausulens egne
+     `clause_flags` (`unknown_abbreviation`, #189's 3-tegns `VI.`) og
+     `value_kind = date_raw`. Datamodellens invariant 4 siger netop, at afledte værdier
+     ikke persisteres som data.
+
+  **Prisen, sagt højt:** signalet lever uden for databasen, indtil afgørelsen skrives ind
+  med `red_decide_interpretation`. Mistes arket, mistes signalet — derfor er hash-bindingen
+  ved godkendelse (§8.2) ikke valgfri.
+
+  **Genåbningskriterium:** måler 4.5, at redaktøren har brug for flaget forespørgbart
+  *efter* afgørelsen (fx til trin 6's UI), er `proposal_flags` en additiv kolonne, der kan
+  komme til på en base, som alligevel skal bygges om. Valget her lukker ikke den dør;
+  den omvendte vej findes ikke.
+
+- [x] **Step 2 — bortfalder.** Gjaldt kun flagkolonnen. Kollisionsrisikoen mod
+  `interpretation_proposal_actor_check` (som forbyder `decided_*` på `proposed`) er
+  dermed heller ikke aktuel: arket bærer intet, der skrives til
+  `private.interpretation`, før mennesket faktisk har afgjort claimet.
+
+- [x] **Step 3 — ingen maskinel H2-regel.** Skrevet i planen her og i builderens kode
+  (`build_43b_proposal_manifest.py`): »mere præcist end kilden« afgøres **ikke** maskinelt
+  i dette dagsværk. Fejlen i 4.3b var sproglig — *terminus ante quem* læst som dødsdato —
+  begge claims stod ordret i teksten, og `date_raw`-claims har intet interval at
+  sammenligne. En detektor ville derfor enten sammenligne modeloutput med modeloutput
+  eller referere til felter, claimet ikke har. Begge tidligere udgaver af planen gjorde
+  netop det.
+
+- [x] **Step 4 — 4.5's plan arver forpligtelsen.** Når plan 4.5 skrives, skal arkets
+  anbefalingskolonner udledes af de felter, der allerede kan forespørges (listen i Step 1
+  punkt 3), efter mønsteret i `build_43b_judgement_sheet.py`: forudfyldt hvor maskinen kan
+  afgøre det, tomt hvor kun mennesket kan. Forpligtelsen er skrevet ind som errata til
+  spec §8.2, så den ikke kun lever i denne plan.
 
 ### Task 7: Rigtig kørsel (§7.5)
 
@@ -224,6 +265,7 @@ Mod **4.3b's base**.
 - [ ] Er de kanoniske aggregat-hashes uændrede efter apply?
 - [ ] Står det i rapporten, at prod-fortrydelse ikke findes?
 - [ ] Er restoren bevaret til 4.5?
+- [x] Er reviewsignalets kanal **valgt** (ikke udskudt), begrundet, og står genåbningskriteriet skrevet ned?
 
 ## Ændringslog
 
@@ -249,3 +291,10 @@ Væsentlige ændringer i forhold til første udgave:
 
 Segmenteringsfejlen bag 4.3b's sønderdelte sætning (`VI.` som egen klausul) hører til
 4.1b's motor og er registreret som **issue #189**.
+
+**2026-09-15, Task 6 afgjort.** Projektejeren valgte menneskearket frem for en
+`proposal_flags`-kolonne. Task 6's steps bærer begrundelsen og genåbningskriteriet;
+`proposal_flags` er fjernet fra Filoversigten, og forpligtelsen for 4.5's ark er skrevet
+som errata til spec §8.2. Rækkefølgen var det afgørende: havde Task 6 ligget før Task 7,
+havde kolonnen været billig — fordi de 84 rækker allerede står i restoren, er den samme
+kolonne nu en ombygning.
