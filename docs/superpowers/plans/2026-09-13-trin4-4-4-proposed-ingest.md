@@ -82,7 +82,7 @@ hører derfor i builderen.
 
 | Fil | Ændring |
 | --- | --- |
-| `schema.sql` | `private.deterministic_uuid(text)`; writer-operationen; operation-CHECK; dispositionskoder; evt. `proposal_flags`. |
+| `schema.sql` | `private.deterministic_uuid(text)`; writer-operationen; operation-CHECK; dispositionskoder. |
 | `db-migrations.sql` | Samme, idempotent, med kontrakt-drift-guard som 4.1c. |
 | `db-rls.sql` | ACL for den nye operation. |
 | `db-verify.sql` | `OK: #147 4.4`-blok + negative prober. |
@@ -161,13 +161,13 @@ ville det få persona `NULL` og dets klausuler `afventer_identitet` — **forker
 
 Det samme gælder `heraldry.*`, `lineage.*`, `genealogy.*`, `image.*`.
 
-- [ ] **Step 1.** Task 0 Step 3 har målt, om sådanne claims overhovedet findes i de
+- [x] **Step 1.** Task 0 Step 3 har målt, om sådanne claims overhovedet findes i de
   kontraktvaliderede. Gør de ikke, er problemet teoretisk her — **skriv det som målt**
   og luk det for dette dagsværk.
-- [ ] **Step 2.** Gør de, så vælg **én** vej og skriv den i spec-errata: enten en
+- [x] **Step 2.** Gør de, så vælg **én** vej og skriv den i spec-errata: enten en
   rollekolonne i `interpretation_predicate`, eller en eksplicit tabel i den nye
   reimport-profil. **Gæt ikke ud fra præfikset** — det er 4.2's fejl igen.
-- [ ] **Step 3.** `persona_role = principal` kræver **verificeret lighed** mellem
+- [x] **Step 3.** `persona_role = principal` kræver **verificeret lighed** mellem
   runnerens persona og recordens entydige primary persona, fundet ad spec §7.2's vej
   (helpost → mention → `source_persona_mention` rolle `primary`) med kardinalitet 1.
   Builder og writer skal bruge **samme** forespørgsel — Task 0 Step 4 har målt, at de
@@ -180,34 +180,86 @@ hvilke claims der fortjener ekstra opmærksomhed — og **en klausul-disposition
 ikke bære det**: flere claims kan citere samme klausul, så et flag dér ville både
 mistænkeliggøre korrekte claims og undlade at pege på det forkerte.
 
-- [ ] **Step 1 — vælg nu, ikke i 4.5.** Enten en additiv `proposal_flags jsonb` på
-  `private.interpretation` med CHECK på lukket vokabular (DDL hører så i Filoversigten),
-  **eller** et hash-bundet menneskeark som eneste kanal, ejet af 4.5's plan. Ikke »eller«
-  som udsættelse.
-- [ ] **Step 2.** Hvis flagkolonne: bemærk at `value` indgår i nøglen, og at
-  `interpretation_proposal_actor_check` forbyder `decided_*` på `proposed`. Flaget må
-  ikke kollidere med afgørelsens felter.
-- [ ] **Step 3 — ingen maskinel H2-regel.** Skriv eksplicit i planen og koden, at
-  »mere præcist end kilden« **ikke** afgøres maskinelt i dette dagsværk, og hvorfor:
-  fejlen i 4.3b var sproglig (`terminus ante quem` læst som dødsdato), begge claims stod
-  ordret i teksten, og `date_raw`-claims har intet interval at sammenligne.
+- [x] **Step 1 — VALGT 2026-09-15: menneskearket, ikke en flagkolonne.**
+  Signalet bor i bedømmelsesarkets forudfyldte anbefalingskolonner (spec §8.2), som
+  `build_43b_judgement_sheet.py` allerede renderer for 4.3b. **Ingen DDL i dette
+  dagsværk.** Tre grunde, i vægtrækkefølge:
+
+  1. **Task 7 er allerede kørt.** De 84 forslag står i restoren
+     `daa43b_20260912192527`, som 4.5 skal bruge (spec §3). En `proposal_flags`-kolonne
+     skulle ind via writer-payloadens lukkede nøglesæt (§7.1) → nyt manifest → ny batch;
+     men writerens guard er fail-closed pr. `interpretation_key`
+     (`REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS`) og replay kortslutter på
+     batch-niveau. Valget i dag ville altså koste enten en genkørsel af hele 4.4 på en
+     frisk base, eller et `UPDATE` uden om `private.reimport_event` og uden om tabellens
+     versionsdisciplin (`interpretation_key`/`version`/`supersedes_id`). Begge er dyrere
+     end det, flaget skulle løse.
+  2. **Arket ER spec'ens kanal.** §8.2 foreskriver allerede »menneske-ark (token-pr-linje
+     med forudfyldt anbefaling), hashes ved godkendelse«. Den forudfyldte anbefaling er
+     reviewsignalet. En flagkolonne ville lave en anden kopi af den inde i basen og kræve
+     errata til §8.2; arket kræver ingen.
+  3. **Flaget ville persistere en projektion.** Efter Step 3 (ingen maskinel H2-regel) er
+     der intet tilbage, et flag kunne bære, som ikke allerede er forespørgbart:
+     `confidence`, `persona_role`, antal citerede klausuler, klausulens egne
+     `clause_flags` (`unknown_abbreviation`, #189's 3-tegns `VI.`) og
+     `value_kind = date_raw`. Datamodellens invariant 4 siger netop, at afledte værdier
+     ikke persisteres som data.
+
+  **Prisen, sagt højt:** signalet lever uden for databasen, indtil afgørelsen skrives ind
+  med `red_decide_interpretation`. Mistes arket, mistes signalet — derfor er hash-bindingen
+  ved godkendelse (§8.2) ikke valgfri.
+
+  **Genåbningskriterium:** måler 4.5, at redaktøren har brug for flaget forespørgbart
+  *efter* afgørelsen (fx til trin 6's UI), er `proposal_flags` en additiv kolonne, der kan
+  komme til på en base, som alligevel skal bygges om. Valget her lukker ikke den dør;
+  den omvendte vej findes ikke.
+
+- [x] **Step 2 — bortfalder.** Gjaldt kun flagkolonnen. Kollisionsrisikoen mod
+  `interpretation_proposal_actor_check` (som forbyder `decided_*` på `proposed`) er
+  dermed heller ikke aktuel: arket bærer intet, der skrives til
+  `private.interpretation`, før mennesket faktisk har afgjort claimet.
+
+- [x] **Step 3 — ingen maskinel H2-regel.** Skrevet i planen her og i builderens kode
+  (`build_43b_proposal_manifest.py`): »mere præcist end kilden« afgøres **ikke** maskinelt
+  i dette dagsværk. Fejlen i 4.3b var sproglig — *terminus ante quem* læst som dødsdato —
+  begge claims stod ordret i teksten, og `date_raw`-claims har intet interval at
+  sammenligne. En detektor ville derfor enten sammenligne modeloutput med modeloutput
+  eller referere til felter, claimet ikke har. Begge tidligere udgaver af planen gjorde
+  netop det.
+
+- [x] **Step 4 — 4.5's plan arver forpligtelsen.** Når plan 4.5 skrives, skal arkets
+  anbefalingskolonner udledes af de felter, der allerede kan forespørges (listen i Step 1
+  punkt 3), efter mønsteret i `build_43b_judgement_sheet.py`: forudfyldt hvor maskinen kan
+  afgøre det, tomt hvor kun mennesket kan. Forpligtelsen er skrevet ind som errata til
+  spec §8.2, så den ikke kun lever i denne plan.
 
 ### Task 7: Rigtig kørsel (§7.5)
 
 Mod **4.3b's base**.
 
-- [ ] **Step 1.** Dry-run: `finalized`, rullet tilbage, nul rækker efter.
-- [ ] **Step 2.** Apply: `interpretations_written` = manifestets ingestible-tal pr. element; alle klausul-links løser; **kanoniske aggregat-hashes uændrede**; `anon`-hashes uændrede.
-- [ ] **Step 3.** Replay: `already_applied`.
-- [ ] **Step 4.** **Skriv den forventede dispositionsfordeling ned FØR kørslen** — ellers er »som forventet« ikke en kontrol. Sammenhold bagefter.
-- [ ] **Step 5.** Negativ test: `principal`-claim på en persona-løs record afvises. **Bemærk:** den kan ikke køres inde i batchen, fordi alle 10 records har persona og eksporten afviser persona-løse. Kræver en separat autorisation med rollback, mod en af de records, Task 0 Step 5 målte.
+- [x] **Step 1.** Dry-run: `finalized`, rullet tilbage, nul rækker efter.
+- [x] **Step 2.** Apply: `interpretations_written` = manifestets ingestible-tal pr. element; alle klausul-links løser; **kanoniske aggregat-hashes uændrede**; `anon`-hashes uændrede.
+- [x] **Step 3.** Replay: `already_applied`.
+- [x] **Step 4.** **Skriv den forventede dispositionsfordeling ned FØR kørslen** — ellers er »som forventet« ikke en kontrol. Sammenhold bagefter.
+- [x] **Step 5.** Negativ test: `principal`-claim på en persona-løs record afvises. **Bemærk:** den kan ikke køres inde i batchen, fordi alle 10 records har persona og eksporten afviser persona-løse. Kræver en separat autorisation med rollback, mod en af de records, Task 0 Step 5 målte.
 
 ### Task 8: Rapport
 
-- [ ] **Step 1.** Rapport med de fem tal, alle hashes, dispositionsfordeling (forventet vs. målt), og hvad Task 5 og 6 endte med.
-- [ ] **Step 2.** Changelog + `status.md`-modenhed.
-- [ ] **Step 3.** Skriv eksplicit, at **prod-fortrydelse ikke findes** (§7.4, åbent punkt 11.5).
-- [ ] **Step 4.** **Ryd ikke restoren** — 4.5 skal bruge den. Kun call-dirs og overflødige kopier.
+- [x] **Step 1.** `docs/evidensbaseret-genimport/proposal-ingest-147-4-4-rehearsal.md`.
+  **Det blev seks tal, ikke fem** — Task 5's `persona_role_map` er fail-closed og har derfor
+  sin egen afvisningsgrund (`ukendt_rolle`, målt til 0). Alle hashes, dispositionsfordeling
+  forventet vs. målt (otte tal, nul afvigelser), og udfaldet af Task 5 og 6 står i rapporten.
+  **Ud over planen:** Task 0's måling 2 var uafklaret (»blev aldrig gemt«); en read-only probe
+  har nu fordelt de syv kontrakt-afviste pr. record — **alle syv er IV-34's**, ingen anden
+  post bidrog. Attributionen er dermed målt, ikke sluttet af at IV-34 var markeret `delvis`.
+- [x] **Step 2.** Changelog-post og `status.md` skrevet i `19cf97f`, afstemt efter Task 6 i
+  `0f5e10c`, og henviser nu til rapporten. **Modenheden hæves ikke:** rækken dækker også
+  promotion, som er urørt, og grenen er umerget.
+- [x] **Step 3.** Rapportens afsnit 9, med konsekvensen sagt i hverdagssprog: kører ingesten
+  mod prod, kan den ikke fortrydes uden at rulle hele databasen tilbage.
+- [x] **Step 4.** Restoren `daa43b_20260912192527` er **bevaret** og markeret som sådan i
+  rapportens afsnit 11. Sletning er en gate efter 4.5, fordi klausul-id'erne er
+  database-genererede (spec §3).
 
 ---
 
@@ -224,6 +276,7 @@ Mod **4.3b's base**.
 - [ ] Er de kanoniske aggregat-hashes uændrede efter apply?
 - [ ] Står det i rapporten, at prod-fortrydelse ikke findes?
 - [ ] Er restoren bevaret til 4.5?
+- [x] Er reviewsignalets kanal **valgt** (ikke udskudt), begrundet, og står genåbningskriteriet skrevet ned?
 
 ## Ændringslog
 
@@ -249,3 +302,10 @@ Væsentlige ændringer i forhold til første udgave:
 
 Segmenteringsfejlen bag 4.3b's sønderdelte sætning (`VI.` som egen klausul) hører til
 4.1b's motor og er registreret som **issue #189**.
+
+**2026-09-15, Task 6 afgjort.** Projektejeren valgte menneskearket frem for en
+`proposal_flags`-kolonne. Task 6's steps bærer begrundelsen og genåbningskriteriet;
+`proposal_flags` er fjernet fra Filoversigten, og forpligtelsen for 4.5's ark er skrevet
+som errata til spec §8.2. Rækkefølgen var det afgørende: havde Task 6 ligget før Task 7,
+havde kolonnen været billig — fordi de 84 rækker allerede står i restoren, er den samme
+kolonne nu en ombygning.

@@ -1,0 +1,143 @@
+{
+  "profile_id": "daa-2018-20-interpretation-proposal-v1",
+  "profile_version": "1.0.0",
+  "source_id": 1,
+  "edition": "2018-20",
+  "operation": "interpretation_proposal",
+  "requires_human_go_for_change": true,
+  "writer_config": {
+    "citation_label_template": "DAA 2018-20 side {page_from}",
+    "extractor_version": "interpretation-proposal-v1",
+    "observation_extraction_method": "clause_segment_v1",
+    "rendition_key": "daa-2018-20-pdftotext-r1",
+    "rendition_kind": "pdf_text_layer",
+    "rendition_metadata": {
+      "edition": "2018-20",
+      "pdf_sha256": "3beadfc15e3fa1a4090589af56cd4e95599a9231e8f979dfb60c4e27bbd8252a",
+      "pdftotext_version": "26.07.0"
+    },
+    "run_key_prefix": "reimport-interpretation-proposal:",
+    "schema_version": "interpretation-proposal-manifest-v1"
+  },
+  "no_counterpart_denylist": {
+    "version": "nn-denylist-2018-20-v1",
+    "_kommentar": [
+      "H1: relations-claims uden identificerbar modpart. Fundet i 4.3b, hvor",
+      "relation.marriage = 'NN.' og relation.child = '4 sønner' begge var SANDE og",
+      "formelt gyldige, men ikke pegede på nogen. '4 sønner' er et antal, ikke et barn.",
+      "",
+      "DETTE ER EN TIDSBESPARELSE, IKKE EN KORREKTHEDSGATE. Listen er anchored på hele",
+      "strengen, så '4 sønner, som døde små' slipper igennem. Det er acceptabelt, fordi",
+      "4.5 er menneskegatet — men reglen må ikke omtales som en generel",
+      "'identificerbar person'-detektor.",
+      "",
+      "Listen er UDGAVESPECIFIK: 2018-20 er moderne retskrivning, mens 1939 skriver",
+      "'Sønner/Døtre'. Derfor hører den i profilen og ændres kun med en ny",
+      "profilversion under requires_human_go_for_change.",
+      "",
+      "Normalisering før match: NFKC, casefold, whitespace-kollaps, strip af",
+      "afsluttende tegnsætning."
+    ],
+    "unknown_person": [
+      "nn",
+      "n n",
+      "n.n",
+      "n.n.",
+      "n. n.",
+      "ukendt",
+      "ubekendt",
+      "uvis"
+    ],
+    "quantity_only": {
+      "_form": "<taltoken> <slægtskabsord>, hele strengen",
+      "numbers": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "en",
+        "et",
+        "to",
+        "tre",
+        "fire",
+        "fem",
+        "seks",
+        "syv",
+        "otte",
+        "ni",
+        "ti",
+        "elleve",
+        "tolv",
+        "flere",
+        "nogle",
+        "adskillige",
+        "mange"
+      ],
+      "kinship": [
+        "søn",
+        "sønner",
+        "datter",
+        "døtre",
+        "barn",
+        "børn",
+        "tvilling",
+        "tvillinger",
+        "brødre",
+        "søstre"
+      ],
+      "bare_kinship": [
+        "tvillinger",
+        "børn",
+        "sønner",
+        "døtre"
+      ]
+    }
+  },
+  "persona_role_map": {
+    "version": "persona-role-2018-20-v1",
+    "_kommentar": [
+      "Spec §7.2 definerer kun `principal` (recordens persona) og `other` (NULL, form",
+      "mention/relation). Men 4.3b's data rummer OTTE event.*-claims, som er hverken:",
+      "event.appointment, event.dismissal og event.acquisition handler om",
+      "hovedpersonen, men har ikke person.-præfiks.",
+      "",
+      "En naiv regel 'ikke person.* → other' ville give dem persona NULL og stemple",
+      "deres klausuler afventer_identitet — forkert. Og at gætte ud fra præfikset er",
+      "netop 4.2's kind-afledningsfejl, hvor gættet ikke kunne skelne event.marriage",
+      "fra relation.marriage.",
+      "",
+      "Rollen er derfor EKSPLICIT pr. prædikat-præfiks her. Alt, der ikke står,",
+      "afvises fail-closed i builderen frem for at få en gættet rolle."
+    ],
+    "principal": [
+      "person.",
+      "event.",
+      "heraldry.",
+      "lineage.",
+      "genealogy.",
+      "image."
+    ],
+    "other": [
+      "mention.",
+      "relation.",
+      "reference."
+    ]
+  },
+  "operation_settings": {
+    "_kommentar": "writer_config har en fast form (otte nøgler, håndhævet af private.validate_reimport_writer_config). Operationens egne indstillinger ligger derfor her.",
+    "element_prefix": "interpretation-proposal:",
+    "expected_counts_key": "interpretation_proposals",
+    "interpretation_status": "proposed",
+    "interpretation_method": "model",
+    "interpretation_basis": "model_inference",
+    "interpretation_version": 1
+  }
+}

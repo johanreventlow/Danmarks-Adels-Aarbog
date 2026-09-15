@@ -194,3 +194,46 @@ test_that("reimport returns an existing finalized batch without replaying operat
   expect_true("batch_result" %in% calls)
   expect_false("source_evidence" %in% calls)
 })
+
+# --- 4.4: klausul-niveauet er ikke dækket af expected_counts ------------------
+# Batchens expected_counts tæller ELEMENTER. Writeren returnerer
+# interpretations_written pr. element, og kun den kontrol fanger et tabt claim.
+proposal_manifest <- function() {
+  list(
+    manifest_content_sha256 = sha("a"),
+    source = list(id = 17L, profile_id = "test-proposal-profile-v1", profile_sha256 = sha("b")),
+    expected_counts = list(source_evidence = 0L, person_creates = 0L, canonical_delta = 0L,
+                           interpretation_proposals = 1L),
+    operations = list(list(
+      element_id = "interpretation-proposal:fixture-1",
+      dependency_class = "interpretation_proposal",
+      source_record_key = "fixture-1",
+      runner_manifest_sha256 = sha("c"),
+      model_version = "test-model",
+      prompt_version = sha("d"),
+      claims = list(list(claim_id = "c1"), list(claim_id = "c2"))
+    ))
+  )
+}
+
+proposal_gateway <- function(manifest, written) {
+  base <- reimport_gateway(manifest)
+  inner <- base$gateway$call
+  list(gateway = list(call = function(name, ...) {
+    if (identical(name, "interpretation_proposal"))
+      return(list(interpretations_written = written, clauses_dispositioned = 1L,
+                  run_id = "44444444-4444-4444-8444-444444444444"))
+    inner(name, ...)
+  }))
+}
+
+test_that("interpretation_proposal afstemmer writerens claim-antal mod manifestets", {
+  manifest <- proposal_manifest()
+  expect_error(
+    execute_reimport(manifest, sha("e"), "dry-run", proposal_gateway(manifest, 1L)$gateway),
+    "REIMPORT_WRITER_INTERPRETATION_COUNT_MISMATCH")
+
+  result <- execute_reimport(manifest, sha("e"), "dry-run", proposal_gateway(manifest, 2L)$gateway)
+  expect_identical(result$status, "finalized")
+  expect_false(result$committed)
+})
