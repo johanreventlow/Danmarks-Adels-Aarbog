@@ -82,6 +82,32 @@ def uden_modpart(value, denylist: dict) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# H2 FINDES IKKE, OG DET ER MED VILJE (plan 4.4 Task 6 Step 3).
+#
+# »Claimet er mere præcist end kilden« afgøres IKKE maskinelt i dette dagsværk.
+# Der er ingen H2-funktion at lede efter — det er et valg, ikke en mangel.
+#
+# Baggrunden er 4.3b's ene usande claim. Bogen skriver:
+#
+#     »…var død 1353 (23. april), DA hans sønner … solgte landsbyen.«
+#
+# 23. april 1353 er SALGETS dato — en terminus ante quem for dødsfaldet. Modellen
+# læste konstruktionen »var død [dato], da [begivenhed]« som en dødsdato. Begge
+# dødsclaims stod ORDRET i teksten; modellen udledte og opfandt intet.
+#
+# Fejlen er derfor sproglig, ikke numerisk, og de to detektorer, tidligere
+# planudgaver foreslog, kunne ikke fange den:
+#   - »sammenlign søsterclaims« sammenligner modeloutput med modeloutput;
+#   - »sammenlign date_min/date_max med raw« refererer til felter, et
+#     `date_raw`-claim slet ikke har.
+#
+# Signalet »se nærmere på dette claim« bor i stedet i bedømmelsesarkets
+# forudfyldte anbefalingskolonner (spec §8.2), ikke i en kolonne i databasen.
+# Se plan 4.4 Task 6 for begrundelsen og for genåbningskriteriet.
+# ---------------------------------------------------------------------------
+
+
 def persona_rolle(predicate: str, rolle_map: dict) -> str | None:
     """`principal` eller `other` efter profilens eksplicitte kort.
 
