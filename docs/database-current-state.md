@@ -4,7 +4,10 @@
 > er autoritative, og hvordan næste deploy forberedes sikkert. Changelog fortæller
 > historien; denne side fortæller tilstanden.
 >
-> **Sidst afstemt:** 2026-08-20 (`red_slet_person` + `_preview` deployet efter
+> **Sidst afstemt:** 2026-09-17 (trin 4's skema og writere deployet — se §8. Målt:
+> 1811 personer, 4 kilder, 1488 observationer, 0 fortolkninger, 2083 reimport-hændelser.
+> **Kun trin 4-objekterne og disse fem tal er inventeret ved denne afstemning**; §1's
+> øvrige tal er ældre). Forudgående afstemning 2026-08-20 (`red_slet_person` + `_preview` deployet efter
 > backup: bindinger, slægts-/linjemedlemskaber og hændelses-ankre ryddes nu, og
 > medlemskabstabellerne er registreret i `version_pk_registry`. Verificeret på
 > ægte data — person 924 med kildebinding kunne slettes i en rullet-tilbage
@@ -293,6 +296,7 @@ Frysningen af nye bindinger fra #152 er dermed ophævet for 2018-20 og 1939.
 | **Polymorf døde-link-integritetsrapport** | Kun `text_mention` har et døde-links-view. Bredere orphan-check (fact/relation/assertion → subjekt) findes ikke systematisk endnu. |
 | Levende feed fase 4 | LLM-assist/Edge Function — bevidst udskudt 2026-07-20 (for få kilder i PoC til at retfærdiggøre kørslen endnu), ikke annulleret. Se `decisions.md`. |
 | **Mediehåndtering fase 4 — identitet & endeligt farvel** | **LIVE i prod (2026-07-22).** Nye funktioner i `schema.sql`: `red_erstat_media_fil` (erstat bytes, behold identitet — atomisk `AND upload_status='klar'`-gate mod race), `red_udrens_media_preview`+`red_udrens_media` (permanent sletning, blokeret på SYV polymorfe ankre: relation, text_mention, fact, story, narrative, note, suggestion — guard+slet i ét atomisk `DELETE...NOT EXISTS`-statement), `red_saet_portraet` (portræt-valg, `relation.kvalifikator jsonb`-kolonne, additiv). Deployet via scoped blok `mediehaandtering_fase4_identitet`; fase-4-verify-blokkene kørt og bestået direkte mod prod (impersoneret redaktion-profil), `get_advisors(security)` viste kun kendte SECURITY DEFINER-mønstre. `db-rls.sql` uændret. Web app-deployet (Vercel, PR #75); redaktør-røgtestet (erstat/udrens/portræt) med succes; janitor-rapport bekræftede korrekt kategori-b-håndtering af et reelt erstat, ingen `--slet` kørt. |
+| **Trin 4's dataskrivning** (klausuler via `clause_evidence`, forslag via `interpretation_proposal`) | Skema og writere er live (§8), men **ingen writer er kørt mod prod**. Klausulkørslen kræver fortrydelseskvittering og en klausul-projektion i fase-pakke-runbooken; for `interpretation_proposal` findes ingen prod-fortrydelse (trin 4-spec åbent punkt 11.5). Datakørsler følger fase-pakke-gaten, ikke §5 alene. |
 | Mediehåndtering fase 5 | Dokumenttransskription er ikke designet endnu. |
 | 1939-publicering | Pauset indtil nyt OCR-udtræk, nyt artefakt og fornyet komplethedsgate (uddybet i §3) |
 | Import-sikkerhed | Stabil import-run/checksum/udgavenøgle og source-scoped replace mangler; `--reset` er fortsat en farlig nødvej |
@@ -389,3 +393,59 @@ deadlock mod `load_daa.R`. Se `docs/decisions.md` (2026-08-01).
 
 **Efterladt i data:** 15 mor-løse 1939-familier står tilbage med én part og 0 børn.
 De kan ikke slettes: bogens oprindelige forældrepåstande peger stadig på dem.
+
+## 8. Trin 4: klausullag, prædikat-navnerum og to writere — LIVE i prod (2026-09-17)
+
+**Skema, funktioner og kontrolleret vokabular — ingen evidensdata.** Klausullaget,
+prædikat-navnerummet og writerne findes; ingen klausuler, dispositioner eller
+fortolkninger er skrevet. At køre writerne mod prod er en særskilt, gated beslutning (§4).
+
+**Deploy efter §5:** læse-kun preflight → backup → restore-rehearsal → projektejerens
+GO → apply → læse-kun verifikation.
+
+- **Backup:** `daa-prod-20260917141330.dump`, SHA-256 `ee4fd901…`, 0600, uden for Git.
+  Et dump fra 2026-09-15 blev kasseret: dagens var 15 KB større **med identiske tal**, så
+  det gamle var ikke længere et trofast rollback-punkt.
+- **Rehearsal** mod en restore af netop det dump: `db-migrations.sql` to gange rent,
+  `db-rls.sql`, `db-verify` med fire OK-blokke (#148 ×2, #147 ×2), fem kontrakttests,
+  nul datadelta.
+- **Apply** fra repo `140a17b`: hele `db-migrations.sql` → `db-rls.sql` med
+  `--single-transaction` → `NOTIFY pgrst, 'reload schema'`.
+  `db-migrations.sql` kan **ikke** køre med `--single-transaction`: filen ejer #153's egen
+  `BEGIN`/`COMMIT` (linje 11251–12622), som ville committe en ydre transaktion midtvejs.
+  Sikkerheden er idempotens (bevist i rehearsal) plus backuppen.
+- **Stopporte før første skrivning:** backup-SHA, 0 trin 4-objekter, baseline-tal,
+  0 `change_set` oprettet efter backup-start, 0 in-flight autorisationer.
+
+**Nye objekter**
+
+| Blok | Objekter |
+|---|---|
+| #148 4.1a | `private.source_observation.parent_observation_id`; `private.clause_disposition` + view `clause_disposition_current`; `validate_clause_observation`, `validate_clause_disposition` + to triggere; `observation_kind='clause'` i `private.vocab` |
+| #148 4.1c | `private.write_clause_evidence`; `public.red_apply_reimport_clause_evidence` |
+| #147 4.2 | `private.interpretation_predicate` + view `interpretation_predicate_promotable`; fire funktioner, fire triggere; seed-prædikater |
+| #147 4.4 | `private.deterministic_uuid`; `private.write_interpretation_proposal`; `public.red_apply_reimport_interpretation_proposal` |
+
+**Erstattede objekter:** `private.validate_reimport_authorization_payload`,
+`public.red_finalize_reimport`, `public.red_reimport_batch_result`. De lukkede
+operationsmængder kender nu `clause_evidence` og `interpretation_proposal`. Både 4.1c og
+4.4 omdefinerer alle tre, så **rækkefølgen 4.1a → 4.1c → 4.2 → 4.4 er bindende**: 4.1c
+kørt efter 4.4 ville stille fjerne `interpretation_proposal` fra vokabularet.
+
+**Verificeret i prod (læse-kun):**
+
+- alle otte kontrollerede objekter til stede;
+- begge lukkede mængder kender begge operationer;
+- `anon` og `authenticated` kan ikke læse `clause_disposition`, `interpretation_predicate`,
+  `interpretation` eller `source_observation`;
+- `anon` har ikke EXECUTE på de fire `red_*`-funktioner. `authenticated` har EXECUTE —
+  projektets mønster for redaktør-RPC'er med rolle-gate inde i funktionen, godkendt af
+  `db-verify`'s ACL-blokke i rehearsal;
+- tal uændrede: 1811 / 4 / 1488 / 0 / 2083.
+
+**Ikke kørt mod prod:** `db-verify.sql` (muterende fixtures) — kun i rehearsal.
+
+**Advisors:** afventer projektejerens gennemsyn i Supabase-dashboardet. MCP-forbindelsen
+fra Claude-sessioner når et andet Supabase-projekt og kan ikke bruges her.
+
+**Rollback:** ingen kirurgisk rollback-fil. Vejen tilbage er restore af backuppen ovenfor.
