@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Gør det muligt at bevise, at én `clause_evidence`-kørsel (4.1c) skrev præcis manifestets klausuler — og ellers kun sin tilladte bogføring — så spec §11.1's klausul-projektion findes før 4.1c's prod-GO (#195).
+**Goal:** Gør det muligt at bevise, at én `clause_evidence`-kørsel (4.1c) skrev præcis manifestets klausuler med writerens invarianter, bundet til én batch og den godkendte database, og at intet i de projekterede neutrale tabeller, i det `anon` ser, i kildens øvrige klausuler eller i ældre klausul-hændelser ændrede sig — så spec §11.1's klausul-projektion findes før 4.1c's prod-GO (#195). Writerens øvrige bogføring (autorisation, batch, kørsel) afstemmes kun i de projekterede felter.
 
 **Architecture:** En psql-driver tager i ÉN `READ ONLY`/`REPEATABLE READ`-transaktion en projektion som databaseejer og en `anon`-projektion under `SET LOCAL ROLE anon`, og udskriver én JSON. Den tages før og efter apply. En Python-komparator uden databaseadgang sammenholder de to med det autoriserede manifest og en på forhånd godkendt målidentitet og svarer `match` eller NO-GO med en fejlkode. Tjekket er et *delta*-bevis: det kender ingen udgave, fase eller historik og importerer intet fra den 1939-låste reconciler på `codex/finish-156-158`.
 
@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md` §4.1.4-4.1.6 og §11.1. Afgørelsen (vej C) står i `docs/decisions.md` (Task 4) og i issue #195. Fortolknings-projektionen er udskudt til #196.
 
-**Revision 2 (2026-09-17)** efter Codex `gpt-5.6-sol`-review (NO-GO, 7 BLOCKER / 3 MAJOR). Afgørelserne står i »Revisionslog« nederst.
+**Revision 3 (2026-09-17)** efter to Codex `gpt-5.6-sol`-runder (runde 1: NO-GO, 7 BLOCKER / 3 MAJOR; runde 2: NO-GO, 1 ny BLOCKER + 5 delvist lukkede). Afgørelserne står i »Revisionslog« nederst.
 
 ## Global Constraints
 
@@ -19,7 +19,7 @@
 - Komparatoren åbner aldrig en database. Projektionen kører kun i `READ ONLY` + `REPEATABLE READ` og håndhæver det selv; `anon`-delen håndhæver desuden `current_user = 'anon'`.
 - Udgaveneutral: ingen `1939`/`2018`-strenge i kode, ingen fase-id'er, ingen import fra `reconcile_evidence_phase_gate.py` eller `*_1939_v50`-scripts.
 - Sammenlign **mængder og indhold, aldrig antal.** Neutralitet = helrækkehash pr. tabel.
-- **Tilladt delta** for en `clause_evidence`-kørsel (alt andet i de hashede tabeller skal være uændret): `private.reimport_authorization`, `private.reimport_batch`, `private.reimport_event`, `private.extraction_run`, `private.source_observation` med `observation_kind='clause'` for kilden, `private.clause_disposition` for kildens klausuler. `private.reimport_writer_profile` ændres *før* før-projektionen og er ikke en del af deltaet.
+- **Afstemt delta** for en `clause_evidence`-kørsel: kildens nye klausul-observationer og deres dispositioner (felt for felt + invarianter) og de nye `clause_evidence`-hændelser (præcis én batch; alle ældre hændelser bevaret uændret). **Ikke afstemt ud over de projekterede felter:** `private.reimport_authorization`, `private.reimport_batch`, `private.extraction_run` — dér bevises kun målbatchens status, manifest- og profilhash samt målkørslens proveniensfelter, ikke fravær af andre ændringer. `private.reimport_writer_profile` ændres *før* før-projektionen og er ikke en del af deltaet. Alt i de hashede tabeller skal være uændret.
 - SQL-filerne `clause_evidence_*.sql` er hver én sætning **uden** afsluttende semikolon og uden `;` eller `'` i kommentarer (driveren interpolerer dem; R kører dem direkte).
 - Sortering i SQL: `ORDER BY … COLLATE "C"` på tekst (CI kører `en_US`). Komparatoren sammenligner kanonisk sorteret.
 - Python skal køre på `/usr/bin/python3` 3.9 og CI's 3.11: `from __future__ import annotations`, ingen `match`, ingen runtime-`X | Y`.
@@ -72,6 +72,8 @@ Alle nøgler obligatoriske, ingen ekstra:
   "narrative_sha256": [{"narrative_id": 7, "sha256": "<64 hex>"}],
   "persons": [{"person_id": 42}],
   "clauses": [{
+    "observation_id": "<uuid>", "row_sha256": "<64 hex>", "disposition_history_sha256": "<64 hex>",
+    "run_id": "<uuid>", "run_matches_profile": true, "extraction_method_matches_profile": true,
     "record_key": "… eller null", "occurrence_key": "…", "clause_ordinal": 1,
     "char_from": 100, "char_to": 110, "post_char_from": 0, "post_char_to": 10,
     "classification": "record_text", "flags": [],
@@ -84,6 +86,7 @@ Alle nøgler obligatoriske, ingen ekstra:
     "pages_match_parent": true, "quality_matches_parent": true
   }],
   "clause_evidence_events": [{"batch_id": "…", "manifest_sha256": "<64 hex>", "batch_status": "finalized",
+                              "profile_id": "…", "profile_sha256": "<64 hex>",
                               "element_id": "clause-evidence:…", "source_record_key": "…"}],
   "neutral_sha256": {"person": "…", "fact": "…", "assertion": "…", "conclusion": "…", "narrative": "…",
                      "relation": "…", "family_member": "…", "citation": "…", "person_external_id": "…",
@@ -96,7 +99,7 @@ Alle nøgler obligatoriske, ingen ekstra:
 }
 ```
 
-`clauses` er **hele** kildens klausulinventar (scoped via `extraction_run.source_id`), ikke kun klausuler under accepterede forekomster; `record_key` er `null`, når forekomsten ikke har ét accepteret anker. Identitet: `(occurrence_key, clause_ordinal)`.
+`clauses` er **hele** kildens klausulinventar (scoped via `extraction_run.source_id`), ikke kun klausuler under accepterede forekomster; `record_key` er `null`, når forekomsten ikke har ét accepteret anker. Identitet: `observation_id` (stabil inden for databasen mellem før og efter). `row_sha256` er hash af hele observationsrækken, `disposition_history_sha256` af hele klausulens dispositionshistorik — så fremmede klausuler sammenlignes på fuldt indhold, ikke kun de projekterede felter. `run_matches_profile` og `extraction_method_matches_profile` beregnes i SQL mod den writer-profil, målbatchen er bundet til. Hændelser har identiteten `(batch_id, element_id)`.
 
 **Målidentitet:** `database_target_sha256 = sha256(database_name + "\n" + system_identifier_sha256)` (UTF-8, hex). SQL-versionen står i `clause_evidence_target_identity.sql`.
 
@@ -130,7 +133,7 @@ Alle nøgler obligatoriske, ingen ekstra:
   - `target_sha256(identity: dict) -> str`
   - `expected_clauses(manifest: dict) -> dict[tuple[str, int], dict]` (validerer manifestet inkl. hash)
   - `compare(manifest, before, after, expected_target_sha256: str, allow_empty: frozenset[str] = frozenset()) -> dict`
-  - Fejlkoder: `CLAUSE_PROJECTION_SHAPE_INVALID`, `…_DUPLICATE_ROW`, `…_EMPTY_LIST`, `…_MANIFEST_INVALID`, `…_MANIFEST_HASH_MISMATCH`, `…_SOURCE_MISMATCH`, `…_TARGET_MISMATCH`, `…_TARGET_UNEXPECTED`, `…_RECORD_UNKNOWN`, `…_NEUTRALITY_DRIFT`, `…_CANONICAL_DRIFT`, `…_ANON_DRIFT`, `…_PREEXISTING`, `…_FOREIGN_DRIFT`, `…_BATCH_BINDING_INVALID`, `…_DRIFT`, `…_WRITER_INVARIANT_INVALID` (alle med præfiks `CLAUSE_PROJECTION_`).
+  - Fejlkoder: `CLAUSE_PROJECTION_SHAPE_INVALID`, `…_DUPLICATE_ROW`, `…_EMPTY_LIST`, `…_MANIFEST_INVALID`, `…_MANIFEST_HASH_MISMATCH`, `…_SOURCE_MISMATCH`, `…_TARGET_MISMATCH`, `…_TARGET_UNEXPECTED`, `…_RECORD_UNKNOWN`, `…_NEUTRALITY_DRIFT`, `…_CANONICAL_DRIFT`, `…_ANON_DRIFT`, `…_PREEXISTING`, `…_FOREIGN_DRIFT`, `…_EVENT_HISTORY_DRIFT`, `…_BATCH_BINDING_INVALID`, `…_DRIFT`, `…_WRITER_INVARIANT_INVALID` (alle med præfiks `CLAUSE_PROJECTION_`).
 
 - [ ] **Step 1: Skriv de fejlende tests**
 
@@ -212,11 +215,17 @@ def projection(clauses=(), events=()):
     }
 
 
+RUN = "00000000-0000-4000-8000-0000000000e1"
+
+
 def written_rows(m, batch=BATCH):
     rules = {op["source_record_key"]: op["clause_rules_version"] for op in m["operations"]}
     rows = []
-    for (key, _), row in sorted(cp.expected_clauses(m).items()):
+    for (key, ordinal), row in sorted(cp.expected_clauses(m).items()):
         rows.append(dict(row, occurrence_key=OCCURRENCE[key], decided_by_kind="machine",
+                         observation_id=f"obs-{key}-{ordinal}", row_sha256=H("a"),
+                         disposition_history_sha256=H("b"), run_id=RUN,
+                         run_matches_profile=True, extraction_method_matches_profile=True,
                          disposition_evidence={"batch_id": batch, "element_id": f"clause-evidence:{key}",
                                                "manifest_sha256": m["manifest_content_sha256"],
                                                "clause_rules_version": rules[key]},
@@ -229,8 +238,14 @@ def written_rows(m, batch=BATCH):
 
 def events_for(m, status="finalized", batch=BATCH):
     return [{"batch_id": batch, "manifest_sha256": m["manifest_content_sha256"], "batch_status": status,
+             "profile_id": m["source"]["profile_id"], "profile_sha256": m["source"]["profile_sha256"],
              "element_id": op["element_id"], "source_record_key": op["source_record_key"]}
             for op in m["operations"]]
+
+
+OLD_EVENT = {"batch_id": "00000000-0000-4000-8000-00000000b0dd", "manifest_sha256": H("c"),
+             "batch_status": "finalized", "profile_id": "p", "profile_sha256": H("b"),
+             "element_id": "clause-evidence:R9", "source_record_key": "R9"}
 
 
 def applied(m):
@@ -247,8 +262,11 @@ def no_go(m, before, after, target=TARGET, allow_empty=frozenset()):
     return e.value
 
 
-def foreign(ordinal=1, sha=H("f"), record_key="R9", occurrence_key="o9"):
-    return {"record_key": record_key, "occurrence_key": occurrence_key, "clause_ordinal": ordinal,
+def foreign(ordinal=1, sha=H("f"), record_key="R9", occurrence_key="o9", observation_id="obs-foreign",
+            row_sha=H("c"), history_sha=H("d")):
+    return {"observation_id": observation_id, "row_sha256": row_sha, "disposition_history_sha256": history_sha,
+            "run_id": "run-old", "run_matches_profile": True, "extraction_method_matches_profile": True,
+            "record_key": record_key, "occurrence_key": occurrence_key, "clause_ordinal": ordinal,
             "char_from": 900, "char_to": 910, "post_char_from": 0, "post_char_to": 10,
             "classification": "record_text", "flags": [], "verbatim_sha256": sha,
             "parent_verbatim_sha256": H("e"), "disposition": "afventer_fortolkning",
@@ -444,7 +462,7 @@ def test_missing_clause_is_drift():
 def test_extra_clause_is_drift():
     m = manifest()
     after = applied(m)
-    after["clauses"].append(dict(after["clauses"][0], clause_ordinal=3))
+    after["clauses"].append(dict(after["clauses"][0], clause_ordinal=3, observation_id="obs-extra"))
     err = no_go(m, projection(), after)
     assert err.code == "CLAUSE_PROJECTION_DRIFT"
     assert err.details["extra"] == [["R1", 3]]
@@ -475,6 +493,8 @@ def test_field_mismatch_names_field_without_values(field, value):
     ("parent_is_root", False),
     ("pages_match_parent", False),
     ("quality_matches_parent", False),
+    ("run_matches_profile", False),
+    ("extraction_method_matches_profile", False),
 ])
 def test_writer_invariant_violation(field, value):
     m = manifest()
@@ -483,6 +503,15 @@ def test_writer_invariant_violation(field, value):
     err = no_go(m, projection(), after)
     assert err.code == "CLAUSE_PROJECTION_WRITER_INVARIANT_INVALID"
     assert err.details["invariants"] == [field]
+
+
+def test_target_clauses_from_two_runs_is_invariant_invalid():
+    m = manifest()
+    after = applied(m)
+    after["clauses"][0]["run_id"] = "run-andet"
+    err = no_go(m, projection(), after)
+    assert err.code == "CLAUSE_PROJECTION_WRITER_INVARIANT_INVALID"
+    assert err.details["invariants"] == ["run_id"]
 
 
 def test_preexisting_clauses_for_manifest_record_is_no_go():
@@ -503,6 +532,15 @@ def test_changed_foreign_clause_is_foreign_drift():
     before = projection([foreign()])
     after = applied(m)
     after["clauses"].append(foreign(sha=H("1")))
+    assert no_go(m, before, after).code == "CLAUSE_PROJECTION_FOREIGN_DRIFT"
+
+
+@pytest.mark.parametrize("change", [{"row_sha": H("1")}, {"history_sha": H("1")}])
+def test_foreign_clause_full_row_or_history_change_is_foreign_drift(change):
+    m = manifest()
+    before = projection([foreign()])
+    after = applied(m)
+    after["clauses"].append(foreign(**change))
     assert no_go(m, before, after).code == "CLAUSE_PROJECTION_FOREIGN_DRIFT"
 
 
@@ -558,10 +596,43 @@ def test_event_already_before_is_binding_invalid():
 def test_unrelated_new_clause_event_is_binding_invalid():
     m = manifest()
     after = applied(m)
-    after["clause_evidence_events"].append({"batch_id": BATCH, "manifest_sha256": H("9"),
-                                            "batch_status": "finalized",
-                                            "element_id": "clause-evidence:R9", "source_record_key": "R9"})
+    after["clause_evidence_events"].append(dict(OLD_EVENT, batch_id=BATCH, manifest_sha256=H("9")))
     assert no_go(m, projection(), after).code == "CLAUSE_PROJECTION_BATCH_BINDING_INVALID"
+
+
+@pytest.mark.parametrize("field,value", [("profile_sha256", H("9")), ("profile_id", "andet")])
+def test_batch_bound_to_other_profile_is_binding_invalid(field, value):
+    m = manifest()
+    events = events_for(m)
+    for ev in events:
+        ev[field] = value
+    assert no_go(m, projection(), projection(written_rows(m), events)).code == "CLAUSE_PROJECTION_BATCH_BINDING_INVALID"
+
+
+def test_old_event_preserved_is_match():
+    m = manifest()
+    after = applied(m)
+    after["clause_evidence_events"].append(dict(OLD_EVENT))
+    assert run(m, projection(events=[OLD_EVENT]), after)["status"] == "match"
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda events: events.remove(OLD_EVENT),
+    lambda events: events.__setitem__(events.index(OLD_EVENT), dict(OLD_EVENT, batch_status="reversed")),
+])
+def test_old_event_removed_or_changed_is_history_drift(mutate):
+    m = manifest()
+    after = applied(m)
+    after["clause_evidence_events"].append(dict(OLD_EVENT))
+    mutate(after["clause_evidence_events"])
+    assert no_go(m, projection(events=[OLD_EVENT]), after).code == "CLAUSE_PROJECTION_EVENT_HISTORY_DRIFT"
+
+
+def test_duplicate_event_identity_is_no_go():
+    m = manifest()
+    after = applied(m)
+    after["clause_evidence_events"].append(dict(after["clause_evidence_events"][0], batch_status="open"))
+    assert no_go(m, projection(), after).code == "CLAUSE_PROJECTION_DUPLICATE_ROW"
 
 
 # ---- form -------------------------------------------------------------------
@@ -671,13 +742,14 @@ ANON_HASH_TABLES = ("assertion", "citation", "conclusion", "fact", "family_membe
 EXPECTED_FIELDS = ("record_key", "clause_ordinal", "char_from", "char_to", "post_char_from",
                    "post_char_to", "classification", "flags", "verbatim_sha256",
                    "parent_verbatim_sha256", "disposition", "disposition_version")
-INVARIANT_FIELDS = ("decided_by_kind", "disposition_evidence", "extraction_method", "run_input_sha256",
-                    "run_batch_id", "same_occurrence_as_parent", "parent_is_root",
-                    "pages_match_parent", "quality_matches_parent")
 BOOLEAN_FIELDS = ("same_occurrence_as_parent", "parent_is_root", "pages_match_parent",
-                  "quality_matches_parent")
-CLAUSE_FIELDS = frozenset(EXPECTED_FIELDS + INVARIANT_FIELDS + ("occurrence_key",))
-EVENT_FIELDS = frozenset(("batch_id", "manifest_sha256", "batch_status", "element_id", "source_record_key"))
+                  "quality_matches_parent", "run_matches_profile", "extraction_method_matches_profile")
+INVARIANT_FIELDS = ("decided_by_kind", "disposition_evidence", "extraction_method", "run_input_sha256",
+                    "run_batch_id") + BOOLEAN_FIELDS
+IDENTITY_FIELDS = ("observation_id", "occurrence_key", "row_sha256", "disposition_history_sha256", "run_id")
+CLAUSE_FIELDS = frozenset(EXPECTED_FIELDS + INVARIANT_FIELDS + IDENTITY_FIELDS)
+EVENT_FIELDS = frozenset(("batch_id", "manifest_sha256", "batch_status", "profile_id", "profile_sha256",
+                          "element_id", "source_record_key"))
 PROJECTION_KEYS = frozenset(("schema_version", "source_id", "database_target_identity", "clauses",
                              "clause_evidence_events", "neutral_sha256", "anon_sha256") + NEUTRAL_LISTS)
 MANIFEST_TOP_REQUIRED = frozenset(("manifest_content_sha256", "source", "expected_counts", "operations"))
@@ -771,21 +843,23 @@ def _validate_projection(p: Any, allow_empty: frozenset[str]) -> list[dict[str, 
         if not p[name] and (name in ALWAYS_NONEMPTY or name not in allow_empty):
             _fail("CLAUSE_PROJECTION_EMPTY_LIST", part=name)
     events = p["clause_evidence_events"]
-    if not all(set(e) == EVENT_FIELDS for e in events):
+    if not all(set(e) == EVENT_FIELDS and isinstance(e["batch_id"], str) and isinstance(e["element_id"], str)
+               for e in events):
         _fail("CLAUSE_PROJECTION_SHAPE_INVALID", part="clause_evidence_events")
-    if len(set(_canon_set(events))) != len(events):
+    if len({(e["batch_id"], e["element_id"]) for e in events}) != len(events):
         _fail("CLAUSE_PROJECTION_DUPLICATE_ROW", part="clause_evidence_events")
-    seen: set[tuple[str, int]] = set()
+    seen: set[str] = set()
     for row in p["clauses"]:
-        if (set(row) != CLAUSE_FIELDS or not isinstance(row["occurrence_key"], str)
+        if (set(row) != CLAUSE_FIELDS or not isinstance(row["observation_id"], str)
+                or not isinstance(row["occurrence_key"], str)
                 or not (row["record_key"] is None or isinstance(row["record_key"], str))
                 or not _is_int(row["clause_ordinal"])
+                or not _is_sha(row["row_sha256"]) or not _is_sha(row["disposition_history_sha256"])
                 or not all(type(row[f]) is bool for f in BOOLEAN_FIELDS)):
             _fail("CLAUSE_PROJECTION_SHAPE_INVALID", part="clauses")
-        identity_key = (row["occurrence_key"], row["clause_ordinal"])
-        if identity_key in seen:
+        if row["observation_id"] in seen:
             _fail("CLAUSE_PROJECTION_DUPLICATE_ROW", part="clauses")
-        seen.add(identity_key)
+        seen.add(row["observation_id"])
     return p["clauses"]
 
 
@@ -886,25 +960,33 @@ def compare(manifest: Any, before: Any, after: Any, expected_target_sha256: str,
     preexisting = {r["record_key"] for r in before_clauses if r["record_key"] in record_keys}
     if preexisting:
         _fail("CLAUSE_PROJECTION_PREEXISTING", records=len(preexisting))
-    foreign_before = {(r["occurrence_key"], r["clause_ordinal"]): _canon(r)
-                      for r in before_clauses if r["record_key"] not in record_keys}
-    foreign_after = {(r["occurrence_key"], r["clause_ordinal"]): _canon(r)
-                     for r in after_clauses if r["record_key"] not in record_keys}
+    # Fremmede klausuler (ikke manifestets records) sammenlignes på hele rækken, inkl.
+    # helrækkehash og hele dispositionshistorikken, med databasens egen identitet.
+    foreign_before = {r["observation_id"]: _canon(r) for r in before_clauses if r["record_key"] not in record_keys}
+    foreign_after = {r["observation_id"]: _canon(r) for r in after_clauses if r["record_key"] not in record_keys}
     if foreign_before != foreign_after:
         changed = set(foreign_before) ^ set(foreign_after)
         changed |= {k for k in set(foreign_before) & set(foreign_after) if foreign_before[k] != foreign_after[k]}
         _fail("CLAUSE_PROJECTION_FOREIGN_DRIFT", clauses=len(changed))
 
+    # Ældre hændelser skal være bevaret uændret, FØR det nye delta beregnes; ellers kan
+    # en slettet gammel hændelse gemme sig bag en korrekt ny.
+    after_events = set(_canon_set(after["clause_evidence_events"]))
+    lost = [e for e in before["clause_evidence_events"] if _canon(e) not in after_events]
+    if lost:
+        _fail("CLAUSE_PROJECTION_EVENT_HISTORY_DRIFT", events=len(lost))
     before_events = set(_canon_set(before["clause_evidence_events"]))
     new_events = [e for e in after["clause_evidence_events"] if _canon(e) not in before_events]
     batch_ids = {e["batch_id"] for e in new_events}
     element_ids = sorted(ELEMENT_PREFIX + k for k in record_keys)
+    source = manifest["source"]
     binding_ok = (
         len(batch_ids) == 1
         and not any(e["manifest_sha256"] == manifest_sha or e["batch_id"] in batch_ids
                     for e in before["clause_evidence_events"])
         and len(new_events) == len(element_ids)
         and all(e["manifest_sha256"] == manifest_sha and e["batch_status"] == "finalized"
+                and e["profile_id"] == source["profile_id"] and e["profile_sha256"] == source["profile_sha256"]
                 and e["element_id"] == ELEMENT_PREFIX + str(e["source_record_key"]) for e in new_events)
         and sorted(e["element_id"] for e in new_events) == element_ids
     )
@@ -946,6 +1028,8 @@ def compare(manifest: Any, before: Any, after: Any, expected_target_sha256: str,
         }
         checks.update({f: row[f] is True for f in BOOLEAN_FIELDS})
         failed |= {name for name, ok in checks.items() if not ok}
+    if len({row["run_id"] for row in actual.values()}) != 1:
+        failed.add("run_id")
     if failed:
         _fail("CLAUSE_PROJECTION_WRITER_INVARIANT_INVALID", invariants=sorted(failed))
 
@@ -1116,6 +1200,23 @@ def test_cli_unreadable_input_is_usage_error(tmp_path):
     assert proc.returncode == 2
     assert _json.loads(proc.stdout)["code"] == "CLAUSE_PROJECTION_INPUT_UNREADABLE"
     assert not (tmp_path / "report.json").exists()
+
+
+def test_cli_report_dir_missing(tmp_path):
+    mp, bp, ap = cli_inputs(tmp_path)
+    proc = run_cli("--manifest", mp, "--before", bp, "--after", ap,
+                   "--expect-target-sha256", TARGET, "--report", tmp_path / "findes-ikke" / "r.json")
+    assert proc.returncode == 2
+    assert _json.loads(proc.stdout)["code"] == "CLAUSE_PROJECTION_REPORT_DIR_MISSING"
+    assert not (tmp_path / "findes-ikke").exists()
+
+
+def test_cli_arguments_missing(tmp_path):
+    mp, bp, ap = cli_inputs(tmp_path)
+    proc = run_cli("--manifest", mp, "--before", bp, "--after", ap, "--report", tmp_path / "r.json")
+    assert proc.returncode == 2
+    assert _json.loads(proc.stdout)["code"] == "CLAUSE_PROJECTION_ARGUMENTS_MISSING"
+    assert not (tmp_path / "r.json").exists()
 
 
 def test_cli_print_manifest_sha256(tmp_path):
@@ -1405,6 +1506,17 @@ WITH guard AS (
   JOIN private.narrative_record_publication p ON p.source_record_id = r.id
 ), clause_rows AS (
   SELECT o.occurrence_key, c.clause_ordinal, jsonb_build_object(
+    'observation_id', c.id::text,
+    'row_sha256', encode(pg_catalog.sha256(convert_to(c::text, 'UTF8')), 'hex'),
+    'disposition_history_sha256', (SELECT encode(pg_catalog.sha256(convert_to(coalesce(string_agg(h::text, E'\n' ORDER BY h::text COLLATE "C"), ''), 'UTF8')), 'hex')
+                                   FROM private.clause_disposition h WHERE h.observation_id = c.id),
+    'run_id', run.id::text,
+    'run_matches_profile', coalesce(run.schema_version = wp.writer_config ->> 'schema_version'
+                                    AND run.extractor_version = wp.writer_config ->> 'extractor_version'
+                                    AND run.profile_version = wp.profile_version
+                                    AND run.manifest ->> 'profile_sha256' = rb.profile_sha256, false),
+    'extraction_method_matches_profile', coalesce(c.extraction_method = (wp.writer_config ->> 'observation_extraction_method')
+                                                  || ':' || (d.evidence ->> 'clause_rules_version'), false),
     'record_key', ac.record_key,
     'occurrence_key', o.occurrence_key,
     'clause_ordinal', c.clause_ordinal,
@@ -1433,12 +1545,17 @@ WITH guard AS (
   LEFT JOIN accepted ac ON ac.occurrence_id = c.occurrence_id
   LEFT JOIN private.source_observation parent ON parent.id = c.parent_observation_id
   LEFT JOIN private.clause_disposition_current d ON d.observation_id = c.id
+  LEFT JOIN private.reimport_batch rb ON rb.id::text = run.manifest ->> 'batch_id'
+  LEFT JOIN private.reimport_writer_profile wp
+    ON wp.source_id = rb.source_id AND wp.profile_id = rb.profile_id AND wp.profile_sha256 = rb.profile_sha256
   WHERE c.observation_kind = 'clause'
 ), event_rows AS (
   SELECT e.element_id, jsonb_build_object(
     'batch_id', b.id::text,
     'manifest_sha256', b.manifest_sha256,
     'batch_status', b.status,
+    'profile_id', b.profile_id,
+    'profile_sha256', b.profile_sha256,
     'element_id', e.element_id,
     'source_record_key', e.source_record_key
   ) AS row
@@ -1549,6 +1666,11 @@ SELECT encode(pg_catalog.sha256(convert_to(
 --     psql -X -At -q -v ON_ERROR_STOP=1 -v source_id=<id> -f clause_evidence_projection.psql > <ny fil>
 -- Ejer-delen og anon-delen tages i SAMME read-only snapshot. Output: én linje JSON.
 \set ON_ERROR_STOP on
+-- Uden -v source_id: tom værdi, så SQL-guarden rejser CLAUSE_PROJECTION_SOURCE_ID_MISSING.
+\if :{?source_id}
+\else
+\set source_id ''
+\endif
 \set main_sql `cat "$DAA_PROJECTION_SQL_DIR/clause_evidence_projection.sql"`
 \set anon_sql `cat "$DAA_PROJECTION_SQL_DIR/clause_evidence_anon_projection.sql"`
 BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY;
@@ -1576,11 +1698,12 @@ psql -X -At -v ON_ERROR_STOP=1 -c "SET daa.projection_source_id='1'" -f $D/claus
 PGOPTIONS='-c default_transaction_read_only=on' psql -X -At -v ON_ERROR_STOP=1 -c "SET daa.projection_source_id='1'" -f $D/clause_evidence_projection.sql 2>&1 | grep -o 'CLAUSE_PROJECTION_[A-Z_]*'
 PGOPTIONS='-c default_transaction_read_only=on -c default_transaction_isolation=repeatable\ read' psql -X -At -v ON_ERROR_STOP=1 -f $D/clause_evidence_projection.sql 2>&1 | grep -o 'CLAUSE_PROJECTION_[A-Z_]*'
 PGOPTIONS='-c default_transaction_read_only=on -c default_transaction_isolation=repeatable\ read' psql -X -At -v ON_ERROR_STOP=1 -f $D/clause_evidence_anon_projection.sql 2>&1 | grep -o 'CLAUSE_PROJECTION_[A-Z_]*'
+DAA_PROJECTION_SQL_DIR=$D psql -X -At -q -v ON_ERROR_STOP=1 -f $D/clause_evidence_projection.psql 2>&1 | grep -o 'CLAUSE_PROJECTION_[A-Z_]*'
 DAA_PROJECTION_SQL_DIR=$D psql -X -At -q -v ON_ERROR_STOP=1 -v source_id=1 -f $D/clause_evidence_projection.psql | head -c 2; echo
 ```
 
 (Filerne mangler semikolon; psql sender dem ved filens slutning.)
-Expected, i rækkefølge: `CLAUSE_PROJECTION_NOT_READ_ONLY`, `CLAUSE_PROJECTION_NOT_REPEATABLE_READ`, `CLAUSE_PROJECTION_SOURCE_ID_MISSING`, `CLAUSE_PROJECTION_NOT_ANON`, `{"`. Basen har ingen source 1; det er kun en syntaks- og guardtest.
+Expected, i rækkefølge: `CLAUSE_PROJECTION_NOT_READ_ONLY`, `CLAUSE_PROJECTION_NOT_REPEATABLE_READ`, `CLAUSE_PROJECTION_SOURCE_ID_MISSING`, `CLAUSE_PROJECTION_NOT_ANON`, `CLAUSE_PROJECTION_SOURCE_ID_MISSING` (driveren uden `-v source_id`), `{"`. Basen har ingen source 1; det er kun en syntaks- og guardtest.
 
 - [ ] **Step 7: Ryd den disponerbare base op og commit**
 
@@ -1634,15 +1757,19 @@ Værktøjet er i `main` (#195): `clause_evidence_projection.psql` med tre SQL-fi
    invarianter: samme forekomst, sider og kvalitet som helposten, helposten er rod,
    `extraction_method` slutter på regelversionen, kørslen er bundet til manifestet og
    batchen, dispositionen er maskinel med batchens evidens.
-5. Én `finalized` batch med manifestets **genberegnede** hash, én hændelse pr. record.
+5. Én `finalized` batch med manifestets **genberegnede** hash og writer-profilens id og
+   hash, én hændelse pr. record, alle klausuler fra én kørsel, hvis proveniensfelter
+   matcher profilen; alle ældre `clause_evidence`-hændelser for kilden er bevaret uændret.
 6. Ingen anden klausul i kildens inventar — også under forekomster uden accepteret
-   anker — er tilføjet, fjernet eller ændret.
+   anker — er tilføjet, fjernet eller ændret, målt på hele rækken og hele
+   dispositionshistorikken.
 
-**Tilladt delta:** `reimport_authorization`, `reimport_batch`, `reimport_event`,
-`extraction_run`, kildens klausul-observationer og deres dispositioner.
+**Afstemt delta:** kildens nye klausuler med dispositioner og de nye hændelser, som
+ovenfor. **Ikke afstemt** ud over de nævnte felter: `reimport_authorization`,
+`reimport_batch` og `extraction_run`.
 
 **Hvad det ikke beviser:** at prod er summen af tidligere faser; tabeller uden for
-listerne ovenfor (fx authorization-, batch- og kørselsrækkernes øvrige indhold);
+listerne ovenfor, herunder autorisations-, batch- og kørselsrækkernes øvrige indhold;
 RLS/ACL-definitioner (uændret DDL forudsættes).
 
 **Forudsætninger, der hører til 4.1c's egen GO-pakke (ikke denne procedure):**
@@ -1653,32 +1780,40 @@ hash-låst skridt med readback i 4.1c's prod-runbook (endnu ikke skrevet); apply
 **Procedure** (alt mod prod kører i projektejerens shell; sessionen læser kun de private
 filer bagefter):
 
-0. **Læse-kun preflight, hvis tal skrives ind i GO-dokumentet:**
+**Målbinding.** Alle psql-kald bruger den eksplicitte forbindelsesstreng `"$DAA_PROD_DSN"`
+(Session pooler-DSN'en for DAA-projektet), aldrig omgivende `PG*`-variabler. Projektejeren
+verificerer DSN'ens projekt-reference mod Supabase-dashboardet, før preflight køres.
+`EXPECTED_TARGET` skrives ind i 4.1c's GO-dokument **før** backup, sammen med
+`database_name`, og backup og rehearsal i 4.1c's GO-pakke tages mod samme DSN. Komparatoren
+håndhæver derefter, at før- og efter-projektion er taget mod netop den database. Den
+tilbageværende tillid hviler på én menneskelig kontrol: at DSN'en er prod.
+
+0. **Læse-kun preflight** (resultatet skrives ind i GO-dokumentet):
 
    ```bash
-   PGOPTIONS='-c default_transaction_read_only=on' psql -X -At -v ON_ERROR_STOP=1 \
-     -f .claude/skills/daa-extract/scripts/clause_evidence_target_identity.sql
-   PGOPTIONS='-c default_transaction_read_only=on' psql -X -At -v ON_ERROR_STOP=1 \
+   PGOPTIONS='-c default_transaction_read_only=on' psql "$DAA_PROD_DSN" -X -At -v ON_ERROR_STOP=1 \
+     -c "SELECT current_database()" \
+     -f .claude/skills/daa-extract/scripts/clause_evidence_target_identity.sql \
      -c "SELECT pg_has_role(current_user, 'anon', 'MEMBER')"
    ```
 
-   Første linje er `EXPECTED_TARGET`. Er den anden ikke `t`, kan projektionen ikke tage
-   `anon`-hashes mod denne forbindelse — stop.
+   Linje 1 er `database_name`, linje 2 `EXPECTED_TARGET`. Er linje 3 ikke `t`, kan
+   projektionen ikke tage `anon`-hashes mod denne forbindelse — stop.
 1. **Redaktionspause** fra før- til efter-projektion. Enhver redigering i vinduet giver
    `CANONICAL_DRIFT`/`ANON_DRIFT` (fail-closed).
-2. **Ny run-mappe pr. forsøg; intet overskrives:**
+2. **Ny run-mappe pr. forsøg; eksisterende mappe afvises, intet overskrives:**
 
    ```bash
    umask 077; setopt noclobber 2>/dev/null || set -o noclobber
-   RUN=~/.private/klausul-projektion-prod/$(date +%Y%m%d%H%M%S)
-   mkdir -p "$RUN" && chmod 700 "$RUN"
+   mkdir -p ~/.private/klausul-projektion-prod && chmod 700 ~/.private/klausul-projektion-prod
+   RUN=$(mktemp -d ~/.private/klausul-projektion-prod/run-XXXXXXXX) || { echo "STOP: run-mappe"; exit 1; }
    ```
 
 3. **Før-projektion** (efter profilrækken, før apply):
 
    ```bash
    DAA_PROJECTION_SQL_DIR=.claude/skills/daa-extract/scripts \
-     psql -X -At -q -v ON_ERROR_STOP=1 -v source_id=1 \
+     psql "$DAA_PROD_DSN" -X -At -q -v ON_ERROR_STOP=1 -v source_id=1 \
      -f .claude/skills/daa-extract/scripts/clause_evidence_projection.psql > "$RUN/foer.json"
    ```
 
@@ -1731,12 +1866,14 @@ databaseadgang, som beviser én kørsels delta mod en godkendt måldatabase.
 tabeller; helrækkehashes kræver redaktionspause i vinduet. Fortolknings-projektionen
 (4.4) står i #196.
 
-**Review:** Codex `gpt-5.6-sol` gav NO-GO på første udkast (7 BLOCKER). Rettet: manifest-
-hashen genberegnes, én batch kræves, writer-invarianter tjekkes, klausulinventaret
-filtreres ikke på ankre, `anon`-hashes er med, målidentiteten er bundet, rehearsal-stop
-er kode. To fund blev ikke rettet her, men overdraget: profilrækkens prod-indsættelse
-hører til 4.1c's GO-pakke, og tabeller uden for listen er ikke dækket (påstanden er
-indsnævret).
+**Review:** Codex `gpt-5.6-sol` gav NO-GO to gange før kode (runde 1: 7 BLOCKER; runde 2:
+1 ny BLOCKER + 5 delvist lukkede). Rettet: manifest-hashen genberegnes, én batch og én
+kørsel bundet til writer-profilen, writer-invarianter tjekkes, klausulinventaret filtreres
+ikke på ankre og sammenlignes på hele rækker og dispositionshistorik, ældre hændelser skal
+være bevaret, `anon`-hashes er med, målidentiteten er bundet til en eksplicit DSN,
+rehearsal-stop er kode. Overdraget/indsnævret: profilrækkens prod-indsættelse hører til
+4.1c's GO-pakke; autorisations-, batch- og kørselsrækker afstemmes kun i projekterede
+felter; resttilliden er, at DSN'en er prod.
 
 **Fund:** 4.1c-rehearsalens »kanonisk lag identisk« (`kanonisk()` i det private
 apply-script) var en hash af `count(*)` pr. tabel. Den erstattes af helrækkehashes.
@@ -1823,13 +1960,13 @@ TEMPLATE=daa_trin4_rehearsal_20260917141446
 MANIFEST=$HOME/.private/148c-manifest-20260910190838.json
 SQLDIR=$REPO/.claude/skills/daa-extract/scripts
 CMP=$SQLDIR/compare_clause_evidence_projection.py
-RUNID=$(date +%Y%m%d%H%M%S)
-DB="klausulproj_rehearsal_$RUNID"
-ART=$HOME/.private/klausul-projektion/$RUNID
-mkdir "$ART" && chmod 700 "$ART"
-cd "$REPO"
-
 fail() { print -u2 "STOPPORT: $1"; exit 1; }
+ART=$(mktemp -d "$HOME/.private/klausul-projektion/run-XXXXXXXX") || fail "run-mappe"
+chmod 700 "$ART" || fail "chmod run-mappe"
+RUNID=${ART:t}
+DB="klausulproj_rehearsal_$(date +%Y%m%d%H%M%S)"
+cd "$REPO" || fail "repo"
+
 expect_eq() { [[ "$2" == "$3" ]] || fail "$1: fik '$2', forventede '$3'"; }
 baseline() {
   $PG/psql -X -At -v ON_ERROR_STOP=1 -d "$1" -c "SELECT (SELECT count(*) FROM private.source_observation WHERE observation_kind='person_post')
@@ -1947,8 +2084,8 @@ Spec §11.1's klausul-projektion er bygget som vej C: en læse-kun projektion (e
 godkendte database, og at intet i de navngivne tabeller — heller ikke det offentligheden
 ser — ændrede sig. Fortolknings-projektionen er udskudt til #196.
 
-**Review:** Codex `gpt-5.6-sol` gav NO-GO på første udkast (7 BLOCKER); alle rettet eller
-overdraget før kode (decisions 2026-09-17).
+**Review:** Codex `gpt-5.6-sol` gav NO-GO i to runder før kode; alle fund rettet,
+overdraget eller indsnævret (decisions 2026-09-17).
 
 **Fund til 4.1c's prod-kørsel:** writer-profilrækken for `daa-2018-20-clause-evidence-v1`
 findes ikke i prod; dens indsættelse er en varig prod-skrivning, der hører til 4.1c's GO.
@@ -2009,3 +2146,17 @@ vurderet mod writer-koden og målinger på template-basen.
 | 10 | »Intet andet« bredere end målt | **Rettet + indsnævret:** fire kildetabeller + `citation`, `person_external_id`, `source_mention` helrækkehashes; eksplicit tilladt delta; påstande begrænset til navngivne tabeller. |
 
 Desuden: `extensions.digest` erstattet af indbygget `pg_catalog.sha256`, så `anon`-delen ikke afhænger af extension-grants.
+
+**Revision 3 — Codex `gpt-5.6-sol` runde 2, NO-GO, 2026-09-17.** Lukket i runde 2: #1, #2,
+#5, #6, #8. Resten:
+
+| # | Fund | Afgørelse |
+| --- | --- | --- |
+| 3 | `extraction_method` kun suffiks-tjek; kørslens proveniens mangler | **Rettet:** SQL beregner `run_matches_profile` (schema/extractor/profile-version + profilhash mod batchens writer-profil) og `extraction_method_matches_profile` (eksakt præfiks fra profilen); hændelser bærer `profile_id`/`profile_sha256` = manifestets; alle målklausuler skal dele én `run_id`. |
+| 4 | Fremmede klausuler sammenlignes kun på udsnit; identitet ikke skemagaranteret | **Rettet:** identitet `observation_id`; `row_sha256` (hele rækken) og `disposition_history_sha256` (hele historikken) indgår i sammenligningen. |
+| 7 | `EXPECTED_TARGET` skabes fra omgivende forbindelse | **Rettet så langt det kan:** eksplicit `"$DAA_PROD_DSN"` i alle kald, DSN verificeres mod dashboardet, `database_name` + hash skrives i GO før backup, backup/rehearsal mod samme DSN. Resttillid (at DSN'en er prod) er skrevet ordret i runbooken. |
+| 9 | `mkdir -p` / `mkdir && chmod` under `set -e` | **Rettet:** `mktemp -d` i både runbook og rehearsal; `fail` defineres før første brug. |
+| 10 | Goal/log overdriver »kun tilladt bogføring« | **Rettet:** Goal, Global Constraints og runbook skelner nu »afstemt delta« fra »ikke afstemt«. |
+| A | Slettet ældre hændelse gav stadig `match` | **Rettet:** alle før-hændelser skal findes uændret efter (`CLAUSE_PROJECTION_EVENT_HISTORY_DRIFT`) før deltaet beregnes; hændelsesidentitet `(batch_id, element_id)`; negative tests for sletning og ændring. |
+| B | `SOURCE_ID_MISSING` nås ikke via driveren | **Rettet:** `\if :{?source_id}` sætter tom værdi; målt: exit 3 med koden. Guard-trinnet tester driveren uden `-v`. |
+| C | Ikke test for hver fejlkode | **Rettet:** CLI-tests for `REPORT_DIR_MISSING` og `ARGUMENTS_MISSING`. |
