@@ -52,8 +52,8 @@ EXPECTED_FIELDS = ("record_key", "clause_ordinal", "char_from", "char_to", "post
                    "parent_verbatim_sha256", "disposition", "disposition_version")
 BOOLEAN_FIELDS = ("same_occurrence_as_parent", "parent_is_root", "pages_match_parent",
                   "quality_matches_parent", "run_matches_profile", "extraction_method_matches_profile")
-INVARIANT_FIELDS = ("decided_by_kind", "disposition_evidence", "extraction_method", "run_input_sha256",
-                    "run_batch_id") + BOOLEAN_FIELDS
+INVARIANT_FIELDS = ("decided_by_kind", "disposition_evidence", "disposition_evidence_keys", "extraction_method",
+                    "run_input_sha256", "run_batch_id") + BOOLEAN_FIELDS
 IDENTITY_FIELDS = ("observation_id", "occurrence_key", "row_sha256", "disposition_history_sha256", "run_id")
 CLAUSE_FIELDS = frozenset(EXPECTED_FIELDS + INVARIANT_FIELDS + IDENTITY_FIELDS)
 EVENT_FIELDS = frozenset(("batch_id", "manifest_sha256", "batch_status", "profile_id", "profile_sha256",
@@ -329,6 +329,7 @@ def compare(manifest: Any, before: Any, after: Any, expected_target_sha256: str,
             "disposition_evidence": row["disposition_evidence"] == {
                 "batch_id": batch_id, "element_id": ELEMENT_PREFIX + record_key,
                 "manifest_sha256": manifest_sha, "clause_rules_version": rules},
+            "disposition_evidence_keys": row["disposition_evidence_keys"] == ["batch_id", "clause_rules_version", "element_id", "manifest_sha256"],
             "extraction_method": isinstance(row["extraction_method"], str)
             and row["extraction_method"].endswith(":" + rules),
             "run_input_sha256": row["run_input_sha256"] == manifest_sha,

@@ -5,6 +5,10 @@
 -- Neutralitet maales paa hele raekker pr. tabel, ikke paa antal.
 -- Guard-fejl rejses som tekst-til-integer-cast af en ikke-konstant streng, saa
 -- planneren ikke kan konstant-folde den.
+-- Gengivelsen af x::text afhaenger af TimeZone, DateStyle, IntervalStyle og
+-- extra_float_digits. Driveren fastlaaser dem med SET LOCAL foer denne fil koeres,
+-- og guarden herunder asserterer dem, saa foer- og efter-koersler i forskellige
+-- shells ikke kan give falsk drift alene fordi gengivelsen skiftede.
 WITH guard AS (
   SELECT
     CASE
@@ -14,6 +18,11 @@ WITH guard AS (
         THEN ('CLAUSE_PROJECTION_NOT_READ_ONLY:' || current_setting('transaction_read_only'))::int
       WHEN current_setting('transaction_isolation') <> 'repeatable read'
         THEN ('CLAUSE_PROJECTION_NOT_REPEATABLE_READ:' || current_setting('transaction_isolation'))::int
+      WHEN current_setting('TimeZone') <> 'UTC'
+        OR current_setting('DateStyle') <> 'ISO, YMD'
+        OR current_setting('IntervalStyle') <> 'postgres'
+        OR current_setting('extra_float_digits') <> '1'
+        THEN ('CLAUSE_PROJECTION_SESSION_SETTINGS_INVALID:' || current_setting('TimeZone'))::int
       ELSE 1
     END AS ok,
     nullif(current_setting('daa.projection_source_id', true), '')::bigint AS source_id
@@ -41,6 +50,9 @@ WITH guard AS (
                                     AND run.extractor_version = wp.writer_config ->> 'extractor_version'
                                     AND run.profile_version = wp.profile_version
                                     AND run.manifest ->> 'profile_sha256' = rb.profile_sha256, false),
+    -- Laeser regelversionen fra den AKTUELLE disposition-evidens, saa en senere v2-disposition
+    -- (menneskelig gennemgang, 4.5) goer dette false for en klausul der oprindeligt blev skrevet
+    -- korrekt. For en frisk clause_evidence-koersel er version 1 ogsaa et krav.
     'extraction_method_matches_profile', coalesce(c.extraction_method = (wp.writer_config ->> 'observation_extraction_method')
                                                   || ':' || (d.evidence ->> 'clause_rules_version'), false),
     'record_key', ac.record_key,
@@ -55,7 +67,12 @@ WITH guard AS (
     'disposition', d.disposition,
     'disposition_version', d.version,
     'decided_by_kind', d.decided_by_kind,
-    'disposition_evidence', d.evidence,
+    'disposition_evidence', CASE WHEN d.decided_by_kind = 'machine' THEN jsonb_build_object(
+      'batch_id', d.evidence -> 'batch_id',
+      'element_id', d.evidence -> 'element_id',
+      'manifest_sha256', d.evidence -> 'manifest_sha256',
+      'clause_rules_version', d.evidence -> 'clause_rules_version') END,
+    'disposition_evidence_keys', coalesce((SELECT jsonb_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(d.evidence) k), '[]'::jsonb),
     'extraction_method', c.extraction_method,
     'run_input_sha256', run.input_sha256,
     'run_batch_id', run.manifest ->> 'batch_id',

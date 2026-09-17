@@ -87,6 +87,7 @@ def written_rows(m, batch=BATCH):
                          disposition_evidence={"batch_id": batch, "element_id": f"clause-evidence:{key}",
                                                "manifest_sha256": m["manifest_content_sha256"],
                                                "clause_rules_version": rules[key]},
+                         disposition_evidence_keys=["batch_id", "clause_rules_version", "element_id", "manifest_sha256"],
                          extraction_method=f"clause_segment_v1:{rules[key]}",
                          run_input_sha256=m["manifest_content_sha256"], run_batch_id=batch,
                          same_occurrence_as_parent=True, parent_is_root=True,
@@ -130,7 +131,8 @@ def foreign(ordinal=1, sha=H("f"), record_key="R9", occurrence_key="o9", observa
             "classification": "record_text", "flags": [], "verbatim_sha256": sha,
             "parent_verbatim_sha256": H("e"), "disposition": "afventer_fortolkning",
             "disposition_version": 1, "decided_by_kind": "machine",
-            "disposition_evidence": {"batch_id": "old"}, "extraction_method": "x:y",
+            "disposition_evidence": {"batch_id": "old"}, "disposition_evidence_keys": ["batch_id"],
+            "extraction_method": "x:y",
             "run_input_sha256": H("9"), "run_batch_id": "old",
             "same_occurrence_as_parent": True, "parent_is_root": True,
             "pages_match_parent": True, "quality_matches_parent": True}
@@ -345,6 +347,7 @@ def test_field_mismatch_names_field_without_values(field, value):
 @pytest.mark.parametrize("field,value", [
     ("decided_by_kind", "human"),
     ("disposition_evidence", {"batch_id": BATCH}),
+    ("disposition_evidence_keys", ["batch_id", "clause_rules_version", "element_id", "manifest_sha256", "note"]),
     ("extraction_method", "clause_segment_v1:other-rules"),
     ("run_input_sha256", H("9")),
     ("run_batch_id", "00000000-0000-4000-8000-00000000b002"),

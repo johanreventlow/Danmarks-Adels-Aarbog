@@ -9,6 +9,11 @@ WITH guard AS (
       THEN ('CLAUSE_PROJECTION_NOT_READ_ONLY:' || current_setting('transaction_read_only'))::int
     WHEN current_setting('transaction_isolation') <> 'repeatable read'
       THEN ('CLAUSE_PROJECTION_NOT_REPEATABLE_READ:' || current_setting('transaction_isolation'))::int
+    WHEN current_setting('TimeZone') <> 'UTC'
+      OR current_setting('DateStyle') <> 'ISO, YMD'
+      OR current_setting('IntervalStyle') <> 'postgres'
+      OR current_setting('extra_float_digits') <> '1'
+      THEN ('CLAUSE_PROJECTION_SESSION_SETTINGS_INVALID:' || current_setting('TimeZone'))::int
     ELSE 1
   END AS ok
 )
