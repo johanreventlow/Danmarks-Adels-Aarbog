@@ -17,9 +17,13 @@ projektionen hasher. Scriptet åbner aldrig en database.
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
+import os
+import sys
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 PROJECTION_SCHEMA = "daa-clause-evidence-projection-v1"
@@ -353,3 +357,98 @@ def compare(manifest: Any, before: Any, after: Any, expected_target_sha256: str,
             "allowed_empty": sorted(n for n in allow_empty if not after[n]),
         },
     }
+
+
+ALLOWED_EMPTY_CHOICES = frozenset(("narrative_bindings", "narrative_sha256", "persons"))
+
+
+class UsageError(ValueError):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+def _inside_repository(path: Path) -> bool:
+    return any((parent / ".git").exists() for parent in (path.parent, *path.parent.parents))
+
+
+def _check_report_path(raw: str) -> Path:
+    path = Path(raw).expanduser().absolute()
+    if not path.parent.is_dir():
+        raise UsageError("CLAUSE_PROJECTION_REPORT_DIR_MISSING")
+    if _inside_repository(path):
+        raise UsageError("CLAUSE_PROJECTION_REPORT_IN_REPOSITORY")
+    if path.exists() or path.is_symlink():
+        raise UsageError("CLAUSE_PROJECTION_REPORT_EXISTS")
+    return path
+
+
+def _load(raw: str) -> tuple[Any, str]:
+    try:
+        data = Path(raw).expanduser().read_bytes()
+        return json.loads(data.decode("utf-8")), hashlib.sha256(data).hexdigest()
+    except (OSError, ValueError):
+        raise UsageError("CLAUSE_PROJECTION_INPUT_UNREADABLE") from None
+
+
+def _write_private(path: Path, data: dict[str, Any]) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, ensure_ascii=False, sort_keys=True, indent=2)
+        handle.write("\n")
+    os.chmod(path, 0o600)
+
+
+def _emit(data: dict[str, Any]) -> None:
+    print(json.dumps(data, ensure_ascii=False, sort_keys=True))
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--print-manifest-sha256")
+    parser.add_argument("--manifest")
+    parser.add_argument("--before")
+    parser.add_argument("--after")
+    parser.add_argument("--expect-target-sha256")
+    parser.add_argument("--report")
+    parser.add_argument("--allow-empty", default="")
+    args = parser.parse_args(argv)
+    if args.print_manifest_sha256:
+        try:
+            manifest, _ = _load(args.print_manifest_sha256)
+            if not isinstance(manifest, dict):
+                raise UsageError("CLAUSE_PROJECTION_INPUT_UNREADABLE")
+        except UsageError as error:
+            _emit({"status": "usage_error", "code": error.code})
+            return 2
+        print(compute_manifest_sha256(manifest))
+        return 0
+    try:
+        if not all((args.manifest, args.before, args.after, args.expect_target_sha256, args.report)):
+            raise UsageError("CLAUSE_PROJECTION_ARGUMENTS_MISSING")
+        if not _is_sha(args.expect_target_sha256):
+            raise UsageError("CLAUSE_PROJECTION_EXPECTED_TARGET_INVALID")
+        allow_empty = frozenset(x for x in args.allow_empty.split(",") if x)
+        if not allow_empty <= ALLOWED_EMPTY_CHOICES:
+            raise UsageError("CLAUSE_PROJECTION_ALLOW_EMPTY_INVALID")
+        report = _check_report_path(args.report)
+        (manifest, manifest_sha), (before, before_sha), (after, after_sha) = (
+            _load(args.manifest), _load(args.before), _load(args.after))
+    except UsageError as error:
+        _emit({"status": "usage_error", "code": error.code})
+        return 2
+    input_sha256 = {"manifest": manifest_sha, "before": before_sha, "after": after_sha}
+    try:
+        result: dict[str, Any] = dict(compare(manifest, before, after, args.expect_target_sha256, allow_empty),
+                                      input_sha256=input_sha256)
+        terminal = result
+    except ProjectionError as error:
+        result = {"status": "no_go", "code": error.code, "details": error.details, "input_sha256": input_sha256}
+        terminal = {"status": "no_go", "code": error.code}
+    _write_private(report, result)
+    _emit(terminal)
+    return 0 if result["status"] == "match" else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -543,3 +543,140 @@ def test_shape_invalid(mutate):
     after = applied(m)
     mutate(after)
     assert no_go(m, projection(), after).code == "CLAUSE_PROJECTION_SHAPE_INVALID"
+
+
+# ---- CLI tests ---------------------------------------------------------------
+
+import json as _json
+import os
+import stat
+import subprocess
+
+SCRIPT = Path(__file__).resolve().parent / "compare_clause_evidence_projection.py"
+
+
+def write(tmp_path, name, data):
+    path = tmp_path / name
+    path.write_text(_json.dumps(data), encoding="utf-8")
+    return path
+
+
+def run_cli(*args):
+    env = {k: v for k, v in os.environ.items() if k != "NODE_OPTIONS"}
+    return subprocess.run([sys.executable, str(SCRIPT), *map(str, args)],
+                          capture_output=True, text=True, env=env)
+
+
+def cli_inputs(tmp_path, after=None):
+    m = manifest()
+    return (write(tmp_path, "manifest.json", m), write(tmp_path, "before.json", projection()),
+            write(tmp_path, "after.json", after if after is not None else applied(m)))
+
+
+def cli(tmp_path, mp, bp, ap, report="report.json", target=TARGET, *extra):
+    return run_cli("--manifest", mp, "--before", bp, "--after", ap,
+                   "--expect-target-sha256", target, "--report", tmp_path / report, *extra)
+
+
+def test_cli_match_writes_private_report_with_input_hashes(tmp_path):
+    mp, bp, ap = cli_inputs(tmp_path)
+    proc = cli(tmp_path, mp, bp, ap)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    terminal = _json.loads(proc.stdout)
+    assert terminal["status"] == "match" and "details" not in terminal
+    assert terminal["database_target_sha256"] == TARGET
+    import hashlib
+    assert terminal["input_sha256"]["after"] == hashlib.sha256(ap.read_bytes()).hexdigest()
+    report = tmp_path / "report.json"
+    assert stat.S_IMODE(report.stat().st_mode) == 0o600
+    assert _json.loads(report.read_text())["status"] == "match"
+
+
+def test_cli_no_go_keeps_record_keys_out_of_stdout(tmp_path):
+    m = manifest()
+    after = applied(m)
+    after["clauses"][0]["post_char_to"] = 9
+    mp, bp, ap = cli_inputs(tmp_path, after)
+    proc = cli(tmp_path, mp, bp, ap)
+    assert proc.returncode == 1
+    assert _json.loads(proc.stdout) == {"status": "no_go", "code": "CLAUSE_PROJECTION_DRIFT"}
+    assert "R1" not in proc.stdout and "R1" not in proc.stderr
+    report = _json.loads((tmp_path / "report.json").read_text())
+    assert report["details"]["mismatched"][0]["record_key"] == "R1"
+
+
+def test_cli_unexpected_target_is_no_go(tmp_path):
+    mp, bp, ap = cli_inputs(tmp_path)
+    proc = cli(tmp_path, mp, bp, ap, "report.json", H("9"))
+    assert proc.returncode == 1
+    assert _json.loads(proc.stdout)["code"] == "CLAUSE_PROJECTION_TARGET_UNEXPECTED"
+
+
+def test_cli_rejects_malformed_expected_target(tmp_path):
+    mp, bp, ap = cli_inputs(tmp_path)
+    proc = cli(tmp_path, mp, bp, ap, "report.json", "prod")
+    assert proc.returncode == 2
+    assert _json.loads(proc.stdout)["code"] == "CLAUSE_PROJECTION_EXPECTED_TARGET_INVALID"
+    assert not (tmp_path / "report.json").exists()
+
+
+def test_cli_refuses_existing_report(tmp_path):
+    mp, bp, ap = cli_inputs(tmp_path)
+    (tmp_path / "report.json").write_text("x")
+    proc = cli(tmp_path, mp, bp, ap)
+    assert proc.returncode == 2
+    assert _json.loads(proc.stdout)["code"] == "CLAUSE_PROJECTION_REPORT_EXISTS"
+    assert (tmp_path / "report.json").read_text() == "x"
+
+
+def test_cli_refuses_report_inside_repository(tmp_path):
+    mp, bp, ap = cli_inputs(tmp_path)
+    report = SCRIPT.parent / "must-not-exist-clause-projection-report.json"
+    proc = run_cli("--manifest", mp, "--before", bp, "--after", ap,
+                   "--expect-target-sha256", TARGET, "--report", report)
+    assert proc.returncode == 2
+    assert _json.loads(proc.stdout)["code"] == "CLAUSE_PROJECTION_REPORT_IN_REPOSITORY"
+    assert not report.exists()
+
+
+def test_cli_rejects_unknown_allow_empty(tmp_path):
+    mp, bp, ap = cli_inputs(tmp_path)
+    proc = cli(tmp_path, mp, bp, ap, "report.json", TARGET, "--allow-empty", "source_records")
+    assert proc.returncode == 2
+    assert _json.loads(proc.stdout)["code"] == "CLAUSE_PROJECTION_ALLOW_EMPTY_INVALID"
+
+
+def test_cli_unreadable_input_is_usage_error(tmp_path):
+    mp, bp, _ = cli_inputs(tmp_path)
+    bad = tmp_path / "bad.json"
+    bad.write_text("{", encoding="utf-8")
+    proc = cli(tmp_path, mp, bp, bad)
+    assert proc.returncode == 2
+    assert _json.loads(proc.stdout)["code"] == "CLAUSE_PROJECTION_INPUT_UNREADABLE"
+    assert not (tmp_path / "report.json").exists()
+
+
+def test_cli_report_dir_missing(tmp_path):
+    mp, bp, ap = cli_inputs(tmp_path)
+    proc = run_cli("--manifest", mp, "--before", bp, "--after", ap,
+                   "--expect-target-sha256", TARGET, "--report", tmp_path / "findes-ikke" / "r.json")
+    assert proc.returncode == 2
+    assert _json.loads(proc.stdout)["code"] == "CLAUSE_PROJECTION_REPORT_DIR_MISSING"
+    assert not (tmp_path / "findes-ikke").exists()
+
+
+def test_cli_arguments_missing(tmp_path):
+    mp, bp, ap = cli_inputs(tmp_path)
+    proc = run_cli("--manifest", mp, "--before", bp, "--after", ap, "--report", tmp_path / "r.json")
+    assert proc.returncode == 2
+    assert _json.loads(proc.stdout)["code"] == "CLAUSE_PROJECTION_ARGUMENTS_MISSING"
+    assert not (tmp_path / "r.json").exists()
+
+
+def test_cli_print_manifest_sha256(tmp_path):
+    m = manifest()
+    unhashed = {k: v for k, v in m.items() if k != "manifest_content_sha256"}
+    path = write(tmp_path, "unhashed.json", unhashed)
+    proc = run_cli("--print-manifest-sha256", path)
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == m["manifest_content_sha256"]
