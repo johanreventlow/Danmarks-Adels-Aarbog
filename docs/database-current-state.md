@@ -445,7 +445,15 @@ kørt efter 4.4 ville stille fjerne `interpretation_proposal` fra vokabularet.
 
 **Ikke kørt mod prod:** `db-verify.sql` (muterende fixtures) — kun i rehearsal.
 
-**Advisors:** afventer projektejerens gennemsyn i Supabase-dashboardet. MCP-forbindelsen
-fra Claude-sessioner når et andet Supabase-projekt og kan ikke bruges her.
+**Advisors (security, kørt 2026-09-17 efter deploy):** 0 ERROR, 141 WARN, 48 INFO. Fire
+linjer skyldes trin 4, alle kendte mønstre: WARN `authenticated_security_definer_function_executable`
+på `red_apply_reimport_clause_evidence` og `red_apply_reimport_interpretation_proposal`
+(rolle-gate i funktionen), og INFO `rls_enabled_no_policy` på `private.clause_disposition`
+og `private.interpretation_predicate` (deny-all; adgang kun via `SECURITY DEFINER`, som de
+øvrige private tabeller). Ingen `anon`-lint på nye funktioner, ingen
+`function_search_path_mutable`, ingen view-lint. Uden for deployet: *Leaked Password
+Protection* er slået fra i Auth, og 14 ældre funktioner kan kaldes af `anon`. **Performance
+Advisor er ikke gennemset.** MCP-forbindelsen fra Claude-sessioner når et andet
+Supabase-projekt, så advisors læses i dashboardet.
 
 **Rollback:** ingen kirurgisk rollback-fil. Vejen tilbage er restore af backuppen ovenfor.
