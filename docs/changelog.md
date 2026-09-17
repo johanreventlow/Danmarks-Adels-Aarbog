@@ -34,8 +34,11 @@ begge operationer.
   separat, efter at forespørgslen var prøvet mod rehearsal-kopien, og var grøn.
   Lære: verifikationsforespørgsler hører i rehearsal, ikke kun i apply.
 
-**Advisors:** 0 ERROR. Fire nye linjer, alle kendte mønstre. Performance Advisor er
-ikke gennemset.
+**Advisors:** 0 ERROR i både security og performance. Security: fire nye linjer, alle
+kendte mønstre. Performance: ét nyt fund — `interpretation_predicate_fk` uden indeks, uden
+praktisk betydning i dag, men skal indekseres før forslags-writeren kører på skala.
+Ældre fund (bl.a. et dobbelt indeks på `private.source_persona_placement`) står i
+`database-current-state.md` §8.
 
 **Ikke gjort:** ingen datakørsel. Første datakørsel (4.1c's 868 klausuler) kræver
 fortsat fortrydelseskvittering og en klausul-projektion i fase-pakke-runbooken, og

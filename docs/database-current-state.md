@@ -452,8 +452,16 @@ på `red_apply_reimport_clause_evidence` og `red_apply_reimport_interpretation_p
 og `private.interpretation_predicate` (deny-all; adgang kun via `SECURITY DEFINER`, som de
 øvrige private tabeller). Ingen `anon`-lint på nye funktioner, ingen
 `function_search_path_mutable`, ingen view-lint. Uden for deployet: *Leaked Password
-Protection* er slået fra i Auth, og 14 ældre funktioner kan kaldes af `anon`. **Performance
-Advisor er ikke gennemset.** MCP-forbindelsen fra Claude-sessioner når et andet
+Protection* er slået fra i Auth, og 14 ældre funktioner kan kaldes af `anon`.
+
+**Advisors (performance, samme dag):** 0 ERROR, 24 WARN, 68 INFO. Ét fund skyldes trin 4:
+INFO `unindexed_foreign_keys` på `private.interpretation.interpretation_predicate_fk`. Uden
+praktisk betydning, fordi prædikattabellen afviser UPDATE/DELETE og `interpretation` er tom —
+men bør indekseres, før forslags-writeren kører på skala. Øvrige fund er ældre: 5
+`auth_rls_initplan` (`profiles`, `bookmark`, `suggestion`), 18
+`multiple_permissive_policies` (læser- + redaktørpolitik på samme tabel), 1 `duplicate_index`
+på `private.source_persona_placement` og 10 `unused_index`, som ikke må droppes alene på det
+grundlag (fx `narrative_fts_idx`). MCP-forbindelsen fra Claude-sessioner når et andet
 Supabase-projekt, så advisors læses i dashboardet.
 
 **Rollback:** ingen kirurgisk rollback-fil. Vejen tilbage er restore af backuppen ovenfor.
