@@ -437,17 +437,23 @@ writer-profilrækker. Men `pg_restore` gav **8 fejl** i tre klasser:
    dumpet er det, der holder den risiko nede.
 2. `function … already exists with same argument types` for de samme tre — følgen af 1.
 3. **`interpretation_observation_interpretation_id_fkey` kunne ikke genskabes**, fordi
-   prod indeholder én forældreløs række i `private.interpretation_observation`: dens
-   `interpretation_id` findes ikke i `private.interpretation` (0 rækker), og dens
-   `observation_id` findes ikke i `private.source_observation`. Rækken er oprettet
-   2026-09-17 — en efterladt fixture-række fra skema-deployets verifikation. Efter
-   fortrydelsen havde basen **0 af 2** fremmednøgler på tabellen.
+   øvelsesbasen indeholdt én forældreløs række i `private.interpretation_observation`
+   (`interpretation_id` uden `interpretation`, `observation_id` uden `source_observation`).
+   Efter fortrydelsen havde basen **0 af 2** fremmednøgler på tabellen.
 
-**Stopport før GO:** prod skal have **0** forældreløse rækker i
-`private.interpretation_observation`, og øvelsens fejlliste må kun indeholde klasse 1
-og 2. Ellers efterlader en fortrydelse databasen uden fremmednøgler — en tilstand,
-ingen har godkendt. Oprydningen af fixture-rækken er en selvstændig, lille prod-sletning
-med sin egen GO; den hører ikke ind i klausulkørslen.
+   **Hvor rækken kom fra — og hvorfor prod er ren.** Rækken blev oprettet 2026-09-17
+   kl. 14:14:51, altså da rehearsal-basen blev bygget, af `db-verify.sql`'s
+   dblink-samtidighedstest (`66000000-…`-fixturen), som indsætter i en separat session og
+   ikke rydder rækken op igen. Prod-dumpet fra kl. 14:13:30 har **nul** rækker i tabellen
+   (målt med `pg_restore --data-only --table=interpretation_observation`), så prod er ikke
+   ramt. Derfor gælder også: `db-verify` kører KUN mod en disponerbar base — en kørsel mod
+   prod ville efterlade netop denne række, og så ville en senere fortrydelse tabe to
+   fremmednøgler.
+
+**Stopport før GO (billig, og den fanger netop den lækage):** prod skal have **0**
+forældreløse rækker i `private.interpretation_observation`, og øvelsens fejlliste må kun
+indeholde klasse 1 og 2. En fortrydelse, der efterlader tabellen uden fremmednøgler, er
+ikke den tilstand, kvitteringen dækker.
 
 **Hvad øvelsen beviser — og ikke beviser.** Den beviser, at dumpet kan lægges tilbage
 oven på en befolket base og genskabe fuld tilstand i `private`+`public`. Den beviser
