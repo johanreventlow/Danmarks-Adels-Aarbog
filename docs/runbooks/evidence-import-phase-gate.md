@@ -383,8 +383,10 @@ hash-låst skridt med readback i 4.1c's prod-runbook (endnu ikke skrevet); apply
 **Procedure** (alt mod prod kører i projektejerens shell; sessionen læser kun de private
 filer bagefter):
 
-**Målbinding.** Alle psql-kald bruger den eksplicitte forbindelsesstreng `"$DAA_PROD_DSN"`
-(Session pooler-DSN'en for DAA-projektet), aldrig omgivende `PG*`-variabler. Projektejeren
+**Målbinding.** Alle kommandoer køres fra repo-roden. Alle psql-kald bruger den eksplicitte
+forbindelsesstreng `"$DAA_PROD_DSN"` (Session pooler-DSN'en for DAA-projektet), aldrig
+omgivende `PG*`-variabler. Operatøren kører først `: "${DAA_PROD_DSN:?DAA_PROD_DSN mangler}"`
+— en tom DSN ville ellers stille falde tilbage på omgivende libpq-standarder. Projektejeren
 verificerer DSN'ens projekt-reference mod Supabase-dashboardet, før preflight køres.
 `EXPECTED_TARGET` skrives ind i 4.1c's GO-dokument **før** backup, sammen med
 `database_name`, og backup og rehearsal i 4.1c's GO-pakke tages mod samme DSN. Komparatoren
@@ -394,14 +396,16 @@ tilbageværende tillid hviler på én menneskelig kontrol: at DSN'en er prod.
 0. **Læse-kun preflight** (resultatet skrives ind i GO-dokumentet):
 
    ```bash
-   PGOPTIONS='-c default_transaction_read_only=on' psql "$DAA_PROD_DSN" -X -At -v ON_ERROR_STOP=1 \
+   psql "$DAA_PROD_DSN" -X -At -v ON_ERROR_STOP=1 \
      -c "SELECT current_database()" \
      -f .claude/skills/daa-extract/scripts/clause_evidence_target_identity.sql \
-     -c "SELECT pg_has_role(current_user, 'anon', 'MEMBER')"
+     -c "BEGIN READ ONLY" -c "SET LOCAL ROLE anon" -c "SELECT current_user" -c "ROLLBACK"
    ```
 
-   Linje 1 er `database_name`, linje 2 `EXPECTED_TARGET`. Er linje 3 ikke `t`, kan
-   projektionen ikke tage `anon`-hashes mod denne forbindelse — stop.
+   (Rene `SELECT`'er — en `PGOPTIONS`-forankring af read-only er droppet, da Supabase-poolerens
+   forwarding af `options` ikke er verificeret.) Linje 1 er `database_name`, linje 2
+   `EXPECTED_TARGET`. Linje 3 SKAL være `anon`; er den ikke det, kan projektionen ikke tage
+   `anon`-hashes mod denne forbindelse — stop.
 1. **Redaktionspause** fra før- til efter-projektion. Enhver redigering i vinduet giver
    `CANONICAL_DRIFT`/`ANON_DRIFT` (fail-closed).
 2. **Ny run-mappe pr. forsøg; eksisterende mappe afvises, intet overskrives:**
@@ -409,8 +413,12 @@ tilbageværende tillid hviler på én menneskelig kontrol: at DSN'en er prod.
    ```bash
    umask 077; setopt noclobber 2>/dev/null || set -o noclobber
    mkdir -p ~/.private/klausul-projektion-prod && chmod 700 ~/.private/klausul-projektion-prod
-   RUN=$(mktemp -d ~/.private/klausul-projektion-prod/run-XXXXXXXX) || { echo "STOP: run-mappe"; exit 1; }
+   RUN=$(mktemp -d ~/.private/klausul-projektion-prod/run-XXXXXXXX) \
+     || echo "STOP: run-mappe kunne ikke oprettes — fortsæt ikke"
    ```
+
+   (formen ovenfor lukker ikke en interaktiv shell ved fejl, som `exit 1` ville). Fortsæt kun
+   til trin 3, hvis `$RUN` er sat og mappen findes.
 
 3. **Før-projektion** (efter profilrækken, før apply):
 
@@ -420,8 +428,30 @@ tilbageværende tillid hviler på én menneskelig kontrol: at DSN'en er prod.
      -f .claude/skills/daa-extract/scripts/clause_evidence_projection.psql > "$RUN/foer.json"
    ```
 
+   Verifikation (psql skal have afsluttet med exit 0 — `ON_ERROR_STOP` betyder at en
+   fejlbesked på terminalen i sig selv er STOP):
+
+   ```bash
+   [ -s "$RUN/foer.json" ] && [ "$(wc -l < "$RUN/foer.json")" -eq 1 ] \
+     && /usr/bin/python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$RUN/foer.json" \
+     && echo "foer.json OK" || echo "STOP: før-projektion ugyldig"
+   ```
+
+   Fejler et af tjekkene: STOP — kør ikke apply (trin 3) / afstem ikke (trin 5); en
+   før-projektion kan ikke tages bagefter.
 4. Apply af 4.1c efter dens egen GO.
 5. **Efter-projektion:** samme kommando til `"$RUN/efter.json"`.
+
+   Verifikation (samme form, `efter.json`; psql skal have afsluttet med exit 0):
+
+   ```bash
+   [ -s "$RUN/efter.json" ] && [ "$(wc -l < "$RUN/efter.json")" -eq 1 ] \
+     && /usr/bin/python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$RUN/efter.json" \
+     && echo "efter.json OK" || echo "STOP: efter-projektion ugyldig"
+   ```
+
+   Fejler et af tjekkene: STOP — kør ikke apply (trin 3) / afstem ikke (trin 5); en
+   før-projektion kan ikke tages bagefter.
 6. **Afstemning:**
 
    ```bash
@@ -433,11 +463,18 @@ tilbageværende tillid hviler på én menneskelig kontrol: at DSN'en er prod.
 
    `--allow-empty` må **ikke** bruges mod prod.
 7. **Bestået** kræver exit 0, `"status": "match"`, `database_target_sha256` =
-   `EXPECTED_TARGET`, og at `counts` er lig rehearsalens (`clause-evidence-148-rehearsal.md`,
-   afsnit »Klausul-projektion«).
+   `EXPECTED_TARGET`, og et delt bestået-kriterie for `counts`:
+   - `records`, `clauses` og `dispositions` skal være lig rehearsalens
+     (`clause-evidence-148-rehearsal.md`, afsnit »Klausul-projektion«) — de udledes af
+     manifestet, som er det samme uanset hvornår mod prod det køres.
+   - `neutral_lists` skal derimod være lig de tal, der blev målt i **4.1c's egen
+     GO-pakke** (dens backup/rehearsal), IKKE 2026-09-17-rehearsalens tal — prod kan
+     lovligt ændre sig mellem denne rehearsal og den faktiske apply.
 8. **NO-GO** (exit 1): bevar run-mappen urørt, læs kun fejlkoden og den private rapports
    nøgler/feltnavne, og stop. Reparér aldrig prod for at få `match`; vejen tilbage er
-   restore (decisions 2026-09-17).
+   restore (decisions 2026-09-17). Exit 2 er en brugsfejl — intet er sammenlignet; ret
+   input og kør afstemningen igen (projektionerne i `$RUN` bevares). En Python-traceback
+   uden JSON på stdout behandles som NO-GO.
 
 ## Hvad denne gate ikke beviser
 
