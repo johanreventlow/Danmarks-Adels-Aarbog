@@ -2033,41 +2033,52 @@ assert c["neutral_lists"] == {"narrative_bindings": 587, "narrative_sha256": 587
 assert c["allowed_empty"] == []
 PY
 
-echo "== negativ 1: ændret occurrence_key (forventet NEUTRALITY_DRIFT) =="
-$PG/createdb -T "$DB" "${DB}_neg1"
-$PG/psql -X -q -v ON_ERROR_STOP=1 -d "${DB}_neg1" -c "SET session_replication_role = replica;
+# Negativerne skal tage efter-projektionen fra SAMME database som før-projektionen:
+# målidentiteten hasher databasenavnet, så en kopi med andet navn giver korrekt
+# TARGET_MISMATCH (negativ 0) og ville skjule enhver anden fejlkode. Negativ 2 og 1
+# muterer derfor $DB selv, i den rækkefølge komparatoren tjekker: først kanonisk
+# indhold (fem lister uændrede), derefter en neutral liste oven i.
+
+echo "== negativ 0: navngiven kopi af databasen (forventet TARGET_MISMATCH) =="
+$PG/createdb -T "$DB" "${DB}_kopi"
+project "${DB}_kopi" "$ART/efter-kopi.json"
+compare "$ART/efter-kopi.json" rapport-kopi.json
+expect_eq "neg0 exit" "$CMP_STATUS" "1"
+expect_eq "neg0 kode" "$(code_of "$CMP_OUT")" "CLAUSE_PROJECTION_TARGET_MISMATCH"
+
+echo "== negativ 2: én family_member-række slettet i \$DB (forventet CANONICAL_DRIFT) =="
+$PG/psql -X -q -v ON_ERROR_STOP=1 -d "$DB" -c "SET session_replication_role = replica;
+  DELETE FROM public.family_member WHERE ctid = (SELECT ctid FROM public.family_member LIMIT 1);"
+project "$DB" "$ART/efter-neg2.json"
+compare "$ART/efter-neg2.json" rapport-neg2.json
+expect_eq "neg2 exit" "$CMP_STATUS" "1"
+expect_eq "neg2 kode" "$(code_of "$CMP_OUT")" "CLAUSE_PROJECTION_CANONICAL_DRIFT"
+
+echo "== negativ 1: ændret occurrence_key i \$DB oven i negativ 2 (forventet NEUTRALITY_DRIFT) =="
+$PG/psql -X -q -v ON_ERROR_STOP=1 -d "$DB" -c "SET session_replication_role = replica;
   UPDATE private.source_record_occurrence SET occurrence_key = occurrence_key || '-neg'
    WHERE id = (SELECT a.occurrence_id FROM private.source_record_anchor_current a
                  JOIN private.source_record r ON r.id = a.source_record_id
                 WHERE r.source_id = 1 AND a.decision_status = 'accepted'
                 ORDER BY r.record_key COLLATE \"C\" LIMIT 1);"
-project "${DB}_neg1" "$ART/efter-neg1.json"
+project "$DB" "$ART/efter-neg1.json"
 compare "$ART/efter-neg1.json" rapport-neg1.json
 expect_eq "neg1 exit" "$CMP_STATUS" "1"
 expect_eq "neg1 kode" "$(code_of "$CMP_OUT")" "CLAUSE_PROJECTION_NEUTRALITY_DRIFT"
 
-echo "== negativ 2: én family_member-række slettet (forventet CANONICAL_DRIFT) =="
-$PG/createdb -T "$DB" "${DB}_neg2"
-$PG/psql -X -q -v ON_ERROR_STOP=1 -d "${DB}_neg2" -c "SET session_replication_role = replica;
-  DELETE FROM public.family_member WHERE ctid = (SELECT ctid FROM public.family_member LIMIT 1);"
-project "${DB}_neg2" "$ART/efter-neg2.json"
-compare "$ART/efter-neg2.json" rapport-neg2.json
-expect_eq "neg2 exit" "$CMP_STATUS" "1"
-expect_eq "neg2 kode" "$(code_of "$CMP_OUT")" "CLAUSE_PROJECTION_CANONICAL_DRIFT"
-
 shasum -a 256 "$MANIFEST" "$ART"/*.json
-echo "databaser: $DB ${DB}_neg1 ${DB}_neg2"
+echo "databaser: $DB ${DB}_kopi"
 echo "REHEARSAL_OK $RUNID"
 ```
 
-`session_replication_role = replica` slår triggere og FK fra i den ene session på disponible kopier, så mutationen ikke stoppes af en guard — kun for at fremkalde en ægte ændring i en engangsbase.
+`session_replication_role = replica` slår triggere og FK fra i den ene session i rehearsal-basen, så mutationen ikke stoppes af en guard — kun for at fremkalde en ægte ændring i en engangsbase, efter at match-afstemningen er taget.
 
 - [ ] **Step 3: Kør rehearsal**
 
 Run: `zsh ~/.private/klausul-projektion/rehearsal.sh > ~/.private/klausul-projektion/rehearsal-$(date +%Y%m%d%H%M%S).log 2>&1; echo "exit=$?"`
 Derefter kun den filtrerede log: `grep -E '^== |^målidentitet|STOPPORT|REHEARSAL_OK|^\{"|^[0-9a-f]{64} |^databaser' <logfil>`
 
-Expected: `exit=0`, `REHEARSAL_OK <runid>`, match-JSON med `records 591`, `clauses 868`, og de to negative med exit 1 og eksakt kode.
+Expected: `exit=0`, `REHEARSAL_OK <runid>`, match-JSON med `records 591`, `clauses 868`, og de tre negative (kopi → `TARGET_MISMATCH`, slettet `family_member` → `CANONICAL_DRIFT`, ændret forekomstnøgle → `NEUTRALITY_DRIFT`) med exit 1 og eksakt kode.
 
 **Stopporte** er kode i scriptet. Ved exit ≠ 0: læs kun `STOPPORT:`-linjen og (ved komparator-NO-GO) fejlkoden og længden af `details.*` i den private rapport. Ret ikke forventningen; en negativ, der ikke giver sin kode, er et fund i værktøjet — stop og rapportér.
 
@@ -2095,7 +2106,7 @@ overdraget eller indsnævret (decisions 2026-09-17).
 findes ikke i prod; dens indsættelse er en varig prod-skrivning, der hører til 4.1c's GO.
 
 **Rehearsal** mod prod-tilstanden 2026-09-17 (restore + trin 4-migrationer): `match` med
-591 records og 868 klausuler; en ændret forekomstnøgle gav `NEUTRALITY_DRIFT`, en slettet
+591 records og 868 klausuler; en navngiven kopi gav `TARGET_MISMATCH`, en ændret forekomstnøgle `NEUTRALITY_DRIFT`, en slettet
 `family_member`-række `CANONICAL_DRIFT`. Tal: `clause-evidence-148-rehearsal.md`.
 
 **Fund:** 4.1c-rehearsalens »kanonisk lag identisk« var en hash af antal rækker. Den nye
@@ -2113,7 +2124,7 @@ git commit -m "docs(genimport): rehearsal af klausul-projektionen mod prod-tilst
 
 - [ ] **Step 7: Oprydning (efter commit)**
 
-`dropdb` de tre engangsbaser (navnene står på `databaser:`-linjen). `~/.private/klausul-projektion/` bevares. `work/klausul-projektion/` må slettes. Template-basen `daa_trin4_rehearsal_20260917141446` røres ikke; om den skal slettes, afgør projektejeren.
+`dropdb` de to engangsbaser (navnene står på `databaser:`-linjen). `~/.private/klausul-projektion/` bevares. `work/klausul-projektion/` må slettes. Template-basen `daa_trin4_rehearsal_20260917141446` røres ikke; om den skal slettes, afgør projektejeren.
 
 ---
 
@@ -2169,3 +2180,9 @@ Desuden: `extensions.digest` erstattet af indbygget `pg_catalog.sha256`, så `an
 Delvist: **A** — hændelser sammenlignedes kun på projekterede felter, så ændret `payload`,
 `after_sha256` eller `created_at` i en gammel hændelse gav stadig `match`. **Rettet:**
 `row_sha256` (hele `reimport_event`-rækken) indgår i hændelsen; negativ test ændrer kun den.
+
+**Revision 5 — under udførelse af Task 5, 2026-09-17.** Rehearsal-scriptets negativer brugte
+kopier med andet databasenavn; komparatoren svarede korrekt `TARGET_MISMATCH` (målidentiteten
+hasher databasenavnet) og skjulte de tilsigtede koder. Positiv del bestod (591/868, 617/251).
+**Rettet:** kopien er nu negativ 0 (`TARGET_MISMATCH`); negativ 2 og 1 muterer rehearsal-basen
+selv, i komparatorens kontrolrækkefølge.
