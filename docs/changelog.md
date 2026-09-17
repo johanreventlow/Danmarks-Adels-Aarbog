@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-09-17 — Klausul-projektion: udgaveneutralt delta-tjek til 4.1c (#195)
+
+Spec §11.1's klausul-projektion er bygget som vej C: en læse-kun projektion (ejer og
+`anon` i ét snapshot) og en komparator uden databaseadgang. De beviser, at én
+`clause_evidence`-kørsel skrev præcis manifestets klausuler, bundet til én batch og den
+godkendte database, og at intet i de navngivne tabeller — heller ikke det offentligheden
+ser — ændrede sig. Fortolknings-projektionen er udskudt til #196.
+
+**Review:** Codex `gpt-5.6-sol` gav NO-GO i to runder før kode; alle fund rettet,
+overdraget eller indsnævret (decisions 2026-09-17).
+
+**Fund til 4.1c's prod-kørsel:** writer-profilrækken for `daa-2018-20-clause-evidence-v1`
+findes ikke i prod; dens indsættelse er en varig prod-skrivning, der hører til 4.1c's GO.
+
+**Rehearsal** mod prod-tilstanden 2026-09-17 (restore + trin 4-migrationer): `match` med
+591 records og 868 klausuler; en navngiven kopi gav `TARGET_MISMATCH`, en ændret forekomstnøgle `NEUTRALITY_DRIFT`, en slettet
+`family_member`-række `CANONICAL_DRIFT`. Tal: `clause-evidence-148-rehearsal.md`.
+
+**Fund:** 4.1c-rehearsalens »kanonisk lag identisk« var en hash af antal rækker. Den nye
+projektion hasher hele rækker.
+
 ## 2026-09-17 — Trin 4 i prod: skema og writere, ingen data (#147/#148)
 
 Blokkene 4.1a, 4.1c, 4.2 og 4.4 er deployet til produktionsdatabasen. Prod har nu

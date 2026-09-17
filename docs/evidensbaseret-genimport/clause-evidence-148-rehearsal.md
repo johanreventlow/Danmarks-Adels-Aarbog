@@ -198,7 +198,8 @@ Samme restore som 4.1a/4.1b. Manifestet er bygget af 4.1b's ledger med
 
 **Intet kanonisk delta.** Klausullaget er ren evidens: person, fact, assertion,
 conclusion, narrative, relation og family_member er uændrede, målt som én hash før og
-efter skrivningen.
+efter skrivningen. NB: målt som antal pr. tabel; indholdsbeviset er klausul-projektionen
+nedenfor.
 
 ### Fund: en modsigelse i spec §4.1.2, som først kunne vise sig her
 
@@ -220,3 +221,32 @@ sider regnede galt på samme måde. Fejlen kunne først opdages, da den ene side
 **Løst** ved at lade `char_from`/`char_to` forblive rendition-absolutte for alle
 observationer og tilføje et post-relativt par `post_char_from`/`post_char_to`, som bærer
 den eksakte substring-kontrol. Begge fakta er nu sande og hver for sig kontrollerbare.
+
+## Klausul-projektion (#195) — rehearsal 2026-09-17
+
+Rehearsal mod prod-tilstanden 2026-09-17 (restore + trin 4-migrationer, lokal engangskopi
+af template-basen `daa_trin4_rehearsal_20260917141446`). Run-id: `run-sGEjs2hw`.
+
+| Artefakt | Værdi |
+| --- | --- |
+| Manifest-SHA-256 | `4323a810d0865eeb671075371b1293ed8dde298bb943a388ac5deb3e986a1979` |
+| Målidentitet (`database_target_sha256`) | `bb7767724af9f500aaef12e5d2f86c1e00885dbd43bae9c1e68031e573720b05` |
+| `foer.json`-SHA-256 | `f4a43fdd4411a9bd0c526c19c50f624a5d1ef9036e8de36513f9ad35b25f3cce` |
+| `efter.json`-SHA-256 | `ac1e5fe66e9f77976ab2bf6307b094488b3d41e78a62872cc415cf6e5e2aa096` |
+
+Terminal-JSON for afstemningen (`input_sha256`-stien udeladt):
+
+```json
+{"batch_id": "2c9f2e3b-c095-4917-9ce9-aaad2698d82f", "counts": {"allowed_empty": [], "clauses": 868, "dispositions": {"afventer_fortolkning": 617, "maskinelt_flagget": 251}, "neutral_lists": {"narrative_bindings": 587, "narrative_sha256": 587, "persons": 587, "source_anchors": 591, "source_records": 591}, "records": 591}, "database_target_sha256": "bb7767724af9f500aaef12e5d2f86c1e00885dbd43bae9c1e68031e573720b05", "manifest_content_sha256": "0b31c5a22c1045fcfb0528b8099f1e118cb235882ca92a6341808eb56c8655f6", "scope": "clause-evidence-delta-v1", "source_id": 1, "status": "match"}
+```
+
+**De tre negative tests**, i komparatorens kontrolrækkefølge:
+
+| Negativ | Mutation | Forventet kode | Målt kode |
+| --- | --- | --- | --- |
+| 0 | Navngiven kopi af basen (`createdb -T`) | `CLAUSE_PROJECTION_TARGET_MISMATCH` | `CLAUSE_PROJECTION_TARGET_MISMATCH` |
+| 2 | Én `family_member`-række slettet i samme base | `CLAUSE_PROJECTION_CANONICAL_DRIFT` | `CLAUSE_PROJECTION_CANONICAL_DRIFT` |
+| 1 | Ændret `occurrence_key` i samme base, oven i negativ 2 | `CLAUSE_PROJECTION_NEUTRALITY_DRIFT` | `CLAUSE_PROJECTION_NEUTRALITY_DRIFT` |
+
+Alle tre koder matcher eksakt. Match-tallene (591 records, 868 klausuler, dispositioner og
+neutrale lister som ovenfor) består planens bestået-kriterie (Task 4, Step 1, punkt 7).
