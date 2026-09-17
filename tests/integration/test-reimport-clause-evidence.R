@@ -119,6 +119,51 @@ manifest_ce <- list(
     rendition_projection_sha256 = sha("e"), parent_verbatim_sha256 = sha_text(text_dead),
     clause_rules_version = "clause-rules-fixture-v1", segmenter_version = "clause_segment.py@v1",
     ledger_sha256 = sha("d"), gap_charset = list(" "), clauses = clauses)))
+
+# ---- klausul-projektion (spec §11.1, vej C, #195) ---------------------------
+scripts_dir <- file.path(root, ".claude/skills/daa-extract/scripts")
+comparator <- file.path(scripts_dir, "compare_clause_evidence_projection.py")
+proj_dir <- tempfile("klausul-projektion-"); dir.create(proj_dir, mode = "0700")
+write_private <- function(name, text) {
+  path <- file.path(proj_dir, name); stopifnot(!file.exists(path))
+  writeLines(text, path); Sys.chmod(path, "0600"); path
+}
+manifest_json <- function(m) as.character(jsonlite::toJSON(m, auto_unbox = TRUE, null = "null", digits = NA))
+manifest_ce$manifest_content_sha256 <- NULL
+unhashed_path <- write_private("manifest-unhashed.json", manifest_json(manifest_ce))
+manifest_ce$manifest_content_sha256 <- system2("python3", c(shQuote(comparator), "--print-manifest-sha256",
+  shQuote(unhashed_path)), stdout = TRUE)
+stopifnot(grepl("^[0-9a-f]{64}$", manifest_ce$manifest_content_sha256))
+manifest_path <- write_private("manifest.json", manifest_json(manifest_ce))
+
+projection <- function() {
+  out <- suppressWarnings(system2("psql", c("-X", "-At", "-q", "-v", "ON_ERROR_STOP=1",
+    "-v", paste0("source_id=", source_id), "-f", shQuote(file.path(scripts_dir, "clause_evidence_projection.psql"))),
+    stdout = TRUE, stderr = TRUE, env = paste0("DAA_PROJECTION_SQL_DIR=", shQuote(scripts_dir))))
+  if (!is.null(attr(out, "status"))) stop("projektion fejlede: ", paste(out, collapse = "\n"))
+  stopifnot(length(out) == 1L)
+  out
+}
+sql_text <- function(name) paste(readLines(file.path(scripts_dir, name), warn = FALSE), collapse = "\n")
+guard_error <- function(sql, read_only) {
+  pc <- connect(); on.exit(dbDisconnect(pc), add = TRUE)
+  dbBegin(pc); on.exit(try(dbRollback(pc), silent = TRUE), add = TRUE, after = FALSE)
+  if (read_only) dbExecute(pc, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+  dbGetQuery(pc, "SELECT set_config('daa.projection_source_id', $1, true)", params = list(as.character(source_id)))
+  tryCatch({ dbGetQuery(pc, sql); "ingen fejl" }, error = function(err) conditionMessage(err))
+}
+stopifnot(grepl("CLAUSE_PROJECTION_NOT_READ_ONLY", guard_error(sql_text("clause_evidence_projection.sql"), FALSE), fixed = TRUE))
+stopifnot(grepl("CLAUSE_PROJECTION_NOT_ANON", guard_error(sql_text("clause_evidence_anon_projection.sql"), TRUE), fixed = TRUE))
+target_sha <- q(sql_text("clause_evidence_target_identity.sql"))$database_target_sha256[[1L]]
+stopifnot(grepl("^[0-9a-f]{64}$", target_sha))
+run_comparator <- function(before_path, after_path, report_name, target = target_sha) {
+  out <- suppressWarnings(system2("python3", c(shQuote(comparator),
+    "--manifest", shQuote(manifest_path), "--before", shQuote(before_path), "--after", shQuote(after_path),
+    "--expect-target-sha256", target, "--report", shQuote(file.path(proj_dir, report_name)),
+    "--allow-empty", "narrative_bindings,narrative_sha256,persons"), stdout = TRUE, stderr = TRUE))
+  list(status = if (is.null(attr(out, "status"))) 0L else attr(out, "status"), out = paste(out, collapse = "\n"))
+}
+
 validate_reimport_manifest(manifest_ce)
 
 preview_sha_ce <- run_hash("preview-ce")
@@ -126,12 +171,32 @@ before <- q("SELECT count(*) n FROM private.source_observation WHERE observation
 dry <- execute_reimport(manifest_ce, preview_sha_ce, "dry-run", env_gateway(), NULL)
 stopifnot(identical(dry$status, "finalized"), isFALSE(dry$committed),
   q("SELECT count(*) n FROM private.source_observation WHERE observation_kind='clause'")$n[[1L]] == before)
+before_path <- write_private("before.json", projection())
 applied <- execute_reimport(manifest_ce, preview_sha_ce, "apply", env_gateway(),
   list(id = authorize(manifest_ce, preview_sha_ce)))
 stopifnot(identical(applied$status, "finalized"), isTRUE(applied$committed))
 stopifnot(q("SELECT count(*) n FROM private.source_observation WHERE observation_kind='clause'")$n[[1L]] == before + 2L)
 stopifnot(count1("SELECT count(*) FROM private.clause_disposition_current d JOIN private.source_observation o ON o.id=d.observation_id WHERE o.observation_kind='clause' AND d.disposition='afventer_fortolkning'") >= 2L)
+
+after_text <- projection()
+after_path <- write_private("after.json", after_text)
+matched <- run_comparator(before_path, after_path, "report-match.json")
+if (matched$status != 0L) stop("klausul-projektion ikke match: ", matched$out)
+stopifnot(grepl('"status": "match"', matched$out, fixed = TRUE))
+
+tampered <- sub('"disposition": "afventer_fortolkning"', '"disposition": "strukturel"', after_text, fixed = TRUE)
+stopifnot(!identical(tampered, after_text))
+drift <- run_comparator(before_path, write_private("after-tampered.json", tampered), "report-tampered.json")
+stopifnot(drift$status == 1L, grepl("CLAUSE_PROJECTION_DRIFT", drift$out, fixed = TRUE))
+
+wrong_target <- run_comparator(before_path, after_path, "report-target.json", strrep("0", 64L))
+stopifnot(wrong_target$status == 1L, grepl("CLAUSE_PROJECTION_TARGET_UNEXPECTED", wrong_target$out, fixed = TRUE))
+
 replay <- execute_reimport(manifest_ce, preview_sha_ce, "apply", env_gateway(),
   list(id = authorize(manifest_ce, preview_sha_ce)))
 stopifnot(identical(replay$status, "already_applied"))
+
+# Replay må ikke efterlade spor i projektionen.
+stopifnot(identical(projection(), after_text))
+
 cat("clause_evidence integration OK\n")

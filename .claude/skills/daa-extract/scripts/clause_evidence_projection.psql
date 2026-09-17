@@ -1,0 +1,20 @@
+-- Klausul-projektionens driver (issue 195). Kør:
+--   DAA_PROJECTION_SQL_DIR=<mappe med clause_evidence_*.sql> \
+--     psql -X -At -q -v ON_ERROR_STOP=1 -v source_id=<id> -f clause_evidence_projection.psql > <ny fil>
+-- Ejer-delen og anon-delen tages i SAMME read-only snapshot. Output: én linje JSON.
+\set ON_ERROR_STOP on
+-- Uden -v source_id: tom værdi, så SQL-guarden rejser CLAUSE_PROJECTION_SOURCE_ID_MISSING.
+\if :{?source_id}
+\else
+\set source_id ''
+\endif
+\set main_sql `cat "$DAA_PROJECTION_SQL_DIR/clause_evidence_projection.sql"`
+\set anon_sql `cat "$DAA_PROJECTION_SQL_DIR/clause_evidence_anon_projection.sql"`
+BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY;
+SELECT set_config('daa.projection_source_id', :'source_id', true) AS projection_source_id \gset
+:main_sql \gset
+SET LOCAL ROLE anon;
+:anon_sql \gset
+RESET ROLE;
+SELECT ((:'projection')::jsonb || jsonb_build_object('anon_sha256', (:'anon_sha256')::jsonb))::text;
+COMMIT;
