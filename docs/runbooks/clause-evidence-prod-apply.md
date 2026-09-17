@@ -141,7 +141,17 @@ skriver en unik, mode-0600 `preflight-<tid>.txt`. Det skal:
    og ledger-fil-hash
    `8f4a88f5803287778666c120fa36bc5e770cebe685286f0e2a4eb9bc08980210`;
 5. genmåle, at alle 591 parent-hashes matcher prod. Rapporten må kun vise
-   `591/591`, koder og hashes.
+   `591/591`, koder og hashes;
+6. kræve **0** forældreløse rækker i `private.interpretation_observation` (se §6: en
+   forældreløs række gør en fortrydelse utrofast) og at antallet af profiler med rollen
+   `redaktion` fortsat er 1:
+
+```sql
+SELECT (SELECT count(*) FROM private.interpretation_observation io
+          WHERE NOT EXISTS (SELECT 1 FROM private.interpretation i WHERE i.id = io.interpretation_id)
+             OR NOT EXISTS (SELECT 1 FROM private.source_observation o WHERE o.id = io.observation_id)) AS foraeldreloese,
+       (SELECT count(*) FROM public.profiles WHERE rolle = 'redaktion') AS redaktioner
+```
 
 Alle forventninger ovenfor skal være kode (`[[ ... ]]`, SQL-assertion eller
 tilsvarende), så scriptet afslutter forskelligt fra 0 ved første afvigelse.
@@ -316,8 +326,11 @@ SELECT (SELECT encode(pg_catalog.sha256(convert_to(current_database() || E'\n' |
   LEFT JOIN private.reimport_event e ON e.batch_id = b.id AND e.operation = 'clause_evidence'
  WHERE b.manifest_sha256 = '<manifest_content_sha256 fra GO-pakken>'
  GROUP BY b.id, b.status, b.source_id, b.profile_id, b.profile_sha256
- ORDER BY b.id::text COLLATE \"C\""
+ ORDER BY b.id::text"
 ```
+
+(Ingen `COLLATE` her: forespørgslen giver nul eller én række, og escaping af
+anførselstegn i en kopieret kommando er selv en fælde.)
 
 Assertér ALLE bindinger, før udfaldet læses: `maalidentitet` = GO-pakkens
 `EXPECTED_TARGET`, `source_id` = 1, `profile_id` = `daa-2018-20-clause-evidence-v1`,
@@ -411,6 +424,30 @@ SELECT encode(pg_catalog.sha256(convert_to(coalesce(string_agg(h, E'\n' ORDER BY
      WHERE n.nspname IN ('private','public') AND c.relkind = 'r'
   ) s
 ```
+
+**Målt i øvelsen 2026-09-17** (stand-in-dump taget lokalt af prod-tilstanden, klausuler
+skrevet, derefter fortrydelse): tilstands-hashen vendte tilbage til præcis
+før-tilstanden, og basen havde 0 klausuler, 0 `clause_evidence`-hændelser og 0
+writer-profilrækker. Men `pg_restore` gav **8 fejl** i tre klasser:
+
+1. `cannot drop function public.current_rolle() / public.media_id_for_object(text) /
+   public.media_synlig_anon(bigint) because other objects depend on it` — RLS-politikker
+   afhænger af dem. De bliver derfor ikke droppet og ikke genskabt. **Konsekvens:** en
+   funktion, der er ÆNDRET efter dumpet, overlever en fortrydelse. Skrivepausen fra før
+   dumpet er det, der holder den risiko nede.
+2. `function … already exists with same argument types` for de samme tre — følgen af 1.
+3. **`interpretation_observation_interpretation_id_fkey` kunne ikke genskabes**, fordi
+   prod indeholder én forældreløs række i `private.interpretation_observation`: dens
+   `interpretation_id` findes ikke i `private.interpretation` (0 rækker), og dens
+   `observation_id` findes ikke i `private.source_observation`. Rækken er oprettet
+   2026-09-17 — en efterladt fixture-række fra skema-deployets verifikation. Efter
+   fortrydelsen havde basen **0 af 2** fremmednøgler på tabellen.
+
+**Stopport før GO:** prod skal have **0** forældreløse rækker i
+`private.interpretation_observation`, og øvelsens fejlliste må kun indeholde klasse 1
+og 2. Ellers efterlader en fortrydelse databasen uden fremmednøgler — en tilstand,
+ingen har godkendt. Oprydningen af fixture-rækken er en selvstændig, lille prod-sletning
+med sin egen GO; den hører ikke ind i klausulkørslen.
 
 **Hvad øvelsen beviser — og ikke beviser.** Den beviser, at dumpet kan lægges tilbage
 oven på en befolket base og genskabe fuld tilstand i `private`+`public`. Den beviser
