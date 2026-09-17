@@ -1,0 +1,342 @@
+# Runbook — første `clause_evidence`-kørsel i prod (4.1c, issue #148)
+
+Manuel procedure for den første datakørsel af `clause_evidence` mod DAA's
+produktionsdatabase via Supabase Session pooler. Der deployes ingen DDL: skema,
+RLS og writere har været live siden 2026-09-17. Leverancen er 591 records og 868
+klausuler i én `finalized` batch, uden ændring af det kanoniske eller anon-synlige
+lag.
+
+Manifestet genbruges uændret:
+`~/.private/148c-manifest-20260910190838.json`. Der eksporteres eller segmenteres
+ikke igen. Manifestets 591 helpost-hashes og rendition-hash er målt identiske med
+prod 2026-09-17; writeren stopper desuden ved
+`REIMPORT_WRITER_RENDITION_DRIFT` eller `CLAUSE_EVIDENCE_PARENT_TEXT_DRIFT`.
+
+Fortrydelse er **restore af dagens backup**. Der findes ingen klausul-reversal, og
+Supabase free-tier har ingen anden backup. Projektejeren har kvitteret særskilt for
+netop dette (`docs/decisions.md`, posten »4.1c's klausulkørsel i prod fortrydes kun
+ved restore«, 2026-09-17); kvitteringen skal gentages i GO-pakken, men er ikke et
+udestående.
+
+Værktøjet, runbooken bygger på, er i `main` siden #197: `clause_evidence_projection.psql`
+med sine tre SQL-filer og `compare_clause_evidence_projection.py` (issue #195).
+
+**Arbejdsdeling.** AI-sessionens prod-adgang er blokeret af harnessets klassifikator,
+også læse-kun. Derfor kører **projektejeren** alt, der rører prod (trin 1 og 3), i egen
+shell. Trin 2 er rent lokalt og kan køres af begge. AI'en må kun læse rensede rapporter
+med tal, koder og hashes — aldrig DSN, credentials, kildetekst eller record-nøgler.
+
+---
+
+## 1. Adgangskrav og stopport
+
+- Kør fra en ren, fastlåst `main`, der indeholder #148/#195-værktøjerne. Notér
+  commit-SHA i GO-pakken. Ingen kode må ændres mellem rehearsal og prod-apply.
+- Alle private filer og mapper er mode `0600`/`0700`; hvert script starter med
+  `set -euo pipefail`, `umask 077` og `PGTZ=UTC`.
+- Alle prod-kald bruger den eksplicitte `DAA_PROD_DSN` til **Session pooler**.
+  Ingen omgivende `PG*`-standarder må kunne vælge en anden database. Projektejeren
+  sammenholder projekt-referencen med Supabase-dashboardet.
+- Fasepakkens afsnit **»Klausul-projektion (udgaveneutral
+  delta-afstemning, spec §11.1)«** er autoritativt for målidentitet,
+  før-/efter-projektion og komparator. Kommandoerne gentages ikke her.
+- `SET TRANSACTION READ ONLY` alene beskytter ikke psql-autocommit. Alle øvrige
+  læse-kun psql-kald skal køre med
+  `PGOPTIONS='-c default_transaction_read_only=on'`. Projektionen bruger sin egen
+  transaktion. Fasepakkens målidentitets-preflight består kun af `SELECT` og skal
+  køres ordret som dokumenteret dér.
+- Prod skal ved preflight have 591 helposter, 0 klausuler for den aktuelle
+  kørsel, 0 `clause_evidence`-hændelser for profilen, ingen aktiv autorisation og
+  **ingen** writer-profilrække for `(1,
+  daa-2018-20-clause-evidence-v1)`. En allerede eksisterende profilrække er
+  STOP og skal undersøges; den må ikke slettes eller overskrives.
+- Der må ikke være ekstern writer-trafik fra før før-projektionen til efter
+  afstemningen. Projektejeren annoncerer og håndhæver redaktionspausen.
+- Hver afvigelse fra forventede hashes eller tal er STOP, ikke et
+  justeringsrum. `--allow-empty` må aldrig bruges mod prod.
+
+De fem private scripts ligger i `~/.private/148c-prod/`, committes ikke og tager
+ingen hemmeligheder som argumenter. Projektejeren kører dem således:
+
+```bash
+! zsh ~/.private/148c-prod/01-preflight.sh          # projektejer, læser prod
+! zsh ~/.private/148c-prod/02-dump.sh               # projektejer, læser prod
+! zsh ~/.private/148c-prod/03-restore-rehearsal.sh ~/.private/<dagens-dump>.dump   # lokalt
+# først efter menneskeligt GO mod §4:
+! zsh ~/.private/148c-prod/04-apply.sh --jeg-mener-det   # projektejer, SKRIVER i prod
+! zsh ~/.private/148c-prod/05-verify.sh             # projektejer, læser prod
+```
+
+Trin 1 og 3 kører kun projektejeren. Trin 2 rører ingen prod-forbindelse og kan køres
+af AI'en, som også kontrollerer scriptstruktur og de rensede rapporter.
+
+---
+
+## 2. Trin 1 — læse-kun preflight og ny backup
+
+### 2.1 `01-preflight.sh` (læse-kun)
+
+Scriptet følger navngivning og rapportmønster fra `trin4prod-01-preflight.sh` og
+skriver en unik, mode-0600 `preflight-<tid>.txt`. Det skal:
+
+1. afvise argumenter og manglende/tom `DAA_PROD_DSN`;
+2. køre målidentitets-preflighten **ordret** fra fasepakkens
+   »Klausul-projektion«, notere `database_name` og `EXPECTED_TARGET`, og kræve
+   at rolletesten giver `anon`;
+3. med `PGOPTIONS='-c default_transaction_read_only=on'` kontrollere, at 4.1c-
+   skemaet/writeren findes, at der ikke er aktive autorisationer, og at
+   profilrækken, klausulerne og profilens events endnu ikke findes;
+4. hash-kontrollere manifestfilen og dens lukkede metadata uden at udskrive
+   payload: 591 operationer, 868 klausuler,
+   `manifest_content_sha256=0b31c5a22c1045fcfb0528b8099f1e118cb235882ca92a6341808eb56c8655f6`,
+   profil-hash
+   `7696cb87b9d5fecb3693d201d023ec84d27d25b35dee92f09bd6b75e88ce31f5`,
+   rendition-hash
+   `2dd5cf8408943ccc50ac4d89dcbd08ac3b49a90fdabd1ddcbd7b22d218026563`
+   og ledger-fil-hash
+   `8f4a88f5803287778666c120fa36bc5e770cebe685286f0e2a4eb9bc08980210`;
+5. genmåle, at alle 591 parent-hashes matcher prod. Rapporten må kun vise
+   `591/591`, koder og hashes.
+
+Alle forventninger ovenfor skal være kode (`[[ ... ]]`, SQL-assertion eller
+tilsvarende), så scriptet afslutter forskelligt fra 0 ved første afvigelse.
+Succesmarkør: `PREFLIGHT_OK`.
+
+### 2.2 `02-dump.sh` (læse-kun mod prod)
+
+Scriptet følger `148-01-prod-dump.sh`/`trin4prod-02-dump.sh`:
+
+- brug `pg_dump -Fc --no-owner`, men **ikke** `--no-privileges`;
+- gem dumpets starttid i UTC **før** `pg_dump` starter;
+- skriv dump, starttid, størrelse og SHA-256 til en unik mode-0600 rapport;
+- verificér rettigheder og en ikke-tom fil i kode, og afslut med `DUMP_OK`.
+
+Dumpets starttid er friskhedsgrænsen. Et senere antalsmatch kan ikke erstatte
+kontrollen af `change_set.created_at >= dumpets starttid`.
+
+---
+
+## 3. Trin 2 — restore af netop dagens backup og fuld rehearsal
+
+### 3.1 `03-restore-rehearsal.sh` (kun lokal database)
+
+Scriptet modtager præcis én dumpsti, binder dens SHA-256 og opretter en ny,
+disponerbar lokal database samt en ny 0700-runmappe. Før `pg_restore` oprettes
+disse tomme `NOLOGIN`-roller, hvis de mangler:
+
+```text
+dashboard_user, supabase_auth_admin, supabase_storage_admin,
+supabase_realtime_admin, pgbouncer, anon, authenticated, service_role
+```
+
+Ellers fejler 111 `GRANT`/`OWNER`-sætninger, og restoren er ikke trofast.
+`pg_restore`-fejl om `supabase_vault` er de eneste tilladte restore-fejl; enhver
+anden fejl er en kodet stopport.
+
+Restoren skal svare til preflightens databaseinventar og være en restore af
+**netop** SHA'en fra `02-dump.sh`. Der køres ingen migration eller anden DDL.
+Derefter øves den fulde prod-rækkefølge:
+
+1. Kør `148c-03-clause-dryrun.R` mod restoren. Scriptet indsætter
+   writer-profilrækken varigt, sætter selv `request.jwt.claim.sub` for
+   `red_*`-RPC'erne og ruller klausuldata tilbage. Kræv `DRY_RUN_OK`,
+   `finalized`, `committed=false`, fortsat 0 klausuler og præcis én profilrække.
+2. Genberegn profil-hashen fra profilfilen og læs rækken tilbage. Fil,
+   manifest og database skal alle være
+   `7696cb87b9d5fecb3693d201d023ec84d27d25b35dee92f09bd6b75e88ce31f5`.
+3. Tag før-projektionen med fasepakkens autoritative kommando. Filen skal være
+   én gyldig JSON-linje. Mål `neutral_lists` her; disse rehearsal-tal, ikke
+   tallene fra 2026-09-17, låses i GO-pakken.
+4. Kør `148c-04-clause-apply.R` mod restoren. Kræv `APPLY_OK`, første apply
+   `finalized/committed=true` og scriptets indbyggede replay
+   `already_applied`. Autorisationen skal udstedes til manifestets eksakte
+   `expected_counts`/elementmængde og må ikke genbruges til andet.
+5. Tag efter-projektionen og kør komparatoren ordret efter fasepakken med
+   restore-databasens målidentitet. `--allow-empty` er forbudt.
+6. Kør alle verifikationsforespørgsler, som `05-verify.sh` senere skal bruge
+   mod prod. De skal bestå her; en uprøvet SQL-fejl efter prod-apply er ikke
+   acceptabel. Tekstsortering bruger altid `COLLATE "C"`.
+7. Kør `db-verify`s to #148-blokke mod restoren (`tests/sql/run-db-verify-disposable.sql`).
+   De hører KUN til rehearsalen: runneren opretter disponerbare objekter og må ikke
+   køres mod prod.
+8. Notér, at 04-scriptets indbyggede replay udsteder en **ny autorisation** pr. kørsel.
+   Det er forventet (samme mønster som 4.4's apply-script) og efterlader en forældreløs
+   autorisationsrække uden batch. Antallet af autorisationer er derfor ikke en stopport;
+   antallet af `finalized` batches for kørslen er (præcis 1).
+
+Rehearsalens maskinelle bestået-kriterier er:
+
+| Måling | Eksakt forventning |
+|---|---:|
+| Records / `clause_evidence`-hændelser | 591 / 591 |
+| Klausuler / dispositioner | 868 / 868 |
+| Dispositioner | 617 `afventer_fortolkning`; 251 `maskinelt_flagget` |
+| Batches for kørslen | 1, status `finalized` |
+| Klausuler uden post-relativt par / uden for parent-span | 0 / 0 |
+| Kanonisk og anon-synligt lag | uændret |
+| Replay | `already_applied` |
+| Projektion | exit 0, `status=match`, korrekt målidentitet |
+
+`neutral_lists` skal være målt i denne restore og kopieres eksakt til §4.
+Scriptet skriver kun tal, koder og hashes til `rehearsal-<tid>.txt/json`, hasher
+rapportfilerne og slutter med `REHEARSAL_OK`. En fejlet restore eller rehearsal
+bevares urørt og er NO-GO.
+
+---
+
+## 4. GO-pakke
+
+Projektejeren giver ét eksplicit GO mod **netop** følgende værdier; ikke mod en
+beskrivelse som »samme manifest« eller »tallene ser rigtige ud«:
+
+- repo commit-SHA og SHA-256 af de fem private scripts samt de to anvendte
+  R-scripts;
+- `database_name` og prod-`EXPECTED_TARGET` fra `01-preflight.sh`;
+- dagens dumpsti, dump-starttid, dumpstørrelse og dump-SHA-256;
+- SHA-256 af rehearsal-rapporten og bevis for, at den brugte netop dump-SHA'en;
+- manifestfilens byte-SHA-256, manifestets indholdshash
+  `0b31c5a2…`, 591 operationer og 868 klausuler;
+- rendition-hash `2dd5cf84…`, ledger-fil-hash `8f4a88f5…` og beviset
+  `591/591` matchende parent-hashes;
+- profil-id/version og profil-hash `7696cb87…` med readback fra restoren;
+- `EXPECTED_TARGET` for prod samt rehearsalens egen målidentitet, tydeligt
+  adskilt;
+- rehearsalens eksakte `neutral_lists` og de faste forventninger 591/868,
+  617/251, én `finalized` batch, uændret kanonisk/anon-lag og replay
+  `already_applied`;
+- projektejerens kvittering: »fortrydelse af `clause_evidence` sker ved restore
+  af dagens backup«;
+- tidspunkt og ansvarlig for redaktionspausen.
+
+GO-kvitteringen gemmes 0600 og må ikke indeholde DSN, credentials, kildetekst
+eller record-nøgler. Ændres én bundet værdi, bortfalder GO; start igen med ny
+preflight, backup og restore-rehearsal.
+
+---
+
+## 5. Trin 3 — profilskrivning, før-projektion, apply og verifikation i prod
+
+### 5.1 `04-apply.sh` (skriver mod prod)
+
+Dette script må kun køre med det eksakte argument `--jeg-mener-det`. Det binder
+GO-pakkens commit-, script-, manifest-, profil-, mål- og dump-hashes i kode og
+skal umiddelbart før første skrivning:
+
+1. genverificere Session pooler-målet og `EXPECTED_TARGET`;
+2. genverificere dagens dump-SHA og `REHEARSAL_OK`-rapportens SHA;
+3. med `PGOPTIONS='-c default_transaction_read_only=on'` kræve 0 aktive
+   autorisationer og 0 profilrækker/klausuler/events for denne kørsel;
+4. kræve `count(change_set where created_at >= dump_start) = 0`. Er tallet ikke
+   nul, er backuppen forældet, selv hvis alle øvrige antal er uændrede: kassér
+   GO og gentag trin 1-2 med nyt dump;
+5. bekræfte, at redaktionspausen er aktiv.
+
+Først derefter må scriptet køre `148c-03-clause-dryrun.R` mod prod. Det er den
+første prod-mutation, fordi scriptet indsætter writer-profilrækken. Kræv samme
+dry-run-resultat som i rehearsal, og lav straks readback af profil-id, version,
+writer-config-hash og profil-hash. Alle skal matche profilfilen og manifestets
+`7696cb87…`. Ved fejl: STOP, bevar alt, ingen manuel rettelse; restore er vejen
+tilbage.
+
+Når profil-readback består, tager `04-apply.sh` før-projektionen ved at følge
+fasepakkens autoritative trin og validerer filen som én JSON-linje. Først nu må
+`148c-04-clause-apply.R` køres én gang mod prod. Kræv `APPLY_OK`,
+`finalized/committed=true`; scriptsættet skal også bevise replay som
+`already_applied`. Scriptet skriver en unik mode-0600 apply-rapport og slutter
+med `APPLY_DONE`, men erklærer ikke samlet succes før `05-verify.sh` består.
+
+Hvis forbindelsen forsvinder omkring commit, er udfaldet ukendt: kør ikke apply
+igen på må og få. Brug den dokumenterede replay/statusvej til at afgøre
+`finalized` eller `already_applied`; ellers NO-GO og restore.
+
+### 5.2 `05-verify.sh` (læse-kun)
+
+Mens redaktionspausen fortsat er aktiv, tager scriptet efter-projektionen og
+kører komparatoren efter fasepakkens autoritative procedure. Bestået kræver:
+
+- exit 0 og `status=match`;
+- `database_target_sha256` = GO-pakkens prod-`EXPECTED_TARGET`;
+- `records=591`, `clauses=868`;
+- dispositioner eksakt 617/251;
+- `neutral_lists` eksakt lig **denne GO-pakkes** restore-rehearsal;
+- ingen `allowed_empty`, ingen kanonisk drift og ingen anon-drift;
+- 591 `clause_evidence`-hændelser i præcis én `finalized` batch;
+- profil-readback uændret og replay `already_applied`.
+
+De supplerende læse-kun forespørgsler er de samme bytes, som bestod i rehearsal,
+kører med `PGOPTIONS` og `ORDER BY ... COLLATE "C"`, og udskriver kun tal,
+koder og hashes. Rapporten og alle projektioner hashes og bevares 0600.
+Succesmarkør: `VERIFY_OK`. Først derefter ophæver projektejeren
+redaktionspausen.
+
+---
+
+## 6. Stopregler
+
+- Intet GO uden en ny backup, en restore af netop dens SHA og en fuld bestået
+  rehearsal af samme scripts og revision.
+- Enhver `change_set.created_at >= dump_start` er STOP: nyt dump og ny
+  rehearsal. Antal alene er aldrig en friskheds-port.
+- Enhver anden restore-fejl end `supabase_vault`, manglende platformrolle eller
+  ACL-afvigelse er STOP.
+- Enhver afvigelse i mål-, dump-, script-, manifest-, rendition-, ledger-,
+  parent-, profil-, rapport- eller commit-hash er STOP.
+- Alt andet end 591 records, 868 klausuler, 617/251 dispositioner, 591 events,
+  én `finalized` batch og replay `already_applied` er STOP.
+- Enhver forskel i GO-pakkens `neutral_lists`, kanoniske rækker eller anon-
+  projektion er STOP. Reparér aldrig prod for at få `match`.
+- Komparator exit 1, en fejlkode, traceback uden JSON eller ugyldig projektion
+  er NO-GO. Exit 2 er en brugsfejl: ret kun inputtet og genbrug de urørte
+  projektioner, hvis deres hashes fortsat matcher GO.
+- `REIMPORT_WRITER_RENDITION_DRIFT`,
+  `CLAUSE_EVIDENCE_PARENT_TEXT_DRIFT`, uventet eksisterende profil/klausuler
+  eller en aktiv autorisation er STOP.
+- Efter enhver prod-mutation betyder STOP: bevar dump, runmappe og rapporter,
+  hold redaktionen pauset, og gendan dagens backup. Der findes ingen kirurgisk
+  klausul-reversal.
+
+---
+
+## 7. Fælder
+
+1. `SET TRANSACTION READ ONLY` i psql-autocommit er en no-op. Brug sessionens
+   `default_transaction_read_only`; projektionen styrer selv transaktionen.
+2. Uændrede antal beviser ikke en frisk backup. Gate altid på `change_set` siden
+   dumpets **start**, ikke sluttid.
+3. Opret alle otte Supabase-platformroller som tomme `NOLOGIN`-roller før
+   restore. Ellers er 111 GRANT/OWNER-fejl ikke harmløse.
+4. `red_*` kræver `request.jwt.claim.sub` i transaktionen. R-scriptsættet gør
+   dette; fjern ikke kontrollen.
+5. Brug `COLLATE "C"` ved ordnet hashning/sortering; CI/lokal `en_US` og prod
+   kan ellers give forskellige resultater.
+6. Verifikations-SQL skal have bestået i rehearsal. En SQL-fejl efter apply gør
+   ikke skrivningen ugjort.
+7. Profilrækken indsættes varigt af dry-run. Før-projektionen tages derfor
+   **efter** profil-readback og **før** klausul-apply.
+8. Redaktionspausen varer fra før- til efter-projektion; ekstern trafik giver
+   korrekt `CANONICAL_DRIFT`/`ANON_DRIFT`.
+9. `neutral_lists` kommer fra dagens restore-rehearsal, ikke fra
+   2026-09-17-rapporten. `database_target_sha256` er databasespecifik og må
+   heller ikke kopieres fra en ældre rehearsal.
+10. `--allow-empty` er forbudt mod prod. Der må ikke eksporteres eller
+    segmenteres på ny i denne kørsel.
+11. Ingen hemmeligheder, hostnavne, kildetekst eller record-nøgler må optræde i
+    rapporter eller AI-output; brug kun `<record-key>` i et nødvendigt eksempel.
+
+---
+
+## 8. Efter kørslen
+
+Når `VERIFY_OK` er dokumenteret, opdateres `status.md`, changelog,
+`database-current-state` og `clause-evidence-148-rehearsal.md` med dato,
+commit, rapport-hashes, de godkendte tal/hashes og restore som rollbackform.
+Ingen kildetekst eller record-nøgler indsættes i dokumentationen.
+
+Projektejeren kører derefter Supabase Advisors i dashboardet for både
+**Security** og **Performance** og dokumenterer nye fund. Det kendte
+Performance-fund `interpretation_predicate_fk` mangler indeks. Indekset hører
+ikke til denne datakørsel og må ikke sniges ind her, men det **skal** etableres
+før forslags-writeren kører på skala.
+
+Bevar dagens dump, GO-kvittering, private scripts, før-/efter-projektioner og
+alle rensede rapporter, indtil projektejeren særskilt lukker rollbackvinduet.
