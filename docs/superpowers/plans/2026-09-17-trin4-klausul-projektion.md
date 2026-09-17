@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md` §4.1.4-4.1.6 og §11.1. Afgørelsen (vej C) står i `docs/decisions.md` (Task 4) og i issue #195. Fortolknings-projektionen er udskudt til #196.
 
-**Revision 3 (2026-09-17)** efter to Codex `gpt-5.6-sol`-runder (runde 1: NO-GO, 7 BLOCKER / 3 MAJOR; runde 2: NO-GO, 1 ny BLOCKER + 5 delvist lukkede). Afgørelserne står i »Revisionslog« nederst.
+**Revision 4 (2026-09-17)** efter tre Codex `gpt-5.6-sol`-runder (runde 1: NO-GO, 7 BLOCKER / 3 MAJOR; runde 2: NO-GO, 1 ny BLOCKER + 5 delvist lukkede; runde 3: NO-GO, alt lukket på nær hændelsernes helrækkehash). Afgørelserne står i »Revisionslog« nederst.
 
 ## Global Constraints
 
@@ -86,7 +86,7 @@ Alle nøgler obligatoriske, ingen ekstra:
     "pages_match_parent": true, "quality_matches_parent": true
   }],
   "clause_evidence_events": [{"batch_id": "…", "manifest_sha256": "<64 hex>", "batch_status": "finalized",
-                              "profile_id": "…", "profile_sha256": "<64 hex>",
+                              "profile_id": "…", "profile_sha256": "<64 hex>", "row_sha256": "<64 hex>",
                               "element_id": "clause-evidence:…", "source_record_key": "…"}],
   "neutral_sha256": {"person": "…", "fact": "…", "assertion": "…", "conclusion": "…", "narrative": "…",
                      "relation": "…", "family_member": "…", "citation": "…", "person_external_id": "…",
@@ -239,13 +239,14 @@ def written_rows(m, batch=BATCH):
 def events_for(m, status="finalized", batch=BATCH):
     return [{"batch_id": batch, "manifest_sha256": m["manifest_content_sha256"], "batch_status": status,
              "profile_id": m["source"]["profile_id"], "profile_sha256": m["source"]["profile_sha256"],
+             "row_sha256": H("e"),
              "element_id": op["element_id"], "source_record_key": op["source_record_key"]}
             for op in m["operations"]]
 
 
 OLD_EVENT = {"batch_id": "00000000-0000-4000-8000-00000000b0dd", "manifest_sha256": H("c"),
              "batch_status": "finalized", "profile_id": "p", "profile_sha256": H("b"),
-             "element_id": "clause-evidence:R9", "source_record_key": "R9"}
+             "row_sha256": H("f"), "element_id": "clause-evidence:R9", "source_record_key": "R9"}
 
 
 def applied(m):
@@ -619,6 +620,8 @@ def test_old_event_preserved_is_match():
 @pytest.mark.parametrize("mutate", [
     lambda events: events.remove(OLD_EVENT),
     lambda events: events.__setitem__(events.index(OLD_EVENT), dict(OLD_EVENT, batch_status="reversed")),
+    # Ændret payload/after_sha256/created_at i den gamle hændelse: kun helrækkehashen flytter sig.
+    lambda events: events.__setitem__(events.index(OLD_EVENT), dict(OLD_EVENT, row_sha256=H("1"))),
 ])
 def test_old_event_removed_or_changed_is_history_drift(mutate):
     m = manifest()
@@ -749,7 +752,7 @@ INVARIANT_FIELDS = ("decided_by_kind", "disposition_evidence", "extraction_metho
 IDENTITY_FIELDS = ("observation_id", "occurrence_key", "row_sha256", "disposition_history_sha256", "run_id")
 CLAUSE_FIELDS = frozenset(EXPECTED_FIELDS + INVARIANT_FIELDS + IDENTITY_FIELDS)
 EVENT_FIELDS = frozenset(("batch_id", "manifest_sha256", "batch_status", "profile_id", "profile_sha256",
-                          "element_id", "source_record_key"))
+                          "row_sha256", "element_id", "source_record_key"))
 PROJECTION_KEYS = frozenset(("schema_version", "source_id", "database_target_identity", "clauses",
                              "clause_evidence_events", "neutral_sha256", "anon_sha256") + NEUTRAL_LISTS)
 MANIFEST_TOP_REQUIRED = frozenset(("manifest_content_sha256", "source", "expected_counts", "operations"))
@@ -844,7 +847,7 @@ def _validate_projection(p: Any, allow_empty: frozenset[str]) -> list[dict[str, 
             _fail("CLAUSE_PROJECTION_EMPTY_LIST", part=name)
     events = p["clause_evidence_events"]
     if not all(set(e) == EVENT_FIELDS and isinstance(e["batch_id"], str) and isinstance(e["element_id"], str)
-               for e in events):
+               and _is_sha(e["row_sha256"]) for e in events):
         _fail("CLAUSE_PROJECTION_SHAPE_INVALID", part="clause_evidence_events")
     if len({(e["batch_id"], e["element_id"]) for e in events}) != len(events):
         _fail("CLAUSE_PROJECTION_DUPLICATE_ROW", part="clause_evidence_events")
@@ -1556,6 +1559,7 @@ WITH guard AS (
     'batch_status', b.status,
     'profile_id', b.profile_id,
     'profile_sha256', b.profile_sha256,
+    'row_sha256', encode(pg_catalog.sha256(convert_to(e::text, 'UTF8')), 'hex'),
     'element_id', e.element_id,
     'source_record_key', e.source_record_key
   ) AS row
@@ -2160,3 +2164,8 @@ Desuden: `extensions.digest` erstattet af indbygget `pg_catalog.sha256`, så `an
 | A | Slettet ældre hændelse gav stadig `match` | **Rettet:** alle før-hændelser skal findes uændret efter (`CLAUSE_PROJECTION_EVENT_HISTORY_DRIFT`) før deltaet beregnes; hændelsesidentitet `(batch_id, element_id)`; negative tests for sletning og ændring. |
 | B | `SOURCE_ID_MISSING` nås ikke via driveren | **Rettet:** `\if :{?source_id}` sætter tom værdi; målt: exit 3 med koden. Guard-trinnet tester driveren uden `-v`. |
 | C | Ikke test for hver fejlkode | **Rettet:** CLI-tests for `REPORT_DIR_MISSING` og `ARGUMENTS_MISSING`. |
+
+**Revision 4 — Codex runde 3, NO-GO, 2026-09-17.** Lukket: 3, 4, 7, 9, 10, B, C; ingen nye fejl.
+Delvist: **A** — hændelser sammenlignedes kun på projekterede felter, så ændret `payload`,
+`after_sha256` eller `created_at` i en gammel hændelse gav stadig `match`. **Rettet:**
+`row_sha256` (hele `reimport_event`-rækken) indgår i hændelsen; negativ test ændrer kun den.
