@@ -100,7 +100,7 @@ jobs:
           python-version: '3.11'
       - run: python3 -m pip install --disable-pip-version-check -r .claude/skills/daa-extract/requirements-test.txt
       - run: python3 -m pytest .claude/skills/daa-extract/scripts/test_evidence_contract.py -q
-      - run: python3 -m pytest .claude/skills/daa-extract/scripts/test_reimport_profile.py .claude/skills/daa-extract/scripts/test_build_source_evidence_rendition.py .claude/skills/daa-extract/scripts/test_build_source_evidence_manifest.py .claude/skills/daa-extract/scripts/test_build_legacy_migration_manifest.py .claude/skills/daa-extract/scripts/test_build_clause_evidence_manifest.py .claude/skills/daa-extract/scripts/test_build_43b_proposal_manifest.py .claude/skills/daa-extract/scripts/test_evidence_runner.py -q
+      - run: python3 -m pytest .claude/skills/daa-extract/scripts/test_reimport_profile.py .claude/skills/daa-extract/scripts/test_build_source_evidence_rendition.py .claude/skills/daa-extract/scripts/test_build_source_evidence_manifest.py .claude/skills/daa-extract/scripts/test_build_legacy_migration_manifest.py .claude/skills/daa-extract/scripts/test_build_clause_evidence_manifest.py .claude/skills/daa-extract/scripts/test_build_43b_proposal_manifest.py .claude/skills/daa-extract/scripts/test_evidence_runner.py .claude/skills/daa-extract/scripts/test_compare_clause_evidence_projection.py -q
 
   evidence-promotion-db:
     name: evidence promotion · PostgreSQL 17

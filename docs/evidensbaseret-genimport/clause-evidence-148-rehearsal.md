@@ -198,7 +198,8 @@ Samme restore som 4.1a/4.1b. Manifestet er bygget af 4.1b's ledger med
 
 **Intet kanonisk delta.** Klausullaget er ren evidens: person, fact, assertion,
 conclusion, narrative, relation og family_member er uændrede, målt som én hash før og
-efter skrivningen.
+efter skrivningen. NB: målt som antal pr. tabel; indholdsbeviset er klausul-projektionen
+nedenfor.
 
 ### Fund: en modsigelse i spec §4.1.2, som først kunne vise sig her
 
@@ -220,3 +221,41 @@ sider regnede galt på samme måde. Fejlen kunne først opdages, da den ene side
 **Løst** ved at lade `char_from`/`char_to` forblive rendition-absolutte for alle
 observationer og tilføje et post-relativt par `post_char_from`/`post_char_to`, som bærer
 den eksakte substring-kontrol. Begge fakta er nu sande og hver for sig kontrollerbare.
+
+## Klausul-projektion (#195) — rehearsal 2026-09-17
+
+Rehearsal mod prod-tilstanden 2026-09-17 (restore + trin 4-migrationer, lokal engangskopi
+af template-basen `daa_trin4_rehearsal_20260917141446`). Run-id: `run-gv0wXuzV`.
+
+Genkørt efter F1/F4-rettelserne (#195 slutreview), mod en NY engangskopi af samme
+template. `database_target_sha256` ændrer sig mellem kørsler ved konstruktion — den
+hasher engangskopiens (timestampede) databasenavn, ikke kun klyngens
+`system_identifier` — og er derfor ikke sammenlignelig på tværs af rehearsal-kørsler.
+
+| Artefakt | Værdi |
+| --- | --- |
+| Manifest-fil (shasum) | `4323a810d0865eeb671075371b1293ed8dde298bb943a388ac5deb3e986a1979` |
+| Målidentitet (`database_target_sha256`) | `77bd9b95e1d2b22d5aa374576c0c6ba4f6464d8386bfbb981ab69a6a088e4902` |
+| `foer.json`-SHA-256 | `83319933f5d2eff1dd03b1d90906315c252d6654b1c842ff179532e83e6e55da` |
+| `efter.json`-SHA-256 | `bafd2db0917e132e11a4d0228733c3c11c3a3433a535af7473fd70051db72b1c` |
+
+Terminal-JSON for afstemningen (`input_sha256`-stien udeladt):
+
+```json
+{"batch_id": "41913018-9b5b-42fb-85a5-15dd5398330d", "counts": {"allowed_empty": [], "clauses": 868, "dispositions": {"afventer_fortolkning": 617, "maskinelt_flagget": 251}, "neutral_lists": {"narrative_bindings": 587, "narrative_sha256": 587, "persons": 587, "source_anchors": 591, "source_records": 591}, "records": 591}, "database_target_sha256": "77bd9b95e1d2b22d5aa374576c0c6ba4f6464d8386bfbb981ab69a6a088e4902", "manifest_content_sha256": "0b31c5a22c1045fcfb0528b8099f1e118cb235882ca92a6341808eb56c8655f6", "scope": "clause-evidence-delta-v1", "source_id": 1, "status": "match"}
+```
+
+**De tre negative tests**, i komparatorens kontrolrækkefølge:
+
+| Negativ | Mutation | Forventet kode | Målt kode |
+| --- | --- | --- | --- |
+| 0 | Navngiven kopi af basen (`createdb -T`) | `CLAUSE_PROJECTION_TARGET_MISMATCH` | `CLAUSE_PROJECTION_TARGET_MISMATCH` |
+| 2 | Én `family_member`-række slettet i samme base | `CLAUSE_PROJECTION_CANONICAL_DRIFT` | `CLAUSE_PROJECTION_CANONICAL_DRIFT` |
+| 1 | Ændret `occurrence_key` i samme base, oven i negativ 2 | `CLAUSE_PROJECTION_NEUTRALITY_DRIFT` | `CLAUSE_PROJECTION_NEUTRALITY_DRIFT` |
+
+Alle tre koder matcher eksakt. Match-tallene (591 records, 868 klausuler, dispositioner og
+neutrale lister som ovenfor) består planens bestået-kriterie (Task 4, Step 1, punkt 7).
+
+`ANON_DRIFT` og de klausulspecifikke koder er ikke fremkaldt i rehearsal — de er dækket af
+pytest og CI-integrationens manipulationstest; en ændret anon-synlig række rammer altid
+`CANONICAL_DRIFT` først.
