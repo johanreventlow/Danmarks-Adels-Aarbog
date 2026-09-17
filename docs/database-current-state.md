@@ -443,6 +443,8 @@ kørt efter 4.4 ville stille fjerne `interpretation_proposal` fra vokabularet.
   `db-verify`'s ACL-blokke i rehearsal;
 - tal uændrede: 1811 / 4 / 1488 / 0 / 2083.
 
+**Web-fladen** er efterset af projektejeren efter deployet og ser umiddelbart normal ud (relevant, fordi `db-rls.sql` genskrev politikkerne).
+
 **Ikke kørt mod prod:** `db-verify.sql` (muterende fixtures) — kun i rehearsal.
 
 **Advisors (security, kørt 2026-09-17 efter deploy):** 0 ERROR, 141 WARN, 48 INFO. Fire
