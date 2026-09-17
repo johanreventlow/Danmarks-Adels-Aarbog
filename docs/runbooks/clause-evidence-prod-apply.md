@@ -32,11 +32,27 @@ med tal, koder og hashes — aldrig DSN, credentials, kildetekst eller record-n�
 
 - Kør fra en ren, fastlåst `main`, der indeholder #148/#195-værktøjerne. Notér
   commit-SHA i GO-pakken. Ingen kode må ændres mellem rehearsal og prod-apply.
+  **Commit-SHA er ikke nok som binding:** en lokal ændring i en sourcet hjælpefil
+  (`apply_reimport_helpers.R`), i projektionens SQL eller i komparatoren flytter ikke
+  SHA'en. Derfor er det kodede stopporte — både i rehearsal og umiddelbart før
+  prod-apply — at `git diff --quiet`, `git diff --cached --quiet` og
+  `git status --porcelain` for de eksekverede stier er tomme, og at SHA-256 af HVER fil,
+  der køres eller sources, matcher GO-pakken: de fem prod-scripts, de to hærdede
+  R-kopier, `apply_reimport_helpers.R`, de fire projektionsfiler og komparatoren.
 - Alle private filer og mapper er mode `0600`/`0700`; hvert script starter med
   `set -euo pipefail`, `umask 077` og `PGTZ=UTC`.
 - Alle prod-kald bruger den eksplicitte `DAA_PROD_DSN` til **Session pooler**.
   Ingen omgivende `PG*`-standarder må kunne vælge en anden database. Projektejeren
   sammenholder projekt-referencen med Supabase-dashboardet.
+- **R-writerne skal bindes til samme mål.** `03-clause-dryrun.R` og `04-clause-apply.R`
+  læser `PGHOST`/`PGDATABASE`/`PGPORT`/`PGUSER`/`PGPASSWORD` og kender ikke
+  `DAA_PROD_DSN`; psql kan derfor verificere prod, mens R skriver i en anden base.
+  Derfor bruges **hærdede kopier** i `~/.private/148c-prod/` (`03-clause-dryrun-prod.R`,
+  `04-clause-apply-prod.R`), som: (a) rydder alle nedarvede `PG*`, (b) forbinder med
+  præcis den DSN, GO-pakken binder, (c) beregner målidentitetens hash med formlen fra
+  `clause_evidence_target_identity.sql` på **sin egen** forbindelse og afbryder, hvis
+  den afviger fra GO-pakkens `EXPECTED_TARGET` — før profilindsættelse, før autorisation
+  og før apply. De originale scripts bruges kun lokalt i trin 2.
 - Fasepakkens afsnit **»Klausul-projektion (udgaveneutral
   delta-afstemning, spec §11.1)«** er autoritativt for målidentitet,
   før-/efter-projektion og komparator. Kommandoerne gentages ikke her.
@@ -50,8 +66,16 @@ med tal, koder og hashes — aldrig DSN, credentials, kildetekst eller record-n�
   **ingen** writer-profilrække for `(1,
   daa-2018-20-clause-evidence-v1)`. En allerede eksisterende profilrække er
   STOP og skal undersøges; den må ikke slettes eller overskrives.
-- Der må ikke være ekstern writer-trafik fra før før-projektionen til efter
-  afstemningen. Projektejeren annoncerer og håndhæver redaktionspausen.
+- **Skrivepausen begynder FØR dumpet og holdes til efter `VERIFY_OK`.** Den dækker alle
+  skrivestier: redaktørfladen (web/mobil), R-loadere, manuelle psql-sessioner og enhver
+  automatik. `change_set.created_at >= dump_start` er kun en SUPPLERENDE kontrol — den
+  fanger ikke loadere eller direkte SQL, der skriver uden `change_set` (samme forbehold
+  står i trin 4's eget apply-script). Uden en håndhævet pause fra før dumpet kan en
+  skrivning mangle i backuppen, og en senere restore ville slette den.
+- Pausen erklæres og ophæves eksplicit med `00-freeze.sh begin|end`, som skriver
+  starttidspunkt, ansvarlig og en optælling af aktive ikke-egne forbindelser
+  (`pg_stat_activity`) til en 0600-rapport. Optællingen og pausens tidsrum skal begge
+  fremvises i GO-pakken.
 - Hver afvigelse fra forventede hashes eller tal er STOP, ikke et
   justeringsrum. `--allow-empty` må aldrig bruges mod prod.
 
@@ -59,13 +83,20 @@ De fem private scripts ligger i `~/.private/148c-prod/`, committes ikke og tager
 ingen hemmeligheder som argumenter. Projektejeren kører dem således:
 
 ```bash
-! zsh ~/.private/148c-prod/01-preflight.sh          # projektejer, læser prod
-! zsh ~/.private/148c-prod/02-dump.sh               # projektejer, læser prod
-! zsh ~/.private/148c-prod/03-restore-rehearsal.sh ~/.private/<dagens-dump>.dump   # lokalt
+zsh ~/.private/148c-prod/00-freeze.sh begin           # projektejer, FØR dumpet
+zsh ~/.private/148c-prod/01-preflight.sh              # projektejer, læser prod
+zsh ~/.private/148c-prod/02-dump.sh                   # projektejer, læser prod
+zsh ~/.private/148c-prod/03-restore-rehearsal.sh ~/.private/<dagens-dump>.dump   # lokalt
 # først efter menneskeligt GO mod §4:
-! zsh ~/.private/148c-prod/04-apply.sh --jeg-mener-det   # projektejer, SKRIVER i prod
-! zsh ~/.private/148c-prod/05-verify.sh             # projektejer, læser prod
+zsh ~/.private/148c-prod/04-apply.sh --jeg-mener-det  # projektejer, SKRIVER i prod
+zsh ~/.private/148c-prod/05-verify.sh                 # projektejer, læser prod
+zsh ~/.private/148c-prod/00-freeze.sh end             # projektejer, EFTER VERIFY_OK
 ```
+
+**Skriv ikke `!` foran kommandoerne i en shell.** I zsh er `! kommando` negation: et
+fejlet script ville give status 0 og et bestået 1, så stopporten ville vende. (I
+AI-sessionens grænseflade er `! ` derimod præfikset, der sender en kommando til
+projektejerens egen shell — det er notation i chatten, ikke en del af kommandoen.)
 
 Trin 1 og 3 kører kun projektejeren. Trin 2 rører ingen prod-forbindelse og kan køres
 af AI'en, som også kontrollerer scriptstruktur og de rensede rapporter.
@@ -189,8 +220,16 @@ bevares urørt og er NO-GO.
 Projektejeren giver ét eksplicit GO mod **netop** følgende værdier; ikke mod en
 beskrivelse som »samme manifest« eller »tallene ser rigtige ud«:
 
-- repo commit-SHA og SHA-256 af de fem private scripts samt de to anvendte
-  R-scripts;
+- repo commit-SHA **plus** bevis for ren arbejdstræ (`git diff`/`git diff --cached`/
+  `git status --porcelain` tomme for de eksekverede stier) og SHA-256 af hver fil, der
+  køres eller sources: de seks private scripts (`00-freeze.sh` … `05-verify.sh`), de to
+  hærdede R-kopier, `apply_reimport_helpers.R`, de fire projektionsfiler og
+  komparatoren;
+- skrivepausens starttidspunkt (før dumpet), ansvarlig og optællingen af aktive
+  ikke-egne forbindelser fra `00-freeze.sh begin`;
+- den valgte fortrydelsesvej (A eller B, §6), dens prod-preflight af privilegier, og
+  tallene fra den lokale fortrydelsesøvelse — herunder at `neutral_sha256` efter restore
+  var identisk med før-tilstanden;
 - `database_name` og prod-`EXPECTED_TARGET` fra `01-preflight.sh`;
 - dagens dumpsti, dump-starttid, dumpstørrelse og dump-SHA-256;
 - SHA-256 af rehearsal-rapporten og bevis for, at den brugte netop dump-SHA'en;
@@ -205,8 +244,7 @@ beskrivelse som »samme manifest« eller »tallene ser rigtige ud«:
   617/251, én `finalized` batch, uændret kanonisk/anon-lag og replay
   `already_applied`;
 - projektejerens kvittering: »fortrydelse af `clause_evidence` sker ved restore
-  af dagens backup«;
-- tidspunkt og ansvarlig for redaktionspausen.
+  af dagens backup« (givet 2026-09-17, gentages her).
 
 GO-kvitteringen gemmes 0600 og må ikke indeholde DSN, credentials, kildetekst
 eller record-nøgler. Ændres én bundet værdi, bortfalder GO; start igen med ny
@@ -245,9 +283,28 @@ fasepakkens autoritative trin og validerer filen som én JSON-linje. Først nu m
 `already_applied`. Scriptet skriver en unik mode-0600 apply-rapport og slutter
 med `APPLY_DONE`, men erklærer ikke samlet succes før `05-verify.sh` består.
 
-Hvis forbindelsen forsvinder omkring commit, er udfaldet ukendt: kør ikke apply
-igen på må og få. Brug den dokumenterede replay/statusvej til at afgøre
-`finalized` eller `already_applied`; ellers NO-GO og restore.
+Hvis forbindelsen forsvinder omkring commit, er udfaldet ukendt. **Kør ikke apply igen,
+og udsted ikke en ny autorisation.** Afgør tilstanden med denne læse-kun forespørgsel,
+som kun binder manifestets hash:
+
+```bash
+PGOPTIONS='-c default_transaction_read_only=on' psql "$DAA_PROD_DSN" -X -At -v ON_ERROR_STOP=1 -c "
+SELECT b.id::text, b.status, count(e.id)
+  FROM private.reimport_batch b
+  LEFT JOIN private.reimport_event e ON e.batch_id = b.id AND e.operation = 'clause_evidence'
+ WHERE b.manifest_sha256 = '<manifest_content_sha256 fra GO-pakken>'
+ GROUP BY 1, 2 ORDER BY 1 COLLATE \"C\""
+```
+
+Udfaldene er udtømmende:
+
+| Resultat | Betydning | Handling |
+|---|---|---|
+| 0 rækker | apply nåede aldrig at committe | Gentag trin 1's preflight-assertions; apply må køres én gang mere mod SAMME GO |
+| 1 række, `finalized`, 591 | apply lykkedes | Gå til `05-verify.sh`; kør ikke apply igen |
+| 1 række, `finalized`, ≠ 591 | delvis eller fremmed batch | NO-GO: bevar alt, fortryd ved restore |
+| 1 række, `open` | autorisation/batch in-flight | NO-GO: bevar alt, fortryd ved restore |
+| >1 række | mere end én batch på samme manifest | NO-GO: bevar alt, fortryd ved restore |
 
 ### 5.2 `05-verify.sh` (læse-kun)
 
@@ -266,15 +323,78 @@ kører komparatoren efter fasepakkens autoritative procedure. Bestået kræver:
 De supplerende læse-kun forespørgsler er de samme bytes, som bestod i rehearsal,
 kører med `PGOPTIONS` og `ORDER BY ... COLLATE "C"`, og udskriver kun tal,
 koder og hashes. Rapporten og alle projektioner hashes og bevares 0600.
+
+**Rå artefakt vs. renset rapport.** Komparatorens egen rapport indeholder ved drift
+konkrete `record_key`-værdier i `missing`, `extra` og `mismatched`, og dry-run-loggen
+udskriver redaktørens aktør-ID. De filer er **rå, private evidensartefakter**: de
+bevares 0600, sendes aldrig til AI-sessionen og gengives aldrig i dokumentationen. Det,
+AI'en og dokumentationen må se, er en renset udskrift, som scriptet laver:
+
+```bash
+/usr/bin/python3 -c 'import json,sys
+r=json.load(open(sys.argv[1]))
+d=r.get("details",{})
+print(json.dumps({"status":r["status"],"code":r.get("code"),"scope":r.get("scope"),
+ "counts":r.get("counts"),"database_target_sha256":r.get("database_target_sha256"),
+ "details_laengder":{k:(len(v) if hasattr(v,"__len__") else v) for k,v in d.items()}},
+ ensure_ascii=False,sort_keys=True))' "$RUN/rapport.json" > "$RUN/rapport-renset.json"
+```
+
+De hærdede R-kopier må ikke udskrive aktør-ID; de logger kun, at en aktør med rollen
+`redaktion` blev fundet.
 Succesmarkør: `VERIFY_OK`. Først derefter ophæver projektejeren
 redaktionspausen.
 
 ---
 
-## 6. Stopregler
+## 6. Fortrydelse — restore af dagens backup
+
+Fortrydelse er den ENESTE vej tilbage, og den skal være øvet og bundet, før GO gives.
+Rehearsalen i trin 2 beviser en restore til en **tom** lokal base; det er ikke det
+samme som at lægge dumpet tilbage oven på en **befolket** database med Supabases
+managed roller, ACL'er og aktive forbindelser.
+
+**Øv fortrydelsen i trin 2 (lokalt, samme kørsel).** Efter rehearsalens apply:
+
+1. Notér en indholds-hash af den befolkede bases før-tilstand (`clause_evidence`-frit
+   udgangspunkt) — brug projektionens `neutral_sha256` fra før-projektionen.
+2. Kør `pg_restore --clean --if-exists --no-owner` med dagens dump **oven på den samme,
+   nu befolkede rehearsal-base** (ikke en frisk base).
+3. Kræv i kode: 0 klausuler, 0 `clause_evidence`-hændelser, ingen writer-profilrække, og
+   at en ny projektion giver præcis den `neutral_sha256`, der blev noteret i punkt 1.
+4. Notér hvilke fejl restoren gav (kun `supabase_vault` er tilladt) og hvilke
+   privilegier den krævede.
+
+**Prod-metoden skal vælges og bindes i GO-pakken.** Supabase free-tier har ingen
+point-in-time-restore, så der er to realistiske veje, og de har hver deres pris:
+
+- **A — `pg_restore --clean --if-exists` oven på den eksisterende prod-database** via
+  Session pooler. Kræver rettigheder til at droppe og genskabe objekter, der ejes af
+  Supabases roller; hvad der ikke kan droppes, kan ikke gendannes trofast. Skal
+  privilegie-preflightes mod prod (læse-kun: `has_table_privilege`,
+  `pg_has_role('supabase_admin', 'MEMBER')` og ejerskabsoversigt) FØR apply.
+- **B — nyt Supabase-projekt, restore af dumpet dertil, og omlægning af fladen.** Rører
+  ikke den beskadigede base, men kræver nye nøgler og et nyt `VITE_`-build af `web/`
+  (env bages ind ved build, jf. `vercel-deploy`-erfaringen), og mobil-appen peger
+  fortsat på den gamle URL, indtil den bygges igen.
+
+**GO må ikke gives, før én af de to veje er valgt, dens forudsætninger er preflightet
+mod prod, og fortrydelsen er øvet lokalt efter punkt 1-4.** Valget, dets preflight og
+øvelsens tal er en del af GO-pakken.
+
+---
+
+## 7. Stopregler
 
 - Intet GO uden en ny backup, en restore af netop dens SHA og en fuld bestået
   rehearsal af samme scripts og revision.
+- Intet GO uden en valgt, preflightet og lokalt øvet fortrydelsesvej (§6). En
+  fortrydelse, der først prøves den dag den skal bruges, er ikke en fortrydelse.
+- Intet GO, hvis skrivepausen ikke var aktiv allerede før dumpet, eller hvis
+  `00-freeze.sh begin` viste aktive ikke-egne forbindelser, der ikke kunne gøres rede
+  for. Manglende `change_set`-rækker beviser ikke det modsatte.
+- Enhver lokal ændring i en eksekveret eller sourcet fil efter GO er STOP, også når
+  commit-SHA er uændret.
 - Enhver `change_set.created_at >= dump_start` er STOP: nyt dump og ny
   rehearsal. Antal alene er aldrig en friskheds-port.
 - Enhver anden restore-fejl end `supabase_vault`, manglende platformrolle eller
@@ -297,7 +417,7 @@ redaktionspausen.
 
 ---
 
-## 7. Fælder
+## 8. Fælder
 
 1. `SET TRANSACTION READ ONLY` i psql-autocommit er en no-op. Brug sessionens
    `default_transaction_read_only`; projektionen styrer selv transaktionen.
@@ -325,7 +445,7 @@ redaktionspausen.
 
 ---
 
-## 8. Efter kørslen
+## 9. Efter kørslen
 
 Når `VERIFY_OK` er dokumenteret, opdateres `status.md`, changelog,
 `database-current-state` og `clause-evidence-148-rehearsal.md` med dato,
