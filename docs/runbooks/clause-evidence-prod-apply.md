@@ -227,9 +227,11 @@ beskrivelse som »samme manifest« eller »tallene ser rigtige ud«:
   komparatoren;
 - skrivepausens starttidspunkt (før dumpet), ansvarlig og optællingen af aktive
   ikke-egne forbindelser fra `00-freeze.sh begin`;
-- den valgte fortrydelsesvej (A eller B, §6), dens prod-preflight af privilegier, og
-  tallene fra den lokale fortrydelsesøvelse — herunder at `neutral_sha256` efter restore
-  var identisk med før-tilstanden;
+- fortrydelsesvejen (vej A, §6: `pg_restore --clean --if-exists --no-owner
+  --schema=private --schema=public`), resultatet af privilegie-preflighten mod prod (0
+  ikke-ejede relationer, 0 ikke-ejede funktioner, medlemskab og `CREATE` på begge
+  skemaer), og tallene fra den lokale fortrydelsesøvelse — herunder at `neutral_sha256`
+  efter restore var identisk med før-tilstanden;
 - `database_name` og prod-`EXPECTED_TARGET` fra `01-preflight.sh`;
 - dagens dumpsti, dump-starttid, dumpstørrelse og dump-SHA-256;
 - SHA-256 af rehearsal-rapporten og bevis for, at den brugte netop dump-SHA'en;
@@ -365,22 +367,64 @@ managed roller, ACL'er og aktive forbindelser.
 4. Notér hvilke fejl restoren gav (kun `supabase_vault` er tilladt) og hvilke
    privilegier den krævede.
 
-**Prod-metoden skal vælges og bindes i GO-pakken.** Supabase free-tier har ingen
-point-in-time-restore, så der er to realistiske veje, og de har hver deres pris:
+**Prod-metoden er valgt: vej A, afgrænset til vores egne to skemaer** (projektejeren,
+2026-09-17). Supabase free-tier har ingen point-in-time-restore, så fortrydelse er et
+`pg_restore` af dagens dump.
 
-- **A — `pg_restore --clean --if-exists` oven på den eksisterende prod-database** via
-  Session pooler. Kræver rettigheder til at droppe og genskabe objekter, der ejes af
-  Supabases roller; hvad der ikke kan droppes, kan ikke gendannes trofast. Skal
-  privilegie-preflightes mod prod (læse-kun: `has_table_privilege`,
-  `pg_has_role('supabase_admin', 'MEMBER')` og ejerskabsoversigt) FØR apply.
-- **B — nyt Supabase-projekt, restore af dumpet dertil, og omlægning af fladen.** Rører
-  ikke den beskadigede base, men kræver nye nøgler og et nyt `VITE_`-build af `web/`
-  (env bages ind ved build, jf. `vercel-deploy`-erfaringen), og mobil-appen peger
-  fortsat på den gamle URL, indtil den bygges igen.
+Målt i dumpet fra 2026-09-17 (`pg_restore -l`, ingen prod-forbindelse): 1 458 objekter
+ejes af `postgres`, men 285 af `supabase_auth_admin`, 86 af `supabase_storage_admin`, 61
+af `supabase_admin` og 51 af `supabase_realtime_admin`. Prods forbindelsesbruger er
+`postgres` og er **ikke** superuser, så en fuld `--clean` ville forsøge at droppe
+objekter, den ikke ejer. Inden for `private` og `public` ejer `postgres` derimod alle
+1 395 rigtige objekter; de øvrige seks poster er ACL-/DEFAULT-ACL-poster, som `--clean`
+ikke dropper. Klausulkørslen skriver kun i `private`, så en afgrænset restore er både
+nok og gennemførlig:
 
-**GO må ikke gives, før én af de to veje er valgt, dens forudsætninger er preflightet
-mod prod, og fortrydelsen er øvet lokalt efter punkt 1-4.** Valget, dets preflight og
-øvelsens tal er en del af GO-pakken.
+```bash
+pg_restore --clean --if-exists --no-owner --schema=private --schema=public \
+  --dbname "$DAA_PROD_DSN" ~/.private/<dagens-dump>.dump
+```
+
+**Privilegie-preflight (læse-kun, køres af projektejeren FØR apply).** Gem som
+`~/.private/148c-prod/rollback-preflight.sql` og kør med
+`PGOPTIONS='-c default_transaction_read_only=on' psql "$DAA_PROD_DSN" -X -At -F' = ' -f …`:
+
+```sql
+SELECT * FROM (
+SELECT 'bruger' AS maaling, current_user::text AS vaerdi
+UNION ALL SELECT 'superuser', (SELECT rolsuper::text FROM pg_roles WHERE rolname=current_user)
+UNION ALL SELECT 'relationer i private+public som brugeren IKKE ejer',
+  (SELECT count(*)::text FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname IN ('private','public') AND c.relkind IN ('r','v','m','S','p')
+      AND NOT pg_has_role(current_user, c.relowner, 'MEMBER'))
+UNION ALL SELECT 'funktioner i private+public som brugeren IKKE ejer',
+  (SELECT count(*)::text FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname IN ('private','public') AND NOT pg_has_role(current_user, p.proowner, 'MEMBER'))
+UNION ALL SELECT 'skema private: ejer/medlem',
+  (SELECT pg_get_userbyid(nspowner)||'/'||pg_has_role(current_user,nspowner,'MEMBER')::text
+     FROM pg_namespace WHERE nspname='private')
+UNION ALL SELECT 'skema public: ejer/medlem',
+  (SELECT pg_get_userbyid(nspowner)||'/'||pg_has_role(current_user,nspowner,'MEMBER')::text
+     FROM pg_namespace WHERE nspname='public')
+UNION ALL SELECT 'CREATE paa private/public',
+  (SELECT has_schema_privilege(current_user,'private','CREATE')::text||'/'||
+          has_schema_privilege(current_user,'public','CREATE')::text)
+) q ORDER BY maaling COLLATE "C"
+```
+
+Kravet er: **0** relationer og **0** funktioner, som brugeren ikke ejer, medlemskab af
+begge skemaers ejere, og `CREATE` på begge. Alt andet er STOP, og så er fortrydelsen
+ikke vej A — se alternativet nedenfor. Forespørgslen er prøvet mod prod-restoren, så
+syntaksen er kendt god.
+
+**Alternativ, hvis preflighten fejler:** nyt Supabase-projekt, restore af dumpet dertil
+og omlægning af fladen. Det rører ikke den beskadigede base, men kræver nye nøgler, et
+nyt `VITE_`-build af `web/` (env bages ind ved build) og en ny mobil-build. Vælges den
+vej, skal GO-pakken bære den i stedet.
+
+**GO må ikke gives, før preflighten er kørt mod prod med det krævede resultat og
+fortrydelsen er øvet lokalt efter punkt 1-4.** Preflightens tal og øvelsens tal er en
+del af GO-pakken.
 
 ---
 
