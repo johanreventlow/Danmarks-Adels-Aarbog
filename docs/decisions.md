@@ -2,6 +2,27 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 4.1c's klausulkørsel i prod fortrydes kun ved restore (2026-09-17)
+
+**Kvittering fra projektejeren** for spec §4.1.5
+(`docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md`):
+der bygges ingen fortryd-funktion for `clause_evidence` i prod. Går klausulkørslen galt,
+er vejen tilbage en restore af backuppen, taget umiddelbart før apply.
+
+**Konsekvensen, sagt højt:** en restore sletter også alt andet, der er skrevet i prod siden
+backuppen — redaktionelle rettelser inklusive. Apply-scriptets stopport på `change_set`
+oprettet efter backup-start (indført ved skemadeployet 2026-09-17) mindsker vinduet, men
+lukker det ikke.
+
+**Afgrænsning:** kvitteringen gælder kun `clause_evidence`. Den arver ikke til
+`interpretation_proposal` (4.4), hvor prod-fortrydelse fortsat ikke er designet (spec åbent
+punkt 11.5), og den er ikke i sig selv et prod-GO for kørslen. Klausulkørslen kræver
+fortsat en klausul-projektion i fase-pakke-gaten (spec åbent punkt 11.1) og sit eget GO.
+
+**Forkastet:** en reversal-RPC for klausuler. Klausuler er append-only evidens uden
+kanonisk delta; en særlig fortryd-sti ville være ny, utestet kode på den mest følsomme
+vej, for en operation hvis fejl kun rammer det private evidenslag.
+
 ## BESLUTTET: reviewsignalet bor i menneskearket, ikke i en kolonne (2026-09-15)
 
 **Baggrund.** 4.3b's ene usande claim var en **sproglig** fejl: »…var død 1353 (23. april),
