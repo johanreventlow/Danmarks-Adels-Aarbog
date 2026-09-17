@@ -99,7 +99,7 @@ Alle nøgler obligatoriske, ingen ekstra:
 }
 ```
 
-`clauses` er **hele** kildens klausulinventar (scoped via `extraction_run.source_id`), ikke kun klausuler under accepterede forekomster; `record_key` er `null`, når forekomsten ikke har ét accepteret anker. Identitet: `observation_id` (stabil inden for databasen mellem før og efter). `row_sha256` er hash af hele observationsrækken, `disposition_history_sha256` af hele klausulens dispositionshistorik — så fremmede klausuler sammenlignes på fuldt indhold, ikke kun de projekterede felter. `run_matches_profile` og `extraction_method_matches_profile` beregnes i SQL mod den writer-profil, målbatchen er bundet til. Hændelser har identiteten `(batch_id, element_id)`.
+`clauses` er **hele** kildens klausulinventar (scoped via `extraction_run.source_id`), ikke kun klausuler under accepterede forekomster; `record_key` er `null`, når forekomsten ikke har noget accepteret anker (databasetriggeren tillader højst ét; duplikater ville fejle lukket som `DUPLICATE_ROW`). Identitet: `observation_id` (stabil inden for databasen mellem før og efter). `row_sha256` er hash af hele observationsrækken, `disposition_history_sha256` af hele klausulens dispositionshistorik — så fremmede klausuler sammenlignes på fuldt indhold, ikke kun de projekterede felter. `run_matches_profile` og `extraction_method_matches_profile` beregnes i SQL mod den writer-profil, målbatchen er bundet til. Hændelser har identiteten `(batch_id, element_id)`.
 
 **Målidentitet:** `database_target_sha256 = sha256(database_name + "\n" + system_identifier_sha256)` (UTF-8, hex). SQL-versionen står i `clause_evidence_target_identity.sql`.
 
@@ -2084,7 +2084,7 @@ Expected: `exit=0`, `REHEARSAL_OK <runid>`, match-JSON med `records 591`, `claus
 
 - [ ] **Step 4: Skriv rapportafsnittet**
 
-Tilføj nederst i `docs/evidensbaseret-genimport/clause-evidence-148-rehearsal.md` et afsnit `## Klausul-projektion (#195) — rehearsal 2026-09-17` med de faktisk målte værdier: manifest-SHA, målidentitet, `foer.json`/`efter.json`-SHA'er, terminal-JSON for match (uden `input_sha256`-stier), de to negative koder, run-id. Tilføj i 4.1c-afsnittets »Intet kanonisk delta«-tekst sætningen: *»NB: målt som antal pr. tabel; indholdsbeviset er klausul-projektionen nedenfor.«*
+Tilføj nederst i `docs/evidensbaseret-genimport/clause-evidence-148-rehearsal.md` et afsnit `## Klausul-projektion (#195) — rehearsal 2026-09-17` med de faktisk målte værdier: manifest-SHA, målidentitet, `foer.json`/`efter.json`-SHA'er, terminal-JSON for match (uden `input_sha256`-stier), de tre negative koder, run-id. Tilføj i 4.1c-afsnittets »Intet kanonisk delta«-tekst sætningen: *»NB: målt som antal pr. tabel; indholdsbeviset er klausul-projektionen nedenfor.«*
 
 - [ ] **Step 5: Changelog**
 
@@ -2186,3 +2186,12 @@ kopier med andet databasenavn; komparatoren svarede korrekt `TARGET_MISMATCH` (m
 hasher databasenavnet) og skjulte de tilsigtede koder. Positiv del bestod (591/868, 617/251).
 **Rettet:** kopien er nu negativ 0 (`TARGET_MISMATCH`); negativ 2 og 1 muterer rehearsal-basen
 selv, i komparatorens kontrolrækkefølge.
+
+**Revision 6 — slutreview (opus), 2026-09-17.** Pinnede sessionsindstillinger (`TimeZone`,
+`DateStyle`, `IntervalStyle`, `extra_float_digits`) + guard, så `::text`-gengivelse ikke kan
+give falsk drift mellem før- og efter-shells; evidens i projektionen begrænset til
+maskinelle nøgler + en nøgleliste (`disposition_evidence_keys`), så menneskelige
+dispositioners fritekst (4.5) aldrig forlader databasen; runbookens stopporte,
+bestået-kriteriets opdeling (records/clauses/dispositions mod rehearsalen,
+neutral_lists mod 4.1c's egen GO-pakke), DSN-guard og rolle-preflight; dokumentationsrettelser.
+Parkeret: `bbox`/`column_label` verificeres ikke på nye klausuler (kun writeren indsætter dem).

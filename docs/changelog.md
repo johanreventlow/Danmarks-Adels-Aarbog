@@ -8,8 +8,8 @@ Spec §11.1's klausul-projektion er bygget som vej C: en læse-kun projektion (e
 godkendte database, og at intet i de navngivne tabeller — heller ikke det offentligheden
 ser — ændrede sig. Fortolknings-projektionen er udskudt til #196.
 
-**Review:** Codex `gpt-5.6-sol` gav NO-GO i to runder før kode; alle fund rettet,
-overdraget eller indsnævret (decisions 2026-09-17).
+**Review:** Codex `gpt-5.6-sol` gav NO-GO i tre runder; GO i runde 4, efter alle fund var
+rettet, overdraget eller indsnævret (decisions 2026-09-17).
 
 **Fund til 4.1c's prod-kørsel:** writer-profilrækken for `daa-2018-20-clause-evidence-v1`
 findes ikke i prod; dens indsættelse er en varig prod-skrivning, der hører til 4.1c's GO.

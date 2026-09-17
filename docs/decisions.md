@@ -26,8 +26,9 @@ databaseadgang, som beviser én kørsels delta mod en godkendt måldatabase.
 tabeller; helrækkehashes kræver redaktionspause i vinduet. Fortolknings-projektionen
 (4.4) står i #196.
 
-**Review:** Codex `gpt-5.6-sol` gav NO-GO to gange før kode (runde 1: 7 BLOCKER; runde 2:
-1 ny BLOCKER + 5 delvist lukkede). Rettet: manifest-hashen genberegnes, én batch og én
+**Review:** Codex `gpt-5.6-sol` gav NO-GO i tre runder før kode (runde 1: 7 BLOCKER; runde
+2: 1 ny BLOCKER + 5 delvist lukkede; runde 3: yderligere fund), GO i runde 4. Rettet:
+manifest-hashen genberegnes, én batch og én
 kørsel bundet til writer-profilen, writer-invarianter tjekkes, klausulinventaret filtreres
 ikke på ankre og sammenlignes på hele rækker og dispositionshistorik, ældre hændelser skal
 være bevaret, `anon`-hashes er med, målidentiteten er bundet til en eksplicit DSN,
