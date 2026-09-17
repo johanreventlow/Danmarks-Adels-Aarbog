@@ -336,6 +336,109 @@ SHA er NO-GO: bevar inputs, gennemgå det eksakte difference-sæt kun i den
 private rapport, og stop. Aldrig reparér prod for at få en optælling til at
 passe.
 
+## Klausul-projektion (udgaveneutral delta-afstemning, spec §11.1)
+
+Gælder `clause_evidence`-kørsler (4.1c). Den afstemmer **én kørsels delta**, ikke
+historien: den kender ingen udgave eller fase og afhænger ikke af
+`reconcile_evidence_phase_gate.py`, som er låst til 1939/source 3 og ikke er i `main`.
+Værktøjet er i `main` (#195): `clause_evidence_projection.psql` med tre SQL-filer og
+`compare_clause_evidence_projection.py`.
+
+**Hvad et `match` beviser** (mod den godkendte måldatabase):
+
+1. De fem kildeprojektioner (records, accepterede ankre, narrativbindinger i alle
+   statusser, narrativ-hashes, personer) er identiske før og efter.
+2. Hele rækker er uændrede i `person`, `fact`, `assertion`, `conclusion`, `narrative`,
+   `relation`, `family_member`, `citation`, `person_external_id`, `source_mention`,
+   `source_record`, `source_record_occurrence`, `source_record_anchor_event`,
+   `narrative_record_publication`, alle ikke-klausul-observationer og andre kilders
+   klausuler og dispositioner.
+3. Det, rollen `anon` ser gennem RLS i `assertion`, `citation`, `conclusion`, `fact`,
+   `family_member`, `narrative`, `person` og `person_external_id`, er uændret.
+4. Klausulerne for manifestets records er præcis manifestets (spænd, klassifikation,
+   flag, tekst-hash, helpost-hash, startdisposition v1), og hver bærer writerens
+   invarianter: samme forekomst, sider og kvalitet som helposten, helposten er rod,
+   `extraction_method` slutter på regelversionen, kørslen er bundet til manifestet og
+   batchen, dispositionen er maskinel med batchens evidens.
+5. Én `finalized` batch med manifestets **genberegnede** hash og writer-profilens id og
+   hash, én hændelse pr. record, alle klausuler fra én kørsel, hvis proveniensfelter
+   matcher profilen; alle ældre `clause_evidence`-hændelser for kilden er bevaret uændret.
+6. Ingen anden klausul i kildens inventar — også under forekomster uden accepteret
+   anker — er tilføjet, fjernet eller ændret, målt på hele rækken og hele
+   dispositionshistorikken.
+
+**Afstemt delta:** kildens nye klausuler med dispositioner og de nye hændelser, som
+ovenfor. **Ikke afstemt** ud over de nævnte felter: `reimport_authorization`,
+`reimport_batch` og `extraction_run`.
+
+**Hvad det ikke beviser:** at prod er summen af tidligere faser; tabeller uden for
+listerne ovenfor, herunder autorisations-, batch- og kørselsrækkernes øvrige indhold;
+RLS/ACL-definitioner (uændret DDL forudsættes).
+
+**Forudsætninger, der hører til 4.1c's egen GO-pakke (ikke denne procedure):**
+backup; writer-profilrækken for `daa-2018-20-clause-evidence-v1`, som **ikke findes i
+prod** pr. 2026-09-17 — dens indsættelse er en varig prod-skrivning, der skal være et
+hash-låst skridt med readback i 4.1c's prod-runbook (endnu ikke skrevet); apply.
+
+**Procedure** (alt mod prod kører i projektejerens shell; sessionen læser kun de private
+filer bagefter):
+
+**Målbinding.** Alle psql-kald bruger den eksplicitte forbindelsesstreng `"$DAA_PROD_DSN"`
+(Session pooler-DSN'en for DAA-projektet), aldrig omgivende `PG*`-variabler. Projektejeren
+verificerer DSN'ens projekt-reference mod Supabase-dashboardet, før preflight køres.
+`EXPECTED_TARGET` skrives ind i 4.1c's GO-dokument **før** backup, sammen med
+`database_name`, og backup og rehearsal i 4.1c's GO-pakke tages mod samme DSN. Komparatoren
+håndhæver derefter, at før- og efter-projektion er taget mod netop den database. Den
+tilbageværende tillid hviler på én menneskelig kontrol: at DSN'en er prod.
+
+0. **Læse-kun preflight** (resultatet skrives ind i GO-dokumentet):
+
+   ```bash
+   PGOPTIONS='-c default_transaction_read_only=on' psql "$DAA_PROD_DSN" -X -At -v ON_ERROR_STOP=1 \
+     -c "SELECT current_database()" \
+     -f .claude/skills/daa-extract/scripts/clause_evidence_target_identity.sql \
+     -c "SELECT pg_has_role(current_user, 'anon', 'MEMBER')"
+   ```
+
+   Linje 1 er `database_name`, linje 2 `EXPECTED_TARGET`. Er linje 3 ikke `t`, kan
+   projektionen ikke tage `anon`-hashes mod denne forbindelse — stop.
+1. **Redaktionspause** fra før- til efter-projektion. Enhver redigering i vinduet giver
+   `CANONICAL_DRIFT`/`ANON_DRIFT` (fail-closed).
+2. **Ny run-mappe pr. forsøg; eksisterende mappe afvises, intet overskrives:**
+
+   ```bash
+   umask 077; setopt noclobber 2>/dev/null || set -o noclobber
+   mkdir -p ~/.private/klausul-projektion-prod && chmod 700 ~/.private/klausul-projektion-prod
+   RUN=$(mktemp -d ~/.private/klausul-projektion-prod/run-XXXXXXXX) || { echo "STOP: run-mappe"; exit 1; }
+   ```
+
+3. **Før-projektion** (efter profilrækken, før apply):
+
+   ```bash
+   DAA_PROJECTION_SQL_DIR=.claude/skills/daa-extract/scripts \
+     psql "$DAA_PROD_DSN" -X -At -q -v ON_ERROR_STOP=1 -v source_id=1 \
+     -f .claude/skills/daa-extract/scripts/clause_evidence_projection.psql > "$RUN/foer.json"
+   ```
+
+4. Apply af 4.1c efter dens egen GO.
+5. **Efter-projektion:** samme kommando til `"$RUN/efter.json"`.
+6. **Afstemning:**
+
+   ```bash
+   /usr/bin/python3 .claude/skills/daa-extract/scripts/compare_clause_evidence_projection.py \
+     --manifest ~/.private/<4.1c-manifest>.json --before "$RUN/foer.json" --after "$RUN/efter.json" \
+     --expect-target-sha256 <EXPECTED_TARGET fra GO-dokumentet> --report "$RUN/rapport.json"
+   shasum -a 256 "$RUN"/*.json
+   ```
+
+   `--allow-empty` må **ikke** bruges mod prod.
+7. **Bestået** kræver exit 0, `"status": "match"`, `database_target_sha256` =
+   `EXPECTED_TARGET`, og at `counts` er lig rehearsalens (`clause-evidence-148-rehearsal.md`,
+   afsnit »Klausul-projektion«).
+8. **NO-GO** (exit 1): bevar run-mappen urørt, læs kun fejlkoden og den private rapports
+   nøgler/feltnavne, og stop. Reparér aldrig prod for at få `match`; vejen tilbage er
+   restore (decisions 2026-09-17).
+
 ## Hvad denne gate ikke beviser
 
 Et match er **ikke** bevis for `prod = sum af alle historiske manifests`. Den

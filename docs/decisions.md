@@ -2,6 +2,42 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: klausul-projektionen er et udgaveneutralt delta-tjek, ikke en udvidelse af 1939-gaten (2026-09-17)
+
+**Afgjort af projektejeren** (vej C af tre) for spec §11.1, issue #195.
+
+**Baggrund.** Fase-pakke-runbookens værktøj (`reconcile_evidence_phase_gate.py` m.fl.,
+~9.000 linjer) ligger kun på den umergede gren `codex/finish-156-158`. #170 udelod det
+bevidst som udgavespecifikt og INCOMPLETE. Det er låst til 1939/source 3's otte
+historiske faser (`HISTORICAL_PHASE_CONTRACTS`), mens 4.1c's 591 records er 2018-20
+(source 1), skrevet af 149a/149b, som gaten ikke kender. En prøve-merge gav én
+docs-konflikt og 215 grønne tests — koden virker, men passer ikke til opgaven.
+
+**Valgt (C):** en læse-kun projektion (ejer + `anon` i ét snapshot) og en komparator uden
+databaseadgang, som beviser én kørsels delta mod en godkendt måldatabase.
+
+**Fravalgt:**
+- **A — håndskrevet bidrag i runbooken, som 149a/b.** Runbooken forbyder selv manuelt
+  konstruerede bidrag; afstemningen ville være en erklæring, ikke et bevis.
+- **B — merge og generalisér 1939-gaten.** Omgør #170, kræver et nyt historisk scope
+  (149a → 149b → 4.1c), og 149a/b kan formentlig ikke bindes bagudrettet.
+
+**Prisen, sagt højt:** C beviser ikke historisk fuldstændighed og dækker kun de navngivne
+tabeller; helrækkehashes kræver redaktionspause i vinduet. Fortolknings-projektionen
+(4.4) står i #196.
+
+**Review:** Codex `gpt-5.6-sol` gav NO-GO to gange før kode (runde 1: 7 BLOCKER; runde 2:
+1 ny BLOCKER + 5 delvist lukkede). Rettet: manifest-hashen genberegnes, én batch og én
+kørsel bundet til writer-profilen, writer-invarianter tjekkes, klausulinventaret filtreres
+ikke på ankre og sammenlignes på hele rækker og dispositionshistorik, ældre hændelser skal
+være bevaret, `anon`-hashes er med, målidentiteten er bundet til en eksplicit DSN,
+rehearsal-stop er kode. Overdraget/indsnævret: profilrækkens prod-indsættelse hører til
+4.1c's GO-pakke; autorisations-, batch- og kørselsrækker afstemmes kun i projekterede
+felter; resttilliden er, at DSN'en er prod.
+
+**Fund:** 4.1c-rehearsalens »kanonisk lag identisk« (`kanonisk()` i det private
+apply-script) var en hash af `count(*)` pr. tabel. Den erstattes af helrækkehashes.
+
 ## BESLUTTET: 4.1c's klausulkørsel i prod fortrydes kun ved restore (2026-09-17)
 
 **Kvittering fra projektejeren** for spec §4.1.5

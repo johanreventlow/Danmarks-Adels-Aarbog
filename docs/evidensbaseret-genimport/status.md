@@ -128,10 +128,12 @@ programmets samlede modenhed.
 ## Åbne blokeringer
 
 - **Trin 4's skema er i prod, dets data er ikke.** Skema og writere deployet 2026-09-17.
-  Første datakørsel er fortsat 4.1c (klausuler, nul kanonisk delta) og kræver særskilt
-  fortrydelseskvittering samt en klausul-projektion i fase-pakke-runbooken, som ikke findes
-  endnu. For `interpretation_proposal` findes ingen prod-fortrydelse (spec åbent punkt
-  11.5).
+  Første datakørsel er 4.1c (klausuler, nul kanonisk delta). Fortrydelseskvitteringen er
+  givet (decisions 2026-09-17: fortryd = restore), og klausul-projektionen er defineret
+  i fase-pakke-runbooken som et udgaveneutralt delta-tjek (#195). Tilbage før prod-GO:
+  4.1c's prod-runbook (herunder writer-profilrækken, som ikke findes i prod) og
+  projektejerens GO pr. apply. Fortolknings-projektionen for 4.4 mangler (#196), og for
+  `interpretation_proposal` findes ingen prod-fortrydelse (spec åbent punkt 11.5).
 - **4.5 mangler plan.** 4.3a, 4.3b og 4.4 er kørt og merget; 4.5 (pilot, afgørelse,
   binding) er næste dagsværk og bruger restoren `daa43b_20260912192527`.
   4.3a's Codex-forbrugsprobe er **kørt 2026-09-11** og lukket: `codex exec --json`
@@ -160,8 +162,8 @@ Dagsværkene 4.1a-4.4 er **udført og merget**, og skemaet er deployet til prod 
 Næste tilladte arbejde er ét af to, og projektejeren afgør hvilket:
 
 1. **Plan 4.5** — pilot, menneskets afgørelse og binding, mod restoren.
-2. **Forudsætningerne for trin 4's første datakørsel i prod** — fortrydelseskvittering og
-   klausul-projektion i fase-pakke-runbooken for 4.1c's klausuler.
+2. **Trin 4's første datakørsel i prod: 4.1c** — kvittering og klausul-projektion er på
+   plads; mangler en prod-runbook (profilrække, backup, rehearsal) og projektejerens GO.
 
 Prod-mutationer kræver fortsat en udtrykkelig GO pr. apply.
 
