@@ -76,11 +76,25 @@ med tal, koder og hashes — aldrig DSN, credentials, kildetekst eller record-n�
   starttidspunkt, ansvarlig og en optælling af aktive ikke-egne forbindelser
   (`pg_stat_activity`) til en 0600-rapport. Optællingen og pausens tidsrum skal begge
   fremvises i GO-pakken.
+- **Hvad håndhæver pausen på hver skrivesti** (målt 2026-09-17 mod prod-restoren):
+  - *Redaktørfladen (web/mobil):* redaktionelle skrivninger kræver rollen `redaktion`,
+    og der findes **præcis én** profil med den rolle — projektejeren selv. Pausen
+    håndhæves derfor ved, at projektejeren ikke redigerer i vinduet og lukker åbne
+    redaktør-faner. `01-preflight.sh` verificerer læse-kun, at antallet af
+    `redaktion`-profiler stadig er 1; et højere tal er STOP, fordi pausen så afhænger
+    af en anden person.
+  - *R-loadere og manuelle psql-sessioner:* kører kun manuelt fra projektejerens
+    maskine. Der er ingen automatik: `.github/workflows/` har ingen prod-hemmeligheder
+    (målt), så CI kan ikke skrive mod prod.
+  - *Almindelige indloggede brugere:* kan under RLS skrive i ~30 `public`-tabeller
+    (fx bogmærker). De indgår ikke i projektionens hash-sæt, så de kan ikke forurene
+    beviset — men de **går tabt ved en fortrydelse**, se §6. Det er en del af prisen
+    for restore og skal siges højt, når pausen annonceres.
 - Hver afvigelse fra forventede hashes eller tal er STOP, ikke et
   justeringsrum. `--allow-empty` må aldrig bruges mod prod.
 
-De fem private scripts ligger i `~/.private/148c-prod/`, committes ikke og tager
-ingen hemmeligheder som argumenter. Projektejeren kører dem således:
+De seks private scripts (`00-freeze.sh` … `05-verify.sh`) ligger i
+`~/.private/148c-prod/`, committes ikke og tager ingen hemmeligheder som argumenter. Projektejeren kører dem således:
 
 ```bash
 zsh ~/.private/148c-prod/00-freeze.sh begin           # projektejer, FØR dumpet
@@ -290,22 +304,34 @@ og udsted ikke en ny autorisation.** Afgør tilstanden med denne læse-kun fores
 som kun binder manifestets hash:
 
 ```bash
-PGOPTIONS='-c default_transaction_read_only=on' psql "$DAA_PROD_DSN" -X -At -v ON_ERROR_STOP=1 -c "
-SELECT b.id::text, b.status, count(e.id)
+PGOPTIONS='-c default_transaction_read_only=on' psql "$DAA_PROD_DSN" -X -At -F' | ' -v ON_ERROR_STOP=1 -c "
+SELECT (SELECT encode(pg_catalog.sha256(convert_to(current_database() || E'\n' ||
+          encode(pg_catalog.sha256(convert_to((pg_control_system()).system_identifier::text,'UTF8')),'hex'),
+          'UTF8')),'hex')) AS maalidentitet,
+       b.id::text, b.status, b.source_id, b.profile_id, b.profile_sha256,
+       count(e.id) AS events,
+       count(*) FILTER (WHERE e.element_id LIKE 'clause-evidence:%') AS klausul_elementer,
+       count(DISTINCT e.element_id) AS distinkte_elementer
   FROM private.reimport_batch b
   LEFT JOIN private.reimport_event e ON e.batch_id = b.id AND e.operation = 'clause_evidence'
  WHERE b.manifest_sha256 = '<manifest_content_sha256 fra GO-pakken>'
- GROUP BY 1, 2 ORDER BY 1 COLLATE \"C\""
+ GROUP BY b.id, b.status, b.source_id, b.profile_id, b.profile_sha256
+ ORDER BY b.id::text COLLATE \"C\""
 ```
 
-Udfaldene er udtømmende:
+Assertér ALLE bindinger, før udfaldet læses: `maalidentitet` = GO-pakkens
+`EXPECTED_TARGET`, `source_id` = 1, `profile_id` = `daa-2018-20-clause-evidence-v1`,
+`profile_sha256` = `7696cb87…`. Afviger én af dem, er det NO-GO uanset resten — så er
+det ikke vores kørsel.
 
 | Resultat | Betydning | Handling |
 |---|---|---|
 | 0 rækker | apply nåede aldrig at committe | Gentag trin 1's preflight-assertions; apply må køres én gang mere mod SAMME GO |
-| 1 række, `finalized`, 591 | apply lykkedes | Gå til `05-verify.sh`; kør ikke apply igen |
-| 1 række, `finalized`, ≠ 591 | delvis eller fremmed batch | NO-GO: bevar alt, fortryd ved restore |
+| 1 række, `finalized`, events = 591 og distinkte elementer = 591 | apply lykkedes | Gå til `05-verify.sh`; kør ikke apply igen |
+| 1 række, `finalized`, andre tal | delvis eller fremmed batch | NO-GO: bevar alt, fortryd ved restore |
 | 1 række, `open` | autorisation/batch in-flight | NO-GO: bevar alt, fortryd ved restore |
+| 1 række, anden status (`reversed`, `activated` …) | uventet tilstand for denne kørsel | NO-GO: bevar alt, fortryd ved restore |
+| 1 række, men en binding afviger | en anden kørsels batch | NO-GO: bevar alt, rør ikke prod, eskalér |
 | >1 række | mere end én batch på samme manifest | NO-GO: bevar alt, fortryd ved restore |
 
 ### 5.2 `05-verify.sh` (læse-kun)
@@ -356,16 +382,45 @@ Rehearsalen i trin 2 beviser en restore til en **tom** lokal base; det er ikke d
 samme som at lægge dumpet tilbage oven på en **befolket** database med Supabases
 managed roller, ACL'er og aktive forbindelser.
 
-**Øv fortrydelsen i trin 2 (lokalt, samme kørsel).** Efter rehearsalens apply:
+**Øv fortrydelsen i trin 2 (lokalt, samme kørsel).** Rækkefølgen er:
 
-1. Notér en indholds-hash af den befolkede bases før-tilstand (`clause_evidence`-frit
-   udgangspunkt) — brug projektionens `neutral_sha256` fra før-projektionen.
-2. Kør `pg_restore --clean --if-exists --no-owner` med dagens dump **oven på den samme,
-   nu befolkede rehearsal-base** (ikke en frisk base).
-3. Kræv i kode: 0 klausuler, 0 `clause_evidence`-hændelser, ingen writer-profilrække, og
-   at en ny projektion giver præcis den `neutral_sha256`, der blev noteret i punkt 1.
-4. Notér hvilke fejl restoren gav (kun `supabase_vault` er tilladt) og hvilke
-   privilegier den krævede.
+1. Restorer dagens dump **med ejerskab** (altså UDEN `--no-owner`) til rehearsal-basen,
+   efter at de otte tomme `NOLOGIN`-roller er oprettet. Så ligner objektejerskabet prods,
+   og `--clean` i punkt 4 prøver samme drop-mønster som i prod.
+2. Notér basens **tilstands-hash** før apply med `state-hash.sql` (nedenfor): en
+   deterministisk hash over ALLE tabeller i `private` og `public`. Den dækker også
+   `reimport_batch`, `reimport_authorization` og `extraction_run`, som projektionens
+   `neutral_sha256` ikke omfatter.
+3. Kør rehearsalens dry-run, profil-readback, før-projektion, apply og afstemning som
+   i §3.
+4. Kør `pg_restore --clean --if-exists --schema=private --schema=public` med dagens dump
+   **oven på den samme, nu befolkede base** — ikke en frisk base.
+5. Kræv i kode: 0 klausuler, 0 `clause_evidence`-hændelser, ingen writer-profilrække, og
+   at tilstands-hashen er **identisk** med punkt 2.
+6. Notér hvilke fejl restoren gav (kun `supabase_vault` er tilladt).
+
+```sql
+-- state-hash.sql — laese-kun, deterministisk (proevet: 1,5 s mod prod-restoren)
+SELECT encode(pg_catalog.sha256(convert_to(coalesce(string_agg(h, E'\n' ORDER BY h COLLATE "C"), ''), 'UTF8')), 'hex') AS state_sha256
+  FROM (
+    SELECT n.nspname || '.' || c.relname || ':' ||
+           encode(pg_catalog.sha256(convert_to(
+             coalesce(query_to_xml(format('SELECT x::text AS r FROM %I.%I x ORDER BY x::text COLLATE "C"',
+                                          n.nspname, c.relname), false, true, '')::text, ''), 'UTF8')), 'hex') AS h
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname IN ('private','public') AND c.relkind = 'r'
+  ) s
+```
+
+**Hvad øvelsen beviser — og ikke beviser.** Den beviser, at dumpet kan lægges tilbage
+oven på en befolket base og genskabe fuld tilstand i `private`+`public`. Den beviser
+IKKE, at prods `postgres`-bruger har rettighederne: lokalt kører vi som superuser.
+Rettighedsspørgsmålet besvares kun af privilegie-preflighten mod prod nedenfor, og dens
+krævede resultat er 0/0 plus medlemskab og `CREATE`. Restoren fjerner desuden kun
+objekter, der findes i dumpets indholdsfortegnelse — objekter oprettet efter dumpet
+består. **Prisen ved en fortrydelse:** alt, hvad der er skrevet i `private` eller
+`public` efter dumpets starttid, går tabt — også almindelige brugeres skrivninger under
+RLS. Det er derfor, skrivepausen begynder før dumpet.
 
 **Prod-metoden er valgt: vej A, afgrænset til vores egne to skemaer** (projektejeren,
 2026-09-17). Supabase free-tier har ingen point-in-time-restore, så fortrydelse er et
@@ -477,8 +532,10 @@ del af GO-pakken.
    ikke skrivningen ugjort.
 7. Profilrækken indsættes varigt af dry-run. Før-projektionen tages derfor
    **efter** profil-readback og **før** klausul-apply.
-8. Redaktionspausen varer fra før- til efter-projektion; ekstern trafik giver
-   korrekt `CANONICAL_DRIFT`/`ANON_DRIFT`.
+8. Skrivepausen varer fra **før dumpet** til efter `VERIFY_OK` — ikke kun fra før- til
+   efter-projektion. Trafik i projektionsvinduet giver korrekt
+   `CANONICAL_DRIFT`/`ANON_DRIFT`; trafik mellem dump og pausestart er værre, for den
+   er usynlig for gaten og går tabt ved en fortrydelse.
 9. `neutral_lists` kommer fra dagens restore-rehearsal, ikke fra
    2026-09-17-rapporten. `database_target_sha256` er databasespecifik og må
    heller ikke kopieres fra en ældre rehearsal.
