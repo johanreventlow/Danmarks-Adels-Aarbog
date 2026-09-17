@@ -1,5 +1,49 @@
 # Changelog
 
+## 2026-09-17 — Trin 4 i prod: skema og writere, ingen data (#147/#148)
+
+Blokkene 4.1a, 4.1c, 4.2 og 4.4 er deployet til produktionsdatabasen. Prod har nu
+klausullaget, prædikat-navnerummet og writerne for klausuler og fortolkningsforslag —
+**men ingen af writerne er kørt**. 0 fortolkninger, 1488 observationer, 1811 personer
+før og efter. Detaljer: `docs/database-current-state.md` §8.
+
+**Forløb (§5):** læse-kun preflight → backup → restore-rehearsal → GO → apply →
+læse-kun verifikation → Security Advisor. Scripts i `~/.private/trin4-prod/`.
+
+**Rækkefølgen er bindende.** 4.1c og 4.4 omdefinerer begge `red_finalize_reimport`,
+`red_reimport_batch_result` og `validate_reimport_authorization_payload` med hver sin
+lukkede operationsmængde. 4.1c kørt efter 4.4 ville stille fjerne
+`interpretation_proposal`. Rehearsal og prod bekræftede, at begge funktioner kender
+begge operationer.
+
+**Fund undervejs:**
+
+- **Backuppen blev forældet på to dage.** Dumpet fra 15/9 og det fra 17/9 havde
+  identiske tal, men det nye var 15 KB større. Apply-scriptets stopport sammenlignede
+  kun antal og ville have godkendt det gamle dump som rollback-punkt. Nyt dump og ny
+  rehearsal blev taget, og apply fik en stopport på `change_set` oprettet efter
+  backup-start. Den fanger redaktionelle ændringer, ikke loadere eller direkte SQL.
+- **`SET TRANSACTION READ ONLY` beskyttede ikke.** I psql's autocommit er den et no-op
+  med en WARNING. Læse-kun-scripts bruger nu
+  `PGOPTIONS='-c default_transaction_read_only=on'`.
+- **`db-migrations.sql` kan ikke køre som én transaktion.** Filen ejer #153's egen
+  `BEGIN`/`COMMIT`. `db-rls.sql` kan: den kørte med `--single-transaction` (0,2 s i
+  rehearsal), så de fem politik-udskiftninger på `entity_description` blev ét skifte.
+- **En verifikationsforespørgsel fejlede efter apply** (`ORDER BY` på en kolonne, der
+  ikke fandtes). Skrivningen var gennemført. Den resterende verifikation blev kørt
+  separat, efter at forespørgslen var prøvet mod rehearsal-kopien, og var grøn.
+  Lære: verifikationsforespørgsler hører i rehearsal, ikke kun i apply.
+
+**Advisors:** 0 ERROR i både security og performance. Security: fire nye linjer, alle
+kendte mønstre. Performance: ét nyt fund — `interpretation_predicate_fk` uden indeks, uden
+praktisk betydning i dag, men skal indekseres før forslags-writeren kører på skala.
+Ældre fund (bl.a. et dobbelt indeks på `private.source_persona_placement`) står i
+`database-current-state.md` §8.
+
+**Ikke gjort:** ingen datakørsel. Første datakørsel (4.1c's 868 klausuler) kræver
+fortsat fortrydelseskvittering og en klausul-projektion i fase-pakke-runbooken, og
+`interpretation_proposal` har ingen prod-fortrydelse (spec åbent punkt 11.5).
+
 ## 2026-09-14/15 — Trin 4, dagsværk 4.4: forslagene er i databasen (#147)
 
 84 modeludtrukne claims fra 4.3b står nu som `proposed`-fortolkninger i en restore, bundet

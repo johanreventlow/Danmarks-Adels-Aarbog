@@ -1,7 +1,8 @@
 # Evidensbaseret genimport — aktuel status
 
 **Verificeret:** 2026-09-06 efter GO 1-4 i prod (#152-cutover, #153, 149a, 149b);
-detaljer i `docs/changelog.md` 2026-09-05/06. **Kodestatus opdateret 2026-09-11**
+detaljer i `docs/changelog.md` 2026-09-05/06. **Prod opdateret 2026-09-17:** trin 4's skema og writere er deployet uden evidensdata —
+se tillægget nedenfor. **Kodestatus opdateret 2026-09-11**
 efter merge af trin 4's dagsværk 4.1a-4.2 — se tillægget under Produktionsstatus.
 
 **Kodegrundlag:** Task 12's funktionelle bevis er commit `4922d7e`; den
@@ -12,6 +13,13 @@ er `integreret ende-til-ende`, se tabellen og blokeringerne; 149a
 (2018-20 kilderegnskab) er `integreret ende-til-ende`, se tabellen; #156
 lukket med restpunkt (INCOMPLETE-afstemning, snapshot forseglet).
 
+**Tillæg 2026-09-17 — trin 4's skema og writere er i prod, men ingen data.** Blokkene
+4.1a, 4.1c, 4.2 og 4.4 er deployet efter preflight, backup, restore-rehearsal og
+projektejerens GO (`docs/database-current-state.md` §8). Prod har nu klausullaget,
+prædikat-navnerummet og begge writere — men **ingen writer er kørt mod prod**: 0
+fortolkninger, 1488 observationer, uændret. Datakørslerne er fortsat gated (se Åbne
+blokeringer). Modenhedsrækkerne flyttes ikke af et skemadeploy.
+
 **Tillæg 2026-09-15 — trin 4's dagsværk 4.4 er lukket og merget.** Proposed-ingest er
 bevist mod 4.3b's restore (manifest `a328ede9…`, runner-manifest `56a57a56…`, profil
 `4e39fff4…`): 84 forslag, forventet fordeling nedskrevet før kørslen og ramt på alle otte tal.
@@ -21,13 +29,14 @@ bevist mod 4.3b's restore (manifest `a328ede9…`, runner-manifest `56a57a56…`
 `proposal-ingest-147-4-4-rehearsal.md`. Merget som PR #192 (efter #191 med selve
 writer-operationen), CI grøn på alle ti jobs.
 
-**Koden er i `main`, ikke i produktionsdatabasen.** Trin 4's migrationer er fortsat ikke kørt
-mod prod, og afstanden vokser med hvert dagsværk. Restoren `daa43b_20260912192527` skal
+**Pr. 2026-09-15 var koden i `main`, ikke i produktionsdatabasen** — skemaet er siden
+deployet, se tillæg 2026-09-17. Restoren `daa43b_20260912192527` skal
 bevares — 4.5 bruger den, fordi klausul-id'erne er database-genererede.
 
 **Produktionsstatus:** C3 (2026-08-29), #152-cutover (kontrakt 2), #153's generelle
 writer, 149a (591 records/forekomster/ankre) og 149b (541 publicerede + 46 kladde-bindinger)
-er anvendt og efterverificeret i prod 2026-09-05/06.
+er anvendt og efterverificeret i prod 2026-09-05/06. Trin 4's skema og writere (4.1a, 4.1c,
+4.2, 4.4) er deployet 2026-09-17 — uden evidensdata.
 
 **Tillæg 2026-09-11 — trin 4's dagsværk 4.1a-4.2 er `implementeret og merget`.**
 #173, #174, #175, #176 og #177 er i `main` med grøn CI: klausullagets skema, den
@@ -118,13 +127,13 @@ programmets samlede modenhed.
 
 ## Åbne blokeringer
 
-- **Trin 4 er implementeret, men ikke i prod-databasen.** 4.1a-4.2 er merget til `main`
-  (2026-09-10/11). Tre additive, idempotente migrationer venter på en prod-kørsel;
-  rehearsal-bevis foreligger for alle tre. Første prod-GO-kandidat er fortsat 4.1c
-  (klausuler, nul kanonisk delta) og kræver særskilt fortrydelseskvittering samt en
-  klausul-projektion i fase-pakke-runbooken, som ikke findes endnu.
-- **4.3-4.5 mangler planer.** Gaten var 4.1b's mellemrumstegnsæt — den **foreligger nu**
-  (hvidlisten `[" "]` bekræftet på alle 591 records), så planerne kan skrives.
+- **Trin 4's skema er i prod, dets data er ikke.** Skema og writere deployet 2026-09-17.
+  Første datakørsel er fortsat 4.1c (klausuler, nul kanonisk delta) og kræver særskilt
+  fortrydelseskvittering samt en klausul-projektion i fase-pakke-runbooken, som ikke findes
+  endnu. For `interpretation_proposal` findes ingen prod-fortrydelse (spec åbent punkt
+  11.5).
+- **4.5 mangler plan.** 4.3a, 4.3b og 4.4 er kørt og merget; 4.5 (pilot, afgørelse,
+  binding) er næste dagsværk og bruger restoren `daa43b_20260912192527`.
   4.3a's Codex-forbrugsprobe er **kørt 2026-09-11** og lukket: `codex exec --json`
   rapporterer forbrug i `turn.completed`, så spec §6.6's stopbetingelse for 4.3 er ikke
   udløst. Proben målte samtidig, at ~21,5k input-tokens er fast CLI-overhead pr. kald —
@@ -147,12 +156,12 @@ Roadmap-trin 1-3 (#152, #153, #149) er `produktionsverificeret` pr. 2026-09-06. 
 aktive programmål er **trin 4: den fælles fortolkningskæde og klausulgranularitet
 (#147/#148)**, aktiveret af projektejeren 2026-09-06 (decisions samme dato, seks valg).
 Spec: `docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md`.
-Planerne 4.1a, 4.1b, 4.1c og 4.2 er **udført og merget** i den rækkefølge (2026-09-10/11).
-Næste tilladte arbejde er derfor ét af to, og projektejeren afgør hvilket:
+Dagsværkene 4.1a-4.4 er **udført og merget**, og skemaet er deployet til prod 2026-09-17.
+Næste tilladte arbejde er ét af to, og projektejeren afgør hvilket:
 
-1. **Planerne for 4.3-4.5** — gaten (4.1b's mellemrumstegnsæt) er åbnet.
-2. **Prod-GO for trin 4's tre migrationer** — rehearsal-bevis foreligger for hver,
-   men selve beslutningen er ikke påbegyndt.
+1. **Plan 4.5** — pilot, menneskets afgørelse og binding, mod restoren.
+2. **Forudsætningerne for trin 4's første datakørsel i prod** — fortrydelseskvittering og
+   klausul-projektion i fase-pakke-runbooken for 4.1c's klausuler.
 
 Prod-mutationer kræver fortsat en udtrykkelig GO pr. apply.
 
