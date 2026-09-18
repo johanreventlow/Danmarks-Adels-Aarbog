@@ -461,6 +461,30 @@ writer-profilrækker. Men `pg_restore` gav **8 fejl** i tre klasser:
    prod ville efterlade netop denne række, og så ville en senere fortrydelse tabe to
    fremmednøgler.
 
+**Målt i prøvekørslen af scriptene 2026-09-18** (rent stand-in-dump, hele kæden):
+`REHEARSAL_OK` — 591 records, 868 klausuler, 617/251 dispositioner, 591 hændelser i én
+`finalized` batch, `db-verify`s to #148-markører, **0** fejl i den første restore, **6**
+tilladte fejl i fortrydelses-restoren, tilstands-hash identisk før/efter, 0 klausuler og
+0 hændelser bagefter, replay `already_applied`, komparator `match`. To fejl blev fundet
+og rettet undervejs, og de er værd at kende:
+
+- psql interpolerer **ikke** variabler i `-c`-kommandoer. `-v dump_start=… :'dump_start'`
+  gav en syntaksfejl; tidsstemplet inlines nu med en streng ISO-formatkontrol før brug.
+- De tre RLS-afhængige funktioner giver **to** beskedformer:
+  `cannot drop function public.X(args) because other objects depend on it` og
+  `function "X" already exists with same argument types` (bart navn, uden skema og
+  argumenter). En tilladelsesliste, der kun kender den første, stopper en korrekt
+  fortrydelse.
+
+**Rækken kan ikke bare slettes, hvis den opstår.** `private.interpretation_observation`
+er append-only (`EVIDENCE_APPEND_ONLY`-trigger), så en oprydning kræver
+`SET session_replication_role = replica` — i sig selv en prod-mutation, der skal have sin
+egen GO og sit eget bevis. Derfor er stopporten nedenfor billigere end konsekvensen.
+
+**Rehearsal-basen bevares** efter `REHEARSAL_OK` (den er beviset, GO'et hviler på) og
+droppes først, når kørslen er afsluttet eller GO'et er bortfaldet. Scriptet skriver basens
+navn i rapporten.
+
 **Stopport før GO (billig, og den fanger netop den lækage):** prod skal have **0**
 forældreløse rækker i `private.interpretation_observation`, og øvelsens fejlliste må kun
 indeholde klasse 1 og 2. En fortrydelse, der efterlader tabellen uden fremmednøgler, er
