@@ -526,6 +526,12 @@ udgave; alle er lukket og efterprøvet empirisk:
   verifikationen. Begge dele er nu kodede porte.
 - Rehearsalen kørte andre R-filer end prod. Nu er det de samme.
 
+Runde 2 fandt ét nyt hul: `PGHOSTADDR` blev ikke ryddet, og den slår `host=localhost`.
+Efterprøvet begge veje: `host=localhost` med `PGHOSTADDR=192.0.2.1` forbinder til
+192.0.2.1, og efter rettelsen gennemførte en fuld rehearsal med **både**
+`PYTHONOPTIMIZE=1` og `PGHOSTADDR=192.0.2.1` i miljøet med uændret resultat
+(`REHEARSAL_OK`, 591/868, 617/251, tilstands-hash identisk før/efter).
+
 **Rehearsal-basen bevares** efter `REHEARSAL_OK` (den er beviset, GO'et hviler på) og
 droppes først, når kørslen er afsluttet eller GO'et er bortfaldet. Scriptet skriver basens
 navn i rapporten.
