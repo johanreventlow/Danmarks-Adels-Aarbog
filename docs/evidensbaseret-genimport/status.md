@@ -127,15 +127,13 @@ programmets samlede modenhed.
 
 ## Åbne blokeringer
 
-- **Trin 4's skema er i prod, dets data er ikke.** Skema og writere deployet 2026-09-17.
-  Første datakørsel er 4.1c (klausuler, nul kanonisk delta). Fortrydelseskvitteringen er
-  givet (decisions 2026-09-17: fortryd = restore), og klausul-projektionen er defineret
-  i fase-pakke-runbooken som et udgaveneutralt delta-tjek (#195), og prod-proceduren
-  står i `docs/runbooks/clause-evidence-prod-apply.md` (fuld gate: ny backup →
-  restore-rehearsal af netop den → hash-låst GO → apply → afstemning; writer-profilrækken
-  findes ikke i prod og indsættes som eget skridt). Tilbage før prod-GO: kørslens egen
-  gate — preflight, backup, rehearsal — og projektejerens GO. Fortolknings-projektionen for 4.4 mangler (#196), og for
-  `interpretation_proposal` findes ingen prod-fortrydelse (spec åbent punkt 11.5).
+- **Trin 4's første data er i prod (4.1c, 2026-09-18).** 591 records og 868 klausuler
+  skrevet i én `finalized` batch, afstemt med klausul-projektionen (`match`, uændrede
+  neutrale lister, intet kanonisk delta). Procedure og bevis:
+  `docs/runbooks/clause-evidence-prod-apply.md` og changelog 2026-09-18. Fortrydelsesvinduet
+  er åbent, indtil projektejeren lukker det. **Næste datakørsel** er 4.4's
+  `interpretation_proposal`, som fortsat mangler en fortolknings-projektion (#196) og ikke
+  har nogen prod-fortrydelse (spec åbent punkt 11.5).
 - **4.5 mangler plan.** 4.3a, 4.3b og 4.4 er kørt og merget; 4.5 (pilot, afgørelse,
   binding) er næste dagsværk og bruger restoren `daa43b_20260912192527`.
   4.3a's Codex-forbrugsprobe er **kørt 2026-09-11** og lukket: `codex exec --json`

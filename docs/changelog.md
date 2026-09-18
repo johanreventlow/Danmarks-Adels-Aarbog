@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-09-18 — 4.1c: klausulerne er skrevet i prod (#148)
+
+Trin 4's **første datakørsel i produktion** er gennemført og afstemt. Prod har nu
+klausullaget udfyldt for 2018-20: **591 records, 868 klausuler**, dispositioner 617
+`afventer_fortolkning` / 251 `maskinelt_flagget`, 591 `clause_evidence`-hændelser i **én**
+`finalized` batch. Klausul-projektionen (#195) svarede `match` mod prods egen målidentitet,
+og de fem neutrale lister var uændrede (591/591/587/587/587) — intet kanonisk delta, ingen
+`anon`-drift.
+
+**Forløb** efter `docs/runbooks/clause-evidence-prod-apply.md`: skrivepause fra før dumpet →
+læse-kun preflight → backup (`b6cd1b1b…`) → restore-rehearsal af netop den backup, inkl.
+fortrydelsesøvelse → hash-låst GO → writer-profilrækken som eget skridt med readback → ét
+apply → efter-projektion og afstemning → pausen ophævet.
+
+**Rapporter** (private, 0600): preflight, rehearsal `16940a10…`, apply `7541bf7b…`,
+verify `8769f9ac…`. Manifest `0b31c5a2…`, profilversion `clause-evidence-v1`, commit
+`c296dd9`.
+
+**Fortrydelsesvinduet er åbent:** backuppen fra 2026-09-18 10:19:22Z bevares, indtil
+projektejeren lukker det. Fortrydelse er restore af den; alt skrevet i `private` eller
+`public` siden da ville gå tabt.
+
 ## 2026-09-17 — Klausul-projektion: udgaveneutralt delta-tjek til 4.1c (#195)
 
 Spec §11.1's klausul-projektion er bygget som vej C: en læse-kun projektion (ejer og
