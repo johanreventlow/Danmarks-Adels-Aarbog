@@ -41,12 +41,23 @@ med tal, koder og hashes — aldrig DSN, credentials, kildetekst eller record-n�
   R-kopier, `apply_reimport_helpers.R`, de fire projektionsfiler og komparatoren.
 - Alle private filer og mapper er mode `0600`/`0700`; hvert script starter med
   `set -euo pipefail`, `umask 077` og `PGTZ=UTC`.
-- Alle prod-kald bruger den eksplicitte `DAA_PROD_DSN` til **Session pooler**.
-  Ingen omgivende `PG*`-standarder må kunne vælge en anden database. Projektejeren
-  sammenholder projekt-referencen med Supabase-dashboardet.
+- **Forbindelsen sættes eksplicit i hvert script, aldrig arvet.** Projektet har ingen
+  DSN-variabel; mønstret er det samme som trin 4's skema-deploy: scriptet rydder først
+  alle nedarvede `PG*` (`PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD PGSSLMODE PGOPTIONS
+  PGSERVICE PGCONNECT_TIMEOUT`) og sætter dem derefter fra `~/.Renviron`
+  (`SUPABASE_HOST/PORT/DB/USER/PASSWORD`, `PGSSLMODE=require`, Session pooler).
+  `PGPASSWORD` udskrives aldrig. Projektejeren sammenholder host-værdien med Supabase-
+  dashboardet, første gang GO-pakken skrives.
+- **Målbindingen er det, der beviser databasen** — ikke variablernes navne. Hvert script
+  beregner `EXPECTED_TARGET` med `clause_evidence_target_identity.sql` på sin EGEN
+  forbindelse og sammenligner med GO-pakkens værdi (`DAA_EXPECTED_TARGET`). Afvigelse er
+  exit ≠ 0 før enhver skrivning.
+- Læse-kun kald sætter `PGOPTIONS='-c default_transaction_read_only=on'` **pr. kommando**,
+  ikke som eksport — en eksport ville også ramme skrivekaldene og få apply til at fejle
+  midt i kørslen.
 - **R-writerne skal bindes til samme mål.** `03-clause-dryrun.R` og `04-clause-apply.R`
-  læser `PGHOST`/`PGDATABASE`/`PGPORT`/`PGUSER`/`PGPASSWORD` og kender ikke
-  `DAA_PROD_DSN`; psql kan derfor verificere prod, mens R skriver i en anden base.
+  læser `PGHOST`/`PGDATABASE`/`PGPORT`/`PGUSER`/`PGPASSWORD` fra miljøet, som de finder
+  det; psql kan derfor verificere prod, mens R skriver i en anden base.
   Derfor bruges **hærdede kopier** i `~/.private/148c-prod/` (`03-clause-dryrun-prod.R`,
   `04-clause-apply-prod.R`), som: (a) rydder alle nedarvede `PG*`, (b) forbinder med
   præcis den DSN, GO-pakken binder, (c) beregner målidentitetens hash med formlen fra
@@ -124,7 +135,7 @@ af AI'en, som også kontrollerer scriptstruktur og de rensede rapporter.
 Scriptet følger navngivning og rapportmønster fra `trin4prod-01-preflight.sh` og
 skriver en unik, mode-0600 `preflight-<tid>.txt`. Det skal:
 
-1. afvise argumenter og manglende/tom `DAA_PROD_DSN`;
+1. afvise argumenter, og afvise at køre, hvis en af `~/.Renviron`-værdierne mangler;
 2. køre målidentitets-preflighten **ordret** fra fasepakkens
    »Klausul-projektion«, notere `database_name` og `EXPECTED_TARGET`, og kræve
    at rolletesten giver `anon`;
@@ -314,7 +325,7 @@ og udsted ikke en ny autorisation.** Afgør tilstanden med denne læse-kun fores
 som kun binder manifestets hash:
 
 ```bash
-PGOPTIONS='-c default_transaction_read_only=on' psql "$DAA_PROD_DSN" -X -At -F' | ' -v ON_ERROR_STOP=1 -c "
+PGOPTIONS='-c default_transaction_read_only=on' psql -X -At -F' | ' -v ON_ERROR_STOP=1 -c "
 SELECT (SELECT encode(pg_catalog.sha256(convert_to(current_database() || E'\n' ||
           encode(pg_catalog.sha256(convert_to((pg_control_system()).system_identifier::text,'UTF8')),'hex'),
           'UTF8')),'hex')) AS maalidentitet,
@@ -480,12 +491,12 @@ nok og gennemførlig:
 
 ```bash
 pg_restore --clean --if-exists --no-owner --schema=private --schema=public \
-  --dbname "$DAA_PROD_DSN" ~/.private/<dagens-dump>.dump
+  --dbname "$PGDATABASE" ~/.private/<dagens-dump>.dump
 ```
 
 **Privilegie-preflight (læse-kun, køres af projektejeren FØR apply).** Gem som
 `~/.private/148c-prod/rollback-preflight.sql` og kør med
-`PGOPTIONS='-c default_transaction_read_only=on' psql "$DAA_PROD_DSN" -X -At -F' = ' -f …`:
+`PGOPTIONS='-c default_transaction_read_only=on' psql -X -At -F' = ' -f …`:
 
 ```sql
 SELECT * FROM (
