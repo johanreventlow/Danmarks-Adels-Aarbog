@@ -439,9 +439,13 @@ managed roller, ACL'er og aktive forbindelser.
 
 **Øv fortrydelsen i trin 2 (lokalt, samme kørsel).** Rækkefølgen er:
 
-1. Restorer dagens dump **med ejerskab** (altså UDEN `--no-owner`) til rehearsal-basen,
-   efter at de otte tomme `NOLOGIN`-roller er oprettet. Så ligner objektejerskabet prods,
-   og `--clean` i punkt 4 prøver samme drop-mønster som i prod.
+1. Restorer dagens dump til rehearsal-basen med `--no-owner`, efter at de otte tomme
+   `NOLOGIN`-roller er oprettet. **Rettet 2026-09-18 efter måling:** en tidligere udgave af
+   dette punkt krævede restore MED ejerskab. Det kan ikke lade sig gøre lokalt: dumpet bærer
+   `ALTER EVENT TRIGGER … OWNER TO supabase_admin`, og ejerskab af en event trigger kræver en
+   superuser, mens vores platformroller er tomme skaller — seks sætninger fejlede. `--no-owner`
+   er samme flag, som prod-deployets egen rehearsal brugte 2026-09-17, og det er uden betydning
+   for beviset: alle objekter i `private` og `public` ejes i forvejen af én rolle.
 2. Notér basens **tilstands-hash** før apply med `state-hash.sql` (nedenfor): en
    deterministisk hash over ALLE tabeller i `private` og `public`. Den dækker også
    `reimport_batch`, `reimport_authorization` og `extraction_run`, som projektionens
