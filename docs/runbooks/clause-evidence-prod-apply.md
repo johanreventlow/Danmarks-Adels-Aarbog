@@ -439,9 +439,13 @@ managed roller, ACL'er og aktive forbindelser.
 
 **Øv fortrydelsen i trin 2 (lokalt, samme kørsel).** Rækkefølgen er:
 
-1. Restorer dagens dump **med ejerskab** (altså UDEN `--no-owner`) til rehearsal-basen,
-   efter at de otte tomme `NOLOGIN`-roller er oprettet. Så ligner objektejerskabet prods,
-   og `--clean` i punkt 4 prøver samme drop-mønster som i prod.
+1. Restorer dagens dump til rehearsal-basen med `--no-owner`, efter at de otte tomme
+   `NOLOGIN`-roller er oprettet. **Rettet 2026-09-18 efter måling:** en tidligere udgave af
+   dette punkt krævede restore MED ejerskab. Det kan ikke lade sig gøre lokalt: dumpet bærer
+   `ALTER EVENT TRIGGER … OWNER TO supabase_admin`, og ejerskab af en event trigger kræver en
+   superuser, mens vores platformroller er tomme skaller — seks sætninger fejlede. `--no-owner`
+   er samme flag, som prod-deployets egen rehearsal brugte 2026-09-17, og det er uden betydning
+   for beviset: alle objekter i `private` og `public` ejes i forvejen af én rolle.
 2. Notér basens **tilstands-hash** før apply med `state-hash.sql` (nedenfor): en
    deterministisk hash over ALLE tabeller i `private` og `public`. Den dækker også
    `reimport_batch`, `reimport_authorization` og `extraction_run`, som projektionens
@@ -531,6 +535,25 @@ Efterprøvet begge veje: `host=localhost` med `PGHOSTADDR=192.0.2.1` forbinder t
 192.0.2.1, og efter rettelsen gennemførte en fuld rehearsal med **både**
 `PYTHONOPTIMIZE=1` og `PGHOSTADDR=192.0.2.1` i miljøet med uændret resultat
 (`REHEARSAL_OK`, 591/868, 617/251, tilstands-hash identisk før/efter).
+
+**Kørt mod den rigtige prod-backup 2026-09-18.** Tre ting, som et stand-in-dump ikke kunne
+afsløre, fejlede først her — alle tre er rettet, og gaten stoppede hver gang:
+
+1. **Restoren skal bruge `--no-owner`** (se punkt 1 ovenfor). Uden det fejler seks
+   ejerskifter af event triggers.
+2. **Vault-klassen er bredere end ordet `supabase_vault`.** Prods dump giver otte fejl,
+   fordi extensionen ikke findes lokalt, og seks af dem nævner kun `vault.secrets`,
+   `vault.create_secret` og lignende. Tilladelseslisten matcher nu hele `vault.`-klassen.
+3. **`db-verify` kræver, at `db-rls.sql` er kørt på rehearsal-basen først.** Verifikationen
+   læser standardrettighederne for den rolle, der kører, og en frisk restore af prod bærer
+   kun prods egne. Uden `db-rls.sql` fejler den med
+   `EVIDENCE_PUBLIC_RED_DEFAULT_ACL_ANON_OPEN` på et lokalt forhold, ikke på noget i prod.
+   Rækkefølgen er nu restore → `db-rls.sql` → `db-verify`, som ved prod-deployet 2026-09-17.
+
+Resultatet med dagens backup: `REHEARSAL_OK` — 591 records, 868 klausuler, 617/251,
+591 hændelser i én `finalized` batch, `db-verify`s to #148-blokke, 8 tilladte fejl i den
+første restore, 6 i fortrydelsen, tilstands-hash identisk før/efter, replay
+`already_applied`, komparator `match`.
 
 **Rehearsal-basen bevares** efter `REHEARSAL_OK` (den er beviset, GO'et hviler på) og
 droppes først, når kørslen er afsluttet eller GO'et er bortfaldet. Scriptet skriver basens
