@@ -37,8 +37,11 @@ med tal, koder og hashes — aldrig DSN, credentials, kildetekst eller record-n�
   SHA'en. Derfor er det kodede stopporte — både i rehearsal og umiddelbart før
   prod-apply — at `git diff --quiet`, `git diff --cached --quiet` og
   `git status --porcelain` for de eksekverede stier er tomme, og at SHA-256 af HVER fil,
-  der køres eller sources, matcher GO-pakken: de fem prod-scripts, de to hærdede
-  R-kopier, `apply_reimport_helpers.R`, de fire projektionsfiler og komparatoren.
+  der køres eller sources, matcher GO-pakken. Listen er **eksakt 18 filer**: de seks
+  prod-scripts, `lib.zsh`, de to hærdede R-kopier, `state-hash.sql`,
+  `rollback-preflight.sql`, `apply_reimport_helpers.R`, de fire projektionsfiler,
+  komparatoren og writer-profilens JSON-fil. Hverken flere eller færre — en fil, der
+  mangler i listen, er en stopport, der ikke kan bindes.
 - Alle private filer og mapper er mode `0600`/`0700`; hvert script starter med
   `set -euo pipefail`, `umask 077` og `PGTZ=UTC`.
 - **Forbindelsen sættes eksplicit i hvert script, aldrig arvet.** Projektet har ingen
@@ -138,11 +141,15 @@ faste hashes. Det, operatøren selv sætter, er kun dette:
 | `DAA_DUMP_RECEIPT` | `<dump>.receipt.json` fra `02-dump.sh` | `04` |
 | `DAA_REHEARSAL_REPORT` + `DAA_REHEARSAL_REPORT_SHA256` | rehearsal-rapporten og dens hash | `04`, `05` |
 | `DAA_APPLY_REPORT` + `DAA_APPLY_REPORT_SHA256` | apply-rapporten og dens hash | `05` |
-| `DAA_REHEARSAL_DRYRUN_R`, `DAA_REHEARSAL_APPLY_R` | de LOKALE 4.1c-scripts (trin 2 bruger originalerne, ikke de hærdede kopier) | `03` |
+| `DAA_FREEZE_REPORT` + `DAA_FREEZE_REPORT_SHA256` | `00-freeze.sh begin`-rapporten og dens hash | `04`, `05` |
 | `DAA_LOCAL_PGHOST/PORT/USER` | kun hvis den lokale base ikke er `localhost:5432` med din bruger | `03` |
 
 `03` afviser enhver ikke-lokal værdi i `DAA_LOCAL_PGHOST`, og `04` kræver argumentet
-`--jeg-mener-det`. Prod-forbindelsen kommer altid fra `~/.Renviron`; den sættes aldrig
+`--jeg-mener-det`. **Trin 2 kører de SAMME hærdede R-kopier som prod**
+(`03-clause-dryrun-prod.R`, `04-clause-apply-prod.R`) via `DAA_CONNECTION_MODE=local`, så
+`REHEARSAL_OK` beviser netop den kode, der skriver i prod; der findes ingen sti-variabler,
+der kan pege på andre filer. `05-verify.sh` skriver `verify-ok.json`, og
+`00-freeze.sh end` nægter at ophæve pausen uden den. Prod-forbindelsen kommer altid fra `~/.Renviron`; den sættes aldrig
 som argument eller miljøvariabel i en kommando, du skriver i hånden.
 
 ---
@@ -499,6 +506,20 @@ og rettet undervejs, og de er værd at kende:
 er append-only (`EVIDENCE_APPEND_ONLY`-trigger), så en oprydning kræver
 `SET session_replication_role = replica` — i sig selv en prod-mutation, der skal have sin
 egen GO og sit eget bevis. Derfor er stopporten nedenfor billigere end konsekvensen.
+
+**Angrebstest af scriptene 2026-09-18.** Codex' review fandt fire BLOCKERs i den første
+udgave; alle er lukket og efterprøvet empirisk:
+
+- Sikkerhedskontrollerne brugte Python-`assert`, som en arvet `PYTHONOPTIMIZE=1` slår fra.
+  Nu køres al indlejret Python isoleret (`python3 -I`), og hver kontrol rejser en
+  eksplicit fejl. Bevist: en fuld rehearsal med `PYTHONOPTIMIZE=1` i miljøet gav stadig
+  `REHEARSAL_OK` med alle porte aktive.
+- Hashlisten dækkede ikke `state-hash.sql`, selv om den afgør, om fortrydelsen er trofast.
+  Bevist efter rettelsen: en tilføjet kommentarlinje i filen gav
+  `STOPPORT: fil-hashes afviger fra GO-pakken`.
+- Freeze-markøren var ikke bundet til måldatabasen, og pausen kunne ophæves før
+  verifikationen. Begge dele er nu kodede porte.
+- Rehearsalen kørte andre R-filer end prod. Nu er det de samme.
 
 **Rehearsal-basen bevares** efter `REHEARSAL_OK` (den er beviset, GO'et hviler på) og
 droppes først, når kørslen er afsluttet eller GO'et er bortfaldet. Scriptet skriver basens
