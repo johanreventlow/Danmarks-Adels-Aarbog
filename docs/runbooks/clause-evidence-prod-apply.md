@@ -46,8 +46,11 @@ med tal, koder og hashes — aldrig DSN, credentials, kildetekst eller record-n�
   `set -euo pipefail`, `umask 077` og `PGTZ=UTC`.
 - **Forbindelsen sættes eksplicit i hvert script, aldrig arvet.** Projektet har ingen
   DSN-variabel; mønstret er det samme som trin 4's skema-deploy: scriptet rydder først
-  alle nedarvede `PG*` (`PGHOST PGPORT PGDATABASE PGUSER PGPASSWORD PGSSLMODE PGOPTIONS
-  PGSERVICE PGCONNECT_TIMEOUT`) og sætter dem derefter fra `~/.Renviron`
+  alle nedarvede `PG*` (`PGHOST PGHOSTADDR PGPORT PGDATABASE PGUSER PGPASSWORD PGSSLMODE
+  PGOPTIONS PGSERVICE PGSERVICEFILE PGPASSFILE PGCONNECT_TIMEOUT`) og sætter dem derefter
+  fra `~/.Renviron`. **`PGHOSTADDR` skal med:** den er libpq's faktiske netværksadresse,
+  så `host=localhost` sammen med en arvet `PGHOSTADDR` forbinder til den fjerne adresse —
+  efterprøvet, og netop derfor rydder både `lib.zsh` og de to R-kopier den
   (`SUPABASE_HOST/PORT/DB/USER/PASSWORD`, `PGSSLMODE=require`, Session pooler).
   `PGPASSWORD` udskrives aldrig. Projektejeren sammenholder host-værdien med Supabase-
   dashboardet, første gang GO-pakken skrives.
@@ -137,7 +140,7 @@ faste hashes. Det, operatøren selv sætter, er kun dette:
 | `DAA_FREEZE_RESPONSIBLE` | kort ansvarskode uden personoplysninger | `00-freeze.sh begin` |
 | `DAA_EXPECTED_TARGET` | målidentiteten fra `01-preflight.sh` (skrives i GO) | `00`, `02`, `04`, `05` |
 | `DAA_EXPECTED_COMMIT` | repoets commit-SHA fra GO-pakken | `03`, `04` |
-| `DAA_GO_HASHES_FILE` | GO-pakkens fil med 15 `sha256  sti`-linjer | `03`, `04` |
+| `DAA_GO_HASHES_FILE` | GO-pakkens fil med **18** `sha256  sti`-linjer (se §4) | `03`, `04` |
 | `DAA_DUMP_RECEIPT` | `<dump>.receipt.json` fra `02-dump.sh` | `04` |
 | `DAA_REHEARSAL_REPORT` + `DAA_REHEARSAL_REPORT_SHA256` | rehearsal-rapporten og dens hash | `04`, `05` |
 | `DAA_APPLY_REPORT` + `DAA_APPLY_REPORT_SHA256` | apply-rapporten og dens hash | `05` |
@@ -283,9 +286,11 @@ beskrivelse som »samme manifest« eller »tallene ser rigtige ud«:
 
 - repo commit-SHA **plus** bevis for ren arbejdstræ (`git diff`/`git diff --cached`/
   `git status --porcelain` tomme for de eksekverede stier) og SHA-256 af hver fil, der
-  køres eller sources: de seks private scripts (`00-freeze.sh` … `05-verify.sh`), de to
-  hærdede R-kopier, `apply_reimport_helpers.R`, de fire projektionsfiler og
-  komparatoren;
+  køres eller sources — **eksakt 18 filer**: de seks private scripts
+  (`00-freeze.sh` … `05-verify.sh`), `lib.zsh`, de to hærdede R-kopier,
+  `state-hash.sql`, `rollback-preflight.sql`, `apply_reimport_helpers.R`, de fire
+  projektionsfiler, komparatoren og writer-profilens JSON-fil. Listen kontrolleres som
+  mængde: en manglende eller ekstra linje er en stopport;
 - skrivepausens starttidspunkt (før dumpet), ansvarlig og optællingen af aktive
   ikke-egne forbindelser fra `00-freeze.sh begin`;
 - fortrydelsesvejen (vej A, §6: `pg_restore --clean --if-exists --no-owner
