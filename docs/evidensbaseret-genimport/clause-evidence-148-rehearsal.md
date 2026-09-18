@@ -259,3 +259,32 @@ neutrale lister som ovenfor) består planens bestået-kriterie (Task 4, Step 1, 
 `ANON_DRIFT` og de klausulspecifikke koder er ikke fremkaldt i rehearsal — de er dækket af
 pytest og CI-integrationens manipulationstest; en ændret anon-synlig række rammer altid
 `CANONICAL_DRIFT` først.
+
+## Prod-kørslen 2026-09-18 (#148)
+
+Kørt efter `docs/runbooks/clause-evidence-prod-apply.md`. Kun tal og hashes.
+
+| Artefakt | Værdi |
+| --- | --- |
+| Commit | `c296dd9` |
+| Prod-målidentitet | `71ca6e45…` |
+| Backup | `b6cd1b1b…`, taget 10:19:22Z, 9 887 083 bytes |
+| GO-hashliste (18 filer) | `007f67ad…` |
+| Rehearsal-rapport (samme backup) | `16940a10…` |
+| Apply-rapport | `7541bf7b…` |
+| Verify-rapport | `8769f9ac…` |
+| Før-/efter-projektion | `ef5bac6a…` / `c4d99d9b…` |
+
+| Måling | Værdi |
+| --- | --- |
+| Records / klausuler | 591 / 868 |
+| Dispositioner | 617 `afventer_fortolkning` / 251 `maskinelt_flagget` |
+| Hændelser / batches | 591 / 1 (`finalized`) |
+| Neutrale lister | 591 / 591 / 587 / 587 / 587 |
+| Komparator | `match`, ingen kanonisk eller anon-drift |
+| Replay | `already_applied` |
+| Profilversion | `clause-evidence-v1` |
+
+Skrivepausen løb fra 10:14:58Z til efter `VERIFY_OK`. Rehearsalen mod dagens backup gav
+`REHEARSAL_OK` med de samme tal, og fortrydelsesøvelsen bragte tilstands-hashen tilbage til
+udgangspunktet (0 klausuler, 0 hændelser, 0 profilrækker).
