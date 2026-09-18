@@ -126,6 +126,25 @@ projektejerens egen shell — det er notation i chatten, ikke en del af kommando
 Trin 1 og 3 kører kun projektejeren. Trin 2 rører ingen prod-forbindelse og kan køres
 af AI'en, som også kontrollerer scriptstruktur og de rensede rapporter.
 
+**Miljøkontrakt.** `lib.zsh` har forsvarlige standardværdier for stier, manifest og de
+faste hashes. Det, operatøren selv sætter, er kun dette:
+
+| Variabel | Sættes til | Bruges af |
+|---|---|---|
+| `DAA_FREEZE_RESPONSIBLE` | kort ansvarskode uden personoplysninger | `00-freeze.sh begin` |
+| `DAA_EXPECTED_TARGET` | målidentiteten fra `01-preflight.sh` (skrives i GO) | `00`, `02`, `04`, `05` |
+| `DAA_EXPECTED_COMMIT` | repoets commit-SHA fra GO-pakken | `03`, `04` |
+| `DAA_GO_HASHES_FILE` | GO-pakkens fil med 15 `sha256  sti`-linjer | `03`, `04` |
+| `DAA_DUMP_RECEIPT` | `<dump>.receipt.json` fra `02-dump.sh` | `04` |
+| `DAA_REHEARSAL_REPORT` + `DAA_REHEARSAL_REPORT_SHA256` | rehearsal-rapporten og dens hash | `04`, `05` |
+| `DAA_APPLY_REPORT` + `DAA_APPLY_REPORT_SHA256` | apply-rapporten og dens hash | `05` |
+| `DAA_REHEARSAL_DRYRUN_R`, `DAA_REHEARSAL_APPLY_R` | de LOKALE 4.1c-scripts (trin 2 bruger originalerne, ikke de hærdede kopier) | `03` |
+| `DAA_LOCAL_PGHOST/PORT/USER` | kun hvis den lokale base ikke er `localhost:5432` med din bruger | `03` |
+
+`03` afviser enhver ikke-lokal værdi i `DAA_LOCAL_PGHOST`, og `04` kræver argumentet
+`--jeg-mener-det`. Prod-forbindelsen kommer altid fra `~/.Renviron`; den sættes aldrig
+som argument eller miljøvariabel i en kommando, du skriver i hånden.
+
 ---
 
 ## 2. Trin 1 — læse-kun preflight og ny backup
