@@ -1,5 +1,40 @@
 # Changelog
 
+## 2026-09-19 — anon-hærdning: familie-oraklet lukket i prod
+
+Supabase' sikkerhedslinter (0028) flagede 14 `SECURITY DEFINER`-funktioner som kaldbare af
+`anon`. Ni er bevidst offentlige og forsvarlige; fem var det ikke. De fem er lukket i prod.
+
+**Den reelle lækage:** `family_offentlig(fid)` svarer `false` præcis når en familie rummer en
+skjult (levende/privat/staged) person, og `true` både for offentlige og for ikke-eksisterende
+familier. Kaldbar af `anon` var den dermed et eksistens-orakel: en uindlogget kunne gennemløbe
+id'er og kortlægge, hvilke grene der har levende medlemmer. Målt før ændringen: **35 af 682
+familier** svarede `false`. Identitet lækkede ikke — kun eksistens.
+
+**To ting kun prod kunne vise:** `media_synlig_auth` var kaldbar af `anon`, skønt `db-rls.sql`
+kun giver den til `authenticated` (Supabases direkte anon-grant overlever ikke et
+`revoke … from public` — rollen skal navngives). Og de tre `hist_*` havde stadig `PUBLIC` i
+deres ACL; rollegaten i kroppen beskyttede dem, men grantet var unødigt.
+
+**Bevidst ikke rørt:** `media_afbilder_skjult` og `media_id_for_object`. Storage-politikken
+kalder dem gennem `media_synlig_anon`, som er `INVOKER` — `anon` *skal* kunne kalde dem, ellers
+holder billeder op med at loade for gæster. De lukkes i en separat ændring, der indkapsler
+sti→synlighed i én `SECURITY DEFINER`-funktion og skriver politikkerne om.
+
+**Sikkerheden er efterprøvet mod prod-katalogen, ikke kun mod filerne:** ingen RLS-politik
+kalder nogen af de fem, `family_offentlig` kaldes kun fra `entitet_offentlig` (`SECURITY
+DEFINER`, så det indre kald kører som ejeren), og web- og mobilfladen kalder ingen af dem.
+Forud for prod blev blokken kørt mod en engangskopi af 17/9-dumpet: `anon` mistede adgang til
+alle fem, `authenticated` beholdt de fire den skal have, `entitet_offentlig`-kæden svarede
+uændret som `anon`, direkte kald gav `permission denied`, blokken er idempotent, og en omdøbt
+signatur udløste `ANON_GATE_HARDENING_SIGNATURE_MISSING`.
+
+Blokken bor i `db-rls.sql` (`$anon_gate_hardening$`), er fail-closed på manglende signatur og
+har readback i samme transaktion. Fortrydelse: `~/.private/148c-prod/anon-haerdning-fortryd.sql`.
+
+**Udestår fra samme advisor-runde:** indkapslingen af de to medie-funktioner, og leaked
+password protection, som er slået fra i Auth.
+
 ## 2026-09-18 — 4.1c: klausulerne er skrevet i prod (#148)
 
 Trin 4's **første datakørsel i produktion** er gennemført og afstemt. Prod har nu
