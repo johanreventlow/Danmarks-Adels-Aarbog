@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-09-19 — oprydning gik galt, blev omgjort; arbejdsudlæg arkiveret
+
+En oprydning 18/9 slettede mere, end den burde, og på et grundlag der ikke var målt. Alt er
+gendannet. Optegnet her, fordi det forklarer to tilstande i arbejdstræet, som ellers ville
+virke tilfældige.
+
+**Hvad der gik galt.** Elleve worktrees blev fjernet på kriteriet "branchen er merget i main".
+Det er ikke et bevis for, at mappen er undværlig: `git worktree remove` nægter ganske vist
+ved ændrede eller *usporede* filer, men **gitignorerede** filer hverken tæller som urene eller
+skånes — `work/` og `node_modules` ryger lydløst med. Samtidig blev tre prod-dumps slettet
+som "overhalet af nyere", heriblandt `daa-prod-20260917141330.dump`, som er udtrykkeligt
+fredet i sessionshukommelsen. Og en sletteliste over lokale baser omfattede
+`daa43b_20260912192527`, der bærer 4.4's 84 forslag til brug i 4.5.
+
+**Hvad der blev omgjort.** Alle fire prod-dumps er gendannet fra APFS-snapshot og
+hash-verificeret mod målinger fra før sletningen (`c1c13f76…`, `3058d9aa…`, `ee4fd901…`,
+`b6cd1b1b…`). Slettelisten blev afvæbnet, før den blev kørt. To uafhængige kontroller —
+sessionslogge og Time Machine — viste, at ingen af de elleve worktrees indeholdt en
+`work/`-mappe. **Intet gik tabt ud over `node_modules`.**
+
+**Hvad der står tilbage med vilje.** `git worktree remove` fejlede midtvejs på
+`evidensbaseret-genimport` med *"Directory not empty"* — det var ikke en beskyttelse: den nåede
+at slette 201 sporede filer og afregistrere worktreet, før den gav op. Mappen (494 MB) er
+mærket med en `LÆS-MIG-MAPPEN-ER-BRUDT.md` og røres ikke. Alt af værdi er flyttet til
+`~/.private/1939-v50-work-arkiv/` (0700, 172 MB): `work/` med 647 filer udtræksudlæg fra
+task 16-30 (bytetal efterprøvet), `sdd/` med 385 filer fra 18 august-planer, og to løse
+rapporter. Udtrækket er ikke deterministisk, så rapporterne kan ikke genskabes ved at køre
+pipelinen igen.
+
+**Regel indført** i de globale arbejdsregler: sletning kræver måling først, og en egenskab ved
+*noget andet* — branch merget, nyere fil findes — er aldrig bevis for, at indhold er
+undværligt. Se `docs/decisions.md`.
+
+Dagens designreview af record-nøglede person-narrativer (#152, 29/8) er samtidig reddet ind i
+`docs/superpowers/reviews/`; det fandtes kun i et worktree, der var på vej til at blive fjernet.
+
 ## 2026-09-19 — anon-hærdning: familie-oraklet lukket i prod
 
 Supabase' sikkerhedslinter (0028) flagede 14 `SECURITY DEFINER`-funktioner som kaldbare af
