@@ -6614,6 +6614,7 @@ END $$;
 DO $$
 DECLARE
   fo_dead boolean; fo_live boolean;
+  eo_dead boolean; eo_live boolean; fo_anon_naegtet boolean;
   leak_fam_anon int; leak_fam_auth int; leak_note_auth int; leak_mis int; leak_assert int;
   ok_deadfam int; ok_estate int; ok_org_rel int; ok_narr int;
 BEGIN
@@ -6637,8 +6638,24 @@ BEGIN
   INSERT INTO narrative(id,subjekt_type,subjekt_id,tekst) VALUES(-980,'person',-980,'død bio');
   INSERT INTO note(id,target_type,target_id) VALUES(-980,'family',-980),(-981,'family',-981);
 
+  -- Gatens LOGIK efterproeves som ejer. family_offentlig er IKKE laengere kaldbar af
+  -- anon (anon-haerdningen 2026-09-19): den svarede false praecis naar en familie rummer
+  -- en skjult person og var dermed et eksistens-orakel for uindloggede.
+  SELECT public.family_offentlig(-980), public.family_offentlig(-981) INTO fo_dead, fo_live;
+
   SET LOCAL ROLE anon;
-  SELECT public.family_offentlig(-980), public.family_offentlig(-981) INTO fo_dead, fo_live;  -- DEFINER-check
+  -- Anons FAKTISKE vej gaar gennem entitet_offentlig, som er SECURITY DEFINER og derfor
+  -- kalder gaten som ejeren. Den skal give samme svar som gaten selv.
+  SELECT public.entitet_offentlig('family',-980), public.entitet_offentlig('family',-981)
+    INTO eo_dead, eo_live;
+  -- ... og det DIREKTE kald skal vaere lukket. Denne paastand laaser haerdningen fast,
+  -- saa et fremtidigt genudstedt grant bliver fanget her i stedet for i prod.
+  BEGIN
+    PERFORM public.family_offentlig(-980);
+    fo_anon_naegtet := false;
+  EXCEPTION WHEN insufficient_privilege THEN
+    fo_anon_naegtet := true;
+  END;
   SELECT count(*) INTO leak_fam_anon FROM fact WHERE id=-981;
   SELECT count(*) INTO ok_deadfam FROM fact WHERE id=-980;   SELECT count(*) INTO ok_estate FROM fact WHERE id=-983;
   SELECT count(*) INTO ok_org_rel FROM relation WHERE id=-980; SELECT count(*) INTO ok_narr FROM narrative WHERE id=-980;
@@ -6649,12 +6666,13 @@ BEGIN
   RESET ROLE;
 
   IF fo_dead AND NOT fo_live
+     AND eo_dead AND NOT eo_live AND fo_anon_naegtet
      AND leak_fam_anon=0 AND leak_fam_auth=0 AND leak_note_auth=0 AND leak_mis=0 AND leak_assert=0
      AND ok_deadfam=1 AND ok_estate=1 AND ok_org_rel=1 AND ok_narr=1 THEN
-    RAISE NOTICE 'OK: F-02c — family/unknown+evidens fail-closed OG public entitets-data stadig synligt';
+    RAISE NOTICE 'OK: F-02c — family/unknown+evidens fail-closed, anons vej gennem entitet_offentlig intakt, direkte gate-kald lukket';
   ELSE
-    RAISE EXCEPTION 'F-02c FEJL: DEFINER død/lev=%/% | læk fam(a/au)=%/% note=% mis=% assert=% | over-hide dødfam=% estate=% rel=% narr=%',
-      fo_dead,fo_live,leak_fam_anon,leak_fam_auth,leak_note_auth,leak_mis,leak_assert,ok_deadfam,ok_estate,ok_org_rel,ok_narr;
+    RAISE EXCEPTION 'F-02c FEJL: gate død/lev=%/% | anon-vej død/lev=%/% | direkte gate-kald nægtet=% | læk fam(a/au)=%/% note=% mis=% assert=% | over-hide dødfam=% estate=% rel=% narr=%',
+      fo_dead,fo_live,eo_dead,eo_live,fo_anon_naegtet,leak_fam_anon,leak_fam_auth,leak_note_auth,leak_mis,leak_assert,ok_deadfam,ok_estate,ok_org_rel,ok_narr;
   END IF;
 
   DELETE FROM citation WHERE id=-981; DELETE FROM assertion WHERE id=-981;

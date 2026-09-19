@@ -1240,3 +1240,79 @@ BEGIN
   );
 END
 $reimport_1939_v2_facade_acl$;
+
+-- ---------------------------------------------------------------------------
+-- ANON-HÆRDNING af gate-funktioner (Supabase advisor 0028, 2026-09-19)
+--
+-- Målt i prod før ændringen:
+--   · family_offentlig(fid) svarer FALSE for præcis de familier der rummer en
+--     skjult (levende/privat/staged) person — 35 af 682. Kaldbar af anon er den
+--     dermed et eksistens-orakel: en uindlogget kan gennemløbe id'er og kortlægge
+--     hvilke grene der har levende medlemmer. Identitet lækker ikke, kun eksistens.
+--   · media_synlig_auth var kaldbar af anon i prod, skønt den kun gives til
+--     authenticated her i filen (Supabase' direkte anon-grant overlever ikke et
+--     "revoke ... from public" — rollen SKAL navngives).
+--   · De tre hist_*-funktioner havde stadig PUBLIC i deres ACL ("=X/postgres").
+--     Rollegaten i kroppen kaster for anon, så de lækker intet, men PUBLIC-grantet
+--     er unødigt og er eneste lag ud over gaten.
+--
+-- Hvorfor det er sikkert (efterprøvet mod prod-katalogen, ikke kun mod filerne):
+--   · Ingen RLS-politik kalder nogen af dem (pg_policies: nul træf).
+--   · family_offentlig kaldes KUN fra entitet_offentlig, som er SECURITY DEFINER
+--     og derfor kører det indre kald med ejerens rettigheder.
+--   · media_afbilder_privat kaldes KUN fra media_synlig_auth, som er INVOKER og
+--     kun skal kunne kaldes af authenticated — derfor beholder authenticated begge.
+--   · Nul kald fra web-/mobil-fladen til nogen af dem.
+--
+-- BEVIDST IKKE RØRT: media_afbilder_skjult og media_id_for_object. De kaldes fra
+-- storage-politikken gennem media_synlig_anon, som er INVOKER — anon SKAL kunne
+-- kalde dem, ellers holder billeder op med at loade for gæster (fail-closed).
+-- De to lukkes i stedet ved at indkapsle dem i én SECURITY DEFINER-funktion; det
+-- er en separat ændring med egen politik-omskrivning.
+-- ---------------------------------------------------------------------------
+DO $anon_gate_hardening$
+DECLARE
+  v_sig text;
+  v_roller text;
+BEGIN
+  FOREACH v_sig IN ARRAY ARRAY[
+    'public.family_offentlig(bigint)|public, anon, authenticated',
+    'public.media_afbilder_privat(bigint)|public, anon',
+    'public.media_synlig_auth(bigint)|public, anon',
+    'public.hist_for_subjekt(text,bigint)|public, anon',
+    'public.hist_for_subjekter(text,bigint[])|public, anon',
+    'public.hist_events(bigint)|public, anon'
+  ] LOOP
+    v_roller := split_part(v_sig, '|', 2);
+    v_sig    := split_part(v_sig, '|', 1);
+
+    -- fail-closed: en omdøbt eller fjernet signatur skal stoppe deployet,
+    -- ikke lydløst efterlade rettigheden urørt
+    IF to_regprocedure(v_sig) IS NULL THEN
+      RAISE EXCEPTION 'ANON_GATE_HARDENING_SIGNATURE_MISSING: %', v_sig;
+    END IF;
+
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM %s', v_sig, v_roller);
+
+    -- readback i samme transaktion: virkede tilbagekaldelsen faktisk?
+    IF has_function_privilege('anon', to_regprocedure(v_sig), 'EXECUTE') THEN
+      RAISE EXCEPTION 'ANON_GATE_HARDENING_READBACK_FAILED: anon kan stadig kalde %', v_sig;
+    END IF;
+  END LOOP;
+
+  -- authenticated SKAL beholde de tre hist_* og de to media-funktioner,
+  -- ellers mister redaktionen historik-fladen og medievisningen
+  FOREACH v_sig IN ARRAY ARRAY[
+    'public.media_afbilder_privat(bigint)',
+    'public.media_synlig_auth(bigint)',
+    'public.hist_for_subjekt(text,bigint)',
+    'public.hist_for_subjekter(text,bigint[])',
+    'public.hist_events(bigint)'
+  ] LOOP
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated', v_sig);
+    IF NOT has_function_privilege('authenticated', to_regprocedure(v_sig), 'EXECUTE') THEN
+      RAISE EXCEPTION 'ANON_GATE_HARDENING_AUTH_LOST: authenticated mistede %', v_sig;
+    END IF;
+  END LOOP;
+END
+$anon_gate_hardening$;
