@@ -7671,6 +7671,8 @@ END $$;
 DO $$
 DECLARE vis_spaerret int; vis_kladde int; vis_klar int; vis_red int;
         map_hit bigint; map_orphan bigint; ok_orphan boolean;
+        obj_klar boolean; obj_spaerret boolean; obj_orphan boolean;
+        skjult_naegtet boolean; mapping_naegtet boolean;
 BEGIN
   DELETE FROM media WHERE id IN (-911,-912,-913);
   INSERT INTO media(id, slags, titel, maa_publiceres, upload_status, bucket, storage_path) VALUES
@@ -7682,11 +7684,40 @@ BEGIN
   SELECT count(*) INTO vis_spaerret FROM media WHERE id = -911;
   SELECT count(*) INTO vis_kladde   FROM media WHERE id = -912;
   SELECT count(*) INTO vis_klar     FROM media WHERE id = -913;
+
+  -- Medie-indkapslingen (2026-09-19): anons LOVLIGE vej fra storage-sti til synlighed er
+  -- wrapperen media_object_synlig_anon, som er SECURITY DEFINER og derfor slår op og gater
+  -- som ejeren. Samme svar som rettigheds-gatingen ovenfor, nu målt fra sti-siden.
+  SELECT public.media_object_synlig_anon('test/klar.jpg'),
+         public.media_object_synlig_anon('test/spaerret.jpg'),
+         public.media_object_synlig_anon('findes/ikke.jpg')
+    INTO obj_klar, obj_spaerret, obj_orphan;
+  -- ... og de to indkapslede funktioner maa IKKE laengere kunne kaldes direkte af anon.
+  -- media_afbilder_skjult var et PII-orakel ("afbilder billede N en levende person?"),
+  -- media_id_for_object et eksistens-orakel over storage-stier. Paastandene laaser
+  -- indkapslingen fast, saa et genudstedt grant fanges her i stedet for i prod.
+  BEGIN
+    PERFORM public.media_afbilder_skjult(-913);
+    skjult_naegtet := false;
+  EXCEPTION WHEN insufficient_privilege THEN
+    skjult_naegtet := true;
+  END;
+  BEGIN
+    PERFORM public.media_id_for_object('test/klar.jpg');
+    mapping_naegtet := false;
+  EXCEPTION WHEN insufficient_privilege THEN
+    mapping_naegtet := true;
+  END;
   RESET ROLE;
 
   IF NOT (vis_spaerret = 0 AND vis_kladde = 0 AND vis_klar = 1) THEN
     RAISE EXCEPTION 'rettigheds-gating FEJL (anon): spaerret=% (vent 0), kladde=% (vent 0), klar=% (vent 1)',
       vis_spaerret, vis_kladde, vis_klar;
+  END IF;
+
+  IF NOT (obj_klar AND NOT obj_spaerret AND NOT obj_orphan AND skjult_naegtet AND mapping_naegtet) THEN
+    RAISE EXCEPTION 'medie-indkapsling FEJL: sti-wrapper klar=% (vent t), spaerret=% (vent f), foraeldreloes=% (vent f) | direkte kald naegtet: afbilder_skjult=%, id_for_object=% (vent t,t)',
+      obj_klar, obj_spaerret, obj_orphan, skjult_naegtet, mapping_naegtet;
   END IF;
 
   -- objekt→media-mapping: kendt sti resolver, ukendt (forældreløs) → NULL → rettigheder_ok=false
@@ -7699,7 +7730,7 @@ BEGIN
   END IF;
 
   DELETE FROM media WHERE id IN (-911,-912,-913);
-  RAISE NOTICE 'OK: media rettigheds-gating (spærret/kladde skjult, klar synlig) + storage-mapping (forældreløs fail-closed)';
+  RAISE NOTICE 'OK: media rettigheds-gating (spærret/kladde skjult, klar synlig) + storage-mapping (forældreløs fail-closed) + medie-indkapsling (sti-wrapper virker, direkte gate-kald lukket)';
 END $$;
 
 

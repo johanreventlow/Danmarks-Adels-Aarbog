@@ -163,6 +163,8 @@ $$;
 revoke all on function public.media_afbilder_skjult(bigint) from public;
 revoke all on function public.media_afbilder_privat(bigint) from public;
 grant execute on function public.media_afbilder_skjult(bigint) to anon, authenticated;
+-- NB: begge grants tages igen i $anon_gate_hardening$ nederst i filen (medie-indkapslingen) —
+-- funktionen er kun naaelig gennem media_synlig_anon, som er SECURITY DEFINER.
 grant execute on function public.media_afbilder_privat(bigint) to authenticated;
 
 -- rettigheds-gate (mediehåndtering 2026-07-04). ANDEN, ortogonal gating-dimension ved siden af
@@ -219,12 +221,22 @@ returns bigint language sql stable security definer set search_path=public as $$
 $$;
 revoke all on function public.media_id_for_object(text) from public;
 grant execute on function public.media_id_for_object(text) to anon, authenticated;
+-- NB: begge grants tages igen i $anon_gate_hardening$ nederst i filen (medie-indkapslingen) —
+-- funktionen er kun naaelig gennem media_object_synlig_anon, som er SECURITY DEFINER.
 
 -- Komponér de TO ortogonale gating-dimensioner (afbildet + rettigheder) ÉT sted, så media-tabellen
 -- og storage.objects deler nøjagtig samme synligheds-regel (ingen split-brain-drift) og objektet kun
 -- kortlægges til media ÉN gang pr. række. NULL mid (forældreløst objekt) → fail-closed (rettigheder_ok=false).
+-- SECURITY DEFINER (2026-09-19, medie-indkapsling): denne funktion kaldes UDELUKKENDE fra
+-- RLS-politikker (media, media_variant, text_mention.tm_read, storage-objekterne via wrapperen
+-- nedenfor), og en politik-krop udføres med KALDERENS rettigheder. Som INVOKER tvang den derfor
+-- anon til selv at have EXECUTE på media_afbilder_skjult — dvs. et direkte PII-orakel
+-- ("afbilder billede N en levende/privat person?"). Som DEFINER kører de indre kald med ejerens
+-- rettigheder, og de indre gates kan lukkes helt for anon. Krop og svar er uændrede.
+-- Pris: en DEFINER-SQL-funktion kan ikke inlines af planlæggeren — den kaldes pr. række i de fem
+-- politikker (målt på engangskopi, tabellerne er små).
 create or replace function public.media_synlig_anon(mid bigint)
-returns boolean language sql stable set search_path=public as $$
+returns boolean language sql stable security definer set search_path=public as $$
   select not public.media_afbilder_skjult(mid) and public.media_rettigheder_ok(mid);
 $$;
 create or replace function public.media_synlig_auth(mid bigint)
@@ -235,6 +247,20 @@ revoke all on function public.media_synlig_anon(bigint) from public;
 revoke all on function public.media_synlig_auth(bigint) from public;
 grant execute on function public.media_synlig_anon(bigint) to anon, authenticated;
 grant execute on function public.media_synlig_auth(bigint) to authenticated;
+
+-- Sti → synlighed i ÉT kald (2026-09-19, medie-indkapsling). Storage-politikkerne kaldte før
+-- media_id_for_object DIREKTE i politik-kroppen; et politik-udtryk udføres med kalderens
+-- rettigheder, så anon skulle have EXECUTE på den — dvs. et orakel over hvilke storage-stier der
+-- overhovedet findes (og hvilket media_id de hører til), uafhængigt af om objektet er synligt.
+-- Wrapperen er SECURITY DEFINER, så anon kun behøver rettighed til dette ene indgangspunkt.
+-- Regelsættet er uændret: samme media_synlig_anon oven på samme mapping, forældreløs sti → NULL
+-- → fail-closed (media_rettigheder_ok(NULL)=false).
+create or replace function public.media_object_synlig_anon(p_name text)
+returns boolean language sql stable security definer set search_path=public as $$
+  select public.media_synlig_anon(public.media_id_for_object(p_name));
+$$;
+revoke all on function public.media_object_synlig_anon(text) from public;
+grant execute on function public.media_object_synlig_anon(text) to anon, authenticated;
 
 -- ---------- DROP DEV-LAGET FØRST ----------
 -- KRITISK: den midlertidige dev-RLS (web/dev-rls.sql) oprettede politikker
@@ -361,10 +387,10 @@ do $$ begin
     -- fra hinanden; objekt→media kortlægges kun ÉN gang pr. række.
     drop policy if exists media_obj_anon on storage.objects;
     create policy media_obj_anon on storage.objects for select to anon using (
-      bucket_id = 'media' and public.media_synlig_anon(public.media_id_for_object(name)));
+      bucket_id = 'media' and public.media_object_synlig_anon(name));
     drop policy if exists media_obj_auth on storage.objects;
     create policy media_obj_auth on storage.objects for select to authenticated using (
-      bucket_id = 'media' and public.media_synlig_anon(public.media_id_for_object(name)));  -- fail-close (F-02)
+      bucket_id = 'media' and public.media_object_synlig_anon(name));  -- fail-close (F-02)
     drop policy if exists media_obj_redaktion on storage.objects;
     create policy media_obj_redaktion on storage.objects for select to authenticated using (
       bucket_id = 'media' and (select public.current_rolle()) = 'redaktion');
@@ -1264,11 +1290,19 @@ $reimport_1939_v2_facade_acl$;
 --     kun skal kunne kaldes af authenticated — derfor beholder authenticated begge.
 --   · Nul kald fra web-/mobil-fladen til nogen af dem.
 --
--- BEVIDST IKKE RØRT: media_afbilder_skjult og media_id_for_object. De kaldes fra
--- storage-politikken gennem media_synlig_anon, som er INVOKER — anon SKAL kunne
--- kalde dem, ellers holder billeder op med at loade for gæster (fail-closed).
--- De to lukkes i stedet ved at indkapsle dem i én SECURITY DEFINER-funktion; det
--- er en separat ændring med egen politik-omskrivning.
+-- MEDIE-INDKAPSLINGEN (2026-09-19, anden omgang): media_afbilder_skjult og
+-- media_id_for_object kunne IKKE lukkes med et revoke alene — de blev kaldt fra
+-- politik-kroppe gennem media_synlig_anon (INVOKER) og direkte i storage-politikken,
+-- og et politik-udtryk udføres med kalderens rettigheder. Et revoke ville derfor
+-- have stoppet billedvisningen for gæster (fail-closed).
+-- De er nu indkapslet: media_synlig_anon er gjort SECURITY DEFINER, og sti→synlighed
+-- går gennem den nye DEFINER-wrapper media_object_synlig_anon(text), som er det
+-- eneste anon behøver rettighed til. Derfor står de to i listen nedenfor.
+-- Rækkefølgen i denne fil er en forudsætning: definitionerne ovenfor køres FØR dette
+-- revoke. Vagten lige under løkken efterprøver det i samme transaktion.
+--
+-- STADIG BEVIDST ÅBEN: media_rettigheder_ok. Den er rettigheds-/copyright-gating, ikke
+-- PII, og kaldes desuden fra media_synlig_auth (INVOKER), som authenticated beholder.
 -- ---------------------------------------------------------------------------
 DO $anon_gate_hardening$
 DECLARE
@@ -1281,7 +1315,10 @@ BEGIN
     'public.media_synlig_auth(bigint)|public, anon',
     'public.hist_for_subjekt(text,bigint)|public, anon',
     'public.hist_for_subjekter(text,bigint[])|public, anon',
-    'public.hist_events(bigint)|public, anon'
+    'public.hist_events(bigint)|public, anon',
+    -- medie-indkapslingen: begge er nu kun nåelige gennem DEFINER-lag
+    'public.media_afbilder_skjult(bigint)|public, anon, authenticated',
+    'public.media_id_for_object(text)|public, anon, authenticated'
   ] LOOP
     v_roller := split_part(v_sig, '|', 2);
     v_sig    := split_part(v_sig, '|', 1);
@@ -1312,6 +1349,37 @@ BEGIN
     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated', v_sig);
     IF NOT has_function_privilege('authenticated', to_regprocedure(v_sig), 'EXECUTE') THEN
       RAISE EXCEPTION 'ANON_GATE_HARDENING_AUTH_LOST: authenticated mistede %', v_sig;
+    END IF;
+  END LOOP;
+
+  -- Medie-indkapslingens forudsætning, efterprøvet i SAMME transaktion som revoket:
+  -- de to netop lukkede funktioner må kun være nåelige gennem DEFINER-lag. Er
+  -- media_synlig_anon faldet tilbage til INVOKER (fx en delvis kørsel af en ældre
+  -- udgave af denne fil), ville revoket have slukket billedvisningen for gæster —
+  -- så stop deployet her i stedet.
+  IF NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid = 'public.media_synlig_anon(bigint)'::regprocedure) THEN
+    RAISE EXCEPTION 'MEDIE_INDKAPSLING_BRUDT: media_synlig_anon er INVOKER — revoket ville slukke billedvisningen';
+  END IF;
+  -- To adskilte tjek, ikke ét OR: en manglende funktion ville ellers fejle inde i
+  -- ::regprocedure-casten (SQL kortslutter ikke OR pålideligt), og deployet ville stoppe
+  -- med en uforståelig katalogfejl i stedet for den navngivne årsag.
+  IF to_regprocedure('public.media_object_synlig_anon(text)') IS NULL THEN
+    RAISE EXCEPTION 'MEDIE_INDKAPSLING_BRUDT: sti-wrapperen media_object_synlig_anon(text) mangler';
+  END IF;
+  IF NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid = 'public.media_object_synlig_anon(text)'::regprocedure) THEN
+    RAISE EXCEPTION 'MEDIE_INDKAPSLING_BRUDT: media_object_synlig_anon er INVOKER';
+  END IF;
+  -- BEGGE roller: anon baerer gaestefladen, authenticated baerer medlemsfladen
+  -- (media_obj_auth og text_mention.tm_read kalder de samme to indgange).
+  FOREACH v_sig IN ARRAY ARRAY[
+    'public.media_synlig_anon(bigint)',
+    'public.media_object_synlig_anon(text)'
+  ] LOOP
+    IF NOT has_function_privilege('anon', to_regprocedure(v_sig), 'EXECUTE') THEN
+      RAISE EXCEPTION 'MEDIE_INDKAPSLING_BRUDT: anon kan ikke kalde % — gæster mister billeder', v_sig;
+    END IF;
+    IF NOT has_function_privilege('authenticated', to_regprocedure(v_sig), 'EXECUTE') THEN
+      RAISE EXCEPTION 'MEDIE_INDKAPSLING_BRUDT: authenticated kan ikke kalde % — medlemmer mister billeder', v_sig;
     END IF;
   END LOOP;
 END
