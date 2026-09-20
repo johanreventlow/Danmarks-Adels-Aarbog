@@ -3,17 +3,25 @@
 // viser en tom-tilstand frem for at vælte siden — men breakage er ikke HELT tavst (console).
 import { supabase } from '../supabase';
 import type { Model } from './types';
-import { pickPreferredBio, buildBioVersions, getAll, buildProvenanceSources, citationRowsTilProveniens, type NarrativeCand, type BioVersion, type RaaCitationRow, type SourceRef } from '@daa/core';
+import { pickPreferredBio, buildBioSourceVersions, mapPublicBioSourceVersionsV2 as mapCorePublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, buildBioVersions, getAll, buildProvenanceSources, citationRowsTilProveniens, type BioSourceVersion, type BioSourceVersionV2, type NarrativeCand, type RaaCitationRow, type SourceRef } from '@daa/core';
 import { fetchPersonMedia, fetchObjectMedia, type MediaItem } from './media';
 
 // Rå narrativ-række med source-join (PostgREST embedded resource).
 type RawNarr = { id: number; subjekt_id: number | string; tekst: string | null; source_id: number | null; source: { slags: string | null; aar: number | null; udgave: string | null } | null };
+
+class PublicNarrativeFetchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PublicNarrativeFetchError';
+  }
+}
 
 async function safe<T>(fn: () => Promise<T>, fallback: T, label: string): Promise<T> {
   try {
     return await fn();
   } catch (e) {
     console.warn(`[public] ${label} fejlede:`, e);
+    if (e instanceof PublicNarrativeFetchError) throw e;
     return fallback;
   }
 }
@@ -24,6 +32,35 @@ async function safe<T>(fn: () => Promise<T>, fallback: T, label: string): Promis
 export function orThrow<T>(res: { data: T; error: unknown }, label: string): T {
   if (res.error) throw Object.assign(new Error(`${label}: ${(res.error as { message?: string })?.message ?? 'ukendt fejl'}`), { cause: res.error });
   return res.data;
+}
+
+// Den offentlige RPC er den eneste record-aware indgang. Udtræk felt-for-felt,
+// så eventuelle fremtidige/private kolonner aldrig bliver en del af UI-kontrakten.
+export function mapPublicBioSourceVersions(rows: unknown[]): BioSourceVersion[] {
+  return buildBioSourceVersions(rows.flatMap((row) => {
+    if (typeof row !== 'object' || row === null) return [];
+    const value = row as Record<string, unknown>;
+    const kind = value.provenance_kind;
+    if ((kind !== 'source_record' && kind !== 'legacy_narrative')
+      || (value.record_ref !== null && typeof value.record_ref !== 'string')
+      || typeof value.source_label !== 'string' || typeof value.record_label !== 'string'
+      || typeof value.narrative_text !== 'string' || typeof value.citation_label !== 'string') return [];
+    return [{
+      record_ref: value.record_ref,
+      source_label: value.source_label,
+      record_label: value.record_label,
+      narrative_text: value.narrative_text,
+      citation_label: value.citation_label,
+      provenance_kind: kind,
+    }];
+  }));
+}
+
+// V2 validation and ordering live in core so web and mobile cannot diverge.
+// It throws on malformed RPC rows; callers keep that as an explicit v2 fetch
+// failure instead of guessing from the direct narrative table.
+export function mapPublicBioSourceVersionsV2(rows: unknown[]) {
+  return mapCorePublicBioSourceVersionsV2(rows);
 }
 
 // Behold første forekomst pr. nøgle (rækkefølge-bevarende dedup).
@@ -136,7 +173,7 @@ export type PersonEstate = { id: string; navn: string };
 // kaldere der kun læser .bio er upåvirkede).
 // sources: kilde udledt af EVIDENSLAGET (citation→source). Hentes kun når personen ikke har et
 // bog-nummer (person_external_id) — se hentKilder nedenfor.
-export type PersonDetailData = { bio: string; bioVersions: BioVersion[]; offices: PersonOffice[]; estates: PersonEstate[]; media: MediaItem[]; sources: SourceRef[] };
+export type PersonDetailData = { bio: string; bioVersions: BioSourceVersion[]; offices: PersonOffice[]; estates: PersonEstate[]; media: MediaItem[]; sources: SourceRef[] };
 
 type RawPersonRel = { objekt_type: string; objekt_id: number; rolle: string | null; periode_raw: string | null };
 
@@ -173,22 +210,59 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
   const ids = memberIds && memberIds.length ? memberIds : [id];
   const numIds = ids.map(Number).filter((n) => !Number.isNaN(n));
   return safe(async () => {
-    const [narr, rels, media] = await Promise.all([
-      // OFFENTLIGE narrativer for alle medlems-id'er (privat filtreret i query — ikke skjult
-      // bagefter, så en privat note først ikke gemmer en senere offentlig bio).
-      supabase.from('narrative').select('id,subjekt_id,tekst,source_id,source:source_id(slags,aar,udgave)')
-        .eq('subjekt_type', 'person').in('subjekt_id', numIds)
-        .eq('privat', false).order('id', { ascending: true }),
+    const rpcClient = supabase as unknown as { rpc?: (name: string, args: unknown) => Promise<{ data: unknown; error: unknown }> };
+    const hasRpc = typeof rpcClient.rpc === 'function';
+    if (!hasRpc) {
+      throw new PublicNarrativeFetchError('NARRATIVE_RECORD_CONTRACT_VERSION_UNAVAILABLE');
+    }
+    let versionResult: { data: unknown; error: unknown };
+    try {
+      versionResult = await rpcClient.rpc!('narrative_record_contract_version', {});
+    } catch {
+      throw new PublicNarrativeFetchError('NARRATIVE_RECORD_CONTRACT_VERSION_UNAVAILABLE');
+    }
+    if (versionResult.error || typeof versionResult.data !== 'number' || !Number.isInteger(versionResult.data)) {
+      throw new PublicNarrativeFetchError('NARRATIVE_RECORD_CONTRACT_VERSION_UNAVAILABLE');
+    }
+    const contractVersion = versionResult.data;
+    const usesV2 = contractVersion >= 2;
+    const [narr, rels, media, rpcVersions] = await Promise.all([
+      // V1 keeps its existing fallback query.  At contract v2 this query is
+      // never issued: event text is available only through the v2 RPC.
+      usesV2
+        ? Promise.resolve({ data: [] as RawNarr[], error: null })
+        : supabase.from('narrative').select('id,subjekt_id,tekst,source_id,source:source_id(slags,aar,udgave)')
+          .eq('subjekt_type', 'person').in('subjekt_id', numIds)
+          .eq('privat', false).order('id', { ascending: true }),
       getAll<RawPersonRel>(() => supabase.from('relation').select('objekt_type,objekt_id,rolle,periode_raw')
         .eq('subjekt_type', 'person').in('subjekt_id', numIds).in('objekt_type', ['organisation', 'estate'])),
       // Portræt/materiale: union over foldede medlems-id'er (afbildet person→media). RLS-gatet.
       fetchPersonMedia(numIds),
+      // The contract version, not an RPC error, selects the reader.  A v2
+      // failure rejects the complete biography fetch and never reaches v1.
+      Promise.resolve()
+        .then(() => rpcClient.rpc!(usesV2 ? 'public_person_bio_source_versions_v2' : 'public_person_bio_source_versions', { p_person_ids: numIds }))
+        .then((res) => {
+          if (res.error || !Array.isArray(res.data)) {
+            if (usesV2) throw new PublicNarrativeFetchError('PUBLIC_BIO_SOURCE_V2_UNAVAILABLE');
+            return null;
+          }
+          if (!usesV2) return mapPublicBioSourceVersions(res.data);
+          try {
+            return mapPublicBioSourceVersionsV2(res.data);
+          } catch (e) {
+            throw new PublicNarrativeFetchError(String((e as Error)?.message ?? 'PUBLIC_BIO_SOURCE_V2_INVALID'));
+          }
+        }, (e) => {
+          if (usesV2) throw new PublicNarrativeFetchError('PUBLIC_BIO_SOURCE_V2_UNAVAILABLE');
+          throw e;
+        }),
     ]);
     // Udgave-versioner (§7.18): ÉN version pr. DAA-udgave, nyeste først. Kandidater ordnet
     // kanonisk (id) FØRST, så en samme_som-foldet person med narrativ i samme udgave fra
     // flere medlemmer sammenføjer den fulde founder-bio før en kort kryds-reference-stub.
     const candsByMember = new Map<string, NarrativeCand[]>();
-    for (const n of (orThrow(narr, 'fetchPersonDetail/narrative') ?? []) as unknown as RawNarr[]) {
+    for (const n of (orThrow(narr as { data: unknown; error: unknown }, 'fetchPersonDetail/narrative') ?? []) as RawNarr[]) {
       const k = String(n.subjekt_id);
       const arr = candsByMember.get(k) ?? [];
       arr.push({ narrativeId: n.id, tekst: n.tekst, sourceId: n.source_id, slags: n.source?.slags ?? null, aar: n.source?.aar ?? null, udgave: n.source?.udgave ?? null });
@@ -196,8 +270,18 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
     }
     const orderedIds = [id, ...ids.filter((m) => m !== id)];
     const allCands = orderedIds.flatMap((mid) => candsByMember.get(mid) ?? []);
-    const bioVersions = buildBioVersions(allCands);
-    const bio = bioVersions[0]?.tekst ?? '';
+    const fallbackVersions = buildBioVersions(allCands).map((version) => ({
+      recordRef: null,
+      sourceLabel: version.udgave ?? (version.aar != null ? String(version.aar) : 'DAA-udgave'),
+      recordLabel: 'Overgangsdata',
+      narrativeText: version.tekst,
+      citationLabel: '',
+      provenanceKind: 'legacy_narrative' as const,
+    }));
+    const bioVersions = usesV2 ? (rpcVersions ?? []) : (rpcVersions && rpcVersions.length ? rpcVersions : fallbackVersions);
+    const bio = usesV2
+      ? selectDefaultPublicBioSourceVersionV2((rpcVersions ?? []) as BioSourceVersionV2[])?.narrativeText ?? ''
+      : bioVersions[0]?.narrativeText ?? '';
     const orgIds = rels.filter((r) => r.objekt_type === 'organisation').map((r) => r.objekt_id);
     const estIds = rels.filter((r) => r.objekt_type === 'estate').map((r) => r.objekt_id);
     const { org: orgNavn, estate: estNavn } = await resolveOrgEstateNames(orgIds, estIds);

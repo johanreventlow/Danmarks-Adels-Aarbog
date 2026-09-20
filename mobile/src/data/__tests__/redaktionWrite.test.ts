@@ -9,7 +9,7 @@ jest.mock('../../lib/supabase', () => ({
   },
 }));
 
-import { buildRpcCall, describeCall, oversaetFejl, erFortrydKonflikt, FELT_FAKTATYPE, submitChange } from '../redaktionWrite';
+import { buildPersonNarrativeRecordUpsertCall, buildRpcCall, describeCall, oversaetFejl, erFortrydKonflikt, FELT_FAKTATYPE, submitChange } from '../redaktionWrite';
 
 beforeEach(() => { rpcEvents.length = 0; });
 
@@ -40,13 +40,46 @@ describe('buildRpcCall — samme_som (identitets-links)', () => {
 describe('buildRpcCall — narrativ (source-nøglet)', () => {
   it('sender p_source_id fra payload + p_side', () => {
     const call = buildRpcCall({ art: 'narrativ', subjektType: 'person', subjektId: '5',
-      vaerdi: 'bio', payload: { privat: false, sourceId: 2, side: '12' } } as never);
+      vaerdi: 'bio', payload: { privat: false, sourceId: 2, side: '12', narrativeRecordContractVersion: 1 } } as never);
     expect(call).toMatchObject({ fn: 'red_upsert_narrativ', args: { p_source_id: 2, p_side: '12', p_privat: false } });
   });
   it('defaulter p_source_id til 1 (primær DAA-udgave) når payload mangler kilde', () => {
     const call = buildRpcCall({ art: 'narrativ', subjektType: 'person', subjektId: '5',
-      vaerdi: 'bio', payload: { privat: true } } as never);
+      vaerdi: 'bio', payload: { privat: true, narrativeRecordContractVersion: 1 } } as never);
     expect(call?.args).toMatchObject({ p_source_id: 1, p_side: null, p_privat: true });
+  });
+
+  it('afviser personens gamle writer ved kontrakt v2, også når record-læsningen fejlede', () => {
+    expect(buildRpcCall({ art: 'narrativ', subjektType: 'person', subjektId: '5', vaerdi: 'bio',
+      payload: { privat: false, narrativeRecordContractVersion: 2 } } as never)).toBeNull();
+  });
+
+  it('afviser personens gamle writer uden en eksplicit v1-kapabilitet', () => {
+    expect(buildRpcCall({ art: 'narrativ', subjektType: 'person', subjektId: '5',
+      vaerdi: 'bio', payload: { privat: false } } as never)).toBeNull();
+  });
+
+  it('bevarer den generiske lineage-vej ved kontrakt v2', () => {
+    expect(buildRpcCall({ art: 'narrativ', subjektType: 'lineage', subjektId: '5', vaerdi: 'bio',
+      payload: { privat: false, narrativeRecordContractVersion: 2 } } as never)?.fn).toBe('red_upsert_narrativ');
+  });
+});
+
+describe('buildPersonNarrativeRecordUpsertCall', () => {
+  it('sender kun den sikre record-locator og forventet state-hash', () => {
+    expect(buildPersonNarrativeRecordUpsertCall({ personId: '5', sourceId: 2, recordKey: 'R-17',
+      tekst: 'bio', privat: true, expectedStateSha256: 'state-hash' })).toEqual({
+      fn: 'red_upsert_person_narrative_record',
+      args: { p_person_id: 5, p_source_id: 2, p_record_key: 'R-17', p_tekst: 'bio',
+        p_privat: true, p_expected_state_sha256: 'state-hash' },
+    });
+  });
+
+  it('afviser ufuldstændig record-locator eller hash fail-closed', () => {
+    expect(buildPersonNarrativeRecordUpsertCall({ personId: '5', sourceId: 2, recordKey: '',
+      tekst: 'bio', privat: false, expectedStateSha256: 'state-hash' })).toBeNull();
+    expect(buildPersonNarrativeRecordUpsertCall({ personId: '5', sourceId: 2, recordKey: 'R-17',
+      tekst: 'bio', privat: false, expectedStateSha256: '' })).toBeNull();
   });
 });
 

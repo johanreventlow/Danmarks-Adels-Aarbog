@@ -16,12 +16,15 @@ import {
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
   type HaendelsePost, type StoryPost, type TidslinjePost, type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia, type ForaeldreUkendtMarkering, SLAEGT_SUBJEKT_ID,
   fetchForaeldreSlot, fetchForaeldreKonflikter, fetchBarnFamilie, type ForaeldreSlot, type ForaeldreKonflikt, type BarnFamilie,
-  fetchMediaBibliotek, fetchMediaAnvendelse, fetchUdrensPreview, formatMedieAlder, type MediaBibliotekPost, type MediaAnvendelse, type MedieKoe, type UdrensPreview,
+  fetchMediaBibliotek, fetchMediaAnvendelse, fetchUdrensPreview, formatMedieAlder, fetchPersonNarrativeRecords, type MediaBibliotekPost, type MediaAnvendelse, type MedieKoe, type UdrensPreview,
 } from './data/redaktionRead';
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, insertAt, makeToken, previewSammeSom, type OcrFelt, type PersonKvalitetsarkRow } from '@daa/core';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
-import { submitChange, describeCall, oversaetFejl, planCall, resumeMediaUpload, type Change } from './data/redaktionWrite';
+import { submitChange, describeCall, erFortrydKonflikt, oversaetFejl, planCall, resumeMediaUpload, type Change } from './data/redaktionWrite';
+import { HistorikPanel, type FortrydUdfald } from './components/HistorikPanel';
+import { PersonNarrativeRecordEditor } from './components/PersonNarrativeRecordEditor';
+import type { HistPost } from './data/historik';
 import {
   fetchPersonKvalitetsark, fetchOcrHistorik, retOcrFelt, oversaetOcrFejl, type OcrHistorikEntry,
 } from './data/personKvalitetsark';
@@ -36,13 +39,14 @@ import {
 } from './data/mediaDedup';
 import { executeMediaMerge, fetchMediaMergeRelationEvidence, findMediaMergeCandidates, mediaMentionFingerprint, sortMediaForQueue } from './data/mediaMerge';
 import { executeUdrens } from './data/mediaUdrens';
-import { withUrl } from './data/media';
+import { withUrl, fetchMediaFakta, type MediaFakta } from './data/media';
 import { supabase } from './supabase';
 import { buildBrowse } from './data/browse';
 import { initials } from './data/format';
 import { NarrativRenderer } from './components/NarrativRenderer';
 import { Lightbox } from './components/Lightbox';
 import { MediaDetaljeOverlay } from './components/MediaDetaljeOverlay';
+import { KildepersonaKo } from './components/KildepersonaKo';
 
 const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 const MEDIA_RETTIGHED_STATUS = ['ukendt', 'public_domain', 'licenseret', 'tilladelse_givet', 'begraenset', 'spaerret'] as const;
@@ -57,7 +61,7 @@ type MediaDedupState = {
 };
 // Change-arter der kan ændre et materiale-galleri (Slice 0h) — bruges til at afgøre om
 // person-editorens/objekt-editorens medieliste skal genhentes efter et gemt kald.
-const MEDIA_ARTER = new Set(['uploadMedia', 'opdaterMedia', 'genopretMedia', 'mediaRettigheder', 'fjernMedia', 'sletRelation', 'sletMediaRelationUdenEvidens', 'tilknytMedia', 'erstatMediaFil', 'udrensMedia', 'saetPortraet']);
+const MEDIA_ARTER = new Set(['uploadMedia', 'opdaterMedia', 'genopretMedia', 'mediaRettigheder', 'mediaFakta', 'fjernMedia', 'sletRelation', 'sletMediaRelationUdenEvidens', 'tilknytMedia', 'erstatMediaFil', 'udrensMedia', 'saetPortraet']);
 // Generiske entiteter med et materiale-galleri (Slice 0h) — spejler mobiles HAR_MATERIALE.
 const HAR_OBJEKT_MATERIALE = new Set(['estate', 'arms']);
 // --- Tokens (fra designet) ---
@@ -84,6 +88,7 @@ const ENTITIES = [
   { key: 'feed', label: 'Feed-styring', icon: '⚑' },
   { key: 'sammenlign', label: 'Sammenlign udgaver', icon: '⇄' },
   { key: 'foraeldre-konflikter', label: 'Forældre-konflikter', icon: '⚠' },
+  { key: 'kildepersonaer', label: 'Kildepersonaer', icon: '⌕' },
 ];
 const FELT_DEFS: [string, string][] = [
   ['navn', 'Navn'], ['foedt', 'Født'], ['doed', 'Død'], ['titel', 'Titel/rang'],
@@ -197,6 +202,7 @@ export default function Redaktion() {
   const [haendelseNotice, setHaendelseNotice] = useState('');
   // Narrativ pr. udgave: liste (faner) + aktiv kilde + redigerbart udkast for den aktive fane.
   const [narrativer, setNarrativer] = useState<PersonNarrativ[]>([]);
+  const [personNarrativeRefresh, setPersonNarrativeRefresh] = useState(0);
   const [aktivSourceId, setAktivSourceId] = useState<number | null>(null);
   const [narrativUdkast, setNarrativUdkast] = useState<{ tekst: string; privat: boolean; side: string }>({ tekst: '', privat: false, side: '' });
   // Cursor-position i narrativ-textarea'en (billeder-i-narrativer 2026-07-05, Slice C2) — ref, ikke
@@ -219,6 +225,10 @@ export default function Redaktion() {
   const [mediaKoe, setMediaKoe] = useState<MedieKoe | 'alle'>('alle');
   const [mediaAnvendelse, setMediaAnvendelse] = useState<MediaAnvendelse | undefined>();
   const [mediaAnvendelseFejl, setMediaAnvendelseFejl] = useState('');
+  // Medie-fakta (medie-metadata Task 5): kilde/beskrivelse-felter til "Kilde og beskrivelse"-
+  // sektionen i overlayet. undefined = henter stadig eller intet valgt medie (overlayet viser
+  // en loader, jf. MediaDetaljeOverlay's fakta-prop-kontrakt).
+  const [mediaFakta, setMediaFakta] = useState<MediaFakta | undefined>();
   const [udrensPreview, setUdrensPreview] = useState<UdrensPreview | undefined>();
   const [mediaLightbox, setMediaLightbox] = useState<number | null>(null); // Slice A
   const [mediaDetalje, setMediaDetalje] = useState<{ id: string; subjektType: string; subjektId: string } | null>(null);
@@ -267,6 +277,23 @@ export default function Redaktion() {
   const setSc = (k: string, v: string) => setScratch((s) => ({ ...s, [k]: v }));
   const refreshMediaBibliotek = useCallback(() => {
     fetchMediaBibliotek().then(setMediaBibliotek).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
+  }, []);
+  // Eksplicit genhentning af medie-fakta efter et LIVE gem/fjern (medie-metadata Task 5). Bruges af
+  // onGemFakta/onFjernFakta i renderMediaDetalje — 'tilbagetraekFakta' er en generisk art og udløser
+  // derfor IKKE run()'s automatiske MEDIA_ARTER-refetch (MM-08). mediaDetaljeRef-tjekket (samme
+  // mønster som run()'s post-write mediaAnvendelse-refetch) beskytter mod at et medie-skift midt i
+  // kaldet skriver stale fakta ind for det medie brugeren har forladt.
+  const refetchMediaFakta = useCallback(() => {
+    const id = mediaDetaljeRef.current?.id;
+    if (!id) return Promise.resolve();
+    return fetchMediaFakta([Number(id)]).then((m) => {
+      // ?? {}: et medie UDEN fakta har ingen kort i map'et — uden fallback ville "intet fundet"
+      // forblive umuligt at skelne fra "henter stadig" (begge er undefined), og overlayets loader
+      // ville aldrig forsvinde for et medie der reelt bare ikke har kilde-felter endnu.
+      if (mediaDetaljeRef.current?.id === id) setMediaFakta(m.get(id) ?? {});
+    }).catch(() => {
+      if (mediaDetaljeRef.current?.id === id) setMediaFakta(undefined);
+    });
   }, []);
 
   // --- Personers OCR-kvalitetsark (Task 9b) ---
@@ -423,13 +450,19 @@ export default function Redaktion() {
 
   useEffect(() => {
     mediaDetaljeRef.current = mediaDetalje;
-    if (!mediaDetalje) { setMediaAnvendelse(undefined); setMediaAnvendelseFejl(''); return; }
+    if (!mediaDetalje) { setMediaAnvendelse(undefined); setMediaAnvendelseFejl(''); setMediaFakta(undefined); return; }
     let aktiv = true;
     setMediaAnvendelse(undefined);
     setMediaAnvendelseFejl('');
+    setMediaFakta(undefined);
     fetchMediaAnvendelse(mediaDetalje.id)
       .then((a) => { if (aktiv) setMediaAnvendelse(a); })
       .catch(() => { if (aktiv) setMediaAnvendelseFejl('Kunne ikke kontrollere anvendelser. Sletning er derfor blokeret.'); });
+    // MM-08: samme aktiv-guard som anvendelse-hentningen ovenfor — et hurtigt medie-skift må
+    // ikke lade en sen .then() skrive stale fakta ind for det NYE (nu åbne) medie.
+    fetchMediaFakta([Number(mediaDetalje.id)])
+      .then((m) => { if (aktiv) setMediaFakta(m.get(mediaDetalje.id) ?? {}); })
+      .catch(() => { if (aktiv) setMediaFakta(undefined); });
     return () => { aktiv = false; };
   }, [mediaDetalje?.id]);
   useEffect(() => {
@@ -478,7 +511,10 @@ export default function Redaktion() {
     fetchPersonEvidence(id).then(setEvidence).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
     fetchHaendelserForPerson(id).then(setHaendelser).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
     fetchStoriesForPerson(id).then(setStories).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
-    loadNarrativer('person', Number(id));
+    // Person/DAA-narrativer læses kun af den record-bundne editor. Den generiske
+    // source-nøglede læser er fortsat kun til slægt/linje-editoren nedenfor.
+    setNarrativer([]); setAktivSourceId(null); setNyUdgave(null);
+    setNarrativUdkast({ tekst: '', privat: false, side: '' });
     fetchPersonFamilie(id, model).then(setFamilie).catch(() => setFamilie({ somPartner: [], somBarn: [] }));
     fetchPersonRelationer(id).then(setRelationer).catch(() => setRelationer([]));
     fetchSammeSomLinks(id).then(setSammeSom).catch(() => setSammeSom([]));
@@ -486,7 +522,7 @@ export default function Redaktion() {
       setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false }); setMediaDetalje(null);
       fetchRedPersonMedia(id).then(setMedia).catch(() => setMedia([]));
     }
-  }, [model, loadNarrativer]);
+  }, [model]);
 
   // Skift aktiv udgave-fane; nulstil udkast fra den fanes gemte narrativ (ugemte edits kasseres,
   // som ved record-skift). sourceId==null når en ny udgave er valgt men endnu ikke gemt.
@@ -669,6 +705,54 @@ export default function Redaktion() {
     }
   }, [dryRun, role, entity, recordId, loadPerson, refreshObjMedia, refreshMediaBibliotek, mediaDetalje]);
 
+  // Fortryd fra historik-panelet (issue #144): samme submitChange-flow som run(), men med
+  // rå-fejl-klassifikation FØR oversaetFejl — B9-konflikten ("nyere ændring rører samme data")
+  // skal tilbage til panelet som et eksplicit force-valg, ikke ende som død fejltekst i writeView.
+  const fortrydChangeSet = useCallback(async (post: HistPost, force: boolean): Promise<FortrydUdfald> => {
+    let change: Change;
+    try {
+      if (post.undoKind === 'publication_event') {
+        const current = await fetchPersonNarrativeRecords(Number(recordId));
+        const expectedStateSha256 = post.sourceRecordRef
+          ? current.records.find((record) => record.sourceRecordRef === post.sourceRecordRef)?.stateSha256
+          : current.legacyPublications.find((legacy) => legacy.legacyPublicationRef === post.legacyPublicationRef)?.stateSha256;
+        if (!expectedStateSha256) throw new Error('NARRATIVE_RECORD_REVERSAL_STATE_UNAVAILABLE');
+        change = { art: 'fortrydNarrativPublicering', subjektType: 'person', subjektId: recordId ?? '', payload: {
+          eventId: post.id, expectedStateSha256,
+        } };
+      } else {
+        change = { art: 'fortryd', subjektType: 'person', subjektId: recordId ?? '',
+          payload: { changeSetId: post.id, force } };
+      }
+      const res = await submitChange(change, { dryRun, role });
+      setWriteView({ title: dryRun ? 'Dry-run · dette ville blive sendt' : 'Ændring fortrudt',
+        lines: [describeCall(res.call)], error: '', done: !dryRun, dryRun, direkte: res.direkte });
+      if (!dryRun && recordId) {
+        loadPerson(recordId, { skipMedia: true });
+        if (post.undoKind === 'publication_event') setPersonNarrativeRefresh((version) => version + 1);
+      }
+      return 'ok';
+    } catch (e) {
+      const raw = String((e as Error)?.message ?? e);
+      if (!force && erFortrydKonflikt(raw)) return 'konflikt';
+      setWriteView({ title: 'Fortryd fejlede', lines: [], error: oversaetFejl(raw), done: false, dryRun, direkte: false });
+      return 'fejl';
+    }
+  }, [dryRun, role, recordId, loadPerson]);
+
+  const submitNarrativeRecordChange = useCallback(async (change: Change, title: string): Promise<boolean> => {
+    try {
+      const res = await submitChange(change, { dryRun, role });
+      setWriteView({ title: dryRun ? 'Dry-run · dette ville blive sendt' : title,
+        lines: [describeCall(res.call)], error: '', done: !dryRun, dryRun, direkte: res.direkte });
+      return !res.dryRun;
+    } catch (e) {
+      const raw = String((e as Error)?.message ?? e);
+      setWriteView({ title: `${title} fejlede`, lines: [], error: oversaetFejl(raw), done: false, dryRun, direkte: false });
+      throw e;
+    }
+  }, [dryRun, role]);
+
   const nyStoryFraPost = useCallback((post: TidslinjePost) => {
     if (storySaveGuardRef.current.busy) return;
     storySaveGuardRef.current.invalidate();
@@ -762,13 +846,15 @@ export default function Redaktion() {
       {renderTopBar()}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {renderSidebar()}
-        {entity === 'feed' || entity === 'sammenlign' || entity === 'foraeldre-konflikter' ? (
+        {entity === 'feed' || entity === 'sammenlign' || entity === 'foraeldre-konflikter' || entity === 'kildepersonaer' ? (
           <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: T.paper }}>
             {entity === 'feed'
               ? <FeedStyring role={role} model={model} run={run} />
               : entity === 'sammenlign'
               ? <SammenlignUdgaver role={role} dryRun={dryRun} />
-              : <ForaeldreKonflikterListe onOpen={(id) => openRecord('person', id)} />}
+              : entity === 'foraeldre-konflikter'
+              ? <ForaeldreKonflikterListe onOpen={(id) => openRecord('person', id)} />
+              : <KildepersonaKo role={role} />}
           </div>
         ) : visKvalitetsark ? (
           renderKvalitetsark()
@@ -997,7 +1083,7 @@ export default function Redaktion() {
                   {[{ linje: null as string | null, navn: null as string | null }, ...linjeList].map((l) => {
                     const on = activeLinje === l.linje;
                     return (
-                      <div key={l.linje ?? 'all'} onClick={() => setActiveLinje(l.linje)} title={l.navn ?? undefined} style={{ padding: '5px 11px', borderRadius: 15, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: on ? T.bordeaux : 'transparent', color: on ? T.paper : T.muted, border: `1px solid ${on ? T.bordeaux : 'rgba(34,31,26,.18)'}` }}>{l.linje ? `Linje ${l.linje}` : 'Hele slægten'}</div>
+                      <div key={l.linje ?? 'all'} onClick={() => setActiveLinje(l.linje)} title={l.navn ?? undefined} style={{ padding: '5px 11px', borderRadius: 15, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: on ? T.bordeaux : 'transparent', color: on ? T.paper : T.muted, border: `1px solid ${on ? T.bordeaux : 'rgba(34,31,26,.18)'}` }}>{l.linje ? (l.navn ?? `Linje ${l.linje}`) : 'Hele slægten'}</div>
                     );
                   })}
                 </div>
@@ -1005,7 +1091,7 @@ export default function Redaktion() {
             )}
 
             <div style={{ padding: '0 14px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <span style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>{`${activeLinje ? `Linje ${activeLinje} · ` : ''}${b.flat.length} ${query ? 'træffere' : 'personer'}`}</span>
+              <span style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>{`${activeLinje ? `${linjeList.find((l) => l.linje === activeLinje)?.navn ?? `Linje ${activeLinje}`} · ` : ''}${b.flat.length} ${query ? 'træffere' : 'personer'}`}</span>
               <div style={{ display: 'flex', background: '#e6ddcc', borderRadius: 7, padding: 2, gap: 2, flex: 'none' }}>
                 {(['navn', 'aar'] as const).map((s) => (
                   <span key={s} onClick={() => setBrowseSort(s)} style={{ fontFamily: T.sans, fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 5, cursor: 'pointer', background: browseSort === s ? T.bordeaux : 'transparent', color: browseSort === s ? T.paper : '#3d382f' }}>{s === 'navn' ? 'A–Å' : 'Født'}</span>
@@ -1242,9 +1328,18 @@ export default function Redaktion() {
 
         {renderFamilieRelationer(p.id)}
 
-        {renderNarrativEditor({ type: 'person', id: p.id })}
+        <PersonNarrativeRecordEditor key={`${p.id}:${personNarrativeRefresh}`} personId={Number(p.id)} onChange={submitNarrativeRecordChange} />
 
         {renderMateriale({ subjektType: 'person', subjektId: p.id, uploadTarget: { afbildetPersonId: p.id } })}
+
+        {/* Historik-panelet er redaktion-only: hist_for_subjekt er rolle-gated i DB'en, og
+            fortryd kan ikke degradere til forslag — for medlemmer ville panelet kun kunne fejle. */}
+        {role === 'redaktion' ? (
+          <>
+            <div style={sectionHeader(24)}>Ændringshistorik</div>
+            <HistorikPanel personId={String(p.id)} onFortryd={fortrydChangeSet} />
+          </>
+        ) : null}
       </div>
     );
   }
@@ -1628,6 +1723,7 @@ export default function Redaktion() {
         anvendelse={mediaAnvendelse}
         anvendelseFejl={mediaAnvendelseFejl}
         fletKandidater={fletKandidater}
+        fakta={mediaFakta}
         onClose={() => {
           setMediaDetalje(null); setMediaLightbox(null);
           if (entity === 'media') { setRecordId(null); navigate(redaktionPath('media', null)); }
@@ -1640,6 +1736,26 @@ export default function Redaktion() {
           subjektId: mediaDetalje.subjektId, mediaId: m.id, payload }, 'Opdater medie')}
         onGemRettigheder={(payload) => run({ art: 'mediaRettigheder', subjektType: mediaDetalje.subjektType,
           subjektId: mediaDetalje.subjektId, mediaId: m.id, payload }, 'Gem rettigheder')}
+        onGemFakta={async (changes, kildeFritekst) => {
+          // Sekventielt awaited (MM-08): parallelle run()-kald ville give delvise opdateringer +
+          // race om det fælles resultatpanel (writeView). Ét gemt fakta ad gangen, i rækkefølge.
+          // run() sluger fejl internt og returnerer undefined (viser den i writeView) — uden break
+          // her ville et fejlet felt midt i loopet blive tavst overskrevet af et SENERE felts
+          // succes-visning, og brugeren ville tro alle felter blev gemt.
+          for (const ch of changes) {
+            const res = await run({ art: 'mediaFakta', subjektType: mediaDetalje.subjektType,
+              subjektId: mediaDetalje.subjektId, mediaId: m.id,
+              payload: { ...ch, kildeFritekst: kildeFritekst || null } }, `Gem ${ch.faktatype}`);
+            if (!res) break;
+          }
+          if (!dryRun) await refetchMediaFakta(); // overlayet skal vise de netop gemte værdier
+        }}
+        onFjernFakta={async (factId) => {
+          await run({ art: 'tilbagetraekFakta', subjektType: mediaDetalje.subjektType,
+            subjektId: mediaDetalje.subjektId, factId }, 'Fjern medie-fakt');
+          // tilbagetraekFakta er en generisk art (ikke i MEDIA_ARTER) → run() genhenter den ikke selv.
+          if (!dryRun) await refetchMediaFakta();
+        }}
         onFjern={() => relationId && run({ art: 'sletRelation', subjektType: mediaDetalje.subjektType,
           subjektId: mediaDetalje.subjektId, relationId }, 'Fjern billede')}
         onFjernTilknytning={(id) => run({ art: 'sletRelation', subjektType: 'media', subjektId: m.id, relationId: id }, 'Fjern tilknytning')}
@@ -2295,8 +2411,13 @@ export default function Redaktion() {
             </div>
           </div>
           <div style={{ margin: '0 22px', background: '#f8ecef', border: '1px solid rgba(138,43,43,.25)', borderRadius: 11, padding: '13px 15px' }}>
-            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.red, marginBottom: 6 }}>Relationer der brydes</div>
-            <div style={{ fontSize: 13.5, lineHeight: 1.5, color: '#3d382f' }}>{pv ? `${pv.antalRelationer} relation(er) og ${pv.antalFacts} fakta knyttet til personen.` : 'Henter relations-overblik…'}</div>
+            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.red, marginBottom: 6 }}>Det her forsvinder</div>
+            <div style={{ fontSize: 13.5, lineHeight: 1.5, color: '#3d382f' }}>{pv ? `${pv.antalRelationer} relation(er), ${pv.antalFacts} fakta, ${pv.antalNarrativer} biografi(er) og ${pv.antalMedlemskaber} slægts-/linjemedlemskab(er) knyttet til personen.` : 'Henter overblik…'}</div>
+            {pv && pv.antalBindinger > 0 ? (
+              <div style={{ fontSize: 12.5, lineHeight: 1.45, color: '#5a5147', marginTop: 6 }}>
+                {`Heraf er ${pv.antalBindinger} biografi(er) bundet til en kildepost. Bindingen fjernes med biografien — selve registreringen af, at teksten står på siden, bevares.`}
+              </div>
+            ) : null}
           </div>
           <div style={{ padding: '16px 22px 4px' }}>
             <label onClick={() => setConfirmDel((c) => c && { ...c, ack: !c.ack })} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>

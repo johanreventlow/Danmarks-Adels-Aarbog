@@ -99,13 +99,19 @@ export function FeedStreamView({
   // Bio + livsdato + hændelser + stories hentes ved mount (§7.3). Alle sene ankomster genopbygger
   // med samme seed og resume-kontrakten nedenfor — viste kort nulstilles aldrig.
   const [bios, setBios] = useState<Record<string, string> | null>(null);
+  const [bioError, setBioError] = useState<string | null>(null);
   const [livsdatoBy, setLivsdatoBy] = useState<LivsdatoBy>({});
   const [haendelserBy, setHaendelserBy] = useState<HaendelserBy>({});
   const [storieBy, setStorieBy] = useState<StorieBy>({});
   useEffect(() => {
     let alive = true;
     const canon = model.canonicalIdById ?? {};
-    void fetchFeedBios(canon, model.persons.map((p) => p.id)).then((b) => { if (alive) setBios(b); });
+    setBios(null);
+    setBioError(null);
+    void fetchFeedBios(canon, model.persons.map((p) => p.id)).then(
+      (b) => { if (alive) setBios(b); },
+      (e) => { if (alive) setBioError(String((e as Error)?.message ?? e)); },
+    );
     void loadLivsdatoBy(canon).then((ld) => { if (alive) setLivsdatoBy(ld); });
     void loadHaendelserBy(canon).then((hs) => { if (alive) setHaendelserBy(hs); });
     void loadStorieBy(canon).then((stories) => { if (alive) setStorieBy(stories); });
@@ -281,6 +287,12 @@ export function FeedStreamView({
 
   return (
     <div style={{ maxWidth: 680, margin: '0 auto' }}>
+      {bioError ? (
+        <div role="alert" style={{ marginBottom: 14, padding: 14, color: T.bordeaux, background: T.paper, border: '1px solid rgba(136,26,51,.25)' }}>
+          <strong>Kunne ikke hente feedets biografier</strong>
+          <div style={{ marginTop: 4 }}>{bioError}</div>
+        </div>
+      ) : null}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {shown.map((card) => {
           const pid = bookmarkPersonId(card);

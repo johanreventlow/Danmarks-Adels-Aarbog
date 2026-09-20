@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  buildResumeMediaUploadPlan, buildRpcCall, buildSuggestCall, FELT_FAKTATYPE,
+  buildResumeMediaUploadPlan, buildRpcCall, buildSuggestCall, erFortrydKonflikt, FELT_FAKTATYPE,
   oversaetFejl, planCall, submitChange, type Change,
 } from '../redaktionWrite';
 
@@ -317,6 +317,76 @@ describe('buildRpcCall — filside fase 1', () => {
   it('oversætter allerede-tilknyttet præcist før den generiske unique-fallback', () => {
     expect(oversaetFejl('unique constraint: Mediet er allerede tilknyttet dette subjekt'))
       .toBe('Mediet er allerede tilknyttet dette subjekt.');
+  });
+});
+
+describe('buildRpcCall — mediaFakta (medie-metadata Task 3)', () => {
+  it('mediaFakta mapper til red_upsert_fakta på media-subjekt', () => {
+    const rpc = buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'kilde_url', vaerdi: 'https://www.deutsche-digitale-bibliothek.de/item/H4Z…' } } as never);
+    expect(rpc).toEqual({ fn: 'red_upsert_fakta', args: {
+      p_subjekt_type: 'media', p_subjekt_id: 42, p_faktatype: 'kilde_url',
+      p_vaerdi: 'https://www.deutsche-digitale-bibliothek.de/item/H4Z…' } });
+  });
+
+  it('mediaFakta afviser ukendt faktatype', () => {
+    expect(buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'levende', vaerdi: 'x' } } as never)).toBeNull();
+  });
+
+  it('mediaFakta datering sætter p_date_raw og date-felter (kanoniske engelske qualifiers)', () => {
+    const rpc = buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'datering', vaerdi: 'ca. 1840', dateMin: '1835-01-01', dateMax: '1845-12-31', dateQualifier: 'about' } } as never);
+    expect(rpc?.args).toMatchObject({ p_date_raw: 'ca. 1840', p_date_min: '1835-01-01', p_date_max: '1845-12-31', p_date_qualifier: 'about' });
+  });
+
+  it('mediaFakta afviser ugyldig qualifier og ikke-http(s) kilde_url', () => {
+    expect(buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'datering', vaerdi: '1840', dateQualifier: 'ca' } } as never)).toBeNull();
+    expect(buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'kilde_url', vaerdi: 'javascript:alert(1)' } } as never)).toBeNull();
+  });
+
+  // Regression (fix-runde 1): dateQualifier: '' er en uvalgt <select>-default i Task 4's kommende
+  // UI, ikke en ugyldig værdi — skal give et gyldigt kald UDEN p_date_qualifier, ikke null (som
+  // ellers ville degradere en direkte redaktør-skrivning tavst til red_suggest via planCall).
+  it('mediaFakta med tom dateQualifier-streng giver gyldigt kald uden p_date_qualifier', () => {
+    const rpc = buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'datering', vaerdi: '1840', dateQualifier: '' } } as never);
+    expect(rpc).toEqual({ fn: 'red_upsert_fakta', args: {
+      p_subjekt_type: 'media', p_subjekt_id: 42, p_faktatype: 'datering',
+      p_vaerdi: '1840', p_date_raw: '1840' } });
+    expect(rpc?.args).not.toHaveProperty('p_date_qualifier');
+  });
+
+  it('mediaFakta afviser manglende mediaId og tom/blank værdi', () => {
+    expect(buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7',
+      payload: { faktatype: 'kilde_url', vaerdi: 'https://example.org' } } as never)).toBeNull();
+    expect(buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'kilde_institution', vaerdi: '   ' } } as never)).toBeNull();
+  });
+
+  it('mediaFakta hentedato uden eksplicitte date-felter sætter kun p_date_raw', () => {
+    const rpc = buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'hentedato', vaerdi: '2026-08-06' } } as never);
+    expect(rpc).toEqual({ fn: 'red_upsert_fakta', args: {
+      p_subjekt_type: 'media', p_subjekt_id: 42, p_faktatype: 'hentedato',
+      p_vaerdi: '2026-08-06', p_date_raw: '2026-08-06' } });
+  });
+
+  // Task 5-fund (wiring-review): overlayets Kildenote-felt sender kildeFritekst i payload
+  // (Redaktion.tsx's onGemFakta) — uden p_kilde_fritekst her blev den stille droppet, og enhver
+  // gemt fakta fik proveniens "(kilde mangler)", uanset hvad brugeren skrev i noten.
+  it('mediaFakta medtager p_kilde_fritekst når payload.kildeFritekst er sat', () => {
+    const rpc = buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'fotograf', vaerdi: 'Sönke Ehlert', kildeFritekst: 'Arkivets e-mail 2026-08-01' } } as never);
+    expect(rpc?.args).toMatchObject({ p_kilde_fritekst: 'Arkivets e-mail 2026-08-01' });
+  });
+
+  it('mediaFakta udelader p_kilde_fritekst når kildenoten er null/udeladt', () => {
+    const rpc = buildRpcCall({ art: 'mediaFakta', subjektType: 'person', subjektId: '7', mediaId: '42',
+      payload: { faktatype: 'fotograf', vaerdi: 'Sönke Ehlert', kildeFritekst: null } } as never);
+    expect(rpc?.args).not.toHaveProperty('p_kilde_fritekst');
   });
 });
 
@@ -643,5 +713,45 @@ describe('buildRpcCall — union-redigering', () => {
     const c = { art: 'tilfoejPartner', subjektType: 'person', subjektId: '1198',
       payload: { familyId: '726', personId: '1613' } } as Change;
     expect(planCall(c, 'medlem').fn).toBe('red_suggest');
+  });
+});
+
+// ===== Issue #144: fortryd (red_fortryd_change_set) i web-skrivelaget =====
+// Porteret fra mobilens mønster — hold i sync (jf. fil-header).
+
+describe('fortryd — buildRpcCall + rolle-gate + konflikt-genkendelse', () => {
+  const fortrydChange = (payload?: Record<string, unknown>): Change => ({
+    art: 'fortryd', subjektType: 'person', subjektId: '7', payload,
+  });
+
+  it('fortryd → red_fortryd_change_set m. Number-konverteret id + force', () => {
+    expect(buildRpcCall(fortrydChange({ changeSetId: '12', force: true }))).toEqual({
+      fn: 'red_fortryd_change_set', args: { p_change_set_id: 12, p_force: true },
+    });
+  });
+
+  it('fortryd uden force defaulter til p_force=false', () => {
+    expect(buildRpcCall(fortrydChange({ changeSetId: 12 }))).toEqual({
+      fn: 'red_fortryd_change_set', args: { p_change_set_id: 12, p_force: false },
+    });
+  });
+
+  it('fortryd uden changeSetId bygger intet kald', () => {
+    expect(buildRpcCall(fortrydChange())).toBeNull();
+    expect(buildRpcCall(fortrydChange({ force: true }))).toBeNull();
+  });
+
+  it('fortryd kan ALDRIG degradere til red_suggest — et fortryd-forslag ville lyve', async () => {
+    await expect(submitChange(fortrydChange({ changeSetId: 12 }), { dryRun: false, role: 'medlem' }))
+      .rejects.toThrow(/redaktør-rettigheder/);
+    await expect(submitChange(fortrydChange({ changeSetId: 12 }), { dryRun: true, role: undefined }))
+      .rejects.toThrow(/redaktør-rettigheder/);
+  });
+
+  it('erFortrydKonflikt matcher en statisk kopi af DB-RAISE-teksten (B9-divergens)', () => {
+    // Statisk kopi af schema.sql's RAISE — drifter formuleringen, opdateres denne test + regex manuelt.
+    expect(erFortrydKonflikt('FEJL: nyere ændring rører fact/{"id": 3} — afvist (brug force)')).toBe(true);
+    expect(erFortrydKonflikt('Kun redaktion')).toBe(false);
+    expect(erFortrydKonflikt('FEJL: change_set 12 er allerede fortrudt')).toBe(false);
   });
 });

@@ -1,0 +1,3 @@
+{"type":"thread.started","thread_id":"00000000-0000-0000-0000-00000000u001"}
+{"type":"turn.started"}
+{"type":"turn.failed","error":{"kode":42}}

@@ -9,6 +9,7 @@ import {
 } from '../data/presens';
 import { fetchPresensLinjer, fetchPresensIntro, type PresensLinjeInfo } from '../data/presensLinjer';
 import { fetchPersonDetail } from '../data/public';
+import { personMemberIds } from '../data/personMembers';
 import { currentSession, type RedSession } from '../data/auth';
 import { NarrativRenderer } from './NarrativRenderer';
 import { T } from '../theme';
@@ -21,7 +22,7 @@ import { personPath } from '../data/nav';
 // rækker (søskende, efterkommere, forbindelsesled, partnere) bruger det almindelige navnAf-format
 // (Titel + fornavne, uden efternavn) — jf. mekanismen fundet ved bruger-verifikation 2026-07-24.
 //
-// erAaben/erHenter/bioAf/onToggle (alle valgfri, default = ingen fold-ud nogensinde åben) styrer
+// erAaben/erHenter/bioAf/bioFejlAf/onToggle (alle valgfri, default = ingen fold-ud nogensinde åben) styrer
 // fold-ud-narrativet ved navneklik (spec 2026-07-24-praesens-navn-foldud-design.md). Komponenten
 // kender bevidst IKKE til fetchPersonDetail — al hentning/cache lever i PresensView, der kalder
 // onToggle og læser tilbage via erAaben/erHenter/bioAf. Det holder denne fil testbar uden supabase.
@@ -34,12 +35,13 @@ export function PresensGrenSektion(props: {
   erAaben?: (id: string) => boolean;
   erHenter?: (id: string) => boolean;
   bioAf?: (id: string) => string | undefined;
+  bioFejlAf?: (id: string) => string | undefined;
   onToggle?: (id: string) => void;
   fokusId?: string | null;
 }) {
   const {
     gren, navnAf, navnAfAnker = navnAf, aarAf, onPick,
-    erAaben = () => false, erHenter = () => false, bioAf = () => undefined, onToggle = () => {},
+    erAaben = () => false, erHenter = () => false, bioAf = () => undefined, bioFejlAf = () => undefined, onToggle = () => {},
     fokusId,
   } = props;
 
@@ -54,7 +56,9 @@ export function PresensGrenSektion(props: {
       ) : (
         <>
           <div style={{ fontFamily: T.serif, fontSize: 16.5, lineHeight: 1.6, color: '#3d382f' }}>
-            {bioAf(id) ? (
+            {bioFejlAf(id) ? (
+              <span role="alert" style={{ color: T.bordeaux }}>Kunne ikke hente biografien: {bioFejlAf(id)}</span>
+            ) : bioAf(id) ? (
               <NarrativRenderer tekst={bioAf(id)!} onPickPerson={onPick} linkColor={T.bordeaux} inactiveColor={T.muted2} />
             ) : (
               <span style={{ fontStyle: 'italic', color: T.muted2 }}>Ingen biografi registreret</span>
@@ -173,15 +177,16 @@ export function PresensLinjeSektion(props: {
   erAaben?: (id: string) => boolean;
   erHenter?: (id: string) => boolean;
   bioAf?: (id: string) => string | undefined;
+  bioFejlAf?: (id: string) => string | undefined;
   onToggle?: (id: string) => void;
   fokusId?: string | null;
 }) {
-  const { gruppe, info, navnAf, navnAfAnker, aarAf, onPick, erAaben, erHenter, bioAf, onToggle, fokusId } = props;
+  const { gruppe, info, navnAf, navnAfAnker, aarAf, onPick, erAaben, erHenter, bioAf, bioFejlAf, onToggle, fokusId } = props;
   return (
     <div id={`linje-${gruppe.linje.toLowerCase()}`} style={{ marginTop: 52 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 24, borderTop: `1px solid rgba(34,31,26,.14)`, paddingTop: 26 }}>
         {info?.vaaben?.url && (
-          <img src={info.vaaben.url} alt="Linjens våben" style={{ width: 92, height: 'auto', display: 'block', flex: 'none' }} />
+          <img src={info.vaaben.url} alt={info.vaaben.altTekst || 'Linjens våben'} style={{ width: 92, height: 'auto', display: 'block', flex: 'none' }} />
         )}
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
@@ -197,7 +202,7 @@ export function PresensLinjeSektion(props: {
         </div>
       </div>
       {gruppe.grene.map((g) => (
-        <PresensGrenSektion key={g.anker.personId} gren={g} navnAf={navnAf} navnAfAnker={navnAfAnker} aarAf={aarAf} onPick={onPick} erAaben={erAaben} erHenter={erHenter} bioAf={bioAf} onToggle={onToggle} fokusId={fokusId} />
+        <PresensGrenSektion key={g.anker.personId} gren={g} navnAf={navnAf} navnAfAnker={navnAfAnker} aarAf={aarAf} onPick={onPick} erAaben={erAaben} erHenter={erHenter} bioAf={bioAf} bioFejlAf={bioFejlAf} onToggle={onToggle} fokusId={fokusId} />
       ))}
     </div>
   );
@@ -217,6 +222,7 @@ export default function PresensView(props: { model: Model | null; onPickPerson: 
   // id'er hvis fetchPersonDetail-kald er undervejs (viser "Henter…", og forhindrer dobbelt-hentning).
   const [aabne, setAabne] = useState<Set<string>>(new Set());
   const [bioById, setBioById] = useState<Map<string, string>>(new Map());
+  const [bioFejlById, setBioFejlById] = useState<Map<string, string>>(new Map());
   const [hentendeIds, setHentendeIds] = useState<Set<string>>(new Set());
   const fokusId = (window.history.state as { fokusId?: string } | null)?.fokusId ?? null;
 
@@ -280,18 +286,22 @@ export default function PresensView(props: { model: Model | null; onPickPerson: 
   const erAaben = (id: string) => aabne.has(id);
   const erHenter = (id: string) => hentendeIds.has(id);
   const bioAf = (id: string) => bioById.get(id);
+  const bioFejlAf = (id: string) => bioFejlById.get(id);
   const onToggle = (id: string) => {
+    const wasOpen = aabne.has(id);
     setAabne((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
+    if (wasOpen) return;
     if (bioById.has(id) || hentendeIds.has(id)) return;
     setHentendeIds((prev) => new Set(prev).add(id));
-    const members = model!.byId[id]?.mergedFrom?.map((m) => m.personId);
+    setBioFejlById((prev) => { const next = new Map(prev); next.delete(id); return next; });
+    const members = personMemberIds(id, model!.byId[id]);
     fetchPersonDetail(id, members)
       .then((d) => setBioById((prev) => new Map(prev).set(id, d.bio)))
-      .catch(() => setBioById((prev) => new Map(prev).set(id, '')))
+      .catch((e) => setBioFejlById((prev) => new Map(prev).set(id, String((e as Error)?.message ?? e))))
       .finally(() => setHentendeIds((prev) => { const next = new Set(prev); next.delete(id); return next; }));
   };
   return (
@@ -361,7 +371,7 @@ export default function PresensView(props: { model: Model | null; onPickPerson: 
           )}
 
           {linjer.map((lin) => (
-            <PresensLinjeSektion key={lin.linje} gruppe={lin} info={linjeInfo[lin.linje]} navnAf={navnAf} navnAfAnker={navnAfAnker} aarAf={aarAf} onPick={onPickPerson} erAaben={erAaben} erHenter={erHenter} bioAf={bioAf} onToggle={onToggle} fokusId={fokusId} />
+            <PresensLinjeSektion key={lin.linje} gruppe={lin} info={linjeInfo[lin.linje]} navnAf={navnAf} navnAfAnker={navnAfAnker} aarAf={aarAf} onPick={onPickPerson} erAaben={erAaben} erHenter={erHenter} bioAf={bioAf} bioFejlAf={bioFejlAf} onToggle={onToggle} fokusId={fokusId} />
           ))}
 
           <div style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.08em', color: T.muted2, marginTop: 52, borderTop: '1px solid rgba(34,31,26,.08)', paddingTop: 14, textAlign: 'center' }}>

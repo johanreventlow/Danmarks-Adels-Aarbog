@@ -1,6 +1,13 @@
 # samme_som-collapse — Implementeringsplan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **Historisk status (2026-08-30):** Checkboksene er den oprindelige plans
+> arbejdsspor, ikke en aktuel udførelseslog. Changelogentryen
+> *samme_som-collapse implementeret (web + mobile)* (2026-07-02) dokumenterer
+> den leverede feature; kontrollér commits og tests før nyt arbejde eller en
+> statuspåstand. `docs/evidensbaseret-genimport/status.md` beskriver alene
+> genimportprogrammets status, ikke denne features status.
 
 **Goal:** Vis en person der optræder som flere DB-poster (via `samme_som`-relationer) som ÉN person i web+mobile — søgning, person-visning og slægtskabsfinder — via en valideret, reversibel identitets-projektion FØR `buildModel`.
 

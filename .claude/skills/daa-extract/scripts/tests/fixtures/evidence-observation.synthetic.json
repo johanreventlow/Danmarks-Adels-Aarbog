@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.0",
+  "source_rendition": [],
+  "source_records": [],
+  "source_record_occurrences": [
+    {
+      "occurrence_id": "occurrence-1",
+      "rendition_id": "rendition-2018-pdftext-v1",
+      "extraction_run_id": "run-1",
+      "verbatim_text": "Gift 12. Maj 1814 med Anna.",
+      "span": {
+        "rendition_id": "rendition-2018-pdftext-v1",
+        "page_from": 101,
+        "page_to": 101,
+        "column_label": "a",
+        "char_from": 0,
+        "char_to": 27
+      }
+    }
+  ],
+  "observations": [
+    {
+      "observation_id": "obs-marriage-1",
+      "occurrence_id": "occurrence-1",
+      "kind": "marriage_clause",
+      "verbatim_text": "Gift 12. Maj 1814 med Anna.",
+      "span": {
+        "rendition_id": "rendition-2018-pdftext-v1",
+        "page_from": 101,
+        "page_to": 101,
+        "column_label": "a",
+        "char_from": 0,
+        "char_to": 27
+      },
+      "extraction_method": "deterministic",
+      "extraction_run_id": "run-1"
+    }
+  ],
+  "source_record_anchor_events": [],
+  "source_record_revision_events": [],
+  "record_placements": [],
+  "persona_placements": [],
+  "text_variants": [],
+  "mentions": [],
+  "source_personas": [],
+  "extraction_run": {"run_id": "run-1"},
+  "interpretations": []
+}

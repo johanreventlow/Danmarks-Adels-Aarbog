@@ -4,7 +4,37 @@
 > er autoritative, og hvordan næste deploy forberedes sikkert. Changelog fortæller
 > historien; denne side fortæller tilstanden.
 >
-> **Sidst afstemt:** 2026-08-01 (union-redigering: `red_tilfoej_partner`,
+> **Sidst afstemt:** 2026-09-17 (trin 4's skema og writere deployet — se §8. Målt:
+> 1811 personer, 4 kilder, 1488 observationer, 0 fortolkninger, 2083 reimport-hændelser.
+> **Kun trin 4-objekterne og disse fem tal er inventeret ved denne afstemning**; §1's
+> øvrige tal er ældre). Forudgående afstemning 2026-08-20 (`red_slet_person` + `_preview` deployet efter
+> backup: bindinger, slægts-/linjemedlemskaber og hændelses-ankre ryddes nu, og
+> medlemskabstabellerne er registreret i `version_pk_registry`. Verificeret på
+> ægte data — person 924 med kildebinding kunne slettes i en rullet-tilbage
+> transaktion. **Fase D2 er kørt 2026-08-20: 28 → 7 staged.** Målte tal: 1.811
+> personer, 7.197 facts, 2.258 `family_member`, 592 source_records, 905
+> write-events; `anon` ser 1.713. Se changelog 2026-08-20).
+>
+> Forudgående afstemning: 2026-08-18 (den afgrænsede v50-production-writer
+> kørt i prod: 8 nye summary-personer 1846-1853 oprettet, navngivet,
+> narrativ-publiceret og cutover'et til offentlig synlighed;
+> `red_publicer_narrative_record` hærdet
+> (draft→published m. eksakt felt-match); prod = 1.812 personer, 7.199 facts,
+> 321 write-events; backups + rapporter i `work/task25-1939-v50-production-writer/`.
+> Se changelog 2026-08-18). Forudgående afstemning 2026-08-06
+> (medie-metadata: 12 nye `vocab`-faktatyper for medier — `kilde_url`,
+> `kilde_institution`, `ekstern_objekt_id`, `hentedato`, `fotograf`,
+> `rettighedshaver`, `kreditlinje`, `beskrivelse`, `alt_tekst`, `teknik`,
+> `fysiske_maal`, `datering` — samt RLS-skærpelse af `entitet_offentlig`:
+> media-grenen gik fra ubetinget `true` til `media_rettigheder_ok(p_id)`, så et
+> upubliceret medies fakta/noter/relationer nu er mørke for publikum. Applied til
+> prod via migration `medie_metadata_faktatyper_og_rls_gate`. Verificeret efter
+> deploy: 12/12 seeds; publiceret medie fortsat synligt; upubliceret medie mørkt
+> (rollback-DO-blok, ingen data ændret); `place` fortsat true; ukendt type
+> fail-closed; grants til anon+authenticated bevaret; `get_advisors(security)` =
+> 0 ERROR og ingen nye WARN. Nul eksisterende rækker mørklagt — der fandtes ingen
+> upublicerede medier og ingen media-fakta ved deploy. Se changelog 2026-08-06).
+> Forudgående afstemning 2026-08-01 (union-redigering: `red_tilfoej_partner`,
 > `_samme_som_gruppe`, `trg_partner_loft`, opdateret `red_tilfoej_barn`,
 > `enforce_samme_som_invariants` m. UPDATE-trigger og udvidet `red_doede_links`
 > applied til prod; data: 65 børn flyttet + 7 forældre matchet → 0 karantænerede
@@ -33,10 +63,11 @@
 
 | Område | Faktisk tilstand |
 |---|---|
-| Personer | **1.758** total; **835 staged**; **77 levende**; 0 `privat=TRUE` |
-| Offentlig/medlem | `anon` og almindelig `authenticated` ser begge **853 personer**, **0 levende**, **0 staged** |
+| Personer | **1.811** total; **7 staged**; **70 levende**; 0 `privat=TRUE` — målt 2026-08-20 efter fase D2 (975 pensioneret som oversigtslinje) |
+| Offentlig/medlem | `anon` ser **1.734 personer**, **0 levende**, **0 staged** (efter fase D2, 2026-08-20). Regnestykket går op: 1811 − 70 levende − 7 staged = 1734 |
+| Kildebindinger | **559** i `private.narrative_record_publication`, alle `published` (efter C0-efterkørslen 2026-08-21) |
 | Kilder | 3 source-rækker. Source 1 = DAA 2018-20/2020 med 591 direkte poster; source 3 = DAA 1939/1939 med 539 direkte poster |
-| Slægtskab | 2.224 `family_member`-rækker; **921** `forældrefamilie`-facts |
+| Slægtskab | **2.258** `family_member`-rækker; **922** `forældrefamilie`-facts (målt 2026-08-20) |
 | Medier | **6** media-rækker: 2 `klar`, 4 `fjernet`; privat `media`-bucket og `media_variant` findes |
 | Bogmærker | `bookmark` er live og indeholder 1 række |
 | Versionering | 22 tabeller i `version_pk_registry`; `change_set`/`change_event` og `text_mention` er live |
@@ -82,7 +113,31 @@ prod-deploy.
   API-flade, og almindelig `authenticated` er fail-closed til samme personregel som
   `anon`. Levende/staged kræver fortsat redaktionsadgang.
 
-### 1939: loadet staged, men publicering er pauset
+### 1939: publiceringen er i gang (opdateret 2026-08-20)
+
+**Aktuelt:** **7 staged** tilbage af oprindeligt 835.
+
+- **Fase D1** publicerede 68 personer (44 probander + 24 ægtefælle-stubs) 2026-08-19.
+- **Fase D2** publicerede de 21 gift-ind-ægtefæller 2026-08-20 (`change_set 960`,
+  21 `change_events`, staged 28 → 7). Person-, fact-, relation- og
+  narrativtællinger uændrede — fasen rørte udelukkende `staged`. Backup før
+  skrivning: `pre-d2-20260820-222135.dump`, SHA-256 `2c974998…`. Se changelog
+  2026-08-20 og `docs/superpowers/reviews/1939-v50-fase-d2-go-pakke.md`.
+
+**De 7 tilbage:** `933, 935, 940, 963, 967, 1014, 1135`. Alle har et
+1939-narrativ og et `person_external_id`, men **0 published bindinger** — det
+er D1's kriterium, de fejler på. De er tre forskellige sager:
+
+| Personer | Sag |
+|---|---|
+| 933, 935, 940, 1135 | Blandt C0's 9 uforklarede — hører til C3's identitetsspor |
+| 1014 | På C0's uafklarede-liste; afventer C0 |
+| 963, 967 | **`[KOBL]`-mål der selv er staged.** Uafklaret synligheds-/RLS-spørgsmål: må en record-binding publiceres på en staged persons narrativ? Hører til C0's efterkørsel, ikke til D3. |
+
+Se `docs/superpowers/reviews/1939-v50-fase-c0-efterkoersel-genmaaling.md`.
+Afsnittet nedenfor beskriver den oprindelige situation og bevares som historik.
+
+### 1939: loadet staged, men publicering er pauset (historisk)
 
 - DAA 1939 er loadet som source 3 med 835 staged personer (539 direkte poster +
   partnerstubs). De er usynlige for `anon` og almindelig `authenticated`.
@@ -196,6 +251,40 @@ prod-deploy.
 
 ---
 
+### #152 fase 1, #153 og 149b — DDL LIVE i prod (2026-09-05, GO 1)
+
+`db-migrations.sql` + `db-rls.sql` fra main `21ff44b` er kørt mod prod (hver i én
+transaktion, exit 0). Kontraktversionen er fortsat **1**: #152's cutover er IKKE kørt,
+og ingen data er ændret (1811/1169/563/7197/2258 uændrede). Nyt i kataloget: den
+generelle reimport-writer (#153) inkl. `legacy_migration`-operation og
+`red_apply_reimport_legacy_migration`, #152's kontrakt-, ledger- og eventtabeller
+(tomme), reversal-gren for `legacy_migrated`, statusfiltre i læsefunktionerne og
+publiceringsgaten. 1939's tre reimport-batches er migreret til `private.reimport_batch`
+(1 activated, 2 finalized). Backup før apply: SHA `5d1dc497…`. Se changelog 2026-09-05.
+
+### #152-cutover — LIVE i prod, kontraktversion 2 (2026-09-06, GO 2)
+
+`private.apply_narrative_record_cutover` kørt via runbooken fra checkout `c8b76e9`: 563
+record-baselines + 552 grandfathered legacy-rækker (544 fra 2018-20, 8 fra 1939), change set
+967, receipt `512068f804cb52ce…`, postverify bestået. Gamle person/DAA-skriveveje er lukkede;
+redaktørerne bruger de nye `red_*_person_narrative_record`-RPC'er. Nye bindinger er frosset
+indtil 149a/149b er anvendt (GO 3-4). Se changelog 2026-09-06.
+
+### 149a — 2018-20 kilderegnskab LIVE i prod (2026-09-06, GO 3)
+
+Batch `30469676…` (`finalized`, 591 `source_evidence`): 1 rendition
+(`daa-2018-20-pdftotext-r1`, rå tekst `2dd5cf84…`), 591 `source_record` (`person_post`),
+591 forekomster og 591 accepterede ankre for source 1. Ingen ændring i `person`/`fact`/
+`family_member`/`narrative`/bindinger. Bindingerne følger med 149b (GO 4).
+
+### 149b — 2018-20 narrativ-binding LIVE i prod (2026-09-06, GO 4)
+
+Batch `0854a091…` (`finalized`, 587 `legacy_migration`): 541 biografier kildebundne og
+publicerede med »DAA 2018-20, s. N« og stabil `source_record_ref`, 46 levende som skjulte
+kladder, 3 fortsat overgangsdata (`I-133`, `II-35`, `III-129`), 1 uafklaret levende
+(`IV-94`) uden binding. 587 persona-identiteter (evidens `person_external_id`, valg A).
+Frysningen af nye bindinger fra #152 er dermed ophævet for 2018-20 og 1939.
+
 ## 4. Hvad er ikke live / bevidst udskudt
 
 | Emne | Status |
@@ -207,6 +296,7 @@ prod-deploy.
 | **Polymorf døde-link-integritetsrapport** | Kun `text_mention` har et døde-links-view. Bredere orphan-check (fact/relation/assertion → subjekt) findes ikke systematisk endnu. |
 | Levende feed fase 4 | LLM-assist/Edge Function — bevidst udskudt 2026-07-20 (for få kilder i PoC til at retfærdiggøre kørslen endnu), ikke annulleret. Se `decisions.md`. |
 | **Mediehåndtering fase 4 — identitet & endeligt farvel** | **LIVE i prod (2026-07-22).** Nye funktioner i `schema.sql`: `red_erstat_media_fil` (erstat bytes, behold identitet — atomisk `AND upload_status='klar'`-gate mod race), `red_udrens_media_preview`+`red_udrens_media` (permanent sletning, blokeret på SYV polymorfe ankre: relation, text_mention, fact, story, narrative, note, suggestion — guard+slet i ét atomisk `DELETE...NOT EXISTS`-statement), `red_saet_portraet` (portræt-valg, `relation.kvalifikator jsonb`-kolonne, additiv). Deployet via scoped blok `mediehaandtering_fase4_identitet`; fase-4-verify-blokkene kørt og bestået direkte mod prod (impersoneret redaktion-profil), `get_advisors(security)` viste kun kendte SECURITY DEFINER-mønstre. `db-rls.sql` uændret. Web app-deployet (Vercel, PR #75); redaktør-røgtestet (erstat/udrens/portræt) med succes; janitor-rapport bekræftede korrekt kategori-b-håndtering af et reelt erstat, ingen `--slet` kørt. |
+| **Trin 4's dataskrivning** (klausuler via `clause_evidence`, forslag via `interpretation_proposal`) | **Klausulerne er skrevet 2026-09-18**: 591 records, 868 klausuler, 617/251 dispositioner, én `finalized` batch, afstemt med klausul-projektionen (`match`, uændrede neutrale lister). Procedure: `docs/runbooks/clause-evidence-prod-apply.md`. `interpretation_proposal` er stadig ikke kørt: den mangler fortolknings-projektionen (#196), og der findes ingen prod-fortrydelse (spec åbent punkt 11.5). |
 | Mediehåndtering fase 5 | Dokumenttransskription er ikke designet endnu. |
 | 1939-publicering | Pauset indtil nyt OCR-udtræk, nyt artefakt og fornyet komplethedsgate (uddybet i §3) |
 | Import-sikkerhed | Stabil import-run/checksum/udgavenøgle og source-scoped replace mangler; `--reset` er fortsat en farlig nødvej |
@@ -225,6 +315,15 @@ prod-deploy.
 5. **Eksplicit godkendelse:** brugeren navngiver prod-målet og det konkrete apply.
 6. **Atomisk apply:** `--single-transaction` hvor artefaktet tillader det; genanvend
    `db-rls.sql` når policies/grants påvirkes.
+   For evidens-hardening (#154/#155) skal den godkendte `db-migrations.sql`-blok
+   og de tilhørende `db-rls.sql`-grants køres i samme deploy-transaktion efter en
+   restore-rehearsal. Kør aldrig `db-rls.sql` alene som kompensation for en
+   migrationssti. Hver ny eller erstattet `public.red_*` skal i samme transaktion
+   være eksplicit klassificeret som authenticated-, service-only- eller lukket RPC
+   og få sit passende `GRANT EXECUTE`; `PUBLIC` er aldrig en implicit klientrolle.
+   Den katalogbaserede `db-verify`-policy samt både migrations- og fresh-schema-
+   vejen i CI er deploy-gaten, efterfulgt af append-only- og fortolkningskontroller
+   i en isoleret database.
 7. **Verificér:** scoped adfærdsasserts, read-only katalog-/RLS-smoke, Data API-grants,
    schema-cache og Supabase security advisors.
 8. **Dokumentér:** opdatér changelog og denne side med faktisk resultat, tal og
@@ -294,3 +393,77 @@ deadlock mod `load_daa.R`. Se `docs/decisions.md` (2026-08-01).
 
 **Efterladt i data:** 15 mor-løse 1939-familier står tilbage med én part og 0 børn.
 De kan ikke slettes: bogens oprindelige forældrepåstande peger stadig på dem.
+
+## 8. Trin 4: klausullag, prædikat-navnerum og to writere — LIVE i prod (2026-09-17)
+
+**Skema, funktioner og kontrolleret vokabular — ingen evidensdata.** Klausullaget,
+prædikat-navnerummet og writerne findes; ingen klausuler, dispositioner eller
+fortolkninger er skrevet. At køre writerne mod prod er en særskilt, gated beslutning (§4).
+
+**Deploy efter §5:** læse-kun preflight → backup → restore-rehearsal → projektejerens
+GO → apply → læse-kun verifikation.
+
+- **Backup:** `daa-prod-20260917141330.dump`, SHA-256 `ee4fd901…`, 0600, uden for Git.
+  Et dump fra 2026-09-15 blev kasseret: dagens var 15 KB større **med identiske tal**, så
+  det gamle var ikke længere et trofast rollback-punkt.
+- **Rehearsal** mod en restore af netop det dump: `db-migrations.sql` to gange rent,
+  `db-rls.sql`, `db-verify` med fire OK-blokke (#148 ×2, #147 ×2), fem kontrakttests,
+  nul datadelta.
+- **Apply** fra repo `140a17b`: hele `db-migrations.sql` → `db-rls.sql` med
+  `--single-transaction` → `NOTIFY pgrst, 'reload schema'`.
+  `db-migrations.sql` kan **ikke** køre med `--single-transaction`: filen ejer #153's egen
+  `BEGIN`/`COMMIT` (linje 11251–12622), som ville committe en ydre transaktion midtvejs.
+  Sikkerheden er idempotens (bevist i rehearsal) plus backuppen.
+- **Stopporte før første skrivning:** backup-SHA, 0 trin 4-objekter, baseline-tal,
+  0 `change_set` oprettet efter backup-start, 0 in-flight autorisationer.
+
+**Nye objekter**
+
+| Blok | Objekter |
+|---|---|
+| #148 4.1a | `private.source_observation.parent_observation_id`; `private.clause_disposition` + view `clause_disposition_current`; `validate_clause_observation`, `validate_clause_disposition` + to triggere; `observation_kind='clause'` i `private.vocab` |
+| #148 4.1c | `private.write_clause_evidence`; `public.red_apply_reimport_clause_evidence` |
+| #147 4.2 | `private.interpretation_predicate` + view `interpretation_predicate_promotable`; fire funktioner, fire triggere; seed-prædikater |
+| #147 4.4 | `private.deterministic_uuid`; `private.write_interpretation_proposal`; `public.red_apply_reimport_interpretation_proposal` |
+
+**Erstattede objekter:** `private.validate_reimport_authorization_payload`,
+`public.red_finalize_reimport`, `public.red_reimport_batch_result`. De lukkede
+operationsmængder kender nu `clause_evidence` og `interpretation_proposal`. Både 4.1c og
+4.4 omdefinerer alle tre, så **rækkefølgen 4.1a → 4.1c → 4.2 → 4.4 er bindende**: 4.1c
+kørt efter 4.4 ville stille fjerne `interpretation_proposal` fra vokabularet.
+
+**Verificeret i prod (læse-kun):**
+
+- alle otte kontrollerede objekter til stede;
+- begge lukkede mængder kender begge operationer;
+- `anon` og `authenticated` kan ikke læse `clause_disposition`, `interpretation_predicate`,
+  `interpretation` eller `source_observation`;
+- `anon` har ikke EXECUTE på de fire `red_*`-funktioner. `authenticated` har EXECUTE —
+  projektets mønster for redaktør-RPC'er med rolle-gate inde i funktionen, godkendt af
+  `db-verify`'s ACL-blokke i rehearsal;
+- tal uændrede: 1811 / 4 / 1488 / 0 / 2083.
+
+**Web-fladen** er efterset af projektejeren efter deployet og ser umiddelbart normal ud (relevant, fordi `db-rls.sql` genskrev politikkerne).
+
+**Ikke kørt mod prod:** `db-verify.sql` (muterende fixtures) — kun i rehearsal.
+
+**Advisors (security, kørt 2026-09-17 efter deploy):** 0 ERROR, 141 WARN, 48 INFO. Fire
+linjer skyldes trin 4, alle kendte mønstre: WARN `authenticated_security_definer_function_executable`
+på `red_apply_reimport_clause_evidence` og `red_apply_reimport_interpretation_proposal`
+(rolle-gate i funktionen), og INFO `rls_enabled_no_policy` på `private.clause_disposition`
+og `private.interpretation_predicate` (deny-all; adgang kun via `SECURITY DEFINER`, som de
+øvrige private tabeller). Ingen `anon`-lint på nye funktioner, ingen
+`function_search_path_mutable`, ingen view-lint. Uden for deployet: *Leaked Password
+Protection* er slået fra i Auth, og 14 ældre funktioner kan kaldes af `anon`.
+
+**Advisors (performance, samme dag):** 0 ERROR, 24 WARN, 68 INFO. Ét fund skyldes trin 4:
+INFO `unindexed_foreign_keys` på `private.interpretation.interpretation_predicate_fk`. Uden
+praktisk betydning, fordi prædikattabellen afviser UPDATE/DELETE og `interpretation` er tom —
+men bør indekseres, før forslags-writeren kører på skala. Øvrige fund er ældre: 5
+`auth_rls_initplan` (`profiles`, `bookmark`, `suggestion`), 18
+`multiple_permissive_policies` (læser- + redaktørpolitik på samme tabel), 1 `duplicate_index`
+på `private.source_persona_placement` og 10 `unused_index`, som ikke må droppes alene på det
+grundlag (fx `narrative_fts_idx`). MCP-forbindelsen fra Claude-sessioner når et andet
+Supabase-projekt, så advisors læses i dashboardet.
+
+**Rollback:** ingen kirurgisk rollback-fil. Vejen tilbage er restore af backuppen ovenfor.

@@ -1,4 +1,4 @@
-import { buildLineage } from '../lineage';
+import { buildLineage, lineageContextKey } from '../lineage';
 import type { RawExtId, RawLineage } from '../types';
 
 const x = (person_id: string, linje: string | null, nr: number | null): RawExtId => ({
@@ -64,5 +64,99 @@ describe('buildLineage', () => {
     const empty = buildLineage([], []);
     expect(empty.list).toEqual([]);
     expect(empty.byPerson).toEqual({});
+  });
+
+  test('holder samme trykte kode adskilt mellem slægter med stabile lineage-kontekster', () => {
+    const rows = [
+      { id: '101', source_id: '1', kode: 'II', navn: 'Grevelig linje', slaegt_id: '10', slaegtsnavn: 'Reventlow' },
+      { id: '202', source_id: '2', kode: 'II', navn: 'Hovedlinje', slaegt_id: '20', slaegtsnavn: 'Brahe' },
+    ] as Array<RawLineage & { slaegt_id: string; slaegtsnavn: string }>;
+    const result = buildLineage([
+      x('reventlow-person', 'II', 1),
+      { ...x('brahe-person', 'II', 1), source_id: '2' },
+    ], rows);
+    const reventlowKey = lineageContextKey({ slaegtId: '10', lineageId: '101' });
+    const braheKey = lineageContextKey({ slaegtId: '20', lineageId: '202' });
+
+    expect(reventlowKey).not.toBe(braheKey);
+    expect(result.byPerson['reventlow-person']).toEqual([reventlowKey]);
+    expect(result.byPerson['brahe-person']).toEqual([braheKey]);
+    expect(result.navn[reventlowKey]).toBe('Reventlow · Grevelig linje');
+    expect(result.navn[braheKey]).toBe('Brahe · Hovedlinje');
+  });
+
+  test('bevarer forskellige source-scheme-koder for samme kanoniske lineage', () => {
+    const rows: Array<RawLineage & { slaegt_id: string }> = [
+      { id: '101', source_id: '1', kode: 'II', navn: 'Grevelig linje', slaegt_id: '10' },
+    ];
+    const schemes = {
+      schemes: [
+        { id: 'stamtavle-1939', slaegt_id: '10', source_id: '1', kind: 'stamtavle' },
+        { id: 'stamtavle-2018', slaegt_id: '10', source_id: '2', kind: 'stamtavle' },
+      ],
+      entries: [
+        { id: 'entry-1939-ii', scheme_id: 'stamtavle-1939', code: 'II', label: 'II. linje' },
+        { id: 'entry-2018-v', scheme_id: 'stamtavle-2018', code: 'V', label: 'V. linje' },
+      ],
+      mappings: [
+        { entry_id: 'entry-1939-ii', lineage_id: '101', relation_kind: 'canonical' },
+        { entry_id: 'entry-2018-v', lineage_id: '101', relation_kind: 'canonical' },
+      ],
+    };
+    const result = buildLineage([
+      x('from-1939', 'II', 1),
+      { ...x('from-2018', 'V', 1), source_id: '2' },
+    ], rows, {}, schemes);
+
+    expect(result.byPerson['from-1939']).toEqual([
+      lineageContextKey({ slaegtId: '10', lineageId: '101', schemeId: 'stamtavle-1939', schemeEntryId: 'entry-1939-ii' }),
+    ]);
+    expect(result.byPerson['from-2018']).toEqual([
+      lineageContextKey({ slaegtId: '10', lineageId: '101', schemeId: 'stamtavle-2018', schemeEntryId: 'entry-2018-v' }),
+    ]);
+    expect(result.list.find((entry) => entry.linje === result.byPerson['from-2018'][0])?.navn)
+      .toBe('Grevelig linje');
+  });
+
+  test('tolker legacy linje-kode som stamtavle, ikke som lige-kodet præsens-entry', () => {
+    const rows: Array<RawLineage & { slaegt_id: string }> = [
+      { id: '101', source_id: '1', kode: 'II', navn: 'Grevelig linje', slaegt_id: '10' },
+    ];
+    const result = buildLineage([x('person', 'II', 1)], rows, {}, {
+      schemes: [
+        { id: 'stamtavle', slaegt_id: '10', source_id: '1', kind: 'stamtavle' },
+        { id: 'presens', slaegt_id: '10', source_id: '1', kind: 'presensliste' },
+      ],
+      entries: [
+        { id: 'stamtavle-ii', scheme_id: 'stamtavle', code: 'II', label: 'II. linje' },
+        { id: 'presens-ii', scheme_id: 'presens', code: 'II', label: 'II. linje' },
+      ],
+      mappings: [
+        { entry_id: 'stamtavle-ii', lineage_id: '101', relation_kind: 'canonical' },
+        { entry_id: 'presens-ii', lineage_id: '999', relation_kind: 'canonical' },
+      ],
+    });
+
+    expect(result.byPerson.person).toEqual([
+      lineageContextKey({ slaegtId: '10', lineageId: '101', schemeId: 'stamtavle', schemeEntryId: 'stamtavle-ii' }),
+    ]);
+  });
+
+  test('bruger ikke en vilkårlig canonical mapping, når en scheme-entry er tvetydig', () => {
+    const rows: Array<RawLineage & { slaegt_id: string }> = [
+      { id: '101', source_id: '1', kode: 'II', navn: 'Grevelig linje', slaegt_id: '10' },
+    ];
+    const result = buildLineage([x('person', 'II', 1)], rows, {}, {
+      schemes: [{ id: 'stamtavle', slaegt_id: '10', source_id: '1', kind: 'stamtavle' }],
+      entries: [{ id: 'stamtavle-ii', scheme_id: 'stamtavle', code: 'II', label: 'II. linje' }],
+      mappings: [
+        { entry_id: 'stamtavle-ii', lineage_id: '101', relation_kind: 'canonical' },
+        { entry_id: 'stamtavle-ii', lineage_id: '999', relation_kind: 'canonical' },
+      ],
+    });
+
+    expect(result.byPerson.person).toEqual([
+      lineageContextKey({ slaegtId: '10', lineageId: '101' }),
+    ]);
   });
 });

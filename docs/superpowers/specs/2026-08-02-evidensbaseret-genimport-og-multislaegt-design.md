@@ -132,6 +132,8 @@ Den fysiske forekomst i en bestemt source_rendition registreres først selvstæn
 
 source_record_anchor_event er den append-only afgørelseslog, som forbinder en occurrence med en logisk source_record. Forslag, accept og afvisning er hver sin uforanderlige, versionsnummererede event; den aktuelle tilstand udledes af den seneste event. En occurrence kan have flere historiske forslag, men højst én aktuelt accepteret forankring. Ved ny OCR kan en accepteret én-til-én-afgørelse forbinde den nye occurrence med den eksisterende logiske record uden at oprette en ny record.
 
+Aktør-id og aktørnavn fryses i afgørelseseventen som auditdata. Aktør-id'et har bevidst ingen fremmednøgle til `auth.users`: både `ON DELETE SET NULL` og cascading ville mutere en append-only event, mens `RESTRICT` ville koble historikkens levetid til kontoadministration. UUID og navnesnapshot bevares derfor uforandret, også hvis auth-kontoen senere slettes. Samme princip gælder `created_by` på append-only observationsversioner.
+
 Hvis segmenteringen splitter eller sammenlægger logiske poster, må en eksisterende record_key ikke genbruges som om kontinuiteten var én-til-én. Der oprettes nye records og eksplicitte source_record_revision_event-rækker med maskinkoderne split_into, merged_from eller replaced_by. Et afvist forslag kan senere foreslås igen som en ny version uden UPDATE af historikken. Tvetydig kontinuitet går til menneskelig review.
 
 Et source_mention-ID identificerer et tekstspan i en bestemt observationsversion. Et source_persona-ID er en uigennemsigtig hypotese inden for én bogudgave og kan samle flere mentions og records. Det overlever ikke stiltiende split eller merge; ændringen versionsføres.
@@ -190,6 +192,8 @@ source_mention
 
 `source_persona_identity` er den aktuelle, versionerede identitetsafgørelse. Én kildeperson kan højst forbindes med én kanonisk person; én kanonisk person kan forbindes med mange kildepersoner.
 
+Den aktuelle række er en projektion af en append-only `source_persona_identity_event`-log. En deferred databaseinvariant kræver, at current state svarer præcist til den seneste event ved commit; state kan hverken tilbageskrives til en ældre event eller slettes, mens eventhistorikken findes. Accept, afvisning og uafklaret-status skrives atomisk gennem en `SECURITY DEFINER`-funktion med obligatorisk, ikke-negativ `expected_version` og persona-rækkelås. Aktør-id og navn hentes fra den autentificerede redaktionssession; importpayloadet kan ikke selv angive en menneskelig godkender. Direkte ingest må kun skrive `proposed` uden menneskelige aktørfelter. Alle øvrige statusser er beslutninger og kan kun skrives gennem den auditerede redaktionsfunktion.
+
 ### 6.3 Identitetsworkflow
 
 Efter intern indlæsning foreslår systemet kandidatgrupper ud fra navn, datoer, forældre, ægtefæller, titler, godser, steder, eksterne henvisninger og kronologisk mulighed.
@@ -233,6 +237,8 @@ Hver fortolkning bærer:
 - reference til alle bærende observationer og omtaler;
 - struktureret værdi, tid, sted, aktører og roller.
 
+En fortolkning er append-only og versioneres med en stabil `interpretation_key`, versionsnummer og `supersedes_id`. En afgørelse opretter en ny version og kopierer de bærende observationslinks; den tidligere version opdateres ikke. En deferred constraint kræver mindst én observation ved commit, så fortolkning og links stadig kan indsættes atomisk i samme transaktion.
+
 Usikre eller uklassificerede fortolkninger bevares internt. De kasseres ikke og tvinges ikke ind i en upræcis faktatype.
 
 ### 7.2 Fire generelle udsagnsformer
@@ -270,6 +276,8 @@ Forfremmelse kræver:
 - sporbare værdier, datoer og roller;
 - tydelig adskillelse mellem udsagn og slutning;
 - ingen skjult konflikt med andre kilder.
+
+`interpretation_promotion` refererer den konkrete accepterede fortolkningsversion og et eksisterende kanonisk mål. Promotions er append-only og bærer sessionsafledt aktør, tidspunkt og beslutningsevidens; en senere ny fortolkningsversion omskriver ikke den historiske promotion. Ingest kan kun oprette unauditerede `proposed`-fortolkninger. `accepted`, `rejected`, `unresolved` og `superseded` er alle menneskelige beslutninger, og både disse og promotions kræver den auditerede redaktionsvej.
 
 ### 8.2 Mapping
 

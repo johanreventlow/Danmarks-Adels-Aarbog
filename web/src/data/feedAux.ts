@@ -2,7 +2,11 @@
 // webbens allerede-hentede estates/arms til FeedAux. Web indlæser IKKE bio pr. person ved
 // cold-start (model.ts sætter bio:'') — fetchFeedBios/withFeedBios henter og stempler bio
 // ind i en KOPI af modellen ved feed-mount, uden at røre den originale model.
-import { getAll, pickPreferredBio, type NarrativeCand } from '@daa/core';
+import {
+  buildBioSourceVersions,
+  mapPublicBioSourceVersionsV2,
+  selectDefaultPublicBioSourceVersionV2,
+} from '@daa/core';
 import { supabase } from '../supabase';
 import type { ArmsItem, EstateItem } from './public';
 import type { FeedAux } from '@daa/feed';
@@ -19,14 +23,23 @@ export function buildWebFeedAux(estates: EstateItem[] | null, arms: ArmsItem[] |
   };
 }
 
-type RawNarrativeRow = { id: number; subjekt_id: number | string; tekst: string | null; source_id: number | null; privat: boolean | null };
-type RawSourceRow = { id: number; slags: string | null; udgave: string | null; aar: number | null };
 export const FEED_BIO_IN_CHUNK = 200;
 
-function chunks<T>(items: readonly T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
-  return out;
+function mapV1Text(row: unknown): string | null {
+  if (typeof row !== 'object' || row === null) return null;
+  const value = row as Record<string, unknown>;
+  if ((value.provenance_kind !== 'source_record' && value.provenance_kind !== 'legacy_narrative')
+    || (value.record_ref !== null && typeof value.record_ref !== 'string')
+    || typeof value.source_label !== 'string' || typeof value.record_label !== 'string'
+    || typeof value.narrative_text !== 'string' || typeof value.citation_label !== 'string') return null;
+  return buildBioSourceVersions([{
+    record_ref: value.record_ref,
+    source_label: value.source_label,
+    record_label: value.record_label,
+    narrative_text: value.narrative_text,
+    citation_label: value.citation_label,
+    provenance_kind: value.provenance_kind,
+  }])[0]?.narrativeText ?? null;
 }
 
 // Modellen indeholder kun kanoniske personer, mens narrativer også kan ligge på alias-rækker.
@@ -44,53 +57,59 @@ export function buildFeedBioSubjectIds(
   ])].sort();
 }
 
-// Hent den foretrukne offentlige bio pr. (kanonisk) person i afgrænsede, paginerede chunks.
-// Samme udvælgelsesregel som mobile/web's model-load (pickPreferredBio: nyeste udgave
-// vinder) — genbruges her fordi webbens PUBLIKUMS-model bevidst IKKE indlæser bio ved
-// cold-start (§7.3).
+// Hent den foretrukne offentlige eventtekst pr. (kanonisk) person.  Contract
+// v2 is the only post-cutover reader; it never falls back to public.narrative.
 export async function fetchFeedBios(
   canonicalIdById: Record<string, string>,
   modelPersonIds?: readonly string[],
 ): Promise<Record<string, string>> {
+  let contractVersion: number | null = null;
   try {
-    const subjectIds = modelPersonIds
-      ? buildFeedBioSubjectIds(canonicalIdById, modelPersonIds)
-      : null;
-    const narratives = subjectIds == null
-      ? await getAll<RawNarrativeRow>(() =>
-          supabase.from('narrative').select('id,subjekt_id,tekst,source_id,privat').eq('subjekt_type', 'person'))
-      : (await Promise.all(chunks(subjectIds, FEED_BIO_IN_CHUNK).map((ids) =>
-          getAll<RawNarrativeRow>(() =>
-            supabase.from('narrative').select('id,subjekt_id,tekst,source_id,privat')
-              .eq('subjekt_type', 'person').in('subjekt_id', ids)),
-        ))).flat();
-    const sourceIds = [...new Set(
-      narratives.map((n) => n.source_id).filter((id): id is number => id != null),
-    )];
-    const sources = (await Promise.all(chunks(sourceIds, FEED_BIO_IN_CHUNK).map((ids) =>
-      getAll<RawSourceRow>(() =>
-        supabase.from('source').select('id,slags,udgave,aar').in('id', ids)),
-    ))).flat();
-    const srcById = new Map(sources.map((s) => [s.id, s]));
-    const candsBy: Record<string, NarrativeCand[]> = {};
-    for (const n of narratives) {
-      if (n.privat) continue;
-      const pid = canonicalIdById[String(n.subjekt_id)] ?? String(n.subjekt_id);
-      const src = n.source_id != null ? srcById.get(n.source_id) : undefined;
-      (candsBy[pid] ??= []).push({
-        narrativeId: n.id, tekst: n.tekst, sourceId: n.source_id ?? null,
-        slags: src?.slags ?? null, aar: src?.aar ?? null, udgave: src?.udgave ?? null,
-      });
+    const subjectIds = buildFeedBioSubjectIds(canonicalIdById, modelPersonIds ?? []);
+    if (!subjectIds.length) return {};
+    const personIds = subjectIds.map(Number).filter(Number.isFinite);
+    const version = await supabase.rpc('narrative_record_contract_version', {});
+    if (version.error || typeof version.data !== 'number' || !Number.isInteger(version.data)) {
+      throw new Error('NARRATIVE_RECORD_CONTRACT_VERSION_UNAVAILABLE');
     }
+    contractVersion = version.data;
+    const rpcName = contractVersion >= 2
+      ? 'public_person_bio_source_versions_v2'
+      : 'public_person_bio_source_versions';
+    const result = await supabase.rpc(rpcName, { p_person_ids: personIds });
+    if (result.error || !Array.isArray(result.data)) throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
     const bioBy: Record<string, string> = {};
-    for (const [pid, cands] of Object.entries(candsBy)) {
-      const best = pickPreferredBio(cands);
-      if (best?.tekst) bioBy[pid] = best.tekst;
+    if (contractVersion >= 2) {
+      const versionsByCanonicalPerson = new Map<string, unknown[]>();
+      for (const row of result.data) {
+        if (typeof row !== 'object' || row === null || typeof (row as Record<string, unknown>).person_id !== 'number') {
+          throw new Error('PUBLIC_BIO_SOURCE_VERSION_V2_INVALID_person_id');
+        }
+        const personId = (row as Record<string, number>).person_id;
+        const canonicalId = canonicalIdById[String(personId)] ?? String(personId);
+        const rows = versionsByCanonicalPerson.get(canonicalId);
+        if (rows) rows.push(row); else versionsByCanonicalPerson.set(canonicalId, [row]);
+      }
+      for (const [canonicalId, rows] of versionsByCanonicalPerson) {
+        const selected = selectDefaultPublicBioSourceVersionV2(mapPublicBioSourceVersionsV2(rows));
+        if (selected) bioBy[canonicalId] = selected.narrativeText;
+      }
+    } else {
+      for (const row of result.data) {
+        if (typeof row !== 'object' || row === null || typeof (row as Record<string, unknown>).person_id !== 'number') continue;
+        const text = mapV1Text(row);
+        if (text) {
+          const personId = (row as Record<string, number>).person_id;
+          const canonicalId = canonicalIdById[String(personId)] ?? String(personId);
+          bioBy[canonicalId] ??= text;
+        }
+      }
     }
     return bioBy;
   } catch (e) {
-    console.warn('[feedAux] bio-hentning utilgængelig — feed kører uden portræt/citat-kort:', e);
-    return {};
+    console.warn('[feedAux] bio-hentning fejlede:', e);
+    if (contractVersion !== null && contractVersion < 2) return {};
+    throw e;
   }
 }
 

@@ -22,7 +22,7 @@ export function SletBekraeftSheet({ personId, onClose, onDeleted }: {
     setBekraeftet(false);
     setStatus('idle');
     setFejl(null);
-    fetchSletPreview(personId).then(setPreview).catch(() => setPreview({ antalRelationer: 0, antalFacts: 0, relationer: [] }));
+    fetchSletPreview(personId).then(setPreview).catch(() => setPreview({ antalRelationer: 0, antalFacts: 0, antalNarrativer: 0, antalBindinger: 0, antalMedlemskaber: 0, relationer: [] }));
   }, [personId]);
 
   async function slet() {
@@ -49,11 +49,17 @@ export function SletBekraeftSheet({ personId, onClose, onDeleted }: {
           {dryRun ? 'Dry-run · skriver ikke' : 'LIVE · sletter permanent'}
         </Mono>
 
-        {preview && (preview.antalRelationer > 0 || preview.antalFacts > 0) ? (
+        {preview && (preview.antalRelationer > 0 || preview.antalFacts > 0
+          || preview.antalNarrativer > 0 || preview.antalMedlemskaber > 0) ? (
           <View style={styles.advarsel}>
             <Mono size={11} color={Colors.danger}>
-              {'⚠ '}{preview.antalRelationer} relationer · {preview.antalFacts} fakta brydes
+              {'⚠ '}{preview.antalRelationer} relationer · {preview.antalFacts} fakta · {preview.antalNarrativer} biografier · {preview.antalMedlemskaber} medlemskaber
             </Mono>
+            {preview.antalBindinger > 0 ? (
+              <Mono size={10} color={Colors.textSecondary} style={{ marginTop: 4 }}>
+                {preview.antalBindinger} biografi(er) er bundet til en kildepost — bindingen følger med, kilderegistreringen bevares.
+              </Mono>
+            ) : null}
             {preview.relationer.length > 0 ? (
               <ScrollView style={{ maxHeight: 100, marginTop: 6 }}>
                 {preview.relationer.map((r, i) => {

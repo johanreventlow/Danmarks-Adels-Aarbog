@@ -1,4 +1,4 @@
-import { compareParentOrder, mapAppPersons } from '../load';
+import { compareParentOrder, mapAppPersons, mapPublicBioVersionsByPersonV2 } from '../load';
 
 const RAW = [
   { id: 1, visning_navn: 'Conrad', visning_foedt: '1644', visning_doed: '1708', visning_titel: 'greve', privat: false },
@@ -21,6 +21,16 @@ test('mapAppPersons: bio fra bioBy, navn-fallback', () => {
   const r = mapAppPersons([{ id: 3, visning_navn: null, visning_foedt: null, visning_doed: null, visning_titel: null, privat: false }] as never,
     { '3': 'En biografi' }, false);
   expect(r[0]).toMatchObject({ id: '3', name: '(uden navn)', bio: 'En biografi', privat: false });
+});
+
+test('mapPublicBioVersionsByPersonV2: vælger den første bundne eventtekst uden direkte narrativ-fallback', () => {
+  expect(mapPublicBioVersionsByPersonV2([
+    { person_id: 1, source_id: 9, source_year: 1939, record_order: 2, source_record_ref: 's2', source_label: 'DAA', record_label: 'Post 2', narrative_text: 'Anden post', citation_label: '', provenance_kind: 'source_record' },
+    { person_id: 1, source_id: 9, source_year: 1939, record_order: 1, source_record_ref: 's1', source_label: 'DAA', record_label: 'Post 1', narrative_text: 'Første post', citation_label: '', provenance_kind: 'source_record' },
+    { person_id: 2, source_id: 1, source_year: 2012, record_order: null, source_record_ref: null, source_label: 'DAA', record_label: 'Overgangsdata', narrative_text: 'Legacy', citation_label: '', provenance_kind: 'legacy_narrative' },
+    { person_id: 3, source_id: 3, source_year: 2020, record_order: null, source_record_ref: null, source_label: 'DAA', record_label: 'Overgangsdata', narrative_text: 'Ny legacy-alias', citation_label: '', provenance_kind: 'legacy_narrative' },
+    { person_id: 4, source_id: 1, source_year: 1939, record_order: 1, source_record_ref: 'bound-alias', source_label: 'DAA', record_label: 'Post 1', narrative_text: 'Bundet alias-post', citation_label: '', provenance_kind: 'source_record' },
+  ], { '1': '10', '3': '20', '4': '20' })).toEqual({ '10': 'Første post', '2': 'Legacy', '20': 'Bundet alias-post' });
 });
 
 // Regressionstest for brugerfund 2026-07-01: to forældre med SAMME ordinal (begge i deres

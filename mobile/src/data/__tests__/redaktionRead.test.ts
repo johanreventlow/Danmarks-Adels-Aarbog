@@ -1,4 +1,7 @@
-import { buildTidslinje, joinEvidence, mapHaendelser, mapKonfliktRow, mapNarrativer, mapRelationRow, mapStories, mapUdrensPreview, storyPrefillFraPost } from '../redaktionRead';
+const mockRpc = jest.fn();
+jest.mock('../../lib/supabase', () => ({ supabase: { rpc: (...args: unknown[]) => mockRpc(...args) } }));
+
+import { buildTidslinje, fetchNarrativeEditorState, joinEvidence, mapHaendelser, mapKonfliktRow, mapNarrativeRecordRows, mapNarrativer, mapRelationRow, mapStories, mapUdrensPreview, selectMobileNarrativeRecord, storyPrefillFraPost } from '../redaktionRead';
 import { mapRedPerson, mapSammeSomLinks } from '../redaktionRead';
 import { getAll } from '@daa/core';
 
@@ -24,7 +27,10 @@ describe('mapSammeSomLinks — klassificér retning', () => {
 });
 import { fetchRedaktionPersoner } from '../redaktionRead';
 
-jest.mock('../../lib/supabase', () => ({ supabase: { from: () => ({ select: () => ({}) }) } }));
+jest.mock('../../lib/supabase', () => ({ supabase: {
+  from: () => ({ select: () => ({}) }),
+  rpc: (...args: unknown[]) => mockRpc(...args),
+} }));
 
 const FACTS = [
   { id: 10, subjekt_type: 'person', subjekt_id: 1, faktatype: 'navn' },
@@ -125,6 +131,61 @@ test('mapNarrativer: rækker med source-join, ordnet efter source_id så id', ()
 test('mapNarrativer: håndterer manglende source-join (null)', () => {
   const out = mapNarrativer([{ id: 1, source_id: null, side: null, tekst: 'x', privat: null, source: null }] as never);
   expect(out[0]).toMatchObject({ sourceId: null, sourceTitel: null, udgave: null, privat: false });
+});
+
+describe('person-narrative-record-kontrakt til mobil', () => {
+  const aktiv = {
+    person_id: 7, source_id: 2, source_year: 1939, source_label: 'DAA 1939',
+    provenance_kind: 'source_record', record_key: 'R-17', source_record_ref: 'public-ref',
+    legacy_publication_ref: null, record_order: 17, record_label: 'Post 17', citation_label: 's. 17',
+    narrative_id: 8, narrative_text: 'Autoritativ tekst', narrative_private: false, narrative_side: '17',
+    publication_status: 'draft', text_editable: true, allowed_actions: ['save_draft'],
+    withdrawn_history: [], latest_event_version: 3, published_text_sha256: null,
+    eligibility_status: 'editable', blocking_reason: null, state_sha256: 'state-hash',
+  };
+
+  it('vælger kun præcis én aktiv, eksplicit redigerbar record', () => {
+    const selected = selectMobileNarrativeRecord(mapNarrativeRecordRows([aktiv] as never));
+    expect(selected).toMatchObject({ kind: 'editable', recordKey: 'R-17', stateSha256: 'state-hash' });
+  });
+
+  it.each([
+    ['ingen record', []],
+    ['flere records', [aktiv, { ...aktiv, record_key: 'R-18', source_record_ref: 'public-ref-2' }]],
+    ['stale record', [{ ...aktiv, publication_status: 'stale_published', text_editable: false, allowed_actions: ['revalidate'] }]],
+    ['legacy-only', [{ ...aktiv, provenance_kind: 'grandfathered_legacy', record_key: null, source_record_ref: null, legacy_publication_ref: 'legacy-ref', text_editable: false, allowed_actions: [] }]],
+    ['withdrawn history', [{ ...aktiv, publication_status: 'withdrawn', text_editable: false, allowed_actions: ['create_draft'] }]],
+    ['blocked record', [{ ...aktiv, publication_status: 'blocked', text_editable: false, allowed_actions: [], blocking_reason: 'NARRATIVE_RECORD_IDENTITY_REQUIRED' }]],
+  ])('gør %s read-only uden at vælge en første record', (_name, rows) => {
+    expect(selectMobileNarrativeRecord(mapNarrativeRecordRows(rows as never))).toMatchObject({ kind: 'readonly' });
+  });
+
+  it('bevarer hver tekst og label i en flertydig read-only recordliste', () => {
+    const state = selectMobileNarrativeRecord(mapNarrativeRecordRows([
+      aktiv, { ...aktiv, record_key: 'R-18', source_record_ref: 'public-ref-2', record_label: 'Post 18', narrative_text: 'Anden tekst' },
+    ] as never));
+    expect(state).toMatchObject({ kind: 'readonly', records: [
+      { label: 'Post 17', tekst: 'Autoritativ tekst' }, { label: 'Post 18', tekst: 'Anden tekst' },
+    ] });
+  });
+
+  it('falder ved v2-læsefejl synligt tilbage til read-only uden at læse den gamle narrativvej', async () => {
+    mockRpc.mockReset()
+      .mockResolvedValueOnce({ data: 2, error: null })
+      .mockResolvedValueOnce({ data: null, error: { message: 'offline' } });
+
+    await expect(fetchNarrativeEditorState('person', 7)).resolves.toMatchObject({ kind: 'readonly' });
+    expect(mockRpc.mock.calls.map(([name]) => name)).toEqual([
+      'narrative_record_contract_version', 'red_person_narrative_records',
+    ]);
+  });
+
+  it.each([0, -1, 3])('behandler kontraktversion %s som read-only i stedet for legacy', async (version) => {
+    mockRpc.mockReset().mockResolvedValueOnce({ data: version, error: null });
+
+    await expect(fetchNarrativeEditorState('person', 7)).resolves.toMatchObject({ kind: 'readonly' });
+    expect(mockRpc.mock.calls.map(([name]) => name)).toEqual(['narrative_record_contract_version']);
+  });
 });
 
 test('mapHaendelser medtager skjulte og mapper null/source-felter', () => {

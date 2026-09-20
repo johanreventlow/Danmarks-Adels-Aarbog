@@ -24,9 +24,2124 @@
 -- Dette er dokumenteret pr. assert-blok nedenfor.
 -- =============================================================
 
+-- Supabase installs extension functions in `extensions`; plain PostgreSQL may
+-- install them in `public`.  Keep both legitimate layouts callable while the
+-- five two-connection gates below fail closed if dblink is not installed.
+SET search_path TO public, private, extensions, pg_catalog;
+
+
+-- ===== #152 Task 1: narrative publication event foundation =====
+DO $narrative_record_foundation_verify$
+DECLARE
+  v_role text;
+  v_table text;
+  v_privilege text;
+  v_default text;
+  v_source bigint;
+  v_person bigint;
+  v_narrative bigint;
+  v_change_set bigint;
+  v_run uuid := gen_random_uuid();
+  v_record uuid := gen_random_uuid();
+  v_binding uuid := gen_random_uuid();
+  v_event uuid := gen_random_uuid();
+  v_public_ref uuid;
+  v_error text;
+BEGIN
+  IF to_regprocedure('public.narrative_record_contract_version()') IS NULL
+     OR to_regclass('private.narrative_publication_event') IS NULL
+     OR to_regclass('private.narrative_legacy_publication') IS NULL THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_FOUNDATION_MISSING';
+  END IF;
+  IF public.narrative_record_contract_version() NOT IN (1,2) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_CONTRACT_VERSION_INVALID';
+  END IF;
+
+  SELECT pg_get_expr(d.adbin,d.adrelid)
+    INTO v_default
+    FROM pg_attribute a
+    JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+   WHERE a.attrelid='private.source_record'::regclass
+     AND a.attname='public_ref';
+  IF replace(v_default,'pg_catalog.','') IS DISTINCT FROM 'gen_random_uuid()'
+     OR EXISTS (SELECT 1 FROM private.source_record WHERE public_ref IS NULL)
+     OR (SELECT count(*) FROM private.source_record)
+        IS DISTINCT FROM (SELECT count(DISTINCT public_ref) FROM private.source_record) THEN
+    RAISE EXCEPTION 'SOURCE_RECORD_PUBLIC_REF_INTEGRITY_INVALID';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM private.narrative_publication_event event
+     WHERE event.before_state_sha256 !~ '^[0-9a-f]{64}$'
+        OR event.after_state_sha256 !~ '^[0-9a-f]{64}$'
+        OR jsonb_typeof(event.before_state)<>'object'
+        OR jsonb_typeof(event.after_state)<>'object'
+        OR btrim(event.decision_basis)=''
+        OR btrim(event.decided_by_name)=''
+        OR event.stream_ref<>coalesce(event.binding_id,event.legacy_publication_ref)
+        OR NOT (
+          (event.binding_id IS NOT NULL AND event.source_record_id IS NOT NULL
+           AND event.legacy_publication_ref IS NULL)
+          OR
+          (event.binding_id IS NULL AND event.source_record_id IS NULL
+           AND event.legacy_publication_ref IS NOT NULL)
+        )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_SHAPE_INVALID';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM private.narrative_publication_event event
+      LEFT JOIN private.narrative_publication_event reversed
+        ON reversed.id=event.reversed_event_id
+     WHERE (event.event_type='reversal') IS DISTINCT FROM
+           (event.reversed_event_id IS NOT NULL)
+        OR (
+          event.reversed_event_id IS NOT NULL
+          AND (
+            reversed.id IS NULL
+            OR reversed.stream_ref<>event.stream_ref
+            OR reversed.stream_version>=event.stream_version
+          )
+        )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_REVERSAL_INVALID';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM private.narrative_publication_event event
+      LEFT JOIN private.narrative_record_publication binding
+        ON binding.id=event.binding_id
+      LEFT JOIN private.narrative_legacy_publication legacy
+        ON legacy.legacy_publication_ref=event.legacy_publication_ref
+     WHERE (
+       event.binding_id IS NOT NULL
+       AND (
+         binding.id IS NULL
+         OR binding.narrative_id<>event.narrative_id
+         OR binding.source_record_id<>event.source_record_id
+       )
+     ) OR (
+       event.legacy_publication_ref IS NOT NULL
+       AND (
+         legacy.legacy_publication_ref IS NULL
+         OR legacy.narrative_id<>event.narrative_id
+         OR legacy.source_id<>event.source_id
+       )
+     )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_IDENTITY_INVALID';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM private.narrative_legacy_publication legacy
+     WHERE legacy.baseline_sha256 !~ '^[0-9a-f]{64}$'
+        OR jsonb_typeof(legacy.baseline_state)<>'object'
+        OR (
+          legacy.latest_event_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM private.narrative_publication_event event
+             WHERE event.id=legacy.latest_event_id
+               AND event.legacy_publication_ref=legacy.legacy_publication_ref
+               AND event.narrative_id=legacy.narrative_id
+               AND event.source_id=legacy.source_id
+               AND NOT EXISTS (
+                 SELECT 1 FROM private.narrative_publication_event later
+                  WHERE later.stream_ref=event.stream_ref
+                    AND later.stream_version>event.stream_version
+               )
+          )
+        )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_LEGACY_PUBLICATION_INTEGRITY_INVALID';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+     WHERE tgrelid='private.source_record'::regclass
+       AND tgname='trg_source_record_append_only'
+       AND tgenabled<>'D'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+     WHERE tgrelid='private.narrative_publication_event'::regclass
+       AND tgname='trg_narrative_publication_event_append_only'
+       AND tgenabled<>'D'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+     WHERE tgrelid='private.narrative_publication_event'::regclass
+       AND tgname='trg_narrative_publication_event_validate'
+       AND tgenabled<>'D'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+     WHERE tgrelid='private.narrative_legacy_publication'::regclass
+       AND tgname='trg_narrative_legacy_publication_validate'
+       AND tgenabled<>'D'
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_IMMUTABILITY_TRIGGER_MISSING';
+  END IF;
+
+  FOREACH v_table IN ARRAY ARRAY[
+    'private.narrative_publication_event',
+    'private.narrative_legacy_publication'
+  ] LOOP
+    IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid=v_table::regclass) THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PRIVATE_RLS_DISABLED: %',v_table;
+    END IF;
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+      FOREACH v_privilege IN ARRAY ARRAY['SELECT','INSERT','UPDATE','DELETE'] LOOP
+        IF has_table_privilege(v_role,v_table,v_privilege) THEN
+          RAISE EXCEPTION 'NARRATIVE_RECORD_PRIVATE_GRANT_INVALID: % % %',
+            v_role,v_privilege,v_table;
+        END IF;
+      END LOOP;
+    END LOOP;
+    IF EXISTS (
+      SELECT 1
+        FROM pg_class relation
+        CROSS JOIN LATERAL aclexplode(
+          coalesce(relation.relacl,acldefault('r',relation.relowner))
+        ) acl
+       WHERE relation.oid=v_table::regclass
+         AND acl.grantee=0
+         AND acl.privilege_type IN ('SELECT','INSERT','UPDATE','DELETE')
+    ) THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PRIVATE_PUBLIC_GRANT_INVALID: %',v_table;
+    END IF;
+  END LOOP;
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_function_privilege(
+      v_role,'private.validate_narrative_publication_event()'::regprocedure,'EXECUTE'
+    ) OR has_function_privilege(
+      v_role,'private.reject_narrative_publication_event_mutation()'::regprocedure,'EXECUTE'
+    ) OR has_function_privilege(
+      v_role,'private.validate_narrative_legacy_publication()'::regprocedure,'EXECUTE'
+    ) THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PRIVATE_HELPER_GRANT_INVALID: %',v_role;
+    END IF;
+  END LOOP;
+  IF EXISTS (
+    SELECT 1
+      FROM pg_proc function
+      CROSS JOIN LATERAL aclexplode(
+        coalesce(function.proacl,acldefault('f',function.proowner))
+      ) acl
+     WHERE function.oid IN (
+       'private.validate_narrative_publication_event()'::regprocedure,
+       'private.reject_narrative_publication_event_mutation()'::regprocedure,
+       'private.validate_narrative_legacy_publication()'::regprocedure
+     )
+       AND acl.grantee=0
+       AND acl.privilege_type='EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PRIVATE_HELPER_PUBLIC_GRANT_INVALID';
+  END IF;
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF NOT has_function_privilege(
+      v_role,'public.narrative_record_contract_version()'::regprocedure,'EXECUTE'
+    ) THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_VERSION_GRANT_MISSING: %',v_role;
+    END IF;
+  END LOOP;
+  IF EXISTS (
+    SELECT 1
+      FROM pg_proc function
+      CROSS JOIN LATERAL aclexplode(
+        coalesce(function.proacl,acldefault('f',function.proowner))
+      ) acl
+     WHERE function.oid='public.narrative_record_contract_version()'::regprocedure
+       AND acl.grantee=0
+       AND acl.privilege_type='EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_VERSION_PUBLIC_GRANT_INVALID';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM pg_proc function
+      JOIN pg_namespace namespace ON namespace.oid=function.pronamespace
+     WHERE namespace.nspname='public'
+       AND function.prosrc LIKE '%legacy_migrated%'
+       -- #166 149b: publiceringshistorikken NAVNGIVER eventtypen for at kunne
+       -- markere spec §8's tredje fortryd-trin som reversibelt i redaktørfladen.
+       -- Den er ren læsning uden skrivevej, og er derfor den eneste bevidste
+       -- undtagelse; enhver anden ny public-funktion, der nævner legacy_migrated
+       -- og er kaldbar for en klientrolle, skal fortsat fejle her.
+       AND function.oid<>'public.red_person_narrative_publication_history(bigint)'::regprocedure
+       AND (
+         has_function_privilege('anon',function.oid,'EXECUTE')
+         OR has_function_privilege('authenticated',function.oid,'EXECUTE')
+         OR has_function_privilege('service_role',function.oid,'EXECUTE')
+       )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_LEGACY_MIGRATION_WRITER_EXPOSED';
+  END IF;
+
+  -- Exercise the immutable triggers with a fully rolled-back fixture.
+  BEGIN
+    SELECT least(coalesce(min(id),0),0)-152 INTO v_source FROM public.source;
+    SELECT least(coalesce(min(id),0),0)-152 INTO v_person FROM public.person;
+    SELECT least(coalesce(min(id),0),0)-152 INTO v_narrative FROM public.narrative;
+    SELECT least(coalesce(min(id),0),0)-152 INTO v_change_set FROM public.change_set;
+
+    INSERT INTO public.source(id,slags,titel)
+    VALUES (v_source,'DAA-udgave','Narrative record verify fixture');
+    INSERT INTO private.extraction_run(
+      id,source_id,run_key,schema_version,extractor_version,profile_version,
+      input_sha256,manifest
+    ) VALUES (
+      v_run,v_source,'narrative-record-verify','1','verify','verify',repeat('1',64),'{}'
+    );
+    INSERT INTO private.source_record(
+      id,source_id,record_key,record_kind,created_run_id
+    ) VALUES (
+      v_record,v_source,'narrative-record-verify','person',v_run
+    ) RETURNING public_ref INTO v_public_ref;
+
+    v_error:=NULL;
+    BEGIN
+      UPDATE private.source_record SET public_ref=gen_random_uuid() WHERE id=v_record;
+    EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+    END;
+    IF v_error IS NULL
+       OR (SELECT public_ref FROM private.source_record WHERE id=v_record)
+          IS DISTINCT FROM v_public_ref THEN
+      RAISE EXCEPTION 'SOURCE_RECORD_PUBLIC_REF_IMMUTABILITY_NOT_ENFORCED';
+    END IF;
+
+    INSERT INTO public.person(id,levende,privat,visning_navn)
+    VALUES (v_person,false,false,'Narrative record verify fixture');
+    INSERT INTO public.narrative(id,subjekt_type,subjekt_id,source_id,tekst,privat)
+    VALUES (v_narrative,'person',v_person,v_source,'Verify text',false);
+    INSERT INTO private.narrative_record_publication(
+      id,narrative_id,source_record_id,record_label,citation_label,status
+    ) VALUES (v_binding,v_narrative,v_record,'Verify','Verify citation','draft');
+    INSERT INTO public.change_set(id,operation,summary)
+    VALUES (v_change_set,'narrative_record_verify','Narrative record verify');
+    INSERT INTO private.narrative_publication_event(
+      id,change_set_id,stream_ref,stream_version,event_type,binding_id,narrative_id,
+      source_id,source_record_id,decision_basis,before_state,after_state,
+      before_state_sha256,after_state_sha256,decided_by_name
+    ) VALUES (
+      v_event,v_change_set,v_binding,1,'baseline',v_binding,v_narrative,v_source,
+      v_record,'Verify baseline',jsonb_build_object('state','before'),
+      jsonb_build_object('state','after'),repeat('a',64),repeat('b',64),'Verify actor'
+    );
+
+    v_error:=NULL;
+    BEGIN
+      UPDATE private.narrative_publication_event
+         SET decision_basis='changed'
+       WHERE id=v_event;
+    EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+    END;
+    IF v_error IS DISTINCT FROM 'NARRATIVE_PUBLICATION_EVENT_APPEND_ONLY' THEN
+      RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_UPDATE_NOT_IMMUTABLE';
+    END IF;
+    v_error:=NULL;
+    BEGIN
+      DELETE FROM private.narrative_publication_event WHERE id=v_event;
+    EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM;
+    END;
+    IF v_error IS DISTINCT FROM 'NARRATIVE_PUBLICATION_EVENT_APPEND_ONLY' THEN
+      RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_DELETE_NOT_IMMUTABLE';
+    END IF;
+
+    RAISE EXCEPTION 'ROLLBACK_NARRATIVE_RECORD_FOUNDATION_VERIFY';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM<>'ROLLBACK_NARRATIVE_RECORD_FOUNDATION_VERIFY' THEN
+      RAISE;
+    END IF;
+  END;
+
+  RAISE NOTICE 'OK: #152 narrative publication event foundation er additiv, privat og uforanderlig';
+END
+$narrative_record_foundation_verify$;
+
+
+-- ===== #152 Task 2: canonical state and typed editor reads =====
+DO $narrative_record_state_verify$
+DECLARE
+  v_role text;
+  v_function text;
+  v_actual_result text;
+  v_state_definition text;
+  v_record_lock_position integer;
+  v_change_set_lock_position integer;
+  v_person_lock_position integer;
+  v_projection_position integer;
+BEGIN
+  IF to_regprocedure('private.narrative_record_labels(uuid)') IS NULL
+     OR to_regprocedure('private.narrative_publication_state(bigint,bigint,text)') IS NULL
+     OR to_regprocedure('private.narrative_record_state(bigint,bigint,text,boolean)') IS NULL
+     OR to_regprocedure('private.narrative_legacy_publication_state(uuid)') IS NULL
+     OR to_regprocedure('private.narrative_legacy_state(uuid,boolean)') IS NULL
+     OR to_regprocedure('public.red_person_narrative_records(bigint)') IS NULL
+     OR to_regprocedure('public.red_person_narrative_publication_history(bigint)') IS NULL
+     OR to_regclass('private.narrative_record_publication_record_state_idx') IS NULL
+     OR to_regclass('private.source_record_anchor_event_record_state_idx') IS NULL
+     OR to_regclass('private.source_record_placement_record_state_idx') IS NULL
+     OR to_regclass('private.source_persona_placement_record_state_idx') IS NULL
+     OR to_regclass('private.source_persona_identity_person_state_idx') IS NULL
+     OR to_regclass('private.source_record_revision_event_successor_state_idx') IS NULL THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_STATE_CONTRACT_MISSING';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM pg_proc function
+     WHERE function.oid IN (
+       'private.narrative_record_labels(uuid)'::regprocedure,
+       'private.narrative_publication_state(bigint,bigint,text)'::regprocedure,
+       'private.narrative_legacy_publication_state(uuid)'::regprocedure
+     )
+       AND function.provolatile<>'s'
+  ) OR EXISTS (
+    SELECT 1 FROM pg_proc function
+     WHERE function.oid IN (
+       'private.narrative_record_state(bigint,bigint,text,boolean)'::regprocedure,
+       'private.narrative_legacy_state(uuid,boolean)'::regprocedure
+     )
+       AND function.provolatile<>'v'
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_STATE_VOLATILITY_INVALID';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM pg_proc function
+     WHERE function.oid IN (
+       'public.red_person_narrative_records(bigint)'::regprocedure,
+       'public.red_person_narrative_publication_history(bigint)'::regprocedure
+     )
+       AND (
+         NOT function.prosecdef
+         OR function.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+       )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_EDITOR_SECURITY_INVALID';
+  END IF;
+
+  SELECT pg_get_function_result(
+    'public.red_person_narrative_records(bigint)'::regprocedure
+  ) INTO v_actual_result;
+  IF v_actual_result IS DISTINCT FROM
+       'TABLE(person_id bigint, source_id bigint, source_year integer, source_label text, provenance_kind text, record_key text, source_record_ref uuid, legacy_publication_ref uuid, record_order integer, record_label text, citation_label text, narrative_id bigint, narrative_text text, narrative_private boolean, narrative_side text, publication_status text, text_editable boolean, allowed_actions jsonb, withdrawn_history jsonb, latest_event_version integer, published_text_sha256 text, eligibility_status text, blocking_reason text, state_sha256 text)' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_EDITOR_RESULT_INVALID: %',v_actual_result;
+  END IF;
+  SELECT pg_get_function_result(
+    'public.red_person_narrative_publication_history(bigint)'::regprocedure
+  ) INTO v_actual_result;
+  IF v_actual_result IS DISTINCT FROM
+       'TABLE(event_id uuid, change_set_id bigint, stream_version integer, event_type text, source_record_ref uuid, legacy_publication_ref uuid, before_state_sha256 text, after_state_sha256 text, before_text text, after_text text, decided_by_name text, created_at timestamp with time zone, can_reverse boolean, blocking_reason text)' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_HISTORY_RESULT_INVALID: %',v_actual_result;
+  END IF;
+
+  FOREACH v_role IN ARRAY ARRAY['anon','service_role'] LOOP
+    IF has_function_privilege(
+      v_role,'public.red_person_narrative_records(bigint)','EXECUTE'
+    ) OR has_function_privilege(
+      v_role,'public.red_person_narrative_publication_history(bigint)','EXECUTE'
+    ) THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_EDITOR_PUBLIC_ACL_INVALID: %',v_role;
+    END IF;
+  END LOOP;
+  IF NOT has_function_privilege(
+    'authenticated','public.red_person_narrative_records(bigint)','EXECUTE'
+  ) OR NOT has_function_privilege(
+    'authenticated','public.red_person_narrative_publication_history(bigint)','EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_EDITOR_AUTHENTICATED_GRANT_MISSING';
+  END IF;
+
+  FOREACH v_function IN ARRAY ARRAY[
+    'private.narrative_record_labels(uuid)',
+    'private.narrative_publication_state(bigint,bigint,text)',
+    'private.narrative_record_state(bigint,bigint,text,boolean)',
+    'private.narrative_legacy_publication_state(uuid)',
+    'private.narrative_legacy_state(uuid,boolean)'
+  ] LOOP
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+      IF has_function_privilege(v_role,v_function,'EXECUTE') THEN
+        RAISE EXCEPTION 'NARRATIVE_RECORD_STATE_PRIVATE_ACL_INVALID: % %',
+          v_role,v_function;
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  IF strpos(
+       pg_get_functiondef(
+         'private.narrative_record_state(bigint,bigint,text,boolean)'::regprocedure
+       ),'FOR UPDATE'
+     )=0 OR strpos(
+       pg_get_functiondef(
+         'private.narrative_legacy_state(uuid,boolean)'::regprocedure
+       ),'FOR UPDATE'
+  )=0 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_STATE_LOCK_MODE_MISSING';
+  END IF;
+
+  v_state_definition:=pg_get_functiondef(
+    'private.narrative_record_state(bigint,bigint,text,boolean)'::regprocedure
+  );
+  v_record_lock_position:=strpos(
+    v_state_definition,'WHERE record.id=v_record_id FOR UPDATE;'
+  );
+  v_change_set_lock_position:=strpos(
+    v_state_definition,'LOCK TABLE public.change_set IN ACCESS EXCLUSIVE MODE;'
+  );
+  v_person_lock_position:=strpos(
+    v_state_definition,'WHERE person.id=p_person_id FOR UPDATE;'
+  );
+  v_projection_position:=strpos(
+    v_state_definition,'v_publication_state:=private.narrative_publication_state('
+  );
+  IF v_record_lock_position=0
+     OR v_change_set_lock_position<=v_record_lock_position
+     OR v_person_lock_position<=v_change_set_lock_position
+     OR v_projection_position<=v_person_lock_position THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PERSON_POLICY_LOCK_ORDER_INVALID';
+  END IF;
+  IF strpos(v_state_definition,'v_selected_binding_id:=v_active_binding_id')=0
+     OR strpos(v_state_definition,'event.binding_id=v_selected_binding_id')=0
+     OR strpos(
+          v_state_definition,
+          'ORDER BY stream_head.change_set_id DESC,stream_head.created_at DESC'
+        )=0
+     OR strpos(
+          v_state_definition,
+          '(v_active_binding_id IS NULL OR event.binding_id=v_active_binding_id)'
+        )<>0
+     OR strpos(
+          v_state_definition,
+          'ORDER BY binding.created_at DESC,stream_head.created_at DESC'
+        )<>0 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_STREAM_CHRONOLOGY_INVALID';
+  END IF;
+
+  RAISE NOTICE 'OK: #152 Task 2 canonical state, typed editor/history og ACL er installeret';
+END
+$narrative_record_state_verify$;
+
 
 -- ===== Task 1: Tabeller profiles + suggestion =====
 -- Forvent: begge tabeller findes, rolle-CHECK håndhæves.
+
+-- ===== DAA 1939 v50 production-writer contract =====
+DO $$
+BEGIN
+  IF to_regclass('private.reimport_1939_authorization') IS NULL
+     OR to_regclass('private.reimport_1939_write_batch') IS NULL
+     OR to_regclass('private.reimport_1939_write_event') IS NULL
+     OR to_regprocedure('public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamp with time zone)') IS NULL
+     OR to_regprocedure('public.red_finalize_1939_v50_reimport(uuid)') IS NULL THEN
+    RAISE EXCEPTION 'REIMPORT_1939_WRITER_CONTRACT_MISSING';
+  END IF;
+  IF has_table_privilege('anon','private.reimport_1939_write_event','SELECT')
+     OR has_table_privilege('authenticated','private.reimport_1939_write_event','SELECT') THEN
+    RAISE EXCEPTION 'REIMPORT_1939_PRIVATE_GRANT_INVALID';
+  END IF;
+  RAISE NOTICE 'OK: DAA 1939 v50 production-writer contract er installeret og privat';
+END $$;
+
+-- #153 Task 5: generic reimport replay receipt is the only public ledger read.
+DO $verify_reimport_batch_result$
+DECLARE v_definition text;
+BEGIN
+  IF to_regprocedure('public.red_reimport_batch_result(uuid,uuid)') IS NULL THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_RPC_MISSING';
+  END IF;
+  SELECT pg_get_functiondef('public.red_reimport_batch_result(uuid,uuid)'::regprocedure)
+    INTO v_definition;
+  IF NOT (SELECT prosecdef FROM pg_proc WHERE oid='public.red_reimport_batch_result(uuid,uuid)'::regprocedure)
+     OR strpos(coalesce(v_definition,''),'SET search_path TO')=0
+     OR strpos(v_definition,'pg_catalog')=0 OR strpos(v_definition,'public')=0 OR strpos(v_definition,'private')=0
+     OR strpos(v_definition,'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED')=0
+     OR has_function_privilege('anon','public.red_reimport_batch_result(uuid,uuid)','EXECUTE')
+     OR has_function_privilege('service_role','public.red_reimport_batch_result(uuid,uuid)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_reimport_batch_result(uuid,uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_ACL_INVALID';
+  END IF;
+  RAISE NOTICE 'OK: #153 generic reimport replay receipt is contract-gated and authenticated-only';
+END
+$verify_reimport_batch_result$;
+
+-- #153 Task 6: `_1939` is a closed compatibility namespace.  The generic
+-- writer and its public replay receipt deliberately have no edition suffix and
+-- are therefore absent from this transition-surface allowlist. `_2018` er en
+-- tom allowlist: #149a's udgave bor i én profil-JSON, ikke i katalogen.
+CREATE OR REPLACE FUNCTION private.assert_reimport_edition_catalog()
+RETURNS void
+LANGUAGE plpgsql
+SET search_path TO pg_catalog, public, private
+AS $assert_reimport_edition_catalog$
+DECLARE v_drift jsonb;
+BEGIN
+  WITH expected(object_kind,object_schema,object_name,parent_identity) AS (
+    VALUES
+      ('relation:v','private','reimport_1939_authorization',NULL),
+      ('relation:v','private','reimport_1939_name_completion_result',NULL),
+      ('relation:v','private','reimport_1939_write_batch',NULL),
+      ('relation:v','private','reimport_1939_write_event',NULL),
+      ('type:b','private','_reimport_1939_authorization',NULL),
+      ('type:b','private','_reimport_1939_name_completion_result',NULL),
+      ('type:b','private','_reimport_1939_write_batch',NULL),
+      ('type:b','private','_reimport_1939_write_event',NULL),
+      ('type:c','private','reimport_1939_authorization','private.reimport_1939_authorization'),
+      ('type:c','private','reimport_1939_name_completion_result','private.reimport_1939_name_completion_result'),
+      ('type:c','private','reimport_1939_write_batch','private.reimport_1939_write_batch'),
+      ('type:c','private','reimport_1939_write_event','private.reimport_1939_write_event'),
+      ('function:f','private','reimport_1939_canonical_json_sha256(jsonb)',NULL),
+      ('function:f','private','require_reimport_1939_editor()',NULL),
+      ('function:f','public','red_activate_1939_v50_batch(uuid,uuid)',NULL),
+      ('function:f','public','red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',NULL),
+      ('function:f','public','red_apply_1939_v50_name_completion(uuid,text,jsonb)',NULL),
+      ('function:f','public','red_apply_1939_v50_person_create(uuid,text,jsonb)',NULL),
+      ('function:f','public','red_apply_1939_v50_source_evidence(uuid,text,jsonb)',NULL),
+      ('function:f','public','red_authorize_1939_v50_cutover(uuid,uuid,timestamp with time zone)',NULL),
+      ('function:f','public','red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)',NULL),
+      ('function:f','public','red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamp with time zone)',NULL),
+      ('function:f','public','red_authorize_1939_v50_reversal(uuid,uuid,timestamp with time zone)',NULL),
+      ('function:f','public','red_begin_1939_v50_name_completion(uuid,text,uuid)',NULL),
+      ('function:f','public','red_begin_1939_v50_reimport(uuid,text,text)',NULL),
+      ('function:f','public','red_finalize_1939_v50_name_completion(uuid)',NULL),
+      ('function:f','public','red_finalize_1939_v50_reimport(uuid)',NULL),
+      ('function:f','public','red_lock_1939_v50_name_completion(text)',NULL),
+      ('function:f','public','red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)',NULL),
+      ('function:f','public','red_reverse_1939_v50_reimport(uuid,uuid)',NULL)
+  ), actual(object_kind,object_schema,object_name,parent_identity) AS (
+    SELECT 'relation:' || c.relkind::text, n.nspname, c.relname,
+      CASE c.relkind
+        WHEN 'i' THEN (
+          SELECT format('%I.%I',parent_namespace.nspname,parent_relation.relname)
+          FROM pg_index index_row
+          JOIN pg_class parent_relation ON parent_relation.oid=index_row.indrelid
+          JOIN pg_namespace parent_namespace ON parent_namespace.oid=parent_relation.relnamespace
+          WHERE index_row.indexrelid=c.oid
+        )
+        WHEN 'S' THEN (
+          SELECT format('%I.%I.%I',parent_namespace.nspname,parent_relation.relname,parent_attribute.attname)
+          FROM pg_depend dependency
+          JOIN pg_class parent_relation ON parent_relation.oid=dependency.refobjid
+          JOIN pg_namespace parent_namespace ON parent_namespace.oid=parent_relation.relnamespace
+          JOIN pg_attribute parent_attribute ON parent_attribute.attrelid=parent_relation.oid
+            AND parent_attribute.attnum=dependency.refobjsubid
+          WHERE dependency.classid='pg_class'::regclass
+            AND dependency.objid=c.oid
+            AND dependency.refclassid='pg_class'::regclass
+            AND dependency.deptype='a'
+          LIMIT 1
+        )
+      END
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname IN ('public','private')
+      AND (c.relname LIKE '%\_1939%' ESCAPE E'\\'
+           OR c.relname LIKE '%\_2018%' ESCAPE E'\\')
+
+    UNION ALL
+
+    SELECT 'type:' || t.typtype::text, n.nspname, t.typname,
+      CASE WHEN t.typrelid<>0 THEN (
+        SELECT format('%I.%I',parent_namespace.nspname,parent_relation.relname)
+        FROM pg_class parent_relation
+        JOIN pg_namespace parent_namespace ON parent_namespace.oid=parent_relation.relnamespace
+        WHERE parent_relation.oid=t.typrelid
+      ) END
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid=t.typnamespace
+    WHERE n.nspname IN ('public','private')
+      AND (t.typname LIKE '%\_1939%' ESCAPE E'\\'
+           OR t.typname LIKE '%\_2018%' ESCAPE E'\\')
+
+    UNION ALL
+
+    SELECT 'function:' || p.prokind::text, n.nspname, p.oid::regprocedure::text,NULL::text
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname IN ('public','private')
+      AND (p.proname LIKE '%\_1939%' ESCAPE E'\\'
+           OR p.proname LIKE '%\_2018%' ESCAPE E'\\')
+
+    UNION ALL
+
+    SELECT 'trigger',n.nspname,t.tgname,format('%I.%I',n.nspname,c.relname)
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid=t.tgrelid
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE NOT t.tgisinternal
+      AND n.nspname IN ('public','private')
+      AND (t.tgname LIKE '%\_1939%' ESCAPE E'\\'
+           OR t.tgname LIKE '%\_2018%' ESCAPE E'\\')
+
+    UNION ALL
+
+    SELECT 'constraint:' || constraint_row.contype::text,
+      coalesce(relation_namespace.nspname,type_namespace.nspname),constraint_row.conname,
+      CASE
+        WHEN constraint_row.conrelid<>0 THEN format('%I.%I',relation_namespace.nspname,relation_row.relname)
+        ELSE format('%I.%I',type_namespace.nspname,type_row.typname)
+      END
+    FROM pg_constraint constraint_row
+    LEFT JOIN pg_class relation_row ON relation_row.oid=constraint_row.conrelid
+    LEFT JOIN pg_namespace relation_namespace ON relation_namespace.oid=relation_row.relnamespace
+    LEFT JOIN pg_type type_row ON type_row.oid=constraint_row.contypid
+    LEFT JOIN pg_namespace type_namespace ON type_namespace.oid=type_row.typnamespace
+    WHERE coalesce(relation_namespace.nspname,type_namespace.nspname) IN ('public','private')
+      AND (constraint_row.conname LIKE '%\_1939%' ESCAPE E'\\'
+           OR constraint_row.conname LIKE '%\_2018%' ESCAPE E'\\')
+
+    UNION ALL
+
+    SELECT 'policy',n.nspname,p.polname,format('%I.%I',n.nspname,c.relname)
+    FROM pg_policy p
+    JOIN pg_class c ON c.oid=p.polrelid
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname IN ('public','private')
+      AND (p.polname LIKE '%\_1939%' ESCAPE E'\\'
+           OR p.polname LIKE '%\_2018%' ESCAPE E'\\')
+  ), drift AS (
+    SELECT 'additional' AS drift_kind,actual.* FROM actual
+    EXCEPT
+    SELECT 'additional',expected.* FROM expected
+    UNION ALL
+    SELECT 'omitted' AS drift_kind,expected.* FROM expected
+    EXCEPT
+    SELECT 'omitted',actual.* FROM actual
+  )
+  SELECT jsonb_agg(
+           jsonb_build_object(
+             'drift',drift_kind,'kind',object_kind,'schema',object_schema,
+             'name',object_name,'parent',parent_identity
+           ) ORDER BY drift_kind,object_kind,object_schema,object_name,parent_identity
+         )
+    INTO v_drift
+    FROM drift;
+
+  IF v_drift IS NOT NULL THEN
+    RAISE EXCEPTION 'REIMPORT_EDITION_OBJECT_ALLOWLIST_DRIFT';
+  END IF;
+END
+$assert_reimport_edition_catalog$;
+
+REVOKE ALL ON FUNCTION private.assert_reimport_edition_catalog() FROM PUBLIC,anon,authenticated,service_role;
+
+DO $verify_reimport_writer_task9_surface$
+DECLARE v_signature text;
+BEGIN
+  FOREACH v_signature IN ARRAY ARRAY[
+    'private.validate_reimport_writer_config(jsonb)',
+    'public.red_apply_reimport_canonical_delta(uuid,text,jsonb)',
+    'public.red_lock_reimport_name_completion(text,bigint,text)',
+    'public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb)'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NULL THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_TASK9_SURFACE_MISSING: %',v_signature;
+    END IF;
+  END LOOP;
+  IF has_function_privilege('anon','public.red_apply_reimport_canonical_delta(uuid,text,jsonb)','EXECUTE')
+     OR has_function_privilege('anon','public.red_lock_reimport_name_completion(text,bigint,text)','EXECUTE')
+     OR has_function_privilege('anon','public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_apply_reimport_canonical_delta(uuid,text,jsonb)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_lock_reimport_name_completion(text,bigint,text)','EXECUTE')
+     OR has_function_privilege('authenticated','public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb)','EXECUTE')
+     OR NOT has_function_privilege('service_role','public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb)','EXECUTE') THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_TASK9_ACL_INVALID';
+  END IF;
+END $verify_reimport_writer_task9_surface$;
+
+DO $verify_reimport_edition_catalog$
+BEGIN
+  PERFORM private.assert_reimport_edition_catalog();
+  RAISE NOTICE 'OK: #153 edition-named reimport catalog is an exact allowlist';
+END
+$verify_reimport_edition_catalog$;
+
+-- #152 Task 7: exact version/ACL/receipt cutover verification.
+DO $verify_narrative_record_cutover$
+DECLARE
+  v_version integer;
+  v_signature text;
+  v_new text[]:=ARRAY[
+    'public.red_upsert_person_narrative_record(bigint,bigint,text,text,boolean,text)',
+    'public.red_publicer_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)',
+    'public.red_revalider_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_kasser_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_tilbagetraek_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_tilbagetraek_legacy_narrative(uuid,text,text)',
+    'public.red_fortryd_person_narrative_publication_event(uuid,text)'
+  ];
+  v_legacy_authenticated text[]:=ARRAY[
+    'public.red_publicer_narrative_record(bigint,uuid,text,text)',
+    'public.red_tilbagetraek_narrative_record(bigint)',
+    'public.red_apply_reimport_cases(uuid,text,text)',
+    'public.red_reverse_reimport_cases(uuid,uuid)'
+  ];
+  v_legacy_service text[]:=ARRAY[
+    'public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)'
+  ];
+  v_v2_facade_authenticated text[]:=ARRAY[
+    'public.red_begin_1939_v50_reimport(uuid,text,text)',
+    'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_person_create(uuid,text,jsonb)',
+    'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)',
+    'public.red_finalize_1939_v50_reimport(uuid)',
+    'public.red_reverse_1939_v50_reimport(uuid,uuid)',
+    'public.red_activate_1939_v50_batch(uuid,uuid)',
+    'public.red_lock_1939_v50_name_completion(text)',
+    'public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)',
+    'public.red_begin_1939_v50_name_completion(uuid,text,uuid)',
+    'public.red_apply_1939_v50_name_completion(uuid,text,jsonb)',
+    'public.red_finalize_1939_v50_name_completion(uuid)'
+  ];
+  v_v2_facade_service text[]:=ARRAY[
+    'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)',
+    'public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)'
+  ];
+BEGIN
+  IF to_regclass('private.narrative_record_cutover_receipt') IS NULL
+     OR to_regprocedure(
+       'private.apply_narrative_record_cutover(text,text,text,text,text,text,uuid,text,text)'
+     ) IS NULL
+     OR to_regprocedure('private.apply_narrative_record_contract_acl(integer)') IS NULL THEN
+    RAISE EXCEPTION 'VERIFY_NARRATIVE_RECORD_CUTOVER_OBJECT_MISSING';
+  END IF;
+  IF NOT (SELECT relrowsecurity FROM pg_class
+           WHERE oid='private.narrative_record_cutover_receipt'::regclass)
+     OR EXISTS (SELECT 1 FROM pg_policy
+                 WHERE polrelid='private.narrative_record_cutover_receipt'::regclass) THEN
+    RAISE EXCEPTION 'VERIFY_NARRATIVE_RECORD_CUTOVER_RECEIPT_RLS_INVALID';
+  END IF;
+  v_version:=public.narrative_record_contract_version();
+  IF v_version NOT IN (1,2) THEN
+    RAISE EXCEPTION 'VERIFY_NARRATIVE_RECORD_CONTRACT_VERSION_INVALID';
+  END IF;
+  FOREACH v_signature IN ARRAY v_new LOOP
+    IF has_function_privilege('authenticated',v_signature,'EXECUTE') IS DISTINCT FROM
+         (v_version=2)
+       OR has_function_privilege('anon',v_signature,'EXECUTE')
+       OR has_function_privilege('service_role',v_signature,'EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_NARRATIVE_RECORD_NEW_WRITER_ACL_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+  FOREACH v_signature IN ARRAY v_legacy_authenticated LOOP
+    IF has_function_privilege('authenticated',v_signature,'EXECUTE') IS DISTINCT FROM
+         (v_version=1)
+       OR has_function_privilege('anon',v_signature,'EXECUTE')
+       OR has_function_privilege('service_role',v_signature,'EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_NARRATIVE_RECORD_LEGACY_AUTH_ACL_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+  FOREACH v_signature IN ARRAY v_legacy_service LOOP
+    IF has_function_privilege('service_role',v_signature,'EXECUTE') IS DISTINCT FROM
+         (v_version=1)
+       OR has_function_privilege('anon',v_signature,'EXECUTE')
+       OR has_function_privilege('authenticated',v_signature,'EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_NARRATIVE_RECORD_LEGACY_SERVICE_ACL_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+  FOREACH v_signature IN ARRAY v_v2_facade_authenticated LOOP
+    IF has_function_privilege('authenticated',v_signature,'EXECUTE') IS DISTINCT FROM
+         (v_version=2)
+       OR has_function_privilege('anon',v_signature,'EXECUTE')
+       OR has_function_privilege('service_role',v_signature,'EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_NARRATIVE_RECORD_V2_FACADE_AUTH_ACL_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+  FOREACH v_signature IN ARRAY v_v2_facade_service LOOP
+    IF has_function_privilege('service_role',v_signature,'EXECUTE') IS DISTINCT FROM
+         (v_version=2)
+       OR has_function_privilege('anon',v_signature,'EXECUTE')
+       OR has_function_privilege('authenticated',v_signature,'EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_NARRATIVE_RECORD_V2_FACADE_SERVICE_ACL_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: narrative record contract v% ACL/receipt',v_version;
+END
+$verify_narrative_record_cutover$;
+
+-- ===== #152 Task 3: record-keyed mutation kernel, additive ACL =====
+DO $narrative_record_mutation_verify$
+DECLARE
+  v_signature text;
+  v_role text;
+  v_definition text;
+  v_lock_position integer;
+  v_version_position integer;
+  v_state_position integer;
+BEGIN
+  IF public.narrative_record_contract_version() NOT IN (1,2) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_MUTATION_ADDITIVE_VERSION_INVALID';
+  END IF;
+
+  FOREACH v_signature IN ARRAY ARRAY[
+    'private.mutate_person_narrative_record(text,bigint,bigint,text,text,boolean,text)',
+    'public.red_upsert_person_narrative_record(bigint,bigint,text,text,boolean,text)',
+    'public.red_publicer_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)',
+    'public.red_revalider_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_kasser_person_narrative_record(bigint,bigint,text,text)',
+    'public.red_tilbagetraek_person_narrative_record(bigint,bigint,text,text)'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NULL THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_MUTATION_FUNCTION_MISSING: %',v_signature;
+    END IF;
+    IF pg_get_function_result(to_regprocedure(v_signature)) IS DISTINCT FROM 'jsonb' THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_MUTATION_RESULT_INVALID: %',v_signature;
+    END IF;
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+      IF has_function_privilege(v_role,v_signature,'EXECUTE') IS DISTINCT FROM (
+        public.narrative_record_contract_version()=2
+        AND v_role='authenticated'
+        AND v_signature LIKE 'public.%'
+      ) THEN
+        RAISE EXCEPTION 'NARRATIVE_RECORD_MUTATION_PRECUTOVER_ACL_INVALID: % %',
+          v_role,v_signature;
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  IF EXISTS (
+    SELECT 1
+      FROM pg_proc function
+     WHERE function.oid IN (
+       'private.mutate_person_narrative_record(text,bigint,bigint,text,text,boolean,text)'::regprocedure,
+       'public.red_upsert_person_narrative_record(bigint,bigint,text,text,boolean,text)'::regprocedure,
+       'public.red_publicer_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
+       'public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)'::regprocedure,
+       'public.red_revalider_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
+       'public.red_kasser_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
+       'public.red_tilbagetraek_person_narrative_record(bigint,bigint,text,text)'::regprocedure
+     )
+       AND (
+         NOT function.prosecdef
+         OR function.provolatile<>'v'
+         OR function.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+       )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_MUTATION_SECURITY_INVALID';
+  END IF;
+
+  v_definition:=pg_get_functiondef(
+    'private.mutate_person_narrative_record(text,bigint,bigint,text,text,boolean,text)'::regprocedure
+  );
+  v_lock_position:=strpos(v_definition,'pg_advisory_xact_lock_shared(');
+  v_version_position:=strpos(v_definition,'public.narrative_record_contract_version()');
+  v_state_position:=strpos(v_definition,'private.narrative_record_state(');
+  IF v_lock_position=0 OR v_version_position<=v_lock_position
+     OR v_state_position<=v_version_position
+     OR strpos(v_definition,'''daa-narrative-record-contract''')=0 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_MUTATION_GATE_OR_LOCK_ORDER_INVALID';
+  END IF;
+
+  IF NOT has_function_privilege(
+    'authenticated','public.red_person_narrative_records(bigint)','EXECUTE'
+  ) OR NOT has_function_privilege(
+    'authenticated','public.red_person_narrative_publication_history(bigint)','EXECUTE'
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_MUTATION_EDITOR_READ_ACL_REGRESSION';
+  END IF;
+
+  RAISE NOTICE 'OK: #152 Task 3 mutation kernel ACL matcher contract-version %',
+    public.narrative_record_contract_version();
+END
+$narrative_record_mutation_verify$;
+
+-- ===== #152 Task 4: legacy withdrawal, dedicated reversal and undo routing =====
+DO $narrative_record_reversal_verify$
+DECLARE
+  v_signature text;
+  v_role text;
+  v_definition text;
+  v_lock_position integer;
+  v_version_position integer;
+  v_guard_position integer;
+  v_change_set_position integer;
+BEGIN
+  IF public.narrative_record_contract_version() NOT IN (1,2) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_REVERSAL_ADDITIVE_VERSION_INVALID';
+  END IF;
+
+  FOREACH v_signature IN ARRAY ARRAY[
+    'private.withdraw_legacy_narrative(uuid,text,text)',
+    'private.reverse_narrative_publication_event(uuid,text)',
+    'public.red_tilbagetraek_legacy_narrative(uuid,text,text)',
+    'public.red_fortryd_person_narrative_publication_event(uuid,text)'
+  ] LOOP
+    IF to_regprocedure(v_signature) IS NULL THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_REVERSAL_FUNCTION_MISSING: %',v_signature;
+    END IF;
+    IF pg_get_function_result(to_regprocedure(v_signature)) IS DISTINCT FROM 'jsonb' THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_REVERSAL_RESULT_INVALID: %',v_signature;
+    END IF;
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+      IF has_function_privilege(v_role,v_signature,'EXECUTE') IS DISTINCT FROM (
+        public.narrative_record_contract_version()=2
+        AND v_role='authenticated'
+        AND v_signature LIKE 'public.%'
+      ) THEN
+        RAISE EXCEPTION 'NARRATIVE_RECORD_REVERSAL_PRECUTOVER_ACL_INVALID: % %',
+          v_role,v_signature;
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  IF EXISTS (
+    SELECT 1 FROM pg_proc function
+     WHERE function.oid IN (
+       'private.withdraw_legacy_narrative(uuid,text,text)'::regprocedure,
+       'private.reverse_narrative_publication_event(uuid,text)'::regprocedure,
+       'public.red_tilbagetraek_legacy_narrative(uuid,text,text)'::regprocedure,
+       'public.red_fortryd_person_narrative_publication_event(uuid,text)'::regprocedure
+     )
+       AND (
+         NOT function.prosecdef OR function.provolatile<>'v'
+         OR function.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+       )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_REVERSAL_SECURITY_INVALID';
+  END IF;
+
+  v_definition:=pg_get_functiondef(
+    'private.withdraw_legacy_narrative(uuid,text,text)'::regprocedure
+  );
+  v_lock_position:=strpos(v_definition,'pg_advisory_xact_lock_shared(');
+  v_version_position:=strpos(v_definition,'public.narrative_record_contract_version()');
+  IF v_lock_position=0 OR v_version_position<=v_lock_position
+     OR strpos(v_definition,'private.narrative_legacy_state(')<=v_version_position THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WITHDRAWAL_LOCK_ORDER_INVALID';
+  END IF;
+
+  v_definition:=pg_get_functiondef(
+    'private.reverse_narrative_publication_event(uuid,text)'::regprocedure
+  );
+  v_lock_position:=strpos(v_definition,'pg_advisory_xact_lock_shared(');
+  v_version_position:=strpos(v_definition,'public.narrative_record_contract_version()');
+  IF v_lock_position=0 OR v_version_position<=v_lock_position
+     OR strpos(v_definition,'private.narrative_record_state(')<=v_version_position
+     OR strpos(v_definition,'private.narrative_legacy_state(')<=v_version_position THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_REVERSAL_LOCK_ORDER_INVALID';
+  END IF;
+
+  v_definition:=pg_get_functiondef(
+    'public.red_fortryd_change_set(bigint,boolean)'::regprocedure
+  );
+  v_lock_position:=strpos(
+    v_definition,'LOCK TABLE public.change_set IN ACCESS SHARE MODE'
+  );
+  v_guard_position:=strpos(
+    v_definition,'NARRATIVE_RECORD_DEDICATED_REVERSAL_REQUIRED'
+  );
+  v_change_set_position:=strpos(v_definition,'INSERT INTO change_set');
+  IF v_lock_position=0 OR v_guard_position<=v_lock_position
+     OR v_change_set_position=0
+     OR v_guard_position>=v_change_set_position THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_GENERIC_UNDO_ROUTING_INVALID';
+  END IF;
+
+  v_definition:=pg_get_functiondef('public.red_slet_person(bigint)'::regprocedure);
+  v_lock_position:=strpos(v_definition,'pg_advisory_xact_lock_shared(');
+  v_guard_position:=strpos(
+    v_definition,'PERSON_HAR_NARRATIVE_PUBLICATION_HISTORY'
+  );
+  v_change_set_position:=strpos(v_definition,'begin_change_set(');
+  IF v_lock_position=0 OR v_guard_position<=v_lock_position
+     OR v_change_set_position<=v_guard_position THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PERSON_DELETE_ROUTING_INVALID';
+  END IF;
+
+  v_definition:=pg_get_functiondef(
+    'public.red_person_narrative_publication_history(bigint)'::regprocedure
+  );
+  IF strpos(v_definition,'NARRATIVE_PUBLICATION_REVERSAL_NOT_REVERSIBLE')=0 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_HISTORY_REVERSAL_REASON_INVALID';
+  END IF;
+  IF strpos(v_definition,'NARRATIVE_PUBLICATION_EVENT_NOT_REVERSIBLE')=0
+     OR strpos(v_definition,'classified.event_type NOT IN')=0 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_HISTORY_LEGAL_EVENT_SET_INVALID';
+  END IF;
+
+  RAISE NOTICE 'OK: #152 Task 4 withdrawal/reversal ACL matcher contract-version %',
+    public.narrative_record_contract_version();
+END
+$narrative_record_reversal_verify$;
+
+-- ===== #152 Task 5: event-gated public v2 contract and narrative RLS =====
+DO $narrative_record_public_read_verify$
+DECLARE
+  v_signature text;
+  v_role text;
+  v_definition text;
+  v_policy text;
+  v_result text;
+  v_expected_owner oid;
+  v_privilege text;
+BEGIN
+  IF public.narrative_record_contract_version() NOT IN (1,2) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_READ_ADDITIVE_VERSION_INVALID';
+  END IF;
+  IF to_regprocedure(
+       'public.person_daa_narrative_publication_allowed(bigint)'
+     ) IS NULL
+     OR to_regprocedure(
+       'public.public_person_bio_source_versions_v2(bigint[])'
+     ) IS NULL THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_READ_CONTRACT_MISSING';
+  END IF;
+
+  SELECT pg_get_function_result(
+    'public.public_person_bio_source_versions_v2(bigint[])'::regprocedure
+  ) INTO v_result;
+  IF v_result IS DISTINCT FROM
+       'TABLE(person_id bigint, source_id bigint, source_year integer, record_order integer, source_record_ref uuid, source_label text, record_label text, narrative_text text, citation_label text, provenance_kind text)' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_V2_RESULT_INVALID: %',v_result;
+  END IF;
+
+  SELECT relation.relowner INTO v_expected_owner
+    FROM pg_class relation WHERE relation.oid='public.narrative'::regclass;
+  IF v_expected_owner IS DISTINCT FROM (
+       SELECT relation.relowner FROM pg_class relation
+        WHERE relation.oid='private.narrative_publication_event'::regclass
+     ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_CONTROLLED_OWNER_SPLIT';
+  END IF;
+
+  FOREACH v_signature IN ARRAY ARRAY[
+    'public.person_daa_narrative_publication_allowed(bigint)',
+    'public.public_person_bio_source_versions(bigint[])',
+    'public.public_person_bio_source_versions_v2(bigint[])'
+  ] LOOP
+    IF EXISTS (
+      SELECT 1 FROM pg_proc function
+       JOIN pg_roles owner ON owner.oid=function.proowner
+       WHERE function.oid=v_signature::regprocedure
+         AND (
+           NOT function.prosecdef
+           OR function.provolatile<>'s'
+           OR function.proconfig IS DISTINCT FROM
+                ARRAY['search_path=pg_catalog']::text[]
+           OR function.proowner<>v_expected_owner
+         )
+    ) THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_FUNCTION_SECURITY_INVALID: %',
+        v_signature;
+    END IF;
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated'] LOOP
+      IF NOT has_function_privilege(v_role,v_signature,'EXECUTE') THEN
+        RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_FUNCTION_GRANT_MISSING: % %',
+          v_role,v_signature;
+      END IF;
+    END LOOP;
+    IF EXISTS (
+         SELECT 1
+           FROM pg_proc function
+           CROSS JOIN LATERAL aclexplode(
+             coalesce(function.proacl,acldefault('f',function.proowner))
+           ) acl
+          WHERE function.oid=v_signature::regprocedure
+            AND (
+              acl.privilege_type<>'EXECUTE'
+              OR acl.is_grantable
+              OR acl.grantor<>v_expected_owner
+              OR acl.grantee NOT IN (
+                v_expected_owner,'anon'::regrole::oid,
+                'authenticated'::regrole::oid
+              )
+            )
+       ) OR (
+         SELECT count(*)
+           FROM pg_proc function
+           CROSS JOIN LATERAL aclexplode(
+             coalesce(function.proacl,acldefault('f',function.proowner))
+           ) acl
+          WHERE function.oid=v_signature::regprocedure
+       )<>3 THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_FUNCTION_GRANT_INVALID: %',
+        v_signature;
+    END IF;
+  END LOOP;
+
+  v_definition:=pg_get_functiondef(
+    'public.person_daa_narrative_publication_allowed(bigint)'::regprocedure
+  );
+  IF strpos(v_definition,'private.narrative_publication_state(')=0
+     OR strpos(v_definition,'private.narrative_legacy_publication_state(')=0
+     OR strpos(v_definition,'private.narrative_record_state(')>0
+     OR strpos(v_definition,'private.narrative_legacy_state(')>0 THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_PREDICATE_STATE_INVALID';
+  END IF;
+  FOREACH v_signature IN ARRAY ARRAY[
+    'public.public_person_bio_source_versions(bigint[])',
+    'public.public_person_bio_source_versions_v2(bigint[])'
+  ] LOOP
+    v_definition:=pg_get_functiondef(v_signature::regprocedure);
+    IF strpos(v_definition,'person_daa_narrative_publication_allowed')=0
+       OR strpos(v_definition,'narrative_record_contract_version()')=0 THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_RPC_GATE_INVALID: %',v_signature;
+    END IF;
+  END LOOP;
+
+  IF NOT (
+    SELECT relation.relrowsecurity AND NOT relation.relforcerowsecurity
+      FROM pg_class relation WHERE relation.oid='public.narrative'::regclass
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_RLS_MODE_INVALID';
+  END IF;
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated'] LOOP
+    SELECT pg_get_expr(policy.polqual,policy.polrelid)
+      INTO v_policy
+      FROM pg_policy policy
+     WHERE policy.polrelid='public.narrative'::regclass
+       AND policy.polname=CASE v_role
+         WHEN 'anon' THEN 'anon_read' ELSE 'auth_read' END;
+    IF strpos(
+         coalesce(v_policy,''),'person_daa_narrative_publication_allowed'
+       )=0 THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_RLS_POLICY_INVALID: % %',
+        v_role,v_policy;
+    END IF;
+  END LOOP;
+
+  FOREACH v_signature IN ARRAY ARRAY[
+    'private.narrative_record_publication',
+    'private.narrative_publication_event',
+    'private.narrative_legacy_publication'
+  ] LOOP
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+      FOREACH v_privilege IN ARRAY ARRAY['SELECT','INSERT','UPDATE','DELETE'] LOOP
+        IF has_table_privilege(v_role,v_signature,v_privilege) THEN
+          RAISE EXCEPTION
+            'NARRATIVE_RECORD_PUBLIC_PRIVATE_TABLE_GRANT: % % %',
+            v_role,v_signature,v_privilege;
+        END IF;
+      END LOOP;
+    END LOOP;
+    IF EXISTS (
+      SELECT 1
+        FROM pg_class relation
+        CROSS JOIN LATERAL aclexplode(
+          coalesce(relation.relacl,acldefault('r',relation.relowner))
+        ) acl
+       WHERE relation.oid=v_signature::regclass
+         AND acl.grantee=0
+         AND acl.privilege_type IN ('SELECT','INSERT','UPDATE','DELETE')
+    ) THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_PUBLIC_PRIVATE_TABLE_GRANT: PUBLIC %',
+        v_signature;
+    END IF;
+  END LOOP;
+
+  RAISE NOTICE 'OK: #152 Task 5 public v1/v2, semantic predicate og RLS er installeret';
+END
+$narrative_record_public_read_verify$;
+
+-- ===== C3 apply plan Task 5: generic reimport case ledger contract =====
+-- Full catalog/constraint proof lives in tests/sql/test-1939-v50-c3-apply.sql; this
+-- block only proves the objects exist and stay private after db-migrations.sql/db-rls.sql.
+DO $$
+BEGIN
+  IF to_regclass('private.reimport_case_authorization') IS NULL
+     OR to_regclass('private.reimport_case_batch') IS NULL
+     OR to_regclass('private.reimport_case_event') IS NULL
+     OR to_regclass('private.narrative_record_publication_active_record_uidx') IS NULL
+     OR to_regprocedure('private.reject_reimport_case_event_mutation()') IS NULL THEN
+    RAISE EXCEPTION 'C3_APPLY_LEDGER_CONTRACT_MISSING';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE']) privilege
+    CROSS JOIN unnest(ARRAY[
+      'private.reimport_case_authorization','private.reimport_case_batch','private.reimport_case_event'
+    ]) tbl
+    WHERE has_table_privilege('anon',tbl,privilege)
+       OR has_table_privilege('authenticated',tbl,privilege)
+  ) THEN
+    RAISE EXCEPTION 'C3_APPLY_LEDGER_PRIVATE_GRANT_INVALID';
+  END IF;
+  RAISE NOTICE 'OK: C3 apply case ledger (reimport_case_authorization/_batch/_event) er installeret og privat';
+END $$;
+
+-- ===== C3 apply plan Task 6: atomic apply RPC contract =====
+-- Behavioural proof lives in tests/sql/test-1939-v50-c3-apply.sql; this block only
+-- proves the deployed surface after db-migrations.sql/db-rls.sql: the three entry
+-- points exist with their exact signatures, preview is STABLE, all three are
+-- SECURITY DEFINER with a fixed search_path, the ACL split holds (preview+apply to
+-- authenticated, authorize to service_role, nothing to PUBLIC/anon), every private
+-- helper stays ungranted, and red_publicer_narrative_record still takes fund B4's
+-- source-record lock BEFORE it reads the binding row.
+DO $$
+DECLARE v_def text; v_lock int; v_select int; v_apply_def text;
+BEGIN
+  IF to_regprocedure('public.red_preview_reimport_cases(bigint,text,jsonb)') IS NULL
+     OR to_regprocedure('public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)') IS NULL
+     OR to_regprocedure('public.red_apply_reimport_cases(uuid,text,text)') IS NULL
+     OR to_regprocedure('private.reimport_case_receipt(uuid)') IS NULL
+     OR to_regprocedure('private.write_reimport_case_narrative(bigint,bigint,bigint,text,boolean,text)') IS NULL
+     OR to_regprocedure('private.reimport_case_source_record_state(bigint,text)') IS NULL
+     OR to_regprocedure('private.reimport_case_narrative_state(bigint,bigint)') IS NULL
+     OR to_regprocedure('private.reimport_case_binding_state(uuid,bigint)') IS NULL
+     OR to_regprocedure('private.validate_reimport_case_selection(jsonb)') IS NULL
+     OR to_regprocedure('private.validate_reimport_case_elements(jsonb,jsonb)') IS NULL
+     OR to_regprocedure('private.validate_reimport_case_counts(jsonb)') IS NULL THEN
+    RAISE EXCEPTION 'C3_APPLY_RPC_CONTRACT_MISSING';
+  END IF;
+  IF (SELECT provolatile FROM pg_proc
+       WHERE oid='public.red_preview_reimport_cases(bigint,text,jsonb)'::regprocedure) <> 's' THEN
+    RAISE EXCEPTION 'C3_APPLY_PREVIEW_NOT_STABLE';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_proc p WHERE p.oid IN (
+      'public.red_preview_reimport_cases(bigint,text,jsonb)'::regprocedure,
+      'public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)'::regprocedure,
+      'public.red_apply_reimport_cases(uuid,text,text)'::regprocedure)
+      AND (NOT p.prosecdef OR p.proconfig IS NULL)
+  ) THEN
+    RAISE EXCEPTION 'C3_APPLY_RPC_HARDENING_MISSING';
+  END IF;
+  IF has_function_privilege('anon','public.red_preview_reimport_cases(bigint,text,jsonb)','EXECUTE')
+     OR has_function_privilege('anon','public.red_apply_reimport_cases(uuid,text,text)','EXECUTE')
+     OR has_function_privilege('anon','public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)','EXECUTE')
+     OR has_function_privilege('authenticated','public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)','EXECUTE')
+     OR has_function_privilege('service_role','public.red_apply_reimport_cases(uuid,text,text)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_preview_reimport_cases(bigint,text,jsonb)','EXECUTE')
+     OR has_function_privilege(
+       'authenticated','public.red_apply_reimport_cases(uuid,text,text)','EXECUTE'
+     ) IS DISTINCT FROM (public.narrative_record_contract_version()=1)
+     OR has_function_privilege(
+       'service_role',
+       'public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)',
+       'EXECUTE'
+     ) IS DISTINCT FROM (public.narrative_record_contract_version()=1) THEN
+    RAISE EXCEPTION 'C3_APPLY_RPC_ACL_INVALID';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM unnest(ARRAY[
+      'private.reimport_case_source_record_state(bigint,text)',
+      'private.reimport_case_narrative_state(bigint,bigint)',
+      'private.reimport_case_binding_state(uuid,bigint)',
+      'private.validate_reimport_case_selection(jsonb)',
+      'private.validate_reimport_case_elements(jsonb,jsonb)',
+      'private.validate_reimport_case_counts(jsonb)',
+      'private.reimport_case_receipt(uuid)',
+      'private.write_reimport_case_narrative(bigint,bigint,bigint,text,boolean,text)']) fn
+    CROSS JOIN unnest(ARRAY['anon','authenticated','service_role']) role_name
+    WHERE has_function_privilege(role_name,fn,'EXECUTE')
+  ) THEN
+    RAISE EXCEPTION 'C3_APPLY_PRIVATE_HELPER_ACL_INVALID';
+  END IF;
+  v_def := pg_get_functiondef('public.red_publicer_narrative_record(bigint,uuid,text,text)'::regprocedure);
+  v_lock := strpos(v_def,'FROM private.source_record WHERE id = p_source_record_id FOR UPDATE');
+  v_select := strpos(v_def,'FROM private.narrative_record_publication');
+  IF v_lock = 0 OR v_select = 0 OR v_lock > v_select THEN
+    RAISE EXCEPTION 'C3_APPLY_PUBLICATION_SOURCE_RECORD_LOCK_MISSING';
+  END IF;
+  -- lock_timeout/statement_timeout must be set BEFORE the step-1 advisory lock
+  -- (lock_timeout is re-read at every lock acquisition, so its position decides
+  -- whether step 1's own wait is bounded), and the foreign-change-set guard
+  -- must run before begin_change_set, which would otherwise silently return an
+  -- already active change set and enrol the whole batch into it.
+  v_apply_def := pg_get_functiondef('public.red_apply_reimport_cases(uuid,text,text)'::regprocedure);
+  IF strpos(v_apply_def,'set_config(''lock_timeout''') = 0
+     OR strpos(v_apply_def,'set_config(''statement_timeout''') = 0
+     OR strpos(v_apply_def,'hashtextextended(''daa-1939-v50-production-writer'',0)') = 0
+     OR strpos(v_apply_def,'set_config(''lock_timeout''')
+        > strpos(v_apply_def,'hashtextextended(''daa-1939-v50-production-writer'',0)')
+     OR strpos(v_apply_def,'set_config(''statement_timeout''')
+        > strpos(v_apply_def,'hashtextextended(''daa-1939-v50-production-writer'',0)') THEN
+    RAISE EXCEPTION 'C3_APPLY_TIMEOUTS_SET_TOO_LATE';
+  END IF;
+  IF strpos(v_apply_def,'REIMPORT_CASE_FOREIGN_CHANGE_SET') = 0
+     OR strpos(v_apply_def,'public.begin_change_set(') = 0
+     OR strpos(v_apply_def,'REIMPORT_CASE_FOREIGN_CHANGE_SET')
+        > strpos(v_apply_def,'public.begin_change_set(') THEN
+    RAISE EXCEPTION 'C3_APPLY_FOREIGN_CHANGE_SET_GUARD_MISSING';
+  END IF;
+  RAISE NOTICE 'OK: C3 apply RPC-kontrakt (preview/authorize/apply) er installeret, hærdet og rolle-adskilt';
+END $$;
+
+-- ===== C3 Task 7 — reversal-RPC-kontrakt =====
+-- Reversal er sin EGEN batch (fund B5): egen authorization, egen nonce, eget
+-- change set og egen kvittering. Kontrakten her er den deployede flade:
+-- signaturer, hærdning, rolle-adskillelse (service_role autoriserer,
+-- authenticated reverserer), samme låsepræfiks som apply, og at HELE CAS'en
+-- ligger før første mutation -- den ene påstand en enkelt-session-test ikke selv
+-- kan bevise, fordi et fejlet kalds egen sub-transaktion rulles tilbage.
+DO $$
+DECLARE v_def text; v_cas int; v_first_write int; v_bindings int; v_fortryd int;
+BEGIN
+  IF to_regprocedure('public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)') IS NULL
+     OR to_regprocedure('public.red_reverse_reimport_cases(uuid,uuid)') IS NULL
+     OR to_regprocedure('private.reimport_case_reversal_plan(uuid)') IS NULL THEN
+    RAISE EXCEPTION 'C3_REVERSAL_RPC_CONTRACT_MISSING';
+  END IF;
+  IF (SELECT provolatile FROM pg_proc
+       WHERE oid='private.reimport_case_reversal_plan(uuid)'::regprocedure) <> 's' THEN
+    RAISE EXCEPTION 'C3_REVERSAL_PLAN_NOT_STABLE';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_proc p WHERE p.oid IN (
+      'public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)'::regprocedure,
+      'public.red_reverse_reimport_cases(uuid,uuid)'::regprocedure,
+      'private.reimport_case_reversal_plan(uuid)'::regprocedure)
+      AND (NOT p.prosecdef OR p.proconfig IS NULL)
+  ) THEN
+    RAISE EXCEPTION 'C3_REVERSAL_RPC_HARDENING_MISSING';
+  END IF;
+  IF has_function_privilege('anon','public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)','EXECUTE')
+     OR has_function_privilege('anon','public.red_reverse_reimport_cases(uuid,uuid)','EXECUTE')
+     OR has_function_privilege('authenticated','public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)','EXECUTE')
+     OR has_function_privilege('service_role','public.red_reverse_reimport_cases(uuid,uuid)','EXECUTE')
+     OR has_function_privilege(
+       'service_role','public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)',
+       'EXECUTE'
+     ) IS DISTINCT FROM (public.narrative_record_contract_version()=1)
+     OR has_function_privilege(
+       'authenticated','public.red_reverse_reimport_cases(uuid,uuid)','EXECUTE'
+     ) IS DISTINCT FROM (public.narrative_record_contract_version()=1) THEN
+    RAISE EXCEPTION 'C3_REVERSAL_RPC_ACL_INVALID';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM unnest(ARRAY['anon','authenticated','service_role']) role_name
+    WHERE has_function_privilege(role_name,'private.reimport_case_reversal_plan(uuid)','EXECUTE')
+  ) THEN
+    RAISE EXCEPTION 'C3_REVERSAL_PLAN_ACL_INVALID';
+  END IF;
+  v_def := pg_get_functiondef('public.red_reverse_reimport_cases(uuid,uuid)'::regprocedure);
+  -- Samme låsepræfiks som apply: timeouts og fremmed-change-set-gate før den
+  -- globale writer-lås, og PRÆCIS samme advisory-nøgle -- ellers kan en apply og
+  -- en reversal køre samtidig.
+  IF strpos(v_def,'set_config(''lock_timeout''') = 0
+     OR strpos(v_def,'set_config(''statement_timeout''') = 0
+     OR strpos(v_def,'REIMPORT_CASE_FOREIGN_CHANGE_SET') = 0
+     OR strpos(v_def,'hashtextextended(''daa-1939-v50-production-writer'',0)') = 0
+     OR strpos(v_def,'set_config(''lock_timeout''')
+        > strpos(v_def,'hashtextextended(''daa-1939-v50-production-writer'',0)')
+     OR strpos(v_def,'REIMPORT_CASE_FOREIGN_CHANGE_SET')
+        > strpos(v_def,'hashtextextended(''daa-1939-v50-production-writer'',0)')
+     OR strpos(v_def,'hashtext(''samme_som_mutation'')')
+        < strpos(v_def,'hashtextextended(''daa-1939-v50-production-writer'',0)') THEN
+    RAISE EXCEPTION 'C3_REVERSAL_LOCK_PREFIX_INVALID';
+  END IF;
+  -- Hele CAS'en før første mutation; bindinger før change-set-undoet (binding
+  -- -> narrative er en almindelig FK uden ON DELETE); ingen force-omgåelse.
+  v_cas         := strpos(v_def,'reversal CAS: everything is proven BEFORE the first mutation');
+  v_first_write := strpos(v_def,'INSERT INTO private.reimport_case_batch(');
+  v_bindings    := strpos(v_def,'DELETE FROM private.narrative_record_publication');
+  v_fortryd     := strpos(v_def,'public.red_fortryd_change_set(');
+  IF v_cas = 0 OR v_first_write = 0 OR v_bindings = 0 OR v_fortryd = 0
+     OR v_cas > v_first_write OR v_bindings > v_fortryd THEN
+    RAISE EXCEPTION 'C3_REVERSAL_MUTATION_ORDER_INVALID';
+  END IF;
+  IF strpos(v_def,'red_fortryd_change_set(v_change_set,false)') = 0
+     OR strpos(v_def,'red_fortryd_change_set(v_change_set,true)') <> 0 THEN
+    RAISE EXCEPTION 'C3_REVERSAL_FORCE_BYPASS_PRESENT';
+  END IF;
+  RAISE NOTICE 'OK: C3 reversal-RPC-kontrakt (authorize/reverse) er installeret, hærdet, rolle-adskilt og CAS-før-mutation';
+END $$;
+
+-- ===== C3 Task 1 — komponentbrede identitetskontradiktioner =====
+DO $$
+BEGIN
+  IF to_regclass('private.identity_mutation_generation') IS NULL
+     OR to_regprocedure('private.guard_identity_mutation_snapshot()') IS NULL
+     OR NOT EXISTS (
+       SELECT 1 FROM pg_proc p
+       WHERE p.oid='private.guard_identity_mutation_snapshot()'::regprocedure
+         AND p.prosecdef
+         AND 'search_path=pg_catalog, private'=ANY(p.proconfig)
+     ) THEN
+    RAISE EXCEPTION 'IDENTITY_MUTATION_GENERATION_CONTRACT_MISSING';
+  END IF;
+  IF has_table_privilege('anon','private.identity_mutation_generation','SELECT')
+     OR has_table_privilege('authenticated','private.identity_mutation_generation','UPDATE')
+     OR has_function_privilege('anon','private.guard_identity_mutation_snapshot()','EXECUTE')
+     OR has_function_privilege('authenticated','private.guard_identity_mutation_snapshot()','EXECUTE') THEN
+    RAISE EXCEPTION 'IDENTITY_MUTATION_GENERATION_ACL_DRIFT';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM (VALUES
+      ('public.relation_id_seq'),('public.assertion_id_seq'),('public.conclusion_id_seq')
+    ) s(name), (VALUES ('PUBLIC'),('anon'),('authenticated')) r(name)
+    WHERE (r.name='PUBLIC' AND EXISTS (
+             SELECT 1 FROM pg_class c
+             CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault('S',c.relowner))) a
+             WHERE c.oid=s.name::regclass AND a.grantee=0
+               AND a.privilege_type IN ('USAGE','SELECT','UPDATE')
+          )) OR (r.name<>'PUBLIC' AND (
+             has_sequence_privilege(r.name,s.name,'USAGE')
+             OR has_sequence_privilege(r.name,s.name,'SELECT')
+             OR has_sequence_privilege(r.name,s.name,'UPDATE')
+          ))
+  ) THEN
+    RAISE EXCEPTION 'IDENTITY_SEQUENCE_ACL_DRIFT';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    WHERE p.oid = 'private.identity_components_have_rejection(bigint,bigint)'::regprocedure
+      AND p.prosecdef
+      AND 'search_path=pg_catalog, public, private' = ANY (p.proconfig)
+  ) THEN
+    RAISE EXCEPTION 'IDENTITY_COMPONENT_HELPER_SECURITY_DRIFT';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f',p.proowner))) acl
+    WHERE p.oid = 'private.identity_components_have_rejection(bigint,bigint)'::regprocedure
+      AND acl.grantee = 0 AND acl.privilege_type = 'EXECUTE'
+  )
+     OR has_function_privilege('anon','private.identity_components_have_rejection(bigint,bigint)','EXECUTE')
+     OR has_function_privilege('authenticated','private.identity_components_have_rejection(bigint,bigint)','EXECUTE') THEN
+    RAISE EXCEPTION 'IDENTITY_COMPONENT_HELPER_ACL_DRIFT';
+  END IF;
+  RAISE NOTICE 'OK: C3 identitets-helper er DEFINER, har fast search_path og er privat';
+END $$;
+
+BEGIN;
+DO $verify$
+DECLARE
+  v_actor uuid := '19390000-0000-4000-8000-000000000002';
+  a1 bigint := -1939502001; a2 bigint := -1939502002; ac bigint := -1939502003;
+  b1 bigint := -1939502004; b2 bigint := -1939502005; bc bigint := -1939502006;
+  u1 bigint := -1939502007; uc bigint := -1939502008; v1 bigint := -1939502009;
+  w1 bigint := -1939502010; w2 bigint := -1939502011; wc bigint := -1939502012;
+  x1 bigint := -1939502013; x2 bigint := -1939502014;
+  v_rejection bigint; v_remove_change_set bigint; v_update_rejection bigint;
+  v_current jsonb; v_target jsonb;
+BEGIN
+  INSERT INTO auth.users(id,email)
+  VALUES (v_actor,'c3-identity-verify@test.invalid')
+  ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,email,rolle,navn)
+  VALUES (v_actor,'c3-identity-verify@test.invalid','redaktion','C3 identity verify')
+  ON CONFLICT (id) DO UPDATE SET rolle='redaktion', navn='C3 identity verify';
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  INSERT INTO person(id,levende,koen) VALUES
+    (a1,false,'mand'), (a2,false,'mand'), (ac,false,'mand'),
+    (b1,false,'kvinde'), (b2,false,'kvinde'), (bc,false,'kvinde'),
+    (u1,false,'mand'), (uc,false,'mand'), (v1,false,'kvinde'),
+    (w1,false,'mand'), (w2,false,'kvinde'), (wc,false,'mand'),
+    (x1,false,'ukendt'), (x2,false,'ukendt')
+  ON CONFLICT (id) DO NOTHING;
+
+  PERFORM red_samme_som(a1,ac);
+  PERFORM red_samme_som(a2,ac);
+  BEGIN
+    INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ((SELECT coalesce(max(id),0)+1 FROM relation),
+            'person',a1,'person',a2,'ikke_samme_som');
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_TRIGGER_COMPONENT_DIFFERENT_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    PERFORM red_ikke_samme_som(a1,a2);
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_COMPONENT_DIFFERENT_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
+  END;
+
+  PERFORM red_samme_som(b1,bc);
+  PERFORM red_samme_som(b2,bc);
+  PERFORM red_ikke_samme_som(a1,b1);
+  BEGIN
+    PERFORM red_samme_som(a2,b2);
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_COMPONENT_SAME_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
+  END;
+  v_update_rejection := red_ikke_samme_som(w1,w2);
+  PERFORM red_samme_som(w1,wc);
+  SELECT to_jsonb(r) INTO v_current FROM relation r WHERE r.id=v_update_rejection;
+  v_target := v_current || jsonb_build_object('subjekt_id',w1,'objekt_id',wc);
+  BEGIN
+    PERFORM private.prelock_identity_relation_update(v_current,v_target);
+    UPDATE relation SET subjekt_id=w1, objekt_id=wc WHERE id=v_update_rejection;
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_COMPONENT_UPDATE_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
+  END;
+
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  PERFORM red_samme_som(u1,uc);
+  v_rejection := red_ikke_samme_som(u1,v1);
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  PERFORM red_fjern_ikke_samme_som(v_rejection);
+  v_remove_change_set := current_setting('app.change_set_id',true)::bigint;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  PERFORM red_ikke_samme_som(x1,x2);
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  PERFORM red_samme_som(v1,uc);
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('app.change_seq','',true);
+  BEGIN
+    -- This fixture's preceding identity writers may materialize a change_set
+    -- with an explicit ID.  Keep the owned sequence in step before the undo
+    -- writer performs its normal automatic INSERT, so this verifier exercises
+    -- the intended contradiction path rather than a fixture-only PK collision.
+    PERFORM setval(
+      pg_get_serial_sequence('public.change_set','id'),
+      (SELECT coalesce(max(id),1) FROM public.change_set),
+      true
+    );
+    PERFORM red_fortryd_change_set(v_remove_change_set,true);
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_UNDO_COMPONENT_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
+  END;
+  PERFORM set_config('request.jwt.claim.sub','19390000-0000-4000-8000-000000000098',true);
+  BEGIN
+    PERFORM private.identity_components_have_rejection(a1,b1);
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_HELPER_ROLE_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%Kun redaktion%' THEN RAISE; END IF;
+  END;
+  RAISE NOTICE 'OK: C3 komponentbrede identitetskontradiktioner';
+END $verify$;
+ROLLBACK;
+
+-- ===== C3 Task 2 — identitets-writers serialiserer med person-sletning =====
+DO $verify$
+DECLARE
+  v_definition text;
+  v_lock_position integer;
+  v_people_position integer;
+  v_writer regprocedure;
+BEGIN
+  IF to_regprocedure('private.lock_identity_people(bigint[])') IS NULL THEN
+    RAISE EXCEPTION 'IDENTITY_LOCK_HELPER_MISSING';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    WHERE p.oid = 'private.lock_identity_people(bigint[])'::regprocedure
+      AND p.prosecdef
+      AND 'search_path=pg_catalog, public, private' = ANY (p.proconfig)
+  ) THEN
+    RAISE EXCEPTION 'IDENTITY_LOCK_HELPER_SECURITY_DRIFT';
+  END IF;
+  IF to_regprocedure('private.prelock_identity_relation_update(jsonb,jsonb)') IS NULL THEN
+    RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_HELPER_MISSING';
+  END IF;
+  IF to_regprocedure('private.prelock_identity_relation_delete(bigint)') IS NULL THEN
+    RAISE EXCEPTION 'IDENTITY_DELETE_PRELOCK_HELPER_MISSING';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='private' AND table_name='identity_mutation_generation'
+      AND column_name='guard_transaction_id' AND udt_name='xid8'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='private' AND table_name='identity_mutation_generation'
+      AND column_name='guard_backend_pid' AND udt_name='int4'
+  ) THEN
+    RAISE EXCEPTION 'IDENTITY_DELETE_GUARD_PROOF_COLUMNS_MISSING';
+  END IF;
+  IF to_regclass('private.identity_relation_update_prelock') IS NULL THEN
+    RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_RECORD_MISSING';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_class c
+    WHERE c.oid='private.identity_relation_update_prelock'::regclass
+      AND c.relrowsecurity
+  ) OR EXISTS (
+    SELECT 1
+    FROM pg_class c
+    CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) acl
+    WHERE c.oid='private.identity_relation_update_prelock'::regclass
+      AND acl.grantee=0
+  ) OR EXISTS (
+    SELECT 1
+    FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) privilege
+    WHERE has_table_privilege('anon','private.identity_relation_update_prelock',privilege)
+       OR has_table_privilege('authenticated','private.identity_relation_update_prelock',privilege)
+  ) THEN
+    RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_RECORD_SECURITY_DRIFT';
+  END IF;
+  IF to_regprocedure('private.cleanup_identity_relation_update_prelock()') IS NULL
+     OR NOT EXISTS (
+       SELECT 1 FROM pg_proc p
+       WHERE p.oid='private.cleanup_identity_relation_update_prelock()'::regprocedure
+         AND p.prosecdef
+         AND 'search_path=pg_catalog, private'=ANY(p.proconfig)
+     )
+     OR EXISTS (
+       SELECT 1
+       FROM pg_proc p
+       CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl
+       WHERE p.oid='private.cleanup_identity_relation_update_prelock()'::regprocedure
+         AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
+     )
+     OR has_function_privilege('anon','private.cleanup_identity_relation_update_prelock()','EXECUTE')
+     OR has_function_privilege('authenticated','private.cleanup_identity_relation_update_prelock()','EXECUTE') THEN
+    RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_CLEANUP_SECURITY_DRIFT';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger t
+    WHERE t.tgrelid='private.identity_relation_update_prelock'::regclass
+      AND t.tgname='trg_identity_relation_update_prelock_cleanup'
+      AND t.tgconstraint<>0
+      AND t.tgdeferrable
+      AND t.tginitdeferred
+  ) THEN
+    RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_CLEANUP_TRIGGER_DRIFT';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p
+    WHERE p.oid = 'private.prelock_identity_relation_update(jsonb,jsonb)'::regprocedure
+      AND p.prosecdef
+      AND 'search_path=pg_catalog, public, private' = ANY (p.proconfig)
+  ) OR has_function_privilege('anon','private.prelock_identity_relation_update(jsonb,jsonb)','EXECUTE')
+       OR has_function_privilege('authenticated','private.prelock_identity_relation_update(jsonb,jsonb)','EXECUTE') THEN
+    RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_HELPER_SECURITY_DRIFT';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p
+    WHERE p.oid='private.prelock_identity_relation_delete(bigint)'::regprocedure
+      AND p.prosecdef
+      AND 'search_path=pg_catalog, public, private'=ANY(p.proconfig)
+  ) OR EXISTS (
+    SELECT 1 FROM pg_proc p
+    CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl
+    WHERE p.oid='private.prelock_identity_relation_delete(bigint)'::regprocedure
+      AND acl.grantee=0 AND acl.privilege_type='EXECUTE'
+  ) OR has_function_privilege('anon','private.prelock_identity_relation_delete(bigint)','EXECUTE')
+     OR has_function_privilege('authenticated','private.prelock_identity_relation_delete(bigint)','EXECUTE') THEN
+    RAISE EXCEPTION 'IDENTITY_DELETE_PRELOCK_HELPER_SECURITY_DRIFT';
+  END IF;
+  v_definition := pg_get_functiondef('private.prelock_identity_relation_delete(bigint)'::regprocedure);
+  IF v_definition ~ 'pg_advisory_xact_lock|guard_identity_mutation_snapshot'
+     OR strpos(v_definition,'FOR UPDATE') < 1
+     OR strpos(v_definition,'guard_transaction_id') <= strpos(v_definition,'FOR UPDATE')
+     OR v_definition !~ 'IDENTITY_RELATION_DELETE_RETRY_REQUIRED' THEN
+    RAISE EXCEPTION 'IDENTITY_DELETE_PRELOCK_ORDER_DRIFT';
+  END IF;
+  v_definition := pg_get_functiondef('private.guard_identity_mutation_snapshot()'::regprocedure);
+  IF v_definition !~ 'guard_transaction_id = pg_catalog.pg_current_xact_id\(\)'
+     OR v_definition !~ 'guard_backend_pid = pg_catalog.pg_backend_pid\(\)' THEN
+    RAISE EXCEPTION 'IDENTITY_DELETE_GUARD_PROOF_WRITE_DRIFT';
+  END IF;
+  v_definition := pg_get_functiondef('private.prelock_identity_relation_update(jsonb,jsonb)'::regprocedure);
+  v_lock_position := strpos(v_definition, 'pg_advisory_xact_lock(hashtext(''samme_som_mutation''))');
+  v_people_position := strpos(v_definition, 'private.lock_identity_people');
+  IF v_lock_position < 1 OR v_people_position <= v_lock_position THEN
+    RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_ORDER_DRIFT';
+  END IF;
+  IF strpos(v_definition,'INSERT INTO private.identity_relation_update_prelock') <= v_people_position
+     OR v_definition !~ 'pg_current_xact_id\(\)'
+     OR v_definition !~ 'ORDER BY x' THEN
+    RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_RECORD_ORDER_DRIFT';
+  END IF;
+  IF v_definition ~ 'app\.identity_relation_update_prelock' THEN
+    RAISE EXCEPTION 'IDENTITY_UPDATE_PRELOCK_WRITABLE_MARKER_DRIFT';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f',p.proowner))) acl
+    WHERE p.oid = 'private.lock_identity_people(bigint[])'::regprocedure
+      AND acl.grantee = 0 AND acl.privilege_type = 'EXECUTE'
+  )
+     OR has_function_privilege('anon','private.lock_identity_people(bigint[])','EXECUTE')
+     OR has_function_privilege('authenticated','private.lock_identity_people(bigint[])','EXECUTE') THEN
+    RAISE EXCEPTION 'IDENTITY_LOCK_HELPER_ACL_DRIFT';
+  END IF;
+  v_definition := pg_get_functiondef('private.lock_identity_people(bigint[])'::regprocedure);
+  IF v_definition !~ 'SELECT DISTINCT x FROM unnest\(p_person_ids\) x WHERE x IS NOT NULL'
+     OR v_definition !~ 'ORDER BY p.id FOR UPDATE' THEN
+    RAISE EXCEPTION 'IDENTITY_LOCK_HELPER_SORT_DEDUP_DRIFT';
+  END IF;
+  FOREACH v_writer IN ARRAY ARRAY[
+    'public.red_samme_som(bigint,bigint)'::regprocedure,
+    'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
+    'public.red_slet_person(bigint)'::regprocedure
+  ] LOOP
+    v_definition := pg_get_functiondef(v_writer);
+    v_lock_position := strpos(v_definition, 'pg_advisory_xact_lock(hashtext(''samme_som_mutation''))');
+    v_people_position := strpos(v_definition, 'private.lock_identity_people');
+    IF v_lock_position < 1 OR v_people_position <= v_lock_position THEN
+      RAISE EXCEPTION 'IDENTITY_WRITER_LOCK_ORDER_DRIFT: %', v_writer;
+    END IF;
+  END LOOP;
+  v_definition := pg_get_functiondef('public.enforce_samme_som_invariants()'::regprocedure);
+  IF regexp_count(v_definition, 'private\.lock_identity_people') <> 1
+     OR v_definition !~ 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED'
+     OR v_definition !~ 'private\.identity_relation_update_prelock'
+     OR v_definition !~ 'pg_catalog\.pg_current_xact_id\(\)'
+     OR v_definition ~ 'pg_catalog\.pg_locks'
+     OR v_definition ~ 'pg_catalog\.pg_advisory_unlock'
+     OR v_definition ~ 'pg_catalog\.pg_try_advisory'
+     OR v_definition ~ 'client_min_messages'
+     OR v_definition ~ 'app\.identity_relation_update_prelock' THEN
+    RAISE EXCEPTION 'IDENTITY_TRIGGER_LOCK_HELPER_DRIFT';
+  END IF;
+  v_definition := pg_get_functiondef('public._version_upsert_row(text,jsonb)'::regprocedure);
+  IF strpos(v_definition,'private.prelock_identity_relation_update') < 1
+     OR strpos(v_definition,'private.prelock_identity_relation_update') > strpos(v_definition,'UPDATE %1$I SET') THEN
+    RAISE EXCEPTION 'IDENTITY_VERSION_UPSERT_PRELOCK_DRIFT';
+  END IF;
+  v_definition := pg_get_functiondef('public._delete_relation_evidence(bigint)'::regprocedure);
+  IF strpos(v_definition,'private.prelock_identity_relation_delete') < 1
+     OR strpos(v_definition,'private.prelock_identity_relation_delete') > strpos(v_definition,'DELETE FROM citation') THEN
+    RAISE EXCEPTION 'IDENTITY_RAW_DELETE_HELPER_BYPASS';
+  END IF;
+  v_definition := regexp_replace(pg_get_functiondef('public.red_slet_relation(bigint)'::regprocedure),'\s+',' ','g');
+  IF v_definition !~ 'SELECT rolle INTO v_role FROM relation WHERE id=p_relation_id'
+     OR v_definition ~ 'SELECT rolle INTO v_role FROM relation WHERE id=p_relation_id FOR UPDATE'
+     OR regexp_count(v_definition,'private\.prelock_identity_relation_delete') <> 2
+     OR regexp_count(v_definition,'begin_change_set') <> 2
+     OR v_definition !~ 'pg_advisory_xact_lock.*guard_identity_mutation_snapshot.*prelock_identity_relation_delete.*begin_change_set.*ELSE.*begin_change_set.*prelock_identity_relation_delete' THEN
+    RAISE EXCEPTION 'IDENTITY_GENERIC_DELETE_LOCK_ORDER_DRIFT';
+  END IF;
+  v_definition := pg_get_functiondef('public._version_delete_row(text,jsonb)'::regprocedure);
+  IF strpos(v_definition,'private.prelock_identity_relation_delete') < 1
+     OR strpos(v_definition,'private.prelock_identity_relation_delete') > strpos(v_definition,'DELETE FROM %I') THEN
+    RAISE EXCEPTION 'IDENTITY_VERSION_DELETE_HELPER_BYPASS';
+  END IF;
+  v_definition := pg_get_functiondef('public.red_fortryd_change_set(bigint,boolean)'::regprocedure);
+  v_lock_position := strpos(v_definition,'pg_advisory_xact_lock(hashtext(''samme_som_mutation''))');
+  IF v_lock_position < 1
+     OR strpos(v_definition,'private.guard_identity_mutation_snapshot') <= v_lock_position
+     OR v_definition !~ 'p_force OR CASE ce.op'
+     OR strpos(v_definition,'set_config(''app.change_set_id''') <= strpos(v_definition,'private.guard_identity_mutation_snapshot')
+     OR strpos(v_definition,'FOR ev IN SELECT') <= strpos(v_definition,'private.guard_identity_mutation_snapshot') THEN
+    RAISE EXCEPTION 'IDENTITY_UNDO_PREANALYSIS_ORDER_DRIFT';
+  END IF;
+  RAISE NOTICE 'OK: C3 identitets-writers har fælles advisory/person-låsorden og privat xact-bevis';
+END $verify$;
+
+BEGIN;
+DO $verify$
+DECLARE
+  v_actor uuid := '19390000-0000-4000-8000-000000000004';
+  p_low bigint := -1939502101;
+  p_high bigint := -1939502102;
+  p_missing bigint := -1939502199;
+BEGIN
+  INSERT INTO auth.users(id,email)
+  VALUES (v_actor,'c3-identity-lock-verify@test.invalid')
+  ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,email,rolle,navn)
+  VALUES (v_actor,'c3-identity-lock-verify@test.invalid','redaktion','C3 identity lock verify')
+  ON CONFLICT (id) DO UPDATE SET rolle='redaktion',navn='C3 identity lock verify';
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  INSERT INTO person(id,levende,koen) VALUES
+    (p_low,false,'ukendt'),(p_high,false,'ukendt')
+  ON CONFLICT (id) DO NOTHING;
+  PERFORM private.lock_identity_people(ARRAY[p_high,p_low,p_low,NULL]);
+  BEGIN
+    PERFORM private.lock_identity_people(ARRAY[p_low,p_missing,NULL]);
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_PERSON_NOT_FOUND';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_PERSON_NOT_FOUND' THEN RAISE; END IF;
+  END;
+  PERFORM set_config('request.jwt.claim.sub','19390000-0000-4000-8000-000000000098',true);
+  BEGIN
+    PERFORM private.lock_identity_people(ARRAY[p_low,p_high]);
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_LOCK_HELPER_ROLE_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%Kun redaktion%' THEN RAISE; END IF;
+  END;
+  RAISE NOTICE 'OK: C3 sorteret person-lås accepterer negative fixtures og afviser manglende personer';
+END $verify$;
+ROLLBACK;
+
+-- Task 2 UPDATE-bevis må komme fra den eksakte private transaktionsrække, ikke fra en
+-- advisory-lås eller skrivbar GUC alene.
+BEGIN;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM private.identity_relation_update_prelock) THEN
+    RAISE EXCEPTION 'IDENTITY_VERIFY_PRELOCK_RECORD_RETAINED_FROM_PRIOR_RUN';
+  END IF;
+END $$;
+DELETE FROM relation WHERE id IN (-1939502299,-1939502298,-1939502297);
+DELETE FROM person WHERE id IN (-1939502201,-1939502202,-1939502203,-1939502204);
+DELETE FROM profiles WHERE id='19390000-0000-4000-8000-000000000006';
+DELETE FROM auth.users WHERE id='19390000-0000-4000-8000-000000000006';
+COMMIT;
+
+BEGIN;
+DO $verify$
+DECLARE v_actor uuid := '19390000-0000-4000-8000-000000000006';
+BEGIN
+  INSERT INTO auth.users(id,email) VALUES(v_actor,'c3-identity-prelock-verify@test.invalid')
+    ON CONFLICT (id) DO UPDATE SET email=excluded.email;
+  INSERT INTO profiles(id,email,rolle,navn)
+    VALUES(v_actor,'c3-identity-prelock-verify@test.invalid','redaktion','C3 identity prelock verify')
+    ON CONFLICT (id) DO UPDATE
+      SET email=excluded.email,rolle=excluded.rolle,navn=excluded.navn;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  INSERT INTO person(id,levende,koen) VALUES
+    (-1939502201,false,'ukendt'),(-1939502202,false,'ukendt'),
+    (-1939502203,false,'ukendt'),(-1939502204,false,'ukendt')
+    ON CONFLICT (id) DO UPDATE SET levende=excluded.levende,koen=excluded.koen;
+  INSERT INTO relation(id,subjekt_type,subjekt_id,rolle,objekt_type,objekt_id) VALUES
+    (-1939502299,'person',-1939502203,'bekendt_med','person',-1939502204),
+    (-1939502298,'person',-1939502201,'samme_som','person',-1939502202),
+    (-1939502297,'person',-1939502203,'ikke_samme_som','person',-1939502204);
+END $verify$;
+COMMIT;
+
+BEGIN;
+DO $verify$
+DECLARE
+  v_actor uuid := '19390000-0000-4000-8000-000000000006';
+  v_current jsonb; v_target jsonb; v_has_lock boolean;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SELECT to_jsonb(r) || jsonb_build_object('rolle','ikke_samme_som')
+    INTO v_target FROM relation r WHERE r.id=-1939502299;
+  PERFORM set_config('app.identity_relation_update_prelock',jsonb_build_array(
+    v_target->'id',v_target->'rolle',v_target->'subjekt_type',v_target->'subjekt_id',
+    v_target->'objekt_type',v_target->'objekt_id')::text,true);
+  BEGIN
+    UPDATE relation SET rolle='ikke_samme_som' WHERE id=-1939502299;
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_SPOOF_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
+  END;
+  PERFORM _version_upsert_row(
+    'relation',
+    (SELECT to_jsonb(r) || jsonb_build_object('periode_raw','generic undo remains supported')
+     FROM relation r WHERE r.id=-1939502299)
+  );
+  IF (SELECT periode_raw FROM relation WHERE id=-1939502299)
+     <> 'generic undo remains supported' THEN
+    RAISE EXCEPTION 'IDENTITY_VERIFY_GENERIC_RELATION_UPSERT_REGRESSED';
+  END IF;
+
+  SELECT to_jsonb(r) INTO v_current FROM relation r WHERE r.id=-1939502297;
+  v_target := v_current || jsonb_build_object('subjekt_id',-1939502201,'objekt_id',-1939502202);
+  BEGIN
+    PERFORM pg_advisory_lock(hashtext('samme_som_mutation'));
+    BEGIN
+      UPDATE relation SET subjekt_id=-1939502201,objekt_id=-1939502202 WHERE id=-1939502297;
+      RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_SESSION_ONLY_REJECTION';
+    EXCEPTION WHEN others THEN
+      IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
+    END;
+    IF NOT pg_advisory_unlock(hashtext('samme_som_mutation')) THEN
+      RAISE EXCEPTION 'IDENTITY_VERIFY_SESSION_LOCK_CLEANUP_FAILED';
+    END IF;
+  EXCEPTION WHEN others THEN
+    PERFORM pg_advisory_unlock(hashtext('samme_som_mutation'));
+    RAISE;
+  END;
+  SELECT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_locks l
+    WHERE l.locktype='advisory' AND l.pid=pg_backend_pid() AND l.granted
+      AND l.classid=(CASE WHEN hashtext('samme_som_mutation') < 0
+                          THEN 4294967295::bigint ELSE 0::bigint END)::oid
+      AND l.objid=(hashtext('samme_som_mutation')::bigint & 4294967295::bigint)::oid
+      AND l.objsubid=1
+  ) INTO v_has_lock;
+  IF v_has_lock THEN RAISE EXCEPTION 'IDENTITY_VERIFY_SESSION_SCOPE_PROBE_LOCK_LEAKED'; END IF;
+  BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('different_identity_mutation'));
+    UPDATE relation SET rolle='ikke_samme_som' WHERE id=-1939502299;
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_DIFFERENT_KEY_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
+  END;
+  BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+    UPDATE relation SET objekt_id=-1939502296 WHERE id=-1939502297;
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_ADVISORY_ONLY_MISSING_TARGET_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
+  END;
+  PERFORM set_config('app.identity_relation_update_prelock','',true);
+  BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+    UPDATE relation SET subjekt_id=-1939502201,objekt_id=-1939502202 WHERE id=-1939502297;
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_ADVISORY_ONLY_COMPONENT_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
+  END;
+  PERFORM set_config('app.identity_relation_update_prelock',jsonb_build_array(
+    v_target->'id',v_target->'rolle',v_target->'subjekt_type',v_target->'subjekt_id',
+    v_target->'objekt_type',v_target->'objekt_id')::text,true);
+  BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+    UPDATE relation SET subjekt_id=-1939502201,objekt_id=-1939502202 WHERE id=-1939502297;
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_GUC_AND_ADVISORY_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
+  END;
+  SELECT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_locks l
+    WHERE l.locktype='advisory' AND l.pid=pg_backend_pid() AND l.granted
+      AND l.mode='ExclusiveLock'
+      AND l.classid=(CASE WHEN hashtext('samme_som_mutation') < 0
+                          THEN 4294967295::bigint ELSE 0::bigint END)::oid
+      AND l.objid=(hashtext('samme_som_mutation')::bigint & 4294967295::bigint)::oid
+      AND l.objsubid=1
+  ) INTO v_has_lock;
+  IF v_has_lock THEN RAISE EXCEPTION 'IDENTITY_VERIFY_SUBTRANSACTION_LOCK_LEAKED'; END IF;
+  BEGIN
+    UPDATE relation SET subjekt_id=-1939502201,objekt_id=-1939502202 WHERE id=-1939502297;
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_REUSED_PROOF_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
+  END;
+  BEGIN
+    PERFORM private.prelock_identity_relation_update(v_current,v_target);
+    UPDATE relation SET subjekt_id=-1939502201,objekt_id=-1939502202 WHERE id=-1939502297;
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_PRELOCKED_COMPONENT_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF;
+  END;
+  IF EXISTS (
+    SELECT 1 FROM private.identity_relation_update_prelock
+    WHERE backend_pid=pg_backend_pid()
+  ) THEN
+    RAISE EXCEPTION 'IDENTITY_VERIFY_CAUGHT_ERROR_RETAINED_PRELOCK_RECORD';
+  END IF;
+  RAISE NOTICE 'OK: C3 identity UPDATE afviser advisory/GUC uden eksakt privat xact-bevis';
+END $verify$;
+ROLLBACK;
+
+BEGIN;
+DO $verify$
+DECLARE
+  v_actor uuid := '19390000-0000-4000-8000-000000000006';
+  v_current jsonb; v_target_a jsonb; v_target_b jsonb; v_after jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SELECT to_jsonb(r) INTO v_current FROM relation r WHERE r.id=-1939502299;
+  v_target_a := v_current || jsonb_build_object(
+    'rolle','ikke_samme_som','subjekt_id',-1939502203,'objekt_id',-1939502201
+  );
+  v_target_b := v_current || jsonb_build_object(
+    'rolle','ikke_samme_som','subjekt_id',-1939502204,'objekt_id',-1939502201
+  );
+  PERFORM private.prelock_identity_relation_update(v_current,v_target_a);
+  IF NOT EXISTS (
+    SELECT 1 FROM private.identity_relation_update_prelock p
+    WHERE p.transaction_id=pg_current_xact_id()
+      AND p.backend_pid=pg_backend_pid()
+      AND p.relation_id=-1939502299
+      AND p.current_signature=jsonb_build_array(
+        -1939502299,'bekendt_med','person',-1939502203,'person',-1939502204
+      )
+      AND p.target_signature=jsonb_build_array(
+        -1939502299,'ikke_samme_som','person',-1939502203,'person',-1939502201
+      )
+      AND p.locked_person_ids=ARRAY[-1939502204,-1939502203,-1939502201]::bigint[]
+  ) THEN
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXACT_PRELOCK_RECORD_MISSING';
+  END IF;
+  BEGIN
+    UPDATE relation
+      SET rolle='ikke_samme_som',subjekt_id=-1939502204,objekt_id=-1939502201
+      WHERE id=-1939502299;
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_TARGET_MISMATCH_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE relation SET subjekt_id=-1939502201,objekt_id=-1939502202
+      WHERE id=-1939502297;
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_RELATION_MISMATCH_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
+  END;
+  PERFORM private.prelock_identity_relation_update(v_current,v_target_b);
+  IF (SELECT count(*) FROM private.identity_relation_update_prelock
+      WHERE transaction_id=pg_current_xact_id() AND backend_pid=pg_backend_pid()) <> 1
+     OR NOT EXISTS (
+       SELECT 1 FROM private.identity_relation_update_prelock p
+       WHERE p.transaction_id=pg_current_xact_id()
+         AND p.backend_pid=pg_backend_pid()
+         AND p.relation_id=-1939502299
+         AND p.target_signature=jsonb_build_array(
+           -1939502299,'ikke_samme_som','person',-1939502204,'person',-1939502201
+         )
+     ) THEN
+    RAISE EXCEPTION 'IDENTITY_VERIFY_REPRELOCK_RETAINED_OBSOLETE_RECORD';
+  END IF;
+  UPDATE relation
+    SET rolle='ikke_samme_som',subjekt_id=-1939502204,objekt_id=-1939502201
+    WHERE id=-1939502299;
+  BEGIN
+    UPDATE relation SET periode_raw='must prelock again' WHERE id=-1939502299;
+    RAISE EXCEPTION 'IDENTITY_VERIFY_EXPECTED_OBSOLETE_SIGNATURE_REUSE_REJECTION';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM <> 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED' THEN RAISE; END IF;
+  END;
+  SELECT to_jsonb(r) INTO v_after FROM relation r WHERE r.id=-1939502299;
+  PERFORM private.prelock_identity_relation_update(
+    v_after,v_after || jsonb_build_object('periode_raw','fresh exact prelock')
+  );
+  UPDATE relation SET periode_raw='fresh exact prelock' WHERE id=-1939502299;
+END $verify$;
+ROLLBACK;
+
+DO $verify$
+BEGIN
+  IF EXISTS (SELECT 1 FROM private.identity_relation_update_prelock) THEN
+    RAISE EXCEPTION 'IDENTITY_VERIFY_ROLLBACK_RETAINED_PRELOCK_RECORD';
+  END IF;
+END $verify$;
+
+BEGIN;
+DO $verify$
+DECLARE
+  v_actor uuid := '19390000-0000-4000-8000-000000000006';
+  v_current jsonb; v_target jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SELECT to_jsonb(r) INTO v_current FROM relation r WHERE r.id=-1939502299;
+  v_target := v_current || jsonb_build_object(
+    'rolle','ikke_samme_som','subjekt_id',-1939502204,'objekt_id',-1939502201
+  );
+  PERFORM private.prelock_identity_relation_update(v_current,v_target);
+  UPDATE relation
+    SET rolle='ikke_samme_som',subjekt_id=-1939502204,objekt_id=-1939502201
+    WHERE id=-1939502299;
+  IF (SELECT count(*) FROM private.identity_relation_update_prelock
+      WHERE transaction_id=pg_current_xact_id() AND backend_pid=pg_backend_pid()) <> 1 THEN
+    RAISE EXCEPTION 'IDENTITY_VERIFY_SUCCESS_LOST_PRELOCK_RECORD_EARLY';
+  END IF;
+END $verify$;
+COMMIT;
+
+BEGIN;
+DO $verify$
+DECLARE
+  v_actor uuid := '19390000-0000-4000-8000-000000000006';
+  v_current jsonb;
+BEGIN
+  IF EXISTS (SELECT 1 FROM private.identity_relation_update_prelock) THEN
+    RAISE EXCEPTION 'IDENTITY_VERIFY_SUCCESS_COMMIT_RETAINED_PRELOCK_RECORD';
+  END IF;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SELECT to_jsonb(r) INTO v_current FROM relation r WHERE r.id=-1939502299;
+  PERFORM private.prelock_identity_relation_update(
+    v_current,v_current || jsonb_build_object('periode_raw','unused prelock')
+  );
+END $verify$;
+COMMIT;
+
+DO $verify$
+BEGIN
+  IF EXISTS (SELECT 1 FROM private.identity_relation_update_prelock) THEN
+    RAISE EXCEPTION 'IDENTITY_VERIFY_UNUSED_COMMIT_RETAINED_PRELOCK_RECORD';
+  END IF;
+  RAISE NOTICE 'OK: C3 eksakt xact/relation/endepunkt-prelock har deterministisk rollback/error/commit/genkørsels-livscyklus';
+END $verify$;
+
+BEGIN;
+DELETE FROM relation WHERE id IN (-1939502299,-1939502298,-1939502297);
+DELETE FROM person WHERE id IN (-1939502201,-1939502202,-1939502203,-1939502204);
+DELETE FROM profiles WHERE id='19390000-0000-4000-8000-000000000006';
+DELETE FROM auth.users WHERE id='19390000-0000-4000-8000-000000000006';
+COMMIT;
 
 SELECT to_regclass('public.profiles') IS NOT NULL AS profiles_ok,
        to_regclass('public.suggestion') IS NOT NULL AS suggestion_ok;
@@ -39,6 +2154,3463 @@ DO $$ BEGIN
   EXCEPTION WHEN check_violation THEN RAISE NOTICE 'OK: rolle-CHECK afviser forsker';
   END;
 END $$;
+
+-- =============================================================
+-- 2026-08-03: Task 15 — publicerede kilde-record-versioner
+-- Den offentlige read-flade må kun udlevere en opaque record_ref og aldrig
+-- private source_record-id'er. Uforbundne legacy-narrativer bevares særskilt.
+-- =============================================================
+DO $$
+DECLARE
+  v_person bigint := -987651001;
+  v_source bigint := -987651002;
+  v_run uuid := '11111111-1111-1111-1111-111111111151';
+  v_record uuid := '22222222-2222-2222-2222-222222222251';
+  -- Separate record for the insert-path assertion below: narrative_record_publication_active_record_uidx
+  -- (C3 fund B4) now allows only one active (draft/published) binding per source_record_id, so the
+  -- "new-publication path" case can no longer reuse v_record once it already carries v_binding.
+  v_record2 uuid := '22222222-2222-2222-2222-222222222252';
+  v_bound_narrative bigint := -987651003;
+  v_legacy_narrative bigint := -987651004;
+  v_insert_narrative bigint := -987651005;
+  v_actor uuid := '11111111-1111-4111-8111-111111111152';
+  v_binding uuid;
+  v_published_binding uuid;
+  v_rows jsonb;
+BEGIN
+  IF to_regclass('private.narrative_record_publication') IS NULL
+     OR to_regprocedure('public.public_person_bio_source_versions(bigint[])') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: Task 15 publiceringsbinding eller read-RPC mangler';
+  END IF;
+  IF has_table_privilege('anon','private.narrative_record_publication','SELECT')
+     OR has_table_privilege('authenticated','private.narrative_record_publication','SELECT')
+     OR has_function_privilege('anon','red_publicer_narrative_record(bigint,uuid,text,text)','EXECUTE') THEN
+    RAISE EXCEPTION 'FEJL: Task 15 åbner privat binding eller redaktionsmutation';
+  END IF;
+
+  BEGIN
+    INSERT INTO auth.users(id,email) VALUES (v_actor,'record-publication-verify@test.invalid');
+    INSERT INTO profiles(id,rolle,email) VALUES (v_actor,'redaktion','record-publication-verify@test.invalid');
+    PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+    INSERT INTO person(id,levende,privat,staged,visning_navn)
+      VALUES (v_person,false,false,false,'VERIFY record-version');
+    INSERT INTO source(id,slags,titel,udgave,aar)
+      VALUES (v_source,'DAA-udgave','VERIFY Aarbogen','VERIFY 2026',2026);
+    INSERT INTO private.extraction_run(
+      id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest
+    ) VALUES (v_run,v_source,'task15-verify','1','verify','verify',repeat('1',64),'{}');
+    INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
+      VALUES (v_record,v_source,'verify-record','person_entry',v_run);
+    INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
+      VALUES (v_record2,v_source,'verify-record-2','person_entry',v_run);
+    INSERT INTO narrative(id,subjekt_type,subjekt_id,source_id,tekst,privat) VALUES
+      (v_bound_narrative,'person',v_person,v_source,'Bundet record-tekst',false),
+      (v_legacy_narrative,'person',v_person,v_source,'Legacy-tekst',false),
+      (v_insert_narrative,'person',v_person,v_source,'Ny record-tekst',false);
+    INSERT INTO private.narrative_record_publication(
+      narrative_id,source_record_id,record_label,citation_label,status
+    ) VALUES (
+      v_bound_narrative,v_record,'Linje I, nr. 1','s. 1','draft'
+    ) RETURNING id INTO v_binding;
+
+    IF public.narrative_record_contract_version()=2 THEN
+      BEGIN
+        PERFORM red_publicer_narrative_record(
+          v_bound_narrative,v_record,'Linje I, nr. 1','s. 1'
+        );
+        RAISE EXCEPTION 'FEJL: Task 15 legacy-writer accepteret ved version 2';
+      EXCEPTION WHEN others THEN
+        IF SQLERRM='FEJL: Task 15 legacy-writer accepteret ved version 2' THEN RAISE; END IF;
+        IF SQLERRM<>'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED' THEN
+          RAISE EXCEPTION 'FEJL: Task 15 legacy-writer gav forkert v2-fejl: %',SQLERRM;
+        END IF;
+      END;
+      IF (SELECT status FROM private.narrative_record_publication WHERE id=v_binding)
+           IS DISTINCT FROM 'draft'
+         OR EXISTS (SELECT 1 FROM private.narrative_publication_event
+                     WHERE binding_id=v_binding) THEN
+        RAISE EXCEPTION 'FEJL: Task 15 legacy-writer skrev ved version 2';
+      END IF;
+      RAISE NOTICE 'OK: Task 15 legacy-writer er fail-closed ved version 2';
+      RAISE EXCEPTION 'ROLLBACK_TASK15_TESTDATA';
+    END IF;
+
+    BEGIN
+      PERFORM red_publicer_narrative_record(
+        v_bound_narrative,v_record,'Forkert label','s. 1'
+      );
+      RAISE EXCEPTION 'FEJL: Task 15 accepterede drift i en eksisterende draft-binding';
+    EXCEPTION WHEN others THEN
+      IF SQLERRM='FEJL: Task 15 accepterede drift i en eksisterende draft-binding' THEN RAISE; END IF;
+      IF SQLERRM<>'SOURCE_RECORD_PUBLICATION_BINDING_MISMATCH' THEN
+        RAISE EXCEPTION 'FEJL: Task 15 draft-drift gav forkert fejl: %',SQLERRM;
+      END IF;
+    END;
+    IF (SELECT status FROM private.narrative_record_publication WHERE id=v_binding) IS DISTINCT FROM 'draft'
+       OR (SELECT published_at FROM private.narrative_record_publication WHERE id=v_binding) IS NOT NULL THEN
+      RAISE EXCEPTION 'FEJL: Task 15 muterede draft ved mismatch';
+    END IF;
+
+    SELECT red_publicer_narrative_record(
+      v_bound_narrative,v_record,'Linje I, nr. 1','s. 1'
+    ) INTO v_published_binding;
+    IF v_published_binding IS DISTINCT FROM v_binding
+       OR (SELECT status FROM private.narrative_record_publication WHERE id=v_binding) IS DISTINCT FROM 'published'
+       OR (SELECT published_at FROM private.narrative_record_publication WHERE id=v_binding) IS NULL THEN
+      RAISE EXCEPTION 'FEJL: Task 15 publicerer ikke en eksakt eksisterende draft-binding';
+    END IF;
+
+    SELECT red_publicer_narrative_record(
+      v_insert_narrative,v_record2,'Linje I, nr. 2','s. 2'
+    ) INTO v_published_binding;
+    IF NOT EXISTS (
+      SELECT 1 FROM private.narrative_record_publication
+       WHERE id=v_published_binding AND narrative_id=v_insert_narrative
+         AND source_record_id=v_record2 AND record_label='Linje I, nr. 2'
+         AND citation_label='s. 2' AND status='published' AND published_at IS NOT NULL
+    ) THEN
+      RAISE EXCEPTION 'FEJL: Task 15 bevarer ikke ny-publiceringsvejen';
+    END IF;
+
+    SELECT jsonb_agg(to_jsonb(row) ORDER BY row.provenance_kind,row.record_label)
+      INTO v_rows
+      FROM public.public_person_bio_source_versions(ARRAY[v_person]) AS row;
+    IF jsonb_array_length(v_rows) <> 3 THEN
+      RAISE EXCEPTION 'FEJL: Task 15 returnerede ikke begge publicerede records og legacy-narrativ';
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM jsonb_array_elements(v_rows) value
+       WHERE value->>'provenance_kind'='source_record'
+         AND nullif(value->>'record_ref','') IS NOT NULL
+         AND value->>'narrative_text'='Bundet record-tekst'
+    ) THEN
+      RAISE EXCEPTION 'FEJL: Task 15 mangler publiceret source_record-projektion';
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM jsonb_array_elements(v_rows) value
+       WHERE value->>'provenance_kind'='legacy_narrative'
+         AND value->>'record_ref' IS NULL
+         AND value->>'narrative_text'='Legacy-tekst'
+    ) THEN
+      RAISE EXCEPTION 'FEJL: Task 15 bevarer ikke legacy-narrativ separat';
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM jsonb_array_elements(v_rows) value
+       WHERE value ? 'source_record_id' OR value ? 'source_persona_id'
+          OR value ? 'raw_text' OR value ? 'score'
+    ) THEN
+      RAISE EXCEPTION 'FEJL: Task 15 lækker privat record-/reviewdata';
+    END IF;
+    RAISE NOTICE 'OK: Task 15 publicerer record-version og legacy-narrativ uden private felter';
+    RAISE EXCEPTION 'ROLLBACK_TASK15_TESTDATA';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM='ROLLBACK_TASK15_TESTDATA' THEN
+      RAISE NOTICE 'OK: Task 15-testdata rullet tilbage';
+    ELSE
+      RAISE;
+    END IF;
+  END;
+END $$;
+
+-- ===== Evidensimport Fase 2 / Task 4: privat append-only kildelag =====
+-- Selvstændig fixture. Den beviser katalog, kilde-isolation, event-versionering,
+-- append-only-adfærd og rettigheder og ruller altid sine data tilbage.
+DO $evidence_verify$
+DECLARE
+  v_required text[] := ARRAY[
+    'extraction_run','source_rendition','source_record',
+    'source_record_occurrence','source_record_anchor_event',
+    'source_record_revision_event','source_observation',
+    'source_observation_text','source_mention','source_persona',
+    'source_persona_mention'
+  ];
+  v_missing text[];
+  v_actor uuid := '10000000-0000-0000-0000-000000000001';
+  v_run_a uuid := '20000000-0000-0000-0000-000000000001';
+  v_run_b uuid := '20000000-0000-0000-0000-000000000002';
+  v_rendition_a uuid := '30000000-0000-0000-0000-000000000001';
+  v_rendition_b uuid := '30000000-0000-0000-0000-000000000002';
+  v_record_a uuid := '40000000-0000-0000-0000-000000000001';
+  v_record_b uuid := '40000000-0000-0000-0000-000000000002';
+  v_record_c uuid := '40000000-0000-0000-0000-000000000004';
+  v_record_foreign uuid := '40000000-0000-0000-0000-000000000003';
+  v_occurrence uuid := '50000000-0000-0000-0000-000000000001';
+  v_observation uuid := '60000000-0000-0000-0000-000000000001';
+  v_mention uuid := '70000000-0000-0000-0000-000000000001';
+  v_persona uuid := '80000000-0000-0000-0000-000000000001';
+  v_persona_foreign uuid := '80000000-0000-0000-0000-000000000002';
+  v_error text;
+BEGIN
+  SELECT array_agg(required_name ORDER BY required_name)
+    INTO v_missing
+    FROM unnest(v_required) AS required_name
+   WHERE to_regclass(format('private.%I', required_name)) IS NULL;
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: evidenslag mangler tabeller: %', v_missing;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname='private'
+       AND c.relname=ANY(v_required)
+       AND NOT c.relrowsecurity
+  ) THEN
+    RAISE EXCEPTION 'FEJL: mindst én privat evidenstabel mangler RLS';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM unnest(v_required) required_name
+     WHERE NOT EXISTS (
+       SELECT 1 FROM pg_trigger t
+        WHERE t.tgrelid=format('private.%I',required_name)::regclass
+          AND NOT t.tgisinternal AND t.tgenabled<>'D'
+          AND (t.tgtype & 1)<>0 AND (t.tgtype & 2)<>0
+          AND (t.tgtype & 8)<>0 AND (t.tgtype & 16)<>0
+     )
+        OR NOT EXISTS (
+       SELECT 1 FROM pg_trigger t
+        WHERE t.tgrelid=format('private.%I',required_name)::regclass
+          AND NOT t.tgisinternal AND t.tgenabled<>'D'
+          AND (t.tgtype & 1)=0 AND (t.tgtype & 2)<>0 AND (t.tgtype & 32)<>0
+     )
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_APPEND_ONLY_TRIGGER_CONTRACT_DRIFT';
+  END IF;
+  IF has_schema_privilege('anon','private','USAGE')
+     OR has_schema_privilege('authenticated','private','USAGE') THEN
+    RAISE EXCEPTION 'FEJL: anon/authenticated har USAGE på private';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM unnest(v_required) AS required_name
+     WHERE has_table_privilege('anon',format('private.%I',required_name),'SELECT')
+        OR has_table_privilege('authenticated',format('private.%I',required_name),'SELECT')
+        OR has_table_privilege('authenticated',format('private.%I',required_name),'INSERT')
+  ) THEN
+    RAISE EXCEPTION 'FEJL: privat evidenstabel har direkte anon/authenticated-rettighed';
+  END IF;
+
+  BEGIN
+    INSERT INTO auth.users(id,email) VALUES (v_actor,'evidence-verify@test.invalid');
+    INSERT INTO source(id,titel,import_key) VALUES
+      (-987650001,'Evidens verify A','verify:evidence:a'),
+      (-987650002,'Evidens verify B','verify:evidence:b');
+    INSERT INTO private.extraction_run(
+      id,source_id,run_key,schema_version,extractor_version,profile_version,
+      input_sha256,manifest
+    ) VALUES
+      (v_run_a,-987650001,'run-a','1.0','verify','verify',repeat('a',64),'{}'),
+      (v_run_b,-987650002,'run-b','1.0','verify','verify',repeat('b',64),'{}');
+    INSERT INTO private.source_rendition(
+      id,source_id,rendition_key,rendition_kind,content_sha256,metadata
+    ) VALUES
+      (v_rendition_a,-987650001,'rendition-a','text_layer',repeat('c',64),'{}'),
+      (v_rendition_b,-987650002,'rendition-b','text_layer',repeat('d',64),'{}');
+    INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
+      VALUES
+      (v_record_a,-987650001,'record-a','person_entry',v_run_a),
+      (v_record_b,-987650001,'record-b','person_entry',v_run_a),
+      (v_record_c,-987650001,'record-c','person_entry',v_run_a),
+      (v_record_foreign,-987650002,'record-foreign','person_entry',v_run_b);
+    INSERT INTO private.source_record_occurrence(
+      id,rendition_id,occurrence_key,page_from,page_to,column_label,
+      char_from,char_to,bbox,verbatim_text,physical_fingerprint,
+      structural_fingerprint,extraction_run_id
+    ) VALUES (
+      v_occurrence,v_rendition_a,'occurrence-a',1,1,NULL,0,12,NULL,
+      'Anna Reventl','physical-a','structural-a',v_run_a
+    );
+
+    IF EXISTS (
+      SELECT 1 FROM private.source_record_anchor_event
+       WHERE occurrence_id=v_occurrence
+    ) THEN
+      RAISE EXCEPTION 'FEJL: occurrence kan ikke stå uforankret';
+    END IF;
+
+    INSERT INTO private.source_observation(
+      id,occurrence_id,observation_kind,page_from,page_to,column_label,
+      char_from,char_to,bbox,verbatim_text,quality_status,
+      extraction_method,extraction_run_id
+    ) VALUES (
+      v_observation,v_occurrence,'name_clause',1,1,NULL,0,12,NULL,
+      'Anna Reventl','clear','verify',v_run_a
+    );
+    INSERT INTO private.source_observation_text(
+      id,observation_id,rendition_id,version,verbatim_text,char_from,char_to,
+      bbox,is_preferred,created_by
+    ) VALUES (
+      '61000000-0000-0000-0000-000000000001',v_observation,v_rendition_a,
+      1,'Anna Reventl',0,12,NULL,true,v_actor
+    );
+    INSERT INTO private.source_mention(
+      id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id
+    ) VALUES (v_mention,v_observation,'person',0,4,'Anna',v_run_a);
+    INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id)
+      VALUES
+      (v_persona,-987650001,'persona-a',v_run_a),
+      (v_persona_foreign,-987650002,'persona-b',v_run_b);
+    INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
+      VALUES (v_persona,v_mention,'principal',1);
+
+    v_error := NULL;
+    BEGIN
+      INSERT INTO private.source_mention(
+        id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id
+      ) VALUES (
+        '70000000-0000-0000-0000-000000000002',v_observation,'person',0,99,
+        'udenfor',v_run_a
+      );
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_MENTION_SPAN_INVALID%' THEN
+      RAISE EXCEPTION 'FEJL: mention uden for observation blev ikke afvist korrekt: %',v_error;
+    END IF;
+
+    v_error := NULL;
+    BEGIN
+      INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
+        VALUES (v_persona_foreign,v_mention,'principal',1);
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_SOURCE_MISMATCH%' THEN
+      RAISE EXCEPTION 'FEJL: persona kunne samle mentions på tværs af kilder: %',v_error;
+    END IF;
+
+    v_error := NULL;
+    BEGIN
+      INSERT INTO private.source_record_anchor_event(
+        id,occurrence_id,source_record_id,decision_status,evidence,version
+      ) VALUES (
+        '90000000-0000-0000-0000-000000000001',v_occurrence,v_record_a,
+        'accepted','{}',1
+      );
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error IS NULL THEN
+      RAISE EXCEPTION 'FEJL: accepted anchor uden actor/evidence blev accepteret';
+    END IF;
+
+    INSERT INTO private.source_record_anchor_event(
+      id,occurrence_id,source_record_id,decision_status,evidence,version,
+      decided_by,decided_by_name
+    ) VALUES (
+      '90000000-0000-0000-0000-000000000002',v_occurrence,v_record_a,
+      'accepted','{"basis":"verify"}',1,v_actor,'Verify'
+    );
+    v_error := NULL;
+    BEGIN
+      INSERT INTO private.source_record_anchor_event(
+        id,occurrence_id,source_record_id,decision_status,evidence,version,
+        decided_by,decided_by_name
+      ) VALUES (
+        '90000000-0000-0000-0000-000000000003',v_occurrence,v_record_b,
+        'accepted','{"basis":"verify"}',1,v_actor,'Verify'
+      );
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_ANCHOR_CONFLICT%' THEN
+      RAISE EXCEPTION 'FEJL: to aktuelle accepted anchors blev ikke afvist korrekt: %',v_error;
+    END IF;
+
+    INSERT INTO private.source_record_anchor_event(
+      id,occurrence_id,source_record_id,decision_status,evidence,version,
+      decided_by,decided_by_name
+    ) VALUES
+      ('90000000-0000-0000-0000-000000000004',v_occurrence,v_record_a,
+       'rejected','{"basis":"review"}',2,v_actor,'Verify'),
+      ('90000000-0000-0000-0000-000000000005',v_occurrence,v_record_a,
+       'proposed','{"basis":"new evidence"}',3,NULL,NULL),
+      ('90000000-0000-0000-0000-000000000006',v_occurrence,v_record_b,
+       'accepted','{"basis":"review"}',1,v_actor,'Verify');
+    IF NOT EXISTS (
+      SELECT 1 FROM private.source_record_anchor_current
+       WHERE occurrence_id=v_occurrence AND source_record_id=v_record_b
+         AND decision_status='accepted'
+    ) THEN
+      RAISE EXCEPTION 'FEJL: current anchor-view udleder ikke seneste accepted event';
+    END IF;
+
+    v_error := NULL;
+    BEGIN
+      INSERT INTO private.source_record_anchor_event(
+        id,occurrence_id,source_record_id,decision_status,evidence,version
+      ) VALUES (
+        '90000000-0000-0000-0000-000000000007',v_occurrence,v_record_foreign,
+        'proposed','{"basis":"wrong source"}',1
+      );
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_SOURCE_MISMATCH%' THEN
+      RAISE EXCEPTION 'FEJL: anchor på tværs af kilder blev ikke afvist korrekt: %',v_error;
+    END IF;
+
+    INSERT INTO private.source_record_revision_event(
+      id,predecessor_record_id,successor_record_id,relation_kind,
+      decision_status,evidence,version
+    ) VALUES (
+      'a0000000-0000-0000-0000-000000000001',v_record_a,v_record_b,
+      'split_into','proposed','{"basis":"verify"}',1
+    );
+    INSERT INTO private.source_record_revision_event(
+      id,predecessor_record_id,successor_record_id,relation_kind,
+      decision_status,evidence,version,decided_by,decided_by_name
+    ) VALUES
+      ('a0000000-0000-0000-0000-000000000002',v_record_a,v_record_b,
+       'split_into','rejected','{"basis":"review"}',2,v_actor,'Verify'),
+      ('a0000000-0000-0000-0000-000000000003',v_record_a,v_record_b,
+       'split_into','proposed','{"basis":"new evidence"}',3,NULL,NULL);
+    IF NOT EXISTS (
+      SELECT 1 FROM private.source_record_revision_current
+       WHERE predecessor_record_id=v_record_a AND successor_record_id=v_record_b
+         AND relation_kind='split_into' AND decision_status='proposed' AND version=3
+    ) THEN
+      RAISE EXCEPTION 'FEJL: afvist revision kan ikke genforeslås append-only';
+    END IF;
+    v_error:=NULL;
+    BEGIN
+      INSERT INTO private.source_record_revision_event(
+        id,predecessor_record_id,successor_record_id,relation_kind,
+        decision_status,evidence,version,decided_by,decided_by_name
+      ) VALUES (
+        'a0000000-0000-0000-0000-000000000004',v_record_a,v_record_b,
+        'split_into','accepted','{"basis":"invalid reused successor"}',4,v_actor,'Verify'
+      );
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error IS NULL OR v_error NOT LIKE 'EVIDENCE_REVISION_SUCCESSOR_ALREADY_ANCHORED%' THEN
+      RAISE EXCEPTION 'FEJL: accepted revision genbrugte tavst en forankret successor: %',v_error;
+    END IF;
+    INSERT INTO private.source_record_revision_event(
+      id,predecessor_record_id,successor_record_id,relation_kind,
+      decision_status,evidence,version,decided_by,decided_by_name
+    ) VALUES (
+      'a0000000-0000-0000-0000-000000000005',v_record_a,v_record_c,
+      'split_into','accepted','{"basis":"fresh successor"}',1,v_actor,'Verify'
+    );
+    -- En reanchor er eksplicit append-only: først afløses den gamle anchor,
+    -- derefter accepteres den friske, reviewed successor.
+    INSERT INTO private.source_record_anchor_event(
+      id,occurrence_id,source_record_id,decision_status,evidence,version,
+      decided_by,decided_by_name
+    ) VALUES
+      ('90000000-0000-0000-0000-000000000008',v_occurrence,v_record_b,
+       'rejected','{"basis":"explicit reanchor"}',2,v_actor,'Verify'),
+      ('90000000-0000-0000-0000-000000000009',v_occurrence,v_record_c,
+       'accepted','{"basis":"accepted split successor"}',1,v_actor,'Verify');
+    IF NOT EXISTS (
+      SELECT 1 FROM private.source_record_anchor_current
+       WHERE occurrence_id=v_occurrence AND source_record_id=v_record_c
+         AND decision_status='accepted'
+    ) OR EXISTS (
+      SELECT 1 FROM private.source_record_anchor_current
+       WHERE occurrence_id=v_occurrence AND source_record_id=v_record_b
+         AND decision_status='accepted'
+    ) THEN
+      RAISE EXCEPTION 'FEJL: accepted split successor krævede ikke eksplicit reanchor';
+    END IF;
+
+    v_error := NULL;
+    BEGIN
+      UPDATE private.source_observation SET quality_status='uncertain'
+       WHERE id=v_observation;
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN
+      RAISE EXCEPTION 'FEJL: rå observation kunne opdateres: %',v_error;
+    END IF;
+    v_error := NULL;
+    BEGIN
+      DELETE FROM private.source_record WHERE id=v_record_a;
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN
+      RAISE EXCEPTION 'FEJL: source record kunne slettes: %',v_error;
+    END IF;
+    v_error := NULL;
+    BEGIN
+      TRUNCATE private.source_persona_mention;
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN
+      RAISE EXCEPTION 'FEJL: rå persona-mention kunne truncates: %',v_error;
+    END IF;
+    INSERT INTO private.source_mention(
+      id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id
+    ) VALUES (
+      '70000000-0000-0000-0000-000000000003',v_observation,'person',5,12,'Reventl',v_run_a
+    );
+    INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
+      VALUES (v_persona,'70000000-0000-0000-0000-000000000003','secondary',2);
+
+    DELETE FROM auth.users WHERE id=v_actor;
+    IF NOT EXISTS (
+      SELECT 1 FROM private.source_record_anchor_event
+       WHERE occurrence_id=v_occurrence AND decision_status='accepted'
+         AND decided_by=v_actor AND decided_by_name='Verify'
+    ) THEN
+      RAISE EXCEPTION 'FEJL: actorsletning bevarede ikke uforanderligt audit-id og navn';
+    END IF;
+
+    EXECUTE 'CREATE TABLE private._evidence_default_priv_verify(id integer)';
+    IF has_table_privilege('anon','private._evidence_default_priv_verify','SELECT')
+       OR has_table_privilege('authenticated','private._evidence_default_priv_verify','SELECT')
+       OR has_table_privilege('authenticated','private._evidence_default_priv_verify','INSERT') THEN
+      RAISE EXCEPTION 'FEJL: default privileges eksponerer et senere private-objekt';
+    END IF;
+    EXECUTE $sql$CREATE FUNCTION private._evidence_default_priv_verify()
+      RETURNS integer LANGUAGE sql AS 'SELECT 1'$sql$;
+    v_error := NULL;
+    BEGIN
+      SET LOCAL ROLE anon;
+      PERFORM private._evidence_default_priv_verify();
+      RESET ROLE;
+    EXCEPTION WHEN insufficient_privilege THEN v_error := SQLERRM; END;
+    IF v_error IS NULL THEN
+      RAISE EXCEPTION 'FEJL: anon kan kalde en senere private-funktion';
+    END IF;
+    v_error := NULL;
+    BEGIN
+      SET LOCAL ROLE authenticated;
+      PERFORM private._evidence_default_priv_verify();
+      RESET ROLE;
+    EXCEPTION WHEN insufficient_privilege THEN v_error := SQLERRM; END;
+    IF v_error IS NULL THEN
+      RAISE EXCEPTION 'FEJL: authenticated kan kalde en senere private-funktion';
+    END IF;
+    EXECUTE 'DROP FUNCTION private._evidence_default_priv_verify()';
+    EXECUTE 'DROP TABLE private._evidence_default_priv_verify';
+
+    RAISE EXCEPTION 'ROLLBACK_EVIDENCE_VERIFY';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM='ROLLBACK_EVIDENCE_VERIFY' THEN
+      RAISE NOTICE 'OK: privat append-only evidenslag — katalog, provenance, events, immutabilitet og ACL';
+    ELSE
+      RAISE;
+    END IF;
+  END;
+END $evidence_verify$;
+
+-- #166 149b (M-5): private.reimport_event må have præcis én CHECK på operation, og
+-- den skal kende legacy_migration. Fanger både en glemt migration og en gendannet
+-- gammel constraint fra den omdøbte reimport_1939_write_event-sti. Assert'en fandtes
+-- kun i tests/sql/test-reimport-writer-migration.sql, som alene dækker CI's
+-- præ-153-migrerede sti; db-verify.sql er prod-siden.
+DO $reimport_event_operation_check_verify$
+DECLARE v_count integer; v_definition text;
+BEGIN
+  SELECT count(*),min(pg_get_constraintdef(oid))
+    INTO v_count,v_definition
+    FROM pg_constraint
+   WHERE conrelid='private.reimport_event'::regclass
+     AND contype='c'
+     AND pg_get_constraintdef(oid) LIKE '%operation%';
+  IF v_count<>1 OR v_definition NOT LIKE '%legacy_migration%' OR v_definition NOT LIKE '%clause_evidence%' THEN
+    RAISE EXCEPTION 'REIMPORT_EVENT_OPERATION_CHECK_DRIFT';
+  END IF;
+  RAISE NOTICE 'OK: private.reimport_event operation-CHECK er entydig og kender legacy_migration';
+END
+$reimport_event_operation_check_verify$;
+
+-- #148 4.1a: klausullagets skema er til stede, vokabularet er lukket, og
+-- legacy-writeren tæller kun helpostens mentions.
+DO $clause_schema_verify$
+DECLARE v_def text; v_count integer; v_rel text; v_role text;
+BEGIN
+  IF to_regclass('private.vocab') IS NULL OR to_regclass('private.clause_disposition') IS NULL
+     OR to_regclass('private.clause_disposition_current') IS NULL THEN
+    RAISE EXCEPTION 'CLAUSE_SCHEMA_OBJECTS_MISSING';
+  END IF;
+  SELECT count(*) INTO v_count FROM information_schema.columns
+   WHERE table_schema='private' AND table_name='source_observation'
+     AND column_name IN ('parent_observation_id','clause_ordinal','clause_classification','clause_flags','post_char_from','post_char_to');
+  IF v_count<>6 THEN RAISE EXCEPTION 'CLAUSE_SCHEMA_COLUMNS_MISSING: %', v_count; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.source_observation'::regclass AND tgname='trg_source_observation_clause')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.clause_disposition'::regclass AND tgname='trg_clause_disposition_validate') THEN
+    RAISE EXCEPTION 'CLAUSE_SCHEMA_TRIGGER_MISSING';
+  END IF;
+  SELECT count(*) INTO v_count FROM private.source_observation ob
+   WHERE NOT EXISTS (SELECT 1 FROM private.vocab v WHERE v.scheme='observation_kind' AND v.code=ob.observation_kind);
+  IF v_count<>0 THEN RAISE EXCEPTION 'CLAUSE_SCHEMA_OBSERVATION_KIND_UNSEEDED: %', v_count; END IF;
+  SELECT pg_get_functiondef('private.migrate_legacy_narrative_record(uuid,text,jsonb)'::regprocedure) INTO v_def;
+  IF v_def NOT LIKE '%ob.occurrence_id=v_occurrence.id AND ob.parent_observation_id IS NULL%' THEN
+    RAISE EXCEPTION 'CLAUSE_SCHEMA_LEGACY_WRITER_NOT_HARDENED';
+  END IF;
+  -- Alle fire roller kontrolleres på alle tre relationer: Supabase default-granter
+  -- direkte til anon/authenticated/service_role, så REVOKE FROM PUBLIC er ikke nok.
+  IF has_function_privilege('authenticated','private.validate_clause_observation()','EXECUTE')
+     OR has_function_privilege('service_role','private.validate_clause_observation()','EXECUTE')
+     OR has_function_privilege('authenticated','private.validate_clause_disposition()','EXECUTE')
+     OR has_function_privilege('service_role','private.validate_clause_disposition()','EXECUTE') THEN
+    RAISE EXCEPTION 'CLAUSE_SCHEMA_ACL_INVALID: funktion';
+  END IF;
+  FOREACH v_rel IN ARRAY ARRAY['private.vocab','private.clause_disposition','private.clause_disposition_current'] LOOP
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+      IF has_table_privilege(v_role,v_rel,'SELECT') OR has_table_privilege(v_role,v_rel,'INSERT') THEN
+        RAISE EXCEPTION 'CLAUSE_SCHEMA_ACL_INVALID: % har adgang til %', v_role, v_rel;
+      END IF;
+    END LOOP;
+  END LOOP;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_clause_disposition_append_only' AND tgrelid='private.clause_disposition'::regclass)
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_vocab_append_only' AND tgrelid='private.vocab'::regclass)
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.clause_disposition'::regclass)
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.vocab'::regclass) THEN
+    RAISE EXCEPTION 'CLAUSE_SCHEMA_APPEND_ONLY_MISSING';
+  END IF;
+  RAISE NOTICE 'OK: #148 klausullagets skema, vokabular, triggere, ACL og hærdet legacy-writer';
+END $clause_schema_verify$;
+
+DO $clause_evidence_writer_verify$
+BEGIN
+  IF to_regprocedure('private.write_clause_evidence(uuid,text,jsonb)') IS NULL
+     OR to_regprocedure('public.red_apply_reimport_clause_evidence(uuid,text,jsonb)') IS NULL THEN
+    RAISE EXCEPTION 'CLAUSE_EVIDENCE_WRITER_MISSING';
+  END IF;
+  IF has_function_privilege('authenticated','private.write_clause_evidence(uuid,text,jsonb)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_apply_reimport_clause_evidence(uuid,text,jsonb)','EXECUTE')
+     OR has_function_privilege('anon','public.red_apply_reimport_clause_evidence(uuid,text,jsonb)','EXECUTE') THEN
+    RAISE EXCEPTION 'CLAUSE_EVIDENCE_WRITER_ACL_INVALID';
+  END IF;
+  IF pg_get_functiondef('private.validate_reimport_authorization_payload(jsonb,jsonb)'::regprocedure) NOT LIKE '%clause-evidence:%' THEN
+    RAISE EXCEPTION 'CLAUSE_EVIDENCE_AUTHORIZATION_FORM_MISSING';
+  END IF;
+  RAISE NOTICE 'OK: #148 clause_evidence-writer, ACL og autorisationsform';
+END $clause_evidence_writer_verify$;
+
+DO $interpretation_proposal_writer_verify$
+BEGIN
+  IF to_regprocedure('private.deterministic_uuid(text)') IS NULL
+     OR to_regprocedure('private.write_interpretation_proposal(uuid,text,jsonb)') IS NULL
+     OR to_regprocedure('public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)') IS NULL THEN
+    RAISE EXCEPTION 'MISSING: #147 4.4 interpretation_proposal writer';
+  END IF;
+  IF pg_get_functiondef('private.validate_reimport_authorization_payload(jsonb,jsonb)'::regprocedure) NOT LIKE '%interpretation-proposal:%'
+     OR has_function_privilege('anon','public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)','EXECUTE')
+     OR has_function_privilege('authenticated','private.write_interpretation_proposal(uuid,text,jsonb)','EXECUTE') THEN
+    RAISE EXCEPTION 'INVALID: #147 4.4 authorization/ACL';
+  END IF;
+  RAISE NOTICE 'OK: #147 4.4 interpretation_proposal writer, key and ACL';
+END $interpretation_proposal_writer_verify$;
+
+-- #147 4.2: prædikat-navnerummet. tests/sql/test-interpretation-predicate.sql dækker
+-- CI; denne blok er prod-siden, hvor tabellen skal bevises til stede, bundet og lukket.
+-- Bevidst uden nøjagtigt seed-antal: hvert senere dagsværk må kunne tilføje prædikater
+-- uden at gøre produktionsverifikationen rød. Fixture-rækkerne tælles derimod præcist,
+-- fordi db-verify's egne negative tests afhænger af netop dem.
+DO $interpretation_predicate_verify$
+DECLARE v_count integer; v_rel text; v_role text;
+BEGIN
+  IF to_regclass('private.interpretation_predicate') IS NULL
+     OR to_regclass('private.interpretation_predicate_promotable') IS NULL THEN
+    RAISE EXCEPTION 'PREDICATE_SCHEMA_OBJECTS_MISSING';
+  END IF;
+  -- Komposit-FK'en er hele pointen: udsagnsformen bindes til prædikatet, ikke kun til
+  -- interpretation-tabellens eget CHECK.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid='private.interpretation'::regclass AND contype='f'
+       AND confrelid='private.interpretation_predicate'::regclass
+       AND pg_get_constraintdef(oid) LIKE 'FOREIGN KEY (predicate, interpretation_kind)%'
+  ) THEN
+    RAISE EXCEPTION 'PREDICATE_COMPOSITE_FK_MISSING';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.interpretation_predicate'::regclass AND tgname='trg_interpretation_predicate_validate')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.interpretation_predicate'::regclass AND tgname='trg_interpretation_predicate_mutation')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.interpretation_predicate'::regclass AND tgname='trg_interpretation_predicate_truncate') THEN
+    RAISE EXCEPTION 'PREDICATE_TRIGGER_MISSING';
+  END IF;
+  IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.interpretation_predicate'::regclass) THEN
+    RAISE EXCEPTION 'PREDICATE_RLS_MISSING';
+  END IF;
+  SELECT count(*) INTO v_count FROM private.interpretation_predicate
+   WHERE status='active' AND introduced_in<>'db-verify-fixture';
+  IF v_count<42 THEN RAISE EXCEPTION 'PREDICATE_SEED_INCOMPLETE: %', v_count; END IF;
+  SELECT count(*) INTO v_count FROM private.interpretation_predicate
+   WHERE introduced_in='db-verify-fixture';
+  IF v_count<>8 THEN RAISE EXCEPTION 'PREDICATE_FIXTURE_SEED_COUNT: %', v_count; END IF;
+  -- Kategorien skal være et seedet vokabular-kodeord, ikke fritekst.
+  IF EXISTS (SELECT 1 FROM private.interpretation_predicate p WHERE p.category IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM private.vocab v WHERE v.scheme='interpretation_category' AND v.code=p.category)) THEN
+    RAISE EXCEPTION 'PREDICATE_CATEGORY_UNSEEDED';
+  END IF;
+  -- Reglerne bærer ingen FK (fixture-rækker skal kunne stå der), så deres dækning
+  -- måles her i stedet: en regel, hvis prædikat mangler eller har en anden udsagns-
+  -- eller værdiform, ville tavst falde ud af promotable-viewet.
+  IF EXISTS (
+    SELECT 1 FROM private.interpretation_promotion_rule r
+     WHERE r.status='active' AND r.rule_key NOT LIKE 'verify-%'
+       AND NOT EXISTS (SELECT 1 FROM private.interpretation_predicate p
+                        WHERE p.predicate=r.predicate AND p.interpretation_kind=r.interpretation_kind
+                          AND p.value_kind=r.value_kind AND p.status='active')
+  ) THEN
+    RAISE EXCEPTION 'PREDICATE_RULE_BINDING_DRIFT';
+  END IF;
+  -- Supabase default-granter direkte til rollerne, så REVOKE FROM PUBLIC er ikke nok.
+  FOREACH v_rel IN ARRAY ARRAY['private.interpretation_predicate','private.interpretation_predicate_promotable'] LOOP
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+      IF has_table_privilege(v_role,v_rel,'SELECT') OR has_table_privilege(v_role,v_rel,'INSERT') THEN
+        RAISE EXCEPTION 'PREDICATE_ACL_INVALID: % har adgang til %', v_role, v_rel;
+      END IF;
+    END LOOP;
+  END LOOP;
+  IF has_function_privilege('authenticated','private.validate_interpretation_predicate()','EXECUTE')
+     OR has_function_privilege('service_role','private.validate_interpretation_predicate()','EXECUTE')
+     OR has_function_privilege('authenticated','private.reject_interpretation_predicate_mutation()','EXECUTE')
+     OR has_function_privilege('service_role','private.reject_interpretation_predicate_mutation()','EXECUTE') THEN
+    RAISE EXCEPTION 'PREDICATE_ACL_INVALID: funktion';
+  END IF;
+  RAISE NOTICE 'OK: #147 prædikat-navnerummet — tabel, komposit-FK, triggere, regelbinding og ACL';
+END $interpretation_predicate_verify$;
+
+-- #154: Global default revoke må ikke efterlade eksisterende public.red_*
+-- RPC'er med implicit PUBLIC-adgang eller gøre en ny klient-RPC tavst
+-- ukaldbar. Alle undtagelser er eksplicitte og versionsstyrede her.
+DO $public_red_acl_verify$
+DECLARE
+  v_authenticated regprocedure[] := ARRAY[
+    'public.red_activate_1939_v50_batch(uuid,uuid)'::regprocedure,
+    'public.red_activate_reimport_batch(uuid,uuid)'::regprocedure,
+    'public.red_afgoer_source_persona(uuid,integer,text,bigint,text)'::regprocedure,
+    'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_1939_v50_name_completion(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_1939_v50_person_create(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_canonical_delta(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_name_completion(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_legacy_migration(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_clause_evidence(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_person_create(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_source_evidence(uuid,text,jsonb)'::regprocedure,
+    'public.red_begin_1939_v50_name_completion(uuid,text,uuid)'::regprocedure,
+    'public.red_begin_1939_v50_reimport(uuid,text,text)'::regprocedure,
+    'public.red_begin_reimport(uuid,text,text)'::regprocedure,
+    'public.red_begin_reimport_name_completion(uuid,text,uuid)'::regprocedure,
+    'public.red_bekraeft_media_upload(bigint,bigint,text)'::regprocedure,
+    'public.red_decide_interpretation(uuid,integer,text,jsonb)'::regprocedure,
+    'public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)'::regprocedure,
+    'public.red_decide_source_persona_placement(uuid,integer,text,jsonb)'::regprocedure,
+    'public.red_decide_source_record_placement(uuid,integer,text,jsonb)'::regprocedure,
+    'public.red_edit_oplysning(bigint,text,text,text)'::regprocedure,
+    'public.red_erstat_media_fil(bigint,text,text,bigint,integer,integer,text,text,jsonb)'::regprocedure,
+    'public.red_finalize_1939_v50_name_completion(uuid)'::regprocedure,
+    'public.red_finalize_1939_v50_reimport(uuid)'::regprocedure,
+    'public.red_finalize_reimport(uuid)'::regprocedure,
+    'public.red_finalize_reimport_name_completion(uuid)'::regprocedure,
+    'public.red_fjern_feed_pin(text)'::regprocedure,
+    'public.red_fjern_ikke_samme_som(bigint)'::regprocedure,
+    'public.red_fjern_media(bigint)'::regprocedure,
+    'public.red_fjern_samme_som(bigint)'::regprocedure,
+    'public.red_flyt_barn(bigint,bigint,bigint,text)'::regprocedure,
+    'public.red_fortryd_change_set(bigint,boolean)'::regprocedure,
+    'public.red_fortryd_person_narrative_publication_event(uuid,text)'::regprocedure,
+    'public.red_genopret_media(bigint)'::regprocedure,
+    'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
+    'public.red_kasser_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
+    'public.red_lock_1939_v50_name_completion(text)'::regprocedure,
+    'public.red_lock_reimport_name_completion(text,bigint,text)'::regprocedure,
+    'public.red_match_personer()'::regprocedure,
+    'public.red_ocr_historik(text,text,text)'::regprocedure,
+    'public.red_opdater_media(bigint,text,text,text,text)'::regprocedure,
+    'public.red_opret_estate(text,text,bigint)'::regprocedure,
+    'public.red_opret_fakta(text,bigint,text,text,date,date,text,text,text)'::regprocedure,
+    'public.red_opret_kilde(text,text,text,boolean,smallint)'::regprocedure,
+    'public.red_opret_media(text,text,text,text,text,text,text,bigint,integer,integer,text,text,text,boolean)'::regprocedure,
+    'public.red_opret_organisation(text,text)'::regprocedure,
+    'public.red_opret_person(text,text,boolean,text,text,text)'::regprocedure,
+    'public.red_opret_story(text,bigint,text,text,bigint,bigint,bigint,bigint,date,date,text,text,boolean)'::regprocedure,
+    'public.red_opret_union(bigint,bigint,text,integer)'::regprocedure,
+    'public.red_person_grid()'::regprocedure,
+    'public.red_person_narrative_publication_history(bigint)'::regprocedure,
+    'public.red_person_narrative_records(bigint)'::regprocedure,
+    'public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)'::regprocedure,
+    'public.red_preflight_reimport_authorization(uuid,text,text)'::regprocedure,
+    'public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb)'::regprocedure,
+    'public.red_preview_interpretation_promotions(jsonb)'::regprocedure,
+    'public.red_preview_reimport_cases(bigint,text,jsonb)'::regprocedure,
+    'public.red_promote_interpretations_batch(jsonb,text)'::regprocedure,
+    'public.red_publicer_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
+    'public.red_publicer_personer(bigint[])'::regprocedure,
+    'public.red_publicer_udgave(bigint)'::regprocedure,
+    'public.red_rediger_story(bigint,text,text,bigint,bigint,bigint,bigint,date,date,text,text,boolean)'::regprocedure,
+    'public.red_registrer_media_variant(bigint,text,text,text,bigint,integer,integer)'::regprocedure,
+    'public.red_reimport_batch_result(uuid,uuid)'::regprocedure,
+    'public.red_relation(text,bigint,text,bigint,text,text)'::regprocedure,
+    'public.red_ret_ocr_felt(bigint,text,text,text,text,jsonb,text,text)'::regprocedure,
+    'public.red_revalider_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
+    'public.red_reverse_1939_v50_reimport(uuid,uuid)'::regprocedure,
+    'public.red_reverse_reimport(uuid,uuid)'::regprocedure,
+    'public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)'::regprocedure,
+    'public.red_saet_portraet(bigint,bigint)'::regprocedure,
+    'public.red_samme_som(bigint,bigint)'::regprocedure,
+    'public.red_set_familie_konfidens(bigint,bigint,text,text)'::regprocedure,
+    'public.red_set_familie_ordinal(bigint,bigint,text,integer)'::regprocedure,
+    'public.red_set_feed_pin(text,text)'::regprocedure,
+    'public.red_set_haendelse_status(bigint,text)'::regprocedure,
+    'public.red_set_koen(bigint,text)'::regprocedure,
+    'public.red_set_konklusion(bigint)'::regprocedure,
+    'public.red_set_media_rettigheder(bigint,text,boolean,text,text,text,text)'::regprocedure,
+    'public.red_set_privat(bigint,boolean)'::regprocedure,
+    'public.red_set_story_kilder(bigint,jsonb)'::regprocedure,
+    'public.red_set_story_status(bigint,text)'::regprocedure,
+    'public.red_slet_familie_link(bigint,bigint,text)'::regprocedure,
+    'public.red_slet_medierelation_uden_evidens(bigint)'::regprocedure,
+    'public.red_slet_oplysning(bigint)'::regprocedure,
+    'public.red_slet_person(bigint)'::regprocedure,
+    'public.red_slet_person_preview(bigint)'::regprocedure,
+    'public.red_slet_relation(bigint)'::regprocedure,
+    'public.red_slet_story(bigint)'::regprocedure,
+    'public.red_source_persona_detail(uuid)'::regprocedure,
+    'public.red_source_persona_history(uuid)'::regprocedure,
+    'public.red_source_persona_queue(text,bigint,uuid,integer)'::regprocedure,
+    'public.red_suggest(text,text,bigint,text,text,text,jsonb,text)'::regprocedure,
+    'public.red_tilbagetraek_fakta(bigint)'::regprocedure,
+    'public.red_tilbagetraek_legacy_narrative(uuid,text,text)'::regprocedure,
+    'public.red_tilbagetraek_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
+    'public.red_tilfoej_barn(bigint,bigint,text,text)'::regprocedure,
+    'public.red_tilfoej_foraeldre_paastand(bigint,bigint,bigint,text,text,text)'::regprocedure,
+    'public.red_tilfoej_oplysning(bigint,text,date,date,text,text,text)'::regprocedure,
+    'public.red_tilfoej_partner(bigint,bigint,integer)'::regprocedure,
+    'public.red_tilfoej_relation(bigint,text,bigint,text,text)'::regprocedure,
+    'public.red_udrens_media(bigint)'::regprocedure,
+    'public.red_udrens_media_preview(bigint)'::regprocedure,
+    'public.red_upload_media(text,text,text,text,text,text,bigint,text,bigint,bigint,integer,integer,text,text,text,boolean)'::regprocedure,
+    'public.red_upsert_fakta(text,bigint,text,text,date,date,text,text,text)'::regprocedure,
+    'public.red_upsert_narrativ(text,bigint,text,boolean,bigint,text)'::regprocedure,
+    'public.red_upsert_person_narrative_record(bigint,bigint,text,text,boolean,text)'::regprocedure,
+    'public.red_vaelg_foraeldre(bigint,text)'::regprocedure
+  ];
+  v_service_only regprocedure[] := ARRAY[
+    'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamptz)'::regprocedure,
+    'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamptz)'::regprocedure,
+    'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamptz)'::regprocedure,
+    'public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)'::regprocedure,
+    'public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz)'::regprocedure,
+    'public.red_authorize_reimport_reversal(uuid,uuid,timestamptz)'::regprocedure,
+    'public.red_authorize_reimport_cutover(uuid,uuid,timestamptz)'::regprocedure,
+    'public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb)'::regprocedure
+  ];
+  v_disabled regprocedure[] := ARRAY[
+    'public.red_promote_interpretation(uuid,text,bigint,jsonb)'::regprocedure,
+    'public.red_publicer_narrative_record(bigint,uuid,text,text)'::regprocedure,
+    'public.red_tilbagetraek_narrative_record(bigint)'::regprocedure,
+    'public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamptz)'::regprocedure,
+    'public.red_apply_reimport_cases(uuid,text,text)'::regprocedure,
+    'public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamptz)'::regprocedure,
+    'public.red_reverse_reimport_cases(uuid,uuid)'::regprocedure
+  ];
+  v_bad text[];
+  v_error text;
+BEGIN
+  SELECT array_agg(p.oid::regprocedure::text ORDER BY p.oid::regprocedure::text)
+    INTO v_bad
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid=p.pronamespace
+   WHERE n.nspname='public'
+     AND p.proname LIKE 'red\_%' ESCAPE '\'
+     AND (
+       EXISTS (
+         SELECT 1 FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) acl
+          WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE'
+       )
+       OR has_function_privilege('anon',p.oid,'EXECUTE')
+       OR (p.oid=ANY(v_service_only) AND (
+             has_function_privilege('authenticated',p.oid,'EXECUTE')
+             OR NOT has_function_privilege('service_role',p.oid,'EXECUTE')
+           ))
+       OR (p.oid=ANY(v_disabled) AND (
+             has_function_privilege('authenticated',p.oid,'EXECUTE')
+             OR has_function_privilege('service_role',p.oid,'EXECUTE')
+           ))
+       OR (p.oid=ANY(v_authenticated) AND (
+             NOT has_function_privilege('authenticated',p.oid,'EXECUTE')
+             OR has_function_privilege('service_role',p.oid,'EXECUTE')
+           ))
+       OR (p.oid<>ALL(v_authenticated)
+           AND p.oid<>ALL(v_service_only)
+           AND p.oid<>ALL(v_disabled))
+     );
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION 'EVIDENCE_PUBLIC_RED_ACL_DRIFT: %',v_bad;
+  END IF;
+
+  EXECUTE $sql$CREATE FUNCTION public.red_evidence_acl_verify()
+    RETURNS integer LANGUAGE sql AS 'SELECT 1'$sql$;
+  v_error:=NULL;
+  BEGIN
+    SET LOCAL ROLE anon;
+    PERFORM public.red_evidence_acl_verify();
+  EXCEPTION WHEN insufficient_privilege THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS NULL THEN
+    RAISE EXCEPTION 'EVIDENCE_PUBLIC_RED_DEFAULT_ACL_ANON_OPEN';
+  END IF;
+  v_error:=NULL;
+  BEGIN
+    SET LOCAL ROLE authenticated;
+    PERFORM public.red_evidence_acl_verify();
+  EXCEPTION WHEN insufficient_privilege THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS NULL THEN
+    RAISE EXCEPTION 'EVIDENCE_PUBLIC_RED_DEFAULT_ACL_AUTH_OPEN';
+  END IF;
+  GRANT EXECUTE ON FUNCTION public.red_evidence_acl_verify() TO authenticated;
+  SET LOCAL ROLE authenticated;
+  IF public.red_evidence_acl_verify()<>1 THEN
+    RAISE EXCEPTION 'EVIDENCE_PUBLIC_RED_EXPLICIT_AUTH_GRANT_FAILED';
+  END IF;
+  RESET ROLE;
+  v_error:=NULL;
+  BEGIN
+    SET LOCAL ROLE anon;
+    PERFORM public.red_evidence_acl_verify();
+  EXCEPTION WHEN insufficient_privilege THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS NULL THEN
+    RAISE EXCEPTION 'EVIDENCE_PUBLIC_RED_EXPLICIT_AUTH_GRANT_OPENED_ANON';
+  END IF;
+  DROP FUNCTION public.red_evidence_acl_verify();
+  RAISE NOTICE 'OK: public.red_* har eksplicit, least-privilege EXECUTE-policy';
+END $public_red_acl_verify$;
+
+-- Reel to-forbindelses-test: occurrence-låsen skal serialisere to samtidige
+-- accepted-events, så præcis én vinder. Kun aktiv i disposable baser med dblink.
+DO $evidence_concurrency$
+DECLARE
+  v_conn text := format(
+    'dbname=%s port=%s host=%s', current_database(), current_setting('port'),
+    split_part(current_setting('unix_socket_directories'),',',1)
+  );
+  v_actor uuid := '10000000-0000-0000-0000-000000000011';
+  v_occurrence uuid := '50000000-0000-0000-0000-000000000011';
+  v_record_a uuid := '40000000-0000-0000-0000-000000000011';
+  v_record_b uuid := '40000000-0000-0000-0000-000000000012';
+  v_a_pid integer;
+  v_b_pid integer;
+  v_busy integer;
+  v_deadline timestamptz;
+  v_error text;
+  v_setup_connected boolean := false;
+  v_a_connected boolean := false;
+  v_b_connected boolean := false;
+  v_cleanup text := $cleanup$
+    SET session_replication_role=replica;
+    DELETE FROM private.source_record_anchor_event
+      WHERE occurrence_id='50000000-0000-0000-0000-000000000011';
+    DELETE FROM private.source_record_occurrence
+      WHERE id='50000000-0000-0000-0000-000000000011';
+    DELETE FROM private.source_record
+      WHERE id IN ('40000000-0000-0000-0000-000000000011','40000000-0000-0000-0000-000000000012');
+    DELETE FROM private.source_rendition
+      WHERE id='30000000-0000-0000-0000-000000000011';
+    DELETE FROM private.extraction_run
+      WHERE id='20000000-0000-0000-0000-000000000011';
+    DELETE FROM source WHERE id=-987650011;
+    DELETE FROM auth.users WHERE id='10000000-0000-0000-0000-000000000011';
+    SET session_replication_role=origin;
+  $cleanup$;
+BEGIN
+  IF to_regprocedure('dblink_connect(text,text)') IS NULL THEN
+    RAISE EXCEPTION 'DB_VERIFY_DBLINK_REQUIRED: evidens-anchor samtidighed';
+  END IF;
+
+  PERFORM dblink_connect('evidence_setup',v_conn || ' application_name=daa_verify_evidence_setup');
+  v_setup_connected := true;
+  PERFORM dblink_exec('evidence_setup',v_cleanup);
+  PERFORM dblink_exec('evidence_setup',format(
+    'INSERT INTO auth.users(id,email) VALUES (''%s'',''evidence-lock@test.invalid'')',v_actor));
+  PERFORM dblink_exec('evidence_setup',
+    'INSERT INTO source(id,titel,import_key) VALUES (-987650011,''Evidence lock'',''verify:evidence:lock'')');
+  PERFORM dblink_exec('evidence_setup',
+    'INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) '
+    || 'VALUES (''20000000-0000-0000-0000-000000000011'',-987650011,''lock-run'',''1.0'',''verify'',''verify'','
+    || quote_literal(repeat('e',64)) || ',''{}'')');
+  PERFORM dblink_exec('evidence_setup',
+    'INSERT INTO private.source_rendition(id,source_id,rendition_key,rendition_kind,content_sha256,metadata) '
+    || 'VALUES (''30000000-0000-0000-0000-000000000011'',-987650011,''lock-rendition'',''text_layer'','
+    || quote_literal(repeat('f',64)) || ',''{}'')');
+  PERFORM dblink_exec('evidence_setup',
+    'INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id) VALUES '
+    || '(''40000000-0000-0000-0000-000000000011'',-987650011,''lock-a'',''person_entry'',''20000000-0000-0000-0000-000000000011''),'
+    || '(''40000000-0000-0000-0000-000000000012'',-987650011,''lock-b'',''person_entry'',''20000000-0000-0000-0000-000000000011'')');
+  PERFORM dblink_exec('evidence_setup',
+    'INSERT INTO private.source_record_occurrence(id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id) '
+    || 'VALUES (''50000000-0000-0000-0000-000000000011'',''30000000-0000-0000-0000-000000000011'',''lock-occurrence'',1,1,0,4,''Lock'',''physical'',''structural'',''20000000-0000-0000-0000-000000000011'')');
+
+  PERFORM dblink_connect('evidence_a',v_conn || ' application_name=daa_verify_evidence_a');
+  v_a_connected := true;
+  PERFORM dblink_connect('evidence_b',v_conn || ' application_name=daa_verify_evidence_b');
+  v_b_connected := true;
+  SELECT pid INTO v_a_pid FROM dblink('evidence_a','SELECT pg_backend_pid()') AS t(pid integer);
+  SELECT pid INTO v_b_pid FROM dblink('evidence_b','SELECT pg_backend_pid()') AS t(pid integer);
+
+  PERFORM dblink_exec('evidence_a','BEGIN');
+  PERFORM dblink_exec('evidence_a',format(
+    'INSERT INTO private.source_record_anchor_event(id,occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name) '
+    || 'VALUES (''90000000-0000-0000-0000-000000000011'',''%s'',''%s'',''accepted'',''{"basis":"A"}'',1,''%s'',''A'')',
+    v_occurrence,v_record_a,v_actor));
+
+  PERFORM dblink_exec('evidence_b','BEGIN');
+  PERFORM dblink_send_query('evidence_b',format(
+    'INSERT INTO private.source_record_anchor_event(id,occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name) '
+    || 'VALUES (''90000000-0000-0000-0000-000000000012'',''%s'',''%s'',''accepted'',''{"basis":"B"}'',1,''%s'',''B'') RETURNING id',
+    v_occurrence,v_record_b,v_actor));
+  v_deadline := clock_timestamp() + interval '3 seconds';
+  LOOP
+    EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
+    SELECT dblink_is_busy('evidence_b') INTO v_busy;
+    IF v_busy=0 OR clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: anden anchor-writer blev ikke serialiseret på occurrence';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+
+  PERFORM dblink_exec('evidence_a','COMMIT');
+  v_deadline := clock_timestamp() + interval '3 seconds';
+  LOOP
+    SELECT dblink_is_busy('evidence_b') INTO v_busy;
+    EXIT WHEN v_busy=0;
+    IF clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: anden anchor-writer afsluttede ikke efter første COMMIT';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  v_error := NULL;
+  BEGIN
+    PERFORM * FROM dblink_get_result('evidence_b') AS t(id uuid);
+  EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+  -- Asynkrone dblink-kald har et afsluttende tomt resultat efter selve fejlen.
+  -- Tøm det, før forbindelsen kan modtage ROLLBACK.
+  BEGIN
+    PERFORM * FROM dblink_get_result('evidence_b') AS t(id uuid);
+  EXCEPTION WHEN others THEN
+    IF v_error IS NULL THEN v_error := SQLERRM; END IF;
+  END;
+  IF v_error NOT LIKE '%EVIDENCE_ANCHOR_CONFLICT%' THEN
+    RAISE EXCEPTION 'FEJL: samtidig accepted-anchor tabte ikke fail-closed: %',v_error;
+  END IF;
+  PERFORM dblink_exec('evidence_b','ROLLBACK');
+  PERFORM dblink_disconnect('evidence_a'); v_a_connected := false;
+  PERFORM dblink_disconnect('evidence_b'); v_b_connected := false;
+
+  IF (SELECT count(*) FROM private.source_record_anchor_current
+       WHERE occurrence_id=v_occurrence AND decision_status='accepted') <> 1 THEN
+    RAISE EXCEPTION 'FEJL: samtidighedstesten efterlod ikke præcis én accepted anchor';
+  END IF;
+  PERFORM dblink_exec('evidence_setup',v_cleanup);
+  PERFORM dblink_disconnect('evidence_setup'); v_setup_connected := false;
+  PERFORM set_config('daa.verify_dblink_evidence_anchor','executed',false);
+  RAISE NOTICE 'OK: source_record_anchor_event serialiserer samtidige accepted-afgørelser';
+EXCEPTION WHEN others THEN
+  IF v_a_connected THEN
+    BEGIN PERFORM dblink_exec('evidence_a','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('evidence_a'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  IF v_b_connected THEN
+    BEGIN PERFORM dblink_exec('evidence_b','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('evidence_b'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  IF v_setup_connected THEN
+    BEGIN PERFORM dblink_exec('evidence_setup',v_cleanup); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('evidence_setup'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  RAISE;
+END $evidence_concurrency$;
+
+-- En accepted anchor, der vinder kapløbet om en hidtil frisk successor, skal
+-- få den konkurrerende accepted revision til at vente og derefter afvise den.
+DO $revision_anchor_concurrency$
+DECLARE
+  v_conn text := format('dbname=%s port=%s host=%s',current_database(),current_setting('port'),split_part(current_setting('unix_socket_directories'),',',1));
+  v_actor uuid := '10000000-0000-0000-0000-000000000071';
+  v_a_pid integer;
+  v_b_pid integer;
+  v_busy integer;
+  v_deadline timestamptz;
+  v_error text;
+  v_setup_connected boolean := false;
+  v_a_connected boolean := false;
+  v_b_connected boolean := false;
+  v_cleanup text := $cleanup$
+    SET session_replication_role=replica;
+    DELETE FROM private.source_record_revision_event WHERE predecessor_record_id='40000000-0000-0000-0000-000000000071';
+    DELETE FROM private.source_record_anchor_event WHERE occurrence_id='50000000-0000-0000-0000-000000000071';
+    DELETE FROM private.source_record_occurrence WHERE id='50000000-0000-0000-0000-000000000071';
+    DELETE FROM private.source_record WHERE id IN ('40000000-0000-0000-0000-000000000071','40000000-0000-0000-0000-000000000072');
+    DELETE FROM private.source_rendition WHERE id='30000000-0000-0000-0000-000000000071';
+    DELETE FROM private.extraction_run WHERE id='20000000-0000-0000-0000-000000000071';
+    DELETE FROM source WHERE id=-987650071;
+    DELETE FROM auth.users WHERE id='10000000-0000-0000-0000-000000000071';
+    SET session_replication_role=origin;
+  $cleanup$;
+BEGIN
+  IF to_regprocedure('dblink_connect(text,text)') IS NULL THEN
+    RAISE EXCEPTION 'DB_VERIFY_DBLINK_REQUIRED: revision-anchor samtidighed';
+  END IF;
+  PERFORM dblink_connect('revision_anchor_setup',v_conn||' application_name=daa_verify_revision_anchor_setup');
+  v_setup_connected:=true;
+  PERFORM dblink_exec('revision_anchor_setup',v_cleanup);
+  PERFORM dblink_exec('revision_anchor_setup','INSERT INTO auth.users(id,email) VALUES (''10000000-0000-0000-0000-000000000071'',''revision-anchor@test.invalid'')');
+  PERFORM dblink_exec('revision_anchor_setup','INSERT INTO source(id,titel,import_key) VALUES (-987650071,''Revision anchor lock'',''verify:revision-anchor:lock'')');
+  PERFORM dblink_exec('revision_anchor_setup','INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) VALUES (''20000000-0000-0000-0000-000000000071'',-987650071,''revision-anchor-run'',''1.0'',''verify'',''verify'',''' || repeat('7',64) || ''',''{}'')');
+  PERFORM dblink_exec('revision_anchor_setup','INSERT INTO private.source_rendition(id,source_id,rendition_key,rendition_kind,content_sha256,metadata) VALUES (''30000000-0000-0000-0000-000000000071'',-987650071,''revision-anchor-rendition'',''text_layer'',''' || repeat('8',64) || ''',''{}'')');
+  PERFORM dblink_exec('revision_anchor_setup','INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id) VALUES (''40000000-0000-0000-0000-000000000071'',-987650071,''revision-predecessor'',''person_entry'',''20000000-0000-0000-0000-000000000071''),(''40000000-0000-0000-0000-000000000072'',-987650071,''revision-successor'',''person_entry'',''20000000-0000-0000-0000-000000000071'')');
+  PERFORM dblink_exec('revision_anchor_setup','INSERT INTO private.source_record_occurrence(id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id) VALUES (''50000000-0000-0000-0000-000000000071'',''30000000-0000-0000-0000-000000000071'',''revision-anchor-occurrence'',1,1,0,4,''Lock'',''revision-anchor-physical'',''revision-anchor-structural'',''20000000-0000-0000-0000-000000000071'')');
+  PERFORM dblink_connect('revision_anchor_a',v_conn||' application_name=daa_verify_revision_a'); v_a_connected:=true;
+  PERFORM dblink_connect('revision_anchor_b',v_conn||' application_name=daa_verify_anchor_b'); v_b_connected:=true;
+  SELECT pid INTO v_a_pid FROM dblink('revision_anchor_a','SELECT pg_backend_pid()') AS t(pid integer);
+  SELECT pid INTO v_b_pid FROM dblink('revision_anchor_b','SELECT pg_backend_pid()') AS t(pid integer);
+  PERFORM dblink_exec('revision_anchor_b','BEGIN');
+  PERFORM dblink_exec('revision_anchor_b','INSERT INTO private.source_record_anchor_event(id,occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name) VALUES (''90000000-0000-0000-0000-000000000071'',''50000000-0000-0000-0000-000000000071'',''40000000-0000-0000-0000-000000000072'',''accepted'',''{"basis":"B"}'',1,''10000000-0000-0000-0000-000000000071'',''B'')');
+  PERFORM dblink_exec('revision_anchor_a','BEGIN');
+  PERFORM dblink_send_query('revision_anchor_a','INSERT INTO private.source_record_revision_event(id,predecessor_record_id,successor_record_id,relation_kind,decision_status,evidence,version,decided_by,decided_by_name) VALUES (''a0000000-0000-0000-0000-000000000071'',''40000000-0000-0000-0000-000000000071'',''40000000-0000-0000-0000-000000000072'',''split_into'',''accepted'',''{"basis":"A"}'',1,''10000000-0000-0000-0000-000000000071'',''A'')');
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    EXIT WHEN v_b_pid=ANY(pg_blocking_pids(v_a_pid));
+    SELECT dblink_is_busy('revision_anchor_a') INTO v_busy;
+    IF v_busy=0 OR clock_timestamp()>v_deadline THEN RAISE EXCEPTION 'FEJL: revision ventede ikke på accepted anchor'; END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  PERFORM dblink_exec('revision_anchor_b','COMMIT');
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP SELECT dblink_is_busy('revision_anchor_a') INTO v_busy; EXIT WHEN v_busy=0;
+    IF clock_timestamp()>v_deadline THEN RAISE EXCEPTION 'FEJL: revision-anchor race afsluttede ikke'; END IF;
+    PERFORM pg_sleep(0.02); END LOOP;
+  v_error:=NULL;
+  BEGIN PERFORM * FROM dblink_get_result('revision_anchor_a') AS t(id uuid);
+  EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+  BEGIN PERFORM * FROM dblink_get_result('revision_anchor_a') AS t(id uuid);
+  EXCEPTION WHEN others THEN IF v_error IS NULL THEN v_error:=SQLERRM; END IF; END;
+  IF v_error NOT LIKE '%EVIDENCE_REVISION_SUCCESSOR_ALREADY_ANCHORED%' THEN
+    RAISE EXCEPTION 'FEJL: concurrent accepted revision blev ikke afvist: %',v_error;
+  END IF;
+  PERFORM dblink_exec('revision_anchor_a','ROLLBACK');
+  PERFORM dblink_disconnect('revision_anchor_a'); v_a_connected:=false;
+  PERFORM dblink_disconnect('revision_anchor_b'); v_b_connected:=false;
+  PERFORM dblink_exec('revision_anchor_setup',v_cleanup);
+  PERFORM dblink_disconnect('revision_anchor_setup'); v_setup_connected:=false;
+  PERFORM set_config('daa.verify_dblink_revision_anchor','executed',false);
+  RAISE NOTICE 'OK: accepted anchor serialiserer concurrent accepted revision';
+EXCEPTION WHEN others THEN
+  IF v_a_connected THEN BEGIN PERFORM dblink_exec('revision_anchor_a','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END; BEGIN PERFORM dblink_disconnect('revision_anchor_a'); EXCEPTION WHEN others THEN NULL; END; END IF;
+  IF v_b_connected THEN BEGIN PERFORM dblink_exec('revision_anchor_b','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END; BEGIN PERFORM dblink_disconnect('revision_anchor_b'); EXCEPTION WHEN others THEN NULL; END; END IF;
+  IF v_setup_connected THEN BEGIN PERFORM dblink_exec('revision_anchor_setup',v_cleanup); EXCEPTION WHEN others THEN NULL; END; BEGIN PERFORM dblink_disconnect('revision_anchor_setup'); EXCEPTION WHEN others THEN NULL; END; END IF;
+  RAISE;
+END $revision_anchor_concurrency$;
+
+-- ===== Evidensimport Fase 3 / Task 6: slægt, lineage og kildeschemes =====
+DO $slaegt_verify$
+DECLARE
+  v_required_public text[] := ARRAY[
+    'slaegt','lineage_scheme','lineage_scheme_entry',
+    'lineage_scheme_entry_lineage','person_slaegt_membership',
+    'person_lineage_membership','person_source_coordinate_legacy'
+  ];
+  v_required_private text[] := ARRAY[
+    'source_record_placement','source_persona_placement',
+    'source_record_placement_decision','source_persona_placement_decision',
+    'source_record_placement_current','source_persona_placement_current'
+  ];
+  v_missing text[];
+  v_slaegt_a bigint;
+  v_slaegt_b bigint;
+  v_scheme_a bigint;
+  v_scheme_b bigint;
+  v_presens_scheme bigint;
+  v_entry_a bigint;
+  v_entry_b bigint;
+  v_presens_entry bigint;
+  v_lineage_a bigint;
+  v_lineage_b bigint;
+  v_run uuid := 'a6000000-0000-0000-0000-000000000061';
+  v_rendition uuid := 'a6000000-0000-0000-0000-000000000062';
+  v_record_a uuid := 'a6000000-0000-0000-0000-000000000063';
+  v_record_b uuid := 'a6000000-0000-0000-0000-000000000064';
+  v_occurrence_a uuid := 'a6000000-0000-0000-0000-000000000065';
+  v_occurrence_b uuid := 'a6000000-0000-0000-0000-000000000066';
+  v_observation_a uuid := 'a6000000-0000-0000-0000-000000000067';
+  v_observation_b uuid := 'a6000000-0000-0000-0000-000000000068';
+  v_observation_nonheader uuid := 'a6000000-0000-0000-0000-00000000006a';
+  v_persona uuid := 'a6000000-0000-0000-0000-000000000069';
+  v_mention uuid := 'a6000000-0000-0000-0000-00000000006b';
+  v_actor uuid := 'a6000000-0000-0000-0000-00000000006c';
+  v_placement uuid;
+  v_persona_placement uuid;
+  v_rejected_placement uuid;
+  v_version integer;
+  v_error text;
+BEGIN
+  SELECT array_agg(required_name ORDER BY required_name) INTO v_missing
+    FROM unnest(v_required_public) AS required_name
+   WHERE to_regclass(format('public.%I',required_name)) IS NULL;
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: Task 6 mangler offentlige modelobjekter: %',v_missing;
+  END IF;
+  SELECT array_agg(required_name ORDER BY required_name) INTO v_missing
+    FROM unnest(v_required_private) AS required_name
+   WHERE to_regclass(format('private.%I',required_name)) IS NULL;
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: Task 6 mangler private placement-objekter: %',v_missing;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema='public' AND table_name='lineage'
+       AND column_name='slaegt_id'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema='public' AND table_name='lineage'
+       AND column_name='canonical_label'
+  ) THEN
+    RAISE EXCEPTION 'FEJL: lineage mangler slægt- eller canonical_label-kontekst';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema='private' AND table_name='source_record_placement'
+       AND column_name='header_observation_id' AND is_nullable='NO'
+  ) THEN
+    RAISE EXCEPTION 'FEJL: source_record_placement mangler obligatorisk header-observation';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema='private'
+       AND table_name IN ('source_record_placement','source_persona_placement')
+       AND column_name='status'
+  ) OR (SELECT count(*) FROM information_schema.columns
+         WHERE table_schema='private'
+           AND table_name IN ('source_record_placement','source_persona_placement')
+           AND column_name='initial_status')<>2 THEN
+    RAISE EXCEPTION 'FEJL: placement-basekolonnen ligner stadig autoritativ status';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema='public' AND table_name='person'
+       AND column_name IN ('slaegtled_lokal','slaegtled_gennem','generation_local','generation_global')
+  ) THEN
+    RAISE EXCEPTION 'FEJL: genealogisk generation blev gjort til global person-attribut';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM unnest(v_required_public) AS required_name
+     JOIN pg_class c ON c.oid=to_regclass(format('public.%I',required_name))
+     WHERE c.relkind='r' AND NOT c.relrowsecurity
+  ) OR EXISTS (
+    SELECT 1 FROM unnest(v_required_private) AS required_name
+     JOIN pg_class c ON c.oid=to_regclass(format('private.%I',required_name))
+     WHERE c.relkind='r' AND NOT c.relrowsecurity
+  ) THEN
+    RAISE EXCEPTION 'FEJL: Task 6-modelobjekt mangler RLS';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM unnest(v_required_private) AS required_name
+     WHERE has_table_privilege('anon',format('private.%I',required_name),'SELECT')
+        OR has_table_privilege('authenticated',format('private.%I',required_name),'SELECT')
+        OR has_table_privilege('authenticated',format('private.%I',required_name),'INSERT')
+  ) OR has_table_privilege('anon','public.person_slaegt_membership','SELECT')
+     OR has_table_privilege('authenticated','public.person_lineage_membership','SELECT')
+     OR NOT has_table_privilege('anon','public.person_source_coordinate_legacy','SELECT') THEN
+    RAISE EXCEPTION 'FEJL: Task 6 har forkert direkte API-adgang';
+  END IF;
+
+  BEGIN
+    INSERT INTO auth.users(id,email) VALUES (v_actor,'placement-verify@test.invalid');
+    INSERT INTO public.profiles(id,rolle,navn,email)
+      VALUES (v_actor,'redaktion','Placement Verify','placement-verify@test.invalid');
+    INSERT INTO public.slaegt(navn,sorteringsnavn,slug,status)
+      VALUES ('Verify slægt A','Verify slægt A','verify-slaegt-a','active')
+      RETURNING id INTO v_slaegt_a;
+    INSERT INTO public.slaegt(navn,sorteringsnavn,slug,status)
+      VALUES ('Verify slægt B','Verify slægt B','verify-slaegt-b','active')
+      RETURNING id INTO v_slaegt_b;
+    INSERT INTO public.lineage(slaegt_id,canonical_label,navn)
+      VALUES (v_slaegt_a,'II. linje','Verify lineage A') RETURNING id INTO v_lineage_a;
+    INSERT INTO public.lineage(slaegt_id,canonical_label,navn)
+      VALUES (v_slaegt_b,'II. linje','Verify lineage B') RETURNING id INTO v_lineage_b;
+    INSERT INTO public.lineage_scheme(slaegt_id,kind,label)
+      VALUES (v_slaegt_a,'stamtavle','Verify A') RETURNING id INTO v_scheme_a;
+    INSERT INTO public.lineage_scheme(slaegt_id,kind,label)
+      VALUES (v_slaegt_b,'stamtavle','Verify B') RETURNING id INTO v_scheme_b;
+    INSERT INTO public.lineage_scheme(slaegt_id,kind,label)
+      VALUES (v_slaegt_a,'presensliste','Verify A præsens') RETURNING id INTO v_presens_scheme;
+    INSERT INTO public.lineage_scheme_entry(scheme_id,slaegt_id,code,label,sort_order)
+      VALUES (v_scheme_a,v_slaegt_a,'II','II. linje',2) RETURNING id INTO v_entry_a;
+    INSERT INTO public.lineage_scheme_entry(scheme_id,slaegt_id,code,label,sort_order)
+      VALUES (v_scheme_b,v_slaegt_b,'II','II. linje',2) RETURNING id INTO v_entry_b;
+    INSERT INTO public.lineage_scheme_entry(scheme_id,slaegt_id,code,label,sort_order)
+      VALUES (v_presens_scheme,v_slaegt_a,'V','V. linje',5) RETURNING id INTO v_presens_entry;
+    INSERT INTO public.lineage_scheme_entry_lineage(entry_id,lineage_id,slaegt_id,relation_kind)
+      VALUES (v_entry_a,v_lineage_a,v_slaegt_a,'canonical'),
+             (v_entry_b,v_lineage_b,v_slaegt_b,'canonical'),
+             (v_presens_entry,v_lineage_a,v_slaegt_a,'canonical');
+    v_error:=NULL;
+    BEGIN
+      INSERT INTO public.lineage_scheme_entry_lineage(entry_id,lineage_id,slaegt_id,relation_kind)
+        VALUES (v_entry_a,v_lineage_b,v_slaegt_a,'canonical');
+    EXCEPTION WHEN foreign_key_violation THEN v_error:=SQLERRM; END;
+    IF v_error IS NULL THEN
+      RAISE EXCEPTION 'FEJL: cross-clan lineage mapping blev accepteret';
+    END IF;
+    IF (SELECT count(*) FROM pg_constraint WHERE conname IN (
+         'lineage_scheme_id_slaegt_uidx','lineage_id_slaegt_uidx',
+         'lineage_scheme_entry_id_slaegt_uidx','lineage_scheme_entry_scheme_slaegt_fkey',
+         'lineage_scheme_entry_lineage_entry_slaegt_fkey',
+         'lineage_scheme_entry_lineage_lineage_slaegt_fkey'
+       )) <> 6 THEN
+      RAISE EXCEPTION 'FEJL: lineage mangler deklarative slægtsconstraints';
+    END IF;
+    IF (SELECT count(*) FROM public.lineage_scheme_entry WHERE code='II') < 2 THEN
+      RAISE EXCEPTION 'FEJL: samme kode II kunne ikke eksistere i to slægts-schemes';
+    END IF;
+    IF (SELECT count(*) FROM public.lineage_scheme_entry_lineage
+         WHERE lineage_id=v_lineage_a AND relation_kind='canonical') <> 2 THEN
+      RAISE EXCEPTION 'FEJL: samme lineage kunne ikke have forskellige stamtavle-/præsenskoder';
+    END IF;
+    INSERT INTO public.person(id) VALUES (-987650061);
+    INSERT INTO public.person_slaegt_membership(person_id,slaegt_id,membership_kind,source_basis)
+      VALUES (-987650061,v_slaegt_a,'agnatic','{"basis":"verify"}'),
+             (-987650061,v_slaegt_b,'cognatic','{"basis":"verify"}');
+    INSERT INTO public.person_lineage_membership(person_id,lineage_id,role,source_basis)
+      VALUES (-987650061,v_lineage_a,'member','{"basis":"verify"}'),
+             (-987650061,v_lineage_b,'founder','{"basis":"verify"}');
+    IF (SELECT count(*) FROM public.person WHERE id=-987650061)<>1
+       OR (SELECT count(*) FROM public.person_lineage_membership WHERE person_id=-987650061)<>2 THEN
+      RAISE EXCEPTION 'FEJL: flere lineage-medlemskaber skabte ikke præcis én person';
+    END IF;
+    v_error:=NULL;
+    BEGIN
+      INSERT INTO public.person_slaegt_membership(person_id,slaegt_id,membership_kind,source_basis)
+        VALUES (-987650061,v_slaegt_a,'affinal','{"basis":"spouse"}');
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error IS NULL THEN
+      RAISE EXCEPTION 'FEJL: indgiftethed kunne oprettes som slægtsmedlemskab';
+    END IF;
+    INSERT INTO public.source(id,titel) VALUES (-987650061,'Task 6 evidence source');
+    INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,
+                                       profile_version,input_sha256)
+      VALUES (v_run,-987650061,'task6','v1','verify','verify',repeat('a',64));
+    INSERT INTO private.source_rendition(id,source_id,rendition_key,rendition_kind,content_sha256)
+      VALUES (v_rendition,-987650061,'task6','ocr',repeat('b',64));
+    INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id) VALUES
+      (v_record_a,-987650061,'task6-a','person',v_run),
+      (v_record_b,-987650061,'task6-b','person',v_run);
+    INSERT INTO private.source_record_occurrence(
+      id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,
+      physical_fingerprint,structural_fingerprint,extraction_run_id
+    ) VALUES
+      (v_occurrence_a,v_rendition,'task6-a',1,1,0,12,'A observation','physical-a','structural-a',v_run),
+      (v_occurrence_b,v_rendition,'task6-b',2,2,0,12,'B observation','physical-b','structural-b',v_run);
+    INSERT INTO private.source_record_anchor_event(
+      occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name
+    ) VALUES
+      (v_occurrence_a,v_record_a,'accepted','{"basis":"verify"}',1,
+       'a6000000-0000-0000-0000-000000000060','Task 6 verify'),
+      (v_occurrence_b,v_record_b,'accepted','{"basis":"verify"}',1,
+       'a6000000-0000-0000-0000-000000000060','Task 6 verify');
+    INSERT INTO private.source_observation(
+      id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,
+      quality_status,extraction_method,extraction_run_id
+    ) VALUES
+      (v_observation_a,v_occurrence_a,'header',1,1,0,12,'A observation','clear','verify',v_run),
+      (v_observation_b,v_occurrence_b,'header',2,2,0,12,'B observation','clear','verify',v_run),
+      (v_observation_nonheader,v_occurrence_a,'name_clause',1,1,0,12,'A observation','clear','verify',v_run);
+    INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id)
+      VALUES (v_persona,-987650061,'task6-persona',v_run);
+    INSERT INTO private.source_mention(
+      id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id
+    ) VALUES (v_mention,v_observation_a,'person_name',0,12,'A observatio',v_run);
+    INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
+      VALUES (v_persona,v_mention,'primary',1);
+    v_error:=NULL;
+    BEGIN
+      INSERT INTO private.source_record_placement(
+        source_record_id,scheme_entry_id,header_observation_id
+      ) VALUES (v_record_a,v_entry_a,v_observation_nonheader);
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE '%EVIDENCE_PLACEMENT_HEADER_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: record-placering accepterede ikke-header-observation: %',v_error;
+    END IF;
+    INSERT INTO private.source_record_placement(
+      source_record_id,scheme_entry_id,header_observation_id
+    ) VALUES (v_record_a,v_entry_a,v_observation_a) RETURNING id INTO v_placement;
+    INSERT INTO private.source_record_placement_decision(
+      placement_id,version,decision_status,evidence,decision_origin,decided_by_name
+    ) VALUES (v_placement,1,'proposed','{"basis":"verify proposal"}','ingest','verify ingest');
+    INSERT INTO private.source_persona_placement(
+      source_persona_id,record_placement_id,placement_role,basis_observation_id
+    ) VALUES (v_persona,v_placement,'principal_member',v_observation_a)
+      RETURNING id INTO v_persona_placement;
+    INSERT INTO private.source_persona_placement_decision(
+      placement_id,version,decision_status,evidence,decision_origin,decided_by_name
+    ) VALUES (v_persona_placement,1,'proposed','{"basis":"verify proposal"}','ingest','verify ingest');
+    v_error:=NULL;
+    BEGIN
+      INSERT INTO private.source_persona_placement(
+        source_persona_id,record_placement_id,placement_role,basis_observation_id
+      ) VALUES (v_persona,v_placement,'mentioned_spouse',v_observation_nonheader);
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE '%EVIDENCE_PERSONA_PLACEMENT_BASIS_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: persona-placering krævede ikke egen record-forankret observation: %',v_error;
+    END IF;
+    PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+    SET LOCAL ROLE authenticated;
+    SELECT red_decide_source_record_placement(v_placement,1,'accepted','{"basis":"review"}') INTO v_version;
+    IF v_version<>2 THEN RAISE EXCEPTION 'FEJL: record placement version blev ikke 2'; END IF;
+    SELECT red_decide_source_persona_placement(v_persona_placement,1,'accepted','{"basis":"review"}') INTO v_version;
+    IF v_version<>2 THEN RAISE EXCEPTION 'FEJL: persona placement version blev ikke 2'; END IF;
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_decide_source_persona_placement(v_persona_placement,1,'superseded','{"basis":"stale"}');
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_PLACEMENT_VERSION_CONFLICT%' THEN
+      RAISE EXCEPTION 'FEJL: stale placement-version blev ikke afvist: %',v_error;
+    END IF;
+    SELECT red_decide_source_persona_placement(v_persona_placement,2,'superseded','{"basis":"replacement"}') INTO v_version;
+    SELECT red_decide_source_record_placement(v_placement,2,'superseded','{"basis":"replacement"}') INTO v_version;
+    RESET ROLE;
+    INSERT INTO private.source_record_placement(source_record_id,scheme_entry_id,header_observation_id)
+      VALUES (v_record_a,v_entry_a,v_observation_a) RETURNING id INTO v_rejected_placement;
+    INSERT INTO private.source_record_placement_decision(
+      placement_id,version,decision_status,evidence,decision_origin,decided_by_name
+    ) VALUES (v_rejected_placement,1,'proposed','{"basis":"verify rejection"}','ingest','verify ingest');
+    SET LOCAL ROLE authenticated;
+    PERFORM red_decide_source_record_placement(v_rejected_placement,1,'rejected','{"basis":"review"}');
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_decide_source_record_placement(v_rejected_placement,2,'accepted','{"basis":"reopen"}');
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_PLACEMENT_TRANSITION_INVALID%' THEN
+      RAISE EXCEPTION 'FEJL: rejected placement kunne genåbnes: %',v_error;
+    END IF;
+    RESET ROLE;
+    RAISE EXCEPTION 'ROLLBACK_SLÆGT_VERIFY';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM='ROLLBACK_SLÆGT_VERIFY' THEN
+      RAISE NOTICE 'OK: slægt, lineage og kildeschemes er adskilt og context-scopede';
+    ELSE
+      RAISE;
+    END IF;
+  END;
+END $slaegt_verify$;
+
+-- ===== Evidensimport Fase 3 / Task 8: generelle beskrivelser og heraldik =====
+DO $entity_description_verify$
+DECLARE
+  v_description bigint;
+  v_slaegt bigint;
+  v_error text;
+BEGIN
+  IF to_regclass('public.entity_description') IS NULL
+     OR to_regclass('private.entity_description_source') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: Task 8 mangler entity_description-laget';
+  END IF;
+  IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid='public.entity_description'::regclass)
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.entity_description_source'::regclass) THEN
+    RAISE EXCEPTION 'FEJL: entity_description-laget mangler RLS';
+  END IF;
+  IF has_table_privilege('anon','private.entity_description_source','SELECT')
+     OR has_table_privilege('authenticated','private.entity_description_source','SELECT') THEN
+    RAISE EXCEPTION 'FEJL: private kilde-junction er direkte API-læsbar';
+  END IF;
+  BEGIN
+    INSERT INTO public.slaegt(navn,sorteringsnavn,slug,status)
+      VALUES ('Verify description clan','Verify description clan','verify-description-clan','active')
+      RETURNING id INTO v_slaegt;
+    INSERT INTO public.entity_description(subjekt_type,subjekt_id,kind,tekst,status)
+      VALUES ('slaegt',v_slaegt,'overview','Redaktionel oversigt','published')
+      RETURNING id INTO v_description;
+    IF v_description IS NULL THEN RAISE EXCEPTION 'FEJL: kunne ikke oprette slægtsbeskrivelse'; END IF;
+    v_error:=NULL;
+    BEGIN
+      INSERT INTO public.entity_description(subjekt_type,subjekt_id,kind,tekst,status)
+        VALUES ('ukendt_type',v_slaegt,'overview','Må ikke findes','draft');
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE '%ENTITY_DESCRIPTION_SUBJECT_INVALID%' THEN
+      RAISE EXCEPTION 'FEJL: ukendt beskrivelsesemne blev ikke afvist: %',v_error;
+    END IF;
+    RAISE EXCEPTION 'ROLLBACK_ENTITY_DESCRIPTION_VERIFY';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM='ROLLBACK_ENTITY_DESCRIPTION_VERIFY' THEN
+      RAISE NOTICE 'OK: entity descriptions er generelle, RLS-beskyttede og target-validerede';
+    ELSE RAISE;
+    END IF;
+  END;
+END $entity_description_verify$;
+
+-- ===== Evidensimport Fase 2 / Task 5: fortolkning, promotion og identitet =====
+DO $interpretation_verify$
+DECLARE
+  v_required text[] := ARRAY[
+    'interpretation','interpretation_observation','interpretation_promotion',
+    'source_persona_identity','source_persona_identity_event'
+  ];
+  v_missing text[];
+  v_actor uuid := '11000000-0000-0000-0000-000000000021';
+  v_member uuid := '11000000-0000-0000-0000-000000000022';
+  v_run uuid := '22000000-0000-0000-0000-000000000021';
+  v_rendition uuid := '33000000-0000-0000-0000-000000000021';
+  v_occurrence uuid := '55000000-0000-0000-0000-000000000021';
+  v_observation uuid := '66000000-0000-0000-0000-000000000021';
+  v_mention uuid := '77000000-0000-0000-0000-000000000021';
+  v_persona uuid := '88000000-0000-0000-0000-000000000021';
+  v_interpretation uuid := 'c1000000-0000-0000-0000-000000000021';
+  v_accepted_interpretation uuid;
+  v_terminal_proposal uuid;
+  v_terminal_decision uuid;
+  v_terminal_status text;
+  v_error text;
+BEGIN
+  SELECT array_agg(required_name ORDER BY required_name) INTO v_missing
+    FROM unnest(v_required) AS required_name
+   WHERE to_regclass(format('private.%I',required_name)) IS NULL;
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: fortolkningslag mangler tabeller: %',v_missing;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname='private' AND c.relname=ANY(v_required) AND NOT c.relrowsecurity
+  ) THEN
+    RAISE EXCEPTION 'FEJL: mindst én privat fortolknings-/identitetstabel mangler RLS';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM unnest(v_required) AS required_name
+     WHERE has_table_privilege('anon',format('private.%I',required_name),'SELECT')
+        OR has_table_privilege('authenticated',format('private.%I',required_name),'SELECT')
+        OR has_table_privilege('authenticated',format('private.%I',required_name),'INSERT')
+        OR has_table_privilege('authenticated',format('private.%I',required_name),'UPDATE')
+  ) OR has_table_privilege('anon','private.interpretation_current','SELECT')
+     OR has_table_privilege('authenticated','private.interpretation_current','SELECT') THEN
+    RAISE EXCEPTION 'FEJL: fortolknings-/identitetslaget har direkte API-rettigheder';
+  END IF;
+  IF to_regprocedure(
+       'public.red_decide_interpretation(uuid,integer,text,jsonb)'
+     ) IS NULL
+     OR to_regprocedure(
+       'public.red_promote_interpretation(uuid,text,bigint,jsonb)'
+     ) IS NULL
+     OR to_regprocedure(
+       'public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)'
+     ) IS NULL THEN
+    RAISE EXCEPTION 'FEJL: fortolkningslaget mangler atomiske redaktions-RPCer';
+  END IF;
+  IF has_function_privilege(
+       'anon','public.red_decide_interpretation(uuid,integer,text,jsonb)','EXECUTE'
+     ) OR has_function_privilege(
+       'anon','public.red_promote_interpretation(uuid,text,bigint,jsonb)','EXECUTE'
+     ) OR has_function_privilege(
+       'anon',
+       'public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)',
+       'EXECUTE'
+     ) THEN
+    RAISE EXCEPTION 'FEJL: anon kan kalde fortolknings-/identitetsmutationer';
+  END IF;
+
+  BEGIN
+    INSERT INTO auth.users(id,email) VALUES
+      (v_actor,'interpretation-editor@test.invalid'),
+      (v_member,'interpretation-member@test.invalid');
+    INSERT INTO person(id,levende,privat,status) VALUES
+      (-987650021,false,false,'verify identity A'),
+      (-987650022,false,false,'verify identity B');
+    INSERT INTO profiles(id,rolle,email,navn) VALUES
+      (v_actor,'redaktion','interpretation-editor@test.invalid','Verify Editor'),
+      (v_member,'medlem','interpretation-member@test.invalid','Verify Member');
+    INSERT INTO source(id,titel,import_key)
+      VALUES (-987650021,'Fortolkning verify','verify:interpretation');
+    INSERT INTO private.extraction_run(
+      id,source_id,run_key,schema_version,extractor_version,profile_version,
+      input_sha256,manifest
+    ) VALUES (
+      v_run,-987650021,'interpretation-run','1.0','verify','verify',
+      repeat('1',64),'{}'
+    );
+    INSERT INTO private.source_rendition(
+      id,source_id,rendition_key,rendition_kind,content_sha256,metadata
+    ) VALUES (
+      v_rendition,-987650021,'interpretation-rendition','text_layer',
+      repeat('2',64),'{}'
+    );
+    INSERT INTO private.source_record_occurrence(
+      id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,
+      verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id
+    ) VALUES (
+      v_occurrence,v_rendition,'interpretation-occurrence',1,1,0,12,
+      'Anna døde 1','physical-interpretation','structural-interpretation',v_run
+    );
+    INSERT INTO private.source_observation(
+      id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,
+      verbatim_text,quality_status,extraction_method,extraction_run_id
+    ) VALUES (
+      v_observation,v_occurrence,'death_clause',1,1,0,12,'Anna døde 1',
+      'clear','verify',v_run
+    );
+    INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id)
+      VALUES (v_persona,-987650021,'interpretation-persona',v_run);
+
+    -- En fortolkning må aldrig eksistere uden mindst én bærende observation.
+    v_error := NULL;
+    BEGIN
+      INSERT INTO private.interpretation(
+        id,interpretation_key,version,source_id,source_persona_id,
+        interpretation_kind,predicate,value,schema_version,derivation_kind,
+        confidence,status,method,extraction_run_id
+      ) VALUES (
+        'c1000000-0000-0000-0000-000000000020',
+        'c0000000-0000-0000-0000-000000000020',1,-987650021,v_persona,
+        'property','verify.death_date','{"raw":"1"}','1.0','source_statement',
+        1,'proposed','verify',v_run
+      );
+      SET CONSTRAINTS private.interpretation_has_observation IMMEDIATE;
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    SET CONSTRAINTS private.interpretation_has_observation DEFERRED;
+    IF v_error NOT LIKE 'EVIDENCE_INTERPRETATION_OBSERVATION_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: fortolkning uden observation blev ikke afvist: %',v_error;
+    END IF;
+
+    INSERT INTO private.interpretation(
+      id,interpretation_key,version,source_id,source_persona_id,
+      interpretation_kind,predicate,value,schema_version,derivation_kind,
+      confidence,status,method,extraction_run_id
+    ) VALUES (
+      v_interpretation,'c0000000-0000-0000-0000-000000000021',1,
+      -987650021,v_persona,'property','verify.death_date','{"raw":"1"}','1.0',
+      'source_statement',1,'proposed','verify',v_run
+    );
+    INSERT INTO private.interpretation_observation(
+      interpretation_id,observation_id,evidence_role,ordinal
+    ) VALUES (v_interpretation,v_observation,'supporting',1);
+    SET CONSTRAINTS private.interpretation_has_observation IMMEDIATE;
+    SET CONSTRAINTS private.interpretation_has_observation DEFERRED;
+
+    -- Direkte promotion af et forslag er fail-closed.
+    v_error := NULL;
+    BEGIN
+      INSERT INTO private.interpretation_promotion(
+        interpretation_id,target_type,target_id,evidence,
+        promoted_by,promoted_by_name
+      ) VALUES (
+        v_interpretation,'person',-987650021,'{"basis":"invalid"}',
+        v_actor,'Verify Editor'
+      );
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_INTERPRETATION_NOT_ACCEPTED%' THEN
+      RAISE EXCEPTION 'FEJL: promotion uden accepted fortolkning blev ikke afvist: %',v_error;
+    END IF;
+
+    -- Et importpayload kan ikke selv erklære sig menneskeligt godkendt.
+    PERFORM set_config('request.jwt.claim.sub',v_member::text,true);
+    v_error := NULL;
+    BEGIN
+      PERFORM red_decide_interpretation(
+        v_interpretation,1,'accepted','{"basis":"fake human"}'
+      );
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_ROLE_FORBIDDEN%' THEN
+      RAISE EXCEPTION 'FEJL: medlem kunne fremstille menneskelig godkendelse: %',v_error;
+    END IF;
+
+    PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_decide_source_persona_identity(
+        v_persona,-987650021,0,'accepted','{"basis":"direct without mention"}'
+      );
+      RAISE EXCEPTION 'IDENTITY_WITHOUT_MENTION_BYPASS';
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_PERSONA_BASIS_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: direkte accepted uden mention blev ikke afvist: %',v_error;
+    END IF;
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_decide_source_persona_identity(
+        v_persona,-987650021,0,'rejected','{"basis":"direct invalid target"}'
+      );
+      RAISE EXCEPTION 'IDENTITY_REJECTED_TARGET_BYPASS';
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_IDENTITY_DECISION_INVALID%' THEN
+      RAISE EXCEPTION 'FEJL: direkte rejected med target blev ikke afvist: %',v_error;
+    END IF;
+    INSERT INTO private.source_mention(
+      id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id
+    ) VALUES (v_mention,v_observation,'person',0,4,'Anna',v_run);
+    INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
+      VALUES (v_persona,v_mention,'principal',1);
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_decide_interpretation(
+        v_interpretation,NULL,'accepted','{"basis":"null version"}'
+      );
+      RAISE EXCEPTION 'NULL_VERSION_BYPASS';
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_EXPECTED_VERSION_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: NULL expected_version bypassede fortolkningslåsen: %',v_error;
+    END IF;
+
+    -- Selv hvis ingestrollen senere får INSERT til proposal-loading, må den
+    -- ikke kunne forfalske en menneskelig afgørelse uden om RPC'en.
+    GRANT USAGE ON SCHEMA private TO service_role;
+    GRANT INSERT ON private.interpretation,
+                    private.interpretation_promotion,
+                    private.source_persona_identity_event
+      TO service_role;
+    ALTER ROLE service_role BYPASSRLS;
+    v_error:=NULL;
+    BEGIN
+      SET LOCAL ROLE service_role;
+      INSERT INTO private.interpretation(
+        id,interpretation_key,version,source_id,source_persona_id,
+        interpretation_kind,predicate,value,schema_version,derivation_kind,
+        confidence,status,method,extraction_run_id,decision_evidence,
+        decided_by,decided_by_name,decided_at
+      ) VALUES (
+        'c1000000-0000-0000-0000-000000000029',
+        'c0000000-0000-0000-0000-000000000029',1,-987650021,v_persona,
+        'property','verify.fake_approval','{}','1.0','human_judgement',1,'accepted',
+        'forged',v_run,'{"basis":"forged"}',v_actor,'Forged',clock_timestamp()
+      );
+      RAISE EXCEPTION 'SERVICE_ROLE_FAKE_ACCEPTED';
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_DECISION_PROVENANCE_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: ingestrolle kunne skrive falsk accepted fortolkning: %',v_error;
+    END IF;
+
+    SELECT red_decide_interpretation(
+      v_interpretation,1,'accepted','{"basis":"reviewed"}'
+    ) INTO v_accepted_interpretation;
+    IF NOT EXISTS (
+      SELECT 1 FROM private.interpretation_current
+       WHERE interpretation_key='c0000000-0000-0000-0000-000000000021'
+         AND id=v_accepted_interpretation AND status='accepted' AND version=2
+         AND decided_by=v_actor AND decided_by_name='Verify Editor'
+    ) THEN
+      RAISE EXCEPTION 'FEJL: accepted fortolkning mangler versions-/aktøraudit';
+    END IF;
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_decide_interpretation(
+        v_accepted_interpretation,2,'rejected','{"basis":"second decision"}'
+      );
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error IS NULL OR v_error NOT LIKE 'EVIDENCE_INTERPRETATION_NOT_PROPOSED%' THEN
+      RAISE EXCEPTION 'FEJL: accepted fortolkning kunne afgøres igen: %',v_error;
+    END IF;
+    IF (SELECT count(*) FROM private.interpretation
+         WHERE interpretation_key='c0000000-0000-0000-0000-000000000021')<>2 THEN
+      RAISE EXCEPTION 'FEJL: second decision oprettede en ekstra fortolkningsversion';
+    END IF;
+    FOREACH v_terminal_status IN ARRAY ARRAY['rejected','unresolved','superseded'] LOOP
+      v_terminal_proposal:=gen_random_uuid();
+      INSERT INTO private.interpretation(
+        id,interpretation_key,version,source_id,source_persona_id,
+        interpretation_kind,predicate,value,schema_version,derivation_kind,
+        confidence,status,method,extraction_run_id
+      ) VALUES (
+        v_terminal_proposal,gen_random_uuid(),1,-987650021,v_persona,
+        'property','verify.terminal_status','{}','1.0','source_statement',1,
+        'proposed','verify',v_run
+      );
+      INSERT INTO private.interpretation_observation(
+        interpretation_id,observation_id,evidence_role,ordinal
+      ) VALUES (v_terminal_proposal,v_observation,'supporting',1);
+      SELECT red_decide_interpretation(
+        v_terminal_proposal,1,v_terminal_status,'{"basis":"terminal state verify"}'
+      ) INTO v_terminal_decision;
+      IF NOT EXISTS (
+        SELECT 1 FROM private.interpretation
+         WHERE id=v_terminal_decision AND version=2 AND status=v_terminal_status
+      ) THEN
+        RAISE EXCEPTION 'FEJL: terminal fortolkningsstatus % blev ikke skrevet append-only',v_terminal_status;
+      END IF;
+      v_error:=NULL;
+      BEGIN
+        PERFORM red_decide_interpretation(
+          v_terminal_decision,2,'accepted','{"basis":"invalid terminal redecision"}'
+        );
+      EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+      IF v_error IS NULL OR v_error NOT LIKE 'EVIDENCE_INTERPRETATION_NOT_PROPOSED%' THEN
+        RAISE EXCEPTION 'FEJL: terminal fortolkning % kunne afgøres igen: %',v_terminal_status,v_error;
+      END IF;
+    END LOOP;
+    PERFORM red_promote_interpretation(
+      v_accepted_interpretation,'person',-987650021,'{"basis":"verified"}'
+    );
+    v_error:=NULL;
+    BEGIN
+      SET LOCAL ROLE service_role;
+      INSERT INTO private.interpretation_promotion(
+        interpretation_id,target_type,target_id,evidence,promoted_by,promoted_by_name
+      ) VALUES (
+        v_accepted_interpretation,'person',-987650022,'{"basis":"forged"}',
+        v_actor,'Forged'
+      );
+      RAISE EXCEPTION 'SERVICE_ROLE_FAKE_PROMOTION';
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_DECISION_PROVENANCE_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: ingestrolle kunne skrive falsk promotion: %',v_error;
+    END IF;
+    v_error:=NULL;
+    BEGIN
+      UPDATE private.interpretation SET predicate='rewritten'
+       WHERE id=v_accepted_interpretation;
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN
+      RAISE EXCEPTION 'FEJL: accepteret fortolkning kunne overskrives: %',v_error;
+    END IF;
+
+    -- En accepteret identitetsafgørelse uden aktørmetadata afvises selv ved
+    -- direkte ejer-write; almindelige roller har slet ingen tabeladgang.
+    v_error := NULL;
+    BEGIN
+      INSERT INTO private.source_persona_identity_event(
+        source_persona_id,canonical_person_id,decision_status,version,evidence
+      ) VALUES (
+        v_persona,-987650021,'accepted',1,'{"basis":"missing actor"}'
+      );
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error IS NULL THEN
+      RAISE EXCEPTION 'FEJL: identitetsafgørelse uden actor/tid blev accepteret';
+    END IF;
+    v_error:=NULL;
+    BEGIN
+      SET LOCAL ROLE service_role;
+      INSERT INTO private.source_persona_identity_event(
+        source_persona_id,canonical_person_id,decision_status,version,evidence,
+        decided_by,decided_by_name,decided_at
+      ) VALUES (
+        v_persona,-987650021,'accepted',1,'{"basis":"forged"}',
+        v_actor,'Forged',clock_timestamp()
+      );
+      RAISE EXCEPTION 'SERVICE_ROLE_FAKE_IDENTITY';
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_DECISION_PROVENANCE_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: ingestrolle kunne skrive falsk identitetsafgørelse: %',v_error;
+    END IF;
+
+    v_error := NULL;
+    BEGIN
+      INSERT INTO private.source_persona_identity(
+        source_persona_id,canonical_person_id,decision_status,version,evidence
+      ) VALUES (v_persona,NULL,'proposed',1,'{}');
+      SET CONSTRAINTS private.identity_state_has_event IMMEDIATE;
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    SET CONSTRAINTS private.identity_state_has_event DEFERRED;
+    IF v_error NOT LIKE 'EVIDENCE_IDENTITY_EVENT_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: identity-state uden event blev ikke afvist: %',v_error;
+    END IF;
+
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_decide_source_persona_identity(
+        v_persona,-987650021,NULL,'accepted','{"basis":"null version"}'
+      );
+      RAISE EXCEPTION 'NULL_VERSION_BYPASS';
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_EXPECTED_VERSION_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: NULL expected_version bypassede identity-låsen: %',v_error;
+    END IF;
+
+    PERFORM red_decide_source_persona_identity(
+      v_persona,-987650021,0,'accepted','{"basis":"reviewed"}'
+    );
+    IF (SELECT count(*) FROM private.source_persona_identity
+         WHERE source_persona_id=v_persona AND decision_status='accepted')<>1
+       OR NOT EXISTS (
+         SELECT 1 FROM private.source_persona_identity
+          WHERE source_persona_id=v_persona AND canonical_person_id=-987650021
+            AND version=1 AND decided_by=v_actor
+       ) THEN
+      RAISE EXCEPTION 'FEJL: persona fik ikke præcis ét aktivt kanonisk mål';
+    END IF;
+    v_error:=NULL;
+    BEGIN
+      UPDATE private.source_persona_identity_event SET evidence='{"rewritten":true}'
+       WHERE source_persona_id=v_persona AND version=1;
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN
+      RAISE EXCEPTION 'FEJL: identity-event kunne overskrives: %',v_error;
+    END IF;
+
+    v_error := NULL;
+    BEGIN
+      PERFORM red_decide_source_persona_identity(
+        v_persona,-987650022,0,'accepted','{"basis":"stale"}'
+      );
+    EXCEPTION WHEN others THEN v_error := SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_IDENTITY_VERSION_CONFLICT%' THEN
+      RAISE EXCEPTION 'FEJL: stale identitetsafgørelse blev ikke afvist: %',v_error;
+    END IF;
+
+    PERFORM red_decide_source_persona_identity(
+      v_persona,-987650022,1,'accepted','{"basis":"revised review"}'
+    );
+    v_error:=NULL;
+    BEGIN
+      UPDATE private.source_persona_identity state SET
+        canonical_person_id=event.canonical_person_id,
+        decision_status=event.decision_status,
+        version=event.version,
+        evidence=event.evidence,
+        decided_by=event.decided_by,
+        decided_by_name=event.decided_by_name,
+        decided_at=event.decided_at
+      FROM private.source_persona_identity_event event
+      WHERE state.source_persona_id=v_persona
+        AND event.source_persona_id=v_persona AND event.version=1;
+      SET CONSTRAINTS private.identity_state_has_event IMMEDIATE;
+      RAISE EXCEPTION 'IDENTITY_REWIND_BYPASS';
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    SET CONSTRAINTS private.identity_state_has_event DEFERRED;
+    IF v_error NOT LIKE 'EVIDENCE_IDENTITY_LATEST_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: current identity kunne rewindes til historisk event: %',v_error;
+    END IF;
+    v_error:=NULL;
+    BEGIN
+      DELETE FROM private.source_persona_identity WHERE source_persona_id=v_persona;
+      SET CONSTRAINTS private.identity_state_has_event IMMEDIATE;
+      RAISE EXCEPTION 'IDENTITY_DELETE_BYPASS';
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    SET CONSTRAINTS private.identity_state_has_event DEFERRED;
+    IF v_error NOT LIKE 'EVIDENCE_IDENTITY_STATE_REQUIRED%' THEN
+      RAISE EXCEPTION 'FEJL: current identity kunne slettes med eventhistorik: %',v_error;
+    END IF;
+
+    RAISE EXCEPTION 'ROLLBACK_INTERPRETATION_VERIFY';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM='ROLLBACK_INTERPRETATION_VERIFY' THEN
+      RAISE NOTICE 'OK: fortolkning, promotion og identitet er private, auditerede og fail-closed';
+    ELSE
+      RAISE;
+    END IF;
+  END;
+END $interpretation_verify$;
+
+-- To samtidige afgørelser af samme proposal skal serialiseres; den tabende
+-- transaktion må ikke skabe en tredje version efter den første commit.
+DO $interpretation_concurrency$
+DECLARE
+  v_conn text := format(
+    'dbname=%s port=%s host=%s',current_database(),current_setting('port'),
+    split_part(current_setting('unix_socket_directories'),',',1)
+  );
+  v_actor uuid := '11000000-0000-0000-0000-000000000061';
+  v_run uuid := '22000000-0000-0000-0000-000000000061';
+  v_rendition uuid := '33000000-0000-0000-0000-000000000061';
+  v_occurrence uuid := '55000000-0000-0000-0000-000000000061';
+  v_observation uuid := '66000000-0000-0000-0000-000000000061';
+  v_persona uuid := '88000000-0000-0000-0000-000000000061';
+  v_interpretation uuid := 'c1000000-0000-0000-0000-000000000061';
+  v_a_pid integer;
+  v_b_pid integer;
+  v_busy integer;
+  v_deadline timestamptz;
+  v_error text;
+  v_setup_connected boolean := false;
+  v_a_connected boolean := false;
+  v_b_connected boolean := false;
+  v_cleanup text := $cleanup$
+    SET session_replication_role=replica;
+    DELETE FROM private.interpretation_observation
+     WHERE interpretation_id IN (
+       SELECT id FROM private.interpretation
+        WHERE interpretation_key='c0000000-0000-0000-0000-000000000061'
+     );
+    DELETE FROM private.interpretation
+     WHERE interpretation_key='c0000000-0000-0000-0000-000000000061';
+    DELETE FROM private.source_persona WHERE id='88000000-0000-0000-0000-000000000061';
+    DELETE FROM private.source_observation WHERE id='66000000-0000-0000-0000-000000000061';
+    DELETE FROM private.source_record_occurrence WHERE id='55000000-0000-0000-0000-000000000061';
+    DELETE FROM private.source_rendition WHERE id='33000000-0000-0000-0000-000000000061';
+    DELETE FROM private.extraction_run WHERE id='22000000-0000-0000-0000-000000000061';
+    DELETE FROM source WHERE id=-987650061;
+    DELETE FROM profiles WHERE id='11000000-0000-0000-0000-000000000061';
+    DELETE FROM auth.users WHERE id='11000000-0000-0000-0000-000000000061';
+    SET session_replication_role=origin;
+  $cleanup$;
+BEGIN
+  IF to_regprocedure('dblink_connect(text,text)') IS NULL THEN
+    RAISE EXCEPTION 'DB_VERIFY_DBLINK_REQUIRED: fortolkningssamtidighed';
+  END IF;
+  PERFORM dblink_connect('interpretation_setup',v_conn||' application_name=daa_verify_interpretation_setup');
+  v_setup_connected:=true;
+  PERFORM dblink_exec('interpretation_setup',v_cleanup);
+  PERFORM dblink_exec('interpretation_setup',format(
+    'INSERT INTO auth.users(id,email) VALUES (''%s'',''interpretation-lock@test.invalid'')',v_actor));
+  PERFORM dblink_exec('interpretation_setup',format(
+    'INSERT INTO profiles(id,rolle,email,navn) VALUES (''%s'',''redaktion'',''interpretation-lock@test.invalid'',''Interpretation Editor'')',v_actor));
+  PERFORM dblink_exec('interpretation_setup',
+    'INSERT INTO source(id,titel,import_key) VALUES (-987650061,''Interpretation lock'',''verify:interpretation:lock'')');
+  PERFORM dblink_exec('interpretation_setup',
+    'INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) '
+    || 'VALUES (''22000000-0000-0000-0000-000000000061'',-987650061,''interpretation-lock-run'',''1.0'',''verify'',''verify'','
+    || quote_literal(repeat('6',64)) || ',''{}'')');
+  PERFORM dblink_exec('interpretation_setup',
+    'INSERT INTO private.source_rendition(id,source_id,rendition_key,rendition_kind,content_sha256,metadata) '
+    || 'VALUES (''33000000-0000-0000-0000-000000000061'',-987650061,''interpretation-lock-rendition'',''text_layer'','
+    || quote_literal(repeat('7',64)) || ',''{}'')');
+  PERFORM dblink_exec('interpretation_setup',
+    'INSERT INTO private.source_record_occurrence(id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id) '
+    || 'VALUES (''55000000-0000-0000-0000-000000000061'',''33000000-0000-0000-0000-000000000061'',''interpretation-lock-occurrence'',1,1,0,4,''Anna'',''interpretation-physical'',''interpretation-structural'',''22000000-0000-0000-0000-000000000061'')');
+  PERFORM dblink_exec('interpretation_setup',
+    'INSERT INTO private.source_observation(id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id) '
+    || 'VALUES (''66000000-0000-0000-0000-000000000061'',''55000000-0000-0000-0000-000000000061'',''name'',1,1,0,4,''Anna'',''clear'',''verify'',''22000000-0000-0000-0000-000000000061'')');
+  PERFORM dblink_exec('interpretation_setup',
+    'INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) '
+    || 'VALUES (''88000000-0000-0000-0000-000000000061'',-987650061,''interpretation-lock-persona'',''22000000-0000-0000-0000-000000000061'')');
+  PERFORM dblink_exec('interpretation_setup','BEGIN');
+  PERFORM dblink_exec('interpretation_setup','SET CONSTRAINTS ALL DEFERRED');
+  PERFORM dblink_exec('interpretation_setup',
+    'INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id) '
+    || 'VALUES (''c1000000-0000-0000-0000-000000000061'',''c0000000-0000-0000-0000-000000000061'',1,-987650061,''88000000-0000-0000-0000-000000000061'',''property'',''verify.name'',''{}'',''1.0'',''source_statement'',1,''proposed'',''verify'',''22000000-0000-0000-0000-000000000061'')');
+  PERFORM dblink_exec('interpretation_setup',
+    'INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) VALUES (''c1000000-0000-0000-0000-000000000061'',''66000000-0000-0000-0000-000000000061'',''supporting'',1)');
+  PERFORM dblink_exec('interpretation_setup','COMMIT');
+  PERFORM dblink_connect('interpretation_a',v_conn||' application_name=daa_verify_interpretation_a');
+  v_a_connected:=true;
+  PERFORM dblink_connect('interpretation_b',v_conn||' application_name=daa_verify_interpretation_b');
+  v_b_connected:=true;
+  SELECT pid INTO v_a_pid FROM dblink('interpretation_a','SELECT pg_backend_pid()') AS t(pid integer);
+  SELECT pid INTO v_b_pid FROM dblink('interpretation_b','SELECT pg_backend_pid()') AS t(pid integer);
+  PERFORM dblink_exec('interpretation_a','BEGIN');
+  PERFORM dblink_exec('interpretation_a','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('interpretation_a',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  PERFORM * FROM dblink('interpretation_a',format(
+    'SELECT red_decide_interpretation(''%s'',1,''accepted'',''{"basis":"A"}'')',v_interpretation
+  )) AS t(decision_id uuid);
+  PERFORM dblink_exec('interpretation_b','BEGIN');
+  PERFORM dblink_exec('interpretation_b','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('interpretation_b',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  PERFORM dblink_send_query('interpretation_b',format(
+    'SELECT red_decide_interpretation(''%s'',1,''rejected'',''{"basis":"B"}'')',v_interpretation
+  ));
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
+    SELECT dblink_is_busy('interpretation_b') INTO v_busy;
+    IF v_busy=0 OR clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: fortolkningsafgørelse B ventede ikke på proposal-låsen';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  PERFORM dblink_exec('interpretation_a','COMMIT');
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    SELECT dblink_is_busy('interpretation_b') INTO v_busy;
+    EXIT WHEN v_busy=0;
+    IF clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: fortolkningsafgørelse B afsluttede ikke';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  v_error:=NULL;
+  BEGIN
+    PERFORM * FROM dblink_get_result('interpretation_b') AS t(decision_id uuid);
+  EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+  BEGIN
+    PERFORM * FROM dblink_get_result('interpretation_b') AS t(decision_id uuid);
+  EXCEPTION WHEN others THEN IF v_error IS NULL THEN v_error:=SQLERRM; END IF; END;
+  IF v_error NOT LIKE '%EVIDENCE_INTERPRETATION_VERSION_CONFLICT%' THEN
+    RAISE EXCEPTION 'FEJL: tabende fortolkningsafgørelse fejlede ikke fail-closed: %',v_error;
+  END IF;
+  PERFORM dblink_exec('interpretation_b','ROLLBACK');
+  IF (SELECT count(*) FROM private.interpretation
+       WHERE interpretation_key='c0000000-0000-0000-0000-000000000061')<>2 THEN
+    RAISE EXCEPTION 'FEJL: fortolknings-race efterlod mere end én decision-version';
+  END IF;
+  PERFORM dblink_disconnect('interpretation_a'); v_a_connected:=false;
+  PERFORM dblink_disconnect('interpretation_b'); v_b_connected:=false;
+  PERFORM dblink_exec('interpretation_setup',v_cleanup);
+  PERFORM dblink_disconnect('interpretation_setup'); v_setup_connected:=false;
+  PERFORM set_config('daa.verify_dblink_interpretation','executed',false);
+  RAISE NOTICE 'OK: fortolkningsafgørelser serialiseres og taberen skriver ingen ny version';
+EXCEPTION WHEN others THEN
+  IF v_a_connected THEN
+    BEGIN PERFORM dblink_exec('interpretation_a','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('interpretation_a'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  IF v_b_connected THEN
+    BEGIN PERFORM dblink_exec('interpretation_b','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('interpretation_b'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  IF v_setup_connected THEN
+    BEGIN PERFORM dblink_exec('interpretation_setup',v_cleanup); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('interpretation_setup'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  RAISE;
+END $interpretation_concurrency$;
+
+-- ===== Evidensimport Fase 2 / Task 1: promotionregler og batch-audit =====
+DO $promotion_rule_verify$
+DECLARE
+  v_required text[] := ARRAY[
+    'interpretation_promotion_rule_line','interpretation_promotion_rule',
+    'interpretation_promotion_batch'
+  ];
+  v_missing text[];
+  v_error text;
+  v_actor uuid := '11000000-0000-0000-0000-000000000041';
+  v_run uuid := '22000000-0000-0000-0000-000000000041';
+  v_rendition uuid := '33000000-0000-0000-0000-000000000041';
+  v_occurrence uuid := '55000000-0000-0000-0000-000000000041';
+  v_observation uuid := '66000000-0000-0000-0000-000000000041';
+  v_header_observation uuid := '66000000-0000-0000-0000-000000000048';
+  v_mention uuid := '70000000-0000-0000-0000-000000000041';
+  v_persona uuid := '88000000-0000-0000-0000-000000000041';
+  v_record uuid := '77000000-0000-0000-0000-000000000041';
+  v_record_placement uuid := '99000000-0000-0000-0000-000000000041';
+  v_spouse_placement uuid := '99000000-0000-0000-0000-000000000042';
+  v_principal_placement uuid := '99000000-0000-0000-0000-000000000043';
+  v_slaegt_id bigint;
+  v_scheme_id bigint;
+  v_scheme_entry_id bigint;
+  v_interpretation_1 uuid := 'c1000000-0000-0000-0000-000000000041';
+  v_interpretation_2 uuid := 'c1000000-0000-0000-0000-000000000042';
+  v_interpretation_3 uuid := 'c1000000-0000-0000-0000-000000000043';
+  v_interpretation_no_bulk_1 uuid := 'c1000000-0000-0000-0000-000000000044';
+  v_interpretation_no_bulk_2 uuid := 'c1000000-0000-0000-0000-000000000045';
+  v_interpretation_principal uuid := 'c1000000-0000-0000-0000-000000000046';
+  v_interpretation_stale uuid := 'c1000000-0000-0000-0000-000000000047';
+  v_accepted_1 uuid;
+  v_accepted_2 uuid;
+  v_accepted_3 uuid;
+  v_accepted_no_bulk_1 uuid;
+  v_accepted_no_bulk_2 uuid;
+  v_accepted_principal uuid;
+  v_accepted_stale uuid;
+  v_preview jsonb;
+  v_before_promotions integer;
+  v_before_batches integer;
+  v_before_persons integer;
+  v_before_facts integer;
+  v_before_assertions integer;
+  v_rule_version integer;
+BEGIN
+  SELECT array_agg(required_name ORDER BY required_name) INTO v_missing
+    FROM unnest(v_required) AS required_name
+   WHERE to_regclass(format('private.%I',required_name)) IS NULL;
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: promotionregel-laget mangler';
+  END IF;
+  IF to_regclass('private.interpretation_promotion_rule_current') IS NULL
+     OR to_regprocedure('private.add_interpretation_promotion_rule_version(text,text,text,text,text,text,boolean,boolean,boolean,text)') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: promotionregel-laget mangler current-view/version-writer';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname='private' AND c.relname=ANY(v_required)
+       AND (
+         NOT c.relrowsecurity
+         OR has_table_privilege('anon',c.oid,'SELECT')
+         OR has_table_privilege('anon',c.oid,'INSERT')
+         OR has_table_privilege('anon',c.oid,'UPDATE')
+         OR has_table_privilege('anon',c.oid,'DELETE')
+         OR has_table_privilege('authenticated',c.oid,'SELECT')
+         OR has_table_privilege('authenticated',c.oid,'INSERT')
+         OR has_table_privilege('authenticated',c.oid,'UPDATE')
+         OR has_table_privilege('authenticated',c.oid,'DELETE')
+         OR EXISTS (
+           SELECT 1
+             FROM aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) acl
+            WHERE acl.grantee=0
+              AND acl.privilege_type IN ('SELECT','INSERT','UPDATE','DELETE')
+         )
+       )
+  ) THEN
+    RAISE EXCEPTION 'FEJL: promotionregel-laget har direkte API-rettigheder';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM unnest(v_required) AS required_name
+     WHERE (
+       SELECT count(*)
+         FROM pg_catalog.pg_trigger t
+         JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid
+        WHERE NOT t.tgisinternal
+          AND c.relnamespace='private'::regnamespace
+          AND c.relname=required_name
+          AND t.tgname='trg_'||c.relname||'_append_only'
+          AND t.tgfoid='private.reject_evidence_mutation()'::regprocedure
+          AND t.tgenabled='O'
+     )<>1
+  ) THEN
+    RAISE EXCEPTION 'FEJL: promotionregel-laget mangler append-only-triggere';
+  END IF;
+  IF (
+    SELECT count(*) FROM pg_catalog.pg_constraint c
+     WHERE c.conrelid='private.interpretation_promotion'::regclass
+       AND c.contype='f'
+       AND c.confrelid='private.interpretation_promotion_rule'::regclass
+  )<>1
+     OR NOT EXISTS (
+       SELECT 1 FROM pg_catalog.pg_constraint c
+        WHERE c.conrelid='private.interpretation_promotion'::regclass
+          AND c.conname='interpretation_promotion_rule_fk'
+     )
+     OR (
+       SELECT count(*) FROM pg_catalog.pg_constraint c
+        WHERE c.conrelid='private.interpretation_promotion'::regclass
+          AND c.contype='f'
+          AND c.confrelid='private.interpretation_promotion_batch'::regclass
+     )<>1
+     OR NOT EXISTS (
+       SELECT 1 FROM pg_catalog.pg_constraint c
+        WHERE c.conrelid='private.interpretation_promotion'::regclass
+          AND c.conname='interpretation_promotion_batch_fk'
+     )
+     OR (
+       SELECT count(*) FROM pg_catalog.pg_constraint c
+        WHERE c.conrelid='private.interpretation_promotion'::regclass
+          AND c.contype='c'
+          AND position('rule_key IS NULL' IN pg_get_constraintdef(c.oid))>0
+          AND position('rule_version IS NULL' IN pg_get_constraintdef(c.oid))>0
+     )<>1
+     OR NOT EXISTS (
+       SELECT 1 FROM pg_catalog.pg_constraint c
+        WHERE c.conrelid='private.interpretation_promotion'::regclass
+          AND c.conname='interpretation_promotion_rule_pair_check'
+     ) THEN
+    RAISE EXCEPTION 'FEJL: promotionregel-laget har ikke præcis én navngivet audit-constraint';
+  END IF;
+  IF NOT EXISTS (
+       SELECT 1 FROM private.interpretation_promotion_rule
+        WHERE rule_key='person-name-v1' AND rule_version=1
+          AND predicate='person.name' AND interpretation_kind='property'
+          AND target_type='assertion' AND expected_fact_type='navn'
+          AND value_kind='text' AND requires_persona_identity
+          AND bulk_eligible AND status='active'
+     )
+     OR NOT EXISTS (
+       SELECT 1 FROM private.interpretation_promotion_rule
+        WHERE rule_key='person-byname-v1' AND rule_version=1
+          AND predicate='person.byname' AND interpretation_kind='property'
+          AND target_type='assertion' AND expected_fact_type='tilnavn'
+          AND value_kind='text' AND requires_persona_identity
+          AND bulk_eligible AND status='active'
+     )
+     OR NOT EXISTS (
+       SELECT 1 FROM private.interpretation_promotion_rule
+        WHERE rule_key='person-title-v1' AND rule_version=1
+          AND predicate='person.title' AND interpretation_kind='property'
+          AND target_type='assertion' AND expected_fact_type='titel'
+          AND value_kind='text' AND requires_persona_identity
+          AND bulk_eligible AND status='active'
+     )
+     OR NOT EXISTS (
+       SELECT 1 FROM private.interpretation_promotion_rule
+        WHERE rule_key='person-birth-v1' AND rule_version=1
+          AND predicate='person.birth' AND interpretation_kind='property'
+          AND target_type='assertion' AND expected_fact_type='fødsel'
+          AND value_kind='date_raw' AND requires_persona_identity
+          AND bulk_eligible AND status='active'
+     )
+     OR NOT EXISTS (
+       SELECT 1 FROM private.interpretation_promotion_rule
+        WHERE rule_key='person-death-v1' AND rule_version=1
+          AND predicate='person.death' AND interpretation_kind='property'
+          AND target_type='assertion' AND expected_fact_type='død'
+          AND value_kind='date_raw' AND requires_persona_identity
+          AND bulk_eligible AND status='active'
+     ) THEN
+    RAISE EXCEPTION 'FEJL: promotionregel-laget mangler';
+  END IF;
+  IF (
+    SELECT count(*) FROM private.interpretation_promotion_rule
+     WHERE rule_version=1 AND status='active'
+  )<>5 THEN
+    RAISE EXCEPTION 'FEJL: promotionregel-laget har ikke præcis fem aktive v1-regler';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM private.interpretation_promotion_rule
+     WHERE rule_key='unknown-rule-v1' AND rule_version=1
+  ) THEN
+    RAISE EXCEPTION 'FEJL: ukendt promotionregel findes';
+  END IF;
+  v_error:=NULL;
+  BEGIN
+    INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate)
+      VALUES ('verify-relation-target','person.name.relation');
+    INSERT INTO private.interpretation_promotion_rule(
+      rule_key,rule_version,predicate,interpretation_kind,target_type,expected_fact_type,
+      value_kind,status
+    ) VALUES (
+      'verify-relation-target',1,'person.name.relation','property','relation','navn',
+      'text','retired'
+    );
+  EXCEPTION WHEN others THEN v_error:=SQLERRM;
+  END;
+  IF v_error IS NULL THEN
+    RAISE EXCEPTION 'FEJL: person.name må ikke promote til relation';
+  END IF;
+  v_error:=NULL;
+  BEGIN
+    UPDATE private.interpretation_promotion_rule
+       SET status='retired'
+     WHERE rule_key='person-name-v1' AND rule_version=1;
+  EXCEPTION WHEN others THEN v_error:=SQLERRM;
+  END;
+  IF v_error NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN
+    RAISE EXCEPTION 'FEJL: promotionregler er ikke append-only: %',v_error;
+  END IF;
+  v_error:=NULL;
+  BEGIN
+    INSERT INTO private.interpretation_promotion_batch(
+      rule_profile_hash,preview_hash,promoted_by,promoted_by_name,requested_count
+    ) VALUES (
+      'verify-rule-profile','verify-preview',gen_random_uuid(),'Verify Editor',1
+    );
+    UPDATE private.interpretation_promotion_batch
+       SET requested_count=2
+     WHERE rule_profile_hash='verify-rule-profile';
+  EXCEPTION WHEN others THEN v_error:=SQLERRM;
+  END;
+  IF v_error NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN
+    RAISE EXCEPTION 'FEJL: promotionbatches er ikke append-only: %',v_error;
+  END IF;
+
+  -- Task 2-kontrakten er selvstændig og rulles helt tilbage. Den beviser
+  -- både previewets fail-closed begrundelser og batchens all-or-nothing-write.
+  IF to_regprocedure('public.red_preview_interpretation_promotions(jsonb)') IS NULL
+     OR to_regprocedure('public.red_promote_interpretations_batch(jsonb,text)') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: promotion-preview/RPC mangler';
+  END IF;
+  IF has_function_privilege('anon','public.red_preview_interpretation_promotions(jsonb)','EXECUTE')
+     OR has_function_privilege('anon','public.red_promote_interpretations_batch(jsonb,text)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_preview_interpretation_promotions(jsonb)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_promote_interpretations_batch(jsonb,text)','EXECUTE')
+     OR has_function_privilege('authenticated','public.red_promote_interpretation(uuid,text,bigint,jsonb)','EXECUTE')
+     OR has_function_privilege('authenticated',
+          'private.validate_interpretation_promotion_items(jsonb,boolean)','EXECUTE') THEN
+    RAISE EXCEPTION 'FEJL: promotion-RPC/validator ACL er ikke fail-closed';
+  END IF;
+  BEGIN
+    INSERT INTO auth.users(id,email)
+      VALUES (v_actor,'promotion-verify-editor@test.invalid');
+    INSERT INTO profiles(id,rolle,navn,email)
+      VALUES (v_actor,'redaktion','Promotion Verify Editor',
+              'promotion-verify-editor@test.invalid');
+    INSERT INTO person(id,levende,privat,status) VALUES
+      (-987650041,false,false,'promotion canonical'),
+      (-987650042,false,false,'promotion forkert person');
+    INSERT INTO source(id,titel,import_key)
+      VALUES (-987650041,'Promotion verify','verify:promotion');
+    INSERT INTO private.extraction_run(
+      id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest
+    ) VALUES (
+      v_run,-987650041,'promotion-run','1.0','verify','verify',repeat('4',64),'{}'
+    );
+    INSERT INTO private.source_rendition(
+      id,source_id,rendition_key,rendition_kind,content_sha256,metadata
+    ) VALUES (
+      v_rendition,-987650041,'promotion-rendition','text_layer',repeat('5',64),'{}'
+    );
+    INSERT INTO private.source_record_occurrence(
+      id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,
+      verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id
+    ) VALUES (
+      v_occurrence,v_rendition,'promotion-occurrence',1,1,0,12,
+      'Anna Verify', 'physical-promotion','structural-promotion',v_run
+    );
+    INSERT INTO private.source_observation(
+      id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,
+      verbatim_text,quality_status,extraction_method,extraction_run_id
+    ) VALUES (
+      v_observation,v_occurrence,'name_clause',1,1,0,12,'Anna Verify',
+      'clear','verify',v_run
+    );
+    INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id)
+      VALUES (v_persona,-987650041,'promotion-persona',v_run);
+    INSERT INTO private.source_observation(
+      id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,
+      verbatim_text,quality_status,extraction_method,extraction_run_id
+    ) VALUES (
+      v_header_observation,v_occurrence,'header',1,1,0,12,'Anna Verify',
+      'clear','verify',v_run
+    );
+    INSERT INTO private.source_mention(
+      id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id
+    ) VALUES (v_mention,v_observation,'person',0,4,'Anna',v_run);
+    INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
+      VALUES (v_persona,v_mention,'principal',1);
+    INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
+      VALUES (v_record,-987650041,'promotion-placement-record','family_record',v_run);
+    INSERT INTO private.source_record_anchor_event(
+      occurrence_id,source_record_id,decision_status,evidence,version,
+      decided_by,decided_by_name
+    ) VALUES (
+      v_occurrence,v_record,'accepted','{"basis":"promotion verify"}',1,
+      v_actor,'Promotion Verify Editor'
+    );
+    INSERT INTO slaegt(navn,sorteringsnavn,slug)
+      VALUES ('Promotion Verify Family','promotion verify family','promotion-verify-family')
+      RETURNING id INTO v_slaegt_id;
+    INSERT INTO lineage_scheme(slaegt_id,source_id,kind,label)
+      VALUES (v_slaegt_id,-987650041,'stamtavle','Promotion verify scheme')
+      RETURNING id INTO v_scheme_id;
+    INSERT INTO lineage_scheme_entry(scheme_id,slaegt_id,code,label,sort_order)
+      VALUES (v_scheme_id,v_slaegt_id,'I','Promotion verify I',0)
+      RETURNING id INTO v_scheme_entry_id;
+    INSERT INTO private.source_record_placement(
+      id,source_record_id,scheme_entry_id,header_observation_id,initial_status
+    ) VALUES (
+      v_record_placement,v_record,v_scheme_entry_id,v_header_observation,'accepted'
+    );
+    INSERT INTO private.source_record_placement_decision(
+      placement_id,version,decision_status,evidence,decision_origin,decided_by_name
+    ) VALUES (v_record_placement,1,'accepted','{"basis":"verify fixture"}',
+              'migration','legacy placement backfill');
+    -- En accepteret ægtefælleomtale er bevidst ikke en hovedplacering.
+    INSERT INTO private.source_persona_placement(
+      id,source_persona_id,record_placement_id,placement_role,basis_observation_id,initial_status
+    ) VALUES (
+      v_spouse_placement,v_persona,v_record_placement,'mentioned_spouse',v_observation,'accepted'
+    );
+    INSERT INTO private.source_persona_placement_decision(
+      placement_id,version,decision_status,evidence,decision_origin,decided_by_name
+    ) VALUES (v_spouse_placement,1,'accepted','{"basis":"verify fixture"}',
+              'migration','legacy placement backfill');
+    INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES
+      (-987650041,'person',-987650041,'navn'),
+      (-987650042,'person',-987650041,'titel'),
+      (-987650043,'person',-987650041,'navn'),
+      (-987650044,'person',-987650042,'navn');
+    INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,calendar,uforanderlig) VALUES
+      (-987650041,'fact',-987650041,'Anna Verify','gregoriansk',true),
+      (-987650042,'fact',-987650042,'Anna Verify','gregoriansk',true),
+      (-987650043,'fact',-987650043,'Anden tekst','gregoriansk',true),
+      (-987650044,'fact',-987650044,'Anna Verify','gregoriansk',true);
+    INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate) VALUES
+      ('verify-name-no-bulk','verify.person.name.no_bulk'),
+      ('verify-name-principal','verify.person.name.principal');
+    INSERT INTO private.interpretation_promotion_rule(
+      rule_key,rule_version,predicate,interpretation_kind,target_type,expected_fact_type,
+      value_kind,requires_persona_identity,requires_principal_placement,bulk_eligible,status
+    ) VALUES
+      ('verify-name-no-bulk',1,'verify.person.name.no_bulk','property','assertion','navn',
+       'text',true,false,false,'active'),
+      ('verify-name-principal',1,'verify.person.name.principal','property','assertion','navn',
+       'text',true,true,true,'active');
+    INSERT INTO private.interpretation(
+      id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,
+      predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id
+    ) VALUES
+      (v_interpretation_1,'c0000000-0000-0000-0000-000000000041',1,-987650041,v_persona,
+       'property','person.name','"Anna Verify"','1.0','source_statement',1,'proposed','verify',v_run),
+      (v_interpretation_2,'c0000000-0000-0000-0000-000000000042',1,-987650041,v_persona,
+       'property','person.name','"Anna Verify"','1.0','source_statement',1,'proposed','verify',v_run),
+      (v_interpretation_3,'c0000000-0000-0000-0000-000000000043',1,-987650041,v_persona,
+       'property','person.name','"Anna Verify"','1.0','source_statement',1,'proposed','verify',v_run),
+      (v_interpretation_no_bulk_1,'c0000000-0000-0000-0000-000000000044',1,-987650041,v_persona,
+       'property','verify.person.name.no_bulk','"Anna Verify"','1.0','source_statement',1,'proposed','verify',v_run),
+      (v_interpretation_no_bulk_2,'c0000000-0000-0000-0000-000000000045',1,-987650041,v_persona,
+       'property','verify.person.name.no_bulk','"Anna Verify"','1.0','source_statement',1,'proposed','verify',v_run),
+      (v_interpretation_principal,'c0000000-0000-0000-0000-000000000046',1,-987650041,v_persona,
+       'property','verify.person.name.principal','"Anna Verify"','1.0','source_statement',1,'proposed','verify',v_run),
+      (v_interpretation_stale,'c0000000-0000-0000-0000-000000000047',1,-987650041,v_persona,
+       'property','person.name','"Anna Verify"','1.0','source_statement',1,'proposed','verify',v_run);
+    INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal)
+      VALUES (v_interpretation_1,v_observation,'supporting',1),
+             (v_interpretation_2,v_observation,'supporting',1),
+             (v_interpretation_3,v_observation,'supporting',1),
+             (v_interpretation_no_bulk_1,v_observation,'supporting',1),
+             (v_interpretation_no_bulk_2,v_observation,'supporting',1),
+             (v_interpretation_principal,v_observation,'supporting',1),
+             (v_interpretation_stale,v_observation,'supporting',1);
+    SET CONSTRAINTS private.interpretation_has_observation IMMEDIATE;
+    SET CONSTRAINTS private.interpretation_has_observation DEFERRED;
+
+    PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+    SET LOCAL ROLE authenticated;
+    PERFORM red_decide_source_persona_identity(
+      v_persona,-987650041,0,'accepted','{"basis":"promotion verify"}'
+    );
+    SELECT red_decide_interpretation(v_interpretation_1,1,'accepted','{"basis":"promotion verify"}')
+      INTO v_accepted_1;
+    SELECT red_decide_interpretation(v_interpretation_2,1,'accepted','{"basis":"promotion verify"}')
+      INTO v_accepted_2;
+    SELECT red_decide_interpretation(v_interpretation_3,1,'accepted','{"basis":"promotion verify"}')
+      INTO v_accepted_3;
+    SELECT red_decide_interpretation(v_interpretation_no_bulk_1,1,'accepted','{"basis":"promotion verify"}')
+      INTO v_accepted_no_bulk_1;
+    SELECT red_decide_interpretation(v_interpretation_no_bulk_2,1,'accepted','{"basis":"promotion verify"}')
+      INTO v_accepted_no_bulk_2;
+    SELECT red_decide_interpretation(v_interpretation_principal,1,'accepted','{"basis":"promotion verify"}')
+      INTO v_accepted_principal;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650041)
+    ));
+    IF v_preview->'items'->0->>'eligible'<>'true'
+       OR v_preview->'items'->0->>'rule_key'<>'person-name-v1'
+       OR v_preview->'items'->0->>'rule_version'<>'1'
+       OR v_preview->>'preview_hash' !~ '^[0-9a-f]{64}$' THEN
+      RAISE EXCEPTION 'FEJL: samme person/fact-type/tekst blev ikke previewet som eligible: %',v_preview;
+    END IF;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_interpretation_stale,'target_type','assertion','target_id',-987650041)
+    ));
+    IF v_preview->'items'->0->>'reason_code'<>'EVIDENCE_INTERPRETATION_NOT_ACCEPTED' THEN
+      RAISE EXCEPTION 'FEJL: proposed fortolkning blev ikke afvist: %',v_preview;
+    END IF;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_no_bulk_1,'target_type','assertion','target_id',-987650041),
+      jsonb_build_object('interpretation_id',v_accepted_no_bulk_2,'target_type','assertion','target_id',-987650041)
+    ));
+    IF v_preview->'items'->0->>'reason_code'<>'EVIDENCE_PROMOTION_BULK_NOT_ELIGIBLE' THEN
+      RAISE EXCEPTION 'FEJL: non-bulk regel blev accepteret i bulkbatch: %',v_preview;
+    END IF;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650041)
+    ));
+    IF v_preview->'items'->0->>'reason_code'<>'EVIDENCE_PROMOTION_PRINCIPAL_PLACEMENT_REQUIRED' THEN
+      RAISE EXCEPTION 'FEJL: accepteret ægtefælleomtale blev fejlagtigt accepteret som principal-placement: %',v_preview;
+    END IF;
+    RESET ROLE;
+    INSERT INTO private.source_persona_placement(
+      id,source_persona_id,record_placement_id,placement_role,basis_observation_id,initial_status
+    ) VALUES (
+      v_principal_placement,v_persona,v_record_placement,'principal_member',v_observation,'accepted'
+    );
+    INSERT INTO private.source_persona_placement_decision(
+      placement_id,version,decision_status,evidence,decision_origin,decided_by_name
+    ) VALUES (v_principal_placement,1,'accepted','{"basis":"verify fixture"}',
+              'migration','legacy placement backfill');
+    SET LOCAL ROLE authenticated;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650041)
+    ));
+    IF v_preview->'items'->0->>'eligible'<>'true' THEN
+      RAISE EXCEPTION 'FEJL: accepteret principal_member opfyldte ikke principal-placement-kravet: %',v_preview;
+    END IF;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650044)
+    ));
+    IF v_preview->'items'->0->>'reason_code'<>'EVIDENCE_PROMOTION_IDENTITY_MISMATCH' THEN
+      RAISE EXCEPTION 'FEJL: forkert person gav ikke identity mismatch: %',v_preview;
+    END IF;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650042)
+    ));
+    IF v_preview->'items'->0->>'reason_code'<>'EVIDENCE_PROMOTION_FACT_TYPE_MISMATCH' THEN
+      RAISE EXCEPTION 'FEJL: titel-fact gav ikke fact-type mismatch: %',v_preview;
+    END IF;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650043)
+    ));
+    IF v_preview->'items'->0->>'reason_code'<>'EVIDENCE_PROMOTION_VALUE_MISMATCH' THEN
+      RAISE EXCEPTION 'FEJL: afvigende tekst gav ikke value mismatch: %',v_preview;
+    END IF;
+
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650041)
+    ));
+    RESET ROLE;
+    SELECT count(*) INTO v_before_promotions FROM private.interpretation_promotion;
+    SELECT count(*) INTO v_before_batches FROM private.interpretation_promotion_batch;
+    SET LOCAL ROLE authenticated;
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_promote_interpretations_batch(
+        jsonb_build_array(jsonb_build_object(
+          'interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650041
+        )),repeat('0',64)
+      );
+    EXCEPTION WHEN others THEN v_error:=SQLERRM;
+    END;
+    RESET ROLE;
+    IF v_error NOT LIKE 'EVIDENCE_PROMOTION_PREVIEW_STALE%'
+       OR (SELECT count(*) FROM private.interpretation_promotion)<>v_before_promotions
+       OR (SELECT count(*) FROM private.interpretation_promotion_batch)<>v_before_batches THEN
+      RAISE EXCEPTION 'FEJL: forfalsket preview-hash kunne ændre promotion-audit: fejl=%',v_error;
+    END IF;
+    SET LOCAL ROLE authenticated;
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_promote_interpretations_batch(
+        jsonb_build_array(jsonb_build_object(
+          'interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650043
+        )),v_preview->>'preview_hash'
+      );
+    EXCEPTION WHEN others THEN v_error:=SQLERRM;
+    END;
+    RESET ROLE;
+    IF v_error NOT LIKE 'EVIDENCE_PROMOTION_PREVIEW_STALE%'
+       OR (SELECT count(*) FROM private.interpretation_promotion)<>v_before_promotions
+       OR (SELECT count(*) FROM private.interpretation_promotion_batch)<>v_before_batches THEN
+      RAISE EXCEPTION 'FEJL: preview-hash var ikke bundet til den konkrete request: fejl=%',v_error;
+    END IF;
+    SELECT count(*) INTO v_before_persons FROM person;
+    SELECT count(*) INTO v_before_facts FROM fact;
+    SELECT count(*) INTO v_before_assertions FROM assertion;
+    SET LOCAL ROLE authenticated;
+    PERFORM red_promote_interpretations_batch(
+      jsonb_build_array(jsonb_build_object(
+        'interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650041
+      )),v_preview->>'preview_hash'
+    );
+    RESET ROLE;
+    IF (SELECT count(*) FROM private.interpretation_promotion
+         WHERE interpretation_id=v_accepted_1 AND target_id=-987650041)<>1
+       OR (SELECT count(*) FROM private.interpretation_promotion_batch
+           WHERE requested_count=1 AND promoted_by=v_actor)<>1 THEN
+      RAISE EXCEPTION 'FEJL: gyldig enkeltpromotion oprettede ikke præcis ét audit-link og batch';
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM private.interpretation_promotion_batch
+       WHERE requested_count=1 AND promoted_by=v_actor
+         AND rule_profile_hash !~ '^[0-9a-f]{64}$'
+    ) THEN
+      RAISE EXCEPTION 'FEJL: promotionens regelprofil er ikke SHA-256-kontraktbundet';
+    END IF;
+    IF (SELECT count(*) FROM person)<>v_before_persons
+       OR (SELECT count(*) FROM fact)<>v_before_facts
+       OR (SELECT count(*) FROM assertion)<>v_before_assertions THEN
+      RAISE EXCEPTION 'FEJL: promotion ændrede kanonisk genealogi';
+    END IF;
+
+    -- To forskellige accepterede fortolkninger i én gyldig batch giver præcis
+    -- to audit-links og én ny batch; de opretter ikke kanoniske rækker.
+    SELECT count(*) INTO v_before_promotions FROM private.interpretation_promotion;
+    SELECT count(*) INTO v_before_batches FROM private.interpretation_promotion_batch;
+    SELECT count(*) INTO v_before_persons FROM person;
+    SELECT count(*) INTO v_before_facts FROM fact;
+    SELECT count(*) INTO v_before_assertions FROM assertion;
+    SET LOCAL ROLE authenticated;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650041),
+      jsonb_build_object('interpretation_id',v_accepted_3,'target_type','assertion','target_id',-987650041)
+    ));
+    PERFORM red_promote_interpretations_batch(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650041),
+      jsonb_build_object('interpretation_id',v_accepted_3,'target_type','assertion','target_id',-987650041)
+    ),v_preview->>'preview_hash');
+    RESET ROLE;
+    IF (SELECT count(*) FROM private.interpretation_promotion)<>v_before_promotions+2
+       OR (SELECT count(*) FROM private.interpretation_promotion_batch)<>v_before_batches+1
+       OR (SELECT count(*) FROM person)<>v_before_persons
+       OR (SELECT count(*) FROM fact)<>v_before_facts
+       OR (SELECT count(*) FROM assertion)<>v_before_assertions THEN
+      RAISE EXCEPTION 'FEJL: gyldig bulkbatch skrev ikke præcis to links/én batch uden kanonisk mutation';
+    END IF;
+
+    SELECT count(*) INTO v_before_promotions FROM private.interpretation_promotion;
+    SELECT count(*) INTO v_before_batches FROM private.interpretation_promotion_batch;
+    SET LOCAL ROLE authenticated;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650041),
+      jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650044)
+    ));
+    v_error:=NULL;
+    BEGIN
+      PERFORM red_promote_interpretations_batch(jsonb_build_array(
+        jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650041),
+        jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650044)
+      ),v_preview->>'preview_hash');
+    EXCEPTION WHEN others THEN v_error:=SQLERRM;
+    END;
+    RESET ROLE;
+    IF v_error NOT LIKE 'EVIDENCE_PROMOTION_IDENTITY_MISMATCH%'
+       OR (SELECT count(*) FROM private.interpretation_promotion)<>v_before_promotions
+       OR (SELECT count(*) FROM private.interpretation_promotion_batch)<>v_before_batches THEN
+      RAISE EXCEPTION 'FEJL: ugyldig batch var ikke atomisk: fejl=%',v_error;
+    END IF;
+    SET LOCAL ROLE authenticated;
+    PERFORM red_decide_source_persona_placement(
+      v_principal_placement,1,'superseded','{"basis":"placement no longer current"}'
+    );
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650041)
+    ));
+    IF v_preview->'items'->0->>'reason_code'<>'EVIDENCE_PROMOTION_PRINCIPAL_PLACEMENT_REQUIRED' THEN
+      RAISE EXCEPTION 'FEJL: initial_status accepted blev fejlagtigt behandlet som current efter supersede: %',v_preview;
+    END IF;
+    RESET ROLE;
+    SELECT private.add_interpretation_promotion_rule_version(
+      'person-name-v1','person.name','property','assertion','navn','text',
+      true,false,true,'active'
+    ) INTO v_rule_version;
+    IF v_rule_version<>2 THEN RAISE EXCEPTION 'FEJL: promotionregel-version blev ikke 2'; END IF;
+    SET LOCAL ROLE authenticated;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650041)
+    ));
+    IF v_preview->'items'->0->>'rule_version'<>'2' THEN
+      RAISE EXCEPTION 'FEJL: preview brugte ikke current regelversion 2: %',v_preview; END IF;
+    RESET ROLE;
+    SELECT private.add_interpretation_promotion_rule_version(
+      'person-name-v1','person.name','property','assertion','navn','text',
+      true,false,true,'retired'
+    ) INTO v_rule_version;
+    IF v_rule_version<>3 THEN RAISE EXCEPTION 'FEJL: promotionregel-version blev ikke 3'; END IF;
+    SET LOCAL ROLE authenticated;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650041)
+    ));
+    IF v_preview->'items'->0->>'reason_code'<>'EVIDENCE_PROMOTION_RULE_NOT_ACTIVE' THEN
+      RAISE EXCEPTION 'FEJL: retired current-regel lod version 1 genopstå: %',v_preview; END IF;
+    RESET ROLE;
+    v_error:=NULL;
+    BEGIN
+      PERFORM private.add_interpretation_promotion_rule_version(
+        'person-name-v1','person.renamed','property','assertion','navn','text',
+        true,false,true,'active');
+    EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+    IF v_error NOT LIKE 'EVIDENCE_PROMOTION_RULE_PREDICATE_MISMATCH%' THEN
+      RAISE EXCEPTION 'FEJL: predicate-skift i samme regellinje blev ikke afvist: %',v_error; END IF;
+    v_error:=NULL;
+    BEGIN
+      INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate)
+        VALUES ('another-person-name','person.name');
+    EXCEPTION WHEN unique_violation THEN v_error:=SQLERRM; END;
+    IF v_error IS NULL THEN RAISE EXCEPTION 'FEJL: samme predicate fik en anden rule_key'; END IF;
+    RAISE EXCEPTION 'ROLLBACK_PROMOTION_RPC_VERIFY';
+  EXCEPTION WHEN others THEN
+    IF SQLERRM='ROLLBACK_PROMOTION_RPC_VERIFY' THEN
+      RAISE NOTICE 'OK: promotion-preview validerer identitet, fact-type og værdi; batch er atomisk';
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  RAISE NOTICE 'OK: promotionregler er eksplicitte, assertion-bundne og auditerbare';
+END $promotion_rule_verify$;
+
+-- Preview må aldrig kunne promovere mod en revision, der skifter efter preview.
+-- Denne er en reel to-sessions-test: A afgør den accepterede fortolkning igen,
+-- B's batch skal blokere på current-revisionen og derefter afvises som stale.
+DO $promotion_concurrency$
+DECLARE
+  v_conn text := format(
+    'dbname=%s port=%s host=%s',current_database(),current_setting('port'),
+    split_part(current_setting('unix_socket_directories'),',',1)
+  );
+  v_actor uuid := '11000000-0000-0000-0000-000000000051';
+  v_run uuid := '22000000-0000-0000-0000-000000000051';
+  v_rendition uuid := '33000000-0000-0000-0000-000000000051';
+  v_occurrence uuid := '55000000-0000-0000-0000-000000000051';
+  v_observation uuid := '66000000-0000-0000-0000-000000000051';
+  v_mention uuid := '77000000-0000-0000-0000-000000000051';
+  v_persona uuid := '88000000-0000-0000-0000-000000000051';
+  v_interpretation_1 uuid := 'c1000000-0000-0000-0000-000000000051';
+  v_interpretation_2 uuid := 'c1000000-0000-0000-0000-000000000052';
+  v_identity_interpretation_1 uuid := 'c1000000-0000-0000-0000-000000000053';
+  v_identity_interpretation_2 uuid := 'c1000000-0000-0000-0000-000000000054';
+  v_a_pid integer;
+  v_b_pid integer;
+  v_busy integer;
+  v_preview_hash text;
+  v_error text;
+  v_version integer;
+  v_deadline timestamptz;
+  v_setup_connected boolean := false;
+  v_a_connected boolean := false;
+  v_b_connected boolean := false;
+  v_cleanup text := $cleanup$
+    SET session_replication_role=replica;
+    DELETE FROM private.interpretation_promotion
+      WHERE interpretation_id IN ('c1000000-0000-0000-0000-000000000051',
+                                  'c1000000-0000-0000-0000-000000000052',
+                                  'c1000000-0000-0000-0000-000000000053',
+                                  'c1000000-0000-0000-0000-000000000054');
+    DELETE FROM private.interpretation_promotion_batch
+      WHERE promoted_by='11000000-0000-0000-0000-000000000051';
+    DELETE FROM private.interpretation_promotion_rule
+      WHERE rule_key='verify-concurrent-name';
+    DELETE FROM private.interpretation_promotion_rule_line
+      WHERE rule_key='verify-concurrent-name';
+    -- (#198) Tre led, ikke ét. Blokken kopierer senere en fortolkning til et id fra
+    -- gen_random_uuid() og haenger interpretation_observation-raekker paa DET id, saa en
+    -- liste over faste fixture-id'er kan ikke daekke barnet. Foraelderen blev ryddet af
+    -- OR source_id=-987650051 nedenfor; barnet overlevede og stod tilbage med BEGGE
+    -- fremmednoegler haengende. Det braekkede constraint-genskabelsen ved
+    -- pg_restore --clean (maalt 2026-09-17: 2 fremmednoegler foer, 0 efter).
+    --   led 2: alt der hoerer til fixturens source, ogsaa de tilfaeldige id'er
+    --   led 3: rydder ogsaa op efter TIDLIGERE koersler, hvor foraelderen allerede er
+    --          slettet — det er den tilstand enhver base staar i, som db-verify har
+    --          koert mod foer denne rettelse
+    DELETE FROM private.interpretation_observation
+      WHERE interpretation_id IN ('c1000000-0000-0000-0000-000000000051',
+                                  'c1000000-0000-0000-0000-000000000052',
+                                  'c1000000-0000-0000-0000-000000000053',
+                                  'c1000000-0000-0000-0000-000000000054')
+         OR interpretation_id IN (SELECT id FROM private.interpretation
+                                   WHERE source_id=-987650051)
+         OR observation_id='66000000-0000-0000-0000-000000000051';
+    DELETE FROM private.interpretation
+      WHERE id IN ('c1000000-0000-0000-0000-000000000051',
+                   'c1000000-0000-0000-0000-000000000052',
+                   'c1000000-0000-0000-0000-000000000053',
+                   'c1000000-0000-0000-0000-000000000054')
+         OR source_id=-987650051;
+    DELETE FROM private.source_persona_identity_event
+      WHERE source_persona_id='88000000-0000-0000-0000-000000000051';
+    DELETE FROM private.source_persona_identity
+      WHERE source_persona_id='88000000-0000-0000-0000-000000000051';
+    DELETE FROM private.source_persona_mention
+      WHERE persona_id='88000000-0000-0000-0000-000000000051';
+    DELETE FROM private.source_persona
+      WHERE id='88000000-0000-0000-0000-000000000051';
+    DELETE FROM private.source_mention WHERE id='77000000-0000-0000-0000-000000000051';
+    DELETE FROM private.source_observation WHERE id='66000000-0000-0000-0000-000000000051';
+    DELETE FROM private.source_record_occurrence WHERE id='55000000-0000-0000-0000-000000000051';
+    DELETE FROM private.source_rendition WHERE id='33000000-0000-0000-0000-000000000051';
+    DELETE FROM private.extraction_run WHERE id='22000000-0000-0000-0000-000000000051';
+    DELETE FROM assertion WHERE id=-987650051;
+    DELETE FROM fact WHERE id=-987650051;
+    DELETE FROM source WHERE id=-987650051;
+    DELETE FROM profiles WHERE id='11000000-0000-0000-0000-000000000051';
+    DELETE FROM auth.users WHERE id='11000000-0000-0000-0000-000000000051';
+    DELETE FROM person WHERE id IN (-987650051,-987650052);
+    SET session_replication_role=origin;
+  $cleanup$;
+BEGIN
+  IF to_regprocedure('dblink_connect(text,text)') IS NULL THEN
+    RAISE EXCEPTION 'DB_VERIFY_DBLINK_REQUIRED: promotion-samtidighed';
+  END IF;
+  PERFORM dblink_connect('promotion_setup',v_conn||' application_name=daa_verify_promotion_setup');
+  v_setup_connected:=true;
+  PERFORM dblink_exec('promotion_setup',v_cleanup);
+  PERFORM dblink_exec('promotion_setup','BEGIN');
+  PERFORM dblink_exec('promotion_setup',format(
+    'INSERT INTO auth.users(id,email) VALUES (''%s'',''promotion-lock@test.invalid'')',v_actor));
+  PERFORM dblink_exec('promotion_setup',format(
+    'INSERT INTO profiles(id,rolle,email,navn) VALUES (''%s'',''redaktion'',%L,''Promotion Editor'')',
+    v_actor,'promotion-lock@test.invalid'));
+  PERFORM dblink_exec('promotion_setup',
+    'INSERT INTO person(id,levende,privat,status) VALUES '
+    || '(-987650051,false,false,''promotion lock original''),'
+    || '(-987650052,false,false,''promotion lock identity successor'');'
+    || 'INSERT INTO source(id,titel,import_key) VALUES (-987650051,''Promotion lock'',''verify:promotion:lock'');');
+  PERFORM dblink_exec('promotion_setup',format(
+    'INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) '
+    || 'VALUES (''%s'',-987650051,''promotion-lock-run'',''1.0'',''verify'',''verify'',%L,''{}'')',
+    v_run,repeat('5',64)));
+  PERFORM dblink_exec('promotion_setup',format(
+    'INSERT INTO private.source_rendition(id,source_id,rendition_key,rendition_kind,content_sha256,metadata) '
+    || 'VALUES (''%s'',-987650051,''promotion-lock-rendition'',''text_layer'',%L,''{}'')',
+    v_rendition,repeat('6',64)));
+  PERFORM dblink_exec('promotion_setup',format(
+    'INSERT INTO private.source_record_occurrence(id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id) '
+    || 'VALUES (''%s'',''%s'',''promotion-lock-occurrence'',1,1,0,13,''Anna Lock'',''physical-promotion-lock'',''structural-promotion-lock'',''%s'')',
+    v_occurrence,v_rendition,v_run));
+  PERFORM dblink_exec('promotion_setup',format(
+    'INSERT INTO private.source_observation(id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id) '
+    || 'VALUES (''%s'',''%s'',''name_clause'',1,1,0,13,''Anna Lock'',''clear'',''verify'',''%s'')',
+    v_observation,v_occurrence,v_run));
+  PERFORM dblink_exec('promotion_setup',format(
+    'INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) '
+    || 'VALUES (''%s'',-987650051,''promotion-lock-persona'',''%s'')',v_persona,v_run));
+  PERFORM dblink_exec('promotion_setup',format(
+    'INSERT INTO private.source_mention(id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id) '
+    || 'VALUES (''%s'',''%s'',''person'',0,4,''Anna'',''%s'');'
+    || 'INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) '
+    || 'VALUES (''%s'',''%s'',''principal'',1)',
+    v_mention,v_observation,v_run,v_persona,v_mention));
+  PERFORM dblink_exec('promotion_setup',
+    'INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-987650051,''person'',-987650051,''navn'');'
+    || 'INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,calendar,uforanderlig) '
+    || 'VALUES (-987650051,''fact'',-987650051,''Anna Lock'',''gregoriansk'',true);');
+  PERFORM dblink_exec('promotion_setup',
+    'INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate) '
+    || 'VALUES (''verify-concurrent-name'',''verify.concurrent.name'');'
+    || 'INSERT INTO private.interpretation_promotion_rule(rule_key,rule_version,predicate,interpretation_kind,target_type,expected_fact_type,value_kind,requires_persona_identity,requires_principal_placement,bulk_eligible,status) '
+    || 'VALUES (''verify-concurrent-name'',1,''verify.concurrent.name'',''property'',''assertion'',''navn'',''text'',true,false,true,''active'');');
+  PERFORM dblink_exec('promotion_setup',format(
+    'INSERT INTO private.source_persona_identity_event(source_persona_id,canonical_person_id,decision_status,version,evidence,decided_by,decided_by_name,decided_at) '
+    || 'VALUES (''%s'',-987650051,''accepted'',1,''{"basis":"verify"}'',''%s'',''Promotion Editor'',now());'
+    || 'INSERT INTO private.source_persona_identity(source_persona_id,canonical_person_id,decision_status,version,evidence,decided_by,decided_by_name,decided_at) '
+    || 'VALUES (''%s'',-987650051,''accepted'',1,''{"basis":"verify"}'',''%s'',''Promotion Editor'',now())',
+    v_persona,v_actor,v_persona,v_actor));
+  PERFORM dblink_exec('promotion_setup',format(
+    'INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id) '
+    || 'VALUES (''%s'',''c0000000-0000-0000-0000-000000000051'',1,-987650051,''%s'',''property'',''person.name'',''"Anna Lock"'',''1.0'',''source_statement'',1,''proposed'',''verify'',''%s'');'
+    || 'INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) VALUES (''%s'',''%s'',''supporting'',1);'
+    || 'INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id,supersedes_id,decision_evidence,decided_by,decided_by_name,decided_at) '
+    || 'VALUES (''%s'',''c0000000-0000-0000-0000-000000000051'',2,-987650051,''%s'',''property'',''person.name'',''"Anna Lock"'',''1.0'',''source_statement'',1,''accepted'',''verify'',''%s'',''%s'',''{"basis":"verify"}'',''%s'',''Promotion Editor'',clock_timestamp());'
+    || 'INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) VALUES (''%s'',''%s'',''supporting'',1);'
+    || 'INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id) '
+    || 'VALUES (''%s'',''c0000000-0000-0000-0000-000000000052'',1,-987650051,''%s'',''property'',''verify.concurrent.name'',''"Anna Lock"'',''1.0'',''source_statement'',1,''proposed'',''verify'',''%s'');'
+    || 'INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) VALUES (''%s'',''%s'',''supporting'',1);'
+    || 'INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id,supersedes_id,decision_evidence,decided_by,decided_by_name,decided_at) '
+    || 'VALUES (''%s'',''c0000000-0000-0000-0000-000000000052'',2,-987650051,''%s'',''property'',''verify.concurrent.name'',''"Anna Lock"'',''1.0'',''source_statement'',1,''accepted'',''verify'',''%s'',''%s'',''{"basis":"verify"}'',''%s'',''Promotion Editor'',clock_timestamp());'
+    || 'INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) VALUES (''%s'',''%s'',''supporting'',1)',
+    v_interpretation_1,v_persona,v_run,v_interpretation_1,v_observation,
+    v_interpretation_2,v_persona,v_run,v_interpretation_1,v_actor,v_interpretation_2,v_observation,
+    v_identity_interpretation_1,v_persona,v_run,v_identity_interpretation_1,v_observation,
+    v_identity_interpretation_2,v_persona,v_run,v_identity_interpretation_1,v_actor,
+    v_identity_interpretation_2,v_observation));
+  PERFORM dblink_exec('promotion_setup','COMMIT');
+
+  PERFORM dblink_connect('promotion_a',v_conn||' application_name=daa_verify_promotion_a');
+  v_a_connected:=true;
+  PERFORM dblink_connect('promotion_b',v_conn||' application_name=daa_verify_promotion_b');
+  v_b_connected:=true;
+  SELECT pid INTO v_a_pid FROM dblink('promotion_a','SELECT pg_backend_pid()') AS t(pid integer);
+  SELECT pid INTO v_b_pid FROM dblink('promotion_b','SELECT pg_backend_pid()') AS t(pid integer);
+  PERFORM dblink_exec('promotion_a','BEGIN');
+  PERFORM dblink_exec('promotion_a','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('promotion_a',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  SELECT preview->>'preview_hash' INTO v_preview_hash
+    FROM dblink('promotion_a',format(
+      'SELECT red_preview_interpretation_promotions(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb) AS preview',
+      v_interpretation_2)) AS t(preview jsonb);
+  IF v_preview_hash !~ '^[0-9a-f]{64}$' THEN
+    RAISE EXCEPTION 'FEJL: promotion-samtidighed fik ikke SHA-256-preview';
+  END IF;
+  -- Simulér en separat, append-only current-version mellem preview og batch.
+  -- Det er med vilje ikke red_decide_interpretation(): #155 tillader kun den
+  -- RPC på proposals, mens stale-preview-gaten stadig skal tåle en ændret
+  -- ledger-version fra en anden autoriseret write-vej.
+  PERFORM dblink_exec('promotion_a','RESET ROLE');
+  PERFORM dblink_exec('promotion_a',format(
+    'WITH created AS (INSERT INTO private.interpretation('
+    || 'id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,value,'
+    || 'schema_version,derivation_kind,confidence,status,method,model_version,prompt_version,'
+    || 'extraction_run_id,supersedes_id,decision_evidence,decided_by,decided_by_name,decided_at) '
+    || 'SELECT gen_random_uuid(),interpretation_key,version+1,source_id,source_persona_id,interpretation_kind,predicate,value,'
+    || 'schema_version,derivation_kind,confidence,''rejected'',method,model_version,prompt_version,'
+    || 'extraction_run_id,id,''{"basis":"concurrent ledger change"}'',%L,''Promotion Editor'',clock_timestamp() '
+    || 'FROM private.interpretation WHERE id=''%s'' RETURNING id) '
+    || 'INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) '
+    || 'SELECT created.id,io.observation_id,io.evidence_role,io.ordinal '
+    || 'FROM created JOIN private.interpretation_observation io ON io.interpretation_id=''%s''',
+    v_actor::text,v_interpretation_2,v_interpretation_2));
+
+  PERFORM dblink_exec('promotion_b','BEGIN');
+  PERFORM dblink_exec('promotion_b','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('promotion_b',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  PERFORM dblink_send_query('promotion_b',format(
+    'SELECT red_promote_interpretations_batch(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb,%L)',
+    v_interpretation_2,v_preview_hash));
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
+    SELECT dblink_is_busy('promotion_b') INTO v_busy;
+    IF v_busy=0 OR clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: promotion-batch blev ikke serialiseret på current fortolkning';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  PERFORM dblink_exec('promotion_a','COMMIT');
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    SELECT dblink_is_busy('promotion_b') INTO v_busy;
+    EXIT WHEN v_busy=0;
+    IF clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: promotion-batch afsluttede ikke efter concurrent COMMIT';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  v_error:=NULL;
+  BEGIN
+    PERFORM * FROM dblink_get_result('promotion_b') AS t(batch_id uuid);
+  EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+  BEGIN
+    PERFORM * FROM dblink_get_result('promotion_b') AS t(batch_id uuid);
+  EXCEPTION WHEN others THEN IF v_error IS NULL THEN v_error:=SQLERRM; END IF; END;
+  IF v_error NOT LIKE '%EVIDENCE_PROMOTION_PREVIEW_STALE%' THEN
+    RAISE EXCEPTION 'FEJL: concurrent promotion fejlede ikke stale/fail-closed: %',v_error;
+  END IF;
+  PERFORM dblink_exec('promotion_b','ROLLBACK');
+  PERFORM dblink_disconnect('promotion_a'); v_a_connected:=false;
+  PERFORM dblink_disconnect('promotion_b'); v_b_connected:=false;
+  IF EXISTS (SELECT 1 FROM private.interpretation_promotion WHERE interpretation_id=v_interpretation_2)
+     OR EXISTS (SELECT 1 FROM private.interpretation_promotion_batch WHERE promoted_by=v_actor) THEN
+    RAISE EXCEPTION 'FEJL: concurrent stale promotion efterlod audit-skrivning';
+  END IF;
+
+  -- A ændrer identity-state gennem den rigtige redaktør-RPC. B har allerede
+  -- startet batchen og låser den aktuelle fortolkning, men skal derefter vente
+  -- på persona/identity-låsen og genberegne fail-closed efter A's COMMIT.
+  PERFORM dblink_connect('promotion_a',v_conn||' application_name=daa_verify_promotion_identity_a');
+  v_a_connected:=true;
+  PERFORM dblink_connect('promotion_b',v_conn||' application_name=daa_verify_promotion_identity_b');
+  v_b_connected:=true;
+  SELECT pid INTO v_a_pid FROM dblink('promotion_a','SELECT pg_backend_pid()') AS t(pid integer);
+  SELECT pid INTO v_b_pid FROM dblink('promotion_b','SELECT pg_backend_pid()') AS t(pid integer);
+  PERFORM dblink_exec('promotion_a','BEGIN');
+  PERFORM dblink_exec('promotion_a','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('promotion_a',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  SELECT preview->>'preview_hash' INTO v_preview_hash
+    FROM dblink('promotion_a',format(
+      'SELECT red_preview_interpretation_promotions(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb) AS preview',
+      v_identity_interpretation_2)) AS t(preview jsonb);
+  SELECT version INTO v_version FROM dblink('promotion_a',format(
+    'SELECT red_decide_source_persona_identity(''%s'',-987650052,1,''accepted'',''{"basis":"concurrent identity review"}'')',
+    v_persona)) AS t(version integer);
+  IF v_version<>2 THEN
+    RAISE EXCEPTION 'FEJL: concurrent identity-writer gav version %',v_version;
+  END IF;
+  PERFORM dblink_exec('promotion_b','BEGIN');
+  PERFORM dblink_exec('promotion_b','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('promotion_b',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  PERFORM dblink_send_query('promotion_b',format(
+    'SELECT red_promote_interpretations_batch(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb,%L)',
+    v_identity_interpretation_2,v_preview_hash));
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
+    SELECT dblink_is_busy('promotion_b') INTO v_busy;
+    IF v_busy=0 OR clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: promotion-batch nåede ikke persona/identity-låsen';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  PERFORM dblink_exec('promotion_a','COMMIT');
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    SELECT dblink_is_busy('promotion_b') INTO v_busy;
+    EXIT WHEN v_busy=0;
+    IF clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: promotion-batch afsluttede ikke efter identity-COMMIT';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  v_error:=NULL;
+  BEGIN
+    PERFORM * FROM dblink_get_result('promotion_b') AS t(batch_id uuid);
+  EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+  BEGIN
+    PERFORM * FROM dblink_get_result('promotion_b') AS t(batch_id uuid);
+  EXCEPTION WHEN others THEN IF v_error IS NULL THEN v_error:=SQLERRM; END IF; END;
+  IF v_error NOT LIKE '%EVIDENCE_PROMOTION_PREVIEW_STALE%' THEN
+    RAISE EXCEPTION 'FEJL: identity-racet promotion fejlede ikke stale/fail-closed: %',v_error;
+  END IF;
+  PERFORM dblink_exec('promotion_b','ROLLBACK');
+  PERFORM dblink_disconnect('promotion_a'); v_a_connected:=false;
+  PERFORM dblink_disconnect('promotion_b'); v_b_connected:=false;
+  IF NOT EXISTS (
+       SELECT 1 FROM private.source_persona_identity
+        WHERE source_persona_id=v_persona AND canonical_person_id=-987650052
+          AND decision_status='accepted' AND version=2
+     )
+     OR EXISTS (SELECT 1 FROM private.interpretation_promotion
+                 WHERE interpretation_id=v_identity_interpretation_2)
+     OR EXISTS (SELECT 1 FROM private.interpretation_promotion_batch WHERE promoted_by=v_actor) THEN
+    RAISE EXCEPTION 'FEJL: identity-racet promotion efterlod forkert state eller audit-skrivning';
+  END IF;
+
+  -- En ny regelversion låser regellinjen. Batchen med et v1-preview skal vente,
+  -- genberegne efter commit og afvise hash'en i stedet for at bruge v2 uset.
+  PERFORM dblink_connect('promotion_a',v_conn||' application_name=daa_verify_promotion_rule_a');
+  v_a_connected:=true;
+  PERFORM dblink_connect('promotion_b',v_conn||' application_name=daa_verify_promotion_rule_b');
+  v_b_connected:=true;
+  SELECT pid INTO v_a_pid FROM dblink('promotion_a','SELECT pg_backend_pid()') AS t(pid integer);
+  SELECT pid INTO v_b_pid FROM dblink('promotion_b','SELECT pg_backend_pid()') AS t(pid integer);
+  PERFORM dblink_exec('promotion_a','BEGIN');
+  PERFORM dblink_exec('promotion_a','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('promotion_a',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  SELECT version INTO v_version FROM dblink('promotion_a',format(
+    'SELECT red_decide_source_persona_identity(''%s'',-987650051,2,''accepted'',''{"basis":"restore for rule race"}'')',
+    v_persona)) AS t(version integer);
+  IF v_version<>3 THEN RAISE EXCEPTION 'FEJL: identity restore gav version %',v_version; END IF;
+  PERFORM dblink_exec('promotion_a','COMMIT');
+  PERFORM dblink_exec('promotion_a','BEGIN');
+  PERFORM dblink_exec('promotion_a','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('promotion_a',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  SELECT preview->>'preview_hash' INTO v_preview_hash
+    FROM dblink('promotion_a',format(
+      'SELECT red_preview_interpretation_promotions(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb) AS preview',
+      v_identity_interpretation_2)) AS t(preview jsonb);
+  PERFORM dblink_exec('promotion_a','COMMIT');
+  PERFORM dblink_exec('promotion_a','BEGIN');
+  SELECT version INTO v_version FROM dblink('promotion_a',
+    'SELECT private.add_interpretation_promotion_rule_version('
+    || '''verify-concurrent-name'',''verify.concurrent.name'',''property'',''assertion'',''navn'',''text'',true,false,true,''active'')'
+  ) AS t(version integer);
+  IF v_version<>2 THEN RAISE EXCEPTION 'FEJL: concurrent regel-writer gav version %',v_version; END IF;
+  PERFORM dblink_exec('promotion_b','BEGIN');
+  PERFORM dblink_exec('promotion_b','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('promotion_b',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  PERFORM dblink_send_query('promotion_b',format(
+    'SELECT red_promote_interpretations_batch(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb,%L)',
+    v_identity_interpretation_2,v_preview_hash));
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
+    SELECT dblink_is_busy('promotion_b') INTO v_busy;
+    IF v_busy=0 OR clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: promotion-batch ventede ikke på regellinjen'; END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  PERFORM dblink_exec('promotion_a','COMMIT');
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP SELECT dblink_is_busy('promotion_b') INTO v_busy; EXIT WHEN v_busy=0;
+    IF clock_timestamp()>v_deadline THEN RAISE EXCEPTION 'FEJL: rule-race batch afsluttede ikke'; END IF;
+    PERFORM pg_sleep(0.02); END LOOP;
+  v_error:=NULL;
+  BEGIN PERFORM * FROM dblink_get_result('promotion_b') AS t(batch_id uuid);
+  EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+  BEGIN PERFORM * FROM dblink_get_result('promotion_b') AS t(batch_id uuid);
+  EXCEPTION WHEN others THEN IF v_error IS NULL THEN v_error:=SQLERRM; END IF; END;
+  IF v_error NOT LIKE '%EVIDENCE_PROMOTION_PREVIEW_STALE%' THEN
+    RAISE EXCEPTION 'FEJL: rule-racet promotion fejlede ikke stale/fail-closed: %',v_error; END IF;
+  PERFORM dblink_exec('promotion_b','ROLLBACK');
+  PERFORM dblink_disconnect('promotion_a'); v_a_connected:=false;
+  PERFORM dblink_disconnect('promotion_b'); v_b_connected:=false;
+  IF EXISTS(SELECT 1 FROM private.interpretation_promotion
+             WHERE interpretation_id=v_identity_interpretation_2) THEN
+    RAISE EXCEPTION 'FEJL: rule-racet efterlod promotion med skjult regelversion'; END IF;
+  PERFORM dblink_exec('promotion_setup',v_cleanup);
+  PERFORM dblink_disconnect('promotion_setup'); v_setup_connected:=false;
+  PERFORM set_config('daa.verify_dblink_promotion','executed',false);
+  RAISE NOTICE 'OK: promotion-batch låser current fortolkning og personaidentitet og afviser stale preview';
+EXCEPTION WHEN others THEN
+  IF v_a_connected THEN
+    BEGIN PERFORM dblink_exec('promotion_a','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('promotion_a'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  IF v_b_connected THEN
+    BEGIN PERFORM dblink_exec('promotion_b','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('promotion_b'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  IF v_setup_connected THEN
+    BEGIN PERFORM dblink_exec('promotion_setup',v_cleanup); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('promotion_setup'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  RAISE;
+END $promotion_concurrency$;
+
+-- To redaktørtransaktioner fra samme identity-version: persona-låsen skal
+-- serialisere dem, og den tabende afgørelse skal fejle på expected_version.
+DO $identity_concurrency$
+DECLARE
+  v_conn text := format(
+    'dbname=%s port=%s host=%s',current_database(),current_setting('port'),
+    split_part(current_setting('unix_socket_directories'),',',1)
+  );
+  v_actor uuid := '11000000-0000-0000-0000-000000000031';
+  v_persona uuid := '88000000-0000-0000-0000-000000000031';
+  v_a_pid integer;
+  v_b_pid integer;
+  v_busy integer;
+  v_version integer;
+  v_deadline timestamptz;
+  v_error text;
+  v_setup_connected boolean := false;
+  v_a_connected boolean := false;
+  v_b_connected boolean := false;
+  v_cleanup text := $cleanup$
+    SET session_replication_role=replica;
+    DELETE FROM private.source_persona_identity_event
+      WHERE source_persona_id='88000000-0000-0000-0000-000000000031';
+    DELETE FROM private.source_persona_identity
+      WHERE source_persona_id='88000000-0000-0000-0000-000000000031';
+    DELETE FROM private.source_persona_mention
+      WHERE persona_id='88000000-0000-0000-0000-000000000031';
+    DELETE FROM private.source_persona
+      WHERE id='88000000-0000-0000-0000-000000000031';
+    DELETE FROM private.source_mention
+      WHERE id='77000000-0000-0000-0000-000000000031';
+    DELETE FROM private.source_observation
+      WHERE id='66000000-0000-0000-0000-000000000031';
+    DELETE FROM private.source_record_occurrence
+      WHERE id='55000000-0000-0000-0000-000000000031';
+    DELETE FROM private.source_rendition
+      WHERE id='33000000-0000-0000-0000-000000000031';
+    DELETE FROM private.extraction_run
+      WHERE id='22000000-0000-0000-0000-000000000031';
+    DELETE FROM source WHERE id=-987650031;
+    DELETE FROM profiles WHERE id='11000000-0000-0000-0000-000000000031';
+    DELETE FROM auth.users WHERE id='11000000-0000-0000-0000-000000000031';
+    DELETE FROM person WHERE id IN (-987650031,-987650032);
+    SET session_replication_role=origin;
+  $cleanup$;
+BEGIN
+  IF to_regprocedure('dblink_connect(text,text)') IS NULL THEN
+    RAISE EXCEPTION 'DB_VERIFY_DBLINK_REQUIRED: identity-samtidighed';
+  END IF;
+  PERFORM dblink_connect('identity_setup',v_conn||' application_name=daa_verify_identity_setup');
+  v_setup_connected:=true;
+  PERFORM dblink_exec('identity_setup',v_cleanup);
+  PERFORM dblink_exec('identity_setup',format(
+    'INSERT INTO auth.users(id,email) VALUES (''%s'',''identity-lock@test.invalid'')',v_actor));
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO person(id,levende,privat,status) VALUES '
+    || '(-987650031,false,false,''identity A''),(-987650032,false,false,''identity B'')');
+  PERFORM dblink_exec('identity_setup',format(
+    'INSERT INTO profiles(id,rolle,email,navn) VALUES '
+    || '(''%s'',''redaktion'',''identity-lock@test.invalid'',''Identity Editor'')',v_actor));
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO source(id,titel,import_key) VALUES '
+    || '(-987650031,''Identity lock'',''verify:identity:lock'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.extraction_run('
+    || 'id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) '
+    || 'VALUES (''22000000-0000-0000-0000-000000000031'',-987650031,''identity-lock-run'','
+    || '''1.0'',''verify'',''verify'',' || quote_literal(repeat('3',64)) || ',''{}'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES '
+    || '(''88000000-0000-0000-0000-000000000031'',-987650031,''identity-lock-persona'','
+    || '''22000000-0000-0000-0000-000000000031'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_rendition('
+    || 'id,source_id,rendition_key,rendition_kind,content_sha256,metadata) VALUES '
+    || '(''33000000-0000-0000-0000-000000000031'',-987650031,''identity-lock-rendition'','
+    || '''text_layer'',' || quote_literal(repeat('4',64)) || ',''{}'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_record_occurrence('
+    || 'id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,'
+    || 'physical_fingerprint,structural_fingerprint,extraction_run_id) VALUES '
+    || '(''55000000-0000-0000-0000-000000000031'','
+    || '''33000000-0000-0000-0000-000000000031'',''identity-lock-occurrence'',1,1,0,4,'
+    || '''Anna'',''identity-physical'',''identity-structural'','
+    || '''22000000-0000-0000-0000-000000000031'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_observation('
+    || 'id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,'
+    || 'quality_status,extraction_method,extraction_run_id) VALUES '
+    || '(''66000000-0000-0000-0000-000000000031'','
+    || '''55000000-0000-0000-0000-000000000031'',''person_name'',1,1,0,4,''Anna'','
+    || '''clear'',''verify'',''22000000-0000-0000-0000-000000000031'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_mention('
+    || 'id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id) VALUES '
+    || '(''77000000-0000-0000-0000-000000000031'','
+    || '''66000000-0000-0000-0000-000000000031'',''person'',0,4,''Anna'','
+    || '''22000000-0000-0000-0000-000000000031'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) VALUES '
+    || '(''88000000-0000-0000-0000-000000000031'','
+    || '''77000000-0000-0000-0000-000000000031'',''principal'',1)');
+  PERFORM dblink_exec('identity_setup','BEGIN');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_persona_identity_event('
+    || 'source_persona_id,canonical_person_id,decision_status,version,evidence) VALUES '
+    || '(''88000000-0000-0000-0000-000000000031'',NULL,''proposed'',1,''{}'')');
+  PERFORM dblink_exec('identity_setup',
+    'INSERT INTO private.source_persona_identity('
+    || 'source_persona_id,canonical_person_id,decision_status,version,evidence) VALUES '
+    || '(''88000000-0000-0000-0000-000000000031'',NULL,''proposed'',1,''{}'')');
+  PERFORM dblink_exec('identity_setup','COMMIT');
+
+  PERFORM dblink_connect('identity_a',v_conn||' application_name=daa_verify_identity_a');
+  v_a_connected:=true;
+  PERFORM dblink_connect('identity_b',v_conn||' application_name=daa_verify_identity_b');
+  v_b_connected:=true;
+  SELECT pid INTO v_a_pid FROM dblink('identity_a','SELECT pg_backend_pid()') AS t(pid integer);
+  SELECT pid INTO v_b_pid FROM dblink('identity_b','SELECT pg_backend_pid()') AS t(pid integer);
+
+  PERFORM dblink_exec('identity_a','BEGIN');
+  PERFORM dblink_exec('identity_a','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('identity_a',format(
+    'SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  SELECT version INTO v_version FROM dblink('identity_a',
+    'SELECT red_decide_source_persona_identity('
+    || '''88000000-0000-0000-0000-000000000031'',-987650031,1,''accepted'','
+    || '''{"basis":"A"}'')') AS t(version integer);
+  IF v_version<>2 THEN RAISE EXCEPTION 'FEJL: første identity-writer gav version %',v_version; END IF;
+
+  PERFORM dblink_exec('identity_b','BEGIN');
+  PERFORM dblink_exec('identity_b','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('identity_b',format(
+    'SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  PERFORM dblink_send_query('identity_b',
+    'SELECT red_decide_source_persona_identity('
+    || '''88000000-0000-0000-0000-000000000031'',-987650032,1,''accepted'','
+    || '''{"basis":"B"}'')');
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
+    SELECT dblink_is_busy('identity_b') INTO v_busy;
+    IF v_busy=0 OR clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: anden identity-writer blev ikke serialiseret på persona';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  PERFORM dblink_exec('identity_a','COMMIT');
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    SELECT dblink_is_busy('identity_b') INTO v_busy;
+    EXIT WHEN v_busy=0;
+    IF clock_timestamp()>v_deadline THEN
+      RAISE EXCEPTION 'FEJL: anden identity-writer afsluttede ikke efter COMMIT';
+    END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  v_error:=NULL;
+  BEGIN
+    PERFORM * FROM dblink_get_result('identity_b') AS t(version integer);
+  EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+  BEGIN
+    PERFORM * FROM dblink_get_result('identity_b') AS t(version integer);
+  EXCEPTION WHEN others THEN IF v_error IS NULL THEN v_error:=SQLERRM; END IF; END;
+  IF v_error NOT LIKE '%EVIDENCE_IDENTITY_VERSION_CONFLICT%' THEN
+    RAISE EXCEPTION 'FEJL: tabende identity-writer fejlede ikke fail-closed: %',v_error;
+  END IF;
+  PERFORM dblink_exec('identity_b','ROLLBACK');
+  PERFORM dblink_disconnect('identity_a'); v_a_connected:=false;
+  PERFORM dblink_disconnect('identity_b'); v_b_connected:=false;
+  IF NOT EXISTS (
+    SELECT 1 FROM private.source_persona_identity
+     WHERE source_persona_id=v_persona AND canonical_person_id=-987650031
+       AND decision_status='accepted' AND version=2
+  ) OR (SELECT count(*) FROM private.source_persona_identity
+         WHERE source_persona_id=v_persona)<>1 THEN
+    RAISE EXCEPTION 'FEJL: samtidighed efterlod ikke præcis ét vindende identitetsmål';
+  END IF;
+  PERFORM dblink_exec('identity_setup',v_cleanup);
+  PERFORM dblink_disconnect('identity_setup'); v_setup_connected:=false;
+  PERFORM set_config('daa.verify_dblink_identity','executed',false);
+  RAISE NOTICE 'OK: identitetsafgørelser serialiseres og expected_version er fail-closed';
+EXCEPTION WHEN others THEN
+  IF v_a_connected THEN
+    BEGIN PERFORM dblink_exec('identity_a','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('identity_a'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  IF v_b_connected THEN
+    BEGIN PERFORM dblink_exec('identity_b','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('identity_b'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  IF v_setup_connected THEN
+    BEGIN PERFORM dblink_exec('identity_setup',v_cleanup); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('identity_setup'); EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+  RAISE;
+END $identity_concurrency$;
+
+-- To forskellige forslag til samme record/scheme-entry må ikke begge kunne
+-- accepteres. Parent-recordlåsen serialiserer den første afgørelse.
+DO $placement_concurrency$
+DECLARE
+  v_conn text := format('dbname=%s port=%s host=%s',current_database(),current_setting('port'),
+    split_part(current_setting('unix_socket_directories'),',',1));
+  v_actor uuid := '11000000-0000-0000-0000-000000000071';
+  v_a uuid := '99000000-0000-0000-0000-000000000071';
+  v_b uuid := '99000000-0000-0000-0000-000000000072';
+  v_a_pid integer; v_b_pid integer; v_busy integer; v_version integer;
+  v_deadline timestamptz; v_error text;
+  v_setup_connected boolean:=false; v_a_connected boolean:=false; v_b_connected boolean:=false;
+  v_cleanup text := $cleanup$
+    SET session_replication_role=replica;
+    DELETE FROM private.source_record_placement_decision WHERE placement_id IN
+      ('99000000-0000-0000-0000-000000000071','99000000-0000-0000-0000-000000000072');
+    DELETE FROM private.source_record_placement WHERE id IN
+      ('99000000-0000-0000-0000-000000000071','99000000-0000-0000-0000-000000000072');
+    DELETE FROM lineage_scheme_entry WHERE id=-987650071;
+    DELETE FROM lineage_scheme WHERE id=-987650071;
+    DELETE FROM slaegt WHERE id=-987650071;
+    DELETE FROM private.source_observation WHERE id='66000000-0000-0000-0000-000000000071';
+    DELETE FROM private.source_record_anchor_event WHERE occurrence_id='55000000-0000-0000-0000-000000000071';
+    DELETE FROM private.source_record_occurrence WHERE id='55000000-0000-0000-0000-000000000071';
+    DELETE FROM private.source_record WHERE id='77000000-0000-0000-0000-000000000071';
+    DELETE FROM private.source_rendition WHERE id='33000000-0000-0000-0000-000000000071';
+    DELETE FROM private.extraction_run WHERE id='22000000-0000-0000-0000-000000000071';
+    DELETE FROM source WHERE id=-987650071;
+    DELETE FROM profiles WHERE id='11000000-0000-0000-0000-000000000071';
+    DELETE FROM auth.users WHERE id='11000000-0000-0000-0000-000000000071';
+    SET session_replication_role=origin;
+  $cleanup$;
+BEGIN
+  IF to_regprocedure('dblink_connect(text,text)') IS NULL THEN
+    RAISE EXCEPTION 'DB_VERIFY_DBLINK_REQUIRED: placement-samtidighed';
+  END IF;
+  PERFORM dblink_connect('placement_setup',v_conn||' application_name=daa_verify_placement_setup');
+  v_setup_connected:=true; PERFORM dblink_exec('placement_setup',v_cleanup);
+  PERFORM dblink_exec('placement_setup',format(
+    'INSERT INTO auth.users(id,email) VALUES (%L,%L)',v_actor,'placement-lock@test.invalid'));
+  PERFORM dblink_exec('placement_setup',format(
+    'INSERT INTO profiles(id,rolle,email,navn) VALUES (%L,''redaktion'',%L,''Placement Editor'')',
+    v_actor,'placement-lock@test.invalid'));
+  PERFORM dblink_exec('placement_setup',
+    'INSERT INTO source(id,titel,import_key) VALUES (-987650071,''Placement lock'',''verify:placement:lock'')');
+  PERFORM dblink_exec('placement_setup',
+    'INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) '
+    || 'VALUES (''22000000-0000-0000-0000-000000000071'',-987650071,''placement-lock-run'',''1.0'',''verify'',''verify'','
+    || quote_literal(repeat('7',64)) || ',''{}'')');
+  PERFORM dblink_exec('placement_setup',
+    'INSERT INTO private.source_rendition(id,source_id,rendition_key,rendition_kind,content_sha256,metadata) '
+    || 'VALUES (''33000000-0000-0000-0000-000000000071'',-987650071,''placement-lock-rendition'',''text_layer'','
+    || quote_literal(repeat('8',64)) || ',''{}'')');
+  PERFORM dblink_exec('placement_setup',
+    'INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id) VALUES '
+    || '(''77000000-0000-0000-0000-000000000071'',-987650071,''placement-lock-record'',''person'','
+    || '''22000000-0000-0000-0000-000000000071'')');
+  PERFORM dblink_exec('placement_setup',
+    'INSERT INTO private.source_record_occurrence(id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id) VALUES '
+    || '(''55000000-0000-0000-0000-000000000071'',''33000000-0000-0000-0000-000000000071'',''placement-lock-occurrence'',1,1,0,6,''Header'',''placement-physical'',''placement-structural'',''22000000-0000-0000-0000-000000000071'')');
+  PERFORM dblink_exec('placement_setup',
+    'INSERT INTO private.source_record_anchor_event(occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name) VALUES '
+    || '(''55000000-0000-0000-0000-000000000071'',''77000000-0000-0000-0000-000000000071'',''accepted'',''{"basis":"verify"}'',1,'
+    || quote_literal(v_actor) || ',''Placement Editor'')');
+  PERFORM dblink_exec('placement_setup',
+    'INSERT INTO private.source_observation(id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id) VALUES '
+    || '(''66000000-0000-0000-0000-000000000071'',''55000000-0000-0000-0000-000000000071'',''header'',1,1,0,6,''Header'',''clear'',''verify'',''22000000-0000-0000-0000-000000000071'')');
+  PERFORM dblink_exec('placement_setup',
+    'INSERT INTO slaegt(id,navn,sorteringsnavn,slug) VALUES (-987650071,''Placement Family'',''placement family'',''placement-family-verify'')');
+  PERFORM dblink_exec('placement_setup',
+    'INSERT INTO lineage_scheme(id,slaegt_id,source_id,kind,label) VALUES (-987650071,-987650071,-987650071,''stamtavle'',''Placement verify'')');
+  PERFORM dblink_exec('placement_setup',
+    'INSERT INTO lineage_scheme_entry(id,scheme_id,slaegt_id,code,label,sort_order) VALUES (-987650071,-987650071,-987650071,''I'',''I'',1)');
+  PERFORM dblink_exec('placement_setup','BEGIN');
+  PERFORM dblink_exec('placement_setup',format(
+    'INSERT INTO private.source_record_placement(id,source_record_id,scheme_entry_id,header_observation_id) VALUES (%L,''77000000-0000-0000-0000-000000000071'',-987650071,''66000000-0000-0000-0000-000000000071''),(%L,''77000000-0000-0000-0000-000000000071'',-987650071,''66000000-0000-0000-0000-000000000071'')',v_a,v_b));
+  PERFORM dblink_exec('placement_setup',format(
+    'INSERT INTO private.source_record_placement_decision(placement_id,version,decision_status,evidence,decision_origin,decided_by_name) VALUES (%L,1,''proposed'',''{"basis":"A"}'',''ingest'',''verify ingest''),(%L,1,''proposed'',''{"basis":"B"}'',''ingest'',''verify ingest'')',v_a,v_b));
+  PERFORM dblink_exec('placement_setup','COMMIT');
+
+  PERFORM dblink_connect('placement_a',v_conn||' application_name=daa_verify_placement_a'); v_a_connected:=true;
+  PERFORM dblink_connect('placement_b',v_conn||' application_name=daa_verify_placement_b'); v_b_connected:=true;
+  SELECT pid INTO v_a_pid FROM dblink('placement_a','SELECT pg_backend_pid()') AS t(pid integer);
+  SELECT pid INTO v_b_pid FROM dblink('placement_b','SELECT pg_backend_pid()') AS t(pid integer);
+  PERFORM dblink_exec('placement_a','BEGIN');
+  PERFORM dblink_exec('placement_a','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('placement_a',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  SELECT version INTO v_version FROM dblink('placement_a',format(
+    'SELECT red_decide_source_record_placement(%L,1,''accepted'',''{"basis":"A"}'')',v_a)) AS t(version integer);
+  IF v_version<>2 THEN RAISE EXCEPTION 'FEJL: første placement-writer gav version %',v_version; END IF;
+  PERFORM dblink_exec('placement_b','BEGIN');
+  PERFORM dblink_exec('placement_b','SET LOCAL ROLE authenticated');
+  PERFORM dblink_exec('placement_b',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  PERFORM dblink_send_query('placement_b',format(
+    'SELECT red_decide_source_record_placement(%L,1,''accepted'',''{"basis":"B"}'')',v_b));
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP
+    EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
+    SELECT dblink_is_busy('placement_b') INTO v_busy;
+    IF v_busy=0 OR clock_timestamp()>v_deadline THEN RAISE EXCEPTION 'FEJL: anden placement-writer blev ikke serialiseret'; END IF;
+    PERFORM pg_sleep(0.02);
+  END LOOP;
+  PERFORM dblink_exec('placement_a','COMMIT');
+  v_deadline:=clock_timestamp()+interval '3 seconds';
+  LOOP SELECT dblink_is_busy('placement_b') INTO v_busy; EXIT WHEN v_busy=0;
+    IF clock_timestamp()>v_deadline THEN RAISE EXCEPTION 'FEJL: anden placement-writer afsluttede ikke'; END IF;
+    PERFORM pg_sleep(0.02); END LOOP;
+  v_error:=NULL;
+  BEGIN PERFORM * FROM dblink_get_result('placement_b') AS t(version integer);
+  EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
+  BEGIN PERFORM * FROM dblink_get_result('placement_b') AS t(version integer);
+  EXCEPTION WHEN others THEN IF v_error IS NULL THEN v_error:=SQLERRM; END IF; END;
+  IF v_error NOT LIKE '%EVIDENCE_PLACEMENT_ALREADY_ACCEPTED%' THEN
+    RAISE EXCEPTION 'FEJL: tabende placement-writer fejlede ikke fail-closed: %',v_error; END IF;
+  PERFORM dblink_exec('placement_b','ROLLBACK');
+  PERFORM dblink_disconnect('placement_a'); v_a_connected:=false;
+  PERFORM dblink_disconnect('placement_b'); v_b_connected:=false;
+  IF (SELECT count(*) FROM private.source_record_placement_current
+       WHERE source_record_id='77000000-0000-0000-0000-000000000071'
+         AND scheme_entry_id=-987650071 AND decision_status='accepted')<>1
+     OR EXISTS(SELECT 1 FROM private.source_record_placement_decision WHERE placement_id=v_b AND version=2) THEN
+    RAISE EXCEPTION 'FEJL: placement-race efterlod ikke præcis én accepted decision'; END IF;
+  PERFORM dblink_exec('placement_setup',v_cleanup);
+  PERFORM dblink_disconnect('placement_setup'); v_setup_connected:=false;
+  PERFORM set_config('daa.verify_dblink_placement','executed',false);
+  RAISE NOTICE 'OK: placement-afgørelser serialiseres på parent-record og er globalt entydige';
+EXCEPTION WHEN others THEN
+  IF v_a_connected THEN BEGIN PERFORM dblink_exec('placement_a','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('placement_a'); EXCEPTION WHEN others THEN NULL; END; END IF;
+  IF v_b_connected THEN BEGIN PERFORM dblink_exec('placement_b','ROLLBACK'); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('placement_b'); EXCEPTION WHEN others THEN NULL; END; END IF;
+  IF v_setup_connected THEN BEGIN PERFORM dblink_exec('placement_setup',v_cleanup); EXCEPTION WHEN others THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('placement_setup'); EXCEPTION WHEN others THEN NULL; END; END IF;
+  RAISE;
+END $placement_concurrency$;
+
+-- Task 11: køens fire RPC'er må kun være tilgængelige gennem authenticated.
+DO $source_persona_queue_verify$
+BEGIN
+  IF to_regprocedure('public.red_source_persona_queue(text,bigint,uuid,integer)') IS NULL
+     OR to_regprocedure('public.red_source_persona_detail(uuid)') IS NULL
+     OR to_regprocedure('public.red_source_persona_history(uuid)') IS NULL
+     OR to_regprocedure('public.red_afgoer_source_persona(uuid,integer,text,bigint,text)') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: Task 11 mangler source-persona-køens RPCer';
+  END IF;
+  IF has_function_privilege('anon','public.red_source_persona_queue(text,bigint,uuid,integer)','EXECUTE')
+     OR has_function_privilege('anon','public.red_source_persona_detail(uuid)','EXECUTE')
+     OR has_function_privilege('anon','public.red_source_persona_history(uuid)','EXECUTE')
+     OR has_function_privilege('anon','public.red_afgoer_source_persona(uuid,integer,text,bigint,text)','EXECUTE') THEN
+    RAISE EXCEPTION 'FEJL: Task 11 eksponerer privat source-persona-kø for anon';
+  END IF;
+  RAISE NOTICE 'OK: Task 11 source-persona-kø er privat og har eksplicitte RPC-kontrakter';
+END $source_persona_queue_verify$;
 
 -- ===== Person OCR kvalitetsark — atomisk rettelse og historik =====
 -- Selvstændig transaktionsfixture. Alle positive og negative veje kører gennem
@@ -304,7 +5876,10 @@ END $$;
 DO $$
 DECLARE
   v_uid uuid := '00000000-0000-0000-0000-0000000000c6';
-  v_conn text := format('dbname=%s', current_database());
+  v_conn text := format(
+    'dbname=%s port=%s host=%s', current_database(), current_setting('port'),
+    split_part(current_setting('unix_socket_directories'),',',1)
+  );
   v_a_busy integer;
   v_b_busy integer;
   v_a_pid integer;
@@ -343,9 +5918,8 @@ DECLARE
     END $remote_cleanup$
   $cleanup_sql$;
 BEGIN
-  IF to_regprocedure('public.dblink_connect(text,text)') IS NULL THEN
-    RAISE NOTICE 'SKIP: OCR-låseorden kræver dblink i disposable verify-base';
-    RETURN;
+  IF to_regprocedure('dblink_connect(text,text)') IS NULL THEN
+    RAISE EXCEPTION 'DB_VERIFY_DBLINK_REQUIRED: OCR-låseorden';
   END IF;
   -- Setup is committed through a third local connection: dblink sessions cannot see
   -- uncommitted rows from this verify DO-block.
@@ -456,6 +6030,22 @@ BEGIN
 
   PERFORM dblink_exec('ocr_lock_setup',v_cleanup_sql);
   PERFORM dblink_disconnect('ocr_lock_setup');
+  -- (2026-09-20) Vent AFGRAENSET paa at server-backends forsvinder, foer der maales.
+  -- dblink_disconnect lukker klientsiden synkront, men backenden kan ligge et oejeblik
+  -- i pg_stat_activity endnu. Et oejeblikkeligt tjek er derfor en race, ikke en
+  -- logik-paastand — den faeldede bl.a. en REN dokumentations-merge paa main
+  -- (bd68852, 2026-09-20), hvor intet SQL var aendret. Ventetiden er en oevre graense,
+  -- ikke en forsinkelse: loekken forlades i samme oejeblik sessionerne er vaek.
+  FOR i IN 1..50 LOOP
+    EXIT WHEN NOT EXISTS (
+      SELECT 1 FROM pg_stat_activity
+       WHERE datname=current_database() AND application_name LIKE 'daa_verify_ocr_lock_%');
+    PERFORM pg_sleep(0.1);
+  END LOOP;
+
+  -- To adskilte paastande, ikke ét OR. Den gamle faellesbesked ("fixture ELLER
+  -- dblink-session") kunne ikke fortaelle hvilken af to helt urelaterede aarsager der
+  -- fyrede, og det er praecis derfor racen kunne overleve som "den der flaker nogle gange".
   IF EXISTS (
        SELECT 1 FROM source WHERE id=-987654601
        UNION ALL SELECT 1 FROM person WHERE id=-987654611
@@ -470,13 +6060,19 @@ BEGIN
        UNION ALL SELECT 1 FROM auth.users WHERE id=v_uid
        UNION ALL SELECT 1 FROM change_set
          WHERE operation='red_slet_person' AND subjekt_type='person' AND subjekt_id=-987654611
-     )
-     OR EXISTS (
+     ) THEN
+    RAISE EXCEPTION 'FEJL: OCR-låseorden efterlod fixture-rækker';
+  END IF;
+  IF EXISTS (
        SELECT 1 FROM pg_stat_activity
        WHERE datname=current_database() AND application_name LIKE 'daa_verify_ocr_lock_%'
      ) THEN
-    RAISE EXCEPTION 'FEJL: OCR-låseorden efterlod fixture eller dblink-session';
+    RAISE EXCEPTION 'FEJL: OCR-låseorden efterlod en dblink-session efter 5 s: %',
+      (SELECT string_agg(application_name||' ('||state||')', ', ')
+         FROM pg_stat_activity
+        WHERE datname=current_database() AND application_name LIKE 'daa_verify_ocr_lock_%');
   END IF;
+  PERFORM set_config('daa.verify_dblink_ocr_lock','executed',false);
   RAISE NOTICE 'OK: OCR-låseorden to-forbindelsesregression';
 EXCEPTION WHEN OTHERS THEN
   GET STACKED DIAGNOSTICS
@@ -559,8 +6155,8 @@ DECLARE
   v_qa text[];
 BEGIN
   INSERT INTO source(id,titel,udgave,import_key) VALUES
-    (-987656101,'Grid verify-kilde','Grid verify 1','daa:1939'),
-    (-987656102,'Grid verify-ekstra','Grid verify 2','daa:1940');
+    (-987656101,'Grid verify-kilde','Grid verify 1','verify:ocr-grid:1939'),
+    (-987656102,'Grid verify-ekstra','Grid verify 2','verify:ocr-grid:1940');
   INSERT INTO person(id,koen) VALUES
     (-987656111,'mand'), (-987656112,'kvinde'), (-987656113,NULL),
     (-987656114,'ukendt'), (-987656115,'mand'), (-987656116,'kvinde');
@@ -639,7 +6235,7 @@ BEGIN
     (-987656513,-987656313,-987656101,'99','Legacy Navn Uden Anker'),
     (-987656514,-987656314,-987656101,'99','født 1690');
   INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,korrigeret,status)
-    VALUES ('daa:1939','I-15a','navn','0123456789abcdef0123456789abcdef',
+    VALUES ('verify:ocr-grid:1939','I-15a','navn','0123456789abcdef0123456789abcdef',
             '{"value":"Mikkel"}','{"value":"Mikkel rettet"}','rettet');
   INSERT INTO family(id,type) VALUES (-987656601,'vielse');
   INSERT INTO family_member(family_id,person_id,rolle) VALUES (-987656601,-987656111,'partner');
@@ -828,27 +6424,35 @@ END $$;
 
 
 -- ===== Task 2: Cache-regenerering — regen_person_visning + trigger =====
--- Vælg en person med navne-fakta; nulstil cache; kald regen; bekræft den genskabes.
+-- Selvstændig syntetisk selected-name fixture: nulstil cache; kald regen; bekræft
+-- den eksakte valgte assertion genskabes. Hele fixturen rulles tilbage.
 -- Forvent: NOTICE "OK: visning_navn regenereret".
-
-WITH p AS (
-  SELECT f.subjekt_id AS pid FROM fact f
-  JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id
-  WHERE f.subjekt_type='person' AND f.faktatype='navn' LIMIT 1
-)
-UPDATE person SET visning_navn=NULL WHERE id=(SELECT pid FROM p);
--- Kald regen for samme person og bekræft visning_navn nu er sat igen:
-DO $$ DECLARE tid BIGINT;
+BEGIN;
+DO $$
+DECLARE
+  tid CONSTANT bigint := -987656201;
+  fid CONSTANT bigint := -987656202;
+  aid CONSTANT bigint := -987656203;
+  cid CONSTANT bigint := -987656204;
+  expected_name CONSTANT text := 'Task 2 syntetisk navn';
 BEGIN
-  SELECT f.subjekt_id INTO tid FROM fact f
-   JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id
-   WHERE f.subjekt_type='person' AND f.faktatype='navn' LIMIT 1;
+  INSERT INTO person(id, levende, privat)
+  VALUES (tid, false, false);
+  INSERT INTO fact(id, subjekt_type, subjekt_id, faktatype)
+  VALUES (fid, 'person', tid, 'navn');
+  INSERT INTO assertion(id, target_type, target_id, vaerdi_tekst)
+  VALUES (aid, 'fact', fid, expected_name);
+  INSERT INTO conclusion(id, target_type, target_id, valgt_assertion_id, status)
+  VALUES (cid, 'fact', fid, aid, 'afklaret');
+
+  UPDATE person SET visning_navn=NULL WHERE id=tid;
   PERFORM regen_person_visning(tid);
-  IF (SELECT visning_navn FROM person WHERE id=tid) IS NULL
-    THEN RAISE EXCEPTION 'regen genskabte ikke visning_navn';
-    ELSE RAISE NOTICE 'OK: visning_navn regenereret';
+  IF (SELECT visning_navn FROM person WHERE id=tid) IS DISTINCT FROM expected_name THEN
+    RAISE EXCEPTION 'regen genskabte ikke visning_navn';
   END IF;
+  RAISE NOTICE 'OK: visning_navn regenereret';
 END $$;
+ROLLBACK;
 
 
 -- ===== Task 3: current_rolle + red_upsert_fakta (fact-triplet, rolle-gated) =====
@@ -872,30 +6476,33 @@ END $$;
 -- Seed et fact med to assertions, slet den valgte, bekræft konklusion peger på tilbageværende.
 -- Forvent: NOTICE "OK: konklusion re-pegede til a2".
 --
--- NOTE OM ROLLE-GATING: red_slet_oplysning tjekker current_rolle() = 'redaktion'.
--- I SQL Editor (auth.uid() NULL → 'medlem') vil kaldet REJSE en fejl.
--- Løsning: kør blokken som funktionsejer (postgres) eller seed en redaktion-profil
--- for auth.uid() midlertidigt — dokumentér i PR. Se Global Constraints i planen.
-
-DO $$ DECLARE fid bigint; a1 bigint; a2 bigint; cid bigint; chosen bigint;
+-- Blokken seeder selv en ægte syntetisk JWT-subject + redaktion-profil og ruller
+-- både rolle- og datatest-fixtures tilbage.
+BEGIN;
+DO $$
+DECLARE
+  actor CONSTANT uuid := '19390000-0000-4000-8000-000000000204';
+  fid CONSTANT bigint := -987656211;
+  a1 CONSTANT bigint := -987656212;
+  a2 CONSTANT bigint := -987656213;
+  cid CONSTANT bigint := -987656214;
+  chosen bigint;
 BEGIN
-  fid := (SELECT coalesce(max(id),0)+1 FROM fact);
+  INSERT INTO auth.users(id,email) VALUES (actor,'task4-db-verify@example.invalid');
+  INSERT INTO profiles(id,rolle,email) VALUES (actor,'redaktion','task4-db-verify@example.invalid');
+  PERFORM set_config('request.jwt.claim.sub', actor::text, true);
+
   INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (fid,'person',-99,'test_slet');
-  a1 := (SELECT coalesce(max(id),0)+1 FROM assertion);
   INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,uforanderlig) VALUES (a1,'fact',fid,'A',false);
-  a2 := a1+1;
   INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,uforanderlig) VALUES (a2,'fact',fid,'B',false);
-  cid := (SELECT coalesce(max(id),0)+1 FROM conclusion);
   INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id) VALUES (cid,'fact',fid,a1);
   -- Slet den valgte (a1); forvent konklusion re-peger til a2.
-  PERFORM red_slet_oplysning(a1);  -- bemærk: gating kræver redaktion; kør evt. som funktionsejer
+  PERFORM red_slet_oplysning(a1);
   SELECT valgt_assertion_id INTO chosen FROM conclusion WHERE id=cid;
   IF chosen = a2 THEN RAISE NOTICE 'OK: konklusion re-pegede til a2';
   ELSE RAISE EXCEPTION 'Forventede a2, fik %', chosen; END IF;
-  -- Oprydning:
-  DELETE FROM conclusion WHERE id=cid; DELETE FROM assertion WHERE target_id=fid AND target_type='fact';
-  DELETE FROM fact WHERE id=fid;
 END $$;
+ROLLBACK;
 
 
 -- ===== Task 5: Direkte person/narrativ/relation-RPC'er (rolle-gated) =====
@@ -956,38 +6563,81 @@ SELECT count(*) FROM pg_policies
 -- objekt uden afbildet-person → synlig.
 DO $$
 DECLARE vis_dead int; vis_live int; vis_obj int;
+        fakta_dead int; fakta_live int; fakta_live_auth int; gate_naegtet boolean;
+        gate_auth_naegtet boolean; privat_auth_naegtet boolean;
 BEGIN
   -- ryd evt. rester fra et afbrudt løb
+  -- Disjunkte id-rum: person -901/-902, media -941/-942/-943. Med sammenfaldende id'er
+  -- ville en forkert media-gren (fx person_offentlig(p_id)) give NOEJAGTIG samme resultat,
+  -- og fixturen ville ikke bevise, at synligheden foelger medierelationen (Codex-fund 2026-09-20).
+  DELETE FROM fact     WHERE id IN (-901,-902);
   DELETE FROM relation WHERE id IN (-901,-902);
-  DELETE FROM media    WHERE id IN (-901,-902,-903);
+  DELETE FROM media    WHERE id IN (-941,-942,-943);
   DELETE FROM person   WHERE id IN (-901,-902);
 
   INSERT INTO person(id, levende, privat) VALUES (-901, false, false), (-902, true, false);
   -- maa_publiceres=true + upload_status='klar' på alle: isolér afbildet-gatingen fra rettigheds-gatingen
   -- (rettigheder testes separat i Task 12).
   INSERT INTO media(id, slags, titel, maa_publiceres, upload_status) VALUES
-    (-901,'foto','portræt-afdød',      true,'klar'),
-    (-902,'foto','portræt-levende',    true,'klar'),
-    (-903,'segl','objekt-uden-person', true,'klar');
+    (-941,'foto','portræt-afdød',      true,'klar'),
+    (-942,'foto','portræt-levende',    true,'klar'),
+    (-943,'segl','objekt-uden-person', true,'klar');
   INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle) VALUES
-    (-901,'person',-901,'media',-901,'afbildet'),
-    (-902,'person',-902,'media',-902,'afbildet');
+    (-901,'person',-901,'media',-941,'afbildet'),
+    (-902,'person',-902,'media',-942,'afbildet');
+  -- Fakta PAA medierne. Hele pointen med disse to: medie-tilknyttet indhold gates af
+  -- entitet_offentlig('media', ...), som foer 2026-09-20 kun saa paa RETTIGHEDER. Begge
+  -- medier er rettighedsfrigivet, saa den gamle regel gjorde BEGGE faktarakker synlige —
+  -- ogsaa den paa billedet af den LEVENDE person, hvis medie-raekke selv var skjult.
+  INSERT INTO fact(id, subjekt_type, subjekt_id, faktatype) VALUES
+    (-901,'media',-941,'fotograf'),
+    (-902,'media',-942,'fotograf');
 
   SET LOCAL ROLE anon;
-  SELECT count(*) INTO vis_dead FROM media WHERE id = -901;
-  SELECT count(*) INTO vis_live FROM media WHERE id = -902;
-  SELECT count(*) INTO vis_obj  FROM media WHERE id = -903;
+  SELECT count(*) INTO vis_dead FROM media WHERE id = -941;
+  SELECT count(*) INTO vis_live FROM media WHERE id = -942;
+  SELECT count(*) INTO vis_obj  FROM media WHERE id = -943;
+  SELECT count(*) INTO fakta_dead FROM fact WHERE id = -901;
+  SELECT count(*) INTO fakta_live FROM fact WHERE id = -902;
+  -- Rettighedsgaten er lukket for anon (2026-09-20); den lovlige vej er entitet_offentlig.
+  BEGIN
+    PERFORM public.media_rettigheder_ok(-942);
+    gate_naegtet := false;
+  EXCEPTION WHEN insufficient_privilege THEN
+    gate_naegtet := true;
+  END;
+  RESET ROLE;
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO fakta_live_auth FROM fact WHERE id = -902;
+  -- Medlemstieren skal OGSAA have mistet de to direkte medie-orakler (Codex-fund 2026-09-20):
+  -- medlems-politikkerne bruger media_synlig_anon, saa begge svarer mere end tieren selv ser.
+  BEGIN
+    PERFORM public.media_synlig_auth(-942);
+    gate_auth_naegtet := false;
+  EXCEPTION WHEN insufficient_privilege THEN
+    gate_auth_naegtet := true;
+  END;
+  BEGIN
+    PERFORM public.media_afbilder_privat(-942);
+    privat_auth_naegtet := false;
+  EXCEPTION WHEN insufficient_privilege THEN
+    privat_auth_naegtet := true;
+  END;
   RESET ROLE;
 
-  IF vis_dead = 1 AND vis_live = 0 AND vis_obj = 1 THEN
-    RAISE NOTICE 'OK: media-gating (afdød synlig, levende skjult, objekt synligt)';
+  IF vis_dead = 1 AND vis_live = 0 AND vis_obj = 1
+     AND fakta_dead = 1 AND fakta_live = 0 AND fakta_live_auth = 0
+     AND gate_naegtet AND gate_auth_naegtet AND privat_auth_naegtet THEN
+    RAISE NOTICE 'OK: media-gating (afdød synlig, levende skjult, objekt synligt) + medie-tilknyttede fakta følger mediet + rettighedsgaten lukket';
   ELSE
-    RAISE EXCEPTION 'media-gating FEJL: afdød=% (vent 1), levende=% (vent 0), objekt=% (vent 1)',
-      vis_dead, vis_live, vis_obj;
+    RAISE EXCEPTION 'media-gating FEJL: afdød=% (vent 1), levende=% (vent 0), objekt=% (vent 1) | fakta afdød=% (vent 1), fakta levende anon=% (vent 0) medlem=% (vent 0) | gates nægtet: anon=%, medlem synlig_auth=%, medlem afbilder_privat=% (vent t,t,t)',
+      vis_dead, vis_live, vis_obj, fakta_dead, fakta_live, fakta_live_auth,
+      gate_naegtet, gate_auth_naegtet, privat_auth_naegtet;
   END IF;
 
+  DELETE FROM fact     WHERE id IN (-901,-902);
   DELETE FROM relation WHERE id IN (-901,-902);
-  DELETE FROM media    WHERE id IN (-901,-902,-903);
+  DELETE FROM media    WHERE id IN (-941,-942,-943);
   DELETE FROM person   WHERE id IN (-901,-902);
 END $$;
 
@@ -1041,6 +6691,7 @@ END $$;
 DO $$
 DECLARE
   fo_dead boolean; fo_live boolean;
+  eo_dead boolean; eo_live boolean; fo_anon_naegtet boolean;
   leak_fam_anon int; leak_fam_auth int; leak_note_auth int; leak_mis int; leak_assert int;
   ok_deadfam int; ok_estate int; ok_org_rel int; ok_narr int;
 BEGIN
@@ -1064,8 +6715,24 @@ BEGIN
   INSERT INTO narrative(id,subjekt_type,subjekt_id,tekst) VALUES(-980,'person',-980,'død bio');
   INSERT INTO note(id,target_type,target_id) VALUES(-980,'family',-980),(-981,'family',-981);
 
+  -- Gatens LOGIK efterproeves som ejer. family_offentlig er IKKE laengere kaldbar af
+  -- anon (anon-haerdningen 2026-09-19): den svarede false praecis naar en familie rummer
+  -- en skjult person og var dermed et eksistens-orakel for uindloggede.
+  SELECT public.family_offentlig(-980), public.family_offentlig(-981) INTO fo_dead, fo_live;
+
   SET LOCAL ROLE anon;
-  SELECT public.family_offentlig(-980), public.family_offentlig(-981) INTO fo_dead, fo_live;  -- DEFINER-check
+  -- Anons FAKTISKE vej gaar gennem entitet_offentlig, som er SECURITY DEFINER og derfor
+  -- kalder gaten som ejeren. Den skal give samme svar som gaten selv.
+  SELECT public.entitet_offentlig('family',-980), public.entitet_offentlig('family',-981)
+    INTO eo_dead, eo_live;
+  -- ... og det DIREKTE kald skal vaere lukket. Denne paastand laaser haerdningen fast,
+  -- saa et fremtidigt genudstedt grant bliver fanget her i stedet for i prod.
+  BEGIN
+    PERFORM public.family_offentlig(-980);
+    fo_anon_naegtet := false;
+  EXCEPTION WHEN insufficient_privilege THEN
+    fo_anon_naegtet := true;
+  END;
   SELECT count(*) INTO leak_fam_anon FROM fact WHERE id=-981;
   SELECT count(*) INTO ok_deadfam FROM fact WHERE id=-980;   SELECT count(*) INTO ok_estate FROM fact WHERE id=-983;
   SELECT count(*) INTO ok_org_rel FROM relation WHERE id=-980; SELECT count(*) INTO ok_narr FROM narrative WHERE id=-980;
@@ -1076,12 +6743,13 @@ BEGIN
   RESET ROLE;
 
   IF fo_dead AND NOT fo_live
+     AND eo_dead AND NOT eo_live AND fo_anon_naegtet
      AND leak_fam_anon=0 AND leak_fam_auth=0 AND leak_note_auth=0 AND leak_mis=0 AND leak_assert=0
      AND ok_deadfam=1 AND ok_estate=1 AND ok_org_rel=1 AND ok_narr=1 THEN
-    RAISE NOTICE 'OK: F-02c — family/unknown+evidens fail-closed OG public entitets-data stadig synligt';
+    RAISE NOTICE 'OK: F-02c — family/unknown+evidens fail-closed, anons vej gennem entitet_offentlig intakt, direkte gate-kald lukket';
   ELSE
-    RAISE EXCEPTION 'F-02c FEJL: DEFINER død/lev=%/% | læk fam(a/au)=%/% note=% mis=% assert=% | over-hide dødfam=% estate=% rel=% narr=%',
-      fo_dead,fo_live,leak_fam_anon,leak_fam_auth,leak_note_auth,leak_mis,leak_assert,ok_deadfam,ok_estate,ok_org_rel,ok_narr;
+    RAISE EXCEPTION 'F-02c FEJL: gate død/lev=%/% | anon-vej død/lev=%/% | direkte gate-kald nægtet=% | læk fam(a/au)=%/% note=% mis=% assert=% | over-hide dødfam=% estate=% rel=% narr=%',
+      fo_dead,fo_live,eo_dead,eo_live,fo_anon_naegtet,leak_fam_anon,leak_fam_auth,leak_note_auth,leak_mis,leak_assert,ok_deadfam,ok_estate,ok_org_rel,ok_narr;
   END IF;
 
   DELETE FROM citation WHERE id=-981; DELETE FROM assertion WHERE id=-981;
@@ -1220,6 +6888,8 @@ DO $$
 DECLARE r jsonb; cs bigint; n int;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
@@ -1241,6 +6911,8 @@ DO $$
 DECLARE r jsonb; v_pid bigint; cs_before bigint; cs_after bigint; n_sets int; n_person int; n_fact int;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
@@ -1248,7 +6920,7 @@ BEGIN
   v_pid := red_opret_person('__verify_person__','mand',false,'1700','1750',NULL);
   cs_after := (SELECT coalesce(max(id),0) FROM change_set);
   -- præcis ÉT nyt change_set (re-entrancy: nested red_upsert_fakta åbnede ikke flere)
-  n_sets := cs_after - cs_before;
+  SELECT count(*) INTO n_sets FROM change_set WHERE id > cs_before;
   IF n_sets <> 1 THEN RAISE EXCEPTION 'FEJL: red_opret_person åbnede % change_sets (vent 1)', n_sets; END IF;
   -- person-INSERT logget i sættet (beviser ydre begin_change_set kørte FØR person-INSERT)
   SELECT count(*) INTO n_person FROM change_event WHERE change_set_id=cs_after AND tabel='person' AND op='INSERT';
@@ -1267,6 +6939,8 @@ DO $$
 DECLARE v_fact bigint; v_old bigint; v_concl_valgt bigint; n_before int; n_after int; r jsonb;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
@@ -1313,6 +6987,8 @@ DO $$
 DECLARE r jsonb; v_fact bigint; v_aid bigint; cs bigint; v_val text;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   -- opret en oplysning (change_set #1)
@@ -1350,6 +7026,8 @@ DO $$
 DECLARE v_pid bigint; cs_del bigint; n_facts_before int; n_facts_after int;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
@@ -1643,16 +7321,24 @@ END $$;
 -- ===== Versionering Task 7b: composite-PK restore-hjælpere (B11/M2) =====
 -- T7 dækkede kun enkelt-id (note). Her: family_member (3-kol PK) gennem alle tre
 -- helper-stier — fanger ON CONFLICT-constraint-match + multi-kolonne WHERE-cast.
+BEGIN;
 DO $$
-DECLARE cur jsonb; pk jsonb := jsonb_build_object('family_id',1,'person_id',1,'rolle','__verify_fm__');
+DECLARE
+  v_family CONSTANT bigint := -987656221;
+  v_person CONSTANT bigint := -987656222;
+  cur jsonb;
+  pk jsonb := jsonb_build_object(
+    'family_id',-987656221,'person_id',-987656222,'rolle','__verify_fm__');
 BEGIN
+  INSERT INTO family(id,type) VALUES (v_family,'ukendt');
+  INSERT INTO person(id,levende,privat) VALUES (v_person,false,false);
   PERFORM _version_upsert_row('family_member',
-    jsonb_build_object('family_id',1,'person_id',1,'rolle','__verify_fm__','ordinal',9,'konfidens','sikker'));
+    jsonb_build_object('family_id',v_family,'person_id',v_person,'rolle','__verify_fm__','ordinal',9,'konfidens','sikker'));
   cur := _version_current_row('family_member', pk);
   IF cur->>'konfidens' <> 'sikker' THEN RAISE EXCEPTION 'FEJL: composite upsert-insert virkede ikke (%)', cur; END IF;
   -- update via ON CONFLICT (samme composite-nøgle)
   PERFORM _version_upsert_row('family_member',
-    jsonb_build_object('family_id',1,'person_id',1,'rolle','__verify_fm__','ordinal',9,'konfidens','formodet'));
+    jsonb_build_object('family_id',v_family,'person_id',v_person,'rolle','__verify_fm__','ordinal',9,'konfidens','formodet'));
   cur := _version_current_row('family_member', pk);
   IF cur->>'konfidens' <> 'formodet' THEN RAISE EXCEPTION 'FEJL: composite upsert-update virkede ikke (%)', cur; END IF;
   PERFORM _version_delete_row('family_member', pk);
@@ -1662,6 +7348,7 @@ EXCEPTION WHEN OTHERS THEN
   IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: composite-PK restore-hjælpere round-trip';
   ELSE RAISE; END IF;
 END $$;
+ROLLBACK;
 
 -- ===== Versionering Task 8c: non-person restore (tom v_pids — regen-loop no-op) =====
 -- Alle øvrige restore-asserts rørte en person. Her: undo en kilde-oprettelse (ingen person,
@@ -1670,6 +7357,8 @@ DO $$
 DECLARE v_sid bigint; cs bigint;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
@@ -1692,6 +7381,8 @@ DO $$
 DECLARE v_nid bigint; cs bigint; cur text; afvist boolean := false;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
@@ -1722,6 +7413,8 @@ DO $$
 DECLARE v_uid uuid := '00000000-0000-0000-0000-000000000077'; v_pid bigint; cs bigint; r_after text; e_after text;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
@@ -1755,6 +7448,8 @@ DO $$
 DECLARE a bigint; b bigint; c bigint; rel bigint; rel2 bigint; n_ass int; n_con int;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true); a := red_opret_person('__ss_a__','mand',false,NULL,NULL,NULL);
@@ -1806,7 +7501,7 @@ END $$;
 
 -- ===== Udledt slægtsnavn Task 1: lineage-graf-walkers + cyklus-vagt =====
 DO $$
-DECLARE v_anc BIGINT[];
+DECLARE v_lineage BIGINT; v_anc BIGINT[];
 BEGIN
   IF to_regprocedure('lineage_ancestors(bigint)') IS NULL THEN
     RAISE EXCEPTION 'FEJL: lineage_ancestors mangler';
@@ -1814,9 +7509,13 @@ BEGIN
   IF to_regprocedure('lineage_descendants(bigint)') IS NULL THEN
     RAISE EXCEPTION 'FEJL: lineage_descendants mangler';
   END IF;
-  SELECT lineage_ancestors(id) INTO v_anc FROM lineage WHERE kode='I' LIMIT 1;
-  IF v_anc IS NULL OR array_length(v_anc,1) <> 1 THEN
-    RAISE EXCEPTION 'FEJL: lineage_ancestors(I) skal returnere præcis [sig selv] uden forgrening, fik %', v_anc;
+  SELECT id, lineage_ancestors(id) INTO v_lineage, v_anc FROM lineage WHERE kode='I' LIMIT 1;
+  IF v_anc IS NULL OR array_length(v_anc,1) <> 2 OR v_anc[1] <> v_lineage
+     OR NOT EXISTS (
+       SELECT 1 FROM lineage
+       WHERE id=v_anc[2] AND parent_lineage_id IS NULL AND slaegtsnavn IS NOT NULL
+     ) THEN
+    RAISE EXCEPTION 'FEJL: lineage_ancestors(I) skal returnere [sig selv, slægts-rod], fik %', v_anc;
   END IF;
   RAISE NOTICE 'OK: lineage_ancestors basal';
 END $$;
@@ -1882,7 +7581,8 @@ DECLARE v_source BIGINT; v_lineage BIGINT; v_p BIGINT; v_efternavn TEXT; v_fuldt
 BEGIN
   SELECT id INTO v_source FROM source LIMIT 1;
   v_lineage := (SELECT coalesce(max(id),0)+1 FROM lineage);
-  INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn) VALUES (v_lineage, v_source, '__TEST_L', 'Test-linje', 'Reventlow');
+  INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn)
+    VALUES (v_lineage, v_source, '__TEST_L', 'Test-linje', '__VERIFY_SLAEGT_TASK4__');
 
   -- (a) enkelt-fornavn, født medlem uden efternavn i visning_navn
   v_p := (SELECT coalesce(max(id),0)+1 FROM person);
@@ -1890,16 +7590,16 @@ BEGIN
   INSERT INTO person_external_id(person_id, source_id, linje, nr) VALUES (v_p, v_source, '__TEST_L', 999);
   PERFORM regen_person_visning(v_p);
   SELECT visning_efternavn, visning_fuldt_navn INTO v_efternavn, v_fuldt FROM person WHERE id=v_p;
-  IF v_efternavn <> 'Reventlow' OR v_fuldt <> 'Conrad Reventlow' THEN
+  IF v_efternavn <> '__VERIFY_SLAEGT_TASK4__' OR v_fuldt <> 'Conrad __VERIFY_SLAEGT_TASK4__' THEN
     RAISE EXCEPTION 'FEJL: (a) enkelt-fornavn — fik efternavn=% fuldt=%', v_efternavn, v_fuldt;
   END IF;
 
   -- (d) allerede indeholder efternavnet → NULL, uændret visning_navn
-  UPDATE person SET visning_navn = 'Detlef von Reventlow' WHERE id=v_p;
+  UPDATE person SET visning_navn = 'Detlef von __VERIFY_SLAEGT_TASK4__' WHERE id=v_p;
   PERFORM regen_person_visning(v_p);
   SELECT visning_efternavn, visning_fuldt_navn INTO v_efternavn, v_fuldt FROM person WHERE id=v_p;
-  IF v_efternavn IS NOT NULL OR v_fuldt <> 'Detlef von Reventlow' THEN
-    RAISE EXCEPTION 'FEJL: (d) allerede-Reventlow skal give NULL efternavn, fik % / %', v_efternavn, v_fuldt;
+  IF v_efternavn IS NOT NULL OR v_fuldt <> 'Detlef von __VERIFY_SLAEGT_TASK4__' THEN
+    RAISE EXCEPTION 'FEJL: (d) allerede-efternavn skal give NULL efternavn, fik % / %', v_efternavn, v_fuldt;
   END IF;
 
   -- (e) indgift-ægtefælle uden external_id → NULL
@@ -1918,20 +7618,18 @@ END $$;
 
 -- Fan-out → karantæne (to distinkte linjer/sources, to distinkte efternavne)
 DO $$
-DECLARE v_source BIGINT; v_source2 BIGINT; v_l1 BIGINT; v_l2 BIGINT; v_l3 BIGINT; v_p BIGINT; v_efternavn TEXT;
+DECLARE v_source BIGINT; v_source2 BIGINT; v_l1 BIGINT; v_l3 BIGINT; v_p BIGINT; v_efternavn TEXT;
 BEGIN
   SELECT id INTO v_source FROM source LIMIT 1;
   v_l1 := (SELECT coalesce(max(id),0)+1 FROM lineage);
   INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn) VALUES (v_l1, v_source, '__TEST_FO1', 'A', 'Alfa');
-  v_l2 := v_l1 + 1;
-  INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn) VALUES (v_l2, v_source, '__TEST_FO2', 'B', 'Beta');
   v_p := (SELECT coalesce(max(id),0)+1 FROM person);
   INSERT INTO person(id, visning_navn) VALUES (v_p, 'Fanout Person');
   INSERT INTO person_external_id(person_id, source_id, linje, nr) VALUES (v_p, v_source, '__TEST_FO1', 1);
 
   v_source2 := (SELECT coalesce(max(id),0)+1 FROM source);
   INSERT INTO source(id, slags, titel) VALUES (v_source2, 'DAA-udgave', 'Test-udgave 2');
-  v_l3 := v_l2 + 1;
+  v_l3 := v_l1 + 1;
   INSERT INTO lineage(id, source_id, kode, navn, slaegtsnavn) VALUES (v_l3, v_source2, '__TEST_FO2', 'B2', 'Beta');
   INSERT INTO person_external_id(person_id, source_id, linje, nr) VALUES (v_p, v_source2, '__TEST_FO2', 1);
 
@@ -1951,7 +7649,7 @@ BEGIN
   DELETE FROM slaegtsnavn_karantaene WHERE person_id=v_p;
   DELETE FROM person_external_id WHERE person_id=v_p;
   DELETE FROM person WHERE id=v_p;
-  DELETE FROM lineage WHERE id IN (v_l1, v_l2, v_l3);
+  DELETE FROM lineage WHERE id IN (v_l1, v_l3);
   DELETE FROM source WHERE id=v_source2;
   RAISE NOTICE 'OK: fan-out → karantæne + idempotens';
 END $$;
@@ -2013,6 +7711,7 @@ DO $$
 DECLARE v_source BIGINT; v_source2 BIGINT; v_l1 BIGINT; v_l2 BIGINT; v_p BIGINT; v_uid UUID := '00000000-0000-0000-0000-000000000001';
 BEGIN
   PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+  INSERT INTO auth.users(id,email) VALUES (v_uid,'db-verify@test.invalid') ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id, rolle, email) VALUES (v_uid,'redaktion','t@x') ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   SELECT id INTO v_source FROM source LIMIT 1;
   v_l1 := (SELECT coalesce(max(id),0)+1 FROM lineage);
@@ -2049,6 +7748,8 @@ END $$;
 DO $$
 DECLARE vis_spaerret int; vis_kladde int; vis_klar int; vis_red int;
         map_hit bigint; map_orphan bigint; ok_orphan boolean;
+        obj_klar boolean; obj_spaerret boolean; obj_orphan boolean;
+        skjult_naegtet boolean; mapping_naegtet boolean;
 BEGIN
   DELETE FROM media WHERE id IN (-911,-912,-913);
   INSERT INTO media(id, slags, titel, maa_publiceres, upload_status, bucket, storage_path) VALUES
@@ -2060,11 +7761,40 @@ BEGIN
   SELECT count(*) INTO vis_spaerret FROM media WHERE id = -911;
   SELECT count(*) INTO vis_kladde   FROM media WHERE id = -912;
   SELECT count(*) INTO vis_klar     FROM media WHERE id = -913;
+
+  -- Medie-indkapslingen (2026-09-19): anons LOVLIGE vej fra storage-sti til synlighed er
+  -- wrapperen media_object_synlig_anon, som er SECURITY DEFINER og derfor slår op og gater
+  -- som ejeren. Samme svar som rettigheds-gatingen ovenfor, nu målt fra sti-siden.
+  SELECT public.media_object_synlig_anon('test/klar.jpg'),
+         public.media_object_synlig_anon('test/spaerret.jpg'),
+         public.media_object_synlig_anon('findes/ikke.jpg')
+    INTO obj_klar, obj_spaerret, obj_orphan;
+  -- ... og de to indkapslede funktioner maa IKKE laengere kunne kaldes direkte af anon.
+  -- media_afbilder_skjult var et PII-orakel ("afbilder billede N en levende person?"),
+  -- media_id_for_object et eksistens-orakel over storage-stier. Paastandene laaser
+  -- indkapslingen fast, saa et genudstedt grant fanges her i stedet for i prod.
+  BEGIN
+    PERFORM public.media_afbilder_skjult(-913);
+    skjult_naegtet := false;
+  EXCEPTION WHEN insufficient_privilege THEN
+    skjult_naegtet := true;
+  END;
+  BEGIN
+    PERFORM public.media_id_for_object('test/klar.jpg');
+    mapping_naegtet := false;
+  EXCEPTION WHEN insufficient_privilege THEN
+    mapping_naegtet := true;
+  END;
   RESET ROLE;
 
   IF NOT (vis_spaerret = 0 AND vis_kladde = 0 AND vis_klar = 1) THEN
     RAISE EXCEPTION 'rettigheds-gating FEJL (anon): spaerret=% (vent 0), kladde=% (vent 0), klar=% (vent 1)',
       vis_spaerret, vis_kladde, vis_klar;
+  END IF;
+
+  IF NOT (obj_klar AND NOT obj_spaerret AND NOT obj_orphan AND skjult_naegtet AND mapping_naegtet) THEN
+    RAISE EXCEPTION 'medie-indkapsling FEJL: sti-wrapper klar=% (vent t), spaerret=% (vent f), foraeldreloes=% (vent f) | direkte kald naegtet: afbilder_skjult=%, id_for_object=% (vent t,t)',
+      obj_klar, obj_spaerret, obj_orphan, skjult_naegtet, mapping_naegtet;
   END IF;
 
   -- objekt→media-mapping: kendt sti resolver, ukendt (forældreløs) → NULL → rettigheder_ok=false
@@ -2077,7 +7807,7 @@ BEGIN
   END IF;
 
   DELETE FROM media WHERE id IN (-911,-912,-913);
-  RAISE NOTICE 'OK: media rettigheds-gating (spærret/kladde skjult, klar synlig) + storage-mapping (forældreløs fail-closed)';
+  RAISE NOTICE 'OK: media rettigheds-gating (spærret/kladde skjult, klar synlig) + storage-mapping (forældreløs fail-closed) + medie-indkapsling (sti-wrapper virker, direkte gate-kald lukket)';
 END $$;
 
 
@@ -2086,41 +7816,75 @@ END $$;
 -- (media_obj_anon/auth) ved at indsætte objekt-rækker og læse dem under SET LOCAL ROLE — så en
 -- fail-open-politik (OR i stedet for AND, manglende rettigheds-gate, eller manglende bucket-guard)
 -- rejser her. Springes over hvis der ikke findes en 'media'-bucket (lokalt/pre-provisionering).
+BEGIN;
 DO $$
 DECLARE has_bucket boolean; vis_klar int; vis_spaerret int; vis_orphan int; vis_klar_auth int; vis_spaerret_auth int;
+        vis_levende int; vis_levende_auth int; vis_anden_bucket int;
 BEGIN
+  IF to_regclass('storage.buckets') IS NULL OR to_regclass('storage.objects') IS NULL THEN
+    RAISE NOTICE 'SPRINGER OVER Task 12b (storage.objects-politikker): storage-katalog er ikke installeret';
+    RETURN;
+  END IF;
   SELECT EXISTS(SELECT 1 FROM storage.buckets WHERE id='media') INTO has_bucket;
   IF NOT has_bucket THEN
     RAISE NOTICE 'SPRINGER OVER Task 12b (storage.objects-politikker): ingen media-bucket — opret den for fuld dækning';
     RETURN;
   END IF;
-  DELETE FROM storage.objects WHERE bucket_id='media' AND name IN ('test/klar.jpg','test/spaerret.jpg','test/orphan.jpg');
-  DELETE FROM media WHERE id IN (-921,-922);
+  IF EXISTS (
+    SELECT 1 FROM storage.objects
+    WHERE (bucket_id='media' AND name IN ('test/klar.jpg','test/spaerret.jpg','test/orphan.jpg','test/levende.jpg'))
+       OR bucket_id='__test_anden_bucket'
+  ) OR EXISTS (SELECT 1 FROM media WHERE id IN (-921,-922,-923))
+    OR EXISTS (SELECT 1 FROM person WHERE id = -923)
+    OR EXISTS (SELECT 1 FROM relation WHERE id = -923)
+    OR EXISTS (SELECT 1 FROM storage.buckets WHERE id='__test_anden_bucket') THEN
+    RAISE EXCEPTION 'storage.objects-gating fixture-kollision';
+  END IF;
+  -- Et --no-acl restore har bevidst ingen Supabase-default-grants. De
+  -- midlertidige grants rulles tilbage og lader testen udøve RLS-politikkerne.
+  EXECUTE 'GRANT USAGE ON SCHEMA storage TO anon, authenticated';
+  EXECUTE 'GRANT SELECT ON storage.objects TO anon, authenticated';
   INSERT INTO media(id, slags, titel, maa_publiceres, upload_status, bucket, storage_path) VALUES
     (-921,'segl','obj-klar',    true, 'klar','media','test/klar.jpg'),
-    (-922,'segl','obj-spaerret',false,'klar','media','test/spaerret.jpg');
+    (-922,'segl','obj-spaerret',false,'klar','media','test/spaerret.jpg'),
+    -- -923 er rettigheds-MAESSIGT frigivet, men afbilder en levende person. Den skiller de to
+    -- ortogonale dimensioner ad: uden denne fixture ville en regression, hvor politikken kun
+    -- gater paa rettigheder, forblive groen (Codex-fund 2026-09-20).
+    (-923,'foto','obj-levende', true, 'klar','media','test/levende.jpg');
+  INSERT INTO person(id, levende, privat) VALUES (-923, true, false);
+  INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle)
+    VALUES (-923,'person',-923,'media',-923,'afbildet');
+  -- En ANDEN bucket med et objekt, der hedder praecis det samme som et synligt media-objekt.
+  -- Uden bucket-vagten i politikken ville wrapperen svare true og aabne det (samme fund).
+  INSERT INTO storage.buckets(id, name) VALUES ('__test_anden_bucket','__test_anden_bucket');
   INSERT INTO storage.objects(bucket_id, name) VALUES
-    ('media','test/klar.jpg'), ('media','test/spaerret.jpg'), ('media','test/orphan.jpg'); -- orphan = ingen media-række
+    ('media','test/klar.jpg'), ('media','test/spaerret.jpg'), ('media','test/orphan.jpg'), -- orphan = ingen media-række
+    ('media','test/levende.jpg'),
+    ('__test_anden_bucket','test/klar.jpg');
 
   SET LOCAL ROLE anon;
   SELECT count(*) INTO vis_klar     FROM storage.objects WHERE bucket_id='media' AND name='test/klar.jpg';
   SELECT count(*) INTO vis_spaerret FROM storage.objects WHERE bucket_id='media' AND name='test/spaerret.jpg';
   SELECT count(*) INTO vis_orphan   FROM storage.objects WHERE bucket_id='media' AND name='test/orphan.jpg';
+  SELECT count(*) INTO vis_levende  FROM storage.objects WHERE bucket_id='media' AND name='test/levende.jpg';
+  SELECT count(*) INTO vis_anden_bucket FROM storage.objects WHERE bucket_id='__test_anden_bucket';
   RESET ROLE;
   SET LOCAL ROLE authenticated;
   SELECT count(*) INTO vis_klar_auth     FROM storage.objects WHERE bucket_id='media' AND name='test/klar.jpg';
   SELECT count(*) INTO vis_spaerret_auth FROM storage.objects WHERE bucket_id='media' AND name='test/spaerret.jpg';
+  SELECT count(*) INTO vis_levende_auth  FROM storage.objects WHERE bucket_id='media' AND name='test/levende.jpg';
   RESET ROLE;
 
-  IF NOT (vis_klar=1 AND vis_spaerret=0 AND vis_orphan=0 AND vis_klar_auth=1 AND vis_spaerret_auth=0) THEN
-    RAISE EXCEPTION 'storage.objects-gating FEJL: anon(klar=% [1], spaerret=% [0], orphan=% [0]), medlem(klar=% [1], spaerret=% [0])',
-      vis_klar, vis_spaerret, vis_orphan, vis_klar_auth, vis_spaerret_auth;
+  IF NOT (vis_klar=1 AND vis_spaerret=0 AND vis_orphan=0 AND vis_levende=0 AND vis_anden_bucket=0
+          AND vis_klar_auth=1 AND vis_spaerret_auth=0 AND vis_levende_auth=0) THEN
+    RAISE EXCEPTION 'storage.objects-gating FEJL: anon(klar=% [1], spaerret=% [0], orphan=% [0], levende=% [0], anden bucket=% [0]), medlem(klar=% [1], spaerret=% [0], levende=% [0])',
+      vis_klar, vis_spaerret, vis_orphan, vis_levende, vis_anden_bucket,
+      vis_klar_auth, vis_spaerret_auth, vis_levende_auth;
   END IF;
 
-  DELETE FROM storage.objects WHERE bucket_id='media' AND name IN ('test/klar.jpg','test/spaerret.jpg','test/orphan.jpg');
-  DELETE FROM media WHERE id IN (-921,-922);
-  RAISE NOTICE 'OK: storage.objects-politikker (klar synlig anon+medlem; spærret + forældreløs skjult for begge)';
+  RAISE NOTICE 'OK: storage.objects-politikker (klar synlig anon+medlem; spærret, forældreløs, GDPR-skjult og anden bucket skjult for begge)';
 END $$;
+ROLLBACK;
 
 -- ===== Task 13: generations-reparation — slægtled-kolonner findes + trigger scoped =====
 DO $$
@@ -2241,11 +8005,14 @@ BEGIN
   PERFORM red_fjern_ikke_samme_som(r_ikke);
   r_samme := red_samme_som(-1001,-1002);
   BEGIN PERFORM red_ikke_samme_som(-1001,-1002); RAISE EXCEPTION 'samme_som→ikke ikke fanget';
-  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%allerede linket som samme_som%' THEN RAISE; END IF; END;
+  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%' THEN RAISE; END IF; END;
   PERFORM red_fjern_samme_som(r_samme);
   r_ikke := red_ikke_samme_som(-1001,-1002);
   BEGIN PERFORM red_samme_som(-1001,-1002); RAISE EXCEPTION 'ikke→samme ikke fanget';
-  EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%markeret ikke_samme_som%' THEN RAISE; END IF; END;
+  EXCEPTION WHEN others THEN
+    IF SQLERRM NOT LIKE '%IDENTITY_COMPONENT_CONTRADICTION%'
+       AND SQLERRM NOT LIKE '%er markeret ikke_samme_som%' THEN RAISE; END IF;
+  END;
 
   -- red_relation-guard + fjern sletter evidens
   BEGIN PERFORM red_relation('person',-1001,'person',-1002,'ikke_samme_som'); RAISE EXCEPTION 'red_relation tillod ikke_samme_som';
@@ -2698,6 +8465,14 @@ BEGIN
     RAISE EXCEPTION 'Fase2: RPC satte ikke interessant';
   END IF;
   PERFORM set_config('app.change_set_id','',true);
+  -- red_set_haendelse_status opens its legacy change_set via max(id)+1.
+  -- Synchronize the owned sequence before the undo writer's normal automatic
+  -- INSERT so this fixture reaches its intended restoration assertions.
+  PERFORM setval(
+    pg_get_serial_sequence('public.change_set','id'),
+    (SELECT coalesce(max(id),1) FROM public.change_set),
+    true
+  );
   v_result := red_fortryd_change_set(v_cs,false);
   v_undo := (v_result->>'reversal_change_set')::bigint;
   SELECT to_jsonb(h)-'feed_status' INTO v_after FROM haendelse h WHERE id=-987656024;
@@ -2724,13 +8499,15 @@ DECLARE v_id bigint; v_upload bigint; v_cs bigint; v_cs_foer int; v_cs_efter int
         v_relation bigint; v_sha text;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
 
-  v_id := (SELECT coalesce(max(id),0)+1 FROM media);
-  INSERT INTO media(id,slags,titel,kunstner,datering,upload_status,maa_publiceres)
-    VALUES (v_id,'foto','Gammel titel','Gammel kunstner','1699','klar',false);
+  INSERT INTO media(slags,titel,kunstner,datering,upload_status,maa_publiceres)
+    VALUES ('foto','Gammel titel','Gammel kunstner','1699','klar',false)
+    RETURNING id INTO v_id;
 
   SELECT count(*) INTO v_cs_foer FROM change_set;
   PERFORM red_opdater_media(v_id, 'Ny titel', NULL, '', 'ca. 1700');
@@ -2865,6 +8642,8 @@ DO $$
 DECLARE v_id bigint; v_rel bigint; v_andet bigint; v_cs bigint; v_thumb_foer text; v_thumb_efter text;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
@@ -2985,6 +8764,8 @@ DECLARE v_id bigint; v_rel bigint; v_story bigint; v_narr bigint; v_note bigint;
         v_prev jsonb; v_res jsonb; v_cs bigint;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
@@ -3182,6 +8963,8 @@ DO $$
 DECLARE v_m1 bigint; v_m2 bigint; v_r1 bigint; v_r2 bigint;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
   INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
@@ -3657,7 +9440,7 @@ DECLARE
 BEGIN
   SELECT id INTO v_uid FROM profiles WHERE rolle='redaktion' LIMIT 1;
   IF v_uid IS NULL THEN RAISE EXCEPTION 'FEJL: ingen redaktion-profil — union-asserts kan ikke køres'; END IF;
-  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_uid, 'role','authenticated')::text, true);
+  PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
 
   v_a := red_opret_person('VERIFY far');
   v_b := red_opret_person('VERIFY mor');
@@ -3758,9 +9541,8 @@ BEGIN
   BEGIN
     v_alias2 := red_opret_person('VERIFY UPDATE alias');
     v_kanon2 := red_opret_person('VERIFY UPDATE kanonisk');
-    INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle)
-      VALUES ((SELECT coalesce(max(id),0)+1 FROM relation),
-              'person', v_alias2, 'person', v_kanon2, 'bekendt_med')
+    INSERT INTO relation(subjekt_type, subjekt_id, objekt_type, objekt_id, rolle)
+      VALUES ('person', v_alias2, 'person', v_kanon2, 'bekendt_med')
       RETURNING id INTO v_rel;
     v_fejl := NULL;
     BEGIN
@@ -3806,3 +9588,373 @@ BEGIN
 EXCEPTION WHEN others THEN
   IF SQLERRM = 'ROLLBACK_TESTDATA' THEN RAISE NOTICE 'OK: testdata rullet tilbage'; ELSE RAISE; END IF;
 END $$;
+
+
+-- ===== 2026-08-20: red_slet_person for en NARRATIV-BUNDET person =====
+-- Lukker den åbne fejl fra 2026-08-20: funktionen er ældre end
+-- private.narrative_record_publication, og FK'en derfra mod narrative(id) (uden
+-- ON DELETE) blokerede sletningen for alle 551 narrativ-bundne 1939-personer.
+-- Samme bugklasse som review 19 H2 (slaegtsnavn_karantaene) ovenfor.
+-- Dækker samtidig person_slaegt_membership og person_lineage_membership, hvis
+-- person_id er NOT NULL uden CASCADE og derfor blokerer på samme måde.
+-- Kontrollerer til slut den modsatte invariant: private.source_record MÅ IKKE
+-- røres — at teksten står på siden er stadig sandt efter en person er slettet.
+DO $$
+DECLARE
+  v_actor     uuid   := gen_random_uuid();
+  v_run       uuid   := gen_random_uuid();
+  v_record    uuid   := gen_random_uuid();
+  v_source    bigint; v_person bigint; v_narrative bigint;
+  v_slaegt    bigint; v_lineage bigint;
+BEGIN
+  INSERT INTO auth.users(id,email) VALUES (v_actor,'slet-binding-verify@test.invalid');
+  INSERT INTO profiles(id,rolle,email) VALUES (v_actor,'redaktion','slet-binding-verify@test.invalid');
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+
+  v_source := (SELECT coalesce(max(id),0)+1 FROM source);
+  INSERT INTO source(id,slags,titel,udgave,aar)
+    VALUES (v_source,'DAA-udgave','VERIFY Slet-binding','VERIFY 2026',2026);
+  v_person := (SELECT coalesce(max(id),0)+1 FROM person);
+  INSERT INTO person(id,levende,privat,staged,visning_navn)
+    VALUES (v_person,false,false,false,'VERIFY slet-binding');
+
+  -- Kilderecord + binding: præcis den konstellation fase B lagde på de 551.
+  INSERT INTO private.extraction_run(
+    id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest
+  ) VALUES (v_run,v_source,'slet-binding-verify','1','verify','verify',repeat('2',64),'{}');
+  INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
+    VALUES (v_record,v_source,'slet-binding-record','person_entry',v_run);
+  v_narrative := (SELECT coalesce(max(id),0)+1 FROM narrative);
+  INSERT INTO narrative(id,subjekt_type,subjekt_id,source_id,tekst,privat)
+    VALUES (v_narrative,'person',v_person,v_source,'Bundet narrativ',false);
+  INSERT INTO private.narrative_record_publication(
+    narrative_id,source_record_id,record_label,citation_label,status
+  ) VALUES (v_narrative,v_record,'Linje I, nr. 1','s. 1','published');
+
+  -- Medlemskaber: person_id er NOT NULL uden ON DELETE CASCADE.
+  INSERT INTO slaegt(navn,sorteringsnavn,slug)
+    VALUES ('VERIFY Slet','VERIFY Slet','verify-slet-binding') RETURNING id INTO v_slaegt;
+  INSERT INTO person_slaegt_membership(person_id,slaegt_id,membership_kind)
+    VALUES (v_person,v_slaegt,'editorial');
+  v_lineage := (SELECT coalesce(max(id),0)+1 FROM lineage);
+  INSERT INTO lineage(id,source_id,kode,navn,slaegtsnavn)
+    VALUES (v_lineage,v_source,'__VERIFY_SLET','VERIFY','Verify');
+  INSERT INTO person_lineage_membership(person_id,lineage_id,role)
+    VALUES (v_person,v_lineage,'member');
+
+  -- Selve prøven: må ikke rejse FK-violation.
+  PERFORM red_slet_person(v_person);
+
+  IF EXISTS (SELECT 1 FROM person WHERE id=v_person) THEN
+    RAISE EXCEPTION 'FEJL: personen blev ikke slettet';
+  END IF;
+  IF EXISTS (SELECT 1 FROM narrative WHERE id=v_narrative) THEN
+    RAISE EXCEPTION 'FEJL: narrativet overlevede sletningen';
+  END IF;
+  IF EXISTS (SELECT 1 FROM private.narrative_record_publication WHERE narrative_id=v_narrative) THEN
+    RAISE EXCEPTION 'FEJL: narrativ-bindingen overlevede sletningen';
+  END IF;
+  IF EXISTS (SELECT 1 FROM person_slaegt_membership WHERE person_id=v_person) THEN
+    RAISE EXCEPTION 'FEJL: slaegt-medlemskabet overlevede sletningen';
+  END IF;
+  IF EXISTS (SELECT 1 FROM person_lineage_membership WHERE person_id=v_person) THEN
+    RAISE EXCEPTION 'FEJL: lineage-medlemskabet overlevede sletningen';
+  END IF;
+  -- Modsat invariant: kilderegistreringen er stadig sand.
+  IF NOT EXISTS (SELECT 1 FROM private.source_record WHERE id=v_record) THEN
+    RAISE EXCEPTION 'FEJL: person-sletningen fjernede en private.source_record';
+  END IF;
+
+  RAISE NOTICE 'OK: red_slet_person — narrativ-binding + slaegt/lineage-medlemskab fjernet, source_record bevaret';
+  RAISE EXCEPTION 'ROLLBACK_TESTDATA';
+EXCEPTION WHEN others THEN
+  IF SQLERRM = 'ROLLBACK_TESTDATA' THEN RAISE NOTICE 'OK: testdata rullet tilbage'; ELSE RAISE; END IF;
+END $$;
+
+
+-- ===== 2026-08-20: red_slet_person løsner haendelse-ankre i stedet for at slette =====
+-- Påvist asymmetri: red_slet_person samler relationer hvor personen er subjekt ELLER objekt
+-- (schema.sql), mens hændelses-loaderen forankrer efter subjekt alene
+-- (.claude/skills/daa-haendelser/scripts/load_haendelser.R). En relation Q→P kan derfor bære
+-- en hændelse under Q's narrativ, som IKKE cascade-slettes når P's narrativer forsvinder —
+-- og haendelse.relation_id har FK uden ON DELETE. Q's hændelse skal bevares, ankeret løsnes.
+DO $$
+DECLARE
+  v_actor  uuid := gen_random_uuid();
+  v_source bigint; v_p bigint; v_q bigint; v_qnarr bigint; v_rel bigint; v_h bigint;
+BEGIN
+  INSERT INTO auth.users(id,email) VALUES (v_actor,'haendelse-anker-verify@test.invalid');
+  INSERT INTO profiles(id,rolle,email) VALUES (v_actor,'redaktion','haendelse-anker-verify@test.invalid');
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+
+  v_source := (SELECT coalesce(max(id),0)+1 FROM source);
+  INSERT INTO source(id,slags,titel) VALUES (v_source,'DAA-udgave','VERIFY haendelse-anker');
+  v_p := (SELECT coalesce(max(id),0)+1 FROM person);
+  INSERT INTO person(id,levende,privat,visning_navn) VALUES (v_p,false,false,'VERIFY P (slettes)');
+  v_q := v_p + 1;
+  INSERT INTO person(id,levende,privat,visning_navn) VALUES (v_q,false,false,'VERIFY Q (bevares)');
+
+  -- P er OBJEKT i relationen — red_slet_person(P) samler den alligevel i v_rels.
+  v_rel := (SELECT coalesce(max(id),0)+1 FROM relation);
+  INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw)
+    VALUES (v_rel,'person',v_q,'person',v_p,'deltager','1930');
+
+  -- Hændelsen hænger under Q's narrativ, ikke P's, og overlever derfor P's narrativ-sletning.
+  v_qnarr := (SELECT coalesce(max(id),0)+1 FROM narrative);
+  INSERT INTO narrative(id,subjekt_type,subjekt_id,source_id,tekst,privat)
+    VALUES (v_qnarr,'person',v_q,v_source,'Q-biografi',false);
+  v_h := (SELECT coalesce(max(id),0)+1 FROM haendelse);
+  INSERT INTO haendelse(id,subjekt_type,subjekt_id,narrative_id,noegle,klausul,relation_id)
+    VALUES (v_h,'person',v_q,v_qnarr,'verify-anker','deltog 1930',v_rel);
+
+  PERFORM red_slet_person(v_p);
+
+  IF EXISTS (SELECT 1 FROM person WHERE id=v_p) THEN
+    RAISE EXCEPTION 'FEJL: P blev ikke slettet';
+  END IF;
+  IF EXISTS (SELECT 1 FROM relation WHERE id=v_rel) THEN
+    RAISE EXCEPTION 'FEJL: relationen Q->P overlevede sletningen';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM person WHERE id=v_q) THEN
+    RAISE EXCEPTION 'FEJL: Q blev slettet — kun P skulle slettes';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM haendelse WHERE id=v_h) THEN
+    RAISE EXCEPTION 'FEJL: Q-haendelsen blev slettet — kun ankeret skulle loesnes';
+  END IF;
+  IF (SELECT relation_id FROM haendelse WHERE id=v_h) IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: haendelse.relation_id blev ikke loesnet';
+  END IF;
+
+  RAISE NOTICE 'OK: red_slet_person — Q-haendelsen bevaret, relation_id-anker loesnet';
+  RAISE EXCEPTION 'ROLLBACK_TESTDATA';
+EXCEPTION WHEN others THEN
+  IF SQLERRM = 'ROLLBACK_TESTDATA' THEN RAISE NOTICE 'OK: testdata rullet tilbage'; ELSE RAISE; END IF;
+END $$;
+
+
+-- ===== 2026-08-20: red_slet_person afviser tidligt ved accepteret kilde-identitet =====
+-- private.source_persona_identity_event er append-only og bærer canonical_person_id med FK mod
+-- person. Har personen én gang haft en ACCEPTERET identitetsbeslutning, kan den aldrig
+-- hard-slettes — heller ikke efter en tilbagetrækning. Kontrakten er, at brugeren får en
+-- forståelig domænefejl FØR change_settet åbnes, ikke en rå FK-violation halvvejs igennem.
+DO $$
+DECLARE
+  v_actor   uuid := gen_random_uuid();
+  v_run     uuid := gen_random_uuid();
+  v_persona uuid := gen_random_uuid();
+  v_source  bigint; v_p bigint; v_fejl text;
+BEGIN
+  INSERT INTO auth.users(id,email) VALUES (v_actor,'persona-gate-verify@test.invalid');
+  INSERT INTO profiles(id,rolle,email) VALUES (v_actor,'redaktion','persona-gate-verify@test.invalid');
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+
+  v_source := (SELECT coalesce(max(id),0)+1 FROM source);
+  INSERT INTO source(id,slags,titel) VALUES (v_source,'DAA-udgave','VERIFY persona-gate');
+  v_p := (SELECT coalesce(max(id),0)+1 FROM person);
+  INSERT INTO person(id,levende,privat,visning_navn) VALUES (v_p,false,false,'VERIFY persona-bundet');
+  INSERT INTO private.extraction_run(
+    id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest
+  ) VALUES (v_run,v_source,'persona-gate-verify','1','verify','verify',repeat('3',64),'{}');
+  INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id)
+    VALUES (v_persona,v_source,'verify-persona',v_run);
+  INSERT INTO private.source_persona_identity_event(
+    source_persona_id,canonical_person_id,decision_status,version,evidence,
+    decided_by,decided_by_name,decided_at
+  ) VALUES (v_persona,v_p,'accepted',1,'{"verify":true}'::jsonb,v_actor,'Verify',now());
+
+  v_fejl := NULL;
+  BEGIN
+    PERFORM red_slet_person(v_p);
+    RAISE EXCEPTION 'VERIFY_SLETNING_BLEV_ACCEPTERET';
+  EXCEPTION WHEN others THEN v_fejl := SQLERRM; END;
+
+  IF v_fejl = 'VERIFY_SLETNING_BLEV_ACCEPTERET' THEN
+    RAISE EXCEPTION 'FEJL: sletning af persona-bundet person blev accepteret';
+  END IF;
+  IF v_fejl NOT LIKE 'PERSON_HAR_KILDEIDENTITET%' THEN
+    RAISE EXCEPTION 'FEJL: forkert afvisningsgrund ved persona-blokering: %', v_fejl;
+  END IF;
+  -- BEMÆRK: der er ingen assert på »intet change_set blev åbnet« eller »intet blev delvist
+  -- slettet«. PL/pgSQL's BEGIN..EXCEPTION ovenfor er en subtransaktion, så begge dele rulles
+  -- tilbage uanset hvor i funktionen afvisningen faldt — en sådan assert ville altid bestå og
+  -- give falsk tryghed. At afvisningen sker før begin_change_set er sikret ved rækkefølgen i
+  -- funktionen selv, ikke her.
+
+  RAISE NOTICE 'OK: red_slet_person — persona-bundet person afvist med domaenefejl';
+  RAISE EXCEPTION 'ROLLBACK_TESTDATA';
+EXCEPTION WHEN others THEN
+  IF SQLERRM = 'ROLLBACK_TESTDATA' THEN RAISE NOTICE 'OK: testdata rullet tilbage'; ELSE RAISE; END IF;
+END $$;
+
+-- ===== Issue #127: story_kilde i version_pk_registry + registry-dækning =====
+-- Forvent: alle tre blokke ender i NOTICE 'OK: ...'.
+
+-- 1) Registry-dækning: enhver tabel en red_*-funktion DML'er mod skal stå i
+--    version_pk_registry eller være eksplicit undtaget. Undtagelserne er
+--    dokumenteret: change_set (versioneringens egen infrastruktur),
+--    suggestion (forslags-kø, ikke kanonisk data — versioneres ved apply, #128),
+--    media_variant (afledt cache, B8-mønsteret — schema.sql-kommentar ved media_variant),
+--    slaegtsnavn_karantaene (afledt, selv-helbredende karantæne-liste).
+DO $$
+DECLARE v_missing text;
+BEGIN
+  SELECT string_agg(t.tabel, ', ' ORDER BY t.tabel) INTO v_missing
+  FROM (
+    SELECT DISTINCT lower(m.grp[2]) AS tabel
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    CROSS JOIN LATERAL regexp_matches(p.prosrc,
+      '(INSERT INTO|UPDATE|DELETE FROM)\s+([a-zA-Z_]+)', 'gi') AS m(grp)
+    WHERE n.nspname = 'public' AND p.proname LIKE 'red\_%'
+  ) t
+  JOIN pg_class c ON c.relname = t.tabel
+    AND c.relnamespace = 'public'::regnamespace AND c.relkind = 'r'
+  WHERE t.tabel NOT IN (SELECT tabel FROM version_pk_registry)
+    AND t.tabel NOT IN ('change_set','suggestion','media_variant','slaegtsnavn_karantaene');
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: red_*-DML-tabeller uden versionering (fortryd = tavs no-op): %', v_missing;
+  END IF;
+  RAISE NOTICE 'OK: alle red_*-DML-tabeller er versioneret eller eksplicit undtaget';
+END $$;
+
+-- 2) Trigger-paritet: en registry-række uden trg_log_-trigger logger intet.
+DO $$
+DECLARE v_missing text;
+BEGIN
+  SELECT string_agg(r.tabel, ', ' ORDER BY r.tabel) INTO v_missing
+  FROM version_pk_registry r
+  WHERE NOT EXISTS (
+    SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+    WHERE c.relnamespace = 'public'::regnamespace
+      AND c.relname = r.tabel AND t.tgname = 'trg_log_' || r.tabel);
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: registry-tabeller uden log_change-trigger: %', v_missing;
+  END IF;
+  RAISE NOTICE 'OK: alle registry-tabeller har deres trg_log_-trigger';
+END $$;
+
+-- 3) Adfærd: red_set_story_kilder logger story_kilde-events, og fortryd
+--    genskaber tilstanden (var tavs no-op før #127).
+DO $$
+DECLARE
+  v_redaktor uuid := '00000000-0000-0000-0000-0000000000d7';
+  v_person bigint; v_story bigint; v_src bigint; v_cs bigint;
+  v_events int; v_rows int;
+BEGIN
+  INSERT INTO auth.users(id,email) VALUES (v_redaktor,'verify-127@test')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,navn) VALUES (v_redaktor,'redaktion','VERIFY 127')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('request.jwt.claim.sub', v_redaktor::text, true);
+
+  v_person := red_opret_person('VERIFY 127 person');
+  INSERT INTO source(id,titel) VALUES ((SELECT coalesce(max(id),0)+1 FROM source),'VERIFY 127 kilde')
+    RETURNING id INTO v_src;
+  v_story := red_opret_story('person', v_person, 'VERIFY 127 story-tekst');
+
+  -- nyt change_set specifikt for kilde-kaldet, så fortryd rammer præcist
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_set_story_kilder(v_story,
+    jsonb_build_array(jsonb_build_object('source_id', v_src, 'side', '12')));
+  v_cs := current_setting('app.change_set_id', true)::bigint;
+
+  SELECT count(*) INTO v_events
+    FROM change_event WHERE change_set_id = v_cs AND tabel = 'story_kilde';
+  IF v_events = 0 THEN
+    RAISE EXCEPTION 'FEJL: red_set_story_kilder loggede ingen story_kilde-events — fortryd er tavs no-op (#127)';
+  END IF;
+
+  -- fortryd i eget change_set: kildelisten skal være tom igen
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_fortryd_change_set(v_cs);
+  SELECT count(*) INTO v_rows FROM story_kilde WHERE story_id = v_story;
+  IF v_rows <> 0 THEN
+    RAISE EXCEPTION 'FEJL: fortryd genskabte ikke tom kildeliste (% rækker tilbage)', v_rows;
+  END IF;
+
+  RAISE NOTICE 'OK: story_kilde versioneres — % events logget, fortryd genskabte tom kildeliste', v_events;
+  RAISE EXCEPTION 'ROLLBACK_TESTDATA';
+EXCEPTION WHEN others THEN
+  IF SQLERRM = 'ROLLBACK_TESTDATA' THEN RAISE NOTICE 'OK: testdata rullet tilbage'; ELSE RAISE; END IF;
+END $$;
+
+-- Medie-metadata-faktatyper + RLS-skærpelse (2026-08-06)
+DO $$
+DECLARE v_n int; v_id bigint;
+BEGIN
+  SELECT count(*) INTO v_n FROM vocab WHERE scheme='faktatype' AND code IN
+    ('kilde_url','kilde_institution','ekstern_objekt_id','hentedato','fotograf','rettighedshaver',
+     'kreditlinje','beskrivelse','alt_tekst','teknik','fysiske_maal','datering');
+  IF v_n <> 12 THEN RAISE EXCEPTION 'medie-metadata-seeds: forventede 12, fandt %', v_n; END IF;
+  -- entitet_offentlig gater nu media på publicering (spec §1b): et upubliceret medie skal være mørkt
+  SELECT id INTO v_id FROM media WHERE NOT maa_publiceres LIMIT 1;
+  IF v_id IS NOT NULL AND entitet_offentlig('media', v_id) THEN
+    RAISE EXCEPTION 'entitet_offentlig(media) gater ikke upubliceret medie %', v_id;
+  END IF;
+  -- ikke-eksisterende medie → fail-closed
+  IF entitet_offentlig('media', -1) THEN
+    RAISE EXCEPTION 'entitet_offentlig(media, -1) burde være false';
+  END IF;
+  RAISE NOTICE 'OK: medie-metadata — 12 faktatype-seeds + entitet_offentlig gater media på publicering';
+END $$;
+
+-- ===== #198: db-verify må ikke efterlade forældreløse evidens-koblinger =====
+-- Baggrund: dblink-samtidighedstesten for promotion indsatte gennem en SEPARAT session en
+-- interpretation_observation-række på et gen_random_uuid()-id, som oprydningens faste
+-- fixture-id'er ikke dækkede. Rækken overlevede hver kørsel med BEGGE fremmednøgler
+-- hængende, og ved `pg_restore --clean` kunne ingen af de to fremmednøgler genskabes
+-- (målt 2026-09-17 i en fortrydelsesøvelse: 2 constraints før restore, 0 efter).
+--
+-- Denne assertion er selve sikringen: et fremtidigt læk af samme slags — fra denne blok
+-- eller en anden — fanges her i stedet for som manglende constraints i en gendannelse.
+-- Den er bevidst placeret SIDST, så den ser summen af alt, suiten har lavet.
+DO $verify_ingen_foraeldreloese_evidenskoblinger$
+DECLARE
+  v_uden_interpretation int; v_uden_observation int;
+  v_rest_io int; v_rest_interp int; v_rest_obs int; v_rest_source int;
+BEGIN
+  -- Tabellen er obligatorisk: den oprettes af BAADE schema.sql og db-migrations.sql, og
+  -- suiten har brugt den laenge foer dette punkt. Et to_regclass-spring ville derfor ikke
+  -- give kompatibilitet — det ville kun goere en paastaaet fail-closed gate fail-OPEN ved
+  -- en delkoersel. (Codex-fund 2026-09-20.)
+  IF to_regclass('private.interpretation_observation') IS NULL THEN
+    RAISE EXCEPTION '#198 FEJL: private.interpretation_observation mangler — suiten kan ikke efterproeve sin egen oprydning';
+  END IF;
+
+  -- (1) Referentiel konsistens: ingen boern uden foraeldre. Det er den tilstand, der
+  --     braekker constraint-genskabelsen ved pg_restore --clean.
+  SELECT count(*) INTO v_uden_interpretation
+    FROM private.interpretation_observation io
+   WHERE NOT EXISTS (SELECT 1 FROM private.interpretation i WHERE i.id = io.interpretation_id);
+  SELECT count(*) INTO v_uden_observation
+    FROM private.interpretation_observation io
+   WHERE NOT EXISTS (SELECT 1 FROM private.source_observation o WHERE o.id = io.observation_id);
+
+  -- (2) Faktisk oprydning. Konsistens alene beviser INTET om oprydning: efterlader en
+  --     regression baade den tilfaeldige interpretation, dens koblinger OG observationen,
+  --     er alle fremmednoegler gyldige, og (1) ville vaere groen. Derfor maales ogsaa, at
+  --     selve fixture-domaenet er tomt. (Codex-fund 2026-09-20.)
+  SELECT count(*) INTO v_rest_source FROM source WHERE id = -987650051;
+  SELECT count(*) INTO v_rest_obs
+    FROM private.source_observation WHERE id = '66000000-0000-0000-0000-000000000051';
+  SELECT count(*) INTO v_rest_interp
+    FROM private.interpretation
+   WHERE source_id = -987650051
+      OR id IN ('c1000000-0000-0000-0000-000000000051','c1000000-0000-0000-0000-000000000052',
+                'c1000000-0000-0000-0000-000000000053','c1000000-0000-0000-0000-000000000054');
+  SELECT count(*) INTO v_rest_io
+    FROM private.interpretation_observation
+   WHERE observation_id = '66000000-0000-0000-0000-000000000051'
+      OR interpretation_id IN ('c1000000-0000-0000-0000-000000000051','c1000000-0000-0000-0000-000000000052',
+                               'c1000000-0000-0000-0000-000000000053','c1000000-0000-0000-0000-000000000054')
+      OR interpretation_id IN (SELECT id FROM private.interpretation WHERE source_id = -987650051);
+
+  IF v_uden_interpretation = 0 AND v_uden_observation = 0
+     AND v_rest_io = 0 AND v_rest_interp = 0 AND v_rest_obs = 0 AND v_rest_source = 0 THEN
+    RAISE NOTICE 'OK: #198 — ingen forældreløse evidens-koblinger OG intet fixture-restindhold efter suiten';
+  ELSE
+    RAISE EXCEPTION '#198 FEJL: forældreløse: % uden interpretation, % uden source_observation | fixture-rester: % koblinger, % fortolkninger, % observationer, % kilder',
+      v_uden_interpretation, v_uden_observation, v_rest_io, v_rest_interp, v_rest_obs, v_rest_source;
+  END IF;
+END
+$verify_ingen_foraeldreloese_evidenskoblinger$;

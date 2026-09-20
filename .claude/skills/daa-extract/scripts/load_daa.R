@@ -283,6 +283,25 @@ current_by <- udgave   # konklusions-proveniens; sættes per record
 # ================= LOAD (én transaktion) =================
 dbBegin(con)
 tryCatch({
+  # CUTOVER-GATE: denne delte lås skal være transaktionens første lås. En
+  # eksklusiv v2-cutover venter dermed på en igangværende v1-loader, mens en
+  # loader der vågner efter cutover genlæser versionen og stopper før skrivning.
+  ex("SELECT pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0))")
+  contract_version <- dbGetQuery(
+    con,
+    "SELECT public.narrative_record_contract_version() AS version"
+  )
+  if (nrow(contract_version) != 1L || length(contract_version$version) != 1L ||
+      is.na(contract_version$version[[1L]]) ||
+      !identical(as.integer(contract_version$version[[1L]]), 1L)) {
+    stop("NARRATIVE_RECORD_LOADER_MIGRATION_REQUIRED", call. = FALSE)
+  }
+  # GLOBAL WRITER-LOCK (fund H4, Task 9 step 0): C3-genimportens apply/reversal
+  # (red_apply_reimport_cases / red_reverse_reimport_cases) tager denne nøgle som
+  # deres første familiespecifikke lås efter cutover-gaten. Uden den samme nøgle
+  # her kan en produktionsimport køre oven i en C3-apply. Rækkefølgen er bindende:
+  # cutover-gate, version, global writer-lock, dernæst alle tabellåse.
+  ex("SELECT pg_advisory_xact_lock(hashtextextended('daa-1939-v50-production-writer',0))")
   # IDENTITY-kontrakten (Codex-review 2026-07-31 fund 1): loaderen allokerer
   # eksplicitte id'er fra MAX(id) — uden lås kan en samtidig RPC's nextval få
   # præcis samme id, og slut-sync kan ikke reparere en PK-kollision der

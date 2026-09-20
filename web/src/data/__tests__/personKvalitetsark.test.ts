@@ -17,6 +17,9 @@ vi.mock('../../supabase', () => ({
       rpcCalls.push({ fn, args });
       return rpcImpl(fn, args);
     },
+    // redaktionWrite.ts (importeret for oversaetFejl) trækker nu media.ts ind (mediaFakta-arten,
+    // Task 3), som kalder supabase.auth.onAuthStateChange ved modul-load (TTL-cache-invalidering).
+    auth: { onAuthStateChange: vi.fn() },
   },
 }));
 

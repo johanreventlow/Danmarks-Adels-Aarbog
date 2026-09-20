@@ -20,14 +20,14 @@ export function FeedMediaStrip({ media }: { media: WebFeedMediaItem[] }) {
               onClick={(event) => { event.stopPropagation(); setOpenIndex(index); }}
               style={{ flex: '0 0 auto', minWidth: 80, maxWidth: '100%', border: '1px solid rgba(34,31,26,.1)', padding: 0, background: T.beige, borderRadius: 10, cursor: 'zoom-in', overflow: 'hidden', scrollSnapAlign: 'start' }}
             >
-              <img src={item.mediumUrl} alt={label} style={{ width: 'auto', maxWidth: '100%', height: 240, maxHeight: '42vh', objectFit: 'contain', display: 'block' }} />
+              <img src={item.mediumUrl} alt={item.altTekst || label} style={{ width: 'auto', maxWidth: '100%', height: 240, maxHeight: '42vh', objectFit: 'contain', display: 'block' }} />
             </button>
           );
         })}
       </div>
       {openIndex !== null ? <div onClick={(event) => event.stopPropagation()}>
         <Lightbox
-          items={media.map((item) => ({ id: item.id, url: item.largeUrl, titel: item.titel, kunstner: item.kunstner, datering: item.datering }))}
+          items={media.map((item) => ({ id: item.id, url: item.largeUrl, titel: item.titel, kunstner: item.kunstner, datering: item.datering, altTekst: item.altTekst }))}
           index={openIndex}
           onClose={() => setOpenIndex(null)}
           onNavigate={setOpenIndex}

@@ -6,7 +6,11 @@ test('mapPresensLinjer: nøgles på presens_kode, ikke kode — kobler til våbe
     { id: 5, kode: 'V', navn: 'Den grevelige linje af 1673', slaegtsnavn: 'Reventlow', presens_kode: 'II' },
   ];
   const vaabenRel = [{ subjekt_id: 4, objekt_id: 100 }];
-  const media = { id: 'm1', slags: 'foto', titel: '', kunstner: '', datering: '', url: 'https://x/1.png', thumbUrl: null };
+  const media = {
+    id: 'm1', slags: 'foto', titel: '', kunstner: '', datering: '', url: 'https://x/1.png', thumbUrl: null,
+    altTekst: null, kreditlinje: null, kildeUrl: null, kildeInstitution: null,
+    beskrivelse: null, teknik: null, fysiskeMaal: null, dateringFakt: null,
+  };
   const mediaByArm = new Map([['100', [media]]]);
   const result = mapPresensLinjer(lineageRows, vaabenRel, mediaByArm);
   expect(result['I']).toEqual({ titel: 'Den lensgrevelige linje af 1767', slaegtsnavn: 'Reventlou', vaaben: media });

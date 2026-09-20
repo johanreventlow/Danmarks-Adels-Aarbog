@@ -307,7 +307,8 @@ create table private.source_record_anchor_event (
   ),
   evidence jsonb not null,
   version integer not null default 1,
-  decided_by uuid references auth.users(id) on delete set null,
+  -- Immutable audit identifier: intentionally no FK to mutable auth.users.
+  decided_by uuid,
   decided_by_name text,
   decided_at timestamptz not null default now(),
   unique (occurrence_id, source_record_id, version)
@@ -325,7 +326,8 @@ create table private.source_record_revision_event (
   ),
   evidence jsonb not null,
   version integer not null,
-  decided_by uuid references auth.users(id) on delete set null,
+  -- Immutable audit identifier: intentionally no FK to mutable auth.users.
+  decided_by uuid,
   decided_by_name text,
   decided_at timestamptz not null default now(),
   unique (
@@ -338,7 +340,7 @@ Forslag, accept og afvisning er separate append-only events; current-state views
 
 - [ ] **Step 3: Gør rå evidens append-only**
 
-Blokér UPDATE og DELETE på rendition, record, observation, anchor events og revision events. Korrektion sker med ny extraction run, ny eventversion og supersedes_id, aldrig ved overskrivning.
+Blokér UPDATE og DELETE på rendition, record, observation, anchor events og revision events. Korrektion sker med ny extraction run, ny eventversion og supersedes_id, aldrig ved overskrivning. Aktør-/creator-UUID'er på append-only-rækker er frosne auditværdier uden FK til `auth.users`; ellers ville `ON DELETE SET NULL` selv være en forbudt UPDATE af historikken.
 
 - [ ] **Step 4: Lås laget privat**
 
@@ -356,7 +358,7 @@ alter default privileges in schema private
   revoke execute on functions from public, anon, authenticated;
 ~~~
 
-Kør ALTER DEFAULT PRIVILEGES som den samme ejerrolle, der skal oprette de senere private objekter; default privileges er ejer-specifikke. Verificér eksplicit, at anon og almindelig authenticated hverken kan læse eller mutere laget, og opret i testen en midlertidig tabel og funktion efter default-revokes for at bevise, at fremtidige objekter heller ikke lækker rettigheder.
+Kør ALTER DEFAULT PRIVILEGES som den samme ejerrolle, der skal oprette de senere private objekter; default privileges er ejer-specifikke. PostgreSQL's indbyggede `EXECUTE` til `PUBLIC` kan ikke fjernes schema-lokalt, så sikkerheden for senere private funktioner består af manglende `USAGE` på schemaet, schema-lokale default-revokes og eksplicit funktions-revoke ved hver migration — ikke af en global ændring, som ville påvirke public-RPC'er. Verificér effektiv adgang som rollerne, ikke kun den isolerede funktions-ACL. Opret i testen en midlertidig tabel og funktion efter default-revokes for at bevise, at fremtidige objekter heller ikke kan nås.
 
 - [ ] **Step 5: Test frisk lokal database og commit**
 
@@ -379,21 +381,21 @@ git commit -m "feat: add private source evidence schema"
 - Modify: db-rls.sql
 - Modify: db-verify.sql
 
-- [ ] **Step 1: Skriv fail-closed verifikationer**
+- [x] **Step 1: Skriv fail-closed verifikationer**
 
-Databasen skal afvise to aktive kanoniske mål for samme persona, promotion uden accepteret fortolkning, fortolkning uden observation, afgørelse uden actor/tid og falsk menneskelig godkendelse.
+Databasen skal afvise to aktive kanoniske mål for samme persona, promotion uden accepteret fortolkning, fortolkning uden observation, afgørelse uden actor/tid og falsk menneskelig godkendelse. Verifikationen omfatter også `NULL`/ugyldig `expected_version`, direkte ingest af ikke-`proposed` status, tilbageskrivning til en historisk identitetsevent og sletning af current state med bevaret eventhistorik.
 
-- [ ] **Step 2: Implementér tabeller**
+- [x] **Step 2: Implementér tabeller**
 
-Tilføj private.interpretation, interpretation_observation, interpretation_promotion, source_persona_identity og source_persona_identity_event.
+Tilføj private.interpretation, interpretation_observation, interpretation_promotion, source_persona_identity og source_persona_identity_event. `interpretation` er en append-only versionslog med stabil key og `supersedes_id`; en deferred constraint kræver mindst én observation ved commit. `source_persona_identity` er current-state-projektionen, og deferred constraints afstemmer den begge veje mod eventloggen.
 
-Én persona har højst én aktiv identitet. Status er proposed, accepted, rejected, unresolved eller superseded. Partial match modelleres med separate personaer/mentions.
+Én persona har højst én aktiv identitet. Status er proposed, accepted, rejected, unresolved eller superseded. Current state skal svare præcist til personaens seneste event. Partial match modelleres med separate personaer/mentions. Direkte ingest er proposal-only og må ikke levere menneskelige aktørfelter; unresolved er ligesom accept og afvisning en auditeret beslutning.
 
-- [ ] **Step 3: Implementér atomiske security-definer-funktioner**
+- [x] **Step 3: Implementér atomiske security-definer-funktioner**
 
-Følg projektets current_rolle-, search_path-, revoke/grant- og auditmønster. Accept/afvis skal låse mål-rækken, kontrollere expected_version og skrive event samt ny tilstand i samme transaktion.
+Følg projektets current_rolle-, search_path-, revoke/grant- og auditmønster. Accept/afvis skal låse mål-rækken, kræve en ikke-NULL `expected_version` og skrive event samt ny tilstand i samme transaktion. Actor-id og navn udledes af `auth.uid()` og profilen inde i funktionen og kan ikke leveres af kaldets payload. Kun tabel-/funktions-ejerens security-definer-vej må skrive en ikke-`proposed` fortolkning eller identitet og oprette en promotion; databaseejeren er fortsat en eksplicit betroet driftsrolle.
 
-- [ ] **Step 4: Test samtidighed og commit**
+- [x] **Step 4: Test samtidighed og commit**
 
 To afgørelser fra samme version skal give præcis én succes og én versionskonflikt. Offentlige brugere må ikke kalde mutationerne.
 
@@ -431,7 +433,7 @@ git commit -m "feat: add interpretation and identity decision ledger"
 - Inspect and inventory: .claude/skills/daa-extract/scripts/backfill_slaegtled.R
 - Inspect and inventory: .claude/skills/daa-extract/scripts/post_load_fixup.R
 
-- [ ] **Step 1: Skriv modeltests**
+- [x] **Step 1: Skriv modeltests**
 
 Bevis: to slægter kan begge have kode II; stamtavle og præsensliste kan nummerere samme lineage forskelligt; en lineage hører til én slægt; en person kan have flere memberships uden kopi; indgiftede arver ikke slægtsnavn; flere slægtsmedlemskaber kræver kontekst eller neutral etikette. Tilføj desuden:
 
@@ -443,7 +445,7 @@ Samme person kan have forskellige slægtledslabels i to source schemes.
 Der findes ingen global generation-kolonne på person.
 ~~~
 
-- [ ] **Step 2: Implementér kanonisk DDL**
+- [x] **Step 2: Implementér kanonisk DDL**
 
 Tilføj:
 
@@ -463,7 +465,7 @@ Flyt presens_kode-semantik til lineage_scheme_entry. Unikhed er (scheme_id, code
 
 source_record_placement er unik blandt aktive placeringer pr. (source_record_id, scheme_entry_id), og header_observation_id er obligatorisk. Tabellen har ingen legacy-undtagelse: uden accepteret source record og overskriftsobservation oprettes ingen placement. placement_role begrænses til principal_member, co_principal, mentioned_spouse og child_reference. Kun principal_member eller co_principal kan foreslås promoveret til lineage-medlemskab, og promotion kræver særskilt evidens. Genealogisk generation beregnes fra parent-child-relationer med valgt rod; family-partnere traverseres ikke som generationskanter.
 
-- [ ] **Step 3: Inventér alle legacy-forbrugere før migration**
+- [x] **Step 3: Inventér alle legacy-forbrugere før migration**
 
 Kør mindst:
 
@@ -473,15 +475,15 @@ rg -n "slaegtled_lokal|slaegtled_gennem|kuld|presens_kode" schema.sql db-migrati
 
 Registrér alle læsere og skrivere samt deres overgangskontrakt. Inventaret skal mindst omfatte SQL-funktionen med max(slaegtled_lokal), API-payloads, core generations/tree/matchUdgaver, web- og mobilloadere samt R-backfill/fixup. Ingen legacy-kolonne eller fallback fjernes, før hver consumer har en navngivet erstatning og en paritetstest.
 
-- [ ] **Step 4: Etablér schemes, men udskyd legacy-migrationen**
+- [x] **Step 4: Etablér schemes, men udskyd legacy-migrationen**
 
 Opret Reventlow som slægt, forbind eksisterende lineages og opret schemes for kendte stamtavle-/præsensnummereringer. Bevar slaegtled_lokal, slaegtled_gennem og kuld uændret i person_external_id og registrér deres rækkeantal/hash som migrationsbaseline. Opret ikke source_record_placements for dem i denne fase: før Task 17/20 mangler både verificeret source record og header-observation. Selve migrationsleddet udføres kildevis efter extraction og er idempotent.
 
-- [ ] **Step 5: Bevar eksplicit kompatibilitetsprojektion**
+- [x] **Step 5: Bevar eksplicit kompatibilitetsprojektion**
 
 Hvis klienter stadig læser presens_kode eller legacy-slægtled, lever et navngivet overgangs-view/RPC. Før extraction læser det legacyfelterne; efter kildevis migration læser det verificerede placements og falder kun tilbage for eksplicit uafklarede rækker. Undgå tavs prioritetsændring og dobbelt sandhed i tabellerne. Cutover-gaten kræver, at hver legacy-række er migreret med observeret evidens, eksplicit bevaret eller forklaret som uafklaret; ingen række må forsvinde tavst.
 
-- [ ] **Step 6: Implementér TypeScript-typer**
+- [x] **Step 6: Implementér TypeScript-typer**
 
 ~~~typescript
 export type SlaegtRef = { id: string; navn: string; slug: string };
@@ -501,7 +503,15 @@ export type LineageSchemeEntryRef = {
 
 Cache- og opslagstaster indeholder stabile ID'er; rå II må aldrig være global nøgle.
 
-- [ ] **Step 7: Test frisk DB, migreret DB og alle legacy-consumers; commit**
+- [x] **Step 7: Test frisk DB, migreret DB og alle legacy-consumers; commit**
+
+Bekræftet 2026-08-03: frisk lokal DB (`schema.sql` + `db-rls.sql`) og en
+historisk-opgraderet lokal DB (schemaet fra `3c37da0`, den forudgående
+identity-migration, Task-6-migrationsblokken og Task-6 RLS-grants) bestod den
+fokuserede SQL-kontrakt. To syntetiske historiske lineages fik begge
+`slaegt_id` og `canonical_label`, samt hver sin stamtavle- og
+præsensliste-mapping. Core: 410/410; web: 653/653 med CI-miljøvariabler;
+mobile: 423/423. Se også commit `e7b1f96`.
 
 ~~~bash
 npm test --workspace packages/core -- --run packages/core/src/__tests__/slaegter.test.ts
@@ -524,11 +534,11 @@ git commit -m "feat: separate clans lineages and source schemes"
 - Modify: web/src/data/types.ts
 - Modify: relevante tests under web/src/data/__tests__/
 
-- [ ] **Step 1: Test kolliderende linjekoder**
+- [x] **Step 1: Test kolliderende linjekoder**
 
 Brug syntetiske slægter A og B med kode II samt to schemes med forskellig kode for samme lineage. Navigation, etiketter og cache må ikke krydse data.
 
-- [ ] **Step 2: Brug ID-baseret kontekst**
+- [x] **Step 2: Brug ID-baseret kontekst**
 
 ~~~typescript
 type LineageContext = {
@@ -541,7 +551,7 @@ type LineageContext = {
 
 Vis eksempelvis Reventlow · II. linje, når konteksten ellers er tvetydig.
 
-- [ ] **Step 3: Test og commit**
+- [x] **Step 3: Test og commit**
 
 ~~~bash
 npm test --workspace web -- --run
@@ -557,6 +567,12 @@ git commit -m "refactor: scope lineage navigation by clan and scheme"
 ### Task 8: Modellér våben, afbildninger og generelle beskrivelser
 
 **Spor H — udskydeligt:** Task 8–9 er ikke en forudsætning for extraction-, identitets- eller bogpiloternes GO-gater.
+
+**Historisk status (2026-09-03):** Checkboksene nedenfor er den oprindelige
+arbejdsplan, ikke en aktuel udførelseslog. Spor H var fortsat parkeret i
+afvigelsesvurderingen 2026-08-22. Brug changelog, commits og aktuelle tests ved
+en ny statusvurdering; genimportens samlede status står i
+`docs/evidensbaseret-genimport/status.md`.
 
 **Files:**
 
@@ -736,11 +752,11 @@ git commit -m "feat: edit descriptions and heraldic associations"
 - Create: .claude/skills/daa-extract/scripts/test_source_persona.py
 - Modify: .claude/skills/daa-extract/scripts/identitetsregister.py
 
-- [ ] **Step 1: Skriv adversarial tests**
+- [x] **Step 1: Skriv adversarial tests**
 
 Test tre mentions til én persona uden automatisk kanonisk merge; ens navn uden positivt anker; ægtefælle-/datoanker; global injectivitet; modstridende personnumre; flere personaer fra én record; og bevarelse af manuelle beslutninger ved genudtræk.
 
-- [ ] **Step 2: Implementér kandidatobjekt**
+- [x] **Step 2: Implementér kandidatobjekt**
 
 ~~~python
 @dataclass(frozen=True)
@@ -755,11 +771,11 @@ class IdentityCandidate:
 
 Score rangerer kun. Automatisk accept kræver eksplicit versionsstyret policy med positive ankre og nul modstrid; ellers unresolved.
 
-- [ ] **Step 3: Bevar stabile identitetsnøgler**
+- [x] **Step 3: Bevar stabile identitetsnøgler**
 
 record_key og eksterne personnumre er evidens. (linje, nr) er kun lokator. Genudtræk remapper tidligere afgørelser via provenance, aldrig navn alene.
 
-- [ ] **Step 4: Test og commit**
+- [x] **Step 4: Test og commit**
 
 ~~~bash
 /usr/bin/python3 -m pytest .claude/skills/daa-extract/scripts/test_source_persona.py .claude/skills/daa-extract/scripts/test_identitetsregister.py -q
@@ -785,11 +801,11 @@ git commit -m "feat: propose fail-closed source persona identities"
 - Create: web/src/components/__tests__/KildepersonaKo.test.tsx
 - Modify: web/src/Redaktion.tsx
 
-- [ ] **Step 1: Skriv RPC- og UI-tests**
+- [x] **Step 1: Skriv RPC- og UI-tests**
 
 Test køfiltre, pagination, evidensvisning, samme/forskellig/uafklaret, versionskonflikt og at afgørelse kræver synligt kildegrundlag.
 
-- [ ] **Step 2: Implementér redaktørbeskyttede read-RPC'er**
+- [x] **Step 2: Implementér redaktørbeskyttede read-RPC'er**
 
 ~~~text
 red_source_persona_queue(status, source_id, cursor, page_size)
@@ -799,7 +815,7 @@ red_source_persona_history(source_persona_id)
 
 Detail returnerer tekstversioner, spans, relationelle ankre, modstrid og historik.
 
-- [ ] **Step 3: Implementér atomisk write-RPC**
+- [x] **Step 3: Implementér atomisk write-RPC**
 
 ~~~text
 red_afgoer_source_persona(source_persona_id, expected_version, action, canonical_person_id, note)
@@ -807,11 +823,18 @@ red_afgoer_source_persona(source_persona_id, expected_version, action, canonical
 
 canonical_person_id kræves ved same og er forbudt ved different/unresolved.
 
-- [ ] **Step 4: Implementér webkøen**
+- [x] **Step 4: Implementér webkøen**
 
 Vis kildeomtaler og kanonisk kandidat side om side. Forskellige narrative tekster forbliver separate. En redaktør kan efter import bekræfte, at den tre gange omtalte ægtemand er samme person.
 
-- [ ] **Step 5: Test og commit**
+- [x] **Step 5: Test og commit**
+
+Bekræftet 2026-08-03: den private RPC-kontrakt returnerede `OK` på lokal
+database; webkomponenten har status-/kilde-filter, cursor-pagination, synligt
+ordret kildegrundlag, kandidatvælger og fail-closed same/different/unresolved.
+Komponenttesten dækker også versionskonflikt; webbuild og fuld web-suite er
+grønne. Den oprindelige DB-/RPC-implementering er commit `a3f030d`; UI- og
+testafslutningen committes separat.
 
 ~~~bash
 npm test --workspace web -- --run web/src/components/__tests__/KildepersonaKo.test.tsx
@@ -880,25 +903,32 @@ git commit -m "feat: add mobile evidence and heraldry editor parity"
 - Create: .claude/skills/daa-extract/scripts/test_evidence_extract.py
 - Create: .claude/skills/daa-extract/references/extraction-profiles.json
 
-- [ ] **Step 1: Skriv granularitetstests**
+- [x] **Step 1: Skriv granularitetstests**
 
 Test navnedele/varianter; fødsel, dåb, død og begravelse separat; ægteskaber; forældre/børn; titel, tiltaleform, rang og embede separat; uddannelse, ejendom, bopæl, militærtjeneste, hæder og publikation; usikkerhed, negation og ukendt; indgiftedes oplysninger; samt modstridende påstande uden overskrivning.
 
 Test også ikke-personlige poster: slægts- og linjeindledninger, slægtledsoverskrifter, våbenbeskrivelser, blasoneringer, billedtekster og henvisninger fra en våbenafbilledning til slægt eller gren. De skal bruge samme observation/interpretation-kontrakt og må ikke skabe kunstige personer.
 
-- [ ] **Step 2: Implementér editionsprofiler**
+- [x] **Step 2: Implementér editionsprofiler**
 
 Profiler for 1939 og 2018–20 deler outputkontrakt. De beskriver layout/genkendelse, men opfinder ikke kildeårsspecifikke felter i genealogisk model. Hver versioneret profil fastlåser eksplicit `model_id`, `prompt_version` og `escalation_model_id`; første profil bruger `gpt-5.6-terra` som standard og `gpt-5.6-sol` kun til markerede undtagelser. En profilændring kræver en ny version og menneskelig GO.
 
-- [ ] **Step 3: Implementér resumérbare batches**
+- [x] **Step 3: Implementér resumérbare batches**
 
 Hver batch har inputhash, profilversion, extractorversion, det effektive model-ID, promptversion, record-ID'er, outputhash, token-/omkostningsregnskab og valideringsstatus. `evidence_extract.py` kræver en eksplicit profil og må hverken læse et ambient modelvalg eller falde tilbage til en global settings-default. Identiske grønne batches kan genbruges. Delvist output merges aldrig. Kun records, som en dokumenteret gate markerer, må køre én gang på eskalationsmodellen.
 
-- [ ] **Step 4: Implementér fail-closed validering**
+- [x] **Step 4: Implementér fail-closed validering**
 
 Afvis eksplicitte påstande uden span, tekst som ikke kan genfindes, mentions uden for tekst, ukendte typer, persona uden record, ufuldstændig batch samt manglende, ukendt eller profildrivet model-/prompt-ID. Test, at ændret ambient settings ikke kan ændre den effektive model.
 
-- [ ] **Step 5: Test og commit**
+- [x] **Step 5: Test og commit**
+
+2026-08-03: den fulde scriptsuite er grøn: `427 passed, 3 skipped`. De tre
+skips er afgrænsede integrationstests, som eksplicit kræver gitignorerede
+1939-arbejdsartefakter (identitetsregister, Calamari-OCR og `raw.txt`).
+`test_escalate_merge.py`-fixtures indeholder nu den R9-påkrævede locator, så
+de afprøver deres tilsigtede promotion-/mergekontrakt frem for at blive afvist
+tidligere af locator-gaten.
 
 ~~~bash
 /usr/bin/python3 -m pytest .claude/skills/daa-extract/scripts/test_evidence_extract.py -q
@@ -910,7 +940,14 @@ git branch --show-current
 git commit -m "feat: add resumable granular evidence extraction"
 ~~~
 
-### Task 14: Byg ny projektionsloader ved siden af den gamle
+### Task 14: Privat forslag-adapter; ingen kanonisk projektionsloader
+
+**Erstattet kontrakt (2026-08-03):** Den oprindelige writer-specifikation nedenfor er historisk og må ikke udføres. En accepteret fortolkning må ikke automatisk oprette eller ændre `person`, familie, facts, relationer, memberships, placement eller generation. Den operative vej er promotion-planen `2026-08-03-evidens-promotion-kontrakt.md`: den private ingest-/identitetsvej fortsætter, og `project_evidence.R` må kun forberede validerede requests til den versionerede redaktions-RPC. Zero-match og mixed-new bliver køtilstande uden personoprettelse.
+
+**Historisk status (2026-09-03):** De urørte checkbokse nedenfor tilhører den
+erstattede kontrakt og må ikke bruges som mål for den nuværende implementering.
+Brug den operative promotion-plan, changelog, commits og aktuelle tests;
+genimportens samlede status står i `docs/evidensbaseret-genimport/status.md`.
 
 **Files:**
 
@@ -956,6 +993,8 @@ git commit -m "feat: project accepted evidence into canonical genealogy"
 ## Fase 6: Kildeudgaver i offentlig visning
 
 ### Task 15: Vis hver publiceret kilderecord separat
+
+**Status 2026-08-03:** Den additive, fail-closed publiceringsvej, record-bevarende klientkontrakt og web/mobil-læsning er implementeret og verificeret lokalt. Den oprindelige Task 15 er dog ikke afsluttet som helhed: den specificerer også et særskilt kanonisk resumé og tre-record/udgave-konfliktacceptance, som den nuværende datamodel ikke definerer en autoritativ writer for. Indtil den afstemning findes, er de publicerede kilderecords og legacy-overgangsdata den sikre, afgrænsede visning; der er ikke deployet til Supabase eller Vercel.
 
 **Files:**
 
@@ -1019,11 +1058,11 @@ git commit -m "feat: preserve distinct public source narratives"
 - Create: docs/superpowers/reviews/2018-evidence-pilot.md
 - Generated and ignored: pilotmanifest, batchoutput og reviewark i privat arbejdsmappe
 
-- [ ] **Step 1: Fastlæg pilotudvalg før kørsel**
+- [x] **Step 1: Fastlæg pilotudvalg før kørsel**
 
 Udvælg deterministisk mindst 30 personrecords: simple personer, lange biografier, flere ægteskaber, indgiftede, flere lineages, titler/embeder, usikre datoer, levende personer og — hvis korpus indeholder det — ægteskab mellem medlemmer fra forskellige slægtled. Tilføj mindst 10 strukturelle/non-person records med linjeindledning, slægtledsoverskrift, slægtsbeskrivelse, våbenbeskrivelse eller billedtekst. Repo-notatet indeholder kun record keys og aggregater, ikke persontekst.
 
-- [ ] **Step 2: Kontrollér databeskyttelse**
+- [x] **Step 2: Kontrollér databeskyttelse**
 
 Hvis ekstern model skal behandle levende personers tekst, stop og indhent særskilt godkendelse af databehandler, retention og destination. Ellers brug lokal behandling eller ikke-følsomt udvalg.
 
@@ -1088,19 +1127,19 @@ git commit -m "docs: report full 2018 evidence extraction"
 - Create: docs/superpowers/reviews/1939-text-quality-decision.md
 - Inspect only: råtekst, sidebilleder, OCR-metadata og segmenteringsrapporter
 
-- [ ] **Step 1: Udtag stratificeret sideprøve**
+- [x] **Step 1: Udtag stratificeret sideprøve**
 
 Medtag tæt sats, spalter, sideskift, oversigter, unummererede grundlæggere, ægteskaber, fodnoter og kendte dårlige OCR-sider.
 
-- [ ] **Step 2: Sammenlign råtekst og sidebillede**
+- [x] **Step 2: Sammenlign råtekst og sidebillede**
 
 Mål tegnfejl, tabte linjer, forkert læserækkefølge, sammenklistrede felter, sideskift og navne-/nummerfejl. Ændr ikke eksisterende råtekst.
 
-- [ ] **Step 3: Vælg dokumenteret vej**
+- [x] **Step 3: Vælg dokumenteret vej**
 
 Vælg eksisterende råtekst som frosset rendition, gen-OCR af udpegede sider som ny rendition eller fuld gen-OCR som ny rendition. Slet aldrig gammel rendition.
 
-- [ ] **Step 4: Commit beslutningen**
+- [x] **Step 4: Commit beslutningen**
 
 ~~~bash
 git diff --check

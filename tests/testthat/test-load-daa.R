@@ -607,6 +607,41 @@ test_that("opt-in lokal DB-smoke genafspiller rettelser efter reset og ruller st
       params = list(person_id, import_key, record_key, felt, fingerprint, value))
   }
 
+  # A committed v2 contract must stop the real child loader before --reset or
+  # any ordinary insert. Snapshot every table in the loader's declared write
+  # set so this is a zero-write assertion, not merely an error-message check.
+  snapshot_loader_write_set <- function() {
+    tables <- c(loader_model_tables(), loader_versioning_tables())
+    stats::setNames(
+      vapply(tables, function(table) {
+        DBI::dbGetQuery(
+          con,
+          sprintf("SELECT count(*) FROM %s", DBI::dbQuoteIdentifier(con, table))
+        )[[1]][1]
+      }, integer(1)),
+      tables
+    )
+  }
+  set_contract_version <- function(version) {
+    DBI::dbExecute(con, sprintf(
+      paste(
+        "CREATE OR REPLACE FUNCTION public.narrative_record_contract_version()",
+        "RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER",
+        "SET search_path=pg_catalog AS $$ SELECT %d $$"
+      ),
+      version
+    ))
+  }
+  set_contract_version(2L)
+  before_v2 <- snapshot_loader_write_set()
+  blocked_v2 <- suppressWarnings(run_loader(fixture, reset = TRUE))
+  after_v2 <- snapshot_loader_write_set()
+  set_contract_version(1L)
+  expect_false(identical(blocked_v2$status, 0L))
+  expect_match(paste(blocked_v2$output, collapse = "\n"),
+               "NARRATIVE_RECORD_LOADER_MIGRATION_REQUIRED", fixed = TRUE)
+  expect_identical(after_v2, before_v2)
+
   initial <- run_loader(fixture, reset = TRUE)
   expect_identical(initial$status, 0L, info = paste(initial$output, collapse = "\n"))
   if (!identical(initial$status, 0L)) return(invisible())
@@ -796,4 +831,43 @@ test_that("match_replace_unioner: DB-union med NA/blank stub-navn giver hverken 
   expect_null(r$fejl)
   expect_equal(r$match[["1"]], list(family_id = 10, stub_pid = 100))
   expect_equal(r$bortfaldne_family_ids, 11)
+})
+
+# Fund H4 (Task 9, step 0): efter Task 6-cutover-gaten skal loaderen fortsat
+# tage den globale writer-lock som C3-genimportens apply/reversal tager før
+# samme_som_mutation og enhver tabellås. Denne tekstkontrol binder den nye
+# samlede rækkefølge direkte til loaderkilden.
+test_that("load_daa.R tager cutover-gaten før den globale writer-lock", {
+  root <- normalizePath(file.path(getwd(), "..", ".."))
+  contract_sql <- "SELECT pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0))"
+  contract_re <- "pg_advisory_xact_lock_shared\\(hashtextextended\\('daa-narrative-record-contract',0\\)\\)"
+  version_re <- "narrative_record_contract_version\\(\\)"
+  writer_sql <- "SELECT pg_advisory_xact_lock(hashtextextended('daa-1939-v50-production-writer',0))"
+  writer_re <- "pg_advisory_xact_lock\\(hashtextextended\\('daa-1939-v50-production-writer',0\\)\\)"
+  code_only <- function(v) v[!grepl("^\\s*#", v)]   # prosa om låse er ikke en lås
+
+  loader <- readLines(file.path(root, ".claude/skills/daa-extract/scripts/load_daa.R"), warn = FALSE)
+  l_begin <- grep("^dbBegin\\(con\\)$", loader)[1]
+  l_contract <- grep(contract_re, loader)[1]
+  l_version <- grep(version_re, loader)[1]
+  l_writer <- grep(writer_re, loader)[1]
+  l_table <- grep("LOCK TABLE \", paste\\(id_tables", loader)[1]
+  expect_false(is.na(l_contract))
+  expect_false(is.na(l_version))
+  expect_false(is.na(l_writer))
+  expect_true(l_begin < l_contract && l_contract < l_version && l_version < l_writer && l_writer < l_table)
+  expect_true(grepl(contract_sql, loader[[l_contract]], fixed = TRUE))
+  expect_true(grepl(writer_sql, loader[[l_writer]], fixed = TRUE))
+  before_contract <- if (l_contract > l_begin + 1L) code_only(loader[(l_begin + 1L):(l_contract - 1L)]) else character(0)
+  expect_false(any(grepl("LOCK TABLE|advisory|FOR UPDATE|FOR SHARE", before_contract)))
+
+  post <- readLines(file.path(root, ".claude/skills/daa-extract/scripts/post_load_fixup.R"), warn = FALSE)
+  p_begin <- grep("^dbBegin\\(con\\)$", post)[1]
+  p_writer <- grep(writer_re, post)[1]
+  # 'hashtext' er et præfiks af 'hashtextextended' — mønstret skal ramme sin EGEN linje.
+  p_samme <- grep("pg_advisory_xact_lock\\(hashtext\\('samme_som_mutation'\\)\\)", post)[1]
+  p_table <- grep("LOCK TABLE lineage, relation", post)[1]
+  expect_false(is.na(p_writer))
+  expect_true(p_begin < p_writer && p_writer < p_samme && p_samme < p_table)
+  expect_true(grepl(writer_sql, post[[p_writer]], fixed = TRUE))
 })

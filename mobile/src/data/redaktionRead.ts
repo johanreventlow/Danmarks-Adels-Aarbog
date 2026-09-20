@@ -148,6 +148,11 @@ export async function fetchKonflikter(): Promise<Konflikt[]> {
 export type SletPreview = {
   antalRelationer: number;
   antalFacts: number;
+  // 2026-08-20: biografien og dens kildebinding fulgte hele tiden med i sletningen, men
+  // preview nævnte dem ikke. Medlemskaber er slaegt + lineage lagt sammen.
+  antalNarrativer: number;
+  antalBindinger: number;
+  antalMedlemskaber: number;
   relationer: { rolle: string; retning: string; modpartId: number }[];
 };
 
@@ -282,13 +287,16 @@ export async function fetchForaeldreKonflikter(): Promise<ForaeldreKonflikt[]> {
 }
 
 export async function fetchSletPreview(personId: string): Promise<SletPreview> {
-  const tom: SletPreview = { antalRelationer: 0, antalFacts: 0, relationer: [] };
+  const tom: SletPreview = { antalRelationer: 0, antalFacts: 0, antalNarrativer: 0, antalBindinger: 0, antalMedlemskaber: 0, relationer: [] };
   if (!supabase) return tom;
   const { data, error } = await supabase.rpc('red_slet_person_preview', { p_person_id: Number(personId) });
   if (error || !data) return tom;
   return {
     antalRelationer: data.antal_relationer ?? 0,
     antalFacts: data.antal_facts ?? 0,
+    antalNarrativer: data.antal_narrativer ?? 0,
+    antalBindinger: data.antal_bindinger ?? 0,
+    antalMedlemskaber: data.antal_medlemskaber ?? 0,
     relationer: (data.relationer ?? []).map((r: { rolle: string; retning: string; modpart_id: number }) => ({
       rolle: r.rolle,
       retning: r.retning,
@@ -328,6 +336,109 @@ export async function fetchNarrativer(subjektType: string, subjektId: number): P
     .order('source_id', { ascending: true }).order('id', { ascending: true });
   if (error) throw new Error(error.message);
   return mapNarrativer((data ?? []) as unknown as RawNarrativRow[]);
+}
+
+// #152: mobilen har bevidst ikke recordfaner. Ved kontrakt v2 må den derfor kun
+// skrive, når serveren giver præcis én aktiv, tekst-redigerbar source-record.
+// Locator og state-hash kommer udelukkende fra editor-RPC'en; interne UUID'er
+// bruges aldrig til en klientmutation.
+export type NarrativeRecordAction = 'create_draft' | 'save_draft' | 'discard_draft' | 'publish'
+  | 'publish_revision' | 'revalidate' | 'withdraw' | 'withdraw_legacy';
+export type PersonNarrativeRecord = {
+  sourceId: number; recordKey: string | null; sourceRecordRef: string | null;
+  provenanceKind: 'source_record' | 'grandfathered_legacy'; status: string;
+  text: string; privat: boolean; side: string; textEditable: boolean;
+  allowedActions: readonly NarrativeRecordAction[]; recordLabel: string; citationLabel: string;
+  stateSha256: string | null; blockingReason: string | null;
+};
+type RawNarrativeRecordRow = {
+  source_id: unknown; record_key: unknown; source_record_ref: unknown; provenance_kind: unknown;
+  publication_status: unknown; narrative_text: unknown; narrative_private: unknown; narrative_side: unknown;
+  text_editable: unknown; allowed_actions: unknown; record_label: unknown; citation_label: unknown;
+  state_sha256: unknown; blocking_reason: unknown;
+};
+const NARRATIVE_RECORD_ACTIONS = new Set<NarrativeRecordAction>([
+  'create_draft', 'save_draft', 'discard_draft', 'publish', 'publish_revision', 'revalidate', 'withdraw', 'withdraw_legacy',
+]);
+
+export function mapNarrativeRecordRows(rows: RawNarrativeRecordRow[]): PersonNarrativeRecord[] {
+  return rows.map((row) => ({
+    sourceId: typeof row.source_id === 'number' && Number.isSafeInteger(row.source_id) ? row.source_id : NaN,
+    recordKey: typeof row.record_key === 'string' ? row.record_key : null,
+    sourceRecordRef: typeof row.source_record_ref === 'string' ? row.source_record_ref : null,
+    provenanceKind: row.provenance_kind === 'source_record' ? 'source_record' : 'grandfathered_legacy',
+    status: typeof row.publication_status === 'string' ? row.publication_status : 'blocked',
+    text: typeof row.narrative_text === 'string' ? row.narrative_text : '',
+    privat: row.narrative_private === true,
+    side: typeof row.narrative_side === 'string' ? row.narrative_side : '',
+    textEditable: row.text_editable === true,
+    allowedActions: Array.isArray(row.allowed_actions)
+      && row.allowed_actions.every((action): action is NarrativeRecordAction => typeof action === 'string' && NARRATIVE_RECORD_ACTIONS.has(action as NarrativeRecordAction))
+      ? row.allowed_actions : [],
+    recordLabel: typeof row.record_label === 'string' ? row.record_label : '',
+    citationLabel: typeof row.citation_label === 'string' ? row.citation_label : '',
+    stateSha256: typeof row.state_sha256 === 'string' ? row.state_sha256 : null,
+    blockingReason: typeof row.blocking_reason === 'string' ? row.blocking_reason : null,
+  }));
+}
+
+export type MobileNarrativeEditorState =
+  | { kind: 'legacy'; tekst: string; privat: boolean; side: string; narrativer: PersonNarrativ[] }
+  | { kind: 'editable'; tekst: string; privat: boolean; side: string; sourceId: number; recordKey: string; stateSha256: string }
+  | { kind: 'readonly'; tekst: string; privat: boolean; side: string; label: string;
+      records: readonly { label: string; tekst: string; privat: boolean; side: string }[] };
+
+function readonlyNarrativeState(records: PersonNarrativeRecord[], label: string): MobileNarrativeEditorState {
+  const displayed = records.map((record) => ({
+    label: record.recordLabel || record.citationLabel || 'Kildepost', tekst: record.text,
+    privat: record.privat, side: record.side,
+  }));
+  const first = displayed[0];
+  return { kind: 'readonly', tekst: first?.tekst ?? '', privat: first?.privat ?? false,
+    side: first?.side ?? '', label, records: displayed };
+}
+
+export function selectMobileNarrativeRecord(records: PersonNarrativeRecord[]): MobileNarrativeEditorState {
+  // Ingen første-række-fallback: mobile UI kan ikke vise flere records korrekt.
+  if (records.length !== 1) return readonlyNarrativeState(records, 'Flere eller ingen kildeposter');
+  const record = records[0];
+  const canSave = record.status === 'none' || record.status === 'draft';
+  if (record.provenanceKind === 'source_record' && canSave && record.textEditable
+      && (record.allowedActions.includes('create_draft') || record.allowedActions.includes('save_draft'))
+      && Number.isSafeInteger(record.sourceId) && record.sourceId > 0
+      && record.recordKey?.trim() && record.stateSha256?.trim()) {
+    return { kind: 'editable', tekst: record.text, privat: record.privat, side: record.side,
+      sourceId: record.sourceId, recordKey: record.recordKey, stateSha256: record.stateSha256 };
+  }
+  return readonlyNarrativeState([record], record.recordLabel || record.citationLabel || 'Kildeposten kan ikke redigeres på mobil');
+}
+
+export async function fetchNarrativeEditorState(subjektType: string, subjektId: number): Promise<MobileNarrativeEditorState> {
+  if (subjektType !== 'person') {
+    const narrativer = await fetchNarrativer(subjektType, subjektId);
+    const first = narrativer[0];
+    return { kind: 'legacy', narrativer, tekst: first?.tekst ?? '', privat: first?.privat ?? false, side: first?.side ?? '' };
+  }
+  if (!supabase) return readonlyNarrativeState([], 'Narrativkontrakten er ikke tilgængelig');
+  try {
+    const version = await supabase.rpc('narrative_record_contract_version', {});
+    if (version.error || typeof version.data !== 'number' || !Number.isInteger(version.data)) {
+      return readonlyNarrativeState([], 'Narrativkontrakten kan ikke bekræftes');
+    }
+    if (version.data === 1) {
+      const narrativer = await fetchNarrativer(subjektType, subjektId);
+      const first = narrativer[0];
+      return { kind: 'legacy', narrativer, tekst: first?.tekst ?? '', privat: first?.privat ?? false, side: first?.side ?? '' };
+    }
+    if (version.data !== 2) return readonlyNarrativeState([], 'Narrativkontrakten har en ukendt version');
+    const result = await supabase.rpc('red_person_narrative_records', { p_person_id: subjektId });
+    if (result.error || !Array.isArray(result.data)) {
+      return readonlyNarrativeState([], 'Kildeposterne kunne ikke hentes');
+    }
+    return selectMobileNarrativeRecord(mapNarrativeRecordRows(result.data as RawNarrativeRecordRow[]));
+  } catch {
+    return readonlyNarrativeState([], 'Kildeposterne kunne ikke hentes');
+  }
 }
 
 // --- Hændelses-tidslinje (levende feed fase 2) ---

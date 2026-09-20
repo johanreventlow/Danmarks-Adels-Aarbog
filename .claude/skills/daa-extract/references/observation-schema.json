@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://danmarksadelsaarbog.dk/schema/evidence-observation-1.0.json",
+  "type": "object",
+  "required": ["schema_version", "source_rendition", "source_records", "source_record_occurrences", "source_record_anchor_events", "source_record_revision_events", "record_placements", "persona_placements", "observations", "text_variants", "mentions", "source_personas", "extraction_run"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "source_rendition": {"type": "array"},
+    "source_records": {"type": "array"},
+    "source_record_occurrences": {"type": "array"},
+    "source_record_anchor_events": {"type": "array"},
+    "source_record_revision_events": {"type": "array"},
+    "record_placements": {"type": "array"},
+    "persona_placements": {"type": "array"},
+    "observations": {"type": "array"},
+    "text_variants": {"type": "array"},
+    "mentions": {"type": "array"},
+    "source_personas": {"type": "array"},
+    "extraction_run": {"type": "object"}
+  }
+}
