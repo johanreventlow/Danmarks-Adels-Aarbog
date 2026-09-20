@@ -1,5 +1,62 @@
 # Changelog
 
+## 2026-09-20 — medie-indkapsling: de to sidste anon-orakler lukket i prod
+
+Fortsættelsen af anon-hærdningen 19/9 (#202), hvor `media_afbilder_skjult` og
+`media_id_for_object` bevidst blev ladt åbne. De kunne ikke lukkes med et revoke alene:
+begge blev kaldt fra RLS-politik-kroppe, og et politik-udtryk udføres med **kalderens**
+rettigheder. Et revoke ville have slukket billedvisningen for gæster.
+
+**Hvad de lækkede.** `media_afbilder_skjult(mid)` var et PII-orakel — den svarer, om
+billede N afbilder en levende eller privat person, uden at vise billedet.
+`media_id_for_object(sti)` var et eksistens-orakel over storage-stier og deres `media_id`,
+uafhængigt af om objektet var synligt.
+
+**Indkapslingen** (PR #204, merget som `2271d0b`, 10/10 CI-jobs grønne): `media_synlig_anon`
+gjort `SECURITY DEFINER` med uændret krop, ny `SECURITY DEFINER`-wrapper
+`media_object_synlig_anon(text)` til sti→synlighed, begge storage-politikker skrevet om til
+kun at kalde den, og de to funktioner lukket i `$anon_gate_hardening$`. Blokken har fået en
+vagt i samme transaktion som revoket: falder `media_synlig_anon` tilbage til INVOKER,
+mangler wrapperen, mister en rolle sin EXECUTE, eller kalder en politik ikke wrapperen,
+stopper deployet med `MEDIE_INDKAPSLING_BRUDT` i stedet for at slukke billederne.
+
+**Anvendt i prod 2026-09-20** — hele `db-rls.sql` i ÉN transaktion, så alt-eller-intet.
+Gæstens flade **uændret** før/efter: 13 medier, 20 varianter, 33 storage-objekter. Direkte
+kald til begge funktioner som `anon` giver nu `permission denied`; den lovlige vej gennem
+wrapperen svarer uændret.
+
+**Ende-til-ende mod prod, ikke kun mod ACL'en.** Bytes serveres af Storage-API'et, som
+rammer RLS ved `createSignedUrl` — det kan databasen ikke selv bevise. Målt med anon-nøglen
+mod prod efter anvendelsen: signeret URL mintet, billedet hentet (HTTP 200, `image/jpeg`,
+364 KB, 1280×1554), en thumb-variant hentet (HTTP 200, 34 KB, 500×579 — variantgrenen
+resolver stadig efter bucket-hærdningen), og en forældreløs sti nægtet (`NoSuchKey`).
+
+**Testdækning, der ikke fandtes.** `db-rls.sql`s storage-blok og `db-verify`s Task 12b er
+begge pakket ind i `if exists storage.objects`. I CI findes skemaet ikke, så begge sprang
+over — de to gæstevendte politikker var aldrig testet andre steder end i prod. En
+storage-shim i bootstrap lukker det (119 → 120 OK-linjer). `db-verify-media.sql`s Task 12b
+ryddede op med `DELETE FROM storage.objects` og var derfor ukørbar mod en ægte
+Supabase-kopi (`protect_delete`); erstattet af transaktions-udgaven.
+
+**Adversarial Codex-review** (`gpt-5.6-sol`) lukkede tre fund: blank sti og manglende
+bucket-korrelation i `media_id_for_object` (begge no-ops på de faktiske data, men tilladt af
+datamodellen), og to fixtures, der fælder regressioner Task 12b før sov igennem — et
+GDPR-skjult storage-objekt og et objekt i en anden bucket.
+
+**Efterladt bevidst:** `media_rettigheder_ok` er fortsat et eksistens-orakel (svarer `true`
+for et rettighedsfrigivet medie, også når det er GDPR-skjult). Målt: 0 af 13 medier er
+skjulte, så den lækker 0 i dag. Et revoke rækker ikke — `entitet_offentlig('media', id)`
+reproducerer gaten og fodrer politikkerne på `note`, `narrative` og `text_mention`.
+Begrundelse og åben opgave i `docs/decisions.md`.
+
+**Advisor-fladen efter anvendelsen:** 9 `SECURITY DEFINER`-funktioner er anon-kaldbare
+(ud over `red_*`) — 7 forud-eksisterende bevidst offentlige plus de 2 nye indgangspunkter
+`media_synlig_anon` og `media_object_synlig_anon`. Det er hensigten, ikke et nyt hul; noten
+står i `db-rls.sql`, så de ikke lukkes i god tro.
+
+Runbook: `docs/runbooks/2026-09-20-medie-indkapsling.md`. Rapport:
+`~/.private/medie-indkapsling/medie-indkapsling-20260920070141Z.log`.
+
 ## 2026-09-19 — oprydning gik galt, blev omgjort; arbejdsudlæg arkiveret
 
 En oprydning 18/9 slettede mere, end den burde, og på et grundlag der ikke var målt. Alt er

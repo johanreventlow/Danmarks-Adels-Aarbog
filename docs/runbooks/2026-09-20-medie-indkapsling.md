@@ -57,8 +57,11 @@ storage-skema, 13 medier, 20 varianter, 36 storage-objekter og
   regressioner, den før sov igennem (GDPR-skjult storage-objekt, objekt i anden bucket).
   Alle tre er efterprøvet med negativ kontrol.
 
-> **Status 2026-09-20:** trin 1-2 er udført. PR #204 merget som `2271d0b`, alle 10
-> CI-jobs grønne. Det udestående er trin 3-5: tør kørsel, anvendelse og browser-tjek.
+> **Status 2026-09-20: UDFØRT.** PR #204 merget som `2271d0b` (10/10 CI-jobs grønne),
+> anvendt i prod, gæstens flade uændret (13/20/33), og et rigtigt billede hentet som gæst
+> gennem en signeret URL (HTTP 200, `image/jpeg`, 364 KB). Rapport:
+> `~/.private/medie-indkapsling/medie-indkapsling-20260920070141Z.log`.
+> Runbooken står tilbage som forlæg for næste RLS-ændring.
 
 ## Rækkefølge
 
