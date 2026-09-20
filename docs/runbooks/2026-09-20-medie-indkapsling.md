@@ -57,6 +57,9 @@ storage-skema, 13 medier, 20 varianter, 36 storage-objekter og
   regressioner, den før sov igennem (GDPR-skjult storage-objekt, objekt i anden bucket).
   Alle tre er efterprøvet med negativ kontrol.
 
+> **Status 2026-09-20:** trin 1-2 er udført. PR #204 merget som `2271d0b`, alle 10
+> CI-jobs grønne. Det udestående er trin 3-5: tør kørsel, anvendelse og browser-tjek.
+
 ## Rækkefølge
 
 CI **før** prod. Det var netop lærestykket 19/9: CI fangede en forbruger
@@ -64,7 +67,7 @@ CI **før** prod. Det var netop lærestykket 19/9: CI fangede en forbruger
 med omvendt fortegn.
 
 1. Push grenen + åbn `--draft` PR (push er gated — spørg først)
-2. Alle 6 CI-jobs grønne
+2. Alle CI-jobs grønne
 3. Tør kørsel mod prod
 4. Anvend
 5. Browser-tjek + `get_advisors`
@@ -87,8 +90,10 @@ zsh ~/.private/medie-indkapsling/medie-indkapsling-apply.zsh
 zsh ~/.private/medie-indkapsling/medie-indkapsling-apply.zsh --jeg-mener-det
 ```
 
-Scriptet kræver `--jeg-mener-det`, afviser ukendte argumenter, kræver at repoet står
-rent på `fix/medie-indkapsling`, og skriver FØR/EFTER + funktionsprøve til en rapportfil.
+Scriptet kræver `--jeg-mener-det` og afviser ukendte argumenter. Det kræver desuden, at
+repoet står rent på `main` (eller arbejdsgrenen), og at `db-rls.sql` **faktisk bærer**
+indkapslingen — en navne-vagt alene ville lade en ældre udgave slippe igennem. FØR/EFTER
++ funktionsprøve skrives til en rapportfil.
 
 **Acceptkriteriet i rapporten:** blokken "gæstens flade" skal være **uændret** fra FØR
 til EFTER. Ændrer tallene sig, er noget galt — fortryd.
