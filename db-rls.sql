@@ -179,30 +179,6 @@ $$;
 revoke all on function public.media_rettigheder_ok(bigint) from public;
 grant execute on function public.media_rettigheder_ok(bigint) to anon, authenticated;
 
--- entitet_offentlig: fælles polymorf synligheds-regel for et (type,id)-mål. Erstatter det gentagne
--- "type <> 'person'"-mønster, der var FAIL-OPEN på to måder (Codex-fund F-02c): (1) family-mål blev
--- behandlet som offentligt → levende families vielse-/skilsmisse-fakta + noter lækkede til anon OG
--- authenticated; (2) enhver ukendt/fejlstavet discriminator (type-kolonnerne er fritekst uden CHECK)
--- blev behandlet som offentlig. FAIL-CLOSED ELSE. NB: fact/relation-mål (kun note/text_mention kan
--- pege der) håndteres IKKE her — de skal cascade gennem targetets EGEN RLS (se note/text_mention-
--- policyerne), ikke entitets-gates. SECURITY DEFINER pga. family_offentlig.
--- Står EFTER media_rettigheder_ok fordi media-grenen kalder den (SQL-bodies valideres ved CREATE).
-create or replace function public.entitet_offentlig(p_type text, p_id bigint)
-returns boolean language sql stable security definer set search_path = public as $$
-  select case
-    when p_type = 'person' then public.person_offentlig(p_id)
-    when p_type = 'family' then public.family_offentlig(p_id)
-    -- media: fakta/noter/relationer følger publiceringsgaten (spec §1b, MM-01).
-    -- Redaktionen ser fortsat alt via det additive redaktion_read-lag.
-    when p_type = 'media' then public.media_rettigheder_ok(p_id)
-    -- det faste ikke-PII-entitetssæt (sted/gods/våben/linje/organisation/begivenhed/kilde/arkiv)
-    when p_type in ('place','estate','coat_of_arms','slaegt','lineage','organisation',
-                    'historical_event','source','repository') then true
-    else false  -- ukendt/fejlstavet type → fail-closed
-  end;
-$$;
-revoke all on function public.entitet_offentlig(text, bigint) from public;
-grant execute on function public.entitet_offentlig(text, bigint) to anon, authenticated;
 
 -- Kort et storage-objekt tilbage til dets media-række. Stien er autoritativ:
 -- storage.objects.name == media.storage_path (unikt pr. (bucket,storage_path)) FOR 'large'-tieren;
@@ -250,14 +226,52 @@ create or replace function public.media_synlig_anon(mid bigint)
 returns boolean language sql stable security definer set search_path=public as $$
   select not public.media_afbilder_skjult(mid) and public.media_rettigheder_ok(mid);
 $$;
+-- SECURITY DEFINER af samme grund som media_synlig_anon (2026-09-20): den er INVOKER-kaldt
+-- af authenticated, og saa laenge den er det, skal authenticated selv have EXECUTE paa
+-- media_rettigheder_ok. Som DEFINER kan den indre gate lukkes helt. Ubrugt i politikker i dag,
+-- men bevares til samtykke-modellen — og en ubrugt funktion, der tvinger et grant aabent, er
+-- praecis den slags rest, der overlever en oprydning.
 create or replace function public.media_synlig_auth(mid bigint)
-returns boolean language sql stable set search_path=public as $$
+returns boolean language sql stable security definer set search_path=public as $$
   select not public.media_afbilder_privat(mid) and public.media_rettigheder_ok(mid);
 $$;
 revoke all on function public.media_synlig_anon(bigint) from public;
 revoke all on function public.media_synlig_auth(bigint) from public;
 grant execute on function public.media_synlig_anon(bigint) to anon, authenticated;
 grant execute on function public.media_synlig_auth(bigint) to authenticated;
+
+-- entitet_offentlig: fælles polymorf synligheds-regel for et (type,id)-mål. Erstatter det gentagne
+-- "type <> 'person'"-mønster, der var FAIL-OPEN på to måder (Codex-fund F-02c): (1) family-mål blev
+-- behandlet som offentligt → levende families vielse-/skilsmisse-fakta + noter lækkede til anon OG
+-- authenticated; (2) enhver ukendt/fejlstavet discriminator (type-kolonnerne er fritekst uden CHECK)
+-- blev behandlet som offentlig. FAIL-CLOSED ELSE. NB: fact/relation-mål (kun note/text_mention kan
+-- pege der) håndteres IKKE her — de skal cascade gennem targetets EGEN RLS (se note/text_mention-
+-- policyerne), ikke entitets-gates. SECURITY DEFINER pga. family_offentlig.
+-- Står EFTER media_synlig_anon fordi media-grenen kalder den (SQL-bodies valideres ved CREATE).
+-- Blokken blev flyttet hertil 2026-09-20 netop af den grund — den stod før over media-helperne.
+create or replace function public.entitet_offentlig(p_type text, p_id bigint)
+returns boolean language sql stable security definer set search_path = public as $$
+  select case
+    when p_type = 'person' then public.person_offentlig(p_id)
+    when p_type = 'family' then public.family_offentlig(p_id)
+    -- media: fakta/noter/narrativer/relationer/tekst-henvisninger følger mediets EGEN
+    -- synlighed — BEGGE dimensioner. MM-01 (2026-08-06) skærpede grenen fra ubetinget true
+    -- til media_rettigheder_ok og tog dermed kun rettighedsdimensionen med; GDPR-dimensionen
+    -- faldt bort ét lag inde. Et rettighedsfrigivet billede af en LEVENDE person var derfor
+    -- selv usynligt for gæster, mens dets fakta (fotograf, kreditlinje, datering ...) var
+    -- læsbare. Nu er reglen den samme som for media-rækken selv (invariant 8, fail-closed).
+    -- Målt i prod 2026-09-20 før ændringen: 0 af 13 medier var skjulte, så ingen række
+    -- skifter synlighed i dag — men klassen var reel.
+    -- Redaktionen ser fortsat alt via det additive redaktion_read-lag.
+    when p_type = 'media' then public.media_synlig_anon(p_id)
+    -- det faste ikke-PII-entitetssæt (sted/gods/våben/linje/organisation/begivenhed/kilde/arkiv)
+    when p_type in ('place','estate','coat_of_arms','slaegt','lineage','organisation',
+                    'historical_event','source','repository') then true
+    else false  -- ukendt/fejlstavet type → fail-closed
+  end;
+$$;
+revoke all on function public.entitet_offentlig(text, bigint) from public;
+grant execute on function public.entitet_offentlig(text, bigint) to anon, authenticated;
 
 -- Sti → synlighed i ÉT kald (2026-09-19, medie-indkapsling). Storage-politikkerne kaldte før
 -- media_id_for_object DIREKTE i politik-kroppen; et politik-udtryk udføres med kalderens
@@ -1312,8 +1326,14 @@ $reimport_1939_v2_facade_acl$;
 -- Rækkefølgen i denne fil er en forudsætning: definitionerne ovenfor køres FØR dette
 -- revoke. Vagten lige under løkken efterprøver det i samme transaktion.
 --
--- STADIG BEVIDST ÅBEN: media_rettigheder_ok. Den er rettigheds-/copyright-gating, ikke
--- PII, og kaldes desuden fra media_synlig_auth (INVOKER), som authenticated beholder.
+-- RETTIGHEDSGATEN (2026-09-20): media_rettigheder_ok lukkes nu ogsaa. Argumentet for at
+-- lade den staa — "copyright, ikke PII" — holdt ikke: den svarer true for et
+-- rettighedsfrigivet medie OGSAA naar mediet er skjult fordi det afbilder en levende
+-- person, og var dermed et eksistens-orakel af samme slags som family_offentlig.
+-- Forudsaetningen var to ting, som begge er paa plads nu: media_synlig_auth er gjort
+-- DEFINER, og entitet_offentlig's media-gren gater paa media_synlig_anon i stedet for
+-- raa rettigheder (den reproducerede ellers orakelet og lod medie-fakta laekke om et
+-- GDPR-skjult billede).
 --
 -- FORVENTET: advisor 0028 vil efter denne ændring flage TO NYE funktioner —
 -- media_synlig_anon og media_object_synlig_anon er nu SECURITY DEFINER og
@@ -1336,7 +1356,10 @@ BEGIN
     'public.hist_events(bigint)|public, anon',
     -- medie-indkapslingen: begge er nu kun nåelige gennem DEFINER-lag
     'public.media_afbilder_skjult(bigint)|public, anon, authenticated',
-    'public.media_id_for_object(text)|public, anon, authenticated'
+    'public.media_id_for_object(text)|public, anon, authenticated',
+    -- rettighedsgaten (2026-09-20): naaelig gennem media_synlig_anon/auth og
+    -- entitet_offentlig, som alle tre er DEFINER
+    'public.media_rettigheder_ok(bigint)|public, anon, authenticated'
   ] LOOP
     v_roller := split_part(v_sig, '|', 2);
     v_sig    := split_part(v_sig, '|', 1);
@@ -1404,9 +1427,26 @@ BEGIN
 
   -- BEGGE roller: anon baerer gaestefladen, authenticated baerer medlemsfladen
   -- (media_obj_auth og text_mention.tm_read kalder de samme to indgange).
+  -- Rettighedsgatens indkapsling: alle tre kaldere skal vaere DEFINER, ellers slukker
+  -- revoket enten medie-fladen (media_synlig_anon/auth) eller alt medie-tilknyttet
+  -- indhold — fakta, noter, narrativer, relationer, tekst-henvisninger (entitet_offentlig).
+  FOREACH v_sig IN ARRAY ARRAY[
+    'public.media_synlig_auth(bigint)',
+    'public.entitet_offentlig(text,bigint)'
+  ] LOOP
+    IF NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid = to_regprocedure(v_sig)) THEN
+      RAISE EXCEPTION 'MEDIE_INDKAPSLING_BRUDT: % er INVOKER — revoket ville slukke medie-tilknyttet indhold', v_sig;
+    END IF;
+  END LOOP;
+  IF (SELECT prosrc FROM pg_proc WHERE oid='public.entitet_offentlig(text,bigint)'::regprocedure)
+     NOT LIKE '%media_synlig_anon%' THEN
+    RAISE EXCEPTION 'MEDIE_INDKAPSLING_BRUDT: entitet_offentlig gater ikke media paa media_synlig_anon';
+  END IF;
+
   FOREACH v_sig IN ARRAY ARRAY[
     'public.media_synlig_anon(bigint)',
-    'public.media_object_synlig_anon(text)'
+    'public.media_object_synlig_anon(text)',
+    'public.entitet_offentlig(text,bigint)'
   ] LOOP
     IF NOT has_function_privilege('anon', to_regprocedure(v_sig), 'EXECUTE') THEN
       RAISE EXCEPTION 'MEDIE_INDKAPSLING_BRUDT: anon kan ikke kalde % — gæster mister billeder', v_sig;
