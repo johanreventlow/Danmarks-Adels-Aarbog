@@ -53,9 +53,12 @@ narrativer, der i dag er synlige, forsvinde fail-closed. Det kræver sin egen
 før/efter-måling mod læsefladen og hører ikke hjemme i en ændring, hvis hele pointe er
 at anons synlige mængder skal være byte-identiske.
 
-**ÅBENT (næste opgave):** luk rettighedsorakelet — kræver en kontraktbeslutning om,
-hvorvidt eksistensen af et skjult medie må være offentlig, og en ændring af BÅDE
-`media_rettigheder_ok`-grantet og `entitet_offentlig`s media-gren.
+**LUKKET SAMME DAG** (PR #206, `036176f`, anvendt i prod 2026-09-20). Kontraktspørgsmålet
+viste sig ikke at være et spørgsmål: `entitet_offentlig`s media-gren gatede kun på
+rettigheder og lod derfor fakta om et GDPR-skjult billede være læsbare — det var en ægte
+lækage, ikke kun et orakel, og skulle rettes uanset hvordan man svarede på orakel-spørgsmålet.
+Grenen gater nu på `media_synlig_anon`, og `media_rettigheder_ok` er lukket for både anon og
+authenticated. Se changelog 2026-09-20.
 
 ## BESLUTTET: klausul-projektionen er et udgaveneutralt delta-tjek, ikke en udvidelse af 1939-gaten (2026-09-17)
 
