@@ -7671,6 +7671,8 @@ END $$;
 DO $$
 DECLARE vis_spaerret int; vis_kladde int; vis_klar int; vis_red int;
         map_hit bigint; map_orphan bigint; ok_orphan boolean;
+        obj_klar boolean; obj_spaerret boolean; obj_orphan boolean;
+        skjult_naegtet boolean; mapping_naegtet boolean;
 BEGIN
   DELETE FROM media WHERE id IN (-911,-912,-913);
   INSERT INTO media(id, slags, titel, maa_publiceres, upload_status, bucket, storage_path) VALUES
@@ -7682,11 +7684,40 @@ BEGIN
   SELECT count(*) INTO vis_spaerret FROM media WHERE id = -911;
   SELECT count(*) INTO vis_kladde   FROM media WHERE id = -912;
   SELECT count(*) INTO vis_klar     FROM media WHERE id = -913;
+
+  -- Medie-indkapslingen (2026-09-19): anons LOVLIGE vej fra storage-sti til synlighed er
+  -- wrapperen media_object_synlig_anon, som er SECURITY DEFINER og derfor slår op og gater
+  -- som ejeren. Samme svar som rettigheds-gatingen ovenfor, nu målt fra sti-siden.
+  SELECT public.media_object_synlig_anon('test/klar.jpg'),
+         public.media_object_synlig_anon('test/spaerret.jpg'),
+         public.media_object_synlig_anon('findes/ikke.jpg')
+    INTO obj_klar, obj_spaerret, obj_orphan;
+  -- ... og de to indkapslede funktioner maa IKKE laengere kunne kaldes direkte af anon.
+  -- media_afbilder_skjult var et PII-orakel ("afbilder billede N en levende person?"),
+  -- media_id_for_object et eksistens-orakel over storage-stier. Paastandene laaser
+  -- indkapslingen fast, saa et genudstedt grant fanges her i stedet for i prod.
+  BEGIN
+    PERFORM public.media_afbilder_skjult(-913);
+    skjult_naegtet := false;
+  EXCEPTION WHEN insufficient_privilege THEN
+    skjult_naegtet := true;
+  END;
+  BEGIN
+    PERFORM public.media_id_for_object('test/klar.jpg');
+    mapping_naegtet := false;
+  EXCEPTION WHEN insufficient_privilege THEN
+    mapping_naegtet := true;
+  END;
   RESET ROLE;
 
   IF NOT (vis_spaerret = 0 AND vis_kladde = 0 AND vis_klar = 1) THEN
     RAISE EXCEPTION 'rettigheds-gating FEJL (anon): spaerret=% (vent 0), kladde=% (vent 0), klar=% (vent 1)',
       vis_spaerret, vis_kladde, vis_klar;
+  END IF;
+
+  IF NOT (obj_klar AND NOT obj_spaerret AND NOT obj_orphan AND skjult_naegtet AND mapping_naegtet) THEN
+    RAISE EXCEPTION 'medie-indkapsling FEJL: sti-wrapper klar=% (vent t), spaerret=% (vent f), foraeldreloes=% (vent f) | direkte kald naegtet: afbilder_skjult=%, id_for_object=% (vent t,t)',
+      obj_klar, obj_spaerret, obj_orphan, skjult_naegtet, mapping_naegtet;
   END IF;
 
   -- objekt→media-mapping: kendt sti resolver, ukendt (forældreløs) → NULL → rettigheder_ok=false
@@ -7699,7 +7730,7 @@ BEGIN
   END IF;
 
   DELETE FROM media WHERE id IN (-911,-912,-913);
-  RAISE NOTICE 'OK: media rettigheds-gating (spærret/kladde skjult, klar synlig) + storage-mapping (forældreløs fail-closed)';
+  RAISE NOTICE 'OK: media rettigheds-gating (spærret/kladde skjult, klar synlig) + storage-mapping (forældreløs fail-closed) + medie-indkapsling (sti-wrapper virker, direkte gate-kald lukket)';
 END $$;
 
 
@@ -7711,6 +7742,7 @@ END $$;
 BEGIN;
 DO $$
 DECLARE has_bucket boolean; vis_klar int; vis_spaerret int; vis_orphan int; vis_klar_auth int; vis_spaerret_auth int;
+        vis_levende int; vis_levende_auth int; vis_anden_bucket int;
 BEGIN
   IF to_regclass('storage.buckets') IS NULL OR to_regclass('storage.objects') IS NULL THEN
     RAISE NOTICE 'SPRINGER OVER Task 12b (storage.objects-politikker): storage-katalog er ikke installeret';
@@ -7723,8 +7755,12 @@ BEGIN
   END IF;
   IF EXISTS (
     SELECT 1 FROM storage.objects
-    WHERE bucket_id='media' AND name IN ('test/klar.jpg','test/spaerret.jpg','test/orphan.jpg')
-  ) OR EXISTS (SELECT 1 FROM media WHERE id IN (-921,-922)) THEN
+    WHERE (bucket_id='media' AND name IN ('test/klar.jpg','test/spaerret.jpg','test/orphan.jpg','test/levende.jpg'))
+       OR bucket_id='__test_anden_bucket'
+  ) OR EXISTS (SELECT 1 FROM media WHERE id IN (-921,-922,-923))
+    OR EXISTS (SELECT 1 FROM person WHERE id = -923)
+    OR EXISTS (SELECT 1 FROM relation WHERE id = -923)
+    OR EXISTS (SELECT 1 FROM storage.buckets WHERE id='__test_anden_bucket') THEN
     RAISE EXCEPTION 'storage.objects-gating fixture-kollision';
   END IF;
   -- Et --no-acl restore har bevidst ingen Supabase-default-grants. De
@@ -7733,26 +7769,43 @@ BEGIN
   EXECUTE 'GRANT SELECT ON storage.objects TO anon, authenticated';
   INSERT INTO media(id, slags, titel, maa_publiceres, upload_status, bucket, storage_path) VALUES
     (-921,'segl','obj-klar',    true, 'klar','media','test/klar.jpg'),
-    (-922,'segl','obj-spaerret',false,'klar','media','test/spaerret.jpg');
+    (-922,'segl','obj-spaerret',false,'klar','media','test/spaerret.jpg'),
+    -- -923 er rettigheds-MAESSIGT frigivet, men afbilder en levende person. Den skiller de to
+    -- ortogonale dimensioner ad: uden denne fixture ville en regression, hvor politikken kun
+    -- gater paa rettigheder, forblive groen (Codex-fund 2026-09-20).
+    (-923,'foto','obj-levende', true, 'klar','media','test/levende.jpg');
+  INSERT INTO person(id, levende, privat) VALUES (-923, true, false);
+  INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle)
+    VALUES (-923,'person',-923,'media',-923,'afbildet');
+  -- En ANDEN bucket med et objekt, der hedder praecis det samme som et synligt media-objekt.
+  -- Uden bucket-vagten i politikken ville wrapperen svare true og aabne det (samme fund).
+  INSERT INTO storage.buckets(id, name) VALUES ('__test_anden_bucket','__test_anden_bucket');
   INSERT INTO storage.objects(bucket_id, name) VALUES
-    ('media','test/klar.jpg'), ('media','test/spaerret.jpg'), ('media','test/orphan.jpg'); -- orphan = ingen media-række
+    ('media','test/klar.jpg'), ('media','test/spaerret.jpg'), ('media','test/orphan.jpg'), -- orphan = ingen media-række
+    ('media','test/levende.jpg'),
+    ('__test_anden_bucket','test/klar.jpg');
 
   SET LOCAL ROLE anon;
   SELECT count(*) INTO vis_klar     FROM storage.objects WHERE bucket_id='media' AND name='test/klar.jpg';
   SELECT count(*) INTO vis_spaerret FROM storage.objects WHERE bucket_id='media' AND name='test/spaerret.jpg';
   SELECT count(*) INTO vis_orphan   FROM storage.objects WHERE bucket_id='media' AND name='test/orphan.jpg';
+  SELECT count(*) INTO vis_levende  FROM storage.objects WHERE bucket_id='media' AND name='test/levende.jpg';
+  SELECT count(*) INTO vis_anden_bucket FROM storage.objects WHERE bucket_id='__test_anden_bucket';
   RESET ROLE;
   SET LOCAL ROLE authenticated;
   SELECT count(*) INTO vis_klar_auth     FROM storage.objects WHERE bucket_id='media' AND name='test/klar.jpg';
   SELECT count(*) INTO vis_spaerret_auth FROM storage.objects WHERE bucket_id='media' AND name='test/spaerret.jpg';
+  SELECT count(*) INTO vis_levende_auth  FROM storage.objects WHERE bucket_id='media' AND name='test/levende.jpg';
   RESET ROLE;
 
-  IF NOT (vis_klar=1 AND vis_spaerret=0 AND vis_orphan=0 AND vis_klar_auth=1 AND vis_spaerret_auth=0) THEN
-    RAISE EXCEPTION 'storage.objects-gating FEJL: anon(klar=% [1], spaerret=% [0], orphan=% [0]), medlem(klar=% [1], spaerret=% [0])',
-      vis_klar, vis_spaerret, vis_orphan, vis_klar_auth, vis_spaerret_auth;
+  IF NOT (vis_klar=1 AND vis_spaerret=0 AND vis_orphan=0 AND vis_levende=0 AND vis_anden_bucket=0
+          AND vis_klar_auth=1 AND vis_spaerret_auth=0 AND vis_levende_auth=0) THEN
+    RAISE EXCEPTION 'storage.objects-gating FEJL: anon(klar=% [1], spaerret=% [0], orphan=% [0], levende=% [0], anden bucket=% [0]), medlem(klar=% [1], spaerret=% [0], levende=% [0])',
+      vis_klar, vis_spaerret, vis_orphan, vis_levende, vis_anden_bucket,
+      vis_klar_auth, vis_spaerret_auth, vis_levende_auth;
   END IF;
 
-  RAISE NOTICE 'OK: storage.objects-politikker (klar synlig anon+medlem; spærret + forældreløs skjult for begge)';
+  RAISE NOTICE 'OK: storage.objects-politikker (klar synlig anon+medlem; spærret, forældreløs, GDPR-skjult og anden bucket skjult for begge)';
 END $$;
 ROLLBACK;
 
