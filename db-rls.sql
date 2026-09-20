@@ -1303,6 +1303,13 @@ $reimport_1939_v2_facade_acl$;
 --
 -- STADIG BEVIDST ÅBEN: media_rettigheder_ok. Den er rettigheds-/copyright-gating, ikke
 -- PII, og kaldes desuden fra media_synlig_auth (INVOKER), som authenticated beholder.
+--
+-- FORVENTET: advisor 0028 vil efter denne ændring flage TO NYE funktioner —
+-- media_synlig_anon og media_object_synlig_anon er nu SECURITY DEFINER og
+-- anon-kaldbare. Det er hensigten: de er indgangspunkter på linje med
+-- entitet_offentlig/person_offentlig. Ingen af dem er et orakel — begge svarer
+-- false for både skjult og ikke-eksisterende, og anon kan i forvejen læse
+-- nøjagtig det samme gennem media/storage.objects. Luk dem IKKE.
 -- ---------------------------------------------------------------------------
 DO $anon_gate_hardening$
 DECLARE
