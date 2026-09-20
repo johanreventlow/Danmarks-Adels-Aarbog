@@ -2534,3 +2534,32 @@ committe (`index.lock` nægtet) og har ingen PyPI-adgang, og runtimen kører kun
 gangen — et parallelt dispatch afvises, og en død proces kan efterlade en forældet
 "kører"-lås der blokerer alt. Arbejdsdeling: delegaten skriver kode og tests, kontrol-
 sessionen kører testene og committer med delegaten navngivet.
+
+**ACL-ændringer afgøres af kalderens sikkerhedskontekst, ikke af funktionens egen.** Når
+sikkerhedslinteren flager en `SECURITY DEFINER`-funktion som kaldbar af `anon`, afhænger det af
+**kalderen**, om grantet kan fjernes: kaldes den kun inde i en anden `SECURITY DEFINER`-funktion,
+kører det indre kald som ejeren, og `anon` kan undværes; kaldes den fra en RLS-politik eller en
+`INVOKER`-funktion, kører kaldet som kalderens rolle, og et `revoke` lukker fladen fail-closed i
+stedet for hullet. `media_synlig_anon`/`media_synlig_auth` er netop **ikke** DEFINER, hvilket er
+let at overse, fordi alt omkring dem er det. Derfor blev `family_offentlig` lukket med et rent
+`revoke`, mens `media_afbilder_skjult` og `media_id_for_object` kræver en indkapsling i én
+DEFINER-funktion plus omskrivning af storage-politikkerne. Fravalgt: at fjerne grants efter
+linterens liste alene — det ville have slukket billedvisningen for uindloggede.
+
+**Forbrugersøgning skal omfatte projektets egen SQL-suite.** Før en ACL-ændring blev der søgt
+efter forbrugere i `web/src`, `mobile` og `packages` — nul træf blev læst som "ingen". Men
+`db-verify.sql` kaldte selv `family_offentlig` som `anon`, og tre CI-jobs faldt på den ene
+linje. Prod tog ikke skade, alene fordi db-verify aldrig køres mod produktion (#198). Søg altid
+også i `db-verify.sql` og `tests/sql/`. Testen blev rettet til at efterprøve den nye kontrakt
+frem for at blive gjort tavs: gatens logik som ejer, anons faktiske vej gennem
+`entitet_offentlig`, og at det direkte kald nægtes — den sidste påstand fanger et fremtidigt
+genudstedt grant i CI i stedet for i prod.
+
+**Sletning kræver måling først (global arbejdsregel, indført 2026-09-19).** En egenskab ved
+*noget andet* — branch merget i main, nyere fil findes, git kender den ikke — er aldrig bevis
+for, at indhold er undværligt; `.gitignore` er netop listen over, hvor de to ting ikke falder
+sammen. Indholdet skal måles og vises i samme besked som forespørgslen, artefaktets navn slås op
+i de store memory-filer, og reversible skridt foretrækkes: omdøb til `slet_<dato>__…` med frist
+frem for `dropdb`, flyt til karantæne frem for `rm -rf`. En arbejdsmappe fjernes aldrig, mens en
+agent kan arbejde i den. Baggrund: en oprydning 18/9 slettede et fredet prod-dump og var ved at
+slette 4.4's restore; se changelog 2026-09-19.
