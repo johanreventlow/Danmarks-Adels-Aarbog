@@ -1,5 +1,46 @@
 # Changelog
 
+## 2026-09-20 — restpunkterne fra sikkerhedsgennemgangen lukket (#198, #208, #209)
+
+Sidste del af dagen. Sikkerhedsfladen har ingen kendt udestående gate-lækage.
+
+**#198 — db-verify efterlod en forældreløs evidens-kobling.** Årsagen var ikke en glemt
+`DELETE`, men et id: dblink-samtidighedstesten kopierer en fortolkning til et
+`gen_random_uuid()`-id og hænger `interpretation_observation`-rækker på *det* id, mens
+oprydningen kun slettede fire **faste** fixture-id'er. Barnet overlevede hver kørsel med
+begge fremmednøgler hængende. Målt med `pg_dump -Fc` + `pg_restore --clean`: 2
+fremmednøgler før → 2 restore-fejl → **0** efter; efter rettelsen 2 → 0 fejl → 2.
+Oprydningen har fået tre led, hvoraf det tredje også rydder op efter tidligere kørsler.
+
+**Slut-vagt for `red_*`-fladen.** Allow-listen læste som om dens 74 signaturer var hele den
+redaktionelle flade; 37 får deres grant af senere, formålsbestemte blokke. Målt mod prod:
+126 `red_*`, 111 `authenticated`-kaldbare, 0 anon-kaldbare — og **nul drift** mellem prod og
+det, filen producerer. Det var altså ikke et hul; hullet var, at intet efterprøvede summen.
+Vagten er versionsbevidst (v1: 102, v2: 111), tjekker **begge** retninger, dækker
+`service_role`, og afviser ukendt kontraktversion.
+
+**En ægte CI-flake lukket.** Jobbet "DAA 1939 v50 writer" faldt på
+`FEJL: OCR-låseorden efterlod fixture eller dblink-session`. Det er en race:
+`pg_stat_activity` tjekkes umiddelbart efter `dblink_disconnect`, men server-backenden kan
+ligge et øjeblik endnu. Bevist på to måder — samme fejl fældede `bd68852`, en merge af en
+ren dokumentations-PR, og en genkørsel uden kodeændring blev grøn. Rettet med afgrænset
+ventetid og påstanden delt i to, så en fremtidig fejl siger hvilken årsag der fyrede.
+
+**Tre Codex-runder, tre NO-GO.** Hver gang på noget, der krævede at måle et sted, jeg ikke
+selv havde kigget: en konkurrerende definition i `db-migrations.sql` der degraderede gaten
+lydløst, medlems-orakler der overlevede, og en vagt der var versions-blind og ensidig.
+Alle lukket med negativ kontrol pr. vej.
+
+**Feed-billeder i naturlig bredde (#210).** Gammelt upushet arbejde fra 6/8, hentet frem
+under grenoprydningen. Bredden følger nu billedets eget forhold i stedet for en fast andel
+af kortet; højden er uændret fast. 927 web-tests og 450 mobil-tests grønne.
+
+**Grenoprydning.** Otte lokale grene uden remote er pushet som backup efter scan for
+PII-stier og credentials (nul træf); `docs/prod-deploy-149b-go1` slettet efter kontrolmåling.
+Fase-pakke-grenene (`codex/finish-156-158`, `docs/evidence-phase-gate-156-157`, 13.800
+linjer værktøj) står bevidst — `decisions.md` fravalgte eksplicit at merge dem, og de er
+ikke delmængder af hinanden.
+
 ## 2026-09-20 — rettighedsgaten: medie-tilknyttet indhold følger mediets egen synlighed
 
 Samme dag som medie-indkapslingen (#204), og fortsættelsen af den. Codex' NO-GO på #204

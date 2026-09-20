@@ -2,6 +2,40 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: `red_*`-fladen efterprøves af en vagt, ikke af allow-listen alene (2026-09-20)
+
+**Baggrund.** Allow-listen i `db-rls.sql` nulstiller hele `red_*`-fladen og genåbner 74
+eksakte signaturer. Den læste som om de 74 *var* fladen. Det er de ikke: 37 får deres grant
+af senere, formålsbestemte blokke (1939 v50-writeren, reimport-writeren, #152's
+narrative-record-flade). Målt mod prod: 126 `red_*`, 111 `authenticated`-kaldbare, 0
+anon-kaldbare — og **nul drift** mellem prod og det, filen selv producerer.
+
+**Det var altså ikke en sårbarhed.** Problemet var, at ingenting efterprøvede *summen*:
+blev tallet 112, ville allow-listens egen `RAISE` ikke opdage det — den fanger kun en
+*omdøbt* signatur blandt de 74.
+
+**Valgt:** en fail-closed slut-vagt, der kræver at hver `authenticated`-kaldbar `red_*`
+står på den samlede gennemgåede flade, at ingen er anon-kaldbar, og at `service_role` holder
+sig inden for en eksakt autorisations-liste. De 74 leveres af allow-listen selv gennem en
+session-lokal tabel.
+
+**Fravalgt: at duplikere de 74 i vagten.** Så ville kontrolmekanismen selv blive en kilde
+til drift — to lister der kan komme fra hinanden.
+
+**Fravalgt: præfiks-match på de 37.** En ny `red_apply_reimport_*` ville glide igennem
+ubemærket, og det er netop den slags, en allow-liste skal fange.
+
+**Versionsbevidst, fordi ACL-autoriteten er det.**
+`private.apply_narrative_record_contract_acl(narrative_record_contract_version())` anvender
+forskellige splits pr. version: v1 åbner fire legacy-indgange (i alt 102), v2 åbner 13 andre
+(i alt 111). En flad liste over begge ville acceptere et v2-grant på en v1-base og omvendt.
+Ukendt eller NULL version afvises eksplicit — en fremtidig v3 må ikke lydløst få v2's
+forventningsmængde påtvunget.
+
+**Prisen, sagt højt:** en ny writer-signatur kræver nu en tilføjelse to steder (allow-listen
+eller vagtens liste). Det er hensigten — et grant uden en gennemgang er præcis det, vagten
+findes for at forhindre. Fejlbeskeden siger det.
+
 ## BESLUTTET: leaked password protection kan ikke slås til på Free tier (2026-09-20)
 
 Supabase-advisoren flager `Leaked Password Protection Disabled`. Fundet kan **ikke** lukkes
