@@ -9909,12 +9909,20 @@ END $$;
 -- eller en anden — fanges her i stedet for som manglende constraints i en gendannelse.
 -- Den er bevidst placeret SIDST, så den ser summen af alt, suiten har lavet.
 DO $verify_ingen_foraeldreloese_evidenskoblinger$
-DECLARE v_uden_interpretation int; v_uden_observation int;
+DECLARE
+  v_uden_interpretation int; v_uden_observation int;
+  v_rest_io int; v_rest_interp int; v_rest_obs int; v_rest_source int;
 BEGIN
+  -- Tabellen er obligatorisk: den oprettes af BAADE schema.sql og db-migrations.sql, og
+  -- suiten har brugt den laenge foer dette punkt. Et to_regclass-spring ville derfor ikke
+  -- give kompatibilitet — det ville kun goere en paastaaet fail-closed gate fail-OPEN ved
+  -- en delkoersel. (Codex-fund 2026-09-20.)
   IF to_regclass('private.interpretation_observation') IS NULL THEN
-    RAISE NOTICE 'SPRINGER OVER #198-assertion: private.interpretation_observation findes ikke';
-    RETURN;
+    RAISE EXCEPTION '#198 FEJL: private.interpretation_observation mangler — suiten kan ikke efterproeve sin egen oprydning';
   END IF;
+
+  -- (1) Referentiel konsistens: ingen boern uden foraeldre. Det er den tilstand, der
+  --     braekker constraint-genskabelsen ved pg_restore --clean.
   SELECT count(*) INTO v_uden_interpretation
     FROM private.interpretation_observation io
    WHERE NOT EXISTS (SELECT 1 FROM private.interpretation i WHERE i.id = io.interpretation_id);
@@ -9922,11 +9930,31 @@ BEGIN
     FROM private.interpretation_observation io
    WHERE NOT EXISTS (SELECT 1 FROM private.source_observation o WHERE o.id = io.observation_id);
 
-  IF v_uden_interpretation = 0 AND v_uden_observation = 0 THEN
-    RAISE NOTICE 'OK: #198 — ingen forældreløse interpretation_observation-rækker efter suiten';
+  -- (2) Faktisk oprydning. Konsistens alene beviser INTET om oprydning: efterlader en
+  --     regression baade den tilfaeldige interpretation, dens koblinger OG observationen,
+  --     er alle fremmednoegler gyldige, og (1) ville vaere groen. Derfor maales ogsaa, at
+  --     selve fixture-domaenet er tomt. (Codex-fund 2026-09-20.)
+  SELECT count(*) INTO v_rest_source FROM source WHERE id = -987650051;
+  SELECT count(*) INTO v_rest_obs
+    FROM private.source_observation WHERE id = '66000000-0000-0000-0000-000000000051';
+  SELECT count(*) INTO v_rest_interp
+    FROM private.interpretation
+   WHERE source_id = -987650051
+      OR id IN ('c1000000-0000-0000-0000-000000000051','c1000000-0000-0000-0000-000000000052',
+                'c1000000-0000-0000-0000-000000000053','c1000000-0000-0000-0000-000000000054');
+  SELECT count(*) INTO v_rest_io
+    FROM private.interpretation_observation
+   WHERE observation_id = '66000000-0000-0000-0000-000000000051'
+      OR interpretation_id IN ('c1000000-0000-0000-0000-000000000051','c1000000-0000-0000-0000-000000000052',
+                               'c1000000-0000-0000-0000-000000000053','c1000000-0000-0000-0000-000000000054')
+      OR interpretation_id IN (SELECT id FROM private.interpretation WHERE source_id = -987650051);
+
+  IF v_uden_interpretation = 0 AND v_uden_observation = 0
+     AND v_rest_io = 0 AND v_rest_interp = 0 AND v_rest_obs = 0 AND v_rest_source = 0 THEN
+    RAISE NOTICE 'OK: #198 — ingen forældreløse evidens-koblinger OG intet fixture-restindhold efter suiten';
   ELSE
-    RAISE EXCEPTION '#198 FEJL: % række(r) uden interpretation, % uden source_observation — et pg_restore --clean kan ikke genskabe fremmednøglerne',
-      v_uden_interpretation, v_uden_observation;
+    RAISE EXCEPTION '#198 FEJL: forældreløse: % uden interpretation, % uden source_observation | fixture-rester: % koblinger, % fortolkninger, % observationer, % kilder',
+      v_uden_interpretation, v_uden_observation, v_rest_io, v_rest_interp, v_rest_obs, v_rest_source;
   END IF;
 END
 $verify_ingen_foraeldreloese_evidenskoblinger$;
