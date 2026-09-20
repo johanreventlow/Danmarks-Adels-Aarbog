@@ -1,5 +1,65 @@
 # Changelog
 
+## 2026-09-20 — rettighedsgaten: medie-tilknyttet indhold følger mediets egen synlighed
+
+Samme dag som medie-indkapslingen (#204), og fortsættelsen af den. Codex' NO-GO på #204
+pegede på `media_rettigheder_ok` som et tilbageværende eksistens-orakel. Undersøgelsen
+viste, at problemet var større end et orakel.
+
+**Den egentlige lækage.** `entitet_offentlig('media', id)` afgør, om **fakta, noter,
+narrativer, relationer og tekst-henvisninger på et medie** er synlige. Den gatede kun på
+rettigheder. Et rettighedsfrigivet billede af en levende person var derfor selv skjult for
+gæster, mens dets fakta — fotograf, kreditlinje, datering — var læsbare. GDPR-dimensionen
+faldt bort ét lag inde. Samme fejlklasse som `MM-01` (2026-08-06) rettede, hvor grenen
+ubetinget returnerede `true`; rettelsen dengang tog kun halvdelen med.
+
+Bevist mod prod-kopi med den gamle regel genindsat: `fakta levende anon=1` samtidig med
+`levende=0` — faktummet læsbart, mens billedet selv var skjult.
+
+**Ændringen** (PR #206, merget som `036176f`, 10/10 CI-jobs grønne): `entitet_offentlig`s
+media-gren gater nu på `media_synlig_anon` — begge dimensioner. `media_synlig_auth` gjort
+`SECURITY DEFINER`, og `media_rettigheder_ok` tilbagekaldt fra `public, anon,
+authenticated`. `entitet_offentlig`s definition er **flyttet ned** under `media_synlig_anon`
+i filen, fordi SQL-kroppe valideres ved `CREATE`.
+
+**Adversarial Codex-review (`gpt-5.6-sol`) fandt to blokerende forhold, som ingen af mine
+egne målinger kunne have fanget:**
+
+1. **`db-migrations.sql` genindførte lækagen.** Blokken ved `:10880` overskrev
+   `entitet_offentlig` med den gamle gren, og betingelsen krævede kun, at
+   `media_rettigheder_ok` fandtes — altid sandt efter `db-rls.sql`. Rækkefølgen
+   `db-rls → db-migrations` degraderede derfor gaten **lydløst**; vagten var allerede kørt,
+   og CI skjulte det ved altid at køre `db-rls.sql` én gang til bagefter. Negativ kontrol:
+   `efter GAMMEL db-migrations: RETTIGHEDER — LÆKAGEN ER TILBAGE`. Definitionerne er nu
+   afstemt, og betingelsen kræver `media_synlig_anon`.
+2. **`authenticated` beholdt to direkte medie-orakler.** Medlems-politikkerne bruger
+   `media_synlig_anon`, så medlemstieren ser præcis det samme som anon indtil
+   samtykkemodellen findes. `media_afbilder_privat` og `media_synlig_auth` svarede altså
+   mere, end tieren selv kan se. Begge lukket for `authenticated`.
+
+Plus to mindre: readback'en spurgte kun `anon`, og fixturen brugte samme id til person og
+medie, så en forkert gren som `person_offentlig(p_id)` ville give identisk resultat.
+
+**Anvendt i prod 2026-09-20** — hele `db-rls.sql` i ÉN transaktion. Hele læsefladen
+**uændret** før/efter for både gæst og medlem: 6864 fakta (md5 ens), 2008 relationer
+(md5 ens), 1115 narrativer, 987 noter, 13 medier, 33 storage-objekter. Men 0 af 13 medier
+er skjulte i prod, **så et uændret før/efter beviser intet af sig selv** — den syntetiske
+fixture i `db-verify` Task 8 er prøven.
+
+**Efterprøvet mod prod efter anvendelsen:** 8 anon-kaldbare `SECURITY DEFINER`-funktioner
+uden for `red_*` (som forudsagt), 0 medlems-orakler tilbage, billedet hentet som gæst
+(HTTP 200, `image/jpeg`, 364 KB), og — det ændringen kunne have skjult ved en fejl — alle
+15 medie-fakta stadig synlige for gæster, inkl. begge kreditlinjer og begge fotograf-fakta.
+
+**Rettelse til posten for #204:** påstanden om, at katalog-deltaet dér var målt "med
+kropshash på hver funktion", var forkert — indsættelsen af hash'en i snapshot-scriptet
+ramte ikke. Målingen er siden genkørt ordentligt: deltaet står stadig på nøjagtig 11 linjer,
+og kroppene bekræfter påstanden (`media_synlig_anon` har identisk kropshash før/efter, kun
+`prosecdef` vippede).
+
+Runbook: `docs/runbooks/2026-09-20-medie-rettighedsgate.md`. Rapport:
+`~/.private/medie-rettighedsgate/rettighedsgate-20260920075338Z.log`.
+
 ## 2026-09-20 — medie-indkapsling: de to sidste anon-orakler lukket i prod
 
 Fortsættelsen af anon-hærdningen 19/9 (#202), hvor `media_afbilder_skjult` og
