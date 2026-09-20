@@ -643,8 +643,12 @@ create policy bookmark_delete_own on public.bookmark
 -- superseded C3-signatures stay revoked here and are owned by later
 -- purpose-specific ACL blocks, so a non-transactional deploy cannot expose
 -- their authorization boundary between blocks.
-CREATE TEMP TABLE IF NOT EXISTS red_allow_list(signature text PRIMARY KEY) ON COMMIT PRESERVE ROWS;
-TRUNCATE pg_temp.red_allow_list;
+-- DROP + CREATE, ikke IF NOT EXISTS + TRUNCATE: en efterladt tabel fra en AFBRUDT koersel
+-- maa ikke kunne genbruges som om den var frisk. Vagten nederst dropper den igen, saa en
+-- senere DELKOERSEL af vagten alene moeder en manglende tabel og fejler fail-closed frem
+-- for at doemme paa en stale liste. (Codex-fund 2026-09-20.)
+DROP TABLE IF EXISTS pg_temp.red_allow_list;
+CREATE TEMP TABLE red_allow_list(signature text PRIMARY KEY) ON COMMIT PRESERVE ROWS;
 
 DO $redaction_rpc_allow_list$
 DECLARE v_signature text;
@@ -1500,31 +1504,42 @@ $anon_gate_hardening$;
 DO $redaction_rpc_surface_guard$
 DECLARE
   v_uventet text;
+  v_mangler text;
   v_anon text;
+  v_sr text;
+  v_version int;
   v_antal int;
 BEGIN
   IF to_regclass('pg_temp.red_allow_list') IS NULL THEN
     RAISE EXCEPTION 'RLS_REDACTION_SURFACE_GUARD_NO_ALLOW_LIST: db-rls.sql skal koeres som HELE fil i én session — allow-listen har ikke koert';
   END IF;
 
+  -- Kontraktversionen skal vaere KENDT. #152's ACL-autoritet anvender forskellige
+  -- rolle/signatur-splits pr. version, og repoet kender i dag kun 1 og 2. En ukendt eller
+  -- NULL version maa ikke behandles som "ikke v1" — saa ville en fremtidig v3 lydloest faa
+  -- v2's forventningsmaengde paatvunget. (Codex-fund 2026-09-20.)
+  IF to_regprocedure('public.narrative_record_contract_version()') IS NULL THEN
+    RAISE EXCEPTION 'RLS_REDACTION_SURFACE_GUARD_VERSION: narrative_record_contract_version() mangler — kontraktversionen kan ikke afgoeres';
+  END IF;
+  SELECT public.narrative_record_contract_version() INTO v_version;
+  IF v_version IS NULL OR v_version NOT IN (1,2) THEN
+    RAISE EXCEPTION 'RLS_REDACTION_SURFACE_GUARD_VERSION: ukendt narrative-kontraktversion % — opdatér vagtens forventningsmaengde foer denne version tages i brug', coalesce(v_version::text,'NULL');
+  END IF;
+
+  DROP TABLE IF EXISTS pg_temp.red_surface_expected;
   CREATE TEMP TABLE red_surface_expected(signature text PRIMARY KEY) ON COMMIT PRESERVE ROWS;
+
+  -- (a) allow-listens 74, leveret af blokken selv — aldrig duplikeret her.
   INSERT INTO red_surface_expected(signature) SELECT signature FROM pg_temp.red_allow_list;
+
+  -- (b) 24 writer-signaturer fra senere, formaalsbestemte blokke. Versions-UAFHAENGIGE:
+  --     maalt identisk paa en v1- og en v2-base 2026-09-20.
   INSERT INTO red_surface_expected(signature) VALUES
-    -- 1939 v50-writeren
     ('public.red_activate_1939_v50_batch(uuid,uuid)'),
+    ('public.red_activate_reimport_batch(uuid,uuid)'),
     ('public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)'),
-    ('public.red_apply_1939_v50_name_completion(uuid,text,jsonb)'),
     ('public.red_apply_1939_v50_person_create(uuid,text,jsonb)'),
     ('public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)'),
-    ('public.red_begin_1939_v50_name_completion(uuid,text,uuid)'),
-    ('public.red_begin_1939_v50_reimport(uuid,text,text)'),
-    ('public.red_finalize_1939_v50_name_completion(uuid)'),
-    ('public.red_finalize_1939_v50_reimport(uuid)'),
-    ('public.red_lock_1939_v50_name_completion(text)'),
-    ('public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)'),
-    ('public.red_reverse_1939_v50_reimport(uuid,uuid)'),
-    -- reimport-writeren
-    ('public.red_activate_reimport_batch(uuid,uuid)'),
     ('public.red_apply_reimport_canonical_delta(uuid,text,jsonb)'),
     ('public.red_apply_reimport_clause_evidence(uuid,text,jsonb)'),
     ('public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)'),
@@ -1532,43 +1547,46 @@ BEGIN
     ('public.red_apply_reimport_name_completion(uuid,text,jsonb)'),
     ('public.red_apply_reimport_person_create(uuid,text,jsonb)'),
     ('public.red_apply_reimport_source_evidence(uuid,text,jsonb)'),
+    ('public.red_begin_1939_v50_reimport(uuid,text,text)'),
     ('public.red_begin_reimport(uuid,text,text)'),
     ('public.red_begin_reimport_name_completion(uuid,text,uuid)'),
+    ('public.red_finalize_1939_v50_reimport(uuid)'),
     ('public.red_finalize_reimport(uuid)'),
     ('public.red_finalize_reimport_name_completion(uuid)'),
     ('public.red_lock_reimport_name_completion(text,bigint,text)'),
     ('public.red_preflight_reimport_authorization(uuid,text,text)'),
     ('public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb)'),
     ('public.red_reimport_batch_result(uuid,uuid)'),
-    ('public.red_reverse_reimport(uuid,uuid)'),
-    -- #152 narrative record
-    ('public.red_fortryd_person_narrative_publication_event(uuid,text)'),
-    ('public.red_kasser_person_narrative_record(bigint,bigint,text,text)'),
-    ('public.red_publicer_person_narrative_record(bigint,bigint,text,text)'),
-    ('public.red_revalider_person_narrative_record(bigint,bigint,text,text)'),
-    ('public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)'),
-    ('public.red_tilbagetraek_legacy_narrative(uuid,text,text)'),
-    ('public.red_tilbagetraek_person_narrative_record(bigint,bigint,text,text)'),
-    ('public.red_upsert_person_narrative_record(bigint,bigint,text,text,boolean,text)');
+    ('public.red_reverse_1939_v50_reimport(uuid,uuid)'),
+    ('public.red_reverse_reimport(uuid,uuid)');
 
-  -- Versionsbevidst tillaeg. #152's ene ACL-autoritet,
-  -- private.apply_narrative_record_contract_acl(narrative_record_contract_version()),
-  -- anvender FORSKELLIGE splits pr. kontraktversion. Paa en base ved version 1 (en frisk
-  -- base bygget af schema.sql + db-migrations.sql) er fire legacy-indgange aabne; ved
-  -- version 2 (prod, maalt 2026-09-20) er de lukkede. Vagten skal kende samme version som
-  -- autoriteten — ellers ville den enten faelde hver eneste friske CI-base eller tie ved et
-  -- uventet grant i prod. Ved version 2 er de fire IKKE forventede, og et grant faelder.
-  IF to_regprocedure('public.narrative_record_contract_version()') IS NOT NULL
-     AND public.narrative_record_contract_version() = 1 THEN
+  -- (c) VERSIONSBESTEMT. Maalt 2026-09-20: v1 aabner fire legacy-indgange, v2 aabner 13
+  --     andre. En flad liste over begge ville acceptere et v2-grant paa en v1-base og
+  --     omvendt — praecis det hul Codex fandt i foerste udgave af denne vagt.
+  IF v_version = 1 THEN
     INSERT INTO red_surface_expected(signature) VALUES
       ('public.red_apply_reimport_cases(uuid,text,text)'),
       ('public.red_reverse_reimport_cases(uuid,uuid)'),
       ('public.red_publicer_narrative_record(bigint,uuid,text,text)'),
-      ('public.red_tilbagetraek_narrative_record(bigint)')
-    ON CONFLICT (signature) DO NOTHING;
+      ('public.red_tilbagetraek_narrative_record(bigint)');
+  ELSE
+    INSERT INTO red_surface_expected(signature) VALUES
+      ('public.red_apply_1939_v50_name_completion(uuid,text,jsonb)'),
+      ('public.red_begin_1939_v50_name_completion(uuid,text,uuid)'),
+      ('public.red_finalize_1939_v50_name_completion(uuid)'),
+      ('public.red_fortryd_person_narrative_publication_event(uuid,text)'),
+      ('public.red_kasser_person_narrative_record(bigint,bigint,text,text)'),
+      ('public.red_lock_1939_v50_name_completion(text)'),
+      ('public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)'),
+      ('public.red_publicer_person_narrative_record(bigint,bigint,text,text)'),
+      ('public.red_revalider_person_narrative_record(bigint,bigint,text,text)'),
+      ('public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)'),
+      ('public.red_tilbagetraek_legacy_narrative(uuid,text,text)'),
+      ('public.red_tilbagetraek_person_narrative_record(bigint,bigint,text,text)'),
+      ('public.red_upsert_person_narrative_record(bigint,bigint,text,text,boolean,text)');
   END IF;
 
-  -- 1) Ingen red_* maa vaere kaldbar af anon. Maalt i prod: 0.
+  -- 1) Ingen red_* maa vaere kaldbar af anon.
   SELECT string_agg('public.'||p.oid::regprocedure::text, ', ' ORDER BY p.oid::regprocedure::text)
     INTO v_anon
     FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
@@ -1578,7 +1596,7 @@ BEGIN
     RAISE EXCEPTION 'RLS_REDACTION_SURFACE_GUARD_ANON: red_*-funktioner er kaldbare af anon: %', v_anon;
   END IF;
 
-  -- 2) Enhver authenticated-kaldbar red_* skal staa paa den samlede, gennemgaaede flade.
+  -- 2) Kaldbar uden at vaere forventet.
   SELECT string_agg('public.'||p.oid::regprocedure::text, ', ' ORDER BY p.oid::regprocedure::text)
     INTO v_uventet
     FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
@@ -1587,17 +1605,50 @@ BEGIN
      AND NOT EXISTS (SELECT 1 FROM red_surface_expected e
                       WHERE e.signature = 'public.'||p.oid::regprocedure::text);
   IF v_uventet IS NOT NULL THEN
-    RAISE EXCEPTION 'RLS_REDACTION_SURFACE_GUARD_UVENTET: % er authenticated-kaldbar(e) uden at staa paa den gennemgaaede flade. Tilfoej signaturen til allow-listen ELLER til listen i denne vagt — et grant uden en af delene er ikke gennemgaaet.', v_uventet;
+    RAISE EXCEPTION 'RLS_REDACTION_SURFACE_GUARD_UVENTET: % er authenticated-kaldbar(e) uden at staa paa den gennemgaaede flade (kontrakt v%). Tilfoej signaturen til allow-listen ELLER til denne vagts liste — et grant uden en af delene er ikke gennemgaaet.', v_uventet, v_version;
+  END IF;
+
+  -- 3) Forventet og EKSISTERENDE, men ikke kaldbar. Uden denne vej ville et bortfaldet
+  --    grant give groen vagt og foerst vise sig som driftsstop. Begraenset til signaturer
+  --    der faktisk findes, saa en base uden en given writer ikke giver falsk alarm.
+  SELECT string_agg(e.signature, ', ' ORDER BY e.signature)
+    INTO v_mangler
+    FROM red_surface_expected e
+   WHERE to_regprocedure(e.signature) IS NOT NULL
+     AND NOT has_function_privilege('authenticated', to_regprocedure(e.signature), 'EXECUTE');
+  IF v_mangler IS NOT NULL THEN
+    RAISE EXCEPTION 'RLS_REDACTION_SURFACE_GUARD_MANGLER: % findes, men er IKKE authenticated-kaldbar(e) (kontrakt v%). Et bortfaldet grant stopper redaktionen.', v_mangler, v_version;
+  END IF;
+
+  -- 4) service_role-fladen. Rollen er betroet, men har BYPASSRLS, saa en fejl i dens
+  --    capability-flade er stadig sikkerhedsrelevant. Maalt 2026-09-20: 8 i prod/v2, 9 ved v1.
+  SELECT string_agg('public.'||p.oid::regprocedure::text, ', ' ORDER BY p.oid::regprocedure::text)
+    INTO v_sr
+    FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+   WHERE n.nspname='public' AND p.proname LIKE 'red\_%' ESCAPE '\'
+     AND has_function_privilege('service_role', p.oid, 'EXECUTE')
+     AND 'public.'||p.oid::regprocedure::text NOT IN (
+       'public.red_authorize_1939_v50_cutover(uuid,uuid,timestamp with time zone)',
+       'public.red_authorize_1939_v50_name_completion(text,uuid,text,text,jsonb,jsonb)',
+       'public.red_authorize_1939_v50_reimport(text,text,text,bigint,jsonb,jsonb,uuid,timestamp with time zone)',
+       'public.red_authorize_1939_v50_reversal(uuid,uuid,timestamp with time zone)',
+       'public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamp with time zone)',
+       'public.red_authorize_reimport_case_reversal(uuid,text,uuid,timestamp with time zone)',
+       'public.red_authorize_reimport_cases(bigint,text,text,text,text,text,text,text,text,text,text,jsonb,jsonb,uuid,timestamp with time zone)',
+       'public.red_authorize_reimport_cutover(uuid,uuid,timestamp with time zone)',
+       'public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb)',
+       'public.red_authorize_reimport_reversal(uuid,uuid,timestamp with time zone)');
+  IF v_sr IS NOT NULL THEN
+    RAISE EXCEPTION 'RLS_REDACTION_SURFACE_GUARD_SERVICE_ROLE: % er service_role-kaldbar(e) uden at staa paa autorisations-listen', v_sr;
   END IF;
 
   SELECT count(*) INTO v_antal
     FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
    WHERE n.nspname='public' AND p.proname LIKE 'red\_%' ESCAPE '\'
      AND has_function_privilege('authenticated', p.oid, 'EXECUTE');
-  RAISE NOTICE 'OK: red_*-fladen gennemgaaet — % authenticated-kaldbare, 0 anon-kaldbare (narrative-kontrakt v%)',
-    v_antal, coalesce((SELECT public.narrative_record_contract_version()
-                        WHERE to_regprocedure('public.narrative_record_contract_version()') IS NOT NULL)::text,'?');
+  RAISE NOTICE 'OK: red_*-fladen gennemgaaet — % authenticated-kaldbare, 0 anon-kaldbare, service_role inden for autorisations-listen (narrative-kontrakt v%)', v_antal, v_version;
 
   DROP TABLE red_surface_expected;
+  DROP TABLE pg_temp.red_allow_list;
 END
 $redaction_rpc_surface_guard$;
