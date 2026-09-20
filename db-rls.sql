@@ -212,12 +212,23 @@ grant execute on function public.entitet_offentlig(text, bigint) to anon, authen
 -- kun for hvilken gren der typisk rammes først. SECURITY DEFINER så den kan læse begge tabeller
 -- uafhængigt af kalderens RLS. Forældreløst objekt → NULL → fail-closed i storage-politikkerne
 -- nedenfor (media_rettigheder_ok(NULL)=false).
+-- (2026-09-20, Codex-fund) To haerdninger, begge no-op paa de aktuelle data (maalt i prod-kopi:
+-- 0 blanke stier, 0 medier uden for 'media'-bucketen, 0 varianter med foraelder i anden bucket) —
+-- men datamodellen TILLADER begge tilstande, og saa er de ikke afgjorte af data:
+--   · blank/whitespace sti -> NULL (fail-closed). Ellers kunne en raekke med storage_path=''
+--     autorisere et objekt ved navn '' — skemaet har ingen non-empty-check, og hverken base-
+--     eller variant-writeren afviser den.
+--   · variantgrenen korrelerer nu med foraelderens bucket. Uden det kunne en variant hvis
+--     foraelder ligger i en ANDEN bucket autorisere et ellers foraeldreloest objekt med samme
+--     navn i 'media'-bucketen.
 create or replace function public.media_id_for_object(p_name text)
 returns bigint language sql stable security definer set search_path=public as $$
-  select coalesce(
+  select case when nullif(btrim(p_name), '') is null then null else coalesce(
     (select m.id from public.media m where m.bucket = 'media' and m.storage_path = p_name limit 1),
-    (select v.media_id from public.media_variant v where v.storage_path = p_name limit 1)
-  );
+    (select v.media_id from public.media_variant v
+       join public.media pm on pm.id = v.media_id
+      where pm.bucket = 'media' and v.storage_path = p_name limit 1)
+  ) end;
 $$;
 revoke all on function public.media_id_for_object(text) from public;
 grant execute on function public.media_id_for_object(text) to anon, authenticated;
@@ -1376,6 +1387,21 @@ BEGIN
   IF NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid = 'public.media_object_synlig_anon(text)'::regprocedure) THEN
     RAISE EXCEPTION 'MEDIE_INDKAPSLING_BRUDT: media_object_synlig_anon er INVOKER';
   END IF;
+  -- Vagten skal bevise indkapslingen HELE vejen: to korrekte DEFINER-funktioner er ikke nok,
+  -- hvis en gammel politik stadig kalder media_id_for_object direkte — saa ville revoket slukke
+  -- storage-laesningen, og de oevrige tjek ville passere. (Codex-fund 2026-09-20.)
+  IF to_regclass('storage.objects') IS NOT NULL THEN
+    IF (SELECT count(*) FROM pg_policies
+         WHERE schemaname='storage' AND policyname IN ('media_obj_anon','media_obj_auth')) <> 2 THEN
+      RAISE EXCEPTION 'MEDIE_INDKAPSLING_BRUDT: storage-politikkerne media_obj_anon/auth mangler';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_policies
+                WHERE schemaname='storage' AND policyname IN ('media_obj_anon','media_obj_auth')
+                  AND coalesce(qual,'') NOT LIKE '%media_object_synlig_anon%') THEN
+      RAISE EXCEPTION 'MEDIE_INDKAPSLING_BRUDT: en storage-politik kalder ikke sti-wrapperen';
+    END IF;
+  END IF;
+
   -- BEGGE roller: anon baerer gaestefladen, authenticated baerer medlemsfladen
   -- (media_obj_auth og text_mention.tm_read kalder de samme to indgange).
   FOREACH v_sig IN ARRAY ARRAY[
