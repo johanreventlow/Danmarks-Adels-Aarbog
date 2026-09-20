@@ -6030,6 +6030,22 @@ BEGIN
 
   PERFORM dblink_exec('ocr_lock_setup',v_cleanup_sql);
   PERFORM dblink_disconnect('ocr_lock_setup');
+  -- (2026-09-20) Vent AFGRAENSET paa at server-backends forsvinder, foer der maales.
+  -- dblink_disconnect lukker klientsiden synkront, men backenden kan ligge et oejeblik
+  -- i pg_stat_activity endnu. Et oejeblikkeligt tjek er derfor en race, ikke en
+  -- logik-paastand — den faeldede bl.a. en REN dokumentations-merge paa main
+  -- (bd68852, 2026-09-20), hvor intet SQL var aendret. Ventetiden er en oevre graense,
+  -- ikke en forsinkelse: loekken forlades i samme oejeblik sessionerne er vaek.
+  FOR i IN 1..50 LOOP
+    EXIT WHEN NOT EXISTS (
+      SELECT 1 FROM pg_stat_activity
+       WHERE datname=current_database() AND application_name LIKE 'daa_verify_ocr_lock_%');
+    PERFORM pg_sleep(0.1);
+  END LOOP;
+
+  -- To adskilte paastande, ikke ét OR. Den gamle faellesbesked ("fixture ELLER
+  -- dblink-session") kunne ikke fortaelle hvilken af to helt urelaterede aarsager der
+  -- fyrede, og det er praecis derfor racen kunne overleve som "den der flaker nogle gange".
   IF EXISTS (
        SELECT 1 FROM source WHERE id=-987654601
        UNION ALL SELECT 1 FROM person WHERE id=-987654611
@@ -6044,12 +6060,17 @@ BEGIN
        UNION ALL SELECT 1 FROM auth.users WHERE id=v_uid
        UNION ALL SELECT 1 FROM change_set
          WHERE operation='red_slet_person' AND subjekt_type='person' AND subjekt_id=-987654611
-     )
-     OR EXISTS (
+     ) THEN
+    RAISE EXCEPTION 'FEJL: OCR-låseorden efterlod fixture-rækker';
+  END IF;
+  IF EXISTS (
        SELECT 1 FROM pg_stat_activity
        WHERE datname=current_database() AND application_name LIKE 'daa_verify_ocr_lock_%'
      ) THEN
-    RAISE EXCEPTION 'FEJL: OCR-låseorden efterlod fixture eller dblink-session';
+    RAISE EXCEPTION 'FEJL: OCR-låseorden efterlod en dblink-session efter 5 s: %',
+      (SELECT string_agg(application_name||' ('||state||')', ', ')
+         FROM pg_stat_activity
+        WHERE datname=current_database() AND application_name LIKE 'daa_verify_ocr_lock_%');
   END IF;
   PERFORM set_config('daa.verify_dblink_ocr_lock','executed',false);
   RAISE NOTICE 'OK: OCR-låseorden to-forbindelsesregression';
