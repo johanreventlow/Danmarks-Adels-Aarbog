@@ -2,6 +2,43 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: medie-indkapslingen sendes uden at lukke rettighedsorakelet (2026-09-20)
+
+**Afgjort af projektejeren** efter adversarial Codex-review (`gpt-5.6-sol`), som gav
+NO-GO på grenen `fix/medie-indkapsling`.
+
+**Fundet.** `media_rettigheder_ok(mid)` er `SECURITY DEFINER` og kaldbar af `anon`. Den
+svarer `true` for et medie der er rettighedsfrigivet (`maa_publiceres` + `upload_status
+='klar'`), **også når mediet er skjult** fordi det afbilder en levende/privat person.
+En gæst kan dermed skelne "skjult medie findes og er frigivet" fra "findes ikke". Det er
+samme orakel-standard, som filen selv anvendte på `family_offentlig` 2026-09-19, hvor
+blot eksistensen blev regnet for en lækage.
+
+Et revoke på funktionen alene lukker det ikke: `entitet_offentlig('media', id)`
+reproducerer nøjagtig samme gate og er selv grantet til `anon`, fordi politikkerne
+bruger den.
+
+**Målt på prod-kopien (2026-09-20):** 0 af 13 medier er skjulte overhovedet, og dermed
+0 rettighedsfrigivne-men-skjulte. Orakelet har i dag intet at fortælle. Latent, ikke
+harmløst — det afgør hastegraden, ikke om det skal rettes.
+
+**Valgt:** send indkapslingen nu; rettighedsorakelet får sin egen opgave.
+
+**Hvorfor.** Grenen er en ren forbedring: den lukker to *aktive* orakler
+(`media_afbilder_skjult` = PII-orakel, `media_id_for_object` = sti-eksistens-orakel)
+uden at røre rettighedsgaten. Codex' NO-GO handler om noget grenen *ikke* lukker, ikke
+om noget den ødelægger.
+
+**Fravalgt: at lukke det i samme gren.** `entitet_offentlig`s media-gren fodrer
+politikkerne på `note`, `narrative` og `text_mention`. Ændres den, kan noter og
+narrativer, der i dag er synlige, forsvinde fail-closed. Det kræver sin egen
+før/efter-måling mod læsefladen og hører ikke hjemme i en ændring, hvis hele pointe er
+at anons synlige mængder skal være byte-identiske.
+
+**ÅBENT (næste opgave):** luk rettighedsorakelet — kræver en kontraktbeslutning om,
+hvorvidt eksistensen af et skjult medie må være offentlig, og en ændring af BÅDE
+`media_rettigheder_ok`-grantet og `entitet_offentlig`s media-gren.
+
 ## BESLUTTET: klausul-projektionen er et udgaveneutralt delta-tjek, ikke en udvidelse af 1939-gaten (2026-09-17)
 
 **Afgjort af projektejeren** (vej C af tre) for spec §11.1, issue #195.

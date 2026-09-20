@@ -21,8 +21,13 @@ deployet før revoket, hvis forudsætningen mangler.
 | Nye påstande i Task 12; Task 12b porteret | `db-verify.sql`, `db-verify-media.sql` |
 | Storage-shim så politikkerne overhovedet testes i CI | `tests/sql/evidence-promotion-bootstrap.sql` |
 
-`media_rettigheder_ok` er bevidst urørt: copyright, ikke PII, og kaldes fra
-`media_synlig_auth` (INVOKER), som `authenticated` beholder.
+`media_rettigheder_ok` er bevidst urørt — men **ikke fordi den er harmløs**. Adversarial
+Codex-review (`gpt-5.6-sol`) påviste, at den er et eksistens-orakel: den svarer `true`
+for et rettighedsfrigivet medie, også når det er skjult af GDPR-grunde. Målt på
+prod-kopien lækker den 0 i dag (0 af 13 medier er skjulte). Projektejeren har besluttet
+at sende indkapslingen nu og give orakelet sin egen opgave, fordi det kræver en ændring
+af `entitet_offentlig`s media-gren, som også styrer noter/narrativer/tekst-henvisninger.
+Se `docs/decisions.md` (2026-09-20).
 
 ## Afprøvet før prod
 
@@ -46,6 +51,11 @@ storage-skema, 13 medier, 20 varianter, 36 storage-objekter og
   `db-rls.sql` siden sidste fuld-fil-apply (`140a17b`).
 - CI's egen sekvens lokalt: exit 0, 120 OK-linjer (mod 119 før — Task 12b kører nu
   i stedet for at springe over).
+- **Adversarial Codex-review** (`gpt-5.6-sol`, read-only) kørt på diffen. Tre fund
+  lukket: blank sti og bucket-korrelation i `media_id_for_object`, vagten beviser nu at
+  politikkerne faktisk kalder wrapperen, og Task 12b har fået to fixtures der fælder de
+  regressioner, den før sov igennem (GDPR-skjult storage-objekt, objekt i anden bucket).
+  Alle tre er efterprøvet med negativ kontrol.
 
 ## Rækkefølge
 
