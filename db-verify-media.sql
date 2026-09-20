@@ -24,38 +24,81 @@
 -- objekt uden afbildet-person → synlig.
 DO $$
 DECLARE vis_dead int; vis_live int; vis_obj int;
+        fakta_dead int; fakta_live int; fakta_live_auth int; gate_naegtet boolean;
+        gate_auth_naegtet boolean; privat_auth_naegtet boolean;
 BEGIN
   -- ryd evt. rester fra et afbrudt løb
+  -- Disjunkte id-rum: person -901/-902, media -941/-942/-943. Med sammenfaldende id'er
+  -- ville en forkert media-gren (fx person_offentlig(p_id)) give NOEJAGTIG samme resultat,
+  -- og fixturen ville ikke bevise, at synligheden foelger medierelationen (Codex-fund 2026-09-20).
+  DELETE FROM fact     WHERE id IN (-901,-902);
   DELETE FROM relation WHERE id IN (-901,-902);
-  DELETE FROM media    WHERE id IN (-901,-902,-903);
+  DELETE FROM media    WHERE id IN (-941,-942,-943);
   DELETE FROM person   WHERE id IN (-901,-902);
 
   INSERT INTO person(id, levende, privat) VALUES (-901, false, false), (-902, true, false);
   -- maa_publiceres=true + upload_status='klar' på alle: isolér afbildet-gatingen fra rettigheds-gatingen
   -- (rettigheder testes separat i Task 12).
   INSERT INTO media(id, slags, titel, maa_publiceres, upload_status) VALUES
-    (-901,'foto','portræt-afdød',      true,'klar'),
-    (-902,'foto','portræt-levende',    true,'klar'),
-    (-903,'segl','objekt-uden-person', true,'klar');
+    (-941,'foto','portræt-afdød',      true,'klar'),
+    (-942,'foto','portræt-levende',    true,'klar'),
+    (-943,'segl','objekt-uden-person', true,'klar');
   INSERT INTO relation(id, subjekt_type, subjekt_id, objekt_type, objekt_id, rolle) VALUES
-    (-901,'person',-901,'media',-901,'afbildet'),
-    (-902,'person',-902,'media',-902,'afbildet');
+    (-901,'person',-901,'media',-941,'afbildet'),
+    (-902,'person',-902,'media',-942,'afbildet');
+  -- Fakta PAA medierne. Hele pointen med disse to: medie-tilknyttet indhold gates af
+  -- entitet_offentlig('media', ...), som foer 2026-09-20 kun saa paa RETTIGHEDER. Begge
+  -- medier er rettighedsfrigivet, saa den gamle regel gjorde BEGGE faktarakker synlige —
+  -- ogsaa den paa billedet af den LEVENDE person, hvis medie-raekke selv var skjult.
+  INSERT INTO fact(id, subjekt_type, subjekt_id, faktatype) VALUES
+    (-901,'media',-941,'fotograf'),
+    (-902,'media',-942,'fotograf');
 
   SET LOCAL ROLE anon;
-  SELECT count(*) INTO vis_dead FROM media WHERE id = -901;
-  SELECT count(*) INTO vis_live FROM media WHERE id = -902;
-  SELECT count(*) INTO vis_obj  FROM media WHERE id = -903;
+  SELECT count(*) INTO vis_dead FROM media WHERE id = -941;
+  SELECT count(*) INTO vis_live FROM media WHERE id = -942;
+  SELECT count(*) INTO vis_obj  FROM media WHERE id = -943;
+  SELECT count(*) INTO fakta_dead FROM fact WHERE id = -901;
+  SELECT count(*) INTO fakta_live FROM fact WHERE id = -902;
+  -- Rettighedsgaten er lukket for anon (2026-09-20); den lovlige vej er entitet_offentlig.
+  BEGIN
+    PERFORM public.media_rettigheder_ok(-942);
+    gate_naegtet := false;
+  EXCEPTION WHEN insufficient_privilege THEN
+    gate_naegtet := true;
+  END;
+  RESET ROLE;
+  SET LOCAL ROLE authenticated;
+  SELECT count(*) INTO fakta_live_auth FROM fact WHERE id = -902;
+  -- Medlemstieren skal OGSAA have mistet de to direkte medie-orakler (Codex-fund 2026-09-20):
+  -- medlems-politikkerne bruger media_synlig_anon, saa begge svarer mere end tieren selv ser.
+  BEGIN
+    PERFORM public.media_synlig_auth(-942);
+    gate_auth_naegtet := false;
+  EXCEPTION WHEN insufficient_privilege THEN
+    gate_auth_naegtet := true;
+  END;
+  BEGIN
+    PERFORM public.media_afbilder_privat(-942);
+    privat_auth_naegtet := false;
+  EXCEPTION WHEN insufficient_privilege THEN
+    privat_auth_naegtet := true;
+  END;
   RESET ROLE;
 
-  IF vis_dead = 1 AND vis_live = 0 AND vis_obj = 1 THEN
-    RAISE NOTICE 'OK: media-gating (afdød synlig, levende skjult, objekt synligt)';
+  IF vis_dead = 1 AND vis_live = 0 AND vis_obj = 1
+     AND fakta_dead = 1 AND fakta_live = 0 AND fakta_live_auth = 0
+     AND gate_naegtet AND gate_auth_naegtet AND privat_auth_naegtet THEN
+    RAISE NOTICE 'OK: media-gating (afdød synlig, levende skjult, objekt synligt) + medie-tilknyttede fakta følger mediet + rettighedsgaten lukket';
   ELSE
-    RAISE EXCEPTION 'media-gating FEJL: afdød=% (vent 1), levende=% (vent 0), objekt=% (vent 1)',
-      vis_dead, vis_live, vis_obj;
+    RAISE EXCEPTION 'media-gating FEJL: afdød=% (vent 1), levende=% (vent 0), objekt=% (vent 1) | fakta afdød=% (vent 1), fakta levende anon=% (vent 0) medlem=% (vent 0) | gates nægtet: anon=%, medlem synlig_auth=%, medlem afbilder_privat=% (vent t,t,t)',
+      vis_dead, vis_live, vis_obj, fakta_dead, fakta_live, fakta_live_auth,
+      gate_naegtet, gate_auth_naegtet, privat_auth_naegtet;
   END IF;
 
+  DELETE FROM fact     WHERE id IN (-901,-902);
   DELETE FROM relation WHERE id IN (-901,-902);
-  DELETE FROM media    WHERE id IN (-901,-902,-903);
+  DELETE FROM media    WHERE id IN (-941,-942,-943);
   DELETE FROM person   WHERE id IN (-901,-902);
 END $$;
 
