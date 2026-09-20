@@ -1349,8 +1349,16 @@ DECLARE
 BEGIN
   FOREACH v_sig IN ARRAY ARRAY[
     'public.family_offentlig(bigint)|public, anon, authenticated',
-    'public.media_afbilder_privat(bigint)|public, anon',
-    'public.media_synlig_auth(bigint)|public, anon',
+    -- (2026-09-20, Codex-fund) Ogsaa fra authenticated. Medlems-politikkerne bruger
+    -- media_synlig_anon — medlemstieren ser praecis det samme som anon indtil
+    -- samtykkemodellen findes. Saa laenge det er kontrakten, er disse to direkte orakler
+    -- OVER det, tieren selv kan se: media_afbilder_privat afsloerer at et medie afbilder en
+    -- privatmarkeret person, og media_synlig_auth afsloerer et rettighedsfrigivet medie med
+    -- en levende person, som medlemmets egen SELECT-politik skjuler. Ingen levende politik-,
+    -- app-, R- eller testforbruger krarver dem. Genindfoer en scoped indgang NAAR
+    -- samtykkemodellen bygges — ikke foer.
+    'public.media_afbilder_privat(bigint)|public, anon, authenticated',
+    'public.media_synlig_auth(bigint)|public, anon, authenticated',
     'public.hist_for_subjekt(text,bigint)|public, anon',
     'public.hist_for_subjekter(text,bigint[])|public, anon',
     'public.hist_events(bigint)|public, anon',
@@ -1376,13 +1384,18 @@ BEGIN
     IF has_function_privilege('anon', to_regprocedure(v_sig), 'EXECUTE') THEN
       RAISE EXCEPTION 'ANON_GATE_HARDENING_READBACK_FAILED: anon kan stadig kalde %', v_sig;
     END IF;
+    -- ... og for de signaturer hvor authenticated OGSAA skal miste adgangen. Uden dette tjek
+    -- kunne et senere auth-grant forblive groent (Codex-fund 2026-09-20).
+    IF v_roller LIKE '%authenticated%'
+       AND has_function_privilege('authenticated', to_regprocedure(v_sig), 'EXECUTE') THEN
+      RAISE EXCEPTION 'ANON_GATE_HARDENING_READBACK_FAILED: authenticated kan stadig kalde %', v_sig;
+    END IF;
   END LOOP;
 
-  -- authenticated SKAL beholde de tre hist_* og de to media-funktioner,
-  -- ellers mister redaktionen historik-fladen og medievisningen
+  -- authenticated SKAL beholde de tre hist_*, ellers mister redaktionen historik-fladen.
+  -- De to media-funktioner stod her indtil 2026-09-20; de er nu ogsaa lukket for
+  -- authenticated (se begrundelsen i listen ovenfor).
   FOREACH v_sig IN ARRAY ARRAY[
-    'public.media_afbilder_privat(bigint)',
-    'public.media_synlig_auth(bigint)',
     'public.hist_for_subjekt(text,bigint)',
     'public.hist_for_subjekter(text,bigint[])',
     'public.hist_events(bigint)'

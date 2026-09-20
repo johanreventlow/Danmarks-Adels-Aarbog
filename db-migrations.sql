@@ -10867,22 +10867,30 @@ INSERT INTO vocab (scheme, code, label) VALUES
   ('faktatype','datering',          'Datering af værket (fuzzy dato på fact)')
 ON CONFLICT (scheme, code) DO NOTHING;
 
--- RLS-skærpelse (MM-01): media fjernes fra altid-true-sættet i entitet_offentlig og gates på
--- media_rettigheder_ok (upload_status='klar' AND maa_publiceres). På en deployet base findes de
--- tre RLS-helpere allerede, og CREATE OR REPLACE bevarer eksisterende grants. På en frisk base
--- oprettes helperne først af db-rls.sql; spring derfor denne tidlige afstemning over dér.
+-- RLS-skærpelse (MM-01): media fjernes fra altid-true-sættet i entitet_offentlig. På en
+-- deployet base findes RLS-helperne allerede, og CREATE OR REPLACE bevarer eksisterende grants.
+-- På en frisk base oprettes helperne først af db-rls.sql; spring derfor denne tidlige
+-- afstemning over dér.
+--
+-- (2026-09-20, Codex-fund) Grenen gatede oprindeligt på media_rettigheder_ok alene. Det var en
+-- KONKURRERENDE definition: kørte man db-rls.sql og derefter db-migrations.sql, overskrev denne
+-- blok den skærpede udgave og genåbnede lækagen — fakta/noter/narrativer på et GDPR-skjult medie
+-- blev læsbare igen. Vagten i db-rls.sql var allerede kørt og så det ikke, og CI skjulte det ved
+-- altid at køre db-rls.sql én gang til bagefter. Definitionen er nu identisk med db-rls.sql's, og
+-- betingelsen kræver media_synlig_anon, så blokken springer over frem for at degradere gaten.
 DO $media_rls_migration$
 BEGIN
   IF to_regprocedure('public.person_offentlig(bigint)') IS NOT NULL
      AND to_regprocedure('public.family_offentlig(bigint)') IS NOT NULL
-     AND to_regprocedure('public.media_rettigheder_ok(bigint)') IS NOT NULL THEN
+     AND to_regprocedure('public.media_synlig_anon(bigint)') IS NOT NULL THEN
     EXECUTE $function$
       create or replace function public.entitet_offentlig(p_type text, p_id bigint)
       returns boolean language sql stable security definer set search_path = public as $body$
         select case
           when p_type = 'person' then public.person_offentlig(p_id)
           when p_type = 'family' then public.family_offentlig(p_id)
-          when p_type = 'media' then public.media_rettigheder_ok(p_id)
+          -- SKAL spejle db-rls.sql: mediets EGEN synlighed, ikke rå rettigheder
+          when p_type = 'media' then public.media_synlig_anon(p_id)
           when p_type in ('place','estate','coat_of_arms','slaegt','lineage','organisation',
                           'historical_event','source','repository') then true
           else false
