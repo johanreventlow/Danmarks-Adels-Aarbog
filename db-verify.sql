@@ -4906,11 +4906,24 @@ DECLARE
       WHERE rule_key='verify-concurrent-name';
     DELETE FROM private.interpretation_promotion_rule_line
       WHERE rule_key='verify-concurrent-name';
+    -- (#198) Tre led, ikke ét. Blokken kopierer senere en fortolkning til et id fra
+    -- gen_random_uuid() og haenger interpretation_observation-raekker paa DET id, saa en
+    -- liste over faste fixture-id'er kan ikke daekke barnet. Foraelderen blev ryddet af
+    -- OR source_id=-987650051 nedenfor; barnet overlevede og stod tilbage med BEGGE
+    -- fremmednoegler haengende. Det braekkede constraint-genskabelsen ved
+    -- pg_restore --clean (maalt 2026-09-17: 2 fremmednoegler foer, 0 efter).
+    --   led 2: alt der hoerer til fixturens source, ogsaa de tilfaeldige id'er
+    --   led 3: rydder ogsaa op efter TIDLIGERE koersler, hvor foraelderen allerede er
+    --          slettet — det er den tilstand enhver base staar i, som db-verify har
+    --          koert mod foer denne rettelse
     DELETE FROM private.interpretation_observation
       WHERE interpretation_id IN ('c1000000-0000-0000-0000-000000000051',
                                   'c1000000-0000-0000-0000-000000000052',
                                   'c1000000-0000-0000-0000-000000000053',
-                                  'c1000000-0000-0000-0000-000000000054');
+                                  'c1000000-0000-0000-0000-000000000054')
+         OR interpretation_id IN (SELECT id FROM private.interpretation
+                                   WHERE source_id=-987650051)
+         OR observation_id='66000000-0000-0000-0000-000000000051';
     DELETE FROM private.interpretation
       WHERE id IN ('c1000000-0000-0000-0000-000000000051',
                    'c1000000-0000-0000-0000-000000000052',
@@ -9863,3 +9876,36 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: medie-metadata — 12 faktatype-seeds + entitet_offentlig gater media på publicering';
 END $$;
+
+-- ===== #198: db-verify må ikke efterlade forældreløse evidens-koblinger =====
+-- Baggrund: dblink-samtidighedstesten for promotion indsatte gennem en SEPARAT session en
+-- interpretation_observation-række på et gen_random_uuid()-id, som oprydningens faste
+-- fixture-id'er ikke dækkede. Rækken overlevede hver kørsel med BEGGE fremmednøgler
+-- hængende, og ved `pg_restore --clean` kunne ingen af de to fremmednøgler genskabes
+-- (målt 2026-09-17 i en fortrydelsesøvelse: 2 constraints før restore, 0 efter).
+--
+-- Denne assertion er selve sikringen: et fremtidigt læk af samme slags — fra denne blok
+-- eller en anden — fanges her i stedet for som manglende constraints i en gendannelse.
+-- Den er bevidst placeret SIDST, så den ser summen af alt, suiten har lavet.
+DO $verify_ingen_foraeldreloese_evidenskoblinger$
+DECLARE v_uden_interpretation int; v_uden_observation int;
+BEGIN
+  IF to_regclass('private.interpretation_observation') IS NULL THEN
+    RAISE NOTICE 'SPRINGER OVER #198-assertion: private.interpretation_observation findes ikke';
+    RETURN;
+  END IF;
+  SELECT count(*) INTO v_uden_interpretation
+    FROM private.interpretation_observation io
+   WHERE NOT EXISTS (SELECT 1 FROM private.interpretation i WHERE i.id = io.interpretation_id);
+  SELECT count(*) INTO v_uden_observation
+    FROM private.interpretation_observation io
+   WHERE NOT EXISTS (SELECT 1 FROM private.source_observation o WHERE o.id = io.observation_id);
+
+  IF v_uden_interpretation = 0 AND v_uden_observation = 0 THEN
+    RAISE NOTICE 'OK: #198 — ingen forældreløse interpretation_observation-rækker efter suiten';
+  ELSE
+    RAISE EXCEPTION '#198 FEJL: % række(r) uden interpretation, % uden source_observation — et pg_restore --clean kan ikke genskabe fremmednøglerne',
+      v_uden_interpretation, v_uden_observation;
+  END IF;
+END
+$verify_ingen_foraeldreloese_evidenskoblinger$;
