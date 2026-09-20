@@ -1,5 +1,10 @@
 # Runbook: rettighedsgaten mod prod (2026-09-20)
 
+> **Status: UDFØRT.** PR #206 merget som `036176f` (10/10 CI-jobs grønne), anvendt i prod,
+> hele læsefladen uændret, 8 anon-kaldbare gates tilbage som forudsagt, 0 medlems-orakler,
+> billedet hentet som gæst, og alle 15 medie-fakta inkl. kreditlinje og fotograf stadig
+> synlige. Rapport: `~/.private/medie-rettighedsgate/rettighedsgate-20260920075338Z.log`.
+
 Lukker `media_rettigheder_ok` for gæster og medlemmer — og retter den lækage, der gjorde
 et revoke umuligt i første omgang. Fortsættelsen af medie-indkapslingen (#204, `2271d0b`).
 
