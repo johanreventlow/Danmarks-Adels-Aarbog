@@ -50,7 +50,9 @@ CREATE SCHEMA IF NOT EXISTS storage;
 
 CREATE TABLE IF NOT EXISTS storage.buckets (
   id         text PRIMARY KEY,
-  name       text,
+  -- NOT NULL som i rigtig Supabase: en for eftergivende shim lader en fixture passere i CI
+  -- og faelde foerst mod en aegte kopi (set 2026-09-20).
+  name       text NOT NULL,
   public     boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now()
 );
