@@ -2,6 +2,24 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: leaked password protection kan ikke slås til på Free tier (2026-09-20)
+
+Supabase-advisoren flager `Leaked Password Protection Disabled`. Fundet kan **ikke** lukkes
+på den nuværende plan: dokumentationen siger direkte, at funktionen er *"available on the
+Pro Plan and above"*. Projektejeren har bekræftet, at knappen er utilgængelig i dashboardet.
+
+Funktionen ville slå brugernes kodeord op mod HaveIBeenPwned's Pwned Passwords API og afvise
+kendte lækkede kodeord.
+
+**Status: parkeret på tier, ikke på prioritering.** Den skal ikke stå som en åben opgave,
+nogen forsøger at løse igen — der er intet at gøre uden en planopgradering. Genbesøg, hvis
+projektet nogensinde flytter til Pro (samme sted som backup-manglen, der også er en
+tier-begrænsning, jf. `CLAUDE.md` §Faldgruber).
+
+**Gratis og uafhængigt af dette**, samme skærm (`Authentication → Sign In / Providers →
+Email`): minimum kodeordslængde (mindst 8) og krav om tegntyper (cifre + små + store +
+symboler). De to har selvstændig værdi og er ikke afhængige af Pro.
+
 ## BESLUTTET: medie-indkapslingen sendes uden at lukke rettighedsorakelet (2026-09-20)
 
 **Afgjort af projektejeren** efter adversarial Codex-review (`gpt-5.6-sol`), som gav
