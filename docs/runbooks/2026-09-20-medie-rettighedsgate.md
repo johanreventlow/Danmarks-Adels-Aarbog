@@ -30,6 +30,8 @@ levende=0                                            ← mens billedet selv var 
 | `media_synlig_auth` → `SECURITY DEFINER` | Ubrugt i politikker, men som INVOKER tvang den `authenticated`s grant åbent |
 | `media_rettigheder_ok` tilbagekaldt fra `public, anon, authenticated` | Efter de tre greb er alle kaldere DEFINER-lag |
 | Vagten udvidet | Kræver at `media_synlig_auth` + `entitet_offentlig` er DEFINER, og at `entitet_offentlig` **faktisk** gater media på synlighed |
+| `db-migrations.sql`s konkurrerende definition afstemt | Den overskrev `entitet_offentlig` med den gamle gren, så `db-rls → db-migrations` degraderede gaten lydløst |
+| `media_afbilder_privat` + `media_synlig_auth` lukket for `authenticated` | Direkte orakler over mere, end medlemstieren selv kan se |
 
 Definitionsrækkefølgen i filen er nu en forudsætning:
 `media_rettigheder_ok` → `media_id_for_object` → `media_synlig_anon`/`_auth` →
@@ -50,6 +52,9 @@ Engangskopi via `createdb -T`, baseline lagt med `origin/main`s `db-rls.sql` = p
   UÆNDRET).
 - Negative kontroller: gammel regel genindsat → fixturen fælder den; `media_synlig_auth`
   som INVOKER og `entitet_offentlig` på rå rettigheder → `MEDIE_INDKAPSLING_BRUDT`.
+- **Rækkefølgen `db-rls → db-migrations` afprøvet særskilt**, fordi det var netop den, der
+  degraderede gaten før. Negativ kontrol med den gamle migration: `RETTIGHEDER — LAEKAGEN
+  ER TILBAGE`. Efter rettelsen: `SYNLIGHED`.
 - Fortryd-scriptet ramte udgangspunktet præcist (tom `diff`).
 - CI's egen sekvens: exit 0, 120 OK-linjer.
 
@@ -87,7 +92,9 @@ alt. Ændrer ét tal sig, er noget galt — fortryd.
 
 1. Hent et rigtigt billede som gæst (signeret URL) — samme prøve som ved #204.
 2. Tæl anon-kaldbare `SECURITY DEFINER`-funktioner. `media_rettigheder_ok` skal være væk;
-   forvent **8** uden for `red_*` (de 9 fra 20/9 minus denne).
+   forvent **8** uden for `red_*` (de 9 fra 20/9 minus denne). Tæl også de
+   *authenticated*-kaldbare: `media_afbilder_privat` og `media_synlig_auth` skal være væk
+   dér.
 3. Se en medie-detaljeside i webfladen som gæst: kreditlinje og fotograf skal stadig vises
    for et **synligt** billede. Det er den ene ting, denne ændring kunne skjule ved en fejl.
 
