@@ -17036,6 +17036,7 @@ AS $$
 $$;
 REVOKE ALL ON FUNCTION private.source_scoped_evidence_v3_task4c_contract_sha256()
   FROM PUBLIC,anon,authenticated,service_role;
+
 -- A fresh schema+migration installation has no public gate yet, so it must
 -- remain in the documented fail-closed fallback state until db-rls.sql writes
 -- the final v5 receipt.  Once that receipt exists, however, a migration rerun
@@ -17057,4 +17058,429 @@ BEGIN
   END IF;
 END
 $source_scoped_evidence_v3_task4c_rerun_receipt$;
+COMMIT;
+
+-- #153 Task 4D is an additive receipt transition after frozen Task 4A--4C.
+BEGIN;
+DO $source_scoped_evidence_v3_task4a_v4_preflight$
+BEGIN
+  IF EXISTS (
+       SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+        WHERE receipt.contract_version='source-scoped-evidence-v3-task4a-v4'
+     ) THEN
+    IF to_regprocedure('private.source_scoped_evidence_v3_task4a_v4_contract_sha256()') IS NULL
+       OR NOT EXISTS (
+         SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+          WHERE receipt.contract_version='source-scoped-evidence-v3-task4a-v4'
+            AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4a_v4_contract_sha256()
+       ) THEN
+      RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4A_V4_RECEIPT_DRIFT';
+    END IF;
+    RETURN;
+  END IF;
+  IF to_regclass('private.source_scoped_replace_v3_authorization_attestation') IS NOT NULL
+     OR to_regprocedure('private.source_scoped_evidence_v3_task4a_v4_contract_sha256()') IS NOT NULL
+     OR EXISTS (
+       SELECT 1 FROM information_schema.columns
+        WHERE table_schema='private' AND table_name='source_scoped_replace_v3_attestation'
+          AND column_name IN ('element_id','identity_event_id','identity_event_version','review_basis_sha256')
+     )
+     OR EXISTS (
+       SELECT 1 FROM information_schema.columns
+        WHERE table_schema='private' AND table_name='source_scoped_replace_v3_authorization'
+          AND column_name IN ('attestation_scope_sha256','profile_sha256','element_scope_sha256')
+     ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4A_V4_PARTIAL_FOOTPRINT';
+  END IF;
+  IF NOT EXISTS (
+       SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt
+        WHERE contract_version='source-scoped-evidence-v3-task4a-v3'
+     )
+     OR to_regprocedure('private.source_scoped_evidence_v3_task4b_contract_sha256()') IS NULL
+     OR NOT EXISTS (
+       SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+        WHERE receipt.contract_version='source-scoped-evidence-v3-task4b-v2'
+          AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4b_contract_sha256()
+     )
+     OR (EXISTS (
+           SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt
+            WHERE contract_version='source-scoped-evidence-v3-task4c-v7'
+         ) AND (
+           to_regprocedure('private.source_scoped_evidence_v3_task4c_contract_sha256()') IS NULL
+           OR NOT EXISTS (
+             SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+              WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v7'
+                AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256()
+           )
+         )) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4A_V4_PREDECESSOR_RECEIPT_DRIFT';
+  END IF;
+END
+$source_scoped_evidence_v3_task4a_v4_preflight$;
+
+DO $source_scoped_evidence_v3_task4a_v4_rows$
+BEGIN
+  IF EXISTS (SELECT 1 FROM private.source_scoped_replace_v3_attestation)
+     OR EXISTS (SELECT 1 FROM private.source_scoped_replace_v3_authorization) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4A_V4_LEGACY_ROWS_UNMIGRATABLE';
+  END IF;
+END
+$source_scoped_evidence_v3_task4a_v4_rows$;
+
+ALTER TABLE private.source_scoped_replace_v3_attestation
+  ADD COLUMN IF NOT EXISTS element_id text,
+  ADD COLUMN IF NOT EXISTS identity_event_id uuid,
+  ADD COLUMN IF NOT EXISTS identity_event_version integer,
+  ADD COLUMN IF NOT EXISTS review_basis_sha256 text;
+ALTER TABLE private.source_scoped_replace_v3_attestation
+  ALTER COLUMN element_id SET NOT NULL,
+  ALTER COLUMN identity_event_id SET NOT NULL,
+  ALTER COLUMN identity_event_version SET NOT NULL,
+  ALTER COLUMN review_basis_sha256 SET NOT NULL;
+DO $source_scoped_evidence_v3_task4a_v4_attestation_constraints$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.source_scoped_replace_v3_attestation'::regclass AND conname LIKE 'source_scoped_replace_v3_attestation_element_id_check%') THEN
+    ALTER TABLE private.source_scoped_replace_v3_attestation
+      ADD CONSTRAINT source_scoped_replace_v3_attestation_element_id_check CHECK (btrim(element_id)<>'' );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.source_scoped_replace_v3_attestation'::regclass AND conname LIKE 'source_scoped_replace_v3_attestation_identity_event_version%') THEN
+    ALTER TABLE private.source_scoped_replace_v3_attestation
+      ADD CONSTRAINT source_scoped_replace_v3_attestation_identity_event_version_check CHECK (identity_event_version>=1);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.source_scoped_replace_v3_attestation'::regclass AND conname LIKE 'source_scoped_replace_v3_attestation_review_basis_sha256_check%') THEN
+    ALTER TABLE private.source_scoped_replace_v3_attestation
+      ADD CONSTRAINT source_scoped_replace_v3_attestation_review_basis_sha256_check CHECK (review_basis_sha256 ~ '^[0-9a-f]{64}$');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.source_scoped_replace_v3_attestation'::regclass AND contype='f' AND confrelid='private.source_persona_identity_event'::regclass) THEN
+    ALTER TABLE private.source_scoped_replace_v3_attestation
+      ADD CONSTRAINT source_scoped_replace_v3_attestation_identity_event_id_fkey
+      FOREIGN KEY (identity_event_id) REFERENCES private.source_persona_identity_event(id);
+  END IF;
+END
+$source_scoped_evidence_v3_task4a_v4_attestation_constraints$;
+DO $source_scoped_evidence_v3_task4a_v4_attestation_unique$
+DECLARE v_constraint name;
+BEGIN
+  SELECT constraint_row.conname INTO v_constraint
+    FROM pg_constraint constraint_row
+   WHERE constraint_row.conrelid='private.source_scoped_replace_v3_attestation'::regclass
+     AND constraint_row.contype='u'
+     AND pg_get_constraintdef(constraint_row.oid,true)=
+         'UNIQUE (source_record_id, source_persona_id, canonical_person_id, attestation_sha256)';
+  IF v_constraint IS NOT NULL THEN
+    EXECUTE format('ALTER TABLE private.source_scoped_replace_v3_attestation DROP CONSTRAINT %I',v_constraint);
+  END IF;
+  IF NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+        WHERE conrelid='private.source_scoped_replace_v3_attestation'::regclass
+          AND conname='source_scoped_replace_v3_attestation_element_attestation_key'
+     ) THEN
+    ALTER TABLE private.source_scoped_replace_v3_attestation
+      ADD CONSTRAINT source_scoped_replace_v3_attestation_element_attestation_key
+      UNIQUE (source_record_id,source_persona_id,canonical_person_id,element_id,attestation_sha256);
+  END IF;
+END
+$source_scoped_evidence_v3_task4a_v4_attestation_unique$;
+
+ALTER TABLE private.source_scoped_replace_v3_authorization
+  ADD COLUMN IF NOT EXISTS attestation_scope_sha256 text,
+  ADD COLUMN IF NOT EXISTS profile_sha256 text,
+  ADD COLUMN IF NOT EXISTS element_scope_sha256 text;
+ALTER TABLE private.source_scoped_replace_v3_authorization
+  ALTER COLUMN attestation_scope_sha256 SET NOT NULL,
+  ALTER COLUMN profile_sha256 SET NOT NULL,
+  ALTER COLUMN element_scope_sha256 SET NOT NULL;
+DO $source_scoped_evidence_v3_task4a_v4_authorization_constraints$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.source_scoped_replace_v3_authorization'::regclass AND conname LIKE 'source_scoped_replace_v3_authorization_attestation_scope_sha256%') THEN
+    ALTER TABLE private.source_scoped_replace_v3_authorization
+      ADD CONSTRAINT source_scoped_replace_v3_authorization_attestation_scope_sha256_check CHECK (attestation_scope_sha256 ~ '^[0-9a-f]{64}$');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.source_scoped_replace_v3_authorization'::regclass AND conname LIKE 'source_scoped_replace_v3_authorization_profile_sha256_check%') THEN
+    ALTER TABLE private.source_scoped_replace_v3_authorization
+      ADD CONSTRAINT source_scoped_replace_v3_authorization_profile_sha256_check CHECK (profile_sha256 ~ '^[0-9a-f]{64}$');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.source_scoped_replace_v3_authorization'::regclass AND conname LIKE 'source_scoped_replace_v3_authorization_element_scope_sha256%') THEN
+    ALTER TABLE private.source_scoped_replace_v3_authorization
+      ADD CONSTRAINT source_scoped_replace_v3_authorization_element_scope_sha256_check CHECK (element_scope_sha256 ~ '^[0-9a-f]{64}$');
+  END IF;
+END
+$source_scoped_evidence_v3_task4a_v4_authorization_constraints$;
+
+CREATE TABLE IF NOT EXISTS private.source_scoped_replace_v3_authorization_attestation (
+  authorization_id uuid NOT NULL REFERENCES private.source_scoped_replace_v3_authorization(id),
+  element_id text NOT NULL CHECK (btrim(element_id)<>''),
+  attestation_id uuid NOT NULL REFERENCES private.source_scoped_replace_v3_attestation(id),
+  attestation_sha256 text NOT NULL CHECK (attestation_sha256 ~ '^[0-9a-f]{64}$'),
+  PRIMARY KEY (authorization_id,element_id),
+  UNIQUE (authorization_id,attestation_id)
+);
+DROP TRIGGER IF EXISTS trg_source_scoped_replace_v3_authorization_attestation_append_only
+  ON private.source_scoped_replace_v3_authorization_attestation;
+CREATE TRIGGER trg_source_scoped_replace_v3_authorization_attestation_append_only
+  BEFORE UPDATE OR DELETE ON private.source_scoped_replace_v3_authorization_attestation
+  FOR EACH ROW EXECUTE FUNCTION private.reject_source_scoped_evidence_v3_mutation();
+ALTER TABLE private.source_scoped_replace_v3_authorization_attestation ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.source_scoped_replace_v3_authorization_attestation
+  FROM PUBLIC,anon,authenticated,service_role;
+
+DO $source_scoped_evidence_v3_task4a_v4_artifact_kind$
+DECLARE v_constraint name;
+BEGIN
+  SELECT constraint_row.conname INTO v_constraint
+    FROM pg_constraint constraint_row
+   WHERE constraint_row.conrelid='private.source_scoped_replace_v3_manifest_artifact'::regclass
+     AND constraint_row.contype='c'
+     AND pg_get_constraintdef(constraint_row.oid,true) LIKE '%artifact_kind%';
+  IF v_constraint IS NOT NULL
+     AND v_constraint<>'source_scoped_replace_v3_manifest_artifact_kind_check' THEN
+    EXECUTE format('ALTER TABLE private.source_scoped_replace_v3_manifest_artifact DROP CONSTRAINT %I',v_constraint);
+  END IF;
+  IF NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+        WHERE conrelid='private.source_scoped_replace_v3_manifest_artifact'::regclass
+          AND conname='source_scoped_replace_v3_manifest_artifact_kind_check'
+     ) THEN
+    ALTER TABLE private.source_scoped_replace_v3_manifest_artifact
+      ADD CONSTRAINT source_scoped_replace_v3_manifest_artifact_kind_check
+      CHECK (artifact_kind IN ('manifest','dry_run','ownership','attestation','profile','element_scope','writer_snapshot'));
+  END IF;
+END
+$source_scoped_evidence_v3_task4a_v4_artifact_kind$;
+
+DO $source_scoped_evidence_v3_task4a_v4_identity$
+BEGIN
+  IF (SELECT attidentity FROM pg_attribute WHERE attrelid='public.fact'::regclass AND attname='id' AND NOT attisdropped) NOT IN ('a','d')
+     OR (SELECT attidentity FROM pg_attribute WHERE attrelid='public.citation'::regclass AND attname='id' AND NOT attisdropped) NOT IN ('a','d') THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_MODEL_IDENTITY_PARITY_INVALID';
+  END IF;
+END
+$source_scoped_evidence_v3_task4a_v4_identity$;
+
+CREATE OR REPLACE FUNCTION private.source_scoped_evidence_v3_task4a_v4_contract_sha256()
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path=pg_catalog,private,extensions
+AS $$
+  SELECT encode(extensions.digest(jsonb_build_object(
+    'schema','source-scoped-evidence-v3-task4a-v4',
+    'relations',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'relation',namespace.nspname||'.'||relation.relname,
+      'columns',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+        'position',attribute.attnum,'name',attribute.attname,
+        'type',format_type(attribute.atttypid,attribute.atttypmod),
+        'not_null',attribute.attnotnull,'identity',attribute.attidentity,
+        'generated',attribute.attgenerated,
+        'default',pg_get_expr(default_value.adbin,default_value.adrelid)
+      ) ORDER BY attribute.attnum),'[]'::jsonb)
+        FROM pg_attribute attribute
+        LEFT JOIN pg_attrdef default_value
+          ON default_value.adrelid=attribute.attrelid AND default_value.adnum=attribute.attnum
+       WHERE attribute.attrelid=relation.oid
+         AND attribute.attnum>0 AND NOT attribute.attisdropped),
+      'constraints',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+        'name',constraint_row.conname,'definition',pg_get_constraintdef(constraint_row.oid,true)
+      ) ORDER BY constraint_row.conname),'[]'::jsonb)
+        FROM pg_constraint constraint_row WHERE constraint_row.conrelid=relation.oid),
+      'indexes',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+        'name',index_relation.relname,'definition',pg_get_indexdef(index_relation.oid)
+      ) ORDER BY index_relation.relname),'[]'::jsonb)
+        FROM pg_index index_row JOIN pg_class index_relation ON index_relation.oid=index_row.indexrelid
+       WHERE index_row.indrelid=relation.oid),
+      'triggers',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+        'name',trigger.tgname,'definition',pg_get_triggerdef(trigger.oid,true)
+      ) ORDER BY trigger.tgname),'[]'::jsonb)
+        FROM pg_trigger trigger WHERE trigger.tgrelid=relation.oid AND NOT trigger.tgisinternal),
+      'rls',relation.relrowsecurity,'force_rls',relation.relforcerowsecurity,
+      'policies',(SELECT coalesce(jsonb_agg(jsonb_build_object(
+        'name',policy.polname,'command',policy.polcmd,'permissive',policy.polpermissive,
+        'roles',policy.polroles::text,'using',pg_get_expr(policy.polqual,policy.polrelid,true),
+        'with_check',pg_get_expr(policy.polwithcheck,policy.polrelid,true)
+      ) ORDER BY policy.polname),'[]'::jsonb) FROM pg_policy policy WHERE policy.polrelid=relation.oid),
+      'acl',coalesce(relation.relacl,'{}'::aclitem[])::text
+    ) ORDER BY namespace.nspname,relation.relname),'[]'::jsonb)
+      FROM pg_class relation JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace
+     WHERE (namespace.nspname='private' AND relation.relname=ANY(ARRAY[
+       'source_scoped_replace_v3_attestation','source_scoped_replace_v3_authorization',
+       'source_scoped_replace_v3_authorization_attestation','source_scoped_replace_v3_batch',
+       'source_scoped_replace_v3_event','source_scoped_replace_v3_manifest_artifact',
+       'source_scoped_evidence_v3_chain','source_scoped_evidence_v3_revision',
+       'source_scoped_evidence_v3_member','source_scoped_evidence_v3_publication',
+       'source_scoped_evidence_v3_chain_state','source_scoped_evidence_v3_chain_event'
+     ])) OR (namespace.nspname='public' AND relation.relname=ANY(ARRAY['fact','citation']))),
+    'identity_sequences',jsonb_build_array(
+      jsonb_build_object(
+        'table','public.fact','identity',(SELECT attribute.attidentity FROM pg_attribute attribute
+          WHERE attribute.attrelid='public.fact'::regclass AND attribute.attname='id' AND NOT attribute.attisdropped),
+        'sequence',pg_get_serial_sequence('public.fact','id'),
+        'owned_by',EXISTS(SELECT 1 FROM pg_depend dependency
+          WHERE dependency.objid=pg_get_serial_sequence('public.fact','id')::regclass
+            AND dependency.refobjid='public.fact'::regclass AND dependency.refobjsubid=1
+            AND dependency.deptype IN ('a','i')),
+        'floor_ok',(SELECT coalesce(sequence_row.last_value,sequence_row.start_value)>coalesce((SELECT max(id) FROM public.fact),0)
+          FROM pg_sequences sequence_row
+         WHERE sequence_row.schemaname='public' AND sequence_row.sequencename=split_part(pg_get_serial_sequence('public.fact','id'),'.',2))),
+      jsonb_build_object(
+        'table','public.citation','identity',(SELECT attribute.attidentity FROM pg_attribute attribute
+          WHERE attribute.attrelid='public.citation'::regclass AND attribute.attname='id' AND NOT attribute.attisdropped),
+        'sequence',pg_get_serial_sequence('public.citation','id'),
+        'owned_by',EXISTS(SELECT 1 FROM pg_depend dependency
+          WHERE dependency.objid=pg_get_serial_sequence('public.citation','id')::regclass
+            AND dependency.refobjid='public.citation'::regclass AND dependency.refobjsubid=1
+            AND dependency.deptype IN ('a','i')),
+        'floor_ok',(SELECT coalesce(sequence_row.last_value,sequence_row.start_value)>coalesce((SELECT max(id) FROM public.citation),0)
+          FROM pg_sequences sequence_row
+         WHERE sequence_row.schemaname='public' AND sequence_row.sequencename=split_part(pg_get_serial_sequence('public.citation','id'),'.',2)))
+    )
+  )::text,'sha256'),'hex')
+$$;
+REVOKE ALL ON FUNCTION private.source_scoped_evidence_v3_task4a_v4_contract_sha256()
+  FROM PUBLIC,anon,authenticated,service_role;
+DO $source_scoped_evidence_v3_task4a_v4_receipt$
+DECLARE v_expected text; v_actual text;
+BEGIN
+  v_actual:=private.source_scoped_evidence_v3_task4a_v4_contract_sha256();
+  SELECT contract_sha256 INTO v_expected
+    FROM private.source_scoped_evidence_v3_migration_receipt
+   WHERE contract_version='source-scoped-evidence-v3-task4a-v4';
+  IF v_expected IS NULL THEN
+    INSERT INTO private.source_scoped_evidence_v3_migration_receipt(contract_version,contract_sha256)
+    VALUES ('source-scoped-evidence-v3-task4a-v4',v_actual);
+  ELSIF v_expected IS DISTINCT FROM v_actual THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4A_V4_RECEIPT_DRIFT';
+  END IF;
+END
+$source_scoped_evidence_v3_task4a_v4_receipt$;
+COMMIT;
+
+-- The source gateway remains fail-closed until the complete Task 4D kernel is
+-- installed and separately receipted.  It is deliberately outside the frozen
+-- Task 4C transaction and the structural Task 4A-v4 receipt.
+BEGIN;
+CREATE OR REPLACE FUNCTION private.source_scoped_evidence_v3_canonical_json_text(p_value jsonb)
+RETURNS text
+LANGUAGE plpgsql
+IMMUTABLE
+SECURITY DEFINER
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  v_piece text;
+  v_key text;
+  v_item jsonb;
+BEGIN
+  CASE jsonb_typeof(p_value)
+    WHEN 'object' THEN
+      v_piece:='{';
+      FOR v_key IN SELECT jsonb_object_keys(p_value) ORDER BY 1 LOOP
+        IF v_piece<>'{' THEN v_piece:=v_piece||','; END IF;
+        v_piece:=v_piece||to_jsonb(v_key)::text||':'||private.source_scoped_evidence_v3_canonical_json_text(p_value->v_key);
+      END LOOP;
+      RETURN v_piece||'}';
+    WHEN 'array' THEN
+      v_piece:='[';
+      FOR v_item IN SELECT value FROM jsonb_array_elements(p_value) LOOP
+        IF v_piece<>'[' THEN v_piece:=v_piece||','; END IF;
+        v_piece:=v_piece||private.source_scoped_evidence_v3_canonical_json_text(v_item);
+      END LOOP;
+      RETURN v_piece||']';
+    ELSE
+      RETURN p_value::text;
+  END CASE;
+END
+$$;
+CREATE OR REPLACE FUNCTION private.source_scoped_evidence_v3_canonical_json_sha256(p_value jsonb)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SECURITY DEFINER
+SET search_path=pg_catalog,private,extensions
+AS $$
+  SELECT encode(digest(convert_to(private.source_scoped_evidence_v3_canonical_json_text(p_value),'UTF8'),'sha256'),'hex')
+$$;
+REVOKE ALL ON FUNCTION private.source_scoped_evidence_v3_canonical_json_text(jsonb),
+  private.source_scoped_evidence_v3_canonical_json_sha256(jsonb)
+  FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION public.red_authorize_source_scoped_replace_v3(
+  p_database_name text,p_system_identifier text,p_deployment_id uuid,p_actor_id uuid,
+  p_nonce uuid,p_manifest jsonb,p_manifest_semantic_sha256 text,
+  p_dry_run_semantic_sha256 text,p_ownership_semantic_sha256 text,
+  p_artifact_sha256 text,p_expires_at timestamptz
+) RETURNS uuid
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path=pg_catalog,public,private,extensions
+AS $$
+DECLARE
+  v_actor uuid:=auth.uid();
+  v_deployment private.source_scoped_evidence_v3_deployment%ROWTYPE;
+BEGIN
+  IF v_actor IS NULL OR p_actor_id IS DISTINCT FROM v_actor THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_V3_ACTOR_INVALID';
+  END IF;
+  IF public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_V3_ROLE_FORBIDDEN';
+  END IF;
+  IF p_database_name IS NULL OR btrim(p_database_name)='' OR p_system_identifier IS NULL
+     OR btrim(p_system_identifier)='' OR p_deployment_id IS NULL OR p_nonce IS NULL
+     OR p_manifest IS NULL OR jsonb_typeof(p_manifest)<>'object'
+     OR p_manifest_semantic_sha256 !~ '^[0-9a-f]{64}$'
+     OR p_dry_run_semantic_sha256 !~ '^[0-9a-f]{64}$'
+     OR p_ownership_semantic_sha256 !~ '^[0-9a-f]{64}$'
+     OR p_artifact_sha256 !~ '^[0-9a-f]{64}$'
+     OR p_expires_at IS NULL OR p_expires_at<=clock_timestamp() THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_V3_AUTHORIZATION_INVALID';
+  END IF;
+  SELECT * INTO v_deployment FROM private.source_scoped_evidence_v3_deployment deployment
+   WHERE deployment.id=p_deployment_id;
+  IF NOT FOUND OR p_database_name IS DISTINCT FROM current_database()
+     OR p_system_identifier IS DISTINCT FROM (pg_control_system()).system_identifier::text
+     OR v_deployment.database_name IS DISTINCT FROM p_database_name
+     OR v_deployment.system_identifier IS DISTINCT FROM p_system_identifier
+     OR v_deployment.repository_writer_artifact_sha256 IS DISTINCT FROM p_artifact_sha256 THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_SOURCE_DEPLOYMENT_INVALID';
+  END IF;
+  RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_V3_AUTHORIZATION_NOT_READY';
+END
+$$;
+REVOKE ALL ON FUNCTION public.red_authorize_source_scoped_replace_v3(
+  text,text,uuid,uuid,uuid,jsonb,text,text,text,text,timestamptz
+) FROM PUBLIC,anon,authenticated,service_role;
+CREATE OR REPLACE FUNCTION public.red_apply_source_scoped_replace_v3(
+  p_authorization_id uuid,p_manifest jsonb
+) RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path=pg_catalog,public,private,extensions
+AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_V3_ROLE_FORBIDDEN';
+  END IF;
+  RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_V3_AUTHORIZATION_NOT_READY';
+END
+$$;
+CREATE OR REPLACE FUNCTION public.red_verify_source_scoped_replace_v3(
+  p_authorization_id uuid
+) RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path=pg_catalog,public,private,extensions
+AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_V3_ROLE_FORBIDDEN';
+  END IF;
+  RAISE EXCEPTION 'SOURCE_SCOPED_REPLACE_V3_AUTHORIZATION_NOT_READY';
+END
+$$;
+REVOKE ALL ON FUNCTION public.red_apply_source_scoped_replace_v3(uuid,jsonb),
+  public.red_verify_source_scoped_replace_v3(uuid)
+  FROM PUBLIC,anon,authenticated,service_role;
 COMMIT;

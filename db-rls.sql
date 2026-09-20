@@ -16,6 +16,28 @@ alter default privileges
 alter default privileges in schema private
   revoke execute on functions from public, anon, authenticated;
 
+-- #153 Task 4C: a rerun must reject receipt-bound security drift before this
+-- cumulative RLS pass changes any receipt-bound function or table ACL.  A
+-- fresh schema+migration installation has no V7 receipt yet, so it still
+-- reaches the binding block below.
+DO $source_scoped_evidence_v3_task4c_preflight_receipt$
+BEGIN
+  IF EXISTS (
+       SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+        WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v7'
+     ) AND (
+       to_regprocedure('private.source_scoped_evidence_v3_task4c_contract_sha256()') IS NULL
+       OR NOT EXISTS (
+         SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+          WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v7'
+            AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256()
+       )
+     ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4C_RECEIPT_DRIFT';
+  END IF;
+END
+$source_scoped_evidence_v3_task4c_preflight_receipt$;
+
 do $$
 declare v_table text;
 begin
@@ -1147,6 +1169,7 @@ ALTER TABLE private.source_scoped_replace_batch ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.source_scoped_replace_event ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.source_scoped_replace_v3_attestation ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.source_scoped_replace_v3_authorization ENABLE ROW LEVEL SECURITY;
+ALTER TABLE private.source_scoped_replace_v3_authorization_attestation ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.source_scoped_replace_v3_batch ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.source_scoped_replace_v3_event ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.source_scoped_replace_v3_manifest_artifact ENABLE ROW LEVEL SECURITY;
@@ -1160,6 +1183,7 @@ ALTER TABLE private.source_scoped_evidence_v3_chain_state ENABLE ROW LEVEL SECUR
 REVOKE ALL ON TABLE private.source_scoped_replace_authorization,
   private.source_scoped_replace_batch,private.source_scoped_replace_event,
   private.source_scoped_replace_v3_attestation,private.source_scoped_replace_v3_authorization,
+  private.source_scoped_replace_v3_authorization_attestation,
   private.source_scoped_replace_v3_batch,private.source_scoped_replace_v3_event,
   private.source_scoped_replace_v3_manifest_artifact,private.source_scoped_evidence_v3_chain,
   private.source_scoped_evidence_v3_revision,private.source_scoped_evidence_v3_member,
@@ -1168,6 +1192,8 @@ REVOKE ALL ON TABLE private.source_scoped_replace_authorization,
   FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON FUNCTION public.red_authorize_source_scoped_replace(text,text,uuid,uuid,jsonb,text,text,timestamptz),
   public.red_apply_source_scoped_replace(uuid,jsonb),public.red_verify_source_scoped_replace(uuid),
+  public.red_authorize_source_scoped_replace_v3(text,text,uuid,uuid,uuid,jsonb,text,text,text,text,timestamptz),
+  public.red_apply_source_scoped_replace_v3(uuid,jsonb),public.red_verify_source_scoped_replace_v3(uuid),
   private.reject_source_scoped_replace_v1_mutation(),
   private.reject_source_scoped_evidence_v3_mutation(),
   private.enforce_source_scoped_evidence_v3_revision_predecessor()
@@ -1181,26 +1207,6 @@ ALTER TABLE private.source_scoped_evidence_v3_deployment ENABLE ROW LEVEL SECURI
 REVOKE ALL ON TABLE private.source_scoped_evidence_contract_inventory,
   private.source_scoped_evidence_v3_deployment
   FROM PUBLIC,anon,authenticated,service_role,daa_source_scoped_evidence_deployer,daa_source_scoped_evidence_gateway;
--- A rerun must never normalize a receipt-bound V7 security drift.  Fresh
--- schema+migration state has no V7 receipt yet, so its initial RLS pass still
--- reaches the binding block below.
-DO $source_scoped_evidence_v3_task4c_preflight_receipt$
-BEGIN
-  IF EXISTS (
-       SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
-        WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v7'
-     ) AND (
-       to_regprocedure('private.source_scoped_evidence_v3_task4c_contract_sha256()') IS NULL
-       OR NOT EXISTS (
-         SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
-          WHERE receipt.contract_version='source-scoped-evidence-v3-task4c-v7'
-            AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4c_contract_sha256()
-       )
-     ) THEN
-    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TASK4C_RECEIPT_DRIFT';
-  END IF;
-END
-$source_scoped_evidence_v3_task4c_preflight_receipt$;
 REVOKE INSERT,UPDATE,DELETE ON TABLE public.fact,public.assertion,public.citation
   FROM anon,authenticated,service_role;
 DO $source_scoped_evidence_v3_column_acl$

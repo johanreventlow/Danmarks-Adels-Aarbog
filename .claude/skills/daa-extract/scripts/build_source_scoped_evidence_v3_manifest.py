@@ -6,11 +6,16 @@ import hashlib
 import json
 import re
 import subprocess
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 
 class RepositoryWriterSnapshotError(ValueError):
+    pass
+
+
+class ManifestError(ValueError):
     pass
 
 
@@ -121,6 +126,56 @@ _WRITER_BLOB_SHA256 = {
     'schema.sql': '3aa35a7e47997348373910b496594341abf4b9e269f498f09ec15fbf88294f60',
 }
 
+_SOURCE_SCOPED_REPLACE_V3_SCHEMA = "source-scoped-replace-v3-semantic-v1"
+_SEMANTIC_FIELDS = (
+    "schema", "source_id", "record_keys", "input_sha256",
+    "dry_run_semantic_sha256", "ownership_semantic_sha256", "expected_counts",
+    "policy_decisions", "narrative_operations", "source_operations",
+)
+_SOURCE_OPERATION_FIELDS = (
+    "element_id", "operation", "chain_key", "source_record_key", "source_persona_id",
+    "identity_event_id", "person_id", "prestate_sha256", "desired_chain", "desired_chain_sha256",
+    "ownership_sha256", "preservation_set_sha256", "expected_after_sha256",
+    "previous_manifest_semantic_sha256", "previous_batch_id", "previous_manifest_artifact_sha256",
+)
+_DESIRED_CHAIN_FIELDS = ("schema", "members")
+_FACT_MEMBER_FIELDS = (
+    "member_kind", "member_key", "subjekt_type", "subjekt_id", "faktatype", "sted_id",
+)
+_ASSERTION_MEMBER_FIELDS = (
+    "member_kind", "member_key", "target_type", "target_member_key", "vaerdi_tekst",
+    "objekt_type", "objekt_id", "date_min", "date_max", "date_qualifier",
+    "date_certainty", "date_raw", "calendar", "uforanderlig",
+)
+_CITATION_MEMBER_FIELDS = (
+    "member_kind", "member_key", "assertion_member_key", "source_id", "side",
+    "citat_tekst", "citat_dato", "kvalitet",
+)
+_DESIRED_CHAIN_SCHEMA = "source-scoped-evidence-v3-desired-chain-v1"
+_MEMBER_KEY = re.compile(r"^(fact|assertion|citation):([1-9][0-9]*)$")
+_NARRATIVE_UPSERT_FIELDS = (
+    "operation", "element_id", "person_id", "source_id", "record_key", "text", "text_sha256",
+    "privat", "expected_state_sha256",
+)
+_NARRATIVE_REVERSE_FIELDS = (
+    "operation", "element_id", "person_id", "source_id", "record_key", "original_event_id",
+    "reversal_state_sha256",
+)
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_UUID = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+_CHAIN_KEY_SCHEMA = "source-scoped-evidence-v3-chain-key-v1"
+_EXPECTED_COUNT_FIELDS = (
+    "source_operations", "content_revisions", "tombstone_revisions", "facts",
+    "assertions", "citations", "narrative_operations",
+)
+_DATE_QUALIFIERS = frozenset({
+    "exact", "before", "after", "between", "about", "floruit", "until_event", "open_end", "ongoing",
+})
+_DATE_CERTAINTIES = frozenset({"certain", "uncertain", "ambiguous"})
+_CALENDARS = frozenset({"gregoriansk", "juliansk"})
+
 
 def _git(repo_root: Path, *args: str) -> bytes:
     result = subprocess.run(
@@ -135,6 +190,334 @@ def _canonical_sha256(value: Any) -> str:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     ).hexdigest()
+
+
+def _manifest_error() -> None:
+    raise ManifestError("SOURCE_SCOPED_REPLACE_MANIFEST_INVALID")
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            _manifest_error()
+        result[key] = value
+    return result
+
+
+def parse_manifest_raw(raw: bytes | str) -> dict[str, Any]:
+    """Decode a manifest once, rejecting duplicate keys at every object level."""
+    try:
+        text = raw.decode("utf-8", errors="strict") if isinstance(raw, bytes) else raw
+        if not isinstance(text, str):
+            _manifest_error()
+        payload = json.loads(
+            text,
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=lambda _: _manifest_error(),
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        _manifest_error()
+    if not isinstance(payload, dict):
+        _manifest_error()
+    return payload
+
+
+def _is_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _exact_mapping(value: Any, fields: tuple[str, ...]) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != set(fields):
+        _manifest_error()
+    return value
+
+
+def _sha(value: Any) -> str:
+    if not isinstance(value, str) or not _SHA256.fullmatch(value):
+        _manifest_error()
+    return value
+
+
+def _uuid(value: Any) -> str:
+    if not isinstance(value, str) or not _UUID.fullmatch(value):
+        _manifest_error()
+    return value
+
+
+def _stable_object_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+        _manifest_error()
+    return sorted(value, key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")))
+
+
+def _nullable_string(value: Any) -> None:
+    if value is not None and not isinstance(value, str):
+        _manifest_error()
+
+
+def _nullable_iso_date(value: Any) -> date | None:
+    _nullable_string(value)
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        _manifest_error()
+
+
+def _member_key(value: Any, kind: str) -> int:
+    if not isinstance(value, str):
+        _manifest_error()
+    match = _MEMBER_KEY.fullmatch(value)
+    if match is None or match.group(1) != kind:
+        _manifest_error()
+    return int(match.group(2))
+
+
+def _desired_chain(value: Any, source_id: int, person_id: int, operation_kind: str) -> dict[str, Any]:
+    chain = _exact_mapping(value, _DESIRED_CHAIN_FIELDS)
+    if chain["schema"] != _DESIRED_CHAIN_SCHEMA or not isinstance(chain["members"], list):
+        _manifest_error()
+    if not chain["members"]:
+        if operation_kind not in {"remove_owned_chain", "compensate_chain"}:
+            _manifest_error()
+        return {"schema": chain["schema"], "members": []}
+    if operation_kind == "remove_owned_chain":
+        _manifest_error()
+
+    members: list[dict[str, Any]] = []
+    assertion_keys: set[str] = set()
+    citation_targets: list[str] = []
+    fact_count = 0
+    for member in chain["members"]:
+        if not isinstance(member, dict) or not isinstance(member.get("member_kind"), str):
+            _manifest_error()
+        kind = member["member_kind"]
+        if kind == "fact":
+            item = _exact_mapping(member, _FACT_MEMBER_FIELDS)
+            if (
+                _member_key(item["member_key"], "fact") != 1
+                or item["subjekt_type"] != "person"
+                or not _is_int(item["subjekt_id"])
+                or item["subjekt_id"] != person_id
+                or not isinstance(item["faktatype"], str)
+                or not item["faktatype"]
+                or (item["sted_id"] is not None and not _is_int(item["sted_id"]))
+            ):
+                _manifest_error()
+            fact_count += 1
+        elif kind == "assertion":
+            item = _exact_mapping(member, _ASSERTION_MEMBER_FIELDS)
+            number = _member_key(item["member_key"], "assertion")
+            if item["target_type"] != "fact" or item["target_member_key"] != "fact:1":
+                _manifest_error()
+            for field in ("vaerdi_tekst", "objekt_type", "date_qualifier", "date_certainty", "date_raw", "calendar"):
+                _nullable_string(item[field])
+            if item["objekt_id"] is not None and not _is_int(item["objekt_id"]):
+                _manifest_error()
+            if (item["objekt_type"] is None) != (item["objekt_id"] is None):
+                _manifest_error()
+            date_min = _nullable_iso_date(item["date_min"])
+            date_max = _nullable_iso_date(item["date_max"])
+            if date_min is not None and date_max is not None and date_min > date_max:
+                _manifest_error()
+            if item["date_qualifier"] is not None and item["date_qualifier"] not in _DATE_QUALIFIERS:
+                _manifest_error()
+            if item["date_certainty"] is not None and item["date_certainty"] not in _DATE_CERTAINTIES:
+                _manifest_error()
+            if item["calendar"] is not None and item["calendar"] not in _CALENDARS:
+                _manifest_error()
+            if not isinstance(item["uforanderlig"], bool):
+                _manifest_error()
+            assertion_keys.add(f"assertion:{number}")
+        elif kind == "citation":
+            item = _exact_mapping(member, _CITATION_MEMBER_FIELDS)
+            _member_key(item["member_key"], "citation")
+            _member_key(item["assertion_member_key"], "assertion")
+            if not _is_int(item["source_id"]) or item["source_id"] != source_id:
+                _manifest_error()
+            for field in ("side", "citat_tekst", "citat_dato", "kvalitet"):
+                _nullable_string(item[field])
+            citation_targets.append(item["assertion_member_key"])
+        else:
+            _manifest_error()
+        members.append(item)
+
+    if (
+        fact_count != 1
+        or not assertion_keys
+        or any(target not in assertion_keys for target in citation_targets)
+        or set(citation_targets) != assertion_keys
+    ):
+        _manifest_error()
+    kind_rank = {"fact": 0, "assertion": 1, "citation": 2}
+    members.sort(key=lambda item: (kind_rank[item["member_kind"]], _member_key(item["member_key"], item["member_kind"])))
+    expected_keys = {
+        "fact": ["fact:1"],
+        "assertion": [f"assertion:{index}" for index in range(1, len(assertion_keys) + 1)],
+        "citation": [f"citation:{index}" for index in range(1, len(citation_targets) + 1)],
+    }
+    for kind, expected in expected_keys.items():
+        observed = [item["member_key"] for item in members if item["member_kind"] == kind]
+        if observed != expected:
+            _manifest_error()
+    return {"schema": chain["schema"], "members": members}
+
+
+def _source_operation(value: Any, record_keys: set[str], source_id: int) -> dict[str, Any]:
+    operation = _exact_mapping(value, _SOURCE_OPERATION_FIELDS)
+    if (
+        not isinstance(operation["element_id"], str) or not operation["element_id"]
+        or operation["operation"] not in {"create_chain", "replace_chain", "remove_owned_chain", "compensate_chain"}
+        or not isinstance(operation["chain_key"], str) or not _SHA256.fullmatch(operation["chain_key"])
+        or not isinstance(operation["source_record_key"], str)
+        or operation["source_record_key"] not in record_keys
+        or not _is_int(operation["person_id"])
+    ):
+        _manifest_error()
+    _uuid(operation["source_persona_id"])
+    _uuid(operation["identity_event_id"])
+    expected_chain_key = _canonical_sha256({
+        "schema": _CHAIN_KEY_SCHEMA,
+        "source_id": source_id,
+        "source_record_key": operation["source_record_key"],
+        "element_id": operation["element_id"],
+    })
+    if operation["chain_key"] != expected_chain_key:
+        _manifest_error()
+    for field in (
+        "prestate_sha256", "desired_chain_sha256", "ownership_sha256",
+        "preservation_set_sha256", "expected_after_sha256",
+    ):
+        _sha(operation[field])
+    desired_chain = _desired_chain(
+        operation["desired_chain"], source_id, operation["person_id"], operation["operation"]
+    )
+    if _canonical_sha256(desired_chain) != operation["desired_chain_sha256"]:
+        _manifest_error()
+    previous_fields = (
+        "previous_manifest_semantic_sha256", "previous_batch_id", "previous_manifest_artifact_sha256",
+    )
+    if operation["operation"] == "compensate_chain":
+        _sha(operation["previous_manifest_semantic_sha256"])
+        _uuid(operation["previous_batch_id"])
+        _sha(operation["previous_manifest_artifact_sha256"])
+    elif any(operation[field] is not None for field in previous_fields):
+        _manifest_error()
+    return {**operation, "desired_chain": desired_chain}
+
+
+def _narrative_operation(
+    value: Any, source_id: int, source_operations: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    if not isinstance(value, dict) or not isinstance(value.get("operation"), str):
+        _manifest_error()
+    if value["operation"] == "upsert":
+        operation = _exact_mapping(value, _NARRATIVE_UPSERT_FIELDS)
+    elif value["operation"] == "reverse":
+        operation = _exact_mapping(value, _NARRATIVE_REVERSE_FIELDS)
+    else:
+        _manifest_error()
+    source = source_operations.get(operation["element_id"])
+    if (
+        source is None
+        or not _is_int(operation["person_id"])
+        or operation["person_id"] != source["person_id"]
+        or not _is_int(operation["source_id"])
+        or operation["source_id"] != source_id
+        or not isinstance(operation["record_key"], str)
+        or operation["record_key"] != source["source_record_key"]
+    ):
+        _manifest_error()
+    if operation["operation"] == "upsert":
+        if not isinstance(operation["text"], str) or not isinstance(operation["privat"], bool):
+            _manifest_error()
+        _sha(operation["text_sha256"])
+        _sha(operation["expected_state_sha256"])
+        if hashlib.sha256(operation["text"].encode("utf-8")).hexdigest() != operation["text_sha256"]:
+            _manifest_error()
+    else:
+        if source["operation"] != "compensate_chain":
+            _manifest_error()
+        _uuid(operation["original_event_id"])
+        _sha(operation["reversal_state_sha256"])
+    return operation
+
+
+def _semantic_projection(payload: Any) -> dict[str, Any]:
+    manifest = _exact_mapping(payload, _SEMANTIC_FIELDS + ("manifest_semantic_sha256",)) \
+        if isinstance(payload, dict) and "manifest_semantic_sha256" in payload \
+        else _exact_mapping(payload, _SEMANTIC_FIELDS)
+    if manifest["schema"] != _SOURCE_SCOPED_REPLACE_V3_SCHEMA or not _is_int(manifest["source_id"]):
+        _manifest_error()
+    record_keys = manifest["record_keys"]
+    if (
+        not isinstance(record_keys, list) or not record_keys
+        or any(not isinstance(key, str) or not key for key in record_keys)
+        or len(set(record_keys)) != len(record_keys)
+    ):
+        _manifest_error()
+    for field in ("input_sha256", "dry_run_semantic_sha256", "ownership_semantic_sha256"):
+        _sha(manifest[field])
+    if (
+        not isinstance(manifest["expected_counts"], dict)
+        or set(manifest["expected_counts"]) != set(_EXPECTED_COUNT_FIELDS)
+        or any(not _is_int(count) or count < 0 for count in manifest["expected_counts"].values())
+        or manifest["policy_decisions"] != []
+    ):
+        _manifest_error()
+    source_operations = [_source_operation(item, set(record_keys), manifest["source_id"]) for item in manifest["source_operations"]] \
+        if isinstance(manifest["source_operations"], list) else _manifest_error()
+    if not source_operations or len({item["element_id"] for item in source_operations}) != len(source_operations):
+        _manifest_error()
+    source_operations_by_element = {item["element_id"]: item for item in source_operations}
+    narrative_operations = [
+        _narrative_operation(item, manifest["source_id"], source_operations_by_element)
+        for item in manifest["narrative_operations"]
+    ] if isinstance(manifest["narrative_operations"], list) else _manifest_error()
+    if len({item["element_id"] for item in narrative_operations}) != len(narrative_operations):
+        _manifest_error()
+    derived_counts = {
+        "source_operations": len(source_operations),
+        "content_revisions": sum(bool(item["desired_chain"]["members"]) for item in source_operations),
+        "tombstone_revisions": sum(not item["desired_chain"]["members"] for item in source_operations),
+        "facts": sum(1 for item in source_operations if item["desired_chain"]["members"]),
+        "assertions": sum(
+            1 for item in source_operations for member in item["desired_chain"]["members"]
+            if member["member_kind"] == "assertion"
+        ),
+        "citations": sum(
+            1 for item in source_operations for member in item["desired_chain"]["members"]
+            if member["member_kind"] == "citation"
+        ),
+        "narrative_operations": len(narrative_operations),
+    }
+    if manifest["expected_counts"] != derived_counts:
+        _manifest_error()
+    return {
+        "schema": manifest["schema"],
+        "source_id": manifest["source_id"],
+        "record_keys": sorted(record_keys),
+        "input_sha256": manifest["input_sha256"],
+        "dry_run_semantic_sha256": manifest["dry_run_semantic_sha256"],
+        "ownership_semantic_sha256": manifest["ownership_semantic_sha256"],
+        "expected_counts": manifest["expected_counts"],
+        "policy_decisions": [],
+        "narrative_operations": sorted(narrative_operations, key=lambda item: item["element_id"]),
+        "source_operations": sorted(source_operations, key=lambda item: item["element_id"]),
+    }
+
+
+def semantic_hash(payload: Any) -> str:
+    """Hash only the closed, canonical V3 semantic projection."""
+    return _canonical_sha256(_semantic_projection(payload))
+
+
+def build_manifest(payload: Any) -> dict[str, Any]:
+    """Validate and compile a closed V3 source-scoped semantic manifest."""
+    semantic = _semantic_projection(payload)
+    return {**semantic, "manifest_semantic_sha256": _canonical_sha256(semantic)}
 
 
 def _in_scope(path: str) -> bool:

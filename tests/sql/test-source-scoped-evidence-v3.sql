@@ -274,16 +274,14 @@ BEGIN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TEST_TASK4B_CONTRACT_HASH_FUNCTION_DRIFT';
   END IF;
   IF NOT EXISTS (
-    SELECT 1
-      FROM private.source_scoped_evidence_v3_migration_receipt receipt
-     WHERE receipt.contract_version='source-scoped-evidence-v3-task4a-v1'
-       AND receipt.contract_sha256 ~ '^[0-9a-f]{64}$'
-  )
+       SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+        WHERE receipt.contract_version='source-scoped-evidence-v3-task4a-v1'
+          AND receipt.contract_sha256 ~ '^[0-9a-f]{64}$'
+     )
      OR NOT EXISTS (
-       SELECT 1
-         FROM private.source_scoped_evidence_v3_migration_receipt receipt
+       SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
         WHERE receipt.contract_version='source-scoped-evidence-v3-task4a-v3'
-          AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4a_contract_sha256()
+          AND receipt.contract_sha256 ~ '^[0-9a-f]{64}$'
      )
      OR (SELECT contract_sha256
            FROM private.source_scoped_evidence_v3_migration_receipt
@@ -291,7 +289,18 @@ BEGIN
         IS NOT DISTINCT FROM
         (SELECT contract_sha256
            FROM private.source_scoped_evidence_v3_migration_receipt
-          WHERE contract_version='source-scoped-evidence-v3-task4a-v3') THEN
+          WHERE contract_version='source-scoped-evidence-v3-task4a-v3')
+     OR (EXISTS (
+           SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt
+            WHERE contract_version='source-scoped-evidence-v3-task4a-v4'
+         ) AND (
+           to_regprocedure('private.source_scoped_evidence_v3_task4a_v4_contract_sha256()') IS NULL
+           OR NOT EXISTS (
+             SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+              WHERE receipt.contract_version='source-scoped-evidence-v3-task4a-v4'
+                AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4a_v4_contract_sha256()
+           )
+         )) THEN
     RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_TEST_TASK4A_RECEIPT_TRANSITION_INVALID';
   END IF;
   IF encode(extensions.digest(convert_to(
@@ -1030,5 +1039,136 @@ BEGIN
 END
 $source_scoped_evidence_v3_visibility_authenticated_withdrawn$;
 RESET ROLE;
+
+DO $source_scoped_evidence_v3_source_authorize_actor$
+DECLARE
+  v_before integer;
+  v_after integer;
+  v_error text;
+BEGIN
+  SELECT count(*) INTO v_before FROM private.source_scoped_replace_v3_authorization;
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000152',true);
+  BEGIN
+    PERFORM public.red_authorize_source_scoped_replace_v3(
+      current_database(),(SELECT system_identifier::text FROM pg_control_system()),
+      '00000000-0000-0000-0000-000000000153'::uuid,
+      '00000000-0000-0000-0000-000000000154'::uuid,
+      '00000000-0000-0000-0000-000000000155'::uuid,
+      '{}'::jsonb,repeat('a',64),repeat('b',64),repeat('c',64),repeat('d',64),
+      clock_timestamp()+interval '5 minutes'
+    );
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_error=MESSAGE_TEXT;
+  END;
+  SELECT count(*) INTO v_after FROM private.source_scoped_replace_v3_authorization;
+  IF v_error IS DISTINCT FROM 'SOURCE_SCOPED_REPLACE_V3_ACTOR_INVALID'
+     OR v_before IS DISTINCT FROM v_after THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_SOURCE_AUTHORIZE_ACTOR_GATE_INVALID: %',v_error;
+  END IF;
+END
+$source_scoped_evidence_v3_source_authorize_actor$;
+
+DO $source_scoped_evidence_v3_source_authorize_missing_deployment$
+DECLARE
+  v_before integer;
+  v_after integer;
+  v_error text;
+  v_actor_id constant uuid:='00000000-0000-0000-0000-000000000156'::uuid;
+BEGIN
+  INSERT INTO auth.users(id,email) VALUES (v_actor_id,'task4d-source-authorize@example.invalid')
+  ON CONFLICT (id) DO NOTHING;
+  INSERT INTO public.profiles(id,rolle) VALUES (v_actor_id,'redaktion')
+  ON CONFLICT (id) DO UPDATE SET rolle=EXCLUDED.rolle;
+  SELECT count(*) INTO v_before FROM private.source_scoped_replace_v3_authorization;
+  PERFORM set_config('request.jwt.claim.sub',v_actor_id::text,true);
+  BEGIN
+    PERFORM public.red_authorize_source_scoped_replace_v3(
+      current_database(),(SELECT system_identifier::text FROM pg_control_system()),
+      '00000000-0000-0000-0000-000000000157'::uuid,v_actor_id,
+      '00000000-0000-0000-0000-000000000158'::uuid,
+      '{}'::jsonb,repeat('a',64),repeat('b',64),repeat('c',64),repeat('d',64),
+      clock_timestamp()+interval '5 minutes'
+    );
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_error=MESSAGE_TEXT;
+  END;
+  SELECT count(*) INTO v_after FROM private.source_scoped_replace_v3_authorization;
+  IF v_error IS DISTINCT FROM 'SOURCE_SCOPED_EVIDENCE_V3_SOURCE_DEPLOYMENT_INVALID'
+     OR v_before IS DISTINCT FROM v_after THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_SOURCE_AUTHORIZE_DEPLOYMENT_GATE_INVALID: %',v_error;
+  END IF;
+END
+$source_scoped_evidence_v3_source_authorize_missing_deployment$;
+
+DO $source_scoped_evidence_v3_canonical_manifest_hash$
+BEGIN
+  IF to_regprocedure('private.source_scoped_evidence_v3_canonical_json_sha256(jsonb)') IS NULL
+     OR private.source_scoped_evidence_v3_canonical_json_sha256(
+          '{"b":"æ","a":[true,null,153]}'::jsonb
+        ) IS DISTINCT FROM '793a11ac0972652939ea53cb282c5129b6b36b94a091a1f0f6d250215c92d466' THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_CANONICAL_MANIFEST_HASH_INVALID';
+  END IF;
+END
+$source_scoped_evidence_v3_canonical_manifest_hash$;
+
+DO $source_scoped_evidence_v3_source_authorize_signature$
+BEGIN
+  IF to_regprocedure(
+       'public.red_authorize_source_scoped_replace_v3(text,text,uuid,uuid,uuid,jsonb,text,text,text,text,timestamp with time zone)'
+     ) IS NULL THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_SOURCE_AUTHORIZE_SIGNATURE_MISSING';
+  END IF;
+END
+$source_scoped_evidence_v3_source_authorize_signature$;
+
+DO $source_scoped_evidence_v3_authorization_attestation_contract$
+BEGIN
+  IF to_regclass('private.source_scoped_replace_v3_authorization_attestation') IS NULL
+     OR to_regprocedure('private.source_scoped_evidence_v3_task4a_v4_contract_sha256()') IS NULL
+     OR NOT EXISTS (
+       SELECT 1 FROM private.source_scoped_evidence_v3_migration_receipt receipt
+        WHERE receipt.contract_version='source-scoped-evidence-v3-task4a-v4'
+          AND receipt.contract_sha256=private.source_scoped_evidence_v3_task4a_v4_contract_sha256()
+     ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_AUTHORIZATION_ATTESTATION_CONTRACT_INVALID';
+  END IF;
+
+  IF NOT EXISTS (
+       SELECT 1 FROM information_schema.columns
+        WHERE table_schema='private' AND table_name='source_scoped_replace_v3_attestation'
+          AND column_name IN ('element_id','identity_event_id','identity_event_version','review_basis_sha256')
+       GROUP BY table_schema,table_name HAVING count(*)=4
+     )
+     OR NOT EXISTS (
+       SELECT 1 FROM information_schema.columns
+        WHERE table_schema='private' AND table_name='source_scoped_replace_v3_authorization'
+          AND column_name IN ('attestation_scope_sha256','profile_sha256','element_scope_sha256')
+        GROUP BY table_schema,table_name HAVING count(*)=3
+     )
+     OR NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+        WHERE conrelid=to_regclass('private.source_scoped_replace_v3_authorization_attestation')
+          AND contype='p'
+     ) THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_AUTHORIZATION_ATTESTATION_CONTRACT_INVALID';
+  END IF;
+
+  IF (SELECT attidentity FROM pg_attribute
+       WHERE attrelid='public.fact'::regclass AND attname='id' AND NOT attisdropped) NOT IN ('a','d')
+     OR (SELECT attidentity FROM pg_attribute
+         WHERE attrelid='public.citation'::regclass AND attname='id' AND NOT attisdropped) NOT IN ('a','d') THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_MODEL_IDENTITY_PARITY_INVALID';
+  END IF;
+END
+$source_scoped_evidence_v3_authorization_attestation_contract$;
+
+DO $source_scoped_evidence_v3_source_kernel_signatures$
+BEGIN
+  IF to_regprocedure('public.red_apply_source_scoped_replace_v3(uuid,jsonb)') IS NULL
+     OR to_regprocedure('public.red_verify_source_scoped_replace_v3(uuid)') IS NULL THEN
+    RAISE EXCEPTION 'SOURCE_SCOPED_EVIDENCE_V3_SOURCE_KERNEL_SIGNATURE_MISSING';
+  END IF;
+END
+$source_scoped_evidence_v3_source_kernel_signatures$;
 
 ROLLBACK;

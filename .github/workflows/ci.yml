@@ -122,7 +122,7 @@ jobs:
         run: |
           psql -h localhost -U postgres -d evidence_promotion -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql
           psql -h localhost -U postgres -d evidence_promotion -v ON_ERROR_STOP=1 -f schema.sql
-          psql -h localhost -U postgres -d evidence_promotion -v ON_ERROR_STOP=1 -f db-rls.sql
+          psql -h localhost -U postgres -d evidence_promotion --single-transaction -v ON_ERROR_STOP=1 -f db-rls.sql
           psql -h localhost -U postgres -d evidence_promotion -v ON_ERROR_STOP=1 -f tests/sql/test-evidence-promotion.sql
 
   writer-1939-v50-db:
@@ -148,7 +148,7 @@ jobs:
         run: |
           psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql
           psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f schema.sql
-          psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f db-rls.sql
+          psql -h localhost -U postgres -d writer_1939 --single-transaction -v ON_ERROR_STOP=1 -f db-rls.sql
           psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/1939-v50-writer-bootstrap.sql
           psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-1939-v50-production-writer.sql
       - name: Virkelig rollback/apply/reversal integration
@@ -169,7 +169,7 @@ jobs:
           createdb -h localhost -U postgres writer_1939
           psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql
           psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f schema.sql
-          psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f db-rls.sql
+          psql -h localhost -U postgres -d writer_1939 --single-transaction -v ON_ERROR_STOP=1 -f db-rls.sql
           psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/1939-v50-writer-bootstrap.sql
       - name: Test DAA 1939 name completion integration
         env:
@@ -212,7 +212,15 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS dblink WITH SCHEMA extensions'
           psql -X -v ON_ERROR_STOP=1 -f schema.sql
           psql -X -v ON_ERROR_STOP=1 -f db-migrations.sql
-          psql -X -v ON_ERROR_STOP=1 -f db-rls.sql
+          psql -X --single-transaction -v ON_ERROR_STOP=1 -f db-rls.sql
+      - name: Atomisk #153 RLS receipt-rollback
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: narrative_record_152_ci
+        run: Rscript tests/integration/test-source-scoped-evidence-v3-rls-atomic.R
       - name: Fokuseret record-kontrakt
         run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/test-narrative-record-contract.sql
       - name: Nulstil til frisk cutover-kontrakt
@@ -223,7 +231,7 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS dblink WITH SCHEMA extensions'
           psql -X -v ON_ERROR_STOP=1 -f schema.sql
           psql -X -v ON_ERROR_STOP=1 -f db-migrations.sql
-          psql -X -v ON_ERROR_STOP=1 -f db-rls.sql
+          psql -X --single-transaction -v ON_ERROR_STOP=1 -f db-rls.sql
       - name: Fokuseret cutover-kontrakt
         run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/test-narrative-record-cutover.sql
       - name: Nulstil til fuld historisk db-verify
@@ -234,7 +242,7 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS dblink WITH SCHEMA extensions'
           psql -X -v ON_ERROR_STOP=1 -f schema.sql
           psql -X -v ON_ERROR_STOP=1 -f db-migrations.sql
-          psql -X -v ON_ERROR_STOP=1 -f db-rls.sql
+          psql -X --single-transaction -v ON_ERROR_STOP=1 -f db-rls.sql
       - name: Fuld historisk db-verify
         run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/run-db-verify-disposable.sql
       - name: Nulstil til frisk DBI-racedatabase
@@ -245,7 +253,7 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS dblink WITH SCHEMA extensions'
           psql -X -v ON_ERROR_STOP=1 -f schema.sql
           psql -X -v ON_ERROR_STOP=1 -f db-migrations.sql
-          psql -X -v ON_ERROR_STOP=1 -f db-rls.sql
+          psql -X --single-transaction -v ON_ERROR_STOP=1 -f db-rls.sql
       - name: Virkelig multi-session DBI-race
         run: Rscript tests/integration/test-narrative-record-concurrency.R
 

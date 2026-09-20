@@ -10,6 +10,11 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-30-generalized-writer-batch-design.md`
 
+**Planstatus (2026-08-31):** Tasks 1–3 er afsluttede. Tasks 4–7 nedenfor er
+V1-udkast og må ikke eksekveres. De er erstattet af
+`docs/superpowers/plans/2026-08-31-source-scoped-evidence-visibility-implementation.md`,
+som implementerer den godkendte V3-specifikation.
+
 ## Global Constraints
 
 - Ingen production-DB, push, merge, deploy eller produktions-callback.
