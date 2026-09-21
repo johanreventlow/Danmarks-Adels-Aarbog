@@ -153,7 +153,7 @@ git commit -m "test: lock interpretation proposal projection contract"
 
 **Interfaces:**
 - Consumes: `-v source_id=<positive bigint>` and the live schema.
-- Produces: one JSON line matching `PROJECTION_SCHEMA`; target SQL produces one `database_target_sha256` cell.
+- Produces: one JSON line matching `PROJECTION_SCHEMA`; target SQL produces one `database_target_sha256` cell. Owner and anon partials each carry internal `snapshot_sha256 = encode(extensions.digest(convert_to(txid_current_snapshot()::text,'UTF8'),'sha256'),'hex')`, which the driver requires equal and removes before emitting the external projection.
 
 - [ ] **Step 1: Add failing static SQL contract tests**
 
@@ -178,6 +178,8 @@ for forbidden in ("verbatim_text", "narrative.tekst", "'value', i.value"):
 ```
 
 Also assert all four deterministic session settings precede both SQL inclusions.
+
+Static assertions are only a source-inventory guard. Task 5 must execute the effective guards against PostgreSQL and must turn red when any asserted guard is removed or moved into a comment/dead branch.
 
 - [ ] **Step 2: Run and verify missing SQL files fail**
 
@@ -234,7 +236,7 @@ Expected: tests PASS and `git diff --check` is empty.
 **Interfaces:**
 - Consumes: one authorized proposal element and rows inserted by `private.write_interpretation_proposal`.
 - Produces `private.interpretation_proposal_canonical_json_text(jsonb) -> text` and `private.interpretation_proposal_canonical_json_sha256(jsonb) -> text`. The recursive object-key query uses `ORDER BY key COLLATE "C"`; arrays preserve caller order; scalars use JSONB's JSON representation.
-- Produces `private.interpretation_proposal_key(bigint,text,text,jsonb,jsonb) -> uuid`, the sole SQL authority for the existing key algorithm. It deliberately preserves the live `key_version=1`/JSONB-text algorithm; the distinct manifest `claim_id` remains a transport id and is never asserted equal to the DB key.
+- Produces `private.interpretation_proposal_key_material(bigint,text,text,jsonb,jsonb) -> text`, `private.interpretation_proposal_key_material_sha256(bigint,text,text,jsonb,jsonb) -> text`, and `private.interpretation_proposal_key(bigint,text,text,jsonb,jsonb) -> uuid`. The material helper is the sole byte authority for the already-shipped key-version-1 input; the hash helper hashes exactly `convert_to(material,'UTF8')`, and the UUID helper passes exactly that same material to `private.deterministic_uuid`.
 - Produces `private.interpretation_proposal_interpretation_receipt(private.interpretation) -> jsonb`, `private.interpretation_proposal_link_receipt(private.interpretation_observation) -> jsonb`, and `private.interpretation_proposal_disposition_receipt(private.clause_disposition) -> jsonb` with closed, versioned fields.
 - Produces: `payload.result_receipt` schema `interpretation-proposal-result-v1` and `after_sha256 = private.interpretation_proposal_canonical_json_sha256(result_receipt)`.
 
@@ -277,7 +279,7 @@ Expected: `PROPOSAL_RESULT_RECEIPT_INVALID`.
 
 - [ ] **Step 3: Implement the closed receipt projections and build the receipt inside the writer transaction**
 
-Move the current interpretation-key calculation byte-for-byte into `private.interpretation_proposal_key` and call that helper from the writer. Add golden SQL fixtures proving it returns the same UUID as the pre-change inline expression for string and object values; projection/state recompute the key with the same helper. Compute receipt value hashes separately:
+Move the current interpretation-key calculation byte-for-byte into `private.interpretation_proposal_key_material`; make both key-material SHA and UUID helpers call it, and call the UUID helper from the writer. Add golden SQL fixtures proving the material text, its SHA, and UUID equal the pre-change inline expression for string and object values; projection/state recompute through the same helpers. The receipt's `key_material_sha256` must equal the SHA helper and must never be synthesized from `claim_id` or from the new receipt canonicalizer. Compute receipt value hashes separately:
 
 ```sql
 v_receipt_value_sha :=
@@ -436,7 +438,9 @@ Expected: all tests PASS.
 
 - [ ] **Step 1: Build the synthetic fixture and red stop**
 
-Reuse source record, accepted anchor, parent observation, clauses, primary mention, persona, profile, actor, and authorization patterns from `test-reimport-clause-evidence.R`. Use a nonce for source id, record key, hashes, and profile. Create two claims; both cite clause 1, and the `other` claim also cites clause 2. Assert both SQL read-only/role guards, then stop with `RED: apply flow not implemented`.
+Reuse source record, accepted anchor, parent observation, clauses, primary mention, persona, profile, actor, and authorization patterns from `test-reimport-clause-evidence.R`. Use a nonce for source id, record key, hashes, and profile. Create two claims; both cite clause 1, and the `other` claim also cites clause 2. Execute—not merely grep—the owner and anon guards, then stop with `RED: apply flow not implemented`.
+
+Add disposable-database negative schedules that invoke the effective SQL bodies with: a READ WRITE transaction; READ COMMITTED READ ONLY; anon SQL as owner; owner SQL after `SET LOCAL ROLE anon`; and owner/anon partials in separate sessions with a committed mutation between them. Require the named read-only/isolation/role/snapshot code and no projection output. Run source mutants with each effective guard predicate removed while leaving its comment/literal intact; at least one runtime case must fail its expected rejection, proving static string presence alone cannot pass the gate.
 
 - [ ] **Step 2: Run and verify the red stop**
 
@@ -503,7 +507,7 @@ Add the Python test beside `test_compare_clause_evidence_projection.py` in the e
 
 Add a dedicated `interpretation-proposal-db` job with PostgreSQL 17 and a two-value `catalog_order` matrix (`schema-rls-migrations`, `schema-migrations-rls`). The job installs R through `r-lib/actions/setup-r@v2`, uses `r-lib/actions/setup-r-dependencies@v2` with `extra-packages: any::DBI, any::RPostgres, any::jsonlite, any::digest, any::testthat`, and sets the five explicit `PG*` variables used by the existing DB jobs.
 
-For each matrix leg, create a fresh database and run `tests/sql/evidence-promotion-bootstrap.sql` first so `anon`, `authenticated`, `service_role`, `auth.uid()`, Storage shims, `pgcrypto`, and schemas exist. As owner, create a dedicated `daa_proposal_ci NOINHERIT LOGIN`, `GRANT authenticated TO daa_proposal_ci`, grant only the minimum `pg_control_system()` target-identity capability if it is not already executable, and assert that it is non-superuser with explicit membership. Load `schema.sql`, `db-rls.sql`, and two idempotent `db-migrations.sql` passes in the selected ordering. After every relevant table exists, run the production-like service-role grant fixture, then finish with `db-rls.sql`; this final pass must revoke every simulated direct DML grant. Run `tests/sql/test-interpretation-proposal.sql` and then `tests/sql/run-db-verify-disposable.sql`, which installs `extensions.dblink` and its required fixtures.
+For each matrix leg, create a fresh database and run `tests/sql/evidence-promotion-bootstrap.sql` first so `anon`, `authenticated`, `service_role`, `auth.uid()`, Storage shims, `pgcrypto`, and schemas exist. As owner, create a dedicated `daa_proposal_ci NOINHERIT LOGIN`, `GRANT authenticated TO daa_proposal_ci`, grant only the minimum `pg_control_system()` target-identity capability if it is not already executable, and assert that it is non-superuser with explicit membership. Load `schema.sql`, `db-rls.sql`, and two idempotent `db-migrations.sql` passes in the selected ordering, finish with `db-rls.sql`, then run `tests/sql/test-interpretation-proposal.sql` and `tests/sql/run-db-verify-disposable.sql`, which installs `extensions.dblink` and its required fixtures. The later reversal delivery owns the production-like service-role grant fixture and its final-ACL gate; projection completion does not depend on a file from that later plan.
 
 As `daa_proposal_ci`, execute the exact lifecycle `BEGIN; SET LOCAL ROLE authenticated;` plus transaction-local claims and actor verification, then test both `COMMIT` and `ROLLBACK`; after each, require `current_user=session_user` and absent transaction-local claims. Source/SQL-capture tests reject session-scoped `SET ROLE authenticated`. Run the R integration through this login, with `DAA_REIMPORT_TEST_ROLE=authenticated`, so neither connection ownership nor superuser bypass can satisfy the client-surface assertions. Add negative integration cases for a nonmember login and a superuser login. Finally invoke:
 

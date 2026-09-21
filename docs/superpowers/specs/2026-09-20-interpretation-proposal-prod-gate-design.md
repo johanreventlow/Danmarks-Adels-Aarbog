@@ -150,9 +150,12 @@ eksisterende generelle kanoniske helper ændres ikke, fordi ældre profilhashes 
 en bagudkompatibilitetsgrænse.
 
 Manifestets `claim_id` er transportidentitet, ikke databasefortolkningens UUID.
-Den levende `key_version=1`-algoritme flyttes byte-identisk til én privat SQL-
-helper. Writer og SQL-projektion genberegner nøglen dér; receiptet binder
-`claim_id` til den validerede `interpretation_key` og et key-material-hash.
+Den levende `key_version=1`-algoritmes eksakte materialetekst flyttes
+byte-identisk til én privat SQL-helper. Særskilte SHA- og UUID-helpers kalder
+kun denne materialefunktion; writer og SQL-projektion genberegner begge derfra.
+Receiptet binder `claim_id` til den validerede `interpretation_key` og SHA-256
+af præcis de samme UTF-8-materialebytes, ikke til en parallelt rekonstrueret
+JSON eller til den nye receipt-kanonisering.
 
 ### 4.3 Append-only proposal-reversal
 
@@ -288,13 +291,25 @@ eksakte counts/events/receipts og aktuelle rækker samt samme aktør og
 databaseidentitet. Åben, delvis, duplikeret eller forkert bundet state er altid
 `drift`.
 
+En lukket authorization-binding-RPC er gyldig før/efter consumption og expiry
+og producerer DB-hashene til execution-envelope. Result-RPC'erne modtager de
+forventede immutable authorization- og deployment-contract-hashes og validerer
+dem server-side; de bruger aldrig den issued-only generiske preflight til
+recovery. Hvert result har en fast `schema_version`, statusafhængig nullabilitet
+og et lukket counts-nøglesæt.
+
 Begge resultatfunktioner er datamæssigt læsende, men låsetagende. De tager først
 shared narrative-contract-lock, derefter samme source/profile-writer-lock som
-apply og derpå authorization/batch/result-rækker `FOR UPDATE`. Først efter en
-igangværende commit eller rollback er afsluttet, må `not_started`, `committed`,
-`reversed` eller `drift` klassificeres. Reversal-RPC'en tager den eksklusive
-contract-lock først og kalder den private result-helper i en eksplicit
-"lock-already-held"-tilstand; shared→exclusive lock-upgrade er forbudt.
+apply og derpå authorization/batch/event-rækker, alle receipt-adresserede
+interpretation-rækker, berørte source-observations og komplette
+dispositionskæder samt relevante promotionrækker i faste id-/versionsordener.
+Dermed venter result også på samtidige decision/promotion/disposition-writers,
+som deler advisory-locken, men låser domænerækkerne eksklusivt. Først efter en
+igangværende commit, rollback eller downstream-write er afsluttet, må
+`not_started`, `committed`, `reversed` eller `drift` klassificeres.
+Reversal-RPC'en tager den eksklusive contract-lock først og kalder den private
+result-helper i en eksplicit "lock-already-held"-tilstand;
+shared→exclusive lock-upgrade er forbudt.
 
 ### 4.6 Produktionswrapper
 
@@ -311,7 +326,9 @@ Den:
 - kræver et ordret, eksplicit produktionsflag;
 - afviser dry-run mod en base, hvor manifestets forslag allerede findes;
 - udskriver kun ids, hashes, counts og status;
-- håndterer forbindelsestab med resultat-RPC'en, ikke med automatisk genapply.
+- håndterer forbindelsestab med resultat-RPC'en, ikke med automatisk genapply;
+- verificerer også et normalt returneret apply/reversal-commit gennem den samme
+  friske, låste result-RPC, før succes udskrives.
 
 Hver ordinær eller ny recoveryforbindelse rydder libpq-miljøet, forbinder med
 de eksplicitte connection fields, genberegner og sammenligner målidentiteten,
@@ -340,8 +357,10 @@ Et lukket deployment-receipt binder reviewet commit og bytehashes for
 SQL-kontrakttest til målbasen og et live catalog-contract-hash. Hashen udledes
 af et eksakt, tovejsvalideret inventory af #196-funktioner, triggere,
 constraints/indexes og ACL'er. Pre-GO-pakken og execution-envelope binder samme
-receipt/hash, og hver initial/recoveryforbindelse genlæser live receipt før sin
-operation. En fil- eller katalogafvigelse er STOP.
+receipt/hash. Apply validerer live receipt som transaction-entry under eksklusiv
+lock; result-RPC'en validerer forventet hash under sine egne låse. Den offentlige
+receipt-RPC bruges til pakkeopbygning og read-only inspektion, aldrig som et
+operationelt pre-lock-kald. En fil- eller katalogafvigelse er STOP.
 
 CLI'en har særskilte `proposal-result` og `reversal-result`-kommandoer. Hver
 write/result-kommando kræver den relevante uforanderlige envelope og matcher den
@@ -377,7 +396,9 @@ Andre reimportoperationers CLI-kontrakt ændres ikke.
    og lås en separat execution-envelope til pre-GO-hash,
    deployment-receipt/-contract, GO-kvittering, immutable autorisationsbinding,
    issue-receipt, udløbsværdi, aktør og egen hash. Pre-GO-pakken ændres aldrig.
-8. Kør prod-wrapperen én gang mod execution-envelope.
+8. Kør prod-wrapperen én gang mod execution-envelope; efter commitforsøget skal
+   en frisk låst result-RPC bekræfte `committed`, også når commit returnerede
+   uden klientfejl.
 9. Tag efter-projektion og kør den databasefri komparator.
 10. Kun `match` kan lukke apply; ellers aktiveres recoveryrunbooken.
 

@@ -68,6 +68,8 @@
   - `private.interpretation_proposal_deployment_contract() -> jsonb`
   - `public.red_interpretation_proposal_deployment_receipt() -> jsonb`
   - `public.red_lock_interpretation_proposal_contract(text) -> jsonb`
+  - `private.interpretation_proposal_authorization_binding(private.reimport_authorization) -> jsonb`
+  - `public.red_interpretation_proposal_authorization_binding(uuid) -> jsonb`
   - `public.red_preflight_interpretation_proposal_reversal(uuid) -> jsonb`
   - `public.red_authorize_interpretation_proposal_reversal(uuid,text,jsonb,uuid,timestamptz) -> uuid`
 - Authorization `operation` is `interpretation_proposal_reversal`.
@@ -95,6 +97,8 @@ Assert the state result has exactly:
 
 Tests call the public authorizer with that exact state/counts and assert issued binding, actor, nonce, expiry, database identity, source/profile, and manifest. Mutate each argument separately and expect `REIMPORT_INTERPRETATION_REVERSAL_AUTHORIZATION_INVALID`.
 
+Assert the authorization-binding RPC returns exactly `schema_version`, `authorization_id`, `authorization_binding_sha256`, `state_receipt_sha256`, `status`, `consumed_at`, and `expires_at`. The private closed binding hashes id, operation, principal, source/profile/profile SHA, manifest/preview/database identity, expected counts, authorized elements, nonce, created/issued timestamp, and expiry; it excludes mutable status and consumed-at. The DB-produced state receipt hashes the binding hash plus the **current** status/consumed-at. While issuing the execution or reversal envelope, require live `issued`, consumed-at NULL, and future expiry, and retain that returned state-receipt hash as `authorization_issue_receipt_sha256`. After consumption or expiry, the RPC returns the same immutable binding hash, current mutable fields, and a correspondingly changed state-receipt hash; result recovery compares only the immutable binding and retains the original issue receipt as envelope history.
+
 - [ ] **Step 2: Run and verify missing functions fail**
 
 ```bash
@@ -119,11 +123,13 @@ Extend `reimport_authorization.operation` to admit `interpretation_proposal_reve
 
 Add `red_preflight_interpretation_proposal_reversal(batch_id)` as the authenticated, read-only route to the same unlocked state helper. It returns the closed state object above, has no authorization side effect, and is the only metadata the operator copies into the service-role authorization call.
 
+Add `red_interpretation_proposal_authorization_binding(authorization_id)` as authenticated, actor-bound metadata access. It is valid for issued or consumed and before or after expiry. It takes shared narrative lock, discovers source/profile provisionally, takes the generic writer lock, locks and re-reads the authorization row, rejects changed/missing discovery, validates proposal/reversal operation shape and actor, and returns only the closed fields above. Proposal/reversal result RPCs also receive the expected authorization-binding SHA and expected deployment-contract SHA and recompute both server-side under their own locks; recovery never relies on direct table access or on the issued-only generic preflight RPC.
+
 `private.interpretation_proposal_deployment_contract()` builds a closed, versioned catalog object from an exact inventory of every #196 function definition/signature, trigger definition, altered constraint/index, and effective function **and table** ACL, including the changed decision/promotion/disposition writers. The table inventory includes `reimport_writer_profile`, `extraction_run`, `source_record`, `source_record_occurrence`, `source_record_anchor_event`, `source_observation`, `source_mention`, `source_persona`, `source_persona_mention`, `interpretation_predicate`, `interpretation`, `interpretation_observation`, `interpretation_promotion_rule_line`, `interpretation_promotion_rule`, `interpretation_promotion_batch`, `interpretation_promotion`, `clause_disposition`, `reimport_authorization`, `reimport_batch`, and `reimport_event`. It uses `pg_get_functiondef`, fixed `COLLATE "C"` ordering, both expected-minus-actual and actual-minus-expected inventory checks, and the operation-specific canonical hash. The public receipt exposes only schema version, narrative contract version, database target hash, and `deployment_contract_sha256`; it performs no DML. Golden catalog tests change or omit one inventoried object/ACL at a time and require a changed hash or a closed inventory error.
 
 - [ ] **Step 5: Apply ACLs and catalog checks**
 
-Revoke the private state/deployment helpers from all client roles. Grant preflight, deployment receipt, and proposal contract-lock only to `authenticated`, and the authorizer only to `service_role`. Verify `anon` and PUBLIC cannot execute any of them, `authenticated` cannot execute the authorizer, and `service_role` cannot execute the client RPCs. Explicitly `REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER` from `service_role` on every table in the deployment inventory above; do not rely on the local bootstrap's absence of grants. Assert every table/privilege pair with both catalog ACL expansion and `has_table_privilege`, and add negative `SET LOCAL ROLE service_role` attempts for insert/update/delete through the repository savepoint-based expected-error helper. The only allowed service-role mutation in this workflow is the named SECURITY DEFINER authorizer.
+Revoke the private state/deployment/binding helpers from all client roles. Grant preflight, deployment receipt, proposal contract-lock, and authorization-binding readback only to `authenticated`, and the authorizer only to `service_role`. Verify `anon` and PUBLIC cannot execute any of them, `authenticated` cannot execute the authorizer, and `service_role` cannot execute the client RPCs. Explicitly `REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER` from `service_role` on every table in the deployment inventory above; do not rely on the local bootstrap's absence of grants. Assert every table/privilege pair with both catalog ACL expansion and `has_table_privilege`, and add negative `SET LOCAL ROLE service_role` attempts for insert/update/delete through the repository savepoint-based expected-error helper. The only allowed service-role mutation in this workflow is the named SECURITY DEFINER authorizer.
 
 Add a production-like grant fixture that grants `service_role` the relevant private-schema/table defaults **after all tables exist and immediately before the final `db-rls.sql` pass** in both catalog orderings. The final ACL layer must remove every simulated direct DML grant, so CI turns red if any explicit revoke disappears. Owner/admin DML is not modeled as an application path and remains prohibited by the rehearsal/production freeze. Add idempotent migration-side `DROP CONSTRAINT/ADD CONSTRAINT` logic for the operation check. Add every exact function signature and table denial to the corresponding allow/deny inventories in `db-rls.sql`; add expected-minus-actual and actual-minus-expected assertions to `db-verify.sql` for fresh and migration catalogs. The contract-lock and deployment receipt signatures plus the table-denial set are part of the catalog contract, and tests prove no overload or DML privilege is accidentally available.
 
@@ -147,12 +153,14 @@ git commit -m "feat: authorize exact proposal reversals"
 
 **Interfaces:**
 - Produces:
-  - `public.red_reverse_reimport_interpretation_proposal(uuid,uuid) -> jsonb`
-  - `public.red_reimport_interpretation_proposal_reversal_result(uuid,uuid) -> jsonb`
-  - `public.red_reimport_interpretation_proposal_result(uuid) -> jsonb`
-- Result keys: `batch_id`, `authorization_id`, `status`, `proposal_state_sha256`, `reversal_event_id`, `counts`.
+  - `public.red_reverse_reimport_interpretation_proposal(uuid,uuid,text,text) -> jsonb`
+  - `public.red_reimport_interpretation_proposal_reversal_result(uuid,uuid,text,text) -> jsonb`
+  - `public.red_reimport_interpretation_proposal_result(uuid,text,text) -> jsonb`
+- The two trailing text parameters are expected immutable authorization-binding SHA and expected deployment-contract SHA; each RPC recomputes and compares them after its contract lock.
+- Result keys: `schema_version`, `batch_id`, `authorization_id`, `status`, `proposal_state_sha256`, `reversal_event_id`, `counts`.
 - Status is exactly `not_started`, `reversed`, or `drift`.
-- Proposal-result keys are exactly `authorization_id`, `batch_id`, `status`, `source_id`, `profile_id`, `manifest_sha256`, `preview_sha256`, and `counts`; status is exactly `not_started`, `committed`, or `drift`.
+- Proposal-result keys are exactly `schema_version`, `authorization_id`, `batch_id`, `status`, `source_id`, `profile_id`, `manifest_sha256`, `preview_sha256`, and `counts`; status is exactly `not_started`, `committed`, or `drift`.
+- Schema versions are respectively `interpretation-proposal-reversal-result-v1` and `interpretation-proposal-result-v1`. Both `counts` objects have exactly `elements`, `claims`, `links`, and `dispositions`: zeroes for `not_started`, exact nonnegative counts for success, and JSON null for `drift`. Proposal `batch_id` is null for `not_started`, UUID for `committed`, and nullable for `drift`; reversal `batch_id` is always its UUID. `reversal_event_id` is null for `not_started`, UUID for `reversed`, and nullable for `drift`; `proposal_state_sha256` is a hash for `not_started|reversed` and nullable for `drift`. Tests pin every status-specific nullability rule and nested key set.
 
 - [ ] **Step 1: Write the red success, append-only, and idempotence tests**
 
@@ -178,23 +186,27 @@ Run the focused SQL file. Expected: missing-function failures.
 
 - [ ] **Step 4: Implement reversal in one transaction**
 
-Use Task 1's exact order: exclusive narrative-contract advisory lock; generic writer lock; anchor advisory keys; original batch `FOR UPDATE`; authorization `FOR UPDATE`; actual upstream rows; receipt-addressed interpretations ordered by id; clauses and their complete disposition chains ordered by observation id/version. Recompute the authorized state after locks and immediately before the first insert.
+Use Task 1's exact order: exclusive narrative-contract advisory lock; recompute/compare expected deployment-contract hash; generic writer lock; anchor advisory keys; original batch `FOR UPDATE`; authorization `FOR UPDATE`; recompute/compare expected immutable authorization-binding hash; actual upstream rows; receipt-addressed interpretations ordered by id; clauses and their complete disposition chains ordered by observation id/version. Recompute the authorized state after locks and immediately before the first insert.
+
+After the final locked state check and before any insert, mint `reversal_event_id` once. Use that id in every superseded interpretation/disposition evidence object and later insert the reversal event with that explicit id; never insert rows first and patch their evidence later.
 
 For every claim receipt, insert a copied interpretation with:
 - version + 1;
 - status `superseded`;
 - `supersedes_id` = current proposal id;
 - copied source, persona, kind, predicate, value, schema, derivation, confidence, method, model, prompt, and run;
-- decision evidence keys exactly `reversal_kind`, `original_batch_id`, `original_event_id`, `manifest_sha256`, `authorization_id`, and `proposal_state_sha256`;
+- decision evidence keys exactly `reversal_kind`, `original_batch_id`, `original_event_id`, `reversal_event_id`, `manifest_sha256`, `authorization_id`, and `proposal_state_sha256`;
 - current actor/name/time.
 
-Copy links from the proposal to its superseding row. Group all clause receipts across the batch by observation id. Require each group to be one contiguous `before → written` chain with no duplicate/fork and with a single earliest trigger-valid machine `before`; this receipt, not `max(version)`, is the restoration authority. Append that original disposition exactly once per clause. Evidence keys are exactly `manifest_sha256`, `batch_id`, `reversal_kind`, `original_disposition_version`, `restored_evidence_sha256`, `authorization_id`, and `proposal_state_sha256`: `manifest_sha256` and `batch_id` are the original proposal batch's trigger-valid values, while `restored_evidence_sha256` binds the closed prior evidence without copying an open object. Tests must execute the live `trg_clause_disposition_validate` success path and cover no-prestate, human-prestate, two events sharing a clause, a broken chain, invalid/missing manifest, and invalid UUID provenance.
+Copy links from the proposal to its superseding row. Group all clause receipts across the batch by observation id. Require each group to be one contiguous `before → written` chain with no duplicate/fork and with a single earliest trigger-valid machine `before`; this receipt, not `max(version)`, is the restoration authority. Append that original disposition exactly once per clause. Evidence keys are exactly `manifest_sha256`, `batch_id`, `reversal_kind`, `reversal_event_id`, `original_disposition_version`, `restored_evidence_sha256`, `authorization_id`, and `proposal_state_sha256`: `manifest_sha256` and `batch_id` are the original proposal batch's trigger-valid values, while `restored_evidence_sha256` binds the closed prior evidence without copying an open object. Tests must execute the live `trg_clause_disposition_validate` success path and cover no-prestate, human-prestate, two events sharing a clause, a broken chain, invalid/missing manifest, and invalid UUID provenance.
 
-Insert one reversal event whose closed receipt contains sorted old/new interpretation ids and old/restored disposition ids/versions plus counts. Hash only that receipt. Consume authorization and set batch status `reversed`.
+Insert the pre-minted reversal event id once; its closed receipt contains sorted old/new interpretation ids and old/restored disposition ids/versions plus counts and proves every written evidence object carries that same event id. Hash only that receipt. Consume authorization and set batch status `reversed`.
 
 - [ ] **Step 5: Implement fail-closed result reading**
 
-Both result helpers authenticate the same actor and use a no-data-write but lock-taking transaction. Before classifying, acquire the shared narrative-contract lock, discover source/profile from the authorization, acquire the same generic writer lock as apply, lock the authorization `FOR UPDATE`, and lock every matching batch/event/result row in deterministic order. This makes a resolver wait for an in-flight commit or rollback; it may not observe an unlocked `issued`/zero-batch intermediate state. If discovery is missing or multiplicity is ambiguous, return `drift`, not `not_started`.
+Both result helpers authenticate the same actor and use a no-data-write but lock-taking transaction. Before classifying, acquire the shared narrative-contract lock; recompute and compare the expected deployment-contract hash; discover source/profile provisionally from the authorization; acquire the same generic writer lock as apply; lock and re-read the authorization row, then recompute/compare its immutable binding; and lock batch/events in deterministic id order. From the locked receipts, lock every addressed current interpretation in id order, every affected `source_observation` in id order, every complete disposition chain in observation-id/version order, and every matching promotion batch/promotion row in id order before reading decision/status/promotion/disposition state. This mirrors the row domains locked by live decision, promotion, and disposition writers and makes the resolver wait for both the apply/reversal transaction and any in-flight downstream writer. It may not observe an unlocked `issued`/zero-batch or half-decided intermediate state. If provisional discovery changes on locked re-read, is missing, or has ambiguous multiplicity, return `drift`, not `not_started`.
+
+Add two-start-order dblink tests for result-vs-decision, result-vs-promotion, and result-vs-disposition: competitor first makes result wait then classify the committed competitor state; result first makes the competitor wait until classification completes. Require observed wait state, bounded timeouts, no deadlock-as-success, exact result status, and zero writes from the result function. Mutation tests that remove any domain-row lock must turn at least one schedule red.
 
 The reversal result then binds batch/auth/database/source/profile/manifest. Result lookup matches the envelope's immutable authorization binding but deliberately does not require future expiry. Return `not_started` only after those locks when authorization is still issued and no reversal event exists, even if its wall-clock expiry has passed. Return `reversed` only when authorization is consumed, batch reversed, one exact reversal event exists, all current versions/dispositions match its receipt, and no decision/promotion exists. Return `drift` for every partial or conflicting state; never repair it.
 
@@ -204,7 +216,7 @@ Implement the proposal-result RPC by authorization id so recovery does not depen
 
 - [ ] **Step 6: Apply ACLs, run, and commit**
 
-Grant apply and both result functions only to `authenticated`; revoke from `anon`, `service_role`, and PUBLIC. Together with Task 1, add the exact six authenticated signatures (deployment receipt, contract lock, preflight, reverse, reversal-result, proposal-result) and the one service-role authorizer signature to `db-rls.sql`'s positive allowlists, and assert both missing and excess entries in `db-verify.sql` under both catalog orderings. Run:
+Grant apply and both result functions only to `authenticated`; revoke from `anon`, `service_role`, and PUBLIC. Together with Task 1, add the exact seven authenticated signatures (deployment receipt, contract lock, authorization binding, preflight, reverse, reversal-result, proposal-result) and the one service-role authorizer signature to `db-rls.sql`'s positive allowlists, and assert both missing and excess entries in `db-verify.sql` under both catalog orderings. Pin the new result signatures including both expected-hash arguments and reject executable overloads. Run:
 
 ```bash
 psql -X -v ON_ERROR_STOP=1 -f tests/sql/test-interpretation-proposal.sql
@@ -274,9 +286,11 @@ git commit -m "feat: rerun reversed interpretation proposals"
 - Modify: `db-verify.sql`
 - Modify: `tests/sql/run-db-verify-disposable.sql`
 - Modify: `tests/sql/test-interpretation-proposal.sql`
+- Modify: `.github/workflows/ci.yml`
+- Use: `tests/sql/interpretation-proposal-service-role-grants.sql` created in Task 1.
 
 **Interfaces:**
-- Produces three dblink anchors: `daa.verify_dblink_proposal_reversal_decision`, `daa.verify_dblink_proposal_reversal_promotion`, and `daa.verify_dblink_proposal_reversal_disposition`, each set to `executed`.
+- Produces the three reversal conflict anchors `daa.verify_dblink_proposal_reversal_decision`, `daa.verify_dblink_proposal_reversal_promotion`, and `daa.verify_dblink_proposal_reversal_disposition`, plus `daa.verify_dblink_proposal_result_decision_competitor_first`, `daa.verify_dblink_proposal_result_decision_result_first`, `daa.verify_dblink_proposal_result_promotion_competitor_first`, `daa.verify_dblink_proposal_result_promotion_result_first`, `daa.verify_dblink_proposal_result_disposition_competitor_first`, and `daa.verify_dblink_proposal_result_disposition_result_first`; set each to `executed` only after its full assertions.
 
 - [ ] **Step 1: Add dblink tests for both lock orderings of all three conflicts**
 
@@ -296,7 +310,7 @@ Before the concurrency schedules, add focused catalog/source tests that remove t
 
 - [ ] **Step 2: Require all anchors in the disposable runner**
 
-Extend the current seven-gate table to ten gates and keep the final missing-gate assertion.
+Extend the current seven-gate table for every new race/ACL anchor and keep the final missing-gate assertion derived from the exact expected set rather than a stale count. In both CI catalog-order matrix legs, after all relevant tables exist and immediately before the final `db-rls.sql`, run `tests/sql/interpretation-proposal-service-role-grants.sql`; then run the focused SQL and disposable verifier. This production-like grant/final-revoke gate belongs to the reversal delivery and is not a prerequisite of the earlier projection delivery.
 
 - [ ] **Step 3: Run full disposable db-verify**
 
