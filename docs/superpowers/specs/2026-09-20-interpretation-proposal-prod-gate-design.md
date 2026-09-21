@@ -135,11 +135,16 @@ reversal. Der oprettes ikke en parallel editionsspecifik receipt-tabel.
 Helrækkehash er her et operationelt navn, ikke PostgreSQLs implicitte
 composite-tekstformat. Operationen får en dedikeret kanonisk JSON-/SHA-helper
 med denne bytekontrakt: UTF-8; nøgler i Unicode-scalar-rækkefølge svarende til
-`COLLATE "C"` over gyldig UTF-8; ingen Unicode-normalisering; minimal JSON-
-escaping med lowercase hex; rå non-ASCII; stabile literals; kun signed 64-bit
-heltal som numeriske tokens. Timestamps og decimaler i row-receipts er
-normaliserede strenge. Parsed fraktioner/eksponenter afvises, mens leksikalsk
-negativt nul kanoniseres som `0`. Hver relation har et versionsfast, lukket JSON-feltsæt. SQL-projektion,
+`COLLATE "C"` over gyldig UTF-8; ingen Unicode-normalisering; JSON-short escapes
+for `\b`, `\t`, `\n`, `\f` og `\r`, ellers lowercase `\u00xx` for tilladte
+kontroltegn; rå non-ASCII; stabile literals; kun matematiske signed 64-bit
+heltal som numeriske værdier. U+0000 afvises ved raw-file-grænsen, fordi
+PostgreSQL `jsonb` ikke kan repræsentere tegnet. SQL normaliserer et integralt
+`numeric` til `bigint::text`; Python parser tal med `Decimal` og anvender samme
+regel. Derfor giver `1`, `1.0` og `1e0` samme bytes, alle negative nulformer
+giver `0`, og kun ikke-integrale eller out-of-range tal afvises. Timestamps og
+egentlige decimalfelter i row-receipts er normaliserede strenge. Hver relation
+har et versionsfast, lukket JSON-feltsæt. SQL-projektion,
 writer, state-hash og komparator bruger samme golden-byte-kontrakt. Den
 eksisterende generelle kanoniske helper ændres ikke, fordi ældre profilhashes er
 en bagudkompatibilitetsgrænse.
@@ -170,7 +175,19 @@ Autorisationen bindes til:
 Reversal og proposal-apply tager først den eksklusive side af den eksisterende
 `daa-narrative-record-contract`-advisory lock, derefter generic writer-lock og
 de eksisterende anchor-advisory keys, før deterministiske `FOR UPDATE`-låse.
-Dermed færdiggøres eller blokeres andre kontraktwriters før state genberegnes.
+Proposal-wrapperen gør dette gennem en navngiven transaction-entry-RPC, der
+kaldes umiddelbart efter `BEGIN`, rolle-/aktøropsætning og før executorens
+første generic advisory-lock, preflight eller begin-RPC. RPC'en validerer også
+det forventede deployment-contract-hash. Den generiske executor har en valgfri
+entry-callback med no-op-default, så andre reimportflows ikke ændres.
+
+`red_decide_interpretation` og `red_promote_interpretations_batch` tager den
+delte narrative-contract-lock før deres første rækkelås, og
+`private.validate_clause_disposition()` tager den delte side for alle direkte
+og indirekte dispositionswrites. Dermed kan ingen af de tre relevante
+konkurrenter passere den eksklusive gate; reversalens triggerkald sker allerede
+under exclusive lock og foretager aldrig shared-to-exclusive upgrade. Dermed
+færdiggøres eller blokeres andre kontraktwriters før state genberegnes.
 Under disse låse skal reversal afvise, hvis:
 
 - batchen ikke er en ren, finalized `interpretation_proposal`-batch;
@@ -269,8 +286,8 @@ Den:
 - accepterer kun et manifest, hvis alle operationer er
   `interpretation_proposal`;
 - verificerer manifestbytes, manifesthash, preview-hash, source, profil og
-  forventet databaseidentitet samt bytehash og indhold af både pre-GO-pakke og
-  execution-envelope;
+  forventet databaseidentitet samt bytehash og indhold af deployment-receipt,
+  pre-GO-pakke og execution-envelope;
 - kræver en allerede udstedt autorisation og må aldrig kalde
   autorisations-RPC'en;
 - kræver et ordret, eksplicit produktionsflag;
@@ -280,10 +297,22 @@ Den:
 
 Hver ordinær eller ny recoveryforbindelse rydder libpq-miljøet, forbinder med
 de eksplicitte connection fields, genberegner og sammenligner målidentiteten,
-skifter med `SET LOCAL ROLE authenticated`, etablerer derefter den forventede
-editoraktør som transaktionslokal claim og verificerer `current_user`,
-`auth.uid()` og redaktørrollen før første RPC. En resolver må
+afviser superuser-login og kræver eksplicit `pg_has_role(session_user,
+'authenticated','MEMBER')` samt rettighed til målidentitetsfunktionen, skifter
+med `SET LOCAL ROLE authenticated`, etablerer derefter den forventede
+editoraktør som transaktionslokal claim og verificerer `session_user`,
+`current_user`, `auth.uid()` og redaktørrollen før første RPC. Produktions- og
+integration-loginet er en dedikeret `NOINHERIT LOGIN`-rolle med medlemskab af
+`authenticated`; ejer/superuser må kun bootstrappe kataloget. En resolver må
 ikke arve mål- eller aktørvalidering fra den tabte forbindelse.
+
+Et lukket deployment-receipt binder reviewet commit og bytehashes for
+`schema.sql`, `db-migrations.sql`, `db-rls.sql`, `db-verify.sql` og den fokuserede
+SQL-kontrakttest til målbasen og et live catalog-contract-hash. Hashen udledes
+af et eksakt, tovejsvalideret inventory af #196-funktioner, triggere,
+constraints/indexes og ACL'er. Pre-GO-pakken og execution-envelope binder samme
+receipt/hash, og hver initial/recoveryforbindelse genlæser live receipt før sin
+operation. En fil- eller katalogafvigelse er STOP.
 
 CLI'en har særskilte `proposal-result` og `reversal-result`-kommandoer. Hver
 write/result-kommando kræver den relevante uforanderlige envelope og matcher en
@@ -306,13 +335,13 @@ Andre reimportoperationers CLI-kontrakt ændres ikke.
 3. Tag læse-kun preflight og før-projektion.
 4. Tag backup og restore netop den backup.
 5. Gennemfør fuld rehearsal, inklusive proposal-reversal og korrigeret genkørsel.
-6. Lås en uforanderlig pre-GO-pakke til commit, databaseidentitet, filer,
-   hashes, manifest, preview og forventede counts; pakken indeholder ingen
-   autorisation.
+6. Lås et deployment-receipt og en uforanderlig pre-GO-pakke til commit,
+   databaseidentitet, SQL-/wrapperfiler, live catalog-contract-hash, manifest,
+   preview og forventede counts; pakken indeholder ingen autorisation.
 7. Giv eventuelt eksplicit GO mod pre-GO-pakkens hash, udsted én autorisation,
-   og lås en separat execution-envelope til pre-GO-hash, GO-kvittering,
-   autorisations-id/udløb/readback, aktør og egen hash. Pre-GO-pakken ændres
-   aldrig.
+   og lås en separat execution-envelope til pre-GO-hash,
+   deployment-receipt/-contract, GO-kvittering, autorisations-id/udløb/readback,
+   aktør og egen hash. Pre-GO-pakken ændres aldrig.
 8. Kør prod-wrapperen én gang mod execution-envelope.
 9. Tag efter-projektion og kør den databasefri komparator.
 10. Kun `match` kan lukke apply; ellers aktiveres recoveryrunbooken.
