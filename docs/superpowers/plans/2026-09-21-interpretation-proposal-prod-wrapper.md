@@ -212,7 +212,7 @@ git commit -m "feat: validate proposal production artifacts"
 
 **Interfaces:**
 - Produces `new_interpretation_proposal_prod_gateway(connection_factory)` and `execute_interpretation_proposal_prod(cli,gateway)`.
-- Gateway calls: `connect`, `target_identity`, `role_capability`, `establish_actor`, `deployment_receipt`, `proposal_contract_lock`, `proposal_preflight`, `execute_proposal`, `proposal_result`, `reversal_preflight`, `reverse`, `reversal_result`, `disconnect`.
+- Produces a production decorator over the generic gateway. Its generic `call` surface remains `connect`, `begin`, `advisory_lock`, `preflight`, `preflight_authorization`, `begin_batch`, operation writers, `batch_result`, `finalize`, `commit`, `rollback`, and `disconnect`; the decorator adds `target_identity`, `role_capability`, `deployment_receipt`, `proposal_contract_lock`, `proposal_result`, `reversal_preflight`, `reverse`, and `reversal_result` without inventing a second transaction owner.
 
 - [ ] **Step 1: Write red target and no-self-authorization tests**
 
@@ -220,7 +220,8 @@ Use a fake gateway to prove:
 - target identity is checked before proposal preflight;
 - the session login's role-switch capability is checked before `BEGIN`, and a superuser or login without explicit `authenticated` membership is rejected;
 - target mismatch stops;
-- actor is established only after the target matches and is verified before any result/preflight/apply RPC;
+- the one exact apply call sequence is `connect(target, capability) → begin(DBI::dbBegin, SET LOCAL ROLE, transaction-local claims, actor verification) → transaction_entry(exclusive contract lock plus live deployment receipt) → advisory_lock → preflight → preflight_authorization → begin_batch`; no outer or second `BEGIN` exists;
+- actor is established inside the decorated generic `begin` only after the target matches and is verified before transaction-entry or any result/preflight/apply RPC;
 - missing/wrong actor and wrong role stop before the operation RPC;
 - preflight returns exact source/profile/auth/manifest/preview binding;
 - authorization readback exactly matches the validated execution envelope before any apply/result RPC;
@@ -250,7 +251,11 @@ c("PGHOST", "PGHOSTADDR", "PGPORT", "PGDATABASE", "PGUSER",
 
 The default connection factory passes the captured `SUPABASE_*` values directly as DBI arguments and never reconstructs connection settings from `PG*`. On every initial and resolver R connection, query database name and `pg_control_system().system_identifier`, compute the target formula, and compare with `--expected-target-sha256` before any RPC. Before `BEGIN`, require `session_user` to be a non-superuser LOGIN role, `pg_has_role(session_user,'authenticated','MEMBER')`, and `has_function_privilege(session_user,'pg_control_system()','EXECUTE')`; otherwise stop with a closed capability code. The production credential contract is explicit: `SUPABASE_USER` names a dedicated `NOINHERIT LOGIN` role granted membership in `authenticated` and the minimum target-identity capability, never `postgres` or another superuser.
 
-After target match and capability preflight, begin a transaction, execute the literal `SET LOCAL ROLE authenticated`, and set transaction-local `request.jwt.claim.sub` to `--expected-actor-id` and `request.jwt.claim.role` to `authenticated`. Verify `session_user` is the already checked operator login, `current_user='authenticated'`, `auth.uid()` equals that UUID, and `public.current_rolle()='redaktion'`; then and only then invoke the RPC. Ordinary preflight may use `READ ONLY`. Result RPCs are semantically read-only but intentionally use a normal transaction because their race-safe contract takes advisory locks and `FOR UPDATE`; assert they execute no DML. Apply/reverse transaction setup performs the same role/claim checks before write calls. Disconnect and discard the connection on any failure.
+The production decorator's implementation of the generic `call("begin")` is the sole transaction owner. On the already validated connection it performs, in order, exactly one `DBI::dbBegin`, the literal `SET LOCAL ROLE authenticated`, transaction-local `request.jwt.claim.sub=--expected-actor-id` and `request.jwt.claim.role=authenticated`, then verifies `session_user` is the already checked operator login, `current_user='authenticated'`, `auth.uid()` equals that UUID, and `public.current_rolle()='redaktion'`. It returns only after all checks pass. The decorated `call("preflight")` must not repeat or mutate role/claims; it delegates only to the generic data/authorization preflight. Existing non-production gateways retain their current preflight behavior.
+
+`execute_reimport` then immediately invokes its `transaction_entry`: the wrapper calls `red_lock_interpretation_proposal_contract(expected_deployment_contract_sha256)`. The RPC authenticates the already established actor without taking a narrative shared lock, then takes the exclusive contract lock before any shared/row lock or contract-state read; its closed return is the authoritative in-transaction live deployment receipt. Only after that callback succeeds may the existing generic `advisory_lock`, `preflight`, authorization preflight, or `begin_batch` RPC run. There is no outer transaction and no second `BEGIN`. Ordinary standalone preflight may use a separate `READ ONLY` transaction. Result RPCs are semantically read-only but intentionally use one normal transaction because their race-safe contract takes advisory locks and `FOR UPDATE`; they use the same begin/role/claim lifecycle but no generic executor. Disconnect and discard the connection on any failure.
+
+Unit and spawned-process tests record every gateway/SQL action and require the complete order above, including actor verification before `proposal_contract_lock`. A real non-superuser PostgreSQL integration test asserts the exclusive advisory lock is held before `red_preflight_reimport_authorization` is invoked. For both success and injected failure, test `BEGIN; SET LOCAL ROLE authenticated; ...; COMMIT/ROLLBACK;` and then assert outside the transaction that `current_user=session_user` and transaction-local JWT claims are absent. Reject any session-scoped `SET ROLE authenticated` spelling in source/black-box SQL capture.
 
 Do not print connection fields.
 

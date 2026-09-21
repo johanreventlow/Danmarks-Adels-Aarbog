@@ -188,6 +188,14 @@ og indirekte dispositionswrites. Dermed kan ingen af de tre relevante
 konkurrenter passere den eksklusive gate; reversalens triggerkald sker allerede
 under exclusive lock og foretager aldrig shared-to-exclusive upgrade. Dermed
 færdiggøres eller blokeres andre kontraktwriters før state genberegnes.
+Application-role-overfladen lukkes samtidig: `service_role` kan kalde den
+navngivne SECURITY DEFINER-authorizer, men har ingen direkte DML-rettigheder på
+proposalets write-set, promotionstabeller, batch/event/authorization eller de
+upstream-rækker, state-hashen binder. En produktionslignende default-grant-
+fixture installeres før den sidste ACL-pass i begge catalog-orderings, så CI
+beviser de eksplicitte revokes i stedet for at stole på en grant-fri lokal shim.
+Database owner/admin er uden for application-role-trustgrænsen og holdes af den
+obligatoriske schema-/writer-freeze.
 Under disse låse skal reversal afvise, hvis:
 
 - batchen ikke er en ren, finalized `interpretation_proposal`-batch;
@@ -305,6 +313,17 @@ editoraktør som transaktionslokal claim og verificerer `session_user`,
 integration-loginet er en dedikeret `NOINHERIT LOGIN`-rolle med medlemskab af
 `authenticated`; ejer/superuser må kun bootstrappe kataloget. En resolver må
 ikke arve mål- eller aktørvalidering fra den tabte forbindelse.
+
+På apply er den dekorerede generic gateway den eneste transaktionsejer. Dens
+`connect` validerer target/capability; dens ene `begin` udfører `DBI::dbBegin`,
+ordret `SET LOCAL ROLE authenticated`, transaktionslokale claims og
+aktørverifikation; executorens umiddelbare transaction-entry tager derpå den
+eksklusive kontraktlås og validerer live deployment-contract; først derefter
+må generic source/profile-lock, preflight, authorization-preflight og
+`begin_batch` køre. Produktionsgatewayens `preflight` ændrer ikke længere
+rolle/claims. Der findes intet ydre eller andet `BEGIN`. Efter både commit og
+rollback skal `current_user=session_user`, og claims skal være nulstillet; det
+bevises på en virkelig non-superuser-forbindelse og ved eksakt SQL-capture.
 
 Et lukket deployment-receipt binder reviewet commit og bytehashes for
 `schema.sql`, `db-migrations.sql`, `db-rls.sql`, `db-verify.sql` og den fokuserede
