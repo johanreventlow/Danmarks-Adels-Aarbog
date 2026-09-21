@@ -22,7 +22,7 @@
 - Output may contain ids, record keys, predicates, hashes, counts, statuses, and booleans; never source text, claim values, names, or narrative bytes.
 - Every JSON object has a closed key set. Extra and missing keys fail closed.
 - Aggregation uses `COLLATE "C"`; session settings are UTC, `ISO, YMD`, `postgres`, and `extra_float_digits=1`.
-- Receipt row hashes use a dedicated operation-specific canonical JSON function and closed JSON projections, never composite-row text or implicit session formatting. Every timestamp is rendered explicitly in UTC and every key/list order is fixed with `COLLATE "C"`.
+- Receipt row hashes use a dedicated operation-specific canonical JSON function and closed JSON projections, never composite-row text or implicit session formatting. Every timestamp and numeric/decimal row field is rendered as a normalized string, JSON structural counts/versions are signed 64-bit integers, and every key/list order is fixed with `COLLATE "C"`.
 - Proposal apply refuses to replace an affected clause's current human disposition; only a current machine disposition with trigger-valid machine evidence may be versioned by this workflow.
 - The comparator opens no database connection and writes reports mode `0600`.
 - No production connection or production mutation is part of this plan.
@@ -62,7 +62,7 @@
 
 **Interfaces:**
 - Consumes: 4.4 manifest schema from `build_43b_proposal_manifest.py`.
-- Produces: `compute_manifest_sha256(manifest: dict[str, Any]) -> str`, `canonical_sha256(value: Any) -> str`, `target_sha256(identity: dict[str, Any]) -> str`, `compare_apply(manifest: Any, before: Any, after: Any, expected_target_sha256: str) -> dict[str, Any]`, and `ProjectionError(code, details)`.
+- Produces: `compute_manifest_sha256(manifest: dict[str, Any]) -> str` using the already-shipped manifest JSON convention; `proposal_canonical_bytes(value: Any) -> bytes` and `proposal_canonical_sha256(value: Any) -> str` for the new SQL-shared restricted byte contract; `target_sha256(identity: dict[str, Any]) -> str`; `compare_apply(manifest: Any, before: Any, after: Any, expected_target_sha256: str) -> dict[str, Any]`; `compare_replay(after: Any, replayed: Any, replay_authorization_id: str, expected_target_sha256: str) -> dict[str, Any]`; and `ProjectionError(code, details)`.
 
 - [ ] **Step 1: Write failing tests for exact schemas**
 
@@ -113,13 +113,13 @@ def _canon(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True,
                       separators=(",", ":"))
 
-def canonical_sha256(value: Any) -> str:
+def _manifest_canonical_sha256(value: Any) -> str:
     return hashlib.sha256(_canon(value).encode("utf-8")).hexdigest()
 
 def compute_manifest_sha256(manifest: dict[str, Any]) -> str:
     body = {key: value for key, value in manifest.items()
             if key != "manifest_content_sha256"}
-    return canonical_sha256(body)
+    return _manifest_canonical_sha256(body)
 
 class ProjectionError(ValueError):
     def __init__(self, code: str,
@@ -129,7 +129,7 @@ class ProjectionError(ValueError):
         self.details = details or {}
 ```
 
-Validate positive integer source id, lowercase 64-character hashes, unique operation and claim ids, `interpretation_proposals == len(operations)`, zeros for the other count keys, and closed nested keys. Derive expected claim rows keyed by `(element_id, claim_id)` and links keyed by `(element_id, claim_id, link_ordinal)`; keep only `value_sha256` after validation.
+Validate positive integer source id, lowercase 64-character hashes, unique operation and claim ids, `interpretation_proposals == len(operations)`, zeros for the other count keys, and closed nested keys. Claim values may contain strings, objects, arrays, booleans, null, and signed 64-bit integers only; reject parsed non-integers, while lexical negative zero normalizes to integer `0` in the JSON data model. Derive expected claim rows keyed by `(element_id, claim_id)` and links keyed by `(element_id, claim_id, link_ordinal)`; keep only `value_sha256` after validation.
 
 - [ ] **Step 4: Run the schema tests**
 
@@ -234,6 +234,7 @@ Expected: tests PASS and `git diff --check` is empty.
 **Interfaces:**
 - Consumes: one authorized proposal element and rows inserted by `private.write_interpretation_proposal`.
 - Produces `private.interpretation_proposal_canonical_json_text(jsonb) -> text` and `private.interpretation_proposal_canonical_json_sha256(jsonb) -> text`. The recursive object-key query uses `ORDER BY key COLLATE "C"`; arrays preserve caller order; scalars use JSONB's JSON representation.
+- Produces `private.interpretation_proposal_key(bigint,text,text,jsonb,jsonb) -> uuid`, the sole SQL authority for the existing key algorithm. It deliberately preserves the live `key_version=1`/JSONB-text algorithm; the distinct manifest `claim_id` remains a transport id and is never asserted equal to the DB key.
 - Produces `private.interpretation_proposal_interpretation_receipt(private.interpretation) -> jsonb`, `private.interpretation_proposal_link_receipt(private.interpretation_observation) -> jsonb`, and `private.interpretation_proposal_disposition_receipt(private.clause_disposition) -> jsonb` with closed, versioned fields.
 - Produces: `payload.result_receipt` schema `interpretation-proposal-result-v1` and `after_sha256 = private.interpretation_proposal_canonical_json_sha256(result_receipt)`.
 
@@ -258,11 +259,13 @@ IF jsonb_typeof(v_event.payload->'result_receipt') <> 'object'
 END IF;
 ```
 
-Each claim has exactly `claim_id`, `interpretation_id`, `interpretation_key`, `version`, `value_sha256`, `row_sha256`, `extraction_run_id`, and `observations`. Each observation has `observation_id`, `clause_ordinal`, `verbatim_sha256`, `evidence_role`, `link_ordinal`, and `row_sha256`. Each clause disposition has `observation_id`, `version`, `disposition`, and `row_sha256`. Assert sorted unique arrays and exact row hashes.
+Each claim has exactly `claim_id`, `interpretation_id`, `interpretation_key`, `version`, `value_sha256`, `key_material_sha256`, `row_sha256`, `extraction_run_id`, and `observations`. Each observation has `observation_id`, `clause_ordinal`, `verbatim_sha256`, `evidence_role`, `link_ordinal`, and `row_sha256`. Each clause disposition has exactly `observation_id`, `before`, and `written`; both nested objects contain `version`, `disposition`, and `row_sha256`. Assert sorted unique arrays and exact row hashes.
 
 First lock each helper's exact JSON keys and values. The interpretation helper includes only the immutable identity/version/status/source/persona/kind/predicate/value-hash/schema/derivation/confidence/method/model/prompt/run/supersedes/decision-evidence/actor/time fields used by this operation; the link helper contains only the two row ids, role, ordinal, and UTC created timestamp; the disposition helper contains only observation id, version, disposition, kind, closed evidence, actor, and UTC created timestamp. Timestamp strings use `to_char(value AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`; nullable fields remain JSON null. Hash only these helper results with `private.interpretation_proposal_canonical_json_sha256`.
 
-Run the same fixtures under at least two session time zones and available collations and require byte-identical receipt JSON and hashes. Add a SQL-to-Python fixture containing non-ASCII JSON, nulls, booleans, numbers, and nested keys; require Python `canonical_sha256` to equal PostgreSQL's operation-specific canonical hash. Do not modify the existing generic canonical helper or any historical profile hash contract.
+Pin the canonical bytes, not just the hash: UTF-8; object keys ordered by Unicode scalar value, which is byte-equivalent to UTF-8 `COLLATE "C"` for valid scalar sequences; no Unicode normalization; minimal JSON escaping of quote, backslash, and U+0000–U+001F with lowercase hex; raw non-ASCII; literals `true`, `false`, and `null`; arrays preserve order. Hashed JSON may contain only signed 64-bit integers as numeric tokens. Reject parsed fractions/exponents and canonicalize lexical negative zero as `0`; row helpers serialize confidence and other decimals as normalized strings.
+
+Run the same fixtures under at least two session time zones and available collations and require byte-identical receipt JSON and hashes. Add SQL-to-Python golden vectors for composed/decomposed Danish text, astral Unicode, quotes, backslashes, control characters, nulls, booleans, signed 64-bit integer boundaries, nested keys, rejected `1.0`/`1e0`, and `-0 → 0`. Require exact SQL canonical text bytes to equal Python `proposal_canonical_bytes` and exact SHA equality. Do not modify the existing manifest hashing, generic SQL canonical helper, or any historical profile hash contract.
 
 - [ ] **Step 2: Run the focused SQL and verify it fails**
 
@@ -274,14 +277,14 @@ Expected: `PROPOSAL_RESULT_RECEIPT_INVALID`.
 
 - [ ] **Step 3: Implement the closed receipt projections and build the receipt inside the writer transaction**
 
-Keep the current interpretation-key algorithm unchanged. Compute receipt value hashes separately:
+Move the current interpretation-key calculation byte-for-byte into `private.interpretation_proposal_key` and call that helper from the writer. Add golden SQL fixtures proving it returns the same UUID as the pre-change inline expression for string and object values; projection/state recompute the key with the same helper. Compute receipt value hashes separately:
 
 ```sql
 v_receipt_value_sha :=
   private.interpretation_proposal_canonical_json_sha256(v_claim->'value');
 ```
 
-Accumulate claims in a temp table keyed by `claim_id` and observations keyed by interpretation/link ordinal. After inserting dispositions, construct:
+Accumulate claims in a temp table keyed by `claim_id` and observations keyed by interpretation/link ordinal. For each affected clause, lock and require exactly one current trigger-valid machine disposition before the first write. Record that exact `before` receipt and the newly inserted `written` receipt. If another element in the same batch touches the clause, require a contiguous chain where its `before` equals the preceding event's `written`; never replace the original baseline. After inserting dispositions, construct:
 
 ```sql
 v_result_receipt := jsonb_build_object(
@@ -299,7 +302,7 @@ v_result_receipt := jsonb_build_object(
 
 Store `result_receipt` alongside the already-authorized payload and run id. Set `after_sha256` only from the receipt. Return `result_receipt_sha256` with the existing counts and run id.
 
-Before appending a proposal disposition, read and lock the current disposition. Reject a human `disposition_kind` and reject machine evidence that does not satisfy the live trigger vocabulary (`manifest_sha256` plus a UUID `batch_id` or `extraction_run_id`). This makes the later reversal able to restore a trigger-valid machine state without overwriting editorial judgment.
+Before appending a proposal disposition, read and lock the current disposition. Reject absence, a human `decided_by_kind`, and machine evidence that does not satisfy the live trigger vocabulary (`manifest_sha256` plus a UUID `batch_id` or `extraction_run_id`). This makes the later reversal able to deduplicate shared clauses and restore the one exact pre-batch state without inventing absence or overwriting editorial judgment. Add a two-element/shared-clause fixture and prove both event receipts form one contiguous chain from the same original baseline.
 
 - [ ] **Step 4: Mirror the function in migrations and verification**
 
@@ -394,13 +397,19 @@ def compare_apply(manifest, before, after, expected_target_sha256):
 
 Require exactly one new finalized batch, one consumed matching authorization, one proposal event per operation, one run for all events, exact receipt-to-row/hash linkage, and no changed foreign row. Disposition priority is `afventer_identitet` if any claim on the clause has role `other`; otherwise `fortolkning_foreslaaet`.
 
+For each claim, require a one-to-one manifest `claim_id` → event receipt → recomputed SQL-authoritative `interpretation_key` → current row chain. The comparator does not equate `claim_id` with `interpretation_key`; `key_material_sha256` and the projection's database-verified key guard make the mapping explicit.
+
+Implement `compare_replay` separately. It accepts only the exact prior after-projection plus one new consumed replay authorization bound to the same actor/source/profile/manifest/preview/expected counts/authorized payload hash and pointing to the already-finalized batch. It requires zero new batches, events, interpretations, links, runs, dispositions, or any other hash/list change. Any extra authorization or non-authorization delta fails.
+
 - [ ] **Step 4: Add the closed CLI**
 
 Support only:
 
 ```text
---manifest PATH --before PATH --after PATH
---expect-target-sha256 HASH --report PATH
+--mode fresh --manifest PATH --before PATH --after PATH
+  --expect-target-sha256 HASH --report PATH
+--mode replay --after PATH --replayed PATH --replay-authorization-id UUID
+  --expect-target-sha256 HASH --report PATH
 --print-manifest-sha256 PATH
 ```
 
@@ -456,9 +465,14 @@ stopifnot(matched$status == 0L,
           grepl('"status": "match"', matched$out, fixed = TRUE))
 replay <- execute_reimport(
   manifest, preview_sha, "apply", gateway(),
-  list(id = authorize(manifest, preview_sha)))
-stopifnot(identical(replay$status, "already_applied"),
-          identical(projection(), after_text))
+  list(id = replay_authorization <- authorize(manifest, preview_sha)))
+stopifnot(identical(replay$status, "already_applied"))
+replayed_path <- write_private("replayed.json", projection())
+replay_match <- run_replay_comparator(
+  after_path, replayed_path, replay_authorization,
+  "replay-match.json")
+stopifnot(replay_match$status == 0L,
+          grepl('"status": "match"', replay_match$out, fixed = TRUE))
 ```
 
 Mutate one receipt hash in a copied projection and require `INTERPRETATION_PROJECTION_RECEIPT_INVALID`.
@@ -487,7 +501,9 @@ Expected final line: `interpretation_proposal integration OK`.
 
 Add the Python test beside `test_compare_clause_evidence_projection.py` in the existing `evidence-contract` job.
 
-Add a dedicated `interpretation-proposal-db` job with PostgreSQL 17 and a two-value `catalog_order` matrix (`schema-rls-migrations`, `schema-migrations-rls`). The job must install R through `r-lib/actions/setup-r@v2`, cache packages with `r-lib/actions/setup-r-dependencies@v2`, and declare the exact minimal packages `DBI`, `RPostgres`, `jsonlite`, `digest`, and `testthat`. For each matrix value, create a fresh database, load the three catalog files in the selected order, run `db-verify.sql` and the focused SQL test, then invoke:
+Add a dedicated `interpretation-proposal-db` job with PostgreSQL 17 and a two-value `catalog_order` matrix (`schema-rls-migrations`, `schema-migrations-rls`). The job installs R through `r-lib/actions/setup-r@v2`, uses `r-lib/actions/setup-r-dependencies@v2` with `extra-packages: any::DBI, any::RPostgres, any::jsonlite, any::digest, any::testthat`, and sets the five explicit `PG*` variables used by the existing DB jobs.
+
+For each matrix leg, create a fresh database and run `tests/sql/evidence-promotion-bootstrap.sql` first so `anon`, `authenticated`, `service_role`, `auth.uid()`, Storage shims, `pgcrypto`, and schemas exist. Load `schema.sql`, `db-rls.sql`, and two idempotent `db-migrations.sql` passes in the selected ordering, finish with `db-rls.sql`, run `tests/sql/test-interpretation-proposal.sql`, and then run `tests/sql/run-db-verify-disposable.sql`, which installs `extensions.dblink` and its required fixtures. Set `DAA_REIMPORT_TEST_ROLE=authenticated` for the R integration so its connection exercises the granted client surface rather than owner bypass. Finally invoke:
 
 ```yaml
 - run: Rscript tests/integration/test-reimport-interpretation-proposal.R

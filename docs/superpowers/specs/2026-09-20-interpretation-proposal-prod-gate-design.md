@@ -102,6 +102,11 @@ nøgler. Et apply-`match` kræver samtidig:
    `fortolkning_foreslaaet` og `afventer_identitet`;
 9. ingen ændring af andre fortolkninger, links, runs eller dispositioner.
 
+Et senere `already_applied`-kald er ikke byte-identisk med efter-projektionen:
+den levende replayvej konsumerer en ny autorisation, selv om den genbruger den
+finalized batch. En særskilt replay-komparator tillader præcis denne ene nye,
+korrekt bundne consumed authorization og kræver nul andre deltaer.
+
 Manifestets claimværdier må ikke skrives til projektionsfilen. Writerren
 beregner i stedet kanoniske hashes og et resultat-receipt pr. claim og klausul.
 SQL-projektionen efterprøver, at de lagrede rækker svarer til eventets
@@ -119,20 +124,30 @@ sammenholder disse med manifestets egne kanoniske hashes.
 - `extraction_run_id`;
 - sorterede observationslinks med observation-id, klausulordinal,
   `verbatim_sha256`, evidensrolle og linkordinal;
-- berørte klausuldispositioners observation-id, version, disposition og
-  helrækkehash.
+- berørte klausuldispositioners observation-id samt lukkede `before`- og
+  `written`-receipts med version, disposition og helrækkehash. Flere events på
+  samme klausul skal danne én ubrudt kæde tilbage til samme præ-batch-baseline.
 
 `after_sha256` er hash af det lukkede resultat-receipt, ikke en løs optælling.
 Receiptet er den eksakte write-set-binding for projektion, commit-unknown og
 reversal. Der oprettes ikke en parallel editionsspecifik receipt-tabel.
 
 Helrækkehash er her et operationelt navn, ikke PostgreSQLs implicitte
-composite-tekstformat. Operationen får en dedikeret kanonisk JSON-/SHA-helper,
-hvor objektnøgler sorteres med `COLLATE "C"`, samt en lukket JSON-projektion pr.
-berørt relation med versionsfast nøglesæt, eksplicit UTC-format for tidsfelter
-og JSON-null for nuller. SQL-projektion, writer, state-hash og komparator bruger
-denne bytekontrakt. Den eksisterende generelle kanoniske helper ændres ikke,
-fordi ældre profilhashes er en bagudkompatibilitetsgrænse.
+composite-tekstformat. Operationen får en dedikeret kanonisk JSON-/SHA-helper
+med denne bytekontrakt: UTF-8; nøgler i Unicode-scalar-rækkefølge svarende til
+`COLLATE "C"` over gyldig UTF-8; ingen Unicode-normalisering; minimal JSON-
+escaping med lowercase hex; rå non-ASCII; stabile literals; kun signed 64-bit
+heltal som numeriske tokens. Timestamps og decimaler i row-receipts er
+normaliserede strenge. Parsed fraktioner/eksponenter afvises, mens leksikalsk
+negativt nul kanoniseres som `0`. Hver relation har et versionsfast, lukket JSON-feltsæt. SQL-projektion,
+writer, state-hash og komparator bruger samme golden-byte-kontrakt. Den
+eksisterende generelle kanoniske helper ændres ikke, fordi ældre profilhashes er
+en bagudkompatibilitetsgrænse.
+
+Manifestets `claim_id` er transportidentitet, ikke databasefortolkningens UUID.
+Den levende `key_version=1`-algoritme flyttes byte-identisk til én privat SQL-
+helper. Writer og SQL-projektion genberegner nøglen dér; receiptet binder
+`claim_id` til den validerede `interpretation_key` og et key-material-hash.
 
 ### 4.3 Append-only proposal-reversal
 
@@ -152,7 +167,11 @@ Autorisationen bindes til:
 - forventede antal elementer, claims, links og dispositionsversioner;
 - aktør, nonce og kort udløbstid.
 
-Under den generelle writerlås og `FOR UPDATE` skal reversal afvise, hvis:
+Reversal og proposal-apply tager først den eksklusive side af den eksisterende
+`daa-narrative-record-contract`-advisory lock, derefter generic writer-lock og
+de eksisterende anchor-advisory keys, før deterministiske `FOR UPDATE`-låse.
+Dermed færdiggøres eller blokeres andre kontraktwriters før state genberegnes.
+Under disse låse skal reversal afvise, hvis:
 
 - batchen ikke er en ren, finalized `interpretation_proposal`-batch;
 - eventer eller receipts ikke matcher autorisation og aktuelle rækker;
@@ -169,7 +188,8 @@ Ved et grønt preflight udføres alt i én transaktion:
 1. For hvert proposal indsættes en ny `superseded`-version med samme
    fortolkningsdata og kopierede observationslinks. Beslutningsevidensen binder
    original batch, event, manifest og reversal-autorisation.
-2. For hver berørt klausul kopieres dispositionen umiddelbart før 4.4 som en ny
+2. For hver distinkt berørt klausul kopieres den receipt-bundne maskinelle
+   disposition umiddelbart før batchens første 4.4-write som en ny
    maskinel version. Både proposal-apply og reversal afviser en aktuel eller
    præ-apply menneskelig disposition. Reversal-evidensen er kompatibel med den
    levende dispositionstrigger: originalt manifesthash og proposal-batch-id er
@@ -183,10 +203,11 @@ batch slettes.
 
 Proposal-state-hashen omfatter desuden en særskilt upstream-binding til den
 eksakte accepted anchor-event og occurrence, root-observation, citerede
-klausuler, source mention, primære persona-link, source persona, aktuelle
-identitets-/placeringsrækker, extraction-run og databaseidentitet. Apply
-genberegner denne binding efter writerlåsen og relevante `FOR UPDATE`-låse;
-preflight alene autoriserer derfor aldrig en driftet state.
+klausuler, source mentions, primære persona-link, source persona, aktive
+predicate-rækker, extraction-run og databaseidentitet. Identity/placement er
+ikke inputs til den levende proposal-writer og hører derfor kun til den brede
+projektionsdrift, ikke operationens state-graf. Apply genberegner bindingen efter
+hele låseprotokollen; preflight alene autoriserer aldrig en driftet state.
 
 Et recovery-`match` betyder derfor ikke byte-identisk database med før-billedet.
 Det betyder, at batchen ikke længere har aktive `proposed`/`accepted`-
@@ -232,6 +253,14 @@ eksakte counts/events/receipts og aktuelle rækker samt samme aktør og
 databaseidentitet. Åben, delvis, duplikeret eller forkert bundet state er altid
 `drift`.
 
+Begge resultatfunktioner er datamæssigt læsende, men låsetagende. De tager først
+shared narrative-contract-lock, derefter samme source/profile-writer-lock som
+apply og derpå authorization/batch/result-rækker `FOR UPDATE`. Først efter en
+igangværende commit eller rollback er afsluttet, må `not_started`, `committed`,
+`reversed` eller `drift` klassificeres. Reversal-RPC'en tager den eksklusive
+contract-lock først og kalder den private result-helper i en eksplicit
+"lock-already-held"-tilstand; shared→exclusive lock-upgrade er forbudt.
+
 ### 4.6 Produktionswrapper
 
 En lille editionsneutral wrapper er den eneste dokumenterede 4.4-prod-indgang.
@@ -240,7 +269,8 @@ Den:
 - accepterer kun et manifest, hvis alle operationer er
   `interpretation_proposal`;
 - verificerer manifestbytes, manifesthash, preview-hash, source, profil og
-  forventet databaseidentitet;
+  forventet databaseidentitet samt bytehash og indhold af både pre-GO-pakke og
+  execution-envelope;
 - kræver en allerede udstedt autorisation og må aldrig kalde
   autorisations-RPC'en;
 - kræver et ordret, eksplicit produktionsflag;
@@ -250,12 +280,16 @@ Den:
 
 Hver ordinær eller ny recoveryforbindelse rydder libpq-miljøet, forbinder med
 de eksplicitte connection fields, genberegner og sammenligner målidentiteten,
-etablerer derefter den forventede editoraktør som transaktionslokal claim og
-verificerer både `auth.uid()` og redaktørrollen før første RPC. En resolver må
+skifter med `SET LOCAL ROLE authenticated`, etablerer derefter den forventede
+editoraktør som transaktionslokal claim og verificerer `current_user`,
+`auth.uid()` og redaktørrollen før første RPC. En resolver må
 ikke arve mål- eller aktørvalidering fra den tabte forbindelse.
 
-CLI'en har særskilte `proposal-result` og `reversal-result`-kommandoer. Dens
-eneste fejlgrænse er en lukket mapper: kendte koder kan ledsages af validerede
+CLI'en har særskilte `proposal-result` og `reversal-result`-kommandoer. Hver
+write/result-kommando kræver den relevante uforanderlige envelope og matcher en
+frisk authorization-readback mod den. Hele processen, inklusive sourcing,
+parsing, filadgang, subprocess og connect, ligger bag én lukket fejlgrænse:
+kendte koder kan ledsages af validerede
 ids, hashes, feltnavne og counts; ukendte DBI-, connect- og subprocessfejl
 bliver en generisk intern kode. Rå condition-messages, DSN'er, passwords,
 filstier og værdier må aldrig udskrives.
@@ -357,7 +391,7 @@ før-projektion
   → recovery-projektion = match
   → korrigeret genkørsel, som genbruger uændrede deterministiske nøgler
     og kun danner nye nøgler for ændrede claims
-  → apply-projektion = match
+  → rerun-projektion = match
 ```
 
 Rapporten fastholder databaseidentitet, dump-/fil-/manifest-/previewhashes,
