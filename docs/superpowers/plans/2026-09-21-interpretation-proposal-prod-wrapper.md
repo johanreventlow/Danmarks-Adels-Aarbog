@@ -4,7 +4,7 @@
 
 **Goal:** Provide the only documented 4.4 production entry point, a fail-closed runbook, and a fresh production-derived restore rehearsal covering apply, reversal, recovery, and corrected re-run.
 
-**Architecture:** One edition-neutral R CLI validates immutable files and expected identities before opening a connection, then reuses the generic reimport executor and the proposal-specific reversal RPCs without ever issuing authorization. It exposes explicit subcommands for dry-run, apply, reversal preflight, reversal, and result recovery; connection loss is resolved through result RPCs, never automatic retry. The runbook binds a GO package to exact commit, file bytes, database identity, manifest, preview, authorization, backup, projections, and rehearsal receipts.
+**Architecture:** One edition-neutral R CLI validates immutable files and expected identities before opening a connection, then reuses the generic reimport executor and the proposal-specific result/reversal RPCs without ever issuing authorization. It exposes explicit subcommands for dry-run, apply, proposal result, reversal preflight, reversal, and reversal result recovery; connection loss is resolved through a fully revalidated fresh connection, never automatic retry. The runbook binds an immutable pre-GO package, then a separate immutable post-GO execution envelope containing the externally issued authorization.
 
 **Tech Stack:** R/DBI/RPostgres/jsonlite/digest/testthat, PostgreSQL 17, psql/pg_dump/pg_restore, Python projection comparator, POSIX file permissions.
 
@@ -19,7 +19,9 @@
 - The wrapper never calls either authorization RPC.
 - Dry-run and apply use the same externally issued authorization; dry-run rolls back its consumption.
 - A client error at commit yields `commit_unknown` and invokes only the appropriate result RPC on a new connection.
+- Every initial or recovery connection independently clears inherited libpq state, verifies target identity, establishes and verifies the expected editor actor, and only then calls an RPC.
 - Output contains ids, hashes, counts, and statuses only; never source text, claim values, names, DSNs, or credentials.
+- No raw `conditionMessage()`, DBI error, subprocess stderr, connection field, or filesystem path may cross the CLI boundary.
 - The existing `apply_reimport.R` CLI contract remains unchanged.
 - No production apply or production reversal is authorized by implementing this plan.
 
@@ -43,6 +45,7 @@
 | `tests/testthat/test-interpretation-proposal-prod.R` | Repository test runner coverage. |
 | `.claude/skills/daa-extract/scripts/apply_reimport_helpers.R` | External-authorization and commit-unknown hooks with backward-compatible defaults. |
 | `tests/testthat/test-apply-reimport.R` | Generic executor regression tests. |
+| `schema.sql` / `db-migrations.sql` / `db-rls.sql` / `db-verify.sql` | Proposal-result RPC used when apply commit outcome is unknown (implemented by the reversal plan prerequisite). |
 | `docs/runbooks/interpretation-proposal-prod-apply.md` | Operator procedure, GO package, recovery matrix, prohibited actions. |
 | `docs/evidensbaseret-genimport/proposal-ingest-147-4-4-prod-gate-rehearsal.md` | Fresh-restore evidence receipt. |
 | `docs/evidensbaseret-genimport/status.md` | Update only after every gate has evidence; otherwise leave 4.4 partial. |
@@ -58,6 +61,7 @@
   - `authorization_policy = c("auto_dry_run", "external")`, default `auto_dry_run`;
   - `result_after_commit_error = NULL`.
 - Structured commit-unknown condition fields: `code`, `authorization_id`, `batch_id`.
+- Produces one closed `sanitize_reimport_error(condition) -> list(code,details)` mapper used by executor and production wrapper.
 - Existing callers and `apply_reimport.R` behavior remain unchanged.
 
 - [ ] **Step 1: Write failing executor tests**
@@ -68,8 +72,10 @@ Cover:
 3. dry-run uses the supplied id, then rolls back;
 4. a commit error after finalize does not call rollback or reapply;
 5. the supplied resolver receives authorization id and batch id;
-6. resolver `finalized` becomes `commit_verified`;
+6. resolver `committed` becomes `commit_verified`;
 7. resolver mismatch becomes `REIMPORT_COMMIT_UNKNOWN_DRIFT`.
+
+Inject a password, DSN, source value, private path, and arbitrary SQL/DBI message into separate failures. Assert none occurs in returned conditions, JSON, stdout, or stderr. Known allowlisted reimport codes may retain only closed ids/field/count/hash details; every unknown connect/DBI/subprocess/commit exception becomes `INTERPRETATION_PROD_INTERNAL_ERROR` with no original message.
 
 Use a gateway with an ordered call log and make `commit` raise `synthetic connection lost`.
 
@@ -97,7 +103,9 @@ if (identical(authorization_policy, "external")) {
 }
 ```
 
-Move `batch_id` outside the transaction closure. Around only `call("commit")`, catch connection errors, do not call rollback, and call `result_after_commit_error(authorization$id,batch_id)` once. Accept only a fully validated existing finalized batch; otherwise raise the drift code with ids only.
+Move `batch_id` outside the transaction closure. Around only `call("commit")`, catch connection errors, do not call rollback, and call `result_after_commit_error(authorization$id,batch_id)` once. The callback may ignore the process-local batch id and resolve by authorization id. Accept only the proposal-result RPC's fully validated `committed` state; `not_started` or `drift` becomes the drift code with ids only.
+
+Replace every pass-through of `conditionMessage(error)` with the closed error mapper. It extracts only an anchored, allowlisted repository error code and separately validated UUID/hash/field/count details; it never copies arbitrary message tails. Unknown conditions map to the generic internal code. Preserve original conditions only inside tests, never in operator output.
 
 - [ ] **Step 4: Run regression tests and commit**
 
@@ -122,12 +130,14 @@ Expected: focused PASS and full R suite `FAIL 0`.
 - Subcommands:
   - `proposal-dry-run`
   - `proposal-apply`
+  - `proposal-result`
   - `reversal-preflight`
   - `proposal-reverse-dry-run`
   - `proposal-reverse-apply`
   - `reversal-result`
-- All require `--production-guard DAA-4.4-INTERPRETATION-PROPOSAL-PROD-V1` and `--expected-target-sha256 HASH`.
-- Proposal modes additionally require manifest path, manifest byte hash, manifest content hash, preview path/hash, expected source/profile/profile hash, and authorization id.
+- All require `--production-guard DAA-4.4-INTERPRETATION-PROPOSAL-PROD-V1`, `--expected-target-sha256 HASH`, and `--expected-actor-id UUID`.
+- Proposal dry-run/apply modes additionally require manifest path, manifest byte hash, manifest content hash, preview path/hash, expected source/profile/profile hash, and authorization id.
+- `proposal-result` requires authorization id, expected actor id, target hash, and guard; it deliberately does not require a process-local batch id.
 - Reversal modes require batch and authorization ids; preflight needs batch id only.
 
 - [ ] **Step 1: Write table-driven red CLI tests**
@@ -148,6 +158,7 @@ interpretation_proposal_prod.R proposal-apply
   --expected-profile-sha256 HASH
   --expected-target-sha256 HASH
   --authorization-id UUID
+  --expected-actor-id UUID
   --production-guard DAA-4.4-INTERPRETATION-PROPOSAL-PROD-V1
 ```
 
@@ -164,7 +175,7 @@ Expected: source/file-not-found failures.
 
 Implement `parse_interpretation_proposal_prod_cli(args)` and `validate_interpretation_proposal_prod_artifacts(cli)` without DB access. Read files as raw bytes, compare `digest::digest(raw, "sha256", serialize=FALSE)`, parse JSON without simplification, call `validate_reimport_manifest`, and require every dependency class to equal `interpretation_proposal`. Recompute the content hash by invoking the repository-relative `compare_interpretation_proposal_projection.py --print-manifest-sha256 <manifest>` with `/usr/bin/python3`; require exit 0 and exactly one lowercase 64-character output line. This reuses the comparator's canonical form instead of maintaining a second R implementation.
 
-Return a closed list containing parsed manifest, hashes, expected source/profile/target, authorization id, subcommand, and file paths. Do not include manifest operations in printed output.
+Return a closed list containing parsed manifest, hashes, expected source/profile/target/actor, authorization id, subcommand, and file paths. Do not include manifest operations in printed output.
 
 - [ ] **Step 4: Implement the thin entry point**
 
@@ -201,19 +212,23 @@ git commit -m "feat: validate proposal production artifacts"
 
 **Interfaces:**
 - Produces `new_interpretation_proposal_prod_gateway(connection_factory)` and `execute_interpretation_proposal_prod(cli,gateway)`.
-- Gateway calls: `connect`, `target_identity`, `proposal_preflight`, `execute_proposal`, `reversal_preflight`, `reverse`, `reversal_result`, `disconnect`.
+- Gateway calls: `connect`, `target_identity`, `establish_actor`, `proposal_preflight`, `execute_proposal`, `proposal_result`, `reversal_preflight`, `reverse`, `reversal_result`, `disconnect`.
 
 - [ ] **Step 1: Write red target and no-self-authorization tests**
 
 Use a fake gateway to prove:
 - target identity is checked before proposal preflight;
 - target mismatch stops;
+- actor is established only after the target matches and is verified before any result/preflight/apply RPC;
+- missing/wrong actor and wrong role stop before the operation RPC;
 - preflight returns exact source/profile/auth/manifest/preview binding;
 - active preexisting proposal stops dry-run and apply;
 - no SQL string contains `red_authorize_reimport` or `red_authorize_interpretation_proposal_reversal`;
 - proposal modes pass `authorization_policy="external"`;
 - reversal modes call only preflight/apply/result RPCs;
-- commit loss calls result on a fresh connection and never repeats apply/reverse.
+- commit loss calls result on a fresh connection and never repeats apply/reverse;
+- fresh proposal-result and reversal-result connections repeat environment clearing, direct connection, target recomputation/comparison, actor setup/verification, and only then the read-only RPC;
+- wrong target, missing actor, wrong actor, or RPC-before-revalidation on a resolver connection fails closed.
 
 - [ ] **Step 2: Run and verify orchestration tests fail**
 
@@ -229,15 +244,19 @@ c("PGHOST", "PGHOSTADDR", "PGPORT", "PGDATABASE", "PGUSER",
   "PGSERVICEFILE", "PGPASSFILE", "PGCONNECT_TIMEOUT")
 ```
 
-The default connection factory passes the captured `SUPABASE_*` values directly as DBI arguments and never reconstructs connection settings from `PG*`. On its own R connection, query database name and `pg_control_system().system_identifier`, compute the target formula, and compare with `--expected-target-sha256` before any RPC.
+The default connection factory passes the captured `SUPABASE_*` values directly as DBI arguments and never reconstructs connection settings from `PG*`. On every initial and resolver R connection, query database name and `pg_control_system().system_identifier`, compute the target formula, and compare with `--expected-target-sha256` before any RPC.
+
+After target match, begin a read-only transaction for preflight/result calls and set transaction-local `request.jwt.claim.sub` to `--expected-actor-id` and `request.jwt.claim.role` to `authenticated`. Verify `auth.uid()` equals that UUID and `public.current_rolle()='redaktion'`; then and only then invoke the RPC. Apply/reverse transaction setup performs the same checks before write calls. Disconnect and discard the connection on any failure.
 
 Do not print connection fields.
 
 - [ ] **Step 4: Implement proposal and reversal orchestration**
 
-Proposal preflight reads authorization binding and current proposal existence without mutation. Dry-run/apply call `execute_reimport` with external authorization and a resolver that opens a new connection and invokes `red_reimport_batch_result`.
+Proposal preflight reads authorization binding and current proposal existence without mutation, requires its principal id to equal `--expected-actor-id`, and validates source/profile/manifest/preview/target. Dry-run/apply call `execute_reimport` with external authorization and a resolver that opens a new connection and invokes `red_reimport_interpretation_proposal_result(authorization_id)`.
 
-Reversal preflight calls `red_preflight_interpretation_proposal_reversal`. Reverse dry-run/apply wraps `red_reverse_reimport_interpretation_proposal` in a transaction, rolling back or committing. If commit raises, open a new connection and call `red_reimport_interpretation_proposal_reversal_result` exactly once. `reversal-result` is always read-only.
+`proposal-result` performs the same fresh-connection target/actor sequence and invokes only that proposal-specific result RPC. It maps `committed` after a lost connection to CLI status `commit_verified`; it reports `not_started` or `drift` verbatim and never retries apply.
+
+Reversal preflight calls `red_preflight_interpretation_proposal_reversal`. Reverse dry-run/apply wraps `red_reverse_reimport_interpretation_proposal` in a transaction, rolling back or committing. If commit raises, open a new connection, repeat target/actor validation, and call `red_reimport_interpretation_proposal_reversal_result` exactly once. Both result subcommands are always read-only.
 
 - [ ] **Step 5: Sanitize every result**
 
@@ -251,7 +270,7 @@ c("operation", "status", "source_id", "profile_id",
   "committed")
 ```
 
-Reject a gateway result with any other key instead of filtering it silently.
+Reject a gateway result with any other key instead of filtering it silently. Catch all top-level conditions through the Task 1 mapper; tests capture stdout and stderr and require that injected DSNs, passwords, manifest values, and paths are absent.
 
 - [ ] **Step 6: Run tests and commit**
 
@@ -269,7 +288,7 @@ git commit -m "feat: execute guarded proposal production workflow"
 - Create: `docs/runbooks/interpretation-proposal-prod-apply.md`
 
 **Interfaces:**
-- Consumes: the tracked wrapper, projection, comparator, manifest, preview, backup receipt, and pre-issued authorizations.
+- Consumes: the tracked wrapper, projection, comparator, manifest, preview, backup receipt, immutable pre-GO package, and post-GO execution envelope.
 - Produces: an operator sequence with explicit STOP/GO boundaries; it does not contain credentials.
 
 - [ ] **Step 1: Write the roadmap and authority boundary**
@@ -297,9 +316,9 @@ The runbook requires:
 
 List `PGHOSTADDR` among variables that must be cleared. Require per-command `PGOPTIONS='-c default_transaction_read_only=on'` for read-only psql calls outside the projection transaction.
 
-- [ ] **Step 3: Specify the immutable GO package**
+- [ ] **Step 3: Specify the immutable pre-GO package and post-GO execution envelope**
 
-Bind:
+The immutable pre-GO package binds:
 - clean commit and exact byte SHA-256 set for wrapper, helpers, profile, four projection files, comparator, manifest, and preview;
 - database name plus target SHA;
 - source/profile/profile hash;
@@ -309,14 +328,15 @@ Bind:
 - freeze start/responsible/session count;
 - exact operation/claim/link/disposition counts;
 - fresh-restore report SHA;
-- apply authorization id and expiry;
 - before projection SHA.
 
-Any changed value invalidates GO. Authorization issuance is a separate service-role action after GO; the wrapper never performs it.
+It contains no authorization because authorization is issued only after an explicit human GO against that exact package hash. Any changed pre-GO value invalidates GO.
+
+After GO, a separate immutable execution envelope binds the pre-GO package SHA-256, GO receipt id/hash, apply authorization id and expiry, authorization readback hash (actor/source/profile/manifest/preview/target/counts/status), expected actor id, and its own envelope SHA-256. The pre-GO package is never edited or replaced. Any mismatch or expiry invalidates the execution envelope and requires a new explicit decision; the wrapper never performs authorization.
 
 - [ ] **Step 4: Specify apply, commit-unknown, and reversal matrices**
 
-Apply sequence is dry-run with external auth, assert no durable delta, apply once, after projection, comparator `match`. On client error, run the result subcommand; `commit_verified` continues to projection, `not_started` requires a new human decision, and `drift` is STOP.
+Apply sequence is dry-run with external auth, assert no durable delta, apply once, after projection, comparator `match`. On client error, run `proposal-result` with the same target/actor/auth envelope; `commit_verified` continues to projection, `not_started` requires a new human decision, and `drift` is STOP.
 
 Reversal sequence is fresh preflight, separate human approval of state hash/counts, separate service-role authorization, reverse once, result if connection fails, after-reversal projection, recovery comparator `match`. Never automatically retry. Never reverse after human decisions or promotion.
 

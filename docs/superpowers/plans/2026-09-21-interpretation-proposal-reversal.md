@@ -18,6 +18,7 @@
 - No proposal/link/disposition/run/event/authorization/batch row is deleted.
 - `red_reverse_reimport(uuid,uuid)` and its activation/name-completion semantics remain unchanged.
 - A reversal is allowed only for a pure, finalized proposal batch with exact receipts and no human decision, promotion, later interpretation version, later disposition, or foreign drift.
+- Apply and reversal both fail closed if an affected pre-apply disposition is human; this workflow never overwrites or machine-copies editorial judgment.
 - Reversal writes one `superseded` interpretation version per active proposal and copies its links.
 - Reversal restores each affected clause by appending the pre-apply disposition as a new machine version.
 - Re-run is allowed only when the current version is `superseded` by this operation and its originating batch is `reversed`.
@@ -66,7 +67,7 @@
   - `public.red_authorize_interpretation_proposal_reversal(uuid,text,jsonb,uuid,timestamptz) -> uuid`
 - Authorization `operation` is `interpretation_proposal_reversal`.
 - `expected_counts` keys are exactly `elements`, `claims`, `links`, and `dispositions`.
-- `authorized_elements` keys are exactly `batch_id` and `proposal_state_sha256`.
+- `authorized_elements` keys are exactly `batch_id`, `proposal_state_sha256`, and `upstream_binding_sha256`.
 
 - [ ] **Step 1: Write red state and authorization tests**
 
@@ -82,6 +83,7 @@ Assert the state result has exactly:
   "profile_sha256": "sha256",
   "database_identity": "json text",
   "counts": {"elements": 1, "claims": 2, "links": 3, "dispositions": 2},
+  "upstream_binding_sha256": "sha256",
   "proposal_state_sha256": "sha256"
 }
 ```
@@ -98,11 +100,15 @@ Expected: missing-function or authorization-invalid failure.
 
 - [ ] **Step 3: Implement locked state derivation**
 
-The private helper must acquire the generic writer lock, optionally lock the batch and all receipt-addressed interpretation/disposition rows, verify a pure finalized proposal batch, recompute every receipt row hash, reject reversal/activation/canonical events, and reject all decision/promotion/later-version/later-disposition drift. Build `proposal_state_sha256` over a canonical object containing batch identity, sorted event receipt hashes, sorted current interpretation ids/versions/statuses, sorted current clause disposition ids/versions/statuses, and zero decision/promotion counts.
+The private helper must acquire the generic writer lock and, in locking mode, lock the batch, receipt-addressed interpretations/dispositions, and every upstream row named below in deterministic id order. Verify a pure finalized proposal batch, recompute every receipt row hash, reject reversal/activation/canonical events, and reject all decision/promotion/later-version/later-disposition drift.
+
+Build `upstream_binding_sha256` from the exact resolution graph used by the live writer: source record; its accepted anchor event and occurrence; the unique root observation; every cited clause and its current row hash; the root's source mention and unique primary persona link; the resolved source persona plus current identity and record/persona placement rows consulted by the writer; and the exact extraction-run row referenced by every receipt. Use the projection plan's closed row-receipt helpers where applicable. Build `proposal_state_sha256` over batch identity, this upstream binding, sorted event receipt hashes, sorted current interpretation ids/versions/statuses, sorted current clause disposition ids/versions/statuses/evidence hashes, target database identity, and zero decision/promotion counts. Both hashes use `private.interpretation_proposal_canonical_json_sha256`, never the legacy/general helper.
+
+Tests mutate each dependency independently—including accepted anchor event/occurrence, root observation, cited clause, mention, primary persona link, persona identity, record/persona placement, extraction run, source/profile, and database target—and require the state or authorization to fail before a write. Add a two-session test that changes one upstream row after unlocked preflight but before apply; locked recomputation must reject it.
 
 - [ ] **Step 4: Implement authorization and enum/check changes**
 
-Extend `reimport_authorization.operation` to admit `interpretation_proposal_reversal`. The authorizer requires service-role execution, editor actor, expiry in the future, exact supplied state hash/counts, and current database identity. Store the exact state hash and batch id in `authorized_elements`.
+Extend `reimport_authorization.operation` to admit `interpretation_proposal_reversal`. The authorizer requires service-role execution, editor actor, expiry in the future, exact supplied state hash/upstream binding/counts, and current database identity. Store the exact state hash, upstream binding, and batch id in `authorized_elements`.
 
 Add `red_preflight_interpretation_proposal_reversal(batch_id)` as the authenticated, read-only route to the same unlocked state helper. It returns the closed state object above, has no authorization side effect, and is the only metadata the operator copies into the service-role authorization call.
 
@@ -132,8 +138,10 @@ git commit -m "feat: authorize exact proposal reversals"
 - Produces:
   - `public.red_reverse_reimport_interpretation_proposal(uuid,uuid) -> jsonb`
   - `public.red_reimport_interpretation_proposal_reversal_result(uuid,uuid) -> jsonb`
+  - `public.red_reimport_interpretation_proposal_result(uuid) -> jsonb`
 - Result keys: `batch_id`, `authorization_id`, `status`, `proposal_state_sha256`, `reversal_event_id`, `counts`.
 - Status is exactly `not_started`, `reversed`, or `drift`.
+- Proposal-result keys are exactly `authorization_id`, `batch_id`, `status`, `source_id`, `profile_id`, `manifest_sha256`, `preview_sha256`, and `counts`; status is exactly `not_started`, `committed`, or `drift`.
 
 - [ ] **Step 1: Write the red success, append-only, and idempotence tests**
 
@@ -151,7 +159,7 @@ Call result and reversal again. Both return `reversed` and all counts remain unc
 
 - [ ] **Step 2: Write red denial tests**
 
-For independent fixtures, add a later accepted/rejected/unresolved/superseded decision, a promotion, a direct later proposed version, a later clause disposition, a changed link, a changed run, an altered receipt, a mixed batch event, an expired/wrong-actor/reused authorization, and a different database identity. Each must raise `REIMPORT_INTERPRETATION_REVERSAL_INVALID` and leave all row counts and current states unchanged.
+For independent fixtures, add a later accepted/rejected/unresolved/superseded decision, a promotion, a direct later proposed version, a later clause disposition, a changed link, a changed run, an altered receipt, a mixed batch event, a human pre-apply disposition, an expired/wrong-actor/reused authorization, and a different database identity. Mutate each upstream binding component from Task 1 separately. Each must raise `REIMPORT_INTERPRETATION_REVERSAL_INVALID` and leave all row counts and current states unchanged.
 
 - [ ] **Step 3: Run and verify the missing RPCs fail**
 
@@ -169,7 +177,7 @@ For every claim receipt, insert a copied interpretation with:
 - decision evidence keys exactly `reversal_kind`, `original_batch_id`, `original_event_id`, `manifest_sha256`, `authorization_id`, and `proposal_state_sha256`;
 - current actor/name/time.
 
-Copy links from the proposal to its superseding row. For each clause, read the maximum disposition version strictly below the proposal-written version and append its disposition with machine evidence keys `reversal_kind`, `original_batch_id`, `original_disposition_version`, `authorization_id`, and `proposal_state_sha256`.
+Copy links from the proposal to its superseding row. For each clause, read the maximum disposition version strictly below the proposal-written version, require `decided_by_kind='machine'`, and append its disposition as a new machine version. Evidence keys are exactly `manifest_sha256`, `batch_id`, `reversal_kind`, `original_disposition_version`, `restored_evidence_sha256`, `authorization_id`, and `proposal_state_sha256`: `manifest_sha256` and `batch_id` are the original proposal batch's trigger-valid values, while `restored_evidence_sha256` binds the closed prior evidence without copying an open object. Tests must execute the live `trg_clause_disposition_validate` success path and prove invalid/missing manifest and UUID provenance fail.
 
 Insert one reversal event whose closed receipt contains sorted old/new interpretation ids and old/restored disposition ids/versions plus counts. Hash only that receipt. Consume authorization and set batch status `reversed`.
 
@@ -179,9 +187,11 @@ The result function authenticates the same actor and binds batch/auth/database/s
 
 At the top of the reversal RPC, call the result helper. If it says `reversed`, return it without writes; if `drift`, raise; only `not_started` may continue.
 
+Implement the proposal-result RPC by authorization id so recovery does not depend on a batch id held only in a crashed process. It authenticates the editor actor, recomputes current database identity and requires it to equal the authorization binding, requires `operation='reimport'`, and requires every `authorized_elements` key to match `^interpretation-proposal:.+$` with the exact closed proposal payload shape. Return `not_started` only for one issued authorization with zero batches/events. Return `committed` only for one consumed authorization, exactly one finalized batch, exact source/profile/manifest/preview/count binding, one exact event per authorized element, and receipt hashes/current rows that all validate. Every open, duplicate, partial, wrong-target, wrong-actor, mixed-operation, or inconsistent state returns `drift`; it performs no repair and emits no raw payload. Add catalog/ACL and state-matrix tests for all three statuses.
+
 - [ ] **Step 6: Apply ACLs, run, and commit**
 
-Grant apply and result only to `authenticated`; revoke from `anon`, `service_role`, and PUBLIC. Run:
+Grant apply and both result functions only to `authenticated`; revoke from `anon`, `service_role`, and PUBLIC. Run:
 
 ```bash
 psql -X -v ON_ERROR_STOP=1 -f tests/sql/test-interpretation-proposal.sql
@@ -253,13 +263,19 @@ git commit -m "feat: rerun reversed interpretation proposals"
 **Interfaces:**
 - Produces three dblink anchors: `daa.verify_dblink_proposal_reversal_decision`, `daa.verify_dblink_proposal_reversal_promotion`, and `daa.verify_dblink_proposal_reversal_disposition`, each set to `executed`.
 
-- [ ] **Step 1: Add dblink tests for the three conflicts**
+- [ ] **Step 1: Add dblink tests for both lock orderings of all three conflicts**
 
-For each case, create a fresh proposal batch and two connections. Hold the same interpretation or clause row lock in connection A, start reversal in connection B, release A after writing the competing decision/promotion/disposition, then assert:
+For each decision, promotion, and disposition case, create fresh fixtures for both schedules:
+
+1. competitor A locks first, asynchronous reversal B blocks, A commits, then B resumes and rejects with zero writes;
+2. reversal A locks first, asynchronous competitor B blocks, A commits, then B resumes and rejects with zero writes.
+
+Use `dblink_send_query`, prove the waiting connection is actually busy before releasing A, and set bounded `lock_timeout`/`statement_timeout`. Assert no timeout or deadlock token is treated as success. After both sessions finish, assert:
 - exactly one operation committed;
 - reversal either fully committed or wrote zero rows;
 - no partial superseded/link/disposition/event state;
-- result is `reversed` for a reversal win or `drift`/coded rejection for a competitor win.
+- result is `reversed` for a reversal win or `drift`/the exact coded rejection for a competitor win;
+- the winner's receipt and all loser row-count deltas are exact.
 
 - [ ] **Step 2: Require all anchors in the disposable runner**
 
@@ -290,6 +306,7 @@ git commit -m "test: prove proposal reversal races"
 
 **Interfaces:**
 - Produces `compare_recovery(manifest, before, applied, reversed, expected_target_sha256) -> dict` with scope `interpretation-proposal-recovery-v1`.
+- Produces `compare_rerun(manifest, reversed, after, expected_target_sha256) -> dict` with scope `interpretation-proposal-rerun-v1`; the fresh `compare_apply` contract remains strict and unchanged.
 
 - [ ] **Step 1: Write red recovery mutation tests**
 
@@ -309,7 +326,13 @@ Require:
 
 Return counts for superseded claims, copied links, restored dispositions, and reversal events.
 
-- [ ] **Step 3: Extend the integration sequence**
+- [ ] **Step 3: Implement the separate corrected-rerun comparison**
+
+`compare_rerun` first validates that `reversed` is a complete recovery state. For an unchanged deterministic interpretation key, it accepts a new proposal only when the immediately prior current row is the exact reversal-created `superseded` row, whose evidence names the expected original batch, reversal event, reversal authorization, state hash, and manifest; the new proposal must then be version `prior+1` and supersede that row. For a changed claim id/key, the key must be absent from the reversed projection and the new proposal must be version 1. Reject unrelated superseded rows, wrong batch/event/authorization/evidence, a newer version, decision, promotion, foreign history, or use of a key not justified by the corrected manifest.
+
+Expose this only through a closed CLI mode `--mode rerun --manifest PATH --reversed PATH --after PATH --expect-target-sha256 HASH --report PATH`. Fresh comparison remains `--mode fresh --before PATH --after PATH ...` and retains its preexisting-target rejection. Missing or cross-mode arguments fail schema validation.
+
+- [ ] **Step 4: Extend the integration sequence**
 
 After apply match:
 1. derive state and issue exact reversal authorization;
@@ -318,9 +341,9 @@ After apply match:
 4. call reverse again and assert zero count change;
 5. project and require recovery `match`;
 6. build a corrected manifest, re-run with unchanged and changed keys;
-7. project and require apply `match`.
+7. project and require rerun `match` from `compare_rerun`, never from the fresh comparator.
 
-- [ ] **Step 4: Run all relevant suites**
+- [ ] **Step 5: Run all relevant suites**
 
 ```bash
 /usr/bin/python3 -m pytest   .claude/skills/daa-extract/scripts/test_compare_interpretation_proposal_projection.py   .claude/skills/daa-extract/scripts/test_build_43b_proposal_manifest.py -q
@@ -333,7 +356,7 @@ git diff --check
 
 Expected: Python PASS, R `FAIL 0`, SQL gates PASS, integration success marker, and no whitespace errors.
 
-- [ ] **Step 5: Record evidence and commit**
+- [ ] **Step 6: Record evidence and commit**
 
 Record exact commands, catalog ordering, ids/hashes/counts, apply result, reversal result, recovery comparison, and corrected re-run comparison. Do not include values, text, names, DSNs, or credentials. End with `Produktions-GO: IKKE GIVET`.
 

@@ -126,6 +126,14 @@ sammenholder disse med manifestets egne kanoniske hashes.
 Receiptet er den eksakte write-set-binding for projektion, commit-unknown og
 reversal. Der oprettes ikke en parallel editionsspecifik receipt-tabel.
 
+Helrækkehash er her et operationelt navn, ikke PostgreSQLs implicitte
+composite-tekstformat. Operationen får en dedikeret kanonisk JSON-/SHA-helper,
+hvor objektnøgler sorteres med `COLLATE "C"`, samt en lukket JSON-projektion pr.
+berørt relation med versionsfast nøglesæt, eksplicit UTC-format for tidsfelter
+og JSON-null for nuller. SQL-projektion, writer, state-hash og komparator bruger
+denne bytekontrakt. Den eksisterende generelle kanoniske helper ændres ikke,
+fordi ældre profilhashes er en bagudkompatibilitetsgrænse.
+
 ### 4.3 Append-only proposal-reversal
 
 Reversal er en ny editionsneutral operation oven på de eksisterende
@@ -162,12 +170,23 @@ Ved et grønt preflight udføres alt i én transaktion:
    fortolkningsdata og kopierede observationslinks. Beslutningsevidensen binder
    original batch, event, manifest og reversal-autorisation.
 2. For hver berørt klausul kopieres dispositionen umiddelbart før 4.4 som en ny
-   maskinel version. Evidensen binder både original batch og reversal.
+   maskinel version. Både proposal-apply og reversal afviser en aktuel eller
+   præ-apply menneskelig disposition. Reversal-evidensen er kompatibel med den
+   levende dispositionstrigger: originalt manifesthash og proposal-batch-id er
+   obligatoriske, og evidensen binder desuden reversal-autorisation,
+   proposal-state og hash af den tidligere maskinevidens.
 3. Der indsættes ét reversal-event med før-/efter-state-hash og eksakte counts.
 4. Autorisationen konsumeres, og originalbatchen markeres `reversed`.
 
 Ingen fortolkning, link, disposition, extraction-run, event, autorisation eller
 batch slettes.
+
+Proposal-state-hashen omfatter desuden en særskilt upstream-binding til den
+eksakte accepted anchor-event og occurrence, root-observation, citerede
+klausuler, source mention, primære persona-link, source persona, aktuelle
+identitets-/placeringsrækker, extraction-run og databaseidentitet. Apply
+genberegner denne binding efter writerlåsen og relevante `FOR UPDATE`-låse;
+preflight alene autoriserer derfor aldrig en driftet state.
 
 Et recovery-`match` betyder derfor ikke byte-identisk database med før-billedet.
 Det betyder, at batchen ikke længere har aktive `proposed`/`accepted`-
@@ -193,7 +212,7 @@ gentages uden at remint'e identitet eller slette historik.
 
 ### 4.5 Commit-unknown og idempotens
 
-En læsefunktion returnerer kun metadata og én af følgende tilstande:
+Reversal-læsefunktionen returnerer kun metadata og én af følgende tilstande:
 
 - `not_started` — ingen gyldig reversal-event;
 - `reversed` — event, batchstatus, autorisation og aktuelle superseded-versioner
@@ -204,6 +223,14 @@ Et gentaget reversal-kald efter en verificeret reversal udfører ingen nye write
 og returnerer det eksisterende resultat. Ved `drift` stoppes der.
 Resultatlæsningen er den eneste recoveryvej efter forbindelsestab; operatøren må
 ikke gætte ud fra en klientfejl.
+
+Proposal-apply har en separat resultatfunktion slået op alene på
+autorisation-id, så et batch-id i en tabt klientproces ikke er en
+recoveryforudsætning. Den returnerer kun `not_started`, `committed` eller
+`drift`. `committed` kræver én konsumeret autorisation, én finalized batch,
+eksakte counts/events/receipts og aktuelle rækker samt samme aktør og
+databaseidentitet. Åben, delvis, duplikeret eller forkert bundet state er altid
+`drift`.
 
 ### 4.6 Produktionswrapper
 
@@ -221,6 +248,18 @@ Den:
 - udskriver kun ids, hashes, counts og status;
 - håndterer forbindelsestab med resultat-RPC'en, ikke med automatisk genapply.
 
+Hver ordinær eller ny recoveryforbindelse rydder libpq-miljøet, forbinder med
+de eksplicitte connection fields, genberegner og sammenligner målidentiteten,
+etablerer derefter den forventede editoraktør som transaktionslokal claim og
+verificerer både `auth.uid()` og redaktørrollen før første RPC. En resolver må
+ikke arve mål- eller aktørvalidering fra den tabte forbindelse.
+
+CLI'en har særskilte `proposal-result` og `reversal-result`-kommandoer. Dens
+eneste fejlgrænse er en lukket mapper: kendte koder kan ledsages af validerede
+ids, hashes, feltnavne og counts; ukendte DBI-, connect- og subprocessfejl
+bliver en generisk intern kode. Rå condition-messages, DSN'er, passwords,
+filstier og værdier må aldrig udskrives.
+
 Den generelle `apply_reimport.R` og dens gateway genbruges som intern motor.
 Andre reimportoperationers CLI-kontrakt ændres ikke.
 
@@ -233,10 +272,14 @@ Andre reimportoperationers CLI-kontrakt ændres ikke.
 3. Tag læse-kun preflight og før-projektion.
 4. Tag backup og restore netop den backup.
 5. Gennemfør fuld rehearsal, inklusive proposal-reversal og korrigeret genkørsel.
-6. Lås GO-pakken til commit, databaseidentitet, filer, hashes, manifest,
-   preview og forventede counts.
-7. Udsted én autorisation.
-8. Kør prod-wrapperen én gang.
+6. Lås en uforanderlig pre-GO-pakke til commit, databaseidentitet, filer,
+   hashes, manifest, preview og forventede counts; pakken indeholder ingen
+   autorisation.
+7. Giv eventuelt eksplicit GO mod pre-GO-pakkens hash, udsted én autorisation,
+   og lås en separat execution-envelope til pre-GO-hash, GO-kvittering,
+   autorisations-id/udløb/readback, aktør og egen hash. Pre-GO-pakken ændres
+   aldrig.
+8. Kør prod-wrapperen én gang mod execution-envelope.
 9. Tag efter-projektion og kør den databasefri komparator.
 10. Kun `match` kan lukke apply; ellers aktiveres recoveryrunbooken.
 
@@ -268,8 +311,10 @@ Fejlgrupperne er:
 - commit-unknown `drift`.
 
 Race-sikkerhed bevises, ikke antages: reversal konkurrerer i tests med menneskelig
-afgørelse, promotion og dispositionsskrivning. Præcis én side må vinde; den anden
-skal stoppe uden partiel effekt.
+afgørelse, promotion og dispositionsskrivning i begge lock-orderings. Testene
+skal observere reel ventetilstand med bounded timeout, afvise deadlock/timeout som
+success og bevise, at præcis én side vinder, mens den anden stopper uden partiel
+effekt.
 
 ## 7. Verifikation
 
@@ -283,8 +328,10 @@ for mindst:
 - eksakt event-receipt;
 - reversal-preflight og append-only resultat;
 - re-run efter kontrolleret reversal;
+- en særskilt rerun-komparator, som kun accepterer eksakt reversal-lineage;
 - afvisning ved beslutning, promotion, senere version og fremmed drift;
 - commit-unknown-resultatlæsning;
+- recoveryforbindelsens egen mål- og aktørvalidering samt secret-redaction;
 - prod-wrapperens forbud mod selvautorisation og manglende produktionsflag.
 
 ### 7.2 Syntetiske og databasebaserede beviser

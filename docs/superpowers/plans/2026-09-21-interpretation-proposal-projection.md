@@ -22,6 +22,8 @@
 - Output may contain ids, record keys, predicates, hashes, counts, statuses, and booleans; never source text, claim values, names, or narrative bytes.
 - Every JSON object has a closed key set. Extra and missing keys fail closed.
 - Aggregation uses `COLLATE "C"`; session settings are UTC, `ISO, YMD`, `postgres`, and `extra_float_digits=1`.
+- Receipt row hashes use a dedicated operation-specific canonical JSON function and closed JSON projections, never composite-row text or implicit session formatting. Every timestamp is rendered explicitly in UTC and every key/list order is fixed with `COLLATE "C"`.
+- Proposal apply refuses to replace an affected clause's current human disposition; only a current machine disposition with trigger-valid machine evidence may be versioned by this workflow.
 - The comparator opens no database connection and writes reports mode `0600`.
 - No production connection or production mutation is part of this plan.
 
@@ -45,7 +47,8 @@
 | `.claude/skills/daa-extract/scripts/interpretation_proposal_target_identity.sql` | Target SHA-256 formula. |
 | `.claude/skills/daa-extract/scripts/compare_interpretation_proposal_projection.py` | Closed validation, derivation, comparison, CLI, private report. |
 | `.claude/skills/daa-extract/scripts/test_compare_interpretation_proposal_projection.py` | Synthetic mutation matrix. |
-| `schema.sql` / `db-migrations.sql` | Exact value-free result receipt and receipt hash in proposal events. |
+| `schema.sql` / `db-migrations.sql` | Operation-specific canonical JSON/hash and row-receipt helpers plus exact value-free result receipt and receipt hash in proposal events. |
+| `db-rls.sql` | No-client-execute ACLs for the private receipt helpers. |
 | `db-verify.sql` / `tests/sql/test-interpretation-proposal.sql` | Receipt catalog and row-level contract. |
 | `tests/integration/test-reimport-interpretation-proposal.R` | Disposable PostgreSQL dry-run/apply/replay/projection proof. |
 | `.github/workflows/ci.yml` | New Python and disposable-database gates. |
@@ -188,7 +191,7 @@ Expected: `FileNotFoundError` for the new SQL files.
 
 Use CTEs `guard`, `records`, `accepted`, `bound`, `clause_rows`, `interpretation_rows`, `link_rows`, `run_rows`, `proposal_event_rows`, `reversal_event_rows`, `authorization_rows`, `batch_rows`, `upstream`, `neutral`, and `promotion`. Build exactly the keys in `PROJECTION_KEYS`.
 
-Every detailed row exports ids and a whole-row SHA-256. Export `private.reimport_canonical_json_sha256(i.value) AS value_sha256`, never `i.value`. Event rows expose event metadata plus `payload->'result_receipt'` and its hash; they do not expose the rest of `payload`.
+Every detailed row exports ids and a SHA-256 produced by the dedicated receipt helper for that relation. It must not hash `row::text`, `to_jsonb(row)` with an open column set, or any session-formatted composite value. Export `private.interpretation_proposal_canonical_json_sha256(i.value) AS value_sha256`, never `i.value`. Event rows expose event metadata plus `payload->'result_receipt'` and its hash; they do not expose the rest of `payload`.
 
 `upstream_sha256` hashes whole rows from `source_record`, `source_record_occurrence`, `source_record_anchor_event`, `source_observation`, `source_mention`, `source_persona`, `source_persona_mention`, `source_persona_identity`, `source_persona_identity_event`, `source_record_placement`, `source_record_placement_decision`, `source_persona_placement`, and `source_persona_placement_decision`. `neutral_sha256` includes the clause projection's canonical/public set and other-source interpretation/link/run/disposition rows. `promotion_sha256` hashes all promotion rule, batch, and promotion rows.
 
@@ -225,11 +228,14 @@ Expected: tests PASS and `git diff --check` is empty.
 - Modify: `tests/sql/test-interpretation-proposal.sql`
 - Modify: `schema.sql`
 - Modify: `db-migrations.sql`
+- Modify: `db-rls.sql`
 - Modify: `db-verify.sql`
 
 **Interfaces:**
 - Consumes: one authorized proposal element and rows inserted by `private.write_interpretation_proposal`.
-- Produces: `payload.result_receipt` schema `interpretation-proposal-result-v1` and `after_sha256 = private.reimport_canonical_json_sha256(result_receipt)`.
+- Produces `private.interpretation_proposal_canonical_json_text(jsonb) -> text` and `private.interpretation_proposal_canonical_json_sha256(jsonb) -> text`. The recursive object-key query uses `ORDER BY key COLLATE "C"`; arrays preserve caller order; scalars use JSONB's JSON representation.
+- Produces `private.interpretation_proposal_interpretation_receipt(private.interpretation) -> jsonb`, `private.interpretation_proposal_link_receipt(private.interpretation_observation) -> jsonb`, and `private.interpretation_proposal_disposition_receipt(private.clause_disposition) -> jsonb` with closed, versioned fields.
+- Produces: `payload.result_receipt` schema `interpretation-proposal-result-v1` and `after_sha256 = private.interpretation_proposal_canonical_json_sha256(result_receipt)`.
 
 - [ ] **Step 1: Write failing SQL assertions for the receipt**
 
@@ -246,13 +252,17 @@ IF jsonb_typeof(v_event.payload->'result_receipt') <> 'object'
    OR v_event.payload #>> '{result_receipt,schema_version}'
       <> 'interpretation-proposal-result-v1'
    OR v_event.after_sha256 IS DISTINCT FROM
-      private.reimport_canonical_json_sha256(
+      private.interpretation_proposal_canonical_json_sha256(
         v_event.payload->'result_receipt') THEN
   RAISE EXCEPTION 'PROPOSAL_RESULT_RECEIPT_INVALID';
 END IF;
 ```
 
-Each claim has exactly `claim_id`, `interpretation_id`, `interpretation_key`, `version`, `value_sha256`, `row_sha256`, `extraction_run_id`, and `observations`. Each observation has `observation_id`, `clause_ordinal`, `verbatim_sha256`, `evidence_role`, and `link_ordinal`. Each clause disposition has `observation_id`, `version`, `disposition`, and `row_sha256`. Assert sorted unique arrays and exact row hashes.
+Each claim has exactly `claim_id`, `interpretation_id`, `interpretation_key`, `version`, `value_sha256`, `row_sha256`, `extraction_run_id`, and `observations`. Each observation has `observation_id`, `clause_ordinal`, `verbatim_sha256`, `evidence_role`, `link_ordinal`, and `row_sha256`. Each clause disposition has `observation_id`, `version`, `disposition`, and `row_sha256`. Assert sorted unique arrays and exact row hashes.
+
+First lock each helper's exact JSON keys and values. The interpretation helper includes only the immutable identity/version/status/source/persona/kind/predicate/value-hash/schema/derivation/confidence/method/model/prompt/run/supersedes/decision-evidence/actor/time fields used by this operation; the link helper contains only the two row ids, role, ordinal, and UTC created timestamp; the disposition helper contains only observation id, version, disposition, kind, closed evidence, actor, and UTC created timestamp. Timestamp strings use `to_char(value AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`; nullable fields remain JSON null. Hash only these helper results with `private.interpretation_proposal_canonical_json_sha256`.
+
+Run the same fixtures under at least two session time zones and available collations and require byte-identical receipt JSON and hashes. Add a SQL-to-Python fixture containing non-ASCII JSON, nulls, booleans, numbers, and nested keys; require Python `canonical_sha256` to equal PostgreSQL's operation-specific canonical hash. Do not modify the existing generic canonical helper or any historical profile hash contract.
 
 - [ ] **Step 2: Run the focused SQL and verify it fails**
 
@@ -262,13 +272,13 @@ psql -X -v ON_ERROR_STOP=1 -f tests/sql/test-interpretation-proposal.sql
 
 Expected: `PROPOSAL_RESULT_RECEIPT_INVALID`.
 
-- [ ] **Step 3: Build the receipt inside the writer transaction**
+- [ ] **Step 3: Implement the closed receipt projections and build the receipt inside the writer transaction**
 
 Keep the current interpretation-key algorithm unchanged. Compute receipt value hashes separately:
 
 ```sql
 v_receipt_value_sha :=
-  private.reimport_canonical_json_sha256(v_claim->'value');
+  private.interpretation_proposal_canonical_json_sha256(v_claim->'value');
 ```
 
 Accumulate claims in a temp table keyed by `claim_id` and observations keyed by interpretation/link ordinal. After inserting dispositions, construct:
@@ -289,9 +299,11 @@ v_result_receipt := jsonb_build_object(
 
 Store `result_receipt` alongside the already-authorized payload and run id. Set `after_sha256` only from the receipt. Return `result_receipt_sha256` with the existing counts and run id.
 
+Before appending a proposal disposition, read and lock the current disposition. Reject a human `disposition_kind` and reject machine evidence that does not satisfy the live trigger vocabulary (`manifest_sha256` plus a UUID `batch_id` or `extraction_run_id`). This makes the later reversal able to restore a trigger-valid machine state without overwriting editorial judgment.
+
 - [ ] **Step 4: Mirror the function in migrations and verification**
 
-Use `CREATE OR REPLACE FUNCTION` in `db-migrations.sql`. In `db-verify.sql`, verify function existence, receipt schema, row hashes, ACL stability, and `after_sha256` equality.
+Use `CREATE OR REPLACE FUNCTION` in `db-migrations.sql`. Revoke helper execution from PUBLIC, `anon`, `authenticated`, and `service_role` in both catalog paths. In `db-verify.sql`, verify function existence, exact helper signatures and ACLs, receipt schema, row hashes, cross-time-zone stability, and `after_sha256` equality.
 
 - [ ] **Step 5: Run and commit**
 
@@ -299,7 +311,7 @@ Use `CREATE OR REPLACE FUNCTION` in `db-migrations.sql`. In `db-verify.sql`, ver
 psql -X -v ON_ERROR_STOP=1 -f tests/sql/test-interpretation-proposal.sql
 Rscript -e 'testthat::test_file("tests/testthat/test-apply-reimport.R")'
 git diff --check
-git add schema.sql db-migrations.sql db-verify.sql tests/sql/test-interpretation-proposal.sql
+git add schema.sql db-migrations.sql db-rls.sql db-verify.sql tests/sql/test-interpretation-proposal.sql
 git commit -m "feat: bind proposal events to result receipts"
 ```
 
@@ -468,16 +480,20 @@ Expected final line: `interpretation_proposal integration OK`.
 - Create: `docs/evidensbaseret-genimport/proposal-ingest-147-4-4-projection-rehearsal.md`
 
 **Interfaces:**
-- Consumes: Tasks 1-4.
+- Consumes: Tasks 1-5.
 - Produces: reproducible CI gates and a sanitized PASS/PARTIAL/BLOCKED ledger.
 
 - [ ] **Step 1: Add CI gates**
 
-Add the Python test beside `test_compare_clause_evidence_projection.py`. Invoke the R integration in both disposable catalog orderings, with the same PostgreSQL environment as neighboring integration steps:
+Add the Python test beside `test_compare_clause_evidence_projection.py` in the existing `evidence-contract` job.
+
+Add a dedicated `interpretation-proposal-db` job with PostgreSQL 17 and a two-value `catalog_order` matrix (`schema-rls-migrations`, `schema-migrations-rls`). The job must install R through `r-lib/actions/setup-r@v2`, cache packages with `r-lib/actions/setup-r-dependencies@v2`, and declare the exact minimal packages `DBI`, `RPostgres`, `jsonlite`, `digest`, and `testthat`. For each matrix value, create a fresh database, load the three catalog files in the selected order, run `db-verify.sql` and the focused SQL test, then invoke:
 
 ```yaml
 - run: Rscript tests/integration/test-reimport-interpretation-proposal.R
 ```
+
+Do not rely on the neighboring `evidence-promotion-db` job's environment: it currently has PostgreSQL order coverage but no R toolchain or packages. Both matrix legs must upload only sanitized logs and must fail if the success marker is absent.
 
 - [ ] **Step 2: Run focused and full verification**
 
