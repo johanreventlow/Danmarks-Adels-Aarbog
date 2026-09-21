@@ -172,6 +172,16 @@ Autorisationen bindes til:
 - forventede antal elementer, claims, links og dispositionsversioner;
 - aktør, nonce og kort udløbstid.
 
+Execution-/approval-envelope hasher kun autorisationens uforanderlige binding:
+id, operation, aktør, source/profil, manifest/preview/målbase, counts,
+authorized-elements, nonce, issued-at og expiry-værdien. Mutable `status` og
+`consumed_at` er ikke del af bindingen. Et separat issue-receipt beviser, at de
+var `issued`/NULL ved envelope-oprettelsen. Write modes kræver fortsat live
+`issued`, NULL `consumed_at` og fremtidig expiry; result modes accepterer den
+samme immutable binding efter konsumering og tidsudløb og lader den låste
+result-RPC klassificere `committed|not_started|drift` eller
+`reversed|not_started|drift`.
+
 Reversal og proposal-apply tager først den eksklusive side af den eksisterende
 `daa-narrative-record-contract`-advisory lock, derefter generic writer-lock og
 de eksisterende anchor-advisory keys, før deterministiske `FOR UPDATE`-låse.
@@ -334,8 +344,14 @@ receipt/hash, og hver initial/recoveryforbindelse genlæser live receipt før si
 operation. En fil- eller katalogafvigelse er STOP.
 
 CLI'en har særskilte `proposal-result` og `reversal-result`-kommandoer. Hver
-write/result-kommando kræver den relevante uforanderlige envelope og matcher en
-frisk authorization-readback mod den. Hele processen, inklusive sourcing,
+write/result-kommando kræver den relevante uforanderlige envelope og matcher den
+friske immutable authorization-binding mod den. Kun writes kræver fortsat
+issued/unexpired state; result recovery må ikke blokeres af en legitim
+`issued→consumed`-overgang eller passeret expiry. Interne DB-resultater valideres
+mod særskilte lukkede schemas og oversættes navngivet til lukkede CLI-schemas:
+`manifest_sha256` bliver `manifest_content_sha256`, rå databaseidentitet bliver
+kun target-hash, og `schema_version` valideres uden at blive udskrevet. Hele
+processen, inklusive sourcing,
 parsing, filadgang, subprocess og connect, ligger bag én lukket fejlgrænse:
 kendte koder kan ledsages af validerede
 ids, hashes, feltnavne og counts; ukendte DBI-, connect- og subprocessfejl
@@ -359,8 +375,8 @@ Andre reimportoperationers CLI-kontrakt ændres ikke.
    preview og forventede counts; pakken indeholder ingen autorisation.
 7. Giv eventuelt eksplicit GO mod pre-GO-pakkens hash, udsted én autorisation,
    og lås en separat execution-envelope til pre-GO-hash,
-   deployment-receipt/-contract, GO-kvittering, autorisations-id/udløb/readback,
-   aktør og egen hash. Pre-GO-pakken ændres aldrig.
+   deployment-receipt/-contract, GO-kvittering, immutable autorisationsbinding,
+   issue-receipt, udløbsværdi, aktør og egen hash. Pre-GO-pakken ændres aldrig.
 8. Kør prod-wrapperen én gang mod execution-envelope.
 9. Tag efter-projektion og kør den databasefri komparator.
 10. Kun `match` kan lukke apply; ellers aktiveres recoveryrunbooken.
@@ -413,6 +429,10 @@ for mindst:
 - en særskilt rerun-komparator, som kun accepterer eksakt reversal-lineage;
 - afvisning ved beslutning, promotion, senere version og fremmed drift;
 - commit-unknown-resultatlæsning;
+- særskilt bevarelse af `commit_verified`, `not_started` og `drift`, inklusive
+  recovery efter consumed status og passeret expiry;
+- fælles SQL/R-fixtures for hvert internt RPC-schema og dets navngivne
+  CLI-transformation;
 - recoveryforbindelsens egen mål- og aktørvalidering samt secret-redaction;
 - prod-wrapperens forbud mod selvautorisation og manglende produktionsflag.
 

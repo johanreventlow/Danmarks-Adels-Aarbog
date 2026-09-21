@@ -76,7 +76,8 @@ Cover:
 6. a commit error after finalize does not call rollback or reapply;
 7. the supplied resolver receives authorization id and batch id;
 8. resolver `committed` becomes `commit_verified`;
-9. resolver mismatch becomes `REIMPORT_COMMIT_UNKNOWN_DRIFT`.
+9. resolver `not_started` remains a distinct closed result;
+10. resolver `drift` remains a distinct closed result.
 
 Inject a password, DSN, source value, private path, and arbitrary SQL/DBI message into separate failures. Assert none occurs in returned conditions, JSON, stdout, or stderr. Known allowlisted reimport codes may retain only closed ids/field/count/hash details; every unknown connect/DBI/subprocess/commit exception becomes `INTERPRETATION_PROD_INTERNAL_ERROR` with no original message.
 
@@ -106,7 +107,7 @@ if (identical(authorization_policy, "external")) {
 }
 ```
 
-Move `batch_id` outside the transaction closure. Immediately after `call("begin")`, invoke `transaction_entry()` when supplied, before the existing `advisory_lock` call; do not call or retry it elsewhere. Around only `call("commit")`, catch connection errors, do not call rollback, and call `result_after_commit_error(authorization$id,batch_id)` once. The callback may ignore the process-local batch id and resolve by authorization id. Accept only the proposal-result RPC's fully validated `committed` state; `not_started` or `drift` becomes the drift code with ids only.
+Move `batch_id` outside the transaction closure. Immediately after `call("begin")`, invoke `transaction_entry()` when supplied, before the existing `advisory_lock` call; do not call or retry it elsewhere. Around only `call("commit")`, catch connection errors, do not call rollback, and call `result_after_commit_error(authorization$id,batch_id)` once. The callback may ignore the process-local batch id and resolve by authorization id. Accept exactly the proposal-result RPC's fully validated three-way state: map `committed` to `commit_verified`, preserve `not_started`, and preserve `drift`; never collapse either latter state into another error and never retry. The wrapper emits all three as closed results, with success exit only for `commit_verified`; tests cover automatic and explicit result paths for every state.
 
 Replace every pass-through of `conditionMessage(error)` with the closed error mapper. It extracts only an anchored, allowlisted repository error code and separately validated UUID/hash/field/count details; it never copies arbitrary message tails. Unknown conditions map to the generic internal code. Preserve original conditions only inside tests, never in operator output.
 
@@ -145,7 +146,7 @@ Expected: focused PASS and full R suite `FAIL 0`.
 
 - [ ] **Step 1: Write table-driven red CLI tests**
 
-For each subcommand, test missing, duplicated, unknown, positional, malformed UUID/hash/integer, and wrong guard arguments. Test proposal manifests with mixed dependencies, extra keys, wrong counts, wrong source/profile, mismatched byte hash, mismatched recomputed content hash, and preview byte drift. Mutate every deployment-receipt/pre-GO/envelope key, every SQL or input file byte hash, the embedded receipt/pre-GO hash, deployment-contract hash, GO receipt, authorization readback, actor, target, expiry, and outer envelope hash. Assert the fake gateway call log remains empty.
+For each subcommand, test missing, duplicated, unknown, positional, malformed UUID/hash/integer, and wrong guard arguments. Test proposal manifests with mixed dependencies, extra keys, wrong counts, wrong source/profile, mismatched byte hash, mismatched recomputed content hash, and preview byte drift. Mutate every deployment-receipt/pre-GO/envelope key, every SQL or input file byte hash, the embedded receipt/pre-GO hash, deployment-contract hash, GO receipt, immutable authorization binding, issued-state receipt, actor, target, expiry value, and outer envelope hash. Assert the fake gateway call log remains empty. Separately prove an expired or consumed live authorization is rejected for write modes but still reaches the result RPC for recovery.
 
 The valid proposal contract is:
 
@@ -185,7 +186,11 @@ Expected: source/file-not-found failures.
 
 Implement `parse_interpretation_proposal_prod_cli(args)` and `validate_interpretation_proposal_prod_artifacts(cli)` without DB access. Read files as raw bytes, compare `digest::digest(raw, "sha256", serialize=FALSE)`, parse JSON without simplification, call `validate_reimport_manifest`, and require every dependency class to equal `interpretation_proposal`. Recompute the content hash by invoking the repository-relative `compare_interpretation_proposal_projection.py --print-manifest-sha256 <manifest>` with `/usr/bin/python3`; capture stdout and stderr separately, require exit 0 and exactly one lowercase 64-character stdout line, discard raw stderr, and map all other outcomes to the closed internal error code.
 
-Validate the deployment receipt as a closed JSON object containing exactly schema version, reviewed commit, database target hash, the exact byte hashes of `schema.sql`, `db-migrations.sql`, `db-rls.sql`, `db-verify.sql`, and `tests/sql/test-interpretation-proposal.sql`, narrative contract version, deployment contract SHA-256, deployment timestamp, and its own content hash. Validate the pre-GO package as a closed JSON object containing exactly schema version, commit, script/profile/manifest/preview/SQL byte-hash map, deployment-receipt byte/content hashes, deployment-contract hash, target, source/profile binding, manifest/preview hashes, backup/freeze/counts/rehearsal receipts, and before-projection hash. Validate the execution envelope as a closed JSON object containing exactly schema version, `pre_go_package_sha256`, deployment-receipt hash, deployment-contract hash, GO receipt id/hash, authorization id/expiry/readback hash, expected actor id, target hash, and `execution_envelope_sha256`. Recompute all content hashes excluding their self-hash fields. Require every duplicated artifact/catalog/target/actor/authorization field to equal the CLI and pre-GO values before connect; expiry must still be in the future. Reversal uses an analogous closed approval envelope bound to its approved reversal-state hash/counts, deployment contract, and original execution-envelope hash.
+Validate the deployment receipt as a closed JSON object containing exactly schema version, reviewed commit, database target hash, the exact byte hashes of `schema.sql`, `db-migrations.sql`, `db-rls.sql`, `db-verify.sql`, and `tests/sql/test-interpretation-proposal.sql`, narrative contract version, deployment contract SHA-256, deployment timestamp, and its own content hash. Validate the pre-GO package as a closed JSON object containing exactly schema version, commit, script/profile/manifest/preview/SQL byte-hash map, deployment-receipt byte/content hashes, deployment-contract hash, target, source/profile binding, manifest/preview hashes, backup/freeze/counts/rehearsal receipts, and before-projection hash.
+
+Validate the execution envelope as a closed JSON object containing exactly schema version, `pre_go_package_sha256`, deployment-receipt hash, deployment-contract hash, GO receipt id/hash, authorization id, immutable authorization-binding hash, authorization issue-receipt hash, authorization expiry value, expected actor id, target hash, and `execution_envelope_sha256`. The immutable binding contains authorization id, operation, actor, source/profile/profile SHA, manifest/preview/target, counts, authorized elements, nonce, issued timestamp, and expiry timestamp; it excludes mutable `status` and `consumed_at`. The issue receipt additionally proves that envelope creation observed `status='issued'` and `consumed_at IS NULL`, but result modes validate the signed receipt as history and do not require the live row still to have that state. Recompute all file/content hashes excluding their self-hash fields. Require every duplicated artifact/catalog/target/actor/authorization-binding field to equal the CLI and pre-GO values before connect.
+
+Expiry and mutable-state checks are mode-specific: proposal/reversal dry-run or apply requires live `issued`, null `consumed_at`, and expiry in the future; `proposal-result` and `reversal-result` accept the same immutable binding after `issued→consumed` and after wall-clock expiry, and delegate state classification to the locked result RPC. Reversal uses an analogous closed approval envelope bound to its approved reversal-state hash/counts, immutable reversal-authorization binding/issue receipt, deployment contract, and original execution-envelope hash.
 
 Return a closed list containing parsed manifest, hashes, expected source/profile/target/actor, authorization id, validated pre-GO/envelope hashes and fields, subcommand, and file paths. Do not include manifest operations in printed output.
 
@@ -224,7 +229,7 @@ Use a fake gateway to prove:
 - actor is established inside the decorated generic `begin` only after the target matches and is verified before transaction-entry or any result/preflight/apply RPC;
 - missing/wrong actor and wrong role stop before the operation RPC;
 - preflight returns exact source/profile/auth/manifest/preview binding;
-- authorization readback exactly matches the validated execution envelope before any apply/result RPC;
+- immutable authorization binding exactly matches the validated execution envelope before any apply/result RPC; write modes additionally require live issued/unconsumed/unexpired state, while result modes explicitly accept consumed and expired rows and let the locked RPC classify them;
 - active preexisting proposal stops dry-run and apply;
 - no SQL string contains `red_authorize_reimport` or `red_authorize_interpretation_proposal_reversal`;
 - proposal modes pass `authorization_policy="external"`;
@@ -232,6 +237,7 @@ Use a fake gateway to prove:
 - every initial and resolver connection reads `red_interpretation_proposal_deployment_receipt()` and matches the live target/contract hash to the immutable receipt/envelope before its operation/result RPC;
 - reversal modes call only preflight/apply/result RPCs;
 - commit loss calls result on a fresh connection and never repeats apply/reverse;
+- proposal and reversal result recovery after both a successful `issued→consumed` commit and wall-clock expiry still reaches the result RPC; a changed immutable binding stops;
 - fresh proposal-result and reversal-result connections repeat environment clearing, direct connection, target recomputation/comparison, actor setup/verification, and only then the lock-taking result RPC;
 - wrong target, missing actor, wrong actor, or RPC-before-revalidation on a resolver connection fails closed.
 
@@ -261,18 +267,27 @@ Do not print connection fields.
 
 - [ ] **Step 4: Implement proposal and reversal orchestration**
 
-Proposal preflight first reads `red_interpretation_proposal_deployment_receipt()`, requires its live target and deployment-contract hashes to equal the deployment receipt, pre-GO package, and execution envelope, then reads authorization binding and current proposal existence without mutation. It requires the principal id to equal `--expected-actor-id`, validates source/profile/manifest/preview/target, computes the closed authorization-readback hash, and requires it to equal the execution envelope. Dry-run/apply call `execute_reimport` with external authorization, a transaction-entry callback invoking `red_lock_interpretation_proposal_contract(expected_deployment_contract_sha256)` as the first operation RPC, and a resolver that opens a new connection and invokes `red_reimport_interpretation_proposal_result(authorization_id)` only after repeating capability, target, actor, and deployment-contract checks.
+Proposal preflight first reads `red_interpretation_proposal_deployment_receipt()`, requires its live target and deployment-contract hashes to equal the deployment receipt, pre-GO package, and execution envelope, then reads authorization binding and current proposal existence without mutation. It requires the principal id to equal `--expected-actor-id`, validates source/profile/manifest/preview/target, computes the closed immutable authorization-binding hash, and requires it to equal the execution envelope. Dry-run/apply additionally require live `issued`, null `consumed_at`, and future expiry. They call `execute_reimport` with external authorization, a transaction-entry callback invoking `red_lock_interpretation_proposal_contract(expected_deployment_contract_sha256)` as the first operation RPC, and a resolver that opens a new connection and invokes `red_reimport_interpretation_proposal_result(authorization_id)` only after repeating capability, target, actor, deployment-contract, and immutable-binding checks.
 
-`proposal-result` performs the same fresh-connection target/actor sequence and invokes only that proposal-specific result RPC. It maps `committed` after a lost connection to CLI status `commit_verified`; it reports `not_started` or `drift` verbatim and never retries apply.
+`proposal-result` performs the same fresh-connection target/actor sequence and invokes only that proposal-specific result RPC. It does not require live `issued` status or future expiry. It maps `committed` after a lost connection to CLI status `commit_verified`; it reports `not_started` or `drift` verbatim and never retries apply. Reversal-result follows the same immutable-binding rule after consumed status or expiry.
 
-Reversal preflight calls `red_preflight_interpretation_proposal_reversal`. Reverse dry-run/apply first validates the reversal approval envelope against that state and then wraps `red_reverse_reimport_interpretation_proposal` in a transaction, rolling back or committing. If commit raises, open a new connection, repeat target/actor/envelope validation, and call `red_reimport_interpretation_proposal_reversal_result` exactly once. Both result subcommands perform no data writes, although their transactions permit row/advisory locks.
+Reversal preflight calls `red_preflight_interpretation_proposal_reversal`. Reverse dry-run/apply first validates the reversal approval envelope against that state and then wraps `red_reverse_reimport_interpretation_proposal` in a transaction, rolling back or committing. If commit raises, open a new connection, repeat target/actor/envelope validation, and call `red_reimport_interpretation_proposal_reversal_result` exactly once. Preserve `reversed`, `not_started`, and `drift` as three distinct outcomes through the automatic resolver and explicit command; never map `not_started` to drift. Both result subcommands perform no data writes, although their transactions permit row/advisory locks.
 
 - [ ] **Step 5: Sanitize every result**
 
-Allow only these output keys:
+Validate each internal RPC result against its own exact DB schema before transformation; never apply the external CLI allowlist directly to a DB row. In particular:
+
+- proposal-result accepts exactly `authorization_id`, `batch_id`, `status`, `source_id`, `profile_id`, `manifest_sha256`, `preview_sha256`, and `counts`;
+- reversal-preflight accepts exactly the reversal plan's `schema_version`, `batch_id`, `manifest_sha256`, `source_id`, `profile_id`, `profile_sha256`, `database_identity`, `counts`, `upstream_binding_sha256`, and `proposal_state_sha256`;
+- reversal-result accepts exactly `batch_id`, `authorization_id`, `status`, `proposal_state_sha256`, `reversal_event_id`, and `counts`.
+
+Reject any extra/missing internal key. Then perform one named, tested transformation: validate `database_identity` against the expected target and emit only its target SHA; rename internal `manifest_sha256` to external `manifest_content_sha256`; validate and omit internal `schema_version`; preserve `profile_sha256` and `upstream_binding_sha256` only where present; enrich only with already validated envelope fields such as operation and deployment hash. Shared fixtures produced from the SQL test feed the R validator so either side changing alone turns tests red.
+
+The union of permitted external keys is:
 
 ```r
 c("operation", "status", "source_id", "profile_id",
+  "profile_sha256", "upstream_binding_sha256",
   "database_target_sha256", "deployment_contract_sha256",
   "manifest_content_sha256",
   "preview_sha256", "authorization_id", "batch_id",
@@ -280,7 +295,7 @@ c("operation", "status", "source_id", "profile_id",
   "committed")
 ```
 
-Reject a gateway result with any other key instead of filtering it silently. Catch all top-level conditions through the Task 1 mapper; unit tests and spawned-process tests capture stdout and stderr and require that injected DSNs, passwords, manifest values, subprocess output, and paths are absent.
+Pin an exact external subset per subcommand: proposal-result/apply may emit proposal binding fields but never reversal-state fields; reversal-preflight emits `operation`, `status='ready'`, batch/source/profile/profile SHA/target/deployment/manifest/counts/upstream/state; reversal-result emits operation/status/authorization/batch/target/deployment/state/event/counts. Reject an external object with any other or missing key instead of filtering it silently. Proposal result status is exactly `commit_verified|not_started|drift`; reversal result status is exactly `reversed|not_started|drift`. Catch all top-level conditions through the Task 1 mapper; unit tests and spawned-process tests capture stdout and stderr and require that injected DSNs, passwords, manifest values, subprocess output, and paths are absent.
 
 - [ ] **Step 6: Run tests and commit**
 
@@ -343,7 +358,7 @@ The immutable pre-GO package binds:
 
 It contains no authorization because authorization is issued only after an explicit human GO against that exact package hash. Any changed pre-GO value invalidates GO.
 
-After GO, a separate immutable execution envelope binds the pre-GO package SHA-256, deployment-receipt hash, deployment-contract hash, GO receipt id/hash, apply authorization id and expiry, authorization readback hash (actor/source/profile/manifest/preview/target/counts/authorized-elements/status), expected actor id, and its own envelope SHA-256. The pre-GO package is never edited or replaced. Any file, live catalog, target, authorization mismatch, or expiry invalidates the execution envelope and requires a new explicit decision; the wrapper never performs authorization. The wrapper requires all three files and their expected byte hashes on dry-run, apply, proposal-result, and the corresponding reversal commands, and compares both the live deployment receipt and authorization readback to the envelope before any operation RPC.
+After GO, a separate immutable execution envelope binds the pre-GO package SHA-256, deployment-receipt hash, deployment-contract hash, GO receipt id/hash, apply authorization id, immutable authorization-binding hash, issued-state receipt, expiry value, expected actor id, and its own envelope SHA-256. The immutable hash excludes `status`/`consumed_at`; the issued-state receipt proves they were `issued`/NULL when the envelope was made. The pre-GO package is never edited or replaced. Any file, live catalog, target, or immutable authorization mismatch invalidates every mode. A non-issued/consumed or expired authorization invalidates only dry-run/apply and requires a new explicit decision; it must not block result recovery. The wrapper never performs authorization. It requires all three files and their expected byte hashes on dry-run, apply, proposal-result, and corresponding reversal commands, compares the live deployment receipt and immutable binding before every operation RPC, and lets the locked result RPC classify mutable authorization state.
 
 - [ ] **Step 4: Specify apply, commit-unknown, and reversal matrices**
 
