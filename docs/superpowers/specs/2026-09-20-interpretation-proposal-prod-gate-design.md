@@ -295,8 +295,8 @@ Andre reimportoperationers CLI-kontrakt ændres ikke.
 
 ## 6. Fejlhåndtering
 
-Alle fejl er stabile, maskinlæsbare koder og må kun ledsages af ids, feltnavne og
-counts. Ingen fejl må indeholde kildetekst eller claimværdier.
+Alle fejl er stabile, maskinlæsbare koder og må kun ledsages af ids, hashes,
+feltnavne og counts. Ingen fejl må indeholde kildetekst eller claimværdier.
 
 Fejlgrupperne er:
 
