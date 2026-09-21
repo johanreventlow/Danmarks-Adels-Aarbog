@@ -194,6 +194,22 @@ første generic advisory-lock, preflight eller begin-RPC. RPC'en validerer også
 det forventede deployment-contract-hash. Den generiske executor har en valgfri
 entry-callback med no-op-default, så andre reimportflows ikke ændres.
 
+Rækkefølgen håndhæves også på de underliggende SQL-stier, ikke kun i
+produktionswrapperen. For en ren proposal-autorisation udleder
+`red_begin_reimport` foreløbigt alle `source_record_id`-værdier fra det lukkede
+`authorized_elements`-objekt, tager de sorterede anchor-keys efter writer-locken
+og genlæser derefter autorisationen under `FOR UPDATE`, før authorization- eller
+batchrækker kan låses. `private.write_interpretation_proposal` gentager samme
+provisional-read -> writer-lock -> anchor-lock -> locked-recheck-protokol, så en
+åben batch ikke kan bruges som en alternativ sti med omvendt rækkefølge.
+`private.validate_source_record_anchor_event` og
+`private.validate_source_record_revision_event` flytter tilsvarende anchor-key
+foran deres første occurrence/source-record-rækkelås. Manglende, duplikerede
+eller ændrede record-key-maps afvises efter låsen; den ulåste discovery er aldrig
+autoritet. Result- og reversal-helpers bruger samme provisional discovery,
+sorterede anchor-keys og efterfølgende låste genkontrol. Andre reimportoperationer
+bevarer deres hidtidige låsevej.
+
 `red_decide_interpretation` og `red_promote_interpretations_batch` tager den
 delte narrative-contract-lock før deres første rækkelås, og
 `private.validate_clause_disposition()` tager den delte side for alle direkte
@@ -291,6 +307,15 @@ eksakte counts/events/receipts og aktuelle rækker samt samme aktør og
 databaseidentitet. Åben, delvis, duplikeret eller forkert bundet state er altid
 `drift`.
 
+Proposal-resultatets form er lukket: ved `not_started` og `committed` er source,
+profil, manifest- og previewhash de ikke-null værdier fra den låste immutable
+autorisation; ved `drift` er de fire bindingsfelter, batch-id og counts alle
+JSON null. Manglende eller tvetydig autorisation er også dette lukkede
+`drift`-resultat, mens malformed input, manglende caller-capability eller forkert
+deployment-contract er en navngiven exception. Reversal-resultatet returnerer
+eventets eksisterende bigint-identitet som en positiv base-10-streng ved
+`reversed`, aldrig som UUID eller et JSON-tal, og null i de øvrige tilstande.
+
 En lukket authorization-binding-RPC er gyldig før/efter consumption og expiry
 og producerer DB-hashene til execution-envelope. Result-RPC'erne modtager de
 forventede immutable authorization- og deployment-contract-hashes og validerer
@@ -351,6 +376,14 @@ må generic source/profile-lock, preflight, authorization-preflight og
 rolle/claims. Der findes intet ydre eller andet `BEGIN`. Efter både commit og
 rollback skal `current_user=session_user`, og claims skal være nulstillet; det
 bevises på en virkelig non-superuser-forbindelse og ved eksakt SQL-capture.
+
+Efter ethvert apply-commitforsøg frakobles og kasseres den oprindelige
+forbindelse uden rollback, før en resolverforbindelse må åbnes. Det gælder også,
+når `dbCommit` kaster. Kan forbindelsen ikke kasseres verificerbart, returneres
+en saniteret intern fejl, og den automatiske resolver startes ikke; operatøren
+kan senere bruge den eksplicitte result-kommando i en frisk proces. Derved kan
+den tvetydige forbindelse ikke selv beholde advisory-locken og blokere sin
+resolver.
 
 Et lukket deployment-receipt binder reviewet commit og bytehashes for
 `schema.sql`, `db-migrations.sql`, `db-rls.sql`, `db-verify.sql` og den fokuserede

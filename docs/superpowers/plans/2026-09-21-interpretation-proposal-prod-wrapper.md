@@ -43,24 +43,24 @@
 | `.claude/skills/daa-extract/scripts/interpretation_proposal_prod.R` | Thin command entry point. |
 | `.claude/skills/daa-extract/scripts/test_interpretation_proposal_prod.R` | Script-local testthat contract. |
 | `tests/testthat/test-interpretation-proposal-prod.R` | Repository test runner coverage. |
-| `.claude/skills/daa-extract/scripts/apply_reimport_helpers.R` | External-authorization and commit-unknown hooks with backward-compatible defaults. |
+| `.claude/skills/daa-extract/scripts/apply_reimport_helpers.R` | Consume the projection delivery's external-authorization and transaction-entry hooks; add connection-discard, commit-unknown, and sanitizer hooks with backward-compatible defaults. |
 | `tests/testthat/test-apply-reimport.R` | Generic executor regression tests. |
 | `schema.sql` / `db-migrations.sql` / `db-rls.sql` / `db-verify.sql` | Proposal-result RPC used when apply commit outcome is unknown (implemented by the reversal plan prerequisite). |
 | `docs/runbooks/interpretation-proposal-prod-apply.md` | Operator procedure, GO package, recovery matrix, prohibited actions. |
 | `docs/evidensbaseret-genimport/proposal-ingest-147-4-4-prod-gate-rehearsal.md` | Fresh-restore evidence receipt. |
 | `docs/evidensbaseret-genimport/status.md` | Update only after every gate has evidence; otherwise leave 4.4 partial. |
 
-### Task 1: Make external authorization and commit-unknown explicit in the generic executor
+### Task 1: Add safe commit-unknown resolution to the generic executor
 
 **Files:**
 - Modify: `.claude/skills/daa-extract/scripts/apply_reimport_helpers.R`
 - Modify: `tests/testthat/test-apply-reimport.R`
 
 **Interfaces:**
+- Consumes the projection delivery's already-tested `authorization_policy = c("auto_dry_run", "external")` and `transaction_entry = NULL`; do not redefine or defer either hook to this delivery.
 - Extend `execute_reimport` with:
-  - `authorization_policy = c("auto_dry_run", "external")`, default `auto_dry_run`;
-  - `transaction_entry = NULL`, invoked immediately after `begin` and before every generic advisory-lock or preflight call;
-  - `result_after_commit = NULL`, invoked after every apply commit attempt, whether `dbCommit` returned normally or raised a connection error.
+  - `result_after_commit = NULL`, invoked after every apply commit attempt, whether `dbCommit` returned normally or raised a connection error, but only after the original gateway connection has been discarded successfully.
+- Add an idempotent gateway `disconnect` operation that performs no rollback. Refactor apply commit handling so the executor always calls `commit`, then `disconnect`, then—when supplied—the fresh resolver; a commit exception never enters the ordinary rollback handler.
 - Structured commit-unknown condition fields: `code`, `authorization_id`, `batch_id`.
 - Produces one closed `sanitize_reimport_error(condition) -> list(code,details)` mapper used by executor and production wrapper.
 - Existing callers and `apply_reimport.R` behavior remain unchanged.
@@ -68,17 +68,17 @@
 - [ ] **Step 1: Write failing executor tests**
 
 Cover:
-1. `external` requires an authorization for dry-run and apply;
-2. `external` never calls gateway `authorize`;
-3. a supplied transaction-entry callback runs exactly once after `begin` and before `advisory_lock`, `preflight`, `preflight_authorization`, or `begin_batch`;
-4. a transaction-entry failure rolls back and no later gateway operation runs;
-5. dry-run uses the supplied id, then rolls back;
-6. neither a normal commit nor a commit error calls rollback or reapply after the commit attempt;
-7. the supplied resolver is called exactly once after both normal and error returns and receives authorization id and batch id;
-8. the executor never exposes its local `finalized` as production success before resolver verification;
-9. resolver `committed` becomes `commit_verified`;
-10. resolver `not_started` remains a distinct closed result;
-11. resolver `drift` remains a distinct closed result.
+1. the prerequisite external policy still requires an authorization for both modes and never calls gateway `authorize`;
+2. the prerequisite transaction-entry callback still runs exactly once after `begin` and before `advisory_lock`, `preflight`, `preflight_authorization`, or `begin_batch`;
+3. a transaction-entry failure rolls back and no later gateway operation runs;
+4. dry-run uses the supplied id, then rolls back;
+5. neither a normal commit nor a commit error calls rollback or reapply after the commit attempt;
+6. exact normal order is `commit -> disconnect -> resolver`;
+7. exact connection-error order is attempted `commit -> disconnect -> resolver`, and the old connection is absent before the resolver opens its fresh one;
+8. a disconnect error is sanitized, suppresses automatic resolver invocation, performs no rollback/reapply, and directs recovery to the explicit result command;
+9. the supplied resolver is called exactly once after both normal and commit-error returns when discard succeeded and receives authorization id and batch id;
+10. the executor never exposes its local `finalized` as production success before resolver verification;
+11. resolver `committed` becomes `commit_verified`, while `not_started` and `drift` remain distinct closed results.
 
 Inject a password, DSN, source value, private path, and arbitrary SQL/DBI message into separate failures. Assert none occurs in returned conditions, JSON, stdout, or stderr. Known allowlisted reimport codes may retain only closed ids/field/count/hash details; every unknown connect/DBI/subprocess/commit exception becomes `INTERPRETATION_PROD_INTERNAL_ERROR` with no original message.
 
@@ -92,23 +92,13 @@ Rscript -e 'testthat::test_file("tests/testthat/test-apply-reimport.R")'
 
 Expected: failures for unknown arguments and commit behavior.
 
-- [ ] **Step 3: Implement backward-compatible policy selection**
+- [ ] **Step 3: Implement backward-compatible transaction and commit handling**
 
-Resolve authorization as:
+Preserve the projection delivery's authorization-policy and transaction-entry implementations byte-for-byte except where tests require a compatible call-signature extension.
 
-```r
-authorization_policy <- match.arg(authorization_policy)
-if (identical(authorization_policy, "external")) {
-  validate_reimport_authorization(authorization)
-  resolved_authorization <- authorization
-} else {
-  if (identical(mode, "apply")) validate_reimport_authorization(authorization)
-  resolved_authorization <- call(
-    "authorize", manifest, preview_sha256, mode, authorization)
-}
-```
+Move `batch_id` outside the transaction closure while preserving the projection delivery's exact transaction-entry location immediately after `call("begin")` and before `advisory_lock`; do not move, duplicate, or retry that callback. Around only `call("commit")`, capture whether it returned or raised, and mark the transaction outcome unknown once the attempt begins. From that point, never call rollback. Invoke the idempotent `call("disconnect")` without rollback and require it to return before `result_after_commit(authorization$id,batch_id)` may run. Refactor the DBI gateway so `commit` no longer owns disconnect; every executor apply path performs the explicit disconnect, preserving existing successful-call cleanup while also covering a throwing `dbCommit`. If disconnect itself fails, drop the process-local connection reference, emit only `INTERPRETATION_PROD_INTERNAL_ERROR` with a closed `recovery_command='proposal-result'` detail, and do not start the resolver in that process; never include the DBI/disconnect message.
 
-Move `batch_id` outside the transaction closure. Immediately after `call("begin")`, invoke `transaction_entry()` when supplied, before the existing `advisory_lock` call; do not call or retry it elsewhere. Around only `call("commit")`, record whether it returned or raised a connection error, never roll back after the attempt, and invoke `result_after_commit(authorization$id,batch_id)` exactly once in either case when supplied. Production proposal apply requires the callback; existing callers retain `NULL` and their current behavior. The callback opens a fresh validated connection and may ignore the process-local batch id because authorization id is the recovery key. Accept exactly its fully validated three-way state: map `committed` to `commit_verified`, preserve `not_started`, and preserve `drift`; never expose the executor's local `finalized` as production success, collapse states, or retry. The wrapper emits all three as closed results, with success exit only for `commit_verified`; tests cover normal commit, commit error, and explicit result paths for every state.
+When discard succeeds, invoke `result_after_commit` exactly once after both normal and failed commit attempts. Production proposal apply requires the callback; existing callers retain `NULL` and their current verified-local behavior after disconnect. The callback opens a fresh validated connection and may ignore the process-local batch id because authorization id is the recovery key. Accept exactly its fully validated three-way state: map `committed` to `commit_verified`, preserve `not_started`, and preserve `drift`; never expose the executor's local `finalized` as production success, collapse states, or retry. The wrapper emits all three as closed results, with success exit only for `commit_verified`; tests cover normal commit, commit error, disconnect error, and explicit result paths for every state.
 
 Replace every pass-through of `conditionMessage(error)` with the closed error mapper. It extracts only an anchored, allowlisted repository error code and separately validated UUID/hash/field/count details; it never copies arbitrary message tails. Unknown conditions map to the generic internal code. Preserve original conditions only inside tests, never in operator output.
 
@@ -261,7 +251,7 @@ The default connection factory passes the captured `SUPABASE_*` values directly 
 
 The production decorator's implementation of the generic `call("begin")` is the sole transaction owner. On the already validated connection it performs, in order, exactly one `DBI::dbBegin`, the literal `SET LOCAL ROLE authenticated`, transaction-local `request.jwt.claim.sub=--expected-actor-id` and `request.jwt.claim.role=authenticated`, then verifies `session_user` is the already checked operator login, `current_user='authenticated'`, `auth.uid()` equals that UUID, and `public.current_rolle()='redaktion'`. It returns only after all checks pass. The decorated `call("preflight")` must not repeat or mutate role/claims; it delegates only to the generic data/authorization preflight. Existing non-production gateways retain their current preflight behavior.
 
-`execute_reimport` then immediately invokes its `transaction_entry`: the wrapper calls `red_lock_interpretation_proposal_contract(expected_deployment_contract_sha256)`. The RPC authenticates the already established actor without taking a narrative shared lock, then takes the exclusive contract lock before any shared/row lock or contract-state read; its closed return is the authoritative in-transaction live deployment receipt. Only after that callback succeeds may the existing generic `advisory_lock`, `preflight`, authorization preflight, or `begin_batch` RPC run. There is no outer transaction and no second `BEGIN`. Ordinary standalone preflight may use a separate `READ ONLY` transaction. Result RPCs are semantically read-only but intentionally use one normal transaction because their race-safe contract takes advisory locks and `FOR UPDATE`; they use the same begin/role/claim lifecycle but no generic executor. Disconnect and discard the connection on any failure.
+`execute_reimport` then immediately invokes its `transaction_entry`: the wrapper calls `red_lock_interpretation_proposal_contract(expected_deployment_contract_sha256)`. The RPC authenticates the already established actor without taking a narrative shared lock, then takes the exclusive contract lock before any shared/row lock or contract-state read; its closed return is the authoritative in-transaction live deployment receipt. Only after that callback succeeds may the existing generic `advisory_lock`, `preflight`, authorization preflight, or `begin_batch` RPC run. There is no outer transaction and no second `BEGIN`. Ordinary standalone preflight may use a separate `READ ONLY` transaction. Result RPCs are semantically read-only but intentionally use one normal transaction because their race-safe contract takes advisory locks and `FOR UPDATE`; they use the same begin/role/claim lifecycle but no generic executor. Disconnect and discard the connection on any pre-commit failure after rollback. Once an apply commit has been attempted, never rollback: invoke the Task 1 no-rollback `disconnect` and require it to finish before opening the result connection. A discard failure is sanitized and suppresses the automatic resolver so the possibly live connection cannot self-block a fresh resolver.
 
 Unit and spawned-process tests record every gateway/SQL action and require the complete order above, including actor verification before `proposal_contract_lock`. A real non-superuser PostgreSQL integration test asserts the exclusive advisory lock is held before `red_preflight_reimport_authorization` is invoked. For both success and injected failure, test `BEGIN; SET LOCAL ROLE authenticated; ...; COMMIT/ROLLBACK;` and then assert outside the transaction that `current_user=session_user` and transaction-local JWT claims are absent. Reject any session-scoped `SET ROLE authenticated` spelling in source/black-box SQL capture.
 
@@ -286,6 +276,8 @@ Validate each internal RPC result against its own exact DB schema before transfo
 - reversal-result accepts exactly `schema_version`, `batch_id`, `authorization_id`, `status`, `proposal_state_sha256`, `reversal_event_id`, and `counts`.
 
 Reject any extra/missing internal key. Validate the exact schema-version constant, status-specific nullability, and nested counts keys from the reversal plan. Then perform one named, tested transformation: validate `database_identity` against the expected target and emit only its target SHA; rename internal `manifest_sha256` to external `manifest_content_sha256`; omit the validated internal `schema_version`; preserve `profile_sha256` and `upstream_binding_sha256` only where present; enrich only with already validated envelope fields such as operation and deployment hash. Shared fixtures produced from the SQL test feed the R validator so either side changing alone turns tests red.
+
+Pin the proposal-result matrix in the R validator as well: `not_started` has null batch but non-null source/profile/manifest/preview binding; `committed` has a UUID batch and the same non-null binding; `drift` has null batch, source, profile, manifest, preview, and counts. Pin reversal `reversal_event_id` as null for `not_started|drift` and as a canonical positive decimal string within signed-bigint range for `reversed`; reject UUIDs, JSON numbers, leading zeroes, signs, exponent notation, and out-of-range values.
 
 The union of permitted external keys is:
 

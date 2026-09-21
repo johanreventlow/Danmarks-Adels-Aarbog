@@ -430,15 +430,22 @@ Expected: all tests PASS.
 ### Task 5: Prove dry-run, apply, match, and replay in PostgreSQL
 
 **Files:**
+- Modify: `.claude/skills/daa-extract/scripts/apply_reimport_helpers.R`
+- Modify: `tests/testthat/test-apply-reimport.R`
 - Create: `tests/integration/test-reimport-interpretation-proposal.R`
 
 **Interfaces:**
 - Consumes: disposable database with current schema/RLS/migrations and Tasks 1-3.
+- Extends `execute_reimport` with `authorization_policy = c("auto_dry_run", "external")`, default `auto_dry_run`; `external` requires a supplied authorization for dry-run and apply and never calls the gateway authorizer.
+- Extends `execute_reimport` with `transaction_entry = NULL`, invoked exactly once immediately after `gateway$call("begin")` returns and before `advisory_lock`, preflight, authorization, or batch calls. The default is a no-op, so existing callers are unchanged. This first delivery supplies the hook that the following reversal plan binds to its exclusive contract-lock RPC.
+- Extends `new_reimport_dbi_gateway` with an optional transaction-local setup callback invoked once by `begin`, after `DBI::dbBegin` and before returning; the default is `NULL`, so existing callers are unchanged. This is the integration seam for literal `SET LOCAL ROLE authenticated`, local claims, and actor verification, not a session-scoped role switch.
 - Produces: terminal marker `interpretation_proposal integration OK`.
 
 - [ ] **Step 1: Build the synthetic fixture and red stop**
 
 Reuse source record, accepted anchor, parent observation, clauses, primary mention, persona, profile, actor, and authorization patterns from `test-reimport-clause-evidence.R`. Use a nonce for source id, record key, hashes, and profile. Create two claims; both cite clause 1, and the `other` claim also cites clause 2. Execute—not merely grep—the owner and anon guards, then stop with `RED: apply flow not implemented`.
+
+First add focused red executor tests: external policy without authorization fails for both modes; supplied external authorization bypasses `gateway$call("authorize")`; default policy preserves every existing call sequence; the gateway transaction-setup callback runs exactly once inside `begin` after `DBI::dbBegin`; the executor transaction-entry runs exactly once after that completed `begin` and before `advisory_lock`; either callback failing rolls back and prevents later operations; and SQL capture rejects session-scoped `SET ROLE authenticated`. These tests belong to this first sequential delivery—the later reversal and production-wrapper plans consume, rather than introduce, external authorization and transaction-entry.
 
 Add disposable-database negative schedules that invoke the effective SQL bodies with: a READ WRITE transaction; READ COMMITTED READ ONLY; anon SQL as owner; owner SQL after `SET LOCAL ROLE anon`; and owner/anon partials in separate sessions with a committed mutation between them. Require the named read-only/isolation/role/snapshot code and no projection output. Run source mutants with each effective guard predicate removed while leaving its comment/literal intact; at least one runtime case must fail its expected rejection, proving static string presence alone cannot pass the gate.
 
@@ -454,13 +461,17 @@ Expected: FAIL at the explicit red marker.
 
 ```r
 before_counts <- proposal_counts(con, source_id)
-dry <- execute_reimport(manifest, preview_sha, "dry-run", gateway(), NULL)
+dry_authorization <- authorize_as_service_role(manifest, preview_sha)
+dry <- execute_reimport(
+  manifest, preview_sha, "dry-run", gateway(),
+  list(id = dry_authorization), authorization_policy = "external")
 stopifnot(identical(dry$status, "finalized"), isFALSE(dry$committed),
           identical(proposal_counts(con, source_id), before_counts))
 before_path <- write_private("before.json", projection())
+apply_authorization <- authorize_as_service_role(manifest, preview_sha)
 applied <- execute_reimport(
   manifest, preview_sha, "apply", gateway(),
-  list(id = authorize(manifest, preview_sha)))
+  list(id = apply_authorization), authorization_policy = "external")
 stopifnot(identical(applied$status, "finalized"), isTRUE(applied$committed))
 after_text <- projection()
 after_path <- write_private("after.json", after_text)
@@ -469,7 +480,8 @@ stopifnot(matched$status == 0L,
           grepl('"status": "match"', matched$out, fixed = TRUE))
 replay <- execute_reimport(
   manifest, preview_sha, "apply", gateway(),
-  list(id = replay_authorization <- authorize(manifest, preview_sha)))
+  list(id = replay_authorization <- authorize_as_service_role(manifest, preview_sha)),
+  authorization_policy = "external")
 stopifnot(identical(replay$status, "already_applied"))
 replayed_path <- write_private("replayed.json", projection())
 replay_match <- run_replay_comparator(
@@ -485,7 +497,8 @@ Mutate one receipt hash in a copied projection and require `INTERPRETATION_PROJE
 
 ```bash
 Rscript tests/integration/test-reimport-interpretation-proposal.R
-git add tests/integration/test-reimport-interpretation-proposal.R
+Rscript -e 'testthat::test_file("tests/testthat/test-apply-reimport.R")'
+git add .claude/skills/daa-extract/scripts/apply_reimport_helpers.R tests/testthat/test-apply-reimport.R tests/integration/test-reimport-interpretation-proposal.R
 git commit -m "test: prove interpretation proposal projection"
 ```
 
@@ -507,9 +520,9 @@ Add the Python test beside `test_compare_clause_evidence_projection.py` in the e
 
 Add a dedicated `interpretation-proposal-db` job with PostgreSQL 17 and a two-value `catalog_order` matrix (`schema-rls-migrations`, `schema-migrations-rls`). The job installs R through `r-lib/actions/setup-r@v2`, uses `r-lib/actions/setup-r-dependencies@v2` with `extra-packages: any::DBI, any::RPostgres, any::jsonlite, any::digest, any::testthat`, and sets the five explicit `PG*` variables used by the existing DB jobs.
 
-For each matrix leg, create a fresh database and run `tests/sql/evidence-promotion-bootstrap.sql` first so `anon`, `authenticated`, `service_role`, `auth.uid()`, Storage shims, `pgcrypto`, and schemas exist. As owner, create a dedicated `daa_proposal_ci NOINHERIT LOGIN`, `GRANT authenticated TO daa_proposal_ci`, grant only the minimum `pg_control_system()` target-identity capability if it is not already executable, and assert that it is non-superuser with explicit membership. Load `schema.sql`, `db-rls.sql`, and two idempotent `db-migrations.sql` passes in the selected ordering, finish with `db-rls.sql`, then run `tests/sql/test-interpretation-proposal.sql` and `tests/sql/run-db-verify-disposable.sql`, which installs `extensions.dblink` and its required fixtures. The later reversal delivery owns the production-like service-role grant fixture and its final-ACL gate; projection completion does not depend on a file from that later plan.
+For each matrix leg, create a fresh database and run `tests/sql/evidence-promotion-bootstrap.sql` first so `anon`, `authenticated`, `service_role`, `auth.uid()`, Storage shims, `pgcrypto`, and schemas exist. As owner, create two dedicated non-superuser roles: `daa_proposal_ci NOINHERIT LOGIN` with membership only in `authenticated`, and `daa_proposal_authorizer_ci NOINHERIT LOGIN` with membership only in `service_role`. Grant only `daa_proposal_ci` the minimum `pg_control_system()` target-identity capability if it is not already executable, and assert both logins are non-superuser with their exact explicit memberships. Load `schema.sql`, `db-rls.sql`, and two idempotent `db-migrations.sql` passes in the selected ordering, finish with `db-rls.sql`, then run `tests/sql/test-interpretation-proposal.sql` and `tests/sql/run-db-verify-disposable.sql`, which installs `extensions.dblink` and its required fixtures. The later reversal delivery owns the production-like service-role table-grant fixture and its final-ACL gate; projection completion does not depend on a file from that later plan.
 
-As `daa_proposal_ci`, execute the exact lifecycle `BEGIN; SET LOCAL ROLE authenticated;` plus transaction-local claims and actor verification, then test both `COMMIT` and `ROLLBACK`; after each, require `current_user=session_user` and absent transaction-local claims. Source/SQL-capture tests reject session-scoped `SET ROLE authenticated`. Run the R integration through this login, with `DAA_REIMPORT_TEST_ROLE=authenticated`, so neither connection ownership nor superuser bypass can satisfy the client-surface assertions. Add negative integration cases for a nonmember login and a superuser login. Finally invoke:
+Issue the dry-run, apply, and replay authorizations on short-lived connections as `daa_proposal_authorizer_ci`: `BEGIN; SET LOCAL ROLE service_role;` set transaction-local actor claims, verify the expected actor, call only `red_authorize_reimport`, commit, disconnect, and pass only the resulting UUID into the operation flow. The operation connection must never hold service-role membership. As `daa_proposal_ci`, execute the exact lifecycle `BEGIN; SET LOCAL ROLE authenticated;` plus transaction-local claims and actor verification through the new transaction-setup callback, then test both `COMMIT` and `ROLLBACK`; after each, require `current_user=session_user` and absent transaction-local claims. Source/SQL-capture tests reject session-scoped `SET ROLE authenticated`. Run the R integration through this login, with `DAA_REIMPORT_TEST_ROLE=authenticated`, so neither connection ownership nor superuser bypass can satisfy the client-surface assertions. Add negative integration cases for a nonmember login, a superuser login, an operation login attempting authorization, and an authorizer login attempting proposal DML. Finally invoke:
 
 ```yaml
 - run: Rscript tests/integration/test-reimport-interpretation-proposal.R
