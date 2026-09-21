@@ -1,7 +1,7 @@
 # 4.4 fortolkningsforslag: produktionsgate og append-only reversal
 
 **Dato:** 2026-09-20  
-**Status:** Udkast af godkendt design; afventer skriftligt review; ingen produktionsmutation  
+**Status:** Godkendt 2026-09-20; ingen produktionsmutation
 **Issue:** #196  
 **Roadmap:** trin 4, den fælles fortolkningskæde og klausulgranularitet (#147/#148)
 
