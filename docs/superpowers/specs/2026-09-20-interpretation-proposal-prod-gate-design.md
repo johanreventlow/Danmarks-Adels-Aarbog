@@ -195,20 +195,24 @@ det forventede deployment-contract-hash. Den generiske executor har en valgfri
 entry-callback med no-op-default, så andre reimportflows ikke ændres.
 
 Rækkefølgen håndhæves også på de underliggende SQL-stier, ikke kun i
-produktionswrapperen. For en ren proposal-autorisation udleder
-`red_begin_reimport` foreløbigt alle `source_record_id`-værdier fra det lukkede
-`authorized_elements`-objekt, tager de sorterede anchor-keys efter writer-locken
-og genlæser derefter autorisationen under `FOR UPDATE`, før authorization- eller
-batchrækker kan låses. `private.write_interpretation_proposal` gentager samme
-provisional-read -> writer-lock -> anchor-lock -> locked-recheck-protokol, så en
-åben batch ikke kan bruges som en alternativ sti med omvendt rækkefølge.
+produktionswrapperen. For en ren proposal-autorisation udleder både
+`red_preflight_reimport_authorization` og `red_begin_reimport` foreløbigt alle
+`source_record_id`-værdier fra det lukkede `authorized_elements`-objekt, tager
+de sorterede anchor-keys efter writer-locken og genlæser derefter autorisationen
+under `FOR UPDATE`, før authorization- eller batchrækker kan låses. Den
+proposal-aware preflight tager dermed anchor-keys før den første
+authorization-rækkelås; wrapperen kalder den før den ulåste, lukkede
+authorization-binding-læser. `private.write_interpretation_proposal` gentager
+samme provisional-read -> writer-lock -> anchor-lock -> locked-recheck-protokol,
+så en åben batch ikke kan bruges som en alternativ sti med omvendt rækkefølge.
 `private.validate_source_record_anchor_event` og
 `private.validate_source_record_revision_event` flytter tilsvarende anchor-key
 foran deres første occurrence/source-record-rækkelås. Manglende, duplikerede
 eller ændrede record-key-maps afvises efter låsen; den ulåste discovery er aldrig
 autoritet. Result- og reversal-helpers bruger samme provisional discovery,
-sorterede anchor-keys og efterfølgende låste genkontrol. Andre reimportoperationer
-bevarer deres hidtidige låsevej.
+sorterede anchor-keys og efterfølgende låste genkontrol. Den standalone
+authorization-binding-RPC tager ingen rækkelås og er aldrig operationens
+autoritet alene. Andre reimportoperationer bevarer deres hidtidige låsevej.
 
 `red_decide_interpretation` og `red_promote_interpretations_batch` tager den
 delte narrative-contract-lock før deres første rækkelås, og
