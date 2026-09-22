@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import evidence_extract
 import evidence_runner
+from compare_interpretation_proposal_projection import ProjectionError, strict_json_loads
 from evidence_runner import (canonical_record_input, partition_record_claims,
                              sha256_text)
 
@@ -43,6 +44,17 @@ LEGACY_CACHE_KEY_FIELDS = ("profile_id", "profile_version", "model", "prompt_sha
                            "record_input_sha256", "claims_schema_sha256",
                            "runner_contract_version")
 LEGACY_RUNNER_CONTRACT_VERSION = "evidence-runner-1.0"
+
+
+def parse_cached_raw_claims(raw: str) -> list:
+    """Decode cache JSON strictly before the existing claim boundary sees it."""
+    try:
+        payload = strict_json_loads(raw)
+    except ProjectionError as exc:
+        raise ValueError("CACHE_RAW_JSON_INVALID") from exc
+    if not isinstance(payload, dict) or set(payload) != {"claims"} or not isinstance(payload["claims"], list):
+        raise ValueError("CACHE_RAW_JSON_INVALID")
+    return payload["claims"]
 
 
 def legacy_cache_key(ident: dict) -> str:
@@ -218,7 +230,11 @@ def main() -> int:
         for k in usage_sum:
             usage_sum[k] += post["usage"].get(k, 0)
 
-        raa = json.loads(post["raw"]).get("claims", [])
+        try:
+            raa = parse_cached_raw_claims(post["raw"])
+        except ValueError:
+            print("CACHE_RAW_JSON_INVALID")
+            return 1
         n_raa += len(raa)
 
         # Re-kør kontraktvalideringen: cachens `raw` rummer ALLE modellens claims,
