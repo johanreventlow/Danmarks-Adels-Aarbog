@@ -149,6 +149,15 @@ writer, state-hash og komparator bruger samme golden-byte-kontrakt. Den
 eksisterende generelle kanoniske helper ændres ikke, fordi ældre profilhashes er
 en bagudkompatibilitetsgrænse.
 
+Den generelle receipt-kanonisering ovenfor dækker DB-producerede strukturfelter.
+Proposal-manifestets claim-værdier har en snævrere transportkontrakt: hvert
+numerisk token, også rekursivt i arrays/objekter, skal være et matematisk heltal
+i `[-9007199254740991,9007199254740991]`. Python-validator, R-parser/serializer
+og SQL-writer håndhæver alle samme grænse; `±2^53` og signed-bigint-grænser
+afvises før writes. Dermed kan den eksisterende `jsonlite`-baserede generiske
+executor roundtrippe alle accepterede claim-værdier tabsfrit. En reel
+R→PostgreSQL-grænsetest beviser både de accepterede endepunkter og afvisningerne.
+
 Manifestets `claim_id` er transportidentitet, ikke databasefortolkningens UUID.
 Den levende `key_version=1`-algoritmes eksakte materialetekst flyttes
 byte-identisk til én privat SQL-helper. Særskilte SHA- og UUID-helpers kalder
@@ -413,6 +422,16 @@ kendte koder kan ledsages af validerede
 ids, hashes, feltnavne og counts; ukendte DBI-, connect- og subprocessfejl
 bliver en generisk intern kode. Rå condition-messages, DSN'er, passwords,
 filstier og værdier må aldrig udskrives.
+
+Alle reversal-kommandoer genlæser deployment-receiptet, den oprindelige
+proposal-pre-GO-pakke og den oprindelige proposal-execution-envelope fra
+obligatoriske path/hash-argumenter. Reversal dry-run/apply/result kræver desuden
+den særskilte reversal approval-envelope, hvis
+`original_pre_go_package_sha256` og `original_execution_envelope_sha256` skal
+matche de faktisk genlæste bytes. Transitive hashes uden de oprindelige filer er
+ikke tilstrækkelige. Validatoren returnerer særskilte lukkede objekter for
+proposal-, reversal-preflight- og reversal-write/result-familierne og opfinder
+aldrig manglende manifest- eller envelopefelter.
 
 Den generelle `apply_reimport.R` og dens gateway genbruges som intern motor.
 Andre reimportoperationers CLI-kontrakt ændres ikke.
