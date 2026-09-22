@@ -125,8 +125,10 @@ sammenholder disse med manifestets egne kanoniske hashes.
 - sorterede observationslinks med observation-id, klausulordinal,
   `verbatim_sha256`, evidensrolle og linkordinal;
 - berørte klausuldispositioners observation-id samt lukkede `before`- og
-  `written`-receipts med version, disposition og helrækkehash. Flere events på
-  samme klausul skal danne én ubrudt kæde tilbage til samme præ-batch-baseline.
+  `written`-receipts med version, disposition og helrækkehash. Der er præcis ét
+  proposal-event pr. source record i en batch; flere claims inde i samme event
+  kan citere samme klausul, men foldes til én disposition. En tvær-event-kæde
+  på samme klausul er ikke en tilladt succesvej og afvises fail-closed.
 
 `after_sha256` er hash af det lukkede resultat-receipt, ikke en løs optælling.
 Receiptet er den eksakte write-set-binding for projektion, commit-unknown og
@@ -142,7 +144,10 @@ heltal som numeriske værdier. U+0000 afvises ved raw-file-grænsen, fordi
 PostgreSQL `jsonb` ikke kan repræsentere tegnet. SQL normaliserer et integralt
 `numeric` til `bigint::text`; Python parser tal med `Decimal` og anvender samme
 regel. Derfor giver `1`, `1.0` og `1e0` samme bytes, alle negative nulformer
-giver `0`, og kun ikke-integrale eller out-of-range tal afvises. Timestamps og
+giver `0`, og kun ikke-integrale eller out-of-range tal afvises. Den samme
+normalisering sker før builderens claim-id/key-dedup og før manifest-emission,
+så semantisk ens tal ikke kan blive forskellige claims før de kollapser ved
+R/SQL-transport. Timestamps og
 egentlige decimalfelter i row-receipts er normaliserede strenge. Hver relation
 har et versionsfast, lukket JSON-feltsæt. SQL-projektion,
 writer, state-hash og komparator bruger samme golden-byte-kontrakt. Den
@@ -363,7 +368,10 @@ Den:
   `interpretation_proposal`;
 - verificerer manifestbytes, manifesthash, preview-hash, source, profil og
   forventet databaseidentitet samt bytehash og indhold af deployment-receipt,
-  pre-GO-pakke og execution-envelope;
+  pre-GO-pakke, faktisk menneskelig GO-kvittering og execution-envelope;
+- genlæser den lukkede, relative filinventarliste fra pre-GO-pakken under sin
+  egen repository-rod, kræver det anmeldte commit og ren worktree, og stopper
+  før connect ved enhver fil- eller checkoutafvigelse;
 - kræver en allerede udstedt autorisation og må aldrig kalde
   autorisations-RPC'en;
 - kræver et ordret, eksplicit produktionsflag;
@@ -429,12 +437,14 @@ bliver en generisk intern kode. Rå condition-messages, DSN'er, passwords,
 filstier og værdier må aldrig udskrives.
 
 Alle reversal-kommandoer genlæser deployment-receiptet, den oprindelige
-proposal-pre-GO-pakke og den oprindelige proposal-execution-envelope fra
-obligatoriske path/hash-argumenter. Reversal dry-run/apply/result kræver desuden
-et særskilt lukket menneskeligt approval-receipt og reversal approval-envelope.
+proposal-pre-GO-pakke, den oprindelige menneskelige GO-kvittering og den
+oprindelige proposal-execution-envelope fra obligatoriske path/hash-argumenter.
+Reversal dry-run/apply/result kræver desuden et særskilt lukket menneskeligt
+approval-receipt og reversal approval-envelope.
 Receiptet binder approval-id, approver, batch, batchens oprindelige proposal-
 authorization-id/binding, state-hash, counts, deployment og originale
-artifacthashes. Envelope binder receipt-id/hash og reversal-autorisationen.
+artifacthashes, inklusive GO-receiptets bytehash. Envelope binder receipt-id/hash
+og reversal-autorisationen.
 Envelope-felterne
 `original_pre_go_package_sha256` og `original_execution_envelope_sha256` skal
 matche de faktisk genlæste bytes. Transitive hashes uden de oprindelige filer er
@@ -455,12 +465,15 @@ Andre reimportoperationers CLI-kontrakt ændres ikke.
 4. Tag backup og restore netop den backup.
 5. Gennemfør fuld rehearsal, inklusive proposal-reversal og korrigeret genkørsel.
 6. Lås et deployment-receipt og en uforanderlig pre-GO-pakke til commit,
-   databaseidentitet, SQL-/wrapperfiler, live catalog-contract-hash, manifest,
+   databaseidentitet, en lukket relativ SQL-/wrapper-/profil-/projection-
+   filinventarliste med bytehashes, live catalog-contract-hash, manifest,
    preview og forventede counts; pakken indeholder ingen autorisation.
-7. Giv eventuelt eksplicit GO mod pre-GO-pakkens hash, udsted én autorisation,
-   og lås en separat execution-envelope til pre-GO-hash,
-   deployment-receipt/-contract, GO-kvittering, immutable autorisationsbinding,
-   issue-receipt, udløbsværdi, aktør og egen hash. Pre-GO-pakken ændres aldrig.
+7. Giv eventuelt eksplicit GO i en lukket kvittering mod pre-GO-pakkens hash,
+   med beslutning, approver, tidspunkt, mål og deployment-contract. Udsted først
+   derefter én autorisation, og lås en separat execution-envelope til pre-GO-hash,
+   deployment-receipt/-contract, GO-kvitteringens id og bytehash, immutable
+   autorisationsbinding, issue-receipt, udløbsværdi, aktør og egen hash. Pre-GO-
+   pakken ændres aldrig.
 8. Kør prod-wrapperen én gang mod execution-envelope; efter commitforsøget skal
    en frisk låst result-RPC bekræfte `committed`, også når commit returnerede
    uden klientfejl.

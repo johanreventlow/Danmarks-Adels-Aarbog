@@ -23,6 +23,8 @@
 - Every JSON object has a closed key set. Extra and missing keys fail closed.
 - Aggregation uses `COLLATE "C"`; session settings are UTC, `ISO, YMD`, `postgres`, and `extra_float_digits=1`.
 - Receipt row hashes use a dedicated operation-specific canonical JSON function and closed JSON projections, never composite-row text or implicit session formatting. Every timestamp and numeric/decimal row field is rendered as a normalized string, JSON structural counts/versions are signed 64-bit integers, and every key/list order is fixed with `COLLATE "C"`. Proposal **input claim values** have the stricter JSON-safe integer range `[-9007199254740991,9007199254740991]` because they cross the R/jsonlite transport boundary.
+- The builder normalizes every accepted recursive claim value before claim-id/key derivation, deduplication, and manifest emission. Therefore `1`, `1.0`, and `1e0` are one semantic value everywhere; raw numeric spelling must never create distinct claims that collapse only after R/SQL transport.
+- One `interpretation_proposal` element/event is permitted per `(source_id, source_record_key)` in a batch. Multiple claims inside that one event may cite the same clause and are folded to one disposition; a cross-event shared-clause chain is not a supported success path.
 - Proposal apply refuses to replace an affected clause's current human disposition; only a current machine disposition with trigger-valid machine evidence may be versioned by this workflow.
 - The comparator opens no database connection and writes reports mode `0600`.
 - No production connection or production mutation is part of this plan.
@@ -52,6 +54,7 @@
 | `db-verify.sql` / `tests/sql/test-interpretation-proposal.sql` | Receipt catalog and row-level contract. |
 | `tests/integration/test-reimport-interpretation-proposal.R` | Disposable PostgreSQL dry-run/apply/replay/projection proof. |
 | `.github/workflows/ci.yml` | New Python and disposable-database gates. |
+| `.claude/skills/daa-extract/scripts/build_43b_proposal_manifest.py` / `test_build_43b_proposal_manifest.py` | Normalize claim values before existing key derivation and prove semantic numeric duplicates collapse before manifest emission. |
 | `docs/evidensbaseret-genimport/proposal-ingest-147-4-4-projection-rehearsal.md` | Sanitized evidence receipt. |
 
 ### Task 1: Lock the closed projection and manifest schemas
@@ -59,10 +62,12 @@
 **Files:**
 - Create: `.claude/skills/daa-extract/scripts/compare_interpretation_proposal_projection.py`
 - Create: `.claude/skills/daa-extract/scripts/test_compare_interpretation_proposal_projection.py`
+- Modify: `.claude/skills/daa-extract/scripts/build_43b_proposal_manifest.py`
+- Modify: `.claude/skills/daa-extract/scripts/test_build_43b_proposal_manifest.py`
 
 **Interfaces:**
 - Consumes: 4.4 manifest schema from `build_43b_proposal_manifest.py`.
-- Produces: `compute_manifest_sha256(manifest: dict[str, Any]) -> str` using the already-shipped manifest JSON convention; `proposal_canonical_bytes(value: Any) -> bytes` and `proposal_canonical_sha256(value: Any) -> str` for the new SQL-shared restricted byte contract; `target_sha256(identity: dict[str, Any]) -> str`; `compare_apply(manifest: Any, before: Any, after: Any, expected_target_sha256: str) -> dict[str, Any]`; `compare_replay(after: Any, replayed: Any, replay_authorization_id: str, expected_target_sha256: str) -> dict[str, Any]`; and `ProjectionError(code, details)`.
+- Produces: `compute_manifest_sha256(manifest: dict[str, Any]) -> str` using the already-shipped manifest JSON convention; `normalize_interpretation_proposal_claim_value(value: Any) -> Any`, `proposal_canonical_bytes(value: Any) -> bytes`, and `proposal_canonical_sha256(value: Any) -> str` for the new SQL-shared restricted byte contract; `target_sha256(identity: dict[str, Any]) -> str`; `compare_apply(manifest: Any, before: Any, after: Any, expected_target_sha256: str) -> dict[str, Any]`; `compare_replay(after: Any, replayed: Any, replay_authorization_id: str, expected_target_sha256: str) -> dict[str, Any]`; and `ProjectionError(code, details)`. The builder imports the normalizer; no second numeric canonicalizer is allowed.
 
 - [ ] **Step 1: Write failing tests for exact schemas**
 
@@ -95,6 +100,8 @@ CITATION_KEYS = frozenset({"ordinal", "verbatim_sha256"})
 ```
 
 Mutate one key at every manifest and projection level. Assert `INTERPRETATION_PROJECTION_MANIFEST_INVALID` or `INTERPRETATION_PROJECTION_SHAPE_INVALID` and assert the rejected value is absent from error details.
+
+Add builder fixtures whose same record, predicate, and cited-clause set appears with `1`, `1.0`, and `1e0`, including nested arrays and objects. Assert that normalization emits base-10 integer JSON values, gives all three spellings one identical key material, and emits exactly one claim rather than letting distinct builder claim ids collide later in SQL. Pin that strings such as `"1.0"` remain strings, and that fractional, non-finite, `±2^53`, and recursively out-of-range numeric tokens fail before any manifest is written.
 
 - [ ] **Step 2: Run tests and verify the missing module fails**
 
@@ -129,7 +136,7 @@ class ProjectionError(ValueError):
         self.details = details or {}
 ```
 
-Validate positive integer source id, lowercase 64-character hashes, unique operation and claim ids, `interpretation_proposals == len(operations)`, zeros for the other count keys, and closed nested keys. Claim values may contain strings, objects, arrays, booleans, null, and mathematical integers only in the inclusive JSON-safe range `[-9007199254740991,9007199254740991]`; this is deliberately narrower than signed bigint so R can parse and serialize every accepted token exactly. Load the operation-hash view with a strict JSON decoder using `parse_float=Decimal` and `parse_int=int`; its `parse_constant` rejects NaN/Infinity, its pairs hook rejects duplicate object keys, and it rejects U+0000 and lone surrogates before PostgreSQL `jsonb` parsing. Normalize every accepted integral `Decimal`/integer token—including `1.0`, `1e0`, and `-0`—to the same base-10 integer bytes; reject non-integral, `±2^53`, signed-bigint boundary, and other out-of-range claim values. Booleans are not numbers. The already-shipped manifest-content hash remains on its existing JSON convention and is computed from its own ordinary parse, so this new operation receipt contract cannot change historical manifest hashes. Derive expected claim rows keyed by `(element_id, claim_id)` and links keyed by `(element_id, claim_id, link_ordinal)`; keep only `value_sha256` after validation.
+Validate positive integer source id, lowercase 64-character hashes, unique operation and claim ids, `interpretation_proposals == len(operations)`, zeros for the other count keys, and closed nested keys. Claim values may contain strings, objects, arrays, booleans, null, and mathematical integers only in the inclusive JSON-safe range `[-9007199254740991,9007199254740991]`; this is deliberately narrower than signed bigint so R can parse and serialize every accepted token exactly. Load the operation-hash view with a strict JSON decoder using `parse_float=Decimal` and `parse_int=int`; its `parse_constant` rejects NaN/Infinity, its pairs hook rejects duplicate object keys, and it rejects U+0000 and lone surrogates before PostgreSQL `jsonb` parsing. Normalize every accepted integral `Decimal`/integer token—including `1.0`, `1e0`, and `-0`—to the same base-10 integer value and bytes; reject non-integral, `±2^53`, signed-bigint boundary, and other out-of-range claim values. Booleans are not numbers. Make `build_43b_proposal_manifest.py` parse every cached raw claim through this same strict decoder, normalize `claim["value"]` recursively **before** `interpretation_key_input`, `sete_noegler` deduplication, `claim_id` assignment, and manifest emission, and keep the normalized value in the emitted manifest. The already-shipped manifest-content hash remains on its existing JSON convention and is computed from its own ordinary parse, so this new operation receipt contract cannot change historical manifest hashes. Derive expected claim rows keyed by `(element_id, claim_id)` and links keyed by `(element_id, claim_id, link_ordinal)`; keep only `value_sha256` after validation.
 
 - [ ] **Step 4: Run the schema tests**
 
@@ -279,7 +286,7 @@ Expected: `PROPOSAL_RESULT_RECEIPT_INVALID`.
 
 - [ ] **Step 3: Implement the closed receipt projections and build the receipt inside the writer transaction**
 
-Move the current interpretation-key calculation byte-for-byte into `private.interpretation_proposal_key_material`; make both key-material SHA and UUID helpers call it, and call the UUID helper from the writer. Add golden SQL fixtures proving the material text, its SHA, and UUID equal the pre-change inline expression for string and object values; projection/state recompute through the same helpers. The receipt's `key_material_sha256` must equal the SHA helper and must never be synthesized from `claim_id` or from the new receipt canonicalizer. Compute receipt value hashes separately:
+Move the current interpretation-key calculation into `private.interpretation_proposal_key_material`; for strings and already canonical object values it remains byte-for-byte the existing `interpretation-key-1` formula. The builder normalizes accepted numeric claim values before this formula, and SQL verifies that the received `jsonb` is already normalized before it calls the helper. Make both key-material SHA and UUID helpers call it, and call the UUID helper from the writer. Add golden SQL fixtures proving the material text, its SHA, and UUID equal the pre-change inline expression for string and object values, plus cross-language fixtures proving `1`/`1.0`/`1e0` produce one key. Projection/state recompute through the same helpers. The receipt's `key_material_sha256` must equal the SHA helper and must never be synthesized from `claim_id` or from the new receipt canonicalizer. Compute receipt value hashes separately:
 
 Before computing either key material or value hash, recursively validate every numeric token in the authorized claim value as integral and within `[-9007199254740991,9007199254740991]`. This SQL check is independent of the Python/R checks and runs on the exact `jsonb` value received by the writer; any fractional or wider value fails before the first interpretation/link/disposition write.
 
@@ -288,7 +295,7 @@ v_receipt_value_sha :=
   private.interpretation_proposal_canonical_json_sha256(v_claim->'value');
 ```
 
-Accumulate claims in a temp table keyed by `claim_id` and observations keyed by interpretation/link ordinal. For each affected clause, lock and require exactly one current trigger-valid machine disposition before the first write. Record that exact `before` receipt and the newly inserted `written` receipt. If another element in the same batch touches the clause, require a contiguous chain where its `before` equals the preceding event's `written`; never replace the original baseline. After inserting dispositions, construct:
+Accumulate claims in a temp table keyed by `claim_id` and observations keyed by interpretation/link ordinal. Enforce one proposal element/event per source record in the authorized payload and reject duplicate record-key/element pairs before `begin_batch`; the live foreign-clause predicate means another record cannot share its clause. Within that one event, collapse multiple claim citations for one observation to one disposition using the documented `afventer_identitet` precedence. For each affected clause, lock and require exactly one current trigger-valid machine disposition before the first write, then record that exact `before` receipt and one `written` receipt. After inserting dispositions, construct:
 
 ```sql
 v_result_receipt := jsonb_build_object(
@@ -306,7 +313,7 @@ v_result_receipt := jsonb_build_object(
 
 Store `result_receipt` alongside the already-authorized payload and run id. Set `after_sha256` only from the receipt. Return `result_receipt_sha256` with the existing counts and run id.
 
-Before appending a proposal disposition, read and lock the current disposition. Reject absence, a human `decided_by_kind`, and machine evidence that does not satisfy the live trigger vocabulary (`manifest_sha256` plus a UUID `batch_id` or `extraction_run_id`). This makes the later reversal able to deduplicate shared clauses and restore the one exact pre-batch state without inventing absence or overwriting editorial judgment. Add a two-element/shared-clause fixture and prove both event receipts form one contiguous chain from the same original baseline.
+Before appending a proposal disposition, read and lock the current disposition. Reject absence, a human `decided_by_kind`, and machine evidence that does not satisfy the live trigger vocabulary (`manifest_sha256` plus a UUID `batch_id` or `extraction_run_id`). This makes reversal restore one exact pre-batch state without inventing absence or overwriting editorial judgment. Add one-element fixtures with multiple claims citing one clause and prove they create exactly one disposition receipt; separately prove a duplicate source-record element is rejected before a second event and a foreign-record citation is rejected by the live writer.
 
 - [ ] **Step 4: Mirror the function in migrations and verification**
 
