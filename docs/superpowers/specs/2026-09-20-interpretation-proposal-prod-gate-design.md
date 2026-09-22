@@ -180,6 +180,8 @@ resultatlæsning.
 Autorisationen bindes til:
 
 - batch-id, manifesthash, source, profil og databaseidentitet;
+- batchens oprindelige proposal-authorization-id og dens genberegnede immutable
+  binding hash;
 - batchens eksakte, genberegnede proposal-state-hash;
 - forventede antal elementer, claims, links og dispositionsversioner;
 - aktør, nonce og kort udløbstid.
@@ -194,14 +196,17 @@ samme immutable binding efter konsumering og tidsudløb og lader den låste
 result-RPC klassificere `committed|not_started|drift` eller
 `reversed|not_started|drift`.
 
-Reversal og proposal-apply tager først den eksklusive side af den eksisterende
-`daa-narrative-record-contract`-advisory lock, derefter generic writer-lock og
-de eksisterende anchor-advisory keys, før deterministiske `FOR UPDATE`-låse.
-Proposal-wrapperen gør dette gennem en navngiven transaction-entry-RPC, der
-kaldes umiddelbart efter `BEGIN`, rolle-/aktøropsætning og før executorens
-første generic advisory-lock, preflight eller begin-RPC. RPC'en validerer også
-det forventede deployment-contract-hash. Den generiske executor har en valgfri
-entry-callback med no-op-default, så andre reimportflows ikke ændres.
+Reversal og proposal-apply følger én orden, der også omfatter klientlåsen:
+først executorens eksisterende source/profile `daa-reimport:*` advisory lock,
+så den eksklusive side af `daa-narrative-record-contract`, derefter den private
+generic writer-lock og de sorterede anchor-advisory keys, før deterministiske
+`FOR UPDATE`-låse. Proposal-wrapperen tager contract-locken gennem en navngiven
+transaction-entry-RPC, der kaldes umiddelbart efter gateway-låsen og før
+preflight eller begin-RPC. RPC'en validerer også det forventede
+deployment-contract-hash. Den generiske executor har en valgfri post-advisory
+entry-callback med no-op-default, så andre reimportflows bevarer deres live
+gateway-lock → shared narrative-lock-rækkefølge. To-sessionstests mod et
+uændret generic flow beviser begge startordener uden deadlock.
 
 Rækkefølgen håndhæves også på de underliggende SQL-stier, ikke kun i
 produktionswrapperen. For en ren proposal-autorisation udleder både
@@ -382,10 +387,10 @@ ikke arve mål- eller aktørvalidering fra den tabte forbindelse.
 På apply er den dekorerede generic gateway den eneste transaktionsejer. Dens
 `connect` validerer target/capability; dens ene `begin` udfører `DBI::dbBegin`,
 ordret `SET LOCAL ROLE authenticated`, transaktionslokale claims og
-aktørverifikation; executorens umiddelbare transaction-entry tager derpå den
-eksklusive kontraktlås og validerer live deployment-contract; først derefter
-må generic source/profile-lock, preflight, authorization-preflight og
-`begin_batch` køre. Produktionsgatewayens `preflight` ændrer ikke længere
+aktørverifikation; executorens eksisterende source/profile gateway-lock tages
+derpå, og transaction-entry tager så den eksklusive kontraktlås og validerer
+live deployment-contract; først derefter må preflight,
+authorization-preflight og `begin_batch` køre. Produktionsgatewayens `preflight` ændrer ikke længere
 rolle/claims. Der findes intet ydre eller andet `BEGIN`. Efter både commit og
 rollback skal `current_user=session_user`, og claims skal være nulstillet; det
 bevises på en virkelig non-superuser-forbindelse og ved eksakt SQL-capture.
@@ -426,7 +431,11 @@ filstier og værdier må aldrig udskrives.
 Alle reversal-kommandoer genlæser deployment-receiptet, den oprindelige
 proposal-pre-GO-pakke og den oprindelige proposal-execution-envelope fra
 obligatoriske path/hash-argumenter. Reversal dry-run/apply/result kræver desuden
-den særskilte reversal approval-envelope, hvis
+et særskilt lukket menneskeligt approval-receipt og reversal approval-envelope.
+Receiptet binder approval-id, approver, batch, batchens oprindelige proposal-
+authorization-id/binding, state-hash, counts, deployment og originale
+artifacthashes. Envelope binder receipt-id/hash og reversal-autorisationen.
+Envelope-felterne
 `original_pre_go_package_sha256` og `original_execution_envelope_sha256` skal
 matche de faktisk genlæste bytes. Transitive hashes uden de oprindelige filer er
 ikke tilstrækkelige. Validatoren returnerer særskilte lukkede objekter for
