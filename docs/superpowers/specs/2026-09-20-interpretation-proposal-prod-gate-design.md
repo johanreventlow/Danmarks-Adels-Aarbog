@@ -144,10 +144,12 @@ heltal som numeriske værdier. U+0000 afvises ved raw-file-grænsen, fordi
 PostgreSQL `jsonb` ikke kan repræsentere tegnet. SQL normaliserer et integralt
 `numeric` til `bigint::text`; Python parser tal med `Decimal` og anvender samme
 regel. Derfor giver `1`, `1.0` og `1e0` samme bytes, alle negative nulformer
-giver `0`, og kun ikke-integrale eller out-of-range tal afvises. Den samme
-normalisering sker før builderens claim-id/key-dedup og før manifest-emission,
-så semantisk ens tal ikke kan blive forskellige claims før de kollapser ved
-R/SQL-transport. Timestamps og
+giver `0`, og kun ikke-integrale eller out-of-range tal afvises i den generiske
+manifest-/transportkontrakt. Den nuværende 4.3b-builder er en snævrere producer:
+dens predicate-kontrakt afviser numeriske claim-værdier før claim-id/key-dedup
+og manifest-emission. #196 udvider ikke den kontrakt; talækvivalens bevises ved
+den generiske manifest/R/SQL-grænse, ikke ved en umulig builder-succesfixture.
+Timestamps og
 egentlige decimalfelter i row-receipts er normaliserede strenge. Hver relation
 har et versionsfast, lukket JSON-feltsæt. SQL-projektion,
 writer, state-hash og komparator bruger samme golden-byte-kontrakt. Den

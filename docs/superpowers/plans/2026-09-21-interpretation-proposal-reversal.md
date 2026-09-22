@@ -173,7 +173,7 @@ git commit -m "feat: authorize exact proposal reversals"
 Snapshot row counts and current semantic state. Reverse once and assert:
 - one new `superseded` version per proposal;
 - copied observation links;
-- one new disposition version per distinct affected clause restoring the exact `before` receipt at the start of the batch, even when multiple proposal events touched that clause;
+- one new disposition version per distinct affected clause restoring the exact `before` receipt at the start of the batch when multiple claims inside its one proposal event touched that clause; cross-event reuse is a separate rejection fixture, never a success path;
 - unchanged counts of extraction runs and proposal events;
 - one reversal event;
 - consumed authorization;
