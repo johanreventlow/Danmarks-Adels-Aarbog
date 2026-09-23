@@ -21,9 +21,11 @@ name: CI
 
 on:
   pull_request:
+    # Kun docs/ og rod-niveau-.md (`*` matcher ikke `/`). IKKE `**/*.md`: CI-
+    # testene læser hash-bundne prompt-filer under .claude/skills/*/references/.
     paths-ignore:
       - 'docs/**'
-      - '**/*.md'
+      - '*.md'
   workflow_dispatch:
 
 # Nyeste push på en ref annullerer igangværende kørsler på samme ref.
