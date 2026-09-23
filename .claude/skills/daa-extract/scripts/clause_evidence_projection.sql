@@ -5,8 +5,8 @@
 -- Neutralitet maales paa hele raekker pr. tabel, ikke paa antal.
 -- Guard-fejl rejses som tekst-til-integer-cast af en ikke-konstant streng, saa
 -- planneren ikke kan konstant-folde den.
--- Gengivelsen af x::text afhaenger af TimeZone, DateStyle, IntervalStyle og
--- extra_float_digits. Driveren fastlaaser dem med SET LOCAL foer denne fil koeres,
+-- Gengivelsen af x::text afhaenger af TimeZone, DateStyle, IntervalStyle,
+-- extra_float_digits og bytea_output. Driveren fastlaaser dem med SET LOCAL foer denne fil koeres,
 -- og guarden herunder asserterer dem, saa foer- og efter-koersler i forskellige
 -- shells ikke kan give falsk drift alene fordi gengivelsen skiftede.
 WITH guard AS (
@@ -22,6 +22,7 @@ WITH guard AS (
         OR current_setting('DateStyle') <> 'ISO, YMD'
         OR current_setting('IntervalStyle') <> 'postgres'
         OR current_setting('extra_float_digits') <> '1'
+        OR current_setting('bytea_output') <> 'hex'
         THEN ('CLAUSE_PROJECTION_SESSION_SETTINGS_INVALID:' || current_setting('TimeZone'))::int
       ELSE 1
     END AS ok,

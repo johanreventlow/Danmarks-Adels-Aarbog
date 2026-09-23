@@ -145,15 +145,25 @@ projection <- function() {
   out
 }
 sql_text <- function(name) paste(readLines(file.path(scripts_dir, name), warn = FALSE), collapse = "\n")
-guard_error <- function(sql, read_only) {
+guard_error <- function(sql, read_only, setup = character()) {
   pc <- connect(); on.exit(dbDisconnect(pc), add = TRUE)
   dbBegin(pc); on.exit(try(dbRollback(pc), silent = TRUE), add = TRUE, after = FALSE)
   if (read_only) dbExecute(pc, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
   dbGetQuery(pc, "SELECT set_config('daa.projection_source_id', $1, true)", params = list(as.character(source_id)))
+  for (statement in setup) dbExecute(pc, statement)
   tryCatch({ dbGetQuery(pc, sql); "ingen fejl" }, error = function(err) conditionMessage(err))
 }
 stopifnot(grepl("CLAUSE_PROJECTION_NOT_READ_ONLY", guard_error(sql_text("clause_evidence_projection.sql"), FALSE), fixed = TRUE))
 stopifnot(grepl("CLAUSE_PROJECTION_NOT_ANON", guard_error(sql_text("clause_evidence_anon_projection.sql"), TRUE), fixed = TRUE))
+# Alle andre gengivelsesindstillinger er korrekte; kun bytea_output afviger. Begge
+# guards hasher x::text og skal derfor afvise sessionen.
+escape_session <- c("SET LOCAL TimeZone TO 'UTC'", "SET LOCAL DateStyle TO 'ISO, YMD'",
+  "SET LOCAL IntervalStyle TO 'postgres'", "SET LOCAL extra_float_digits TO 1",
+  "SET LOCAL bytea_output TO 'escape'")
+stopifnot(grepl("CLAUSE_PROJECTION_SESSION_SETTINGS_INVALID",
+  guard_error(sql_text("clause_evidence_projection.sql"), TRUE, escape_session), fixed = TRUE))
+stopifnot(grepl("CLAUSE_PROJECTION_SESSION_SETTINGS_INVALID",
+  guard_error(sql_text("clause_evidence_anon_projection.sql"), TRUE, c(escape_session, "SET LOCAL ROLE anon")), fixed = TRUE))
 target_sha <- q(sql_text("clause_evidence_target_identity.sql"))$database_target_sha256[[1L]]
 stopifnot(grepl("^[0-9a-f]{64}$", target_sha))
 run_comparator <- function(before_path, after_path, report_name, target = target_sha) {

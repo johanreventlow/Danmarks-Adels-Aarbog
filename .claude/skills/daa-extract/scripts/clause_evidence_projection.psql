@@ -15,6 +15,7 @@ SET LOCAL TimeZone = 'UTC';
 SET LOCAL DateStyle = 'ISO, YMD';
 SET LOCAL IntervalStyle = 'postgres';
 SET LOCAL extra_float_digits = 1;
+SET LOCAL bytea_output = 'hex';
 SELECT set_config('daa.projection_source_id', :'source_id', true) AS projection_source_id \gset
 :main_sql \gset
 SET LOCAL ROLE anon;
