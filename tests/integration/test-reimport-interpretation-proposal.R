@@ -225,7 +225,8 @@ comparator <- function(args) run_cmd(python,
   c(shQuote(file.path(scripts, "compare_interpretation_proposal_projection.py")), args))
 compare_fresh <- function(before, after, report) comparator(c("--mode", "fresh",
   "--manifest", shQuote(built$path), "--before", shQuote(before), "--after", shQuote(after),
-  "--expect-target-sha256", target$out, "--report", shQuote(file.path(private_dir, report))))
+  "--expect-target-sha256", target$out, "--expect-preview-sha256", preview_sha,
+  "--expect-principal-id", actor, "--report", shQuote(file.path(private_dir, report))))
 compare_replay <- function(after, replayed, authorization_id, report) comparator(c("--mode", "replay",
   "--after", shQuote(after), "--replayed", shQuote(replayed),
   "--replay-authorization-id", authorization_id,
