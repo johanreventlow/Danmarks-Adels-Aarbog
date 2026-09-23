@@ -2789,6 +2789,23 @@ BEGIN
      OR has_function_privilege('authenticated','private.write_interpretation_proposal(uuid,text,jsonb)','EXECUTE') THEN
     RAISE EXCEPTION 'INVALID: #147 4.4 authorization/ACL';
   END IF;
+  -- #196: ingen klientrolle må kalde de private receipt-/nøglehjælpere (review I7).
+  IF EXISTS (
+    SELECT 1 FROM unnest(ARRAY[
+      'private.interpretation_proposal_canonical_json_text(jsonb)',
+      'private.interpretation_proposal_canonical_json_sha256(jsonb)',
+      'private.normalize_interpretation_proposal_value(jsonb)',
+      'private.interpretation_proposal_key_material(bigint,text,text,jsonb,jsonb)',
+      'private.interpretation_proposal_key_material_sha256(bigint,text,text,jsonb,jsonb)',
+      'private.interpretation_proposal_key(bigint,text,text,jsonb,jsonb)',
+      'private.interpretation_proposal_interpretation_receipt(private.interpretation)',
+      'private.interpretation_proposal_link_receipt(private.interpretation_observation)',
+      'private.interpretation_proposal_disposition_receipt(private.clause_disposition)'
+    ]) fn CROSS JOIN unnest(ARRAY['anon','authenticated','service_role']) r
+    WHERE to_regprocedure(fn) IS NULL OR has_function_privilege(r, fn, 'EXECUTE')
+  ) THEN
+    RAISE EXCEPTION 'INVALID: #196 interpretation_proposal receipt helper ACL';
+  END IF;
   RAISE NOTICE 'OK: #147 4.4 interpretation_proposal writer, key and ACL';
 END $interpretation_proposal_writer_verify$;
 

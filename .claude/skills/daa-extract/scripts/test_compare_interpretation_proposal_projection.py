@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 import copy
+import hashlib
 import json
 import os
 import sys
@@ -580,7 +581,10 @@ def test_preexisting_target_fails_closed(preexisting):
     if preexisting == "event":
         b["proposal_events"] = [copy.deepcopy(after["proposal_events"][0])]
     else:
-        b["interpretations"] = [copy.deepcopy(after["interpretations"][0])]
+        # Samme nøgle som en NY fortolkning, men en ældre række (andet id).
+        b["interpretations"] = [dict(copy.deepcopy(after["interpretations"][0]),
+                                     interpretation_id="90000000-0000-4000-8000-00000000000f")]
+        after["interpretations"].append(copy.deepcopy(b["interpretations"][0]))
     error(lambda: cp.compare_apply(manifest(), b, after,
                                    cp.target_sha256(b["database_target_identity"])),
           "INTERPRETATION_PROJECTION_PREEXISTING_TARGET")
@@ -840,3 +844,84 @@ def test_cli_no_go_exits_one_and_writes_same_sanitized_report(tmp_path, capsys):
     assert terminal == stored == {
         "status": "no-go", "code": "INTERPRETATION_PROJECTION_CANONICAL_DRIFT", "details": {"part": "neutral_sha256"},
     }
+
+
+def test_manifest_hash_follows_the_builders_ordinary_float_parse():
+    """Review I3: a builder manifest carrying confidence 1.0 must hash as the builder did."""
+    m = manifest()
+    m["operations"][0]["claims"][0]["confidence"] = 1.0
+    body = {key: value for key, value in m.items() if key != "manifest_content_sha256"}
+    m["manifest_content_sha256"] = hashlib.sha256(json.dumps(
+        body, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    reparsed = cp.strict_json_loads(json.dumps(m))
+    assert cp.validate_manifest(reparsed) is reparsed
+
+
+def test_rows_outside_accepted_anchors_may_lack_record_key():
+    """Review I4: a foreign, un-anchored clause/link/interpretation must not break the shape."""
+    b, a = before(), correctly_applied()
+    for projection_value in (b, a):
+        foreign_clause = dict(projection_value["clauses"][0], record_key=None,
+                              observation_id="90000000-0000-4000-8000-00000000000a")
+        projection_value["clauses"].append(foreign_clause)
+        projection_value["interpretations"].append(dict(
+            a["interpretations"][0], interpretation_id="90000000-0000-4000-8000-00000000000b",
+            interpretation_key="90000000-0000-4000-8000-00000000000c", record_key=None,
+            key_material_sha256=None, key_matches=False, extraction_run_id=None))
+        projection_value["interpretation_links"].append(dict(
+            a["interpretation_links"][0], interpretation_id="90000000-0000-4000-8000-00000000000b",
+            record_key=None))
+    result = cp.compare_apply(manifest(), b, a, cp.target_sha256(b["database_target_identity"]))
+    assert result["status"] == "match"
+
+
+def test_before_disposition_from_a_prior_proposal_is_accepted():
+    """Review I5: the writer accepts any trigger-valid machine before-row, incl. one with
+    extraction_run_id and without clause_rules_version."""
+    value = correctly_applied()
+    before_state = value["proposal_events"][0]["result_receipt"]["clause_dispositions"][0]["before"]
+    before_state["evidence"] = {"batch_id": UUIDS["old_batch"], "element_id": "interpretation-proposal:R1",
+                                "manifest_sha256": H("e"), "extraction_run_id": UUIDS["run"]}
+    assert cp.validate_projection(value) is value
+
+
+def test_machine_disposition_states_never_carry_a_name():
+    """Review 9: the embedded disposition receipt must not export a decider name."""
+    value = correctly_applied()
+    value["proposal_events"][0]["result_receipt"]["clause_dispositions"][0]["written"]["decided_by_name"] = "Navn"
+    error(lambda: cp.validate_projection(value), "INTERPRETATION_PROJECTION_SHAPE_INVALID")
+
+
+def test_unrelated_preexisting_interpretation_on_same_record_predicate_is_not_a_target():
+    """Review I6: only a collision with a NEW interpretation key is a preexisting target."""
+    b, a = before(), correctly_applied()
+    old = dict(a["interpretations"][0], interpretation_id="90000000-0000-4000-8000-00000000000d",
+               interpretation_key="90000000-0000-4000-8000-00000000000e", row_sha256=H("0"))
+    b["interpretations"].append(old)
+    a["interpretations"].append(copy.deepcopy(old))
+    result = cp.compare_apply(manifest(), b, a, cp.target_sha256(b["database_target_identity"]))
+    assert result["status"] == "match"
+
+
+def test_sql_python_golden_vectors():
+    """Review I7: the same constants are pinned in tests/sql/test-interpretation-proposal.sql."""
+    vectors = [
+        ('{"composed":"\u00e5","decomposed":"a\u030a"}', "proposal",
+         '{"composed":"\u00e5","decomposed":"a\u030a"}',
+         "79d313486ba5f3595e187ee1468b7371307aabb9d0e010f04ffa0a21e8f66b98"),
+        ('{"q":"\\"","b":"\\\\","ctl":"\\b\\t\\n\\f\\r\\u0001\\u001f","astral":"\U0001F600"}', "proposal",
+         '{"astral":"\U0001F600","b":"\\\\","ctl":"\\b\\t\\n\\f\\r\\u0001\\u001f","q":"\\""}',
+         "a2c3d9789f87d11efa220282937d757adfb14e0266f8b4367d04d9b067dc8320"),
+        ("[9223372036854775807,-9223372036854775808,0,true,false,null]", "internal",
+         "[9223372036854775807,-9223372036854775808,0,true,false,null]",
+         "de9f96b75b08cb3b032d8c5ff12350e1cd281b929f81ca5b6512cbec0ddc4ef3"),
+        ('{"z":{"b":1,"a":[{"y":2,"x":1}]},"A":"\u00c6"}', "proposal",
+         '{"A":"\u00c6","z":{"a":[{"x":1,"y":2}],"b":1}}',
+         "f3147aad416985003f3f114ea73dfc477e589e6640755cd314df38cc74fee826"),
+    ]
+    for raw, kind, canonical, sha in vectors:
+        parsed = cp.strict_json_loads(raw)
+        data = (cp.proposal_canonical_bytes(parsed) if kind == "proposal"
+                else cp._canon(parsed).encode("utf-8"))
+        assert data.decode("utf-8") == canonical
+        assert hashlib.sha256(data).hexdigest() == sha

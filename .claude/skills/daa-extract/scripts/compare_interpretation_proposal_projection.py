@@ -119,7 +119,7 @@ RECEIPT_DISPOSITION_STATE_KEYS = frozenset({
     "decided_by", "decided_by_name", "decided_at", "created_at", "row_sha256",
 })
 BEFORE_EVIDENCE_KEYS = frozenset({
-    "batch_id", "element_id", "manifest_sha256", "clause_rules_version",
+    "batch_id", "element_id", "manifest_sha256", "clause_rules_version", "extraction_run_id",
 })
 WRITTEN_EVIDENCE_KEYS = frozenset({
     "batch_id", "element_id", "manifest_sha256", "extraction_run_id",
@@ -270,9 +270,20 @@ def _manifest_canonical_sha256(value: Any) -> str:
     return hashlib.sha256(_canon(value).encode("utf-8")).hexdigest()
 
 
+def _as_ordinary_parse(value: Any) -> Any:
+    """Map a strict (Decimal) parse onto what json.loads would have produced."""
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, list):
+        return [_as_ordinary_parse(item) for item in value]
+    if isinstance(value, Mapping):
+        return {key: _as_ordinary_parse(item) for key, item in value.items()}
+    return value
+
+
 def compute_manifest_sha256(manifest: dict[str, Any]) -> str:
     body = {key: value for key, value in manifest.items() if key != "manifest_content_sha256"}
-    return _manifest_canonical_sha256(body)
+    return _manifest_canonical_sha256(_as_ordinary_parse(body))
 
 
 def _require_nonempty_string(value: Any, part: str) -> None:
@@ -404,24 +415,32 @@ def _receipt_state_shape(value: Any, *, written: bool) -> bool:
     if not isinstance(value, dict) or set(value) != RECEIPT_DISPOSITION_STATE_KEYS:
         return False
     evidence = value["evidence"]
-    evidence_keys = WRITTEN_EVIDENCE_KEYS if written else BEFORE_EVIDENCE_KEYS
-    if not isinstance(evidence, dict) or set(evidence) != evidence_keys:
-        return False
-    if (not _is_uuid(evidence["batch_id"]) or not _is_nonempty_string(evidence["element_id"])
-            or not _is_sha(evidence["manifest_sha256"])):
+    if not isinstance(evidence, dict):
         return False
     if written:
-        if not _is_uuid(evidence["extraction_run_id"]):
+        if (set(evidence) != WRITTEN_EVIDENCE_KEYS or not _is_uuid(evidence["batch_id"])
+                or not _is_nonempty_string(evidence["element_id"])
+                or not _is_sha(evidence["manifest_sha256"])
+                or not _is_uuid(evidence["extraction_run_id"])):
             return False
-    elif not _is_nonempty_string(evidence["clause_rules_version"]):
-        return False
+    else:
+        # Writerens før-vagt: enhver triggergyldig maskinrække (manifest_sha256 + batch_id
+        # eller extraction_run_id), fx fra clause_evidence eller en tidligere proposal.
+        if (not set(evidence) <= BEFORE_EVIDENCE_KEYS or not _is_sha(evidence.get("manifest_sha256"))
+                or not ("batch_id" in evidence or "extraction_run_id" in evidence)
+                or any(key in evidence and not _is_uuid(evidence[key])
+                       for key in ("batch_id", "extraction_run_id"))
+                or ("element_id" in evidence and not _is_nonempty_string(evidence["element_id"]))
+                or ("clause_rules_version" in evidence
+                    and not _is_nonempty_string(evidence["clause_rules_version"]))):
+            return False
     return (
         _is_uuid(value["observation_id"])
         and _is_positive_int(value["version"])
         and _is_nonempty_string(value["disposition"])
         and _is_nonempty_string(value["decided_by_kind"])
-        and (value["decided_by"] is None or _is_uuid(value["decided_by"]))
-        and (value["decided_by_name"] is None or isinstance(value["decided_by_name"], str))
+        and value["decided_by_kind"] == "machine"
+        and value["decided_by"] is None and value["decided_by_name"] is None
         and (value["decided_at"] is None or _is_nonempty_string(value["decided_at"]))
         and _is_nonempty_string(value["created_at"])
         and _is_sha(value["row_sha256"])
@@ -481,7 +500,8 @@ def _row_shape(name: str, row: dict[str, Any]) -> bool:
         return _is_positive_int(row["person_id"])
     if name == "clauses":
         return (
-            _is_uuid(row["observation_id"]) and _is_nonempty_string(row["record_key"])
+            _is_uuid(row["observation_id"])
+            and (row["record_key"] is None or _is_nonempty_string(row["record_key"]))
             and _is_positive_int(row["clause_ordinal"]) and _is_positive_int(row["version"])
             and _is_nonempty_string(row["disposition"])
             and _is_nonempty_string(row["decided_by_kind"])
@@ -496,13 +516,14 @@ def _row_shape(name: str, row: dict[str, Any]) -> bool:
             _is_uuid(row["interpretation_id"]) and _is_uuid(row["interpretation_key"])
             and _is_positive_int(row["version"])
             and all(_is_nonempty_string(row[key]) for key in (
-                "status", "record_key", "predicate", "interpretation_kind", "schema_version",
+                "status", "predicate", "interpretation_kind", "schema_version",
                 "derivation_kind", "method", "confidence"))
+            and (row["record_key"] is None or _is_nonempty_string(row["record_key"]))
             and type(row["persona_bound"]) is bool
-            and _is_uuid(row["extraction_run_id"])
+            and (row["extraction_run_id"] is None or _is_uuid(row["extraction_run_id"]))
             and (row["supersedes_id"] is None or _is_uuid(row["supersedes_id"]))
-            and all(_is_sha(row[key]) for key in (
-                "value_sha256", "key_material_sha256", "row_sha256"))
+            and all(_is_sha(row[key]) for key in ("value_sha256", "row_sha256"))
+            and (row["key_material_sha256"] is None or _is_sha(row["key_material_sha256"]))
             and type(row["key_matches"]) is bool
         )
     if name == "interpretation_links":
@@ -510,7 +531,7 @@ def _row_shape(name: str, row: dict[str, Any]) -> bool:
             _is_uuid(row["interpretation_id"]) and _is_uuid(row["observation_id"])
             and _is_nonempty_string(row["evidence_role"])
             and _is_positive_int(row["link_ordinal"])
-            and _is_nonempty_string(row["record_key"])
+            and (row["record_key"] is None or _is_nonempty_string(row["record_key"]))
             and _is_positive_int(row["clause_ordinal"])
             and _is_sha(row["verbatim_sha256"]) and _is_sha(row["row_sha256"])
         )
@@ -685,11 +706,10 @@ def _check_preexisting(manifest: dict[str, Any], before: dict[str, Any],
     elements = {operation["element_id"] for operation in manifest["operations"]}
     if any(event["element_id"] in elements for event in before["proposal_events"]):
         _fail("INTERPRETATION_PROJECTION_PREEXISTING_TARGET", part="proposal_events")
-    manifest_records = {operation["source_record_key"] for operation in manifest["operations"]}
-    manifest_predicates = {claim["predicate"] for _, claim in _manifest_claims(manifest)}
-    after_keys = {row["interpretation_key"] for row in after["interpretations"]
-                  if row["record_key"] in manifest_records and row["predicate"] in manifest_predicates}
-    if any(row["interpretation_key"] in after_keys for row in before["interpretations"]):
+    # Kun en kollision mellem en NY fortolknings nøgle og en eksisterende er et mål, der
+    # fandtes i forvejen; andre fortolkninger på samme post/prædikat er uafhængige.
+    new_keys = {row["interpretation_key"] for row in _new_rows(before, after, "interpretations")}
+    if any(row["interpretation_key"] in new_keys for row in before["interpretations"]):
         _fail("INTERPRETATION_PROJECTION_PREEXISTING_TARGET", part="interpretations")
 
 
