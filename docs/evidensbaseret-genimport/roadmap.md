@@ -19,8 +19,11 @@ klausulgranularitet (#147/#148)**. Målet er `specificeret` i
 elementoperationer i den generelle writer, uafhængig anden læser pr. plan,
 GDPR-udelukkelsesregler for modelkald, ChatGPT-abonnement som behandlingsgrundlag for
 afdødes tekst, og promotion som binding til eksisterende assertions. Arbejdet er delt
-i otte dagsværk; planer for 4.1a-4.2 findes, 4.3-4.5 skrives efter de målinger, de
-afhænger af. Ingen del af trin 4 er implementeret eller anvendt i produktion.
+i otte dagsværk. 4.1a-4.4 er implementeret og merget; skemaet og writerne er deployet
+til prod 2026-09-17, og 4.1c's klausuler er kørt i prod 2026-09-18. 4.4's forslags-kørsel
+i prod har en færdig GO-pakke, men er parkeret, til 4.5 er bevist i restoren
+(`docs/decisions.md` 2026-09-23). Næste dagsværk er 4.5 (pilot, afgørelse, binding) mod
+restoren; planen skrives nu.
 
 ## Styrende rækkefølge
 
