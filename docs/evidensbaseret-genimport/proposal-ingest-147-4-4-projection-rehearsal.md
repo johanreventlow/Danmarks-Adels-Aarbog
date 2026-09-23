@@ -66,15 +66,15 @@ tidszonetest og helper-ACL i db-verify.
 Øvrige gates: `pytest` (comparator + 4.3b-builder) 205 passed · `Rscript run-tests.R`
 FAIL 0 · `git diff --check` tom.
 
-## Ikke kørt
+## GitHub Actions
 
-- GitHub Actions-kørsel af det nye job: **BLOCKED** indtil grenen pushes (push kræver
-  projektejerens godkendelse). Den lokale gengivelse ovenfor bruger samme trin, men lokal
-  unix-socket-auth frem for CI's password-auth.
-- Ikke-medlem-login (`permission denied to set role`): kun i CI-jobbet.
+Run `35848721396` på PR #212 (head `e786603`): alle 12 jobs grønne, herunder
+`interpretation-proposal-db` i begge katalogrækkefølger (dedikerede NOINHERIT-logins,
+negative login-cases inkl. ikke-medlem og superuser) og `evidence-contract` med comparator-
+pytest.
 
 ```text
-Leverance #196-projektion: PARTIAL (alle lokale gates PASS; CI-kørsel afventer push)
+Leverance #196-projektion: PASS
 Produktions-GO: IKKE GIVET
 Produktionsmutation: INGEN
 ```
