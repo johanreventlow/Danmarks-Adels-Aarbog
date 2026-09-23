@@ -13,6 +13,36 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import compare_interpretation_proposal_projection as cp
 
 
+SCRIPTS = Path(__file__).resolve().parent
+
+
+def test_sql_contract_requires_one_read_only_snapshot_and_no_raw_values():
+    paths = {
+        "owner": SCRIPTS / "interpretation_proposal_projection.sql",
+        "anon": SCRIPTS / "interpretation_proposal_anon_projection.sql",
+        "driver": SCRIPTS / "interpretation_proposal_projection.psql",
+        "target": SCRIPTS / "interpretation_proposal_target_identity.sql",
+    }
+    texts = {name: path.read_text(encoding="utf-8") for name, path in paths.items()}
+    assert "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY" in texts["driver"]
+    assert "SET LOCAL ROLE anon" in texts["driver"]
+    assert "RESET ROLE" in texts["driver"]
+    owner_include = "\\ir interpretation_proposal_projection.sql"
+    for setting in ("SET LOCAL TimeZone TO 'UTC'", "SET LOCAL DateStyle TO 'ISO, YMD'",
+                    "SET LOCAL IntervalStyle TO 'postgres'", "SET LOCAL extra_float_digits TO 1"):
+        assert texts["driver"].find(setting) < texts["driver"].find(owner_include)
+    assert "current_setting('transaction_read_only') <> 'on'" in texts["owner"]
+    assert "current_setting('transaction_isolation') <> 'repeatable read'" in texts["owner"]
+    assert "current_user <> 'anon'" in texts["anon"]
+    for relation in ("private.interpretation", "private.interpretation_observation",
+                     "private.extraction_run", "private.clause_disposition",
+                     "private.reimport_authorization", "private.reimport_batch",
+                     "private.reimport_event", "private.interpretation_promotion"):
+        assert relation in texts["owner"]
+    for forbidden in ("verbatim_text", "narrative.tekst", "'value', i.value"):
+        assert forbidden not in texts["owner"]
+
+
 def H(char: str) -> str:
     return char * 64
 

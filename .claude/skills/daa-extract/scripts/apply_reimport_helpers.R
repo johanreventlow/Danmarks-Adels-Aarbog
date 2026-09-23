@@ -160,12 +160,18 @@ validate_reimport_batch_result <- function(result, batch_id) {
 }
 
 execute_reimport <- function(manifest, preview_sha256, mode = c("dry-run", "apply"), gateway,
-                             authorization = NULL) {
+                             authorization = NULL,
+                             authorization_policy = c("auto_dry_run", "external"),
+                             transaction_entry = NULL) {
   mode <- match.arg(mode)
+  authorization_policy <- match.arg(authorization_policy)
   validate_reimport_manifest(manifest)
   if (!reimport_hash(preview_sha256)) stop_reimport("REIMPORT_PREVIEW_HASH_INVALID")
   if (!is.list(gateway) || !is.function(gateway$call)) stop_reimport("REIMPORT_GATEWAY_INVALID")
-  if (identical(mode, "apply")) validate_reimport_authorization(authorization)
+  if (!is.null(transaction_entry) && !is.function(transaction_entry))
+    stop_reimport("REIMPORT_TRANSACTION_ENTRY_INVALID")
+  if (identical(mode, "apply") || identical(authorization_policy, "external"))
+    validate_reimport_authorization(authorization)
   call <- gateway$call
   connected <- FALSE
   rolled_back <- FALSE
@@ -180,9 +186,11 @@ execute_reimport <- function(manifest, preview_sha256, mode = c("dry-run", "appl
     connected <- TRUE
     call("begin")
     call("advisory_lock", manifest$source)
+    if (!is.null(transaction_entry)) transaction_entry()
     server_preflight <- call("preflight", manifest)
     validate_reimport_preflight(server_preflight, manifest)
-    resolved_authorization <- call("authorize", manifest, preview_sha256, mode, authorization)
+    resolved_authorization <- if (identical(authorization_policy, "external")) authorization else
+      call("authorize", manifest, preview_sha256, mode, authorization)
     validate_reimport_authorization(resolved_authorization)
     validate_reimport_authorization_binding(
       call("preflight_authorization", resolved_authorization, manifest, preview_sha256),

@@ -237,3 +237,40 @@ test_that("interpretation_proposal afstemmer writerens claim-antal mod manifeste
   expect_identical(result$status, "finalized")
   expect_false(result$committed)
 })
+
+test_that("external authorization kræves i begge modes og omgår gateway-authorize", {
+  manifest <- reimport_manifest()
+  gateway <- reimport_gateway(manifest)
+  expect_error(execute_reimport(manifest, sha("e"), "dry-run", gateway$gateway,
+    authorization_policy = "external"), "REIMPORT_AUTHORIZATION_REQUIRED")
+  expect_error(execute_reimport(manifest, sha("e"), "apply", gateway$gateway,
+    authorization_policy = "external"), "REIMPORT_AUTHORIZATION_REQUIRED")
+
+  calls <- character()
+  inner <- gateway$gateway$call
+  gateway$gateway$call <- function(name, ...) {
+    calls <<- c(calls, name)
+    inner(name, ...)
+  }
+  result <- execute_reimport(manifest, sha("e"), "dry-run", gateway$gateway,
+    list(id = "22222222-2222-4222-8222-222222222222"), authorization_policy = "external")
+  expect_identical(result$status, "finalized")
+  expect_false("authorize" %in% calls)
+})
+
+test_that("transaction entry kører én gang efter advisory lock og før preflight", {
+  manifest <- reimport_manifest()
+  calls <- character()
+  inner <- reimport_gateway(manifest)$gateway$call
+  gateway <- list(call = function(name, ...) {
+    calls <<- c(calls, name)
+    inner(name, ...)
+  })
+  entered <- 0L
+  result <- execute_reimport(manifest, sha("e"), "dry-run", gateway,
+    transaction_entry = function() entered <<- entered + 1L)
+  expect_identical(result$status, "finalized")
+  expect_identical(entered, 1L)
+  expect_lt(match("advisory_lock", calls), match("preflight", calls))
+  expect_lt(match("advisory_lock", calls), length(calls))
+})
