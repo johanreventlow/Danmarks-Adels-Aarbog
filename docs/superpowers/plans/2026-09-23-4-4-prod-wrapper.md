@@ -85,6 +85,32 @@ LUKKET; 1 blokerende + 5 major + 1 minor).** Alle verificeret; R4-1 empirisk: lo
 | R4-6 unset før prod-porten | afvis `DAA_FAULT`/`DAA_REIMPORT_ACTOR_ID`/`DAA_LOCAL_*` FØR unset; test forventer STOP | Task 4 Step 3, Task 5 Step 3 |
 | R4-7 06-kommando uden mode | `--mode prod` i handoff | Efter planen |
 
+**Implementering (2026-09-23) — afvigelser fra v5, alle begrundet i koden eller en måling.**
+Kontrakten (I1-I8, trinkontrakten, Autorisationstabellen) er uændret; dette er, hvor koden
+måtte præcisere eller rette planen.
+
+| # | Afvigelse | Hvorfor |
+|---|---|---|
+| D1 | **Forudsætning: #196's DDL i prod.** `preflight_checks` kræver 11 navngivne funktioner (`DDL_196_MISSING` ellers) | Prod fik 4.4-writeren 17/9; #196 omdefinerede 4.4-afsnittet i `db-migrations.sql` bagefter (receipt-/nøglefunktioner, writerens værdiform). Projektionen fejler uden dem — målt: `interpretation_proposal_disposition_receipt(...) does not exist` på et prod-dump fra 18/9. Planen nævnte det ikke; deployet er en selvstændig gated DDL-ændring |
+| D2 | I4's TTL er `expires_at − created_at ∈ [29 min 55 s, 30 min]`, ikke eksakt 30 min | `expires_at` er klientens `clock_timestamp()+30 min`, `created_at` serverens senere `clock_timestamp()` |
+| D3 | `authorized_elements_sha256` genberegnes ikke fra manifestet; kravet er, at den er ens for alle kørslens autorisationer | Samme valg og begrundelse som komparatoren (R-serialisering med brudte tal) |
+| D4 | Nonce = `SELECT gen_random_uuid()` på R's egen forbindelse før intent-filen | Undgår en femte R-pakke uden for I3's binding |
+| D5 | Projektions-baselinen er `projection_sans_target_sha256` (projektionen uden `database_target_identity`) + særskilt målkontrol | Lokale kopier har andre databasenavne; i prod er de to formuleringer ækvivalente |
+| D6 | Schema på objektniveau via `pg_restore -l -n private -n public`; `SCHEMA - public` + dens `COMMENT` udelades i begge lister | Målt: pg_dump dumper kun public-skemaet som objekt ved eksplicit `--schema=public`. Første parser gættede skemaet ud fra tokens og ramte argumentnavnet `private` i `realtime.send` |
+| D7 | `02-dump.sh --local-standin <daa44_standin_*>` | Stand-in-kvitteringen laves af samme bytes som prod-kvitteringen; `03`/`04` skelner på `dump_kind` (`04` kræver `prod`) |
+| D8 | `db-rls` + `db-verify` kører på en **kopi** af hovedbasen | db-verify efterlader residu, der gør en fortrydelse utrofast (hukommelse `fortrydelse-ved-restore-er-ikke-trofast`) |
+| D9 | Stand-in = prod-dump 18/9 + 4.1c lokalt + hele `db-migrations.sql` + `db-rls.sql` | Modellerer prod *efter* #196-deployet (D1); 591/868/617/251 uændret, 11 funktioner til stede |
+| D10 | Stier, binærer og hashes er faste konstanter (`DAA_PRIVATE_DIR` kan ikke overstyres) | Strammere end planens `${DAA_PRIVATE_DIR:-…}` |
+| D11 | `06` har også udfaldene `dryrun/apply/replay-ingen-intent` | Intent skrives før enhver varig skrivning i trinet; uden intent er intet sket (fx R døde i præamblen) |
+| D12 | En child-kopi med uændret SHA-256 regnes for valideret; kædevalidatoren binder delta-links på indhold på tværs af alle mapper i kæden | 06 validerer før kopiering; en kopi har samme bytes, men en anden sti |
+| D13 | `preflight_checks` er én funktion i `lib.zsh`, brugt af `01`, `03` og `04` | I1 for preflighten: samme bytes i rehearsal og prod |
+| D14 | Alle scripts køres med `/bin/zsh -f` og afviser ellers (exit 2); `emulate -R zsh` nulstiller optioner | Codex kode-runde 1: `~/.zshenv` kører ellers før første stopport. Vagten er en *brugsvagt* — den kan ikke forhindre, at en startfil allerede har kørt; beskyttelsen er runbookens `/bin/zsh -f` |
+| D15 | Rodens `context.json` binder GO-, rehearsal- og freeze-hash; `06`/`05` kræver lighed; `validate_rehearsal_report` er fælles for 04/05/06 | Codex kode-runde 1: en genoptagelse kunne ellers skifte til en ny, urehearset pakke |
+| D16 | `06` stopper med exit 4 (`WRITER_IN_FLIGHT` / `ORIGINAL_PROCESS_ALIVE`), hvis en writer-advisory-lock holdes, eller en `0[34]-proposal-*-prod.R`/`04-apply.sh`-proces lever lokalt — før klassifikationen og igen før child-mappen | Codex kode-runde 1-2: et levende forsøg ligner en død autorisation. En atomisk server-side klassifikation ville kræve ny DDL; de private scripts findes kun på denne maskine, så lokal proces + serverlås dækker de to måder, et forsøg kan leve på |
+| D17 | R-bindingen omfatter en indholdshash af hver pakkes installerede filer | Codex kode-runde 1: samme version kan have andre bytes |
+| D18 | 03 kræver ≥2 `OK: #147` og ≥2 `OK: #148` fra db-verify og rene, committede rehearsal-filer (`db-rls.sql`, `db-verify.sql`, runneren, bootstrap) | Codex kode-runde 1: en tom verify-fil gav ellers `REHEARSAL_OK` |
+| D19 | `04` og `06` holder en eksklusiv fcntl-lås (`zsystem flock` på `run.lock` i den private mappe) hele levetiden; en anden `04`/`06` stopper med exit 4 `RUN_LOCKED` før klassifikation og forbindelse. `03` tager den ikke | Codex kode-runde 3: en levende `06` matcher hverken procesmønstret (D16) eller holder writer-låsene mellem sine kald, så et andet `06` på `recover-1` kunne klassificere og autorisere samtidig. Kernen slipper låsen, når processen dør — ejerens død er verificeret uden pid-gæt. Codex kode-runde 4: GO (lukket); ét MINOR — angrebstest 20's SIGSTOP-synkronisering er tidsafhængig og kan sporadisk give falsk FEJL, aldrig falsk bestået. Ikke rettet (stopregel: runde 4 var den sidste); en test-barriere efter child-mappen tages ved genoptagelse |
+
 Valg truffet i v2 (ingen blokerer): **B6 én login + rollebevis** frem for to nye prod-logins
 (nye DB-roller i prod = ny overflade; `service_role` allerede bevist 18/9). **B5 detektion,
 ikke forhindring:** Supabase free-tier har ingen vedligeholdelsesport, og en rolle-/database-
@@ -278,7 +304,7 @@ klausuler, 68/16, alle 8 elementer har mindst ét `principal`-claim.
   `interpretation_proposal_target_identity.sql`, `compare_interpretation_proposal_projection.py`,
   profil-JSON (7) + manifestfilen (1) = **eksakt 24**. `assert_repo_clean` dækker de 7
   repo-stier.
-- [ ] **Step 5: Test.** `zsh -c 'source ~/.private/147-44-prod/lib.zsh; validate_manifest && echo MANIFEST_OK'`
+- [ ] **Step 5: Test.** `zsh -f -c 'source ~/.private/147-44-prod/lib.zsh; validate_manifest && echo MANIFEST_OK'`
   → `MANIFEST_OK`. Mutant: kopiér manifestet til `$DAA_PRIVATE_DIR/mutant.json`, ændr én
   `confidence` med python, peg en midlertidig `DAA_MANIFEST` dertil i en subshell → STOPPORT
   (fil-hash). Slet mutanten bagefter.
@@ -809,7 +835,7 @@ slut; dry-run: aldrig consumed).
   148c-manifestet; kræv 591/868/617/251. `pg_dump -Fc --no-owner` → `~/.private/147-44-prod/standin-<ts>.dump`.
   NB: stand-in mangler 20/9's medie-DDL; uden betydning for 4.4, men derfor er det den
   rigtige dagsdump i runbookens trin 2, der er beviset.
-- [ ] **Step 2: Rehearsal.** `zsh 03-restore-rehearsal.sh <standin.dump>` → `REHEARSAL_OK`;
+- [ ] **Step 2: Rehearsal.** `/bin/zsh -f 03-restore-rehearsal.sh <standin.dump>` → `REHEARSAL_OK`;
   rensede tal: 8 elementer, 84 claims, 88 links, 13/6, fresh `match`, replay `match`,
   restore-hash identisk før/efter fortrydelse.
 - [ ] **Step 3: Angrebstests** (hver skal STOPPE med navngiven kode, ingen skrivning):
