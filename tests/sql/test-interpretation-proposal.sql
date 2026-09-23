@@ -54,6 +54,51 @@ BEGIN
   END IF;
 END $nogle_kanttests$;
 
+-- Receipt-/nøglekontrakterne er testbare uden den fulde, syntetiske apply-
+-- fixture (den etableres som en del af integrationskørslen).  Det holder de
+-- bytefølsomme helpers røde, indtil den levende writer kan bygge receiptet.
+DO $proposal_receipt_helper_contract$
+DECLARE
+  v_value jsonb := '{"nested":[true,null],"tekst":"Æ\\n😀"}'::jsonb;
+  v_cited jsonb := '[{"ordinal":2,"verbatim_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},{"ordinal":1,"verbatim_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]'::jsonb;
+  v_inline text;
+BEGIN
+  IF to_regprocedure('private.interpretation_proposal_canonical_json_text(jsonb)') IS NULL
+     OR to_regprocedure('private.interpretation_proposal_canonical_json_sha256(jsonb)') IS NULL
+     OR to_regprocedure('private.interpretation_proposal_key_material(bigint,text,text,jsonb,jsonb)') IS NULL
+     OR to_regprocedure('private.interpretation_proposal_key_material_sha256(bigint,text,text,jsonb,jsonb)') IS NULL
+     OR to_regprocedure('private.interpretation_proposal_key(bigint,text,text,jsonb,jsonb)') IS NULL THEN
+    RAISE EXCEPTION 'PROPOSAL_RESULT_RECEIPT_INVALID';
+  END IF;
+  IF private.interpretation_proposal_canonical_json_text(v_value)
+       <> '{"nested":[true,null],"tekst":"Æ\\n😀"}'
+     OR private.interpretation_proposal_canonical_json_text('[-0,1e0,1.0,-9223372036854775808,9223372036854775807]'::jsonb)
+       <> '[0,1,1,-9223372036854775808,9223372036854775807]'
+     OR private.interpretation_proposal_canonical_json_sha256(v_value)
+       <> encode(extensions.digest(convert_to('{"nested":[true,null],"tekst":"Æ\\n😀"}','UTF8'),'sha256'),'hex') THEN
+    RAISE EXCEPTION 'PROPOSAL_RESULT_RECEIPT_INVALID';
+  END IF;
+  PERFORM pg_temp.expect_error('REIMPORT_WRITER_INTERPRETATION_VALUE_NUMERIC_INVALID',
+    $q$SELECT private.interpretation_proposal_canonical_json_text('1.5'::jsonb)$q$);
+  PERFORM pg_temp.expect_error('REIMPORT_WRITER_INTERPRETATION_VALUE_NUMERIC_INVALID',
+    $q$SELECT private.interpretation_proposal_canonical_json_text('9223372036854775808'::jsonb)$q$);
+  SELECT jsonb_build_object(
+      'key_version',1,'source_id',3,'record_key','record-1','predicate','person.name',
+      'ordinals',jsonb_agg(DISTINCT (c->>'ordinal')::integer ORDER BY (c->>'ordinal')::integer),
+      'value_sha256',encode(extensions.digest(convert_to(v_value::text,'UTF8'),'sha256'),'hex')
+    )::text
+    INTO v_inline
+    FROM jsonb_array_elements(v_cited) c;
+  IF private.interpretation_proposal_key_material(3,'record-1','person.name',v_cited,v_value)
+       IS DISTINCT FROM v_inline
+     OR private.interpretation_proposal_key_material_sha256(3,'record-1','person.name',v_cited,v_value)
+       <> encode(extensions.digest(convert_to(v_inline,'UTF8'),'sha256'),'hex')
+     OR private.interpretation_proposal_key(3,'record-1','person.name',v_cited,v_value)
+       <> private.deterministic_uuid(v_inline) THEN
+    RAISE EXCEPTION 'PROPOSAL_RESULT_RECEIPT_INVALID';
+  END IF;
+END $proposal_receipt_helper_contract$;
+
 -- Operation-vokabularet må ikke kunne indsnævres af en migrationsblok.
 -- (Fejlen 2026-09-14: 149b's blok fjernede clause_evidence, så en genkørsel mod
 --  en base med klausuldata fejlede. private.ensure_reimport_operations udvider nu.)
@@ -70,5 +115,47 @@ BEGIN
     RAISE EXCEPTION 'PROPOSAL_OPERATION_LOST: clause_evidence forsvandt';
   END IF;
 END $operation_vokabular$;
+
+-- SQL↔Python golden vectors (review I7). Samme konstanter pinnes i
+-- test_compare_interpretation_proposal_projection.py::test_sql_python_golden_vectors.
+DO $golden_vectors$
+DECLARE v record;
+BEGIN
+  FOR v IN SELECT * FROM (VALUES
+    (convert_from('\x7b22636f6d706f736564223a22c3a5222c226465636f6d706f736564223a2261cc8a227d'::bytea,'UTF8'),
+     convert_from('\x7b22636f6d706f736564223a22c3a5222c226465636f6d706f736564223a2261cc8a227d'::bytea,'UTF8'),
+     '79d313486ba5f3595e187ee1468b7371307aabb9d0e010f04ffa0a21e8f66b98'),
+    ('{"q":"\"","b":"\\","ctl":"\b\t\n\f\r\u0001\u001f","astral":"😀"}',
+     '{"astral":"😀","b":"\\","ctl":"\b\t\n\f\r\u0001\u001f","q":"\""}',
+     'a2c3d9789f87d11efa220282937d757adfb14e0266f8b4367d04d9b067dc8320'),
+    ('[9223372036854775807,-9223372036854775808,0,true,false,null]',
+     '[9223372036854775807,-9223372036854775808,0,true,false,null]',
+     'de9f96b75b08cb3b032d8c5ff12350e1cd281b929f81ca5b6512cbec0ddc4ef3'),
+    ('{"z":{"b":1,"a":[{"y":2,"x":1}]},"A":"Æ"}',
+     '{"A":"Æ","z":{"a":[{"x":1,"y":2}],"b":1}}',
+     'f3147aad416985003f3f114ea73dfc477e589e6640755cd314df38cc74fee826')
+  ) AS t(input, canonical, sha) LOOP
+    IF private.interpretation_proposal_canonical_json_text(v.input::jsonb) IS DISTINCT FROM v.canonical
+       OR private.interpretation_proposal_canonical_json_sha256(v.input::jsonb) IS DISTINCT FROM v.sha THEN
+      RAISE EXCEPTION 'PROPOSAL_GOLDEN_VECTOR_MISMATCH: %', v.sha;
+    END IF;
+  END LOOP;
+END $golden_vectors$;
+
+-- Receipt-hjælperne giver byte-identisk JSON under forskellige sessions-tidszoner (review I7).
+DO $receipt_timezone$
+DECLARE
+  v_link private.interpretation_observation := ROW('11111111-1111-4111-8111-111111111111',
+    '22222222-2222-4222-8222-222222222222','supporting',1,'2026-01-01 12:00:00.123456+02')::private.interpretation_observation;
+  v_utc text; v_ny text;
+BEGIN
+  PERFORM set_config('TimeZone','UTC',true);
+  v_utc := private.interpretation_proposal_canonical_json_text(private.interpretation_proposal_link_receipt(v_link));
+  PERFORM set_config('TimeZone','America/New_York',true);
+  v_ny := private.interpretation_proposal_canonical_json_text(private.interpretation_proposal_link_receipt(v_link));
+  IF v_utc IS DISTINCT FROM v_ny OR v_utc NOT LIKE '%"created_at":"2026-01-01T10:00:00.123456Z"%' THEN
+    RAISE EXCEPTION 'PROPOSAL_RECEIPT_TIMEZONE_DRIFT';
+  END IF;
+END $receipt_timezone$;
 
 ROLLBACK;

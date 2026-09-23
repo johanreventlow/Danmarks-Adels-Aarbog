@@ -47,6 +47,7 @@ web/vite.config.d.ts
 
 # Agent-worktrees (harness-sandkasser)
 .claude/worktrees/
+.worktrees/
 
 # Redundante design-bundles (udpakket indhold ligger i design/)
 *.zip

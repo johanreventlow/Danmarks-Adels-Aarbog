@@ -1,0 +1,29 @@
+-- Fortolkningsforslag-projektionens driver (issue 196). Koer:
+--   psql -X -At -q -v ON_ERROR_STOP=1 -v source_id=<id> -f interpretation_proposal_projection.psql > <ny fil>
+-- \ir loeser de to SQL-filer relativt til denne fil. Ejer- og anon-delen tages i SAMME
+-- read-only snapshot; driveren kraever ens snapshot-hash og fjerner den foer output.
+-- Output: een linje JSON.
+\set ON_ERROR_STOP on
+\if :{?source_id}
+\else
+\set source_id ''
+\endif
+BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY;
+SET LOCAL TimeZone TO 'UTC';
+SET LOCAL DateStyle TO 'ISO, YMD';
+SET LOCAL IntervalStyle TO 'postgres';
+SET LOCAL extra_float_digits TO 1;
+SELECT set_config('daa.interpretation_projection_source_id', :'source_id', true) \gset
+\ir interpretation_proposal_projection.sql
+SET LOCAL ROLE anon;
+\ir interpretation_proposal_anon_projection.sql
+RESET ROLE;
+SELECT CASE
+  WHEN (:'projection')::jsonb->>'snapshot_sha256' IS DISTINCT FROM (:'anon_sha256')::jsonb->>'snapshot_sha256'
+    THEN ('INTERPRETATION_PROJECTION_SNAPSHOT_MISMATCH:' || coalesce((:'projection')::jsonb->>'snapshot_sha256',''))::int
+  ELSE 1
+END \gset
+SELECT (((:'projection')::jsonb - 'snapshot_sha256') || jsonb_build_object(
+  'anon_sha256',encode(pg_catalog.sha256(convert_to(((:'anon_sha256')::jsonb - 'snapshot_sha256')::text,'UTF8')),'hex')
+))::text;
+COMMIT;

@@ -237,3 +237,127 @@ test_that("interpretation_proposal afstemmer writerens claim-antal mod manifeste
   expect_identical(result$status, "finalized")
   expect_false(result$committed)
 })
+
+test_that("external authorization kræves i begge modes og omgår gateway-authorize", {
+  manifest <- reimport_manifest()
+  gateway <- reimport_gateway(manifest)
+  expect_error(execute_reimport(manifest, sha("e"), "dry-run", gateway$gateway,
+    authorization_policy = "external"), "REIMPORT_AUTHORIZATION_REQUIRED")
+  expect_error(execute_reimport(manifest, sha("e"), "apply", gateway$gateway,
+    authorization_policy = "external"), "REIMPORT_AUTHORIZATION_REQUIRED")
+
+  calls <- character()
+  inner <- gateway$gateway$call
+  gateway$gateway$call <- function(name, ...) {
+    calls <<- c(calls, name)
+    inner(name, ...)
+  }
+  result <- execute_reimport(manifest, sha("e"), "dry-run", gateway$gateway,
+    list(id = "22222222-2222-4222-8222-222222222222"), authorization_policy = "external")
+  expect_identical(result$status, "finalized")
+  expect_false("authorize" %in% calls)
+})
+
+test_that("transaction entry kører én gang efter advisory lock og før preflight", {
+  manifest <- reimport_manifest()
+  calls <- character()
+  inner <- reimport_gateway(manifest)$gateway$call
+  gateway <- list(call = function(name, ...) {
+    calls <<- c(calls, name)
+    inner(name, ...)
+  })
+  entered <- 0L
+  result <- execute_reimport(manifest, sha("e"), "dry-run", gateway,
+    transaction_entry = function() entered <<- entered + 1L)
+  expect_identical(result$status, "finalized")
+  expect_identical(entered, 1L)
+  expect_lt(match("advisory_lock", calls), match("preflight", calls))
+  expect_lt(match("advisory_lock", calls), length(calls))
+})
+
+test_that("default policy bevarer den eksisterende kaldsekvens", {
+  manifest <- reimport_manifest()
+  calls <- character()
+  inner <- reimport_gateway(manifest)$gateway$call
+  gateway <- list(call = function(name, ...) { calls <<- c(calls, name); inner(name, ...) })
+  execute_reimport(manifest, sha("e"), "dry-run", gateway)
+  expect_identical(calls, c("connect", "begin", "advisory_lock", "preflight", "authorize",
+    "preflight_authorization", "begin_batch", "batch_result", "source_evidence", "finalize", "rollback"))
+})
+
+test_that("fejlende transaction entry ruller tilbage og stopper før preflight", {
+  manifest <- reimport_manifest()
+  calls <- character()
+  inner <- reimport_gateway(manifest)$gateway$call
+  gateway <- list(call = function(name, ...) { calls <<- c(calls, name); inner(name, ...) })
+  expect_error(execute_reimport(manifest, sha("e"), "dry-run", gateway,
+    transaction_entry = function() stop("ENTRY_FAILED")), "ENTRY_FAILED")
+  expect_identical(calls, c("connect", "begin", "advisory_lock", "rollback"))
+  expect_error(execute_reimport(manifest, sha("e"), "dry-run", gateway, transaction_entry = "x"),
+    "REIMPORT_TRANSACTION_ENTRY_INVALID")
+})
+
+dbi_trace_gateway <- function(trace, setup = NULL, observed = NULL) {
+  testthat::local_mocked_bindings(
+    dbBegin = function(conn, ...) { trace$log <- c(trace$log, "dbBegin"); invisible(TRUE) },
+    dbRollback = function(conn, ...) { trace$log <- c(trace$log, "dbRollback"); invisible(TRUE) },
+    dbDisconnect = function(conn, ...) { trace$log <- c(trace$log, "dbDisconnect"); invisible(TRUE) },
+    dbExecute = function(conn, statement, ...) { trace$log <- c(trace$log, statement); 0L },
+    dbGetQuery = function(conn, statement, ...) { trace$log <- c(trace$log, statement); data.frame(x = 1L) },
+    .package = "DBI", .env = parent.frame())
+  new_reimport_dbi_gateway(function() "fake-con", sql_observer = observed, transaction_setup = setup)
+}
+
+test_that("gatewayens transaction_setup kører én gang i begin efter dbBegin", {
+  trace <- new.env(); trace$log <- character(); seen <- character()
+  setup_calls <- 0L
+  gateway <- dbi_trace_gateway(trace, function(db) {
+    setup_calls <<- setup_calls + 1L
+    db$execute("SET LOCAL ROLE authenticated")
+  }, observed = function(sql) seen <<- c(seen, sql))
+  gateway$call("connect"); gateway$call("begin")
+  expect_identical(setup_calls, 1L)
+  expect_identical(trace$log, c("dbBegin", "SET LOCAL ROLE authenticated"))
+  # SQL-optagelsen afviser en sessionsbred rolleskift: kun SET LOCAL ROLE er tilladt.
+  expect_false(any(grepl("^\\s*SET\\s+(SESSION\\s+)?ROLE\\b", seen, ignore.case = TRUE, perl = TRUE)))
+  expect_true(any(grepl("^SET LOCAL ROLE authenticated$", seen)))
+  expect_error(new_reimport_dbi_gateway(function() NULL, transaction_setup = "x"),
+    "REIMPORT_TRANSACTION_SETUP_INVALID")
+})
+
+test_that("fejlende transaction_setup ruller tilbage via executoren", {
+  trace <- new.env(); trace$log <- character()
+  gateway <- dbi_trace_gateway(trace, function(db) stop("SETUP_FAILED"))
+  expect_error(execute_reimport(reimport_manifest(), sha("e"), "dry-run", gateway), "SETUP_FAILED")
+  expect_identical(trace$log, c("dbBegin", "dbRollback", "dbDisconnect"))
+})
+
+test_that("proposal-serializeren skriver fulde heltals-tokens og korteste decimaler", {
+  value <- jsonlite::fromJSON(
+    '{"raw":"x","n":[9007199254740991,-9007199254740991,1.0,1e0,-0,7],"c":0.9,"d":0.30000000000000004}',
+    simplifyVector = FALSE)
+  expect_identical(as.character(reimport_proposal_json(value)),
+    '{"raw":"x","n":[9007199254740991,-9007199254740991,1,1,0,7],"c":0.9,"d":0.30000000000000004}')
+  expect_error(reimport_proposal_json(list(n = 9007199254740992)), "REIMPORT_PROPOSAL_SERIALIZATION_INVALID")
+  expect_error(reimport_proposal_json(list(n = Inf)), "REIMPORT_PROPOSAL_SERIALIZATION_INVALID")
+})
+
+test_that("proposal-claimværdier uden for JSON-safe-heltal afvises før ethvert gateway-kald", {
+  accepted <- c("9007199254740991", "-9007199254740991", "1.0", "1e0", "-0")
+  rejected <- c("9007199254740992", "-9007199254740992", "9223372036854775807",
+                "-9223372036854775808", "0.5", "1e400", "1.5e0")
+  with_value <- function(token) {
+    manifest <- proposal_manifest()
+    manifest$operations[[1L]]$claims[[1L]]$value <- jsonlite::fromJSON(
+      sprintf('{"raw":"x","nested":[{"n":%s}]}', token), simplifyVector = FALSE)
+    manifest
+  }
+  for (token in accepted) expect_silent(validate_reimport_manifest(with_value(token)))
+  for (token in rejected) {
+    calls <- character()
+    gateway <- list(call = function(name, ...) { calls <<- c(calls, name); NULL })
+    expect_error(execute_reimport(with_value(token), sha("e"), "dry-run", gateway),
+      "REIMPORT_MANIFEST_PROPOSAL_VALUE_INVALID", info = token)
+    expect_length(calls, 0L)
+  }
+})
