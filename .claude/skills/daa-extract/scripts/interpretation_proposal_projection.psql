@@ -1,3 +1,8 @@
+-- Fortolkningsforslag-projektionens driver (issue 196). Koer:
+--   psql -X -At -q -v ON_ERROR_STOP=1 -v source_id=<id> -f interpretation_proposal_projection.psql > <ny fil>
+-- \ir loeser de to SQL-filer relativt til denne fil. Ejer- og anon-delen tages i SAMME
+-- read-only snapshot; driveren kraever ens snapshot-hash og fjerner den foer output.
+-- Output: een linje JSON.
 \set ON_ERROR_STOP on
 \if :{?source_id}
 \else

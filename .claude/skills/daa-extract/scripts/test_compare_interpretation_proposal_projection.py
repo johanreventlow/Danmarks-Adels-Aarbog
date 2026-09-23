@@ -39,8 +39,16 @@ def test_sql_contract_requires_one_read_only_snapshot_and_no_raw_values():
                      "private.reimport_authorization", "private.reimport_batch",
                      "private.reimport_event", "private.interpretation_promotion"):
         assert relation in texts["owner"]
-    for forbidden in ("verbatim_text", "narrative.tekst", "'value', i.value"):
+    for forbidden in ("narrative.tekst", "'value', i.value", "::text AS value", "i.value)"):
         assert forbidden not in texts["owner"]
+    # Kildetekst maa kun forlade en raekke som SHA-256: hver forekomst er hash-indpakket.
+    for column in ("verbatim_text", ".tekst"):
+        for index in [i for i in range(len(texts["owner"])) if texts["owner"].startswith(column, i)]:
+            prefix = texts["owner"][max(0, index - 40):index]
+            assert prefix.endswith("sha256(convert_to(o.") or prefix.endswith("sha256(convert_to(n"), (column, prefix)
+    assert "\\ir interpretation_proposal_anon_projection.sql" in texts["driver"]
+    assert "INTERPRETATION_PROJECTION_SNAPSHOT_MISMATCH" in texts["driver"]
+    assert "INTERPRETATION_PROJECTION_NOT_OWNER" in texts["owner"]
 
 
 def H(char: str) -> str:
