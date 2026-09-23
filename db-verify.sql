@@ -2772,6 +2772,11 @@ END $clause_evidence_writer_verify$;
 DO $interpretation_proposal_writer_verify$
 BEGIN
   IF to_regprocedure('private.deterministic_uuid(text)') IS NULL
+     OR to_regprocedure('private.interpretation_proposal_canonical_json_text(jsonb)') IS NULL
+     OR to_regprocedure('private.interpretation_proposal_canonical_json_sha256(jsonb)') IS NULL
+     OR to_regprocedure('private.interpretation_proposal_key_material(bigint,text,text,jsonb,jsonb)') IS NULL
+     OR to_regprocedure('private.interpretation_proposal_key_material_sha256(bigint,text,text,jsonb,jsonb)') IS NULL
+     OR to_regprocedure('private.interpretation_proposal_key(bigint,text,text,jsonb,jsonb)') IS NULL
      OR to_regprocedure('private.write_interpretation_proposal(uuid,text,jsonb)') IS NULL
      OR to_regprocedure('public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)') IS NULL THEN
     RAISE EXCEPTION 'MISSING: #147 4.4 interpretation_proposal writer';
@@ -2779,6 +2784,8 @@ BEGIN
   IF pg_get_functiondef('private.validate_reimport_authorization_payload(jsonb,jsonb)'::regprocedure) NOT LIKE '%interpretation-proposal:%'
      OR has_function_privilege('anon','public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)','EXECUTE')
      OR NOT has_function_privilege('authenticated','public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)','EXECUTE')
+     OR has_function_privilege('authenticated','private.interpretation_proposal_canonical_json_text(jsonb)','EXECUTE')
+     OR has_function_privilege('authenticated','private.interpretation_proposal_key(bigint,text,text,jsonb,jsonb)','EXECUTE')
      OR has_function_privilege('authenticated','private.write_interpretation_proposal(uuid,text,jsonb)','EXECUTE') THEN
     RAISE EXCEPTION 'INVALID: #147 4.4 authorization/ACL';
   END IF;

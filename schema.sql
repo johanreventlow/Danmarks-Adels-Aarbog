@@ -3478,6 +3478,139 @@ END $$;
 COMMENT ON FUNCTION private.deterministic_uuid(text) IS
   'Project-specific deterministic SHA-256 UUID; NOT RFC UUIDv5 (which is SHA-1 over a namespace). Form prescribed by spec section 7.1.';
 
+-- #196: receipt bytes are deliberately independent of the generic reimport
+-- canonicalizer.  Historical profile hashes use the latter and may not drift.
+CREATE OR REPLACE FUNCTION private.interpretation_proposal_canonical_json_text(p_value jsonb)
+RETURNS text LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE v_piece text; v_key text; v_item jsonb; v_number numeric;
+BEGIN
+  CASE jsonb_typeof(p_value)
+    WHEN 'object' THEN
+      v_piece:='{';
+      FOR v_key IN SELECT key FROM jsonb_object_keys(p_value) key ORDER BY key COLLATE "C" LOOP
+        IF v_piece<>'{' THEN v_piece:=v_piece||','; END IF;
+        v_piece:=v_piece||to_jsonb(v_key)::text||':'||private.interpretation_proposal_canonical_json_text(p_value->v_key);
+      END LOOP;
+      RETURN v_piece||'}';
+    WHEN 'array' THEN
+      v_piece:='[';
+      FOR v_item IN SELECT value FROM jsonb_array_elements(p_value) LOOP
+        IF v_piece<>'[' THEN v_piece:=v_piece||','; END IF;
+        v_piece:=v_piece||private.interpretation_proposal_canonical_json_text(v_item);
+      END LOOP;
+      RETURN v_piece||']';
+    WHEN 'number' THEN
+      BEGIN v_number:=(p_value#>>'{}')::numeric; EXCEPTION WHEN OTHERS THEN
+        RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_VALUE_NUMERIC_INVALID';
+      END;
+      IF trunc(v_number)<>v_number
+         OR v_number<(-9223372036854775808)::numeric
+         OR v_number>9223372036854775807::numeric THEN
+        RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_VALUE_NUMERIC_INVALID';
+      END IF;
+      RETURN v_number::bigint::text;
+    ELSE RETURN p_value::text;
+  END CASE;
+END $$;
+
+CREATE OR REPLACE FUNCTION private.interpretation_proposal_canonical_json_sha256(p_value jsonb)
+RETURNS text LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog,extensions AS $$
+BEGIN
+  RETURN encode(digest(convert_to(private.interpretation_proposal_canonical_json_text(p_value),'UTF8'),'sha256'),'hex');
+END $$;
+
+-- Normalize the generic receiver's numeric transport form before either the
+-- legacy v1 key material or the new receipt value hash is calculated.
+CREATE OR REPLACE FUNCTION private.normalize_interpretation_proposal_value(p_value jsonb)
+RETURNS jsonb LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE v_key text; v_item jsonb; v_number numeric; v_result jsonb;
+BEGIN
+  CASE jsonb_typeof(p_value)
+    WHEN 'object' THEN
+      SELECT coalesce(jsonb_object_agg(key,private.normalize_interpretation_proposal_value(p_value->key)),'{}'::jsonb)
+        INTO v_result FROM jsonb_object_keys(p_value) key;
+      RETURN v_result;
+    WHEN 'array' THEN
+      SELECT coalesce(jsonb_agg(private.normalize_interpretation_proposal_value(value) ORDER BY ordinality),'[]'::jsonb)
+        INTO v_result FROM jsonb_array_elements(p_value) WITH ORDINALITY a(value,ordinality);
+      RETURN v_result;
+    WHEN 'number' THEN
+      BEGIN v_number:=(p_value#>>'{}')::numeric; EXCEPTION WHEN OTHERS THEN
+        RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_VALUE_NUMERIC_INVALID';
+      END;
+      IF trunc(v_number)<>v_number OR v_number<(-9007199254740991)::numeric OR v_number>9007199254740991::numeric THEN
+        RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_VALUE_NUMERIC_INVALID';
+      END IF;
+      RETURN to_jsonb(v_number::bigint);
+    ELSE RETURN p_value;
+  END CASE;
+END $$;
+
+CREATE OR REPLACE FUNCTION private.interpretation_proposal_key_material(
+  p_source_id bigint,p_record_key text,p_predicate text,p_cited_clauses jsonb,p_value jsonb)
+RETURNS text LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog,extensions AS $$
+  SELECT jsonb_build_object(
+    'key_version',1,
+    'source_id',p_source_id,
+    'record_key',p_record_key,
+    'predicate',p_predicate,
+    'ordinals',jsonb_agg(DISTINCT (c.value->>'ordinal')::integer ORDER BY (c.value->>'ordinal')::integer),
+    'value_sha256',encode(digest(convert_to(p_value::text,'UTF8'),'sha256'),'hex')
+  )::text
+  FROM jsonb_array_elements(p_cited_clauses) c(value)
+$$;
+
+CREATE OR REPLACE FUNCTION private.interpretation_proposal_key_material_sha256(
+  p_source_id bigint,p_record_key text,p_predicate text,p_cited_clauses jsonb,p_value jsonb)
+RETURNS text LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog,extensions AS $$
+BEGIN
+  RETURN encode(digest(convert_to(private.interpretation_proposal_key_material(p_source_id,p_record_key,p_predicate,p_cited_clauses,p_value),'UTF8'),'sha256'),'hex');
+END $$;
+
+CREATE OR REPLACE FUNCTION private.interpretation_proposal_key(
+  p_source_id bigint,p_record_key text,p_predicate text,p_cited_clauses jsonb,p_value jsonb)
+RETURNS uuid LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+  SELECT private.deterministic_uuid(private.interpretation_proposal_key_material(p_source_id,p_record_key,p_predicate,p_cited_clauses,p_value))
+$$;
+
+CREATE OR REPLACE FUNCTION private.interpretation_proposal_interpretation_receipt(p_row private.interpretation)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+  SELECT jsonb_build_object(
+    'interpretation_id',p_row.id,'interpretation_key',p_row.interpretation_key,'version',p_row.version,
+    'source_id',p_row.source_id,'source_persona_id',p_row.source_persona_id,
+    'interpretation_kind',p_row.interpretation_kind,'predicate',p_row.predicate,
+    'value_sha256',private.interpretation_proposal_canonical_json_sha256(p_row.value),
+    'schema_version',p_row.schema_version,'derivation_kind',p_row.derivation_kind,
+    'confidence',p_row.confidence::text,'status',p_row.status,'method',p_row.method,
+    'model_version',p_row.model_version,'prompt_version',p_row.prompt_version,
+    'extraction_run_id',p_row.extraction_run_id,'supersedes_id',p_row.supersedes_id,
+    'decision_evidence',p_row.decision_evidence,'decided_by',p_row.decided_by,
+    'decided_by_name',p_row.decided_by_name,
+    'decided_at',CASE WHEN p_row.decided_at IS NULL THEN NULL ELSE to_char(p_row.decided_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') END,
+    'created_at',to_char(p_row.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION private.interpretation_proposal_link_receipt(p_row private.interpretation_observation)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+  SELECT jsonb_build_object(
+    'interpretation_id',p_row.interpretation_id,'observation_id',p_row.observation_id,
+    'evidence_role',p_row.evidence_role,'ordinal',p_row.ordinal,
+    'created_at',to_char(p_row.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION private.interpretation_proposal_disposition_receipt(p_row private.clause_disposition)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+  SELECT jsonb_build_object(
+    'observation_id',p_row.observation_id,'version',p_row.version,'disposition',p_row.disposition,
+    'decided_by_kind',p_row.decided_by_kind,'evidence',p_row.evidence,
+    'decided_by',p_row.decided_by,'decided_by_name',p_row.decided_by_name,
+    'decided_at',CASE WHEN p_row.decided_at IS NULL THEN NULL ELSE to_char(p_row.decided_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') END,
+    'created_at',to_char(p_row.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+  )
+$$;
+
 CREATE FUNCTION private.write_interpretation_proposal(p_batch_id uuid,p_element_id text,p_payload jsonb)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE
@@ -3485,8 +3618,12 @@ DECLARE
   v_record private.source_record%ROWTYPE; v_occurrence uuid; v_parent uuid; v_persona uuid;
   v_run uuid; v_run_key text; v_run_manifest jsonb; v_claim jsonb; v_cited jsonb;
   v_predicate private.interpretation_predicate%ROWTYPE; v_interpretation uuid; v_key uuid;
-  v_value_hash text; v_key_input text; v_claim_count integer:=0; v_clause_count integer;
-  v_ordinal integer; v_hash text; v_observation uuid; v_confidence numeric; v_role text;
+  v_value_hash text; v_key_material_sha text; v_receipt_value_sha text;
+  v_claim_count integer:=0; v_clause_count integer; v_ordinal integer; v_hash text;
+  v_observation uuid; v_confidence numeric; v_role text; v_value jsonb;
+  v_interpretation_row private.interpretation%ROWTYPE;
+  v_before private.clause_disposition%ROWTYPE; v_written private.clause_disposition%ROWTYPE;
+  v_observations jsonb; v_result_receipt jsonb;
 BEGIN
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
   IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
@@ -3509,6 +3646,11 @@ BEGIN
   END IF;
   SELECT * INTO v_record FROM private.source_record WHERE source_id=v_batch.source_id AND record_key=p_payload->>'source_record_key' FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_INVALID'; END IF;
+  IF EXISTS(SELECT 1 FROM private.reimport_event
+             WHERE batch_id=p_batch_id AND operation='interpretation_proposal'
+               AND source_record_key=v_record.record_key) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS';
+  END IF;
   IF (SELECT count(*) FROM private.source_record_anchor_current WHERE source_record_id=v_record.id AND decision_status='accepted')<>1 THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_FOREIGN_POST';
   END IF;
@@ -3536,14 +3678,23 @@ BEGIN
   END IF;
 
   CREATE TEMP TABLE IF NOT EXISTS pg_temp.proposal_clause_account(observation_id uuid PRIMARY KEY, disposition text NOT NULL) ON COMMIT DROP;
+  CREATE TEMP TABLE IF NOT EXISTS pg_temp.proposal_claim_seen(claim_id text PRIMARY KEY) ON COMMIT DROP;
+  CREATE TEMP TABLE IF NOT EXISTS pg_temp.proposal_claim_receipt(claim_id text PRIMARY KEY, receipt jsonb NOT NULL) ON COMMIT DROP;
+  CREATE TEMP TABLE IF NOT EXISTS pg_temp.proposal_disposition_receipt(observation_id uuid PRIMARY KEY, receipt jsonb NOT NULL) ON COMMIT DROP;
   TRUNCATE pg_temp.proposal_clause_account;
+  TRUNCATE pg_temp.proposal_claim_seen;
+  TRUNCATE pg_temp.proposal_claim_receipt;
+  TRUNCATE pg_temp.proposal_disposition_receipt;
   FOR v_claim IN SELECT value FROM jsonb_array_elements(p_payload->'claims') LOOP
     IF jsonb_typeof(v_claim)<>'object' OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(v_claim) k)
        <> ARRAY['cited_clauses','claim_id','confidence','interpretation_kind','persona_role','predicate','value']
        OR jsonb_typeof(v_claim->'cited_clauses')<>'array' OR jsonb_array_length(v_claim->'cited_clauses')=0
-       OR v_claim->>'persona_role' NOT IN ('principal','other') THEN
+       OR v_claim->>'persona_role' NOT IN ('principal','other')
+       OR nullif(btrim(coalesce(v_claim->>'claim_id','')),'') IS NULL
+       OR EXISTS(SELECT 1 FROM pg_temp.proposal_claim_seen WHERE claim_id=v_claim->>'claim_id') THEN
       RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_INVALID';
     END IF;
+    INSERT INTO pg_temp.proposal_claim_seen(claim_id) VALUES(v_claim->>'claim_id');
     v_role:=v_claim->>'persona_role';
     IF v_role='principal' AND v_persona IS NULL THEN RAISE EXCEPTION 'REIMPORT_WRITER_PRINCIPAL_WITHOUT_PERSONA'; END IF;
     SELECT * INTO v_predicate FROM private.interpretation_predicate WHERE predicate=v_claim->>'predicate' AND status='active';
@@ -3551,21 +3702,21 @@ BEGIN
     IF v_claim->>'interpretation_kind' IS DISTINCT FROM v_predicate.interpretation_kind THEN
       RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_KIND_INVALID';
     END IF;
-    IF (v_predicate.value_kind IN ('text','date_raw') AND (jsonb_typeof(v_claim->'value')<>'string' OR btrim(v_claim->>'value')=''))
-       OR (v_predicate.value_kind NOT IN ('text','date_raw') AND (jsonb_typeof(v_claim->'value')<>'object' OR btrim(coalesce(v_claim#>>'{value,raw}',''))='')) THEN
+    v_value:=private.normalize_interpretation_proposal_value(v_claim->'value');
+    IF (v_predicate.value_kind IN ('text','date_raw') AND (jsonb_typeof(v_value)<>'string' OR btrim(v_value#>>'{}')=''))
+       OR (v_predicate.value_kind NOT IN ('text','date_raw') AND (jsonb_typeof(v_value)<>'object' OR btrim(coalesce(v_value#>>'{value,raw}',''))='')) THEN
       RAISE EXCEPTION 'REIMPORT_WRITER_VALUE_KIND_INVALID';
     END IF;
     BEGIN v_confidence:=(v_claim->>'confidence')::numeric; EXCEPTION WHEN OTHERS THEN RAISE EXCEPTION 'REIMPORT_WRITER_CONFIDENCE_INVALID'; END;
     IF v_confidence IS NULL OR v_confidence<0 OR v_confidence>1 THEN RAISE EXCEPTION 'REIMPORT_WRITER_CONFIDENCE_INVALID'; END IF;
-    v_value_hash:=encode(extensions.digest(convert_to((v_claim->'value')::text,'UTF8'),'sha256'),'hex');
-    SELECT jsonb_build_object('key_version',1,'source_id',v_batch.source_id,'record_key',v_record.record_key,
-      'predicate',v_predicate.predicate,'ordinals',jsonb_agg(DISTINCT (c->>'ordinal')::integer ORDER BY (c->>'ordinal')::integer),
-      'value_sha256',v_value_hash)::text INTO v_key_input FROM jsonb_array_elements(v_claim->'cited_clauses') c;
-    v_key:=private.deterministic_uuid(v_key_input);
+    v_value_hash:=encode(extensions.digest(convert_to(v_value::text,'UTF8'),'sha256'),'hex');
+    v_receipt_value_sha:=private.interpretation_proposal_canonical_json_sha256(v_value);
+    v_key_material_sha:=private.interpretation_proposal_key_material_sha256(v_batch.source_id,v_record.record_key,v_predicate.predicate,v_claim->'cited_clauses',v_value);
+    v_key:=private.interpretation_proposal_key(v_batch.source_id,v_record.record_key,v_predicate.predicate,v_claim->'cited_clauses',v_value);
     IF EXISTS(SELECT 1 FROM private.interpretation WHERE interpretation_key=v_key) THEN RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS'; END IF;
     INSERT INTO private.interpretation(interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,value,schema_version,
       derivation_kind,confidence,status,method,model_version,prompt_version,extraction_run_id)
-    VALUES(v_key,1,v_batch.source_id,CASE WHEN v_role='principal' THEN v_persona END,v_predicate.interpretation_kind,v_predicate.predicate,v_claim->'value',
+    VALUES(v_key,1,v_batch.source_id,CASE WHEN v_role='principal' THEN v_persona END,v_predicate.interpretation_kind,v_predicate.predicate,v_value,
       'interpretation-proposal-v1','model_inference',v_confidence,'proposed','model',p_payload->>'model_version',p_payload->>'prompt_version',v_run)
     RETURNING id INTO v_interpretation;
     v_ordinal:=0;
@@ -3590,20 +3741,59 @@ BEGIN
       INSERT INTO pg_temp.proposal_clause_account VALUES(v_observation,CASE WHEN v_role='other' THEN 'afventer_identitet' ELSE 'fortolkning_foreslaaet' END)
       ON CONFLICT(observation_id) DO UPDATE SET disposition=CASE WHEN EXCLUDED.disposition='afventer_identitet' THEN EXCLUDED.disposition ELSE pg_temp.proposal_clause_account.disposition END;
     END LOOP;
+    SELECT * INTO v_interpretation_row FROM private.interpretation WHERE id=v_interpretation;
+    SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'observation_id',io.observation_id,
+      'clause_ordinal',o.clause_ordinal,
+      'verbatim_sha256',encode(extensions.digest(convert_to(o.verbatim_text,'UTF8'),'sha256'),'hex'),
+      'evidence_role',io.evidence_role,'link_ordinal',io.ordinal,
+      'row_sha256',private.interpretation_proposal_canonical_json_sha256(private.interpretation_proposal_link_receipt(io))
+    ) ORDER BY io.ordinal),'[]'::jsonb)
+      INTO v_observations
+      FROM private.interpretation_observation io
+      JOIN private.source_observation o ON o.id=io.observation_id
+     WHERE io.interpretation_id=v_interpretation;
+    INSERT INTO pg_temp.proposal_claim_receipt(claim_id,receipt) VALUES(
+      v_claim->>'claim_id',jsonb_build_object(
+        'claim_id',v_claim->>'claim_id','interpretation_id',v_interpretation,
+        'interpretation_key',v_key,'version',v_interpretation_row.version,
+        'value_sha256',v_receipt_value_sha,'key_material_sha256',v_key_material_sha,
+        'row_sha256',private.interpretation_proposal_canonical_json_sha256(private.interpretation_proposal_interpretation_receipt(v_interpretation_row)),
+        'extraction_run_id',v_run,'observations',v_observations));
     v_claim_count:=v_claim_count+1;
   END LOOP;
   -- Én version pr. klausul pr. element. `afventer_identitet` har præcedens,
   -- fordi ethvert ubundet aktørclaim betyder, at klausulen fortsat kræver identitetsarbejde.
-  INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence)
-  SELECT a.observation_id,coalesce(max(d.version),0)+1,a.disposition,'machine',
-    jsonb_build_object('batch_id',p_batch_id,'extraction_run_id',v_run,'manifest_sha256',v_batch.manifest_sha256,'element_id',p_element_id)
-    FROM pg_temp.proposal_clause_account a LEFT JOIN private.clause_disposition d ON d.observation_id=a.observation_id
-   GROUP BY a.observation_id,a.disposition;
-  GET DIAGNOSTICS v_clause_count=ROW_COUNT;
+  FOR v_observation IN SELECT observation_id FROM pg_temp.proposal_clause_account ORDER BY observation_id::text COLLATE "C" LOOP
+    SELECT * INTO v_before FROM private.clause_disposition
+      WHERE observation_id=v_observation ORDER BY version DESC LIMIT 1 FOR UPDATE;
+    IF NOT FOUND OR v_before.decided_by_kind<>'machine'
+       OR v_before.evidence->>'manifest_sha256' !~ '^[0-9a-f]{64}$'
+       OR (v_before.evidence->>'batch_id' IS NULL AND v_before.evidence->>'extraction_run_id' IS NULL)
+       OR (v_before.evidence->>'batch_id' IS NOT NULL AND v_before.evidence->>'batch_id' !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+       OR (v_before.evidence->>'extraction_run_id' IS NOT NULL AND v_before.evidence->>'extraction_run_id' !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_INVALID';
+    END IF;
+    INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence)
+    VALUES(v_observation,v_before.version+1,
+      (SELECT disposition FROM pg_temp.proposal_clause_account WHERE observation_id=v_observation),
+      'machine',jsonb_build_object('batch_id',p_batch_id,'extraction_run_id',v_run,'manifest_sha256',v_batch.manifest_sha256,'element_id',p_element_id))
+    RETURNING * INTO v_written;
+    INSERT INTO pg_temp.proposal_disposition_receipt(observation_id,receipt) VALUES(v_observation,
+      jsonb_build_object('observation_id',v_observation,
+        'before',private.interpretation_proposal_disposition_receipt(v_before)||jsonb_build_object('row_sha256',private.interpretation_proposal_canonical_json_sha256(private.interpretation_proposal_disposition_receipt(v_before))),
+        'written',private.interpretation_proposal_disposition_receipt(v_written)||jsonb_build_object('row_sha256',private.interpretation_proposal_canonical_json_sha256(private.interpretation_proposal_disposition_receipt(v_written)))));
+  END LOOP;
+  SELECT count(*) INTO v_clause_count FROM pg_temp.proposal_disposition_receipt;
+  v_result_receipt:=jsonb_build_object('schema_version','interpretation-proposal-result-v1',
+    'claims',coalesce((SELECT jsonb_agg(receipt ORDER BY claim_id COLLATE "C") FROM pg_temp.proposal_claim_receipt),'[]'::jsonb),
+    'clause_dispositions',coalesce((SELECT jsonb_agg(receipt ORDER BY observation_id::text COLLATE "C") FROM pg_temp.proposal_disposition_receipt),'[]'::jsonb));
   INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256)
-  VALUES(p_batch_id,p_element_id,'interpretation_proposal',v_record.record_key,p_payload||jsonb_build_object('run_id',v_run,'interpretations_written',v_claim_count),
-    encode(extensions.digest(convert_to((p_payload||jsonb_build_object('interpretations_written',v_claim_count))::text,'UTF8'),'sha256'),'hex'));
-  RETURN jsonb_build_object('interpretations_written',v_claim_count,'clauses_dispositioned',v_clause_count,'run_id',v_run);
+  VALUES(p_batch_id,p_element_id,'interpretation_proposal',v_record.record_key,
+    p_payload||jsonb_build_object('run_id',v_run,'result_receipt',v_result_receipt),
+    private.interpretation_proposal_canonical_json_sha256(v_result_receipt));
+  RETURN jsonb_build_object('interpretations_written',v_claim_count,'clauses_dispositioned',v_clause_count,
+    'run_id',v_run,'result_receipt_sha256',private.interpretation_proposal_canonical_json_sha256(v_result_receipt));
 END $$;
 
 CREATE FUNCTION public.red_apply_reimport_interpretation_proposal(p_batch_id uuid,p_element_id text,p_payload jsonb)
@@ -4196,7 +4386,7 @@ ALTER TABLE private.reimport_batch ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.reimport_event ENABLE ROW LEVEL SECURITY;
 ALTER TABLE private.reimport_name_completion_result ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON private.reimport_writer_profile,private.reimport_authorization,private.reimport_batch,private.reimport_event,private.reimport_name_completion_result FROM PUBLIC,anon,authenticated,service_role;
-REVOKE ALL ON FUNCTION private.reject_reimport_writer_mutation(),private.require_reimport_writer_editor(),private.require_reimport_open_batch(uuid),private.lock_reimport_writer(bigint,text),private.validate_reimport_authorization_payload(jsonb,jsonb),private.validate_reimport_writer_config(jsonb),private.ensure_reimport_source_evidence(uuid,text,jsonb),private.reimport_canonical_json_text(jsonb),private.reimport_canonical_json_sha256(jsonb),private.validate_reimport_name_completion(uuid,uuid,text,jsonb),private.migrate_legacy_narrative_record(uuid,text,jsonb),private.write_clause_evidence(uuid,text,jsonb),private.deterministic_uuid(text),private.write_interpretation_proposal(uuid,text,jsonb),private.legacy_migration_reversal_state(uuid),private.record_reimport_legacy_reversal(uuid,uuid,jsonb),public.red_apply_reimport_canonical_delta(uuid,text,jsonb),public.red_lock_reimport_name_completion(text,bigint,text),public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb),public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb),public.red_begin_reimport_name_completion(uuid,text,uuid),public.red_apply_reimport_name_completion(uuid,text,jsonb),public.red_finalize_reimport_name_completion(uuid) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION private.reject_reimport_writer_mutation(),private.require_reimport_writer_editor(),private.require_reimport_open_batch(uuid),private.lock_reimport_writer(bigint,text),private.validate_reimport_authorization_payload(jsonb,jsonb),private.validate_reimport_writer_config(jsonb),private.ensure_reimport_source_evidence(uuid,text,jsonb),private.reimport_canonical_json_text(jsonb),private.reimport_canonical_json_sha256(jsonb),private.validate_reimport_name_completion(uuid,uuid,text,jsonb),private.migrate_legacy_narrative_record(uuid,text,jsonb),private.write_clause_evidence(uuid,text,jsonb),private.deterministic_uuid(text),private.interpretation_proposal_canonical_json_text(jsonb),private.interpretation_proposal_canonical_json_sha256(jsonb),private.normalize_interpretation_proposal_value(jsonb),private.interpretation_proposal_key_material(bigint,text,text,jsonb,jsonb),private.interpretation_proposal_key_material_sha256(bigint,text,text,jsonb,jsonb),private.interpretation_proposal_key(bigint,text,text,jsonb,jsonb),private.interpretation_proposal_interpretation_receipt(private.interpretation),private.interpretation_proposal_link_receipt(private.interpretation_observation),private.interpretation_proposal_disposition_receipt(private.clause_disposition),private.write_interpretation_proposal(uuid,text,jsonb),private.legacy_migration_reversal_state(uuid),private.record_reimport_legacy_reversal(uuid,uuid,jsonb),public.red_apply_reimport_canonical_delta(uuid,text,jsonb),public.red_lock_reimport_name_completion(text,bigint,text),public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb),public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb),public.red_begin_reimport_name_completion(uuid,text,uuid),public.red_apply_reimport_name_completion(uuid,text,jsonb),public.red_finalize_reimport_name_completion(uuid) FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),public.red_preflight_reimport_authorization(uuid,text,text),public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_apply_reimport_legacy_migration(uuid,text,jsonb),public.red_apply_reimport_clause_evidence(uuid,text,jsonb),public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb),public.red_finalize_reimport(uuid),public.red_reimport_batch_result(uuid,uuid),public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_reverse_reimport(uuid,uuid),public.red_authorize_reimport_cutover(uuid,uuid,timestamptz),public.red_activate_reimport_batch(uuid,uuid) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_authorize_reimport_cutover(uuid,uuid,timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.red_preflight_reimport_authorization(uuid,text,text),public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_apply_reimport_legacy_migration(uuid,text,jsonb),public.red_apply_reimport_clause_evidence(uuid,text,jsonb),public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb),public.red_finalize_reimport(uuid),public.red_reimport_batch_result(uuid,uuid),public.red_reverse_reimport(uuid,uuid),public.red_activate_reimport_batch(uuid,uuid) TO authenticated;

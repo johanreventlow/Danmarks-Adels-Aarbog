@@ -54,6 +54,51 @@ BEGIN
   END IF;
 END $nogle_kanttests$;
 
+-- Receipt-/nøglekontrakterne er testbare uden den fulde, syntetiske apply-
+-- fixture (den etableres som en del af integrationskørslen).  Det holder de
+-- bytefølsomme helpers røde, indtil den levende writer kan bygge receiptet.
+DO $proposal_receipt_helper_contract$
+DECLARE
+  v_value jsonb := '{"nested":[true,null],"tekst":"Æ\\n😀"}'::jsonb;
+  v_cited jsonb := '[{"ordinal":2,"verbatim_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},{"ordinal":1,"verbatim_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]'::jsonb;
+  v_inline text;
+BEGIN
+  IF to_regprocedure('private.interpretation_proposal_canonical_json_text(jsonb)') IS NULL
+     OR to_regprocedure('private.interpretation_proposal_canonical_json_sha256(jsonb)') IS NULL
+     OR to_regprocedure('private.interpretation_proposal_key_material(bigint,text,text,jsonb,jsonb)') IS NULL
+     OR to_regprocedure('private.interpretation_proposal_key_material_sha256(bigint,text,text,jsonb,jsonb)') IS NULL
+     OR to_regprocedure('private.interpretation_proposal_key(bigint,text,text,jsonb,jsonb)') IS NULL THEN
+    RAISE EXCEPTION 'PROPOSAL_RESULT_RECEIPT_INVALID';
+  END IF;
+  IF private.interpretation_proposal_canonical_json_text(v_value)
+       <> '{"nested":[true,null],"tekst":"Æ\\n😀"}'
+     OR private.interpretation_proposal_canonical_json_text('[-0,1e0,1.0,-9223372036854775808,9223372036854775807]'::jsonb)
+       <> '[0,1,1,-9223372036854775808,9223372036854775807]'
+     OR private.interpretation_proposal_canonical_json_sha256(v_value)
+       <> encode(extensions.digest(convert_to('{"nested":[true,null],"tekst":"Æ\\n😀"}','UTF8'),'sha256'),'hex') THEN
+    RAISE EXCEPTION 'PROPOSAL_RESULT_RECEIPT_INVALID';
+  END IF;
+  PERFORM pg_temp.expect_error('REIMPORT_WRITER_INTERPRETATION_VALUE_NUMERIC_INVALID',
+    $q$SELECT private.interpretation_proposal_canonical_json_text('1.5'::jsonb)$q$);
+  PERFORM pg_temp.expect_error('REIMPORT_WRITER_INTERPRETATION_VALUE_NUMERIC_INVALID',
+    $q$SELECT private.interpretation_proposal_canonical_json_text('9223372036854775808'::jsonb)$q$);
+  SELECT jsonb_build_object(
+      'key_version',1,'source_id',3,'record_key','record-1','predicate','person.name',
+      'ordinals',jsonb_agg(DISTINCT (c->>'ordinal')::integer ORDER BY (c->>'ordinal')::integer),
+      'value_sha256',encode(extensions.digest(convert_to(v_value::text,'UTF8'),'sha256'),'hex')
+    )::text
+    INTO v_inline
+    FROM jsonb_array_elements(v_cited) c;
+  IF private.interpretation_proposal_key_material(3,'record-1','person.name',v_cited,v_value)
+       IS DISTINCT FROM v_inline
+     OR private.interpretation_proposal_key_material_sha256(3,'record-1','person.name',v_cited,v_value)
+       <> encode(extensions.digest(convert_to(v_inline,'UTF8'),'sha256'),'hex')
+     OR private.interpretation_proposal_key(3,'record-1','person.name',v_cited,v_value)
+       <> private.deterministic_uuid(v_inline) THEN
+    RAISE EXCEPTION 'PROPOSAL_RESULT_RECEIPT_INVALID';
+  END IF;
+END $proposal_receipt_helper_contract$;
+
 -- Operation-vokabularet må ikke kunne indsnævres af en migrationsblok.
 -- (Fejlen 2026-09-14: 149b's blok fjernede clause_evidence, så en genkørsel mod
 --  en base med klausuldata fejlede. private.ensure_reimport_operations udvider nu.)
