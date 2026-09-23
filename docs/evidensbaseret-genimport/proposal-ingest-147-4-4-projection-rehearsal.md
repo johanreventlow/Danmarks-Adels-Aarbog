@@ -1,8 +1,8 @@
 # Rehearsal — fortolkningsforslag-projektion (#196, trin 4)
 
 Dato: 2026-09-23 · Plan: `docs/superpowers/plans/2026-09-21-interpretation-proposal-projection.md`
-Branch: `feat/196-interpretation-proposal-prod-gate` · Kode-commit: `30afa21`
-(CI-wiring og denne ledger i efterfølgende commit).
+Branch: `feat/196-interpretation-proposal-prod-gate` · Kode-commit: `7fe02b3`
+(efter review-rettelserne; første kørsel var på `30afa21`).
 
 **Kun disponerbare lokale PostgreSQL 17-baser** (`daa196_ci_schema_rls_migrations`,
 `daa196_ci_schema_migrations_rls`), bygget fra `evidence-promotion-bootstrap.sql`,
@@ -35,19 +35,35 @@ writer-fixtures → `Rscript tests/integration/test-reimport-interpretation-prop
 | R→PG-grænse: ±(2^53−1), `1.0`, `1e0`, `-0` bevares/normaliseres; SQL-hash = Python-hash; ±2^53, bigint-grænser, brøk, `1e400` afvist i R før gateway | PASS | PASS |
 | Superuser som operationslogin afvist (`INTEGRATION_LOGIN_SUPERUSER:OPERATION`) | PASS (kørt én gang) | — |
 
-Sanitiserede comparator-kvitteringer:
+Sanitiserede comparator-kvitteringer (kørsel på `7fe02b3`):
 
 | | schema-rls-migrations | schema-migrations-rls |
 |---|---|---|
-| source_id | 149513656 | 149561108 |
+| source_id | 149510469 | 149516521 |
 | database_target_sha256 | `618fd05b…a6da9c7ba` | `990e36e9…f176a55efc` |
-| manifest_content_sha256 | `13320487…495ad68a` | `e217bc8e…cfad36426d` |
-| batch_id | `ad660e8e-830c-44f1-9b8c-84c69143b84d` | `65e8a76f-69e9-4e84-b28c-ba413a949d6b` |
-| replay_authorization_id | `d2878fc8-709f-43a7-9531-45c9012a4e14` | `2eb59487-aaa0-49e4-823f-e0b2e83332fd` |
+| manifest_content_sha256 | `f0b0d3fa…0e38b7e8` | `3d46ba99…cbedf450` |
+| batch_id | `091424d8-363b-4dd9-aa88-92eb70a47869` | `3a38bc0b-9414-4d35-98fa-50484f661e57` |
+| replay_authorization_id | `7cee7ba5-3eb4-4152-b951-1522e49a42de` | `d7f36682-c61f-4184-9a26-5a05cb3cf72c` |
 | counts | elements 1 · claims 2 · links 3 · `afventer_identitet` 2 | samme |
 | apply / replay | `match` / `match` | `match` / `match` |
 
-Øvrige gates: `pytest` (comparator + 4.3b-builder) 198 passed · `Rscript run-tests.R`
+## Review-rettelser mellem første og anden kørsel
+
+Et uafhængigt helgrens-review fandt to regressioner, som første kørsel ikke kunne se,
+fordi fixturen var formet efter fejlen:
+
+- Writeren læste `{value,raw}` på den allerede normaliserede værdi og afviste derfor alle
+  rigtige `{raw, normalized?}`-værdier. Grænsefixturen bruger nu den rigtige form og var
+  rød mod den gamle writer (`REIMPORT_WRITER_VALUE_KIND_INVALID`), grøn efter rettelsen.
+- 4.3b-builderen gav `Decimal`-confidence efter streng afkodning, så runner-grænsen afviste
+  hver rigtig claim med brøk-confidence. Ny test afkoder en rå cache-streng.
+
+Desuden: manifest-hash på almindelig float-parse, tolerance for rækker uden accepteret
+anker, før-dispositioner fra enhver triggergyldig maskinrække, ingen navne i maskin-
+dispositioner, snævrere PREEXISTING_TARGET, SQL↔Python golden vectors, receipt-
+tidszonetest og helper-ACL i db-verify.
+
+Øvrige gates: `pytest` (comparator + 4.3b-builder) 205 passed · `Rscript run-tests.R`
 FAIL 0 · `git diff --check` tom.
 
 ## Ikke kørt
