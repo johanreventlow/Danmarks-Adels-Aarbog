@@ -1056,9 +1056,9 @@ python3 build_43b_proposal_manifest.py --cache-key current --bundles bundt_1,bun
 
 Blev reserven kørt i Task 3, tilføjes `,reserve` til `--bundles`. Femtalsregnskabet skal gå op (`PROPOSAL_MANIFEST_OK`, ingen `REGNSKABET GÅR IKKE OP`).
 
-- [ ] **Step 7: Kør ingesten** med kopier af 4.4's rehearsal-scripts (`~/.private/44-rehearsal-scripts/44-dryrun.R` og `44-apply.R`) i `~/.private/45-pilot/`. Scriptene finder repoet som `../..` fra deres egen placering; i kopierne erstattes linjen `root <- normalizePath(...)` derfor med repoets absolutte sti. De tager manifestet som eneste argument og læser forbindelsen fra `PGDATABASE`/`PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD` — kør dem med `PGDATABASE="$W"` og tomme øvrige (lokal socket), aldrig med `~/.Renviron`s prod-værdier: `env -u PGHOST -u PGPORT -u PGUSER -u PGPASSWORD PGDATABASE="$W" Rscript --vanilla ~/.private/45-pilot/44-dryrun.R ~/.private/45-pilot/proposal-manifest.json`. Kør dry-run før apply. Forventningen (antal forslag, `principal`/`other`, dispositioner) skrives **før** kørslen ud fra manifestets regnskab. Efter kørslen: nul kanonisk delta, `anon` uberørt, og #196's komparator (`compare_interpretation_proposal_projection.py`) giver `match` for den nye autorisation.
+- [ ] **Step 7: Kør ingesten** med kopier af 4.4's rehearsal-scripts (`~/.private/44-rehearsal-scripts/44-dryrun.R` og `44-apply.R`) i `~/.private/45-pilot/`. Scriptene finder repoet som `../..` fra deres egen placering; i kopierne erstattes linjen `root <- normalizePath(...)` derfor med repoets absolutte sti. De tager manifestet som eneste argument og læser forbindelsen fra `PGDATABASE`/`PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD` — kør dem med `PGDATABASE="$W"` og tomme øvrige (lokal socket), aldrig med `~/.Renviron`s prod-værdier: `env -u PGHOST -u PGPORT -u PGUSER -u PGPASSWORD PGDATABASE="$W" Rscript --vanilla ~/.private/45-pilot/44-dryrun.R ~/.private/45-pilot/proposal-manifest.json`. Kør dry-run før apply. Forventningen (antal forslag, `principal`/`other`, dispositioner) skrives **før** kørslen ud fra manifestets regnskab. Efter kørslen: nul kanonisk delta og `anon` uberørt. #196's komparator bruges **ikke** som gate her: dens fresh/replay-tilstand kræver præcis én ny autorisation, mens dry-run + apply efterlader to (dry-runnens ubrugte `issued` og applyens) — det er prod-wrapperens problem (4.4 D-tabellen), ikke restore-pilotens. Gaten er forventning = resultat, som i 4.4's rehearsal.
 
-**Verify:** forventning = resultat på alle tal; forslag i alt = 84 + manifestets ingestible; komparator `match`.
+**Verify:** forventning = resultat på alle tal; forslag i alt = 84 + manifestets ingestible; `canonical_delta` = 0.
 
 ---
 
@@ -1475,9 +1475,15 @@ Forventet: `SQL_OK afgørelser=<antal rækker>`. `SHEET_IDENTITY_MISMATCH`, `SHE
 
 ```bash
 createdb -T "$W" "${W}_neg"
-psql -X -d "${W}_neg" -v ON_ERROR_STOP=1 -v actor=<profil-uuid> -c "BEGIN; SET LOCAL ROLE authenticated;
-  SELECT set_config('request.jwt.claim.sub', :'actor', true);
-  SELECT red_decide_interpretation('<sidste id i afgoerelser.sql>'::uuid, 1, 'unresolved', '{\"method\":\"negativtest\"}'::jsonb); COMMIT;"
+SIDSTE=$(grep -o "red_decide_interpretation('[0-9a-f-]*'" ~/.private/45-pilot/afgoerelser.sql | tail -1 | cut -d"'" -f2)
+# psql udfylder ikke :'variabler' i -c; derfor stdin.
+psql -X -d "${W}_neg" -v ON_ERROR_STOP=1 -v actor=<profil-uuid> -v sidste="$SIDSTE" <<'SQL'
+BEGIN;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub', :'actor', true);
+SELECT red_decide_interpretation(:'sidste'::uuid, 1, 'unresolved', '{"method":"negativtest"}'::jsonb);
+COMMIT;
+SQL
 psql -X -d "${W}_neg" -v actor=<profil-uuid> -f ~/.private/45-pilot/afgoerelser.sql > ~/.private/45-pilot/neg.out 2>&1
 grep -c EVIDENCE_INTERPRETATION_NOT_PROPOSED ~/.private/45-pilot/neg.out
 psql -X -d "${W}_neg" -At -c "SELECT count(*) FROM private.interpretation WHERE decision_evidence->>'method'='human-sheet-4.5'"
