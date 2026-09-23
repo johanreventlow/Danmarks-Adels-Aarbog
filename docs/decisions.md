@@ -2,6 +2,34 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 4.4's forslags-kørsel i prod fortrydes kun ved restore (2026-09-23)
+
+**Kvittering fra projektejeren** for spec åbent punkt 11.5
+(`docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md`
+§7.4): der bygges ingen fortryd-funktion for `interpretation_proposal` i prod. Går
+kørslen galt, er vejen tilbage en restore af backuppen, taget umiddelbart før apply.
+Målt i koden samme dag: `red_reverse_reimport` håndterer kun `person_create`- og
+`name_completion`-batches, så der findes heller ingen delvis fortryd-vej.
+
+**Grundlaget.** Kørslen skriver kun `proposed`-fortolkninger, observationslinks og
+maskinelle klausuldispositioner i det private lag — intet kanonisk delta, intet
+`anon`-synligt. Forkerte forslag afvises af mennesket i 4.5 og bliver `rejected`; en
+restore er kun til en ødelagt batch.
+
+**Konsekvensen, sagt højt:** en restore sletter alt, der er skrevet i prod siden
+backuppen — bogmærker og redaktionelle rettelser inklusive. Og fordi backuppen tages
+lige før 4.4, bliver den det nye restorepunkt: 4.1c's åbne fortrydelsesvindue
+(backup 2026-09-18) lukkes reelt, når 4.4 er kørt. Skrivepausen fra 4.1c-runbooken
+(før dump → efter `VERIFY_OK`) gælder også her.
+
+**Afgrænsning:** kvitteringen gælder kun `interpretation_proposal`. Den er ikke et
+prod-GO for kørslen, som fortsat kræver sin egen runbook, rehearsal mod dagens backup
+og et udtrykkeligt GO.
+
+**Forkastet:** en batch-reversal-RPC — ny, utestet kode på den mest følsomme vej, med
+egen plan, review og DDL-deploy, for en operation hvis fejl kun rammer det private
+evidenslag. Samme begrundelse som for klausulerne (2026-09-17).
+
 ## BESLUTTET: `red_*`-fladen efterprøves af en vagt, ikke af allow-listen alene (2026-09-20)
 
 **Baggrund.** Allow-listen i `db-rls.sql` nulstiller hele `red_*`-fladen og genåbner 74
