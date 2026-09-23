@@ -105,3 +105,19 @@ def test_cached_raw_claims_reject_duplicate_json_keys_before_partitioning():
 
 def test_cached_raw_claims_returns_only_a_json_claim_list():
     assert parse_cached_raw_claims('{"claims":[]}') == []
+
+
+def test_cached_raw_fractional_confidence_survives_the_claim_boundary():
+    """Review C1: strict decoding must not turn a legal 0.9 confidence into a Decimal
+    that the runner's float check then rejects."""
+    text = "Født 1. jan. 1800 i Fiktivby."
+    record = {
+        "record_key": "I-42", "persona_id": "persona-1", "clauses": [
+            {"ordinal": 1, "verbatim_text": text, "verbatim_sha256": sha256_text(text)},
+        ],
+    }
+    raw = ('{"claims":[{"clause_ordinals":[1],"predicate":"person.birth",'
+           '"value":"1800-01-01","confidence":0.9,"source_persona_id":"persona-1"}]}')
+    accepted, rejected = partition_record_claims(parse_cached_raw_claims(raw), record)
+    assert rejected == []
+    assert len(accepted) == 1 and accepted[0]["confidence"] == 0.9

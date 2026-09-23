@@ -54,7 +54,10 @@ def parse_cached_raw_claims(raw: str) -> list:
         raise ValueError("CACHE_RAW_JSON_INVALID") from exc
     if not isinstance(payload, dict) or set(payload) != {"claims"} or not isinstance(payload["claims"], list):
         raise ValueError("CACHE_RAW_JSON_INVALID")
-    return payload["claims"]
+    # Den strenge afkodning er kun en port (dubletnøgler, NaN, U+0000, lone surrogates).
+    # Claim-grænsen nedenfor forventer den almindelige afkodning (float-confidence), og
+    # numeriske claim-værdier afvises dér uanset repræsentation.
+    return json.loads(raw)["claims"]
 
 
 def legacy_cache_key(ident: dict) -> str:
