@@ -277,6 +277,13 @@ replayed_path <- write_private("replayed.json", projection())
 replay_match <- compare_replay(after_path, replayed_path, replay_authorization, "replay-match.json")
 if (replay_match$status != 0L || !grepl('"status": "match"', replay_match$out, fixed = TRUE))
   stop("replay-comparator gav ikke match: ", replay_match$out)
+# Replay-rapporten er kædet til fresh-rapporten via byte-hashen af den samme after-fil.
+report_json <- function(name) jsonlite::fromJSON(file.path(private_dir, name), simplifyVector = FALSE)
+after_file_sha <- digest::digest(file = after_path, algo = "sha256")
+stopifnot(identical(report_json("apply-match.json")$input_file_sha256$after, after_file_sha),
+  identical(report_json("replay-match.json")$input_file_sha256$after, after_file_sha),
+  identical(report_json("replay-match.json")$input_file_sha256$replayed,
+    digest::digest(file = replayed_path, algo = "sha256")))
 wrong_replay <- compare_replay(after_path, replayed_path, dry_authorization, "replay-wrong.json")
 stopifnot(wrong_replay$status != 0L)
 

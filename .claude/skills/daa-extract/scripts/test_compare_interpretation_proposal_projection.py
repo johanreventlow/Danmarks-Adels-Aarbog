@@ -816,6 +816,65 @@ def test_cli_fresh_match_writes_private_report_and_prints_only_sanitized_json(tm
     assert os.stat(report).st_mode & 0o777 == 0o600
 
 
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_cli_reports_bind_the_exact_input_file_bytes_so_replay_chains_to_fresh(tmp_path, capsys):
+    """Minor 12: en replay-rapport skal kunne kaedes til den fresh-rapport, hvis after den genbrugte."""
+    paths = {name: tmp_path / f"{name}.json" for name in ("manifest", "before", "after", "replayed")}
+    _write_json(paths["manifest"], manifest())
+    _write_json(paths["before"], before())
+    # Bevidst ikke-kanonisk formatering: hashen er over filens bytes, ikke over en re-serialisering.
+    paths["after"].write_text(json.dumps(correctly_applied(), indent=1) + "\n", encoding="utf-8")
+    _write_json(paths["replayed"], replayed())
+    target = cp.target_sha256(before()["database_target_identity"])
+    fresh_report, replay_report = tmp_path / "fresh.json", tmp_path / "replay.json"
+    assert cp.main([
+        "--mode", "fresh", "--manifest", str(paths["manifest"]), "--before", str(paths["before"]),
+        "--after", str(paths["after"]), "--expect-target-sha256", target, "--report", str(fresh_report),
+    ]) == 0
+    assert cp.main([
+        "--mode", "replay", "--after", str(paths["after"]), "--replayed", str(paths["replayed"]),
+        "--replay-authorization-id", UUIDS["replay_authorization"],
+        "--expect-target-sha256", target, "--report", str(replay_report),
+    ]) == 0
+    capsys.readouterr()
+    fresh = json.loads(fresh_report.read_text(encoding="utf-8"))
+    replay = json.loads(replay_report.read_text(encoding="utf-8"))
+    assert fresh["input_file_sha256"] == {
+        "manifest": _file_sha256(paths["manifest"]),
+        "before": _file_sha256(paths["before"]),
+        "after": _file_sha256(paths["after"]),
+    }
+    assert replay["input_file_sha256"] == {
+        "after": _file_sha256(paths["after"]),
+        "replayed": _file_sha256(paths["replayed"]),
+    }
+    assert replay["input_file_sha256"]["after"] == fresh["input_file_sha256"]["after"]
+
+
+def test_cli_no_go_report_also_names_its_input_files(tmp_path, capsys):
+    paths = {name: tmp_path / f"{name}.json" for name in ("after", "replayed")}
+    _write_json(paths["after"], correctly_applied())
+    value = replayed()
+    value["neutral_sha256"] = H("f")
+    _write_json(paths["replayed"], value)
+    report = tmp_path / "replay-no-go.json"
+    assert cp.main([
+        "--mode", "replay", "--after", str(paths["after"]), "--replayed", str(paths["replayed"]),
+        "--replay-authorization-id", UUIDS["replay_authorization"],
+        "--expect-target-sha256", cp.target_sha256(before()["database_target_identity"]),
+        "--report", str(report),
+    ]) == 1
+    capsys.readouterr()
+    stored = json.loads(report.read_text(encoding="utf-8"))
+    assert stored["status"] == "no-go"
+    assert stored["input_file_sha256"] == {
+        "after": _file_sha256(paths["after"]), "replayed": _file_sha256(paths["replayed"]),
+    }
+
+
 def test_cli_refuses_existing_report_and_prints_manifest_hash(tmp_path, capsys):
     manifest_path = tmp_path / "manifest.json"
     _write_json(manifest_path, manifest())
@@ -849,6 +908,7 @@ def test_cli_no_go_exits_one_and_writes_same_sanitized_report(tmp_path, capsys):
     stored = json.loads(report.read_text(encoding="utf-8"))
     assert terminal == stored == {
         "status": "no-go", "code": "INTERPRETATION_PROJECTION_CANONICAL_DRIFT", "details": {"part": "neutral_sha256"},
+        "input_file_sha256": {name: _file_sha256(path) for name, path in paths.items()},
     }
 
 

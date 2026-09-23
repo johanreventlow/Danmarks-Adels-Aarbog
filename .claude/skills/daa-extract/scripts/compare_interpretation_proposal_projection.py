@@ -1097,6 +1097,28 @@ def _load_json(path: str) -> Any:
         raise UsageError("INTERPRETATION_PROJECTION_INPUT_UNREADABLE") from None
 
 
+def _read_inputs(paths: dict[str, str]) -> tuple[dict[str, bytes], dict[str, str]]:
+    """Read every input once; the report binds the SHA-256 of exactly the bytes parsed.
+
+    Byte hashes (not canonical ones) so an auditor can reproduce them with
+    `shasum -a 256` and chain a replay report's `after` to the fresh report's.
+    """
+    raw: dict[str, bytes] = {}
+    for name, path in paths.items():
+        try:
+            raw[name] = Path(path).expanduser().read_bytes()
+        except OSError:
+            raise UsageError("INTERPRETATION_PROJECTION_INPUT_UNREADABLE") from None
+    return raw, {name: hashlib.sha256(value).hexdigest() for name, value in raw.items()}
+
+
+def _parse_input(raw: bytes) -> Any:
+    try:
+        return strict_json_loads(raw.decode("utf-8"))
+    except UnicodeError:
+        raise UsageError("INTERPRETATION_PROJECTION_INPUT_UNREADABLE") from None
+
+
 def _report_path(raw: str) -> Path:
     path = Path(raw).expanduser().absolute()
     if not path.parent.is_dir():
@@ -1150,6 +1172,7 @@ def main(argv: list[str] | None = None) -> int:
         except UsageError as caught:
             _emit({"status": "usage-error", "code": caught.code})
             return 2
+    input_sha256: dict[str, str] = {}
     try:
         if (args.mode is None or args.report is None or args.expect_target_sha256 is None
                 or not _is_sha(args.expect_target_sha256)):
@@ -1159,16 +1182,21 @@ def main(argv: list[str] | None = None) -> int:
             if (not all((args.manifest, args.before, args.after))
                     or any((args.replayed, args.replay_authorization_id))):
                 raise UsageError("INTERPRETATION_PROJECTION_ARGUMENTS_INVALID")
-            inputs = (_load_json(args.manifest), _load_json(args.before), _load_json(args.after))
-            result = compare_apply(*inputs, args.expect_target_sha256)
+            raw, input_sha256 = _read_inputs(
+                {"manifest": args.manifest, "before": args.before, "after": args.after})
+            result = compare_apply(_parse_input(raw["manifest"]), _parse_input(raw["before"]),
+                                   _parse_input(raw["after"]), args.expect_target_sha256)
         else:
             if (not all((args.after, args.replayed, args.replay_authorization_id))
                     or any((args.manifest, args.before))):
                 raise UsageError("INTERPRETATION_PROJECTION_ARGUMENTS_INVALID")
-            result = compare_replay(_load_json(args.after), _load_json(args.replayed),
+            raw, input_sha256 = _read_inputs({"after": args.after, "replayed": args.replayed})
+            result = compare_replay(_parse_input(raw["after"]), _parse_input(raw["replayed"]),
                                     args.replay_authorization_id, args.expect_target_sha256)
+        result = {**result, "input_file_sha256": input_sha256}
     except ProjectionError as caught:
-        result = {"status": "no-go", "code": caught.code, "details": caught.details}
+        result = {"status": "no-go", "code": caught.code, "details": caught.details,
+                  "input_file_sha256": input_sha256}
         try:
             _write_private(report, result)
         except UsageError as usage:
