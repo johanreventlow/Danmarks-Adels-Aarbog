@@ -8,8 +8,8 @@ der lader projektejeren skrive 4.3b's 84 fortolkningsforslag som `proposed` i pr
 bevise resultatet med #196's projektion og komparator.
 
 **Architecture:** Samme form som 4.1c (`docs/runbooks/clause-evidence-prod-apply.md` +
-`~/.private/148c-prod/`): seks private scripts `00-freeze … 05-verify` med fælles
-`lib.zsh`, to hærdede R-kopier, restore-rehearsal af netop dagens dump med lokal
+`~/.private/148c-prod/`): syv private scripts `00-freeze … 06-recover` med fælles
+`lib.zsh`, tre hærdede R-scripts (rolleprobe, dry-run, apply/replay), restore-rehearsal af netop dagens dump med lokal
 fortrydelsesøvelse, og en committed runbook. Forskellen er 4.4-kæden: dry-run →
 profil-readback → før-projektion → apply → efter-projektion → fresh-komparator → replay med
 ny autorisation → replay-projektion → replay-komparator, med operation og autorisation i
@@ -22,6 +22,29 @@ hver sin rolle-transaktion som i #196's CI-bevis.
 `docs/decisions.md` »4.4's forslags-kørsel i prod fortrydes kun ved restore« (2026-09-23).
 Forlæg: `docs/runbooks/clause-evidence-prod-apply.md`, `~/.private/148c-prod/`,
 `tests/integration/test-reimport-interpretation-proposal.R`.
+
+## Revisionslog
+
+**v2 (2026-09-23) — efter Codex sol runde 1 (NO-GO, 6 blokerende + 3 major).** Alle ni
+fund verificeret i koden før rettelse.
+
+| Fund | Verificeret i | Rettelse | Sted |
+|---|---|---|---|
+| B1 profilversion | profil-JSON `"profile_version": "1.0.0"`; CI hardkoder `'interpretation-proposal-v1'` (`test-…-proposal.R:100`) | `DAA_PROFILE_FILE_VERSION="1.0.0"` er den eneste version, der indsættes og readback-valideres; writeren læser den aldrig (skriver literal `'interpretation-proposal-v1'` som `schema_version`, `schema.sql:3670-3676`) | Global Constraints, Task 1 Step 2, Task 2 Step 4 |
+| B2 aktør via miljø | gatewayens `preflight` læser `DAA_REIMPORT_ACTOR_ID` (`apply_reimport_helpers.R:333-336`); 148c sætter den i linje 71, uden for den kopierede præambel 1-60 | nedarvet værdi → STOP før forbindelse; sæt efter entydighedstjek (lever kun i R-processen); skallerne `unset` den | Task 2 Step 2 |
+| B3 ukendt commit-udfald | `apply.json` skrives først efter commit; 04's tomhedsporte kan ikke genkøres efter dry-run | `apply-intent.json` før apply-kaldet; nyt `06-recover.sh` med tre udfald og autorisationstabel | Task 4 Step 1, 3, 6; Autorisationstabel |
+| B4 dry-run-vask | CI kræver byte-identisk projektion før/efter dry-run (`test-…-proposal.R:228-236`); komparatoren kræver præcis én ny autorisation (`compare_…py:729-733`) | `pre-dry.json` før dry-run + `assert_projection_delta`: lig `before.json` efter fjernelse af præcis den ene dry-run-autorisation | Task 4 Step 1 |
+| B5 freeze er kun markører | `00-freeze.sh:34-61` tæller forbindelser, stopper intet | skrivepausen *bevises*: prod-tilstands-hash i dump-kvitteringen, genberegnet i 04 før første skrivning; ikke-berørte-tabeller-hash 04→05 | Task 1 Step 6, Task 4 Step 3-4, Task 6 |
+| B6 én login, to roller | `red_authorize_reimport` kun til `service_role`, apply-RPC'er kun til `authenticated` (`schema.sql:4391-4392`); prod har kun bevist `service_role` (148c `04-clause-apply-prod.R:93`) | `01-role-probe-prod.R` i rollback-transaktioner: begge roller, claim-livscyklus, negative ACL'er; køres i 01 og igen i 04 før første skrivning | Task 2 Step 6, Task 3 |
+| M7 05 ubundet | 148c `05-verify.sh:10-19` kræver rapport + hash | `apply-receipt.json` (O_EXCL, 0600) med alle filhashes; 05 kræver sti + hash | Task 4 Step 3-4 |
+| M8 preflight < writerkrav | writeren kræver 1 anker, 1 parent, aktivt prædikat/kind/value-form, ny nøgle, `machine`-disposition med provenance (`schema.sql:3653-3775`) | pr. claim/pr. klausul anti-joins genereret fra manifestet | Task 3 Step 1.7 |
+| M9 levende fail-open | spec §9.2 linje 608: »levende eller uafklaret« udelukkes | fem kardinaliteter, krav `8\|8\|8\|8\|8` | Task 3 Step 1.8 |
+
+Valg truffet i v2 (ingen blokerer): **B6 én login + rollebevis** frem for to nye prod-logins
+(nye DB-roller i prod = ny overflade; `service_role` allerede bevist 18/9). **B5 detektion,
+ikke forhindring:** Supabase free-tier har ingen vedligeholdelsesport, og en rolle-/database-
+bred `read_only` ville også ramme kørslen selv; hashen beviser direkte »ingen skrivning
+siden dump«, som er netop restore-risikoen.
 
 ## Roadmap-adgangskrav (roadmap.md, seks spørgsmål)
 
@@ -50,7 +73,16 @@ Forlæg: `docs/runbooks/clause-evidence-prod-apply.md`, `~/.private/148c-prod/`,
   `a328ede946140a1223be3077d18579d94f763812875a55d67abed00645313cf8`. Genbygget
   2026-09-23 med `main`'s builder: byte-identisk. Må ikke genbygges i kørslen.
 - Profil: `daa-2018-20-interpretation-proposal-v1`, writer-config-hash
-  `4e39fff44db0cdab7ff35d59fe852f317dc608e818c4b2dd8ff060190fdc625c`.
+  `4e39fff44db0cdab7ff35d59fe852f317dc608e818c4b2dd8ff060190fdc625c`, filversion
+  `"1.0.0"` (`DAA_PROFILE_FILE_VERSION`). Det er den værdi, der indsættes i
+  `reimport_writer_profile.profile_version` og readback-valideres. `interpretation-proposal-v1`
+  er IKKE en profilversion: writeren skriver den som literal `schema_version` på
+  `extraction_run`/`interpretation` og læser aldrig profilrækkens version.
+- Aktør: den ene `redaktion`-profil. Sættes kun af R-scriptene selv
+  (`DAA_REIMPORT_ACTOR_ID`); en nedarvet værdi i miljøet er en stopport.
+- Én prod-login (Session pooler). Rollerne skiftes kun med `SET LOCAL ROLE` i hver sin
+  transaktion: `authenticated` til operationen, `service_role` til autorisation. Begge
+  bevises i rollback-transaktioner før første skrivning (Task 2 Step 6).
 - Forventede tal (fra 4.4-rehearsal 2026-09-14, genmåles i Task 5): 8 elementer, 84 claims,
   88 links, 68 `principal` / 16 `other`, dispositioner 13 `fortolkning_foreslaaet` +
   6 `afventer_identitet`, nul kanonisk delta, `anon` uændret.
@@ -67,15 +99,21 @@ Forlæg: `docs/runbooks/clause-evidence-prod-apply.md`, `~/.private/148c-prod/`,
 
 ## Review Focus
 
-1. **Forbindelsen forsvinder omkring apply-commit** → udfaldet afgøres med én læse-kun
-   forespørgsel bundet til manifest-hash, mål og profil; ingen ny autorisation (Task 3, 6).
-2. **Replay-trinnet kører på et forkert grundlag** (efter-projektion taget efter replay, eller
+1. **Forbindelsen forsvinder omkring apply-commit** → `06-recover.sh` klassificerer læse-kun
+   bundet til manifest-hash, mål, profil og `apply-intent.json`; præcis tre udfald, og kun
+   »intet commit« må udstede en ny autorisation (Task 4 Step 6, Autorisationstabel).
+2. **Dry-run eller en fremmed skrivning »vaskes« ind i før-projektionen** →
+   `assert_projection_delta` (Task 4 Step 1) og prod-tilstands-hashen fra dumpet (Task 4
+   Step 3).
+3. **Replay-trinnet kører på et forkert grundlag** (efter-projektion taget efter replay, eller
    autorisation genbrugt) → replay-komparatoren skal fejle `REPLAY_DRIFT` (Task 4 negativ).
-3. **Arvet miljø** (`PGHOSTADDR`, `PYTHONOPTIMIZE`, `PGOPTIONS`) slår en stopport fra →
-   rehearsal med begge sat giver uændret resultat (Task 5).
-4. **Klausul-citater løser ikke i prod** (4.1c-klausulerne afviger fra 4.3b's) → preflight
-   tæller `84/84` citater løst før enhver skrivning (Task 3).
-5. **En levende person blandt de 8 records** → preflight kræver 0 (Task 3); ellers STOP.
+4. **Arvet miljø** (`PGHOSTADDR`, `PYTHONOPTIMIZE`, `PGOPTIONS`, `DAA_REIMPORT_ACTOR_ID`)
+   slår en stopport fra → rehearsal med dem sat giver uændret resultat eller navngivet STOP
+   (Task 5).
+5. **Writerens forudsætninger holder ikke i prod** (citater, anker, parent, prædikat,
+   nøgle, disposition) → preflight spejler hvert writerkrav før enhver skrivning (Task 3).
+6. **En levende eller uafklaret person blandt de 8 records** → preflight kræver `8|8|8|8|8`
+   (Task 3); ellers STOP.
 
 ---
 
@@ -85,16 +123,18 @@ Private (`~/.private/147-44-prod/`, ikke i git):
 
 | Fil | Ansvar |
 |---|---|
-| `lib.zsh` | faste stier/hashes, forbindelse, målbinding, manifest-/profil-/GO-hash-validering, `run_proposal_sequence` (fælles for 03 og 04) |
-| `00-freeze.sh` | skrivepause begin/end (kopi af 148c, uændret logik) |
-| `01-preflight.sh` | læse-kun: mål, 4.1c-forudsætning, tomhed, citater, persona, levende, forældreløse, redaktion=1 |
-| `02-dump.sh` | læse-kun dump + kvittering (kopi af 148c) |
-| `03-restore-rehearsal.sh` | lokal restore af dagens dump, fuld sekvens, verify-SQL, db-verify, fortrydelsesøvelse |
-| `04-apply.sh` | `--jeg-mener-det`; bindinger; `run_proposal_sequence` mod prod |
-| `05-verify.sh` | læse-kun slutprojektion + genkørsel af begge komparatorer + supplerende SQL |
-| `03-proposal-dryrun-prod.R` | hærdet dry-run; indsætter profilrækken varigt |
-| `04-proposal-apply-prod.R` | hærdet apply/replay med ekstern autorisation i egen rolle-transaktion |
-| `verify.sql`, `state-hash.sql`, `rollback-preflight.sql` | læse-kun SQL (de to sidste kopieret fra 148c) |
+| `lib.zsh` | faste stier/hashes, forbindelse, målbinding, manifest-/profil-/GO-hash-validering, `run_proposal_sequence` + `continue_after_apply` (fælles for 03, 04 og 06), `assert_projection_delta`, `assert_report_chain`, `sanitize_report`, `write_apply_receipt` |
+| `00-freeze.sh` | skrivepause begin/end: ansvarskode, forbindelsesantal, markører (148c-logik); `end` binder til apply-kvitteringen. Selve pausen *bevises* af tilstands-hashen (02 → 04 → 05) |
+| `01-preflight.sh` | læse-kun: mål, rolleprobe, 4.1c-forudsætning, tomhed, writerkrav pr. claim/klausul, persona/identitet/levende, forældreløse, redaktion=1 |
+| `02-dump.sh` | læse-kun dump + kvittering med prod-tilstands-hash før og efter dumpet (skal være ens) |
+| `03-restore-rehearsal.sh` | lokal restore af dagens dump, fuld sekvens, fejlinjektion af begge recovery-udfald, verify-SQL, db-verify, fortrydelsesøvelse |
+| `04-apply.sh` | `--jeg-mener-det`; bindinger; tilstands-hash = dumpets; rolleprobe; `run_proposal_sequence` mod prod; apply-kvittering |
+| `05-verify.sh` | kræver apply-kvittering + hash; læse-kun slutprojektion, ikke-berørt-hash, genkørsel af begge komparatorer, `verify.sql` |
+| `06-recover.sh` | kun efter en afbrudt 04: læse-kun klassifikation → genoptag eller NO-GO |
+| `01-role-probe-prod.R` | rollebevis i rollback-transaktioner (ingen skrivning) |
+| `03-proposal-dryrun-prod.R` | profilrække (varig) + dry-run-autorisation + dry-run; skriver `dryrun.json` |
+| `04-proposal-apply-prod.R` | apply/replay med ekstern autorisation i egen rolle-transaktion; skriver `apply-intent.json` før kaldet |
+| `verify.sql`, `state-hash.sql`, `rollback-preflight.sql` | læse-kun SQL (de to sidste kopieret fra 148c; `state-hash.sql` får en eksklusionsvariabel) |
 
 Repo (committes):
 
@@ -127,13 +167,15 @@ DAA_MANIFEST="$HOME/.private/43b-kørsel/proposal-manifest.json"   # ikke overst
 DAA_PROFILE="$DAA_REPO/.claude/skills/daa-extract/references/reimport-profiles/daa-2018-20-interpretation-proposal-v1.json"
 DAA_COMPARATOR="$DAA_SQL_DIR/compare_interpretation_proposal_projection.py"
 DAA_PROFILE_ID="daa-2018-20-interpretation-proposal-v1"
-DAA_PROFILE_VERSION="interpretation-proposal-v1"
+DAA_PROFILE_FILE_VERSION="1.0.0"   # profil-JSON'ens top-niveau; det eneste der indsættes/readback'es
 DAA_MANIFEST_FILE_SHA256="c310ca6325b5a3a10c895a0f80161a51a0c24b61c902b807d34c7f8433c65aad"
 DAA_MANIFEST_CONTENT_SHA256="a328ede946140a1223be3077d18579d94f763812875a55d67abed00645313cf8"
 DAA_PROFILE_SHA256="4e39fff44db0cdab7ff35d59fe852f317dc608e818c4b2dd8ff060190fdc625c"
 DAA_PREVIEW_SHA256="$DAA_MANIFEST_FILE_SHA256"
 ```
-Fjern `DAA_RENDITION_SHA256`, `DAA_LEDGER_FILE_SHA256`, `parent_hash_match`. `target_identity`
+Fjern `DAA_RENDITION_SHA256`, `DAA_LEDGER_FILE_SHA256`, `parent_hash_match`. Omdøb
+`DAA_PROFILE_VERSION` → `DAA_PROFILE_FILE_VERSION` overalt (`validate_profile`, rehearsal-
+og apply-kvitteringer), så navnet ikke kan forveksles med writerens `schema_version`. `target_identity`
 bruger `interpretation_proposal_target_identity.sql`; `project_database` bruger
 `interpretation_proposal_projection.psql`.
 
@@ -169,33 +211,52 @@ klausuler, 68/16, alle 8 elementer har mindst ét `principal`-claim.
 
 - [ ] **Step 4: Opdatér `verify_go_hashes`' og `assert_repo_clean`'s filmængde** til 4.4:
   private `00-freeze.sh 01-preflight.sh 02-dump.sh 03-restore-rehearsal.sh 04-apply.sh
-  05-verify.sh lib.zsh 03-proposal-dryrun-prod.R 04-proposal-apply-prod.R verify.sql
-  state-hash.sql rollback-preflight.sql` (12) + repo `apply_reimport_helpers.R`,
-  `interpretation_proposal_projection.psql`, `interpretation_proposal_projection.sql`,
-  `interpretation_proposal_anon_projection.sql`, `interpretation_proposal_target_identity.sql`,
-  `compare_interpretation_proposal_projection.py`, profil-JSON (7) + manifestfilen (1) =
-  **eksakt 20**. `assert_repo_clean` dækker de 7 repo-stier.
+  05-verify.sh 06-recover.sh lib.zsh 01-role-probe-prod.R 03-proposal-dryrun-prod.R
+  04-proposal-apply-prod.R verify.sql state-hash.sql rollback-preflight.sql` (14) + repo
+  `apply_reimport_helpers.R`, `interpretation_proposal_projection.psql`,
+  `interpretation_proposal_projection.sql`, `interpretation_proposal_anon_projection.sql`,
+  `interpretation_proposal_target_identity.sql`, `compare_interpretation_proposal_projection.py`,
+  profil-JSON (7) + manifestfilen (1) = **eksakt 22**. `assert_repo_clean` dækker de 7
+  repo-stier.
 - [ ] **Step 5: Test.** `zsh -c 'source ~/.private/147-44-prod/lib.zsh; validate_manifest && echo MANIFEST_OK'`
   → `MANIFEST_OK`. Mutant: kopiér manifestet til `$DAA_PRIVATE_DIR/mutant.json`, ændr én
   `confidence` med python, peg en midlertidig `DAA_MANIFEST` dertil i en subshell → STOPPORT
   (fil-hash). Slet mutanten bagefter.
-- [ ] **Step 6: `00-freeze.sh`/`02-dump.sh`:** kun sti-/navneændringer (148c → 147-44).
-  Kør `zsh -n` på begge.
+- [ ] **Step 6: `00-freeze.sh`/`02-dump.sh`:** sti-/navneændringer (148c → 147-44), plus i
+  `02-dump.sh`: kør `state-hash.sql` læse-kun mod prod umiddelbart FØR og EFTER `pg_dump`;
+  de to skal være ens (ellers `DUMP_STATE_UNSTABLE` → STOP: en skrivning skete under dumpet,
+  eller en tabel er volatil). Kvitteringen får `state_sha256` og
+  `state_hash_seconds` (målt køretid). `state-hash.sql` får psql-variablen `exclude`
+  (kommasepareret `schema.tabel`, default tom) til ikke-berørt-hashen i Task 4; hashen over
+  tabelnavnene selv indgår, så en eksklusion er synlig i resultatet. Kør `zsh -n` på begge.
+- [ ] **Step 7: Stabilitet og køretid.** På stand-in (Task 5 Step 1): kør `state-hash.sql` to
+  gange med en `anon`-læsning af web-fladens forespørgsler imellem → samme hash; notér
+  køretiden. Er en tabel volatil, udelukkes den ved navn med begrundelse i runbooken — aldrig
+  tavst.
 
 ### Task 2: Hærdede R-kopier (dry-run, apply, replay)
 
 **Files:**
-- Create: `~/.private/147-44-prod/03-proposal-dryrun-prod.R`, `04-proposal-apply-prod.R`
+- Create: `~/.private/147-44-prod/01-role-probe-prod.R`, `03-proposal-dryrun-prod.R`,
+  `04-proposal-apply-prod.R`
 
 **Interfaces:**
 - Consumes: `apply_reimport_helpers.R` (`execute_reimport(..., authorization_policy="external")`,
   `new_reimport_dbi_gateway(connect, transaction_setup=)`, `reimport_writer_expected_counts`,
   `reimport_authorized_payloads_json`).
 - Produces:
-  - `03-proposal-dryrun-prod.R <manifest>` → stdout `DRY_RUN_OK`; profilrække varig.
-  - `04-proposal-apply-prod.R <manifest> apply|replay <out.json>` → skriver 0600
-    `{"authorization_id","principal_id","status","committed","preview_sha256"}` til
-    `<out.json>` (må ikke findes); stdout kun status og `APPLY_OK`/`REPLAY_OK`.
+  - `01-role-probe-prod.R` → stdout `ROLE_PROBE_OK`; skriver intet (alle transaktioner
+    ROLLBACK).
+  - `03-proposal-dryrun-prod.R <manifest> <dryrun.json>` → skriver `dryrun-intent.json`
+    (samme mappe; `{"phase":"dry-run","authorization_id","principal_id","preview_sha256"}`,
+    O_EXCL 0600) straks efter autorisationens commit og før `execute_reimport`; derefter 0600
+    `{"authorization_id","principal_id","status":"finalized","committed":false,
+    "profile_version":"1.0.0"}`; stdout `DRY_RUN_OK`; profilrække varig.
+  - `04-proposal-apply-prod.R <manifest> apply|replay <intent.json> <out.json>` → skriver
+    0600 `<intent.json>` = `{"phase","authorization_id","principal_id","preview_sha256"}`
+    via `O_EXCL` STRAKS efter autorisationens commit og FØR `execute_reimport`; derefter
+    `<out.json>` = intent-felterne + `{"status","committed"}`. Ingen af filerne må findes
+    i forvejen. stdout kun status og `APPLY_OK`/`REPLAY_OK`.
 
 - [ ] **Step 1: Forbindelses-præambel** kopieres ordret fra
   `~/.private/148c-prod/04-clause-apply-prod.R` linje 1-60 (argument-tjek tilpasset,
@@ -203,9 +264,16 @@ klausuler, 68/16, alle 8 elementer har mindst ét `principal`-claim.
 - [ ] **Step 2: Rolle-adskilt gateway og autorisation** (fra #196-integrationen, én login):
 
 ```r
+# B2: gatewayens preflight læser aktøren fra miljøet (apply_reimport_helpers.R:335) og
+# sætter claimet igen derfra — en nedarvet UUID ville erstatte den valgte aktør.
+# Tjekket (og DAA_FAULT-tjekket) står ØVERST i præamblen, før første dbConnect.
+if (nzchar(Sys.getenv("DAA_REIMPORT_ACTOR_ID"))) stop("ACTOR_ENV_INHERITED", call. = FALSE)
+# ... præamblen forbinder og asserterer målet ...
 actors <- q("SELECT id::text i FROM public.profiles WHERE rolle='redaktion' ORDER BY id LIMIT 2")$i
 if (length(actors) != 1L || !nzchar(actors[[1L]])) stop("REDAKTION_ACTOR_NOT_UNIQUE", call. = FALSE)
 actor <- actors[[1L]]
+Sys.setenv(DAA_REIMPORT_ACTOR_ID = actor)   # lever kun i denne R-proces; on.exit virker
+                                            # ikke på topniveau, og det behøves ikke
 operation_setup <- function(db) {
   db$execute("SET LOCAL ROLE authenticated")
   db$query("SELECT set_config('request.jwt.claim.sub',$1,true)", list(actor))
@@ -237,35 +305,53 @@ authorize <- function() {
 }
 ```
 `assert_target_on(con)` er `assert_target` parametriseret på forbindelse. Aktør-ID skrives
-kun til `<out.json>` (0600), aldrig til stdout.
+kun til 0600-filer, aldrig til stdout. `operation_setup`'s assert fanger, hvis claimet fra
+`SET LOCAL` og gatewayens miljø-claim nogensinde divergerer.
 
 - [ ] **Step 3: Fase-logik i `04`:**
 
 ```r
-phase <- args[[2L]]; out <- args[[3L]]
+phase <- args[[2L]]; intent <- args[[3L]]; out <- args[[4L]]
 if (!(phase %in% c("apply", "replay"))) stop("PHASE_INVALID", call. = FALSE)
-if (file.exists(out)) stop("OUT_EXISTS", call. = FALSE)
+if (file.exists(intent) || file.exists(out)) stop("OUT_EXISTS", call. = FALSE)
 assert_target()
 auth_id <- authorize()
+# B3: intent skrives før execute, så 06-recover ved præcis hvilken autorisation et afbrudt
+# forsøg brugte. write_exclusive = open(O_WRONLY|O_CREAT|O_EXCL, 0600) via python3 -I.
+write_exclusive(intent, list(phase = phase, authorization_id = auth_id,
+  principal_id = actor, preview_sha256 = preview_sha))
+fault_point("after_authorize")   # kun lokal fejlinjektion, se nedenfor
 res <- execute_reimport(manifest, preview_sha, "apply", gateway(), list(id = auth_id),
                         authorization_policy = "external")
 want <- if (identical(phase, "apply")) "finalized" else "already_applied"
 if (!identical(res$status, want) || !isTRUE(res$committed))
   stop("PHASE_RESULT_UNEXPECTED:", res$status, call. = FALSE)
-writeLines(jsonlite::toJSON(list(authorization_id = auth_id, principal_id = actor,
-  status = res$status, committed = res$committed, preview_sha256 = preview_sha),
-  auto_unbox = TRUE), out); Sys.chmod(out, "0600")
+fault_point("after_execute")
+write_exclusive(out, list(phase = phase, authorization_id = auth_id, principal_id = actor,
+  preview_sha256 = preview_sha, status = res$status, committed = res$committed))
 cat(if (identical(phase, "apply")) "APPLY_OK\n" else "REPLAY_OK\n")
 ```
 `apply`-fasen afviser altså `already_applied` (så en genkørsel efter ukendt udfald ikke
 tavst »lykkes«), og `replay` afviser `finalized`.
 
-- [ ] **Step 4: `03-proposal-dryrun-prod.R`:** præambel (Step 1) + profil-hash fil=base
-  (`private.reimport_canonical_json_sha256`) + `INSERT … ON CONFLICT DO NOTHING` + readback
-  af `(source_id, profile_id, profile_version, profile_sha256)` = konstanter +
+**Fejlinjektion (til rehearsal af 06-recover):** `fault_point(name)` afslutter processen med
+`quit(status = 97)`, hvis `DAA_FAULT == name`. Den er kun aktiv, når
+`DAA_CONNECTION_MODE == "local"`; i prod-mode er en ikke-tom `DAA_FAULT` en stopport
+(`FAULT_IN_PROD`) i præamblen, FØR forbindelsen åbnes. `04-apply.sh` og `06-recover.sh`
+kører `unset DAA_FAULT` og asserterer det. `after_authorize` giver »intet commit«,
+`after_execute` giver »commit uden kvittering« — de to udfald 06 skal skelne.
+
+- [ ] **Step 4: `03-proposal-dryrun-prod.R`:** præambel (Step 1) + aktør (Step 2) + krav
+  `profile$profile_version == "1.0.0"` (B1; 148c-forlægget tjekker sin egen version i
+  `03-clause-dryrun-prod.R:68`) + profil-hash fil=base
+  (`private.reimport_canonical_json_sha256`) + `INSERT … ON CONFLICT DO NOTHING` med filens
+  `profile_version` + readback af `(source_id, profile_id, profile_version, profile_sha256,
+  canonical writer_config-hash)` = `(1, DAA_PROFILE_ID, "1.0.0", 4e39fff…, 4e39fff…)` +
   `execute_reimport(..., "dry-run", gateway(), list(id = authorize()), authorization_policy="external")`
   (samme `authorize()` som Step 2 — dry-run-scriptet får derfor samme præambel-kode);
-  kræv `finalized`, `committed=FALSE`, uændret antal `interpretation`-rækker; `DRY_RUN_OK`.
+  kræv `finalized`, `committed=FALSE`, uændret antal `interpretation`-rækker; skriv
+  `<dryrun.json>` (O_EXCL, 0600) med dry-run-autorisationens id; `DRY_RUN_OK`. Selve
+  neutralitetsbeviset er projektionsbaseret og ligger i `run_proposal_sequence` (B4).
   **Hvorfor ikke `auto_dry_run`:** gatewayens `authorize`
   (`apply_reimport_helpers.R:344-352`) kalder `red_authorize_reimport` i operations-
   transaktionen, som efter `SET LOCAL ROLE authenticated` ikke må autorisere (#196:
@@ -277,7 +363,23 @@ tavst »lykkes«), og `replay` afviser `finalized`.
   `createdb -T` kopi af den) med `DAA_CONNECTION_MODE=local`: dry-run → `DRY_RUN_OK`;
   apply → `APPLY_OK`; apply igen → `PHASE_RESULT_UNEXPECTED:already_applied`;
   replay → `REPLAY_OK`; forkert `DAA_EXPECTED_TARGET` → `DAA_TARGET_MISMATCH` og 0 nye
-  autorisationer (tæl før/efter).
+  autorisationer (tæl før/efter); `DAA_REIMPORT_ACTOR_ID=<anden uuid>` i miljøet →
+  `ACTOR_ENV_INHERITED` før forbindelse; `DAA_CONNECTION_MODE=prod DAA_FAULT=x` →
+  `FAULT_IN_PROD` før forbindelse (kun præambel-porten; prod nås aldrig i en test).
+- [ ] **Step 6: `01-role-probe-prod.R`** (B6; forlæg `test-…-proposal.R:137-162`). Præambel
+  som Step 1, men ingen aktør-miljø og ingen skrivning. Hver probe på en frisk forbindelse
+  i `dbBegin` … `dbRollback`:
+  1. `SET LOCAL ROLE authenticated` + lokal claim → `current_user='authenticated'`, claim = aktør;
+  2. samme + `SELECT public.red_authorize_reimport(NULL×10)` → fejlbesked indeholder
+     `permission denied` (operationsrollen kan ikke autorisere);
+  3. `SET LOCAL ROLE service_role` → `current_user='service_role'`;
+  4. samme + `SELECT public.red_apply_reimport_interpretation_proposal(NULL×3)` →
+     `permission denied` (autorisatoren kan ikke skrive forslag);
+  5. livscyklus for både COMMIT-løs ROLLBACK og en tom `dbCommit` af en transaktion med kun
+     `SET LOCAL ROLE`+claim: bagefter `current_user = session_user` og claim tom.
+  Alle fejl andre end `permission denied` → `ROLE_PROBE_UNEXPECTED` (ikke »bestået«).
+  Bevis for at proben intet skriver: tilstands-hashen før/efter er ens (Task 5 mod
+  stand-in). `ROLE_PROBE_OK`.
 
 ### Task 3: `01-preflight.sh` og `verify.sql`
 
@@ -287,7 +389,8 @@ tavst »lykkes«), og `replay` afviser `finalized`.
 - [ ] **Step 1: Preflight-assertions** (alle i kode; rapport kun tal/koder/hashes;
   `PREFLIGHT_OK`):
   1. ingen argumenter; `validate_manifest`; `validate_profile`;
-  2. målidentitet + rolletest `anon` (ordret fra 148c `01-preflight.sh`);
+  2. målidentitet + rolletest `anon` (ordret fra 148c `01-preflight.sh`) +
+     `01-role-probe-prod.R` → `ROLE_PROBE_OK` (B6; skriver intet);
   3. 4.1c-forudsætning: præcis én `finalized` batch med 591 `clause_evidence`-events for
      `daa-2018-20-clause-evidence-v1`, og 868 klausul-observationer;
   4. tomhed: 0 `interpretation_proposal`-events, 0 `interpretation` med
@@ -314,88 +417,262 @@ SELECT count(*) FILTER (WHERE EXISTS (
   FROM expected e LEFT JOIN parent p USING (record_key);
 ```
      Krav: `88|88` (én række pr. citat).
-  7. persona og levende for de 8 records (samme `parent`-CTE; `expected_records(record_key)`
-     er manifestets 8 `source_record_key` som genereret `VALUES`-liste):
+  7. **writerens øvrige krav** (M8; spejler `schema.sql:3653-3775`). Python genererer
+     fra manifestet `claims(record_key, claim_no, predicate, kind, cited jsonb, value jsonb)`
+     og piper SQL'en direkte til `readonly_psql -f -` — den skrives aldrig til en fil, og
+     kun tællinger kommer ud. Samme `parent`-CTE som 6.
 
 ```sql
-SELECT count(*) FILTER (WHERE pm.n = 1)::text || '|' ||
-       count(*) FILTER (WHERE pe.levende)::text || '|' || count(*)::text
-  FROM expected_records e JOIN parent p USING (record_key)
-  CROSS JOIN LATERAL (SELECT count(*) n, min(spm.persona_id::text)::uuid persona_id
-      FROM private.source_mention sm JOIN private.source_persona_mention spm ON spm.mention_id=sm.id
-     WHERE sm.observation_id=p.parent_id AND spm.mention_role='primary') pm
-  LEFT JOIN private.source_persona_identity spi ON spi.source_persona_id=pm.persona_id AND spi.decision_status='accepted'
+WITH claims(record_key, claim_no, predicate, kind, cited, value) AS (VALUES /* genereret */),
+rec AS (SELECT DISTINCT record_key FROM claims),
+per_record AS (
+  SELECT e.record_key,
+         (SELECT count(*) FROM private.source_record_anchor_current a
+           WHERE a.source_record_id=r.id AND a.decision_status='accepted') AS anchors,
+         (SELECT count(*) FROM private.source_record_anchor_current a
+            JOIN private.source_observation ob ON ob.occurrence_id=a.occurrence_id
+           WHERE a.source_record_id=r.id AND a.decision_status='accepted'
+             AND ob.parent_observation_id IS NULL) AS parents
+    FROM rec e LEFT JOIN private.source_record r ON r.source_id=1 AND r.record_key=e.record_key),
+per_claim AS (
+  SELECT c.*, p.interpretation_kind AS p_kind, p.value_kind,
+         private.normalize_interpretation_proposal_value(c.value) AS v
+    FROM claims c LEFT JOIN private.interpretation_predicate p
+      ON p.predicate=c.predicate AND p.status='active'),
+keyed AS (
+  SELECT *, private.interpretation_proposal_key(1, record_key, predicate, cited, v) AS k FROM per_claim),
+cited_obs AS (
+  SELECT DISTINCT c.id AS observation_id
+    FROM claims cl CROSS JOIN LATERAL jsonb_array_elements(cl.cited) x
+    JOIN parent pa ON pa.record_key=cl.record_key
+    JOIN private.source_observation c ON c.parent_observation_id=pa.parent_id
+                                     AND c.clause_ordinal=(x->>'ordinal')::int),
+disp AS (
+  SELECT o.observation_id, d.*
+    FROM cited_obs o LEFT JOIN LATERAL (SELECT * FROM private.clause_disposition cd
+      WHERE cd.observation_id=o.observation_id ORDER BY cd.version DESC LIMIT 1) d ON true)
+SELECT concat_ws('|',
+  (SELECT count(*) FILTER (WHERE anchors=1) FROM per_record),
+  (SELECT count(*) FILTER (WHERE parents=1) FROM per_record),
+  (SELECT count(*) FILTER (WHERE p_kind IS NOT NULL AND kind=p_kind) FROM per_claim),
+  (SELECT count(*) FILTER (WHERE CASE WHEN value_kind IN ('text','date_raw')
+        THEN jsonb_typeof(v)='string' AND btrim(v#>>'{}')<>''
+        ELSE jsonb_typeof(v)='object' AND btrim(coalesce(v->>'raw',''))<>'' END) FROM per_claim),
+  (SELECT count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM private.interpretation i
+        WHERE i.interpretation_key=keyed.k)) FROM keyed),
+  (SELECT count(DISTINCT k) FROM keyed),
+  (SELECT count(*) FILTER (WHERE decided_by_kind='machine'
+        AND coalesce(evidence->>'manifest_sha256','') ~ '^[0-9a-f]{64}$'
+        AND (evidence->>'batch_id' IS NOT NULL OR evidence->>'extraction_run_id' IS NOT NULL)
+        AND coalesce(evidence->>'batch_id', '00000000-0000-0000-0000-000000000000')
+            ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        AND coalesce(evidence->>'extraction_run_id', '00000000-0000-0000-0000-000000000000')
+            ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') FROM disp),
+  (SELECT count(*) FROM cited_obs));
+```
+     Krav: `8|8|84|84|84|84|19|19`. Nøgle-tjekket er et bælte oven på tomheds-porten (0
+     `method='model'`-forslag for kilde 1): nøglen beregnes af de samme funktioner, som
+     writeren kalder, men af en Python-genereret jsonb, der kan afvige fra R's serialisering;
+     derfor er tomheds-porten den primære. Confidence i `[0,1]` og claim-nøglernes form
+     tjekkes i `validate_manifest` (ren Python, ingen base). Funktionerne er
+     `IMMUTABLE SECURITY DEFINER` og kaldes som ejer; rehearsal beviser, at de kører i en
+     læse-kun transaktion.
+  8. **persona, identitet, levende** (M9; spec §9.2: »levende eller uafklaret« udelukkes).
+     Ingen LEFT JOIN må kunne gøre et manglende led til »ikke levende«:
+
+```sql
+WITH expected_records(record_key) AS (VALUES /* manifestets 8 source_record_key */),
+pm AS (
+  SELECT e.record_key, count(spm.persona_id) AS n, min(spm.persona_id::text)::uuid AS persona_id
+    FROM expected_records e JOIN parent p USING (record_key)
+    LEFT JOIN private.source_mention sm ON sm.observation_id=p.parent_id
+    LEFT JOIN private.source_persona_mention spm ON spm.mention_id=sm.id AND spm.mention_role='primary'
+   GROUP BY e.record_key)
+SELECT concat_ws('|',
+  count(*) FILTER (WHERE pm.n=1),
+  count(*) FILTER (WHERE pm.n=1 AND spi.decision_status='accepted'),
+  count(*) FILTER (WHERE pm.n=1 AND spi.decision_status='accepted' AND pe.id IS NOT NULL),
+  count(*) FILTER (WHERE pm.n=1 AND spi.decision_status='accepted' AND pe.levende IS FALSE),
+  count(*))
+  FROM pm
+  LEFT JOIN private.source_persona_identity spi ON spi.source_persona_id=pm.persona_id
   LEFT JOIN public.person pe ON pe.id=spi.canonical_person_id;
 ```
-     Krav: `8|0|8` — alle 8 elementer har `principal`-claims (målt), så alle 8 records skal
-     have præcis én primær persona; `levende` skal være 0.
+     Krav: `8|8|8|8|8` — én primær persona, accepteret identitet (PK pr. persona,
+     `schema.sql:1411-1425`), eksisterende person, `levende IS FALSE` (ikke `NOT levende`:
+     `NULL` tæller ikke), og alle 8 records fundet. Kardinaliteterne rapporteres hver for sig,
+     så et STOP siger hvilket led der mangler.
 - [ ] **Step 2: Kør preflight-SQL'en** (psql direkte, `DAA_CONNECTION_MODE=local`-ækvivalent:
   `PGHOST=localhost`) mod stand-in → notér tallene; ret kun forventninger, der er forklaret.
 - [ ] **Step 3: `verify.sql`** (læse-kun, `COLLATE "C"`, kun tal): events/batches for
   profilen (8 events, 1 `finalized` batch), forslag 84, uden link 0, `principal` uden
-  persona 0, dispositionsfordeling for kørslens klausuler (13/6), forældreløse 0.
+  persona 0, dispositionsfordeling for kørslens klausuler (13/6), forældreløse 0,
+  autorisationer for manifestet pr. status (forventning i Autorisationstabellen).
   Køres i rehearsal (Task 4) før den må bruges i 05.
 
-### Task 4: `run_proposal_sequence`, `03-restore-rehearsal.sh`, `04-apply.sh`, `05-verify.sh`
+### Task 4: sekvens, `03-restore-rehearsal.sh`, `04-apply.sh`, `05-verify.sh`, `06-recover.sh`
 
 **Files:**
-- Create: `~/.private/147-44-prod/03-restore-rehearsal.sh`, `04-apply.sh`, `05-verify.sh`
-- Modify: `~/.private/147-44-prod/lib.zsh` (tilføj `run_proposal_sequence`, `sanitize_report`)
+- Create: `~/.private/147-44-prod/03-restore-rehearsal.sh`, `04-apply.sh`, `05-verify.sh`,
+  `06-recover.sh`
+- Modify: `~/.private/147-44-prod/lib.zsh` (tilføj `run_proposal_sequence`,
+  `run_apply_phase`, `continue_after_apply`, `run_replay_phase`, `assert_projection_delta`,
+  `assert_report_chain`, `sanitize_report`, `untouched_hash`, `write_apply_receipt`, `json_field`)
 
-- [ ] **Step 1: Fælles sekvens i `lib.zsh`** — de SAMME bytes kører i rehearsal og prod:
+#### Autorisationstabel (kilde 1, bundet til manifest `a328ede9…`)
+
+Hver række er et krav, som `verify.sql` og `06-recover.sh` tæller. `D` = dry-run, `A` =
+apply, `R` = replay. »Uforbrugt« = `status='issued'` og `consumed_at IS NULL`.
+
+| Tidspunkt | Autorisationer | Batches for profilen | `interpretation_proposal`-events |
+|---|---|---|---|
+| før 03 (04's tomhedsport) | 0 | 0 | 0 |
+| efter dry-run | D uforbrugt | 0 | 0 |
+| efter apply | D uforbrugt, A `consumed` | 1 `finalized` (A) | 8 |
+| efter replay | D uforbrugt, A `consumed`, R `consumed` | 1 `finalized` (A) | 8 |
+| afbrudt apply, intet commit | D uforbrugt, A uforbrugt | 0 | 0 |
+| afbrudt apply, commit | D uforbrugt, A `consumed` | 1 `finalized` (A) | 8 |
+| afbrudt replay, intet commit | … + R uforbrugt | 1 | 8 |
+| afbrudt replay, commit | … + R `consumed` | 1 | 8 |
+
+Hvert genoptagelsesforsøg lægger højst én ny død autorisation til. `06` tillader højst to
+genoptagelser pr. kørsel; derefter NO-GO → restore.
+
+- [ ] **Step 1: Fælles sekvens i `lib.zsh`** — de SAMME bytes kører i rehearsal (03), prod
+  (04) og genoptagelse (06):
 
 ```zsh
-run_proposal_sequence() {   # $1 = runmappe (0700); forbindelse sat af kalderen
-  local run="$1" target
-  target="$(target_identity)"; assert_expected_target "$target"
-  Rscript "$DAA_PRIVATE_DIR/03-proposal-dryrun-prod.R" "$DAA_MANIFEST" > "$run/dryrun.log" 2>&1 \
-    || fail "dry-run fejlede"
+run_proposal_sequence() {   # $1 = runmappe (0700); forbindelse og mål sat af kalderen
+  local run="$1" target="$2"
+  project_database "$run/pre-dry.json" -v source_id=1
+  Rscript "$DAA_PRIVATE_DIR/03-proposal-dryrun-prod.R" "$DAA_MANIFEST" "$run/dryrun.json" \
+    > "$run/dryrun.log" 2>&1 || fail "dry-run fejlede — kør 06-recover.sh $run"
   /usr/bin/grep -qx DRY_RUN_OK "$run/dryrun.log" || fail "DRY_RUN_OK mangler"
   project_database "$run/before.json" -v source_id=1
-  Rscript "$DAA_PRIVATE_DIR/04-proposal-apply-prod.R" "$DAA_MANIFEST" apply "$run/apply.json" \
-    > "$run/apply.log" 2>&1 || fail "apply fejlede — kør IKKE igen; se §5 ukendt udfald"
+  # B4: dry-run må kun have tilføjet sin egen, uforbrugte autorisation.
+  assert_projection_delta "$run/pre-dry.json" "$run/before.json" "$run/dryrun.json" issued \
+    > "$run/delta-dryrun.json"
+  run_apply_phase "$run" "$target"
+}
+run_apply_phase() {
+  local run="$1" target="$2"
+  Rscript "$DAA_PRIVATE_DIR/04-proposal-apply-prod.R" "$DAA_MANIFEST" apply \
+    "$run/apply-intent.json" "$run/apply.json" > "$run/apply.log" 2>&1 \
+    || fail "apply afbrudt — kør IKKE 04 igen; kør 06-recover.sh $run"
+  continue_after_apply "$run" "$target"
+}
+continue_after_apply() {    # kræver $run/before.json og $run/apply.json (ægte eller rekonstrueret)
+  local run="$1" target="$2" principal
   project_database "$run/after.json" -v source_id=1
-  local principal; principal="$(/usr/bin/python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1]))["principal_id"])' "$run/apply.json")"
+  principal="$(json_field "$run/apply.json" principal_id)"
   /usr/bin/python3 -I "$DAA_COMPARATOR" --mode fresh --manifest "$DAA_MANIFEST" \
     --before "$run/before.json" --after "$run/after.json" --expect-target-sha256 "$target" \
     --expect-preview-sha256 "$DAA_PREVIEW_SHA256" --expect-principal-id "$principal" \
     --report "$run/fresh.json" > /dev/null || fail "fresh-komparator gav ikke match"
-  Rscript "$DAA_PRIVATE_DIR/04-proposal-apply-prod.R" "$DAA_MANIFEST" replay "$run/replay.json" \
-    > "$run/replay.log" 2>&1 || fail "replay fejlede"
+  run_replay_phase "$run" "$target" "$run/after.json"
+}
+run_replay_phase() {        # $3 = replay-baseline (after.json, eller after2.json efter 06)
+  local run="$1" target="$2" base="$3" rid
+  Rscript "$DAA_PRIVATE_DIR/04-proposal-apply-prod.R" "$DAA_MANIFEST" replay \
+    "$run/replay-intent.json" "$run/replay.json" > "$run/replay.log" 2>&1 \
+    || fail "replay afbrudt — kør 06-recover.sh $run"
   project_database "$run/replayed.json" -v source_id=1
-  local rid; rid="$(/usr/bin/python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1]))["authorization_id"])' "$run/replay.json")"
-  /usr/bin/python3 -I "$DAA_COMPARATOR" --mode replay --after "$run/after.json" \
+  rid="$(json_field "$run/replay.json" authorization_id)"
+  /usr/bin/python3 -I "$DAA_COMPARATOR" --mode replay --after "$base" \
     --replayed "$run/replayed.json" --replay-authorization-id "$rid" \
     --expect-target-sha256 "$target" --report "$run/replay-match.json" > /dev/null \
     || fail "replay-komparator gav ikke match"
-  assert_report_chain "$run"   # fresh.input_file_sha256.after == replay-match.input_file_sha256.after
-                               # == sha256(after.json); counts = 8/84/88/{13,6}
+  assert_report_chain "$run" "$base"
   sanitize_report "$run/fresh.json" > "$run/fresh-renset.json"
   sanitize_report "$run/replay-match.json" > "$run/replay-renset.json"
 }
 ```
-`assert_report_chain` og `sanitize_report` skrives som `python3 -I`-heredocs med
-`raise SystemExit` (renseren som 4.1c-runbook §5.2: kun status/code/scope/counts/target/
-længder).
 
-- [ ] **Step 2: `03-restore-rehearsal.sh`** = 148c-udgaven med disse ændringer: kalder
-  `run_proposal_sequence` mellem før-/efter-tilstands-hash; kører `verify.sql` mod
-  restoren; kører `db-rls.sql` → `tests/sql/run-db-verify-disposable.sql` (kun lokalt);
+**`assert_projection_delta <gammel> <ny> <intent-fil> issued|consumed`** (`python3 -I`,
+`raise SystemExit`): parse begge projektioner; `ny.authorizations` minus `gammel`'s id'er
+skal være præcis én række, hvis `authorization_id` = intent-filens; rækken skal have
+`operation='reimport'`, den krævede status (`issued` + `consumed=false`, eller `consumed` +
+`consumed=true`), `manifest_sha256` = `DAA_MANIFEST_CONTENT_SHA256`, `preview_sha256` =
+`DAA_PREVIEW_SHA256`, `profile_id`/`profile_sha256` = konstanterne, `principal_id` =
+intent-filens. Fjern rækken; resten af `ny` skal være kanonisk JSON-lig `gammel` — hver
+nøgle, også alle eksisterende autorisationer, batches, events, fortolkninger, links,
+dispositioner, runs og neutrale flader. Projektionen har ingen `now()`-afhængige felter
+(`status` er lagret), så lighed er et eksakt krav. Udskriver en renset rapport med de to
+fil-hashes og autorisations-id'et.
+
+**`assert_report_chain <run> <base>`**: `fresh.input_file_sha256.after` =
+sha256(`after.json`); `replay-match.input_file_sha256.after` = sha256(`<base>`); er
+`<base>` ≠ `after.json`, skal en `delta-replay-*.json` binde de to (Step 6); counts = 8/84/88/{13,6}.
+
+**`untouched_hash`** = `state-hash.sql` med `exclude` = de tabeller 4.4 skriver i:
+`private.reimport_writer_profile, private.reimport_authorization, private.reimport_batch,
+private.reimport_event, private.extraction_run, private.interpretation,
+private.interpretation_observation, private.clause_disposition`. Listen er en påstand, der
+bevises i rehearsal (Task 5 Step 2: `untouched_hash` før = efter sekvensen). Skriver writeren
+et sted mere, fejler rehearsal, og listen rettes — aldrig omvendt.
+
+- [ ] **Step 2: `03-restore-rehearsal.sh`** = 148c-udgaven med disse ændringer: tilstands-hash
+  af den gendannede base = dump-kvitteringens `state_sha256` (bevis for at restoren er
+  trofast på data, og at rehearsal kører på det dump 04 senere sammenligner med); rolleprobe;
+  preflight-SQL (Task 3) mod restoren; `untouched_hash` før; `run_proposal_sequence`;
+  `untouched_hash` efter = før; `verify.sql`; **fejlinjektion** på en `createdb -T`-kopi pr.
+  udfald: `DAA_FAULT=after_authorize` og `after_execute` i både apply- og replay-fasen, hver
+  efterfulgt af `06-recover.sh` → `RECOVER_OK` med det forventede udfald og samme endelige
+  tal; derefter `db-rls.sql` → `tests/sql/run-db-verify-disposable.sql` (kun lokalt);
   fortrydelsesøvelse: `pg_restore --clean --if-exists --no-owner --schema=private
   --schema=public` oven på den befolkede base, krav 0 `interpretation_proposal`-events,
   0 model-forslag, ingen profilrække, tilstands-hash = før; fejl-tilladelsesliste som 148c
   (vault-klassen + de tre RLS-afhængige funktioner i begge beskedformer). Kør
-  `DAA_CONNECTION_MODE=local`. Slut: `REHEARSAL_OK` + rapport-hashes.
-- [ ] **Step 3: `04-apply.sh`** = 148c-udgaven med: `--jeg-mener-det` påkrævet (exit 2
-  ellers); bindinger (commit, 20 fil-hashes, mål, dump-kvittering, rehearsal-rapport,
-  freeze-rapport); 0 `change_set` siden dump-start; preflightens tomheds- og
-  citat-assertions gentaget læse-kun; derefter `run_proposal_sequence` mod prod;
-  `APPLY_DONE`.
-- [ ] **Step 4: `05-verify.sh`**: tag `final.json`-projektion; kræv at den parset er lig
-  `replayed.json` parset (ingen skrivning siden replay); genkør begge komparatorer mod
-  apply-rundens filer med NYE rapportstier; `verify.sql`; skriv `verify-ok.json`;
-  `VERIFY_OK`.
-- [ ] **Step 5: `zsh -n` på alle seks scripts.** Forventet: ingen output.
+  `DAA_CONNECTION_MODE=local`. Slut: `REHEARSAL_OK` + rapport med `dump_sha256`,
+  `state_sha256`, `manifest_file_sha256`, `profile_file_version`, tal, recovery-udfald.
+- [ ] **Step 3: `04-apply.sh`** i denne rækkefølge; alt før punkt 7 er læse-kun:
+  1. `--jeg-mener-det` påkrævet (exit 2 ellers); `unset DAA_FAULT DAA_REIMPORT_ACTOR_ID`
+     og assert;
+  2. bindinger: commit, 22 fil-hashes, mål, dump-kvittering, rehearsal-rapport (status,
+     dump, manifest, `profile_file_version`, tal, alle fire recovery-udfald bestået),
+     freeze-rapport;
+  3. **skrivepause-bevis (B5):** live `state-hash.sql` = dump-kvitteringens `state_sha256`
+     = rehearsal-rapportens. Afviger den: STOP — noget er skrevet siden dumpet; tag nyt dump;
+  4. rolleprobe (B6) → `ROLE_PROBE_OK`;
+  5. tomheds-, citat-, writerkrav- og persona-assertions fra Task 3 gentaget læse-kun;
+  6. `untouched_hash` → `U0` gemt i runmappen;
+  7. `run_proposal_sequence "$RUN" "$TARGET"`;
+  8. `untouched_hash` = `U0` (intet uden for 4.4's tabeller ændret under kørslen);
+  9. `write_apply_receipt`: `apply-receipt.json` via `O_EXCL` 0600 med runmappe, sha256 af
+     hver fil i runmappen (`pre-dry`, `dryrun`, `before`, `delta-dryrun`, `apply-intent`,
+     `apply`, `after`, `fresh`, `replay-intent`, `replay`, `replayed`, `replay-match`,
+     rensede rapporter), mål, dump-sha, `state_sha256`, `U0`, freeze-rapport-sha,
+     rehearsal-rapport-sha, commit, `profile_file_version`, `recovered: false`,
+     `status: APPLY_DONE`. Udskriver `DAA_APPLY_RECEIPT=` og `DAA_APPLY_RECEIPT_SHA256=`.
+- [ ] **Step 4: `05-verify.sh`** (M7; præambel ordret fra 148c `05-verify.sh:10-19`):
+  kræver `DAA_APPLY_RECEIPT` + `DAA_APPLY_RECEIPT_SHA256` + rehearsal-rapport + hash;
+  genberegner hver fil-hash i kvitteringen; tag `final.json`: parset lig den sidste
+  `replayed.json` i kvitteringen; `untouched_hash` = kvitteringens `U0`; genkør begge
+  komparatorer mod kvitteringens filer med NYE rapportstier; `verify.sql` med
+  Autorisationstabellens slutrække (inkl. døde autorisationer fra en genoptagelse, som
+  kvitteringen navngiver); skriv `verify-ok.json` med `apply_report_sha256` =
+  kvitteringens hash; `VERIFY_OK`. `00-freeze end` binder til samme hash (148c-logik).
+- [ ] **Step 5: `zsh -n` på alle syv scripts.** Forventet: ingen output.
+- [ ] **Step 6: `06-recover.sh <runmappe>`** (B3) — kun efter en afbrudt 04 eller 06.
+  Præambel og bindinger som 04 punkt 1-2 (inkl. `--jeg-mener-det`); runmappen skal være
+  en 04-/06-runmappe uden `apply-receipt.json`. Klassifikation læse-kun, bundet til mål,
+  manifest-hash, profil og intent-filerne. Fasen afgøres af hvilke filer der findes:
+
+  | Filer i runmappen | Live-tilstand (tælles) | Udfald |
+  |---|---|---|
+  | ingen `dryrun.json` | profilrække 0/1; ≤1 uforbrugt autorisation for manifestet; 0 batches | **dry-run afbrudt** → ny projektion `pre-dry2.json`; `assert_projection_delta pre-dry → pre-dry2` for den ene autorisation hvis den findes (id fra `dryrun-intent.json`, som 03-R skriver før `execute`), ellers kanonisk lighed; ny runmappe med `pre-dry2.json` som baseline og `run_proposal_sequence` (profil-insert er `ON CONFLICT DO NOTHING` + readback) |
+  | `apply-intent.json`, ingen `apply.json`; A uforbrugt | 0 batches, 0 events | **apply, intet commit** → `before2.json`; `assert_projection_delta before → before2 <apply-intent> issued`; ny runmappe med `before2.json` som `before.json`; `run_apply_phase` |
+  | `apply-intent.json`, ingen `apply.json`; A `consumed` | 1 `finalized` batch med `authorization_id` = A, 8 events | **apply, commit** → rekonstruér `apply.json` fra intent + batchrækken (`status=finalized`, `committed=true`, `reconstructed=true`); `continue_after_apply` mod det `before.json` der ligger i runmappen (gyldigt: `untouched_hash` = `U0`, og fresh-komparatoren afviser enhver anden ændring i 4.4's tabeller) |
+  | `apply.json`, ingen `replay-intent.json` | som »efter apply« | **efter apply, før replay** → `continue_after_apply` |
+  | `replay-intent.json`, ingen `replay.json`; R uforbrugt | som »efter apply« + R | **replay, intet commit** → `after2.json`; `assert_projection_delta after → after2 <replay-intent> issued > delta-replay-1.json`; `run_replay_phase` med `after2.json` som baseline |
+  | `replay-intent.json`, ingen `replay.json`; R `consumed` | som »efter replay« | **replay, commit** → rekonstruér `replay.json`; projektion `replayed.json`; replay-komparator mod `after.json` |
+  | alt andet (fx 2 batches, events ≠ 0/8, en ukendt autorisation, `untouched_hash` ≠ `U0`, tredje genoptagelse) | — | **NO-GO** → bevar alt, restore efter runbook §8 |
+
+  Alle udfald kræver først `untouched_hash` = `U0` fra den afbrudte runmappe. Ingen
+  genoptagelse kører 04's tomhedsporte (de er bevidst uopfyldelige efter første skrivning);
+  i stedet er delta-beviset mod den sidst betroede projektion på disk porten. Slut:
+  `write_apply_receipt` med `recovered: true`, kæden af runmapper, delta-rapporter og døde
+  autorisations-id'er; `RECOVER_OK udfald=<navn>`.
 
 ### Task 5: Stand-in og fuld rehearsal (lokal, 0 Actions-min)
 
@@ -414,12 +691,23 @@ længder).
   kommentarlinje tilføjet `verify.sql` → `fil-hashes afviger fra GO-pakken`; `04-apply.sh`
   uden argument → exit 2; forkert `DAA_EXPECTED_TARGET` → STOPPORT før dry-run; replay-
   komparator med dry-run-/apply-autorisations-id → `INTERPRETATION_PROJECTION_REPLAY_DRIFT`;
-  `after.json` byttet med `replayed.json` i fresh → ikke-`match`. `04-apply.sh` testes
+  `after.json` byttet med `replayed.json` i fresh → ikke-`match`;
+  `DAA_REIMPORT_ACTOR_ID=<fremmed uuid>` → `ACTOR_ENV_INHERITED`; en ekstra fremmed
+  autorisation indsat mellem `pre-dry` og `before` (via service_role på en kopi) →
+  `assert_projection_delta` STOP; en `public`-række ændret mellem dump og sekvens (kopi) →
+  tilstands-hash-porten STOP; en række i en ikke-4.4-tabel ændret under sekvensen (kopi,
+  fejlinjektion) → `untouched_hash`-porten STOP; `06-recover.sh` på en runmappe med
+  `apply-receipt.json` → STOP; tredje genoptagelse → NO-GO. `04-apply.sh` testes
   KUN for de porte, der ligger før enhver forbindelse (argument, fil-hashes, freeze,
   dump-kvittering) — den forbinder altid til `~/.Renviron`s prod og må derfor aldrig nå
   forbindelsesstadiet i en test. Selve sekvensen er bevist gennem 03, som kører de samme
   bytes (`run_proposal_sequence`).
-- [ ] **Step 4:** Bevar stand-in-dump, rehearsal-base og rapporter til Task 7.
+- [ ] **Step 4: Restore-troskab for tilstands-hashen.** Stand-in-basens `state-hash.sql` =
+  hashen efter `pg_dump -Fc` → `pg_restore` til en ny base. Afviger de, er 04's
+  skrivepause-bevis (Step 3 punkt 3) ubrugeligt som formuleret: find tabellen og ret
+  hashen (fx en kolonne hvis tekstform afhænger af restore), dokumentér det — slæk aldrig
+  kravet til »ingen skrivning siden dump«.
+- [ ] **Step 5:** Bevar stand-in-dump, rehearsal-base og rapporter til Task 7.
 
 ### Task 6: Runbook
 
@@ -427,14 +715,20 @@ længder).
 - Create: `docs/runbooks/interpretation-proposal-prod-apply.md`
 
 - [ ] **Step 1:** Skriv runbooken med 4.1c-runbookens afsnit 1-9 som skelet, og 4.4's
-  deltaer: manifest-/preview-/profil-hashes; 20-fil-listen; rolle-adskilt
-  operation/autorisation; sekvensen fra Task 4 Step 1; ukendt-udfald-forespørgsel bundet
-  til `manifest_sha256=a328ede9…`, mål og profil, med tabellen (0 rækker → må køres én gang
-  mere mod SAMME GO; 1 `finalized` med 8 events → gå til 05; alt andet NO-GO → restore);
-  GO-pakkens liste inkl. kvitteringen fra 2026-09-23 og at 4.1c's fortrydelsesvindue lukkes;
-  stopregler; fælder (dry-run-profilrække varig, `already_applied` i apply-fasen er STOP,
-  aktør-ID kun i 0600-filer); §9: status/changelog/database-current-state/4.4-rapport,
-  Advisors, `interpretation_predicate_fk`-indeks før skala.
+  deltaer: manifest-/preview-/profil-hashes (filversion `1.0.0`); 22-fil-listen; én login
+  med rolle-adskilt operation/autorisation og rolleproben; sekvensen fra Task 4 Step 1;
+  Autorisationstabellen; `06-recover.sh` med udfaldstabellen (afbrudt 04 → ALDRIG 04 igen,
+  altid 06); GO-pakkens liste inkl. kvitteringen fra 2026-09-23 og at 4.1c's
+  fortrydelsesvindue lukkes; **skrivekanaler, der skal stå stille fra `00-freeze begin` til
+  `00-freeze end`**: web-redaktørfladen (redaktion = 1 = projektejeren), mobil-dev mod prod,
+  andre Claude-/Codex-sessioner og R-/Python-scripts med `~/.Renviron`, Supabase-dashboardets
+  SQL-editor, andre reimports/prod-scripts; hvad der *beviser* pausen (tilstands-hash
+  02 → 04, `untouched_hash` 04 → 05) og hvad det ikke dækker (skrivninger i 4.4's egne
+  tabeller under kørslen fanges af komparatorerne, ikke af hashen); stopregler; fælder
+  (dry-run-profilrække varig, `already_applied` i apply-fasen er STOP, aktør-ID kun i
+  0600-filer, `DAA_FAULT`/`DAA_REIMPORT_ACTOR_ID` i miljøet er STOP); §9:
+  status/changelog/database-current-state/4.4-rapport, Advisors,
+  `interpretation_predicate_fk`-indeks før skala.
 - [ ] **Step 2: Commit.**
 
 ```bash
@@ -444,7 +738,7 @@ git commit -m "docs(runbook): prod-procedure for 4.4's forslags-kørsel (#147)"
 
 ### Task 7: Codex-review (gpt-5.6-sol) og rettelser
 
-- [ ] **Step 1:** Kopiér de 12 private scripts + runbook til en review-mappe i scratchpad
+- [ ] **Step 1:** Kopiér de 14 private filer + runbook til en review-mappe i scratchpad
   (INGEN manifest, cache, rapporter eller dumps). Kør Codex sol read-only
   (`sandbox-exec`-profilen, `--skip-git-repo-check`, `< /dev/null`) med opgaven: find
   måder, hvorpå en stopport kan omgås, en skrivning kan ske før bindingerne, eller
@@ -459,5 +753,5 @@ git commit -m "docs(runbook): prod-procedure for 4.4's forslags-kørsel (#147)"
 
 Push + draft-PR (kræver projektejerens ja; indeholder også d778a82). Derefter kører
 projektejeren trin 1 (`00-freeze begin`, `01`, `02`) → AI eller projektejer kører `03`
-mod dagens dump → GO-pakke → projektejerens GO → `04 --jeg-mener-det` → `05` →
-`00-freeze end`.
+mod dagens dump → GO-pakke → projektejerens GO → `04 --jeg-mener-det` (ved afbrydelse:
+`06-recover.sh --jeg-mener-det <runmappe>`) → `05` → `00-freeze end`.
