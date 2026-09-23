@@ -86,7 +86,70 @@ validate_reimport_manifest <- function(manifest) {
     stop_reimport("REIMPORT_MANIFEST_COUNTS_INVALID")
   if (!is.null(manifest$dispositions) && !is.list(manifest$dispositions))
     stop_reimport("REIMPORT_MANIFEST_DISPOSITIONS_INVALID")
+  for (operation in manifest$operations) {
+    if (identical(operation$dependency_class, "interpretation_proposal") &&
+        (!is.list(operation$claims) || !all(vapply(operation$claims, reimport_proposal_claim_valid, logical(1)))))
+      stop_reimport("REIMPORT_MANIFEST_PROPOSAL_VALUE_INVALID")
+  }
   invisible(manifest)
+}
+
+# Modtagergrænsen for proposal-claims (#196). Ethvert tal i en claim-værdi skal være et
+# helt tal i JSON-safe-intervallet, så R, jsonlite og SQL bærer præcis samme token.
+reimport_json_safe_max <- 9007199254740991
+
+reimport_proposal_value_valid <- function(value) {
+  if (is.null(value)) return(TRUE)
+  if (is.list(value)) return(all(vapply(value, reimport_proposal_value_valid, logical(1))))
+  if (is.character(value) || is.logical(value) || is.integer(value)) return(!anyNA(value))
+  if (is.double(value)) return(all(is.finite(value)) && all(value == trunc(value)) &&
+    all(abs(value) <= reimport_json_safe_max))
+  FALSE
+}
+
+reimport_proposal_claim_valid <- function(claim) {
+  is.list(claim) && reimport_proposal_value_valid(claim$value)
+}
+
+# Den ENE serializer for proposal-payloads. Hele tal skrives som fulde base-10-tokens
+# (aldrig eksponent), andre tal med korteste round-trip-repræsentation. jsonlite's
+# digits=17 er bevidst fravalgt: den skriver 0.9 som 0.90000000000000002.
+reimport_proposal_json_number <- function(x) {
+  if (!is.finite(x)) stop_reimport("REIMPORT_PROPOSAL_SERIALIZATION_INVALID")
+  if (x == trunc(x)) {
+    if (abs(x) > reimport_json_safe_max) stop_reimport("REIMPORT_PROPOSAL_SERIALIZATION_INVALID")
+    return(structure(if (x == 0) "0" else sprintf("%.0f", x), class = "json"))
+  }
+  for (digits in 15:17) {
+    token <- sprintf(paste0("%.", digits, "g"), x)
+    if (as.numeric(token) == x) break
+  }
+  structure(token, class = "json")
+}
+
+reimport_proposal_json_prepare <- function(value) {
+  if (is.list(value)) {
+    prepared <- lapply(value, reimport_proposal_json_prepare)
+    attributes(prepared) <- attributes(value)
+    return(prepared)
+  }
+  if (is.double(value)) {
+    tokens <- lapply(value, reimport_proposal_json_number)
+    return(if (length(value) == 1L) tokens[[1L]] else tokens)
+  }
+  value
+}
+
+reimport_proposal_json <- function(value) {
+  jsonlite::toJSON(reimport_proposal_json_prepare(value), auto_unbox = TRUE, null = "null",
+    json_verbatim = TRUE, digits = NA)
+}
+
+reimport_authorized_payloads_json <- function(manifest) {
+  payloads <- reimport_authorized_payloads(manifest)
+  if ("interpretation_proposals" %in% names(manifest$expected_counts))
+    reimport_proposal_json(payloads)
+  else jsonlite::toJSON(payloads, auto_unbox = TRUE, null = "null")
 }
 
 reimport_authorized_payloads <- function(manifest) {
@@ -238,7 +301,9 @@ execute_reimport <- function(manifest, preview_sha256, mode = c("dry-run", "appl
   })
 }
 
-new_reimport_dbi_gateway <- function(connection_factory, sql_observer = NULL) {
+new_reimport_dbi_gateway <- function(connection_factory, sql_observer = NULL, transaction_setup = NULL) {
+  if (!is.null(transaction_setup) && !is.function(transaction_setup))
+    stop_reimport("REIMPORT_TRANSACTION_SETUP_INVALID")
   con <- NULL
   server_identity <- NULL
   query <- function(sql, params = list()) {
@@ -253,7 +318,12 @@ new_reimport_dbi_gateway <- function(connection_factory, sql_observer = NULL) {
     args <- list(...)
     switch(name,
       connect = { con <<- connection_factory(); invisible(NULL) },
-      begin = { DBI::dbBegin(con); invisible(NULL) },
+      begin = {
+        DBI::dbBegin(con)
+        # Transaktionslokal opsætning (fx SET LOCAL ROLE + lokale claims); ses af sql_observer.
+        if (!is.null(transaction_setup)) transaction_setup(list(query = query, execute = execute))
+        invisible(NULL)
+      },
       advisory_lock = {
         source <- args[[1L]]
         query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", list(
@@ -282,7 +352,7 @@ new_reimport_dbi_gateway <- function(connection_factory, sql_observer = NULL) {
           list(manifest$manifest_content_sha256, preview_sha256, server_identity, manifest$source$id,
             manifest$source$profile_id, manifest$source$profile_sha256,
             jsonlite::toJSON(reimport_writer_expected_counts(manifest), auto_unbox = TRUE),
-            jsonlite::toJSON(reimport_authorized_payloads(manifest), auto_unbox = TRUE, null = "null"), nonce))$id[[1L]]
+            reimport_authorized_payloads_json(manifest), nonce))$id[[1L]]
         list(id = id)
       },
       preflight_authorization = {
@@ -318,7 +388,7 @@ new_reimport_dbi_gateway <- function(connection_factory, sql_observer = NULL) {
       },
       interpretation_proposal = {
         result <- query("SELECT public.red_apply_reimport_interpretation_proposal($1,$2,$3::jsonb)::text AS value", list(
-          args[[1L]], args[[2L]], jsonlite::toJSON(args[[3L]], auto_unbox = TRUE, null = "null")))$value[[1L]]
+          args[[1L]], args[[2L]], reimport_proposal_json(args[[3L]])))$value[[1L]]
         query("SELECT set_config('app.change_set_id','',true)")
         jsonlite::fromJSON(result, simplifyVector = FALSE)
       },
