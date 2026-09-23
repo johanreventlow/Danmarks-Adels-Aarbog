@@ -6060,7 +6060,11 @@ BEGIN
   -- logik-paastand — den faeldede bl.a. en REN dokumentations-merge paa main
   -- (bd68852, 2026-09-20), hvor intet SQL var aendret. Ventetiden er en oevre graense,
   -- ikke en forsinkelse: loekken forlades i samme oejeblik sessionerne er vaek.
+  -- (2026-09-23) pg_stat_activity snapshottes ved foerste opslag og holdes resten af
+  -- transaktionen; uden pg_stat_clear_snapshot() genlaeste loekken samme gamle billede i
+  -- 5 s og faeldede CI (PR #215), naar backenden endnu levede ved foerste opslag.
   FOR i IN 1..50 LOOP
+    PERFORM pg_stat_clear_snapshot();
     EXIT WHEN NOT EXISTS (
       SELECT 1 FROM pg_stat_activity
        WHERE datname=current_database() AND application_name LIKE 'daa_verify_ocr_lock_%');
