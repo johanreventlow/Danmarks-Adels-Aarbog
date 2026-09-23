@@ -334,10 +334,10 @@ test_that("fejlende transaction_setup ruller tilbage via executoren", {
 
 test_that("proposal-serializeren skriver fulde heltals-tokens og korteste decimaler", {
   value <- jsonlite::fromJSON(
-    '{"value":{"raw":"x","n":[9007199254740991,-9007199254740991,1.0,1e0,-0,7]},"c":0.9,"d":0.30000000000000004}',
+    '{"raw":"x","n":[9007199254740991,-9007199254740991,1.0,1e0,-0,7],"c":0.9,"d":0.30000000000000004}',
     simplifyVector = FALSE)
   expect_identical(as.character(reimport_proposal_json(value)),
-    '{"value":{"raw":"x","n":[9007199254740991,-9007199254740991,1,1,0,7]},"c":0.9,"d":0.30000000000000004}')
+    '{"raw":"x","n":[9007199254740991,-9007199254740991,1,1,0,7],"c":0.9,"d":0.30000000000000004}')
   expect_error(reimport_proposal_json(list(n = 9007199254740992)), "REIMPORT_PROPOSAL_SERIALIZATION_INVALID")
   expect_error(reimport_proposal_json(list(n = Inf)), "REIMPORT_PROPOSAL_SERIALIZATION_INVALID")
 })
@@ -349,7 +349,7 @@ test_that("proposal-claimværdier uden for JSON-safe-heltal afvises før ethvert
   with_value <- function(token) {
     manifest <- proposal_manifest()
     manifest$operations[[1L]]$claims[[1L]]$value <- jsonlite::fromJSON(
-      sprintf('{"value":{"raw":"x","nested":[{"n":%s}]}}', token), simplifyVector = FALSE)
+      sprintf('{"raw":"x","nested":[{"n":%s}]}', token), simplifyVector = FALSE)
     manifest
   }
   for (token in accepted) expect_silent(validate_reimport_manifest(with_value(token)))

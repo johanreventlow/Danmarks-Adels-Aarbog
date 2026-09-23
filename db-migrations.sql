@@ -18598,7 +18598,7 @@ BEGIN
     END IF;
     v_value:=private.normalize_interpretation_proposal_value(v_claim->'value');
     IF (v_predicate.value_kind IN ('text','date_raw') AND (jsonb_typeof(v_value)<>'string' OR btrim(v_value#>>'{}')=''))
-       OR (v_predicate.value_kind NOT IN ('text','date_raw') AND (jsonb_typeof(v_value)<>'object' OR btrim(coalesce(v_value#>>'{value,raw}',''))='')) THEN
+       OR (v_predicate.value_kind NOT IN ('text','date_raw') AND (jsonb_typeof(v_value)<>'object' OR btrim(coalesce(v_value->>'raw',''))='')) THEN
       RAISE EXCEPTION 'REIMPORT_WRITER_VALUE_KIND_INVALID';
     END IF;
     BEGIN v_confidence:=(v_claim->>'confidence')::numeric; EXCEPTION WHEN OTHERS THEN RAISE EXCEPTION 'REIMPORT_WRITER_CONFIDENCE_INVALID'; END;
@@ -18644,7 +18644,7 @@ BEGIN
   -- fordi ethvert ubundet aktørclaim betyder, at klausulen fortsat kræver identitetsarbejde.
   FOR v_observation IN SELECT observation_id FROM pg_temp.proposal_clause_account ORDER BY observation_id::text COLLATE "C" LOOP
     SELECT * INTO v_before FROM private.clause_disposition WHERE observation_id=v_observation ORDER BY version DESC LIMIT 1 FOR UPDATE;
-    IF NOT FOUND OR v_before.decided_by_kind<>'machine' OR v_before.evidence->>'manifest_sha256' !~ '^[0-9a-f]{64}$' OR (v_before.evidence->>'batch_id' IS NULL AND v_before.evidence->>'extraction_run_id' IS NULL) OR (v_before.evidence->>'batch_id' IS NOT NULL AND v_before.evidence->>'batch_id' !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') OR (v_before.evidence->>'extraction_run_id' IS NOT NULL AND v_before.evidence->>'extraction_run_id' !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') THEN RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_INVALID'; END IF;
+    IF NOT FOUND OR v_before.decided_by_kind<>'machine' OR coalesce(v_before.evidence->>'manifest_sha256','') !~ '^[0-9a-f]{64}$' OR (v_before.evidence->>'batch_id' IS NULL AND v_before.evidence->>'extraction_run_id' IS NULL) OR (v_before.evidence->>'batch_id' IS NOT NULL AND v_before.evidence->>'batch_id' !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') OR (v_before.evidence->>'extraction_run_id' IS NOT NULL AND v_before.evidence->>'extraction_run_id' !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') THEN RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_INVALID'; END IF;
     INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence) VALUES(v_observation,v_before.version+1,(SELECT disposition FROM pg_temp.proposal_clause_account WHERE observation_id=v_observation),'machine',jsonb_build_object('batch_id',p_batch_id,'extraction_run_id',v_run,'manifest_sha256',v_batch.manifest_sha256,'element_id',p_element_id)) RETURNING * INTO v_written;
     INSERT INTO pg_temp.proposal_disposition_receipt(observation_id,receipt) VALUES(v_observation,jsonb_build_object('observation_id',v_observation,'before',private.interpretation_proposal_disposition_receipt(v_before)||jsonb_build_object('row_sha256',private.interpretation_proposal_canonical_json_sha256(private.interpretation_proposal_disposition_receipt(v_before))),'written',private.interpretation_proposal_disposition_receipt(v_written)||jsonb_build_object('row_sha256',private.interpretation_proposal_canonical_json_sha256(private.interpretation_proposal_disposition_receipt(v_written)))));
   END LOOP;

@@ -360,9 +360,10 @@ reset_sql_copy()
 
 # ---- 10. R→PostgreSQL-modtagergrænse --------------------------------------------------
 # Syntetisk manifest UDEN for 4.3b-builderens succesvej: indlejrede tal i en event-værdi.
-boundary_value <- jsonlite::fromJSON(paste0('{"value":{"raw":"grænse","n":[9007199254740991,',
-  '-9007199254740991,1.0,1e0,-0,{"k":[1.0]}]}}'), simplifyVector = FALSE)
-expected_token <- '{"value":{"raw":"grænse","n":[9007199254740991,-9007199254740991,1,1,0,{"k":[1]}]}}'
+# Den rigtige objektform for ikke-tekst-prædikater er {raw, normalized?} (evidence_extract).
+boundary_value <- jsonlite::fromJSON(paste0('{"raw":"grænse","normalized":"grænse","n":[9007199254740991,',
+  '-9007199254740991,1.0,1e0,-0,{"k":[1.0]}]}'), simplifyVector = FALSE)
+expected_token <- '{"raw":"grænse","normalized":"grænse","n":[9007199254740991,-9007199254740991,1,1,0,{"k":[1]}]}'
 stopifnot(identical(as.character(reimport_proposal_json(boundary_value)), expected_token))
 boundary_claim <- list(claim_id = substr(run_hash("claim-boundary"), 1L, 32L), predicate = "event.travel",
   interpretation_kind = "event", value = boundary_value, confidence = 0.75,
@@ -384,13 +385,13 @@ python_sha <- run_cmd(python, c("-c", shQuote(paste0(
   "v=cp.strict_json_loads(open(", deparse(value_path), ",encoding='utf-8').read()); ",
   "print(cp.proposal_canonical_sha256(cp.normalize_interpretation_proposal_claim_value(v)))"))))
 stopifnot(python_sha$status == 0L, identical(trimws(python_sha$out), stored$sha[[1L]]))
-stopifnot(identical(jsonlite::fromJSON(stored$value[[1L]], simplifyVector = FALSE)$value$n[[1L]], 9007199254740991))
+stopifnot(identical(jsonlite::fromJSON(stored$value[[1L]], simplifyVector = FALSE)$n[[1L]], 9007199254740991))
 rejected_tokens <- c("9007199254740992", "-9007199254740992", "9223372036854775807",
   "-9223372036854775808", "0.5", "1e400", '{"k":[2.5]}')
 for (token in rejected_tokens) {
   bad <- boundary$manifest
   bad$operations[[1L]]$claims[[1L]]$value <- jsonlite::fromJSON(
-    sprintf('{"value":{"raw":"x","n":[%s]}}', token), simplifyVector = FALSE)
+    sprintf('{"raw":"x","n":[%s]}', token), simplifyVector = FALSE)
   touched <- 0L
   counting <- list(call = function(name, ...) { touched <<- touched + 1L; NULL })
   err <- tryCatch({ execute_reimport(bad, boundary_preview, "dry-run", counting,

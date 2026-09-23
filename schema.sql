@@ -3704,7 +3704,7 @@ BEGIN
     END IF;
     v_value:=private.normalize_interpretation_proposal_value(v_claim->'value');
     IF (v_predicate.value_kind IN ('text','date_raw') AND (jsonb_typeof(v_value)<>'string' OR btrim(v_value#>>'{}')=''))
-       OR (v_predicate.value_kind NOT IN ('text','date_raw') AND (jsonb_typeof(v_value)<>'object' OR btrim(coalesce(v_value#>>'{value,raw}',''))='')) THEN
+       OR (v_predicate.value_kind NOT IN ('text','date_raw') AND (jsonb_typeof(v_value)<>'object' OR btrim(coalesce(v_value->>'raw',''))='')) THEN
       RAISE EXCEPTION 'REIMPORT_WRITER_VALUE_KIND_INVALID';
     END IF;
     BEGIN v_confidence:=(v_claim->>'confidence')::numeric; EXCEPTION WHEN OTHERS THEN RAISE EXCEPTION 'REIMPORT_WRITER_CONFIDENCE_INVALID'; END;
@@ -3768,7 +3768,7 @@ BEGIN
     SELECT * INTO v_before FROM private.clause_disposition
       WHERE observation_id=v_observation ORDER BY version DESC LIMIT 1 FOR UPDATE;
     IF NOT FOUND OR v_before.decided_by_kind<>'machine'
-       OR v_before.evidence->>'manifest_sha256' !~ '^[0-9a-f]{64}$'
+       OR coalesce(v_before.evidence->>'manifest_sha256','') !~ '^[0-9a-f]{64}$'
        OR (v_before.evidence->>'batch_id' IS NULL AND v_before.evidence->>'extraction_run_id' IS NULL)
        OR (v_before.evidence->>'batch_id' IS NOT NULL AND v_before.evidence->>'batch_id' !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
        OR (v_before.evidence->>'extraction_run_id' IS NOT NULL AND v_before.evidence->>'extraction_run_id' !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') THEN
