@@ -2,6 +2,69 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 4.4's prod-kørsel parkeres, til 4.5 er bevist i restoren (2026-09-23)
+
+**Besluttet (projektejer):** GO-pakken for 4.4's forslags-kørsel gøres færdig —
+rehearsal på de endelige bytes, sidste uafhængige kodereview, runbook committet — men
+selve kørslen i prod og deployet af #196's DDL, som den forudsætter, venter, til dagsværk
+4.5 er gennemført mod restoren `daa43b_20260912192527`.
+
+**Hvorfor, i vægtrækkefølge.**
+1. **4.5 kræver ikke prod.** Spec §8.2 kører hele kæden — klausuler, runner, ingest,
+   afgørelse, binding — i én restore, og §8.5 gør intet `produktionsverificeret`.
+   Prod-kørslen er ikke på den kritiske vej mod trin 4's bevis.
+2. **Forslag i prod har ingen værdi alene.** De bliver først brugbare, når et menneske kan
+   afgøre dem, og den vej bygges i 4.5.
+3. **En tidlig kørsel er dyr at gøre om.** 4.5 kan vise, at forslagenes facon skal ændres.
+   Fortrydelse sker kun ved restore (beslutningen nedenfor), og en restore sletter alt
+   skrevet i prod siden backuppen; backuppen lige før 4.4 lukker desuden 4.1c's
+   fortrydelsesvindue.
+
+**Konsekvens.** GO-pakken er bundet til commit, prod-dump og rehearsal. Når kørslen
+genoptages, bindes den igen: nyt prod-dump, rehearsal mod det, nyt GO. Scripts og runbook
+genbruges uændret, medmindre 4.5 ændrer writerens facon. Modenheden for
+"Proposed-ingest" flyttes ikke af GO-pakken.
+
+**Genoptages når** 4.5's pilotrapport (`interpretation-pilot-2018-20.md`) foreligger, og
+projektejeren har besluttet, om 4.4's forslag og 4.5's afgørelser skal i prod samlet.
+
+## BESLUTTET: review-budget og gater efter konsekvens (2026-09-23)
+
+**Baggrund.** 4.4's prod-wrapper kostede fire uafhængige reviewrunder på planen og fire på
+koden, et bibliotek på ~2200 linjer og en fejlmatrix på 30 cases — for en kørsel, der
+skriver 84 usynlige `proposed`-forslag uden kanonisk delta. Hver runde fandt ægte fejl,
+men af aftagende konsekvens; de sidste handlede om, hvad to samtidige genoptagelser gør.
+Det er mønstret fra 2026-09-03 igen: sikkerhed på et mellemtrin fortrænger fremdrift mod
+programmålet.
+
+**Besluttet (projektejer):**
+1. **Review-budget efter konsekvens.** Antal uafhængige reviewrunder (plan + kode):
+
+   | Skrivningens konsekvens | Budget | Undtagelsesrunde |
+   |---|---|---|
+   | Kanonisk, `anon`-synlig, DDL, RLS/sikkerhed eller ikke fortrydelig | 2 + 2 | Ja, med projektejerens ja og begrundelse |
+   | Kun det private lag, fortrydelig ved restore | 2 + 2 | Kun undtagelsesvis |
+   | Kun restore eller disponibel base | 1 + 1 | Nej |
+
+   En undtagelsesrunde er **smal**: den efterprøver kun de rettede fund og den kode, som
+   rettelserne ændrede — ikke en ny, fri gennemgang. Efter budgettet tæller kun fund, hvor
+   noget kan blive *skrevet* forkert (i prod eller i den bundne restore). Et fund, hvis
+   værste udfald er et falsk STOP, er højst MINOR og dokumenteres i stedet for at rettes.
+2. **Gate efter konsekvens.**
+   - *Kanonisk eller `anon`-synlig prod-skrivning:* fuld gate — runbook,
+     restore-rehearsal, fejlmatrix, uafhængigt review, udtrykkeligt GO.
+   - *Prod-skrivning kun i det private lag, uden kanonisk delta:* runbook, backup, én
+     rehearsal af den normale vej og fortrydelse ved restore; ingen fejlmatrix.
+   - *Kun i restore eller disponibel base:* ingen prod-gate; færdig = én rigtig kørsel
+     (regel 4 fra 2026-09-03).
+3. **Værdi eller måling.** Hvert dagsværk ender med noget, en redaktør eller læser kan
+   bruge, eller med en måling, der afgør et åbent spørgsmål — fx pris og redaktionel byrde
+   ved en fuld udgave.
+
+**Afgrænsning.** Reglerne gælder fremadrettet. 4.4's GO-pakke afsluttes efter sin egen
+stopregel: kode-runde 4 er den sidste, og en tilbageværende BLOCKER parkerer pakken som
+»ikke GO-klar« med fundlisten i stedet for en femte runde.
+
 ## BESLUTTET: 4.4's forslags-kørsel i prod fortrydes kun ved restore (2026-09-23)
 
 **Kvittering fra projektejeren** for spec åbent punkt 11.5
