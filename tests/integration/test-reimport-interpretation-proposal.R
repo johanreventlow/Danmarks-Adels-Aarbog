@@ -225,7 +225,8 @@ comparator <- function(args) run_cmd(python,
   c(shQuote(file.path(scripts, "compare_interpretation_proposal_projection.py")), args))
 compare_fresh <- function(before, after, report) comparator(c("--mode", "fresh",
   "--manifest", shQuote(built$path), "--before", shQuote(before), "--after", shQuote(after),
-  "--expect-target-sha256", target$out, "--report", shQuote(file.path(private_dir, report))))
+  "--expect-target-sha256", target$out, "--expect-preview-sha256", preview_sha,
+  "--expect-principal-id", actor, "--report", shQuote(file.path(private_dir, report))))
 compare_replay <- function(after, replayed, authorization_id, report) comparator(c("--mode", "replay",
   "--after", shQuote(after), "--replayed", shQuote(replayed),
   "--replay-authorization-id", authorization_id,
@@ -277,6 +278,13 @@ replayed_path <- write_private("replayed.json", projection())
 replay_match <- compare_replay(after_path, replayed_path, replay_authorization, "replay-match.json")
 if (replay_match$status != 0L || !grepl('"status": "match"', replay_match$out, fixed = TRUE))
   stop("replay-comparator gav ikke match: ", replay_match$out)
+# Replay-rapporten er kædet til fresh-rapporten via byte-hashen af den samme after-fil.
+report_json <- function(name) jsonlite::fromJSON(file.path(private_dir, name), simplifyVector = FALSE)
+after_file_sha <- digest::digest(file = after_path, algo = "sha256")
+stopifnot(identical(report_json("apply-match.json")$input_file_sha256$after, after_file_sha),
+  identical(report_json("replay-match.json")$input_file_sha256$after, after_file_sha),
+  identical(report_json("replay-match.json")$input_file_sha256$replayed,
+    digest::digest(file = replayed_path, algo = "sha256")))
 wrong_replay <- compare_replay(after_path, replayed_path, dry_authorization, "replay-wrong.json")
 stopifnot(wrong_replay$status != 0L)
 
@@ -289,7 +297,8 @@ sql_copy <- file.path(private_dir, "sql"); dir.create(sql_copy, mode = "0700")
 sql_files <- c("interpretation_proposal_projection.sql", "interpretation_proposal_anon_projection.sql",
   "interpretation_proposal_projection.psql")
 settings <- paste("SET LOCAL TimeZone TO 'UTC'; SET LOCAL DateStyle TO 'ISO, YMD';",
-  "SET LOCAL IntervalStyle TO 'postgres'; SET LOCAL extra_float_digits TO 1;")
+  "SET LOCAL IntervalStyle TO 'postgres'; SET LOCAL extra_float_digits TO 1;",
+  "SET LOCAL bytea_output TO 'hex';")
 set_source <- sprintf("SELECT set_config('daa.interpretation_projection_source_id','%d',true);", source_id)
 driver_text <- paste(readLines(file.path(scripts, "interpretation_proposal_projection.psql")), collapse = "\n")
 split_driver <- sub("SET LOCAL ROLE anon;", paste0("COMMIT;\nSELECT txid_current();\n",

@@ -32,8 +32,14 @@ def test_sql_contract_requires_one_read_only_snapshot_and_no_raw_values():
     assert "RESET ROLE" in texts["driver"]
     owner_include = "\\ir interpretation_proposal_projection.sql"
     for setting in ("SET LOCAL TimeZone TO 'UTC'", "SET LOCAL DateStyle TO 'ISO, YMD'",
-                    "SET LOCAL IntervalStyle TO 'postgres'", "SET LOCAL extra_float_digits TO 1"):
-        assert texts["driver"].find(setting) < texts["driver"].find(owner_include)
+                    "SET LOCAL IntervalStyle TO 'postgres'", "SET LOCAL extra_float_digits TO 1",
+                    "SET LOCAL bytea_output TO 'hex'"):
+        assert -1 < texts["driver"].find(setting) < texts["driver"].find(owner_include)
+    # Begge dele hasher x::text over hele tabeller; begge guards skal afvise en afvigende session.
+    for part in ("owner", "anon"):
+        for guard in ("current_setting('TimeZone') <> 'UTC'", "current_setting('extra_float_digits') <> '1'",
+                      "current_setting('bytea_output') <> 'hex'"):
+            assert guard in texts[part], (part, guard)
     assert "current_setting('transaction_read_only') <> 'on'" in texts["owner"]
     assert "current_setting('transaction_isolation') <> 'repeatable read'" in texts["owner"]
     assert "current_user <> 'anon'" in texts["anon"]
@@ -514,15 +520,52 @@ def _mutate_row(after: dict, collection: str, field: str, index: int = 0) -> Non
     row[field] = _different(field, row[field])
 
 
+FIXTURE_PREVIEW = H("9")
+FRESH_EXPECT = ("--expect-preview-sha256", FIXTURE_PREVIEW, "--expect-principal-id", UUIDS["principal"])
+
+
+def compare_apply(m, b, a, target, *, preview=FIXTURE_PREVIEW, principal=UUIDS["principal"]):
+    """Fixturens operatoer-forventninger; tests af selve bindingen giver dem eksplicit."""
+    return cp.compare_apply(m, b, a, target, expected_preview_sha256=preview,
+                            expected_principal_id=principal)
+
+
+@pytest.mark.parametrize("drift", ["preview_sha256", "principal_id"])
+def test_consistent_auth_and_batch_drift_is_caught_by_the_operators_expectation(drift):
+    """Minor 13: autorisation og batch kan vaere enige med hinanden og stadig forkerte."""
+    b, a = before(), correctly_applied()
+    wrong = H("8") if drift == "preview_sha256" else "40000000-0000-4000-8000-0000000000ff"
+    for collection in ("authorizations", "batches"):
+        for row in a[collection]:
+            if row not in b[collection]:
+                row[drift] = wrong
+    error(lambda: compare_apply(manifest(), b, a, cp.target_sha256(b["database_target_identity"])),
+          "INTERPRETATION_PROJECTION_BATCH_BINDING_INVALID")
+
+
+@pytest.mark.parametrize(("preview", "principal"), [
+    (H("8"), UUIDS["principal"]),
+    (FIXTURE_PREVIEW, "40000000-0000-4000-8000-0000000000ff"),
+    ("not-a-sha", UUIDS["principal"]),
+    (FIXTURE_PREVIEW, "not-a-uuid"),
+])
+def test_apply_requires_matching_well_formed_preview_and_principal(preview, principal):
+    b = before()
+    error(lambda: compare_apply(manifest(), b, correctly_applied(),
+                                cp.target_sha256(b["database_target_identity"]),
+                                preview=preview, principal=principal),
+          "INTERPRETATION_PROJECTION_BATCH_BINDING_INVALID")
+
+
 def test_two_claims_on_one_clause_write_one_identity_priority_disposition():
-    result = cp.compare_apply(manifest(), before(), correctly_applied(), cp.target_sha256(before()["database_target_identity"]))
+    result = compare_apply(manifest(), before(), correctly_applied(), cp.target_sha256(before()["database_target_identity"]))
     assert result["counts"]["claims"] == 2
     assert result["counts"]["links"] == 3
     assert result["counts"]["dispositions"] == {"afventer_identitet": 2}
 
 
 def test_principal_only_claim_writes_proposed_disposition():
-    result = cp.compare_apply(principal_manifest(), before(), correctly_applied(principal_only=True),
+    result = compare_apply(principal_manifest(), before(), correctly_applied(principal_only=True),
                               cp.target_sha256(before()["database_target_identity"]))
     assert result["counts"]["dispositions"] == {"fortolkning_foreslaaet": 1}
 
@@ -532,7 +575,7 @@ def test_error_details_never_echo_value():
     secret = m["operations"][0]["claims"][0]["value"]
     after = correctly_applied()
     after["interpretations"][0]["value_sha256"] = H("f")
-    caught = error(lambda: cp.compare_apply(m, before(), after,
+    caught = error(lambda: compare_apply(m, before(), after,
                                             cp.target_sha256(before()["database_target_identity"])),
                    "INTERPRETATION_PROJECTION_CLAIM_DRIFT")
     assert secret not in json.dumps(caught.details, ensure_ascii=False)
@@ -556,7 +599,7 @@ def test_apply_header_and_hash_drift_codes(mutate, code):
     m, b, a = manifest(), before(), correctly_applied()
     target = [cp.target_sha256(b["database_target_identity"])]
     mutate(m, b, a, target)
-    error(lambda: cp.compare_apply(m, b, a, target[0]), code)
+    error(lambda: compare_apply(m, b, a, target[0]), code)
 
 
 @pytest.mark.parametrize("name", [
@@ -569,7 +612,7 @@ def test_each_neutral_list_drift_has_one_code(name):
         "narrative_sha256": {"narrative_id": 1, "sha256": H("f")},
         "persons": {"person_id": 1},
     }[name]]
-    error(lambda: cp.compare_apply(manifest(), before(), after,
+    error(lambda: compare_apply(manifest(), before(), after,
                                    cp.target_sha256(before()["database_target_identity"])),
           "INTERPRETATION_PROJECTION_NEUTRAL_LIST_DRIFT")
 
@@ -585,7 +628,7 @@ def test_preexisting_target_fails_closed(preexisting):
         b["interpretations"] = [dict(copy.deepcopy(after["interpretations"][0]),
                                      interpretation_id="90000000-0000-4000-8000-00000000000f")]
         after["interpretations"].append(copy.deepcopy(b["interpretations"][0]))
-    error(lambda: cp.compare_apply(manifest(), b, after,
+    error(lambda: compare_apply(manifest(), b, after,
                                    cp.target_sha256(b["database_target_identity"])),
           "INTERPRETATION_PROJECTION_PREEXISTING_TARGET")
 
@@ -599,7 +642,7 @@ def test_foreign_row_drift_is_not_hidden_by_expected_delta():
     b["interpretations"].append(copy.deepcopy(foreign))
     a["interpretations"].append(copy.deepcopy(foreign))
     a["interpretations"][-1]["row_sha256"] = H("f")
-    error(lambda: cp.compare_apply(manifest(), b, a, cp.target_sha256(b["database_target_identity"])),
+    error(lambda: compare_apply(manifest(), b, a, cp.target_sha256(b["database_target_identity"])),
           "INTERPRETATION_PROJECTION_FOREIGN_DRIFT")
 
 
@@ -672,7 +715,7 @@ def test_every_projection_row_field_mutation_has_a_stable_code(collection, field
         a[collection][index][field] = "invalid"
     else:
         _mutate_row(a, collection, field, index)
-    error(lambda: cp.compare_apply(manifest(), b, a, cp.target_sha256(b["database_target_identity"])), code)
+    error(lambda: compare_apply(manifest(), b, a, cp.target_sha256(b["database_target_identity"])), code)
 
 
 @pytest.mark.parametrize("field", ["row_sha256", "value_sha256", "interpretation_id"])
@@ -680,7 +723,7 @@ def test_receipt_claim_mutations_are_receipt_invalid(field):
     b, a = before(), correctly_applied()
     a["proposal_events"][0]["result_receipt"]["claims"][0][field] = _different(
         field, a["proposal_events"][0]["result_receipt"]["claims"][0][field])
-    error(lambda: cp.compare_apply(manifest(), b, a, cp.target_sha256(b["database_target_identity"])),
+    error(lambda: compare_apply(manifest(), b, a, cp.target_sha256(b["database_target_identity"])),
           "INTERPRETATION_PROJECTION_RECEIPT_INVALID")
 
 
@@ -691,7 +734,7 @@ def test_event_and_reversal_history_must_be_append_only_and_exact():
         "source_record_key": "R1", "before_sha256": H("1"), "after_sha256": H("2"),
         "row_sha256": H("3"),
     })
-    error(lambda: cp.compare_apply(manifest(), b, a, cp.target_sha256(b["database_target_identity"])),
+    error(lambda: compare_apply(manifest(), b, a, cp.target_sha256(b["database_target_identity"])),
           "INTERPRETATION_PROJECTION_EVENT_HISTORY_DRIFT")
 
 
@@ -800,7 +843,7 @@ def test_cli_fresh_match_writes_private_report_and_prints_only_sanitized_json(tm
     _write_json(paths["after"], correctly_applied())
     report = tmp_path / "report.json"
     exit_code = cp.main([
-        "--mode", "fresh", "--manifest", str(paths["manifest"]), "--before", str(paths["before"]),
+        "--mode", "fresh", *FRESH_EXPECT, "--manifest", str(paths["manifest"]), "--before", str(paths["before"]),
         "--after", str(paths["after"]), "--expect-target-sha256",
         cp.target_sha256(before()["database_target_identity"]), "--report", str(report),
     ])
@@ -808,6 +851,84 @@ def test_cli_fresh_match_writes_private_report_and_prints_only_sanitized_json(tm
     assert exit_code == 0 and terminal["status"] == "match"
     assert json.loads(report.read_text(encoding="utf-8"))["status"] == "match"
     assert os.stat(report).st_mode & 0o777 == 0o600
+
+
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_cli_reports_bind_the_exact_input_file_bytes_so_replay_chains_to_fresh(tmp_path, capsys):
+    """Minor 12: en replay-rapport skal kunne kaedes til den fresh-rapport, hvis after den genbrugte."""
+    paths = {name: tmp_path / f"{name}.json" for name in ("manifest", "before", "after", "replayed")}
+    _write_json(paths["manifest"], manifest())
+    _write_json(paths["before"], before())
+    # Bevidst ikke-kanonisk formatering: hashen er over filens bytes, ikke over en re-serialisering.
+    paths["after"].write_text(json.dumps(correctly_applied(), indent=1) + "\n", encoding="utf-8")
+    _write_json(paths["replayed"], replayed())
+    target = cp.target_sha256(before()["database_target_identity"])
+    fresh_report, replay_report = tmp_path / "fresh.json", tmp_path / "replay.json"
+    assert cp.main([
+        "--mode", "fresh", *FRESH_EXPECT, "--manifest", str(paths["manifest"]), "--before", str(paths["before"]),
+        "--after", str(paths["after"]), "--expect-target-sha256", target, "--report", str(fresh_report),
+    ]) == 0
+    assert cp.main([
+        "--mode", "replay", "--after", str(paths["after"]), "--replayed", str(paths["replayed"]),
+        "--replay-authorization-id", UUIDS["replay_authorization"],
+        "--expect-target-sha256", target, "--report", str(replay_report),
+    ]) == 0
+    capsys.readouterr()
+    fresh = json.loads(fresh_report.read_text(encoding="utf-8"))
+    replay = json.loads(replay_report.read_text(encoding="utf-8"))
+    assert fresh["input_file_sha256"] == {
+        "manifest": _file_sha256(paths["manifest"]),
+        "before": _file_sha256(paths["before"]),
+        "after": _file_sha256(paths["after"]),
+    }
+    assert replay["input_file_sha256"] == {
+        "after": _file_sha256(paths["after"]),
+        "replayed": _file_sha256(paths["replayed"]),
+    }
+    assert replay["input_file_sha256"]["after"] == fresh["input_file_sha256"]["after"]
+
+
+def test_cli_no_go_report_also_names_its_input_files(tmp_path, capsys):
+    paths = {name: tmp_path / f"{name}.json" for name in ("after", "replayed")}
+    _write_json(paths["after"], correctly_applied())
+    value = replayed()
+    value["neutral_sha256"] = H("f")
+    _write_json(paths["replayed"], value)
+    report = tmp_path / "replay-no-go.json"
+    assert cp.main([
+        "--mode", "replay", "--after", str(paths["after"]), "--replayed", str(paths["replayed"]),
+        "--replay-authorization-id", UUIDS["replay_authorization"],
+        "--expect-target-sha256", cp.target_sha256(before()["database_target_identity"]),
+        "--report", str(report),
+    ]) == 1
+    capsys.readouterr()
+    stored = json.loads(report.read_text(encoding="utf-8"))
+    assert stored["status"] == "no-go"
+    assert stored["input_file_sha256"] == {
+        "after": _file_sha256(paths["after"]), "replayed": _file_sha256(paths["replayed"]),
+    }
+
+
+@pytest.mark.parametrize("variant", ["fresh_missing", "fresh_malformed", "replay_extra"])
+def test_cli_fresh_requires_and_replay_refuses_operator_expectations(tmp_path, capsys, variant):
+    path = tmp_path / "x.json"
+    _write_json(path, before())
+    target = cp.target_sha256(before()["database_target_identity"])
+    if variant == "replay_extra":
+        argv = ["--mode", "replay", "--after", str(path), "--replayed", str(path),
+                "--replay-authorization-id", UUIDS["replay_authorization"], *FRESH_EXPECT]
+    else:
+        expect = () if variant == "fresh_missing" else (
+            "--expect-preview-sha256", "ABC", "--expect-principal-id", UUIDS["principal"])
+        argv = ["--mode", "fresh", "--manifest", str(path), "--before", str(path),
+                "--after", str(path), *expect]
+    report = tmp_path / "report.json"
+    assert cp.main([*argv, "--expect-target-sha256", target, "--report", str(report)]) == 2
+    assert json.loads(capsys.readouterr().out)["code"] == "INTERPRETATION_PROJECTION_ARGUMENTS_INVALID"
+    assert not report.exists()
 
 
 def test_cli_refuses_existing_report_and_prints_manifest_hash(tmp_path, capsys):
@@ -819,7 +940,7 @@ def test_cli_refuses_existing_report_and_prints_manifest_hash(tmp_path, capsys):
     report = tmp_path / "exists.json"
     report.write_text("keep", encoding="utf-8")
     assert cp.main([
-        "--mode", "fresh", "--manifest", str(manifest_path), "--before", str(manifest_path),
+        "--mode", "fresh", *FRESH_EXPECT, "--manifest", str(manifest_path), "--before", str(manifest_path),
         "--after", str(manifest_path), "--expect-target-sha256", H("a"), "--report", str(report),
     ]) == 2
     assert json.loads(capsys.readouterr().out)["code"] == "INTERPRETATION_PROJECTION_REPORT_EXISTS"
@@ -835,7 +956,7 @@ def test_cli_no_go_exits_one_and_writes_same_sanitized_report(tmp_path, capsys):
     _write_json(paths["after"], after)
     report = tmp_path / "no-go.json"
     assert cp.main([
-        "--mode", "fresh", "--manifest", str(paths["manifest"]), "--before", str(paths["before"]),
+        "--mode", "fresh", *FRESH_EXPECT, "--manifest", str(paths["manifest"]), "--before", str(paths["before"]),
         "--after", str(paths["after"]), "--expect-target-sha256",
         cp.target_sha256(before()["database_target_identity"]), "--report", str(report),
     ]) == 1
@@ -843,6 +964,7 @@ def test_cli_no_go_exits_one_and_writes_same_sanitized_report(tmp_path, capsys):
     stored = json.loads(report.read_text(encoding="utf-8"))
     assert terminal == stored == {
         "status": "no-go", "code": "INTERPRETATION_PROJECTION_CANONICAL_DRIFT", "details": {"part": "neutral_sha256"},
+        "input_file_sha256": {name: _file_sha256(path) for name, path in paths.items()},
     }
 
 
@@ -871,7 +993,7 @@ def test_rows_outside_accepted_anchors_may_lack_record_key():
         projection_value["interpretation_links"].append(dict(
             a["interpretation_links"][0], interpretation_id="90000000-0000-4000-8000-00000000000b",
             record_key=None))
-    result = cp.compare_apply(manifest(), b, a, cp.target_sha256(b["database_target_identity"]))
+    result = compare_apply(manifest(), b, a, cp.target_sha256(b["database_target_identity"]))
     assert result["status"] == "match"
 
 
@@ -899,7 +1021,7 @@ def test_unrelated_preexisting_interpretation_on_same_record_predicate_is_not_a_
                interpretation_key="90000000-0000-4000-8000-00000000000e", row_sha256=H("0"))
     b["interpretations"].append(old)
     a["interpretations"].append(copy.deepcopy(old))
-    result = cp.compare_apply(manifest(), b, a, cp.target_sha256(b["database_target_identity"]))
+    result = compare_apply(manifest(), b, a, cp.target_sha256(b["database_target_identity"]))
     assert result["status"] == "match"
 
 

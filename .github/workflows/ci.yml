@@ -233,6 +233,16 @@ jobs:
       - name: Katalogrækkefølge schema-migrations-rls
         if: ${{ !cancelled() }}
         run: bash tests/ci/interpretation-proposal-db.sh schema-migrations-rls
+      # Scriptet skriver hvert trins fulde output til ci-out/<rækkefølge>/; kun
+      # syntetiske fixtures, ingen dumps. Uploades kun ved fejl (lager er også budget).
+      - name: Upload logs ved fejl
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: interpretation-proposal-db-logs
+          path: ci-out/
+          if-no-files-found: ignore
+          retention-days: 7
 
   writer-1939-v50-db:
     name: DAA 1939 v50 writer · PostgreSQL 17
