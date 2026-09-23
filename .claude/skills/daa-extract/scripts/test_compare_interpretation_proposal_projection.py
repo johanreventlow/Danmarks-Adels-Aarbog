@@ -32,8 +32,14 @@ def test_sql_contract_requires_one_read_only_snapshot_and_no_raw_values():
     assert "RESET ROLE" in texts["driver"]
     owner_include = "\\ir interpretation_proposal_projection.sql"
     for setting in ("SET LOCAL TimeZone TO 'UTC'", "SET LOCAL DateStyle TO 'ISO, YMD'",
-                    "SET LOCAL IntervalStyle TO 'postgres'", "SET LOCAL extra_float_digits TO 1"):
-        assert texts["driver"].find(setting) < texts["driver"].find(owner_include)
+                    "SET LOCAL IntervalStyle TO 'postgres'", "SET LOCAL extra_float_digits TO 1",
+                    "SET LOCAL bytea_output TO 'hex'"):
+        assert -1 < texts["driver"].find(setting) < texts["driver"].find(owner_include)
+    # Begge dele hasher x::text over hele tabeller; begge guards skal afvise en afvigende session.
+    for part in ("owner", "anon"):
+        for guard in ("current_setting('TimeZone') <> 'UTC'", "current_setting('extra_float_digits') <> '1'",
+                      "current_setting('bytea_output') <> 'hex'"):
+            assert guard in texts[part], (part, guard)
     assert "current_setting('transaction_read_only') <> 'on'" in texts["owner"]
     assert "current_setting('transaction_isolation') <> 'repeatable read'" in texts["owner"]
     assert "current_user <> 'anon'" in texts["anon"]

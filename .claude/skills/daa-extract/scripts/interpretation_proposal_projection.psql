@@ -13,6 +13,7 @@ SET LOCAL TimeZone TO 'UTC';
 SET LOCAL DateStyle TO 'ISO, YMD';
 SET LOCAL IntervalStyle TO 'postgres';
 SET LOCAL extra_float_digits TO 1;
+SET LOCAL bytea_output TO 'hex';
 SELECT set_config('daa.interpretation_projection_source_id', :'source_id', true) \gset
 \ir interpretation_proposal_projection.sql
 SET LOCAL ROLE anon;

@@ -27,6 +27,7 @@ WITH guard AS (
       THEN ('INTERPRETATION_PROJECTION_NOT_REPEATABLE_READ:' || current_setting('transaction_isolation'))::int
     WHEN current_setting('TimeZone') <> 'UTC' OR current_setting('DateStyle') <> 'ISO, YMD'
       OR current_setting('IntervalStyle') <> 'postgres' OR current_setting('extra_float_digits') <> '1'
+      OR current_setting('bytea_output') <> 'hex'
       THEN ('INTERPRETATION_PROJECTION_SESSION_SETTINGS_INVALID:' || current_setting('TimeZone'))::int
     ELSE 1 END AS ok,
     nullif(current_setting('daa.interpretation_projection_source_id', true), '')::bigint AS source_id

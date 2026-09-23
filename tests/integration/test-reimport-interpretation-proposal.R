@@ -289,7 +289,8 @@ sql_copy <- file.path(private_dir, "sql"); dir.create(sql_copy, mode = "0700")
 sql_files <- c("interpretation_proposal_projection.sql", "interpretation_proposal_anon_projection.sql",
   "interpretation_proposal_projection.psql")
 settings <- paste("SET LOCAL TimeZone TO 'UTC'; SET LOCAL DateStyle TO 'ISO, YMD';",
-  "SET LOCAL IntervalStyle TO 'postgres'; SET LOCAL extra_float_digits TO 1;")
+  "SET LOCAL IntervalStyle TO 'postgres'; SET LOCAL extra_float_digits TO 1;",
+  "SET LOCAL bytea_output TO 'hex';")
 set_source <- sprintf("SELECT set_config('daa.interpretation_projection_source_id','%d',true);", source_id)
 driver_text <- paste(readLines(file.path(scripts, "interpretation_proposal_projection.psql")), collapse = "\n")
 split_driver <- sub("SET LOCAL ROLE anon;", paste0("COMMIT;\nSELECT txid_current();\n",
