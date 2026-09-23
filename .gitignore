@@ -66,3 +66,6 @@ tmp/
 
 # Affald fra fejlagtige pnpm-kald — repoet bruger npm workspaces (én rod-lockfile)
 .pnpm-store/
+
+# Log-output fra tests/ci/*.sh (lokalt og i CI)
+ci-out/

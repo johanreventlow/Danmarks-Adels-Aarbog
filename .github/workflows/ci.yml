@@ -1,19 +1,32 @@
 name: CI
 
 # Håndhæver core- (vitest), web- (vitest+build) og mobil- (jest+tsc) testsuiterne
-# på PR + push til main. Tidligere gate var kun Vercels tsc+build → 565 tests
-# kørte, men blokerede intet (review 27, T1). Testene er hermetiske: web mocker
-# supabase (dummy-env er nok til modul-load-guarden), mobil degraderer til
-# offline-seed uden env.
+# på PR'er. Tidligere gate var kun Vercels tsc+build → 565 tests kørte, men
+# blokerede intet (review 27, T1). Testene er hermetiske: web mocker supabase
+# (dummy-env er nok til modul-load-guarden), mobil degraderer til offline-seed
+# uden env.
 #
 # Monorepoet er npm workspaces (packages/core + web + mobile) med ÉN rod-
 # package-lock.json — der findes ikke per-app lockfiles, så install + cache
 # sker fra roden, og hver suite køres via `npm run ... -w <workspace>`.
+#
+# Actions-minutter (privat repo, gratis-plan: 2000 min/md., hvert job rundes op
+# til helt minut): 41 af 100 kørsler var push til main, som gentog PR'ens
+# allerede grønne kørsel mod merge-ref'en. Derfor kun pull_request + manuel
+# workflow_dispatch; rene docs-PR'er springes over; små jobs er slået sammen,
+# så hver kørsel betaler færre afrundinger og færre setup-trin. `[skip ci]` i
+# commit-beskeden springer mellemliggende push over.
+# Restrisiko: rykker main mellem PR'ens sidste kørsel og merge, er merge-
+# resultatet utestet — kør da workflowet manuelt på main.
 
 on:
-  push:
-    branches: [main]
   pull_request:
+    # Kun docs/ og rod-niveau-.md (`*` matcher ikke `/`). IKKE `**/*.md`: CI-
+    # testene læser hash-bundne prompt-filer under .claude/skills/*/references/.
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+  workflow_dispatch:
 
 # Nyeste push på en ref annullerer igangværende kørsler på samme ref.
 concurrency:
@@ -24,8 +37,8 @@ permissions:
   contents: read
 
 jobs:
-  core:
-    name: core · vitest
+  node:
+    name: node · core + feed + web + mobil
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,25 +47,44 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: package-lock.json
-      - run: npm ci
-      - run: npm run test -w @daa/core
+      - id: install
+        run: npm ci
+      # Suiterne deler ét job for at spare npm ci + minutafrunding, men skal stadig
+      # rapportere hver for sig: hvert trin kører selvom et tidligere suite-trin
+      # fejlede (kun ikke hvis installationen fejlede).
+      - name: core · vitest
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run test -w @daa/core
       # Gater @daa/core's typecheck-script (fandtes, men CI kørte det ikke → en
       # tsc-fejl (Koen-type i tree.test.ts) akkumulerede ufanget. Codex-fund F-16).
-      - run: npm run typecheck -w @daa/core
-
-  feed:
-    name: feed · vitest
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: package-lock.json
-      - run: npm ci
-      - run: npm run test -w @daa/feed
-      - run: npm run typecheck -w @daa/feed
+      - name: core · typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run typecheck -w @daa/core
+      - name: feed · vitest
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run test -w @daa/feed
+      - name: feed · typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run typecheck -w @daa/feed
+      # Dummy non-tomme creds så supabase.ts's modul-load-guard ikke kaster.
+      # Testene rører aldrig nettet (supabase mockes), så værdierne er ligegyldige.
+      - name: Skriv dummy Supabase-env
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: printf 'VITE_SUPABASE_URL=http://localhost:54321\nVITE_SUPABASE_ANON_KEY=dummy-anon-key-for-ci\n' > web/.env.local
+      - name: web · vitest
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run test -w web
+      - name: web · build
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run build -w web
+      # jest parser ikke alle filer (fx WebView-komponenter uden tests), så en ren
+      # jest-kørsel fanger ikke syntaks-/type-fejl i dem — kør tsc eksplicit.
+      - name: mobil · tsc
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm --workspace mobile exec -- tsc --noEmit
+      - name: mobil · jest
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm test -w mobile
 
   r:
     name: r · testthat
@@ -83,24 +115,25 @@ jobs:
             if (length(mangler)) install.packages(mangler)'
       - run: Rscript run-tests.R
 
-  pipeline:
-    name: pipeline · unittest
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: python3 -m unittest discover -s .claude/skills/daa-haendelser/scripts -p 'test_*.py'
-
-  evidence-contract:
-    name: evidence contract · pytest
+  python:
+    name: python · pipeline unittest + evidence contract pytest
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python3 -m pip install --disable-pip-version-check -r .claude/skills/daa-extract/requirements-test.txt
-      - run: python3 -m pytest .claude/skills/daa-extract/scripts/test_evidence_contract.py -q
-      - run: python3 -m pytest .claude/skills/daa-extract/scripts/test_reimport_profile.py .claude/skills/daa-extract/scripts/test_build_source_evidence_rendition.py .claude/skills/daa-extract/scripts/test_build_source_evidence_manifest.py .claude/skills/daa-extract/scripts/test_build_legacy_migration_manifest.py .claude/skills/daa-extract/scripts/test_build_clause_evidence_manifest.py .claude/skills/daa-extract/scripts/test_build_43b_proposal_manifest.py .claude/skills/daa-extract/scripts/test_evidence_runner.py .claude/skills/daa-extract/scripts/test_compare_clause_evidence_projection.py .claude/skills/daa-extract/scripts/test_compare_interpretation_proposal_projection.py -q
+      - name: pipeline · unittest
+        run: python3 -m unittest discover -s .claude/skills/daa-haendelser/scripts -p 'test_*.py'
+      - id: install
+        if: ${{ !cancelled() }}
+        run: python3 -m pip install --disable-pip-version-check -r .claude/skills/daa-extract/requirements-test.txt
+      - name: evidence contract · pytest
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: python3 -m pytest .claude/skills/daa-extract/scripts/test_evidence_contract.py -q
+      - name: evidence builders/runner/comparators · pytest
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: python3 -m pytest .claude/skills/daa-extract/scripts/test_reimport_profile.py .claude/skills/daa-extract/scripts/test_build_source_evidence_rendition.py .claude/skills/daa-extract/scripts/test_build_source_evidence_manifest.py .claude/skills/daa-extract/scripts/test_build_legacy_migration_manifest.py .claude/skills/daa-extract/scripts/test_build_clause_evidence_manifest.py .claude/skills/daa-extract/scripts/test_build_43b_proposal_manifest.py .claude/skills/daa-extract/scripts/test_evidence_runner.py .claude/skills/daa-extract/scripts/test_compare_clause_evidence_projection.py .claude/skills/daa-extract/scripts/test_compare_interpretation_proposal_projection.py -q
 
   evidence-promotion-db:
     name: evidence promotion · PostgreSQL 17
@@ -166,12 +199,8 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f tests/sql/run-db-verify-disposable.sql
 
   interpretation-proposal-db:
-    name: interpretation proposal projection · PostgreSQL 17 · ${{ matrix.catalog_order }}
+    name: interpretation proposal projection · PostgreSQL 17 · begge katalogrækkefølger
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        catalog_order: [schema-rls-migrations, schema-migrations-rls]
     services:
       postgres:
         image: postgres:17
@@ -187,7 +216,7 @@ jobs:
       PGPORT: 5432
       PGUSER: postgres
       PGPASSWORD: postgres
-      PGDATABASE: proposal_projection
+      DAA_PYTHON: python3
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -196,78 +225,14 @@ jobs:
       - uses: r-lib/actions/setup-r@v2
         with: {use-public-rspm: true}
       - run: Rscript -e 'install.packages(c("DBI","RPostgres","jsonlite","digest","testthat"))'
-      - name: Bootstrap, dedikerede logins og katalog (${{ matrix.catalog_order }})
-        run: |
-          psql -v ON_ERROR_STOP=1 -f tests/sql/evidence-promotion-bootstrap.sql
-          psql -v ON_ERROR_STOP=1 <<'SQL'
-          CREATE ROLE daa_proposal_ci NOINHERIT LOGIN PASSWORD 'ci-operation' IN ROLE authenticated;
-          CREATE ROLE daa_proposal_authorizer_ci NOINHERIT LOGIN PASSWORD 'ci-authorizer' IN ROLE service_role;
-          CREATE ROLE daa_proposal_nonmember_ci NOINHERIT LOGIN PASSWORD 'ci-nonmember';
-          DO $$ BEGIN
-            IF NOT has_function_privilege('daa_proposal_ci','pg_control_system()','EXECUTE') THEN
-              GRANT EXECUTE ON FUNCTION pg_control_system() TO daa_proposal_ci;
-            END IF;
-            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname LIKE 'daa_proposal_%' AND (rolsuper OR rolinherit)) THEN
-              RAISE EXCEPTION 'CI_PROPOSAL_LOGIN_INVALID';
-            END IF;
-            IF (SELECT array_agg(g.rolname::text ORDER BY g.rolname) FROM pg_auth_members m
-                  JOIN pg_roles r ON r.oid=m.member JOIN pg_roles g ON g.oid=m.roleid
-                 WHERE r.rolname='daa_proposal_ci') IS DISTINCT FROM ARRAY['authenticated']
-               OR (SELECT array_agg(g.rolname::text ORDER BY g.rolname) FROM pg_auth_members m
-                  JOIN pg_roles r ON r.oid=m.member JOIN pg_roles g ON g.oid=m.roleid
-                 WHERE r.rolname='daa_proposal_authorizer_ci') IS DISTINCT FROM ARRAY['service_role']
-               OR EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.member
-                 WHERE r.rolname='daa_proposal_nonmember_ci') THEN
-              RAISE EXCEPTION 'CI_PROPOSAL_MEMBERSHIP_INVALID';
-            END IF;
-          END $$;
-          SQL
-          psql -v ON_ERROR_STOP=1 -f schema.sql
-          case "${{ matrix.catalog_order }}" in
-            schema-rls-migrations)
-              psql -v ON_ERROR_STOP=1 -f db-rls.sql
-              psql -v ON_ERROR_STOP=1 -f db-migrations.sql
-              psql -v ON_ERROR_STOP=1 -f db-migrations.sql ;;
-            schema-migrations-rls)
-              psql -v ON_ERROR_STOP=1 -f db-migrations.sql
-              psql -v ON_ERROR_STOP=1 -f db-migrations.sql ;;
-            *) echo "ukendt katalogrækkefølge" >&2; exit 1 ;;
-          esac
-          psql -v ON_ERROR_STOP=1 -f db-rls.sql
-      - name: Receipt-kontrakt og db-verify
-        run: |
-          psql -v ON_ERROR_STOP=1 -f tests/sql/test-interpretation-proposal.sql
-          psql -v ON_ERROR_STOP=1 -f tests/sql/run-db-verify-disposable.sql
-      - name: Syntetiske writer-fixtures
-        run: |
-          psql -v ON_ERROR_STOP=1 -f tests/sql/1939-v50-writer-bootstrap.sql
-          psql -v ON_ERROR_STOP=1 -c 'BEGIN' -f tests/sql/reimport-writer-v2-bootstrap.sql -c 'COMMIT'
-          psql -v ON_ERROR_STOP=1 -f db-rls.sql
-      - name: Negative logins
-        run: |
-          if PGUSER=daa_proposal_nonmember_ci PGPASSWORD=ci-nonmember psql -v ON_ERROR_STOP=1 \
-               -c 'BEGIN' -c 'SET LOCAL ROLE authenticated' > nonmember.out 2>&1; then
-            echo "ikke-medlem kunne skifte til authenticated" >&2; exit 1
-          fi
-          grep -Fq 'permission denied to set role' nonmember.out
-          if DAA_PROPOSAL_STRICT_LOGINS=1 DAA_PROPOSAL_OPERATION_PGUSER=postgres DAA_PROPOSAL_OPERATION_PGPASSWORD=postgres \
-               DAA_PROPOSAL_AUTHORIZER_PGUSER=daa_proposal_authorizer_ci DAA_PROPOSAL_AUTHORIZER_PGPASSWORD=ci-authorizer \
-               Rscript tests/integration/test-reimport-interpretation-proposal.R > superuser.out 2>&1; then
-            echo "superuser-login blev accepteret som operationslogin" >&2; exit 1
-          fi
-          grep -Fq 'INTEGRATION_LOGIN_SUPERUSER:OPERATION' superuser.out
-      - name: Dry-run, apply, match og replay gennem dedikerede logins
-        env:
-          DAA_PYTHON: python3
-          DAA_REIMPORT_TEST_ROLE: authenticated
-          DAA_PROPOSAL_STRICT_LOGINS: '1'
-          DAA_PROPOSAL_OPERATION_PGUSER: daa_proposal_ci
-          DAA_PROPOSAL_OPERATION_PGPASSWORD: ci-operation
-          DAA_PROPOSAL_AUTHORIZER_PGUSER: daa_proposal_authorizer_ci
-          DAA_PROPOSAL_AUTHORIZER_PGPASSWORD: ci-authorizer
-        run: |
-          Rscript tests/integration/test-reimport-interpretation-proposal.R > integration.out 2>&1 || { tail -n 40 integration.out; exit 1; }
-          tail -n 1 integration.out | grep -Fx 'interpretation_proposal integration OK'
+      # Tidligere en matrix med ét job pr. rækkefølge; nu to friske databaser i
+      # samme cluster (samme mønster som writer-jobbet). Begge kører, selvom den
+      # første fejler.
+      - name: Katalogrækkefølge schema-rls-migrations
+        run: bash tests/ci/interpretation-proposal-db.sh schema-rls-migrations
+      - name: Katalogrækkefølge schema-migrations-rls
+        if: ${{ !cancelled() }}
+        run: bash tests/ci/interpretation-proposal-db.sh schema-migrations-rls
 
   writer-1939-v50-db:
     name: DAA 1939 v50 writer · PostgreSQL 17
@@ -547,37 +512,3 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -f db-rls.sql
       - name: Virkelig multi-session DBI-race
         run: Rscript tests/integration/test-narrative-record-concurrency.R
-
-  web:
-    name: web · vitest + build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: package-lock.json
-      - run: npm ci
-      # Dummy non-tomme creds så supabase.ts's modul-load-guard ikke kaster.
-      # Testene rører aldrig nettet (supabase mockes), så værdierne er ligegyldige.
-      - name: Skriv dummy Supabase-env
-        run: printf 'VITE_SUPABASE_URL=http://localhost:54321\nVITE_SUPABASE_ANON_KEY=dummy-anon-key-for-ci\n' > web/.env.local
-      - run: npm run test -w web
-      - run: npm run build -w web
-
-  mobile:
-    name: mobil · tsc + jest
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: package-lock.json
-      - run: npm ci
-      # jest parser ikke alle filer (fx WebView-komponenter uden tests), så en ren
-      # jest-kørsel fanger ikke syntaks-/type-fejl i dem — kør tsc eksplicit.
-      - run: npm --workspace mobile exec -- tsc --noEmit
-      - run: npm test -w mobile
