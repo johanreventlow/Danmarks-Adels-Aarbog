@@ -151,6 +151,17 @@ class TestSectionNumeral(unittest.TestCase):
                          [(c["char_from"], c["char_to"]) for c in old])
         self.assertFalse(any("section_numeral" in c["flags"] for c in new))
 
+    def test_existing_fixture_cases_are_identical_under_new_rules(self):
+        # Den nye regelversion må kun ændre romertalstilfældet — alt andet skal være byte-ens.
+        with open(FIXTURE, encoding="utf-8") as fh:
+            cases = json.load(fh)["cases"]
+        for case in cases:
+            with self.subTest(case["key"]):
+                old = clause_segment.build_record_ledger(case["key"], "o", case["text"], rules())
+                new = clause_segment.build_record_ledger(case["key"], "o", case["text"], rules_v2())
+                self.assertEqual([(c["char_from"], c["char_to"], c["flags"]) for c in new["clauses"]],
+                                 [(c["char_from"], c["char_to"], c["flags"]) for c in old["clauses"]])
+
     def test_residual_risk_initial_v_after_sentence_end_is_merged_and_flagged(self):
         # Kendt restrisiko: et initial "V." lige efter et sætningsslut kan ikke skelnes
         # fra et romertal. Motoren vælger den længere klausul OG flager — aldrig tavst.
