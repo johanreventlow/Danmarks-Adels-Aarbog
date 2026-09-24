@@ -1452,7 +1452,7 @@ SELECT red_decide_interpretation(:'sidste'::uuid, 1, 'unresolved', '{"method":"n
 COMMIT;
 SQL
 psql -X -d "${W}_neg" -v actor=<profil-uuid> -f ~/.private/45-pilot/afgoerelser.sql > ~/.private/45-pilot/neg.out 2>&1
-grep -c EVIDENCE_INTERPRETATION_NOT_PROPOSED ~/.private/45-pilot/neg.out
+grep -cE 'EVIDENCE_INTERPRETATION_(NOT_PROPOSED|VERSION_CONFLICT)' ~/.private/45-pilot/neg.out
 psql -X -d "${W}_neg" -At -c "SELECT count(*) FROM private.interpretation WHERE decision_evidence->>'method'='human-sheet-4.5'"
 ```
 
@@ -1477,7 +1477,7 @@ psql -X -d "$W" -At -c "SET default_transaction_read_only=on; SELECT status, cou
 - Modify: `.github/workflows/ci.yml` (jobbet `evidence promotion`)
 
 **Interfaces:**
-- `interpretation_promotion_targets.sql` er en psql-fil uden sideeffekter (kører med `default_transaction_read_only=on`). Den printer én JSON-værdi og gemmer den i `daa.targets_result`: `{"items": [{"interpretation_id", "target_type": "assertion", "target_id"}], "counts": {"<predicate>": {"MATCH": n, "NO_MATCH": n, "AMBIGUOUS": n, "NO_IDENTITY": n, "NO_PLACEMENT": n, "NOT_BULK": n, "ALREADY_PROMOTED": n, "UNSUPPORTED_RULE": n}}}` — alle otte udfald for hvert prædikat med mindst én accepteret fortolkning, 0-fyldt. `items` indeholder kun `MATCH`. Regelflagene (`requires_persona_identity`, `requires_principal_placement`, `bulk_eligible`) og eksisterende promotions spejles fra RPC'en, så en genkørsel ikke giver et `MATCH`, som preview afviser; en regel uden identitetskrav er `UNSUPPORTED_RULE` (fail-closed).
+- `interpretation_promotion_targets.sql` er en psql-fil uden sideeffekter (kører med `default_transaction_read_only=on`). Den printer én JSON-værdi og gemmer den i `daa.targets_result`: `{"items": [{"interpretation_id", "target_type": "assertion", "target_id"}], "singleton_items": [...], "counts": {"<predicate>": {"MATCH": n, "MATCH_SINGLETON": n, "NO_MATCH": n, "AMBIGUOUS": n, "NO_IDENTITY": n, "NO_PLACEMENT": n, "ALREADY_PROMOTED": n, "UNSUPPORTED_RULE": n}}}` — alle otte udfald for hvert prædikat med mindst én accepteret fortolkning, 0-fyldt. `items` indeholder kun `MATCH` (bulk-regler, ét batch-kald); `singleton_items` indeholder `MATCH_SINGLETON` (ikke-bulk-regler, ét kald pr. item). `ALREADY_PROMOTED` kræver en promotion til præcis samme mål (kodereview, fund 4). Regelflagene (`requires_persona_identity`, `requires_principal_placement`, `bulk_eligible`) og eksisterende promotions spejles fra RPC'en, så en genkørsel ikke giver et `MATCH`, som preview afviser; en regel uden identitetskrav er `UNSUPPORTED_RULE` (fail-closed).
 - Normaliseringen er **præcis** RPC'ens: `lower(btrim(normalize(x,NFC)))` på fortolkningens `value #>> '{}'` og assertionens `vaerdi_tekst` (`value_kind='text'`) eller `date_raw` (`value_kind='date_raw'`).
 
 - [ ] **Step 1: Backup** efter afgørelserne og før binding (spec §8.5):
@@ -1701,9 +1701,9 @@ SQL
 echo "rc=$?"; grep -E 'batch_id|ERROR|EVIDENCE_' ~/.private/45-pilot/binding.out
 ```
 
-Er `items` tom, springes Step 8 over, og det står i rapporten. En `EVIDENCE_PROMOTION_*`-fejl ruller alt tilbage; så er forespørgsel og RPC uenige — et fund, ikke noget der omgås.
+Er `singleton_items` ikke tom, bindes hvert af dem i sit eget kald med samme blok og ét item (`jq -c '[.singleton_items[N]]'`); målt 2026-09-24 er alle aktive regler bulk, så listen forventes tom. Er `items` tom, springes Step 8 over, og det står i rapporten. En `EVIDENCE_PROMOTION_*`-fejl ruller alt tilbage; så er forespørgsel og RPC uenige — et fund, ikke noget der omgås.
 
-**Verify:** `private.interpretation_promotion` har præcis `len(items)` nye rækker i én batch; intet kanonisk er oprettet (`fact`/`assertion`-antal uændret).
+**Verify:** `private.interpretation_promotion` har præcis `len(items) + len(singleton_items)` nye rækker (`items` i én batch); intet kanonisk er oprettet (`fact`/`assertion`-antal uændret).
 
 ---
 
@@ -1771,3 +1771,10 @@ Fund, hvis værste udfald er et falsk STOP, er højst MINOR (decisions 2026-09-2
   4. *Bindingsforespørgslen spejlede ikke regelflag og eksisterende promotions* (MINOR) → otte udfald, test af genkørsel efter binding (Task 7).
   5. *Tællingerne var ikke 0-fyldte, og tekstgrenen var utestet* (MINOR) → krydsprodukt prædikat × udfald; `person.name`-tilfælde i testen (Task 7).
 - **2026-09-24, projektejerens afgørelse af V4.** Database-signalet for indgiftede (partner uden forældre i basen) er fjernet: det måler indlæsningsgraden, ikke personen, og skifter betydning, når flere slægter indlæses. Gift-antallet dækker nu begge §8.1-akser; Task 1's databaseeksport er væk (`45-strata-v3`). Prøvekørt: 10/10, `UDVALG_OK nye=24 reserve=6`.
+- **2026-09-24, efter kodereviewet (Codex `gpt-5.6-sol`, eneste koderunde; NO-GO: 1 BLOCKER, 4 MAJOR).** Alle fund efterprøvet og rettet med test først (RED → GREEN); ingen runde 2 (budget 1 + 1). Den committede kode er herefter kilden for de berørte filer — planens kodeblokke i Task 2, 4, 5 og 7 er historik, hvor de afviger.
+  1. *BLOCKER — eligibility bandt helposten, men modellen så klausulerne* → `evidence_runner.check_clauses_within_post`: klausulerne skal være ordnede, ikke-overlappende udsnit af den eligibility-hashede post; tjekket før call-dir i runneren og i guarden (målt: 591/591 records opfylder det).
+  2. *MAJOR — kontrakten udelod operative filer* → `RUNNER_CODE_FILES` dækker også `build_43b_manifest.py`, sandbox-skabelonen, adgangstesten, prædikatkataloget og profilfilen; hash-ændring testet pr. fil, kodedrift stopper uden modelkald.
+  3. *MAJOR — ombyttede beslutningslinjer blev accepteret* → `check_identity` kræver arkets egen orden (`SHEET_ORDER_MISMATCH`).
+  4. *MAJOR — bindingsforespørgslen kunne skjule RPC-godkendte mål* → `ALREADY_PROMOTED` kun ved samme (fortolkning, mål); ikke-bulk er `MATCH_SINGLETON` i `singleton_items`; SQL-testen dækker begge veje, inkl. promotion til et andet mål (mutant verificeret rød).
+  5. *MAJOR — forslagsbyggeren genberegnede ikke runner-manifestet* → `verify_runner_manifest`: hash genberegnes, og bundterne skal være en disjunkt opdeling af `records`.
+  Desuden: Task 6's negativtest greper begge fejlkoder, fordi RPC'en efter en afgørelse melder `VERSION_CONFLICT` på den gamle række.
