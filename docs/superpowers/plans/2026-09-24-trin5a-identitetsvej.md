@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Maskinen foreslår identitetskandidater for source personas, og redaktøren afgør dem i et hash-bundet token-ark eller i webkøen gennem én og samme RPC, så hver afgørelse står i databasen med aktør, grundlag og om forslaget blev fulgt — og den direkte batch-vej til `accepted` for eksisterende personer er lukket.
+**Goal:** Maskinen foreslår identitetskandidater for source personas, og redaktøren afgør dem i et hash-bundet token-ark eller i webkøen gennem én og samme RPC, så hver afgørelse står i databasen med aktør, grundlag og om forslaget blev fulgt — og batch-vejen til `accepted` for eksisterende personer er lukket, bortset fra 149b's faste 1:1-kobling via `person_external_id`, som kernen selv efterprøver.
 
-**Architecture:** To nye append-only tabeller i `private` gemmer kandidatkørsler og kandidater. En Node-CLI (`@daa/identity-candidates`) genbruger `@daa/core`'s matcher som ren funktion: psql eksporterer JSON, CLI'en rangerer pr. persona, psql skriver resultatet gennem en ny writer-RPC. Generatorens input bygges og genberegnes på serveren. `red_afgoer_source_persona` får en kontekstparameter (basis, kandidat + kørsel, arkhashes) og udgangen `new_person_needed` og er den eneste klientindgang; identitetskernen bliver privat (`private.decide_source_persona_identity(…, p_origin)`, ingen grants) med en strukturel oprindelse pr. kalder (`human`, `person_create`, `reversal`), og 149b's batch-match til eksisterende personer lukkes. Alle berørte definitioner erstattes på deres eksisterende plads i `db-migrations.sql`. Token-arket og webkøen kalder samme RPC.
+**Architecture:** To nye append-only tabeller i `private` gemmer kandidatkørsler og kandidater. En Node-CLI (`@daa/identity-candidates`) genbruger `@daa/core`'s matcher som ren funktion: psql eksporterer JSON, CLI'en rangerer pr. persona, psql skriver resultatet gennem en ny writer-RPC. Generatorens input bygges og genberegnes på serveren. `red_afgoer_source_persona` får en kontekstparameter (basis, kandidat + kørsel, arkhashes) og udgangen `new_person_needed` og er den eneste klientindgang; identitetskernen bliver privat (`private.decide_source_persona_identity(…, p_origin)`, ingen grants) med en strukturel oprindelse pr. kalder (`human`, `person_create` med oprettelseskvittering, `legacy_match` for 149b's faste 1:1-kobling, `reversal`); batch-match ud fra lighed er lukket. Alle berørte definitioner erstattes på deres eksisterende plads i `db-migrations.sql`, og en cutover-blok øverst lukker klientvejen til den gamle kerne, før resten af filen kører. Token-arket og webkøen kalder samme RPC.
 
 **Tech Stack:** PostgreSQL 17 (Supabase), plpgsql, psql; TypeScript + vitest + tsx (Node 22); Python 3.11 + pytest; React + vitest (web).
 
@@ -41,7 +41,7 @@ Frisk-baser noteres i ledgeren og ryddes i Task 9's oprydningsgate (måling før
 1. **Samme person er bedste kandidat for to personas** (fx samme mand nævnt i to poster) — begge skal have ham som kandidat 1; rangeringen må ikke være injektiv. Test: Task 5 `rank.test.ts` »ikke-injektiv«.
 2. **Generatoren køres igen mellem eksport og afgørelse** — et kandidat-token skal pege på det, redaktøren så; RPC'en afviser en forældet kørsel atomisk under kildelåsen. Test: Task 3 `test-identity-decision.sql` (`EVIDENCE_IDENTITY_CANDIDATE_RUN_STALE` + låsetesten), i CI.
 3. **Persona uden navn / uden kandidater** — står i arket med »ingen kandidat«; token `1` er ugyldigt, `X`/`N`/`U`/`P` er gyldige. Test: Task 7 `test_kandidat_token_uden_kandidat_stopper`.
-4. **Guarden må ikke vælte oprettelse og fortrydelse** — `red_apply_reimport_person_create` og reversal-writerne skal stadig virke; 149b-writeren er bevidst lukket. Test: Task 3 kører `tests/sql/test-reimport-writer.sql` grønt, `test-reimport-legacy-migration.sql` med lukningen forventet, og egne cases pr. oprindelse.
+4. **Guarden må ikke vælte oprettelse, 149b og fortrydelse** — `red_apply_reimport_person_create` (nu via kvittering), 149b's migration (`legacy_match`) og reversal-writerne skal stadig virke. Test: Task 3 kører `tests/sql/test-reimport-writer.sql` og `test-reimport-legacy-migration.sql` **uændret** grønt, plus egne cases pr. oprindelse.
 5. **Kollision** — kandidatpersonen er allerede accepteret for en anden persona i samme kilde; skal vises, ikke blokere. Test: Task 4 `collisions` i detalje-RPC'en og Task 8 komponent-test.
 
 ---
@@ -52,7 +52,8 @@ Frisk-baser noteres i ledgeren og ryddes i Task 9's oprydningsgate (måling før
 | --- | --- |
 | `schema.sql`, `db-migrations.sql`, `db-rls.sql`, `db-verify.sql` | Tabeller, RPC'er, guard, RLS, asserts |
 | `tests/sql/test-identity-candidates.sql` (ny) | Tabeller + writer-RPC |
-| `tests/sql/test-identity-decision.sql` (ny) | `red_afgoer_source_persona` v2, guard pr. oprindelse, funktionsflade, kildelås |
+| `tests/sql/test-identity-decision.sql` (ny) | `red_afgoer_source_persona` v2, guard pr. oprindelse, kvittering, funktionsflade, kildelås |
+| `tests/sql/test-identity-cutover.sql` (ny) | Cutover-blokken lukker klientvejen i et prod-lignende katalog |
 | `.claude/skills/daa-extract/scripts/test_identity_guard_static.py` (ny) | Ingen uguardet definition/grant nogetsteds i schema/migrationer |
 | `tests/sql/test-identity-detail.sql` (ny) | Detalje- og kø-RPC |
 | `packages/identity-candidates/` (ny workspace) | Frames, rangering, kalibrering, CLI; `sql/` med eksport-/skrive-scripts |
@@ -422,7 +423,7 @@ END $identity_candidate_writer$;
 DO $identity_candidate_lock$
 DECLARE
   v_actor uuid := '11000000-0000-0000-0000-000000005a09';
-  v_conn text := format('dbname=%s port=%s',current_database(),current_setting('port'));
+  v_conn text := format('dbname=%s port=%s host=%s',current_database(),current_setting('port'),split_part(current_setting('unix_socket_directories'),',',1));
   v_state text;
 BEGIN
   PERFORM dblink_connect('cand_lock',v_conn);
@@ -452,6 +453,68 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: kandidat-writeren tager kildelåsen';
 END $identity_candidate_lock$;
+```
+
+To samtidige, identiske writer-kald fra hver sin forbindelse skal give samme kørsel og én run-række (Codex runde 2). Fixturen skal være committet for at være synlig for begge forbindelser; oprydningen følger `db-verify.sql:3100-3130` (`session_replication_role=replica` for append-only-rækkerne):
+
+```sql
+DO $identity_candidate_concurrent$
+DECLARE
+  v_conn text := format('dbname=%s port=%s host=%s',current_database(),current_setting('port'),split_part(current_setting('unix_socket_directories'),',',1));
+  v_fix text := $fix$
+    INSERT INTO auth.users(id,email) VALUES ('11000000-0000-0000-0000-000000005a07','5a-conc@test.invalid');
+    INSERT INTO profiles(id,rolle,navn,email) VALUES ('11000000-0000-0000-0000-000000005a07','redaktion','5a conc','5a-conc@test.invalid');
+    INSERT INTO source(id,titel,import_key) VALUES (-987655071,'5a C','verify:5a:c');
+    INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+      VALUES ('22000000-0000-0000-0000-000000005a07',-987655071,'5a-run-c','1.0','verify','verify',repeat('9',64),'{}');
+    INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id)
+      VALUES ('88000000-0000-0000-0000-000000005a71',-987655071,'5a-c1','22000000-0000-0000-0000-000000005a07');
+  $fix$;
+  v_cleanup text := $cl$
+    SET session_replication_role=replica;
+    DELETE FROM private.source_persona_identity_candidate c USING private.source_persona_identity_candidate_run r
+     WHERE c.run_id=r.id AND r.source_id=-987655071;
+    DELETE FROM private.source_persona_identity_candidate_run WHERE source_id=-987655071;
+    DELETE FROM private.source_persona WHERE source_id=-987655071;
+    DELETE FROM private.extraction_run WHERE id='22000000-0000-0000-0000-000000005a07';
+    DELETE FROM source WHERE id=-987655071;
+    DELETE FROM profiles WHERE id='11000000-0000-0000-0000-000000005a07';
+    DELETE FROM auth.users WHERE id='11000000-0000-0000-0000-000000005a07';
+    SET session_replication_role=origin;
+  $cl$;
+  v_role text := $r$SELECT set_config('request.jwt.claim.sub','11000000-0000-0000-0000-000000005a07',false); SET ROLE authenticated;$r$;
+  v_hash text; v_call text; v_a text; v_b text; v_runs int;
+BEGIN
+  PERFORM dblink_connect('cc_setup',v_conn);
+  PERFORM dblink_exec('cc_setup',v_cleanup);
+  PERFORM dblink_exec('cc_setup',v_fix);
+  BEGIN
+    PERFORM dblink_connect('cc_a',v_conn); PERFORM dblink_connect('cc_b',v_conn);
+    PERFORM dblink_exec('cc_a',v_role); PERFORM dblink_exec('cc_b',v_role);
+    SELECT h INTO v_hash FROM dblink('cc_a',$q$SELECT red_identity_candidate_input(-987655071,'{"mode":"undecided"}')->>'input_sha256'$q$) AS t(h text);
+    v_call := format($q$SELECT red_record_identity_candidates(jsonb_build_object('source_id',-987655071,'generator_version','t',
+      'input_spec','{"mode":"undecided"}'::jsonb,'input_sha256',%L,'config','{"topK":3}'::jsonb),'[]'::jsonb)::text$q$,v_hash);
+    PERFORM dblink_exec('cc_a','BEGIN'); PERFORM dblink_exec('cc_b','BEGIN');
+    PERFORM dblink_send_query('cc_a',v_call);
+    PERFORM dblink_send_query('cc_b',v_call);            -- venter på A's kildelås
+    SELECT r INTO v_a FROM dblink_get_result('cc_a') AS t(r text); PERFORM * FROM dblink_get_result('cc_a') AS t(r text);
+    PERFORM dblink_exec('cc_a','COMMIT');
+    SELECT r INTO v_b FROM dblink_get_result('cc_b') AS t(r text); PERFORM * FROM dblink_get_result('cc_b') AS t(r text);
+    PERFORM dblink_exec('cc_b','COMMIT');
+    SELECT count(*) INTO v_runs FROM private.source_persona_identity_candidate_run WHERE source_id=-987655071;
+    IF v_a IS NULL OR v_a IS DISTINCT FROM v_b OR v_runs<>1 THEN
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: samtidige kald gav % og % (% kørsler)',v_a,v_b,v_runs;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    BEGIN PERFORM dblink_disconnect('cc_a'); EXCEPTION WHEN OTHERS THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('cc_b'); EXCEPTION WHEN OTHERS THEN NULL; END;
+    PERFORM dblink_exec('cc_setup',v_cleanup); PERFORM dblink_disconnect('cc_setup');
+    RAISE;
+  END;
+  PERFORM dblink_disconnect('cc_a'); PERFORM dblink_disconnect('cc_b');
+  PERFORM dblink_exec('cc_setup',v_cleanup); PERFORM dblink_disconnect('cc_setup');
+  RAISE NOTICE 'OK: samtidige identiske writer-kald giver samme kørsel og én run-række';
+END $identity_candidate_concurrent$;
 ```
 
 - [ ] **Step 2: Kør** (Frisk testbase). Expected: FAIL `function red_identity_candidate_input(integer, jsonb) does not exist`.
@@ -598,7 +661,7 @@ Før Step 5: kontrollér, at nøglen for person-id i `red_match_personer()`'s `p
 - [ ] **Step 4: Allow-list** — `db-rls.sql`, arrayet der starter linje 673: tilføj alfabetisk `'public.red_identity_candidate_input(bigint,jsonb)',` og `'public.red_record_identity_candidates(jsonb,jsonb)',`.
 
 - [ ] **Step 5: Kør igen** (ny Frisk testbase): testfilen + db-verify.
-Expected: fire `OK:`-linjer fra testfilen (tabeller, constraints, writer, lås); `verify rc=0`.
+Expected: fem `OK:`-linjer fra testfilen (tabeller, constraints, writer, lås, samtidighed); `verify rc=0`.
 
 - [ ] **Step 6: Commit**
 
@@ -611,7 +674,7 @@ git commit -m "feat(151): serverbygget kandidat-input og writer-RPC — genbereg
 
 ### Task 3: Afgørelsens udgange og den strukturelle guard
 
-Spec §4.2 (revideret) og §14. Kernen bliver privat med en eksplicit oprindelse; den offentlige kerne forsvinder; alle definitioner erstattes **på deres eksisterende plads**, så `db-migrations.sql` aldrig installerer eller granter en uguardet version undervejs (Codex runde 1, BLOCKER 2).
+Spec §4.2 (revideret) og §14–15. Kernen bliver privat med en eksplicit oprindelse; den offentlige kerne forsvinder; alle definitioner erstattes **på deres eksisterende plads**, og en **cutover-blok øverst** i `db-migrations.sql` lukker klientvejen til den allerede installerede gamle kerne og femarguments-wrapper, før resten af filen kører (Codex runde 1 og 2, BLOCKER 2). `person_create` bindes til en oprettelseskvittering, og 149b kører videre som `legacy_match` med kernens egen 1:1-kontrol (projektejerens valg 2026-09-24).
 
 **Kaldere (målt 2026-09-24 — genmål med `grep -n "red_decide_source_persona_identity" schema.sql db-migrations.sql` før Step 3; et afvigende sæt er STOP):**
 
@@ -621,112 +684,153 @@ Spec §4.2 (revideret) og §14. Kernen bliver privat med en eksplicit oprindelse
 | `schema.sql:8178` / `db-migrations.sql:7187` (`red_afgoer_source_persona`) | menneske | `'human'` |
 | `schema.sql:3139` / `db-migrations.sql:11811`, `:12012` (`red_apply_reimport_person_create`, alle versioner) | opretter selv personen | `'person_create'` |
 | `db-migrations.sql:7660` (`red_apply_1939_v50_person_create`) | opretter selv personen | `'person_create'` |
-| `schema.sql:3249` / `db-migrations.sql:16834` (`private.migrate_legacy_narrative_record`, 149b) | match til eksisterende person | **lukkes** (`REIMPORT_LEGACY_MIGRATION_IDENTITY_CLOSED`) |
+| `schema.sql:3249` / `db-migrations.sql:16834` (`private.migrate_legacy_narrative_record`, 149b) | fast 1:1-kobling via `person_external_id` | `'legacy_match'` |
 | `schema.sql:4174` / `db-migrations.sql:12338` (`red_reverse_reimport`) | fortrydelse | `'reversal'` |
 | `db-migrations.sql:7667` (`red_reverse_1939_v50_reimport`) | fortrydelse | `'reversal'` |
-| `db-migrations.sql:8066`, `:8246` (`red_finalize_1939_v50_name_completion`) | fortrydelse (`superseded` + `reversed_batch_id`) | `'reversal'` |
+| `db-migrations.sql:8066`, `:8246` (senere versioner af `red_reverse_1939_v50_reimport`) | fortrydelse (`superseded` + `reversed_batch_id`) | `'reversal'` |
 | `schema.sql:8187`, `:8194`; `db-migrations.sql:6531`, `:6535`, `:18271`; `db-rls.sql:677`; `db-verify.sql:2908`, `:3706`, `:3716` | grants/regprocedure-lister/asserts | fjernes eller skiftes til den private signatur (Step 6) |
 | `db-verify.sql` 7 direkte + 4 dblink-kald, `tests/sql/test-evidence-promotion.sql:298` | testfixtures (superbruger) | `private.…(…, 'human')` med `basis: web_detail` (Step 7) |
 
 **Files:**
 - Modify: `schema.sql` og `db-migrations.sql` på linjerne i tabellen (erstatning på stedet); `db-migrations.sql`'s 5a-sektion får **ingen** omdefinition af eksisterende objekter
-- Modify: `db-rls.sql:674`, `:677`; `db-verify.sql` (Step 6–7); `tests/sql/test-evidence-promotion.sql:298`; `tests/sql/test-reimport-legacy-migration.sql` (Step 8)
-- Create: `tests/sql/test-identity-decision.sql`, `.claude/skills/daa-extract/scripts/test_identity_guard_static.py`
+- Modify: `db-rls.sql:17-32` (master-array: `person_create_receipt`), `:674`, `:677`; `db-verify.sql` (Step 6–7); `tests/sql/test-evidence-promotion.sql:298`
+- Create: `tests/sql/test-identity-decision.sql`, `tests/sql/test-identity-cutover.sql`, `.claude/skills/daa-extract/scripts/test_identity_guard_static.py`
 - Modify: `.github/workflows/ci.yml` (frisk-schema-trinnet og pytest-listen)
 
 **Interfaces:**
 - Consumes: kandidattabellerne (Task 1), kildelåsens nøgle `hashtextextended('daa-identity-candidates:'||source_id,0)` (Task 2).
-- Produces: `private.decide_source_persona_identity(p_source_persona_id uuid, p_canonical_person_id bigint, p_expected_version integer, p_decision_status text, p_evidence jsonb, p_origin text) RETURNS integer` — ingen grants. `p_origin` ∈ `human` (kræver `basis` ∈ `web_detail|human_sheet`), `person_create` (kræver `accepted`, forventet version 0, `batch_id`, ingen `basis`), `reversal` (kræver `superseded`, `reversed_batch_id`, ingen `basis`); andet ⇒ `EVIDENCE_IDENTITY_ORIGIN_INVALID`; brud på kravene ⇒ `EVIDENCE_IDENTITY_BASIS_REQUIRED`.
+- Produces: `private.decide_source_persona_identity(p_source_persona_id uuid, p_canonical_person_id bigint, p_expected_version integer, p_decision_status text, p_evidence jsonb, p_origin text) RETURNS integer` — ingen grants. `p_origin` ∈ `human` (kræver `basis` ∈ `web_detail|human_sheet`), `person_create` (kræver `accepted`, forventet version 0, `batch_id`, ingen `basis`, **og en oprettelseskvittering for netop personen i denne toptransaktion**, som forbruges), `legacy_match` (kræver `accepted`, forventet version 0, `authority='person_external_id'`, ingen `basis`, og at `person_external_id` er 1:1 mellem postnøglen og personen i personaens kilde), `reversal` (kræver `superseded`, `reversed_batch_id`, ingen `basis`); andet ⇒ `EVIDENCE_IDENTITY_ORIGIN_INVALID`; brud på kravene ⇒ `EVIDENCE_IDENTITY_BASIS_REQUIRED`; manglende kvittering ⇒ `EVIDENCE_IDENTITY_CREATE_RECEIPT_MISSING`.
+- Produces: `private.person_create_receipt(person_id bigint PRIMARY KEY, xact_id xid8)` og `private.insert_person_with_receipt(p_staged boolean, p_visning_navn text) RETURNS bigint` (indsætter personen og kvitteringen med `pg_current_xact_id()` — toptransaktionens 64-bit id, ens i subtransaktioner); begge uden grants.
 - Produces: `red_afgoer_source_persona(p_source_persona_id uuid, p_expected_version integer, p_action text, p_canonical_person_id bigint, p_note text, p_context jsonb DEFAULT '{}') RETURNS integer`. `p_action` ∈ `same|different|unresolved|new_person_needed`. `p_context` har kun nøglerne `basis` (`web_detail` default | `human_sheet`), `candidate_id` + `run_id` (altid sammen), og ved `human_sheet` `sheet_sha256`, `rows_sha256` (hex64) og `line` (>0). Tager den delte kildelås. Evidens: `{note, action, basis, [reason:'new_person_needed'], [candidate_id, run_id, candidate_rank], [sheet_sha256, rows_sha256, line]}`. Fejlkoder: `EVIDENCE_IDENTITY_DECISION_INVALID`, `EVIDENCE_IDENTITY_CANDIDATE_MISMATCH`, `EVIDENCE_IDENTITY_CANDIDATE_RUN_STALE`.
 - Den offentlige `red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)` og femarguments-`red_afgoer_source_persona(uuid,integer,text,bigint,text)` findes ikke efter migrationen.
 
 - [ ] **Step 1: Skriv den statiske test** `.claude/skills/daa-extract/scripts/test_identity_guard_static.py` — den håndhæver, at ingen uguardet definition eller grant står **nogetsteds** i filerne (ikke kun i sluttilstanden):
 
 ```python
-"""Trin 5a (#151): identitetskernen er privat, og hver kalder har en lovlig oprindelse.
+"""Trin 5a (#151): identitetskernen er privat, og hver kalder har en lovlig, allowlistet oprindelse.
 
-Statisk, fordi db-migrations.sql ikke kører i én transaktion: en uguardet definition
-tidligt i filen ville være aktiv under deployet, selv om sluttilstanden er rigtig.
+Statisk, fordi db-migrations.sql ikke kører i én transaktion: en uguardet definition eller grant
+nogetsteds i filen ville være aktiv under deployet, selv om sluttilstanden er rigtig. Mellemtilstanden
+før de omskrevne linjer dækkes af cutover-blokken øverst (testet i test-identity-cutover.sql).
 """
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[4]
-FILES = [ROOT / "schema.sql", ROOT / "db-migrations.sql"]
 KERNE = "private.decide_source_persona_identity("
-DROP_KERNE = "DROP FUNCTION IF EXISTS public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)"
-DROP_WRAPPER5 = "DROP FUNCTION IF EXISTS red_afgoer_source_persona(uuid,integer,text,bigint,text)"
+OPRINDELSER = ("human", "person_create", "legacy_match", "reversal")
+CUTOVER = re.compile(r"-- BEGIN 5a-cutover.*?-- END 5a-cutover", re.S)
+# Eksakt allowlist (fil, omsluttende funktion, oprindelse) -> antal kald. Målt 2026-09-24.
+# En ny kalder kræver en ændring her OG en beslutning (spec §4.2) — aldrig bare en ny linje.
+ALLOWLIST = {
+    ("schema.sql", "red_afgoer_source_persona", "human"): 1,
+    ("schema.sql", "red_apply_reimport_person_create", "person_create"): 1,
+    ("schema.sql", "migrate_legacy_narrative_record", "legacy_match"): 1,
+    ("schema.sql", "red_reverse_reimport", "reversal"): 1,
+    ("db-migrations.sql", "red_afgoer_source_persona", "human"): 1,
+    ("db-migrations.sql", "red_apply_1939_v50_person_create", "person_create"): 1,
+    ("db-migrations.sql", "red_apply_reimport_person_create", "person_create"): 2,
+    ("db-migrations.sql", "migrate_legacy_narrative_record", "legacy_match"): 1,
+    ("db-migrations.sql", "red_reverse_1939_v50_reimport", "reversal"): 3,
+    ("db-migrations.sql", "red_reverse_reimport", "reversal"): 1,
+}
 
 
-def _kaldets_tekst(s: str, start: int) -> str:
-    i, dybde = start + len(KERNE), 1
-    while dybde:
-        dybde += {"(": 1, ")": -1}.get(s[i], 0)
-        i += 1
-    return s[start:i]
+def _tekst(navn: str) -> str:
+    return re.sub(r"--[^\n]*", "", (ROOT / navn).read_text(encoding="utf-8"))
 
 
-def _omsluttende_funktion(s: str, pos: int) -> tuple[str, str]:
-    m = None
-    for m in re.finditer(r"FUNCTION\s+([a-z_.]+)\(", s[:pos]):
-        pass
-    assert m, "kald uden omsluttende funktion"
-    return m.group(1).split(".")[-1], s[m.start():pos]
+def kernekald(s: str) -> list[tuple[str | None, str | None, str, int]]:
+    """(omsluttende funktion, oprindelse, kaldtekst, position) for hvert kald af kernen."""
+    ud = []
+    for m in re.finditer(re.escape(KERNE), s):
+        if re.search(r"FUNCTION\s+$", s[max(0, m.start() - 30):m.start()]) or s[m.end():m.end() + 5] == "uuid,":
+            continue   # definitionen selv og REVOKE-signaturer
+        i, dybde = m.end(), 1
+        while dybde:
+            dybde += {"(": 1, ")": -1}.get(s[i], 0)
+            i += 1
+        kald = s[m.start():i]
+        o = re.search(r"'([a-z_]+)'\s*\)$", kald)
+        fn = None
+        for f in re.finditer(r"FUNCTION\s+([a-z_.]+)\(", s[:m.start()]):
+            fn = f
+        ud.append((fn.group(1).split(".")[-1] if fn else None, o.group(1) if o else None, kald, m.start()))
+    return ud
 
 
-def test_ingen_offentlig_kerne_nogetsteds():
-    for f in FILES:
-        s = f.read_text(encoding="utf-8")
+def optael(s: str, fil: str) -> dict:
+    t: dict = {}
+    for fn, o, kald, _ in kernekald(s):
+        assert o in OPRINDELSER, f"{fil}: kald uden lovlig oprindelse i {fn}: {kald[-80:]}"
+        t[(fil, fn, o)] = t.get((fil, fn, o), 0) + 1
+    return t
+
+
+def test_checkeren_fanger_fejl():
+    ok = "CREATE FUNCTION public.red_afgoer_source_persona(x int) AS $$ BEGIN PERFORM private.decide_source_persona_identity(a,b,0,'x','{}','human'); END $$;"
+    assert optael(ok, "f") == {("f", "red_afgoer_source_persona", "human"): 1}
+    for daarlig in ["CREATE FUNCTION f() AS $$ PERFORM private.decide_source_persona_identity(a,b,0,'x','{}'); $$;",
+                    "CREATE FUNCTION f() AS $$ PERFORM private.decide_source_persona_identity(a,b,0,'x','{}','batch'); $$;"]:
+        with pytest.raises(AssertionError):
+            optael(daarlig, "f")
+    ukendt = "CREATE FUNCTION public.ny_writer() AS $$ PERFORM private.decide_source_persona_identity(a,b,0,'x','{}','human'); $$;"
+    assert ("f", "ny_writer", "human") in optael(ukendt, "f")   # fanges af allowlist-sammenligningen
+
+
+def test_kaldere_er_praecis_allowlisten():
+    faktisk = {**optael(_tekst("schema.sql"), "schema.sql"), **optael(_tekst("db-migrations.sql"), "db-migrations.sql")}
+    assert faktisk == ALLOWLIST
+
+
+def test_ingen_offentlig_kerne_uden_for_cutover_og_drop():
+    for navn in ("schema.sql", "db-migrations.sql"):
+        s = CUTOVER.sub("", _tekst(navn))
         for m in re.finditer(r"red_decide_source_persona_identity\(", s):
             linje = s[s.rfind("\n", 0, m.start()) + 1:s.find("\n", m.start())]
-            assert DROP_KERNE in linje, f"{f.name}: {linje.strip()[:120]}"
+            assert "DROP FUNCTION IF EXISTS public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)" in linje, \
+                f"{navn}: {linje.strip()[:120]}"
 
 
-def test_femarguments_wrapper_findes_kun_i_drop():
-    for f in FILES:
-        s = f.read_text(encoding="utf-8").replace(DROP_WRAPPER5, "")
-        assert "red_afgoer_source_persona(uuid,integer,text,bigint,text)" not in s, f.name
+def test_femarguments_wrapper_findes_kun_i_cutover_og_drop():
+    for navn in ("schema.sql", "db-migrations.sql"):
+        s = CUTOVER.sub("", _tekst(navn)).replace("DROP FUNCTION IF EXISTS red_afgoer_source_persona(uuid,integer,text,bigint,text)", "")
+        assert "red_afgoer_source_persona(uuid,integer,text,bigint,text)" not in s, navn
         assert not re.search(r"FUNCTION\s+(public\.)?red_afgoer_source_persona\(\s*p_source_persona_id uuid,\s*"
-                             r"p_expected_version integer,\s*p_action text,\s*p_canonical_person_id bigint,\s*p_note text\s*\)", s), f.name
+                             r"p_expected_version integer,\s*p_action text,\s*p_canonical_person_id bigint,\s*p_note text\s*\)", s), navn
 
 
 def test_kernen_grantes_aldrig():
-    for f in FILES:
-        for g in re.findall(r"GRANT[^;]*;", f.read_text(encoding="utf-8"), re.S):
-            assert "decide_source_persona_identity" not in g, f"{f.name}: {g[:120]}"
+    for navn in ("schema.sql", "db-migrations.sql"):
+        for g in re.findall(r"GRANT[^;]*;", _tekst(navn), re.S):
+            assert "decide_source_persona_identity" not in g and "insert_person_with_receipt" not in g, f"{navn}: {g[:120]}"
 
 
-def test_hvert_kernekald_har_lovlig_oprindelse():
-    set_kald = 0
-    for f in FILES:
-        s = f.read_text(encoding="utf-8")
-        for m in re.finditer(re.escape(KERNE), s):
-            foer = s[max(0, m.start() - 30):m.start()]
-            efter = s[m.end():m.end() + 5]
-            if re.search(r"FUNCTION\s+$", foer) or efter.startswith("uuid,"):
-                continue   # definitionen selv og REVOKE-signaturer
-            kald = _kaldets_tekst(s, m.start())
-            oprindelse = re.search(r"'(human|person_create|reversal)'\s*\)$", kald)
-            assert oprindelse, f"{f.name}: kald uden lovlig oprindelse: {kald[-80:]}"
-            navn, krop = _omsluttende_funktion(s, m.start())
-            if oprindelse.group(1) == "human":
-                assert navn == "red_afgoer_source_persona", f"{f.name}: 'human' fra {navn}"
-            if oprindelse.group(1) == "person_create":
-                assert "INSERT INTO public.person(" in krop, f"{f.name}: person_create i {navn} uden egen INSERT"
-            set_kald += 1
-    assert set_kald >= 9, set_kald   # wrapper + oprettelser + fortrydelser i begge filer
+def test_person_create_kaldere_opretter_via_kvittering():
+    for navn in ("schema.sql", "db-migrations.sql"):
+        s = _tekst(navn)
+        for fn, o, _, pos in kernekald(s):
+            if o != "person_create":
+                continue
+            start = max(m.start() for m in re.finditer(r"FUNCTION\s+[a-z_.]+\(", s[:pos]))
+            krop = s[start:pos]
+            assert "insert_person_with_receipt(" in krop and "INSERT INTO public.person(" not in krop, f"{navn}: {fn}"
 
 
-def test_legacy_migrationen_er_lukket_i_alle_definitioner():
-    for f in FILES:
-        s = f.read_text(encoding="utf-8")
-        for m in re.finditer(r"FUNCTION\s+private\.migrate_legacy_narrative_record\(", s):
-            krop = s[m.start():s.find("$$;", m.start())]
-            assert "REIMPORT_LEGACY_MIGRATION_IDENTITY_CLOSED" in krop, f.name
-            assert "decide_source_persona_identity" not in krop, f.name
+def test_cutover_staar_foer_foerste_saetning():
+    raa = (ROOT / "db-migrations.sql").read_text(encoding="utf-8")
+    blok = CUTOVER.search(raa)
+    assert blok, "cutover-blokken mangler"
+    foerste = re.search(r"^(CREATE|ALTER|DROP|GRANT|REVOKE|INSERT|UPDATE|DELETE|DO|COMMENT)\b", raa, re.M)
+    assert foerste and foerste.start() > blok.start(), "en sætning står før cutover-blokken"
+    for sig in ("public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)",
+                "public.red_afgoer_source_persona(uuid,integer,text,bigint,text)"):
+        assert f"REVOKE ALL ON FUNCTION {sig} FROM PUBLIC,anon,authenticated,service_role" in blok.group(0), sig
 ```
 
-Kør: `cd .claude/skills/daa-extract/scripts && env -u NODE_OPTIONS /usr/bin/python3 -m pytest test_identity_guard_static.py -q`. Expected: FAIL i `test_ingen_offentlig_kerne_nogetsteds` (kernen findes).
+Kør: `cd .claude/skills/daa-extract/scripts && env -u NODE_OPTIONS /usr/bin/python3 -m pytest test_identity_guard_static.py -q`. Expected: `test_checkeren_fanger_fejl` PASS, de øvrige FAIL (kernen er offentlig, ingen cutover).
 
 - [ ] **Step 2: Skriv den fejlende SQL-test** `tests/sql/test-identity-decision.sql`:
 
@@ -761,7 +865,8 @@ DECLARE
   v_obs uuid := '66000000-0000-0000-0000-000000005a03';
   v_ps uuid[] := ARRAY['88000000-0000-0000-0000-000000005a31','88000000-0000-0000-0000-000000005a32',
                        '88000000-0000-0000-0000-000000005a33','88000000-0000-0000-0000-000000005a34',
-                       '88000000-0000-0000-0000-000000005a35','88000000-0000-0000-0000-000000005a36']::uuid[];
+                       '88000000-0000-0000-0000-000000005a35','88000000-0000-0000-0000-000000005a36',
+                       '88000000-0000-0000-0000-000000005a37']::uuid[];
   v_old_run uuid; v_new_run uuid; v_cand uuid; v_cand5 uuid; v_ev jsonb; v_i int; v_new bigint; v_state text; v_err text;
 BEGIN
   BEGIN
@@ -779,7 +884,7 @@ BEGIN
     INSERT INTO private.source_observation(id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,
       verbatim_text,quality_status,extraction_method,extraction_run_id)
       VALUES (v_obs,v_occ,'name_clause',1,1,0,9,'Anna Test','clear','verify',v_run);
-    FOR v_i IN 1..6 LOOP
+    FOR v_i IN 1..7 LOOP
       INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES (v_ps[v_i],-987655031,'5a-d'||v_i,v_run);
       INSERT INTO private.source_mention(id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id)
         VALUES (('70000000-0000-0000-0000-000000005a3'||v_i)::uuid,v_obs,'person',0,9,'Anna Test',v_run);
@@ -845,7 +950,10 @@ BEGIN
     RESET ROLE;
 
     -- kernen direkte (superbruger = serverfunktionernes rettighed): hver oprindelse og dens krav
-    FOR v_err IN SELECT unnest(ARRAY['human_fri','create_status','create_basis','reversal_uden','ukendt']) LOOP
+    -- fast 1:1-kobling til person -987655032 for postnøglen 5a-R1 i kilden (til legacy_match)
+    INSERT INTO public.person_external_id(person_id,source_id,record_key) VALUES (-987655032,-987655031,'5a-R1');
+    FOR v_err IN SELECT unnest(ARRAY['human_fri','create_status','create_basis','create_uden_kvittering',
+                                     'legacy_forkert_person','legacy_uden_autoritet','reversal_uden','ukendt']) LOOP
       BEGIN
         IF v_err='human_fri' THEN
           PERFORM private.decide_source_persona_identity(v_ps[5],-987655032,0,'accepted','{"basis":"fri tekst"}','human');
@@ -853,6 +961,13 @@ BEGIN
           PERFORM private.decide_source_persona_identity(v_ps[5],NULL,0,'rejected','{"batch_id":"00000000-0000-0000-0000-000000000001"}','person_create');
         ELSIF v_err='create_basis' THEN
           PERFORM private.decide_source_persona_identity(v_ps[5],-987655032,0,'accepted','{"batch_id":"00000000-0000-0000-0000-000000000001","basis":"web_detail"}','person_create');
+        ELSIF v_err='create_uden_kvittering' THEN   -- eksisterende person, ingen kvittering
+          PERFORM private.decide_source_persona_identity(v_ps[5],-987655032,0,'accepted','{"batch_id":"00000000-0000-0000-0000-000000000001"}','person_create');
+        ELSIF v_err='legacy_forkert_person' THEN     -- evidensen peger på en anden person end koblingen
+          PERFORM private.decide_source_persona_identity(v_ps[6],-987655031,0,'accepted',
+            '{"authority":"person_external_id","person_external_id":{"person_id":-987655031,"source_id":-987655031,"record_key":"5a-R1"}}','legacy_match');
+        ELSIF v_err='legacy_uden_autoritet' THEN
+          PERFORM private.decide_source_persona_identity(v_ps[6],-987655032,0,'accepted','{"batch_id":"00000000-0000-0000-0000-000000000001"}','legacy_match');
         ELSIF v_err='reversal_uden' THEN
           PERFORM private.decide_source_persona_identity(v_ps[1],NULL,1,'superseded','{"note":"x"}','reversal');
         ELSE
@@ -860,17 +975,24 @@ BEGIN
         END IF;
         RAISE EXCEPTION 'IDENTITY_DECISION_TEST_FAILED: kerne-% accepteret',v_err;
       EXCEPTION WHEN OTHERS THEN
-        IF SQLERRM IS DISTINCT FROM (CASE v_err WHEN 'ukendt' THEN 'EVIDENCE_IDENTITY_ORIGIN_INVALID' ELSE 'EVIDENCE_IDENTITY_BASIS_REQUIRED' END) THEN RAISE; END IF;
+        IF SQLERRM IS DISTINCT FROM (CASE v_err WHEN 'ukendt' THEN 'EVIDENCE_IDENTITY_ORIGIN_INVALID'
+             WHEN 'create_uden_kvittering' THEN 'EVIDENCE_IDENTITY_CREATE_RECEIPT_MISSING'
+             ELSE 'EVIDENCE_IDENTITY_BASIS_REQUIRED' END) THEN RAISE; END IF;
       END;
     END LOOP;
-    INSERT INTO person(id,levende,privat,status) VALUES (-987655033,false,false,'5a oprettet nu') RETURNING id INTO v_new;
-    PERFORM private.decide_source_persona_identity(v_ps[5],v_new,0,'accepted','{"batch_id":"00000000-0000-0000-0000-000000000001"}','person_create');
+    -- oprettelse med kvittering (også inde i en subtransaktion) tillades; kvitteringen forbruges
+    BEGIN
+      v_new := private.insert_person_with_receipt(true,'5a oprettet nu');
+      PERFORM private.decide_source_persona_identity(v_ps[5],v_new,0,'accepted','{"batch_id":"00000000-0000-0000-0000-000000000001"}','person_create');
+    EXCEPTION WHEN OTHERS THEN RAISE;   -- EXCEPTION-klausulen gør blokken til en subtransaktion
+    END;
+    BEGIN PERFORM private.decide_source_persona_identity(v_ps[7],v_new,0,'accepted','{"batch_id":"00000000-0000-0000-0000-000000000001"}','person_create');
+      RAISE EXCEPTION 'IDENTITY_DECISION_TEST_FAILED: kvittering genbrugt';
+    EXCEPTION WHEN OTHERS THEN IF SQLERRM<>'EVIDENCE_IDENTITY_CREATE_RECEIPT_MISSING' THEN RAISE; END IF; END;
     PERFORM private.decide_source_persona_identity(v_ps[5],NULL,1,'superseded','{"reversed_batch_id":"00000000-0000-0000-0000-000000000001"}','reversal');
-
-    -- 149b er lukket (spec §4.2)
-    BEGIN PERFORM private.migrate_legacy_narrative_record(gen_random_uuid(),'x','{}');
-      RAISE EXCEPTION 'IDENTITY_DECISION_TEST_FAILED: legacy-migrationen kører stadig';
-    EXCEPTION WHEN OTHERS THEN IF SQLERRM<>'REIMPORT_LEGACY_MIGRATION_IDENTITY_CLOSED' THEN RAISE; END IF; END;
+    -- 149b's faste 1:1-kobling tillades som legacy_match
+    PERFORM private.decide_source_persona_identity(v_ps[6],-987655032,0,'accepted',
+      '{"authority":"person_external_id","person_external_id":{"person_id":-987655032,"source_id":-987655031,"record_key":"5a-R1"}}','legacy_match');
 
     SELECT evidence INTO v_ev FROM private.source_persona_identity WHERE source_persona_id=v_ps[1];
     IF v_ev->>'basis'<>'web_detail' OR v_ev->>'candidate_id'<>v_cand::text OR v_ev->>'run_id'<>v_old_run::text
@@ -885,7 +1007,7 @@ BEGIN
     RAISE EXCEPTION 'ROLLBACK_5A_DECISION';
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM='ROLLBACK_5A_DECISION' THEN
-      RAISE NOTICE 'OK: fire udgange, kandidatspor, aktualitet, arkbasis og guard pr. oprindelse; kernen utilgængelig for klienter; 149b lukket';
+      RAISE NOTICE 'OK: fire udgange, kandidatspor, aktualitet, arkbasis og guard pr. oprindelse (kvittering, 1:1-kobling); kernen utilgængelig for klienter';
     ELSE RAISE; END IF;
   END;
 END $identity_decision$;
@@ -896,7 +1018,7 @@ DECLARE
   v_actor uuid := '11000000-0000-0000-0000-000000005a08';
   v_run uuid := '22000000-0000-0000-0000-000000005a08';
   v_persona uuid := '88000000-0000-0000-0000-000000005a81';
-  v_conn text := format('dbname=%s port=%s',current_database(),current_setting('port'));
+  v_conn text := format('dbname=%s port=%s host=%s',current_database(),current_setting('port'),split_part(current_setting('unix_socket_directories'),',',1));
   v_state text;
 BEGIN
   PERFORM dblink_connect('decide_lock',v_conn);
@@ -948,6 +1070,27 @@ Låsetesten kræver, at wrapperen tager låsen **før** persona-/mention-kontrol
     IF p_decision_status<>'accepted' OR p_expected_version<>0 OR NOT (p_evidence ? 'batch_id') OR p_evidence ? 'basis' THEN
       RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
     END IF;
+    -- Kvitteringen beviser, at personen er oprettet af insert_person_with_receipt i DENNE
+    -- toptransaktion (xid8: epoke-sikker og ens i subtransaktioner); den forbruges én gang.
+    DELETE FROM private.person_create_receipt WHERE person_id=p_canonical_person_id AND xact_id=pg_current_xact_id();
+    IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_IDENTITY_CREATE_RECEIPT_MISSING'; END IF;
+  ELSIF p_origin='legacy_match' THEN
+    -- 149b: den faste 1:1-kobling via person_external_id, efterprøvet her — ikke kun i writeren.
+    IF p_decision_status<>'accepted' OR p_expected_version<>0 OR p_evidence ? 'basis'
+       OR p_evidence->>'authority' IS DISTINCT FROM 'person_external_id'
+       OR (p_evidence->'person_external_id'->>'person_id')::bigint IS DISTINCT FROM p_canonical_person_id
+       OR (p_evidence->'person_external_id'->>'source_id')::bigint IS DISTINCT FROM
+          (SELECT sp.source_id FROM private.source_persona sp WHERE sp.id=p_source_persona_id)
+       OR (SELECT count(*) FROM public.person_external_id x
+            WHERE x.source_id=(p_evidence->'person_external_id'->>'source_id')::bigint
+              AND x.record_key=p_evidence->'person_external_id'->>'record_key')<>1
+       OR NOT EXISTS (SELECT 1 FROM public.person_external_id x
+            WHERE x.source_id=(p_evidence->'person_external_id'->>'source_id')::bigint
+              AND x.record_key=p_evidence->'person_external_id'->>'record_key' AND x.person_id=p_canonical_person_id)
+       OR (SELECT count(*) FROM public.person_external_id x
+            WHERE x.source_id=(p_evidence->'person_external_id'->>'source_id')::bigint AND x.person_id=p_canonical_person_id)<>1 THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
+    END IF;
   ELSIF p_origin='reversal' THEN
     IF p_decision_status<>'superseded' OR NOT (p_evidence ? 'reversed_batch_id') OR p_evidence ? 'basis' THEN
       RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
@@ -970,6 +1113,31 @@ REVOKE ALL ON FUNCTION private.decide_source_persona_identity(uuid,bigint,intege
 ```
 
 Gør det samme i `schema.sql:8185-8198`: kernen ud af `GRANT`-listen, den private signatur ind i `REVOKE`-listen, og den offentlige fjernes fra regprocedure-listen (`schema.sql:8194`, `db-migrations.sql:18271`).
+
+Kvitteringen — i `schema.sql` lige før kernen og i `db-migrations.sql`'s 5a-sektion (ny; et `person_create`-kald, der når kernen, før sektionen er kørt, fejler lukket på den manglende tabel):
+
+```sql
+-- Trin 5a (#151): oprettelseskvittering. Kun insert_person_with_receipt udsteder den, og
+-- kernen forbruger den; et person_create-match til en eksisterende person har ingen kvittering.
+CREATE TABLE IF NOT EXISTS private.person_create_receipt (
+  person_id bigint PRIMARY KEY REFERENCES public.person(id) ON DELETE CASCADE,
+  xact_id   xid8 NOT NULL
+);
+ALTER TABLE private.person_create_receipt ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.person_create_receipt FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION private.insert_person_with_receipt(p_staged boolean,p_visning_navn text)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_id bigint;
+BEGIN
+  INSERT INTO public.person(staged,visning_navn) VALUES(p_staged,p_visning_navn) RETURNING id INTO v_id;
+  INSERT INTO private.person_create_receipt(person_id,xact_id) VALUES(v_id,pg_current_xact_id());
+  RETURN v_id;
+END $$;
+REVOKE ALL ON FUNCTION private.insert_person_with_receipt(boolean,text) FROM PUBLIC,anon,authenticated,service_role;
+```
+
+Tilføj `'person_create_receipt'` i `db-rls.sql`'s master-array.
 
 - [ ] **Step 5: Wrapperen — erstat på stedet.** Erstat definitionen i `schema.sql:8158-8181`; i `db-migrations.sql:7180-7191` erstattes den gamle femarguments-definition og dens grants af `DROP FUNCTION IF EXISTS red_afgoer_source_persona(uuid,integer,text,bigint,text);` efterfulgt af samme tekst:
 
@@ -1032,8 +1200,8 @@ GRANT EXECUTE ON FUNCTION red_afgoer_source_persona(uuid,integer,text,bigint,tex
 ```
 
 - [ ] **Step 6: Writere, lister og asserts — erstat på stedet.**
-  1. Hvert kald i tabellens `person_create`- og `reversal`-rækker: `public.red_decide_source_persona_identity(` → `private.decide_source_persona_identity(`, og tilføj `,'person_create'` hhv. `,'reversal'` som sidste argument (kun argumentlisten ændres).
-  2. `private.migrate_legacy_narrative_record` i `schema.sql:3152` og `db-migrations.sql:16737`: erstat funktionskroppen med `BEGIN RAISE EXCEPTION 'REIMPORT_LEGACY_MIGRATION_IDENTITY_CLOSED'; END` (signatur, returtype og `SECURITY`/`search_path` uændret). Kommentar over: `-- Trin 5a (#151): batch-match til eksisterende personer er lukket (spec §4.2, projektejerens valg). Fortrydelse af kørte 149b-batches går via red_reverse_reimport.`
+  1. Hvert kald i tabellens `person_create`-, `legacy_match`- og `reversal`-rækker: `public.red_decide_source_persona_identity(` → `private.decide_source_persona_identity(`, og tilføj `,'person_create'`, `,'legacy_match'` hhv. `,'reversal'` som sidste argument (kun argumentlisten ændres).
+  2. I hver `person_create`-writer (tabellens tre funktioner, alle versioner): erstat `INSERT INTO public.person(staged,visning_navn) VALUES(<a>,<b>) RETURNING id INTO <v>;` med `<v>:=private.insert_person_with_receipt(<a>,<b>);` — samme argumenter, samme variabel. Findes en anden `INSERT INTO public.person`-form i en af dem: STOP (kvitteringsfunktionen dækker kun `staged,visning_navn`).
   3. `db-rls.sql:677`: fjern kernen fra allow-listen; `db-rls.sql:674`: wrapper-signaturen → `(uuid,integer,text,bigint,text,jsonb)`.
   4. `db-verify.sql:2908`, `:3706`, `:3716` og `schema.sql:8190`, `:8197`: den offentlige kerne → kontrol af, at den **ikke** findes (`to_regprocedure(...) IS NOT NULL ⇒ FEJL`), og at `authenticated`/`anon` ikke har `EXECUTE` på `private.decide_source_persona_identity(uuid,bigint,integer,text,jsonb,text)`; femarguments-wrapper-signaturer → seksarguments.
   Tjek: `grep -rn "red_decide_source_persona_identity\|red_afgoer_source_persona(uuid,integer,text,bigint,text)" schema.sql db-migrations.sql db-rls.sql db-verify.sql` → kun `DROP FUNCTION IF EXISTS`-linjerne og db-verify's »findes ikke«-kontroller.
@@ -1055,9 +1223,57 @@ EOF
 
 De 4 dblink-strenge i `db-verify.sql` (`:5151`, `:5217`, `:5412`, `:5422`) omskrives i hånden på samme måde — i den fordoblede citering: `red_decide_source_persona_identity(` → `private.decide_source_persona_identity(`, `''{"basis":"X"}''` → `''{"basis":"web_detail","note":"X"}'',''human''`. dblink-forbindelserne kører som superbruger (`v_conn` uden rolleskift), så den private kerne er tilgængelig. Tjek: `grep -c "private.decide_source_persona_identity(" db-verify.sql` = 11 kald + de signaturer, Step 6 tilføjede.
 
-- [ ] **Step 8: 149b's test.** `tests/sql/test-reimport-legacy-migration.sql`'s blokke `task3 happy path`, `task3 clause mentions`, `task3 reads and replay`, `task4 reversal` og `task9b batch reversal` kræver en gennemført migration og kan ikke længere køre. Erstat hver af dem med én blok, der kalder `public.red_apply_reimport_legacy_migration(...)` med blokkens eget første payload og kræver `REIMPORT_LEGACY_MIGRATION_IDENTITY_CLOSED`; behold blokke, der ikke migrerer (`task1 read filter`, `task2 counts`, `task3 rejections`, `task3 preconditions` — bliver en af dem rød på den nye kode, skal den også forvente lukningen). Øverst i filen: `-- Trin 5a (#151): writeren er lukket; fortrydelse af kørte batches dækkes af red_reverse_reimport (reversal-oprindelsen testes i test-identity-decision.sql).` Notér i ledgeren som ruling, at integrationsdækningen af 149b-fortrydelse dermed er reduceret (spec §14).
+- [ ] **Step 8: Cutover øverst i `db-migrations.sql`.** Erstatning på stedet lukker ikke tidsrummet, før kørslen når de omskrevne linjer: i prod findes den gamle offentlige kerne og femarguments-wrapper med grants, indtil da (Codex runde 2). Indsæt som **første sætning** i filen (efter eventuelle indledende kommentarer og `\set`-linjer):
 
-- [ ] **Step 9: CI** — frisk-schema-trinnet: `psql -v ON_ERROR_STOP=1 -f tests/sql/test-identity-decision.sql` efter Task 1's linje; pytest-listen: `.claude/skills/daa-extract/scripts/test_identity_guard_static.py`.
+```sql
+-- BEGIN 5a-cutover (#151): lukker klientvejen til den gamle identitetskerne og femarguments-
+-- wrapperen, FØR resten af filen kører (filen er ikke én transaktion). Webkøens afgørelser fejler
+-- lukket fra her, til den nye wrapper er oprettet længere nede; serverwritere påvirkes ikke.
+DO $cutover_5a$
+BEGIN
+  IF to_regprocedure('public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)') IS NOT NULL THEN
+    REVOKE ALL ON FUNCTION public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+  END IF;
+  IF to_regprocedure('public.red_afgoer_source_persona(uuid,integer,text,bigint,text)') IS NOT NULL THEN
+    REVOKE ALL ON FUNCTION public.red_afgoer_source_persona(uuid,integer,text,bigint,text) FROM PUBLIC,anon,authenticated,service_role;
+  END IF;
+END $cutover_5a$;
+-- END 5a-cutover
+```
+
+Deployet af 5a's DDL sker desuden under skrivepause for redaktionens identitetsafgørelser (webkøen), som det operationelle lag.
+
+Test mellemtilstanden fra et prod-lignende katalog: `tests/sql/test-identity-cutover.sql` (køres med `-v cutover=<fil>`, hvor filen er blokken udtrukket af `db-migrations.sql`):
+
+```sql
+-- Trin 5a: cutover-blokken lukker klientvejen i et katalog, hvor den GAMLE kerne og wrapper findes med grants.
+\set ON_ERROR_STOP on
+BEGIN;
+DROP FUNCTION IF EXISTS public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb);
+CREATE FUNCTION public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb) RETURNS integer LANGUAGE sql AS 'SELECT 1';
+CREATE FUNCTION public.red_afgoer_source_persona(uuid,integer,text,bigint,text) RETURNS integer LANGUAGE sql AS 'SELECT 1';
+GRANT EXECUTE ON FUNCTION public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb) TO anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_afgoer_source_persona(uuid,integer,text,bigint,text) TO anon,authenticated,service_role;
+\i :cutover
+DO $cutover_assert$
+DECLARE v_role text; v_sig text;
+BEGIN
+  FOREACH v_sig IN ARRAY ARRAY['public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)',
+                               'public.red_afgoer_source_persona(uuid,integer,text,bigint,text)'] LOOP
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+      IF has_function_privilege(v_role,v_sig,'EXECUTE') THEN
+        RAISE EXCEPTION 'IDENTITY_CUTOVER_TEST_FAILED: % kan stadig kalde %',v_role,v_sig;
+      END IF;
+    END LOOP;
+  END LOOP;
+  RAISE NOTICE 'OK: cutover-blokken lukker klientvejen i et prod-lignende katalog';
+END $cutover_assert$;
+ROLLBACK;
+```
+
+Kør (ny Frisk testbase): `sed -n '/^-- BEGIN 5a-cutover/,/^-- END 5a-cutover/p' db-migrations.sql > /tmp/claude-501/cutover-5a.sql && psql -X -q -d "$FRESH" -v cutover=/tmp/claude-501/cutover-5a.sql -f tests/sql/test-identity-cutover.sql 2>&1 | grep -E 'OK:|FAILED|ERROR'`. Expected: `OK: cutover-blokken lukker klientvejen …`.
+
+- [ ] **Step 9: CI** — frisk-schema-trinnet: `psql -v ON_ERROR_STOP=1 -f tests/sql/test-identity-decision.sql` efter Task 1's linje, derefter `sed -n '/^-- BEGIN 5a-cutover/,/^-- END 5a-cutover/p' db-migrations.sql > /tmp/cutover-5a.sql && psql -v ON_ERROR_STOP=1 -v cutover=/tmp/cutover-5a.sql -f tests/sql/test-identity-cutover.sql`; pytest-listen: `.claude/skills/daa-extract/scripts/test_identity_guard_static.py`.
 
 - [ ] **Step 10: Kør alt** (ny Frisk testbase):
 
@@ -1068,14 +1284,14 @@ psql -X -q -v ON_ERROR_STOP=1 -d "$FRESH" -f tests/sql/run-db-verify-disposable.
 (cd .claude/skills/daa-extract/scripts && env -u NODE_OPTIONS /usr/bin/python3 -m pytest test_identity_guard_static.py -q) | tail -2
 ```
 
-Expected: alle `rc=0`, pytest `5 passed`. `test-reimport-writer.sql` beviser, at oprettelse og fortrydelse stadig virker (Review Focus 4). Fejler en test på `EVIDENCE_IDENTITY_BASIS_REQUIRED` eller `EVIDENCE_IDENTITY_ORIGIN_INVALID`: **STOP** — en kalder mangler i tabellen; afgør med projektejeren, ikke med en ny oprindelse.
+Expected: alle `rc=0`, pytest `7 passed`. `test-reimport-writer.sql` beviser, at oprettelse (nu med kvittering) og fortrydelse stadig virker, og `test-reimport-legacy-migration.sql` — **uændret** — at 149b's migration og dens fortrydelse per element virker som `legacy_match` (Review Focus 4). Fejler en test på `EVIDENCE_IDENTITY_BASIS_REQUIRED` eller `EVIDENCE_IDENTITY_ORIGIN_INVALID`: **STOP** — en kalder mangler i tabellen; afgør med projektejeren, ikke med en ny oprindelse.
 
 - [ ] **Step 11: Commit**
 
 ```bash
-git add schema.sql db-migrations.sql db-rls.sql db-verify.sql tests/sql/test-identity-decision.sql tests/sql/test-evidence-promotion.sql \
-        tests/sql/test-reimport-legacy-migration.sql .claude/skills/daa-extract/scripts/test_identity_guard_static.py .github/workflows/ci.yml
-git commit -m "feat(151): privat identitetskerne med strukturel oprindelse, kandidataktualitet under kildelås og lukket batch-match"
+git add schema.sql db-migrations.sql db-rls.sql db-verify.sql tests/sql/test-identity-decision.sql tests/sql/test-identity-cutover.sql \
+        tests/sql/test-evidence-promotion.sql .claude/skills/daa-extract/scripts/test_identity_guard_static.py .github/workflows/ci.yml
+git commit -m "feat(151): privat identitetskerne med strukturel oprindelse, oprettelseskvittering, cutover og kandidataktualitet under kildelås"
 ```
 
 ---
@@ -2125,7 +2341,7 @@ describe('buildSourcePersonaDecisionCall', () => {
 });
 ```
 
-- [ ] **Step 2: Fejlende komponenttest** — tilføj i `KildepersonaKo.test.tsx`: udvid `vi.mock('../../data/sourcePersona', …)` med `fetchSourcePersonaHistory: mocks.history` (tilføj `history: vi.fn()` i `mocks` og `mocks.history.mockResolvedValue([])` i `beforeEach`), sæt `detail` til også at have `candidates` og `collisions`:
+- [ ] **Step 2: Fejlende komponenttest** — tilføj i `KildepersonaKo.test.tsx` (mocken af `fetchRedaktionPersoner` hedder i testen `mocks.persons`; hedder den noget andet i den eksisterende fil, brug det navn og notér det): udvid `vi.mock('../../data/sourcePersona', …)` med `fetchSourcePersonaHistory: mocks.history` (tilføj `history: vi.fn()` i `mocks` og `mocks.history.mockResolvedValue([])` i `beforeEach`), sæt `detail` til også at have `candidates` og `collisions`:
 
 ```tsx
 const detail = {
@@ -2147,6 +2363,21 @@ og tilføj tests (eksisterende tests forventer nu ét ekstra argument `null` for
     fireEvent.change(screen.getByLabelText('Begrundelse'), { target: { value: 'navn og år' } });
     fireEvent.click(screen.getByRole('button', { name: 'Samme som kandidat 1' }));
     await waitFor(() => expect(mocks.decide).toHaveBeenCalledWith(row().sourcePersonaId, 0, 'same', 42, 'navn og år', { candidateId: 'cand-1', runId: 'run-1' }));
+  });
+
+  it('søger en person, der ikke er kandidat, og vælger den uden kandidatspor', async () => {
+    mocks.persons.mockResolvedValue([
+      { id: '42', navn: 'Johan Canonical', aar: '1800', born: 1800, levende: false, privat: false },
+      { id: '77', navn: 'Anna Anden', aar: '1790', born: 1790, levende: false, privat: false },
+    ]);
+    render(<KildepersonaKo role="redaktion" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Vis kildegrundlag' }));
+    fireEvent.change(await screen.findByLabelText('Søg person'), { target: { value: 'anna' } });
+    fireEvent.change(screen.getByLabelText('Kanonisk kandidat'), { target: { value: '77' } });
+    fireEvent.change(screen.getByLabelText('Begrundelse'), { target: { value: 'fundet ved søgning' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Samme person' }));
+    await waitFor(() => expect(mocks.decide).toHaveBeenCalledWith(row().sourcePersonaId, 0, 'same', 77, 'fundet ved søgning', null));
+    // (Kræver RedPerson-felter ud over disse, så tilføj dem med neutrale værdier — typen står i web/src/data/redaktionRead.ts:15.)
   });
 
   it('viser kollision uden at blokere', async () => {
@@ -2249,7 +2480,8 @@ I `fetchSourcePersonaDetail` tilføj efter `interpretations`:
 
 - [ ] **Step 5: Komponenten** — i `KildepersonaKo.tsx`:
   1. Importér `fetchSourcePersonaHistory` og typen `SourcePersonaHistoryRow`; ny state `const [history, setHistory] = useState<SourcePersonaHistoryRow[]>([]);`; hent den i `showEvidence` sammen med detaljen (`Promise.all([... , fetchSourcePersonaHistory(row.sourcePersonaId)])`).
-  2. `decide` får signaturen `(row, action, personId: number | null = null, candidate: { candidateId: string; runId: string } | null = null)`; target bliver `action === 'same' ? (personId ?? sourceIdFromInput(pickedPersonId)) : null`, og kaldet bliver `decideSourcePersona(row.sourcePersonaId, row.version, action, target, note, candidate)`. (Omdøb den eksisterende state `candidateId` til `pickedPersonId` for at undgå navnesammenfald; select'en ændrer den.)
+  2. **Personsøgning (spec §7):** et filterfelt over den eksisterende personliste (`fetchRedaktionPersoner`, allerede hentet i `showEvidence`): ny state `personFilter`, et `<input aria-label="Søg person">` over select'en, og select'en viser kun `candidates.filter((p) => !personFilter.trim() || p.navn.toLowerCase().includes(personFilter.trim().toLowerCase()) || String(p.id) === personFilter.trim()).slice(0, 50)`.
+  2b. `decide` får signaturen `(row, action, personId: number | null = null, candidate: { candidateId: string; runId: string } | null = null)`; target bliver `action === 'same' ? (personId ?? sourceIdFromInput(pickedPersonId)) : null`, og kaldet bliver `decideSourcePersona(row.sourcePersonaId, row.version, action, target, note, candidate)`. (Omdøb den eksisterende state `candidateId` til `pickedPersonId` for at undgå navnesammenfald; select'en ændrer den.)
   3. Status-select'en får valgmuligheden `new_person_needed`; rækkerne sorteres inden for siden: `const shown = [...rows].sort((a, b) => (TIER[a.bestTier ?? ''] ?? 3) - (TIER[b.bestTier ?? ''] ?? 3));` med `const TIER: Record<string, number> = { auto: 0, review: 1, none: 2 };`, og `rows.map` → `shown.map`; vis `· {row.bestTier ?? 'ingen kandidat'}` og `· ny person nødvendig` når `row.reason === 'new_person_needed'`.
   4. Ny knap i rækken efter »Uafklaret«: `<button disabled={busy === row.sourcePersonaId} onClick={() => void decide(row, 'new_person_needed')}>Ny person nødvendig</button>`.
   5. I `aside` før »Kanonisk kandidat«-select'en:
@@ -2319,16 +2551,17 @@ done
 
 Outputtet er kun tal og må læses. Kalibreringen skriver intet i databasen. Notér begge konfigurationers tal; vælg konfiguration på tallene (top-1 og præcision for `auto`) og notér valget som ruling.
 
-- [ ] **Step 3: Blind genbekræftelse (§8.2).** Vælg op til 30 personas med navn, stratificeret på rang-1-tier fra den valgte konfiguration (alle `auto` op til 12, `review` op til 12, `none` op til 6; færre findes, tages alle), plus én ekstra persona til webspor-pariteten (den første `review` ud over de 12, ellers den første ikke-valgte med kandidat):
+- [ ] **Step 3: Blind genbekræftelse (§8.2).** Reservér **først** én persona med kandidat til webspor-pariteten (den første `review`, ellers den første `auto`, ellers den første `none`), og vælg derefter op til 30 af de øvrige, stratificeret på rang-1-tier (`auto` op til 12, `review` op til 12, `none` op til 6; færre findes, tages alle):
 
 ```bash
 node -e '
 const d=require(process.env.HOME+"/.private/5a/k-cand-'"$VALGT"'.json");const by={auto:[],review:[],none:[]};
 for(const c of d.candidates) if(c.rank===1) by[c.tier].push(c.source_persona_id);
-const pick=[...by.auto.sort().slice(0,12),...by.review.sort().slice(0,12),...by.none.sort().slice(0,6)];
-const rest=[...by.review.sort().slice(12),...by.auto.sort().slice(12),...by.none.sort().slice(6)];
-if(!rest.length){console.error("INGEN_WEBSPOR_PERSONA");process.exit(1);}
-console.log(pick.join(","));console.error(rest[0]);' > ~/.private/5a/g-personas.txt 2> ~/.private/5a/g-web.txt
+for(const t of ["auto","review","none"]) by[t].sort();
+const web=(by.review.shift()??by.auto.shift()??by.none.shift());
+if(!web){console.error("INGEN_PERSONA_MED_KANDIDAT");process.exit(1);}
+const pick=[...by.auto.slice(0,12),...by.review.slice(0,12),...by.none.slice(0,6)];
+console.log(pick.join(","));console.error(web);' > ~/.private/5a/g-personas.txt 2> ~/.private/5a/g-web.txt
 wc -c < ~/.private/5a/g-personas.txt
 ```
 
@@ -2402,8 +2635,8 @@ git commit -m "docs(151): trin 5a — kalibrering, blind genbekræftelse og stat
 
 Leverancen rører DDL, RLS og en sikkerhedsguard ⇒ reviewbudget **2 + 2** (decisions 2026-09-23). Planen har brugt sine to runder (runde 1 NO-GO → revision; runde 2); koden får sine to før Task 9. Codex `gpt-5.6-sol` bedes i koderunden efterprøve:
 
-1. Om nogen vej kan skrive et identitetsmatch til en **eksisterende** person uden oprindelsen `human` (ny writer, dynamisk SQL, en `SECURITY DEFINER`-funktion med en for bred `person_create`-krop).
-2. Om `db-migrations.sql` på noget tidspunkt under en kørsel har en uguardet kerne, en grant til kernen eller femarguments-wrapperen.
+1. Om nogen vej kan skrive et identitetsmatch til en **eksisterende** person uden oprindelsen `human` eller `legacy_match`'s 1:1-kobling (ny writer, dynamisk SQL, en kvittering udstedt for en eksisterende person).
+2. Om `db-migrations.sql` på noget tidspunkt under en kørsel mod prod har en klientkaldbar gammel kerne eller femarguments-wrapper (cutover-blokken) eller en grant til den private kerne.
 3. Om arket eller webkøen kan skrive en afgørelse, mennesket ikke har truffet (token → forkert kandidat, forældet kørsel, ombyttede linjer, delvis transaktion).
 4. Om kandidatwriteren kan registrere en kørsel med falsk provenance (input, antal, persona-/personmængde).
 5. Om nogen ny RPC eller tabel giver `anon`/`authenticated` adgang til private data ud over det tilsigtede.
@@ -2414,7 +2647,7 @@ Fund, hvis værste udfald er et falsk STOP, er højst MINOR.
 
 - [ ] Skriver ingen task i prod?
 - [ ] Står nye signaturer i `db-rls.sql`'s allow-list, og består `run-db-verify-disposable.sql`?
-- [ ] Består `test-reimport-writer.sql` efter guarden, og forventer `test-reimport-legacy-migration.sql` lukningen?
+- [ ] Består `test-reimport-writer.sql` og `test-reimport-legacy-migration.sql` uændret efter guarden?
 - [ ] Står nogen rettet definition som ny kopi længere nede i `db-migrations.sql` i stedet for på sin plads?
 - [ ] Er rangeringen ikke-injektiv, og forudfylder arket intet?
 - [ ] Står der navne eller kildetekst i repo, commits, logs eller chat?

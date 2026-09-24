@@ -1,7 +1,8 @@
 # Trin 5a — én identitetsvej med kandidater og spor i databasen (#151)
 
 **Status:** designudkast, godkendt sektion for sektion i brainstorm 2026-09-24; revideret efter
-Codex runde 1 (NO-GO: 2 BLOCKER, 3 MAJOR, 4 MINOR — alle godtaget, se §14). Implementering
+Codex runde 1 (NO-GO: 2 BLOCKER, 3 MAJOR, 4 MINOR — alle godtaget, se §14) og runde 2 (NO-GO: 1 BLOCKER,
+1 MAJOR, 5 MINOR — alle godtaget, se §15; budgettets sidste planrunde, rettelserne efterprøves i koderunden). Implementering
 kræver, at projektejeren aktiverer trin 5 som programmål i `docs/decisions.md`; trin 4 (#147/#148)
 er det aktive mål, indtil 4.5's pilotrapport og prod-beslutning foreligger.
 
@@ -131,29 +132,36 @@ CREATE TABLE private.source_persona_identity_candidate (
 Guarden er **strukturel**, ikke en selvangivet evidens-nøgle og ikke et `xmin`-tjek:
 
 - **Én privat kerne:** `private.decide_source_persona_identity(persona, person, forventet version,
-  status, evidens, p_origin)` med `p_origin` ∈ `human`, `person_create`, `reversal`. Ingen grants;
+  status, evidens, p_origin)` med `p_origin` ∈ `human`, `person_create`, `legacy_match`, `reversal`. Ingen grants;
   kun `SECURITY DEFINER`-funktioner på serveren kalder den. Den offentlige
   `red_decide_source_persona_identity` fjernes (revoke, ud af allow-listen, droppet).
 - **`human`** — kun fra `red_afgoer_source_persona` (den eneste klientindgang); `basis` ∈
   `web_detail`, `human_sheet` sættes af wrapperen efter validering af konteksten.
 - **`person_create`** — kun fra writere, der selv indsætter personen i samme funktion
   (`red_apply_reimport_person_create`, `red_apply_1939_v50_person_create`); person-id'et kommer fra
-  deres egen `INSERT … RETURNING` og kan ikke leveres af klienten. Kræver `accepted` og ny persona
-  (forventet version 0).
+  deres egen oprettelse og kan ikke leveres af klienten. Kræver `accepted`, ny persona (forventet
+  version 0) og en **oprettelseskvittering**: personen skal være oprettet gennem
+  `private.insert_person_with_receipt` i samme toptransaktion (`pg_current_xact_id()`, 64-bit, ens i
+  subtransaktioner), og kvitteringen forbruges én gang. Et `person_create`-kald med en eksisterende
+  person har ingen kvittering og afvises.
 - **`reversal`** — kun fra fortrydelseswriterne; kræver `superseded` og `reversed_batch_id`.
-- **Batch-match til eksisterende personer er lukket** (projektejerens valg, §13.2). Den eneste
-  sådanne writer er 149b's `private.migrate_legacy_narrative_record` (binder via
-  `person_external_id`). Den lukkes som den gamle 1939-writer: den stopper med
-  `REIMPORT_LEGACY_MIGRATION_IDENTITY_CLOSED`, før den skriver noget. 149b er kørt i prod og
-  kan derfor ikke genkøres; dens fortrydelse virker fortsat. Skal et tilsvarende legacy-match bruges
-  igen (fx 1939 i trin 6), er det en ny beslutning med sin egen menneskelige gate.
+- **`legacy_match`** — kun fra 149b's `private.migrate_legacy_narrative_record`: den faste
+  1:1-kobling via `person_external_id` fra en tidligere import, ikke et lighedsmatch. Kræver
+  `accepted`, forventet version 0, `authority='person_external_id'`, og kernen efterprøver selv, at
+  der er præcis én `person_external_id` for (kilde, postnøgle), at den peger på personen, og at
+  personen kun har den ene eksterne nøgle i kilden (projektejerens valg 2026-09-24, som præciserer
+  §13.2). 149b's migration og dens fortrydelse per element virker uændret.
+- **Batch-match ud fra lighed eller fri evidens er lukket** — ingen oprindelse tillader det.
 - **Tillidsgrænse:** rollen `redaktion` er grænsen, som overalt i systemet. Et script, der kalder
   wrapperen med redaktørens login, er en redaktørafgørelse; `human_sheet` binder arkets og
   rækkefilens hash, så afgørelsen kan spores til det godkendte ark.
-- **Ingen åben mellemtilstand under deploy:** definitionerne erstattes **på deres eksisterende plads**
-  i `db-migrations.sql` (kernen, den gamle femarguments-wrapper, writernes kald); intet uguardet
-  objekt installeres eller grantes på noget tidspunkt i filen. En statisk test og en SQL-test efter
-  én migrationskørsel håndhæver det.
+- **Ingen åben mellemtilstand under deploy:** en **cutover-blok som første sætning** i
+  `db-migrations.sql` fjerner klientrollernes adgang til den allerede installerede gamle kerne og
+  femarguments-wrapper, før resten af filen kører; derefter erstattes definitionerne **på deres
+  eksisterende plads** (kernen, wrapperen, writernes kald), så intet uguardet objekt installeres eller
+  grantes undervejs. Webkøens afgørelser fejler lukket fra cutover til den nye wrapper er oprettet;
+  deployet sker under skrivepause for webkøen. En statisk test (eksakt kalder-allowlist), en
+  cutover-test fra et prod-lignende katalog og en funktionsflade-test håndhæver det.
 
 Eksisterende rækker og hændelser røres ikke. `source_persona.py` (0 konsumenter) slettes eller tages
 i brug; planen afgør det efter læsning.
@@ -231,7 +239,8 @@ D 5b1c…-uuid 0 : _
   allerede er `accepted` for en anden persona i samme post eller kilde.
 - `KildepersonaKo`:
   1. kandidatkort med knappen »Samme som denne« (sender `candidate_id` + `run_id`);
-  2. personsøgning (den eksisterende i redaktionen) i stedet for id-feltet;
+  2. personsøgning: et filterfelt over den eksisterende personliste (`fetchRedaktionPersoner`) i stedet
+     for at bladre i hele listen;
   3. knappen »Ny person nødvendig« (note påkrævet);
   4. kollisionsadvarsel — synlig, ikke blokerende;
   5. historik via `red_source_persona_history`, inkl. om kandidatforslaget blev fulgt;
@@ -354,6 +363,16 @@ Målt eller besluttet af projektejeren, mens planen blev skrevet; planen
 | MINOR 3 — historiske kollisioner | §7: kollisioner fra samme gældende kørsel |
 | MINOR 4 — samtidige identiske kald | §5: `ON CONFLICT` + låst sammenligning |
 
-**Følge af projektejerens valg (§13.2), gjort eksplicit:** 149b's legacy-migrations-writer lukkes;
-dens test omskrives til at forvente `REIMPORT_LEGACY_MIGRATION_IDENTITY_CLOSED` (planens første udgave
-krævede den både lukket og grøn).
+## 15. Revision efter Codex runde 2 (2026-09-24)
+
+| Fund | Ændring |
+| --- | --- |
+| BLOCKER — gammel kerne/wrapper aktiv i migrationens præfiks | §4.2: cutover-blok som første sætning; test fra prod-lignende katalog |
+| MAJOR — `person_create` bandt ikke person-id'et til oprettelsen | §4.2: oprettelseskvittering udstedt af `insert_person_with_receipt`, forbrugt af kernen |
+| MINOR — parseren (falske positiver/negativer, `>= 9`) | Planen: eksakt allowlist (fil, funktion, oprindelse, antal), kommentarer fjernet, negative fixtures |
+| MINOR — samtidighedstesten beviste kun låsen | Planen: to forbindelser, samme `run_id`, én run-række |
+| MINOR — 149b-fortrydelsesvejen forkert beskrevet / MINOR — db-verify afviste lukket 149b | Bortfaldet: 149b lukkes ikke (projektejerens valg, `legacy_match`); testen og db-verify uændrede |
+| MINOR — Task 9 kunne mangle web-persona | Planen: web-personaen reserveres før stikprøven |
+| MINOR — personsøgningen blev ikke bygget | §7/planen: filterfelt over den eksisterende personliste + test |
+
+Kaldertabellen er rettet (`db-migrations.sql:8066`, `:8246` er versioner af `red_reverse_1939_v50_reimport`).
