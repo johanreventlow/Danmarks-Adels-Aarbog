@@ -54,6 +54,28 @@ def canonical_record_input(export: Mapping[str, Any]) -> str:
     return sha256_text(text)
 
 
+def check_clauses_within_post(export: Mapping[str, Any]) -> None:
+    """Klausulerne skal være ordnede, ikke-overlappende udsnit af helposten.
+
+    Ledgeren og manifestet binder kun helpostens tekst (`canonical_record_input`),
+    men modellen ser klausulerne.  Uden dette tjek kunne tekst fra en anden — evt.
+    udelukket — record rejse med som klausul under en eligible record (4.5-kodereview,
+    fund 1).  Målt 2026-09-24: alle 591 records i 2018-20-inputtet opfylder det.
+    """
+    text = export.get("post_verbatim_text")
+    clauses = export.get("clauses")
+    if not isinstance(text, str) or not isinstance(clauses, Sequence) \
+            or isinstance(clauses, (str, bytes)):
+        raise EligibilityError(f"CLAUSE_OUTSIDE_POST record={export.get('record_key')}")
+    pos = 0
+    for clause in sorted(clauses, key=lambda c: c.get("ordinal", 0) if isinstance(c, Mapping) else 0):
+        fragment = clause.get("verbatim_text") if isinstance(clause, Mapping) else None
+        i = text.find(fragment, pos) if isinstance(fragment, str) and fragment else -1
+        if i < 0:
+            raise EligibilityError(f"CLAUSE_OUTSIDE_POST record={export.get('record_key')}")
+        pos = i + len(fragment)
+
+
 def _clause_index(export: Mapping[str, Any]) -> dict[int, Mapping[str, Any]]:
     """Ordinal → klausul, med hashen efterprøvet undervejs.
 
@@ -608,6 +630,7 @@ def run_record_guarded(export: Mapping[str, Any], *, ledger: Mapping[str, Any],
     record_key = str(export.get("record_key", ""))
     try:
         check_eligibility(ledger, record_key, canonical_record_input(export))
+        check_clauses_within_post(export)
     except EligibilityError:
         return RecordOutcome(record_key, "failed", error_kind="not_eligible")
     return run_record(export, **kwargs)

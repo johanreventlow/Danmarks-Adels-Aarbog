@@ -98,6 +98,12 @@ def main() -> int:
             "claims_schema_sha256": manifest["claims_schema_sha256"],
             "runner_contract_version": manifest["runner_contract_version"],
         }
+        try:
+            # Før call-dir: klausulerne skal ligge i den godkendte helpost (4.5-kodereview, fund 1).
+            evidence_runner.check_clauses_within_post(rec)
+        except evidence_runner.EligibilityError as exc:
+            print(f"{exc} — stopper. Intet mere sendes.")
+            return 1
         with prepare_call_dir(rec, skema) as call_dir:
             profil_sti = call_dir / "gate.sb"
             profil_sti.write_text(build_gate_profile(call_dir=str(call_dir), home=home),

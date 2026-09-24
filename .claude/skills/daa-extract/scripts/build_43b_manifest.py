@@ -19,8 +19,15 @@ import evidence_extract, evidence_runner
 
 SCRIPTS = Path(__file__).resolve().parent
 SKEMA = SCRIPTS.parent / "references" / "evidence-claims-1.0.json"
-#: Filerne, hvis bytes afgør hvad der sendes og hvordan svaret valideres.
-RUNNER_CODE_FILES = ("evidence_extract.py", "evidence_runner.py", "run_evidence_43b.py")
+#: Filerne, hvis bytes afgør hvad der sendes, hvad modellen kan læse, og hvordan svaret
+#: valideres — relativt til scripts-mappen.  Prompt og outputskema er særskilt
+#: indholdshashede i manifestet.  Listen omfatter også denne fil, fordi den definerer
+#: kontrollen (4.5-kodereview, fund 2).
+RUNNER_CODE_FILES = ("evidence_extract.py", "evidence_runner.py", "run_evidence_43b.py",
+                     "build_43b_manifest.py", "sandbox/runner-gate.sb.template",
+                     "sandbox/gate-access-test.sh",
+                     "../references/interpretation-predicates.json",
+                     "../references/extraction-profiles.json")
 OVERHEAD = 15266
 
 
