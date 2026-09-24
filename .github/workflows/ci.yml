@@ -194,6 +194,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f db-migrations.sql
           psql -v ON_ERROR_STOP=1 -f db-rls.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-evidence-promotion.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/test-interpretation-promotion-targets.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-interpretation-predicate.sql
           python3 .claude/skills/daa-extract/scripts/check_interpretation_predicates.py
           psql -v ON_ERROR_STOP=1 -f tests/sql/run-db-verify-disposable.sql
