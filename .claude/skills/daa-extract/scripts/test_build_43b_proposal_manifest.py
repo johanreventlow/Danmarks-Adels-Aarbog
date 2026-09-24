@@ -121,3 +121,31 @@ def test_cached_raw_fractional_confidence_survives_the_claim_boundary():
     accepted, rejected = partition_record_claims(parse_cached_raw_claims(raw), record)
     assert rejected == []
     assert len(accepted) == 1 and accepted[0]["confidence"] == 0.9
+
+
+def test_current_cache_key_finder_filen_med_record_key(tmp_path):
+    import build_43b_proposal_manifest as b
+    import evidence_runner
+    rec = {"record_key": "R-1", "persona_id": "p", "post_verbatim_text": "t",
+           "clauses": [{"ordinal": 1, "verbatim_text": "t",
+                        "verbatim_sha256": evidence_runner.sha256_text("t")}]}
+    ident = {"profile_id": "daa-2018-20-v1", "profile_version": "1.3.0", "model": "m",
+             "prompt_sha256": "p", "record_key": "R-1",
+             "record_input_sha256": evidence_runner.canonical_record_input(rec),
+             "claims_schema_sha256": "s",
+             "runner_contract_version": evidence_runner.RUNNER_CONTRACT_VERSION}
+    assert b.cache_path(tmp_path, ident, mode="current").name == \
+        f"{evidence_runner.ResponseCache.key(ident)}.json"
+    legacy = {k: v for k, v in ident.items() if k != "record_key"}
+    assert b.cache_path(tmp_path, legacy, mode="legacy").name == \
+        f"{b.legacy_cache_key(legacy)}.json"
+
+
+def test_records_to_ingest_tager_kun_navngivne_bundter():
+    import pytest
+    import build_43b_proposal_manifest as b
+    m = {"records": ["A", "B", "C"], "bundter": {"bundt_1": ["A", "B"], "reserve": ["C"]}}
+    assert b.records_to_ingest(m, None) == ["A", "B", "C"]
+    assert b.records_to_ingest(m, ["bundt_1"]) == ["A", "B"]
+    with pytest.raises(ValueError, match="BUNDLE_UNKNOWN"):
+        b.records_to_ingest(m, ["bundt_9"])
