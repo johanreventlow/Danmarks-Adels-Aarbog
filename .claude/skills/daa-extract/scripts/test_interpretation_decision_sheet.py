@@ -122,3 +122,17 @@ def test_cli_afviser_aendret_raekkefil(tmp_path):
 def test_cli_skriver_sql_for_komplet_ark(tmp_path):
     p, sql = _cli(tmp_path, f"D {U1} 1 : A\n")
     assert p.returncode == 0 and "SQL_OK afgørelser=1" in p.stdout and sql.exists()
+
+
+def test_ombyttede_beslutningslinjer_fanges():
+    """4.5-kodereview, fund 3: to gyldige D-linjer, der bytter plads, bytter også
+    hvilken kommentarblok mennesket afgjorde ud fra."""
+    rows = [row(U1), row(U2, value="1851")]
+    with pytest.raises(SheetError, match="SHEET_ORDER_MISMATCH line=1"):
+        check_identity(parse_sheet(f"D {U2} 1 : A\nD {U1} 1 : R\n"), rows)
+
+
+def test_renderet_ark_i_egen_orden_godkendes():
+    rows = [row(U2, value="1851"), row(U1)]
+    prior = {("I-1", "person.death", "1850"): "J", ("I-1", "person.death", "1851"): "N"}
+    check_identity(parse_sheet(render_sheet(rows, prior)), rows)

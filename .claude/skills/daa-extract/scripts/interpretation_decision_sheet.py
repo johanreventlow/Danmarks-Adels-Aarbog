@@ -51,12 +51,17 @@ def reviewsignal(r: dict) -> list[str]:
     return s
 
 
+def sheet_order(rows: list[dict]) -> list[dict]:
+    """Arkets faste orden — den samme ved render og ved identitetstjekket."""
+    return sorted(rows, key=lambda r: (r["record_key"], r["predicate"], r["interpretation_id"]))
+
+
 def render_sheet(rows: list[dict], prior: dict) -> str:
     out = ["# AFGØRELSE AF FORTOLKNINGSFORSLAG (4.5)",
            "# Skriv A (accepter), R (afvis) eller U (uafklaret) efter kolonet.",
            "# En note må følge efter '#'. Ret intet andet. Gem, og giv hashen i chatten.",
            ""]
-    for r in sorted(rows, key=lambda r: (r["record_key"], r["predicate"], r["interpretation_id"])):
+    for r in sheet_order(rows):
         dom = prior.get((r["record_key"], r["predicate"], r["value_text"]))
         anbefaling = {"J": "A (4.3b: sand)", "N": "R (4.3b: usand)"}.get(dom, "ingen")
         out.append(f"# POST {r['record_key']} · {r['predicate']} · confidence "
@@ -104,6 +109,11 @@ def check_identity(decisions: list[Decision], rows: list[dict]) -> None:
     if faktisk != forventet:
         raise SheetError(f"SHEET_IDENTITY_MISMATCH mangler={len(forventet - faktisk)} "
                          f"ekstra={len(faktisk - forventet)}")
+    # Samme mængde er ikke nok: to D-linjer, der bytter plads, bytter også den
+    # kommentarblok, mennesket afgjorde ud fra (4.5-kodereview, fund 3).
+    for d, r in zip(decisions, sheet_order(rows)):
+        if (d.interpretation_id, d.version) != (r["interpretation_id"], r["version"]):
+            raise SheetError(f"SHEET_ORDER_MISMATCH line={d.line}")
 
 
 def _lit(s: str) -> str:
