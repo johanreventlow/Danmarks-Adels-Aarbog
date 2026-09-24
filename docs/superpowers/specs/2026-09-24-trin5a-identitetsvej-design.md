@@ -1,6 +1,7 @@
 # Trin 5a — én identitetsvej med kandidater og spor i databasen (#151)
 
-**Status:** designudkast, godkendt sektion for sektion i brainstorm 2026-09-24. Implementering
+**Status:** designudkast, godkendt sektion for sektion i brainstorm 2026-09-24; revideret efter
+Codex runde 1 (NO-GO: 2 BLOCKER, 3 MAJOR, 4 MINOR — alle godtaget, se §14). Implementering
 kræver, at projektejeren aktiverer trin 5 som programmål i `docs/decisions.md`; trin 4 (#147/#148)
 er det aktive mål, indtil 4.5's pilotrapport og prod-beslutning foreligger.
 
@@ -92,8 +93,12 @@ CREATE TABLE private.source_persona_identity_candidate (
 ```
 
 - En persona uden kandidater har ingen rækker i kørslen; `persona_count` tæller alle vurderede.
-- **Gældende kørsel** pr. kilde er den seneste; ældre kørsler bevares og kan refereres af gamle
-  afgørelser.
+- **Gældende kørsel** pr. kilde er den med højeste `run_seq` (`bigint GENERATED ALWAYS AS IDENTITY`,
+  tilføjet ved planlægningen; tidsstempler kan være ens); ældre kørsler bevares og kan refereres af
+  gamle afgørelser. Kørslen gemmer også `config jsonb` (generatorens konfiguration) og
+  `candidates_sha256`.
+- Append-only gælder `UPDATE`, `DELETE` **og** `TRUNCATE` (statement-trigger som de øvrige
+  evidenstabeller).
 - `basis` rummer de signaler, der matchede (`name`, `birth`, `death`, `sex`), hvilke persona-felter der
   blev brugt og om de kom fra `accepted` eller `proposed` fortolkninger. Ingen kildetekst ud over det,
   der allerede står i personaens mentions.
@@ -112,25 +117,46 @@ CREATE TABLE private.source_persona_identity_candidate (
 | `new_person_needed` (ny) | `unresolved` | intet mål | `basis`, `reason: new_person_needed` |
 
 - `basis` ∈ `web_detail`, `human_sheet`. Ved `human_sheet` også `sheet_sha256`, `rows_sha256`, `line`.
-- Angives `candidate_id`, skal kandidaten tilhøre personaen og `run_id`, og ved `same` skal person-id
-  være kandidatens; ellers `EVIDENCE_IDENTITY_CANDIDATE_MISMATCH`.
+- `candidate_id` og `run_id` angives altid sammen. Kandidaten skal tilhøre personaen og `run_id`, og
+  ved `same` skal person-id være kandidatens; ellers `EVIDENCE_IDENTITY_CANDIDATE_MISMATCH`.
+  `run_id` skal være kildens gældende kørsel **på afgørelsestidspunktet**, ellers
+  `EVIDENCE_IDENTITY_CANDIDATE_RUN_STALE`. Afgørelses-RPC'en tager en delt og kandidatwriteren en
+  eksklusiv transaktionslås pr. kilde, så en ny kørsel ikke kan indsættes mellem kontrol og commit.
 - Noten er fortsat obligatorisk (RPC'ens eksisterende krav); arket genererer en automatisk note
   (`ark <sheet_sha256 kort> linje N`), som redaktørens egen note lægges til.
 - `new_person_needed` kan filtreres via `evidence->>'reason'` i kø-RPC'en.
 
-### 4.2 Guard mod de gamle veje
+### 4.2 Guard mod de gamle veje (revideret efter review runde 1)
 
-`red_decide_source_persona_identity` afviser nye afgørelser, hvis `evidence->>'basis'` ikke er
-`web_detail` eller `human_sheet` (`EVIDENCE_IDENTITY_BASIS_REQUIRED`). De historiske autoriteter
-(`person_external_id`, batch-hash) kan ikke længere skrives. Eksisterende rækker og hændelser røres ikke.
+Guarden er **strukturel**, ikke en selvangivet evidens-nøgle og ikke et `xmin`-tjek:
 
-Før guarden aktiveres, kortlægges alle kaldere målt, ikke antaget: 1939's
-`materialize_source_personas_1939_v50.py` og `materialize_remaining_source_personas_1939_v50.py`,
-149b's legacy-writer og især **om en 149b-fortrydelse skriver identitetshændelser**. Hver kalder får
-enten den nye basis, eller markeres historisk og slås fra med en guard som den gamle 1939-writer. En
-kalder, der skal bestå, men ikke passer i de to basis-værdier, er et STOP og en beslutning, ikke en
-tredje basis indført i stilhed. `source_persona.py` (0 konsumenter) slettes eller tages i brug; planen
-afgør det efter læsning.
+- **Én privat kerne:** `private.decide_source_persona_identity(persona, person, forventet version,
+  status, evidens, p_origin)` med `p_origin` ∈ `human`, `person_create`, `reversal`. Ingen grants;
+  kun `SECURITY DEFINER`-funktioner på serveren kalder den. Den offentlige
+  `red_decide_source_persona_identity` fjernes (revoke, ud af allow-listen, droppet).
+- **`human`** — kun fra `red_afgoer_source_persona` (den eneste klientindgang); `basis` ∈
+  `web_detail`, `human_sheet` sættes af wrapperen efter validering af konteksten.
+- **`person_create`** — kun fra writere, der selv indsætter personen i samme funktion
+  (`red_apply_reimport_person_create`, `red_apply_1939_v50_person_create`); person-id'et kommer fra
+  deres egen `INSERT … RETURNING` og kan ikke leveres af klienten. Kræver `accepted` og ny persona
+  (forventet version 0).
+- **`reversal`** — kun fra fortrydelseswriterne; kræver `superseded` og `reversed_batch_id`.
+- **Batch-match til eksisterende personer er lukket** (projektejerens valg, §13.2). Den eneste
+  sådanne writer er 149b's `private.migrate_legacy_narrative_record` (binder via
+  `person_external_id`). Den lukkes som den gamle 1939-writer: den stopper med
+  `REIMPORT_LEGACY_MIGRATION_IDENTITY_CLOSED`, før den skriver noget. 149b er kørt i prod og
+  kan derfor ikke genkøres; dens fortrydelse virker fortsat. Skal et tilsvarende legacy-match bruges
+  igen (fx 1939 i trin 6), er det en ny beslutning med sin egen menneskelige gate.
+- **Tillidsgrænse:** rollen `redaktion` er grænsen, som overalt i systemet. Et script, der kalder
+  wrapperen med redaktørens login, er en redaktørafgørelse; `human_sheet` binder arkets og
+  rækkefilens hash, så afgørelsen kan spores til det godkendte ark.
+- **Ingen åben mellemtilstand under deploy:** definitionerne erstattes **på deres eksisterende plads**
+  i `db-migrations.sql` (kernen, den gamle femarguments-wrapper, writernes kald); intet uguardet
+  objekt installeres eller grantes på noget tidspunkt i filen. En statisk test og en SQL-test efter
+  én migrationskørsel håndhæver det.
+
+Eksisterende rækker og hændelser røres ikke. `source_persona.py` (0 konsumenter) slettes eller tages
+i brug; planen afgør det efter læsning.
 
 ## 5. Generatoren
 
@@ -142,10 +168,17 @@ afgør det efter læsning.
   `person` med visningsnavn, køn og fødsels-/dødsfakta.
 - **Output:** top-K (standard 3) pr. persona med score, tier og signaler. **Ingen automatisk accept** —
   heller ikke ved tier `auto`; tier bruges kun til sortering.
+- **Input er serverens:** `private.identity_candidate_input(source_id)` bygger generatorens input
+  deterministisk (personas uden gældende afgørelse + personer, `ORDER BY … COLLATE "C"`); eksporten
+  kalder den gennem en rollegatet `red_identity_candidate_input(source_id)`.
 - **Skrivning:** ny writer-RPC `red_record_identity_candidates(run jsonb, candidates jsonb)` i én
-  transaktion, med rollegate, forventet antal og `input_sha256`/`config_sha256`, der genberegnes eller
-  valideres ved skrivning. Idempotent på `(source_id, input_sha256, config_sha256)`: samme input giver
-  samme kørsel, ikke en ny.
+  transaktion med rollegate og eksklusiv kildelås. Writeren **genberegner** inputtet og kræver
+  `input_sha256` = SHA-256 af det (`IDENTITY_CANDIDATE_INPUT_DRIFT`), udleder `persona_count` selv,
+  kræver at hver kandidats persona og person findes i inputtet, og beregner `config_sha256` og
+  `candidates_sha256` af det modtagne. `config_sha256` nøgler idempotensen og autoriserer intet;
+  rangeringen genberegnes ikke på serveren (den er Node) — kandidaterne er forslag, mennesket
+  afgør. Idempotent på `(source_id, input_sha256, config_sha256)` via `INSERT … ON CONFLICT` og
+  låst sammenligning af `candidates_sha256`.
 - **Privatliv:** ingen modelkald; CLI'en printer kun tal og hashes. Mod prod køres den via
   projektejerens shell (klassifikator- og GO-regler som hidtil).
 - **`evidensNormaliseret`** (matcherens opt-in for personer uden årstal, typisk ægtefæller) måles på
@@ -194,8 +227,8 @@ D 5b1c…-uuid 0 : _
 ## 7. Webkøen
 
 - `red_source_persona_detail` udvides med kandidaterne fra gældende kørsel (navn, årstal, score, tier,
-  signaler) og en kollisionsliste: kandidatpersoner, der allerede er `accepted` for en anden persona i
-  samme post eller kilde.
+  signaler, `run_id`) og en kollisionsliste: kandidatpersoner **fra samme gældende kørsel**, der
+  allerede er `accepted` for en anden persona i samme post eller kilde.
 - `KildepersonaKo`:
   1. kandidatkort med knappen »Samme som denne« (sender `candidate_id` + `run_id`);
   2. personsøgning (den eksisterende i redaktionen) i stedet for id-feltet;
@@ -231,22 +264,29 @@ design.
 Ca. 30 af de 587, stratificeret på tier, sendes gennem hele kæden i genbekræftelsestilstand:
 generator → rækkefil → ark (uden det gamle svar) → projektejerens afgørelse og hash → SQL med
 negativtest → `red_afgoer_source_persona` → historik. Bagefter sammenlignes med det gamle svar. Det
-beviser kæden og giver en menneskeligt målt præcision for kandidaterne. Mindst én sag afgøres også i
-webkøen, og de to spor sammenlignes felt for felt (samme struktur, forskellig `basis`).
+beviser kæden og giver en menneskeligt målt præcision for kandidaterne. Webkøens spor bevises uden
+en levende webkø mod arbejdsbasen (der findes ingen lokal Supabase-API, og webben må aldrig pege
+på en ukendt base): webkøens datalag bygger payloaden i en vitest-test, samme payload sendes til
+`red_afgoer_source_persona` i arbejdsbasen via psql, og de to spor (ark og web) sammenlignes felt for
+felt (samme struktur, forskellig `basis`). En levende webkø-afgørelse hører til 5b, når der findes
+personas uden afgørelse.
 
 Genbekræftelsen skriver nye versioner i arbejdsbasen (en kopi), aldrig i restoren og aldrig i prod.
 
 ## 9. Test
 
-- **SQL** (CI's friske schema-sti): tabeller og constraints; writer-RPC (rollegate, antal, idempotens,
-  hash-validering); de fire udgange; `candidate_id` der ikke hører til personaen; guarden afviser
-  historiske autoriteter og manglende basis; eksisterende rækker uændrede; anon/authenticated uden
-  adgang til de nye tabeller.
+- **SQL** (CI's friske schema-sti): tabeller og constraints inkl. `TRUNCATE`; writer-RPC (rollegate,
+  genberegnet input, falsk hash, forkert antal, udeladt persona, ændret DB-input, idempotens, samtidige
+  identiske kald); de fire udgange; `candidate_id` der ikke hører til personaen; forældet `run_id`;
+  kildelåsen (en anden forbindelse holder den eksklusivt ⇒ afgørelsen venter/timeout); kernen er
+  ikke kaldbar for `authenticated`; hver `p_origin` med sine krav; 149b-writeren lukket;
+  eksisterende rækker uændrede; funktionsfladen efter én migrationskørsel (ingen femarguments-wrapper,
+  ingen offentlig kerne).
 - **Pytest** for arket: alle tokens, `_` stopper, byttede og slettede linjer, ændret rækkefil, forældet
   kørsel, forkert version, note-escaping; delt modul testet én gang og brugt af begge ark.
 - **Node/vitest** for generatoren (deterministisk output og hash for fast input, top-K, ingen
   auto-accept) og for webkøens datalag og komponent (kandidatklik, søgning, ny person, kollision,
-  historik); Playwright mod lokal base.
+  historik, `run_id` i payloaden); ingen Playwright (§13.5).
 - `get_advisors` efter DDL.
 
 ## 10. Prod
@@ -290,7 +330,8 @@ Målt eller besluttet af projektejeren, mens planen blev skrevet; planen
    binder en persona til den person, den lige har oprettet) og batch-match til eksisterende
    personer (149b-mønstret). Projektejeren valgte: menneskelig basis og fortrydelse tilladt;
    batch-evidens kun når personen er oprettet i samme transaktion; batch-match til eksisterende
-   personer lukket.
+   personer lukket. Implementeret strukturelt med en privat kerne og `p_origin` (§4.2, revideret efter review
+   runde 1; `xmin`-tjekket udgik).
 3. **Rangering (§5).** `matchUdgaver`'s `assignTiers` er injektiv; flere personas kan være samme
    person, så generatoren rangerer selv pr. persona oven på `buildScored`/`scorePair` med samme
    tier-tærskler.
@@ -298,3 +339,21 @@ Målt eller besluttet af projektejeren, mens planen blev skrevet; planen
    (psql eksporterer JSON, CLI'en rangerer, psql skriver via writer-RPC'en) og kører gennem `tsx`.
 5. **Webtest (§9).** Der findes ingen Playwright-fixture for redaktionslogin; webkøen dækkes af
    vitest-komponenttests, og én afgørelse i webkøen mod den lokale base indgår i beviset (§8.2).
+
+## 14. Revision efter Codex runde 1 (2026-09-24)
+
+| Fund | Ændring |
+| --- | --- |
+| BLOCKER 1 — guarden kunne omgås og afviste legitime oprettelser (`xmin`, direkte kerne, selvangivet basis) | §4.2: privat kerne med `p_origin`, ingen grants; `person_create` kun fra writere, der selv indsætter personen; `xmin`-hjælperen udgår; tillidsgrænsen er rollen `redaktion` |
+| BLOCKER 2 — migrationen genåbnede den gamle vej undervejs | §4.2: erstatning på eksisterende plads; statisk test + funktionsflade-test efter én kørsel |
+| MAJOR 1 — kandidatkørslens aktualitet ikke atomisk | §4.1: `candidate_id` + `run_id` sammen; aktualitet kontrolleres i RPC'en under kildelås |
+| MAJOR 2 — writeren stolede på klientens hashes og antal | §5: serverbygget input genberegnes; `persona_count` udledes; persona-/personmængde kontrolleres |
+| MAJOR 3 — webbeviset var ikke bundet til arbejdsbasen | §8.2: ingen levende webkø mod arbejdsbasen; payload-paritet via vitest + psql |
+| MINOR 1 — `TRUNCATE` | §4: statement-trigger |
+| MINOR 2 — detaljetest kunne bestå uden nøgler | Planen: `jsonb_typeof(...)='array'` før længde |
+| MINOR 3 — historiske kollisioner | §7: kollisioner fra samme gældende kørsel |
+| MINOR 4 — samtidige identiske kald | §5: `ON CONFLICT` + låst sammenligning |
+
+**Følge af projektejerens valg (§13.2), gjort eksplicit:** 149b's legacy-migrations-writer lukkes;
+dens test omskrives til at forvente `REIMPORT_LEGACY_MIGRATION_IDENTITY_CLOSED` (planens første udgave
+krævede den både lukket og grøn).
