@@ -149,3 +149,45 @@ def test_records_to_ingest_tager_kun_navngivne_bundter():
     assert b.records_to_ingest(m, ["bundt_1"]) == ["A", "B"]
     with pytest.raises(ValueError, match="BUNDLE_UNKNOWN"):
         b.records_to_ingest(m, ["bundt_9"])
+
+
+def _runner_manifest(**aendr):
+    from build_43b_manifest import manifest_sha256
+    m = {"records": ["A", "B", "C"], "bundter": {"bundt_1": ["A", "B"], "reserve": ["C"]}}
+    m.update(aendr)
+    m["manifest_sha256"] = manifest_sha256(m)
+    return m
+
+
+def test_runner_manifestet_genberegnes_og_bundterne_valideres():
+    """4.5-kodereview, fund 5: feltet alene beviser intet; hashen genberegnes, og
+    bundterne skal være en disjunkt opdeling af records."""
+    import build_43b_proposal_manifest as b
+    m = _runner_manifest()
+    b.verify_runner_manifest(m, m["manifest_sha256"])
+    with pytest.raises(ValueError, match="RUNNER_MANIFEST_DRIFT"):
+        b.verify_runner_manifest(m, "0" * 64)
+    manipuleret = dict(m, bundter={"bundt_1": ["A", "B", "C"], "reserve": ["C"]})
+    with pytest.raises(ValueError, match="RUNNER_MANIFEST_TAMPERED"):
+        b.verify_runner_manifest(manipuleret, m["manifest_sha256"])
+    for bundter in ({"bundt_1": ["A", "B"], "reserve": ["B", "C"]},    # dublet
+                    {"bundt_1": ["A", "B"]},                           # C mangler
+                    {"bundt_1": ["A", "B", "C", "D"]}):                 # D uden for records
+        m2 = _runner_manifest(bundter=bundter)
+        with pytest.raises(ValueError, match="RUNNER_BUNDLES_INVALID"):
+            b.verify_runner_manifest(m2, m2["manifest_sha256"])
+
+
+def test_cli_stopper_paa_manipuleret_bundt_uden_output(tmp_path, monkeypatch, capsys):
+    import build_43b_proposal_manifest as b
+    m = _runner_manifest()
+    m["bundter"]["bundt_1"].append("C")          # efter hashen
+    (tmp_path / "m.json").write_text(json.dumps(m), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["b", "--runner-manifest", str(tmp_path / "m.json"),
+                                     "--runner-input", str(tmp_path / "findes-ikke.json"),
+                                     "--cache-dir", str(tmp_path), "--profile", str(PROFIL),
+                                     "--out", str(tmp_path / "out.json"),
+                                     "--expect-runner-manifest-sha256", m["manifest_sha256"]])
+    assert b.main() == 1
+    assert "RUNNER_MANIFEST_TAMPERED" in capsys.readouterr().out
+    assert not (tmp_path / "out.json").exists()

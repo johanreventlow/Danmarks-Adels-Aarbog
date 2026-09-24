@@ -73,6 +73,19 @@ def cache_path(cache_dir: Path, ident: dict, *, mode: str) -> Path:
     raise ValueError(f"CACHE_KEY_MODE_UNKNOWN {mode}")
 
 
+def verify_runner_manifest(runner_manifest: dict, expected_sha256: str) -> None:
+    """Det godkendte runner-manifest — genberegnet, ikke kun aflæst (4.5-kodereview, fund 5)."""
+    from build_43b_manifest import bundles_of, manifest_sha256
+    if runner_manifest.get("manifest_sha256") != expected_sha256:
+        raise ValueError("RUNNER_MANIFEST_DRIFT — ikke den kørsel, der blev givet GO til.")
+    if manifest_sha256(runner_manifest) != expected_sha256:
+        raise ValueError("RUNNER_MANIFEST_TAMPERED — indholdet svarer ikke til hashen.")
+    flad = [k for keys in bundles_of(runner_manifest).values() for k in keys]
+    if len(flad) != len(set(flad)) or set(flad) != set(runner_manifest["records"]):
+        raise ValueError("RUNNER_BUNDLES_INVALID — bundterne er ikke en disjunkt opdeling "
+                         "af manifestets records.")
+
+
 def records_to_ingest(runner_manifest: dict, bundles: list[str] | None) -> list[str]:
     """Hele manifestet, eller kun de navngivne bundter (4.5: reserven kun hvis kørt)."""
     if not bundles:
@@ -215,8 +228,10 @@ def main() -> int:
     args = ap.parse_args()
 
     runner_manifest = json.loads(Path(args.runner_manifest).read_text(encoding="utf-8"))
-    if runner_manifest.get("manifest_sha256") != args.expect_runner_manifest_sha256:
-        print("RUNNER_MANIFEST_DRIFT — ikke den kørsel, der blev givet GO til.")
+    try:
+        verify_runner_manifest(runner_manifest, args.expect_runner_manifest_sha256)
+    except ValueError as exc:
+        print(str(exc))
         return 1
 
     runner_input = json.loads(Path(args.runner_input).read_text(encoding="utf-8"))["records"]
