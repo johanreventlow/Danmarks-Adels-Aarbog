@@ -22,8 +22,8 @@
 | Forslagenes værdier sammenlignet med den nuværende writers output (4.4-rehearsal på `main`) | Identisk hash `7171190b…` over nøgle, prædikat og værdi | Ingen ombygning af de 84 |
 | #196's projektionsfunktioner (`private.interpretation_proposal_*`) | Mangler i restoren (0 af 8) | Task 0 løfter en **kopi** til `main`s skema |
 | Runner-kontrakt nu vs. 4.3b-manifestet | Profil 1.3.0, prompt `d46cda80…`, model `gpt-5.6-terra`, skema `904c903c…`, `evidence-runner-1.0` — identiske | 4.3b's 10 og de nye poster måles under **samme frosne kontrakt** |
-| Eligibility-ledger (`~/.private/43b-ledger/`) | 488 `eligible`, 103 `excluded`; 485 af de 488 har en persona med accepteret identitet | Udvalget tages kun herfra; de 3 uden signal udelukkes fail-closed |
-| Prøvekørsel af Task 1's kode mod de rigtige data (kun tal) | 24 nye i 4 bundter + 6 i reserve; dækning indgiftet 16, usikker dato 18, titel 21, flere gift-udsagn 6; 8 strata à 3; 1 henvisning udelukket | Kravene kan opfyldes. Prioriteringen af sjældne signaler overrepræsenterer signalrige poster (titel 21/24 mod 243/488 i puljen); rapporten skal angive det |
+| Eligibility-ledger (`~/.private/43b-ledger/`) | 488 `eligible`, 103 `excluded` | Udvalget tages kun herfra |
+| Prøvekørsel af Task 1's kode mod de rigtige data (kun tal) | 24 nye i 4 bundter + 6 i reserve; dækning mindst ét gift-udsagn 15, flere 6, usikker dato 18, titel 22; 8 strata à 3; 1 henvisning udelukket | Kravene kan opfyldes. Prioriteringen af sjældne signaler overrepræsenterer signalrige poster (titel 22/24 mod 243/488 i puljen); rapporten skal angive det |
 | Persona-identiteter | 595 af 595 `accepted` | Binding er ikke blokeret af identitet |
 | Aktive promotion-regler | 5 prædikater: `person.birth`, `.death`, `.name`, `.title`, `.byname` | 25 af de 84 forslag er promoverbare; alle har strengværdi |
 | Redaktionsprofiler i restoren | 2 | Projektejeren udpeger, hvilken der afgør (Task 5) |
@@ -52,13 +52,13 @@
 ## Projektejerens valg i denne plan
 
 - **V1 — udvalget:** 4.3b's 10 poster tæller med, og der vælges **24 nye plus 6 i reserve** — alle 30 godkendt i samme GO. ≥30 **bekræftede biografiske poster** er en fail-closed gate (Task 3 Step 2): en post er bekræftet biografisk, når den gav mindst ét kontraktgyldigt claim. 4.3b bidrager med 8. Når de 24 er kørt, køres reserven kun, hvis der er under 30; er der stadig under 30, stopper dagsværket før ingest.
-- **V4 — definitionen af »indgiftede« (§8.1 definerer den ikke):** en post omtaler en indgiftet, når hovedpersonen har en partner uden fødselsfamilie i basen (partneren har ingen `barn`-række i `family_member`). Basen rummer slægtens genealogi, så en partner uden forældre i den er normalt giftet ind. Målt: 289 af 595 personaer. Projektejeren godkender eller erstatter definitionen; den indgår i udvalgets hash.
+- **V4 — »indgiftede« måles af gift-aksen (projektejerens afgørelse 2026-09-24):** §8.1's to akser »gift«-udsagn og indgiftede slås sammen. I 2018-20 optræder de indgiftede som ægtefællen i et slægtsmedlems post (spec §5.3, §7.2), så tekstens egne gift-udsagn er det direkte mål. Et database-signal (»partner uden forældre i basen«) blev fravalgt: det måler, hvor mange slægter der er indlæst, ikke personen, og skifter betydning, når næste slægt kommer ind.
 - **V2 — stopkriteriet:** 4.3b's fem tærskler genbruges uændret (Task 2). Spec §8.4 tilføjer: en kategori med absurd lav eller høj dækning er `NO-GO` for fuld kørsel.
 - **V3 — modelkaldene:** projektejerens GO med manifest-hash og budget, efter kvotenulstilling (spec §10).
 
 ## Prøvekørt, før planen blev sendt til læsning (2026-09-23)
 
-- Task 1's kode og tests: 10/10 bestået; mod de rigtige data (kun tal) `UDVALG_OK nye=24 reserve=6 bundter=5`, dækning indgiftet 16 / usikker dato 18 / titel 21 / flere gift-udsagn 6.
+- Task 1's kode og tests: 10/10 bestået; mod de rigtige data (kun tal) `UDVALG_OK nye=24 reserve=6 bundter=5`, dækning mindst ét gift-udsagn 15 / flere 6 / usikker dato 18 / titel 22.
 - Task 2's kode og tests: 10/10 bestået (plus runnerens egne 99); mutationstesten stopper på `SCHEMA_DRIFT` uden modelkald.
 - Task 4's ændring: 29/29 bestået; 4.4's manifest genbygget byte-identisk i legacy-tilstand.
 - Task 5's kode og tests: 14/14 bestået.
@@ -154,20 +154,19 @@ grep -c 'FEJL' ~/.private/45-pilot/verify.out
 - Test: `.claude/skills/daa-extract/scripts/test_build_45_selection.py`
 
 **Interfaces:**
-- Consumes: `evidence_runner.canonical_record_input`, `check_eligibility`, `load_ledger`, `sha256_text`; runner-input `~/.private/43b-runner-input/runner-input-v1.json` (`records[key] = {record_key, persona_id, post_verbatim_text, clauses[{ordinal, verbatim_text, verbatim_sha256}]}`); en signalfil `{persona_id: {"indgiftet": bool}}` fra Step 5, som `main()` omsætter til `{record_key: …}` via runner-inputtets `persona_id`. `select_new` får den record-nøglede form.
-- Produces: `gift_antal(tekst: str) -> int`, `features(record: dict, indgiftet: bool) -> dict`, `er_henvisning(record: dict) -> bool`, `select_new(records: dict, eligible: list[str], exclude: set[str], signals: dict, count: int, reserve: int = 0) -> tuple[list[str], list[str]]`, `coverage(records, keys, signals) -> dict[str, int]`, `definition_sha256() -> str`; udvalgsfil med `records` (hovedudvalg + reserve), `hovedudvalg`, `reserve`, `bundter` (`bundt_1`…`bundt_4` à seks, plus `reserve`), `strata_version = "45-strata-v2"`, `strata_sha256` (længdegrænser, udtryk, indgiftet-definition, krav og algoritme), `ledger_sha256`, `record_input_sha256`, `udelukket_allerede_koert` (4.3b's 10).
+- Consumes: `evidence_runner.canonical_record_input`, `check_eligibility`, `load_ledger`, `sha256_text`; runner-input `~/.private/43b-runner-input/runner-input-v1.json` (`records[key] = {record_key, persona_id, post_verbatim_text, clauses[{ordinal, verbatim_text, verbatim_sha256}]}`). Ingen databaseeksport: alle akser måles på teksten.
+- Produces: `gift_antal(tekst: str) -> int`, `features(record: dict) -> dict`, `er_henvisning(record: dict) -> bool`, `select_new(records: dict, eligible: list[str], exclude: set[str], count: int, reserve: int = 0) -> tuple[list[str], list[str]]`, `coverage(records, keys) -> dict[str, int]`, `definition_sha256() -> str`; udvalgsfil med `records` (hovedudvalg + reserve), `hovedudvalg`, `reserve`, `bundter` (`bundt_1`…`bundt_4` à seks, plus `reserve`), `strata_version = "45-strata-v3"`, `strata_sha256` (længdegrænser, udtryk, krav og algoritme), `ledger_sha256`, `record_input_sha256`, `udelukket_allerede_koert` (4.3b's 10).
 
 **Akser (spec §8.1), målt på de 488 `eligible` 2026-09-23:**
 
 | Akse | Signal | Fordeling |
 | --- | --- | --- |
 | Tekstlængde | `len(post_verbatim_text)`: kort < 200, middel < 800, lang ≥ 800 | p33 = 202, p66 = 591 |
-| »Gift«-udsagn | **antal** forekomster af `\b(?:gift\|ægte\w*)`: 0 / 1 / 2+ | 59 + 45 poster har mindst ét |
-| Indgiftede | V4: hovedpersonen har en partner uden `barn`-række i `family_member` (Step 5) | 289 af 595 personaer |
+| »Gift«-udsagn og indgiftede (V4) | **antal** forekomster af `\b(?:gift\|ægte\w*)`: 0 / 1 / 2+ | 59 + 45 poster har mindst ét |
 | Titler/embeder | `TITEL_RE` (listen i koden) | 243 |
 | Usikre datoer | `\bca\.`, `\bomkr\.`, `?`, `\b\d{3,4}/\d{2,4}\b` | 93 |
 
-Primære strata er længde × gift-antal (op til 9 strata), valgt i rundgang; de første 24 er hovedudvalget, de næste 6 reserven. Inden for et stratum ordnes efter antal sjældne signaler (indgiftet, usikker dato, titel, flere gift-udsagn) faldende og derefter `record_key` — så de sjældne akser kommer med uden at blive egne strata. Bagefter kræves dækning i hovedudvalget: ≥6 indgiftede, ≥3 med usikre datoer, ≥6 med titler, ≥3 med flere gift-udsagn. Opfyldes det ikke, eller er puljen for lille, stopper scriptet med tallene (fail-closed), og planen revideres — tærsklen sænkes ikke. **Kendt skævhed:** prioriteringen overrepræsenterer signalrige poster; rapporten angiver udvalgets fordeling mod puljens.
+Primære strata er længde × gift-antal (op til 9 strata), valgt i rundgang; de første 24 er hovedudvalget, de næste 6 reserven. Inden for et stratum ordnes efter antal sjældne signaler (gift-udsagn, flere gift-udsagn, usikker dato, titel) faldende og derefter `record_key` — så de sjældne akser kommer med uden at blive egne strata. Bagefter kræves dækning i hovedudvalget: ≥9 med mindst ét gift-udsagn, ≥3 med flere, ≥3 med usikre datoer, ≥6 med titler. Opfyldes det ikke, eller er puljen for lille, stopper scriptet med tallene (fail-closed), og planen revideres — tærsklen sænkes ikke. **Kendt skævhed:** prioriteringen overrepræsenterer signalrige poster; rapporten angiver udvalgets fordeling mod puljens.
 
 **Henvisningsreglen:** en post under 100 tegn, der indeholder `\bse\b`, er en krydshenvisning og vælges ikke (4.3b's to henvisninger var 50 og 70 tegn med »se«). Antallet af sådanne udelukkede poster skrives i udvalgsfilen.
 
@@ -186,15 +185,14 @@ def rec(key, tekst):
 
 
 def test_features_maaler_alle_akser_og_gift_som_antal():
-    f = features(rec("A", "Kammerherre, gift 1850, ægtede 1860, † ca. 1901 " + "x" * 900),
-                 indgiftet=True)
-    assert f == {"laengde": "lang", "gift": "2+", "gift_flere": True, "indgiftet": True,
+    f = features(rec("A", "Kammerherre, gift 1850, ægtede 1860, † ca. 1901 " + "x" * 900))
+    assert f == {"laengde": "lang", "gift": "2+", "gift_mindst_et": True, "gift_flere": True,
                  "titel": True, "usikker_dato": True}
 
 
 def test_features_kort_uden_signaler():
-    f = features(rec("B", "Født 1800."), indgiftet=False)
-    assert f == {"laengde": "kort", "gift": "0", "gift_flere": False, "indgiftet": False,
+    f = features(rec("B", "Født 1800."))
+    assert f == {"laengde": "kort", "gift": "0", "gift_mindst_et": False, "gift_flere": False,
                  "titel": False, "usikker_dato": False}
 
 
@@ -209,56 +207,52 @@ def test_henvisning_er_kort_og_siger_se():
 
 
 def _pulje():
-    records, signals = {}, {}
+    records = {}
     for i in range(80):
         key = f"I-{i:03d}"
         gift = "gift ægtede " if i % 4 == 0 else ("gift " if i % 2 else "")
         tekst = gift + ("ca. " if i % 5 == 0 else "") \
             + ("Kammerherre " if i % 3 == 0 else "") + "x" * (50 + 30 * i)
         records[key] = rec(key, tekst)
-        signals[key] = {"indgiftet": i % 3 == 0}
-    return records, signals
+    return records
 
 
 def test_udvalget_er_deterministisk_og_uafhaengigt_af_raekkefoelge():
-    records, signals = _pulje()
+    records = _pulje()
     keys = sorted(records)
-    a = select_new(records, keys, set(), signals, 24, 6)
-    b = select_new(dict(reversed(list(records.items()))), list(reversed(keys)),
-                   set(), signals, 24, 6)
+    a = select_new(records, keys, set(), 24, 6)
+    b = select_new(dict(reversed(list(records.items()))), list(reversed(keys)), set(), 24, 6)
     assert a == b and len(a[0]) == 24 and len(a[1]) == 6
     assert not set(a[0]) & set(a[1])
 
 
 def test_udvalget_springer_koerte_og_ikke_eligible_over():
-    records, signals = _pulje()
+    records = _pulje()
     keys = sorted(records)
     exclude, eligible = set(keys[:10]), keys[:70]
-    valgt, reserve = select_new(records, eligible, exclude, signals, 24, 6)
+    valgt, reserve = select_new(records, eligible, exclude, 24, 6)
     assert not (set(valgt) | set(reserve)) & exclude
     assert set(valgt) | set(reserve) <= set(eligible)
 
 
 def test_udvalget_spreder_over_laengde_og_gift_antal():
-    records, signals = _pulje()
-    valgt, _ = select_new(records, sorted(records), set(), signals, 24)
-    strata = {(features(records[k], signals[k]["indgiftet"])["laengde"],
-               features(records[k], signals[k]["indgiftet"])["gift"]) for k in valgt}
+    records = _pulje()
+    valgt, _ = select_new(records, sorted(records), set(), 24)
+    strata = {(features(records[k])["laengde"], features(records[k])["gift"]) for k in valgt}
     assert len(strata) >= 6
 
 
 def test_manglende_daekning_stopper():
     records = {f"K-{i}": rec(f"K-{i}", "x" * 300) for i in range(40)}
-    signals = {k: {"indgiftet": False} for k in records}
     with pytest.raises(SelectionCoverageError) as exc:
-        select_new(records, sorted(records), set(), signals, 24)
-    assert "indgiftet=0" in str(exc.value)
+        select_new(records, sorted(records), set(), 24)
+    assert "gift_mindst_et=0" in str(exc.value)
 
 
 def test_for_lille_pulje_stopper():
-    records, signals = _pulje()
+    records = _pulje()
     with pytest.raises(SelectionCoverageError, match="valgt=10"):
-        select_new(records, sorted(records)[:10], set(), signals, 24)
+        select_new(records, sorted(records)[:10], set(), 24)
 
 
 def test_definitionshash_binder_graenser(monkeypatch):
@@ -279,8 +273,12 @@ Expected: FAIL med `ModuleNotFoundError: No module named 'build_45_selection'`.
 #!/usr/bin/env python3
 """Udvalget til dagsværk 4.5 (spec §8.1): 24 nye poster + 6 i reserve oven i 4.3b's 10.
 
-Deterministisk og hash-bundet: længdegrænser, regulære udtryk, indgiftet-definitionen,
-dækningskrav og algoritmeversion indgår alle i `strata_sha256`.
+Deterministisk og hash-bundet: længdegrænser, regulære udtryk, dækningskrav og
+algoritmeversion indgår alle i `strata_sha256`.
+
+Spec §8.1's akser »gift«-udsagn og indgiftede måles samlet af gift-antallet (V4): i
+2018-20 optræder indgiftede som ægtefællen i et slægtsmedlems post, og tekstens egne
+udsagn er et signal, der ikke skifter betydning, når flere slægter indlæses.
 Printer kun nøgler, tal og hashes — aldrig tekst.
 """
 from __future__ import annotations
@@ -297,7 +295,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evidence_runner import (EligibilityError, canonical_record_input, check_eligibility,
                              load_ledger, sha256_text)
 
-STRATA_VERSION = "45-strata-v2"
+STRATA_VERSION = "45-strata-v3"
 LAENGDE_GRAENSER = (200, 800)
 GIFT_RE = re.compile(r"\b(?:gift|ægte\w*)", re.IGNORECASE)
 TITEL_RE = re.compile(
@@ -307,10 +305,7 @@ TITEL_RE = re.compile(
     re.IGNORECASE)
 USIKKER_RE = re.compile(r"(?:\bca\.|\bomkr\.|\?|\b\d{3,4}/\d{2,4}\b)", re.IGNORECASE)
 HENVISNING_RE = re.compile(r"\bse\b", re.IGNORECASE)
-#: V4 (projektejerens definitionsvalg): posten omtaler en indgiftet, dvs. hovedpersonen
-#: har en partner uden fødselsfamilie i basen — eller er selv en sådan partner.
-INDGIFTET_DEFINITION = "partner-uden-barn-raekke-v1"
-KRAV = {"indgiftet": 6, "usikker_dato": 3, "titel": 6, "gift_flere": 3}
+KRAV = {"gift_mindst_et": 9, "gift_flere": 3, "usikker_dato": 3, "titel": 6}
 BUNDT = 6
 RESERVE = 6
 
@@ -323,15 +318,15 @@ def gift_antal(tekst: str) -> int:
     return len(GIFT_RE.findall(tekst))
 
 
-def features(record: dict, indgiftet: bool) -> dict:
+def features(record: dict) -> dict:
     tekst = record["post_verbatim_text"]
     n, g = len(tekst), gift_antal(tekst)
     kort, middel = LAENGDE_GRAENSER
     return {
         "laengde": "kort" if n < kort else ("middel" if n < middel else "lang"),
         "gift": "0" if g == 0 else ("1" if g == 1 else "2+"),
+        "gift_mindst_et": g >= 1,
         "gift_flere": g >= 2,
-        "indgiftet": bool(indgiftet),
         "titel": bool(TITEL_RE.search(tekst)),
         "usikker_dato": bool(USIKKER_RE.search(tekst)),
     }
@@ -342,10 +337,10 @@ def er_henvisning(record: dict) -> bool:
     return len(tekst) < 100 and bool(HENVISNING_RE.search(tekst))
 
 
-def coverage(records: dict, keys: list[str], signals: dict) -> dict[str, int]:
+def coverage(records: dict, keys: list[str]) -> dict[str, int]:
     out = {akse: 0 for akse in KRAV}
     for k in keys:
-        f = features(records[k], signals[k]["indgiftet"])
+        f = features(records[k])
         for akse in KRAV:
             out[akse] += f[akse]
     return out
@@ -355,22 +350,21 @@ def definition_sha256() -> str:
     return sha256_text(STRATA_VERSION + "|" + json.dumps(
         {"laengde": LAENGDE_GRAENSER, "gift": GIFT_RE.pattern, "titel": TITEL_RE.pattern,
          "usikker": USIKKER_RE.pattern, "henvisning": HENVISNING_RE.pattern,
-         "indgiftet": INDGIFTET_DEFINITION, "krav": KRAV, "bundt": BUNDT,
+         "krav": KRAV, "bundt": BUNDT,
          "reserve": RESERVE, "algoritme": "laengde-x-gift-rundgang-sjaeldne-foerst-v1"},
         sort_keys=True))
 
 
 def select_new(records: dict, eligible: list[str], exclude: set[str],
-               signals: dict, count: int, reserve: int = 0) -> tuple[list[str], list[str]]:
+               count: int, reserve: int = 0) -> tuple[list[str], list[str]]:
     strata: dict[tuple[str, str], list[str]] = {}
     for k in sorted(set(eligible) - exclude):
         if er_henvisning(records[k]):
             continue
-        f = features(records[k], signals[k]["indgiftet"])
+        f = features(records[k])
         strata.setdefault((f["laengde"], f["gift"]), []).append(k)
     for bucket in strata.values():
-        bucket.sort(key=lambda k: (-sum(features(records[k], signals[k]["indgiftet"])[a]
-                                        for a in KRAV), k))
+        bucket.sort(key=lambda k: (-sum(features(records[k])[a] for a in KRAV), k))
     navne = sorted(strata)
     raekke: list[str] = []
     i = 0
@@ -380,7 +374,7 @@ def select_new(records: dict, eligible: list[str], exclude: set[str],
             raekke.append(bucket.pop(0))
         i += 1
     valgt, reserve_keys = raekke[:count], raekke[count:]
-    daekning = coverage(records, valgt, signals)
+    daekning = coverage(records, valgt)
     if any(daekning[a] < krav for a, krav in KRAV.items()) or len(valgt) < count:
         raise SelectionCoverageError("SELECTION_COVERAGE valgt=%d " % len(valgt) + " ".join(
             f"{a}={daekning[a]}" for a in KRAV))
@@ -391,7 +385,6 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--runner-input", required=True)
     ap.add_argument("--ledger", required=True)
-    ap.add_argument("--persona-signals", required=True)
     ap.add_argument("--exclude-selection", required=True, help="4.3b's udvalgsfil")
     ap.add_argument("--out", required=True)
     ap.add_argument("--count", type=int, default=24)
@@ -399,11 +392,6 @@ def main() -> int:
 
     records = json.loads(Path(args.runner_input).read_text(encoding="utf-8"))["records"]
     ledger = load_ledger(json.loads(Path(args.ledger).read_text(encoding="utf-8")))
-    persona_signals = json.loads(Path(args.persona_signals).read_text(encoding="utf-8"))
-    # Fail-closed: en record uden signal (persona uden accepteret identitet) kan ikke
-    # placeres på indgiftet-aksen og tages ikke med.
-    signals = {k: persona_signals[r["persona_id"]] for k, r in records.items()
-               if r.get("persona_id") in persona_signals}
     exclude = set(json.loads(Path(args.exclude_selection).read_text(encoding="utf-8"))["records"])
 
     eligible = []
@@ -412,12 +400,11 @@ def main() -> int:
             check_eligibility(ledger, key, canonical_record_input(rec))
         except EligibilityError:
             continue
-        if key in signals:
-            eligible.append(key)
+        eligible.append(key)
     henvisninger = sum(1 for k in eligible if k not in exclude and er_henvisning(records[k]))
 
     try:
-        valgt, reserve = select_new(records, eligible, exclude, signals, args.count, RESERVE)
+        valgt, reserve = select_new(records, eligible, exclude, args.count, RESERVE)
     except SelectionCoverageError as exc:
         print(str(exc))
         return 1
@@ -437,7 +424,7 @@ def main() -> int:
         "bundter": bundter,
         "udelukket_allerede_koert": sorted(exclude),
         "udelukket_henvisninger": henvisninger,
-        "daekning": coverage(records, valgt, signals),
+        "daekning": coverage(records, valgt),
         "record_input_sha256": {k: canonical_record_input(records[k]) for k in alle},
     }
     out = Path(args.out)
@@ -459,38 +446,18 @@ if __name__ == "__main__":
 Run: `env -u NODE_OPTIONS /usr/bin/python3 -m pytest test_build_45_selection.py -q`
 Expected: 10 passed.
 
-- [ ] **Step 5: Eksportér signalfilen fra arbejdsbasen** (læse-kun; kun persona-id'er og booleans; V4's definition):
-
-```bash
-W=$(cat ~/.private/45-pilot/workdb.txt)
-psql -X -q -d "$W" -At -v ON_ERROR_STOP=1 -c "SET default_transaction_read_only=on" -c "
-  SELECT coalesce(jsonb_object_agg(spi.source_persona_id, jsonb_build_object('indgiftet',
-           EXISTS (SELECT 1 FROM family_member me
-                     JOIN family_member sp ON sp.family_id = me.family_id AND sp.rolle = 'partner'
-                    WHERE me.person_id = spi.canonical_person_id AND me.rolle = 'partner'
-                      AND NOT EXISTS (SELECT 1 FROM family_member b
-                                       WHERE b.person_id = sp.person_id AND b.rolle = 'barn')))), '{}')
-    FROM private.source_persona_identity spi WHERE spi.decision_status = 'accepted'" \
-  > ~/.private/45-pilot/persona-signals.json
-chmod 600 ~/.private/45-pilot/persona-signals.json
-jq 'length' ~/.private/45-pilot/persona-signals.json
-jq '[.[]|select(.indgiftet)]|length' ~/.private/45-pilot/persona-signals.json
-```
-
-Forventet (målt 2026-09-23): 595 personaer, 289 med indgiftet partner.
-
-- [ ] **Step 6: Kør udvalget.**
+- [ ] **Step 5: Kør udvalget.**
 
 ```bash
 cd .claude/skills/daa-extract/scripts
 python3 build_45_selection.py --runner-input ~/.private/43b-runner-input/runner-input-v1.json \
-  --ledger ~/.private/43b-ledger/eligibility-ledger-v1.json --persona-signals ~/.private/45-pilot/persona-signals.json \
+  --ledger ~/.private/43b-ledger/eligibility-ledger-v1.json \
   --exclude-selection ~/.private/43b-udvalg.json --out ~/.private/45-pilot/udvalg.json
 ```
 
-Forventet: `UDVALG_OK nye=24 reserve=6 bundter=5` (prøvekørt: dækning indgiftet 16, usikker dato 18, titel 21, flere gift-udsagn 6; 8 strata à 3). `SELECTION_COVERAGE` er et fund, der går til projektejeren.
+Forventet: `UDVALG_OK nye=24 reserve=6 bundter=5` (prøvekørt: dækning mindst ét gift-udsagn 15, flere 6, usikker dato 18, titel 22; 8 strata à 3). `SELECTION_COVERAGE` er et fund, der går til projektejeren.
 
-- [ ] **Step 7: Commit** — tilføj først `test_build_45_selection.py` til pytest-listen i `ci.yml`s trin »evidence builders/runner/comparators · pytest«.
+- [ ] **Step 6: Commit** — tilføj først `test_build_45_selection.py` til pytest-listen i `ci.yml`s trin »evidence builders/runner/comparators · pytest«.
 
 ```bash
 git add .claude/skills/daa-extract/scripts/build_45_selection.py .claude/skills/daa-extract/scripts/test_build_45_selection.py .github/workflows/ci.yml
@@ -850,7 +817,7 @@ python3 build_43b_manifest.py --dagsvaerk 4.5 --selection ~/.private/45-pilot/ud
   --restore-identity "$(cat ~/.private/45-pilot/workdb.txt)" --out ~/.private/45-pilot/manifest.json
 ```
 
-- [ ] **Step 7: GO-anmodning til projektejeren** — i chatten, uden tekst: manifest-hash, de 24 + 6 record-nøgler (reserven markeret), strata-dækning, antal udelukkede henvisninger, budget (≈17.600 input-tokens pr. post ⇒ ≈420.000 for de 24, højst ≈530.000 hvis reserven køres; plus fast CLI-overhead), V4's definition, og stopkriteriet:
+- [ ] **Step 7: GO-anmodning til projektejeren** — i chatten, uden tekst: manifest-hash, de 24 + 6 record-nøgler (reserven markeret), strata-dækning, antal udelukkede henvisninger, budget (≈17.600 input-tokens pr. post ⇒ ≈420.000 for de 24, højst ≈530.000 hvis reserven køres; plus fast CLI-overhead), og stopkriteriet:
 
 | Mål | Nævner | Tærskel (som 4.3b) |
 | --- | --- | --- |
@@ -1790,7 +1757,7 @@ git commit -m "docs(147): 4.5-pilotrapport — afgørelse, binding og skalafrems
 
 1. **Om Task 7's forespørgsel kan give et `MATCH`, som RPC'en afviser**, eller omvendt — dvs. om normalisering, regelvalg og identitetsled er de samme.
 2. **Om Task 5-6 kan skrive en afgørelse, mennesket ikke har truffet** (arket ændret, forkert version, delvis transaktion).
-3. **Om udvalget i Task 1 opfylder §8.1** med de valgte signaler, eller om en akse reelt ikke måles.
+3. **Om udvalget i Task 1 opfylder §8.1** (indgiftede måles af gift-aksen, V4) med de valgte signaler, eller om en akse reelt ikke måles.
 4. **Om noget i planen kan sende en ikke-eligible record afsted** eller skrive kildetekst ud af maskinen.
 
 Fund, hvis værste udfald er et falsk STOP, er højst MINOR (decisions 2026-09-23).
@@ -1803,3 +1770,4 @@ Fund, hvis værste udfald er et falsk STOP, er højst MINOR (decisions 2026-09-2
   3. *Kontrakten blev ikke genvalideret ved kaldet* → `check_contract` (manifest, skemahash, kontraktversion, runner-kodehash) før første `prepare_call_dir`, med mutationstest uden modelkald (Task 2).
   4. *Bindingsforespørgslen spejlede ikke regelflag og eksisterende promotions* (MINOR) → otte udfald, test af genkørsel efter binding (Task 7).
   5. *Tællingerne var ikke 0-fyldte, og tekstgrenen var utestet* (MINOR) → krydsprodukt prædikat × udfald; `person.name`-tilfælde i testen (Task 7).
+- **2026-09-24, projektejerens afgørelse af V4.** Database-signalet for indgiftede (partner uden forældre i basen) er fjernet: det måler indlæsningsgraden, ikke personen, og skifter betydning, når flere slægter indlæses. Gift-antallet dækker nu begge §8.1-akser; Task 1's databaseeksport er væk (`45-strata-v3`). Prøvekørt: 10/10, `UDVALG_OK nye=24 reserve=6`.
