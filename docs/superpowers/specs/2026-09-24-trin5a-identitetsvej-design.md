@@ -273,3 +273,28 @@ tomme tabeller og gendanner RPC'erne; data i prod berøres ikke.
 3. Oprettelse af nye kanoniske personer og personas for andre aktører — 5b.
 4. Placement-signal i matcheren (slægt/linje/generation) — når 5c leverer placements.
 5. Klausul-spans og tværkilde-modstrid i persona-detaljen (#151's opfølgning).
+
+## 13. Ændringer ved planlægningen (2026-09-24)
+
+Målt eller besluttet af projektejeren, mens planen blev skrevet; planen
+(`docs/superpowers/plans/2026-09-24-trin5a-identitetsvej.md`) følger disse punkter.
+
+1. **Navnekilde (§5).** 2018-20's 587 personas har kun én mention af typen `person_post`, som
+   dækker hele posten; den er ikke et navn, og postens indledning er uregelmæssig (kun 118 af 587
+   har 2–6 ord før første komma). Personaens navn tages derfor fra `person.name`-fortolkningen
+   (`accepted` foran `proposed`) eller fra en navne-mention (`mention_kind='person'`, fx 1939).
+   Uden navn: ingen kandidater, talt for sig. Kalibreringen (§8.1) køres på de personas, der har
+   navn nu (ca. 27), og gentages efter en fuld 2018-20-kørsel og i 5b.
+2. **Guard-regel (§4.2).** Kortlægningen viste tre slags ikke-menneskelige skrivninger:
+   fortrydelser (`superseded` + `reversed_batch_id`), oprettelse (`red_apply_reimport_person_create`
+   binder en persona til den person, den lige har oprettet) og batch-match til eksisterende
+   personer (149b-mønstret). Projektejeren valgte: menneskelig basis og fortrydelse tilladt;
+   batch-evidens kun når personen er oprettet i samme transaktion; batch-match til eksisterende
+   personer lukket.
+3. **Rangering (§5).** `matchUdgaver`'s `assignTiers` er injektiv; flere personas kan være samme
+   person, så generatoren rangerer selv pr. persona oven på `buildScored`/`scorePair` med samme
+   tier-tærskler.
+4. **Generatorens form (§5).** Der findes ingen Node-DB-klient i repoet; CLI'en er en ren funktion
+   (psql eksporterer JSON, CLI'en rangerer, psql skriver via writer-RPC'en) og kører gennem `tsx`.
+5. **Webtest (§9).** Der findes ingen Playwright-fixture for redaktionslogin; webkøen dækkes af
+   vitest-komponenttests, og én afgørelse i webkøen mod den lokale base indgår i beviset (§8.2).
