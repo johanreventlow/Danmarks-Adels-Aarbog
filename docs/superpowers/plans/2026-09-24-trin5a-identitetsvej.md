@@ -2592,6 +2592,7 @@ CREATE TEMP TABLE k ON COMMIT DROP AS
     LEFT JOIN private.source_persona_identity i ON i.source_persona_id=c.source_persona_id
    WHERE c.source_persona_id=:'p'::uuid AND c.rank=:rank
      AND c.run_id=(SELECT r.id FROM private.source_persona_identity_candidate_run r WHERE r.source_id=1 ORDER BY r.run_seq DESC LIMIT 1);
+GRANT SELECT ON k TO authenticated;   -- temp-tabellen ejes af ejeren; uden grant kan authenticated ikke læse den
 SET LOCAL ROLE authenticated;
 SELECT red_afgoer_source_persona(:'p'::uuid, k.v, 'same', k.candidate_person_id, 'webspor-paritet',
        jsonb_build_object('basis','web_detail','candidate_id',k.id,'run_id',k.run_id)) FROM k;
