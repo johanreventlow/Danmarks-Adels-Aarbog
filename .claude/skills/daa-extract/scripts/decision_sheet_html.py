@@ -55,6 +55,29 @@ def _read_mangler(text: str, keys: list[str]) -> tuple[dict[str, str], list[str]
     return {k: "\n".join(v) for k, v in placed.items()}, unplaced
 
 
+def record_clauses(rows: list[dict]) -> dict[str, list[dict]]:
+    """Postens klausuler, som arket kender dem: foreningen af alle forslags citater.
+
+    Rækkefilen bærer kun citerede klausuler, så en klausul, intet forslag citerer,
+    findes ikke her. Hver klausul får de prædikater, der citerer den, så fx navnet
+    (`person.name`) kan findes fra et kort, der kun citerer en senere klausul.
+    """
+    out: dict[str, dict[int, dict]] = {}
+    for r in rows:
+        post = out.setdefault(r["record_key"], {})
+        for c in r["cited"]:
+            k = post.get(c["ordinal"])
+            if k is None:
+                k = post[c["ordinal"]] = {"ordinal": c["ordinal"], "text": c["text"],
+                                          "flags": list(c["flags"]), "predicates": set()}
+            elif (k["text"], k["flags"]) != (c["text"], list(c["flags"])):
+                raise SheetError(f"ROWS_CLAUSE_CONFLICT post={r['record_key']} "
+                                 f"klausul={c['ordinal']}")
+            k["predicates"].add(r["predicate"])
+    return {key: [dict(c, predicates=sorted(c["predicates"])) for _, c in sorted(post.items())]
+            for key, post in out.items()}
+
+
 def build_payload(rows: list[dict], prior: dict, *, sheet_text: str | None,
                   mangler_text: str | None, rows_sha256: str) -> dict:
     text = render_sheet(rows, prior)
@@ -82,6 +105,7 @@ def build_payload(rows: list[dict], prior: dict, *, sheet_text: str | None,
     mangler, unplaced = _read_mangler(mangler_text or "", posts)
     return {"contract": "decision-sheet-html-v1", "rows_sha256": rows_sha256,
             "sheet_lines": lines, "posts": posts, "items": items,
+            "record_clauses": record_clauses(rows),
             "mangler": mangler, "unplaced": "\n".join(unplaced)}
 
 
@@ -130,6 +154,9 @@ main{max-width:980px;margin:0 auto;padding:16px}
 .note{grid-column:1/-1;width:100%;border:1px solid var(--line);border-radius:6px;padding:4px 8px;background:transparent}
 .miss{margin-top:8px}.miss label{font-size:13px;color:var(--muted);display:block;margin-bottom:3px}
 textarea{width:100%;min-height:44px;border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:transparent;resize:vertical}
+.ctx{margin:0 0 6px}.ctx summary{cursor:pointer;color:var(--muted);font-size:13px}
+.ctx .cited li.here{border-left-color:var(--focus)}.ctx .preds{color:var(--muted);font-size:12px;margin-left:6px}
+.ctx .gap{color:var(--muted);font-size:12px;border-left-style:dashed}
 .hidden{display:none}.diff{font-size:12px;color:var(--rej)}
 @media (max-width:640px){.item{grid-template-columns:1fr}.toks{justify-self:start}}
 """

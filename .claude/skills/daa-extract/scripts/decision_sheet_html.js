@@ -98,7 +98,8 @@ if (typeof document !== "undefined") (function () {
 
   var main = el("main");
   var help = el("p", { class: "help" },
-    "Taster: j/k = næste/forrige · a/r/u = afgør og gå videre · n = note · Esc = forlad felt. " +
+    "Taster: j/k = næste/forrige · a/r/u = afgør og gå videre · n = note · " +
+    "c = vis/skjul postens klausuler · Esc = forlad felt. " +
     "Arbejdet gemmes løbende i browseren. »Gem AFGØR« kræver, at alle forslag er afgjort; " +
     "filen hentes som AFGØR-udfyldt.txt og skal flyttes til ~/.private/45-pilot/.");
   main.appendChild(help);
@@ -116,6 +117,29 @@ if (typeof document !== "undefined") (function () {
     var h = el("h2", null, "Post " + k);
     h.appendChild(el("small", null, byPost[k].length + " forslag"));
     sec.appendChild(h);
+    // Postens klausuler, som arket kender dem (alle forslags citater), så navnet og
+    // sammenhængen kan ses fra et kort, der kun citerer en senere klausul.
+    var clauses = (P.record_clauses || {})[k] || [];
+    var ctx = el("details", { class: "ctx" });
+    ctx.appendChild(el("summary", null, "Postens klausuler (" + clauses.length +
+      " kendte — klausuler, intet forslag citerer, er ikke med) · tast c"));
+    var cul = el("ul", { class: "cited" });
+    var ctxLis = {};
+    var prev = 0;
+    clauses.forEach(function (c) {
+      if (c.ordinal > prev + 1) cul.appendChild(el("li", { class: "gap" },
+        "… klausul " + (prev + 1) + (c.ordinal - 1 > prev + 1 ? "–" + (c.ordinal - 1) : "") + " ikke citeret"));
+      prev = c.ordinal;
+      var li = el("li");
+      li.appendChild(el("span", { class: "ord" }, "[" + c.ordinal + "]"));
+      li.appendChild(document.createTextNode(c.text));
+      if (c.predicates.length) li.appendChild(el("span", { class: "preds" }, c.predicates.join(", ")));
+      if (c.flags.length) li.appendChild(el("span", { class: "flag" }, "flag: " + c.flags.join(", ")));
+      ctxLis[c.ordinal] = li;
+      cul.appendChild(li);
+    });
+    ctx.appendChild(cul);
+    sec.appendChild(ctx);
     byPost[k].forEach(function (it) {
       var node = el("div", { class: "item", tabindex: "-1" });
       var head = el("div", { class: "head" });
@@ -156,7 +180,8 @@ if (typeof document !== "undefined") (function () {
         if (e.target === node) focusItem(indexOf(it.id));
       });
       sec.appendChild(node);
-      itemNodes.push({ it: it, node: node, buttons: buttons, diff: diff, note: note, post: sec });
+      itemNodes.push({ it: it, node: node, buttons: buttons, diff: diff, note: note, post: sec,
+                       ctx: ctx, ctxLis: ctxLis });
     });
     var miss = el("div", { class: "miss" });
     var lab = el("label", null, "Udsagn i post " + k + ", som modellen manglede (ét pr. linje)");
@@ -228,6 +253,11 @@ if (typeof document !== "undefined") (function () {
     cur = i;
     var x = itemNodes[i];
     x.node.classList.add("focus");
+    // markér det fokuserede forslags egne klausuler i postens klausulliste
+    Object.keys(x.ctxLis).forEach(function (o) { x.ctxLis[o].classList.remove("here"); });
+    x.it.cited.forEach(function (c) { if (x.ctxLis[c.ordinal]) x.ctxLis[c.ordinal].classList.add("here"); });
+    // én liste pr. post; står den åben, følger den det fokuserede kort
+    if (x.ctx.open) x.post.insertBefore(x.ctx, x.node);
     x.node.focus({ preventScroll: true });
     x.node.scrollIntoView({ block: "center", behavior: "smooth" });
   }
@@ -254,6 +284,13 @@ if (typeof document !== "undefined") (function () {
     else if ((k === "a" || k === "r" || k === "u") && cur >= 0) {
       setTok(itemNodes[cur].it.id, k.toUpperCase()); step(1); e.preventDefault();
     } else if (k === "n" && cur >= 0) { itemNodes[cur].note.focus(); e.preventDefault(); }
+    else if (k === "c" && cur >= 0) {
+      var x = itemNodes[cur];
+      x.ctx.open = !x.ctx.open;
+      if (x.ctx.open) x.post.insertBefore(x.ctx, x.node);
+      x.node.scrollIntoView({ block: "nearest" });
+      e.preventDefault();
+    }
   });
 
   function download(name, text) {

@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from decision_sheet_html import build_payload, render_html
+from decision_sheet_html import build_payload, record_clauses, render_html
 from interpretation_decision_sheet import SheetError, check_identity, parse_sheet, render_sheet
 
 HERE = Path(__file__).resolve().parent
@@ -26,13 +26,14 @@ U3 = "33333333-3333-4333-8333-333333333333"
 FARLIG = "</script><script>alert(1)</script> <b>x</b>"
 
 
-def row(uid, key="I-1", pred="person.death", value="1850", text="† 1850"):
+def row(uid, key="I-1", pred="person.death", value="1850", text="† 1850", ordinal=1):
     return {"interpretation_id": uid, "version": 1, "record_key": key, "predicate": pred,
             "value_text": value, "confidence": 0.9, "persona_role": "principal",
-            "cited": [{"ordinal": 1, "text": text, "flags": []}]}
+            "cited": [{"ordinal": ordinal, "text": text, "flags": []}]}
 
 
-ROWS = [row(U1), row(U2, value="1851", text=FARLIG), row(U3, key="II-2", pred="person.birth")]
+ROWS = [row(U1), row(U2, value="1851", text=FARLIG, ordinal=2),
+        row(U3, key="II-2", pred="person.birth")]
 PRIOR = {("I-1", "person.death", "1850"): "J"}
 
 
@@ -88,7 +89,7 @@ def test_eksisterende_ark_indlaeses_saa_intet_arbejde_tabes():
 
 
 def test_ark_fra_andre_raekker_afvises():
-    fremmed = render_sheet([row(U1), row(U2, value="1851")], PRIOR)
+    fremmed = render_sheet([row(U1), row(U2, value="1851", ordinal=2)], PRIOR)
     with pytest.raises(SheetError, match="SHEET_IDENTITY_MISMATCH"):
         build_payload(ROWS, PRIOR, sheet_text=fremmed, mangler_text=None, rows_sha256="ab" * 32)
 
@@ -133,3 +134,28 @@ def test_cli_html_skriver_0600_og_kun_tal(tmp_path):
     assert ud.stat().st_mode & 0o777 == 0o600
     assert "HTML_OK forslag=3 poster=2 afgjort=1" in res.stdout
     assert "1850" not in res.stdout and "†" not in res.stdout
+
+
+def test_postens_klausuler_er_foreningen_af_citater_med_praedikater():
+    navn = {**row(U3, pred="person.name", value="Hans"),
+            "cited": [{"ordinal": 1, "text": "† 1850", "flags": []}]}
+    doed = {**row(U1), "cited": [{"ordinal": 4, "text": "var død 1353", "flags": ["f"]},
+                                 {"ordinal": 1, "text": "† 1850", "flags": []}]}
+    rc = record_clauses([doed, navn, row(U2, key="II-2")])
+    assert rc["I-1"] == [
+        {"ordinal": 1, "text": "† 1850", "flags": [], "predicates": ["person.death", "person.name"]},
+        {"ordinal": 4, "text": "var død 1353", "flags": ["f"], "predicates": ["person.death"]}]
+    assert [c["ordinal"] for c in rc["II-2"]] == [1]
+    p = build_payload([doed, navn], {}, sheet_text=None, mangler_text=None, rows_sha256="ab" * 32)
+    assert p["record_clauses"] == {"I-1": rc["I-1"]}
+
+
+def test_modstridende_klausultekst_i_samme_post_afvises():
+    with pytest.raises(SheetError, match="ROWS_CLAUSE_CONFLICT post=I-1 klausul=1"):
+        record_clauses([row(U1), row(U2, text="† 1851")])
+
+
+def test_klausullisten_indsaettes_kun_som_tekst():
+    kode = JS.read_text(encoding="utf-8")
+    assert ".innerHTML" not in kode and "insertAdjacentHTML" not in kode
+    assert "document.write" not in kode
