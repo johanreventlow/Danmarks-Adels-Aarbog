@@ -147,6 +147,12 @@ def main() -> int:
     r.add_argument("--rows", required=True)
     r.add_argument("--prior")
     r.add_argument("--out", required=True)
+    h = sub.add_parser("html")
+    h.add_argument("--rows", required=True)
+    h.add_argument("--prior")
+    h.add_argument("--sheet", help="påbegyndt ark; afgjorte linjer indlæses")
+    h.add_argument("--mangler", help="påbegyndt MANGLER.txt")
+    h.add_argument("--out", required=True)
     s = sub.add_parser("sql")
     s.add_argument("--sheet", required=True)
     s.add_argument("--approved-sha256", required=True)
@@ -159,11 +165,33 @@ def main() -> int:
     rows_sha = hashlib.sha256(rows_bytes).hexdigest()
     rows = json.loads(rows_bytes.decode("utf-8"))
 
+    prior = {}
+    if args.cmd in ("render", "html") and args.prior:
+        prior = {tuple(k.split("\x1f")): v for k, v in
+                 json.loads(Path(args.prior).read_text(encoding="utf-8")).items()}
+
+    if args.cmd == "html":
+        from decision_sheet_html import build_payload, render_html
+        try:
+            payload = build_payload(
+                rows, prior, rows_sha256=rows_sha,
+                sheet_text=Path(args.sheet).read_text(encoding="utf-8") if args.sheet else None,
+                mangler_text=Path(args.mangler).read_text(encoding="utf-8") if args.mangler else None)
+        except SheetError as exc:
+            print(str(exc))
+            return 1
+        out = Path(args.out)
+        out.write_text(render_html(payload), encoding="utf-8")
+        out.chmod(0o600)
+        afgjort = sum(1 for it in payload["items"] if it["initial_tok"] != "_")
+        mangler = sum(len(v.splitlines()) for v in payload["mangler"].values())
+        print(f"HTML_OK forslag={len(payload['items'])} poster={len(payload['posts'])} "
+              f"afgjort={afgjort} mangler_linjer={mangler} "
+              f"uplacerede={len(payload['unplaced'].splitlines())}")
+        print(f"  rows_sha256 {rows_sha}")
+        return 0
+
     if args.cmd == "render":
-        prior = {}
-        if args.prior:
-            prior = {tuple(k.split("\x1f")): v for k, v in
-                     json.loads(Path(args.prior).read_text(encoding="utf-8")).items()}
         out = Path(args.out)
         out.write_text(render_sheet(rows, prior), encoding="utf-8")
         out.chmod(0o600)
