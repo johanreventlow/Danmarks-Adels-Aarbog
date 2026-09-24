@@ -53,6 +53,13 @@ function exportMangler(p, st) {
 // Rollen `other` betyder »ikke knyttet til postens hovedperson« (profilens
 // persona_role_map: mention.*, relation.*, reference.*) — ikke at udsagnet handler
 // om en anden person. Arkets signal hedder »anden person«; fladen viser, hvad det er.
+// Mekanisk tjek (decision_sheet_html.verbatim): står værdien ordret i de citerede
+// klausuler? Det afgør kun »står det der« — ikke typen eller personen.
+var VERBATIM = {
+  "ordret": ["✓ ordret", "ok", "Værdien står tegn for tegn i klausulen. Tjek stadig type og person."],
+  "næsten": ["≈ næsten ordret", "warn", "Kun store/små bogstaver eller tegnsætning afviger fra klausulen."],
+  "nej": ["✗ ikke ordret", "bad", "Værdien er omskrevet eller står ikke i klausulen. Se nøje efter."]
+};
 var ROLE_HELP = "Forslaget er kun, at dette nævnes i klausulen. Er det hovedpersonens bopæl, " +
   "fødested, gods el.lign., er det et eget forslag (person.*) — mangler det, skriv det i MANGLER. " +
   "Hvem/hvad omtalen konkret henviser til, afgøres i trin 5b.";
@@ -103,7 +110,7 @@ if (typeof document !== "undefined") (function () {
   var filter = el("select", { "aria-label": "Filter" });
   [["alle", "Alle forslag"], ["uafgjort", "Kun uafgjorte"], ["signal", "Kun »se nærmere«"],
    ["uanbefalet", "Kun uden anbefaling"], ["afviger", "Afviger fra anbefaling"],
-   ["U", "Kun U (uafklaret)"]].forEach(function (o) {
+   ["ikkeordret", "Kun ikke ordret (≈/✗)"], ["U", "Kun U (uafklaret)"]].forEach(function (o) {
     filter.appendChild(el("option", { value: o[0] }, o[1]));
   });
   var btnSheet = el("button", { class: "primary", type: "button" }, "Gem AFGØR");
@@ -162,6 +169,8 @@ if (typeof document !== "undefined") (function () {
       head.appendChild(el("span", { class: "pred" }, it.predicate));
       head.appendChild(el("span", { class: "val" }, it.value));
       head.appendChild(el("span", { class: "tag" }, "confidence " + it.confidence));
+      var vb = VERBATIM[it.verbatim];
+      if (vb) head.appendChild(el("span", { class: "tag " + vb[1], title: vb[2] }, vb[0]));
       head.appendChild(el("span", { class: "tag" },
         it.recommendation ? "anbefaling " + it.recommendation + " (4.3b)" : "ingen anbefaling"));
       it.signals.forEach(function (s) {
@@ -232,6 +241,7 @@ if (typeof document !== "undefined") (function () {
     if (f === "uanbefalet") return !x.it.recommendation;
     if (f === "afviger") return !!x.it.recommendation && t !== "_" && t !== x.it.recommendation;
     if (f === "U") return t === "U";
+    if (f === "ikkeordret") return x.it.verbatim !== "ordret";
     return true;
   }
 

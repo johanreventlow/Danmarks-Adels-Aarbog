@@ -15,6 +15,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
+import unicodedata
 from pathlib import Path
 
 from interpretation_decision_sheet import (LINE_RE, SheetError, render_sheet, reviewsignal,
@@ -53,6 +55,28 @@ def _read_mangler(text: str, keys: list[str]) -> tuple[dict[str, str], list[str]
         else:
             placed.setdefault(key, []).append(line[len(key):].strip())
     return {k: "\n".join(v) for k, v in placed.items()}, unplaced
+
+
+def _ws(s: str) -> str:
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFC", s)).strip()
+
+
+def _loose(s: str) -> str:
+    return re.sub(r"[^\w]+", " ", _ws(s).casefold()).strip()
+
+
+def verbatim(value: str, cited: list[dict]) -> str:
+    """Står værdien ordret i de citerede klausuler? Mekanisk hjælp, ikke en afgørelse.
+
+    `ordret`: tegn for tegn (kun blanktegn samlet). `næsten`: kun store/små
+    bogstaver eller tegnsætning afviger. `nej`: omskrevet eller ikke til stede.
+    """
+    tekst = " ".join(c["text"] for c in cited)
+    if _ws(value) and _ws(value) in _ws(tekst):
+        return "ordret"
+    if _loose(value) and _loose(value) in _loose(tekst):
+        return "næsten"
+    return "nej"
 
 
 def record_clauses(rows: list[dict]) -> dict[str, list[dict]]:
@@ -100,6 +124,7 @@ def build_payload(rows: list[dict], prior: dict, *, sheet_text: str | None,
             "value": r["value_text"], "confidence": r["confidence"],
             "role": r["persona_role"], "recommendation": anbefaling,
             "signals": reviewsignal(r), "cited": r["cited"],
+            "verbatim": verbatim(r["value_text"], r["cited"]),
             "initial_tok": tok, "initial_note": note,
         })
     mangler, unplaced = _read_mangler(mangler_text or "", posts)
@@ -142,7 +167,8 @@ main{max-width:980px;margin:0 auto;padding:16px}
 .pred{font-family:ui-monospace,Menlo,monospace;font-size:13px;color:var(--muted)}
 .val{font-size:17px;font-weight:600;background:var(--mark);padding:0 4px;border-radius:3px}
 .tag{font-size:12px;border:1px solid var(--line);border-radius:10px;padding:0 7px;color:var(--muted)}
-.tag.warn{border-color:var(--unr);color:var(--unr)}
+.tag.warn{border-color:var(--unr);color:var(--unr)}.tag.ok{border-color:var(--acc);color:var(--acc)}
+.tag.bad{border-color:var(--rej);color:var(--rej);font-weight:600}
 .cited{grid-column:1/-1;margin:2px 0 0;padding:0;list-style:none}
 .cited li{font-size:14px;padding:3px 8px;border-left:3px solid var(--line);margin:3px 0;white-space:pre-wrap}
 .cited .ord{color:var(--muted);font-variant-numeric:tabular-nums;margin-right:6px}

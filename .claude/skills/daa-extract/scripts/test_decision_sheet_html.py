@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from decision_sheet_html import build_payload, record_clauses, render_html
+from decision_sheet_html import build_payload, record_clauses, render_html, verbatim
 from interpretation_decision_sheet import SheetError, check_identity, parse_sheet, render_sheet
 
 HERE = Path(__file__).resolve().parent
@@ -171,3 +171,23 @@ def test_rolle_other_vises_som_hvad_den_er_ikke_som_anden_person():
                                     check=True).stdout)
     assert out == ["stedsomtale", "godsomtale", "omtale", "relation til anden person",
                    "henvisning", "ikke knyttet til hovedpersonen"]
+
+
+@pytest.mark.parametrize("vaerdi,forventet", [
+    ("død 1353 (23. april)", "ordret"),
+    ("død  1353\n(23. april)", "ordret"),
+    ("Død 1353, 23. april", "næsten"),
+    ("† 1353-04-23", "nej"),
+    ("", "nej"),
+])
+def test_ordret_maerket(vaerdi, forventet):
+    cited = [{"ordinal": 3, "text": "han var død 1353 (23. april), da", "flags": []},
+             {"ordinal": 4, "text": "sønnerne solgte", "flags": []}]
+    assert verbatim(vaerdi, cited) == forventet
+
+
+def test_ordret_maerket_ligger_i_payload_og_rammer_paa_tvaers_af_klausuler():
+    r = {**row(U1, value="da sønnerne"), "cited": [{"ordinal": 1, "text": "død, da", "flags": []},
+                                                   {"ordinal": 2, "text": "sønnerne solgte", "flags": []}]}
+    p = build_payload([r], {}, sheet_text=None, mangler_text=None, rows_sha256="ab" * 32)
+    assert p["items"][0]["verbatim"] == "ordret"
