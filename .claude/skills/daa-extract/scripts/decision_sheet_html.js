@@ -50,9 +50,22 @@ function exportMangler(p, st) {
   return out.join("\n") + "\n";
 }
 
+// Rollen `other` betyder »ikke knyttet til postens hovedperson« (profilens
+// persona_role_map: mention.*, relation.*, reference.*) — ikke at udsagnet handler
+// om en anden person. Arkets signal hedder »anden person«; fladen viser, hvad det er.
+var ROLE_HELP = "Knyttes ikke til postens hovedperson; hvem/hvad det henviser til, afgøres i trin 5b. " +
+  "Spørgsmålet her er kun, om det står i klausulen og har den rigtige type.";
+function roleLabel(it) {
+  var p = it.predicate;
+  if (p.indexOf("mention.") === 0) return "omtale — ikke knyttet til hovedpersonen";
+  if (p.indexOf("relation.") === 0) return "relation til anden person";
+  if (p.indexOf("reference.") === 0) return "henvisning — ikke knyttet til hovedpersonen";
+  return "ikke knyttet til hovedpersonen";
+}
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { exportSheet: exportSheet, exportMangler: exportMangler,
-                     initialState: initialState, sanitizeNote: sanitizeNote };
+                     initialState: initialState, sanitizeNote: sanitizeNote, roleLabel: roleLabel };
 }
 
 if (typeof document !== "undefined") (function () {
@@ -146,10 +159,12 @@ if (typeof document !== "undefined") (function () {
       head.appendChild(el("span", { class: "pred" }, it.predicate));
       head.appendChild(el("span", { class: "val" }, it.value));
       head.appendChild(el("span", { class: "tag" }, "confidence " + it.confidence));
-      if (it.role !== "principal") head.appendChild(el("span", { class: "tag warn" }, it.role));
       head.appendChild(el("span", { class: "tag" },
         it.recommendation ? "anbefaling " + it.recommendation + " (4.3b)" : "ingen anbefaling"));
-      it.signals.forEach(function (s) { head.appendChild(el("span", { class: "tag warn" }, s)); });
+      it.signals.forEach(function (s) {
+        var t = s === "anden person" ? roleLabel(it) : s;
+        head.appendChild(el("span", { class: "tag warn", title: t === s ? "" : ROLE_HELP }, t));
+      });
       var diff = el("span", { class: "diff hidden" }, "afviger fra anbefaling");
       head.appendChild(diff);
       node.appendChild(head);
