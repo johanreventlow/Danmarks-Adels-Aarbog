@@ -78,5 +78,87 @@ class TestClauseSegment(unittest.TestCase):
         self.assertRegex(a["ledger_sha256"], r"^[0-9a-f]{64}$")
 
 
+def rules_v2():
+    return evidence_extract.load_profile("daa-2018-20-v2")["clause_rules"]
+
+
+class TestSectionNumeral(unittest.TestCase):
+    """#189: et fritstående romertal mellem to sætningstegn må ikke klippe
+    den omgivende sætning i tre. Alle tekster er opfundne."""
+
+    SANDWICH = "Alfa Bravo blev gift 1801 (se Charlie Deltason. VI. Echo Foxtrot) med Golf Hotel, f. 1780."
+    SINGLE = "Alfa Bravo blev gift 1801 (se Charlie Deltason. I. Echo Foxtrot) med Golf Hotel, f. 1780."
+
+    def segment(self, text, rules):
+        result = clause_segment.build_record_ledger("k", "source-evidence:k", text, rules)
+        clause_ledger.validate_ledger(result["ledger"], text)
+        self.assertEqual(result["gap_violations"], [])
+        return result["clauses"]
+
+    def test_old_profile_is_unchanged_three_clauses_without_flag(self):
+        # Reproducerbarhed: den godkendte regelversion skal give præcis det samme som før.
+        clauses = self.segment(self.SANDWICH, rules())
+        self.assertEqual([len(c["verbatim_text"]) for c in clauses][1], 3)
+        self.assertEqual(len(clauses), 3)
+        self.assertFalse(any("section_numeral" in c["flags"] for c in clauses))
+
+    def test_old_profile_has_no_section_numeral_rule(self):
+        self.assertNotIn("section_numeral_pattern", rules())
+
+    def test_numeral_between_terminators_does_not_split_sentence(self):
+        clauses = self.segment(self.SANDWICH, rules_v2())
+        self.assertEqual(len(clauses), 1)
+        self.assertEqual(clauses[0]["verbatim_text"], self.SANDWICH)
+        self.assertEqual(clauses[0]["classification"], "record_text")
+        self.assertIn("section_numeral", clauses[0]["flags"])
+
+    def test_single_letter_numeral_does_not_split_before_it(self):
+        # "I." blokeres allerede efter sig af initial-reglen, men splittede før sig.
+        self.assertEqual(len(self.segment(self.SINGLE, rules())), 2)
+        clauses = self.segment(self.SINGLE, rules_v2())
+        self.assertEqual(len(clauses), 1)
+        self.assertIn("section_numeral", clauses[0]["flags"])
+
+    def test_regnal_numeral_after_name_keeps_old_behaviour(self):
+        # "Christian IV." står efter et navn uden punktum — ikke mellem to sætningstegn.
+        for text in ("Alfa Bravo tjente under Christian IV. Gift 1801 m. Golf Hotel.",
+                     "Alfa Bravo tjente under Frederik IV.",
+                     "Alfa Bravo tjente under Frederik IV. og blev senere Kmh. ved hoffet."):
+            with self.subTest(text=text):
+                old = self.segment(text, rules())
+                new = self.segment(text, rules_v2())
+                self.assertEqual([(c["char_from"], c["char_to"]) for c in new],
+                                 [(c["char_from"], c["char_to"]) for c in old])
+                self.assertFalse(any("section_numeral" in c["flags"] for c in new))
+
+    def test_numeral_month_in_date_keeps_old_behaviour(self):
+        # Romersk månedstal i en dato efterfølges af et ciffer, ikke et versal.
+        for text in ("Alfa Bravo, f. 4. IV. 1850 i Byen. Gift 1880 m. Golf Hotel.",
+                     "Alfa Bravo døde 1901. IV. 1902 flyttede enken."):
+            with self.subTest(text=text):
+                old = self.segment(text, rules())
+                new = self.segment(text, rules_v2())
+                self.assertEqual([(c["char_from"], c["char_to"]) for c in new],
+                                 [(c["char_from"], c["char_to"]) for c in old])
+                self.assertFalse(any("section_numeral" in c["flags"] for c in new))
+
+    def test_initial_letters_outside_numeral_class_are_untouched(self):
+        # C og L er initialer i praksis; romertalsklassen i profilen er kun I, V og X.
+        text = "Alfa Bravo, f. 1801. C. Deltason var fadder. L. Echo ligeså."
+        old = self.segment(text, rules())
+        new = self.segment(text, rules_v2())
+        self.assertEqual([(c["char_from"], c["char_to"]) for c in new],
+                         [(c["char_from"], c["char_to"]) for c in old])
+        self.assertFalse(any("section_numeral" in c["flags"] for c in new))
+
+    def test_residual_risk_initial_v_after_sentence_end_is_merged_and_flagged(self):
+        # Kendt restrisiko: et initial "V." lige efter et sætningsslut kan ikke skelnes
+        # fra et romertal. Motoren vælger den længere klausul OG flager — aldrig tavst.
+        text = "Alfa Bravo, f. 1801. V. Deltason var fadder."
+        clauses = self.segment(text, rules_v2())
+        self.assertEqual(len(clauses), 1)
+        self.assertIn("section_numeral", clauses[0]["flags"])
+
+
 if __name__ == "__main__":
     unittest.main()
