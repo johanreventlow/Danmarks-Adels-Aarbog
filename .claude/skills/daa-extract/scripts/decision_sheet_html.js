@@ -53,13 +53,16 @@ function exportMangler(p, st) {
 // Rollen `other` betyder »ikke knyttet til postens hovedperson« (profilens
 // persona_role_map: mention.*, relation.*, reference.*) — ikke at udsagnet handler
 // om en anden person. Arkets signal hedder »anden person«; fladen viser, hvad det er.
-var ROLE_HELP = "Knyttes ikke til postens hovedperson; hvem/hvad det henviser til, afgøres i trin 5b. " +
-  "Spørgsmålet her er kun, om det står i klausulen og har den rigtige type.";
+var ROLE_HELP = "Forslaget er kun, at dette nævnes i klausulen. Er det hovedpersonens bopæl, " +
+  "fødested, gods el.lign., er det et eget forslag (person.*) — mangler det, skriv det i MANGLER. " +
+  "Hvem/hvad omtalen konkret henviser til, afgøres i trin 5b.";
+var MENTION = { place: "stedsomtale", person: "personomtale", estate: "godsomtale",
+                organization: "omtale af organisation" };
 function roleLabel(it) {
   var p = it.predicate;
-  if (p.indexOf("mention.") === 0) return "omtale — ikke knyttet til hovedpersonen";
+  if (p.indexOf("mention.") === 0) return MENTION[p.slice(8)] || "omtale";
   if (p.indexOf("relation.") === 0) return "relation til anden person";
-  if (p.indexOf("reference.") === 0) return "henvisning — ikke knyttet til hovedpersonen";
+  if (p.indexOf("reference.") === 0) return "henvisning";
   return "ikke knyttet til hovedpersonen";
 }
 

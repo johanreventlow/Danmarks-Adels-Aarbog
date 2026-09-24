@@ -165,8 +165,9 @@ def test_rolle_other_vises_som_hvad_den_er_ikke_som_anden_person():
     node = shutil.which("node")
     assert node, "node mangler — testen må ikke springes over"
     prog = ("const m=require(process.argv[1]);process.stdout.write(JSON.stringify("
-            "['mention.place','relation.marriage','reference.daa','x.y'].map(p=>m.roleLabel({predicate:p}))))")
+            "['mention.place','mention.estate','mention.foo','relation.marriage','reference.daa','x.y']"
+            ".map(p=>m.roleLabel({predicate:p}))))")
     out = json.loads(subprocess.run([node, "-e", prog, str(JS)], capture_output=True, text=True,
                                     check=True).stdout)
-    assert out == ["omtale — ikke knyttet til hovedpersonen", "relation til anden person",
-                   "henvisning — ikke knyttet til hovedpersonen", "ikke knyttet til hovedpersonen"]
+    assert out == ["stedsomtale", "godsomtale", "omtale", "relation til anden person",
+                   "henvisning", "ikke knyttet til hovedpersonen"]
