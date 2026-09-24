@@ -332,6 +332,45 @@ def test_profile_clause_rules_are_validated(tmp_path):
         evidence_extract.load_profile("daa-2018-20-v1", path)
 
 
+def test_profile_v2_is_additive_and_leaves_v1_untouched():
+    # #189: den nye regel kommer som en ny profil; den godkendte v1 bevares byte for
+    # byte i betydning, så tidligere kørsler stadig kan reproduceres og hashes.
+    payload = json.loads(evidence_extract.PROFILES.read_text(encoding="utf-8"))
+    v1 = payload["profiles"]["daa-2018-20-v1"]
+    v2 = payload["profiles"]["daa-2018-20-v2"]
+    assert v1["version"] == "1.3.0"
+    assert v1["clause_rules"]["version"] == "clause-rules-2018-20-v2"
+    assert "section_numeral_pattern" not in v1["clause_rules"]
+    assert v2["version"] != v1["version"]
+    assert v2["clause_rules"]["version"] == "clause-rules-2018-20-v3"
+    assert v2["requires_human_go_for_change"] is True
+    strip = lambda rules: {k: v for k, v in rules.items() if k not in ("version", "section_numeral_pattern")}
+    assert strip(v2["clause_rules"]) == strip(v1["clause_rules"])
+    assert {k: v for k, v in v2.items() if k not in ("version", "clause_rules")} == \
+           {k: v for k, v in v1.items() if k not in ("version", "clause_rules")}
+    loaded = load_profile("daa-2018-20-v2")
+    assert loaded["clause_rules"]["section_numeral_pattern"]
+
+
+def test_section_numeral_pattern_is_optional_but_validated(tmp_path):
+    payload = json.loads(evidence_extract.PROFILES.read_text(encoding="utf-8"))
+    path = tmp_path / "profiles.json"
+    broken = json.loads(json.dumps(payload))
+    broken["profiles"]["daa-2018-20-v2"]["clause_rules"]["section_numeral_pattern"] = "(["
+    path.write_text(json.dumps(broken), encoding="utf-8")
+    with pytest.raises(ExtractionError, match="EXTRACTION_CLAUSE_RULES_INVALID"):
+        load_profile("daa-2018-20-v2", path)
+    broken["profiles"]["daa-2018-20-v2"]["clause_rules"]["section_numeral_pattern"] = ""
+    path.write_text(json.dumps(broken), encoding="utf-8")
+    with pytest.raises(ExtractionError, match="EXTRACTION_CLAUSE_RULES_INVALID"):
+        load_profile("daa-2018-20-v2", path)
+    broken["profiles"]["daa-2018-20-v2"]["clause_rules"]["section_numeral_pattern"] = "^[IVX]{1,4}\\.$"
+    broken["profiles"]["daa-2018-20-v2"]["clause_rules"]["ukendt_noegle"] = "x"
+    path.write_text(json.dumps(broken), encoding="utf-8")
+    with pytest.raises(ExtractionError, match="EXTRACTION_CLAUSE_RULES_INVALID"):
+        load_profile("daa-2018-20-v2", path)
+
+
 def test_predicates_come_from_generated_file():
     assert "person.birth" in evidence_extract.ALLOWED_PREDICATES
     assert "life_event.birth" not in evidence_extract.ALLOWED_PREDICATES
