@@ -2,7 +2,8 @@
 
 **Verificeret:** 2026-09-06 efter GO 1-4 i prod (#152-cutover, #153, 149a, 149b);
 detaljer i `docs/changelog.md` 2026-09-05/06. **Prod opdateret 2026-09-17:** trin 4's skema og writere er deployet uden evidensdata —
-se tillægget nedenfor. **Kodestatus opdateret 2026-09-11**
+se tillægget nedenfor. **Prod-data 2026-09-18:** 4.1c's klausuler kørt. **Afstemt
+2026-09-23:** 4.4's prod-kørsel parkeret, 4.5 næste — se tillæg 2026-09-23. **Kodestatus opdateret 2026-09-11**
 efter merge af trin 4's dagsværk 4.1a-4.2 — se tillægget under Produktionsstatus.
 
 **Kodegrundlag:** Task 12's funktionelle bevis er commit `4922d7e`; den
@@ -12,6 +13,18 @@ nuværende dokumentations-HEAD kan være senere og ændrer ikke det bevis
 er `integreret ende-til-ende`, se tabellen og blokeringerne; 149a
 (2018-20 kilderegnskab) er `integreret ende-til-ende`, se tabellen; #156
 lukket med restpunkt (INCOMPLETE-afstemning, snapshot forseglet).
+
+**Tillæg 2026-09-23 — 4.4's prod-kørsel er klar, men parkeret.** GO-pakken for den første
+`interpretation_proposal`-kørsel i prod er færdig: runbook
+(`docs/runbooks/interpretation-proposal-prod-apply.md`), private scripts bundet af en
+GO-hashfil, restore-rehearsal i normalt og fjendtligt miljø (`REHEARSAL_OK`, 30 fejlcases),
+angrebssuite 29/29 og uafhængigt kodereview GO (draft-PR #215). Fortrydelse er restore af
+dagens backup (spec 11.5 afgjort, `decisions.md` 2026-09-23). Projektejeren har samme dag
+**parkeret selve kørslen og #196's DDL**, til 4.5 er bevist i restoren: 4.5 kræver ikke prod
+(spec §8.2/§8.5), og forslag i prod har ingen værdi, før et menneske kan afgøre dem.
+Genoptagelse kræver nyt prod-dump, ny rehearsal og nyt GO. Samme dag vedtaget:
+review-budget og gater efter skrivningens konsekvens (`decisions.md`). Modenhedsrækkerne
+flyttes ikke.
 
 **Tillæg 2026-09-17 — trin 4's skema og writere er i prod, men ingen data.** Blokkene
 4.1a, 4.1c, 4.2 og 4.4 er deployet efter preflight, backup, restore-rehearsal og
@@ -81,7 +94,7 @@ De eneste tilladte tilstande er `specificeret`, `isoleret implementeret`,
 | 1939 narrativpublicering og kildebinding | `produktionsverificeret` | Den læse-kun måling 2026-08-22 dokumenterede den daværende bundne bestand; C3 postverify 2026-08-29 beviste yderligere fire eksakte production record-assignments. Det beviser en væsentlig 1939-delleverance, ikke den fælles genimportkæde. |
 | Klausulgranularitet og coverage | `specificeret` | Helpost- og linjegrundlag findes, men den krævede mindste meningsbærende klausul og dens disposition er ikke implementeret ende-til-ende. |
 | Extractor-runner og modelkald | `isoleret implementeret` (2026-09-12) | `evidence_runner.py` kalder en model gennem `codex exec` bag en OS-håndhævet Seatbelt-grænse, validerer record-scoped claims, fører forbrugsregnskab og stopper fail-closed på hver fejltype. Kørt ende til ende på én opdigtet post (`runner-rehearsal-147-4-3a.md`), og derefter på **ti virkelige poster fra 2018-20** (`runner-rehearsal-147-4-3b.md`, 2026-09-13): 86 claims, **99 % præcision, 100 % klausulbinding, 100 % ordrette datoer**, ingen udeladelser noteret. Modellen udtrækker altså sande, kildebundne fakta af ægte DAA-prosa. **Promotion mangler stadig** (4.4-4.5), og to fund skal lukkes først: et `relation.*`-claim uden identificerbar modpart (»NN.«, »4 sønner«) og et claim, der er mere præcist end kilden (valgte ét år ud af et tvetydigt spænd). |
-| Proposed-ingest og promotion | `isoleret implementeret` (uændret 2026-09-15) | **Ingest-halvdelen er nu født af en reel modelkørsel**, men rækken dækker også promotion, som er urørt. 4.4 (`interpretation_proposal`) skrev 2026-09-14 4.3b's 84 claims som `proposed` i en restore: 8 elementer, 68 `principal` / 16 `other`, 19 klausuldispositioner (13 `fortolkning_foreslaaet`, 6 `afventer_identitet`), nul kanonisk delta, `anon` uberørt (strukturelt bevist), replay `already_applied`, negativ test `REIMPORT_WRITER_PRINCIPAL_WITHOUT_PERSONA` bestået. **Modenheden hæves ikke — men grunden er nu en anden.** Dagsværket er lukket og merget (PR #192; Task 6 afgjort og Task 8 rapporteret 2026-09-15, se `proposal-ingest-147-4-4-rehearsal.md`), så det er ikke længere grenens status, der holder rækken tilbage. Det er, at rækken også dækker **promotion**, hvor `project_evidence.R` fortsat er dry-run og ikke en integreret promotionvej — og at ingesten aldrig har kørt mod andet end en restore. Prod-fortrydelse for operationen er stadig ikke designet (åbent punkt 11.5). |
+| Proposed-ingest og promotion | `isoleret implementeret` (uændret 2026-09-15) | **Ingest-halvdelen er nu født af en reel modelkørsel**, men rækken dækker også promotion, som er urørt. 4.4 (`interpretation_proposal`) skrev 2026-09-14 4.3b's 84 claims som `proposed` i en restore: 8 elementer, 68 `principal` / 16 `other`, 19 klausuldispositioner (13 `fortolkning_foreslaaet`, 6 `afventer_identitet`), nul kanonisk delta, `anon` uberørt (strukturelt bevist), replay `already_applied`, negativ test `REIMPORT_WRITER_PRINCIPAL_WITHOUT_PERSONA` bestået. **Modenheden hæves ikke — men grunden er nu en anden.** Dagsværket er lukket og merget (PR #192; Task 6 afgjort og Task 8 rapporteret 2026-09-15, se `proposal-ingest-147-4-4-rehearsal.md`), så det er ikke længere grenens status, der holder rækken tilbage. Det er, at rækken også dækker **promotion**, hvor `project_evidence.R` fortsat er dry-run og ikke en integreret promotionvej — og at ingesten aldrig har kørt mod andet end en restore. Prod-fortrydelse er afgjort som restore (11.5, 2026-09-23); prod-kørslens GO-pakke er færdig, men parkeret til 4.5 (tillæg 2026-09-23). |
 | Source persona, identitetskandidater og webkø | `isoleret implementeret` | Moduler, databaseflader og redaktørkø findes, men den virkelige 1939-vej er parallel og bruger ikke denne fælles beslutningsvej. |
 | Placement og membership | `isoleret implementeret` | Skema og fundament findes, men de eksisterende personer føres fortsat ikke gennem placement-/membership-datavejen. |
 | 2018-20-proveniens (149a) | `produktionsverificeret` (2026-09-06) | 2026-09-03: hele kæden bevist mod den rigtige bog og mod en restore af prod-dumpet migreret til kontrakt v2: PDF `3beadfc1…`, rå tekst `2dd5cf84…`, manifest `c7d19c01…` (591 elementer) → 1 rendition / 591 records / 591 forekomster / 591 ankre, nul kanonisk delta (5 aggregat-hashes), `anon` uændret (9 hashes), replay `already_applied`, reversal fail-closed (`docs/evidensbaseret-genimport/source-evidence-149a-rehearsal.md`). Krævede rettelse af #153's migrationsguard (finalized terminal ved 0 person_creates). Ikke `produktionsverificeret`; prod-rækkefølge #152 → #153 (med guard-rettelsen) → 149a. Bindinger er nu leveret af 149b (#166), se næste række. |
@@ -131,11 +144,13 @@ programmets samlede modenhed.
   skrevet i én `finalized` batch, afstemt med klausul-projektionen (`match`, uændrede
   neutrale lister, intet kanonisk delta). Procedure og bevis:
   `docs/runbooks/clause-evidence-prod-apply.md` og changelog 2026-09-18. Fortrydelsesvinduet
-  er åbent, indtil projektejeren lukker det. **Næste datakørsel** er 4.4's
-  `interpretation_proposal`, som fortsat mangler en fortolknings-projektion (#196) og ikke
-  har nogen prod-fortrydelse (spec åbent punkt 11.5).
-- **4.5 mangler plan.** 4.3a, 4.3b og 4.4 er kørt og merget; 4.5 (pilot, afgørelse,
-  binding) er næste dagsværk og bruger restoren `daa43b_20260912192527`.
+  er åbent, indtil projektejeren lukker det. **4.4's `interpretation_proposal` i prod er
+  parkeret** (tillæg 2026-09-23): fortolknings-projektionen (#196) er merget, fortrydelse
+  er afgjort som restore, og GO-pakken er færdig, men kørslen og #196's DDL venter på 4.5's
+  pilotrapport.
+- **4.5 mangler plan — og er nu næste arbejde.** 4.3a, 4.3b og 4.4 er kørt og merget; 4.5
+  (pilot, afgørelse, binding) bruger restoren `daa43b_20260912192527` og har
+  review-budget 1 + 1 (kun restore, `decisions.md` 2026-09-23).
   4.3a's Codex-forbrugsprobe er **kørt 2026-09-11** og lukket: `codex exec --json`
   rapporterer forbrug i `turn.completed`, så spec §6.6's stopbetingelse for 4.3 er ikke
   udløst. Proben målte samtidig, at ~21,5k input-tokens er fast CLI-overhead pr. kald —
@@ -158,13 +173,12 @@ Roadmap-trin 1-3 (#152, #153, #149) er `produktionsverificeret` pr. 2026-09-06. 
 aktive programmål er **trin 4: den fælles fortolkningskæde og klausulgranularitet
 (#147/#148)**, aktiveret af projektejeren 2026-09-06 (decisions samme dato, seks valg).
 Spec: `docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md`.
-Dagsværkene 4.1a-4.4 er **udført og merget**, og skemaet er deployet til prod 2026-09-17.
-Næste tilladte arbejde er ét af to, og projektejeren afgør hvilket:
+Dagsværkene 4.1a-4.4 er **udført og merget**, skemaet er deployet til prod 2026-09-17, og
+4.1c's klausuler er kørt i prod 2026-09-18. Næste tilladte arbejde er:
 
-1. **Plan 4.5** — pilot, menneskets afgørelse og binding, mod restoren.
-2. **Trin 4's første datakørsel i prod: 4.1c** — kvittering, klausul-projektion og
-   prod-runbook (`docs/runbooks/clause-evidence-prod-apply.md`) er på plads; udestår
-   kørslens egen gate (preflight, backup, restore-rehearsal) og projektejerens GO.
+1. **Plan 4.5** — pilot, menneskets afgørelse og binding, mod restoren (spec §8).
+2. Først når 4.5's pilotrapport foreligger: projektejerens beslutning om 4.4's forslag og
+   4.5's afgørelser skal i prod samlet, og i så fald genbinding af 4.4's GO-pakke.
 
 Prod-mutationer kræver fortsat en udtrykkelig GO pr. apply.
 

@@ -13,6 +13,7 @@ WITH guard AS (
       OR current_setting('DateStyle') <> 'ISO, YMD'
       OR current_setting('IntervalStyle') <> 'postgres'
       OR current_setting('extra_float_digits') <> '1'
+      OR current_setting('bytea_output') <> 'hex'
       THEN ('CLAUSE_PROJECTION_SESSION_SETTINGS_INVALID:' || current_setting('TimeZone'))::int
     ELSE 1
   END AS ok
