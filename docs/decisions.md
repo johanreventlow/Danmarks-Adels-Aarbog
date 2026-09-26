@@ -2,9 +2,10 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
-## FORESLÅET: mennesket ser kun uoverensstemmelser og en stikprøve — ingen fulde afgørelsesark (2026-09-26)
+## BESLUTTET: mennesket ser kun uoverensstemmelser og en stikprøve — ingen fulde afgørelsesark (2026-09-27)
 
-> **UDKAST — afventer projektejerens ja/nej.** Ændrer spec 2026-09-06 §8.2 (»afgørelsen
+> **Besluttet af projektejeren 2026-09-27** (forslag 2026-09-26), punkt 1-5 og stikprøve på
+> 20. Ændrer spec 2026-09-06 §8.2 (»afgørelsen
 > bruger projektets menneske-ark«) og berører åbent punkt 11.2.
 
 **Baggrund (4.5-pilotrapporten, `interpretation-pilot-2018-20.md`).** Projektejeren afgjorde
@@ -25,7 +26,7 @@ projektejeren har meddelt, at flere fulde ark ikke er en farbar vej. Samtidig vi
 Med den nuværende model kræver resten af 2018-20 ≈ 3.450 afgørelser (≈ 14 ark). Menneskets tid
 er kædens flaskehals, ikke model, pris eller kode.
 
-**Foreslået:**
+**Besluttet:**
 1. **Ingen fulde afgørelsesark.** Forslag med ikke-promoverbare prædikater afgøres ikke; de
    forbliver `proposed`. Intet går tabt — de kan afgøres senere, hvis et læser-udløb (fx en
    fakta-sektion med kilde pr. faktum) gør dem værdifulde.
@@ -58,7 +59,9 @@ stikprøve pr. kørsel, frem for ≈ 3.450.
 normaliseringsregel for skrivemåde (16 af 27 `NO_MATCH`) kræver sin egen beslutning, fordi den
 ændrer RPC'ens sammenligning.
 
-**Afgøres af projektejeren:** ja/nej til punkt 1-5; stikprøvestørrelse (20 foreslået).
+**Næste skridt:** en errata til spec §8.2 og scriptet (variant af målfindingen over `proposed`,
+maskinel accept, stikprøvetræk) planlægges som eget dagsværk. Review-budget efter
+beslutningen 2026-09-23: kun restore ⇒ 1 + 1.
 
 ## BESLUTTET: 4.4's prod-kørsel parkeres, til 4.5 er bevist i restoren (2026-09-23)
 

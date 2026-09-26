@@ -1,7 +1,7 @@
 # 4.5-pilot — fortolkning, afgørelse og binding (2018-20)
 
-> **Afsnit 1-8 er målt og færdige (2026-09-26). Afsnit 9 (dommen og `pilot-verdict`-blokken)
-> er et UDKAST, der afventer projektejerens godkendelse.**
+> **Færdig.** Afsnit 1-8 målt 2026-09-26; dommen i afsnit 9 og `pilot-verdict`-blokken er
+> godkendt af projektejeren 2026-09-27.
 
 Roadmapmål: trin 4 (#147/#148), dagsværk 4.5. Spec:
 `docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md`
@@ -243,7 +243,7 @@ en stikprøve.
 hovedpersonens persona (trin 5) eller en profilændring efter #189 (sektionsoverskrifter som
 klausuler), som vil ændre klausulerne og dermed record-input-hashene.
 
-## 9. Dom — UDKAST til projektejerens godkendelse
+## 9. Dom — godkendt af projektejeren 2026-09-27
 
 | Stopkriterium (som 4.3b) | Resultat | Tærskel | |
 | --- | ---: | ---: | --- |
@@ -262,8 +262,9 @@ fra klausul til binding virker i én restore uden kanonisk delta.
 
 **Fuld kørsel er NO-GO med den nuværende afgørelsesmodel.** Ikke på grund af kvalitet, men
 fordi den kræver ≈ 3.450 menneskelige afgørelser, som projektejeren ikke har kapacitet til, og
-fordi gennemgangen af 159 nye forslag fandt 0 fejl. Dommen genvurderes, når kontrolmodellen
-(`docs/decisions.md`, 2026-09-26) er besluttet. Overførslen af pilotens afgørelser og
+fordi gennemgangen af 159 nye forslag fandt 0 fejl. Kontrolmodellen, der skal erstatte de
+fulde ark, er besluttet 2026-09-27 (`docs/decisions.md`); en fuld kørsel under den kræver en
+ny dom efter dens første kørsel. Overførslen af pilotens afgørelser og
 bindinger til prod afhænger ikke af denne dom, kun af `breaches` (prod-vej-spec §6.2).
 
 ```pilot-verdict
