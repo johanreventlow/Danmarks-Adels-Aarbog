@@ -50,8 +50,9 @@ uoverensstemmelser + 20 i stikprøven). For resten af 2018-20: ≈ 70 uoverensst
 stikprøve pr. kørsel, frem for ≈ 3.450.
 
 **Hvad det koster:** et lille script (maskinel accept + stikprøvetræk) og en errata til spec
-§8.2. Genbruger `interpretation_promotion_targets.sql`, `red_decide_interpretation` og
-`red_promote_interpretations_batch` uændret.
+§8.2. Kræver en variant af målfindingen (`interpretation_promotion_targets.sql` ser i dag kun på
+`accepted`; matchet skal beregnes over `proposed`, før noget accepteres). Genbruger
+`red_decide_interpretation` og `red_promote_interpretations_batch` uændret.
 
 **Hvad det ikke løser:** bindingen er stadig usynlig for læseren (review 35, §2.3 og U1), og en
 normaliseringsregel for skrivemåde (16 af 27 `NO_MATCH`) kræver sin egen beslutning, fordi den

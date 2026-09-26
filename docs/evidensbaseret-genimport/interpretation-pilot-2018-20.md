@@ -269,3 +269,7 @@ bindinger til prod afhænger ikke af denne dom, kun af `breaches` (prod-vej-spec
 ```pilot-verdict
 {"breaches":[],"full_run_verdict":"NO-GO"}
 ```
+
+Blokken følger prod-vej-spec §6.2 (sorterede nøgler, kompakt JSON). `pilot_verdict.py` er
+planlagt på `docs/147-pilot-prod-vej`, men ikke implementeret; en fremtidig parsefejl er en fejl
+i blokken eller parseren, ikke i piloten.
