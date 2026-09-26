@@ -1,7 +1,7 @@
 # 4.5-pilot — fortolkning, afgørelse og binding (2018-20)
 
-> **UDKAST.** Afsnit 1-4 er målt og færdige. Afsnit 5-8 afventer projektejerens
-> afgørelsesark (Task 5-6) og bindingen (Task 7); de er markeret **AFVENTER**.
+> **Afsnit 1-8 er målt og færdige (2026-09-26). Afsnit 9 (dommen og `pilot-verdict`-blokken)
+> er et UDKAST, der afventer projektejerens godkendelse.**
 
 Roadmapmål: trin 4 (#147/#148), dagsværk 4.5. Spec:
 `docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md`
@@ -124,26 +124,98 @@ kørslen; alle tal ramte.
 
 `anon`s rettigheder er uændrede før og efter (hash af grants).
 
-## 5. Afgørelse — AFVENTER
+## 5. Afgørelse
 
 Afgørelsesarket: 243 beslutningslinjer, 84 forudfyldt fra 4.3b's domme (86 parrede domme:
-85 `J`, 1 `N`), 159 til projektejeren. `rows_sha256`
-`1c5852ce5d934a2c9cb7bc7b2b79ed09ec92a25da31aa7c8f31e2f9f5de63ac4`; arkets hash: AFVENTER.
+85 `J`, 1 `N`), 159 nye til projektejeren. `rows_sha256`
+`1c5852ce5d934a2c9cb7bc7b2b79ed09ec92a25da31aa7c8f31e2f9f5de63ac4`; godkendt ark
+`98bb9a217f622d3957d7f0083a94f88b6f7031d328658fdefb1264e938ccdacd`; aktør: projektejerens
+redaktionsprofil. To linjer stod først som `U` og blev afgjort efter en forklaring af
+klausulerne.
 
-AFVENTER: præcision pr. prædikat (`accepted / (accepted + rejected)`, `unresolved` for sig),
-`normalized` uden `raw`-belæg, dispositionsdækning, negativtestens udfald.
+**Negativtest:** en versionskonflikt lagt på den *sidste* af de 243 afgørelser i en
+engangskopi gav 1 `EVIDENCE_INTERPRETATION_VERSION_CONFLICT` og 0 skrevne afgørelser — hele
+transaktionen rullede tilbage efter 242 vellykkede kald. **Kørslen:** rc=0; 242 `accepted`,
+1 `rejected`, 0 `unresolved`, 0 `proposed` tilbage; alle 243 nye versioner bærer arkets hash.
 
-## 6. Dækning mod MANGLER — AFVENTER
+**Præcision: 242/243 = 99,6 %.** Af de 159 nye forslag afviste projektejeren **0**. Den eneste
+afvisning er det `person.death`-claim, 4.3b allerede dømte usandt: modellen læste en formulering af
+typen »var død [dato], da [en senere handling]« som en dødsdato, men det er en seneste grænse for dødsfaldet.
 
-## 7. Binding — AFVENTER
+| Prædikat | Accepteret | Afvist | Prædikat | Accepteret | Afvist |
+| --- | ---: | ---: | --- | ---: | ---: |
+| `mention.place` | 52 | 0 | `person.title` | 8 | 0 |
+| `person.death` | 24 | 1 | `person.education` | 7 | 0 |
+| `person.office` | 22 | 0 | `event.appointment`, `person.burial`, `person.publication` | 6 hver | 0 |
+| `person.rank` | 20 | 0 | `mention.person`, `person.decoration`, `person.military_service` | 4 hver | 0 |
+| `person.birth` | 19 | 0 | `event.acquisition`, `person.occupation` | 3 hver | 0 |
+| `person.name` | 19 | 0 | `event.dismissal`, `event.marriage`, `person.baptism`, `relation.child` | 2 hver | 0 |
+| `relation.marriage` | 16 | 0 | `event.travel`, `person.residence` | 1 hver | 0 |
+| `person.estate` | 9 | 0 | | | |
 
-Bindingsandel `MATCH` / accepterede promoverbare, med `MATCH_SINGLETON`, `NO_MATCH`,
-`AMBIGUOUS`, `NO_IDENTITY`, `NO_PLACEMENT`, `ALREADY_PROMOTED` og `UNSUPPORTED_RULE` hver
-for sig. Backup- og bindingsbatch-hashes.
+**Exact-span-rate:** 237/243 værdier står ordret i en citeret klausul; **datoer 52/52**. De 6
+afvigelser er 4 tekstværdier (titler o.l., skåret til — jf. 4.3b) og 2 hændelser, hvis `raw`
+ikke står i klausulen (`normalized` uden `raw`-belæg: 2, begge accepteret). Fra
+`evidence-runner-1.1` afvises en dato, der ikke står ordret (afsnit 3).
+
+**Dispositionsdækning:** de 32 poster har 80 klausuler. 48 (60 %) har fået en
+fortolkningsdisposition (21 `fortolkning_foreslaaet`, 27 `afventer_identitet`); 17 står som
+`afventer_fortolkning` (ingen claim citerer dem) og 15 som `maskinelt_flagget`.
+
+**Afgørelsestid — pilotens vigtigste måling.** Arket krævede flere arbejdssessioner fordelt
+over flere dage, og projektejeren har meddelt (2026-09-26), at flere fulde ark ikke er en
+farbar vej. Tiden blev ikke målt i timer; det er heller ikke nødvendigt for konklusionen: den
+menneskelige gennemgang er kædens flaskehals, ikke modellen, prisen eller koden. Samtidig
+fandt gennemgangen 0 fejl blandt 159 nye forslag. Se afsnit 8 og beslutningsforslaget i
+`docs/decisions.md` (2026-09-26).
+
+## 6. Dækning mod MANGLER
+
+`MANGLER.txt` er tom: projektejeren noterede ingen udsagn, modellen burde have fundet
+(bekræftet 2026-09-26: »ingen mangler«). Dækning efter planens mål: **100 %**. Forbehold:
+målet hviler på én læsning af arket, fordelt over flere dage, og arket viser kun citerede
+klausuler — de 17 uciterede (`afventer_fortolkning`) er ikke gennemlæst systematisk.
+
+**Brugbarhed:** 32/32 poster har mindst ét accepteret claim.
+
+## 7. Binding
+
+Backup efter afgørelserne og før binding: `efter-afgoerelser.dump`
+(`623e0777d12c17453fe96aea9e1f9b6a439cd06307b348a595d4daf33226874d`; tabellens data med).
+Bindingen skete i ét batch (`fb11f5de-01a8-46fa-8ccb-7c12f6ae5fec`) under projektejerens
+profil: preview og batch i samme transaktion, 0 fejl.
+
+| Prædikat | `MATCH` (bundet) | `NO_MATCH` | Øvrige udfald |
+| --- | ---: | ---: | ---: |
+| `person.name` | 16 | 3 | 0 |
+| `person.birth` | 13 | 6 | 0 |
+| `person.death` | 11 | 13 | 0 |
+| `person.title` | 3 | 5 | 0 |
+| **I alt** | **43** | **27** | 0 |
+
+**Bindingsandel: 43/70 = 61 %** af de accepterede promoverbare fortolkninger. `AMBIGUOUS`,
+`NO_IDENTITY`, `NO_PLACEMENT`, `MATCH_SINGLETON` og `UNSUPPORTED_RULE`: 0. Efter bindingen:
+43 rækker i `private.interpretation_promotion`, `fact` (7.197) og `assertion` (9.306)
+uændrede; en ny målfinding giver 43 `ALREADY_PROMOTED` og 0 `MATCH`.
+
+**Hvorfor 27 ikke fandt et mål** (målt maskinelt, kun antal):
+
+| Årsag | Antal | Heraf |
+| --- | ---: | --- |
+| Samme værdi, anden skrivemåde — kun tegn/blanktegn afviger | 12 | død 7, fødsel 5 |
+| Samme tal, andre ord (fx `f.`/`død`/`*` foran) | 4 | død 3, fødsel 1 |
+| Personen har intet kanonisk faktum af typen | 6 | titel 4, død 2 |
+| Reelt forskellig værdi | 5 | navn 3, død 1, titel 1 |
+
+16 af de 27 er altså skrivemåde, ikke uenighed. En normalisering, der tåler dem, ville give op
+til 59/70 = 84 % — men det er en ændring af RPC'ens sammenligning (DDL, prod-gate), og »samme
+tal, andre ord« kan skjule en reel forskel i præcision (fx »ca. 1700« mod »1700«). Kun 5 er
+uoverensstemmelser, et menneske bør se.
+
+Promoverbare prædikater udgør 70 af 243 forslag (29 %). De øvrige 71 % kan ikke føre til en
+binding med de nuværende regler — de blev afgjort uden at det fører nogen vegne.
 
 ## 8. Skalafremskrivning
-
-Forbrugsdelen er målt nu; bindings- og afgørelsesdelen afventer afsnit 5-7.
 
 | 488 `eligible` records | Median-scenarie | p90-scenarie |
 | --- | ---: | ---: |
@@ -152,15 +224,48 @@ Forbrugsdelen er målt nu; bindings- og afgørelsesdelen afventer afsnit 5-7.
 | Reasoning-tokens | ≈ 0,14 mio. | ≈ 0,25 mio. |
 | Kald | 488 + genforsøg (målt: 1 timeout pr. 25 kald) | |
 
-Heraf er 34 records allerede kørt (4.3b's 10 og 4.5's 24). AFVENTER: forventet menneskelig
-afgørelsestid pr. forslag og forventet antal bindinger ved samme andel.
+Heraf er 34 records allerede kørt (4.3b's 10 og 4.5's 24); 454 mangler.
+
+| Ved pilotens andele, 454 records | Antal |
+| --- | ---: |
+| Forslag (7,6 pr. post) | ≈ 3.450 |
+| Heraf promoverbare (2,2 pr. post) | ≈ 990 |
+| Bindinger ved 61 % | ≈ 600 |
+| Reelle uoverensstemmelser (5 pr. 32 poster) | ≈ 70 |
+
+**Menneskelig byrde ved nuværende afgørelsesmodel:** ≈ 3.450 arklinjer = ca. 14 ark af
+pilotens størrelse. Pilotens ene ark tog flere dage. **Det er ikke gennemførligt**, og
+modellen, prisen og koden er ikke begrænsningen. Beslutningsforslaget 2026-09-26 i
+`docs/decisions.md` beskriver en kontrolmodel, hvor mennesket kun ser uoverensstemmelser og
+en stikprøve.
 
 **Fremskrivningen dækker ikke** 1939's OCR-klausuler (trin 6), andre aktører end
 hovedpersonens persona (trin 5) eller en profilændring efter #189 (sektionsoverskrifter som
 klausuler), som vil ændre klausulerne og dermed record-input-hashene.
 
-## 9. Dom — AFVENTER
+## 9. Dom — UDKAST til projektejerens godkendelse
 
-Stopkriteriet (som 4.3b): præcision ≥ 90 %, klausulbinding ≥ 90 %, ordrethed ≥ 95 %,
-dækning ≥ 60 %, brugbarhed for alle biografiske poster; plus §8.4 (absurd lav eller høj
-dækning i en prædikatkategori er `NO-GO` for fuld kørsel).
+| Stopkriterium (som 4.3b) | Resultat | Tærskel | |
+| --- | ---: | ---: | --- |
+| Præcision — sand ifølge teksten | 242/243 = **99,6 %** | ≥ 90 % | ✅ |
+| Klausulbinding — citerer eksisterende klausul i posten | 243/243 = **100 %** | ≥ 90 % | ✅ |
+| Ordrethed — claims m. ordret krav (datoer) | 52/52 = **100 %** | ≥ 95 % | ✅ |
+| Dækning — noterede udsagn fundet | **100 %** (forbehold afsnit 6) | ≥ 60 % | ✅ |
+| Brugbarhed — poster m. mindst ét korrekt claim | **32/32** | alle | ✅ |
+
+§8.4: ingen prædikatkategori med absurd lav eller høj dækning noteret. Stophændelser: ingen
+claims om levende personer (0 af 30 identificerede personer har `levende` ≠ `false`), ingen
+klausul fra en anden record (writerens `CLAUSE_FOREIGN_POST`), intet kontraktbrud.
+
+**Kvaliteten er GO.** Modellen udtrækker sande, kildebundne fakta af ægte DAA-prosa, og kæden
+fra klausul til binding virker i én restore uden kanonisk delta.
+
+**Fuld kørsel er NO-GO med den nuværende afgørelsesmodel.** Ikke på grund af kvalitet, men
+fordi den kræver ≈ 3.450 menneskelige afgørelser, som projektejeren ikke har kapacitet til, og
+fordi gennemgangen af 159 nye forslag fandt 0 fejl. Dommen genvurderes, når kontrolmodellen
+(`docs/decisions.md`, 2026-09-26) er besluttet. Overførslen af pilotens afgørelser og
+bindinger til prod afhænger ikke af denne dom, kun af `breaches` (prod-vej-spec §6.2).
+
+```pilot-verdict
+{"breaches":[],"full_run_verdict":"NO-GO"}
+```
