@@ -37,7 +37,7 @@ def export(**overrides):
 
 def claim(**overrides):
     base = {"clause_ordinals": [1], "predicate": "person.birth",
-            "value": "1800-01-01", "confidence": 0.9, "source_persona_id": "persona-1"}
+            "value": "1. jan. 1800", "confidence": 0.9, "source_persona_id": "persona-1"}
     base.update(overrides)
     return base
 
@@ -101,6 +101,72 @@ def test_object_valued_predicate_requires_raw():
     with pytest.raises(RunnerError, match="RUNNER_CLAIM_VALUE_INVALID"):
         validate_record_claims(
             [claim(predicate="relation.marriage", value="Prøve Fiktivsdatter")], export())
+
+
+# --- ordrethed: datoer skal stå i den klausul, de citerer (review 35, P10) ----
+#
+# Før evidence-runner-1.1 tjekkede runneren kun formen, og 4.5-pilotrapporten
+# påstod det modsatte. Kravet gælder KUN date_raw — promptens regel 3 og
+# stopkriteriets nævner (»claims m. ordret krav«). Titler o.l. må skæres til
+# (4.3b: seks forkortede titler bedømt korrekte), og objekt-`raw` håndhæves ikke
+# (projektejerens valg 2026-09-26: to omskrevne hændelser var bedømt sande).
+
+def test_date_that_is_not_in_the_cited_clause_is_rejected():
+    """Omregnet til ISO: formen er gyldig, men datoen står ikke i bogen."""
+    with pytest.raises(RunnerError, match="RUNNER_CLAIM_VALUE_NOT_VERBATIM"):
+        validate_record_claims([claim(value="1800-01-01")], export())
+
+
+def test_date_from_an_uncited_clause_is_rejected():
+    """1825 står i posten — men i klausul 2, og claimet citerer klausul 1."""
+    with pytest.raises(RunnerError, match="RUNNER_CLAIM_VALUE_NOT_VERBATIM"):
+        validate_record_claims([claim(value="1825")], export())
+
+
+def test_date_in_any_cited_clause_is_accepted():
+    validate_record_claims([claim(clause_ordinals=[2, 1], value="1825")], export())
+
+
+def test_date_differing_only_in_whitespace_is_accepted():
+    """Linjeskift og dobbelte mellemrum er sats, ikke tekst."""
+    validate_record_claims([claim(value="1.\njan.  1800")], export())
+
+
+@pytest.mark.parametrize("value", ["1. Jan. 1800", "1 jan 1800"])
+def test_date_differing_in_case_or_punctuation_is_rejected(value):
+    """Store/små bogstaver og tegnsætning er en del af den ordrette form."""
+    with pytest.raises(RunnerError, match="RUNNER_CLAIM_VALUE_NOT_VERBATIM"):
+        validate_record_claims([claim(value=value)], export())
+
+
+def test_text_value_need_not_be_verbatim():
+    """4.3b: en titel skåret ud af en længere sætning er korrekt. Ret ikke dette
+    uden en ny beslutning."""
+    validate_record_claims(
+        [claim(predicate="person.title", value="Kandidat i jura")], export())
+
+
+def test_object_raw_need_not_be_verbatim():
+    """Projektejerens valg 2026-09-26: kun datoer håndhæves. Ret ikke dette uden
+    en ny beslutning."""
+    validate_record_claims(
+        [claim(predicate="event.appointment", value={"raw": "udnævnt til kandidat"})],
+        export())
+
+
+def test_non_verbatim_date_fells_only_its_own_claim():
+    from evidence_runner import partition_record_claims
+    gyldige, afviste = partition_record_claims(
+        [claim(), claim(value="1800-01-01")], export())
+    assert gyldige == [claim()]
+    assert afviste == [{"claim": claim(value="1800-01-01"),
+                        "fejl": "RUNNER_CLAIM_VALUE_NOT_VERBATIM"}]
+
+
+def test_runner_and_decision_sheet_share_one_whitespace_normalisation():
+    """To definitioner af »ordret« ville kunne drive fra hinanden lydløst."""
+    import decision_sheet_html
+    assert decision_sheet_html._ws is evidence_runner.normalize_ws
 
 
 # --- konfidens -------------------------------------------------------------
@@ -399,7 +465,7 @@ def seam_returning(fixture_name, last_message):
 def test_run_record_validates_and_caches(tmp_path):
     cache = ResponseCache(tmp_path)
     last = json.dumps({"claims": [{"clause_ordinals": [1], "predicate": "person.birth",
-                                   "value": "1800-01-01", "confidence": 1.0,
+                                   "value": "1. jan. 1800", "confidence": 1.0,
                                    "source_persona_id": "persona-1"}]})
     outcome = run_record(export(), ident=cache_ident(), cache=cache,
                          run=seam_returning("turn-completed-with-usage.jsonl", last))

@@ -16,9 +16,9 @@ import base64
 import hashlib
 import json
 import re
-import unicodedata
 from pathlib import Path
 
+from evidence_runner import normalize_ws
 from interpretation_decision_sheet import (LINE_RE, SheetError, render_sheet, reviewsignal,
                                            sheet_order)
 
@@ -57,8 +57,8 @@ def _read_mangler(text: str, keys: list[str]) -> tuple[dict[str, str], list[str]
     return {k: "\n".join(v) for k, v in placed.items()}, unplaced
 
 
-def _ws(s: str) -> str:
-    return re.sub(r"\s+", " ", unicodedata.normalize("NFC", s)).strip()
+#: Samme normalisering som runnerens ordret-afvisning — én definition, ikke to.
+_ws = normalize_ws
 
 
 def _loose(s: str) -> str:

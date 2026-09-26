@@ -69,7 +69,10 @@ efter kørslen, ikke håndhævet under den: værdien står tegn for tegn i minds
 citerede klausuler. Runneren (`evidence-runner-1.0`) tjekkede kun værdiens *form*
 (`validate_claim_value`: skalar eller objekt med ikke-tom `raw`), aldrig om værdien står i
 klausulen — så de 9 `VALUE_INVALID` ovenfor er formfejl og siger intet om ordrethed.
-(Review 35, fund P10.) Tallet er derfor et resultat for netop disse 160 claims, ikke en
+(Review 35, fund P10.) Fra `evidence-runner-1.1` afviser runneren dato-claims (`date_raw`),
+hvis værdi ikke står i en citeret klausul (`RUNNER_CLAIM_VALUE_NOT_VERBATIM`); titler og
+hændelser er bevidst undtaget (projektejerens valg 2026-09-26). Piloten kørte under 1.0, og
+ingen af dens datoer ville være afvist. Tallet er derfor et resultat for netop disse 160 claims, ikke en
 egenskab, kæden garanterer. Målt over hele arkets 243 forslag (inkl. 4.3b's) står 6 værdier
 ikke ordret; 2 af dem er hændelser, projektejeren bedømte som sande i 4.3b. Den
 meningsfulde størrelse er afvisningsraten (14/174) og præcisionen i afsnit 5.

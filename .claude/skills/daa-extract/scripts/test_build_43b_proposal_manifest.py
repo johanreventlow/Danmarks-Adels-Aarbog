@@ -89,7 +89,7 @@ def test_numeric_claim_values_are_rejected_before_builder_key_derivation():
             {"ordinal": 1, "verbatim_text": text, "verbatim_sha256": sha256_text(text)},
         ],
     }
-    legal = {"clause_ordinals": [1], "predicate": "person.birth", "value": "1800-01-01",
+    legal = {"clause_ordinals": [1], "predicate": "person.birth", "value": "1. jan. 1800",
              "confidence": 0.9, "source_persona_id": "persona-1"}
     numeric = dict(legal, value={"raw": "1800", "normalized": 1800})
     accepted, rejected = partition_record_claims([legal, numeric], record)
@@ -117,7 +117,7 @@ def test_cached_raw_fractional_confidence_survives_the_claim_boundary():
         ],
     }
     raw = ('{"claims":[{"clause_ordinals":[1],"predicate":"person.birth",'
-           '"value":"1800-01-01","confidence":0.9,"source_persona_id":"persona-1"}]}')
+           '"value":"1. jan. 1800","confidence":0.9,"source_persona_id":"persona-1"}]}')
     accepted, rejected = partition_record_claims(parse_cached_raw_claims(raw), record)
     assert rejected == []
     assert len(accepted) == 1 and accepted[0]["confidence"] == 0.9
