@@ -64,11 +64,15 @@ nu med 1 gyldigt claim. Regel fastlagt før genforsøget: ét genforsøg pr. tim
 `RUNNER_CLAIM_PERSONA_REQUIRED` 4, `RUNNER_CLAIM_PREDICATE_INVALID` 1. Derudover 1 afvist af
 H1 i forslagsbyggeren; 0 dubletter; 0 ukendte roller.
 
-**Binding og ordrethed på de 160 gyldige claims: 160/160 (100 %).** Tallet er ikke et
-kvalitetsbevis i sig selv — runnerens validering afviser et claim, hvis værdien ikke står i
-den citerede klausul, så de 9 `VALUE_INVALID` ovenfor er netop de claims, der ville have
-trukket ordretheden ned. Den meningsfulde størrelse er afvisningsraten (14/174) og
-præcisionen i afsnit 5.
+**Binding og ordrethed på de 160 gyldige claims: 160/160 (100 %).** Ordretheden er *målt*
+efter kørslen, ikke håndhævet under den: værdien står tegn for tegn i mindst én af de
+citerede klausuler. Runneren (`evidence-runner-1.0`) tjekkede kun værdiens *form*
+(`validate_claim_value`: skalar eller objekt med ikke-tom `raw`), aldrig om værdien står i
+klausulen — så de 9 `VALUE_INVALID` ovenfor er formfejl og siger intet om ordrethed.
+(Review 35, fund P10.) Tallet er derfor et resultat for netop disse 160 claims, ikke en
+egenskab, kæden garanterer. Målt over hele arkets 243 forslag (inkl. 4.3b's) står 6 værdier
+ikke ordret; 2 af dem er hændelser, projektejeren bedømte som sande i 4.3b. Den
+meningsfulde størrelse er afvisningsraten (14/174) og præcisionen i afsnit 5.
 
 **Prædikatfordeling (gyldige claims):**
 
