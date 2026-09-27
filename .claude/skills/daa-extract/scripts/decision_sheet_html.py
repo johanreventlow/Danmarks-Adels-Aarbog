@@ -103,8 +103,9 @@ def record_clauses(rows: list[dict]) -> dict[str, list[dict]]:
 
 
 def build_payload(rows: list[dict], prior: dict, *, sheet_text: str | None,
-                  mangler_text: str | None, rows_sha256: str) -> dict:
-    text = render_sheet(rows, prior)
+                  mangler_text: str | None, rows_sha256: str, title: str = "4.5",
+                  prior_label: str = "4.3b") -> dict:
+    text = render_sheet(rows, prior, title=title, prior_label=prior_label)
     lines = text.split("\n")
     d_index = {ln.split(" ")[1]: i for i, ln in enumerate(lines) if ln.startswith("D ")}
     existing = _read_sheet_tokens(sheet_text) if sheet_text is not None else None
@@ -129,6 +130,7 @@ def build_payload(rows: list[dict], prior: dict, *, sheet_text: str | None,
         })
     mangler, unplaced = _read_mangler(mangler_text or "", posts)
     return {"contract": "decision-sheet-html-v1", "rows_sha256": rows_sha256,
+            "title": title, "prior_label": prior_label,
             "sheet_lines": lines, "posts": posts, "items": items,
             "record_clauses": record_clauses(rows),
             "mangler": mangler, "unplaced": "\n".join(unplaced)}

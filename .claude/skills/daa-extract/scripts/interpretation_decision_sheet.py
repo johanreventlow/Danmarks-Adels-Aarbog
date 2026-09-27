@@ -166,6 +166,8 @@ def main() -> int:
     h.add_argument("--sheet", help="påbegyndt ark; afgjorte linjer indlæses")
     h.add_argument("--mangler", help="påbegyndt MANGLER.txt")
     h.add_argument("--out", required=True)
+    h.add_argument("--title", default="4.5")
+    h.add_argument("--prior-label", default="4.3b")
     s = sub.add_parser("sql")
     s.add_argument("--sheet", required=True)
     s.add_argument("--approved-sha256", required=True)
@@ -190,7 +192,8 @@ def main() -> int:
             payload = build_payload(
                 rows, prior, rows_sha256=rows_sha,
                 sheet_text=Path(args.sheet).read_text(encoding="utf-8") if args.sheet else None,
-                mangler_text=Path(args.mangler).read_text(encoding="utf-8") if args.mangler else None)
+                mangler_text=Path(args.mangler).read_text(encoding="utf-8") if args.mangler else None,
+                title=args.title, prior_label=args.prior_label)
         except SheetError as exc:
             print(str(exc))
             return 1

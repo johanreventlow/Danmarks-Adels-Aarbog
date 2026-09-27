@@ -41,7 +41,7 @@ function splitLines(s) {
 
 function exportMangler(p, st) {
   st = st || initialState(p);
-  var out = ["# MANGLER (4.5): udsagn, modellen burde have fundet.",
+  var out = ["# MANGLER (" + (p.title || "4.5") + "): udsagn, modellen burde have fundet.",
              "# Postens nøgle først, derefter udsagnet — ét pr. linje."];
   p.posts.forEach(function (k) {
     splitLines(st.mangler[k]).forEach(function (l) { out.push(k + " " + l); });
@@ -104,7 +104,7 @@ if (typeof document !== "undefined") (function () {
 
   // --- header ---
   var header = el("header");
-  header.appendChild(el("h1", null, "Afgørelsesark 4.5"));
+  header.appendChild(el("h1", null, "Afgørelsesark " + (P.title || "4.5")));
   var stat = el("span", { class: "stat" });
   var bar = el("div", { class: "bar" }); var barFill = el("i"); bar.appendChild(barFill);
   var filter = el("select", { "aria-label": "Filter" });
@@ -172,7 +172,8 @@ if (typeof document !== "undefined") (function () {
       var vb = VERBATIM[it.verbatim];
       if (vb) head.appendChild(el("span", { class: "tag " + vb[1], title: vb[2] }, vb[0]));
       head.appendChild(el("span", { class: "tag" },
-        it.recommendation ? "anbefaling " + it.recommendation + " (4.3b)" : "ingen anbefaling"));
+        it.recommendation ? "anbefaling " + it.recommendation + " (" + (P.prior_label || "4.3b") + ")"
+                          : "ingen anbefaling"));
       it.signals.forEach(function (s) {
         var t = s === "anden person" ? roleLabel(it) : s;
         head.appendChild(el("span", { class: "tag warn", title: t === s ? "" : ROLE_HELP }, t));
