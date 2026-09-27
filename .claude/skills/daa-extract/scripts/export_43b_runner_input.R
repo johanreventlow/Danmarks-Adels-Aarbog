@@ -72,7 +72,7 @@ clauses <- DBI::dbGetQuery(con, "
                                                AND a.decision_status = 'accepted'
     JOIN private.source_observation parent ON parent.occurrence_id = a.occurrence_id
                                           AND parent.parent_observation_id IS NULL
-    JOIN private.source_observation ob ON ob.parent_observation_id = parent.id
+    JOIN private.clause_observation_current ob ON ob.parent_observation_id = parent.id
    WHERE sr.source_id = $1
    ORDER BY sr.record_key COLLATE \"C\", ob.clause_ordinal", params = list(source_id))
 

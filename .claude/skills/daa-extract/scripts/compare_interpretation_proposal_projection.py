@@ -126,7 +126,7 @@ WRITTEN_EVIDENCE_KEYS = frozenset({
 })
 EXPECTED_COUNT_ORDER = (
     "person_creates", "source_evidence", "legacy_migrations", "clause_evidence",
-    "interpretation_proposals",
+    "interpretation_proposals", "clause_revisions",
 )
 REPLAY_SCOPE = "interpretation-proposal-replay-v1"
 

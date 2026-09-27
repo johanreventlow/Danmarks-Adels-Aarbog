@@ -2769,6 +2769,48 @@ BEGIN
   RAISE NOTICE 'OK: #148 clause_evidence-writer, ACL og autorisationsform';
 END $clause_evidence_writer_verify$;
 
+-- Omsegmentering (spec 2026-09-27): historiske migrationsblokke genskaber gamle
+-- funktionskroppe. Det levende katalog skal have de nye writere og de selvstændige
+-- triggere — ellers kan et forslag knyttes til en erstattet klausul.
+DO $clause_set_live_verify$
+DECLARE v_def text;
+BEGIN
+  -- Indeksbytningen i migrationen kender kun navnet ux_source_observation_clause_ordinal.
+  -- Står et ældre (parent, ordinal)-indeks under et andet navn, dør hver revision på
+  -- dublet-nøgle; derfor skal der være præcis ét ordinal-indeks, og det skal være pr. sæt.
+  SELECT indexdef INTO v_def FROM pg_indexes WHERE schemaname='private' AND indexname='ux_source_observation_clause_ordinal';
+  IF v_def IS NULL OR v_def NOT LIKE 'CREATE UNIQUE INDEX %' OR v_def NOT LIKE '%COALESCE(clause_set_seq, 1)%' THEN
+    RAISE EXCEPTION 'FEJL: ux_source_observation_clause_ordinal er ikke unikt pr. klausulsæt: %', v_def;
+  END IF;
+  IF (SELECT count(*) FROM pg_indexes WHERE schemaname='private' AND tablename='source_observation' AND indexdef LIKE '%clause_ordinal%')<>1 THEN
+    RAISE EXCEPTION 'FEJL: mere end ét indeks over clause_ordinal';
+  END IF;
+  v_def:=pg_get_functiondef(to_regprocedure('private.write_interpretation_proposal(uuid,text,jsonb)'));
+  IF v_def IS NULL OR v_def NOT LIKE '%clause_observation_current%' OR v_def NOT LIKE '%b.source_id=v_batch.source_id%' THEN
+    RAISE EXCEPTION 'FEJL: write_interpretation_proposal er ikke sæt-bevidst eller mangler S4-tjekket';
+  END IF;
+  v_def:=pg_get_functiondef(to_regprocedure('private.write_clause_evidence(uuid,text,jsonb)'));
+  IF v_def IS NULL OR v_def NOT LIKE '%private.clause_write_set(%' THEN
+    RAISE EXCEPTION 'FEJL: write_clause_evidence skriver ikke via clause_write_set';
+  END IF;
+  v_def:=pg_get_functiondef(to_regprocedure('private.clause_write_set(jsonb,jsonb,integer,text)'));
+  IF v_def IS NULL OR v_def NOT LIKE '%clause_set_seq%' THEN
+    RAISE EXCEPTION 'FEJL: clause_write_set sætter ikke clause_set_seq';
+  END IF;
+  IF (SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgenabled<>'D' AND tgname IN
+       ('trg_source_observation_clause_set','trg_clause_set_density','trg_clause_disposition_set_rule',
+        'trg_interpretation_observation_current_clause'))<>4 THEN
+    RAISE EXCEPTION 'FEJL: klausulsættets triggere mangler eller er slået fra';
+  END IF;
+  IF to_regprocedure('public.red_apply_reimport_clause_revision(uuid,text,jsonb)') IS NULL
+     OR NOT has_function_privilege('authenticated','public.red_apply_reimport_clause_revision(uuid,text,jsonb)','EXECUTE')
+     OR has_function_privilege('anon','public.red_apply_reimport_clause_revision(uuid,text,jsonb)','EXECUTE')
+     OR has_function_privilege('authenticated','private.write_clause_revision(uuid,text,jsonb)','EXECUTE') THEN
+    RAISE EXCEPTION 'FEJL: clause_revision-RPC mangler eller har forkert ACL';
+  END IF;
+  RAISE NOTICE 'OK: omsegmentering — indeks pr. sæt, sæt-bevidste writere, S4, triggere og ACL';
+END $clause_set_live_verify$;
+
 DO $interpretation_proposal_writer_verify$
 BEGIN
   IF to_regprocedure('private.deterministic_uuid(text)') IS NULL
@@ -2896,6 +2938,7 @@ DECLARE
     'public.red_apply_reimport_name_completion(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_legacy_migration(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_clause_evidence(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_clause_revision(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_person_create(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_source_evidence(uuid,text,jsonb)'::regprocedure,

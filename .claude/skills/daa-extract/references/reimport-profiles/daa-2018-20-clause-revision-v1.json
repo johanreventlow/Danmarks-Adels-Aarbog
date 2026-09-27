@@ -1,0 +1,28 @@
+{
+  "profile_schema_version": "reimport-clause-revision-profile-v1",
+  "source_id": 1,
+  "profile_id": "daa-2018-20-clause-revision-v1",
+  "profile_version": "clause-revision-v1",
+  "writer_config": {
+    "citation_label_template": "DAA 2018-20 side {page_from}",
+    "extractor_version": "clause-revision-v1",
+    "observation_extraction_method": "clause_segment_v1",
+    "rendition_key": "daa-2018-20-pdftotext-r1",
+    "rendition_kind": "pdf_text_layer",
+    "rendition_metadata": {
+      "edition": "2018-20",
+      "pdf_sha256": "3beadfc15e3fa1a4090589af56cd4e95599a9231e8f979dfb60c4e27bbd8252a",
+      "pdftotext_version": "26.07.0"
+    },
+    "run_key_prefix": "reimport-clause-revision:",
+    "schema_version": "clause-revision-manifest-v1"
+  },
+  "raw_text_sha256": "2dd5cf8408943ccc50ac4d89dcbd08ac3b49a90fdabd1ddcbd7b22d218026563",
+  "clause_rules_version": "clause-rules-2018-20-v3",
+  "segmenter_version": "clause_segment.py@sha256:de305818813e950e",
+  "expected_counts": {
+    "person_creates": 0,
+    "source_evidence": 0,
+    "clause_revisions": 51
+  }
+}

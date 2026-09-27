@@ -53,7 +53,7 @@ preview <- list(
   expected_counts = reimport_writer_expected_counts(manifest),
   before_counts = list(
     helposts = query("SELECT count(*) n FROM private.source_observation ob JOIN private.source_record_occurrence o ON o.id=ob.occurrence_id JOIN private.source_rendition r ON r.id=o.rendition_id WHERE r.source_id=$1 AND ob.parent_observation_id IS NULL", list(manifest$source$id))$n[[1L]],
-    clauses = query("SELECT count(*) n FROM private.source_observation ob JOIN private.source_record_occurrence o ON o.id=ob.occurrence_id JOIN private.source_rendition r ON r.id=o.rendition_id WHERE r.source_id=$1 AND ob.observation_kind='clause'", list(manifest$source$id))$n[[1L]]),
+    clauses = query("SELECT count(*) n FROM private.clause_observation_current ob JOIN private.source_record_occurrence o ON o.id=ob.occurrence_id JOIN private.source_rendition r ON r.id=o.rendition_id WHERE r.source_id=$1", list(manifest$source$id))$n[[1L]]),
   record_key_coverage = preview_record_key_coverage(query, manifest),
   canonical_baseline_sha256 = preview_canonical_baseline(query),
   database_write_authorized = FALSE, production_authorized = FALSE)

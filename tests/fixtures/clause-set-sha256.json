@@ -1,0 +1,21 @@
+{
+ "description": "Paritetslås for private.clause_set_sha256 (SQL, tests/sql/test-clause-set.sql t5) og Python-builderen (Task 5). Syntetisk.",
+ "canonical_form": "sha256 over json.dumps(sorteret efter ordinal, sort_keys=True, separators=(',',':'), ensure_ascii=False); flag sorteret og uden dubletter; verbatim_sha256 = sha256(utf-8 klausultekst). SQL: private.interpretation_proposal_canonical_json_text.",
+ "clauses": [
+  {
+   "ordinal": 1,
+   "post_char_from": 0,
+   "post_char_to": 30,
+   "char_from": 100,
+   "char_to": 130,
+   "classification": "record_text",
+   "flags": [
+    "unknown_abbreviation",
+    "short_clause",
+    "short_clause"
+   ],
+   "verbatim_text": "Alfa Bravo, f. 1801 i Charlie."
+  }
+ ],
+ "clause_set_sha256": "671585aa3b736ebb9d3f5f2e9146fcefd2c4a1314743b011d14c29aae72acbc8"
+}

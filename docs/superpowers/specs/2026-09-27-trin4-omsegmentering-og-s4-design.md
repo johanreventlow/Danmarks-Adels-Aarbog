@@ -287,3 +287,21 @@ GO med rettelser. Runde 1's rettelser er efterprøvet og holder. Nye fund:
 | Forkert fejlkode for citat af afløst sæt | §3.3: FOREIGN_POST-sonden ser kun det aktuelle sæt |
 | Rørlisten ufuldstændig | §3.6 |
 | Indeksskift uden `--single-transaction` | §3.1: ét `DO`-blok med midlertidigt navn |
+
+## 8. Kodereview runde 1 (2026-09-27, uafhængig agent, ikke Codex)
+
+GO. Syv MINOR-fund, hvert efterprøvet i koden før rettelse:
+
+| Fund | Håndtering |
+| --- | --- |
+| Sæt-reglen for dispositioner læste "aktuelt sæt", før rækkelåsen blev taget (den fyrer før `validate_clause_disposition`) | `FOR UPDATE` på klausulrækken som første sætning; katalogtjek i `test-clause-set` t1 |
+| Ingen writer-test reviderede et NULL-sæt 1 (prods form) | `test-clause-revision` t7; mutation (NULL-blind `erstattet`-løkke) fanges |
+| S4 havde ingen CI-dækning | `test-clause-revision` t8; mutation (vagten fjernet) fanges |
+| `write_clause_evidence` kaldte ikke `SET CONSTRAINTS … IMMEDIATE` som §3.1 siger | Tilføjet; katalogtjek i t1 |
+| Indeksbytningen kender kun navnet `ux_source_observation_clause_ordinal` | Den levende `db-verify` kræver præcis ét ordinal-indeks, og at det er pr. sæt; mutation fanges |
+| Revisionsvagterne dækker kun fortolkningslinks og menneskelige dispositioner. `source_mention`, `source_observation_text` og placement-kolonnerne (`basis_observation_id`, `header_observation_id`) kan pege på klausulrækker uden vagt | **Kendt grænse.** Ingen writer knytter dem til klausuler i dag. Vagten skal tilføjes, før den første gør det (sandsynligvis 5c placement) |
+| Den statiske læservagt undtager `schema.sql`, `db-migrations.sql` og `db-verify.sql` helt | **Bevidst.** SQL-læsere dækkes af SQL-testene; en ny SQL-læser skal gå gennem `private.clause_observation_current` |
+
+## 9. Kodereview runde 2 (2026-09-27, smal, sidste runde i budgettet)
+
+GO. Låsen i sæt-reglen tilføjer intet nyt låsepar (`validate_clause_disposition` låste allerede samme række i samme INSERT) og ingen deadlock; en race med to sessioner blev reproduceret uden rettelsen og afvist med den. Fund taget med: indeks-tjekket i db-verify og `test-clause-set` t1 krævede ikke, at indekset er **unikt** — det gør de nu. Tilbage som kendt grænse: samtidigheden testes ikke i CI, kun ved probe og det statiske katalogtjek.

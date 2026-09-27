@@ -43,11 +43,12 @@ WITH guard AS (
   SELECT er.* FROM private.extraction_run er JOIN guard g ON g.ok = 1 AND er.source_id = g.source_id
 ), clause_obs AS (
   -- Klausul-observationer fra kildens egne koersler, med den accepterede post de hoerer til.
+  -- Kun det AKTUELLE klausulsaet (omsegmentering): et afloest saet har samme ordinaler,
+  -- og komparatoren noegler paa (record_key, clause_ordinal).
   SELECT o.id, o.clause_ordinal, ac.record_key
-  FROM private.source_observation o
+  FROM private.clause_observation_current o
   JOIN source_runs r ON r.id = o.extraction_run_id
   LEFT JOIN accepted ac ON ac.occurrence_id = o.occurrence_id
-  WHERE o.observation_kind = 'clause'
 ), clause_rows AS (
   SELECT d.observation_id, d.version, jsonb_build_object(
     'observation_id', d.observation_id,

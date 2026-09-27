@@ -207,3 +207,28 @@ def test_legacy_migration_profile_requires_exact_nonnegative_dispositions(
         rp.load_profile(write(tmp_path, legacy_profile_dict(
             expected_dispositions=expected_dispositions)))
     assert str(error.value) == "PROFILE_EXPECTED_DISPOSITIONS_INVALID"
+
+
+# --- Omsegmentering: revisionsprofilen (spec 2026-09-27) --------------------
+CLAUSE_EVIDENCE_PROFILE = Path(__file__).resolve().parents[1] / "references/reimport-profiles/daa-2018-20-clause-evidence-v1.json"
+
+
+def _revision_profile(**counts):
+    profile = json.loads(CLAUSE_EVIDENCE_PROFILE.read_text(encoding="utf-8"))
+    profile["profile_schema_version"] = "reimport-clause-revision-profile-v1"
+    profile["profile_id"] = "fixture-clause-revision"
+    profile["expected_counts"] = counts or {"person_creates": 0, "source_evidence": 0, "clause_revisions": 51}
+    return profile
+
+
+def test_revision_profile_loads_with_clause_revisions_count(tmp_path):
+    path = tmp_path / "revision.json"
+    path.write_text(json.dumps(_revision_profile()), encoding="utf-8")
+    assert rp.load_profile(path)["expected_counts"]["clause_revisions"] == 51
+
+
+def test_revision_profile_rejects_the_clause_evidence_count(tmp_path):
+    path = tmp_path / "revision.json"
+    path.write_text(json.dumps(_revision_profile(person_creates=0, source_evidence=0, clause_evidence=51)), encoding="utf-8")
+    with pytest.raises(rp.ProfileError, match="PROFILE_EXPECTED_COUNTS_INVALID"):
+        rp.load_profile(path)

@@ -18260,6 +18260,7 @@ DECLARE
     'public.red_apply_reimport_legacy_migration(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_clause_evidence(uuid,text,jsonb)'::regprocedure,
     to_regprocedure('public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)'),
+    to_regprocedure('public.red_apply_reimport_clause_revision(uuid,text,jsonb)'),
     'public.red_apply_reimport_person_create(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_source_evidence(uuid,text,jsonb)'::regprocedure,
     'public.red_begin_1939_v50_name_completion(uuid,text,uuid)'::regprocedure,
@@ -18791,3 +18792,777 @@ END $$;
 REVOKE ALL ON FUNCTION private.deterministic_uuid(text),private.interpretation_proposal_canonical_json_text(jsonb),private.interpretation_proposal_canonical_json_sha256(jsonb),private.normalize_interpretation_proposal_value(jsonb),private.interpretation_proposal_key_material(bigint,text,text,jsonb,jsonb),private.interpretation_proposal_key_material_sha256(bigint,text,text,jsonb,jsonb),private.interpretation_proposal_key(bigint,text,text,jsonb,jsonb),private.interpretation_proposal_interpretation_receipt(private.interpretation),private.interpretation_proposal_link_receipt(private.interpretation_observation),private.interpretation_proposal_disposition_receipt(private.clause_disposition),private.write_interpretation_proposal(uuid,text,jsonb),public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)
   FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb) TO authenticated;
+
+-- =============================================================================
+-- Omsegmentering af klausulsæt (spec 2026-09-27-trin4-omsegmentering-og-s4, Task 1).
+--
+-- En post kan få et nyt klausulsæt ved siden af det gamle, append-only. NULL på en
+-- klausulrække betyder sæt 1 (4.1c's 868 rækker står urørte; en default ville være
+-- skrevet i ALLE rækker og kunne aldrig rettes). Invarianterne ligger i NYE,
+-- selvstændigt navngivne triggerfunktioner: historiske blokke i db-migrations.sql
+-- genskaber de gamle kroppe af validate_clause_observation/-disposition og writerne,
+-- så en invariant, der kun lå dér, kunne forsvinde ved en afbrudt kørsel.
+-- Idempotent; står SIDST i db-migrations.sql.
+-- =============================================================================
+
+ALTER TABLE private.source_observation
+  ADD COLUMN IF NOT EXISTS clause_set_seq integer
+    CONSTRAINT source_observation_clause_set_seq_check CHECK (clause_set_seq IS NULL OR clause_set_seq >= 1);
+
+-- Unikheden bliver pr. sæt. Samme indeksnavn, så den historiske
+-- `CREATE UNIQUE INDEX IF NOT EXISTS ux_source_observation_clause_ordinal` er en no-op
+-- ved genkørsel. Byg-omdøb i én blok: db-migrations.sql kører ikke i én transaktion,
+-- og der må ikke være et vindue uden unikhedsindeks.
+DO $clause_set_index$
+DECLARE v_def text;
+BEGIN
+  SELECT indexdef INTO v_def FROM pg_indexes
+   WHERE schemaname='private' AND indexname='ux_source_observation_clause_ordinal';
+  IF v_def IS NOT NULL AND v_def LIKE '%clause_set_seq%' THEN
+    RETURN;
+  END IF;
+  DROP INDEX IF EXISTS private.ux_source_observation_clause_ordinal_set_tmp;
+  CREATE UNIQUE INDEX ux_source_observation_clause_ordinal_set_tmp
+    ON private.source_observation(parent_observation_id, coalesce(clause_set_seq,1), clause_ordinal)
+    WHERE parent_observation_id IS NOT NULL;
+  DROP INDEX IF EXISTS private.ux_source_observation_clause_ordinal;
+  ALTER INDEX private.ux_source_observation_clause_ordinal_set_tmp RENAME TO ux_source_observation_clause_ordinal;
+END $clause_set_index$;
+
+INSERT INTO private.vocab(scheme,code,label) VALUES
+  ('clause_disposition_machine','erstattet','Maskinel: erstattet af et nyere klausulsæt')
+ON CONFLICT (scheme,code) DO NOTHING;
+
+-- Sæt-reglerne. Ny klausul: seq = max+1 (max over coalesce(seq,1); ny post ⇒ 1),
+-- eller seq = max, når sættets rækker kommer fra samme kørsel (ét sæt = én kørsel).
+CREATE OR REPLACE FUNCTION private.validate_clause_set_seq()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_max integer; v_foreign_run boolean;
+BEGIN
+  IF NEW.observation_kind<>'clause' THEN
+    IF NEW.clause_set_seq IS NOT NULL THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_SET_FORBIDDEN'; END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW.clause_set_seq IS NULL THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_SET_REQUIRED'; END IF;
+  -- Serialisér sæt-tildelingen pr. helpost.
+  PERFORM 1 FROM private.source_observation WHERE id=NEW.parent_observation_id FOR UPDATE;
+  SELECT max(coalesce(clause_set_seq,1)) INTO v_max
+    FROM private.source_observation WHERE parent_observation_id=NEW.parent_observation_id;
+  IF NEW.clause_set_seq=coalesce(v_max,0)+1 THEN
+    RETURN NEW;
+  END IF;
+  IF NEW.clause_set_seq=v_max THEN
+    SELECT EXISTS(SELECT 1 FROM private.source_observation
+                   WHERE parent_observation_id=NEW.parent_observation_id
+                     AND coalesce(clause_set_seq,1)=v_max
+                     AND extraction_run_id IS DISTINCT FROM NEW.extraction_run_id) INTO v_foreign_run;
+    IF NOT v_foreign_run THEN RETURN NEW; END IF;
+  END IF;
+  RAISE EXCEPTION 'EVIDENCE_CLAUSE_SET_SEQ_INVALID: sæt % efter %', NEW.clause_set_seq, coalesce(v_max,0);
+END $$;
+
+DROP TRIGGER IF EXISTS trg_source_observation_clause_set ON private.source_observation;
+CREATE TRIGGER trg_source_observation_clause_set
+  BEFORE INSERT ON private.source_observation
+  FOR EACH ROW EXECUTE FUNCTION private.validate_clause_set_seq();
+
+-- Tætte ordinaler 1..n pr. sæt, efterprøvet ved commit (eller ved SET CONSTRAINTS IMMEDIATE).
+CREATE OR REPLACE FUNCTION private.check_clause_set_density()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_n integer; v_max integer;
+BEGIN
+  IF NEW.observation_kind<>'clause' THEN RETURN NULL; END IF;
+  SELECT count(*), max(clause_ordinal) INTO v_n, v_max FROM private.source_observation
+   WHERE parent_observation_id=NEW.parent_observation_id AND coalesce(clause_set_seq,1)=coalesce(NEW.clause_set_seq,1);
+  IF v_n<>v_max OR (SELECT min(clause_ordinal) FROM private.source_observation
+                     WHERE parent_observation_id=NEW.parent_observation_id AND coalesce(clause_set_seq,1)=coalesce(NEW.clause_set_seq,1))<>1 THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_SET_NOT_DENSE: sæt % har % klausuler, højeste ordinal %', coalesce(NEW.clause_set_seq,1), v_n, v_max;
+  END IF;
+  RETURN NULL;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_clause_set_density ON private.source_observation;
+CREATE CONSTRAINT TRIGGER trg_clause_set_density
+  AFTER INSERT ON private.source_observation
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION private.check_clause_set_density();
+
+-- Det aktuelle sæt pr. helpost. Den ENE læsevej for »postens klausuler«.
+CREATE OR REPLACE VIEW private.clause_observation_current
+WITH (security_invoker=true) AS
+SELECT o.*
+  FROM private.source_observation o
+ WHERE o.observation_kind='clause'
+   AND coalesce(o.clause_set_seq,1)=(SELECT max(coalesce(o2.clause_set_seq,1))
+                                       FROM private.source_observation o2
+                                      WHERE o2.parent_observation_id=o.parent_observation_id);
+
+-- Sættets identitet: sha256 over kanonisk JSON (nøgler COLLATE "C", ingen mellemrum),
+-- en liste sorteret efter ordinal. Flag sorteres og dubletter fjernes. Python-siden
+-- (Task 5) skal give samme hash; en fælles fixture låser pariteten
+-- (tests/fixtures/clause-set-sha256.json). p_seq er det EFFEKTIVE sæt: 1 for NULL-rækker.
+CREATE OR REPLACE FUNCTION private.clause_set_sha256(p_parent uuid, p_seq integer)
+RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,private,extensions AS $$
+DECLARE v_items jsonb;
+BEGIN
+  SELECT jsonb_agg(jsonb_build_object(
+           'ordinal',o.clause_ordinal,
+           'post_char_from',o.post_char_from,'post_char_to',o.post_char_to,
+           'char_from',o.char_from,'char_to',o.char_to,
+           'classification',o.clause_classification,
+           'flags',coalesce((SELECT jsonb_agg(f ORDER BY f COLLATE "C")
+                               FROM (SELECT DISTINCT e #>> '{}' AS f FROM jsonb_array_elements(o.clause_flags) e) d),'[]'::jsonb),
+           'verbatim_sha256',encode(extensions.digest(convert_to(o.verbatim_text,'UTF8'),'sha256'),'hex'))
+         ORDER BY o.clause_ordinal)
+    INTO v_items
+    FROM private.source_observation o
+   WHERE o.parent_observation_id=p_parent AND o.observation_kind='clause'
+     AND coalesce(o.clause_set_seq,1)=p_seq;
+  IF v_items IS NULL THEN RETURN NULL; END IF;
+  RETURN encode(extensions.digest(convert_to(private.interpretation_proposal_canonical_json_text(v_items),'UTF8'),'sha256'),'hex');
+END $$;
+
+-- `erstattet` kun uden for det aktuelle sæt og kun én gang; alt andet kun inden for;
+-- intet efter `erstattet`.
+CREATE OR REPLACE FUNCTION private.validate_clause_disposition_set()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_obs private.source_observation%ROWTYPE; v_current boolean;
+BEGIN
+  -- Lås klausulrækken først: denne trigger fyrer før validate_clause_disposition, og en
+  -- samtidig revision låser det aktuelle sæts rækker. Efter ventetiden ser sætkontrollen
+  -- revisionens nye sæt.
+  SELECT * INTO v_obs FROM private.source_observation WHERE id=NEW.observation_id FOR UPDATE;
+  IF NOT FOUND OR v_obs.observation_kind<>'clause' THEN RETURN NEW; END IF;  -- validate_clause_disposition afviser
+  IF EXISTS(SELECT 1 FROM private.clause_disposition WHERE observation_id=NEW.observation_id AND disposition='erstattet') THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_AFTER_REPLACED';
+  END IF;
+  SELECT coalesce(v_obs.clause_set_seq,1)=max(coalesce(o.clause_set_seq,1)) INTO v_current
+    FROM private.source_observation o WHERE o.parent_observation_id=v_obs.parent_observation_id;
+  IF NEW.disposition='erstattet' THEN
+    IF v_current THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_REPLACED_IN_CURRENT_SET'; END IF;
+  ELSIF NOT v_current THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_OUTSIDE_CURRENT_SET';
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_clause_disposition_set_rule ON private.clause_disposition;
+CREATE TRIGGER trg_clause_disposition_set_rule
+  BEFORE INSERT ON private.clause_disposition
+  FOR EACH ROW EXECUTE FUNCTION private.validate_clause_disposition_set();
+
+-- Et fortolkningslink må kun pege på det aktuelle sæt. Andre observationstyper passerer.
+CREATE OR REPLACE FUNCTION private.validate_interpretation_observation_current_clause()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_obs private.source_observation%ROWTYPE;
+BEGIN
+  SELECT * INTO v_obs FROM private.source_observation WHERE id=NEW.observation_id;
+  IF NOT FOUND OR v_obs.observation_kind<>'clause' THEN RETURN NEW; END IF;
+  IF coalesce(v_obs.clause_set_seq,1)<>(SELECT max(coalesce(o.clause_set_seq,1)) FROM private.source_observation o
+                                          WHERE o.parent_observation_id=v_obs.parent_observation_id) THEN
+    RAISE EXCEPTION 'INTERPRETATION_OBSERVATION_CLAUSE_NOT_CURRENT';
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_interpretation_observation_current_clause ON private.interpretation_observation;
+CREATE TRIGGER trg_interpretation_observation_current_clause
+  BEFORE INSERT ON private.interpretation_observation
+  FOR EACH ROW EXECUTE FUNCTION private.validate_interpretation_observation_current_clause();
+
+REVOKE ALL ON FUNCTION private.validate_clause_set_seq(), private.check_clause_set_density(),
+  private.clause_set_sha256(uuid,integer), private.validate_clause_disposition_set(),
+  private.validate_interpretation_observation_current_clause()
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON TABLE private.clause_observation_current FROM PUBLIC,anon,authenticated,service_role;
+
+DO $clause_revision_operation$
+BEGIN
+  PERFORM private.ensure_reimport_operations(ARRAY['clause_revision']);
+END $clause_revision_operation$;
+
+-- Klausul-writerne deler forberedelse og sæt-skrivning (spec §3.2); write_clause_evidence
+-- skriver sæt 1 eksplicit (triggeren kræver clause_set_seq på nye klausuler).
+-- Fælles forberedelse for klausul-writerne (clause_evidence, clause_revision): kontrakt,
+-- batch, redaktør, lås, autorisation, payloadform, record, anker, rendition, helpost og
+-- kørsel. Én definition, så de to operationers kontroller ikke glider fra hinanden.
+-- Operationsspecifikt (EXISTS-tjekket, replaces_*) ligger i writerne selv.
+CREATE OR REPLACE FUNCTION private.clause_write_prepare(p_batch_id uuid,p_element_id text,p_payload jsonb,p_operation text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE; v_profile private.reimport_writer_profile%ROWTYPE;
+  v_record private.source_record%ROWTYPE; v_occurrence private.source_record_occurrence%ROWTYPE; v_parent private.source_observation%ROWTYPE;
+  v_run uuid; v_run_key text; v_keys text[]; v_prefix text; v_invalid text;
+BEGIN
+  IF p_operation='clause_evidence' THEN
+    v_keys:=ARRAY['clause_rules_version','clauses','gap_charset','ledger_sha256','parent_verbatim_sha256','rendition_content_sha256','rendition_projection_sha256','segmenter_version','source_record_key'];
+    v_prefix:='clause-evidence:'; v_invalid:='REIMPORT_WRITER_CLAUSE_EVIDENCE_INVALID';
+  ELSIF p_operation='clause_revision' THEN
+    v_keys:=ARRAY['clause_rules_version','clauses','gap_charset','ledger_sha256','parent_verbatim_sha256','rendition_content_sha256','rendition_projection_sha256','replaces_clause_set_seq','replaces_clause_set_sha256','segmenter_version','source_record_key'];
+    v_prefix:='clause-revision:'; v_invalid:='REIMPORT_WRITER_CLAUSE_REVISION_INVALID';
+  ELSE
+    RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_OPERATION_UNKNOWN';
+  END IF;
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_batch:=private.require_reimport_open_batch(p_batch_id);
+  PERFORM private.require_reimport_writer_editor();
+  PERFORM private.lock_reimport_writer(v_batch.source_id,v_batch.profile_id);
+  SELECT * INTO v_auth FROM private.reimport_authorization WHERE id=v_batch.authorization_id;
+  SELECT * INTO v_profile FROM private.reimport_writer_profile WHERE source_id=v_batch.source_id AND profile_id=v_batch.profile_id AND profile_sha256=v_batch.profile_sha256;
+  IF NOT FOUND OR NOT v_auth.authorized_elements ? p_element_id OR v_auth.authorized_elements->p_element_id IS DISTINCT FROM p_payload THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_ELEMENT_NOT_AUTHORIZED';
+  END IF;
+  IF jsonb_typeof(p_payload)<>'object'
+     OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(p_payload) k)<>v_keys
+     OR p_element_id<>v_prefix||coalesce(p_payload->>'source_record_key','')
+     OR coalesce(p_payload->>'rendition_content_sha256','') !~ '^[0-9a-f]{64}$'
+     OR coalesce(p_payload->>'parent_verbatim_sha256','') !~ '^[0-9a-f]{64}$'
+     OR coalesce(p_payload->>'ledger_sha256','') !~ '^[0-9a-f]{64}$'
+     OR coalesce(p_payload->>'rendition_projection_sha256','') !~ '^[0-9a-f]{64}$'
+     OR nullif(btrim(coalesce(p_payload->>'clause_rules_version','')),'') IS NULL
+     OR nullif(btrim(coalesce(p_payload->>'segmenter_version','')),'') IS NULL
+     OR jsonb_typeof(p_payload->'gap_charset')<>'array' OR jsonb_array_length(p_payload->'gap_charset')=0
+     OR jsonb_typeof(p_payload->'clauses')<>'array' OR jsonb_array_length(p_payload->'clauses')=0
+     OR (p_operation='clause_revision' AND (
+          jsonb_typeof(p_payload->'replaces_clause_set_seq')<>'number'
+          OR coalesce(p_payload->>'replaces_clause_set_seq','') !~ '^[1-9][0-9]{0,8}$'
+          OR coalesce(p_payload->>'replaces_clause_set_sha256','') !~ '^[0-9a-f]{64}$')) THEN
+    RAISE EXCEPTION '%', v_invalid;
+  END IF;
+  SELECT * INTO v_record FROM private.source_record WHERE source_id=v_batch.source_id AND record_key=p_payload->>'source_record_key' FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_RECORD_MISSING'; END IF;
+  IF (SELECT count(*) FROM private.source_record_anchor_current a WHERE a.source_record_id=v_record.id AND a.decision_status='accepted')<>1 THEN
+    RAISE EXCEPTION 'CLAUSE_EVIDENCE_ANCHOR_AMBIGUOUS';
+  END IF;
+  SELECT o.* INTO v_occurrence FROM private.source_record_anchor_current a JOIN private.source_record_occurrence o ON o.id=a.occurrence_id
+   WHERE a.source_record_id=v_record.id AND a.decision_status='accepted';
+  IF NOT EXISTS (SELECT 1 FROM private.source_rendition r WHERE r.id=v_occurrence.rendition_id AND r.content_sha256=p_payload->>'rendition_content_sha256') THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_RENDITION_DRIFT';
+  END IF;
+  -- Præcis én helpost under forekomsten; radlås mod samtidige klausul-writes (spec 4.1.4).
+  IF (SELECT count(*) FROM private.source_observation ob WHERE ob.occurrence_id=v_occurrence.id AND ob.parent_observation_id IS NULL)<>1 THEN
+    RAISE EXCEPTION 'CLAUSE_EVIDENCE_PARENT_AMBIGUOUS';
+  END IF;
+  SELECT * INTO v_parent FROM private.source_observation ob WHERE ob.occurrence_id=v_occurrence.id AND ob.parent_observation_id IS NULL FOR UPDATE;
+  IF encode(digest(v_parent.verbatim_text,'sha256'),'hex')<>p_payload->>'parent_verbatim_sha256' THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_PARENT_TEXT_DRIFT'; END IF;
+  v_run_key:=(v_profile.writer_config->>'run_key_prefix')||v_batch.manifest_sha256;
+  INSERT INTO private.extraction_run(source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+  VALUES(v_batch.source_id,v_run_key,v_profile.writer_config->>'schema_version',v_profile.writer_config->>'extractor_version',v_profile.profile_version,v_batch.manifest_sha256,
+         jsonb_build_object('batch_id',p_batch_id,'profile_sha256',v_batch.profile_sha256)) ON CONFLICT(source_id,run_key) DO NOTHING;
+  SELECT id INTO v_run FROM private.extraction_run WHERE source_id=v_batch.source_id AND run_key=v_run_key;
+  -- ON CONFLICT DO NOTHING kan genbruge en tidligere kørsel med ANDEN proveniens.
+  -- Samme efterkontrol som ensure_reimport_source_evidence: alt skal stemme, ellers stop.
+  IF NOT EXISTS(SELECT 1 FROM private.extraction_run
+                 WHERE id=v_run AND source_id=v_batch.source_id AND run_key=v_run_key
+                   AND schema_version=v_profile.writer_config->>'schema_version'
+                   AND extractor_version=v_profile.writer_config->>'extractor_version'
+                   AND profile_version=v_profile.profile_version
+                   AND input_sha256=v_batch.manifest_sha256
+                   AND manifest=jsonb_build_object('batch_id',p_batch_id,'profile_sha256',v_batch.profile_sha256)) THEN
+    RAISE EXCEPTION 'CLAUSE_EVIDENCE_EXTRACTION_RUN_DRIFT';
+  END IF;
+  RETURN jsonb_build_object('batch_id',p_batch_id,'manifest_sha256',v_batch.manifest_sha256,
+    'record_key',v_record.record_key,'occurrence_id',v_occurrence.id,'parent_id',v_parent.id,'run_id',v_run,
+    'observation_extraction_method',v_profile.writer_config->>'observation_extraction_method');
+END $$;
+
+-- Skriv ét klausulsæt (sæt p_seq) under helposten i p_ctx: klausulvalidering, rækker og
+-- startdispositioner. Fælles for clause_evidence (sæt 1) og clause_revision (sæt n+1).
+CREATE OR REPLACE FUNCTION private.clause_write_set(p_ctx jsonb,p_payload jsonb,p_seq integer,p_element_id text)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_parent private.source_observation%ROWTYPE; v_clause jsonb; v_expected_ordinal integer := 0; v_prev_end integer := 0;
+  v_from integer; v_to integer; v_abs_from integer; v_abs_to integer; v_prev_abs_end integer := 0; v_gap text; v_text text;
+  v_gap_chars text[]; v_obs uuid; v_count integer := 0; v_disposition text;
+BEGIN
+  SELECT * INTO v_parent FROM private.source_observation WHERE id=(p_ctx->>'parent_id')::uuid;
+  SELECT array_agg(value) INTO v_gap_chars FROM jsonb_array_elements_text(p_payload->'gap_charset');
+  FOR v_clause IN SELECT value FROM jsonb_array_elements(p_payload->'clauses') LOOP
+    v_expected_ordinal:=v_expected_ordinal+1;
+    IF jsonb_typeof(v_clause)<>'object' OR (v_clause->>'ordinal')::int IS DISTINCT FROM v_expected_ordinal THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_ORDINAL_INVALID'; END IF;
+    -- Lukket nøglesæt på klausulen: uden det kan en autoriseret payload bære fx
+    -- verbatim_text og lagre kildetekst permanent i private.reimport_event.
+    IF (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(v_clause) k)
+       <> ARRAY['char_from','char_to','classification','flags','ordinal','rendition_char_from','rendition_char_to','verbatim_sha256'] THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_EVIDENCE_INVALID';
+    END IF;
+    v_from:=(v_clause->>'char_from')::int; v_to:=(v_clause->>'char_to')::int;
+    v_abs_from:=(v_clause->>'rendition_char_from')::int; v_abs_to:=(v_clause->>'rendition_char_to')::int;
+    IF v_from IS NULL OR v_to IS NULL OR v_from<v_prev_end OR v_to<=v_from OR v_to>char_length(v_parent.verbatim_text)
+       OR coalesce(v_clause->>'verbatim_sha256','') !~ '^[0-9a-f]{64}$' OR jsonb_typeof(v_clause->'flags')<>'array'
+       OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_clause->'flags') f WHERE jsonb_typeof(f)<>'string' OR btrim(f#>>'{}')='')
+       OR NOT EXISTS (SELECT 1 FROM private.vocab WHERE scheme='clause_classification' AND code=v_clause->>'classification') THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_EVIDENCE_INVALID';
+    END IF;
+    -- Renditions-absolutte offsets kommer fra manifest-builderens offset-kort.
+    -- Helposten er IKKE en litteral delstreng af renditionen (whitespace er foldet
+    -- i segment.py), så parent.char_from + post-relativ offset peger forkert i 494
+    -- af 591 poster. Basen kan ikke bygge kortet — renditionsteksten findes ikke her —
+    -- men den håndhæver, at intervallet ligger inde i forælderens og er monotont.
+    IF v_abs_from IS NULL OR v_abs_to IS NULL OR v_abs_to<=v_abs_from
+       OR v_abs_from<v_parent.char_from OR v_abs_to>v_parent.char_to
+       OR v_abs_from<v_prev_abs_end THEN
+      RAISE EXCEPTION 'CLAUSE_EVIDENCE_RENDITION_SPAN_INVALID';
+    END IF;
+    v_gap:=substr(v_parent.verbatim_text, v_prev_end+1, v_from-v_prev_end);
+    IF v_gap<>'' AND EXISTS (SELECT 1 FROM regexp_split_to_table(v_gap,'') ch WHERE NOT (ch = ANY(v_gap_chars))) THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_GAP_INVALID'; END IF;
+    v_text:=substr(v_parent.verbatim_text, v_from+1, v_to-v_from);
+    IF encode(digest(v_text,'sha256'),'hex')<>v_clause->>'verbatim_sha256' THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_TEXT_HASH_MISMATCH'; END IF;
+    INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,
+      parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags,clause_set_seq)
+    VALUES((p_ctx->>'occurrence_id')::uuid,'clause',v_parent.page_from,v_parent.page_to,v_abs_from,v_abs_to,v_text,v_parent.quality_status,
+      (p_ctx->>'observation_extraction_method')||':'||(p_payload->>'clause_rules_version'),(p_ctx->>'run_id')::uuid,
+      v_parent.id,v_from,v_to,v_expected_ordinal,v_clause->>'classification',v_clause->'flags',p_seq) RETURNING id INTO v_obs;
+    v_disposition:=CASE WHEN v_clause->>'classification'='structural_header' THEN 'strukturel'
+                        WHEN jsonb_array_length(v_clause->'flags')>0 THEN 'maskinelt_flagget'
+                        ELSE 'afventer_fortolkning' END;
+    INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence)
+    VALUES(v_obs,1,v_disposition,'machine',jsonb_build_object('batch_id',p_ctx->>'batch_id','element_id',p_element_id,'manifest_sha256',p_ctx->>'manifest_sha256','clause_rules_version',p_payload->>'clause_rules_version'));
+    v_prev_end:=v_to; v_prev_abs_end:=v_abs_to; v_count:=v_count+1;
+  END LOOP;
+  v_gap:=substr(v_parent.verbatim_text, v_prev_end+1);
+  IF v_gap<>'' AND EXISTS (SELECT 1 FROM regexp_split_to_table(v_gap,'') ch WHERE NOT (ch = ANY(v_gap_chars))) THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_GAP_INVALID'; END IF;
+  RETURN v_count;
+END $$;
+
+CREATE OR REPLACE FUNCTION private.write_clause_evidence(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_ctx jsonb; v_count integer;
+BEGIN
+  v_ctx:=private.clause_write_prepare(p_batch_id,p_element_id,p_payload,'clause_evidence');
+  IF EXISTS (SELECT 1 FROM private.source_observation WHERE parent_observation_id=(v_ctx->>'parent_id')::uuid) THEN RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_EVIDENCE_EXISTS'; END IF;
+  v_count:=private.clause_write_set(v_ctx,p_payload,1,p_element_id);
+  SET CONSTRAINTS private.trg_clause_set_density IMMEDIATE;
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256)
+  VALUES(p_batch_id,p_element_id,'clause_evidence',v_ctx->>'record_key',p_payload||jsonb_build_object('parent_observation_id',(v_ctx->>'parent_id')::uuid,'run_id',(v_ctx->>'run_id')::uuid,'clauses_written',v_count),
+         encode(digest((p_payload||jsonb_build_object('clauses_written',v_count))::text,'sha256'),'hex'));
+  RETURN jsonb_build_object('clauses',v_count,'parent_observation_id',(v_ctx->>'parent_id')::uuid,'run_id',(v_ctx->>'run_id')::uuid);
+END $$;
+
+REVOKE ALL ON FUNCTION private.clause_write_prepare(uuid,text,jsonb,text), private.clause_write_set(jsonb,jsonb,integer,text)
+  FROM PUBLIC,anon,authenticated,service_role;
+
+-- Operationen clause_revision i autorisation, afslutning og batch-resultat (spec §3.6).
+-- Historiske blokke definerer de tre funktioner tidligere i filen; denne sidste version vinder.
+CREATE OR REPLACE FUNCTION private.validate_reimport_authorization_payload(p_expected_counts jsonb,p_authorized_elements jsonb)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE v_person_creates bigint; v_source_evidence bigint; v_legacy_migrations bigint; v_clause_evidence bigint; v_interpretation_proposals bigint; v_clause_revisions bigint; v_authorized_count bigint;
+BEGIN
+  IF jsonb_typeof(p_expected_counts)<>'object' OR jsonb_typeof(p_authorized_elements)<>'object'
+     OR jsonb_typeof(p_expected_counts->'person_creates')<>'number'
+     OR jsonb_typeof(p_expected_counts->'source_evidence')<>'number'
+     OR coalesce(p_expected_counts->>'person_creates','') !~ '^[0-9]+$'
+     OR coalesce(p_expected_counts->>'source_evidence','') !~ '^[0-9]+$'
+     OR (p_expected_counts ? 'legacy_migrations' AND (jsonb_typeof(p_expected_counts->'legacy_migrations')<>'number' OR coalesce(p_expected_counts->>'legacy_migrations','') !~ '^[0-9]+$'))
+     OR (p_expected_counts ? 'clause_evidence' AND (jsonb_typeof(p_expected_counts->'clause_evidence')<>'number' OR coalesce(p_expected_counts->>'clause_evidence','') !~ '^[0-9]+$'))
+     OR (p_expected_counts ? 'interpretation_proposals' AND (jsonb_typeof(p_expected_counts->'interpretation_proposals')<>'number' OR coalesce(p_expected_counts->>'interpretation_proposals','') !~ '^[0-9]+$'))
+     OR (p_expected_counts ? 'clause_revisions' AND (jsonb_typeof(p_expected_counts->'clause_revisions')<>'number' OR coalesce(p_expected_counts->>'clause_revisions','') !~ '^[0-9]+$'))
+     OR (SELECT count(*) FROM jsonb_object_keys(p_expected_counts)) NOT IN (2,3,4,5,6)
+     OR EXISTS(SELECT 1 FROM jsonb_object_keys(p_expected_counts) key WHERE key NOT IN ('person_creates','source_evidence','legacy_migrations','clause_evidence','interpretation_proposals','clause_revisions')) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_AUTHORIZATION_INVALID';
+  END IF;
+  v_person_creates:=(p_expected_counts->>'person_creates')::bigint;
+  v_source_evidence:=(p_expected_counts->>'source_evidence')::bigint;
+  v_legacy_migrations:=coalesce((p_expected_counts->>'legacy_migrations')::bigint,0);
+  v_clause_evidence:=coalesce((p_expected_counts->>'clause_evidence')::bigint,0);
+  v_interpretation_proposals:=coalesce((p_expected_counts->>'interpretation_proposals')::bigint,0);
+  v_clause_revisions:=coalesce((p_expected_counts->>'clause_revisions')::bigint,0);
+  SELECT count(*) INTO v_authorized_count FROM jsonb_object_keys(p_authorized_elements);
+  IF v_authorized_count<>(v_person_creates+v_source_evidence+v_legacy_migrations+v_clause_evidence+v_interpretation_proposals+v_clause_revisions)
+     OR EXISTS(SELECT 1 FROM jsonb_each(p_authorized_elements) element
+                WHERE jsonb_typeof(element.value)<>'object'
+                   OR (element.key !~ '^person-create:.+$' AND element.key !~ '^source-evidence:.+$' AND element.key !~ '^legacy-migration:.+$' AND element.key !~ '^clause-evidence:.+$' AND element.key !~ '^interpretation-proposal:.+$' AND element.key !~ '^clause-revision:.+$'))
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^person-create:.+$')<>v_person_creates
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^source-evidence:.+$')<>v_source_evidence
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^legacy-migration:.+$')<>v_legacy_migrations
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^clause-evidence:.+$')<>v_clause_evidence
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^interpretation-proposal:.+$')<>v_interpretation_proposals
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^clause-revision:.+$')<>v_clause_revisions THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_AUTHORIZATION_INVALID';
+  END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_finalize_reimport(p_batch_id uuid) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_batch private.reimport_batch%ROWTYPE; v_counts jsonb;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_batch:=private.require_reimport_open_batch(p_batch_id);
+  PERFORM private.lock_reimport_writer(v_batch.source_id,v_batch.profile_id);
+  SELECT jsonb_build_object('person_creates',count(*) FILTER(WHERE operation='person_create'),'source_evidence',count(*) FILTER(WHERE operation='source_evidence'))
+         || CASE WHEN v_batch.expected_counts ? 'legacy_migrations'
+                 THEN jsonb_build_object('legacy_migrations',count(*) FILTER(WHERE operation='legacy_migration')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'clause_evidence'
+                 THEN jsonb_build_object('clause_evidence',count(*) FILTER(WHERE operation='clause_evidence')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'interpretation_proposals'
+                 THEN jsonb_build_object('interpretation_proposals',count(*) FILTER(WHERE operation='interpretation_proposal')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'clause_revisions'
+                 THEN jsonb_build_object('clause_revisions',count(*) FILTER(WHERE operation='clause_revision')) ELSE '{}'::jsonb END
+    INTO v_counts FROM private.reimport_event WHERE batch_id=p_batch_id;
+  IF v_counts<>v_batch.expected_counts THEN RAISE EXCEPTION 'REIMPORT_WRITER_FINALIZE_COUNT_MISMATCH'; END IF;
+  UPDATE private.reimport_batch SET status='finalized',observed_counts=v_counts,finalized_at=clock_timestamp() WHERE id=p_batch_id;
+  RETURN jsonb_build_object('batch_id',p_batch_id,'status','finalized','counts',v_counts);
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_reimport_batch_result(p_authorization_id uuid,p_batch_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_authorization private.reimport_authorization%ROWTYPE;
+  v_batch private.reimport_batch%ROWTYPE;
+  v_actor uuid;
+  v_expected_person_creates bigint;
+  v_person_create_count bigint;
+  v_valid_person_create_count bigint;
+  v_distinct_record_key_count bigint;
+  v_distinct_element_id_count bigint;
+  v_distinct_person_id_count bigint;
+  v_expected_source_evidence bigint;
+  v_expected_legacy_migrations bigint; v_expected_clause_evidence bigint; v_expected_interpretation_proposals bigint; v_expected_clause_revisions bigint;
+  v_authorized_element_count bigint;
+  v_person_id_map jsonb;
+  v_discovered_source_id bigint;
+  v_discovered_profile_id text;
+  v_discovered_auth_source_id bigint;
+  v_discovered_auth_profile_id text;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN
+    RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED';
+  END IF;
+  v_actor:=private.require_reimport_writer_editor();
+  SELECT source_id,profile_id INTO v_discovered_source_id,v_discovered_profile_id
+    FROM private.reimport_batch WHERE id=p_batch_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID'; END IF;
+  SELECT source_id,profile_id INTO v_discovered_auth_source_id,v_discovered_auth_profile_id
+    FROM private.reimport_authorization WHERE id=p_authorization_id;
+  IF NOT FOUND OR v_discovered_auth_source_id IS DISTINCT FROM v_discovered_source_id OR v_discovered_auth_profile_id IS DISTINCT FROM v_discovered_profile_id THEN RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID'; END IF;
+  PERFORM private.lock_reimport_writer(v_discovered_source_id,v_discovered_profile_id);
+  SELECT * INTO v_authorization FROM private.reimport_authorization WHERE id=p_authorization_id FOR UPDATE;
+  IF NOT FOUND OR v_authorization.operation<>'reimport'
+     OR v_authorization.status<>'consumed' OR v_authorization.principal_id<>v_actor THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+  END IF;
+  SELECT * INTO v_batch FROM private.reimport_batch WHERE id=p_batch_id FOR UPDATE;
+  IF NOT FOUND
+     OR v_batch.source_id IS DISTINCT FROM v_discovered_source_id
+     OR v_batch.profile_id IS DISTINCT FROM v_discovered_profile_id
+     OR v_authorization.source_id IS DISTINCT FROM v_discovered_auth_source_id
+     OR v_authorization.profile_id IS DISTINCT FROM v_discovered_auth_profile_id
+     OR v_batch.principal_id<>v_actor
+     OR v_batch.source_id<>v_authorization.source_id
+     OR v_batch.profile_id<>v_authorization.profile_id
+     OR v_batch.profile_sha256<>v_authorization.profile_sha256
+     OR v_batch.manifest_sha256<>v_authorization.manifest_sha256
+     OR v_batch.preview_sha256<>v_authorization.preview_sha256 THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+  END IF;
+  IF v_batch.status='open' THEN
+    IF v_batch.authorization_id<>v_authorization.id THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+    END IF;
+    RETURN jsonb_build_object('batch_id',v_batch.id,'status','open','replayed',false,'person_id_map','{}'::jsonb);
+  END IF;
+  IF v_batch.status<>'finalized' OR v_batch.finalized_at IS NULL
+     OR v_batch.observed_counts IS DISTINCT FROM v_batch.expected_counts
+     OR jsonb_typeof(v_batch.expected_counts)<>'object'
+     OR coalesce(v_batch.expected_counts->>'person_creates','') !~ '^[0-9]+$'
+     OR coalesce(v_batch.expected_counts->>'source_evidence','') !~ '^[0-9]+$'
+     OR (v_batch.expected_counts ? 'legacy_migrations' AND (jsonb_typeof(v_batch.expected_counts->'legacy_migrations')<>'number' OR coalesce(v_batch.expected_counts->>'legacy_migrations','') !~ '^[0-9]+$'))
+     OR (v_batch.expected_counts ? 'clause_evidence' AND (jsonb_typeof(v_batch.expected_counts->'clause_evidence')<>'number' OR coalesce(v_batch.expected_counts->>'clause_evidence','') !~ '^[0-9]+$'))
+     OR (v_batch.expected_counts ? 'interpretation_proposals' AND (jsonb_typeof(v_batch.expected_counts->'interpretation_proposals')<>'number' OR coalesce(v_batch.expected_counts->>'interpretation_proposals','') !~ '^[0-9]+$'))
+     OR (v_batch.expected_counts ? 'clause_revisions' AND (jsonb_typeof(v_batch.expected_counts->'clause_revisions')<>'number' OR coalesce(v_batch.expected_counts->>'clause_revisions','') !~ '^[0-9]+$'))
+     OR (SELECT count(*) FROM jsonb_object_keys(v_batch.expected_counts)) NOT IN (2,3,4,5,6)
+     OR EXISTS(SELECT 1 FROM jsonb_object_keys(v_batch.expected_counts) key WHERE key NOT IN ('person_creates','source_evidence','legacy_migrations','clause_evidence','interpretation_proposals','clause_revisions')) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+  END IF;
+  v_expected_person_creates:=(v_batch.expected_counts->>'person_creates')::bigint;
+  v_expected_source_evidence:=(v_batch.expected_counts->>'source_evidence')::bigint;
+  v_expected_legacy_migrations:=coalesce((v_batch.expected_counts->>'legacy_migrations')::bigint,0);
+  v_expected_clause_evidence:=coalesce((v_batch.expected_counts->>'clause_evidence')::bigint,0);
+  v_expected_interpretation_proposals:=coalesce((v_batch.expected_counts->>'interpretation_proposals')::bigint,0);
+  v_expected_clause_revisions:=coalesce((v_batch.expected_counts->>'clause_revisions')::bigint,0);
+  SELECT count(*) INTO v_authorized_element_count FROM jsonb_object_keys(v_authorization.authorized_elements);
+  IF v_authorized_element_count<>(v_expected_person_creates+v_expected_source_evidence+v_expected_legacy_migrations+v_expected_clause_evidence+v_expected_interpretation_proposals+v_expected_clause_revisions)
+     OR EXISTS(SELECT 1 FROM jsonb_each(v_authorization.authorized_elements) item
+                WHERE jsonb_typeof(item.value)<>'object'
+                   OR (item.key !~ '^person-create:' AND item.key !~ '^source-evidence:' AND item.key !~ '^legacy-migration:' AND item.key !~ '^clause-evidence:' AND item.key !~ '^interpretation-proposal:' AND item.key !~ '^clause-revision:'))
+     OR EXISTS(SELECT 1 FROM jsonb_object_keys(v_authorization.authorized_elements) key
+                LEFT JOIN private.reimport_event event ON event.batch_id=v_batch.id AND event.element_id=key
+                WHERE event.id IS NULL)
+     OR EXISTS(SELECT 1 FROM private.reimport_event event
+                LEFT JOIN jsonb_object_keys(v_authorization.authorized_elements) key ON key=event.element_id
+                WHERE event.batch_id=v_batch.id AND event.operation IN ('person_create','source_evidence','legacy_migration','clause_evidence','interpretation_proposal','clause_revision') AND key IS NULL) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+  END IF;
+  SELECT count(*),
+    count(*) FILTER (WHERE e.source_record_key IS NOT NULL AND e.source_record_key<>''
+      AND e.canonical_person_id IS NOT NULL AND e.canonical_person_id>0
+      AND e.element_id='person-create:'||e.source_record_key
+      AND e.payload->>'source_record_key'=e.source_record_key),
+    count(DISTINCT e.source_record_key),count(DISTINCT e.element_id),count(DISTINCT e.canonical_person_id),
+    coalesce(jsonb_object_agg(e.source_record_key,e.canonical_person_id ORDER BY e.element_id),'{}'::jsonb)
+  INTO v_person_create_count,v_valid_person_create_count,v_distinct_record_key_count,
+    v_distinct_element_id_count,v_distinct_person_id_count,v_person_id_map
+  FROM private.reimport_event e
+  WHERE e.batch_id=v_batch.id AND e.operation='person_create';
+  IF v_person_create_count<>v_expected_person_creates
+     OR v_valid_person_create_count<>v_person_create_count
+     OR v_distinct_record_key_count<>v_person_create_count
+     OR v_distinct_element_id_count<>v_person_create_count
+     OR v_distinct_person_id_count<>v_person_create_count THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+  END IF;
+  RETURN jsonb_build_object('batch_id',v_batch.id,'status','finalized','replayed',true,'person_id_map',v_person_id_map);
+END $$;
+
+-- clause_revision (spec 2026-09-27, writer-operationen): et nyt klausulsæt for en post, append-only ved siden af
+-- det gamle. Kun når intet afhænger af det aktuelle sæt (ingen fortolkning, ingen
+-- menneskelig disposition). Rækkefølgen er bærende for triggerne: nyt sæt skrives FØR
+-- `erstattet` på det gamle (erstattet må kun stå uden for det aktuelle sæt).
+CREATE OR REPLACE FUNCTION private.write_clause_revision(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_ctx jsonb; v_parent uuid; v_current integer; v_before text; v_after text; v_count integer; v_old integer; v_obs record;
+BEGIN
+  v_ctx:=private.clause_write_prepare(p_batch_id,p_element_id,p_payload,'clause_revision');
+  v_parent:=(v_ctx->>'parent_id')::uuid;
+  -- Lås det aktuelle sæts rækker (samme rækker, dispositionstriggeren låser) før kontrollerne.
+  SELECT max(coalesce(clause_set_seq,1)) INTO v_current FROM private.source_observation
+   WHERE parent_observation_id=v_parent AND observation_kind='clause';
+  IF v_current IS NULL THEN RAISE EXCEPTION 'CLAUSE_REVISION_NO_CLAUSES'; END IF;
+  PERFORM 1 FROM private.source_observation
+   WHERE parent_observation_id=v_parent AND coalesce(clause_set_seq,1)=v_current
+   ORDER BY clause_ordinal FOR UPDATE;
+  IF EXISTS (SELECT 1 FROM private.interpretation_observation io JOIN private.source_observation o ON o.id=io.observation_id
+              WHERE o.parent_observation_id=v_parent AND coalesce(o.clause_set_seq,1)=v_current) THEN
+    RAISE EXCEPTION 'CLAUSE_REVISION_HAS_INTERPRETATIONS';
+  END IF;
+  IF EXISTS (SELECT 1 FROM private.clause_disposition d JOIN private.source_observation o ON o.id=d.observation_id
+              WHERE o.parent_observation_id=v_parent AND coalesce(o.clause_set_seq,1)=v_current AND d.decided_by_kind='human') THEN
+    RAISE EXCEPTION 'CLAUSE_REVISION_HAS_HUMAN_DISPOSITION';
+  END IF;
+  v_before:=private.clause_set_sha256(v_parent,v_current);
+  IF v_current<>(p_payload->>'replaces_clause_set_seq')::integer OR v_before IS DISTINCT FROM p_payload->>'replaces_clause_set_sha256' THEN
+    RAISE EXCEPTION 'CLAUSE_REVISION_BASE_DRIFT';
+  END IF;
+  v_count:=private.clause_write_set(v_ctx,p_payload,v_current+1,p_element_id);
+  v_after:=private.clause_set_sha256(v_parent,v_current+1);
+  IF v_after=v_before THEN RAISE EXCEPTION 'CLAUSE_REVISION_NOOP'; END IF;
+  v_old:=0;
+  FOR v_obs IN SELECT o.id FROM private.source_observation o
+                WHERE o.parent_observation_id=v_parent AND coalesce(o.clause_set_seq,1)=v_current
+                ORDER BY o.clause_ordinal LOOP
+    INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence)
+    VALUES(v_obs.id,(SELECT coalesce(max(version),0)+1 FROM private.clause_disposition WHERE observation_id=v_obs.id),'erstattet','machine',
+      jsonb_build_object('batch_id',p_batch_id,'element_id',p_element_id,'manifest_sha256',v_ctx->>'manifest_sha256','replaced_by_clause_set_seq',v_current+1));
+    v_old:=v_old+1;
+  END LOOP;
+  SET CONSTRAINTS private.trg_clause_set_density IMMEDIATE;
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256)
+  VALUES(p_batch_id,p_element_id,'clause_revision',v_ctx->>'record_key',
+    p_payload||jsonb_build_object('parent_observation_id',v_parent,'run_id',(v_ctx->>'run_id')::uuid,'clauses_written',v_count,
+      'clauses_replaced',v_old,'clause_set_seq',v_current+1,'before_clause_set_sha256',v_before,'after_clause_set_sha256',v_after),
+    v_after);
+  RETURN jsonb_build_object('clauses',v_count,'clauses_replaced',v_old,'clause_set_seq',v_current+1,
+    'before_clause_set_sha256',v_before,'after_clause_set_sha256',v_after,'parent_observation_id',v_parent,'run_id',(v_ctx->>'run_id')::uuid);
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_apply_reimport_clause_revision(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  RETURN private.write_clause_revision(p_batch_id,p_element_id,p_payload);
+END $$;
+
+REVOKE ALL ON FUNCTION private.write_clause_revision(uuid,text,jsonb), public.red_apply_reimport_clause_revision(uuid,text,jsonb)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_apply_reimport_clause_revision(uuid,text,jsonb) TO authenticated;
+
+-- S4 og sæt-filter i forslagsskriveren (spec omsegmentering 2026-09-27). Historiske blokke
+-- definerer funktionen tidligere i filen; denne sidste version vinder.
+CREATE OR REPLACE FUNCTION private.write_interpretation_proposal(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE
+  v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE;
+  v_record private.source_record%ROWTYPE; v_occurrence uuid; v_parent uuid; v_persona uuid;
+  v_run uuid; v_run_key text; v_run_manifest jsonb; v_claim jsonb; v_cited jsonb;
+  v_predicate private.interpretation_predicate%ROWTYPE; v_interpretation uuid; v_key uuid;
+  v_value_hash text; v_key_material_sha text; v_receipt_value_sha text;
+  v_claim_count integer:=0; v_clause_count integer; v_ordinal integer; v_hash text;
+  v_observation uuid; v_confidence numeric; v_role text; v_value jsonb;
+  v_interpretation_row private.interpretation%ROWTYPE;
+  v_before private.clause_disposition%ROWTYPE; v_written private.clause_disposition%ROWTYPE;
+  v_observations jsonb; v_result_receipt jsonb;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_batch:=private.require_reimport_open_batch(p_batch_id);
+  PERFORM private.require_reimport_writer_editor();
+  PERFORM private.lock_reimport_writer(v_batch.source_id,v_batch.profile_id);
+  SELECT * INTO v_auth FROM private.reimport_authorization WHERE id=v_batch.authorization_id;
+  IF NOT FOUND OR NOT v_auth.authorized_elements ? p_element_id OR v_auth.authorized_elements->p_element_id IS DISTINCT FROM p_payload THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_ELEMENT_NOT_AUTHORIZED';
+  END IF;
+  IF jsonb_typeof(p_payload)<>'object'
+     OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(p_payload) k)
+        <> ARRAY['claims','model_version','prompt_version','runner_manifest_sha256','source_record_key']
+     OR p_element_id<>'interpretation-proposal:'||coalesce(p_payload->>'source_record_key','')
+     OR coalesce(p_payload->>'runner_manifest_sha256','') !~ '^[0-9a-f]{64}$'
+     OR nullif(btrim(coalesce(p_payload->>'model_version','')),'') IS NULL
+     OR nullif(btrim(coalesce(p_payload->>'prompt_version','')),'') IS NULL
+     OR jsonb_typeof(p_payload->'claims')<>'array' OR jsonb_array_length(p_payload->'claims')=0 THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_INVALID';
+  END IF;
+  SELECT * INTO v_record FROM private.source_record WHERE source_id=v_batch.source_id AND record_key=p_payload->>'source_record_key' FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_INVALID'; END IF;
+  -- S4 (review 35): enhver tidligere forslags-event for posten i samme kilde — ikke kun i
+  -- denne batch. Et nyt batch må ikke lægge nye `proposed` ved siden af de gamle;
+  -- genudtræk kræver en menneskelig superseded-beslutning (trin 6). reimport_event bærer
+  -- ikke source_id, og record_key er kun unik pr. kilde, derfor joinet.
+  IF EXISTS(SELECT 1 FROM private.reimport_event e JOIN private.reimport_batch b ON b.id=e.batch_id
+             WHERE e.operation='interpretation_proposal' AND b.source_id=v_batch.source_id
+               AND e.source_record_key=v_record.record_key) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS';
+  END IF;
+  IF (SELECT count(*) FROM private.source_record_anchor_current WHERE source_record_id=v_record.id AND decision_status='accepted')<>1 THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_FOREIGN_POST';
+  END IF;
+  SELECT occurrence_id INTO v_occurrence FROM private.source_record_anchor_current WHERE source_record_id=v_record.id AND decision_status='accepted';
+  IF (SELECT count(*) FROM private.source_observation WHERE occurrence_id=v_occurrence AND parent_observation_id IS NULL)<>1 THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_FOREIGN_POST';
+  END IF;
+  SELECT id INTO v_parent FROM private.source_observation WHERE occurrence_id=v_occurrence AND parent_observation_id IS NULL FOR UPDATE;
+  SELECT spm.persona_id INTO v_persona
+    FROM private.source_mention sm JOIN private.source_persona_mention spm ON spm.mention_id=sm.id
+   WHERE sm.observation_id=v_parent AND spm.mention_role='primary';
+  IF (SELECT count(*) FROM private.source_mention sm JOIN private.source_persona_mention spm ON spm.mention_id=sm.id
+       WHERE sm.observation_id=v_parent AND spm.mention_role='primary')<>1 THEN v_persona:=NULL; END IF;
+
+  v_run_key:='interpretation-proposal:'||(p_payload->>'runner_manifest_sha256');
+  v_run_manifest:=jsonb_build_object('runner_manifest_sha256',p_payload->>'runner_manifest_sha256','model_version',p_payload->>'model_version','prompt_version',p_payload->>'prompt_version');
+  INSERT INTO private.extraction_run(source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+  VALUES(v_batch.source_id,v_run_key,'interpretation-proposal-v1',p_payload->>'model_version',p_payload->>'prompt_version',p_payload->>'runner_manifest_sha256',v_run_manifest)
+  ON CONFLICT(source_id,run_key) DO NOTHING;
+  SELECT id INTO v_run FROM private.extraction_run WHERE source_id=v_batch.source_id AND run_key=v_run_key;
+  IF NOT EXISTS(SELECT 1 FROM private.extraction_run WHERE id=v_run AND source_id=v_batch.source_id AND run_key=v_run_key
+     AND schema_version='interpretation-proposal-v1' AND extractor_version=p_payload->>'model_version'
+     AND profile_version=p_payload->>'prompt_version' AND input_sha256=p_payload->>'runner_manifest_sha256' AND manifest=v_run_manifest) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_EXTRACTION_RUN_DRIFT';
+  END IF;
+
+  CREATE TEMP TABLE IF NOT EXISTS pg_temp.proposal_clause_account(observation_id uuid PRIMARY KEY, disposition text NOT NULL) ON COMMIT DROP;
+  CREATE TEMP TABLE IF NOT EXISTS pg_temp.proposal_claim_seen(claim_id text PRIMARY KEY) ON COMMIT DROP;
+  CREATE TEMP TABLE IF NOT EXISTS pg_temp.proposal_claim_receipt(claim_id text PRIMARY KEY, receipt jsonb NOT NULL) ON COMMIT DROP;
+  CREATE TEMP TABLE IF NOT EXISTS pg_temp.proposal_disposition_receipt(observation_id uuid PRIMARY KEY, receipt jsonb NOT NULL) ON COMMIT DROP;
+  TRUNCATE pg_temp.proposal_clause_account;
+  TRUNCATE pg_temp.proposal_claim_seen;
+  TRUNCATE pg_temp.proposal_claim_receipt;
+  TRUNCATE pg_temp.proposal_disposition_receipt;
+  FOR v_claim IN SELECT value FROM jsonb_array_elements(p_payload->'claims') LOOP
+    IF jsonb_typeof(v_claim)<>'object' OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(v_claim) k)
+       <> ARRAY['cited_clauses','claim_id','confidence','interpretation_kind','persona_role','predicate','value']
+       OR jsonb_typeof(v_claim->'cited_clauses')<>'array' OR jsonb_array_length(v_claim->'cited_clauses')=0
+       OR v_claim->>'persona_role' NOT IN ('principal','other')
+       OR nullif(btrim(coalesce(v_claim->>'claim_id','')),'') IS NULL
+       OR EXISTS(SELECT 1 FROM pg_temp.proposal_claim_seen WHERE claim_id=v_claim->>'claim_id') THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_INVALID';
+    END IF;
+    INSERT INTO pg_temp.proposal_claim_seen(claim_id) VALUES(v_claim->>'claim_id');
+    v_role:=v_claim->>'persona_role';
+    IF v_role='principal' AND v_persona IS NULL THEN RAISE EXCEPTION 'REIMPORT_WRITER_PRINCIPAL_WITHOUT_PERSONA'; END IF;
+    SELECT * INTO v_predicate FROM private.interpretation_predicate WHERE predicate=v_claim->>'predicate' AND status='active';
+    IF NOT FOUND THEN RAISE EXCEPTION 'REIMPORT_WRITER_PREDICATE_INACTIVE'; END IF;
+    IF v_claim->>'interpretation_kind' IS DISTINCT FROM v_predicate.interpretation_kind THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_KIND_INVALID';
+    END IF;
+    v_value:=private.normalize_interpretation_proposal_value(v_claim->'value');
+    IF (v_predicate.value_kind IN ('text','date_raw') AND (jsonb_typeof(v_value)<>'string' OR btrim(v_value#>>'{}')=''))
+       OR (v_predicate.value_kind NOT IN ('text','date_raw') AND (jsonb_typeof(v_value)<>'object' OR btrim(coalesce(v_value->>'raw',''))='')) THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_VALUE_KIND_INVALID';
+    END IF;
+    BEGIN v_confidence:=(v_claim->>'confidence')::numeric; EXCEPTION WHEN OTHERS THEN RAISE EXCEPTION 'REIMPORT_WRITER_CONFIDENCE_INVALID'; END;
+    IF v_confidence IS NULL OR v_confidence<0 OR v_confidence>1 THEN RAISE EXCEPTION 'REIMPORT_WRITER_CONFIDENCE_INVALID'; END IF;
+    v_value_hash:=encode(extensions.digest(convert_to(v_value::text,'UTF8'),'sha256'),'hex');
+    v_receipt_value_sha:=private.interpretation_proposal_canonical_json_sha256(v_value);
+    v_key_material_sha:=private.interpretation_proposal_key_material_sha256(v_batch.source_id,v_record.record_key,v_predicate.predicate,v_claim->'cited_clauses',v_value);
+    v_key:=private.interpretation_proposal_key(v_batch.source_id,v_record.record_key,v_predicate.predicate,v_claim->'cited_clauses',v_value);
+    IF EXISTS(SELECT 1 FROM private.interpretation WHERE interpretation_key=v_key) THEN RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS'; END IF;
+    INSERT INTO private.interpretation(interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,value,schema_version,
+      derivation_kind,confidence,status,method,model_version,prompt_version,extraction_run_id)
+    VALUES(v_key,1,v_batch.source_id,CASE WHEN v_role='principal' THEN v_persona END,v_predicate.interpretation_kind,v_predicate.predicate,v_value,
+      'interpretation-proposal-v1','model_inference',v_confidence,'proposed','model',p_payload->>'model_version',p_payload->>'prompt_version',v_run)
+    RETURNING id INTO v_interpretation;
+    v_ordinal:=0;
+    FOR v_cited IN SELECT value FROM jsonb_array_elements(v_claim->'cited_clauses') LOOP
+      v_ordinal:=v_ordinal+1;
+      IF jsonb_typeof(v_cited)<>'object' OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(v_cited) k)<>ARRAY['ordinal','verbatim_sha256'] THEN
+        RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_INVALID';
+      END IF;
+      -- Citater slås op i det AKTUELLE klausulsæt (omsegmentering); et afløst sæt er ukendt.
+      IF NOT EXISTS(SELECT 1 FROM private.clause_observation_current WHERE parent_observation_id=v_parent AND clause_ordinal=(v_cited->>'ordinal')::integer) THEN
+        IF EXISTS(SELECT 1 FROM private.clause_observation_current WHERE parent_observation_id<>v_parent
+          AND clause_ordinal=(v_cited->>'ordinal')::integer
+          AND encode(extensions.digest(convert_to(verbatim_text,'UTF8'),'sha256'),'hex')=v_cited->>'verbatim_sha256') THEN
+          RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_FOREIGN_POST';
+        END IF;
+        RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_UNKNOWN';
+      END IF;
+      SELECT id,encode(extensions.digest(convert_to(verbatim_text,'UTF8'),'sha256'),'hex') INTO v_observation,v_hash
+        FROM private.clause_observation_current WHERE parent_observation_id=v_parent AND clause_ordinal=(v_cited->>'ordinal')::integer;
+      IF v_hash IS DISTINCT FROM v_cited->>'verbatim_sha256' THEN RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_HASH_MISMATCH'; END IF;
+      INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal)
+      VALUES(v_interpretation,v_observation,'supporting',v_ordinal);
+      INSERT INTO pg_temp.proposal_clause_account VALUES(v_observation,CASE WHEN v_role='other' THEN 'afventer_identitet' ELSE 'fortolkning_foreslaaet' END)
+      ON CONFLICT(observation_id) DO UPDATE SET disposition=CASE WHEN EXCLUDED.disposition='afventer_identitet' THEN EXCLUDED.disposition ELSE pg_temp.proposal_clause_account.disposition END;
+    END LOOP;
+    SELECT * INTO v_interpretation_row FROM private.interpretation WHERE id=v_interpretation;
+    SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'observation_id',io.observation_id,
+      'clause_ordinal',o.clause_ordinal,
+      'verbatim_sha256',encode(extensions.digest(convert_to(o.verbatim_text,'UTF8'),'sha256'),'hex'),
+      'evidence_role',io.evidence_role,'link_ordinal',io.ordinal,
+      'row_sha256',private.interpretation_proposal_canonical_json_sha256(private.interpretation_proposal_link_receipt(io))
+    ) ORDER BY io.ordinal),'[]'::jsonb)
+      INTO v_observations
+      FROM private.interpretation_observation io
+      JOIN private.source_observation o ON o.id=io.observation_id
+     WHERE io.interpretation_id=v_interpretation;
+    INSERT INTO pg_temp.proposal_claim_receipt(claim_id,receipt) VALUES(
+      v_claim->>'claim_id',jsonb_build_object(
+        'claim_id',v_claim->>'claim_id','interpretation_id',v_interpretation,
+        'interpretation_key',v_key,'version',v_interpretation_row.version,
+        'value_sha256',v_receipt_value_sha,'key_material_sha256',v_key_material_sha,
+        'row_sha256',private.interpretation_proposal_canonical_json_sha256(private.interpretation_proposal_interpretation_receipt(v_interpretation_row)),
+        'extraction_run_id',v_run,'observations',v_observations));
+    v_claim_count:=v_claim_count+1;
+  END LOOP;
+  -- Én version pr. klausul pr. element. `afventer_identitet` har præcedens,
+  -- fordi ethvert ubundet aktørclaim betyder, at klausulen fortsat kræver identitetsarbejde.
+  FOR v_observation IN SELECT observation_id FROM pg_temp.proposal_clause_account ORDER BY observation_id::text COLLATE "C" LOOP
+    SELECT * INTO v_before FROM private.clause_disposition
+      WHERE observation_id=v_observation ORDER BY version DESC LIMIT 1 FOR UPDATE;
+    IF NOT FOUND OR v_before.decided_by_kind<>'machine'
+       OR coalesce(v_before.evidence->>'manifest_sha256','') !~ '^[0-9a-f]{64}$'
+       OR (v_before.evidence->>'batch_id' IS NULL AND v_before.evidence->>'extraction_run_id' IS NULL)
+       OR (v_before.evidence->>'batch_id' IS NOT NULL AND v_before.evidence->>'batch_id' !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+       OR (v_before.evidence->>'extraction_run_id' IS NOT NULL AND v_before.evidence->>'extraction_run_id' !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_INVALID';
+    END IF;
+    INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence)
+    VALUES(v_observation,v_before.version+1,
+      (SELECT disposition FROM pg_temp.proposal_clause_account WHERE observation_id=v_observation),
+      'machine',jsonb_build_object('batch_id',p_batch_id,'extraction_run_id',v_run,'manifest_sha256',v_batch.manifest_sha256,'element_id',p_element_id))
+    RETURNING * INTO v_written;
+    INSERT INTO pg_temp.proposal_disposition_receipt(observation_id,receipt) VALUES(v_observation,
+      jsonb_build_object('observation_id',v_observation,
+        'before',private.interpretation_proposal_disposition_receipt(v_before)||jsonb_build_object('row_sha256',private.interpretation_proposal_canonical_json_sha256(private.interpretation_proposal_disposition_receipt(v_before))),
+        'written',private.interpretation_proposal_disposition_receipt(v_written)||jsonb_build_object('row_sha256',private.interpretation_proposal_canonical_json_sha256(private.interpretation_proposal_disposition_receipt(v_written)))));
+  END LOOP;
+  SELECT count(*) INTO v_clause_count FROM pg_temp.proposal_disposition_receipt;
+  v_result_receipt:=jsonb_build_object('schema_version','interpretation-proposal-result-v1',
+    'claims',coalesce((SELECT jsonb_agg(receipt ORDER BY claim_id COLLATE "C") FROM pg_temp.proposal_claim_receipt),'[]'::jsonb),
+    'clause_dispositions',coalesce((SELECT jsonb_agg(receipt ORDER BY observation_id::text COLLATE "C") FROM pg_temp.proposal_disposition_receipt),'[]'::jsonb));
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256)
+  VALUES(p_batch_id,p_element_id,'interpretation_proposal',v_record.record_key,
+    p_payload||jsonb_build_object('run_id',v_run,'result_receipt',v_result_receipt),
+    private.interpretation_proposal_canonical_json_sha256(v_result_receipt));
+  RETURN jsonb_build_object('interpretations_written',v_claim_count,'clauses_dispositioned',v_clause_count,
+    'run_id',v_run,'result_receipt_sha256',private.interpretation_proposal_canonical_json_sha256(v_result_receipt));
+END $$;

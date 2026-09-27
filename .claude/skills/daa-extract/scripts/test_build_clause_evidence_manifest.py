@@ -140,3 +140,51 @@ class TestClauseEvidenceManifest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestClauseRevisionManifest(unittest.TestCase):
+    """Omsegmentering (spec 2026-09-27): revisions-tilstanden tager kun poster, hvis
+    klausulsæt ændres, og bærer det sæt, den erstatter."""
+
+    def setUp(self):
+        self.profile, self.ledger, self.post, self.pcf, self.pct = _fixture()
+        self.profile = dict(self.profile, profile_schema_version="reimport-clause-revision-profile-v1",
+                            expected_counts={"person_creates": 0, "source_evidence": 0, "clause_revisions": 1})
+        evidence = B.build_manifest(dict(self.profile, expected_counts={"person_creates": 0, "source_evidence": 0, "clause_evidence": 1}),
+                                    self.ledger, RENDITION, "e" * 64)
+        self.ledger_hash = B.clause_set.clause_set_sha256(evidence["operations"][0]["clauses"])
+
+    def _current(self, sha, seq=1):
+        return {"REC1": {"clause_set_seq": seq, "clause_set_sha256": sha}}
+
+    def test_aendret_post_bliver_en_revision_med_det_erstattede_saet(self):
+        m = B.build_revision_manifest(self.profile, self.ledger, RENDITION, "e" * 64, self._current("0" * 64))
+        op, = m["operations"]
+        self.assertEqual(op["element_id"], "clause-revision:REC1")
+        self.assertEqual(op["dependency_class"], "clause_revision")
+        self.assertEqual((op["replaces_clause_set_seq"], op["replaces_clause_set_sha256"]), (1, "0" * 64))
+        self.assertEqual(m["expected_counts"], {"source_evidence": 0, "person_creates": 0,
+                                                "canonical_delta": 0, "clause_revisions": 1})
+
+    def test_uaendret_post_springes_over_og_taellingen_skal_passe(self):
+        with self.assertRaises(B.BuildError):
+            B.build_revision_manifest(self.profile, self.ledger, RENDITION, "e" * 64, self._current(self.ledger_hash))
+        m = B.build_revision_manifest(dict(self.profile, expected_counts={"person_creates": 0, "source_evidence": 0, "clause_revisions": 0}),
+                                      self.ledger, RENDITION, "e" * 64, self._current(self.ledger_hash))
+        self.assertEqual(m["operations"], [])
+
+    def test_post_uden_aktuelt_saet_afvises(self):
+        with self.assertRaises(B.BuildError):
+            B.build_revision_manifest(self.profile, self.ledger, RENDITION, "e" * 64, {})
+
+    def test_current_sets_fra_projektionen(self):
+        rows = [
+            {"record_key": "REC1", "clause_set_seq": 1, "clause_set_sha256": "1" * 64, "is_current_set": False},
+            {"record_key": "REC1", "clause_set_seq": 2, "clause_set_sha256": "2" * 64, "is_current_set": True},
+            {"record_key": "REC1", "clause_set_seq": 2, "clause_set_sha256": "2" * 64, "is_current_set": True},
+            {"record_key": None, "clause_set_seq": 1, "clause_set_sha256": "3" * 64, "is_current_set": True},
+        ]
+        self.assertEqual(B.current_sets_from_projection({"clauses": rows}),
+                         {"REC1": {"clause_set_seq": 2, "clause_set_sha256": "2" * 64}})
+        with self.assertRaises(B.BuildError):
+            B.current_sets_from_projection({"clauses": rows + [dict(rows[1], clause_set_sha256="9" * 64)]})
