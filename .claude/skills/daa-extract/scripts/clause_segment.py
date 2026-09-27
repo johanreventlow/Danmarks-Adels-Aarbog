@@ -15,7 +15,8 @@ from typing import Any, Mapping
 import clause_ledger
 
 FLAGS = ("unknown_abbreviation", "unbalanced_parentheses", "short_clause",
-         "multiple_marriages", "uncertain_marker", "non_gap_whitespace_in_clause")
+         "multiple_marriages", "uncertain_marker", "non_gap_whitespace_in_clause",
+         "section_numeral")
 _MARRIAGE_RE = re.compile(r"\bgift\b", re.IGNORECASE)
 _WORD_BEFORE_DOT_RE = re.compile(r"(\S+)\.$")
 
@@ -36,6 +37,12 @@ def _is_non_terminal(prefix: str, rules: Mapping[str, Any]) -> tuple[bool, bool]
     # "(ca." ville ellers ikke findes i listen, selv om "ca." står der.
     if token.lstrip("([") in rules["non_terminal_abbreviations"]:
         return True, False
+    # Valgfri regel (review 35, P3): listen slås op uden hensyn til store/små bogstaver,
+    # så "Bd." ved sætningsstart dækkes af "bd.".  Uden nøglen: uændret, eksakt opslag.
+    if rules.get("abbreviation_match") == "case_insensitive":
+        folded = {a.casefold() for a in rules["non_terminal_abbreviations"]}
+        if token.casefold() in folded or token.lstrip("([").casefold() in folded:
+            return True, False
     # Et punktum EFTER en lukkeparentes afslutter sætningen — "(5000 Kr.). Gift".
     # Uden denne regel fanger flerpunkts-reglen nedenfor "Kr.)." og smelter to
     # ægte klausuler sammen.
@@ -62,9 +69,38 @@ def _is_non_terminal(prefix: str, rules: Mapping[str, Any]) -> tuple[bool, bool]
     return False, False
 
 
+def _numeral_heads_sentence(text: str, pos: int, pattern: str) -> bool:
+    """Står et fritstående romertal ved pos, fulgt af mellemrum og et versal? (#189)"""
+    end = pos
+    while end < len(text) and not text[end].isspace():
+        end += 1
+    if end == pos or not re.search(pattern, text[pos:end]):
+        return False
+    after = end
+    while after < len(text) and text[after].isspace():
+        after += 1
+    return after > end and after < len(text) and text[after].isupper()
+
+
+def _numeral_after_terminator(prefix: str, pattern: str, rules: Mapping[str, Any]) -> bool:
+    """Er tokenet, prefix slutter på, et romertal, der selv står lige efter et sætningstegn? (#189)"""
+    match = re.search(r"(?:^|(?<=\s))(\S+)$", prefix)
+    if not match or not re.search(pattern, match.group(1)):
+        return False
+    before = prefix[:match.start()]
+    if not before or not before[-1].isspace():
+        return False
+    return before.rstrip().endswith(tuple(t.rstrip() for t in rules["terminators"] if t.strip()))
+
+
 def _split_points(text: str, rules: Mapping[str, Any]) -> list[tuple[int, list[str]]]:
     """Positioner (indeks i text hvor en ny klausul begynder) + flag for den klausul, der slutter der."""
     points: list[tuple[int, list[str]]] = []
+    # Valgfri regel (#189): et fritstående romertal mellem to sætningstegn — fx en
+    # henvisning eller et afsnitsnummer midt i en sætning — klipper ikke sætningen i
+    # tre. Hverken før eller efter tallet splittes; klausulen bliver længere og flages
+    # (samme konservative linje som resten af motoren). Uden nøglen: uændret adfærd.
+    numeral = rules.get("section_numeral_pattern")
     for terminator in rules["terminators"]:
         start = 0
         while True:
@@ -92,7 +128,12 @@ def _split_points(text: str, rules: Mapping[str, Any]) -> list[tuple[int, list[s
                     continue
             nxt = text[next_start:next_start + 1]
             if nxt and (nxt.isupper() or nxt.isdigit() or nxt in "†([\"“"):
-                points.append((next_start, flags))
+                if numeral and (_numeral_heads_sentence(text, next_start, numeral)
+                                or (terminator.startswith(".") and nxt.isupper()
+                                    and _numeral_after_terminator(text[:idx + 1], numeral, rules))):
+                    points.append((-next_start, flags + ["section_numeral"]))  # kun flag, ingen split
+                else:
+                    points.append((next_start, flags))
             start = next_start
     return points
 

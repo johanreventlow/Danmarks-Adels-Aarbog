@@ -82,6 +82,12 @@ def _sha(value: Any) -> str:
 CLAUSE_RULE_KEYS = {"version", "terminators", "non_terminal_abbreviations", "initial_pattern",
                     "ordinal_number_pattern", "structural_header_patterns", "min_clause_chars",
                     "gap_charset", "intraword_chars"}
+# Valgfrie regelnøgler (#189). En profil uden dem segmenterer præcis som før — det
+# er det, der lader en ny regel komme ind som en NY profilversion uden at røre de
+# godkendte versioners semantik.
+OPTIONAL_CLAUSE_RULE_KEYS = {"section_numeral_pattern", "abbreviation_match"}
+# "exact" (standard, også når nøglen mangler) eller "case_insensitive" (review 35, P3).
+ABBREVIATION_MATCH_MODES = ("exact", "case_insensitive")
 
 
 REFERENCES = ROOT / ".claude/skills/daa-extract/references"
@@ -111,7 +117,8 @@ def resolve_prompt(prompt_file: str, prompt_sha256: str) -> str:
 
 
 def validate_clause_rules(rules: Any) -> None:
-    if not isinstance(rules, Mapping) or set(rules) != CLAUSE_RULE_KEYS:
+    if (not isinstance(rules, Mapping) or not CLAUSE_RULE_KEYS <= set(rules)
+            or not set(rules) <= CLAUSE_RULE_KEYS | OPTIONAL_CLAUSE_RULE_KEYS):
         raise ExtractionError("EXTRACTION_CLAUSE_RULES_INVALID")
     if not isinstance(rules["version"], str) or not rules["version"].strip():
         raise ExtractionError("EXTRACTION_CLAUSE_RULES_INVALID")
@@ -130,6 +137,16 @@ def validate_clause_rules(rules: Any) -> None:
             re.compile(pattern)
         except re.error:
             raise ExtractionError("EXTRACTION_CLAUSE_RULES_INVALID")
+    if "section_numeral_pattern" in rules:
+        pattern = rules["section_numeral_pattern"]
+        if not isinstance(pattern, str) or not pattern:
+            raise ExtractionError("EXTRACTION_CLAUSE_RULES_INVALID")
+        try:
+            re.compile(pattern)
+        except re.error:
+            raise ExtractionError("EXTRACTION_CLAUSE_RULES_INVALID")
+    if "abbreviation_match" in rules and rules["abbreviation_match"] not in ABBREVIATION_MATCH_MODES:
+        raise ExtractionError("EXTRACTION_CLAUSE_RULES_INVALID")
     if not isinstance(rules["min_clause_chars"], int) or isinstance(rules["min_clause_chars"], bool) or rules["min_clause_chars"] < 1:
         raise ExtractionError("EXTRACTION_CLAUSE_RULES_INVALID")
 
