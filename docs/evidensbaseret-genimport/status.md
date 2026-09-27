@@ -168,6 +168,11 @@ programmets samlede modenhed.
   er afgjort som restore, og GO-pakken er færdig, men kørslen og #196's DDL venter på 4.5's
   pilotrapport. **Tillæg 2026-09-27:** venter nu også på, at 2018-20's klausuler segmenteres om
   med en ny writer-operation (review 35 P3/P4/S4; `decisions.md` 2026-09-27). P4 er gjort.
+  **Tillæg 2026-09-27 (aften):** P3 og S4 er implementeret og merget (#222: klausulsæt,
+  `clause_revision`, S4) og øvet mod et frisk prod-dump med `REHEARSAL_OK` — 51 poster revideret,
+  fortrudt og kørt frem igen, alle `match`, intet kanonisk delta
+  (`omsegmentering-rehearsal-2018-20.md`). Prod-kørslen følger
+  `docs/runbooks/clause-revision-prod-apply.md` og venter på projektejerens GO.
 - **4.5 er kørt i restoren (2026-09-26)**; fuld kørsel er NO-GO med den nuværende
   afgørelsesmodel (menneskelig kapacitet), se tillæg 2026-09-26 og `decisions.md` samme dato.
   4.3a's Codex-forbrugsprobe er **kørt 2026-09-11** og lukket: `codex exec --json`
@@ -200,7 +205,8 @@ Dagsværkene 4.1a-4.4 er **udført og merget**, skemaet er deployet til prod 202
    (ny promptversion — egen beslutning).
 2. 4.5-arket er rettet (I-7) og godkendt med ny hash `c92a6e80…` (2026-09-27). Næste: projektejerens beslutning om 4.4's forslag og 4.5's afgørelser skal i prod samlet
    (prod-vej-spec på `docs/147-pilot-prod-vej`), og i så fald genbinding af 4.4's GO-pakke.
-   Review 35's P3/P4/S4 (klausulsegmentering) afgøres før dette GO.
+   Review 35's P3/P4/S4 er afgjort og bygget (#219, #220, #222); omsegmenteringen er øvet og venter på
+   prod-GO. Derefter genbindes 4.4's GO-pakke til de reviderede klausuler.
 
 Prod-mutationer kræver fortsat en udtrykkelig GO pr. apply.
 
