@@ -20,7 +20,7 @@ lukket med restpunkt (INCOMPLETE-afstemning, snapshot forseglet).
 med 26 kort for projektejeren i stedet for 243; 23 forslag blev accepteret maskinelt
 (`machine-corroboration-v1`). Begge kendte fejl lå blandt uoverensstemmelserne, som mennesket ser
 (`kontrolmodel-koersel-2018-20.md`). Projektejeren fandt samtidig en fejl mere i 4.5 (I-7), så det
-godkendte 4.5-ark skal rettes og have ny hash, før pilotens afgørelser overføres til prod.
+godkendte 4.5-ark er rettet og godkendt med ny hash (`c92a6e80…`), som bruges ved overførslen til prod.
 
 **Tillæg 2026-09-26 — 4.5-piloten er kørt i restoren; kvaliteten holder, afgørelsesmodellen
 ikke.** Hele kæden (klausuler → runner → ingest → afgørelse → binding) er kørt for 32 poster i
@@ -197,7 +197,7 @@ Dagsværkene 4.1a-4.4 er **udført og merget**, skemaet er deployet til prod 202
 1. **Kontrolmodellen er bygget og kørt** (2026-09-27, gren `feat/147-kontrolmodel`); tilbage er
    uafhængigt kodereview og merge. Kandidat bagefter: promptregel for »var † [dato], da …«
    (ny promptversion — egen beslutning).
-2. Ret 4.5-arket (I-7) og godkend ny hash. Derefter: projektejerens beslutning om 4.4's forslag og 4.5's afgørelser skal i prod samlet
+2. 4.5-arket er rettet (I-7) og godkendt med ny hash `c92a6e80…` (2026-09-27). Næste: projektejerens beslutning om 4.4's forslag og 4.5's afgørelser skal i prod samlet
    (prod-vej-spec på `docs/147-pilot-prod-vej`), og i så fald genbinding af 4.4's GO-pakke.
    Review 35's P3/P4/S4 (klausulsegmentering) afgøres før dette GO.
 

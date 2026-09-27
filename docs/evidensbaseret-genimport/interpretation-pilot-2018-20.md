@@ -141,7 +141,10 @@ transaktionen rullede tilbage efter 242 vellykkede kald. **Kørslen:** rc=0; 242
 > **Rettelse 2026-09-27:** under kontrolmodellens kørsel fandt projektejeren én fejl mere blandt de
 > 159 nye (`person.death` på I-7, samme fejllæsning som nedenfor). Præcisionen er derfor
 > **241/243 = 99,2 %**; tallene i afsnittet er målingen i arbejdsbasen, hvor I-7 fortsat står
-> `accepted` (ubundet). Se `kontrolmodel-koersel-2018-20.md`.
+> `accepted` (ubundet). Se `kontrolmodel-koersel-2018-20.md`. Det rettede ark (I-7 = `R`; 241 A /
+> 2 R) er godkendt 2026-09-27 med hash
+> `c92a6e8091cd6330563472930d3bc26941b4008e18dfff2184fe9bb1696795c8` og afløser `98bb9a21…` ved
+> overførslen til prod.
 
 **Præcision: 242/243 = 99,6 %.** Af de 159 nye forslag afviste projektejeren **0**. Den eneste
 afvisning er det `person.death`-claim, 4.3b allerede dømte usandt: modellen læste en formulering af
