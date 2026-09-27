@@ -18898,7 +18898,8 @@ SELECT o.*
 
 -- Sættets identitet: sha256 over kanonisk JSON (nøgler COLLATE "C", ingen mellemrum),
 -- en liste sorteret efter ordinal. Flag sorteres og dubletter fjernes. Python-siden
--- (Task 5) skal give samme hash; en fælles fixture låser pariteten.
+-- (Task 5) skal give samme hash; en fælles fixture låser pariteten
+-- (tests/fixtures/clause-set-sha256.json). p_seq er det EFFEKTIVE sæt: 1 for NULL-rækker.
 CREATE OR REPLACE FUNCTION private.clause_set_sha256(p_parent uuid, p_seq integer)
 RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,private,extensions AS $$
 DECLARE v_items jsonb;

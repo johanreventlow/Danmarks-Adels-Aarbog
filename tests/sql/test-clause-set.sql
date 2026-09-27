@@ -91,6 +91,19 @@ BEGIN
         'trg_interpretation_observation_current_clause'))<>4 THEN
     RAISE EXCEPTION 'CLAUSE_SET_TRIGGERS_MISSING';
   END IF;
+  -- Triggerrækkefølgen er bærende: PostgreSQL fyrer BEFORE-triggere alfabetisk. Klausul-
+  -- valideringen skal komme før sæt-reglen (ellers skygger SET_REQUIRED de eksisterende
+  -- fejlkoder), og sæt-reglen for dispositioner før den generelle validering.
+  IF NOT ('trg_source_observation_clause' < 'trg_source_observation_clause_set' COLLATE "C"
+          AND 'trg_clause_disposition_set_rule' < 'trg_clause_disposition_validate' COLLATE "C"
+          AND 'trg_interpretation_observation_current_clause' < 'trg_interpretation_observation_scope' COLLATE "C") THEN
+    RAISE EXCEPTION 'CLAUSE_SET_TRIGGER_ORDER';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_source_observation_clause' AND tgrelid='private.source_observation'::regclass)
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_clause_disposition_validate' AND tgrelid='private.clause_disposition'::regclass)
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_interpretation_observation_scope' AND tgrelid='private.interpretation_observation'::regclass) THEN
+    RAISE EXCEPTION 'CLAUSE_SET_TRIGGER_ORDER_BASELINE_RENAMED';
+  END IF;
   RAISE NOTICE 't1 catalog OK';
 END $t1_catalog$;
 
@@ -171,7 +184,10 @@ BEGIN
   fx := pg_temp.fixture();
   PERFORM pg_temp.clause(fx,1,1,0,30,'["short_clause","unknown_abbreviation"]');
   h1 := private.clause_set_sha256((fx->>'parent')::uuid,1);
-  IF h1 !~ '^[0-9a-f]{64}$' THEN RAISE EXCEPTION 'CLAUSE_SET_HASH_FORM: %', h1; END IF;
+  -- Paritetslås: samme hash som tests/fixtures/clause-set-sha256.json (Python-siden, Task 5).
+  IF h1 IS DISTINCT FROM '671585aa3b736ebb9d3f5f2e9146fcefd2c4a1314743b011d14c29aae72acbc8' THEN
+    RAISE EXCEPTION 'CLAUSE_SET_HASH_PARITY: %', h1;
+  END IF;
   -- Samme spans, flag i anden rækkefølge og med dublet ⇒ samme hash.
   v_run2 := pg_temp.new_run(fx);
   PERFORM pg_temp.clause(fx,2,1,0,30,'["unknown_abbreviation","short_clause","short_clause"]',v_run2);
