@@ -300,4 +300,58 @@ BEGIN
   RAISE NOTICE 't6 proposal after revision OK';
 END $t6_proposal_after_revision$;
 
+-- Prods form (review R1 fund 2): 4.1c's 868 klausuler har clause_set_seq NULL. Skriv sæt 1
+-- ad writer-vejen og sæt det til NULL med triggerne slået fra (replica-rollen kræver
+-- superbruger som i CI). Revisionen skal behandle NULL som sæt 1 hele vejen.
+DO $t7_revision_of_null_set$
+DECLARE fx jsonb; v_text text := 'Victor Whiskey, f. 1851, d. 1900. Gift 1880 m. Xray Yankee.'; v_parent uuid; h1 text; r jsonb; v_disp text[]; v_n integer;
+BEGIN
+  fx := pg_temp.se_fixture('CR7', v_text);
+  PERFORM pg_temp.ce_apply(fx, pg_temp.ce_payload(fx, pg_temp.ce_clauses(v_text)), 'CR7', 'cr7-ce');
+  v_parent := pg_temp.parent_of(fx);
+  h1 := private.clause_set_sha256(v_parent,1);
+  PERFORM set_config('session_replication_role','replica',true);
+  UPDATE private.source_observation SET clause_set_seq=NULL WHERE parent_observation_id=v_parent;
+  PERFORM set_config('session_replication_role','origin',true);
+  IF (SELECT count(*) FROM private.source_observation WHERE parent_observation_id=v_parent AND clause_set_seq IS NULL)<>2 THEN
+    RAISE EXCEPTION 'T7_FIXTURE_NOT_NULL';
+  END IF;
+  -- Hashen er den samme, uanset om sæt 1 står som NULL eller 1.
+  IF private.clause_set_sha256(v_parent,1) IS DISTINCT FROM h1 THEN RAISE EXCEPTION 'T7_HASH_NULL_DRIFT'; END IF;
+  r := pg_temp.cr_apply(fx, pg_temp.cr_payload(fx, pg_temp.whole(v_text), 1, h1), 'cr7-rev1');
+  IF (r->>'clause_set_seq')::int<>2 OR (r->>'clauses_replaced')::int<>2 OR r->>'before_clause_set_sha256'<>h1 THEN
+    RAISE EXCEPTION 'T7_RESULT: %', r;
+  END IF;
+  SELECT count(*) INTO v_n FROM private.clause_observation_current WHERE parent_observation_id=v_parent AND clause_set_seq=2;
+  IF v_n<>1 OR (SELECT count(*) FROM private.clause_observation_current WHERE parent_observation_id=v_parent)<>1 THEN
+    RAISE EXCEPTION 'T7_CURRENT: %', v_n;
+  END IF;
+  SELECT array_agg(d.disposition ORDER BY o.clause_set_seq NULLS FIRST, o.clause_ordinal) INTO v_disp
+    FROM private.clause_disposition_current d JOIN private.source_observation o ON o.id=d.observation_id WHERE o.parent_observation_id=v_parent;
+  IF v_disp<>ARRAY['erstattet','erstattet','afventer_fortolkning'] THEN RAISE EXCEPTION 'T7_DISPOSITIONS: %', v_disp; END IF;
+  RAISE NOTICE 't7 revision of NULL set OK';
+END $t7_revision_of_null_set$;
+
+-- S4 (review R1 fund 3): ét forslagsbatch pr. post pr. kilde. Et andet batch for samme
+-- record afvises, også med et andet claim; en anden record går igennem.
+DO $t8_s4_one_proposal_batch_per_record$
+DECLARE fx jsonb; fx2 jsonb; v_text text := 'Zulu Alfa, f. 1861, d. 1910. Gift 1890 m. Bravo Charlie.'; v_whole text;
+BEGIN
+  fx := pg_temp.se_fixture('CR8', v_text);
+  PERFORM pg_temp.ce_apply(fx, pg_temp.ce_payload(fx, pg_temp.whole(v_text)), 'CR8', 'cr8-ce');
+  v_whole := encode(extensions.digest(v_text,'sha256'),'hex');
+  PERFORM pg_temp.ip_apply(fx, jsonb_build_array(jsonb_build_object('claim_id','c1','predicate','person.name','interpretation_kind','property','value','Zulu Alfa',
+      'confidence',0.9,'cited_clauses',jsonb_build_array(jsonb_build_object('ordinal',1,'verbatim_sha256',v_whole)),'persona_role','other')), 'cr8-ip1');
+  PERFORM pg_temp.expect_error(format('SELECT pg_temp.ip_apply(%L::jsonb,%L::jsonb,%L)', fx,
+    jsonb_build_array(jsonb_build_object('claim_id','c2','predicate','person.name','interpretation_kind','property','value','Zulu A.',
+      'confidence',0.8,'cited_clauses',jsonb_build_array(jsonb_build_object('ordinal',1,'verbatim_sha256',v_whole)),'persona_role','other')), 'cr8-ip2'),
+    'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS');
+  -- Kontrol: vagten spærrer ikke andre records (se_fixture giver hver nøgle sin egen kilde).
+  fx2 := pg_temp.se_fixture('CR8b', v_text);
+  PERFORM pg_temp.ce_apply(fx2, pg_temp.ce_payload(fx2, pg_temp.whole(v_text)), 'CR8b', 'cr8b-ce');
+  PERFORM pg_temp.ip_apply(fx2, jsonb_build_array(jsonb_build_object('claim_id','c1','predicate','person.name','interpretation_kind','property','value','Zulu Alfa',
+      'confidence',0.9,'cited_clauses',jsonb_build_array(jsonb_build_object('ordinal',1,'verbatim_sha256',v_whole)),'persona_role','other')), 'cr8b-ip1');
+  RAISE NOTICE 't8 S4 one proposal batch per record OK';
+END $t8_s4_one_proposal_batch_per_record$;
+
 ROLLBACK;
