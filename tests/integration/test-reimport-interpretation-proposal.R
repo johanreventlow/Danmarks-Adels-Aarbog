@@ -377,7 +377,46 @@ stopifnot(identical(as.character(reimport_proposal_json(boundary_value)), expect
 boundary_claim <- list(claim_id = substr(run_hash("claim-boundary"), 1L, 32L), predicate = "event.travel",
   interpretation_kind = "event", value = boundary_value, confidence = 0.75,
   cited_clauses = list(citation(2L)), persona_role = "other")
-boundary <- build_manifest(list(operation(key_dead, "boundary", list(boundary_claim))), "boundary")
+
+# S4 (review 35; spec omsegmentering 2026-09-27): et nyt forslagsbatch for en post, der
+# allerede har forslag, lægger sig ikke tavst ved siden af — det afvises. Genudtræk er trin 6.
+s4 <- build_manifest(list(operation(key_dead, "s4", list(boundary_claim))), "s4")
+s4_preview <- run_hash("preview-s4")
+s4_error <- tryCatch({
+  execute_reimport(s4$manifest, s4_preview, "apply", operation_gateway(),
+    list(id = authorize_as_service_role(s4$manifest, s4_preview)), authorization_policy = "external")
+  "accepted"
+}, error = function(error) conditionMessage(error))
+if (!grepl("REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS", s4_error, fixed = TRUE))
+  stop("S4: andet forslagsbatch for samme post blev ikke afvist: ", s4_error)
+
+# Grænsetesten kører derfor på en frisk post (ny kilde fra klausul-fixturen).
+clause_out <- suppressWarnings(system2("Rscript", shQuote(clause_fixture), stdout = TRUE, stderr = TRUE))
+if (!is.null(attr(clause_out, "status")) || !any(clause_out == "clause_evidence integration OK")) {
+  stop("anden syntetiske clause-fixture fejlede: ", paste(clause_out, collapse = "\n"))
+}
+seed <- q(paste(
+  "SELECT batch.source_id,event.source_record_key,profile.profile_id,profile.profile_sha256,profile.writer_config::text AS writer_config",
+  "FROM private.reimport_event event",
+  "JOIN private.reimport_batch batch ON batch.id=event.batch_id",
+  "JOIN private.reimport_writer_profile profile ON profile.source_id=batch.source_id AND profile.profile_id=batch.profile_id AND profile.profile_sha256=batch.profile_sha256",
+  "WHERE event.operation='clause_evidence' ORDER BY event.id DESC LIMIT 1"))
+stopifnot(nrow(seed) == 1L, as.integer(seed$source_id[[1L]]) != source_id)
+source_id <- as.integer(seed$source_id[[1L]])
+key_fresh <- as.character(seed$source_record_key[[1L]])
+clauses <- q(paste(
+  "SELECT observation.clause_ordinal AS ordinal,encode(extensions.digest(convert_to(observation.verbatim_text,'UTF8'),'sha256'),'hex') AS verbatim_sha256",
+  "FROM private.clause_observation_current observation",
+  "JOIN private.source_record_anchor_current anchor ON anchor.occurrence_id=observation.occurrence_id AND anchor.decision_status='accepted'",
+  "JOIN private.source_record record ON record.id=anchor.source_record_id",
+  "WHERE record.source_id=$1 AND record.record_key=$2",
+  "ORDER BY observation.clause_ordinal"), list(source_id, key_fresh))
+stopifnot(nrow(clauses) == 2L)
+proposal_profile_id <- paste0(seed$profile_id[[1L]], "-proposal-", substr(run_hash("profile-boundary"), 1L, 12L))
+e("INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config) VALUES($1,$2,'interpretation-proposal-v1',$3,$4::jsonb) ON CONFLICT(source_id,profile_id,profile_sha256) DO NOTHING",
+  list(source_id, proposal_profile_id, seed$profile_sha256[[1L]], seed$writer_config[[1L]]))
+boundary_claim$cited_clauses <- list(citation(2L))
+boundary <- build_manifest(list(operation(key_fresh, "boundary", list(boundary_claim))), "boundary")
 boundary_preview <- run_hash("preview-boundary")
 boundary_applied <- execute_reimport(boundary$manifest, boundary_preview, "apply", operation_gateway(),
   list(id = authorize_as_service_role(boundary$manifest, boundary_preview)), authorization_policy = "external")

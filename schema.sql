@@ -3754,9 +3754,13 @@ BEGIN
   END IF;
   SELECT * INTO v_record FROM private.source_record WHERE source_id=v_batch.source_id AND record_key=p_payload->>'source_record_key' FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_INVALID'; END IF;
-  IF EXISTS(SELECT 1 FROM private.reimport_event
-             WHERE batch_id=p_batch_id AND operation='interpretation_proposal'
-               AND source_record_key=v_record.record_key) THEN
+  -- S4 (review 35): enhver tidligere forslags-event for posten i samme kilde — ikke kun i
+  -- denne batch. Et nyt batch må ikke lægge nye `proposed` ved siden af de gamle;
+  -- genudtræk kræver en menneskelig superseded-beslutning (trin 6). reimport_event bærer
+  -- ikke source_id, og record_key er kun unik pr. kilde, derfor joinet.
+  IF EXISTS(SELECT 1 FROM private.reimport_event e JOIN private.reimport_batch b ON b.id=e.batch_id
+             WHERE e.operation='interpretation_proposal' AND b.source_id=v_batch.source_id
+               AND e.source_record_key=v_record.record_key) THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS';
   END IF;
   IF (SELECT count(*) FROM private.source_record_anchor_current WHERE source_record_id=v_record.id AND decision_status='accepted')<>1 THEN
@@ -3833,8 +3837,9 @@ BEGIN
       IF jsonb_typeof(v_cited)<>'object' OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(v_cited) k)<>ARRAY['ordinal','verbatim_sha256'] THEN
         RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_INVALID';
       END IF;
-      IF NOT EXISTS(SELECT 1 FROM private.source_observation WHERE parent_observation_id=v_parent AND clause_ordinal=(v_cited->>'ordinal')::integer) THEN
-        IF EXISTS(SELECT 1 FROM private.source_observation WHERE parent_observation_id IS NOT NULL
+      -- Citater slås op i det AKTUELLE klausulsæt (omsegmentering); et afløst sæt er ukendt.
+      IF NOT EXISTS(SELECT 1 FROM private.clause_observation_current WHERE parent_observation_id=v_parent AND clause_ordinal=(v_cited->>'ordinal')::integer) THEN
+        IF EXISTS(SELECT 1 FROM private.clause_observation_current WHERE parent_observation_id<>v_parent
           AND clause_ordinal=(v_cited->>'ordinal')::integer
           AND encode(extensions.digest(convert_to(verbatim_text,'UTF8'),'sha256'),'hex')=v_cited->>'verbatim_sha256') THEN
           RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_FOREIGN_POST';
@@ -3842,7 +3847,7 @@ BEGIN
         RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_UNKNOWN';
       END IF;
       SELECT id,encode(extensions.digest(convert_to(verbatim_text,'UTF8'),'sha256'),'hex') INTO v_observation,v_hash
-        FROM private.source_observation WHERE parent_observation_id=v_parent AND clause_ordinal=(v_cited->>'ordinal')::integer;
+        FROM private.clause_observation_current WHERE parent_observation_id=v_parent AND clause_ordinal=(v_cited->>'ordinal')::integer;
       IF v_hash IS DISTINCT FROM v_cited->>'verbatim_sha256' THEN RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_HASH_MISMATCH'; END IF;
       INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal)
       VALUES(v_interpretation,v_observation,'supporting',v_ordinal);

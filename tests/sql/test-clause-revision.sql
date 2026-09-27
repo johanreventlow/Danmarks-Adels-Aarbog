@@ -248,4 +248,56 @@ BEGIN
   RAISE NOTICE 't5 stray clause_revision event caught OK';
 END $t5_batch_result_stray_event$;
 
+-- Forslag efter en revision: et citat af en ordinal, der kun findes i det afløste sæt,
+-- er ukendt; det aktuelle sæts ordinal accepteres og linkes (Task 3, spec §3.3).
+CREATE FUNCTION pg_temp.ip_apply(p_fx jsonb, p_claims jsonb, p_nonce text) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE v_profile text := 'fixture-ip-'||(p_fx->>'record_key'); v_config jsonb; v_sha text; v_auth uuid; v_batch uuid; v_result jsonb; v_payload jsonb;
+  v_msha text := encode(extensions.digest(p_nonce,'sha256'),'hex'); v_element text := 'interpretation-proposal:'||(p_fx->>'record_key');
+BEGIN
+  v_config:=jsonb_build_object('citation_label_template','Synthetic side {page_from}','extractor_version','interpretation-proposal-v1',
+    'observation_extraction_method','clause_segment_v1','rendition_key','fixture-r1','rendition_kind','pdf_text_layer',
+    'rendition_metadata',jsonb_build_object('edition','fixture','pdf_sha256',repeat('a',64),'pdftotext_version','fixture 0.0'),
+    'run_key_prefix','reimport-interpretation-proposal:','schema_version','interpretation-proposal-manifest-v1');
+  v_sha:=private.reimport_canonical_json_sha256(v_config);
+  INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config) VALUES((p_fx->>'source_id')::bigint,v_profile,'interpretation-proposal-v1',v_sha,v_config) ON CONFLICT DO NOTHING;
+  v_payload:=jsonb_build_object('source_record_key',p_fx->>'record_key','runner_manifest_sha256',repeat('7',64),'model_version','fixture-model','prompt_version','fixture-prompt','claims',p_claims);
+  PERFORM set_config('request.jwt.claim.sub',p_fx->>'actor',true);
+  PERFORM set_config('role','service_role',true);
+  v_auth:=public.red_authorize_reimport(v_msha,repeat('6',64),jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,
+    (p_fx->>'source_id')::bigint,v_profile,v_sha,'{"person_creates":0,"source_evidence":0,"interpretation_proposals":1}'::jsonb,
+    jsonb_build_object(v_element,v_payload),gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  PERFORM set_config('role','authenticated',true);
+  v_batch:=public.red_begin_reimport(v_auth,v_msha,repeat('6',64));
+  v_result:=public.red_apply_reimport_interpretation_proposal(v_batch,v_element,v_payload);
+  PERFORM public.red_finalize_reimport(v_batch);
+  RESET role;
+  RETURN v_result;
+END $$;
+
+DO $t6_proposal_after_revision$
+DECLARE fx jsonb; v_text text := 'Romeo Sierra, f. 1841, d. 1890. Gift 1870 m. Tango Uniform.'; v_parent uuid; c jsonb; v_old2 text; v_new1 text; r jsonb;
+BEGIN
+  fx := pg_temp.se_fixture('CR5', v_text);
+  c := pg_temp.ce_clauses(v_text);
+  PERFORM pg_temp.ce_apply(fx, pg_temp.ce_payload(fx, c), 'CR5', 'cr5-ce');
+  v_parent := pg_temp.parent_of(fx);
+  v_old2 := c->1->>'verbatim_sha256';
+  PERFORM pg_temp.cr_apply(fx, pg_temp.cr_payload(fx, pg_temp.whole(v_text), 1, private.clause_set_sha256(v_parent,1)), 'cr5-rev1');
+  v_new1 := encode(extensions.digest(v_text,'sha256'),'hex');
+  PERFORM pg_temp.expect_error(format('SELECT pg_temp.ip_apply(%L::jsonb,%L::jsonb,%L)', fx,
+    jsonb_build_array(jsonb_build_object('claim_id','c-old','predicate','person.name','interpretation_kind','property','value','Romeo Sierra',
+      'confidence',0.9,'cited_clauses',jsonb_build_array(jsonb_build_object('ordinal',2,'verbatim_sha256',v_old2)),'persona_role','other')), 'cr5-ip1'),
+    'REIMPORT_WRITER_CLAUSE_UNKNOWN');
+  r := pg_temp.ip_apply(fx, jsonb_build_array(jsonb_build_object('claim_id','c-new','predicate','person.name','interpretation_kind','property','value','Romeo Sierra',
+      'confidence',0.9,'cited_clauses',jsonb_build_array(jsonb_build_object('ordinal',1,'verbatim_sha256',v_new1)),'persona_role','other')), 'cr5-ip2');
+  IF NOT EXISTS (SELECT 1 FROM private.interpretation_observation io JOIN private.source_observation o ON o.id=io.observation_id
+                  WHERE o.parent_observation_id=v_parent AND o.clause_set_seq=2) THEN
+    RAISE EXCEPTION 'T6_LINK_NOT_TO_CURRENT_SET: %', r;
+  END IF;
+  -- Nu citerer et forslag det aktuelle sæt: en ny revision afvises.
+  PERFORM pg_temp.expect_error(format('SELECT pg_temp.cr_apply(%L::jsonb,%L::jsonb,%L)', fx,
+    pg_temp.cr_payload(fx, c, 2, private.clause_set_sha256(v_parent,2)), 'cr5-rev2'), 'CLAUSE_REVISION_HAS_INTERPRETATIONS');
+  RAISE NOTICE 't6 proposal after revision OK';
+END $t6_proposal_after_revision$;
+
 ROLLBACK;
