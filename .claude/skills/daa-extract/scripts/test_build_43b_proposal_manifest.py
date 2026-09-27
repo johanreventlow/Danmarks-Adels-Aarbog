@@ -132,10 +132,19 @@ def test_current_cache_key_finder_filen_med_record_key(tmp_path):
     ident = {"profile_id": "daa-2018-20-v1", "profile_version": "1.3.0", "model": "m",
              "prompt_sha256": "p", "record_key": "R-1",
              "record_input_sha256": evidence_runner.canonical_record_input(rec),
+             "clause_set_sha256": evidence_runner.canonical_clause_set(rec),
              "claims_schema_sha256": "s",
              "runner_contract_version": evidence_runner.RUNNER_CONTRACT_VERSION}
     assert b.cache_path(tmp_path, ident, mode="current").name == \
         f"{evidence_runner.ResponseCache.key(ident)}.json"
+    # 4.5's runner-manifest bærer kontrakt 1.0: dens cachefiler blev skrevet uden
+    # klausulsæt og skal findes under samme navn som ved kørslen.
+    v10 = dict(ident, runner_contract_version="evidence-runner-1.0")
+    felter = ("profile_id", "profile_version", "model", "prompt_sha256", "record_key",
+              "record_input_sha256", "claims_schema_sha256", "runner_contract_version")
+    import hashlib
+    ved_koerslen = hashlib.sha256("\x1f".join(str(v10[f]) for f in felter).encode()).hexdigest()
+    assert b.cache_path(tmp_path, v10, mode="current").name == f"{ved_koerslen}.json"
     legacy = {k: v for k, v in ident.items() if k != "record_key"}
     assert b.cache_path(tmp_path, legacy, mode="legacy").name == \
         f"{b.legacy_cache_key(legacy)}.json"

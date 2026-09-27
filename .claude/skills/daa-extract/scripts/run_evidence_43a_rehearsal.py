@@ -93,7 +93,9 @@ def main() -> int:
     cache = ResponseCache(cache_root)
     ident = {"profile_id": PROFILE_ID, "profile_version": profile["version"],
              "model": profile["model_id"], "prompt_sha256": profile["prompt_sha256"],
+             "record_key": RECORD["record_key"],
              "record_input_sha256": RECORD_INPUT_SHA,
+             "clause_set_sha256": evidence_runner.canonical_clause_set(RECORD),
              "claims_schema_sha256": sha256_text(schema_path.read_text(encoding="utf-8")),
              "runner_contract_version": evidence_runner.RUNNER_CONTRACT_VERSION}
 

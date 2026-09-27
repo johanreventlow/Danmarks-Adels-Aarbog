@@ -267,6 +267,9 @@ def main() -> int:
             "model": runner_manifest["model"],
             "prompt_sha256": runner_manifest["prompt_sha256"],
             "record_input_sha256": canonical_record_input(rec),
+            # Indgår kun i nøglen fra kontrakt 1.2; 4.3b/4.5's caches (1.0) adresseres
+            # uændret (`ResponseCache.key` vælger felter efter kontrakten).
+            "clause_set_sha256": evidence_runner.canonical_clause_set(rec),
             "claims_schema_sha256": runner_manifest["claims_schema_sha256"],
             "runner_contract_version": kontrakt,
         }
