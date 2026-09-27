@@ -171,5 +171,48 @@ class TestSectionNumeral(unittest.TestCase):
         self.assertIn("section_numeral", clauses[0]["flags"])
 
 
+class TestAbbreviationMatch(unittest.TestCase):
+    """Review 35, P3: forkortelser med stort forbogstav (`Sr.`, `Pol.`, `Jahrg.`) og
+    listeord i anden kasus splittede sætningen tavst.  Målingen 2026-09-27 afviste en
+    generel versal-regel (106 af 153 ramte ord står også uden punktum); rettelsen er
+    listen + opslag uden hensyn til store/små bogstaver.  Alle tekster er opfundne."""
+
+    def segment(self, text, rules):
+        result = clause_segment.build_record_ledger("k", "source-evidence:k", text, rules)
+        clause_ledger.validate_ledger(result["ledger"], text)
+        return result["clauses"]
+
+    def test_old_profile_is_unchanged(self):
+        self.assertNotIn("abbreviation_match", rules())
+        self.assertEqual(len(self.segment("Alfa Bravo var Sr. Excellenz des Herrn Charlie.", rules())), 2)
+
+    def test_capitalised_abbreviations_from_the_measurement_do_not_split(self):
+        for text in ("Alfa Bravo var Sr. Excellenz des Herrn Charlie.",
+                     "Alfa Bravo studerede Pol. Echo i Foxtrot.",
+                     "Se Golf Hotel, Jahrg. 10. 1909, s. 113."):
+            with self.subTest(text):
+                clauses = self.segment(text, rules_v2())
+                self.assertEqual(len(clauses), 1)
+                self.assertNotIn("unknown_abbreviation", clauses[0]["flags"])
+
+    def test_list_lookup_ignores_case_only_when_the_rule_says_so(self):
+        r = dict(rules_v2(), non_terminal_abbreviations=["ca."])
+        text = "Alfa Bravo, Ca. Tre Gange gift."
+        self.assertEqual(len(self.segment(text, r)), 1)
+        exact = {k: v for k, v in r.items() if k != "abbreviation_match"}
+        self.assertEqual(len(self.segment(text, exact)), 2)
+
+    def test_case_insensitive_lookup_covers_a_leading_parenthesis(self):
+        r = dict(rules_v2(), non_terminal_abbreviations=["ca."])
+        self.assertEqual(len(self.segment("Alfa Bravo (Ca. Tre Gange) gift.", r)), 1)
+
+    def test_rule_value_is_validated(self):
+        for bad in ("CASE_INSENSITIVE", "", True, None):
+            with self.subTest(bad):
+                with self.assertRaises(evidence_extract.ExtractionError):
+                    evidence_extract.validate_clause_rules(dict(rules_v2(), abbreviation_match=bad))
+        evidence_extract.validate_clause_rules(dict(rules_v2(), abbreviation_match="exact"))
+
+
 if __name__ == "__main__":
     unittest.main()

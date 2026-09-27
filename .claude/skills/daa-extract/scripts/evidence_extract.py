@@ -85,7 +85,9 @@ CLAUSE_RULE_KEYS = {"version", "terminators", "non_terminal_abbreviations", "ini
 # Valgfrie regelnøgler (#189). En profil uden dem segmenterer præcis som før — det
 # er det, der lader en ny regel komme ind som en NY profilversion uden at røre de
 # godkendte versioners semantik.
-OPTIONAL_CLAUSE_RULE_KEYS = {"section_numeral_pattern"}
+OPTIONAL_CLAUSE_RULE_KEYS = {"section_numeral_pattern", "abbreviation_match"}
+# "exact" (standard, også når nøglen mangler) eller "case_insensitive" (review 35, P3).
+ABBREVIATION_MATCH_MODES = ("exact", "case_insensitive")
 
 
 REFERENCES = ROOT / ".claude/skills/daa-extract/references"
@@ -143,6 +145,8 @@ def validate_clause_rules(rules: Any) -> None:
             re.compile(pattern)
         except re.error:
             raise ExtractionError("EXTRACTION_CLAUSE_RULES_INVALID")
+    if "abbreviation_match" in rules and rules["abbreviation_match"] not in ABBREVIATION_MATCH_MODES:
+        raise ExtractionError("EXTRACTION_CLAUSE_RULES_INVALID")
     if not isinstance(rules["min_clause_chars"], int) or isinstance(rules["min_clause_chars"], bool) or rules["min_clause_chars"] < 1:
         raise ExtractionError("EXTRACTION_CLAUSE_RULES_INVALID")
 

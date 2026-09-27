@@ -37,6 +37,12 @@ def _is_non_terminal(prefix: str, rules: Mapping[str, Any]) -> tuple[bool, bool]
     # "(ca." ville ellers ikke findes i listen, selv om "ca." står der.
     if token.lstrip("([") in rules["non_terminal_abbreviations"]:
         return True, False
+    # Valgfri regel (review 35, P3): listen slås op uden hensyn til store/små bogstaver,
+    # så "Bd." ved sætningsstart dækkes af "bd.".  Uden nøglen: uændret, eksakt opslag.
+    if rules.get("abbreviation_match") == "case_insensitive":
+        folded = {a.casefold() for a in rules["non_terminal_abbreviations"]}
+        if token.casefold() in folded or token.lstrip("([").casefold() in folded:
+            return True, False
     # Et punktum EFTER en lukkeparentes afslutter sætningen — "(5000 Kr.). Gift".
     # Uden denne regel fanger flerpunkts-reglen nedenfor "Kr.)." og smelter to
     # ægte klausuler sammen.

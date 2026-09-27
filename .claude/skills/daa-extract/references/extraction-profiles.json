@@ -468,7 +468,10 @@
           "Y.-B.",
           "Feld-Art.-Reg.",
           "Garde-Feld-Art.-Reg.",
-          "Pol.-mil."
+          "Pol.-mil.",
+          "Sr.",
+          "Pol.",
+          "Jahrg."
         ],
         "initial_pattern": "(?:^|\\s)[A-ZÆØÅ]\\.$",
         "ordinal_number_pattern": "(?:^|\\s)\\d{1,2}\\.$",
@@ -477,6 +480,7 @@
           "^[IVXLC]+\\.?\\s+(Linje|linje|Gren|gren)\\b"
         ],
         "section_numeral_pattern": "^[IVX]{1,4}\\.$",
+        "abbreviation_match": "case_insensitive",
         "min_clause_chars": 12,
         "gap_charset": [
           " "

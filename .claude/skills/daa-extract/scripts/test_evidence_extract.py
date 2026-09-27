@@ -344,7 +344,15 @@ def test_profile_v2_is_additive_and_leaves_v1_untouched():
     assert v2["version"] != v1["version"]
     assert v2["clause_rules"]["version"] == "clause-rules-2018-20-v3"
     assert v2["requires_human_go_for_change"] is True
-    strip = lambda rules: {k: v for k, v in rules.items() if k not in ("version", "section_numeral_pattern")}
+    assert "abbreviation_match" not in v1["clause_rules"]
+    # Review 35, P3: v2 tilføjer opslag uden hensyn til store/små bogstaver og tre
+    # forkortelser — additivt, v1's liste står uændret som præfiks.
+    assert v2["clause_rules"]["abbreviation_match"] == "case_insensitive"
+    nta1, nta2 = (v["clause_rules"]["non_terminal_abbreviations"] for v in (v1, v2))
+    assert nta2 == nta1 + ["Sr.", "Pol.", "Jahrg."]
+    strip = lambda rules: {k: v for k, v in rules.items()
+                           if k not in ("version", "section_numeral_pattern", "abbreviation_match",
+                                        "non_terminal_abbreviations")}
     assert strip(v2["clause_rules"]) == strip(v1["clause_rules"])
     assert {k: v for k, v in v2.items() if k not in ("version", "clause_rules")} == \
            {k: v for k, v in v1.items() if k not in ("version", "clause_rules")}
