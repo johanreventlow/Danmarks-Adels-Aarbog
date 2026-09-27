@@ -3345,13 +3345,25 @@ END $$;
 
 -- #148 4.1c: klausul-observationer under en helpost fra en hash-bundet ledger.
 -- Payload bærer ingen tekst; udsnit og hashes verificeres mod helposten i basen.
-CREATE FUNCTION private.write_clause_evidence(p_batch_id uuid,p_element_id text,p_payload jsonb)
+-- Fælles forberedelse for klausul-writerne (clause_evidence, clause_revision): kontrakt,
+-- batch, redaktør, lås, autorisation, payloadform, record, anker, rendition, helpost og
+-- kørsel. Én definition, så de to operationers kontroller ikke glider fra hinanden.
+-- Operationsspecifikt (EXISTS-tjekket, replaces_*) ligger i writerne selv.
+CREATE OR REPLACE FUNCTION private.clause_write_prepare(p_batch_id uuid,p_element_id text,p_payload jsonb,p_operation text)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE; v_profile private.reimport_writer_profile%ROWTYPE;
   v_record private.source_record%ROWTYPE; v_occurrence private.source_record_occurrence%ROWTYPE; v_parent private.source_observation%ROWTYPE;
-  v_run uuid; v_clause jsonb; v_expected_ordinal integer := 0; v_prev_end integer := 0; v_from integer; v_to integer; v_abs_from integer; v_abs_to integer; v_prev_abs_end integer := 0; v_gap text; v_text text;
-  v_gap_chars text[]; v_obs uuid; v_count integer := 0; v_disposition text; v_run_key text;
+  v_run uuid; v_run_key text; v_keys text[]; v_prefix text; v_invalid text;
 BEGIN
+  IF p_operation='clause_evidence' THEN
+    v_keys:=ARRAY['clause_rules_version','clauses','gap_charset','ledger_sha256','parent_verbatim_sha256','rendition_content_sha256','rendition_projection_sha256','segmenter_version','source_record_key'];
+    v_prefix:='clause-evidence:'; v_invalid:='REIMPORT_WRITER_CLAUSE_EVIDENCE_INVALID';
+  ELSIF p_operation='clause_revision' THEN
+    v_keys:=ARRAY['clause_rules_version','clauses','gap_charset','ledger_sha256','parent_verbatim_sha256','rendition_content_sha256','rendition_projection_sha256','replaces_clause_set_seq','replaces_clause_set_sha256','segmenter_version','source_record_key'];
+    v_prefix:='clause-revision:'; v_invalid:='REIMPORT_WRITER_CLAUSE_REVISION_INVALID';
+  ELSE
+    RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_OPERATION_UNKNOWN';
+  END IF;
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
   IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
   v_batch:=private.require_reimport_open_batch(p_batch_id);
@@ -3363,9 +3375,8 @@ BEGIN
     RAISE EXCEPTION 'REIMPORT_WRITER_ELEMENT_NOT_AUTHORIZED';
   END IF;
   IF jsonb_typeof(p_payload)<>'object'
-     OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(p_payload) k)
-        <> ARRAY['clause_rules_version','clauses','gap_charset','ledger_sha256','parent_verbatim_sha256','rendition_content_sha256','rendition_projection_sha256','segmenter_version','source_record_key']
-     OR p_element_id<>'clause-evidence:'||coalesce(p_payload->>'source_record_key','')
+     OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(p_payload) k)<>v_keys
+     OR p_element_id<>v_prefix||coalesce(p_payload->>'source_record_key','')
      OR coalesce(p_payload->>'rendition_content_sha256','') !~ '^[0-9a-f]{64}$'
      OR coalesce(p_payload->>'parent_verbatim_sha256','') !~ '^[0-9a-f]{64}$'
      OR coalesce(p_payload->>'ledger_sha256','') !~ '^[0-9a-f]{64}$'
@@ -3373,10 +3384,13 @@ BEGIN
      OR nullif(btrim(coalesce(p_payload->>'clause_rules_version','')),'') IS NULL
      OR nullif(btrim(coalesce(p_payload->>'segmenter_version','')),'') IS NULL
      OR jsonb_typeof(p_payload->'gap_charset')<>'array' OR jsonb_array_length(p_payload->'gap_charset')=0
-     OR jsonb_typeof(p_payload->'clauses')<>'array' OR jsonb_array_length(p_payload->'clauses')=0 THEN
-    RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_EVIDENCE_INVALID';
+     OR jsonb_typeof(p_payload->'clauses')<>'array' OR jsonb_array_length(p_payload->'clauses')=0
+     OR (p_operation='clause_revision' AND (
+          jsonb_typeof(p_payload->'replaces_clause_set_seq')<>'number'
+          OR coalesce(p_payload->>'replaces_clause_set_seq','') !~ '^[1-9][0-9]{0,8}$'
+          OR coalesce(p_payload->>'replaces_clause_set_sha256','') !~ '^[0-9a-f]{64}$')) THEN
+    RAISE EXCEPTION '%', v_invalid;
   END IF;
-  SELECT array_agg(value) INTO v_gap_chars FROM jsonb_array_elements_text(p_payload->'gap_charset');
   SELECT * INTO v_record FROM private.source_record WHERE source_id=v_batch.source_id AND record_key=p_payload->>'source_record_key' FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_RECORD_MISSING'; END IF;
   IF (SELECT count(*) FROM private.source_record_anchor_current a WHERE a.source_record_id=v_record.id AND a.decision_status='accepted')<>1 THEN
@@ -3393,7 +3407,6 @@ BEGIN
   END IF;
   SELECT * INTO v_parent FROM private.source_observation ob WHERE ob.occurrence_id=v_occurrence.id AND ob.parent_observation_id IS NULL FOR UPDATE;
   IF encode(digest(v_parent.verbatim_text,'sha256'),'hex')<>p_payload->>'parent_verbatim_sha256' THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_PARENT_TEXT_DRIFT'; END IF;
-  IF EXISTS (SELECT 1 FROM private.source_observation WHERE parent_observation_id=v_parent.id) THEN RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_EVIDENCE_EXISTS'; END IF;
   v_run_key:=(v_profile.writer_config->>'run_key_prefix')||v_batch.manifest_sha256;
   INSERT INTO private.extraction_run(source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
   VALUES(v_batch.source_id,v_run_key,v_profile.writer_config->>'schema_version',v_profile.writer_config->>'extractor_version',v_profile.profile_version,v_batch.manifest_sha256,
@@ -3410,6 +3423,21 @@ BEGIN
                    AND manifest=jsonb_build_object('batch_id',p_batch_id,'profile_sha256',v_batch.profile_sha256)) THEN
     RAISE EXCEPTION 'CLAUSE_EVIDENCE_EXTRACTION_RUN_DRIFT';
   END IF;
+  RETURN jsonb_build_object('batch_id',p_batch_id,'manifest_sha256',v_batch.manifest_sha256,
+    'record_key',v_record.record_key,'occurrence_id',v_occurrence.id,'parent_id',v_parent.id,'run_id',v_run,
+    'observation_extraction_method',v_profile.writer_config->>'observation_extraction_method');
+END $$;
+
+-- Skriv ét klausulsæt (sæt p_seq) under helposten i p_ctx: klausulvalidering, rækker og
+-- startdispositioner. Fælles for clause_evidence (sæt 1) og clause_revision (sæt n+1).
+CREATE OR REPLACE FUNCTION private.clause_write_set(p_ctx jsonb,p_payload jsonb,p_seq integer,p_element_id text)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_parent private.source_observation%ROWTYPE; v_clause jsonb; v_expected_ordinal integer := 0; v_prev_end integer := 0;
+  v_from integer; v_to integer; v_abs_from integer; v_abs_to integer; v_prev_abs_end integer := 0; v_gap text; v_text text;
+  v_gap_chars text[]; v_obs uuid; v_count integer := 0; v_disposition text;
+BEGIN
+  SELECT * INTO v_parent FROM private.source_observation WHERE id=(p_ctx->>'parent_id')::uuid;
+  SELECT array_agg(value) INTO v_gap_chars FROM jsonb_array_elements_text(p_payload->'gap_charset');
   FOR v_clause IN SELECT value FROM jsonb_array_elements(p_payload->'clauses') LOOP
     v_expected_ordinal:=v_expected_ordinal+1;
     IF jsonb_typeof(v_clause)<>'object' OR (v_clause->>'ordinal')::int IS DISTINCT FROM v_expected_ordinal THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_ORDINAL_INVALID'; END IF;
@@ -3443,23 +3471,35 @@ BEGIN
     IF encode(digest(v_text,'sha256'),'hex')<>v_clause->>'verbatim_sha256' THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_TEXT_HASH_MISMATCH'; END IF;
     INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,
       parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags,clause_set_seq)
-    VALUES(v_occurrence.id,'clause',v_parent.page_from,v_parent.page_to,v_abs_from,v_abs_to,v_text,v_parent.quality_status,
-      (v_profile.writer_config->>'observation_extraction_method')||':'||(p_payload->>'clause_rules_version'),v_run,
-      v_parent.id,v_from,v_to,v_expected_ordinal,v_clause->>'classification',v_clause->'flags',1) RETURNING id INTO v_obs;
+    VALUES((p_ctx->>'occurrence_id')::uuid,'clause',v_parent.page_from,v_parent.page_to,v_abs_from,v_abs_to,v_text,v_parent.quality_status,
+      (p_ctx->>'observation_extraction_method')||':'||(p_payload->>'clause_rules_version'),(p_ctx->>'run_id')::uuid,
+      v_parent.id,v_from,v_to,v_expected_ordinal,v_clause->>'classification',v_clause->'flags',p_seq) RETURNING id INTO v_obs;
     v_disposition:=CASE WHEN v_clause->>'classification'='structural_header' THEN 'strukturel'
                         WHEN jsonb_array_length(v_clause->'flags')>0 THEN 'maskinelt_flagget'
                         ELSE 'afventer_fortolkning' END;
     INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence)
-    VALUES(v_obs,1,v_disposition,'machine',jsonb_build_object('batch_id',p_batch_id,'element_id',p_element_id,'manifest_sha256',v_batch.manifest_sha256,'clause_rules_version',p_payload->>'clause_rules_version'));
+    VALUES(v_obs,1,v_disposition,'machine',jsonb_build_object('batch_id',p_ctx->>'batch_id','element_id',p_element_id,'manifest_sha256',p_ctx->>'manifest_sha256','clause_rules_version',p_payload->>'clause_rules_version'));
     v_prev_end:=v_to; v_prev_abs_end:=v_abs_to; v_count:=v_count+1;
   END LOOP;
   v_gap:=substr(v_parent.verbatim_text, v_prev_end+1);
   IF v_gap<>'' AND EXISTS (SELECT 1 FROM regexp_split_to_table(v_gap,'') ch WHERE NOT (ch = ANY(v_gap_chars))) THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_GAP_INVALID'; END IF;
-  INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256)
-  VALUES(p_batch_id,p_element_id,'clause_evidence',v_record.record_key,p_payload||jsonb_build_object('parent_observation_id',v_parent.id,'run_id',v_run,'clauses_written',v_count),
-         encode(digest((p_payload||jsonb_build_object('clauses_written',v_count))::text,'sha256'),'hex'));
-  RETURN jsonb_build_object('clauses',v_count,'parent_observation_id',v_parent.id,'run_id',v_run);
+  RETURN v_count;
 END $$;
+
+CREATE OR REPLACE FUNCTION private.write_clause_evidence(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_ctx jsonb; v_count integer;
+BEGIN
+  v_ctx:=private.clause_write_prepare(p_batch_id,p_element_id,p_payload,'clause_evidence');
+  IF EXISTS (SELECT 1 FROM private.source_observation WHERE parent_observation_id=(v_ctx->>'parent_id')::uuid) THEN RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_EVIDENCE_EXISTS'; END IF;
+  v_count:=private.clause_write_set(v_ctx,p_payload,1,p_element_id);
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256)
+  VALUES(p_batch_id,p_element_id,'clause_evidence',v_ctx->>'record_key',p_payload||jsonb_build_object('parent_observation_id',(v_ctx->>'parent_id')::uuid,'run_id',(v_ctx->>'run_id')::uuid,'clauses_written',v_count),
+         encode(digest((p_payload||jsonb_build_object('clauses_written',v_count))::text,'sha256'),'hex'));
+  RETURN jsonb_build_object('clauses',v_count,'parent_observation_id',(v_ctx->>'parent_id')::uuid,'run_id',(v_ctx->>'run_id')::uuid);
+END $$;
+REVOKE ALL ON FUNCTION private.clause_write_prepare(uuid,text,jsonb,text), private.clause_write_set(jsonb,jsonb,integer,text)
+  FROM PUBLIC,anon,authenticated,service_role;
 
 CREATE FUNCTION public.red_apply_reimport_clause_evidence(p_batch_id uuid,p_element_id text,p_payload jsonb)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$

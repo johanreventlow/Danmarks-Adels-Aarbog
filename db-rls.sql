@@ -1254,6 +1254,13 @@ REVOKE ALL ON FUNCTION private.validate_clause_observation(), private.validate_c
   FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON TABLE private.vocab, private.clause_disposition, private.clause_disposition_current
   FROM PUBLIC,anon,authenticated,service_role;
+-- Omsegmentering (spec 2026-09-27): klausulsæt, triggerfunktioner og writer-hjælpere er interne.
+REVOKE ALL ON FUNCTION private.validate_clause_set_seq(), private.check_clause_set_density(),
+  private.clause_set_sha256(uuid,integer), private.validate_clause_disposition_set(),
+  private.validate_interpretation_observation_current_clause(),
+  private.clause_write_prepare(uuid,text,jsonb,text), private.clause_write_set(jsonb,jsonb,integer,text)
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON TABLE private.clause_observation_current FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),
   public.red_preflight_reimport_authorization(uuid,text,text),public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),
   public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_apply_reimport_legacy_migration(uuid,text,jsonb),
