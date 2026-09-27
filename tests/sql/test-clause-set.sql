@@ -68,7 +68,7 @@ BEGIN
     RAISE EXCEPTION 'CLAUSE_SET_COLUMN_INVALID: clause_set_seq skal være nullable uden default';
   END IF;
   SELECT indexdef INTO v_def FROM pg_indexes WHERE schemaname='private' AND indexname='ux_source_observation_clause_ordinal';
-  IF v_def IS NULL OR v_def NOT LIKE '%COALESCE(clause_set_seq, 1)%' THEN
+  IF v_def IS NULL OR v_def NOT LIKE 'CREATE UNIQUE INDEX %' OR v_def NOT LIKE '%COALESCE(clause_set_seq, 1)%' THEN
     RAISE EXCEPTION 'CLAUSE_SET_INDEX_INVALID: %', v_def;
   END IF;
   IF (SELECT count(*) FROM pg_indexes WHERE schemaname='private' AND tablename='source_observation' AND indexdef LIKE '%clause_ordinal%')<>1 THEN

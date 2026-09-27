@@ -2779,11 +2779,11 @@ BEGIN
   -- Står et ældre (parent, ordinal)-indeks under et andet navn, dør hver revision på
   -- dublet-nøgle; derfor skal der være præcis ét ordinal-indeks, og det skal være pr. sæt.
   SELECT indexdef INTO v_def FROM pg_indexes WHERE schemaname='private' AND indexname='ux_source_observation_clause_ordinal';
-  IF v_def IS NULL OR v_def NOT LIKE '%COALESCE(clause_set_seq, 1)%' THEN
-    RAISE EXCEPTION 'FEJL: ux_source_observation_clause_ordinal er ikke pr. klausulsæt: %', v_def;
+  IF v_def IS NULL OR v_def NOT LIKE 'CREATE UNIQUE INDEX %' OR v_def NOT LIKE '%COALESCE(clause_set_seq, 1)%' THEN
+    RAISE EXCEPTION 'FEJL: ux_source_observation_clause_ordinal er ikke unikt pr. klausulsæt: %', v_def;
   END IF;
   IF (SELECT count(*) FROM pg_indexes WHERE schemaname='private' AND tablename='source_observation' AND indexdef LIKE '%clause_ordinal%')<>1 THEN
-    RAISE EXCEPTION 'FEJL: mere end ét unikhedsindeks over clause_ordinal';
+    RAISE EXCEPTION 'FEJL: mere end ét indeks over clause_ordinal';
   END IF;
   v_def:=pg_get_functiondef(to_regprocedure('private.write_interpretation_proposal(uuid,text,jsonb)'));
   IF v_def IS NULL OR v_def NOT LIKE '%clause_observation_current%' OR v_def NOT LIKE '%b.source_id=v_batch.source_id%' THEN
