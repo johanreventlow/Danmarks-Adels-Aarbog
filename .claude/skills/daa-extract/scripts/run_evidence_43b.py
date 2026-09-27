@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import evidence_extract
 import evidence_runner
+from build_43b_manifest import bundles_of, check_contract, runner_code_sha256
 from evidence_runner import (ResponseCache, build_gate_profile, build_gated_argv,
                              canonical_record_input, load_ledger, prepare_call_dir,
                              run_record_guarded, sha256_text)
@@ -36,7 +37,7 @@ def main() -> int:
                     help="manifest-hashen fra projektejerens GO")
     ap.add_argument("--runner-input", required=True)
     ap.add_argument("--ledger", required=True)
-    ap.add_argument("--bundle", choices=["bundt_1", "bundt_2"], required=True)
+    ap.add_argument("--bundle", required=True)
     ap.add_argument("--cache-dir", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--judgement-sheet", required=True)
@@ -63,12 +64,24 @@ def main() -> int:
         return 1
 
     skema_sti = Path(__file__).resolve().parents[1] / "references" / "evidence-claims-1.0.json"
-    skema = json.loads(skema_sti.read_text(encoding="utf-8"))
+    skema_tekst = skema_sti.read_text(encoding="utf-8")
+    # Den godkendte kontrakt genvalideres FØR første kald (4.5-review, fund 3).
+    fejl = check_contract(manifest, schema_text=skema_tekst,
+                          runner_contract_version=evidence_runner.RUNNER_CONTRACT_VERSION,
+                          code_sha256=runner_code_sha256())
+    if fejl:
+        print(f"{fejl} — kørselsmiljøet er ikke det, der blev givet GO til. Intet sendes.")
+        return 1
+    skema = json.loads(skema_tekst)
     cache = ResponseCache(args.cache_dir)
     home = os.path.expanduser("~")
     repo = Path(__file__).resolve().parents[4]
 
-    keys = manifest[args.bundle]
+    bundter = bundles_of(manifest)
+    if args.bundle not in bundter:
+        print(f"BUNDLE_UNKNOWN {args.bundle} — manifestet har {sorted(bundter)}")
+        return 1
+    keys = bundter[args.bundle]
     print(f"== {args.bundle}: {len(keys)} records ==\n")
 
     resultater, ark = [], []
@@ -85,6 +98,12 @@ def main() -> int:
             "claims_schema_sha256": manifest["claims_schema_sha256"],
             "runner_contract_version": manifest["runner_contract_version"],
         }
+        try:
+            # Før call-dir: klausulerne skal ligge i den godkendte helpost (4.5-kodereview, fund 1).
+            evidence_runner.check_clauses_within_post(rec)
+        except evidence_runner.EligibilityError as exc:
+            print(f"{exc} — stopper. Intet mere sendes.")
+            return 1
         with prepare_call_dir(rec, skema) as call_dir:
             profil_sti = call_dir / "gate.sb"
             profil_sti.write_text(build_gate_profile(call_dir=str(call_dir), home=home),

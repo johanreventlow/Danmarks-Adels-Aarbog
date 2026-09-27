@@ -89,7 +89,7 @@ def test_numeric_claim_values_are_rejected_before_builder_key_derivation():
             {"ordinal": 1, "verbatim_text": text, "verbatim_sha256": sha256_text(text)},
         ],
     }
-    legal = {"clause_ordinals": [1], "predicate": "person.birth", "value": "1800-01-01",
+    legal = {"clause_ordinals": [1], "predicate": "person.birth", "value": "1. jan. 1800",
              "confidence": 0.9, "source_persona_id": "persona-1"}
     numeric = dict(legal, value={"raw": "1800", "normalized": 1800})
     accepted, rejected = partition_record_claims([legal, numeric], record)
@@ -117,7 +117,77 @@ def test_cached_raw_fractional_confidence_survives_the_claim_boundary():
         ],
     }
     raw = ('{"claims":[{"clause_ordinals":[1],"predicate":"person.birth",'
-           '"value":"1800-01-01","confidence":0.9,"source_persona_id":"persona-1"}]}')
+           '"value":"1. jan. 1800","confidence":0.9,"source_persona_id":"persona-1"}]}')
     accepted, rejected = partition_record_claims(parse_cached_raw_claims(raw), record)
     assert rejected == []
     assert len(accepted) == 1 and accepted[0]["confidence"] == 0.9
+
+
+def test_current_cache_key_finder_filen_med_record_key(tmp_path):
+    import build_43b_proposal_manifest as b
+    import evidence_runner
+    rec = {"record_key": "R-1", "persona_id": "p", "post_verbatim_text": "t",
+           "clauses": [{"ordinal": 1, "verbatim_text": "t",
+                        "verbatim_sha256": evidence_runner.sha256_text("t")}]}
+    ident = {"profile_id": "daa-2018-20-v1", "profile_version": "1.3.0", "model": "m",
+             "prompt_sha256": "p", "record_key": "R-1",
+             "record_input_sha256": evidence_runner.canonical_record_input(rec),
+             "claims_schema_sha256": "s",
+             "runner_contract_version": evidence_runner.RUNNER_CONTRACT_VERSION}
+    assert b.cache_path(tmp_path, ident, mode="current").name == \
+        f"{evidence_runner.ResponseCache.key(ident)}.json"
+    legacy = {k: v for k, v in ident.items() if k != "record_key"}
+    assert b.cache_path(tmp_path, legacy, mode="legacy").name == \
+        f"{b.legacy_cache_key(legacy)}.json"
+
+
+def test_records_to_ingest_tager_kun_navngivne_bundter():
+    import pytest
+    import build_43b_proposal_manifest as b
+    m = {"records": ["A", "B", "C"], "bundter": {"bundt_1": ["A", "B"], "reserve": ["C"]}}
+    assert b.records_to_ingest(m, None) == ["A", "B", "C"]
+    assert b.records_to_ingest(m, ["bundt_1"]) == ["A", "B"]
+    with pytest.raises(ValueError, match="BUNDLE_UNKNOWN"):
+        b.records_to_ingest(m, ["bundt_9"])
+
+
+def _runner_manifest(**aendr):
+    from build_43b_manifest import manifest_sha256
+    m = {"records": ["A", "B", "C"], "bundter": {"bundt_1": ["A", "B"], "reserve": ["C"]}}
+    m.update(aendr)
+    m["manifest_sha256"] = manifest_sha256(m)
+    return m
+
+
+def test_runner_manifestet_genberegnes_og_bundterne_valideres():
+    """4.5-kodereview, fund 5: feltet alene beviser intet; hashen genberegnes, og
+    bundterne skal være en disjunkt opdeling af records."""
+    import build_43b_proposal_manifest as b
+    m = _runner_manifest()
+    b.verify_runner_manifest(m, m["manifest_sha256"])
+    with pytest.raises(ValueError, match="RUNNER_MANIFEST_DRIFT"):
+        b.verify_runner_manifest(m, "0" * 64)
+    manipuleret = dict(m, bundter={"bundt_1": ["A", "B", "C"], "reserve": ["C"]})
+    with pytest.raises(ValueError, match="RUNNER_MANIFEST_TAMPERED"):
+        b.verify_runner_manifest(manipuleret, m["manifest_sha256"])
+    for bundter in ({"bundt_1": ["A", "B"], "reserve": ["B", "C"]},    # dublet
+                    {"bundt_1": ["A", "B"]},                           # C mangler
+                    {"bundt_1": ["A", "B", "C", "D"]}):                 # D uden for records
+        m2 = _runner_manifest(bundter=bundter)
+        with pytest.raises(ValueError, match="RUNNER_BUNDLES_INVALID"):
+            b.verify_runner_manifest(m2, m2["manifest_sha256"])
+
+
+def test_cli_stopper_paa_manipuleret_bundt_uden_output(tmp_path, monkeypatch, capsys):
+    import build_43b_proposal_manifest as b
+    m = _runner_manifest()
+    m["bundter"]["bundt_1"].append("C")          # efter hashen
+    (tmp_path / "m.json").write_text(json.dumps(m), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["b", "--runner-manifest", str(tmp_path / "m.json"),
+                                     "--runner-input", str(tmp_path / "findes-ikke.json"),
+                                     "--cache-dir", str(tmp_path), "--profile", str(PROFIL),
+                                     "--out", str(tmp_path / "out.json"),
+                                     "--expect-runner-manifest-sha256", m["manifest_sha256"]])
+    assert b.main() == 1
+    assert "RUNNER_MANIFEST_TAMPERED" in capsys.readouterr().out
+    assert not (tmp_path / "out.json").exists()

@@ -2,6 +2,67 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: mennesket ser kun uoverensstemmelser og en stikprøve — ingen fulde afgørelsesark (2026-09-27)
+
+> **Besluttet af projektejeren 2026-09-27** (forslag 2026-09-26), punkt 1-5 og stikprøve på
+> 20. Ændrer spec 2026-09-06 §8.2 (»afgørelsen
+> bruger projektets menneske-ark«) og berører åbent punkt 11.2.
+
+**Baggrund (4.5-pilotrapporten, `interpretation-pilot-2018-20.md`).** Projektejeren afgjorde
+et ark på 243 linjer for 32 poster. Det krævede flere arbejdssessioner over flere dage, og
+projektejeren har meddelt, at flere fulde ark ikke er en farbar vej. Samtidig viste arket:
+
+- **0 afvisninger blandt 159 nye forslag.** Præcision 242/243; den ene afvisning var et claim,
+  4.3b allerede havde dømt usandt.
+- **71 % af forslagene kan ikke føre nogen vegne.** Kun 70 af 243 har et promoverbart prædikat.
+- **En binding ændrer intet kanonisk.** Den kobler en kildehenvisning til et faktum, der allerede
+  findes (spec §8.3). En forkert binding er en forkert kildehenvisning, der kan fortrydes — ikke
+  forkerte data.
+- **Kun 5 af 70 er reelle uoverensstemmelser** med databasen; 43 matcher, 16 er skrivemåde, 6
+  mangler et kanonisk faktum.
+- **Pilotens eneste fejl ville være fanget af punkt 3 nedenfor:** det afviste dødsclaim matcher
+  ikke personens eksisterende dødsfaktum og ville være vist som uoverensstemmelse.
+
+Med den nuværende model kræver resten af 2018-20 ≈ 3.450 afgørelser (≈ 14 ark). Menneskets tid
+er kædens flaskehals, ikke model, pris eller kode.
+
+**Besluttet:**
+1. **Ingen fulde afgørelsesark.** Forslag med ikke-promoverbare prædikater afgøres ikke; de
+   forbliver `proposed`. Intet går tabt — de kan afgøres senere, hvis et læser-udløb (fx en
+   fakta-sektion med kilde pr. faktum) gør dem værdifulde.
+2. **Maskinel accept, når to læsninger er enige.** En promoverbar fortolkning, hvis værdi matcher
+   en eksisterende assertion under RPC'ens egen normalisering (`MATCH`), accepteres og bindes
+   maskinelt: `red_decide_interpretation` med `decision_evidence.method =
+   'machine-corroboration-v1'`, kørt under projektejerens redaktionsprofil med henvisning til
+   denne beslutning. Metodefeltet skiller maskinelle fra menneskelige afgørelser, så de kan
+   tælles, efterprøves og fortrydes for sig. Ingen DDL. Forbehold: databasens værdi stammer fra en tidligere
+   udtrækning af samme bog, så enigheden er to uafhængige *læsninger* af samme tekst, ikke to
+   kilder. En fejl, begge læsninger deler, fanges kun af stikprøven (punkt 4).
+3. **Mennesket ser kun uoverensstemmelserne:** promoverbare fortolkninger, hvor værdien er
+   reelt forskellig fra databasens (i piloten 5 af 243). Skrivemåde-forskelle sorteres maskinelt
+   fra først og tælles; de forbliver `proposed`, indtil en normaliseringsregel er besluttet.
+4. **Stikprøve som kvalitetskontrol:** 20 tilfældige, maskinelt accepterede forslag pr. kørsel
+   (fast seed, trukket før kørslen). Findes én fejl, stopper kørslen, og årsagen afklares før
+   næste. Ved pilotens fejlrate (1 af 243) udløser stikprøven et stop i ca. 8 % af kørslerne.
+5. **Kortformat:** et ark er højst ca. 30 kort, så det kan afgøres i én arbejdssession.
+
+**Konsekvens for pilotens tal:** i stedet for 243 kort ville projektejeren have set ≈ 25 (5
+uoverensstemmelser + 20 i stikprøven). For resten af 2018-20: ≈ 70 uoverensstemmelser plus én
+stikprøve pr. kørsel, frem for ≈ 3.450.
+
+**Hvad det koster:** et lille script (maskinel accept + stikprøvetræk) og en errata til spec
+§8.2. Kræver en variant af målfindingen (`interpretation_promotion_targets.sql` ser i dag kun på
+`accepted`; matchet skal beregnes over `proposed`, før noget accepteres). Genbruger
+`red_decide_interpretation` og `red_promote_interpretations_batch` uændret.
+
+**Hvad det ikke løser:** bindingen er stadig usynlig for læseren (review 35, §2.3 og U1), og en
+normaliseringsregel for skrivemåde (16 af 27 `NO_MATCH`) kræver sin egen beslutning, fordi den
+ændrer RPC'ens sammenligning.
+
+**Næste skridt:** en errata til spec §8.2 og scriptet (variant af målfindingen over `proposed`,
+maskinel accept, stikprøvetræk) planlægges som eget dagsværk. Review-budget efter
+beslutningen 2026-09-23: kun restore ⇒ 1 + 1.
+
 ## BESLUTTET: 4.4's prod-kørsel parkeres, til 4.5 er bevist i restoren (2026-09-23)
 
 **Besluttet (projektejer):** GO-pakken for 4.4's forslags-kørsel gøres færdig —

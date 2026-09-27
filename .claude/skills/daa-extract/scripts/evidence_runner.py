@@ -16,9 +16,11 @@ aldrig starter en model.
 from __future__ import annotations
 
 import hashlib
+import re
+import unicodedata
 from typing import Any, Mapping, Sequence
 
-from evidence_extract import ExtractionError, predicate_kind, validate_claim_value
+from evidence_extract import PREDICATES, ExtractionError, predicate_kind, validate_claim_value
 
 
 class RunnerError(ValueError):
@@ -34,6 +36,25 @@ REQUIRED_CLAIM_KEYS = {"clause_ordinals", "predicate", "value", "confidence"}
 
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def normalize_ws(text: str) -> str:
+    """Den ENE definition af »samme tekst« for ordrethed: NFC, blanktegn samlet.
+
+    Linjeskift og dobbelte mellemrum er sats, ikke tekst.  Store/små bogstaver og
+    tegnsætning er derimod en del af den ordrette form.  Afgørelsesarket
+    (`decision_sheet_html`) importerer netop denne funktion, så runnerens afvisning
+    og arkets ordret-mærke ikke kan drive fra hinanden.
+    """
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFC", text)).strip()
+
+
+#: Prædikat-formerne, hvis værdi SKAL stå ordret i en citeret klausul (review 35,
+#: fund P10).  Kun datoer: promptens regel 3 og stopkriteriets nævner (»claims m.
+#: ordret krav«).  Titler o.l. må skæres til (4.3b), og objekt-`raw` håndhæves
+#: ikke — projektejerens valg 2026-09-26, fordi to omskrevne hændelser i 4.3b var
+#: bedømt sande.  Udvid ikke uden en ny beslutning.
+VERBATIM_VALUE_KINDS = {"date_raw"}
 
 
 def canonical_record_input(export: Mapping[str, Any]) -> str:
@@ -52,6 +73,28 @@ def canonical_record_input(export: Mapping[str, Any]) -> str:
     if not isinstance(text, str) or not text:
         raise EligibilityError("RECORD_INPUT_TEXT_MISSING")
     return sha256_text(text)
+
+
+def check_clauses_within_post(export: Mapping[str, Any]) -> None:
+    """Klausulerne skal være ordnede, ikke-overlappende udsnit af helposten.
+
+    Ledgeren og manifestet binder kun helpostens tekst (`canonical_record_input`),
+    men modellen ser klausulerne.  Uden dette tjek kunne tekst fra en anden — evt.
+    udelukket — record rejse med som klausul under en eligible record (4.5-kodereview,
+    fund 1).  Målt 2026-09-24: alle 591 records i 2018-20-inputtet opfylder det.
+    """
+    text = export.get("post_verbatim_text")
+    clauses = export.get("clauses")
+    if not isinstance(text, str) or not isinstance(clauses, Sequence) \
+            or isinstance(clauses, (str, bytes)):
+        raise EligibilityError(f"CLAUSE_OUTSIDE_POST record={export.get('record_key')}")
+    pos = 0
+    for clause in sorted(clauses, key=lambda c: c.get("ordinal", 0) if isinstance(c, Mapping) else 0):
+        fragment = clause.get("verbatim_text") if isinstance(clause, Mapping) else None
+        i = text.find(fragment, pos) if isinstance(fragment, str) and fragment else -1
+        if i < 0:
+            raise EligibilityError(f"CLAUSE_OUTSIDE_POST record={export.get('record_key')}")
+        pos = i + len(fragment)
 
 
 def _clause_index(export: Mapping[str, Any]) -> dict[int, Mapping[str, Any]]:
@@ -153,6 +196,14 @@ def validate_record_claims(claims: Any, export: Mapping[str, Any]) -> None:
         except ExtractionError as exc:
             raise RunnerError("RUNNER_CLAIM_VALUE_INVALID") from exc
 
+        # Formen er gyldig; står værdien også i det, claimet citerer?  Klausulerne
+        # sammenføjes i ordinalorden, så en værdi, der krydser en klausulgrænse,
+        # ikke afvises.  Et tjek af formen alene lod en ISO-omregnet dato passere.
+        if PREDICATES[predicate].get("value_kind") in VERBATIM_VALUE_KINDS:
+            cited = " ".join(index[o]["verbatim_text"] for o in sorted(set(ordinals)))
+            if normalize_ws(claim["value"]) not in normalize_ws(cited):
+                raise RunnerError("RUNNER_CLAIM_VALUE_NOT_VERBATIM")
+
         confidence = claim["confidence"]
         if (not isinstance(confidence, (int, float)) or isinstance(confidence, bool)
                 or not 0.0 <= float(confidence) <= 1.0):
@@ -188,7 +239,8 @@ from pathlib import Path
 
 #: Bumpes, når runnerens egen kontrakt ændrer sig (argv, parsing, validering).
 #: Indgår i cache-nøglen, så et gammelt råsvar ikke genbruges under nye regler.
-RUNNER_CONTRACT_VERSION = "evidence-runner-1.0"
+#: 1.1 (2026-09-26): date_raw-værdier skal stå ordret i en citeret klausul.
+RUNNER_CONTRACT_VERSION = "evidence-runner-1.1"
 
 #: Modelpolitikken er frossen (decisions 2026-09-06, valg 1).
 ALLOWED_MODELS = ("gpt-5.6-terra", "gpt-5.6-sol")
@@ -608,6 +660,7 @@ def run_record_guarded(export: Mapping[str, Any], *, ledger: Mapping[str, Any],
     record_key = str(export.get("record_key", ""))
     try:
         check_eligibility(ledger, record_key, canonical_record_input(export))
+        check_clauses_within_post(export)
     except EligibilityError:
         return RecordOutcome(record_key, "failed", error_kind="not_eligible")
     return run_record(export, **kwargs)

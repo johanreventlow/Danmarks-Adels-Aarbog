@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-09-26 — 4.5-piloten gennemført i restoren: kvaliteten holder, afgørelsesmodellen ikke (#147)
+
+Projektejerens afgørelsesark (243 linjer, hash `98bb9a21…`) er skrevet i arbejdsbasen efter en
+negativtest, der beviste fuld rollback ved versionskonflikt på sidste afgørelse. 242
+`accepted`, 1 `rejected`; 0 afvisninger blandt 159 nye forslag. Backup før binding, derefter
+43 bindinger i ét batch; `fact`/`assertion` uændrede, genkørsel giver 43 `ALREADY_PROMOTED`.
+Af 27 uden bindingsmål er 16 skrivemåde, 6 mangler et kanonisk faktum, 5 er reelt forskellige.
+
+Pilotens afgørende måling er menneskets tid: arket tog flere dage, og resten af 2018-20 ville
+kræve ≈ 3.450 afgørelser. Dom (udkast): kvalitet GO, fuld kørsel NO-GO med den nuværende
+afgørelsesmodel. Kontrolmodel med kun uoverensstemmelser og stikprøve FORESLÅET i
+`decisions.md`.
+
+Samme dag: runneren er `evidence-runner-1.1` — et dato-claim afvises, hvis datoen ikke står
+ordret i den citerede klausul (review 35, P10). Pilotrapporten havde påstået, at 1.0 gjorde
+det; den tjekkede kun formen.
+
 ## 2026-09-20 — restpunkterne fra sikkerhedsgennemgangen lukket (#198, #208, #209)
 
 Sidste del af dagen. Sikkerhedsfladen har ingen kendt udestående gate-lækage.

@@ -133,7 +133,7 @@ jobs:
         run: python3 -m pytest .claude/skills/daa-extract/scripts/test_evidence_contract.py -q
       - name: evidence builders/runner/comparators · pytest
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: python3 -m pytest .claude/skills/daa-extract/scripts/test_reimport_profile.py .claude/skills/daa-extract/scripts/test_build_source_evidence_rendition.py .claude/skills/daa-extract/scripts/test_build_source_evidence_manifest.py .claude/skills/daa-extract/scripts/test_build_legacy_migration_manifest.py .claude/skills/daa-extract/scripts/test_build_clause_evidence_manifest.py .claude/skills/daa-extract/scripts/test_build_43b_proposal_manifest.py .claude/skills/daa-extract/scripts/test_evidence_runner.py .claude/skills/daa-extract/scripts/test_compare_clause_evidence_projection.py .claude/skills/daa-extract/scripts/test_compare_interpretation_proposal_projection.py -q
+        run: python3 -m pytest .claude/skills/daa-extract/scripts/test_reimport_profile.py .claude/skills/daa-extract/scripts/test_build_source_evidence_rendition.py .claude/skills/daa-extract/scripts/test_build_source_evidence_manifest.py .claude/skills/daa-extract/scripts/test_build_legacy_migration_manifest.py .claude/skills/daa-extract/scripts/test_build_clause_evidence_manifest.py .claude/skills/daa-extract/scripts/test_build_43b_proposal_manifest.py .claude/skills/daa-extract/scripts/test_evidence_runner.py .claude/skills/daa-extract/scripts/test_compare_clause_evidence_projection.py .claude/skills/daa-extract/scripts/test_compare_interpretation_proposal_projection.py .claude/skills/daa-extract/scripts/test_build_45_selection.py .claude/skills/daa-extract/scripts/test_evidence_run_manifest.py .claude/skills/daa-extract/scripts/test_interpretation_decision_sheet.py .claude/skills/daa-extract/scripts/test_decision_sheet_html.py -q
 
   evidence-promotion-db:
     name: evidence promotion · PostgreSQL 17
@@ -194,6 +194,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f db-migrations.sql
           psql -v ON_ERROR_STOP=1 -f db-rls.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-evidence-promotion.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/test-interpretation-promotion-targets.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-interpretation-predicate.sql
           python3 .claude/skills/daa-extract/scripts/check_interpretation_predicates.py
           psql -v ON_ERROR_STOP=1 -f tests/sql/run-db-verify-disposable.sql

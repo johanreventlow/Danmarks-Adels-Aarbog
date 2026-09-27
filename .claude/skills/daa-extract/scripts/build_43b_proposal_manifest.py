@@ -65,6 +65,39 @@ def legacy_cache_key(ident: dict) -> str:
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
+def cache_path(cache_dir: Path, ident: dict, *, mode: str) -> Path:
+    if mode == "legacy":
+        return cache_dir / f"{legacy_cache_key(ident)}.json"
+    if mode == "current":
+        return cache_dir / f"{evidence_runner.ResponseCache.key(ident)}.json"
+    raise ValueError(f"CACHE_KEY_MODE_UNKNOWN {mode}")
+
+
+def verify_runner_manifest(runner_manifest: dict, expected_sha256: str) -> None:
+    """Det godkendte runner-manifest — genberegnet, ikke kun aflæst (4.5-kodereview, fund 5)."""
+    from build_43b_manifest import bundles_of, manifest_sha256
+    if runner_manifest.get("manifest_sha256") != expected_sha256:
+        raise ValueError("RUNNER_MANIFEST_DRIFT — ikke den kørsel, der blev givet GO til.")
+    if manifest_sha256(runner_manifest) != expected_sha256:
+        raise ValueError("RUNNER_MANIFEST_TAMPERED — indholdet svarer ikke til hashen.")
+    flad = [k for keys in bundles_of(runner_manifest).values() for k in keys]
+    if len(flad) != len(set(flad)) or set(flad) != set(runner_manifest["records"]):
+        raise ValueError("RUNNER_BUNDLES_INVALID — bundterne er ikke en disjunkt opdeling "
+                         "af manifestets records.")
+
+
+def records_to_ingest(runner_manifest: dict, bundles: list[str] | None) -> list[str]:
+    """Hele manifestet, eller kun de navngivne bundter (4.5: reserven kun hvis kørt)."""
+    if not bundles:
+        return list(runner_manifest["records"])
+    from build_43b_manifest import bundles_of
+    alle = bundles_of(runner_manifest)
+    ukendte = [b for b in bundles if b not in alle]
+    if ukendte:
+        raise ValueError(f"BUNDLE_UNKNOWN {ukendte}")
+    return [k for b in bundles for k in alle[b]]
+
+
 def normaliser(tekst: str) -> str:
     """NFKC, casefold, whitespace-kollaps, strip af afsluttende tegnsætning."""
     t = unicodedata.normalize("NFKC", tekst).casefold()
@@ -187,14 +220,18 @@ def main() -> int:
     ap.add_argument("--cache-dir", required=True)
     ap.add_argument("--profile", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--cache-key", choices=["legacy", "current"], default="legacy")
+    ap.add_argument("--bundles", help="kommasepareret; default: hele manifestet")
     ap.add_argument("--expect-runner-manifest-sha256", required=True,
                     help="4.3b's godkendte manifest-hash — bygningen stopper, hvis "
                          "forslagene ikke stammer fra netop den kørsel")
     args = ap.parse_args()
 
     runner_manifest = json.loads(Path(args.runner_manifest).read_text(encoding="utf-8"))
-    if runner_manifest.get("manifest_sha256") != args.expect_runner_manifest_sha256:
-        print("RUNNER_MANIFEST_DRIFT — ikke den kørsel, der blev givet GO til.")
+    try:
+        verify_runner_manifest(runner_manifest, args.expect_runner_manifest_sha256)
+    except ValueError as exc:
+        print(str(exc))
         return 1
 
     runner_input = json.loads(Path(args.runner_input).read_text(encoding="utf-8"))["records"]
@@ -214,7 +251,15 @@ def main() -> int:
     usage_sum = {"input_tokens": 0, "output_tokens": 0, "reasoning_output_tokens": 0,
                  "cached_input_tokens": 0, "cache_write_input_tokens": 0}
 
-    for key in runner_manifest["records"]:
+    kontrakt = (LEGACY_RUNNER_CONTRACT_VERSION if args.cache_key == "legacy"
+                else runner_manifest["runner_contract_version"])
+    try:
+        noegler = records_to_ingest(runner_manifest,
+                                    args.bundles.split(",") if args.bundles else None)
+    except ValueError as exc:
+        print(str(exc))
+        return 1
+    for key in noegler:
         rec = runner_input[key]
         ident = {
             "profile_id": runner_manifest["profile_id"],
@@ -223,9 +268,11 @@ def main() -> int:
             "prompt_sha256": runner_manifest["prompt_sha256"],
             "record_input_sha256": canonical_record_input(rec),
             "claims_schema_sha256": runner_manifest["claims_schema_sha256"],
-            "runner_contract_version": LEGACY_RUNNER_CONTRACT_VERSION,
+            "runner_contract_version": kontrakt,
         }
-        sti = cache_dir / f"{legacy_cache_key(ident)}.json"
+        if args.cache_key == "current":
+            ident["record_key"] = key
+        sti = cache_path(cache_dir, ident, mode=args.cache_key)
         if not sti.exists():
             print(f"CACHE_MISS {key} — svaret fra 4.3b kan ikke adresseres.")
             return 1
@@ -334,7 +381,7 @@ def main() -> int:
             "predicates_sha256": sha256_text(
                 (Path(__file__).resolve().parents[1] / "references"
                  / "interpretation-predicates.json").read_text(encoding="utf-8")),
-            "runner_contract_version": LEGACY_RUNNER_CONTRACT_VERSION,
+            "runner_contract_version": kontrakt,
             "denylist_version": denylist["version"],
             "persona_role_map_version": rolle_map["version"],
             # FEM tal, ikke tre. Uden dem kan "antal = manifestets" ikke
@@ -353,6 +400,10 @@ def main() -> int:
             "usage": usage_sum,
         },
     }
+    if args.cache_key == "current":
+        # Kun i den nye tilstand: 4.4's legacy-manifest skal kunne genbygges byte-identisk.
+        manifest["provenance"]["cache_key_mode"] = "current"
+        manifest["provenance"]["records"] = noegler
     krop = json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     manifest["manifest_content_sha256"] = hashlib.sha256(krop.encode("utf-8")).hexdigest()
 
