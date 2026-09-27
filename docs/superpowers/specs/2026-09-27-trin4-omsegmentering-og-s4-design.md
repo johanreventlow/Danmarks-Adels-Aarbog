@@ -1,6 +1,7 @@
 # Trin 4 · omsegmentering af en posts klausuler + S4 — design
 
-**Status:** revision 3 (2026-09-27) efter plan-review runde 1 (NO-GO: 1 BLOCKER, 5 MAJOR, 6 MINOR) og runde 2 (GO med rettelser: 1 MAJOR, 7 MINOR). Alle fund efterprøvet i koden og indarbejdet, se §6. Planbudgettet (2) er brugt. **Beslutning:** `decisions.md` 2026-09-27
+**Status:** revision 3 (2026-09-27) efter plan-review runde 1 (NO-GO: 1 BLOCKER, 5 MAJOR, 6 MINOR) og runde 2 (GO med rettelser: 1 MAJOR, 7 MINOR). Alle fund efterprøvet i koden og indarbejdet, se §6. Planbudgettet (2) er brugt.
+**GO:** projektejeren 2026-09-27, med anbefalingerne i §5.1-5.3 (sæt-nummer på rækken; udgaveneutral, ingen 1939-kode; smal tilladelsesliste for læser-vagten). **Beslutning:** `decisions.md` 2026-09-27
 (omsegmentering før 4.4, skridt 3-4). **Review-budget:** DDL ⇒ 2 + 2 (decisions 2026-09-23).
 **Afløser:** intet; supplerer trin 4-spec'en §4.1 (klausullaget) og §7 (proposed-ingest).
 
@@ -237,7 +238,7 @@ ordinalerne 1..n findes i begge.
 5. Derefter piloten om for de 32 poster mod en ny restore (alle sendes igen; pilotens cache er
    kontrakt 1.0) og kontrolmodellen på de nye forslag; så 4.4+4.5 i prod.
 
-## 5. Åbne punkter (afgøres i review eller af projektejeren)
+## 5. Åbne punkter (5.1-5.3 afgjort ved GO 2026-09-27 efter anbefalingen)
 
 1. **`clause_set_seq` på rækken vs. en `clause_set`-tabel.** Udkastet vælger kolonnen (mindst
    DDL). En tabel giver et sted til sættets proveniens (regelversion, segmenter, batch), som i
