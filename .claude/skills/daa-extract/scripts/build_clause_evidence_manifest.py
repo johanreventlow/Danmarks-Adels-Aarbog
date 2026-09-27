@@ -31,6 +31,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import build_source_evidence_manifest as sem
+import clause_set
 from reimport_profile import load_profile
 
 LEDGER_SCHEMA_VERSION = "clause-ledger-v1"
@@ -65,8 +66,8 @@ def _anchor(projected: str, offsets: list[int], kandidater: dict[int, list[int]]
     _fail("CLAUSE_EVIDENCE_PARENT_ANCHOR_FAILED")
 
 
-def build_manifest(profile: dict[str, Any], ledger: dict[str, Any],
-                   rendition: str, ledger_file_sha256: str) -> dict[str, Any]:
+def _operations(profile: dict[str, Any], ledger: dict[str, Any], rendition: str) -> tuple[list[dict[str, Any]], str, list[str]]:
+    """Ledgerens poster som clause_evidence-operationer (fælles for begge tilstande)."""
     if _sha(rendition) != profile["raw_text_sha256"]:
         _fail("RENDITION_SHA_MISMATCH")
     if ledger.get("schema_version") != LEDGER_SCHEMA_VERSION:
@@ -138,7 +139,12 @@ def build_manifest(profile: dict[str, Any], ledger: dict[str, Any],
             "gap_charset": list(gap_charset),
             "clauses": clauses,
         })
+    return operations, projection_sha, list(gap_charset)
 
+
+def build_manifest(profile: dict[str, Any], ledger: dict[str, Any],
+                   rendition: str, ledger_file_sha256: str) -> dict[str, Any]:
+    operations, projection_sha, _ = _operations(profile, ledger, rendition)
     if len(operations) != profile["expected_counts"]["clause_evidence"]:
         _fail("LEDGER_COUNT_MISMATCH")
 
@@ -160,10 +166,66 @@ def build_manifest(profile: dict[str, Any], ledger: dict[str, Any],
     return manifest
 
 
+def current_sets_from_projection(projection: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Det aktuelle klausulsæt pr. post, læst af klausul-projektionen (ikke af en fil)."""
+    current: dict[str, dict[str, Any]] = {}
+    for row in projection["clauses"]:
+        if not row.get("is_current_set") or row.get("record_key") is None:
+            continue
+        entry = {"clause_set_seq": row["clause_set_seq"], "clause_set_sha256": row["clause_set_sha256"]}
+        if current.setdefault(row["record_key"], entry) != entry:
+            _fail("CLAUSE_REVISION_CURRENT_SET_AMBIGUOUS")
+    return current
+
+
+def build_revision_manifest(profile: dict[str, Any], ledger: dict[str, Any], rendition: str,
+                            ledger_file_sha256: str, current_sets: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Omsegmentering (spec 2026-09-27): kun poster, hvis klausulsæt-hash ændres.
+
+    En ren flag-ændring ændrer hashen og kommer med. Hver operation bærer det sæt,
+    den erstatter (seq + hash fra projektionen), så writeren kan afvise en base, der er
+    skredet siden manifestet blev bygget.
+    """
+    operations, projection_sha, _ = _operations(profile, ledger, rendition)
+    revisions: list[dict[str, Any]] = []
+    for op in operations:
+        key = op["source_record_key"]
+        base = current_sets.get(key)
+        if base is None:
+            _fail("CLAUSE_REVISION_BASE_MISSING")
+        if clause_set.clause_set_sha256(op["clauses"]) == base["clause_set_sha256"]:
+            continue
+        revisions.append(dict(op, element_id=f"clause-revision:{key}", dependency_class="clause_revision",
+                              replaces_clause_set_seq=base["clause_set_seq"],
+                              replaces_clause_set_sha256=base["clause_set_sha256"]))
+    if len(revisions) != profile["expected_counts"]["clause_revisions"]:
+        _fail("LEDGER_COUNT_MISMATCH")
+    manifest = {
+        "source": {"id": profile["source_id"], "profile_id": profile["profile_id"],
+                   "profile_sha256": profile["profile_sha256"]},
+        "provenance": {"ledger_file_sha256": ledger_file_sha256,
+                       "raw_text_sha256": profile["raw_text_sha256"],
+                       "rendition_projection_sha256": projection_sha,
+                       "clause_rules_version": profile["clause_rules_version"],
+                       "segmenter_version": profile["segmenter_version"],
+                       "current_sets_sha256": hashlib.sha256(json.dumps(
+                           current_sets, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()},
+        "expected_counts": {"source_evidence": 0, "person_creates": 0,
+                            "canonical_delta": 0, "clause_revisions": len(revisions)},
+        "operations": revisions,
+    }
+    manifest["manifest_content_sha256"] = hashlib.sha256(
+        json.dumps(manifest, ensure_ascii=False, sort_keys=True,
+                   separators=(",", ":")).encode("utf-8")).hexdigest()
+    return manifest
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     for flag in ("--profile", "--ledger", "--rendition", "--output"):
         parser.add_argument(flag, required=True)
+    parser.add_argument("--current-projection",
+                        help="revisions-profil: klausul-projektionen af målbasen (det aktuelle sæt pr. post)")
     parser.add_argument("--expect-ledger-sha256", required=True,
                         help="ledgerfilens SHA-256 fra 4.1b's rapport — bygningen "
                              "stopper, hvis filen ikke er præcis den reviewede")
@@ -180,7 +242,13 @@ def main() -> None:
     out = Path(args.output)
     if out.exists():
         _fail("CLAUSE_EVIDENCE_OUTPUT_EXISTS")
-    manifest = build_manifest(profile, ledger, rendition, ledger_file_sha256)
+    if profile.get("profile_schema_version") == "reimport-clause-revision-profile-v1":
+        if not args.current_projection:
+            _fail("CLAUSE_REVISION_CURRENT_PROJECTION_REQUIRED")
+        current = current_sets_from_projection(json.loads(Path(args.current_projection).read_text(encoding="utf-8")))
+        manifest = build_revision_manifest(profile, ledger, rendition, ledger_file_sha256, current)
+    else:
+        manifest = build_manifest(profile, ledger, rendition, ledger_file_sha256)
     out.write_text(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
                    encoding="utf-8")
     out.chmod(0o600)
