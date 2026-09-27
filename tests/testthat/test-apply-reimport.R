@@ -238,6 +238,47 @@ test_that("interpretation_proposal afstemmer writerens claim-antal mod manifeste
   expect_false(result$committed)
 })
 
+# --- Omsegmentering: clause_revision er en selvstændig operation ---------------
+revision_manifest <- function(counts = list(source_evidence = 0L, person_creates = 0L,
+                                            canonical_delta = 0L, clause_revisions = 1L)) {
+  list(
+    manifest_content_sha256 = sha("a"),
+    source = list(id = 17L, profile_id = "test-revision-profile-v1", profile_sha256 = sha("b")),
+    expected_counts = counts,
+    operations = list(list(
+      element_id = "clause-revision:fixture-1",
+      dependency_class = "clause_revision",
+      source_record_key = "fixture-1",
+      replaces_clause_set_seq = 1L,
+      replaces_clause_set_sha256 = sha("c")
+    ))
+  )
+}
+
+test_that("clause_revision kalder sin egen writer og tælles som clause_revisions", {
+  manifest <- revision_manifest()
+  expect_identical(names(reimport_writer_expected_counts(manifest)),
+                   c("person_creates", "source_evidence", "clause_revisions"))
+  seen <- character()
+  base <- reimport_gateway(manifest)
+  inner <- base$gateway$call
+  gateway <- list(call = function(name, ...) {
+    seen <<- c(seen, name)
+    if (identical(name, "clause_revision"))
+      return(list(clauses = 1L, clauses_replaced = 2L, clause_set_seq = 2L))
+    inner(name, ...)
+  })
+  result <- execute_reimport(manifest, sha("e"), "dry-run", gateway)
+  expect_identical(result$status, "finalized")
+  expect_true("clause_revision" %in% seen)
+  expect_false("clause_evidence" %in% seen)
+})
+
+test_that("en clause_revision uden clause_revisions-tælling afvises", {
+  manifest <- revision_manifest(list(source_evidence = 0L, person_creates = 0L, canonical_delta = 0L))
+  expect_error(validate_reimport_manifest(manifest), "REIMPORT_MANIFEST_COUNTS_INVALID")
+})
+
 test_that("external authorization kræves i begge modes og omgår gateway-authorize", {
   manifest <- reimport_manifest()
   gateway <- reimport_gateway(manifest)

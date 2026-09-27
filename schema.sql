@@ -3510,7 +3510,7 @@ BEGIN
   RETURN private.write_clause_evidence(p_batch_id,p_element_id,p_payload);
 END $$;
 
--- clause_revision (spec §3.2): et nyt klausulsæt for en post, append-only ved siden af
+-- clause_revision (spec 2026-09-27, writer-operationen): et nyt klausulsæt for en post, append-only ved siden af
 -- det gamle. Kun når intet afhænger af det aktuelle sæt (ingen fortolkning, ingen
 -- menneskelig disposition). Rækkefølgen er bærende for triggerne: nyt sæt skrives FØR
 -- `erstattet` på det gamle (erstattet må kun stå uden for det aktuelle sæt).

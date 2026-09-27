@@ -20,6 +20,9 @@ PLACEHOLDER = "<UDFYLDES FRA INVENTERING>"
 PROFILE_SCHEMA_VERSION = "reimport-source-evidence-profile-v1"
 LEGACY_PROFILE_SCHEMA_VERSION = "reimport-legacy-migration-profile-v1"
 CLAUSE_PROFILE_SCHEMA_VERSION = "reimport-clause-evidence-profile-v1"
+#: Omsegmentering (spec 2026-09-27): samme felter som klausulprofilen, men writeren
+#: er clause_revision, og tællingen er clause_revisions.
+CLAUSE_REVISION_PROFILE_SCHEMA_VERSION = "reimport-clause-revision-profile-v1"
 
 PROFILE_KEYS = {
     "profile_schema_version", "source_id", "profile_id", "profile_version",
@@ -217,7 +220,7 @@ def _validate_legacy_migration_profile(profile: dict[str, Any]) -> None:
     _validate_writer_config(config, metadata["pdf_sha256"])
 
 
-def _validate_clause_evidence_profile(profile: dict[str, Any]) -> None:
+def _validate_clause_evidence_profile(profile: dict[str, Any], count_key: str = "clause_evidence") -> None:
     """#148 4.1c: profilen for clause_evidence-writeren.
 
     raw_text_sha256 er renditionens hash — manifest-builderen nægter at bygge,
@@ -234,9 +237,9 @@ def _validate_clause_evidence_profile(profile: dict[str, Any]) -> None:
             or not HASH_RE.match(profile["raw_text_sha256"]):
         _fail("PROFILE_MEASURED_HASH_INVALID")
     counts = profile["expected_counts"]
-    if not isinstance(counts, dict) or set(counts) != CLAUSE_EXPECTED_COUNTS_KEYS \
+    if not isinstance(counts, dict) or set(counts) != {"person_creates", "source_evidence", count_key} \
             or counts["person_creates"] != 0 or counts["source_evidence"] != 0 \
-            or not _positive_int(counts["clause_evidence"]):
+            or not _positive_int(counts[count_key]):
         _fail("PROFILE_EXPECTED_COUNTS_INVALID")
     _assert_collation_stable(profile["writer_config"])
     config = profile["writer_config"]
@@ -261,6 +264,8 @@ def load_profile(path: Path) -> dict[str, Any]:
         _validate_legacy_migration_profile(profile)
     elif profile.get("profile_schema_version") == CLAUSE_PROFILE_SCHEMA_VERSION:
         _validate_clause_evidence_profile(profile)
+    elif profile.get("profile_schema_version") == CLAUSE_REVISION_PROFILE_SCHEMA_VERSION:
+        _validate_clause_evidence_profile(profile, "clause_revisions")
     else:
         _fail("PROFILE_FIELD_SET_INVALID")
     profile["profile_sha256"] = canonical_json_sha256(profile["writer_config"])
