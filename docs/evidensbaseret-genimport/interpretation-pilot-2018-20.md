@@ -138,6 +138,11 @@ engangskopi gav 1 `EVIDENCE_INTERPRETATION_VERSION_CONFLICT` og 0 skrevne afgør
 transaktionen rullede tilbage efter 242 vellykkede kald. **Kørslen:** rc=0; 242 `accepted`,
 1 `rejected`, 0 `unresolved`, 0 `proposed` tilbage; alle 243 nye versioner bærer arkets hash.
 
+> **Rettelse 2026-09-27:** under kontrolmodellens kørsel fandt projektejeren én fejl mere blandt de
+> 159 nye (`person.death` på I-7, samme fejllæsning som nedenfor). Præcisionen er derfor
+> **241/243 = 99,2 %**; tallene i afsnittet er målingen i arbejdsbasen, hvor I-7 fortsat står
+> `accepted` (ubundet). Se `kontrolmodel-koersel-2018-20.md`.
+
 **Præcision: 242/243 = 99,6 %.** Af de 159 nye forslag afviste projektejeren **0**. Den eneste
 afvisning er det `person.death`-claim, 4.3b allerede dømte usandt: modellen læste en formulering af
 typen »var død [dato], da [en senere handling]« som en dødsdato, men det er en seneste grænse for dødsfaldet.
@@ -247,7 +252,7 @@ klausuler), som vil ændre klausulerne og dermed record-input-hashene.
 
 | Stopkriterium (som 4.3b) | Resultat | Tærskel | |
 | --- | ---: | ---: | --- |
-| Præcision — sand ifølge teksten | 242/243 = **99,6 %** | ≥ 90 % | ✅ |
+| Præcision — sand ifølge teksten | 241/243 = **99,2 %** (rettet 2026-09-27; målt 242/243) | ≥ 90 % | ✅ |
 | Klausulbinding — citerer eksisterende klausul i posten | 243/243 = **100 %** | ≥ 90 % | ✅ |
 | Ordrethed — claims m. ordret krav (datoer) | 52/52 = **100 %** | ≥ 95 % | ✅ |
 | Dækning — noterede udsagn fundet | **100 %** (forbehold afsnit 6) | ≥ 60 % | ✅ |
@@ -262,7 +267,7 @@ fra klausul til binding virker i én restore uden kanonisk delta.
 
 **Fuld kørsel er NO-GO med den nuværende afgørelsesmodel.** Ikke på grund af kvalitet, men
 fordi den kræver ≈ 3.450 menneskelige afgørelser, som projektejeren ikke har kapacitet til, og
-fordi gennemgangen af 159 nye forslag fandt 0 fejl. Kontrolmodellen, der skal erstatte de
+fordi gennemgangen af 159 nye forslag fandt 0 fejl (1 ved genlæsning 2026-09-27). Kontrolmodellen, der skal erstatte de
 fulde ark, er besluttet 2026-09-27 (`docs/decisions.md`); en fuld kørsel under den kræver en
 ny dom efter dens første kørsel. Overførslen af pilotens afgørelser og
 bindinger til prod afhænger ikke af denne dom, kun af `breaches` (prod-vej-spec §6.2).

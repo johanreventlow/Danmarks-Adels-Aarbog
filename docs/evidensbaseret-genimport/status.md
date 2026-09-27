@@ -15,11 +15,18 @@ er `integreret ende-til-ende`, se tabellen og blokeringerne; 149a
 (2018-20 kilderegnskab) er `integreret ende-til-ende`, se tabellen; #156
 lukket med restpunkt (INCOMPLETE-afstemning, snapshot forseglet).
 
+**Tillæg 2026-09-27 — kontrolmodellen er bygget og kørt én gang.** I en kopi af restoren med
+4.5's forslag genafspillet gav den samme 43 bindinger som 4.5's fulde ark (identiske forslag og mål)
+med 26 kort for projektejeren i stedet for 243; 23 forslag blev accepteret maskinelt
+(`machine-corroboration-v1`). Begge kendte fejl lå blandt uoverensstemmelserne, som mennesket ser
+(`kontrolmodel-koersel-2018-20.md`). Projektejeren fandt samtidig en fejl mere i 4.5 (I-7), så det
+godkendte 4.5-ark skal rettes og have ny hash, før pilotens afgørelser overføres til prod.
+
 **Tillæg 2026-09-26 — 4.5-piloten er kørt i restoren; kvaliteten holder, afgørelsesmodellen
 ikke.** Hele kæden (klausuler → runner → ingest → afgørelse → binding) er kørt for 32 poster i
 arbejdsbasen `daa45_pilot_20260924093200` (kopi af restoren), aldrig i prod
-(`interpretation-pilot-2018-20.md`). 243 forslag, præcision 242/243, 0 afvisninger blandt 159
-nye, ordrette datoer 52/52, 43 bindinger (61 % af de accepterede promoverbare), intet kanonisk
+(`interpretation-pilot-2018-20.md`). 243 forslag, præcision 241/243 (rettet 2026-09-27; 1 fejl blandt 159
+nye), ordrette datoer 52/52, 43 bindinger (61 % af de accepterede promoverbare), intet kanonisk
 delta. Men projektejerens ark på 243 linjer tog flere dage, og ≈ 3.450 afgørelser for resten af
 2018-20 er ikke gennemførligt. Dommen (godkendt 2026-09-27): kvalitet GO, fuld kørsel NO-GO med den
 nuværende afgørelsesmodel. En ny kontrolmodel — kun uoverensstemmelser og en stikprøve — er
@@ -187,9 +194,10 @@ Spec: `docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranu
 Dagsværkene 4.1a-4.4 er **udført og merget**, skemaet er deployet til prod 2026-09-17, og
 4.1c's klausuler er kørt i prod 2026-09-18. Næste tilladte arbejde er:
 
-1. **Kontrolmodellen** (`decisions.md` 2026-09-27): errata til spec §8.2 og scriptet til
-   maskinel accept og stikprøve, som eget dagsværk mod restore.
-2. Projektejerens beslutning om 4.4's forslag og 4.5's afgørelser skal i prod samlet
+1. **Kontrolmodellen er bygget og kørt** (2026-09-27, gren `feat/147-kontrolmodel`); tilbage er
+   uafhængigt kodereview og merge. Kandidat bagefter: promptregel for »var † [dato], da …«
+   (ny promptversion — egen beslutning).
+2. Ret 4.5-arket (I-7) og godkend ny hash. Derefter: projektejerens beslutning om 4.4's forslag og 4.5's afgørelser skal i prod samlet
    (prod-vej-spec på `docs/147-pilot-prod-vej`), og i så fald genbinding af 4.4's GO-pakke.
    Review 35's P3/P4/S4 (klausulsegmentering) afgøres før dette GO.
 
