@@ -442,6 +442,9 @@ jobs:
       - name: Klausulsæt SQL (omsegmentering, Task 1)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-clause-set.sql
+      - name: Klausulrevision SQL (omsegmentering, Task 2)
+        env: {PGPASSWORD: postgres}
+        run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-clause-revision.sql
       - name: Fortolkningsforslag SQL (#147 4.4)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-interpretation-proposal.sql

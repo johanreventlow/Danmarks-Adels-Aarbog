@@ -1258,13 +1258,15 @@ REVOKE ALL ON TABLE private.vocab, private.clause_disposition, private.clause_di
 REVOKE ALL ON FUNCTION private.validate_clause_set_seq(), private.check_clause_set_density(),
   private.clause_set_sha256(uuid,integer), private.validate_clause_disposition_set(),
   private.validate_interpretation_observation_current_clause(),
-  private.clause_write_prepare(uuid,text,jsonb,text), private.clause_write_set(jsonb,jsonb,integer,text)
+  private.clause_write_prepare(uuid,text,jsonb,text), private.clause_write_set(jsonb,jsonb,integer,text),
+  private.write_clause_revision(uuid,text,jsonb)
   FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON TABLE private.clause_observation_current FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,text,jsonb,jsonb,uuid,timestamptz),
   public.red_preflight_reimport_authorization(uuid,text,text),public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),
   public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_apply_reimport_legacy_migration(uuid,text,jsonb),
   public.red_apply_reimport_clause_evidence(uuid,text,jsonb),
+  public.red_apply_reimport_clause_revision(uuid,text,jsonb),
   public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb),
   public.red_finalize_reimport(uuid),public.red_reimport_batch_result(uuid,uuid),
   public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_reverse_reimport(uuid,uuid),
@@ -1280,6 +1282,7 @@ GRANT EXECUTE ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,te
 GRANT EXECUTE ON FUNCTION public.red_preflight_reimport_authorization(uuid,text,text),public.red_begin_reimport(uuid,text,text),public.red_apply_reimport_source_evidence(uuid,text,jsonb),
   public.red_apply_reimport_person_create(uuid,text,jsonb),public.red_apply_reimport_legacy_migration(uuid,text,jsonb),
   public.red_apply_reimport_clause_evidence(uuid,text,jsonb),
+  public.red_apply_reimport_clause_revision(uuid,text,jsonb),
   public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb),
   public.red_finalize_reimport(uuid),public.red_reimport_batch_result(uuid,uuid),
   public.red_reverse_reimport(uuid,uuid),public.red_activate_reimport_batch(uuid,uuid),public.red_apply_reimport_canonical_delta(uuid,text,jsonb),
@@ -1547,7 +1550,7 @@ BEGIN
   -- (a) allow-listens 74, leveret af blokken selv — aldrig duplikeret her.
   INSERT INTO red_surface_expected(signature) SELECT signature FROM pg_temp.red_allow_list;
 
-  -- (b) 24 writer-signaturer fra senere, formaalsbestemte blokke. Versions-UAFHAENGIGE:
+  -- (b) 25 writer-signaturer fra senere, formaalsbestemte blokke. Versions-UAFHAENGIGE:
   --     maalt identisk paa en v1- og en v2-base 2026-09-20.
   INSERT INTO red_surface_expected(signature) VALUES
     ('public.red_activate_1939_v50_batch(uuid,uuid)'),
@@ -1557,6 +1560,7 @@ BEGIN
     ('public.red_apply_1939_v50_source_evidence(uuid,text,jsonb)'),
     ('public.red_apply_reimport_canonical_delta(uuid,text,jsonb)'),
     ('public.red_apply_reimport_clause_evidence(uuid,text,jsonb)'),
+    ('public.red_apply_reimport_clause_revision(uuid,text,jsonb)'),
     ('public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)'),
     ('public.red_apply_reimport_legacy_migration(uuid,text,jsonb)'),
     ('public.red_apply_reimport_name_completion(uuid,text,jsonb)'),

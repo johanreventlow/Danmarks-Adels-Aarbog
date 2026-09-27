@@ -2896,6 +2896,7 @@ DECLARE
     'public.red_apply_reimport_name_completion(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_legacy_migration(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_clause_evidence(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_clause_revision(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_person_create(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_source_evidence(uuid,text,jsonb)'::regprocedure,
