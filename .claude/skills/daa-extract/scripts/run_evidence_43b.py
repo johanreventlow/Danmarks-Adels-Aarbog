@@ -95,6 +95,9 @@ def main() -> int:
             # ved reviewet af plan 4.4).
             "record_key": key,
             "record_input_sha256": canonical_record_input(rec),
+            # Klausulsættet (kontrakt 1.2, review 35 P4): en omsegmenteret post må
+            # ikke ramme et svar, der citerer den gamle opdeling.
+            "clause_set_sha256": evidence_runner.canonical_clause_set(rec),
             "claims_schema_sha256": manifest["claims_schema_sha256"],
             "runner_contract_version": manifest["runner_contract_version"],
         }

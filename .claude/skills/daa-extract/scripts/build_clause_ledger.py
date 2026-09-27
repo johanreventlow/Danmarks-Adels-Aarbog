@@ -20,6 +20,23 @@ import clause_segment  # noqa: E402
 import evidence_extract  # noqa: E402
 
 
+#: Filerne, der former klausulerne og ledgeren.  Versionen afledes af deres bytes
+#: (review 35, P4): den hårdkodede "clause_segment.py@v1" stod stille gennem fire
+#: kodeændringer 10/9, så ledgeren kunne ikke sige, hvilken kode der skrev
+#: prod-klausulerne.  Prod-ledgeren fra 4.1c bærer stadig "@v1", og reimport-profilen
+#: binder den; en ny ledger passer derfor ikke til den gamle profil, før en ny
+#: profil udstedes — det er meningen.
+SEGMENTER_SOURCES = ("clause_segment.py", "clause_ledger.py")
+
+
+def segmenter_version(root: Path = Path(__file__).resolve().parent) -> str:
+    digest = hashlib.sha256()
+    for name in SEGMENTER_SOURCES:
+        data = (root / name).read_bytes()
+        digest.update(name.encode("utf-8") + b"\0" + len(data).to_bytes(8, "big") + data)
+    return "clause_segment.py@sha256:" + digest.hexdigest()[:16]
+
+
 def _fail(code: str) -> None:
     print(code, file=sys.stderr)
     raise SystemExit(2)
@@ -90,7 +107,7 @@ def main() -> None:
                         "rendition_content_sha256": row["rendition_content_sha256"],
                         "rules_version": rules["version"], "ledger_sha256": result["ledger_sha256"], "clauses": clauses})
     ledger = {"schema_version": "clause-ledger-v1", "profile_id": args.profile, "profile_version": profile["version"],
-              "rules_version": rules["version"], "segmenter_version": "clause_segment.py@v1",
+              "rules_version": rules["version"], "segmenter_version": segmenter_version(),
               "gap_charset": list(rules["gap_charset"]),   # 4.1c's manifest hash-binder tegnsættet herfra
               "records": records}
     _write_private(out / "clause-ledger-v1.json", ledger)

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-27 — klausulerne segmenteres om før 4.4; runnerens cache kender nu klausulsættet (#147, review 35 P3/P4)
+
+En måling af 2018-20's klausuler (kun tal) viste, at en rettet segmenter ændrer 25-42 af de 101
+poster med mere end én klausul, heraf 8 af pilotens 32; begge pilotens kendte fejl ligger i dem.
+Projektejeren besluttede at segmentere om før 4.4 med en ny writer-operation frem for restore
+(`decisions.md` 2026-09-27). Første skridt, P4, er gennemført: klausulsættet indgår i
+runnerens cache-nøgle (`evidence-runner-1.2`, nøglen udledes efter identitetens kontrakt, så
+4.5's forslagsmanifest genbygges byte-identisk), runneren afviser en nøgle for en anden
+segmentering, og `segmenter_version` afledes af koden i stedet for den hårdkodede `@v1`.
+
 ## 2026-09-27 — kontrolmodellen bygget og kørt: samme 43 bindinger med 26 kort i stedet for 243 (#147)
 
 Beslutningen 2026-09-27 er implementeret uden DDL: en læse-kun klassifikation over `proposed`

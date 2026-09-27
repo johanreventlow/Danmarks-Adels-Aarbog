@@ -75,6 +75,20 @@ def canonical_record_input(export: Mapping[str, Any]) -> str:
     return sha256_text(text)
 
 
+def canonical_clause_set(export: Mapping[str, Any]) -> str:
+    """Hash over klausulsættet: sorteret `(ordinal, sha256(tekst))` (review 35, P4).
+
+    `canonical_record_input` binder kun helposten, men modellen citerer ordinaler.
+    Klippes den samme helpost anderledes (P3/#189), peger et cachet svars ordinal 2
+    på en anden klausul — derfor indgår klausulsættet i cache-nøglen.  Hashen
+    beregnes af teksten, ikke af eksportens egen hash-kolonne (`_clause_index`
+    efterprøver den undervejs).
+    """
+    index = _clause_index(export)
+    pairs = [[ordinal, sha256_text(index[ordinal]["verbatim_text"])] for ordinal in sorted(index)]
+    return sha256_text(json.dumps(pairs, separators=(",", ":")))
+
+
 def check_clauses_within_post(export: Mapping[str, Any]) -> None:
     """Klausulerne skal være ordnede, ikke-overlappende udsnit af helposten.
 
@@ -240,7 +254,8 @@ from pathlib import Path
 #: Bumpes, når runnerens egen kontrakt ændrer sig (argv, parsing, validering).
 #: Indgår i cache-nøglen, så et gammelt råsvar ikke genbruges under nye regler.
 #: 1.1 (2026-09-26): date_raw-værdier skal stå ordret i en citeret klausul.
-RUNNER_CONTRACT_VERSION = "evidence-runner-1.1"
+#: 1.2 (2026-09-27): klausulsættet indgår i cache-nøglen (review 35, P4).
+RUNNER_CONTRACT_VERSION = "evidence-runner-1.2"
 
 #: Modelpolitikken er frossen (decisions 2026-09-06, valg 1).
 ALLOWED_MODELS = ("gpt-5.6-terra", "gpt-5.6-sol")
@@ -260,9 +275,23 @@ ERROR_KINDS = {"quota_exhausted", "model_refusal", "schema_violation",
 #: teksthashes — TRE kollisioner i de faktiske data.  Uden nøglen ville to poster
 #: dele cachepost, og et cachet svar kunne ikke henføres til den record, det
 #: beskriver.  (Anden læsers fund 2 ved reviewet af plan 4.4.)
+#:
+#: `clause_set_sha256` (1.2, review 35 P4): modellen citerer klausul-ordinaler, så en
+#: omsegmentering af samme helpost må ikke genbruge et svar, hvis ordinal 2 nu er en
+#: anden klausul.
 CACHE_KEY_FIELDS = ("profile_id", "profile_version", "model", "prompt_sha256",
-                    "record_key", "record_input_sha256", "claims_schema_sha256",
-                    "runner_contract_version")
+                    "record_key", "record_input_sha256", "clause_set_sha256",
+                    "claims_schema_sha256", "runner_contract_version")
+
+#: Nøgleudledningen følger den kontrakt, identiteten bærer — ikke den aktuelle.  Så
+#: kan 4.3b/4.5's caches stadig adresseres, som de blev skrevet, og en ukendt
+#: kontrakt har ingen udledning frem for et gæt.
+_PRE_CLAUSE_SET_FIELDS = tuple(f for f in CACHE_KEY_FIELDS if f != "clause_set_sha256")
+CACHE_KEY_FIELDS_BY_CONTRACT = {
+    "evidence-runner-1.0": _PRE_CLAUSE_SET_FIELDS,
+    "evidence-runner-1.1": _PRE_CLAUSE_SET_FIELDS,
+    RUNNER_CONTRACT_VERSION: CACHE_KEY_FIELDS,
+}
 
 #: Fejltyper aflæses af `turn.failed`'s `error.type`.  Ukendte former bliver
 #: `unknown` — aldrig stiltiende accepteret.
@@ -356,10 +385,13 @@ class ResponseCache:
 
     @staticmethod
     def key(ident: Mapping[str, Any]) -> str:
-        missing = set(CACHE_KEY_FIELDS) - set(ident)
+        fields = CACHE_KEY_FIELDS_BY_CONTRACT.get(ident.get("runner_contract_version"))
+        if fields is None:
+            raise RunnerError("RUNNER_CACHE_CONTRACT_UNKNOWN")
+        missing = set(fields) - set(ident)
         if missing:
             raise RunnerError("RUNNER_CACHE_IDENT_INCOMPLETE")
-        material = "\x1f".join(str(ident[field]) for field in CACHE_KEY_FIELDS)
+        material = "\x1f".join(str(ident[field]) for field in fields)
         return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
     def _path(self, ident: Mapping[str, Any]) -> Path:
@@ -451,6 +483,13 @@ def run_record(export: Mapping[str, Any], *, ident: Mapping[str, Any], cache: Re
     og kan derfor ikke senere genbruges som grønt.
     """
     record_key = str(export.get("record_key", ""))
+
+    # Klausulsættet i nøglen beregnes af kalderen; det skal være DETTE inputs sæt,
+    # ellers kan et svar for en anden segmentering hentes eller gemmes (P4).  Samme
+    # lære som eligibility-værnet: en hash, kalderen blot opgiver, beviser intet.
+    if "clause_set_sha256" in CACHE_KEY_FIELDS_BY_CONTRACT.get(ident.get("runner_contract_version"), ()) \
+            and ident.get("clause_set_sha256") != canonical_clause_set(export):
+        raise RunnerError("RUNNER_CLAUSE_SET_DRIFT")
 
     hit = cache.get(ident)
     if hit is not None:

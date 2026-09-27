@@ -166,7 +166,8 @@ programmets samlede modenhed.
   er åbent, indtil projektejeren lukker det. **4.4's `interpretation_proposal` i prod er
   parkeret** (tillæg 2026-09-23): fortolknings-projektionen (#196) er merget, fortrydelse
   er afgjort som restore, og GO-pakken er færdig, men kørslen og #196's DDL venter på 4.5's
-  pilotrapport.
+  pilotrapport. **Tillæg 2026-09-27:** venter nu også på, at 2018-20's klausuler segmenteres om
+  med en ny writer-operation (review 35 P3/P4/S4; `decisions.md` 2026-09-27). P4 er gjort.
 - **4.5 er kørt i restoren (2026-09-26)**; fuld kørsel er NO-GO med den nuværende
   afgørelsesmodel (menneskelig kapacitet), se tillæg 2026-09-26 og `decisions.md` samme dato.
   4.3a's Codex-forbrugsprobe er **kørt 2026-09-11** og lukket: `codex exec --json`

@@ -6,6 +6,7 @@ bundle-vej kræver hele renditionens tekst og passer derfor ikke (spec §6.1).
 
 Testene starter aldrig Codex. Runnerens modelkald ligger bag en injicerbar søm.
 """
+import hashlib
 import json
 from pathlib import Path
 
@@ -398,18 +399,109 @@ def test_two_records_with_identical_text_do_not_share_a_cache_entry():
 
 def test_cache_key_covers_schema_and_runner_version():
     """R7: uden claim-skemaets SHA og runner-kontrakten kan et ændret outputskema
-    genbruge et gammelt råsvar."""
+    genbruge et gammelt råsvar.  Review 35, P4: uden klausulsættet kan en ændret
+    segmentering genbruge et svar, hvis citater peger på andre klausuler."""
     assert CACHE_KEY_FIELDS == ("profile_id", "profile_version", "model", "prompt_sha256",
-                                "record_key", "record_input_sha256", "claims_schema_sha256",
-                                "runner_contract_version")
+                                "record_key", "record_input_sha256", "clause_set_sha256",
+                                "claims_schema_sha256", "runner_contract_version")
+
+
+def test_runner_contract_is_bumped_for_the_clause_set_key():
+    assert evidence_runner.RUNNER_CONTRACT_VERSION == "evidence-runner-1.2"
 
 
 def cache_ident(**overrides):
     base = {"profile_id": "daa-2018-20-v1", "profile_version": "1.3.0", "model": "gpt-5.6-terra",
             "prompt_sha256": "a" * 64, "record_key": "I-42", "record_input_sha256": "b" * 64,
-            "claims_schema_sha256": "c" * 64, "runner_contract_version": "evidence-runner-1.0"}
+            # Standard-eksportens eget sæt: run_record afviser en nøgle, hvis sæt ikke
+            # er inputtets (RUNNER_CLAUSE_SET_DRIFT).
+            "clause_set_sha256": evidence_runner.canonical_clause_set(export()),
+            "claims_schema_sha256": "c" * 64,
+            "runner_contract_version": evidence_runner.RUNNER_CONTRACT_VERSION}
     base.update(overrides)
     return base
+
+
+# --- review 35, P4: klausulsættet i cache-nøglen ----------------------------
+
+def _resegmented_export():
+    """Samme helpost, klippet anderledes — som når segmenteren rettes (P3/#189)."""
+    text = "Født 1. jan. 1800 i Fiktivby. Blev cand.jur. 1825."
+    return export(clauses=[{"ordinal": 1, "verbatim_text": text,
+                            "verbatim_sha256": evidence_runner.sha256_text(text)}])
+
+
+def test_clause_set_hash_differs_when_only_the_segmentation_differs():
+    a, b = export(), _resegmented_export()
+    assert canonical_record_input(a) == canonical_record_input(b)
+    assert evidence_runner.canonical_clause_set(a) != evidence_runner.canonical_clause_set(b)
+
+
+def test_clause_set_hash_ignores_the_order_clauses_arrive_in():
+    a = export()
+    b = export(clauses=list(reversed(a["clauses"])))
+    assert evidence_runner.canonical_clause_set(a) == evidence_runner.canonical_clause_set(b)
+
+
+def test_clause_set_hash_depends_on_the_ordinals():
+    a = export()
+    swapped = [dict(c, ordinal=3 - c["ordinal"]) for c in a["clauses"]]
+    assert evidence_runner.canonical_clause_set(a) != \
+        evidence_runner.canonical_clause_set(export(clauses=swapped))
+
+
+def test_clause_set_hash_recomputes_rather_than_trusts_the_export_hash():
+    bad = export()
+    bad["clauses"][0] = dict(bad["clauses"][0], verbatim_sha256="0" * 64)
+    with pytest.raises(RunnerError, match="RUNNER_EXPORT_HASH_MISMATCH"):
+        evidence_runner.canonical_clause_set(bad)
+
+
+def test_a_resegmented_record_misses_the_old_cache_entry(tmp_path):
+    """P4's scenarie: gammelt svar citerer ordinal 2; efter omsegmentering findes
+    ordinal 2 ikke — svaret må ikke genbruges."""
+    cache = ResponseCache(tmp_path)
+    old = cache_ident(clause_set_sha256=evidence_runner.canonical_clause_set(export()))
+    new = cache_ident(clause_set_sha256=evidence_runner.canonical_clause_set(_resegmented_export()))
+    cache.put(old, raw='{"claims":[]}', usage={})
+    assert cache.get(old) is not None
+    assert cache.get(new) is None
+
+
+@pytest.mark.parametrize("kontrakt", ["evidence-runner-1.0", "evidence-runner-1.1"])
+def test_older_contracts_keep_their_original_key(kontrakt):
+    """4.3b/4.5-caches skal kunne adresseres som ved kørslen — nøglen udledes efter
+    den kontrakt, identiteten bærer, ikke efter den aktuelle."""
+    ident = cache_ident(runner_contract_version=kontrakt)
+    gamle_felter = ("profile_id", "profile_version", "model", "prompt_sha256", "record_key",
+                    "record_input_sha256", "claims_schema_sha256", "runner_contract_version")
+    forventet = hashlib.sha256("\x1f".join(str(ident[f]) for f in gamle_felter)
+                               .encode("utf-8")).hexdigest()
+    assert ResponseCache.key(ident) == forventet
+    assert ResponseCache.key(dict(ident, clause_set_sha256="ANDERLEDES")) == forventet
+
+
+def test_run_record_refuses_a_key_for_another_segmentation(tmp_path):
+    """Kalderen opgiver nøglen; runneren efterprøver, at klausulsættet er inputtets."""
+    ident = cache_ident(clause_set_sha256=evidence_runner.canonical_clause_set(_resegmented_export()))
+
+    def must_not_run(*a, **k):
+        raise AssertionError("modellen må ikke kaldes med en forkert nøgle")
+
+    with pytest.raises(RunnerError, match="RUNNER_CLAUSE_SET_DRIFT"):
+        run_record(export(), ident=ident, cache=ResponseCache(tmp_path), run=must_not_run)
+
+
+def test_unknown_contract_has_no_key_derivation():
+    with pytest.raises(RunnerError, match="RUNNER_CACHE_CONTRACT_UNKNOWN"):
+        ResponseCache.key(cache_ident(runner_contract_version="evidence-runner-9.9"))
+
+
+def test_current_contract_requires_the_clause_set():
+    ident = cache_ident()
+    del ident["clause_set_sha256"]
+    with pytest.raises(RunnerError, match="RUNNER_CACHE_IDENT_INCOMPLETE"):
+        ResponseCache.key(ident)
 
 
 def test_cache_round_trip(tmp_path):
@@ -428,7 +520,9 @@ def test_every_key_field_changes_the_identity(tmp_path, felt):
     """Én negativ test pr. felt — ellers ved vi ikke, at feltet faktisk indgår."""
     cache = ResponseCache(tmp_path)
     cache.put(cache_ident(), raw="{}", usage={})
-    assert cache.get(cache_ident(**{felt: "ANDERLEDES"})) is None
+    # En ukendt kontrakt har ingen nøgle (se nedenfor); skift til en kendt, ældre.
+    anden = "evidence-runner-1.1" if felt == "runner_contract_version" else "ANDERLEDES"
+    assert cache.get(cache_ident(**{felt: anden})) is None
 
 
 def test_cache_is_append_only(tmp_path):
