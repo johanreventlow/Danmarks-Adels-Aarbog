@@ -2,6 +2,53 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 2018-20's klausuler segmenteres om FØR 4.4 kører i prod — med en ny writer-operation, ikke restore (2026-09-27)
+
+> **Besluttet af projektejeren 2026-09-27** på grundlag af en måling samme dag. Afgør review 35's
+> P3/P4/S4 (§3.1, anbefaling 1). Ændrer rækkefølgen i beslutningen 2026-09-23 (4.4 parkeret):
+> 4.4+4.5's prod-kørsel venter nu også på omsegmenteringen.
+
+**Målingen** (kun tal; scripts og detaljer privat i `~/.private/p3-maaling/`). Den nuværende
+segmenter genskaber prod-klausulerne fra 4.1c eksakt (591/591 ledger-hashes).
+
+| | Prod | #189 (romertal) | #189 + kendte forkortelser |
+| --- | ---: | ---: | ---: |
+| Klausuler | 868 | 819 | 787 |
+| Klausuler < 8 tegn | 26 | 5 | 2 |
+| Poster ændret (af 101 med mere end én klausul) | — | 25 | 42 |
+| Pilotposter ændret (af 32) | — | 7 | 8 |
+| Pilotforslag / bindinger, hvis citerede klausul erstattes | — | 57 / 13 | 57 / 13 |
+
+490 af 591 poster har kun én klausul og kan ikke rammes. Pilotens to kendte fejl (I-7, I-11)
+ligger begge blandt de 25 romertals-poster. Ingen binding bliver usand; dens citat peger på en
+klausul, der erstattes. Review 35's forslag om at spærre split efter ethvert kort versal-ord er
+**forkert**: 106 af 153 ramte steder er ord, der også står uden punktum i bogen. Den sikre
+rettelse er profilens egen forkortelsesliste slået op uden hensyn til store/små bogstaver, plus
+`Sr.`, `Pol.`, `Jahrg.`.
+
+**Hvorfor ikke restore (valg a):** restoren fra 18/9 ville rulle anon-hærdningen og
+medie-indkapslingen (#204/#206), bogmærker og redaktionelle rettelser tilbage, og øvelsen
+2026-09-17 viste, at en restore ikke er trofast. **Hvorfor før 4.4:** prod har i dag 0
+fortolkninger, så en omsegmentering har intet, der afhænger af de gamle klausuler. Efter 4.4
+skulle operationen også håndtere forslag, der citerer dem (S4). 4.4 giver ingen læserværdi i sig
+selv, så ventetiden koster kun tid.
+
+**Rækkefølge:**
+1. **P4** — klausulsættet i runnerens cache-nøgle (kontrakt `evidence-runner-1.2`) og en
+   `segmenter_version`, der afledes af koden. Kræver ingen afgørelse; gennemført 2026-09-27.
+2. **Segmenteren** — #189 (romertal) + forkortelsesopslaget ovenfor som ny profil- og
+   regelversion. Profilændringer kræver projektejerens GO (`requires_human_go_for_change`).
+3. **S4** — en ny forslags-kørsel for en post med åbne forslag skal afvises fail-closed eller
+   erstatte med en menneskelig superseded-beslutning (spec'ens krav), før piloten køres om.
+4. **Writer-operationen** — omsegmentering af en post uden afhængige fortolkninger: spec, plan,
+   rehearsal i en restore. Prod-DDL ⇒ review-budget efter beslutningen 2026-09-23.
+5. **Piloten om** og kontrolmodellen på de nye forslag; derefter 4.4+4.5 i prod. Pilotens cache
+   er skrevet under kontrakt 1.0 og genbruges ikke af en 1.2-runner, så alle 32 poster sendes
+   igen; fra 1.2 rammer en senere omsegmentering kun de ændrede posters cache.
+
+**Pilotens tal** (4.5-rapporten, kontrolmodel-kørslen) er målt på den defekte segmentering og
+står med det forbehold.
+
 ## BESLUTTET: mennesket ser kun uoverensstemmelser og en stikprøve — ingen fulde afgørelsesark (2026-09-27)
 
 > **Besluttet af projektejeren 2026-09-27** (forslag 2026-09-26), punkt 1-5 og stikprøve på
