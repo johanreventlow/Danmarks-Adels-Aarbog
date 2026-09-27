@@ -209,4 +209,61 @@ stopifnot(identical(replay$status, "already_applied"))
 # Replay må ikke efterlade spor i projektionen.
 stopifnot(identical(projection(), after_text))
 
+# ---- clause_revision: omsegmentering af samme post (spec 2026-09-27) -----------
+# Kun flaget på klausul 2 ændres. Det er en rigtig revision (sæt-hashen ser flag), og
+# det aktuelle sæt har stadig ordinal 1-2, som forslags-integrationen bygger videre på.
+cr_profile_id <- paste0(profile_id, "-cr")
+cr_config <- sub('"run_key_prefix":"reimport-clause-evidence:"', '"run_key_prefix":"reimport-clause-revision:"',
+  sub('"schema_version":"clause-evidence-manifest-v1"', '"schema_version":"clause-revision-manifest-v1"', ce_config))
+cr_sha <- q("SELECT private.reimport_canonical_json_sha256($1::jsonb) h", list(cr_config))$h[[1L]]
+e("INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config) VALUES($1,$2,'clause-revision-v1',$3,$4::jsonb) ON CONFLICT(source_id,profile_id,profile_sha256) DO NOTHING",
+  list(source_id, cr_profile_id, cr_sha, cr_config))
+before_rev_path <- write_private("before-revision.json", after_text)
+# Det erstattede sæt læses af projektionen med byggerens egen funktion.
+current <- system2("python3", c("-c", shQuote(paste0(
+  "import json,sys; sys.path.insert(0,", deparse(scripts_dir), "); import build_clause_evidence_manifest as B; ",
+  "print(json.dumps(B.current_sets_from_projection(json.load(open(", deparse(before_rev_path), ")))[", deparse(key_dead), "]))"))),
+  stdout = TRUE)
+current <- jsonlite::fromJSON(current)
+stopifnot(identical(as.integer(current$clause_set_seq), 1L), grepl("^[0-9a-f]{64}$", current$clause_set_sha256))
+revised_clauses <- clauses
+revised_clauses[[2L]]$flags <- list("uncertain_marker")
+manifest_cr <- list(
+  source = list(id = source_id, profile_id = cr_profile_id, profile_sha256 = cr_sha),
+  expected_counts = list(source_evidence = 0L, person_creates = 0L, canonical_delta = 0L, clause_revisions = 1L),
+  operations = list(list(element_id = paste0("clause-revision:", key_dead), dependency_class = "clause_revision",
+    source_record_key = key_dead, rendition_content_sha256 = sha("c"),
+    rendition_projection_sha256 = sha("e"), parent_verbatim_sha256 = sha_text(text_dead),
+    clause_rules_version = "clause-rules-fixture-v1", segmenter_version = "clause_segment.py@v1",
+    ledger_sha256 = sha("d"), gap_charset = list(" "), clauses = revised_clauses,
+    replaces_clause_set_seq = 1L, replaces_clause_set_sha256 = current$clause_set_sha256)))
+unhashed_cr <- write_private("manifest-cr-unhashed.json", manifest_json(manifest_cr))
+manifest_cr$manifest_content_sha256 <- system2("python3", c(shQuote(comparator), "--print-manifest-sha256",
+  shQuote(unhashed_cr)), stdout = TRUE)
+stopifnot(grepl("^[0-9a-f]{64}$", manifest_cr$manifest_content_sha256))
+manifest_path <- write_private("manifest-cr.json", manifest_json(manifest_cr))
+validate_reimport_manifest(manifest_cr)
+preview_sha_cr <- run_hash("preview-cr")
+dry_cr <- execute_reimport(manifest_cr, preview_sha_cr, "dry-run", env_gateway(), NULL)
+stopifnot(identical(dry_cr$status, "finalized"), isFALSE(dry_cr$committed), identical(projection(), after_text))
+applied_cr <- execute_reimport(manifest_cr, preview_sha_cr, "apply", env_gateway(),
+  list(id = authorize(manifest_cr, preview_sha_cr)))
+stopifnot(identical(applied_cr$status, "finalized"), isTRUE(applied_cr$committed))
+after_rev_text <- projection()
+after_rev_path <- write_private("after-revision.json", after_rev_text)
+matched_rev <- run_comparator(before_rev_path, after_rev_path, "report-revision.json")
+if (matched_rev$status != 0L) stop("revisions-projektion ikke match: ", matched_rev$out)
+stopifnot(grepl('"status": "match"', matched_rev$out, fixed = TRUE))
+report_rev <- jsonlite::fromJSON(file.path(proj_dir, "report-revision.json"))
+stopifnot(identical(report_rev$scope, "clause-revision-delta-v1"),
+  identical(as.integer(report_rev$counts$clauses_written), 2L), identical(as.integer(report_rev$counts$clauses_replaced), 2L))
+tampered_rev <- sub('"disposition": "erstattet"', '"disposition": "afventer_fortolkning"', after_rev_text, fixed = TRUE)
+stopifnot(!identical(tampered_rev, after_rev_text))
+drift_rev <- run_comparator(before_rev_path, write_private("after-revision-tampered.json", tampered_rev), "report-revision-tampered.json")
+stopifnot(drift_rev$status == 1L)
+# Samme manifest igen er en genafspilning, ikke en ny revision — og efterlader intet spor.
+replay_cr <- execute_reimport(manifest_cr, preview_sha_cr, "apply", env_gateway(),
+  list(id = authorize(manifest_cr, preview_sha_cr)))
+stopifnot(identical(replay_cr$status, "already_applied"), identical(projection(), after_rev_text))
+
 cat("clause_evidence integration OK\n")

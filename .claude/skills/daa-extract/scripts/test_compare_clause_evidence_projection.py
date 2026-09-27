@@ -9,6 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import clause_set
 import compare_clause_evidence_projection as cp
 
 BATCH = "00000000-0000-4000-8000-00000000b001"
@@ -78,9 +79,11 @@ RUN = "00000000-0000-4000-8000-0000000000e1"
 
 def written_rows(m, batch=BATCH):
     rules = {op["source_record_key"]: op["clause_rules_version"] for op in m["operations"]}
+    set_sha = {op["source_record_key"]: clause_set.clause_set_sha256(op["clauses"]) for op in m["operations"]}
     rows = []
     for (key, ordinal), row in sorted(cp.expected_clauses(m).items()):
         rows.append(dict(row, occurrence_key=OCCURRENCE[key], decided_by_kind="machine",
+                         clause_set_seq=1, clause_set_sha256=set_sha[key], is_current_set=True,
                          observation_id=f"obs-{key}-{ordinal}", row_sha256=H("a"),
                          disposition_history_sha256=H("b"), run_id=RUN,
                          run_matches_profile=True, extraction_method_matches_profile=True,
@@ -99,13 +102,15 @@ def events_for(m, status="finalized", batch=BATCH):
     return [{"batch_id": batch, "manifest_sha256": m["manifest_content_sha256"], "batch_status": status,
              "profile_id": m["source"]["profile_id"], "profile_sha256": m["source"]["profile_sha256"],
              "row_sha256": H("e"),
-             "element_id": op["element_id"], "source_record_key": op["source_record_key"]}
+             "element_id": op["element_id"], "source_record_key": op["source_record_key"],
+             "operation": "clause_evidence", "before_clause_set_sha256": None, "after_clause_set_sha256": None}
             for op in m["operations"]]
 
 
 OLD_EVENT = {"batch_id": "00000000-0000-4000-8000-00000000b0dd", "manifest_sha256": H("c"),
              "batch_status": "finalized", "profile_id": "p", "profile_sha256": H("b"),
-             "row_sha256": H("f"), "element_id": "clause-evidence:R9", "source_record_key": "R9"}
+             "row_sha256": H("f"), "element_id": "clause-evidence:R9", "source_record_key": "R9",
+             "operation": "clause_evidence", "before_clause_set_sha256": None, "after_clause_set_sha256": None}
 
 
 def applied(m):
@@ -135,7 +140,8 @@ def foreign(ordinal=1, sha=H("f"), record_key="R9", occurrence_key="o9", observa
             "extraction_method": "x:y",
             "run_input_sha256": H("9"), "run_batch_id": "old",
             "same_occurrence_as_parent": True, "parent_is_root": True,
-            "pages_match_parent": True, "quality_matches_parent": True}
+            "pages_match_parent": True, "quality_matches_parent": True,
+            "clause_set_seq": 1, "clause_set_sha256": H("8"), "is_current_set": True}
 
 
 # ---- match og manifest -------------------------------------------------------
@@ -683,3 +689,110 @@ def test_cli_print_manifest_sha256(tmp_path):
     proc = run_cli("--print-manifest-sha256", path)
     assert proc.returncode == 0
     assert proc.stdout.strip() == m["manifest_content_sha256"]
+
+
+# ---- revisionstilstand (omsegmentering, spec 2026-09-27) ----------------------
+REV_BATCH = "00000000-0000-4000-8000-00000000b777"
+REV_RUN = "00000000-0000-4000-8000-0000000000e7"
+
+
+def revision_manifest(base):
+    """R1 omsegmenteres til én klausul; R2 er uændret og står derfor ikke i manifestet."""
+    old = {op["source_record_key"]: op for op in base["operations"]}
+    op = dict(old["R1"], element_id="clause-revision:R1", dependency_class="clause_revision",
+              clauses=[clause(1, 0, 20, 100, 121, [], H("9"))],
+              replaces_clause_set_seq=1, replaces_clause_set_sha256=clause_set.clause_set_sha256(old["R1"]["clauses"]))
+    return rehash({"source": dict(base["source"]), "provenance": {"ledger_file_sha256": H("a")},
+                   "expected_counts": {"source_evidence": 0, "person_creates": 0, "canonical_delta": 0, "clause_revisions": 1},
+                   "operations": [op]})
+
+
+def revised(base, rm):
+    """Efter-projektionen, som writeren ville efterlade den."""
+    before = applied(base)
+    rows = copy.deepcopy(before["clauses"])
+    for row in rows:
+        if row["record_key"] == "R1":
+            row.update(disposition="erstattet", disposition_version=row["disposition_version"] + 1, is_current_set=False,
+                       disposition_history_sha256=H("7"), extraction_method_matches_profile=False,
+                       disposition_evidence={"batch_id": REV_BATCH, "element_id": "clause-revision:R1",
+                                             "manifest_sha256": rm["manifest_content_sha256"], "replaced_by_clause_set_seq": 2},
+                       disposition_evidence_keys=["batch_id", "element_id", "manifest_sha256", "replaced_by_clause_set_seq"])
+    op = rm["operations"][0]
+    for (key, ordinal), row in sorted(cp.expected_clauses(rm, "revision").items()):
+        rows.append(dict(row, occurrence_key=OCCURRENCE[key], decided_by_kind="machine",
+                         clause_set_seq=2, clause_set_sha256=clause_set.clause_set_sha256(op["clauses"]), is_current_set=True,
+                         observation_id=f"obs-{key}-rev-{ordinal}", row_sha256=H("a"), disposition_history_sha256=H("b"),
+                         run_id=REV_RUN, run_matches_profile=True, extraction_method_matches_profile=True,
+                         disposition_evidence={"batch_id": REV_BATCH, "element_id": "clause-revision:R1",
+                                               "manifest_sha256": rm["manifest_content_sha256"], "clause_rules_version": "rules-v1"},
+                         disposition_evidence_keys=["batch_id", "clause_rules_version", "element_id", "manifest_sha256"],
+                         extraction_method="clause_segment_v1:rules-v1", run_input_sha256=rm["manifest_content_sha256"],
+                         run_batch_id=REV_BATCH, same_occurrence_as_parent=True, parent_is_root=True,
+                         pages_match_parent=True, quality_matches_parent=True))
+    events = copy.deepcopy(before["clause_evidence_events"]) + [{
+        "batch_id": REV_BATCH, "manifest_sha256": rm["manifest_content_sha256"], "batch_status": "finalized",
+        "profile_id": rm["source"]["profile_id"], "profile_sha256": rm["source"]["profile_sha256"], "row_sha256": H("e"),
+        "element_id": "clause-revision:R1", "source_record_key": "R1", "operation": "clause_revision",
+        "before_clause_set_sha256": op["replaces_clause_set_sha256"],
+        "after_clause_set_sha256": clause_set.clause_set_sha256(op["clauses"])}]
+    return before, projection(rows, events)
+
+
+def test_revision_match_counts_written_and_replaced():
+    base = manifest(); rm = revision_manifest(base)
+    before, after = revised(base, rm)
+    result = run(rm, before, after)
+    assert result["status"] == "match" and result["scope"] == cp.REVISION_SCOPE
+    assert result["counts"]["clauses_written"] == 1 and result["counts"]["clauses_replaced"] == 2
+
+
+def test_revision_base_drift_when_the_current_set_is_not_the_replaced_one():
+    base = manifest(); rm = revision_manifest(base)
+    rm["operations"][0]["replaces_clause_set_sha256"] = H("0"); rehash(rm)
+    before, after = revised(base, rm)
+    assert no_go(rm, before, after).code == "CLAUSE_PROJECTION_REVISION_BASE_DRIFT"
+
+
+def test_revision_replaced_row_may_only_change_its_disposition():
+    base = manifest(); rm = revision_manifest(base)
+    before, after = revised(base, rm)
+    old = next(r for r in after["clauses"] if r["record_key"] == "R1" and r["clause_set_seq"] == 1)
+    old["verbatim_sha256"] = H("0")
+    assert no_go(rm, before, after).code == "CLAUSE_PROJECTION_REVISION_HISTORY_DRIFT"
+
+
+@pytest.mark.parametrize("field,value", [
+    ("disposition", "afventer_fortolkning"), ("disposition_version", 1), ("is_current_set", True),
+    ("disposition_evidence", {"batch_id": REV_BATCH})])
+def test_revision_replaced_row_must_carry_the_erstattet_disposition(field, value):
+    base = manifest(); rm = revision_manifest(base)
+    before, after = revised(base, rm)
+    old = next(r for r in after["clauses"] if r["record_key"] == "R1" and r["clause_set_seq"] == 1)
+    old[field] = value
+    assert no_go(rm, before, after).code == "CLAUSE_PROJECTION_WRITER_INVARIANT_INVALID"
+
+
+def test_revision_new_set_must_match_the_manifest_and_hash():
+    base = manifest(); rm = revision_manifest(base)
+    before, after = revised(base, rm)
+    new = next(r for r in after["clauses"] if r["clause_set_seq"] == 2)
+    new["clause_set_sha256"] = H("0")
+    assert no_go(rm, before, after).code == "CLAUSE_PROJECTION_WRITER_INVARIANT_INVALID"
+    before, after = revised(base, rm)
+    next(r for r in after["clauses"] if r["clause_set_seq"] == 2)["post_char_to"] = 19
+    assert no_go(rm, before, after).code == "CLAUSE_PROJECTION_DRIFT"
+
+
+def test_revision_event_must_carry_before_and_after_hash():
+    base = manifest(); rm = revision_manifest(base)
+    before, after = revised(base, rm)
+    after["clause_evidence_events"][-1]["after_clause_set_sha256"] = H("0")
+    assert no_go(rm, before, after).code == "CLAUSE_PROJECTION_BATCH_BINDING_INVALID"
+
+
+def test_revision_unrelated_record_must_not_change():
+    base = manifest(); rm = revision_manifest(base)
+    before, after = revised(base, rm)
+    next(r for r in after["clauses"] if r["record_key"] == "R2")["disposition"] = "erstattet"
+    assert no_go(rm, before, after).code == "CLAUSE_PROJECTION_FOREIGN_DRIFT"

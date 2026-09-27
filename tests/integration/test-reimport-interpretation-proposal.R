@@ -84,10 +84,10 @@ source_id <- as.integer(seed$source_id[[1L]])
 key_dead <- as.character(seed$source_record_key[[1L]])
 clauses <- q(paste(
   "SELECT observation.clause_ordinal AS ordinal,encode(extensions.digest(convert_to(observation.verbatim_text,'UTF8'),'sha256'),'hex') AS verbatim_sha256",
-  "FROM private.source_observation observation",
+  "FROM private.clause_observation_current observation",
   "JOIN private.source_record_anchor_current anchor ON anchor.occurrence_id=observation.occurrence_id AND anchor.decision_status='accepted'",
   "JOIN private.source_record record ON record.id=anchor.source_record_id",
-  "WHERE record.source_id=$1 AND record.record_key=$2 AND observation.parent_observation_id IS NOT NULL",
+  "WHERE record.source_id=$1 AND record.record_key=$2",
   "ORDER BY observation.clause_ordinal"), list(source_id, key_dead))
 stopifnot(nrow(clauses) == 2L, identical(as.integer(clauses$ordinal), 1:2))
 

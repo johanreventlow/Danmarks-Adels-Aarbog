@@ -59,6 +59,11 @@ WITH guard AS (
     'record_key', ac.record_key,
     'occurrence_key', o.occurrence_key,
     'clause_ordinal', c.clause_ordinal,
+    -- Klausulsaet (omsegmentering, spec 2026-09-27): NULL paa en klausul = saet 1.
+    'clause_set_seq', coalesce(c.clause_set_seq, 1),
+    'clause_set_sha256', private.clause_set_sha256(c.parent_observation_id, coalesce(c.clause_set_seq, 1)),
+    'is_current_set', coalesce(c.clause_set_seq, 1) = (SELECT max(coalesce(s.clause_set_seq, 1)) FROM private.source_observation s
+                                                        WHERE s.parent_observation_id = c.parent_observation_id),
     'char_from', c.char_from, 'char_to', c.char_to,
     'post_char_from', c.post_char_from, 'post_char_to', c.post_char_to,
     'classification', c.clause_classification,
@@ -68,11 +73,14 @@ WITH guard AS (
     'disposition', d.disposition,
     'disposition_version', d.version,
     'decided_by_kind', d.decided_by_kind,
-    'disposition_evidence', CASE WHEN d.decided_by_kind = 'machine' THEN jsonb_build_object(
+    -- jsonb_strip_nulls: en startdisposition har clause_rules_version, en `erstattet`
+    -- har replaced_by_clause_set_seq; kun de noegler, der findes, projiceres.
+    'disposition_evidence', CASE WHEN d.decided_by_kind = 'machine' THEN jsonb_strip_nulls(jsonb_build_object(
       'batch_id', d.evidence -> 'batch_id',
       'element_id', d.evidence -> 'element_id',
       'manifest_sha256', d.evidence -> 'manifest_sha256',
-      'clause_rules_version', d.evidence -> 'clause_rules_version') END,
+      'clause_rules_version', d.evidence -> 'clause_rules_version',
+      'replaced_by_clause_set_seq', d.evidence -> 'replaced_by_clause_set_seq')) END,
     'disposition_evidence_keys', coalesce((SELECT jsonb_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(d.evidence) k), '[]'::jsonb),
     'extraction_method', c.extraction_method,
     'run_input_sha256', run.input_sha256,
@@ -102,12 +110,15 @@ WITH guard AS (
     'profile_sha256', b.profile_sha256,
     'row_sha256', encode(pg_catalog.sha256(convert_to(e::text, 'UTF8')), 'hex'),
     'element_id', e.element_id,
-    'source_record_key', e.source_record_key
+    'source_record_key', e.source_record_key,
+    'operation', e.operation,
+    'before_clause_set_sha256', e.payload ->> 'before_clause_set_sha256',
+    'after_clause_set_sha256', e.payload ->> 'after_clause_set_sha256'
   ) AS row
   FROM private.reimport_event e
   JOIN private.reimport_batch b ON b.id = e.batch_id
   JOIN guard g ON g.ok = 1 AND b.source_id = g.source_id
-  WHERE e.operation = 'clause_evidence'
+  WHERE e.operation IN ('clause_evidence', 'clause_revision')
 ), neutral AS (
   SELECT jsonb_build_object(
     'person', (SELECT encode(pg_catalog.sha256(convert_to(coalesce(string_agg(x::text, E'\n' ORDER BY x::text COLLATE "C"), ''), 'UTF8')), 'hex') FROM public.person x),
@@ -135,7 +146,7 @@ WITH guard AS (
   ) AS hashes
 )
 SELECT jsonb_build_object(
-  'schema_version', 'daa-clause-evidence-projection-v1',
+  'schema_version', 'daa-clause-evidence-projection-v2',
   'source_id', g.source_id,
   'database_target_identity', jsonb_build_object(
     'database_name', current_database(),
