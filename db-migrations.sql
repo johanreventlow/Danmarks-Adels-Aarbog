@@ -18791,3 +18791,305 @@ END $$;
 REVOKE ALL ON FUNCTION private.deterministic_uuid(text),private.interpretation_proposal_canonical_json_text(jsonb),private.interpretation_proposal_canonical_json_sha256(jsonb),private.normalize_interpretation_proposal_value(jsonb),private.interpretation_proposal_key_material(bigint,text,text,jsonb,jsonb),private.interpretation_proposal_key_material_sha256(bigint,text,text,jsonb,jsonb),private.interpretation_proposal_key(bigint,text,text,jsonb,jsonb),private.interpretation_proposal_interpretation_receipt(private.interpretation),private.interpretation_proposal_link_receipt(private.interpretation_observation),private.interpretation_proposal_disposition_receipt(private.clause_disposition),private.write_interpretation_proposal(uuid,text,jsonb),public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)
   FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb) TO authenticated;
+
+-- =============================================================================
+-- Omsegmentering af klausulsæt (spec 2026-09-27-trin4-omsegmentering-og-s4, Task 1).
+--
+-- En post kan få et nyt klausulsæt ved siden af det gamle, append-only. NULL på en
+-- klausulrække betyder sæt 1 (4.1c's 868 rækker står urørte; en default ville være
+-- skrevet i ALLE rækker og kunne aldrig rettes). Invarianterne ligger i NYE,
+-- selvstændigt navngivne triggerfunktioner: historiske blokke i db-migrations.sql
+-- genskaber de gamle kroppe af validate_clause_observation/-disposition og writerne,
+-- så en invariant, der kun lå dér, kunne forsvinde ved en afbrudt kørsel.
+-- Idempotent; står SIDST i db-migrations.sql.
+-- =============================================================================
+
+ALTER TABLE private.source_observation
+  ADD COLUMN IF NOT EXISTS clause_set_seq integer
+    CONSTRAINT source_observation_clause_set_seq_check CHECK (clause_set_seq IS NULL OR clause_set_seq >= 1);
+
+-- Unikheden bliver pr. sæt. Samme indeksnavn, så den historiske
+-- `CREATE UNIQUE INDEX IF NOT EXISTS ux_source_observation_clause_ordinal` er en no-op
+-- ved genkørsel. Byg-omdøb i én blok: db-migrations.sql kører ikke i én transaktion,
+-- og der må ikke være et vindue uden unikhedsindeks.
+DO $clause_set_index$
+DECLARE v_def text;
+BEGIN
+  SELECT indexdef INTO v_def FROM pg_indexes
+   WHERE schemaname='private' AND indexname='ux_source_observation_clause_ordinal';
+  IF v_def IS NOT NULL AND v_def LIKE '%clause_set_seq%' THEN
+    RETURN;
+  END IF;
+  DROP INDEX IF EXISTS private.ux_source_observation_clause_ordinal_set_tmp;
+  CREATE UNIQUE INDEX ux_source_observation_clause_ordinal_set_tmp
+    ON private.source_observation(parent_observation_id, coalesce(clause_set_seq,1), clause_ordinal)
+    WHERE parent_observation_id IS NOT NULL;
+  DROP INDEX IF EXISTS private.ux_source_observation_clause_ordinal;
+  ALTER INDEX private.ux_source_observation_clause_ordinal_set_tmp RENAME TO ux_source_observation_clause_ordinal;
+END $clause_set_index$;
+
+INSERT INTO private.vocab(scheme,code,label) VALUES
+  ('clause_disposition_machine','erstattet','Maskinel: erstattet af et nyere klausulsæt')
+ON CONFLICT (scheme,code) DO NOTHING;
+
+-- Sæt-reglerne. Ny klausul: seq = max+1 (max over coalesce(seq,1); ny post ⇒ 1),
+-- eller seq = max, når sættets rækker kommer fra samme kørsel (ét sæt = én kørsel).
+CREATE OR REPLACE FUNCTION private.validate_clause_set_seq()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_max integer; v_foreign_run boolean;
+BEGIN
+  IF NEW.observation_kind<>'clause' THEN
+    IF NEW.clause_set_seq IS NOT NULL THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_SET_FORBIDDEN'; END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW.clause_set_seq IS NULL THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_SET_REQUIRED'; END IF;
+  -- Serialisér sæt-tildelingen pr. helpost.
+  PERFORM 1 FROM private.source_observation WHERE id=NEW.parent_observation_id FOR UPDATE;
+  SELECT max(coalesce(clause_set_seq,1)) INTO v_max
+    FROM private.source_observation WHERE parent_observation_id=NEW.parent_observation_id;
+  IF NEW.clause_set_seq=coalesce(v_max,0)+1 THEN
+    RETURN NEW;
+  END IF;
+  IF NEW.clause_set_seq=v_max THEN
+    SELECT EXISTS(SELECT 1 FROM private.source_observation
+                   WHERE parent_observation_id=NEW.parent_observation_id
+                     AND coalesce(clause_set_seq,1)=v_max
+                     AND extraction_run_id IS DISTINCT FROM NEW.extraction_run_id) INTO v_foreign_run;
+    IF NOT v_foreign_run THEN RETURN NEW; END IF;
+  END IF;
+  RAISE EXCEPTION 'EVIDENCE_CLAUSE_SET_SEQ_INVALID: sæt % efter %', NEW.clause_set_seq, coalesce(v_max,0);
+END $$;
+
+DROP TRIGGER IF EXISTS trg_source_observation_clause_set ON private.source_observation;
+CREATE TRIGGER trg_source_observation_clause_set
+  BEFORE INSERT ON private.source_observation
+  FOR EACH ROW EXECUTE FUNCTION private.validate_clause_set_seq();
+
+-- Tætte ordinaler 1..n pr. sæt, efterprøvet ved commit (eller ved SET CONSTRAINTS IMMEDIATE).
+CREATE OR REPLACE FUNCTION private.check_clause_set_density()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_n integer; v_max integer;
+BEGIN
+  IF NEW.observation_kind<>'clause' THEN RETURN NULL; END IF;
+  SELECT count(*), max(clause_ordinal) INTO v_n, v_max FROM private.source_observation
+   WHERE parent_observation_id=NEW.parent_observation_id AND coalesce(clause_set_seq,1)=coalesce(NEW.clause_set_seq,1);
+  IF v_n<>v_max OR (SELECT min(clause_ordinal) FROM private.source_observation
+                     WHERE parent_observation_id=NEW.parent_observation_id AND coalesce(clause_set_seq,1)=coalesce(NEW.clause_set_seq,1))<>1 THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_SET_NOT_DENSE: sæt % har % klausuler, højeste ordinal %', coalesce(NEW.clause_set_seq,1), v_n, v_max;
+  END IF;
+  RETURN NULL;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_clause_set_density ON private.source_observation;
+CREATE CONSTRAINT TRIGGER trg_clause_set_density
+  AFTER INSERT ON private.source_observation
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION private.check_clause_set_density();
+
+-- Det aktuelle sæt pr. helpost. Den ENE læsevej for »postens klausuler«.
+CREATE OR REPLACE VIEW private.clause_observation_current
+WITH (security_invoker=true) AS
+SELECT o.*
+  FROM private.source_observation o
+ WHERE o.observation_kind='clause'
+   AND coalesce(o.clause_set_seq,1)=(SELECT max(coalesce(o2.clause_set_seq,1))
+                                       FROM private.source_observation o2
+                                      WHERE o2.parent_observation_id=o.parent_observation_id);
+
+-- Sættets identitet: sha256 over kanonisk JSON (nøgler COLLATE "C", ingen mellemrum),
+-- en liste sorteret efter ordinal. Flag sorteres og dubletter fjernes. Python-siden
+-- (Task 5) skal give samme hash; en fælles fixture låser pariteten.
+CREATE OR REPLACE FUNCTION private.clause_set_sha256(p_parent uuid, p_seq integer)
+RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,private,extensions AS $$
+DECLARE v_items jsonb;
+BEGIN
+  SELECT jsonb_agg(jsonb_build_object(
+           'ordinal',o.clause_ordinal,
+           'post_char_from',o.post_char_from,'post_char_to',o.post_char_to,
+           'char_from',o.char_from,'char_to',o.char_to,
+           'classification',o.clause_classification,
+           'flags',coalesce((SELECT jsonb_agg(f ORDER BY f COLLATE "C")
+                               FROM (SELECT DISTINCT e #>> '{}' AS f FROM jsonb_array_elements(o.clause_flags) e) d),'[]'::jsonb),
+           'verbatim_sha256',encode(extensions.digest(convert_to(o.verbatim_text,'UTF8'),'sha256'),'hex'))
+         ORDER BY o.clause_ordinal)
+    INTO v_items
+    FROM private.source_observation o
+   WHERE o.parent_observation_id=p_parent AND o.observation_kind='clause'
+     AND coalesce(o.clause_set_seq,1)=p_seq;
+  IF v_items IS NULL THEN RETURN NULL; END IF;
+  RETURN encode(extensions.digest(convert_to(private.interpretation_proposal_canonical_json_text(v_items),'UTF8'),'sha256'),'hex');
+END $$;
+
+-- `erstattet` kun uden for det aktuelle sæt og kun én gang; alt andet kun inden for;
+-- intet efter `erstattet`.
+CREATE OR REPLACE FUNCTION private.validate_clause_disposition_set()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_obs private.source_observation%ROWTYPE; v_current boolean;
+BEGIN
+  SELECT * INTO v_obs FROM private.source_observation WHERE id=NEW.observation_id;
+  IF NOT FOUND OR v_obs.observation_kind<>'clause' THEN RETURN NEW; END IF;  -- validate_clause_disposition afviser
+  IF EXISTS(SELECT 1 FROM private.clause_disposition WHERE observation_id=NEW.observation_id AND disposition='erstattet') THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_AFTER_REPLACED';
+  END IF;
+  SELECT coalesce(v_obs.clause_set_seq,1)=max(coalesce(o.clause_set_seq,1)) INTO v_current
+    FROM private.source_observation o WHERE o.parent_observation_id=v_obs.parent_observation_id;
+  IF NEW.disposition='erstattet' THEN
+    IF v_current THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_REPLACED_IN_CURRENT_SET'; END IF;
+  ELSIF NOT v_current THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_OUTSIDE_CURRENT_SET';
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_clause_disposition_set_rule ON private.clause_disposition;
+CREATE TRIGGER trg_clause_disposition_set_rule
+  BEFORE INSERT ON private.clause_disposition
+  FOR EACH ROW EXECUTE FUNCTION private.validate_clause_disposition_set();
+
+-- Et fortolkningslink må kun pege på det aktuelle sæt. Andre observationstyper passerer.
+CREATE OR REPLACE FUNCTION private.validate_interpretation_observation_current_clause()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_obs private.source_observation%ROWTYPE;
+BEGIN
+  SELECT * INTO v_obs FROM private.source_observation WHERE id=NEW.observation_id;
+  IF NOT FOUND OR v_obs.observation_kind<>'clause' THEN RETURN NEW; END IF;
+  IF coalesce(v_obs.clause_set_seq,1)<>(SELECT max(coalesce(o.clause_set_seq,1)) FROM private.source_observation o
+                                          WHERE o.parent_observation_id=v_obs.parent_observation_id) THEN
+    RAISE EXCEPTION 'INTERPRETATION_OBSERVATION_CLAUSE_NOT_CURRENT';
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_interpretation_observation_current_clause ON private.interpretation_observation;
+CREATE TRIGGER trg_interpretation_observation_current_clause
+  BEFORE INSERT ON private.interpretation_observation
+  FOR EACH ROW EXECUTE FUNCTION private.validate_interpretation_observation_current_clause();
+
+REVOKE ALL ON FUNCTION private.validate_clause_set_seq(), private.check_clause_set_density(),
+  private.clause_set_sha256(uuid,integer), private.validate_clause_disposition_set(),
+  private.validate_interpretation_observation_current_clause()
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON TABLE private.clause_observation_current FROM PUBLIC,anon,authenticated,service_role;
+
+DO $clause_revision_operation$
+BEGIN
+  PERFORM private.ensure_reimport_operations(ARRAY['clause_revision']);
+END $clause_revision_operation$;
+
+-- write_clause_evidence skriver sæt 1 eksplicit (triggeren kræver clause_set_seq på nye
+-- klausuler). Ellers uændret; Task 2 flytter de fælles kontroller i en hjælpefunktion.
+CREATE OR REPLACE FUNCTION private.write_clause_evidence(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE; v_profile private.reimport_writer_profile%ROWTYPE;
+  v_record private.source_record%ROWTYPE; v_occurrence private.source_record_occurrence%ROWTYPE; v_parent private.source_observation%ROWTYPE;
+  v_run uuid; v_clause jsonb; v_expected_ordinal integer := 0; v_prev_end integer := 0; v_from integer; v_to integer; v_abs_from integer; v_abs_to integer; v_prev_abs_end integer := 0; v_gap text; v_text text;
+  v_gap_chars text[]; v_obs uuid; v_count integer := 0; v_disposition text; v_run_key text;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_batch:=private.require_reimport_open_batch(p_batch_id);
+  PERFORM private.require_reimport_writer_editor();
+  PERFORM private.lock_reimport_writer(v_batch.source_id,v_batch.profile_id);
+  SELECT * INTO v_auth FROM private.reimport_authorization WHERE id=v_batch.authorization_id;
+  SELECT * INTO v_profile FROM private.reimport_writer_profile WHERE source_id=v_batch.source_id AND profile_id=v_batch.profile_id AND profile_sha256=v_batch.profile_sha256;
+  IF NOT FOUND OR NOT v_auth.authorized_elements ? p_element_id OR v_auth.authorized_elements->p_element_id IS DISTINCT FROM p_payload THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_ELEMENT_NOT_AUTHORIZED';
+  END IF;
+  IF jsonb_typeof(p_payload)<>'object'
+     OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(p_payload) k)
+        <> ARRAY['clause_rules_version','clauses','gap_charset','ledger_sha256','parent_verbatim_sha256','rendition_content_sha256','rendition_projection_sha256','segmenter_version','source_record_key']
+     OR p_element_id<>'clause-evidence:'||coalesce(p_payload->>'source_record_key','')
+     OR coalesce(p_payload->>'rendition_content_sha256','') !~ '^[0-9a-f]{64}$'
+     OR coalesce(p_payload->>'parent_verbatim_sha256','') !~ '^[0-9a-f]{64}$'
+     OR coalesce(p_payload->>'ledger_sha256','') !~ '^[0-9a-f]{64}$'
+     OR coalesce(p_payload->>'rendition_projection_sha256','') !~ '^[0-9a-f]{64}$'
+     OR nullif(btrim(coalesce(p_payload->>'clause_rules_version','')),'') IS NULL
+     OR nullif(btrim(coalesce(p_payload->>'segmenter_version','')),'') IS NULL
+     OR jsonb_typeof(p_payload->'gap_charset')<>'array' OR jsonb_array_length(p_payload->'gap_charset')=0
+     OR jsonb_typeof(p_payload->'clauses')<>'array' OR jsonb_array_length(p_payload->'clauses')=0 THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_EVIDENCE_INVALID';
+  END IF;
+  SELECT array_agg(value) INTO v_gap_chars FROM jsonb_array_elements_text(p_payload->'gap_charset');
+  SELECT * INTO v_record FROM private.source_record WHERE source_id=v_batch.source_id AND record_key=p_payload->>'source_record_key' FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_RECORD_MISSING'; END IF;
+  IF (SELECT count(*) FROM private.source_record_anchor_current a WHERE a.source_record_id=v_record.id AND a.decision_status='accepted')<>1 THEN
+    RAISE EXCEPTION 'CLAUSE_EVIDENCE_ANCHOR_AMBIGUOUS';
+  END IF;
+  SELECT o.* INTO v_occurrence FROM private.source_record_anchor_current a JOIN private.source_record_occurrence o ON o.id=a.occurrence_id
+   WHERE a.source_record_id=v_record.id AND a.decision_status='accepted';
+  IF NOT EXISTS (SELECT 1 FROM private.source_rendition r WHERE r.id=v_occurrence.rendition_id AND r.content_sha256=p_payload->>'rendition_content_sha256') THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_RENDITION_DRIFT';
+  END IF;
+  -- Præcis én helpost under forekomsten; radlås mod samtidige klausul-writes (spec 4.1.4).
+  IF (SELECT count(*) FROM private.source_observation ob WHERE ob.occurrence_id=v_occurrence.id AND ob.parent_observation_id IS NULL)<>1 THEN
+    RAISE EXCEPTION 'CLAUSE_EVIDENCE_PARENT_AMBIGUOUS';
+  END IF;
+  SELECT * INTO v_parent FROM private.source_observation ob WHERE ob.occurrence_id=v_occurrence.id AND ob.parent_observation_id IS NULL FOR UPDATE;
+  IF encode(digest(v_parent.verbatim_text,'sha256'),'hex')<>p_payload->>'parent_verbatim_sha256' THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_PARENT_TEXT_DRIFT'; END IF;
+  IF EXISTS (SELECT 1 FROM private.source_observation WHERE parent_observation_id=v_parent.id) THEN RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_EVIDENCE_EXISTS'; END IF;
+  v_run_key:=(v_profile.writer_config->>'run_key_prefix')||v_batch.manifest_sha256;
+  INSERT INTO private.extraction_run(source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+  VALUES(v_batch.source_id,v_run_key,v_profile.writer_config->>'schema_version',v_profile.writer_config->>'extractor_version',v_profile.profile_version,v_batch.manifest_sha256,
+         jsonb_build_object('batch_id',p_batch_id,'profile_sha256',v_batch.profile_sha256)) ON CONFLICT(source_id,run_key) DO NOTHING;
+  SELECT id INTO v_run FROM private.extraction_run WHERE source_id=v_batch.source_id AND run_key=v_run_key;
+  -- ON CONFLICT DO NOTHING kan genbruge en tidligere kørsel med ANDEN proveniens.
+  -- Samme efterkontrol som ensure_reimport_source_evidence: alt skal stemme, ellers stop.
+  IF NOT EXISTS(SELECT 1 FROM private.extraction_run
+                 WHERE id=v_run AND source_id=v_batch.source_id AND run_key=v_run_key
+                   AND schema_version=v_profile.writer_config->>'schema_version'
+                   AND extractor_version=v_profile.writer_config->>'extractor_version'
+                   AND profile_version=v_profile.profile_version
+                   AND input_sha256=v_batch.manifest_sha256
+                   AND manifest=jsonb_build_object('batch_id',p_batch_id,'profile_sha256',v_batch.profile_sha256)) THEN
+    RAISE EXCEPTION 'CLAUSE_EVIDENCE_EXTRACTION_RUN_DRIFT';
+  END IF;
+  FOR v_clause IN SELECT value FROM jsonb_array_elements(p_payload->'clauses') LOOP
+    v_expected_ordinal:=v_expected_ordinal+1;
+    IF jsonb_typeof(v_clause)<>'object' OR (v_clause->>'ordinal')::int IS DISTINCT FROM v_expected_ordinal THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_ORDINAL_INVALID'; END IF;
+    -- Lukket nøglesæt på klausulen: uden det kan en autoriseret payload bære fx
+    -- verbatim_text og lagre kildetekst permanent i private.reimport_event.
+    IF (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(v_clause) k)
+       <> ARRAY['char_from','char_to','classification','flags','ordinal','rendition_char_from','rendition_char_to','verbatim_sha256'] THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_EVIDENCE_INVALID';
+    END IF;
+    v_from:=(v_clause->>'char_from')::int; v_to:=(v_clause->>'char_to')::int;
+    v_abs_from:=(v_clause->>'rendition_char_from')::int; v_abs_to:=(v_clause->>'rendition_char_to')::int;
+    IF v_from IS NULL OR v_to IS NULL OR v_from<v_prev_end OR v_to<=v_from OR v_to>char_length(v_parent.verbatim_text)
+       OR coalesce(v_clause->>'verbatim_sha256','') !~ '^[0-9a-f]{64}$' OR jsonb_typeof(v_clause->'flags')<>'array'
+       OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_clause->'flags') f WHERE jsonb_typeof(f)<>'string' OR btrim(f#>>'{}')='')
+       OR NOT EXISTS (SELECT 1 FROM private.vocab WHERE scheme='clause_classification' AND code=v_clause->>'classification') THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_EVIDENCE_INVALID';
+    END IF;
+    -- Renditions-absolutte offsets kommer fra manifest-builderens offset-kort.
+    -- Helposten er IKKE en litteral delstreng af renditionen (whitespace er foldet
+    -- i segment.py), så parent.char_from + post-relativ offset peger forkert i 494
+    -- af 591 poster. Basen kan ikke bygge kortet — renditionsteksten findes ikke her —
+    -- men den håndhæver, at intervallet ligger inde i forælderens og er monotont.
+    IF v_abs_from IS NULL OR v_abs_to IS NULL OR v_abs_to<=v_abs_from
+       OR v_abs_from<v_parent.char_from OR v_abs_to>v_parent.char_to
+       OR v_abs_from<v_prev_abs_end THEN
+      RAISE EXCEPTION 'CLAUSE_EVIDENCE_RENDITION_SPAN_INVALID';
+    END IF;
+    v_gap:=substr(v_parent.verbatim_text, v_prev_end+1, v_from-v_prev_end);
+    IF v_gap<>'' AND EXISTS (SELECT 1 FROM regexp_split_to_table(v_gap,'') ch WHERE NOT (ch = ANY(v_gap_chars))) THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_GAP_INVALID'; END IF;
+    v_text:=substr(v_parent.verbatim_text, v_from+1, v_to-v_from);
+    IF encode(digest(v_text,'sha256'),'hex')<>v_clause->>'verbatim_sha256' THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_TEXT_HASH_MISMATCH'; END IF;
+    INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,
+      parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags,clause_set_seq)
+    VALUES(v_occurrence.id,'clause',v_parent.page_from,v_parent.page_to,v_abs_from,v_abs_to,v_text,v_parent.quality_status,
+      (v_profile.writer_config->>'observation_extraction_method')||':'||(p_payload->>'clause_rules_version'),v_run,
+      v_parent.id,v_from,v_to,v_expected_ordinal,v_clause->>'classification',v_clause->'flags',1) RETURNING id INTO v_obs;
+    v_disposition:=CASE WHEN v_clause->>'classification'='structural_header' THEN 'strukturel'
+                        WHEN jsonb_array_length(v_clause->'flags')>0 THEN 'maskinelt_flagget'
+                        ELSE 'afventer_fortolkning' END;
+    INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence)
+    VALUES(v_obs,1,v_disposition,'machine',jsonb_build_object('batch_id',p_batch_id,'element_id',p_element_id,'manifest_sha256',v_batch.manifest_sha256,'clause_rules_version',p_payload->>'clause_rules_version'));
+    v_prev_end:=v_to; v_prev_abs_end:=v_abs_to; v_count:=v_count+1;
+  END LOOP;
+  v_gap:=substr(v_parent.verbatim_text, v_prev_end+1);
+  IF v_gap<>'' AND EXISTS (SELECT 1 FROM regexp_split_to_table(v_gap,'') ch WHERE NOT (ch = ANY(v_gap_chars))) THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_GAP_INVALID'; END IF;
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256)
+  VALUES(p_batch_id,p_element_id,'clause_evidence',v_record.record_key,p_payload||jsonb_build_object('parent_observation_id',v_parent.id,'run_id',v_run,'clauses_written',v_count),
+         encode(digest((p_payload||jsonb_build_object('clauses_written',v_count))::text,'sha256'),'hex'));
+  RETURN jsonb_build_object('clauses',v_count,'parent_observation_id',v_parent.id,'run_id',v_run);
+END $$;

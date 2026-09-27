@@ -62,13 +62,13 @@ BEGIN
   fx := pg_temp.fixture(); v_text := fx->>'text'; v_len := char_length(v_text);
   -- Gyldig klausul: første sætning, helpost-relativ [0,30) → absolut [100,130).
   INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,
-    parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags)
+    parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags,clause_set_seq)
   VALUES((fx->>'occ')::uuid,'clause',10,10,100,130,substr(v_text,1,30),'clear','clause_segment_v1',(fx->>'run')::uuid,
-    (fx->>'parent')::uuid,0,30,1,'record_text','[]'::jsonb) RETURNING id INTO v_clause;
+    (fx->>'parent')::uuid,0,30,1,'record_text','[]'::jsonb,1) RETURNING id INTO v_clause;
   -- Klausul uden forælder.
   PERFORM pg_temp.expect_error(format(
-    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,clause_ordinal,clause_classification,clause_flags)
-       VALUES(%L,'clause',10,10,130,140,%L,'clear','clause_segment_v1',%L,2,'record_text','[]')$q$, fx->>'occ', substr(v_text,31,10), fx->>'run'),
+    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,clause_ordinal,clause_classification,clause_flags,clause_set_seq)
+       VALUES(%L,'clause',10,10,130,140,%L,'clear','clause_segment_v1',%L,2,'record_text','[]',1)$q$, fx->>'occ', substr(v_text,31,10), fx->>'run'),
     'EVIDENCE_CLAUSE_PARENT_REQUIRED');
   -- Ikke-klausul med forælder.
   PERFORM pg_temp.expect_error(format(
@@ -77,33 +77,33 @@ BEGIN
     'EVIDENCE_CLAUSE_PARENT_FORBIDDEN');
   -- Forælder er selv en klausul.
   PERFORM pg_temp.expect_error(format(
-    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags)
-       VALUES(%L,'clause',10,10,100,105,%L,'clear','clause_segment_v1',%L,%L,0,5,1,'record_text','[]')$q$, fx->>'occ', substr(v_text,1,5), fx->>'run', v_clause),
+    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags,clause_set_seq)
+       VALUES(%L,'clause',10,10,100,105,%L,'clear','clause_segment_v1',%L,%L,0,5,1,'record_text','[]',1)$q$, fx->>'occ', substr(v_text,1,5), fx->>'run', v_clause),
     'EVIDENCE_CLAUSE_PARENT_NOT_TOP_LEVEL');
   -- Span uden for forælderen.
   PERFORM pg_temp.expect_error(format(
-    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags)
-       VALUES(%L,'clause',10,10,%s,%s,'x','clear','clause_segment_v1',%L,%L,%s,%s,2,'record_text','[]')$q$, fx->>'occ', 100+v_len, 100+v_len+1, fx->>'run', fx->>'parent', v_len, v_len+1),
+    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags,clause_set_seq)
+       VALUES(%L,'clause',10,10,%s,%s,'x','clear','clause_segment_v1',%L,%L,%s,%s,2,'record_text','[]',1)$q$, fx->>'occ', 100+v_len, 100+v_len+1, fx->>'run', fx->>'parent', v_len, v_len+1),
     'EVIDENCE_CLAUSE_SPAN_OUTSIDE_PARENT');
   -- Sideinterval uden for forælderen (spec 4.1.2: klausulen arver forælderens grænser).
   PERFORM pg_temp.expect_error(format(
-    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags)
-       VALUES(%L,'clause',9,10,130,140,%L,'clear','clause_segment_v1',%L,%L,30,40,2,'record_text','[]')$q$, fx->>'occ', substr(v_text,31,10), fx->>'run', fx->>'parent'),
+    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags,clause_set_seq)
+       VALUES(%L,'clause',9,10,130,140,%L,'clear','clause_segment_v1',%L,%L,30,40,2,'record_text','[]',1)$q$, fx->>'occ', substr(v_text,31,10), fx->>'run', fx->>'parent'),
     'EVIDENCE_CLAUSE_PAGE_OUTSIDE_PARENT');
   -- Tekst ≠ udsnit af forælderen.
   PERFORM pg_temp.expect_error(format(
-    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags)
-       VALUES(%L,'clause',10,10,130,140,'FORKERT TEKST','clear','clause_segment_v1',%L,%L,30,40,2,'record_text','[]')$q$, fx->>'occ', fx->>'run', fx->>'parent'),
+    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags,clause_set_seq)
+       VALUES(%L,'clause',10,10,130,140,'FORKERT TEKST','clear','clause_segment_v1',%L,%L,30,40,2,'record_text','[]',1)$q$, fx->>'occ', fx->>'run', fx->>'parent'),
     'EVIDENCE_CLAUSE_TEXT_MISMATCH');
   -- Ukendt klassifikation.
   PERFORM pg_temp.expect_error(format(
-    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags)
-       VALUES(%L,'clause',10,10,130,140,%L,'clear','clause_segment_v1',%L,%L,30,40,2,'layout','[]')$q$, fx->>'occ', substr(v_text,31,10), fx->>'run', fx->>'parent'),
+    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags,clause_set_seq)
+       VALUES(%L,'clause',10,10,130,140,%L,'clear','clause_segment_v1',%L,%L,30,40,2,'layout','[]',1)$q$, fx->>'occ', substr(v_text,31,10), fx->>'run', fx->>'parent'),
     'EVIDENCE_CLAUSE_CLASSIFICATION_UNKNOWN');
   -- Dublet-ordinal under samme forælder.
   PERFORM pg_temp.expect_error(format(
-    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags)
-       VALUES(%L,'clause',10,10,130,140,%L,'clear','clause_segment_v1',%L,%L,30,40,1,'record_text','[]')$q$, fx->>'occ', substr(v_text,31,10), fx->>'run', fx->>'parent'),
+    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags,clause_set_seq)
+       VALUES(%L,'clause',10,10,130,140,%L,'clear','clause_segment_v1',%L,%L,30,40,1,'record_text','[]',1)$q$, fx->>'occ', substr(v_text,31,10), fx->>'run', fx->>'parent'),
     'duplicate key value');
   RAISE NOTICE 't2 clause trigger OK';
 END $t2_clause_trigger$;
@@ -116,8 +116,8 @@ BEGIN
   IF v_actor IS NULL THEN
     RAISE EXCEPTION 'CLAUSE_TEST_ACTOR_MISSING: kør tests/sql/reimport-writer-v2-bootstrap.sql først';
   END IF;
-  INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags)
-  VALUES((fx->>'occ')::uuid,'clause',10,10,100,130,substr(fx->>'text',1,30),'clear','clause_segment_v1',(fx->>'run')::uuid,(fx->>'parent')::uuid,0,30,1,'record_text','["unknown_abbreviation"]'::jsonb) RETURNING id INTO v_clause;
+  INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags,clause_set_seq)
+  VALUES((fx->>'occ')::uuid,'clause',10,10,100,130,substr(fx->>'text',1,30),'clear','clause_segment_v1',(fx->>'run')::uuid,(fx->>'parent')::uuid,0,30,1,'record_text','["unknown_abbreviation"]'::jsonb,1) RETURNING id INTO v_clause;
   -- Maskinel version 1 med gyldig proveniens.
   INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence)
   VALUES(v_clause,1,'maskinelt_flagget','machine',
@@ -188,15 +188,15 @@ BEGIN
 
   -- Negativ: klausul kun på side 20 under en forælder på 20-21.
   PERFORM pg_temp.expect_error(format(
-    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags)
-       VALUES(%L,'clause',20,20,0,13,%L,'clear','clause_segment_v1',%L,%L,0,13,1,'record_text','[]')$q$,
+    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags,clause_set_seq)
+       VALUES(%L,'clause',20,20,0,13,%L,'clear','clause_segment_v1',%L,%L,0,13,1,'record_text','[]',1)$q$,
     v_occ, substr(v_text,1,13), v_run, v_parent),
     'EVIDENCE_CLAUSE_PAGE_OUTSIDE_PARENT');
 
   -- Positiv: samme sideinterval som forælderen accepteres.
   INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,
-    parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags)
-  VALUES(v_occ,'clause',20,21,0,13,substr(v_text,1,13),'clear','clause_segment_v1',v_run,v_parent,0,13,1,'record_text','[]');
+    parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags,clause_set_seq)
+  VALUES(v_occ,'clause',20,21,0,13,substr(v_text,1,13),'clear','clause_segment_v1',v_run,v_parent,0,13,1,'record_text','[]',1);
 
   RAISE NOTICE 't4 multipage parent OK';
 END $t4_multipage_parent$;
@@ -222,41 +222,41 @@ BEGIN
 
   -- En klausul må ikke opgradere kvaliteten til 'clear'.
   PERFORM pg_temp.expect_error(format(
-    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags)
-       VALUES(%L,'clause',30,30,0,14,%L,'clear','clause_segment_v1',%L,%L,0,14,1,'record_text','[]')$q$,
+    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags,clause_set_seq)
+       VALUES(%L,'clause',30,30,0,14,%L,'clear','clause_segment_v1',%L,%L,0,14,1,'record_text','[]',1)$q$,
     v_occ, substr(v_text,1,14), v_run, v_parent),
     'EVIDENCE_CLAUSE_QUALITY_MISMATCH');
 
   -- Vilkårlig extraction_method afvises.
   PERFORM pg_temp.expect_error(format(
-    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags)
-       VALUES(%L,'clause',30,30,0,14,%L,'ocr_uncertain','x',%L,%L,0,14,1,'record_text','[]')$q$,
+    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags,clause_set_seq)
+       VALUES(%L,'clause',30,30,0,14,%L,'ocr_uncertain','x',%L,%L,0,14,1,'record_text','[]',1)$q$,
     v_occ, substr(v_text,1,14), v_run, v_parent),
     'EVIDENCE_CLAUSE_EXTRACTION_METHOD_INVALID');
 
   -- '_' er et jokertegn i LIKE; kontrollen skal være tegn-for-tegn.
   PERFORM pg_temp.expect_error(format(
-    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags)
-       VALUES(%L,'clause',30,30,0,14,%L,'ocr_uncertain','clauseXsegmentXv1',%L,%L,0,14,1,'record_text','[]')$q$,
+    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags,clause_set_seq)
+       VALUES(%L,'clause',30,30,0,14,%L,'ocr_uncertain','clauseXsegmentXv1',%L,%L,0,14,1,'record_text','[]',1)$q$,
     v_occ, substr(v_text,1,14), v_run, v_parent),
     'EVIDENCE_CLAUSE_EXTRACTION_METHOD_INVALID');
 
   -- Flag skal være ikke-tomme strenge.
   PERFORM pg_temp.expect_error(format(
-    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags)
-       VALUES(%L,'clause',30,30,0,14,%L,'ocr_uncertain','clause_segment_v1',%L,%L,0,14,1,'record_text','[1,{}]')$q$,
+    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags,clause_set_seq)
+       VALUES(%L,'clause',30,30,0,14,%L,'ocr_uncertain','clause_segment_v1',%L,%L,0,14,1,'record_text','[1,{}]',1)$q$,
     v_occ, substr(v_text,1,14), v_run, v_parent),
     'EVIDENCE_CLAUSE_FLAGS_INVALID');
   PERFORM pg_temp.expect_error(format(
-    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags)
-       VALUES(%L,'clause',30,30,0,14,%L,'ocr_uncertain','clause_segment_v1',%L,%L,0,14,1,'record_text','["  "]')$q$,
+    $q$INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags,clause_set_seq)
+       VALUES(%L,'clause',30,30,0,14,%L,'ocr_uncertain','clause_segment_v1',%L,%L,0,14,1,'record_text','["  "]',1)$q$,
     v_occ, substr(v_text,1,14), v_run, v_parent),
     'EVIDENCE_CLAUSE_FLAGS_INVALID');
 
   -- Positiv: arvet kvalitet, versioneret regel, gyldige flag.
   INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id,
-    parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags)
-  VALUES(v_occ,'clause',30,30,0,14,substr(v_text,1,14),'ocr_uncertain','clause_segment_v1/2026-09-10',v_run,v_parent,0,14,1,'record_text','["ocr_uncertain_span"]');
+    parent_observation_id,post_char_from,post_char_to,clause_ordinal,clause_classification,clause_flags,clause_set_seq)
+  VALUES(v_occ,'clause',30,30,0,14,substr(v_text,1,14),'ocr_uncertain','clause_segment_v1/2026-09-10',v_run,v_parent,0,14,1,'record_text','["ocr_uncertain_span"]',1);
 
   RAISE NOTICE 't5 clause provenance OK';
 END $t5_clause_provenance$;
