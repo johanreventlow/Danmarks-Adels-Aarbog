@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-09-27 — kontrolmodellen bygget og kørt: samme 43 bindinger med 26 kort i stedet for 243 (#147)
+
+Beslutningen 2026-09-27 er implementeret uden DDL: en læse-kun klassifikation over `proposed`
+(`interpretation_control_classification.sql`, bevist enig med målfindingen), rækkeeksporten som fil og
+`control_model.py` (deterministisk stikprøve på 20, gate hvor `R` eller `U` i stikprøven er STOP,
+maskinel accept som `machine-corroboration-v1`, mængdekontrol før binding). Første kørsel i en kopi af
+restoren med 4.5's forslag genafspillet: 43 `MATCH`, 16 skrivemåde, 6 uden faktum, 6 reelle
+uoverensstemmelser; 26 kort for projektejeren, 23 maskinelle; bindingerne er identiske med 4.5's.
+
+Den rigtige kørsel fandt en fejl, testene ikke kunne se: stikprøvekontrollen kørte efter rolleskiftet
+til `authenticated`, som ikke kan læse `private`, og afviste derfor af forkert grund. Rettet med test.
+Projektejeren fandt under gennemlæsningen en fejl mere i 4.5 (I-7, »var † [dato], da …« læst som
+dødsdag); 4.5's præcision er rettet til 241/243.
+
 ## 2026-09-26 — 4.5-piloten gennemført i restoren: kvaliteten holder, afgørelsesmodellen ikke (#147)
 
 Projektejerens afgørelsesark (243 linjer, hash `98bb9a21…`) er skrevet i arbejdsbasen efter en

@@ -87,6 +87,41 @@ def test_sql_er_en_transaktion_med_taelling_og_citering():
     assert sql.rstrip().endswith("COMMIT;")
 
 
+def test_sql_metode_er_uaendret_som_standard():
+    """4.5's afgørelser bærer `human-sheet-4.5`; standarden må ikke flytte sig."""
+    sql = decision_sql([Decision(U1, 1, "accepted", "", 2)], sheet_sha256=H, rows_sha256=H)
+    assert '"method": "human-sheet-4.5"' in sql
+
+
+def test_sql_kontrolmodellens_metode():
+    """Kontrolmodellen (decisions 2026-09-27) skiller menneskets afgørelser fra de maskinelle."""
+    sql = decision_sql([Decision(U1, 1, "accepted", "", 2)], sheet_sha256=H, rows_sha256=H,
+                       method="human-sheet-kontrol-v1")
+    assert '"method": "human-sheet-kontrol-v1"' in sql and "human-sheet-4.5" not in sql
+
+
+def test_sql_afviser_ukendt_metode():
+    """Metoden er det felt, maskinelle og menneskelige afgørelser tælles på; en tastefejl må
+    ikke gøre en afgørelse utællelig."""
+    with pytest.raises(SheetError, match="SHEET_METHOD_INVALID"):
+        decision_sql([Decision(U1, 1, "accepted", "", 2)], sheet_sha256=H, rows_sha256=H,
+                     method="machine-corroboration-v1")
+
+
+def test_render_standardmaerker_er_uaendrede():
+    ark = render_sheet([row(U1)], {("I-1", "person.death", "1850"): "J"})
+    assert ark.startswith("# AFGØRELSE AF FORTOLKNINGSFORSLAG (4.5)")
+    assert "anbefaling: A (4.3b: sand)" in ark
+
+
+def test_render_kontrolmodellens_maerker():
+    """Kontrolmodellens ark forudfyldes med projektejerens 4.5-afgørelser; mærket skal sige det."""
+    ark = render_sheet([row(U1)], {("I-1", "person.death", "1850"): "N"},
+                       title="kontrolmodel: stikprøve + uoverensstemmelser", prior_label="4.5")
+    assert ark.startswith("# AFGØRELSE AF FORTOLKNINGSFORSLAG (kontrolmodel: stikprøve + uoverensstemmelser)")
+    assert "anbefaling: R (4.5: usand)" in ark and "4.3b" not in ark and f"D {U1} 1 : R" in ark
+
+
 def test_sql_kraever_begge_hashes():
     with pytest.raises(SheetError, match="SHEET_HASH_REQUIRED"):
         decision_sql([Decision(U1, 1, "accepted", "", 1)], sheet_sha256="", rows_sha256=H)
@@ -94,7 +129,7 @@ def test_sql_kraever_begge_hashes():
         decision_sql([Decision(U1, 1, "accepted", "", 1)], sheet_sha256=H, rows_sha256="")
 
 
-def _cli(tmp_path, ark_tekst, godkend_foer=None, rows=None, rows_hash=None):
+def _cli(tmp_path, ark_tekst, godkend_foer=None, rows=None, rows_hash=None, ekstra=()):
     rows_fil = tmp_path / "rows.json"
     rows_fil.write_text(json.dumps(rows or [row(U1)]), encoding="utf-8")
     ark = tmp_path / "ark.txt"
@@ -105,7 +140,7 @@ def _cli(tmp_path, ark_tekst, godkend_foer=None, rows=None, rows_hash=None):
                         "--approved-sha256", godkendt, "--rows", str(rows_fil),
                         "--expect-rows-sha256",
                         rows_hash or hashlib.sha256(rows_fil.read_bytes()).hexdigest(),
-                        "--out", str(tmp_path / "d.sql")], capture_output=True, text=True)
+                        "--out", str(tmp_path / "d.sql"), *ekstra], capture_output=True, text=True)
     return p, tmp_path / "d.sql"
 
 
@@ -122,6 +157,11 @@ def test_cli_afviser_aendret_raekkefil(tmp_path):
 def test_cli_skriver_sql_for_komplet_ark(tmp_path):
     p, sql = _cli(tmp_path, f"D {U1} 1 : A\n")
     assert p.returncode == 0 and "SQL_OK afgørelser=1" in p.stdout and sql.exists()
+
+
+def test_cli_metode_naar_sql_filen(tmp_path):
+    p, sql = _cli(tmp_path, f"D {U1} 1 : A\n", ekstra=("--method", "human-sheet-kontrol-v1"))
+    assert p.returncode == 0 and '"method": "human-sheet-kontrol-v1"' in sql.read_text()
 
 
 def test_ombyttede_beslutningslinjer_fanges():

@@ -12,7 +12,8 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 et ark på 243 linjer for 32 poster. Det krævede flere arbejdssessioner over flere dage, og
 projektejeren har meddelt, at flere fulde ark ikke er en farbar vej. Samtidig viste arket:
 
-- **0 afvisninger blandt 159 nye forslag.** Præcision 242/243; den ene afvisning var et claim,
+- **0 afvisninger blandt 159 nye forslag** (rettet 2026-09-27: 1 fejl fundet ved genlæsning, præcision
+  241/243 — se `kontrolmodel-koersel-2018-20.md`). Præcision 242/243; den ene afvisning var et claim,
   4.3b allerede havde dømt usandt.
 - **71 % af forslagene kan ikke føre nogen vegne.** Kun 70 af 243 har et promoverbart prædikat.
 - **En binding ændrer intet kanonisk.** Den kobler en kildehenvisning til et faktum, der allerede

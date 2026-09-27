@@ -56,14 +56,17 @@ def sheet_order(rows: list[dict]) -> list[dict]:
     return sorted(rows, key=lambda r: (r["record_key"], r["predicate"], r["interpretation_id"]))
 
 
-def render_sheet(rows: list[dict], prior: dict) -> str:
-    out = ["# AFGØRELSE AF FORTOLKNINGSFORSLAG (4.5)",
+def render_sheet(rows: list[dict], prior: dict, *, title: str = "4.5",
+                 prior_label: str = "4.3b") -> str:
+    """`prior_label` siger, hvis dom forudfyldningen kommer fra — kontrolmodellen (decisions
+    2026-09-27) forudfylder med projektejerens 4.5-afgørelser, ikke 4.3b's."""
+    out = [f"# AFGØRELSE AF FORTOLKNINGSFORSLAG ({title})",
            "# Skriv A (accepter), R (afvis) eller U (uafklaret) efter kolonet.",
            "# En note må følge efter '#'. Ret intet andet. Gem, og giv hashen i chatten.",
            ""]
     for r in sheet_order(rows):
         dom = prior.get((r["record_key"], r["predicate"], r["value_text"]))
-        anbefaling = {"J": "A (4.3b: sand)", "N": "R (4.3b: usand)"}.get(dom, "ingen")
+        anbefaling = {"J": f"A ({prior_label}: sand)", "N": f"R ({prior_label}: usand)"}.get(dom, "ingen")
         out.append(f"# POST {r['record_key']} · {r['predicate']} · confidence "
                    f"{r['confidence']} · {r['persona_role']}")
         for c in r["cited"]:
@@ -120,7 +123,15 @@ def _lit(s: str) -> str:
     return "'" + s.replace("'", "''") + "'"
 
 
-def decision_sql(decisions: list[Decision], *, sheet_sha256: str, rows_sha256: str) -> str:
+#: Menneskelige afgørelsesmetoder. Kontrolmodellen (decisions 2026-09-27) tæller maskinelle og
+#: menneskelige afgørelser på dette felt, så det er et lukket sæt.
+SHEET_METHODS = ("human-sheet-4.5", "human-sheet-kontrol-v1")
+
+
+def decision_sql(decisions: list[Decision], *, sheet_sha256: str, rows_sha256: str,
+                 method: str = "human-sheet-4.5") -> str:
+    if method not in SHEET_METHODS:
+        raise SheetError("SHEET_METHOD_INVALID")
     for h in (sheet_sha256, rows_sha256):
         if not re.fullmatch(r"[0-9a-f]{64}", h or ""):
             raise SheetError("SHEET_HASH_REQUIRED")
@@ -128,7 +139,7 @@ def decision_sql(decisions: list[Decision], *, sheet_sha256: str, rows_sha256: s
            "SELECT set_config('request.jwt.claim.sub', :'actor', true);",
            "CREATE TEMP TABLE decided(id uuid) ON COMMIT DROP;"]
     for d in decisions:
-        evidence = json.dumps({"method": "human-sheet-4.5", "sheet_sha256": sheet_sha256,
+        evidence = json.dumps({"method": method, "sheet_sha256": sheet_sha256,
                                "rows_sha256": rows_sha256, "line": d.line, "note": d.note},
                               ensure_ascii=False, sort_keys=True)
         out.append(f"INSERT INTO decided SELECT red_decide_interpretation("
@@ -147,18 +158,23 @@ def main() -> int:
     r.add_argument("--rows", required=True)
     r.add_argument("--prior")
     r.add_argument("--out", required=True)
+    r.add_argument("--title", default="4.5")
+    r.add_argument("--prior-label", default="4.3b")
     h = sub.add_parser("html")
     h.add_argument("--rows", required=True)
     h.add_argument("--prior")
     h.add_argument("--sheet", help="påbegyndt ark; afgjorte linjer indlæses")
     h.add_argument("--mangler", help="påbegyndt MANGLER.txt")
     h.add_argument("--out", required=True)
+    h.add_argument("--title", default="4.5")
+    h.add_argument("--prior-label", default="4.3b")
     s = sub.add_parser("sql")
     s.add_argument("--sheet", required=True)
     s.add_argument("--approved-sha256", required=True)
     s.add_argument("--rows", required=True)
     s.add_argument("--expect-rows-sha256", required=True)
     s.add_argument("--out", required=True)
+    s.add_argument("--method", default="human-sheet-4.5", choices=SHEET_METHODS)
     args = ap.parse_args()
 
     rows_bytes = Path(args.rows).read_bytes()
@@ -176,7 +192,8 @@ def main() -> int:
             payload = build_payload(
                 rows, prior, rows_sha256=rows_sha,
                 sheet_text=Path(args.sheet).read_text(encoding="utf-8") if args.sheet else None,
-                mangler_text=Path(args.mangler).read_text(encoding="utf-8") if args.mangler else None)
+                mangler_text=Path(args.mangler).read_text(encoding="utf-8") if args.mangler else None,
+                title=args.title, prior_label=args.prior_label)
         except SheetError as exc:
             print(str(exc))
             return 1
@@ -193,7 +210,8 @@ def main() -> int:
 
     if args.cmd == "render":
         out = Path(args.out)
-        out.write_text(render_sheet(rows, prior), encoding="utf-8")
+        out.write_text(render_sheet(rows, prior, title=args.title, prior_label=args.prior_label),
+                       encoding="utf-8")
         out.chmod(0o600)
         forudfyldt = sum(1 for r in rows if (r["record_key"], r["predicate"], r["value_text"]) in prior)
         print(f"ARK_OK linjer={len(rows)} forudfyldt={forudfyldt}")
@@ -211,7 +229,8 @@ def main() -> int:
     try:
         decisions = parse_sheet(data.decode("utf-8"))
         check_identity(decisions, rows)
-        sql = decision_sql(decisions, sheet_sha256=faktisk, rows_sha256=rows_sha)
+        sql = decision_sql(decisions, sheet_sha256=faktisk, rows_sha256=rows_sha,
+                           method=args.method)
     except SheetError as exc:
         print(str(exc))
         return 1

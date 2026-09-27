@@ -558,6 +558,40 @@ databasen med `red_decide_interpretation`.
 afgørelsen (fx til trin 6's UI), er `proposal_flags` en additiv kolonne, der kan komme
 til på en base, som alligevel skal bygges om. Denne errata lukker ikke den dør.
 
+#### 8.2 ERRATA (2026-09-27, kontrolmodellen)
+
+§8.2 forudsatte, at mennesket afgør **hvert** forslag. 4.5 målte, at det ikke kan gennemføres
+(arket på 243 linjer tog flere dage; resten af 2018-20 ville kræve ≈ 3.450 afgørelser), og at
+det næsten intet fandt (0 afvisninger blandt 159 nye forslag). Projektejeren har derfor
+besluttet kontrolmodellen (`docs/decisions.md` 2026-09-27). Arket er stadig kanalen for
+menneskets afgørelse, men det rummer ikke længere hele forslagsmængden.
+
+**En kørsel, i denne rækkefølge** (plan `2026-09-27-trin4-kontrolmodel.md`):
+1. `interpretation_control_classification.sql` klassificerer hvert `proposed` forslag med en
+   aktiv promotionregel mod databasen (`MATCH`, `MATCH_SINGLETON`, `AMBIGUOUS`, `SKRIVEMAADE`,
+   `NO_FACT`, `REAL_DIFF`, `NO_IDENTITY`, `NO_PLACEMENT`, `UNSUPPORTED_RULE`). `MATCH` bruger
+   præcis RPC'ens normalisering; `SKRIVEMAADE` er kun en klassifikation.
+2. 20 `MATCH` trækkes deterministisk som stikprøve (`control_model.py plan`, seed
+   `kontrolmodel-v1`), og stikprøvens hash noteres, før et menneske ser et kort.
+3. Menneskets ark = `REAL_DIFF` ∪ stikprøven, afgjort og hash-bundet som i §8.2
+   (`decision_evidence.method = human-sheet-kontrol-v1`).
+4. **Et `R` eller et `U` i stikprøven er STOP** for den kørsel; intet accepteres maskinelt. `U`
+   tæller med, fordi en uafklaret stikprøve ikke er en godkendt.
+5. Resten af `MATCH` accepteres maskinelt med `red_decide_interpretation`
+   (`method = machine-corroboration-v1`, med klassifikationens og stikprøvens hash og målets
+   `assertion_id`). Accepten klassificerer igen i skrivetransaktionen (kun det, der stadig er et
+   `MATCH` med samme version og mål, accepteres) og kræver menneskets afgørelser af netop dette ark
+   i basen. Før binding skal målfindingens `MATCH`-sæt være præcis maskinsættet ∪ stikprøven;
+   derefter bindes med §8.3's målfinding og batch-RPC.
+6. Efter et STOP planlægges næste kørsel først, når projektejeren har afklaret årsagen.
+
+**Uændret `proposed`:** ikke-promoverbare forslag, `SKRIVEMAADE`, `NO_FACT`, `AMBIGUOUS`,
+`MATCH_SINGLETON` og identitets-/placeringsløse. En accepteret `REAL_DIFF` forbliver accepteret
+og ubundet (oprettelse af nye fakta er åbent punkt 11.3). Ingen DDL og ingen ændrede RPC'er.
+
+**Forbehold (fra beslutningen):** databasens værdi stammer fra en tidligere udtrækning af samme
+bog; en fejl, begge læsninger deler, fanges kun af stikprøven.
+
 ### 8.3 Binding (valg 6)
 
 `red_promote_interpretations_batch` opretter intet kanonisk: den kræver en

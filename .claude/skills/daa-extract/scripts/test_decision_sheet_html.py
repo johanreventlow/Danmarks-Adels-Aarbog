@@ -55,6 +55,26 @@ def test_uaendret_tilstand_eksporterer_render_sheet_byte_for_byte():
     assert res["sheet"] == render_sheet(ROWS, PRIOR)
 
 
+def test_kontrolmodellens_maerker_foelger_med_hele_vejen():
+    """Review af kontrolmodellen, fund 7: HTML-fladen skrev »(4.3b)« og »4.5« fast, så et
+    kontrolark forudfyldt med 4.5-afgørelser blev vist og eksporteret med forkert kilde."""
+    kw = dict(title="kontrolmodel: stikprøve + uoverensstemmelser", prior_label="4.5")
+    p = build_payload(ROWS, PRIOR, sheet_text=None, mangler_text=None, rows_sha256="ab" * 32, **kw)
+    assert p["title"] == kw["title"] and p["prior_label"] == "4.5"
+    res = node_export(p, None)
+    assert res["sheet"] == render_sheet(ROWS, PRIOR, **kw)
+    assert "4.3b" not in res["sheet"] and res["mangler"].startswith("# MANGLER (kontrolmodel")
+    # Browserens kort og overskrift læser mærkerne fra payloaden, ikke fra faste strenge.
+    js = JS.read_text(encoding="utf-8")
+    assert "(4.3b)" not in js and "Afgørelsesark 4.5" not in js and "MANGLER (4.5)" not in js
+
+
+def test_standardmaerkerne_er_uaendrede():
+    p = build_payload(ROWS, PRIOR, sheet_text=None, mangler_text=None, rows_sha256="ab" * 32)
+    assert p["title"] == "4.5" and p["prior_label"] == "4.3b"
+    assert node_export(p, None)["mangler"].startswith("# MANGLER (4.5)")
+
+
 def test_afgoerelser_og_noter_giver_gyldigt_ark_i_arkets_orden():
     p = build_payload(ROWS, PRIOR, sheet_text=None, mangler_text=None, rows_sha256="ab" * 32)
     st = node_export(p, None)["init"]
