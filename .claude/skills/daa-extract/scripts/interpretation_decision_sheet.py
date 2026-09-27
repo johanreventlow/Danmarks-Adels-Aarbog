@@ -120,7 +120,15 @@ def _lit(s: str) -> str:
     return "'" + s.replace("'", "''") + "'"
 
 
-def decision_sql(decisions: list[Decision], *, sheet_sha256: str, rows_sha256: str) -> str:
+#: Menneskelige afgørelsesmetoder. Kontrolmodellen (decisions 2026-09-27) tæller maskinelle og
+#: menneskelige afgørelser på dette felt, så det er et lukket sæt.
+SHEET_METHODS = ("human-sheet-4.5", "human-sheet-kontrol-v1")
+
+
+def decision_sql(decisions: list[Decision], *, sheet_sha256: str, rows_sha256: str,
+                 method: str = "human-sheet-4.5") -> str:
+    if method not in SHEET_METHODS:
+        raise SheetError("SHEET_METHOD_INVALID")
     for h in (sheet_sha256, rows_sha256):
         if not re.fullmatch(r"[0-9a-f]{64}", h or ""):
             raise SheetError("SHEET_HASH_REQUIRED")
@@ -128,7 +136,7 @@ def decision_sql(decisions: list[Decision], *, sheet_sha256: str, rows_sha256: s
            "SELECT set_config('request.jwt.claim.sub', :'actor', true);",
            "CREATE TEMP TABLE decided(id uuid) ON COMMIT DROP;"]
     for d in decisions:
-        evidence = json.dumps({"method": "human-sheet-4.5", "sheet_sha256": sheet_sha256,
+        evidence = json.dumps({"method": method, "sheet_sha256": sheet_sha256,
                                "rows_sha256": rows_sha256, "line": d.line, "note": d.note},
                               ensure_ascii=False, sort_keys=True)
         out.append(f"INSERT INTO decided SELECT red_decide_interpretation("
@@ -159,6 +167,7 @@ def main() -> int:
     s.add_argument("--rows", required=True)
     s.add_argument("--expect-rows-sha256", required=True)
     s.add_argument("--out", required=True)
+    s.add_argument("--method", default="human-sheet-4.5", choices=SHEET_METHODS)
     args = ap.parse_args()
 
     rows_bytes = Path(args.rows).read_bytes()
@@ -211,7 +220,8 @@ def main() -> int:
     try:
         decisions = parse_sheet(data.decode("utf-8"))
         check_identity(decisions, rows)
-        sql = decision_sql(decisions, sheet_sha256=faktisk, rows_sha256=rows_sha)
+        sql = decision_sql(decisions, sheet_sha256=faktisk, rows_sha256=rows_sha,
+                           method=args.method)
     except SheetError as exc:
         print(str(exc))
         return 1
