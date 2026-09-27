@@ -2,6 +2,26 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: GO til profil `daa-2018-20-v2` — regler `clause-rules-2018-20-v3` (2026-09-27)
+
+> **Besluttet af projektejeren 2026-09-27**, jf. profilens `requires_human_go_for_change`. Skridt 2
+> i beslutningen nedenfor (omsegmentering før 4.4).
+
+**Indhold** (additivt; `daa-2018-20-v1` står uændret, så 4.1c's prod-klausuler kan reproduceres
+591/591):
+- `section_numeral_pattern` `^[IVX]{1,4}\.$` (#189): et fritstående romertal mellem to
+  sætningstegn klipper ikke sætningen; klausulen bliver længere og flages `section_numeral`.
+- `abbreviation_match` = `case_insensitive` (review 35, P3): forkortelseslisten slås op uden
+  hensyn til store/små bogstaver.
+- `Sr.`, `Pol.`, `Jahrg.` tilføjet listen (204 → 207).
+
+**Virkning på 2018-20** (målt mod prod-teksterne, kun tal): 868 → 787 klausuler, 42 poster
+ændret, klausuler under 8 tegn 26 → 2. En generel regel for korte versal-ord er fravalgt, fordi
+106 af 153 ramte ord også står uden punktum i bogen.
+
+**Afgrænsning:** GO'et gælder profilen. Prod ændres først af writer-operationen (skridt 4), der
+får sin egen spec, rehearsal og GO.
+
 ## BESLUTTET: 2018-20's klausuler segmenteres om FØR 4.4 kører i prod — med en ny writer-operation, ikke restore (2026-09-27)
 
 > **Besluttet af projektejeren 2026-09-27** på grundlag af en måling samme dag. Afgør review 35's
