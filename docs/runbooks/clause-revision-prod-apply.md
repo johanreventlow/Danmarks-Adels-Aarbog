@@ -43,13 +43,24 @@ AI-sessionens prod-adgang). AI'en bygger manifestet lokalt, kører rehearsal og 
 5. **Sikkerhedslint:** `get_advisors` (security) mod det rigtige projekt — Supabase-MCP'en peger p.t.
    på et andet projekt, så via dashboardet. Nye fund fra DDL'en er STOP.
 6. **Før-projektion** efter DDL'en (`clause_evidence_projection.psql`, `source_id=1`) → byg F1 lokalt
-   med revisionsprofilen, ledger `8c8ecd92…` og `--current-projection`. **F1 skal være
+   med revisionsprofilen, ledger `8c8ecd92…` (`~/.private/omseg-maaling/ledger/clause-ledger-v1.json`),
+   renditionen `~/.private/daa-2018-20-rendition.txt` og `--current-projection`. **F1 skal være
    `2f4b079b45fbc0379c090c444e5e409f95605809121c4a977eb3549568c0ee59`** (51 operationer, 116
    klausuler); en anden hash betyder, at prods klausuler har flyttet sig — STOP.
-7. **Dry-run** (`r-dryrun.R`, `DAA_PROFILE_FILE` = revisionsprofilen, `DAA_PROFILE_VERSION=clause-revision-v1`).
-   **Første prod-mutation:** scriptet indsætter writer-profilrækken. Kræv `DRY_RUN_OK` og profil-hash
-   `b72ddf5f…` ved readback.
-8. **Apply** (`r-apply.R`, samme miljø). Kræv `APPLY_OK`, første status `finalized`, replay
+7. **Dry-run.** **Første datamutation** (DDL'en i trin 4 var den første prod-mutation): scriptet
+   indsætter writer-profilrækken. Kald præcis som i rehearsal — `--vanilla` er bærende; uden det kan
+   `count(*)` komme tilbage som en anden R-type (rehearsalens `%d`-fejl), og scriptet læser selv
+   `~/.Renviron` i prod-tilstand:
+
+   ```bash
+   env -u PGPASSWORD DAA_CONNECTION_MODE=prod DAA_EXPECTED_TARGET=<prod-målidentitet> \
+     DAA_PROFILE_FILE=.claude/skills/daa-extract/references/reimport-profiles/daa-2018-20-clause-revision-v1.json \
+     DAA_PROFILE_VERSION=clause-revision-v1 \
+     /usr/local/bin/Rscript --vanilla ~/.private/omseg-rehearsal/r-dryrun.R <F1-manifest.json>
+   ```
+
+   Kræv `DRY_RUN_OK` og profil-hash `b72ddf5f…` ved readback.
+8. **Apply** (`r-apply.R`, samme kald og miljø). Kræv `APPLY_OK`, første status `finalized`, replay
    `already_applied`, kanonisk md5 uændret. Ved tabt forbindelse omkring commit: kør ikke igen; afgør
    tilstanden læse-kun ud fra `reimport_batch.manifest_sha256 = 2f4b079b…` som i 4.1c §5.1.
 9. **Verify:** efter-projektion → komparator med `--expect-target-sha256` (prod). Kræv `match`, scope
@@ -62,7 +73,10 @@ AI-sessionens prod-adgang). AI'en bygger manifestet lokalt, kører rehearsal og 
 
 Byg manifest U med den private fortrydelsesprofil (`~/.private/omseg-rehearsal/undo-profile.json`:
 revisionsprofilen med regler `clause-rules-2018-20-v2` og segmenter `clause_segment.py@v1`), 4.1b's
-ledger `8f4a88f5…` og en frisk projektion. Kør dry-run/apply/verify som ovenfor. I rehearsal gav det 51
+ledger `8f4a88f5…` (`~/.private/148b-20260910165321/ledger/clause-ledger-v1.json`) og en frisk projektion.
+
+**Bevar indtil fortrydelsesvinduet er lukket:** de to ledgers og renditionen ovenfor, `undo-profile.json`,
+R-kopierne og rehearsal-scriptet. De findes kun i `~/.private/`; uden dem kan hverken F1 eller U bygges. Kør dry-run/apply/verify som ovenfor. I rehearsal gav det 51
 operationer (197 klausuler skrevet, 116 erstattet) og sæt-hashes identiske med før revisionen. Et
 senere »frem igen« kræver et nyt manifest bygget fra den aktuelle projektion (det oprindelige F1 er
 herefter en genafspilning: `already_applied`).

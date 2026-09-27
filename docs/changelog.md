@@ -8,7 +8,7 @@ invarianterne, også hvis en historisk migrationsblok genskaber gamle funktionsk
 writer-operation `clause_revision` skriver et nyt sæt og markerer det gamle `erstattet`; den afviser, når
 et forslag eller et menneske allerede bygger på det aktuelle sæt, og når basen er skredet siden
 manifestet. S4: ét forslagsbatch pr. post, og citater kun i det aktuelle sæt. To kodereview-runder gav
-GO; fem mindre fund rettet (bl.a. rækkelås i sæt-reglen, bevist med to samtidige sessioner).
+GO; seks mindre fund rettet — fem fra første og ét fra anden runde (bl.a. rækkelås i sæt-reglen, bevist med to samtidige sessioner).
 
 Rehearsal mod et frisk læse-kun dump: DDL'en ren to gange, 51 poster revideret (116 klausuler skrevet,
 197 erstattet), fortrudt med en ny revision tilbage til 4.1b's opdeling og kørt frem igen — alle tre
