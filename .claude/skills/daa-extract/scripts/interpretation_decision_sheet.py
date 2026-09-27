@@ -56,14 +56,17 @@ def sheet_order(rows: list[dict]) -> list[dict]:
     return sorted(rows, key=lambda r: (r["record_key"], r["predicate"], r["interpretation_id"]))
 
 
-def render_sheet(rows: list[dict], prior: dict) -> str:
-    out = ["# AFGØRELSE AF FORTOLKNINGSFORSLAG (4.5)",
+def render_sheet(rows: list[dict], prior: dict, *, title: str = "4.5",
+                 prior_label: str = "4.3b") -> str:
+    """`prior_label` siger, hvis dom forudfyldningen kommer fra — kontrolmodellen (decisions
+    2026-09-27) forudfylder med projektejerens 4.5-afgørelser, ikke 4.3b's."""
+    out = [f"# AFGØRELSE AF FORTOLKNINGSFORSLAG ({title})",
            "# Skriv A (accepter), R (afvis) eller U (uafklaret) efter kolonet.",
            "# En note må følge efter '#'. Ret intet andet. Gem, og giv hashen i chatten.",
            ""]
     for r in sheet_order(rows):
         dom = prior.get((r["record_key"], r["predicate"], r["value_text"]))
-        anbefaling = {"J": "A (4.3b: sand)", "N": "R (4.3b: usand)"}.get(dom, "ingen")
+        anbefaling = {"J": f"A ({prior_label}: sand)", "N": f"R ({prior_label}: usand)"}.get(dom, "ingen")
         out.append(f"# POST {r['record_key']} · {r['predicate']} · confidence "
                    f"{r['confidence']} · {r['persona_role']}")
         for c in r["cited"]:
@@ -155,6 +158,8 @@ def main() -> int:
     r.add_argument("--rows", required=True)
     r.add_argument("--prior")
     r.add_argument("--out", required=True)
+    r.add_argument("--title", default="4.5")
+    r.add_argument("--prior-label", default="4.3b")
     h = sub.add_parser("html")
     h.add_argument("--rows", required=True)
     h.add_argument("--prior")
@@ -202,7 +207,8 @@ def main() -> int:
 
     if args.cmd == "render":
         out = Path(args.out)
-        out.write_text(render_sheet(rows, prior), encoding="utf-8")
+        out.write_text(render_sheet(rows, prior, title=args.title, prior_label=args.prior_label),
+                       encoding="utf-8")
         out.chmod(0o600)
         forudfyldt = sum(1 for r in rows if (r["record_key"], r["predicate"], r["value_text"]) in prior)
         print(f"ARK_OK linjer={len(rows)} forudfyldt={forudfyldt}")

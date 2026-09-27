@@ -108,6 +108,20 @@ def test_sql_afviser_ukendt_metode():
                      method="machine-corroboration-v1")
 
 
+def test_render_standardmaerker_er_uaendrede():
+    ark = render_sheet([row(U1)], {("I-1", "person.death", "1850"): "J"})
+    assert ark.startswith("# AFGØRELSE AF FORTOLKNINGSFORSLAG (4.5)")
+    assert "anbefaling: A (4.3b: sand)" in ark
+
+
+def test_render_kontrolmodellens_maerker():
+    """Kontrolmodellens ark forudfyldes med projektejerens 4.5-afgørelser; mærket skal sige det."""
+    ark = render_sheet([row(U1)], {("I-1", "person.death", "1850"): "N"},
+                       title="kontrolmodel: stikprøve + uoverensstemmelser", prior_label="4.5")
+    assert ark.startswith("# AFGØRELSE AF FORTOLKNINGSFORSLAG (kontrolmodel: stikprøve + uoverensstemmelser)")
+    assert "anbefaling: R (4.5: usand)" in ark and "4.3b" not in ark and f"D {U1} 1 : R" in ark
+
+
 def test_sql_kraever_begge_hashes():
     with pytest.raises(SheetError, match="SHEET_HASH_REQUIRED"):
         decision_sql([Decision(U1, 1, "accepted", "", 1)], sheet_sha256="", rows_sha256=H)
