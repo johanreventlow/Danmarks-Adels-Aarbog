@@ -16,6 +16,8 @@ from interpretation_decision_sheet import sheet_order
 
 SCRIPT = str(Path(__file__).with_name("control_model.py"))
 H = "a" * 64
+HASHES = {"classification_sha256": "c" * 64, "sample_sha256": "d" * 64,
+          "rows_kontrol_sha256": "e" * 64}
 
 
 def iid(n: int) -> str:
@@ -118,7 +120,7 @@ def test_stikproeve_med_R_stopper():
     k, rows = naturlig(30)
     p = plan_run(k, rows)
     with pytest.raises(ControlError, match="SAMPLE_FAILED rejected=1 unresolved=0"):
-        machine_sql(p, ark_for(p, {p["sample_ids"][3]: "R"}), sheet_sha256=H, hashes={})
+        machine_sql(p, ark_for(p, {p["sample_ids"][3]: "R"}), sheet_sha256=H, hashes=HASHES)
 
 
 def test_stikproeve_med_U_stopper():
@@ -126,21 +128,20 @@ def test_stikproeve_med_U_stopper():
     k, rows = naturlig(30)
     p = plan_run(k, rows)
     with pytest.raises(ControlError, match="SAMPLE_FAILED rejected=0 unresolved=1"):
-        machine_sql(p, ark_for(p, {p["sample_ids"][0]: "U"}), sheet_sha256=H, hashes={})
+        machine_sql(p, ark_for(p, {p["sample_ids"][0]: "U"}), sheet_sha256=H, hashes=HASHES)
 
 
 def test_afvist_real_diff_stopper_ikke():
     k, rows = naturlig(30, (item(105, "REAL_DIFF"),))
     p = plan_run(k, rows)
-    sql = machine_sql(p, ark_for(p, {iid(105): "R"}), sheet_sha256=H, hashes={})
+    sql = machine_sql(p, ark_for(p, {iid(105): "R"}), sheet_sha256=H, hashes=HASHES)
     assert sql.count("red_decide_interpretation(") == 10
 
 
 def test_maskinel_sql_baerer_metode_version_maal_og_kontroller():
     k, rows = naturlig(22, (item(23, version=3),))
     p = plan_run(k, rows)
-    hashes = {"classification_sha256": "c" * 64, "sample_sha256": "d" * 64}
-    sql = machine_sql(p, ark_for(p), sheet_sha256=H, hashes=hashes)
+    sql = machine_sql(p, ark_for(p), sheet_sha256=H, hashes=HASHES)
     assert sql.startswith("\\set ON_ERROR_STOP on\nBEGIN;") and sql.rstrip().endswith("COMMIT;")
     assert "SET LOCAL ROLE authenticated;" in sql
     assert "set_config('request.jwt.claim.sub', :'actor', true)" in sql
@@ -164,9 +165,54 @@ def test_stikproevekontrollen_koerer_foer_rolleskiftet():
     `private`, så kontrollen skal køre som den forbundne rolle, før `SET LOCAL ROLE`."""
     k, rows = naturlig(22)
     p = plan_run(k, rows)
-    sql = machine_sql(p, ark_for(p), sheet_sha256=H, hashes={})
+    sql = machine_sql(p, ark_for(p), sheet_sha256=H, hashes=HASHES)
     assert sql.index("SAMPLE_NOT_APPLIED") < sql.index("SET LOCAL ROLE authenticated;")
     assert sql.index("SET LOCAL ROLE authenticated;") < sql.index("red_decide_interpretation(")
+
+
+def test_maskinen_klassificerer_igen_i_skrivetransaktionen():
+    """Review-fund 1: identitet, placering, regel eller assertion kan ændre sig, mens mennesket
+    læser arket. Accepten må kun ske for det, der ER et MATCH, når der skrives."""
+    k, rows = naturlig(22)
+    p = plan_run(k, rows)
+    sql = machine_sql(p, ark_for(p), sheet_sha256=H, hashes=HASHES)
+    assert "\\i .claude/skills/daa-extract/scripts/interpretation_control_classification.sql" in sql
+    assert "MACHINE_NOT_MATCH" in sql
+    for m in p["machine"]:
+        assert m["interpretation_id"] in sql.split("SET LOCAL ROLE")[0]
+    assert sql.index("MACHINE_NOT_MATCH") < sql.index("SET LOCAL ROLE authenticated;")
+
+
+def test_stikproevekontrollen_er_bundet_til_arket_og_raekkefilen():
+    """Review-fund 2: afgørelser fra et andet ark må ikke tælle som denne stikprøve."""
+    k, rows = naturlig(22)
+    p = plan_run(k, rows)
+    sql = machine_sql(p, ark_for(p), sheet_sha256=H, hashes=HASHES)
+    guard = sql[sql.index("DO $$"):sql.index("SAMPLE_NOT_APPLIED")]
+    assert "interpretation_current" in guard
+    assert f"'sheet_sha256' = '{H}'" in guard and "'rows_sha256' = '" + "e" * 64 + "'" in guard
+
+
+def test_alle_match_skal_have_en_raekke():
+    """Review-fund 3: ellers afhænger det af lodtrækningen, om en manglende række opdages."""
+    k, rows = naturlig(25)
+    mangler = [r for r in rows if r["interpretation_id"] not in plan_run(k, rows)["sample_ids"]][0]
+    with pytest.raises(ControlError, match="ROWS_MISSING"):
+        plan_run(k, [r for r in rows if r is not mangler])
+
+
+def test_verify_sql_sorterer_som_uuid_og_er_laese_kun():
+    k, rows = naturlig(22)
+    sql = verify_sql(plan_run(k, rows))
+    assert "ORDER BY ni.supersedes_id)" in sql and "ORDER BY ni.supersedes_id::text" not in sql
+    assert "SET TRANSACTION READ ONLY;" in sql
+
+
+def test_maskinel_sql_kraever_planens_hashes():
+    k, rows = naturlig(22)
+    p = plan_run(k, rows)
+    with pytest.raises(ControlError, match="PLAN_HASH_REQUIRED"):
+        machine_sql(p, ark_for(p), sheet_sha256=H, hashes=dict(HASHES, rows_kontrol_sha256=None))
 
 
 def test_arket_skal_daekke_praecis_raekkefilen():
@@ -174,13 +220,13 @@ def test_arket_skal_daekke_praecis_raekkefilen():
     p = plan_run(k, rows)
     uden_en = "".join(ark_for(p).splitlines(keepends=True)[1:])
     with pytest.raises(Exception, match="SHEET_IDENTITY_MISMATCH"):
-        machine_sql(p, uden_en, sheet_sha256=H, hashes={})
+        machine_sql(p, uden_en, sheet_sha256=H, hashes=HASHES)
 
 
 def test_tomt_maskinsaet_giver_ingen_sql():
     k, rows = naturlig(5)
     p = plan_run(k, rows)
-    assert machine_sql(p, ark_for(p), sheet_sha256=H, hashes={}) is None
+    assert machine_sql(p, ark_for(p), sheet_sha256=H, hashes=HASHES) is None
 
 
 def test_verify_sql_sammenligner_maengder_via_supersedes():

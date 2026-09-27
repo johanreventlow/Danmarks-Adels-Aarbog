@@ -12,9 +12,16 @@ En kørsel:
   3. Arket bygges og oversættes med `interpretation_decision_sheet.py`
      (`--method human-sheet-kontrol-v1`), uændret.
   4. `machine-sql` kræver, at stikprøven er fuldt accepteret (et `R` eller `U` er STOP), og
-     skriver den maskinelle accept af resten.
-  5. Bindingen sker med den eksisterende målfinding og batch-RPC; `verify-sql` efterprøver, at
-     målfindingens MATCH-sæt er præcis maskinsættet ∪ stikprøven.
+     skriver den maskinelle accept af resten. SQL'en klassificerer igen i skrivetransaktionen og
+     kræver, at menneskets afgørelser af netop dette ark står i basen. Køres fra repo-roden.
+  5. `verify-sql` køres MELLEM maskinens accept og bindingen (efter binding er målene
+     `ALREADY_PROMOTED`, og kontrollen fejler): målfindingens MATCH-sæt skal være præcis
+     maskinsættet ∪ stikprøven. Kontrollen er bevidst streng — et accepteret, ubundet MATCH fra
+     en tidligere, afbrudt kørsel giver STOP, ikke en stille udvidelse. Derefter bindes med den
+     eksisterende målfinding og batch-RPC.
+
+Efter `SAMPLE_FAILED` må en ny kørsel først planlægges, når projektejeren har afklaret årsagen
+(decisions 2026-09-27); værktøjet håndhæver ikke det, og en ny `plan` trækker en ny stikprøve.
 
 Ingen kildetekst printes. Alle skrevne filer er 0600.
 """
@@ -24,6 +31,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 
 from interpretation_decision_sheet import SheetError, check_identity, parse_sheet
@@ -34,6 +42,7 @@ MACHINE_METHOD = "machine-corroboration-v1"
 HUMAN_METHOD = "human-sheet-kontrol-v1"
 DECISION_REF = "decisions.md 2026-09-27"
 TARGETS_SQL = ".claude/skills/daa-extract/scripts/interpretation_promotion_targets.sql"
+CLASSIFICATION_SQL = ".claude/skills/daa-extract/scripts/interpretation_control_classification.sql"
 
 #: Klasserne fra interpretation_control_classification.sql. Kun MATCH (bulk) kan accepteres
 #: maskinelt; kun REAL_DIFF og stikprøven vises for mennesket; resten forbliver `proposed`.
@@ -82,7 +91,9 @@ def plan_run(classification: dict, rows: list[dict], sample_size: int = SAMPLE_S
 
     ark = {i["interpretation_id"]: i["version"] for i in sample + real_diff}
     by_id = {r["interpretation_id"]: r for r in rows}
-    for interpretation_id, version in ark.items():
+    # Alle MATCH skal kunne eksporteres — ikke kun dem, lodtrækningen lægger i arket (review-fund 3).
+    for interpretation_id, version in {**{i["interpretation_id"]: i["version"] for i in match},
+                                       **ark}.items():
         r = by_id.get(interpretation_id)
         if r is None:
             raise ControlError("ROWS_MISSING")
@@ -118,13 +129,31 @@ def machine_sql(plan: dict, sheet_text: str, *, sheet_sha256: str, hashes: dict)
         raise ControlError(f"SAMPLE_FAILED rejected={afvist} unresolved={uafklaret}")
     if not plan["machine"]:
         return None
+    for felt in ("classification_sha256", "sample_sha256", "rows_kontrol_sha256"):
+        if not re.fullmatch(r"[0-9a-f]{64}", hashes.get(felt) or ""):
+            raise ControlError(f"PLAN_HASH_REQUIRED {felt}")
 
     ids = ",".join(f"'{i}'" for i in plan["sample_ids"])
+    maskine = json.dumps([[m["interpretation_id"], m["version"], m["assertion_id"]] for m in plan["machine"]])
     out = ["\\set ON_ERROR_STOP on", "BEGIN;",
-           # Menneskets afgørelser af stikprøven skal stå i basen, før maskinen må accepte.
-           # Kontrollen kører som den forbundne rolle: `authenticated` kan ikke læse `private`.
-           "DO $$ BEGIN IF (SELECT count(*) FROM private.interpretation i WHERE i.supersedes_id IN ("
-           f"{ids}) AND i.status = 'accepted' AND i.decision_evidence->>'method' = '{HUMAN_METHOD}') "
+           # Alle kontroller kører som den forbundne rolle: `authenticated` kan ikke læse `private`.
+           # (1) Klassificér igen i skrivetransaktionen: kun det, der ER et MATCH med samme version
+           # og samme mål nu, må accepteres — identitet, placering, regel eller assertion kan være
+           # ændret, mens mennesket læste arket (review-fund 1). Filstien er relativ til repo-roden.
+           f"\\i {CLASSIFICATION_SQL}",
+           "DO $$ DECLARE r jsonb := current_setting('daa.control_result')::jsonb; "
+           f"f jsonb := {_lit(maskine)}::jsonb; n int; BEGIN "
+           "SELECT count(*) INTO n FROM jsonb_array_elements(f) m WHERE EXISTS ("
+           "SELECT 1 FROM jsonb_array_elements(r->'items') i WHERE i->>'interpretation_id' = m->>0 "
+           "AND (i->>'version')::int = (m->>1)::int AND i->>'class' = 'MATCH' "
+           "AND (i->>'assertion_id')::bigint = (m->>2)::bigint); "
+           "IF n <> jsonb_array_length(f) THEN RAISE EXCEPTION 'MACHINE_NOT_MATCH % af %', "
+           "jsonb_array_length(f) - n, jsonb_array_length(f); END IF; END $$;",
+           # (2) Menneskets afgørelser af NETOP dette ark og denne rækkefil står i basen (fund 2).
+           "DO $$ BEGIN IF (SELECT count(*) FROM private.interpretation_current i WHERE i.supersedes_id IN ("
+           f"{ids}) AND i.status = 'accepted' AND i.decision_evidence->>'method' = '{HUMAN_METHOD}' "
+           f"AND i.decision_evidence->>'sheet_sha256' = '{sheet_sha256}' "
+           f"AND i.decision_evidence->>'rows_sha256' = '{hashes['rows_kontrol_sha256']}') "
            f"<> {len(plan['sample_ids'])} THEN RAISE EXCEPTION 'SAMPLE_NOT_APPLIED'; END IF; END $$;",
            "SET LOCAL ROLE authenticated;",
            "SELECT set_config('request.jwt.claim.sub', :'actor', true);",
@@ -151,14 +180,14 @@ def verify_sql(plan: dict) -> str:
     return "\n".join([
         "\\set ON_ERROR_STOP on",
         "BEGIN;",
-        "SET LOCAL default_transaction_read_only = on;",
+        "SET TRANSACTION READ ONLY;",
         f"\\i {TARGETS_SQL}",
         "DO $$",
         "DECLARE t jsonb := current_setting('daa.targets_result')::jsonb;",
         "        faktisk jsonb;",
         f"        forventet jsonb := {_lit(literal)}::jsonb;",
         "BEGIN",
-        "  SELECT coalesce(jsonb_agg(ni.supersedes_id::text ORDER BY ni.supersedes_id::text), '[]')",
+        "  SELECT coalesce(jsonb_agg(ni.supersedes_id::text ORDER BY ni.supersedes_id), '[]')",
         "    INTO faktisk FROM jsonb_array_elements(t->'items') x",
         "    JOIN private.interpretation ni ON ni.id = (x->>'interpretation_id')::uuid;",
         "  IF faktisk IS DISTINCT FROM forventet OR jsonb_array_length(t->'singleton_items') <> 0 THEN",

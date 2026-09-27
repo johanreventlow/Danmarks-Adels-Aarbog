@@ -579,8 +579,11 @@ menneskets afgørelse, men det rummer ikke længere hele forslagsmængden.
    tæller med, fordi en uafklaret stikprøve ikke er en godkendt.
 5. Resten af `MATCH` accepteres maskinelt med `red_decide_interpretation`
    (`method = machine-corroboration-v1`, med klassifikationens og stikprøvens hash og målets
-   `assertion_id`), og bindes med §8.3's målfinding og batch-RPC. Målfindingens `MATCH`-sæt skal
-   være præcis maskinsættet ∪ stikprøven.
+   `assertion_id`). Accepten klassificerer igen i skrivetransaktionen (kun det, der stadig er et
+   `MATCH` med samme version og mål, accepteres) og kræver menneskets afgørelser af netop dette ark
+   i basen. Før binding skal målfindingens `MATCH`-sæt være præcis maskinsættet ∪ stikprøven;
+   derefter bindes med §8.3's målfinding og batch-RPC.
+6. Efter et STOP planlægges næste kørsel først, når projektejeren har afklaret årsagen.
 
 **Uændret `proposed`:** ikke-promoverbare forslag, `SKRIVEMAADE`, `NO_FACT`, `AMBIGUOUS`,
 `MATCH_SINGLETON` og identitets-/placeringsløse. En accepteret `REAL_DIFF` forbliver accepteret

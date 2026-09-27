@@ -55,8 +55,9 @@ over, koderunden tages af en uafhængig agent (ikke Codex — review 35, P1).
    accept af de resterende `MATCH` (`method = machine-corroboration-v1`, evidens:
    `decision = "decisions.md 2026-09-27"`, `classification_sha256`, `sample_sha256`,
    `assertion_id`) — hver med forventet version, i én transaktion med antalskontrol.
-6. **Bind** med den eksisterende målfinding og batch-RPC. **Verificér som mængde:** målfindingens
-   `MATCH`-sæt = maskinsættet ∪ de menneskeaccepterede `MATCH` i stikprøven.
+6. **Verificér som mængde, derefter bind:** målfindingens `MATCH`-sæt = maskinsættet ∪ de
+   menneskeaccepterede `MATCH` i stikprøven (`verify-sql` før binding — bagefter er målene
+   `ALREADY_PROMOTED`); derefter den eksisterende målfinding og batch-RPC.
 
 Uændret `proposed` efter kørslen: `SKRIVEMAADE`, `NO_FACT`, `AMBIGUOUS`, `NO_IDENTITY`,
 `NO_PLACEMENT`, `UNSUPPORTED_RULE` og alle ikke-promoverbare forslag. De tælles i rapporten.
