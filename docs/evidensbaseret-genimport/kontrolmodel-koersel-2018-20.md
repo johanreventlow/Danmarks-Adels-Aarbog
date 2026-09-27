@@ -88,3 +88,24 @@ Projektejerens rettelse af I-7 gør 4.5's præcision til **241/243 = 99,2 %** (1
 forslag, ikke 0). Dommen er uændret. I 4.5's arbejdsbase står I-7 som `accepted` (ubundet) og kan ikke
 rettes via RPC'en, som kun afgør `proposed`; det godkendte 4.5-ark skal derfor rettes og godkendes med
 ny hash, før pilotens afgørelser overføres til prod.
+
+## Uafhængigt kodereview (1 runde, 2026-09-27)
+
+En uafhængig agent (ikke Codex — review 35, P1) gennemgik koden: ingen BLOCKER, 1 MAJOR, 8 MINOR.
+Rettet med test først (`8c44789`, `672c282`):
+
+- **MAJOR — maskinen accepterede efter en forældet klassifikation.** Identitet, placering, regel eller
+  assertion kunne ændre sig, mens mennesket læste arket. Nu klassificerer den maskinelle SQL igen i
+  skrivetransaktionen og accepterer kun, hvad der stadig er `MATCH` med samme version og mål.
+  Efterprøvet: genkørsel i kopien gav `MACHINE_NOT_MATCH 23 af 23` og intet skrevet; i en ny kopi
+  passerede alle 43 rigtige `MATCH`, og ét forkert mål blev fanget.
+- Stikprøvevagten er bundet til det godkendte arks og rækkefilens hash (efterprøvet begge veje); alle
+  `MATCH` skal have en række; `verify-sql` sorterer som uuid og er `READ ONLY`; HTML-fladens mærker
+  følger arket.
+- Dokumenteret frem for ændret: `verify-sql` køres før binding; mængdekontrollen er bevidst streng
+  (rester fra en afbrudt kørsel giver STOP); efter `SAMPLE_FAILED` kræver næste kørsel projektejerens
+  afklaring — værktøjet håndhæver det ikke.
+
+Stikprøven trækkes på forslagets id, som er nyt ved hver ingest. En genafspilning i en anden base giver
+derfor en anden stikprøve; det påvirker ikke en kørsel, men betyder, at en godkendt plan ikke kan
+genbruges i en anden base.
