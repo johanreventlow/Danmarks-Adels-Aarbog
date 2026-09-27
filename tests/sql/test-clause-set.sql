@@ -106,6 +106,17 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='trg_interpretation_observation_scope' AND tgrelid='private.interpretation_observation'::regclass) THEN
     RAISE EXCEPTION 'CLAUSE_SET_TRIGGER_ORDER_BASELINE_RENAMED';
   END IF;
+  -- Sæt-reglen fyrer før validate_clause_disposition og må derfor selv tage rækkelåsen
+  -- (review R1 fund 1): ellers læses "aktuelt sæt" før en samtidig revision er synlig.
+  IF pg_get_functiondef('private.validate_clause_disposition_set()'::regprocedure)
+       !~ 'FROM private\.source_observation WHERE id=NEW\.observation_id FOR UPDATE' THEN
+    RAISE EXCEPTION 'CLAUSE_SET_DISPOSITION_RULE_UNLOCKED';
+  END IF;
+  -- Klausul-writeren håndhæver tætheden ved slutningen som revisionen (spec §3.1).
+  IF pg_get_functiondef('private.write_clause_evidence(uuid,text,jsonb)'::regprocedure)
+       NOT LIKE '%SET CONSTRAINTS private.trg_clause_set_density IMMEDIATE%' THEN
+    RAISE EXCEPTION 'CLAUSE_SET_WRITER_DENSITY_DEFERRED';
+  END IF;
   RAISE NOTICE 't1 catalog OK';
 END $t1_catalog$;
 

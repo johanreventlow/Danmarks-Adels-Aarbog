@@ -3496,6 +3496,7 @@ BEGIN
   v_ctx:=private.clause_write_prepare(p_batch_id,p_element_id,p_payload,'clause_evidence');
   IF EXISTS (SELECT 1 FROM private.source_observation WHERE parent_observation_id=(v_ctx->>'parent_id')::uuid) THEN RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_EVIDENCE_EXISTS'; END IF;
   v_count:=private.clause_write_set(v_ctx,p_payload,1,p_element_id);
+  SET CONSTRAINTS private.trg_clause_set_density IMMEDIATE;
   INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256)
   VALUES(p_batch_id,p_element_id,'clause_evidence',v_ctx->>'record_key',p_payload||jsonb_build_object('parent_observation_id',(v_ctx->>'parent_id')::uuid,'run_id',(v_ctx->>'run_id')::uuid,'clauses_written',v_count),
          encode(digest((p_payload||jsonb_build_object('clauses_written',v_count))::text,'sha256'),'hex'));
@@ -14242,7 +14243,10 @@ CREATE OR REPLACE FUNCTION private.validate_clause_disposition_set()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
 DECLARE v_obs private.source_observation%ROWTYPE; v_current boolean;
 BEGIN
-  SELECT * INTO v_obs FROM private.source_observation WHERE id=NEW.observation_id;
+  -- Lås klausulrækken først: denne trigger fyrer før validate_clause_disposition, og en
+  -- samtidig revision låser det aktuelle sæts rækker. Efter ventetiden ser sætkontrollen
+  -- revisionens nye sæt.
+  SELECT * INTO v_obs FROM private.source_observation WHERE id=NEW.observation_id FOR UPDATE;
   IF NOT FOUND OR v_obs.observation_kind<>'clause' THEN RETURN NEW; END IF;  -- validate_clause_disposition afviser
   IF EXISTS(SELECT 1 FROM private.clause_disposition WHERE observation_id=NEW.observation_id AND disposition='erstattet') THEN
     RAISE EXCEPTION 'EVIDENCE_CLAUSE_DISPOSITION_AFTER_REPLACED';

@@ -2775,6 +2775,16 @@ END $clause_evidence_writer_verify$;
 DO $clause_set_live_verify$
 DECLARE v_def text;
 BEGIN
+  -- Indeksbytningen i migrationen kender kun navnet ux_source_observation_clause_ordinal.
+  -- Står et ældre (parent, ordinal)-indeks under et andet navn, dør hver revision på
+  -- dublet-nøgle; derfor skal der være præcis ét ordinal-indeks, og det skal være pr. sæt.
+  SELECT indexdef INTO v_def FROM pg_indexes WHERE schemaname='private' AND indexname='ux_source_observation_clause_ordinal';
+  IF v_def IS NULL OR v_def NOT LIKE '%COALESCE(clause_set_seq, 1)%' THEN
+    RAISE EXCEPTION 'FEJL: ux_source_observation_clause_ordinal er ikke pr. klausulsæt: %', v_def;
+  END IF;
+  IF (SELECT count(*) FROM pg_indexes WHERE schemaname='private' AND tablename='source_observation' AND indexdef LIKE '%clause_ordinal%')<>1 THEN
+    RAISE EXCEPTION 'FEJL: mere end ét unikhedsindeks over clause_ordinal';
+  END IF;
   v_def:=pg_get_functiondef(to_regprocedure('private.write_interpretation_proposal(uuid,text,jsonb)'));
   IF v_def IS NULL OR v_def NOT LIKE '%clause_observation_current%' OR v_def NOT LIKE '%b.source_id=v_batch.source_id%' THEN
     RAISE EXCEPTION 'FEJL: write_interpretation_proposal er ikke sæt-bevidst eller mangler S4-tjekket';
@@ -2798,7 +2808,7 @@ BEGIN
      OR has_function_privilege('authenticated','private.write_clause_revision(uuid,text,jsonb)','EXECUTE') THEN
     RAISE EXCEPTION 'FEJL: clause_revision-RPC mangler eller har forkert ACL';
   END IF;
-  RAISE NOTICE 'OK: omsegmentering — sæt-bevidste writere, S4, triggere og ACL';
+  RAISE NOTICE 'OK: omsegmentering — indeks pr. sæt, sæt-bevidste writere, S4, triggere og ACL';
 END $clause_set_live_verify$;
 
 DO $interpretation_proposal_writer_verify$
