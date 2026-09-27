@@ -120,12 +120,14 @@ def machine_sql(plan: dict, sheet_text: str, *, sheet_sha256: str, hashes: dict)
         return None
 
     ids = ",".join(f"'{i}'" for i in plan["sample_ids"])
-    out = ["\\set ON_ERROR_STOP on", "BEGIN;", "SET LOCAL ROLE authenticated;",
-           "SELECT set_config('request.jwt.claim.sub', :'actor', true);",
+    out = ["\\set ON_ERROR_STOP on", "BEGIN;",
            # Menneskets afgørelser af stikprøven skal stå i basen, før maskinen må accepte.
+           # Kontrollen kører som den forbundne rolle: `authenticated` kan ikke læse `private`.
            "DO $$ BEGIN IF (SELECT count(*) FROM private.interpretation i WHERE i.supersedes_id IN ("
            f"{ids}) AND i.status = 'accepted' AND i.decision_evidence->>'method' = '{HUMAN_METHOD}') "
            f"<> {len(plan['sample_ids'])} THEN RAISE EXCEPTION 'SAMPLE_NOT_APPLIED'; END IF; END $$;",
+           "SET LOCAL ROLE authenticated;",
+           "SELECT set_config('request.jwt.claim.sub', :'actor', true);",
            "CREATE TEMP TABLE decided(id uuid) ON COMMIT DROP;"]
     for m in plan["machine"]:
         evidence = json.dumps({"method": MACHINE_METHOD, "decision": DECISION_REF,

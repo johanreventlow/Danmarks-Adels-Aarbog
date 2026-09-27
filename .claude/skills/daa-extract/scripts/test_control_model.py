@@ -159,6 +159,16 @@ def test_maskinel_sql_baerer_metode_version_maal_og_kontroller():
     assert "MACHINE_COUNT_MISMATCH" in sql
 
 
+def test_stikproevekontrollen_koerer_foer_rolleskiftet():
+    """Fundet i den rigtige kørsel 2026-09-27: `authenticated` har ingen adgang til skemaet
+    `private`, så kontrollen skal køre som den forbundne rolle, før `SET LOCAL ROLE`."""
+    k, rows = naturlig(22)
+    p = plan_run(k, rows)
+    sql = machine_sql(p, ark_for(p), sheet_sha256=H, hashes={})
+    assert sql.index("SAMPLE_NOT_APPLIED") < sql.index("SET LOCAL ROLE authenticated;")
+    assert sql.index("SET LOCAL ROLE authenticated;") < sql.index("red_decide_interpretation(")
+
+
 def test_arket_skal_daekke_praecis_raekkefilen():
     k, rows = naturlig(25)
     p = plan_run(k, rows)
