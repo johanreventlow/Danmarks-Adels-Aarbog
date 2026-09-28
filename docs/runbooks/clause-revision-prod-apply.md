@@ -46,10 +46,18 @@ adgangskoden forsvinder undervejs (R2-fund: en EXIT-trap i en funktion slettede 
 restore af det seneste dump:
 
 ```bash
-/bin/zsh -f ~/.private/omseg-prod/00-freeze.sh begin
-/bin/zsh -f ~/.private/omseg-prod/01-preflight.sh         # udskriver PREFLIGHT_OK … skema=<md5>
+export DAA_FREEZE_RESPONSIBLE=<kort ansvarskode>
+/bin/zsh -f ~/.private/omseg-prod/00-freeze.sh begin      # ved STOP om aktive forbindelser: gentag med
+                                                          #   --accepter-forbindelser <det viste antal>
+/bin/zsh -f ~/.private/omseg-prod/01-preflight.sh         # MAAL: PROD … PREFLIGHT_OK … skema=<md5>
 /bin/zsh -f ~/.private/omseg-prod/00-freeze.sh end --uden-apply
 ```
+
+Rør ikke redaktørfladen under prøven: en redaktionel ændring mellem `begin` og `end --uden-apply` får
+øjebliksbilledet til at afvige, og så er der ingen scriptet udgang (hold pausen, eskalér). `MAAL: PROD`
+bekræfter den låste identitet. Send `skema=`-værdien til AI'en: en restore af dumpet fra 27/9 giver
+`34a3b5115bd8660173380bc1c7c4f082` (samme i fem stand-ins og fem restores). Afviger den, sammenlignes
+`preflight-….schema.txt` med en stand-ins før dagen.
 
 Hvert script udskriver `DAA_…=`-linjer; eksportér dem, før næste trin køres. Afvigelser er STOP.
 
@@ -104,7 +112,7 @@ eller efter DDL'en, advisor-fund, F1-afvigelse i 05), ophæves pausen med
 `/bin/zsh -f ~/.private/omseg-prod/00-freeze.sh end --uden-apply`. Den kræver, at øjebliksbilledet fra
 `begin` (antal observationer, reimport-hændelser og -batches, aktive autorisationer, fortolkninger,
 redaktionsprofiler, `change_set`) samt kanonisk og anon er uændrede; writer-profilrækker fra en dry-run
-er tilladt. DDL'en må være kørt (den er additiv) og noteres i slutrapporten. Efter en afbrydelse med
+er tilladt (stand-in-testet). DDL'en må være kørt (den er additiv) og noteres i slutrapporten. Efter en afbrydelse med
 DDL'en i prod kan kæden ikke startes forfra uden ændringer (01 og 03 kræver, at DDL'en mangler): eskalér.
 Ved en skema-afvigelse: diff `schema-*.txt` i runmapperne (navn + md5, ingen data).
 
