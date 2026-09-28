@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-09-28 — 4.4 genbundet: piloten kørt om på de omsegmenterede klausuler (#147)
+
+Efter P1's værn (#226, `evidence-runner-1.3`) og projektejerens GO på manifest `72b8ac59…` og
+runner-input `0b51ed9a…` er de 34 pilotposter sendt til modellen igen fra `main`, i en lokal kopi af et
+frisk prod-dump: 34/34 dækket, 0 værktøjsbrug, 597.185 input-tokens. Ingest gav 230 forslag, præcis som
+forudsagt før kørslen. Kontrolmodellen gav 24 kort (20 stikprøve + 4 uoverensstemmelser); projektejeren
+accepterede alle 24 (ark `2500531c…`), 26 blev accepteret maskinelt, og 46 er bundet i ét batch uden
+kanonisk delta. Runnerens nye regler og basens fakta er målt til nul forskel mod 4.5; de to kendte
+»var †«-fejllæsninger (I-11, I-7) er væk. Rapport: `evidensbaseret-genimport/genbind-44-pilot-2018-20.md`.
+Intet i prod. Næste: 4.4+4.5's prod-GO-pakke (egen GO).
+
 ## 2026-09-28 — omsegmentering kørt i prod: 51 poster, `match` (#147, review 35 P3/S4)
 
 #222's DDL (klausulsæt, `clause_revision`, S4 — og #212's hjælpefunktioner, som den bygger på) og 51
