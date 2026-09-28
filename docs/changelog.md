@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-09-28 — omsegmentering kørt i prod: 51 poster, `match` (#147, review 35 P3/S4)
+
+#222's DDL (klausulsæt, `clause_revision`, S4 — og #212's hjælpefunktioner, som den bygger på) og 51
+revisioner er skrevet til prod efter `docs/runbooks/clause-revision-prod-apply.md`: 116 klausuler
+skrevet, 197 markeret `erstattet`, komparatoren `match`, intet kanonisk delta
+(`database-current-state.md` §9). Fortrydelse er en ny revision tilbage til 4.1b's opdeling (øvet).
+
+Operatørpakken (`~/.private/omseg-prod/`, privat) gik igennem tre review-runder. R2 fandt en blokker:
+EXIT-trap'en i en zsh-funktion slettede adgangskoden straks, og stand-in-testene kunne ikke se det.
+R3 fandt to blindgyder efter en afbrudt skrivning. Alle er rettet og testet på stand-ins; genkørslen
+af 04 er bevist på en ægte deadlock mellem `db-rls.sql` og autovacuum. En læse-kun prøve i prod fandt,
+at anon-hashen over `x::text` afhænger af serverens locale (0xA0 i `à` citeres på macOS, ikke på Linux),
+så 03 ville have stoppet på dagen; prod ↔ restore sammenlignes nu med en portabel hash over
+`to_jsonb(x)::text`. Næste: 4.4's GO-pakke genbindes til de reviderede klausuler.
+
 ## 2026-09-27 — omsegmentering bygget og øvet mod prod-dump: 51 poster, fortrydelse uden restore (#147, review 35 P3/S4)
 
 #222 gav klausulerne sæt: `clause_set_seq` (NULL = sæt 1, så prods 868 klausuler er urørte), et

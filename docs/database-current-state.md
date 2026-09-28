@@ -296,7 +296,7 @@ Frysningen af nye bindinger fra #152 er dermed ophævet for 2018-20 og 1939.
 | **Polymorf døde-link-integritetsrapport** | Kun `text_mention` har et døde-links-view. Bredere orphan-check (fact/relation/assertion → subjekt) findes ikke systematisk endnu. |
 | Levende feed fase 4 | LLM-assist/Edge Function — bevidst udskudt 2026-07-20 (for få kilder i PoC til at retfærdiggøre kørslen endnu), ikke annulleret. Se `decisions.md`. |
 | **Mediehåndtering fase 4 — identitet & endeligt farvel** | **LIVE i prod (2026-07-22).** Nye funktioner i `schema.sql`: `red_erstat_media_fil` (erstat bytes, behold identitet — atomisk `AND upload_status='klar'`-gate mod race), `red_udrens_media_preview`+`red_udrens_media` (permanent sletning, blokeret på SYV polymorfe ankre: relation, text_mention, fact, story, narrative, note, suggestion — guard+slet i ét atomisk `DELETE...NOT EXISTS`-statement), `red_saet_portraet` (portræt-valg, `relation.kvalifikator jsonb`-kolonne, additiv). Deployet via scoped blok `mediehaandtering_fase4_identitet`; fase-4-verify-blokkene kørt og bestået direkte mod prod (impersoneret redaktion-profil), `get_advisors(security)` viste kun kendte SECURITY DEFINER-mønstre. `db-rls.sql` uændret. Web app-deployet (Vercel, PR #75); redaktør-røgtestet (erstat/udrens/portræt) med succes; janitor-rapport bekræftede korrekt kategori-b-håndtering af et reelt erstat, ingen `--slet` kørt. |
-| **Trin 4's dataskrivning** (klausuler via `clause_evidence`, forslag via `interpretation_proposal`) | **Klausulerne er skrevet 2026-09-18**: 591 records, 868 klausuler, 617/251 dispositioner, én `finalized` batch, afstemt med klausul-projektionen (`match`, uændrede neutrale lister). Procedure: `docs/runbooks/clause-evidence-prod-apply.md`. `interpretation_proposal` er stadig ikke kørt: den mangler fortolknings-projektionen (#196), og der findes ingen prod-fortrydelse (spec åbent punkt 11.5). |
+| **Trin 4's dataskrivning** (klausuler via `clause_evidence`, forslag via `interpretation_proposal`) | **Klausulerne er skrevet 2026-09-18**: 591 records, 868 klausuler, 617/251 dispositioner, én `finalized` batch, afstemt med klausul-projektionen (`match`, uændrede neutrale lister). Procedure: `docs/runbooks/clause-evidence-prod-apply.md`. **Omsegmenteret 2026-09-28** (§9): 51 poster har fået et nyt klausulsæt (116 klausuler skrevet, 197 `erstattet`); 984 klausulrækker, heraf 787 aktuelle. `interpretation_proposal` er stadig ikke kørt: den mangler fortolknings-projektionen (#196), og der findes ingen prod-fortrydelse (spec åbent punkt 11.5). |
 | Mediehåndtering fase 5 | Dokumenttransskription er ikke designet endnu. |
 | 1939-publicering | Pauset indtil nyt OCR-udtræk, nyt artefakt og fornyet komplethedsgate (uddybet i §3) |
 | Import-sikkerhed | Stabil import-run/checksum/udgavenøgle og source-scoped replace mangler; `--reset` er fortsat en farlig nødvej |
@@ -467,3 +467,42 @@ grundlag (fx `narrative_fts_idx`). MCP-forbindelsen fra Claude-sessioner når et
 Supabase-projekt, så advisors læses i dashboardet.
 
 **Rollback:** ingen kirurgisk rollback-fil. Vejen tilbage er restore af backuppen ovenfor.
+
+## 9. Omsegmentering af 2018-20's klausuler (`clause_revision`, S4) — LIVE i prod (2026-09-28)
+
+**DDL og data.** #222's klausulsæt (`clause_set_seq`, NULL = sæt 1; unikhedsindeks pr. sæt; view
+`private.clause_observation_current`; fire selvstændige triggere), writer-operationen
+`clause_revision` (`private.write_clause_revision`, `public.red_apply_reimport_clause_revision`) og S4
+(ét forslagsbatch pr. post, citater kun i det aktuelle sæt). DDL'en deployede også #212's
+hjælpefunktioner, som #222 bygger på.
+
+**Procedure:** `docs/runbooks/clause-revision-prod-apply.md` med de private operatørscripts
+`~/.private/omseg-prod/` (00-08). Skrivepause → preflight → dump i pausen → rehearsal af netop det dump →
+DDL → advisors → apply → verify → pause ophævet.
+
+- **Repo:** `b42266e`. **Backup:** `daa-prod-20260928150228.dump`, SHA-256 `004e7a50…`, 0600, uden for Git.
+- **Rehearsal** af netop det dump: restore = preflight (tilstand, kanonisk, portabel anon, skema),
+  DDL to gange med samme skema-fingeraftryk, F1 → `match`, fortryd (U) → `match`, frem igen → `match`,
+  fuld `db-verify`.
+- **DDL:** `db-migrations.sql` → `db-rls.sql --single-transaction` → `NOTIFY pgrst`. Efter: 0 `WARNING`,
+  skema-fingeraftryk = rehearsal, 868/868 klausuler i sæt 1, kanonisk og anon uændrede, levende
+  verify-blok OK.
+- **Apply:** manifest F1 `2f4b079b…` (51 operationer), profil `daa-2018-20-clause-revision-v1`
+  (`b72ddf5f…`), én `finalized` batch, replay `already_applied`. Efter: 984 klausulrækker, 787
+  aktuelle, 197 `erstattet`, 51 `clause_revision`-hændelser.
+- **Verify (læse-kun):** komparatoren `match` (51 records, 116 skrevet / 197 erstattet, nye
+  dispositioner 56 `afventer_fortolkning` / 60 `maskinelt_flagget`), sæt-hashes `1bad2e97…`, profil-readback,
+  kanonisk og anon uændrede.
+- **Advisors (security, efter DDL):** 0 ERROR. Én ny linje: WARN
+  `authenticated_security_definer_function_executable` på `red_apply_reimport_clause_revision` —
+  samme mønster som `red_apply_reimport_clause_evidence` (kun `authenticated`, tynd indgang til en
+  privat writer med batch- og autorisationskrav; ACL tjekket af verify-blokken). Ingen nye `anon`-linjer,
+  ingen nye tabeller.
+
+**Fortrydelse** er en ny revision tilbage til 4.1b's opdeling (`07-fortryd.sh`, øvet i rehearsal og på
+stand-ins), ikke restore. Vinduet er åbent, indtil projektejeren lukker det; indtil da bevares
+`~/.private/omseg-prod/` (inkl. `go-env.txt`), begge ledgers og renditionen (runbook §3).
+
+**Lært undervejs:** anon-hashen over `x::text` afhænger af serverens locale (macOS citerer værdier med
+byten 0xA0, Linux gør ikke), så prod ↔ lokal restore sammenlignes med en portabel hash over
+`to_jsonb(x)::text`. Målt ens i prod og restore.
