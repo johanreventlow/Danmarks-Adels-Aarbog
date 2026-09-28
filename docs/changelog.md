@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-09-27 — omsegmentering bygget og øvet mod prod-dump: 51 poster, fortrydelse uden restore (#147, review 35 P3/S4)
+
+#222 gav klausulerne sæt: `clause_set_seq` (NULL = sæt 1, så prods 868 klausuler er urørte), et
+unikhedsindeks pr. sæt, viewet `clause_observation_current` og fire selvstændige triggere, der holder
+invarianterne, også hvis en historisk migrationsblok genskaber gamle funktionskroppe. Den nye
+writer-operation `clause_revision` skriver et nyt sæt og markerer det gamle `erstattet`; den afviser, når
+et forslag eller et menneske allerede bygger på det aktuelle sæt, og når basen er skredet siden
+manifestet. S4: ét forslagsbatch pr. post, og citater kun i det aktuelle sæt. To kodereview-runder gav
+GO; seks mindre fund rettet — fem fra første og ét fra anden runde (bl.a. rækkelås i sæt-reglen, bevist med to samtidige sessioner).
+
+Rehearsal mod et frisk læse-kun dump: DDL'en ren to gange, 51 poster revideret (116 klausuler skrevet,
+197 erstattet), fortrudt med en ny revision tilbage til 4.1b's opdeling og kørt frem igen — alle tre
+`match`, intet kanonisk delta, uændrede anon-hashes. Manifestet var byte-identisk med målingen fra
+restore-kopien. Planfilen var aldrig nået `main` (squash-merge før push) og er lagt ind.
+
 ## 2026-09-27 — klausulerne segmenteres om før 4.4; runnerens cache kender nu klausulsættet (#147, review 35 P3/P4)
 
 En måling af 2018-20's klausuler (kun tal) viste, at en rettet segmenter ændrer 25-42 af de 101
