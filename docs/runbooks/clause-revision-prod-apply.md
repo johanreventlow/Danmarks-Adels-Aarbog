@@ -14,15 +14,19 @@ restore-rehearsal af netop det dump, apply, verify. Det, der er anderledes:
 | Data | 591 `clause_evidence` | 51 `clause_revision`: 116 klausuler skrives, 197 får `erstattet` |
 | Fortrydelse | kun restore | **ny revision** tilbage til 4.1b's opdeling (øvet); restore er nødvejen |
 | Operatørscripts | `~/.private/148c-prod/` | `~/.private/omseg-prod/` (00-08, `lib.zsh`, R-kopierne byte-identiske med rehearsal) |
-| Fejl midt i apply | restore | `08-afgoer.sh` (læse-kun) afgør, om apply nåede at committe; genkørsel eller verify derfra |
+| Fejl midt i apply | restore | `08-afgoer.sh` / `07 --afgoer` (læse-kun) afgør, om skrivningen nåede at committe |
+| STOP før skrivning | — | `00-freeze.sh end --uden-apply` ophæver pausen, når intet er skrevet siden `begin` |
 
 **Arbejdsdeling.** Kun projektejeren kører noget mod prod, i egen shell (klassifikatoren blokerer
 AI-sessionens prod-adgang). AI'en kører kun 03 (lokalt) og læser kun rensede tal.
 
 **Pakken er testet mod en lokal stand-in** (`DAA_STANDIN_DB=daa_omseg_standin_<14 cifre>`, en restore
 af prod-dumpet): hele kæden, et 05 der dør efter dry-run'en, et 05 der dør efter commit, og fortrydelse
-i en ny pause. Uden `DAA_STANDIN_DB` går alt mod prod, og målet skal være prods faste identitet
-(`71ca6e45…`, låst i `lib.zsh`); hvert script skriver `MAAL: PROD` eller `MAAL: STAND-IN` på stderr.
+i en ny pause, et 07 der dør efter commit, og nødudgangen efter DDL'en. Uden `DAA_STANDIN_DB` går alt
+mod prod, og målet skal være prods faste identitet (`71ca6e45…`, låst i `lib.zsh`); hvert script skriver
+`MAAL: PROD` eller `MAAL: STAND-IN` på stderr. Stand-in'en bruger en dummy-adgangskode, så den ser, hvis
+adgangskoden forsvinder undervejs (R2-fund: en EXIT-trap i en funktion slettede den straks; rettet med
+`setopt POSIX_TRAPS`, og hvert script stopper nu, hvis `PGPASSWORD` er tom efter forbindelsen).
 
 ## 1. Adgangskrav
 
@@ -36,6 +40,16 @@ i en ny pause. Uden `DAA_STANDIN_DB` går alt mod prod, og målet skal være pro
   din shell. Kør aldrig med `zsh -x`.
 
 ## 2. Rækkefølge
+
+**Prøve før dagen (læse-kun, anbefalet).** Bekræfter i prod, at forbindelsen holder, at målet stadig er
+`71ca6e45…` (sidst set 18/9), og giver skemaets fingeraftryk før DDL'en, som AI'en kan holde op mod en
+restore af det seneste dump:
+
+```bash
+/bin/zsh -f ~/.private/omseg-prod/00-freeze.sh begin
+/bin/zsh -f ~/.private/omseg-prod/01-preflight.sh         # udskriver PREFLIGHT_OK … skema=<md5>
+/bin/zsh -f ~/.private/omseg-prod/00-freeze.sh end --uden-apply
+```
 
 Hvert script udskriver `DAA_…=`-linjer; eksportér dem, før næste trin køres. Afvigelser er STOP.
 
@@ -56,14 +70,18 @@ Hvad hvert trin kræver (tallene er målt i rehearsal 2026-09-27 og i stand-in-k
 
 1. **01:** tilstand `591|868|591|0|0|0|1` (person_post, klausuler, `clause_evidence`, revisionsprofiler,
    aktive autorisationer, fortolkninger, redaktion), dispositioner 617/251, DDL'en ikke kørt,
-   restore-privilegier, anon-rolle. Kanonisk md5 og anon-hash gemmes som reference.
+   restore-privilegier, anon-rolle. Kanonisk md5, anon-hash og skemaets fingeraftryk før DDL'en gemmes
+   som reference (objektlisten, navn + md5, ligger ved siden af som `preflight-….schema.txt`). Fingeraftrykket
+   tages med `search_path` låst til `pg_catalog`, så rollens søgesti ikke ændrer gengivelsen.
 2. **02:** dumpet starter efter pausen; kvitteringen bindes af 03 og tjekkes af 04/05.
-3. **03:** restore = preflight (tilstand, kanonisk, anon); DDL to gange med samme skema-fingeraftryk og
+3. **03:** restore = preflight (tilstand, kanonisk, anon **og skema**: en forskel mellem prod og restoren
+   stopper her, lokalt, før prod røres); DDL to gange med samme skema-fingeraftryk og
    0 `WARNING`; F1 = `2f4b079b…`; apply → `match`; fortryd (U = `69f13caa…`) → `match` og sæt-hashes
    tilbage til `8d46a529…`; frem igen → `match` og `1bad2e97…`; fuld db-verify (kun lokalt).
-4. **04:** alle bindinger før første skrivning; 0 `change_set` efter dump-start; derefter
+4. **04:** alle bindinger før første skrivning; 0 `change_set` efter dump-start; prods skema =
+   preflight's (sidste kontrol før skrivning); derefter
    `db-migrations.sql` (egne BEGIN/COMMIT), `db-rls.sql --single-transaction`, `NOTIFY pgrst`. Efter:
-   levende verify-blok, 0 `WARNING`, skema-fingeraftryk = rehearsal, 868/868 NULL-sæt, kanonisk og anon
+   levende verify-blok, 0 `WARNING:`-meddelelser (prods DDL 17/9 gav 0), skema-fingeraftryk = rehearsal, 868/868 NULL-sæt, kanonisk og anon
    uændrede. Afbrudt midtvejs: bevar alt, kør 04 igen med `DAA_DDL_GENKOERSEL=ja` (filen er idempotent).
 5. **05:** før-projektion → F1 skal være `2f4b079b…` (ellers har prods klausuler flyttet sig). Dry-run er
    **første datamutation** (writer-profilrækken; readback `b72ddf5f…`). Apply → `finalized`, replay
@@ -74,9 +92,21 @@ Hvad hvert trin kræver (tallene er målt i rehearsal 2026-09-27 og i stand-in-k
 **Hvis 05 stopper efter dry-run'en** (fx tabt forbindelse omkring commit): **kør ikke 05 blindt igen.**
 Kør `/bin/zsh -f ~/.private/omseg-prod/08-afgoer.sh <05's apply-mappe>` (læse-kun, samme miljø):
 
-- `INTET_COMMITTET` → kør 05 igen i samme pause; det genkender profilrækken fra første dry-run.
+- 08 venter ikke: holder en anden session af samme bruger stadig en advisory-lås, stopper den (kør igen
+  om lidt). Den viser antallet af aktive autorisationer.
+- `INTET_COMMITTET` → kør 05 igen i samme pause; det genkender profilrækken fra første dry-run. Står der
+  »en autorisation er udstedt og ubrugt«, så vent til den er udløbet (højst 30 min.) før genkørslen.
 - `APPLY_COMMITTET` → 08 skriver `apply.json` (eksportér `DAA_APPLY_REPORT…`) → kør 06 og `00 end`.
 - alt andet → NO-GO: bevar alt, hold pausen, eskalér.
+
+**Nødudgang: STOP før skrivning.** Stopper et trin, før data er skrevet (preflight, rehearsal, 04 før
+eller efter DDL'en, advisor-fund, F1-afvigelse i 05), ophæves pausen med
+`/bin/zsh -f ~/.private/omseg-prod/00-freeze.sh end --uden-apply`. Den kræver, at øjebliksbilledet fra
+`begin` (antal observationer, reimport-hændelser og -batches, aktive autorisationer, fortolkninger,
+redaktionsprofiler, `change_set`) samt kanonisk og anon er uændrede; writer-profilrækker fra en dry-run
+er tilladt. DDL'en må være kørt (den er additiv) og noteres i slutrapporten. Efter en afbrydelse med
+DDL'en i prod kan kæden ikke startes forfra uden ændringer (01 og 03 kræver, at DDL'en mangler): eskalér.
+Ved en skema-afvigelse: diff `schema-*.txt` i runmapperne (navn + md5, ingen data).
 
 ## 3. Fortrydelse
 
@@ -89,6 +119,11 @@ Kør `/bin/zsh -f ~/.private/omseg-prod/08-afgoer.sh <05's apply-mappe>` (læse-
 /bin/zsh -f ~/.private/omseg-prod/07-fortryd.sh --jeg-mener-det
 /bin/zsh -f ~/.private/omseg-prod/00-freeze.sh end        # 07 skriver selv verify-ok.json
 ```
+
+Dumpet skal være taget efter F1's `finalized_at` (07 tjekker det). Stopper 07 efter dry-run'en (fx
+tabt forbindelse), så kør **ikke** 07 igen, men `07-fortryd.sh --afgoer <runmappe>` (læse-kun; 07
+udskriver mappen, før første skrivning): `INTET_COMMITTET` → kør 07 igen; `FORTRYD_OK` → U nåede at
+committe, er verificeret mod målingen lige før (`pre.json`), og `verify-ok.json` er skrevet.
 
 07 kræver tilstanden efter apply (`984|787|197|51|1`, sæt-hashes `1bad2e97…`), at U er præcis
 `69f13caa…`, og efter skrivningen `match` (51 records, 197/116, 77/120), sæt-hashes tilbage til
@@ -107,7 +142,7 @@ GO-hash-filen kan ikke genskabes.
 ## 4. Stopregler
 
 Enhver afvigelse fra tallene i §2 og rehearsalrapporten er STOP og bevarer alt. Særligt:
-restore-fejl ud over `supabase_vault`; verify-blokken fejler; F1-hash afviger; nye advisor-fund;
+restore-fejl ud over `supabase_vault`; skema-fingeraftryk afviger; verify-blokken fejler; F1-hash afviger; nye advisor-fund;
 `CLAUSE_REVISION_*`-afvisninger; komparator ≠ `match`; kanonisk eller anon-drift.
 
 ## 5. Efter kørslen
