@@ -44,6 +44,10 @@ LEGACY_CACHE_KEY_FIELDS = ("profile_id", "profile_version", "model", "prompt_sha
                            "record_input_sha256", "claims_schema_sha256",
                            "runner_contract_version")
 LEGACY_RUNNER_CONTRACT_VERSION = "evidence-runner-1.0"
+#: Svar skrevet før `tool_use`-værnet (review 35, P1): strømmen er ikke gemt, så det
+#: kan ikke efterprøves, om modellen kørte noget.  De må kun bruges til at genbygge
+#: de historiske 4.3b/4.5-manifester — udtrykkeligt, med flag.
+PRE_P1_RUNNER_CONTRACTS = {"evidence-runner-1.0", "evidence-runner-1.1", "evidence-runner-1.2"}
 
 
 def parse_cached_raw_claims(raw: str) -> list:
@@ -222,6 +226,8 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--cache-key", choices=["legacy", "current"], default="legacy")
     ap.add_argument("--bundles", help="kommasepareret; default: hele manifestet")
+    ap.add_argument("--historisk-foer-p1", action="store_true",
+                    help="tillad svar fra kontrakt 1.0-1.2 (kun til genbygning af 4.3b/4.5)")
     ap.add_argument("--expect-runner-manifest-sha256", required=True,
                     help="4.3b's godkendte manifest-hash — bygningen stopper, hvis "
                          "forslagene ikke stammer fra netop den kørsel")
@@ -232,6 +238,12 @@ def main() -> int:
         verify_runner_manifest(runner_manifest, args.expect_runner_manifest_sha256)
     except ValueError as exc:
         print(str(exc))
+        return 1
+    kontrakt_foer = (LEGACY_RUNNER_CONTRACT_VERSION if args.cache_key == "legacy"
+                     else runner_manifest["runner_contract_version"])
+    if kontrakt_foer in PRE_P1_RUNNER_CONTRACTS and not args.historisk_foer_p1:
+        print(f"PRE_P1_CACHE_REFUSED {kontrakt_foer} — svar fra før værktøjsværnet (review 35, "
+              "P1) bruges kun med --historisk-foer-p1.")
         return 1
 
     runner_input = json.loads(Path(args.runner_input).read_text(encoding="utf-8"))["records"]

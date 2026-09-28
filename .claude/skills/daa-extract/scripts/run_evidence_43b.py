@@ -30,6 +30,15 @@ from evidence_runner import (ResponseCache, build_gate_profile, build_gated_argv
                              run_record_guarded, sha256_text)
 
 
+#: Udfald, der stopper bundtet: `tool_use` er et brud på grænsen (review 35, P1), og
+#: `quota_exhausted` er spec §6.6's stopbetingelse.  Næste record sendes ikke.
+STOP_KINDS = ("tool_use", "quota_exhausted")
+
+
+def stop_reason(error_kind: str | None) -> str | None:
+    return f"STOP_{error_kind.upper()}" if error_kind in STOP_KINDS else None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", required=True)
@@ -66,9 +75,14 @@ def main() -> int:
     skema_sti = Path(__file__).resolve().parents[1] / "references" / "evidence-claims-1.0.json"
     skema_tekst = skema_sti.read_text(encoding="utf-8")
     # Den godkendte kontrakt genvalideres FØR første kald (4.5-review, fund 3).
+    try:
+        codex_version = evidence_runner.codex_cli_version()
+    except evidence_runner.RunnerError as exc:
+        print(f"{exc} — Codex-versionen kan ikke aflæses. Intet sendes.")
+        return 1
     fejl = check_contract(manifest, schema_text=skema_tekst,
                           runner_contract_version=evidence_runner.RUNNER_CONTRACT_VERSION,
-                          code_sha256=runner_code_sha256())
+                          code_sha256=runner_code_sha256(), codex_cli_version=codex_version)
     if fejl:
         print(f"{fejl} — kørselsmiljøet er ikke det, der blev givet GO til. Intet sendes.")
         return 1
@@ -85,7 +99,19 @@ def main() -> int:
     print(f"== {args.bundle}: {len(keys)} records ==\n")
 
     resultater, ark = [], []
+    stoppet = None
     for key in keys:
+        # CLI'en kan opdatere sig selv midt i et bundt; versionen tjekkes før HVERT kald.
+        try:
+            nu = evidence_runner.codex_cli_version()
+        except evidence_runner.RunnerError as exc:
+            print(f"{exc} før {key} — stopper. Intet mere sendes.")
+            stoppet = "RUNNER_CODEX_VERSION_UNKNOWN"
+            break
+        if nu != manifest["codex_cli_version"]:
+            print(f"CODEX_VERSION_DRIFT før {key} — stopper. Intet mere sendes.")
+            stoppet = "CODEX_VERSION_DRIFT"
+            break
         rec = runner_input[key]
         ident = {
             "profile_id": manifest["profile_id"], "profile_version": manifest["profile_version"],
@@ -153,6 +179,10 @@ def main() -> int:
                   f"{udfald.usage['output_tokens']} ud / "
                   f"{udfald.usage['reasoning_output_tokens']} reasoning")
 
+        if stop_reason(udfald.error_kind):
+            stoppet = stop_reason(udfald.error_kind)
+            print(f"{stoppet} ved {key} — bundtet stopper. Intet mere sendes.")
+
         # Bedømmelsesarket er det ENESTE sted, teksten står. 0600, uden for repoet.
         ark.append({
             "record_key": key,
@@ -163,6 +193,8 @@ def main() -> int:
             "forventede_udtraek": "UDFYLDES AF MENNESKET: hvilke udsagn i teksten burde "
                                   "have givet et claim? (grundlag for dækningsmålet)",
         })
+        if stoppet:
+            break
 
     # `delvis` TÆLLER MED: recorden har en valideret post, blot ikke alle claims.
     # Tabet står i regnskabet via antallet af afviste. Samme regel som batch_status —
@@ -174,6 +206,8 @@ def main() -> int:
           f"· {tokens:,} input-tokens ==")
     if green != len(keys):
         print("BATCH_PENDING — ikke alle records har en valideret post.")
+    if stoppet:
+        print(f"BUNDLE_STOPPED {stoppet}")
 
     Path(args.out).write_text(json.dumps(
         {"bundle": args.bundle, "manifest_sha256": manifest["manifest_sha256"],
@@ -185,7 +219,7 @@ def main() -> int:
     print(f"\nresultat:          {args.out}")
     print(f"bedømmelsesark:    {sheet}  (indeholder tekst — 0600, uden for repoet)")
     print(f"ark-sha256:        {sha256_text(sheet.read_text(encoding='utf-8'))}")
-    return 0 if green == len(keys) else 1
+    return 0 if green == len(keys) and not stoppet else 1
 
 
 if __name__ == "__main__":

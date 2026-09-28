@@ -362,7 +362,8 @@ def test_missing_usage_on_a_successful_turn_is_unknown_not_zero():
 
 def test_every_taxonomy_kind_from_the_spec_exists():
     assert ERROR_KINDS == {"quota_exhausted", "model_refusal", "schema_violation",
-                           "timeout", "validation_failed", "unknown", "not_eligible"}
+                           "timeout", "validation_failed", "unknown", "not_eligible",
+                           "tool_use"}
 
 
 @pytest.mark.parametrize("fixture,forventet", [
@@ -407,7 +408,18 @@ def test_cache_key_covers_schema_and_runner_version():
 
 
 def test_runner_contract_is_bumped_for_the_clause_set_key():
-    assert evidence_runner.RUNNER_CONTRACT_VERSION == "evidence-runner-1.2"
+    # 1.2 indførte klausulsættet; 1.3 (P1) bevarer nøglens felter.
+    assert evidence_runner.RUNNER_CONTRACT_VERSION == "evidence-runner-1.3"
+    assert evidence_runner.CACHE_KEY_FIELDS_BY_CONTRACT["evidence-runner-1.2"] \
+        == evidence_runner.CACHE_KEY_FIELDS
+
+
+def test_a_12_answer_is_not_reused_under_13(tmp_path):
+    """P1: et 1.2-svar kan stamme fra et kald, der kørte en kommando.  Strømmen står
+    ikke i cachen, så svaret kan ikke efterprøves — kontrakten i nøglen udelukker det."""
+    cache = ResponseCache(tmp_path)
+    cache.put(cache_ident(runner_contract_version="evidence-runner-1.2"), raw="{}", usage={})
+    assert cache.get(cache_ident()) is None
 
 
 def cache_ident(**overrides):
@@ -600,6 +612,147 @@ def test_failure_log_carries_type_and_record_key_but_never_text(tmp_path):
     rendered = outcome.log_line()
     assert "model_refusal" in rendered and "I-42" in rendered
     assert hemmelig not in rendered
+
+
+# --- review 35, P1: modellen må ikke bruge værktøjer ------------------------
+
+GYLDIGT_SVAR = json.dumps({"claims": [{"clause_ordinals": [1], "predicate": "person.birth",
+                                       "value": "1. jan. 1800", "confidence": 1.0,
+                                       "source_persona_id": "persona-1"}]})
+
+
+def stream_with_item(item_type):
+    """En ellers vellykket tur, hvor modellen har brugt ét værktøj af typen."""
+    return "\n".join(json.dumps(e) for e in (
+        {"type": "thread.started", "thread_id": "t"},
+        {"type": "turn.started"},
+        {"type": "item.started", "item": {"id": "i0", "type": item_type}},
+        {"type": "item.completed", "item": {"id": "i0", "type": item_type}},
+        {"type": "item.completed", "item": {"id": "i1", "type": "agent_message",
+                                            "text": GYLDIGT_SVAR}},
+        {"type": "turn.completed", "usage": {"input_tokens": 1, "cached_input_tokens": 0,
+                                             "output_tokens": 1}},
+    ))
+
+
+def test_the_canary_stream_is_refused_even_with_a_valid_answer(tmp_path):
+    """Kanarien (11/9) læste en fil uden for call-dir med en shellkommando.  Svaret
+    kan være gyldigt; det afgørende er, at modellen KØRTE noget.  Det er et brud på
+    grænsen, ikke et kvalitetsspørgsmål — og det må aldrig ende i cachen som grønt."""
+    cache = ResponseCache(tmp_path)
+    outcome = run_record(export(), ident=cache_ident(), cache=cache,
+                         run=seam_returning("sandbox-canary-read-outside-cwd.jsonl",
+                                            GYLDIGT_SVAR))
+    assert outcome.status == "failed" and outcome.error_kind == "tool_use"
+    assert outcome.usage is not None      # forbruget er brugt og skal stå i regnskabet
+    assert cache.get(cache_ident()) is None
+
+
+@pytest.mark.parametrize("item_type", ["command_execution", "file_change", "mcp_tool_call",
+                                       "web_search", "et_fremtidigt_vaerktoej"])
+def test_any_item_other_than_answer_or_reasoning_fails_closed(tmp_path, item_type):
+    """Tilladelsesliste, ikke forbudsliste: en ny værktøjstype i en senere CLI-version
+    skal fælde recorden, ikke glide igennem."""
+    outcome = run_record(export(), ident=cache_ident(), cache=ResponseCache(tmp_path),
+                         run=lambda argv, **kw: (stream_with_item(item_type), GYLDIGT_SVAR))
+    assert outcome.status == "failed" and outcome.error_kind == "tool_use"
+
+
+def test_a_failed_turn_keeps_its_failure_kind_even_with_tool_use(tmp_path):
+    """Spec §6.6 stopper på `quota_exhausted`: en fejlet tur skal klassificeres som
+    før, også hvis modellen nåede at bruge et værktøj.  Recorden fældes under alle
+    omstændigheder og caches aldrig."""
+    stream = "\n".join(json.dumps(e) for e in (
+        {"type": "turn.started"},
+        {"type": "item.completed", "item": {"id": "i0", "type": "command_execution"}},
+        {"type": "turn.failed", "error": {"type": "usage_limit_reached"}},
+    ))
+    cache = ResponseCache(tmp_path)
+    outcome = run_record(export(), ident=cache_ident(), cache=cache,
+                         run=lambda argv, **kw: (stream, GYLDIGT_SVAR))
+    assert outcome.status == "failed" and outcome.error_kind == "quota_exhausted"
+    assert cache.get(cache_ident()) is None
+
+
+def test_a_failed_turn_with_tool_use_is_tool_use_unless_quota(tmp_path):
+    """En fejlet tur af ukendt type efter værktøjsbrug skal stå som `tool_use` — ellers
+    skjules bruddet i loggen, og bundtet stopper ikke (review af P1)."""
+    stream = "\n".join(json.dumps(e) for e in (
+        {"type": "turn.started"},
+        {"type": "item.completed", "item": {"id": "i0", "type": "command_execution"}},
+        {"type": "turn.failed", "error": {"type": "noget_andet"}},
+    ))
+    outcome = run_record(export(), ident=cache_ident(), cache=ResponseCache(tmp_path),
+                         run=lambda argv, **kw: (stream, GYLDIGT_SVAR))
+    assert outcome.error_kind == "tool_use"
+
+
+def test_an_error_item_is_not_tool_use(tmp_path):
+    """CLI'ens `error`-items er meddelelser, ikke værktøjer; en fejlet tur afgøres af
+    `turn.failed`.  Et `error`-item alene må ikke gøre en kvotefejl til `tool_use`."""
+    assert evidence_runner.tool_items(stream_with_item("error")) == []
+
+
+@pytest.mark.parametrize("ekstra", ['{"type":"item.completed","item":{"type":"command_exec',
+                                    '{"type":"noget.nyt"}', '[1, 2]', '"streng"'])
+def test_an_unreadable_or_unknown_event_fails_closed(ekstra):
+    """Review af P1: en afkortet linje kan være et værktøjs-item; en ukendt hændelse
+    kan være en ny form.  Begge fælder recorden i stedet for at blive sprunget over."""
+    assert evidence_runner.tool_items(stream_with_item("reasoning") + "\n" + ekstra) != []
+
+
+def test_codex_gets_a_minimal_environment():
+    miljoe = {"PATH": "/usr/bin", "HOME": "/Users/x", "TMPDIR": "/t", "GH_TOKEN": "hemmelig",
+              "PGPASSWORD": "hemmelig", "PGHOST": "prod", "OPENAI_API_KEY": "hemmelig"}
+    assert evidence_runner.codex_env(miljoe) == {"PATH": "/usr/bin", "HOME": "/Users/x", "TMPDIR": "/t"}
+
+
+def test_run_codex_passes_only_the_minimal_environment(monkeypatch):
+    set_env = {}
+    class Faerdig:
+        stdout = ""
+    def fake_run(argv, **kw):
+        set_env.update(kw.get("env") or {"MANGLER": "1"})
+        return Faerdig()
+    monkeypatch.setenv("GH_TOKEN", "hemmelig")
+    monkeypatch.setattr(evidence_runner.subprocess, "run", fake_run)
+    evidence_runner.run_codex(["codex"], cwd="/tmp")
+    assert "GH_TOKEN" not in set_env and "MANGLER" not in set_env and "PATH" in set_env
+
+
+@pytest.mark.parametrize("fejl", [FileNotFoundError, OSError])
+def test_a_missing_codex_is_a_named_error(fejl):
+    def run(argv):
+        raise fejl()
+    with pytest.raises(RunnerError, match="RUNNER_CODEX_VERSION_UNKNOWN"):
+        evidence_runner.codex_cli_version(run=run)
+
+
+def test_reasoning_items_are_allowed(tmp_path):
+    outcome = run_record(export(), ident=cache_ident(), cache=ResponseCache(tmp_path),
+                         run=lambda argv, **kw: (stream_with_item("reasoning"), GYLDIGT_SVAR))
+    assert outcome.status == "green"
+
+
+def test_the_gated_fixtures_carry_no_tool_use():
+    """Positiv kontrol: strømmene fra kald bag gaten fælder ikke værnet."""
+    for navn in ("sandbox-gate-denies-model.jsonl", "sandbox-allowlist-denies-model.jsonl",
+                 "turn-completed-with-usage.jsonl"):
+        assert evidence_runner.tool_items(read_fixture(navn)) == []
+    assert evidence_runner.tool_items(read_fixture("sandbox-canary-read-outside-cwd.jsonl")) \
+        == ["command_execution"]
+
+
+# --- review 35, P1: Codex-versionen er bundet --------------------------------
+
+def test_codex_version_is_read_from_the_cli():
+    assert evidence_runner.codex_cli_version(run=lambda argv: "codex-cli 0.155.1\n") == "0.155.1"
+
+
+@pytest.mark.parametrize("output", ["", "codex 0.155.1", "codex-cli\n", "codex-cli 0.155.1 extra"])
+def test_an_unreadable_codex_version_is_an_error_not_a_guess(output):
+    with pytest.raises(RunnerError, match="RUNNER_CODEX_VERSION_UNKNOWN"):
+        evidence_runner.codex_cli_version(run=lambda argv: output)
 
 
 # --- batch-optælling (spec §6.3) ------------------------------------------
@@ -866,12 +1019,78 @@ from evidence_runner import build_gate_profile, build_gated_argv
 
 
 def test_gate_profile_closes_the_home_directory(tmp_path):
-    profil = build_gate_profile(call_dir="/tmp/kald", home="/Users/x", extra_deny=[])
+    profil = build_gate_profile(call_dir="/private/tmp/kald", home="/Users/x", extra_deny=[])
     assert '(deny file-read* (subpath "/Users/x"))' in profil
-    assert '(allow file-read* (subpath "/tmp/kald"))' in profil
+    assert '(allow file-read* (subpath "/private/tmp/kald"))' in profil
     # ~/Library må IKKE stå der: den var åben i et tidligere udkast, og
     # ~/Library/Keychains var læsbar med den.
     assert "/Users/x/Library" not in profil
+
+
+GATE_DENIES = ("/private/tmp", "/private/var/folders", "/opt/homebrew/var",
+               "/Users/Shared", "/Volumes")
+
+
+@pytest.mark.parametrize("sti", GATE_DENIES)
+def test_gate_profile_closes_pii_outside_home(sti):
+    """Review 35, P1: lokale prod-kopier og scratch-mapper ligger UDEN for hjemmemappen."""
+    profil = build_gate_profile(call_dir="/private/tmp/kald", home="/Users/x")
+    assert f'(deny file-read* (subpath "{sti}"))' in profil
+
+
+def test_gate_profile_closes_local_postgres():
+    """P1: lokal Postgres kører `trust` — både TCP og socket skal være lukket (målt 28/9)."""
+    profil = build_gate_profile(call_dir="/private/tmp/kald", home="/Users/x")
+    assert '(deny network-outbound (remote tcp "localhost:*"))' in profil
+    # Alle unix-sockets undtagen DNS (review af P1: ssh-agent, docker m.fl.).
+    assert profil.index("(deny network-outbound (remote unix-socket))") < profil.index(
+        '(allow network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))')
+    assert '(deny network-outbound (remote unix-socket (path-regex #"/\\.s\\.PGSQL\\.")))' in profil
+
+
+def test_call_dir_is_reopened_after_every_deny():
+    """Seatbelt: sidste matchende regel vinder.  Genåbnes call-dir før en spærring af
+    dens forældermappe, er call-dir lukket, og kaldet fejler — eller omvendt, hvis
+    rækkefølgen byttes, står forældermappen åben."""
+    profil = build_gate_profile(call_dir="/private/tmp/kald", home="/Users/x",
+                                extra_deny=["/tmp/syntetisk-pii"])
+    sidste_allow = profil.rindex('(allow file-read* (subpath "/private/tmp/kald"))')
+    sidste_deny = max(profil.rindex(f'(deny file-read* (subpath "{s}"))') for s in GATE_DENIES)
+    assert sidste_allow > sidste_deny
+    assert sidste_allow > profil.rindex('(deny file-read* (subpath "/tmp/syntetisk-pii"))')
+
+
+def test_gate_profile_denies_every_write_but_the_call_dir():
+    """Review af P1, fund 1: kun HOME, /private/tmp og /opt/homebrew/var var spærret for
+    skrivning — codex-binæren i ~/.codex, /opt/homebrew/bin og /Users/Shared stod åbne.
+    Målt 2026-09-28: et `--ephemeral`-kald skriver intet uden for call-dir."""
+    profil = build_gate_profile(call_dir="/private/tmp/kald", home="/Users/x")
+    spaerring = profil.index("(deny file-write*)\n")
+    assert profil.rindex('(allow file-write* (subpath "/private/tmp/kald"))') > spaerring
+    assert profil.count("(allow file-write*") == 3     # /dev, installation_id, call-dir
+    assert '(allow file-write* (literal "/Users/x/.codex/installation_id"))' in profil
+    aabne = profil[spaerring:]
+    for lukket in ("/Users/x/.codex/packages", "config.toml", "AGENTS.md", "hooks.json",
+                   "/Users/x/.codex/rules", "/Users/x/.codex/skills", "/Users/x/.codex/plugins",
+                   "memories_1", "goals_1", "/opt/homebrew", "/Users/Shared"):
+        assert lukket not in aabne.split("; Kaldet virker")[-1], lukket
+    assert '(allow file-write* (subpath "/Users/x/.codex"))' not in profil
+
+
+def test_gate_profile_resolves_the_call_dir(tmp_path):
+    """På macOS er /var/folders et symlink til /private/var/folders; Seatbelt matcher den
+    opløste sti, så en uopløst call-dir ville ikke blive genåbnet.  Testen bygger sit
+    eget symlink, så den også gælder på CI's Linux."""
+    aegte = tmp_path / "aegte"; aegte.mkdir()
+    genvej = tmp_path / "genvej"; genvej.symlink_to(aegte)
+    profil = build_gate_profile(call_dir=str(genvej), home="/Users/x")
+    assert f'(allow file-read* (subpath "{aegte.resolve()}"))' in profil
+    assert f'(subpath "{genvej}")' not in profil
+
+
+def test_gate_profile_has_no_unfilled_placeholder():
+    profil = build_gate_profile(call_dir="/private/tmp/kald", home="/Users/x")
+    assert "__" not in profil.replace("__init__", "")
 
 
 def test_gate_profile_takes_extra_denies():

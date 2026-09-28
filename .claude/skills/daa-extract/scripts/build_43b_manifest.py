@@ -52,7 +52,7 @@ def bundles_of(manifest: dict) -> dict[str, list[str]]:
 
 def build_manifest(udvalg: dict, *, dagsvaerk: str, restore_identity: str,
                    ledger_sha256: str, profil: dict, claims_schema_sha256: str,
-                   code_sha256: str | None = None) -> dict:
+                   code_sha256: str | None = None, codex_cli_version: str | None = None) -> dict:
     manifest = {
         "schema_version": "evidence-run-manifest-1.0",
         "status": "pending",
@@ -86,12 +86,14 @@ def build_manifest(udvalg: dict, *, dagsvaerk: str, restore_identity: str,
         manifest["bundt_2"] = udvalg["bundt_2"]
     if code_sha256 is not None:
         manifest["runner_code_sha256"] = code_sha256
+    if codex_cli_version is not None:
+        manifest["codex_cli_version"] = codex_cli_version
     manifest["manifest_sha256"] = manifest_sha256(manifest)
     return manifest
 
 
 def check_contract(manifest: dict, *, schema_text: str, runner_contract_version: str,
-                   code_sha256: str) -> str | None:
+                   code_sha256: str, codex_cli_version: str) -> str | None:
     """None hvis kørselsmiljøet er det godkendte; ellers en navngivet STOP-kode."""
     if manifest_sha256(manifest) != manifest.get("manifest_sha256"):
         return "MANIFEST_TAMPERED"
@@ -101,6 +103,13 @@ def check_contract(manifest: dict, *, schema_text: str, runner_contract_version:
         return "RUNNER_CONTRACT_DRIFT"
     if "runner_code_sha256" in manifest and code_sha256 != manifest["runner_code_sha256"]:
         return "RUNNER_CODE_DRIFT"
+    # Review 35, P1: CLI'en opdaterer sig selv, og grænsens opførsel afhænger af den.
+    # Ethvert manifest SKAL binde versionen; de historiske (4.3b/4.5) stoppes allerede
+    # af RUNNER_CONTRACT_DRIFT ovenfor.
+    if "codex_cli_version" not in manifest:
+        return "CODEX_VERSION_UNBOUND"
+    if "codex_cli_version" in manifest and codex_cli_version != manifest["codex_cli_version"]:
+        return "CODEX_VERSION_DRIFT"
     return None
 
 
@@ -111,17 +120,21 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--restore-identity", required=True)
     ap.add_argument("--dagsvaerk", default="4.3b")
+    # Genbindingen af 4.4 (2026-09-28) kører piloten om under profil v2 (klausulregler v3);
+    # 4.3b/4.5 blev bygget uden flaget, så standarden står.
+    ap.add_argument("--profile-id", default="daa-2018-20-v1")
     args = ap.parse_args()
 
     udvalg = json.loads(Path(args.selection).read_text(encoding="utf-8"))
-    profil = evidence_extract.load_profile("daa-2018-20-v1")
+    profil = evidence_extract.load_profile(args.profile_id)
     evidence_extract.resolve_prompt(profil["prompt_file"], profil["prompt_sha256"])
     manifest = build_manifest(
         udvalg, dagsvaerk=args.dagsvaerk, restore_identity=args.restore_identity,
         ledger_sha256=hashlib.sha256(Path(args.ledger).read_bytes()).hexdigest(),
         profil=profil,
         claims_schema_sha256=evidence_runner.sha256_text(SKEMA.read_text(encoding="utf-8")),
-        code_sha256=None if args.dagsvaerk == "4.3b" else runner_code_sha256())
+        code_sha256=None if args.dagsvaerk == "4.3b" else runner_code_sha256(),
+        codex_cli_version=evidence_runner.codex_cli_version())
 
     out = Path(args.out)
     out.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -131,6 +144,7 @@ def main() -> int:
     print(f"  ledger_sha256:   {manifest['eligibility_ledger_sha256'][:32]}…")
     print(f"  prompt_sha256:   {manifest['prompt_sha256'][:32]}…")
     print(f"  model:           {manifest['model']}  profil {manifest['profile_version']}")
+    print(f"  codex-cli:       {manifest.get('codex_cli_version', '-')}")
     print(f"  budget:          ~{manifest['budget']['forventet_overhead_i_alt']:,} input-tokens overhead")
     return 0
 

@@ -255,7 +255,10 @@ from pathlib import Path
 #: Indgår i cache-nøglen, så et gammelt råsvar ikke genbruges under nye regler.
 #: 1.1 (2026-09-26): date_raw-værdier skal stå ordret i en citeret klausul.
 #: 1.2 (2026-09-27): klausulsættet indgår i cache-nøglen (review 35, P4).
-RUNNER_CONTRACT_VERSION = "evidence-runner-1.2"
+#: 1.3 (2026-09-28): et kald med værktøjsbrug fældes (`tool_use`, review 35, P1).  Et
+#:     1.2-svar kan være skrevet af et kald, der kørte en kommando; strømmen gemmes
+#:     ikke i cachen, så det kan ikke efterprøves og må ikke genbruges.
+RUNNER_CONTRACT_VERSION = "evidence-runner-1.3"
 
 #: Modelpolitikken er frossen (decisions 2026-09-06, valg 1).
 ALLOWED_MODELS = ("gpt-5.6-terra", "gpt-5.6-sol")
@@ -266,7 +269,16 @@ ERROR_KINDS = {"quota_exhausted", "model_refusal", "schema_violation",
                # Ikke en kørselsfejl: recorden måtte slet ikke sendes (§9.2).
                # Den står i taksonomien, så udelukkede records kan tælles frem for
                # at forsvinde ud af regnskabet.
-               "not_eligible"}
+               "not_eligible",
+               # Review 35, P1: modellen har brugt et værktøj (kørt en kommando, rørt en
+               # fil, søgt på nettet).  Et brud på grænsen, ikke et kvalitetsudfald.
+               "tool_use"}
+
+#: De eneste item-typer, et kald uden værktøjsbrug må rumme.  TILLADELSESLISTE:
+#: en ny værktøjstype i en senere CLI-version skal fælde recorden, ikke glide igennem.
+#: `error` er CLI'ens meddelelse om en fejl, ikke et værktøj; selve fejlen afgøres af
+#: `turn.failed`.
+ALLOWED_ITEM_TYPES = {"agent_message", "reasoning", "error"}
 
 #: Spec §6.3 + anden læsers R7.  De to sidste felter er R7's tilføjelse: uden dem
 #: kan et ændret outputskema eller en ændret runner genbruge et gammelt råsvar.
@@ -290,6 +302,7 @@ _PRE_CLAUSE_SET_FIELDS = tuple(f for f in CACHE_KEY_FIELDS if f != "clause_set_s
 CACHE_KEY_FIELDS_BY_CONTRACT = {
     "evidence-runner-1.0": _PRE_CLAUSE_SET_FIELDS,
     "evidence-runner-1.1": _PRE_CLAUSE_SET_FIELDS,
+    "evidence-runner-1.2": CACHE_KEY_FIELDS,
     RUNNER_CONTRACT_VERSION: CACHE_KEY_FIELDS,
 }
 
@@ -335,10 +348,88 @@ def _events(jsonl: str) -> list[dict]:
         if not line:
             continue
         try:
-            parsed.append(json.loads(line))
+            event = json.loads(line)
         except json.JSONDecodeError:
             continue  # en ulæselig linje er ikke et regnskab; den ignoreres her
+        if isinstance(event, dict):
+            parsed.append(event)
     return parsed
+
+
+#: Hændelsestyper på øverste niveau, som et kald uden værktøjsbrug kan rumme.
+_KNOWN_EVENT_TYPES = {"thread.started", "turn.started", "turn.completed", "turn.failed",
+                      "item.started", "item.updated", "item.completed", "error"}
+
+
+def tool_items(jsonl: str) -> list[str]:
+    """Item-typer i strømmen, som ikke er svar eller ræsonnement — i rækkefølge, unikke.
+
+    Review 35, P1: beskyttelsen mod, at modellen læser uden for call-dir, hvilede på,
+    at Codex' indre `--sandbox read-only` ikke kan starte inde i Seatbelt (rc=71) —
+    en utilsigtet egenskab ved en selvopdaterende binær.  Dette tjek gør det til en
+    regel: har modellen KØRT noget, er recorden fældet, uanset hvad den svarede.
+    """
+    fundne: list[str] = []
+
+    def fund(navn: str) -> None:
+        if navn not in fundne:
+            fundne.append(navn)
+
+    # Fail-closed på selve strømmen: en ulæselig linje eller en ukendt hændelsestype
+    # kan være et afkortet eller nyt værktøjs-item (review af P1).
+    for line in jsonl.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            fund("ulæselig_linje")
+            continue
+        if not isinstance(event, dict) or event.get("type") not in _KNOWN_EVENT_TYPES:
+            fund("ukendt_hændelse")
+    for event in _events(jsonl):
+        if event.get("type") not in ("item.started", "item.updated", "item.completed"):
+            continue
+        item = event.get("item")
+        item_type = item.get("type") if isinstance(item, Mapping) else None
+        if item_type not in ALLOWED_ITEM_TYPES:
+            fund(str(item_type))
+    return fundne
+
+
+#: Det eneste miljø, Codex får.  Barneprocessen arver ellers hele skallen — fx
+#: GH_TOKEN og PG-variabler — og ingen Seatbelt-filregel dækker miljøvariabler.
+_CODEX_ENV_KEYS = ("PATH", "HOME", "TMPDIR", "USER", "LANG")
+
+
+def codex_env(environ: Mapping[str, str] | None = None) -> dict:
+    source = os.environ if environ is None else environ
+    return {k: source[k] for k in _CODEX_ENV_KEYS if k in source}
+
+
+_CODEX_VERSION_RE = re.compile(r"codex-cli (\d+\.\d+\.\d+)")
+
+
+def codex_cli_version(*, run=None) -> str:
+    """Den installerede Codex-CLI's version, som den står i `codex --version`.
+
+    Review 35, P1: CLI'en opdaterer sig selv (0.153.4 d. 11/9, 0.155.1 d. 25/9), og
+    grænsens opførsel afhænger af den.  Versionen bindes derfor i manifestet, og en
+    uventet form er en fejl — aldrig et gæt.
+    """
+    if run is None:
+        def run(argv):
+            return subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True,
+                                  text=True, timeout=30, env=codex_env()).stdout
+    try:
+        output = run(["codex", "--version"])
+    except (OSError, subprocess.SubprocessError):
+        raise RunnerError("RUNNER_CODEX_VERSION_UNKNOWN") from None
+    match = _CODEX_VERSION_RE.fullmatch((output or "").strip())
+    if match is None:
+        raise RunnerError("RUNNER_CODEX_VERSION_UNKNOWN")
+    return match.group(1)
 
 
 def parse_usage(jsonl: str) -> dict:
@@ -471,7 +562,8 @@ def run_codex(argv: Sequence[str], *, cwd: str | None = None, timeout: int = 600
     ét privat artefakt mindre at rydde op efter.
     """
     completed = subprocess.run(list(argv), cwd=cwd, stdin=subprocess.DEVNULL,
-                               capture_output=True, text=True, timeout=timeout)
+                               capture_output=True, text=True, timeout=timeout,
+                               env=codex_env())
     return completed.stdout, extract_last_message(completed.stdout)
 
 
@@ -513,6 +605,29 @@ def run_record(export: Mapping[str, Any], *, ident: Mapping[str, Any], cache: Re
         events, last_message = run(argv or [], cwd=cwd)
     except subprocess.TimeoutExpired:
         return RecordOutcome(record_key, "failed", error_kind="timeout")
+
+    # En fejlet tur klassificeres som før (spec §6.6 stopper på `quota_exhausted`);
+    # recorden er fældet og caches ikke, uanset værktøjsbrug.
+    if any(event.get("type") == "turn.failed" for event in _events(events)):
+        try:
+            usage = parse_usage(events)
+        except RunnerError:
+            usage = None
+        kind = classify_failure(events, exit_code=1)
+        # Kvote bevarer sin type (§6.6's stop); ellers vinder værktøjsbruget, så bruddet
+        # står i loggen og stopper bundtet (review af P1).
+        if kind != "quota_exhausted" and tool_items(events):
+            kind = "tool_use"
+        return RecordOutcome(record_key, "failed", usage=usage, error_kind=kind)
+
+    # Derefter værktøjsbrug, FØR svaret læses: et gyldigt svar redder ikke et kald, der
+    # har kørt en kommando, og det må aldrig nå cachen (review 35, P1).
+    if tool_items(events):
+        try:
+            usage = parse_usage(events)
+        except RunnerError:
+            usage = None
+        return RecordOutcome(record_key, "failed", error_kind="tool_use", usage=usage)
 
     try:
         usage = parse_usage(events)
@@ -715,8 +830,13 @@ def build_gate_profile(*, call_dir: str, home: str, extra_deny: Sequence[str] = 
     """
     template = (Path(__file__).resolve().parent / "sandbox" / "runner-gate.sb.template")
     profile = template.read_text(encoding="utf-8")
+    # Seatbelt matcher den OPLØSTE sti: /var/folders og /tmp er symlinks til /private/…,
+    # og en uopløst call-dir ville ikke blive genåbnet efter spærringen af dem.
+    call_dir = os.path.realpath(call_dir)
     denies = "\n".join(f'(deny file-read* (subpath "{path}"))' for path in extra_deny)
-    return (profile.replace("__HOME__", home)
+    codex_dir = os.path.realpath(os.path.join(home, ".codex"))
+    return (profile.replace("__CODEX_DIR__", codex_dir)
+                   .replace("__HOME__", home)
                    .replace("__CALL_DIR__", call_dir)
                    .replace("__EXTRA_DENY__", denies))
 

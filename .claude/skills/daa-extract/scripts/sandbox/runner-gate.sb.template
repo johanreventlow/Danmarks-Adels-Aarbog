@@ -19,11 +19,19 @@
 ;     spærret. Kald ALTID med call-dir som cwd.
 ;  2. `(deny file-read*)` som udgangspunkt (ren allowlist over HELE filsystemet)
 ;     knækker dyld: selv /bin/echo dør med SIGABRT. Systemstierne skal forblive
-;     åbne; det er hjemmemappen, der er den interessante grænse, fordi al PII bor der.
+;     åbne.
 ;
-; Codex må IKKE sandboxe sig selv indeni: nestet Seatbelt fejler. Brug enten
-; `--sandbox read-only` UDEN ydre sandbox, eller denne ydre grænse — ikke begge som
-; indbyrdes afhængige. (Målt: `--sandbox read-only` virker fint inde i denne profil.)
+; HJEMMEMAPPEN ER IKKE HELE GRÆNSEN (review 35, P1, målt 2026-09-25): lokale
+; prod-kopier ligger i PG-datamappen under /opt/homebrew/var, scratch-mapper med
+; PII under /private/tmp og /private/var/folders, og lokal Postgres kører `trust`
+; på socket og TCP. Derfor spærres de stier og begge veje til Postgres nedenfor, og
+; call-dir genåbnes SIDST (i Seatbelt vinder den sidste matchende regel).
+;
+; Nestet Seatbelt: Codex' egen `--sandbox read-only` kan ikke starte inde i denne
+; profil (`sandbox_apply: Operation not permitted`, rc=71). Det er IKKE et værn —
+; det er en egenskab ved en selvopdaterende binær. Værnene er denne profil,
+; runnerens `tool_use`-afvisning (et kald, der har kørt noget, fældes) og
+; Codex-versionen bundet i manifestet.
 ;
 ; Placeholders erstattes af kalderen: __HOME__, __CALL_DIR__, __EXTRA_DENY__
 ;
@@ -58,3 +66,41 @@
 
 ; --- Ekstra spærringer fra kalderen (fx en syntetisk mappe under test) ---
 __EXTRA_DENY__
+
+; --- PII uden for hjemmemappen (review 35, P1) ---
+(deny file-read* (subpath "/private/tmp"))
+(deny file-read* (subpath "/private/var/folders"))
+(deny file-read* (subpath "/opt/homebrew/var"))
+(deny file-read* (subpath "/Users/Shared"))
+(deny file-read* (subpath "/Volumes"))
+
+; --- Lokal Postgres (`trust`): TCP på loopback og socket'en ---
+; Målt 2026-09-28: uden disse lykkes `psql -h 127.0.0.1` og `-h /tmp` inde i profilen;
+; med dem fejler begge, mens https til API'et stadig virker. Udgående net kan ikke
+; spærres generelt — API'et kræver det. FORUDSÆTNING: lokal PG lytter kun på
+; `localhost` (listen_addresses, målt 2026-09-28). Lytter den på '*', er maskinens
+; LAN-adresse en fjerde vej, som denne regel IKKE dækker.
+(deny network-outbound (remote tcp "localhost:*"))
+(deny network-outbound (remote unix-socket (path-regex #"/\.s\.PGSQL\.")))
+; Alle andre unix-sockets (ssh-agent, docker, cmux m.fl.) — connect er ikke file-read,
+; så læsespærringerne dækker dem ikke. Kun DNS er åben (målt: uden den hænger kaldet).
+(deny network-outbound (remote unix-socket))
+(allow network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))
+
+; --- Skrivning: spærret som udgangspunkt; kun en MÅLT liste er åben ---
+; En spærring af udvalgte mapper lod codex-binæren (~/.codex/packages), config.toml,
+; AGENTS.md, /opt/homebrew/bin og /Users/Shared stå åbne (review af P1). Målt 2026-09-28
+; (codex-cli 0.155.1) ved at fjerne én sti ad gangen: kaldet kræver KUN, at
+; ~/.codex/installation_id kan skrives — uden den fejler det med "failed to initialize
+; in-process app-server client". Alt andet i ~/.codex er lukket: binæren (packages/),
+; config.toml, AGENTS.md, hooks.json, rules/, skills/, plugins/, sqlite-tilstanden,
+; tmp/ (arg0 på PATH) og shell_snapshots/ — alt, der kan styre en SENERE Codex-session.
+; Ny CLI-version: mål igen (Seatbelts afvisningslog: log show --predicate
+; 'sender == "Sandbox"').
+(deny file-write*)
+(allow file-write* (literal "/dev/null") (literal "/dev/tty") (literal "/dev/dtracehelper"))
+(allow file-write* (literal "__CODEX_DIR__/installation_id"))
+
+; --- call-dir genåbnes SIDST, så den vinder over spærringerne af dens forældermapper ---
+(allow file-read* (subpath "__CALL_DIR__"))
+(allow file-write* (subpath "__CALL_DIR__"))
