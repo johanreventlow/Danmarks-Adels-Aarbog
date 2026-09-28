@@ -104,8 +104,9 @@ def check_contract(manifest: dict, *, schema_text: str, runner_contract_version:
     if "runner_code_sha256" in manifest and code_sha256 != manifest["runner_code_sha256"]:
         return "RUNNER_CODE_DRIFT"
     # Review 35, P1: CLI'en opdaterer sig selv, og grænsens opførsel afhænger af den.
-    # Et manifest med kodehash (4.5 og senere) SKAL også binde versionen.
-    if "runner_code_sha256" in manifest and "codex_cli_version" not in manifest:
+    # Ethvert manifest SKAL binde versionen; de historiske (4.3b/4.5) stoppes allerede
+    # af RUNNER_CONTRACT_DRIFT ovenfor.
+    if "codex_cli_version" not in manifest:
         return "CODEX_VERSION_UNBOUND"
     if "codex_cli_version" in manifest and codex_cli_version != manifest["codex_cli_version"]:
         return "CODEX_VERSION_DRIFT"
@@ -133,7 +134,7 @@ def main() -> int:
         profil=profil,
         claims_schema_sha256=evidence_runner.sha256_text(SKEMA.read_text(encoding="utf-8")),
         code_sha256=None if args.dagsvaerk == "4.3b" else runner_code_sha256(),
-        codex_cli_version=None if args.dagsvaerk == "4.3b" else evidence_runner.codex_cli_version())
+        codex_cli_version=evidence_runner.codex_cli_version())
 
     out = Path(args.out)
     out.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")

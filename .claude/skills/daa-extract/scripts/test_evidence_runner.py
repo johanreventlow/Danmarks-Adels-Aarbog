@@ -680,6 +680,41 @@ def test_an_error_item_is_not_tool_use(tmp_path):
     assert evidence_runner.tool_items(stream_with_item("error")) == []
 
 
+@pytest.mark.parametrize("ekstra", ['{"type":"item.completed","item":{"type":"command_exec',
+                                    '{"type":"noget.nyt"}', '[1, 2]', '"streng"'])
+def test_an_unreadable_or_unknown_event_fails_closed(ekstra):
+    """Review af P1: en afkortet linje kan være et værktøjs-item; en ukendt hændelse
+    kan være en ny form.  Begge fælder recorden i stedet for at blive sprunget over."""
+    assert evidence_runner.tool_items(stream_with_item("reasoning") + "\n" + ekstra) != []
+
+
+def test_codex_gets_a_minimal_environment():
+    miljoe = {"PATH": "/usr/bin", "HOME": "/Users/x", "TMPDIR": "/t", "GH_TOKEN": "hemmelig",
+              "PGPASSWORD": "hemmelig", "PGHOST": "prod", "OPENAI_API_KEY": "hemmelig"}
+    assert evidence_runner.codex_env(miljoe) == {"PATH": "/usr/bin", "HOME": "/Users/x", "TMPDIR": "/t"}
+
+
+def test_run_codex_passes_only_the_minimal_environment(monkeypatch):
+    set_env = {}
+    class Faerdig:
+        stdout = ""
+    def fake_run(argv, **kw):
+        set_env.update(kw.get("env") or {"MANGLER": "1"})
+        return Faerdig()
+    monkeypatch.setenv("GH_TOKEN", "hemmelig")
+    monkeypatch.setattr(evidence_runner.subprocess, "run", fake_run)
+    evidence_runner.run_codex(["codex"], cwd="/tmp")
+    assert "GH_TOKEN" not in set_env and "MANGLER" not in set_env and "PATH" in set_env
+
+
+@pytest.mark.parametrize("fejl", [FileNotFoundError, OSError])
+def test_a_missing_codex_is_a_named_error(fejl):
+    def run(argv):
+        raise fejl()
+    with pytest.raises(RunnerError, match="RUNNER_CODEX_VERSION_UNKNOWN"):
+        evidence_runner.codex_cli_version(run=run)
+
+
 def test_reasoning_items_are_allowed(tmp_path):
     outcome = run_record(export(), ident=cache_ident(), cache=ResponseCache(tmp_path),
                          run=lambda argv, **kw: (stream_with_item("reasoning"), GYLDIGT_SVAR))
@@ -1007,6 +1042,22 @@ def test_call_dir_is_reopened_after_every_deny():
     sidste_deny = max(profil.rindex(f'(deny file-read* (subpath "{s}"))') for s in GATE_DENIES)
     assert sidste_allow > sidste_deny
     assert sidste_allow > profil.rindex('(deny file-read* (subpath "/tmp/syntetisk-pii"))')
+
+
+def test_gate_profile_denies_every_write_but_the_call_dir():
+    """Review af P1, fund 1: kun HOME, /private/tmp og /opt/homebrew/var var spærret for
+    skrivning — codex-binæren i ~/.codex, /opt/homebrew/bin og /Users/Shared stod åbne.
+    Målt 2026-09-28: et `--ephemeral`-kald skriver intet uden for call-dir."""
+    profil = build_gate_profile(call_dir="/private/tmp/kald", home="/Users/x")
+    spaerring = profil.index("(deny file-write*)\n")
+    assert profil.rindex('(allow file-write* (subpath "/private/tmp/kald"))') > spaerring
+    assert profil.count("(allow file-write*") == 3     # /dev, Codex' målte liste, call-dir
+    aabne = profil[spaerring:]
+    for lukket in ("/Users/x/.codex/packages", "config.toml", "AGENTS.md", "hooks.json",
+                   "/Users/x/.codex/rules", "/Users/x/.codex/skills", "/Users/x/.codex/plugins",
+                   "memories_1", "goals_1", "/opt/homebrew", "/Users/Shared"):
+        assert lukket not in aabne.split("; Kaldet virker")[-1], lukket
+    assert '(allow file-write* (subpath "/Users/x/.codex"))' not in profil
 
 
 def test_gate_profile_resolves_the_call_dir():

@@ -248,9 +248,9 @@ def test_manifest_binds_the_codex_version():
     assert check_contract(m, codex_cli_version="0.156.0", **kw) == "CODEX_VERSION_DRIFT"
 
 
-def test_a_manifest_with_a_code_hash_must_also_bind_the_codex_version():
-    """Fra 1.2-kørslerne er versionen påkrævet: et manifest uden den ville lade en
-    selvopdaterende CLI skifte opførsel mellem GO og kørsel (P1)."""
+def test_a_manifest_must_bind_the_codex_version():
+    """Versionen er påkrævet: et manifest uden den ville lade en selvopdaterende CLI
+    skifte opførsel mellem GO og kørsel (P1)."""
     m = m45(codex=None)
     assert "codex_cli_version" not in m
     kw = dict(schema_text=SKEMA, runner_contract_version=m["runner_contract_version"],
@@ -283,3 +283,32 @@ def test_manifestet_kan_bindes_til_profil_v2(tmp_path, monkeypatch):
 def test_profilen_er_stadig_v1_uden_flag(tmp_path, monkeypatch):
     """4.3b/4.5-manifesterne blev bygget uden flaget; standarden ændres ikke."""
     assert _main_manifest(tmp_path, monkeypatch)["profile_id"] == "daa-2018-20-v1"
+
+
+def test_ogsaa_et_43b_manifest_uden_kodehash_skal_binde_versionen(tmp_path, monkeypatch):
+    """Review af P1, fund 2: `--dagsvaerk` står som standard på 4.3b, der ikke binder
+    kodehashen.  Versionen må ikke følge med den undtagelse."""
+    m = build_manifest(udvalg45(), dagsvaerk="4.3b", restore_identity="x", ledger_sha256="L",
+                       profil=PROFIL, claims_schema_sha256=evidence_runner.sha256_text(SKEMA))
+    assert "runner_code_sha256" not in m
+    assert check_contract(m, schema_text=SKEMA, runner_contract_version=m["runner_contract_version"],
+                          code_sha256="c" * 64, codex_cli_version="0.155.1") == "CODEX_VERSION_UNBOUND"
+    bygget = _main_manifest(tmp_path, monkeypatch, "--dagsvaerk", "4.3b")
+    assert bygget["dagsvaerk"] == "4.3b" and bygget["codex_cli_version"] == "0.155.1"
+
+
+@pytest.mark.parametrize("kind,forventet", [("tool_use", "STOP_TOOL_USE"),
+                                           ("quota_exhausted", "STOP_QUOTA_EXHAUSTED"),
+                                           ("validation_failed", None), ("timeout", None), (None, None)])
+def test_bundtet_stopper_efter_vaerktoejsbrug_og_kvote(kind, forventet):
+    """Review af P1: record N+1 blev sendt efter `tool_use` i N."""
+    import run_evidence_43b
+    assert run_evidence_43b.stop_reason(kind) == forventet
+
+
+def test_driveren_stopper_ved_versionsskift_midt_i_bundtet(tmp_path, monkeypatch, capsys):
+    """Versionen tjekkes før HVERT kald, ikke kun ved kontrakten."""
+    svar = iter(["0.155.1", "0.156.0"])
+    rc, kaldt = _koersel(tmp_path, monkeypatch, codex=lambda **k: next(svar))
+    assert rc == 1 and kaldt == []
+    assert "CODEX_VERSION_DRIFT før R-1" in capsys.readouterr().out

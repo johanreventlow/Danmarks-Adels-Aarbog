@@ -348,10 +348,17 @@ def _events(jsonl: str) -> list[dict]:
         if not line:
             continue
         try:
-            parsed.append(json.loads(line))
+            event = json.loads(line)
         except json.JSONDecodeError:
             continue  # en ulæselig linje er ikke et regnskab; den ignoreres her
+        if isinstance(event, dict):
+            parsed.append(event)
     return parsed
+
+
+#: Hændelsestyper på øverste niveau, som et kald uden værktøjsbrug kan rumme.
+_KNOWN_EVENT_TYPES = {"thread.started", "turn.started", "turn.completed", "turn.failed",
+                      "item.started", "item.updated", "item.completed", "error"}
 
 
 def tool_items(jsonl: str) -> list[str]:
@@ -363,16 +370,42 @@ def tool_items(jsonl: str) -> list[str]:
     regel: har modellen KØRT noget, er recorden fældet, uanset hvad den svarede.
     """
     fundne: list[str] = []
+
+    def fund(navn: str) -> None:
+        if navn not in fundne:
+            fundne.append(navn)
+
+    # Fail-closed på selve strømmen: en ulæselig linje eller en ukendt hændelsestype
+    # kan være et afkortet eller nyt værktøjs-item (review af P1).
+    for line in jsonl.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            fund("ulæselig_linje")
+            continue
+        if not isinstance(event, dict) or event.get("type") not in _KNOWN_EVENT_TYPES:
+            fund("ukendt_hændelse")
     for event in _events(jsonl):
         if event.get("type") not in ("item.started", "item.updated", "item.completed"):
             continue
         item = event.get("item")
         item_type = item.get("type") if isinstance(item, Mapping) else None
         if item_type not in ALLOWED_ITEM_TYPES:
-            navn = str(item_type)
-            if navn not in fundne:
-                fundne.append(navn)
+            fund(str(item_type))
     return fundne
+
+
+#: Det eneste miljø, Codex får.  Barneprocessen arver ellers hele skallen — fx
+#: GH_TOKEN og PG-variabler — og ingen Seatbelt-filregel dækker miljøvariabler.
+_CODEX_ENV_KEYS = ("PATH", "HOME", "TMPDIR", "USER", "LANG")
+
+
+def codex_env(environ: Mapping[str, str] | None = None) -> dict:
+    source = os.environ if environ is None else environ
+    return {k: source[k] for k in _CODEX_ENV_KEYS if k in source}
 
 
 _CODEX_VERSION_RE = re.compile(r"codex-cli (\d+\.\d+\.\d+)")
@@ -388,8 +421,12 @@ def codex_cli_version(*, run=None) -> str:
     if run is None:
         def run(argv):
             return subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True,
-                                  text=True, timeout=30).stdout
-    match = _CODEX_VERSION_RE.fullmatch((run(["codex", "--version"]) or "").strip())
+                                  text=True, timeout=30, env=codex_env()).stdout
+    try:
+        output = run(["codex", "--version"])
+    except (OSError, subprocess.SubprocessError):
+        raise RunnerError("RUNNER_CODEX_VERSION_UNKNOWN") from None
+    match = _CODEX_VERSION_RE.fullmatch((output or "").strip())
     if match is None:
         raise RunnerError("RUNNER_CODEX_VERSION_UNKNOWN")
     return match.group(1)
@@ -525,7 +562,8 @@ def run_codex(argv: Sequence[str], *, cwd: str | None = None, timeout: int = 600
     ét privat artefakt mindre at rydde op efter.
     """
     completed = subprocess.run(list(argv), cwd=cwd, stdin=subprocess.DEVNULL,
-                               capture_output=True, text=True, timeout=timeout)
+                               capture_output=True, text=True, timeout=timeout,
+                               env=codex_env())
     return completed.stdout, extract_last_message(completed.stdout)
 
 
@@ -792,7 +830,10 @@ def build_gate_profile(*, call_dir: str, home: str, extra_deny: Sequence[str] = 
     # og en uopløst call-dir ville ikke blive genåbnet efter spærringen af dem.
     call_dir = os.path.realpath(call_dir)
     denies = "\n".join(f'(deny file-read* (subpath "{path}"))' for path in extra_deny)
-    return (profile.replace("__HOME__", home)
+    codex_dir = os.path.realpath(os.path.join(home, ".codex"))
+    return (profile.replace("__CODEX_DIR_RE__", re.escape(codex_dir))
+                   .replace("__CODEX_DIR__", codex_dir)
+                   .replace("__HOME__", home)
                    .replace("__CALL_DIR__", call_dir)
                    .replace("__EXTRA_DENY__", denies))
 

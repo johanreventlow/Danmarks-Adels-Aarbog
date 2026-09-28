@@ -200,3 +200,19 @@ def test_cli_stopper_paa_manipuleret_bundt_uden_output(tmp_path, monkeypatch, ca
     assert b.main() == 1
     assert "RUNNER_MANIFEST_TAMPERED" in capsys.readouterr().out
     assert not (tmp_path / "out.json").exists()
+
+
+def test_cli_afviser_svar_fra_foer_p1_uden_flag(tmp_path, monkeypatch, capsys):
+    """Review 35, P1: et 1.0-1.2-svar kan stamme fra et kald, der kørte en kommando.
+    Builderen må kun læse dem, når nogen udtrykkeligt genbygger et historisk manifest."""
+    import build_43b_proposal_manifest as b
+    m = _runner_manifest()
+    (tmp_path / "m.json").write_text(json.dumps(m), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["b", "--runner-manifest", str(tmp_path / "m.json"),
+                                     "--runner-input", str(tmp_path / "findes-ikke.json"),
+                                     "--cache-dir", str(tmp_path), "--profile", str(PROFIL),
+                                     "--out", str(tmp_path / "out.json"),
+                                     "--expect-runner-manifest-sha256", m["manifest_sha256"]])
+    assert b.main() == 1
+    assert "PRE_P1_CACHE_REFUSED" in capsys.readouterr().out
+    assert not (tmp_path / "out.json").exists()
