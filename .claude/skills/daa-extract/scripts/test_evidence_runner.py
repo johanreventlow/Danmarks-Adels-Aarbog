@@ -658,6 +658,28 @@ def test_any_item_other_than_answer_or_reasoning_fails_closed(tmp_path, item_typ
     assert outcome.status == "failed" and outcome.error_kind == "tool_use"
 
 
+def test_a_failed_turn_keeps_its_failure_kind_even_with_tool_use(tmp_path):
+    """Spec §6.6 stopper på `quota_exhausted`: en fejlet tur skal klassificeres som
+    før, også hvis modellen nåede at bruge et værktøj.  Recorden fældes under alle
+    omstændigheder og caches aldrig."""
+    stream = "\n".join(json.dumps(e) for e in (
+        {"type": "turn.started"},
+        {"type": "item.completed", "item": {"id": "i0", "type": "command_execution"}},
+        {"type": "turn.failed", "error": {"type": "usage_limit_reached"}},
+    ))
+    cache = ResponseCache(tmp_path)
+    outcome = run_record(export(), ident=cache_ident(), cache=cache,
+                         run=lambda argv, **kw: (stream, GYLDIGT_SVAR))
+    assert outcome.status == "failed" and outcome.error_kind == "quota_exhausted"
+    assert cache.get(cache_ident()) is None
+
+
+def test_an_error_item_is_not_tool_use(tmp_path):
+    """CLI'ens `error`-items er meddelelser, ikke værktøjer; en fejlet tur afgøres af
+    `turn.failed`.  Et `error`-item alene må ikke gøre en kvotefejl til `tool_use`."""
+    assert evidence_runner.tool_items(stream_with_item("error")) == []
+
+
 def test_reasoning_items_are_allowed(tmp_path):
     outcome = run_record(export(), ident=cache_ident(), cache=ResponseCache(tmp_path),
                          run=lambda argv, **kw: (stream_with_item("reasoning"), GYLDIGT_SVAR))

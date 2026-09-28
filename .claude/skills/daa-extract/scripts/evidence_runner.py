@@ -276,7 +276,9 @@ ERROR_KINDS = {"quota_exhausted", "model_refusal", "schema_violation",
 
 #: De eneste item-typer, et kald uden værktøjsbrug må rumme.  TILLADELSESLISTE:
 #: en ny værktøjstype i en senere CLI-version skal fælde recorden, ikke glide igennem.
-ALLOWED_ITEM_TYPES = {"agent_message", "reasoning"}
+#: `error` er CLI'ens meddelelse om en fejl, ikke et værktøj; selve fejlen afgøres af
+#: `turn.failed`.
+ALLOWED_ITEM_TYPES = {"agent_message", "reasoning", "error"}
 
 #: Spec §6.3 + anden læsers R7.  De to sidste felter er R7's tilføjelse: uden dem
 #: kan et ændret outputskema eller en ændret runner genbruge et gammelt råsvar.
@@ -566,8 +568,18 @@ def run_record(export: Mapping[str, Any], *, ident: Mapping[str, Any], cache: Re
     except subprocess.TimeoutExpired:
         return RecordOutcome(record_key, "failed", error_kind="timeout")
 
-    # Værktøjsbrug afgøres FØR alt andet: et gyldigt svar redder ikke et kald, der har
-    # kørt en kommando, og det må aldrig nå cachen (review 35, P1).
+    # En fejlet tur klassificeres som før (spec §6.6 stopper på `quota_exhausted`);
+    # recorden er fældet og caches ikke, uanset værktøjsbrug.
+    if any(event.get("type") == "turn.failed" for event in _events(events)):
+        try:
+            usage = parse_usage(events)
+        except RunnerError:
+            usage = None
+        return RecordOutcome(record_key, "failed", usage=usage,
+                             error_kind=classify_failure(events, exit_code=1))
+
+    # Derefter værktøjsbrug, FØR svaret læses: et gyldigt svar redder ikke et kald, der
+    # har kørt en kommando, og det må aldrig nå cachen (review 35, P1).
     if tool_items(events):
         try:
             usage = parse_usage(events)

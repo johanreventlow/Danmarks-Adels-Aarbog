@@ -77,7 +77,9 @@ __EXTRA_DENY__
 ; --- Lokal Postgres (`trust`): TCP på loopback og socket'en ---
 ; Målt 2026-09-28: uden disse lykkes `psql -h 127.0.0.1` og `-h /tmp` inde i profilen;
 ; med dem fejler begge, mens https til API'et stadig virker. Udgående net kan ikke
-; spærres generelt — API'et kræver det.
+; spærres generelt — API'et kræver det. FORUDSÆTNING: lokal PG lytter kun på
+; `localhost` (listen_addresses, målt 2026-09-28). Lytter den på '*', er maskinens
+; LAN-adresse en fjerde vej, som denne regel IKKE dækker.
 (deny network-outbound (remote tcp "localhost:*"))
 (deny network-outbound (remote unix-socket (path-regex #"/\.s\.PGSQL\.")))
 

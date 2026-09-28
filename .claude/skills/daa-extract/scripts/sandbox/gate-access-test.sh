@@ -66,6 +66,15 @@ pg_naegtet() {
 pg_naegtet   "Postgres via TCP (127.0.0.1)" "127.0.0.1"
 pg_naegtet   "Postgres via TCP (::1)"  "::1"
 pg_naegtet   "Postgres via socket (/tmp)" "/tmp"
+# Profilens TCP-regel dækker kun loopback. Lytter PG bredere, er LAN-adressen en vej udenom.
+if command -v psql >/dev/null 2>&1; then
+  lytter="$(psql -X -h /tmp -d postgres -Atc 'show listen_addresses' 2>/dev/null)"
+  if [ -n "$lytter" ] && [ "$lytter" != "localhost" ]; then
+    printf '%-44s ** HUL — listen_addresses=%s **\n' "Postgres lytter kun på localhost" "$lytter"; fejl=1
+  else
+    printf '%-44s ok\n' "Postgres lytter kun på localhost"
+  fi
+fi
 
 # Skrivning uden for call-dir: prøvefilen fjernes igen, hvis den (fejlagtigt) blev skrevet.
 skriv_naegtet() {
