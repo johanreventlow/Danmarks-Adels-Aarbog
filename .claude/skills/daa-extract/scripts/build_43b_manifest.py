@@ -119,10 +119,13 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--restore-identity", required=True)
     ap.add_argument("--dagsvaerk", default="4.3b")
+    # Genbindingen af 4.4 (2026-09-28) kører piloten om under profil v2 (klausulregler v3);
+    # 4.3b/4.5 blev bygget uden flaget, så standarden står.
+    ap.add_argument("--profile-id", default="daa-2018-20-v1")
     args = ap.parse_args()
 
     udvalg = json.loads(Path(args.selection).read_text(encoding="utf-8"))
-    profil = evidence_extract.load_profile("daa-2018-20-v1")
+    profil = evidence_extract.load_profile(args.profile_id)
     evidence_extract.resolve_prompt(profil["prompt_file"], profil["prompt_sha256"])
     manifest = build_manifest(
         udvalg, dagsvaerk=args.dagsvaerk, restore_identity=args.restore_identity,

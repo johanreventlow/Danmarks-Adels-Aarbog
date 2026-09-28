@@ -256,3 +256,30 @@ def test_a_manifest_with_a_code_hash_must_also_bind_the_codex_version():
     kw = dict(schema_text=SKEMA, runner_contract_version=m["runner_contract_version"],
               code_sha256="c" * 64)
     assert check_contract(m, codex_cli_version="0.155.1", **kw) == "CODEX_VERSION_UNBOUND"
+
+
+# --- genbinding af 4.4: piloten om under profil v2 ------------------------------
+
+def _main_manifest(tmp_path, monkeypatch, *extra):
+    udvalg = udvalg45()
+    (tmp_path / "u.json").write_text(json.dumps(udvalg), encoding="utf-8")
+    (tmp_path / "l.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(evidence_runner, "codex_cli_version", lambda **k: "0.155.1")
+    monkeypatch.setattr("sys.argv", ["b", "--selection", str(tmp_path / "u.json"),
+                                     "--ledger", str(tmp_path / "l.json"),
+                                     "--out", str(tmp_path / "m.json"),
+                                     "--restore-identity", "daa44g_x", "--dagsvaerk", "4.5", *extra])
+    assert bm.main() == 0
+    return json.loads((tmp_path / "m.json").read_text(encoding="utf-8"))
+
+
+def test_manifestet_kan_bindes_til_profil_v2(tmp_path, monkeypatch):
+    m = _main_manifest(tmp_path, monkeypatch, "--profile-id", "daa-2018-20-v2")
+    v2 = evidence_extract.load_profile("daa-2018-20-v2")
+    assert m["profile_id"] == "daa-2018-20-v2" and m["profile_version"] == v2["version"]
+    assert m["codex_cli_version"] == "0.155.1"
+
+
+def test_profilen_er_stadig_v1_uden_flag(tmp_path, monkeypatch):
+    """4.3b/4.5-manifesterne blev bygget uden flaget; standarden ændres ikke."""
+    assert _main_manifest(tmp_path, monkeypatch)["profile_id"] == "daa-2018-20-v1"
