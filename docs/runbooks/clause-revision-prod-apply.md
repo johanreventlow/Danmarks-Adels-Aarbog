@@ -88,9 +88,15 @@ Hvad hvert trin kræver (tallene er målt i rehearsal 2026-09-27 og i stand-in-k
    tilbage til `8d46a529…`; frem igen → `match` og `1bad2e97…`; fuld db-verify (kun lokalt).
 4. **04:** alle bindinger før første skrivning; 0 `change_set` efter dump-start; prods skema =
    preflight's (sidste kontrol før skrivning); derefter
-   `db-migrations.sql` (egne BEGIN/COMMIT), `db-rls.sql --single-transaction`, `NOTIFY pgrst`. Efter:
+   `db-migrations.sql` (autocommit statement for statement; kun én eksplicit BEGIN/COMMIT-blok),
+   `db-rls.sql --single-transaction`, `NOTIFY pgrst`. Efter:
    levende verify-blok, 0 `WARNING:`-meddelelser (prods DDL 17/9 gav 0), skema-fingeraftryk = rehearsal, 868/868 NULL-sæt, kanonisk og anon
-   uændrede. Afbrudt midtvejs: bevar alt, kør 04 igen med `DAA_DDL_GENKOERSEL=ja` (filen er idempotent).
+   uændrede. Når skema-gaten er bestået, skriver 04 en gate-markør bundet til pausen og preflight, *før*
+   første skrivning. Afbrudt midtvejs: bevar alt, kør 04 igen med `DAA_DDL_GENKOERSEL=ja` (filen er
+   idempotent). Genkørslen springer kun skema-gaten over, når markøren fra samme pause findes; ellers
+   STOP. Fjern variablen igen bagefter (`unset DAA_DDL_GENKOERSEL`). Kendt årsag, set på en stand-in:
+   `deadlock detected` i `db-rls.sql` mod en autovacuum (`VACUUM ANALYZE` på en tabel, som filen
+   `GRANT`/`ALTER`'er). `db-rls.sql` er da rullet helt tilbage; genkørslen ovenfor er vejen (bevist).
 5. **05:** før-projektion → F1 skal være `2f4b079b…` (ellers har prods klausuler flyttet sig). Dry-run er
    **første datamutation** (writer-profilrækken; readback `b72ddf5f…`). Apply → `finalized`, replay
    `already_applied`, `984|787|197|51|1`, kanonisk uændret.
@@ -110,7 +116,7 @@ Kør `/bin/zsh -f ~/.private/omseg-prod/08-afgoer.sh <05's apply-mappe>` (læse-
 **Nødudgang: STOP før skrivning.** Stopper et trin, før data er skrevet (preflight, rehearsal, 04 før
 eller efter DDL'en, advisor-fund, F1-afvigelse i 05), ophæves pausen med
 `/bin/zsh -f ~/.private/omseg-prod/00-freeze.sh end --uden-apply`. Den kræver, at øjebliksbilledet fra
-`begin` (antal observationer, reimport-hændelser og -batches, aktive autorisationer, fortolkninger,
+`begin` (antal observationer, reimport-hændelser og -batches, fortolkninger,
 redaktionsprofiler, `change_set`) samt kanonisk og anon er uændrede; writer-profilrækker fra en dry-run
 er tilladt (stand-in-testet). DDL'en må være kørt (den er additiv) og noteres i slutrapporten. Efter en afbrydelse med
 DDL'en i prod kan kæden ikke startes forfra uden ændringer (01 og 03 kræver, at DDL'en mangler): eskalér.
@@ -119,7 +125,13 @@ Ved en skema-afvigelse: diff `schema-*.txt` i runmapperne (navn + md5, ingen dat
 ## 3. Fortrydelse
 
 `07-fortryd.sh` skriver en **ny** revision tilbage til 4.1b's opdeling (privat `undo-profile.json` +
-4.1b-ledgeren `8f4a88f5…`). Kræver en ny skrivepause og et **nyt dump i den**:
+4.1b-ledgeren `8f4a88f5…`). Kræver en ny skrivepause og et **nyt dump i den**.
+
+07 er bundet til GO-pakken: repoet skal stå på GO-commit'en (`DAA_EXPECTED_COMMIT`), og
+`DAA_EXPECTED_TARGET`, `DAA_EXPECTED_COMMIT`, `DAA_GO_HASHES_FILE`, `DAA_PREFLIGHT_REPORT(+_SHA256)` og
+`DAA_REHEARSAL_REPORT(+_SHA256)` fra kørslen skal eksporteres igen. **Gem derfor `DAA_…=`-linjerne fra
+kørslen** (fx i `~/.private/omseg-prod/go-env.txt`, 0600). Står `main` senere på en nyere commit, så
+tjek GO-commit'en ud (`git checkout <DAA_EXPECTED_COMMIT>`) før 07, og gå tilbage til `main` bagefter:
 
 ```bash
 /bin/zsh -f ~/.private/omseg-prod/00-freeze.sh begin      # ny pause; ny DAA_FREEZE_REPORT
@@ -131,7 +143,9 @@ Ved en skema-afvigelse: diff `schema-*.txt` i runmapperne (navn + md5, ingen dat
 Dumpet skal være taget efter F1's `finalized_at` (07 tjekker det). Stopper 07 efter dry-run'en (fx
 tabt forbindelse), så kør **ikke** 07 igen, men `07-fortryd.sh --afgoer <runmappe>` (læse-kun; 07
 udskriver mappen, før første skrivning): `INTET_COMMITTET` → kør 07 igen; `FORTRYD_OK` → U nåede at
-committe, er verificeret mod målingen lige før (`pre.json`), og `verify-ok.json` er skrevet.
+committe, er verificeret mod målingen lige før (`pre.json`, bundet til pausen og dumpet), og
+`verify-ok.json` er skrevet. `--afgoer` skriver i en ny mappe og kan derfor køres igen, hvis den selv
+bliver afbrudt.
 
 07 kræver tilstanden efter apply (`984|787|197|51|1`, sæt-hashes `1bad2e97…`), at U er præcis
 `69f13caa…`, og efter skrivningen `match` (51 records, 197/116, 77/120), sæt-hashes tilbage til
