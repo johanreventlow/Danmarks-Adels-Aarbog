@@ -27,7 +27,8 @@ def m45(**kw):
     return build_manifest(udvalg45(), dagsvaerk="4.5", restore_identity="daa45_x",
                           ledger_sha256="L", profil=PROFIL,
                           claims_schema_sha256=evidence_runner.sha256_text(SKEMA),
-                          code_sha256=kw.get("code", "c" * 64))
+                          code_sha256=kw.get("code", "c" * 64),
+                          codex_cli_version=kw.get("codex", "0.155.1"))
 
 
 def test_manifest_baerer_bundter_dagsvaerk_og_kodehash():
@@ -46,17 +47,18 @@ def test_4_3b_manifestet_laeses_uaendret():
 def test_kontrakten_holder_naar_intet_er_aendret():
     assert check_contract(m45(), schema_text=SKEMA,
                           runner_contract_version=evidence_runner.RUNNER_CONTRACT_VERSION,
-                          code_sha256="c" * 64) is None
+                          code_sha256="c" * 64, codex_cli_version="0.155.1") is None
 
 
 @pytest.mark.parametrize("aendring,kode", [
     (dict(schema_text="{\"skema\": 2}"), "SCHEMA_DRIFT"),
     (dict(runner_contract_version="evidence-runner-9.9"), "RUNNER_CONTRACT_DRIFT"),
     (dict(code_sha256="d" * 64), "RUNNER_CODE_DRIFT"),
+    (dict(codex_cli_version="0.156.0"), "CODEX_VERSION_DRIFT"),
 ])
 def test_kontraktdrift_stopper(aendring, kode):
     args = dict(schema_text=SKEMA, runner_contract_version=evidence_runner.RUNNER_CONTRACT_VERSION,
-                code_sha256="c" * 64)
+                code_sha256="c" * 64, codex_cli_version="0.155.1")
     args.update(aendring)
     assert check_contract(m45(), **args) == kode
 
@@ -66,7 +68,7 @@ def test_manipuleret_manifest_stopper():
     m["records"].append("R-99")
     assert check_contract(m, schema_text=SKEMA,
                           runner_contract_version=evidence_runner.RUNNER_CONTRACT_VERSION,
-                          code_sha256="c" * 64) == "MANIFEST_TAMPERED"
+                          code_sha256="c" * 64, codex_cli_version="0.155.1") == "MANIFEST_TAMPERED"
 
 
 def test_kontraktfillisten_daekker_de_operative_filer():
@@ -135,7 +137,7 @@ def test_4_3b_manifestets_hash_kan_genberegnes():
     assert manifest_sha256(m) == m["manifest_sha256"]
 
 
-def _koersel(tmp_path, monkeypatch, *, klausul="t", kode=None):
+def _koersel(tmp_path, monkeypatch, *, klausul="t", kode=None, codex="0.155.1"):
     """Hele runnerens main med én record og en stub i stedet for modellen."""
     import run_evidence_43b
     rec = {"record_key": "R-1", "persona_id": "p", "post_verbatim_text": "t",
@@ -155,9 +157,12 @@ def _koersel(tmp_path, monkeypatch, *, klausul="t", kode=None):
                        profil=evidence_extract.load_profile("daa-2018-20-v1"),
                        claims_schema_sha256=evidence_runner.sha256_text(
                            bm.SKEMA.read_text(encoding="utf-8")),
-                       code_sha256=kode or runner_code_sha256())
+                       code_sha256=kode or runner_code_sha256(), codex_cli_version="0.155.1")
     (tmp_path / "m.json").write_text(json.dumps(m), encoding="utf-8")
     kaldt = []
+    # CI har ingen Codex: versionen injiceres, så testen ikke afhænger af maskinen.
+    monkeypatch.setattr(evidence_runner, "codex_cli_version",
+                        codex if callable(codex) else (lambda **k: codex))
     monkeypatch.setattr(evidence_runner, "run_codex", lambda *a, **k: kaldt.append(1))
     monkeypatch.setattr("sys.argv", ["run", "--manifest", str(tmp_path / "m.json"),
                                      "--approved-sha256", m["manifest_sha256"],
@@ -173,6 +178,21 @@ def test_runneren_kalder_ikke_modellen_ved_kodedrift(tmp_path, monkeypatch, caps
     rc, kaldt = _koersel(tmp_path, monkeypatch, kode="0" * 64)
     assert rc == 1 and kaldt == [] and not (tmp_path / "o.json").exists()
     assert "RUNNER_CODE_DRIFT" in capsys.readouterr().out
+
+
+def test_runneren_kalder_ikke_modellen_ved_ny_codex_version(tmp_path, monkeypatch, capsys):
+    """Review 35, P1: CLI'en har opdateret sig selv mellem GO og kørsel."""
+    rc, kaldt = _koersel(tmp_path, monkeypatch, codex="0.156.0")
+    assert rc == 1 and kaldt == [] and not (tmp_path / "o.json").exists()
+    assert "CODEX_VERSION_DRIFT" in capsys.readouterr().out
+
+
+def test_runneren_kalder_ikke_modellen_naar_versionen_ikke_kan_laeses(tmp_path, monkeypatch, capsys):
+    def ulaeselig(**k):
+        raise evidence_runner.RunnerError("RUNNER_CODEX_VERSION_UNKNOWN")
+    rc, kaldt = _koersel(tmp_path, monkeypatch, codex=ulaeselig)
+    assert rc == 1 and kaldt == [] and not (tmp_path / "o.json").exists()
+    assert "RUNNER_CODEX_VERSION_UNKNOWN" in capsys.readouterr().out
 
 
 def test_runneren_sender_ikke_en_klausul_uden_for_den_godkendte_post(tmp_path, monkeypatch, capsys):
@@ -215,3 +235,24 @@ def test_guarden_afviser_fremmed_klausul_foer_kaldet(monkeypatch):
     assert guard(_post("t", "t")) == "kørt" and videre == [1]          # kontrol: gyldig går videre
     udfald = guard(_post("t", "fremmed"))
     assert udfald.error_kind == "not_eligible" and videre == [1]
+
+
+# --- review 35, P1: Codex-versionen er en del af det godkendte miljø ---------
+
+def test_manifest_binds_the_codex_version():
+    m = m45()
+    assert m["codex_cli_version"] == "0.155.1"
+    kw = dict(schema_text=SKEMA, runner_contract_version=m["runner_contract_version"],
+              code_sha256="c" * 64)
+    assert check_contract(m, codex_cli_version="0.155.1", **kw) is None
+    assert check_contract(m, codex_cli_version="0.156.0", **kw) == "CODEX_VERSION_DRIFT"
+
+
+def test_a_manifest_with_a_code_hash_must_also_bind_the_codex_version():
+    """Fra 1.2-kørslerne er versionen påkrævet: et manifest uden den ville lade en
+    selvopdaterende CLI skifte opførsel mellem GO og kørsel (P1)."""
+    m = m45(codex=None)
+    assert "codex_cli_version" not in m
+    kw = dict(schema_text=SKEMA, runner_contract_version=m["runner_contract_version"],
+              code_sha256="c" * 64)
+    assert check_contract(m, codex_cli_version="0.155.1", **kw) == "CODEX_VERSION_UNBOUND"

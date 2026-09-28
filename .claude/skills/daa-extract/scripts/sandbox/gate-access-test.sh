@@ -41,8 +41,51 @@ naegtet      "hjemmemappen"            "$HOME"
 naegtet      "~/Library/Keychains"     "$HOME/Library/Keychains"
 naegtet      "~/Library/Application Support" "$HOME/Library/Application Support"
 naegtet      "~/Documents"             "$HOME/Documents"
+# Review 35, P1: PII ligger OGSÅ uden for hjemmemappen — lokale prod-kopier i
+# PG-datamappen og scratch-mapper i /private/tmp og brugerens tempmappe.
+naegtet      "/private/tmp"            "/private/tmp"
+naegtet      "brugerens tempmappe"     "$(getconf DARWIN_USER_TEMP_DIR)"
+naegtet      "/opt/homebrew/var (PG-data)" "/opt/homebrew/var"
+naegtet      "/Users/Shared"           "/Users/Shared"
+naegtet      "/Volumes"                "/Volumes"
+
+# Lokal Postgres kører `trust`. Forsøget skal FØRST lykkes uden profilen — ellers
+# måler en nægtelse indenfor ingenting (PG nede, psql mangler) og ville melde falsk OK.
+pg_naegtet() {
+  local navn="$1" vaert="$2" psql_bin
+  psql_bin="$(command -v psql)" || { printf '%-44s ikke målbar (psql mangler)\n' "$navn"; return; }
+  if ! "$psql_bin" -X -h "$vaert" -d postgres -Atc 'select 1' >/dev/null 2>&1; then
+    printf '%-44s ikke målbar (PG svarer ikke uden profil)\n' "$navn"; return
+  fi
+  if sandbox-exec -f "$PROFIL" "$psql_bin" -X -h "$vaert" -d postgres -Atc 'select 1' >/dev/null 2>&1; then
+    printf '%-44s ** HUL — forbindelse lykkedes **\n' "$navn"; fejl=1
+  else
+    printf '%-44s nægtet\n' "$navn"
+  fi
+}
+pg_naegtet   "Postgres via TCP (127.0.0.1)" "127.0.0.1"
+pg_naegtet   "Postgres via TCP (::1)"  "::1"
+pg_naegtet   "Postgres via socket (/tmp)" "/tmp"
+
+# Skrivning uden for call-dir: prøvefilen fjernes igen, hvis den (fejlagtigt) blev skrevet.
+skriv_naegtet() {
+  local navn="$1" sti="$2"
+  if sandbox-exec -f "$PROFIL" /usr/bin/touch "$sti" >/dev/null 2>&1; then
+    printf '%-44s ** HUL — kunne skrives **\n' "$navn"; fejl=1; /bin/rm -f "$sti"
+  else
+    printf '%-44s nægtet\n' "$navn"
+  fi
+}
+skriv_naegtet "skriv i hjemmemappen"   "$HOME/.daa-gate-write-probe-$$"
+skriv_naegtet "skriv i /private/tmp"   "/private/tmp/daa-gate-write-probe-$$"
+
 echo "— skal være tilgængelige —"
 tilgaengelig "call-dir"                "$CALLDIR"
+if sandbox-exec -f "$PROFIL" /usr/bin/touch "$CALLDIR/.skriveprove" >/dev/null 2>&1; then
+  printf '%-44s tilgængelig\n' "skriv i call-dir"; /bin/rm -f "$CALLDIR/.skriveprove"
+else
+  printf '%-44s ** FEJL — burde være tilgængelig **\n' "skriv i call-dir"; fejl=1
+fi
 if [ $fejl -ne 0 ]; then
   echo "GATE_FAILED — NO-GO. Ingen modelkald må køre gennem denne profil."; exit 1
 fi

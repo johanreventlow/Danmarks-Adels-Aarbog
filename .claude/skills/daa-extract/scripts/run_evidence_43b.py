@@ -66,9 +66,14 @@ def main() -> int:
     skema_sti = Path(__file__).resolve().parents[1] / "references" / "evidence-claims-1.0.json"
     skema_tekst = skema_sti.read_text(encoding="utf-8")
     # Den godkendte kontrakt genvalideres FØR første kald (4.5-review, fund 3).
+    try:
+        codex_version = evidence_runner.codex_cli_version()
+    except evidence_runner.RunnerError as exc:
+        print(f"{exc} — Codex-versionen kan ikke aflæses. Intet sendes.")
+        return 1
     fejl = check_contract(manifest, schema_text=skema_tekst,
                           runner_contract_version=evidence_runner.RUNNER_CONTRACT_VERSION,
-                          code_sha256=runner_code_sha256())
+                          code_sha256=runner_code_sha256(), codex_cli_version=codex_version)
     if fejl:
         print(f"{fejl} — kørselsmiljøet er ikke det, der blev givet GO til. Intet sendes.")
         return 1
