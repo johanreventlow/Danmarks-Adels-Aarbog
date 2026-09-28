@@ -1077,11 +1077,15 @@ def test_gate_profile_denies_every_write_but_the_call_dir():
     assert '(allow file-write* (subpath "/Users/x/.codex"))' not in profil
 
 
-def test_gate_profile_resolves_the_call_dir():
-    """/var/folders er et symlink til /private/var/folders; Seatbelt matcher den
-    opløste sti, så en uopløst call-dir ville ikke blive genåbnet."""
-    profil = build_gate_profile(call_dir="/var", home="/Users/x")
-    assert '(allow file-read* (subpath "/private/var"))' in profil
+def test_gate_profile_resolves_the_call_dir(tmp_path):
+    """På macOS er /var/folders et symlink til /private/var/folders; Seatbelt matcher den
+    opløste sti, så en uopløst call-dir ville ikke blive genåbnet.  Testen bygger sit
+    eget symlink, så den også gælder på CI's Linux."""
+    aegte = tmp_path / "aegte"; aegte.mkdir()
+    genvej = tmp_path / "genvej"; genvej.symlink_to(aegte)
+    profil = build_gate_profile(call_dir=str(genvej), home="/Users/x")
+    assert f'(allow file-read* (subpath "{aegte.resolve()}"))' in profil
+    assert f'(subpath "{genvej}")' not in profil
 
 
 def test_gate_profile_has_no_unfilled_placeholder():
