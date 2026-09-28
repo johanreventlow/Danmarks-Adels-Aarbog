@@ -89,21 +89,17 @@ __EXTRA_DENY__
 
 ; --- Skrivning: spærret som udgangspunkt; kun en MÅLT liste er åben ---
 ; En spærring af udvalgte mapper lod codex-binæren (~/.codex/packages), config.toml,
-; AGENTS.md, /opt/homebrew/bin og /Users/Shared stå åbne (review af P1). Listen nedenfor
-; er målt 2026-09-28 med Seatbelts afvisningslog (codex-cli 0.155.1): uden den fejler
-; kaldet med "failed to initialize in-process app-server client". Bevidst IKKE åbne:
-; packages/, config.toml, AGENTS.md, hooks.json, rules/, skills/, plugins/,
-; memories_1.sqlite og goals_1.sqlite — alt, der kan styre en SENERE Codex-session.
-; Kaldet virker uden dem (målt). Ny CLI-version: mål listen igen.
+; AGENTS.md, /opt/homebrew/bin og /Users/Shared stå åbne (review af P1). Målt 2026-09-28
+; (codex-cli 0.155.1) ved at fjerne én sti ad gangen: kaldet kræver KUN, at
+; ~/.codex/installation_id kan skrives — uden den fejler det med "failed to initialize
+; in-process app-server client". Alt andet i ~/.codex er lukket: binæren (packages/),
+; config.toml, AGENTS.md, hooks.json, rules/, skills/, plugins/, sqlite-tilstanden,
+; tmp/ (arg0 på PATH) og shell_snapshots/ — alt, der kan styre en SENERE Codex-session.
+; Ny CLI-version: mål igen (Seatbelts afvisningslog: log show --predicate
+; 'sender == "Sandbox"').
 (deny file-write*)
 (allow file-write* (literal "/dev/null") (literal "/dev/tty") (literal "/dev/dtracehelper"))
-(allow file-write*
-  (regex #"^__CODEX_DIR_RE__/(state_5|logs_2|queue_1|thread_history_1)\.sqlite(-wal|-shm|-journal)?$")
-  (regex #"^__CODEX_DIR_RE__/models_cache\.json")
-  (literal "__CODEX_DIR__/installation_id")
-  (subpath "__CODEX_DIR__/cache")
-  (subpath "__CODEX_DIR__/tmp")
-  (subpath "__CODEX_DIR__/shell_snapshots"))
+(allow file-write* (literal "__CODEX_DIR__/installation_id"))
 
 ; --- call-dir genåbnes SIDST, så den vinder over spærringerne af dens forældermapper ---
 (allow file-read* (subpath "__CALL_DIR__"))

@@ -95,6 +95,17 @@ if [ "$pg_maalbar" -eq 1 ]; then
   fi
 fi
 
+# Andre unix-sockets end PG (connect er ikke file-read): ssh-agent, når den findes og svarer.
+if [ -n "${SSH_AUTH_SOCK:-}" ] && [ -S "$SSH_AUTH_SOCK" ] && /usr/bin/nc -U "$SSH_AUTH_SOCK" </dev/null >/dev/null 2>&1; then
+  if sandbox-exec -f "$PROFIL" /usr/bin/nc -U "$SSH_AUTH_SOCK" </dev/null >/dev/null 2>&1; then
+    printf '%-44s ** HUL — forbindelse lykkedes **\n' "ssh-agent (unix-socket)"; fejl=1
+  else
+    printf '%-44s nægtet\n' "ssh-agent (unix-socket)"
+  fi
+else
+  printf '%-44s ikke målbar (ingen svarende ssh-agent)\n' "ssh-agent (unix-socket)"
+fi
+
 # Skrivning uden for call-dir: kun NYE prøvefiler (aldrig en eksisterende fil); fjernes
 # igen, hvis de (fejlagtigt) blev skrevet.
 skriv_naegtet() {
@@ -107,9 +118,17 @@ skriv_naegtet() {
     printf '%-44s nægtet\n' "$navn"
   fi
 }
-CODEX_BIN_DIR="$(dirname "$(readlink -f "$(command -v codex)" 2>/dev/null)" 2>/dev/null || true)"
+CODEX_BIN="$(command -v codex || true)"
+if [ -z "$CODEX_BIN" ]; then
+  printf '%-44s ** FEJL — codex findes ikke; binærens mappe kan ikke prøves **\n' "codex-binæren"; fejl=1
+  CODEX_BIN_DIR=/nonexistent
+else
+  CODEX_BIN_DIR="$(dirname "$(readlink -f "$CODEX_BIN")")"
+fi
 skriv_naegtet "skriv i hjemmemappen"   "$HOME"
 skriv_naegtet "skriv i ~/.codex (config, AGENTS)" "$HOME/.codex"
+skriv_naegtet "skriv i ~/.codex/tmp (arg0 på PATH)" "$HOME/.codex/tmp"
+skriv_naegtet "skriv i ~/.codex/shell_snapshots" "$HOME/.codex/shell_snapshots"
 skriv_naegtet "skriv ved codex-binæren" "${CODEX_BIN_DIR:-/nonexistent}"
 skriv_naegtet "skriv i /opt/homebrew/bin" "/opt/homebrew/bin"
 skriv_naegtet "skriv i /Users/Shared"  "/Users/Shared"

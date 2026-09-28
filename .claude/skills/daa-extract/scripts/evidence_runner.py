@@ -613,8 +613,12 @@ def run_record(export: Mapping[str, Any], *, ident: Mapping[str, Any], cache: Re
             usage = parse_usage(events)
         except RunnerError:
             usage = None
-        return RecordOutcome(record_key, "failed", usage=usage,
-                             error_kind=classify_failure(events, exit_code=1))
+        kind = classify_failure(events, exit_code=1)
+        # Kvote bevarer sin type (§6.6's stop); ellers vinder værktøjsbruget, så bruddet
+        # står i loggen og stopper bundtet (review af P1).
+        if kind != "quota_exhausted" and tool_items(events):
+            kind = "tool_use"
+        return RecordOutcome(record_key, "failed", usage=usage, error_kind=kind)
 
     # Derefter værktøjsbrug, FØR svaret læses: et gyldigt svar redder ikke et kald, der
     # har kørt en kommando, og det må aldrig nå cachen (review 35, P1).
@@ -831,8 +835,7 @@ def build_gate_profile(*, call_dir: str, home: str, extra_deny: Sequence[str] = 
     call_dir = os.path.realpath(call_dir)
     denies = "\n".join(f'(deny file-read* (subpath "{path}"))' for path in extra_deny)
     codex_dir = os.path.realpath(os.path.join(home, ".codex"))
-    return (profile.replace("__CODEX_DIR_RE__", re.escape(codex_dir))
-                   .replace("__CODEX_DIR__", codex_dir)
+    return (profile.replace("__CODEX_DIR__", codex_dir)
                    .replace("__HOME__", home)
                    .replace("__CALL_DIR__", call_dir)
                    .replace("__EXTRA_DENY__", denies))

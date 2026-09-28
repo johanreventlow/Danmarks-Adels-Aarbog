@@ -674,6 +674,19 @@ def test_a_failed_turn_keeps_its_failure_kind_even_with_tool_use(tmp_path):
     assert cache.get(cache_ident()) is None
 
 
+def test_a_failed_turn_with_tool_use_is_tool_use_unless_quota(tmp_path):
+    """En fejlet tur af ukendt type efter værktøjsbrug skal stå som `tool_use` — ellers
+    skjules bruddet i loggen, og bundtet stopper ikke (review af P1)."""
+    stream = "\n".join(json.dumps(e) for e in (
+        {"type": "turn.started"},
+        {"type": "item.completed", "item": {"id": "i0", "type": "command_execution"}},
+        {"type": "turn.failed", "error": {"type": "noget_andet"}},
+    ))
+    outcome = run_record(export(), ident=cache_ident(), cache=ResponseCache(tmp_path),
+                         run=lambda argv, **kw: (stream, GYLDIGT_SVAR))
+    assert outcome.error_kind == "tool_use"
+
+
 def test_an_error_item_is_not_tool_use(tmp_path):
     """CLI'ens `error`-items er meddelelser, ikke værktøjer; en fejlet tur afgøres af
     `turn.failed`.  Et `error`-item alene må ikke gøre en kvotefejl til `tool_use`."""
@@ -1054,7 +1067,8 @@ def test_gate_profile_denies_every_write_but_the_call_dir():
     profil = build_gate_profile(call_dir="/private/tmp/kald", home="/Users/x")
     spaerring = profil.index("(deny file-write*)\n")
     assert profil.rindex('(allow file-write* (subpath "/private/tmp/kald"))') > spaerring
-    assert profil.count("(allow file-write*") == 3     # /dev, Codex' målte liste, call-dir
+    assert profil.count("(allow file-write*") == 3     # /dev, installation_id, call-dir
+    assert '(allow file-write* (literal "/Users/x/.codex/installation_id"))' in profil
     aabne = profil[spaerring:]
     for lukket in ("/Users/x/.codex/packages", "config.toml", "AGENTS.md", "hooks.json",
                    "/Users/x/.codex/rules", "/Users/x/.codex/skills", "/Users/x/.codex/plugins",
