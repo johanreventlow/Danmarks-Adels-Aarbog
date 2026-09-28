@@ -44,20 +44,36 @@ naegtet      "~/Documents"             "$HOME/Documents"
 # Review 35, P1: PII ligger OGSÅ uden for hjemmemappen — lokale prod-kopier i
 # PG-datamappen og scratch-mapper i /private/tmp og brugerens tempmappe.
 naegtet      "/private/tmp"            "/private/tmp"
-naegtet      "brugerens tempmappe"     "$(getconf DARWIN_USER_TEMP_DIR)"
+TMPD="$(getconf DARWIN_USER_TEMP_DIR)"
+if [ -z "$TMPD" ]; then
+  printf '%-44s ** FEJL — getconf gav ingen sti **\n' "brugerens tempmappe"; fejl=1
+else
+  naegtet    "brugerens tempmappe"     "$TMPD"
+fi
 naegtet      "/opt/homebrew/var (PG-data)" "/opt/homebrew/var"
 naegtet      "/Users/Shared"           "/Users/Shared"
 naegtet      "/Volumes"                "/Volumes"
 
-# Lokal Postgres kører `trust`. Forsøget skal FØRST lykkes uden profilen — ellers
-# måler en nægtelse indenfor ingenting (PG nede, psql mangler) og ville melde falsk OK.
+# Lokal Postgres kører `trust`. PGHOSTADDR/PGSERVICE ville styre forbindelsen uden om -h,
+# så socket-prøven kunne ende med at måle TCP; de fjernes. Tre forudsætninger før en
+# nægtelse tæller: psql findes, PG svarer UDEN profil, og psql kan STARTE i profilen
+# (ellers læses et nedbrud som "nægtet").
+PSQL_ENV=(env -u PGHOSTADDR -u PGSERVICE -u PGSERVICEFILE -u PGHOST -u PGPORT -u PGDATABASE)
+PSQL_BIN="$(command -v psql || true)"
+pg_maalbar=0
+if [ -z "$PSQL_BIN" ]; then
+  printf '%-44s ikke målbar (psql mangler)\n' "Postgres"
+elif ! "${PSQL_ENV[@]}" "$PSQL_BIN" -X -h /tmp -d postgres -Atc 'select 1' >/dev/null 2>&1; then
+  printf '%-44s ikke målbar (PG svarer ikke uden profil)\n' "Postgres"
+elif ! sandbox-exec -f "$PROFIL" "${PSQL_ENV[@]}" "$PSQL_BIN" --version >/dev/null 2>&1; then
+  printf '%-44s ** FEJL — psql kan ikke starte i profilen; nægtelsen kan ikke måles **\n' "Postgres"; fejl=1
+else
+  pg_maalbar=1
+fi
 pg_naegtet() {
-  local navn="$1" vaert="$2" psql_bin
-  psql_bin="$(command -v psql)" || { printf '%-44s ikke målbar (psql mangler)\n' "$navn"; return; }
-  if ! "$psql_bin" -X -h "$vaert" -d postgres -Atc 'select 1' >/dev/null 2>&1; then
-    printf '%-44s ikke målbar (PG svarer ikke uden profil)\n' "$navn"; return
-  fi
-  if sandbox-exec -f "$PROFIL" "$psql_bin" -X -h "$vaert" -d postgres -Atc 'select 1' >/dev/null 2>&1; then
+  local navn="$1" vaert="$2"
+  [ "$pg_maalbar" -eq 1 ] || return 0
+  if sandbox-exec -f "$PROFIL" "${PSQL_ENV[@]}" "$PSQL_BIN" -X -h "$vaert" -d postgres -Atc 'select 1' >/dev/null 2>&1; then
     printf '%-44s ** HUL — forbindelse lykkedes **\n' "$navn"; fejl=1
   else
     printf '%-44s nægtet\n' "$navn"
@@ -67,26 +83,35 @@ pg_naegtet   "Postgres via TCP (127.0.0.1)" "127.0.0.1"
 pg_naegtet   "Postgres via TCP (::1)"  "::1"
 pg_naegtet   "Postgres via socket (/tmp)" "/tmp"
 # Profilens TCP-regel dækker kun loopback. Lytter PG bredere, er LAN-adressen en vej udenom.
-if command -v psql >/dev/null 2>&1; then
-  lytter="$(psql -X -h /tmp -d postgres -Atc 'show listen_addresses' 2>/dev/null)"
-  if [ -n "$lytter" ] && [ "$lytter" != "localhost" ]; then
-    printf '%-44s ** HUL — listen_addresses=%s **\n' "Postgres lytter kun på localhost" "$lytter"; fejl=1
-  else
+if [ "$pg_maalbar" -eq 1 ]; then
+  lytter="$("${PSQL_ENV[@]}" "$PSQL_BIN" -X -h /tmp -d postgres -Atc 'show listen_addresses' 2>/dev/null)"
+  if [ "$lytter" = "localhost" ]; then
     printf '%-44s ok\n' "Postgres lytter kun på localhost"
+  else
+    printf '%-44s ** HUL — listen_addresses=%s **\n' "Postgres lytter kun på localhost" "${lytter:-<tom>}"; fejl=1
   fi
 fi
 
-# Skrivning uden for call-dir: prøvefilen fjernes igen, hvis den (fejlagtigt) blev skrevet.
+# Skrivning uden for call-dir: kun NYE prøvefiler (aldrig en eksisterende fil); fjernes
+# igen, hvis de (fejlagtigt) blev skrevet.
 skriv_naegtet() {
-  local navn="$1" sti="$2"
+  local navn="$1" mappe="$2" sti
+  [ -d "$mappe" ] || { printf '%-44s (findes ikke)\n' "$navn"; return 0; }
+  sti="$mappe/.daa-gate-write-probe-$$"
   if sandbox-exec -f "$PROFIL" /usr/bin/touch "$sti" >/dev/null 2>&1; then
     printf '%-44s ** HUL — kunne skrives **\n' "$navn"; fejl=1; /bin/rm -f "$sti"
   else
     printf '%-44s nægtet\n' "$navn"
   fi
 }
-skriv_naegtet "skriv i hjemmemappen"   "$HOME/.daa-gate-write-probe-$$"
-skriv_naegtet "skriv i /private/tmp"   "/private/tmp/daa-gate-write-probe-$$"
+CODEX_BIN_DIR="$(dirname "$(readlink -f "$(command -v codex)" 2>/dev/null)" 2>/dev/null || true)"
+skriv_naegtet "skriv i hjemmemappen"   "$HOME"
+skriv_naegtet "skriv i ~/.codex (config, AGENTS)" "$HOME/.codex"
+skriv_naegtet "skriv ved codex-binæren" "${CODEX_BIN_DIR:-/nonexistent}"
+skriv_naegtet "skriv i /opt/homebrew/bin" "/opt/homebrew/bin"
+skriv_naegtet "skriv i /Users/Shared"  "/Users/Shared"
+skriv_naegtet "skriv i /private/tmp"   "/private/tmp"
+skriv_naegtet "skriv i brugerens tempmappe" "${TMPD:-/nonexistent}"
 
 echo "— skal være tilgængelige —"
 tilgaengelig "call-dir"                "$CALLDIR"
