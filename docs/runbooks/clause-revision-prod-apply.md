@@ -55,9 +55,9 @@ export DAA_FREEZE_RESPONSIBLE=<kort ansvarskode>
 
 Rør ikke redaktørfladen under prøven: en redaktionel ændring mellem `begin` og `end --uden-apply` får
 øjebliksbilledet til at afvige, og så er der ingen scriptet udgang (hold pausen, eskalér). `MAAL: PROD`
-bekræfter den låste identitet. Send `skema=`-værdien til AI'en: en restore af dumpet fra 27/9 giver
-`34a3b5115bd8660173380bc1c7c4f082` (samme i fem stand-ins og fem restores). Afviger den, sammenlignes
-`preflight-….schema.txt` med en stand-ins før dagen.
+bekræfter den låste identitet. Send `skema=` og `anon_portabel=` til AI'en: en restore af dumpet fra
+27/9 giver `34a3b5115bd8660173380bc1c7c4f082` og `70707a20…`. Begge er målt ens i prod 28/9. Afviger
+de senere, sammenlignes `preflight-….schema.txt` (og `stand-in/anon-cols.zsh`) med en stand-ins før dagen.
 
 Hvert script udskriver `DAA_…=`-linjer; eksportér dem, før næste trin køres. Afvigelser er STOP.
 
@@ -78,12 +78,17 @@ Hvad hvert trin kræver (tallene er målt i rehearsal 2026-09-27 og i stand-in-k
 
 1. **01:** tilstand `591|868|591|0|0|0|1` (person_post, klausuler, `clause_evidence`, revisionsprofiler,
    aktive autorisationer, fortolkninger, redaktion), dispositioner 617/251, DDL'en ikke kørt,
-   restore-privilegier, anon-rolle. Kanonisk md5, anon-hash og skemaets fingeraftryk før DDL'en gemmes
+   restore-privilegier, anon-rolle. Kanonisk md5, anon-hash (begge varianter, se nedenfor) og skemaets
+   fingeraftryk før DDL'en gemmes
    som reference (objektlisten, navn + md5, ligger ved siden af som `preflight-….schema.txt`). Fingeraftrykket
    tages med `search_path` låst til `pg_catalog`, så rollens søgesti ikke ændrer gengivelsen.
 2. **02:** dumpet starter efter pausen; kvitteringen bindes af 03 og tjekkes af 04/05.
-3. **03:** restore = preflight (tilstand, kanonisk, anon **og skema**: en forskel mellem prod og restoren
-   stopper her, lokalt, før prod røres); DDL to gange med samme skema-fingeraftryk og
+3. **03:** restore = preflight (tilstand, kanonisk, **portabel** anon og skema: en forskel mellem prod
+   og restoren stopper her, lokalt, før prod røres); derefter er restorens egen anon-hash referencen for
+   de lokale målinger. Anon-hashen over `x::text` afhænger af serverens locale (macOS' `en_US.UTF-8`
+   kalder byten `0xA0` i fx `à` et mellemrum og citerer værdien; Linux gør ikke), så den sammenlignes kun
+   på samme platform. Målt 28/9: identiske værdier, 184 + 1 rækker med forskellig rækketekst. Den
+   portable variant hasher `to_jsonb(x)::text`. DDL to gange med samme skema-fingeraftryk og
    0 `WARNING`; F1 = `2f4b079b…`; apply → `match`; fortryd (U = `69f13caa…`) → `match` og sæt-hashes
    tilbage til `8d46a529…`; frem igen → `match` og `1bad2e97…`; fuld db-verify (kun lokalt).
 4. **04:** alle bindinger før første skrivning; 0 `change_set` efter dump-start; prods skema =
