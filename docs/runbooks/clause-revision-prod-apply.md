@@ -13,76 +13,96 @@ restore-rehearsal af netop det dump, apply, verify. Det, der er anderledes:
 | DDL | ingen (deployet 17/9) | `db-migrations.sql` + `db-rls.sql` (klausulsæt, 4 triggere, `clause_revision`, S4) |
 | Data | 591 `clause_evidence` | 51 `clause_revision`: 116 klausuler skrives, 197 får `erstattet` |
 | Fortrydelse | kun restore | **ny revision** tilbage til 4.1b's opdeling (øvet); restore er nødvejen |
-| Operatørscripts | `~/.private/148c-prod/` | R-kopierne `~/.private/omseg-rehearsal/r-dryrun.R` og `r-apply.R` (samme bytes som i rehearsal); skrivepause, preflight og `lib.zsh` genbruges fra 148c |
+| Operatørscripts | `~/.private/148c-prod/` | `~/.private/omseg-prod/` (00-08, `lib.zsh`, R-kopierne byte-identiske med rehearsal) |
+| Fejl midt i apply | restore | `08-afgoer.sh` (læse-kun) afgør, om apply nåede at committe; genkørsel eller verify derfra |
 
 **Arbejdsdeling.** Kun projektejeren kører noget mod prod, i egen shell (klassifikatoren blokerer
-AI-sessionens prod-adgang). AI'en bygger manifestet lokalt, kører rehearsal og læser kun rensede tal.
+AI-sessionens prod-adgang). AI'en kører kun 03 (lokalt) og læser kun rensede tal.
+
+**Pakken er testet mod en lokal stand-in** (`DAA_STANDIN_DB=daa_omseg_standin_<14 cifre>`, en restore
+af prod-dumpet): hele kæden, et 05 der dør efter dry-run'en, et 05 der dør efter commit, og fortrydelse
+i en ny pause. Uden `DAA_STANDIN_DB` går alt mod prod, og målet skal være prods faste identitet
+(`71ca6e45…`, låst i `lib.zsh`); hvert script skriver `MAAL: PROD` eller `MAAL: STAND-IN` på stderr.
 
 ## 1. Adgangskrav
 
-- `main` ren og fastlåst på en commit, der indeholder #222. Notér commit-SHA og scripthashes i
-  GO-pakken; ingen kodeændring mellem rehearsal og apply.
-- 4.4's forslag er **ikke** kørt i prod (0 fortolkninger). Er der fortolkninger på nogen af de 51
-  poster, afviser writeren med `CLAUSE_REVISION_HAS_INTERPRETATIONS` — det er en stopport, ikke en fejl
-  at arbejde udenom.
+- `main` ren og på den commit, 01 udskriver (`DAA_EXPECTED_COMMIT`). Ingen kodeændring fra 03 til 06:
+  03 skriver GO-hash-filen over alle eksekverede filer (repo, pakke, ledgers, rendition), og 04-08
+  stopper ved den mindste afvigelse.
+- 0 fortolkninger i prod (4.4 er ikke kørt). Ellers afviser writeren `CLAUSE_REVISION_HAS_INTERPRETATIONS`.
 - Præcis én `redaktion`-profil (skrivepausen afhænger af det).
+- Scriptene køres med `/bin/zsh -f` (ellers stopper de). **Skriv ikke `!` foran i din egen shell** — i
+  zsh er `! kommando` negation; i AI-sessionens grænseflade er `! ` præfikset, der sender kommandoen til
+  din shell. Kør aldrig med `zsh -x`.
 
 ## 2. Rækkefølge
 
-1. **Skrivepause** (`00-freeze.sh begin`, 148c) og **læse-kun preflight**: 591 `clause_evidence`-
-   hændelser, 868 klausuler, 617/251 dispositioner, 0 fortolkninger, 0 aktive autorisationer.
-2. **Backup under pausen** (`02-dump.sh`); notér dumpets SHA og start. Stopport før apply:
-   `count(change_set WHERE created_at >= dump_start) = 0`.
-3. **Rehearsal af netop det dump** (`~/.private/omseg-rehearsal/02-rehearsal.sh <dump>`, lokalt).
-   Kræv `REHEARSAL_OK` og de tal, rapporten fra 2026-09-27 viser.
-4. **DDL i prod** (projektejer): `db-migrations.sql`, derefter `db-rls.sql`, begge med
-   `ON_ERROR_STOP`. Kør derefter **kun** blokken `$clause_set_live_verify$` fra `db-verify.sql`
-   (læse-kun; den fulde `run-db-verify-disposable.sql` må ikke køres mod prod). Kræv
-   `OK: omsegmentering — indeks pr. sæt …`. Mål igen: 868/868 klausuler med NULL-sæt, kanonisk md5 og
-   anon-hashes uændrede.
-5. **Sikkerhedslint:** `get_advisors` (security) mod det rigtige projekt — Supabase-MCP'en peger p.t.
-   på et andet projekt, så via dashboardet. Nye fund fra DDL'en er STOP.
-6. **Før-projektion** efter DDL'en (`clause_evidence_projection.psql`, `source_id=1`) → byg F1 lokalt
-   med revisionsprofilen, ledger `8c8ecd92…` (`~/.private/omseg-maaling/ledger/clause-ledger-v1.json`),
-   renditionen `~/.private/daa-2018-20-rendition.txt` og `--current-projection`. **F1 skal være
-   `2f4b079b45fbc0379c090c444e5e409f95605809121c4a977eb3549568c0ee59`** (51 operationer, 116
-   klausuler); en anden hash betyder, at prods klausuler har flyttet sig — STOP.
-7. **Dry-run.** **Første datamutation** (DDL'en i trin 4 var den første prod-mutation): scriptet
-   indsætter writer-profilrækken. Kald præcis som i rehearsal — `--vanilla` er bærende; uden det kan
-   `count(*)` komme tilbage som en anden R-type (rehearsalens `%d`-fejl), og scriptet læser selv
-   `~/.Renviron` i prod-tilstand:
+Hvert script udskriver `DAA_…=`-linjer; eksportér dem, før næste trin køres. Afvigelser er STOP.
 
-   ```bash
-   env -u PGPASSWORD DAA_CONNECTION_MODE=prod DAA_EXPECTED_TARGET=<prod-målidentitet> \
-     DAA_PROFILE_FILE=.claude/skills/daa-extract/references/reimport-profiles/daa-2018-20-clause-revision-v1.json \
-     DAA_PROFILE_VERSION=clause-revision-v1 \
-     /usr/local/bin/Rscript --vanilla ~/.private/omseg-rehearsal/r-dryrun.R <F1-manifest.json>
-   ```
+```bash
+export DAA_FREEZE_RESPONSIBLE=<kort ansvarskode>
+/bin/zsh -f ~/.private/omseg-prod/00-freeze.sh begin      # pause; → DAA_FREEZE_REPORT(+_SHA256)
+/bin/zsh -f ~/.private/omseg-prod/01-preflight.sh         # læser; → DAA_EXPECTED_TARGET, _COMMIT, DAA_PREFLIGHT_REPORT(+_SHA256)
+/bin/zsh -f ~/.private/omseg-prod/02-dump.sh              # læser; backup i pausen → DAA_DUMP_RECEIPT
+/bin/zsh -f ~/.private/omseg-prod/03-rehearsal.sh         # LOKALT: netop det dump → DAA_GO_HASHES_FILE, DAA_REHEARSAL_REPORT(+_SHA256)
+/bin/zsh -f ~/.private/omseg-prod/04-ddl.sh --jeg-mener-det   # SKRIVER: DDL → DAA_DDL_REPORT(+_SHA256)
+#   get_advisors (security) mod prod-projektet i dashboardet; ingen nye fund → export DAA_ADVISORS_OK=ingen-nye-fund
+/bin/zsh -f ~/.private/omseg-prod/05-apply.sh --jeg-mener-det # SKRIVER: 51 revisioner → DAA_APPLY_REPORT(+_SHA256)
+/bin/zsh -f ~/.private/omseg-prod/06-verify.sh            # læser; komparator → verify-ok.json
+/bin/zsh -f ~/.private/omseg-prod/00-freeze.sh end        # kræver verify-ok.json
+```
 
-   Kræv `DRY_RUN_OK` og profil-hash `b72ddf5f…` ved readback.
-8. **Apply** (`r-apply.R`, samme kald og miljø). Kræv `APPLY_OK`, første status `finalized`, replay
-   `already_applied`, kanonisk md5 uændret. Ved tabt forbindelse omkring commit: kør ikke igen; afgør
-   tilstanden læse-kun ud fra `reimport_batch.manifest_sha256 = 2f4b079b…` som i 4.1c §5.1.
-9. **Verify:** efter-projektion → komparator med `--expect-target-sha256` (prod). Kræv `match`, scope
-   `clause-revision-delta-v1`, records 51, skrevet/erstattet 116/197, dispositioner 56/60, neutrale
-   lister 587/587/587/591/591, anon uændret. Til slut: 1 `finalized` batch og 51 `clause_revision`-
-   hændelser for manifestet; 787 aktuelle klausuler.
-10. **Pausen ophæves** først efter verify.
+Hvad hvert trin kræver (tallene er målt i rehearsal 2026-09-27 og i stand-in-kæden):
+
+1. **01:** tilstand `591|868|591|0|0|0|1` (person_post, klausuler, `clause_evidence`, revisionsprofiler,
+   aktive autorisationer, fortolkninger, redaktion), dispositioner 617/251, DDL'en ikke kørt,
+   restore-privilegier, anon-rolle. Kanonisk md5 og anon-hash gemmes som reference.
+2. **02:** dumpet starter efter pausen; kvitteringen bindes af 03 og tjekkes af 04/05.
+3. **03:** restore = preflight (tilstand, kanonisk, anon); DDL to gange med samme skema-fingeraftryk og
+   0 `WARNING`; F1 = `2f4b079b…`; apply → `match`; fortryd (U = `69f13caa…`) → `match` og sæt-hashes
+   tilbage til `8d46a529…`; frem igen → `match` og `1bad2e97…`; fuld db-verify (kun lokalt).
+4. **04:** alle bindinger før første skrivning; 0 `change_set` efter dump-start; derefter
+   `db-migrations.sql` (egne BEGIN/COMMIT), `db-rls.sql --single-transaction`, `NOTIFY pgrst`. Efter:
+   levende verify-blok, 0 `WARNING`, skema-fingeraftryk = rehearsal, 868/868 NULL-sæt, kanonisk og anon
+   uændrede. Afbrudt midtvejs: bevar alt, kør 04 igen med `DAA_DDL_GENKOERSEL=ja` (filen er idempotent).
+5. **05:** før-projektion → F1 skal være `2f4b079b…` (ellers har prods klausuler flyttet sig). Dry-run er
+   **første datamutation** (writer-profilrækken; readback `b72ddf5f…`). Apply → `finalized`, replay
+   `already_applied`, `984|787|197|51|1`, kanonisk uændret.
+6. **06:** komparator `match` med tallene fra rehearsal (51 records, 116/197, 56/60), sæt-hashes
+   `1bad2e97…`, profil-readback, anon uændret. Skriver `verify-ok.json`.
+
+**Hvis 05 stopper efter dry-run'en** (fx tabt forbindelse omkring commit): **kør ikke 05 blindt igen.**
+Kør `/bin/zsh -f ~/.private/omseg-prod/08-afgoer.sh <05's apply-mappe>` (læse-kun, samme miljø):
+
+- `INTET_COMMITTET` → kør 05 igen i samme pause; det genkender profilrækken fra første dry-run.
+- `APPLY_COMMITTET` → 08 skriver `apply.json` (eksportér `DAA_APPLY_REPORT…`) → kør 06 og `00 end`.
+- alt andet → NO-GO: bevar alt, hold pausen, eskalér.
 
 ## 3. Fortrydelse
 
-Byg manifest U med den private fortrydelsesprofil (`~/.private/omseg-rehearsal/undo-profile.json`:
-revisionsprofilen med regler `clause-rules-2018-20-v2` og segmenter `clause_segment.py@v1`), 4.1b's
-ledger `8f4a88f5…` (`~/.private/148b-20260910165321/ledger/clause-ledger-v1.json`) og en frisk projektion.
+`07-fortryd.sh` skriver en **ny** revision tilbage til 4.1b's opdeling (privat `undo-profile.json` +
+4.1b-ledgeren `8f4a88f5…`). Kræver en ny skrivepause og et **nyt dump i den**:
 
-**Bevar indtil fortrydelsesvinduet er lukket:** de to ledgers og renditionen ovenfor, `undo-profile.json`,
-R-kopierne og rehearsal-scriptet. De findes kun i `~/.private/`; uden dem kan hverken F1 eller U bygges. Kør dry-run/apply/verify som ovenfor. I rehearsal gav det 51
-operationer (197 klausuler skrevet, 116 erstattet) og sæt-hashes identiske med før revisionen. Et
-senere »frem igen« kræver et nyt manifest bygget fra den aktuelle projektion (det oprindelige F1 er
-herefter en genafspilning: `already_applied`).
+```bash
+/bin/zsh -f ~/.private/omseg-prod/00-freeze.sh begin      # ny pause; ny DAA_FREEZE_REPORT
+/bin/zsh -f ~/.private/omseg-prod/02-dump.sh              # nyt dump; ny DAA_DUMP_RECEIPT
+/bin/zsh -f ~/.private/omseg-prod/07-fortryd.sh --jeg-mener-det
+/bin/zsh -f ~/.private/omseg-prod/00-freeze.sh end        # 07 skriver selv verify-ok.json
+```
 
-DDL'en fortrydes ikke: den er additiv, og NULL-sættet er sæt 1. Restore af dagens backup er
-nødvejen ved en ukendt tilstand, med 4.1c's kendte pris (skrivninger efter dumpet går tabt).
+07 kræver tilstanden efter apply (`984|787|197|51|1`, sæt-hashes `1bad2e97…`), at U er præcis
+`69f13caa…`, og efter skrivningen `match` (51 records, 197/116, 77/120), sæt-hashes tilbage til
+`8d46a529…`, `1181|868|313|102|1` samt kanonisk og anon uændret mod målingen lige før. Et senere »frem
+igen« kræver et nyt manifest fra den aktuelle projektion (det oprindelige F1 er herefter en
+genafspilning: `already_applied`).
+
+DDL'en fortrydes ikke: den er additiv, og NULL-sættet er sæt 1. Restore af pausens dump er nødvejen ved
+en ukendt tilstand, med 4.1c's kendte pris (skrivninger efter dumpet går tabt).
+
+**Bevar indtil fortrydelsesvinduet er lukket:** `~/.private/omseg-prod/`, de to ledgers
+(`~/.private/omseg-maaling/ledger/`, `~/.private/148b-20260910165321/ledger/`) og renditionen
+`~/.private/daa-2018-20-rendition.txt`. De findes kun dér; uden dem kan hverken F1 eller U bygges, og
+GO-hash-filen kan ikke genskabes.
 
 ## 4. Stopregler
 
