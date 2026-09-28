@@ -82,6 +82,10 @@ __EXTRA_DENY__
 ; LAN-adresse en fjerde vej, som denne regel IKKE dækker.
 (deny network-outbound (remote tcp "localhost:*"))
 (deny network-outbound (remote unix-socket (path-regex #"/\.s\.PGSQL\.")))
+; Alle andre unix-sockets (ssh-agent, docker, cmux m.fl.) — connect er ikke file-read,
+; så læsespærringerne dækker dem ikke. Kun DNS er åben (målt: uden den hænger kaldet).
+(deny network-outbound (remote unix-socket))
+(allow network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))
 
 ; --- Skrivning: spærret som udgangspunkt; kun en MÅLT liste er åben ---
 ; En spærring af udvalgte mapper lod codex-binæren (~/.codex/packages), config.toml,

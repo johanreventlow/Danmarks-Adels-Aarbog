@@ -53,6 +53,9 @@ fi
 naegtet      "/opt/homebrew/var (PG-data)" "/opt/homebrew/var"
 naegtet      "/Users/Shared"           "/Users/Shared"
 naegtet      "/Volumes"                "/Volumes"
+# Firmlink-aliaset til data-volumet må ikke være en vej udenom.
+naegtet      "firmlink til ~/.private" "/System/Volumes/Data$HOME/.private"
+naegtet      "firmlink til /private/tmp" "/System/Volumes/Data/private/tmp"
 
 # Lokal Postgres kører `trust`. PGHOSTADDR/PGSERVICE ville styre forbindelsen uden om -h,
 # så socket-prøven kunne ende med at måle TCP; de fjernes. Tre forudsætninger før en

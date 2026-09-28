@@ -1029,6 +1029,9 @@ def test_gate_profile_closes_local_postgres():
     """P1: lokal Postgres kører `trust` — både TCP og socket skal være lukket (målt 28/9)."""
     profil = build_gate_profile(call_dir="/private/tmp/kald", home="/Users/x")
     assert '(deny network-outbound (remote tcp "localhost:*"))' in profil
+    # Alle unix-sockets undtagen DNS (review af P1: ssh-agent, docker m.fl.).
+    assert profil.index("(deny network-outbound (remote unix-socket))") < profil.index(
+        '(allow network-outbound (remote unix-socket (path-literal "/private/var/run/mDNSResponder")))')
     assert '(deny network-outbound (remote unix-socket (path-regex #"/\\.s\\.PGSQL\\.")))' in profil
 
 
