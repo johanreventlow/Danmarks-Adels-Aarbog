@@ -4,7 +4,8 @@
 detaljer i `docs/changelog.md` 2026-09-05/06. **Prod opdateret 2026-09-17:** trin 4's skema og writere er deployet uden evidensdata —
 se tillægget nedenfor. **Prod-data 2026-09-18:** 4.1c's klausuler kørt. **Afstemt
 2026-09-23:** 4.4's prod-kørsel parkeret, 4.5 næste — se tillæg 2026-09-23. **4.5 kørt
-2026-09-26** i restoren — se tillæg 2026-09-26. **Kodestatus opdateret 2026-09-11**
+2026-09-26** i restoren — se tillæg 2026-09-26. **Prod-data 2026-09-28:** 2018-20's klausuler
+omsegmenteret (51 poster, `match`). **Kodestatus opdateret 2026-09-11**
 efter merge af trin 4's dagsværk 4.1a-4.2 — se tillægget under Produktionsstatus.
 
 **Kodegrundlag:** Task 12's funktionelle bevis er commit `4922d7e`; den
@@ -171,8 +172,11 @@ programmets samlede modenhed.
   **Tillæg 2026-09-27 (aften):** P3 og S4 er implementeret og merget (#222: klausulsæt,
   `clause_revision`, S4) og øvet mod et frisk prod-dump med `REHEARSAL_OK` — 51 poster revideret,
   fortrudt og kørt frem igen, alle `match`, intet kanonisk delta
-  (`omsegmentering-rehearsal-2018-20.md`). Prod-kørslen følger
-  `docs/runbooks/clause-revision-prod-apply.md` og venter på projektejerens GO.
+  (`omsegmentering-rehearsal-2018-20.md`). **Tillæg 2026-09-28: kørt i prod** efter
+  `docs/runbooks/clause-revision-prod-apply.md` (tre review-runder af operatørpakken, læse-kun prøve
+  i prod, rehearsal af dagens dump): 51 poster revideret, 116 klausuler skrevet, 197 `erstattet`,
+  komparatoren `match`, intet kanonisk delta (`database-current-state.md` §9). Fortrydelse er en ny
+  revision (07), vinduet er åbent.
 - **4.5 er kørt i restoren (2026-09-26)**; fuld kørsel er NO-GO med den nuværende
   afgørelsesmodel (menneskelig kapacitet), se tillæg 2026-09-26 og `decisions.md` samme dato.
   4.3a's Codex-forbrugsprobe er **kørt 2026-09-11** og lukket: `codex exec --json`
@@ -205,8 +209,9 @@ Dagsværkene 4.1a-4.4 er **udført og merget**, skemaet er deployet til prod 202
    (ny promptversion — egen beslutning).
 2. 4.5-arket er rettet (I-7) og godkendt med ny hash `c92a6e80…` (2026-09-27). Næste: projektejerens beslutning om 4.4's forslag og 4.5's afgørelser skal i prod samlet
    (prod-vej-spec på `docs/147-pilot-prod-vej`), og i så fald genbinding af 4.4's GO-pakke.
-   Review 35's P3/P4/S4 er afgjort og bygget (#219, #220, #222); omsegmenteringen er øvet og venter på
-   prod-GO. Derefter genbindes 4.4's GO-pakke til de reviderede klausuler.
+   Review 35's P3/P4/S4 er afgjort og bygget (#219, #220, #222), og omsegmenteringen er kørt i prod
+   2026-09-28. Næste: genbind 4.4's GO-pakke til de reviderede klausuler (piloten køres om på de
+   reviderede poster, og kontrolmodellen køres igen).
 
 Prod-mutationer kræver fortsat en udtrykkelig GO pr. apply.
 

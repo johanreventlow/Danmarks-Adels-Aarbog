@@ -3,7 +3,7 @@
 Manuel procedure for at deploye klausulsæt-DDL'en fra #222 og revidere 51 posters klausuler i prod
 (profil `daa-2018-20-clause-revision-v1`). Øvet mod et prod-dump 2026-09-27:
 `docs/evidensbaseret-genimport/omsegmentering-rehearsal-2018-20.md` (`REHEARSAL_OK`). Kræver
-projektejerens GO; intet i denne runbook er kørt mod prod.
+projektejerens GO. **Kørt i prod 2026-09-28** (`database-current-state.md` §9).
 
 Mønstret er 4.1c's (`clause-evidence-prod-apply.md`): skrivepause, backup under pausen,
 restore-rehearsal af netop det dump, apply, verify. Det, der er anderledes:
@@ -60,6 +60,11 @@ bekræfter den låste identitet. Send `skema=` og `anon_portabel=` til AI'en: en
 de senere, sammenlignes `preflight-….schema.txt` (og `stand-in/anon-cols.zsh`) med en stand-ins før dagen.
 
 Hvert script udskriver `DAA_…=`-linjer; eksportér dem, før næste trin køres. Afvigelser er STOP.
+Hjælperen `~/.private/omseg-prod/koer.zsh <script> [args]` gør det: den læser værdierne fra
+`go-env.txt`, kører trinnet og gemmer de nye linjer (kun `DAA_NAVN=<sti/hash/kode>`; aldrig
+`DAA_DDL_GENKOERSEL`, som kun gives inline). `koer.zsh --saet NAVN=VÆRDI` gemmer fx
+`DAA_FREEZE_RESPONSIBLE` og `DAA_ADVISORS_OK`. Sådan blev kørslen 2026-09-28 udført, og
+`go-env.txt` er GO-miljøet til en senere fortrydelse.
 
 ```bash
 export DAA_FREEZE_RESPONSIBLE=<kort ansvarskode>
