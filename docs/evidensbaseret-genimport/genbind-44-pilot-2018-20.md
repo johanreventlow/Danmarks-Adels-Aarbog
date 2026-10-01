@@ -12,7 +12,7 @@ Kæden holder på de klausuler, prod faktisk har. De 34 poster (4.3b's 10 + 4.5'
 accepteret maskinelt. Modellen brugte **ingen værktøjer** (første kørsel med P1's værn), og forbruget var
 det samme som 4.3b+4.5 tilsammen. Færdigbevisets pilotdel (≥30 poster gennem hele kæden i én base,
 rapport med tal og hashes) er opfyldt: 32 poster gav forslag. Den sidste del — 4.4's prod-GO-pakke
-genbundet — udestår (Task 5, egen GO).
+genbundet — er bortfaldet: piloten overføres ikke for sig (decisions 2026-10-01).
 
 Tre mulige årsager til forskelle mod 4.5 er målt hver for sig. **Runnerens nye regler (1.1-1.3) og
 basens kanoniske fakta forklarer intet** — begge er målt til nul forskel. Det, der er tilbage, er
@@ -120,5 +120,7 @@ ved magt: en fejl, som model og database deler, fanges kun, hvis den er i stikpr
 
 ## Næste
 
-Task 5: 4.4+4.5's prod-GO-pakke genbindes til disse forslag og afgørelser — egen GO. Samme GO lukker
-omsegmenteringens fortrydelsesvindue. Private artefakter: `~/.private/genbind-44/` (0600).
+Task 5 (pilotens egen prod-GO-pakke) er bortfaldet ved beslutningen 2026-10-01: hele 2018-20 (488
+poster) køres i en restore og overføres til prod én gang. De 34 pilotposter kommer tilbage fra
+cachen, så forslagene og de 24 afgørelser kan genbruges. Omsegmenteringens fortrydelsesvindue lukker
+ved den samlede overførsels GO. Private artefakter: `~/.private/genbind-44/` (0600).

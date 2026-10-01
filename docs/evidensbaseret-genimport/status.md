@@ -220,9 +220,10 @@ Dagsværkene 4.1a-4.4 er **udført og merget**, skemaet er deployet til prod 202
    (prod-vej-spec på `docs/147-pilot-prod-vej`), og i så fald genbinding af 4.4's GO-pakke.
    Review 35's P3/P4/S4 er afgjort og bygget (#219, #220, #222), og omsegmenteringen er kørt i prod
    2026-09-28. Piloten er kørt om på de reviderede klausuler, og kontrolmodellen igen (2026-09-28,
-   `genbind-44-pilot-2018-20.md`): 230 forslag, 46 bindinger. Næste: 4.4+4.5's prod-GO-pakke
-   genbindes til disse forslag og afgørelser (egen GO; samme GO lukker omsegmenteringens
-   fortrydelsesvindue).
+   `genbind-44-pilot-2018-20.md`): 230 forslag, 46 bindinger. Piloten overføres ikke for sig
+   (decisions 2026-10-01). Næste: (a) plan for hele 2018-20 (488 poster) i en restore af et frisk
+   prod-dump — modelkald, ingest, kontrolmodel, binding; (b) spec for én samlet prod-overførsel med
+   den nøglede pakke. Omsegmenteringens fortrydelsesvindue lukker ved den overførsels GO.
 
 Prod-mutationer kræver fortsat en udtrykkelig GO pr. apply.
 
