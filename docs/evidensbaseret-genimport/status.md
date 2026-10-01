@@ -5,7 +5,8 @@ detaljer i `docs/changelog.md` 2026-09-05/06. **Prod opdateret 2026-09-17:** tri
 se tillægget nedenfor. **Prod-data 2026-09-18:** 4.1c's klausuler kørt. **Afstemt
 2026-09-23:** 4.4's prod-kørsel parkeret, 4.5 næste — se tillæg 2026-09-23. **4.5 kørt
 2026-09-26** i restoren — se tillæg 2026-09-26. **Prod-data 2026-09-28:** 2018-20's klausuler
-omsegmenteret (51 poster, `match`). **Kodestatus opdateret 2026-09-11**
+omsegmenteret (51 poster, `match`); samme dag er 4.4 genbundet i en lokal kopi — se tillæg
+2026-09-28. **Kodestatus opdateret 2026-09-11**
 efter merge af trin 4's dagsværk 4.1a-4.2 — se tillægget under Produktionsstatus.
 
 **Kodegrundlag:** Task 12's funktionelle bevis er commit `4922d7e`; den
@@ -15,6 +16,14 @@ nuværende dokumentations-HEAD kan være senere og ændrer ikke det bevis
 er `integreret ende-til-ende`, se tabellen og blokeringerne; 149a
 (2018-20 kilderegnskab) er `integreret ende-til-ende`, se tabellen; #156
 lukket med restpunkt (INCOMPLETE-afstemning, snapshot forseglet).
+
+**Tillæg 2026-09-28 — 4.4 er genbundet: piloten kørt om på de omsegmenterede klausuler.** I en
+lokal kopi af et frisk prod-dump gav de 34 poster 230 forslag, 24 kort for projektejeren (alle
+accepteret), 26 maskinelle accepter og 46 bindinger, intet kanonisk delta
+(`genbind-44-pilot-2018-20.md`). Første modelkørsel med P1's værn (`evidence-runner-1.3`): 0
+værktøjsbrug. Runnerens nye regler og basens fakta er målt til nul forskel mod 4.5; den største kilde
+til forskel er selve genkaldet (68 % af forslagene på uændrede poster går ordret igen). Prod-pakken
+skal derfor bære netop disse forslag. Næste er 4.4+4.5's prod-GO-pakke (egen GO).
 
 **Tillæg 2026-09-27 — kontrolmodellen er bygget og kørt én gang.** I en kopi af restoren med
 4.5's forslag genafspillet gav den samme 43 bindinger som 4.5's fulde ark (identiske forslag og mål)
@@ -210,8 +219,11 @@ Dagsværkene 4.1a-4.4 er **udført og merget**, skemaet er deployet til prod 202
 2. 4.5-arket er rettet (I-7) og godkendt med ny hash `c92a6e80…` (2026-09-27). Næste: projektejerens beslutning om 4.4's forslag og 4.5's afgørelser skal i prod samlet
    (prod-vej-spec på `docs/147-pilot-prod-vej`), og i så fald genbinding af 4.4's GO-pakke.
    Review 35's P3/P4/S4 er afgjort og bygget (#219, #220, #222), og omsegmenteringen er kørt i prod
-   2026-09-28. Næste: genbind 4.4's GO-pakke til de reviderede klausuler (piloten køres om på de
-   reviderede poster, og kontrolmodellen køres igen).
+   2026-09-28. Piloten er kørt om på de reviderede klausuler, og kontrolmodellen igen (2026-09-28,
+   `genbind-44-pilot-2018-20.md`): 230 forslag, 46 bindinger. Piloten overføres ikke for sig
+   (decisions 2026-10-01). Næste: (a) plan for hele 2018-20 (488 poster) i en restore af et frisk
+   prod-dump — modelkald, ingest, kontrolmodel, binding; (b) spec for én samlet prod-overførsel med
+   den nøglede pakke. Omsegmenteringens fortrydelsesvindue lukker ved den overførsels GO.
 
 Prod-mutationer kræver fortsat en udtrykkelig GO pr. apply.
 

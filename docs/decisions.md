@@ -2,6 +2,68 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: ingen særskilt prod-overførsel af piloten — hele 2018-20 køres i restoren og overføres samlet (2026-10-01)
+
+> **Besluttet af projektejeren 2026-10-01**, inkl. underpunkt 1 og 2. Ændrer skridt 5 i
+> beslutningen 2026-09-27 om omsegmentering (»derefter 4.4+4.5 i prod«) og afløser parkeringen
+> 2026-09-23: 4.4+4.5 får ikke deres egen prod-GO. Kontrolmodellen (2026-09-27) gælder uændret.
+
+**Baggrund.** Piloten er kørt om på de omsegmenterede klausuler (`genbind-44-pilot-2018-20.md`):
+34 poster, 230 forslag, 46 bindinger, 24 kort. Den særskilte prod-vej (spec 2026-09-24 på
+`docs/147-pilot-prod-vej`) blev designet til at redde 243 afgørelser, der havde taget dage; nu er
+det 24 kort fra én session. En særskilt overførsel af 32 poster ville koste en fuld prod-ceremoni
+(spec, plan, review, rehearsal, GO) for data, ingen læser ser (beslutningen 2026-09-27: 4.4 giver
+ingen læserværdi i sig selv).
+
+**Besluttet:**
+1. **Pilotens egen overførsel springes over.** Alle 488 `eligible` poster i 2018-20 køres gennem
+   kæden i en restore af et frisk prod-dump: modelkald, ingest, kontrolmodel, binding. Derefter
+   overføres resultatet til prod **én gang**. Prod får præcis restorens forslag og afgørelser via
+   den nøglede pakke (afsnit 1 i 24/9-spec'en: `interpretation_key`, `decision_fingerprint`,
+   `pack_sha256`), aldrig et nyt modelkald mod prod. 4.4's gamle GO-pakke (#196) genbindes ikke;
+   den afløses af overførslens egen spec og GO.
+2. **Pilotens arbejde går ikke tabt.** Runnerens cache-identitet er profil, model, `prompt_sha256`,
+   `record_key`, postens input-hash, `clause_set_sha256`, claims-skema og kontraktversion — ikke
+   manifest eller bundt. De 34 pilotposter kommer derfor tilbage fra cachen, forslagene bliver
+   identiske, `interpretation_key` ligeså, og de 24 afgørelser kan forudfylde kortene. Det holder
+   kun, hvis restorens kildetekst og klausulsæt er som i dump `ddbe94b8…`, og intet i
+   cache-identiteten ændres (underpunkt 1).
+
+**Underpunkter:**
+1. **Kontrakten fryses til den fulde kørsel:** ingen ny prompt-, profil- eller kontraktversion før
+   den er kørt. Promptreglen for »var † [dato], da …« venter derfor. En ændring ville ændre
+   `prompt_sha256`, så alle 488 poster — også pilotens — sendes til modellen igen, og
+   pilotafgørelserne skal tages om.
+2. **Omsegmenteringens fortrydelsesvindue lukker ved den samlede overførsels GO** (ikke ved en
+   pilot-GO, som tidligere planlagt). Prisen er, at `~/.private/omseg-prod/` bevares til da.
+   Projektejeren kan lukke vinduet tidligere; intet i prod afhænger af de gamle klausuler.
+
+**Skøn** (skaleret fra piloten, 34 → 488 poster; piloten har længere poster end gennemsnittet,
+så tallene er snarere for høje end for lave):
+
+| | Skøn | Grundlag |
+| --- | ---: | --- |
+| Nye modelkald | 454 poster | 488 − 34 i cachen |
+| Input-tokens | ≈ 8,0 mio. | 597.185 / 34 pr. post |
+| Forslag i alt | ≈ 3.300 | 230 / 34 |
+| Bindinger (`MATCH`) | ≈ 660 | 46 / 34 |
+| Uoverensstemmelser (`REAL_DIFF`) | ≈ 57 | 4 / 34 |
+| Forbliver `proposed` | ≈ 2.600 | ikke-promoverbare + `SKRIVEMAADE` + `NO_FACT` |
+
+**Kortantal afhænger af, hvad der er »én kørsel«.** Kontrolmodellen trækker 20 stikprøvekort pr.
+kørsel og stopper hele kørslen ved én fejl. Som én kørsel: ≈ 57 + 20 ≈ 77 kort, tre ark à højst
+30. Flere kørsler koster 20 kort ekstra hver, men et stop rammer mindre. Opdelingen afgøres i
+planen.
+
+**Konsekvens for prod:** 4.4's oprindelige præmis var, at prod har 0 fortolkninger. Overførslen
+giver prod ≈ 3.300 fortolkninger, heraf ≈ 660 bundne. Restoren tages af et frisk dump. Drift
+mellem restore og prod ved overførslen — redaktionelle rettelser, ændrede klausuler — er
+overførsels-spec'ens opgave (`decision_fingerprint`, `CLAUSE_SET_DRIFT` fra 24/9-designet).
+
+**Rækkefølge:** (a) plan for den fulde kørsel i restoren (pilotplanens Task 1-3 i stor skala;
+manifest over 488 poster kræver GO på hashes før modelkald); (b) spec for den samlede overførsel
+med pakken som kerne. (b) kan skrives, mens (a) kører.
+
 ## BESLUTTET: GO til profil `daa-2018-20-v2` — regler `clause-rules-2018-20-v3` (2026-09-27)
 
 > **Besluttet af projektejeren 2026-09-27**, jf. profilens `requires_human_go_for_change`. Skridt 2
