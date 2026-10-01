@@ -4,11 +4,9 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
 ## BESLUTTET: ingen særskilt prod-overførsel af piloten — hele 2018-20 køres i restoren og overføres samlet (2026-10-01)
 
-> **Besluttet af projektejeren 2026-10-01** (retningen). Ændrer skridt 5 i beslutningen
-> 2026-09-27 om omsegmentering (»derefter 4.4+4.5 i prod«) og afløser parkeringen 2026-09-23:
-> 4.4+4.5 får ikke deres egen prod-GO. Kontrolmodellen (2026-09-27) gælder uændret.
-> **Underpunkt 1 og 2 nedenfor er Claudes anbefalede standard og afventer projektejerens
-> bekræftelse.**
+> **Besluttet af projektejeren 2026-10-01**, inkl. underpunkt 1 og 2. Ændrer skridt 5 i
+> beslutningen 2026-09-27 om omsegmentering (»derefter 4.4+4.5 i prod«) og afløser parkeringen
+> 2026-09-23: 4.4+4.5 får ikke deres egen prod-GO. Kontrolmodellen (2026-09-27) gælder uændret.
 
 **Baggrund.** Piloten er kørt om på de omsegmenterede klausuler (`genbind-44-pilot-2018-20.md`):
 34 poster, 230 forslag, 46 bindinger, 24 kort. Den særskilte prod-vej (spec 2026-09-24 på
@@ -31,7 +29,7 @@ ingen læserværdi i sig selv).
    kun, hvis restorens kildetekst og klausulsæt er som i dump `ddbe94b8…`, og intet i
    cache-identiteten ændres (underpunkt 1).
 
-**Underpunkter (anbefalet standard, afventer bekræftelse):**
+**Underpunkter:**
 1. **Kontrakten fryses til den fulde kørsel:** ingen ny prompt-, profil- eller kontraktversion før
    den er kørt. Promptreglen for »var † [dato], da …« venter derfor. En ændring ville ændre
    `prompt_sha256`, så alle 488 poster — også pilotens — sendes til modellen igen, og
