@@ -323,7 +323,11 @@ def main() -> int:
                 # Writeren afviser et principal-forslag på en post uden persona
                 # (REIMPORT_WRITER_PRINCIPAL_WITHOUT_PERSONA) og ruller hele posten
                 # tilbage. Afgøres derfor her, så kun dette ene claim fælder (II-35,
-                # 2026-10-02: event.marriage; rollen kommer fra prædikatet).
+                # 2026-10-02: event.marriage; rollen kommer fra prædikatet). Claimet er
+                # TABT, ikke udskudt: har posten andre forslag, spærrer S4-værnet et nyt
+                # forslag, til et menneske har afgjort de gamle. Writeren afleder selv
+                # personaen af præcis én primær mention på helposten; eksportens persona_id
+                # er en stedfortræder for den regel (opus-review 2026-10-02, fund 1).
                 principal_uden_persona.append({"record_key": key, "predicate": pred})
                 continue
             nøgle_input = interpretation_key_input(
@@ -372,6 +376,11 @@ def main() -> int:
                 "claims": claims,
             })
 
+    if args.cache_key == "legacy" and principal_uden_persona:
+        # Legacy-manifestet har ingen konto til frasorterede claims (byte-identiteten
+        # for 4.3b/4.5); regnskabet ville ikke gå op. Fail closed før noget skrives.
+        print(f"PRINCIPAL_UDEN_PERSONA_I_LEGACY {len(principal_uden_persona)}")
+        return 1
     n_ingestible = sum(len(e["claims"]) for e in elementer)
     # Manifestets nøglesæt er LUKKET af R-klienten: kun manifest_content_sha256,
     # source, expected_counts og operations — plus de valgfrie dispositions og
@@ -427,7 +436,7 @@ def main() -> int:
         # Kun i den nye tilstand: 4.4's legacy-manifest skal kunne genbygges byte-identisk.
         manifest["provenance"]["cache_key_mode"] = "current"
         # Også kun her: kontoen er ny (2026-10-02), og legacy-manifestet skal forblive
-        # byte-identisk. I legacy-tilstand er den altid 0 (4.3b/4.5 havde alle persona).
+        # byte-identisk. I legacy-tilstand er den 0 — ellers stopper bygningen ovenfor.
         manifest["provenance"]["regnskab"]["principal_uden_persona"] = len(principal_uden_persona)
         manifest["provenance"]["principal_uden_persona_claims"] = principal_uden_persona
         manifest["provenance"]["records"] = noegler

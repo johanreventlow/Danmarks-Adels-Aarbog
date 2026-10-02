@@ -225,8 +225,8 @@ def _rec(key, persona, tekst):
             "clauses": [{"ordinal": 1, "verbatim_text": tekst, "verbatim_sha256": sha256_text(tekst)}]}
 
 
-def _byg(tmp_path, monkeypatch, records, svar):
-    """Kører CLI'en over et komplet, syntetisk runner-manifest og en cache i 'current'-tilstand."""
+def _byg(tmp_path, monkeypatch, records, svar, mode="current"):
+    """Kører CLI'en over et komplet, syntetisk runner-manifest og en cache i den givne tilstand."""
     import build_43b_proposal_manifest as b
     from build_43b_manifest import manifest_sha256
     from evidence_runner import canonical_clause_set, canonical_record_input
@@ -241,16 +241,20 @@ def _byg(tmp_path, monkeypatch, records, svar):
         ident = {"profile_id": "p", "profile_version": "1", "model": "m", "prompt_sha256": "a" * 64,
                  "record_input_sha256": canonical_record_input(rec),
                  "clause_set_sha256": canonical_clause_set(rec), "claims_schema_sha256": "b" * 64,
-                 "runner_contract_version": "evidence-runner-1.3", "record_key": key}
-        b.cache_path(cache, ident, mode="current").write_text(json.dumps(
+                 "runner_contract_version": (b.LEGACY_RUNNER_CONTRACT_VERSION if mode == "legacy"
+                                             else "evidence-runner-1.3")}
+        if mode == "current":
+            ident["record_key"] = key
+        b.cache_path(cache, ident, mode=mode).write_text(json.dumps(
             {"raw": json.dumps({"claims": svar[key]}), "usage": {"input_tokens": 1}}), encoding="utf-8")
     (tmp_path / "m.json").write_text(json.dumps(m), encoding="utf-8")
     (tmp_path / "ri.json").write_text(json.dumps({"records": records}), encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["b", "--runner-manifest", str(tmp_path / "m.json"),
                                      "--runner-input", str(tmp_path / "ri.json"),
                                      "--cache-dir", str(cache), "--profile", str(PROFIL),
-                                     "--out", str(tmp_path / "out.json"), "--cache-key", "current",
-                                     "--expect-runner-manifest-sha256", m["manifest_sha256"]])
+                                     "--out", str(tmp_path / "out.json"), "--cache-key", mode,
+                                     "--expect-runner-manifest-sha256", m["manifest_sha256"]]
+                        + (["--historisk-foer-p1"] if mode == "legacy" else []))
     return b.main()
 
 
@@ -289,3 +293,34 @@ def test_post_uden_persona_kun_med_principal_claims_giver_intet_element(tmp_path
     out = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
     assert out["operations"] == [] and out["expected_counts"]["interpretation_proposals"] == 0
     assert out["provenance"]["regnskab"]["principal_uden_persona"] == 1
+
+
+@pytest.mark.parametrize("persona", [None, "", "MANGLER"])
+def test_alle_former_for_manglende_persona_fanges(tmp_path, monkeypatch, persona):
+    tekst = "Gift i Odense med Anna."
+    rec = _rec("B", persona, tekst)
+    if persona == "MANGLER":
+        del rec["persona_id"]
+    svar = {"B": [_claim("event.marriage", "Gift i Odense", None)]}
+    assert _byg(tmp_path, monkeypatch, {"B": rec}, svar) == 0
+    out = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
+    assert out["provenance"]["regnskab"]["principal_uden_persona"] == 1
+
+
+def test_legacy_uden_frasortering_faar_ingen_ny_konto(tmp_path, monkeypatch):
+    """Byte-identiteten for 4.3b/4.5: kontoen findes kun i current-tilstand."""
+    tekst = "Gift i Odense med Anna."
+    svar = {"A": [_claim("event.marriage", "Gift i Odense", None)]}
+    assert _byg(tmp_path, monkeypatch, {"A": _rec("A", "p-A", tekst)}, svar, mode="legacy") == 0
+    prov = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))["provenance"]
+    assert "principal_uden_persona" not in prov["regnskab"]
+    assert "principal_uden_persona_claims" not in prov
+
+
+def test_legacy_med_frasortering_fejler_lukket(tmp_path, monkeypatch, capsys):
+    """Legacy-manifestet har ingen konto til frasorterede claims; regnskabet ville ikke gå op."""
+    tekst = "Gift i Odense med Anna."
+    svar = {"B": [_claim("event.marriage", "Gift i Odense", None)]}
+    assert _byg(tmp_path, monkeypatch, {"B": _rec("B", "", tekst)}, svar, mode="legacy") == 1
+    assert "PRINCIPAL_UDEN_PERSONA_I_LEGACY 1" in capsys.readouterr().out
+    assert not (tmp_path / "out.json").exists()
