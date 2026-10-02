@@ -2,6 +2,42 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 2018-20 fortsætter med `gpt-5.6-terra` — Sonnet er målt og noteret som kandidat (2026-10-02)
+
+> **Besluttet af projektejeren 2026-10-02.** Kontraktfrysen i beslutningen 2026-10-01 står ved
+> magt. Projektejeren gav samme dag tilladelse til, at Anthropic måtte modtage pilotens 34 poster,
+> **kun** til en måling via Claude-abonnementet. Det ændrer ikke behandlingsgrundlaget fra 2026-09-06
+> for kæden.
+
+**Målingen** (spike, kun tal; script og svar privat i `~/.private/model-maaling/`). Samme prompt
+(`d46cda80…`), samme claims-skema og samme validering (`partition_record_claims`) som terra. Kaldet
+`claude -p --model claude-sonnet-5 --tools ""` med fast output-skema, uden MCP, indstillinger eller
+sessionslog: 0 værktøjskald, 0 subagenter.
+
+| Pilotens 34 poster | terra | Sonnet |
+| --- | ---: | ---: |
+| Gyldige claims | 233 | 427 |
+| Afvist af valideringen | 16 (6 %) | 48 (10 %), heraf 29 prædikater uden for ordforrådet |
+| Præcision mod projektejerens domme | 165/165 | 142/143 |
+| Claims uden dom | 68 | 284 |
+| `mention.place` / `mention.person` | 26 / 0 | 120 / 59 |
+| Input-tokens | 597.000 | 355.000 (150.000 fra cache) |
+| Output-tokens | 23.000 | 200.000 (137.000 tænkning) |
+| Tid pr. post | ≈ 20 s | ≈ 70 s |
+
+**Vurdering.** Præcisionen er reelt ens, hvor der findes en dom. Sonnets ekstra mængde er især
+omtaler, som ikke kan promoveres og forbliver `proposed` (beslutningen 2026-09-27), så de giver ingen
+læserværdi i dag. Output-forbruget er 8½ gange terras. Målingen kan ikke afgøre, om Sonnets udømte
+claims er sande, eller om terra overser fakta: matchet er ordret på værditekst, og dommene blev
+afgivet på terras formuleringer, hvilket favoriserer terra.
+
+**Besluttet:**
+1. 2018-20 fortsætter med terra. Kørslen over de 488 poster er færdig under manifest `f5a76e1b…`.
+2. Sonnet er kandidat til omtaler af personer og steder (trin 5) og til næste årbog. Et skift kræver en
+   ny beslutning og en spec for en Claude-backend: værktøjer slået fra, sandbox, ny kontraktversion og
+   behandlingsgrundlag for hele kæden. Det kræver også en måling af Sonnets udømte claims på et blindt
+   ark.
+
 ## BESLUTTET: ingen særskilt prod-overførsel af piloten — hele 2018-20 køres i restoren og overføres samlet (2026-10-01)
 
 > **Besluttet af projektejeren 2026-10-01**, inkl. underpunkt 1 og 2. Ændrer skridt 5 i
