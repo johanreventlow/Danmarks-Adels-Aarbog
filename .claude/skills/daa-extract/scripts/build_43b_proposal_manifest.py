@@ -258,6 +258,7 @@ def main() -> int:
                 for p in sorted(cache_dir.glob("*.json"))}
 
     elementer, afvist_h1, dubletter, ukendt_rolle = [], [], [], []
+    principal_uden_persona = []
     n_raa = n_kontrakt_afvist = 0
     sete_noegler: set[str] = set()
     usage_sum = {"input_tokens": 0, "output_tokens": 0, "reasoning_output_tokens": 0,
@@ -318,6 +319,17 @@ def main() -> int:
                 # Fail-closed: en gættet rolle er 4.2's kind-afledningsfejl igen.
                 ukendt_rolle.append({"record_key": key, "predicate": pred})
                 continue
+            if rolle == "principal" and not rec.get("persona_id"):
+                # Writeren afviser et principal-forslag på en post uden persona
+                # (REIMPORT_WRITER_PRINCIPAL_WITHOUT_PERSONA) og ruller hele posten
+                # tilbage. Afgøres derfor her, så kun dette ene claim fælder (II-35,
+                # 2026-10-02: event.marriage; rollen kommer fra prædikatet). Claimet er
+                # TABT, ikke udskudt: har posten andre forslag, spærrer S4-værnet et nyt
+                # forslag, til et menneske har afgjort de gamle. Writeren afleder selv
+                # personaen af præcis én primær mention på helposten; eksportens persona_id
+                # er en stedfortræder for den regel (opus-review 2026-10-02, fund 1).
+                principal_uden_persona.append({"record_key": key, "predicate": pred})
+                continue
             nøgle_input = interpretation_key_input(
                 runner_manifest.get("source_id", 1), key, pred,
                 c["clause_ordinals"], c["value"])
@@ -364,6 +376,11 @@ def main() -> int:
                 "claims": claims,
             })
 
+    if args.cache_key == "legacy" and principal_uden_persona:
+        # Legacy-manifestet har ingen konto til frasorterede claims (byte-identiteten
+        # for 4.3b/4.5); regnskabet ville ikke gå op. Fail closed før noget skrives.
+        print(f"PRINCIPAL_UDEN_PERSONA_I_LEGACY {len(principal_uden_persona)}")
+        return 1
     n_ingestible = sum(len(e["claims"]) for e in elementer)
     # Manifestets nøglesæt er LUKKET af R-klienten: kun manifest_content_sha256,
     # source, expected_counts og operations — plus de valgfrie dispositions og
@@ -418,6 +435,10 @@ def main() -> int:
     if args.cache_key == "current":
         # Kun i den nye tilstand: 4.4's legacy-manifest skal kunne genbygges byte-identisk.
         manifest["provenance"]["cache_key_mode"] = "current"
+        # Også kun her: kontoen er ny (2026-10-02), og legacy-manifestet skal forblive
+        # byte-identisk. I legacy-tilstand er den 0 — ellers stopper bygningen ovenfor.
+        manifest["provenance"]["regnskab"]["principal_uden_persona"] = len(principal_uden_persona)
+        manifest["provenance"]["principal_uden_persona_claims"] = principal_uden_persona
         manifest["provenance"]["records"] = noegler
     krop = json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     manifest["manifest_content_sha256"] = hashlib.sha256(krop.encode("utf-8")).hexdigest()
@@ -434,8 +455,9 @@ def main() -> int:
     print(f"  dubletter        {r['dubletter']}")
     print(f"  ingestible       {r['ingestible']}")
     print(f"  ukendt rolle     {r['ukendt_rolle']}")
+    print(f"  principal uden persona {len(principal_uden_persona)}")
     if r["raa_claims"] != (r["kontrakt_afviste"] + r["h1_afviste"] + r["dubletter"]
-                           + r["ukendt_rolle"] + r["ingestible"]):
+                           + r["ukendt_rolle"] + len(principal_uden_persona) + r["ingestible"]):
         print("  ** REGNSKABET GÅR IKKE OP **")
         return 1
     print(f"  manifest_content_sha256: {manifest['manifest_content_sha256']}")
