@@ -258,6 +258,7 @@ def main() -> int:
                 for p in sorted(cache_dir.glob("*.json"))}
 
     elementer, afvist_h1, dubletter, ukendt_rolle = [], [], [], []
+    principal_uden_persona = []
     n_raa = n_kontrakt_afvist = 0
     sete_noegler: set[str] = set()
     usage_sum = {"input_tokens": 0, "output_tokens": 0, "reasoning_output_tokens": 0,
@@ -317,6 +318,13 @@ def main() -> int:
             if rolle is None:
                 # Fail-closed: en gættet rolle er 4.2's kind-afledningsfejl igen.
                 ukendt_rolle.append({"record_key": key, "predicate": pred})
+                continue
+            if rolle == "principal" and not rec.get("persona_id"):
+                # Writeren afviser et principal-forslag på en post uden persona
+                # (REIMPORT_WRITER_PRINCIPAL_WITHOUT_PERSONA) og ruller hele posten
+                # tilbage. Afgøres derfor her, så kun dette ene claim fælder (II-35,
+                # 2026-10-02: event.marriage; rollen kommer fra prædikatet).
+                principal_uden_persona.append({"record_key": key, "predicate": pred})
                 continue
             nøgle_input = interpretation_key_input(
                 runner_manifest.get("source_id", 1), key, pred,
@@ -418,6 +426,10 @@ def main() -> int:
     if args.cache_key == "current":
         # Kun i den nye tilstand: 4.4's legacy-manifest skal kunne genbygges byte-identisk.
         manifest["provenance"]["cache_key_mode"] = "current"
+        # Også kun her: kontoen er ny (2026-10-02), og legacy-manifestet skal forblive
+        # byte-identisk. I legacy-tilstand er den altid 0 (4.3b/4.5 havde alle persona).
+        manifest["provenance"]["regnskab"]["principal_uden_persona"] = len(principal_uden_persona)
+        manifest["provenance"]["principal_uden_persona_claims"] = principal_uden_persona
         manifest["provenance"]["records"] = noegler
     krop = json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     manifest["manifest_content_sha256"] = hashlib.sha256(krop.encode("utf-8")).hexdigest()
@@ -434,8 +446,9 @@ def main() -> int:
     print(f"  dubletter        {r['dubletter']}")
     print(f"  ingestible       {r['ingestible']}")
     print(f"  ukendt rolle     {r['ukendt_rolle']}")
+    print(f"  principal uden persona {len(principal_uden_persona)}")
     if r["raa_claims"] != (r["kontrakt_afviste"] + r["h1_afviste"] + r["dubletter"]
-                           + r["ukendt_rolle"] + r["ingestible"]):
+                           + r["ukendt_rolle"] + len(principal_uden_persona) + r["ingestible"]):
         print("  ** REGNSKABET GÅR IKKE OP **")
         return 1
     print(f"  manifest_content_sha256: {manifest['manifest_content_sha256']}")

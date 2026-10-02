@@ -216,3 +216,76 @@ def test_cli_afviser_svar_fra_foer_p1_uden_flag(tmp_path, monkeypatch, capsys):
     assert b.main() == 1
     assert "PRE_P1_CACHE_REFUSED" in capsys.readouterr().out
     assert not (tmp_path / "out.json").exists()
+
+
+# --- hele bygningen ----------------------------------------------------------
+
+def _rec(key, persona, tekst):
+    return {"record_key": key, "persona_id": persona, "post_verbatim_text": tekst,
+            "clauses": [{"ordinal": 1, "verbatim_text": tekst, "verbatim_sha256": sha256_text(tekst)}]}
+
+
+def _byg(tmp_path, monkeypatch, records, svar):
+    """Kører CLI'en over et komplet, syntetisk runner-manifest og en cache i 'current'-tilstand."""
+    import build_43b_proposal_manifest as b
+    from build_43b_manifest import manifest_sha256
+    from evidence_runner import canonical_clause_set, canonical_record_input
+    m = {"records": list(records), "bundter": {"bundt_01": list(records)},
+         "profile_id": "p", "profile_version": "1", "model": "m", "prompt_sha256": "a" * 64,
+         "claims_schema_sha256": "b" * 64, "runner_contract_version": "evidence-runner-1.3",
+         "eligibility_ledger_sha256": "c" * 64}
+    m["manifest_sha256"] = manifest_sha256(m)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    for key, rec in records.items():
+        ident = {"profile_id": "p", "profile_version": "1", "model": "m", "prompt_sha256": "a" * 64,
+                 "record_input_sha256": canonical_record_input(rec),
+                 "clause_set_sha256": canonical_clause_set(rec), "claims_schema_sha256": "b" * 64,
+                 "runner_contract_version": "evidence-runner-1.3", "record_key": key}
+        b.cache_path(cache, ident, mode="current").write_text(json.dumps(
+            {"raw": json.dumps({"claims": svar[key]}), "usage": {"input_tokens": 1}}), encoding="utf-8")
+    (tmp_path / "m.json").write_text(json.dumps(m), encoding="utf-8")
+    (tmp_path / "ri.json").write_text(json.dumps({"records": records}), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["b", "--runner-manifest", str(tmp_path / "m.json"),
+                                     "--runner-input", str(tmp_path / "ri.json"),
+                                     "--cache-dir", str(cache), "--profile", str(PROFIL),
+                                     "--out", str(tmp_path / "out.json"), "--cache-key", "current",
+                                     "--expect-runner-manifest-sha256", m["manifest_sha256"]])
+    return b.main()
+
+
+def _claim(predicate, value, persona):
+    return {"clause_ordinals": [1], "predicate": predicate, "value": {"raw": value}, "confidence": 0.9,
+            "source_persona_id": persona}
+
+
+def test_principal_claim_paa_post_uden_persona_sorteres_fra_og_taelles(tmp_path, monkeypatch, capsys):
+    """2026-10-02, II-35: writeren afviser et principal-forslag på en post uden persona
+    (REIMPORT_WRITER_PRINCIPAL_WITHOUT_PERSONA) og ruller hele posten tilbage. Byggeren
+    skal afgøre det først — og kun fælde det ene claim."""
+    tekst = "Gift i Odense med Anna."
+    records = {"A": _rec("A", "p-A", tekst), "B": _rec("B", "", tekst)}
+    svar = {"A": [_claim("event.marriage", "Gift i Odense", None),
+                  _claim("mention.place", "Odense", None)],
+            "B": [_claim("event.marriage", "Gift i Odense", None),
+                  _claim("mention.place", "Odense", None)]}
+    assert _byg(tmp_path, monkeypatch, records, svar) == 0
+    assert "principal uden persona 1" in capsys.readouterr().out
+    out = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
+    ops = {o["source_record_key"]: o for o in out["operations"]}
+    assert [c["predicate"] for c in ops["A"]["claims"]] == ["event.marriage", "mention.place"]
+    assert [(c["predicate"], c["persona_role"]) for c in ops["B"]["claims"]] == [("mention.place", "other")]
+    r = out["provenance"]["regnskab"]
+    assert r["principal_uden_persona"] == 1 and r["ingestible"] == 3 and r["raa_claims"] == 4
+    assert out["provenance"]["principal_uden_persona_claims"] == [
+        {"record_key": "B", "predicate": "event.marriage"}]
+
+
+def test_post_uden_persona_kun_med_principal_claims_giver_intet_element(tmp_path, monkeypatch, capsys):
+    tekst = "Gift i Odense med Anna."
+    records = {"B": _rec("B", "", tekst)}
+    svar = {"B": [_claim("event.marriage", "Gift i Odense", None)]}
+    assert _byg(tmp_path, monkeypatch, records, svar) == 0
+    out = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
+    assert out["operations"] == [] and out["expected_counts"]["interpretation_proposals"] == 0
+    assert out["provenance"]["regnskab"]["principal_uden_persona"] == 1
