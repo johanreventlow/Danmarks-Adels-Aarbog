@@ -29,9 +29,11 @@ indlæsninger.
 **Afvejet og forkastet:** at forslaget gengiver kilden ordret. Et forslag skal være kildetro
 *inden for sit prædikat*; et dødsforslag tager heller ikke resten af sætningen med.
 
-**Konsekvens nu:** de 13 kort afgøres `U` (»titel i navn« / »godsbetegnelse i navn«) og forbliver
-ubundne, til en navneregel er besluttet. Kontraktfrysen (2026-10-01) står ved magt: regelen i
-prompten venter på næste promptversion, sammen med »var †«-reglen. III-15's ejerskab findes kun i
+**Konsekvens nu:** de 13 kort afgøres `U` (»titel i navn« / »godsbetegnelse i navn«) og er
+ubundne. `unresolved` er en endestation for RPC'en (`red_decide_interpretation` afgør kun
+`proposed`), så de genåbnes ikke: vejen frem er nye fortolkninger fra næste promptversion, der
+erstatter dem. Kontraktfrysen (2026-10-01) står ved magt: regelen i prompten venter på næste
+promptversion, sammen med »var †«-reglen. III-15's ejerskab findes kun i
 navneforslaget (intet `person.estate`-forslag, intet faktum) — et overset udsagn, ikke et tab:
 narrativet bærer det.
 
