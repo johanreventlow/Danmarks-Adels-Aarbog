@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-03 — hele 2018-20 gennem fortolkningskæden i én base (#147)
+
+Efter projektejerens GO på manifest `f5a76e1b…` er alle 488 tilladte poster i 2018-20 sendt til
+`gpt-5.6-terra` (365 nye kald, 123 fra cache) i en lokal kopi af et frisk prod-dump: 488/488 dækket,
+3.758 gyldige claims. Ingest gav 3.739 forslag, præcis som forudsagt (#229 sorterede ét claim fra på en
+post uden persona). Kontrolmodellen gav 74 kort (20 stikprøve + 54 uoverensstemmelser); projektejeren
+afgjorde 61 A og 13 U (ark `25d47d5b…`), 602 blev accepteret maskinelt, og 622 er bundet i ét batch
+uden kanonisk delta. Pilotens 34 poster og 46 bindinger er identiske. De 13 U er navne med titel eller
+»til <gods>« i værdien — besluttet holdt ude af navnet (decisions 2026-10-03). Fund: runneren kender
+ikke codex' nye kvotefejl; 138 navne-assertions i databasen har titelord. Rapport:
+`evidensbaseret-genimport/2018-20-fuld-koersel.md`. Intet i prod. Næste: spec for den samlede
+prod-overførsel.
+
 ## 2026-09-28 — 4.4 genbundet: piloten kørt om på de omsegmenterede klausuler (#147)
 
 Efter P1's værn (#226, `evidence-runner-1.3`) og projektejerens GO på manifest `72b8ac59…` og

@@ -6,7 +6,8 @@ se tillægget nedenfor. **Prod-data 2026-09-18:** 4.1c's klausuler kørt. **Afst
 2026-09-23:** 4.4's prod-kørsel parkeret, 4.5 næste — se tillæg 2026-09-23. **4.5 kørt
 2026-09-26** i restoren — se tillæg 2026-09-26. **Prod-data 2026-09-28:** 2018-20's klausuler
 omsegmenteret (51 poster, `match`); samme dag er 4.4 genbundet i en lokal kopi — se tillæg
-2026-09-28. **Kodestatus opdateret 2026-09-11**
+2026-09-28. **Hele 2018-20 kørt 2026-10-01—03** i en lokal kopi — se tillæg 2026-10-03.
+**Kodestatus opdateret 2026-09-11**
 efter merge af trin 4's dagsværk 4.1a-4.2 — se tillægget under Produktionsstatus.
 
 **Kodegrundlag:** Task 12's funktionelle bevis er commit `4922d7e`; den
@@ -16,6 +17,14 @@ nuværende dokumentations-HEAD kan være senere og ændrer ikke det bevis
 er `integreret ende-til-ende`, se tabellen og blokeringerne; 149a
 (2018-20 kilderegnskab) er `integreret ende-til-ende`, se tabellen; #156
 lukket med restpunkt (INCOMPLETE-afstemning, snapshot forseglet).
+
+**Tillæg 2026-10-03 — hele 2018-20 er kørt gennem kæden i én base.** I en lokal kopi af et frisk
+prod-dump (2026-10-01) gav alle 488 tilladte poster 3.739 forslag, 74 kort for projektejeren (61 A, 0
+R, 13 U), 602 maskinelle accepter og 622 bindinger, intet kanonisk delta
+(`2018-20-fuld-koersel.md`). Pilotens 34 poster kom identiske tilbage fra cachen, og alle 46
+pilotbindinger går igen. De 13 U er navne med titel eller godsbetegnelse i værdien (decisions
+2026-10-03). **Intet i prod:** overførslen kræver sin egen spec, og omsegmenteringens
+fortrydelsesvindue står åbent til den overførsels GO.
 
 **Tillæg 2026-09-28 — 4.4 er genbundet: piloten kørt om på de omsegmenterede klausuler.** I en
 lokal kopi af et frisk prod-dump gav de 34 poster 230 forslag, 24 kort for projektejeren (alle
@@ -221,9 +230,10 @@ Dagsværkene 4.1a-4.4 er **udført og merget**, skemaet er deployet til prod 202
    Review 35's P3/P4/S4 er afgjort og bygget (#219, #220, #222), og omsegmenteringen er kørt i prod
    2026-09-28. Piloten er kørt om på de reviderede klausuler, og kontrolmodellen igen (2026-09-28,
    `genbind-44-pilot-2018-20.md`): 230 forslag, 46 bindinger. Piloten overføres ikke for sig
-   (decisions 2026-10-01). Næste: (a) plan for hele 2018-20 (488 poster) i en restore af et frisk
-   prod-dump — modelkald, ingest, kontrolmodel, binding; (b) spec for én samlet prod-overførsel med
-   den nøglede pakke. Omsegmenteringens fortrydelsesvindue lukker ved den overførsels GO.
+   (decisions 2026-10-01). Hele 2018-20 (488 poster) er kørt i en restore af et frisk prod-dump
+   (2026-10-01—03, `2018-20-fuld-koersel.md`): 3.739 forslag, 622 bindinger. Næste: spec for én
+   samlet prod-overførsel med den nøglede pakke. Omsegmenteringens fortrydelsesvindue lukker ved
+   den overførsels GO.
 
 Prod-mutationer kræver fortsat en udtrykkelig GO pr. apply.
 
