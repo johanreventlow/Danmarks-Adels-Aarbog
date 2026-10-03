@@ -2,6 +2,79 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: titler og »til <gods>« er ikke en del af navnet — heller ikke i fortolkningsforslag (2026-10-03)
+
+> **Besluttet af projektejeren 2026-10-03** under kontrolarket for den fulde 2018-20-kørsel (#147).
+> Skærper navne/titel-princippet fra 2026-06-15 (titel ≠ navn) og udvider det til godsbetegnelser
+> og til `person.name`-forslag fra fortolkningskæden.
+
+**Udløser.** Af de 22 `person.name`-uoverensstemmelser (`REAL_DIFF`) i kontrolarket har 12 en titel
+i værdien (»greve«, »komtesse«, »friherreinde«) og én en godsbetegnelse (III-15: »til
+<gods>«). Prompten siger ikke, at titler og godser holdes ude af navnet. Ingen af de 241
+`MATCH`-navne har titelord. Databasen selv har 138 navne-assertions med titelord fra tidligere
+indlæsninger.
+
+**Besluttet:**
+1. **Titler er aldrig en del af `person.name`.** De er `person.title`/`titel`-fakta; visningen
+   komponerer navn + titel. Undtagelse, der skal formuleres i navneregelen: tyske grene efter 1919,
+   hvor titlen juridisk er en del af efternavnet.
+2. **»Til <gods>« er aldrig en del af navnet.** Det er et ejerskab: `person.estate` → relation
+   person →[ejer, periode]→ gods-entiteten. Ejerskab skifter over livet og mellem udgaver; i
+   navnet ville det give falske navnevarianter, ødelægge navnematchningen og tabe perioden.
+3. **Identifikation sker i trin 5, ikke i navnefeltet.** At »til <gods>« skiller navnefæller
+   ad, er et ægte behov — men som identitetssignal (ejerskabsfakta, placering, løbenummer) i
+   identitetsafstemningen, ikke bagt ind i en navnestreng. Det ordrette navn bevares i klausul og
+   narrativ og kan altid gengives.
+
+**Afvejet og forkastet:** at forslaget gengiver kilden ordret. Et forslag skal være kildetro
+*inden for sit prædikat*; et dødsforslag tager heller ikke resten af sætningen med.
+
+**Konsekvens nu:** de 13 kort afgøres `U` (»titel i navn« / »godsbetegnelse i navn«) og er
+ubundne. `unresolved` er en endestation for RPC'en (`red_decide_interpretation` afgør kun
+`proposed`), så de genåbnes ikke: vejen frem er nye fortolkninger fra næste promptversion, der
+erstatter dem. Kontraktfrysen (2026-10-01) står ved magt: regelen i prompten venter på næste
+promptversion, sammen med »var †«-reglen. III-15's ejerskab findes kun i
+navneforslaget (intet `person.estate`-forslag, intet faktum) — et overset udsagn, ikke et tab:
+narrativet bærer det.
+
+**Åbent:** oprydning af de 138 navne-assertions med titelord i databasen er sin egen opgave.
+
+## BESLUTTET: 2018-20 fortsætter med `gpt-5.6-terra` — Sonnet er målt og noteret som kandidat (2026-10-02)
+
+> **Besluttet af projektejeren 2026-10-02.** Kontraktfrysen i beslutningen 2026-10-01 står ved
+> magt. Projektejeren gav samme dag tilladelse til, at Anthropic måtte modtage pilotens 34 poster,
+> **kun** til en måling via Claude-abonnementet. Det ændrer ikke behandlingsgrundlaget fra 2026-09-06
+> for kæden.
+
+**Målingen** (spike, kun tal; script og svar privat i `~/.private/model-maaling/`). Samme prompt
+(`d46cda80…`), samme claims-skema og samme validering (`partition_record_claims`) som terra. Kaldet
+`claude -p --model claude-sonnet-5 --tools ""` med fast output-skema, uden MCP, indstillinger eller
+sessionslog: 0 værktøjskald, 0 subagenter.
+
+| Pilotens 34 poster | terra | Sonnet |
+| --- | ---: | ---: |
+| Gyldige claims | 233 | 427 |
+| Afvist af valideringen | 16 (6 %) | 48 (10 %), heraf 29 prædikater uden for ordforrådet |
+| Præcision mod projektejerens domme | 165/165 | 142/143 |
+| Claims uden dom | 68 | 284 |
+| `mention.place` / `mention.person` | 26 / 0 | 120 / 59 |
+| Input-tokens | 597.000 | 355.000 (150.000 fra cache) |
+| Output-tokens | 23.000 | 200.000 (137.000 tænkning) |
+| Tid pr. post | ≈ 20 s | ≈ 70 s |
+
+**Vurdering.** Præcisionen er reelt ens, hvor der findes en dom. Sonnets ekstra mængde er især
+omtaler, som ikke kan promoveres og forbliver `proposed` (beslutningen 2026-09-27), så de giver ingen
+læserværdi i dag. Output-forbruget er 8½ gange terras. Målingen kan ikke afgøre, om Sonnets udømte
+claims er sande, eller om terra overser fakta: matchet er ordret på værditekst, og dommene blev
+afgivet på terras formuleringer, hvilket favoriserer terra.
+
+**Besluttet:**
+1. 2018-20 fortsætter med terra. Kørslen over de 488 poster er færdig under manifest `f5a76e1b…`.
+2. Sonnet er kandidat til omtaler af personer og steder (trin 5) og til næste årbog. Et skift kræver en
+   ny beslutning og en spec for en Claude-backend: værktøjer slået fra, sandbox, ny kontraktversion og
+   behandlingsgrundlag for hele kæden. Det kræver også en måling af Sonnets udømte claims på et blindt
+   ark.
+
 ## BESLUTTET: ingen særskilt prod-overførsel af piloten — hele 2018-20 køres i restoren og overføres samlet (2026-10-01)
 
 > **Besluttet af projektejeren 2026-10-01**, inkl. underpunkt 1 og 2. Ændrer skridt 5 i
