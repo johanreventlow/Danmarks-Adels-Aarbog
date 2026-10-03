@@ -2,6 +2,41 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: titler og »til <gods>« er ikke en del af navnet — heller ikke i fortolkningsforslag (2026-10-03)
+
+> **Besluttet af projektejeren 2026-10-03** under kontrolarket for den fulde 2018-20-kørsel (#147).
+> Skærper navne/titel-princippet fra 2026-06-15 (titel ≠ navn) og udvider det til godsbetegnelser
+> og til `person.name`-forslag fra fortolkningskæden.
+
+**Udløser.** Af de 22 `person.name`-uoverensstemmelser (`REAL_DIFF`) i kontrolarket har 12 en titel
+i værdien (»greve«, »komtesse«, »friherreinde«) og én en godsbetegnelse (III-15: »til
+<gods>«). Prompten siger ikke, at titler og godser holdes ude af navnet. Ingen af de 241
+`MATCH`-navne har titelord. Databasen selv har 138 navne-assertions med titelord fra tidligere
+indlæsninger.
+
+**Besluttet:**
+1. **Titler er aldrig en del af `person.name`.** De er `person.title`/`titel`-fakta; visningen
+   komponerer navn + titel. Undtagelse, der skal formuleres i navneregelen: tyske grene efter 1919,
+   hvor titlen juridisk er en del af efternavnet.
+2. **»Til <gods>« er aldrig en del af navnet.** Det er et ejerskab: `person.estate` → relation
+   person →[ejer, periode]→ gods-entiteten. Ejerskab skifter over livet og mellem udgaver; i
+   navnet ville det give falske navnevarianter, ødelægge navnematchningen og tabe perioden.
+3. **Identifikation sker i trin 5, ikke i navnefeltet.** At »til <gods>« skiller navnefæller
+   ad, er et ægte behov — men som identitetssignal (ejerskabsfakta, placering, løbenummer) i
+   identitetsafstemningen, ikke bagt ind i en navnestreng. Det ordrette navn bevares i klausul og
+   narrativ og kan altid gengives.
+
+**Afvejet og forkastet:** at forslaget gengiver kilden ordret. Et forslag skal være kildetro
+*inden for sit prædikat*; et dødsforslag tager heller ikke resten af sætningen med.
+
+**Konsekvens nu:** de 13 kort afgøres `U` (»titel i navn« / »godsbetegnelse i navn«) og forbliver
+ubundne, til en navneregel er besluttet. Kontraktfrysen (2026-10-01) står ved magt: regelen i
+prompten venter på næste promptversion, sammen med »var †«-reglen. III-15's ejerskab findes kun i
+navneforslaget (intet `person.estate`-forslag, intet faktum) — et overset udsagn, ikke et tab:
+narrativet bærer det.
+
+**Åbent:** oprydning af de 138 navne-assertions med titelord i databasen er sin egen opgave.
+
 ## BESLUTTET: 2018-20 fortsætter med `gpt-5.6-terra` — Sonnet er målt og noteret som kandidat (2026-10-02)
 
 > **Besluttet af projektejeren 2026-10-02.** Kontraktfrysen i beslutningen 2026-10-01 står ved
