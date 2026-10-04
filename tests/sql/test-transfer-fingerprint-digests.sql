@@ -135,7 +135,7 @@ SET CONSTRAINTS ALL IMMEDIATE;
 SELECT (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000001' AND version=1) AS id1,
        (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000002' AND version=1) AS id2 \gset
 SET CONSTRAINTS ALL DEFERRED;
-SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true);
+SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true) \g /dev/null
 SET LOCAL ROLE authenticated;
 SELECT red_decide_interpretation(:'id1',1,'accepted','{"method":"m"}') \g /dev/null
 SELECT red_decide_interpretation(:'id2',1,'rejected','{"method":"m"}') \g /dev/null
@@ -152,7 +152,7 @@ SET CONSTRAINTS ALL IMMEDIATE;
 SELECT (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000001' AND version=1) AS id1,
        (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000002' AND version=1) AS id2 \gset
 SET CONSTRAINTS ALL DEFERRED;
-SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true);
+SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true) \g /dev/null
 SET LOCAL ROLE authenticated;
 SELECT red_decide_interpretation(:'id1',1,'accepted','{"method":"m"}') \g /dev/null
 SELECT red_decide_interpretation(:'id2',1,'rejected','{"method":"m"}') \g /dev/null
@@ -169,7 +169,7 @@ SET CONSTRAINTS ALL IMMEDIATE;
 SELECT (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000001' AND version=1) AS id1,
        (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000002' AND version=1) AS id2 \gset
 SET CONSTRAINTS ALL DEFERRED;
-SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true);
+SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true) \g /dev/null
 SET LOCAL ROLE authenticated;
 SELECT red_decide_interpretation(:'id1',1,'rejected','{"method":"m"}') \g /dev/null
 SELECT red_decide_interpretation(:'id2',1,'accepted','{"method":"m"}') \g /dev/null
@@ -186,7 +186,7 @@ SET CONSTRAINTS ALL IMMEDIATE;
 SELECT (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000001' AND version=1) AS id1,
        (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000002' AND version=1) AS id2 \gset
 SET CONSTRAINTS ALL DEFERRED;
-SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true);
+SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true) \g /dev/null
 SET LOCAL ROLE authenticated;
 SELECT red_decide_interpretation(:'id1',1,'accepted','{"method":"m"}') \g /dev/null
 RESET ROLE;
@@ -202,7 +202,7 @@ SET CONSTRAINTS ALL IMMEDIATE;
 SELECT (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000001' AND version=1) AS id1,
        (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000002' AND version=1) AS id2 \gset
 SET CONSTRAINTS ALL DEFERRED;
-SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true);
+SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true) \g /dev/null
 SET LOCAL ROLE authenticated;
 SELECT red_decide_interpretation(:'id1',1,'accepted','{"method":"m","pack_sha256":"x"}') \g /dev/null
 RESET ROLE;
@@ -211,6 +211,30 @@ SET CONSTRAINTS ALL IMMEDIATE;
 \i .claude/skills/daa-extract/scripts/interpretation_transfer_digests.sql
 \o
 SELECT current_setting('daa.transfer_digests') AS dg_g \gset
+ROLLBACK TO SAVEPOINT v;
+SAVEPOINT v;
+SELECT pg_temp.transfer_fx(-4700,'a4718000','b4700000') \g /dev/null
+SET CONSTRAINTS ALL IMMEDIATE;
+SELECT (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000001' AND version=1) AS id1,
+       (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000002' AND version=1) AS id2 \gset
+SET CONSTRAINTS ALL DEFERRED;
+SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true) \g /dev/null
+SET LOCAL ROLE authenticated;
+SELECT red_decide_interpretation(:'id1',1,'accepted','{"method":"m2"}') \g /dev/null
+RESET ROLE;
+SET CONSTRAINTS ALL IMMEDIATE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_transfer_digests.sql
+\o
+SELECT current_setting('daa.transfer_digests') AS dg_i \gset
+ROLLBACK TO SAVEPOINT v;
+SAVEPOINT v;
+SELECT pg_temp.transfer_fx(-4700,'a4719000','b4700000','Anna død 1850',false,'Anne') \g /dev/null
+SET CONSTRAINTS ALL IMMEDIATE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_transfer_digests.sql
+\o
+SELECT current_setting('daa.transfer_digests') AS dg_h \gset
 ROLLBACK TO SAVEPOINT v;
 -- D5: klassifikationen i basisvarianten (senere tasks afhænger af den).
 SAVEPOINT v;
@@ -221,17 +245,18 @@ SET CONSTRAINTS ALL IMMEDIATE;
 \o
 SELECT (SELECT jsonb_object_agg(i.interpretation_key::text, x->>'class')
           FROM jsonb_array_elements(current_setting('daa.control_result')::jsonb->'items') x
-          JOIN private.interpretation i ON i.id=(x->>'interpretation_id')::uuid) AS cls \gset
+          JOIN private.interpretation i ON i.id=(x->>'interpretation_id')::uuid) AS cls,
+       (SELECT (x->>'assertion_id') FROM jsonb_array_elements(current_setting('daa.control_result')::jsonb->'items') x JOIN private.interpretation i ON i.id=(x->>'interpretation_id')::uuid WHERE i.interpretation_key='b4700000-0000-4000-8000-000000000001') AS k1a \gset
 ROLLBACK TO SAVEPOINT v;
-SELECT set_config('t.cls',:'cls',true) \g /dev/null
+SELECT set_config('t.cls',:'cls',true), set_config('t.k1a',:'k1a',true) \g /dev/null
 SELECT set_config('t.dg_a',:'dg_a',true), set_config('t.dg_b',:'dg_b',true), set_config('t.dg_c',:'dg_c',true),
        set_config('t.dg_d',:'dg_d',true), set_config('t.dg_e',:'dg_e',true), set_config('t.dg_f',:'dg_f',true),
-       set_config('t.dg_g',:'dg_g',true) \g /dev/null
+       set_config('t.dg_g',:'dg_g',true), set_config('t.dg_h',:'dg_h',true), set_config('t.dg_i',:'dg_i',true) \g /dev/null
 DO $$ DECLARE
   a jsonb := current_setting('t.dg_a')::jsonb; b jsonb := current_setting('t.dg_b')::jsonb;
   c jsonb := current_setting('t.dg_c')::jsonb; d jsonb := current_setting('t.dg_d')::jsonb;
   e jsonb := current_setting('t.dg_e')::jsonb; f jsonb := current_setting('t.dg_f')::jsonb;
-  g jsonb := current_setting('t.dg_g')::jsonb; cls jsonb := current_setting('t.cls')::jsonb;
+  g jsonb := current_setting('t.dg_g')::jsonb; h jsonb := current_setting('t.dg_h')::jsonb; ii jsonb := current_setting('t.dg_i')::jsonb; cls jsonb := current_setting('t.cls')::jsonb;
   empty text := 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 BEGIN
   -- D1: samme indhold, andre id'er og permuteret id-rækkefølge => identiske digests og antal.
@@ -255,7 +280,14 @@ BEGIN
   IF c->>'decision_digest' = empty THEN RAISE EXCEPTION 'D3: tomt afgørelseslag'; END IF;
   -- D6: pack_sha256 i evidensen tæller ikke med.
   IF f->>'decision_digest' IS DISTINCT FROM g->>'decision_digest' THEN RAISE EXCEPTION 'D6: pack_sha256 tæller med'; END IF;
+  -- D7: indholdsfølsomhed. Ændret værdi => forslag ændres, tomme lag uændret.
+  IF h->>'proposal_digest' = a->>'proposal_digest' THEN RAISE EXCEPTION 'D7: proposal_digest ufølsom for værdi'; END IF;
+  IF h->>'decision_digest' <> empty OR h->>'binding_digest' <> empty THEN RAISE EXCEPTION 'D7: tomme lag ændret %', h; END IF;
+  -- D8: anden metode i evidensen => anden decision_digest og fordeling.
+  IF ii->>'decision_digest' = f->>'decision_digest' THEN RAISE EXCEPTION 'D8: decision_digest ufølsom for evidens'; END IF;
+  IF ii->'decided_by_method_status' IS DISTINCT FROM '{"m2|accepted":1}'::jsonb THEN RAISE EXCEPTION 'D8: fordeling %', ii; END IF;
   -- D5: klassifikation.
+  IF current_setting('t.k1a') <> '-4711' THEN RAISE EXCEPTION 'D5: k1 mål forventet -4711, fik %', current_setting('t.k1a'); END IF;
   IF cls->>'b4700000-0000-4000-8000-000000000001' IS DISTINCT FROM 'MATCH' THEN RAISE EXCEPTION 'D5: k1 forventet MATCH, fik %', cls; END IF;
   IF cls->>'b4700000-0000-4000-8000-000000000002' IS DISTINCT FROM 'REAL_DIFF' THEN RAISE EXCEPTION 'D5: k2 forventet REAL_DIFF, fik %', cls; END IF;
   IF cls ? 'b4700000-0000-4000-8000-000000000003' THEN RAISE EXCEPTION 'D5: k3 forventet fraværende, fik %', cls; END IF;

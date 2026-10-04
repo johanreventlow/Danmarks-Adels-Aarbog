@@ -32,7 +32,7 @@ WITH v1 AS (
           CASE WHEN cur.decided_by IS NULL THEN NULL
                ELSE encode(extensions.digest(convert_to(cur.decided_by::text,'UTF8'),'sha256'),'hex') END
             AS decided_by_sha256) r
-   WHERE cur.status <> 'proposed'
+   WHERE cur.version > 1 OR cur.status <> 'proposed'
 ), bind_rows AS (
   SELECT i.interpretation_key::text AS k, p.target_type, p.target_id::text AS tid,
          to_jsonb(r)::text AS t
@@ -44,12 +44,12 @@ WITH v1 AS (
   SELECT
     (SELECT count(*) FROM prop_rows) AS n_interpretations,
     encode(extensions.digest(convert_to(coalesce((SELECT string_agg(t, E'\n' ORDER BY k COLLATE "C") FROM prop_rows),''),'UTF8'),'sha256'),'hex') AS proposal_digest,
-    (SELECT count(*) FROM cur WHERE status <> 'proposed') AS n_decided,
+    (SELECT count(*) FROM cur WHERE version > 1 OR status <> 'proposed') AS n_decided,
     coalesce((SELECT jsonb_object_agg(ms, n) FROM (
        SELECT coalesce(decision_evidence->>'method','') || '|' || status AS ms, count(*) AS n
-         FROM cur WHERE status <> 'proposed' GROUP BY 1) x), '{}'::jsonb) AS decided_by_method_status,
+         FROM cur WHERE version > 1 OR status <> 'proposed' GROUP BY 1) x), '{}'::jsonb) AS decided_by_method_status,
     encode(extensions.digest(convert_to(coalesce((SELECT string_agg(t, E'\n' ORDER BY k COLLATE "C") FROM dec_rows),''),'UTF8'),'sha256'),'hex') AS decision_digest,
     (SELECT count(*) FROM bind_rows) AS n_bindings,
-    encode(extensions.digest(convert_to(coalesce((SELECT string_agg(t, E'\n' ORDER BY k COLLATE "C", target_type COLLATE "C", tid COLLATE "C") FROM bind_rows),''),'UTF8'),'sha256'),'hex') AS binding_digest
+    encode(extensions.digest(convert_to(coalesce((SELECT string_agg(t, E'\n' ORDER BY k COLLATE "C", target_type COLLATE "C", tid COLLATE "C", t COLLATE "C") FROM bind_rows),''),'UTF8'),'sha256'),'hex') AS binding_digest
 )
 SELECT set_config('daa.transfer_digests', to_jsonb(h)::text, false) AS transfer_digests FROM h;
