@@ -3,7 +3,7 @@
 -- De rå tabeller er append-only: hver variant kører som SAVEPOINT -> ændring -> mål -> \gset -> ROLLBACK TO
 -- SAVEPOINT, og værdierne sammenlignes bagefter.
 --   0 basis  1 gentagelse  2 writer-profilrække  3 assertion-værdi  4 identitet  5 sekvens
---   6 ikke-kæde-sekvens  11/12 andre sessionsindstillinger (B11)  7 ægte afgørelse + binding (eksklusionslistens korrekthed)  8 ny person  9 nyt fact  10 forældreløs række
+--   6 ikke-kæde-sekvens  11/12 andre sessionsindstillinger inkl. row_security (B11)  14 katalogændringer (B12)  7 ægte afgørelse + binding (eksklusionslistens korrekthed)  8 ny person  9 nyt fact  10 forældreløs række
 BEGIN;
 \i tests/sql/transfer-fixture.sql
 \set src -4700
@@ -150,43 +150,43 @@ SELECT nextval(pg_get_serial_sequence('public.person','id')) \g /dev/null
 SELECT current_setting('daa.untouched_hash') AS u_6 \gset
 ROLLBACK TO SAVEPOINT x;
 SAVEPOINT x;
-SET TimeZone='Europe/Copenhagen'; SET extra_float_digits=3; SET IntervalStyle='postgres'; SET DateStyle='ISO, MDY'; SET search_path='public';
+SET TimeZone='Europe/Copenhagen'; SET extra_float_digits=3; SET IntervalStyle='postgres'; SET DateStyle='ISO, MDY'; SET search_path='public'; SET row_security=on;
 \o /dev/null
 \i .claude/skills/daa-extract/scripts/transfer_baseline.sql
 \o
-SELECT concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path')) AS sb_11 \gset
+SELECT concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path'),current_setting('row_security')) AS sb_11 \gset
 \o /dev/null
 \i .claude/skills/daa-extract/scripts/transfer_restore_hash.sql
 \o
-SELECT concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path')) AS sr_11 \gset
+SELECT concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path'),current_setting('row_security')) AS sr_11 \gset
 \o /dev/null
 \i .claude/skills/daa-extract/scripts/transfer_untouched_hash.sql
 \o
-SELECT concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path')) AS su_11 \gset
+SELECT concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path'),current_setting('row_security')) AS su_11 \gset
 \o /dev/null
 \i .claude/skills/daa-extract/scripts/transfer_restore_preconditions.sql
 \o
-SELECT current_setting('daa.restore_preconditions') AS p_11, concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path')) AS sp_11 \gset
+SELECT current_setting('daa.restore_preconditions') AS p_11, concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path'),current_setting('row_security')) AS sp_11 \gset
 SELECT current_setting('daa.transfer_baseline') AS b_11, current_setting('daa.restore_hash') AS r_11, current_setting('daa.untouched_hash') AS u_11 \gset
 ROLLBACK TO SAVEPOINT x;
 SAVEPOINT x;
-SET TimeZone='America/New_York'; SET extra_float_digits=-1; SET IntervalStyle='sql_standard'; SET DateStyle='German, DMY'; SET search_path = public, extensions;
+SET TimeZone='America/New_York'; SET extra_float_digits=-1; SET IntervalStyle='sql_standard'; SET DateStyle='German, DMY'; SET search_path = public, extensions; SET row_security=off;
 \o /dev/null
 \i .claude/skills/daa-extract/scripts/transfer_baseline.sql
 \o
-SELECT concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path')) AS sb_12 \gset
+SELECT concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path'),current_setting('row_security')) AS sb_12 \gset
 \o /dev/null
 \i .claude/skills/daa-extract/scripts/transfer_restore_hash.sql
 \o
-SELECT concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path')) AS sr_12 \gset
+SELECT concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path'),current_setting('row_security')) AS sr_12 \gset
 \o /dev/null
 \i .claude/skills/daa-extract/scripts/transfer_untouched_hash.sql
 \o
-SELECT concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path')) AS su_12 \gset
+SELECT concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path'),current_setting('row_security')) AS su_12 \gset
 \o /dev/null
 \i .claude/skills/daa-extract/scripts/transfer_restore_preconditions.sql
 \o
-SELECT current_setting('daa.restore_preconditions') AS p_12, concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path')) AS sp_12 \gset
+SELECT current_setting('daa.restore_preconditions') AS p_12, concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path'),current_setting('row_security')) AS sp_12 \gset
 SELECT current_setting('daa.transfer_baseline') AS b_12, current_setting('daa.restore_hash') AS r_12, current_setting('daa.untouched_hash') AS u_12 \gset
 ROLLBACK TO SAVEPOINT x;
 SAVEPOINT x;
@@ -194,20 +194,84 @@ SAVEPOINT x;
 \o /dev/null
 \i .claude/skills/daa-extract/scripts/transfer_baseline.sql
 \o
-SELECT concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path')) AS sb_13 \gset
+SELECT concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path'),current_setting('row_security')) AS sb_13 \gset
 \o /dev/null
 \i .claude/skills/daa-extract/scripts/transfer_restore_hash.sql
 \o
-SELECT concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path')) AS sr_13 \gset
+SELECT concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path'),current_setting('row_security')) AS sr_13 \gset
 \o /dev/null
 \i .claude/skills/daa-extract/scripts/transfer_untouched_hash.sql
 \o
-SELECT concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path')) AS su_13 \gset
+SELECT concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path'),current_setting('row_security')) AS su_13 \gset
 \o /dev/null
 \i .claude/skills/daa-extract/scripts/transfer_restore_preconditions.sql
 \o
-SELECT current_setting('daa.restore_preconditions') AS p_13, concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path')) AS sp_13 \gset
+SELECT current_setting('daa.restore_preconditions') AS p_13, concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path'),current_setting('row_security')) AS sp_13 \gset
 SELECT current_setting('daa.transfer_baseline') AS b_13, current_setting('daa.restore_hash') AS r_13, current_setting('daa.untouched_hash') AS u_13 \gset
+ROLLBACK TO SAVEPOINT x;
+-- B12: katalogfingeraftrykket (spec §6.1) fanger trigger-, constraint-, RLS- og policyændringer.
+SAVEPOINT x;
+ALTER TABLE private.clause_disposition DISABLE TRIGGER trg_clause_disposition_validate;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_restore_preconditions.sql
+\o
+SELECT current_setting('daa.restore_preconditions')::jsonb->>'catalog_sha256' AS c_trg_off \gset
+ROLLBACK TO SAVEPOINT x;
+SAVEPOINT x;
+CREATE TRIGGER transfer47_probe BEFORE UPDATE ON public.person FOR EACH ROW EXECUTE FUNCTION suppress_redundant_updates_trigger();
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_restore_preconditions.sql
+\o
+SELECT current_setting('daa.restore_preconditions')::jsonb->>'catalog_sha256' AS c_trg_new \gset
+ROLLBACK TO SAVEPOINT x;
+SAVEPOINT x;
+ALTER TABLE public.person ADD CONSTRAINT transfer47_probe CHECK (id IS NOT NULL) NOT VALID;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_restore_preconditions.sql
+\o
+SELECT current_setting('daa.restore_preconditions')::jsonb->>'catalog_sha256' AS c_check \gset
+ROLLBACK TO SAVEPOINT x;
+SAVEPOINT x;
+ALTER TABLE public.person DISABLE ROW LEVEL SECURITY;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_restore_preconditions.sql
+\o
+SELECT current_setting('daa.restore_preconditions')::jsonb->>'catalog_sha256' AS c_rls_off \gset
+ROLLBACK TO SAVEPOINT x;
+SAVEPOINT x;
+ALTER TABLE public.person FORCE ROW LEVEL SECURITY;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_restore_preconditions.sql
+\o
+SELECT current_setting('daa.restore_preconditions')::jsonb->>'catalog_sha256' AS c_rls_force \gset
+ROLLBACK TO SAVEPOINT x;
+SAVEPOINT x;
+CREATE POLICY transfer47_probe ON public.person AS PERMISSIVE FOR SELECT TO anon USING (false);
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_restore_preconditions.sql
+\o
+SELECT current_setting('daa.restore_preconditions')::jsonb->>'catalog_sha256' AS c_pol \gset
+ROLLBACK TO SAVEPOINT x;
+SAVEPOINT x;
+CREATE POLICY transfer47_probe ON public.person AS PERMISSIVE FOR SELECT TO authenticated USING (false);
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_restore_preconditions.sql
+\o
+SELECT current_setting('daa.restore_preconditions')::jsonb->>'catalog_sha256' AS c_pol_role \gset
+ROLLBACK TO SAVEPOINT x;
+SAVEPOINT x;
+CREATE POLICY transfer47_probe ON public.person AS PERMISSIVE FOR DELETE TO anon USING (false);
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_restore_preconditions.sql
+\o
+SELECT current_setting('daa.restore_preconditions')::jsonb->>'catalog_sha256' AS c_pol_cmd \gset
+ROLLBACK TO SAVEPOINT x;
+SAVEPOINT x;
+CREATE POLICY transfer47_probe ON public.person AS RESTRICTIVE FOR SELECT TO anon USING (false);
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_restore_preconditions.sql
+\o
+SELECT current_setting('daa.restore_preconditions')::jsonb->>'catalog_sha256' AS c_pol_perm \gset
 ROLLBACK TO SAVEPOINT x;
 -- mfk: kører samme prædikat som filen igen (fanger kun plumbing-fejl, ikke en forkert definition).
 SELECT count(*) AS mfk FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE c.contype='f' AND n.nspname IN ('private','public') AND array_length(c.conkey,1)>1 \gset
@@ -260,7 +324,16 @@ SELECT set_config('t.b_0',:'b_0',true),
        set_config('t.sb_13',:'sb_13',true),
        set_config('t.sr_13',:'sr_13',true),
        set_config('t.su_13',:'su_13',true),
-       set_config('t.sp_13',:'sp_13',true) \g /dev/null
+       set_config('t.sp_13',:'sp_13',true),
+       set_config('t.c_trg_off',:'c_trg_off',true),
+       set_config('t.c_trg_new',:'c_trg_new',true),
+       set_config('t.c_check',:'c_check',true),
+       set_config('t.c_rls_off',:'c_rls_off',true),
+       set_config('t.c_rls_force',:'c_rls_force',true),
+       set_config('t.c_pol',:'c_pol',true),
+       set_config('t.c_pol_role',:'c_pol_role',true),
+       set_config('t.c_pol_cmd',:'c_pol_cmd',true),
+       set_config('t.c_pol_perm',:'c_pol_perm',true) \g /dev/null
 DO $$ DECLARE
   b0 jsonb := current_setting('t.b_0')::jsonb; p0 jsonb := current_setting('t.p_0')::jsonb;
   p10 jsonb := current_setting('t.p_10')::jsonb;
@@ -306,12 +379,21 @@ BEGIN
   IF current_setting('t.b_11')::jsonb IS DISTINCT FROM current_setting('t.b_13')::jsonb OR current_setting('t.r_11') IS DISTINCT FROM current_setting('t.r_13')
      OR current_setting('t.u_11') IS DISTINCT FROM current_setting('t.u_13') OR current_setting('t.p_11')::jsonb IS DISTINCT FROM current_setting('t.p_13')::jsonb THEN
     RAISE EXCEPTION 'B11: hash afhænger af sessionens standardindstillinger (ikke ens med kørsel uden SET; sekvenser rulles ikke tilbage, derfor sammenlignes med variant 13, ikke 0)'; END IF;
-  IF current_setting('t.sb_11') <> 'Europe/Copenhagen|3|postgres|ISO, MDY|public' OR current_setting('t.sr_11') <> current_setting('t.sb_11')
+  IF current_setting('t.sb_11') <> 'Europe/Copenhagen|3|postgres|ISO, MDY|public|on' OR current_setting('t.sr_11') <> current_setting('t.sb_11')
      OR current_setting('t.su_11') <> current_setting('t.sb_11') OR current_setting('t.sp_11') <> current_setting('t.sb_11') THEN
     RAISE EXCEPTION 'B11: kalderens indstillinger ikke gendannet (a): % / % / % / %', current_setting('t.sb_11'), current_setting('t.sr_11'), current_setting('t.su_11'), current_setting('t.sp_11'); END IF;
-  IF current_setting('t.sb_12') <> 'America/New_York|-1|sql_standard|German, DMY|public, extensions' OR current_setting('t.sr_12') <> current_setting('t.sb_12')
+  IF current_setting('t.sb_12') <> 'America/New_York|-1|sql_standard|German, DMY|public, extensions|off' OR current_setting('t.sr_12') <> current_setting('t.sb_12')
      OR current_setting('t.su_12') <> current_setting('t.sb_12') OR current_setting('t.sp_12') <> current_setting('t.sb_12') THEN
     RAISE EXCEPTION 'B11: kalderens indstillinger ikke gendannet (b): % / % / % / %', current_setting('t.sb_12'), current_setting('t.sr_12'), current_setting('t.su_12'), current_setting('t.sp_12'); END IF;
+  -- B12: hver katalogændring flytter catalog_sha256; policyens rolle, kommando og art tæller hver for sig.
+  IF EXISTS (SELECT 1 FROM unnest(ARRAY['c_trg_off','c_trg_new','c_check','c_rls_off','c_rls_force','c_pol']) v
+              WHERE current_setting('t.'||v) IS NOT DISTINCT FROM p0->>'catalog_sha256') THEN
+    RAISE EXCEPTION 'B12: katalogændring ikke fanget: %', (SELECT string_agg(v, ',') FROM unnest(ARRAY['c_trg_off','c_trg_new','c_check','c_rls_off','c_rls_force','c_pol']) v
+              WHERE current_setting('t.'||v) IS NOT DISTINCT FROM p0->>'catalog_sha256'); END IF;
+  IF EXISTS (SELECT 1 FROM unnest(ARRAY['c_pol_role','c_pol_cmd','c_pol_perm']) v
+              WHERE current_setting('t.'||v) IS NOT DISTINCT FROM current_setting('t.c_pol')) THEN
+    RAISE EXCEPTION 'B12: policy-felt ikke fanget: %', (SELECT string_agg(v, ',') FROM unnest(ARRAY['c_pol_role','c_pol_cmd','c_pol_perm']) v
+              WHERE current_setting('t.'||v) IS NOT DISTINCT FROM current_setting('t.c_pol')); END IF;
   -- B10: en forældreløs række tælles.
   IF (p10->>'n_orphans_total')::int < 1 THEN RAISE EXCEPTION 'B10: forældreløs ikke talt %', p10; END IF;
   IF p10->>'catalog_sha256' IS DISTINCT FROM p0->>'catalog_sha256' THEN RAISE EXCEPTION 'B10: katalog afhænger af data'; END IF;

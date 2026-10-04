@@ -5,14 +5,15 @@
 -- (antal distinkte forslag; 0 i dump-tilstand), ikke en driftsinvariant: ingest ændrer det lovligt, en
 -- afgørelse tilføjer en version men ikke et forslag. Ingen tællinger af autorisationer eller writer-profiler.
 -- Input: psql-variablen src. Output: daa.transfer_baseline.
--- Pinner sessionsindstillinger (TimeZone, extra_float_digits, IntervalStyle, DateStyle, search_path) under beregningen,
+-- Pinner sessionsindstillinger (TimeZone, extra_float_digits, IntervalStyle, DateStyle, search_path, row_security) under beregningen,
 -- så hashen er ens lokalt og i prod (Supabase = UTC), og gendanner kalderens værdier bagefter. search_path=pg_catalog:
 -- alle objekter i filen er skemakvalificerede (public./private./extensions.).
 SELECT set_config('daa._saved_tz', current_setting('TimeZone'), false), set_config('daa._saved_efd', current_setting('extra_float_digits'), false),
        set_config('daa._saved_is', current_setting('IntervalStyle'), false), set_config('daa._saved_ds', current_setting('DateStyle'), false),
-       set_config('daa._saved_sp', current_setting('search_path'), false) \g /dev/null
+       set_config('daa._saved_sp', current_setting('search_path'), false), set_config('daa._saved_rs', current_setting('row_security'), false) \g /dev/null
+-- row_security=off: en rolle under RLS skal fejle, ikke filtrere lydløst.
 SELECT set_config('TimeZone','UTC',false), set_config('extra_float_digits','1',false), set_config('IntervalStyle','postgres',false),
-       set_config('DateStyle','ISO, MDY',false), set_config('search_path','pg_catalog',false) \g /dev/null
+       set_config('DateStyle','ISO, MDY',false), set_config('search_path','pg_catalog',false), set_config('row_security','off',false) \g /dev/null
 WITH tab AS (
   SELECT 'assertion' AS n, encode(extensions.digest(convert_to(coalesce(string_agg(to_jsonb(a)::text, E'\n' ORDER BY a.id),''),'UTF8'),'sha256'),'hex') AS h FROM public.assertion a
   UNION ALL SELECT 'fact', encode(extensions.digest(convert_to(coalesce(string_agg(to_jsonb(f)::text, E'\n' ORDER BY f.id),''),'UTF8'),'sha256'),'hex') FROM public.fact f
@@ -54,4 +55,4 @@ WITH tab AS (
 SELECT set_config('daa.transfer_baseline', to_jsonb(b)::text, false) AS transfer_baseline FROM b;
 SELECT set_config('TimeZone', current_setting('daa._saved_tz'), false), set_config('extra_float_digits', current_setting('daa._saved_efd'), false),
        set_config('IntervalStyle', current_setting('daa._saved_is'), false), set_config('DateStyle', current_setting('daa._saved_ds'), false),
-       set_config('search_path', current_setting('daa._saved_sp'), false) \g /dev/null
+       set_config('search_path', current_setting('daa._saved_sp'), false), set_config('row_security', current_setting('daa._saved_rs'), false) \g /dev/null
