@@ -110,7 +110,7 @@ Private (`~/.private/2018-20-overfoersel/`, aldrig i git):
 | `01-preflight.sh` | Læse-kun: rolleprobe, drift, skema, `EMPTY`, levende-gate, restore-forudsætninger, katalog, grants, tegnprobe → `preflight.json` |
 | `02-dump.sh` | Dump + kvittering med restore-hash, uberørt-hash og tidsstempler |
 | `03-rehearsal.sh` | Lokal restore af netop dagens dump: `04`→`07`→`08`→`05`, fortrydelsesøvelse, varigheder, GO-hashfil → `REHEARSAL_OK` |
-| `04-apply.sh` | `--jeg-mener-det`: `step_apply` → `apply.json` |
+| `04-apply.sh` | `--jeg-mener-det`: `step_apply` → `04-report.json` |
 | `07-decide.sh` | `--jeg-mener-det`: `step_decide` → `decide.json` |
 | `08-bind.sh` | `--jeg-mener-det`: `step_bind` → `bind.json` |
 | `05-verify.sh` | Læse-kun: `step_verify` → `VERIFY_OK` (`verify-ok.json`) |
@@ -212,7 +212,13 @@ pg_error_code() {
 }
 ```
 
-`open_connection` kalder `assert_prod_env_clean`, når `DAA_STANDIN_DB` er tom, **før** `setup_connection`.
+`open_connection` kalder `assert_prod_env_clean`, når `DAA_STANDIN_DB` er tom, **før** `setup_connection`. Prod-grenen af `setup_connection` håndhæver desuden pooleren på shell-siden. Omsegmenteringens gjorde ikke, kun R-filerne. Kravet tjekkes, før `PGPASSWORD` eksporteres:
+
+```zsh
+[[ "$PGHOST" =~ '^[a-z0-9-]+\.pooler\.supabase\.com$' && "$PGPORT" == "5432" ]] || fail "POOLER_REQUIRED (kun Session pooleren)"
+```
+
+`setup_connection` sætter også `CTX_TARGET` (det aktuelle mål), som `run_r` sender videre. I prod er det `DAA_PROD_TARGET`; lokalt er det basens egen identitet (Task 7 Step 1).
 
 Nedenstående hører også til fundamentet, fordi proben bruger dem:
 - `classify_state`, med koden nedenfor.
@@ -240,7 +246,8 @@ Kontrakt: ingen argumenter (ellers exit 2), læse-kun, stand-in-bevidst gennem `
 | --- | --- |
 | `target` | `target_identity` |
 | `server_version_num`, `datcollate`, `datctype`, `encoding` | `SHOW server_version_num`; `pg_database` for `current_database()`; `pg_encoding_to_char(encoding)` |
-| `chars_sha256`, `n_chars` | SQL'en nedenfor |
+| `chars` | Én post pr. kodepunkt `cp → sha256(lower|alnum|stripped)[:16]` fra SQL'en nedenfor (kun tal og hex; i 0600-filen) |
+| `data_codepoints` | Kodepunktmængden i `public.assertion.vaerdi_tekst`/`date_raw` (SQL nedenfor). Lokalt lægges manifestets claim-værdier til af `probe-compare.py` (Python, kun kodepunkter) |
 | `assertion_chars_over_2fff` | SQL'en nedenfor |
 | `baseline` | `sql_json transfer_baseline.sql` (alle fire felter) |
 | `digests` + `state` | `sql_json interpretation_transfer_digests.sql`; `transfer_pack.py state --pack-manifest pack/pack-manifest.json` |
@@ -254,18 +261,25 @@ Kontrakt: ingen argumenter (ellers exit 2), læse-kun, stand-in-bevidst gennem `
 Tegnproben (fuld kode; dækker Latin, græsk, kyrillisk, tegnsætning, hævede tal og tegnformer op til U+2FFF):
 
 ```sql
-SELECT count(*) || '|' || encode(extensions.digest(convert_to(string_agg(
-         cp::text || ':' || lower(chr(cp)) || ':' || (chr(cp) ~ '[[:alnum:]]')::int || ':' ||
+-- Pr. kodepunkt: hvad lower(), [[:alnum:]] og klassifikationens strip-udtryk giver. Én linje pr. cp,
+-- så sammenligningen kan pege på de afvigende kodepunkter (kun tal), ikke bare sige "forskellig".
+SELECT jsonb_object_agg(cp::text, left(encode(extensions.digest(convert_to(
+         lower(chr(cp)) || '|' || (chr(cp) ~ '[[:alnum:]]')::int || '|' ||
          regexp_replace(lower(normalize(chr(cp), NFC)), '[^[:alnum:]]+', '', 'g'),
-         E'\n' ORDER BY cp), 'UTF8'), 'sha256'), 'hex')
+         'UTF8'), 'sha256'), 'hex'), 16))::text
   FROM generate_series(32, 12287) cp
  WHERE cp NOT BETWEEN 55296 AND 57343;
+-- Datasidens kodepunkter (tal, ingen tekst).
+SELECT coalesce(jsonb_agg(DISTINCT ascii(ch) ORDER BY ascii(ch)), '[]')::text
+  FROM public.assertion a,
+       regexp_split_to_table(coalesce(a.vaerdi_tekst,'') || coalesce(a.date_raw,''), '') ch
+ WHERE ch <> '';
 SELECT count(*) FROM public.assertion a,
        regexp_split_to_table(coalesce(a.vaerdi_tekst,'') || coalesce(a.date_raw,''), '') ch
  WHERE ch <> '' AND ascii(ch) > 12287;
 ```
 
-Manifestsiden måles lokalt i Python: antal tegn > U+2FFF i claim-værdierne. Forventet 0; ellers udvides intervallet, før proben køres i prod.
+Hele intervallet sammenlignes ikke: glibc og macOS' libc er uenige om skrifter, der er irrelevante for dansk tekst (fx georgisk og cherokee), og det ville give falsk STOP. **Gaten** er derfor, at intet kodepunkt i datamængden afviger. Datamængden er prods assertion-kodepunkter ∪ den lokale restores ∪ manifestets claim-værdier (Python, kun kodepunkter). Antallet af tegn > U+2FFF i manifestet skal være 0; ellers udvides intervallet, før proben køres i prod.
 
 - [ ] **Step 3: Skriv `probe-compare.py`**
 
@@ -274,7 +288,7 @@ Den tager to probe-filer (prod, lokal) og pakkens manifest og udskriver én linj
 | Gate | Krav | Ved afvigelse |
 | --- | --- | --- |
 | G1 version | `server_version_num // 10000` ens (17) | STOP: `schema_sha256`/`catalog_sha256` er ikke sammenlignelige |
-| G2 tegn | `chars_sha256` ens; `assertion_chars_over_2fff` = 0 i begge | STOP: klassifikationen kan afvige mellem prod og restore |
+| G2 tegn | 0 afvigende kodepunkter (`chars` prod ≠ lokal) inden for datamængden; `assertion_chars_over_2fff` = 0 i begge. Afvigende kodepunkter uden for datamængden tælles som INFO | STOP: klassifikationen kan afvige mellem prod og restore. Udskriv de afvigende kodepunkter (tal) |
 | G3 drift | prods `baseline` = pakkens på alle tre drift-felter; `n_interpretations_src` = 0 | STOP: spec beslutning 1 (kæden køres om på et nyt dump; uden for planen) |
 | G4 tilstand | prods `state` = `EMPTY` | STOP |
 | G5 katalog | `catalog_sha256` prod = lokal ren restore; `n_orphans_total` = 0 begge | STOP: fortrydelsesøvelsen kan ikke bevise troskab (spec §6.1 trin 4b) |
@@ -297,7 +311,7 @@ DAA_STANDIN_DB=<probe-base> /bin/zsh -f probe.zsh > /dev/null; DAA_STANDIN_DB=<s
 ```
 
 Forventet: G1-G8 `OK` (to ens restorer). Negativtests køres på **kopier** (`createdb -T <standin-base> daa44_rehearsal_transfer_standin_<nyt stempel>`):
-- **G2:** en base oprettet med `createdb --locale=C --template=template0` og samme restore skal give `G2 tegn AFVIGER`. Det beviser, at proben ser ctype.
+- **G2:** en base oprettet med `createdb --locale=C -E UTF8 --template=template0` og samme restore skal give `G2 tegn AFVIGER` med æ/ø/å blandt de afvigende kodepunkter. Det beviser, at proben ser ctype. Uden `-E UTF8` bliver basen SQL_ASCII, og `chr(cp)` fejler over 127 i stedet for at afvige.
 - **G3:** én række i en baseline-tabel ændres i kopien (`public.fact`; afviser en trigger det, en anden baseline-tabel) ⇒ `G3 drift AFVIGER`.
 
 Kopierne noteres til oprydning; stand-in-basen forbliver ren til Task 8.
@@ -428,7 +442,7 @@ Forventet: ingen `FEJL`, og exit 2 for alle tre. Kun syntaks og argumenter; adf�
 **Interfaces:**
 - Consumes: `levende_counts`, `ledger_check`, `actor_check`, `classify_state`, `sql_json` (Task 1), `run_r` (Task 2).
 - Produces:
-  - `preflight.json`: `{status: PREFLIGHT_OK, database_target_sha256, baseline, digests_state, preconditions, grants_sha256, chars_sha256, server_version_num, datctype, levende, actor_ok, role_probe, restore_privileges, measured_at_utc}`.
+  - `preflight.json`: `{status: PREFLIGHT_OK, database_target_sha256, baseline, digests_state, preconditions, grants_sha256, chars, data_codepoints, server_version_num, datctype, levende, actor_ok, role_probe, restore_privileges, measured_at_utc}`.
   - Udskrift: `DAA_PREFLIGHT_REPORT=…`, `DAA_PREFLIGHT_REPORT_SHA256=…` og `PREFLIGHT_OK`.
 
 - [ ] **Step 1: Vagtrækkefølge**
@@ -463,7 +477,7 @@ Forventet: `PREFLIGHT_OK`. Rolleproben kører i stand-in med `DAA_CONNECTION_MOD
 
 **Interfaces:**
 - Consumes: `run_r`, `sql_json`, `read_dump_receipt`, `assert_bound_report`.
-- Produces: `apply.json`, der bindes af `07`/`05`:
+- Produces: `04-report.json` (ikke `apply.json`: det navn skriver `04-proposal-apply-prod.R` selv i runmappen, med O_EXCL), der bindes af `07`/`05`:
 
 ```
 {status: APPLY_OK|ALREADY_APPLIED, state_before, state_after: PROPOSED, proposal_digest,
@@ -474,7 +488,7 @@ Forventet: `PREFLIGHT_OK`. Rolleproben kører i stand-in med `DAA_CONNECTION_MOD
 - [ ] **Step 1: `step_apply`**
 
 `step_apply <runmappe>` kører i kalderens tilstandsmappe `STEP_STATE_DIR`: `DAA_PRIVATE_DIR` i prod og rehearsal-mappen i `03`. Rækkefølgen er:
-1. Mål digests ⇒ tilstand. Er den `PROPOSED`: skriv `apply.json` med `ALREADY_APPLIED` og returnér. Er den ikke `EMPTY`: `TRANSFER_STATE_NOT_EMPTY`.
+1. Mål digests ⇒ tilstand. Er den `PROPOSED`: skriv `04-report.json` med `ALREADY_APPLIED` og returnér. Er den ikke `EMPTY`: `TRANSFER_STATE_NOT_EMPTY`.
 2. Manifestets fil-hash = `DAA_PREVIEW_SHA256`, indholdshash = pakkens, og claims = 3.739 (`MANIFEST_BINDING`).
 3. Mål `untouched_before` (`sql_json transfer_untouched_hash.sql`).
    - **Første forsøg** (der findes ingen `$STEP_STATE_DIR/apply-first.json`): `restore_hash` = kvitteringens, og 0 `change_set` siden `dump_start_utc` (`NO_WRITE_SINCE_DUMP`). Derefter skrives `apply-first.json` (O_EXCL) med `untouched_before`, kvitteringens SHA og skrivepausens `started_at`.
@@ -482,7 +496,7 @@ Forventet: `PREFLIGHT_OK`. Rolleproben kører i stand-in med `DAA_CONNECTION_MOD
 4. `timed DRY run_r dryrun.log 03-proposal-dryrun-prod.R <manifest> <runmappe>`. Krav: `DRY_RUN_OK` og `status=finalized committed=FALSE` (`DRYRUN`).
 5. `timed APP run_r apply.log 04-proposal-apply-prod.R <manifest> apply <runmappe>`. Krav: `APPLY_OK` og `committed=TRUE` (`APPLY`).
 6. Mål digests: tilstand = `PROPOSED`, og `proposal_digest` = pakkens (`PROPOSAL_DIGEST_MISMATCH` ⇒ runbookens fortrydelse).
-7. `apply.json`.
+7. `04-report.json`.
 
 - [ ] **Step 2: `04-apply.sh`**
 
@@ -553,7 +567,7 @@ Kontrakten er som `04-apply.sh`. Desuden kræves `DAA_APPLY_REPORT` + SHA (statu
 ### Task 6: `step_verify` og `05-verify.sh`
 
 **Files:**
-- Modify: `lib.zsh` (+ `step_verify <runmappe> <apply.json> <preflight.json>`)
+- Modify: `lib.zsh` (+ `step_verify <runmappe> <04-report.json> <preflight.json>`)
 - Create: `05-verify.sh`
 
 **Interfaces:**
@@ -565,7 +579,7 @@ Hvert krav har sin kode:
 - tilstand `COMPLETE` med alle tre digests og antal = pakkens (`VERIFY_STATE`);
 - 676 bærer `pack_sha256` (`VERIFY_PACK_TAG`);
 - baselinens tre drift-felter = pakkens; kanonisk delta 0 er `canonical_sha256` (`VERIFY_BASELINE`);
-- `untouched_hash` = `apply.json`'s `untouched_before` (`VERIFY_UNTOUCHED`);
+- `untouched_hash` = `04-report.json`'s `untouched_before` (`VERIFY_UNTOUCHED`);
 - `grants_sha256` = preflightens (`VERIFY_GRANTS`);
 - `has_table_privilege('anon', t, 'SELECT')` er falsk for `private.interpretation`, `private.interpretation_observation`, `private.interpretation_promotion` og `private.interpretation_promotion_batch` (`VERIFY_ANON`).
 
@@ -591,7 +605,9 @@ Ingen argumenter. Kræver GO-miljøet + `DAA_BIND_REPORT` + SHA (status `BIND_OK
 
 1. Ingen argumenter. Kræv `DAA_DUMP_RECEIPT`+SHA, `DAA_PREFLIGHT_REPORT`+SHA (status `PREFLIGHT_OK`), `DAA_EXPECTED_TARGET` (prods eller stand-ins) og `DAA_EXPECTED_COMMIT`. Kør `assert_repo_clean` og `assert_expected_commit`. Skriv `go-hashes.txt` og verificér den.
 2. Opret Supabase-rollerne lokalt, hvis de mangler (omseg 03 l. 33-39). `createdb daa44_rehearsal_transfer_<ts>_r`. `pg_restore --clean --if-exists --no-owner` af dumpet. Andre fejl end vault ⇒ `RESTORE_ERRORS`.
-3. Restoren skal være trofast mod kvitteringen: `restore_hash` og `untouched_hash` = kvitteringens. Baselinens drift-felter, `catalog_sha256` og `chars_sha256` = preflightens (`REHEARSAL_FIDELITY`). Tilstand `EMPTY`.
+3. **Målet skiftes:** rehearsal-basen har sin egen mål-identitet. Lige efter restoren sættes `CTX_TARGET="$(raw_target_identity)"` (som omseg `03` l. 47), og den skal være ≠ `DAA_PROD_TARGET`. Fra her bruger `step_*` og `run_r` det **aktuelle** mål (`CTX_TARGET`), aldrig GO-konstanten `DAA_EXPECTED_TARGET`, der kun binder dumpets oprindelse. Ellers stopper R-filerne på `DAA_TARGET_MISMATCH`.
+
+   Restoren skal være trofast mod kvitteringen: `restore_hash` og `untouched_hash` = kvitteringens. Baselinens drift-felter og `catalog_sha256` = preflightens, og 0 afvigende kodepunkter mellem rehearsal-basen og preflightens `chars` inden for datamængden (som G2) (`REHEARSAL_FIDELITY`). Tilstand `EMPTY`.
 4. Med `DAA_RUN_MODE=local` mod rehearsal-basen: `step_apply` → `step_decide` → `step_bind` → `step_verify`. Varighederne gemmes.
 5. **Fortrydelsesøvelse (spec §6.1 trin 4b):**
    - `undo_restore` af samme dump oven på den befolkede base, med hele fejllisten gemt;
@@ -665,7 +681,7 @@ På stand-in i `COMPLETE`: `09-undo.sh --jeg-mener-det` ⇒ `UNDO_OK`. Tilstande
 
 - [ ] **Step 6: Angrebstests (Review Focus 5)**
 
-Køres med `HOME=$T`, hvor `$T/.Renviron` har `SUPABASE_HOST=127.0.0.1` og `SUPABASE_PORT=1`, og `$T/.private/2018-20-overfoersel/prod` er tom. Scripts og pakke peges ind via faste stier i lib, ikke via `HOME`. Hver test skal give navngivet STOP eller exit 2 **uden** en forbindelse:
+Køres med `HOME=$T`, hvor `$T/.Renviron` har `SUPABASE_HOST=127.0.0.1` og `SUPABASE_PORT=1`, og `$T/.private/2018-20-overfoersel/prod` er tom. Pooler-kravet stopper derfor ethvert forbindelsesforsøg, før en socket åbnes (`POOLER_REQUIRED`). Tests, hvis vagt ligger før forbindelsen, skal give deres egen kode og ikke `POOLER_REQUIRED`; det viser rækkefølgen. Scripts og pakke peges ind via faste stier i lib, ikke via `HOME`. Hver test skal give navngivet STOP eller exit 2 **uden** en forbindelse:
 
 | # | Angreb | Forventet |
 | --- | --- | --- |
@@ -676,7 +692,8 @@ Køres med `HOME=$T`, hvor `$T/.Renviron` har `SUPABASE_HOST=127.0.0.1` og `SUPA
 | 5 | `DAA_LOCAL_PGHOST=x` | `LOCAL_ENV_IN_PROD` |
 | 6 | GO-hashfil med én linje fjernet / én ekstra / én ændret | `fil-hashes afviger fra GO-pakken` |
 | 7 | `DAA_EXPECTED_COMMIT` forkert | `repo-commit afviger` |
-| 8 | `PGHOSTADDR=127.0.0.1 PGOPTIONS='-c default_transaction_read_only=off'` sat | ryddes (forbindelsesforsøget går til `127.0.0.1:1` og fejler) — aldrig andet mål |
+| 8 | `PGHOSTADDR=127.0.0.1 PGOPTIONS='-c default_transaction_read_only=off'` sat, `01-preflight.sh` | ryddes; derefter `POOLER_REQUIRED` (test-`.Renviron`) — ingen socket åbnes |
+| 11 | test-`.Renviron` med `SUPABASE_HOST=db.example.supabase.co` (direkte forbindelse, ikke pooler) | `POOLER_REQUIRED` |
 | 9 | `PYTHONOPTIMIZE=2` | uændret adfærd (PY rydder den) |
 | 10 | `09-undo.sh` uden aktiv skrivepause | `skrivepausen er ikke aktiv` |
 
@@ -700,11 +717,13 @@ git commit -m "docs(147): plan B — stand-in-ceremoni REHEARSAL_OK, fejlinjekti
 - [ ] **Step 1: Skriv runbooken**
 
 Afsnit, i rækkefølge:
-1. **Formål og forudsætninger**: pakke, plan A/B, skrivepause, ingen andre skrivere.
+1. **Formål og forudsætninger**: pakke, plan A/B, skrivepause, ingen andre skrivere. `DAA_REPO` er **hovedcheckouten** (`/Users/johanreventlow/TypeScript/danmarksadelsaarbog`) på `main` ved GO-commit'en, ikke en worktree. Den står i dag på `docs/147-overfoersel-spec`, så den skal flyttes før `01`. `assert_expected_commit` fanger det, men runbooken skal forhindre det.
 2. **Proben** (Task 1) og dens gates.
 3. **Ceremonien** som nummererede `! /bin/zsh -f …`-kommandoer. Før hver står én linje »hvad det betyder«, efter hver det forventede udfald. `go-env.txt` (kun stier og hashes) opbygges trin for trin.
 4. **GO-pakken (spec §7)**: hvad projektejeren ser før GO (alle tal og hashes fra `rehearsal.json`, inventarets 33 linjer, commit), og hvad GO binder.
 5. **Stopregler**: tabellen over tilstande × næste skridt (spec §5), `04`'s tre afbrudsudfald og hvad en `UNDO_ERRORS_DIFFER` kræver.
+
+   Fejllisten ved en fortrydelse i prod vil **næsten sikkert afvige** fra den lokale, fordi realtime-/graphql-afhængigheder kun findes i prod. Beviset er efterkravene: tilstand `EMPTY`, restore-hash, katalog og baseline. En afvigende fejlliste med opfyldte efterkrav vurderes af projektejeren og er ikke i sig selv en fejl.
 6. **Fortrydelse**: `09-undo.sh`, prisen (alt skrevet i `private`/`public` efter dumpets start går tabt), og at de RLS-afhængige funktioner hverken droppes eller genskabes.
 7. **Efter `VERIFY_OK`**: modenhedsløft (spec §9), omsegmenteringens fortrydelsesvindue lukket (decisions 2026-10-01), og oprydning kun efter måling og ja.
 
@@ -730,3 +749,11 @@ git commit -m "docs(147): runbook for prod-overførslen af 2018-20"
   - aktørens hash = pakkens;
   - R-filernes kontrakt og R-filerne, der genbruges uændret (ingen hardkodede pilottal);
   - transitive inkluderinger (scoped → targets; R → `apply_reimport_helpers.R` + profil-JSON).
+- 2026-10-04: Selvreview og rådgiver-review før overdragelse:
+  - Trinrapporten hedder `04-report.json`, fordi R-filen selv skriver `apply.json` med O_EXCL.
+  - `03` skifter til rehearsal-basens eget mål (`CTX_TARGET`).
+  - Tegnproben gater kun på kodepunkter i datamængden; hele intervallet ville give falsk STOP mellem glibc og macOS-libc. Negativtesten kræver `-E UTF8`.
+  - Pooler-kravet håndhæves i shell'en (`POOLER_REQUIRED`), og angrebstest 11 er tilføjet.
+  - Proben bruger fundamentets funktioner (`classify_state`, levende, aktør, ledger).
+  - Første forsøg i `04` bindes af `apply-first.json`.
+  - Runbooken skal nævne `DAA_REPO` = hovedcheckouten på `main`, og at fortrydelsens fejlliste i prod forventeligt afviger.
