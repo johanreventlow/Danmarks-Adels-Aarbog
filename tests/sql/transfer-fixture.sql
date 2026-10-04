@@ -1,11 +1,14 @@
 -- Fælles fixture for overførselstestene (plan A, Task 1). Kaldes inden for BEGIN … ROLLBACK.
--- To kilder (-4700, -4701) med SAMME logiske indhold og FORSKELLIGE uuid'er: digests og
--- fingeraftryk filtreret pr. kilde skal være ens. Tre forslag pr. kilde:
+-- Opretter de delte rækker (bruger, person, fakta, assertions) og funktionen pg_temp.transfer_fx,
+-- som bygger ÉN kilde. Restore og prod har samme kilde-id og samme deterministiske
+-- interpretation_key'er, men forskellige tilfældige uuid'er; testene efterligner det med
+-- varianter: SAVEPOINT → transfer_fx(-4700, <uuid-præfiks>, 'b4700000', <variant>) → mål →
+-- ROLLBACK TO SAVEPOINT. Varianter deler kilde-id og nøgler og adskiller sig kun i uuid-præfiks
+-- og det varierede felt. Tre forslag pr. kilde:
 --   k1 principal person.death '1850'  → MATCH mod assertion -4711
 --   k2 principal person.name  'Anna'  → REAL_DIFF (assertion 'Anne')
 --   k3 other     mention.place 'Kbh'  → ingen regel
--- De rå tabeller er uforanderlige (append-only), så testene danner varianter som ekstra
--- kilder via pg_temp.transfer_fx(...) i stedet for UPDATE.
+-- Persona/record-nøgle 'T-1' peger på person -4701. De rå tabeller er append-only.
 INSERT INTO auth.users(id,email) VALUES ('a4700000-0000-4000-8000-000000000001','transfer47@test.invalid');
 INSERT INTO profiles(id,rolle,navn,email) VALUES
   ('a4700000-0000-4000-8000-000000000001','redaktion','Transfer 47','transfer47@test.invalid');
@@ -81,8 +84,3 @@ BEGIN
            ((pre||'-0000-4000-8000-0000000000c2')::uuid,1,'fortolkning_foreslaaet','machine',
             jsonb_build_object('batch_id',pre||'-0000-4000-8000-0000000000e1','manifest_sha256',repeat('7',64)));
 END $fx$;
-
-SELECT pg_temp.transfer_fx(-4700,'a4700000','b4700000') \g /dev/null
-SELECT pg_temp.transfer_fx(-4701,'a4701000','b4701000') \g /dev/null
-SET CONSTRAINTS ALL IMMEDIATE;
-SET CONSTRAINTS ALL DEFERRED;
