@@ -17,6 +17,7 @@ from collections import Counter
 from pathlib import Path
 
 DRIFT_BASELINE_FIELDS = ("canonical_sha256", "clause_set_sha256", "schema_sha256")
+DECISION_METHODS = ("human-sheet-kontrol-v1", "machine-corroboration-v1")
 EMPTY_SHA = hashlib.sha256(b"").hexdigest()
 PACK_VERSION = "transfer-pack-v1"
 
@@ -55,6 +56,14 @@ def build_pack(*, export: dict, fingerprints: dict, digests: dict, baseline: dic
     rows = export["decisions"]
     if any(not isinstance(r.get("evidence"), dict) for r in rows):
         raise PackError("PACK_EVIDENCE_INVALID")
+    # Før tællingerne, så en ukendt metode/status ikke maskeres som PACK_COUNT_MISMATCH.
+    unknown = sum(1 for r in rows if r["evidence"].get("method") not in DECISION_METHODS)
+    if unknown:
+        raise PackError(f"PACK_METHOD_UNKNOWN {unknown}")
+    machine_other = sum(1 for r in rows
+                        if r["evidence"].get("method") == "machine-corroboration-v1" and r["status"] != "accepted")
+    if machine_other:
+        raise PackError(f"PACK_MACHINE_NOT_ACCEPTED {machine_other}")
     keys = [r["interpretation_key"] for r in rows]
     if len(keys) != len(set(keys)):
         raise PackError("PACK_DUPLICATE_KEY")
@@ -158,7 +167,7 @@ def classify_state(digests: dict, pack: dict) -> str:
 
 
 SCRIPTS = ".claude/skills/daa-extract/scripts"
-DO_TAGS = ("$g$", "$c$", "$m$", "$p$", "$a$", "$w$", "$d$")
+DO_TAGS = ("$g$", "$c$", "$m$", "$r$", "$p$", "$a$", "$w$", "$d$")
 _HEX64 = re.compile(r"[0-9a-f]{64}")
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 DECISION_STATUSES = ("accepted", "rejected", "unresolved", "superseded")
@@ -314,15 +323,22 @@ def decide_sql(decisions: list[dict], manifest: dict) -> str:
         # (2) Præmissen: nøglet klassifikation i tilstand PROPOSED = pakkens (spec §4.3). Den delte
         # klassifikation ser alle kilder; kun kildens forslag sammenlignes.
         _quiet_include("interpretation_control_classification.sql"),
-        "DO $m$ DECLARE r jsonb := current_setting('daa.control_result')::jsonb; f jsonb; "
+        # jsonb_object_agg beholder lydløst den sidste af to ens nøgler: dubletter fejler selv.
+        "DO $m$ DECLARE r jsonb := current_setting('daa.control_result')::jsonb; f jsonb; n int; nd int; "
         f"want jsonb := {_lit(keyed)}::jsonb; BEGIN "
         "SELECT coalesce(jsonb_object_agg(i.interpretation_key::text, jsonb_build_array(x->>'class', "
-        "(x->>'assertion_id')::bigint)), '{}'::jsonb) INTO f FROM jsonb_array_elements(r->'items') x "
+        "(x->>'assertion_id')::bigint)), '{}'::jsonb), count(*), count(DISTINCT x->>'interpretation_id') "
+        "INTO f, n, nd FROM jsonb_array_elements(r->'items') x "
         "JOIN private.interpretation i ON i.id = (x->>'interpretation_id')::uuid "
         "AND i.source_id = current_setting('daa.src')::bigint; "
-        "IF f IS DISTINCT FROM want THEN RAISE EXCEPTION 'MACHINE_PREMISE_DRIFT'; END IF; END $m$;",
+        "IF n <> nd OR f IS DISTINCT FROM want THEN RAISE EXCEPTION 'MACHINE_PREMISE_DRIFT'; END IF; END $m$;",
         # (3) Fingeraftryk og id-opslag; planen lægges i en GUC, som authenticated kan læse.
         _quiet_include("interpretation_decision_fingerprint.sql"),
+        # Postentydighed som ved pakkebygningen (PACK_RECORD_AMBIGUOUS). Dybdeforsvar: et manglende eller
+        # ekstra anker flytter i praksis clause_set_sha256 først (CLAUSE_SET_DRIFT).
+        "DO $r$ BEGIN IF current_setting('daa.fingerprint_record_check')::jsonb IS DISTINCT FROM "
+        "'{\"n_no_record\":0,\"n_multi_record\":0}'::jsonb THEN RAISE EXCEPTION 'DECISION_RECORD_AMBIGUOUS'; "
+        "END IF; END $r$;",
         "DO $p$ DECLARE fps jsonb := current_setting('daa.fingerprints')::jsonb; "
         f"plan jsonb := {_lit(plan)}::jsonb; out jsonb; n int; BEGIN "
         "IF EXISTS (SELECT 1 FROM jsonb_array_elements(plan) p WHERE p->>'fp' IS NULL "
@@ -340,7 +356,7 @@ def decide_sql(decisions: list[dict], manifest: dict) -> str:
         # (4) Skrivningen.
         *_actor_switch(manifest),
         "DO $w$ DECLARE n int; BEGIN "
-        "SELECT count(red_decide_interpretation((x->>'id')::uuid, 1, x->>'s', x->'e')) INTO n "
+        "SELECT count(public.red_decide_interpretation((x->>'id')::uuid, 1, x->>'s', x->'e')) INTO n "
         "FROM jsonb_array_elements(current_setting('daa.decide_plan')::jsonb) x; "
         f"IF n <> {n_dec} THEN RAISE EXCEPTION 'DECISION_COUNT %', n; END IF; END $w$;",
         *_tail(),
@@ -381,11 +397,11 @@ def bind_sql(manifest: dict) -> str:
         "(t->>'out_of_scope')::int; END $n$;",
         *_actor_switch(manifest),
         "DO $b$ DECLARE items jsonb := current_setting('daa.targets_scoped')::jsonb->'items'; "
-        "p jsonb := red_preview_interpretation_promotions(items); BEGIN "
+        "p jsonb := public.red_preview_interpretation_promotions(items); BEGIN "
         "IF jsonb_array_length(p->'items') <> jsonb_array_length(items) OR EXISTS (SELECT 1 FROM "
         "jsonb_array_elements(p->'items') i WHERE (i->>'eligible')::boolean IS NOT TRUE) "
         "THEN RAISE EXCEPTION 'BIND_NOT_ELIGIBLE'; END IF; "
-        "PERFORM red_promote_interpretations_batch(items, p->>'preview_hash'); END $b$;",
+        "PERFORM public.red_promote_interpretations_batch(items, p->>'preview_hash'); END $b$;",
         *_tail(),
         _quiet_include("interpretation_transfer_digests.sql"),
         "DO $d$ DECLARE d jsonb := current_setting('daa.transfer_digests')::jsonb; BEGIN "

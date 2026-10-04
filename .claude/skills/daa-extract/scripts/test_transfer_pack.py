@@ -1,5 +1,6 @@
 import copy
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -92,6 +93,25 @@ def test_restore_id_must_be_v1_id_of_same_key():
     ex["decisions"][0]["restore_interpretation_id"] = "v-2"  # en anden nøgles version 1
     with pytest.raises(tp.PackError, match="PACK_ID_MISMATCH"):
         build(export=ex)
+
+
+def test_method_must_be_known():
+    ex = load("export.json")
+    ex["decisions"][1]["evidence"]["method"] = "m"
+    with pytest.raises(tp.PackError, match="^PACK_METHOD_UNKNOWN 1$"):
+        build(export=ex)
+    ex = load("export.json")
+    del ex["decisions"][0]["evidence"]["method"]
+    with pytest.raises(tp.PackError, match="^PACK_METHOD_UNKNOWN 1$"):
+        build(export=ex)
+
+
+def test_machine_decision_must_be_accepted():
+    for status in ("rejected", "unresolved"):
+        ex = load("export.json")
+        ex["decisions"][2]["status"] = status  # tællingerne afviger også; denne kode skal fyre først
+        with pytest.raises(tp.PackError, match="^PACK_MACHINE_NOT_ACCEPTED 1$"):
+            build(export=ex)
 
 
 def test_drift_fields_constant():
@@ -214,9 +234,11 @@ def test_cli_prints_no_notes_or_values(tmp_path):
     cmd += ["--manifest-content-sha256", "80f3", "--ledger-sha256", "e620", "--out-dir", str(out)]
     res = subprocess.run(cmd, capture_output=True, text=True, check=True)
     assert "titel i navn" not in res.stdout + res.stderr
+    assert "u-1" not in res.stdout + res.stderr  # aktør-id'et (fixturens decided_by)
     assert "PACK_OK" in res.stdout
     for f in ("decisions-keyed.json", "pack-manifest.json"):
         assert (out / f).stat().st_mode & 0o777 == 0o600
+        assert "u-1" not in (out / f).read_text(encoding="utf-8")  # kun actor_sha256
     dec = (out / "decisions-keyed.json").read_bytes()
     man = json.loads((out / "pack-manifest.json").read_text(encoding="utf-8"))
     import hashlib
@@ -291,6 +313,7 @@ def test_decide_sql_shape():
     assert sql.rstrip().endswith("\\echo 'TRANSFER_07_OK afgørelser=3'")
     assert sql.count("COMMIT;") == 1 and sql.index("COMMIT;") > sql.rindex("DECISION_DIGEST_MISMATCH")
     order = ["TRANSFER_SESSION_UNSAFE", "TRANSFER_STATE_NOT_PROPOSED", "CLAUSE_SET_DRIFT", "MACHINE_PREMISE_DRIFT",
+             "interpretation_decision_fingerprint.sql", "DECISION_RECORD_AMBIGUOUS",
              "DECISION_FINGERPRINT_MISMATCH", "DECISION_KEY_UNRESOLVED", "TRANSFER_ACTOR_MISMATCH",
              "red_decide_interpretation", "DECISION_DIGEST_MISMATCH"]
     pos = [sql.index(code) for code in order]
@@ -308,6 +331,12 @@ def test_decide_sql_shape():
     assert sql.count("current_setting('daa.src')::bigint") >= 2
     assert "count(DISTINCT p->>'k')" in sql
     assert "p->>'fp' IS NULL" in sql
+    # Præmissen: dubletter i klassifikationen fejler (jsonb_object_agg ville beholde den sidste).
+    assert "count(DISTINCT x->>'interpretation_id')" in sql and "IF n <> nd OR f IS DISTINCT FROM want" in sql
+    assert "'{\"n_no_record\":0,\"n_multi_record\":0}'::jsonb THEN RAISE EXCEPTION 'DECISION_RECORD_AMBIGUOUS'" in sql
+    # RPC'erne skemakvalificeret.
+    assert "public.red_decide_interpretation(" in sql
+    assert not re.search(r"(?<!public\.)red_decide_interpretation\(", sql)
 
 
 def test_decide_sql_rejects_other_versions():
@@ -328,6 +357,9 @@ def test_bind_sql_shape():
     pos = [sql.index(code) for code in order]
     assert pos == sorted(pos)
     assert f'["{K1}","{K3}"]' in sql
+    for rpc in ("red_preview_interpretation_promotions(", "red_promote_interpretations_batch("):
+        assert f"public.{rpc}" in sql
+        assert not re.search(r"(?<!public\.)" + re.escape(rpc), sql)
     assert sql.index("RESET ROLE") < sql.index("SET CONSTRAINTS ALL IMMEDIATE") < sql.rindex(
         "interpretation_transfer_digests.sql")
     assert "SELECT set_config('request.jwt.claim.sub', :'actor', true) \\g /dev/null" in sql

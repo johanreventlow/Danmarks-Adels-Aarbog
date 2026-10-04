@@ -48,7 +48,9 @@ WITH tab AS (
 ), b AS (
   SELECT
     encode(extensions.digest(convert_to((SELECT string_agg(n || '=' || h, E'\n' ORDER BY n COLLATE "C") FROM tab),'UTF8'),'sha256'),'hex') AS canonical_sha256,
-    encode(extensions.digest(convert_to(coalesce((SELECT string_agg(record_key || '|' || coalesce(seq::text,'none') || '|' || h, E'\n' ORDER BY record_key COLLATE "C") FROM recs),''),'UTF8'),'sha256'),'hex') AS clause_set_sha256,
+    -- Sorteret på hele rækkestrengen: record_key alene er tvetydig, hvis en post har > 1 forælder.
+    encode(extensions.digest(convert_to(coalesce((SELECT string_agg(l, E'\n' ORDER BY l COLLATE "C") FROM (
+      SELECT record_key || '|' || coalesce(seq::text,'none') || '|' || h AS l FROM recs) rl),''),'UTF8'),'sha256'),'hex') AS clause_set_sha256,
     (SELECT count(DISTINCT interpretation_key) FROM private.interpretation WHERE source_id = :src) AS n_interpretations_src,
     encode(extensions.digest(convert_to((SELECT string_agg(t, E'\n' ORDER BY t COLLATE "C") FROM sch),'UTF8'),'sha256'),'hex') AS schema_sha256
 )
