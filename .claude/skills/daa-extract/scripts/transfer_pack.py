@@ -71,6 +71,10 @@ def build_pack(*, export: dict, fingerprints: dict, digests: dict, baseline: dic
         raise PackError("PACK_COUNT_MISMATCH")
 
     key_by_v1 = export["key_by_v1_id"]
+    # restore_interpretation_id er version 1-id'et (arkets og klassifikationens id, spec §4.1); det skal
+    # pege på netop afgørelsens nøgle.
+    if any(key_by_v1.get(r.get("restore_interpretation_id")) != r["interpretation_key"] for r in rows):
+        raise PackError("PACK_ID_MISMATCH")
     keyed_cls = {}
     for item in classification["items"]:
         key = key_by_v1.get(item["interpretation_id"])
@@ -98,6 +102,7 @@ def build_pack(*, export: dict, fingerprints: dict, digests: dict, baseline: dic
 
     decisions = [{"interpretation_key": r["interpretation_key"],
                   "restore_interpretation_id": r["restore_interpretation_id"],
+                  "restore_decision_interpretation_id": r["restore_decision_interpretation_id"],
                   "expected_version": 1, "status": r["status"],
                   "decision_fingerprint": fingerprints[r["interpretation_key"]],
                   "evidence": r["evidence"]} for r in sorted(rows, key=lambda r: r["interpretation_key"])]
@@ -217,6 +222,8 @@ def _validate_decisions(decisions: list) -> None:
         _bad("decisions")
     for d in decisions:
         _uuid(d.get("interpretation_key"), "decisions[].interpretation_key")
+        _uuid(d.get("restore_interpretation_id"), "decisions[].restore_interpretation_id")
+        _uuid(d.get("restore_decision_interpretation_id"), "decisions[].restore_decision_interpretation_id")
         if d.get("status") not in DECISION_STATUSES:
             _bad("decisions[].status")
         _hex(d.get("decision_fingerprint"), "decisions[].decision_fingerprint")

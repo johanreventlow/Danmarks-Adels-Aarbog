@@ -28,8 +28,12 @@ def build(**over):
 def test_build_counts_and_fields():
     decisions, manifest = build()
     assert [d["interpretation_key"] for d in decisions] == ["k-1", "k-2", "k-3"]
-    assert set(decisions[0]) == {"interpretation_key", "restore_interpretation_id", "expected_version", "status",
+    assert set(decisions[0]) == {"interpretation_key", "restore_interpretation_id",
+                                 "restore_decision_interpretation_id", "expected_version", "status",
                                  "decision_fingerprint", "evidence"}
+    # restore_interpretation_id = version 1-id'et (arkets og klassifikationens id); den afgjorte version separat.
+    assert [d["restore_interpretation_id"] for d in decisions] == ["v-1", "v-2", "v-3"]
+    assert [d["restore_decision_interpretation_id"] for d in decisions] == ["r-1", "r-2", "r-3"]
     assert decisions[0]["expected_version"] == 1
     assert decisions[1]["decision_fingerprint"] == "f2"
     assert manifest["counts_by_method_status"] == {"human-sheet-kontrol-v1|accepted": 1,
@@ -77,6 +81,17 @@ def test_record_check_ambiguous_is_error():
         build(record_check={"n_no_record": 1, "n_multi_record": 0})
     with pytest.raises(tp.PackError, match="PACK_RECORD_AMBIGUOUS"):
         build(record_check={"n_no_record": 0, "n_multi_record": 2})
+
+
+def test_restore_id_must_be_v1_id_of_same_key():
+    ex = load("export.json")
+    ex["decisions"][0]["restore_interpretation_id"] = "r-1"  # den afgjorte versions id, ikke version 1
+    with pytest.raises(tp.PackError, match="PACK_ID_MISMATCH"):
+        build(export=ex)
+    ex = load("export.json")
+    ex["decisions"][0]["restore_interpretation_id"] = "v-2"  # en anden nøgles version 1
+    with pytest.raises(tp.PackError, match="PACK_ID_MISMATCH"):
+        build(export=ex)
 
 
 def test_drift_fields_constant():
@@ -236,6 +251,8 @@ def test_machine_assertion_id_must_be_int_on_classification_side():
 
 KEYS = {f"k-{i}": f"b4700000-0000-4000-8000-00000000000{i}" for i in range(1, 5)}
 K1, K2, K3 = KEYS["k-1"], KEYS["k-2"], KEYS["k-3"]
+IDS = {**{f"v-{i}": f"a4700000-0000-4000-8000-00000000030{i}" for i in range(1, 5)},
+       **{f"r-{i}": f"a4700000-0000-4000-8000-00000000040{i}" for i in range(1, 5)}}
 
 
 def hx(s):
@@ -248,13 +265,18 @@ def build_real(**over):
     ex = load("export.json")
     for d in ex["decisions"]:
         d["interpretation_key"] = KEYS[d["interpretation_key"]]
-    ex["key_by_v1_id"] = {v: KEYS[k] for v, k in ex["key_by_v1_id"].items()}
+        d["restore_interpretation_id"] = IDS[d["restore_interpretation_id"]]
+        d["restore_decision_interpretation_id"] = IDS[d["restore_decision_interpretation_id"]]
+    ex["key_by_v1_id"] = {IDS[v]: KEYS[k] for v, k in ex["key_by_v1_id"].items()}
+    cl = load("classification.json")
+    for item in cl["items"]:
+        item["interpretation_id"] = IDS[item["interpretation_id"]]
     fp = {KEYS[k]: hx(v) for k, v in load("fingerprints.json").items()}
     dg = load("digests.json")
     for f in ("proposal_digest", "decision_digest", "binding_digest"):
         dg[f] = hx(dg[f])
     bl = {k: (hx(v) if isinstance(v, str) else v) for k, v in load("baseline.json").items()}
-    return build(export=ex, fingerprints=fp, digests=dg, baseline=bl, **over)
+    return build(export=ex, fingerprints=fp, digests=dg, baseline=bl, classification=cl, **over)
 
 
 def test_decide_sql_shape():
@@ -364,6 +386,10 @@ def test_bind_sql_rejects_injected_accepted_key():
 
 @pytest.mark.parametrize("field,value,code", [
     ("interpretation_key", INJECT, "decisions[].interpretation_key"),
+    ("restore_interpretation_id", INJECT, "decisions[].restore_interpretation_id"),
+    ("restore_interpretation_id", "a4700000-0000-4000-8000-00000000030X", "decisions[].restore_interpretation_id"),
+    ("restore_decision_interpretation_id", INJECT, "decisions[].restore_decision_interpretation_id"),
+    ("restore_decision_interpretation_id", IDS["r-1"].upper(), "decisions[].restore_decision_interpretation_id"),
     ("status", "accepted'; DROP", "decisions[].status"),
     ("decision_fingerprint", INJECT, "decisions[].decision_fingerprint"),
 ])

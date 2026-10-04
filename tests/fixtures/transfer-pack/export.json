@@ -1,8 +1,8 @@
 {"decisions": [
-  {"interpretation_key": "k-1", "restore_interpretation_id": "r-1", "v1_interpretation_id": "v-1", "status": "accepted",
+  {"interpretation_key": "k-1", "restore_interpretation_id": "v-1", "restore_decision_interpretation_id": "r-1", "status": "accepted",
    "evidence": {"method": "human-sheet-kontrol-v1", "line": 5, "note": "", "rows_sha256": "a", "sheet_sha256": "b"}, "decided_by": "u-1"},
-  {"interpretation_key": "k-2", "restore_interpretation_id": "r-2", "v1_interpretation_id": "v-2", "status": "unresolved",
+  {"interpretation_key": "k-2", "restore_interpretation_id": "v-2", "restore_decision_interpretation_id": "r-2", "status": "unresolved",
    "evidence": {"method": "human-sheet-kontrol-v1", "line": 9, "note": "titel i navn", "rows_sha256": "a", "sheet_sha256": "b"}, "decided_by": "u-1"},
-  {"interpretation_key": "k-3", "restore_interpretation_id": "r-3", "v1_interpretation_id": "v-3", "status": "accepted",
+  {"interpretation_key": "k-3", "restore_interpretation_id": "v-3", "restore_decision_interpretation_id": "r-3", "status": "accepted",
    "evidence": {"method": "machine-corroboration-v1", "assertion_id": 7, "classification_sha256": "c", "decision": "d", "sample_sha256": "e", "sheet_sha256": "b"}, "decided_by": "u-1"}],
  "key_by_v1_id": {"v-1": "k-1", "v-2": "k-2", "v-3": "k-3", "v-4": "k-4"}}
