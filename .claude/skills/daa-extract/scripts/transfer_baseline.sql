@@ -1,5 +1,6 @@
 -- Driftsbaseline (spec 2026-10-03 §4.3). Læse-kun. Indholdshash over de data, klassifikationen og
--- målfindingen hviler på, klausulsættet og skemaet. Driftssammenligningen er PR. FELT over
+-- målfindingen hviler på (assertion, fact, person, identitet, placering, promotion-regler og rækketal for
+-- conclusion, narrative, relation og family_member = »counts«-rækken), klausulsættet og skemaet. Driftssammenligningen er PR. FELT over
 -- canonical_sha256, clause_set_sha256 og schema_sha256. n_interpretations_src er et TILSTANDSFELT
 -- (antal distinkte forslag; 0 i dump-tilstand), ikke en driftsinvariant: ingest ændrer det lovligt, en
 -- afgørelse tilføjer en version men ikke et forslag. Ingen tællinger af autorisationer eller writer-profiler.

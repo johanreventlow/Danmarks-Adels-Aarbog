@@ -9,7 +9,6 @@ BEGIN;
 \set src -4700
 SELECT pg_temp.transfer_fx(-4700,'a4700000','b4700000') \g /dev/null
 SET CONSTRAINTS ALL IMMEDIATE;
-SELECT 1 AS dummy \gset
 \o /dev/null
 \i .claude/skills/daa-extract/scripts/transfer_baseline.sql
 \o
@@ -140,6 +139,10 @@ SET LOCAL session_replication_role = origin;
 SELECT current_setting('daa.restore_preconditions') AS p_10 \gset
 ROLLBACK TO SAVEPOINT x;
 SAVEPOINT x;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_untouched_hash.sql
+\o
+SELECT current_setting('daa.untouched_hash') AS u_6a \gset
 SELECT nextval(pg_get_serial_sequence('public.person','id')) \g /dev/null
 \o /dev/null
 \i .claude/skills/daa-extract/scripts/transfer_untouched_hash.sql
@@ -167,7 +170,7 @@ SELECT current_setting('daa.restore_preconditions') AS p_11, concat_ws('|',curre
 SELECT current_setting('daa.transfer_baseline') AS b_11, current_setting('daa.restore_hash') AS r_11, current_setting('daa.untouched_hash') AS u_11 \gset
 ROLLBACK TO SAVEPOINT x;
 SAVEPOINT x;
-SET TimeZone='America/New_York'; SET extra_float_digits=-1; SET IntervalStyle='sql_standard'; SET DateStyle='German, DMY'; SET search_path='public, extensions';
+SET TimeZone='America/New_York'; SET extra_float_digits=-1; SET IntervalStyle='sql_standard'; SET DateStyle='German, DMY'; SET search_path = public, extensions;
 \o /dev/null
 \i .claude/skills/daa-extract/scripts/transfer_baseline.sql
 \o
@@ -206,6 +209,7 @@ SELECT concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_di
 SELECT current_setting('daa.restore_preconditions') AS p_13, concat_ws('|',current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('IntervalStyle'),current_setting('DateStyle'),current_setting('search_path')) AS sp_13 \gset
 SELECT current_setting('daa.transfer_baseline') AS b_13, current_setting('daa.restore_hash') AS r_13, current_setting('daa.untouched_hash') AS u_13 \gset
 ROLLBACK TO SAVEPOINT x;
+-- mfk: kører samme prædikat som filen igen (fanger kun plumbing-fejl, ikke en forkert definition).
 SELECT count(*) AS mfk FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE c.contype='f' AND n.nspname IN ('private','public') AND array_length(c.conkey,1)>1 \gset
 SELECT set_config('t.b_0',:'b_0',true),
        set_config('t.r_0',:'r_0',true),
@@ -220,7 +224,6 @@ SELECT set_config('t.b_0',:'b_0',true),
        set_config('t.b_4',:'b_4',true),
        set_config('t.r_5',:'r_5',true),
        set_config('t.u_5',:'u_5',true),
-       set_config('t.u_6',:'u_6',true),
        set_config('t.b_7',:'b_7',true),
        set_config('t.r_7',:'r_7',true),
        set_config('t.u_7',:'u_7',true),
@@ -237,6 +240,8 @@ SELECT set_config('t.b_0',:'b_0',true),
        set_config('t.b_13',:'b_13',true),
        set_config('t.r_13',:'r_13',true),
        set_config('t.u_13',:'u_13',true),
+       set_config('t.u_6a',:'u_6a',true),
+       set_config('t.u_6',:'u_6',true),
        set_config('t.p_0',:'p_0',true),
        set_config('t.p_10',:'p_10',true),
        set_config('t.n7',:'n_prom_7',true),
@@ -279,7 +284,7 @@ BEGIN
   IF current_setting('t.r_5') IS NOT DISTINCT FROM current_setting('t.r_0') THEN RAISE EXCEPTION 'B5: sekvens ikke fanget i restore-hash'; END IF;
   IF current_setting('t.u_5') IS DISTINCT FROM current_setting('t.u_0') THEN RAISE EXCEPTION 'B5: ekskluderet sekvens flyttede uberørt-hash'; END IF;
   -- B6b: sekvens uden for kæden (person-id) flytter uberørt-hashen.
-  IF current_setting('t.u_6') IS NOT DISTINCT FROM current_setting('t.u_0') THEN RAISE EXCEPTION 'B6b: ikke-kæde-sekvens ikke fanget i uberørt-hash'; END IF;
+  IF current_setting('t.u_6') IS NOT DISTINCT FROM current_setting('t.u_6a') THEN RAISE EXCEPTION 'B6b: ikke-kæde-sekvens ikke fanget i uberørt-hash'; END IF;
   -- B7: ægte afgørelse + binding.
   IF current_setting('t.n7')::int <> 1 THEN RAISE EXCEPTION 'B7: binding ikke skrevet (%)', current_setting('t.n7'); END IF;
   IF current_setting('t.u_7') IS DISTINCT FROM current_setting('t.u_0') THEN RAISE EXCEPTION 'B7: afgørelse/binding flyttede uberørt-hash (eksklusionslisten ufuldstændig)'; END IF;
@@ -304,7 +309,7 @@ BEGIN
   IF current_setting('t.sb_11') <> 'Europe/Copenhagen|3|postgres|ISO, MDY|public' OR current_setting('t.sr_11') <> current_setting('t.sb_11')
      OR current_setting('t.su_11') <> current_setting('t.sb_11') OR current_setting('t.sp_11') <> current_setting('t.sb_11') THEN
     RAISE EXCEPTION 'B11: kalderens indstillinger ikke gendannet (a): % / % / % / %', current_setting('t.sb_11'), current_setting('t.sr_11'), current_setting('t.su_11'), current_setting('t.sp_11'); END IF;
-  IF current_setting('t.sb_12') <> 'America/New_York|-1|sql_standard|German, DMY|"public, extensions"' OR current_setting('t.sr_12') <> current_setting('t.sb_12')
+  IF current_setting('t.sb_12') <> 'America/New_York|-1|sql_standard|German, DMY|public, extensions' OR current_setting('t.sr_12') <> current_setting('t.sb_12')
      OR current_setting('t.su_12') <> current_setting('t.sb_12') OR current_setting('t.sp_12') <> current_setting('t.sb_12') THEN
     RAISE EXCEPTION 'B11: kalderens indstillinger ikke gendannet (b): % / % / % / %', current_setting('t.sb_12'), current_setting('t.sr_12'), current_setting('t.su_12'), current_setting('t.sp_12'); END IF;
   -- B10: en forældreløs række tælles.
