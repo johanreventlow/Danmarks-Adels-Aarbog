@@ -1610,3 +1610,23 @@ Engangsbasen `daa44_rehearsal_transfer_<stempel>` bevares, til projektejeren har
     - GO-hashen skal dække de `\i`'ede repofiler.
     - Wrapperen skal bruge `psql -X`, tjekke exit-koden og læse stdout.
     - `schema_sha256` lokal↔prod skal måles read-only på prod før ceremonien.
+- 2026-10-04: Slutreview (opus) gav »Needs fixes«. Én samlet rettelsesbølge `c738af1..fef5ac2` fulgte:
+  - `decisions-keyed` bærer nu begge id'er: `restore_interpretation_id` er v1 (spec §4.1; matcher ark og klassifikation) og `restore_decision_interpretation_id` er v2. `PACK_ID_MISMATCH` tjekker, at v1-id'et hører til afgørelsens nøgle.
+  - Tests for bindings- og dispositionsfølsomhed i digests.
+  - Bredere katalogfingeraftryk: triggere, alle constraints, RLS-flag og policyernes roller/kommando/permissive. `row_security=off` er pinnet.
+  - Mindre hærdning:
+    - `clause_set`-orden;
+    - metode-allowlist (`PACK_METHOD_UNKNOWN`, `PACK_MACHINE_NOT_ACCEPTED`);
+    - `DECISION_RECORD_AMBIGUOUS` i 07 som dybdeforsvar;
+    - `public.red_*` kvalificeret.
+  - Spec-errata: `decision_digest` dækker de afgjorte rækker, ikke alle 3.739 (spec §5). Det giver samme information, fordi `proposal_digest` altid tjekkes med.
+  - Task 6-pakken 8760e50e… er dermed forældet. Den ligger urørt i `pack-69f379d/`.
+- 2026-10-04: Task 6 genkørt med `fef5ac2` — **PACK_REPLAY_OK**.
+  - Pakke: `pack_sha256` 07355ccca68968e8…, 676 afgørelser, 663 accepterede, 1.276 klassificerede. Metode-allowlisten afviste ingen af de 676 ægte afgørelser.
+  - Ren restore: `daa44_rehearsal_transfer_20261004124025`. `pg_restore` gav 8 fejl, alle vault, identisk med første kørsel. Der er 0 forældreløse rækker og 14 flerkolonne-FK'er.
+  - Drift-felterne er ens i eksport, ren restore og efter overførsel. `clause_set_sha256` har ny værdi (65eff325… → 113a1d12…), fordi ordningen er rettet.
+  - De tre digests er bit-identiske med første kørsel, og uberørt-hashen er uændret.
+  - Samlet tid: 59 s.
+- 2026-10-04: Re-review af rettelsesbølgen: alle fund er adresseret, og der er ingen nye Critical- eller Important-fund. Task 4's kodeblokke ovenfor nævner stadig `v1_interpretation_id` og den gamle betydning af `restore_interpretation_id`; koden og posten ovenfor gælder. Følgende er parkeret til plan B:
+  - `row_security`-pinnen kan ikke ses i testene, fordi de kører som ejer.
+  - `catalog_sha256` er følsom over for PostgreSQL-hovedversionen; gaten om server_version_num dækker det.
