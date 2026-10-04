@@ -97,7 +97,11 @@ gælder 24/9-designets regler for pakke og fingeraftryk. Afsnit, der ændres, er
   - `pack-manifest.json`: forslagsmanifestets indholdshash (`80f3e5c1…`), ledger-hash (`e620073c…`),
     `clause_set_sha256` (§4.2), dump-kvitteringens `dump_sha256`, driftsbaselinen (§4.3), restorens
     skema-fingeraftryk (§4.3), den nøglede klassifikation (§4.3: nøgle → klasse og `assertion_id` for
-    alle 1.276 promoverbare, svarende til klassifikationen `ded0de56…`), SHA-256 af aktørens uuid (`decided_by`), antal pr. (metode, status), de
+    alle 1.276 promoverbare). **Errata 2026-10-04:** restoren kan ikke klassificere igen — 676 af
+    forslagene er afgjort, og klassifikationen ser kun `proposed`. Den nøglede klassifikation tages derfor
+    fra kørslens egen fil `~/.private/2018-20-fuld/kontrol/klassifikation.json` (`ded0de56…`; kun id,
+    prædikat, klasse og `assertion_id`), oversættes id → nøgle via restorens version 1-rækker, og filens
+    hash bindes. Genafspilningen (§4.4) klassificerer i tilstand `PROPOSED` og skal give det samme, SHA-256 af aktørens uuid (`decided_by`), antal pr. (metode, status), de
     tre forventede digests og antal fra restoren (§5), SHA-256 af `decisions-keyed.json` og
     `pack_sha256` = SHA-256 over manifestets kanoniske JSON (sorterede nøgler, UTF-8, ingen
     mellemrum) med `pack_sha256`-feltet selv udeladt.
