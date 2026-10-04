@@ -37,10 +37,10 @@ WITH v1 AS (
                               'clauses', coalesce(cl.clauses, '[]'::jsonb))),'UTF8'),'sha256'),'hex') AS fp
     FROM v1 LEFT JOIN rec USING (id) LEFT JOIN cl USING (id)
 )
+-- Én kolonne (så `psql -A -t | tail -1` giver rent JSON); record_check hentes separat med
+-- SELECT current_setting('daa.fingerprint_record_check'). Task 4 afviser en pakke, hvis et tal er > 0.
 SELECT set_config('daa.fingerprints', coalesce((SELECT jsonb_object_agg(k, fp) FROM fp), '{}'::jsonb)::text, false)
-       AS fingerprints,
-       -- Task 4 afviser en pakke, hvis et af tallene er > 0.
-       set_config('daa.fingerprint_record_check', jsonb_build_object(
+       AS fingerprints
+ WHERE set_config('daa.fingerprint_record_check', jsonb_build_object(
          'n_no_record',    (SELECT count(*) FROM v1 LEFT JOIN rec USING (id) WHERE rec.id IS NULL),
-         'n_multi_record', (SELECT count(*) FROM rec WHERE n_rec > 1))::text, false)
-       AS record_check;
+         'n_multi_record', (SELECT count(*) FROM rec WHERE n_rec > 1))::text, false) IS NOT NULL;

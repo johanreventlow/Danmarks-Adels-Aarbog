@@ -97,13 +97,86 @@ def test_classification_must_map_to_keys():
         build(classification=cl)
 
 
+def test_classification_duplicate_is_error():
+    cl = load("classification.json")
+    cl["items"].append(dict(cl["items"][0]))
+    with pytest.raises(tp.PackError, match="PACK_CLASSIFICATION_DUPLICATE"):
+        build(classification=cl)
+
+
+def test_machine_decision_must_be_match_with_same_assertion():
+    cl = load("classification.json")
+    cl["items"][2]["class"] = "REAL_DIFF"
+    with pytest.raises(tp.PackError, match="PACK_MACHINE_NOT_MATCH"):
+        build(classification=cl)
+    cl = load("classification.json")
+    cl["items"][2]["assertion_id"] = 8
+    with pytest.raises(tp.PackError, match="PACK_MACHINE_NOT_MATCH"):
+        build(classification=cl)
+
+
+def test_human_decision_must_be_classified():
+    cl = load("classification.json")
+    del cl["items"][1]
+    with pytest.raises(tp.PackError, match="PACK_HUMAN_UNCLASSIFIED"):
+        build(classification=cl)
+
+
+def test_baseline_must_have_drift_fields():
+    bl = load("baseline.json")
+    del bl["schema_sha256"]
+    with pytest.raises(tp.PackError, match="PACK_BASELINE_INCOMPLETE"):
+        build(baseline=bl)
+
+
+def test_evidence_none_is_pack_error():
+    ex = load("export.json")
+    ex["decisions"][0]["evidence"] = None
+    with pytest.raises(tp.PackError, match="PACK_EVIDENCE_INVALID"):
+        build(export=ex)
+
+
+def test_universe_counts_must_match_digests():
+    fp = load("fingerprints.json")
+    del fp["k-4"]
+    with pytest.raises(tp.PackError, match="PACK_COUNT_MISMATCH"):
+        build(fingerprints=fp)
+    ex = load("export.json")
+    del ex["key_by_v1_id"]["v-4"]
+    with pytest.raises(tp.PackError, match="PACK_COUNT_MISMATCH"):
+        build(export=ex)
+
+
+def test_state_mixed_cases():
+    _, m = build()
+    full = load("digests.json")
+    partial = dict(full, n_decided=1, decided_by_method_status={"human-sheet-kontrol-v1|accepted": 1},
+                   n_bindings=0, binding_digest=tp.EMPTY_SHA)
+    assert tp.classify_state(partial, m) == "MIXED"
+    bind_only = dict(full, n_decided=0, decided_by_method_status={}, decision_digest=tp.EMPTY_SHA)
+    assert tp.classify_state(bind_only, m) == "MIXED"
+    changed = dict(full, proposal_digest="X", n_decided=0, decided_by_method_status={},
+                   decision_digest=tp.EMPTY_SHA, n_bindings=0, binding_digest=tp.EMPTY_SHA)
+    assert tp.classify_state(changed, m) == "MIXED"
+
+
+def test_state_cli_rejects_tampered_manifest(tmp_path):
+    _, m = build()
+    m["n_accepted"] = 99
+    mf = tmp_path / "m.json"
+    mf.write_text(json.dumps(m))
+    res = subprocess.run([sys.executable, str(Path(tp.__file__)), "state", "--digests", str(FX / "digests.json"),
+                          "--pack-manifest", str(mf)], capture_output=True, text=True)
+    assert res.returncode == 1 and "PACK_SHA_MISMATCH" in res.stdout
+
+
 def test_state_classifier_five_states():
     _, m = build()
     full = load("digests.json")
     empty = {"n_interpretations": 0, "proposal_digest": tp.EMPTY_SHA, "n_decided": 0,
              "decided_by_method_status": {}, "decision_digest": tp.EMPTY_SHA, "n_bindings": 0,
              "binding_digest": tp.EMPTY_SHA}
-    proposed = dict(full, n_decided=0, decided_by_method_status={}, decision_digest="ANY", n_bindings=0,
+    proposed = dict(full, n_decided=0, decided_by_method_status={}, decision_digest=tp.EMPTY_SHA, n_bindings=0,
                     binding_digest=tp.EMPTY_SHA)
     decided = dict(full, n_bindings=0, binding_digest=tp.EMPTY_SHA)
     assert tp.classify_state(empty, m) == "EMPTY"
@@ -129,3 +202,22 @@ def test_cli_prints_no_notes_or_values(tmp_path):
     assert "PACK_OK" in res.stdout
     for f in ("decisions-keyed.json", "pack-manifest.json"):
         assert (out / f).stat().st_mode & 0o777 == 0o600
+    dec = (out / "decisions-keyed.json").read_bytes()
+    man = json.loads((out / "pack-manifest.json").read_text(encoding="utf-8"))
+    import hashlib
+    assert hashlib.sha256(dec).hexdigest() == man["decisions_keyed_sha256"]
+
+
+def test_cli_rejects_open_out_dir(tmp_path):
+    out = tmp_path / "pack"
+    out.mkdir(mode=0o755)
+    out.chmod(0o755)
+    cmd = [sys.executable, str(Path(tp.__file__)), "build"]
+    for flag, name in (("--export", "export.json"), ("--fingerprints", "fingerprints.json"),
+                       ("--digests", "digests.json"), ("--baseline", "baseline.json"),
+                       ("--record-check", "record-check.json"),
+                       ("--classification", "classification.json"), ("--dump-receipt", "dump-receipt.json")):
+        cmd += [flag, str(FX / name)]
+    cmd += ["--manifest-content-sha256", "80f3", "--ledger-sha256", "e620", "--out-dir", str(out)]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    assert res.returncode == 1 and "PACK_OUT_DIR_MODE" in res.stdout

@@ -48,7 +48,12 @@ def build_pack(*, export: dict, fingerprints: dict, digests: dict, baseline: dic
     if record_check["n_no_record"] > 0 or record_check["n_multi_record"] > 0:
         raise PackError(f"PACK_RECORD_AMBIGUOUS no_record={record_check['n_no_record']} "
                         f"multi_record={record_check['n_multi_record']}")
+    missing_drift = [f for f in DRIFT_BASELINE_FIELDS if f not in baseline]
+    if missing_drift:
+        raise PackError(f"PACK_BASELINE_INCOMPLETE {len(missing_drift)}")
     rows = export["decisions"]
+    if any(not isinstance(r.get("evidence"), dict) for r in rows):
+        raise PackError("PACK_EVIDENCE_INVALID")
     keys = [r["interpretation_key"] for r in rows]
     if len(keys) != len(set(keys)):
         raise PackError("PACK_DUPLICATE_KEY")
@@ -59,7 +64,9 @@ def build_pack(*, export: dict, fingerprints: dict, digests: dict, baseline: dic
     if missing:
         raise PackError(f"PACK_FINGERPRINT_MISSING {len(missing)}")
     by_ms = Counter(f"{r['evidence'].get('method', '')}|{r['status']}" for r in rows)
-    if len(rows) != digests["n_decided"] or dict(by_ms) != digests["decided_by_method_status"]:
+    if (len(rows) != digests["n_decided"] or dict(by_ms) != digests["decided_by_method_status"]
+            or len(export["key_by_v1_id"]) != digests["n_interpretations"]
+            or len(fingerprints) != digests["n_interpretations"]):
         raise PackError("PACK_COUNT_MISMATCH")
 
     key_by_v1 = export["key_by_v1_id"]
@@ -68,14 +75,30 @@ def build_pack(*, export: dict, fingerprints: dict, digests: dict, baseline: dic
         key = key_by_v1.get(item["interpretation_id"])
         if key is None:
             raise PackError("PACK_CLASSIFICATION_UNMAPPED")
+        if key in keyed_cls:
+            raise PackError("PACK_CLASSIFICATION_DUPLICATE")
         keyed_cls[key] = [item["class"], item["assertion_id"]]
+
+    not_match = unclassified = 0
+    for r in rows:
+        method = r["evidence"].get("method")
+        entry = keyed_cls.get(r["interpretation_key"])
+        if method == "machine-corroboration-v1" and r["status"] == "accepted":
+            if entry is None or entry[0] != "MATCH" or entry[1] != r["evidence"].get("assertion_id"):
+                not_match += 1
+        elif method == "human-sheet-kontrol-v1" and entry is None:
+            unclassified += 1
+    if not_match:
+        raise PackError(f"PACK_MACHINE_NOT_MATCH {not_match}")
+    if unclassified:
+        raise PackError(f"PACK_HUMAN_UNCLASSIFIED {unclassified}")
 
     decisions = [{"interpretation_key": r["interpretation_key"],
                   "restore_interpretation_id": r["restore_interpretation_id"],
                   "expected_version": 1, "status": r["status"],
                   "decision_fingerprint": fingerprints[r["interpretation_key"]],
                   "evidence": r["evidence"]} for r in sorted(rows, key=lambda r: r["interpretation_key"])]
-    decisions_text = canonical(decisions)
+    decisions_text = canonical(decisions)  # nøjagtig de bytes, der skrives til decisions-keyed.json
     accepted = sorted(d["interpretation_key"] for d in decisions if d["status"] == "accepted")
     manifest = {
         "pack_version": PACK_VERSION,
@@ -111,7 +134,8 @@ def classify_state(digests: dict, pack: dict) -> str:
     if not proposals:
         return "MIXED"
     no_bindings = digests["n_bindings"] == 0 and digests["binding_digest"] == EMPTY_SHA
-    if digests["n_decided"] == 0 and no_bindings:
+    if (digests["n_decided"] == 0 and no_bindings and digests["decision_digest"] == EMPTY_SHA
+            and digests["decided_by_method_status"] == {}):
         return "PROPOSED"
     decisions = (digests["n_decided"] == want["n_decided"]
                  and digests["decided_by_method_status"] == want["decided_by_method_status"]
@@ -150,12 +174,17 @@ def main(argv=None) -> int:
                 receipt=_load(args.dump_receipt), manifest_content_sha256=args.manifest_content_sha256,
                 ledger_sha256=args.ledger_sha256)
             out = Path(args.out_dir)
-            _write_private(out / "decisions-keyed.json", canonical(decisions) + "\n")
+            if not out.is_dir() or out.stat().st_mode & 0o777 != 0o700:
+                raise PackError("PACK_OUT_DIR_MODE")
+            _write_private(out / "decisions-keyed.json", canonical(decisions))
             _write_private(out / "pack-manifest.json", canonical(manifest) + "\n")
             print(f"PACK_OK afgørelser={manifest['n_decisions']} accepterede={manifest['n_accepted']} "
                   f"klassificerede={len(manifest['keyed_classification'])} pack_sha256={manifest['pack_sha256']}")
         else:
-            print(classify_state(_load(args.digests), _load(args.pack_manifest)))
+            manifest = _load(args.pack_manifest)
+            if pack_sha256(manifest) != manifest.get("pack_sha256"):
+                raise PackError("PACK_SHA_MISMATCH")
+            print(classify_state(_load(args.digests), manifest))
     except PackError as exc:
         print(str(exc))
         return 1
