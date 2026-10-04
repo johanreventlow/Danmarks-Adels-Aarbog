@@ -25,6 +25,12 @@ ALLOWED = {
     ".claude/skills/daa-extract/scripts/interpretation_proposal_projection.sql",
     # Læser via fortolkningslinks, som kun kan pege på det aktuelle sæt (trigger).
     ".claude/skills/daa-extract/scripts/interpretation_control_rows.sql",
+    # Overførslens fingeraftryk og digests (#147): læser kun klausuler via fortolkningslinks.
+    ".claude/skills/daa-extract/scripts/interpretation_decision_fingerprint.sql",
+    ".claude/skills/daa-extract/scripts/interpretation_transfer_digests.sql",
+    # Overførslens baseline (#147): vælger pr. helpost max(clause_set_seq) som
+    # clause_observation_current og hasher det sæt med private.clause_set_sha256.
+    ".claude/skills/daa-extract/scripts/transfer_baseline.sql",
     # Klausul-evidensens projektion og komparator: projicerer alle sæt med clause_set_seq (Task 5).
     ".claude/skills/daa-extract/scripts/clause_evidence_projection.sql",
     ".claude/skills/daa-extract/scripts/compare_clause_evidence_projection.py",

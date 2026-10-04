@@ -1,0 +1,1 @@
+{"items": [{"interpretation_id": "v-1", "version": 1, "predicate": "person.death", "class": "MATCH", "assertion_id": 7}, {"interpretation_id": "v-2", "version": 1, "predicate": "person.name", "class": "REAL_DIFF", "assertion_id": null}, {"interpretation_id": "v-3", "version": 1, "predicate": "person.death", "class": "MATCH", "assertion_id": 7}], "counts": {}}
