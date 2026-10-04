@@ -221,3 +221,119 @@ def test_cli_rejects_open_out_dir(tmp_path):
     cmd += ["--manifest-content-sha256", "80f3", "--ledger-sha256", "e620", "--out-dir", str(out)]
     res = subprocess.run(cmd, capture_output=True, text=True)
     assert res.returncode == 1 and "PACK_OUT_DIR_MODE" in res.stdout
+
+
+def test_machine_assertion_id_must_be_int_on_classification_side():
+    for bad in ("7", 7.0, True, None):
+        cl = load("classification.json")
+        cl["items"][2]["assertion_id"] = bad
+        ex = load("export.json")
+        if bad is True:  # True == 1 i Python; evidensen skal ikke kunne matche en bool
+            ex["decisions"][2]["evidence"]["assertion_id"] = 1
+        with pytest.raises(tp.PackError, match="PACK_MACHINE_NOT_MATCH"):
+            build(classification=cl, export=ex)
+
+
+ACTOR = "a4700000-0000-4000-8000-000000000001"
+
+
+def test_decide_sql_shape():
+    decisions, manifest = build()
+    sql = tp.decide_sql(decisions, manifest)
+    assert sql.startswith("\\set ON_ERROR_STOP on\n\\set QUIET on\nBEGIN;\n"
+                          "SELECT set_config('daa.src', :'src', true) \\g /dev/null\n")
+    assert ":src" not in sql.replace(":'src'", "")
+    assert sql.rstrip().endswith("\\echo 'TRANSFER_07_OK afgørelser=3'")
+    assert sql.count("COMMIT;") == 1 and sql.index("COMMIT;") > sql.rindex("DECISION_DIGEST_MISMATCH")
+    order = ["TRANSFER_STATE_NOT_PROPOSED", "CLAUSE_SET_DRIFT", "MACHINE_PREMISE_DRIFT",
+             "DECISION_FINGERPRINT_MISMATCH", "DECISION_KEY_UNRESOLVED", "TRANSFER_ACTOR_MISMATCH",
+             "red_decide_interpretation", "DECISION_DIGEST_MISMATCH"]
+    pos = [sql.index(code) for code in order]
+    assert pos == sorted(pos)
+    assert sql.index("SET LOCAL ROLE authenticated") < sql.index("red_decide_interpretation")
+    assert sql.index("red_decide_interpretation") < sql.index("RESET ROLE")
+    assert sql.index("RESET ROLE") < sql.index("SET CONSTRAINTS ALL IMMEDIATE") < sql.rindex(
+        "interpretation_transfer_digests.sql")
+    assert manifest["pack_sha256"] in sql and manifest["actor_sha256"] in sql
+    # Aktør-id'et og kildevariablen må ikke nå stdout; ingen sessionsindstilling må sættes LOCAL.
+    assert "SELECT set_config('request.jwt.claim.sub', :'actor', true) \\g /dev/null" in sql
+    for guc in ("TimeZone", "extra_float_digits", "IntervalStyle", "DateStyle", "search_path"):
+        assert f"SET LOCAL {guc}" not in sql and f"'{guc}'" not in sql
+    # Præmissen og nøgleopslaget er afgrænset til kilden.
+    assert sql.count("current_setting('daa.src')::bigint") >= 2
+    assert "count(DISTINCT p->>'k')" in sql
+    assert "p->>'fp' IS NULL" in sql
+
+
+def test_decide_sql_rejects_other_versions():
+    decisions, manifest = build()
+    decisions[0]["expected_version"] = 2
+    with pytest.raises(tp.PackError, match="PACK_EXPECTED_VERSION"):
+        tp.decide_sql(decisions, manifest)
+
+
+def test_bind_sql_shape():
+    _, manifest = build()
+    sql = tp.bind_sql(manifest)
+    assert sql.startswith("\\set ON_ERROR_STOP on\n\\set QUIET on\nBEGIN;\n")
+    order = ["TRANSFER_STATE_NOT_DECIDED", "BIND_SCOPE_DRIFT", "interpretation_promotion_targets_scoped.sql",
+             "TRANSFER_ACTOR_MISMATCH", "BIND_NOT_ELIGIBLE", "red_promote_interpretations_batch",
+             "BINDING_DIGEST_MISMATCH"]
+    pos = [sql.index(code) for code in order]
+    assert pos == sorted(pos)
+    assert '["k-1","k-3"]' in sql
+    assert sql.index("RESET ROLE") < sql.index("SET CONSTRAINTS ALL IMMEDIATE") < sql.rindex(
+        "interpretation_transfer_digests.sql")
+    assert "SELECT set_config('request.jwt.claim.sub', :'actor', true) \\g /dev/null" in sql
+    assert sql.rstrip().endswith("\\echo 'TRANSFER_08_OK bindinger=2'")
+
+
+def _write_pack(tmp_path):
+    out = tmp_path / "pack"
+    out.mkdir(mode=0o700)
+    decisions, manifest = build()
+    (out / "decisions-keyed.json").write_text(tp.canonical(decisions), encoding="utf-8")
+    (out / "pack-manifest.json").write_text(tp.canonical(manifest) + "\n", encoding="utf-8")
+    return out, manifest
+
+
+@pytest.mark.parametrize("cmd,tag", [("decide-sql", "DECIDE_SQL_OK"), ("bind-sql", "BIND_SQL_OK")])
+def test_sql_cli_writes_private_and_prints_only_hashes(tmp_path, cmd, tag):
+    pdir, manifest = _write_pack(tmp_path)
+    out = tmp_path / "x.sql"
+    res = subprocess.run([sys.executable, str(Path(tp.__file__)), cmd, "--pack-dir", str(pdir), "--out", str(out)],
+                         capture_output=True, text=True)
+    assert res.returncode == 0, res.stdout
+    assert res.stdout.startswith(tag) and manifest["pack_sha256"] in res.stdout
+    assert "titel i navn" not in res.stdout + res.stderr and "u-1" not in res.stdout
+    assert out.stat().st_mode & 0o777 == 0o600
+    sql = out.read_text(encoding="utf-8")
+    assert f"sha256={tp.sha256_text(sql)}" in res.stdout
+
+
+def test_sql_cli_rejects_tampered_decisions(tmp_path):
+    pdir, _ = _write_pack(tmp_path)
+    f = pdir / "decisions-keyed.json"
+    f.write_text(f.read_text(encoding="utf-8") + " ", encoding="utf-8")  # samme JSON, andre bytes
+    res = subprocess.run([sys.executable, str(Path(tp.__file__)), "decide-sql", "--pack-dir", str(pdir),
+                          "--out", str(tmp_path / "x.sql")], capture_output=True, text=True)
+    assert res.returncode == 1 and "PACK_DECISIONS_SHA_MISMATCH" in res.stdout
+    assert not (tmp_path / "x.sql").exists()
+
+
+def test_sql_cli_rejects_tampered_manifest(tmp_path):
+    pdir, manifest = _write_pack(tmp_path)
+    manifest["n_accepted"] = 9
+    (pdir / "pack-manifest.json").write_text(tp.canonical(manifest), encoding="utf-8")
+    res = subprocess.run([sys.executable, str(Path(tp.__file__)), "bind-sql", "--pack-dir", str(pdir),
+                          "--out", str(tmp_path / "x.sql")], capture_output=True, text=True)
+    assert res.returncode == 1 and "PACK_SHA_MISMATCH" in res.stdout
+
+
+def test_decide_sql_rejects_dollar_tag_in_notes():
+    decisions, manifest = build()
+    decisions[1]["evidence"]["note"] = "x $p$ y"
+    with pytest.raises(tp.PackError, match="PACK_DOLLAR_TAG"):
+        tp.decide_sql(decisions, manifest)
+    decisions[1]["evidence"]["note"] = "koster $5"
+    tp.decide_sql(decisions, manifest)

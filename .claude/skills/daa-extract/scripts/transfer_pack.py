@@ -84,7 +84,9 @@ def build_pack(*, export: dict, fingerprints: dict, digests: dict, baseline: dic
         method = r["evidence"].get("method")
         entry = keyed_cls.get(r["interpretation_key"])
         if method == "machine-corroboration-v1" and r["status"] == "accepted":
-            if entry is None or entry[0] != "MATCH" or entry[1] != r["evidence"].get("assertion_id"):
+            aid = entry[1] if entry is not None else None
+            if (entry is None or entry[0] != "MATCH" or not isinstance(aid, int) or isinstance(aid, bool)
+                    or aid != r["evidence"].get("assertion_id")):
                 not_match += 1
         elif method == "human-sheet-kontrol-v1" and entry is None:
             unclassified += 1
@@ -149,6 +151,160 @@ def classify_state(digests: dict, pack: dict) -> str:
     return "MIXED"
 
 
+SCRIPTS = ".claude/skills/daa-extract/scripts"
+DO_TAGS = ("$g$", "$c$", "$m$", "$p$", "$a$", "$w$", "$d$")
+
+
+def _lit(s: str) -> str:
+    return "'" + s.replace("'", "''") + "'"
+
+
+def _quiet_include(name: str) -> str:
+    """Kør en delt læse-fil uden at dens resultatrække når stdout."""
+    return f"\\o /dev/null\n\\i {SCRIPTS}/{name}\n\\o"
+
+
+def _head() -> list[str]:
+    # psql indsætter ikke :src i $-quotede DO-blokke; kilden lægges derfor i en GUC.
+    return ["\\set ON_ERROR_STOP on", "\\set QUIET on", "BEGIN;",
+            "SELECT set_config('daa.src', :'src', true) \\g /dev/null"]
+
+
+def _state_guard(want: dict, state: str, code: str) -> str:
+    """SQL-vagt: kør digests og kræv netop indgangstilstanden (spec §5)."""
+    w = want["digests"]
+    cond = {"PROPOSED": (f"(d->>'n_interpretations')::int = {int(w['n_interpretations'])} "
+                         f"AND d->>'proposal_digest' = {_lit(w['proposal_digest'])} "
+                         "AND (d->>'n_decided')::int = 0 AND (d->>'n_bindings')::int = 0"),
+            "DECIDED": (f"(d->>'n_interpretations')::int = {int(w['n_interpretations'])} "
+                        f"AND d->>'proposal_digest' = {_lit(w['proposal_digest'])} "
+                        f"AND (d->>'n_decided')::int = {int(w['n_decided'])} "
+                        f"AND d->>'decision_digest' = {_lit(w['decision_digest'])} "
+                        "AND (d->>'n_bindings')::int = 0")}[state]
+    return (_quiet_include("interpretation_transfer_digests.sql") + "\n"
+            "DO $g$ DECLARE d jsonb := current_setting('daa.transfer_digests')::jsonb; BEGIN "
+            f"IF NOT ({cond}) THEN RAISE EXCEPTION '{code}'; END IF; END $g$;")
+
+
+def _actor_switch(manifest: dict) -> list[str]:
+    """Aktøren = pakkens (uuid-hash, spec §6.2); derefter kun RPC'erne som authenticated."""
+    return ["SELECT set_config('request.jwt.claim.sub', :'actor', true) \\g /dev/null",
+            "DO $a$ BEGIN IF encode(extensions.digest(convert_to(current_setting('request.jwt.claim.sub')::uuid::text,"
+            f"'UTF8'),'sha256'),'hex') IS DISTINCT FROM {_lit(manifest['actor_sha256'])} "
+            "THEN RAISE EXCEPTION 'TRANSFER_ACTOR_MISMATCH'; END IF; END $a$;",
+            "SET LOCAL ROLE authenticated;"]
+
+
+def _tail() -> list[str]:
+    # Udskudte kontroller (fx interpretation_has_observation) skal fyre FØR resultat-digesten.
+    return ["RESET ROLE;", "SET CONSTRAINTS ALL IMMEDIATE;"]
+
+
+def decide_sql(decisions: list[dict], manifest: dict) -> str:
+    """07: én transaktion. Læsning som ejerrolle; kun RPC-kaldene som authenticated (review 2, N4).
+    Vagtrækkefølge: tilstand → klausulsæt → præmis → fingeraftryk → nøgleopslag → aktør → skrivning → digest."""
+    if any(d["expected_version"] != 1 for d in decisions):
+        raise PackError("PACK_EXPECTED_VERSION")
+    pack = manifest["pack_sha256"]
+    plan = canonical([{"k": d["interpretation_key"], "s": d["status"], "fp": d["decision_fingerprint"],
+                       "e": d["evidence"]} for d in decisions])
+    keyed = canonical(manifest["keyed_classification"])
+    # Planen (med evidens-noter) og klassifikationen indlejres i $-quotede DO-blokke; en note med et
+    # af tags'ene ville afslutte blokken for tidligt. Fail-closed her i stedet for som syntaksfejl.
+    if any(tag in text for tag in DO_TAGS for text in (plan, keyed)):
+        raise PackError("PACK_DOLLAR_TAG")
+    base = manifest["baseline"]
+    n_dec = int(manifest["n_decisions"])
+    return "\n".join(_head() + [
+        _state_guard(manifest, "PROPOSED", "TRANSFER_STATE_NOT_PROPOSED"),
+        # (1) Klausulsættet (spec §4.2).
+        _quiet_include("transfer_baseline.sql"),
+        "DO $c$ BEGIN IF current_setting('daa.transfer_baseline')::jsonb->>'clause_set_sha256' IS DISTINCT FROM "
+        f"{_lit(base['clause_set_sha256'])} THEN RAISE EXCEPTION 'CLAUSE_SET_DRIFT'; END IF; END $c$;",
+        # (2) Præmissen: nøglet klassifikation i tilstand PROPOSED = pakkens (spec §4.3). Den delte
+        # klassifikation ser alle kilder; kun kildens forslag sammenlignes.
+        _quiet_include("interpretation_control_classification.sql"),
+        "DO $m$ DECLARE r jsonb := current_setting('daa.control_result')::jsonb; f jsonb; "
+        f"want jsonb := {_lit(keyed)}::jsonb; BEGIN "
+        "SELECT coalesce(jsonb_object_agg(i.interpretation_key::text, jsonb_build_array(x->>'class', "
+        "(x->>'assertion_id')::bigint)), '{}'::jsonb) INTO f FROM jsonb_array_elements(r->'items') x "
+        "JOIN private.interpretation i ON i.id = (x->>'interpretation_id')::uuid "
+        "AND i.source_id = current_setting('daa.src')::bigint; "
+        "IF f IS DISTINCT FROM want THEN RAISE EXCEPTION 'MACHINE_PREMISE_DRIFT'; END IF; END $m$;",
+        # (3) Fingeraftryk og id-opslag; planen lægges i en GUC, som authenticated kan læse.
+        _quiet_include("interpretation_decision_fingerprint.sql"),
+        "DO $p$ DECLARE fps jsonb := current_setting('daa.fingerprints')::jsonb; "
+        f"plan jsonb := {_lit(plan)}::jsonb; out jsonb; n int; BEGIN "
+        "IF EXISTS (SELECT 1 FROM jsonb_array_elements(plan) p WHERE p->>'fp' IS NULL "
+        "OR fps->>(p->>'k') IS DISTINCT FROM p->>'fp') THEN RAISE EXCEPTION 'DECISION_FINGERPRINT_MISMATCH'; END IF; "
+        "IF (SELECT count(DISTINCT p->>'k') FROM jsonb_array_elements(plan) p) <> jsonb_array_length(plan) "
+        "THEN RAISE EXCEPTION 'DECISION_KEY_UNRESOLVED duplicate'; END IF; "
+        "SELECT count(*), jsonb_agg(jsonb_build_object('id', ic.id, 's', p->>'s', 'e', "
+        f"(p->'e') || jsonb_build_object('pack_sha256', {_lit(pack)}))) INTO n, out "
+        "FROM jsonb_array_elements(plan) p JOIN private.interpretation_current ic "
+        "ON ic.interpretation_key = (p->>'k')::uuid AND ic.version = 1 AND ic.status = 'proposed' "
+        "AND ic.source_id = current_setting('daa.src')::bigint; "
+        "IF n <> jsonb_array_length(plan) THEN RAISE EXCEPTION 'DECISION_KEY_UNRESOLVED % af %', "
+        "jsonb_array_length(plan) - n, jsonb_array_length(plan); END IF; "
+        "PERFORM set_config('daa.decide_plan', out::text, true); END $p$;",
+        # (4) Skrivningen.
+        *_actor_switch(manifest),
+        "DO $w$ DECLARE n int; BEGIN "
+        "SELECT count(red_decide_interpretation((x->>'id')::uuid, 1, x->>'s', x->'e')) INTO n "
+        "FROM jsonb_array_elements(current_setting('daa.decide_plan')::jsonb) x; "
+        f"IF n <> {n_dec} THEN RAISE EXCEPTION 'DECISION_COUNT %', n; END IF; END $w$;",
+        *_tail(),
+        # (5) Resultatet = pakkens.
+        _quiet_include("interpretation_transfer_digests.sql"),
+        "DO $d$ DECLARE d jsonb := current_setting('daa.transfer_digests')::jsonb; BEGIN "
+        f"IF d->>'decision_digest' IS DISTINCT FROM {_lit(manifest['digests']['decision_digest'])} "
+        f"OR (d->>'n_decided')::int <> {n_dec} "
+        "THEN RAISE EXCEPTION 'DECISION_DIGEST_MISMATCH'; END IF; END $d$;",
+        "COMMIT;",
+        f"\\echo 'TRANSFER_07_OK afgørelser={n_dec}'",
+    ]) + "\n"
+
+
+def bind_sql(manifest: dict) -> str:
+    """08: én transaktion; pakkescope obligatorisk; preview og batch i samme transaktion."""
+    scope = canonical(manifest["accepted_keys"])
+    n_bind = int(manifest["digests"]["n_bindings"])
+    return "\n".join(_head() + [
+        _state_guard(manifest, "DECIDED", "TRANSFER_STATE_NOT_DECIDED"),
+        f"SELECT set_config('daa.transfer_scope', {_lit(scope)}, true) \\g /dev/null",
+        # Aktuelle accepterede for kilden = pakkens accepterede nøgler.
+        "DO $s$ DECLARE f jsonb; BEGIN "
+        "SELECT coalesce(jsonb_agg(interpretation_key::text ORDER BY interpretation_key::text COLLATE \"C\"), '[]') "
+        "INTO f FROM private.interpretation_current WHERE source_id = current_setting('daa.src')::bigint "
+        "AND status = 'accepted'; "
+        "IF f IS DISTINCT FROM current_setting('daa.transfer_scope')::jsonb THEN "
+        "RAISE EXCEPTION 'BIND_SCOPE_DRIFT accepted'; END IF; END $s$;",
+        # Målfindingen afgrænset til pakkens nøgler; fortolkninger uden for pakken bliver ikke items
+        # (spec §6.2/§10) — de tælles kun.
+        _quiet_include("interpretation_promotion_targets_scoped.sql"),
+        "DO $n$ DECLARE t jsonb := current_setting('daa.targets_scoped')::jsonb; BEGIN "
+        f"IF jsonb_array_length(t->'items') <> {n_bind} OR jsonb_array_length(t->'singleton_items') <> 0 "
+        "THEN RAISE EXCEPTION 'BIND_SCOPE_DRIFT items=% singleton=%', jsonb_array_length(t->'items'), "
+        "jsonb_array_length(t->'singleton_items'); END IF; "
+        "RAISE NOTICE 'TRANSFER_08 items=% uden_for_pakken=%', jsonb_array_length(t->'items'), "
+        "(t->>'out_of_scope')::int; END $n$;",
+        *_actor_switch(manifest),
+        "DO $b$ DECLARE items jsonb := current_setting('daa.targets_scoped')::jsonb->'items'; "
+        "p jsonb := red_preview_interpretation_promotions(items); BEGIN "
+        "IF jsonb_array_length(p->'items') <> jsonb_array_length(items) OR EXISTS (SELECT 1 FROM "
+        "jsonb_array_elements(p->'items') i WHERE (i->>'eligible')::boolean IS NOT TRUE) "
+        "THEN RAISE EXCEPTION 'BIND_NOT_ELIGIBLE'; END IF; "
+        "PERFORM red_promote_interpretations_batch(items, p->>'preview_hash'); END $b$;",
+        *_tail(),
+        _quiet_include("interpretation_transfer_digests.sql"),
+        "DO $d$ DECLARE d jsonb := current_setting('daa.transfer_digests')::jsonb; BEGIN "
+        f"IF d->>'binding_digest' IS DISTINCT FROM {_lit(manifest['digests']['binding_digest'])} "
+        f"OR (d->>'n_bindings')::int <> {n_bind} THEN RAISE EXCEPTION 'BINDING_DIGEST_MISMATCH'; END IF; END $d$;",
+        "COMMIT;",
+        f"\\echo 'TRANSFER_08_OK bindinger={n_bind}'",
+    ]) + "\n"
+
+
 def _load(path: str):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
@@ -163,6 +319,10 @@ def main(argv=None) -> int:
     s = sub.add_parser("state")
     s.add_argument("--digests", required=True)
     s.add_argument("--pack-manifest", required=True)
+    for name in ("decide-sql", "bind-sql"):
+        g = sub.add_parser(name)
+        g.add_argument("--pack-dir", required=True)
+        g.add_argument("--out", required=True)
     args = ap.parse_args(argv)
     try:
         if args.cmd == "build":
@@ -180,6 +340,19 @@ def main(argv=None) -> int:
             _write_private(out / "pack-manifest.json", canonical(manifest) + "\n")
             print(f"PACK_OK afgørelser={manifest['n_decisions']} accepterede={manifest['n_accepted']} "
                   f"klassificerede={len(manifest['keyed_classification'])} pack_sha256={manifest['pack_sha256']}")
+        elif args.cmd in ("decide-sql", "bind-sql"):
+            pdir = Path(args.pack_dir)
+            manifest = _load(pdir / "pack-manifest.json")
+            if pack_sha256(manifest) != manifest.get("pack_sha256"):
+                raise PackError("PACK_SHA_MISMATCH")
+            dec_bytes = (pdir / "decisions-keyed.json").read_bytes()
+            if hashlib.sha256(dec_bytes).hexdigest() != manifest["decisions_keyed_sha256"]:
+                raise PackError("PACK_DECISIONS_SHA_MISMATCH")
+            decisions = json.loads(dec_bytes.decode("utf-8"))
+            sql = decide_sql(decisions, manifest) if args.cmd == "decide-sql" else bind_sql(manifest)
+            _write_private(Path(args.out), sql)
+            print(f"{args.cmd.upper().replace('-', '_')}_OK pack_sha256={manifest['pack_sha256']} "
+                  f"sha256={sha256_text(sql)}")
         else:
             manifest = _load(args.pack_manifest)
             if pack_sha256(manifest) != manifest.get("pack_sha256"):

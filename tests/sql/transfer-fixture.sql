@@ -16,8 +16,18 @@ INSERT INTO profiles(id,rolle,navn,email) VALUES
   ('a4700000-0000-4000-8000-000000000001','redaktion','Transfer 47','transfer47@test.invalid');
 INSERT INTO person(id,levende,privat,status) VALUES (-4701,false,false,'transfer47');
 INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-4711,'person',-4701,'død'),(-4712,'person',-4701,'navn');
-INSERT INTO assertion(id,target_type,target_id,date_raw,calendar,uforanderlig) VALUES (-4711,'fact',-4711,'1850','gregoriansk',true);
-INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,calendar,uforanderlig) VALUES (-4712,'fact',-4712,'Anne','gregoriansk',true);
+-- Assertionernes værdier kan varieres med psql-variablerne fx_death (standard 1850) og fx_name
+-- (standard Anne), så en negativ test kan bygge en anden base uden UPDATE på append-only rækker.
+\if :{?fx_death}
+\else
+\set fx_death 1850
+\endif
+\if :{?fx_name}
+\else
+\set fx_name Anne
+\endif
+INSERT INTO assertion(id,target_type,target_id,date_raw,calendar,uforanderlig) VALUES (-4711,'fact',-4711,:'fx_death','gregoriansk',true);
+INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,calendar,uforanderlig) VALUES (-4712,'fact',-4712,:'fx_name','gregoriansk',true);
 
 -- Bygger én kilde. p_s = source id, p_pre = 8-tegns uuid-præfiks (a47xx000),
 -- p_kp = 8-tegns præfiks for interpretation_key'erne (key er globalt unik pr. version i
