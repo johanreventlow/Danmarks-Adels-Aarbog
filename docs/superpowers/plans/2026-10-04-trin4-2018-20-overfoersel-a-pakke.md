@@ -1586,3 +1586,27 @@ git commit -m "docs(147): plan A — lokal genafspilning af overførselspakken (
 ```
 
 Engangsbasen `daa44_rehearsal_transfer_<stempel>` bevares, til projektejeren har set rapporten; oprydning kun efter måling og ja.
+
+## Ændringslog
+
+- 2026-10-04: første udgave.
+- 2026-10-04: Task 0-5 udført subagent-drevet (branch `feat/147-overfoersel-pakke`, `83c7591..69f379d`), hver med review og 1-2 rettelsesrunder. Afvigelser fra planteksten, besluttet undervejs:
+  - `interpretation_key` er globalt unik pr. version, så to kilder kan ikke dele nøgler i én base. Testene bygger derfor varianter med samme kilde-id og samme nøgler efter hinanden (SAVEPOINT + `\gset`), og integrationstesten bruger to baser (»restore« og »prod«). Fixturen opretter ingen kilde selv; testene kalder `pg_temp.transfer_fx(...)`.
+  - Rå tabeller er append-only. Ændringer i testene laves som fixturvarianter eller nye versioner, ikke som `UPDATE`.
+  - Alle hash- og baselinefiler pinner TimeZone, extra_float_digits, IntervalStyle, DateStyle og search_path og genskaber kalderens værdier. `to_jsonb(timestamptz)` følger nemlig sessionens tidszone: lokal PG kører Europe/Copenhagen, Supabase kører UTC.
+  - `n_interpretations_src` er et tilstandsfelt i baselinen. Drift sammenlignes felt for felt over `canonical_sha256`, `clause_set_sha256` og `schema_sha256` (`transfer_pack.DRIFT_BASELINE_FIELDS`).
+  - Fingeraftryksfilen sætter også `daa.fingerprint_record_check`. Pakken afviser 0 eller flere end én post pr. forslag (`PACK_RECORD_AMBIGUOUS`). `build` kræver `--record-check`.
+  - Pakken afviser uoverensstemmelser mellem afgørelser og klassifikation: `PACK_MACHINE_NOT_MATCH`, `PACK_HUMAN_UNCLASSIFIED` og `PACK_CLASSIFICATION_DUPLICATE`.
+  - 07/08: kildefilter i præmistjekket, og accepterede uden for pakken springes over (spec §10). Nye vagter: `TRANSFER_ACTOR_MISMATCH`, `TRANSFER_SESSION_UNSAFE`, `PACK_FIELD_INVALID` (whitelist over alle indlejrede felter) og `PACK_DOLLAR_TAG`. Begge kører i `REPEATABLE READ`. Hver negativtest forventer den første vagt, der skal fyre; vagter, der ikke kan fyre først, testes med en manipuleret og genforseglet pakke. Integrationsscriptet er bash, fordi CI-billedet ikke har zsh.
+- 2026-10-04: Task 6 kørt — **PACK_REPLAY_OK**.
+  - Pakke: `pack_sha256` 8760e50e916d3e5d…, 676 afgørelser, 663 accepterede og 1.276 klassificerede.
+  - Ren restore: `daa44_rehearsal_transfer_20261004114446`. `pg_restore` gav 8 fejl, alle vault. Der er 0 forældreløse rækker og 14 flerkolonne-FK'er.
+  - Baseline for den rene restore = pakkens på alle tre drift-felter (schema_sha256 ren restore = restore: **ja**).
+  - Varigheder: pg_restore/dry-run/apply/07/08 = 2/12/13/15/3 s.
+  - Tilstandsfølgen var PROPOSED → DECIDED → COMPLETE. Kanonisk delta 0, uberørt-hash uændret, og 676 afgørelser bærer `pack_sha256`.
+  - Aktøren hentes fra restorens `decided_by` (én række, hash = manifestets), ikke fra `profiles`.
+  - Videre til plan B:
+    - `already_applied` for 07 kræver et opslag på `decision_evidence->>'pack_sha256'`, fordi decision_digest ser bort fra feltet.
+    - GO-hashen skal dække de `\i`'ede repofiler.
+    - Wrapperen skal bruge `psql -X`, tjekke exit-koden og læse stdout.
+    - `schema_sha256` lokal↔prod skal måles read-only på prod før ceremonien.
