@@ -293,7 +293,7 @@ Den tager to probe-filer (prod, lokal) og pakkens manifest og udskriver én linj
 | G4 tilstand | prods `state` = `EMPTY` | STOP |
 | G5 katalog | `catalog_sha256` prod = lokal ren restore; `n_orphans_total` = 0 begge | STOP: fortrydelsesøvelsen kan ikke bevise troskab (spec §6.1 trin 4b) |
 | G6 aktør | prod: 1 række, hash = pakkens | STOP: `07` ville give `TRANSFER_ACTOR_MISMATCH` |
-| G7 timeouts | login-rollens `statement_timeout` = 0 eller ≥ 600 s; `idle_in_transaction_session_timeout` = 0 eller ≥ 600 s | STOP og spørg (ingen omgåelse i planen) |
+| G7 timeouts | login-rollens `statement_timeout` = 0 eller ≥ 120 s (beslutning 4/10, se ændringsloggen); `idle_in_transaction_session_timeout` = 0 eller ≥ 600 s | STOP og spørg |
 | G8 levende | prod = `471\|471\|471\|471\|471` | STOP: spec beslutning 8 |
 | I1 uberørt siden 1/10 | `restore_hash`, `untouched_hash` prod = lokal; `change_sets_since_2026_10_01` | INFO: viser, om nogen har skrevet; G3 er gaten |
 
@@ -532,15 +532,19 @@ run_transfer_sql() { # sql-fil forventet-sha runmappe ok-markør
   local actor; actor="$(actor_value)"        # 1 række; hash = pakkens; ellers fail ACTOR_GATE
   local t0=$SECONDS rc
   set +e
-  ( cd "$DAA_REPO" && { print -r -- "\\set actor '$actor'"; print -r -- "\\set src 1"; print -r -- "\\i $1"; } \
+  ( cd "$DAA_REPO" && { print -r -- "\\set actor '$actor'"; print -r -- "\\set src 1"; \
+      print -r -- "SET statement_timeout = '15min';"; print -r -- "SHOW statement_timeout;"; print -r -- "\\i $1"; } \
       | write_psql -f - ) > "$3/out.txt" 2> "$3/err.txt"
   rc=$?; set -e; unset actor
   /bin/chmod 600 "$3/out.txt" "$3/err.txt"
   REPLY_SECONDS=$(( SECONDS - t0 ))
   [[ $rc -eq 0 ]] || fail "$(pg_error_code "$3/err.txt") (psql rc=$rc; intet committet, tilstanden uændret)"
+  /usr/bin/grep -qx "15min" "$3/out.txt" || fail "TIMEOUT_NOT_SET"
   /usr/bin/grep -q "^$4" "$3/out.txt" || fail "OK-markøren $4 mangler"
 }
 ```
+
+`SET statement_timeout` står i stdin-forspillet, ikke i `sql/07.sql`/`08.sql`, så filernes byte-hashes er uændrede. Det gælder kun denne forbindelse. `SHOW` bekræfter, at værdien nåede sessionen (`TIMEOUT_NOT_SET` ellers).
 
 `actor_value` slår uuid'en op med `readonly_psql`, tjekker antal (1) og SHA-256 mod `DAA_ACTOR_SHA256` og printer den kun til kalderens kommandosubstitution. Den logges aldrig.
 
@@ -616,7 +620,7 @@ Ingen argumenter. Kræver GO-miljøet + `DAA_BIND_REPORT` + SHA (status `BIND_OK
    - `restore_hash` = kvitteringens (prods måling fra `02`);
    - `catalog_sha256` = preflightens (prods eget katalog fra `01`);
    - baseline = pakkens.
-6. **Varighed (spec §6.1 trin 4c, grænser fastsat her):** dry-run ≤ 120 s, apply ≤ 120 s, `07` ≤ 120 s, `08` ≤ 60 s lokalt (`DURATION_LIMIT`). Grænserne er ca. 8× genafspilningens målinger. Prods marginal sikres af G7 (`statement_timeout` 0 eller ≥ 600 s).
+6. **Varighed (spec §6.1 trin 4c, grænser fastsat her; strammet 4/10):** dry-run, apply, `07` og `08` ≤ 30 s hver lokalt (`DURATION_LIMIT`). Prod afbryder enkeltsætninger efter 2 min; et helt trin på ≤ 30 s giver mindst 4× luft for hver sætning i det. `07`/`08` sætter desuden selv 15 min (Task 5). R-trinnene (hash-låste) har kun luften. Overskrides 30 s: STOP og spørg.
 7. `rehearsal.json`. Basen bevares som bevis.
 
 - [ ] **Step 2: Syntakstjek og argumenttest**
@@ -757,3 +761,5 @@ git commit -m "docs(147): runbook for prod-overførslen af 2018-20"
   - Proben bruger fundamentets funktioner (`classify_state`, levende, aktør, ledger).
   - Første forsøg i `04` bindes af `apply-first.json`.
   - Runbooken skal nævne `DAA_REPO` = hovedcheckouten på `main`, og at fortrydelsens fejlliste i prod forventeligt afviger.
+- 2026-10-04: Prod-proben målt (Task 1 Step 5). G1 OK (prod 170006, lokal 170010); G2 OK (0 afvigende kodepunkter i data, 10 i alt uden for data, ctype en_US.UTF-8 begge); G3 OK (tre drift-felter = pakken, n_src 0); G4 OK (EMPTY); G5 OK (katalog ens, orphans 0/0, multi_fk 14/14); G6 OK (n=1); G8 OK (471×5). I1: restore- og uberørt-hash = lokal; 0 change_sets siden dumpet.
+  - G7 afveg: prods `statement_timeout` er 2min (ikke i `rolconfig`), idle 0, lock 0. Projektejerens beslutning: prod-indstillingen røres ikke. G7 kræver nu ≥ 120 s; rehearsal-grænsen er strammet til ≤ 30 s pr. trin; `run_transfer_sql` sætter selv `statement_timeout = '15min'` i stdin-forspillet og bekræfter det med `SHOW`. Rammer et R-trin alligevel grænsen, rulles den aktuelle transaktion tilbage; en mellemtilstand håndteres af tilstandsklassifikationen og `09-undo`.
