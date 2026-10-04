@@ -1,0 +1,205 @@
+\set ON_ERROR_STOP on
+-- Driftsbaseline, restore-hash, uberørt-hash og restore-forudsætninger (spec §4.3, §5, §6.1; plan A Task 3).
+-- De rå tabeller er append-only: hver variant kører som SAVEPOINT -> ændring -> mål -> \gset -> ROLLBACK TO
+-- SAVEPOINT, og værdierne sammenlignes bagefter.
+--   0 basis  1 gentagelse  2 writer-profilrække  3 assertion-værdi  4 identitet  5 sekvens
+--   7 ægte afgørelse + binding (eksklusionslistens korrekthed)  8 ny person  9 nyt fact  10 forældreløs række
+BEGIN;
+\i tests/sql/transfer-fixture.sql
+\set src -4700
+SELECT pg_temp.transfer_fx(-4700,'a4700000','b4700000') \g /dev/null
+SET CONSTRAINTS ALL IMMEDIATE;
+SELECT 1 AS dummy \gset
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_baseline.sql
+\o
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_restore_hash.sql
+\o
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_untouched_hash.sql
+\o
+SELECT current_setting('daa.transfer_baseline') AS b_0, current_setting('daa.restore_hash') AS r_0, current_setting('daa.untouched_hash') AS u_0 \gset
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_restore_preconditions.sql
+\o
+SELECT current_setting('daa.restore_preconditions') AS p_0 \gset
+SAVEPOINT x;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_baseline.sql
+\o
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_restore_hash.sql
+\o
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_untouched_hash.sql
+\o
+SELECT current_setting('daa.transfer_baseline') AS b_1, current_setting('daa.restore_hash') AS r_1, current_setting('daa.untouched_hash') AS u_1 \gset
+ROLLBACK TO SAVEPOINT x;
+SAVEPOINT x;
+INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
+  SELECT -4700,'transfer-probe','1.0.0',private.reimport_canonical_json_sha256(c),c
+    FROM (SELECT jsonb_build_object('run_key_prefix','tp:','schema_version','tp','extractor_version','tp',
+      'rendition_key','tp','rendition_kind','ocr_text','rendition_metadata','{}'::jsonb,
+      'observation_extraction_method','tp','citation_label_template','tp side {page_from}') AS c) q;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_baseline.sql
+\o
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_restore_hash.sql
+\o
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_untouched_hash.sql
+\o
+SELECT current_setting('daa.transfer_baseline') AS b_2, current_setting('daa.restore_hash') AS r_2, current_setting('daa.untouched_hash') AS u_2 \gset
+ROLLBACK TO SAVEPOINT x;
+SAVEPOINT x;
+UPDATE assertion SET date_raw='1851' WHERE id=-4711;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_baseline.sql
+\o
+SELECT current_setting('daa.transfer_baseline') AS b_3 \gset
+ROLLBACK TO SAVEPOINT x;
+SAVEPOINT x;
+SET CONSTRAINTS ALL DEFERRED;
+INSERT INTO private.source_persona_identity_event(source_persona_id,canonical_person_id,decision_status,version,evidence,decided_by,decided_by_name,decided_at)
+  VALUES ('a4700000-0000-4000-8000-000000000101',NULL,'rejected',2,'{"basis":"b4"}','a4700000-0000-4000-8000-000000000001','b4','2026-01-01T00:00:00Z');
+UPDATE private.source_persona_identity SET decision_status='rejected',canonical_person_id=NULL,version=2,evidence='{"basis":"b4"}',decided_by='a4700000-0000-4000-8000-000000000001',decided_by_name='b4',decided_at='2026-01-01T00:00:00Z'
+ WHERE source_persona_id='a4700000-0000-4000-8000-000000000101';
+SET CONSTRAINTS ALL IMMEDIATE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_baseline.sql
+\o
+SELECT current_setting('daa.transfer_baseline') AS b_4 \gset
+ROLLBACK TO SAVEPOINT x;
+SAVEPOINT x;
+SELECT nextval('private.reimport_event_id_seq'::regclass) \g /dev/null
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_restore_hash.sql
+\o
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_untouched_hash.sql
+\o
+SELECT current_setting('daa.restore_hash') AS r_5, current_setting('daa.untouched_hash') AS u_5 \gset
+ROLLBACK TO SAVEPOINT x;
+SAVEPOINT x;
+SELECT id AS id1 FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000001' AND version=1 \gset
+SET CONSTRAINTS ALL DEFERRED;
+SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true) \g /dev/null
+SET LOCAL ROLE authenticated;
+SELECT red_decide_interpretation(:'id1',1,'accepted','{"method":"m"}') AS acc \gset
+RESET ROLE;
+SET CONSTRAINTS ALL IMMEDIATE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_promotion_targets.sql
+\o
+SELECT current_setting('daa.targets_result')::jsonb->'items' AS items \gset
+SET LOCAL ROLE authenticated;
+SELECT red_preview_interpretation_promotions(:'items'::jsonb)->>'preview_hash' AS ph \gset
+SELECT red_promote_interpretations_batch(:'items'::jsonb,:'ph') \g /dev/null
+RESET ROLE;
+SELECT count(*) AS n_prom_7 FROM private.interpretation_promotion \gset
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_baseline.sql
+\o
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_restore_hash.sql
+\o
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_untouched_hash.sql
+\o
+SELECT current_setting('daa.transfer_baseline') AS b_7, current_setting('daa.restore_hash') AS r_7, current_setting('daa.untouched_hash') AS u_7 \gset
+ROLLBACK TO SAVEPOINT x;
+SAVEPOINT x;
+INSERT INTO person(id,levende,privat,status) VALUES (-4799,false,false,'transfer47x');
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_baseline.sql
+\o
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_restore_hash.sql
+\o
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_untouched_hash.sql
+\o
+SELECT current_setting('daa.transfer_baseline') AS b_8, current_setting('daa.restore_hash') AS r_8, current_setting('daa.untouched_hash') AS u_8 \gset
+ROLLBACK TO SAVEPOINT x;
+SAVEPOINT x;
+INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-4798,'person',-4701,'fødsel');
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_baseline.sql
+\o
+SELECT current_setting('daa.transfer_baseline') AS b_9 \gset
+ROLLBACK TO SAVEPOINT x;
+SAVEPOINT x;
+SET LOCAL session_replication_role = replica;
+INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES ('a4799999-0000-4000-8000-000000000101',-4799,'T-orphan','a4799999-0000-4000-8000-0000000000e1');
+SET LOCAL session_replication_role = origin;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/transfer_restore_preconditions.sql
+\o
+SELECT current_setting('daa.restore_preconditions') AS p_10 \gset
+ROLLBACK TO SAVEPOINT x;
+SELECT set_config('t.b_0',:'b_0',true),
+       set_config('t.r_0',:'r_0',true),
+       set_config('t.u_0',:'u_0',true),
+       set_config('t.b_1',:'b_1',true),
+       set_config('t.r_1',:'r_1',true),
+       set_config('t.u_1',:'u_1',true),
+       set_config('t.b_2',:'b_2',true),
+       set_config('t.r_2',:'r_2',true),
+       set_config('t.u_2',:'u_2',true),
+       set_config('t.b_3',:'b_3',true),
+       set_config('t.b_4',:'b_4',true),
+       set_config('t.r_5',:'r_5',true),
+       set_config('t.u_5',:'u_5',true),
+       set_config('t.b_7',:'b_7',true),
+       set_config('t.r_7',:'r_7',true),
+       set_config('t.u_7',:'u_7',true),
+       set_config('t.b_8',:'b_8',true),
+       set_config('t.r_8',:'r_8',true),
+       set_config('t.u_8',:'u_8',true),
+       set_config('t.b_9',:'b_9',true),
+       set_config('t.p_0',:'p_0',true),
+       set_config('t.p_10',:'p_10',true),
+       set_config('t.n7',:'n_prom_7',true) \g /dev/null
+DO $$ DECLARE
+  b0 jsonb := current_setting('t.b_0')::jsonb; p0 jsonb := current_setting('t.p_0')::jsonb;
+  p10 jsonb := current_setting('t.p_10')::jsonb;
+BEGIN
+  IF b0->>'canonical_sha256' !~ '^[0-9a-f]{64}$' OR b0->>'clause_set_sha256' !~ '^[0-9a-f]{64}$'
+     OR b0->>'schema_sha256' !~ '^[0-9a-f]{64}$' OR (b0->>'n_interpretations_src')::int <> 3 THEN
+    RAISE EXCEPTION 'B0: baseline-form %', b0;
+  END IF;
+  -- B1: gentagelse => samme værdier (deterministisk).
+  IF current_setting('t.b_1')::jsonb IS DISTINCT FROM b0 OR current_setting('t.r_1') IS DISTINCT FROM current_setting('t.r_0')
+     OR current_setting('t.u_1') IS DISTINCT FROM current_setting('t.u_0') THEN RAISE EXCEPTION 'B1: ikke deterministisk'; END IF;
+  -- B2: writer-profilrække flytter hverken baseline eller uberørt, men restore-hash.
+  IF current_setting('t.b_2')::jsonb IS DISTINCT FROM b0 THEN RAISE EXCEPTION 'B2: baseline flyttet af profilrække'; END IF;
+  IF current_setting('t.u_2') IS DISTINCT FROM current_setting('t.u_0') THEN RAISE EXCEPTION 'B2: uberørt flyttet af profilrække'; END IF;
+  IF current_setting('t.r_2') IS NOT DISTINCT FROM current_setting('t.r_0') THEN RAISE EXCEPTION 'B2: restore-hash fangede ikke profilrækken'; END IF;
+  -- B3: ændret assertion-værdi => canonical_sha256 ændres.
+  IF current_setting('t.b_3')::jsonb->>'canonical_sha256' IS NOT DISTINCT FROM b0->>'canonical_sha256' THEN RAISE EXCEPTION 'B3: assertion-værdi ikke fanget'; END IF;
+  -- B4: ændret identitet => canonical_sha256 ændres.
+  IF current_setting('t.b_4')::jsonb->>'canonical_sha256' IS NOT DISTINCT FROM b0->>'canonical_sha256' THEN RAISE EXCEPTION 'B4: identitet ikke fanget'; END IF;
+  -- B5: sekvens flytter restore-hash; en ekskluderet kædesekvens flytter ikke uberørt-hashen.
+  IF current_setting('t.r_5') IS NOT DISTINCT FROM current_setting('t.r_0') THEN RAISE EXCEPTION 'B5: sekvens ikke fanget i restore-hash'; END IF;
+  IF current_setting('t.u_5') IS DISTINCT FROM current_setting('t.u_0') THEN RAISE EXCEPTION 'B5: ekskluderet sekvens flyttede uberørt-hash'; END IF;
+  -- B7: ægte afgørelse + binding.
+  IF current_setting('t.n7')::int <> 1 THEN RAISE EXCEPTION 'B7: binding ikke skrevet (%)', current_setting('t.n7'); END IF;
+  IF current_setting('t.u_7') IS DISTINCT FROM current_setting('t.u_0') THEN RAISE EXCEPTION 'B7: afgørelse/binding flyttede uberørt-hash (eksklusionslisten ufuldstændig)'; END IF;
+  IF current_setting('t.b_7')::jsonb IS DISTINCT FROM b0 THEN RAISE EXCEPTION 'B7: baseline % vs %', current_setting('t.b_7'), b0; END IF;
+  IF current_setting('t.r_7') IS NOT DISTINCT FROM current_setting('t.r_0') THEN RAISE EXCEPTION 'B7: restore-hash fangede ikke afgørelse/binding'; END IF;
+  -- B8: ny person uden for kæden flytter uberørt, restore og canonical.
+  IF current_setting('t.u_8') IS NOT DISTINCT FROM current_setting('t.u_0') OR current_setting('t.r_8') IS NOT DISTINCT FROM current_setting('t.r_0')
+     OR current_setting('t.b_8')::jsonb->>'canonical_sha256' IS NOT DISTINCT FROM b0->>'canonical_sha256' THEN RAISE EXCEPTION 'B8: ny person ikke fanget'; END IF;
+  -- B9: nyt fact flytter canonical_sha256.
+  IF current_setting('t.b_9')::jsonb->>'canonical_sha256' IS NOT DISTINCT FROM b0->>'canonical_sha256' THEN RAISE EXCEPTION 'B9: fact ikke fanget'; END IF;
+  -- B6: 0 forældreløse i fixturen; kataloghash er sha256; flerkolonne-tal findes.
+  IF (p0->>'n_orphans_total')::int <> 0 OR p0->'orphans' IS DISTINCT FROM '{}'::jsonb THEN RAISE EXCEPTION 'B6: falsk forældreløs %', p0; END IF;
+  IF p0->>'catalog_sha256' !~ '^[0-9a-f]{64}$' OR p0->>'n_multi_column_fks' IS NULL THEN RAISE EXCEPTION 'B6: katalog %', p0; END IF;
+  -- B10: en forældreløs række tælles.
+  IF (p10->>'n_orphans_total')::int < 1 THEN RAISE EXCEPTION 'B10: forældreløs ikke talt %', p10; END IF;
+  IF p10->>'catalog_sha256' IS DISTINCT FROM p0->>'catalog_sha256' THEN RAISE EXCEPTION 'B10: katalog afhænger af data'; END IF;
+END $$;
+\echo 'OK: transfer baseline'
+ROLLBACK;
