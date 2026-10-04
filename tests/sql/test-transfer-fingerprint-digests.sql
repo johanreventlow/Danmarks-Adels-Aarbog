@@ -128,7 +128,8 @@ SET CONSTRAINTS ALL IMMEDIATE;
 \o
 SELECT current_setting('daa.transfer_digests') AS dg_b \gset
 ROLLBACK TO SAVEPOINT v;
--- D2 (kommentar): dispositions-evidence (batch_id) er udeladt af digestet; D1 bestod trods ens batch_id pr. variant.
+-- D2 (kommentar): dispositions-evidence er udeladt af digestet. Fixturens batch_id er uuid-præfikset
+-- (pre||…), så det er forskelligt i a og b; D1 (a = b) beviser dermed udeladelsen.
 SAVEPOINT v;
 SELECT pg_temp.transfer_fx(-4700,'a4712000','b4700000') \g /dev/null
 SET CONSTRAINTS ALL IMMEDIATE;
@@ -236,6 +237,138 @@ SET CONSTRAINTS ALL IMMEDIATE;
 \o
 SELECT current_setting('daa.transfer_digests') AS dg_h \gset
 ROLLBACK TO SAVEPOINT v;
+-- D9-D11: bindingslaget (B7-mønstret: afgørelse -> målfinding -> preview -> batch, samme aktør).
+--   bd_a/bd_b: samme mål (-4711), andre uuid'er og permuteret id-rækkefølge.
+--   bd_c: samme forslag og afgørelser, men k1's eneste mål er en ANDEN assertion (-4713; -4711's
+--         dato ændret, så målfindingen har præcis én kandidat — ellers AMBIGUOUS og intet item).
+--   bd_d/bd_e: to mål for samme nøgle. Målfindingen giver aldrig det (to kandidater = AMBIGUOUS),
+--         men writeren afviser kun et identisk mål, så det kan nås med et direkte RPC-kald; e er
+--         permuteret og sender items i omvendt rækkefølge.
+--   dg_disp: klausul 1 med en anden (maskinel) disposition.
+SAVEPOINT v;
+SELECT pg_temp.transfer_fx(-4700,'a4720000','b4700000') \g /dev/null
+SET CONSTRAINTS ALL IMMEDIATE;
+SELECT id AS id1 FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000001' AND version=1 \gset
+SET CONSTRAINTS ALL DEFERRED;
+SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true) \g /dev/null
+SET LOCAL ROLE authenticated;
+SELECT red_decide_interpretation(:'id1',1,'accepted','{"method":"m"}') \g /dev/null
+RESET ROLE;
+SET CONSTRAINTS ALL IMMEDIATE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_promotion_targets.sql
+\o
+SELECT current_setting('daa.targets_result')::jsonb->'items' AS items \gset
+SET LOCAL ROLE authenticated;
+SELECT red_preview_interpretation_promotions(:'items'::jsonb)->>'preview_hash' AS ph \gset
+SELECT red_promote_interpretations_batch(:'items'::jsonb,:'ph') \g /dev/null
+RESET ROLE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_transfer_digests.sql
+\o
+SELECT current_setting('daa.transfer_digests') AS bd_a \gset
+ROLLBACK TO SAVEPOINT v;
+SAVEPOINT v;
+SELECT pg_temp.transfer_fx(-4700,'a4721000','b4700000','Anna død 1850',false,'Anna',true) \g /dev/null
+SET CONSTRAINTS ALL IMMEDIATE;
+SELECT id AS id1 FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000001' AND version=1 \gset
+SET CONSTRAINTS ALL DEFERRED;
+SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true) \g /dev/null
+SET LOCAL ROLE authenticated;
+SELECT red_decide_interpretation(:'id1',1,'accepted','{"method":"m"}') \g /dev/null
+RESET ROLE;
+SET CONSTRAINTS ALL IMMEDIATE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_promotion_targets.sql
+\o
+SELECT current_setting('daa.targets_result')::jsonb->'items' AS items \gset
+SET LOCAL ROLE authenticated;
+SELECT red_preview_interpretation_promotions(:'items'::jsonb)->>'preview_hash' AS ph \gset
+SELECT red_promote_interpretations_batch(:'items'::jsonb,:'ph') \g /dev/null
+RESET ROLE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_transfer_digests.sql
+\o
+SELECT current_setting('daa.transfer_digests') AS bd_b \gset
+ROLLBACK TO SAVEPOINT v;
+SAVEPOINT v;
+SELECT pg_temp.transfer_fx(-4700,'a4722000','b4700000') \g /dev/null
+SET CONSTRAINTS ALL IMMEDIATE;
+INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-4713,'person',-4701,'død');
+INSERT INTO assertion(id,target_type,target_id,date_raw,calendar,uforanderlig) VALUES (-4713,'fact',-4713,'1850','gregoriansk',true);
+UPDATE assertion SET date_raw='1849' WHERE id=-4711;
+SELECT id AS id1 FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000001' AND version=1 \gset
+SET CONSTRAINTS ALL DEFERRED;
+SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true) \g /dev/null
+SET LOCAL ROLE authenticated;
+SELECT red_decide_interpretation(:'id1',1,'accepted','{"method":"m"}') \g /dev/null
+RESET ROLE;
+SET CONSTRAINTS ALL IMMEDIATE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_promotion_targets.sql
+\o
+SELECT current_setting('daa.targets_result')::jsonb->'items' AS items \gset
+SET LOCAL ROLE authenticated;
+SELECT red_preview_interpretation_promotions(:'items'::jsonb)->>'preview_hash' AS ph \gset
+SELECT red_promote_interpretations_batch(:'items'::jsonb,:'ph') \g /dev/null
+RESET ROLE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_transfer_digests.sql
+\o
+SELECT current_setting('daa.transfer_digests') AS bd_c \gset
+ROLLBACK TO SAVEPOINT v;
+SAVEPOINT v;
+SELECT pg_temp.transfer_fx(-4700,'a4723000','b4700000') \g /dev/null
+SET CONSTRAINTS ALL IMMEDIATE;
+INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-4713,'person',-4701,'død');
+INSERT INTO assertion(id,target_type,target_id,date_raw,calendar,uforanderlig) VALUES (-4713,'fact',-4713,'1850','gregoriansk',true);
+SELECT id AS id1 FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000001' AND version=1 \gset
+SET CONSTRAINTS ALL DEFERRED;
+SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true) \g /dev/null
+SET LOCAL ROLE authenticated;
+SELECT red_decide_interpretation(:'id1',1,'accepted','{"method":"m"}') \g /dev/null
+RESET ROLE;
+SET CONSTRAINTS ALL IMMEDIATE;
+SELECT jsonb_build_array(jsonb_build_object('interpretation_id',(SELECT id FROM private.interpretation_current WHERE interpretation_key='b4700000-0000-4000-8000-000000000001'),'target_type','assertion','target_id',-4711),jsonb_build_object('interpretation_id',(SELECT id FROM private.interpretation_current WHERE interpretation_key='b4700000-0000-4000-8000-000000000001'),'target_type','assertion','target_id',-4713)) AS items \gset
+SET LOCAL ROLE authenticated;
+SELECT red_preview_interpretation_promotions(:'items'::jsonb)->>'preview_hash' AS ph \gset
+SELECT red_promote_interpretations_batch(:'items'::jsonb,:'ph') \g /dev/null
+RESET ROLE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_transfer_digests.sql
+\o
+SELECT current_setting('daa.transfer_digests') AS bd_d \gset
+ROLLBACK TO SAVEPOINT v;
+SAVEPOINT v;
+SELECT pg_temp.transfer_fx(-4700,'a4724000','b4700000','Anna død 1850',false,'Anna',true) \g /dev/null
+SET CONSTRAINTS ALL IMMEDIATE;
+INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-4713,'person',-4701,'død');
+INSERT INTO assertion(id,target_type,target_id,date_raw,calendar,uforanderlig) VALUES (-4713,'fact',-4713,'1850','gregoriansk',true);
+SELECT id AS id1 FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000001' AND version=1 \gset
+SET CONSTRAINTS ALL DEFERRED;
+SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true) \g /dev/null
+SET LOCAL ROLE authenticated;
+SELECT red_decide_interpretation(:'id1',1,'accepted','{"method":"m"}') \g /dev/null
+RESET ROLE;
+SET CONSTRAINTS ALL IMMEDIATE;
+SELECT jsonb_build_array(jsonb_build_object('interpretation_id',(SELECT id FROM private.interpretation_current WHERE interpretation_key='b4700000-0000-4000-8000-000000000001'),'target_type','assertion','target_id',-4713),jsonb_build_object('interpretation_id',(SELECT id FROM private.interpretation_current WHERE interpretation_key='b4700000-0000-4000-8000-000000000001'),'target_type','assertion','target_id',-4711)) AS items \gset
+SET LOCAL ROLE authenticated;
+SELECT red_preview_interpretation_promotions(:'items'::jsonb)->>'preview_hash' AS ph \gset
+SELECT red_promote_interpretations_batch(:'items'::jsonb,:'ph') \g /dev/null
+RESET ROLE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_transfer_digests.sql
+\o
+SELECT current_setting('daa.transfer_digests') AS bd_e \gset
+ROLLBACK TO SAVEPOINT v;
+SAVEPOINT v;
+SELECT pg_temp.transfer_fx(-4700,'a4725000','b4700000',p_disp=>'afventer_identitet') \g /dev/null
+SET CONSTRAINTS ALL IMMEDIATE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_transfer_digests.sql
+\o
+SELECT current_setting('daa.transfer_digests') AS dg_disp \gset
+ROLLBACK TO SAVEPOINT v;
 -- D5: klassifikationen i basisvarianten (senere tasks afhænger af den).
 SAVEPOINT v;
 SELECT pg_temp.transfer_fx(-4700,'a4717000','b4700000') \g /dev/null
@@ -251,13 +384,18 @@ ROLLBACK TO SAVEPOINT v;
 SELECT set_config('t.cls',:'cls',true), set_config('t.k1a',:'k1a',true) \g /dev/null
 SELECT set_config('t.dg_a',:'dg_a',true), set_config('t.dg_b',:'dg_b',true), set_config('t.dg_c',:'dg_c',true),
        set_config('t.dg_d',:'dg_d',true), set_config('t.dg_e',:'dg_e',true), set_config('t.dg_f',:'dg_f',true),
-       set_config('t.dg_g',:'dg_g',true), set_config('t.dg_h',:'dg_h',true), set_config('t.dg_i',:'dg_i',true) \g /dev/null
+       set_config('t.dg_g',:'dg_g',true), set_config('t.dg_h',:'dg_h',true), set_config('t.dg_i',:'dg_i',true),
+       set_config('t.bd_a',:'bd_a',true), set_config('t.bd_b',:'bd_b',true), set_config('t.bd_c',:'bd_c',true),
+       set_config('t.bd_d',:'bd_d',true), set_config('t.bd_e',:'bd_e',true), set_config('t.dg_disp',:'dg_disp',true) \g /dev/null
 DO $$ DECLARE
   a jsonb := current_setting('t.dg_a')::jsonb; b jsonb := current_setting('t.dg_b')::jsonb;
   c jsonb := current_setting('t.dg_c')::jsonb; d jsonb := current_setting('t.dg_d')::jsonb;
   e jsonb := current_setting('t.dg_e')::jsonb; f jsonb := current_setting('t.dg_f')::jsonb;
   g jsonb := current_setting('t.dg_g')::jsonb; h jsonb := current_setting('t.dg_h')::jsonb; ii jsonb := current_setting('t.dg_i')::jsonb; cls jsonb := current_setting('t.cls')::jsonb;
   empty text := 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+  ba jsonb := current_setting('t.bd_a')::jsonb; bb jsonb := current_setting('t.bd_b')::jsonb;
+  bc jsonb := current_setting('t.bd_c')::jsonb; bdd jsonb := current_setting('t.bd_d')::jsonb;
+  be jsonb := current_setting('t.bd_e')::jsonb; disp jsonb := current_setting('t.dg_disp')::jsonb;
 BEGIN
   -- D1: samme indhold, andre id'er og permuteret id-rækkefølge => identiske digests og antal.
   IF a IS DISTINCT FROM b THEN RAISE EXCEPTION 'D1: digests afhænger af id''er (% vs %)', a, b; END IF;
@@ -286,6 +424,22 @@ BEGIN
   -- D8: anden metode i evidensen => anden decision_digest og fordeling.
   IF ii->>'decision_digest' = f->>'decision_digest' THEN RAISE EXCEPTION 'D8: decision_digest ufølsom for evidens'; END IF;
   IF ii->'decided_by_method_status' IS DISTINCT FROM '{"m2|accepted":1}'::jsonb THEN RAISE EXCEPTION 'D8: fordeling %', ii; END IF;
+  -- D9: samme mål, andre uuid'er og permuteret id-rækkefølge => ens binding_digest, ikke tom.
+  IF (ba->>'n_bindings')::int <> 1 OR ba->>'binding_digest' = empty THEN RAISE EXCEPTION 'D9: binding ikke skrevet %', ba; END IF;
+  IF ba IS DISTINCT FROM bb THEN RAISE EXCEPTION 'D9: digests id-afhængige med binding (% vs %)', ba, bb; END IF;
+  -- D10: andet mål, alt andet ens => kun binding_digest ændres.
+  IF (bc->>'n_bindings')::int <> 1 THEN RAISE EXCEPTION 'D10: forventede én binding, fik %', bc; END IF;
+  IF bc->>'proposal_digest' IS DISTINCT FROM ba->>'proposal_digest' OR bc->>'decision_digest' IS DISTINCT FROM ba->>'decision_digest' THEN
+    RAISE EXCEPTION 'D10: forslag/afgørelser ændret af målet'; END IF;
+  IF bc->>'binding_digest' IS NOT DISTINCT FROM ba->>'binding_digest' THEN RAISE EXCEPTION 'D10: binding_digest ufølsom for mål-assertion'; END IF;
+  -- D11: to mål for samme nøgle => deterministisk uanset uuid'er og item-rækkefølge, og ≠ ét mål.
+  IF (bdd->>'n_bindings')::int <> 2 THEN RAISE EXCEPTION 'D11: forventede to bindinger, fik %', bdd; END IF;
+  IF bdd IS DISTINCT FROM be THEN RAISE EXCEPTION 'D11: to mål pr. nøgle ikke deterministisk (% vs %)', bdd, be; END IF;
+  IF bdd->>'binding_digest' IN (ba->>'binding_digest', bc->>'binding_digest') THEN RAISE EXCEPTION 'D11: to mål = ét mål'; END IF;
+  -- D12: anden dispositionsart for en citeret klausul => proposal_digest ændres; øvrige lag tomme.
+  IF disp->>'proposal_digest' IS NOT DISTINCT FROM a->>'proposal_digest' THEN RAISE EXCEPTION 'D12: proposal_digest ufølsom for disposition'; END IF;
+  IF disp->>'decision_digest' <> empty OR disp->>'binding_digest' <> empty OR (disp->>'n_interpretations')::int <> 3 THEN
+    RAISE EXCEPTION 'D12: %', disp; END IF;
   -- D5: klassifikation.
   IF current_setting('t.k1a') <> '-4711' THEN RAISE EXCEPTION 'D5: k1 mål forventet -4711, fik %', current_setting('t.k1a'); END IF;
   IF cls->>'b4700000-0000-4000-8000-000000000001' IS DISTINCT FROM 'MATCH' THEN RAISE EXCEPTION 'D5: k1 forventet MATCH, fik %', cls; END IF;

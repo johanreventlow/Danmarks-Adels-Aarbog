@@ -34,11 +34,13 @@ INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,calendar,uforanderli
 -- skemaet, så to kilder i samme base kan ikke dele nøgler), p_c1 = tekst i klausul 1 (klausul 2 er altid 'i Kbh'), p_swap = byt klausulernes ordinaler,
 -- p_name = værdien af person.name-forslaget, p_permute = byt uuid-suffikser på klausuler og
 -- k1/k2 (id-rækkefølgen vendes, logikken er uændret), p_record_key = postens nøgle,
--- p_anchor = false udelader ankeret (ingen accepteret post).
+-- p_anchor = false udelader ankeret (ingen accepteret post), p_disp = klausul 1's (maskinelle)
+-- disposition.
 CREATE FUNCTION pg_temp.transfer_fx(p_s bigint, p_pre text, p_kp text, p_c1 text DEFAULT 'Anna død 1850',
                                     p_swap boolean DEFAULT false, p_name text DEFAULT 'Anna',
                                     p_permute boolean DEFAULT false, p_record_key text DEFAULT 'T-1',
-                                    p_anchor boolean DEFAULT true) RETURNS void
+                                    p_anchor boolean DEFAULT true,
+                                    p_disp text DEFAULT 'fortolkning_foreslaaet') RETURNS void
 LANGUAGE plpgsql AS $fx$
 DECLARE pre text := p_pre; s bigint := p_s; v_text text := p_c1||' i Kbh'; v_n1 int := char_length(p_c1);
         v_len int := char_length(p_c1||' i Kbh');
@@ -100,7 +102,7 @@ BEGIN
     ((pre||'-0000-4000-8000-000000000'||i2)::uuid,(pre||'-0000-4000-8000-0000000000'||c1)::uuid,'supporting',1),
     ((pre||'-0000-4000-8000-000000000303')::uuid,(pre||'-0000-4000-8000-0000000000'||c2)::uuid,'supporting',1);
   INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence)
-    VALUES ((pre||'-0000-4000-8000-0000000000'||c1)::uuid,1,'fortolkning_foreslaaet','machine',
+    VALUES ((pre||'-0000-4000-8000-0000000000'||c1)::uuid,1,p_disp,'machine',
             jsonb_build_object('batch_id',pre||'-0000-4000-8000-0000000000e1','manifest_sha256',repeat('7',64))),
            ((pre||'-0000-4000-8000-0000000000'||c2)::uuid,1,'fortolkning_foreslaaet','machine',
             jsonb_build_object('batch_id',pre||'-0000-4000-8000-0000000000e1','manifest_sha256',repeat('7',64)));
