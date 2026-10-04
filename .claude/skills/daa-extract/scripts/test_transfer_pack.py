@@ -234,18 +234,41 @@ def test_machine_assertion_id_must_be_int_on_classification_side():
             build(classification=cl, export=ex)
 
 
-ACTOR = "a4700000-0000-4000-8000-000000000001"
+KEYS = {f"k-{i}": f"b4700000-0000-4000-8000-00000000000{i}" for i in range(1, 5)}
+K1, K2, K3 = KEYS["k-1"], KEYS["k-2"], KEYS["k-3"]
+
+
+def hx(s):
+    import hashlib
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+def build_real(**over):
+    """Pakke med realistiske felter (uuid-nøgler, sha256-hex), som generatorernes hvidliste kræver."""
+    ex = load("export.json")
+    for d in ex["decisions"]:
+        d["interpretation_key"] = KEYS[d["interpretation_key"]]
+    ex["key_by_v1_id"] = {v: KEYS[k] for v, k in ex["key_by_v1_id"].items()}
+    fp = {KEYS[k]: hx(v) for k, v in load("fingerprints.json").items()}
+    dg = load("digests.json")
+    for f in ("proposal_digest", "decision_digest", "binding_digest"):
+        dg[f] = hx(dg[f])
+    bl = {k: (hx(v) if isinstance(v, str) else v) for k, v in load("baseline.json").items()}
+    return build(export=ex, fingerprints=fp, digests=dg, baseline=bl, **over)
 
 
 def test_decide_sql_shape():
-    decisions, manifest = build()
+    decisions, manifest = build_real()
     sql = tp.decide_sql(decisions, manifest)
     assert sql.startswith("\\set ON_ERROR_STOP on\n\\set QUIET on\nBEGIN;\n"
+                          "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;\n"
+                          "DO $u$ BEGIN IF current_setting('standard_conforming_strings') <> 'on' "
+                          "THEN RAISE EXCEPTION 'TRANSFER_SESSION_UNSAFE'; END IF; END $u$;\n"
                           "SELECT set_config('daa.src', :'src', true) \\g /dev/null\n")
     assert ":src" not in sql.replace(":'src'", "")
     assert sql.rstrip().endswith("\\echo 'TRANSFER_07_OK afgørelser=3'")
     assert sql.count("COMMIT;") == 1 and sql.index("COMMIT;") > sql.rindex("DECISION_DIGEST_MISMATCH")
-    order = ["TRANSFER_STATE_NOT_PROPOSED", "CLAUSE_SET_DRIFT", "MACHINE_PREMISE_DRIFT",
+    order = ["TRANSFER_SESSION_UNSAFE", "TRANSFER_STATE_NOT_PROPOSED", "CLAUSE_SET_DRIFT", "MACHINE_PREMISE_DRIFT",
              "DECISION_FINGERPRINT_MISMATCH", "DECISION_KEY_UNRESOLVED", "TRANSFER_ACTOR_MISMATCH",
              "red_decide_interpretation", "DECISION_DIGEST_MISMATCH"]
     pos = [sql.index(code) for code in order]
@@ -266,32 +289,114 @@ def test_decide_sql_shape():
 
 
 def test_decide_sql_rejects_other_versions():
-    decisions, manifest = build()
+    decisions, manifest = build_real()
     decisions[0]["expected_version"] = 2
     with pytest.raises(tp.PackError, match="PACK_EXPECTED_VERSION"):
         tp.decide_sql(decisions, manifest)
 
 
 def test_bind_sql_shape():
-    _, manifest = build()
+    _, manifest = build_real()
     sql = tp.bind_sql(manifest)
-    assert sql.startswith("\\set ON_ERROR_STOP on\n\\set QUIET on\nBEGIN;\n")
-    order = ["TRANSFER_STATE_NOT_DECIDED", "BIND_SCOPE_DRIFT", "interpretation_promotion_targets_scoped.sql",
-             "TRANSFER_ACTOR_MISMATCH", "BIND_NOT_ELIGIBLE", "red_promote_interpretations_batch",
-             "BINDING_DIGEST_MISMATCH"]
+    assert sql.startswith("\\set ON_ERROR_STOP on\n\\set QUIET on\nBEGIN;\n"
+                          "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;\nDO $u$ ")
+    order = ["TRANSFER_SESSION_UNSAFE", "TRANSFER_STATE_NOT_DECIDED", "BIND_SCOPE_DRIFT",
+             "interpretation_promotion_targets_scoped.sql", "TRANSFER_ACTOR_MISMATCH", "BIND_NOT_ELIGIBLE",
+             "red_promote_interpretations_batch", "BINDING_DIGEST_MISMATCH"]
     pos = [sql.index(code) for code in order]
     assert pos == sorted(pos)
-    assert '["k-1","k-3"]' in sql
+    assert f'["{K1}","{K3}"]' in sql
     assert sql.index("RESET ROLE") < sql.index("SET CONSTRAINTS ALL IMMEDIATE") < sql.rindex(
         "interpretation_transfer_digests.sql")
     assert "SELECT set_config('request.jwt.claim.sub', :'actor', true) \\g /dev/null" in sql
     assert sql.rstrip().endswith("\\echo 'TRANSFER_08_OK bindinger=2'")
 
 
+INJECT = "x$c$; SELECT 1; DO $c$ BEGIN END"
+
+
+@pytest.mark.parametrize("path,field", [
+    (("baseline", "clause_set_sha256"), "baseline.clause_set_sha256"),
+    (("actor_sha256",), "actor_sha256"),
+    (("pack_sha256",), "pack_sha256"),
+    (("digests", "proposal_digest"), "digests.proposal_digest"),
+    (("digests", "decision_digest"), "digests.decision_digest"),
+    (("digests", "n_interpretations"), "digests.n_interpretations"),
+    (("n_decisions",), "n_decisions"),
+])
+def test_decide_sql_rejects_injected_manifest_field(path, field):
+    decisions, manifest = build_real()
+    obj = manifest
+    for k in path[:-1]:
+        obj = obj[k]
+    obj[path[-1]] = INJECT
+    with pytest.raises(tp.PackError, match=f"^PACK_FIELD_INVALID {field}$") as e:
+        tp.decide_sql(decisions, manifest)
+    assert INJECT not in str(e.value)
+
+
+@pytest.mark.parametrize("path,field", [
+    (("digests", "binding_digest"), "digests.binding_digest"),
+    (("digests", "n_bindings"), "digests.n_bindings"),
+    (("digests", "n_decided"), "digests.n_decided"),
+    (("actor_sha256",), "actor_sha256"),
+])
+def test_bind_sql_rejects_injected_manifest_field(path, field):
+    _, manifest = build_real()
+    obj = manifest
+    for k in path[:-1]:
+        obj = obj[k]
+    obj[path[-1]] = INJECT
+    with pytest.raises(tp.PackError, match=f"^PACK_FIELD_INVALID {field}$"):
+        tp.bind_sql(manifest)
+
+
+def test_bind_sql_rejects_injected_accepted_key():
+    _, manifest = build_real()
+    manifest["accepted_keys"][1] = INJECT
+    with pytest.raises(tp.PackError, match=r"^PACK_FIELD_INVALID accepted_keys\[\]$"):
+        tp.bind_sql(manifest)
+    _, manifest = build_real()
+    manifest["accepted_keys"][0] = K1.upper()  # kun kanonisk små-bogstavs-uuid
+    with pytest.raises(tp.PackError, match="PACK_FIELD_INVALID"):
+        tp.bind_sql(manifest)
+
+
+@pytest.mark.parametrize("field,value,code", [
+    ("interpretation_key", INJECT, "decisions[].interpretation_key"),
+    ("status", "accepted'; DROP", "decisions[].status"),
+    ("decision_fingerprint", INJECT, "decisions[].decision_fingerprint"),
+])
+def test_decide_sql_rejects_injected_plan_field(field, value, code):
+    decisions, manifest = build_real()
+    decisions[0][field] = value
+    with pytest.raises(tp.PackError, match="^PACK_FIELD_INVALID " + code.replace("[", r"\[").replace("]", r"\]") + "$"):
+        tp.decide_sql(decisions, manifest)
+
+
+def test_decide_sql_rejects_bad_keyed_classification():
+    decisions, manifest = build_real()
+    manifest["keyed_classification"][INJECT] = ["MATCH", 1]
+    with pytest.raises(tp.PackError, match="PACK_FIELD_INVALID keyed_classification"):
+        tp.decide_sql(decisions, manifest)
+    decisions, manifest = build_real()
+    manifest["keyed_classification"][K1] = ["MATCH$m$", 1]
+    with pytest.raises(tp.PackError, match="PACK_FIELD_INVALID keyed_classification"):
+        tp.decide_sql(decisions, manifest)
+
+
+def test_check_tags_requires_exact_pairs():
+    assert tp._check_tags("DO $a$ x $a$; DO $b$ y $b$;")
+    with pytest.raises(tp.PackError, match="PACK_DOLLAR_TAG"):
+        tp._check_tags("DO $a$ x $a$ $a$;")
+    with pytest.raises(tp.PackError, match="PACK_DOLLAR_TAG"):
+        tp._check_tags("DO $a$ x $$ $a$;")
+
+
 def _write_pack(tmp_path):
     out = tmp_path / "pack"
     out.mkdir(mode=0o700)
-    decisions, manifest = build()
+    decisions, manifest = build_real()
     (out / "decisions-keyed.json").write_text(tp.canonical(decisions), encoding="utf-8")
     (out / "pack-manifest.json").write_text(tp.canonical(manifest) + "\n", encoding="utf-8")
     return out, manifest
@@ -309,6 +414,16 @@ def test_sql_cli_writes_private_and_prints_only_hashes(tmp_path, cmd, tag):
     assert out.stat().st_mode & 0o777 == 0o600
     sql = out.read_text(encoding="utf-8")
     assert f"sha256={tp.sha256_text(sql)}" in res.stdout
+
+
+def test_sql_cli_refuses_existing_out(tmp_path):
+    pdir, _ = _write_pack(tmp_path)
+    out = tmp_path / "x.sql"
+    out.write_text("old", encoding="utf-8")
+    res = subprocess.run([sys.executable, str(Path(tp.__file__)), "decide-sql", "--pack-dir", str(pdir),
+                          "--out", str(out)], capture_output=True, text=True)
+    assert res.returncode == 1 and res.stdout.strip() == "PACK_OUT_EXISTS" and "Traceback" not in res.stderr
+    assert out.read_text(encoding="utf-8") == "old"
 
 
 def test_sql_cli_rejects_tampered_decisions(tmp_path):
@@ -331,8 +446,11 @@ def test_sql_cli_rejects_tampered_manifest(tmp_path):
 
 
 def test_decide_sql_rejects_dollar_tag_in_notes():
-    decisions, manifest = build()
+    decisions, manifest = build_real()
     decisions[1]["evidence"]["note"] = "x $p$ y"
+    with pytest.raises(tp.PackError, match="PACK_DOLLAR_TAG"):
+        tp.decide_sql(decisions, manifest)
+    decisions[1]["evidence"]["note"] = "y $$ z"  # ikke et af de faste tags, men fanges af parkontrollen
     with pytest.raises(tp.PackError, match="PACK_DOLLAR_TAG"):
         tp.decide_sql(decisions, manifest)
     decisions[1]["evidence"]["note"] = "koster $5"

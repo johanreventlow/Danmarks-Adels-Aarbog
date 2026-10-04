@@ -38,8 +38,10 @@ q() { psql -X -q -v ON_ERROR_STOP=1 "$@"; }
 tp() { python3 "$S/transfer_pack.py" "$@"; }
 
 # newdb <suffiks>: ny engangskopi af den rene base; navnet lægges i DB (ingen subshell, så CREATED holder).
+# ${BASE}_<suffiks> er scriptets eget navnerum: en rest fra en afbrudt kørsel droppes først.
 newdb() {
   DB="${BASE}_$1"
+  dropdb --if-exists "$DB"
   createdb -T "$BASE" "$DB"
   CREATED="$CREATED $DB"
 }
@@ -105,6 +107,8 @@ dec = json.loads(open(f"{src}/decisions-keyed.json", encoding="utf-8").read())
 man = json.loads(open(f"{src}/pack-manifest.json", encoding="utf-8").read())
 if mode == "fp":
     dec[0]["decision_fingerprint"] = "0" * 64
+elif mode == "newkey":
+    dec[0]["interpretation_key"] = "b4700000-0000-4000-8000-0000000000ff"
 elif mode == "dup":
     dec.append(dict(dec[0]))
 elif mode == "evidence":
@@ -128,6 +132,10 @@ PY
 
 # gen <pakkemappe> <decide-sql|bind-sql> <ud-fil>
 gen() { tp "$2" --pack-dir "$1" --out "$3" >/dev/null; }
+
+# Kun en ren CI-base: ingen personer og ingen af fixturens kilder (ellers er det ikke en engangsbase).
+dirty=$(q -A -t -c "SELECT (SELECT count(*) FROM public.person) + (SELECT count(*) FROM public.source WHERE id IN (-4700,-4701,-4800))")
+[ "$dirty" = 0 ] || die "\$PGDATABASE er ikke en ren CI-base (person-/fixturrækker fundet); kør kun mod en base bygget med CI-opskriften"
 
 # ---------------------------------------------------------------- »Restore«
 newdb r; R=$DB
@@ -167,8 +175,9 @@ PACK=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["pack_sha
 expect_state "$R" COMPLETE "restoren mod sin egen pakke"
 
 # Pakker med én genforseglet ændring.
-for m in fp dup evidence scope nbind bdigest; do tamper "$m" "$T/pack_$m"; done
+for m in fp newkey dup evidence scope nbind bdigest; do tamper "$m" "$T/pack_$m"; done
 gen "$T/pack_fp" decide-sql "$T/07_fp.sql"
+gen "$T/pack_newkey" decide-sql "$T/07_newkey.sql"
 gen "$T/pack_dup" decide-sql "$T/07_dup.sql"
 gen "$T/pack_evidence" decide-sql "$T/07_evidence.sql"
 gen "$T/pack_scope" bind-sql "$T/08_scope.sql"
@@ -186,7 +195,9 @@ expect_state "$P" PROPOSED "prod før 07"
 
 echo "07-vagter i PROPOSED (hver fejl ruller tilbage; tilstanden er stadig PROPOSED):"
 expect_fail "$P" TRANSFER_STATE_NOT_DECIDED "$T/08.sql"
+( export PGOPTIONS="-c standard_conforming_strings=off"; expect_fail "$P" TRANSFER_SESSION_UNSAFE "$T/07.sql" )
 expect_fail "$P" DECISION_FINGERPRINT_MISMATCH "$T/07_fp.sql"
+expect_fail "$P" DECISION_FINGERPRINT_MISMATCH "$T/07_newkey.sql"   # ukendt nøgle (spec §10)
 expect_fail "$P" "DECISION_KEY_UNRESOLVED duplicate" "$T/07_dup.sql"
 expect_fail "$P" TRANSFER_ACTOR_MISMATCH "$T/07.sql" "$A_WRONG"
 expect_fail "$P" DECISION_DIGEST_MISMATCH "$T/07_evidence.sql"

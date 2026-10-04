@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -153,6 +154,82 @@ def classify_state(digests: dict, pack: dict) -> str:
 
 SCRIPTS = ".claude/skills/daa-extract/scripts"
 DO_TAGS = ("$g$", "$c$", "$m$", "$p$", "$a$", "$w$", "$d$")
+_HEX64 = re.compile(r"[0-9a-f]{64}")
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+DECISION_STATUSES = ("accepted", "rejected", "unresolved", "superseded")
+CONTROL_CLASSES = ("MATCH", "MATCH_SINGLETON", "AMBIGUOUS", "SKRIVEMAADE", "NO_FACT", "REAL_DIFF",
+                   "NO_IDENTITY", "NO_PLACEMENT", "UNSUPPORTED_RULE")
+
+
+def _bad(field: str):
+    # Feltnavnet, aldrig værdien (kan være evidens/fritekst).
+    raise PackError(f"PACK_FIELD_INVALID {field}")
+
+
+def _hex(v, field):
+    if not (isinstance(v, str) and _HEX64.fullmatch(v)):
+        _bad(field)
+
+
+def _uuid(v, field):
+    if not (isinstance(v, str) and _UUID.fullmatch(v)):
+        _bad(field)
+
+
+def _count(v, field):
+    if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+        _bad(field)
+
+
+def _validate_manifest(manifest: dict, state: str) -> None:
+    """Hvidliste over hver skalar, generatoren indlejrer i SQL'en (pakkens segl er selvrefererende)."""
+    d = manifest["digests"]
+    _hex(manifest.get("pack_sha256"), "pack_sha256")
+    _hex(manifest.get("actor_sha256"), "actor_sha256")
+    _hex(d.get("proposal_digest"), "digests.proposal_digest")
+    _count(d.get("n_interpretations"), "digests.n_interpretations")
+    if state == "DECIDED":
+        _hex(d.get("decision_digest"), "digests.decision_digest")
+        _count(d.get("n_decided"), "digests.n_decided")
+        _hex(d.get("binding_digest"), "digests.binding_digest")
+        _count(d.get("n_bindings"), "digests.n_bindings")
+        keys = manifest.get("accepted_keys")
+        if not isinstance(keys, list):
+            _bad("accepted_keys")
+        for k in keys:
+            _uuid(k, "accepted_keys[]")
+    else:
+        _hex(d.get("decision_digest"), "digests.decision_digest")
+        _count(manifest.get("n_decisions"), "n_decisions")
+        _hex(manifest.get("baseline", {}).get("clause_set_sha256"), "baseline.clause_set_sha256")
+        kc = manifest.get("keyed_classification")
+        if not isinstance(kc, dict):
+            _bad("keyed_classification")
+        for k, v in kc.items():
+            _uuid(k, "keyed_classification{}")
+            if not (isinstance(v, list) and len(v) == 2 and v[0] in CONTROL_CLASSES
+                    and (v[1] is None or (isinstance(v[1], int) and not isinstance(v[1], bool)))):
+                _bad("keyed_classification[]")
+
+
+def _validate_decisions(decisions: list) -> None:
+    if not isinstance(decisions, list):
+        _bad("decisions")
+    for d in decisions:
+        _uuid(d.get("interpretation_key"), "decisions[].interpretation_key")
+        if d.get("status") not in DECISION_STATUSES:
+            _bad("decisions[].status")
+        _hex(d.get("decision_fingerprint"), "decisions[].decision_fingerprint")
+        if not isinstance(d.get("evidence"), dict):
+            _bad("decisions[].evidence")
+
+
+def _check_tags(sql: str) -> str:
+    """Seler og livrem: hvert DO-tag skal stå præcis to gange (åbning og lukning af én blok)."""
+    tags = Counter(re.findall(r"\$[A-Za-z_]*\$", sql))
+    if not tags or any(n != 2 for n in tags.values()):
+        raise PackError("PACK_DOLLAR_TAG")
+    return sql
 
 
 def _lit(s: str) -> str:
@@ -166,7 +243,11 @@ def _quiet_include(name: str) -> str:
 
 def _head() -> list[str]:
     # psql indsætter ikke :src i $-quotede DO-blokke; kilden lægges derfor i en GUC.
+    # REPEATABLE READ: vagter og skrivning ser ét snapshot. Sessionen skal citere strenge som standard.
     return ["\\set ON_ERROR_STOP on", "\\set QUIET on", "BEGIN;",
+            "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;",
+            "DO $u$ BEGIN IF current_setting('standard_conforming_strings') <> 'on' "
+            "THEN RAISE EXCEPTION 'TRANSFER_SESSION_UNSAFE'; END IF; END $u$;",
             "SELECT set_config('daa.src', :'src', true) \\g /dev/null"]
 
 
@@ -203,7 +284,9 @@ def _tail() -> list[str]:
 def decide_sql(decisions: list[dict], manifest: dict) -> str:
     """07: én transaktion. Læsning som ejerrolle; kun RPC-kaldene som authenticated (review 2, N4).
     Vagtrækkefølge: tilstand → klausulsæt → præmis → fingeraftryk → nøgleopslag → aktør → skrivning → digest."""
-    if any(d["expected_version"] != 1 for d in decisions):
+    _validate_manifest(manifest, "PROPOSED")
+    _validate_decisions(decisions)
+    if any(d.get("expected_version") != 1 for d in decisions):
         raise PackError("PACK_EXPECTED_VERSION")
     pack = manifest["pack_sha256"]
     plan = canonical([{"k": d["interpretation_key"], "s": d["status"], "fp": d["decision_fingerprint"],
@@ -215,7 +298,7 @@ def decide_sql(decisions: list[dict], manifest: dict) -> str:
         raise PackError("PACK_DOLLAR_TAG")
     base = manifest["baseline"]
     n_dec = int(manifest["n_decisions"])
-    return "\n".join(_head() + [
+    return _check_tags("\n".join(_head() + [
         _state_guard(manifest, "PROPOSED", "TRANSFER_STATE_NOT_PROPOSED"),
         # (1) Klausulsættet (spec §4.2).
         _quiet_include("transfer_baseline.sql"),
@@ -262,14 +345,15 @@ def decide_sql(decisions: list[dict], manifest: dict) -> str:
         "THEN RAISE EXCEPTION 'DECISION_DIGEST_MISMATCH'; END IF; END $d$;",
         "COMMIT;",
         f"\\echo 'TRANSFER_07_OK afgørelser={n_dec}'",
-    ]) + "\n"
+    ]) + "\n")
 
 
 def bind_sql(manifest: dict) -> str:
     """08: én transaktion; pakkescope obligatorisk; preview og batch i samme transaktion."""
+    _validate_manifest(manifest, "DECIDED")
     scope = canonical(manifest["accepted_keys"])
     n_bind = int(manifest["digests"]["n_bindings"])
-    return "\n".join(_head() + [
+    return _check_tags("\n".join(_head() + [
         _state_guard(manifest, "DECIDED", "TRANSFER_STATE_NOT_DECIDED"),
         f"SELECT set_config('daa.transfer_scope', {_lit(scope)}, true) \\g /dev/null",
         # Aktuelle accepterede for kilden = pakkens accepterede nøgler.
@@ -302,7 +386,7 @@ def bind_sql(manifest: dict) -> str:
         f"OR (d->>'n_bindings')::int <> {n_bind} THEN RAISE EXCEPTION 'BINDING_DIGEST_MISMATCH'; END IF; END $d$;",
         "COMMIT;",
         f"\\echo 'TRANSFER_08_OK bindinger={n_bind}'",
-    ]) + "\n"
+    ]) + "\n")
 
 
 def _load(path: str):
@@ -349,6 +433,8 @@ def main(argv=None) -> int:
             if hashlib.sha256(dec_bytes).hexdigest() != manifest["decisions_keyed_sha256"]:
                 raise PackError("PACK_DECISIONS_SHA_MISMATCH")
             decisions = json.loads(dec_bytes.decode("utf-8"))
+            if Path(args.out).exists():
+                raise PackError("PACK_OUT_EXISTS")
             sql = decide_sql(decisions, manifest) if args.cmd == "decide-sql" else bind_sql(manifest)
             _write_private(Path(args.out), sql)
             print(f"{args.cmd.upper().replace('-', '_')}_OK pack_sha256={manifest['pack_sha256']} "
@@ -358,6 +444,9 @@ def main(argv=None) -> int:
             if pack_sha256(manifest) != manifest.get("pack_sha256"):
                 raise PackError("PACK_SHA_MISMATCH")
             print(classify_state(_load(args.digests), manifest))
+    except FileExistsError:
+        print("PACK_OUT_EXISTS")
+        return 1
     except PackError as exc:
         print(str(exc))
         return 1
