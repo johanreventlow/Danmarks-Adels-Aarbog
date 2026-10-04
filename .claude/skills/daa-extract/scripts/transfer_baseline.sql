@@ -1,7 +1,17 @@
 -- Driftsbaseline (spec 2026-10-03 §4.3). Læse-kun. Indholdshash over de data, klassifikationen og
--- målfindingen hviler på, antal i de øvrige kanoniske tabeller, klausulsættet og skemaet.
--- Ingen tællinger af autorisationer, writer-profiler eller fortolkninger: dry-run og ingest
--- ændrer dem lovligt. n_interpretations_src tæller forslag (distinkte nøgler), ikke versioner: en afgørelse tilføjer en version. Input: psql-variablen src. Output: daa.transfer_baseline.
+-- målfindingen hviler på, klausulsættet og skemaet. Driftssammenligningen er PR. FELT over
+-- canonical_sha256, clause_set_sha256 og schema_sha256. n_interpretations_src er et TILSTANDSFELT
+-- (antal distinkte forslag; 0 i dump-tilstand), ikke en driftsinvariant: ingest ændrer det lovligt, en
+-- afgørelse tilføjer en version men ikke et forslag. Ingen tællinger af autorisationer eller writer-profiler.
+-- Input: psql-variablen src. Output: daa.transfer_baseline.
+-- Pinner sessionsindstillinger (TimeZone, extra_float_digits, IntervalStyle, DateStyle, search_path) under beregningen,
+-- så hashen er ens lokalt og i prod (Supabase = UTC), og gendanner kalderens værdier bagefter. search_path=pg_catalog:
+-- alle objekter i filen er skemakvalificerede (public./private./extensions.).
+SELECT set_config('daa._saved_tz', current_setting('TimeZone'), false), set_config('daa._saved_efd', current_setting('extra_float_digits'), false),
+       set_config('daa._saved_is', current_setting('IntervalStyle'), false), set_config('daa._saved_ds', current_setting('DateStyle'), false),
+       set_config('daa._saved_sp', current_setting('search_path'), false) \g /dev/null
+SELECT set_config('TimeZone','UTC',false), set_config('extra_float_digits','1',false), set_config('IntervalStyle','postgres',false),
+       set_config('DateStyle','ISO, MDY',false), set_config('search_path','pg_catalog',false) \g /dev/null
 WITH tab AS (
   SELECT 'assertion' AS n, encode(extensions.digest(convert_to(coalesce(string_agg(to_jsonb(a)::text, E'\n' ORDER BY a.id),''),'UTF8'),'sha256'),'hex') AS h FROM public.assertion a
   UNION ALL SELECT 'fact', encode(extensions.digest(convert_to(coalesce(string_agg(to_jsonb(f)::text, E'\n' ORDER BY f.id),''),'UTF8'),'sha256'),'hex') FROM public.fact f
@@ -29,8 +39,10 @@ WITH tab AS (
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname IN ('public','private') AND p.prokind IN ('f','p')
   UNION ALL
-  SELECT c.table_schema || '.' || c.table_name || '.' || c.column_name || ':' || c.data_type || ':' || c.is_nullable
-    FROM information_schema.columns c WHERE c.table_schema IN ('public','private')
+  SELECT n.nspname || '.' || c.relname || '.' || a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':' ||
+         CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END
+    FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname IN ('public','private') AND c.relkind IN ('r','p','v','m','f') AND a.attnum > 0 AND NOT a.attisdropped
 ), b AS (
   SELECT
     encode(extensions.digest(convert_to((SELECT string_agg(n || '=' || h, E'\n' ORDER BY n COLLATE "C") FROM tab),'UTF8'),'sha256'),'hex') AS canonical_sha256,
@@ -39,3 +51,6 @@ WITH tab AS (
     encode(extensions.digest(convert_to((SELECT string_agg(t, E'\n' ORDER BY t COLLATE "C") FROM sch),'UTF8'),'sha256'),'hex') AS schema_sha256
 )
 SELECT set_config('daa.transfer_baseline', to_jsonb(b)::text, false) AS transfer_baseline FROM b;
+SELECT set_config('TimeZone', current_setting('daa._saved_tz'), false), set_config('extra_float_digits', current_setting('daa._saved_efd'), false),
+       set_config('IntervalStyle', current_setting('daa._saved_is'), false), set_config('DateStyle', current_setting('daa._saved_ds'), false),
+       set_config('search_path', current_setting('daa._saved_sp'), false) \g /dev/null

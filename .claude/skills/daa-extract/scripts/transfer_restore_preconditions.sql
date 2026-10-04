@@ -3,9 +3,17 @@
 --     FK over forældreløse rækker. Flerkolonne-FK'er tælles som antal (skal stå i rapporten).
 -- (2) Katalogfingeraftryk: FK-, policy-, funktions- og sekvensdefinitioner — sammenlignes med
 --     prods eget efter fortrydelsesøvelsen. Output: daa.restore_preconditions.
+-- Pinner sessionsindstillinger (TimeZone, extra_float_digits, IntervalStyle, DateStyle, search_path) under beregningen,
+-- så hashen er ens lokalt og i prod (Supabase = UTC), og gendanner kalderens værdier bagefter. search_path=pg_catalog:
+-- alle objekter i filen er skemakvalificerede (public./private./extensions.).
 DO $pc$
-DECLARE r record; n bigint; orphans jsonb := '{}'; multi int := 0; cat text;
+DECLARE
+  v_tz text:=current_setting('TimeZone'); v_efd text:=current_setting('extra_float_digits'); v_is text:=current_setting('IntervalStyle');
+  v_ds text:=current_setting('DateStyle'); v_sp text:=current_setting('search_path');
+       r record; n bigint; orphans jsonb := '{}'; multi int := 0; cat text;
 BEGIN
+  PERFORM set_config('TimeZone','UTC',false); PERFORM set_config('extra_float_digits','1',false); PERFORM set_config('IntervalStyle','postgres',false);
+  PERFORM set_config('DateStyle','ISO, MDY',false); PERFORM set_config('search_path','pg_catalog',false);
   FOR r IN SELECT con.conname, cn.nspname AS sch, c.relname AS tab, a.attname AS col,
                   fn.nspname AS fsch, f.relname AS ftab, fa.attname AS fcol
              FROM pg_constraint con
@@ -28,12 +36,14 @@ BEGIN
       FROM pg_policies WHERE schemaname IN ('private','public')
     UNION ALL SELECT 'fn:' || n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || '):' || md5(pg_get_functiondef(p.oid))
       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('private','public') AND p.prokind IN ('f','p')
-    UNION ALL SELECT 'seq:' || sequence_schema || '.' || sequence_name FROM information_schema.sequences WHERE sequence_schema IN ('private','public')
+    UNION ALL SELECT 'seq:' || n.nspname || '.' || c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind = 'S' AND n.nspname IN ('private','public')
   ) s;
   PERFORM set_config('daa.restore_preconditions', jsonb_build_object(
     'orphans', orphans,
     'n_orphans_total', coalesce((SELECT sum(value::bigint) FROM jsonb_each_text(orphans)), 0),
     'n_multi_column_fks', multi,
     'catalog_sha256', encode(extensions.digest(convert_to(coalesce(cat,''),'UTF8'),'sha256'),'hex'))::text, false);
+  PERFORM set_config('TimeZone',v_tz,false); PERFORM set_config('extra_float_digits',v_efd,false); PERFORM set_config('IntervalStyle',v_is,false);
+  PERFORM set_config('DateStyle',v_ds,false); PERFORM set_config('search_path',v_sp,false);
 END $pc$;
 SELECT current_setting('daa.restore_preconditions') AS restore_preconditions;
