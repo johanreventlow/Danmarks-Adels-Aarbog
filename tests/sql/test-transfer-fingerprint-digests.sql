@@ -110,4 +110,155 @@ BEGIN
   END IF;
 END $$;
 \echo 'OK: transfer fingerprint'
+-- ===== Task 2: de tre digests (D1-D6) =====
+-- D1 a/b: ingen afgørelser; b permuteret. D3 c/d/e: afgørelser. D6 f/g: pack_sha256.
+SAVEPOINT v;
+SELECT pg_temp.transfer_fx(-4700,'a4710000','b4700000') \g /dev/null
+SET CONSTRAINTS ALL IMMEDIATE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_transfer_digests.sql
+\o
+SELECT current_setting('daa.transfer_digests') AS dg_a \gset
+ROLLBACK TO SAVEPOINT v;
+SAVEPOINT v;
+SELECT pg_temp.transfer_fx(-4700,'a4711000','b4700000','Anna død 1850',false,'Anna',true) \g /dev/null
+SET CONSTRAINTS ALL IMMEDIATE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_transfer_digests.sql
+\o
+SELECT current_setting('daa.transfer_digests') AS dg_b \gset
+ROLLBACK TO SAVEPOINT v;
+-- D2 (kommentar): dispositions-evidence (batch_id) er udeladt af digestet; D1 bestod trods ens batch_id pr. variant.
+SAVEPOINT v;
+SELECT pg_temp.transfer_fx(-4700,'a4712000','b4700000') \g /dev/null
+SET CONSTRAINTS ALL IMMEDIATE;
+SELECT (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000001' AND version=1) AS id1,
+       (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000002' AND version=1) AS id2 \gset
+SET CONSTRAINTS ALL DEFERRED;
+SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true);
+SET LOCAL ROLE authenticated;
+SELECT red_decide_interpretation(:'id1',1,'accepted','{"method":"m"}') \g /dev/null
+SELECT red_decide_interpretation(:'id2',1,'rejected','{"method":"m"}') \g /dev/null
+RESET ROLE;
+SET CONSTRAINTS ALL IMMEDIATE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_transfer_digests.sql
+\o
+SELECT current_setting('daa.transfer_digests') AS dg_c \gset
+ROLLBACK TO SAVEPOINT v;
+SAVEPOINT v;
+SELECT pg_temp.transfer_fx(-4700,'a4713000','b4700000','Anna død 1850',false,'Anna',true) \g /dev/null
+SET CONSTRAINTS ALL IMMEDIATE;
+SELECT (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000001' AND version=1) AS id1,
+       (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000002' AND version=1) AS id2 \gset
+SET CONSTRAINTS ALL DEFERRED;
+SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true);
+SET LOCAL ROLE authenticated;
+SELECT red_decide_interpretation(:'id1',1,'accepted','{"method":"m"}') \g /dev/null
+SELECT red_decide_interpretation(:'id2',1,'rejected','{"method":"m"}') \g /dev/null
+RESET ROLE;
+SET CONSTRAINTS ALL IMMEDIATE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_transfer_digests.sql
+\o
+SELECT current_setting('daa.transfer_digests') AS dg_d \gset
+ROLLBACK TO SAVEPOINT v;
+SAVEPOINT v;
+SELECT pg_temp.transfer_fx(-4700,'a4714000','b4700000') \g /dev/null
+SET CONSTRAINTS ALL IMMEDIATE;
+SELECT (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000001' AND version=1) AS id1,
+       (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000002' AND version=1) AS id2 \gset
+SET CONSTRAINTS ALL DEFERRED;
+SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true);
+SET LOCAL ROLE authenticated;
+SELECT red_decide_interpretation(:'id1',1,'rejected','{"method":"m"}') \g /dev/null
+SELECT red_decide_interpretation(:'id2',1,'accepted','{"method":"m"}') \g /dev/null
+RESET ROLE;
+SET CONSTRAINTS ALL IMMEDIATE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_transfer_digests.sql
+\o
+SELECT current_setting('daa.transfer_digests') AS dg_e \gset
+ROLLBACK TO SAVEPOINT v;
+SAVEPOINT v;
+SELECT pg_temp.transfer_fx(-4700,'a4715000','b4700000') \g /dev/null
+SET CONSTRAINTS ALL IMMEDIATE;
+SELECT (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000001' AND version=1) AS id1,
+       (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000002' AND version=1) AS id2 \gset
+SET CONSTRAINTS ALL DEFERRED;
+SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true);
+SET LOCAL ROLE authenticated;
+SELECT red_decide_interpretation(:'id1',1,'accepted','{"method":"m"}') \g /dev/null
+RESET ROLE;
+SET CONSTRAINTS ALL IMMEDIATE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_transfer_digests.sql
+\o
+SELECT current_setting('daa.transfer_digests') AS dg_f \gset
+ROLLBACK TO SAVEPOINT v;
+SAVEPOINT v;
+SELECT pg_temp.transfer_fx(-4700,'a4716000','b4700000','Anna død 1850',false,'Anna',true) \g /dev/null
+SET CONSTRAINTS ALL IMMEDIATE;
+SELECT (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000001' AND version=1) AS id1,
+       (SELECT id FROM private.interpretation WHERE interpretation_key='b4700000-0000-4000-8000-000000000002' AND version=1) AS id2 \gset
+SET CONSTRAINTS ALL DEFERRED;
+SELECT set_config('request.jwt.claim.sub','a4700000-0000-4000-8000-000000000001',true);
+SET LOCAL ROLE authenticated;
+SELECT red_decide_interpretation(:'id1',1,'accepted','{"method":"m","pack_sha256":"x"}') \g /dev/null
+RESET ROLE;
+SET CONSTRAINTS ALL IMMEDIATE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_transfer_digests.sql
+\o
+SELECT current_setting('daa.transfer_digests') AS dg_g \gset
+ROLLBACK TO SAVEPOINT v;
+-- D5: klassifikationen i basisvarianten (senere tasks afhænger af den).
+SAVEPOINT v;
+SELECT pg_temp.transfer_fx(-4700,'a4717000','b4700000') \g /dev/null
+SET CONSTRAINTS ALL IMMEDIATE;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_control_classification.sql
+\o
+SELECT (SELECT jsonb_object_agg(i.interpretation_key::text, x->>'class')
+          FROM jsonb_array_elements(current_setting('daa.control_result')::jsonb->'items') x
+          JOIN private.interpretation i ON i.id=(x->>'interpretation_id')::uuid) AS cls \gset
+ROLLBACK TO SAVEPOINT v;
+SELECT set_config('t.cls',:'cls',true) \g /dev/null
+SELECT set_config('t.dg_a',:'dg_a',true), set_config('t.dg_b',:'dg_b',true), set_config('t.dg_c',:'dg_c',true),
+       set_config('t.dg_d',:'dg_d',true), set_config('t.dg_e',:'dg_e',true), set_config('t.dg_f',:'dg_f',true),
+       set_config('t.dg_g',:'dg_g',true) \g /dev/null
+DO $$ DECLARE
+  a jsonb := current_setting('t.dg_a')::jsonb; b jsonb := current_setting('t.dg_b')::jsonb;
+  c jsonb := current_setting('t.dg_c')::jsonb; d jsonb := current_setting('t.dg_d')::jsonb;
+  e jsonb := current_setting('t.dg_e')::jsonb; f jsonb := current_setting('t.dg_f')::jsonb;
+  g jsonb := current_setting('t.dg_g')::jsonb; cls jsonb := current_setting('t.cls')::jsonb;
+  empty text := 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+BEGIN
+  -- D1: samme indhold, andre id'er og permuteret id-rækkefølge => identiske digests og antal.
+  IF a IS DISTINCT FROM b THEN RAISE EXCEPTION 'D1: digests afhænger af id''er (% vs %)', a, b; END IF;
+  IF (a->>'n_interpretations')::int <> 3 OR (a->>'n_decided')::int <> 0 OR (a->>'n_bindings')::int <> 0 THEN
+    RAISE EXCEPTION 'D1: antal %', a;
+  END IF;
+  IF a->>'decision_digest' <> empty OR a->>'binding_digest' <> empty THEN
+    RAISE EXCEPTION 'D1: tomme lag forventet sha256 af tom streng, fik %', a;
+  END IF;
+  IF a->'decided_by_method_status' IS DISTINCT FROM '{}'::jsonb THEN RAISE EXCEPTION 'D1: fordeling %', a; END IF;
+  -- D3: samme afgørelser, permuteret => ens; ombyttet status => kun decision_digest ændres.
+  IF c->>'proposal_digest' <> a->>'proposal_digest' OR d->>'proposal_digest' <> a->>'proposal_digest'
+     OR e->>'proposal_digest' <> a->>'proposal_digest' THEN RAISE EXCEPTION 'D3: forslag ændret af afgørelse'; END IF;
+  IF c->'decided_by_method_status' IS DISTINCT FROM d->'decided_by_method_status'
+     OR c->>'decision_digest' IS DISTINCT FROM d->>'decision_digest' THEN RAISE EXCEPTION 'D3: afgørelser id-afhængige'; END IF;
+  IF (c->>'n_decided')::int <> 2 OR c->'decided_by_method_status' IS DISTINCT FROM '{"m|accepted":1,"m|rejected":1}'::jsonb THEN
+    RAISE EXCEPTION 'D3: fordeling %', c;
+  END IF;
+  IF e->>'decision_digest' = c->>'decision_digest' THEN RAISE EXCEPTION 'D3: ombyttet status ikke fanget'; END IF;
+  IF c->>'decision_digest' = empty THEN RAISE EXCEPTION 'D3: tomt afgørelseslag'; END IF;
+  -- D6: pack_sha256 i evidensen tæller ikke med.
+  IF f->>'decision_digest' IS DISTINCT FROM g->>'decision_digest' THEN RAISE EXCEPTION 'D6: pack_sha256 tæller med'; END IF;
+  -- D5: klassifikation.
+  IF cls->>'b4700000-0000-4000-8000-000000000001' IS DISTINCT FROM 'MATCH' THEN RAISE EXCEPTION 'D5: k1 forventet MATCH, fik %', cls; END IF;
+  IF cls->>'b4700000-0000-4000-8000-000000000002' IS DISTINCT FROM 'REAL_DIFF' THEN RAISE EXCEPTION 'D5: k2 forventet REAL_DIFF, fik %', cls; END IF;
+  IF cls ? 'b4700000-0000-4000-8000-000000000003' THEN RAISE EXCEPTION 'D5: k3 forventet fraværende, fik %', cls; END IF;
+END $$;
+\echo 'OK: transfer digests'
 ROLLBACK;
