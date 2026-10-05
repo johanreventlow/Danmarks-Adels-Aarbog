@@ -63,9 +63,9 @@ INSERT INTO private.interpretation_observation(interpretation_id,observation_id,
 SET CONSTRAINTS private.interpretation_has_observation IMMEDIATE;
 SET CONSTRAINTS private.interpretation_has_observation DEFERRED;
 SELECT set_config('request.jwt.claim.sub','a4500000-0000-4000-8000-000000000001',true);
+SELECT private.decide_source_persona_identity(('a4500000-0000-4000-8000-00000000010'||n)::uuid,-4500-n,0,'accepted',
+         '{"basis":"web_detail","note":"targets45"}','human') FROM generate_series(1,3) n;
 SET LOCAL ROLE authenticated;
-SELECT red_decide_source_persona_identity(('a4500000-0000-4000-8000-00000000010'||n)::uuid,-4500-n,0,'accepted',
-         '{"basis":"targets45"}') FROM generate_series(1,3) n;
 SELECT red_decide_interpretation(('a4500000-0000-4000-8000-00000000030'||n)::uuid,1,'accepted','{"basis":"targets45"}')
   FROM generate_series(1,7) n;
 RESET ROLE;
@@ -121,9 +121,9 @@ END $$;
 -- Promotion til ET ANDET mål: persona 1 flyttes til -4504, hvis død '1850' er -4541.
 -- RPC'en afviser kun den eksakte (fortolkning, mål)-triple, så -4541 er et gyldigt MATCH.
 SET LOCAL default_transaction_read_only = off;
+SELECT private.decide_source_persona_identity('a4500000-0000-4000-8000-000000000101'::uuid,-4504,1,'accepted',
+         '{"basis":"web_detail","note":"targets45 flyt"}','human');
 SET LOCAL ROLE authenticated;
-SELECT red_decide_source_persona_identity('a4500000-0000-4000-8000-000000000101'::uuid,-4504,1,'accepted',
-         '{"basis":"targets45 flyt"}');
 RESET ROLE;
 SET LOCAL default_transaction_read_only = on;
 \i .claude/skills/daa-extract/scripts/interpretation_promotion_targets.sql
