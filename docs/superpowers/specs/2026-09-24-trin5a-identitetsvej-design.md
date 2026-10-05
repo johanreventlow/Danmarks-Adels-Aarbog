@@ -172,7 +172,9 @@ i brug; planen afgør det efter læsning.
   systemet; webkøen viser kun gemte kandidater.
 - **Input:** personas uden gældende afgørelse (eller en eksplicit liste i genbekræftelsestilstand,
   §8.2) fra én kilde. Persona-siden: navn fra personaens mention (`nameKey` via `matchKey`), fødsels-
-  og dødsår fra personaens fortolkninger (`accepted` foran `proposed`), køn hvor kendt. Person-siden:
+  og dødsår fra personaens fortolkninger (`accepted` foran `proposed`). Køn bruges ikke i 5a: der
+  findes intet kønsprædikat for personas, og matcheren lader ukendt køn tælle neutralt (projektejerens
+  valg 2026-10-05; kan genoptages i 5b). Person-siden:
   `person` med visningsnavn, køn og fødsels-/dødsfakta.
 - **Output:** top-K (standard 3) pr. persona med score, tier og signaler. **Ingen automatisk accept** —
   heller ikke ved tier `auto`; tier bruges kun til sortering.
@@ -391,4 +393,5 @@ kernens kaldere er de samme; designet står uændret. To ændringer:
 | Emne | Ændring |
 | --- | --- |
 | Kalibreringens base (§8.1, §13 punkt 1) | Kopi af `daa2018f_20261001133125` (den fulde 2018-20-kørsel) i stedet for pilotbasen efter 4.5 — flere hundrede navngivne personas i stedet for ca. 27. Projektejerens valg 2026-10-05. |
+| Køn (§5) | Bruges ikke i 5a — intet kønsprædikat for personas (Codex 2026-10-05, projektejerens valg samme dag). |
 | Erstatning på stedet (§4.2) | Gælder identitetsguardens funktioner. Detalje- og kø-RPC'en må omdefineres sidst i `db-migrations.sql` (som omsegmenteringen gør), da en mellemtilstand med den gamle version er harmløs. |

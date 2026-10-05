@@ -43,7 +43,7 @@ Frisk-baser noteres i ledgeren og ryddes i Task 9's oprydningsgate (måling før
 1. **Samme person er bedste kandidat for to personas** (fx samme mand nævnt i to poster) — begge skal have ham som kandidat 1; rangeringen må ikke være injektiv. Test: Task 5 `rank.test.ts` »ikke-injektiv«.
 2. **Generatoren køres igen mellem eksport og afgørelse** — et kandidat-token skal pege på det, redaktøren så; RPC'en afviser en forældet kørsel atomisk under kildelåsen. Test: Task 3 `test-identity-decision.sql` (`EVIDENCE_IDENTITY_CANDIDATE_RUN_STALE` + låsetesten), i CI.
 3. **Persona uden navn / uden kandidater** — står i arket med »ingen kandidat«; token `1` er ugyldigt, `X`/`N`/`U`/`P` er gyldige. Test: Task 7 `test_kandidat_token_uden_kandidat_stopper`.
-4. **Guarden må ikke vælte oprettelse, 149b og fortrydelse** — `red_apply_reimport_person_create` (nu via kvittering), 149b's migration (`legacy_match`) og reversal-writerne skal stadig virke. Test: Task 3 kører `tests/sql/test-reimport-writer.sql` og `test-reimport-legacy-migration.sql` **uændret** grønt, plus egne cases pr. oprindelse.
+4. **Guarden må ikke vælte oprettelse, 149b og fortrydelse** — `red_apply_reimport_person_create` (nu via kvittering), 149b's migration (`legacy_match`) og reversal-writerne skal stadig virke. Test: Task 3 kører uændret grønt `test-reimport-legacy-migration.sql` (149b), `test-reimport-name-completion.sql` og `test-1939-v50-production-writer.sql` (positive kald af oprettelse og fortrydelse) samt 1939-writerens rollback/apply/reversal-integration (`tests/integration/test-1939-v50-production-writer.R`); `test-reimport-writer.sql` dækker kun afvisninger. Plus egne guard-cases pr. oprindelse.
 5. **Kollision** — kandidatpersonen er allerede accepteret for en anden persona i samme kilde; skal vises, ikke blokere. Test: Task 4 `collisions` i detalje-RPC'en og Task 8 komponent-test.
 
 ---
@@ -715,6 +715,8 @@ Statisk, fordi db-migrations.sql ikke kører i én transaktion: en uguardet defi
 nogetsteds i filen ville være aktiv under deployet, selv om sluttilstanden er rigtig. Mellemtilstanden
 før de omskrevne linjer dækkes af cutover-blokken øverst (testet i test-identity-cutover.sql).
 """
+from __future__ import annotations  # /usr/bin/python3 lokalt er 3.9; CI kører 3.11
+
 import re
 from pathlib import Path
 
@@ -740,8 +742,35 @@ ALLOWLIST = {
 }
 
 
+def _uden_kommentarer(s: str) -> str:
+    return re.sub(r"--[^\n]*", "", s)
+
+
 def _tekst(navn: str) -> str:
-    return re.sub(r"--[^\n]*", "", (ROOT / navn).read_text(encoding="utf-8"))
+    return _uden_kommentarer((ROOT / navn).read_text(encoding="utf-8"))
+
+
+def _uden_cutover(raa: str) -> str:
+    """Skær cutover-blokken ud af RÅTEKSTEN og strip derefter kommentarer. Rækkefølgen er bærende:
+    blokkens markører er selv kommentarer og forsvinder, hvis der strippes først (Codex 2026-10-05)."""
+    return _uden_kommentarer(CUTOVER.sub("", raa))
+
+
+def offentlig_kerne_uden_for_cutover(raa: str) -> list[str]:
+    s = _uden_cutover(raa)
+    fund = []
+    for m in re.finditer(r"red_decide_source_persona_identity\(", s):
+        linje = s[s.rfind("\n", 0, m.start()) + 1:s.find("\n", m.start())]
+        if "DROP FUNCTION IF EXISTS public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)" not in linje:
+            fund.append(linje.strip()[:120])
+    return fund
+
+
+def femarguments_wrapper_uden_for_cutover(raa: str) -> bool:
+    s = _uden_cutover(raa).replace("DROP FUNCTION IF EXISTS red_afgoer_source_persona(uuid,integer,text,bigint,text)", "")
+    return ("red_afgoer_source_persona(uuid,integer,text,bigint,text)" in s
+            or bool(re.search(r"FUNCTION\s+(public\.)?red_afgoer_source_persona\(\s*p_source_persona_id uuid,\s*"
+                              r"p_expected_version integer,\s*p_action text,\s*p_canonical_person_id bigint,\s*p_note text\s*\)", s)))
 
 
 def kernekald(s: str) -> list[tuple[str | None, str | None, str, int]]:
@@ -789,19 +818,37 @@ def test_kaldere_er_praecis_allowlisten():
 
 def test_ingen_offentlig_kerne_uden_for_cutover_og_drop():
     for navn in ("schema.sql", "db-migrations.sql"):
-        s = CUTOVER.sub("", _tekst(navn))
-        for m in re.finditer(r"red_decide_source_persona_identity\(", s):
-            linje = s[s.rfind("\n", 0, m.start()) + 1:s.find("\n", m.start())]
-            assert "DROP FUNCTION IF EXISTS public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)" in linje, \
-                f"{navn}: {linje.strip()[:120]}"
+        assert offentlig_kerne_uden_for_cutover((ROOT / navn).read_text(encoding="utf-8")) == [], navn
 
 
 def test_femarguments_wrapper_findes_kun_i_cutover_og_drop():
     for navn in ("schema.sql", "db-migrations.sql"):
-        s = CUTOVER.sub("", _tekst(navn)).replace("DROP FUNCTION IF EXISTS red_afgoer_source_persona(uuid,integer,text,bigint,text)", "")
-        assert "red_afgoer_source_persona(uuid,integer,text,bigint,text)" not in s, navn
-        assert not re.search(r"FUNCTION\s+(public\.)?red_afgoer_source_persona\(\s*p_source_persona_id uuid,\s*"
-                             r"p_expected_version integer,\s*p_action text,\s*p_canonical_person_id bigint,\s*p_note text\s*\)", s), navn
+        assert not femarguments_wrapper_uden_for_cutover((ROOT / navn).read_text(encoding="utf-8")), navn
+
+
+# Den planlagte blok (Step 8) ordret: vagten skal ignorere den, men kun inden for markørerne.
+CUTOVER_FIXTURE = r"""-- BEGIN 5a-cutover (#151): lukker klientvejen til den gamle identitetskerne og femarguments-
+DO $cutover_5a$
+BEGIN
+  IF to_regprocedure('public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)') IS NOT NULL THEN
+    REVOKE ALL ON FUNCTION public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+  END IF;
+  IF to_regprocedure('public.red_afgoer_source_persona(uuid,integer,text,bigint,text)') IS NOT NULL THEN
+    REVOKE ALL ON FUNCTION public.red_afgoer_source_persona(uuid,integer,text,bigint,text) FROM PUBLIC,anon,authenticated,service_role;
+  END IF;
+END $cutover_5a$;
+-- END 5a-cutover
+"""
+
+
+def test_cutover_blokken_ignoreres_kun_inden_for_markoererne():
+    assert offentlig_kerne_uden_for_cutover(CUTOVER_FIXTURE) == []
+    assert not femarguments_wrapper_uden_for_cutover(CUTOVER_FIXTURE)
+    uden_markoerer = CUTOVER_FIXTURE.replace("-- BEGIN 5a-cutover", "-- BEGIN x").replace("-- END 5a-cutover", "-- END x")
+    assert offentlig_kerne_uden_for_cutover(uden_markoerer)
+    assert femarguments_wrapper_uden_for_cutover(uden_markoerer)
+    # Regressionsvagt: strip-først-rækkefølgen ville aldrig skære blokken ud.
+    assert "red_decide_source_persona_identity(" in CUTOVER.sub("", _uden_kommentarer(CUTOVER_FIXTURE))
 
 
 def test_kernen_grantes_aldrig():
@@ -832,7 +879,7 @@ def test_cutover_staar_foer_foerste_saetning():
         assert f"REVOKE ALL ON FUNCTION {sig} FROM PUBLIC,anon,authenticated,service_role" in blok.group(0), sig
 ```
 
-Kør: `cd .claude/skills/daa-extract/scripts && env -u NODE_OPTIONS /usr/bin/python3 -m pytest test_identity_guard_static.py -q`. Expected: `test_checkeren_fanger_fejl` PASS, de øvrige FAIL (kernen er offentlig, ingen cutover).
+Kør: `cd .claude/skills/daa-extract/scripts && env -u NODE_OPTIONS /usr/bin/python3 -m pytest test_identity_guard_static.py -q`. Expected: `3 passed, 5 failed` — `test_checkeren_fanger_fejl`, `test_cutover_blokken_ignoreres_kun_inden_for_markoererne` og `test_person_create_kaldere_opretter_via_kvittering` (tom, før der findes `person_create`-kald) består; de øvrige fejler (kernen er offentlig, ingen cutover). Efterprøvet mod `main` 2026-10-05.
 
 - [ ] **Step 2: Skriv den fejlende SQL-test** `tests/sql/test-identity-decision.sql`:
 
@@ -1286,7 +1333,22 @@ psql -X -q -v ON_ERROR_STOP=1 -d "$FRESH" -f tests/sql/run-db-verify-disposable.
 (cd .claude/skills/daa-extract/scripts && env -u NODE_OPTIONS /usr/bin/python3 -m pytest test_identity_guard_static.py -q) | tail -2
 ```
 
-Expected: alle `rc=0`, pytest `7 passed`. `test-reimport-writer.sql` beviser, at oprettelse (nu med kvittering) og fortrydelse stadig virker, og `test-reimport-legacy-migration.sql` — **uændret** — at 149b's migration og dens fortrydelse per element virker som `legacy_match` (Review Focus 4). Fejler en test på `EVIDENCE_IDENTITY_BASIS_REQUIRED` eller `EVIDENCE_IDENTITY_ORIGIN_INVALID`: **STOP** — en kalder mangler i tabellen; afgør med projektejeren, ikke med en ny oprindelse.
+Kør derefter writer-beviserne på en opgraderet base, præcis som CI's job (`ci.yml:319-329`) — den beviser samtidig opgraderingsstien fra et gammelt skema gennem cutover-blokken:
+
+```bash
+LE=daa5a_legacy_$(date +%Y%m%d%H%M%S); createdb "$LE"
+{ psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f tests/sql/evidence-promotion-bootstrap.sql &&
+  git show 2d6aabf:schema.sql | psql -X -q -v ON_ERROR_STOP=1 -d "$LE" &&
+  psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f tests/sql/reimport-writer-legacy-empty-fixture.sql &&
+  psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f db-migrations.sql && psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f db-rls.sql; } \
+  > /tmp/claude-501/t3-legacy-setup.log 2>&1; echo "setup rc=$?"
+for t in test-reimport-writer test-reimport-name-completion test-1939-v50-production-writer test-1939-v50-name-completion run-db-verify-disposable; do
+  psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f tests/sql/$t.sql > /tmp/claude-501/t3-le-$t.log 2>&1; echo "$t rc=$?"; done
+```
+
+og 1939-writerens integration som CI-trinnet »Virkelig rollback/apply/reversal integration« (`ci.yml:281-287`, samme miljøvariabler): `Rscript tests/integration/test-1939-v50-production-writer.R > /tmp/claude-501/t3-r.log 2>&1; echo "R rc=$?"`.
+
+Expected: alle `rc=0`, pytest `8 passed`. `test-reimport-name-completion.sql` og `test-1939-v50-production-writer.sql` kalder oprettelse (nu med kvittering) og fortrydelse positivt, R-integrationen kører 1939's rollback/apply/reversal, og `test-reimport-legacy-migration.sql` — **uændret** — beviser, at 149b's migration og dens fortrydelse per element virker som `legacy_match` (Review Focus 4). `test-reimport-writer.sql` beviser kun, at afvisningerne er uændrede. Fejler en test på `EVIDENCE_IDENTITY_BASIS_REQUIRED` eller `EVIDENCE_IDENTITY_ORIGIN_INVALID`: **STOP** — en kalder mangler i tabellen; afgør med projektejeren, ikke med en ny oprindelse.
 
 - [ ] **Step 11: Commit**
 
@@ -1475,7 +1537,7 @@ git commit -m "feat(151): persona-detalje med kandidater og kollisioner; kø med
 
 ### Task 5: Generatoren (`@daa/identity-candidates`)
 
-> **Genbekræftet 2026-10-05:** (1) `tsx` findes ikke i `package-lock.json`; `npm install` i Step 1 henter den over nettet. Gennemse lockfilens diff (`git diff --stat package-lock.json`): kun nye indgange for `tsx` og dens afhængigheder plus `packages/identity-candidates` — ingen opgradering af eksisterende pakker. Udelad `@types/node` i devDependencies (roden har 26.1.1 hejst), så der ikke installeres en ekstra nested `@types/node@22`. (2) Step 6: begge SQL-scripts starter med `\set ON_ERROR_STOP on`, og kald med `| grep` køres med `set -o pipefail`, så en SQL-fejl ikke giver en tom fil med rc 0. (3) Step 7: Task 4's fixture er en DO-blok, hvis INSERTs bruger plpgsql-variabler; kopiér hele blokken inkl. `DECLARE`, fjern alt fra `PERFORM set_config(...)` til blokkens slutning (også den indre `BEGIN … EXCEPTION`-ramme), afslut med `END $$;` og kør den uden rollback. Fixturens personer har intet navn, så `kandidater=0` er det forventede tal (ikke en fejl).
+> **Genbekræftet 2026-10-05 (rettet efter Codex):** `tsx` findes ikke i `package-lock.json`; `npm install` i Step 1 henter den over nettet. Gennemse lockfilens diff (`git diff --stat package-lock.json`): kun nye indgange for `tsx` og dens afhængigheder plus `packages/identity-candidates`, ingen opgradering af eksisterende pakker. `@types/node` arves fra roden (26.1.1). SQL-scripts kører med `ON_ERROR_STOP` og pipelines med `set -o pipefail` (rettet i kodestykkerne nedenfor). Køn bruges ikke i 5a (spec §5).
 
 **Files:**
 - Create: `packages/identity-candidates/package.json`, `tsconfig.json`, `src/frames.ts`, `src/rank.ts`, `src/cli.ts`, `src/__tests__/frames.test.ts`, `src/__tests__/rank.test.ts`
@@ -1498,7 +1560,7 @@ git commit -m "feat(151): persona-detalje med kandidater og kollisioner; kø med
   "type": "module",
   "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit", "cli": "tsx src/cli.ts" },
   "dependencies": { "@daa/core": "*" },
-  "devDependencies": { "vitest": "^3.0.0", "typescript": "^5.5.3", "tsx": "^4.19.0", "@types/node": "^22.0.0" }
+  "devDependencies": { "vitest": "^3.0.0", "typescript": "^5.5.3", "tsx": "^4.19.0" }
 }
 ```
 
@@ -1523,8 +1585,9 @@ import { describe, expect, test } from 'vitest';
 import type { MatchFrame } from '@daa/core';
 import { rankCandidates } from '../rank';
 
-const f = (id: string | number, nameKey: string, birth: number | null = null, sex: MatchFrame['sex'] = 'ukendt'): MatchFrame => ({
-  id, nameKey, birthMin: birth, birthMax: birth, deathMin: null, deathMax: null, sex,
+const f = (id: string | number, nameKey: string, birth: number | null = null, sex: MatchFrame['sex'] = 'ukendt',
+           death: number | null = null): MatchFrame => ({
+  id, nameKey, birthMin: birth, birthMax: birth, deathMin: death, deathMax: death, sex,
 });
 const origins = new Map([['p1', { name: 'accepted_interpretation', birth: 'accepted_interpretation', death: null }],
                          ['p2', { name: 'accepted_interpretation', birth: null, death: null }]]);
@@ -1549,12 +1612,21 @@ describe('rankCandidates', () => {
   });
 
   test('tier: auto kræver cutoff, margin og rang 1 — aldrig automatisk accept', () => {
-    const out = rankCandidates([f('p1', 'ludvig reventlow', 1848, 'mand')],
-      [f(7, 'ludvig reventlow', 1848, 'mand'), f(9, 'ludvig reventlow', 1848, 'mand')], { topK: 3, origins });
+    // Personaens køn er ukendt i 5a (spec §5): auto kræver navn + fødsels- + dødsår (0,6+0,2+0,1).
+    const out = rankCandidates([f('p1', 'ludvig reventlow', 1848, 'ukendt', 1900)],
+      [f(7, 'ludvig reventlow', 1848, 'mand', 1900), f(9, 'ludvig reventlow', 1848, 'mand', 1900)], { topK: 3, origins });
     // to identiske kandidater: margin 0 → ingen auto
     expect(out.every((c) => c.tier !== 'auto')).toBe(true);
-    const alene = rankCandidates([f('p1', 'ludvig reventlow', 1848, 'mand')], [f(7, 'ludvig reventlow', 1848, 'mand')], { topK: 3, origins });
+    const alene = rankCandidates([f('p1', 'ludvig reventlow', 1848, 'ukendt', 1900)],
+      [f(7, 'ludvig reventlow', 1848, 'mand', 1900)], { topK: 3, origins });
     expect(alene[0].tier).toBe('auto');
+  });
+
+  test('topK=1 skjuler ikke tvetydighed: margin beregnes før afskæring', () => {
+    const out = rankCandidates([f('p1', 'ludvig reventlow', 1848, 'ukendt', 1900)],
+      [f(7, 'ludvig reventlow', 1848, 'mand', 1900), f(9, 'ludvig reventlow', 1848, 'mand', 1900)], { topK: 1, origins });
+    expect(out).toHaveLength(1);
+    expect(out[0].tier).not.toBe('auto');
   });
 
   test('basis bærer signaler og oprindelse, deterministisk', () => {
@@ -1642,7 +1714,8 @@ export type RankOptions = { topK: number; origins: Map<string, PersonaOrigin>; e
 
 export function rankConfig(opts: Pick<RankOptions, 'evidensNormaliseret'>): MatchCfg {
   // topK i buildScored sættes højt, så VI vælger top-K efter endelig score pr. persona.
-  return { ...defaultCfg(), topK: 1000, evidensNormaliseret: Boolean(opts.evidensNormaliseret) };
+  // Ingen forudvalg i buildScored (det sorterer efter standardscore og ville skæve den normaliserede rangering).
+  return { ...defaultCfg(), topK: Number.MAX_SAFE_INTEGER, evidensNormaliseret: Boolean(opts.evidensNormaliseret) };
 }
 
 const round4 = (x: number) => Math.round(x * 10000) / 10000;
@@ -1661,10 +1734,10 @@ export function rankCandidates(personas: MatchFrame[], persons: MatchFrame[], op
   const out: Candidate[] = [];
   for (const persona of personas) {
     const pid = String(persona.id);
-    const list = (byPersona.get(pid) ?? [])
-      .sort((a, b) => b.s - a.s || Number(a.bId) - Number(b.bId))
-      .slice(0, opts.topK);
-    const margin = list.length < 2 ? Infinity : list[0].s - list[1].s;
+    const sorted = (byPersona.get(pid) ?? []).sort((a, b) => b.s - a.s || Number(a.bId) - Number(b.bId));
+    // Margin fra hele listen FØR afskæring: ellers giver --top-k 1 altid margin ∞ (Codex 2026-10-05).
+    const margin = sorted.length < 2 ? Infinity : sorted[0].s - sorted[1].s;
+    const list = sorted.slice(0, opts.topK);
     const origin = opts.origins.get(pid) ?? { name: null, birth: null, death: null };
     list.forEach((p, i) => {
       const kunNavn = !p.birthKendt && !p.deathKendt;
@@ -1709,6 +1782,7 @@ if (cmd === 'generate') {
   const payload = exp.input.persons;
   const sourceId = Number(arg('source-id'));
   const topK = Number(arg('top-k', false) ?? 3);
+  if (!Number.isInteger(topK) || topK < 1) { console.error('--top-k skal være et positivt heltal'); process.exit(2); }
   const evidensNormaliseret = process.argv.includes('--evidens-normaliseret');
   const { frames, origins } = personaFrames(personaRows);
   const persons = personFrames(payload);
@@ -1719,7 +1793,9 @@ if (cmd === 'generate') {
   };
   const uden = frames.filter((f) => !f.nameKey).length;
   const out = arg('out')!;
-  writeFileSync(out, JSON.stringify({ run, candidates, stats: { personas: frames.length, uden_navn: uden } }), 'utf8');
+  // Personas uden fødsels- og dødsår (kun id'er) — kalibreringen rapporterer dem for sig (spec §8.1).
+  const udenAar = personaRows.filter((r) => !r.birth_raw && !r.death_raw).map((r) => r.source_persona_id);
+  writeFileSync(out, JSON.stringify({ run, candidates, stats: { personas: frames.length, uden_navn: uden, uden_aar: udenAar } }), 'utf8');
   chmodSync(out, 0o600);
   const tiers = candidates.filter((c) => c.rank === 1).reduce<Record<string, number>>((m, c) => ({ ...m, [c.tier]: (m[c.tier] ?? 0) + 1 }), {});
   console.log(`CANDIDATES_OK personas=${frames.length} uden_navn=${uden} kandidater=${candidates.length} rang1_tier=${JSON.stringify(tiers)}`);
@@ -1742,6 +1818,7 @@ Expected: alle tests PASS (6), `tsc rc=0`.
 ```sql
 -- Trin 5a: generatorens input, bygget og hashet af serveren. Output indeholder navne:
 -- skriv til en 0600-fil under ~/.private/5a/, læs den aldrig i en agent.
+\set ON_ERROR_STOP on
 SET default_transaction_read_only=on;
 BEGIN;
 SELECT set_config('request.jwt.claim.sub', :'actor', true);
@@ -1765,16 +1842,17 @@ SELECT red_record_identity_candidates((:'content'::jsonb)->'run', (:'content'::j
 COMMIT;
 ```
 
-- [ ] **Step 7: Ende-til-ende på en frisk base** med syntetisk data (ingen PII): Frisk testbase → indsæt fixturen fra Task 4 Step 1 **uden** rollback (kopiér blokkens INSERTs op til `PERFORM set_config` i en fil `/tmp/claude-501/5a-fixture.sql` og kør den), derefter:
+- [ ] **Step 7: Ende-til-ende på en frisk base** med syntetisk data (ingen PII): Frisk testbase → indsæt fixturen fra Task 4 Step 1 **uden** rollback: fixturen er en DO-blok, hvis INSERTs bruger plpgsql-variabler, så kopiér hele blokken inkl. `DECLARE` til `/tmp/claude-501/5a-fixture.sql`, slet alt fra `PERFORM set_config(...)` til blokkens slutning (også den indre `BEGIN … EXCEPTION`-ramme), afslut med `END $$;` og kør den. Derefter:
 
 ```bash
+set -o pipefail
 A=11000000-0000-0000-0000-000000005a04; mkdir -p ~/.private/5a && chmod 700 ~/.private/5a
 psql -X -q -At -d "$FRESH" -v actor=$A -v source_id=-987655041 -v mode=undecided -v personas= -f packages/identity-candidates/sql/export-input.sql | grep '^{' > ~/.private/5a/t-input.json
 npm run cli -w @daa/identity-candidates -- generate --input ~/.private/5a/t-input.json --source-id -987655041 --out ~/.private/5a/t-cand.json
 psql -X -At -d "$FRESH" -v actor=$A -v cand_file=$HOME/.private/5a/t-cand.json -f packages/identity-candidates/sql/write-candidates.sql
 ```
 
-Expected: `CANDIDATES_OK personas=3 …` (Task 4-fixturens tre personas) og en `run_id`-uuid. En anden kørsel af `write-candidates.sql` giver samme uuid (idempotens). Indsæt derefter en ny persona i kilden og kør `write-candidates.sql` igen med den gamle fil: Expected `IDENTITY_CANDIDATE_INPUT_DRIFT`.
+Expected: `CANDIDATES_OK personas=3 …` (Task 4-fixturens tre personas; `kandidater=0` er forventet, fordi fixturens personer hverken har navn eller fakta) og en `run_id`-uuid. En anden kørsel af `write-candidates.sql` giver samme uuid (idempotens). Indsæt derefter en ny persona i kilden og kør `write-candidates.sql` igen med den gamle fil: Expected `IDENTITY_CANDIDATE_INPUT_DRIFT`.
 
 - [ ] **Step 8: CI** — i node-jobbet efter `feed · typecheck`:
 
@@ -1806,7 +1884,7 @@ git commit -m "feat(151): kandidatgenerator som workspace — pr.-persona-ranger
 
 **Interfaces:**
 - Consumes: `Candidate` (Task 5).
-- Produces: `calibrate(candidates: Candidate[], truth: Array<{ source_persona_id: string; canonical_person_id: number }>, personaCount: number, udenNavn: number): Calibration` hvor `Calibration = { personas: number; med_facit: number; uden_navn: number; uden_kandidat: number; top1: number; top3: number; tier: Record<'auto'|'review'|'none', { n: number; rigtige: number }> }`. CLI `calibrate --candidates F --truth F` (antal personas og uden navn læses af generatorens `stats`).
+- Produces: `calibrate(candidates: Candidate[], truth: Array<{ source_persona_id: string; canonical_person_id: number }>, personaCount: number, udenNavn: number, udenAar?: ReadonlySet<string>): Calibration` hvor `Tal = { med_facit: number; uden_kandidat: number; top1: number; top3: number; tier: Record<'auto'|'review'|'none', { n: number; rigtige: number }> }` og `Calibration = Tal & { personas: number; uden_navn: number; uden_aarstal: Tal }` (`uden_aarstal` = samme tal for personas uden fødsels- og dødsår, spec §8.1). CLI `calibrate --candidates F --truth F` (antal personas, uden navn og `uden_aar` læses af generatorens `stats`).
 
 - [ ] **Step 1: Fejlende test** `src/__tests__/calibrate.test.ts`:
 
@@ -1825,9 +1903,21 @@ describe('calibrate', () => {
     const cands = [c('a', 1, 1, 'auto'), c('b', 9, 1, 'review'), c('b', 2, 2, 'review'), c('c', 9, 1, 'none')];
     const truth = [{ source_persona_id: 'a', canonical_person_id: 1 }, { source_persona_id: 'b', canonical_person_id: 2 },
                    { source_persona_id: 'c', canonical_person_id: 3 }, { source_persona_id: 'd', canonical_person_id: 4 }];
+    const nul = { auto: { n: 0, rigtige: 0 }, review: { n: 0, rigtige: 0 }, none: { n: 0, rigtige: 0 } };
     expect(calibrate(cands, truth, 4, 1)).toEqual({
       personas: 4, med_facit: 4, uden_navn: 1, uden_kandidat: 1, top1: 1, top3: 2,
       tier: { auto: { n: 1, rigtige: 1 }, review: { n: 1, rigtige: 0 }, none: { n: 1, rigtige: 0 } },
+      uden_aarstal: { med_facit: 0, uden_kandidat: 0, top1: 0, top3: 0, tier: nul },
+    });
+  });
+
+  test('samme tal særskilt for personas uden årstal', () => {
+    const cands = [c('a', 1, 1, 'auto'), c('b', 9, 1, 'review'), c('b', 2, 2, 'review')];
+    const truth = [{ source_persona_id: 'a', canonical_person_id: 1 }, { source_persona_id: 'b', canonical_person_id: 2 },
+                   { source_persona_id: 'd', canonical_person_id: 4 }];
+    expect(calibrate(cands, truth, 3, 0, new Set(['b', 'd'])).uden_aarstal).toEqual({
+      med_facit: 2, uden_kandidat: 1, top1: 0, top3: 1,
+      tier: { auto: { n: 0, rigtige: 0 }, review: { n: 1, rigtige: 0 }, none: { n: 0, rigtige: 0 } },
     });
   });
 });
@@ -1840,19 +1930,27 @@ describe('calibrate', () => {
 ```ts
 import type { Candidate, Tier } from './rank';
 
-export type Calibration = {
-  personas: number; med_facit: number; uden_navn: number; uden_kandidat: number; top1: number; top3: number;
+export type Tal = {
+  med_facit: number; uden_kandidat: number; top1: number; top3: number;
   tier: Record<Tier, { n: number; rigtige: number }>;
 };
+export type Calibration = Tal & { personas: number; uden_navn: number; uden_aarstal: Tal };
+
+type Facit = Array<{ source_persona_id: string; canonical_person_id: number }>;
 
 // Kun tal: ingen navne forlader funktionen.
 export function calibrate(
-  candidates: Candidate[], truth: Array<{ source_persona_id: string; canonical_person_id: number }>,
-  personaCount: number, udenNavn: number,
+  candidates: Candidate[], truth: Facit, personaCount: number, udenNavn: number,
+  udenAar: ReadonlySet<string> = new Set(),
 ): Calibration {
   const byPersona = new Map<string, Candidate[]>();
   for (const k of candidates) byPersona.set(k.source_persona_id, [...(byPersona.get(k.source_persona_id) ?? []), k]);
-  const out: Calibration = { personas: personaCount, med_facit: truth.length, uden_navn: udenNavn, uden_kandidat: 0, top1: 0, top3: 0,
+  return { personas: personaCount, uden_navn: udenNavn, ...tal(byPersona, truth),
+           uden_aarstal: tal(byPersona, truth.filter((t) => udenAar.has(t.source_persona_id))) };
+}
+
+function tal(byPersona: Map<string, Candidate[]>, truth: Facit): Tal {
+  const out: Tal = { med_facit: truth.length, uden_kandidat: 0, top1: 0, top3: 0,
     tier: { auto: { n: 0, rigtige: 0 }, review: { n: 0, rigtige: 0 }, none: { n: 0, rigtige: 0 } } };
   for (const t of truth) {
     const list = (byPersona.get(t.source_persona_id) ?? []).sort((a, b) => a.rank - b.rank);
@@ -1873,13 +1971,15 @@ Tilføj i `src/cli.ts` importen `import { calibrate } from './calibrate';` øver
 if (cmd === 'calibrate') {
   const data = JSON.parse(readFileSync(arg('candidates')!, 'utf8'));
   const truth = JSON.parse(readFileSync(arg('truth')!, 'utf8'));
-  console.log('CALIBRATION ' + JSON.stringify(calibrate(data.candidates, truth, data.stats.personas, data.stats.uden_navn)));
+  console.log('CALIBRATION ' + JSON.stringify(calibrate(data.candidates, truth, data.stats.personas, data.stats.uden_navn,
+    new Set<string>(data.stats.uden_aar ?? []))));
 }
 ```
 
 `sql/export-truth.sql` (læse-kun, kun id'er):
 
 ```sql
+\set ON_ERROR_STOP on
 SET default_transaction_read_only=on;
 SELECT coalesce(jsonb_agg(jsonb_build_object('source_persona_id',i.source_persona_id::text,'canonical_person_id',i.canonical_person_id)
        ORDER BY i.source_persona_id),'[]'::jsonb)
@@ -1909,7 +2009,7 @@ git commit -m "feat(151): kalibrering af kandidater mod kendte identiteter — k
 **Interfaces:**
 - Consumes: kø-/kandidatdata (Task 1-4); `red_afgoer_source_persona(…, p_context jsonb)` (Task 3).
 - Produces (kernen): `SheetError`; `sql_literal(s: str) -> str`; `require_hex64(*hashes: str) -> None` (kaster `SHEET_HASH_REQUIRED`); `verify_bound(rows_bytes: bytes, expect_rows_sha256: str, sheet_bytes: bytes, approved_sha256: str) -> tuple[str, str]` (kaster `ROWS_HASH_MISMATCH` / `SHEET_HASH_MISMATCH`, returnerer `(rows_sha, sheet_sha)`).
-- Produces (arket): `sheet_order(rows) -> list[dict]`; `render_sheet(rows) -> str`; `parse_sheet(text) -> list[IdDecision]` med `IdDecision(persona_id: str, version: int, action: str, person_id: int | None, candidate_rank: int | None, note: str, line: int)`; `check_identity(decisions, rows) -> None`; `decision_sql(decisions, rows, *, sheet_sha256, rows_sha256) -> str`. CLI: `render --rows --out` og `sql --sheet --approved-sha256 --rows --expect-rows-sha256 --out`.
+- Produces (arket): `sheet_order(rows) -> list[dict]`; `render_sheet(rows) -> str`; `check_render(text, rows) -> None` (kaster `SHEET_RENDER_MISMATCH`: arket skal være præcis `render_sheet(rows)`, kun token og note på `D`-linjerne må afvige); `parse_sheet(text) -> list[IdDecision]` med `IdDecision(persona_id: str, version: int, action: str, person_id: int | None, candidate_rank: int | None, note: str, line: int)`; `check_identity(decisions, rows) -> None`; `decision_sql(decisions, rows, *, sheet_sha256, rows_sha256) -> str`. CLI: `render --rows --out` og `sql --sheet --approved-sha256 --rows --expect-rows-sha256 --out`.
 
 Rækkefilens form (én række pr. persona, fra `identity_sheet_rows.sql`): `{source_persona_id, version, source_id, persona_key, record_key, mention_role, name, name_origin, interpretations: [{predicate, status, value_text}], run_id, candidates: [{candidate_id, rank, person_id, person_name, born, died, score, tier, signals}]}`.
 
@@ -1923,7 +2023,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from identity_decision_sheet import (IdDecision, SheetError, check_identity, decision_sql,
+from identity_decision_sheet import (IdDecision, SheetError, check_identity, check_render, decision_sql,
                                      parse_sheet, render_sheet, sheet_order)
 
 P1 = "11111111-1111-4111-8111-111111111111"
@@ -1998,6 +2098,27 @@ def test_sql_binder_kandidat_ark_og_kørsel():
     assert "o''hara" in sql and "DECISION_COUNT_MISMATCH" in sql and sql.rstrip().endswith("COMMIT;")
 
 
+def _ark(rows, tok="1"):
+    return render_sheet(rows).replace(" : _", f" : {tok}")
+
+
+def test_rettet_kandidatlinje_stopper():
+    rows = [row(P1)]
+    with pytest.raises(SheetError, match="SHEET_RENDER_MISMATCH line="):
+        check_render(_ark(rows).replace("1: person 42", "1: person 99"), rows)
+    for gammel, ny in [("Anna Kanon", "Anna Anden"), ("score 0.93", "score 0.99"), ("  auto  ", "  review  ")]:
+        with pytest.raises(SheetError, match="SHEET_RENDER_MISMATCH"):
+            check_render(_ark(rows).replace(gammel, ny), rows)
+    with pytest.raises(SheetError, match="SHEET_RENDER_MISMATCH"):   # slettet/flyttet kommentarlinje
+        check_render("".join(l for l in _ark(rows).splitlines(keepends=True) if "1: person" not in l), rows)
+    check_render(_ark(rows).replace(" : 1", " : 1 # note"), rows)   # token og note må ændres
+
+
+def test_cli_rettet_kandidatlinje_stopper(tmp_path):
+    p, out = _cli(tmp_path, _ark([row(P1)]).replace("person 42", "person 99"))
+    assert p.returncode == 1 and "SHEET_RENDER_MISMATCH" in p.stdout and not out.exists()
+
+
 def _cli(tmp_path, ark, godkend=None, rows=None):
     rf = tmp_path / "rows.json"; rf.write_text(json.dumps(rows or [row(P1)]), encoding="utf-8")
     af = tmp_path / "ark.txt"; af.write_text(godkend or ark, encoding="utf-8")
@@ -2009,12 +2130,12 @@ def _cli(tmp_path, ark, godkend=None, rows=None):
 
 
 def test_cli_ændret_ark_stopper(tmp_path):
-    p, out = _cli(tmp_path, f"D {P1} 0 : X\n", godkend=f"D {P1} 0 : 1\n")
+    p, out = _cli(tmp_path, _ark([row(P1)], "X"), godkend=_ark([row(P1)], "1"))
     assert p.returncode == 1 and "SHEET_HASH_MISMATCH" in p.stdout and not out.exists()
 
 
 def test_cli_komplet_ark(tmp_path):
-    p, out = _cli(tmp_path, f"D {P1} 0 : 1\n")
+    p, out = _cli(tmp_path, _ark([row(P1)]))
     assert p.returncode == 0 and "SQL_OK afgørelser=1" in p.stdout and out.exists()
 ```
 
@@ -2164,6 +2285,20 @@ def check_identity(decisions: list[IdDecision], rows: list[dict]) -> None:
             raise SheetError(f"SHEET_ORDER_MISMATCH line={d.line}")
 
 
+def check_render(text: str, rows: list[dict]) -> None:
+    """Arket skal være præcis det, render_sheet byggede af rækkefilen — kun token og note på D-linjerne
+    må være ændret. Ellers kan en rettet kandidatlinje vise én person, mens tokenet binder en anden."""
+    forventet, faktisk = render_sheet(rows).splitlines(), text.splitlines()
+    if len(faktisk) != len(forventet):
+        raise SheetError(f"SHEET_RENDER_MISMATCH lines={len(faktisk)} forventet={len(forventet)}")
+    for n, (f, a) in enumerate(zip(forventet, faktisk), 1):
+        if f.startswith("D "):
+            if not a.startswith(f[:f.rindex(" : ") + 3]):
+                raise SheetError(f"SHEET_RENDER_MISMATCH line={n}")
+        elif a != f:
+            raise SheetError(f"SHEET_RENDER_MISMATCH line={n}")
+
+
 def decision_sql(decisions: list[IdDecision], rows: list[dict], *, sheet_sha256: str, rows_sha256: str) -> str:
     require_hex64(sheet_sha256, rows_sha256)
     by_id = {r["source_persona_id"]: r for r in rows}
@@ -2209,6 +2344,7 @@ def main() -> int:
     try:
         rows_sha, sheet_sha = verify_bound(rows_bytes, args.expect_rows_sha256,
                                            Path(args.sheet).read_bytes(), args.approved_sha256)
+        check_render(Path(args.sheet).read_text(encoding="utf-8"), rows)
         decisions = parse_sheet(Path(args.sheet).read_text(encoding="utf-8"))
         check_identity(decisions, rows)
         sql = decision_sql(decisions, rows, sheet_sha256=sheet_sha, rows_sha256=rows_sha)
@@ -2225,7 +2361,7 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ```
 
-- [ ] **Step 5: Kør** testfilen — Expected: 9 passed.
+- [ ] **Step 5: Kør** testfilen — Expected: 11 passed.
 
 - [ ] **Step 6: Ingen springede tests.** Aktualiteten testes i SQL (Task 3, i CI), ikke med en betinget pytest. Kør `env -u NODE_OPTIONS /usr/bin/python3 -m pytest test_identity_decision_sheet.py -q -rs`. Expected: 9 passed, 0 skipped.
 
@@ -2286,7 +2422,7 @@ Erstat i `decision_sql` løkken `for h in (sheet_sha256, rows_sha256): …` med 
     data = Path(args.sheet).read_bytes()
 ```
 
-4.5-arket har fået underkommandoen `html` (commit 769e82c på `feat/147-4-5-pilot`, `decision_sheet_html.py`); den skal virke uændret efter refaktoreringen. Kør: `env -u NODE_OPTIONS /usr/bin/python3 -m pytest test_interpretation_decision_sheet.py test_decision_sheet_html.py test_identity_decision_sheet.py -q`. Expected: alle 4.5-tests uændret grønne + 9 nye.
+4.5-arket har fået underkommandoen `html` (commit 769e82c på `feat/147-4-5-pilot`, `decision_sheet_html.py`); den skal virke uændret efter refaktoreringen. Kør: `env -u NODE_OPTIONS /usr/bin/python3 -m pytest test_interpretation_decision_sheet.py test_decision_sheet_html.py test_control_model.py test_evidence_runner.py test_identity_decision_sheet.py -q`. Expected: alle eksisterende tests uændret grønne + 11 nye; `SHEET_METHOD_INVALID` kommer stadig før hashfejl.
 
 - [ ] **Step 9: CI** — tilføj `.claude/skills/daa-extract/scripts/test_identity_decision_sheet.py` i pytest-listen i trinnet `evidence builders/runner/comparators · pytest`.
 
@@ -2314,10 +2450,48 @@ git commit -m "feat(151): identitetsark med kandidat-tokens og fælles arkkerne"
 - [ ] **Step 1: Fejlende datatest** — erstat `web/src/data/__tests__/sourcePersona.test.ts` med:
 
 ```ts
-import { describe, expect, it } from 'vitest';
-import { buildSourcePersonaDecisionCall } from '../sourcePersona';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const rpc = vi.hoisted(() => vi.fn());
+vi.mock('../../supabase', () => ({ supabase: { rpc } }));
+
+import { buildSourcePersonaDecisionCall, fetchSourcePersonaDetail, fetchSourcePersonaHistory, fetchSourcePersonaQueue } from '../sourcePersona';
 
 const ID = '00000000-0000-0000-0000-000000000001';
+
+describe('mapping fra RPC (snake_case → camelCase)', () => {
+  beforeEach(() => rpc.mockReset());
+
+  it('kø: best_tier og reason, null når de mangler', async () => {
+    const base = { source_persona_id: ID, source_id: 1, persona_key: 'k', decision_status: 'unresolved', version: 2, canonical_person_id: null, mention_count: 1 };
+    rpc.mockResolvedValue({ data: [{ ...base, best_tier: 'review', reason: 'new_person_needed' }, base], error: null });
+    const rows = await fetchSourcePersonaQueue('new_person_needed');
+    expect(rows.map((r) => [r.bestTier, r.reason])).toEqual([['review', 'new_person_needed'], [null, null]]);
+  });
+
+  it('detalje: kandidater og kollisioner', async () => {
+    rpc.mockResolvedValue({ data: {
+      persona: { source_persona_id: ID, source_id: 1, persona_key: 'k', decision_status: 'proposed', version: 0, canonical_person_id: null },
+      mentions: [], placements: [], interpretations: [],
+      candidates: [{ candidate_id: 'c1', run_id: 'r1', rank: 1, score: 0.93, tier: 'auto', person_id: 42, person_name: 'X', born: '1800', died: null, basis: { signals: ['name', 'birth'] } }],
+      collisions: [{ person_id: 42, persona_key: 'persona-9' }],
+    }, error: null });
+    const d = await fetchSourcePersonaDetail(ID);
+    expect(d.candidates).toEqual([{ candidateId: 'c1', runId: 'r1', rank: 1, score: 0.93, tier: 'auto', personId: 42, personName: 'X', born: '1800', died: null, signals: ['name', 'birth'] }]);
+    expect(d.collisions).toEqual([{ personId: 42, personaKey: 'persona-9' }]);
+  });
+
+  it('historik: basis, kandidat fulgt og årsag fra evidensen', async () => {
+    rpc.mockResolvedValue({ data: [
+      { version: 3, decision_status: 'unresolved', canonical_person_id: null, evidence: { basis: 'human_sheet', reason: 'new_person_needed' }, decided_by_name: 'R', decided_at: '2026-10-05T00:00:00Z' },
+      { version: 2, decision_status: 'accepted', canonical_person_id: 42, evidence: { basis: 'web_detail', candidate_id: 'c1' }, decided_by_name: null, decided_at: null },
+    ], error: null });
+    expect(await fetchSourcePersonaHistory(ID)).toEqual([
+      { version: 3, decisionStatus: 'unresolved', canonicalPersonId: null, basis: 'human_sheet', candidateId: null, reason: 'new_person_needed', decidedByName: 'R', decidedAt: '2026-10-05T00:00:00Z' },
+      { version: 2, decisionStatus: 'accepted', canonicalPersonId: 42, basis: 'web_detail', candidateId: 'c1', reason: null, decidedByName: null, decidedAt: null },
+    ]);
+  });
+});
 
 describe('buildSourcePersonaDecisionCall', () => {
   it('sender person, note og web-basis ved samme identitet', () => {
@@ -2404,6 +2578,30 @@ og tilføj tests (eksisterende tests forventer nu ét ekstra argument `null` for
     fireEvent.change(screen.getByLabelText('Begrundelse'), { target: { value: 'ikke i basen' } });
     fireEvent.click(screen.getByRole('button', { name: 'Ny person nødvendig' }));
     await waitFor(() => expect(mocks.decide).toHaveBeenCalledWith(row().sourcePersonaId, 0, 'new_person_needed', null, 'ikke i basen', null));
+  });
+
+  it('viser historik med kandidat fulgt og ny person nødvendig', async () => {
+    mocks.history.mockResolvedValue([
+      { version: 2, decisionStatus: 'unresolved', canonicalPersonId: null, basis: 'human_sheet', candidateId: null, reason: 'new_person_needed', decidedByName: 'R', decidedAt: null },
+      { version: 1, decisionStatus: 'accepted', canonicalPersonId: 42, basis: 'web_detail', candidateId: 'cand-1', reason: null, decidedByName: 'R', decidedAt: null },
+    ]);
+    render(<KildepersonaKo role="redaktion" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Vis kildegrundlag' }));
+    expect(await screen.findByText(/v1 · accepted · #42 · web_detail · kandidat fulgt/)).toBeTruthy();
+    expect(screen.getByText(/v2 · unresolved · human_sheet · ny person nødvendig/)).toBeTruthy();
+  });
+
+  it('sorterer køen auto → review → none → ingen kandidat', async () => {
+    mocks.queue.mockResolvedValue([
+      { ...row(1), bestTier: null, reason: null }, { ...row(2), bestTier: 'none', reason: null },
+      { ...row(3), bestTier: 'auto', reason: null }, { ...row(4), bestTier: 'review', reason: null },
+    ]);
+    render(<KildepersonaKo role="redaktion" />);
+    await screen.findByText('persona-3');
+    const tekst = document.body.textContent ?? '';
+    const pos = ['persona-3', 'persona-4', 'persona-2', 'persona-1'].map((k) => tekst.indexOf(k));
+    expect(pos.every((p) => p >= 0)).toBe(true);
+    expect(pos).toEqual([...pos].sort((a, b) => a - b));
   });
 ```
 
@@ -2550,6 +2748,7 @@ git commit -m "feat(151): webkø med maskinens kandidater, kollisionsadvarsel, n
 - [ ] **Step 2: Kalibrering (§8.1).** For kilde 1 (2018-20), `mode=list` med alle accepterede personas:
 
 ```bash
+set -o pipefail
 L=$(psql -X -At -d "$W5" -c "SELECT string_agg(i.source_persona_id::text,',') FROM private.source_persona_identity i JOIN private.source_persona p ON p.id=i.source_persona_id WHERE p.source_id=1 AND i.decision_status='accepted'")
 psql -X -q -At -d "$W5" -v actor=$A -v source_id=1 -v mode=list -v personas="$L" -f packages/identity-candidates/sql/export-input.sql | grep '^{' > ~/.private/5a/k-input.json
 psql -X -q -At -d "$W5" -v source_id=1 -f packages/identity-candidates/sql/export-truth.sql > ~/.private/5a/k-truth.json
@@ -2580,6 +2779,7 @@ wc -c < ~/.private/5a/g-personas.txt
 (`VALGT` = `std` eller `norm` fra Step 2; sæt `X=$([ "$VALGT" = norm ] && echo --evidens-normaliseret)`.) Skriv stikprøvens **og** webspor-personaens kandidater til basen i én kørsel (den bliver gældende kørsel), og byg rækkefilen og arket **kun** for stikprøven:
 
 ```bash
+set -o pipefail
 G=$(cat ~/.private/5a/g-personas.txt); WEB=$(cat ~/.private/5a/g-web.txt)
 psql -X -q -At -d "$W5" -v actor=$A -v source_id=1 -v mode=list -v personas="$G,$WEB" -f packages/identity-candidates/sql/export-input.sql | grep '^{' > ~/.private/5a/g-input.json
 npm run cli -w @daa/identity-candidates -- generate --input ~/.private/5a/g-input.json --source-id 1 --out ~/.private/5a/g-cand.json $X
@@ -2629,7 +2829,7 @@ SELECT count(*) FILTER (WHERE e_new.decision_status='accepted' AND e_new.canonic
 
 Sammenlign også de to spor (ark vs. web) felt for felt: samme nøgler i `evidence` bortset fra `basis`, `sheet_sha256`, `rows_sha256`, `line`.
 
-- [ ] **Step 5: Rapport** `docs/evidensbaseret-genimport/identitetsvej-5a-bevis.md` — kun tal, id-fri: kalibreringstabellen for begge konfigurationer (personas, med navn, uden navn, uden kandidat, top-1, top-3, præcision pr. tier), det valgte og hvorfor, genbekræftelsens tal (samme/anden/ikke accepteret/kandidat fulgt), negativtestens udfald, spor-sammenligningen, arbejdsbasens navn og hashes (ark, rækkefil, kandidatkørsel). Skriv tydeligt, at kalibreringen er tynd (kun personas med `person.name`) og gentages efter en fuld 2018-20-kørsel og i 5b.
+- [ ] **Step 5: Rapport** `docs/evidensbaseret-genimport/identitetsvej-5a-bevis.md` — kun tal, id-fri: kalibreringstabellen for begge konfigurationer (personas, med navn, uden navn, uden kandidat, top-1, top-3, præcision pr. tier) — samlet og særskilt for personas uden årstal (`uden_aarstal`), det valgte og hvorfor, genbekræftelsens tal (samme/anden/ikke accepteret/kandidat fulgt), negativtestens udfald, spor-sammenligningen, arbejdsbasens navn og hashes (ark, rækkefil, kandidatkørsel). Skriv tydeligt, at kalibreringen kun dækker personas med `person.name` fra den fulde 2018-20-kørsel, at navnene har kendte titelfejl (decisions 2026-10-03), og at den gentages i 5b.
 
 - [ ] **Step 6: Status og changelog.** `status.md`, tabellen »Modenhed pr. værdikædeled«: `Source persona, identitetskandidater og webkø` → `integreret ende-til-ende` (restore; ikke prod), med henvisning til rapporten. Ny linje i `docs/changelog.md` for datoen.
 
