@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { personaFrames, personFrames, udenAarstal, type MatchPayload, type PersonaExportRow } from './frames';
 import { rankCandidates, rankConfig } from './rank';
+import { calibrate } from './calibrate';
 
 const GENERATOR_VERSION = 'identity-candidates-1.0';
 
@@ -40,4 +41,11 @@ if (cmd === 'generate') {
   chmodSync(out, 0o600);
   const tiers = candidates.filter((c) => c.rank === 1).reduce<Record<string, number>>((m, c) => ({ ...m, [c.tier]: (m[c.tier] ?? 0) + 1 }), {});
   console.log(`CANDIDATES_OK personas=${frames.length} uden_navn=${uden} kandidater=${candidates.length} rang1_tier=${JSON.stringify(tiers)}`);
+}
+
+if (cmd === 'calibrate') {
+  const data = JSON.parse(readFileSync(arg('candidates')!, 'utf8'));
+  const truth = JSON.parse(readFileSync(arg('truth')!, 'utf8'));
+  console.log('CALIBRATION ' + JSON.stringify(calibrate(data.candidates, truth, data.stats.personas, data.stats.uden_navn,
+    new Set<string>(data.stats.uden_aar ?? []))));
 }
