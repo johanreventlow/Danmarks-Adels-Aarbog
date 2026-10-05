@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-24-trin5a-identitetsvej-design.md` (branch `docs/151-identitetsvej`).
 
-**Genbekræftet 2026-10-05** mod `main` 984070e (19 commits efter planens grundlag 77a0c22: 4.5, kontrolmodel, omsegmentering, udvalgsbygger, prod-overførsel). De berørte funktioner er byte-identiske, kalderne er de samme, og linjenumrene er opdateret; øvrige rettelser står som »Genbekræftet 2026-10-05«-noter øverst i Task 4, 5, 6, 7 og 9. Codex-genreview samme dag: runde 1 NO-GO (9 fund) og runde 2 NO-GO (fund 5 ufuldstændig + 3 nye) er rettet direkte i kodestykkerne; runde 2's rettelser er efterprøvet (årstalsregressionen fejler uden rettelsen; opgraderings- og R-blokken i Task 3 Step 10 grøn mod `main`).
+**Genbekræftet 2026-10-05** mod `main` 984070e (19 commits efter planens grundlag 77a0c22: 4.5, kontrolmodel, omsegmentering, udvalgsbygger, prod-overførsel). De berørte funktioner er byte-identiske, kalderne er de samme, og linjenumrene er opdateret; øvrige rettelser står som »Genbekræftet 2026-10-05«-noter øverst i Task 4, 5, 6, 7 og 9. Codex-genreview samme dag: runde 1 NO-GO (9 fund) og runde 2 NO-GO (fund 5 ufuldstændig + 3 nye) og runde 3 NO-GO (opgraderingsblokken ikke fail-closed) er rettet direkte i kodestykkerne og efterprøvet (årstalsregressionen fejler uden rettelsen; opgraderings- og R-blokken i Task 3 Step 10 grøn mod `main` og stopper ved fejl).
 
 ## Global Constraints
 
@@ -1333,36 +1333,36 @@ psql -X -q -v ON_ERROR_STOP=1 -d "$FRESH" -f tests/sql/run-db-verify-disposable.
 (cd .claude/skills/daa-extract/scripts && env -u NODE_OPTIONS /usr/bin/python3 -m pytest test_identity_guard_static.py -q) | tail -2
 ```
 
-Kør derefter writer-beviserne på en opgraderet base i samme rækkefølge som CI's job (`ci.yml:319-330`) — den beviser samtidig opgraderingsstien fra et gammelt skema gennem cutover-blokken — og 1939-writerens R-integration på en base bygget som CI's `writer_1939` (`ci.yml:272-287`). Blokken er fail-closed: `pipefail`, commitkontrol som CI (`ci.yml:294`), og R kører med `R_ENVIRON_USER=/dev/null` efter en probe, der beviser at R ser den lokale engangsbase (`~/.Renviron` overskriver ellers shell-env). Efterprøvet mod `main` 2026-10-05: alle `rc=0`, `R rc=0`.
+Kør derefter writer-beviserne på en opgraderet base i samme rækkefølge som CI's job (`ci.yml:319-330`) — den beviser samtidig opgraderingsstien fra et gammelt skema gennem cutover-blokken — og 1939-writerens R-integration på en base bygget som CI's `writer_1939` (`ci.yml:272-287`). Blokken er fail-closed (zsh-subshell med `set -euo pipefail`): manglende commit (CI's kontrol, `ci.yml:294`), fejl i `createdb`, opgradering, en test eller bootstrap stopper med `STOP: …` og rc 1, før næste trin; R kører med `R_ENVIRON_USER=/dev/null` efter en probe, der beviser at R ser den lokale engangsbase (`~/.Renviron` overskriver ellers shell-env). Efterprøvet mod `main` 2026-10-05: grøn vej `T3_UPGRADE_OK`; ugyldigt commit og manglende testfil stopper med rc 1.
 
-```bash
-set -o pipefail
-git cat-file -e '2d6aabf^{commit}' && echo "2d6aabf findes" || echo "STOP: 2d6aabf mangler — git fetch origin"
-LE=daa5a_legacy_$(date +%Y%m%d%H%M%S); createdb "$LE"
-{ psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f tests/sql/evidence-promotion-bootstrap.sql &&
-  git show 2d6aabf:schema.sql | psql -X -q -v ON_ERROR_STOP=1 -d "$LE" &&
-  psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f tests/sql/reimport-writer-legacy-empty-fixture.sql &&
-  psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f db-migrations.sql && psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f db-rls.sql; } \
-  > /tmp/claude-501/t3-legacy-setup.log 2>&1; echo "setup rc=$?"
-# Samme rækkefølge som CI (ci.yml, reimport_legacy_empty_153): db-rls.sql genanvendes efter test-reimport-writer.
-for f in tests/sql/test-reimport-writer.sql db-rls.sql tests/sql/test-reimport-name-completion.sql tests/sql/test-1939-v50-production-writer.sql \
-         tests/sql/test-1939-v50-name-completion.sql tests/sql/run-db-verify-disposable.sql; do
-  psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f "$f" > /tmp/claude-501/t3-le-${f:t:r}.log 2>&1; echo "${f:t:r} rc=$?"; done
-# 1939-writerens R-integration på en base bygget som CI's writer_1939 (ci.yml »Bootstrap og writer-kontrakt«).
-W39=daa5a_w1939_$(date +%Y%m%d%H%M%S); createdb "$W39"
-for f in tests/sql/evidence-promotion-bootstrap.sql schema.sql db-rls.sql tests/sql/1939-v50-writer-bootstrap.sql tests/sql/test-1939-v50-production-writer.sql; do
-  psql -X -q -v ON_ERROR_STOP=1 -d "$W39" -f "$f" >> /tmp/claude-501/t3-w39.log 2>&1 || { echo "FEJL i $f"; break; }; done
-# R læser ~/.Renviron og overskriver shell-env: slå den fra, og bevis hvilken base R ser, før integrationen skriver.
-export R_ENVIRON_USER=/dev/null PGDATABASE="$W39" PGHOST=localhost PGPORT=5432 PGUSER="$(whoami)" PGPASSWORD=
-SER=$(Rscript -e 'cat(Sys.getenv("PGHOST"), Sys.getenv("PGDATABASE"))')
-if [ "$SER" = "localhost $W39" ]; then
-  Rscript tests/integration/test-1939-v50-production-writer.R > /tmp/claude-501/t3-r.log 2>&1; echo "R rc=$?"
-else echo "STOP: R ser '$SER', ikke localhost $W39"; fi
-unset R_ENVIRON_USER PGDATABASE PGHOST PGPORT PGUSER PGPASSWORD
-echo "baser: $LE $W39"
+```zsh
+( set -euo pipefail
+  fejl() { print -u2 "STOP: $1"; exit 1; }
+  git cat-file -e '2d6aabf^{commit}' || fejl "2d6aabf mangler — git fetch origin"
+  LE=daa5a_legacy_$(date +%Y%m%d%H%M%S); createdb "$LE" || fejl "createdb $LE"
+  { psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f tests/sql/evidence-promotion-bootstrap.sql &&
+    git show 2d6aabf:schema.sql | psql -X -q -v ON_ERROR_STOP=1 -d "$LE" &&
+    psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f tests/sql/reimport-writer-legacy-empty-fixture.sql &&
+    psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f db-migrations.sql && psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f db-rls.sql; } \
+    > /tmp/claude-501/t3-$LE-setup.log 2>&1 || fejl "opgradering af $LE (se t3-$LE-setup.log)"
+  # Samme rækkefølge som CI (ci.yml:319-330): db-rls.sql genanvendes efter test-reimport-writer.
+  for f in tests/sql/test-reimport-writer.sql db-rls.sql tests/sql/test-reimport-name-completion.sql tests/sql/test-1939-v50-production-writer.sql \
+           tests/sql/test-1939-v50-name-completion.sql tests/sql/run-db-verify-disposable.sql; do
+    psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f "$f" > /tmp/claude-501/t3-$LE-${f:t:r}.log 2>&1 || fejl "$f på $LE"
+    print "${f:t:r} ok"; done
+  # 1939-writerens R-integration på en base bygget som CI's writer_1939 (ci.yml:272-287).
+  W39=daa5a_w1939_$(date +%Y%m%d%H%M%S); createdb "$W39" || fejl "createdb $W39"
+  for f in tests/sql/evidence-promotion-bootstrap.sql schema.sql db-rls.sql tests/sql/1939-v50-writer-bootstrap.sql tests/sql/test-1939-v50-production-writer.sql; do
+    psql -X -q -v ON_ERROR_STOP=1 -d "$W39" -f "$f" >> /tmp/claude-501/t3-$W39.log 2>&1 || fejl "$f på $W39"; done
+  # R læser ~/.Renviron og overskriver shell-env: slå den fra, og bevis hvilken base R ser, før integrationen skriver.
+  export R_ENVIRON_USER=/dev/null PGDATABASE="$W39" PGHOST=localhost PGPORT=5432 PGUSER="$(whoami)" PGPASSWORD=
+  SER=$(Rscript -e 'cat(Sys.getenv("PGHOST"), Sys.getenv("PGDATABASE"))')
+  [[ "$SER" == "localhost $W39" ]] || fejl "R ser '$SER', ikke localhost $W39"
+  Rscript tests/integration/test-1939-v50-production-writer.R > /tmp/claude-501/t3-$W39-r.log 2>&1 || fejl "R-integration (se t3-$W39-r.log)"
+  print "T3_UPGRADE_OK baser: $LE $W39" )
 ```
 
-Expected: alle `rc=0`, pytest `8 passed`. `test-reimport-name-completion.sql` kalder den generiske oprettelse (nu med kvittering) og fortrydelse positivt, `test-1939-v50-production-writer.sql` beviser positiv 1939-oprettelse, og R-integrationen beviser 1939's rollback/apply/reversal, og `test-reimport-legacy-migration.sql` — **uændret** — beviser, at 149b's migration og dens fortrydelse per element virker som `legacy_match` (Review Focus 4). `test-reimport-writer.sql` beviser kun, at afvisningerne er uændrede. Fejler en test på `EVIDENCE_IDENTITY_BASIS_REQUIRED` eller `EVIDENCE_IDENTITY_ORIGIN_INVALID`: **STOP** — en kalder mangler i tabellen; afgør med projektejeren, ikke med en ny oprindelse.
+Expected: alle `rc=0`, pytest `8 passed`, og opgraderingsblokken slutter med `T3_UPGRADE_OK` (ingen `STOP:`). `test-reimport-name-completion.sql` kalder den generiske oprettelse (nu med kvittering) og fortrydelse positivt, `test-1939-v50-production-writer.sql` beviser positiv 1939-oprettelse, og R-integrationen beviser 1939's rollback/apply/reversal, og `test-reimport-legacy-migration.sql` — **uændret** — beviser, at 149b's migration og dens fortrydelse per element virker som `legacy_match` (Review Focus 4). `test-reimport-writer.sql` beviser kun, at afvisningerne er uændrede. Fejler en test på `EVIDENCE_IDENTITY_BASIS_REQUIRED` eller `EVIDENCE_IDENTITY_ORIGIN_INVALID`: **STOP** — en kalder mangler i tabellen; afgør med projektejeren, ikke med en ny oprindelse.
 
 - [ ] **Step 11: Commit**
 
