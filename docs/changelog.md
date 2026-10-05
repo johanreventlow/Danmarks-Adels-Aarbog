@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-10-05 — 2018-20's fortolkningskæde overført til prod (#147)
+
+Efter projektejerens GO er hele 2018-20's kæde skrevet i prod efter runbooken
+`runbooks/transfer-2018-20-prod.md`: 3.739 forslag, 676 afgørelser (602 maskinelle, 61 A og 13 U fra
+kontrolarket) og 622 bindinger fra pakken `07355ccc…`. Skrivepause, preflight og dump (10,7 MB) gik
+forud; generalprøven på netop dette dump gav `REHEARSAL_OK` med pakkens tre digests og en øvet
+fortrydelse tilbage til `EMPTY`. I prod: `APPLY_OK` i første forsøg (dry-run 186 s og apply 222 s over
+poolerens netforbindelse mod 16 s og 12 s lokalt; ingen enkeltsætning nær grænsen), `DECIDE_OK` (36 s),
+`BIND_OK` (10 s) og `VERIFY_OK`: tilstand `COMPLETE`, digests `bb808efe…`/`33fc4b56…`/`5762ceaa…` lig
+pakken, alle 676 afgørelser med pakkens hash, baseline, uberørte tabeller og grants uændret, `anon`
+kan ikke læse kæden. Pausen sluttede med `FREEZE_END_OK mode=verify`. Ingest og afgørelse er nu
+`produktionsverificeret` for 2018-20; promotion kun for bindingsdelen. Omsegmenteringens
+fortrydelsesvindue er lukket; pausens dump er det nye restorepunkt.
+
 ## 2026-10-05 — prod-overførslen af 2018-20 er klar til GO (#147, plan B)
 
 Ceremonien for den samlede overførsel (3.739 forslag, 676 afgørelser, 622 bindinger fra pakken
