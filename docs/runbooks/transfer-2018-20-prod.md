@@ -77,7 +77,8 @@ Forventet: `PREFLIGHT_OK state=EMPTY levende=471|471|471|471|471`.
 ```
 ! /bin/zsh -f ~/.private/2018-20-overfoersel/koer.zsh 02-dump.sh
 ```
-Forventet: `DUMP_OK bytes=… sha256=…`. Dumpet er den eneste vej tilbage (afsnit 6).
+Forventet: `DUMP_OK bytes=… sha256=…`. Dumpet er den eneste vej tilbage (afsnit 6). Det tages kun i
+tilstand `EMPTY` (ellers `TRANSFER_STATE_NOT_EMPTY`), så det altid er et billede fra før overførslen.
 
 **4. Generalprøve (lokalt; rører ikke prod).** Restorer netop dette dump i en ny lokal base og kører de
 samme lib-funktioner som prod: `04` → `07` → `08` → `05`, derefter en øvet fortrydelse.
@@ -95,13 +96,15 @@ Stand-in målt 2026-10-04/05: dry-run 12-15 s, apply 10-12 s, `07` 16-17 s, `08`
 ```
 Forventet: `APPLY_OK` (tilstand `PROPOSED`).
 
-**7. Afgørelser (skriver).** 676 afgørelser, hver med pakkens hash.
+**7. Afgørelser (skriver).** Først `ANALYZE` af kædens fire tabeller (kun planner-statistik, ingen
+data; `04` har lige skrevet 3.739 rækker), og planen for klassifikationen gemmes til diagnose. Derefter
+676 afgørelser, hver med pakkens hash.
 ```
 ! /bin/zsh -f ~/.private/2018-20-overfoersel/koer.zsh 07-decide.sh --jeg-mener-det
 ```
 Forventet: `DECIDE_OK` (tilstand `DECIDED`).
 
-**8. Bindinger (skriver).** 622 bindinger.
+**8. Bindinger (skriver).** `ANALYZE` af kædens tabeller, derefter 622 bindinger.
 ```
 ! /bin/zsh -f ~/.private/2018-20-overfoersel/koer.zsh 08-bind.sh --jeg-mener-det
 ```
@@ -179,8 +182,18 @@ vurderer projektejeren fejllisten (`undo.json`), og pausen afsluttes med `00-fre
 
 `09` kører netop den kommando, generalprøven øvede:
 `pg_restore --clean --if-exists --no-owner --schema=private --schema=public` af pausens dump mod prod.
-Den kræver en aktiv pause fra før dumpets start, dumpets byte-hash = kvitteringens og ejerskab over alt i
-`private`/`public` (`RESTORE_PRIVILEGES`).
+Den kræver en aktiv pause fra før dumpets start, dumpets byte-hash = kvitteringens, at kvitteringen er
+den, `04`'s første forsøg brugte (`UNDO_DUMP_BINDING`), og ejerskab over alt i `private`/`public`
+(`RESTORE_PRIVILEGES`). Den kan køres igen efter et afbrud midt i restoren.
+
+- **Adgang:** restoren genskaber tabeller og funktioner i `public`, og prods `DEFAULT PRIVILEGES` for
+  `postgres` giver dem automatisk rettigheder til `anon` og `authenticated`, som dumpet ikke tager
+  tilbage. `09` sammenligner derfor alle grants til `anon`/`authenticated`/`PUBLIC` med preflightens
+  liste og tilbagekalder/giver forskellen i én transaktion (`grants_tilbagekaldt|givet` i udskriften).
+  Efterkrav: grants = preflightens (`UNDO_GRANTS`) og `anon` kan ikke læse kædens tabeller (`UNDO_ANON`).
+  Målt lokalt med Supabases default privileges efterlignet: 415 grants tilbagekaldt.
+- **Efter en fortrydelse** nægter `04`/`07`/`08` i samme pause (`UNDO_IN_THIS_FREEZE`). En ny ceremoni
+  kræver ny pause, nyt dump og ny generalprøve; `00 begin` flytter forrige forsøgs binding til side.
 
 - **Prisen:** alt skrevet i `private`/`public` efter dumpets start går tabt. Under pausen er det kun
   overførslen.
