@@ -3185,14 +3185,14 @@ BEGIN
   PERFORM 1 FROM private.source_record_placement WHERE id=v_record_placement FOR UPDATE;
   PERFORM 1 FROM private.source_record WHERE id=(v_evidence->>'source_record_id')::uuid FOR UPDATE;
   v_payload_sha:=private.reimport_canonical_json_sha256(p_payload);
-  INSERT INTO public.person(staged,visning_navn) VALUES(true,NULL) RETURNING id INTO v_person_id;
+  v_person_id:=private.insert_person_with_receipt(true,NULL);
   INSERT INTO public.person_external_id(person_id,source_id,record_key) VALUES(v_person_id,v_batch.source_id,p_payload->>'source_record_key');
   v_persona:=(p_payload->>'source_persona_id')::uuid;
   INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES(v_persona,v_batch.source_id,p_payload->>'persona_key',(v_evidence->>'run_id')::uuid);
   INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) VALUES(v_persona,(v_evidence->>'mention_id')::uuid,'primary',1);
   v_persona_placement:=private.propose_source_persona_placement(v_persona,v_record_placement,p_payload->>'placement_role',(v_evidence->>'observation_id')::uuid,jsonb_build_object('batch_id',p_batch_id,'authorized_payload_sha256',v_payload_sha,'basis_sha256',p_payload->>'placement_basis_sha256'),'reimport writer');
   v_placement_version:=public.red_decide_source_persona_placement(v_persona_placement,1,'accepted',jsonb_build_object('batch_id',p_batch_id,'review_sha256',p_payload->>'placement_review_sha256','decision_sha256',p_payload->>'placement_decision_sha256'));
-  v_identity_version:=public.red_decide_source_persona_identity(v_persona,v_person_id,0,'accepted',jsonb_build_object('batch_id',p_batch_id,'profile_sha256',v_batch.profile_sha256,'placement_id',v_persona_placement));
+  v_identity_version:=private.decide_source_persona_identity(v_persona,v_person_id,0,'accepted',jsonb_build_object('batch_id',p_batch_id,'profile_sha256',v_batch.profile_sha256,'placement_id',v_persona_placement),'person_create');
   v_state:=private.narrative_record_state(v_person_id,v_batch.source_id,p_payload->>'source_record_key',true);
   IF v_state->>'eligibility_status'<>'eligible' OR v_state->>'blocking_reason' IS NOT NULL OR v_state->>'authority_kind'<>'accepted_identity'
      OR v_state #> '{publication_state,target}' IS DISTINCT FROM jsonb_build_object('person_id',v_person_id,'source_id',v_batch.source_id,'record_key',p_payload->>'source_record_key','source_record_id',(v_evidence->>'source_record_id')::uuid,'source_record_ref',(v_state #>> '{publication_state,target,source_record_ref}')::uuid)
@@ -3302,10 +3302,10 @@ BEGIN
   IF EXISTS (SELECT 1 FROM private.source_persona WHERE source_id=v_batch.source_id AND persona_key=p_payload->>'persona_key') THEN RAISE EXCEPTION 'LEGACY_MIGRATION_PERSONA_EXISTS'; END IF;
   INSERT INTO private.source_persona(source_id,persona_key,created_run_id) VALUES(v_batch.source_id,p_payload->>'persona_key',v_run) RETURNING id INTO v_persona;
   INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) VALUES(v_persona,v_mention_id,'primary',1);
-  v_identity_version:=public.red_decide_source_persona_identity(v_persona,v_person_id,0,'accepted',jsonb_build_object(
+  v_identity_version:=private.decide_source_persona_identity(v_persona,v_person_id,0,'accepted',jsonb_build_object(
     'authority','person_external_id',
     'person_external_id',jsonb_build_object('person_id',v_person_id,'source_id',v_batch.source_id,'record_key',v_record.record_key),
-    'batch_id',p_batch_id,'element_id',p_element_id,'profile_sha256',v_batch.profile_sha256,'authorized_payload_sha256',v_payload_sha));
+    'batch_id',p_batch_id,'element_id',p_element_id,'profile_sha256',v_batch.profile_sha256,'authorized_payload_sha256',v_payload_sha),'legacy_match');
 
   v_initial:=private.narrative_publication_state(v_person_id,v_batch.source_id,v_record.record_key);
   v_initial_sha:=encode(digest(v_initial::text,'sha256'),'hex');
@@ -4338,7 +4338,7 @@ BEGIN
     DELETE FROM public.conclusion WHERE id=r.conclusion_id; DELETE FROM public.citation WHERE id=r.citation_id; DELETE FROM public.assertion WHERE id=r.assertion_id; DELETE FROM public.fact WHERE id=r.fact_id;
     SELECT version INTO v_identity_version FROM private.source_persona_identity WHERE source_persona_id=r.source_persona_id ORDER BY version DESC LIMIT 1 FOR UPDATE;
     IF v_identity_version IS NULL THEN RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID'; END IF;
-    PERFORM public.red_decide_source_persona_identity(r.source_persona_id,NULL,v_identity_version,'superseded',jsonb_build_object('reversed_batch_id',b.id,'profile_sha256',b.profile_sha256)); UPDATE public.person SET staged=true WHERE id=r.person_id;
+    PERFORM private.decide_source_persona_identity(r.source_persona_id,NULL,v_identity_version,'superseded',jsonb_build_object('reversed_batch_id',b.id,'profile_sha256',b.profile_sha256),'reversal'); UPDATE public.person SET staged=true WHERE id=r.person_id;
   END LOOP;
   UPDATE private.reimport_authorization SET status='consumed',consumed_at=clock_timestamp() WHERE id=a.id; UPDATE private.reimport_batch SET status='reversed' WHERE id IN (b.id,cb.id); INSERT INTO private.reimport_event(batch_id,element_id,operation,payload,after_sha256) VALUES(b.id,'reversal:'||a.id::text,'reversal',jsonb_build_object('authorization_id',a.id,'child_batch_id',cb.id),private.reimport_canonical_json_sha256(jsonb_build_object('authorization_id',a.id,'child_batch_id',cb.id))); RETURN jsonb_build_object('batch_id',b.id,'status','reversed','child_batch_id',cb.id);
 END $$;
@@ -8149,12 +8149,32 @@ BEGIN
   RETURN v_id;
 END $$;
 
-CREATE OR REPLACE FUNCTION red_decide_source_persona_identity(
+-- Trin 5a (#151): oprettelseskvittering. Kun insert_person_with_receipt udsteder den, og
+-- kernen forbruger den; et person_create-match til en eksisterende person har ingen kvittering.
+CREATE TABLE IF NOT EXISTS private.person_create_receipt (
+  person_id bigint PRIMARY KEY REFERENCES public.person(id) ON DELETE CASCADE,
+  xact_id   xid8 NOT NULL
+);
+ALTER TABLE private.person_create_receipt ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.person_create_receipt FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION private.insert_person_with_receipt(p_staged boolean,p_visning_navn text)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_id bigint;
+BEGIN
+  INSERT INTO public.person(staged,visning_navn) VALUES(p_staged,p_visning_navn) RETURNING id INTO v_id;
+  INSERT INTO private.person_create_receipt(person_id,xact_id) VALUES(v_id,pg_current_xact_id());
+  RETURN v_id;
+END $$;
+REVOKE ALL ON FUNCTION private.insert_person_with_receipt(boolean,text) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION private.decide_source_persona_identity(
   p_source_persona_id uuid,
   p_canonical_person_id bigint,
   p_expected_version integer,
   p_decision_status text,
-  p_evidence jsonb
+  p_evidence jsonb,
+  p_origin text
 ) RETURNS integer
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE
@@ -8198,6 +8218,44 @@ BEGIN
   IF v_current_version<>p_expected_version THEN
     RAISE EXCEPTION 'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected %, current %',
       p_expected_version,v_current_version;
+  END IF;
+  -- Trin 5a-guard (#151): oprindelsen er strukturel. Kernen har ingen grants; kun
+  -- serverfunktioner kalder den, og hver oprindelse har sine egne krav.
+  IF p_origin='human' THEN
+    IF coalesce(p_evidence->>'basis','') NOT IN ('web_detail','human_sheet') THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
+    END IF;
+  ELSIF p_origin='person_create' THEN
+    IF p_decision_status<>'accepted' OR p_expected_version<>0 OR NOT (p_evidence ? 'batch_id') OR p_evidence ? 'basis' THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
+    END IF;
+    -- Kvitteringen beviser, at personen er oprettet af insert_person_with_receipt i DENNE
+    -- toptransaktion (xid8: epoke-sikker og ens i subtransaktioner); den forbruges én gang.
+    DELETE FROM private.person_create_receipt WHERE person_id=p_canonical_person_id AND xact_id=pg_current_xact_id();
+    IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_IDENTITY_CREATE_RECEIPT_MISSING'; END IF;
+  ELSIF p_origin='legacy_match' THEN
+    -- 149b: den faste 1:1-kobling via person_external_id, efterprøvet her — ikke kun i writeren.
+    IF p_decision_status<>'accepted' OR p_expected_version<>0 OR p_evidence ? 'basis'
+       OR p_evidence->>'authority' IS DISTINCT FROM 'person_external_id'
+       OR (p_evidence->'person_external_id'->>'person_id')::bigint IS DISTINCT FROM p_canonical_person_id
+       OR (p_evidence->'person_external_id'->>'source_id')::bigint IS DISTINCT FROM
+          (SELECT sp.source_id FROM private.source_persona sp WHERE sp.id=p_source_persona_id)
+       OR (SELECT count(*) FROM public.person_external_id x
+            WHERE x.source_id=(p_evidence->'person_external_id'->>'source_id')::bigint
+              AND x.record_key=p_evidence->'person_external_id'->>'record_key')<>1
+       OR NOT EXISTS (SELECT 1 FROM public.person_external_id x
+            WHERE x.source_id=(p_evidence->'person_external_id'->>'source_id')::bigint
+              AND x.record_key=p_evidence->'person_external_id'->>'record_key' AND x.person_id=p_canonical_person_id)
+       OR (SELECT count(*) FROM public.person_external_id x
+            WHERE x.source_id=(p_evidence->'person_external_id'->>'source_id')::bigint AND x.person_id=p_canonical_person_id)<>1 THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
+    END IF;
+  ELSIF p_origin='reversal' THEN
+    IF p_decision_status<>'superseded' OR NOT (p_evidence ? 'reversed_batch_id') OR p_evidence ? 'basis' THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
+    END IF;
+  ELSE
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_ORIGIN_INVALID';
   END IF;
   v_new_version:=v_current_version+1;
 
@@ -8324,29 +8382,56 @@ END $$;
 -- det er en kildeintern afvisning, ikke en påstand om en alternativ person.
 CREATE OR REPLACE FUNCTION red_afgoer_source_persona(
   p_source_persona_id uuid, p_expected_version integer, p_action text,
-  p_canonical_person_id bigint, p_note text
+  p_canonical_person_id bigint, p_note text, p_context jsonb DEFAULT '{}'::jsonb
 ) RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-DECLARE v_status text; v_version integer;
+DECLARE
+  v_status text; v_basis text; v_evidence jsonb; v_cand record; v_source bigint; v_current_run uuid;
+  v_ctx jsonb:=coalesce(p_context,'{}'::jsonb);
 BEGIN
-  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN
-    RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN';
-  END IF;
-  IF p_action NOT IN ('same','different','unresolved')
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  v_basis:=coalesce(v_ctx->>'basis','web_detail');
+  IF jsonb_typeof(v_ctx)<>'object'
+     OR EXISTS (SELECT 1 FROM jsonb_object_keys(v_ctx) k
+                 WHERE k NOT IN ('basis','candidate_id','run_id','sheet_sha256','rows_sha256','line'))
+     OR (v_ctx ? 'candidate_id') <> (v_ctx ? 'run_id')
+     OR p_action NOT IN ('same','different','unresolved','new_person_needed')
      OR nullif(btrim(p_note),'') IS NULL
      OR (p_action='same' AND p_canonical_person_id IS NULL)
-     OR (p_action<>'same' AND p_canonical_person_id IS NOT NULL) THEN
+     OR (p_action<>'same' AND p_canonical_person_id IS NOT NULL)
+     OR v_basis NOT IN ('web_detail','human_sheet')
+     OR (v_basis='human_sheet' AND (coalesce(v_ctx->>'sheet_sha256','') !~ '^[0-9a-f]{64}$'
+                                   OR coalesce(v_ctx->>'rows_sha256','') !~ '^[0-9a-f]{64}$'
+                                   OR coalesce(v_ctx->>'line','') !~ '^[1-9][0-9]*$')) THEN
     RAISE EXCEPTION 'EVIDENCE_IDENTITY_DECISION_INVALID';
   END IF;
-  -- En afgørelse uden en observeret kildemention er aldrig tilladt.
+  SELECT source_id INTO v_source FROM private.source_persona WHERE id=p_source_persona_id;
+  IF v_source IS NULL THEN RAISE EXCEPTION 'EVIDENCE_PERSONA_BASIS_REQUIRED'; END IF;
+  -- Delt kildelås: kandidatwriteren tager den eksklusivt (Task 2), så en ny kørsel ikke
+  -- kan indsættes mellem aktualitetskontrollen nedenfor og denne transaktions commit.
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-identity-candidates:'||v_source::text,0));
   IF NOT EXISTS (SELECT 1 FROM private.source_persona_mention WHERE persona_id=p_source_persona_id) THEN
     RAISE EXCEPTION 'EVIDENCE_PERSONA_BASIS_REQUIRED';
   END IF;
   v_status:=CASE p_action WHEN 'same' THEN 'accepted' WHEN 'different' THEN 'rejected' ELSE 'unresolved' END;
-  v_version:=red_decide_source_persona_identity(
-    p_source_persona_id,p_canonical_person_id,p_expected_version,v_status,
-    jsonb_build_object('note',btrim(p_note),'action',p_action,'basis','visible_source_persona_detail')
-  );
-  RETURN v_version;
+  v_evidence:=jsonb_build_object('note',btrim(p_note),'action',p_action,'basis',v_basis);
+  IF p_action='new_person_needed' THEN v_evidence:=v_evidence||'{"reason":"new_person_needed"}'; END IF;
+  IF v_ctx ? 'candidate_id' THEN
+    SELECT c.id,c.run_id,c.rank,c.source_persona_id,c.candidate_person_id INTO v_cand
+      FROM private.source_persona_identity_candidate c WHERE c.id=(v_ctx->>'candidate_id')::uuid;
+    IF NOT FOUND OR v_cand.run_id<>(v_ctx->>'run_id')::uuid OR v_cand.source_persona_id<>p_source_persona_id
+       OR p_action<>'same' OR v_cand.candidate_person_id<>p_canonical_person_id THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_CANDIDATE_MISMATCH';
+    END IF;
+    SELECT r.id INTO v_current_run FROM private.source_persona_identity_candidate_run r
+     WHERE r.source_id=v_source ORDER BY r.run_seq DESC LIMIT 1;
+    IF v_current_run IS DISTINCT FROM v_cand.run_id THEN RAISE EXCEPTION 'EVIDENCE_IDENTITY_CANDIDATE_RUN_STALE'; END IF;
+    v_evidence:=v_evidence||jsonb_build_object('candidate_id',v_cand.id,'run_id',v_cand.run_id,'candidate_rank',v_cand.rank);
+  END IF;
+  IF v_basis='human_sheet' THEN
+    v_evidence:=v_evidence||jsonb_build_object('sheet_sha256',v_ctx->>'sheet_sha256',
+      'rows_sha256',v_ctx->>'rows_sha256','line',(v_ctx->>'line')::int);
+  END IF;
+  RETURN private.decide_source_persona_identity(p_source_persona_id,p_canonical_person_id,p_expected_version,v_status,v_evidence,'human');
 END $$;
 
 CREATE OR REPLACE FUNCTION private.identity_candidate_input(p_source_id bigint,p_input_spec jsonb)
@@ -8482,17 +8567,17 @@ GRANT EXECUTE ON FUNCTION red_record_identity_candidates(jsonb,jsonb) TO authent
 
 REVOKE ALL ON FUNCTION red_decide_interpretation(uuid,integer,text,jsonb),
                        red_promote_interpretation(uuid,text,bigint,jsonb),
-                       red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb),
+                       private.decide_source_persona_identity(uuid,bigint,integer,text,jsonb,text),
                        red_source_persona_queue(text,bigint,uuid,integer),
                        red_source_persona_detail(uuid),red_source_persona_history(uuid),
-                       red_afgoer_source_persona(uuid,integer,text,bigint,text)
+                       red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb)
   FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION private.decide_source_persona_identity(uuid,bigint,integer,text,jsonb,text) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION red_decide_interpretation(uuid,integer,text,jsonb),
                           red_promote_interpretation(uuid,text,bigint,jsonb),
-                          red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb),
                           red_source_persona_queue(text,bigint,uuid,integer),
                           red_source_persona_detail(uuid),red_source_persona_history(uuid),
-                          red_afgoer_source_persona(uuid,integer,text,bigint,text)
+                          red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb)
   TO authenticated;
 
 -- ---------- EVIDENS-PROMOTION: VALIDERET PREVIEW OG ATOMISK BATCH ----------

@@ -2929,7 +2929,7 @@ DECLARE
   v_authenticated regprocedure[] := ARRAY[
     'public.red_activate_1939_v50_batch(uuid,uuid)'::regprocedure,
     'public.red_activate_reimport_batch(uuid,uuid)'::regprocedure,
-    'public.red_afgoer_source_persona(uuid,integer,text,bigint,text)'::regprocedure,
+    'public.red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb)'::regprocedure,
     'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_1939_v50_name_completion(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_1939_v50_person_create(uuid,text,jsonb)'::regprocedure,
@@ -2948,7 +2948,6 @@ DECLARE
     'public.red_begin_reimport_name_completion(uuid,text,uuid)'::regprocedure,
     'public.red_bekraeft_media_upload(bigint,bigint,text)'::regprocedure,
     'public.red_decide_interpretation(uuid,integer,text,jsonb)'::regprocedure,
-    'public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)'::regprocedure,
     'public.red_decide_source_persona_placement(uuid,integer,text,jsonb)'::regprocedure,
     'public.red_decide_source_record_placement(uuid,integer,text,jsonb)'::regprocedure,
     'public.red_edit_oplysning(bigint,text,text,text)'::regprocedure,
@@ -3748,18 +3747,23 @@ BEGIN
        'public.red_promote_interpretation(uuid,text,bigint,jsonb)'
      ) IS NULL
      OR to_regprocedure(
-       'public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)'
+       'private.decide_source_persona_identity(uuid,bigint,integer,text,jsonb,text)'
      ) IS NULL THEN
     RAISE EXCEPTION 'FEJL: fortolkningslaget mangler atomiske redaktions-RPCer';
+  END IF;
+  -- Trin 5a (#151): den offentlige identitetskerne må ikke findes; den private har ingen klientgrants.
+  IF to_regprocedure('public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)') IS NOT NULL
+     OR to_regprocedure('public.red_afgoer_source_persona(uuid,integer,text,bigint,text)') IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: #151 den offentlige identitetskerne eller femarguments-wrapperen findes stadig';
+  END IF;
+  IF has_function_privilege('authenticated','private.decide_source_persona_identity(uuid,bigint,integer,text,jsonb,text)','EXECUTE')
+     OR has_function_privilege('anon','private.decide_source_persona_identity(uuid,bigint,integer,text,jsonb,text)','EXECUTE') THEN
+    RAISE EXCEPTION 'FEJL: #151 klientroller kan kalde den private identitetskerne';
   END IF;
   IF has_function_privilege(
        'anon','public.red_decide_interpretation(uuid,integer,text,jsonb)','EXECUTE'
      ) OR has_function_privilege(
        'anon','public.red_promote_interpretation(uuid,text,bigint,jsonb)','EXECUTE'
-     ) OR has_function_privilege(
-       'anon',
-       'public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)',
-       'EXECUTE'
      ) THEN
     RAISE EXCEPTION 'FEJL: anon kan kalde fortolknings-/identitetsmutationer';
   END IF;
@@ -3871,9 +3875,7 @@ BEGIN
     PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
     v_error:=NULL;
     BEGIN
-      PERFORM red_decide_source_persona_identity(
-        v_persona,-987650021,0,'accepted','{"basis":"direct without mention"}'
-      );
+      PERFORM private.decide_source_persona_identity(v_persona,-987650021,0,'accepted','{"basis":"web_detail","note":"direct without mention"}','human');
       RAISE EXCEPTION 'IDENTITY_WITHOUT_MENTION_BYPASS';
     EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
     IF v_error NOT LIKE 'EVIDENCE_PERSONA_BASIS_REQUIRED%' THEN
@@ -3881,9 +3883,7 @@ BEGIN
     END IF;
     v_error:=NULL;
     BEGIN
-      PERFORM red_decide_source_persona_identity(
-        v_persona,-987650021,0,'rejected','{"basis":"direct invalid target"}'
-      );
+      PERFORM private.decide_source_persona_identity(v_persona,-987650021,0,'rejected','{"basis":"web_detail","note":"direct invalid target"}','human');
       RAISE EXCEPTION 'IDENTITY_REJECTED_TARGET_BYPASS';
     EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
     IF v_error NOT LIKE 'EVIDENCE_IDENTITY_DECISION_INVALID%' THEN
@@ -4059,18 +4059,14 @@ BEGIN
 
     v_error:=NULL;
     BEGIN
-      PERFORM red_decide_source_persona_identity(
-        v_persona,-987650021,NULL,'accepted','{"basis":"null version"}'
-      );
+      PERFORM private.decide_source_persona_identity(v_persona,-987650021,NULL,'accepted','{"basis":"web_detail","note":"null version"}','human');
       RAISE EXCEPTION 'NULL_VERSION_BYPASS';
     EXCEPTION WHEN others THEN v_error:=SQLERRM; END;
     IF v_error NOT LIKE 'EVIDENCE_EXPECTED_VERSION_REQUIRED%' THEN
       RAISE EXCEPTION 'FEJL: NULL expected_version bypassede identity-låsen: %',v_error;
     END IF;
 
-    PERFORM red_decide_source_persona_identity(
-      v_persona,-987650021,0,'accepted','{"basis":"reviewed"}'
-    );
+    PERFORM private.decide_source_persona_identity(v_persona,-987650021,0,'accepted','{"basis":"web_detail","note":"reviewed"}','human');
     IF (SELECT count(*) FROM private.source_persona_identity
          WHERE source_persona_id=v_persona AND decision_status='accepted')<>1
        OR NOT EXISTS (
@@ -4091,17 +4087,13 @@ BEGIN
 
     v_error := NULL;
     BEGIN
-      PERFORM red_decide_source_persona_identity(
-        v_persona,-987650022,0,'accepted','{"basis":"stale"}'
-      );
+      PERFORM private.decide_source_persona_identity(v_persona,-987650022,0,'accepted','{"basis":"web_detail","note":"stale"}','human');
     EXCEPTION WHEN others THEN v_error := SQLERRM; END;
     IF v_error NOT LIKE 'EVIDENCE_IDENTITY_VERSION_CONFLICT%' THEN
       RAISE EXCEPTION 'FEJL: stale identitetsafgørelse blev ikke afvist: %',v_error;
     END IF;
 
-    PERFORM red_decide_source_persona_identity(
-      v_persona,-987650022,1,'accepted','{"basis":"revised review"}'
-    );
+    PERFORM private.decide_source_persona_identity(v_persona,-987650022,1,'accepted','{"basis":"web_detail","note":"revised review"}','human');
     v_error:=NULL;
     BEGIN
       UPDATE private.source_persona_identity state SET
@@ -4679,10 +4671,8 @@ BEGIN
     SET CONSTRAINTS private.interpretation_has_observation DEFERRED;
 
     PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+    PERFORM private.decide_source_persona_identity(v_persona,-987650041,0,'accepted','{"basis":"web_detail","note":"promotion verify"}','human');
     SET LOCAL ROLE authenticated;
-    PERFORM red_decide_source_persona_identity(
-      v_persona,-987650041,0,'accepted','{"basis":"promotion verify"}'
-    );
     SELECT red_decide_interpretation(v_interpretation_1,1,'accepted','{"basis":"promotion verify"}')
       INTO v_accepted_1;
     SELECT red_decide_interpretation(v_interpretation_2,1,'accepted','{"basis":"promotion verify"}')
@@ -5210,9 +5200,11 @@ BEGIN
     FROM dblink('promotion_a',format(
       'SELECT red_preview_interpretation_promotions(''[{"interpretation_id":"%s","target_type":"assertion","target_id":-987650051}]''::jsonb) AS preview',
       v_identity_interpretation_2)) AS t(preview jsonb);
+  PERFORM dblink_exec('promotion_a','RESET ROLE');   -- #151: kernen er privat; kaldes som server
   SELECT version INTO v_version FROM dblink('promotion_a',format(
-    'SELECT red_decide_source_persona_identity(''%s'',-987650052,1,''accepted'',''{"basis":"concurrent identity review"}'')',
+    'SELECT private.decide_source_persona_identity(''%s'',-987650052,1,''accepted'',''{"basis":"web_detail","note":"concurrent identity review"}'',''human'')',
     v_persona)) AS t(version integer);
+  PERFORM dblink_exec('promotion_a','SET LOCAL ROLE authenticated');
   IF v_version<>2 THEN
     RAISE EXCEPTION 'FEJL: concurrent identity-writer gav version %',v_version;
   END IF;
@@ -5276,9 +5268,11 @@ BEGIN
   PERFORM dblink_exec('promotion_a','BEGIN');
   PERFORM dblink_exec('promotion_a','SET LOCAL ROLE authenticated');
   PERFORM dblink_exec('promotion_a',format('SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  PERFORM dblink_exec('promotion_a','RESET ROLE');   -- #151: kernen er privat; kaldes som server
   SELECT version INTO v_version FROM dblink('promotion_a',format(
-    'SELECT red_decide_source_persona_identity(''%s'',-987650051,2,''accepted'',''{"basis":"restore for rule race"}'')',
+    'SELECT private.decide_source_persona_identity(''%s'',-987650051,2,''accepted'',''{"basis":"web_detail","note":"restore for rule race"}'',''human'')',
     v_persona)) AS t(version integer);
+  PERFORM dblink_exec('promotion_a','SET LOCAL ROLE authenticated');
   IF v_version<>3 THEN RAISE EXCEPTION 'FEJL: identity restore gav version %',v_version; END IF;
   PERFORM dblink_exec('promotion_a','COMMIT');
   PERFORM dblink_exec('promotion_a','BEGIN');
@@ -5471,20 +5465,23 @@ BEGIN
   PERFORM dblink_exec('identity_a','SET LOCAL ROLE authenticated');
   PERFORM dblink_exec('identity_a',format(
     'SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  PERFORM dblink_exec('identity_a','RESET ROLE');   -- #151: kernen er privat; kaldes som server
   SELECT version INTO v_version FROM dblink('identity_a',
-    'SELECT red_decide_source_persona_identity('
+    'SELECT private.decide_source_persona_identity('
     || '''88000000-0000-0000-0000-000000000031'',-987650031,1,''accepted'','
-    || '''{"basis":"A"}'')') AS t(version integer);
+    || '''{"basis":"web_detail","note":"A"}'',''human'')') AS t(version integer);
+  PERFORM dblink_exec('identity_a','SET LOCAL ROLE authenticated');
   IF v_version<>2 THEN RAISE EXCEPTION 'FEJL: første identity-writer gav version %',v_version; END IF;
 
   PERFORM dblink_exec('identity_b','BEGIN');
   PERFORM dblink_exec('identity_b','SET LOCAL ROLE authenticated');
   PERFORM dblink_exec('identity_b',format(
     'SET LOCAL "request.jwt.claim.sub"=%L',v_actor::text));
+  PERFORM dblink_exec('identity_b','RESET ROLE');   -- #151: kernen er privat; kaldes som server
   PERFORM dblink_send_query('identity_b',
-    'SELECT red_decide_source_persona_identity('
+    'SELECT private.decide_source_persona_identity('
     || '''88000000-0000-0000-0000-000000000031'',-987650032,1,''accepted'','
-    || '''{"basis":"B"}'')');
+    || '''{"basis":"web_detail","note":"B"}'',''human'')');
   v_deadline:=clock_timestamp()+interval '3 seconds';
   LOOP
     EXIT WHEN v_a_pid=ANY(pg_blocking_pids(v_b_pid));
@@ -5687,13 +5684,13 @@ BEGIN
   IF to_regprocedure('public.red_source_persona_queue(text,bigint,uuid,integer)') IS NULL
      OR to_regprocedure('public.red_source_persona_detail(uuid)') IS NULL
      OR to_regprocedure('public.red_source_persona_history(uuid)') IS NULL
-     OR to_regprocedure('public.red_afgoer_source_persona(uuid,integer,text,bigint,text)') IS NULL THEN
+     OR to_regprocedure('public.red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb)') IS NULL THEN
     RAISE EXCEPTION 'FEJL: Task 11 mangler source-persona-køens RPCer';
   END IF;
   IF has_function_privilege('anon','public.red_source_persona_queue(text,bigint,uuid,integer)','EXECUTE')
      OR has_function_privilege('anon','public.red_source_persona_detail(uuid)','EXECUTE')
      OR has_function_privilege('anon','public.red_source_persona_history(uuid)','EXECUTE')
-     OR has_function_privilege('anon','public.red_afgoer_source_persona(uuid,integer,text,bigint,text)','EXECUTE') THEN
+     OR has_function_privilege('anon','public.red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb)','EXECUTE') THEN
     RAISE EXCEPTION 'FEJL: Task 11 eksponerer privat source-persona-kø for anon';
   END IF;
   RAISE NOTICE 'OK: Task 11 source-persona-kø er privat og har eksplicitte RPC-kontrakter';

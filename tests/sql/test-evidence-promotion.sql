@@ -294,10 +294,8 @@ BEGIN
     SET CONSTRAINTS private.interpretation_has_observation DEFERRED;
 
     PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+    PERFORM private.decide_source_persona_identity(v_persona,-987650091,0,'accepted','{"basis":"web_detail","note":"digest success regression"}','human');
     SET LOCAL ROLE authenticated;
-    PERFORM red_decide_source_persona_identity(
-      v_persona,-987650091,0,'accepted','{"basis":"digest success regression"}'
-    );
     SELECT red_decide_interpretation(
       v_interpretation,1,'accepted','{"basis":"digest success regression"}'
     ) INTO v_accepted;

@@ -8,6 +8,20 @@
 --  blev ikke altid anvendt). Se docs/ + memory 'live-base-schema-drift'.
 -- =====================================================================
 
+-- BEGIN 5a-cutover (#151): lukker klientvejen til den gamle identitetskerne og femarguments-
+-- wrapperen, FØR resten af filen kører (filen er ikke én transaktion). Webkøens afgørelser fejler
+-- lukket fra her, til den nye wrapper er oprettet længere nede; serverwritere påvirkes ikke.
+DO $cutover_5a$
+BEGIN
+  IF to_regprocedure('public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)') IS NOT NULL THEN
+    REVOKE ALL ON FUNCTION public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+  END IF;
+  IF to_regprocedure('public.red_afgoer_source_persona(uuid,integer,text,bigint,text)') IS NOT NULL THEN
+    REVOKE ALL ON FUNCTION public.red_afgoer_source_persona(uuid,integer,text,bigint,text) FROM PUBLIC,anon,authenticated,service_role;
+  END IF;
+END $cutover_5a$;
+-- END 5a-cutover
+
 -- ---- 2026-06 (tidligere manuelle tilføjelser, jf. CLAUDE.md §5) ----
 -- 2026-08-18: PostgreSQL tildeler person-ID for den guarded 1939-writer.
 DO $migration$
@@ -6469,9 +6483,10 @@ BEGIN
   RETURN v_id;
 END $$;
 
-CREATE OR REPLACE FUNCTION red_decide_source_persona_identity(
+DROP FUNCTION IF EXISTS public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb);
+CREATE OR REPLACE FUNCTION private.decide_source_persona_identity(
   p_source_persona_id uuid,p_canonical_person_id bigint,p_expected_version integer,
-  p_decision_status text,p_evidence jsonb
+  p_decision_status text,p_evidence jsonb,p_origin text
 ) RETURNS integer
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE
@@ -6506,6 +6521,44 @@ BEGIN
     RAISE EXCEPTION 'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected %, current %',
       p_expected_version,v_current_version;
   END IF;
+  -- Trin 5a-guard (#151): oprindelsen er strukturel. Kernen har ingen grants; kun
+  -- serverfunktioner kalder den, og hver oprindelse har sine egne krav.
+  IF p_origin='human' THEN
+    IF coalesce(p_evidence->>'basis','') NOT IN ('web_detail','human_sheet') THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
+    END IF;
+  ELSIF p_origin='person_create' THEN
+    IF p_decision_status<>'accepted' OR p_expected_version<>0 OR NOT (p_evidence ? 'batch_id') OR p_evidence ? 'basis' THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
+    END IF;
+    -- Kvitteringen beviser, at personen er oprettet af insert_person_with_receipt i DENNE
+    -- toptransaktion (xid8: epoke-sikker og ens i subtransaktioner); den forbruges én gang.
+    DELETE FROM private.person_create_receipt WHERE person_id=p_canonical_person_id AND xact_id=pg_current_xact_id();
+    IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_IDENTITY_CREATE_RECEIPT_MISSING'; END IF;
+  ELSIF p_origin='legacy_match' THEN
+    -- 149b: den faste 1:1-kobling via person_external_id, efterprøvet her — ikke kun i writeren.
+    IF p_decision_status<>'accepted' OR p_expected_version<>0 OR p_evidence ? 'basis'
+       OR p_evidence->>'authority' IS DISTINCT FROM 'person_external_id'
+       OR (p_evidence->'person_external_id'->>'person_id')::bigint IS DISTINCT FROM p_canonical_person_id
+       OR (p_evidence->'person_external_id'->>'source_id')::bigint IS DISTINCT FROM
+          (SELECT sp.source_id FROM private.source_persona sp WHERE sp.id=p_source_persona_id)
+       OR (SELECT count(*) FROM public.person_external_id x
+            WHERE x.source_id=(p_evidence->'person_external_id'->>'source_id')::bigint
+              AND x.record_key=p_evidence->'person_external_id'->>'record_key')<>1
+       OR NOT EXISTS (SELECT 1 FROM public.person_external_id x
+            WHERE x.source_id=(p_evidence->'person_external_id'->>'source_id')::bigint
+              AND x.record_key=p_evidence->'person_external_id'->>'record_key' AND x.person_id=p_canonical_person_id)
+       OR (SELECT count(*) FROM public.person_external_id x
+            WHERE x.source_id=(p_evidence->'person_external_id'->>'source_id')::bigint AND x.person_id=p_canonical_person_id)<>1 THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
+    END IF;
+  ELSIF p_origin='reversal' THEN
+    IF p_decision_status<>'superseded' OR NOT (p_evidence ? 'reversed_batch_id') OR p_evidence ? 'basis' THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
+    END IF;
+  ELSE
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_ORIGIN_INVALID';
+  END IF;
   v_new_version:=v_current_version+1;
   INSERT INTO private.source_persona_identity_event(
     source_persona_id,canonical_person_id,decision_status,version,evidence,
@@ -6527,13 +6580,12 @@ BEGIN
 END $$;
 
 REVOKE ALL ON FUNCTION red_decide_interpretation(uuid,integer,text,jsonb),
- red_promote_interpretation(uuid,text,bigint,jsonb),
- red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)
+ red_promote_interpretation(uuid,text,bigint,jsonb)
 FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION red_decide_interpretation(uuid,integer,text,jsonb),
- red_promote_interpretation(uuid,text,bigint,jsonb),
- red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)
+ red_promote_interpretation(uuid,text,bigint,jsonb)
 TO authenticated;
+REVOKE ALL ON FUNCTION private.decide_source_persona_identity(uuid,bigint,integer,text,jsonb,text) FROM PUBLIC,anon,authenticated,service_role;
 
 -- =====================================================================
 -- EVIDENSBASERET GENIMPORT FASE 3 / TASK 6 — SLÆGT OG KILDESCHEMES
@@ -7177,18 +7229,64 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM private.source_persona WHERE id=p_source_persona_id) THEN RAISE EXCEPTION 'EVIDENCE_PERSONA_NOT_FOUND'; END IF;
   RETURN QUERY SELECT event.version,event.decision_status,event.canonical_person_id,event.evidence,event.decided_by_name,event.decided_at FROM private.source_persona_identity_event event WHERE event.source_persona_id=p_source_persona_id ORDER BY event.version;
 END $$;
-CREATE OR REPLACE FUNCTION red_afgoer_source_persona(p_source_persona_id uuid,p_expected_version integer,p_action text,p_canonical_person_id bigint,p_note text) RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-DECLARE v_status text; v_version integer;
+REVOKE ALL ON FUNCTION red_source_persona_queue(text,bigint,uuid,integer),red_source_persona_detail(uuid),red_source_persona_history(uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_source_persona_queue(text,bigint,uuid,integer),red_source_persona_detail(uuid),red_source_persona_history(uuid) TO authenticated;
+DROP FUNCTION IF EXISTS red_afgoer_source_persona(uuid,integer,text,bigint,text);
+CREATE OR REPLACE FUNCTION red_afgoer_source_persona(
+  p_source_persona_id uuid, p_expected_version integer, p_action text,
+  p_canonical_person_id bigint, p_note text, p_context jsonb DEFAULT '{}'::jsonb
+) RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_status text; v_basis text; v_evidence jsonb; v_cand record; v_source bigint; v_current_run uuid;
+  v_ctx jsonb:=coalesce(p_context,'{}'::jsonb);
 BEGIN
   IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
-  IF p_action NOT IN ('same','different','unresolved') OR nullif(btrim(p_note),'') IS NULL OR (p_action='same' AND p_canonical_person_id IS NULL) OR (p_action<>'same' AND p_canonical_person_id IS NOT NULL) THEN RAISE EXCEPTION 'EVIDENCE_IDENTITY_DECISION_INVALID'; END IF;
-  IF NOT EXISTS (SELECT 1 FROM private.source_persona_mention WHERE persona_id=p_source_persona_id) THEN RAISE EXCEPTION 'EVIDENCE_PERSONA_BASIS_REQUIRED'; END IF;
+  v_basis:=coalesce(v_ctx->>'basis','web_detail');
+  IF jsonb_typeof(v_ctx)<>'object'
+     OR EXISTS (SELECT 1 FROM jsonb_object_keys(v_ctx) k
+                 WHERE k NOT IN ('basis','candidate_id','run_id','sheet_sha256','rows_sha256','line'))
+     OR (v_ctx ? 'candidate_id') <> (v_ctx ? 'run_id')
+     OR p_action NOT IN ('same','different','unresolved','new_person_needed')
+     OR nullif(btrim(p_note),'') IS NULL
+     OR (p_action='same' AND p_canonical_person_id IS NULL)
+     OR (p_action<>'same' AND p_canonical_person_id IS NOT NULL)
+     OR v_basis NOT IN ('web_detail','human_sheet')
+     OR (v_basis='human_sheet' AND (coalesce(v_ctx->>'sheet_sha256','') !~ '^[0-9a-f]{64}$'
+                                   OR coalesce(v_ctx->>'rows_sha256','') !~ '^[0-9a-f]{64}$'
+                                   OR coalesce(v_ctx->>'line','') !~ '^[1-9][0-9]*$')) THEN
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_DECISION_INVALID';
+  END IF;
+  SELECT source_id INTO v_source FROM private.source_persona WHERE id=p_source_persona_id;
+  IF v_source IS NULL THEN RAISE EXCEPTION 'EVIDENCE_PERSONA_BASIS_REQUIRED'; END IF;
+  -- Delt kildelås: kandidatwriteren tager den eksklusivt (Task 2), så en ny kørsel ikke
+  -- kan indsættes mellem aktualitetskontrollen nedenfor og denne transaktions commit.
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-identity-candidates:'||v_source::text,0));
+  IF NOT EXISTS (SELECT 1 FROM private.source_persona_mention WHERE persona_id=p_source_persona_id) THEN
+    RAISE EXCEPTION 'EVIDENCE_PERSONA_BASIS_REQUIRED';
+  END IF;
   v_status:=CASE p_action WHEN 'same' THEN 'accepted' WHEN 'different' THEN 'rejected' ELSE 'unresolved' END;
-  v_version:=red_decide_source_persona_identity(p_source_persona_id,p_canonical_person_id,p_expected_version,v_status,jsonb_build_object('note',btrim(p_note),'action',p_action,'basis','visible_source_persona_detail'));
-  RETURN v_version;
+  v_evidence:=jsonb_build_object('note',btrim(p_note),'action',p_action,'basis',v_basis);
+  IF p_action='new_person_needed' THEN v_evidence:=v_evidence||'{"reason":"new_person_needed"}'; END IF;
+  IF v_ctx ? 'candidate_id' THEN
+    SELECT c.id,c.run_id,c.rank,c.source_persona_id,c.candidate_person_id INTO v_cand
+      FROM private.source_persona_identity_candidate c WHERE c.id=(v_ctx->>'candidate_id')::uuid;
+    IF NOT FOUND OR v_cand.run_id<>(v_ctx->>'run_id')::uuid OR v_cand.source_persona_id<>p_source_persona_id
+       OR p_action<>'same' OR v_cand.candidate_person_id<>p_canonical_person_id THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_CANDIDATE_MISMATCH';
+    END IF;
+    SELECT r.id INTO v_current_run FROM private.source_persona_identity_candidate_run r
+     WHERE r.source_id=v_source ORDER BY r.run_seq DESC LIMIT 1;
+    IF v_current_run IS DISTINCT FROM v_cand.run_id THEN RAISE EXCEPTION 'EVIDENCE_IDENTITY_CANDIDATE_RUN_STALE'; END IF;
+    v_evidence:=v_evidence||jsonb_build_object('candidate_id',v_cand.id,'run_id',v_cand.run_id,'candidate_rank',v_cand.rank);
+  END IF;
+  IF v_basis='human_sheet' THEN
+    v_evidence:=v_evidence||jsonb_build_object('sheet_sha256',v_ctx->>'sheet_sha256',
+      'rows_sha256',v_ctx->>'rows_sha256','line',(v_ctx->>'line')::int);
+  END IF;
+  RETURN private.decide_source_persona_identity(p_source_persona_id,p_canonical_person_id,p_expected_version,v_status,v_evidence,'human');
 END $$;
-REVOKE ALL ON FUNCTION red_source_persona_queue(text,bigint,uuid,integer),red_source_persona_detail(uuid),red_source_persona_history(uuid),red_afgoer_source_persona(uuid,integer,text,bigint,text) FROM PUBLIC,anon,authenticated;
-GRANT EXECUTE ON FUNCTION red_source_persona_queue(text,bigint,uuid,integer),red_source_persona_detail(uuid),red_source_persona_history(uuid),red_afgoer_source_persona(uuid,integer,text,bigint,text) TO authenticated;
+REVOKE ALL ON FUNCTION red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb) TO authenticated;
 
 -- ---- 2026-08-03: generelle beskrivelser og heraldik (Task 8) ----
 CREATE TABLE IF NOT EXISTS entity_description (
@@ -7656,15 +7754,15 @@ CREATE OR REPLACE FUNCTION public.red_apply_1939_v50_source_evidence(b uuid,e te
 CREATE OR REPLACE FUNCTION public.red_apply_1939_v50_person_create(b uuid,e text,p jsonb) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE x private.reimport_1939_write_batch%ROWTYPE; i bigint; z jsonb; persona uuid; nar bigint; u uuid; BEGIN PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0)); IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF; u:=private.require_reimport_1939_editor(); SELECT * INTO x FROM private.reimport_1939_write_batch WHERE id=b FOR UPDATE; IF NOT FOUND OR x.principal_id<>u THEN RAISE EXCEPTION 'REIMPORT_1939_BATCH_INVALID'; END IF; IF x.status='finalized' THEN SELECT canonical_person_id INTO i FROM private.reimport_1939_write_event WHERE batch_id=b AND element_id=e AND operation='person_create' AND payload=p; IF FOUND THEN RETURN i; END IF; RAISE EXCEPTION 'REIMPORT_1939_ALREADY_APPLIED_DRIFT'; END IF; x:=private.require_reimport_1939_open_batch(b);
  IF (p-ARRAY['source_record_key','source_id','edition','source_span','page_evidence','verbatim_text','verbatim_sha256','source_persona_id','persona_key','identity_decision_sha256','review_sha256','decision_basis','name','sex','narrative','source_mentions','persona_mention_links','facts','relations','families','uncertainties','staged','rendition_content_sha256'])<>'{}'::jsonb OR (p->>'staged')::boolean IS DISTINCT FROM true OR nullif(btrim(p->>'name'),'') IS NULL OR (p->>'source_id')::bigint<>((SELECT source_id FROM private.reimport_1939_authorization WHERE id=x.authorization_id)) OR EXISTS(SELECT 1 FROM public.person_external_id WHERE source_id=(p->>'source_id')::bigint AND record_key=p->>'source_record_key') THEN RAISE EXCEPTION 'REIMPORT_1939_PERSON_CREATE_INVALID'; END IF;
- z:=private.ensure_reimport_1939_source_evidence(b,e,p||'{"category":"person"}'::jsonb); INSERT INTO public.person(staged,visning_navn) VALUES(true,p->>'name') RETURNING id INTO i; INSERT INTO public.person_external_id(person_id,source_id,record_key) VALUES(i,(p->>'source_id')::bigint,p->>'source_record_key'); persona:=(p->>'source_persona_id')::uuid;
- INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES(persona,(p->>'source_id')::bigint,p->>'persona_key',(z->>'run_id')::uuid); INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) VALUES(persona,(z->>'mention_id')::uuid,'primary',1); PERFORM public.red_decide_source_persona_identity(persona,i,0,'accepted',jsonb_build_object('batch_id',b,'decision_sha256',p->>'identity_decision_sha256'));
+ z:=private.ensure_reimport_1939_source_evidence(b,e,p||'{"category":"person"}'::jsonb); i:=private.insert_person_with_receipt(true,p->>'name'); INSERT INTO public.person_external_id(person_id,source_id,record_key) VALUES(i,(p->>'source_id')::bigint,p->>'source_record_key'); persona:=(p->>'source_persona_id')::uuid;
+ INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES(persona,(p->>'source_id')::bigint,p->>'persona_key',(z->>'run_id')::uuid); INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) VALUES(persona,(z->>'mention_id')::uuid,'primary',1); PERFORM private.decide_source_persona_identity(persona,i,0,'accepted',jsonb_build_object('batch_id',b,'decision_sha256',p->>'identity_decision_sha256'),'person_create');
  INSERT INTO public.narrative(subjekt_type,subjekt_id,source_id,side,tekst,privat) VALUES('person',i,(p->>'source_id')::bigint,(p->'page_evidence'->>'page_from'),p->'narrative'->>'text',false) RETURNING id INTO nar; INSERT INTO private.narrative_record_publication(narrative_id,source_record_id,record_label,citation_label,status,published_at) VALUES(nar,(z->>'source_record_id')::uuid,p->>'source_record_key','DAA 1939 side '||(p->'page_evidence'->>'page_from'),'draft',NULL);
  INSERT INTO private.reimport_1939_write_event(batch_id,element_id,operation,source_record_key,canonical_person_id,payload,after_sha256) VALUES(b,e,'person_create',p->>'source_record_key',i,p,encode(digest(jsonb_build_object('person_id',i,'payload',p)::text,'sha256'),'hex')); RETURN i; END $$;
 CREATE OR REPLACE FUNCTION public.red_apply_1939_v50_canonical_delta(b uuid,e text,p jsonb) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$ BEGIN PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0)); IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF; PERFORM private.require_reimport_1939_open_batch(b); RAISE EXCEPTION 'REIMPORT_1939_CANONICAL_DELTA_UNSUPPORTED'; END $$;
 CREATE OR REPLACE FUNCTION public.red_finalize_1939_v50_reimport(b uuid) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE x private.reimport_1939_write_batch%ROWTYPE; c jsonb; u uuid; BEGIN PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0)); IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF; u:=private.require_reimport_1939_editor(); SELECT * INTO x FROM private.reimport_1939_write_batch WHERE id=b FOR UPDATE; IF NOT FOUND OR x.principal_id<>u THEN RAISE EXCEPTION 'REIMPORT_1939_BATCH_INVALID'; END IF; IF x.status='finalized' THEN RETURN jsonb_build_object('batch_id',b,'status','already_applied','counts',x.observed_counts); END IF; x:=private.require_reimport_1939_open_batch(b); SELECT jsonb_build_object('person_creates',count(*) FILTER(WHERE operation='person_create'),'source_evidence',count(*) FILTER(WHERE operation='source_evidence'),'canonical_delta',count(*) FILTER(WHERE operation='canonical_delta')) INTO c FROM private.reimport_1939_write_event WHERE batch_id=b; IF c<>x.expected_counts THEN RAISE EXCEPTION 'REIMPORT_1939_FINALIZE_COUNT_MISMATCH'; END IF; UPDATE private.reimport_1939_write_batch SET status='finalized',observed_counts=c,finalized_at=clock_timestamp() WHERE id=b; RETURN jsonb_build_object('batch_id',b,'status','finalized','counts',c); END $$;
 CREATE OR REPLACE FUNCTION public.red_authorize_1939_v50_reversal(b uuid,n uuid,x timestamptz) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$ DECLARE i uuid; u uuid; BEGIN PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0)); IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF; u:=private.require_reimport_1939_editor(); IF NOT EXISTS(SELECT 1 FROM private.reimport_1939_write_batch WHERE id=b AND status='finalized') OR x<=clock_timestamp() THEN RAISE EXCEPTION 'REIMPORT_1939_REVERSAL_INVALID'; END IF; INSERT INTO private.reimport_1939_authorization(operation,manifest_sha256,preview_sha256,database_identity,source_id,expected_counts,authorized_elements,principal_id,nonce,expires_at) SELECT 'reversal',w.manifest_sha256,w.preview_sha256,'batch:'||w.id,a.source_id,'{}','{}',u,n,x FROM private.reimport_1939_write_batch w JOIN private.reimport_1939_authorization a ON a.id=w.authorization_id WHERE w.id=b RETURNING id INTO i; RETURN i; END $$;
-CREATE OR REPLACE FUNCTION public.red_reverse_1939_v50_reimport(b uuid,a uuid) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$ DECLARE u uuid:=private.require_reimport_1939_editor(); r uuid; BEGIN IF NOT EXISTS(SELECT 1 FROM private.reimport_1939_authorization z JOIN private.reimport_1939_write_batch w ON w.id=b WHERE z.id=a AND z.operation='reversal' AND z.status='issued' AND z.principal_id=u AND z.expires_at>clock_timestamp() AND z.database_identity='batch:'||w.id::text AND z.manifest_sha256=w.manifest_sha256 AND z.preview_sha256=w.preview_sha256 AND w.status='finalized') THEN RAISE EXCEPTION 'REIMPORT_1939_REVERSAL_INVALID'; END IF; SELECT x.id INTO r FROM private.extraction_run x JOIN private.reimport_1939_write_batch w ON x.run_key='reimport-1939-v50:'||w.manifest_sha256 WHERE w.id=b; DELETE FROM private.narrative_record_publication p USING public.narrative n,private.reimport_1939_write_event e WHERE e.batch_id=b AND e.operation='person_create' AND n.subjekt_type='person' AND n.subjekt_id=e.canonical_person_id AND p.narrative_id=n.id; DELETE FROM public.narrative n USING private.reimport_1939_write_event e WHERE e.batch_id=b AND e.operation='person_create' AND n.subjekt_type='person' AND n.subjekt_id=e.canonical_person_id; PERFORM public.red_decide_source_persona_identity(p.id,NULL,1,'superseded',jsonb_build_object('reversed_batch_id',b)) FROM private.source_persona p WHERE p.created_run_id=r; DELETE FROM public.person_external_id x USING private.reimport_1939_write_event e WHERE e.batch_id=b AND e.operation='person_create' AND x.person_id=e.canonical_person_id; UPDATE public.person p SET staged=true,status='reimport_1939_reversed' FROM private.reimport_1939_write_event e WHERE e.batch_id=b AND e.operation='person_create' AND p.id=e.canonical_person_id; UPDATE private.reimport_1939_authorization SET status='consumed',consumed_at=clock_timestamp() WHERE id=a; UPDATE private.reimport_1939_write_batch SET status='reversed' WHERE id=b AND status='finalized'; RETURN jsonb_build_object('batch_id',b,'status','reversed'); END $$;
+CREATE OR REPLACE FUNCTION public.red_reverse_1939_v50_reimport(b uuid,a uuid) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$ DECLARE u uuid:=private.require_reimport_1939_editor(); r uuid; BEGIN IF NOT EXISTS(SELECT 1 FROM private.reimport_1939_authorization z JOIN private.reimport_1939_write_batch w ON w.id=b WHERE z.id=a AND z.operation='reversal' AND z.status='issued' AND z.principal_id=u AND z.expires_at>clock_timestamp() AND z.database_identity='batch:'||w.id::text AND z.manifest_sha256=w.manifest_sha256 AND z.preview_sha256=w.preview_sha256 AND w.status='finalized') THEN RAISE EXCEPTION 'REIMPORT_1939_REVERSAL_INVALID'; END IF; SELECT x.id INTO r FROM private.extraction_run x JOIN private.reimport_1939_write_batch w ON x.run_key='reimport-1939-v50:'||w.manifest_sha256 WHERE w.id=b; DELETE FROM private.narrative_record_publication p USING public.narrative n,private.reimport_1939_write_event e WHERE e.batch_id=b AND e.operation='person_create' AND n.subjekt_type='person' AND n.subjekt_id=e.canonical_person_id AND p.narrative_id=n.id; DELETE FROM public.narrative n USING private.reimport_1939_write_event e WHERE e.batch_id=b AND e.operation='person_create' AND n.subjekt_type='person' AND n.subjekt_id=e.canonical_person_id; PERFORM private.decide_source_persona_identity(p.id,NULL,1,'superseded',jsonb_build_object('reversed_batch_id',b),'reversal') FROM private.source_persona p WHERE p.created_run_id=r; DELETE FROM public.person_external_id x USING private.reimport_1939_write_event e WHERE e.batch_id=b AND e.operation='person_create' AND x.person_id=e.canonical_person_id; UPDATE public.person p SET staged=true,status='reimport_1939_reversed' FROM private.reimport_1939_write_event e WHERE e.batch_id=b AND e.operation='person_create' AND p.id=e.canonical_person_id; UPDATE private.reimport_1939_authorization SET status='consumed',consumed_at=clock_timestamp() WHERE id=a; UPDATE private.reimport_1939_write_batch SET status='reversed' WHERE id=b AND status='finalized'; RETURN jsonb_build_object('batch_id',b,'status','reversed'); END $$;
 CREATE OR REPLACE FUNCTION public.red_authorize_1939_v50_cutover(b uuid,n uuid,x timestamptz) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$ DECLARE i uuid; u uuid; BEGIN PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0)); IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION 'NARRATIVE_RECORD_LEGACY_WRITER_DISABLED'; END IF; u:=private.require_reimport_1939_editor(); IF NOT EXISTS(SELECT 1 FROM private.reimport_1939_write_batch WHERE id=b AND status='finalized') OR x<=clock_timestamp() THEN RAISE EXCEPTION 'REIMPORT_1939_CUTOVER_INVALID'; END IF; INSERT INTO private.reimport_1939_authorization(operation,manifest_sha256,preview_sha256,database_identity,source_id,expected_counts,authorized_elements,principal_id,nonce,expires_at) SELECT 'cutover',w.manifest_sha256,w.preview_sha256,'batch:'||w.id,a.source_id,'{}','{}',u,n,x FROM private.reimport_1939_write_batch w JOIN private.reimport_1939_authorization a ON a.id=w.authorization_id WHERE w.id=b RETURNING id INTO i; RETURN i; END $$;
 CREATE OR REPLACE FUNCTION public.red_activate_1939_v50_batch(b uuid,a uuid) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$ DECLARE u uuid:=private.require_reimport_1939_editor(); c bigint; BEGIN IF NOT EXISTS(SELECT 1 FROM private.reimport_1939_authorization z JOIN private.reimport_1939_write_batch w ON w.id=b WHERE z.id=a AND z.operation='cutover' AND z.status='issued' AND z.principal_id=u AND z.expires_at>clock_timestamp() AND z.database_identity='batch:'||w.id::text AND z.manifest_sha256=w.manifest_sha256 AND z.preview_sha256=w.preview_sha256 AND w.status='finalized') THEN RAISE EXCEPTION 'REIMPORT_1939_CUTOVER_INVALID'; END IF; UPDATE public.person SET staged=false WHERE id IN(SELECT canonical_person_id FROM private.reimport_1939_write_event WHERE batch_id=b AND operation='person_create'); GET DIAGNOSTICS c=ROW_COUNT; UPDATE private.reimport_1939_authorization SET status='consumed',consumed_at=clock_timestamp() WHERE id=a; UPDATE private.reimport_1939_write_batch SET status='activated' WHERE id=b AND status='finalized'; RETURN jsonb_build_object('batch_id',b,'status','activated','persons_activated',c); END $$;
 ALTER TABLE private.reimport_1939_authorization ENABLE ROW LEVEL SECURITY; ALTER TABLE private.reimport_1939_write_batch ENABLE ROW LEVEL SECURITY; ALTER TABLE private.reimport_1939_write_event ENABLE ROW LEVEL SECURITY;
@@ -8063,7 +8161,7 @@ BEGIN
   SELECT r.id INTO v_run FROM private.extraction_run r JOIN private.reimport_1939_write_batch b ON r.run_key='reimport-1939-v50:'||b.manifest_sha256 WHERE b.id=p_batch_id;
   DELETE FROM private.narrative_record_publication p USING public.narrative n,private.reimport_1939_write_event e WHERE e.batch_id=p_batch_id AND e.operation='person_create' AND n.subjekt_type='person' AND n.subjekt_id=e.canonical_person_id AND p.narrative_id=n.id;
   DELETE FROM public.narrative n USING private.reimport_1939_write_event e WHERE e.batch_id=p_batch_id AND e.operation='person_create' AND n.subjekt_type='person' AND n.subjekt_id=e.canonical_person_id;
-  PERFORM public.red_decide_source_persona_identity(p.id,NULL,1,'superseded',jsonb_build_object('reversed_batch_id',p_batch_id))
+  PERFORM private.decide_source_persona_identity(p.id,NULL,1,'superseded',jsonb_build_object('reversed_batch_id',p_batch_id),'reversal')
   FROM private.source_persona p WHERE p.created_run_id=v_run;
   DELETE FROM public.person_external_id x USING private.reimport_1939_write_event e WHERE e.batch_id=p_batch_id AND e.operation='person_create' AND x.person_id=e.canonical_person_id;
   UPDATE public.person p SET staged=true,status='reimport_1939_reversed' FROM private.reimport_1939_write_event e WHERE e.batch_id=p_batch_id AND e.operation='person_create' AND p.id=e.canonical_person_id;
@@ -8243,7 +8341,7 @@ BEGIN
   SELECT r.id INTO v_run FROM private.extraction_run r JOIN private.reimport_1939_write_batch b ON r.run_key='reimport-1939-v50:'||b.manifest_sha256 WHERE b.id=p_batch_id;
   DELETE FROM private.narrative_record_publication p USING public.narrative n,private.reimport_1939_write_event e WHERE e.batch_id=p_batch_id AND e.operation='person_create' AND n.subjekt_type='person' AND n.subjekt_id=e.canonical_person_id AND p.narrative_id=n.id;
   DELETE FROM public.narrative n USING private.reimport_1939_write_event e WHERE e.batch_id=p_batch_id AND e.operation='person_create' AND n.subjekt_type='person' AND n.subjekt_id=e.canonical_person_id;
-  PERFORM public.red_decide_source_persona_identity(p.id,NULL,1,'superseded',jsonb_build_object('reversed_batch_id',p_batch_id))
+  PERFORM private.decide_source_persona_identity(p.id,NULL,1,'superseded',jsonb_build_object('reversed_batch_id',p_batch_id),'reversal')
   FROM private.source_persona p WHERE p.created_run_id=v_run;
   DELETE FROM public.person_external_id x USING private.reimport_1939_write_event e WHERE e.batch_id=p_batch_id AND e.operation='person_create' AND x.person_id=e.canonical_person_id;
   UPDATE public.person p SET staged=true,status='reimport_1939_reversed' FROM private.reimport_1939_write_event e WHERE e.batch_id=p_batch_id AND e.operation='person_create' AND p.id=e.canonical_person_id;
@@ -11808,7 +11906,7 @@ BEGIN
   RETURN jsonb_build_object('run_id',v_run,'source_record_id',v_record,'mention_id',v_mention);
 END $$;
 CREATE OR REPLACE FUNCTION public.red_apply_reimport_source_evidence(b uuid,e text,p jsonb) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$ BEGIN PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0)); IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF; IF p->>'disposition'<>'retain_source_only' THEN RAISE EXCEPTION 'REIMPORT_WRITER_SOURCE_EVIDENCE_INVALID'; END IF; PERFORM private.ensure_reimport_source_evidence(b,e,p); INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256) VALUES(b,e,'source_evidence',p->>'source_record_key',p,encode(extensions.digest(p::text,'sha256'),'hex')); END $$;
-CREATE OR REPLACE FUNCTION public.red_apply_reimport_person_create(b uuid,e text,p jsonb) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$ DECLARE batch private.reimport_batch%ROWTYPE; evidence jsonb; person_id bigint; persona uuid; state jsonb; result jsonb; BEGIN PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0)); IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF; batch:=private.require_reimport_open_batch(b); IF nullif(btrim(p->>'name'),'') IS NULL OR (p->>'source_id')::bigint IS DISTINCT FROM batch.source_id OR EXISTS(SELECT 1 FROM public.person_external_id WHERE source_id=batch.source_id AND record_key=p->>'source_record_key') THEN RAISE EXCEPTION 'REIMPORT_WRITER_PERSON_CREATE_INVALID'; END IF; evidence:=private.ensure_reimport_source_evidence(b,e,p||'{"category":"person"}'::jsonb); INSERT INTO public.person(staged,visning_navn) VALUES(true,p->>'name') RETURNING id INTO person_id; INSERT INTO public.person_external_id(person_id,source_id,record_key) VALUES(person_id,batch.source_id,p->>'source_record_key'); persona:=(p->>'source_persona_id')::uuid; INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES(persona,batch.source_id,p->>'persona_key',(evidence->>'run_id')::uuid); INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) VALUES(persona,(evidence->>'mention_id')::uuid,'primary',1); PERFORM public.red_decide_source_persona_identity(persona,person_id,0,'accepted',jsonb_build_object('batch_id',b,'profile_sha256',batch.profile_sha256)); state:=private.narrative_record_state(person_id,batch.source_id,p->>'source_record_key',true); result:=public.red_upsert_person_narrative_record(person_id,batch.source_id,p->>'source_record_key',p->'narrative'->>'text',false,state->>'state_sha256'); INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,canonical_person_id,payload,after_sha256) VALUES(b,e,'person_create',p->>'source_record_key',person_id,p||jsonb_build_object('event_id',result->>'event_id','narrative_id',result->>'narrative_id','publication_state_sha256',result->>'publication_state_sha256','state_sha256',result->>'state_sha256'),result->>'state_sha256'); RETURN person_id; END $$;
+CREATE OR REPLACE FUNCTION public.red_apply_reimport_person_create(b uuid,e text,p jsonb) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$ DECLARE batch private.reimport_batch%ROWTYPE; evidence jsonb; person_id bigint; persona uuid; state jsonb; result jsonb; BEGIN PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0)); IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF; batch:=private.require_reimport_open_batch(b); IF nullif(btrim(p->>'name'),'') IS NULL OR (p->>'source_id')::bigint IS DISTINCT FROM batch.source_id OR EXISTS(SELECT 1 FROM public.person_external_id WHERE source_id=batch.source_id AND record_key=p->>'source_record_key') THEN RAISE EXCEPTION 'REIMPORT_WRITER_PERSON_CREATE_INVALID'; END IF; evidence:=private.ensure_reimport_source_evidence(b,e,p||'{"category":"person"}'::jsonb); person_id:=private.insert_person_with_receipt(true,p->>'name'); INSERT INTO public.person_external_id(person_id,source_id,record_key) VALUES(person_id,batch.source_id,p->>'source_record_key'); persona:=(p->>'source_persona_id')::uuid; INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES(persona,batch.source_id,p->>'persona_key',(evidence->>'run_id')::uuid); INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) VALUES(persona,(evidence->>'mention_id')::uuid,'primary',1); PERFORM private.decide_source_persona_identity(persona,person_id,0,'accepted',jsonb_build_object('batch_id',b,'profile_sha256',batch.profile_sha256),'person_create'); state:=private.narrative_record_state(person_id,batch.source_id,p->>'source_record_key',true); result:=public.red_upsert_person_narrative_record(person_id,batch.source_id,p->>'source_record_key',p->'narrative'->>'text',false,state->>'state_sha256'); INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,canonical_person_id,payload,after_sha256) VALUES(b,e,'person_create',p->>'source_record_key',person_id,p||jsonb_build_object('event_id',result->>'event_id','narrative_id',result->>'narrative_id','publication_state_sha256',result->>'publication_state_sha256','state_sha256',result->>'state_sha256'),result->>'state_sha256'); RETURN person_id; END $$;
 CREATE OR REPLACE FUNCTION public.red_finalize_reimport(b uuid) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$ DECLARE batch private.reimport_batch%ROWTYPE; counts jsonb; BEGIN PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0)); IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF; batch:=private.require_reimport_open_batch(b); SELECT jsonb_build_object('person_creates',count(*) FILTER(WHERE operation='person_create'),'source_evidence',count(*) FILTER(WHERE operation='source_evidence')) INTO counts FROM private.reimport_event WHERE batch_id=b; IF counts<>batch.expected_counts THEN RAISE EXCEPTION 'REIMPORT_WRITER_FINALIZE_COUNT_MISMATCH'; END IF; UPDATE private.reimport_batch SET status='finalized',observed_counts=counts,finalized_at=clock_timestamp() WHERE id=b; RETURN jsonb_build_object('batch_id',b,'status','finalized','counts',counts); END $$;
 CREATE OR REPLACE FUNCTION public.red_authorize_reimport_reversal(b uuid,n uuid,x timestamptz) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$ BEGIN PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0)); IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF; RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_UNSUPPORTED'; END $$;
 CREATE OR REPLACE FUNCTION public.red_reverse_reimport(b uuid,a uuid) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$ BEGIN PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0)); IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF; RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_UNSUPPORTED'; END $$;
@@ -12002,14 +12100,14 @@ BEGIN
   PERFORM 1 FROM private.source_record_placement WHERE id=v_record_placement FOR UPDATE;
   PERFORM 1 FROM private.source_record WHERE id=(v_evidence->>'source_record_id')::uuid FOR UPDATE;
   v_payload_sha:=private.reimport_canonical_json_sha256(p_payload);
-  INSERT INTO public.person(staged,visning_navn) VALUES(true,NULL) RETURNING id INTO v_person_id;
+  v_person_id:=private.insert_person_with_receipt(true,NULL);
   INSERT INTO public.person_external_id(person_id,source_id,record_key) VALUES(v_person_id,v_batch.source_id,p_payload->>'source_record_key');
   v_persona:=(p_payload->>'source_persona_id')::uuid;
   INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES(v_persona,v_batch.source_id,p_payload->>'persona_key',(v_evidence->>'run_id')::uuid);
   INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) VALUES(v_persona,(v_evidence->>'mention_id')::uuid,'primary',1);
   v_persona_placement:=private.propose_source_persona_placement(v_persona,v_record_placement,p_payload->>'placement_role',(v_evidence->>'observation_id')::uuid,jsonb_build_object('batch_id',p_batch_id,'authorized_payload_sha256',v_payload_sha,'basis_sha256',p_payload->>'placement_basis_sha256'),'reimport writer');
   v_placement_version:=public.red_decide_source_persona_placement(v_persona_placement,1,'accepted',jsonb_build_object('batch_id',p_batch_id,'review_sha256',p_payload->>'placement_review_sha256','decision_sha256',p_payload->>'placement_decision_sha256'));
-  v_identity_version:=public.red_decide_source_persona_identity(v_persona,v_person_id,0,'accepted',jsonb_build_object('batch_id',p_batch_id,'profile_sha256',v_batch.profile_sha256,'placement_id',v_persona_placement));
+  v_identity_version:=private.decide_source_persona_identity(v_persona,v_person_id,0,'accepted',jsonb_build_object('batch_id',p_batch_id,'profile_sha256',v_batch.profile_sha256,'placement_id',v_persona_placement),'person_create');
   v_state:=private.narrative_record_state(v_person_id,v_batch.source_id,p_payload->>'source_record_key',true);
   IF v_state->>'eligibility_status'<>'eligible' OR v_state->>'blocking_reason' IS NOT NULL OR v_state->>'authority_kind'<>'accepted_identity'
      OR v_state #> '{publication_state,target}' IS DISTINCT FROM jsonb_build_object('person_id',v_person_id,'source_id',v_batch.source_id,'record_key',p_payload->>'source_record_key','source_record_id',(v_evidence->>'source_record_id')::uuid,'source_record_ref',(v_state #>> '{publication_state,target,source_record_ref}')::uuid)
@@ -12335,7 +12433,7 @@ BEGIN
     DELETE FROM public.conclusion WHERE id=r.conclusion_id; DELETE FROM public.citation WHERE id=r.citation_id; DELETE FROM public.assertion WHERE id=r.assertion_id; DELETE FROM public.fact WHERE id=r.fact_id;
     SELECT version INTO v_identity_version FROM private.source_persona_identity WHERE source_persona_id=r.source_persona_id ORDER BY version DESC LIMIT 1 FOR UPDATE;
     IF v_identity_version IS NULL THEN RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID'; END IF;
-    PERFORM public.red_decide_source_persona_identity(r.source_persona_id,NULL,v_identity_version,'superseded',jsonb_build_object('reversed_batch_id',b.id,'profile_sha256',b.profile_sha256)); UPDATE public.person SET staged=true WHERE id=r.person_id;
+    PERFORM private.decide_source_persona_identity(r.source_persona_id,NULL,v_identity_version,'superseded',jsonb_build_object('reversed_batch_id',b.id,'profile_sha256',b.profile_sha256),'reversal'); UPDATE public.person SET staged=true WHERE id=r.person_id;
   END LOOP;
   UPDATE private.reimport_authorization SET status='consumed',consumed_at=clock_timestamp() WHERE id=a.id; UPDATE private.reimport_batch SET status='reversed' WHERE id IN (b.id,cb.id); INSERT INTO private.reimport_event(batch_id,element_id,operation,payload,after_sha256) VALUES(b.id,'reversal:'||a.id::text,'reversal',jsonb_build_object('authorization_id',a.id,'child_batch_id',cb.id),private.reimport_canonical_json_sha256(jsonb_build_object('authorization_id',a.id,'child_batch_id',cb.id))); RETURN jsonb_build_object('batch_id',b.id,'status','reversed','child_batch_id',cb.id);
 END $$;
@@ -16831,10 +16929,10 @@ BEGIN
   IF EXISTS (SELECT 1 FROM private.source_persona WHERE source_id=v_batch.source_id AND persona_key=p_payload->>'persona_key') THEN RAISE EXCEPTION 'LEGACY_MIGRATION_PERSONA_EXISTS'; END IF;
   INSERT INTO private.source_persona(source_id,persona_key,created_run_id) VALUES(v_batch.source_id,p_payload->>'persona_key',v_run) RETURNING id INTO v_persona;
   INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) VALUES(v_persona,v_mention_id,'primary',1);
-  v_identity_version:=public.red_decide_source_persona_identity(v_persona,v_person_id,0,'accepted',jsonb_build_object(
+  v_identity_version:=private.decide_source_persona_identity(v_persona,v_person_id,0,'accepted',jsonb_build_object(
     'authority','person_external_id',
     'person_external_id',jsonb_build_object('person_id',v_person_id,'source_id',v_batch.source_id,'record_key',v_record.record_key),
-    'batch_id',p_batch_id,'element_id',p_element_id,'profile_sha256',v_batch.profile_sha256,'authorized_payload_sha256',v_payload_sha));
+    'batch_id',p_batch_id,'element_id',p_element_id,'profile_sha256',v_batch.profile_sha256,'authorized_payload_sha256',v_payload_sha),'legacy_match');
 
   v_initial:=private.narrative_publication_state(v_person_id,v_batch.source_id,v_record.record_key);
   v_initial_sha:=encode(digest(v_initial::text,'sha256'),'hex');
@@ -18249,6 +18347,25 @@ REVOKE ALL ON TABLE private.interpretation_predicate_promotable FROM PUBLIC,anon
 -- $public_red_revoke$, fordi den blok caster de nye public.red_*-navne til
 -- regprocedure i sin DECLARE og derfor kræver, at funktionerne findes.
 -- =====================================================================
+-- Trin 5a (#151): oprettelseskvittering. Kun insert_person_with_receipt udsteder den, og
+-- kernen forbruger den; et person_create-match til en eksisterende person har ingen kvittering.
+CREATE TABLE IF NOT EXISTS private.person_create_receipt (
+  person_id bigint PRIMARY KEY REFERENCES public.person(id) ON DELETE CASCADE,
+  xact_id   xid8 NOT NULL
+);
+ALTER TABLE private.person_create_receipt ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.person_create_receipt FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION private.insert_person_with_receipt(p_staged boolean,p_visning_navn text)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_id bigint;
+BEGIN
+  INSERT INTO public.person(staged,visning_navn) VALUES(p_staged,p_visning_navn) RETURNING id INTO v_id;
+  INSERT INTO private.person_create_receipt(person_id,xact_id) VALUES(v_id,pg_current_xact_id());
+  RETURN v_id;
+END $$;
+REVOKE ALL ON FUNCTION private.insert_person_with_receipt(boolean,text) FROM PUBLIC,anon,authenticated,service_role;
+
 -- Trin 5a: maskinens identitetskandidater. Forslag og afgørelse holdes adskilt:
 -- source_persona_identity forbliver uden mål for 'proposed'; kandidaterne bor her.
 CREATE TABLE IF NOT EXISTS private.source_persona_identity_candidate_run (
@@ -18435,7 +18552,7 @@ DECLARE
   v_authenticated regprocedure[] := ARRAY[
     'public.red_activate_1939_v50_batch(uuid,uuid)'::regprocedure,
     'public.red_activate_reimport_batch(uuid,uuid)'::regprocedure,
-    'public.red_afgoer_source_persona(uuid,integer,text,bigint,text)'::regprocedure,
+    'public.red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb)'::regprocedure,
     'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_1939_v50_name_completion(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_1939_v50_person_create(uuid,text,jsonb)'::regprocedure,
@@ -18454,7 +18571,6 @@ DECLARE
     'public.red_begin_reimport_name_completion(uuid,text,uuid)'::regprocedure,
     'public.red_bekraeft_media_upload(bigint,bigint,text)'::regprocedure,
     'public.red_decide_interpretation(uuid,integer,text,jsonb)'::regprocedure,
-    'public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)'::regprocedure,
     'public.red_decide_source_persona_placement(uuid,integer,text,jsonb)'::regprocedure,
     'public.red_decide_source_record_placement(uuid,integer,text,jsonb)'::regprocedure,
     'public.red_edit_oplysning(bigint,text,text,text)'::regprocedure,
