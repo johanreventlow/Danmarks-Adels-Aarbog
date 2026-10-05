@@ -7,7 +7,8 @@ se tillægget nedenfor. **Prod-data 2026-09-18:** 4.1c's klausuler kørt. **Afst
 2026-09-26** i restoren — se tillæg 2026-09-26. **Prod-data 2026-09-28:** 2018-20's klausuler
 omsegmenteret (51 poster, `match`); samme dag er 4.4 genbundet i en lokal kopi — se tillæg
 2026-09-28. **Hele 2018-20 kørt 2026-10-01—03** i en lokal kopi — se tillæg 2026-10-03.
-**Overførslen klar til GO 2026-10-05** — se tillæg 2026-10-05.
+**Prod-data 2026-10-05:** hele 2018-20's fortolkningskæde overført (3.739 forslag, 676
+afgørelser, 622 bindinger, `VERIFY_OK`) — se tillæg 2026-10-05.
 **Kodestatus opdateret 2026-09-11**
 efter merge af trin 4's dagsværk 4.1a-4.2 — se tillægget under Produktionsstatus.
 
@@ -19,10 +20,14 @@ er `integreret ende-til-ende`, se tabellen og blokeringerne; 149a
 (2018-20 kilderegnskab) er `integreret ende-til-ende`, se tabellen; #156
 lukket med restpunkt (INCOMPLETE-afstemning, snapshot forseglet).
 
-**Tillæg 2026-10-05 — prod-overførslen er klar til GO.** Pakken (`07355ccc…`, plan A) og
-ceremonien (plan B, `runbooks/transfer-2018-20-prod.md`) er øvet mod lokale stand-ins af prod med
-`REHEARSAL_OK` og `VERIFY_OK`, og en læse-kun probe af prod bestod alle gates. **Intet i prod endnu:**
-ceremonien kører på projektejerens GO; omsegmenteringens fortrydelsesvindue lukker ved den GO.
+**Tillæg 2026-10-05 — 2018-20's fortolkningskæde er i prod.** Pakken (`07355ccc…`, plan A) og
+ceremonien (plan B, `runbooks/transfer-2018-20-prod.md`) blev først øvet mod lokale stand-ins af prod
+og en læse-kun probe. Efter projektejerens GO kørte ceremonien samme dag: generalprøve på pausens
+eget dump (`REHEARSAL_OK`), derefter i prod 3.739 forslag, 676 afgørelser og 622 bindinger med
+`VERIFY_OK` (tilstand `COMPLETE`, alle tre digests lig pakken, baseline, uberørte tabeller og grants
+uændret, `anon` uden adgang). Ingest og afgørelse er `produktionsverificeret` for 2018-20; promotion
+kun for bindingsdelen (dokumenteret binding til eksisterende assertions, ingen nye fakta).
+Omsegmenteringens fortrydelsesvindue er lukket; pausens dump er det nye restorepunkt.
 
 **Tillæg 2026-10-03 — hele 2018-20 er kørt gennem kæden i én base.** I en lokal kopi af et frisk
 prod-dump (2026-10-01) gav alle 488 tilladte poster 3.739 forslag, 74 kort for projektejeren (61 A, 0
@@ -138,7 +143,7 @@ De eneste tilladte tilstande er `specificeret`, `isoleret implementeret`,
 | 1939 narrativpublicering og kildebinding | `produktionsverificeret` | Den læse-kun måling 2026-08-22 dokumenterede den daværende bundne bestand; C3 postverify 2026-08-29 beviste yderligere fire eksakte production record-assignments. Det beviser en væsentlig 1939-delleverance, ikke den fælles genimportkæde. |
 | Klausulgranularitet og coverage | `specificeret` | Helpost- og linjegrundlag findes, men den krævede mindste meningsbærende klausul og dens disposition er ikke implementeret ende-til-ende. |
 | Extractor-runner og modelkald | `integreret ende-til-ende` for 2018-20, hovedpersonens persona, i restore (2026-09-26) | `evidence_runner.py` (`evidence-runner-1.1`) kalder modellen gennem `codex exec` bag en Seatbelt-grænse, validerer record-scoped claims (datoer skal stå ordret i den citerede klausul) og stopper fail-closed. Kørt på 34 virkelige poster fra 2018-20 (4.3b: 10, 4.5: 24): præcision 99-99,6 %, klausulbinding 100 %, ordrette datoer 100 % (`runner-rehearsal-147-4-3b.md`, `interpretation-pilot-2018-20.md`). Ikke kørt mod prod; sandbox-grænsens huller er review 35, P1. |
-| Proposed-ingest og promotion | Ingest: `integreret ende-til-ende` i restore. Promotion: kun bindingsdelen `integreret ende-til-ende` i restore (2026-09-26) | 4.4's writer har ingestet 243 forslag i en restore uden kanonisk delta; 4.5 afgjorde dem med projektejerens ark og bandt 43 til eksisterende assertions (`interpretation-pilot-2018-20.md`). Trin 4's promotion er en dokumenteret binding, ikke oprettelse af nye fakta (spec §8.3, åbent punkt 11.3). Intet er kørt mod prod: 4.4's GO-pakke er parkeret (tillæg 2026-09-23), og fuld kørsel afventer kontrolmodellens første kørsel (`decisions.md` 2026-09-27). |
+| Proposed-ingest og promotion | Ingest og afgørelse: `produktionsverificeret` for 2018-20 (2026-10-05). Promotion: kun bindingsdelen `produktionsverificeret` for 2018-20 (2026-10-05) | **2026-10-05:** hele 2018-20 overført til prod efter `runbooks/transfer-2018-20-prod.md`: 3.739 forslag, 676 afgørelser, 622 bindinger, `VERIFY_OK` med pakkens tre digests (tillæg 2026-10-05). Tidligere: 4.4's writer har ingestet 243 forslag i en restore uden kanonisk delta; 4.5 afgjorde dem med projektejerens ark og bandt 43 til eksisterende assertions (`interpretation-pilot-2018-20.md`). Trin 4's promotion er en dokumenteret binding, ikke oprettelse af nye fakta (spec §8.3, åbent punkt 11.3). Intet er kørt mod prod: 4.4's GO-pakke er parkeret (tillæg 2026-09-23), og fuld kørsel afventer kontrolmodellens første kørsel (`decisions.md` 2026-09-27). |
 | Source persona, identitetskandidater og webkø | `isoleret implementeret` | Moduler, databaseflader og redaktørkø findes, men den virkelige 1939-vej er parallel og bruger ikke denne fælles beslutningsvej. |
 | Placement og membership | `isoleret implementeret` | Skema og fundament findes, men de eksisterende personer føres fortsat ikke gennem placement-/membership-datavejen. |
 | 2018-20-proveniens (149a) | `produktionsverificeret` (2026-09-06) | 2026-09-03: hele kæden bevist mod den rigtige bog og mod en restore af prod-dumpet migreret til kontrakt v2: PDF `3beadfc1…`, rå tekst `2dd5cf84…`, manifest `c7d19c01…` (591 elementer) → 1 rendition / 591 records / 591 forekomster / 591 ankre, nul kanonisk delta (5 aggregat-hashes), `anon` uændret (9 hashes), replay `already_applied`, reversal fail-closed (`docs/evidensbaseret-genimport/source-evidence-149a-rehearsal.md`). Krævede rettelse af #153's migrationsguard (finalized terminal ved 0 person_creates). Ikke `produktionsverificeret`; prod-rækkefølge #152 → #153 (med guard-rettelsen) → 149a. Bindinger er nu leveret af 149b (#166), se næste række. |
@@ -237,9 +242,9 @@ Dagsværkene 4.1a-4.4 er **udført og merget**, skemaet er deployet til prod 202
    2026-09-28. Piloten er kørt om på de reviderede klausuler, og kontrolmodellen igen (2026-09-28,
    `genbind-44-pilot-2018-20.md`): 230 forslag, 46 bindinger. Piloten overføres ikke for sig
    (decisions 2026-10-01). Hele 2018-20 (488 poster) er kørt i en restore af et frisk prod-dump
-   (2026-10-01—03, `2018-20-fuld-koersel.md`): 3.739 forslag, 622 bindinger. Næste: spec for én
-   samlet prod-overførsel med den nøglede pakke. Omsegmenteringens fortrydelsesvindue lukker ved
-   den overførsels GO.
+   (2026-10-01—03, `2018-20-fuld-koersel.md`): 3.739 forslag, 622 bindinger. Den samlede
+   overførsel er kørt i prod 2026-10-05 (`VERIFY_OK`), og omsegmenteringens fortrydelsesvindue er
+   dermed lukket.
 
 Prod-mutationer kræver fortsat en udtrykkelig GO pr. apply.
 
