@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { fetchRedaktionPersoner, type RedPerson } from '../data/redaktionRead';
 import {
   decideSourcePersona, fetchSourcePersonaDetail, fetchSourcePersonaHistory, fetchSourcePersonaQueue,
@@ -30,6 +30,9 @@ export function KildepersonaKo({ role }: { role?: string }) {
   const [note, setNote] = useState('');
   const [history, setHistory] = useState<SourcePersonaHistoryRow[]>([]);
   const [personFilter, setPersonFilter] = useState('');
+  // Løbenummer for kildegrundlags-opslag: kun svaret på det SENEST valgte opslag må vises,
+  // ellers kan et langsomt svar for en tidligere persona overskrive panelet (og dens knapper).
+  const evidenceRequest = useRef(0);
   const sourceId = sourceIdFromInput(sourceIdInput);
 
   const load = async (cursor: string | null = null, append = false) => {
@@ -45,6 +48,7 @@ export function KildepersonaKo({ role }: { role?: string }) {
 
   useEffect(() => {
     if (role !== 'redaktion') return;
+    evidenceRequest.current++;   // et udestående opslag hører til den gamle kø
     setDetail(null);
     setCandidates([]);
     setPickedPersonId('');
@@ -55,11 +59,14 @@ export function KildepersonaKo({ role }: { role?: string }) {
   if (role !== 'redaktion') return <div style={{ padding: 24 }}>Kun redaktionen kan se kildepersonaer.</div>;
 
   const showEvidence = async (row: SourcePersonaQueueRow) => {
+    const request = ++evidenceRequest.current;
     try {
       setError('');
+      setDetail(null);
       const [loadedDetail, loadedCandidates, loadedHistory] = await Promise.all([
         fetchSourcePersonaDetail(row.sourcePersonaId), fetchRedaktionPersoner(), fetchSourcePersonaHistory(row.sourcePersonaId),
       ]);
+      if (request !== evidenceRequest.current) return;
       setDetail(loadedDetail);
       setCandidates(loadedCandidates);
       setHistory(loadedHistory);
@@ -67,7 +74,7 @@ export function KildepersonaKo({ role }: { role?: string }) {
       setPickedPersonId('');
       setNote('');
     } catch (e) {
-      setError(String(e instanceof Error ? e.message : e));
+      if (request === evidenceRequest.current) setError(String(e instanceof Error ? e.message : e));
     }
   };
 
@@ -130,7 +137,7 @@ export function KildepersonaKo({ role }: { role?: string }) {
     </article>)}
     {hasMore && <button style={{ marginTop: 12 }} onClick={() => void load(rows[rows.length - 1]?.sourcePersonaId ?? null, true)}>Hent næste side</button>}
     {detail && <aside style={{ marginTop: 16, padding: 12, background: '#f4efe6', borderRadius: 8 }}>
-      <strong>Ordret kildegrundlag</strong>
+      <strong>Kildegrundlag for {detail.persona.personaKey}</strong> <span style={{ fontSize: 12 }}>(ordret)</span>
       {detail.mentions.map((mention, index) => <div key={index} style={{ marginTop: 8 }}>
         <q>{mention.verbatimText}</q> · s. {mention.pageFrom}{mention.pageTo !== mention.pageFrom ? `–${mention.pageTo}` : ''}
         {mention.textVersions.map((version) => <div key={version.version} style={{ fontSize: 12 }}>tekst v{version.version}: {version.verbatimText}</div>)}

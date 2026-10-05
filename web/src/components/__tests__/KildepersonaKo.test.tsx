@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -166,5 +166,23 @@ describe('KildepersonaKo', () => {
     const pos = ['persona-3', 'persona-4', 'persona-2', 'persona-1'].map((k) => tekst.indexOf(k));
     expect(pos.every((p) => p >= 0)).toBe(true);
     expect(pos).toEqual([...pos].sort((a, b) => a - b));
+  });
+
+  it('viser kun den senest valgte personas detalje, selv om svarene kommer i omvendt rækkefølge', async () => {
+    mocks.queue.mockResolvedValue([row(1), row(2)]);
+    const venter: Record<string, (d: unknown) => void> = {};
+    mocks.detail.mockImplementation((id: string) => new Promise((resolve) => { venter[id] = resolve; }));
+    render(<KildepersonaKo role="redaktion" />);
+    await screen.findByText('persona-2');
+    const knapper = screen.getAllByRole('button', { name: 'Vis kildegrundlag' });
+    fireEvent.click(knapper[0]);
+    fireEvent.click(knapper[1]);
+    await waitFor(() => expect(Object.keys(venter)).toHaveLength(2));
+    await act(async () => { venter[row(2).sourcePersonaId]({ ...detail, persona: row(2) }); });
+    await act(async () => { venter[row(1).sourcePersonaId]({ ...detail, persona: row(1) }); });
+    expect(await screen.findByText(/Kildegrundlag for persona-2/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Begrundelse'), { target: { value: 'navn og år' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Samme som kandidat 1' }));
+    await waitFor(() => expect(mocks.decide).toHaveBeenCalledWith(row(2).sourcePersonaId, 0, 'same', 42, 'navn og år', { candidateId: 'cand-1', runId: 'run-1' }));
   });
 });
