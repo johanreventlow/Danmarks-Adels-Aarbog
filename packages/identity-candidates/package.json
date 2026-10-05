@@ -1,0 +1,9 @@
+{
+  "name": "@daa/identity-candidates",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit", "cli": "tsx src/cli.ts" },
+  "dependencies": { "@daa/core": "*" },
+  "devDependencies": { "vitest": "^3.0.0", "typescript": "^5.5.3", "tsx": "^4.19.0" }
+}

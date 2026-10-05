@@ -26,6 +26,7 @@ begin
     'interpretation','interpretation_observation','interpretation_promotion_rule',
     'interpretation_promotion_batch','interpretation_promotion',
     'source_persona_identity','source_persona_identity_event',
+    'source_persona_identity_candidate_run','source_persona_identity_candidate','person_create_receipt',
     'narrative_record_publication','narrative_publication_event',
     'narrative_legacy_publication'
   ] loop
@@ -671,10 +672,9 @@ BEGIN
   END LOOP;
 
   FOREACH v_signature IN ARRAY ARRAY[
-    'public.red_afgoer_source_persona(uuid,integer,text,bigint,text)',
+    'public.red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb)',
     'public.red_bekraeft_media_upload(bigint,bigint,text)',
     'public.red_decide_interpretation(uuid,integer,text,jsonb)',
-    'public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)',
     'public.red_decide_source_persona_placement(uuid,integer,text,jsonb)',
     'public.red_decide_source_record_placement(uuid,integer,text,jsonb)',
     'public.red_edit_oplysning(bigint,text,text,text)',
@@ -686,6 +686,7 @@ BEGIN
     'public.red_flyt_barn(bigint,bigint,bigint,text)',
     'public.red_fortryd_change_set(bigint,boolean)',
     'public.red_genopret_media(bigint)',
+    'public.red_identity_candidate_input(bigint,jsonb)',
     'public.red_ikke_samme_som(bigint,bigint)',
     'public.red_match_personer()',
     'public.red_ocr_historik(text,text,text)',
@@ -706,6 +707,7 @@ BEGIN
     'public.red_promote_interpretations_batch(jsonb,text)',
     'public.red_publicer_personer(bigint[])',
     'public.red_publicer_udgave(bigint)',
+    'public.red_record_identity_candidates(jsonb,jsonb)',
     'public.red_rediger_story(bigint,text,text,bigint,bigint,bigint,bigint,date,date,text,text,boolean)',
     'public.red_registrer_media_variant(bigint,text,text,text,bigint,integer,integer)',
     'public.red_relation(text,bigint,text,bigint,text,text)',

@@ -74,9 +74,9 @@ INSERT INTO private.interpretation_observation(interpretation_id,observation_id,
 SET CONSTRAINTS private.interpretation_has_observation IMMEDIATE;
 SET CONSTRAINTS private.interpretation_has_observation DEFERRED;
 SELECT set_config('request.jwt.claim.sub','a4600000-0000-4000-8000-000000000001',true);
+SELECT private.decide_source_persona_identity(('a4600000-0000-4000-8000-00000000010'||n)::uuid,-4600-n,0,'accepted',
+         '{"basis":"web_detail","note":"kontrol46"}','human') FROM generate_series(1,7) n;
 SET LOCAL ROLE authenticated;
-SELECT red_decide_source_persona_identity(('a4600000-0000-4000-8000-00000000010'||n)::uuid,-4600-n,0,'accepted',
-         '{"basis":"kontrol46"}') FROM generate_series(1,7) n;
 RESET ROLE;
 SET LOCAL default_transaction_read_only = on;
 \i .claude/skills/daa-extract/scripts/interpretation_control_classification.sql
