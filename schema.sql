@@ -8349,6 +8349,137 @@ BEGIN
   RETURN v_version;
 END $$;
 
+CREATE OR REPLACE FUNCTION private.identity_candidate_input(p_source_id bigint,p_input_spec jsonb)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_mode text; v_ids uuid[]; v_personas jsonb; v_match jsonb; v_persons jsonb;
+BEGIN
+  v_mode:=p_input_spec->>'mode';
+  IF jsonb_typeof(p_input_spec)<>'object' OR v_mode NOT IN ('undecided','list')
+     OR (v_mode='undecided' AND (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(p_input_spec) k)<>ARRAY['mode'])
+     OR (v_mode='list' AND ((SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(p_input_spec) k)<>ARRAY['mode','persona_ids']
+                            OR jsonb_typeof(p_input_spec->'persona_ids')<>'array'
+                            OR jsonb_array_length(p_input_spec->'persona_ids')=0)) THEN
+    RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID';
+  END IF;
+  IF v_mode='list' THEN
+    SELECT array_agg(DISTINCT e::uuid) INTO v_ids FROM jsonb_array_elements_text(p_input_spec->'persona_ids') e;
+    IF cardinality(v_ids)<>jsonb_array_length(p_input_spec->'persona_ids') THEN RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID'; END IF;
+  END IF;
+  SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY x.source_persona_id COLLATE "C"),'[]'::jsonb) INTO v_personas FROM (
+    SELECT p.id::text AS source_persona_id,
+           coalesce(nm.v, men.v) AS name,
+           CASE WHEN nm.v IS NOT NULL THEN nm.origin WHEN men.v IS NOT NULL THEN 'mention' END AS name_origin,
+           b.v AS birth_raw, b.origin AS birth_origin, d.v AS death_raw, d.origin AS death_origin
+      FROM private.source_persona p
+      LEFT JOIN private.source_persona_identity i ON i.source_persona_id=p.id
+      LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v, ic.status||'_interpretation' origin FROM private.interpretation_current ic
+                          WHERE ic.source_persona_id=p.id AND ic.predicate='person.name' AND ic.status IN ('accepted','proposed')
+                          ORDER BY (ic.status='accepted') DESC, ic.confidence DESC NULLS LAST, ic.id LIMIT 1) nm ON true
+      LEFT JOIN LATERAL (SELECT sm.verbatim_text v FROM private.source_persona_mention spm
+                          JOIN private.source_mention sm ON sm.id=spm.mention_id
+                          WHERE spm.persona_id=p.id AND sm.mention_kind='person' ORDER BY spm.ordinal LIMIT 1) men ON true
+      LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v, ic.status||'_interpretation' origin FROM private.interpretation_current ic
+                          WHERE ic.source_persona_id=p.id AND ic.predicate='person.birth' AND ic.status IN ('accepted','proposed')
+                          ORDER BY (ic.status='accepted') DESC, ic.confidence DESC NULLS LAST, ic.id LIMIT 1) b ON true
+      LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v, ic.status||'_interpretation' origin FROM private.interpretation_current ic
+                          WHERE ic.source_persona_id=p.id AND ic.predicate='person.death' AND ic.status IN ('accepted','proposed')
+                          ORDER BY (ic.status='accepted') DESC, ic.confidence DESC NULLS LAST, ic.id LIMIT 1) d ON true
+     WHERE p.source_id=p_source_id
+       AND ((v_mode='undecided' AND (i.source_persona_id IS NULL OR i.decision_status='proposed'))
+         OR (v_mode='list' AND p.id=ANY(v_ids)))
+  ) x;
+  IF v_mode='list' AND jsonb_array_length(v_personas)<>cardinality(v_ids) THEN
+    RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID';   -- id uden for kilden eller ukendt
+  END IF;
+  v_match:=public.red_match_personer();
+  -- Sortér hvert array efter elementets tekst: red_match_personer lover ingen orden.
+  SELECT coalesce(jsonb_object_agg(k.key,(SELECT coalesce(jsonb_agg(e ORDER BY e::text COLLATE "C"),'[]'::jsonb)
+                                           FROM jsonb_array_elements(k.value) e)),'{}'::jsonb)
+    INTO v_persons FROM jsonb_each(v_match) k WHERE jsonb_typeof(k.value)='array';
+  RETURN jsonb_build_object('personas',v_personas,'persons',v_persons);
+END $$;
+REVOKE ALL ON FUNCTION private.identity_candidate_input(bigint,jsonb) FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION red_identity_candidate_input(p_source_id bigint,p_input_spec jsonb)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_input jsonb;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  v_input:=private.identity_candidate_input(p_source_id,p_input_spec);
+  RETURN jsonb_build_object('input_spec',p_input_spec,'input_sha256',private.reimport_canonical_json_sha256(v_input),'input',v_input);
+END $$;
+REVOKE ALL ON FUNCTION red_identity_candidate_input(bigint,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_identity_candidate_input(bigint,jsonb) TO authenticated;
+
+CREATE OR REPLACE FUNCTION red_record_identity_candidates(p_run jsonb,p_candidates jsonb)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE
+  v_actor uuid:=auth.uid(); v_actor_name text; v_source bigint; v_input jsonb; v_cand_hash text; v_config_hash text;
+  v_run uuid; v_existing text;
+BEGIN
+  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  IF jsonb_typeof(p_run)<>'object'
+     OR (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(p_run) k)
+        <> ARRAY['config','generator_version','input_sha256','input_spec','source_id']
+     OR coalesce(p_run->>'input_sha256','') !~ '^[0-9a-f]{64}$'
+     OR nullif(btrim(p_run->>'generator_version'),'') IS NULL
+     OR jsonb_typeof(p_run->'config')<>'object' OR jsonb_typeof(p_run->'source_id')<>'number'
+     OR jsonb_typeof(p_candidates)<>'array' THEN
+    RAISE EXCEPTION 'IDENTITY_CANDIDATE_RUN_INVALID';
+  END IF;
+  v_source:=(p_run->>'source_id')::bigint;
+  -- Eksklusiv kildelås: afgørelses-RPC'en tager den delt (Task 3), så en ny kørsel
+  -- ikke kan indsættes mellem en afgørelses aktualitetskontrol og dens commit.
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:'||v_source::text,0));
+  v_input:=private.identity_candidate_input(v_source,p_run->'input_spec');
+  IF private.reimport_canonical_json_sha256(v_input)<>p_run->>'input_sha256' THEN
+    RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_DRIFT';
+  END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(p_candidates) c
+              WHERE NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_input->'personas') pe
+                                 WHERE pe->>'source_persona_id'=c->>'source_persona_id')) THEN
+    RAISE EXCEPTION 'IDENTITY_CANDIDATE_PERSONA_NOT_IN_INPUT';
+  END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(p_candidates) c
+              WHERE NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_input->'persons'->'persons') pp
+                                 WHERE (pp->>'id')=(c->>'candidate_person_id'))) THEN
+    RAISE EXCEPTION 'IDENTITY_CANDIDATE_PERSON_NOT_IN_INPUT';
+  END IF;
+  -- Rangerne pr. persona skal være 1..n uden huller.
+  IF EXISTS (SELECT 1 FROM (
+      SELECT c->>'source_persona_id' pid, count(*) n, max((c->>'rank')::int) mx, min((c->>'rank')::int) mn
+        FROM jsonb_array_elements(p_candidates) c GROUP BY 1) g
+     WHERE g.mn<>1 OR g.mx<>g.n) THEN
+    RAISE EXCEPTION 'IDENTITY_CANDIDATE_RANK_GAP';
+  END IF;
+  v_cand_hash:=private.reimport_canonical_json_sha256(p_candidates);
+  v_config_hash:=private.reimport_canonical_json_sha256(p_run->'config');
+  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text)
+    INTO v_actor_name FROM public.profiles WHERE id=v_actor;
+
+  INSERT INTO private.source_persona_identity_candidate_run(
+    source_id,generator_version,config,config_sha256,input_spec,input_sha256,candidates_sha256,
+    persona_count,candidate_count,created_by,created_by_name
+  ) VALUES (
+    v_source,p_run->>'generator_version',p_run->'config',v_config_hash,p_run->'input_spec',p_run->>'input_sha256',v_cand_hash,
+    jsonb_array_length(v_input->'personas'),jsonb_array_length(p_candidates),v_actor,v_actor_name
+  ) ON CONFLICT (source_id,input_sha256,config_sha256) DO NOTHING
+  RETURNING id INTO v_run;
+  IF v_run IS NULL THEN
+    SELECT id,candidates_sha256 INTO v_run,v_existing FROM private.source_persona_identity_candidate_run
+     WHERE source_id=v_source AND input_sha256=p_run->>'input_sha256' AND config_sha256=v_config_hash;
+    IF v_existing<>v_cand_hash THEN RAISE EXCEPTION 'IDENTITY_CANDIDATE_RUN_CONFLICT'; END IF;
+    RETURN v_run;
+  END IF;
+  INSERT INTO private.source_persona_identity_candidate(run_id,source_persona_id,candidate_person_id,rank,score,tier,basis)
+  SELECT v_run,(c->>'source_persona_id')::uuid,(c->>'candidate_person_id')::bigint,(c->>'rank')::int,
+         (c->>'score')::numeric,c->>'tier',c->'basis'
+    FROM jsonb_array_elements(p_candidates) c;
+  RETURN v_run;
+END $$;
+REVOKE ALL ON FUNCTION red_record_identity_candidates(jsonb,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_record_identity_candidates(jsonb,jsonb) TO authenticated;
+
 REVOKE ALL ON FUNCTION red_decide_interpretation(uuid,integer,text,jsonb),
                        red_promote_interpretation(uuid,text,bigint,jsonb),
                        red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb),

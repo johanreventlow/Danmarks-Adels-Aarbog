@@ -1,3 +1,4 @@
+CREATE EXTENSION IF NOT EXISTS dblink;
 -- Trin 5a, Task 1-2: kandidatlaget. Kør efter bootstrap, schema.sql, db-rls.sql og
 -- migrationerne på en frisk base. Hver blok ruller sin fixture tilbage selv.
 
@@ -79,3 +80,200 @@ BEGIN
     ELSE RAISE; END IF;
   END;
 END $identity_candidate_constraints$;
+
+DO $identity_candidate_writer$
+DECLARE
+  v_actor uuid := '11000000-0000-0000-0000-000000005a02';
+  v_run uuid := '22000000-0000-0000-0000-000000005a02';
+  v_p1 uuid := '88000000-0000-0000-0000-000000005a21';
+  v_p2 uuid := '88000000-0000-0000-0000-000000005a22';
+  v_other uuid := '88000000-0000-0000-0000-000000005a23';
+  v_spec jsonb := '{"mode":"undecided"}';
+  v_in jsonb; v_meta jsonb; v_cands jsonb; v_id uuid; v_id2 uuid; v_err text; v_state text;
+BEGIN
+  BEGIN
+    INSERT INTO auth.users(id,email) VALUES (v_actor,'5a-writer@test.invalid');
+    INSERT INTO profiles(id,rolle,navn,email) VALUES (v_actor,'redaktion','5a writer','5a-writer@test.invalid');
+    INSERT INTO person(id,levende,privat,status) VALUES (-987655021,false,false,'5a'),(-987655022,false,false,'5a');
+    INSERT INTO source(id,titel,import_key) VALUES (-987655021,'5a A','verify:5a:a'),(-987655022,'5a B','verify:5a:b');
+    INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+      VALUES (v_run,-987655021,'5a-run-w','1.0','verify','verify',repeat('9',64),'{}'),
+             ('22000000-0000-0000-0000-000000005a03',-987655022,'5a-run-w-b','1.0','verify','verify',repeat('9',64),'{}');
+    INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id)
+      VALUES (v_p1,-987655021,'5a-p1',v_run),(v_p2,-987655021,'5a-p2',v_run),
+             (v_other,-987655022,'5a-other','22000000-0000-0000-0000-000000005a03');
+
+    -- uden redaktionsrolle
+    BEGIN PERFORM red_identity_candidate_input(-987655021,v_spec);
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: input uden rolle lykkedes';
+    EXCEPTION WHEN OTHERS THEN IF SQLERRM<>'EVIDENCE_ROLE_FORBIDDEN' THEN RAISE; END IF; END;
+
+    PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+    SET LOCAL ROLE authenticated;
+    v_in := red_identity_candidate_input(-987655021,v_spec);
+    IF v_in->'input' IS NULL OR jsonb_array_length(v_in->'input'->'personas')<>2
+       OR v_in->>'input_sha256' !~ '^[0-9a-f]{64}$'
+       OR v_in->>'input_sha256'<>(red_identity_candidate_input(-987655021,v_spec)->>'input_sha256') THEN
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: input er ikke deterministisk eller forkert afgrænset (%)',v_in->'input'->'personas';
+    END IF;
+    v_meta := jsonb_build_object('source_id',-987655021,'generator_version','test-1','input_spec',v_spec,
+                                 'input_sha256',v_in->>'input_sha256','config',jsonb_build_object('topK',3));
+    -- samme person er kandidat 1 for begge personas: ikke-injektivt er tilladt; p2 får kun én kandidat
+    v_cands := jsonb_build_array(
+      jsonb_build_object('source_persona_id',v_p1,'candidate_person_id',-987655021,'rank',1,'score',0.93,'tier','auto','basis',jsonb_build_object('signals',jsonb_build_array('name','birth'))),
+      jsonb_build_object('source_persona_id',v_p1,'candidate_person_id',-987655022,'rank',2,'score',0.71,'tier','review','basis',jsonb_build_object('signals',jsonb_build_array('name'))),
+      jsonb_build_object('source_persona_id',v_p2,'candidate_person_id',-987655021,'rank',1,'score',0.8,'tier','review','basis',jsonb_build_object('signals',jsonb_build_array('name'))));
+    v_id := red_record_identity_candidates(v_meta,v_cands);
+    v_id2 := red_record_identity_candidates(v_meta,v_cands);
+    IF v_id IS DISTINCT FROM v_id2 THEN RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: ikke idempotent'; END IF;
+
+    FOR v_err IN SELECT unnest(ARRAY['conflict','foreign','person','gap','keys','count','hash','spec']) LOOP
+      BEGIN
+        IF v_err='conflict' THEN
+          PERFORM red_record_identity_candidates(v_meta, v_cands - 2);
+        ELSIF v_err='foreign' THEN   -- persona fra en anden kilde er ikke i inputtet
+          PERFORM red_record_identity_candidates(v_meta || '{"config":{"topK":4}}',
+            jsonb_build_array(jsonb_build_object('source_persona_id',v_other,'candidate_person_id',-987655021,'rank',1,'score',0.9,'tier','auto','basis','{"signals":["name"]}'::jsonb)));
+        ELSIF v_err='person' THEN    -- person, der ikke findes i inputtets personmængde
+          PERFORM red_record_identity_candidates(v_meta || '{"config":{"topK":5}}',
+            jsonb_build_array(jsonb_build_object('source_persona_id',v_p1,'candidate_person_id',-1,'rank',1,'score',0.9,'tier','auto','basis','{"signals":["name"]}'::jsonb)));
+        ELSIF v_err='gap' THEN
+          PERFORM red_record_identity_candidates(v_meta || '{"config":{"topK":6}}',
+            jsonb_build_array(jsonb_build_object('source_persona_id',v_p1,'candidate_person_id',-987655021,'rank',2,'score',0.9,'tier','auto','basis','{"signals":["name"]}'::jsonb)));
+        ELSIF v_err='keys' THEN
+          PERFORM red_record_identity_candidates(v_meta || '{"extra":1}', v_cands);
+        ELSIF v_err='count' THEN     -- klienten må ikke selv angive antal
+          PERFORM red_record_identity_candidates(v_meta || '{"persona_count":99}', v_cands);
+        ELSIF v_err='hash' THEN      -- falsk input-hash
+          PERFORM red_record_identity_candidates(v_meta || jsonb_build_object('input_sha256',repeat('e',64)), v_cands);
+        ELSE
+          PERFORM red_record_identity_candidates(v_meta || '{"input_spec":{"mode":"alle"}}', v_cands);
+        END IF;
+        RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: % blev accepteret',v_err;
+      EXCEPTION WHEN OTHERS THEN
+        -- præcis den forventede kode pr. tilfælde, så et tilfælde ikke kan bestå på en andens fejl
+        IF SQLERRM IS DISTINCT FROM (CASE v_err
+             WHEN 'conflict' THEN 'IDENTITY_CANDIDATE_RUN_CONFLICT' WHEN 'foreign' THEN 'IDENTITY_CANDIDATE_PERSONA_NOT_IN_INPUT'
+             WHEN 'person' THEN 'IDENTITY_CANDIDATE_PERSON_NOT_IN_INPUT' WHEN 'gap' THEN 'IDENTITY_CANDIDATE_RANK_GAP'
+             WHEN 'keys' THEN 'IDENTITY_CANDIDATE_RUN_INVALID' WHEN 'count' THEN 'IDENTITY_CANDIDATE_RUN_INVALID'
+             WHEN 'hash' THEN 'IDENTITY_CANDIDATE_INPUT_DRIFT' ELSE 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID' END) THEN RAISE; END IF;
+      END;
+    END LOOP;
+    RESET ROLE;
+
+    -- ændret DB-input efter eksport: en ny persona i kilden ⇒ drift
+    INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id)
+      VALUES ('88000000-0000-0000-0000-000000005a24',-987655021,'5a-p4',v_run);
+    SET LOCAL ROLE authenticated;
+    BEGIN PERFORM red_record_identity_candidates(v_meta || '{"config":{"topK":7}}', v_cands);
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: forældet input accepteret';
+    EXCEPTION WHEN OTHERS THEN IF SQLERRM<>'IDENTITY_CANDIDATE_INPUT_DRIFT' THEN RAISE; END IF; END;
+    RESET ROLE;
+
+    IF (SELECT persona_count FROM private.source_persona_identity_candidate_run WHERE id=v_id)<>2
+       OR (SELECT candidate_count FROM private.source_persona_identity_candidate_run WHERE id=v_id)<>3
+       OR (SELECT count(*) FROM private.source_persona_identity_candidate WHERE run_id=v_id)<>3
+       OR (SELECT config_sha256 FROM private.source_persona_identity_candidate_run WHERE id=v_id)
+          <>private.reimport_canonical_json_sha256('{"topK":3}'::jsonb) THEN
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: serverens antal eller hashes er forkerte';
+    END IF;
+    RAISE EXCEPTION 'ROLLBACK_5A_CANDIDATE_WRITER';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='ROLLBACK_5A_CANDIDATE_WRITER' THEN
+      RAISE NOTICE 'OK: kandidat-writeren genberegner input, udleder antal, er idempotent og ikke-injektiv, og afviser konflikt, fremmed persona/person, ranghul, ukendte nøgler, falsk hash og drift';
+    ELSE RAISE; END IF;
+  END;
+END $identity_candidate_writer$;
+
+-- Writeren tager kildelåsen: holder en anden forbindelse den, venter writeren (her: timeout 55P03).
+DO $identity_candidate_lock$
+DECLARE
+  v_actor uuid := '11000000-0000-0000-0000-000000005a09';
+  v_conn text := format('dbname=%s port=%s host=%s',current_database(),current_setting('port'),split_part(current_setting('unix_socket_directories'),',',1));
+  v_state text;
+BEGIN
+  PERFORM dblink_connect('cand_lock',v_conn);
+  PERFORM dblink_exec('cand_lock','BEGIN');
+  PERFORM * FROM dblink('cand_lock','SELECT pg_advisory_xact_lock(hashtextextended(''daa-identity-candidates:-987655021'',0))::text') AS t(x text);
+  BEGIN
+    INSERT INTO auth.users(id,email) VALUES (v_actor,'5a-lock@test.invalid');
+    INSERT INTO profiles(id,rolle,navn,email) VALUES (v_actor,'redaktion','5a lock','5a-lock@test.invalid');
+    PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+    SET LOCAL ROLE authenticated;
+    SET LOCAL lock_timeout='300ms';
+    BEGIN
+      PERFORM red_record_identity_candidates(
+        '{"source_id":-987655021,"generator_version":"t","input_spec":{"mode":"undecided"},"input_sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","config":{}}','[]');
+    EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_state=RETURNED_SQLSTATE;
+    END;
+    RESET ROLE;
+    RAISE EXCEPTION 'ROLLBACK_5A_CANDIDATE_LOCK';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM<>'ROLLBACK_5A_CANDIDATE_LOCK' THEN
+      PERFORM dblink_exec('cand_lock','ROLLBACK'); PERFORM dblink_disconnect('cand_lock'); RAISE;
+    END IF;
+  END;
+  PERFORM dblink_exec('cand_lock','ROLLBACK'); PERFORM dblink_disconnect('cand_lock');
+  IF v_state IS DISTINCT FROM '55P03' THEN
+    RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: writeren ventede ikke på kildelåsen (%)',v_state;
+  END IF;
+  RAISE NOTICE 'OK: kandidat-writeren tager kildelåsen';
+END $identity_candidate_lock$;
+
+DO $identity_candidate_concurrent$
+DECLARE
+  v_conn text := format('dbname=%s port=%s host=%s',current_database(),current_setting('port'),split_part(current_setting('unix_socket_directories'),',',1));
+  v_fix text := $fix$
+    INSERT INTO auth.users(id,email) VALUES ('11000000-0000-0000-0000-000000005a07','5a-conc@test.invalid');
+    INSERT INTO profiles(id,rolle,navn,email) VALUES ('11000000-0000-0000-0000-000000005a07','redaktion','5a conc','5a-conc@test.invalid');
+    INSERT INTO source(id,titel,import_key) VALUES (-987655071,'5a C','verify:5a:c');
+    INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+      VALUES ('22000000-0000-0000-0000-000000005a07',-987655071,'5a-run-c','1.0','verify','verify',repeat('9',64),'{}');
+    INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id)
+      VALUES ('88000000-0000-0000-0000-000000005a71',-987655071,'5a-c1','22000000-0000-0000-0000-000000005a07');
+  $fix$;
+  v_cleanup text := $cl$
+    SET session_replication_role=replica;
+    DELETE FROM private.source_persona_identity_candidate c USING private.source_persona_identity_candidate_run r
+     WHERE c.run_id=r.id AND r.source_id=-987655071;
+    DELETE FROM private.source_persona_identity_candidate_run WHERE source_id=-987655071;
+    DELETE FROM private.source_persona WHERE source_id=-987655071;
+    DELETE FROM private.extraction_run WHERE id='22000000-0000-0000-0000-000000005a07';
+    DELETE FROM source WHERE id=-987655071;
+    DELETE FROM profiles WHERE id='11000000-0000-0000-0000-000000005a07';
+    DELETE FROM auth.users WHERE id='11000000-0000-0000-0000-000000005a07';
+    SET session_replication_role=origin;
+  $cl$;
+  v_role text := $r$SELECT set_config('request.jwt.claim.sub','11000000-0000-0000-0000-000000005a07',false); SET ROLE authenticated;$r$;
+  v_hash text; v_call text; v_a text; v_b text; v_runs int;
+BEGIN
+  PERFORM dblink_connect('cc_setup',v_conn);
+  PERFORM dblink_exec('cc_setup',v_cleanup);
+  PERFORM dblink_exec('cc_setup',v_fix);
+  BEGIN
+    PERFORM dblink_connect('cc_a',v_conn); PERFORM dblink_connect('cc_b',v_conn);
+    PERFORM dblink_exec('cc_a',v_role); PERFORM dblink_exec('cc_b',v_role);
+    SELECT h INTO v_hash FROM dblink('cc_a',$q$SELECT red_identity_candidate_input(-987655071,'{"mode":"undecided"}')->>'input_sha256'$q$) AS t(h text);
+    v_call := format($q$SELECT red_record_identity_candidates(jsonb_build_object('source_id',-987655071,'generator_version','t',
+      'input_spec','{"mode":"undecided"}'::jsonb,'input_sha256',%L,'config','{"topK":3}'::jsonb),'[]'::jsonb)::text$q$,v_hash);
+    PERFORM dblink_exec('cc_a','BEGIN'); PERFORM dblink_exec('cc_b','BEGIN');
+    PERFORM dblink_send_query('cc_a',v_call);
+    PERFORM dblink_send_query('cc_b',v_call);            -- venter på A's kildelås
+    SELECT r INTO v_a FROM dblink_get_result('cc_a') AS t(r text); PERFORM * FROM dblink_get_result('cc_a') AS t(r text);
+    PERFORM dblink_exec('cc_a','COMMIT');
+    SELECT r INTO v_b FROM dblink_get_result('cc_b') AS t(r text); PERFORM * FROM dblink_get_result('cc_b') AS t(r text);
+    PERFORM dblink_exec('cc_b','COMMIT');
+    SELECT count(*) INTO v_runs FROM private.source_persona_identity_candidate_run WHERE source_id=-987655071;
+    IF v_a IS NULL OR v_a IS DISTINCT FROM v_b OR v_runs<>1 THEN
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: samtidige kald gav % og % (% kørsler)',v_a,v_b,v_runs;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    BEGIN PERFORM dblink_disconnect('cc_a'); EXCEPTION WHEN OTHERS THEN NULL; END;
+    BEGIN PERFORM dblink_disconnect('cc_b'); EXCEPTION WHEN OTHERS THEN NULL; END;
+    PERFORM dblink_exec('cc_setup',v_cleanup); PERFORM dblink_disconnect('cc_setup');
+    RAISE;
+  END;
+  PERFORM dblink_disconnect('cc_a'); PERFORM dblink_disconnect('cc_b');
+  PERFORM dblink_exec('cc_setup',v_cleanup); PERFORM dblink_disconnect('cc_setup');
+  RAISE NOTICE 'OK: samtidige identiske writer-kald giver samme kørsel og én run-række';
+END $identity_candidate_concurrent$;
