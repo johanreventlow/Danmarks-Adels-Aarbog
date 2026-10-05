@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-05 — prod-overførslen af 2018-20 er klar til GO (#147, plan B)
+
+Ceremonien for den samlede overførsel (3.739 forslag, 676 afgørelser, 622 bindinger fra pakken
+`07355ccc…`) er bygget som private scripts og øvet mod lokale stand-ins af prod: hele kæden, genkørsel
+(`ALREADY_APPLIED`), afbrud midt i forslagene, forkert grundlag, fortrydelse og 11 angrebstest. En
+læse-kun probe af prod (2026-10-04) bestod alle gates; prods tidsgrænse på 2 min pr. sætning er
+accepteret, fordi hvert trin tager højst 17 s lokalt, og `07`/`08` selv sætter 15 min. Én af 14 øvelser
+hang i `07` og blev rullet tilbage af tidsgrænsen; det kunne ikke genskabes og har sin egen stopregel.
+Runbook: `runbooks/transfer-2018-20-prod.md`. Intet i prod endnu; ceremonien kræver projektejerens GO.
+
 ## 2026-10-03 — hele 2018-20 gennem fortolkningskæden i én base (#147)
 
 Efter projektejerens GO på manifest `f5a76e1b…` er alle 488 tilladte poster i 2018-20 sendt til
