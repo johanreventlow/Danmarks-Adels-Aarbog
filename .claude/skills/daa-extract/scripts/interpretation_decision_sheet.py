@@ -210,13 +210,13 @@ def main() -> int:
         print(f"  rows_sha256 {rows_sha}")
         return 0
 
+    # Arket læses præcis én gang: hash og parsing bruger samme bytes (ingen TOCTOU).
+    data = Path(args.sheet).read_bytes()
     try:
-        rows_sha, faktisk = verify_bound(rows_bytes, args.expect_rows_sha256,
-                                         Path(args.sheet).read_bytes(), args.approved_sha256)
+        rows_sha, faktisk = verify_bound(rows_bytes, args.expect_rows_sha256, data, args.approved_sha256)
     except SheetError as exc:
         print(str(exc))
         return 1
-    data = Path(args.sheet).read_bytes()
     try:
         decisions = parse_sheet(data.decode("utf-8"))
         check_identity(decisions, rows)

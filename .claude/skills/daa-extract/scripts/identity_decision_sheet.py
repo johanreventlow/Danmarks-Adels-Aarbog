@@ -158,11 +158,14 @@ def main() -> int:
         print(f"ARK_OK linjer={len(rows)} uden_kandidat={sum(1 for x in rows if not x['candidates'])}")
         print(f"  rows_sha256 {hashlib.sha256(rows_bytes).hexdigest()}")
         return 0
+    # Arket læses præcis én gang: hash, render-kontrol og parsing bruger samme bytes, så en
+    # ændring af filen efter godkendelsen (editor, autosave) aldrig kan nå SQL'en.
+    sheet_bytes = Path(args.sheet).read_bytes()
     try:
-        rows_sha, sheet_sha = verify_bound(rows_bytes, args.expect_rows_sha256,
-                                           Path(args.sheet).read_bytes(), args.approved_sha256)
-        check_render(Path(args.sheet).read_text(encoding="utf-8"), rows)
-        decisions = parse_sheet(Path(args.sheet).read_text(encoding="utf-8"))
+        rows_sha, sheet_sha = verify_bound(rows_bytes, args.expect_rows_sha256, sheet_bytes, args.approved_sha256)
+        tekst = sheet_bytes.decode("utf-8")
+        check_render(tekst, rows)
+        decisions = parse_sheet(tekst)
         check_identity(decisions, rows)
         sql = decision_sql(decisions, rows, sheet_sha256=sheet_sha, rows_sha256=rows_sha)
     except SheetError as exc:

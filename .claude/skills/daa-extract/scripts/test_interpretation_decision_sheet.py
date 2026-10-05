@@ -176,3 +176,29 @@ def test_renderet_ark_i_egen_orden_godkendes():
     rows = [row(U2, value="1851"), row(U1)]
     prior = {("I-1", "person.death", "1850"): "J", ("I-1", "person.death", "1851"): "N"}
     check_identity(parse_sheet(render_sheet(rows, prior)), rows)
+
+
+def test_cli_laeser_arket_én_gang(tmp_path, monkeypatch):
+    """Hash og parsing skal bruge samme bytes: ændres filen efter første læsning, må SQL'en ikke
+    bygges af det ændrede indhold (Codex kode-runde 1 for #151)."""
+    import interpretation_decision_sheet as ids
+    rows_fil = tmp_path / "rows.json"; rows_fil.write_text(json.dumps([row(U1)]), encoding="utf-8")
+    ark = tmp_path / "ark.txt"; ark.write_text(f"D {U1} 1 : A\n", encoding="utf-8")
+    godkendt = hashlib.sha256(ark.read_bytes()).hexdigest()
+    ægte = Path.read_bytes
+    læst = {"n": 0}
+
+    def bytes_(self):
+        if self == ark:
+            læst["n"] += 1
+            if læst["n"] > 1:
+                return f"D {U1} 1 : R\n".encode("utf-8")
+        return ægte(self)
+
+    monkeypatch.setattr(Path, "read_bytes", bytes_)
+    monkeypatch.setattr(sys, "argv", ["x", "sql", "--sheet", str(ark), "--approved-sha256", godkendt,
+                                      "--rows", str(rows_fil), "--expect-rows-sha256",
+                                      hashlib.sha256(rows_fil.read_bytes()).hexdigest(), "--out", str(tmp_path / "d.sql")])
+    assert ids.main() == 0
+    sql = (tmp_path / "d.sql").read_text(encoding="utf-8")
+    assert "'accepted'" in sql and "'rejected'" not in sql and læst["n"] == 1

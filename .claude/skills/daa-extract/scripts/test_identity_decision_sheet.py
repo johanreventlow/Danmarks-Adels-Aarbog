@@ -119,3 +119,35 @@ def test_cli_ændret_ark_stopper(tmp_path):
 def test_cli_komplet_ark(tmp_path):
     p, out = _cli(tmp_path, _ark([row(P1)]))
     assert p.returncode == 0 and "SQL_OK afgørelser=1" in p.stdout and out.exists()
+
+
+def test_cli_laeser_arket_én_gang(tmp_path, monkeypatch):
+    """Hash, render-kontrol og parsing skal bruge samme bytes: ændres filen efter første læsning
+    (editor/autosave), må SQL'en ikke bygges af det ændrede indhold (Codex kode-runde 1)."""
+    import identity_decision_sheet as ids
+    rf = tmp_path / "rows.json"; rf.write_text(json.dumps([row(P1)]), encoding="utf-8")
+    af = tmp_path / "ark.txt"; godkendt = _ark([row(P1)], "1"); af.write_text(godkendt, encoding="utf-8")
+    sha = hashlib.sha256(af.read_bytes()).hexdigest()
+    ægte_bytes, ægte_tekst = Path.read_bytes, Path.read_text
+    læst = {"n": 0}
+
+    def bytes_(self):
+        if self == af:
+            læst["n"] += 1
+            if læst["n"] > 1:
+                return _ark([row(P1)], "X").encode("utf-8")
+        return ægte_bytes(self)
+
+    def tekst(self, *a, **k):
+        if self == af:
+            return bytes_(self).decode("utf-8")
+        return ægte_tekst(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_bytes", bytes_)
+    monkeypatch.setattr(Path, "read_text", tekst)
+    monkeypatch.setattr(sys, "argv", ["x", "sql", "--sheet", str(af), "--approved-sha256", sha, "--rows", str(rf),
+                                      "--expect-rows-sha256", hashlib.sha256(rf.read_bytes()).hexdigest(),
+                                      "--out", str(tmp_path / "d.sql")])
+    assert ids.main() == 0
+    sql = (tmp_path / "d.sql").read_text(encoding="utf-8")
+    assert "'same'" in sql and "'different'" not in sql and læst["n"] == 1
