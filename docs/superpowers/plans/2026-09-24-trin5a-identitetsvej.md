@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-24-trin5a-identitetsvej-design.md` (branch `docs/151-identitetsvej`).
 
-**Genbekræftet 2026-10-05** mod `main` 984070e (19 commits efter planens grundlag 77a0c22: 4.5, kontrolmodel, omsegmentering, udvalgsbygger, prod-overførsel). De berørte funktioner er byte-identiske, kalderne er de samme, og linjenumrene er opdateret; øvrige rettelser står som »Genbekræftet 2026-10-05«-noter øverst i Task 4, 5, 6, 7 og 9.
+**Genbekræftet 2026-10-05** mod `main` 984070e (19 commits efter planens grundlag 77a0c22: 4.5, kontrolmodel, omsegmentering, udvalgsbygger, prod-overførsel). De berørte funktioner er byte-identiske, kalderne er de samme, og linjenumrene er opdateret; øvrige rettelser står som »Genbekræftet 2026-10-05«-noter øverst i Task 4, 5, 6, 7 og 9. Codex-genreview samme dag: runde 1 NO-GO (9 fund) og runde 2 NO-GO (fund 5 ufuldstændig + 3 nye) er rettet direkte i kodestykkerne; runde 2's rettelser er efterprøvet (årstalsregressionen fejler uden rettelsen; opgraderings- og R-blokken i Task 3 Step 10 grøn mod `main`).
 
 ## Global Constraints
 
@@ -1333,22 +1333,36 @@ psql -X -q -v ON_ERROR_STOP=1 -d "$FRESH" -f tests/sql/run-db-verify-disposable.
 (cd .claude/skills/daa-extract/scripts && env -u NODE_OPTIONS /usr/bin/python3 -m pytest test_identity_guard_static.py -q) | tail -2
 ```
 
-Kør derefter writer-beviserne på en opgraderet base, præcis som CI's job (`ci.yml:319-329`) — den beviser samtidig opgraderingsstien fra et gammelt skema gennem cutover-blokken:
+Kør derefter writer-beviserne på en opgraderet base i samme rækkefølge som CI's job (`ci.yml:319-330`) — den beviser samtidig opgraderingsstien fra et gammelt skema gennem cutover-blokken — og 1939-writerens R-integration på en base bygget som CI's `writer_1939` (`ci.yml:272-287`). Blokken er fail-closed: `pipefail`, commitkontrol som CI (`ci.yml:294`), og R kører med `R_ENVIRON_USER=/dev/null` efter en probe, der beviser at R ser den lokale engangsbase (`~/.Renviron` overskriver ellers shell-env). Efterprøvet mod `main` 2026-10-05: alle `rc=0`, `R rc=0`.
 
 ```bash
+set -o pipefail
+git cat-file -e '2d6aabf^{commit}' && echo "2d6aabf findes" || echo "STOP: 2d6aabf mangler — git fetch origin"
 LE=daa5a_legacy_$(date +%Y%m%d%H%M%S); createdb "$LE"
 { psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f tests/sql/evidence-promotion-bootstrap.sql &&
   git show 2d6aabf:schema.sql | psql -X -q -v ON_ERROR_STOP=1 -d "$LE" &&
   psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f tests/sql/reimport-writer-legacy-empty-fixture.sql &&
   psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f db-migrations.sql && psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f db-rls.sql; } \
   > /tmp/claude-501/t3-legacy-setup.log 2>&1; echo "setup rc=$?"
-for t in test-reimport-writer test-reimport-name-completion test-1939-v50-production-writer test-1939-v50-name-completion run-db-verify-disposable; do
-  psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f tests/sql/$t.sql > /tmp/claude-501/t3-le-$t.log 2>&1; echo "$t rc=$?"; done
+# Samme rækkefølge som CI (ci.yml, reimport_legacy_empty_153): db-rls.sql genanvendes efter test-reimport-writer.
+for f in tests/sql/test-reimport-writer.sql db-rls.sql tests/sql/test-reimport-name-completion.sql tests/sql/test-1939-v50-production-writer.sql \
+         tests/sql/test-1939-v50-name-completion.sql tests/sql/run-db-verify-disposable.sql; do
+  psql -X -q -v ON_ERROR_STOP=1 -d "$LE" -f "$f" > /tmp/claude-501/t3-le-${f:t:r}.log 2>&1; echo "${f:t:r} rc=$?"; done
+# 1939-writerens R-integration på en base bygget som CI's writer_1939 (ci.yml »Bootstrap og writer-kontrakt«).
+W39=daa5a_w1939_$(date +%Y%m%d%H%M%S); createdb "$W39"
+for f in tests/sql/evidence-promotion-bootstrap.sql schema.sql db-rls.sql tests/sql/1939-v50-writer-bootstrap.sql tests/sql/test-1939-v50-production-writer.sql; do
+  psql -X -q -v ON_ERROR_STOP=1 -d "$W39" -f "$f" >> /tmp/claude-501/t3-w39.log 2>&1 || { echo "FEJL i $f"; break; }; done
+# R læser ~/.Renviron og overskriver shell-env: slå den fra, og bevis hvilken base R ser, før integrationen skriver.
+export R_ENVIRON_USER=/dev/null PGDATABASE="$W39" PGHOST=localhost PGPORT=5432 PGUSER="$(whoami)" PGPASSWORD=
+SER=$(Rscript -e 'cat(Sys.getenv("PGHOST"), Sys.getenv("PGDATABASE"))')
+if [ "$SER" = "localhost $W39" ]; then
+  Rscript tests/integration/test-1939-v50-production-writer.R > /tmp/claude-501/t3-r.log 2>&1; echo "R rc=$?"
+else echo "STOP: R ser '$SER', ikke localhost $W39"; fi
+unset R_ENVIRON_USER PGDATABASE PGHOST PGPORT PGUSER PGPASSWORD
+echo "baser: $LE $W39"
 ```
 
-og 1939-writerens integration som CI-trinnet »Virkelig rollback/apply/reversal integration« (`ci.yml:281-287`, samme miljøvariabler): `Rscript tests/integration/test-1939-v50-production-writer.R > /tmp/claude-501/t3-r.log 2>&1; echo "R rc=$?"`.
-
-Expected: alle `rc=0`, pytest `8 passed`. `test-reimport-name-completion.sql` og `test-1939-v50-production-writer.sql` kalder oprettelse (nu med kvittering) og fortrydelse positivt, R-integrationen kører 1939's rollback/apply/reversal, og `test-reimport-legacy-migration.sql` — **uændret** — beviser, at 149b's migration og dens fortrydelse per element virker som `legacy_match` (Review Focus 4). `test-reimport-writer.sql` beviser kun, at afvisningerne er uændrede. Fejler en test på `EVIDENCE_IDENTITY_BASIS_REQUIRED` eller `EVIDENCE_IDENTITY_ORIGIN_INVALID`: **STOP** — en kalder mangler i tabellen; afgør med projektejeren, ikke med en ny oprindelse.
+Expected: alle `rc=0`, pytest `8 passed`. `test-reimport-name-completion.sql` kalder den generiske oprettelse (nu med kvittering) og fortrydelse positivt, `test-1939-v50-production-writer.sql` beviser positiv 1939-oprettelse, og R-integrationen beviser 1939's rollback/apply/reversal, og `test-reimport-legacy-migration.sql` — **uændret** — beviser, at 149b's migration og dens fortrydelse per element virker som `legacy_match` (Review Focus 4). `test-reimport-writer.sql` beviser kun, at afvisningerne er uændrede. Fejler en test på `EVIDENCE_IDENTITY_BASIS_REQUIRED` eller `EVIDENCE_IDENTITY_ORIGIN_INVALID`: **STOP** — en kalder mangler i tabellen; afgør med projektejeren, ikke med en ny oprindelse.
 
 - [ ] **Step 11: Commit**
 
@@ -1546,7 +1560,7 @@ git commit -m "feat(151): persona-detalje med kandidater og kollisioner; kø med
 
 **Interfaces:**
 - Consumes: `buildScored`, `scorePair`, `scorePairEvidens`, `buildMatchFrame`, `buildMatchPersoner`, `defaultCfg`, typer `MatchFrame`, `MatchCfg`, `ScoredPair` fra `@daa/core`; `red_identity_candidate_input` og writer-RPC'en fra Task 2 (serveren beregner alle hashes — CLI'en hasher intet).
-- Produces: `personaFrames(rows: PersonaExportRow[]): { frames: MatchFrame[]; origins: Map<string, PersonaOrigin> }`; `personFrames(payload: MatchPayload): MatchFrame[]`; `rankCandidates(personas: MatchFrame[], persons: MatchFrame[], opts: RankOptions): Candidate[]` hvor `Candidate = { source_persona_id: string; candidate_person_id: number; rank: number; score: number; tier: 'auto'|'review'|'none'; basis: { signals: string[]; name_origin: string; birth_origin: string | null; death_origin: string | null } }`; CLI `npx tsx packages/identity-candidates/src/cli.ts generate --input F --source-id N --out F [--top-k 3] [--evidens-normaliseret]`, hvor `F` er output af `export-input.sql` (`{input_spec, input_sha256, input: {personas, persons}}`), og som skriver `{ run: {source_id, generator_version, input_spec, input_sha256, config}, candidates: [...], stats: {personas, uden_navn} }` — `run` har præcis Task 2's nøgler; `stats` sendes ikke til writeren.
+- Produces: `personaFrames(rows: PersonaExportRow[]): { frames: MatchFrame[]; origins: Map<string, PersonaOrigin> }`; `udenAarstal(frames: MatchFrame[]): string[]` (id'er uden parsebart år; CLI'ens `stats.uden_aar`); `personFrames(payload: MatchPayload): MatchFrame[]`; `rankCandidates(personas: MatchFrame[], persons: MatchFrame[], opts: RankOptions): Candidate[]` hvor `Candidate = { source_persona_id: string; candidate_person_id: number; rank: number; score: number; tier: 'auto'|'review'|'none'; basis: { signals: string[]; name_origin: string; birth_origin: string | null; death_origin: string | null } }`; CLI `npx tsx packages/identity-candidates/src/cli.ts generate --input F --source-id N --out F [--top-k 3] [--evidens-normaliseret]`, hvor `F` er output af `export-input.sql` (`{input_spec, input_sha256, input: {personas, persons}}`), og som skriver `{ run: {source_id, generator_version, input_spec, input_sha256, config}, candidates: [...], stats: {personas, uden_navn} }` — `run` har præcis Task 2's nøgler; `stats` sendes ikke til writeren.
 
 `PersonaExportRow` (fra `input.personas`, bygget af `private.identity_candidate_input`): `{ source_persona_id: string; name: string | null; name_origin: 'accepted_interpretation'|'proposed_interpretation'|'mention'|null; birth_raw: string | null; birth_origin: string | null; death_raw: string | null; death_origin: string | null }`. `MatchPayload` = `input.persons` (arrays fra `red_match_personer()`, sorteret af serveren): `{ persons, facts, concs, assertions, extIds }`.
 
@@ -1642,7 +1656,7 @@ describe('rankCandidates', () => {
 
 ```ts
 import { describe, expect, test } from 'vitest';
-import { personaFrames } from '../frames';
+import { personaFrames, udenAarstal } from '../frames';
 
 describe('personaFrames', () => {
   test('navn og år fra eksporten; manglende navn giver tom nøgle', () => {
@@ -1655,6 +1669,15 @@ describe('personaFrames', () => {
     expect(frames[0].nameKey.length).toBeGreaterThan(0);
     expect(frames[1].nameKey).toBe('');
     expect(origins.get('p1')).toEqual({ name: 'accepted_interpretation', birth: 'proposed_interpretation', death: null });
+  });
+
+  test('uden årstal afgøres af de parsede år, ikke af råfeltets tilstedeværelse', () => {
+    const { frames } = personaFrames([
+      { source_persona_id: 'p1', name: 'A', name_origin: 'mention', birth_raw: 'uden tal', birth_origin: 'mention', death_raw: null, death_origin: null },
+      { source_persona_id: 'p2', name: 'B', name_origin: 'mention', birth_raw: null, birth_origin: null, death_raw: 'd. 1900', death_origin: 'mention' },
+      { source_persona_id: 'p3', name: 'C', name_origin: 'mention', birth_raw: null, birth_origin: null, death_raw: null, death_origin: null },
+    ]);
+    expect(udenAarstal(frames)).toEqual(['p1', 'p3']);
   });
 });
 ```
@@ -1696,6 +1719,13 @@ export function personaFrames(rows: PersonaExportRow[]): { frames: MatchFrame[];
 export function personFrames(payload: MatchPayload): MatchFrame[] {
   return buildMatchPersoner(payload.persons, payload.facts, payload.concs, payload.assertions, payload.extIds)
     .map((p) => buildMatchFrame({ id: Number(p.id), navn: p.navn, koen: p.koen, foedsel: p.foedsel, doed: p.doed }));
+}
+
+// Personas uden parsebart fødsels- eller dødsår (spec §8.1): afgøres af de byggede frames,
+// ikke af råfelterne — en ikke-tom date_raw uden 3-4-cifret tal giver intet år for matcheren.
+export function udenAarstal(frames: MatchFrame[]): string[] {
+  return frames.filter((f) => f.birthMin == null && f.birthMax == null && f.deathMin == null && f.deathMax == null)
+    .map((f) => String(f.id));
 }
 ```
 
@@ -1758,7 +1788,7 @@ export function rankCandidates(personas: MatchFrame[], persons: MatchFrame[], op
 
 ```ts
 import { readFileSync, writeFileSync, chmodSync } from 'node:fs';
-import { personaFrames, personFrames, type MatchPayload, type PersonaExportRow } from './frames';
+import { personaFrames, personFrames, udenAarstal, type MatchPayload, type PersonaExportRow } from './frames';
 import { rankCandidates, rankConfig } from './rank';
 
 const GENERATOR_VERSION = 'identity-candidates-1.0';
@@ -1793,8 +1823,8 @@ if (cmd === 'generate') {
   };
   const uden = frames.filter((f) => !f.nameKey).length;
   const out = arg('out')!;
-  // Personas uden fødsels- og dødsår (kun id'er) — kalibreringen rapporterer dem for sig (spec §8.1).
-  const udenAar = personaRows.filter((r) => !r.birth_raw && !r.death_raw).map((r) => r.source_persona_id);
+  // Personas uden parsebart fødsels- og dødsår (kun id'er) — kalibreringen rapporterer dem for sig (spec §8.1).
+  const udenAar = udenAarstal(frames);
   writeFileSync(out, JSON.stringify({ run, candidates, stats: { personas: frames.length, uden_navn: uden, uden_aar: udenAar } }), 'utf8');
   chmodSync(out, 0o600);
   const tiers = candidates.filter((c) => c.rank === 1).reduce<Record<string, number>>((m, c) => ({ ...m, [c.tier]: (m[c.tier] ?? 0) + 1 }), {});
@@ -1811,7 +1841,7 @@ npm run test -w @daa/identity-candidates > /tmp/claude-501/ic.log 2>&1; tail -4 
 npm run typecheck -w @daa/identity-candidates > /tmp/claude-501/ict.log 2>&1; echo "tsc rc=$?"
 ```
 
-Expected: alle tests PASS (6), `tsc rc=0`.
+Expected: alle tests PASS (8: rank 6, frames 2), `tsc rc=0`.
 
 - [ ] **Step 6: SQL-scripts.** `packages/identity-candidates/sql/export-input.sql` (læse-kun; `:actor` = redaktionsprofil, `:source_id`, `:mode` = `undecided` eller `list`, `:personas` = kommasepareret uuid-liste ved `list`):
 
@@ -2363,7 +2393,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 5: Kør** testfilen — Expected: 11 passed.
 
-- [ ] **Step 6: Ingen springede tests.** Aktualiteten testes i SQL (Task 3, i CI), ikke med en betinget pytest. Kør `env -u NODE_OPTIONS /usr/bin/python3 -m pytest test_identity_decision_sheet.py -q -rs`. Expected: 9 passed, 0 skipped.
+- [ ] **Step 6: Ingen springede tests.** Aktualiteten testes i SQL (Task 3, i CI), ikke med en betinget pytest. Kør `env -u NODE_OPTIONS /usr/bin/python3 -m pytest test_identity_decision_sheet.py -q -rs`. Expected: 11 passed, 0 skipped.
 
 - [ ] **Step 7: Rækkefil-eksport** `identity_sheet_rows.sql` (læse-kun; `:source_id`, `:mode` = `undecided`|`list`, `:personas`):
 
@@ -2829,7 +2859,7 @@ SELECT count(*) FILTER (WHERE e_new.decision_status='accepted' AND e_new.canonic
 
 Sammenlign også de to spor (ark vs. web) felt for felt: samme nøgler i `evidence` bortset fra `basis`, `sheet_sha256`, `rows_sha256`, `line`.
 
-- [ ] **Step 5: Rapport** `docs/evidensbaseret-genimport/identitetsvej-5a-bevis.md` — kun tal, id-fri: kalibreringstabellen for begge konfigurationer (personas, med navn, uden navn, uden kandidat, top-1, top-3, præcision pr. tier) — samlet og særskilt for personas uden årstal (`uden_aarstal`), det valgte og hvorfor, genbekræftelsens tal (samme/anden/ikke accepteret/kandidat fulgt), negativtestens udfald, spor-sammenligningen, arbejdsbasens navn og hashes (ark, rækkefil, kandidatkørsel). Skriv tydeligt, at kalibreringen kun dækker personas med `person.name` fra den fulde 2018-20-kørsel, at navnene har kendte titelfejl (decisions 2026-10-03), og at den gentages i 5b.
+- [ ] **Step 5: Rapport** `docs/evidensbaseret-genimport/identitetsvej-5a-bevis.md` — kun tal, id-fri: kalibreringstabellen for begge konfigurationer (personas, med navn, uden navn, uden kandidat, top-1, top-3, præcision pr. tier) — samlet og særskilt for personas uden årstal (`uden_aarstal`), det valgte og hvorfor, genbekræftelsens tal (samme/anden/ikke accepteret/kandidat fulgt), negativtestens udfald, spor-sammenligningen, arbejdsbasens navn og hashes (ark, rækkefil, kandidatkørsel). Skriv tydeligt, at kalibreringen omfatter alle accepterede personas fra den fulde 2018-20-kørsel (`mode=list`), med navn fra `person.name`-fortolkningen eller mention-fallback (`uden_navn` rapporteres særskilt), at navnene har kendte titelfejl (decisions 2026-10-03), og at den gentages i 5b.
 
 - [ ] **Step 6: Status og changelog.** `status.md`, tabellen »Modenhed pr. værdikædeled«: `Source persona, identitetskandidater og webkø` → `integreret ende-til-ende` (restore; ikke prod), med henvisning til rapporten. Ny linje i `docs/changelog.md` for datoen.
 
