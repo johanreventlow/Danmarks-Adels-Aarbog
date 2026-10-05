@@ -2,6 +2,43 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: roadmap-trin 4 afsluttet for 2018-20 — trin 5 aktiveret, 5a først (2026-10-05)
+
+> **Besluttet af projektejeren 2026-10-05** efter prod-overførslen af 2018-20's fortolkningskæde
+> (`VERIFY_OK`, changelog 2026-10-05).
+
+**Baggrund.** Trin 4's færdigbevis (trin 4-spec §2 punkt 5 og §8.5) var kæden `klausul →
+forslag → afgørelse → binding` `integreret ende-til-ende` i én restore for 2018-20,
+hovedpersonens persona. Det blev nået med 4.5 (2026-09-26), gentaget for hele 2018-20
+(2026-10-03) og er nu kørt i prod (2026-10-05): 3.739 forslag, 676 afgørelser og 622 bindinger
+med pakkens tre digests. Ingest og afgørelse er `produktionsverificeret` for 2018-20; promotion
+kun for bindingsdelen. Det er mere, end trin 4 krævede.
+
+**Besluttet:**
+1. **Trin 4 er afsluttet for 2018-20.** 1939's kæde hører til trin 6 (trin 4-spec §11.4).
+   Issues lukkes: #147 og #148 (leveret); #195 (klausul-projektionen, merget i #197 og brugt til
+   afstemningen af 4.1c i prod); #196 som **erstattet** — projektionen er merget (#212/#214), men
+   dens DDL blev aldrig deployet, og overførslen verificerer i stedet med tre nøglede digests
+   (overførsels-spec 2026-10-03 §3.2, beslutning 7).
+2. **Trin 5 er aktiveret** i rækkefølgen fra brainstormen 2026-09-24: **5a** én identitetsvej
+   (#151) → **5b** personas for ægtefæller og børn samt oprettelse af nye kanoniske personer
+   (trin 4-spec §11.3/§11.7) → **5c** slægt, linje og generation som placement/membership (#150).
+   Hver del får sin egen spec og plan.
+3. **5a starter med en genbekræftelse, ikke med Task 0.** Spec og plan (2026-09-24, gren
+   `docs/151-identitetsvej`, ikke pushet) er skrevet før 4.5, kontrolmodellen, omsegmenteringen og
+   overførslen kom på `main`. De holdes op mod den nuværende kode og skema, og afvigelser rettes
+   i planen, før udførelsen begynder. Planens to forudsætninger — 4.5 merget og trin 5 aktiveret
+   — er hermed opfyldt.
+4. **Restpunkter fra trin 4 er egne opgaver, ikke forudsætninger for trin 5:**
+   - næste promptversion med »var † [dato], da …«-reglen og titel/gods-reglen (2026-10-03).
+     Kontraktfrysen (2026-10-01) gjaldt til den fulde kørsel og er dermed ophørt; selve
+     promptversionen kræver sin egen GO, og dens nye fortolkninger erstatter de 13 `U`-kort;
+   - oprydning af de 138 navne-assertions med titelord;
+   - runnerens håndtering af Codex' nye kvotefejl.
+
+**Uændret:** prod-mutationer kræver fortsat en udtrykkelig GO pr. apply, og roadmappens
+rækkefølge (trin 5 → 6 → 7) står.
+
 ## BESLUTTET: titler og »til <gods>« er ikke en del af navnet — heller ikke i fortolkningsforslag (2026-10-03)
 
 > **Besluttet af projektejeren 2026-10-03** under kontrolarket for den fulde 2018-20-kørsel (#147).
