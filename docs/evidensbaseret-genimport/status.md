@@ -8,7 +8,8 @@ se tillægget nedenfor. **Prod-data 2026-09-18:** 4.1c's klausuler kørt. **Afst
 omsegmenteret (51 poster, `match`); samme dag er 4.4 genbundet i en lokal kopi — se tillæg
 2026-09-28. **Hele 2018-20 kørt 2026-10-01—03** i en lokal kopi — se tillæg 2026-10-03.
 **Prod-data 2026-10-05:** hele 2018-20's fortolkningskæde overført (3.739 forslag, 676
-afgørelser, 622 bindinger, `VERIFY_OK`) — se tillæg 2026-10-05.
+afgørelser, 622 bindinger, `VERIFY_OK`) — se tillæg 2026-10-05. **Samme dag:** trin 4
+afsluttet for 2018-20 og trin 5 aktiveret (decisions 2026-10-05).
 **Kodestatus opdateret 2026-09-11**
 efter merge af trin 4's dagsværk 4.1a-4.2 — se tillægget under Produktionsstatus.
 
@@ -226,25 +227,32 @@ programmets samlede modenhed.
 
 ## Næste tilladte arbejde
 
-Roadmap-trin 1-3 (#152, #153, #149) er `produktionsverificeret` pr. 2026-09-06. Det
-aktive programmål er **trin 4: den fælles fortolkningskæde og klausulgranularitet
-(#147/#148)**, aktiveret af projektejeren 2026-09-06 (decisions samme dato, seks valg).
-Spec: `docs/superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md`.
-Dagsværkene 4.1a-4.4 er **udført og merget**, skemaet er deployet til prod 2026-09-17, og
-4.1c's klausuler er kørt i prod 2026-09-18. Næste tilladte arbejde er:
+Roadmap-trin 1-3 (#152, #153, #149) er `produktionsverificeret` pr. 2026-09-06. **Trin 4**
+(#147/#148) er afsluttet for 2018-20 2026-10-05: kæden er overført til prod med `VERIFY_OK`
+(tillæg 2026-10-05). Det aktive programmål er nu **trin 5: placement/membership og én
+identitetsvej (#150/#151)**, aktiveret af projektejeren 2026-10-05 (decisions samme dato), i
+rækkefølgen 5a → 5b → 5c. Næste tilladte arbejde er:
 
-1. **Kontrolmodellen er bygget og kørt** (2026-09-27, gren `feat/147-kontrolmodel`); tilbage er
-   uafhængigt kodereview og merge. Kandidat bagefter: promptregel for »var † [dato], da …«
-   (ny promptversion — egen beslutning).
-2. 4.5-arket er rettet (I-7) og godkendt med ny hash `c92a6e80…` (2026-09-27). Næste: projektejerens beslutning om 4.4's forslag og 4.5's afgørelser skal i prod samlet
-   (prod-vej-spec på `docs/147-pilot-prod-vej`), og i så fald genbinding af 4.4's GO-pakke.
-   Review 35's P3/P4/S4 er afgjort og bygget (#219, #220, #222), og omsegmenteringen er kørt i prod
-   2026-09-28. Piloten er kørt om på de reviderede klausuler, og kontrolmodellen igen (2026-09-28,
-   `genbind-44-pilot-2018-20.md`): 230 forslag, 46 bindinger. Piloten overføres ikke for sig
-   (decisions 2026-10-01). Hele 2018-20 (488 poster) er kørt i en restore af et frisk prod-dump
-   (2026-10-01—03, `2018-20-fuld-koersel.md`): 3.739 forslag, 622 bindinger. Den samlede
-   overførsel er kørt i prod 2026-10-05 (`VERIFY_OK`), og omsegmenteringens fortrydelsesvindue er
-   dermed lukket.
+1. **5a, én identitetsvej (#151):** genbekræft spec
+   `docs/superpowers/specs/2026-09-24-trin5a-identitetsvej-design.md` og plan
+   `docs/superpowers/plans/2026-09-24-trin5a-identitetsvej.md` (gren `docs/151-identitetsvej`,
+   ikke pushet) mod den nuværende `main`; derefter udførelse (subagent-driven, valgt
+   2026-09-24).
+2. **Restpunkter fra trin 4 (egne opgaver):** næste promptversion (»var †«-reglen og
+   titel/gods-reglen; erstatter de 13 `U`-kort), oprydning af 138 navne-assertions med
+   titelord, runnerens håndtering af Codex' nye kvotefejl.
+
+Trin 4's afsluttede forløb, til historik:
+
+- **Kontrolmodellen** er bygget, kørt og merget (2026-09-27, #217).
+- 4.5-arket er rettet (I-7) og godkendt med ny hash `c92a6e80…` (2026-09-27).
+- Review 35's P3/P4/S4 er afgjort og bygget (#219, #220, #222), og omsegmenteringen er kørt i
+  prod 2026-09-28. Piloten er kørt om på de reviderede klausuler, og kontrolmodellen igen
+  (2026-09-28, `genbind-44-pilot-2018-20.md`): 230 forslag, 46 bindinger. Piloten overføres ikke
+  for sig (decisions 2026-10-01).
+- Hele 2018-20 (488 poster) er kørt i en restore af et frisk prod-dump (2026-10-01—03,
+  `2018-20-fuld-koersel.md`): 3.739 forslag, 622 bindinger. Den samlede overførsel er kørt i prod
+  2026-10-05 (`VERIFY_OK`), og omsegmenteringens fortrydelsesvindue er dermed lukket.
 
 Prod-mutationer kræver fortsat en udtrykkelig GO pr. apply.
 

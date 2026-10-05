@@ -11,19 +11,18 @@ kilderegnskab) og 149b (2018-20 narrativ-binding) blev anvendt og efterverificer
 i produktion 2026-09-05/06 (GO 1-4, se `docs/changelog.md`). C3's fem-sagers scope
 var anvendt 2026-08-29 ([production-apply-rapporten](c3-production-apply-2026-08-29.md)).
 
-Projektejeren har 2026-09-06 aktiveret **trin 4: den fælles fortolkningskæde og
-klausulgranularitet (#147/#148)**. Målet er `specificeret` i
-[trin 4-spec'en](../superpowers/specs/2026-09-06-trin4-fortolkningskaede-og-klausulgranularitet-design.md)
-(revision 3 efter to uafhængige læsninger) med seks projektejer-valg registreret i
-`docs/decisions.md` samme dato: `codex exec` som model-backend, to nye
-elementoperationer i den generelle writer, uafhængig anden læser pr. plan,
-GDPR-udelukkelsesregler for modelkald, ChatGPT-abonnement som behandlingsgrundlag for
-afdødes tekst, og promotion som binding til eksisterende assertions. Arbejdet er delt
-i otte dagsværk. 4.1a-4.4 er implementeret og merget; skemaet og writerne er deployet
-til prod 2026-09-17, og 4.1c's klausuler er kørt i prod 2026-09-18. 4.4's forslags-kørsel
-i prod har en færdig GO-pakke, men er parkeret, til 4.5 er bevist i restoren
-(`docs/decisions.md` 2026-09-23). Næste dagsværk er 4.5 (pilot, afgørelse, binding) mod
-restoren; planen skrives nu.
+**Trin 4** (den fælles fortolkningskæde og klausulgranularitet, #147/#148), aktiveret
+2026-09-06, er **afsluttet for 2018-20** (`docs/decisions.md` 2026-10-05): klausulerne er kørt
+i prod 2026-09-18 og omsegmenteret 2026-09-28, og hele 2018-20's kæde — 3.739 forslag, 676
+afgørelser, 622 bindinger — er overført til prod 2026-10-05 med `VERIFY_OK`. Ingest og
+afgørelse er `produktionsverificeret` for 2018-20; promotion kun for bindingsdelen. 1939's
+kæde hører til trin 6.
+
+Projektejeren har 2026-10-05 aktiveret **trin 5: placement/membership og én identitetsvej
+(#150/#151)**, delt i tre delspecs: **5a** én identitetsvej (#151) → **5b** personas for
+ægtefæller og børn samt oprettelse af nye kanoniske personer → **5c** placement/membership
+(#150). 5a's spec og plan er skrevet (2026-09-24, gren `docs/151-identitetsvej`); næste
+arbejde er at genbekræfte dem mod den nuværende `main`, før udførelsen begynder.
 
 ## Styrende rækkefølge
 
