@@ -7205,23 +7205,103 @@ GRANT EXECUTE ON FUNCTION red_decide_source_record_placement(uuid,integer,text,j
 -- ---- 2026-08-02: privat source-persona redaktørkø (Task 11) ----
 -- Schemaet er autoritativt; migrations-udgaven bevarer de samme fail-closed
 -- kontrakter på en eksisterende database.
-CREATE OR REPLACE FUNCTION red_source_persona_queue(p_status text DEFAULT NULL,p_source_id bigint DEFAULT NULL,p_cursor uuid DEFAULT NULL,p_page_size integer DEFAULT 50)
-RETURNS TABLE(source_persona_id uuid,source_id bigint,persona_key text,decision_status text,version integer,canonical_person_id bigint,mention_count bigint)
+-- Trin 5a (#151): nye returkolonner (best_tier, reason) kræver DROP før CREATE.
+DROP FUNCTION IF EXISTS red_source_persona_queue(text,bigint,uuid,integer);
+CREATE OR REPLACE FUNCTION red_source_persona_queue(
+  p_status text DEFAULT NULL, p_source_id bigint DEFAULT NULL,
+  p_cursor uuid DEFAULT NULL, p_page_size integer DEFAULT 50
+) RETURNS TABLE(
+  source_persona_id uuid, source_id bigint, persona_key text,
+  decision_status text, version integer, canonical_person_id bigint, mention_count bigint,
+  best_tier text, reason text
+)
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 BEGIN
   IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
-  IF p_status IS NOT NULL AND p_status NOT IN ('proposed','accepted','rejected','unresolved','superseded') THEN RAISE EXCEPTION 'EVIDENCE_IDENTITY_STATUS_INVALID'; END IF;
-  RETURN QUERY SELECT persona.id,persona.source_id,persona.persona_key,coalesce(identity_state.decision_status,'proposed'),coalesce(identity_state.version,0),identity_state.canonical_person_id,count(persona_mention.mention_id)
-  FROM private.source_persona persona LEFT JOIN private.source_persona_identity identity_state ON identity_state.source_persona_id=persona.id LEFT JOIN private.source_persona_mention persona_mention ON persona_mention.persona_id=persona.id
-  WHERE (p_source_id IS NULL OR persona.source_id=p_source_id) AND (p_cursor IS NULL OR persona.id>p_cursor) AND (p_status IS NULL OR coalesce(identity_state.decision_status,'proposed')=p_status)
-  GROUP BY persona.id,identity_state.decision_status,identity_state.version,identity_state.canonical_person_id ORDER BY persona.id LIMIT greatest(1,least(coalesce(p_page_size,50),100));
+  IF p_status IS NOT NULL AND p_status NOT IN ('proposed','accepted','rejected','unresolved','superseded','new_person_needed') THEN
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_STATUS_INVALID';
+  END IF;
+  RETURN QUERY
+  SELECT persona.id,persona.source_id,persona.persona_key,
+         coalesce(identity_state.decision_status,'proposed'),coalesce(identity_state.version,0),
+         identity_state.canonical_person_id,
+         (SELECT count(*) FROM private.source_persona_mention pm WHERE pm.persona_id=persona.id),
+         (SELECT c.tier FROM private.source_persona_identity_candidate c
+           WHERE c.source_persona_id=persona.id AND c.rank=1
+             AND c.run_id=(SELECT r.id FROM private.source_persona_identity_candidate_run r
+                            WHERE r.source_id=persona.source_id ORDER BY r.run_seq DESC LIMIT 1)),
+         identity_state.evidence->>'reason'
+    FROM private.source_persona persona
+    LEFT JOIN private.source_persona_identity identity_state ON identity_state.source_persona_id=persona.id
+   WHERE (p_source_id IS NULL OR persona.source_id=p_source_id)
+     AND (p_cursor IS NULL OR persona.id>p_cursor)
+     AND (p_status IS NULL
+          OR (p_status='new_person_needed' AND identity_state.decision_status='unresolved'
+              AND identity_state.evidence->>'reason'='new_person_needed')
+          OR (p_status<>'new_person_needed' AND coalesce(identity_state.decision_status,'proposed')=p_status))
+   ORDER BY persona.id
+   LIMIT greatest(1,least(coalesce(p_page_size,50),100));
 END $$;
-CREATE OR REPLACE FUNCTION red_source_persona_detail(p_source_persona_id uuid) RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+CREATE OR REPLACE FUNCTION red_source_persona_detail(p_source_persona_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE v_result jsonb;
 BEGIN
-  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
-  SELECT jsonb_build_object('persona',jsonb_build_object('source_persona_id',persona.id,'source_id',persona.source_id,'persona_key',persona.persona_key,'decision_status',coalesce(identity_state.decision_status,'proposed'),'version',coalesce(identity_state.version,0),'canonical_person_id',identity_state.canonical_person_id),'mentions',coalesce((SELECT jsonb_agg(jsonb_build_object('mention_kind',mention.mention_kind,'mention_role',persona_mention.mention_role,'verbatim_text',mention.verbatim_text,'observation_kind',observation.observation_kind,'page_from',observation.page_from,'page_to',observation.page_to,'text_versions',coalesce((SELECT jsonb_agg(jsonb_build_object('version',text_version.version,'verbatim_text',text_version.verbatim_text,'preferred',text_version.is_preferred) ORDER BY text_version.version) FROM private.source_observation_text text_version WHERE text_version.observation_id=observation.id),'[]'::jsonb)) ORDER BY persona_mention.ordinal) FROM private.source_persona_mention persona_mention JOIN private.source_mention mention ON mention.id=persona_mention.mention_id JOIN private.source_observation observation ON observation.id=mention.observation_id WHERE persona_mention.persona_id=persona.id),'[]'::jsonb),'placements',coalesce((SELECT jsonb_agg(jsonb_build_object('placement_role',persona_placement.placement_role,'printed_number',record_placement.printed_number,'generation_label_raw',record_placement.generation_label_raw)) FROM private.source_persona_placement_current persona_placement JOIN private.source_record_placement_current record_placement ON record_placement.id=persona_placement.record_placement_id WHERE persona_placement.source_persona_id=persona.id AND persona_placement.decision_status='accepted' AND record_placement.decision_status='accepted'),'[]'::jsonb),'interpretations',coalesce((SELECT jsonb_agg(jsonb_build_object('predicate',interpretation.predicate,'value',interpretation.value,'status',interpretation.status,'confidence',interpretation.confidence,'derivation_kind',interpretation.derivation_kind) ORDER BY interpretation.created_at) FROM private.interpretation interpretation WHERE interpretation.source_persona_id=persona.id),'[]'::jsonb)) INTO v_result FROM private.source_persona persona LEFT JOIN private.source_persona_identity identity_state ON identity_state.source_persona_id=persona.id WHERE persona.id=p_source_persona_id;
-  IF v_result IS NULL THEN RAISE EXCEPTION 'EVIDENCE_PERSONA_NOT_FOUND'; END IF; RETURN v_result;
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN';
+  END IF;
+  SELECT jsonb_build_object(
+    'persona',jsonb_build_object('source_persona_id',persona.id,'source_id',persona.source_id,
+      'persona_key',persona.persona_key,'decision_status',coalesce(identity_state.decision_status,'proposed'),
+      'version',coalesce(identity_state.version,0),'canonical_person_id',identity_state.canonical_person_id),
+    'mentions',coalesce((SELECT jsonb_agg(jsonb_build_object(
+      'mention_kind',mention.mention_kind,'mention_role',persona_mention.mention_role,
+      'verbatim_text',mention.verbatim_text,'observation_kind',observation.observation_kind,
+      'page_from',observation.page_from,'page_to',observation.page_to,
+      'text_versions',coalesce((SELECT jsonb_agg(jsonb_build_object('version',text_version.version,
+        'verbatim_text',text_version.verbatim_text,'preferred',text_version.is_preferred)
+        ORDER BY text_version.version) FROM private.source_observation_text text_version
+        WHERE text_version.observation_id=observation.id),'[]'::jsonb))
+      ORDER BY persona_mention.ordinal)
+      FROM private.source_persona_mention persona_mention
+      JOIN private.source_mention mention ON mention.id=persona_mention.mention_id
+      JOIN private.source_observation observation ON observation.id=mention.observation_id
+      WHERE persona_mention.persona_id=persona.id),'[]'::jsonb),
+    'placements',coalesce((SELECT jsonb_agg(jsonb_build_object('placement_role',persona_placement.placement_role,
+      'printed_number',record_placement.printed_number,'generation_label_raw',record_placement.generation_label_raw))
+      FROM private.source_persona_placement_current persona_placement
+      JOIN private.source_record_placement_current record_placement ON record_placement.id=persona_placement.record_placement_id
+      WHERE persona_placement.source_persona_id=persona.id
+        AND persona_placement.decision_status='accepted'
+        AND record_placement.decision_status='accepted'),'[]'::jsonb),
+    -- Bevarer også modstridende/tvivlsomme fortolkninger som læsbar kontekst.
+    'interpretations',coalesce((SELECT jsonb_agg(jsonb_build_object('predicate',interpretation.predicate,
+      'value',interpretation.value,'status',interpretation.status,'confidence',interpretation.confidence,
+      'derivation_kind',interpretation.derivation_kind) ORDER BY interpretation.created_at)
+      FROM private.interpretation interpretation
+      WHERE interpretation.source_persona_id=persona.id),'[]'::jsonb),
+    'candidates',coalesce((SELECT jsonb_agg(jsonb_build_object(
+        'candidate_id',c.id,'run_id',c.run_id,'rank',c.rank,'score',c.score,'tier',c.tier,'basis',c.basis,
+        'person_id',p.id,'person_name',p.visning_navn,'born',p.visning_foedt,'died',p.visning_doed) ORDER BY c.rank)
+      FROM private.source_persona_identity_candidate c
+      JOIN public.person p ON p.id=c.candidate_person_id
+      WHERE c.source_persona_id=persona.id
+        AND c.run_id=(SELECT r.id FROM private.source_persona_identity_candidate_run r
+                       WHERE r.source_id=persona.source_id ORDER BY r.run_seq DESC LIMIT 1)),'[]'::jsonb),
+    -- Synlig, ikke blokerende: målarkitekturen kræver, at kollisioner vises.
+    'collisions',coalesce((SELECT jsonb_agg(DISTINCT jsonb_build_object('person_id',other.canonical_person_id,'persona_key',op.persona_key))
+      FROM private.source_persona_identity other
+      JOIN private.source_persona op ON op.id=other.source_persona_id
+      WHERE other.decision_status='accepted' AND op.source_id=persona.source_id AND op.id<>persona.id
+        AND other.canonical_person_id IN (SELECT c.candidate_person_id FROM private.source_persona_identity_candidate c
+                                           WHERE c.source_persona_id=persona.id
+                                             AND c.run_id=(SELECT r.id FROM private.source_persona_identity_candidate_run r
+                                                            WHERE r.source_id=persona.source_id ORDER BY r.run_seq DESC LIMIT 1))),'[]'::jsonb)
+  ) INTO v_result
+  FROM private.source_persona persona
+  LEFT JOIN private.source_persona_identity identity_state ON identity_state.source_persona_id=persona.id
+  WHERE persona.id=p_source_persona_id;
+  IF v_result IS NULL THEN RAISE EXCEPTION 'EVIDENCE_PERSONA_NOT_FOUND'; END IF;
+  RETURN v_result;
 END $$;
 CREATE OR REPLACE FUNCTION red_source_persona_history(p_source_persona_id uuid) RETURNS TABLE(version integer,decision_status text,canonical_person_id bigint,evidence jsonb,decided_by_name text,decided_at timestamptz) LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 BEGIN
