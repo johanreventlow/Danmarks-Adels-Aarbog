@@ -66,6 +66,12 @@ jobs:
       - name: feed · typecheck
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run typecheck -w @daa/feed
+      - name: identity-candidates · vitest
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run test -w @daa/identity-candidates
+      - name: identity-candidates · typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run typecheck -w @daa/identity-candidates
       # Dummy non-tomme creds så supabase.ts's modul-load-guard ikke kaster.
       # Testene rører aldrig nettet (supabase mockes), så værdierne er ligegyldige.
       - name: Skriv dummy Supabase-env
