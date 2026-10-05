@@ -2,9 +2,9 @@
 
 **Status:** designudkast, godkendt sektion for sektion i brainstorm 2026-09-24; revideret efter
 Codex runde 1 (NO-GO: 2 BLOCKER, 3 MAJOR, 4 MINOR — alle godtaget, se §14) og runde 2 (NO-GO: 1 BLOCKER,
-1 MAJOR, 5 MINOR — alle godtaget, se §15; budgettets sidste planrunde, rettelserne efterprøves i koderunden). Implementering
-kræver, at projektejeren aktiverer trin 5 som programmål i `docs/decisions.md`; trin 4 (#147/#148)
-er det aktive mål, indtil 4.5's pilotrapport og prod-beslutning foreligger.
+1 MAJOR, 5 MINOR — alle godtaget, se §15; budgettets sidste planrunde, rettelserne efterprøves i koderunden). Trin 5 er aktiveret som
+programmål 2026-10-05 (`docs/decisions.md`, efter prod-overførslen af 2018-20's kæde); spec og plan er
+genbekræftet mod `main` samme dag (§16).
 
 **Roadmap:** trin 5, »Placement/membership og én identitetsvej konsolideres (#150/#151)«. Trin 5
 deles i tre delspecs, i denne rækkefølge:
@@ -256,13 +256,18 @@ kendte svar.
 
 ### 8.1 Kalibrering
 
-Generatoren køres på de 587 personas fra 2018-20 i en kopi af restoren, uden at se deres afgørelser.
-Måles mod de accepterede identiteter:
+Generatoren køres på de 587 personas fra 2018-20 i en kopi af den fulde 2018-20-kørsels base
+(`daa2018f_20261001133125`: alle 488 tilladte poster gennem kæden, 676 afgørelser, 622 bindinger — samme
+indhold som prod efter overførslen 2026-10-05), uden at se deres afgørelser. Måles mod de
+accepterede identiteter:
 
 - andel med rigtig person som kandidat 1 (top-1) og blandt top-3;
 - andel uden kandidater;
 - præcision pr. tier (hvor ofte kandidat 1 er rigtig, når tier er `auto` hhv. `review`);
 - det samme med `evidensNormaliseret`, og separat for personas uden årstal.
+
+Navnene kommer fra `person.name`-fortolkninger med kendte titelfejl (decisions 2026-10-03); de
+trækker navnelighed ned og nævnes i rapporten som kendt forstyrrelse.
 
 Tallene rapporteres uden navne. Der sættes ingen tærskel på forhånd, som gør matcheren »godkendt« —
 tallene afgør, hvordan tier må præsenteres (fx om `auto` må stå først i arket), og indgår i 5b's
@@ -332,8 +337,8 @@ Målt eller besluttet af projektejeren, mens planen blev skrevet; planen
    dækker hele posten; den er ikke et navn, og postens indledning er uregelmæssig (kun 118 af 587
    har 2–6 ord før første komma). Personaens navn tages derfor fra `person.name`-fortolkningen
    (`accepted` foran `proposed`) eller fra en navne-mention (`mention_kind='person'`, fx 1939).
-   Uden navn: ingen kandidater, talt for sig. Kalibreringen (§8.1) køres på de personas, der har
-   navn nu (ca. 27), og gentages efter en fuld 2018-20-kørsel og i 5b.
+   Uden navn: ingen kandidater, talt for sig. Kalibreringen (§8.1) køres på den fulde
+   2018-20-kørsels base (§16; oprindeligt »ca. 27« navngivne personas i pilotbasen) og gentages i 5b.
 2. **Guard-regel (§4.2).** Kortlægningen viste tre slags ikke-menneskelige skrivninger:
    fortrydelser (`superseded` + `reversed_batch_id`), oprettelse (`red_apply_reimport_person_create`
    binder en persona til den person, den lige har oprettet) og batch-match til eksisterende
@@ -376,3 +381,14 @@ Målt eller besluttet af projektejeren, mens planen blev skrevet; planen
 | MINOR — personsøgningen blev ikke bygget | §7/planen: filterfelt over den eksisterende personliste + test |
 
 Kaldertabellen er rettet (`db-migrations.sql:8066`, `:8246` er versioner af `red_reverse_1939_v50_reimport`).
+
+## 16. Genbekræftelse mod `main` (2026-10-05)
+
+Spec og plan er holdt op mod `main` 984070e, 19 commits efter planens grundlag (4.5, kontrolmodel,
+omsegmentering, udvalgsbygger, prod-overførsel). Identitetsguardens funktioner er byte-identiske, og
+kernens kaldere er de samme; designet står uændret. To ændringer:
+
+| Emne | Ændring |
+| --- | --- |
+| Kalibreringens base (§8.1, §13 punkt 1) | Kopi af `daa2018f_20261001133125` (den fulde 2018-20-kørsel) i stedet for pilotbasen efter 4.5 — flere hundrede navngivne personas i stedet for ca. 27. Projektejerens valg 2026-10-05. |
+| Erstatning på stedet (§4.2) | Gælder identitetsguardens funktioner. Detalje- og kø-RPC'en må omdefineres sidst i `db-migrations.sql` (som omsegmenteringen gør), da en mellemtilstand med den gamle version er harmløs. |

@@ -2536,16 +2536,16 @@ git commit -m "feat(151): webkø med maskinens kandidater, kollisionsadvarsel, n
 
 ### Task 9: Færdigbevis i restoren, rapport og status
 
-> **Genbekræftet 2026-10-05 — ÅBENT (spec-ændring, afventer projektejeren):** den fulde 2018-20-kørsel findes i `daa2018f_20261001133125` (488 poster, 676 afgørelser, 622 bindinger; samme digests som prod efter overførslen 2026-10-05). Step 1 bør kopiere den (`createdb -T daa2018f_20261001133125 "$W5"`) i stedet for pilotbasen, og specens §8.1/§13.1 (»ca. 27« navngivne personas; »gentages efter fuld kørsel«) opdateres. Indtil projektejeren har afgjort det, gælder teksten nedenfor uændret.
+> **Genbekræftet 2026-10-05 — besluttet:** kalibreringen og genbekræftelsen kører i en kopi af den fulde 2018-20-kørsels base `daa2018f_20261001133125` (projektejerens valg; spec §8.1 og §16). Basen selv skrives aldrig i.
 
 **Files:**
 - Create: `docs/evidensbaseret-genimport/identitetsvej-5a-bevis.md`
 - Modify: `docs/evidensbaseret-genimport/status.md`, `docs/changelog.md`
 
 **Interfaces:**
-- Consumes: alt ovenfor. Arbejdsbasen er en kopi af pilotens arbejdsbase efter 4.5 (den indeholder `person.name`-fortolkninger for pilotposterne), aldrig restoren selv og aldrig prod.
+- Consumes: alt ovenfor. Arbejdsbasen er en kopi af den fulde 2018-20-kørsels base `daa2018f_20261001133125` (den indeholder `person.name`-fortolkninger for alle 488 tilladte poster), aldrig basen selv og aldrig prod.
 
-- [ ] **Step 1: Arbejdsbase.** `W5=daa5a_bevis_$(date +%Y%m%d%H%M%S); createdb -T daa45_pilot_20260924093200 "$W5"`, kør `db-migrations.sql` og `db-rls.sql` mod den (output til fil, `grep -c ERROR` = 0). Findes pilotbasen ikke længere: brug restoren `daa43b_20260912192527` som skabelon og notér i rapporten, at kun 1939's 8 personas har navne. Aktør: `A=$(psql -X -At -d "$W5" -c "SELECT id FROM profiles WHERE rolle='redaktion' ORDER BY id LIMIT 1")`.
+- [ ] **Step 1: Arbejdsbase.** `W5=daa5a_bevis_$(date +%Y%m%d%H%M%S); createdb -T daa2018f_20261001133125 "$W5"` (ingen må være forbundet til skabelonen), kør `db-migrations.sql` og `db-rls.sql` mod den (output til fil, `grep -c ERROR` = 0). Findes basen ikke: STOP — spørg projektejeren. Aktør: `A=$(psql -X -At -d "$W5" -c "SELECT id FROM profiles WHERE rolle='redaktion' ORDER BY id LIMIT 1")`.
 
 - [ ] **Step 2: Kalibrering (§8.1).** For kilde 1 (2018-20), `mode=list` med alle accepterede personas:
 
