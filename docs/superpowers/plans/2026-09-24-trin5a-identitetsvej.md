@@ -10,19 +10,21 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-24-trin5a-identitetsvej-design.md` (branch `docs/151-identitetsvej`).
 
+**Genbekræftet 2026-10-05** mod `main` 984070e (19 commits efter planens grundlag 77a0c22: 4.5, kontrolmodel, omsegmentering, udvalgsbygger, prod-overførsel). De berørte funktioner er byte-identiske, kalderne er de samme, og linjenumrene er opdateret; øvrige rettelser står som »Genbekræftet 2026-10-05«-noter øverst i Task 4, 5, 6, 7 og 9.
+
 ## Global Constraints
 
 - Implementering kræver, at projektejeren har aktiveret trin 5 i `docs/decisions.md` (Task 0 tjekker det).
-- Task 0 kræver også, at `feat/147-4-5-pilot` er merget til `main` (Task 7 refaktorerer `interpretation_decision_sheet.py`).
+- 4.5 (og kontrolmodellen) er merget til `main`; Task 7 refaktorerer `interpretation_decision_sheet.py`, som de har udvidet.
 - `schema.sql` er source of truth; hver funktion står ordret i både `schema.sql` og `db-migrations.sql`. `db-migrations.sql` er idempotent (køres to gange i CI).
-- En eksisterende definition, der ændres, **erstattes på sin plads** i `db-migrations.sql` — den får aldrig en rettet kopi længere nede, fordi filen ikke kører i én transaktion (spec §4.2; håndhævet af `test_identity_guard_static.py`).
+- En eksisterende definition, der indgår i identitetsguarden (kernen, wrapperen, `person_create`-, legacy- og reversal-writerne), **erstattes på sin plads** i `db-migrations.sql` — den får aldrig en rettet kopi længere nede, fordi filen ikke kører i én transaktion (spec §4.2; håndhævet af `test_identity_guard_static.py`).
 - Nye `private`-tabeller: RLS slået til, `REVOKE ALL … FROM PUBLIC,anon,authenticated`, append-only-trigger `private.reject_evidence_mutation()`, og navnet i `db-rls.sql`'s master-array.
 - Nye/ændrede `red_*`-signaturer skal stå i `db-rls.sql`'s allow-list (ellers `RLS_REDACTION_RPC_ALLOW_LIST_SIGNATURE_MISSING`), og `REVOKE ALL … FROM PUBLIC,anon,authenticated` + `GRANT EXECUTE … TO authenticated`.
 - Rollegate i alle nye RPC'er: `auth.uid() IS NOT NULL AND public.current_rolle()='redaktion'`, ellers `EVIDENCE_ROLE_FORBIDDEN`.
 - Ingen modelkald. Scripts printer kun tal, id'er og hashes — aldrig navne eller kildetekst. Filer med navne/kildetekst (rækkefil, ark, eksport-JSON) skrives 0600 under `~/.private/5a/`, aldrig i repoet, og læses aldrig af agenten.
 - Prod røres ikke i denne plan. Alle kørsler sker i lokale baser.
 - Testsprog og fejlkoder følger repoet: SQL-tests `RAISE EXCEPTION '<KODE>: …'`, succes `RAISE NOTICE 'OK: …'`; db-verify `'FEJL: …'`.
-- Atomiske commits, Conventional Commits på dansk, ingen Claude-attribution; afslut beskeden med `Claude-Session: https://claude.ai/code/session_01LAFWzUqQpsVzD8HfD9ptPT`. Push/PR kun efter udtrykkeligt ja; PR altid draft.
+- Atomiske commits, Conventional Commits på dansk, ingen Claude-attribution; afslut beskeden med den udførende sessions egen `Claude-Session:`-linje. Push/PR kun efter udtrykkeligt ja; PR altid draft.
 - Kør pytest med `env -u NODE_OPTIONS /usr/bin/python3 -m pytest` (NODE_OPTIONS peger på en død fil lokalt).
 
 **Frisk testbase (bruges af flere tasks)** — kopiér som den står:
@@ -79,11 +81,11 @@ git fetch origin && git log --oneline origin/main | grep -c 'interpretation_deci
 
 Expected: en `BESLUTTET`-post, der aktiverer trin 5, og `4.5 i main`. Mangler en af dem: **STOP** — spørg projektejeren.
 
-- [ ] **Step 2: Branch.** `git switch -c feat/151-identitetsvej origin/main && git merge --no-edit origin/docs/151-identitetsvej` (spec og plan med).
+- [ ] **Step 2: Branch.** `git switch -c feat/151-identitetsvej docs/151-identitetsvej` (lokal gren, rebaset på `main` 2026-10-05; spec og plan med). Er `main` gået videre: `git rebase origin/main` først.
 - [ ] **Step 3: Baseline.** Kør »Frisk testbase«, derefter:
 
 ```bash
-for t in test-evidence-promotion test-reimport-writer test-reimport-legacy-migration; do
+for t in test-evidence-promotion test-reimport-writer test-reimport-legacy-migration test-interpretation-promotion-targets test-interpretation-control-classification test-transfer-fingerprint-digests test-transfer-baseline; do
   psql -X -q -v ON_ERROR_STOP=1 -d "$FRESH" -f tests/sql/$t.sql > /tmp/claude-501/base-$t.log 2>&1; echo "$t rc=$?"; done
 psql -X -q -v ON_ERROR_STOP=1 -d "$FRESH" -f tests/sql/run-db-verify-disposable.sql > /tmp/claude-501/base-verify.log 2>&1; echo "verify rc=$?"
 npm ci > /tmp/claude-501/npmci.log 2>&1; npm run test -w @daa/core > /tmp/claude-501/core.log 2>&1; echo "core rc=$?"
@@ -96,12 +98,12 @@ Expected: alle `rc=0`. Noter resultatet i ledgeren; et rødt baseline-trin er et
 ### Task 1: Kandidattabellerne
 
 **Files:**
-- Modify: `schema.sql` (indsæt efter `private.source_persona_identity_event`-tabellen, der slutter ved `schema.sql:1475`)
+- Modify: `schema.sql` (indsæt efter `private.source_persona_identity_event`-tabellen, der slutter ved `schema.sql:1479`)
 - Modify: `db-migrations.sql` (ny sektion sidst i filen)
 - Modify: `db-rls.sql:17-32` (master-arrayet)
 - Modify: `db-verify.sql` (ny blok efter `$promotion_rule_verify$`)
 - Create: `tests/sql/test-identity-candidates.sql`
-- Modify: `.github/workflows/ci.yml` (frisk-schema-trinnet efter `test-interpretation-predicate.sql`, linje 197)
+- Modify: `.github/workflows/ci.yml` (frisk-schema-trinnet efter `test-interpretation-predicate.sql`, ca. linje 202)
 
 **Interfaces:**
 - Produces: `private.source_persona_identity_candidate_run(id uuid, run_seq bigint, source_id bigint, generator_version text, config jsonb, config_sha256 text, input_spec jsonb, input_sha256 text, candidates_sha256 text, persona_count int, candidate_count int, created_by uuid, created_by_name text, created_at timestamptz)` med `UNIQUE(source_id,input_sha256,config_sha256)`; **gældende kørsel** pr. kilde = højeste `run_seq`; `private.source_persona_identity_candidate(id uuid, run_id uuid, source_persona_id uuid, candidate_person_id bigint, rank int, score numeric, tier text, basis jsonb)`.
@@ -235,7 +237,7 @@ CREATE INDEX source_persona_identity_candidate_persona_idx
   ON private.source_persona_identity_candidate(source_persona_id,run_id);
 ```
 
-Tilføj denne blok lige efter tabellerne (den eksisterende løkke ved `schema.sql:1028` ligger før tabellerne og kan ikke genbruges); den giver samme to triggere som løkken — rækketrigger og `TRUNCATE`-statementtrigger:
+Tilføj denne blok lige efter tabellerne (den eksisterende løkke ved `schema.sql:1032` ligger før tabellerne og kan ikke genbruges); den giver samme to triggere som løkken — rækketrigger og `TRUNCATE`-statementtrigger:
 
 ```sql
 DO $$
@@ -305,7 +307,7 @@ git commit -m "feat(151): kandidattabeller for identitetsforslag med RLS og appe
 ### Task 2: Serverbygget input og writer-RPC for kandidatkørsler
 
 **Files:**
-- Modify: `schema.sql` (efter `red_afgoer_source_persona`, før den fælles REVOKE/GRANT ved `schema.sql:8185`), `db-migrations.sql` (5a-sektionen — nye objekter; intet eksisterende omdefineres her), `db-rls.sql:672-748` (allow-list)
+- Modify: `schema.sql` (efter `red_afgoer_source_persona`, før den fælles REVOKE/GRANT ved `schema.sql:8303`), `db-migrations.sql` (5a-sektionen — nye objekter; intet eksisterende omdefineres her), `db-rls.sql:672-748` (allow-list)
 - Modify: `tests/sql/test-identity-candidates.sql`
 
 **Interfaces:**
@@ -656,7 +658,7 @@ GRANT EXECUTE ON FUNCTION red_record_identity_candidates(jsonb,jsonb) TO authent
 
 Fejler den gyldige kørsel på `IDENTITY_CANDIDATE_PERSON_NOT_IN_INPUT`, filtrerer `red_match_personer()` fixturens personer fra: læs dens `WHERE` og tilpas fixturens personrækker (ikke writeren), og notér det som ruling.
 
-Før Step 5: kontrollér, at nøglen for person-id i `red_match_personer()`'s `persons`-array hedder `id` (`grep -n "'persons'" schema.sql` omkring `schema.sql:7856`). Hedder den noget andet, ret `pp->>'id'` og notér det som ruling.
+Før Step 5: kontrollér, at nøglen for person-id i `red_match_personer()`'s `persons`-array hedder `id` (`grep -n "'persons'" schema.sql` omkring `schema.sql:7974`). Hedder den noget andet, ret `pp->>'id'` og notér det som ruling.
 
 - [ ] **Step 4: Allow-list** — `db-rls.sql`, arrayet der starter linje 673: tilføj alfabetisk `'public.red_identity_candidate_input(bigint,jsonb)',` og `'public.red_record_identity_candidates(jsonb,jsonb)',`.
 
@@ -680,15 +682,15 @@ Spec §4.2 (revideret) og §14–15. Kernen bliver privat med en eksplicit oprin
 
 | Fil:linje (funktion) | Art | Ny oprindelse |
 | --- | --- | --- |
-| `schema.sql:7985` / `db-migrations.sql:6472` (kernen selv) | — | bliver `private.decide_source_persona_identity(…, p_origin)` |
-| `schema.sql:8178` / `db-migrations.sql:7187` (`red_afgoer_source_persona`) | menneske | `'human'` |
-| `schema.sql:3139` / `db-migrations.sql:11811`, `:12012` (`red_apply_reimport_person_create`, alle versioner) | opretter selv personen | `'person_create'` |
+| `schema.sql:8103` / `db-migrations.sql:6472` (kernen selv) | — | bliver `private.decide_source_persona_identity(…, p_origin)` |
+| `schema.sql:8296` / `db-migrations.sql:7187` (`red_afgoer_source_persona`) | menneske | `'human'` |
+| `schema.sql:3146` / `db-migrations.sql:11811`, `:12012` (`red_apply_reimport_person_create`, alle versioner) | opretter selv personen | `'person_create'` |
 | `db-migrations.sql:7660` (`red_apply_1939_v50_person_create`) | opretter selv personen | `'person_create'` |
-| `schema.sql:3249` / `db-migrations.sql:16834` (`private.migrate_legacy_narrative_record`, 149b) | fast 1:1-kobling via `person_external_id` | `'legacy_match'` |
-| `schema.sql:4174` / `db-migrations.sql:12338` (`red_reverse_reimport`) | fortrydelse | `'reversal'` |
+| `schema.sql:3256` / `db-migrations.sql:16834` (`private.migrate_legacy_narrative_record`, 149b) | fast 1:1-kobling via `person_external_id` | `'legacy_match'` |
+| `schema.sql:4292` / `db-migrations.sql:12338` (`red_reverse_reimport`) | fortrydelse | `'reversal'` |
 | `db-migrations.sql:7667` (`red_reverse_1939_v50_reimport`) | fortrydelse | `'reversal'` |
 | `db-migrations.sql:8066`, `:8246` (senere versioner af `red_reverse_1939_v50_reimport`) | fortrydelse (`superseded` + `reversed_batch_id`) | `'reversal'` |
-| `schema.sql:8187`, `:8194`; `db-migrations.sql:6531`, `:6535`, `:18271`; `db-rls.sql:677`; `db-verify.sql:2908`, `:3706`, `:3716` | grants/regprocedure-lister/asserts | fjernes eller skiftes til den private signatur (Step 6) |
+| `schema.sql:8305`, `:8312`; `db-migrations.sql:6531`, `:6535`, `:18272`; `db-rls.sql:677`; `db-verify.sql:2951`, `:3749`, `:3759` | grants/regprocedure-lister/asserts | fjernes eller skiftes til den private signatur (Step 6) |
 | `db-verify.sql` 7 direkte + 4 dblink-kald, `tests/sql/test-evidence-promotion.sql:298` | testfixtures (superbruger) | `private.…(…, 'human')` med `basis: web_detail` (Step 7) |
 
 **Files:**
@@ -1057,7 +1059,7 @@ Låsetesten kræver, at wrapperen tager låsen **før** persona-/mention-kontrol
 
 - [ ] **Step 3: Kør begge tests** (Frisk testbase): SQL-testen og den statiske. Expected: SQL FAIL `IDENTITY_DECISION_TEST_FAILED: den offentlige kerne findes stadig`; pytest FAIL som i Step 1.
 
-- [ ] **Step 4: Kernen — erstat på stedet.** I `schema.sql:7985` og `db-migrations.sql:6472`: omdøb `red_decide_source_persona_identity(` til `private.decide_source_persona_identity(`, tilføj parameteren `p_origin text` sidst, og indsæt guarden **efter** versionskontrollen (`IF v_current_version<>p_expected_version THEN … END IF;`) og **før** `v_new_version:=v_current_version+1;`, så eksisterende fejlkoder (rolle, version, mention, konflikt) kommer først:
+- [ ] **Step 4: Kernen — erstat på stedet.** I `schema.sql:8103` og `db-migrations.sql:6472`: omdøb `red_decide_source_persona_identity(` til `private.decide_source_persona_identity(`, tilføj parameteren `p_origin text` sidst, og indsæt guarden **efter** versionskontrollen (`IF v_current_version<>p_expected_version THEN … END IF;`) og **før** `v_new_version:=v_current_version+1;`, så eksisterende fejlkoder (rolle, version, mention, konflikt) kommer først:
 
 ```sql
   -- Trin 5a-guard (#151): oprindelsen er strukturel. Kernen har ingen grants; kun
@@ -1112,7 +1114,7 @@ og kernens grant-linjer (`db-migrations.sql:6531-6536`) erstattes af:
 REVOKE ALL ON FUNCTION private.decide_source_persona_identity(uuid,bigint,integer,text,jsonb,text) FROM PUBLIC,anon,authenticated,service_role;
 ```
 
-Gør det samme i `schema.sql:8185-8198`: kernen ud af `GRANT`-listen, den private signatur ind i `REVOKE`-listen, og den offentlige fjernes fra regprocedure-listen (`schema.sql:8194`, `db-migrations.sql:18271`).
+Gør det samme i `schema.sql:8303-8316`: kernen ud af `GRANT`-listen, den private signatur ind i `REVOKE`-listen, og den offentlige fjernes fra regprocedure-listen (`schema.sql:8312`, `db-migrations.sql:18272`).
 
 Kvitteringen — i `schema.sql` lige før kernen og i `db-migrations.sql`'s 5a-sektion (ny; et `person_create`-kald, der når kernen, før sektionen er kørt, fejler lukket på den manglende tabel):
 
@@ -1139,7 +1141,7 @@ REVOKE ALL ON FUNCTION private.insert_person_with_receipt(boolean,text) FROM PUB
 
 Tilføj `'person_create_receipt'` i `db-rls.sql`'s master-array.
 
-- [ ] **Step 5: Wrapperen — erstat på stedet.** Erstat definitionen i `schema.sql:8158-8181`; i `db-migrations.sql:7180-7191` erstattes den gamle femarguments-definition og dens grants af `DROP FUNCTION IF EXISTS red_afgoer_source_persona(uuid,integer,text,bigint,text);` efterfulgt af samme tekst:
+- [ ] **Step 5: Wrapperen — erstat på stedet.** Erstat definitionen i `schema.sql:8276-8299`; i `db-migrations.sql:7180-7191` erstattes den gamle femarguments-definition og dens grants af `DROP FUNCTION IF EXISTS red_afgoer_source_persona(uuid,integer,text,bigint,text);` efterfulgt af samme tekst:
 
 ```sql
 CREATE OR REPLACE FUNCTION red_afgoer_source_persona(
@@ -1203,7 +1205,7 @@ GRANT EXECUTE ON FUNCTION red_afgoer_source_persona(uuid,integer,text,bigint,tex
   1. Hvert kald i tabellens `person_create`-, `legacy_match`- og `reversal`-rækker: `public.red_decide_source_persona_identity(` → `private.decide_source_persona_identity(`, og tilføj `,'person_create'`, `,'legacy_match'` hhv. `,'reversal'` som sidste argument (kun argumentlisten ændres).
   2. I hver `person_create`-writer (tabellens tre funktioner, alle versioner): erstat `INSERT INTO public.person(staged,visning_navn) VALUES(<a>,<b>) RETURNING id INTO <v>;` med `<v>:=private.insert_person_with_receipt(<a>,<b>);` — samme argumenter, samme variabel. Findes en anden `INSERT INTO public.person`-form i en af dem: STOP (kvitteringsfunktionen dækker kun `staged,visning_navn`).
   3. `db-rls.sql:677`: fjern kernen fra allow-listen; `db-rls.sql:674`: wrapper-signaturen → `(uuid,integer,text,bigint,text,jsonb)`.
-  4. `db-verify.sql:2908`, `:3706`, `:3716` og `schema.sql:8190`, `:8197`: den offentlige kerne → kontrol af, at den **ikke** findes (`to_regprocedure(...) IS NOT NULL ⇒ FEJL`), og at `authenticated`/`anon` ikke har `EXECUTE` på `private.decide_source_persona_identity(uuid,bigint,integer,text,jsonb,text)`; femarguments-wrapper-signaturer → seksarguments.
+  4. `db-verify.sql:2951`, `:3749`, `:3759` og `schema.sql:8308`, `:8315`: den offentlige kerne → kontrol af, at den **ikke** findes (`to_regprocedure(...) IS NOT NULL ⇒ FEJL`), og at `authenticated`/`anon` ikke har `EXECUTE` på `private.decide_source_persona_identity(uuid,bigint,integer,text,jsonb,text)`; femarguments-wrapper-signaturer → seksarguments.
   Tjek: `grep -rn "red_decide_source_persona_identity\|red_afgoer_source_persona(uuid,integer,text,bigint,text)" schema.sql db-migrations.sql db-rls.sql db-verify.sql` → kun `DROP FUNCTION IF EXISTS`-linjerne og db-verify's »findes ikke«-kontroller.
 
 - [ ] **Step 7: Fixtures (superbruger).** De 7 direkte kald i `db-verify.sql` og det ene i `tests/sql/test-evidence-promotion.sql:298` omskrives mekanisk:
@@ -1221,7 +1223,7 @@ for p, forventet in [("db-verify.sql", 7), ("tests/sql/test-evidence-promotion.s
 EOF
 ```
 
-De 4 dblink-strenge i `db-verify.sql` (`:5151`, `:5217`, `:5412`, `:5422`) omskrives i hånden på samme måde — i den fordoblede citering: `red_decide_source_persona_identity(` → `private.decide_source_persona_identity(`, `''{"basis":"X"}''` → `''{"basis":"web_detail","note":"X"}'',''human''`. dblink-forbindelserne kører som superbruger (`v_conn` uden rolleskift), så den private kerne er tilgængelig. Tjek: `grep -c "private.decide_source_persona_identity(" db-verify.sql` = 11 kald + de signaturer, Step 6 tilføjede.
+De 4 dblink-strenge i `db-verify.sql` (`:5194`, `:5260`, `:5455`, `:5465`) omskrives i hånden på samme måde — i den fordoblede citering: `red_decide_source_persona_identity(` → `private.decide_source_persona_identity(`, `''{"basis":"X"}''` → `''{"basis":"web_detail","note":"X"}'',''human''`. dblink-forbindelserne kører som superbruger (`v_conn` uden rolleskift), så den private kerne er tilgængelig. Tjek: `grep -c "private.decide_source_persona_identity(" db-verify.sql` = 11 kald + de signaturer, Step 6 tilføjede.
 
 - [ ] **Step 8: Cutover øverst i `db-migrations.sql`.** Erstatning på stedet lukker ikke tidsrummet, før kørslen når de omskrevne linjer: i prod findes den gamle offentlige kerne og femarguments-wrapper med grants, indtil da (Codex runde 2). Indsæt som **første sætning** i filen (efter eventuelle indledende kommentarer og `\set`-linjer):
 
@@ -1298,8 +1300,10 @@ git commit -m "feat(151): privat identitetskerne med strukturel oprindelse, opre
 
 ### Task 4: Detalje- og kø-RPC
 
+> **Genbekræftet 2026-10-05:** detalje og kø omdefineres i 5a-sektionen sidst i `db-migrations.sql` (ikke på stedet, `db-migrations.sql:7156-7191`). Det er tilladt: de indgår ikke i identitetsguarden, og en mellemtilstand med den gamle version under deploy er harmløs — samme praksis som omsegmenteringens »denne sidste version vinder« (`db-migrations.sql:19144`). Global Constraint om erstatning på stedet gælder kun guardens funktioner.
+
 **Files:**
-- Modify: `schema.sql:8065-8093` (kø), `schema.sql:8095-8138` (detalje); `db-migrations.sql` 5a-sektionen
+- Modify: `schema.sql:8183-8211` (kø), `schema.sql:8213-8256` (detalje); `db-migrations.sql` 5a-sektionen
 - Create: `tests/sql/test-identity-detail.sql`; Modify: `.github/workflows/ci.yml`
 
 **Interfaces:**
@@ -1414,7 +1418,7 @@ END $identity_detail$;
                                                             WHERE r.source_id=persona.source_id ORDER BY r.run_seq DESC LIMIT 1))),'[]'::jsonb)
 ```
 
-- [ ] **Step 4: Kø-RPC** — erstat i `schema.sql:8065-8093`; i migrations: `DROP FUNCTION IF EXISTS red_source_persona_queue(text,bigint,uuid,integer);` og derefter:
+- [ ] **Step 4: Kø-RPC** — erstat i `schema.sql:8183-8211`; i migrations: `DROP FUNCTION IF EXISTS red_source_persona_queue(text,bigint,uuid,integer);` og derefter:
 
 ```sql
 CREATE OR REPLACE FUNCTION red_source_persona_queue(
@@ -1470,6 +1474,8 @@ git commit -m "feat(151): persona-detalje med kandidater og kollisioner; kø med
 ---
 
 ### Task 5: Generatoren (`@daa/identity-candidates`)
+
+> **Genbekræftet 2026-10-05:** (1) `tsx` findes ikke i `package-lock.json`; `npm install` i Step 1 henter den over nettet. Gennemse lockfilens diff (`git diff --stat package-lock.json`): kun nye indgange for `tsx` og dens afhængigheder plus `packages/identity-candidates` — ingen opgradering af eksisterende pakker. Udelad `@types/node` i devDependencies (roden har 26.1.1 hejst), så der ikke installeres en ekstra nested `@types/node@22`. (2) Step 6: begge SQL-scripts starter med `\set ON_ERROR_STOP on`, og kald med `| grep` køres med `set -o pipefail`, så en SQL-fejl ikke giver en tom fil med rc 0. (3) Step 7: Task 4's fixture er en DO-blok, hvis INSERTs bruger plpgsql-variabler; kopiér hele blokken inkl. `DECLARE`, fjern alt fra `PERFORM set_config(...)` til blokkens slutning (også den indre `BEGIN … EXCEPTION`-ramme), afslut med `END $$;` og kør den uden rollback. Fixturens personer har intet navn, så `kandidater=0` er det forventede tal (ikke en fejl).
 
 **Files:**
 - Create: `packages/identity-candidates/package.json`, `tsconfig.json`, `src/frames.ts`, `src/rank.ts`, `src/cli.ts`, `src/__tests__/frames.test.ts`, `src/__tests__/rank.test.ts`
@@ -1792,6 +1798,8 @@ git commit -m "feat(151): kandidatgenerator som workspace — pr.-persona-ranger
 
 ### Task 6: Kalibrering
 
+> **Genbekræftet 2026-10-05:** `sql/export-truth.sql` starter med `\set ON_ERROR_STOP on`. Navnekilden (`person.name`) har kendte titelfejl (decisions 2026-10-03; 138 navne-assertions med titelord) — det trækker navnelighed ned og skal nævnes i Task 9's rapport som kendt forstyrrelse.
+
 **Files:**
 - Create: `packages/identity-candidates/src/calibrate.ts`, `src/__tests__/calibrate.test.ts`, `sql/export-truth.sql`
 - Modify: `packages/identity-candidates/src/cli.ts`
@@ -1891,6 +1899,8 @@ git commit -m "feat(151): kalibrering af kandidater mod kendte identiteter — k
 ---
 
 ### Task 7: Identitetsarket og den fælles arkkerne
+
+> **Genbekræftet 2026-10-05:** kontrolmodellen har udvidet 4.5-arket: `decision_sql` har parameteren `method` og tjekker `SHEET_METHODS` (`interpretation_decision_sheet.py:126-133`) før hash-løkken, og `main` har `--method`. Step 8 erstatter hash-løkken **efter** method-tjekket, så `SHEET_METHOD_INVALID` stadig kommer først, og `--method` videregives uændret. `control_model.py`, `decision_sheet_html.py` og deres tests importerer `SheetError`, `check_identity`, `parse_sheet` og `sheet_order` fra `interpretation_decision_sheet` — navnene skal fortsat kunne importeres derfra (re-eksport via importen fra kernen). Step 8's testkommando udvides med `test_control_model.py test_evidence_runner.py`.
 
 **Files:**
 - Create: `.claude/skills/daa-extract/scripts/decision_sheet_core.py`, `identity_decision_sheet.py`, `test_identity_decision_sheet.py`, `identity_sheet_rows.sql`
@@ -2525,6 +2535,8 @@ git commit -m "feat(151): webkø med maskinens kandidater, kollisionsadvarsel, n
 ---
 
 ### Task 9: Færdigbevis i restoren, rapport og status
+
+> **Genbekræftet 2026-10-05 — ÅBENT (spec-ændring, afventer projektejeren):** den fulde 2018-20-kørsel findes i `daa2018f_20261001133125` (488 poster, 676 afgørelser, 622 bindinger; samme digests som prod efter overførslen 2026-10-05). Step 1 bør kopiere den (`createdb -T daa2018f_20261001133125 "$W5"`) i stedet for pilotbasen, og specens §8.1/§13.1 (»ca. 27« navngivne personas; »gentages efter fuld kørsel«) opdateres. Indtil projektejeren har afgjort det, gælder teksten nedenfor uændret.
 
 **Files:**
 - Create: `docs/evidensbaseret-genimport/identitetsvej-5a-bevis.md`
