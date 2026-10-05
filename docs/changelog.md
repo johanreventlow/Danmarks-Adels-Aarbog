@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-10-05 — trin 5a: én identitetsvej, bevist i restore (#151)
+
+Implementeret efter planen `2026-09-24-trin5a-identitetsvej.md` på `feat/151-identitetsvej`: kandidattabeller
+og servergenberegnet writer, privat identitetskerne `private.decide_source_persona_identity(…, p_origin)` med
+oprettelseskvittering og cutover-blok øverst i `db-migrations.sql`, `red_afgoer_source_persona` med kontekst og
+udgangen `new_person_needed`, kø/detalje med kandidater og kollisioner, generatoren `@daa/identity-candidates`,
+identitetsarket og webkøen. Bevis i en kopi af den fulde 2018-20-kørsel (ikke prod): kalibrering — std top-1
+228/250 navngivne, `auto` 159/159 (øvre grænse: facit er 149b's kobling); blind genbekræftelse 30 + webspor —
+25 samme, 0 anden, 6 uafklaret; negativtest ruller atomisk tilbage. Rapport:
+`docs/evidensbaseret-genimport/identitetsvej-5a-bevis.md`. Ikke deployet.
+
 ## 2026-10-05 — 2018-20's fortolkningskæde overført til prod (#147)
 
 Efter projektejerens GO er hele 2018-20's kæde skrevet i prod efter runbooken
