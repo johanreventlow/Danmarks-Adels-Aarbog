@@ -7,12 +7,14 @@ const mocks = vi.hoisted(() => ({
   detail: vi.fn(),
   queue: vi.fn(),
   persons: vi.fn(),
+  history: vi.fn(),
 }));
 
 vi.mock('../../data/sourcePersona', () => ({
   decideSourcePersona: mocks.decide,
   fetchSourcePersonaDetail: mocks.detail,
   fetchSourcePersonaQueue: mocks.queue,
+  fetchSourcePersonaHistory: mocks.history,
 }));
 vi.mock('../../data/redaktionRead', () => ({ fetchRedaktionPersoner: mocks.persons }));
 
@@ -31,6 +33,8 @@ const detail = {
   persona: row(),
   mentions: [{ mentionKind: 'person_name', mentionRole: 'primary', verbatimText: 'Johan Example', observationKind: 'name_clause', pageFrom: 12, pageTo: 12, textVersions: [] }],
   placements: [], interpretations: [],
+  candidates: [{ candidateId: 'cand-1', runId: 'run-1', rank: 1, score: 0.93, tier: 'auto', personId: 42, personName: 'Johan Canonical', born: '1800', died: '1860', signals: ['name', 'birth'] }],
+  collisions: [{ personId: 42, personaKey: 'persona-9' }],
 };
 
 beforeEach(() => {
@@ -39,6 +43,7 @@ beforeEach(() => {
   mocks.detail.mockResolvedValue(detail);
   mocks.persons.mockResolvedValue([{ id: '42', navn: 'Johan Canonical', aar: '1800–1860', born: 1800, levende: false, privat: false, efternavnAfledt: false }]);
   mocks.decide.mockResolvedValue(1);
+  mocks.history.mockResolvedValue([]);
 });
 
 describe('KildepersonaKo', () => {
@@ -63,7 +68,7 @@ describe('KildepersonaKo', () => {
     fireEvent.change(screen.getByLabelText('Kanonisk kandidat'), { target: { value: '42' } });
     fireEvent.change(screen.getByLabelText('Begrundelse'), { target: { value: 'samme ægtefælle og dato' } });
     fireEvent.click(screen.getByRole('button', { name: 'Samme person' }));
-    await waitFor(() => expect(mocks.decide).toHaveBeenCalledWith(row().sourcePersonaId, 0, 'same', 42, 'samme ægtefælle og dato'));
+    await waitFor(() => expect(mocks.decide).toHaveBeenCalledWith(row().sourcePersonaId, 0, 'same', 42, 'samme ægtefælle og dato', null));
   });
 
   it.each(['different', 'unresolved'] as const)('sender %s uden kanonisk kandidat', async (action) => {
@@ -72,7 +77,7 @@ describe('KildepersonaKo', () => {
     await screen.findByText('Johan Example');
     fireEvent.change(screen.getByLabelText('Begrundelse'), { target: { value: 'synligt kildegrundlag afkræfter match' } });
     fireEvent.click(screen.getByRole('button', { name: action === 'different' ? 'Forskellig' : 'Uafklaret' }));
-    await waitFor(() => expect(mocks.decide).toHaveBeenCalledWith(row().sourcePersonaId, 0, action, null, 'synligt kildegrundlag afkræfter match'));
+    await waitFor(() => expect(mocks.decide).toHaveBeenCalledWith(row().sourcePersonaId, 0, action, null, 'synligt kildegrundlag afkræfter match', null));
   });
 
   it('viser versionskonflikten fra den atomiske RPC', async () => {
@@ -97,5 +102,69 @@ describe('KildepersonaKo', () => {
     await waitFor(() => expect(mocks.queue).toHaveBeenLastCalledWith('proposed', 7, null));
     fireEvent.click(screen.getByRole('button', { name: 'Hent næste side' }));
     await waitFor(() => expect(mocks.queue).toHaveBeenLastCalledWith('proposed', 7, firstPage.at(-1)?.sourcePersonaId));
+  });
+
+  it('følger en kandidat med ét klik og sender kandidat-id', async () => {
+    render(<KildepersonaKo role="redaktion" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Vis kildegrundlag' }));
+    await screen.findByRole('button', { name: 'Samme som kandidat 1' });
+    fireEvent.change(screen.getByLabelText('Begrundelse'), { target: { value: 'navn og år' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Samme som kandidat 1' }));
+    await waitFor(() => expect(mocks.decide).toHaveBeenCalledWith(row().sourcePersonaId, 0, 'same', 42, 'navn og år', { candidateId: 'cand-1', runId: 'run-1' }));
+  });
+
+  it('søger en person, der ikke er kandidat, og vælger den uden kandidatspor', async () => {
+    mocks.persons.mockResolvedValue([
+      { id: '42', navn: 'Johan Canonical', aar: '1800', born: 1800, levende: false, privat: false, efternavnAfledt: false },
+      { id: '77', navn: 'Anna Anden', aar: '1790', born: 1790, levende: false, privat: false, efternavnAfledt: false },
+    ]);
+    render(<KildepersonaKo role="redaktion" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Vis kildegrundlag' }));
+    fireEvent.change(await screen.findByLabelText('Søg person'), { target: { value: 'anna' } });
+    fireEvent.change(screen.getByLabelText('Kanonisk kandidat'), { target: { value: '77' } });
+    fireEvent.change(screen.getByLabelText('Begrundelse'), { target: { value: 'fundet ved søgning' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Samme person' }));
+    await waitFor(() => expect(mocks.decide).toHaveBeenCalledWith(row().sourcePersonaId, 0, 'same', 77, 'fundet ved søgning', null));
+    // (Kræver RedPerson-felter ud over disse, så tilføj dem med neutrale værdier — typen står i web/src/data/redaktionRead.ts:15.)
+  });
+
+  it('viser kollision uden at blokere', async () => {
+    render(<KildepersonaKo role="redaktion" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Vis kildegrundlag' }));
+    expect(await screen.findByText(/allerede accepteret for persona-9/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Samme som kandidat 1' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('sender ny person nødvendig uden person', async () => {
+    render(<KildepersonaKo role="redaktion" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Vis kildegrundlag' }));
+    await screen.findByText('Johan Example');
+    fireEvent.change(screen.getByLabelText('Begrundelse'), { target: { value: 'ikke i basen' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ny person nødvendig' }));
+    await waitFor(() => expect(mocks.decide).toHaveBeenCalledWith(row().sourcePersonaId, 0, 'new_person_needed', null, 'ikke i basen', null));
+  });
+
+  it('viser historik med kandidat fulgt og ny person nødvendig', async () => {
+    mocks.history.mockResolvedValue([
+      { version: 2, decisionStatus: 'unresolved', canonicalPersonId: null, basis: 'human_sheet', candidateId: null, reason: 'new_person_needed', decidedByName: 'R', decidedAt: null },
+      { version: 1, decisionStatus: 'accepted', canonicalPersonId: 42, basis: 'web_detail', candidateId: 'cand-1', reason: null, decidedByName: 'R', decidedAt: null },
+    ]);
+    render(<KildepersonaKo role="redaktion" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Vis kildegrundlag' }));
+    expect(await screen.findByText(/v1 · accepted · #42 · web_detail · kandidat fulgt/)).toBeTruthy();
+    expect(screen.getByText(/v2 · unresolved · human_sheet · ny person nødvendig/)).toBeTruthy();
+  });
+
+  it('sorterer køen auto → review → none → ingen kandidat', async () => {
+    mocks.queue.mockResolvedValue([
+      { ...row(1), bestTier: null, reason: null }, { ...row(2), bestTier: 'none', reason: null },
+      { ...row(3), bestTier: 'auto', reason: null }, { ...row(4), bestTier: 'review', reason: null },
+    ]);
+    render(<KildepersonaKo role="redaktion" />);
+    await screen.findByText('persona-3');
+    const tekst = document.body.textContent ?? '';
+    const pos = ['persona-3', 'persona-4', 'persona-2', 'persona-1'].map((k) => tekst.indexOf(k));
+    expect(pos.every((p) => p >= 0)).toBe(true);
+    expect(pos).toEqual([...pos].sort((a, b) => a - b));
   });
 });

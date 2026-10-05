@@ -2,7 +2,16 @@
 // den kanoniske personmodel: en source_persona er en forekomst i én kilde.
 import { supabase } from '../supabase';
 
-export type SourcePersonaAction = 'same' | 'different' | 'unresolved';
+export type SourcePersonaAction = 'same' | 'different' | 'unresolved' | 'new_person_needed';
+
+export type SourcePersonaCandidate = {
+  candidateId: string; runId: string; rank: number; score: number; tier: string;
+  personId: number; personName: string; born: string | null; died: string | null; signals: string[];
+};
+export type SourcePersonaHistoryRow = {
+  version: number; decisionStatus: string; canonicalPersonId: number | null;
+  basis: string | null; candidateId: string | null; reason: string | null; decidedByName: string | null; decidedAt: string | null;
+};
 
 export type SourcePersonaQueueRow = {
   sourcePersonaId: string;
@@ -12,6 +21,8 @@ export type SourcePersonaQueueRow = {
   version: number;
   canonicalPersonId: number | null;
   mentionCount: number;
+  bestTier: string | null;
+  reason: string | null;
 };
 
 export type SourcePersonaDetail = {
@@ -23,29 +34,9 @@ export type SourcePersonaDetail = {
   }>;
   placements: Array<{ placementRole: string; printedNumber: string | null; generationLabelRaw: string | null }>;
   interpretations: Array<{ predicate: string; value: unknown; status: string; confidence: number; derivation_kind: string }>;
+  candidates: SourcePersonaCandidate[];
+  collisions: Array<{ personId: number; personaKey: string }>;
 };
-
-export function buildSourcePersonaDecisionCall(
-  sourcePersonaId: string,
-  expectedVersion: number,
-  action: SourcePersonaAction,
-  canonicalPersonId: number | null,
-  note: string,
-) {
-  if (!sourcePersonaId || !Number.isInteger(expectedVersion) || expectedVersion < 0 || !note.trim()) return null;
-  if (action === 'same' && (canonicalPersonId == null || !Number.isSafeInteger(canonicalPersonId) || canonicalPersonId <= 0)) return null;
-  if (action !== 'same' && canonicalPersonId !== null) return null;
-  return {
-    fn: 'red_afgoer_source_persona' as const,
-    args: {
-      p_source_persona_id: sourcePersonaId,
-      p_expected_version: expectedVersion,
-      p_action: action,
-      p_canonical_person_id: canonicalPersonId,
-      p_note: note.trim(),
-    },
-  };
-}
 
 export async function fetchSourcePersonaQueue(status: string | null = null, sourceId: number | null = null, cursor: string | null = null): Promise<SourcePersonaQueueRow[]> {
   const { data, error } = await supabase.rpc('red_source_persona_queue', {
@@ -57,6 +48,8 @@ export async function fetchSourcePersonaQueue(status: string | null = null, sour
     personaKey: String(row.persona_key), decisionStatus: row.decision_status == null ? null : String(row.decision_status),
     version: Number(row.version), canonicalPersonId: row.canonical_person_id == null ? null : Number(row.canonical_person_id),
     mentionCount: Number(row.mention_count),
+    bestTier: row.best_tier == null ? null : String(row.best_tier),
+    reason: row.reason == null ? null : String(row.reason),
   }));
 }
 
@@ -71,6 +64,7 @@ export async function fetchSourcePersonaDetail(sourcePersonaId: string): Promise
       personaKey: String(persona.persona_key), decisionStatus: persona.decision_status == null ? null : String(persona.decision_status),
       version: Number(persona.version), canonicalPersonId: persona.canonical_person_id == null ? null : Number(persona.canonical_person_id),
       mentionCount: Array.isArray(raw.mentions) ? raw.mentions.length : 0,
+      bestTier: null, reason: null,
     },
     mentions: Array.isArray(raw.mentions) ? raw.mentions.map((mention) => {
       const value = mention as Record<string, unknown>;
@@ -89,16 +83,60 @@ export async function fetchSourcePersonaDetail(sourcePersonaId: string): Promise
       return { placementRole: String(value.placement_role), printedNumber: value.printed_number == null ? null : String(value.printed_number), generationLabelRaw: value.generation_label_raw == null ? null : String(value.generation_label_raw) };
     }) : [],
     interpretations: (raw.interpretations ?? []) as SourcePersonaDetail['interpretations'],
+      candidates: Array.isArray(raw.candidates) ? raw.candidates.map((c) => {
+        const v = c as Record<string, unknown>;
+        return { candidateId: String(v.candidate_id), runId: String(v.run_id), rank: Number(v.rank), score: Number(v.score),
+          tier: String(v.tier), personId: Number(v.person_id), personName: String(v.person_name ?? ''),
+          born: v.born == null ? null : String(v.born), died: v.died == null ? null : String(v.died),
+          signals: Array.isArray((v.basis as Record<string, unknown> | undefined)?.signals) ? ((v.basis as Record<string, unknown>).signals as unknown[]).map(String) : [] };
+      }) : [],
+      collisions: Array.isArray(raw.collisions) ? raw.collisions.map((c) => {
+        const v = c as Record<string, unknown>;
+        return { personId: Number(v.person_id), personaKey: String(v.persona_key) };
+      }) : [],
+  };
+}
+
+export function buildSourcePersonaDecisionCall(
+  sourcePersonaId: string, expectedVersion: number, action: SourcePersonaAction,
+  canonicalPersonId: number | null, note: string, candidate: { candidateId: string; runId: string } | null = null,
+) {
+  if (!sourcePersonaId || !Number.isInteger(expectedVersion) || expectedVersion < 0 || !note.trim()) return null;
+  if (action === 'same' && (canonicalPersonId == null || !Number.isSafeInteger(canonicalPersonId) || canonicalPersonId <= 0)) return null;
+  if (action !== 'same' && (canonicalPersonId !== null || candidate !== null)) return null;
+  return {
+    fn: 'red_afgoer_source_persona' as const,
+    args: {
+      p_source_persona_id: sourcePersonaId, p_expected_version: expectedVersion, p_action: action,
+      p_canonical_person_id: canonicalPersonId, p_note: note.trim(),
+      p_context: candidate ? { basis: 'web_detail', candidate_id: candidate.candidateId, run_id: candidate.runId } : { basis: 'web_detail' },
+    },
   };
 }
 
 export async function decideSourcePersona(
   sourcePersonaId: string, expectedVersion: number, action: SourcePersonaAction,
-  canonicalPersonId: number | null, note: string,
+  canonicalPersonId: number | null, note: string, candidate: { candidateId: string; runId: string } | null = null,
 ): Promise<number> {
-  const call = buildSourcePersonaDecisionCall(sourcePersonaId, expectedVersion, action, canonicalPersonId, note);
+  const call = buildSourcePersonaDecisionCall(sourcePersonaId, expectedVersion, action, canonicalPersonId, note, candidate);
   if (!call) throw new Error('Ugyldig identitetsafgørelse.');
   const { data, error } = await supabase.rpc(call.fn, call.args);
   if (error) throw new Error(error.message);
   return Number(data);
+}
+
+export async function fetchSourcePersonaHistory(sourcePersonaId: string): Promise<SourcePersonaHistoryRow[]> {
+  const { data, error } = await supabase.rpc('red_source_persona_history', { p_source_persona_id: sourcePersonaId });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((r: Record<string, unknown>) => {
+    const ev = (r.evidence ?? {}) as Record<string, unknown>;
+    return {
+      version: Number(r.version), decisionStatus: String(r.decision_status),
+      canonicalPersonId: r.canonical_person_id == null ? null : Number(r.canonical_person_id),
+      basis: ev.basis == null ? null : String(ev.basis), candidateId: ev.candidate_id == null ? null : String(ev.candidate_id),
+      reason: ev.reason == null ? null : String(ev.reason),
+      decidedByName: r.decided_by_name == null ? null : String(r.decided_by_name),
+      decidedAt: r.decided_at == null ? null : String(r.decided_at),
+    };
+  });
 }
