@@ -26,6 +26,7 @@ begin
     'interpretation','interpretation_observation','interpretation_promotion_rule',
     'interpretation_promotion_batch','interpretation_promotion',
     'source_persona_identity','source_persona_identity_event',
+    'source_persona_identity_candidate_run','source_persona_identity_candidate',
     'narrative_record_publication','narrative_publication_event',
     'narrative_legacy_publication'
   ] loop

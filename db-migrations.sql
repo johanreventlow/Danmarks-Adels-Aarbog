@@ -19566,3 +19566,53 @@ BEGIN
   RETURN jsonb_build_object('interpretations_written',v_claim_count,'clauses_dispositioned',v_clause_count,
     'run_id',v_run,'result_receipt_sha256',private.interpretation_proposal_canonical_json_sha256(v_result_receipt));
 END $$;
+
+-- Trin 5a (#151): identitetskandidater
+-- Trin 5a: maskinens identitetskandidater. Forslag og afgørelse holdes adskilt:
+-- source_persona_identity forbliver uden mål for 'proposed'; kandidaterne bor her.
+CREATE TABLE IF NOT EXISTS private.source_persona_identity_candidate_run (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- Gældende kørsel = højeste run_seq pr. kilde (tidsstempler kan være ens).
+  run_seq            bigint GENERATED ALWAYS AS IDENTITY UNIQUE,
+  source_id          bigint NOT NULL REFERENCES public.source(id),
+  generator_version  text NOT NULL CHECK (btrim(generator_version)<>''),
+  config             jsonb NOT NULL CHECK (jsonb_typeof(config)='object'),
+  config_sha256      text NOT NULL CHECK (config_sha256 ~ '^[0-9a-f]{64}$'),
+  input_spec         jsonb NOT NULL CHECK (jsonb_typeof(input_spec)='object'),
+  input_sha256       text NOT NULL CHECK (input_sha256 ~ '^[0-9a-f]{64}$'),
+  candidates_sha256  text NOT NULL CHECK (candidates_sha256 ~ '^[0-9a-f]{64}$'),
+  persona_count      integer NOT NULL CHECK (persona_count>=0),
+  candidate_count    integer NOT NULL CHECK (candidate_count>=0),
+  created_by         uuid NOT NULL,
+  created_by_name    text NOT NULL CHECK (btrim(created_by_name)<>''),
+  created_at         timestamptz NOT NULL DEFAULT clock_timestamp(),
+  UNIQUE (source_id,input_sha256,config_sha256)
+);
+
+CREATE TABLE IF NOT EXISTS private.source_persona_identity_candidate (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_id               uuid NOT NULL REFERENCES private.source_persona_identity_candidate_run(id),
+  source_persona_id    uuid NOT NULL REFERENCES private.source_persona(id),
+  candidate_person_id  bigint NOT NULL REFERENCES public.person(id),
+  rank                 integer NOT NULL CHECK (rank>=1),
+  score                numeric NOT NULL CHECK (score>=0 AND score<=1),
+  tier                 text NOT NULL CHECK (tier IN ('auto','review','none')),
+  basis                jsonb NOT NULL CHECK (jsonb_typeof(basis)='object' AND basis<>'{}'::jsonb),
+  UNIQUE (run_id,source_persona_id,candidate_person_id),
+  UNIQUE (run_id,source_persona_id,rank)
+);
+CREATE INDEX IF NOT EXISTS source_persona_identity_candidate_persona_idx
+  ON private.source_persona_identity_candidate(source_persona_id,run_id);
+
+DO $$
+DECLARE v_table text;
+BEGIN
+  FOREACH v_table IN ARRAY ARRAY['source_persona_identity_candidate_run','source_persona_identity_candidate'] LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON private.%I','trg_'||v_table||'_append_only',v_table);
+    EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON private.%I FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation()','trg_'||v_table||'_append_only',v_table);
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON private.%I','trg_'||v_table||'_append_only_truncate',v_table);
+    EXECUTE format('CREATE TRIGGER %I BEFORE TRUNCATE ON private.%I FOR EACH STATEMENT EXECUTE FUNCTION private.reject_evidence_mutation()','trg_'||v_table||'_append_only_truncate',v_table);
+    EXECUTE format('ALTER TABLE private.%I ENABLE ROW LEVEL SECURITY',v_table);
+    EXECUTE format('REVOKE ALL ON TABLE private.%I FROM PUBLIC,anon,authenticated',v_table);
+  END LOOP;
+END $$;

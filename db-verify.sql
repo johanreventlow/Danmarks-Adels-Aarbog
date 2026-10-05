@@ -4930,6 +4930,24 @@ BEGIN
   RAISE NOTICE 'OK: promotionregler er eksplicitte, assertion-bundne og auditerbare';
 END $promotion_rule_verify$;
 
+DO $identity_candidate_verify$
+DECLARE v_required text[] := ARRAY['source_persona_identity_candidate_run','source_persona_identity_candidate'];
+BEGIN
+  IF EXISTS (SELECT 1 FROM unnest(v_required) t WHERE to_regclass(format('private.%I',t)) IS NULL) THEN
+    RAISE EXCEPTION 'FEJL: #151 kandidatlaget mangler';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname='private' AND c.relname=ANY(v_required)
+       AND (NOT c.relrowsecurity
+         OR has_table_privilege('anon',c.oid,'SELECT') OR has_table_privilege('authenticated',c.oid,'SELECT')
+         OR has_table_privilege('anon',c.oid,'INSERT') OR has_table_privilege('authenticated',c.oid,'INSERT'))
+  ) THEN
+    RAISE EXCEPTION 'FEJL: #151 kandidatlaget har API-rettigheder eller mangler RLS';
+  END IF;
+  RAISE NOTICE 'OK: #151 kandidatlaget findes med RLS og uden API-rettigheder';
+END $identity_candidate_verify$;
+
 -- Preview må aldrig kunne promovere mod en revision, der skifter efter preview.
 -- Denne er en reel to-sessions-test: A afgør den accepterede fortolkning igen,
 -- B's batch skal blokere på current-revisionen og derefter afvises som stale.

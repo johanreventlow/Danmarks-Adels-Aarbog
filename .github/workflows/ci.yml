@@ -200,6 +200,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-transfer-baseline.sql
           bash tests/sql/transfer-decide-bind.sh
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-interpretation-predicate.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/test-identity-candidates.sql
           python3 .claude/skills/daa-extract/scripts/check_interpretation_predicates.py
           psql -v ON_ERROR_STOP=1 -f tests/sql/run-db-verify-disposable.sql
 
