@@ -8500,17 +8500,19 @@ CREATE OR REPLACE FUNCTION red_afgoer_source_persona(
 ) RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE
   v_status text; v_basis text; v_evidence jsonb; v_cand record; v_source bigint; v_current_run uuid;
-  v_ctx jsonb:=coalesce(p_context,'{}'::jsonb);
+  v_ctx jsonb:=coalesce(p_context,'{}'::jsonb); v_person bigint:=p_canonical_person_id;
+  -- record, ikke %ROWTYPE: kontroltabellerne oprettes i 5b-sektionen EFTER denne funktion, og plpgsql
+  -- binder %ROWTYPE ved CREATE.
+  v_smp record; v_seal record; v_pos text;
 BEGIN
   IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
   v_basis:=coalesce(v_ctx->>'basis','web_detail');
   IF jsonb_typeof(v_ctx)<>'object'
      OR EXISTS (SELECT 1 FROM jsonb_object_keys(v_ctx) k
-                 WHERE k NOT IN ('basis','candidate_id','run_id','sheet_sha256','rows_sha256','line'))
+                 WHERE k NOT IN ('basis','candidate_id','run_id','sheet_sha256','rows_sha256','line','control_run_id','display_position'))
      OR (v_ctx ? 'candidate_id') <> (v_ctx ? 'run_id')
      OR p_action NOT IN ('same','different','unresolved','new_person_needed')
      OR nullif(btrim(p_note),'') IS NULL
-     OR (p_action='same' AND p_canonical_person_id IS NULL)
      OR (p_action<>'same' AND p_canonical_person_id IS NOT NULL)
      OR v_basis NOT IN ('web_detail','human_sheet')
      OR (v_basis='human_sheet' AND (coalesce(v_ctx->>'sheet_sha256','') !~ '^[0-9a-f]{64}$'
@@ -8529,7 +8531,42 @@ BEGIN
   v_status:=CASE p_action WHEN 'same' THEN 'accepted' WHEN 'different' THEN 'rejected' ELSE 'unresolved' END;
   v_evidence:=jsonb_build_object('note',btrim(p_note),'action',p_action,'basis',v_basis);
   IF p_action='new_person_needed' THEN v_evidence:=v_evidence||'{"reason":"new_person_needed"}'; END IF;
-  IF v_ctx ? 'candidate_id' THEN
+
+  -- Trin 5b (spec §7.1): en stikprøvesag i en registreret, endnu ikke forseglet kørsel (hvis kandidatkørsel
+  -- stadig er den gældende) kan slet ikke afgøres — ellers kunne den afgøres uden om arket og »vaskes« bagefter.
+  IF EXISTS (SELECT 1 FROM private.identity_control_sample s JOIN private.identity_control_run r ON r.id=s.control_run_id
+              WHERE s.source_persona_id=p_source_persona_id
+                AND NOT EXISTS (SELECT 1 FROM private.identity_control_event e WHERE e.control_run_id=r.id)
+                AND r.candidate_run_id=(SELECT cr.id FROM private.source_persona_identity_candidate_run cr
+                                         WHERE cr.source_id=r.source_id ORDER BY cr.run_seq DESC LIMIT 1)) THEN
+    RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_NOT_SEALED';
+  END IF;
+  -- En sag i en forseglet, aktiv kontrolkørsel afgøres kun fra arket.
+  SELECT s.* INTO v_smp FROM private.identity_control_sample s
+   WHERE s.source_persona_id=p_source_persona_id
+     AND (SELECT e.status FROM private.identity_control_event e WHERE e.control_run_id=s.control_run_id ORDER BY e.seq DESC LIMIT 1)='sealed';
+  IF FOUND THEN
+    SELECT * INTO v_seal FROM private.identity_control_event WHERE control_run_id=v_smp.control_run_id AND status='sealed';
+    IF v_basis<>'human_sheet' OR v_ctx->>'control_run_id' IS DISTINCT FROM v_smp.control_run_id::text
+       OR v_ctx ? 'candidate_id' OR v_ctx->>'sheet_sha256' IS DISTINCT FROM v_seal.sheet_sha256
+       OR v_ctx->>'rows_sha256' IS DISTINCT FROM v_seal.rows_sha256
+       OR p_expected_version IS DISTINCT FROM v_smp.identity_version
+       OR (p_action='same' AND p_canonical_person_id IS NULL) <> (v_ctx ? 'display_position') THEN
+      RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID';
+    END IF;
+    v_evidence:=v_evidence||jsonb_build_object('control_run_id',v_smp.control_run_id);
+    IF v_ctx ? 'display_position' THEN
+      v_pos:=v_ctx->>'display_position';
+      IF v_pos !~ '^[1-3]$' OR NOT v_smp.mapping ? v_pos THEN RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID'; END IF;
+      SELECT c.id,c.run_id,c.rank,c.candidate_person_id INTO v_cand
+        FROM private.source_persona_identity_candidate c WHERE c.id=(v_smp.mapping->>v_pos)::uuid;
+      v_person:=v_cand.candidate_person_id;
+      v_evidence:=v_evidence||jsonb_build_object('candidate_id',v_cand.id,'run_id',v_cand.run_id,
+        'candidate_rank',v_cand.rank,'display_position',v_pos::int);
+    END IF;
+  ELSIF v_ctx ? 'control_run_id' OR v_ctx ? 'display_position' THEN
+    RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID';
+  ELSIF v_ctx ? 'candidate_id' THEN
     SELECT c.id,c.run_id,c.rank,c.source_persona_id,c.candidate_person_id INTO v_cand
       FROM private.source_persona_identity_candidate c WHERE c.id=(v_ctx->>'candidate_id')::uuid;
     IF NOT FOUND OR v_cand.run_id<>(v_ctx->>'run_id')::uuid OR v_cand.source_persona_id<>p_source_persona_id
@@ -8541,11 +8578,12 @@ BEGIN
     IF v_current_run IS DISTINCT FROM v_cand.run_id THEN RAISE EXCEPTION 'EVIDENCE_IDENTITY_CANDIDATE_RUN_STALE'; END IF;
     v_evidence:=v_evidence||jsonb_build_object('candidate_id',v_cand.id,'run_id',v_cand.run_id,'candidate_rank',v_cand.rank);
   END IF;
+  IF p_action='same' AND v_person IS NULL THEN RAISE EXCEPTION 'EVIDENCE_IDENTITY_DECISION_INVALID'; END IF;
   IF v_basis='human_sheet' THEN
     v_evidence:=v_evidence||jsonb_build_object('sheet_sha256',v_ctx->>'sheet_sha256',
       'rows_sha256',v_ctx->>'rows_sha256','line',(v_ctx->>'line')::int);
   END IF;
-  RETURN private.decide_source_persona_identity(p_source_persona_id,p_canonical_person_id,p_expected_version,v_status,v_evidence,'human');
+  RETURN private.decide_source_persona_identity(p_source_persona_id,v_person,p_expected_version,v_status,v_evidence,'human');
 END $$;
 
 CREATE OR REPLACE FUNCTION private.identity_candidate_input(p_source_id bigint,p_input_spec jsonb)
@@ -15111,13 +15149,15 @@ CREATE OR REPLACE FUNCTION red_afgoer_relation_interpretation(
 DECLARE
   v_ctx jsonb:=coalesce(p_context,'{}'::jsonb); v_basis text; v_ic private.interpretation%ROWTYPE;
   v_role text; v_cand record; v_n integer; v_principal_pid bigint; v_evidence jsonb; v_new uuid;
+  -- record: kontroltabellerne kan oprettes efter funktionen (plpgsql binder %ROWTYPE ved CREATE).
+  v_smp record; v_seal record; v_family bigint;
 BEGIN
   IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
   v_basis:=coalesce(v_ctx->>'basis','web_detail');
   IF jsonb_typeof(v_ctx)<>'object'
-     OR EXISTS (SELECT 1 FROM jsonb_object_keys(v_ctx) k WHERE k NOT IN ('basis','sheet_sha256','rows_sha256','line'))
+     OR EXISTS (SELECT 1 FROM jsonb_object_keys(v_ctx) k WHERE k NOT IN ('basis','sheet_sha256','rows_sha256','line','control_run_id','display_position'))
      OR p_action NOT IN ('same','unresolved') OR nullif(btrim(p_note),'') IS NULL
-     OR (p_action='same' AND p_family_id IS NULL) OR (p_action<>'same' AND p_family_id IS NOT NULL)
+     OR (p_action<>'same' AND p_family_id IS NOT NULL)
      OR v_basis NOT IN ('web_detail','human_sheet')
      OR (v_basis='human_sheet' AND (coalesce(v_ctx->>'sheet_sha256','') !~ '^[0-9a-f]{64}$'
                                    OR coalesce(v_ctx->>'rows_sha256','') !~ '^[0-9a-f]{64}$'
@@ -15133,6 +15173,36 @@ BEGIN
     v_evidence:=v_evidence||jsonb_build_object('sheet_sha256',v_ctx->>'sheet_sha256','rows_sha256',v_ctx->>'rows_sha256',
       'line',(v_ctx->>'line')::int);
   END IF;
+  -- Som i red_afgoer_source_persona: en stikprøvesag i en registreret, uforseglet kørsel er låst.
+  IF EXISTS (SELECT 1 FROM private.identity_control_sample s JOIN private.identity_control_run r ON r.id=s.control_run_id
+              WHERE s.interpretation_key=p_interpretation_key
+                AND NOT EXISTS (SELECT 1 FROM private.identity_control_event e WHERE e.control_run_id=r.id)
+                AND r.candidate_run_id=(SELECT cr.id FROM private.source_persona_identity_candidate_run cr
+                                         WHERE cr.source_id=r.source_id ORDER BY cr.run_seq DESC LIMIT 1)) THEN
+    RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_NOT_SEALED';
+  END IF;
+  SELECT s.* INTO v_smp FROM private.identity_control_sample s
+   WHERE s.interpretation_key=p_interpretation_key
+     AND (SELECT e.status FROM private.identity_control_event e WHERE e.control_run_id=s.control_run_id ORDER BY e.seq DESC LIMIT 1)='sealed';
+  IF FOUND THEN
+    SELECT * INTO v_seal FROM private.identity_control_event WHERE control_run_id=v_smp.control_run_id AND status='sealed';
+    IF v_basis<>'human_sheet' OR v_ctx->>'control_run_id' IS DISTINCT FROM v_smp.control_run_id::text
+       OR v_ctx->>'sheet_sha256' IS DISTINCT FROM v_seal.sheet_sha256 OR v_ctx->>'rows_sha256' IS DISTINCT FROM v_seal.rows_sha256
+       OR p_family_id IS NOT NULL OR (p_action='same') <> (v_ctx ? 'display_position')
+       OR p_expected_version IS DISTINCT FROM v_smp.interpretation_version
+       OR (v_ctx ? 'display_position' AND (v_ctx->>'display_position' !~ '^[1-3]$'
+                                            OR NOT v_smp.mapping ? (v_ctx->>'display_position'))) THEN
+      RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID';
+    END IF;
+    v_family:=CASE WHEN p_action='same' THEN (v_smp.mapping->>(v_ctx->>'display_position'))::bigint END;
+    v_evidence:=v_evidence||jsonb_build_object('control_run_id',v_smp.control_run_id)
+      ||CASE WHEN v_ctx ? 'display_position' THEN jsonb_build_object('display_position',(v_ctx->>'display_position')::int) ELSE '{}'::jsonb END;
+  ELSIF v_ctx ? 'control_run_id' OR v_ctx ? 'display_position' THEN
+    RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID';
+  ELSE
+    v_family:=p_family_id;
+    IF (p_action='same' AND v_family IS NULL) THEN RAISE EXCEPTION 'RELATION_DECISION_INVALID'; END IF;
+  END IF;
   IF p_action='same' THEN
     SELECT i.canonical_person_id INTO v_principal_pid FROM private.interpretation_party_current pc
       JOIN private.source_persona_identity i ON i.source_persona_id=pc.source_persona_id AND i.decision_status='accepted'
@@ -15141,10 +15211,10 @@ BEGIN
     -- Rækkelåse (spec §6.2) før den sidste genberegning af kandidaterne.
     PERFORM private.lock_family_rows(ARRAY(SELECT DISTINCT x FROM unnest(ARRAY[v_principal_pid]||ARRAY(
       SELECT counterpart_person_id FROM private.relation_structural_candidates(p_interpretation_key))) x ORDER BY 1));
-    SELECT count(*) INTO v_n FROM private.relation_structural_candidates(p_interpretation_key) c WHERE c.family_id=p_family_id;
+    SELECT count(*) INTO v_n FROM private.relation_structural_candidates(p_interpretation_key) c WHERE c.family_id=v_family;
     IF v_n<>1 THEN RAISE EXCEPTION 'RELATION_DECISION_FAMILY_INVALID'; END IF;
-    SELECT * INTO v_cand FROM private.relation_structural_candidates(p_interpretation_key) c WHERE c.family_id=p_family_id;
-    v_evidence:=v_evidence||jsonb_build_object('family_id',p_family_id,'counterpart_persona_id',v_cand.counterpart_persona_id);
+    SELECT * INTO v_cand FROM private.relation_structural_candidates(p_interpretation_key) c WHERE c.family_id=v_family;
+    v_evidence:=v_evidence||jsonb_build_object('family_id',v_family,'counterpart_persona_id',v_cand.counterpart_persona_id);
     v_new:=public.red_decide_interpretation(v_ic.id,p_expected_version,'accepted',v_evidence);
     INSERT INTO private.interpretation_party(interpretation_key,party_role,version,source_persona_id,origin,origin_ref)
     VALUES (p_interpretation_key,v_role,
@@ -15158,3 +15228,265 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION red_afgoer_relation_interpretation(uuid,integer,text,bigint,text,jsonb) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION red_afgoer_relation_interpretation(uuid,integer,text,bigint,text,jsonb) TO authenticated;
+
+-- ---------- Trin 5b, Task 6: kontrolkørslen (spec §7) ----------
+CREATE TABLE private.identity_control_run (
+  id                          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_id                   bigint NOT NULL REFERENCES public.source(id),
+  -- Højst én kontrolkørsel pr. kandidatkørsel: registreringen er idempotent, og en tabt svar-
+  -- besked kan ikke efterlade en anden, uforseglet kørsel, der låser stikprøvesagerne (Codex plan-r2 fund 3).
+  candidate_run_id            uuid NOT NULL UNIQUE REFERENCES private.source_persona_identity_candidate_run(id),
+  identity_population_sha256  text NOT NULL CHECK (identity_population_sha256 ~ '^[0-9a-f]{64}$'),
+  relation_population_sha256  text NOT NULL CHECK (relation_population_sha256 ~ '^[0-9a-f]{64}$'),
+  -- Kandidatinputtet (list-mode over alle egnede rang-1-personas) ved registreringen; stabilt under
+  -- arkets afgørelser, men ændres af nye/ændrede personer, familier, samme_som og persona-data.
+  input_list_sha256           text NOT NULL CHECK (input_list_sha256 ~ '^[0-9a-f]{64}$'),
+  created_by                  uuid NOT NULL,
+  created_at                  timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+CREATE TABLE private.identity_control_sample (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  control_run_id         uuid NOT NULL REFERENCES private.identity_control_run(id),
+  sample_kind            text NOT NULL CHECK (sample_kind IN ('identity','relation')),
+  stratum                text NOT NULL CHECK (stratum IN ('single_family','multi_family','relation')),
+  source_persona_id      uuid REFERENCES private.source_persona(id),
+  interpretation_key     uuid,
+  interpretation_version integer,
+  identity_version       integer CHECK (identity_version>=0),   -- identitetens version ved udtrækningen
+  mapping                jsonb NOT NULL CHECK (jsonb_typeof(mapping)='object' AND mapping<>'{}'::jsonb),
+  expected               text NOT NULL,
+  CONSTRAINT identity_control_sample_kind_check CHECK (
+    (sample_kind='identity' AND source_persona_id IS NOT NULL AND identity_version IS NOT NULL
+       AND interpretation_key IS NULL AND interpretation_version IS NULL)
+    OR (sample_kind='relation' AND source_persona_id IS NULL AND identity_version IS NULL
+       AND interpretation_key IS NOT NULL AND interpretation_version IS NOT NULL)),
+  UNIQUE (control_run_id,source_persona_id),
+  UNIQUE (control_run_id,interpretation_key)
+);
+CREATE TABLE private.identity_control_event (
+  control_run_id uuid NOT NULL REFERENCES private.identity_control_run(id),
+  seq            integer NOT NULL CHECK (seq>=1),
+  status         text NOT NULL CHECK (status IN ('sealed','passed','failed')),
+  sheet_sha256   text CHECK (sheet_sha256 IS NULL OR sheet_sha256 ~ '^[0-9a-f]{64}$'),
+  rows_sha256    text CHECK (rows_sha256 IS NULL OR rows_sha256 ~ '^[0-9a-f]{64}$'),
+  reason         text,
+  created_by     uuid NOT NULL,
+  created_at     timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (control_run_id,seq),
+  CONSTRAINT identity_control_event_seal_check CHECK (status<>'sealed' OR (sheet_sha256 IS NOT NULL AND rows_sha256 IS NOT NULL))
+);
+DO $identity_control_tables$
+DECLARE v_table text;
+BEGIN
+  FOREACH v_table IN ARRAY ARRAY['identity_control_run','identity_control_sample','identity_control_event'] LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON private.%I','trg_'||v_table||'_append_only',v_table);
+    EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON private.%I FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation()',
+                   'trg_'||v_table||'_append_only',v_table);
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON private.%I','trg_'||v_table||'_append_only_truncate',v_table);
+    EXECUTE format('CREATE TRIGGER %I BEFORE TRUNCATE ON private.%I FOR EACH STATEMENT EXECUTE FUNCTION private.reject_evidence_mutation()',
+                   'trg_'||v_table||'_append_only_truncate',v_table);
+    EXECUTE format('ALTER TABLE private.%I ENABLE ROW LEVEL SECURITY',v_table);
+    EXECUTE format('REVOKE ALL ON TABLE private.%I FROM PUBLIC,anon,authenticated',v_table);
+  END LOOP;
+END $identity_control_tables$;
+
+CREATE OR REPLACE FUNCTION private.append_control_event(p_control_run_id uuid,p_status text,p_reason text,
+  p_sheet text DEFAULT NULL,p_rows text DEFAULT NULL)
+RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+  INSERT INTO private.identity_control_event(control_run_id,seq,status,sheet_sha256,rows_sha256,reason,created_by)
+  SELECT p_control_run_id,coalesce(max(seq),0)+1,p_status,p_sheet,p_rows,p_reason,auth.uid()
+    FROM private.identity_control_event WHERE control_run_id=p_control_run_id;
+$$;
+REVOKE ALL ON FUNCTION private.append_control_event(uuid,text,text,text,text) FROM PUBLIC,anon,authenticated;
+
+-- Spec §7.2. Beregner status; skriver intet. Seneste failed er terminal.
+-- Kandidatinputtets hash over alle personas med egnet rang-1-kandidat i kørslen (uanset afgørelse).
+-- 'list'-mode filtrerer ikke på afgørelser; nye eller ændrede personer, fakta, familier, samme_som,
+-- hovedpersonens identitet og persona-fortolkninger ændrer hashen (Codex plan-r1 fund 1). Undtagelse:
+-- family_context.spouse_identity_version er personaens EGEN afgørelsesversion og ændres netop af arkets
+-- afgørelser — den udelades, ellers bliver kørslen failed ved første korrekte afgørelse (Codex plan-r2 fund 2).
+CREATE OR REPLACE FUNCTION private.control_input_list_sha256(p_candidate_run_id uuid)
+RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_source bigint; v_ids jsonb; v_in jsonb;
+BEGIN
+  SELECT source_id INTO v_source FROM private.source_persona_identity_candidate_run WHERE id=p_candidate_run_id;
+  SELECT coalesce(jsonb_agg(x.pid ORDER BY x.pid COLLATE "C"),'[]'::jsonb) INTO v_ids
+    FROM (SELECT DISTINCT c.source_persona_id::text AS pid FROM private.source_persona_identity_candidate c
+           WHERE c.run_id=p_candidate_run_id AND c.rank=1 AND (c.basis->>'corroboration_eligible')::boolean IS TRUE) x;
+  IF v_ids='[]'::jsonb THEN RETURN private.reimport_canonical_json_sha256('[]'::jsonb); END IF;
+  v_in:=private.identity_candidate_input(v_source,jsonb_build_object('mode','list','persona_ids',v_ids));
+  -- #- på en sti, der ikke findes (persona uden family_context), er en no-op.
+  RETURN private.reimport_canonical_json_sha256(jsonb_set(v_in,'{personas}',
+    (SELECT jsonb_agg(e #- '{family_context,spouse_identity_version}' ORDER BY o)
+       FROM jsonb_array_elements(v_in->'personas') WITH ORDINALITY t(e,o))));
+END $$;
+REVOKE ALL ON FUNCTION private.control_input_list_sha256(uuid) FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION private.control_run_status(p_control_run_id uuid)
+RETURNS TABLE(status text,reason text) LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE r private.identity_control_run%ROWTYPE; v_last private.identity_control_event%ROWTYPE;
+  v_seal private.identity_control_event%ROWTYPE; smp private.identity_control_sample%ROWTYPE;
+  v_id private.source_persona_identity%ROWTYPE; v_ic private.interpretation_current%ROWTYPE; v_cur uuid; v_wait boolean:=false;
+  v_ev jsonb; v_at timestamptz;
+BEGIN
+  SELECT * INTO r FROM private.identity_control_run WHERE id=p_control_run_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'IDENTITY_CONTROL_RUN_UNKNOWN'; END IF;
+  SELECT * INTO v_last FROM private.identity_control_event e WHERE e.control_run_id=r.id ORDER BY e.seq DESC LIMIT 1;
+  IF v_last.status='failed' THEN RETURN QUERY SELECT 'failed'::text,v_last.reason; RETURN; END IF;
+  SELECT * INTO v_seal FROM private.identity_control_event e WHERE e.control_run_id=r.id AND e.status='sealed';
+  IF NOT FOUND THEN RETURN QUERY SELECT 'not_ready'::text,'ikke_forseglet'::text; RETURN; END IF;
+  SELECT cr.id INTO v_cur FROM private.source_persona_identity_candidate_run cr
+   WHERE cr.source_id=r.source_id ORDER BY cr.run_seq DESC LIMIT 1;
+  IF v_cur IS DISTINCT FROM r.candidate_run_id THEN RETURN QUERY SELECT 'failed'::text,'kandidatkoersel_foraeldet'::text; RETURN; END IF;
+  IF private.control_input_list_sha256(r.candidate_run_id) IS DISTINCT FROM r.input_list_sha256 THEN
+    RETURN QUERY SELECT 'failed'::text,'kandidatinput_aendret'::text; RETURN;
+  END IF;
+  FOR smp IN SELECT * FROM private.identity_control_sample s WHERE s.control_run_id=r.id ORDER BY s.id LOOP
+    IF smp.sample_kind='identity' THEN
+      SELECT * INTO v_id FROM private.source_persona_identity i WHERE i.source_persona_id=smp.source_persona_id;
+      IF coalesce(v_id.version,0)=smp.identity_version AND (v_id.source_persona_id IS NULL OR v_id.decision_status='proposed') THEN
+        v_wait:=true; CONTINUE;
+      END IF;
+      v_ev:=v_id.evidence; v_at:=v_id.decided_at;
+      -- Afgørelsen skal være netop den samplede version + 1 (ingen »vask« via en mellemliggende afgørelse).
+      IF v_id.decision_status<>'accepted' OR v_id.version<>smp.identity_version+1
+         OR v_ev->>'candidate_id' IS DISTINCT FROM smp.expected THEN
+        RETURN QUERY SELECT 'failed'::text,'afvigelse'::text; RETURN;
+      END IF;
+    ELSE
+      SELECT * INTO v_ic FROM private.interpretation_current ic WHERE ic.interpretation_key=smp.interpretation_key;
+      IF v_ic.status='proposed' AND v_ic.version=smp.interpretation_version THEN v_wait:=true; CONTINUE; END IF;
+      v_ev:=v_ic.decision_evidence; v_at:=v_ic.decided_at;
+      IF v_ic.status<>'accepted' OR v_ic.version<>smp.interpretation_version+1 OR v_ev->>'family_id' IS DISTINCT FROM smp.expected THEN
+        RETURN QUERY SELECT 'failed'::text,'afvigelse'::text; RETURN;
+      END IF;
+    END IF;
+    IF v_ev->>'basis' IS DISTINCT FROM 'human_sheet' OR v_ev->>'sheet_sha256' IS DISTINCT FROM v_seal.sheet_sha256
+       OR v_ev->>'rows_sha256' IS DISTINCT FROM v_seal.rows_sha256 OR v_ev->>'control_run_id' IS DISTINCT FROM r.id::text
+       OR v_at<=v_seal.created_at OR smp.mapping->>(v_ev->>'display_position') IS DISTINCT FROM smp.expected THEN
+      RETURN QUERY SELECT 'failed'::text,'afvigelse'::text; RETURN;
+    END IF;
+  END LOOP;
+  IF v_wait THEN RETURN QUERY SELECT 'not_ready'::text,'uafgjort'::text; RETURN; END IF;
+  RETURN QUERY SELECT 'passed'::text,'ok'::text;
+END $$;
+REVOKE ALL ON FUNCTION private.control_run_status(uuid) FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION red_register_identity_control_run(p_candidate_run_id uuid)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_source bigint; v_cur uuid; v_id uuid:=gen_random_uuid(); v_ipop text; v_rpop text; v_run private.source_persona_identity_candidate_run%ROWTYPE;
+  v_existing uuid;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  SELECT source_id INTO v_source FROM private.source_persona_identity_candidate_run WHERE id=p_candidate_run_id;
+  IF v_source IS NULL THEN RAISE EXCEPTION 'IDENTITY_CONTROL_RUN_INVALID'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:'||v_source::text,0));
+  SELECT id INTO v_cur FROM private.source_persona_identity_candidate_run WHERE source_id=v_source ORDER BY run_seq DESC LIMIT 1;
+  IF v_cur IS DISTINCT FROM p_candidate_run_id THEN RAISE EXCEPTION 'IDENTITY_CANDIDATE_RUN_STALE'; END IF;
+  -- Idempotent (UNIQUE candidate_run_id): et gentaget kald returnerer den eksisterende kørsel, uanset
+  -- dens status. Senere inputdrift fanges af statussen (kandidatinput_aendret), ikke her.
+  SELECT id INTO v_existing FROM private.identity_control_run WHERE candidate_run_id=p_candidate_run_id;
+  IF FOUND THEN RETURN v_existing; END IF;
+  -- Kørslens input skal være uændret ved registreringen (samme kontrol som red_record_identity_candidates):
+  -- ellers bygger stikprøven på kandidater, der ikke længere svarer til basen. Registrér straks efter kørslen.
+  SELECT * INTO v_run FROM private.source_persona_identity_candidate_run WHERE id=p_candidate_run_id;
+  IF private.reimport_canonical_json_sha256(private.identity_candidate_input(v_source,v_run.input_spec))<>v_run.input_sha256 THEN
+    RAISE EXCEPTION 'IDENTITY_CONTROL_INPUT_DRIFT';
+  END IF;
+
+  -- DROP før CTAS: et andet kald i samme transaktion må ikke ramme 'already exists' — og
+  -- IF NOT EXISTS ville lydløst genbruge første kalds population.
+  DROP TABLE IF EXISTS pg_temp.ctl_ipop, pg_temp.ctl_rpop;
+  CREATE TEMP TABLE pg_temp.ctl_ipop ON COMMIT DROP AS
+    SELECT c.source_persona_id AS pid, c.id AS cand_id, coalesce(i.version,0) AS ver,
+           CASE WHEN jsonb_array_length(private.persona_family_context(c.source_persona_id)->'families')=1
+                THEN 'single_family' ELSE 'multi_family' END AS stratum,
+           encode(extensions.digest(convert_to(p_candidate_run_id::text||':'||c.source_persona_id::text,'UTF8'),'sha256'),'hex') AS h
+      FROM private.source_persona_identity_candidate c
+      LEFT JOIN private.source_persona_identity i ON i.source_persona_id=c.source_persona_id
+     WHERE c.run_id=p_candidate_run_id AND c.rank=1 AND (c.basis->>'corroboration_eligible')::boolean IS TRUE
+       AND (i.source_persona_id IS NULL OR i.decision_status='proposed');
+  CREATE TEMP TABLE pg_temp.ctl_rpop ON COMMIT DROP AS
+    SELECT ic.interpretation_key AS k, ic.version AS v, min(sc.family_id) AS fam,
+           encode(extensions.digest(convert_to(p_candidate_run_id::text||':'||ic.interpretation_key::text,'UTF8'),'sha256'),'hex') AS h
+      FROM private.interpretation_current ic
+      CROSS JOIN LATERAL private.relation_structural_candidates(ic.interpretation_key) sc
+     WHERE ic.source_id=v_source AND ic.predicate IN ('relation.child','relation.parent') AND ic.status='proposed'
+     GROUP BY ic.interpretation_key,ic.version HAVING count(*)=1;
+  SELECT private.reimport_canonical_json_sha256(coalesce(jsonb_agg(pid::text ORDER BY pid::text COLLATE "C"),'[]'::jsonb)) INTO v_ipop FROM pg_temp.ctl_ipop;
+  SELECT private.reimport_canonical_json_sha256(coalesce(jsonb_agg(k::text ORDER BY k::text COLLATE "C"),'[]'::jsonb)) INTO v_rpop FROM pg_temp.ctl_rpop;
+  INSERT INTO private.identity_control_run(id,source_id,candidate_run_id,identity_population_sha256,relation_population_sha256,
+    input_list_sha256,created_by)
+    VALUES (v_id,v_source,p_candidate_run_id,v_ipop,v_rpop,private.control_input_list_sha256(p_candidate_run_id),auth.uid());
+
+  -- Identitetsstikprøve: ceil(k·n_s/N) pr. stratum (planlægnings-ruling), blandet mapping pr. sag.
+  -- Mappingen rummer kun rang 1–3 (spec §7.1: visningsplads 1–3), uanset generatorens --top-k.
+  INSERT INTO private.identity_control_sample(control_run_id,sample_kind,stratum,source_persona_id,identity_version,mapping,expected)
+  SELECT v_id,'identity',x.stratum,x.pid,x.ver,
+         (SELECT jsonb_object_agg(m.pos::text,m.cid::text) FROM (
+            SELECT c2.id AS cid,row_number() OVER (ORDER BY encode(extensions.digest(convert_to(v_id::text||':'||c2.id::text,'UTF8'),'sha256'),'hex')) AS pos
+              FROM private.source_persona_identity_candidate c2
+             WHERE c2.run_id=p_candidate_run_id AND c2.source_persona_id=x.pid AND c2.rank<=3) m),
+         x.cand_id::text
+    FROM (SELECT p.*,row_number() OVER (PARTITION BY p.stratum ORDER BY p.h) AS rn,
+                 count(*) OVER (PARTITION BY p.stratum) AS ns,count(*) OVER () AS n
+            FROM pg_temp.ctl_ipop p) x
+   WHERE x.rn<=ceil(least(x.n,greatest(10,ceil(0.1*x.n)))::numeric*x.ns/x.n);
+  -- Relationsstikprøve: ét stratum; én kandidat-familie → plads 1.
+  INSERT INTO private.identity_control_sample(control_run_id,sample_kind,stratum,interpretation_key,interpretation_version,mapping,expected)
+  SELECT v_id,'relation','relation',x.k,x.v,jsonb_build_object('1',x.fam::text),x.fam::text
+    FROM (SELECT p.*,row_number() OVER (ORDER BY p.h) AS rn,count(*) OVER () AS n FROM pg_temp.ctl_rpop p) x
+   WHERE x.rn<=least(x.n,greatest(10,ceil(0.1*x.n)));
+  RETURN v_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_identity_control_sample(p_control_run_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  -- 'expected' udleveres aldrig: arket skal være blindt (spec §7.3).
+  RETURN (SELECT jsonb_build_object('control_run_id',r.id,'candidate_run_id',r.candidate_run_id,
+      'samples',coalesce((SELECT jsonb_agg(jsonb_build_object('sample_id',s.id,'sample_kind',s.sample_kind,'stratum',s.stratum,
+          'source_persona_id',s.source_persona_id,'interpretation_key',s.interpretation_key,
+          'interpretation_version',s.interpretation_version,'identity_version',s.identity_version,'mapping',s.mapping) ORDER BY s.id)
+        FROM private.identity_control_sample s WHERE s.control_run_id=r.id),'[]'::jsonb))
+    FROM private.identity_control_run r WHERE r.id=p_control_run_id);
+END $$;
+
+CREATE OR REPLACE FUNCTION red_seal_identity_control_run(p_control_run_id uuid,p_sheet_sha256 text,p_rows_sha256 text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  IF coalesce(p_sheet_sha256,'') !~ '^[0-9a-f]{64}$' OR coalesce(p_rows_sha256,'') !~ '^[0-9a-f]{64}$' THEN
+    RAISE EXCEPTION 'IDENTITY_CONTROL_RUN_INVALID';
+  END IF;
+  PERFORM 1 FROM private.identity_control_run WHERE id=p_control_run_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'IDENTITY_CONTROL_RUN_UNKNOWN'; END IF;
+  IF EXISTS (SELECT 1 FROM private.identity_control_event WHERE control_run_id=p_control_run_id) THEN
+    RAISE EXCEPTION 'IDENTITY_CONTROL_RUN_STATE_INVALID: allerede forseglet';
+  END IF;
+  PERFORM private.append_control_event(p_control_run_id,'sealed',NULL,p_sheet_sha256,p_rows_sha256);
+END $$;
+
+CREATE OR REPLACE FUNCTION red_evaluate_identity_control_run(p_control_run_id uuid)
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_source bigint; v_status text; v_reason text; v_last text;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  SELECT source_id INTO v_source FROM private.identity_control_run WHERE id=p_control_run_id;
+  IF v_source IS NULL THEN RAISE EXCEPTION 'IDENTITY_CONTROL_RUN_UNKNOWN'; END IF;
+  -- Eksklusiv kildelås: ingen menneskelig afgørelse (delt lås) kan interleave (spec §7.2).
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:'||v_source::text,0));
+  PERFORM 1 FROM private.identity_control_run WHERE id=p_control_run_id FOR UPDATE;
+  SELECT s.status,s.reason INTO v_status,v_reason FROM private.control_run_status(p_control_run_id) s;
+  SELECT e.status INTO v_last FROM private.identity_control_event e WHERE e.control_run_id=p_control_run_id ORDER BY e.seq DESC LIMIT 1;
+  IF v_status IN ('passed','failed') AND v_last IS DISTINCT FROM v_status THEN
+    PERFORM private.append_control_event(p_control_run_id,v_status,v_reason);
+  END IF;
+  RETURN v_status;
+END $$;
+
+REVOKE ALL ON FUNCTION red_register_identity_control_run(uuid),red_identity_control_sample(uuid),
+  red_seal_identity_control_run(uuid,text,text),red_evaluate_identity_control_run(uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_register_identity_control_run(uuid),red_identity_control_sample(uuid),
+  red_seal_identity_control_run(uuid,text,text),red_evaluate_identity_control_run(uuid) TO authenticated;

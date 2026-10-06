@@ -2954,6 +2954,7 @@ DECLARE
     'public.red_decide_source_record_placement(uuid,integer,text,jsonb)'::regprocedure,
     'public.red_edit_oplysning(bigint,text,text,text)'::regprocedure,
     'public.red_erstat_media_fil(bigint,text,text,bigint,integer,integer,text,text,jsonb)'::regprocedure,
+    'public.red_evaluate_identity_control_run(uuid)'::regprocedure,
     'public.red_finalize_1939_v50_name_completion(uuid)'::regprocedure,
     'public.red_finalize_1939_v50_reimport(uuid)'::regprocedure,
     'public.red_finalize_reimport(uuid)'::regprocedure,
@@ -2967,6 +2968,8 @@ DECLARE
     'public.red_fortryd_person_narrative_publication_event(uuid,text)'::regprocedure,
     'public.red_genopret_media(bigint)'::regprocedure,
     'public.red_identity_candidate_input(bigint,jsonb)'::regprocedure,
+    'public.red_identity_control_sample(uuid)'::regprocedure,
+    'public.red_register_identity_control_run(uuid)'::regprocedure,
     'public.red_relation_persona_input(bigint)'::regprocedure,
     'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
     'public.red_kasser_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
@@ -3007,6 +3010,7 @@ DECLARE
     'public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)'::regprocedure,
     'public.red_saet_portraet(bigint,bigint)'::regprocedure,
     'public.red_samme_som(bigint,bigint)'::regprocedure,
+    'public.red_seal_identity_control_run(uuid,text,text)'::regprocedure,
     'public.red_set_familie_konfidens(bigint,bigint,text,text)'::regprocedure,
     'public.red_set_familie_ordinal(bigint,bigint,text,integer)'::regprocedure,
     'public.red_set_feed_pin(text,text)'::regprocedure,
@@ -4956,6 +4960,22 @@ BEGIN
     RAISE EXCEPTION 'EVIDENCE_RELATION_PARTY_GRANT';
   END IF;
 END $relation_party_verify$;
+
+-- Trin 5b (spec §7): kontrolkørslens tre tabeller findes, har RLS og er lukket for klientroller.
+DO $identity_control_verify$
+DECLARE v_table text;
+BEGIN
+  FOREACH v_table IN ARRAY ARRAY['identity_control_run','identity_control_sample','identity_control_event'] LOOP
+    IF to_regclass('private.'||v_table) IS NULL THEN RAISE EXCEPTION 'EVIDENCE_IDENTITY_CONTROL_MISSING: %',v_table; END IF;
+    IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid=('private.'||v_table)::regclass) THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_CONTROL_RLS_OFF: %',v_table;
+    END IF;
+    IF has_table_privilege('authenticated','private.'||v_table,'SELECT')
+       OR has_table_privilege('anon','private.'||v_table,'SELECT') THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_CONTROL_GRANT: %',v_table;
+    END IF;
+  END LOOP;
+END $identity_control_verify$;
 
 -- Preview må aldrig kunne promovere mod en revision, der skifter efter preview.
 -- Denne er en reel to-sessions-test: A afgør den accepterede fortolkning igen,

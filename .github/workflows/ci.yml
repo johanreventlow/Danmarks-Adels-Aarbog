@@ -212,6 +212,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-relation-party.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-relation-family-context.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-relation-decision.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/test-identity-control-run.sql
           sed -n '/^-- BEGIN 5a-cutover/,/^-- END 5a-cutover/p' db-migrations.sql > /tmp/cutover-5a.sql
           psql -v ON_ERROR_STOP=1 -v cutover=/tmp/cutover-5a.sql -f tests/sql/test-identity-cutover.sql
           python3 .claude/skills/daa-extract/scripts/check_interpretation_predicates.py

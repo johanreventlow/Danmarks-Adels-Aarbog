@@ -27,6 +27,7 @@ begin
     'interpretation_promotion_batch','interpretation_promotion',
     'source_persona_identity','source_persona_identity_event',
     'source_persona_identity_candidate_run','source_persona_identity_candidate','person_create_receipt','interpretation_party',
+    'identity_control_run','identity_control_sample','identity_control_event',
     'narrative_record_publication','narrative_publication_event',
     'narrative_legacy_publication'
   ] loop
@@ -680,6 +681,7 @@ BEGIN
     'public.red_decide_source_record_placement(uuid,integer,text,jsonb)',
     'public.red_edit_oplysning(bigint,text,text,text)',
     'public.red_erstat_media_fil(bigint,text,text,bigint,integer,integer,text,text,jsonb)',
+    'public.red_evaluate_identity_control_run(uuid)',
     'public.red_fjern_feed_pin(text)',
     'public.red_fjern_ikke_samme_som(bigint)',
     'public.red_fjern_media(bigint)',
@@ -688,6 +690,8 @@ BEGIN
     'public.red_fortryd_change_set(bigint,boolean)',
     'public.red_genopret_media(bigint)',
     'public.red_identity_candidate_input(bigint,jsonb)',
+    'public.red_identity_control_sample(uuid)',
+    'public.red_register_identity_control_run(uuid)',
     'public.red_relation_persona_input(bigint)',
     'public.red_ikke_samme_som(bigint,bigint)',
     'public.red_match_personer()',
@@ -716,6 +720,7 @@ BEGIN
     'public.red_ret_ocr_felt(bigint,text,text,text,text,jsonb,text,text)',
     'public.red_saet_portraet(bigint,bigint)',
     'public.red_samme_som(bigint,bigint)',
+    'public.red_seal_identity_control_run(uuid,text,text)',
     'public.red_set_familie_konfidens(bigint,bigint,text,text)',
     'public.red_set_familie_ordinal(bigint,bigint,text,integer)',
     'public.red_set_feed_pin(text,text)',
