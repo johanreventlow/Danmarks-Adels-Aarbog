@@ -687,6 +687,7 @@ BEGIN
     'public.red_fortryd_change_set(bigint,boolean)',
     'public.red_genopret_media(bigint)',
     'public.red_identity_candidate_input(bigint,jsonb)',
+    'public.red_relation_persona_input(bigint)',
     'public.red_ikke_samme_som(bigint,bigint)',
     'public.red_match_personer()',
     'public.red_ocr_historik(text,text,text)',
@@ -1270,6 +1271,7 @@ REVOKE ALL ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,
   public.red_apply_reimport_clause_evidence(uuid,text,jsonb),
   public.red_apply_reimport_clause_revision(uuid,text,jsonb),
   public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb),
+  public.red_apply_reimport_relation_persona(uuid,text,jsonb),
   public.red_finalize_reimport(uuid),public.red_reimport_batch_result(uuid,uuid),
   public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_reverse_reimport(uuid,uuid),
   public.red_authorize_reimport_cutover(uuid,uuid,timestamptz),public.red_activate_reimport_batch(uuid,uuid),public.red_apply_reimport_canonical_delta(uuid,text,jsonb),
@@ -1286,6 +1288,7 @@ GRANT EXECUTE ON FUNCTION public.red_preflight_reimport_authorization(uuid,text,
   public.red_apply_reimport_clause_evidence(uuid,text,jsonb),
   public.red_apply_reimport_clause_revision(uuid,text,jsonb),
   public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb),
+  public.red_apply_reimport_relation_persona(uuid,text,jsonb),
   public.red_finalize_reimport(uuid),public.red_reimport_batch_result(uuid,uuid),
   public.red_reverse_reimport(uuid,uuid),public.red_activate_reimport_batch(uuid,uuid),public.red_apply_reimport_canonical_delta(uuid,text,jsonb),
   public.red_lock_reimport_name_completion(text,bigint,text),public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb),
@@ -1552,7 +1555,7 @@ BEGIN
   -- (a) allow-listens 74, leveret af blokken selv — aldrig duplikeret her.
   INSERT INTO red_surface_expected(signature) SELECT signature FROM pg_temp.red_allow_list;
 
-  -- (b) 25 writer-signaturer fra senere, formaalsbestemte blokke. Versions-UAFHAENGIGE:
+  -- (b) 26 writer-signaturer fra senere, formaalsbestemte blokke. Versions-UAFHAENGIGE:
   --     maalt identisk paa en v1- og en v2-base 2026-09-20.
   INSERT INTO red_surface_expected(signature) VALUES
     ('public.red_activate_1939_v50_batch(uuid,uuid)'),
@@ -1564,6 +1567,7 @@ BEGIN
     ('public.red_apply_reimport_clause_evidence(uuid,text,jsonb)'),
     ('public.red_apply_reimport_clause_revision(uuid,text,jsonb)'),
     ('public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)'),
+    ('public.red_apply_reimport_relation_persona(uuid,text,jsonb)'),
     ('public.red_apply_reimport_legacy_migration(uuid,text,jsonb)'),
     ('public.red_apply_reimport_name_completion(uuid,text,jsonb)'),
     ('public.red_apply_reimport_person_create(uuid,text,jsonb)'),

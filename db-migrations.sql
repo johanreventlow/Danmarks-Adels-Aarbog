@@ -18712,6 +18712,350 @@ CREATE TRIGGER trg_interpretation_party_no_truncate BEFORE TRUNCATE ON private.i
 ALTER TABLE private.interpretation_party ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE private.interpretation_party FROM PUBLIC,anon,authenticated;
 REVOKE ALL ON private.interpretation_party_current FROM PUBLIC,anon,authenticated;
+DO $relation_persona_operation_check$ BEGIN
+  PERFORM private.ensure_reimport_operations(ARRAY['relation_persona']);
+END $relation_persona_operation_check$;
+
+-- Trin 5b (#151): serverens ægteskabsnummer. Rang efter (post_offset, spændlængde,
+-- interpretation_key) over ALLE ikke-afviste ægteskabspåstande i posten — også dem,
+-- udtrækket parkerer — så numrene ikke flytter sig mellem kørsler (spec §5.1).
+CREATE OR REPLACE FUNCTION private.relation_marriage_ordinals(p_occurrence uuid)
+RETURNS TABLE(interpretation_key uuid, marriage_ordinal integer, post_offset integer)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+  WITH m AS (
+    SELECT ic.interpretation_key, ic.value->>'raw' AS raw,
+           co.post_char_from+nullif(strpos(co.verbatim_text,ic.value->>'raw'),0)-1 AS post_offset
+      FROM private.interpretation_current ic
+      JOIN private.interpretation_observation io ON io.interpretation_id=ic.id AND io.evidence_role='supporting' AND io.ordinal=1
+      JOIN private.clause_observation_current co ON co.id=io.observation_id
+     WHERE ic.predicate='relation.marriage' AND ic.status<>'rejected' AND co.occurrence_id=p_occurrence)
+  SELECT m.interpretation_key,
+         (row_number() OVER (ORDER BY m.post_offset NULLS LAST,char_length(m.raw),m.interpretation_key::text COLLATE "C"))::integer,
+         m.post_offset
+    FROM m;
+$$;
+REVOKE ALL ON FUNCTION private.relation_marriage_ordinals(uuid) FROM PUBLIC,anon,authenticated;
+
+-- Udtrækkets input: gældende relationspåstande uden gældende parter, med den citerede
+-- klausul læst udelukkende fra clause_observation_current (spec §5.1).
+CREATE OR REPLACE FUNCTION private.relation_persona_input(p_source_id bigint)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+  SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY x.record_key COLLATE "C",x.interpretation_key COLLATE "C"),'[]'::jsonb)
+  FROM (
+    SELECT ic.interpretation_key::text AS interpretation_key, ic.version AS interpretation_version, ic.predicate,
+           ic.value->>'raw' AS raw, rec.record_key, rec.occurrence_id::text AS occurrence_id,
+           (SELECT o.marriage_ordinal FROM private.relation_marriage_ordinals(rec.occurrence_id) o
+             WHERE o.interpretation_key=ic.interpretation_key) AS marriage_ordinal,
+           (SELECT count(*) FROM private.interpretation_observation io
+             WHERE io.interpretation_id=ic.id AND io.evidence_role='supporting') AS supporting_count,
+           coalesce((SELECT jsonb_agg(jsonb_build_object(
+                'observation_id',co.id::text,'verbatim_text',co.verbatim_text,
+                'post_char_from',co.post_char_from,'post_char_to',co.post_char_to,
+                'clause_set_seq',coalesce(co.clause_set_seq,1),
+                'clause_set_sha256',private.clause_set_sha256(co.parent_observation_id,coalesce(co.clause_set_seq,1)))
+              ORDER BY co.clause_ordinal)
+              FROM private.interpretation_observation io
+              JOIN private.clause_observation_current co ON co.id=io.observation_id
+             WHERE io.interpretation_id=ic.id AND io.evidence_role='supporting'),'[]'::jsonb) AS clauses
+      FROM private.interpretation_current ic
+      JOIN LATERAL (SELECT sr.record_key, o.occurrence_id FROM private.interpretation_observation io
+                      JOIN private.source_observation o ON o.id=io.observation_id
+                      JOIN private.source_record_anchor_current ac ON ac.occurrence_id=o.occurrence_id AND ac.decision_status='accepted'
+                      JOIN private.source_record sr ON sr.id=ac.source_record_id
+                     WHERE io.interpretation_id=ic.id AND io.evidence_role='supporting'
+                     ORDER BY io.ordinal LIMIT 1) rec ON true
+     WHERE ic.source_id=p_source_id
+       AND ic.predicate IN ('relation.marriage','relation.child','relation.parent')
+       AND ic.status IN ('proposed','accepted')
+       AND NOT EXISTS (SELECT 1 FROM private.interpretation_party_current pc
+                        WHERE pc.interpretation_key=ic.interpretation_key AND pc.source_persona_id IS NOT NULL)
+  ) x;
+$$;
+REVOKE ALL ON FUNCTION private.relation_persona_input(bigint) FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION red_relation_persona_input(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_input jsonb;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  v_input:=private.relation_persona_input(p_source_id);
+  RETURN jsonb_build_object('input_sha256',private.reimport_canonical_json_sha256(v_input),'input',v_input);
+END $$;
+REVOKE ALL ON FUNCTION red_relation_persona_input(bigint) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_relation_persona_input(bigint) TO authenticated;
+
+CREATE OR REPLACE FUNCTION private.write_relation_persona(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE
+  v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE;
+  v_interp private.interpretation%ROWTYPE; v_clause private.source_observation%ROWTYPE;
+  v_record_key text; v_principal uuid; v_principal_n integer; v_spouse uuid; v_mention uuid; v_run uuid; v_run_key text;
+  v_raw text; v_ordinal integer; v_year_ids uuid[]:='{}'; v_year_id uuid; v_pred text; v_year text; v_receipt jsonb;
+  v_hash text; v_marriage boolean; v_from integer; v_to integer; v_name_from integer; v_name_to integer;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_batch:=private.require_reimport_open_batch(p_batch_id);
+  PERFORM private.require_reimport_writer_editor();
+  PERFORM private.lock_reimport_writer(v_batch.source_id,v_batch.profile_id);
+  -- Nye personas ændrer kandidatinputtet: delt kildelås, så de eksklusive maskin-RPC'er
+  -- (kandidatkørsel, kontrolregistrering, bekræftelse) aldrig løber samtidig med writeren.
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-identity-candidates:'||v_batch.source_id::text,0));
+  SELECT * INTO v_auth FROM private.reimport_authorization WHERE id=v_batch.authorization_id;
+  IF NOT FOUND OR NOT v_auth.authorized_elements ? p_element_id
+     OR v_auth.authorized_elements->p_element_id IS DISTINCT FROM p_payload THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_ELEMENT_NOT_AUTHORIZED';
+  END IF;
+  v_marriage:=p_payload->>'predicate'='relation.marriage';
+  IF jsonb_typeof(p_payload)<>'object'
+     OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(p_payload) k)
+        <> ARRAY['birth_raw','clause_observation_id','clause_set_seq','clause_set_sha256','death_raw','interpretation_key',
+                 'interpretation_version','marriage_ordinal','name_from','name_to','post_offset','predicate','profile',
+                 'span_from','span_to']
+     OR p_element_id<>'relation-persona:'||coalesce(p_payload->>'interpretation_key','')
+     OR coalesce(p_payload->>'predicate','') NOT IN ('relation.marriage','relation.child','relation.parent')
+     OR p_payload->>'profile' IS DISTINCT FROM 'relation-persona-2018-20-v1'
+     OR coalesce(p_payload->>'clause_set_sha256','') !~ '^[0-9a-f]{64}$'
+     OR EXISTS (SELECT 1 FROM unnest(ARRAY['interpretation_version','clause_set_seq','post_offset','span_from','span_to']) k
+                 WHERE jsonb_typeof(p_payload->k)<>'number' OR (p_payload->>k) !~ '^[0-9]+$')
+     OR (v_marriage AND EXISTS (SELECT 1 FROM unnest(ARRAY['marriage_ordinal','name_from','name_to']) k
+                                 WHERE jsonb_typeof(p_payload->k)<>'number' OR (p_payload->>k) !~ '^[0-9]+$'))
+     OR (NOT v_marriage AND EXISTS (SELECT 1 FROM unnest(ARRAY['marriage_ordinal','name_from','name_to','birth_raw','death_raw']) k
+                                     WHERE jsonb_typeof(p_payload->k)<>'null'))
+     OR EXISTS (SELECT 1 FROM unnest(ARRAY['birth_raw','death_raw']) k
+                 WHERE jsonb_typeof(p_payload->k) NOT IN ('string','null')
+                    OR (jsonb_typeof(p_payload->k)='string' AND p_payload->>k !~ '^[0-9]{4}$')) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_INVALID';
+  END IF;
+  v_from:=(p_payload->>'span_from')::integer; v_to:=(p_payload->>'span_to')::integer;
+
+  SELECT * INTO v_interp FROM private.interpretation_current
+   WHERE interpretation_key=(p_payload->>'interpretation_key')::uuid;
+  IF NOT FOUND OR v_interp.source_id<>v_batch.source_id OR v_interp.version<>(p_payload->>'interpretation_version')::integer
+     OR v_interp.predicate<>p_payload->>'predicate' OR v_interp.status NOT IN ('proposed','accepted') THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_DRIFT';
+  END IF;
+  PERFORM 1 FROM private.interpretation WHERE id=v_interp.id FOR SHARE;
+  IF EXISTS (SELECT 1 FROM private.interpretation_party_current
+              WHERE interpretation_key=v_interp.interpretation_key AND source_persona_id IS NOT NULL) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_EXISTS';
+  END IF;
+
+  IF (SELECT count(*) FROM private.interpretation_observation
+       WHERE interpretation_id=v_interp.id AND evidence_role='supporting')<>1 THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_CLAUSE_INVALID';
+  END IF;
+  SELECT co.* INTO v_clause FROM private.clause_observation_current co
+    JOIN private.interpretation_observation io
+      ON io.observation_id=co.id AND io.interpretation_id=v_interp.id AND io.evidence_role='supporting'
+   WHERE co.id=(p_payload->>'clause_observation_id')::uuid;
+  IF NOT FOUND OR coalesce(v_clause.clause_set_seq,1)<>(p_payload->>'clause_set_seq')::integer
+     OR private.clause_set_sha256(v_clause.parent_observation_id,coalesce(v_clause.clause_set_seq,1))
+        IS DISTINCT FROM p_payload->>'clause_set_sha256' THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_CLAUSE_INVALID';
+  END IF;
+
+  v_raw:=v_interp.value->>'raw';
+  IF v_to-v_from<>char_length(v_raw)
+     OR substr(v_clause.verbatim_text,v_from+1,v_to-v_from)<>v_raw
+     OR (char_length(v_clause.verbatim_text)-char_length(replace(v_clause.verbatim_text,v_raw,'')))/char_length(v_raw)<>1
+     OR (p_payload->>'post_offset')::integer<>v_clause.post_char_from+v_from THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_SPAN_INVALID';
+  END IF;
+
+  -- Hovedpersonen (spec §22.1): eneste primary-mention på helposten, accepteret identitet.
+  SELECT count(*),min(spm.persona_id::text)::uuid INTO v_principal_n,v_principal
+    FROM private.source_mention sm
+    JOIN private.source_persona_mention spm ON spm.mention_id=sm.id AND spm.mention_role='primary'
+   WHERE sm.observation_id=v_clause.parent_observation_id;
+  IF v_principal_n<>1 OR NOT EXISTS (SELECT 1 FROM private.source_persona_identity
+                                      WHERE source_persona_id=v_principal AND decision_status='accepted') THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_PRINCIPAL_INVALID';
+  END IF;
+  SELECT sr.record_key INTO v_record_key FROM private.source_record_anchor_current ac
+    JOIN private.source_record sr ON sr.id=ac.source_record_id
+   WHERE ac.occurrence_id=v_clause.occurrence_id AND ac.decision_status='accepted';
+
+  IF v_marriage THEN
+    v_name_from:=(p_payload->>'name_from')::integer; v_name_to:=(p_payload->>'name_to')::integer;
+    SELECT o.marriage_ordinal INTO v_ordinal FROM private.relation_marriage_ordinals(v_clause.occurrence_id) o
+     WHERE o.interpretation_key=v_interp.interpretation_key;
+    IF v_ordinal IS DISTINCT FROM (p_payload->>'marriage_ordinal')::integer
+       OR v_name_from<v_from OR v_name_to>v_to OR v_name_to<=v_name_from THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_SPAN_INVALID';
+    END IF;
+  END IF;
+
+  v_run_key:='relation-persona:'||(p_payload->>'profile')||':'||v_batch.manifest_sha256;
+  INSERT INTO private.extraction_run(source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+  VALUES (v_batch.source_id,v_run_key,'relation-persona-v1',p_payload->>'profile',p_payload->>'profile',
+          v_batch.manifest_sha256,jsonb_build_object('batch_id',p_batch_id))
+  ON CONFLICT (source_id,run_key) DO NOTHING;
+  SELECT id INTO v_run FROM private.extraction_run
+   WHERE source_id=v_batch.source_id AND run_key=v_run_key AND schema_version='relation-persona-v1'
+     AND input_sha256=v_batch.manifest_sha256 AND manifest=jsonb_build_object('batch_id',p_batch_id);
+  IF v_run IS NULL THEN RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_RUN_DRIFT'; END IF;
+
+  IF v_marriage THEN
+    INSERT INTO private.source_persona(source_id,persona_key,created_run_id)
+      VALUES (v_batch.source_id,v_record_key||'#rel-marriage-'||(p_payload->>'post_offset')||'-'||char_length(v_raw),v_run)
+      RETURNING id INTO v_spouse;
+    INSERT INTO private.source_mention(observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id)
+      VALUES (v_clause.id,'person',v_name_from,v_name_to,
+              substr(v_clause.verbatim_text,v_name_from+1,v_name_to-v_name_from),v_run)
+      RETURNING id INTO v_mention;
+    INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
+      VALUES (v_spouse,v_mention,'spouse',1);
+    FOREACH v_pred IN ARRAY ARRAY['person.birth','person.death'] LOOP
+      v_year:=p_payload->>(CASE v_pred WHEN 'person.birth' THEN 'birth_raw' ELSE 'death_raw' END);
+      CONTINUE WHEN v_year IS NULL;
+      -- Året skal stå i ægtefællens eget segment (efter navnet, inden for spændet).
+      IF strpos(substr(v_clause.verbatim_text,v_name_to+1,v_to-v_name_to),v_year)=0 THEN
+        RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_YEAR_INVALID';
+      END IF;
+      v_year_id:=gen_random_uuid();
+      INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,
+        predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id)
+      VALUES (v_year_id,private.deterministic_uuid(jsonb_build_object('kind','relation-persona-year',
+                'interpretation_key',v_interp.interpretation_key,'predicate',v_pred)::text),
+              1,v_batch.source_id,v_spouse,'property',v_pred,to_jsonb(v_year),'relation-persona-v1',
+              'deterministic',1,'proposed','relation-persona-v1',v_run);
+      INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal)
+        VALUES (v_year_id,v_clause.id,'supporting',1);
+      v_year_ids:=v_year_ids||v_year_id;
+    END LOOP;
+  END IF;
+
+  INSERT INTO private.interpretation_party(interpretation_key,party_role,version,source_persona_id,post_offset,origin,origin_ref)
+  VALUES (v_interp.interpretation_key,'principal',
+          (SELECT coalesce(max(version),0)+1 FROM private.interpretation_party
+            WHERE interpretation_key=v_interp.interpretation_key AND party_role='principal'),
+          v_principal,(p_payload->>'post_offset')::integer,'relation_persona',p_batch_id);
+  IF v_marriage THEN
+    INSERT INTO private.interpretation_party(interpretation_key,party_role,version,source_persona_id,marriage_ordinal,
+      post_offset,origin,origin_ref)
+    VALUES (v_interp.interpretation_key,'spouse',
+            (SELECT coalesce(max(version),0)+1 FROM private.interpretation_party
+              WHERE interpretation_key=v_interp.interpretation_key AND party_role='spouse'),
+            v_spouse,v_ordinal,(p_payload->>'post_offset')::integer,'relation_persona',p_batch_id);
+  END IF;
+
+  v_receipt:=jsonb_build_object('schema','relation-persona-receipt-v1',
+    'principal_source_persona_id',v_principal,'spouse_source_persona_id',v_spouse,'mention_id',v_mention,
+    'year_interpretation_ids',coalesce((SELECT jsonb_agg(y::text ORDER BY y::text COLLATE "C") FROM unnest(v_year_ids) y),'[]'::jsonb),
+    'party_keys',(SELECT jsonb_agg(jsonb_build_array(pc.interpretation_key::text,pc.party_role,pc.version)
+                                   ORDER BY pc.party_role COLLATE "C")
+                    FROM private.interpretation_party_current pc WHERE pc.interpretation_key=v_interp.interpretation_key));
+  v_hash:=private.reimport_canonical_json_sha256(v_receipt);
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256)
+  VALUES (p_batch_id,p_element_id,'relation_persona',v_record_key,
+          p_payload||jsonb_build_object('result_receipt',v_receipt),v_hash);
+  RETURN jsonb_build_object('result_receipt_sha256',v_hash,'spouse_source_persona_id',v_spouse);
+END $$;
+REVOKE ALL ON FUNCTION private.write_relation_persona(uuid,text,jsonb) FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION public.red_apply_reimport_relation_persona(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  RETURN private.write_relation_persona(p_batch_id,p_element_id,p_payload);
+END $$;
+REVOKE ALL ON FUNCTION public.red_apply_reimport_relation_persona(uuid,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_apply_reimport_relation_persona(uuid,text,jsonb) TO authenticated;
+
+-- Finalisering: receiptet læses fra payload->'result_receipt', hashen genberegnes, og hvert
+-- id efterprøves mod databasen (spec §5.2.1). Prædikatbetinget: kun ægteskaber har ny persona.
+CREATE OR REPLACE FUNCTION private.verify_relation_persona_receipts(p_batch_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE e private.reimport_event%ROWTYPE; r jsonb; v_run uuid; v_key uuid;
+BEGIN
+  SELECT er.id INTO v_run FROM private.extraction_run er JOIN private.reimport_batch b ON b.id=p_batch_id
+   WHERE er.source_id=b.source_id AND er.schema_version='relation-persona-v1' AND er.input_sha256=b.manifest_sha256
+     AND er.manifest=jsonb_build_object('batch_id',p_batch_id);
+  FOR e IN SELECT * FROM private.reimport_event WHERE batch_id=p_batch_id AND operation='relation_persona' ORDER BY id LOOP
+    r:=e.payload->'result_receipt'; v_key:=(e.payload->>'interpretation_key')::uuid;
+    IF r IS NULL OR private.reimport_canonical_json_sha256(r)<>e.after_sha256
+       OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(r) k)
+          <>ARRAY['mention_id','party_keys','principal_source_persona_id','schema','spouse_source_persona_id','year_interpretation_ids']
+       OR r->>'schema'<>'relation-persona-receipt-v1' OR jsonb_typeof(r->'year_interpretation_ids')<>'array'
+       OR NOT EXISTS (SELECT 1 FROM private.interpretation_party pc
+                       WHERE pc.interpretation_key=v_key AND pc.party_role='principal' AND pc.origin_ref=p_batch_id
+                         AND pc.source_persona_id=(r->>'principal_source_persona_id')::uuid)
+       OR NOT EXISTS (SELECT 1 FROM private.source_persona_identity i
+                       WHERE i.source_persona_id=(r->>'principal_source_persona_id')::uuid AND i.decision_status='accepted')
+       -- party_keys = præcis de parter, batchen skrev for påstanden (Codex plan-r1 fund 4)
+       OR r->'party_keys' IS DISTINCT FROM (SELECT jsonb_agg(jsonb_build_array(pc.interpretation_key::text,pc.party_role,pc.version)
+                                                   ORDER BY pc.party_role COLLATE "C")
+                                              FROM private.interpretation_party pc
+                                             WHERE pc.interpretation_key=v_key AND pc.origin_ref=p_batch_id) THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_RECEIPT_INVALID: %',e.element_id;
+    END IF;
+    IF e.payload->>'predicate'='relation.marriage' THEN
+      IF NOT EXISTS (SELECT 1 FROM private.source_persona p WHERE p.id=(r->>'spouse_source_persona_id')::uuid AND p.created_run_id=v_run)
+         OR NOT EXISTS (SELECT 1 FROM private.source_mention m WHERE m.id=(r->>'mention_id')::uuid AND m.created_run_id=v_run
+                         AND m.observation_id=(e.payload->>'clause_observation_id')::uuid
+                         AND m.char_from=(e.payload->>'name_from')::integer AND m.char_to=(e.payload->>'name_to')::integer)
+         OR NOT EXISTS (SELECT 1 FROM private.interpretation_party pc
+                         WHERE pc.interpretation_key=v_key AND pc.party_role='spouse' AND pc.origin_ref=p_batch_id
+                           AND pc.source_persona_id=(r->>'spouse_source_persona_id')::uuid
+                           AND pc.marriage_ordinal=(e.payload->>'marriage_ordinal')::integer)
+         -- årene: præcis ét pr. ikke-NULL år i payloaden, og præcis alle runnens årfortolkninger for personaen,
+         -- hver med rigtigt prædikat og citation af den autoriserede klausul (Codex plan-r1 fund 4)
+         OR jsonb_array_length(r->'year_interpretation_ids')
+            <>(e.payload->>'birth_raw' IS NOT NULL)::int+(e.payload->>'death_raw' IS NOT NULL)::int
+         OR r->'year_interpretation_ids' IS DISTINCT FROM coalesce((SELECT jsonb_agg(i.id::text ORDER BY i.id::text COLLATE "C")
+                                                                     FROM private.interpretation i
+                                                                    WHERE i.extraction_run_id=v_run
+                                                                      AND i.source_persona_id=(r->>'spouse_source_persona_id')::uuid),'[]'::jsonb)
+         OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(r->'year_interpretation_ids') y
+                     WHERE NOT EXISTS (SELECT 1 FROM private.interpretation i
+                                         JOIN private.interpretation_observation io ON io.interpretation_id=i.id
+                                          AND io.observation_id=(e.payload->>'clause_observation_id')::uuid AND io.evidence_role='supporting'
+                                        WHERE i.id=y::uuid AND i.predicate IN ('person.birth','person.death')
+                                          AND i.status='proposed' AND i.version=1)) THEN
+        RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_RECEIPT_INVALID: %',e.element_id;
+      END IF;
+    ELSIF jsonb_typeof(r->'spouse_source_persona_id')<>'null' OR jsonb_typeof(r->'mention_id')<>'null'
+          OR r->'year_interpretation_ids'<>'[]'::jsonb THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_RECEIPT_INVALID: %',e.element_id;
+    END IF;
+  END LOOP;
+  -- Batchglobal distinct-kontrol: hvert ny id i præcis ét receipt.
+  IF EXISTS (SELECT 1 FROM (
+       SELECT x FROM private.reimport_event ev,   -- 'ev', ikke 'e': e er løkkevariablen
+         LATERAL (SELECT ev.payload->'result_receipt'->>'spouse_source_persona_id' x
+                  UNION ALL SELECT ev.payload->'result_receipt'->>'mention_id'
+                  UNION ALL SELECT y FROM jsonb_array_elements_text(ev.payload->'result_receipt'->'year_interpretation_ids') y) ids
+        WHERE ev.batch_id=p_batch_id AND ev.operation='relation_persona' AND x IS NOT NULL
+        GROUP BY x HAVING count(*)>1) d) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_RECEIPT_INVALID: dublet';
+  END IF;
+END $$;
+REVOKE ALL ON FUNCTION private.verify_relation_persona_receipts(uuid) FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION private.relation_derived_counts(p_operation text,p_receipts jsonb)
+RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+  SELECT CASE p_operation
+    WHEN 'relation_persona' THEN (SELECT jsonb_build_object(
+      'spouse_personas',count(*) FILTER (WHERE r->>'spouse_source_persona_id' IS NOT NULL),
+      'mentions',count(*) FILTER (WHERE r->>'mention_id' IS NOT NULL),
+      'year_interpretations',coalesce(sum(jsonb_array_length(r->'year_interpretation_ids')),0),
+      'parties',coalesce(sum(jsonb_array_length(r->'party_keys')),0)) FROM jsonb_array_elements(p_receipts) r)
+    ELSE '{}'::jsonb END;
+$$;
+
+CREATE OR REPLACE FUNCTION private.relation_batch_results(p_batch_id uuid)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+  SELECT CASE WHEN count(*)=0 THEN '{}'::jsonb
+              ELSE jsonb_build_object('relation_results',jsonb_agg(x.r ORDER BY x.r->>'operation' COLLATE "C")) END
+    FROM (SELECT jsonb_build_object('operation',e.operation,'elements',count(*),
+            'receipts_sha256',private.reimport_canonical_json_sha256(jsonb_agg(e.after_sha256 ORDER BY e.after_sha256 COLLATE "C")),
+            'derived_counts',private.relation_derived_counts(e.operation,jsonb_agg(e.payload->'result_receipt' ORDER BY e.id))) AS r
+            FROM private.reimport_event e
+           WHERE e.batch_id=p_batch_id AND e.operation IN ('relation_persona','relation_person_create','relation_disposition')
+           GROUP BY e.operation) x;
+$$;
+REVOKE ALL ON FUNCTION private.relation_batch_results(uuid) FROM PUBLIC,anon,authenticated;
+
 -- 5b-sektionen slutter her (nye 5b-blokke indsættes over denne linje).
 
 DO $public_red_revoke$
@@ -18731,6 +19075,7 @@ DECLARE
     'public.red_apply_reimport_clause_evidence(uuid,text,jsonb)'::regprocedure,
     to_regprocedure('public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)'),
     to_regprocedure('public.red_apply_reimport_clause_revision(uuid,text,jsonb)'),
+    to_regprocedure('public.red_apply_reimport_relation_persona(uuid,text,jsonb)'),
     'public.red_apply_reimport_person_create(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_source_evidence(uuid,text,jsonb)'::regprocedure,
     'public.red_begin_1939_v50_name_completion(uuid,text,uuid)'::regprocedure,
@@ -18756,6 +19101,7 @@ DECLARE
     'public.red_fortryd_person_narrative_publication_event(uuid,text)'::regprocedure,
     'public.red_genopret_media(bigint)'::regprocedure,
     'public.red_identity_candidate_input(bigint,jsonb)'::regprocedure,
+    to_regprocedure('public.red_relation_persona_input(bigint)'),
     'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
     'public.red_kasser_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
     'public.red_lock_1939_v50_name_completion(text)'::regprocedure,
@@ -19616,7 +19962,7 @@ REVOKE ALL ON FUNCTION private.clause_write_prepare(uuid,text,jsonb,text), priva
 -- Historiske blokke definerer de tre funktioner tidligere i filen; denne sidste version vinder.
 CREATE OR REPLACE FUNCTION private.validate_reimport_authorization_payload(p_expected_counts jsonb,p_authorized_elements jsonb)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE v_person_creates bigint; v_source_evidence bigint; v_legacy_migrations bigint; v_clause_evidence bigint; v_interpretation_proposals bigint; v_clause_revisions bigint; v_authorized_count bigint;
+DECLARE v_person_creates bigint; v_source_evidence bigint; v_legacy_migrations bigint; v_clause_evidence bigint; v_interpretation_proposals bigint; v_clause_revisions bigint; v_relation_personas bigint; v_authorized_count bigint;
 BEGIN
   IF jsonb_typeof(p_expected_counts)<>'object' OR jsonb_typeof(p_authorized_elements)<>'object'
      OR jsonb_typeof(p_expected_counts->'person_creates')<>'number'
@@ -19627,8 +19973,9 @@ BEGIN
      OR (p_expected_counts ? 'clause_evidence' AND (jsonb_typeof(p_expected_counts->'clause_evidence')<>'number' OR coalesce(p_expected_counts->>'clause_evidence','') !~ '^[0-9]+$'))
      OR (p_expected_counts ? 'interpretation_proposals' AND (jsonb_typeof(p_expected_counts->'interpretation_proposals')<>'number' OR coalesce(p_expected_counts->>'interpretation_proposals','') !~ '^[0-9]+$'))
      OR (p_expected_counts ? 'clause_revisions' AND (jsonb_typeof(p_expected_counts->'clause_revisions')<>'number' OR coalesce(p_expected_counts->>'clause_revisions','') !~ '^[0-9]+$'))
-     OR (SELECT count(*) FROM jsonb_object_keys(p_expected_counts)) NOT IN (2,3,4,5,6)
-     OR EXISTS(SELECT 1 FROM jsonb_object_keys(p_expected_counts) key WHERE key NOT IN ('person_creates','source_evidence','legacy_migrations','clause_evidence','interpretation_proposals','clause_revisions')) THEN
+     OR (p_expected_counts ? 'relation_personas' AND (jsonb_typeof(p_expected_counts->'relation_personas')<>'number' OR coalesce(p_expected_counts->>'relation_personas','') !~ '^[0-9]+$'))
+     OR (SELECT count(*) FROM jsonb_object_keys(p_expected_counts)) NOT IN (2,3,4,5,6,7)
+     OR EXISTS(SELECT 1 FROM jsonb_object_keys(p_expected_counts) key WHERE key NOT IN ('person_creates','source_evidence','legacy_migrations','clause_evidence','interpretation_proposals','clause_revisions','relation_personas')) THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_AUTHORIZATION_INVALID';
   END IF;
   v_person_creates:=(p_expected_counts->>'person_creates')::bigint;
@@ -19637,17 +19984,19 @@ BEGIN
   v_clause_evidence:=coalesce((p_expected_counts->>'clause_evidence')::bigint,0);
   v_interpretation_proposals:=coalesce((p_expected_counts->>'interpretation_proposals')::bigint,0);
   v_clause_revisions:=coalesce((p_expected_counts->>'clause_revisions')::bigint,0);
+  v_relation_personas:=coalesce((p_expected_counts->>'relation_personas')::bigint,0);
   SELECT count(*) INTO v_authorized_count FROM jsonb_object_keys(p_authorized_elements);
-  IF v_authorized_count<>(v_person_creates+v_source_evidence+v_legacy_migrations+v_clause_evidence+v_interpretation_proposals+v_clause_revisions)
+  IF v_authorized_count<>(v_person_creates+v_source_evidence+v_legacy_migrations+v_clause_evidence+v_interpretation_proposals+v_clause_revisions+v_relation_personas)
      OR EXISTS(SELECT 1 FROM jsonb_each(p_authorized_elements) element
                 WHERE jsonb_typeof(element.value)<>'object'
-                   OR (element.key !~ '^person-create:.+$' AND element.key !~ '^source-evidence:.+$' AND element.key !~ '^legacy-migration:.+$' AND element.key !~ '^clause-evidence:.+$' AND element.key !~ '^interpretation-proposal:.+$' AND element.key !~ '^clause-revision:.+$'))
+                   OR (element.key !~ '^person-create:.+$' AND element.key !~ '^source-evidence:.+$' AND element.key !~ '^legacy-migration:.+$' AND element.key !~ '^clause-evidence:.+$' AND element.key !~ '^interpretation-proposal:.+$' AND element.key !~ '^clause-revision:.+$' AND element.key !~ '^relation-persona:.+$'))
      OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^person-create:.+$')<>v_person_creates
      OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^source-evidence:.+$')<>v_source_evidence
      OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^legacy-migration:.+$')<>v_legacy_migrations
      OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^clause-evidence:.+$')<>v_clause_evidence
      OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^interpretation-proposal:.+$')<>v_interpretation_proposals
-     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^clause-revision:.+$')<>v_clause_revisions THEN
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^clause-revision:.+$')<>v_clause_revisions
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^relation-persona:.+$')<>v_relation_personas THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_AUTHORIZATION_INVALID';
   END IF;
 END $$;
@@ -19668,8 +20017,11 @@ BEGIN
                  THEN jsonb_build_object('interpretation_proposals',count(*) FILTER(WHERE operation='interpretation_proposal')) ELSE '{}'::jsonb END
          || CASE WHEN v_batch.expected_counts ? 'clause_revisions'
                  THEN jsonb_build_object('clause_revisions',count(*) FILTER(WHERE operation='clause_revision')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'relation_personas'
+                 THEN jsonb_build_object('relation_personas',count(*) FILTER(WHERE operation='relation_persona')) ELSE '{}'::jsonb END
     INTO v_counts FROM private.reimport_event WHERE batch_id=p_batch_id;
   IF v_counts<>v_batch.expected_counts THEN RAISE EXCEPTION 'REIMPORT_WRITER_FINALIZE_COUNT_MISMATCH'; END IF;
+  IF v_batch.expected_counts ? 'relation_personas' THEN PERFORM private.verify_relation_persona_receipts(p_batch_id); END IF;
   UPDATE private.reimport_batch SET status='finalized',observed_counts=v_counts,finalized_at=clock_timestamp() WHERE id=p_batch_id;
   RETURN jsonb_build_object('batch_id',p_batch_id,'status','finalized','counts',v_counts);
 END $$;
@@ -19687,7 +20039,7 @@ DECLARE
   v_distinct_element_id_count bigint;
   v_distinct_person_id_count bigint;
   v_expected_source_evidence bigint;
-  v_expected_legacy_migrations bigint; v_expected_clause_evidence bigint; v_expected_interpretation_proposals bigint; v_expected_clause_revisions bigint;
+  v_expected_legacy_migrations bigint; v_expected_clause_evidence bigint; v_expected_interpretation_proposals bigint; v_expected_clause_revisions bigint; v_expected_relation_personas bigint;
   v_authorized_element_count bigint;
   v_person_id_map jsonb;
   v_discovered_source_id bigint;
@@ -19730,7 +20082,7 @@ BEGIN
     IF v_batch.authorization_id<>v_authorization.id THEN
       RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
     END IF;
-    RETURN jsonb_build_object('batch_id',v_batch.id,'status','open','replayed',false,'person_id_map','{}'::jsonb);
+    RETURN jsonb_build_object('batch_id',v_batch.id,'status','open','replayed',false,'person_id_map','{}'::jsonb) || private.relation_batch_results(v_batch.id);
   END IF;
   IF v_batch.status<>'finalized' OR v_batch.finalized_at IS NULL
      OR v_batch.observed_counts IS DISTINCT FROM v_batch.expected_counts
@@ -19741,8 +20093,9 @@ BEGIN
      OR (v_batch.expected_counts ? 'clause_evidence' AND (jsonb_typeof(v_batch.expected_counts->'clause_evidence')<>'number' OR coalesce(v_batch.expected_counts->>'clause_evidence','') !~ '^[0-9]+$'))
      OR (v_batch.expected_counts ? 'interpretation_proposals' AND (jsonb_typeof(v_batch.expected_counts->'interpretation_proposals')<>'number' OR coalesce(v_batch.expected_counts->>'interpretation_proposals','') !~ '^[0-9]+$'))
      OR (v_batch.expected_counts ? 'clause_revisions' AND (jsonb_typeof(v_batch.expected_counts->'clause_revisions')<>'number' OR coalesce(v_batch.expected_counts->>'clause_revisions','') !~ '^[0-9]+$'))
-     OR (SELECT count(*) FROM jsonb_object_keys(v_batch.expected_counts)) NOT IN (2,3,4,5,6)
-     OR EXISTS(SELECT 1 FROM jsonb_object_keys(v_batch.expected_counts) key WHERE key NOT IN ('person_creates','source_evidence','legacy_migrations','clause_evidence','interpretation_proposals','clause_revisions')) THEN
+     OR (v_batch.expected_counts ? 'relation_personas' AND (jsonb_typeof(v_batch.expected_counts->'relation_personas')<>'number' OR coalesce(v_batch.expected_counts->>'relation_personas','') !~ '^[0-9]+$'))
+     OR (SELECT count(*) FROM jsonb_object_keys(v_batch.expected_counts)) NOT IN (2,3,4,5,6,7)
+     OR EXISTS(SELECT 1 FROM jsonb_object_keys(v_batch.expected_counts) key WHERE key NOT IN ('person_creates','source_evidence','legacy_migrations','clause_evidence','interpretation_proposals','clause_revisions','relation_personas')) THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
   END IF;
   v_expected_person_creates:=(v_batch.expected_counts->>'person_creates')::bigint;
@@ -19751,17 +20104,18 @@ BEGIN
   v_expected_clause_evidence:=coalesce((v_batch.expected_counts->>'clause_evidence')::bigint,0);
   v_expected_interpretation_proposals:=coalesce((v_batch.expected_counts->>'interpretation_proposals')::bigint,0);
   v_expected_clause_revisions:=coalesce((v_batch.expected_counts->>'clause_revisions')::bigint,0);
+  v_expected_relation_personas:=coalesce((v_batch.expected_counts->>'relation_personas')::bigint,0);
   SELECT count(*) INTO v_authorized_element_count FROM jsonb_object_keys(v_authorization.authorized_elements);
-  IF v_authorized_element_count<>(v_expected_person_creates+v_expected_source_evidence+v_expected_legacy_migrations+v_expected_clause_evidence+v_expected_interpretation_proposals+v_expected_clause_revisions)
+  IF v_authorized_element_count<>(v_expected_person_creates+v_expected_source_evidence+v_expected_legacy_migrations+v_expected_clause_evidence+v_expected_interpretation_proposals+v_expected_clause_revisions+v_expected_relation_personas)
      OR EXISTS(SELECT 1 FROM jsonb_each(v_authorization.authorized_elements) item
                 WHERE jsonb_typeof(item.value)<>'object'
-                   OR (item.key !~ '^person-create:' AND item.key !~ '^source-evidence:' AND item.key !~ '^legacy-migration:' AND item.key !~ '^clause-evidence:' AND item.key !~ '^interpretation-proposal:' AND item.key !~ '^clause-revision:'))
+                   OR (item.key !~ '^person-create:' AND item.key !~ '^source-evidence:' AND item.key !~ '^legacy-migration:' AND item.key !~ '^clause-evidence:' AND item.key !~ '^interpretation-proposal:' AND item.key !~ '^clause-revision:' AND item.key !~ '^relation-persona:'))
      OR EXISTS(SELECT 1 FROM jsonb_object_keys(v_authorization.authorized_elements) key
                 LEFT JOIN private.reimport_event event ON event.batch_id=v_batch.id AND event.element_id=key
                 WHERE event.id IS NULL)
      OR EXISTS(SELECT 1 FROM private.reimport_event event
                 LEFT JOIN jsonb_object_keys(v_authorization.authorized_elements) key ON key=event.element_id
-                WHERE event.batch_id=v_batch.id AND event.operation IN ('person_create','source_evidence','legacy_migration','clause_evidence','interpretation_proposal','clause_revision') AND key IS NULL) THEN
+                WHERE event.batch_id=v_batch.id AND event.operation IN ('person_create','source_evidence','legacy_migration','clause_evidence','interpretation_proposal','clause_revision','relation_persona') AND key IS NULL) THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
   END IF;
   SELECT count(*),
@@ -19782,7 +20136,7 @@ BEGIN
      OR v_distinct_person_id_count<>v_person_create_count THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
   END IF;
-  RETURN jsonb_build_object('batch_id',v_batch.id,'status','finalized','replayed',true,'person_id_map',v_person_id_map);
+  RETURN jsonb_build_object('batch_id',v_batch.id,'status','finalized','replayed',true,'person_id_map',v_person_id_map) || private.relation_batch_results(v_batch.id);
 END $$;
 
 -- clause_revision (spec 2026-09-27, writer-operationen): et nyt klausulsæt for en post, append-only ved siden af

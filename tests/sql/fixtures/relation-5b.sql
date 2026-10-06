@@ -84,3 +84,30 @@ BEGIN
   END IF;
   RETURN v_fam;
 END $$;
+
+CREATE OR REPLACE FUNCTION pg_temp.f5b_profile(p_source bigint) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE v_cfg jsonb:='{"citation_label_template":"DAA 5b s. {page_from}","extractor_version":"5b","observation_extraction_method":"5b",
+  "rendition_key":"5b","rendition_kind":"pdf_text_layer","rendition_metadata":{},"run_key_prefix":"5b","schema_version":"5b"}';
+BEGIN
+  INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
+    VALUES (p_source,'relation-5b','relation-persona-v1',private.reimport_canonical_json_sha256(v_cfg),v_cfg);
+  RETURN jsonb_build_object('profile_id','relation-5b','profile_sha256',private.reimport_canonical_json_sha256(v_cfg));
+END $$;
+
+-- Autoriserer og åbner en batch med de givne elementer. Kaldes som EJER (før SET LOCAL ROLE
+-- authenticated) med aktørens claim sat — samme mønster som test-reimport-name-completion.sql:104-110.
+-- red_authorize_reimport er kun tildelt service_role (schema.sql:4558); som authenticated fejler kaldet.
+-- Databaseidentiteten er JSON-strengen, som schema.sql:3096 sammenligner med — ikke current_database().
+CREATE OR REPLACE FUNCTION pg_temp.f5b_batch(p_source bigint,p_actor uuid,p_prof jsonb,p_elements jsonb) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE v_manifest text:=private.reimport_canonical_json_sha256(p_elements); v_auth uuid; v_batch uuid;
+BEGIN
+  IF current_user NOT IN (SELECT rolname FROM pg_roles WHERE rolsuper) THEN RAISE EXCEPTION 'F5B_BATCH_MUST_RUN_AS_OWNER'; END IF;
+  PERFORM set_config('request.jwt.claim.sub',p_actor::text,true);
+  v_auth:=public.red_authorize_reimport(v_manifest,v_manifest,
+    jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,
+    p_source,p_prof->>'profile_id',
+    p_prof->>'profile_sha256',jsonb_build_object('person_creates',0,'source_evidence',0,
+    'relation_personas',(SELECT count(*) FROM jsonb_object_keys(p_elements))),p_elements,gen_random_uuid(),clock_timestamp()+interval '1 hour');
+  v_batch:=public.red_begin_reimport(v_auth,v_manifest,v_manifest);
+  RETURN jsonb_build_object('auth',v_auth,'batch',v_batch);
+END $$;
