@@ -1,7 +1,7 @@
 # Trin 5b — andre personer i posten: ægtefæller, børn og forældre (#151/#150)
 
 **Status:** designudkast, godkendt sektion for sektion i brainstorm 2026-10-06; revideret efter
-Codex runde 6 (NO-GO: 1 MAJOR, 2 MINOR, se §20), Codex runde 5 (NO-GO: 2 MAJOR, 1 MINOR, se §19), Codex runde 4 (NO-GO: 1 BLOCKER, 1 MAJOR, se §18), Codex runde 3 (NO-GO: 3 BLOCKER, 2 MAJOR, se §17), Codex runde 2 (NO-GO: 4 BLOCKER, 3 MAJOR, 3 MINOR — alle efterprøvet og godtaget, se §16) og
+Codex runde 7 (2 MINOR, ingen BLOCKER/MAJOR, se §21), Codex runde 6 (NO-GO: 1 MAJOR, 2 MINOR, se §20), Codex runde 5 (NO-GO: 2 MAJOR, 1 MINOR, se §19), Codex runde 4 (NO-GO: 1 BLOCKER, 1 MAJOR, se §18), Codex runde 3 (NO-GO: 3 BLOCKER, 2 MAJOR, se §17), Codex runde 2 (NO-GO: 4 BLOCKER, 3 MAJOR, 3 MINOR — alle efterprøvet og godtaget, se §16) og
 dobbelt review runde 1 (Claude: 4 BLOCKER, 6 MAJOR; Codex `gpt-5.6-sol`: NO-GO, 4 BLOCKER, 4 MAJOR —
 alle efterprøvet mod koden og godtaget, se §15). Fortrydelsen er ændret fra writer-reversal til
 restore-only (§13), efter fortilfældene for 4.1c og 4.4.
@@ -170,8 +170,8 @@ joins, og hvert id må optræde i præcis ét receipt i hele batchen (batchgloba
     `extraction_run`; mentionens spænd = (`name_from`, `name_to`) på `clause_observation_id`;
     år-fortolkningerne har batchens `extraction_run_id`, `source_persona_id` = spouse-personaen og
     citerer klausulen;
-  - **`relation.child`/`relation.parent`:** `spouse_source_persona_id`, `mention_id` og
-    `year_interpretation_ids` er null/tomme; ingen ny persona efterprøves;
+  - **`relation.child`/`relation.parent`:** `spouse_source_persona_id` og `mention_id` er `null`, og
+    `year_interpretation_ids` er `[]` (altid et array); ingen ny persona efterprøves;
   - **alle:** `principal_source_persona_id` efterprøves kun mod den gældende `principal`-part, postens
     accepterede `principal_member`-placering og en gældende `accepted` identitet (den er oprettet i en
     tidligere kørsel); partsrækkerne har `origin_ref` = batch-id og den autoriserede
@@ -389,8 +389,10 @@ Ny tabel `private.identity_control_run` (append-only status-events) med `private
   forseglingskonteksten (`sheet_sha256`, `rows_sha256`, linje) og håndhæver betingede inputregler:
   - **RPC-mapping** til `red_afgoer_source_persona(p_persona, p_expected_version, p_action,
     p_canonical_person_id, p_note, p_context)`: `1`–`3` → `same` med `p_canonical_person_id = NULL`
-    og `p_context.display_position`, serveren opløser målet via den gemte mapping; `X` → `different`;
-    `U` → `unresolved`; `N` → `new_person_needed`; `P <id>` → `same` med eksplicit
+    og `p_context.display_position`, serveren opløser målet via den gemte mapping (via
+    `control_run_id`, aldrig via klientens `run_id`); `X` → `different`, `U` → `unresolved`,
+    `N` → `new_person_needed`, alle med `p_canonical_person_id = NULL` og uden `display_position` og
+    `candidate_id`; `P <id>` → `same` med eksplicit
     `p_canonical_person_id` og uden `display_position` (registreres som afvigelse). Valideringen ændres,
     så `same` med NULL-mål kun er tilladt, når `control_run_id` + `display_position` er sat for en
     stikprøvesag; klientleveret `candidate_id` er forbudt for stikprøvesager.
@@ -687,3 +689,12 @@ Ingen BLOCKER; begge runde 4-fund løst i substansen, men tre kontraktdetaljer m
 | 1 | Resultatkortet ignorerede `person_id_map`; `derived_counts` og receipts-hash ikke fastlagt | MAJOR | §5.2.1 eksisterende form uændret + `relation_results`, faste nøgler, eksakt hash |
 | 2 | `created_run_id`-kontrollen ramte også principal-personaen | MINOR | §5.2.1 prædikatbetinget efterprøvning |
 | 3 | Tokens manglede eksakt mapping til `red_afgoer_source_persona` | MINOR | §7.1 RPC-mapping, NULL-mål kun for stikprøve med visningsplads, nye kontekstnøgler |
+
+## 21. Review runde 7 (Codex, 2026-10-06)
+
+Runde 6's tre fund løst; ingen BLOCKER eller MAJOR. To MINOR (værste udfald falsk STOP), rettet:
+
+| # | Fund | Rettelse |
+| --- | --- | --- |
+| 1 | `year_interpretation_ids` null eller tomt for børn/forældre | §5.2.1 altid `[]` |
+| 2 | `X/U/N` uden eksplicit NULL-mål og uden forbud mod visningsplads/kandidat; mapping via klientens `run_id` | §7.1 eksplicit; mapping kun via `control_run_id` |
