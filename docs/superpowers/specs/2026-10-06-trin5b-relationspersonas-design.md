@@ -359,8 +359,8 @@ første levende webkø-afgørelse** er et eksplicit punkt i 5b's prod-overførse
   en udvidelse af den eksisterende, der kun kender assertion-mål). Pr. element efterprøves: gældende
   fortolkning `accepted`; gældende parter; begge parters identiteter `accepted`; præcis én familie med
   strukturen (ægteskab: begge partnere; barn: principal partner + child `barn`; forælder: principal
-  `barn` + parent partner); `konfidens` ikke `omstridt`. Låseorden: kildelås → fortolkninger →
-  familierækker. Previewhash som den eksisterende batch-RPC. Skriver `interpretation_promotion` med
+  `barn` + parent partner); `konfidens` ikke `omstridt`. Låseorden: den totale orden i §6.2 (fortolkningsrækker
+  på personaernes plads). Previewhash som den eksisterende batch-RPC. Skriver `interpretation_promotion` med
   `target_type='family'` og evidens `{family_id, vielse_fact_id|null, party_versions}`.
 - Ingen familie eller flere ⇒ ingen binding, talt med grund.
 
@@ -456,8 +456,9 @@ basenavne.
   afvises — overlever `red_decide_interpretation`); `relation_persona` (rammeudvidelserne,
   principal udledt af serveren, ordret spænd, idempotens, anden payload afvist); `family_corroboration`
   med hvert af (a)–(d) negativt, herunder `count_mismatch`, NULL-ordenstal ved flere familier,
-  `omstridt`, dobbelt mål i posten, ændret familiekontekst (inkl. `samme_som`), ikke-bestået kontrolkørsel; låseprotokollen (samtidig
-  familie-RPC venter, genberegning efter lås); kontrolkørslen (to populationer, `not_ready` uden event,
+  `omstridt`, dobbelt mål i posten, ændret familiekontekst, ikke-bestået kontrolkørsel; låseprotokollen (to-sessionstests: samtidig
+  `red_tilfoej_partner`, `red_set_familie_ordinal`, change_set-undo og menneskelig om-afgørelse venter
+  eller fejler lukket mellem genvalidering og skrivning; deadlock ruller tilbage); kontrolkørslen (to populationer, `not_ready` uden event,
   seneste status autoritativ, stale efter ændret stikprøveafgørelse, størrelse ved N < 10, serverens udvalg,
   ingen genoplivning af `failed`); mængde-drift; kildelås; `structural_family`-
   constraints og den nye promotion-RPC (én familie, ingen, flere); `relation_person_create`-oprindelsen
