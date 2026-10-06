@@ -3559,6 +3559,23 @@ psql -X -At -q -d daa5b_bevis_$TS -v actor="$A" -v cand_file=$HOME/.private/5b/c
 ```
 Expected: kørslens uuid (sidste linje; aktøren filtreret fra — memory `set-config-ekko-aktoer`).
 
+- [ ] **Step 3b: Spec §6.5 — er 1939-årstal nødvendige? (kun tal)**
+
+```bash
+psql -X -At -d daa5b_bevis_$TS <<'SQL'
+WITH r AS (SELECT id FROM private.source_persona_identity_candidate_run WHERE source_id=1 ORDER BY run_seq DESC LIMIT 1)
+SELECT count(*) FILTER (WHERE NOT coalesce((c.basis->>'family_partner')::boolean,false)) AS globale_kandidater,
+       count(*) FILTER (WHERE NOT coalesce((c.basis->>'family_partner')::boolean,false)
+         AND EXISTS (SELECT 1 FROM person_external_id x WHERE x.person_id=c.candidate_person_id AND x.source_id=3)
+         AND NOT EXISTS (SELECT 1 FROM fact f JOIN conclusion k ON k.target_type='fact' AND k.target_id=f.id
+                          JOIN assertion a ON a.id=k.valgt_assertion_id
+                         WHERE f.subjekt_type='person' AND f.subjekt_id=c.candidate_person_id AND f.faktatype IN ('fødsel','død')
+                           AND a.date_min IS NOT NULL)) AS globale_1939_uden_dato
+  FROM private.source_persona_identity_candidate c, r WHERE c.run_id=r.id AND c.rank<=3;
+SQL
+```
+Expected: to tal. Er `globale_1939_uden_dato` > 10 % af `globale_kandidater`, registreres 1939-årstallene som en del 2-opgave (ledger `Ruling:`); ellers åbent punkt til trin 6 (spec §6.5, §14.1).
+
 - [ ] **Step 4: Kontrolkørsel og ark (punkt 3)**
 
 ```bash
