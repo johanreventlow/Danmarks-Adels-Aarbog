@@ -1588,6 +1588,9 @@ CREATE TABLE private.source_persona_identity_candidate (
   score                numeric NOT NULL CHECK (score>=0 AND score<=1),
   tier                 text NOT NULL CHECK (tier IN ('auto','review','none')),
   basis                jsonb NOT NULL CHECK (jsonb_typeof(basis)='object' AND basis<>'{}'::jsonb),
+  -- Trin 5b: hash af persona_family_context ved kørslen (NULL uden kontekst); kernen genberegner den.
+  family_context_sha256 text CONSTRAINT source_persona_identity_candidate_family_ctx_check
+                       CHECK (family_context_sha256 IS NULL OR family_context_sha256 ~ '^[0-9a-f]{64}$'),
   UNIQUE (run_id,source_persona_id,candidate_person_id),
   UNIQUE (run_id,source_persona_id,rank)
 );
@@ -8561,13 +8564,18 @@ BEGIN
     SELECT array_agg(DISTINCT e::uuid) INTO v_ids FROM jsonb_array_elements_text(p_input_spec->'persona_ids') e;
     IF cardinality(v_ids)<>jsonb_array_length(p_input_spec->'persona_ids') THEN RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID'; END IF;
   END IF;
-  SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY x.source_persona_id COLLATE "C"),'[]'::jsonb) INTO v_personas FROM (
+  -- Trin 5b: family_context kun når den findes, så 5a-personas har præcis samme form som før.
+  SELECT coalesce(jsonb_agg((to_jsonb(x)-'family_context')
+                            || CASE WHEN x.family_context IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('family_context',x.family_context) END
+                            ORDER BY x.source_persona_id COLLATE "C"),'[]'::jsonb) INTO v_personas FROM (
     SELECT p.id::text AS source_persona_id,
            coalesce(nm.v, men.v) AS name,
            CASE WHEN nm.v IS NOT NULL THEN nm.origin WHEN men.v IS NOT NULL THEN 'mention' END AS name_origin,
-           b.v AS birth_raw, b.origin AS birth_origin, d.v AS death_raw, d.origin AS death_origin
+           b.v AS birth_raw, b.origin AS birth_origin, d.v AS death_raw, d.origin AS death_origin,
+           fctx.fc AS family_context
       FROM private.source_persona p
       LEFT JOIN private.source_persona_identity i ON i.source_persona_id=p.id
+      LEFT JOIN LATERAL (SELECT private.persona_family_context(p.id) AS fc) fctx ON true
       LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v, ic.status||'_interpretation' origin FROM private.interpretation_current ic
                           WHERE ic.source_persona_id=p.id AND ic.predicate='person.name' AND ic.status IN ('accepted','proposed')
                           ORDER BY (ic.status='accepted') DESC, ic.confidence DESC NULLS LAST, ic.id LIMIT 1) nm ON true
@@ -8592,7 +8600,9 @@ BEGIN
   SELECT coalesce(jsonb_object_agg(k.key,(SELECT coalesce(jsonb_agg(e ORDER BY e::text COLLATE "C"),'[]'::jsonb)
                                            FROM jsonb_array_elements(k.value) e)),'{}'::jsonb)
     INTO v_persons FROM jsonb_each(v_match) k WHERE jsonb_typeof(k.value)='array';
-  RETURN jsonb_build_object('personas',v_personas,'persons',v_persons);
+  RETURN jsonb_build_object('personas',v_personas,'persons',v_persons,
+    'same_as',coalesce((SELECT jsonb_agg(jsonb_build_array(r.subjekt_id,r.objekt_id) ORDER BY r.subjekt_id,r.objekt_id)
+                          FROM public.relation r WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'),'[]'::jsonb));
 END $$;
 REVOKE ALL ON FUNCTION private.identity_candidate_input(bigint,jsonb) FROM PUBLIC,anon,authenticated;
 
@@ -8667,9 +8677,12 @@ BEGIN
     IF v_existing<>v_cand_hash THEN RAISE EXCEPTION 'IDENTITY_CANDIDATE_RUN_CONFLICT'; END IF;
     RETURN v_run;
   END IF;
-  INSERT INTO private.source_persona_identity_candidate(run_id,source_persona_id,candidate_person_id,rank,score,tier,basis)
+  INSERT INTO private.source_persona_identity_candidate(run_id,source_persona_id,candidate_person_id,rank,score,tier,basis,family_context_sha256)
   SELECT v_run,(c->>'source_persona_id')::uuid,(c->>'candidate_person_id')::bigint,(c->>'rank')::int,
-         (c->>'score')::numeric,c->>'tier',c->'basis'
+         (c->>'score')::numeric,c->>'tier',c->'basis',
+         -- Trin 5b: serveren beregner familiekontekstens hash; kernen genberegner den (spec §6.2 c).
+         (SELECT CASE WHEN fc IS NULL THEN NULL ELSE private.reimport_canonical_json_sha256(fc) END
+            FROM private.persona_family_context((c->>'source_persona_id')::uuid) fc)
     FROM jsonb_array_elements(p_candidates) c;
   RETURN v_run;
 END $$;
@@ -15017,3 +15030,32 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,pr
            GROUP BY e.operation) x;
 $$;
 REVOKE ALL ON FUNCTION private.relation_batch_results(uuid) FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION private.persona_family_context(p_persona uuid)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+  WITH sp AS (SELECT pc.interpretation_key,pc.marriage_ordinal FROM private.interpretation_party_current pc
+               WHERE pc.source_persona_id=p_persona AND pc.party_role='spouse'),
+  pr AS (SELECT pc.source_persona_id FROM private.interpretation_party_current pc JOIN sp USING (interpretation_key)
+          WHERE pc.party_role='principal'),
+  pid AS (SELECT i.canonical_person_id,i.version,i.source_persona_id FROM private.source_persona_identity i
+            JOIN pr ON pr.source_persona_id=i.source_persona_id WHERE i.decision_status='accepted'),
+  occ AS (SELECT o.occurrence_id FROM sp JOIN private.interpretation_current ic ON ic.interpretation_key=sp.interpretation_key
+            JOIN private.interpretation_observation io ON io.interpretation_id=ic.id AND io.evidence_role='supporting' AND io.ordinal=1
+            JOIN private.source_observation o ON o.id=io.observation_id)
+  SELECT CASE WHEN (SELECT count(*) FROM sp)<>1 OR (SELECT count(*) FROM pid)<>1 THEN NULL ELSE jsonb_build_object(
+    'principal_source_persona_id',(SELECT source_persona_id FROM pid)::text,
+    'principal_identity_version',(SELECT version FROM pid),
+    'principal_person_id',(SELECT canonical_person_id FROM pid),
+    'spouse_identity_version',coalesce((SELECT version FROM private.source_persona_identity WHERE source_persona_id=p_persona),0),
+    'marriage_ordinal',(SELECT marriage_ordinal FROM sp),
+    'marriage_claims_in_post',(SELECT count(*) FROM occ CROSS JOIN LATERAL private.relation_marriage_ordinals(occ.occurrence_id)),
+    'families',coalesce((SELECT jsonb_agg(jsonb_build_object(
+        'family_id',fm.family_id,'ordinal',fm.ordinal,
+        'konfidens',(SELECT coalesce(jsonb_agg(DISTINCT o.konfidens ORDER BY o.konfidens),'[]'::jsonb) FROM family_member o
+                      WHERE o.family_id=fm.family_id AND o.rolle='partner' AND o.konfidens IS NOT NULL),
+        'partners',(SELECT coalesce(jsonb_agg(o.person_id ORDER BY o.person_id),'[]'::jsonb) FROM family_member o
+                     WHERE o.family_id=fm.family_id AND o.rolle='partner' AND o.person_id<>fm.person_id))
+        ORDER BY fm.family_id)
+       FROM family_member fm WHERE fm.person_id=(SELECT canonical_person_id FROM pid) AND fm.rolle='partner'),'[]'::jsonb)) END;
+$$;
+REVOKE ALL ON FUNCTION private.persona_family_context(uuid) FROM PUBLIC,anon,authenticated;

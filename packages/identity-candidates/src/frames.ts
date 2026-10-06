@@ -1,9 +1,11 @@
 import { buildMatchFrame, buildMatchPersoner, parseYear, type MatchFrame } from '@daa/core';
 import type { MatchAssertRow, MatchConcRow, MatchExtIdRow, MatchFactRow, MatchPersonRow } from '@daa/core';
+import type { FamilyContext } from './family';
 
 export type PersonaExportRow = {
   source_persona_id: string; name: string | null; name_origin: string | null;
   birth_raw: string | null; birth_origin: string | null; death_raw: string | null; death_origin: string | null;
+  family_context?: FamilyContext;   // trin 5b: kun ægtefælle-personas med accepteret hovedperson
 };
 export type PersonaOrigin = { name: string | null; birth: string | null; death: string | null };
 export type MatchPayload = {

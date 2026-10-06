@@ -111,3 +111,23 @@ BEGIN
   v_batch:=public.red_begin_reimport(v_auth,v_manifest,v_manifest);
   RETURN jsonb_build_object('auth',v_auth,'batch',v_batch);
 END $$;
+
+-- En ægtefælle-persona som writeren ville skrive den (mention på klausulen, rolle spouse)
+-- plus principal- og spouse-part. Bruges af Task 4-7's tests uden writer-rammen.
+CREATE OR REPLACE FUNCTION pg_temp.f5b_spouse(p_source bigint,p_src jsonb,p_post jsonb,p_claim jsonb,p_clause uuid,
+  p_name text,p_ordinal int) RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE v_text text; v_from int; v_persona uuid; v_mention uuid; v_ref uuid:=gen_random_uuid();
+BEGIN
+  SELECT verbatim_text INTO v_text FROM private.source_observation WHERE id=p_clause;
+  v_from:=strpos(v_text,p_name)-1;
+  INSERT INTO private.source_persona(source_id,persona_key,created_run_id)
+    VALUES (p_source,(p_post->>'key')||'#rel-marriage-'||v_from||'-'||p_ordinal,(p_src->>'run')::uuid) RETURNING id INTO v_persona;
+  INSERT INTO private.source_mention(observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id)
+    VALUES (p_clause,'person',v_from,v_from+char_length(p_name),p_name,(p_src->>'run')::uuid) RETURNING id INTO v_mention;
+  INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) VALUES (v_persona,v_mention,'spouse',1);
+  INSERT INTO private.interpretation_party(interpretation_key,party_role,version,source_persona_id,post_offset,origin,origin_ref)
+    VALUES ((p_claim->>'key')::uuid,'principal',1,(p_post->>'principal')::uuid,v_from,'relation_persona',v_ref);
+  INSERT INTO private.interpretation_party(interpretation_key,party_role,version,source_persona_id,marriage_ordinal,post_offset,origin,origin_ref)
+    VALUES ((p_claim->>'key')::uuid,'spouse',1,v_persona,p_ordinal,v_from,'relation_persona',v_ref);
+  RETURN v_persona;
+END $$;
