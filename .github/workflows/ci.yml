@@ -469,6 +469,9 @@ jobs:
       - name: Relationspersona-writer SQL (5b)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-relation-persona-writer.sql
+      - name: Family corroboration SQL (5b)
+        env: {PGPASSWORD: postgres}
+        run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-family-corroboration.sql
       - name: Klausul-writer SQL (#148 4.1c)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-clause-evidence-writer.sql

@@ -676,6 +676,7 @@ BEGIN
     'public.red_afgoer_relation_interpretation(uuid,integer,text,bigint,text,jsonb)',
     'public.red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb)',
     'public.red_bekraeft_media_upload(bigint,bigint,text)',
+    'public.red_corroborate_family_identities(uuid,text)',
     'public.red_decide_interpretation(uuid,integer,text,jsonb)',
     'public.red_decide_source_persona_placement(uuid,integer,text,jsonb)',
     'public.red_decide_source_record_placement(uuid,integer,text,jsonb)',

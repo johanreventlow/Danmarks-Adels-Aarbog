@@ -8310,6 +8310,13 @@ BEGIN
     RAISE EXCEPTION 'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected %, current %',
       p_expected_version,v_current_version;
   END IF;
+  -- Trin 5b (spec §6.2): lås gammelt og nyt mål — og ved family_corroboration også hovedpersonen —
+  -- i den totale orden (person → familie → medlemmer) før nogen efterprøvning eller skrivning.
+  PERFORM private.lock_family_rows(ARRAY(SELECT DISTINCT x FROM unnest(ARRAY[
+      (SELECT canonical_person_id FROM private.source_persona_identity WHERE source_persona_id=p_source_persona_id),
+      p_canonical_person_id,
+      CASE WHEN p_origin='family_corroboration' THEN private.spouse_principal_person(p_source_persona_id) END]) x
+    WHERE x IS NOT NULL ORDER BY 1));
   -- Trin 5a-guard (#151): oprindelsen er strukturel. Kernen har ingen grants; kun
   -- serverfunktioner kalder den, og hver oprindelse har sine egne krav.
   IF p_origin='human' THEN
@@ -8345,6 +8352,9 @@ BEGIN
     IF p_decision_status<>'superseded' OR NOT (p_evidence ? 'reversed_batch_id') OR p_evidence ? 'basis' THEN
       RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
     END IF;
+  ELSIF p_origin='family_corroboration' THEN
+    PERFORM private.check_family_corroboration(p_source_persona_id,p_canonical_person_id,p_expected_version,
+                                                p_decision_status,p_evidence);
   ELSE
     RAISE EXCEPTION 'EVIDENCE_IDENTITY_ORIGIN_INVALID';
   END IF;
@@ -15490,3 +15500,157 @@ REVOKE ALL ON FUNCTION red_register_identity_control_run(uuid),red_identity_cont
   red_seal_identity_control_run(uuid,text,text),red_evaluate_identity_control_run(uuid) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION red_register_identity_control_run(uuid),red_identity_control_sample(uuid),
   red_seal_identity_control_run(uuid,text,text),red_evaluate_identity_control_run(uuid) TO authenticated;
+
+-- ---------- Trin 5b, Task 8: family_corroboration (spec §6.2-6.3) ----------
+CREATE OR REPLACE FUNCTION private.spouse_principal_person(p_persona uuid)
+RETURNS bigint LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+  SELECT i.canonical_person_id FROM private.interpretation_party_current sp
+    JOIN private.interpretation_party_current pr ON pr.interpretation_key=sp.interpretation_key AND pr.party_role='principal'
+    JOIN private.source_persona_identity i ON i.source_persona_id=pr.source_persona_id AND i.decision_status='accepted'
+   WHERE sp.source_persona_id=p_persona AND sp.party_role='spouse';
+$$;
+REVOKE ALL ON FUNCTION private.spouse_principal_person(uuid) FROM PUBLIC,anon,authenticated;
+
+-- Spec §6.2 (a)-(d). Kaldes KUN af kernen, efter at kernen har låst persona, identitet,
+-- personer, familier og medlemmer. Intet tages fra kalderens evidens uden genberegning.
+CREATE OR REPLACE FUNCTION private.check_family_corroboration(p_persona uuid,p_person bigint,p_expected integer,
+  p_status text,p_evidence jsonb)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  -- Viewenes egne rækketyper: SELECT * i et view fryses ved oprettelsen.
+  v_party private.interpretation_party_current%ROWTYPE; v_pparty private.interpretation_party_current%ROWTYPE;
+  v_ic private.interpretation_current%ROWTYPE; v_ev private.reimport_event%ROWTYPE; v_occ uuid; v_principal uuid; v_n integer;
+  v_pid bigint; v_fams integer; v_claims integer; v_fam bigint; v_partners bigint[]; v_cand private.source_persona_identity_candidate%ROWTYPE;
+  v_cur uuid; v_source bigint;
+BEGIN
+  IF p_status<>'accepted' OR p_expected<>0 OR p_evidence->>'basis' IS DISTINCT FROM 'family_corroboration'
+     OR p_evidence->>'method' IS DISTINCT FROM 'family-corroboration-v1' THEN
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
+  END IF;
+  -- (a) proveniens
+  SELECT * INTO v_party FROM private.interpretation_party_current WHERE source_persona_id=p_persona AND party_role='spouse';
+  IF NOT FOUND OR v_party.origin<>'relation_persona' THEN RAISE EXCEPTION 'FAMILY_CORROBORATION_PROVENANCE_INVALID'; END IF;
+  SELECT * INTO v_ic FROM private.interpretation_current WHERE interpretation_key=v_party.interpretation_key;
+  IF v_ic.predicate<>'relation.marriage' OR v_ic.status NOT IN ('proposed','accepted') THEN
+    RAISE EXCEPTION 'FAMILY_CORROBORATION_PROVENANCE_INVALID';
+  END IF;
+  SELECT e.* INTO v_ev FROM private.reimport_event e JOIN private.reimport_batch b ON b.id=e.batch_id
+   WHERE e.batch_id=v_party.origin_ref AND e.operation='relation_persona' AND b.status IN ('finalized','activated')
+     AND e.payload->>'interpretation_key'=v_party.interpretation_key::text;
+  SELECT * INTO v_pparty FROM private.interpretation_party_current WHERE interpretation_key=v_party.interpretation_key AND party_role='principal';
+  IF v_ev.id IS NULL
+     OR v_ev.payload->'result_receipt'->>'spouse_source_persona_id' IS DISTINCT FROM p_persona::text
+     OR v_ev.payload->'result_receipt'->>'principal_source_persona_id' IS DISTINCT FROM v_pparty.source_persona_id::text
+     OR (v_ev.payload->>'marriage_ordinal')::integer IS DISTINCT FROM v_party.marriage_ordinal
+     OR (v_ev.payload->>'post_offset')::integer IS DISTINCT FROM v_party.post_offset THEN
+    RAISE EXCEPTION 'FAMILY_CORROBORATION_PROVENANCE_INVALID';
+  END IF;
+  SELECT o.occurrence_id INTO v_occ FROM private.interpretation_observation io JOIN private.source_observation o ON o.id=io.observation_id
+   WHERE io.interpretation_id=v_ic.id AND io.evidence_role='supporting' AND io.ordinal=1;
+  SELECT count(*),min(spm.persona_id::text)::uuid INTO v_n,v_principal
+    FROM private.source_observation h JOIN private.source_mention sm ON sm.observation_id=h.id
+    JOIN private.source_persona_mention spm ON spm.mention_id=sm.id AND spm.mention_role='primary'
+   WHERE h.occurrence_id=v_occ AND h.parent_observation_id IS NULL;
+  IF v_n<>1 OR v_principal IS DISTINCT FROM v_pparty.source_persona_id THEN RAISE EXCEPTION 'FAMILY_CORROBORATION_PROVENANCE_INVALID'; END IF;
+  SELECT canonical_person_id INTO v_pid FROM private.source_persona_identity WHERE source_persona_id=v_principal AND decision_status='accepted';
+  IF v_pid IS NULL THEN RAISE EXCEPTION 'FAMILY_CORROBORATION_PRINCIPAL_NOT_ACCEPTED'; END IF;
+  -- (b) struktur, talt af kernen
+  SELECT count(*) INTO v_claims FROM private.relation_marriage_ordinals(v_occ);
+  SELECT count(DISTINCT family_id) INTO v_fams FROM public.family_member WHERE person_id=v_pid AND rolle='partner';
+  IF v_claims<>v_fams THEN RAISE EXCEPTION 'FAMILY_CORROBORATION_COUNT_MISMATCH'; END IF;
+  IF v_fams>1 AND EXISTS (SELECT 1 FROM public.family_member WHERE person_id=v_pid AND rolle='partner' AND ordinal IS NULL) THEN
+    RAISE EXCEPTION 'FAMILY_CORROBORATION_ORDINAL_NULL';
+  END IF;
+  IF (SELECT count(*) FROM public.family_member WHERE person_id=v_pid AND rolle='partner'
+       AND (v_fams=1 OR ordinal=v_party.marriage_ordinal))<>1 THEN
+    RAISE EXCEPTION 'FAMILY_CORROBORATION_FAMILY_INVALID';
+  END IF;
+  SELECT family_id INTO v_fam FROM public.family_member WHERE person_id=v_pid AND rolle='partner'
+     AND (v_fams=1 OR ordinal=v_party.marriage_ordinal);
+  SELECT array_agg(person_id ORDER BY person_id) INTO v_partners FROM public.family_member
+   WHERE family_id=v_fam AND rolle='partner' AND person_id<>v_pid;
+  IF v_partners IS DISTINCT FROM ARRAY[p_person] THEN RAISE EXCEPTION 'FAMILY_CORROBORATION_TARGET_INVALID'; END IF;
+  IF EXISTS (SELECT 1 FROM public.family_member WHERE family_id=v_fam AND rolle='partner' AND konfidens IN ('omstridt','formodet')) THEN
+    RAISE EXCEPTION 'FAMILY_CORROBORATION_KONFIDENS';
+  END IF;
+  IF EXISTS (SELECT 1 FROM private.interpretation_party_current pc2
+               JOIN private.source_persona_identity i2 ON i2.source_persona_id=pc2.source_persona_id AND i2.decision_status='accepted'
+               JOIN private.interpretation_current ic2 ON ic2.interpretation_key=pc2.interpretation_key
+               JOIN private.interpretation_observation io2 ON io2.interpretation_id=ic2.id AND io2.ordinal=1
+               JOIN private.source_observation o2 ON o2.id=io2.observation_id
+              WHERE pc2.party_role='spouse' AND pc2.source_persona_id<>p_persona AND i2.canonical_person_id=p_person
+                AND o2.occurrence_id=v_occ) THEN
+    RAISE EXCEPTION 'FAMILY_CORROBORATION_DOUBLE_TARGET';
+  END IF;
+  -- (c) kandidat i den gældende kørsel + uændret familiekontekst
+  SELECT source_id INTO v_source FROM private.source_persona WHERE id=p_persona;
+  SELECT r.id INTO v_cur FROM private.source_persona_identity_candidate_run r WHERE r.source_id=v_source ORDER BY r.run_seq DESC LIMIT 1;
+  SELECT * INTO v_cand FROM private.source_persona_identity_candidate WHERE id=(p_evidence->>'candidate_id')::uuid;
+  IF v_cand.id IS NULL OR v_cand.source_persona_id<>p_persona OR v_cand.rank<>1 OR v_cand.run_id IS DISTINCT FROM v_cur
+     OR v_cand.candidate_person_id<>p_person OR p_evidence->>'run_id' IS DISTINCT FROM v_cur::text
+     OR v_cand.family_context_sha256 IS DISTINCT FROM
+        private.reimport_canonical_json_sha256(private.persona_family_context(p_persona))
+     OR (p_evidence->>'family_id')::bigint IS DISTINCT FROM v_fam THEN
+    RAISE EXCEPTION 'FAMILY_CORROBORATION_CANDIDATE_INVALID';
+  END IF;
+  -- (d) autorisation: bestået kontrolkørsel for netop denne kandidatkørsel; stikprøvesager er menneskets
+  IF NOT EXISTS (SELECT 1 FROM private.identity_control_run r WHERE r.id=(p_evidence->>'control_run_id')::uuid AND r.candidate_run_id=v_cur)
+     OR (SELECT e.status FROM private.identity_control_event e WHERE e.control_run_id=(p_evidence->>'control_run_id')::uuid
+          ORDER BY e.seq DESC LIMIT 1) IS DISTINCT FROM 'passed'
+     OR EXISTS (SELECT 1 FROM private.identity_control_sample x WHERE x.control_run_id=(p_evidence->>'control_run_id')::uuid
+                 AND x.source_persona_id=p_persona) THEN
+    RAISE EXCEPTION 'FAMILY_CORROBORATION_CONTROL_NOT_PASSED';
+  END IF;
+END $$;
+REVOKE ALL ON FUNCTION private.check_family_corroboration(uuid,bigint,integer,text,jsonb) FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION red_corroborate_family_identities(p_control_run_id uuid,p_expect_set_sha256 text)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_source bigint; v_run uuid; v_status text; v_reason text; v_last text; v_set text; r record; v_n integer:=0;
+  v_ctx jsonb; v_fam bigint; v_ord integer;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  SELECT source_id,candidate_run_id INTO v_source,v_run FROM private.identity_control_run WHERE id=p_control_run_id;
+  IF v_source IS NULL THEN RAISE EXCEPTION 'IDENTITY_CONTROL_RUN_UNKNOWN'; END IF;
+  -- Eksklusiv kildelås (spec §6.3): ingen menneskelig afgørelse kan interleave med genvalideringen.
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:'||v_source::text,0));
+  PERFORM 1 FROM private.identity_control_run WHERE id=p_control_run_id FOR UPDATE;
+  PERFORM 1 FROM private.source_persona_identity i JOIN private.identity_control_sample s ON s.source_persona_id=i.source_persona_id
+   WHERE s.control_run_id=p_control_run_id ORDER BY i.source_persona_id FOR UPDATE OF i;
+  SELECT s.status,s.reason INTO v_status,v_reason FROM private.control_run_status(p_control_run_id) s;
+  IF v_status='not_ready' THEN RAISE EXCEPTION 'IDENTITY_CONTROL_NOT_PASSED: %',v_reason; END IF;
+  SELECT e.status INTO v_last FROM private.identity_control_event e WHERE e.control_run_id=p_control_run_id ORDER BY e.seq DESC LIMIT 1;
+  IF v_status='failed' THEN
+    IF v_last IS DISTINCT FROM 'failed' THEN PERFORM private.append_control_event(p_control_run_id,'failed',v_reason); END IF;
+    RETURN 0;
+  END IF;
+  -- Kernens (d) læser den seneste EVENT; en beregnet passed uden event skrives her.
+  IF v_last IS DISTINCT FROM 'passed' THEN PERFORM private.append_control_event(p_control_run_id,'passed','ok'); END IF;
+  DROP TABLE IF EXISTS pg_temp.corr_set;   -- se ctl_ipop: genkald i samme transaktion
+  CREATE TEMP TABLE pg_temp.corr_set ON COMMIT DROP AS
+    SELECT c.source_persona_id AS pid,c.id AS cid,c.candidate_person_id AS person
+      FROM private.source_persona_identity_candidate c
+      LEFT JOIN private.source_persona_identity i ON i.source_persona_id=c.source_persona_id
+     WHERE c.run_id=v_run AND c.rank=1 AND (c.basis->>'corroboration_eligible')::boolean IS TRUE
+       AND (i.source_persona_id IS NULL OR i.decision_status='proposed')
+       AND NOT EXISTS (SELECT 1 FROM private.identity_control_sample x WHERE x.control_run_id=p_control_run_id AND x.source_persona_id=c.source_persona_id);
+  SELECT private.reimport_canonical_json_sha256(coalesce(jsonb_agg(pid::text ORDER BY pid::text COLLATE "C"),'[]'::jsonb))
+    INTO v_set FROM pg_temp.corr_set;
+  IF v_set IS DISTINCT FROM p_expect_set_sha256 THEN RAISE EXCEPTION 'IDENTITY_CORROBORATION_SET_DRIFT'; END IF;
+  FOR r IN SELECT * FROM pg_temp.corr_set ORDER BY pid LOOP
+    v_ctx:=private.persona_family_context(r.pid);
+    SELECT (f->>'family_id')::bigint,(f->>'ordinal')::integer INTO v_fam,v_ord
+      FROM jsonb_array_elements(v_ctx->'families') f
+     WHERE jsonb_array_length(v_ctx->'families')=1 OR (f->>'ordinal')::integer=(v_ctx->>'marriage_ordinal')::integer
+     LIMIT 1;
+    PERFORM private.decide_source_persona_identity(r.pid,r.person,0,'accepted',
+      jsonb_build_object('basis','family_corroboration','method','family-corroboration-v1','run_id',v_run,'candidate_id',r.cid,
+        'family_id',v_fam,'ordinal',v_ord,'control_run_id',p_control_run_id,
+        'family_context_sha256',private.reimport_canonical_json_sha256(v_ctx)),
+      'family_corroboration');
+    v_n:=v_n+1;
+  END LOOP;
+  RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION red_corroborate_family_identities(uuid,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_corroborate_family_identities(uuid,text) TO authenticated;

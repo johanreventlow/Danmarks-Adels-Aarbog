@@ -13,21 +13,24 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[4]
 KERNE = "private.decide_source_persona_identity("
-OPRINDELSER = ("human", "person_create", "legacy_match", "reversal")
+OPRINDELSER = ("human", "person_create", "legacy_match", "reversal", "family_corroboration")
 CUTOVER = re.compile(r"-- BEGIN 5a-cutover.*?-- END 5a-cutover", re.S)
 # Eksakt allowlist (fil, omsluttende funktion, oprindelse) -> antal kald. Målt 2026-09-24.
 # En ny kalder kræver en ændring her OG en beslutning (spec §4.2) — aldrig bare en ny linje.
+# 5b 2026-10-06: family_corroboration (decisions 2026-10-06).
 ALLOWLIST = {
     ("schema.sql", "red_afgoer_source_persona", "human"): 1,
     ("schema.sql", "red_apply_reimport_person_create", "person_create"): 1,
     ("schema.sql", "migrate_legacy_narrative_record", "legacy_match"): 1,
     ("schema.sql", "red_reverse_reimport", "reversal"): 1,
+    ("schema.sql", "red_corroborate_family_identities", "family_corroboration"): 1,
     ("db-migrations.sql", "red_afgoer_source_persona", "human"): 1,
     ("db-migrations.sql", "red_apply_1939_v50_person_create", "person_create"): 1,
     ("db-migrations.sql", "red_apply_reimport_person_create", "person_create"): 2,
     ("db-migrations.sql", "migrate_legacy_narrative_record", "legacy_match"): 1,
     ("db-migrations.sql", "red_reverse_1939_v50_reimport", "reversal"): 3,
     ("db-migrations.sql", "red_reverse_reimport", "reversal"): 1,
+    ("db-migrations.sql", "red_corroborate_family_identities", "family_corroboration"): 1,
 }
 
 

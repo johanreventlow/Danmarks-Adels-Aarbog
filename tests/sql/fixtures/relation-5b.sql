@@ -131,3 +131,36 @@ BEGIN
     VALUES ((p_claim->>'key')::uuid,'spouse',1,v_persona,p_ordinal,v_from,'relation_persona',v_ref);
   RETURN v_persona;
 END $$;
+
+-- Payload til relation_persona for en ægteskabspåstand, hvis klausul er præcis raw.
+CREATE OR REPLACE FUNCTION pg_temp.f5b_payload(p jsonb,c jsonb,p_clause uuid,p_raw text,p_name text) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE v_co private.source_observation%ROWTYPE; v_from int;
+BEGIN
+  SELECT * INTO v_co FROM private.source_observation WHERE id=p_clause;
+  v_from:=strpos(v_co.verbatim_text,p_raw)-1;
+  RETURN jsonb_build_object('birth_raw',NULL,'clause_observation_id',p_clause,'clause_set_seq',1,
+    'clause_set_sha256',private.clause_set_sha256(v_co.parent_observation_id,1),'death_raw',NULL,
+    'interpretation_key',c->>'key','interpretation_version',1,
+    'marriage_ordinal',(SELECT o.marriage_ordinal FROM private.relation_marriage_ordinals(v_co.occurrence_id) o
+                         WHERE o.interpretation_key=(c->>'key')::uuid),
+    'name_from',v_from+strpos(p_raw,p_name)-1,'name_to',v_from+strpos(p_raw,p_name)-1+char_length(p_name),
+    'post_offset',v_co.post_char_from+v_from,'predicate','relation.marriage','profile','relation-persona-2018-20-v1',
+    'span_from',v_from,'span_to',v_from+char_length(p_raw));
+END $$;
+
+-- Skriver de givne payloads gennem den rigtige writer og finaliserer. Kaldes som ejer: autorisation
+-- og begin som ejer (f5b_batch), apply og finalize som authenticated redaktion.
+CREATE OR REPLACE FUNCTION pg_temp.f5b_write(p_source bigint,p_actor uuid,p_elements jsonb) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE prof jsonb; b jsonb; e record;
+BEGIN
+  SELECT jsonb_build_object('profile_id',profile_id,'profile_sha256',profile_sha256) INTO prof
+    FROM private.reimport_writer_profile WHERE source_id=p_source AND profile_id='relation-5b';
+  IF prof IS NULL THEN prof:=pg_temp.f5b_profile(p_source); END IF;
+  b:=pg_temp.f5b_batch(p_source,p_actor,prof,p_elements);
+  SET LOCAL ROLE authenticated;
+  FOR e IN SELECT * FROM jsonb_each(p_elements) LOOP
+    PERFORM public.red_apply_reimport_relation_persona((b->>'batch')::uuid,e.key,e.value);
+  END LOOP;
+  PERFORM public.red_finalize_reimport((b->>'batch')::uuid);
+  RESET ROLE;
+END $$;

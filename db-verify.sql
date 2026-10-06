@@ -2949,6 +2949,7 @@ DECLARE
     'public.red_begin_reimport(uuid,text,text)'::regprocedure,
     'public.red_begin_reimport_name_completion(uuid,text,uuid)'::regprocedure,
     'public.red_bekraeft_media_upload(bigint,bigint,text)'::regprocedure,
+    'public.red_corroborate_family_identities(uuid,text)'::regprocedure,
     'public.red_decide_interpretation(uuid,integer,text,jsonb)'::regprocedure,
     'public.red_decide_source_persona_placement(uuid,integer,text,jsonb)'::regprocedure,
     'public.red_decide_source_record_placement(uuid,integer,text,jsonb)'::regprocedure,
