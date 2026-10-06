@@ -1,7 +1,7 @@
 # Trin 5b — andre personer i posten: ægtefæller, børn og forældre (#151/#150)
 
 **Status:** designudkast, godkendt sektion for sektion i brainstorm 2026-10-06; revideret efter
-Codex runde 2 (NO-GO: 4 BLOCKER, 3 MAJOR, 3 MINOR — alle efterprøvet og godtaget, se §16) og
+Codex runde 3 (NO-GO: 3 BLOCKER, 2 MAJOR, se §17), Codex runde 2 (NO-GO: 4 BLOCKER, 3 MAJOR, 3 MINOR — alle efterprøvet og godtaget, se §16) og
 dobbelt review runde 1 (Claude: 4 BLOCKER, 6 MAJOR; Codex `gpt-5.6-sol`: NO-GO, 4 BLOCKER, 4 MAJOR —
 alle efterprøvet mod koden og godtaget, se §15). Fortrydelsen er ændret fra writer-reversal til
 restore-only (§13), efter fortilfældene for 4.1c og 4.4.
@@ -89,8 +89,10 @@ ved nye personer og i trin 6/7, hvor familiesignalet kommer fra andre kilder.
 
 - **Input er serverens:** `private.relation_persona_input(source_id)` returnerer deterministisk
   (`ORDER BY … COLLATE "C"`) gældende `relation.marriage`/`child`/`parent`-påstande uden gældende
-  parter: `interpretation_key`, version, prædikat, `raw`, den citerede klausul (id, `verbatim_text`,
-  `char_from`), occurrence (`char_from`, postnøgle). Scriptet læser det via den rollegatede
+  parter: `interpretation_key`, version, prædikat, `raw`, og den citerede klausul læst **udelukkende fra
+  `private.clause_observation_current`** (id, `verbatim_text`, `post_char_from`, `post_char_to`,
+  `clause_set_seq`, klausulsættets sha256) samt postnøgle. Rækkefilen binder klausulsættets seq og
+  sha256; writeren genvaliderer dem (ændret klausulsæt ⇒ fail-closed). Scriptet læser det via den rollegatede
   `red_relation_persona_input(source_id)`.
 - **Script:** `.claude/skills/daa-extract/scripts/relation_persona_extract.py` (ren funktion + CLI).
 - **Spænd:** påstanden skal citere **præcis én** klausul, og `raw` skal forekomme **præcis én gang**
@@ -105,8 +107,8 @@ ved nye personer og i trin 6/7, hvor familiesignalet kommer fra andre kilder.
 - **Entydighed:** sorteringsnøglen er (`post_offset`, spændlængde, prædikat, `interpretation_key`
   `COLLATE "C"`); to påstande med samme prædikat, `post_offset` og spændlængde er uadskillelige
   dubletter og parkeres begge (`dublet`).
-- **Ægteskabsnummer:** rang efter `post_offset` blandt **alle** postens ægteskabs-påstande, også de
-  parkerede, så numrene ikke flytter sig, når parkeringsreglerne ændres.
+- **Ægteskabsnummer:** rang efter den fulde sorteringsnøgle (nedenfor) blandt **alle** postens
+  ægteskabs-påstande, også de parkerede, så numrene ikke flytter sig, når parkeringsreglerne ændres.
 - **Navn (kun ægteskab):** stykket efter en indledende ægteskabsmarkør til første markør for fødsel,
   død, forældre eller afslutning. Markørsættet er en versioneret profil
   (`relation-persona-2018-20-v1`), fastlagt i planens første task ud fra målte mønstre (kun tal).
@@ -123,13 +125,20 @@ Ny operation i den generelle writer (#153). Rammen udvides for **alle tre** nye 
 (`relation_persona`, `relation_person_create` §8.4, `relation_disposition` §8.2) samme steder:
 `reimport_event_operation_check`, nøglelisten i `validate_reimport_authorization_payload`,
 elementpræfiks, `red_finalize_reimport` (observed = expected for hver nøgle) og
-`red_reimport_batch_result`. Expected-count-nøgler og kvitteringer:
+`red_reimport_batch_result`. Den levende validator kræver, at summen af expected-counts er lig antallet
+af autoriserede elementer; derfor har hver operation **én operationstæller** (antal elementer med
+præfikset), og delrækkerne tælles **ikke** som expected-counts, men udledes ved finalisering af
+elementernes versionerede `result_receipt` (id-arrays) og efterprøves mod databasen (distinct id'er,
+antal, at hver række findes og hører til batchen). Autorisationspayload og receipt-skema pr. operation
+fastlægges i planen; kontrakten er 1 autoriseret element → 1 event → 1 receipt.
 
-| Operation | Elementpræfiks | Count-nøgler | Kvittering pr. element |
+Operationstællere og receipts:
+
+| Operation | Elementpræfiks | Operationstæller | Receipt pr. element (efterprøves ved finalisering) |
 | --- | --- | --- | --- |
-| `relation_persona` | `rp:` | `relation_personas`, `relation_mentions`, `relation_year_interpretations`, `relation_parties` | persona, mention, år-fortolkninger, parter |
-| `relation_person_create` | `rpc:` | `persons`, `name_facts`, `name_assertions`, `name_citations`, `name_conclusions`, `families`, `family_members`, `identities` | alle id'er (§8.4 trin 6) |
-| `relation_disposition` | `rd:` | `clause_dispositions` | observation, dispositionsversion |
+| `relation_persona` | `rp:` | `relation_personas` | persona, mention, år-fortolkninger, parter |
+| `relation_person_create` | `rpc:` | `relation_person_creates` | person, fact, assertion, citation, conclusion, familie (ny eller eksisterende), alle `family_member`-rækker, identitetsversion |
+| `relation_disposition` | `rd:` | `relation_dispositions` | observation, dispositionsversion |
 
 Batchen for `relation_persona` opretter sin egen `extraction_run` (kræves af
 `source_persona.created_run_id` og `source_mention.created_run_id`).
@@ -188,8 +197,8 @@ tilføjer pr. persona: hovedpersonens person, dennes familier (`family_id`, hove
 - Kandidater: **familie-kandidater** (partnere ≠ hovedpersonen; signal `family_partner`,
   `ordinal_match`) før **global top-K** (5a).
 - `red_record_identity_candidates` beregner pr. persona **`family_context_sha256`** af serverens
-  genberegnede input (familier, partnere, ordenstal, konfidens, identitetsversioner og den eksakte
-  `samme_som`-komponent for hver kandidat) og gemmer den på kandidatrækken. Klienten leverer den ikke.
+  genberegnede input (familier, partnere, ordenstal, konfidens, identitetsversioner) og gemmer den på
+  kandidatrækken. Klienten leverer den ikke.
 - **`samme_som`-klynger** (5a-svaghed 1) slås sammen til én kandidat; repræsentanten er partneren i
   familien, ellers laveste id.
 - Generatoren sætter `corroboration_eligible` som **sorteringshjælp**; autoriteten er kernens egne
@@ -218,14 +227,30 @@ fra kalderens `basis`:
 - **(d) Autorisation:** kaldet sker under en **bestået kontrolkørsel** (§7) for samme kandidatkørsel.
   Navnelighed kan kernen ikke beregne; den er autoriseret af stikprøven, ikke af kalderen.
 
-**Låseprotokol (TOCTOU):** ny `private.lock_family_structure(p_person_ids bigint[])` tager
-transaktions-advisory-låse pr. person-id i sorteret orden. Den tages af alle writere, der kan ændre
-grundlaget — `red_opret_union`, `red_tilfoej_partner`, `red_tilfoej_barn`, `red_slet_familie_link`,
-`red_set_familie_konfidens`, `samme_som`-writeren og kernen ved enhver identitetsafgørelse (for
-målpersonen) — og af `family_corroboration`, `red_decide_relation_interpretations`,
-`red_afgoer_relation_interpretation`, promotion-RPC'en og `relation_person_create` for hovedperson og
-mål(e) **før** den sidste genberegning af (b) og (c). Ændringen af de eksisterende familie-RPC'er er
-additiv (én låsning øverst).
+**Låseprotokol (TOCTOU) — Postgres' egne rækkelåse, ingen ændring af andre writere.** Familier
+kan ændres ad mange veje (familie-RPC'er, `red_flyt_barn`, `red_set_familie_ordinal`,
+`red_vaelg_foraeldre`, change_set-undo, scripts). I stedet for at integrere en advisory-lås i dem alle
+låser de nye RPC'er selve rækkerne, så enhver anden vej venter:
+
+- **personrækker** (`SELECT … FROM person … ORDER BY id FOR UPDATE`) for hovedperson, målperson og —
+  ved en identitetsændring — både gammelt og nyt mål. Det blokerer også enhver ny `family_member`-række,
+  der peger på personen, fordi fremmednøglens kontrol tager `FOR KEY SHARE` på personrækken
+  (`family_member.person_id REFERENCES person(id)`), og det konflikter med `FOR UPDATE`; samme for
+  `red_slet_person`;
+- **familie- og medlemsrækker** (`FOR UPDATE`, sorteret på id) for alle hovedpersonens og målpersonens
+  familier — blokerer `UPDATE`/`DELETE` af ordenstal, konfidens og medlemskab ad enhver vej.
+
+**Én total låseorden** for alle 5b-RPC'er og kernen: writer-/kildelås (som i dag) → kontrolkørslens
+lås (§7.2) → persona- og identitetsrækker (sorteret) → personrækker (sorteret) → familierækker
+(sorteret) → `family_member`-rækker (sorteret) → genberegning af (b)/(c) → skrivning. Eksisterende
+writere tager ingen nye låse, så den eneste mulige konflikt er en Postgres-detekteret deadlock mod en
+ældre vej; den ruller transaktionen tilbage (fail-closed, falsk STOP). Kernen låser selv personaens
+identitetsrække (som i dag) og både gammelt og nyt mål.
+
+**`samme_som` er ikke en del af kernens efterprøvelse.** Klyngesammenlægningen (§6.1) påvirker kun
+kandidatvisningen; kernens (b) bruger alene `family_member`, og målet er familiens partner-id.
+`family_context_sha256` omfatter derfor familier, partnere, ordenstal, konfidens og identitetsversioner,
+ikke `samme_som`-topologien.
 
 Kræver `accepted` og forventet version 0. Alle andre lighedsmatch forbliver lukkede; kernen har
 fortsat ingen grants, og kalder-allowlisten (`test_identity_guard_static.py`) udvides med præcis den
@@ -233,7 +258,8 @@ nye RPC. Posten i `docs/decisions.md` skrives, når specen er godkendt.
 
 ### 6.3 RPC `red_corroborate_family_identities(p_control_run_id uuid, p_expect_set_sha256 text)`
 
-Rollegatet (redaktion). Tager kildelåsen delt som 5a's afgørelser. Serveren:
+Rollegatet (redaktion). Tager kildelåsen **eksklusivt**, så ingen menneskelig afgørelse i kilden
+(der tager den delt) kan ske mellem genvalidering og skrivning. Serveren:
 
 1. kræver, at kontrolkørslens **seneste** status er `passed`, at den hører til kildens gældende
    kandidatkørsel, og **genvaliderer alle stikprøvens gældende afgørelser** (§7.2) under låsen umiddelbart
@@ -280,13 +306,18 @@ Ny tabel `private.identity_control_run` (append-only status-events) med `private
 `red_evaluate_identity_control_run(p_control_run_id)` under kildelåsen:
 
 - **`not_ready`** (intet event), så længe en stikprøvesag er uafgjort.
-- **`passed`**, når hver identitetssag har en gældende menneskelig afgørelse (`basis: human_sheet`,
-  samme `sheet_sha256`) med `action = same` og `candidate_id` = rang 1 i samme kørsel, hver
-  relationssag er afgjort `same` til den familie, maskinen ville vælge, og kandidatkørslen stadig er
-  gældende.
+- **`passed`**, når for **begge** `sample_kind` hver stikprøvesags gældende afgørelse er truffet efter
+  registreringen med `basis: human_sheet`, kontrolkørslens eksakte `sheet_sha256` **og**
+  `rows_sha256`, den samplede version og den blinde mapping (visningsplads → kandidat/familie) fra
+  rækkefilen; identitetssager med `action = same` og `candidate_id` = rang 1 i samme kørsel,
+  relationssager `same` til den familie, maskinen ville vælge; og kandidatkørslen stadig er gældende.
+  `web_detail` kan ikke opfylde kriteriet. `red_afgoer_relation_interpretation` gemmer og validerer
+  samme arkkontekst som 5a's identitets-RPC.
 - **`failed`** ved en faktisk afvigelse — anden kandidat, `X`, `U`, `N`, `P <id>`, anden familie.
-- **Den seneste status er autoritativ.** Begge maskin-RPC'er (§6.3, §8.2) genvaliderer stikprøven
-  under låsen umiddelbart før skrivning; en ændret stikprøveafgørelse efter `passed` giver et
+- **Den seneste status er autoritativ.** Evaluering og begge maskin-RPC'er (§6.3, §8.2) tager
+  kildelåsen eksklusivt og kontrolkørslens række `FOR UPDATE`, låser alle samplede identitets- og
+  fortolkningsrækker (sorteret) og genvaliderer stikprøven umiddelbart før skrivning; de menneskelige
+  afgørelses-RPC'er tager kildelåsen delt og kan derfor ikke interleave; en ændret stikprøveafgørelse efter `passed` giver et
   `failed`-event og ingen maskinelle skrivninger. En `failed` kørsel kan ikke bestå igen.
 - **Stopregel:** kun en bestået kørsel autoriserer `family_corroboration` (§6.2 d) og maskinel
   relationsafgørelse (§8.2) — og kun for sager i kørslens egne populationer (mængde-hash). Ved fejl går
@@ -514,3 +545,16 @@ godtaget.
 | 8 | Samme-post-triggeren umuliggjorde `child`/`parent`-parter | MINOR | §5.3 rolleafhængigt scope |
 | 9 | Regelversionsfunktionen forblev tekstlåst | MINOR | §8.1 funktion, signatur, view-kontrakt |
 | 10 | Tidlig evaluering gav terminal `failed`; stikprøvestørrelse > N | MINOR | §7.2 `not_ready`; §7.1 `min(N, max(10, ceil(0,1·N)))` |
+
+## 17. Review runde 3 (Codex, 2026-10-06)
+
+Codex bekræftede runde 2's fund 4, 7, 8, 9 og 10 som løst; fem fund stod tilbage eller var nye. Alle
+efterprøvet og godtaget.
+
+| # | Fund | Grad | Rettelse |
+| --- | --- | --- | --- |
+| 1 | Relationsstikprøven kunne bestå via `web_detail` eller anden rækkefil; identitetssager bandt ikke `rows_sha256` | BLOCKER | §7.2 begge `sample_kind`: `human_sheet`, sheet- og rows-hash, samplet version, blind mapping |
+| 2 | Genvalidering under delt kildelås kunne interleave med menneskelig om-afgørelse | BLOCKER | §6.3 og §7.2: maskin-RPC'er og evaluering tager kildelåsen eksklusivt + kontrolkørsel `FOR UPDATE` |
+| 3 | `lock_family_structure` dækkede ikke alle familieveje (ordinal, flyt barn, undo, scripts) og havde ingen total orden | BLOCKER | §6.2 erstattet af rækkelåse (`FOR UPDATE` på person-, familie- og medlemsrækker; FK-`KEY SHARE` blokerer nye medlemmer), én total orden, gammelt og nyt mål låses; `samme_som` ude af kernens efterprøvelse |
+| 4 | Writer-tabellen passede ikke til validatorens »sum = antal elementer« | MAJOR | §5.2 én operationstæller pr. operation; delrækker via versionerede receipts efterprøvet ved finalisering |
+| 5 | Inputkontrakten leverede ikke `post_char_from` | MAJOR | §5.1 input fra `clause_observation_current` med post-koordinater, klausulsæt-seq og -sha bundet og genvalideret; ægteskabsnummer efter fuld sorteringsnøgle |
