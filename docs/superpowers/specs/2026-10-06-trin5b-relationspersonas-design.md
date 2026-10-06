@@ -137,9 +137,9 @@ Operationstællere og receipts:
 
 | Operation | Elementpræfiks | Operationstæller | Receipt pr. element (efterprøves ved finalisering) |
 | --- | --- | --- | --- |
-| `relation_persona` | `rp:` | `relation_personas` | persona, mention, år-fortolkninger, parter |
-| `relation_person_create` | `rpc:` | `relation_person_creates` | person, fact, assertion, citation, conclusion, familie (ny eller eksisterende), alle `family_member`-rækker, identitetsversion |
-| `relation_disposition` | `rd:` | `relation_dispositions` | observation, dispositionsversion |
+| `relation_persona` | `relation-persona:` | `relation_personas` | persona, mention, år-fortolkninger, parter |
+| `relation_person_create` | `relation-person-create:` | `relation_person_creates` | person, fact, assertion, citation, conclusion, familie (ny eller eksisterende), alle `family_member`-rækker, identitetsversion |
+| `relation_disposition` | `relation-disposition:` | `relation_dispositions` | observation, dispositionsversion |
 
 Batchen for `relation_persona` opretter sin egen `extraction_run` (kræves af
 `source_persona.created_run_id` og `source_mention.created_run_id`).
@@ -156,7 +156,7 @@ numerisk på id'er).
 Kanoniske rækker har ingen `batch_id`; tilhørsforholdet bevises derfor ved finalisering med de angivne
 joins, og hvert id må optræde i præcis ét receipt i hele batchen (batchglobal distinct-kontrol).
 
-**`relation_persona`** — element-id `rp:<interpretation_key>`.
+**`relation_persona`** — element-id `relation-persona:<interpretation_key>`.
 
 - Autorisation: `interpretation_key`, `interpretation_version`, `predicate`, `clause_observation_id`,
   `clause_set_seq`, `clause_set_sha256`, `post_offset`, `span_from`, `span_to`, `marriage_ordinal`
@@ -173,12 +173,12 @@ joins, og hvert id må optræde i præcis ét receipt i hele batchen (batchgloba
     citerer klausulen;
   - **`relation.child`/`relation.parent`:** `spouse_source_persona_id` og `mention_id` er `null`, og
     `year_interpretation_ids` er `[]` (altid et array); ingen ny persona efterprøves;
-  - **alle:** `principal_source_persona_id` efterprøves kun mod den gældende `principal`-part, postens
-    accepterede `principal_member`-placering og en gældende `accepted` identitet (den er oprettet i en
+  - **alle:** `principal_source_persona_id` efterprøves kun mod den gældende `principal`-part, 
+    postens hovedperson (den eneste persona med en `primary`-mention på postens helpost-observation, som `interpretation_proposal`-writeren finder den) og en gældende `accepted` identitet (den er oprettet i en
     tidligere kørsel); partsrækkerne har `origin_ref` = batch-id og den autoriserede
     `interpretation_key`.
 
-**`relation_person_create`** — element-id `rpc:<source_persona_id>`.
+**`relation_person_create`** — element-id `relation-person-create:<source_persona_id>`.
 
 - Autorisation: `source_persona_id`, `identity_version` (den gældende `unresolved`/`new_person_needed`),
   `principal_person_id`, `marriage_ordinal`, `family_mode` (`existing`|`new`), `family_id` (kun ved
@@ -197,7 +197,7 @@ joins, og hvert id må optræde i præcis ét receipt i hele batchen (batchgloba
   mål `person_id`, oprindelse `relation_person_create` og `batch_id` i evidensen; personen har en
   forbrugt kvittering i samme transaktion (5a).
 
-**`relation_disposition`** — element-id `rd:<observation_id>`.
+**`relation_disposition`** — element-id `relation-disposition:<observation_id>`.
 
 - Autorisation: `observation_id`, `from_disposition_version`, `interpretation_keys` (alle påstande, der
   citerer klausulen med `afventer_identitet`; alle skal være afgjort).
@@ -221,8 +221,8 @@ og `derived_counts` har faste nøgler (0 når ingen):
 
 Pr. element, i batchens transaktion:
 
-- **Hovedpersonen udledes af serveren, ikke af rækkefilen:** den persona, der har postens accepterede
-  `principal_member`-placering og en gældende `accepted` identitet. Mangler den, afvises elementet.
+- **Hovedpersonen udledes af serveren, ikke af rækkefilen:** 
+  postens hovedperson (den eneste persona med en `primary`-mention på postens helpost-observation, som `interpretation_proposal`-writeren finder den) med en gældende `accepted` identitet. Mangler den, afvises elementet.
 - **Ægteskab:** `source_persona` med `persona_key = <postnøgle>#rel-marriage-<post_offset>-<spændlængde>`;
   `source_mention` (`mention_kind='person'`, navnespændet; triggeren efterprøver det ordret);
   `source_persona_mention` (rolle `spouse`); `person.birth`/`person.death` på personaen, når der er år:
@@ -256,8 +256,8 @@ PRIMARY KEY (interpretation_key, party_role, version)
 - Nøglet på `interpretation_key`, så parterne følger fortolkningen gennem `red_decide_interpretation`'s
   nye versioner (review: tabellen nøglet på `interpretation_id` ville miste parterne ved accept).
 - Trigger: samme kilde som fortolkningen; **rolleafhængigt scope** — `principal` og `spouse` skal høre
-  til relationens post (via mention/occurrence), mens `child`/`parent` skal være en persona med
-  accepteret `principal_member`-placering i en anden post i samme kilde (servervalideret mod den
+  til relationens post (via mention/occurrence), mens `child`/`parent` skal være hovedpersonen
+  (`primary`-mention på helposten) i en anden post i samme kilde (servervalideret mod den
   entydige familiestruktur af den RPC, der skriver parten, §8.2); tilladte roller pr. prædikat (`marriage`: principal+spouse, `child`: principal+child, `parent`:
   principal+parent); `version = forrige + 1`. View `interpretation_party_current`.
 - Append-only-trigger, RLS uden klientpolitikker, ingen grants; med i `db-rls.sql`'s master-array.
@@ -292,7 +292,7 @@ fra kalderens `basis`:
   `payload->>'interpretation_key'` = partens nøgle og `payload->'result_receipt'->>'spouse_source_persona_id'`
   = personaen → samme receipts `principal_source_persona_id` = gældende `principal`-part, og eventets
   `marriage_ordinal`/`post_offset` = partens.
-  `principal`-personaen har postens accepterede `principal_member`-placering og en gældende `accepted`
+  `principal`-personaen er postens hovedperson (den eneste persona med en `primary`-mention på postens helpost-observation, som `interpretation_proposal`-writeren finder den) og har en gældende `accepted`
   identitet.
 - **(b) Struktur, talt af kernen:** antallet af ikke-afviste ægteskabs-påstande i posten = antallet af
   familier, hvor hovedpersonen er partner; familien vælges ved hovedpersonens
@@ -699,3 +699,14 @@ Runde 6's tre fund løst; ingen BLOCKER eller MAJOR. To MINOR (værste udfald fa
 | --- | --- | --- |
 | 1 | `year_interpretation_ids` null eller tomt for børn/forældre | §5.2.1 altid `[]` |
 | 2 | `X/U/N` uden eksplicit NULL-mål og uden forbud mod visningsplads/kandidat; mapping via klientens `run_id` | §7.1 eksplicit; mapping kun via `control_run_id` |
+
+## 22. Errata ved planlægningen (2026-10-06)
+
+1. **Hovedpersonen findes via helpostens `primary`-mention, ikke via placering.** Målt i
+   `daa2018f_20261001133125`: 0 af 587 personas i kilde 1 har en placering (placement er 5c), men alle
+   587 har en `primary`-mention. Specen sagde »accepteret `principal_member`-placering« (§5.2, §5.2.1,
+   §5.3, §6.2 a); rettet til samme regel som `interpretation_proposal`-writeren.
+2. **Elementpræfikser** følger writerens eksisterende stil (`person-create:`, `clause-evidence:` …):
+   `relation-persona:`, `relation-person-create:`, `relation-disposition:`.
+3. **`family.id`** er en identity-kolonne i den prod-lignende base, men ikke i `schema.sql` (fersk CI);
+   rettelsen (§8.4 trin 4) er at bringe `schema.sql` og en idempotent migration på linje med prod.
