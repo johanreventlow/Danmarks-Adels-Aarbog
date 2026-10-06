@@ -1,7 +1,7 @@
 # Trin 5b — andre personer i posten: ægtefæller, børn og forældre (#151/#150)
 
 **Status:** designudkast, godkendt sektion for sektion i brainstorm 2026-10-06; revideret efter
-Codex runde 4 (NO-GO: 1 BLOCKER, 1 MAJOR, se §18), Codex runde 3 (NO-GO: 3 BLOCKER, 2 MAJOR, se §17), Codex runde 2 (NO-GO: 4 BLOCKER, 3 MAJOR, 3 MINOR — alle efterprøvet og godtaget, se §16) og
+Codex runde 5 (NO-GO: 2 MAJOR, 1 MINOR, se §19), Codex runde 4 (NO-GO: 1 BLOCKER, 1 MAJOR, se §18), Codex runde 3 (NO-GO: 3 BLOCKER, 2 MAJOR, se §17), Codex runde 2 (NO-GO: 4 BLOCKER, 3 MAJOR, 3 MINOR — alle efterprøvet og godtaget, se §16) og
 dobbelt review runde 1 (Claude: 4 BLOCKER, 6 MAJOR; Codex `gpt-5.6-sol`: NO-GO, 4 BLOCKER, 4 MAJOR —
 alle efterprøvet mod koden og godtaget, se §15). Fortrydelsen er ændret fra writer-reversal til
 restore-only (§13), efter fortilfældene for 4.1c og 4.4.
@@ -146,8 +146,12 @@ Batchen for `relation_persona` opretter sin egen `extraction_run` (kræves af
 #### 5.2.1 Writer-kontrakt (autorisation, receipt, efterprøvning)
 
 Fælles: elementets autorisationspayload må kun have de nævnte nøgler (ukendt eller manglende nøgle ⇒
-afvist); eventets payload = autorisationspayloaden; `result_receipt` har præcis de nævnte nøgler, og
-`receipt_sha256 = private.reimport_canonical_json_sha256(receipt)` gemmes i eventets `after_sha256`.
+afvist). **Event-envelope** som det levende `interpretation_proposal`-mønster:
+`reimport_event.payload = autorisationspayload || {"result_receipt": <receipt>}` og
+`after_sha256 = private.reimport_canonical_json_sha256(<receipt>)`. Finalizeren læser receiptet fra
+`payload->'result_receipt'`, genberegner hashen og kræver lighed med `after_sha256`. `result_receipt`
+har præcis de nævnte nøgler plus `schema`; alle arrays er sorteret (`ORDER BY … COLLATE "C"` på tekst,
+numerisk på id'er).
 Kanoniske rækker har ingen `batch_id`; tilhørsforholdet bevises derfor ved finalisering med de angivne
 joins, og hvert id må optræde i præcis ét receipt i hele batchen (batchglobal distinct-kontrol).
 
@@ -157,9 +161,10 @@ joins, og hvert id må optræde i præcis ét receipt i hele batchen (batchgloba
   `clause_set_seq`, `clause_set_sha256`, `post_offset`, `span_from`, `span_to`, `marriage_ordinal`
   (null for child/parent), `name_from`, `name_to`, `birth_raw`, `death_raw` (null når ikke
   ægteskab/intet år), `profile` (`relation-persona-2018-20-v1`).
-- Receipt (`schema: relation-persona-receipt-v1`): `source_persona_id`, `mention_id` (null for
-  child/parent), `year_interpretation_ids` (array, 0–2), `party_keys` (array af
-  `[interpretation_key, party_role, version]`).
+- Receipt (`schema: relation-persona-receipt-v1`): `principal_source_persona_id` og
+  `spouse_source_persona_id` (serverudledte, aldrig fra autorisationen; spouse null for
+  child/parent), `mention_id` (null for child/parent), `year_interpretation_ids` (array, 0–2),
+  `party_keys` (array af `[interpretation_key, party_role, version]`).
 - Efterprøvning: persona og mention har `created_run_id` = batchens `extraction_run`; mentionens spænd =
   (`name_from`, `name_to`) på `clause_observation_id`; år-fortolkningerne har batchens
   `extraction_run_id`, `source_persona_id` = receiptets persona og citerer klausulen; partsrækkerne har
@@ -194,9 +199,10 @@ joins, og hvert id må optræde i præcis ét receipt i hele batchen (batchgloba
   `batch_id` og manifestets sha256 i evidensen, og den forrige version var maskinel (aldrig oven på
   menneskelig).
 
-**`red_reimport_batch_result`** returnerer for de nye operationer `{operation, elements,
-receipts_sha256}` (`receipts_sha256` = sha256 af de sorterede receipt-hashes) samt de afledte
-delrækketal pr. receipt-nøgle.
+**`red_reimport_batch_result`** bevarer sin eksisterende form (`batch_id`, `status`, `replayed`,
+counts) og tilføjer for batches med de nye operationer nøglen `relation_results`: et array sorteret på
+`operation` af `{operation, elements, receipts_sha256, derived_counts}`, hvor `receipts_sha256` =
+sha256 af de sorterede `after_sha256` og `derived_counts` = antal pr. receipt-id-felt.
 
 Pr. element, i batchens transaktion:
 
@@ -210,8 +216,8 @@ Pr. element, i batchens transaktion:
   klausulen.
 - **Parter:** `principal` for alle tre prædikater; `spouse` for ægteskab. Børn/forældre får deres
   modpart først ved afgørelsen (§8.3).
-- Eventets payload binder `interpretation_key`, `post_offset`, `marriage_ordinal`, principal- og
-  spouse-persona og spændet. Kernen (§6.2) læser det.
+- Eventet binder autorisationens `interpretation_key`, `post_offset`, `marriage_ordinal` og spænd, og
+  receiptet de serverudledte principal- og spouse-personas (§5.2.1). Kernen (§6.2) læser begge.
 
 Idempotent på `persona_key` med samme payload; anden payload på samme nøgle ⇒ fail-closed. Ændrer en
 ny profil spændet, giver det en ny nøgle og en ny persona; den gamle personas parter afløses (§5.3), og
@@ -267,7 +273,10 @@ fra kalderens `basis`:
 
 - **(a) Proveniens:** personaen er gældende `spouse`-part i en ægteskabs-påstand med gældende status
   `proposed` eller `accepted`, skrevet af en finalized, ikke-fortrudt `relation_persona`-batch, og
-  partens række stemmer med eventets payload (påstand, post, principal, spouse, ordinal, spænd).
+  partens række stemmer med eventet: join `interpretation_party_current` (spouse) → event med
+  `payload->>'interpretation_key'` = partens nøgle og `payload->'result_receipt'->>'spouse_source_persona_id'`
+  = personaen → samme receipts `principal_source_persona_id` = gældende `principal`-part, og eventets
+  `marriage_ordinal`/`post_offset` = partens.
   `principal`-personaen har postens accepterede `principal_member`-placering og en gældende `accepted`
   identitet.
 - **(b) Struktur, talt af kernen:** antallet af ikke-afviste ægteskabs-påstande i posten = antallet af
@@ -361,11 +370,14 @@ Ny tabel `private.identity_control_run` (append-only status-events) med `private
      uoverensstemmelserne.
   3. `red_seal_identity_control_run(p_control_run_id, p_sheet_sha256, p_rows_sha256)` forsegler ark og
      rækkefil, før noget afgøres; en forseglet kørsel kan ikke forsegles igen.
-- **Stikprøvesager afgøres med visningsplads, ikke id:** for en sag i en aktiv kontrolkørsel tager
-  `red_afgoer_source_persona` og `red_afgoer_relation_interpretation` `{control_run_id,
-  display_position}` i konteksten og **opløser selv** målet via den gemte mapping; et klientleveret
-  `candidate_id`/`family_id` for en stikprøvesag afvises. Evalueringen (§7.2) sammenholder afgørelsen
-  med den gemte mapping.
+- **Stikprøvesager afgøres med visningsplads, ikke id.** For en sag i en aktiv kontrolkørsel kræver
+  `red_afgoer_source_persona` og `red_afgoer_relation_interpretation` altid `control_run_id` og
+  forseglingskonteksten (`sheet_sha256`, `rows_sha256`, linje) og håndhæver betingede inputregler:
+  - `same` (token `1`–`3`): kræver `display_position`, forbyder klientleveret `candidate_id`/`family_id`;
+    serveren **opløser selv** målet via den gemte mapping;
+  - `X`, `U`, `N`: forbyder `display_position` og mål; registreres som afvigelse;
+  - `P <id>`: forbyder `display_position`, kræver det eksplicitte person-id; registreres som afvigelse.
+  Evalueringen (§7.2) sammenholder afgørelsen med den gemte mapping.
 - Arket bygges fra rækkefilen, som indeholder netop stikprøven og alle uoverensstemmelser.
 
 ### 7.2 Status: `not_ready`, `passed`, `failed`
@@ -635,3 +647,13 @@ familie-/medlemsveje, og at den eksklusive kildelås ikke giver deadlock. To fun
 | --- | --- | --- | --- |
 | 1 | Den blinde mapping lå kun i rækkefilen; en fejlagtig oversætter kunne sende rang-1-id og bestå | BLOCKER | §7.1 serveren gemmer mappingen; tre skridt (registrér → generér → forsegl); stikprøvesager afgøres med visningsplads, som serveren opløser |
 | 2 | Writer-/receipt-kontrakten var udskudt til planen | MAJOR | §5.2.1 autorisation, receipt, hash, efterprøvningsjoins og resultatkort for alle tre operationer |
+
+## 19. Review runde 5 (Codex, 2026-10-06)
+
+Ingen BLOCKER; begge runde 4-fund løst i substansen, men tre kontraktdetaljer manglede:
+
+| # | Fund | Grad | Rettelse |
+| --- | --- | --- | --- |
+| 1 | Receipts kunne ikke persisteres/læses (payload = autorisation, kun hash i `after_sha256`); resultatkort ufuldstændigt | MAJOR | §5.2.1 event-envelope `payload || {result_receipt}` som `interpretation_proposal`; sorterede arrays; fuldt `red_reimport_batch_result` |
+| 2 | Principal/spouse manglede i eventet, som §6.2 (a) efterprøver imod | MAJOR | §5.2.1 serverudledte personas i receiptet; §6.2 (a) eksakt join |
+| 3 | Uenighedstokens havde ingen RPC-kontrakt efter mappingrettelsen | MINOR | §7.1 betingede inputregler for `same`, `X/U/N`, `P <id>` |
