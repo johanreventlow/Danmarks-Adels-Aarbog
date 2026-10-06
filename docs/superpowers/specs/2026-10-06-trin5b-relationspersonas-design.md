@@ -177,7 +177,9 @@ joins, og hvert id må optræde i præcis ét receipt i hele batchen (batchgloba
   `identity_version`.
 - Efterprøvning: `person.staged = true`, `levende = true`, `visning_navn` afledt; `fact` har
   `subjekt=('person', person_id)` og `faktatype='navn'`; `assertion` peger på `fact_id` med
-  `vaerdi_tekst = name_text`; `citation` binder `assertion_id` til kilden og klausulen; `conclusion`
+  `vaerdi_tekst = name_text`; `citation` har `assertion_id`, `source_id` = batchens kilde, `side` = klausulens
+  side og `citat_tekst = citation_label` (postnøgle + side; tabellen har ingen klausulkolonne — klausulen
+  er bundet gennem personaens mention); `conclusion`
   på `fact_id` vælger `assertion_id`; hver `family_member_key` findes med rolle `partner` og
   ordenstallet; identitetsrækken for personaen har version = `identity_version`, status `accepted`,
   mål `person_id`, oprindelse `relation_person_create` og `batch_id` i evidensen; personen har en
@@ -469,7 +471,7 @@ arket (§7.3).
   2. **`levende` sættes eksplicit til `true`** (invariant 8, fail-closed). Ægtefællens
      `person.death`-fortolkning er kun `proposed` og må ikke bruges som dødsafgørelse; `levende`
      genberegnes først, når dødsfakta får en promotionregel med menneskelig afgørelse (åbent punkt 3);
-  3. navnekæden **fact (`navn`) → assertion → citation (kilde + klausul) → conclusion** efter mønstret
+  3. navnekæden **fact (`navn`) → assertion → citation (kilde, side, label med postnøgle) → conclusion** efter mønstret
      i name-completion-writeren, derefter efterkontrol af at `visning_*` er afledt (invariant 4);
   4. familieplads: har hovedpersonen præcis én familie med kun én partner og passende ordenstal,
      indsættes personen dér som partner; ellers ny familie (`type='vielse'`) med hovedpersonen og den
