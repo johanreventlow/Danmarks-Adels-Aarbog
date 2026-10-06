@@ -528,11 +528,18 @@ BEGIN
   RETURN jsonb_build_object('profile_id','relation-5b','profile_sha256',private.reimport_canonical_json_sha256(v_cfg));
 END $$;
 
--- Autoriserer og åbner en batch med de givne elementer (kaldes som authenticated redaktion).
-CREATE OR REPLACE FUNCTION pg_temp.f5b_batch(p_source bigint,p_prof jsonb,p_elements jsonb) RETURNS jsonb LANGUAGE plpgsql AS $$
+-- Autoriserer og åbner en batch med de givne elementer. Kaldes som EJER (før SET LOCAL ROLE
+-- authenticated) med aktørens claim sat — samme mønster som test-reimport-name-completion.sql:104-110.
+-- red_authorize_reimport er kun tildelt service_role (schema.sql:4558); som authenticated fejler kaldet.
+-- Databaseidentiteten er JSON-strengen, som schema.sql:3096 sammenligner med — ikke current_database().
+CREATE OR REPLACE FUNCTION pg_temp.f5b_batch(p_source bigint,p_actor uuid,p_prof jsonb,p_elements jsonb) RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE v_manifest text:=private.reimport_canonical_json_sha256(p_elements); v_auth uuid; v_batch uuid;
 BEGIN
-  v_auth:=public.red_authorize_reimport(v_manifest,v_manifest,current_database(),p_source,p_prof->>'profile_id',
+  IF current_user NOT IN (SELECT rolname FROM pg_roles WHERE rolsuper) THEN RAISE EXCEPTION 'F5B_BATCH_MUST_RUN_AS_OWNER'; END IF;
+  PERFORM set_config('request.jwt.claim.sub',p_actor::text,true);
+  v_auth:=public.red_authorize_reimport(v_manifest,v_manifest,
+    jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,
+    p_source,p_prof->>'profile_id',
     p_prof->>'profile_sha256',jsonb_build_object('person_creates',0,'source_evidence',0,
     'relation_personas',(SELECT count(*) FROM jsonb_object_keys(p_elements))),p_elements,gen_random_uuid(),clock_timestamp()+interval '1 hour');
   v_batch:=public.red_begin_reimport(v_auth,v_manifest,v_manifest);
@@ -583,9 +590,8 @@ BEGIN
     'post_offset',strpos(v_text,'Datter Dora.')-1,'predicate','relation.child','profile','relation-persona-2018-20-v1',
     'span_from',0,'span_to',char_length('Datter Dora.'));
 
-  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  b:=pg_temp.f5b_batch(-5201,v_actor,prof,jsonb_build_object('relation-persona:'||(cm->>'key'),e,'relation-persona:'||(cc->>'key'),ec));
   SET LOCAL ROLE authenticated;
-  b:=pg_temp.f5b_batch(-5201,prof,jsonb_build_object('relation-persona:'||(cm->>'key'),e,'relation-persona:'||(cc->>'key'),ec));
   -- ikke-autoriseret payload (ændret ordinal) afvises
   BEGIN
     PERFORM public.red_apply_reimport_relation_persona((b->>'batch')::uuid,'relation-persona:'||(cm->>'key'),e||'{"marriage_ordinal":2}');
@@ -613,9 +619,8 @@ BEGIN
   e2:=e||jsonb_build_object('interpretation_key',cm2->>'key','marriage_ordinal',1,
      'name_from',char_length(v_raw)+1+9,'name_to',char_length(v_raw)+1+17,'birth_raw',NULL,'death_raw',NULL,
      'post_offset',strpos(v_text,v_raw2)-1,'span_from',char_length(v_raw)+1,'span_to',char_length(v_raw)+1+char_length(v_raw2));
-  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  b:=pg_temp.f5b_batch(-5201,v_actor,prof,jsonb_build_object('relation-persona:'||(cm2->>'key'),e2));
   SET LOCAL ROLE authenticated;
-  b:=pg_temp.f5b_batch(-5201,prof,jsonb_build_object('relation-persona:'||(cm2->>'key'),e2));
   BEGIN
     PERFORM public.red_apply_reimport_relation_persona((b->>'batch')::uuid,'relation-persona:'||(cm2->>'key'),e2);
     RAISE EXCEPTION 'RELATION_WRITER_TEST_FAILED: forkert ordinal godtaget';
@@ -641,9 +646,8 @@ BEGIN
     'clause_set_sha256',private.clause_set_sha256((p->>'helpost')::uuid,1),'death_raw',NULL,
     'interpretation_key',c->>'key','interpretation_version',1,'marriage_ordinal',1,'name_from',5,'name_to',13,
     'post_offset',12,'predicate','relation.marriage','profile','relation-persona-2018-20-v1','span_from',0,'span_to',14);
-  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  b:=pg_temp.f5b_batch(-5202,v_actor,prof,jsonb_build_object('relation-persona:'||(c->>'key'),e));
   SET LOCAL ROLE authenticated;
-  b:=pg_temp.f5b_batch(-5202,prof,jsonb_build_object('relation-persona:'||(c->>'key'),e));
   BEGIN
     PERFORM public.red_apply_reimport_relation_persona((b->>'batch')::uuid,'relation-persona:'||(c->>'key'),e);
     RAISE EXCEPTION 'RELATION_WRITER_TEST_FAILED: tvetydigt spænd godtaget';
@@ -1302,12 +1306,20 @@ INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version
 VALUES (:source_id,'relation-persona-2018-20','relation-persona-v1',private.reimport_canonical_json_sha256(:'cfg'::jsonb),:'cfg'::jsonb)
 ON CONFLICT (source_id,profile_id) DO NOTHING;
 SELECT profile_sha256 AS profile_sha FROM private.reimport_writer_profile WHERE source_id=:source_id AND profile_id='relation-persona-2018-20' \gset
+SELECT jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text AS dbid \gset
+-- Autorisationen er kun tildelt service_role (schema.sql:4558) — egen transaktion, som i
+-- docs/runbooks/legacy-migration-reimport-rehearsal.md §3.
+BEGIN;
+SET LOCAL ROLE service_role;
+SELECT set_config('request.jwt.claim.sub', :'actor', true) IS NOT NULL AS ok \g /dev/null
+SELECT public.red_authorize_reimport(:'m',:'m',:'dbid',:source_id,'relation-persona-2018-20',:'profile_sha',
+  (:'content'::jsonb)->'expected_counts',(:'content'::jsonb)->'authorized_elements',gen_random_uuid(),
+  clock_timestamp()+interval '1 hour') AS auth \gset
+COMMIT;
+-- Begin, apply og finalize som authenticated redaktion.
 BEGIN;
 SELECT set_config('request.jwt.claim.sub', :'actor', true) IS NOT NULL AS ok \g /dev/null
 SET LOCAL ROLE authenticated;
-SELECT public.red_authorize_reimport(:'m',:'m',current_database(),:source_id,'relation-persona-2018-20',:'profile_sha',
-  (:'content'::jsonb)->'expected_counts',(:'content'::jsonb)->'authorized_elements',gen_random_uuid(),
-  clock_timestamp()+interval '1 hour') AS auth \gset
 SELECT public.red_begin_reimport(:'auth'::uuid,:'m',:'m') AS batch \gset
 SELECT count(public.red_apply_reimport_relation_persona(:'batch'::uuid,e.key,e.value)) AS skrevet
   FROM jsonb_each((:'content'::jsonb)->'authorized_elements') e;
@@ -1756,10 +1768,14 @@ CREATE EXTENSION IF NOT EXISTS dblink;
 BEGIN;
 DO $relation_lock$
 DECLARE v_err text;
+  -- Samme forbindelsesstreng som 5a's låsetest (test-identity-decision.sql:184): dblink bruger
+  -- serverprocessens libpq-standarder, så port og socket skal angives eksplicit.
+  v_conn text:=format('dbname=%s port=%s host=%s',current_database(),current_setting('port'),
+                      split_part(current_setting('unix_socket_directories'),',',1));
 BEGIN
   PERFORM private.lock_family_rows(ARRAY[-5591]::bigint[]);
   BEGIN
-    PERFORM dblink_connect('l5b','dbname='||current_database());
+    PERFORM dblink_connect('l5b',v_conn);
     PERFORM * FROM dblink('l5b','SET lock_timeout=''300ms''; INSERT INTO family(id,type) VALUES (-5591,''vielse''); '
       ||'INSERT INTO family_member(family_id,person_id,rolle) VALUES (-5591,-5591,''partner''); SELECT ''x''') AS t(x text);
     RAISE EXCEPTION 'RELATION_DECISION_TEST_FAILED: indsættelse ventede ikke';
@@ -1787,6 +1803,9 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public
 BEGIN
   -- Spec §6.2: personrækker → familier → medlemmer, alle sorteret. FOR UPDATE på personen
   -- blokerer nye family_member-rækker (FK-kontrollens FOR KEY SHARE) og red_slet_person.
+  -- _tjek_partner_loft låser familien FØR FK-kontrollen tager personen; en samtidig
+  -- partner-indsættelse i en af de låste familier kan derfor give deadlock. Postgres afbryder
+  -- den ene transaktion (40P01) — fail-closed; kaldet gentages.
   PERFORM 1 FROM public.person WHERE id=ANY(p_person_ids) ORDER BY id FOR UPDATE;
   PERFORM 1 FROM public.family
    WHERE id IN (SELECT family_id FROM public.family_member WHERE person_id=ANY(p_person_ids))
@@ -2192,6 +2211,9 @@ BEGIN
   SELECT id INTO v_cur FROM private.source_persona_identity_candidate_run WHERE source_id=v_source ORDER BY run_seq DESC LIMIT 1;
   IF v_cur IS DISTINCT FROM p_candidate_run_id THEN RAISE EXCEPTION 'IDENTITY_CANDIDATE_RUN_STALE'; END IF;
 
+  -- DROP før CTAS: et andet kald i samme transaktion må ikke ramme 'already exists' — og
+  -- IF NOT EXISTS ville lydløst genbruge første kalds population.
+  DROP TABLE IF EXISTS pg_temp.ctl_ipop, pg_temp.ctl_rpop;
   CREATE TEMP TABLE pg_temp.ctl_ipop ON COMMIT DROP AS
     SELECT c.source_persona_id AS pid, c.id AS cand_id,
            CASE WHEN jsonb_array_length(private.persona_family_context(c.source_persona_id)->'families')=1
@@ -2420,6 +2442,7 @@ Claude-Session: https://claude.ai/code/session_018KPNPJmdDmYBKcQQ14VfHb"
 **Interfaces:**
 - Consumes: `red_identity_control_sample`, `red_seal_identity_control_run`, `red_evaluate_identity_control_run`, stikprøvekonteksten i begge afgørelses-RPC'er (Task 6); `decision_sheet_core.verify_bound/sql_literal/require_hex64/SheetError` (5a).
 - Produces: rækkefil (JSON, 0600) `{control_run_id, candidate_run_id, items:[…]}` med item-typerne nedenfor; arket; SQL der i **én** transaktion forsegler kørslen, afgør linjerne og evaluerer (spec §7.1's tre skridt: registrér → generér → forsegl).
+- **Arkdeling (spec §7.3, errata §22):** `split_rows(rows, max_lines=80)` deler i ark. **Hele stikprøven står i ark 1**, som alene forsegler og evaluerer; ark 2.. bærer kun ikke-stikprøvelinjer (uoverensstemmelser og ikke-udtrukne relationslinjer), forsegler intet og anvendes efter ark 1. Serveren binder kun stikprøvesager til forseglingens arkhash (Task 6), så én forsegling er tilstrækkelig. En stikprøve over grænsen afvises (`SHEET_SAMPLE_TOO_LARGE`) — så hæves grænsen med en ledgeret ruling; stikprøven deles aldrig.
 - **Planlægnings-ruling (kandidatvisning):** personer har kun faktatypen `titel` (målt: 806 titelfakta, ingen `embede`). Visningen viser titler; embeder er i praksis indeholdt i dem. Koster: intet ekstra felt at vise, hvis embeder senere får egen faktatype.
 
 Item-typer i rækkefilen:
@@ -2548,6 +2571,43 @@ def test_cli_laeser_arket_én_gang(tmp_path, monkeypatch):
                                       "--out", str(tmp_path / "d.sql")])
     assert ics.main() == 0 and læst["n"] == 1
     assert '"display_position": 2' in (tmp_path / "d.sql").read_text(encoding="utf-8")
+
+
+def many(n_sample, n_rest):
+    base = rows()
+    s, d = base["items"][0], base["items"][1]
+    items = [{**s, "source_persona_id": f"{i:08x}-1111-4111-8111-111111111111", "record_key": f"S-{i:03d}"}
+             for i in range(n_sample)]
+    items += [{**d, "source_persona_id": f"{i:08x}-2222-4222-8222-222222222222", "record_key": f"A-{i:03d}"}
+              for i in range(n_rest)]
+    return {**base, "items": items}
+
+
+def test_hele_stikproeven_i_ark_1_og_kun_ark_1_forsegler():
+    parts = ics.split_rows(many(12, 100))
+    assert [p["part"] for p in parts] == [1, 2] and [p["seal"] for p in parts] == [True, False]
+    assert sum(it["sample"] for it in parts[0]["items"]) == 12 and len(parts[0]["items"]) == 80
+    assert not any(it["sample"] for it in parts[1]["items"]) and len(parts[1]["items"]) == 32
+
+
+def test_overloebsark_forsegler_og_evaluerer_ikke():
+    part = ics.split_rows(many(12, 100))[1]
+    text = ics.render_sheet(part).replace(" : _", " : U")
+    sql = ics.decision_sql(ics.parse_sheet(text), part, sheet_sha256="a" * 64, rows_sha256="b" * 64)
+    assert "# Ark 2 af 2" in text
+    assert "red_seal_identity_control_run" not in sql and "red_evaluate_identity_control_run" not in sql
+
+
+def test_stikproeve_over_graensen_afvises():
+    with pytest.raises(SheetError, match="SHEET_SAMPLE_TOO_LARGE"):
+        ics.split_rows(many(81, 0))
+
+
+def test_overloebsark_med_stikproeve_afvises():
+    part = dict(ics.split_rows(many(12, 100))[1])
+    part["items"] = part["items"] + many(1, 0)["items"]
+    with pytest.raises(SheetError, match="SHEET_PART_INVALID"):
+        ics.decision_sql([], part, sheet_sha256="a" * 64, rows_sha256="b" * 64)
 ```
 
 - [ ] **Step 2: Kør og se dem fejle**
@@ -2599,6 +2659,23 @@ def ordered(rows: dict) -> list[dict]:
     return sorted(rows["items"], key=_key)
 
 
+MAX_LINES = 80
+
+
+def split_rows(rows: dict, max_lines: int = MAX_LINES) -> list[dict]:
+    """Del rækkefilen i ark (spec §7.3, errata §22). Hele stikprøven står i ark 1 — det eneste ark,
+    der forsegler og evaluerer; ark 2.. bærer kun ikke-stikprøvelinjer."""
+    items = ordered(rows)
+    samples = [it for it in items if it["sample"]]
+    rest = [it for it in items if not it["sample"]]
+    if len(samples) > max_lines:
+        raise SheetError(f"SHEET_SAMPLE_TOO_LARGE stikproeve={len(samples)} max={max_lines}")
+    plads = max_lines - len(samples)
+    parts = [samples + rest[:plads]] + [rest[i:i + max_lines] for i in range(plads, len(rest), max_lines)]
+    return [{**rows, "items": sorted(p, key=_key), "part": n, "parts": len(parts), "seal": n == 1}
+            for n, p in enumerate(parts, 1)]
+
+
 def _cand_blind(d: dict) -> str:
     t = f"  · {', '.join(d['titles'])}" if d["titles"] else ""
     post = f"  · egen post {d['own_post_key']}" if d["own_post_key"] else ""
@@ -2617,6 +2694,9 @@ def render_sheet(rows: dict) -> str:
            "# D-linjer: 1/2/3 = samme som kandidat nr., 'P <id>' = anden person, X = ikke i basen,",
            "#           N = ny person nødvendig, U = uafklaret. R-linjer: 1/2/3 = familie nr., U = uafklaret.",
            "# En note må følge efter '#'. Ret intet andet. Gem, og giv hashen i chatten.", ""]
+    if rows.get("parts", 1) > 1:   # et enkelt ark renderes uændret
+        out.insert(1, f"# Ark {rows['part']} af {rows['parts']} — " + (
+            "hele stikprøven; forsegler kontrolkørslen" if rows["seal"] else "kun uoverensstemmelser; anvendes efter ark 1"))
     for it in ordered(rows):
         if it["kind"] == "identity":
             out.append(f"# POST {it['record_key']} · ægtefælle nr. {it['marriage_ordinal']}: {it['name'] or '(intet navn)'}")
@@ -2683,11 +2763,15 @@ def _call(fn: str, args: str, ctx: dict) -> str:
 def decision_sql(lines: list[Line], rows: dict, *, sheet_sha256: str, rows_sha256: str) -> str:
     require_hex64(sheet_sha256, rows_sha256)
     ctl = rows["control_run_id"]
+    seal = rows.get("seal", True)
+    if not seal and any(it["sample"] for it in rows["items"]):
+        raise SheetError("SHEET_PART_INVALID stikprøvelinje uden for ark 1")
     by_id = {(it.get("source_persona_id") or it["interpretation_key"]): it for it in rows["items"]}
     out = ["\\set ON_ERROR_STOP on", "BEGIN;", "SET LOCAL ROLE authenticated;",
            "SELECT set_config('request.jwt.claim.sub', :'actor', true) IS NOT NULL AS ok \\g /dev/null",
-           "CREATE TEMP TABLE decided(v integer) ON COMMIT DROP;",
-           f"SELECT red_seal_identity_control_run('{ctl}'::uuid, '{sheet_sha256}', '{rows_sha256}');"]
+           "CREATE TEMP TABLE decided(v integer) ON COMMIT DROP;"]
+    if seal:
+        out.append(f"SELECT red_seal_identity_control_run('{ctl}'::uuid, '{sheet_sha256}', '{rows_sha256}');")
     for l in lines:
         it = by_id[l.item_id]
         base = {"basis": "human_sheet", "sheet_sha256": sheet_sha256, "rows_sha256": rows_sha256, "line": l.line}
@@ -2722,7 +2806,8 @@ def decision_sql(lines: list[Line], rows: dict, *, sheet_sha256: str, rows_sha25
                     raise SheetError(f"SHEET_CANDIDATE_MISSING line={l.line}")
                 out.append(_call("red_afgoer_relation_interpretation", f"{key}, 'same', {int(f['family_id'])}, {note}", base))
     out.append(f"DO $$ BEGIN IF (SELECT count(*) FROM decided) <> {len(lines)} THEN RAISE EXCEPTION 'DECISION_COUNT_MISMATCH'; END IF; END $$;")
-    out.append(f"SELECT red_evaluate_identity_control_run('{ctl}'::uuid) AS kontrolstatus;")
+    if seal:
+        out.append(f"SELECT red_evaluate_identity_control_run('{ctl}'::uuid) AS kontrolstatus;")
     out.append("COMMIT;")
     return "\n".join(out) + "\n"
 
@@ -2734,17 +2819,29 @@ def main() -> int:
     s = sub.add_parser("sql")
     for a in ("--sheet", "--approved-sha256", "--rows", "--expect-rows-sha256", "--out"):
         s.add_argument(a, required=True)
+    s.add_argument("--part", type=int, default=1)
     args = ap.parse_args()
     rows_bytes = Path(args.rows).read_bytes()
-    rows = json.loads(rows_bytes.decode("utf-8"))
+    alle = json.loads(rows_bytes.decode("utf-8"))
     if args.cmd == "render":
-        out = Path(args.out); out.write_text(render_sheet(rows), encoding="utf-8"); out.chmod(0o600)
-        n_s = sum(1 for it in rows["items"] if it["sample"])
-        print(f"ARK_OK linjer={len(rows['items'])} stikproeve={n_s} uoverensstemmelser={len(rows['items']) - n_s}")
+        try:
+            parts = split_rows(alle)
+        except SheetError as exc:
+            print(str(exc)); return 1
+        out = Path(args.out)
+        for part in parts:
+            f = out if part["part"] == 1 else out.with_name(f"{out.stem}-{part['part']}{out.suffix}")
+            f.write_text(render_sheet(part), encoding="utf-8"); f.chmod(0o600)
+        n_s = sum(1 for it in alle["items"] if it["sample"])
+        print(f"ARK_OK ark={len(parts)} linjer={len(alle['items'])} stikproeve={n_s} uoverensstemmelser={len(alle['items']) - n_s}")
         print(f"  rows_sha256 {hashlib.sha256(rows_bytes).hexdigest()}")
         return 0
     sheet_bytes = Path(args.sheet).read_bytes()          # læses præcis én gang
     try:
+        parts = split_rows(alle)
+        if not 1 <= args.part <= len(parts):
+            raise SheetError(f"SHEET_PART_INVALID part={args.part} af {len(parts)}")
+        rows = parts[args.part - 1]
         rows_sha, sheet_sha = verify_bound(rows_bytes, args.expect_rows_sha256, sheet_bytes, args.approved_sha256)
         tekst = sheet_bytes.decode("utf-8")
         check_render(tekst, rows)
@@ -2912,16 +3009,16 @@ BEGIN
     'span_from',v_from,'span_to',v_from+char_length(p_raw));
 END $$;
 
--- Skriver de givne payloads gennem den rigtige writer (som authenticated redaktion) og finaliserer.
+-- Skriver de givne payloads gennem den rigtige writer og finaliserer. Kaldes som ejer: autorisation
+-- og begin som ejer (f5b_batch), apply og finalize som authenticated redaktion.
 CREATE OR REPLACE FUNCTION pg_temp.f5b_write(p_source bigint,p_actor uuid,p_elements jsonb) RETURNS void LANGUAGE plpgsql AS $$
 DECLARE prof jsonb; b jsonb; e record;
 BEGIN
   SELECT jsonb_build_object('profile_id',profile_id,'profile_sha256',profile_sha256) INTO prof
     FROM private.reimport_writer_profile WHERE source_id=p_source AND profile_id='relation-5b';
   IF prof IS NULL THEN prof:=pg_temp.f5b_profile(p_source); END IF;
-  PERFORM set_config('request.jwt.claim.sub',p_actor::text,true);
+  b:=pg_temp.f5b_batch(p_source,p_actor,prof,p_elements);
   SET LOCAL ROLE authenticated;
-  b:=pg_temp.f5b_batch(p_source,prof,p_elements);
   FOR e IN SELECT * FROM jsonb_each(p_elements) LOOP
     PERFORM public.red_apply_reimport_relation_persona((b->>'batch')::uuid,e.key,e.value);
   END LOOP;
@@ -3258,6 +3355,7 @@ BEGIN
   END IF;
   -- Kernens (d) læser den seneste EVENT; en beregnet passed uden event skrives her.
   IF v_last IS DISTINCT FROM 'passed' THEN PERFORM private.append_control_event(p_control_run_id,'passed','ok'); END IF;
+  DROP TABLE IF EXISTS pg_temp.corr_set;   -- se ctl_ipop: genkald i samme transaktion
   CREATE TEMP TABLE pg_temp.corr_set ON COMMIT DROP AS
     SELECT c.source_persona_id AS pid,c.id AS cid,c.candidate_person_id AS person
       FROM private.source_persona_identity_candidate c
@@ -3584,7 +3682,7 @@ SET LOCAL ROLE authenticated; SELECT 'ctl='||red_register_identity_control_run('
 psql -X -At -q -d daa5b_bevis_$TS -v actor="$A" -v control_run_id=<ctl> -f .claude/skills/daa-extract/scripts/identity_control_rows.sql > ~/.private/5b/kontrol-rows.json
 /usr/bin/python3 .claude/skills/daa-extract/scripts/identity_control_sheet.py render --rows ~/.private/5b/kontrol-rows.json --out ~/.private/5b/KONTROL.txt
 ```
-Expected: `ARK_OK linjer=… stikproeve=… uoverensstemmelser=…` og `rows_sha256 …`. Projektejeren udfylder `~/.private/5b/KONTROL.txt` og giver hashen (`! shasum -a 256 ~/.private/5b/KONTROL.txt`). **Stop her og vent på hashen.** Overstiger arket 80 linjer, deles det (spec §7.3) — ledger en ruling om delingen.
+Expected: `ARK_OK ark=… linjer=… stikproeve=… uoverensstemmelser=…` og `rows_sha256 …`. Ved `ark=1` findes kun `~/.private/5b/KONTROL.txt`; ved flere ark også `KONTROL-2.txt` … (spec §7.3, errata §22): **ark 1 rummer hele stikprøven** og forsegler; ark 2.. rummer kun uoverensstemmelser. Projektejeren udfylder arkene og giver én hash pr. ark (`! shasum -a 256 ~/.private/5b/KONTROL*.txt`). **Stop her og vent på hasherne.** `SHEET_SAMPLE_TOO_LARGE` betyder, at stikprøven alene er over 80 linjer: stop og spørg projektejeren, om grænsen må hæves (ledger `Ruling:`) — stikprøven deles aldrig.
 
 - [ ] **Step 5: Negativtests før den rigtige kørsel (punkt 3-4)**
 
@@ -3592,16 +3690,23 @@ I en **kopi** af arbejdsbasen (`createdb -T daa5b_bevis_$TS daa5b_neg_$TS`):
 1. `red_corroborate_family_identities` før forsegling → `IDENTITY_CONTROL_NOT_PASSED`.
 2. Arkets SQL med én stikprøvelinje ændret til `U` (ny hash via en kopi af arket) → `kontrolstatus = failed`, og bekræftelsen bagefter returnerer 0.
 3. Bekræftelse med forkert mængde-hash → `IDENTITY_CORROBORATION_SET_DRIFT`, 0 nye hændelser (`select count(*) from private.source_persona_identity_event` før/efter).
-Drop kopien bagefter (kun efter måling; den er et `daa5b_neg_`-navn). Ledger: de tre udfald.
+Kopien slettes ikke på eget initiativ: mål dens størrelse, omdøb den til karantæne (`ALTER DATABASE daa5b_neg_$TS RENAME TO slet_<MMDD>__daa5b_neg_$TS`), og sletning sker kun efter projektejerens ja på målingen. Ledger: de tre udfald og karantænenavnet.
 
 - [ ] **Step 6: Den rigtige kørsel**
 
+Ark 1 først (forsegler, afgør stikprøven og evaluerer):
 ```bash
-/usr/bin/python3 .claude/skills/daa-extract/scripts/identity_control_sheet.py sql --sheet ~/.private/5b/KONTROL.txt --approved-sha256 <hash> \
-  --rows ~/.private/5b/kontrol-rows.json --expect-rows-sha256 <rows_sha256> --out ~/.private/5b/kontrol.sql
-psql -X -At -q -d daa5b_bevis_$TS -v actor="$A" -f ~/.private/5b/kontrol.sql | grep -v -- "$A"
+/usr/bin/python3 .claude/skills/daa-extract/scripts/identity_control_sheet.py sql --part 1 --sheet ~/.private/5b/KONTROL.txt --approved-sha256 <hash-1> \
+  --rows ~/.private/5b/kontrol-rows.json --expect-rows-sha256 <rows_sha256> --out ~/.private/5b/kontrol-1.sql
+psql -X -At -q -d daa5b_bevis_$TS -v actor="$A" -f ~/.private/5b/kontrol-1.sql | grep -v -- "$A"
 ```
-Expected: `kontrolstatus = passed` (eller `failed` — så stoppes her, og afvigelserne gennemgås med projektejeren; spec §7.2). Ved `passed`: beregn mængde-hashen som i Task 8's test og kør `red_corroborate_family_identities(<ctl>, '<hash>')`. Ledger: antal stikprøve, antal uoverensstemmelser afgjort pr. udfald, antal maskinelt accepteret.
+Derefter hvert overløbsark `n` = 2.. (ingen forsegling, ingen evaluering):
+```bash
+/usr/bin/python3 .claude/skills/daa-extract/scripts/identity_control_sheet.py sql --part <n> --sheet ~/.private/5b/KONTROL-<n>.txt --approved-sha256 <hash-n> \
+  --rows ~/.private/5b/kontrol-rows.json --expect-rows-sha256 <rows_sha256> --out ~/.private/5b/kontrol-<n>.sql
+psql -X -At -q -d daa5b_bevis_$TS -v actor="$A" -f ~/.private/5b/kontrol-<n>.sql | grep -v -- "$A"
+```
+Expected: ark 1 giver `kontrolstatus = passed` (eller `failed` — så stoppes her, og afvigelserne gennemgås med projektejeren; spec §7.2); hvert overløbsark slutter med `COMMIT` uden fejl. Først når **alle** ark er anvendt: beregn mængde-hashen som i Task 8's test og kør `red_corroborate_family_identities(<ctl>, '<hash>')`. Ledger: antal stikprøve, antal uoverensstemmelser afgjort pr. udfald, antal maskinelt accepteret.
 
 - [ ] **Step 7: Webspor-paritet (punkt 7)**
 

@@ -710,3 +710,9 @@ Runde 6's tre fund løst; ingen BLOCKER eller MAJOR. To MINOR (værste udfald fa
    `relation-persona:`, `relation-person-create:`, `relation-disposition:`.
 3. **`family.id`** er en identity-kolonne i den prod-lignende base, men ikke i `schema.sql` (fersk CI);
    rettelsen (§8.4 trin 4) er at bringe `schema.sql` og en idempotent migration på linje med prod.
+4. **Arkdeling og forsegling (§7.3).** »Flere hash-bundne ark under samme kontrolkørsel« præciseres:
+   kontrolkørslen forsegles én gang, med ark 1's hash, og **hele stikprøven står i ark 1**. Ark 2.. rummer
+   kun ikke-stikprøvelinjer (uoverensstemmelser, ikke-udtrukne relationslinjer); de er hver for sig
+   hash-bundne, men forsegler og evaluerer intet, og de anvendes efter ark 1. Serveren binder kun
+   stikprøvesager til forseglingens arkhash (§7.1), så én forsegling er tilstrækkelig. Er stikprøven alene
+   over 80 linjer, deles den ikke; grænsen hæves efter projektejerens ja.
