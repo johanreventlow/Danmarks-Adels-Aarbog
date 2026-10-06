@@ -1975,7 +1975,7 @@ Claude-Session: https://claude.ai/code/session_018KPNPJmdDmYBKcQQ14VfHb"
 - Consumes: kandidatkørslen med `basis.corroboration_eligible` (Task 4), `persona_family_context` (Task 4), `relation_structural_candidates` (Task 5).
 - Produces:
   - Tabeller `private.identity_control_run(id, source_id, candidate_run_id, identity_population_sha256, relation_population_sha256, input_list_sha256, created_by, created_at)`, `private.identity_control_sample(id, control_run_id, sample_kind, stratum, source_persona_id, interpretation_key, interpretation_version, identity_version, mapping jsonb {"1":"<id>",…} (højst pladserne 1–3), expected text)`, `private.identity_control_event(control_run_id, seq, status ∈ sealed|passed|failed, sheet_sha256, rows_sha256, reason, created_by, created_at)`.
-  - `red_register_identity_control_run(p_candidate_run_id uuid) RETURNS uuid`
+  - `red_register_identity_control_run(p_candidate_run_id uuid) RETURNS uuid` — idempotent: højst én kontrolkørsel pr. kandidatkørsel; et gentaget kald returnerer den eksisterende (Codex plan-r2 fund 3). Efter `failed` kræver en ny kontrolkørsel en ny kandidatkørsel (spec §7.2 stopregel).
   - `red_identity_control_sample(p_control_run_id uuid) RETURNS jsonb` (kun id'er og mapping; ingen navne)
   - `red_seal_identity_control_run(p_control_run_id uuid, p_sheet_sha256 text, p_rows_sha256 text) RETURNS void`
   - `red_evaluate_identity_control_run(p_control_run_id uuid) RETURNS text` ∈ `not_ready|passed|failed`
@@ -2048,6 +2048,10 @@ BEGIN
   IF jsonb_array_length(v_smp->'samples')<>3 OR v_smp->'samples'->0->'mapping' IS NULL OR v_smp->'samples'->0 ? 'expected' THEN
     RAISE EXCEPTION 'CONTROL_TEST_FAILED: stikprøve %',jsonb_array_length(v_smp->'samples');
   END IF;
+  -- Codex plan-r2 fund 3: et gentaget registreringskald (tabt svar) returnerer samme kørsel og samme stikprøve.
+  IF red_register_identity_control_run((w->>'run')::uuid)<>v_ctl OR red_identity_control_sample(v_ctl)<>v_smp THEN
+    RAISE EXCEPTION 'CONTROL_TEST_FAILED: registrering ikke idempotent';
+  END IF;
   IF red_evaluate_identity_control_run(v_ctl)<>'not_ready' THEN RAISE EXCEPTION 'CONTROL_TEST_FAILED: før forsegling'; END IF;
   PERFORM red_seal_identity_control_run(v_ctl,v_sheet,v_rows);
   BEGIN
@@ -2072,6 +2076,16 @@ BEGIN
     IF v_i<2 AND red_evaluate_identity_control_run(v_ctl)<>'not_ready' THEN RAISE EXCEPTION 'CONTROL_TEST_FAILED: not_ready'; END IF;
   END LOOP;
   IF red_evaluate_identity_control_run(v_ctl)<>'passed' THEN RAISE EXCEPTION 'CONTROL_TEST_FAILED: passed'; END IF;
+  -- Codex plan-r2 fund 2: arkets afgørelser ændrer ikke kontrolhashen (spouse_identity_version udelades).
+  RESET ROLE;
+  IF private.control_input_list_sha256((w->>'run')::uuid) IS DISTINCT FROM
+     (SELECT input_list_sha256 FROM private.identity_control_run WHERE id=v_ctl) THEN
+    RAISE EXCEPTION 'CONTROL_TEST_FAILED: kontrolhash ændret af arkets afgørelser';
+  END IF;
+  IF (SELECT count(*) FROM private.identity_control_run WHERE candidate_run_id=(w->>'run')::uuid)<>1 THEN
+    RAISE EXCEPTION 'CONTROL_TEST_FAILED: mere end én kontrolkørsel';
+  END IF;
+  SET LOCAL ROLE authenticated;
   -- seneste status er autoritativ: en senere om-afgørelse af en stikprøvesag gør kørslen failed
   PERFORM red_afgoer_source_persona(v_persona,1,'unresolved',NULL,'fortrudt','{}'::jsonb);
   IF red_evaluate_identity_control_run(v_ctl)<>'failed' THEN RAISE EXCEPTION 'CONTROL_TEST_FAILED: stale efter passed'; END IF;
@@ -2080,7 +2094,7 @@ BEGIN
   IF (SELECT array_agg(status ORDER BY seq) FROM private.identity_control_event WHERE control_run_id=v_ctl)<>ARRAY['sealed','passed','failed'] THEN
     RAISE EXCEPTION 'CONTROL_TEST_FAILED: events';
   END IF;
-  RAISE NOTICE 'OK: udvalg, forsegling, visningsplads, not_ready → passed → failed, ingen genopstandelse';
+  RAISE NOTICE 'OK: udvalg, idempotent registrering, forsegling, visningsplads, stabil kontrolhash, not_ready → passed → failed, ingen genopstandelse';
 END $identity_control_run$;
 
 DO $identity_control_deviation$
@@ -2209,7 +2223,9 @@ Expected: FAIL — `function red_register_identity_control_run(uuid) does not ex
 CREATE TABLE private.identity_control_run (
   id                          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   source_id                   bigint NOT NULL REFERENCES public.source(id),
-  candidate_run_id            uuid NOT NULL REFERENCES private.source_persona_identity_candidate_run(id),
+  -- Højst én kontrolkørsel pr. kandidatkørsel: registreringen er idempotent, og en tabt svar-
+  -- besked kan ikke efterlade en anden, uforseglet kørsel, der låser stikprøvesagerne (Codex plan-r2 fund 3).
+  candidate_run_id            uuid NOT NULL UNIQUE REFERENCES private.source_persona_identity_candidate_run(id),
   identity_population_sha256  text NOT NULL CHECK (identity_population_sha256 ~ '^[0-9a-f]{64}$'),
   relation_population_sha256  text NOT NULL CHECK (relation_population_sha256 ~ '^[0-9a-f]{64}$'),
   -- Kandidatinputtet (list-mode over alle egnede rang-1-personas) ved registreringen; stabilt under
@@ -2280,19 +2296,24 @@ REVOKE ALL ON FUNCTION private.append_control_event(uuid,text,text,text,text) FR
 
 -- Spec §7.2. Beregner status; skriver intet. Seneste failed er terminal.
 -- Kandidatinputtets hash over alle personas med egnet rang-1-kandidat i kørslen (uanset afgørelse).
--- 'list'-mode filtrerer ikke på afgørelser, så arkets afgørelser ændrer den ikke; nye eller ændrede
--- personer, fakta, familier, samme_som og persona-fortolkninger gør (Codex plan-r1 fund 1).
+-- 'list'-mode filtrerer ikke på afgørelser; nye eller ændrede personer, fakta, familier, samme_som,
+-- hovedpersonens identitet og persona-fortolkninger ændrer hashen (Codex plan-r1 fund 1). Undtagelse:
+-- family_context.spouse_identity_version er personaens EGEN afgørelsesversion og ændres netop af arkets
+-- afgørelser — den udelades, ellers bliver kørslen failed ved første korrekte afgørelse (Codex plan-r2 fund 2).
 CREATE OR REPLACE FUNCTION private.control_input_list_sha256(p_candidate_run_id uuid)
 RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-DECLARE v_source bigint; v_ids jsonb;
+DECLARE v_source bigint; v_ids jsonb; v_in jsonb;
 BEGIN
   SELECT source_id INTO v_source FROM private.source_persona_identity_candidate_run WHERE id=p_candidate_run_id;
   SELECT coalesce(jsonb_agg(x.pid ORDER BY x.pid COLLATE "C"),'[]'::jsonb) INTO v_ids
     FROM (SELECT DISTINCT c.source_persona_id::text AS pid FROM private.source_persona_identity_candidate c
            WHERE c.run_id=p_candidate_run_id AND c.rank=1 AND (c.basis->>'corroboration_eligible')::boolean IS TRUE) x;
   IF v_ids='[]'::jsonb THEN RETURN private.reimport_canonical_json_sha256('[]'::jsonb); END IF;
-  RETURN private.reimport_canonical_json_sha256(
-    private.identity_candidate_input(v_source,jsonb_build_object('mode','list','persona_ids',v_ids)));
+  v_in:=private.identity_candidate_input(v_source,jsonb_build_object('mode','list','persona_ids',v_ids));
+  -- #- på en sti, der ikke findes (persona uden family_context), er en no-op.
+  RETURN private.reimport_canonical_json_sha256(jsonb_set(v_in,'{personas}',
+    (SELECT jsonb_agg(e #- '{family_context,spouse_identity_version}' ORDER BY o)
+       FROM jsonb_array_elements(v_in->'personas') WITH ORDINALITY t(e,o))));
 END $$;
 REVOKE ALL ON FUNCTION private.control_input_list_sha256(uuid) FROM PUBLIC,anon,authenticated;
 
@@ -2349,6 +2370,7 @@ REVOKE ALL ON FUNCTION private.control_run_status(uuid) FROM PUBLIC,anon,authent
 CREATE OR REPLACE FUNCTION red_register_identity_control_run(p_candidate_run_id uuid)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE v_source bigint; v_cur uuid; v_id uuid:=gen_random_uuid(); v_ipop text; v_rpop text; v_run private.source_persona_identity_candidate_run%ROWTYPE;
+  v_existing uuid;
 BEGIN
   IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
   SELECT source_id INTO v_source FROM private.source_persona_identity_candidate_run WHERE id=p_candidate_run_id;
@@ -2356,6 +2378,10 @@ BEGIN
   PERFORM pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:'||v_source::text,0));
   SELECT id INTO v_cur FROM private.source_persona_identity_candidate_run WHERE source_id=v_source ORDER BY run_seq DESC LIMIT 1;
   IF v_cur IS DISTINCT FROM p_candidate_run_id THEN RAISE EXCEPTION 'IDENTITY_CANDIDATE_RUN_STALE'; END IF;
+  -- Idempotent (UNIQUE candidate_run_id): et gentaget kald returnerer den eksisterende kørsel, uanset
+  -- dens status. Senere inputdrift fanges af statussen (kandidatinput_aendret), ikke her.
+  SELECT id INTO v_existing FROM private.identity_control_run WHERE candidate_run_id=p_candidate_run_id;
+  IF FOUND THEN RETURN v_existing; END IF;
   -- Kørslens input skal være uændret ved registreringen (samme kontrol som red_record_identity_candidates):
   -- ellers bygger stikprøven på kandidater, der ikke længere svarer til basen. Registrér straks efter kørslen.
   SELECT * INTO v_run FROM private.source_persona_identity_candidate_run WHERE id=p_candidate_run_id;

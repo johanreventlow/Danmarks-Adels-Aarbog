@@ -724,8 +724,11 @@ Runde 6's tre fund løst; ingen BLOCKER eller MAJOR. To MINOR (værste udfald fa
 6. **Kontrolkørslen er bundet til kandidatinputtet (§7.1).** Registreringen afviser en kandidatkørsel,
    hvis input er ændret siden kørslen, og gemmer inputtets hash over kørslens egnede personas; ændres
    personer, familier, `samme_som` eller persona-data derefter, bliver kørslen `failed`
-   (`kandidatinput_aendret`). En stikprøvesag i en registreret, uforseglet kørsel kan ikke afgøres, og
-   efter forsegling kun på den version, der blev udtrukket.
+   (`kandidatinput_aendret`). Hashen udelader personaens egen afgørelsesversion
+   (`family_context.spouse_identity_version`), som netop ændres af arkets afgørelser. En stikprøvesag i
+   en registreret, uforseglet kørsel kan ikke afgøres, og efter forsegling kun på den version, der blev
+   udtrukket. Der er højst én kontrolkørsel pr. kandidatkørsel; registreringen er idempotent, så et
+   tabt svar ikke efterlader en uforseglet kørsel, der låser sagerne.
 7. **2018-20's form og år (§5.1, målt 6/10 på kopi af `daa2018f_20261001133125`).** Ægteskabspåstandene
    lyder »Gift <dato> med <navn>« (134) eller begynder med navnet, evt. efter titler i små bogstaver
    (110); ingen har »g. m.«. Fødsel og død skrives med `*` og `†` og står **uden for** påstandens spænd
