@@ -19105,6 +19105,105 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,pu
 $$;
 REVOKE ALL ON FUNCTION private.persona_family_context(uuid) FROM PUBLIC,anon,authenticated;
 
+CREATE OR REPLACE FUNCTION private.lock_family_rows(p_person_ids bigint[])
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+BEGIN
+  -- Spec §6.2: personrækker → familier → medlemmer, alle sorteret. FOR UPDATE på personen
+  -- blokerer nye family_member-rækker (FK-kontrollens FOR KEY SHARE) og red_slet_person.
+  -- _tjek_partner_loft låser familien FØR FK-kontrollen tager personen; en samtidig
+  -- partner-indsættelse i en af de låste familier kan derfor give deadlock. Postgres afbryder
+  -- den ene transaktion (40P01) — fail-closed; kaldet gentages.
+  PERFORM 1 FROM public.person WHERE id=ANY(p_person_ids) ORDER BY id FOR UPDATE;
+  PERFORM 1 FROM public.family
+   WHERE id IN (SELECT family_id FROM public.family_member WHERE person_id=ANY(p_person_ids))
+   ORDER BY id FOR UPDATE;
+  PERFORM 1 FROM public.family_member
+   WHERE family_id IN (SELECT family_id FROM public.family_member WHERE person_id=ANY(p_person_ids))
+   ORDER BY family_id,person_id,rolle FOR UPDATE;
+END $$;
+REVOKE ALL ON FUNCTION private.lock_family_rows(bigint[]) FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION private.relation_structural_candidates(p_interpretation_key uuid)
+RETURNS TABLE(family_id bigint, counterpart_persona_id uuid, counterpart_person_id bigint)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+  WITH ic AS (SELECT * FROM private.interpretation_current WHERE interpretation_key=p_interpretation_key),
+  pr AS (SELECT i.canonical_person_id AS pid FROM private.interpretation_party_current pc
+           JOIN private.source_persona_identity i ON i.source_persona_id=pc.source_persona_id AND i.decision_status='accepted'
+          WHERE pc.interpretation_key=p_interpretation_key AND pc.party_role='principal'),
+  principals AS (
+    SELECT spm.persona_id,i.canonical_person_id AS pid
+      FROM private.source_persona sp
+      JOIN private.source_persona_mention spm ON spm.persona_id=sp.id AND spm.mention_role='primary'
+      JOIN private.source_mention sm ON sm.id=spm.mention_id
+      JOIN private.source_observation o ON o.id=sm.observation_id AND o.parent_observation_id IS NULL
+      JOIN private.source_persona_identity i ON i.source_persona_id=sp.id AND i.decision_status='accepted'
+     WHERE sp.source_id=(SELECT source_id FROM ic))
+  SELECT fm_p.family_id,pp.persona_id,pp.pid
+    FROM ic CROSS JOIN pr
+    JOIN public.family_member fm_p ON fm_p.person_id=pr.pid
+    JOIN public.family_member fm_o ON fm_o.family_id=fm_p.family_id AND fm_o.person_id<>pr.pid
+    JOIN principals pp ON pp.pid=fm_o.person_id
+   WHERE (ic.predicate='relation.child' AND fm_p.rolle='partner' AND fm_o.rolle='barn')
+      OR (ic.predicate='relation.parent' AND fm_p.rolle='barn' AND fm_o.rolle='partner')
+   ORDER BY 1,3;
+$$;
+REVOKE ALL ON FUNCTION private.relation_structural_candidates(uuid) FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION red_afgoer_relation_interpretation(
+  p_interpretation_key uuid, p_expected_version integer, p_action text, p_family_id bigint,
+  p_note text, p_context jsonb DEFAULT '{}'::jsonb
+) RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_ctx jsonb:=coalesce(p_context,'{}'::jsonb); v_basis text; v_ic private.interpretation%ROWTYPE;
+  v_role text; v_cand record; v_n integer; v_principal_pid bigint; v_evidence jsonb; v_new uuid;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  v_basis:=coalesce(v_ctx->>'basis','web_detail');
+  IF jsonb_typeof(v_ctx)<>'object'
+     OR EXISTS (SELECT 1 FROM jsonb_object_keys(v_ctx) k WHERE k NOT IN ('basis','sheet_sha256','rows_sha256','line'))
+     OR p_action NOT IN ('same','unresolved') OR nullif(btrim(p_note),'') IS NULL
+     OR (p_action='same' AND p_family_id IS NULL) OR (p_action<>'same' AND p_family_id IS NOT NULL)
+     OR v_basis NOT IN ('web_detail','human_sheet')
+     OR (v_basis='human_sheet' AND (coalesce(v_ctx->>'sheet_sha256','') !~ '^[0-9a-f]{64}$'
+                                   OR coalesce(v_ctx->>'rows_sha256','') !~ '^[0-9a-f]{64}$'
+                                   OR coalesce(v_ctx->>'line','') !~ '^[1-9][0-9]*$')) THEN
+    RAISE EXCEPTION 'RELATION_DECISION_INVALID';
+  END IF;
+  SELECT * INTO v_ic FROM private.interpretation_current WHERE interpretation_key=p_interpretation_key;
+  IF NOT FOUND OR v_ic.predicate NOT IN ('relation.child','relation.parent') THEN RAISE EXCEPTION 'RELATION_DECISION_INVALID'; END IF;
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-identity-candidates:'||v_ic.source_id::text,0));
+  v_role:=CASE v_ic.predicate WHEN 'relation.child' THEN 'child' ELSE 'parent' END;
+  v_evidence:=jsonb_build_object('note',btrim(p_note),'action',p_action,'basis',v_basis,'method','relation-human-v1');
+  IF v_basis='human_sheet' THEN
+    v_evidence:=v_evidence||jsonb_build_object('sheet_sha256',v_ctx->>'sheet_sha256','rows_sha256',v_ctx->>'rows_sha256',
+      'line',(v_ctx->>'line')::int);
+  END IF;
+  IF p_action='same' THEN
+    SELECT i.canonical_person_id INTO v_principal_pid FROM private.interpretation_party_current pc
+      JOIN private.source_persona_identity i ON i.source_persona_id=pc.source_persona_id AND i.decision_status='accepted'
+     WHERE pc.interpretation_key=p_interpretation_key AND pc.party_role='principal';
+    IF v_principal_pid IS NULL THEN RAISE EXCEPTION 'RELATION_DECISION_PRINCIPAL_INVALID'; END IF;
+    -- Rækkelåse (spec §6.2) før den sidste genberegning af kandidaterne.
+    PERFORM private.lock_family_rows(ARRAY(SELECT DISTINCT x FROM unnest(ARRAY[v_principal_pid]||ARRAY(
+      SELECT counterpart_person_id FROM private.relation_structural_candidates(p_interpretation_key))) x ORDER BY 1));
+    SELECT count(*) INTO v_n FROM private.relation_structural_candidates(p_interpretation_key) c WHERE c.family_id=p_family_id;
+    IF v_n<>1 THEN RAISE EXCEPTION 'RELATION_DECISION_FAMILY_INVALID'; END IF;
+    SELECT * INTO v_cand FROM private.relation_structural_candidates(p_interpretation_key) c WHERE c.family_id=p_family_id;
+    v_evidence:=v_evidence||jsonb_build_object('family_id',p_family_id,'counterpart_persona_id',v_cand.counterpart_persona_id);
+    v_new:=public.red_decide_interpretation(v_ic.id,p_expected_version,'accepted',v_evidence);
+    INSERT INTO private.interpretation_party(interpretation_key,party_role,version,source_persona_id,origin,origin_ref)
+    VALUES (p_interpretation_key,v_role,
+            (SELECT coalesce(max(version),0)+1 FROM private.interpretation_party
+              WHERE interpretation_key=p_interpretation_key AND party_role=v_role),
+            v_cand.counterpart_persona_id,'relation_decision',v_new);
+  ELSE
+    v_new:=public.red_decide_interpretation(v_ic.id,p_expected_version,'unresolved',v_evidence);
+  END IF;
+  RETURN (SELECT version FROM private.interpretation WHERE id=v_new);
+END $$;
+REVOKE ALL ON FUNCTION red_afgoer_relation_interpretation(uuid,integer,text,bigint,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_afgoer_relation_interpretation(uuid,integer,text,bigint,text,jsonb) TO authenticated;
+
 -- 5b-sektionen slutter her (nye 5b-blokke indsættes over denne linje).
 
 DO $public_red_revoke$
@@ -19113,6 +19212,7 @@ DECLARE
   v_authenticated regprocedure[] := ARRAY[
     'public.red_activate_1939_v50_batch(uuid,uuid)'::regprocedure,
     'public.red_activate_reimport_batch(uuid,uuid)'::regprocedure,
+    'public.red_afgoer_relation_interpretation(uuid,integer,text,bigint,text,jsonb)'::regprocedure,
     'public.red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb)'::regprocedure,
     'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_1939_v50_name_completion(uuid,text,jsonb)'::regprocedure,

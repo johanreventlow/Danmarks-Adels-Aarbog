@@ -672,6 +672,7 @@ BEGIN
   END LOOP;
 
   FOREACH v_signature IN ARRAY ARRAY[
+    'public.red_afgoer_relation_interpretation(uuid,integer,text,bigint,text,jsonb)',
     'public.red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb)',
     'public.red_bekraeft_media_upload(bigint,bigint,text)',
     'public.red_decide_interpretation(uuid,integer,text,jsonb)',
