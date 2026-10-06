@@ -19,29 +19,24 @@ def row(raw, text=None, predicate="relation.marriage", ordinal=1, key="k1", n_su
             "supporting_count": max(n_sup, 1) if n_sup else 1, "clauses": clauses, "principal_ok": True}
 
 
-# 2018-20-formen (målt 6/10): »Gift <dato> med <navn>« eller påstanden begynder med navnet;
-# år skrives med * (født) og † (død).
+# 2018-20-formen (målt 6/10): »Gift <dato> med <navn>« eller påstanden begynder med navnet.
+# Del 1 udtrækker kun navnet (errata §22.7): år står NULL, også når * og † står i spændet.
 def test_aegteskab_med_navn_og_aar():
     raw = "Gift 15.6.1975 med Bo Beta, * 3.2.1950 i Kbh., † 2001, datter af Carl Ceta."
     m, st = rpe.extract_rows([row(raw)])
     p = m["authorized_elements"]["relation-persona:k1"]
     assert raw[p["name_from"]:p["name_to"]] == "Bo Beta"
-    assert (p["birth_raw"], p["death_raw"]) == ("1950", "2001")
+    assert p["birth_raw"] is None and p["death_raw"] is None
     assert p["post_offset"] == 100 and p["span_from"] == 0 and p["span_to"] == len(raw)
     assert m["expected_counts"] == {"person_creates": 0, "source_evidence": 0, "relation_personas": 1}
     assert st["elementer"] == 1
 
 
-def test_aar_i_foraeldresegment_tages_ikke():
-    raw = "Gift med Bo Beta, datter af Carl Ceta, * 1900, † 1960."
-    p = rpe.extract_rows([row(raw)])[0]["authorized_elements"]["relation-persona:k1"]
+def test_flere_aar_parkerer_ikke_i_del_1():
+    m, st = rpe.extract_rows([row("Gift med Bo Beta, * 1950, * 1951, † 2001, † 2002.")])
+    p = m["authorized_elements"]["relation-persona:k1"]
     assert p["birth_raw"] is None and p["death_raw"] is None
-
-
-def test_d_af_er_ikke_doed():
-    raw = "Gift med Bo Beta, f. 1950, d. af Carl."
-    p = rpe.extract_rows([row(raw)])[0]["authorized_elements"]["relation-persona:k1"]
-    assert (p["birth_raw"], p["death_raw"]) == ("1950", None)
+    assert st["elementer"] == 1 and "tvetydige_aar" not in st.get("parkeret", {})
 
 
 def test_barn_har_null_felter():
@@ -112,9 +107,9 @@ def test_gift_uden_med_er_intet_navn():
     assert navn("Gift 1975.") is None and navn("gift 1975.") is None
 
 
-def test_aar_med_tegn_i_spaendet():
-    p = rpe.extract_rows([row("Gift med Bo Beta, * 1950, † 2001")])[0]["authorized_elements"]["relation-persona:k1"]
-    assert (p["birth_raw"], p["death_raw"]) == ("1950", "2001")
+def test_aar_med_tegn_i_spaendet_udtraekkes_ikke():
+    p = rpe.extract_rows([row("Gift med Bo Beta, f. 1950, d. 2001")])[0]["authorized_elements"]["relation-persona:k1"]
+    assert p["birth_raw"] is None and p["death_raw"] is None
 
 
 def test_titelopremsning_med_komma_springes_over():

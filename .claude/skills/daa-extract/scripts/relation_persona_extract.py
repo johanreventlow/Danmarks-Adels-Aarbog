@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Trin 5b: deterministisk udtræk af ægtefællens navn og år fra eksisterende relationspåstande.
+"""Trin 5b: deterministisk udtræk af ægtefællens navn fra eksisterende relationspåstande.
 
 Input er serverens (red_relation_persona_input). Output er writerens manifest. Ingen modelkald.
 Scriptet printer kun tal og hashes; filerne indeholder navne og skrives 0600 under ~/.private/5b/."""
@@ -15,16 +15,15 @@ from pathlib import Path
 PROFILE = "relation-persona-2018-20-v1"
 # Profilens markører (versioneret: ændres de, når der er skrevet data med profilen, skal PROFILE have ny version).
 # 2018-20-formen (målt 6/10 på 248 ægteskabspåstande): »Gift <dato> med <navn>« (134) eller påstanden
-# begynder direkte med navnet (110); fødsel/død skrives med * og † (f./d. accepteres også).
+# begynder direkte med navnet (110). Fødsel/død (* og †) står oftest uden for påstandens spænd og kan
+# optræde flere gange; del 1 udtrækker derfor kun navnet, og birth_raw/death_raw er altid NULL
+# (spec-errata §22.7). Årene kommer i del 2 som nye fortolkninger på samme persona.
 GIFT = re.compile(r"^\s*gift\b", re.IGNORECASE)
 MED = re.compile(r"\bmed\s+", re.IGNORECASE)
 UPPER = re.compile(r"[A-ZÆØÅÀ-Þ]")
 # Navnet slutter ved komma, semikolon, parentes, år-tegn, »til <gods>« (ikke navn), tankestreg eller slut.
-# Bart »af« afskærer IKKE (»greve af Rosenborg«); forældremarkører ligger i PARENTS.
+# Bart »af« afskærer IKKE (»greve af Rosenborg«); kun »datter af«/»søn af« gør.
 NAME_END = re.compile(r",|;|\(|\*|†|\s(?:til|f\.|d\.|født|død)\s|\s-\s|\s(?:datter|søn)\s+af\b|\.\s*$|$")
-PARENTS = re.compile(r"(?:\b[ds]\.\s+af\b|\bdatter af\b|\bsøn af\b)")
-BIRTH = re.compile(r"(?:\*|\bf\.|\bfødt\b)\s*[^,;()]*?\b(\d{4})\b")
-DEATH = re.compile(r"(?:†|(?:^|[\s,])d\.(?!\s+af\b)|\bdød\b)\s*[^,;()]*?\b(\d{4})\b")
 LETTER = re.compile(r"[A-Za-zÀ-ÿ]")
 MAX_NAME_WORDS = 8
 MAX_TITLE_WORDS = 6
@@ -59,15 +58,6 @@ def _name(raw: str):
     return start, start + len(name)
 
 
-def _years(segment: str):
-    cut = PARENTS.search(segment)
-    own = segment[:cut.start()] if cut else segment
-    births, deaths = BIRTH.findall(own), DEATH.findall(own)
-    if len(births) > 1 or len(deaths) > 1:
-        return "tvetydige_aar"
-    return (births[0] if births else None, deaths[0] if deaths else None)
-
-
 def extract_rows(rows: list[dict]) -> tuple[dict, dict]:
     parked: Counter = Counter()
     candidates: dict[str, dict] = {}
@@ -99,11 +89,7 @@ def extract_rows(rows: list[dict]) -> tuple[dict, dict]:
             nm = _name(raw)
             if nm is None:
                 _park(parked, "intet_navn"); continue
-            years = _years(raw[nm[1]:])
-            if years == "tvetydige_aar":
-                _park(parked, "tvetydige_aar"); continue
-            payload.update(marriage_ordinal=r["marriage_ordinal"], name_from=span_from + nm[0], name_to=span_from + nm[1],
-                           birth_raw=years[0], death_raw=years[1])
+            payload.update(marriage_ordinal=r["marriage_ordinal"], name_from=span_from + nm[0], name_to=span_from + nm[1])
         candidates["relation-persona:" + r["interpretation_key"]] = payload
     # Uadskillelige dubletter (spec §5.1): samme post, prædikat, post_offset og spændlængde.
     groups: Counter = Counter()
