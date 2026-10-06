@@ -1,7 +1,7 @@
 # Trin 5b — andre personer i posten: ægtefæller, børn og forældre (#151/#150)
 
 **Status:** designudkast, godkendt sektion for sektion i brainstorm 2026-10-06; revideret efter
-Codex runde 3 (NO-GO: 3 BLOCKER, 2 MAJOR, se §17), Codex runde 2 (NO-GO: 4 BLOCKER, 3 MAJOR, 3 MINOR — alle efterprøvet og godtaget, se §16) og
+Codex runde 4 (NO-GO: 1 BLOCKER, 1 MAJOR, se §18), Codex runde 3 (NO-GO: 3 BLOCKER, 2 MAJOR, se §17), Codex runde 2 (NO-GO: 4 BLOCKER, 3 MAJOR, 3 MINOR — alle efterprøvet og godtaget, se §16) og
 dobbelt review runde 1 (Claude: 4 BLOCKER, 6 MAJOR; Codex `gpt-5.6-sol`: NO-GO, 4 BLOCKER, 4 MAJOR —
 alle efterprøvet mod koden og godtaget, se §15). Fortrydelsen er ændret fra writer-reversal til
 restore-only (§13), efter fortilfældene for 4.1c og 4.4.
@@ -129,8 +129,8 @@ elementpræfiks, `red_finalize_reimport` (observed = expected for hver nøgle) o
 af autoriserede elementer; derfor har hver operation **én operationstæller** (antal elementer med
 præfikset), og delrækkerne tælles **ikke** som expected-counts, men udledes ved finalisering af
 elementernes versionerede `result_receipt` (id-arrays) og efterprøves mod databasen (distinct id'er,
-antal, at hver række findes og hører til batchen). Autorisationspayload og receipt-skema pr. operation
-fastlægges i planen; kontrakten er 1 autoriseret element → 1 event → 1 receipt.
+antal, at hver række findes og hører til batchen). Autorisationspayload og receipt-skema står i §5.2.1; kontrakten er 1 autoriseret element → 1 event →
+1 receipt.
 
 Operationstællere og receipts:
 
@@ -142,6 +142,59 @@ Operationstællere og receipts:
 
 Batchen for `relation_persona` opretter sin egen `extraction_run` (kræves af
 `source_persona.created_run_id` og `source_mention.created_run_id`).
+
+#### 5.2.1 Writer-kontrakt (autorisation, receipt, efterprøvning)
+
+Fælles: elementets autorisationspayload må kun have de nævnte nøgler (ukendt eller manglende nøgle ⇒
+afvist); eventets payload = autorisationspayloaden; `result_receipt` har præcis de nævnte nøgler, og
+`receipt_sha256 = private.reimport_canonical_json_sha256(receipt)` gemmes i eventets `after_sha256`.
+Kanoniske rækker har ingen `batch_id`; tilhørsforholdet bevises derfor ved finalisering med de angivne
+joins, og hvert id må optræde i præcis ét receipt i hele batchen (batchglobal distinct-kontrol).
+
+**`relation_persona`** — element-id `rp:<interpretation_key>`.
+
+- Autorisation: `interpretation_key`, `interpretation_version`, `predicate`, `clause_observation_id`,
+  `clause_set_seq`, `clause_set_sha256`, `post_offset`, `span_from`, `span_to`, `marriage_ordinal`
+  (null for child/parent), `name_from`, `name_to`, `birth_raw`, `death_raw` (null når ikke
+  ægteskab/intet år), `profile` (`relation-persona-2018-20-v1`).
+- Receipt (`schema: relation-persona-receipt-v1`): `source_persona_id`, `mention_id` (null for
+  child/parent), `year_interpretation_ids` (array, 0–2), `party_keys` (array af
+  `[interpretation_key, party_role, version]`).
+- Efterprøvning: persona og mention har `created_run_id` = batchens `extraction_run`; mentionens spænd =
+  (`name_from`, `name_to`) på `clause_observation_id`; år-fortolkningerne har batchens
+  `extraction_run_id`, `source_persona_id` = receiptets persona og citerer klausulen; partsrækkerne har
+  `origin_ref` = batch-id og den autoriserede `interpretation_key`; principal-parten er den
+  serverudledte hovedperson.
+
+**`relation_person_create`** — element-id `rpc:<source_persona_id>`.
+
+- Autorisation: `source_persona_id`, `identity_version` (den gældende `unresolved`/`new_person_needed`),
+  `principal_person_id`, `marriage_ordinal`, `family_mode` (`existing`|`new`), `family_id` (kun ved
+  `existing`), `name_text` (= mentionens ordrette tekst), `citation_label`.
+- Receipt (`schema: relation-person-create-receipt-v1`): `person_id`, `fact_id`, `assertion_id`,
+  `citation_id`, `conclusion_id`, `family_id`, `family_member_keys` (array af
+  `[family_id, person_id, rolle]`; ved `new` både hovedperson og ny person, ved `existing` kun den nye),
+  `identity_version`.
+- Efterprøvning: `person.staged = true`, `levende = true`, `visning_navn` afledt; `fact` har
+  `subjekt=('person', person_id)` og `faktatype='navn'`; `assertion` peger på `fact_id` med
+  `vaerdi_tekst = name_text`; `citation` binder `assertion_id` til kilden og klausulen; `conclusion`
+  på `fact_id` vælger `assertion_id`; hver `family_member_key` findes med rolle `partner` og
+  ordenstallet; identitetsrækken for personaen har version = `identity_version`, status `accepted`,
+  mål `person_id`, oprindelse `relation_person_create` og `batch_id` i evidensen; personen har en
+  forbrugt kvittering i samme transaktion (5a).
+
+**`relation_disposition`** — element-id `rd:<observation_id>`.
+
+- Autorisation: `observation_id`, `from_disposition_version`, `interpretation_keys` (alle påstande, der
+  citerer klausulen med `afventer_identitet`; alle skal være afgjort).
+- Receipt (`schema: relation-disposition-receipt-v1`): `observation_id`, `disposition_version`.
+- Efterprøvning: dispositionsrækken har version `from_disposition_version + 1`, `fortolkning_foreslaaet`,
+  `batch_id` og manifestets sha256 i evidensen, og den forrige version var maskinel (aldrig oven på
+  menneskelig).
+
+**`red_reimport_batch_result`** returnerer for de nye operationer `{operation, elements,
+receipts_sha256}` (`receipts_sha256` = sha256 af de sorterede receipt-hashes) samt de afledte
+delrækketal pr. receipt-nøgle.
 
 Pr. element, i batchens transaktion:
 
@@ -292,13 +345,25 @@ Ny tabel `private.identity_control_run` (append-only status-events) med `private
 - **To serverberegnede populationer:** (1) *identitet* — kandidatkørslens egnede ægtefælle-personas;
   (2) *relation* — gældende `relation.child`/`relation.parent`-påstande med præcis én strukturel
   kandidat-familie (§8.3). Kontrolkørslen gemmer begge populationers mængde-hash.
-- `red_register_identity_control_run(p_candidate_run_id, p_sheet_sha256, p_rows_sha256)` —
-  **serveren vælger stikprøven selv** i `private.identity_control_sample` (polymorf: `sample_kind` ∈
-  `identity` med `source_persona_id`, `relation` med `interpretation_key`+version), stratificeret
-  (identitet: én familie / flere familier; relation: ét stratum). Størrelse pr. population:
-  `min(N, max(10, ceil(0,1·N)))`, fordelt proportionalt på ikke-tomme strata (mindst én pr. stratum),
-  deterministisk orden `sha256(candidate_run_id || id)`. Klienten kan ikke vælge eller udelade sager.
-  Kørslen registreres, før arket afgøres, og binder ark- og rækkefilens hash.
+- **Tre skridt, serveren først:**
+  1. `red_register_identity_control_run(p_candidate_run_id)` — **serveren vælger stikprøven selv** i
+     `private.identity_control_sample` (polymorf: `sample_kind` ∈ `identity` med `source_persona_id`,
+     `relation` med `interpretation_key`+version), stratificeret (identitet: én familie / flere
+     familier; relation: ét stratum). Størrelse pr. population: `min(N, max(10, ceil(0,1·N)))`,
+     fordelt proportionalt på ikke-tomme strata (mindst én pr. stratum), deterministisk orden
+     `sha256(candidate_run_id || id)`. **Serveren gemmer også den blinde mapping** pr. stikprøvesag:
+     visningsplads `1`–`3` → `candidate_id` (identitet) hhv. `family_id` (relation), blandet
+     deterministisk med `sha256(control_run_id || sample_id || candidate_id)`. Klienten kan ikke vælge,
+     udelade eller ombytte noget.
+  2. Rækkefil og ark genereres fra serverens stikprøve og mapping (læst via en rollegatet RPC) plus
+     uoverensstemmelserne.
+  3. `red_seal_identity_control_run(p_control_run_id, p_sheet_sha256, p_rows_sha256)` forsegler ark og
+     rækkefil, før noget afgøres; en forseglet kørsel kan ikke forsegles igen.
+- **Stikprøvesager afgøres med visningsplads, ikke id:** for en sag i en aktiv kontrolkørsel tager
+  `red_afgoer_source_persona` og `red_afgoer_relation_interpretation` `{control_run_id,
+  display_position}` i konteksten og **opløser selv** målet via den gemte mapping; et klientleveret
+  `candidate_id`/`family_id` for en stikprøvesag afvises. Evalueringen (§7.2) sammenholder afgørelsen
+  med den gemte mapping.
 - Arket bygges fra rækkefilen, som indeholder netop stikprøven og alle uoverensstemmelser.
 
 ### 7.2 Status: `not_ready`, `passed`, `failed`
@@ -307,9 +372,8 @@ Ny tabel `private.identity_control_run` (append-only status-events) med `private
 
 - **`not_ready`** (intet event), så længe en stikprøvesag er uafgjort.
 - **`passed`**, når for **begge** `sample_kind` hver stikprøvesags gældende afgørelse er truffet efter
-  registreringen med `basis: human_sheet`, kontrolkørslens eksakte `sheet_sha256` **og**
-  `rows_sha256`, den samplede version og den blinde mapping (visningsplads → kandidat/familie) fra
-  rækkefilen; identitetssager med `action = same` og `candidate_id` = rang 1 i samme kørsel,
+  forseglingen med `basis: human_sheet`, kontrolkørslens eksakte `sheet_sha256` **og** `rows_sha256`,
+  den samplede version og et mål opløst af serveren fra den gemte mapping; identitetssager med `action = same` og `candidate_id` = rang 1 i samme kørsel,
   relationssager `same` til den familie, maskinen ville vælge; og kandidatkørslen stadig er gældende.
   `web_detail` kan ikke opfylde kriteriet. `red_afgoer_relation_interpretation` gemmer og validerer
   samme arkkontekst som 5a's identitets-RPC.
@@ -329,8 +393,8 @@ Ny tabel `private.identity_control_run` (append-only status-events) med `private
 `P <id>`. Udvidelser:
 
 - **Blinde stikprøvelinjer:** kandidaterne i deterministisk blandet orden, uden score, tier, signaler
-  og familiemarkør — kun navn, år, titler, embeder og egen postnøgle. Rækkefilen mapper visningsplads
-  → `candidate_id`.
+  og familiemarkør — kun navn, år, titler, embeder og egen postnøgle, i serverens blandede orden
+  (§7.1); tokenet er visningspladsen, som serveren opløser.
 - **Uoverensstemmelseslinjer:** kontekst (hovedpersonens postnøgle, ægteskabsnummer, grund) og fuld
   visning (§6.4).
 - **Relationslinjer** (børn/forældre, §8.3): `R <interpretation_key> <version> : <1-3|U>` med
@@ -559,3 +623,13 @@ efterprøvet og godtaget.
 | 3 | `lock_family_structure` dækkede ikke alle familieveje (ordinal, flyt barn, undo, scripts) og havde ingen total orden | BLOCKER | §6.2 erstattet af rækkelåse (`FOR UPDATE` på person-, familie- og medlemsrækker; FK-`KEY SHARE` blokerer nye medlemmer), én total orden, gammelt og nyt mål låses; `samme_som` ude af kernens efterprøvelse |
 | 4 | Writer-tabellen passede ikke til validatorens »sum = antal elementer« | MAJOR | §5.2 én operationstæller pr. operation; delrækker via versionerede receipts efterprøvet ved finalisering |
 | 5 | Inputkontrakten leverede ikke `post_char_from` | MAJOR | §5.1 input fra `clause_observation_current` med post-koordinater, klausulsæt-seq og -sha bundet og genvalideret; ægteskabsnummer efter fuld sorteringsnøgle |
+
+## 18. Review runde 4 (Codex, 2026-10-06)
+
+Codex bekræftede runde 3's fund 2, 3 og 5 som løst, herunder at rækkelåsene dækker eksisterende og nye
+familie-/medlemsveje, og at den eksklusive kildelås ikke giver deadlock. To fund stod tilbage:
+
+| # | Fund | Grad | Rettelse |
+| --- | --- | --- | --- |
+| 1 | Den blinde mapping lå kun i rækkefilen; en fejlagtig oversætter kunne sende rang-1-id og bestå | BLOCKER | §7.1 serveren gemmer mappingen; tre skridt (registrér → generér → forsegl); stikprøvesager afgøres med visningsplads, som serveren opløser |
+| 2 | Writer-/receipt-kontrakten var udskudt til planen | MAJOR | §5.2.1 autorisation, receipt, hash, efterprøvningsjoins og resultatkort for alle tre operationer |
