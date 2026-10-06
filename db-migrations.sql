@@ -7216,19 +7216,24 @@ GRANT EXECUTE ON FUNCTION red_decide_source_record_placement(uuid,integer,text,j
 -- Schemaet er autoritativt; migrations-udgaven bevarer de samme fail-closed
 -- kontrakter på en eksisterende database.
 -- Trin 5a (#151): nye returkolonner (best_tier, reason) kræver DROP før CREATE.
+-- Trin 5b (#151): ny parameter p_mention_role og returkolonne mention_role → drop 4-argumentsversionen.
 DROP FUNCTION IF EXISTS red_source_persona_queue(text,bigint,uuid,integer);
 CREATE OR REPLACE FUNCTION red_source_persona_queue(
   p_status text DEFAULT NULL, p_source_id bigint DEFAULT NULL,
-  p_cursor uuid DEFAULT NULL, p_page_size integer DEFAULT 50
+  p_cursor uuid DEFAULT NULL, p_page_size integer DEFAULT 50, p_mention_role text DEFAULT NULL
 ) RETURNS TABLE(
   source_persona_id uuid, source_id bigint, persona_key text,
   decision_status text, version integer, canonical_person_id bigint, mention_count bigint,
-  best_tier text, reason text
+  best_tier text, reason text, mention_role text
 )
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 BEGIN
   IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
   IF p_status IS NOT NULL AND p_status NOT IN ('proposed','accepted','rejected','unresolved','superseded','new_person_needed') THEN
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_STATUS_INVALID';
+  END IF;
+  -- Trin 5b: rollefilter (hovedperson/ægtefælle).
+  IF p_mention_role IS NOT NULL AND p_mention_role NOT IN ('primary','spouse') THEN
     RAISE EXCEPTION 'EVIDENCE_IDENTITY_STATUS_INVALID';
   END IF;
   RETURN QUERY
@@ -7240,11 +7245,14 @@ BEGIN
            WHERE c.source_persona_id=persona.id AND c.rank=1
              AND c.run_id=(SELECT r.id FROM private.source_persona_identity_candidate_run r
                             WHERE r.source_id=persona.source_id ORDER BY r.run_seq DESC LIMIT 1)),
-         identity_state.evidence->>'reason'
+         identity_state.evidence->>'reason',
+         (SELECT spm.mention_role FROM private.source_persona_mention spm WHERE spm.persona_id=persona.id ORDER BY spm.ordinal LIMIT 1)
     FROM private.source_persona persona
     LEFT JOIN private.source_persona_identity identity_state ON identity_state.source_persona_id=persona.id
    WHERE (p_source_id IS NULL OR persona.source_id=p_source_id)
      AND (p_cursor IS NULL OR persona.id>p_cursor)
+     AND (p_mention_role IS NULL OR EXISTS (SELECT 1 FROM private.source_persona_mention spm
+                                             WHERE spm.persona_id=persona.id AND spm.mention_role=p_mention_role))
      AND (p_status IS NULL
           OR (p_status='new_person_needed' AND identity_state.decision_status='unresolved'
               AND identity_state.evidence->>'reason'='new_person_needed')
@@ -7291,12 +7299,35 @@ BEGIN
       WHERE interpretation.source_persona_id=persona.id),'[]'::jsonb),
     'candidates',coalesce((SELECT jsonb_agg(jsonb_build_object(
         'candidate_id',c.id,'run_id',c.run_id,'rank',c.rank,'score',c.score,'tier',c.tier,'basis',c.basis,
-        'person_id',p.id,'person_name',p.visning_navn,'born',p.visning_foedt,'died',p.visning_doed) ORDER BY c.rank)
+        'person_id',p.id,'person_name',p.visning_navn,'born',p.visning_foedt,'died',p.visning_doed,
+        -- Trin 5b: kandidatvisning — titler, egen post og familie med hovedpersonen.
+        'titles',coalesce((SELECT jsonb_agg(DISTINCT a.vaerdi_tekst) FROM fact f JOIN conclusion k ON k.target_type='fact' AND k.target_id=f.id
+                            JOIN assertion a ON a.id=k.valgt_assertion_id WHERE f.subjekt_type='person' AND f.subjekt_id=p.id AND f.faktatype='titel'),'[]'::jsonb),
+        'own_post_key',(SELECT sr.record_key FROM private.source_persona_identity i2
+            JOIN private.source_persona_mention spm ON spm.persona_id=i2.source_persona_id AND spm.mention_role='primary'
+            JOIN private.source_mention sm ON sm.id=spm.mention_id
+            JOIN private.source_observation o ON o.id=sm.observation_id AND o.parent_observation_id IS NULL
+            JOIN private.source_record_anchor_current ac ON ac.occurrence_id=o.occurrence_id AND ac.decision_status='accepted'
+            JOIN private.source_record sr ON sr.id=ac.source_record_id
+           WHERE i2.canonical_person_id=p.id AND i2.decision_status='accepted' ORDER BY sr.record_key LIMIT 1),
+        'family_id',(SELECT (f->>'family_id')::bigint FROM jsonb_array_elements(private.persona_family_context(persona.id)->'families') f
+                      WHERE f->'partners' @> to_jsonb(p.id) LIMIT 1),
+        'ordinal',(SELECT (f->>'ordinal')::int FROM jsonb_array_elements(private.persona_family_context(persona.id)->'families') f
+                      WHERE f->'partners' @> to_jsonb(p.id) LIMIT 1)) ORDER BY c.rank)
       FROM private.source_persona_identity_candidate c
       JOIN public.person p ON p.id=c.candidate_person_id
       WHERE c.source_persona_id=persona.id
         AND c.run_id=(SELECT r.id FROM private.source_persona_identity_candidate_run r
                        WHERE r.source_id=persona.source_id ORDER BY r.run_seq DESC LIMIT 1)),'[]'::jsonb),
+    -- Trin 5b: hvor ægtefællen står (hovedpersonens post og ægteskabets nummer).
+    'family_context',(SELECT jsonb_build_object('principal_record_key',
+        (SELECT sr.record_key FROM private.source_persona_mention spm JOIN private.source_mention sm ON sm.id=spm.mention_id
+           JOIN private.source_observation o ON o.id=sm.observation_id
+           JOIN private.source_record_anchor_current ac ON ac.occurrence_id=o.occurrence_id AND ac.decision_status='accepted'
+           JOIN private.source_record sr ON sr.id=ac.source_record_id
+          WHERE spm.persona_id=persona.id AND spm.mention_role='spouse' LIMIT 1),
+        'marriage_ordinal',(fc->>'marriage_ordinal')::int)
+      FROM private.persona_family_context(persona.id) fc WHERE fc IS NOT NULL),
     -- Synlig, ikke blokerende: målarkitekturen kræver, at kollisioner vises.
     'collisions',coalesce((SELECT jsonb_agg(DISTINCT jsonb_build_object('person_id',other.canonical_person_id,'persona_key',op.persona_key))
       FROM private.source_persona_identity other
@@ -7319,8 +7350,8 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM private.source_persona WHERE id=p_source_persona_id) THEN RAISE EXCEPTION 'EVIDENCE_PERSONA_NOT_FOUND'; END IF;
   RETURN QUERY SELECT event.version,event.decision_status,event.canonical_person_id,event.evidence,event.decided_by_name,event.decided_at FROM private.source_persona_identity_event event WHERE event.source_persona_id=p_source_persona_id ORDER BY event.version;
 END $$;
-REVOKE ALL ON FUNCTION red_source_persona_queue(text,bigint,uuid,integer),red_source_persona_detail(uuid),red_source_persona_history(uuid) FROM PUBLIC,anon,authenticated;
-GRANT EXECUTE ON FUNCTION red_source_persona_queue(text,bigint,uuid,integer),red_source_persona_detail(uuid),red_source_persona_history(uuid) TO authenticated;
+REVOKE ALL ON FUNCTION red_source_persona_queue(text,bigint,uuid,integer,text),red_source_persona_detail(uuid),red_source_persona_history(uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_source_persona_queue(text,bigint,uuid,integer,text),red_source_persona_detail(uuid),red_source_persona_history(uuid) TO authenticated;
 DROP FUNCTION IF EXISTS red_afgoer_source_persona(uuid,integer,text,bigint,text);
 CREATE OR REPLACE FUNCTION red_afgoer_source_persona(
   p_source_persona_id uuid, p_expected_version integer, p_action text,
@@ -18792,7 +18823,7 @@ DECLARE
     'public.red_slet_story(bigint)'::regprocedure,
     'public.red_source_persona_detail(uuid)'::regprocedure,
     'public.red_source_persona_history(uuid)'::regprocedure,
-    'public.red_source_persona_queue(text,bigint,uuid,integer)'::regprocedure,
+    'public.red_source_persona_queue(text,bigint,uuid,integer,text)'::regprocedure,
     'public.red_suggest(text,text,bigint,text,text,text,jsonb,text)'::regprocedure,
     'public.red_tilbagetraek_fakta(bigint)'::regprocedure,
     'public.red_tilbagetraek_legacy_narrative(uuid,text,text)'::regprocedure,

@@ -20,6 +20,7 @@ function sourceIdFromInput(value: string): number | null {
 export function KildepersonaKo({ role }: { role?: string }) {
   const [rows, setRows] = useState<SourcePersonaQueueRow[]>([]);
   const [status, setStatus] = useState('proposed');
+  const [mentionRole, setMentionRole] = useState('');
   const [sourceIdInput, setSourceIdInput] = useState('');
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState('');
@@ -38,7 +39,7 @@ export function KildepersonaKo({ role }: { role?: string }) {
   const load = async (cursor: string | null = null, append = false) => {
     try {
       setError('');
-      const page = await fetchSourcePersonaQueue(status, sourceId, cursor);
+      const page = await fetchSourcePersonaQueue(status, sourceId, cursor, mentionRole || null);
       setRows((previous) => append ? [...previous, ...page] : page);
       setHasMore(page.length === PAGE_SIZE);
     } catch (e) {
@@ -54,7 +55,7 @@ export function KildepersonaKo({ role }: { role?: string }) {
     setPickedPersonId('');
     setNote('');
     void load();
-  }, [role, status, sourceIdInput]);
+  }, [role, status, sourceIdInput, mentionRole]);
 
   if (role !== 'redaktion') return <div style={{ padding: 24 }}>Kun redaktionen kan se kildepersonaer.</div>;
 
@@ -121,6 +122,9 @@ export function KildepersonaKo({ role }: { role?: string }) {
       <label>Status <select value={status} onChange={(e) => setStatus(e.target.value)}>
         {['proposed', 'accepted', 'rejected', 'unresolved', 'new_person_needed'].map((item) => <option key={item}>{item}</option>)}
       </select></label>
+      <label>Rolle <select value={mentionRole} onChange={(e) => setMentionRole(e.target.value)}>
+        <option value="">alle</option><option value="primary">hovedperson</option><option value="spouse">ægtefælle</option>
+      </select></label>
       <label>Kilde-id <input value={sourceIdInput} inputMode="numeric" onChange={(e) => setSourceIdInput(e.target.value)} /></label>
     </div>
     {error && <p role="alert" style={{ color: '#8a2b2b' }}>{error}</p>}
@@ -137,6 +141,7 @@ export function KildepersonaKo({ role }: { role?: string }) {
     </article>)}
     {hasMore && <button style={{ marginTop: 12 }} onClick={() => void load(rows[rows.length - 1]?.sourcePersonaId ?? null, true)}>Hent næste side</button>}
     {detail && <aside style={{ marginTop: 16, padding: 12, background: '#f4efe6', borderRadius: 8 }}>
+      {detail.familyContext && <div>ægtefælle nr. {detail.familyContext.marriageOrdinal} i {detail.familyContext.principalRecordKey}</div>}
       <strong>Kildegrundlag for {detail.persona.personaKey}</strong> <span style={{ fontSize: 12 }}>(ordret)</span>
       {detail.mentions.map((mention, index) => <div key={index} style={{ marginTop: 8 }}>
         <q>{mention.verbatimText}</q> · s. {mention.pageFrom}{mention.pageTo !== mention.pageFrom ? `–${mention.pageTo}` : ''}
@@ -151,6 +156,10 @@ export function KildepersonaKo({ role }: { role?: string }) {
             const kollision = detail.collisions.find((k) => k.personId === c.personId);
             return <div key={c.candidateId} style={{ marginTop: 6, padding: 8, border: '1px solid #cabfa9', borderRadius: 6 }}>
               {c.rank}. {c.personName} · #{c.personId} · {c.born ?? '?'}–{c.died ?? '?'} · score {c.score} · {c.tier} · [{c.signals.join(', ')}]
+              {(c.titles.length > 0 || c.ownPostKey || c.familyId != null) && <div style={{ fontSize: 12 }}>
+                {[c.titles.join(', ') || null, c.ownPostKey ? `egen post ${c.ownPostKey}` : null,
+                  c.familyId != null ? `familie ${c.familyId} nr. ${c.ordinal ?? '?'}` : null].filter(Boolean).join(' · ')}
+              </div>}
               {kollision && <div role="note" style={{ color: '#8a5a00', fontSize: 12 }}>Obs: allerede accepteret for {kollision.personaKey}</div>}
               <div><button disabled={busy === detail.persona.sourcePersonaId}
                 onClick={() => { const r = rows.find((x) => x.sourcePersonaId === detail.persona.sourcePersonaId); if (r) void decide(r, 'same', c.personId, { candidateId: c.candidateId, runId: c.runId }); }}>

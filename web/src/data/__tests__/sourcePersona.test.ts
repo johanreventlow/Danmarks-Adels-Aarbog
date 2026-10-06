@@ -25,8 +25,26 @@ describe('mapping fra RPC (snake_case → camelCase)', () => {
       collisions: [{ person_id: 42, persona_key: 'persona-9' }],
     }, error: null });
     const d = await fetchSourcePersonaDetail(ID);
-    expect(d.candidates).toEqual([{ candidateId: 'c1', runId: 'r1', rank: 1, score: 0.93, tier: 'auto', personId: 42, personName: 'X', born: '1800', died: null, signals: ['name', 'birth'] }]);
+    expect(d.candidates).toEqual([{ candidateId: 'c1', runId: 'r1', rank: 1, score: 0.93, tier: 'auto', personId: 42, personName: 'X', born: '1800', died: null, signals: ['name', 'birth'],
+      titles: [], ownPostKey: null, familyId: null, ordinal: null }]);
+    expect(d.familyContext).toBeNull();
     expect(d.collisions).toEqual([{ personId: 42, personaKey: 'persona-9' }]);
+  });
+
+  it('mapper 5b-felterne: rollefilter, titler, familie og familiekontekst', async () => {
+    rpc.mockResolvedValueOnce({ data: [], error: null });
+    await fetchSourcePersonaQueue('proposed', 7, null, 'spouse');
+    expect(rpc).toHaveBeenLastCalledWith('red_source_persona_queue',
+      { p_status: 'proposed', p_source_id: 7, p_cursor: null, p_page_size: 50, p_mention_role: 'spouse' });
+    rpc.mockResolvedValueOnce({ data: { persona: { source_persona_id: 's', source_id: 7, persona_key: 'k', decision_status: 'proposed', version: 0 },
+      mentions: [], placements: [], interpretations: [], collisions: [],
+      family_context: { principal_record_key: 'IX-1', marriage_ordinal: 2 },
+      candidates: [{ candidate_id: 'c', run_id: 'r', rank: 1, score: 0.9, tier: 'review', person_id: 5, person_name: 'Mage',
+                     born: null, died: null, basis: { signals: ['name'] }, titles: ['kammerherre'], own_post_key: 'II-4', family_id: 30, ordinal: 2 }] },
+      error: null });
+    const d = await fetchSourcePersonaDetail('s');
+    expect(d.familyContext).toEqual({ principalRecordKey: 'IX-1', marriageOrdinal: 2 });
+    expect(d.candidates[0]).toMatchObject({ titles: ['kammerherre'], ownPostKey: 'II-4', familyId: 30, ordinal: 2 });
   });
 
   it('historik: basis, kandidat fulgt og årsag fra evidensen', async () => {

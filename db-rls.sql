@@ -741,7 +741,7 @@ BEGIN
     'public.red_slet_story(bigint)',
     'public.red_source_persona_detail(uuid)',
     'public.red_source_persona_history(uuid)',
-    'public.red_source_persona_queue(text,bigint,uuid,integer)',
+    'public.red_source_persona_queue(text,bigint,uuid,integer,text)',
     'public.red_suggest(text,text,bigint,text,text,text,jsonb,text)',
     'public.red_tilbagetraek_fakta(bigint)',
     'public.red_tilfoej_barn(bigint,bigint,text,text)',

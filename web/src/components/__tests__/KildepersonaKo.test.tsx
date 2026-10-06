@@ -33,7 +33,9 @@ const detail = {
   persona: row(),
   mentions: [{ mentionKind: 'person_name', mentionRole: 'primary', verbatimText: 'Johan Example', observationKind: 'name_clause', pageFrom: 12, pageTo: 12, textVersions: [] }],
   placements: [], interpretations: [],
-  candidates: [{ candidateId: 'cand-1', runId: 'run-1', rank: 1, score: 0.93, tier: 'auto', personId: 42, personName: 'Johan Canonical', born: '1800', died: '1860', signals: ['name', 'birth'] }],
+  candidates: [{ candidateId: 'cand-1', runId: 'run-1', rank: 1, score: 0.93, tier: 'auto', personId: 42, personName: 'Johan Canonical', born: '1800', died: '1860', signals: ['name', 'birth'],
+                 titles: [], ownPostKey: null, familyId: null, ordinal: null }],
+  familyContext: null,
   collisions: [{ personId: 42, personaKey: 'persona-9' }],
 };
 
@@ -99,9 +101,9 @@ describe('KildepersonaKo', () => {
     render(<KildepersonaKo role="redaktion" />);
     await screen.findByText('persona-1');
     fireEvent.change(screen.getByLabelText('Kilde-id'), { target: { value: '7' } });
-    await waitFor(() => expect(mocks.queue).toHaveBeenLastCalledWith('proposed', 7, null));
+    await waitFor(() => expect(mocks.queue).toHaveBeenLastCalledWith('proposed', 7, null, null));
     fireEvent.click(screen.getByRole('button', { name: 'Hent næste side' }));
-    await waitFor(() => expect(mocks.queue).toHaveBeenLastCalledWith('proposed', 7, firstPage.at(-1)?.sourcePersonaId));
+    await waitFor(() => expect(mocks.queue).toHaveBeenLastCalledWith('proposed', 7, firstPage.at(-1)?.sourcePersonaId, null));
   });
 
   it('følger en kandidat med ét klik og sender kandidat-id', async () => {
@@ -184,5 +186,19 @@ describe('KildepersonaKo', () => {
     fireEvent.change(screen.getByLabelText('Begrundelse'), { target: { value: 'navn og år' } });
     fireEvent.click(screen.getByRole('button', { name: 'Samme som kandidat 1' }));
     await waitFor(() => expect(mocks.decide).toHaveBeenCalledWith(row(2).sourcePersonaId, 0, 'same', 42, 'navn og år', { candidateId: 'cand-1', runId: 'run-1' }));
+  });
+
+  it('viser rollefilter og kandidatens titler, egen post og familie', async () => {
+    mocks.queue.mockResolvedValue([{ ...row(1), mentionRole: 'spouse' }]);
+    mocks.detail.mockResolvedValue({ persona: { ...row(1), mentionRole: 'spouse' }, mentions: [], placements: [], interpretations: [], collisions: [],
+      familyContext: { principalRecordKey: 'IX-1', marriageOrdinal: 2 },
+      candidates: [{ candidateId: 'c', runId: 'r', rank: 1, score: 0.9, tier: 'review', personId: 5, personName: 'Mage', born: null, died: null,
+                     signals: ['name'], titles: ['kammerherre'], ownPostKey: 'II-4', familyId: 30, ordinal: 2 }] });
+    render(<KildepersonaKo role="redaktion" />);
+    fireEvent.change(await screen.findByLabelText('Rolle'), { target: { value: 'spouse' } });
+    await waitFor(() => expect(mocks.queue).toHaveBeenLastCalledWith('proposed', null, null, 'spouse'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Vis kildegrundlag' }));
+    expect(await screen.findByText(/ægtefælle nr\. 2 i IX-1/)).toBeTruthy();
+    expect(await screen.findByText(/kammerherre · egen post II-4 · familie 30 nr\. 2/)).toBeTruthy();
   });
 });

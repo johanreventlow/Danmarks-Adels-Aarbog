@@ -3031,7 +3031,7 @@ DECLARE
     'public.red_slet_story(bigint)'::regprocedure,
     'public.red_source_persona_detail(uuid)'::regprocedure,
     'public.red_source_persona_history(uuid)'::regprocedure,
-    'public.red_source_persona_queue(text,bigint,uuid,integer)'::regprocedure,
+    'public.red_source_persona_queue(text,bigint,uuid,integer,text)'::regprocedure,
     'public.red_suggest(text,text,bigint,text,text,text,jsonb,text)'::regprocedure,
     'public.red_tilbagetraek_fakta(bigint)'::regprocedure,
     'public.red_tilbagetraek_legacy_narrative(uuid,text,text)'::regprocedure,
@@ -5719,13 +5719,13 @@ END $placement_concurrency$;
 -- Task 11: køens fire RPC'er må kun være tilgængelige gennem authenticated.
 DO $source_persona_queue_verify$
 BEGIN
-  IF to_regprocedure('public.red_source_persona_queue(text,bigint,uuid,integer)') IS NULL
+  IF to_regprocedure('public.red_source_persona_queue(text,bigint,uuid,integer,text)') IS NULL
      OR to_regprocedure('public.red_source_persona_detail(uuid)') IS NULL
      OR to_regprocedure('public.red_source_persona_history(uuid)') IS NULL
      OR to_regprocedure('public.red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb)') IS NULL THEN
     RAISE EXCEPTION 'FEJL: Task 11 mangler source-persona-køens RPCer';
   END IF;
-  IF has_function_privilege('anon','public.red_source_persona_queue(text,bigint,uuid,integer)','EXECUTE')
+  IF has_function_privilege('anon','public.red_source_persona_queue(text,bigint,uuid,integer,text)','EXECUTE')
      OR has_function_privilege('anon','public.red_source_persona_detail(uuid)','EXECUTE')
      OR has_function_privilege('anon','public.red_source_persona_history(uuid)','EXECUTE')
      OR has_function_privilege('anon','public.red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb)','EXECUTE') THEN
