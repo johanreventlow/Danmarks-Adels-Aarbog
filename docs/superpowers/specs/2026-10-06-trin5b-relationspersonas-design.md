@@ -716,3 +716,13 @@ Runde 6's tre fund løst; ingen BLOCKER eller MAJOR. To MINOR (værste udfald fa
    hash-bundne, men forsegler og evaluerer intet, og de anvendes efter ark 1. Serveren binder kun
    stikprøvesager til forseglingens arkhash (§7.1), så én forsegling er tilstrækkelig. Er stikprøven alene
    over 80 linjer, deles den ikke; grænsen hæves efter projektejerens ja.
+5. **Idempotens og profilskift (§5.2).** »Idempotent på samme payload« leveres af writer-rammens replay:
+   et nyt kald med samme autoriserede elementer returnerer den finaliserede batch (`red_begin_reimport`).
+   Writeren pinner profilen `relation-persona-2018-20-v1`; en ny profil er derfor en kodeændring, og
+   supersessionsgrenen (ny persona, de gamle parter afløses) leveres sammen med den første nye profil.
+   Indtil da er en påstand med gældende parter fail-closed (`REIMPORT_WRITER_RELATION_PERSONA_EXISTS`).
+6. **Kontrolkørslen er bundet til kandidatinputtet (§7.1).** Registreringen afviser en kandidatkørsel,
+   hvis input er ændret siden kørslen, og gemmer inputtets hash over kørslens egnede personas; ændres
+   personer, familier, `samme_som` eller persona-data derefter, bliver kørslen `failed`
+   (`kandidatinput_aendret`). En stikprøvesag i en registreret, uforseglet kørsel kan ikke afgøres, og
+   efter forsegling kun på den version, der blev udtrukket.
