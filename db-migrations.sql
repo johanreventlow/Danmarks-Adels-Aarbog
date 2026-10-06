@@ -18756,9 +18756,16 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,pu
               ORDER BY co.clause_ordinal)
               FROM private.interpretation_observation io
               JOIN private.clause_observation_current co ON co.id=io.observation_id
-             WHERE io.interpretation_id=ic.id AND io.evidence_role='supporting'),'[]'::jsonb) AS clauses
+             WHERE io.interpretation_id=ic.id AND io.evidence_role='supporting'),'[]'::jsonb) AS clauses,
+           -- Writerens hovedpersonregel (spec §22.1): præcis én primary-mention på helposten, med
+           -- accepteret identitet. Udtrækket parkerer ellers, så én dårlig post ikke vælter batchen.
+           (SELECT count(*)=1 AND count(*) FILTER (WHERE i.decision_status='accepted')=1
+              FROM private.source_mention sm
+              JOIN private.source_persona_mention spm ON spm.mention_id=sm.id AND spm.mention_role='primary'
+              LEFT JOIN private.source_persona_identity i ON i.source_persona_id=spm.persona_id
+             WHERE sm.observation_id=rec.helpost) AS principal_ok
       FROM private.interpretation_current ic
-      JOIN LATERAL (SELECT sr.record_key, o.occurrence_id FROM private.interpretation_observation io
+      JOIN LATERAL (SELECT sr.record_key, o.occurrence_id, o.parent_observation_id AS helpost FROM private.interpretation_observation io
                       JOIN private.source_observation o ON o.id=io.observation_id
                       JOIN private.source_record_anchor_current ac ON ac.occurrence_id=o.occurrence_id AND ac.decision_status='accepted'
                       JOIN private.source_record sr ON sr.id=ac.source_record_id

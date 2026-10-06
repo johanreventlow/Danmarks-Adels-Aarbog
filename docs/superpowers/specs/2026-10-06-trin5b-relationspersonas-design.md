@@ -726,3 +726,13 @@ Runde 6's tre fund løst; ingen BLOCKER eller MAJOR. To MINOR (værste udfald fa
    personer, familier, `samme_som` eller persona-data derefter, bliver kørslen `failed`
    (`kandidatinput_aendret`). En stikprøvesag i en registreret, uforseglet kørsel kan ikke afgøres, og
    efter forsegling kun på den version, der blev udtrukket.
+7. **2018-20's form og år (§5.1, målt 6/10 på kopi af `daa2018f_20261001133125`).** Ægteskabspåstandene
+   lyder »Gift <dato> med <navn>« (134) eller begynder med navnet, evt. efter titler i små bogstaver
+   (110); ingen har »g. m.«. Fødsel og død skrives med `*` og `†` og står **uden for** påstandens spænd
+   (201 af 249), og 177 klausuler har flere `*`. Del 1 udtrækker derfor kun navnet: `birth_raw`/`death_raw`
+   er NULL. Årene kræver i del 2 en udvidelse af writerens spændregel og en entydighedsregel for flere
+   `*`/`†`; de kan tilføjes som nye fortolkninger på samme persona (append-only). Profilen forbliver
+   `relation-persona-2018-20-v1`, fordi intet var skrevet med den.
+8. **Hovedperson i inputtet.** `relation_persona_input` udleverer `principal_ok` (præcis én
+   `primary`-mention på helposten med accepteret identitet); udtrækket parkerer `ingen_hovedperson`, så én
+   post uden entydig hovedperson ikke vælter batchen (1 af 273 påstande).

@@ -24,6 +24,9 @@ BEGIN
   -- input: tre påstande, serverens ægteskabsnummer 1 og 2 i tekstrækkefølge
   v_in:=private.relation_persona_input(-5201);
   IF jsonb_array_length(v_in)<>3 THEN RAISE EXCEPTION 'RELATION_WRITER_TEST_FAILED: input %',jsonb_array_length(v_in); END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_in) x WHERE (x->>'principal_ok')::boolean IS DISTINCT FROM true) THEN
+    RAISE EXCEPTION 'RELATION_WRITER_TEST_FAILED: principal_ok';
+  END IF;
   IF (SELECT array_agg(o.marriage_ordinal ORDER BY o.post_offset) FROM private.relation_marriage_ordinals((p->>'occ')::uuid) o)<>ARRAY[1,2] THEN
     RAISE EXCEPTION 'RELATION_WRITER_TEST_FAILED: ægteskabsnumre';
   END IF;
@@ -98,6 +101,10 @@ BEGIN
   p:=pg_temp.f5b_post(-5202,s,'III-1',v_text,ARRAY['Bent Bravo.','g. m. Ea Echo. g. m. Ea Echo.'],NULL,v_actor);
   c:=pg_temp.f5b_claim(-5202,s,'relation.marriage',(p->'clauses'->>1)::uuid,'g. m. Ea Echo.');
   prof:=pg_temp.f5b_profile(-5202);
+  -- hovedpersonen har ingen accepteret identitet: inputtet siger det, så udtrækket kan parkere
+  IF (private.relation_persona_input(-5202)->0->>'principal_ok')::boolean IS DISTINCT FROM false THEN
+    RAISE EXCEPTION 'RELATION_WRITER_TEST_FAILED: principal_ok';
+  END IF;
   e:=jsonb_build_object('birth_raw',NULL,'clause_observation_id',p->'clauses'->>1,'clause_set_seq',1,
     'clause_set_sha256',private.clause_set_sha256((p->>'helpost')::uuid,1),'death_raw',NULL,
     'interpretation_key',c->>'key','interpretation_version',1,'marriage_ordinal',1,'name_from',5,'name_to',13,
