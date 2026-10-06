@@ -3,7 +3,7 @@
 \set ON_ERROR_STOP on
 SET default_transaction_read_only=on;
 BEGIN;
-SELECT set_config('request.jwt.claim.sub', :'actor', true);
+SELECT set_config('request.jwt.claim.sub', :'actor', true) IS NOT NULL AS ok \g /dev/null   -- ekko af aktøren må ikke i filen
 SET LOCAL ROLE authenticated;
 SELECT red_identity_candidate_input(:source_id,
   CASE WHEN :'mode'='undecided' THEN '{"mode":"undecided"}'::jsonb
