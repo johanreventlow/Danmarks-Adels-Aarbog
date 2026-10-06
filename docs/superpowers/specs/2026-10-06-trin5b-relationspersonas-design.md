@@ -1,7 +1,7 @@
 # Trin 5b — andre personer i posten: ægtefæller, børn og forældre (#151/#150)
 
 **Status:** designudkast, godkendt sektion for sektion i brainstorm 2026-10-06; revideret efter
-Codex runde 5 (NO-GO: 2 MAJOR, 1 MINOR, se §19), Codex runde 4 (NO-GO: 1 BLOCKER, 1 MAJOR, se §18), Codex runde 3 (NO-GO: 3 BLOCKER, 2 MAJOR, se §17), Codex runde 2 (NO-GO: 4 BLOCKER, 3 MAJOR, 3 MINOR — alle efterprøvet og godtaget, se §16) og
+Codex runde 6 (NO-GO: 1 MAJOR, 2 MINOR, se §20), Codex runde 5 (NO-GO: 2 MAJOR, 1 MINOR, se §19), Codex runde 4 (NO-GO: 1 BLOCKER, 1 MAJOR, se §18), Codex runde 3 (NO-GO: 3 BLOCKER, 2 MAJOR, se §17), Codex runde 2 (NO-GO: 4 BLOCKER, 3 MAJOR, 3 MINOR — alle efterprøvet og godtaget, se §16) og
 dobbelt review runde 1 (Claude: 4 BLOCKER, 6 MAJOR; Codex `gpt-5.6-sol`: NO-GO, 4 BLOCKER, 4 MAJOR —
 alle efterprøvet mod koden og godtaget, se §15). Fortrydelsen er ændret fra writer-reversal til
 restore-only (§13), efter fortilfældene for 4.1c og 4.4.
@@ -165,11 +165,17 @@ joins, og hvert id må optræde i præcis ét receipt i hele batchen (batchgloba
   `spouse_source_persona_id` (serverudledte, aldrig fra autorisationen; spouse null for
   child/parent), `mention_id` (null for child/parent), `year_interpretation_ids` (array, 0–2),
   `party_keys` (array af `[interpretation_key, party_role, version]`).
-- Efterprøvning: persona og mention har `created_run_id` = batchens `extraction_run`; mentionens spænd =
-  (`name_from`, `name_to`) på `clause_observation_id`; år-fortolkningerne har batchens
-  `extraction_run_id`, `source_persona_id` = receiptets persona og citerer klausulen; partsrækkerne har
-  `origin_ref` = batch-id og den autoriserede `interpretation_key`; principal-parten er den
-  serverudledte hovedperson.
+- Efterprøvning, prædikatbetinget:
+  - **`relation.marriage`:** `spouse_source_persona_id` og `mention_id` har `created_run_id` = batchens
+    `extraction_run`; mentionens spænd = (`name_from`, `name_to`) på `clause_observation_id`;
+    år-fortolkningerne har batchens `extraction_run_id`, `source_persona_id` = spouse-personaen og
+    citerer klausulen;
+  - **`relation.child`/`relation.parent`:** `spouse_source_persona_id`, `mention_id` og
+    `year_interpretation_ids` er null/tomme; ingen ny persona efterprøves;
+  - **alle:** `principal_source_persona_id` efterprøves kun mod den gældende `principal`-part, postens
+    accepterede `principal_member`-placering og en gældende `accepted` identitet (den er oprettet i en
+    tidligere kørsel); partsrækkerne har `origin_ref` = batch-id og den autoriserede
+    `interpretation_key`.
 
 **`relation_person_create`** — element-id `rpc:<source_persona_id>`.
 
@@ -199,10 +205,18 @@ joins, og hvert id må optræde i præcis ét receipt i hele batchen (batchgloba
   `batch_id` og manifestets sha256 i evidensen, og den forrige version var maskinel (aldrig oven på
   menneskelig).
 
-**`red_reimport_batch_result`** bevarer sin eksisterende form (`batch_id`, `status`, `replayed`,
-counts) og tilføjer for batches med de nye operationer nøglen `relation_results`: et array sorteret på
-`operation` af `{operation, elements, receipts_sha256, derived_counts}`, hvor `receipts_sha256` =
-sha256 af de sorterede `after_sha256` og `derived_counts` = antal pr. receipt-id-felt.
+**`red_reimport_batch_result`** bevarer sin eksisterende form uændret — `{batch_id, status, replayed,
+person_id_map}` for både åbne og finaliserede batches — og tilføjer kun for batches med de nye
+operationer nøglen `relation_results` (fraværende ellers): et array sorteret på `operation` af
+`{operation, elements, receipts_sha256, derived_counts}`, hvor
+`receipts_sha256 = private.reimport_canonical_json_sha256(jsonb_agg(after_sha256 ORDER BY after_sha256 COLLATE "C"))`
+og `derived_counts` har faste nøgler (0 når ingen):
+
+| Operation | `derived_counts`-nøgler |
+| --- | --- |
+| `relation_persona` | `spouse_personas`, `mentions`, `year_interpretations`, `parties` |
+| `relation_person_create` | `persons`, `facts`, `assertions`, `citations`, `conclusions`, `families_created`, `family_members`, `identities` |
+| `relation_disposition` | `dispositions` |
 
 Pr. element, i batchens transaktion:
 
@@ -373,10 +387,18 @@ Ny tabel `private.identity_control_run` (append-only status-events) med `private
 - **Stikprøvesager afgøres med visningsplads, ikke id.** For en sag i en aktiv kontrolkørsel kræver
   `red_afgoer_source_persona` og `red_afgoer_relation_interpretation` altid `control_run_id` og
   forseglingskonteksten (`sheet_sha256`, `rows_sha256`, linje) og håndhæver betingede inputregler:
-  - `same` (token `1`–`3`): kræver `display_position`, forbyder klientleveret `candidate_id`/`family_id`;
-    serveren **opløser selv** målet via den gemte mapping;
-  - `X`, `U`, `N`: forbyder `display_position` og mål; registreres som afvigelse;
-  - `P <id>`: forbyder `display_position`, kræver det eksplicitte person-id; registreres som afvigelse.
+  - **RPC-mapping** til `red_afgoer_source_persona(p_persona, p_expected_version, p_action,
+    p_canonical_person_id, p_note, p_context)`: `1`–`3` → `same` med `p_canonical_person_id = NULL`
+    og `p_context.display_position`, serveren opløser målet via den gemte mapping; `X` → `different`;
+    `U` → `unresolved`; `N` → `new_person_needed`; `P <id>` → `same` med eksplicit
+    `p_canonical_person_id` og uden `display_position` (registreres som afvigelse). Valideringen ændres,
+    så `same` med NULL-mål kun er tilladt, når `control_run_id` + `display_position` er sat for en
+    stikprøvesag; klientleveret `candidate_id` er forbudt for stikprøvesager.
+  - **Nye `p_context`-nøgler:** `control_run_id`, `display_position` (heltal 1–3), og — som i dag ved
+    arket — `sheet_sha256`, `rows_sha256`, `line`.
+  - **Relationsstikprøver** (`red_afgoer_relation_interpretation`): `1`–`3` → `same` med
+    `p_family_id = NULL` og serveropløst familie; `U` → `unresolved`; andre tokens afvises for
+    relationslinjer.
   Evalueringen (§7.2) sammenholder afgørelsen med den gemte mapping.
 - Arket bygges fra rækkefilen, som indeholder netop stikprøven og alle uoverensstemmelser.
 
@@ -657,3 +679,11 @@ Ingen BLOCKER; begge runde 4-fund løst i substansen, men tre kontraktdetaljer m
 | 1 | Receipts kunne ikke persisteres/læses (payload = autorisation, kun hash i `after_sha256`); resultatkort ufuldstændigt | MAJOR | §5.2.1 event-envelope `payload || {result_receipt}` som `interpretation_proposal`; sorterede arrays; fuldt `red_reimport_batch_result` |
 | 2 | Principal/spouse manglede i eventet, som §6.2 (a) efterprøver imod | MAJOR | §5.2.1 serverudledte personas i receiptet; §6.2 (a) eksakt join |
 | 3 | Uenighedstokens havde ingen RPC-kontrakt efter mappingrettelsen | MINOR | §7.1 betingede inputregler for `same`, `X/U/N`, `P <id>` |
+
+## 20. Review runde 6 (Codex, 2026-10-06)
+
+| # | Fund | Grad | Rettelse |
+| --- | --- | --- | --- |
+| 1 | Resultatkortet ignorerede `person_id_map`; `derived_counts` og receipts-hash ikke fastlagt | MAJOR | §5.2.1 eksisterende form uændret + `relation_results`, faste nøgler, eksakt hash |
+| 2 | `created_run_id`-kontrollen ramte også principal-personaen | MINOR | §5.2.1 prædikatbetinget efterprøvning |
+| 3 | Tokens manglede eksakt mapping til `red_afgoer_source_persona` | MINOR | §7.1 RPC-mapping, NULL-mål kun for stikprøve med visningsplads, nye kontekstnøgler |
