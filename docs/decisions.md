@@ -2,6 +2,35 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: trin 5b — familie-forankret maskinel identitet (`family_corroboration`) ændrer 5a §4.2 (2026-10-06)
+
+> **Besluttet af projektejeren 2026-10-06** ved godkendelsen af 5b-specen
+> (`docs/superpowers/specs/2026-10-06-trin5b-relationspersonas-design.md`) efter brainstorm og syv
+> review-runder (Claude + Codex).
+
+**Baggrund.** 5a §4.2 lukkede enhver identitetsskrivning ud fra lighed: kun menneskelige afgørelser,
+oprettelse med kvittering, 149b's faste 1:1-kobling og reversal. 5b skal give de cirka 248
+ægtefæller i 2018-20 en identitet, og et fuldt menneskeark strider mod beslutningen om ingen flere
+fulde afgørelsesark (2026-09-27).
+
+**Besluttet:**
+1. **Ny smal kerne-oprindelse `family_corroboration`.** Den må kun acceptere en ægtefælle-persona
+   som den eneste partner i hovedpersonens familie med det matchende ordenstal. Kernen efterprøver
+   selv proveniens, struktur, kandidat og familiekontekst under rækkelåse (spec §6.2). Alle andre
+   lighedsmatch forbliver lukkede.
+2. **Maskinen må kun skrive efter en bestået kontrolkørsel:** serveren vælger en blind stikprøve,
+   projektejeren afgør den i et forseglet ark, og én afvigelse stopper al maskinel bekræftelse
+   (spec §7).
+3. **Ny oprindelse `relation_person_create`** til nye personer efter et menneskeligt `N`. Nye
+   personer oprettes `staged` og med `levende = true`, indtil dødsfakta afgøres af et menneske.
+4. **Relationer bindes strukturelt til familien** med en ny regeltype `structural_family` ved siden af
+   trin 4's tekstbinding.
+5. **Fortrydelse sker kun ved restore**, som for 4.1c og 4.4. Rettelser i drift sker fremad via
+   menneskelige afgørelser.
+
+**Uændret:** ingen automatisk accept uden for disse to oprindelser; prod kræver en separat
+overførsels-spec og GO; 5a deployes først for sig.
+
 ## BESLUTTET: roadmap-trin 4 afsluttet for 2018-20 — trin 5 aktiveret, 5a først (2026-10-05)
 
 > **Besluttet af projektejeren 2026-10-05** efter prod-overførslen af 2018-20's fortolkningskæde

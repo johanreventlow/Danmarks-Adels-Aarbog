@@ -1,6 +1,7 @@
 # Trin 5b — andre personer i posten: ægtefæller, børn og forældre (#151/#150)
 
-**Status:** designudkast, godkendt sektion for sektion i brainstorm 2026-10-06; revideret efter
+**Status:** **GODKENDT af projektejeren 2026-10-06** (decisions samme dato). Godkendt sektion for
+sektion i brainstorm 2026-10-06; revideret efter
 Codex runde 7 (2 MINOR, ingen BLOCKER/MAJOR, se §21), Codex runde 6 (NO-GO: 1 MAJOR, 2 MINOR, se §20), Codex runde 5 (NO-GO: 2 MAJOR, 1 MINOR, se §19), Codex runde 4 (NO-GO: 1 BLOCKER, 1 MAJOR, se §18), Codex runde 3 (NO-GO: 3 BLOCKER, 2 MAJOR, se §17), Codex runde 2 (NO-GO: 4 BLOCKER, 3 MAJOR, 3 MINOR — alle efterprøvet og godtaget, se §16) og
 dobbelt review runde 1 (Claude: 4 BLOCKER, 6 MAJOR; Codex `gpt-5.6-sol`: NO-GO, 4 BLOCKER, 4 MAJOR —
 alle efterprøvet mod koden og godtaget, se §15). Fortrydelsen er ændret fra writer-reversal til
