@@ -4940,6 +4940,20 @@ BEGIN
   RAISE NOTICE 'OK: #151 kandidatlaget findes med RLS og uden API-rettigheder';
 END $identity_candidate_verify$;
 
+DO $relation_party_verify$
+BEGIN
+  IF to_regclass('private.interpretation_party') IS NULL OR to_regclass('private.interpretation_party_current') IS NULL THEN
+    RAISE EXCEPTION 'EVIDENCE_RELATION_PARTY_MISSING';
+  END IF;
+  IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.interpretation_party'::regclass) THEN
+    RAISE EXCEPTION 'EVIDENCE_RELATION_PARTY_RLS_OFF';
+  END IF;
+  IF has_table_privilege('authenticated','private.interpretation_party','SELECT')
+     OR has_table_privilege('anon','private.interpretation_party','SELECT') THEN
+    RAISE EXCEPTION 'EVIDENCE_RELATION_PARTY_GRANT';
+  END IF;
+END $relation_party_verify$;
+
 -- Preview må aldrig kunne promovere mod en revision, der skifter efter preview.
 -- Denne er en reel to-sessions-test: A afgør den accepterede fortolkning igen,
 -- B's batch skal blokere på current-revisionen og derefter afvises som stale.

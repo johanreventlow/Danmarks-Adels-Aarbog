@@ -1254,6 +1254,86 @@ CREATE TABLE private.interpretation_observation (
   UNIQUE (interpretation_id,ordinal)
 );
 
+-- Trin 5b (#151): relationens to ender. interpretation.source_persona_id kan kun bære
+-- én persona; parterne nøgles på interpretation_key, så de følger fortolkningen
+-- gennem red_decide_interpretation's nye versioner. Append-only og versioneret.
+CREATE TABLE private.interpretation_party (
+  interpretation_key uuid    NOT NULL,
+  party_role         text    NOT NULL CHECK (party_role IN ('principal','spouse','child','parent')),
+  version            integer NOT NULL CHECK (version>=1),
+  source_persona_id  uuid    REFERENCES private.source_persona(id),
+  marriage_ordinal   integer CHECK (marriage_ordinal IS NULL OR marriage_ordinal>=1),
+  post_offset        integer CHECK (post_offset IS NULL OR post_offset>=0),
+  origin             text    NOT NULL CHECK (origin IN ('relation_persona','relation_decision')),
+  origin_ref         uuid    NOT NULL,
+  created_at         timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (interpretation_key,party_role,version),
+  CONSTRAINT interpretation_party_ordinal_check CHECK (
+    (party_role='spouse' AND (source_persona_id IS NULL OR marriage_ordinal IS NOT NULL))
+    OR (party_role<>'spouse' AND marriage_ordinal IS NULL))
+);
+
+CREATE VIEW private.interpretation_party_current
+WITH (security_invoker=true) AS
+SELECT DISTINCT ON (interpretation_key,party_role) *
+  FROM private.interpretation_party
+ ORDER BY interpretation_key,party_role,version DESC;
+
+CREATE FUNCTION private.validate_interpretation_party()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_interp private.interpretation%ROWTYPE; v_claim_occ uuid; v_persona_source bigint; v_prev integer;
+BEGIN
+  SELECT * INTO v_interp FROM private.interpretation_current WHERE interpretation_key=NEW.interpretation_key;
+  IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_PARTY_INTERPRETATION_UNKNOWN'; END IF;
+  IF v_interp.predicate NOT IN ('relation.marriage','relation.child','relation.parent')
+     OR (NEW.party_role='spouse' AND v_interp.predicate<>'relation.marriage')
+     OR (NEW.party_role='child' AND v_interp.predicate<>'relation.child')
+     OR (NEW.party_role='parent' AND v_interp.predicate<>'relation.parent') THEN
+    RAISE EXCEPTION 'EVIDENCE_PARTY_ROLE_INVALID: % på %',NEW.party_role,v_interp.predicate;
+  END IF;
+  SELECT coalesce(max(version),0) INTO v_prev FROM private.interpretation_party
+   WHERE interpretation_key=NEW.interpretation_key AND party_role=NEW.party_role;
+  IF NEW.version<>v_prev+1 THEN RAISE EXCEPTION 'EVIDENCE_PARTY_VERSION_CONFLICT: forventet %',v_prev+1; END IF;
+  IF NEW.source_persona_id IS NULL THEN RETURN NEW; END IF;
+  SELECT source_id INTO v_persona_source FROM private.source_persona WHERE id=NEW.source_persona_id;
+  IF v_persona_source IS DISTINCT FROM v_interp.source_id THEN RAISE EXCEPTION 'EVIDENCE_PARTY_SCOPE_INVALID: kilde'; END IF;
+  SELECT o.occurrence_id INTO v_claim_occ FROM private.interpretation_observation io
+    JOIN private.source_observation o ON o.id=io.observation_id
+   WHERE io.interpretation_id=v_interp.id AND io.evidence_role='supporting' ORDER BY io.ordinal LIMIT 1;
+  IF NEW.party_role='principal' THEN
+    IF NOT EXISTS (SELECT 1 FROM private.source_persona_mention spm JOIN private.source_mention sm ON sm.id=spm.mention_id
+                     JOIN private.source_observation o ON o.id=sm.observation_id
+                    WHERE spm.persona_id=NEW.source_persona_id AND spm.mention_role='primary'
+                      AND o.parent_observation_id IS NULL AND o.occurrence_id=v_claim_occ) THEN
+      RAISE EXCEPTION 'EVIDENCE_PARTY_SCOPE_INVALID: principal';
+    END IF;
+  ELSIF NEW.party_role='spouse' THEN
+    IF NOT EXISTS (SELECT 1 FROM private.source_persona_mention spm JOIN private.source_mention sm ON sm.id=spm.mention_id
+                     JOIN private.source_observation o ON o.id=sm.observation_id
+                    WHERE spm.persona_id=NEW.source_persona_id AND spm.mention_role='spouse' AND o.occurrence_id=v_claim_occ) THEN
+      RAISE EXCEPTION 'EVIDENCE_PARTY_SCOPE_INVALID: spouse';
+    END IF;
+  ELSE
+    IF NOT EXISTS (SELECT 1 FROM private.source_persona_mention spm JOIN private.source_mention sm ON sm.id=spm.mention_id
+                     JOIN private.source_observation o ON o.id=sm.observation_id
+                    WHERE spm.persona_id=NEW.source_persona_id AND spm.mention_role='primary'
+                      AND o.parent_observation_id IS NULL AND o.occurrence_id<>v_claim_occ) THEN
+      RAISE EXCEPTION 'EVIDENCE_PARTY_SCOPE_INVALID: %',NEW.party_role;
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+
+CREATE TRIGGER trg_interpretation_party_validate BEFORE INSERT ON private.interpretation_party
+  FOR EACH ROW EXECUTE FUNCTION private.validate_interpretation_party();
+CREATE TRIGGER trg_interpretation_party_append_only BEFORE UPDATE OR DELETE ON private.interpretation_party
+  FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation();
+CREATE TRIGGER trg_interpretation_party_no_truncate BEFORE TRUNCATE ON private.interpretation_party
+  FOR EACH STATEMENT EXECUTE FUNCTION private.reject_evidence_mutation();
+ALTER TABLE private.interpretation_party ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.interpretation_party FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON private.interpretation_party_current FROM PUBLIC,anon,authenticated;
+
 CREATE TABLE private.interpretation_promotion_rule_line (
   rule_key   text PRIMARY KEY CHECK (btrim(rule_key)<>''),
   predicate  text NOT NULL UNIQUE CHECK (btrim(predicate)<>''),
