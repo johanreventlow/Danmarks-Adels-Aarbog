@@ -1,4 +1,4 @@
--- Trin 5b, Task 5: strukturelle kandidater og menneskelig afgørelse af relation.child/parent.
+-- Trin 5b, Task 5: strukturelle kandidater og menneskelig afgørelse af relation.parent (relation.child er del 2).
 \set ON_ERROR_STOP on
 BEGIN;
 \ir fixtures/relation-5b.sql
@@ -28,30 +28,40 @@ BEGIN
 
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   SET LOCAL ROLE authenticated;
+  -- Børn er taget ud af del 1 (errata §22.9): både 'same' og 'unresolved' afvises.
+  BEGIN
+    PERFORM red_afgoer_relation_interpretation((cc->>'key')::uuid,1,'same',v_fam,'barnet passer','{}');
+    RAISE EXCEPTION 'RELATION_DECISION_TEST_FAILED: barn afgjort i del 1';
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'RELATION_CHILD_DEFERRED%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    PERFORM red_afgoer_relation_interpretation((cc->>'key')::uuid,1,'unresolved',NULL,'kan ikke afgøre','{}');
+    RAISE EXCEPTION 'RELATION_DECISION_TEST_FAILED: barn U i del 1';
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'RELATION_CHILD_DEFERRED%' THEN RAISE; END IF;
+  END;
   -- familie uden for kandidaterne afvises
   BEGIN
-    PERFORM red_afgoer_relation_interpretation((cc->>'key')::uuid,1,'same',v_other,'forkert familie','{}');
+    PERFORM red_afgoer_relation_interpretation((cp->>'key')::uuid,1,'same',v_other,'forkert familie','{}');
     RAISE EXCEPTION 'RELATION_DECISION_TEST_FAILED: fremmed familie godtaget';
   EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'RELATION_DECISION_FAMILY_INVALID%' THEN RAISE; END IF;
   END;
   -- forældet version afvises
   BEGIN
-    PERFORM red_afgoer_relation_interpretation((cc->>'key')::uuid,2,'same',v_fam,'gammel','{}');
+    PERFORM red_afgoer_relation_interpretation((cp->>'key')::uuid,2,'same',v_fam,'gammel','{}');
     RAISE EXCEPTION 'RELATION_DECISION_TEST_FAILED: forkert version godtaget';
   EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'EVIDENCE_INTERPRETATION_VERSION_CONFLICT%' THEN RAISE; END IF;
   END;
-  v_ver:=red_afgoer_relation_interpretation((cc->>'key')::uuid,1,'same',v_fam,'barnet passer','{}');
-  PERFORM red_afgoer_relation_interpretation((cp->>'key')::uuid,1,'unresolved',NULL,'kan ikke afgøre','{}');
+  v_ver:=red_afgoer_relation_interpretation((cp->>'key')::uuid,1,'same',v_fam,'forælderen passer','{}');
   RESET ROLE;
-  IF v_ver<>2 OR (SELECT status FROM private.interpretation_current WHERE interpretation_key=(cc->>'key')::uuid)<>'accepted'
-     OR (SELECT decision_evidence->>'family_id' FROM private.interpretation_current WHERE interpretation_key=(cc->>'key')::uuid)<>v_fam::text
-     OR NOT EXISTS (SELECT 1 FROM private.interpretation_party_current WHERE interpretation_key=(cc->>'key')::uuid
-                     AND party_role='child' AND source_persona_id=(pc->>'principal')::uuid)
-     OR (SELECT status FROM private.interpretation_current WHERE interpretation_key=(cp->>'key')::uuid)<>'unresolved'
-     OR EXISTS (SELECT 1 FROM private.interpretation_party_current WHERE interpretation_key=(cp->>'key')::uuid AND party_role='parent') THEN
+  IF v_ver<>2 OR (SELECT status FROM private.interpretation_current WHERE interpretation_key=(cp->>'key')::uuid)<>'accepted'
+     OR (SELECT decision_evidence->>'family_id' FROM private.interpretation_current WHERE interpretation_key=(cp->>'key')::uuid)<>v_fam::text
+     OR NOT EXISTS (SELECT 1 FROM private.interpretation_party_current WHERE interpretation_key=(cp->>'key')::uuid
+                     AND party_role='parent' AND source_persona_id=(pa->>'principal')::uuid)
+     OR (SELECT status FROM private.interpretation_current WHERE interpretation_key=(cc->>'key')::uuid)<>'proposed'
+     OR EXISTS (SELECT 1 FROM private.interpretation_party_current WHERE interpretation_key=(cc->>'key')::uuid AND party_role='child') THEN
     RAISE EXCEPTION 'RELATION_DECISION_TEST_FAILED: afgørelse eller part';
   END IF;
-  RAISE NOTICE 'OK: strukturelle kandidater, familievalg, version, accept med modpart og U';
+  RAISE NOTICE 'OK: strukturelle kandidater, barn udskudt, familievalg, version, accept med modpart';
 END $relation_decision$;
 
 ROLLBACK;

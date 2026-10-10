@@ -20595,6 +20595,9 @@ BEGIN
   END IF;
   SELECT * INTO v_ic FROM private.interpretation_current WHERE interpretation_key=p_interpretation_key;
   IF NOT FOUND OR v_ic.predicate NOT IN ('relation.child','relation.parent') THEN RAISE EXCEPTION 'RELATION_DECISION_INVALID'; END IF;
+  -- Børn er taget ud af del 1 (spec errata §22.9): en familie kan have flere børn med egen post, så valget
+  -- er et barn, ikke en familie. Del 2 giver børnene deres eget design.
+  IF v_ic.predicate='relation.child' THEN RAISE EXCEPTION 'RELATION_CHILD_DEFERRED'; END IF;
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-identity-candidates:'||v_ic.source_id::text,0));
   v_role:=CASE v_ic.predicate WHEN 'relation.child' THEN 'child' ELSE 'parent' END;
   v_evidence:=jsonb_build_object('note',btrim(p_note),'action',p_action,'basis',v_basis,'method','relation-human-v1');
@@ -20840,7 +20843,7 @@ BEGIN
            encode(extensions.digest(convert_to(p_candidate_run_id::text||':'||ic.interpretation_key::text,'UTF8'),'sha256'),'hex') AS h
       FROM private.interpretation_current ic
       CROSS JOIN LATERAL private.relation_structural_candidates(ic.interpretation_key) sc
-     WHERE ic.source_id=v_source AND ic.predicate IN ('relation.child','relation.parent') AND ic.status='proposed'
+     WHERE ic.source_id=v_source AND ic.predicate='relation.parent' AND ic.status='proposed'   -- børn: del 2 (errata §22.9)
      GROUP BY ic.interpretation_key,ic.version HAVING count(*)=1;
   SELECT private.reimport_canonical_json_sha256(coalesce(jsonb_agg(pid::text ORDER BY pid::text COLLATE "C"),'[]'::jsonb)) INTO v_ipop FROM pg_temp.ctl_ipop;
   SELECT private.reimport_canonical_json_sha256(coalesce(jsonb_agg(k::text ORDER BY k::text COLLATE "C"),'[]'::jsonb)) INTO v_rpop FROM pg_temp.ctl_rpop;

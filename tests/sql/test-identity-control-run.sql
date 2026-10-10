@@ -6,17 +6,28 @@ BEGIN;
 -- Én kilde med tre ægtefælle-personas, hver med én familie og én egnet rang-1-kandidat.
 CREATE FUNCTION pg_temp.f5b_control_world(p_source bigint,p_actor uuid) RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE s jsonb; p jsonb; c jsonb; v_sp uuid; v_ids uuid[]:='{}'; v_in jsonb; v_run uuid; v_cands jsonb:='[]'; i int;
+  v_fam bigint; v_fam1 bigint; v_child jsonb;
 BEGIN
   s:=pg_temp.f5b_source(p_source);
   FOR i IN 1..3 LOOP
     INSERT INTO person(id,levende,privat,status) VALUES (p_source*10-i*2,false,false,'5b'),(p_source*10-i*2-1,false,false,'5b');
-    p:=pg_temp.f5b_post(p_source,s,'C-'||i,'Hoved '||i||'. g. m. Mage '||i||'.',ARRAY['Hoved '||i||'.','g. m. Mage '||i||'.'],
+    p:=pg_temp.f5b_post(p_source,s,'C-'||i,'Hoved '||i||'. g. m. Mage '||i||'.'||CASE WHEN i=1 THEN ' Søn To.' ELSE '' END,
+       ARRAY['Hoved '||i||'.','g. m. Mage '||i||'.']||CASE WHEN i=1 THEN ARRAY['Søn To.'] ELSE '{}'::text[] END,
        p_source*10-i*2,p_actor);
     c:=pg_temp.f5b_claim(p_source,s,'relation.marriage',(p->'clauses'->>1)::uuid,'g. m. Mage '||i||'.');
     v_sp:=pg_temp.f5b_spouse(p_source,s,p,c,(p->'clauses'->>1)::uuid,'Mage '||i,1);
-    PERFORM pg_temp.f5b_family(p_source*10-i*2,p_source*10-i*2-1,1);
+    v_fam:=pg_temp.f5b_family(p_source*10-i*2,p_source*10-i*2-1,1);
     v_ids:=v_ids||v_sp;
+    IF i=1 THEN
+      -- Et barn med præcis én strukturel kandidat (post C-2's hovedperson er barn i C-1's familie).
+      -- Børn er taget ud af del 1 (errata §22.9): påstanden må hverken komme i populationen eller stikprøven.
+      v_child:=pg_temp.f5b_claim(p_source,s,'relation.child',(p->'clauses'->>2)::uuid,'Søn To.');
+      INSERT INTO private.interpretation_party(interpretation_key,party_role,version,source_persona_id,post_offset,origin,origin_ref)
+        VALUES ((v_child->>'key')::uuid,'principal',1,(p->>'principal')::uuid,23,'relation_persona',gen_random_uuid());
+      v_fam1:=v_fam;
+    END IF;
   END LOOP;
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES (v_fam1,p_source*10-4,'barn');
   PERFORM set_config('request.jwt.claim.sub',p_actor::text,true);
   SET LOCAL ROLE authenticated;
   v_in:=red_identity_candidate_input(p_source,'{"mode":"undecided"}');
@@ -53,6 +64,10 @@ DECLARE
 BEGIN
   PERFORM pg_temp.f5b_actor(v_actor);
   w:=pg_temp.f5b_control_world(-5601,v_actor);
+  IF (SELECT count(*) FROM private.relation_structural_candidates((SELECT interpretation_key FROM private.interpretation_current
+        WHERE predicate='relation.child' AND source_id=-5601)))<>1 THEN
+    RAISE EXCEPTION 'CONTROL_TEST_FAILED: barnets kandidat mangler';
+  END IF;
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   SET LOCAL ROLE authenticated;
   v_ctl:=red_register_identity_control_run((w->>'run')::uuid);

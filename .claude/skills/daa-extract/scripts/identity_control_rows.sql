@@ -50,7 +50,7 @@ rel AS (
             JOIN private.source_record_anchor_current ac ON ac.occurrence_id=o.occurrence_id AND ac.decision_status='accepted'
             JOIN private.source_record sr ON sr.id=ac.source_record_id WHERE io.interpretation_id=ic.id AND io.ordinal=1) AS record_key
     FROM private.interpretation_current ic
-   WHERE ic.source_id=(SELECT source_id FROM ctl) AND ic.predicate IN ('relation.child','relation.parent') AND ic.status='proposed'
+   WHERE ic.source_id=(SELECT source_id FROM ctl) AND ic.predicate='relation.parent' AND ic.status='proposed'   -- børn: del 2 (errata §22.9)
      AND EXISTS (SELECT 1 FROM private.interpretation_party_current pc WHERE pc.interpretation_key=ic.interpretation_key AND pc.party_role='principal'))
 SELECT jsonb_build_object('control_run_id',(SELECT id FROM ctl),'candidate_run_id',(SELECT candidate_run_id FROM ctl),'items',
   coalesce((SELECT jsonb_agg(item) FROM (

@@ -739,3 +739,14 @@ Runde 6's tre fund løst; ingen BLOCKER eller MAJOR. To MINOR (værste udfald fa
 8. **Hovedperson i inputtet.** `relation_persona_input` udleverer `principal_ok` (præcis én
    `primary`-mention på helposten med accepteret identitet); udtrækket parkerer `ingen_hovedperson`, så én
    post uden entydig hovedperson ikke vælter batchen (1 af 273 påstande).
+9. **Børn tages ud af del 1 (§7.1, §8.2, §8.3; besluttet af projektejeren 2026-10-10).** §8.3 antog, at
+   »find familien« er det samme som »find modparten«. Det holder for `relation.parent` (et barn har ét
+   forældrepar), men ikke for `relation.child`: en familie kan have flere børn med egen post, og så er
+   valget et barn, ikke en familie. Målt i bevisbasen (kopi af `daa2018f_20261001133125`): 12 af 14
+   børnepåstande havde 2–16 strukturelle kandidater, næsten alle i én familie; arket viste højst 3 og
+   ikke påstandens egen tekst, og et familievalg ville være afvist (`RELATION_DECISION_FAMILY_INVALID`).
+   De 2 med én kandidat er heller ikke sikre: bogen kan nævne et barn uden egen post. Del 1 rummer derfor
+   kun `relation.parent`: kontrolkørslens relationspopulation og arkets relationslinjer tager kun
+   forældre, og `red_afgoer_relation_interpretation` afviser `relation.child` (`RELATION_CHILD_DEFERRED`)
+   for både `same` og `unresolved`, så ingen menneskelig disposition låser del 2's design. Del 2 giver
+   børnene et design, hvor kandidaten er barnet, og linjen viser påstandens ordrette tekst.
