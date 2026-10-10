@@ -36,7 +36,7 @@ def rows():
                       "titles": [], "own_post_key": None, "parents": []}]},
         {"kind": "parent", "interpretation_key": K1, "version": 1, "record_key": "I-17", "pages": "40",
          "principal": {"name": "Barn Et", "born": "1730", "died": "1790"}, "observation_id": O1, "text_sha256": "d" * 64,
-         "text": "søn af Carl Berg.", "family_id": 11,
+         "text": "søn af Carl Berg.", "span": [0, 16], "family_id": 11,
          "partners": [{"name": "Carl Berg", "born": "1670", "died": "1730", "own_post_key": "I-10", "counterpart": True},
                       {"name": "Maria Berg", "born": None, "died": None, "own_post_key": None, "counterpart": False}]},
     ]}
@@ -87,7 +87,8 @@ def test_foraeldrekort_viser_familie_modpart_og_udsagn():
     text = ics.render_sheet(rows())
     assert "## FORÆLDREKORT 1/1 · post I-17 · PDF-side 40" in text
     assert "#   Familie: Carl Berg (1670–1730) · egen post I-10 ← modpart; Maria Berg (?–?)" in text
-    assert "#   Udsagn: bogen siger, at hovedpersonen er barn af denne familie." in text
+    assert "#   Bogen: »[[søn af Carl Berg]].«" in text
+    assert "#   Spørgsmål: Er den markerede (←) den forælder, bogen nævner i [[…]]?" in text
     assert f"R {K1} 1 : _" in text
 
 
@@ -202,3 +203,11 @@ def test_plads_uden_kandidat_afvises():
 
 def test_header_forklarer_dublet():
     assert "1=2 = kandidat 1 og 2 er samme individ" in ics.render_sheet(rows())
+
+
+def test_foraeldrekort_uden_spaend_peger_paa_saetningen():
+    r = rows()
+    r["items"][2]["span"] = None
+    text = ics.render_sheet(r)
+    assert "#   Bogen: »søn af Carl Berg.«" in text
+    assert "#   Spørgsmål: Er den markerede (←) den forælder, bogen nævner i sætningen?" in text

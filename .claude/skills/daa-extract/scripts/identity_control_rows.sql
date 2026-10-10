@@ -1,7 +1,7 @@
 -- Trin 5b, spec §23: rækkefil til kontrolarket. Indeholder navne og bogens tekst → 0600 under ~/.private/5b/.
 -- Ægtefællekort (blinde): hovedperson, klausulen ordret med ægtefællens navnespænd, de viste kandidater i
 -- serverens mapping med leveår, titler, egen post og forældre. Forældrekort: hovedperson, klausul og
--- familiens partnere med modparten markeret. Ingen score, rang eller familiemarkør på ægtefællekortene.
+-- familiens partnere med modparten markeret og påstandens råtekst markeret i klausulen. Ingen score, rang eller familiemarkør på ægtefællekortene.
 \set ON_ERROR_STOP on
 SET default_transaction_read_only=on;
 BEGIN;
@@ -42,6 +42,11 @@ idc AS (
    WHERE s.control_run_id=(SELECT id FROM ctl) AND s.sample_kind='identity'),
 prc AS (
   SELECT pcard.*,cl.observation_id,cl.text,cl.page_from,cl.page_to,cl.record_key,
+         -- påstandens råtekst (forældreudsagnet) markeres, når den står præcis ét sted i klausulen; ellers intet spænd
+         (SELECT CASE WHEN length(v.r)>0 AND (length(cl.text)-length(replace(cl.text,v.r,'')))/length(v.r)=1
+                      THEN jsonb_build_array(strpos(cl.text,v.r)-1,strpos(cl.text,v.r)-1+length(v.r)) END
+            FROM (SELECT ic.value->>'raw' AS r FROM private.interpretation_current ic
+                   WHERE ic.interpretation_key=pcard.interpretation_key) v) AS span,
          (SELECT i.canonical_person_id FROM private.interpretation_party_current pr
             JOIN private.source_persona_identity i ON i.source_persona_id=pr.source_persona_id AND i.decision_status='accepted'
            WHERE pr.interpretation_key=pcard.interpretation_key AND pr.party_role='principal') AS hp
@@ -64,7 +69,7 @@ SELECT jsonb_build_object('control_run_id',(SELECT id FROM ctl),'candidate_run_i
       'record_key',y.record_key,'pages',CASE WHEN y.page_from=y.page_to THEN y.page_from::text ELSE y.page_from||'–'||y.page_to END,
       'principal',(SELECT jsonb_build_object('name',pv.name,'born',pv.born,'died',pv.died) FROM pv WHERE pv.id=y.hp),
       'observation_id',y.observation_id,'text_sha256',encode(extensions.digest(convert_to(y.text,'UTF8'),'sha256'),'hex'),
-      'text',y.text,'family_id',y.family_id,
+      'text',y.text,'span',y.span,'family_id',y.family_id,
       'partners',(SELECT jsonb_agg(jsonb_build_object('name',pv.name,'born',pv.born,'died',pv.died,'own_post_key',pv.own_post_key,
                     'counterpart',pv.id=y.counterpart_person_id) ORDER BY pv.id) FROM pv WHERE pv.id=ANY(y.partner_ids)))
       FROM prc y) items),'[]'::jsonb));

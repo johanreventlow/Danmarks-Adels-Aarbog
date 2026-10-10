@@ -827,7 +827,12 @@ modparten er [navn].« Tokens:
 - `F` — bogen siger det, men familien i databasen passer ikke (mulig familiefejl);
 - `U` — kan ikke afgøres.
 
-Linjeformater: `D <source_persona_id> <version> : <1-3|X|N|U>` og `R <interpretation_key> <version> :
+*Tilføjet 2026-10-10 under udfyldningen (projektejerens valg):* udsagnet var for uklart til at besvare. Kortet
+markerer nu påstandens råtekst (`value.raw`, forældreudsagnet) i klausulen som `[[…]]` — kun når den
+forekommer præcis én gang; ellers intet spænd — og udsagnet stilles som spørgsmålet »Er den markerede (←) den
+forælder, bogen nævner i [[…]]?«. Kortet skal kunne besvares uden bogen; kræver det bogen, er svaret `U`.
+
+Linjeformater: `D <source_persona_id> <version> : <1-3|X|N|U|1=2…>` og `R <interpretation_key> <version> :
 <A|R|F|U>`.
 
 ### 23.3 Udvalg og visningsprojektion (serveren)

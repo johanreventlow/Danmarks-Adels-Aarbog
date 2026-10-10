@@ -822,6 +822,9 @@ Expected: `ARK_OK aegtefaellekort=… foraeldrekort=… navnefaeller=…` (forve
 > individ (dublet i basen). Spec §23.4 har fået dublet-svaret `1=2`. Arket gengives med ny forklaringslinje,
 > og de allerede skrevne svar overføres pr. id til den nye gengivelse (`$SP/overfoer-svar.py`). Rækkefilen er
 > uændret, så `rows_sha256` er den samme. Projektejeren tager hash af det **nye** ark.
+> Samme dag: forældrekortene markerer forældreudsagnet `[[…]]` og stiller udsagnet som spørgsmål. Det ændrer
+> rækkefilen (felt `span` på forældrekort) ⇒ ny rækkefil `kontrol-rows-v3.json` og nyt `rows_sha256`;
+> overførslen bruger den nye rækkefil.
 
 - [ ] **Step 3: Negativtests i en kopi**
 

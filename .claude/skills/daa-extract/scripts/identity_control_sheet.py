@@ -102,7 +102,8 @@ def render_sheet(rows: dict) -> str:
             fam = "; ".join(_who(x) + (f" · egen post {x['own_post_key']}" if x["own_post_key"] else "")
                             + (" ← modpart" if x["counterpart"] else "") for x in it["partners"])
             out.append(f"#   Familie: {fam}")
-            out.append("#   Udsagn: bogen siger, at hovedpersonen er barn af denne familie.")
+            hvor = "i [[…]]" if it.get("span") else "i sætningen"
+            out.append(f"#   Spørgsmål: Er den markerede (←) den forælder, bogen nævner {hvor}?")
             out.append(f"R {it['interpretation_key']} {it['version']} : _")
         out.append("")
     return "\n".join(out) + "\n"
