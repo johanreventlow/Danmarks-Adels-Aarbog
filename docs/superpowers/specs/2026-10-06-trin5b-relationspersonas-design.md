@@ -873,6 +873,18 @@ af forældrekortene.
   `family_corroboration` (§6.2 d, §6.3). Forældrekortene kan hverken autorisere eller blokere
   ægtefællernes identitet.
 - **Ægtefællernes tokens** opløses som i §7.1 gennem den forseglede mapping (visningsplads → kandidat).
+- **Dublet-svar `1=2`** (tilføjet 2026-10-10 under udfyldningen; projektejerens valg). Basen kan rumme
+  to ikke-sammenkædede personrækker for samme individ (ingen `samme_som`), som så står på samme kort; det
+  første ark havde ét sikkert tilfælde og op til tre mulige blandt 10 navnefællekort. Med ét token ville et
+  korrekt svar på den række, maskinen ikke valgte — eller `U` — gøre kørslen `failed` uden maskinfejl.
+  Derfor må en ægtefællelinje nævne 2–3 pladser (`1=2`, `1=3`, `2=3`, `1=2=3`): »disse er samme individ,
+  og ægtefællen er ham/hende«.
+  - Serveren kræver stigende, forskellige pladser i mappingen, med den laveste som `display_position`;
+    identiteten bindes til den laveste plads. Writeren ser aldrig `expected`.
+  - Evidensen gemmer `display_positions` og `same_individual_person_ids` til del 2's `samme_som`-arbejde.
+  - Status tæller kortet som enighed, når maskinens kandidat er blandt de nævnte pladser; ellers afvigelse.
+  - Målingen i Task 11 (»10/10 navnefællekort kan skelnes«) testede kun, om teksterne var forskellige, og
+    var derfor for svag; den erstattes af denne regel, ikke af en strengere måling.
 - **Forældrenes tokens** (alle med `basis: human_sheet`, `control_run_id` og forseglingens `sheet_sha256`/
   `rows_sha256`, som serveren sammenholder med forseglingen; klienten leverer intet familie-id):
   - Forældrelinjerne anvendes i en **særskilt transaktion efter** identitetsdelen (forsegling, ægtefælleafgørelser

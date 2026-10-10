@@ -96,12 +96,13 @@ def test_aegtefaellekort_foer_foraeldrekort():
     assert text.index("D " + P1) < text.index("D " + P2) < text.index("R " + K1)
 
 
-@pytest.mark.parametrize("tokens", [["1", "X", "A"], ["2", "N", "R"], ["U", "1", "F"], ["1", "1", "U"]])
+@pytest.mark.parametrize("tokens", [["1", "X", "A"], ["2", "N", "R"], ["U", "1", "F"], ["1", "1", "U"], ["1=2", "1", "A"], ["2=1", "1", "A"]])
 def test_gyldige_tokens(tokens):
     assert [l.tok for l in ics.parse_sheet(ark(tokens))] == tokens
 
 
-@pytest.mark.parametrize("tokens", [["P 7", "1", "A"], ["A", "1", "A"], ["1", "1", "1"], ["4", "1", "A"]])
+@pytest.mark.parametrize("tokens", [["P 7", "1", "A"], ["A", "1", "A"], ["1", "1", "1"], ["4", "1", "A"], ["1=1", "1", "A"],
+                                    ["1=", "1", "A"], ["1=4", "1", "A"], ["1=2", "1", "A=R"], ["1,2", "1", "A"]])
 def test_ugyldige_tokens(tokens):
     with pytest.raises(SheetError, match="SHEET_TOKEN_INVALID"):
         ics.parse_sheet(ark(tokens))
@@ -183,3 +184,21 @@ def test_render_cli_taeller_kort(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "ARK_OK aegtefaellekort=2 foraeldrekort=1 navnefaeller=1" in out
     assert (tmp_path / "ark.txt").stat().st_mode & 0o777 == 0o600
+
+
+def test_dublet_sender_laveste_plads_og_alle_pladser():
+    sql = sql_for(["2=1", "1", "A"])
+    s1 = next(l for l in sql.splitlines() if P1 in l)
+    assert "'same', NULL" in s1 and '"display_position": 1' in s1 and '"display_positions": [1, 2]' in s1
+    s2 = next(l for l in sql.splitlines() if P2 in l)
+    assert "display_positions" not in s2
+
+
+def test_plads_uden_kandidat_afvises():
+    for tokens in (["1", "2", "A"], ["1", "1=2", "A"]):        # kort 2 har kun én kandidat
+        with pytest.raises(SheetError, match="SHEET_POSITION_INVALID"):
+            sql_for(tokens)
+
+
+def test_header_forklarer_dublet():
+    assert "1=2 = kandidat 1 og 2 er samme individ" in ics.render_sheet(rows())

@@ -17,7 +17,7 @@ from pathlib import Path
 from decision_sheet_core import SheetError, require_hex64, sql_literal, verify_bound
 
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-D_RE = re.compile(rf"^D (?P<id>{UUID}) (?P<ver>[0-9]+) : (?P<tok>_|[123]|X|N|U)\s*(?:#\s*(?P<note>.*))?$")
+D_RE = re.compile(rf"^D (?P<id>{UUID}) (?P<ver>[0-9]+) : (?P<tok>_|[123](?:=[123]){{0,2}}|X|N|U)\s*(?:#\s*(?P<note>.*))?$")
 R_RE = re.compile(rf"^R (?P<id>{UUID}) (?P<ver>[0-9]+) : (?P<tok>_|A|R|F|U)\s*(?:#\s*(?P<note>.*))?$")
 LOOSE_RE = re.compile(rf"^[DR] {UUID} [0-9]+ : ")
 
@@ -30,6 +30,12 @@ class Line:
     tok: str
     note: str
     line: int
+
+
+def _positions(tok: str) -> list[int] | None:
+    """`2` → [2]; `2=1` → [1, 2] (dublet: samme individ på flere pladser). None ved gentaget plads."""
+    ps = [int(x) for x in tok.split("=")]
+    return sorted(ps) if len(set(ps)) == len(ps) else None
 
 
 def _id(it: dict) -> str:
@@ -68,6 +74,7 @@ def _clause(it: dict) -> str:
 def render_sheet(rows: dict) -> str:
     out = ["# KONTROLARK (trin 5b del 1)",
            "# Ægtefællekort (D): 1/2/3 = samme person som kandidat nr., X = ingen af dem, N = ny person nødvendig, U = kan ikke afgøres.",
+           "#   1=2 = kandidat 1 og 2 er samme individ (dublet i basen), og ægtefællen er ham/hende (også 1=3, 2=3, 1=2=3).",
            "# Forældrekort (R): A = sandt, R = bogen siger ikke dette, F = bogen siger det, men familien i basen passer ikke, U = kan ikke afgøres.",
            "# Afgør ud fra bogen. En note må følge efter '#'. Ret intet andet. Gem, og giv hashen i chatten.", ""]
     items = ordered(rows)
@@ -112,6 +119,8 @@ def parse_sheet(text: str) -> list[Line]:
         m = (D_RE if line.startswith("D ") else R_RE).match(line)
         if not m:
             raise SheetError(f"SHEET_TOKEN_INVALID line={n}" if LOOSE_RE.match(line) else f"SHEET_LINE_INVALID line={n}")
+        if line[0] == "D" and m["tok"][0] in "123" and _positions(m["tok"]) is None:
+            raise SheetError(f"SHEET_TOKEN_INVALID line={n}")
         if m["id"] in seen:
             raise SheetError(f"SHEET_DUPLICATE line={n}")
         seen.add(m["id"])
@@ -159,14 +168,21 @@ def decision_sql(lines: list[Line], rows: dict, *, sheet_sha256: str, rows_sha25
           f"SELECT red_seal_identity_control_run('{ctl}'::uuid, '{sheet_sha256}', '{rows_sha256}');"]
     t2 = list(head)
     n1 = n2 = 0
+    shown = {it["source_persona_id"]: {c["position"] for c in it["display"]} for it in rows["items"] if it["kind"] == "identity"}
     for l in lines:
         base = {"basis": "human_sheet", "sheet_sha256": sheet_sha256, "rows_sha256": rows_sha256, "line": l.line,
                 "control_run_id": ctl}
         note = sql_literal(f"ark {sheet_sha256[:12]} linje {l.line}" + (f" — {l.note}" if l.note else ""))
         if l.kind == "D":
             pid = f"'{l.item_id}'::uuid, {l.version}"
-            if l.tok in "123":
-                t1.append(_call("red_afgoer_source_persona", f"{pid}, 'same', NULL, {note}", {**base, "display_position": int(l.tok)}))
+            if l.tok[0] in "123":
+                ps = _positions(l.tok)
+                if not set(ps) <= shown[l.item_id]:
+                    raise SheetError(f"SHEET_POSITION_INVALID line={l.line}")
+                ctx = {**base, "display_position": ps[0]}
+                if len(ps) > 1:
+                    ctx["display_positions"] = ps          # §23.4 errata: dublet; serveren binder til laveste plads
+                t1.append(_call("red_afgoer_source_persona", f"{pid}, 'same', NULL, {note}", ctx))
             else:
                 act = {"X": "different", "N": "new_person_needed", "U": "unresolved"}[l.tok]
                 t1.append(_call("red_afgoer_source_persona", f"{pid}, '{act}', NULL, {note}", base))

@@ -358,4 +358,95 @@ BEGIN
   RESET ROLE;
   RAISE NOTICE 'OK: v2 — fordeling, projektion, navnefæller (også uden fuldt navn), udelukkelse, passed, bekræftelsen springer udelukkede over';
 END $control_v2$;
+-- Spec §23.4 (errata 2026-10-10): `1=2` — to visningspladser er samme individ (dublet i basen). Kortet tæller som
+-- enighed, når maskinens kandidat er blandt de nævnte; identiteten bindes til laveste plads; dubletten gemmes.
+CREATE FUNCTION pg_temp.f5b_decide_same(p_ctl uuid,p_persona uuid,p_pos jsonb,p_sheet text,p_rows text,p_first int DEFAULT NULL)
+RETURNS integer LANGUAGE sql AS $$
+  SELECT red_afgoer_source_persona(p_persona,0,'same',NULL,'dublet',jsonb_build_object('basis','human_sheet',
+    'sheet_sha256',p_sheet,'rows_sha256',p_rows,'line',1,'control_run_id',p_ctl,
+    'display_position',coalesce(p_first,(p_pos->>0)::int),'display_positions',p_pos));
+$$;
+GRANT EXECUTE ON FUNCTION pg_temp.f5b_decide_same(uuid,uuid,jsonb,text,text,int) TO authenticated;
+
+DO $same_individual$
+DECLARE
+  v_actor uuid:='11000000-0000-0000-0000-00000005b606';
+  w jsonb; v_ctl uuid; v_smp jsonb; v_sheet text:=repeat('a',64); v_rows text:=repeat('b',64);
+  v_pe int; v_po int; v_p uuid; v_i int; v_bad jsonb; v_first int; v_ev jsonb; v_person bigint;
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  -- Verden A: kort 0 besvares `pe=po` (maskinens plads + en anden), de øvrige normalt ⇒ passed.
+  w:=pg_temp.f5b_control_world(-5606,v_actor);
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  v_ctl:=red_register_identity_control_run((w->>'run')::uuid);
+  v_smp:=red_identity_control_sample(v_ctl);
+  PERFORM red_seal_identity_control_run(v_ctl,v_sheet,v_rows);
+  RESET ROLE;
+  FOR v_i IN 0..2 LOOP
+    v_p:=(v_smp->'samples'->v_i->>'source_persona_id')::uuid;
+    SELECT m.key::int INTO v_pe FROM private.identity_control_sample s, jsonb_each_text(s.mapping) m
+     WHERE s.control_run_id=v_ctl AND s.source_persona_id=v_p AND m.value=s.expected;
+    IF v_i=0 THEN
+      v_po:=CASE WHEN v_pe=3 THEN 1 ELSE 3 END;
+      -- ugyldige former afvises: én plads, dubletter, usorteret, display_position≠laveste, plads uden for mappingen
+      SET LOCAL ROLE authenticated;
+      FOREACH v_bad IN ARRAY ARRAY[jsonb_build_array(least(v_pe,v_po)),jsonb_build_array(v_pe,v_pe),
+          jsonb_build_array(greatest(v_pe,v_po),least(v_pe,v_po)),'[1,4]'::jsonb,'["1","2"]'::jsonb,'{}'::jsonb] LOOP
+        BEGIN
+          PERFORM pg_temp.f5b_decide_same(v_ctl,v_p,v_bad,v_sheet,v_rows,least(v_pe,v_po));
+          RAISE EXCEPTION 'CONTROL_TEST_FAILED: ugyldig dublet % godtaget',v_bad;
+        EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID%' THEN RAISE; END IF;
+        END;
+      END LOOP;
+      BEGIN
+        PERFORM pg_temp.f5b_decide_same(v_ctl,v_p,jsonb_build_array(least(v_pe,v_po),greatest(v_pe,v_po)),v_sheet,v_rows,greatest(v_pe,v_po));
+        RAISE EXCEPTION 'CONTROL_TEST_FAILED: display_position ikke laveste godtaget';
+      EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID%' THEN RAISE; END IF;
+      END;
+      PERFORM pg_temp.f5b_decide_same(v_ctl,v_p,jsonb_build_array(least(v_pe,v_po),greatest(v_pe,v_po)),v_sheet,v_rows);
+      RESET ROLE;
+      SELECT i.evidence,i.canonical_person_id INTO v_ev,v_person FROM private.source_persona_identity i WHERE i.source_persona_id=v_p;
+      IF v_ev->'display_positions'<>jsonb_build_array(least(v_pe,v_po),greatest(v_pe,v_po))
+         OR (v_ev->>'display_position')::int<>least(v_pe,v_po)
+         OR jsonb_array_length(v_ev->'same_individual_person_ids')<>2
+         OR v_person<>(SELECT c.candidate_person_id FROM private.identity_control_sample s
+                         JOIN private.source_persona_identity_candidate c ON c.id=(s.mapping->>least(v_pe,v_po)::text)::uuid
+                        WHERE s.control_run_id=v_ctl AND s.source_persona_id=v_p) THEN
+        RAISE EXCEPTION 'CONTROL_TEST_FAILED: dublet-evidens %',v_ev;
+      END IF;
+    ELSE
+      SET LOCAL ROLE authenticated;
+      PERFORM pg_temp.f5b_decide_sample(v_ctl,v_p,v_pe::text,v_sheet,v_rows);
+      RESET ROLE;
+    END IF;
+  END LOOP;
+  SET LOCAL ROLE authenticated;
+  IF red_evaluate_identity_control_run(v_ctl)<>'passed' THEN RAISE EXCEPTION 'CONTROL_TEST_FAILED: dublet med maskinens plads bestod ikke'; END IF;
+  -- dublet-feltet er kun for forseglede stikprøvesager
+  BEGIN
+    PERFORM red_afgoer_source_persona(gen_random_uuid(),0,'same',1,'web','{"display_positions":[1,2]}'::jsonb);
+    RAISE EXCEPTION 'CONTROL_TEST_FAILED: dublet uden kontrolkørsel';
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID%' AND SQLERRM NOT LIKE 'EVIDENCE_PERSONA_BASIS_REQUIRED%' THEN RAISE; END IF;
+  END;
+  RESET ROLE;
+
+  -- Verden B: kort 0 besvares med to pladser UDEN maskinens ⇒ afvigelse.
+  w:=pg_temp.f5b_control_world(-5607,v_actor);
+  SET LOCAL ROLE authenticated;
+  v_ctl:=red_register_identity_control_run((w->>'run')::uuid);
+  v_smp:=red_identity_control_sample(v_ctl);
+  PERFORM red_seal_identity_control_run(v_ctl,v_sheet,v_rows);
+  RESET ROLE;
+  v_p:=(v_smp->'samples'->0->>'source_persona_id')::uuid;
+  SELECT m.key::int INTO v_pe FROM private.identity_control_sample s, jsonb_each_text(s.mapping) m
+   WHERE s.control_run_id=v_ctl AND s.source_persona_id=v_p AND m.value=s.expected;
+  SELECT jsonb_agg(k ORDER BY k) INTO v_bad FROM unnest(ARRAY[1,2,3]) k WHERE k<>v_pe;
+  SET LOCAL ROLE authenticated;
+  PERFORM pg_temp.f5b_decide_same(v_ctl,v_p,v_bad,v_sheet,v_rows);
+  IF red_evaluate_identity_control_run(v_ctl)<>'failed' THEN RAISE EXCEPTION 'CONTROL_TEST_FAILED: dublet uden maskinens plads bestod'; END IF;
+  RESET ROLE;
+  RAISE NOTICE 'OK: 1=2 — enighed når maskinens plads er nævnt, binding til laveste plads, dublet i evidensen, ugyldige former afvist, afvigelse ellers';
+END $same_individual$;
+
 ROLLBACK;

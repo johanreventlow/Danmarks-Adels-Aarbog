@@ -818,6 +818,11 @@ psql -X -At -d $DB -c "select stratum,count(*) from private.identity_control_sam
 ```
 Expected: `ARK_OK aegtefaellekort=… foraeldrekort=… navnefaeller=…` (forventet ca. 31 / 9 / 11, jf. Task 11), `rows_sha256 …`, strata-tal og udelukkelser. Ledger tallene. Projektejeren udfylder `~/.private/5b/KONTROL.txt` og giver hashen (`! shasum -a 256 ~/.private/5b/KONTROL.txt`). **Stop her og vent på hashen.**
 
+> **Tillæg 2026-10-10 (under udfyldningen):** projektejeren fandt et kort, hvor to kandidater er samme
+> individ (dublet i basen). Spec §23.4 har fået dublet-svaret `1=2`. Arket gengives med ny forklaringslinje,
+> og de allerede skrevne svar overføres pr. id til den nye gengivelse (`$SP/overfoer-svar.py`). Rækkefilen er
+> uændret, så `rows_sha256` er den samme. Projektejeren tager hash af det **nye** ark.
+
 - [ ] **Step 3: Negativtests i en kopi**
 
 `createdb -T $DB daa5b_neg_$TS`. I kopien:

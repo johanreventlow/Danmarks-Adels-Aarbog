@@ -7362,13 +7362,14 @@ DECLARE
   v_ctx jsonb:=coalesce(p_context,'{}'::jsonb); v_person bigint:=p_canonical_person_id;
   -- record, ikke %ROWTYPE: kontroltabellerne oprettes i 5b-sektionen EFTER denne funktion, og plpgsql
   -- binder %ROWTYPE ved CREATE.
-  v_smp record; v_seal record; v_pos text;
+  v_smp record; v_seal record; v_pos text; v_dup jsonb;
 BEGIN
   IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
   v_basis:=coalesce(v_ctx->>'basis','web_detail');
   IF jsonb_typeof(v_ctx)<>'object'
      OR EXISTS (SELECT 1 FROM jsonb_object_keys(v_ctx) k
-                 WHERE k NOT IN ('basis','candidate_id','run_id','sheet_sha256','rows_sha256','line','control_run_id','display_position'))
+                 WHERE k NOT IN ('basis','candidate_id','run_id','sheet_sha256','rows_sha256','line','control_run_id','display_position',
+                                 'display_positions'))
      OR (v_ctx ? 'candidate_id') <> (v_ctx ? 'run_id')
      OR p_action NOT IN ('same','different','unresolved','new_person_needed')
      OR nullif(btrim(p_note),'') IS NULL
@@ -7423,7 +7424,25 @@ BEGIN
       v_evidence:=v_evidence||jsonb_build_object('candidate_id',v_cand.id,'run_id',v_cand.run_id,
         'candidate_rank',v_cand.rank,'display_position',v_pos::int);
     END IF;
-  ELSIF v_ctx ? 'control_run_id' OR v_ctx ? 'display_position' THEN
+    -- Spec §23.4 (errata 2026-10-10): `1=2` — flere pladser er samme individ (dublet i basen). Stigende, uden
+    -- gentagelser, 2-3 pladser i mappingen, og den laveste er display_position (bindingen). Writeren ser aldrig
+    -- 'expected'; status afgør enigheden. Dubletparret gemmes til del 2's samme_som-arbejde.
+    IF v_ctx ? 'display_positions' THEN
+      v_dup:=v_ctx->'display_positions';
+      IF NOT v_ctx ? 'display_position' OR jsonb_typeof(v_dup)<>'array' OR jsonb_array_length(v_dup) NOT BETWEEN 2 AND 3
+         OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_dup) e WHERE jsonb_typeof(e)<>'number' OR e::text !~ '^[1-3]$') THEN
+        RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID';
+      END IF;
+      IF v_dup->>0<>v_pos
+         OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(v_dup) WITH ORDINALITY e(v,o)
+                     WHERE NOT v_smp.mapping ? e.v OR (o>1 AND e.v::int<=(v_dup->>(o::int-2))::int)) THEN
+        RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID';
+      END IF;
+      v_evidence:=v_evidence||jsonb_build_object('display_positions',v_dup,'same_individual_person_ids',
+        (SELECT jsonb_agg(c.candidate_person_id ORDER BY e.o) FROM jsonb_array_elements_text(v_dup) WITH ORDINALITY e(v,o)
+           JOIN private.source_persona_identity_candidate c ON c.id=(v_smp.mapping->>e.v)::uuid));
+    END IF;
+  ELSIF v_ctx ? 'control_run_id' OR v_ctx ? 'display_position' OR v_ctx ? 'display_positions' THEN
     RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID';
   ELSIF v_ctx ? 'candidate_id' THEN
     SELECT c.id,c.run_id,c.rank,c.source_persona_id,c.candidate_person_id INTO v_cand
@@ -20881,7 +20900,7 @@ RETURNS TABLE(status text,reason text) LANGUAGE plpgsql STABLE SECURITY DEFINER 
 DECLARE r private.identity_control_run%ROWTYPE; v_last private.identity_control_event%ROWTYPE;
   v_seal private.identity_control_event%ROWTYPE; smp private.identity_control_sample%ROWTYPE;
   v_id private.source_persona_identity%ROWTYPE; v_cur uuid; v_wait boolean:=false;
-  v_ev jsonb; v_at timestamptz;
+  v_ev jsonb; v_at timestamptz; v_set text[];
 BEGIN
   SELECT * INTO r FROM private.identity_control_run WHERE id=p_control_run_id;
   IF NOT FOUND THEN RAISE EXCEPTION 'IDENTITY_CONTROL_RUN_UNKNOWN'; END IF;
@@ -20903,13 +20922,17 @@ BEGIN
     END IF;
     v_ev:=v_id.evidence; v_at:=v_id.decided_at;
     -- Afgørelsen skal være netop den samplede version + 1 (ingen »vask« via en mellemliggende afgørelse).
-    IF v_id.decision_status<>'accepted' OR v_id.version<>smp.identity_version+1
-       OR v_ev->>'candidate_id' IS DISTINCT FROM smp.expected THEN
+    IF v_id.decision_status<>'accepted' OR v_id.version<>smp.identity_version+1 THEN
       RETURN QUERY SELECT 'failed'::text,'afvigelse'::text; RETURN;
     END IF;
+    -- Enighed: maskinens kandidat er blandt de pladser, mennesket nævnte — én plads, eller flere ved en
+    -- dublet (`1=2`, spec §23.4 errata 2026-10-10). Bindingen er altid den laveste plads.
+    v_set:=ARRAY(SELECT smp.mapping->>p FROM jsonb_array_elements_text(
+                   coalesce(v_ev->'display_positions',jsonb_build_array(v_ev->'display_position'))) p);
     IF v_ev->>'basis' IS DISTINCT FROM 'human_sheet' OR v_ev->>'sheet_sha256' IS DISTINCT FROM v_seal.sheet_sha256
        OR v_ev->>'rows_sha256' IS DISTINCT FROM v_seal.rows_sha256 OR v_ev->>'control_run_id' IS DISTINCT FROM r.id::text
-       OR v_at<=v_seal.created_at OR smp.mapping->>(v_ev->>'display_position') IS DISTINCT FROM smp.expected THEN
+       OR v_at<=v_seal.created_at OR smp.mapping->>(v_ev->>'display_position') IS DISTINCT FROM v_ev->>'candidate_id'
+       OR NOT coalesce(smp.expected=ANY(v_set),false) THEN
       RETURN QUERY SELECT 'failed'::text,'afvigelse'::text; RETURN;
     END IF;
   END LOOP;

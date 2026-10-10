@@ -26,6 +26,9 @@ Et »bestået« kunne dermed bygge på gæt og autorisere 181 maskinelle afgøre
    `F` (familien i basen passer ikke) og `U` skriver intet og går til del 2.
 5. **Uoverensstemmelserne (31) og forældren uden kandidat behandles i del 2**, prioriteret: først de 9, der
    kan pege på fejl i databasen. En rettelse af en kanonisk familie kræver sit eget workflow og en ny beslutning.
+6. **Dubletter på et kort besvares `1=2`** (tilføjet samme dag under udfyldningen). Står samme individ to
+   gange i basen, nævner mennesket begge pladser; kortet er enigt med maskinen, hvis maskinens kandidat er
+   blandt dem, og dubletten gemmes til del 2's `samme_som`-arbejde (spec §23.4).
 
 **Uændret:** forseglingen og hashbindingen; ingen fulde afgørelsesark. `family_corroboration`-kernen får
 én ekstra afvisning (udelukket persona). Ægteskaber afgøres maskinelt i del 2 uden kontrolkørsel som
