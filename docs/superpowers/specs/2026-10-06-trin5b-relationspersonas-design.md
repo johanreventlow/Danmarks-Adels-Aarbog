@@ -305,7 +305,7 @@ fra kalderens `basis`:
   (ændret familie eller identitet siden kørslen ⇒ afvist).
 - **(d) Autorisation:** kaldet sker under en **bestået kontrolkørsel** (§7) for samme kandidatkørsel.
   Navnelighed kan kernen ikke beregne; den er autoriseret af stikprøven, ikke af kalderen. *(§23: stikprøven er en
-  advarselslampe, ikke en statistisk validering; den gælder kun identitet.)*
+  advarselslampe, ikke en statistisk validering; den gælder kun identitet. §23.3 pkt. 2: og personaen er ikke udelukket.)*
 
 **Låseprotokol (TOCTOU) — Postgres' egne rækkelåse, ingen ændring af andre writere.** Familier
 kan ændres ad mange veje (familie-RPC'er, `red_flyt_barn`, `red_set_familie_ordinal`,
@@ -345,7 +345,7 @@ Rollegatet (redaktion). Tager kildelåsen **eksklusivt**, så ingen menneskelig 
    kandidatkørsel, og **genvaliderer alle stikprøvens gældende afgørelser** (§7.2) under låsen umiddelbart
    før skrivning — ved afvigelse skrives et `failed`-event, og kaldet returnerer uden maskinelle
    skrivninger;
-2. finder selv de egnede personas (rang 1, uden gældende afgørelse, ikke i stikprøven);
+2. finder selv de egnede personas (rang 1, uden gældende afgørelse, ikke i stikprøven, *ikke udelukket — §23.3 pkt. 2*);
 3. kræver SHA-256 af den sorterede persona-id-mængde = `p_expect_set_sha256` — **mængde, ikke
    antal**; drift ⇒ `IDENTITY_CORROBORATION_SET_DRIFT`, intet skrives;
 4. kalder kernen for hver; ét afvist krav ⇒ hele kaldet ruller tilbage.
@@ -768,7 +768,7 @@ Runde 6's tre fund løst; ingen BLOCKER eller MAJOR. To MINOR (værste udfald fa
 
 ## 23. Omdesign af menneskets kontrol (2026-10-10)
 
-**Erstatter** §6.2 (d) 2. sætning, §7.1 (populationer, stikprøvestørrelse, relationsstikprøver,
+**Erstatter** §6.2 (d) 2. sætning, §6.3 trin 2 (udelukkelse), §7.1 (populationer, stikprøvestørrelse, relationsstikprøver,
 »rækkefil … plus uoverensstemmelserne«), §7.2 (relationsdelen og stopreglens relationsdel), §7.3, §8.2
 (maskinel afgørelse: autorisation og forældre; menneskelige handlinger), §8.3, §10 punkt 3, §11's »to
 populationer« og §22.4 (arkdeling). Besluttet af projektejeren 2026-10-10 efter design-review (Claude +
@@ -847,18 +847,22 @@ først, så en navnefælle til rang 1 kan ellers stå på rang 4 og aldrig blive
    populationshashen beregnes **efter** udelukkelsen; `red_corroborate_family_identities` trækker mængden
    fra, og kernens (d) afviser en udelukket persona. Personaen bliver en uoverensstemmelse (§23.5).
 3. **Navnefæller** (stratum `navnefaelle`): egnede personas med en anden gemt kandidat (alle rang ≤ 10,
-   ikke umulig), hvis `lower(btrim(visning_fuldt_navn))` er lig rang 1's. **Alle** tages med som
+   ikke umulig), hvis `lower(btrim(visning_navn))` **eller** `lower(btrim(visning_fuldt_navn))` er lig rang 1's
+   (en for bred regel koster kun kort). **Alle** tages med som
    totaltælling.
 4. **Tilfældige** (`K` stk.) blandt resten, deterministisk orden `sha256(candidate_run_id ||
    source_persona_id)`, fordelt på én familie / flere familier med største-rest-metoden og mindst ét kort
-   pr. ikke-tomt stratum, i alt præcis `K` (eller hele resten, hvis den er mindre).
+   pr. ikke-tomt stratum (lige rester afgøres efter stratumnavn), i alt præcis `K` (eller hele resten, hvis den er
+   mindre).
 5. **Visning pr. kort:** rang 1 + navnefællerne (prioriteret efter rang) + udfyldning efter rang blandt de
-   mulige, i alt højst 3, i blandet orden; den gemte mapping rummer netop de viste. Er der over 40
+   mulige, i alt højst 3, i blandet orden; den gemte mapping rummer netop de viste. Har en persona mere end 2
+   navnefæller, kan de ikke alle vises: personaen udelukkes (grund `navnefaeller_over_3`, som punkt 2). Er der over 40
    ægtefællekort i alt ⇒ stop og spørg projektejeren.
 
 **Forældrekort** gemmes ved registreringen i en særskilt, append-only struktur, som `control_run_status`
 ignorerer: pr. kort nøgle, version, `family_id`, `counterpart_person_id`, `counterpart_persona_id` og
-familiens partnermængde — for alle gældende `relation.parent` med præcis én strukturel kandidat-familie.
+familiens partnermængde — for alle gældende `relation.parent` med præcis én strukturel kandidatrække (én familie
+og én modpart). Er begge forældre hovedpersoner i hver sin post (to kandidatrækker), går påstanden til del 2.
 Relationspopulationen, `ctl_rpop`, den polymorfe `relation`-stikprøve og stikprøvevagterne i
 `red_afgoer_relation_interpretation` udgår; `relation_population_sha256` fjernes eller fastlåses til hashen
 af forældrekortene.
@@ -871,9 +875,11 @@ af forældrekortene.
 - **Ægtefællernes tokens** opløses som i §7.1 gennem den forseglede mapping (visningsplads → kandidat).
 - **Forældrenes tokens** (alle med `basis: human_sheet`, `control_run_id` og forseglingens `sheet_sha256`/
   `rows_sha256`, som serveren sammenholder med forseglingen; klienten leverer intet familie-id):
+  - Forældrelinjerne anvendes i en **særskilt transaktion efter** identitetsdelen (forsegling, ægtefælleafgørelser
+    og evaluering), så en forældrelinje aldrig kan rulle identitetsdelen tilbage.
   - `A` → `same`: serveren opløser familien fra den gemte forældrekort-række og kræver under rækkelåsene
-    præcis én strukturel kandidat-familie **i alt**, lig den gemte, med uændret partnermængde og modpart;
-    ellers fejl og intet skrevet.
+    præcis én strukturel kandidatrække **i alt**, lig den gemte, med uændret partnermængde og modpart. Holder det
+    ikke længere, skrives i stedet et klassifikationsevent `familie_aendret` (påstanden forbliver `proposed`, del 2).
   - `R` → `rejected` (påstanden afvises: `red_decide_interpretation` med `rejected`; ingen part).
   - `F` → ingen ændring af påstanden (forbliver `proposed`); udfaldet gemmes som et append-only
     klassifikationsevent på forældrekortet til del 2's familie-korrektion (§23.5).
