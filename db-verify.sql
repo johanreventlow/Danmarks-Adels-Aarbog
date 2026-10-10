@@ -2949,6 +2949,7 @@ DECLARE
     'public.red_begin_reimport(uuid,text,text)'::regprocedure,
     'public.red_begin_reimport_name_completion(uuid,text,uuid)'::regprocedure,
     'public.red_bekraeft_media_upload(bigint,bigint,text)'::regprocedure,
+    'public.red_classify_parent_card(uuid,uuid,integer,text,text,jsonb)'::regprocedure,
     'public.red_corroborate_family_identities(uuid,text)'::regprocedure,
     'public.red_decide_interpretation(uuid,integer,text,jsonb)'::regprocedure,
     'public.red_decide_source_persona_placement(uuid,integer,text,jsonb)'::regprocedure,
@@ -4966,7 +4967,8 @@ END $relation_party_verify$;
 DO $identity_control_verify$
 DECLARE v_table text;
 BEGIN
-  FOREACH v_table IN ARRAY ARRAY['identity_control_run','identity_control_sample','identity_control_event'] LOOP
+  FOREACH v_table IN ARRAY ARRAY['identity_control_run','identity_control_sample','identity_control_event',
+      'identity_control_exclusion','identity_control_parent_card','identity_control_parent_event'] LOOP
     IF to_regclass('private.'||v_table) IS NULL THEN RAISE EXCEPTION 'EVIDENCE_IDENTITY_CONTROL_MISSING: %',v_table; END IF;
     IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid=('private.'||v_table)::regclass) THEN
       RAISE EXCEPTION 'EVIDENCE_IDENTITY_CONTROL_RLS_OFF: %',v_table;

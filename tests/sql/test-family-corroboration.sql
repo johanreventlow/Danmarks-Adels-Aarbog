@@ -8,12 +8,13 @@ DECLARE
   v_actor uuid:='11000000-0000-0000-0000-00000005b801';
   s jsonb; p jsonb; c jsonb; c2 jsonb; v_el jsonb:='{}'; i int; v_in jsonb; v_run uuid; v_cands jsonb:='[]'; v_ctl uuid;
   v_smp jsonb; v_pos text; v_set text; v_n int; v_sp uuid; v_fam bigint; v_defect jsonb:='{}'; v_name text; v_err text;
-  v_cand uuid; v_ev jsonb; v_good uuid[]:='{}';
+  v_cand uuid; v_ev jsonb; v_good uuid[]:='{}'; v_excl_claim text; v_ctx jsonb;
 BEGIN
   PERFORM pg_temp.f5b_actor(v_actor);
   s:=pg_temp.f5b_source(-5801);
-  -- 11 gode poster: én ægteskabspåstand, én familie (ordinal 1) med præcis én partner.
-  FOR i IN 1..11 LOOP
+  -- 21 gode poster: én ægteskabspåstand, én familie (ordinal 1) med præcis én partner. Spec §23: K=20 tilfældige
+  -- ⇒ 20 i stikprøven og 1 til maskinen. Post G-22: partneren døde før hovedpersonen blev født ⇒ udelukket.
+  FOR i IN 1..22 LOOP
     INSERT INTO person(id,levende,privat,status) VALUES (-58000-i*2,false,false,'5b'),(-58000-i*2-1,false,false,'5b');
     v_name:='Mage '||i;
     p:=pg_temp.f5b_post(-5801,s,'G-'||lpad(i::text,2,'0'),'Hoved '||i||'. g. m. '||v_name||'.',
@@ -22,6 +23,7 @@ BEGIN
     PERFORM pg_temp.f5b_family(-58000-i*2,-58000-i*2-1,1);
     v_el:=v_el||jsonb_build_object('relation-persona:'||(c->>'key'),
       pg_temp.f5b_payload(p,c,(p->'clauses'->>1)::uuid,'g. m. '||v_name||'.',v_name));
+    IF i=22 THEN PERFORM pg_temp.f5b_life(-58044,1700,1760); PERFORM pg_temp.f5b_life(-58045,NULL,1363); v_excl_claim:=c->>'key'; END IF;
   END LOOP;
   -- Defekter (Review Focus 1-3 + struktur): hver sin post.
   INSERT INTO person(id,levende,privat,status) VALUES
@@ -97,9 +99,9 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'IDENTITY_CONTROL_NOT_PASSED%' THEN RAISE; END IF;
   END;
   v_smp:=red_identity_control_sample(v_ctl);
-  IF jsonb_array_length(v_smp->'samples')<>10 THEN RAISE EXCEPTION 'CORROBORATION_TEST_FAILED: stikprøve %',jsonb_array_length(v_smp->'samples'); END IF;
+  IF jsonb_array_length(v_smp->'samples')<>20 THEN RAISE EXCEPTION 'CORROBORATION_TEST_FAILED: stikprøve %',jsonb_array_length(v_smp->'samples'); END IF;
   PERFORM red_seal_identity_control_run(v_ctl,repeat('a',64),repeat('b',64));
-  FOR i IN 0..9 LOOP
+  FOR i IN 0..19 LOOP
     RESET ROLE;   -- opslaget i private kræver ejer; afgørelsen nedenfor sker som redaktør
     SELECT key INTO v_pos FROM jsonb_each_text(v_smp->'samples'->i->'mapping') m
      WHERE m.value=(SELECT c3.id::text FROM private.source_persona_identity_candidate c3 WHERE c3.run_id=v_run AND c3.rank=1
@@ -123,11 +125,28 @@ BEGIN
     LEFT JOIN private.source_persona_identity i3 ON i3.source_persona_id=c3.source_persona_id
    WHERE c3.run_id=v_run AND c3.rank=1 AND (c3.basis->>'corroboration_eligible')::boolean
      AND i3.source_persona_id IS NULL
-     AND NOT EXISTS (SELECT 1 FROM private.identity_control_sample x WHERE x.control_run_id=v_ctl AND x.source_persona_id=c3.source_persona_id);
+     AND NOT EXISTS (SELECT 1 FROM private.identity_control_sample x WHERE x.control_run_id=v_ctl AND x.source_persona_id=c3.source_persona_id)
+     AND NOT EXISTS (SELECT 1 FROM private.identity_control_exclusion x WHERE x.control_run_id=v_ctl AND x.source_persona_id=c3.source_persona_id);
   SET LOCAL ROLE authenticated;
   v_n:=red_corroborate_family_identities(v_ctl,v_set);
   IF v_n<>1 THEN RAISE EXCEPTION 'CORROBORATION_TEST_FAILED: % accepteret',v_n; END IF;
   RESET ROLE;
+  -- Spec §23.3 pkt. 2: den udelukkede persona (G-22) afvises af kernens (d), selv med gyldig evidens.
+  SELECT pc.source_persona_id INTO v_sp FROM private.interpretation_party_current pc
+   WHERE pc.interpretation_key=v_excl_claim::uuid AND pc.party_role='spouse';
+  IF (SELECT reason FROM private.identity_control_exclusion WHERE control_run_id=v_ctl AND source_persona_id=v_sp) IS DISTINCT FROM 'rang1_tidsumulig' THEN
+    RAISE EXCEPTION 'CORROBORATION_TEST_FAILED: G-22 ikke udelukket';
+  END IF;
+  v_ctx:=private.persona_family_context(v_sp);
+  SELECT id INTO v_cand FROM private.source_persona_identity_candidate WHERE run_id=v_run AND source_persona_id=v_sp AND rank=1;
+  BEGIN
+    PERFORM private.decide_source_persona_identity(v_sp,-58045,0,'accepted',
+      jsonb_build_object('basis','family_corroboration','method','family-corroboration-v1','run_id',v_run,'candidate_id',v_cand,
+        'family_id',(v_ctx->'families'->0->>'family_id')::bigint,'ordinal',1,'control_run_id',v_ctl,
+        'family_context_sha256',private.reimport_canonical_json_sha256(v_ctx)),'family_corroboration');
+    RAISE EXCEPTION 'CORROBORATION_TEST_FAILED: udelukket persona bekræftet';
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'FAMILY_CORROBORATION_CONTROL_NOT_PASSED%' THEN RAISE; END IF;
+  END;
 
   -- Defekterne: kernen kaldes direkte (ejer, med redaktør-aktør), hver skal afvises med sin kode.
   UPDATE private.source_persona_identity SET decision_status='unresolved',canonical_person_id=NULL
@@ -162,6 +181,6 @@ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
   RESET ROLE;
-  RAISE NOTICE 'OK: not_ready, drift, ét maskinelt accept, seks defekter afvist med egen kode, kernen privat';
+  RAISE NOTICE 'OK: not_ready, drift, ét maskinelt accept, udelukket persona afvist, seks defekter afvist med egen kode, kernen privat';
 END $family_corroboration$;
 ROLLBACK;

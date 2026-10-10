@@ -240,4 +240,122 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: inputdrift før registrering afvist; ændret input efter forsegling gør kørslen failed';
 END $identity_control_input_drift$;
+-- ---------- Spec §23: kontrolkørsel v2 (navnefæller, udelukkelse, projektion, fordeling) ----------
+-- Seks hovedposter (hovedperson 1700-1760), hver med én ægtefælle M_i som eneste partner og rang 1:
+--   1: M1 1705-1770, ingen andre                  → single_family
+--   2: M2 + N2 (samme visningsnavn, 1710-1780)    → navnefaelle, mapping 2 pladser
+--   3: M3 død 1363                                 → udelukket rang1_tidsumulig
+--   4: M4 + N4a/b/c (samme navn)                   → udelukket navnefaeller_over_3
+--   5: M5 uden datoer + X5 død 1363 (andet navn)   → single_family, X5 ikke i mappingen
+--   6: M6 + N6 (samme visningsnavn i andet case/mellemrum, fuldt navn NULL) + Q6 (andet navn, fuldt NULL)
+--                                                  → navnefaelle via visning_navn alene; Q6 som udfyldning
+CREATE FUNCTION pg_temp.f5b_world_v2(p_source bigint,p_actor uuid) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE s jsonb; p jsonb; c jsonb; v_ids uuid[]:='{}'; v_in jsonb; v_run uuid; v_cands jsonb:='[]'; i int; h bigint; m bigint;
+  x bigint:=p_source*100; v_extra jsonb;
+BEGIN
+  s:=pg_temp.f5b_source(p_source);
+  FOR i IN 1..6 LOOP
+    h:=p_source*10-i*2; m:=h-1;
+    INSERT INTO person(id,levende,privat,status) VALUES (h,false,false,'5b'),(m,false,false,'5b');
+    p:=pg_temp.f5b_post(p_source,s,'V-'||i,'Hoved '||i||'. g. m. Mage '||i||'.',ARRAY['Hoved '||i||'.','g. m. Mage '||i||'.'],h,p_actor);
+    c:=pg_temp.f5b_claim(p_source,s,'relation.marriage',(p->'clauses'->>1)::uuid,'g. m. Mage '||i||'.');
+    v_ids:=v_ids||pg_temp.f5b_spouse(p_source,s,p,c,(p->'clauses'->>1)::uuid,'Mage '||i,1);
+    PERFORM pg_temp.f5b_family(h,m,1);
+    PERFORM pg_temp.f5b_life(h,1700,1760);
+  END LOOP;
+  INSERT INTO person(id,levende,privat,status) SELECT x-k,false,false,'5b' FROM generate_series(1,7) k;
+  PERFORM pg_temp.f5b_life(p_source*10-1*2-1,1705,1770);   -- M1
+  PERFORM pg_temp.f5b_life(p_source*10-2*2-1,1705,1770);   -- M2
+  PERFORM pg_temp.f5b_life(x-1,1710,1780);                 -- N2
+  PERFORM pg_temp.f5b_life(p_source*10-3*2-1,NULL,1363);   -- M3
+  PERFORM pg_temp.f5b_life(p_source*10-4*2-1,1705,1770);   -- M4
+  PERFORM pg_temp.f5b_life(x-5,NULL,1363);                 -- X5
+  -- visningsnavne til sidst (fakta kan regenerere cachen)
+  FOR i IN 1..6 LOOP
+    UPDATE person SET visning_navn='Mage '||i,visning_fuldt_navn='Mage '||i||' Berg' WHERE id=p_source*10-i*2-1;
+  END LOOP;
+  UPDATE person SET visning_navn='Mage 2',visning_fuldt_navn='Mage 2 Berg' WHERE id=x-1;
+  UPDATE person SET visning_navn='Mage 4',visning_fuldt_navn='Mage 4 Berg' WHERE id IN (x-2,x-3,x-4);
+  UPDATE person SET visning_navn='Anden Fem',visning_fuldt_navn='Anden Fem Berg' WHERE id=x-5;
+  UPDATE person SET visning_fuldt_navn=NULL WHERE id=p_source*10-6*2-1;
+  UPDATE person SET visning_navn=' mage 6',visning_fuldt_navn=NULL WHERE id=x-6;
+  UPDATE person SET visning_navn='Anden Seks',visning_fuldt_navn=NULL WHERE id=x-7;
+  PERFORM set_config('request.jwt.claim.sub',p_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  v_in:=red_identity_candidate_input(p_source,'{"mode":"undecided"}');
+  FOR i IN 1..6 LOOP
+    v_cands:=v_cands||jsonb_build_array(jsonb_build_object('source_persona_id',v_ids[i],'candidate_person_id',p_source*10-i*2-1,
+      'rank',1,'score',0.95,'tier','auto','basis',jsonb_build_object('signals','["name","family_partner"]'::jsonb,'corroboration_eligible',true)));
+    v_extra:=CASE i WHEN 2 THEN jsonb_build_array(x-1) WHEN 4 THEN jsonb_build_array(x-2,x-3,x-4) WHEN 5 THEN jsonb_build_array(x-5)
+                    WHEN 6 THEN jsonb_build_array(x-6,x-7) ELSE '[]'::jsonb END;
+    v_cands:=v_cands||coalesce((SELECT jsonb_agg(jsonb_build_object('source_persona_id',v_ids[i],'candidate_person_id',e::bigint,
+      'rank',o+1,'score',0.5,'tier','none','basis','{"signals":["name"],"corroboration_eligible":false}'::jsonb) ORDER BY o)
+      FROM jsonb_array_elements_text(v_extra) WITH ORDINALITY t(e,o)),'[]'::jsonb);
+  END LOOP;
+  v_run:=red_record_identity_candidates(jsonb_build_object('source_id',p_source,'generator_version','t','config','{"topK":10}'::jsonb,
+    'input_spec','{"mode":"undecided"}'::jsonb,'input_sha256',v_in->>'input_sha256'),v_cands);
+  RESET ROLE;
+  RETURN jsonb_build_object('run',v_run,'personas',to_jsonb(v_ids),'x',x);
+END $$;
+
+DO $control_v2$
+DECLARE
+  v_actor uuid:='11000000-0000-0000-0000-00000005b701';
+  w jsonb; v_ctl uuid; v_p uuid[]; x bigint; v_s text:=repeat('a',64); v_r text:=repeat('b',64); smp record; v_pos text;
+  v_ctx jsonb; v_fam bigint; v_ord int; v_cid uuid; v_empty text;
+BEGIN
+  -- ren fordeling og projektion
+  IF private.control_allocate('{"single_family":150,"multi_family":42}',20)<>'{"single_family":16,"multi_family":4}'::jsonb
+     OR private.control_allocate('{"a":1,"b":100}',3)<>'{"a":1,"b":2}'::jsonb
+     OR private.control_allocate('{"a":2,"b":1}',20)<>'{"a":2,"b":1}'::jsonb
+     OR private.control_allocate('{"single_family":5,"multi_family":5}',3)<>'{"multi_family":2,"single_family":1}'::jsonb
+     OR private.control_allocate('{}',20)<>'{}'::jsonb THEN
+    RAISE EXCEPTION 'CONTROL_V2_TEST_FAILED: fordeling';
+  END IF;
+  PERFORM pg_temp.f5b_actor(v_actor);
+  w:=pg_temp.f5b_world_v2(-5701,v_actor);
+  v_p:=ARRAY(SELECT jsonb_array_elements_text(w->'personas')::uuid); x:=(w->>'x')::bigint;
+  IF private.candidate_impossible(-57012,-57013) OR NOT private.candidate_impossible(-57012,x-5)
+     OR private.candidate_impossible(-57021,x-5) THEN     -- M5 (uden datoer) som hovedperson: intet fjernes
+    RAISE EXCEPTION 'CONTROL_V2_TEST_FAILED: candidate_impossible';
+  END IF;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  v_ctl:=red_register_identity_control_run((w->>'run')::uuid);
+  RESET ROLE;
+  IF (SELECT count(*) FROM private.identity_control_sample WHERE control_run_id=v_ctl)<>4
+     OR (SELECT stratum FROM private.identity_control_sample WHERE control_run_id=v_ctl AND source_persona_id=v_p[2])<>'navnefaelle'
+     OR (SELECT stratum FROM private.identity_control_sample WHERE control_run_id=v_ctl AND source_persona_id=v_p[6])<>'navnefaelle'
+     OR (SELECT stratum FROM private.identity_control_sample WHERE control_run_id=v_ctl AND source_persona_id=v_p[1])<>'single_family'
+     OR (SELECT count(*) FROM jsonb_object_keys((SELECT mapping FROM private.identity_control_sample WHERE control_run_id=v_ctl AND source_persona_id=v_p[2])))<>2
+     OR (SELECT count(*) FROM jsonb_object_keys((SELECT mapping FROM private.identity_control_sample WHERE control_run_id=v_ctl AND source_persona_id=v_p[6])))<>3
+     OR (SELECT count(*) FROM jsonb_object_keys((SELECT mapping FROM private.identity_control_sample WHERE control_run_id=v_ctl AND source_persona_id=v_p[5])))<>1
+     OR (SELECT reason FROM private.identity_control_exclusion WHERE control_run_id=v_ctl AND source_persona_id=v_p[3]) IS DISTINCT FROM 'rang1_tidsumulig'
+     OR (SELECT reason FROM private.identity_control_exclusion WHERE control_run_id=v_ctl AND source_persona_id=v_p[4]) IS DISTINCT FROM 'navnefaeller_over_3'
+     OR (SELECT k_random FROM private.identity_control_run WHERE id=v_ctl)<>20
+     OR (SELECT excluded_sha256 FROM private.identity_control_run WHERE id=v_ctl) IS NULL
+     OR EXISTS (SELECT 1 FROM private.identity_control_sample s, jsonb_each_text(s.mapping) m
+                  JOIN private.source_persona_identity_candidate c ON c.id=m.value::uuid
+                 WHERE s.control_run_id=v_ctl AND c.candidate_person_id=x-5) THEN
+    RAISE EXCEPTION 'CONTROL_V2_TEST_FAILED: udvalg/udelukkelse/projektion';
+  END IF;
+  -- korrekte afgørelser af de fire stikprøvesager ⇒ passed; bekræftelsen finder 0 (resten er udelukket)
+  SET LOCAL ROLE authenticated;
+  PERFORM red_seal_identity_control_run(v_ctl,v_s,v_r);
+  RESET ROLE;
+  FOR smp IN SELECT s.* FROM private.identity_control_sample s WHERE s.control_run_id=v_ctl ORDER BY s.id LOOP
+    SELECT m.key INTO v_pos FROM jsonb_each_text(smp.mapping) m WHERE m.value=smp.expected;
+    SET LOCAL ROLE authenticated;
+    PERFORM pg_temp.f5b_decide_sample(v_ctl,smp.source_persona_id,v_pos,v_s,v_r);
+    RESET ROLE;
+  END LOOP;
+  v_empty:=private.reimport_canonical_json_sha256('[]'::jsonb);   -- som ejer: private er lukket for authenticated
+  SET LOCAL ROLE authenticated;
+  IF red_evaluate_identity_control_run(v_ctl)<>'passed' THEN RAISE EXCEPTION 'CONTROL_V2_TEST_FAILED: passed'; END IF;
+  IF red_corroborate_family_identities(v_ctl,v_empty)<>0 THEN
+    RAISE EXCEPTION 'CONTROL_V2_TEST_FAILED: bekræftelse tog udelukkede';
+  END IF;
+  RESET ROLE;
+  RAISE NOTICE 'OK: v2 — fordeling, projektion, navnefæller (også uden fuldt navn), udelukkelse, passed, bekræftelsen springer udelukkede over';
+END $control_v2$;
 ROLLBACK;

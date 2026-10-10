@@ -18741,6 +18741,7 @@ DECLARE
     'public.red_begin_reimport(uuid,text,text)'::regprocedure,
     'public.red_begin_reimport_name_completion(uuid,text,uuid)'::regprocedure,
     'public.red_bekraeft_media_upload(bigint,bigint,text)'::regprocedure,
+    to_regprocedure('public.red_classify_parent_card(uuid,uuid,integer,text,text,jsonb)'),
     to_regprocedure('public.red_corroborate_family_identities(uuid,text)'),
     'public.red_decide_interpretation(uuid,integer,text,jsonb)'::regprocedure,
     'public.red_decide_source_persona_placement(uuid,integer,text,jsonb)'::regprocedure,
@@ -20579,13 +20580,13 @@ DECLARE
   v_ctx jsonb:=coalesce(p_context,'{}'::jsonb); v_basis text; v_ic private.interpretation%ROWTYPE;
   v_role text; v_cand record; v_n integer; v_principal_pid bigint; v_evidence jsonb; v_new uuid;
   -- record: kontroltabellerne kan oprettes efter funktionen (plpgsql binder %ROWTYPE ved CREATE).
-  v_smp record; v_seal record; v_family bigint;
+  v_card record; v_seal record; v_family bigint; v_status text; v_card_partners bigint[]:='{}';
 BEGIN
   IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
   v_basis:=coalesce(v_ctx->>'basis','web_detail');
   IF jsonb_typeof(v_ctx)<>'object'
-     OR EXISTS (SELECT 1 FROM jsonb_object_keys(v_ctx) k WHERE k NOT IN ('basis','sheet_sha256','rows_sha256','line','control_run_id','display_position'))
-     OR p_action NOT IN ('same','unresolved') OR nullif(btrim(p_note),'') IS NULL
+     OR EXISTS (SELECT 1 FROM jsonb_object_keys(v_ctx) k WHERE k NOT IN ('basis','sheet_sha256','rows_sha256','line','control_run_id'))
+     OR p_action NOT IN ('same','unresolved','rejected') OR nullif(btrim(p_note),'') IS NULL
      OR (p_action<>'same' AND p_family_id IS NOT NULL)
      OR v_basis NOT IN ('web_detail','human_sheet')
      OR (v_basis='human_sheet' AND (coalesce(v_ctx->>'sheet_sha256','') !~ '^[0-9a-f]{64}$'
@@ -20605,32 +20606,22 @@ BEGIN
     v_evidence:=v_evidence||jsonb_build_object('sheet_sha256',v_ctx->>'sheet_sha256','rows_sha256',v_ctx->>'rows_sha256',
       'line',(v_ctx->>'line')::int);
   END IF;
-  -- Som i red_afgoer_source_persona: en stikprøvesag i en registreret, uforseglet kørsel er låst.
-  IF EXISTS (SELECT 1 FROM private.identity_control_sample s JOIN private.identity_control_run r ON r.id=s.control_run_id
-              WHERE s.interpretation_key=p_interpretation_key
-                AND NOT EXISTS (SELECT 1 FROM private.identity_control_event e WHERE e.control_run_id=r.id)
-                AND r.candidate_run_id=(SELECT cr.id FROM private.source_persona_identity_candidate_run cr
-                                         WHERE cr.source_id=r.source_id ORDER BY cr.run_seq DESC LIMIT 1)) THEN
-    RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_NOT_SEALED';
-  END IF;
-  SELECT s.* INTO v_smp FROM private.identity_control_sample s
-   WHERE s.interpretation_key=p_interpretation_key
-     AND (SELECT e.status FROM private.identity_control_event e WHERE e.control_run_id=s.control_run_id ORDER BY e.seq DESC LIMIT 1)='sealed';
-  IF FOUND THEN
-    SELECT * INTO v_seal FROM private.identity_control_event WHERE control_run_id=v_smp.control_run_id AND status='sealed';
-    IF v_basis<>'human_sheet' OR v_ctx->>'control_run_id' IS DISTINCT FROM v_smp.control_run_id::text
+  -- Spec §23.4: forældrekortet fra en forseglet kontrolkørsel. Serveren opløser familien; klienten leverer intet id.
+  SELECT NULL::uuid AS id INTO v_card;
+  IF v_ctx ? 'control_run_id' THEN
+    SELECT * INTO v_card FROM private.identity_control_parent_card
+     WHERE control_run_id=(v_ctx->>'control_run_id')::uuid AND interpretation_key=p_interpretation_key;
+    SELECT * INTO v_seal FROM private.identity_control_event
+     WHERE control_run_id=(v_ctx->>'control_run_id')::uuid AND status='sealed';
+    IF v_card.id IS NULL OR v_seal.control_run_id IS NULL OR v_basis<>'human_sheet'
        OR v_ctx->>'sheet_sha256' IS DISTINCT FROM v_seal.sheet_sha256 OR v_ctx->>'rows_sha256' IS DISTINCT FROM v_seal.rows_sha256
-       OR p_family_id IS NOT NULL OR (p_action='same') <> (v_ctx ? 'display_position')
-       OR p_expected_version IS DISTINCT FROM v_smp.interpretation_version
-       OR (v_ctx ? 'display_position' AND (v_ctx->>'display_position' !~ '^[1-3]$'
-                                            OR NOT v_smp.mapping ? (v_ctx->>'display_position'))) THEN
-      RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID';
+       OR p_family_id IS NOT NULL OR p_action NOT IN ('same','rejected')
+       OR p_expected_version IS DISTINCT FROM v_card.interpretation_version THEN
+      RAISE EXCEPTION 'PARENT_CARD_CONTEXT_INVALID';
     END IF;
-    v_family:=CASE WHEN p_action='same' THEN (v_smp.mapping->>(v_ctx->>'display_position'))::bigint END;
-    v_evidence:=v_evidence||jsonb_build_object('control_run_id',v_smp.control_run_id)
-      ||CASE WHEN v_ctx ? 'display_position' THEN jsonb_build_object('display_position',(v_ctx->>'display_position')::int) ELSE '{}'::jsonb END;
-  ELSIF v_ctx ? 'control_run_id' OR v_ctx ? 'display_position' THEN
-    RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID';
+    v_family:=CASE WHEN p_action='same' THEN v_card.family_id END;
+    v_card_partners:=v_card.partner_ids;
+    v_evidence:=v_evidence||jsonb_build_object('control_run_id',v_card.control_run_id,'parent_card_id',v_card.id);
   ELSE
     v_family:=p_family_id;
     IF (p_action='same' AND v_family IS NULL) THEN RAISE EXCEPTION 'RELATION_DECISION_INVALID'; END IF;
@@ -20642,7 +20633,21 @@ BEGIN
     IF v_principal_pid IS NULL THEN RAISE EXCEPTION 'RELATION_DECISION_PRINCIPAL_INVALID'; END IF;
     -- Rækkelåse (spec §6.2) før den sidste genberegning af kandidaterne.
     PERFORM private.lock_family_rows(ARRAY(SELECT DISTINCT x FROM unnest(ARRAY[v_principal_pid]||ARRAY(
-      SELECT counterpart_person_id FROM private.relation_structural_candidates(p_interpretation_key))) x ORDER BY 1));
+      SELECT counterpart_person_id FROM private.relation_structural_candidates(p_interpretation_key))||
+      v_card_partners) x ORDER BY 1));
+    -- Kortet holder kun, hvis der stadig er præcis én kandidatrække i alt, lig kortets, med uændret partnermængde.
+    -- Ellers et klassifikationsevent i stedet for en fejl: forældrelinjer må aldrig vælte arkets anvendelse (§23.4).
+    IF v_card.id IS NOT NULL THEN   -- indlejret: uden kort har recorden kun feltet id
+      IF (SELECT count(*) FROM private.relation_structural_candidates(p_interpretation_key))<>1
+         OR NOT EXISTS (SELECT 1 FROM private.relation_structural_candidates(p_interpretation_key) c
+                         WHERE c.family_id=v_card.family_id AND c.counterpart_person_id=v_card.counterpart_person_id
+                           AND c.counterpart_persona_id=v_card.counterpart_persona_id)
+         OR (SELECT array_agg(fm.person_id ORDER BY fm.person_id) FROM public.family_member fm
+              WHERE fm.family_id=v_card.family_id AND fm.rolle='partner') IS DISTINCT FROM v_card_partners THEN
+        PERFORM private.append_parent_card_event(v_card.id,'familie_aendret',btrim(p_note),v_ctx);
+        RETURN 0;
+      END IF;
+    END IF;
     SELECT count(*) INTO v_n FROM private.relation_structural_candidates(p_interpretation_key) c WHERE c.family_id=v_family;
     IF v_n<>1 THEN RAISE EXCEPTION 'RELATION_DECISION_FAMILY_INVALID'; END IF;
     SELECT * INTO v_cand FROM private.relation_structural_candidates(p_interpretation_key) c WHERE c.family_id=v_family;
@@ -20654,7 +20659,8 @@ BEGIN
               WHERE interpretation_key=p_interpretation_key AND party_role=v_role),
             v_cand.counterpart_persona_id,'relation_decision',v_new);
   ELSE
-    v_new:=public.red_decide_interpretation(v_ic.id,p_expected_version,'unresolved',v_evidence);
+    v_status:=CASE p_action WHEN 'rejected' THEN 'rejected' ELSE 'unresolved' END;
+    v_new:=public.red_decide_interpretation(v_ic.id,p_expected_version,v_status,v_evidence);
   END IF;
   RETURN (SELECT version FROM private.interpretation WHERE id=v_new);
 END $$;
@@ -20707,10 +20713,48 @@ CREATE TABLE IF NOT EXISTS private.identity_control_event (
   PRIMARY KEY (control_run_id,seq),
   CONSTRAINT identity_control_event_seal_check CHECK (status<>'sealed' OR (sheet_sha256 IS NOT NULL AND rows_sha256 IS NOT NULL))
 );
+-- Spec §23 (2026-10-10): udelukkelse, K, navnefælle-stratum og forældrekort. Idempotent for baser med
+-- kontroltabellerne fra før §23 (aldrig i prod).
+ALTER TABLE private.identity_control_run ADD COLUMN IF NOT EXISTS excluded_sha256 text
+  CHECK (excluded_sha256 IS NULL OR excluded_sha256 ~ '^[0-9a-f]{64}$');
+ALTER TABLE private.identity_control_run ADD COLUMN IF NOT EXISTS k_random integer CHECK (k_random IS NULL OR k_random>=0);
+ALTER TABLE private.identity_control_sample DROP CONSTRAINT IF EXISTS identity_control_sample_stratum_check;
+ALTER TABLE private.identity_control_sample ADD CONSTRAINT identity_control_sample_stratum_check
+  CHECK (stratum IN ('single_family','multi_family','navnefaelle','relation'));   -- relation: kun historisk (§23)
+CREATE TABLE IF NOT EXISTS private.identity_control_exclusion (
+  control_run_id    uuid NOT NULL REFERENCES private.identity_control_run(id),
+  source_persona_id uuid NOT NULL REFERENCES private.source_persona(id),
+  reason            text NOT NULL CHECK (reason IN ('rang1_tidsumulig','navnefaeller_over_3')),
+  PRIMARY KEY (control_run_id,source_persona_id)
+);
+CREATE TABLE IF NOT EXISTS private.identity_control_parent_card (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  control_run_id         uuid NOT NULL REFERENCES private.identity_control_run(id),
+  interpretation_key     uuid NOT NULL,
+  interpretation_version integer NOT NULL CHECK (interpretation_version>=1),
+  family_id              bigint NOT NULL,
+  counterpart_person_id  bigint NOT NULL,
+  counterpart_persona_id uuid NOT NULL REFERENCES private.source_persona(id),
+  partner_ids            bigint[] NOT NULL,
+  UNIQUE (control_run_id,interpretation_key)
+);
+CREATE TABLE IF NOT EXISTS private.identity_control_parent_event (
+  card_id      uuid NOT NULL REFERENCES private.identity_control_parent_card(id),
+  seq          integer NOT NULL CHECK (seq>=1),
+  outcome      text NOT NULL CHECK (outcome IN ('F','familie_aendret')),
+  note         text NOT NULL CHECK (btrim(note)<>''),
+  sheet_sha256 text NOT NULL CHECK (sheet_sha256 ~ '^[0-9a-f]{64}$'),
+  rows_sha256  text NOT NULL CHECK (rows_sha256 ~ '^[0-9a-f]{64}$'),
+  line         integer NOT NULL CHECK (line>=1),
+  created_by   uuid NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (card_id,seq)
+);
 DO $identity_control_tables$
 DECLARE v_table text;
 BEGIN
-  FOREACH v_table IN ARRAY ARRAY['identity_control_run','identity_control_sample','identity_control_event'] LOOP
+  FOREACH v_table IN ARRAY ARRAY['identity_control_run','identity_control_sample','identity_control_event',
+      'identity_control_exclusion','identity_control_parent_card','identity_control_parent_event'] LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS %I ON private.%I','trg_'||v_table||'_append_only',v_table);
     EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON private.%I FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation()',
                    'trg_'||v_table||'_append_only',v_table);
@@ -20754,11 +20798,89 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION private.control_input_list_sha256(uuid) FROM PUBLIC,anon,authenticated;
 
+-- Spec §23.3 pkt. 1: livsgrænser fra matcherens data (afklarede konklusioner); en NULL-grænse ⇒ ukendt.
+CREATE OR REPLACE FUNCTION private.person_life_bounds(p_person bigint)
+RETURNS TABLE(birth_min date,birth_max date,death_min date,death_max date)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+  SELECT CASE WHEN bool_or(a.date_min IS NULL) FILTER (WHERE f.faktatype='fødsel') THEN NULL ELSE min(a.date_min) FILTER (WHERE f.faktatype='fødsel') END,
+         CASE WHEN bool_or(a.date_max IS NULL) FILTER (WHERE f.faktatype='fødsel') THEN NULL ELSE max(a.date_max) FILTER (WHERE f.faktatype='fødsel') END,
+         CASE WHEN bool_or(a.date_min IS NULL) FILTER (WHERE f.faktatype='død') THEN NULL ELSE min(a.date_min) FILTER (WHERE f.faktatype='død') END,
+         CASE WHEN bool_or(a.date_max IS NULL) FILTER (WHERE f.faktatype='død') THEN NULL ELSE max(a.date_max) FILTER (WHERE f.faktatype='død') END
+    FROM public.fact f JOIN public.conclusion k ON k.target_type='fact' AND k.target_id=f.id AND k.status='afklaret'
+    JOIN public.assertion a ON a.id=k.valgt_assertion_id
+   WHERE f.subjekt_type='person' AND f.subjekt_id=p_person AND f.faktatype IN ('fødsel','død');
+$$;
+-- Definitivt umulig: kandidaten døde før hovedpersonen blev født, eller blev født efter hovedpersonens død.
+CREATE OR REPLACE FUNCTION private.candidate_impossible(p_principal bigint,p_candidate bigint)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+  SELECT coalesce(c.death_max<p.birth_min OR c.birth_min>p.death_max,false)
+    FROM private.person_life_bounds(p_principal) p,private.person_life_bounds(p_candidate) c;
+$$;
+-- Spec §23.3 pkt. 4: præcis min(K, N) fordelt med største rest; mindst ét pr. ikke-tomt stratum;
+-- lige rester afgøres efter stratumnavn (stigende).
+CREATE OR REPLACE FUNCTION private.control_allocate(p_counts jsonb,p_k integer)
+RETURNS jsonb LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+DECLARE v_n integer; v_k integer; v_out jsonb:='{}'; v_sum integer; v_key text; r record;
+BEGIN
+  SELECT coalesce(sum(value::integer),0) INTO v_n FROM jsonb_each_text(p_counts) WHERE value::integer>0;
+  v_k:=least(p_k,v_n);
+  IF v_k<=0 THEN RETURN '{}'::jsonb; END IF;
+  FOR r IN SELECT key,value::integer AS n FROM jsonb_each_text(p_counts) WHERE value::integer>0 LOOP
+    v_out:=v_out||jsonb_build_object(r.key,least(r.n,greatest(1,floor(v_k::numeric*r.n/v_n)::integer)));
+  END LOOP;
+  SELECT sum(value::integer) INTO v_sum FROM jsonb_each_text(v_out);
+  WHILE v_sum<v_k LOOP
+    SELECT c.key INTO v_key FROM jsonb_each_text(p_counts) c
+     WHERE c.value::integer>coalesce((v_out->>c.key)::integer,c.value::integer)
+     ORDER BY (v_k::numeric*c.value::integer/v_n)-(v_out->>c.key)::integer DESC,c.key LIMIT 1;
+    v_out:=jsonb_set(v_out,ARRAY[v_key],to_jsonb((v_out->>v_key)::integer+1)); v_sum:=v_sum+1;
+  END LOOP;
+  WHILE v_sum>v_k LOOP
+    SELECT o.key INTO v_key FROM jsonb_each_text(v_out) o WHERE o.value::integer>1 ORDER BY o.value::integer DESC,o.key LIMIT 1;
+    v_out:=jsonb_set(v_out,ARRAY[v_key],to_jsonb((v_out->>v_key)::integer-1)); v_sum:=v_sum-1;
+  END LOOP;
+  RETURN v_out;
+END $$;
+REVOKE ALL ON FUNCTION private.person_life_bounds(bigint),private.candidate_impossible(bigint,bigint),
+  private.control_allocate(jsonb,integer) FROM PUBLIC,anon,authenticated;
+
+-- Spec §23.4: et udfald på et forældrekort (F eller familie_aendret); påstanden ændres ikke.
+CREATE OR REPLACE FUNCTION private.append_parent_card_event(p_card uuid,p_outcome text,p_note text,p_ctx jsonb)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_seq integer;
+BEGIN
+  SELECT coalesce(max(seq),0)+1 INTO v_seq FROM private.identity_control_parent_event WHERE card_id=p_card;
+  INSERT INTO private.identity_control_parent_event(card_id,seq,outcome,note,sheet_sha256,rows_sha256,line,created_by)
+  VALUES (p_card,v_seq,p_outcome,p_note,p_ctx->>'sheet_sha256',p_ctx->>'rows_sha256',(p_ctx->>'line')::integer,auth.uid());
+  RETURN v_seq;
+END $$;
+REVOKE ALL ON FUNCTION private.append_parent_card_event(uuid,text,text,jsonb) FROM PUBLIC,anon,authenticated;
+
+-- Spec §23.4: F — bogen siger det, men familien i basen passer ikke. Påstanden forbliver proposed.
+CREATE OR REPLACE FUNCTION red_classify_parent_card(p_control_run_id uuid,p_interpretation_key uuid,p_expected_version integer,
+  p_outcome text,p_note text,p_context jsonb)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_card record; v_seal record;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  SELECT * INTO v_card FROM private.identity_control_parent_card WHERE control_run_id=p_control_run_id AND interpretation_key=p_interpretation_key;
+  SELECT * INTO v_seal FROM private.identity_control_event WHERE control_run_id=p_control_run_id AND status='sealed';
+  IF v_card.id IS NULL OR v_seal.control_run_id IS NULL OR p_outcome IS DISTINCT FROM 'F' OR nullif(btrim(p_note),'') IS NULL
+     OR jsonb_typeof(p_context)<>'object' OR p_context->>'basis' IS DISTINCT FROM 'human_sheet'
+     OR p_context->>'sheet_sha256' IS DISTINCT FROM v_seal.sheet_sha256 OR p_context->>'rows_sha256' IS DISTINCT FROM v_seal.rows_sha256
+     OR coalesce(p_context->>'line','') !~ '^[1-9][0-9]*$' OR p_expected_version IS DISTINCT FROM v_card.interpretation_version THEN
+    RAISE EXCEPTION 'PARENT_CARD_CONTEXT_INVALID';
+  END IF;
+  RETURN private.append_parent_card_event(v_card.id,'F',btrim(p_note),p_context);
+END $$;
+REVOKE ALL ON FUNCTION red_classify_parent_card(uuid,uuid,integer,text,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_classify_parent_card(uuid,uuid,integer,text,text,jsonb) TO authenticated;
+
 CREATE OR REPLACE FUNCTION private.control_run_status(p_control_run_id uuid)
 RETURNS TABLE(status text,reason text) LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE r private.identity_control_run%ROWTYPE; v_last private.identity_control_event%ROWTYPE;
   v_seal private.identity_control_event%ROWTYPE; smp private.identity_control_sample%ROWTYPE;
-  v_id private.source_persona_identity%ROWTYPE; v_ic private.interpretation_current%ROWTYPE; v_cur uuid; v_wait boolean:=false;
+  v_id private.source_persona_identity%ROWTYPE; v_cur uuid; v_wait boolean:=false;
   v_ev jsonb; v_at timestamptz;
 BEGIN
   SELECT * INTO r FROM private.identity_control_run WHERE id=p_control_run_id;
@@ -20773,25 +20895,17 @@ BEGIN
   IF private.control_input_list_sha256(r.candidate_run_id) IS DISTINCT FROM r.input_list_sha256 THEN
     RETURN QUERY SELECT 'failed'::text,'kandidatinput_aendret'::text; RETURN;
   END IF;
-  FOR smp IN SELECT * FROM private.identity_control_sample s WHERE s.control_run_id=r.id ORDER BY s.id LOOP
-    IF smp.sample_kind='identity' THEN
-      SELECT * INTO v_id FROM private.source_persona_identity i WHERE i.source_persona_id=smp.source_persona_id;
-      IF coalesce(v_id.version,0)=smp.identity_version AND (v_id.source_persona_id IS NULL OR v_id.decision_status='proposed') THEN
-        v_wait:=true; CONTINUE;
-      END IF;
-      v_ev:=v_id.evidence; v_at:=v_id.decided_at;
-      -- Afgørelsen skal være netop den samplede version + 1 (ingen »vask« via en mellemliggende afgørelse).
-      IF v_id.decision_status<>'accepted' OR v_id.version<>smp.identity_version+1
-         OR v_ev->>'candidate_id' IS DISTINCT FROM smp.expected THEN
-        RETURN QUERY SELECT 'failed'::text,'afvigelse'::text; RETURN;
-      END IF;
-    ELSE
-      SELECT * INTO v_ic FROM private.interpretation_current ic WHERE ic.interpretation_key=smp.interpretation_key;
-      IF v_ic.status='proposed' AND v_ic.version=smp.interpretation_version THEN v_wait:=true; CONTINUE; END IF;
-      v_ev:=v_ic.decision_evidence; v_at:=v_ic.decided_at;
-      IF v_ic.status<>'accepted' OR v_ic.version<>smp.interpretation_version+1 OR v_ev->>'family_id' IS DISTINCT FROM smp.expected THEN
-        RETURN QUERY SELECT 'failed'::text,'afvigelse'::text; RETURN;
-      END IF;
+  -- Spec §23.4: kun identitetssager; forældrekort indgår ikke i status.
+  FOR smp IN SELECT * FROM private.identity_control_sample s WHERE s.control_run_id=r.id AND s.sample_kind='identity' ORDER BY s.id LOOP
+    SELECT * INTO v_id FROM private.source_persona_identity i WHERE i.source_persona_id=smp.source_persona_id;
+    IF coalesce(v_id.version,0)=smp.identity_version AND (v_id.source_persona_id IS NULL OR v_id.decision_status='proposed') THEN
+      v_wait:=true; CONTINUE;
+    END IF;
+    v_ev:=v_id.evidence; v_at:=v_id.decided_at;
+    -- Afgørelsen skal være netop den samplede version + 1 (ingen »vask« via en mellemliggende afgørelse).
+    IF v_id.decision_status<>'accepted' OR v_id.version<>smp.identity_version+1
+       OR v_ev->>'candidate_id' IS DISTINCT FROM smp.expected THEN
+      RETURN QUERY SELECT 'failed'::text,'afvigelse'::text; RETURN;
     END IF;
     IF v_ev->>'basis' IS DISTINCT FROM 'human_sheet' OR v_ev->>'sheet_sha256' IS DISTINCT FROM v_seal.sheet_sha256
        OR v_ev->>'rows_sha256' IS DISTINCT FROM v_seal.rows_sha256 OR v_ev->>'control_run_id' IS DISTINCT FROM r.id::text
@@ -20807,7 +20921,7 @@ REVOKE ALL ON FUNCTION private.control_run_status(uuid) FROM PUBLIC,anon,authent
 CREATE OR REPLACE FUNCTION red_register_identity_control_run(p_candidate_run_id uuid)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE v_source bigint; v_cur uuid; v_id uuid:=gen_random_uuid(); v_ipop text; v_rpop text; v_run private.source_persona_identity_candidate_run%ROWTYPE;
-  v_existing uuid;
+  v_existing uuid; v_excl text; v_alloc jsonb; v_k integer:=20;   -- K: projektejerens valg 2026-10-10 (spec §23.2)
 BEGIN
   IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
   SELECT source_id INTO v_source FROM private.source_persona_identity_candidate_run WHERE id=p_candidate_run_id;
@@ -20828,47 +20942,74 @@ BEGIN
 
   -- DROP før CTAS: et andet kald i samme transaktion må ikke ramme 'already exists' — og
   -- IF NOT EXISTS ville lydløst genbruge første kalds population.
-  DROP TABLE IF EXISTS pg_temp.ctl_ipop, pg_temp.ctl_rpop;
-  CREATE TEMP TABLE pg_temp.ctl_ipop ON COMMIT DROP AS
-    SELECT c.source_persona_id AS pid, c.id AS cand_id, coalesce(i.version,0) AS ver,
+  DROP TABLE IF EXISTS pg_temp.ctl_elig, pg_temp.ctl_ipop, pg_temp.ctl_excl, pg_temp.ctl_cards;
+  -- Spec §23.3: egnede, uafgjorte rang-1-personas med hovedperson og rang-1-person.
+  CREATE TEMP TABLE pg_temp.ctl_elig ON COMMIT DROP AS
+    SELECT c.source_persona_id AS pid,c.id AS cand_id,c.candidate_person_id AS p1,coalesce(i.version,0) AS ver,
+           private.spouse_principal_person(c.source_persona_id) AS hp,
            CASE WHEN jsonb_array_length(private.persona_family_context(c.source_persona_id)->'families')=1
-                THEN 'single_family' ELSE 'multi_family' END AS stratum,
-           encode(extensions.digest(convert_to(p_candidate_run_id::text||':'||c.source_persona_id::text,'UTF8'),'sha256'),'hex') AS h
+                THEN 'single_family' ELSE 'multi_family' END AS fam_stratum,
+           encode(extensions.digest(convert_to(p_candidate_run_id::text||':'||c.source_persona_id::text,'UTF8'),'sha256'),'hex') AS h,
+           '{}'::uuid[] AS homs
       FROM private.source_persona_identity_candidate c
       LEFT JOIN private.source_persona_identity i ON i.source_persona_id=c.source_persona_id
      WHERE c.run_id=p_candidate_run_id AND c.rank=1 AND (c.basis->>'corroboration_eligible')::boolean IS TRUE
        AND (i.source_persona_id IS NULL OR i.decision_status='proposed');
-  CREATE TEMP TABLE pg_temp.ctl_rpop ON COMMIT DROP AS
-    SELECT ic.interpretation_key AS k, ic.version AS v, min(sc.family_id) AS fam,
-           encode(extensions.digest(convert_to(p_candidate_run_id::text||':'||ic.interpretation_key::text,'UTF8'),'sha256'),'hex') AS h
+  -- Navnefæller: andre gemte kandidater, ikke umulige, med samme visningsnavn eller fulde navn (pkt. 3).
+  UPDATE pg_temp.ctl_elig e SET homs=coalesce((
+    SELECT array_agg(c2.id ORDER BY c2.rank) FROM private.source_persona_identity_candidate c2
+      JOIN public.person p2 ON p2.id=c2.candidate_person_id JOIN public.person p1 ON p1.id=e.p1
+     WHERE c2.run_id=p_candidate_run_id AND c2.source_persona_id=e.pid AND c2.rank>1
+       AND NOT private.candidate_impossible(e.hp,c2.candidate_person_id)
+       AND (lower(btrim(p2.visning_navn))=lower(btrim(p1.visning_navn))
+            OR lower(btrim(p2.visning_fuldt_navn))=lower(btrim(p1.visning_fuldt_navn)))),'{}');
+  -- Udelukkelse (pkt. 2 og 5): umulig rang 1, eller flere navnefæller end kortet kan vise.
+  CREATE TEMP TABLE pg_temp.ctl_excl ON COMMIT DROP AS
+    SELECT pid,CASE WHEN private.candidate_impossible(hp,p1) THEN 'rang1_tidsumulig' ELSE 'navnefaeller_over_3' END AS reason
+      FROM pg_temp.ctl_elig WHERE private.candidate_impossible(hp,p1) OR cardinality(homs)>2;
+  CREATE TEMP TABLE pg_temp.ctl_ipop ON COMMIT DROP AS
+    SELECT e.*,CASE WHEN cardinality(e.homs)>0 THEN 'navnefaelle' ELSE e.fam_stratum END AS stratum
+      FROM pg_temp.ctl_elig e WHERE e.pid NOT IN (SELECT pid FROM pg_temp.ctl_excl);
+  -- Forældrekort: gældende relation.parent med præcis én strukturel kandidatrække (én familie, én modpart).
+  CREATE TEMP TABLE pg_temp.ctl_cards ON COMMIT DROP AS
+    SELECT ic.interpretation_key AS k,ic.version AS v,min(sc.family_id) AS fam,min(sc.counterpart_person_id) AS cp,
+           min(sc.counterpart_persona_id::text)::uuid AS cpp
       FROM private.interpretation_current ic
       CROSS JOIN LATERAL private.relation_structural_candidates(ic.interpretation_key) sc
      WHERE ic.source_id=v_source AND ic.predicate='relation.parent' AND ic.status='proposed'   -- børn: del 2 (errata §22.9)
      GROUP BY ic.interpretation_key,ic.version HAVING count(*)=1;
   SELECT private.reimport_canonical_json_sha256(coalesce(jsonb_agg(pid::text ORDER BY pid::text COLLATE "C"),'[]'::jsonb)) INTO v_ipop FROM pg_temp.ctl_ipop;
-  SELECT private.reimport_canonical_json_sha256(coalesce(jsonb_agg(k::text ORDER BY k::text COLLATE "C"),'[]'::jsonb)) INTO v_rpop FROM pg_temp.ctl_rpop;
+  SELECT private.reimport_canonical_json_sha256(coalesce(jsonb_agg(k::text ORDER BY k::text COLLATE "C"),'[]'::jsonb)) INTO v_rpop FROM pg_temp.ctl_cards;
+  SELECT private.reimport_canonical_json_sha256(coalesce(jsonb_agg(pid::text ORDER BY pid::text COLLATE "C"),'[]'::jsonb)) INTO v_excl FROM pg_temp.ctl_excl;
   INSERT INTO private.identity_control_run(id,source_id,candidate_run_id,identity_population_sha256,relation_population_sha256,
-    input_list_sha256,created_by)
-    VALUES (v_id,v_source,p_candidate_run_id,v_ipop,v_rpop,private.control_input_list_sha256(p_candidate_run_id),auth.uid());
-
-  -- Identitetsstikprøve: ceil(k·n_s/N) pr. stratum (planlægnings-ruling), blandet mapping pr. sag.
-  -- Mappingen rummer kun rang 1–3 (spec §7.1: visningsplads 1–3), uanset generatorens --top-k.
+    input_list_sha256,excluded_sha256,k_random,created_by)
+    VALUES (v_id,v_source,p_candidate_run_id,v_ipop,v_rpop,private.control_input_list_sha256(p_candidate_run_id),v_excl,v_k,auth.uid());
+  INSERT INTO private.identity_control_exclusion(control_run_id,source_persona_id,reason) SELECT v_id,pid,reason FROM pg_temp.ctl_excl;
+  INSERT INTO private.identity_control_parent_card(control_run_id,interpretation_key,interpretation_version,family_id,
+    counterpart_person_id,counterpart_persona_id,partner_ids)
+  SELECT v_id,k,v,fam,cp,cpp,(SELECT array_agg(fm.person_id ORDER BY fm.person_id) FROM public.family_member fm
+                               WHERE fm.family_id=fam AND fm.rolle='partner') FROM pg_temp.ctl_cards;
+  -- Stikprøve: alle navnefæller + K tilfældige fordelt med største rest. Visning pr. kort: rang 1, navnefæller,
+  -- udfyldning efter rang blandt de mulige — højst 3, i blandet orden (spec §23.3 pkt. 5).
+  v_alloc:=private.control_allocate((SELECT coalesce(jsonb_object_agg(stratum,n),'{}'::jsonb) FROM (
+      SELECT stratum,count(*) AS n FROM pg_temp.ctl_ipop WHERE stratum<>'navnefaelle' GROUP BY stratum) q),v_k);
   INSERT INTO private.identity_control_sample(control_run_id,sample_kind,stratum,source_persona_id,identity_version,mapping,expected)
   SELECT v_id,'identity',x.stratum,x.pid,x.ver,
          (SELECT jsonb_object_agg(m.pos::text,m.cid::text) FROM (
-            SELECT c2.id AS cid,row_number() OVER (ORDER BY encode(extensions.digest(convert_to(v_id::text||':'||c2.id::text,'UTF8'),'sha256'),'hex')) AS pos
-              FROM private.source_persona_identity_candidate c2
-             WHERE c2.run_id=p_candidate_run_id AND c2.source_persona_id=x.pid AND c2.rank<=3) m),
+            SELECT d.cid,row_number() OVER (ORDER BY encode(extensions.digest(convert_to(v_id::text||':'||d.cid::text,'UTF8'),'sha256'),'hex')) AS pos
+              FROM (SELECT u.cid FROM (
+                      SELECT x.cand_id AS cid,0 AS pri,1 AS rk
+                      UNION ALL SELECT hm.cid,1,hm.o::integer FROM unnest(x.homs) WITH ORDINALITY hm(cid,o)
+                      UNION ALL SELECT c2.id,2,c2.rank FROM private.source_persona_identity_candidate c2
+                       WHERE c2.run_id=p_candidate_run_id AND c2.source_persona_id=x.pid AND c2.rank>1
+                         AND c2.id<>ALL(x.homs) AND NOT private.candidate_impossible(x.hp,c2.candidate_person_id)) u
+                    ORDER BY u.pri,u.rk LIMIT 3) d) m),
          x.cand_id::text
-    FROM (SELECT p.*,row_number() OVER (PARTITION BY p.stratum ORDER BY p.h) AS rn,
-                 count(*) OVER (PARTITION BY p.stratum) AS ns,count(*) OVER () AS n
-            FROM pg_temp.ctl_ipop p) x
-   WHERE x.rn<=ceil(least(x.n,greatest(10,ceil(0.1*x.n)))::numeric*x.ns/x.n);
-  -- Relationsstikprøve: ét stratum; én kandidat-familie → plads 1.
-  INSERT INTO private.identity_control_sample(control_run_id,sample_kind,stratum,interpretation_key,interpretation_version,mapping,expected)
-  SELECT v_id,'relation','relation',x.k,x.v,jsonb_build_object('1',x.fam::text),x.fam::text
-    FROM (SELECT p.*,row_number() OVER (ORDER BY p.h) AS rn,count(*) OVER () AS n FROM pg_temp.ctl_rpop p) x
-   WHERE x.rn<=least(x.n,greatest(10,ceil(0.1*x.n)));
+    FROM (SELECT p.*,row_number() OVER (PARTITION BY p.stratum ORDER BY p.h) AS rn FROM pg_temp.ctl_ipop p) x
+   WHERE x.stratum='navnefaelle' OR x.rn<=coalesce((v_alloc->>x.stratum)::integer,0);
+  IF (SELECT count(*) FROM private.identity_control_sample WHERE control_run_id=v_id)>40 THEN
+    RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_TOO_LARGE';
+  END IF;
   RETURN v_id;
 END $$;
 
@@ -21020,6 +21161,9 @@ BEGIN
      OR (SELECT e.status FROM private.identity_control_event e WHERE e.control_run_id=(p_evidence->>'control_run_id')::uuid
           ORDER BY e.seq DESC LIMIT 1) IS DISTINCT FROM 'passed'
      OR EXISTS (SELECT 1 FROM private.identity_control_sample x WHERE x.control_run_id=(p_evidence->>'control_run_id')::uuid
+                 AND x.source_persona_id=p_persona)
+     -- spec §23.3 pkt. 2: en udelukket persona bekræftes aldrig maskinelt
+     OR EXISTS (SELECT 1 FROM private.identity_control_exclusion x WHERE x.control_run_id=(p_evidence->>'control_run_id')::uuid
                  AND x.source_persona_id=p_persona) THEN
     RAISE EXCEPTION 'FAMILY_CORROBORATION_CONTROL_NOT_PASSED';
   END IF;
@@ -21055,7 +21199,8 @@ BEGIN
       LEFT JOIN private.source_persona_identity i ON i.source_persona_id=c.source_persona_id
      WHERE c.run_id=v_run AND c.rank=1 AND (c.basis->>'corroboration_eligible')::boolean IS TRUE
        AND (i.source_persona_id IS NULL OR i.decision_status='proposed')
-       AND NOT EXISTS (SELECT 1 FROM private.identity_control_sample x WHERE x.control_run_id=p_control_run_id AND x.source_persona_id=c.source_persona_id);
+       AND NOT EXISTS (SELECT 1 FROM private.identity_control_sample x WHERE x.control_run_id=p_control_run_id AND x.source_persona_id=c.source_persona_id)
+       AND NOT EXISTS (SELECT 1 FROM private.identity_control_exclusion x WHERE x.control_run_id=p_control_run_id AND x.source_persona_id=c.source_persona_id);
   SELECT private.reimport_canonical_json_sha256(coalesce(jsonb_agg(pid::text ORDER BY pid::text COLLATE "C"),'[]'::jsonb))
     INTO v_set FROM pg_temp.corr_set;
   IF v_set IS DISTINCT FROM p_expect_set_sha256 THEN RAISE EXCEPTION 'IDENTITY_CORROBORATION_SET_DRIFT'; END IF;

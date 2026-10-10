@@ -164,3 +164,19 @@ BEGIN
   PERFORM public.red_finalize_reimport((b->>'batch')::uuid);
   RESET ROLE;
 END $$;
+
+-- Leveår som afklarede fødsels-/dødskonklusioner (spec §23.3: projektionens datagrundlag).
+CREATE OR REPLACE FUNCTION pg_temp.f5b_life(p_person bigint,p_born int,p_died int) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_f bigint; v_a bigint;
+BEGIN
+  IF p_born IS NOT NULL THEN
+    INSERT INTO fact(subjekt_type,subjekt_id,faktatype) VALUES ('person',p_person,'fødsel') RETURNING id INTO v_f;
+    INSERT INTO assertion(target_type,target_id,date_min,date_max) VALUES ('fact',v_f,make_date(p_born,1,1),make_date(p_born,12,31)) RETURNING id INTO v_a;
+    INSERT INTO conclusion(target_type,target_id,valgt_assertion_id,status) VALUES ('fact',v_f,v_a,'afklaret');
+  END IF;
+  IF p_died IS NOT NULL THEN
+    INSERT INTO fact(subjekt_type,subjekt_id,faktatype) VALUES ('person',p_person,'død') RETURNING id INTO v_f;
+    INSERT INTO assertion(target_type,target_id,date_min,date_max) VALUES ('fact',v_f,make_date(p_died,1,1),make_date(p_died,12,31)) RETURNING id INTO v_a;
+    INSERT INTO conclusion(target_type,target_id,valgt_assertion_id,status) VALUES ('fact',v_f,v_a,'afklaret');
+  END IF;
+END $$;
