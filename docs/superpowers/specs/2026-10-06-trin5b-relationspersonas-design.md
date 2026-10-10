@@ -304,7 +304,8 @@ fra kalderens `basis`:
   på målpersonen, og kernen genberegner `family_context_sha256` nu og kræver lighed med den gemte
   (ændret familie eller identitet siden kørslen ⇒ afvist).
 - **(d) Autorisation:** kaldet sker under en **bestået kontrolkørsel** (§7) for samme kandidatkørsel.
-  Navnelighed kan kernen ikke beregne; den er autoriseret af stikprøven, ikke af kalderen.
+  Navnelighed kan kernen ikke beregne; den er autoriseret af stikprøven, ikke af kalderen. *(§23: stikprøven er en
+  advarselslampe, ikke en statistisk validering; den gælder kun identitet.)*
 
 **Låseprotokol (TOCTOU) — Postgres' egne rækkelåse, ingen ændring af andre writere.** Familier
 kan ændres ad mange veje (familie-RPC'er, `red_flyt_barn`, `red_set_familie_ordinal`,
@@ -365,6 +366,8 @@ Kun med, hvis planens måling viser, at globale kandidater for parkerede eller n
 ## 7. Kontrolkørsel, ark og webkø
 
 ### 7.1 Kontrolkørslen er serverens
+
+> **Ændret 2026-10-10 (§23):** kun identitetssager; 20 kort med risikostratum `navnefaelle` og visningsprojektion (§23.3); relationspopulationen og relationsstikprøven udgår.
 
 Ny tabel `private.identity_control_run` (append-only status-events) med `private.identity_control_sample`:
 
@@ -428,6 +431,8 @@ Ny tabel `private.identity_control_run` (append-only status-events) med `private
 
 ### 7.3 Ark
 
+> **Ændret 2026-10-10 (§23):** erstattet af §23.2 — arket rummer kun 20 blinde ægtefællekort med fuld kontekst og 9 forældrekort (A/R/U); uoverensstemmelser er del 2 (§23.5).
+
 5a's `identity_decision_sheet.py` med dets tokens: `1`–`3` (kandidat), `X` (anden person), `U`, `N`,
 `P <id>`. Udvidelser:
 
@@ -488,6 +493,8 @@ første levende webkø-afgørelse** er et eksplicit punkt i 5b's prod-overførse
 
 ### 8.3 Børn og forældre (24 påstande)
 
+> **Ændret 2026-10-10 (§23):** børn er del 2 (§22.9); forældre afgøres i del 1 af mennesket som A/R/U-kort (§23.2 b, §23.4), ikke maskinelt.
+
 Ingen ny persona. Modparten findes strukturelt blandt kilde 1's hovedpersoner: `relation.child` —
 hovedpersonen er partner i en familie, og en anden hovedperson er `barn` i den; `relation.parent` —
 hovedpersonen er `barn` i en familie, og modparten er partner i den. Præcis én kandidat-familie ⇒
@@ -533,6 +540,8 @@ fail-closed `levende` (§8.4). Nye tabeller og RPC'er får RLS/ACL og står i `d
 mønster).
 
 ## 10. Færdigbevis (i restore, ikke i prod)
+
+> **Ændret 2026-10-10 (§23):** punkt 3 erstattet af §23.6.
 
 Arbejdsbase: kopi af `daa2018f_20261001133125`, løftet med `db-migrations.sql` + `db-rls.sql`
 (5a + 5b). Rapport `docs/evidensbaseret-genimport/relationspersonas-5b-bevis.md` — kun tal, hashes og
@@ -750,3 +759,112 @@ Runde 6's tre fund løst; ingen BLOCKER eller MAJOR. To MINOR (værste udfald fa
    forældre, og `red_afgoer_relation_interpretation` afviser `relation.child` (`RELATION_CHILD_DEFERRED`)
    for både `same` og `unresolved`, så ingen menneskelig disposition låser del 2's design. Del 2 giver
    børnene et design, hvor kandidaten er barnet, og linjen viser påstandens ordrette tekst.
+
+## 23. Omdesign af menneskets kontrol (2026-10-10)
+
+**Erstatter** §6.2 (d) 2. sætning, §7.1 (populationer, stikprøvestørrelse, relationsstikprøver), §7.2
+(relationsdelen), §7.3, §8.2 (maskinel afgørelse af forældre i del 1), §8.3 og §10 punkt 3. Besluttet af
+projektejeren 2026-10-10 efter design-review (Claude + Codex `gpt-5.6-sol`); decisions-post samme dato.
+
+### 23.1 Hvorfor
+
+Det første ark (63 linjer) kunne ikke besvares. Det viste postnøgle, det udtrukne navn og kandidater, men
+hverken hvem hovedpersonen er, hvad bogen skriver, eller forældrelinjens anden forælder; §7.3 foreskrev
+kun »postnøgle, ægteskabsnummer, grund« som kontekst. Parseren krævede samtidig alle linjer udfyldt,
+også 32 uoverensstemmelser, der ikke indgår i målingen — i praksis et fuldt afgørelsesark, som
+projektejeren har besluttet imod. Et »passed« kunne derfor bygge på gæt og autorisere 181 maskinelle
+afgørelser. Hertil:
+
+- **Stikprøven er en advarselslampe, ikke en statistisk validering.** 0 fejl i 20 giver en øvre 95 %-grænse
+  på ca. 14 % for resten; familierne stammer fra tidligere importer af samme bog (§4: næsten
+  selvbekræftende). Rapporten må ikke påstå mere.
+- **Risikoen sidder i navnefæller.** Målt 10/10 (kopi af `daa2018f_20261001133125`): 11 af 203 egnede har
+  en rang-2-kandidat med samme visningsnavn som rang 1; ingen af de 203 ægtefæller har eksternt id (TNG,
+  1939), så der er ingen uafhængig krydskontrol.
+- **Forældrene var koblet på ægtefællernes gate.** Alle 9 forældrepåstande med én kandidat var i
+  »stikprøven« (hele populationen), og én uafklaret forælder kunne blokere maskinel identitet for 203
+  ægtefæller.
+- **Kandidatlisterne rummer tidsmæssigt umulige personer** (fx død 1363 til et ægteskab omkring 1700).
+
+### 23.2 Kontrolarket: 29 kort, ét ark
+
+Ét ark, hash-bundet og forseglet som før (ark + rækkefil, 0600, kun token og note må ændres). Det rummer
+**kun** to slags kort; uoverensstemmelser og forældre uden kandidat er ikke med (§23.5).
+
+**(a) 20 ægtefællekort — blinde (identitetskontrol).** Hvert kort viser:
+
+- postnøgle og PDF-side (`source_observation.page_from`–`page_to` for klausulen);
+- hovedpersonen: visningsnavn og leveår;
+- ægteskabsnummer og **klausulens ordrette tekst** med ægtefællens navnespænd markeret (`[[…]]`);
+- 1–3 kandidater i serverens blandede orden (§7.1): visningsnavn, leveår, titler/embeder og egen postnøgle.
+
+Kortet viser **ikke** score, tier, signaler, generatorens rang, familiemarkør, familie-id, »allerede gift
+med« eller maskinens forventede valg. Hovedperson og klausul lækker ikke svaret; de er grundlaget for
+det. Tokens som 5a: `1`–`3`, `X`, `N`, `U`, `P <id>`.
+
+**(b) 9 forældrekort — udsagn, ikke blinde (direkte menneskelig afgørelse).** Hvert kort viser
+hovedpersonen (navn, leveår, postnøgle, PDF-side), påstandens klausul ordret og den foreslåede familie med
+**begge** forældre (navn, leveår, egen postnøgle), og formulerer udsagnet: »Bogen siger, at
+hovedpersonen er barn af personerne i denne familie.« Tokens: `A` (sandt), `R` (forkert), `U` (kan ikke
+afgøres). Hele forældrepopulationen afgøres her af mennesket; der er ingen maskinel forældreafgørelse i
+del 1.
+
+Linjeformater: `D <source_persona_id> <version> : <token>` (uændret) og
+`R <interpretation_key> <version> : <A|R|U>`.
+
+### 23.3 Udvalg og visningsprojektion (serveren)
+
+`red_register_identity_control_run` vælger kun **identitets**sager:
+
+1. **Visningsprojektion.** For hver egnet persona fjernes kandidater, der er *definitivt* tidsmæssigt
+   umulige: kandidatens seneste dødsår (`date_max` på gældende død) < hovedpersonens tidligste fødselsår,
+   eller kandidatens tidligste fødselsår > hovedpersonens seneste dødsår. Ukendte datoer fjerner intet.
+   Er rang-1-kandidaten selv umulig, tages personaen **ud af** den maskinelle population (den bliver en
+   uoverensstemmelse, §23.5). Projektionen ændrer ikke generatorens output eller kernens kontrakt; den
+   gemmes som en del af kontrolkørslens mapping (kun de viste kandidater får en visningsplads).
+2. **Risikostratum `navnefaelle`:** egnede personas med en rang 2–3-kandidat (efter projektionen), hvis
+   visningsnavn er lig rang 1's (`lower(btrim(...))`). Alle tages med.
+3. **Udfyldning** til i alt **20** (eller hele populationen, hvis den er mindre) fra resten, deterministisk
+   orden `sha256(candidate_run_id || source_persona_id)`, stratificeret én familie / flere familier som i
+   §7.1. Er `navnefaelle` alene over 20, tages alle (arket kan blive større end 29 kort; over 40
+   ægtefællekort ⇒ stop og spørg projektejeren).
+
+Forældrekortene er ikke stikprøvesager: rækkefilen tager alle gældende `relation.parent` med præcis én
+strukturel kandidat-familie (§8.1) og binder deres nøgler + versioner. Kontrolkørslen gemmer kun
+identitetspopulationens mængde-hash; relationspopulationen og den polymorfe `relation`-stikprøve udgår.
+
+### 23.4 Status, afgørelser og binding
+
+- **To adskilte forløb.** Kontrolkørslens status (§7.2) evaluerer kun identitetssager og autoriserer kun
+  `family_corroboration` (§6.2 d, §6.3). Forældrekortene skrives som almindelige menneskelige afgørelser
+  via `red_afgoer_relation_interpretation` med `basis: human_sheet`, `sheet_sha256`, `rows_sha256`, linje;
+  de kan hverken autorisere eller blokere ægtefællernes identitet.
+- **Forældrenes tokens:** `A` → `same`; serveren genberegner de strukturelle kandidater under rækkelåsene
+  og kræver præcis én familie, som skal være den, rækkefilen bandt (ellers fejl, intet skrevet); `R` →
+  ny handling `rejected` (påstanden afvises: `red_decide_interpretation` med `rejected`, ingen part
+  skrives); `U` → `unresolved`. `relation.child` afvises fortsat (§22.9).
+- **Ægtefællernes tokens** opløses som i §7.1 gennem den forseglede mapping (visningsplads → kandidat).
+- **Udfald:** 0 afvigelser blandt ægtefællekortene ⇒ `passed` ⇒ `red_corroborate_family_identities` må
+  køres. Én afvigelse ⇒ `failed` ⇒ ingen maskinel bekræftelse; afvigelsen analyseres med projektejeren.
+  Rapporten kalder resultatet en **advarselslampe** og angiver den øvre grænse (§23.1), aldrig »valideret«.
+- **Tekstbinding.** Rækkefilen indeholder pr. kort observationens id og SHA-256 af dens ordrette tekst.
+  Planen verificerer, at `source_observation` er uforanderlig (ingen UPDATE-vej); er den ikke, genberegner
+  evalueringen teksthashen og bliver `failed` ved ændring.
+- **Parseren** afviser `_` som før — men arket rummer nu kun de 29 kort, der skal afgøres.
+
+### 23.5 Uoverensstemmelser: del 2
+
+De 31 identitets-uoverensstemmelser (inkl. personas, hvis rang 1 er tidsmæssigt umulig) og forældren uden
+kandidat forbliver `proposed` i del 1 og indgår ikke i arket eller i kontrolkørslen. Del 2 behandler dem
+prioriteret: **(1)** de 9, hvor databasens partner ikke er rang 1 (mulige fejl i databasen eller
+udtrækket; menneskelig klassifikation: forkert udtræk, anden kandidat, ny person, mulig familiefejl,
+uafklaret), **(2)** de 22, hvor databasens partner er rang 1 men navnetærskel/antal fejler (deterministisk
+forudfyldt udsagn til A/R). Webkøen skal først vise samme kontekst som kortene (§23.2) og kunne registrere
+årsagen; en rettelse af en kanonisk familie er et særskilt workflow, der kræver en projektejerbeslutning.
+
+### 23.6 Færdigbevis (erstatter §10 punkt 3)
+
+Kontrolkørsel registreret med 20 ægtefællesager (heraf alle navnefæller); 9 forældrekort; arket afgjort af
+projektejeren, hash-bundet og forseglet; kørslen evalueret (`passed`/`failed`) og forældrenes udfald
+talt (A/R/U). Negativtests som før for identitetsdelen, plus: en forældreafgørelse kan ikke ændre
+kontrolkørslens status, og `A` mod en ændret familie afvises.

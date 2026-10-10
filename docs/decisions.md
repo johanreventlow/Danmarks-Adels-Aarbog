@@ -2,6 +2,30 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: trin 5b — menneskets kontrol omdesignet til 29 besvarlige kort; børn og uoverensstemmelser til del 2 (2026-10-10)
+
+> **Besluttet af projektejeren 2026-10-10** efter design-review (Claude + Codex `gpt-5.6-sol`) af det
+> første kontrolark. Spec: `docs/superpowers/specs/2026-10-06-trin5b-relationspersonas-design.md` §22.9
+> og §23. Ændrer betydningen af punkt 2 i posten fra 2026-10-06 nedenfor.
+
+**Baggrund.** Det første kontrolark (63 linjer) kunne ikke besvares: det viste hverken hvem
+hovedpersonen er, hvad bogen skriver, eller forældrelinjens anden forælder, og alle linjer skulle udfyldes,
+også uoverensstemmelser uden for målingen. For børn pegede »familievalget« på flere børn i samme familie.
+Et »bestået« kunne dermed bygge på gæt og autorisere 181 maskinelle afgørelser.
+
+**Besluttet:**
+1. **Børn (`relation.child`) tages ud af del 1** og får deres eget design i del 2 (kandidaten er barnet).
+2. **Arket rummer kun 29 kort:** 20 blinde ægtefællekort med hovedperson, bogens ordrette sætning og
+   kandidaternes leveår, titler og egen post — men uden score eller maskinens svar — og 9 forældrekort som
+   ja/nej-udsagn (A/R/U). Alle navnefælle-sager er med blandt de 20; tidsmæssigt umulige kandidater vises ikke.
+3. **Ægtefællekontrollen er en advarselslampe, ikke en statistisk validering.** 0 afvigelser tillader
+   maskinel bekræftelse; én afvigelse stopper den. Rapporten angiver den øvre fejlgrænse.
+4. **Forældrene afgøres af mennesket** og hverken autoriserer eller blokerer ægtefællernes identitet.
+5. **Uoverensstemmelserne (31) og forældren uden kandidat behandles i del 2**, prioriteret: først de 9, der
+   kan pege på fejl i databasen. En rettelse af en kanonisk familie kræver sit eget workflow og en ny beslutning.
+
+**Uændret:** `family_corroboration`-kernen, forseglingen og hashbindingen; ingen fulde afgørelsesark.
+
 ## BESLUTTET: trin 5b — familie-forankret maskinel identitet (`family_corroboration`) ændrer 5a §4.2 (2026-10-06)
 
 > **Besluttet af projektejeren 2026-10-06** ved godkendelsen af 5b-specen
