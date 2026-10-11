@@ -20,9 +20,9 @@ Bindingen er hash-autoriseret, idempotent ved genkald og fejler lukket ved drift
 
 | | |
 | --- | --- |
-| Commit | `07f4b12` (grenen `docs/151-5b-2a-binding`, ikke pushet) |
-| Fil-hashes (SHA-256) | `schema.sql` `e136ed35…a0f6`, `db-migrations.sql` `63450306…9224`, `db-rls.sql` `4ae2f3f5…5ede`, `db-verify.sql` `ffcf3667…f015` |
-| Arbejdsbase | `daa5b_2a_bevis_20261011183247` = kopi af `daa5b_bevis_20261010093638` (del 1's bevisbase, uændret), løftet med `db-migrations.sql` + `db-rls.sql`; `db-verify.sql` grøn inkl. de fire nye 2a-blokke. Databaseidentitet: system_identifier `7657242220770903427`. **Bevares.** |
+| Commit | `7d0ea4a` (grenen `docs/151-5b-2a-binding`, ikke pushet; inkl. kode-reviewets rettelser) |
+| Fil-hashes (SHA-256) | `schema.sql` `9fabe363…2bc5`, `db-migrations.sql` `47b9446d…89fa`, `db-rls.sql` `4ae2f3f5…5ede`, `db-verify.sql` `02b9984d…d9e4` |
+| Arbejdsbase | `daa5b_2a_bevis_20261011185524` = kopi af `daa5b_bevis_20261010093638` (del 1's bevisbase, uændret), løftet med `db-migrations.sql` + `db-rls.sql`; `db-verify.sql` grøn inkl. de fire nye 2a-blokke. Databaseidentitet: system_identifier `7657242220770903427`. **Bevares.** |
 | Kilde | 1 (DAA 2018-20), kontrakt 2 |
 | Scripts | `~/.private/5b-2a/` (0700, ikke i repo): `hashes.sql` `712ad559…`, `decide.sql` `05d0ac45…`, `bind-preview.sql` `c1f4c5ea…`, `bind.sql` `f4917bb3…`, `read.sql` `efdc1e60…`, `neg.sql` `7278c545…` |
 
@@ -30,7 +30,7 @@ Bindingen er hash-autoriseret, idempotent ved genkald og fejler lukket ved drift
 
 | | |
 | --- | --- |
-| Preview | 203 egnede ægteskaber, 3 ordinal-afvigelser; set-hash `d21ac556…6815` |
+| Preview | 203 egnede ægteskaber, 3 ordinal-afvigelser; set-hash `e0f33de0…010c` |
 | Afgjort | 203 (`red_decide_relation_interpretations(1, ‹set-hash›)`), metode `family-structure-v1` |
 | Nøgle-digest | md5 af de 203 sorterede fortolkningsnøgler `9873bfe0733b3c5491c747b838135da7` |
 | Klassifikationer | 3 `ordinal_afvigelse` (bogens og familiens ægteskabsnummer afviger; bundet trods afvigelsen, M9) |
@@ -40,10 +40,10 @@ Bindingen er hash-autoriseret, idempotent ved genkald og fejler lukket ved drift
 | | |
 | --- | --- |
 | Elementer | 210 (203 `relation-marriage-v1`, 7 `relation-parent-v1`), alle egnede |
-| Previewhash | `a142b147…c29c` |
-| Manifest (skrevet **før** bindingen) | `~/.private/5b-2a/manifest.json` (0600), fil-SHA-256 `d67addd9…d6c9`; tupel-digest over (interpretation_id, family_id, rule_key, rule_version, state_sha256) `475b6598b80873d4d0531293aae6507622eb7bd166e01d50c020014f3d70843f` |
+| Previewhash | `99c855d3…7e3b` |
+| Manifest (skrevet **før** bindingen) | `~/.private/5b-2a/manifest2.json` (0600), fil-SHA-256 `06e36cd4…3906`; tupel-digest over (interpretation_id, family_id, rule_key, rule_version, state_sha256) `89bde7603f8c28534067b5acd9f3f4c7f69a717c4019d0e902ed8e3b3e315923` |
 | Batch | 210 bindinger, `target_type='family'` |
-| Efter-digest | samme tupler læst fra `interpretation_promotion`: `475b6598…843f` = manifestet |
+| Efter-digest | samme tupler læst fra `interpretation_promotion`: `89bde760…5923` = manifestet |
 | Identisk genkald | samme batch-id, 0 nye rækker (replay via `items_sha256`) |
 | Vielsesfaktum | `vielse_fact_id` sat i 179 af 210 (ægteskaber med netop ét vielsesfaktum); forældre og ægteskaber uden faktum har `null` |
 
@@ -73,7 +73,7 @@ af familiegaten: 0. Bindinger hvis tilstand har ændret sig siden bindingen: 0.
 | C | en bærende familierække sat til `omstridt` efter preview | `RELATION_PROMOTION_PREVIEW_STALE`, 0 bindinger |
 | D | et medlem af en bundet familie gjort levende | familien synlig med 1 række før, 0 efter |
 
-Kopierne (og deres fælles løftede udgangsbase) er omdøbt til `slet_1011__daa5b_2a_neg{A,B,C,D,base}_20261011183247`
+Kopierne (og deres fælles løftede udgangsbase) er omdøbt til `slet_1011__daa5b_2a_neg{A,B,C,D,base}_20261011185524`
 (karantæne; sletning kun efter måling og projektejerens ja).
 
 ## Test og webspor
@@ -105,7 +105,16 @@ overførslens runbook umiddelbart efter DDL**.
 
 Spec: Codex r1 (NO-GO, 3 BLOCKER/8 MAJOR/1 MINOR) og r2 (NO-GO, 0/8/1), alle rettet (specens §12-§13).
 Plan: Codex r1 (NO-GO, 4/10/2) og Opus r2 (NO-GO, 4/3/6), alle efterprøvet og rettet (planens sidste
-afsnit); ingen GO-stempel på planens sidste revision. Kode-review udestår.
+afsnit); ingen GO-stempel på planens sidste revision.
+
+Kode-review (Opus, hele grenen): **GO med forbehold**, 0 BLOCKER, ingen privatlivslækage fundet.
+M1 (en NULL-kilde slog kildetjek og kildelås fra i afgørelse og binding) er rettet og testet, og 7 af 10
+MINOR er rettet (låseomfang, NULL-elementer, kilden i replay-digesten, aktør krævet, db-verify-huller,
+React-nøgler, genhentning). M2 — en rettelse af en bundet relation skjuler kilden, og der findes ingen vej
+til at binde igen — er et designvalg til projektejeren før 2b (specens §11 pkt. 6). Beviset ovenfor er
+kørt om på den rettede kode i en frisk kopi (`20261011185524`); den første kørsel
+(`20261011183247`, før rettelserne) gav samme tal og ligger i karantæne. Et Codex-kode-review er ikke kørt
+(kvoten var opbrugt).
 
 ## Status
 
