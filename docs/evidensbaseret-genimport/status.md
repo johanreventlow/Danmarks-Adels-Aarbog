@@ -9,7 +9,8 @@ omsegmenteret (51 poster, `match`); samme dag er 4.4 genbundet i en lokal kopi �
 2026-09-28. **Hele 2018-20 kørt 2026-10-01—03** i en lokal kopi — se tillæg 2026-10-03.
 **Prod-data 2026-10-05:** hele 2018-20's fortolkningskæde overført (3.739 forslag, 676
 afgørelser, 622 bindinger, `VERIFY_OK`) — se tillæg 2026-10-05. **Samme dag:** trin 4
-afsluttet for 2018-20 og trin 5 aktiveret (decisions 2026-10-05).
+afsluttet for 2018-20 og trin 5 aktiveret (decisions 2026-10-05). **Trin 5a merget 2026-10-06
+(#236) og 5b del 1 merget 2026-10-11 (#237)**, begge bevist i restore, ikke deployet.
 **Kodestatus opdateret 2026-09-11**
 efter merge af trin 4's dagsværk 4.1a-4.2 — se tillægget under Produktionsstatus.
 
@@ -145,7 +146,7 @@ De eneste tilladte tilstande er `specificeret`, `isoleret implementeret`,
 | Klausulgranularitet og coverage | `specificeret` | Helpost- og linjegrundlag findes, men den krævede mindste meningsbærende klausul og dens disposition er ikke implementeret ende-til-ende. |
 | Extractor-runner og modelkald | `integreret ende-til-ende` for 2018-20, hovedpersonens persona, i restore (2026-09-26) | `evidence_runner.py` (`evidence-runner-1.1`) kalder modellen gennem `codex exec` bag en Seatbelt-grænse, validerer record-scoped claims (datoer skal stå ordret i den citerede klausul) og stopper fail-closed. Kørt på 34 virkelige poster fra 2018-20 (4.3b: 10, 4.5: 24): præcision 99-99,6 %, klausulbinding 100 %, ordrette datoer 100 % (`runner-rehearsal-147-4-3b.md`, `interpretation-pilot-2018-20.md`). Ikke kørt mod prod; sandbox-grænsens huller er review 35, P1. |
 | Proposed-ingest og promotion | Ingest og afgørelse: `produktionsverificeret` for 2018-20 (2026-10-05). Promotion: kun bindingsdelen `produktionsverificeret` for 2018-20 (2026-10-05) | **2026-10-05:** hele 2018-20 overført til prod efter `runbooks/transfer-2018-20-prod.md`: 3.739 forslag, 676 afgørelser, 622 bindinger, `VERIFY_OK` med pakkens tre digests (tillæg 2026-10-05). Tidligere: 4.4's writer har ingestet 243 forslag i en restore uden kanonisk delta; 4.5 afgjorde dem med projektejerens ark og bandt 43 til eksisterende assertions (`interpretation-pilot-2018-20.md`). Trin 4's promotion er en dokumenteret binding, ikke oprettelse af nye fakta (spec §8.3, åbent punkt 11.3). Intet er kørt mod prod: 4.4's GO-pakke er parkeret (tillæg 2026-09-23), og fuld kørsel afventer kontrolmodellens første kørsel (`decisions.md` 2026-09-27). |
-| Source persona, identitetskandidater og webkø | `integreret ende-til-ende` for 2018-20 i restore (2026-10-05; ikke prod) | Trin 5a: én identitetsvej — privat kerne med strukturel oprindelse og cutover, kandidatgenerator, hash-bundet identitetsark og webkø gennem samme RPC. Kalibrering (øvre grænse, 587 personas) og blind genbekræftelse (30 + webspor: 25 samme, 0 anden, 6 uafklaret) i [identitetsvej-5a-bevis.md](identitetsvej-5a-bevis.md). Ikke deployet; tre svagheder til 5b (samme_som-klynger, 1939-årstal, kandidatvisning). |
+| Source persona, identitetskandidater og webkø | `integreret ende-til-ende` for 2018-20 i restore (5a 2026-10-05, 5b del 1 2026-10-11; ikke prod) | Trin 5a: én identitetsvej — privat kerne med strukturel oprindelse og cutover, kandidatgenerator, hash-bundet identitetsark og webkø gennem samme RPC. Kalibrering (øvre grænse, 587 personas) og blind genbekræftelse (30 + webspor: 25 samme, 0 anden, 6 uafklaret) i [identitetsvej-5a-bevis.md](identitetsvej-5a-bevis.md). Ikke deployet; tre svagheder til 5b (samme_som-klynger, 1939-årstal, kandidatvisning). **Trin 5b del 1 (2026-10-11, #237; restore, ikke prod):** 234 ægtefælle-personas med kildebundne navne; maskinel bekræftelse (`family_corroboration`) kun efter en bestået blind kontrolkørsel — 30 ægtefællekort, 0 afvigelser, 173 bekræftet maskinelt, øvre 95 %-grænse ca. 13,9 % ([relationspersonas-5b-del1-bevis.md](relationspersonas-5b-del1-bevis.md)). Børn, uoverensstemmelser og nye personer er del 2. |
 | Placement og membership | `isoleret implementeret` | Skema og fundament findes, men de eksisterende personer føres fortsat ikke gennem placement-/membership-datavejen. |
 | 2018-20-proveniens (149a) | `produktionsverificeret` (2026-09-06) | 2026-09-03: hele kæden bevist mod den rigtige bog og mod en restore af prod-dumpet migreret til kontrakt v2: PDF `3beadfc1…`, rå tekst `2dd5cf84…`, manifest `c7d19c01…` (591 elementer) → 1 rendition / 591 records / 591 forekomster / 591 ankre, nul kanonisk delta (5 aggregat-hashes), `anon` uændret (9 hashes), replay `already_applied`, reversal fail-closed (`docs/evidensbaseret-genimport/source-evidence-149a-rehearsal.md`). Krævede rettelse af #153's migrationsguard (finalized terminal ved 0 person_creates). Ikke `produktionsverificeret`; prod-rækkefølge #152 → #153 (med guard-rettelsen) → 149a. Bindinger er nu leveret af 149b (#166), se næste række. |
 | 2018-20 narrativ-binding (149b, #166) | `produktionsverificeret` (2026-09-06) | 2026-09-04: legacy-migration-writeren bevist mod samme restore, oveni 149a: manifest `b4baa1ae…`/`662f16f3…`, profil `954f3bb3…`, preview `774efc5b…` → 587 elementer, 541 `bound_published`, 46 `bound_draft`, 4 `unresolved_text` (`I-133, II-35, III-129, IV-94`), 0 `unresolved_identity`; ledger source 1 = 541 `migrated` + 3 `grandfathered_publication` + 0 `withdrawn`; 587 `source_persona` + 587 accepterede identiteter; offentlig v2-flade viser 541 `source_record` og kun 3 `legacy_narrative` for source 1 (fra 544); nul kanonisk delta (4 aggregat-hashes) og `anon` uændret (8 hashes); replay `already_applied`; per-narrativ reversal gendanner begge streams eksakt; batch-reversal kun dry-run (587 elementer, `committed=false`); `red_reverse_reimport` afvist (`REIMPORT_WRITER_REVERSAL_INVALID`) (`docs/evidensbaseret-genimport/legacy-migration-149b-rehearsal.md`). Krævede en rettelse af #152's læsefunktioner (gate + record-gren filtrerer nu på bindingsstatus, ellers dublet efter fuld fortrydelse). Ikke `produktionsverificeret`: prod-apply kræver #152-cutover → #153 (guard-rettelsen) → 149a i prod, projektejerens kvittering for valg A (identitet uden placement-kæde) og valg B (reversal-designet), samt en frisk neutralitetsmåling (`withdrawn` binding ∧ `grandfathered` ledger = 0) i prod før apply. |
@@ -231,13 +232,15 @@ Roadmap-trin 1-3 (#152, #153, #149) er `produktionsverificeret` pr. 2026-09-06. 
 (#147/#148) er afsluttet for 2018-20 2026-10-05: kæden er overført til prod med `VERIFY_OK`
 (tillæg 2026-10-05). Det aktive programmål er nu **trin 5: placement/membership og én
 identitetsvej (#150/#151)**, aktiveret af projektejeren 2026-10-05 (decisions samme dato), i
-rækkefølgen 5a → 5b → 5c. Næste tilladte arbejde er:
+rækkefølgen 5a → 5b → 5c. 5a er merget 2026-10-06 (#236) og 5b del 1 2026-10-11 (#237); begge er
+bevist i restore og ikke deployet ([identitetsvej-5a-bevis.md](identitetsvej-5a-bevis.md),
+[relationspersonas-5b-del1-bevis.md](relationspersonas-5b-del1-bevis.md)). Næste tilladte arbejde er:
 
-1. **5a, én identitetsvej (#151):** genbekræft spec
-   `docs/superpowers/specs/2026-09-24-trin5a-identitetsvej-design.md` og plan
-   `docs/superpowers/plans/2026-09-24-trin5a-identitetsvej.md` (gren `docs/151-identitetsvej`,
-   ikke pushet) mod den nuværende `main`; derefter udførelse (subagent-driven, valgt
-   2026-09-24).
+1. **5b del 2 (#151):** brainstorm → spec-tillæg → plan for børn (§22.9), de 31
+   uoverensstemmelser, nye personer, familiekorrektion (`F`-kort), `samme_som` for dubletter,
+   udtrækkets fejllæsning af »(F.: …)« og final reviews M1-M10 (især M1: registreringen skal udelukke
+   kerne-afviselige personas). Listen står i bevisrapportens sidste afsnit; bevisbasen
+   `daa5b_bevis_20261010093638` bevares til del 2. Prod-deploy af 5a/5b kræver separat GO og runbook.
 2. **Restpunkter fra trin 4 (egne opgaver):** næste promptversion (»var †«-reglen og
    titel/gods-reglen; erstatter de 13 `U`-kort), oprydning af 138 navne-assertions med
    titelord, runnerens håndtering af Codex' nye kvotefejl.
@@ -283,6 +286,9 @@ for at lukke den gamle writer; den genåbner ikke det fulde mobilredaktørspor.
 - [Vision og værdigrundlag](vision.md), [styrende roadmap](roadmap.md) og
   [teknisk målarkitektur](teknisk-maalarkitektur.md) fastlægger henholdsvis
   værdier, prioritet og ønsket systemadfærd.
+- [Trin 5a's færdigbevis](identitetsvej-5a-bevis.md) og [trin 5b del 1's
+  færdigbevis](relationspersonas-5b-del1-bevis.md) dokumenterer identitetsvejen og den
+  maskinelle familiebekræftelse i restore (ikke prod).
 - [Afvigelsesvurderingen 2026-08-22](../superpowers/reviews/2026-08-22-evidensbaseret-genimport-afvigelsesvurdering.md)
   er grundlag for de seneste anvendte produktionsmålinger; de er ikke
   genverificeret 2026-08-25.
