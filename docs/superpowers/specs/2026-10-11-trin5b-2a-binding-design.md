@@ -1,6 +1,6 @@
 # Trin 5b del 2a — bind de afgjorte ægteskaber og forældre, og vis kilden for læseren (#151)
 
-**Status:** udkast til projektejerens review (brainstorm 2026-10-11; design godkendt afsnit for afsnit).
+**Status:** **GODKENDT af projektejeren 2026-10-11** (brainstorm samme dato; design godkendt afsnit for afsnit).
 
 **Roadmap:** trin 5, delspec 5b (`docs/superpowers/specs/2026-10-06-trin5b-relationspersonas-design.md`,
 herefter »hovedspecen«), del 2, skive a. Bygger på 5b del 1 (merget #237, bevis i
