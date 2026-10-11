@@ -87,7 +87,7 @@ Expected: de fire CHECK-navne fra spec §4.1 findes; `familiebindinger|0`; `kont
 
 **Files:**
 - Modify: `schema.sql` (tabellen ~1344; regelindsættelser ~1381; `interpretation_promotion_rule_current` ~1391; validatoren ~1400; `interpretation_predicate_promotable` ~1420; `add_interpretation_promotion_rule_version` ~1428; revoke-listen ~1857)
-- Modify: `db-migrations.sql` (ny blok over 5b-slutlinjen), `db-verify.sql` (~4354 signatur; ny assert-blok sidst), `tests/sql/test-interpretation-predicate.sql` (uændret adfærd — kør den)
+- Modify: `db-migrations.sql` (ny blok over 5b-slutlinjen), `db-verify.sql` (~4354 signatur; ny assert-blok sidst), `tests/sql/test-interpretation-predicate.sql` (uændret adfærd — kør den), `tests/sql/test-evidence-promotion.sql:133` (caster den gamle 10-parameter-signatur til `::regprocedure` ⇒ hård fejl når overloaden er droppet; ret til 11-parameter-signaturen `(text,text,text,text,text,text,boolean,boolean,boolean,text,text)` — Opus plan-r2 M1)
 - Create: `tests/sql/test-relation-binding.sql`, `tests/sql/test-relation-binding-upgrade.sh`
 - Modify: `.github/workflows/ci.yml` (job `evidence-promotion-db`, efter `test-relation-decision.sql`)
 
@@ -207,6 +207,7 @@ CREATE TABLE private.interpretation_promotion_rule (
     REFERENCES private.interpretation_promotion_rule_line(rule_key,predicate),
   CONSTRAINT interpretation_promotion_rule_mode_check CHECK (
     (rule_mode='text_assertion' AND interpretation_kind='property' AND target_type='assertion'
+       AND expected_fact_type IS NOT NULL
        AND expected_fact_type IN ('navn','tilnavn','titel','fødsel','død') AND value_kind IN ('text','date_raw'))
     OR (rule_mode='structural_family' AND interpretation_kind='relation' AND target_type='family'
        AND expected_fact_type IS NULL AND value_kind='relation'))
@@ -256,7 +257,8 @@ ALTER TABLE private.interpretation_promotion_rule
   DROP CONSTRAINT IF EXISTS interpretation_promotion_rule_mode_check;
 ALTER TABLE private.interpretation_promotion_rule ADD CONSTRAINT interpretation_promotion_rule_mode_check CHECK (
   (rule_mode='text_assertion' AND interpretation_kind='property' AND target_type='assertion'
-     AND expected_fact_type IN ('navn','tilnavn','titel','fødsel','død') AND value_kind IN ('text','date_raw'))
+     AND expected_fact_type IS NOT NULL
+       AND expected_fact_type IN ('navn','tilnavn','titel','fødsel','død') AND value_kind IN ('text','date_raw'))
   OR (rule_mode='structural_family' AND interpretation_kind='relation' AND target_type='family'
      AND expected_fact_type IS NULL AND value_kind='relation'));
 CREATE OR REPLACE VIEW private.interpretation_promotion_rule_current
@@ -279,6 +281,10 @@ BEGIN
                  AND conname IN ('interpretation_promotion_rule_interpretation_kind_check','interpretation_promotion_rule_target_type_check',
                                  'interpretation_promotion_rule_expected_fact_type_check','interpretation_promotion_rule_value_kind_check'))
      OR to_regprocedure('private.add_interpretation_promotion_rule_version(text,text,text,text,text,text,boolean,boolean,boolean,text)') IS NOT NULL
+     -- NULL i en CHECK godtages; text_assertion-grenen skal eksplicit kræve faktatypen (Opus plan-r2 B2)
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.interpretation_promotion_rule'::regclass
+                     AND conname='interpretation_promotion_rule_mode_check'
+                     AND pg_get_constraintdef(oid) LIKE '%expected_fact_type IS NOT NULL%')
      OR (SELECT count(*) FROM private.interpretation_promotion_rule_current
           WHERE rule_key IN ('relation-marriage-v1','relation-parent-v1') AND rule_mode='structural_family' AND status='active')<>2
      OR EXISTS (SELECT 1 FROM private.interpretation_predicate_promotable WHERE predicate LIKE 'relation.%') THEN
@@ -325,7 +331,7 @@ Run: `bash tests/sql/test-relation-binding-upgrade.sh ci5b_2a_up` → Expected: 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add schema.sql db-migrations.sql db-verify.sql tests/sql/test-relation-binding.sql tests/sql/test-relation-binding-upgrade.sh .github/workflows/ci.yml
+git add schema.sql db-migrations.sql db-verify.sql tests/sql/test-evidence-promotion.sql tests/sql/test-relation-binding.sql tests/sql/test-relation-binding-upgrade.sh .github/workflows/ci.yml
 git commit -m "feat(151): regeltypen structural_family adskilt fra assertion-vejen (5b 2a)"
 ```
 
@@ -352,7 +358,7 @@ git commit -m "feat(151): regeltypen structural_family adskilt fra assertion-vej
 ```sql
 -- Trin 5b 2a: fixtures oven på relation-5b.sql. Kaldes som ejer.
 -- Identitetsstate og -event skal være konsistente (deferred constraint-triggere identity_state_has_event /
--- identity_event_is_projected, schema.sql ~1822). Testene kører `SET CONSTRAINTS ALL IMMEDIATE;` efter
+-- identity_event_is_projected, schema.sql ~1822). Testene kører `SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;` efter
 -- fixture-opbygningen, så en umulig tilstand fejler i testen og ikke skjules af ROLLBACK (Codex plan-r1 #5).
 
 -- f5b_post skriver kun hovedpersonens state-række; denne helper skriver den matchende event (samme felter).
@@ -410,7 +416,8 @@ BEGIN
 END $$;
 
 -- Publicerer en post (kontrakt 2) gennem de rigtige redaktions-RPC'er. Afprøvet 2026-10-11 i en frisk
--- contract-2-base: kræver accepteret record- og persona-placering (principal_member) med helposten som grundlag.
+-- contract-2-base (ét kald): kræver accepteret record- og persona-placering (principal_member) med helposten
+-- som grundlag. Flere kald i samme transaktion kræver nulstillingen af app.change_set_id nedenfor.
 CREATE OR REPLACE FUNCTION pg_temp.f2a_publish(p_source bigint,p_src jsonb,p_post jsonb,p_person bigint,p_actor uuid,p_text text)
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE v_header uuid; v_rp uuid:=gen_random_uuid(); v_pp uuid:=gen_random_uuid(); h text; r jsonb;
@@ -434,14 +441,18 @@ BEGIN
   h:=private.narrative_record_state(p_person,p_source,p_post->>'key',true)->>'state_sha256';
   PERFORM set_config('request.jwt.claim.sub',p_actor::text,true);
   SET LOCAL ROLE authenticated;
+  -- upsert og publicering er hver sin redaktionshandling; change_set-id'et er transaktionslokalt og
+  -- bliver stående, så det nulstilles før og efter hver (ellers NARRATIVE_RECORD_FOREIGN_CHANGE_SET ved
+  -- næste kald i samme transaktion; schema.sql ~13235, Opus plan-r2 B4).
+  PERFORM set_config('app.change_set_id','',true);
   r:=public.red_upsert_person_narrative_record(p_person,p_source,p_post->>'key',p_text,false,h);
-  -- upsert og publicering er hver sin redaktionshandling; change_set-id'et er transaktionslokalt.
   PERFORM set_config('app.change_set_id','',true);
   PERFORM public.red_publicer_person_narrative_record(p_person,p_source,p_post->>'key',r->>'state_sha256');
+  PERFORM set_config('app.change_set_id','',true);
   RESET ROLE;
 END $$;
 ```
-Hver testblok kører `SET CONSTRAINTS ALL IMMEDIATE;` som første sætning i sin `DO`-blok efter fixture-kaldene er gjort (dvs. lige før de første asserts), så deferred identitets- og andre constraint-triggere fyrer i testen. Fejler en del 1-fixture (`relation-5b.sql`) dér, rettes 2a-fixturen (ikke del 1's), og fundet noteres i ledgeren.
+Hver testblok kører `SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;` (repoets idiom, `tests/sql/test-clause-set.sql:149-150`) efter fixture-kaldene, så de ventende deferred identitets- og andre constraint-triggere fyrer i testen. **Altid begge**: `IMMEDIATE` alene gælder resten af transaktionen og knækker alle writere, der skriver i to trin (fortolkning før observation, event før state) — Opus plan-r2 B1. Fejler en del 1-fixture (`relation-5b.sql`) dér, rettes 2a-fixturen (ikke del 1's), og fundet noteres i ledgeren.
 
 Bemærk: `f5b_post` bruger altid samme to klausuler; `f2a_marriage` giver derfor post-teksten fast. Brug forskellige `p_key` pr. kald.
 
@@ -462,7 +473,7 @@ BEGIN
     (-2205,false,false,'2a'),(-2206,false,false,'2a'),(-2207,false,false,'2a');
   s:=pg_temp.f5b_source(-2201);
   m:=pg_temp.f2a_marriage(-2201,s,'M-1',-2201,-2202,v_actor,2,1);
-  SET CONSTRAINTS ALL IMMEDIATE;   -- fixturen skal være en mulig, committbar tilstand
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;   -- fixturen skal være en mulig, committbar tilstand
   st:=private.relation_binding_state((m->'claim'->>'id')::uuid);
   IF st IS NULL OR st->>'contract'<>'relation-binding-state-v1' OR (st->'family'->>'family_id')::bigint<>(m->>'family')::bigint
      OR jsonb_array_length(st->'family'->'rows')<>2 OR (st->>'book_ordinal')::int<>2 OR (st->>'family_ordinal')::int<>1
@@ -696,7 +707,7 @@ BEGIN
   m2:=pg_temp.f2a_marriage(-2301,s,'D-2',-2303,-2304,v_actor,2,1);   -- egnet, ordinal-afvigelse
   m3:=pg_temp.f2a_marriage(-2301,s,'D-3',-2305,-2306,v_actor,1,1,false); -- ingen familie
   o:=pg_temp.f2a_marriage(-2302,s2,'D-4',-2307,-2308,v_actor,1,1);   -- anden kilde
-  SET CONSTRAINTS ALL IMMEDIATE;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   SET LOCAL ROLE authenticated;
   pv:=red_preview_relation_decisions(-2301);
@@ -848,7 +859,7 @@ BEGIN
   INSERT INTO person(id,levende,privat,status) VALUES (-2392,false,false,'2a');
   s:=pg_temp.f5b_source(-2391);
   m:=pg_temp.f2a_marriage(-2391,s,'L-1',-2391,-2392,v_actor,1,1);
-  SET CONSTRAINTS ALL IMMEDIATE;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   SET LOCAL ROLE authenticated;
   pv:=red_preview_relation_decisions(-2391);
@@ -856,7 +867,9 @@ BEGIN
   RESET ROLE;
   BEGIN
     PERFORM dblink_connect('l2a',v_conn);
-    PERFORM * FROM dblink('l2a','SET lock_timeout=''300ms''; INSERT INTO family(id,type) VALUES (-2391,''vielse''); '
+    -- BEGIN i dblink-sessionen: lykkes indsættelsen (manglende lås), rulles den tilbage ved disconnect og
+    -- efterlader ingen committede rækker, der ville skjule fejlen (Opus plan-r2 m4).
+    PERFORM * FROM dblink('l2a','BEGIN; SET lock_timeout=''300ms''; INSERT INTO family(id,type) VALUES (-2391,''vielse''); '
       ||'INSERT INTO family_member(family_id,person_id,rolle) VALUES (-2391,-2391,''partner''); SELECT ''x''') AS t(x text);
     RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: indsættelse ventede ikke';
   EXCEPTION WHEN OTHERS THEN
@@ -870,8 +883,8 @@ ROLLBACK;
 DELETE FROM person WHERE id=-2391;
 
 -- To sessioner, modsat retning (spec §8, Codex plan-r1 #8): en identitetsgenafgørelse er i gang i den anden
--- session — den har taget identitetswriterens personlås (private.lock_family_rows, schema.sql ~8315) på
--- ægtefællen — og afgørelsen må vente/fejle lukket med 0 delvise afgørelser. Ægtefællen committes først,
+-- session — den holder en skrivelås på ægtefællens personrække (som identitetswriterens lock_family_rows,
+-- schema.sql ~8315) — og afgørelsen må vente/fejle lukket med 0 delvise afgørelser. Ægtefællen committes først,
 -- så dblink-sessionen kan låse den (mønster: test-identity-decision.sql:186).
 INSERT INTO person(id,levende,privat,status) VALUES (-2394,false,false,'2a lock') ON CONFLICT (id) DO NOTHING;
 BEGIN;
@@ -886,14 +899,18 @@ BEGIN
   INSERT INTO person(id,levende,privat,status) VALUES (-2393,false,false,'2a');
   s:=pg_temp.f5b_source(-2393);
   m:=pg_temp.f2a_marriage(-2393,s,'L-2',-2393,-2394,v_actor,1,1);
-  SET CONSTRAINTS ALL IMMEDIATE;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   SET LOCAL ROLE authenticated;
   pv:=red_preview_relation_decisions(-2393);
   RESET ROLE;
   PERFORM dblink_connect('l2a_id',v_conn);
   PERFORM dblink_exec('l2a_id','BEGIN');
-  PERFORM * FROM dblink('l2a_id','SELECT private.lock_family_rows(ARRAY[-2394]::bigint[])::text') AS t(x text);
+  -- FOR NO KEY UPDATE, ikke lock_family_rows' FOR UPDATE: hovedsessionens fixture holder allerede FK-låsen
+  -- FOR KEY SHARE på -2394, og FOR UPDATE i dblink ville vente på den, mens hovedsessionen venter synkront
+  -- på dblink — en uopdagelig hængning (Opus plan-r2 B3). NO KEY UPDATE støder kun sammen med afgørelsens
+  -- FOR UPDATE; lock_timeout i dblink-sessionen er et ekstra værn.
+  PERFORM * FROM dblink('l2a_id','SET lock_timeout=''5s''; SELECT 1::text FROM person WHERE id=-2394 FOR NO KEY UPDATE') AS t(x text);
   BEGIN
     SET LOCAL ROLE authenticated;
     SET LOCAL lock_timeout='300ms';
@@ -944,7 +961,7 @@ transaktionen ved samme mekanisme, og »0 delvise writes« efter afbruddet er de
   1. opretter et ægteskab (`f2a_marriage`) og afgør det via Task 3, og en forælder (`f2a_parent`);
   2. bygger `items` = `[{interpretation_id: <gældende id>, family_id}]` for begge;
   3. `red_preview_relation_promotions(src, items)` ⇒ begge `eligible`, `preview_sha256` 64 hex;
-  4. negativt: et element med forkert `family_id` ⇒ `RELATION_PROMOTION_FAMILY_MISMATCH`; et ikke-gældende id (versionen før afgørelsen) ⇒ `RELATION_PROMOTION_NOT_CURRENT`; en `proposed` påstand ⇒ `RELATION_PROMOTION_NOT_ACCEPTED`; samme element to gange ⇒ `RELATION_PROMOTION_DUPLICATE_ITEM`; anden kilde ⇒ `RELATION_PROMOTION_SOURCE_MISMATCH`; forkert form (`[{"interpretation_id":"x"}]`) ⇒ undtagelsen `RELATION_PROMOTION_ITEMS_INVALID`;
+  4. negativt (assertér på elementets `reason_code` i previewet, ikke en rejst fejl — kun forkert form rejser en undtagelse): et element med forkert `family_id` ⇒ `RELATION_PROMOTION_FAMILY_MISMATCH`; et ikke-gældende id (versionen før afgørelsen) ⇒ `RELATION_PROMOTION_NOT_CURRENT`; en `proposed` påstand ⇒ `RELATION_PROMOTION_NOT_ACCEPTED`; samme element to gange ⇒ `RELATION_PROMOTION_DUPLICATE_ITEM`; anden kilde ⇒ `RELATION_PROMOTION_SOURCE_MISMATCH`; forkert form (`[{"interpretation_id":"x"}]`) ⇒ undtagelsen `RELATION_PROMOTION_ITEMS_INVALID`;
   5. `red_promote_relation_interpretations_batch(src, items, repeat('0',64))` ⇒ `RELATION_PROMOTION_PREVIEW_STALE`;
   6. med rigtig hash ⇒ batch-id; 2 rækker i `interpretation_promotion` med `target_type='family'`, `evidence->>'state_sha256'` = `private.relation_binding_state_sha256(id)`, `evidence ? 'vielse_fact_id'`;
   7. **replay:** samme kald igen (samme elementer, samme previewhash) ⇒ samme batch-id og 0 nye rækker; samme previewhash med et andet element-array ⇒ `RELATION_PROMOTION_REPLAY_MISMATCH`; nyt preview af samme elementer ⇒ hvert element `RELATION_PROMOTION_ALREADY_APPLIED`;
@@ -953,7 +970,7 @@ transaktionen ved samme mekanisme, og »0 delvise writes« efter afbruddet er de
   10. **vielsesfaktum i previewet** (Codex plan-r1 #9): et nyt ægteskab uden vielsesfakta → preview (`vielse_fact_id` null) → indsæt som ejer ét `fact(subjekt_type='family', subjekt_id=<familie>, faktatype='vielse')` → batch med den gamle previewhash ⇒ `RELATION_PROMOTION_PREVIEW_STALE`; nyt preview ⇒ `vielse_fact_id` = faktummets id, og bindingens `evidence->>'vielse_fact_id'` er det samme id;
   11. `family_id` med 19 cifre uden for bigint (`9999999999999999999`) ⇒ `RELATION_PROMOTION_ITEMS_INVALID` (ikke en rå castfejl).
 
-Fixture-kaldene efterfølges af `SET CONSTRAINTS ALL IMMEDIATE;` som i Task 2-3.
+Fixture-kaldene efterfølges af `SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;` som i Task 2-3.
 
 Skriv blokken i samme stil som Task 3 (`BEGIN … EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS … IF v_err NOT LIKE '<KODE>%' THEN RAISE; END IF; END;`), og slut med `RAISE NOTICE 'OK: binding af relationer';`.
 
@@ -1076,7 +1093,7 @@ BEGIN
   -- Samme profilform som den eksisterende promotion-writer (schema.sql ~9098): ét par pr. element,
   -- sorteret efter regel og version (Codex plan-r1 #10).
   SELECT coalesce(jsonb_agg(jsonb_build_object('rule_key',i->>'rule_key','rule_version',(i->>'rule_version')::int)
-           ORDER BY i->>'rule_key',(i->>'rule_version')::int),'[]'::jsonb)
+           ORDER BY i->>'rule_key' COLLATE "C",(i->>'rule_version')::int),'[]'::jsonb)
     INTO v_profile FROM jsonb_array_elements(v_preview->'items') i;
   INSERT INTO private.interpretation_promotion_batch(rule_profile_hash,preview_hash,promoted_by,promoted_by_name,requested_count,items_sha256)
   VALUES (private.reimport_canonical_json_sha256(jsonb_build_object('contract','relation-promotion-profile-v1',
@@ -1101,7 +1118,7 @@ Registrér de to nye `red_*`-navne de fire steder.
 - [ ] **Step 4: To-sessionstests** (Codex plan-r1 #8; mønster som Task 3 Step 4, med de involverede personer committet før `BEGIN` og slettet efter `ROLLBACK`):
   - **(a) family_member-write venter på bindingen:** hovedsessionen har kørt `red_promote_relation_interpretations_batch` (ikke committet); dblink-sessionen forsøger `INSERT INTO family_member(...)` for en committet part med `lock_timeout=300ms` ⇒ `lock timeout`.
   - **(b) konkurrerende promotion:** dblink-sessionen holder kildelåsen (`BEGIN; SELECT pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:<kilde>',0))`) som en anden batch gør; hovedsessionen kalder `red_promote_relation_interpretations_batch` med `SET LOCAL lock_timeout='300ms'` i en indre blok ⇒ SQLSTATE `55P03`; derefter 0 rækker i `interpretation_promotion` med `target_type='family'` for elementerne og 0 nye `interpretation_promotion_batch` med previewhashen.
-  - **(c) identitetsgenafgørelse:** dblink-sessionen holder `private.lock_family_rows(ARRAY[<committet part>])`; hovedsessionen kalder batchen ⇒ `55P03` og 0 bindinger/batches.
+  - **(c) identitetsgenafgørelse:** dblink-sessionen holder `SET lock_timeout='5s'; SELECT … FROM person WHERE id=<committet part> FOR NO KEY UPDATE` (ikke `lock_family_rows`' `FOR UPDATE`, som ville hænge på hovedsessionens FK-lås `FOR KEY SHARE`; se Task 3 Step 4); hovedsessionen kalder batchen ⇒ `55P03` og 0 bindinger/batches.
   Slut med `RAISE NOTICE 'OK: bindingens låse'`. (40P01 provokeres ikke; se Task 3 Step 4.)
 - [ ] **Step 4b: `db-verify.sql`** (Codex plan-r1 #16) — ny blok `$relation_promotion_verify$`: kolonnen `private.interpretation_promotion_batch.items_sha256` findes, er `text`, nullable og har en CHECK med `^[0-9a-f]{64}$`; `to_regprocedure` findes for `private.preview_relation_promotions(bigint,jsonb,boolean)`, `public.red_preview_relation_promotions(bigint,jsonb)` og `public.red_promote_relation_interpretations_batch(bigint,jsonb,text)`; de to `public`-funktioner er `prosecdef`, `authenticated` har EXECUTE og `anon` har ikke; den private har ingen EXECUTE for `anon`/`authenticated`. Fejlkode `RELATION_PROMOTION_CONTRACT_INVALID`.
 - [ ] **Step 5: Kør** → `OK: binding af relationer`; `run-db-verify-disposable.sql` grøn.
@@ -1171,7 +1188,7 @@ BEGIN
   par:=pg_temp.f2a_parent(-2502,m->'source',-2506,-2507,-2508,v_actor);
   PERFORM pg_temp.f2a_publish(-2502,m->'source',par->'child_post',-2506,v_actor,'Barn Alfa. søn af Far.');
   v_pfam:=(par->>'family')::bigint;
-  SET CONSTRAINTS ALL IMMEDIATE;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
   SELECT jsonb_agg(jsonb_build_object('interpretation_id',ic.id::text,'family_id',v_pfam)) INTO items
     FROM private.interpretation_current ic WHERE ic.interpretation_key=(par->'claim'->>'key')::uuid;
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
@@ -1202,29 +1219,29 @@ BEGIN
   IF pg_temp.f2a_visible(v_fam)<>1 THEN RAISE EXCEPTION 'FAMILY_SOURCES_TEST_FAILED: kontrakt 2 tilbage'; END IF;
 
   -- (3) levende barn i familien
-  m:=pg_temp.f2a_bound(-2512,v_actor); SET CONSTRAINTS ALL IMMEDIATE;
+  m:=pg_temp.f2a_bound(-2512,v_actor); SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
   IF pg_temp.f2a_visible((m->>'family')::bigint)<>1 THEN RAISE EXCEPTION 'FAMILY_SOURCES_TEST_FAILED: (3) ikke synlig før'; END IF;
   INSERT INTO person(id,levende,privat,status) VALUES (-2519,true,false,'2a');
   INSERT INTO family_member(family_id,person_id,rolle) VALUES ((m->>'family')::bigint,-2519,'barn');
   IF pg_temp.f2a_visible((m->>'family')::bigint)<>0 THEN RAISE EXCEPTION 'FAMILY_SOURCES_TEST_FAILED: levende barn'; END IF;
 
   -- (4) staged ægtefælle
-  m:=pg_temp.f2a_bound(-2522,v_actor); SET CONSTRAINTS ALL IMMEDIATE;
+  m:=pg_temp.f2a_bound(-2522,v_actor); SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
   IF pg_temp.f2a_visible((m->>'family')::bigint)<>1 THEN RAISE EXCEPTION 'FAMILY_SOURCES_TEST_FAILED: (4) ikke synlig før'; END IF;
   UPDATE person SET staged=true WHERE id=-2523;   -- ægtefællen = p_base-1
   IF pg_temp.f2a_visible((m->>'family')::bigint)<>0 THEN RAISE EXCEPTION 'FAMILY_SOURCES_TEST_FAILED: staged'; END IF;
 
   -- (5) ny identitetsversion gennem identitetswriteren (samme person, version 2)
-  m:=pg_temp.f2a_bound(-2532,v_actor); SET CONSTRAINTS ALL IMMEDIATE;
+  m:=pg_temp.f2a_bound(-2532,v_actor); SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
   IF pg_temp.f2a_visible((m->>'family')::bigint)<>1 THEN RAISE EXCEPTION 'FAMILY_SOURCES_TEST_FAILED: (5) ikke synlig før'; END IF;
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   PERFORM private.decide_source_persona_identity((m->>'spouse_persona')::uuid,-2533,1,'accepted',
     '{"basis":"web_detail","note":"2a ny version"}','human');
-  SET CONSTRAINTS ALL IMMEDIATE;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
   IF pg_temp.f2a_visible((m->>'family')::bigint)<>0 THEN RAISE EXCEPTION 'FAMILY_SOURCES_TEST_FAILED: ny identitetsversion'; END IF;
 
   -- (6) upubliceret post (tilbagetrukket gennem redaktions-RPC'en)
-  m:=pg_temp.f2a_bound(-2542,v_actor); SET CONSTRAINTS ALL IMMEDIATE;
+  m:=pg_temp.f2a_bound(-2542,v_actor); SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
   IF pg_temp.f2a_visible((m->>'family')::bigint)<>1 THEN RAISE EXCEPTION 'FAMILY_SOURCES_TEST_FAILED: (6) ikke synlig før'; END IF;
   v_sha:=private.narrative_record_state(-2542,-2542,m->'post'->>'key',true)->>'state_sha256';
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
@@ -1237,12 +1254,12 @@ BEGIN
   -- (7) afvist påstand: ingen writer laver en ny version af en accepteret påstand i dag, så den skrives som ejer
   -- (version 2, samme nøgle, med sin supporting-observation); afviser triggerne en direkte 'rejected'-version,
   -- skrives version 2 som 'proposed' og afgøres 'rejected' gennem red_decide_interpretation.
-  m:=pg_temp.f2a_bound(-2552,v_actor); SET CONSTRAINTS ALL IMMEDIATE;
+  m:=pg_temp.f2a_bound(-2552,v_actor); SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
   IF pg_temp.f2a_visible((m->>'family')::bigint)<>1 THEN RAISE EXCEPTION 'FAMILY_SOURCES_TEST_FAILED: (7) ikke synlig før'; END IF;
   v_v2:=gen_random_uuid();
-  INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,
+  INSERT INTO private.interpretation(id,interpretation_key,version,supersedes_id,source_id,source_persona_id,interpretation_kind,predicate,
     value,schema_version,derivation_kind,confidence,status,method,extraction_run_id)
-  SELECT v_v2,ic.interpretation_key,ic.version+1,ic.source_id,ic.source_persona_id,ic.interpretation_kind,ic.predicate,
+  SELECT v_v2,ic.interpretation_key,ic.version+1,ic.id,ic.source_id,ic.source_persona_id,ic.interpretation_kind,ic.predicate,
          ic.value,ic.schema_version,ic.derivation_kind,ic.confidence,'proposed',ic.method,ic.extraction_run_id
     FROM private.interpretation_current ic WHERE ic.interpretation_key=(m->'claim'->>'key')::uuid;
   INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal)
@@ -1251,11 +1268,11 @@ BEGIN
   SET LOCAL ROLE authenticated;
   PERFORM red_decide_interpretation(v_v2,(SELECT version FROM private.interpretation WHERE id=v_v2),'rejected','{"note":"2a afvist"}');
   RESET ROLE;
-  SET CONSTRAINTS ALL IMMEDIATE;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
   IF pg_temp.f2a_visible((m->>'family')::bigint)<>0 THEN RAISE EXCEPTION 'FAMILY_SOURCES_TEST_FAILED: afvist påstand'; END IF;
 
   -- (8) to supporting-observationer på den bundne version ⇒ 0 (r2-M6)
-  m:=pg_temp.f2a_bound(-2562,v_actor); SET CONSTRAINTS ALL IMMEDIATE;
+  m:=pg_temp.f2a_bound(-2562,v_actor); SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
   IF pg_temp.f2a_visible((m->>'family')::bigint)<>1 THEN RAISE EXCEPTION 'FAMILY_SOURCES_TEST_FAILED: (8) ikke synlig før'; END IF;
   INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal)
     SELECT ic.id,(m->'post'->'clauses'->>0)::uuid,'supporting',2
@@ -1358,6 +1375,7 @@ Tilføj den til `db-rls.sql`'s REVOKE/GRANT-blok for offentlige læsefunktioner 
   export function familieIderForPerson(indexes: ModelIndexes, focusId: string): { aegteskaber: { spouseId: string | null; familyId: string }[]; foraeldreFamilie: string | null };
   export function kildeLinje(k: FamilieKilde): string;   // 'Kilde: ‹sourceLabel› · ‹recordLabel›'
   export function mapFamilieKilder(rows: unknown): FamilieKilde[];   // ugyldige rækker droppes
+  export function bigintTekst(v: unknown): string | null;            // decimalstreng i bigint-intervallet, sikkert heltal, ellers null
   ```
 
 - [ ] **Step 1: Skriv de fejlende tests**
@@ -1371,18 +1389,18 @@ const persons = ['1', '2', '3', '4'].map((id) => ({ id, name: `P${id}` })) as ne
 
 describe('familieIderForPerson', () => {
   it('giver familie-id pr. ægteskab og fødselsfamilien', () => {
-    const m = buildModel(persons, [
+    const m = buildModel({ persons, unions: [
       { id: 'f10', p1: '1', p2: '2', p2_name: null, year: null },
-    ] as never, [{ child: '3', parent: '1', union: 'f10' }, { child: '3', parent: '2', union: 'f10' }] as never);
+    ], parentChild: [{ child: '3', parent: '1', union: 'f10' }, { child: '3', parent: '2', union: 'f10' }] });
     expect(familieIderForPerson(m.indexes, '1').aegteskaber).toEqual([{ spouseId: '2', familyId: '10' }]);
     expect(familieIderForPerson(m.indexes, '3').foraeldreFamilie).toBe('10');
     expect(familieIderForPerson(m.indexes, '4')).toEqual({ aegteskaber: [], foraeldreFamilie: null });
   });
   it('to_familier_samme_par: hver familie for sig', () => {
-    const m = buildModel(persons, [
+    const m = buildModel({ persons, unions: [
       { id: 'f10', p1: '1', p2: '2', p2_name: null, year: null },
       { id: 'f11', p1: '1', p2: '2', p2_name: null, year: null },
-    ] as never, [] as never);
+    ], parentChild: [] });
     expect(familieIderForPerson(m.indexes, '2').aegteskaber.map((a) => a.familyId).sort()).toEqual(['10', '11']);
   });
 });
@@ -1396,6 +1414,7 @@ describe('kildeLinje og mapFamilieKilder', () => {
       // Et tal over 2^53 kan allerede have mistet præcision i JSON.parse ⇒ droppes (fail closed).
       { family_id: 9007199254740993, slags: 'aegteskab', counterpart_person_id: 2, source_record_ref: null, source_label: 'DAA X', record_label: 'Post 4', citation_label: 'c' },
       { family_id: '10x', slags: 'aegteskab', counterpart_person_id: 2, source_record_ref: null, source_label: 'DAA X', record_label: 'Post 5', citation_label: 'c' },
+      { family_id: '9999999999999999999', slags: 'aegteskab', counterpart_person_id: 2, source_record_ref: null, source_label: 'DAA X', record_label: 'Post 6', citation_label: 'c' },
       null,
     ]);
     expect(rows).toHaveLength(2);
@@ -1405,7 +1424,7 @@ describe('kildeLinje og mapFamilieKilder', () => {
   });
 });
 ```
-Tilpas `buildModel`-kaldets argumenter til den faktiske signatur i `packages/core/src/buildModel.ts` (læs den først; testen skal bruge den rigtige form).
+`buildModel(db: Db)` med `Db = { persons, unions, parentChild }` (`packages/core/src/buildModel.ts:12`, `types.ts:121`); `persons` castes som i eksemplet, fordi `AppPerson` har flere påkrævede felter — tilføj dem, hvis `tsc` kræver det.
 
 - [ ] **Step 2: Kør og se den fejle** — `env -u NODE_OPTIONS npm run test -w @daa/core -- familieKilder` → FAIL (modul findes ikke).
 
@@ -1448,10 +1467,14 @@ export function kildeLinje(k: FamilieKilde): string {
 // Id'er er decimalstrenge (modellens konvention, jf. web/src/data/model.ts' number | string). PostgREST
 // serialiserer bigint som JSON-tal; et tal godtages kun som sikkert heltal (ellers kan JSON.parse allerede
 // have afrundet det), en streng kun som decimal. Aldrig Number() på en streng (spec §5.2; Codex plan-r1 #11).
-function idTekst(v: unknown): string | null {
-  if (typeof v === 'string') return /^-?\d{1,19}$/.test(v) ? v : null;
+// Postgres-bigint-intervallet; et 19-cifret id uden for det ville få hele RPC-kaldet til at fejle (Opus plan-r2 m2).
+const BIGINT_MIN = -(2n ** 63n);
+const BIGINT_MAX = 2n ** 63n - 1n;
+export function bigintTekst(v: unknown): string | null {
   if (typeof v === 'number') return Number.isSafeInteger(v) ? String(v) : null;
-  return null;
+  if (typeof v !== 'string' || !/^-?\d{1,19}$/.test(v)) return null;
+  const b = BigInt(v);
+  return b >= BIGINT_MIN && b <= BIGINT_MAX ? v : null;
 }
 
 export function mapFamilieKilder(rows: unknown): FamilieKilde[] {
@@ -1460,8 +1483,8 @@ export function mapFamilieKilder(rows: unknown): FamilieKilde[] {
   for (const r of rows as Record<string, unknown>[]) {
     if (!r || (r.slags !== 'aegteskab' && r.slags !== 'foraelder')) continue;
     if (typeof r.source_label !== 'string' || typeof r.record_label !== 'string') continue;
-    const familyId = idTekst(r.family_id);
-    const counterpartPersonId = idTekst(r.counterpart_person_id);
+    const familyId = bigintTekst(r.family_id);
+    const counterpartPersonId = bigintTekst(r.counterpart_person_id);
     if (!familyId || !counterpartPersonId) continue;
     ud.push({
       familyId, slags: r.slags, counterpartPersonId,
@@ -1497,9 +1520,9 @@ const { fetchFamilySources } = await import('../familySources');
 beforeEach(() => { rpc = vi.fn(); });
 
 describe('fetchFamilySources', () => {
-  it('kalder RPC med numeriske id'er og former rækkerne', async () => {
+  it(`kalder RPC med decimalstrenge og former rækkerne`, async () => {
     rpc.mockResolvedValueOnce({ data: [{ family_id: 10, slags: 'aegteskab', counterpart_person_id: 2, source_record_ref: 'r', source_label: 'DAA X', record_label: 'Post 1', citation_label: 'c' }], error: null });
-    const ud = await fetchFamilySources(['10', 'x', '10']);
+    const ud = await fetchFamilySources(['10', 'x', '10', '9999999999999999999']);
     expect(rpc).toHaveBeenCalledWith('public_family_sources', { p_family_ids: ['10'] });
     expect(ud[0].recordLabel).toBe('Post 1');
   });
@@ -1509,7 +1532,7 @@ describe('fetchFamilySources', () => {
     rpc.mockRejectedValueOnce(new Error('net'));
     expect(await fetchFamilySources(['10'])).toEqual([]);
   });
-  it('ingen id'er ⇒ intet kald', async () => {
+  it(`ingen id'er ⇒ intet kald`, async () => {
     expect(await fetchFamilySources([])).toEqual([]);
     expect(rpc).not.toHaveBeenCalled();
   });
@@ -1523,12 +1546,12 @@ describe('fetchFamilySources', () => {
 ```ts
 // Trin 5b 2a: kilder på ægteskab/forældrelinje. Fejl (fx funktionen findes ikke endnu i prod) giver
 // en tom liste — panelet må aldrig brydes af en manglende kildelinje (spec §5.2).
-import { mapFamilieKilder, type FamilieKilde } from '@daa/core';
+import { bigintTekst, mapFamilieKilder, type FamilieKilde } from '@daa/core';
 import { supabase } from '../supabase';
 
 export async function fetchFamilySources(familyIds: string[]): Promise<FamilieKilde[]> {
   // Decimalstrenge hele vejen; PostgREST caster dem til bigint[] (spec §5.2, r2-m1).
-  const ids = [...new Set(familyIds.filter((id) => /^-?\d{1,19}$/.test(id)))];
+  const ids = [...new Set(familyIds.filter((id) => bigintTekst(id) !== null))];
   if (!ids.length) return [];
   try {
     const client = supabase as unknown as { rpc: (n: string, a: unknown) => Promise<{ data: unknown; error: unknown }> };
@@ -1559,7 +1582,7 @@ export async function fetchFamilySources(familyIds: string[]): Promise<FamilieKi
   - stien efter `/rest/v1/` dispatches: `rpc/narrative_record_contract_version` ⇒ `2`; `rpc/public_person_bio_source_versions_v2` ⇒ læs `route.request().postDataJSON().p_person_ids` og returnér versionen med `source_record_ref: 'r1'` **kun** hvis listen indeholder `1` (ellers `[]`); `rpc/public_family_sources` ⇒ én `aegteskab`-række for den familie, hvor person 1 og 2 er partnere i `TABLE_FIXTURES`, med `source_record_ref: 'r1'`; øvrige `rpc/*` ⇒ `[]`; tabeller ⇒ `TABLE_FIXTURES[tabel] ?? []`. Catch-all'en betyder, at intet PostgREST-kald kan nå nettet. Kroppen af hvert `public_family_sources`-kald gemmes i et array.
   - Gå til `/person/1`: teksten `Kilde: DAA 2012-14 · Post 1` er en `button`. Gå til `/person/2`: samme tekst findes og er **ikke** en `button` (person 2 har ingen bio-version med `r1`).
   - Til sidst: mindst ét `public_family_sources`-kald er registreret, og alle dets `p_family_ids` er decimalstrenge (`typeof === 'string'`) — decimalstrengkravet bevist hen over netværksgrænsen.
-  Læs først `TABLE_FIXTURES` (`web/e2e/fixtures.ts`) for et par med en fælles familie; brug dets id'er i stedet for 1/2, hvis fixturen har andre. Kør: `env -u NODE_OPTIONS npm run e2e -w web -- family-sources`.
+  V2-bio-rækken skal have den form, `mapPublicBioSourceVersionsV2` godtager (den er streng og kaster `PublicNarrativeFetchError` ved fejlform) — kopiér rækkeformen fra `web/src/data/__tests__/orThrow.test.ts:68` og brug en uuid som `source_record_ref` (også i `public_family_sources`-svaret). Læs først `TABLE_FIXTURES` (`web/e2e/fixtures.ts`) for et par med en fælles familie; brug dets id'er i stedet for 1/2, hvis fixturen har andre. Kør: `env -u NODE_OPTIONS npm run e2e -w web -- family-sources`.
 
 - [ ] **Step 8: Commit** — `feat(151): kildelinje ved ægteskab og forældrelinje i detaljepanelet (5b 2a)`.
 
@@ -1620,3 +1643,18 @@ Alle fund er efterprøvet mod koden og rettet i planen ovenfor:
 | M14 | `get_advisors` erstattet af `db-verify` | kan ikke pege på en lokal base; afvigelsen accepteret af projektejeren 2026-10-11 — `get_advisors` bliver gate i overførslens runbook |
 | m15 | arkitekturteksten nævnte »regel« som stale-udløser | rettet (reglen indgår bevidst ikke) |
 | m16 | ingen catalog-verifikation af `items_sha256` og de nye signaturer | Task 4 Step 4b |
+
+## Plan-review runde 2 (Opus, 2026-10-11 — Codex-kvoten opbrugt): NO-GO, 4 BLOCKER / 3 MAJOR / 6 MINOR
+
+Alle fund efterprøvet mod koden (Postgres-semantik, `schema.sql` 1636-1645, 7769, 13235, `test-evidence-promotion.sql:133`, `buildModel.ts:12`) og rettet:
+
+| # | Fund | Rettelse |
+| --- | --- | --- |
+| B1 | `SET CONSTRAINTS ALL IMMEDIATE` alene gælder resten af transaktionen og knækker to-trins-writere | altid `IMMEDIATE; DEFERRED;` (repoets idiom) |
+| B2 | mode-CHECK'en godtog `expected_fact_type IS NULL` i text_assertion-grenen (NULL ⇒ CHECK godtaget) | `AND expected_fact_type IS NOT NULL`; db-verify kontrollerer definitionen |
+| B3 | dblink-`lock_family_rows` (`FOR UPDATE`) ville hænge på hovedsessionens FK-lås | dblink tager `FOR NO KEY UPDATE` + `lock_timeout` |
+| B4 | andet `f2a_publish` i samme transaktion ⇒ `NARRATIVE_RECORD_FOREIGN_CHANGE_SET` | `app.change_set_id` nulstilles før upsert og efter publicering |
+| M1 | `test-evidence-promotion.sql:133` caster den gamle signatur | rettes i Task 1 og stages |
+| M2 | direkte version 2 uden `supersedes_id` | `supersedes_id=ic.id` |
+| M3 | apostrof i vitest-navne | backticks; »decimalstrenge« |
+| m1-m6 | `COLLATE "C"` i profilen; bigint-interval (`bigintTekst` delt af core og web); v2-rækkeform i Playwright; `BEGIN` i dblink-indsættelsen; `reason_code` vs. rejst fejl; `buildModel(db)`-signaturen | rettet |
