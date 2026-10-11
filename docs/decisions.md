@@ -14,8 +14,8 @@ det blive én stor spec og én stor plan, og læseren ville først se noget, nå
 
 **Besluttet:**
 1. **Del 2 skæres i tre skiver:** 2a binder de 203 ægteskaber med afgjorte parter og de 7 accepterede
-   forældre; 2b tager de uafklarede (31 uoverensstemmelser, nye personer, »(F.: …)«-fejllæsningen, M1-M3 og
-   M5-M10); 2c tager børnene.
+   forældre; 2b tager de uafklarede (31 uoverensstemmelser, nye personer, »(F.: …)«-fejllæsningen, klausul-dispositionen, M1-M3
+   og M5-M10); 2c tager børnene.
 2. **Læseren skal se kilden.** 2a tilføjer en offentlig læsefunktion `public_family_sources`, så web viser
    »Kilde: DAA 2018-20 · ‹post›« ved et ægteskab og en forældrelinje. Kilden tages fra bindingen og den
    publicerede post, ikke fra loaderens vielse-citation (som mangler side og ikke findes for 24 familier).
