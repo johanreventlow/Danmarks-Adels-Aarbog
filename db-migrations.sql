@@ -7438,6 +7438,17 @@ BEGIN
                      WHERE NOT v_smp.mapping ? e.v OR (o>1 AND e.v::int<=(v_dup->>(o::int-2))::int)) THEN
         RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID';
       END IF;
+      -- En dublet skal være navnefæller efter udvælgelsens regel (§23.3 pkt. 3): samme visningsnavn eller fulde navn
+      -- som den laveste plads. Ellers kunne `1=2=3` altid tælle som enighed (final review I1).
+      IF EXISTS (SELECT 1 FROM jsonb_array_elements_text(v_dup) e
+                   JOIN private.source_persona_identity_candidate c ON c.id=(v_smp.mapping->>e)::uuid
+                   JOIN public.person p ON p.id=c.candidate_person_id,
+                   public.person f
+                  WHERE f.id=v_person
+                    AND NOT coalesce(lower(btrim(p.visning_navn))=lower(btrim(f.visning_navn)),false)
+                    AND NOT coalesce(lower(btrim(p.visning_fuldt_navn))=lower(btrim(f.visning_fuldt_navn)),false)) THEN
+        RAISE EXCEPTION 'IDENTITY_CONTROL_DUPLICATE_NOT_HOMONYM';
+      END IF;
       v_evidence:=v_evidence||jsonb_build_object('display_positions',v_dup,'same_individual_person_ids',
         (SELECT jsonb_agg(c.candidate_person_id ORDER BY e.o) FROM jsonb_array_elements_text(v_dup) WITH ORDINALITY e(v,o)
            JOIN private.source_persona_identity_candidate c ON c.id=(v_smp.mapping->>e.v)::uuid));
@@ -18812,7 +18823,7 @@ DECLARE
     'public.red_publicer_udgave(bigint)'::regprocedure,
     'public.red_record_identity_candidates(jsonb,jsonb)'::regprocedure,
     'public.red_rediger_story(bigint,text,text,bigint,bigint,bigint,bigint,date,date,text,text,boolean)'::regprocedure,
-    to_regprocedure('public.red_register_identity_control_run(uuid)'),
+    to_regprocedure('public.red_register_identity_control_run(uuid,text)'),
     'public.red_registrer_media_variant(bigint,text,text,text,bigint,integer,integer)'::regprocedure,
     'public.red_reimport_batch_result(uuid,uuid)'::regprocedure,
     'public.red_relation(text,bigint,text,bigint,text,text)'::regprocedure,
@@ -20737,6 +20748,7 @@ CREATE TABLE IF NOT EXISTS private.identity_control_event (
 ALTER TABLE private.identity_control_run ADD COLUMN IF NOT EXISTS excluded_sha256 text
   CHECK (excluded_sha256 IS NULL OR excluded_sha256 ~ '^[0-9a-f]{64}$');
 ALTER TABLE private.identity_control_run ADD COLUMN IF NOT EXISTS k_random integer CHECK (k_random IS NULL OR k_random>=0);
+ALTER TABLE private.identity_control_run ADD COLUMN IF NOT EXISTS cause text CHECK (cause IS NULL OR btrim(cause)<>'');
 ALTER TABLE private.identity_control_sample DROP CONSTRAINT IF EXISTS identity_control_sample_stratum_check;
 ALTER TABLE private.identity_control_sample ADD CONSTRAINT identity_control_sample_stratum_check
   CHECK (stratum IN ('single_family','multi_family','navnefaelle','relation'));   -- relation: kun historisk (§23)
@@ -20941,7 +20953,8 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION private.control_run_status(uuid) FROM PUBLIC,anon,authenticated;
 
-CREATE OR REPLACE FUNCTION red_register_identity_control_run(p_candidate_run_id uuid)
+DROP FUNCTION IF EXISTS red_register_identity_control_run(uuid);   -- signaturen fik p_cause (final review I2)
+CREATE OR REPLACE FUNCTION red_register_identity_control_run(p_candidate_run_id uuid,p_cause text DEFAULT NULL)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE v_source bigint; v_cur uuid; v_id uuid:=gen_random_uuid(); v_ipop text; v_rpop text; v_run private.source_persona_identity_candidate_run%ROWTYPE;
   v_existing uuid; v_excl text; v_alloc jsonb; v_k integer:=20;   -- K: projektejerens valg 2026-10-10 (spec §23.2)
@@ -20956,6 +20969,16 @@ BEGIN
   -- dens status. Senere inputdrift fanges af statussen (kandidatinput_aendret), ikke her.
   SELECT id INTO v_existing FROM private.identity_control_run WHERE candidate_run_id=p_candidate_run_id;
   IF FOUND THEN RETURN v_existing; END IF;
+  -- Spec §23.4 »Efter failed«: findes for kilden en kontrolkørsel, hvis seneste hændelse er failed eller en
+  -- opgivet forsegling, kræver en ny kørsel en angivet årsag (rettelse + decisions-linje). Ellers kunne en
+  -- triviel ny kandidatkørsel trække en ny stikprøve (final review I2). Årsagen gemmes på kørslen.
+  IF nullif(btrim(p_cause),'') IS NULL AND EXISTS (
+       SELECT 1 FROM private.identity_control_run r
+        WHERE r.source_id=v_source
+          AND (SELECT e.status FROM private.identity_control_event e WHERE e.control_run_id=r.id ORDER BY e.seq DESC LIMIT 1)
+              IN ('failed','sealed')) THEN
+    RAISE EXCEPTION 'IDENTITY_CONTROL_PRIOR_FAILED';
+  END IF;
   -- Kørslens input skal være uændret ved registreringen (samme kontrol som red_record_identity_candidates):
   -- ellers bygger stikprøven på kandidater, der ikke længere svarer til basen. Registrér straks efter kørslen.
   SELECT * INTO v_run FROM private.source_persona_identity_candidate_run WHERE id=p_candidate_run_id;
@@ -21005,8 +21028,9 @@ BEGIN
   SELECT private.reimport_canonical_json_sha256(coalesce(jsonb_agg(k::text ORDER BY k::text COLLATE "C"),'[]'::jsonb)) INTO v_rpop FROM pg_temp.ctl_cards;
   SELECT private.reimport_canonical_json_sha256(coalesce(jsonb_agg(pid::text ORDER BY pid::text COLLATE "C"),'[]'::jsonb)) INTO v_excl FROM pg_temp.ctl_excl;
   INSERT INTO private.identity_control_run(id,source_id,candidate_run_id,identity_population_sha256,relation_population_sha256,
-    input_list_sha256,excluded_sha256,k_random,created_by)
-    VALUES (v_id,v_source,p_candidate_run_id,v_ipop,v_rpop,private.control_input_list_sha256(p_candidate_run_id),v_excl,v_k,auth.uid());
+    input_list_sha256,excluded_sha256,k_random,cause,created_by)
+    VALUES (v_id,v_source,p_candidate_run_id,v_ipop,v_rpop,private.control_input_list_sha256(p_candidate_run_id),v_excl,v_k,
+            nullif(btrim(p_cause),''),auth.uid());
   INSERT INTO private.identity_control_exclusion(control_run_id,source_persona_id,reason) SELECT v_id,pid,reason FROM pg_temp.ctl_excl;
   INSERT INTO private.identity_control_parent_card(control_run_id,interpretation_key,interpretation_version,family_id,
     counterpart_person_id,counterpart_persona_id,partner_ids)
@@ -21082,9 +21106,9 @@ BEGIN
   RETURN v_status;
 END $$;
 
-REVOKE ALL ON FUNCTION red_register_identity_control_run(uuid),red_identity_control_sample(uuid),
+REVOKE ALL ON FUNCTION red_register_identity_control_run(uuid,text),red_identity_control_sample(uuid),
   red_seal_identity_control_run(uuid,text,text),red_evaluate_identity_control_run(uuid) FROM PUBLIC,anon,authenticated;
-GRANT EXECUTE ON FUNCTION red_register_identity_control_run(uuid),red_identity_control_sample(uuid),
+GRANT EXECUTE ON FUNCTION red_register_identity_control_run(uuid,text),red_identity_control_sample(uuid),
   red_seal_identity_control_run(uuid,text,text),red_evaluate_identity_control_run(uuid) TO authenticated;
 
 -- ---------- Trin 5b, Task 8: family_corroboration (spec §6.2-6.3) ----------
@@ -21146,6 +21170,13 @@ BEGIN
   IF v_claims<>v_fams THEN RAISE EXCEPTION 'FAMILY_CORROBORATION_COUNT_MISMATCH'; END IF;
   IF v_fams>1 AND EXISTS (SELECT 1 FROM public.family_member WHERE person_id=v_pid AND rolle='partner' AND ordinal IS NULL) THEN
     RAISE EXCEPTION 'FAMILY_CORROBORATION_ORDINAL_NULL';
+  END IF;
+  -- Det gemte ægteskabsnummer skal stadig være det gældende: afvises en tidligere påstand i posten senere, rykker
+  -- numrene, og det gemte nummer peger på en anden families ægtefælle (final review I3). Ved én familie er der
+  -- kun ét valg, så forskydningen er uden betydning.
+  IF v_fams>1 AND (SELECT o.marriage_ordinal FROM private.relation_marriage_ordinals(v_occ) o
+                    WHERE o.interpretation_key=v_party.interpretation_key) IS DISTINCT FROM v_party.marriage_ordinal THEN
+    RAISE EXCEPTION 'FAMILY_CORROBORATION_ORDINAL_DRIFT';
   END IF;
   IF (SELECT count(*) FROM public.family_member WHERE person_id=v_pid AND rolle='partner'
        AND (v_fams=1 OR ordinal=v_party.marriage_ordinal))<>1 THEN

@@ -8,7 +8,7 @@ DECLARE
   v_actor uuid:='11000000-0000-0000-0000-00000005b801';
   s jsonb; p jsonb; c jsonb; c2 jsonb; v_el jsonb:='{}'; i int; v_in jsonb; v_run uuid; v_cands jsonb:='[]'; v_ctl uuid;
   v_smp jsonb; v_pos text; v_set text; v_n int; v_sp uuid; v_fam bigint; v_defect jsonb:='{}'; v_name text; v_err text;
-  v_cand uuid; v_ev jsonb; v_good uuid[]:='{}'; v_excl_claim text; v_ctx jsonb;
+  v_cand uuid; v_ev jsonb; v_good uuid[]:='{}'; v_excl_claim text; v_ctx jsonb; v_ver int; v_iid uuid;
 BEGIN
   PERFORM pg_temp.f5b_actor(v_actor);
   s:=pg_temp.f5b_source(-5801);
@@ -32,7 +32,8 @@ BEGIN
     (-58121,false,false,'5b'),(-58122,false,false,'5b'),   -- D3 to ægteskaber, samme partner
     (-58131,false,false,'5b'),(-58132,false,false,'5b'),   -- D4 omstridt
     (-58141,false,false,'5b'),(-58142,false,false,'5b'),(-58143,false,false,'5b'), -- D5 NULL-ordinal, to familier
-    (-58151,false,false,'5b'),(-58152,false,false,'5b');   -- D6 familiekontekst ændret efter kørslen
+    (-58151,false,false,'5b'),(-58152,false,false,'5b'),   -- D6 familiekontekst ændret efter kørslen
+    (-58171,false,false,'5b'),(-58172,false,false,'5b'),(-58173,false,false,'5b'); -- D7 ordinal forskudt af senere afvisning
   p:=pg_temp.f5b_post(-5801,s,'D-1','Hoved D1. g. m. Dea.',ARRAY['Hoved D1.','g. m. Dea.'],-58101,v_actor);
   c:=pg_temp.f5b_claim(-5801,s,'relation.marriage',(p->'clauses'->>1)::uuid,'g. m. Dea.');
   PERFORM pg_temp.f5b_family(-58101,-58102,1);
@@ -68,6 +69,17 @@ BEGIN
   v_fam:=pg_temp.f5b_family(-58151,-58152,1);
   v_el:=v_el||jsonb_build_object('relation-persona:'||(c->>'key'),pg_temp.f5b_payload(p,c,(p->'clauses'->>1)::uuid,'g. m. Deg.','Deg'));
   v_defect:=v_defect||jsonb_build_object('D6',jsonb_build_object('claim',c->>'key','partner',-58152,'family',v_fam));
+  -- D7 (final review I3): tre påstande A, B, C (gemte numre 1, 2, 3), to familier (1 = B's, 2 = C's ægtefælle).
+  -- A afvises senere ⇒ antallet stemmer (2=2), men B's gemte nummer 2 peger nu på C's familie.
+  p:=pg_temp.f5b_post(-5801,s,'D-7','Hoved D7. g. m. Fejl. g. m. Deh. g. m. Dei.',
+     ARRAY['Hoved D7.','g. m. Fejl.','g. m. Deh.','g. m. Dei.'],-58171,v_actor);
+  c:=pg_temp.f5b_claim(-5801,s,'relation.marriage',(p->'clauses'->>1)::uuid,'g. m. Fejl.');
+  c2:=pg_temp.f5b_claim(-5801,s,'relation.marriage',(p->'clauses'->>2)::uuid,'g. m. Deh.');
+  v_defect:=v_defect||jsonb_build_object('D7A',jsonb_build_object('claim',c->>'key'),'D7',jsonb_build_object('claim',c2->>'key','partner',-58173));
+  c:=pg_temp.f5b_claim(-5801,s,'relation.marriage',(p->'clauses'->>3)::uuid,'g. m. Dei.');
+  PERFORM pg_temp.f5b_family(-58171,-58172,1); PERFORM pg_temp.f5b_family(-58171,-58173,2);
+  v_el:=v_el||jsonb_build_object('relation-persona:'||(c2->>'key'),pg_temp.f5b_payload(p,c2,(p->'clauses'->>2)::uuid,'g. m. Deh.','Deh'),
+                                 'relation-persona:'||(c->>'key'),pg_temp.f5b_payload(p,c,(p->'clauses'->>3)::uuid,'g. m. Dei.','Dei'));
 
   PERFORM pg_temp.f5b_write(-5801,v_actor,v_el);
 
@@ -155,12 +167,15 @@ BEGIN
   -- D3a afgøres menneskeligt først, så D3b rammer dobbelt mål
   SELECT pc.source_persona_id INTO v_sp FROM private.interpretation_party_current pc
    WHERE pc.interpretation_key=(v_defect->'D3a'->>'claim')::uuid AND pc.party_role='spouse';
+  SELECT id,version INTO v_iid,v_ver FROM private.interpretation_current WHERE interpretation_key=(v_defect->'D7A'->>'claim')::uuid;
   SET LOCAL ROLE authenticated;
   PERFORM red_afgoer_source_persona(v_sp,0,'same',-58122,'menneske','{}'::jsonb);
+  -- D7: den fejlagtige påstand A afvises (som i del 2), efter at personas har fået deres numre
+  PERFORM red_decide_interpretation(v_iid,v_ver,'rejected','{"basis":"test"}');
   RESET ROLE;
   FOR v_name,v_err IN SELECT * FROM (VALUES ('D1','FAMILY_CORROBORATION_PRINCIPAL_NOT_ACCEPTED'),('D2','FAMILY_CORROBORATION_COUNT_MISMATCH'),
       ('D3b','FAMILY_CORROBORATION_DOUBLE_TARGET'),('D4','FAMILY_CORROBORATION_KONFIDENS'),('D5','FAMILY_CORROBORATION_ORDINAL_NULL'),
-      ('D6','FAMILY_CORROBORATION_CANDIDATE_INVALID')) t LOOP
+      ('D6','FAMILY_CORROBORATION_CANDIDATE_INVALID'),('D7','FAMILY_CORROBORATION_ORDINAL_DRIFT')) t LOOP
     SELECT pc.source_persona_id INTO v_sp FROM private.interpretation_party_current pc
      WHERE pc.interpretation_key=(v_defect->v_name->>'claim')::uuid AND pc.party_role='spouse';
     SELECT id INTO v_cand FROM private.source_persona_identity_candidate WHERE run_id=v_run AND source_persona_id=v_sp AND rank=1;
@@ -181,6 +196,6 @@ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
   RESET ROLE;
-  RAISE NOTICE 'OK: not_ready, drift, ét maskinelt accept, udelukket persona afvist, seks defekter afvist med egen kode, kernen privat';
+  RAISE NOTICE 'OK: not_ready, drift, ét maskinelt accept, udelukket persona afvist, syv defekter afvist med egen kode (også forskudt ægteskabsnummer), kernen privat';
 END $family_corroboration$;
 ROLLBACK;

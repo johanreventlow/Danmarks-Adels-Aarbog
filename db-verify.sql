@@ -2971,7 +2971,7 @@ DECLARE
     'public.red_genopret_media(bigint)'::regprocedure,
     'public.red_identity_candidate_input(bigint,jsonb)'::regprocedure,
     'public.red_identity_control_sample(uuid)'::regprocedure,
-    'public.red_register_identity_control_run(uuid)'::regprocedure,
+    'public.red_register_identity_control_run(uuid,text)'::regprocedure,
     'public.red_relation_persona_input(bigint)'::regprocedure,
     'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
     'public.red_kasser_person_narrative_record(bigint,bigint,text,text)'::regprocedure,

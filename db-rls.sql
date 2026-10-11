@@ -693,7 +693,7 @@ BEGIN
     'public.red_genopret_media(bigint)',
     'public.red_identity_candidate_input(bigint,jsonb)',
     'public.red_identity_control_sample(uuid)',
-    'public.red_register_identity_control_run(uuid)',
+    'public.red_register_identity_control_run(uuid,text)',
     'public.red_relation_persona_input(bigint)',
     'public.red_ikke_samme_som(bigint,bigint)',
     'public.red_match_personer()',

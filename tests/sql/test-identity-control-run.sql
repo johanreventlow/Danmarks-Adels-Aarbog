@@ -4,7 +4,7 @@ BEGIN;
 \ir fixtures/relation-5b.sql
 
 -- Én kilde med tre ægtefælle-personas, hver med én familie og én egnet rang-1-kandidat.
-CREATE FUNCTION pg_temp.f5b_control_world(p_source bigint,p_actor uuid) RETURNS jsonb LANGUAGE plpgsql AS $$
+CREATE FUNCTION pg_temp.f5b_control_world(p_source bigint,p_actor uuid,p_names text DEFAULT NULL) RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE s jsonb; p jsonb; c jsonb; v_sp uuid; v_ids uuid[]:='{}'; v_in jsonb; v_run uuid; v_cands jsonb:='[]'; i int;
   v_fam bigint; v_fam1 bigint; v_child jsonb;
 BEGIN
@@ -18,6 +18,10 @@ BEGIN
     v_sp:=pg_temp.f5b_spouse(p_source,s,p,c,(p->'clauses'->>1)::uuid,'Mage '||i,1);
     v_fam:=pg_temp.f5b_family(p_source*10-i*2,p_source*10-i*2-1,1);
     v_ids:=v_ids||v_sp;
+    -- valgfrit navneskema (før kandidatkørslen, da navnene indgår i inputhashen):
+    -- 'par' = ægtefælle i og hovedperson i deler navn; 'hoved' = alle hovedpersoner deler navn
+    IF p_names='par' THEN UPDATE person SET visning_navn='Par '||i WHERE id IN (p_source*10-i*2,p_source*10-i*2-1);
+    ELSIF p_names='hoved' THEN UPDATE person SET visning_navn='Hoved Fælles' WHERE id=p_source*10-i*2; END IF;
     IF i=1 THEN
       -- Et barn med præcis én strukturel kandidat (post C-2's hovedperson er barn i C-1's familie).
       -- Børn er taget ud af del 1 (errata §22.9): påstanden må hverken komme i populationen eller stikprøven.
@@ -167,7 +171,7 @@ END $identity_control_deviation$;
 DO $identity_control_stale_run$
 DECLARE
   v_actor uuid:='11000000-0000-0000-0000-00000005b603';
-  w jsonb; v_ctl uuid; v_in jsonb;
+  w jsonb; v_ctl uuid; v_in jsonb; v_run2 uuid;
 BEGIN
   PERFORM pg_temp.f5b_actor(v_actor);
   w:=pg_temp.f5b_control_world(-5603,v_actor);
@@ -184,7 +188,25 @@ BEGIN
   IF (SELECT reason FROM private.identity_control_event WHERE control_run_id=v_ctl ORDER BY seq DESC LIMIT 1)<>'kandidatkoersel_foraeldet' THEN
     RAISE EXCEPTION 'CONTROL_TEST_FAILED: grund';
   END IF;
-  RAISE NOTICE 'OK: ny kandidatkørsel gør kontrolkørslen failed';
+  -- §23.4 »Efter failed« (final review I2): en ny kontrolkørsel kræver en angivet årsag, som gemmes.
+  SELECT id INTO v_run2 FROM private.source_persona_identity_candidate_run WHERE source_id=-5603 ORDER BY run_seq DESC LIMIT 1;
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    PERFORM red_register_identity_control_run(v_run2);
+    RAISE EXCEPTION 'CONTROL_TEST_FAILED: ny kontrolkørsel uden årsag efter failed';
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'IDENTITY_CONTROL_PRIOR_FAILED%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    PERFORM red_register_identity_control_run(v_run2,'   ');
+    RAISE EXCEPTION 'CONTROL_TEST_FAILED: blank årsag godtaget';
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'IDENTITY_CONTROL_PRIOR_FAILED%' THEN RAISE; END IF;
+  END;
+  v_ctl:=red_register_identity_control_run(v_run2,'generator rettet; decisions 2026-10-11');
+  RESET ROLE;
+  IF (SELECT cause FROM private.identity_control_run WHERE id=v_ctl)<>'generator rettet; decisions 2026-10-11' THEN
+    RAISE EXCEPTION 'CONTROL_TEST_FAILED: årsag ikke gemt';
+  END IF;
+  RAISE NOTICE 'OK: ny kandidatkørsel gør kontrolkørslen failed; ny kontrolkørsel derefter kun med angivet årsag';
 END $identity_control_stale_run$;
 
 -- Codex plan-r1 fund 2: en stikprøvesag kan ikke afgøres, før kørslen er forseglet.
@@ -372,11 +394,12 @@ DO $same_individual$
 DECLARE
   v_actor uuid:='11000000-0000-0000-0000-00000005b606';
   w jsonb; v_ctl uuid; v_smp jsonb; v_sheet text:=repeat('a',64); v_rows text:=repeat('b',64);
-  v_pe int; v_po int; v_p uuid; v_i int; v_bad jsonb; v_first int; v_ev jsonb; v_person bigint;
+  v_pe int; v_po int; v_p uuid; v_i int; v_bad jsonb; v_ev jsonb; v_person bigint;
 BEGIN
   PERFORM pg_temp.f5b_actor(v_actor);
-  -- Verden A: kort 0 besvares `pe=po` (maskinens plads + en anden), de øvrige normalt ⇒ passed.
-  w:=pg_temp.f5b_control_world(-5606,v_actor);
+  -- Verden A ('par': rang 1 og rang 2 deler navn): kort 0 besvares `pe=po` (maskinens plads + navnefællens), de
+  -- øvrige normalt ⇒ passed.
+  w:=pg_temp.f5b_control_world(-5606,v_actor,'par');
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   SET LOCAL ROLE authenticated;
   v_ctl:=red_register_identity_control_run((w->>'run')::uuid);
@@ -388,8 +411,10 @@ BEGIN
     SELECT m.key::int INTO v_pe FROM private.identity_control_sample s, jsonb_each_text(s.mapping) m
      WHERE s.control_run_id=v_ctl AND s.source_persona_id=v_p AND m.value=s.expected;
     IF v_i=0 THEN
-      v_po:=CASE WHEN v_pe=3 THEN 1 ELSE 3 END;
-      -- ugyldige former afvises: én plads, dubletter, usorteret, display_position≠laveste, plads uden for mappingen
+      SELECT m.key::int INTO v_po FROM private.identity_control_sample s, jsonb_each_text(s.mapping) m
+        JOIN private.source_persona_identity_candidate c ON c.id=m.value::uuid
+       WHERE s.control_run_id=v_ctl AND s.source_persona_id=v_p AND c.rank=2;
+      -- ugyldige former afvises: én plads, dubletter, usorteret, plads uden for mappingen, strenge, objekt
       SET LOCAL ROLE authenticated;
       FOREACH v_bad IN ARRAY ARRAY[jsonb_build_array(least(v_pe,v_po)),jsonb_build_array(v_pe,v_pe),
           jsonb_build_array(greatest(v_pe,v_po),least(v_pe,v_po)),'[1,4]'::jsonb,'["1","2"]'::jsonb,'{}'::jsonb] LOOP
@@ -399,10 +424,15 @@ BEGIN
         EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID%' THEN RAISE; END IF;
         END;
       END LOOP;
-      BEGIN
+      BEGIN    -- display_position skal være den laveste
         PERFORM pg_temp.f5b_decide_same(v_ctl,v_p,jsonb_build_array(least(v_pe,v_po),greatest(v_pe,v_po)),v_sheet,v_rows,greatest(v_pe,v_po));
         RAISE EXCEPTION 'CONTROL_TEST_FAILED: display_position ikke laveste godtaget';
       EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID%' THEN RAISE; END IF;
+      END;
+      BEGIN    -- plads 3 (rang 3) har et andet navn ⇒ ikke en dublet
+        PERFORM pg_temp.f5b_decide_same(v_ctl,v_p,'[1,2,3]'::jsonb,v_sheet,v_rows);
+        RAISE EXCEPTION 'CONTROL_TEST_FAILED: 1=2=3 uden fælles navn godtaget';
+      EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'IDENTITY_CONTROL_DUPLICATE_NOT_HOMONYM%' THEN RAISE; END IF;
       END;
       PERFORM pg_temp.f5b_decide_same(v_ctl,v_p,jsonb_build_array(least(v_pe,v_po),greatest(v_pe,v_po)),v_sheet,v_rows);
       RESET ROLE;
@@ -431,8 +461,26 @@ BEGIN
   END;
   RESET ROLE;
 
-  -- Verden B: kort 0 besvares med to pladser UDEN maskinens ⇒ afvigelse.
+  -- Verden B (ingen navne): også maskinens plads + en anden afvises, når kandidaterne ikke er navnefæller.
   w:=pg_temp.f5b_control_world(-5607,v_actor);
+  SET LOCAL ROLE authenticated;
+  v_ctl:=red_register_identity_control_run((w->>'run')::uuid);
+  v_smp:=red_identity_control_sample(v_ctl);
+  PERFORM red_seal_identity_control_run(v_ctl,v_sheet,v_rows);
+  RESET ROLE;
+  v_p:=(v_smp->'samples'->0->>'source_persona_id')::uuid;
+  SELECT m.key::int INTO v_pe FROM private.identity_control_sample s, jsonb_each_text(s.mapping) m
+   WHERE s.control_run_id=v_ctl AND s.source_persona_id=v_p AND m.value=s.expected;
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    PERFORM pg_temp.f5b_decide_same(v_ctl,v_p,jsonb_build_array(least(v_pe,1+v_pe%3),greatest(v_pe,1+v_pe%3)),v_sheet,v_rows);
+    RAISE EXCEPTION 'CONTROL_TEST_FAILED: dublet uden navne godtaget';
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'IDENTITY_CONTROL_DUPLICATE_NOT_HOMONYM%' THEN RAISE; END IF;
+  END;
+  RESET ROLE;
+
+  -- Verden C ('hoved': rang 2 og 3 deler navn, rang 1 ikke): kort 0 besvares med de to pladser UDEN maskinens ⇒ afvigelse.
+  w:=pg_temp.f5b_control_world(-5608,v_actor,'hoved');
   SET LOCAL ROLE authenticated;
   v_ctl:=red_register_identity_control_run((w->>'run')::uuid);
   v_smp:=red_identity_control_sample(v_ctl);
@@ -446,7 +494,7 @@ BEGIN
   PERFORM pg_temp.f5b_decide_same(v_ctl,v_p,v_bad,v_sheet,v_rows);
   IF red_evaluate_identity_control_run(v_ctl)<>'failed' THEN RAISE EXCEPTION 'CONTROL_TEST_FAILED: dublet uden maskinens plads bestod'; END IF;
   RESET ROLE;
-  RAISE NOTICE 'OK: 1=2 — enighed når maskinens plads er nævnt, binding til laveste plads, dublet i evidensen, ugyldige former afvist, afvigelse ellers';
+  RAISE NOTICE 'OK: 1=2 — kun navnefæller, enighed når maskinens plads er nævnt, binding til laveste plads, dublet i evidensen, ugyldige former afvist, afvigelse ellers';
 END $same_individual$;
 
 ROLLBACK;

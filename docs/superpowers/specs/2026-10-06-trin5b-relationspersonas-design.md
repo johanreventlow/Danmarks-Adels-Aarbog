@@ -300,6 +300,10 @@ fra kalderens `basis`:
   familien har præcis én partner ≠ hovedpersonen, og det er målpersonen; `konfidens` er ikke
   `omstridt` eller `formodet` (invariant 7); ingen anden persona i posten har gældende `accepted`
   identitet til målpersonen.
+  *Tilføjet efter final review (I3):* ved mere end én familie skal påstandens **gældende** ægteskabsnummer
+  (`relation_marriage_ordinals`) stadig være lig det gemte `marriage_ordinal`; ellers
+  `FAMILY_CORROBORATION_ORDINAL_DRIFT`. Afvises en tidligere ægteskabspåstand i posten (del 2), rykker numrene, og
+  det gemte nummer ville pege på en anden families ægtefælle.
 - **(c) Kandidat:** `candidate_id` er rang 1 for personaen i kildens **gældende** kandidatkørsel, peger
   på målpersonen, og kernen genberegner `family_context_sha256` nu og kræver lighed med den gemte
   (ændret familie eller identitet siden kørslen ⇒ afvist).
@@ -888,6 +892,9 @@ af forældrekortene.
     identiteten bindes til den laveste plads. Writeren ser aldrig `expected`.
   - Evidensen gemmer `display_positions` og `same_individual_person_ids` til del 2's `samme_som`-arbejde.
   - Status tæller kortet som enighed, når maskinens kandidat er blandt de nævnte pladser; ellers afvigelse.
+  - *Skærpet efter final review (I1):* de nævnte kandidater skal være navnefæller efter §23.3 pkt. 3 (samme
+    `visning_navn` eller `visning_fuldt_navn` som den laveste plads), ellers `IDENTITY_CONTROL_DUPLICATE_NOT_HOMONYM`.
+    Uden kravet ville `1=2=3` altid tælle som enighed. Dublet-kort rapporteres særskilt i færdigbeviset.
   - Målingen i Task 11 (»10/10 navnefællekort kan skelnes«) testede kun, om teksterne var forskellige, og
     var derfor for svag; den erstattes af denne regel, ikke af en strengere måling.
 - **Forældrenes tokens** (alle med `basis: human_sheet`, `control_run_id` og forseglingens `sheet_sha256`/
@@ -911,6 +918,10 @@ af forældrekortene.
   projektejeren; en ny kontrolkørsel kræver en dokumenteret årsagsrettelse (profil, udtræk eller generator)
   og en linje i `docs/decisions.md`. Navnefællerne er stadig obligatoriske, og de tilfældige kort trækkes
   kun blandt uafgjorte personas. En kandidatkørsel må ikke køres om alene for at trække en ny stikprøve.
+  *Håndhævet efter final review (I2):* har kilden en kontrolkørsel, hvis seneste hændelse er `failed` eller en
+  opgivet forsegling (`sealed`), afviser `red_register_identity_control_run` en ny kørsel uden angivet årsag
+  (`IDENTITY_CONTROL_PRIOR_FAILED`); årsagen (`p_cause`, fx rettelse + decisions-dato) gemmes på kørslen. En
+  registreret, aldrig forseglet kørsel tæller ikke — at forsegle sker først ved indkørsel af arket.
 - **Tekstbinding.** Rækkefilen indeholder pr. kort observationens id og SHA-256 af dens `verbatim_text`;
   `source_observation` er append-only, så teksten kan ikke ændres under samme id.
 - **Parseren** afviser `_` som før — men arket rummer kun de kort, der skal afgøres.
