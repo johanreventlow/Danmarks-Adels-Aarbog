@@ -1,14 +1,15 @@
 # Trin 5b del 2a — bind de afgjorte ægteskaber og forældre, og vis kilden for læseren (#151)
 
 **Status:** **GODKENDT af projektejeren 2026-10-11** (brainstorm samme dato; design godkendt afsnit for
-afsnit). Revideret samme dag efter Codex `gpt-5.6-sol` runde 1 (NO-GO: 3 BLOCKER, 8 MAJOR, 1 MINOR — alle
-efterprøvet mod koden og godtaget, se §12) og to projektejervalg ved planlægningen: klausul-dispositionen
+afsnit). Revideret samme dag efter Codex `gpt-5.6-sol` runde 1 (NO-GO: 3 BLOCKER, 8 MAJOR, 1 MINOR, se §12) og
+runde 2 (NO-GO: 0 BLOCKER, 8 MAJOR, 1 MINOR, se §13) — alle fund efterprøvet mod koden og godtaget — og to projektejervalg ved planlægningen: klausul-dispositionen
 flyttes til 2b, og webbeviset er SQL som `anon` plus en UI-test med syntetiske svar (§10).
 
 **Roadmap:** trin 5, delspec 5b (`docs/superpowers/specs/2026-10-06-trin5b-relationspersonas-design.md`,
 herefter »hovedspecen«), del 2, skive a. Bygger på 5b del 1 (merget #237). Del 1's bevisrapport
-`docs/evidensbaseret-genimport/relationspersonas-5b-del1-bevis.md` ligger på grenen
-`docs/151-5b-del1-status` (draft-PR #238) og er grundlaget for tallene i §3. Beslutninger: `docs/decisions.md`
+`docs/evidensbaseret-genimport/relationspersonas-5b-del1-bevis.md` er fastlåst som commit
+`8aeb7ebf6c309d7420f554813eb7b20ef4b183e0` (draft-PR #238), filens SHA-256
+`4ca5f0ccd4e86b4a3ba21ff235fa4212f319252f8e230329db3aea06fa054752`; tallene i §3 er målt i samme bevisbase. Beslutninger: `docs/decisions.md`
 2026-10-06, 2026-10-10 og 2026-10-11 (denne skive).
 
 ## 1. Adgangskrav (roadmap)
@@ -89,7 +90,8 @@ læsning, så de tre aldrig kan være uenige:
 entydig; ellers et kanonisk objekt med `contract: 'relation-binding-state-v1'` og:
 
 - fortolkningen: `interpretation_id`, `interpretation_key`, `version`, `status`, `predicate`, `source_id`;
-- den aktive regel for prædikatet (`rule_key`, `rule_version`, `rule_mode`, `status`);
+- (reglen indgår **ikke**: bindingen gemmer selv sin `rule_key`/`rule_version`, så en ny eller pensioneret
+  regelversion hverken skjuler en eksisterende kilde eller kræver ombinding — reviewfund r2-M3);
 - de gældende parter (`party_role`, `version`, `source_persona_id`) og for hver persona den gældende
   identitet (`version`, `decision_status`, `canonical_person_id`);
 - strukturen: den ene familie og kun de `family_member`-rækker, der bærer relationen — ved ægteskab de to
@@ -141,7 +143,11 @@ Kun `relation.marriage`. De 7 forældre er allerede afgjort af projektejeren i d
 - Batchen tager den eksklusive kildelås, låser fortolkningsrækker og familierækker, genberegner previewet
   (`RELATION_PROMOTION_PREVIEW_STALE` ved forskel) og afviser hele batchen ved første ikke-egnede element.
   Kalderen sender derfor kun de elementer, previewet har talt som egnede; previewet tæller de øvrige pr.
-  grund. Et nyt kald med samme elementer efter binding afvises (`…_ALREADY_APPLIED`) og skriver 0 rækker.
+  grund.
+- **Replay (r2-M4):** findes der allerede en relationsbatch med samme `preview_sha256`, returnerer et kald med
+  præcis de samme elementer (samme kanoniske item-digest) den oprindelige batch-id uden at skrive; afviger
+  elementerne, fejler kaldet (`RELATION_PROMOTION_REPLAY_MISMATCH`). Batchrækken gemmer derfor item-digesten.
+  Et nyt preview efter binding giver `…_ALREADY_APPLIED` for hvert element.
 - Skriver én `private.interpretation_promotion` pr. element med `target_type='family'`,
   `target_id=family_id`, `rule_key`/`rule_version`, `batch_id` og evidens `{promotion_kind:
   'structural_family', family_id, vielse_fact_id|null, state_sha256, preview_sha256}`. `vielse_fact_id` er
@@ -150,16 +156,20 @@ Kun `relation.marriage`. De 7 forældre er allerede afgjort af projektejeren i d
   `relation-promotion-profile-v1`.
 - **Højst én familiebinding pr. fortolkning:** partielt unikt indeks
   `interpretation_promotion_one_family_per_interpretation ON private.interpretation_promotion
-  (interpretation_id) WHERE target_type='family'`. En ny fortolkningsversion (rettelse) får sin egen binding;
-  en ombinding af samme version kræver et særskilt supersession-workflow (åbent punkt).
+  (interpretation_id) WHERE target_type='family'`. En ny fortolkningsversion (rettelse) får sin egen binding.
+  Fordi reglen ikke indgår i tilstanden (§4.2), kræver en regelændring ingen ombinding; en ombinding af samme
+  fortolkningsversion er derfor ikke nødvendig i 2a.
 - Bindingen ændrer ingen kanonisk række.
 
 ### 4.5 Klassifikationer
 
 Ny append-only tabel `private.relation_classification_event(interpretation_key uuid, seq integer,
-classification text CHECK (classification IN ('ordinal_afvigelse')), evidence jsonb NOT NULL, created_by uuid
-NOT NULL, created_at timestamptz, PRIMARY KEY (interpretation_key, seq))`; 2b udvider CHECK'en med sine
-årsager. Append-only-triggere for UPDATE/DELETE og TRUNCATE (`private.reject_evidence_mutation`), RLS slået
+interpretation_id uuid NOT NULL REFERENCES private.interpretation(id), interpretation_version integer NOT NULL,
+state_sha256 text NOT NULL, classification text CHECK (classification IN ('ordinal_afvigelse')), evidence jsonb
+NOT NULL, created_by uuid NOT NULL, created_at timestamptz, PRIMARY KEY (interpretation_key, seq))`; 2b udvider
+CHECK'en med sine årsager. **Gældende** er en klassifikation kun, når dens `interpretation_id` er den gældende
+version for nøglen, og `state_sha256` er lig den aktuelle `relation_binding_state`-hash; ellers er den
+historisk (r2-M2). 2b læser kun gældende klassifikationer. Append-only-triggere for UPDATE/DELETE og TRUNCATE (`private.reject_evidence_mutation`), RLS slået
 til, ingen grants til `anon`/`authenticated`, med i `db-rls.sql`'s masterliste og `db-verify.sql`'s asserts.
 Eneste skrivevej er `private.append_relation_classification(p_key uuid, p_classification text, p_evidence
 jsonb)`, der låser fortolkningsrækken for nøglen før `max(seq)+1`. Forældrekortenes
@@ -176,19 +186,23 @@ Kun M4 (del 1-bevisets »Til del 2« pkt. 8): `db-rls.sql`'s masterliste får `i
 
 `LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog`, `REVOKE ALL … FROM
 PUBLIC,anon,authenticated,service_role`, `GRANT EXECUTE … TO anon, authenticated`. Under narrativ-record-kontrakt
-1 returneres 0 rækker. Returnerer `family_id`, `slags` (`aegteskab` | `foraelder`), `source_record_ref`,
-`source_label`, `record_label`, `citation_label`. Ingen klausultekst, ingen persona-, påstands- eller
-person-id'er.
+1 returneres 0 rækker. Returnerer `family_id`, `slags` (`aegteskab` | `foraelder`), `counterpart_person_id`,
+`source_record_ref`, `source_label`, `record_label`, `citation_label`. `counterpart_person_id` er den person,
+relationen går til (ægtefællen eller den bestemte forælder), så kilden kan vises ved netop den person (r2-M1);
+den udleveres kun, når familiegaten holder, og personen er allerede offentlig gennem `family_member`. Ingen
+klausultekst, ingen persona- eller påstands-id'er.
 
 **Resolver (fail-closed; enhver manglende eller tvetydig tilstand giver ingen række):**
 1. Bindingen: `interpretation_promotion` med `target_type='family'`, `target_id = ANY(p_family_ids)` og
    `rule_mode='structural_family'`.
 2. **Gældende tilstand:** fortolkningen er stadig den gældende version for nøglen med status `accepted`, og
    `relation_binding_state(interpretation_id)` giver samme hash som bindingens `state_sha256`. En
-   identitetsgenafgørelse, ny partsversion, pensioneret regel eller ændret struktur skjuler derfor kilden.
-3. **Posten:** påstandens supporting-observation → occurrence → **præcis én** `source_record_anchor_current`-række
-   med `decision_status='accepted'` → source record i påstandens kilde → **præcis én**
-   `narrative_record_publication` med `status='published'` for recorden.
+   identitetsgenafgørelse, ny partsversion eller ændret struktur skjuler derfor kilden; en regelændring gør
+   ikke (§4.2).
+3. **Posten:** påstanden har **præcis én** supporting-observation → dens occurrence har **præcis én**
+   `source_record_anchor_current`-række med `decision_status='accepted'` → source record i påstandens kilde →
+   **præcis én** `narrative_record_publication` med `status='published'` for recorden. 0 eller flere på et
+   led giver ingen række (r2-M6).
 4. **Publiceringsgaten:** `public.person_daa_narrative_publication_allowed(narrative.id)` er sand, og
    narrativets subjekt er et af relationens bærende medlemmer.
 5. **Familiegaten:** `public.family_offentlig(family_id)` er sand (alle medlemmer offentlige: ikke levende,
@@ -197,17 +211,20 @@ person-id'er.
    `public_person_bio_source_versions_v2`); `source_record_ref` er `source_record.public_ref` (decisions:
    publiceringsbindingens gamle `record_ref` er ikke en stabil reference).
 
-Funktionen fanger fejl fail-closed (ingen række) som de eksisterende offentlige læsefunktioner.
+Funktionen har ingen global undtagelsesfanger (rækker, der allerede er tilføjet resultatet, ville ikke
+rulles tilbage); hvert led er en boolsk gate, og gatefunktionerne fejler selv lukket.
 
 ### 5.2 Web
 
-- `packages/core`: ren funktion `familieIderForPerson(indexes, focusId)` →
-  `{ægtefæller: Map<spouseId, familyId[]>, forældre: familyId | null}` ud fra `unionById` (`'f' + family_id`) og
-  `childrenByUnion`; ingen ændring af `spousesBy`'s form. Formningsfunktion `kildeLinje(row)` →
-  »Kilde: ‹source_label› · ‹record_label›«.
-- `web/src/data/public.ts`: `fetchFamilySources(familyIds)` kalder `public_family_sources`; en RPC-fejl
-  (fx funktionen findes ikke endnu i prod) giver `[]`, aldrig en fejl i panelet.
-- `DetailPanel.tsx` viser kildelinjen under »gift med« for hver ægtefælle med en kilde og under »Barn af«.
+- `packages/core`: ren funktion `familieIderForPerson(indexes, focusId)` → ægteskabsfamilier pr. ægtefælle
+  og fødselsfamilien, ud fra `unionById` (`'f' + family_id`) og `childrenByUnion`; ingen ændring af
+  `spousesBy`'s form. Formningsfunktion `kildeLinje(row)` → »Kilde: ‹source_label› · ‹record_label›«.
+  Id'er er decimalstrenge hele vejen (modellens konvention); aldrig `Number()` (r2-m1).
+- `web/src/data/familySources.ts`: `fetchFamilySources(familyIds)` kalder `public_family_sources` med
+  id'erne som strenge; en RPC-fejl (fx funktionen findes ikke endnu i prod) giver `[]`, aldrig en fejl i panelet.
+- `DetailPanel.tsx` viser kildelinjen under »gift med« ved den ægtefælle, hvis familie og
+  `counterpart_person_id` matcher, og under »Barn af« ved netop den forælder, påstanden vedrører
+  (`counterpart_person_id`), ikke ved begge forældre (r2-M1).
   **Klik:** er `source_record_ref` lig `sourceRecordRef` på en af den viste persons egne `bioVersions`
   (hovedpersonen ser sin egen post), vælger klikket den version; ellers er linjen ren tekst (hos ægtefællen
   er posten en anden persons). Ingen kilde ⇒ ingen linje.
@@ -230,15 +247,17 @@ basenavne. Rapporten binder sig til databaseidentiteten, commit'en og SHA-256 af
 
 1. **Afgørelse:** 203 `accepted`, heraf 3 med `ordinal_afvigelse`; `set_sha256` og digest af det sorterede
    sæt af `interpretation_key`.
-2. **Binding:** 210 (203 ægteskaber + 7 forældre); `preview_sha256`; digests af de sorterede sæt af
-   `interpretation_id` og `family_id`; gentaget kald ⇒ `RELATION_PROMOTION_ALREADY_APPLIED`, 0 nye rækker.
+2. **Binding:** 210 (203 ægteskaber + 7 forældre); `preview_sha256`; digest af de sorterede tupler
+   `(interpretation_id, family_id, rule_key, rule_version, state_sha256)` (r2-M5), sammenholdt med et
+   manifest skrevet før bindingen; identisk retry ⇒ samme batch-id og 0 nye rækker.
 3. **0 kanonisk delta:** aggregat-hashes af `person`, `family`, `family_member`, `fact`, `assertion`,
    `citation`, `conclusion` før og efter er ens.
 4. **Læsefunktion som `anon`:** 210 rækker for de bundne familier; digest af de sorterede
    `(family_id, slags, source_record_ref)`; de eksisterende offentlige funktioners output for et fast
    personsæt er uændret (hashes før/efter).
-5. **Webspor:** vitest + Playwright i CI med syntetiske svar viser kildelinjen ved et ægteskab og en
-   forældrelinje, klikket hos hovedpersonen og ren tekst hos ægtefællen.
+5. **Webspor:** vitest (i CI) og Playwright (lokalt; CI-jobbet `node` kører kun vitest og build, og
+   Actions-minutterne er knappe) med syntetiske svar viser kildelinjen ved et ægteskab og ved den bestemte
+   forælder, klikket hos hovedpersonen og ren tekst hos ægtefællen.
 
 **Negativtests** (i kopier, som går i karantæne):
 - forkert `p_expect_set_sha256` ⇒ `RELATION_DECISION_SET_DRIFT`, 0 skrivninger;
@@ -259,12 +278,18 @@ basenavne. Rapporten binder sig til databaseidentiteten, commit'en og SHA-256 af
 - **To-sessionstests** (dblink, som del 1): en samtidig `family_member`-indsættelse, en identitetsgenafgørelse
   og en anden promotion-batch venter på låsene eller fejler lukket; ved `40P01` rulles alt tilbage, og der
   er 0 delvise afgørelser/bindinger.
-- **Opgraderingstest:** `db-migrations.sql` + `db-rls.sql` på en base bygget fra `ebf2022`: `attnotnull` er
-  falsk for `expected_fact_type`, den gamle overload af versionsfunktionen findes ikke, og
-  constraint-definitionerne er de nye.
+- **Opgraderingstest:** `db-migrations.sql` + `db-rls.sql` **to gange** på en base bygget fra `ebf2022`:
+  `attnotnull` er falsk for `expected_fact_type`, den gamle overload af versionsfunktionen findes ikke,
+  constraint-definitionerne er de nye, og de eksisterende text/date-regler virker funktionelt
+  (`test-evidence-promotion.sql` og `test-interpretation-predicate.sql` i den opgraderede base). Kendte
+  kaldesteder for den gamle signatur: `db-verify.sql` (~4354 `to_regprocedure`, ~4885-4911 og ~5328 kald) og
+  `tests/sql/test-interpretation-predicate.sql:51-64`; kaldene virker uændret via standardværdien for
+  `p_rule_mode`, mens `to_regprocedure`-kontrollen rettes til den nye signatur (r2-M7).
 - **Vitest:** `familieIderForPerson`, `kildeLinje`, `fetchFamilySources` (fejl ⇒ `[]`) og `DetailPanel`'s
   visning (med/uden kilde, klik/ren tekst).
-- **Playwright:** røgtesten i §7.5 med mockede RPC-svar.
+- **Playwright:** røgtesten i §7.5 med mockede RPC-svar, kørt lokalt og noteret i færdigbeviset.
+- **CI-scope:** `test-relation-binding.sql` i `evidence-promotion-db`, `test-family-sources.sql` i
+  `writer-1939-v50-db`, vitest i `node`.
 - `get_advisors` efter DDL. Hele CI-jobbet køres lokalt før push.
 
 ## 9. Prod og fortrydelse
@@ -299,7 +324,7 @@ merges før DB-overførslen: uden funktionen i prod er kildelinjerne blot tomme 
 3. Kildevisning i mobil.
 4. Side i vielse-citationen: loaderens 262 citationer fra kilde 1 har ingen side; bindingen erstatter
    dem ikke.
-5. Supersession af en familiebinding for samme fortolkningsversion (ombinding).
+5. Playwright i CI (kræver et nyt job; afvejes mod Actions-budgettet).
 
 ## 12. Review runde 1 (Codex `gpt-5.6-sol`, 2026-10-11)
 
@@ -319,3 +344,20 @@ NO-GO: 3 BLOCKER, 8 MAJOR, 1 MINOR. Alle efterprøvet mod koden og godtaget.
 | M10 | Ingen samtidighedstests | §8: to-sessionstests |
 | M11 | Del 1-beviset utilgængeligt; bevis kun antal | Henvisning til #238 (status); §7 binder til id-sæt og fil-hashes |
 | m12 | Klassifikationstabellen kun erklæret append-only | §4.5: triggere og låst append-funktion |
+
+## 13. Review runde 2 (Codex `gpt-5.6-sol`, 2026-10-11)
+
+NO-GO: 0 BLOCKER, 8 MAJOR, 1 MINOR. Runde 1's B1, B2, M4, M6-M8 holdt; resten delvist. Alle efterprøvet og
+godtaget (del 1-rapportens commit og hash verificeret lokalt).
+
+| # | Fund | Rettelse |
+| --- | --- | --- |
+| M1 | Forælderkilden kunne ikke knyttes til den bestemte forælder | §5.1 `counterpart_person_id`; §5.2 vises ved den forælder |
+| M2 | Klassifikation ikke versionsbundet | §4.5: `interpretation_id`, version, `state_sha256`; gældende-regel |
+| M3 | Regelændring skjulte kilden uden ombindingsvej | §4.2: reglen ude af tilstanden; bindingen bærer sin regelversion |
+| M4 | Ingen replay ved ukendt commit-udfald | §4.4: replay på `preview_sha256` + item-digest |
+| M5 | Separate id-digests beviste ikke parringen | §7.2: tuple-digest mod manifest |
+| M6 | Supporting-observation antaget entydig | §5.1 trin 3: præcis én på hvert led |
+| M7 | Signaturens kaldesteder og CI-scope uklare | §8: kaldesteder, dobbelt opgradering, CI-scope; Playwright lokalt |
+| M8 | Del 1-rapporten ikke fastlåst | Indledningen: commit + SHA-256 |
+| m1 | `family_id` som tal i JS | §5.2: decimalstrenge, aldrig `Number()` |
