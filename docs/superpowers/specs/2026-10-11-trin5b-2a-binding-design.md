@@ -325,6 +325,15 @@ merges før DB-overførslen: uden funktionen i prod er kildelinjerne blot tomme 
 4. Side i vielse-citationen: loaderens 262 citationer fra kilde 1 har ingen side; bindingen erstatter
    dem ikke.
 5. Playwright i CI (kræver et nyt job; afvejes mod Actions-budgettet).
+6. **Genbinding efter en rettelse (Opus kode-review M2, 2026-10-11) — skal afgøres før 2b.** Tilstanden
+   omfatter de bærende rækkers `ordinal`/`konfidens` og identitetsversionen. En almindelig rettelse (fx
+   `red_set_familie_ordinal` på et af de 3 `ordinal_afvigelse`-ægteskaber, eller en ny identitetsversion
+   til samme person) skjuler derfor kilden — korrekt fail-closed — men i dag findes ingen vej til at binde
+   igen: previewet siger `ALREADY_APPLIED`, det partielle unikke indeks tillader kun én familiebinding pr.
+   fortolkning, og ingen writer laver en ny version af en accepteret påstand. Mulige veje: (a) en
+   ombindingsvej (unikhed pr. gældende binding, eller `ALREADY_APPLIED` kun når den eksisterende binding
+   stadig matcher tilstanden), (b) `ordinal` ude af tilstanden for bindinger klassificeret
+   `ordinal_afvigelse`, eller (c) acceptere, at en rettet relation genafgøres i 2b's arbejdsgang.
 
 ## 12. Review runde 1 (Codex `gpt-5.6-sol`, 2026-10-11)
 
