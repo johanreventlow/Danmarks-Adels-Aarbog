@@ -1468,13 +1468,15 @@ export function kildeLinje(k: FamilieKilde): string {
 // serialiserer bigint som JSON-tal; et tal godtages kun som sikkert heltal (ellers kan JSON.parse allerede
 // have afrundet det), en streng kun som decimal. Aldrig Number() på en streng (spec §5.2; Codex plan-r1 #11).
 // Postgres-bigint-intervallet; et 19-cifret id uden for det ville få hele RPC-kaldet til at fejle (Opus plan-r2 m2).
-const BIGINT_MIN = -(2n ** 63n);
-const BIGINT_MAX = 2n ** 63n - 1n;
+// Strengsammenligning frem for BigInt: core indlæses også i mobilens runtime, og cifferstrenge af samme
+// længde sammenlignes korrekt leksikografisk.
 export function bigintTekst(v: unknown): string | null {
   if (typeof v === 'number') return Number.isSafeInteger(v) ? String(v) : null;
   if (typeof v !== 'string' || !/^-?\d{1,19}$/.test(v)) return null;
-  const b = BigInt(v);
-  return b >= BIGINT_MIN && b <= BIGINT_MAX ? v : null;
+  const neg = v.startsWith('-');
+  const cifre = (neg ? v.slice(1) : v).replace(/^0+(?=\d)/, '');
+  if (cifre.length < 19) return v;
+  return cifre <= (neg ? '9223372036854775808' : '9223372036854775807') ? v : null;
 }
 
 export function mapFamilieKilder(rows: unknown): FamilieKilde[] {
