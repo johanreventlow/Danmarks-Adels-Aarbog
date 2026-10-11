@@ -14,8 +14,18 @@ describe('familieIderForPerson', () => {
     ], parentChild: [{ child: '3', parent: '1', union: 'f10' }, { child: '3', parent: '2', union: 'f10' }] });
     expect(familieIderForPerson(m.indexes, '1').aegteskaber).toEqual([{ spouseId: '2', familyId: '10' }]);
     expect(familieIderForPerson(m.indexes, '2').aegteskaber).toEqual([{ spouseId: '1', familyId: '10' }]);
-    expect(familieIderForPerson(m.indexes, '3').foraeldreFamilie).toBe('10');
-    expect(familieIderForPerson(m.indexes, '4')).toEqual({ aegteskaber: [], foraeldreFamilie: null });
+    expect(familieIderForPerson(m.indexes, '3').foraeldreFamilier).toEqual(['10']);
+    expect(familieIderForPerson(m.indexes, '4')).toEqual({ aegteskaber: [], foraeldreFamilier: [] });
+  });
+  // buildModel viser bevidst kun forældrene fra barnets FØRSTE familie (parentsByChild), og »Barn af« i
+  // panelet bygger på dem; kilden følger derfor samme familie (ingen forælderkilde uden en vist forælder).
+  it('flere forældrepar: følger modellens viste fødselsfamilie', () => {
+    const m = buildModel({ persons, unions: [
+      { id: 'f10', p1: '1', p2: '2', p2_name: null, year: null },
+      { id: 'f20', p1: '4', p2: null, p2_name: null, year: null },
+    ], parentChild: [{ child: '3', parent: '1', union: 'f10' }, { child: '3', parent: '2', union: 'f10' },
+      { child: '3', parent: '4', union: 'f20' }] });
+    expect(familieIderForPerson(m.indexes, '3').foraeldreFamilier).toEqual(['10']);
   });
   it('to_familier_samme_par: hver familie for sig', () => {
     const m = buildModel({ persons, unions: [

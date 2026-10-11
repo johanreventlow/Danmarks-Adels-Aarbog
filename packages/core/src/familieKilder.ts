@@ -17,7 +17,7 @@ const famId = (unionId: string): string | null => (unionId.startsWith('f') ? uni
 export function familieIderForPerson(
   indexes: ModelIndexes,
   focusId: string,
-): { aegteskaber: { spouseId: string | null; familyId: string }[]; foraeldreFamilie: string | null } {
+): { aegteskaber: { spouseId: string | null; familyId: string }[]; foraeldreFamilier: string[] } {
   const aegteskaber: { spouseId: string | null; familyId: string }[] = [];
   for (const u of Object.values(indexes.unionById)) {
     const id = famId(u.id);
@@ -25,17 +25,16 @@ export function familieIderForPerson(
     if (u.p1 === focusId) aegteskaber.push({ spouseId: u.p2 ?? null, familyId: id });
     else if (u.p2 === focusId) aegteskaber.push({ spouseId: u.p1, familyId: id });
   }
-  let foraeldreFamilie: string | null = null;
-  const forælder = indexes.parentsByChild[focusId]?.[0];
-  if (forælder) {
+  // Fødselsfamilierne for de forældre, modellen viser (buildModel tager kun barnets første familie med i
+  // parentsByChild); en kilde vises aldrig ved en forælder, panelet ikke viser.
+  const foraeldreFamilier = new Set<string>();
+  for (const forælder of indexes.parentsByChild[focusId] ?? []) {
     for (const [unionKey, børn] of Object.entries(indexes.childrenByUnion[forælder] ?? {})) {
-      if (børn.includes(focusId)) {
-        foraeldreFamilie = famId(unionKey);
-        break;
-      }
+      const id = famId(unionKey);
+      if (id && børn.includes(focusId)) foraeldreFamilier.add(id);
     }
   }
-  return { aegteskaber, foraeldreFamilie };
+  return { aegteskaber, foraeldreFamilier: [...foraeldreFamilier].sort() };
 }
 
 export function kildeLinje(k: FamilieKilde): string {

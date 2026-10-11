@@ -32,16 +32,17 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
   const [bioVersionIdx, setBioVersionIdx] = useState(0);
   useEffect(() => { setBioVersionIdx(0); }, [focusId]);
   // Trin 5b 2a (spec §5.2): kilder på ægteskab og forældrelinje. Hentes pr. person; et svar for en
-  // tidligere person ignoreres. Fejl giver [] i datalaget, så panelet aldrig brydes.
+  // tidligere person ignoreres. Fejl giver [] i datalaget, så panelet aldrig brydes. Afhænger af
+  // model.indexes, ikke model: et nyt modelobjekt (fx når geo ankommer) skal ikke hente kilderne igen.
   const [familieKilder, setFamilieKilder] = useState<FamilieKilde[]>([]);
   useEffect(() => {
     let aktiv = true;
     setFamilieKilder([]);
-    const { aegteskaber, foraeldreFamilie } = familieIderForPerson(model.indexes, focusId);
-    const ids = [...aegteskaber.map((a) => a.familyId), foraeldreFamilie].filter((id): id is string => id !== null);
+    const { aegteskaber, foraeldreFamilier } = familieIderForPerson(model.indexes, focusId);
+    const ids = [...aegteskaber.map((a) => a.familyId), ...foraeldreFamilier];
     void fetchFamilySources(ids).then((k) => { if (aktiv) setFamilieKilder(k); });
     return () => { aktiv = false; };
-  }, [focusId, model]);
+  }, [focusId, model.indexes]);
   const p = model.byId[focusId];
   if (!p) return null;
   const familieIder = familieIderForPerson(model.indexes, focusId);
@@ -54,7 +55,9 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
   };
   // Forælderkilden hører kun til den forælder, påstanden handler om (aldrig ved begge; spec §5.2).
   const foraelderKilder = (parentId: string) => familieKilder.filter((k) => k.slags === 'foraelder'
-    && k.familyId === familieIder.foraeldreFamilie && k.counterpartPersonId === parentId);
+    && familieIder.foraeldreFamilier.includes(k.familyId) && k.counterpartPersonId === parentId);
+  // Samme ægteskab kan være bundet fra flere udgaver/poster; nøglen skal derfor også bære kilden.
+  const kildeNøgle = (k: FamilieKilde) => [k.familyId, k.slags, k.counterpartPersonId, k.sourceLabel, k.sourceRecordRef ?? k.recordLabel].join('|');
   const parents = parentsOf(model, focusId);
   const spouses = (model.indexes.spousesBy[focusId] ?? []);
   const children = childrenOf(model, focusId);
@@ -135,7 +138,7 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
                 {i > 0 && <span style={{ fontFamily: T.serif, fontSize: 16, fontStyle: 'italic', color: T.gold }}>&amp;</span>}
                 <Link href={personPath(pa.id)} onNavigate={() => onPick(pa.id)} style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600, color: T.bordeaux }}>{pa.name} ›</Link>
                 {foraelderKilder(pa.id).map((k) => (
-                  <KildeLinjeVisning key={k.familyId + k.slags + k.counterpartPersonId} kilde={k} versions={versionerForKilde} onVaelg={setBioVersionIdx} />
+                  <KildeLinjeVisning key={kildeNøgle(k)} kilde={k} versions={versionerForKilde} onVaelg={setBioVersionIdx} />
                 ))}
               </span>
             ))}
@@ -197,7 +200,7 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
                 {i > 0 && <span style={{ color: T.gold }}>· </span>}
                 {sp.id ? <Link href={personPath(sp.id)} onNavigate={() => onPick(sp.id!)} style={{ fontWeight: 600, fontStyle: 'normal', color: T.bordeaux }}>{sp.name} ›</Link> : <span>{sp.name}</span>}
                 {aegteskabsKilder(sp.id).map((k) => (
-                  <KildeLinjeVisning key={k.familyId + k.slags + k.counterpartPersonId} kilde={k} versions={versionerForKilde} onVaelg={setBioVersionIdx} />
+                  <KildeLinjeVisning key={kildeNøgle(k)} kilde={k} versions={versionerForKilde} onVaelg={setBioVersionIdx} />
                 ))}
               </span>
             ))}
