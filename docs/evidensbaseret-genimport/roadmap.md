@@ -21,8 +21,8 @@ kæde hører til trin 6.
 Projektejeren har 2026-10-05 aktiveret **trin 5: placement/membership og én identitetsvej
 (#150/#151)**, delt i tre delspecs: **5a** én identitetsvej (#151) → **5b** personas for
 ægtefæller og børn samt oprettelse af nye kanoniske personer → **5c** placement/membership
-(#150). 5a's spec og plan er skrevet (2026-09-24, gren `docs/151-identitetsvej`); næste
-arbejde er at genbekræfte dem mod den nuværende `main`, før udførelsen begynder.
+(#150). 5a er merget 2026-10-06 (#236) og 5b del 1 (ægtefællers identitet) 2026-10-11 (#237),
+begge bevist i restore og ikke deployet; næste arbejde er 5b del 2 (decisions 2026-10-10).
 
 ## Styrende rækkefølge
 
