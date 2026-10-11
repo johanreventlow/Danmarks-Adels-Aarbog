@@ -38,7 +38,7 @@ Parkeret som åbne punkter (kræver hver sin projektejerbeslutning): familiekorr
 | --- | --- |
 | `relation.marriage` | 248 gældende: **203** med begge parter `accepted` og præcis én kanonisk familie med begge som partnere (203 forskellige familier); 31 med ægtefællen uafgjort; 14 uden persona |
 | Ægteskabsnummer | 200 af 203 har bogens nummer = familiens ordinal; **3** afviger, alle med kun én familie (hovedspecen §6.2's kerne ignorerer ordinal ved én familie, M9) |
-| `relation.parent` | 7 `accepted` (del 1's `A`-kort), 2 `proposed`, 1 `rejected` |
+| `relation.parent` | 7 `accepted` (del 1's `A`-kort), 2 `proposed`, 1 `rejected`. Alle 7 er egnede til binding: principal og forælder har `accepted` identitet, præcis én familie med principal som `barn` og forælderen som partner, 0 `omstridt` |
 | `relation.child` | 14 `proposed` (2c) |
 | Loaderens vielse-fakta | 179 af de 203 familier har en vielse-assertion med citation fra kilde 1 (uden side); 24 har ingen |
 | Eksisterende bindinger | 0 `interpretation_promotion` med `target_type='family'`; reglerne er kun `person-*-v1` |
@@ -67,7 +67,8 @@ Stien fra påstand til post: `private.interpretation_observation` → `private.s
 - Regellinjer og første versioner: `relation-marriage-v1` (`relation.marriage`) og `relation-parent-v1`
   (`relation.parent`). `relation-child-v1` oprettes i 2c. Reglerne indsættes før enhver binding
   (fremmednøglen `interpretation_promotion_rule_fk`).
-- **Adskillelse fra assertion-vejen:** `private.interpretation_predicate_promotable` får `rule_mode` med og
+- **Adskillelse fra assertion-vejen:** `private.interpretation_promotion_rule_current` og
+  `private.interpretation_predicate_promotable` får `rule_mode` med, og viewet
   filtrerer `rule_mode='text_assertion'`, så `red_preview_interpretation_promotions`/
   `red_promote_interpretations_batch` aldrig ser relationsregler. Negativtest: et `relation.marriage`-element
   til den gamle batch-RPC afvises som ikke-promoverbart.
@@ -101,15 +102,16 @@ Kun `relation.marriage`. De 7 forældre er allerede afgjort af projektejeren i d
 - Pr. element efterprøves: gældende fortolkning `accepted`; regel `structural_family` aktiv for
   prædikatet; gældende parter; begge parters identiteter `accepted`; præcis én familie med strukturen
   (ægteskab: begge som partnere; forælder: principal som `barn`, modparten som partner); ingen af
-  parternes `family_member.konfidens` er `omstridt`. Et ikke-egnet element vælter hele batchen med sin grund (som den eksisterende RPC).
+  parternes `family_member.konfidens` er `omstridt`. Et ikke-egnet element vælter hele batchen med sin grund (som den eksisterende RPC); kalderen sender derfor kun de elementer, som previewet har talt som egnede.
 - Skriver én `private.interpretation_promotion` pr. element med `target_type='family'`,
   `target_id=family_id`, `rule_key`/`rule_version`, `batch_id` og evidens
   `{family_id, vielse_fact_id|null, party_versions}`. `vielse_fact_id` er familiens vielse-fakt, hvis der
   er præcis én; ellers `null`. Loaderens vielse-assertion og citation røres ikke.
 - `interpretation_promotion_batch.rule_profile_hash` beregnes som den eksisterende med kontrakten
-  `relation-promotion-profile-v1`. Et nyt kald med samme elementer efter binding giver `already_applied`
-  (UNIQUE `(interpretation_id,target_type,target_id)`), ikke en ny række.
-- Ingen familie eller flere ⇒ ikke egnet, talt med grund. Bindingen ændrer ingen kanonisk række.
+  `relation-promotion-profile-v1`. Et allerede bundet element er ikke egnet
+  (`RELATION_PROMOTION_ALREADY_APPLIED`, talt i previewet): et nyt kald med samme elementer afvises og skriver
+  0 rækker; UNIQUE `(interpretation_id,target_type,target_id)` er værnet bag.
+- Ingen familie eller flere ⇒ ikke egnet; previewet tæller ikke-egnede pr. grund. Bindingen ændrer ingen kanonisk række.
 
 ### 4.4 Klausul-disposition (hovedspecen §8.2)
 
@@ -146,7 +148,7 @@ Efter mønstret i `public_person_bio_source_versions` (v1/v2): `LANGUAGE plpgsql
 SET search_path=pg_catalog`, `REVOKE ALL … FROM PUBLIC`, `GRANT EXECUTE … TO anon, authenticated`. Kun
 narrativ-record-kontrakt 2: under kontrakt 1 returneres 0 rækker.
 
-Returnerer pr. gældende binding: `family_id`, `slags` (`aegteskab` | `foraelder`), `record_ref`,
+Returnerer pr. gældende binding: `family_id`, `slags` (`aegteskab` | `foraelder`), `source_record_ref`,
 `source_label`, `record_label`, `citation_label`. Etiketterne tages fra den publicerede
 `narrative_record_publication` (samme kilde som biografiens »Kilde i Aarbogen«), ikke fra loaderens
 `citat_tekst`. Ingen klausultekst, ingen persona-, påstands- eller person-id'er.
@@ -166,7 +168,9 @@ Returnerer pr. gældende binding: `family_id`, `slags` (`aegteskab` | `foraelder
 - `web/src/data/public.ts` henter `public_family_sources` for de familier, detaljepanelet viser; formning i
   `packages/core` (ved `kildeProveniens.ts`).
 - `DetailPanel.tsx` viser »Kilde: ‹source_label› · ‹record_label›« under et ægteskab og ved en
-  forældrelinje; klik åbner postens version gennem `record_ref` (samme mekanisme som bioVersions).
+  forældrelinje; klik åbner postens version gennem `source_record_ref` (samme felt og mekanisme som
+  `public_person_bio_source_versions_v2`). Referencen bruges kun internt til at finde en allerede hentet
+  version; den vises ikke og indgår ikke i URL'er (decisions om `record_ref` som citérbar reference).
   Ingen kilde ⇒ ingen linje (ingen »ukendt kilde«).
 - Mobil er uden for 2a.
 
@@ -185,7 +189,7 @@ bevares til 2b. Rapport `docs/evidensbaseret-genimport/relationspersonas-5b-2a-b
 og basenavne.
 
 1. **Afgørelse:** 203 `accepted`, heraf 3 med `ordinal_afvigelse`; `set_sha256`.
-2. **Binding:** 210 (203 ægteskaber + 7 forældre); previewhash; gentaget kald ⇒ `already_applied`.
+2. **Binding:** 210 (203 ægteskaber + 7 forældre); previewhash; gentaget kald ⇒ `RELATION_PROMOTION_ALREADY_APPLIED`, 0 nye rækker.
 3. **Disposition:** antal klausuler med `relationer_afgjort`; antal der forbliver `afventer_identitet`.
 4. **0 kanonisk delta:** aggregat-hashes af `person`, `family`, `family_member`, `fact`, `assertion`,
    `citation`, `conclusion` før og efter er ens.
@@ -207,7 +211,7 @@ og basenavne.
 
 - **SQL** (CI's friske schema-sti, ny `test-relation-binding.sql`): regel-CHECKs pr. tilstand,
   adskillelsen fra assertion-vejen, afgørelse (egnethed, ordinal-klassifikation, mængde-drift), binding
-  (struktur, preview, `already_applied`), disposition (præcedens for menneskelig disposition, ubesluttet
+  (struktur, preview, allerede bundet), disposition (præcedens for menneskelig disposition, ubesluttet
   barn blokerer), læsefunktionens gate pr. betingelse, ACL og funktionsflade.
 - **Opgraderingstest:** `db-migrations.sql` + `db-rls.sql` kørt på en base bygget fra `ebf2022` (ændret
   tabel og ændret funktionssignatur; CI ser kun frisk schema).

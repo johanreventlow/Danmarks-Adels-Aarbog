@@ -20,7 +20,7 @@ det blive én stor spec og én stor plan, og læseren ville først se noget, nå
    »Kilde: DAA 2018-20 · ‹post›« ved et ægteskab og en forældrelinje. Kilden tages fra bindingen og den
    publicerede post, ikke fra loaderens vielse-citation (som mangler side og ikke findes for 24 familier).
 3. **Bind trods ordinal-afvigelse.** Afviger bogens ægteskabsnummer fra familiens, men har hovedpersonen
-   kun én familie, bindes ægteskabet og klassificeres `ordinal_afvigelse` til 2b (3 tilfælde, én familie).
+   kun én familie, bindes ægteskabet og klassificeres `ordinal_afvigelse` til 2b (3 påstande, hver hos en hovedperson med kun én familie).
    Identitetskernen gør det samme (final review M9).
 4. **Forældrene bindes i 2a,** fordi de allerede er afgjort af projektejeren i del 1.
 
