@@ -16027,3 +16027,79 @@ REVOKE ALL ON FUNCTION private.append_relation_classification(uuid,text,jsonb) F
 
 CREATE UNIQUE INDEX IF NOT EXISTS interpretation_promotion_one_family_per_interpretation
   ON private.interpretation_promotion(interpretation_id) WHERE target_type='family';
+
+-- ===================================================================================
+-- Trin 5b del 2a (#151, spec §4.3): maskinel afgørelse af ægteskaber, bundet til kilde og tilstand.
+-- ===================================================================================
+CREATE OR REPLACE FUNCTION private.relation_decision_set(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_items jsonb;
+BEGIN
+  SELECT coalesce(jsonb_agg(x.item ORDER BY x.k COLLATE "C"),'[]'::jsonb) INTO v_items
+    FROM (SELECT ic.interpretation_key::text AS k,
+                 jsonb_build_object('state',st.s,'classification',
+                   CASE WHEN (st.s->>'book_ordinal')::int IS DISTINCT FROM (st.s->>'family_ordinal')::int
+                        THEN 'ordinal_afvigelse' END) AS item
+            FROM private.interpretation_current ic
+            CROSS JOIN LATERAL (SELECT private.relation_binding_state(ic.id) AS s) st
+           WHERE ic.source_id=p_source_id AND ic.predicate='relation.marriage' AND ic.status='proposed'
+             AND st.s IS NOT NULL) x;
+  RETURN jsonb_build_object('items',v_items,'count',jsonb_array_length(v_items),
+    'ordinal_deviations',(SELECT count(*) FROM jsonb_array_elements(v_items) i WHERE i->>'classification' IS NOT NULL),
+    'set_sha256',private.reimport_canonical_json_sha256(jsonb_build_object('contract','relation-decision-set-v1',
+      'database_identity',jsonb_build_object('database_name',current_database(),
+        'system_identifier',(pg_control_system()).system_identifier::text)::text,
+      'source_id',p_source_id,'items',v_items)));
+END $$;
+REVOKE ALL ON FUNCTION private.relation_decision_set(bigint) FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION public.red_preview_relation_decisions(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v jsonb;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  v:=private.relation_decision_set(p_source_id);
+  RETURN v-'items';
+END $$;
+REVOKE ALL ON FUNCTION public.red_preview_relation_decisions(bigint) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_preview_relation_decisions(bigint) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.red_decide_relation_interpretations(p_source_id bigint,p_expect_set_sha256 text)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_set jsonb; r record; v_new uuid; v_n integer:=0; v_key uuid;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  -- Låseorden (spec §4.3, som red_corroborate_family_identities): eksklusiv kildelås →
+  -- fortolkningsrækker (sorteret) → person/familie/medlemmer (lock_family_rows).
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:'||p_source_id::text,0));
+  PERFORM 1 FROM private.interpretation i
+   WHERE i.id IN (SELECT ic.id FROM private.interpretation_current ic
+                   WHERE ic.source_id=p_source_id AND ic.predicate='relation.marriage' AND ic.status='proposed')
+   ORDER BY i.id FOR UPDATE;
+  PERFORM private.lock_family_rows(ARRAY(
+    SELECT DISTINCT i.canonical_person_id
+      FROM private.interpretation_current ic
+      JOIN private.interpretation_party_current pc ON pc.interpretation_key=ic.interpretation_key AND pc.party_role IN ('principal','spouse')
+      JOIN private.source_persona_identity i ON i.source_persona_id=pc.source_persona_id AND i.decision_status='accepted'
+     WHERE ic.source_id=p_source_id AND ic.predicate='relation.marriage' AND ic.status='proposed'
+     ORDER BY 1));
+  v_set:=private.relation_decision_set(p_source_id);
+  IF v_set->>'set_sha256' IS DISTINCT FROM p_expect_set_sha256 THEN RAISE EXCEPTION 'RELATION_DECISION_SET_DRIFT'; END IF;
+  FOR r IN SELECT x FROM jsonb_array_elements(v_set->'items') x LOOP
+    v_key:=(r.x#>>'{state,interpretation,interpretation_key}')::uuid;
+    v_new:=public.red_decide_interpretation((r.x#>>'{state,interpretation,interpretation_id}')::uuid,
+      (r.x#>>'{state,interpretation,version}')::integer,'accepted',
+      jsonb_build_object('method','family-structure-v1','basis','family_structure',
+        'family_id',(r.x#>>'{state,family,family_id}')::bigint,
+        'state_sha256',private.reimport_canonical_json_sha256(r.x->'state')));
+    IF r.x->>'classification' IS NOT NULL THEN
+      PERFORM private.append_relation_classification(v_new,r.x->>'classification',jsonb_build_object(
+        'book_ordinal',(r.x#>>'{state,book_ordinal}')::int,'family_ordinal',(r.x#>>'{state,family_ordinal}')::int,
+        'family_id',(r.x#>>'{state,family,family_id}')::bigint,'decision_interpretation_id',v_new::text));
+    END IF;
+    v_n:=v_n+1;
+  END LOOP;
+  RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION public.red_decide_relation_interpretations(bigint,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_decide_relation_interpretations(bigint,text) TO authenticated;

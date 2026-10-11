@@ -165,3 +165,158 @@ BEGIN
   RAISE NOTICE 'OK: bindingens tilstand og klassifikationer';
 END $binding_state$;
 ROLLBACK;
+
+-- ---------- Task 3: maskinel afgørelse af ægteskaber ----------
+BEGIN;
+\ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
+DO $relation_decide$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-0000002a0301'; s jsonb; s2 jsonb; m1 jsonb; m2 jsonb; m3 jsonb; o jsonb; pv jsonb; n int; v_err text; v_state1 text;
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  INSERT INTO person(id,levende,privat,status) SELECT g,false,false,'2a' FROM generate_series(-2310,-2301) g;
+  s:=pg_temp.f5b_source(-2301);
+  s2:=pg_temp.f5b_source(-2302);
+  m1:=pg_temp.f2a_marriage(-2301,s,'D-1',-2301,-2302,v_actor,1,1);   -- egnet
+  m2:=pg_temp.f2a_marriage(-2301,s,'D-2',-2303,-2304,v_actor,2,1);   -- egnet, ordinal-afvigelse
+  m3:=pg_temp.f2a_marriage(-2301,s,'D-3',-2305,-2306,v_actor,1,1,false); -- ingen familie
+  o:=pg_temp.f2a_marriage(-2302,s2,'D-4',-2307,-2308,v_actor,1,1);   -- anden kilde
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_decisions(-2301);
+  RESET ROLE;
+  v_state1:=private.relation_binding_state_sha256((m1->'claim'->>'id')::uuid);   -- proposed-versionens tilstand
+  SET LOCAL ROLE authenticated;
+  IF (pv->>'count')::int<>2 OR (pv->>'ordinal_deviations')::int<>1 OR pv->>'set_sha256' !~ '^[0-9a-f]{64}$' THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: preview %', pv->>'count';
+  END IF;
+  -- anden_kilde: kildens hash kan ikke bruges mod en anden kilde
+  BEGIN
+    PERFORM red_decide_relation_interpretations(-2302,pv->>'set_sha256');
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: anden kilde godtaget';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'RELATION_DECISION_SET_DRIFT%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    PERFORM red_decide_relation_interpretations(-2301,repeat('0',64));
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: forkert hash godtaget';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'RELATION_DECISION_SET_DRIFT%' THEN RAISE; END IF;
+  END;
+  n:=red_decide_relation_interpretations(-2301,pv->>'set_sha256');
+  RESET ROLE;
+  IF n<>2
+     OR (SELECT status FROM private.interpretation_current WHERE interpretation_key=(m1->'claim'->>'key')::uuid)<>'accepted'
+     OR (SELECT decision_evidence->>'method' FROM private.interpretation_current WHERE interpretation_key=(m1->'claim'->>'key')::uuid)<>'family-structure-v1'
+     OR (SELECT status FROM private.interpretation_current WHERE interpretation_key=(m3->'claim'->>'key')::uuid)<>'proposed'
+     OR (SELECT status FROM private.interpretation_current WHERE interpretation_key=(o->'claim'->>'key')::uuid)<>'proposed'
+     OR (SELECT count(*) FROM private.relation_classification_event WHERE interpretation_key=(m2->'claim'->>'key')::uuid AND classification='ordinal_afvigelse')<>1
+     OR (SELECT count(*) FROM private.relation_classification_event WHERE interpretation_key=(m1->'claim'->>'key')::uuid)<>0 THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: afgørelser';
+  END IF;
+  -- afgørelsens state_sha256 er hashen af den forhåndsviste (proposed) tilstand, som previewet autoriserede
+  IF (SELECT decision_evidence->>'state_sha256' FROM private.interpretation_current WHERE interpretation_key=(m1->'claim'->>'key')::uuid)
+     IS DISTINCT FROM v_state1 THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: afgørelsens tilstandshash';
+  END IF;
+  -- anon/ikke-redaktion afvises
+  SET LOCAL ROLE anon;
+  BEGIN
+    PERFORM red_preview_relation_decisions(-2301);
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: anon kunne kalde';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  RESET ROLE;
+  RAISE NOTICE 'OK: maskinel afgørelse af ægteskaber';
+END $relation_decide$;
+ROLLBACK;
+
+-- To sessioner: en samtidig family_member-indsættelse for en part venter på afgørelsens låse.
+INSERT INTO person(id,levende,privat,status) VALUES (-2391,false,false,'2a lock') ON CONFLICT (id) DO NOTHING;
+CREATE EXTENSION IF NOT EXISTS dblink;
+BEGIN;
+\ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
+DO $relation_decide_lock$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-0000002a0391'; s jsonb; m jsonb; pv jsonb; v_err text;
+  v_conn text:=format('dbname=%s port=%s host=%s',current_database(),current_setting('port'),
+                      split_part(current_setting('unix_socket_directories'),',',1));
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  INSERT INTO person(id,levende,privat,status) VALUES (-2392,false,false,'2a');
+  s:=pg_temp.f5b_source(-2391);
+  m:=pg_temp.f2a_marriage(-2391,s,'L-1',-2391,-2392,v_actor,1,1);
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_decisions(-2391);
+  PERFORM red_decide_relation_interpretations(-2391,pv->>'set_sha256');
+  RESET ROLE;
+  BEGIN
+    PERFORM dblink_connect('l2a',v_conn);
+    -- BEGIN i dblink-sessionen: lykkes indsættelsen (manglende lås), rulles den tilbage ved disconnect og
+    -- efterlader ingen committede rækker, der ville skjule fejlen (Opus plan-r2 m4).
+    PERFORM * FROM dblink('l2a','BEGIN; SET lock_timeout=''300ms''; INSERT INTO family(id,type) VALUES (-2391,''vielse''); '
+      ||'INSERT INTO family_member(family_id,person_id,rolle) VALUES (-2391,-2391,''partner''); SELECT ''x''') AS t(x text);
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: indsættelse ventede ikke';
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    PERFORM dblink_disconnect('l2a');
+    IF v_err NOT LIKE '%lock timeout%' THEN RAISE; END IF;
+  END;
+  RAISE NOTICE 'OK: afgørelsens låse blokerer familieændringer';
+END $relation_decide_lock$;
+ROLLBACK;
+DELETE FROM person WHERE id=-2391;
+
+-- To sessioner, modsat retning (spec §8, Codex plan-r1 #8): en identitetsgenafgørelse er i gang i den anden
+-- session — den holder en skrivelås på ægtefællens personrække (som identitetswriterens lock_family_rows,
+-- schema.sql ~8315) — og afgørelsen må vente/fejle lukket med 0 delvise afgørelser. Ægtefællen committes først,
+-- så dblink-sessionen kan låse den (mønster: test-identity-decision.sql:186).
+INSERT INTO person(id,levende,privat,status) VALUES (-2394,false,false,'2a lock') ON CONFLICT (id) DO NOTHING;
+BEGIN;
+\ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
+DO $relation_decide_lock_identity$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-0000002a0393'; s jsonb; m jsonb; pv jsonb; v_state text;
+  v_conn text:=format('dbname=%s port=%s host=%s',current_database(),current_setting('port'),
+                      split_part(current_setting('unix_socket_directories'),',',1));
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  INSERT INTO person(id,levende,privat,status) VALUES (-2393,false,false,'2a');
+  s:=pg_temp.f5b_source(-2393);
+  m:=pg_temp.f2a_marriage(-2393,s,'L-2',-2393,-2394,v_actor,1,1);
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_decisions(-2393);
+  RESET ROLE;
+  PERFORM dblink_connect('l2a_id',v_conn);
+  PERFORM dblink_exec('l2a_id','BEGIN');
+  -- FOR NO KEY UPDATE, ikke lock_family_rows' FOR UPDATE: hovedsessionens fixture holder allerede FK-låsen
+  -- FOR KEY SHARE på -2394, og FOR UPDATE i dblink ville vente på den, mens hovedsessionen venter synkront
+  -- på dblink — en uopdagelig hængning (Opus plan-r2 B3). NO KEY UPDATE støder kun sammen med afgørelsens
+  -- FOR UPDATE; lock_timeout i dblink-sessionen er et ekstra værn.
+  PERFORM * FROM dblink('l2a_id','SET lock_timeout=''5s''; SELECT 1::text FROM person WHERE id=-2394 FOR NO KEY UPDATE') AS t(x text);
+  BEGIN
+    SET LOCAL ROLE authenticated;
+    SET LOCAL lock_timeout='300ms';
+    BEGIN
+      PERFORM red_decide_relation_interpretations(-2393,pv->>'set_sha256');
+    EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_state=RETURNED_SQLSTATE;
+    END;
+    RESET ROLE;
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM dblink_exec('l2a_id','ROLLBACK'); PERFORM dblink_disconnect('l2a_id'); RAISE;
+  END;
+  PERFORM dblink_exec('l2a_id','ROLLBACK'); PERFORM dblink_disconnect('l2a_id');
+  IF v_state IS DISTINCT FROM '55P03'
+     OR (SELECT status FROM private.interpretation_current WHERE interpretation_key=(m->'claim'->>'key')::uuid)<>'proposed'
+     OR EXISTS (SELECT 1 FROM private.relation_classification_event WHERE interpretation_key=(m->'claim'->>'key')::uuid) THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: afgørelsen ventede ikke på identitetsskrivningen eller efterlod delvise writes (%)', v_state;
+  END IF;
+  RAISE NOTICE 'OK: afgørelsen venter på en samtidig identitetsgenafgørelse';
+END $relation_decide_lock_identity$;
+ROLLBACK;
+DELETE FROM person WHERE id=-2394;
