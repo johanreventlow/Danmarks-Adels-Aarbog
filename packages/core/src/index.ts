@@ -23,6 +23,7 @@ export * from './presensLabels';
 export * from './presensListe';
 export * from './ocrKvalitet';
 export * from './physicalPersonIds';
+export * from './familieKilder';
 export { KONFIDENS_VALUES, KONFIDENS_RANK } from './types';
 export type {
   RawExtId,
