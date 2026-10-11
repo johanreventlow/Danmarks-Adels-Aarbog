@@ -28,6 +28,8 @@ begin
     'source_persona_identity','source_persona_identity_event',
     'source_persona_identity_candidate_run','source_persona_identity_candidate','person_create_receipt','interpretation_party',
     'identity_control_run','identity_control_sample','identity_control_event',
+    'identity_control_exclusion','identity_control_parent_card','identity_control_parent_event',
+    'relation_classification_event',
     'narrative_record_publication','narrative_publication_event',
     'narrative_legacy_publication'
   ] loop

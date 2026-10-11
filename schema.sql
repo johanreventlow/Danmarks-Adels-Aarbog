@@ -15913,3 +15913,117 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION red_corroborate_family_identities(uuid,text) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION red_corroborate_family_identities(uuid,text) TO authenticated;
+
+-- ===================================================================================
+-- Trin 5b del 2a (#151, spec 2026-10-11 §4.2, §4.5, §4.6): bindingens tilstand, klassifikationer og
+-- ét familiemål pr. fortolkning.
+-- ===================================================================================
+CREATE OR REPLACE FUNCTION private.relation_binding_state(p_interpretation_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_i private.interpretation%ROWTYPE; v_role text; v_parties jsonb;
+  v_a bigint; v_b bigint; v_fams bigint[]; v_rows jsonb; v_book integer; v_famord integer;
+BEGIN
+  SELECT * INTO v_i FROM private.interpretation WHERE id=p_interpretation_id;
+  IF NOT FOUND OR v_i.predicate NOT IN ('relation.marriage','relation.parent') THEN RETURN NULL; END IF;
+  v_role:=CASE v_i.predicate WHEN 'relation.marriage' THEN 'spouse' ELSE 'parent' END;
+  SELECT jsonb_agg(jsonb_build_object('party_role',pc.party_role,'version',pc.version,
+           'source_persona_id',pc.source_persona_id::text,'identity_version',i.version,
+           'decision_status',i.decision_status,'canonical_person_id',i.canonical_person_id)
+         ORDER BY pc.party_role COLLATE "C")
+    INTO v_parties
+    FROM private.interpretation_party_current pc
+    LEFT JOIN private.source_persona_identity i ON i.source_persona_id=pc.source_persona_id
+   WHERE pc.interpretation_key=v_i.interpretation_key AND pc.party_role IN ('principal',v_role);
+  IF coalesce(jsonb_array_length(v_parties),0)<>2
+     OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_parties) x
+                 WHERE x->>'decision_status' IS DISTINCT FROM 'accepted' OR x->>'canonical_person_id' IS NULL) THEN
+    RETURN NULL;
+  END IF;
+  SELECT (x->>'canonical_person_id')::bigint INTO v_a FROM jsonb_array_elements(v_parties) x WHERE x->>'party_role'='principal';
+  SELECT (x->>'canonical_person_id')::bigint INTO v_b FROM jsonb_array_elements(v_parties) x WHERE x->>'party_role'=v_role;
+  IF v_a=v_b THEN RETURN NULL; END IF;
+  SELECT array_agg(a.family_id ORDER BY a.family_id) INTO v_fams
+    FROM public.family_member a
+    JOIN public.family_member b ON b.family_id=a.family_id AND b.person_id=v_b AND b.rolle='partner'
+   WHERE a.person_id=v_a AND a.rolle=CASE v_role WHEN 'spouse' THEN 'partner' ELSE 'barn' END;
+  IF coalesce(cardinality(v_fams),0)<>1 THEN RETURN NULL; END IF;
+  SELECT jsonb_agg(jsonb_build_array(fm.person_id,fm.rolle,fm.ordinal,fm.konfidens) ORDER BY fm.person_id,fm.rolle COLLATE "C")
+    INTO v_rows
+    FROM public.family_member fm
+   WHERE fm.family_id=v_fams[1]
+     AND ((fm.person_id=v_a AND fm.rolle=CASE v_role WHEN 'spouse' THEN 'partner' ELSE 'barn' END)
+       OR (fm.person_id=v_b AND fm.rolle='partner'));
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_rows) x WHERE x->>3='omstridt') THEN RETURN NULL; END IF;
+  IF v_role='spouse' THEN
+    SELECT pc.marriage_ordinal INTO v_book FROM private.interpretation_party_current pc
+     WHERE pc.interpretation_key=v_i.interpretation_key AND pc.party_role='spouse';
+    SELECT fm.ordinal INTO v_famord FROM public.family_member fm
+     WHERE fm.family_id=v_fams[1] AND fm.person_id=v_a AND fm.rolle='partner';
+  END IF;
+  RETURN jsonb_build_object('contract','relation-binding-state-v1',
+    'interpretation',jsonb_build_object('interpretation_id',v_i.id::text,'interpretation_key',v_i.interpretation_key::text,
+      'version',v_i.version,'status',v_i.status,'predicate',v_i.predicate,'source_id',v_i.source_id),
+    'parties',v_parties,
+    'family',jsonb_build_object('family_id',v_fams[1],'rows',v_rows),'counterpart_person_id',v_b,
+    'book_ordinal',v_book,'family_ordinal',v_famord);
+END $$;
+REVOKE ALL ON FUNCTION private.relation_binding_state(uuid) FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION private.relation_binding_state_sha256(p_interpretation_id uuid)
+RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+  SELECT CASE WHEN s IS NULL THEN NULL ELSE private.reimport_canonical_json_sha256(s) END
+    FROM (SELECT private.relation_binding_state(p_interpretation_id) s) x;
+$$;
+REVOKE ALL ON FUNCTION private.relation_binding_state_sha256(uuid) FROM PUBLIC,anon,authenticated;
+
+CREATE TABLE private.relation_classification_event (
+  interpretation_key    uuid NOT NULL,
+  seq                   integer NOT NULL CHECK (seq>=1),
+  interpretation_id     uuid NOT NULL REFERENCES private.interpretation(id),
+  interpretation_version integer NOT NULL CHECK (interpretation_version>=1),
+  state_sha256          text NOT NULL CHECK (state_sha256 ~ '^[0-9a-f]{64}$'),
+  classification     text NOT NULL CONSTRAINT relation_classification_event_kind_check
+                       CHECK (classification IN ('ordinal_afvigelse')),
+  evidence           jsonb NOT NULL CHECK (jsonb_typeof(evidence)='object' AND evidence<>'{}'::jsonb),
+  created_by         uuid NOT NULL,
+  created_at         timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (interpretation_key,seq)
+);
+DO $relation_classification_table$
+BEGIN
+  DROP TRIGGER IF EXISTS trg_relation_classification_event_append_only ON private.relation_classification_event;
+  CREATE TRIGGER trg_relation_classification_event_append_only BEFORE UPDATE OR DELETE ON private.relation_classification_event
+    FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation();
+  DROP TRIGGER IF EXISTS trg_relation_classification_event_append_only_truncate ON private.relation_classification_event;
+  CREATE TRIGGER trg_relation_classification_event_append_only_truncate BEFORE TRUNCATE ON private.relation_classification_event
+    FOR EACH STATEMENT EXECUTE FUNCTION private.reject_evidence_mutation();
+  ALTER TABLE private.relation_classification_event ENABLE ROW LEVEL SECURITY;
+  REVOKE ALL ON TABLE private.relation_classification_event FROM PUBLIC,anon,authenticated;
+END $relation_classification_table$;
+
+-- Spec §4.5 (r2-M2): klassifikationen bindes til den gældende version og dens tilstand; en klassifikation
+-- er kun gældende, mens begge stadig er de aktuelle.
+CREATE OR REPLACE FUNCTION private.append_relation_classification(p_interpretation_id uuid,p_classification text,p_evidence jsonb)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_i private.interpretation%ROWTYPE; v_seq integer; v_state text;
+BEGIN
+  -- Serialisér pr. påstand: lås den (gældende) fortolkningsrække før max(seq)+1.
+  SELECT * INTO v_i FROM private.interpretation WHERE id=p_interpretation_id FOR UPDATE;
+  IF NOT FOUND OR NOT EXISTS (SELECT 1 FROM private.interpretation_current c
+                               WHERE c.interpretation_key=v_i.interpretation_key AND c.id=v_i.id) THEN
+    RAISE EXCEPTION 'RELATION_CLASSIFICATION_NOT_CURRENT';
+  END IF;
+  v_state:=private.relation_binding_state_sha256(v_i.id);
+  IF v_state IS NULL THEN RAISE EXCEPTION 'RELATION_CLASSIFICATION_STRUCTURE_INVALID'; END IF;
+  SELECT coalesce(max(seq),0)+1 INTO v_seq FROM private.relation_classification_event WHERE interpretation_key=v_i.interpretation_key;
+  INSERT INTO private.relation_classification_event(interpretation_key,seq,interpretation_id,interpretation_version,
+    state_sha256,classification,evidence,created_by)
+    VALUES (v_i.interpretation_key,v_seq,v_i.id,v_i.version,v_state,p_classification,p_evidence,
+            coalesce(auth.uid(),'00000000-0000-0000-0000-000000000000'::uuid));
+  RETURN v_seq;
+END $$;
+REVOKE ALL ON FUNCTION private.append_relation_classification(uuid,text,jsonb) FROM PUBLIC,anon,authenticated;
+
+CREATE UNIQUE INDEX IF NOT EXISTS interpretation_promotion_one_family_per_interpretation
+  ON private.interpretation_promotion(interpretation_id) WHERE target_type='family';

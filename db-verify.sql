@@ -10109,3 +10109,35 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: 5b 2a — regeltypen structural_family';
 END $relation_binding_rule_verify$;
+
+-- Trin 5b del 2a (#151, spec §4.2, §4.5, §4.6): tilstandsfunktionen er privat, klassifikationerne
+-- append-only bag RLS, ét familiemål pr. fortolkning, og del 1's kontroltabeller står i RLS-masterlisten.
+DO $relation_binding_state_verify$
+DECLARE v_t text;
+BEGIN
+  IF to_regclass('private.relation_classification_event') IS NULL
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.relation_classification_event'::regclass)
+     OR has_table_privilege('anon','private.relation_classification_event','SELECT')
+     OR has_table_privilege('authenticated','private.relation_classification_event','SELECT')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.relation_classification_event'::regclass
+                     AND tgname='trg_relation_classification_event_append_only')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.relation_classification_event'::regclass
+                     AND tgname='trg_relation_classification_event_append_only_truncate')
+     OR NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+                     WHERE c.relname='interpretation_promotion_one_family_per_interpretation'
+                       AND i.indisunique AND i.indpred IS NOT NULL)
+     OR to_regprocedure('private.relation_binding_state(uuid)') IS NULL
+     OR to_regprocedure('private.relation_binding_state_sha256(uuid)') IS NULL
+     OR to_regprocedure('private.append_relation_classification(uuid,text,jsonb)') IS NULL
+     OR has_function_privilege('authenticated','private.relation_binding_state(uuid)','EXECUTE')
+     OR has_function_privilege('anon','private.relation_binding_state(uuid)','EXECUTE')
+     OR has_function_privilege('authenticated','private.append_relation_classification(uuid,text,jsonb)','EXECUTE') THEN
+    RAISE EXCEPTION 'RELATION_BINDING_STATE_CONTRACT_INVALID';
+  END IF;
+  FOREACH v_t IN ARRAY ARRAY['identity_control_exclusion','identity_control_parent_card','identity_control_parent_event'] LOOP
+    IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid=format('private.%I',v_t)::regclass) THEN
+      RAISE EXCEPTION 'RELATION_BINDING_STATE_CONTRACT_INVALID: % uden RLS', v_t;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: 5b 2a — bindingens tilstand og klassifikationer';
+END $relation_binding_state_verify$;
