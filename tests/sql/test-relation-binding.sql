@@ -320,3 +320,255 @@ BEGIN
 END $relation_decide_lock_identity$;
 ROLLBACK;
 DELETE FROM person WHERE id=-2394;
+
+-- ---------- Task 4: binding (structural_family-promotion) ----------
+BEGIN;
+\ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
+DO $relation_promote$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-0000002a0401'; s jsonb; s2 jsonb; m jsonb; m3 jsonb; m4 jsonb; o jsonb; par jsonb;
+  pv jsonb; items jsonb; items4 jsonb; v_mid uuid; v_pid uuid; v_oid uuid; v_m4 uuid; v_batch uuid; v_batch2 uuid; n int; v_err text; v_fact bigint;
+  v_old_hash text;
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  INSERT INTO person(id,levende,privat,status) SELECT g,false,false,'2a' FROM generate_series(-2420,-2401) g;
+  s:=pg_temp.f5b_source(-2401);
+  s2:=pg_temp.f5b_source(-2402);
+  m:=pg_temp.f2a_marriage(-2401,s,'P-1',-2401,-2402,v_actor,1,1);
+  par:=pg_temp.f2a_parent(-2401,s,-2403,-2404,NULL,v_actor);
+  o:=pg_temp.f2a_marriage(-2402,s2,'P-9',-2409,-2410,v_actor,1,1);   -- anden kilde
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_decisions(-2401);
+  PERFORM red_decide_relation_interpretations(-2401,pv->>'set_sha256');
+  pv:=red_preview_relation_decisions(-2402);
+  PERFORM red_decide_relation_interpretations(-2402,pv->>'set_sha256');
+  RESET ROLE;
+  m3:=pg_temp.f2a_marriage(-2401,s,'P-3',-2405,-2406,v_actor,1,1,false);   -- forbliver proposed
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  SELECT id INTO v_mid FROM private.interpretation_current WHERE interpretation_key=(m->'claim'->>'key')::uuid;
+  SELECT id INTO v_pid FROM private.interpretation_current WHERE interpretation_key=(par->'claim'->>'key')::uuid;
+  SELECT id INTO v_oid FROM private.interpretation_current WHERE interpretation_key=(o->'claim'->>'key')::uuid;
+  items:=jsonb_build_array(jsonb_build_object('interpretation_id',v_mid::text,'family_id',(m->>'family')::bigint),
+                           jsonb_build_object('interpretation_id',v_pid::text,'family_id',(par->>'family')::bigint));
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_promotions(-2401,items);
+  RESET ROLE;
+  IF jsonb_array_length(pv->'items')<>2 OR EXISTS (SELECT 1 FROM jsonb_array_elements(pv->'items') i WHERE NOT (i->>'eligible')::boolean)
+     OR pv->>'preview_sha256' !~ '^[0-9a-f]{64}$' THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: preview %', pv;
+  END IF;
+
+  -- negative elementer: reason_code i previewet (ikke en rejst fejl)
+  SET LOCAL ROLE authenticated;
+  IF red_preview_relation_promotions(-2401,jsonb_build_array(jsonb_build_object('interpretation_id',v_mid::text,'family_id',(par->>'family')::bigint)))
+       #>>'{items,0,reason_code}' IS DISTINCT FROM 'RELATION_PROMOTION_FAMILY_MISMATCH'
+     OR red_preview_relation_promotions(-2401,jsonb_build_array(jsonb_build_object('interpretation_id',m->'claim'->>'id','family_id',(m->>'family')::bigint)))
+       #>>'{items,0,reason_code}' IS DISTINCT FROM 'RELATION_PROMOTION_NOT_CURRENT'
+     OR red_preview_relation_promotions(-2401,jsonb_build_array(jsonb_build_object('interpretation_id',m3->'claim'->>'id','family_id',(m->>'family')::bigint)))
+       #>>'{items,0,reason_code}' IS DISTINCT FROM 'RELATION_PROMOTION_NOT_ACCEPTED'
+     OR red_preview_relation_promotions(-2401,jsonb_build_array(items->0,items->0))
+       #>>'{items,0,reason_code}' IS DISTINCT FROM 'RELATION_PROMOTION_DUPLICATE_ITEM'
+     OR red_preview_relation_promotions(-2401,jsonb_build_array(jsonb_build_object('interpretation_id',v_oid::text,'family_id',(o->>'family')::bigint)))
+       #>>'{items,0,reason_code}' IS DISTINCT FROM 'RELATION_PROMOTION_SOURCE_MISMATCH' THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: negative preview-elementer';
+  END IF;
+  -- forkert form ⇒ undtagelse (også et tomt objekt og et id uden for bigint)
+  FOR items4 IN SELECT x FROM (VALUES ('[{"interpretation_id":"x"}]'::jsonb),('[{}]'::jsonb),('[]'::jsonb),
+      (jsonb_build_array(jsonb_build_object('interpretation_id',v_mid::text,'family_id',9999999999999999999::numeric)))) t(x) LOOP
+    BEGIN
+      PERFORM red_preview_relation_promotions(-2401,items4);
+      RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: forkert form godtaget %', items4;
+    EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+      IF v_err NOT LIKE 'RELATION_PROMOTION_ITEMS_INVALID%' THEN RAISE; END IF;
+    END;
+  END LOOP;
+  -- forældet preview
+  BEGIN
+    PERFORM red_promote_relation_interpretations_batch(-2401,items,repeat('0',64));
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: forældet preview godtaget';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'RELATION_PROMOTION_PREVIEW_STALE%' THEN RAISE; END IF;
+  END;
+  -- binding
+  v_batch:=red_promote_relation_interpretations_batch(-2401,items,pv->>'preview_sha256');
+  RESET ROLE;
+  IF v_batch IS NULL
+     OR (SELECT count(*) FROM private.interpretation_promotion WHERE batch_id=v_batch AND target_type='family')<>2
+     OR EXISTS (SELECT 1 FROM private.interpretation_promotion p WHERE p.batch_id=v_batch
+                 AND (p.evidence->>'state_sha256' IS DISTINCT FROM private.relation_binding_state_sha256(p.interpretation_id)
+                      OR NOT p.evidence ? 'vielse_fact_id' OR p.evidence->>'promotion_kind'<>'structural_family'
+                      OR (p.evidence->>'family_id')::bigint<>p.target_id))
+     OR (SELECT items_sha256 FROM private.interpretation_promotion_batch WHERE id=v_batch) !~ '^[0-9a-f]{64}$' THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: bindingerne';
+  END IF;
+  -- replay: samme kald ⇒ samme batch, ingen nye rækker; andet element-array ⇒ afvist; nyt preview ⇒ allerede bundet
+  SET LOCAL ROLE authenticated;
+  v_batch2:=red_promote_relation_interpretations_batch(-2401,items,pv->>'preview_sha256');
+  RESET ROLE;
+  IF v_batch2 IS DISTINCT FROM v_batch
+     OR (SELECT count(*) FROM private.interpretation_promotion WHERE target_type='family')<>2 THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: replay';
+  END IF;
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    PERFORM red_promote_relation_interpretations_batch(-2401,jsonb_build_array(items->1,items->0),pv->>'preview_sha256');
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: replay med andre elementer godtaget';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'RELATION_PROMOTION_REPLAY_MISMATCH%' THEN RAISE; END IF;
+  END;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(red_preview_relation_promotions(-2401,items)->'items') i
+              WHERE i->>'reason_code' IS DISTINCT FROM 'RELATION_PROMOTION_ALREADY_APPLIED') THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: allerede bundet';
+  END IF;
+  -- den gamle assertion-vej afviser relationsfortolkningen
+  IF red_preview_interpretation_promotions(jsonb_build_array(jsonb_build_object('interpretation_id',v_mid::text,
+       'target_type','assertion','target_id',1)))#>>'{items,0,reason_code}' IS DISTINCT FROM 'EVIDENCE_PROMOTION_RULE_NOT_ACTIVE' THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: assertion-vejen';
+  END IF;
+  RESET ROLE;
+  -- ét familiemål pr. fortolkning (partielt unikt indeks)
+  BEGIN
+    INSERT INTO private.interpretation_promotion(interpretation_id,rule_key,rule_version,batch_id,target_type,target_id,evidence,
+      promoted_by,promoted_by_name)
+    SELECT p.interpretation_id,p.rule_key,p.rule_version,p.batch_id,'family',p.target_id,p.evidence,p.promoted_by,p.promoted_by_name
+      FROM private.interpretation_promotion p WHERE p.interpretation_id=v_mid;
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: anden familiebinding godtaget';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+
+  -- vielsesfaktummet er en del af det autoriserede preview
+  m4:=pg_temp.f2a_marriage(-2401,s,'P-4',-2407,-2408,v_actor,1,1);
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_decisions(-2401);
+  PERFORM red_decide_relation_interpretations(-2401,pv->>'set_sha256');
+  RESET ROLE;
+  SELECT id INTO v_m4 FROM private.interpretation_current WHERE interpretation_key=(m4->'claim'->>'key')::uuid;
+  items4:=jsonb_build_array(jsonb_build_object('interpretation_id',v_m4::text,'family_id',(m4->>'family')::bigint));
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_promotions(-2401,items4);
+  RESET ROLE;
+  v_old_hash:=pv->>'preview_sha256';
+  IF pv#>>'{items,0,vielse_fact_id}' IS NOT NULL THEN RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: vielse uden faktum'; END IF;
+  INSERT INTO fact(subjekt_type,subjekt_id,faktatype) VALUES ('family',(m4->>'family')::bigint,'vielse') RETURNING id INTO v_fact;
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    PERFORM red_promote_relation_interpretations_batch(-2401,items4,v_old_hash);
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: vielsesdrift godtaget';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'RELATION_PROMOTION_PREVIEW_STALE%' THEN RAISE; END IF;
+  END;
+  pv:=red_preview_relation_promotions(-2401,items4);
+  IF (pv#>>'{items,0,vielse_fact_id}')::bigint IS DISTINCT FROM v_fact THEN RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: vielse i preview'; END IF;
+  v_batch:=red_promote_relation_interpretations_batch(-2401,items4,pv->>'preview_sha256');
+  RESET ROLE;
+  IF (SELECT (evidence->>'vielse_fact_id')::bigint FROM private.interpretation_promotion WHERE batch_id=v_batch) IS DISTINCT FROM v_fact THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: vielse i bindingen';
+  END IF;
+  RAISE NOTICE 'OK: binding af relationer';
+END $relation_promote$;
+ROLLBACK;
+
+-- To sessioner for bindingen (spec §8). Parterne committes før BEGIN, så dblink-sessionen ser dem;
+-- de slettes efter ROLLBACK. (a) en family_member-indsættelse venter på bindingens låse.
+INSERT INTO person(id,levende,privat,status) VALUES (-2491,false,false,'2a lock') ON CONFLICT (id) DO NOTHING;
+BEGIN;
+\ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
+DO $relation_promote_lock$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-0000002a0491'; s jsonb; m jsonb; pv jsonb; items jsonb; v_id uuid; v_err text;
+  v_conn text:=format('dbname=%s port=%s host=%s',current_database(),current_setting('port'),
+                      split_part(current_setting('unix_socket_directories'),',',1));
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  INSERT INTO person(id,levende,privat,status) VALUES (-2492,false,false,'2a');
+  s:=pg_temp.f5b_source(-2491);
+  m:=pg_temp.f2a_marriage(-2491,s,'PL-1',-2491,-2492,v_actor,1,1);
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_decisions(-2491);
+  PERFORM red_decide_relation_interpretations(-2491,pv->>'set_sha256');
+  RESET ROLE;
+  SELECT id INTO v_id FROM private.interpretation_current WHERE interpretation_key=(m->'claim'->>'key')::uuid;
+  items:=jsonb_build_array(jsonb_build_object('interpretation_id',v_id::text,'family_id',(m->>'family')::bigint));
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_promotions(-2491,items);
+  PERFORM red_promote_relation_interpretations_batch(-2491,items,pv->>'preview_sha256');
+  RESET ROLE;
+  BEGIN
+    PERFORM dblink_connect('l2a_p',v_conn);
+    PERFORM * FROM dblink('l2a_p','BEGIN; SET lock_timeout=''300ms''; INSERT INTO family(id,type) VALUES (-2491,''vielse''); '
+      ||'INSERT INTO family_member(family_id,person_id,rolle) VALUES (-2491,-2491,''partner''); SELECT ''x''') AS t(x text);
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: indsættelse ventede ikke på bindingen';
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    PERFORM dblink_disconnect('l2a_p');
+    IF v_err NOT LIKE '%lock timeout%' THEN RAISE; END IF;
+  END;
+  RAISE NOTICE 'OK: bindingens låse blokerer familieændringer';
+END $relation_promote_lock$;
+ROLLBACK;
+DELETE FROM person WHERE id=-2491;
+
+-- (b) en konkurrerende batch holder kildelåsen, (c) en identitetsgenafgørelse holder ægtefællens personrække
+-- (FOR NO KEY UPDATE; se Task 3's tilsvarende test). Bindingen fejler lukket med 0 bindinger og 0 batches.
+-- Påstanden accepteres her direkte med red_decide_interpretation: red_decide_relation_interpretations tager
+-- kildens advisory-lås for resten af hovedtransaktionen, og så ville dblink-sessionen i (b) vente på
+-- hovedsessionen, mens den venter synkront på dblink (uopdagelig hængning). lock_timeout i dblink er værn.
+INSERT INTO person(id,levende,privat,status) VALUES (-2494,false,false,'2a lock') ON CONFLICT (id) DO NOTHING;
+BEGIN;
+\ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
+DO $relation_promote_lock_wait$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-0000002a0493'; s jsonb; m jsonb; pv jsonb; items jsonb; v_id uuid; v_state text;
+  v_case text; v_lock text;
+  v_conn text:=format('dbname=%s port=%s host=%s',current_database(),current_setting('port'),
+                      split_part(current_setting('unix_socket_directories'),',',1));
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  INSERT INTO person(id,levende,privat,status) VALUES (-2493,false,false,'2a');
+  s:=pg_temp.f5b_source(-2493);
+  m:=pg_temp.f2a_marriage(-2493,s,'PL-2',-2493,-2494,v_actor,1,1);
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  PERFORM red_decide_interpretation((m->'claim'->>'id')::uuid,1,'accepted','{"note":"2a låsetest"}');
+  RESET ROLE;
+  SELECT id INTO v_id FROM private.interpretation_current WHERE interpretation_key=(m->'claim'->>'key')::uuid;
+  items:=jsonb_build_array(jsonb_build_object('interpretation_id',v_id::text,'family_id',(m->>'family')::bigint));
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_promotions(-2493,items);
+  RESET ROLE;
+  FOR v_case,v_lock IN VALUES
+    ('konkurrerende batch','SET lock_timeout=''5s''; SELECT pg_advisory_xact_lock(hashtextextended(''daa-identity-candidates:-2493'',0))::text'),
+    ('identitetsgenafgørelse','SET lock_timeout=''5s''; SELECT 1::text FROM person WHERE id=-2494 FOR NO KEY UPDATE') LOOP
+    v_state:=NULL;
+    PERFORM dblink_connect('l2a_w',v_conn);
+    PERFORM dblink_exec('l2a_w','BEGIN');
+    PERFORM * FROM dblink('l2a_w',v_lock) AS t(x text);
+    BEGIN
+      SET LOCAL ROLE authenticated;
+      SET LOCAL lock_timeout='300ms';
+      BEGIN
+        PERFORM red_promote_relation_interpretations_batch(-2493,items,pv->>'preview_sha256');
+      EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_state=RETURNED_SQLSTATE;
+      END;
+      RESET ROLE;
+      SET LOCAL lock_timeout=0;
+    EXCEPTION WHEN OTHERS THEN
+      PERFORM dblink_exec('l2a_w','ROLLBACK'); PERFORM dblink_disconnect('l2a_w'); RAISE;
+    END;
+    PERFORM dblink_exec('l2a_w','ROLLBACK'); PERFORM dblink_disconnect('l2a_w');
+    IF v_state IS DISTINCT FROM '55P03'
+       OR EXISTS (SELECT 1 FROM private.interpretation_promotion WHERE interpretation_id=v_id)
+       OR EXISTS (SELECT 1 FROM private.interpretation_promotion_batch WHERE preview_hash=pv->>'preview_sha256') THEN
+      RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: % — ventede ikke eller efterlod delvise writes (%)', v_case, v_state;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: bindingen venter på konkurrerende batch og identitetsgenafgørelse';
+END $relation_promote_lock_wait$;
+ROLLBACK;
+DELETE FROM person WHERE id=-2494;

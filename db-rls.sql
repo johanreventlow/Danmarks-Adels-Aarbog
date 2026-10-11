@@ -715,6 +715,8 @@ BEGIN
     'public.red_person_narrative_records(bigint)',
     'public.red_preview_interpretation_promotions(jsonb)',
     'public.red_preview_relation_decisions(bigint)',
+    'public.red_preview_relation_promotions(bigint,jsonb)',
+    'public.red_promote_relation_interpretations_batch(bigint,jsonb,text)',
     'public.red_preview_reimport_cases(bigint,text,jsonb)',
     'public.red_promote_interpretations_batch(jsonb,text)',
     'public.red_publicer_personer(bigint[])',

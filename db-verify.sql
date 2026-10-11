@@ -2997,6 +2997,8 @@ DECLARE
     'public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb)'::regprocedure,
     'public.red_preview_interpretation_promotions(jsonb)'::regprocedure,
     'public.red_preview_relation_decisions(bigint)'::regprocedure,
+    'public.red_preview_relation_promotions(bigint,jsonb)'::regprocedure,
+    'public.red_promote_relation_interpretations_batch(bigint,jsonb,text)'::regprocedure,
     'public.red_preview_reimport_cases(bigint,text,jsonb)'::regprocedure,
     'public.red_promote_interpretations_batch(jsonb,text)'::regprocedure,
     'public.red_publicer_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
@@ -10143,3 +10145,30 @@ BEGIN
   END LOOP;
   RAISE NOTICE 'OK: 5b 2a — bindingens tilstand og klassifikationer';
 END $relation_binding_state_verify$;
+
+-- Trin 5b del 2a (#151, spec §4.4): relationsbindingens flade og replay-kolonnen.
+DO $relation_promotion_verify$
+DECLARE f text;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='private' AND table_name='interpretation_promotion_batch'
+                  AND column_name='items_sha256' AND data_type='text' AND is_nullable='YES')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.interpretation_promotion_batch'::regclass
+                     AND contype='c' AND pg_get_constraintdef(oid) LIKE '%items_sha256%^[0-9a-f]{64}$%')
+     OR to_regprocedure('private.preview_relation_promotions(bigint,jsonb,boolean)') IS NULL
+     OR has_function_privilege('anon','private.preview_relation_promotions(bigint,jsonb,boolean)','EXECUTE')
+     OR has_function_privilege('authenticated','private.preview_relation_promotions(bigint,jsonb,boolean)','EXECUTE') THEN
+    RAISE EXCEPTION 'RELATION_PROMOTION_CONTRACT_INVALID';
+  END IF;
+  FOREACH f IN ARRAY ARRAY['public.red_preview_relation_promotions(bigint,jsonb)',
+                           'public.red_promote_relation_interpretations_batch(bigint,jsonb,text)',
+                           'public.red_preview_relation_decisions(bigint)',
+                           'public.red_decide_relation_interpretations(bigint,text)'] LOOP
+    IF to_regprocedure(f) IS NULL
+       OR NOT (SELECT prosecdef FROM pg_proc WHERE oid=to_regprocedure(f))
+       OR NOT has_function_privilege('authenticated',f,'EXECUTE')
+       OR has_function_privilege('anon',f,'EXECUTE') THEN
+      RAISE EXCEPTION 'RELATION_PROMOTION_CONTRACT_INVALID: %', f;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: 5b 2a — relationsbindingens flade';
+END $relation_promotion_verify$;

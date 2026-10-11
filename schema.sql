@@ -1376,7 +1376,10 @@ CREATE TABLE private.interpretation_promotion_batch (
   promoted_by       uuid NOT NULL,
   promoted_by_name  text NOT NULL CHECK (btrim(promoted_by_name)<>''),
   promoted_at       timestamptz NOT NULL DEFAULT now(),
-  requested_count   integer NOT NULL CHECK (requested_count>0)
+  requested_count   integer NOT NULL CHECK (requested_count>0),
+  -- Trin 5b 2a: digest af relationsbatchens elementer (replay); NULL for assertion-batches.
+  items_sha256      text CONSTRAINT interpretation_promotion_batch_items_sha256_check
+                    CHECK (items_sha256 IS NULL OR items_sha256 ~ '^[0-9a-f]{64}$')
 );
 
 INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate) VALUES
@@ -16103,3 +16106,141 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.red_decide_relation_interpretations(bigint,text) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.red_decide_relation_interpretations(bigint,text) TO authenticated;
+
+-- ===================================================================================
+-- Trin 5b del 2a (#151, spec §4.4): strukturel binding af afgjorte relationer til familien.
+-- ===================================================================================
+CREATE OR REPLACE FUNCTION private.preview_relation_promotions(p_source_id bigint,p_items jsonb,p_lock boolean)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_items jsonb;
+BEGIN
+  IF jsonb_typeof(p_items)<>'array' OR jsonb_array_length(p_items)=0 OR EXISTS (
+       SELECT 1 FROM jsonb_array_elements(p_items) e(item)
+        WHERE jsonb_typeof(e.item)<>'object'
+           -- IS DISTINCT FROM: et tomt objekt giver NULL, som <> ville lade slippe igennem
+           OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(e.item) k) IS DISTINCT FROM ARRAY['family_id','interpretation_id']
+           OR jsonb_typeof(e.item->'interpretation_id')<>'string'
+           OR e.item->>'interpretation_id' !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+           OR jsonb_typeof(e.item->'family_id')<>'number' OR e.item->>'family_id' !~ '^-?[0-9]{1,19}$') THEN
+    RAISE EXCEPTION 'RELATION_PROMOTION_ITEMS_INVALID';
+  END IF;
+  -- 19 cifre kan stadig ligge uden for bigint; castet range-checker og giver samme fejlkode.
+  BEGIN
+    PERFORM (e.item->>'family_id')::bigint FROM jsonb_array_elements(p_items) e(item);
+  EXCEPTION WHEN numeric_value_out_of_range THEN RAISE EXCEPTION 'RELATION_PROMOTION_ITEMS_INVALID';
+  END;
+  IF p_lock THEN
+    PERFORM pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:'||p_source_id::text,0));
+    PERFORM 1 FROM private.interpretation i
+     WHERE i.id IN (SELECT ic.id FROM private.interpretation_current ic
+                     JOIN private.interpretation q ON q.interpretation_key=ic.interpretation_key
+                    WHERE q.id IN (SELECT (e.item->>'interpretation_id')::uuid FROM jsonb_array_elements(p_items) e(item)))
+     ORDER BY i.id FOR UPDATE;
+    PERFORM private.lock_family_rows(ARRAY(
+      SELECT DISTINCT (pty->>'canonical_person_id')::bigint
+        FROM jsonb_array_elements(p_items) e(item)
+        CROSS JOIN LATERAL jsonb_array_elements(coalesce(private.relation_binding_state((e.item->>'interpretation_id')::uuid)->'parties','[]'::jsonb)) pty
+       WHERE pty->>'canonical_person_id' IS NOT NULL ORDER BY 1));
+  END IF;
+  WITH parsed AS (
+    SELECT ord::integer AS item_ordinal,(e.item->>'interpretation_id')::uuid AS interpretation_id,
+           (e.item->>'family_id')::bigint AS family_id,
+           count(*) OVER (PARTITION BY (e.item->>'interpretation_id')::uuid) AS dup
+      FROM jsonb_array_elements(p_items) WITH ORDINALITY e(item,ord)
+  ), checked AS (
+    SELECT p.*,q.id AS requested_id,q.source_id,q.predicate,cur.id AS current_id,cur.status,
+           r.rule_key,r.rule_version,r.rule_mode,r.status AS rule_status,
+           private.relation_binding_state(p.interpretation_id) AS st,
+           EXISTS (SELECT 1 FROM private.interpretation_promotion x
+                    WHERE x.interpretation_id=p.interpretation_id AND x.target_type='family') AS bound
+      FROM parsed p
+      LEFT JOIN private.interpretation q ON q.id=p.interpretation_id
+      LEFT JOIN private.interpretation_current cur ON cur.interpretation_key=q.interpretation_key
+      LEFT JOIN private.interpretation_promotion_rule_line l ON l.predicate=q.predicate
+      LEFT JOIN private.interpretation_promotion_rule_current r ON r.rule_key=l.rule_key
+  ), judged AS (
+    SELECT c.*,CASE
+      WHEN c.requested_id IS NULL THEN 'RELATION_PROMOTION_NOT_FOUND'
+      WHEN c.source_id<>p_source_id THEN 'RELATION_PROMOTION_SOURCE_MISMATCH'
+      WHEN c.current_id<>c.interpretation_id THEN 'RELATION_PROMOTION_NOT_CURRENT'
+      WHEN c.status<>'accepted' THEN 'RELATION_PROMOTION_NOT_ACCEPTED'
+      WHEN c.rule_key IS NULL OR c.rule_mode<>'structural_family' OR c.rule_status<>'active' THEN 'RELATION_PROMOTION_RULE_NOT_ACTIVE'
+      WHEN c.st IS NULL THEN 'RELATION_PROMOTION_STRUCTURE_INVALID'
+      WHEN (c.st#>>'{family,family_id}')::bigint<>c.family_id THEN 'RELATION_PROMOTION_FAMILY_MISMATCH'
+      WHEN c.dup>1 THEN 'RELATION_PROMOTION_DUPLICATE_ITEM'
+      WHEN c.bound THEN 'RELATION_PROMOTION_ALREADY_APPLIED'
+    END AS reason_code
+      FROM checked c
+  )
+  SELECT jsonb_agg(jsonb_build_object('item_ordinal',j.item_ordinal,'interpretation_id',j.interpretation_id::text,
+           'family_id',j.family_id,'eligible',j.reason_code IS NULL,'reason_code',j.reason_code,
+           'rule_key',j.rule_key,'rule_version',j.rule_version,
+           'state_sha256',CASE WHEN j.st IS NULL THEN NULL ELSE private.reimport_canonical_json_sha256(j.st) END,
+           -- Codex plan-r1 #9: vielsesfaktummet er en del af det autoriserede preview; skrivningen bruger
+           -- previewets værdi, så det gemte = det hashede. Entydigt ellers null.
+           'vielse_fact_id',CASE WHEN j.predicate='relation.marriage' THEN
+              (SELECT CASE WHEN count(*)=1 THEN min(f.id) END FROM public.fact f
+                WHERE f.subjekt_type='family' AND f.subjekt_id=j.family_id AND f.faktatype='vielse') END)
+         ORDER BY j.item_ordinal)
+    INTO v_items FROM judged j;
+  RETURN jsonb_build_object('items',v_items,'preview_sha256',private.reimport_canonical_json_sha256(jsonb_build_object(
+    'contract','relation-promotion-preview-v1',
+    'database_identity',jsonb_build_object('database_name',current_database(),
+      'system_identifier',(pg_control_system()).system_identifier::text)::text,
+    'source_id',p_source_id,'items',v_items)));
+END $$;
+REVOKE ALL ON FUNCTION private.preview_relation_promotions(bigint,jsonb,boolean) FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION public.red_preview_relation_promotions(p_source_id bigint,p_items jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  RETURN private.preview_relation_promotions(p_source_id,p_items,false);
+END $$;
+REVOKE ALL ON FUNCTION public.red_preview_relation_promotions(bigint,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_preview_relation_promotions(bigint,jsonb) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.red_promote_relation_interpretations_batch(p_source_id bigint,p_items jsonb,p_preview_sha256 text)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_actor uuid:=auth.uid(); v_actor_name text; v_preview jsonb; v_reason text; v_profile jsonb; v_batch uuid;
+  v_items_sha text; v_old_items text;
+BEGIN
+  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text) INTO v_actor_name FROM public.profiles WHERE id=v_actor;
+  IF v_actor_name IS NULL OR coalesce(p_preview_sha256,'') !~ '^[0-9a-f]{64}$' THEN RAISE EXCEPTION 'RELATION_PROMOTION_INVALID'; END IF;
+  -- Replay (spec §4.4): kildelåsen først, så et samtidigt kald ser den committede batch.
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:'||p_source_id::text,0));
+  v_items_sha:=private.reimport_canonical_json_sha256(p_items);
+  SELECT id,items_sha256 INTO v_batch,v_old_items FROM private.interpretation_promotion_batch
+   WHERE preview_hash=p_preview_sha256 AND items_sha256 IS NOT NULL;
+  IF v_batch IS NOT NULL THEN
+    IF v_old_items IS DISTINCT FROM v_items_sha THEN RAISE EXCEPTION 'RELATION_PROMOTION_REPLAY_MISMATCH'; END IF;
+    RETURN v_batch;
+  END IF;
+  v_preview:=private.preview_relation_promotions(p_source_id,p_items,true);
+  IF v_preview->>'preview_sha256'<>p_preview_sha256 THEN RAISE EXCEPTION 'RELATION_PROMOTION_PREVIEW_STALE'; END IF;
+  SELECT i->>'reason_code' INTO v_reason FROM jsonb_array_elements(v_preview->'items') i
+   WHERE NOT (i->>'eligible')::boolean ORDER BY (i->>'item_ordinal')::int LIMIT 1;
+  IF v_reason IS NOT NULL THEN RAISE EXCEPTION '%',v_reason; END IF;
+  -- Samme profilform som den eksisterende promotion-writer (schema.sql ~9098): ét par pr. element,
+  -- sorteret efter regel og version (Codex plan-r1 #10).
+  SELECT coalesce(jsonb_agg(jsonb_build_object('rule_key',i->>'rule_key','rule_version',(i->>'rule_version')::int)
+           ORDER BY i->>'rule_key' COLLATE "C",(i->>'rule_version')::int),'[]'::jsonb)
+    INTO v_profile FROM jsonb_array_elements(v_preview->'items') i;
+  INSERT INTO private.interpretation_promotion_batch(rule_profile_hash,preview_hash,promoted_by,promoted_by_name,requested_count,items_sha256)
+  VALUES (private.reimport_canonical_json_sha256(jsonb_build_object('contract','relation-promotion-profile-v1',
+            'preview_hash',p_preview_sha256,'rule_profile',v_profile)),
+          p_preview_sha256,v_actor,v_actor_name,jsonb_array_length(v_preview->'items'),v_items_sha)
+  RETURNING id INTO v_batch;
+  INSERT INTO private.interpretation_promotion(interpretation_id,rule_key,rule_version,batch_id,target_type,target_id,evidence,
+    promoted_by,promoted_by_name)
+  SELECT (i->>'interpretation_id')::uuid,i->>'rule_key',(i->>'rule_version')::int,v_batch,'family',(i->>'family_id')::bigint,
+         jsonb_build_object('promotion_kind','structural_family','family_id',(i->>'family_id')::bigint,
+           'vielse_fact_id',(i->>'vielse_fact_id')::bigint,
+           'state_sha256',i->>'state_sha256','preview_sha256',p_preview_sha256),
+         v_actor,v_actor_name
+    FROM jsonb_array_elements(v_preview->'items') i;
+  RETURN v_batch;
+END $$;
+REVOKE ALL ON FUNCTION public.red_promote_relation_interpretations_batch(bigint,jsonb,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_promote_relation_interpretations_batch(bigint,jsonb,text) TO authenticated;
