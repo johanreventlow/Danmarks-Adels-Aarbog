@@ -21280,4 +21280,114 @@ END $$;
 REVOKE ALL ON FUNCTION red_corroborate_family_identities(uuid,text) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION red_corroborate_family_identities(uuid,text) TO authenticated;
 
+-- ===================================================================================
+-- Trin 5b del 2a (#151, spec 2026-10-11): strukturelle familiebindinger.
+-- Blokken kører efter de ældre blokke, der ved hver kørsel genskaber validatoren, det
+-- ufiltrerede promotable-view og 10-parameter-overloaden; her erstattes de igen.
+-- ===================================================================================
+ALTER TABLE private.interpretation_promotion_rule ADD COLUMN IF NOT EXISTS rule_mode text NOT NULL DEFAULT 'text_assertion';
+ALTER TABLE private.interpretation_promotion_rule ALTER COLUMN expected_fact_type DROP NOT NULL;
+ALTER TABLE private.interpretation_promotion_rule
+  DROP CONSTRAINT IF EXISTS interpretation_promotion_rule_interpretation_kind_check,
+  DROP CONSTRAINT IF EXISTS interpretation_promotion_rule_target_type_check,
+  DROP CONSTRAINT IF EXISTS interpretation_promotion_rule_expected_fact_type_check,
+  DROP CONSTRAINT IF EXISTS interpretation_promotion_rule_value_kind_check,
+  DROP CONSTRAINT IF EXISTS interpretation_promotion_rule_mode_check;
+-- Én CHECK pr. regeltype. text_assertion kræver faktatypen eksplicit: NULL i en CHECK godtages.
+ALTER TABLE private.interpretation_promotion_rule ADD CONSTRAINT interpretation_promotion_rule_mode_check CHECK (
+  (rule_mode='text_assertion' AND interpretation_kind='property' AND target_type='assertion'
+     AND expected_fact_type IS NOT NULL
+     AND expected_fact_type IN ('navn','tilnavn','titel','fødsel','død') AND value_kind IN ('text','date_raw'))
+  OR (rule_mode='structural_family' AND interpretation_kind='relation' AND target_type='family'
+     AND expected_fact_type IS NULL AND value_kind='relation'));
+CREATE OR REPLACE VIEW private.interpretation_promotion_rule_current
+WITH (security_invoker=true) AS
+SELECT DISTINCT ON(rule_key) * FROM private.interpretation_promotion_rule
+ORDER BY rule_key,rule_version DESC;
+REVOKE ALL ON TABLE private.interpretation_promotion_rule_current FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION private.validate_interpretation_promotion_rule_predicate()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=NEW.predicate AND pr.status='active') THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_PREDICATE_UNKNOWN';
+  END IF;
+  -- Trin 5b 2a: tekst/dato kun for text_assertion; relation kun for structural_family.
+  IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr
+                  WHERE pr.predicate=NEW.predicate AND pr.value_kind=NEW.value_kind
+                    AND ((NEW.rule_mode='text_assertion' AND pr.value_kind IN ('text','date_raw'))
+                      OR (NEW.rule_mode='structural_family' AND pr.value_kind='relation'
+                          AND pr.interpretation_kind='relation'))) THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_VALUE_KIND_MISMATCH';
+  END IF;
+  IF (NEW.rule_key LIKE 'verify-%') <> EXISTS (SELECT 1 FROM private.interpretation_predicate pr
+                                                WHERE pr.predicate=NEW.predicate AND pr.introduced_in='db-verify-fixture') THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_FIXTURE_SCOPE_INVALID';
+  END IF;
+  RETURN NEW;
+END $$;
+
+CREATE OR REPLACE VIEW private.interpretation_predicate_promotable WITH (security_invoker=true) AS
+SELECT p.predicate, p.interpretation_kind, p.category, p.value_kind, r.rule_key, r.rule_version, r.expected_fact_type
+  FROM private.interpretation_predicate p
+  JOIN private.interpretation_promotion_rule_line l ON l.predicate=p.predicate
+  JOIN private.interpretation_promotion_rule_current r ON r.rule_key=l.rule_key
+ WHERE p.status='active' AND p.introduced_in<>'db-verify-fixture' AND r.status='active' AND r.rule_key NOT LIKE 'verify-%'
+   AND r.rule_mode='text_assertion';
+REVOKE ALL ON TABLE private.interpretation_predicate_promotable FROM PUBLIC,anon,authenticated,service_role;
+
+DROP FUNCTION IF EXISTS private.add_interpretation_promotion_rule_version(text,text,text,text,text,text,boolean,boolean,boolean,text);
+CREATE OR REPLACE FUNCTION private.add_interpretation_promotion_rule_version(
+  p_rule_key text,p_predicate text,p_interpretation_kind text,p_target_type text,
+  p_expected_fact_type text,p_value_kind text,p_requires_persona_identity boolean,
+  p_requires_principal_placement boolean,p_bulk_eligible boolean,p_status text,
+  p_rule_mode text DEFAULT 'text_assertion'
+) RETURNS integer LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+DECLARE v_predicate text; v_version integer;
+BEGIN
+  SELECT predicate INTO v_predicate
+    FROM private.interpretation_promotion_rule_line
+   WHERE rule_key=p_rule_key FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_LINE_NOT_FOUND'; END IF;
+  IF v_predicate<>p_predicate THEN RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_PREDICATE_MISMATCH'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=p_predicate AND pr.status='active') THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_PREDICATE_UNKNOWN';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr
+                  WHERE pr.predicate=p_predicate AND pr.value_kind=p_value_kind
+                    AND ((p_rule_mode='text_assertion' AND pr.value_kind IN ('text','date_raw'))
+                      OR (p_rule_mode='structural_family' AND pr.value_kind='relation'
+                          AND pr.interpretation_kind='relation'))) THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_VALUE_KIND_MISMATCH';
+  END IF;
+  IF (p_rule_key LIKE 'verify-%') <> EXISTS (SELECT 1 FROM private.interpretation_predicate pr
+                                              WHERE pr.predicate=p_predicate AND pr.introduced_in='db-verify-fixture') THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_FIXTURE_SCOPE_INVALID';
+  END IF;
+  SELECT coalesce(max(rule_version),0)+1 INTO v_version
+    FROM private.interpretation_promotion_rule WHERE rule_key=p_rule_key;
+  INSERT INTO private.interpretation_promotion_rule(
+    rule_key,rule_version,predicate,interpretation_kind,target_type,expected_fact_type,
+    value_kind,requires_persona_identity,requires_principal_placement,bulk_eligible,status,rule_mode
+  ) VALUES (p_rule_key,v_version,p_predicate,p_interpretation_kind,p_target_type,
+    p_expected_fact_type,p_value_kind,p_requires_persona_identity,
+    p_requires_principal_placement,p_bulk_eligible,p_status,p_rule_mode);
+  RETURN v_version;
+END $$;
+REVOKE EXECUTE ON FUNCTION private.add_interpretation_promotion_rule_version(
+  text,text,text,text,text,text,boolean,boolean,boolean,text,text
+) FROM PUBLIC,anon,authenticated;
+
+INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate) VALUES
+  ('relation-marriage-v1','relation.marriage'),
+  ('relation-parent-v1','relation.parent')
+ON CONFLICT (rule_key) DO NOTHING;
+INSERT INTO private.interpretation_promotion_rule(
+  rule_key,rule_version,predicate,interpretation_kind,target_type,expected_fact_type,
+  value_kind,requires_persona_identity,requires_principal_placement,bulk_eligible,status,rule_mode
+) VALUES
+  ('relation-marriage-v1',1,'relation.marriage','relation','family',NULL,'relation',false,false,true,'active','structural_family'),
+  ('relation-parent-v1',1,'relation.parent','relation','family',NULL,'relation',false,false,true,'active','structural_family')
+ON CONFLICT (rule_key,rule_version) DO NOTHING;
+
 -- 5b-sektionen slutter her (nye 5b-blokke indsættes over denne linje).

@@ -4351,7 +4351,7 @@ BEGIN
     RAISE EXCEPTION 'FEJL: promotionregel-laget mangler';
   END IF;
   IF to_regclass('private.interpretation_promotion_rule_current') IS NULL
-     OR to_regprocedure('private.add_interpretation_promotion_rule_version(text,text,text,text,text,text,boolean,boolean,boolean,text)') IS NULL THEN
+     OR to_regprocedure('private.add_interpretation_promotion_rule_version(text,text,text,text,text,text,boolean,boolean,boolean,text,text)') IS NULL THEN
     RAISE EXCEPTION 'FEJL: promotionregel-laget mangler current-view/version-writer';
   END IF;
   IF EXISTS (
@@ -4476,7 +4476,7 @@ BEGIN
   END IF;
   IF (
     SELECT count(*) FROM private.interpretation_promotion_rule
-     WHERE rule_version=1 AND status='active'
+     WHERE rule_version=1 AND status='active' AND rule_mode='text_assertion'   -- 5b 2a: strukturregler tjekkes for sig
   )<>5 THEN
     RAISE EXCEPTION 'FEJL: promotionregel-laget har ikke præcis fem aktive v1-regler';
   END IF;
@@ -10086,3 +10086,26 @@ BEGIN
   END IF;
 END
 $verify_ingen_foraeldreloese_evidenskoblinger$;
+
+-- Trin 5b del 2a (#151, spec 2026-10-11 §4.1): regeltypen structural_family er adskilt fra
+-- assertion-vejen; én CHECK pr. regeltype, ingen gammel overload, relationsregler aldrig promoverbare.
+DO $relation_binding_rule_verify$
+BEGIN
+  IF (SELECT attnotnull FROM pg_attribute WHERE attrelid='private.interpretation_promotion_rule'::regclass AND attname='expected_fact_type')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.interpretation_promotion_rule'::regclass
+                     AND conname='interpretation_promotion_rule_mode_check')
+     -- NULL i en CHECK godtages; text_assertion-grenen skal eksplicit kræve faktatypen
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.interpretation_promotion_rule'::regclass
+                     AND conname='interpretation_promotion_rule_mode_check'
+                     AND pg_get_constraintdef(oid) LIKE '%expected_fact_type IS NOT NULL%')
+     OR EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.interpretation_promotion_rule'::regclass
+                 AND conname IN ('interpretation_promotion_rule_interpretation_kind_check','interpretation_promotion_rule_target_type_check',
+                                 'interpretation_promotion_rule_expected_fact_type_check','interpretation_promotion_rule_value_kind_check'))
+     OR to_regprocedure('private.add_interpretation_promotion_rule_version(text,text,text,text,text,text,boolean,boolean,boolean,text)') IS NOT NULL
+     OR (SELECT count(*) FROM private.interpretation_promotion_rule_current
+          WHERE rule_key IN ('relation-marriage-v1','relation-parent-v1') AND rule_mode='structural_family' AND status='active')<>2
+     OR EXISTS (SELECT 1 FROM private.interpretation_predicate_promotable WHERE predicate LIKE 'relation.%') THEN
+    RAISE EXCEPTION 'RELATION_BINDING_RULE_CONTRACT_INVALID';
+  END IF;
+  RAISE NOTICE 'OK: 5b 2a — regeltypen structural_family';
+END $relation_binding_rule_verify$;

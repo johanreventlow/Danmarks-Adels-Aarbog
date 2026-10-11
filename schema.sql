@@ -1345,21 +1345,28 @@ CREATE TABLE private.interpretation_promotion_rule (
   rule_key                      text NOT NULL CHECK (btrim(rule_key)<>''),
   rule_version                  integer NOT NULL CHECK (rule_version>=1),
   predicate                     text NOT NULL CHECK (btrim(predicate)<>''),
-  interpretation_kind           text NOT NULL CHECK (interpretation_kind='property'),
-  target_type                   text NOT NULL CHECK (target_type='assertion'),
-  expected_fact_type            text NOT NULL CHECK (
-                                 expected_fact_type IN ('navn','tilnavn','titel','fødsel','død')
-                               ),
-  value_kind                    text NOT NULL CHECK (value_kind IN ('text','date_raw')),
+  interpretation_kind           text NOT NULL,
+  target_type                   text NOT NULL,
+  expected_fact_type            text,
+  value_kind                    text NOT NULL,
   requires_persona_identity     boolean NOT NULL DEFAULT true,
   requires_principal_placement  boolean NOT NULL DEFAULT false,
   bulk_eligible                 boolean NOT NULL DEFAULT true,
   status                        text NOT NULL CHECK (status IN ('active','retired')),
   created_at                    timestamptz NOT NULL DEFAULT now(),
+  -- Trin 5b 2a (#151): sidst, så `SELECT *`-viewet har samme kolonneorden på frisk og opgraderet base.
+  rule_mode                     text NOT NULL DEFAULT 'text_assertion',
   PRIMARY KEY (rule_key,rule_version),
   UNIQUE (predicate,rule_version),
   FOREIGN KEY (rule_key,predicate)
-    REFERENCES private.interpretation_promotion_rule_line(rule_key,predicate)
+    REFERENCES private.interpretation_promotion_rule_line(rule_key,predicate),
+  -- Én CHECK pr. regeltype. text_assertion kræver faktatypen eksplicit: NULL i en CHECK godtages.
+  CONSTRAINT interpretation_promotion_rule_mode_check CHECK (
+    (rule_mode='text_assertion' AND interpretation_kind='property' AND target_type='assertion'
+       AND expected_fact_type IS NOT NULL
+       AND expected_fact_type IN ('navn','tilnavn','titel','fødsel','død') AND value_kind IN ('text','date_raw'))
+    OR (rule_mode='structural_family' AND interpretation_kind='relation' AND target_type='family'
+       AND expected_fact_type IS NULL AND value_kind='relation'))
 );
 
 CREATE TABLE private.interpretation_promotion_batch (
@@ -1403,7 +1410,12 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=NEW.predicate AND pr.status='active') THEN
     RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_PREDICATE_UNKNOWN';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=NEW.predicate AND pr.value_kind=NEW.value_kind AND pr.value_kind IN ('text','date_raw')) THEN
+  -- Trin 5b 2a: tekst/dato kun for text_assertion; relation kun for structural_family.
+  IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr
+                  WHERE pr.predicate=NEW.predicate AND pr.value_kind=NEW.value_kind
+                    AND ((NEW.rule_mode='text_assertion' AND pr.value_kind IN ('text','date_raw'))
+                      OR (NEW.rule_mode='structural_family' AND pr.value_kind='relation'
+                          AND pr.interpretation_kind='relation'))) THEN
     RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_VALUE_KIND_MISMATCH';
   END IF;
   IF (NEW.rule_key LIKE 'verify-%') <> EXISTS (SELECT 1 FROM private.interpretation_predicate pr
@@ -1416,19 +1428,32 @@ CREATE TRIGGER trg_interpretation_promotion_rule_predicate
   BEFORE INSERT ON private.interpretation_promotion_rule
   FOR EACH ROW EXECUTE FUNCTION private.validate_interpretation_promotion_rule_predicate();
 
+-- Trin 5b 2a (#151): strukturelle familiebindinger. Efter triggeren, så den validerer reglerne.
+INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate) VALUES
+  ('relation-marriage-v1','relation.marriage'),
+  ('relation-parent-v1','relation.parent');
+INSERT INTO private.interpretation_promotion_rule(
+  rule_key,rule_version,predicate,interpretation_kind,target_type,expected_fact_type,
+  value_kind,requires_persona_identity,requires_principal_placement,bulk_eligible,status,rule_mode
+) VALUES
+  ('relation-marriage-v1',1,'relation.marriage','relation','family',NULL,'relation',false,false,true,'active','structural_family'),
+  ('relation-parent-v1',1,'relation.parent','relation','family',NULL,'relation',false,false,true,'active','structural_family');
+
 -- Promoverbarhed udledes ved join; tabellen har ingen rule_key (ingen cirkulær FK).
 CREATE VIEW private.interpretation_predicate_promotable WITH (security_invoker=true) AS
 SELECT p.predicate, p.interpretation_kind, p.category, p.value_kind, r.rule_key, r.rule_version, r.expected_fact_type
   FROM private.interpretation_predicate p
   JOIN private.interpretation_promotion_rule_line l ON l.predicate=p.predicate
   JOIN private.interpretation_promotion_rule_current r ON r.rule_key=l.rule_key
- WHERE p.status='active' AND p.introduced_in<>'db-verify-fixture' AND r.status='active' AND r.rule_key NOT LIKE 'verify-%';
+ WHERE p.status='active' AND p.introduced_in<>'db-verify-fixture' AND r.status='active' AND r.rule_key NOT LIKE 'verify-%'
+   AND r.rule_mode='text_assertion';
 REVOKE ALL ON TABLE private.interpretation_predicate_promotable FROM PUBLIC,anon,authenticated,service_role;
 
 CREATE FUNCTION private.add_interpretation_promotion_rule_version(
   p_rule_key text,p_predicate text,p_interpretation_kind text,p_target_type text,
   p_expected_fact_type text,p_value_kind text,p_requires_persona_identity boolean,
-  p_requires_principal_placement boolean,p_bulk_eligible boolean,p_status text
+  p_requires_principal_placement boolean,p_bulk_eligible boolean,p_status text,
+  p_rule_mode text DEFAULT 'text_assertion'
 ) RETURNS integer LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
 DECLARE v_predicate text; v_version integer;
 BEGIN
@@ -1443,7 +1468,11 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=p_predicate AND pr.status='active') THEN
     RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_PREDICATE_UNKNOWN';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr WHERE pr.predicate=p_predicate AND pr.value_kind=p_value_kind AND pr.value_kind IN ('text','date_raw')) THEN
+  IF NOT EXISTS (SELECT 1 FROM private.interpretation_predicate pr
+                  WHERE pr.predicate=p_predicate AND pr.value_kind=p_value_kind
+                    AND ((p_rule_mode='text_assertion' AND pr.value_kind IN ('text','date_raw'))
+                      OR (p_rule_mode='structural_family' AND pr.value_kind='relation'
+                          AND pr.interpretation_kind='relation'))) THEN
     RAISE EXCEPTION 'EVIDENCE_PROMOTION_RULE_VALUE_KIND_MISMATCH';
   END IF;
   IF (p_rule_key LIKE 'verify-%') <> EXISTS (SELECT 1 FROM private.interpretation_predicate pr
@@ -1454,10 +1483,10 @@ BEGIN
     FROM private.interpretation_promotion_rule WHERE rule_key=p_rule_key;
   INSERT INTO private.interpretation_promotion_rule(
     rule_key,rule_version,predicate,interpretation_kind,target_type,expected_fact_type,
-    value_kind,requires_persona_identity,requires_principal_placement,bulk_eligible,status
+    value_kind,requires_persona_identity,requires_principal_placement,bulk_eligible,status,rule_mode
   ) VALUES (p_rule_key,v_version,p_predicate,p_interpretation_kind,p_target_type,
     p_expected_fact_type,p_value_kind,p_requires_persona_identity,
-    p_requires_principal_placement,p_bulk_eligible,p_status);
+    p_requires_principal_placement,p_bulk_eligible,p_status,p_rule_mode);
   RETURN v_version;
 END $$;
 
@@ -1865,7 +1894,7 @@ REVOKE EXECUTE ON FUNCTION private.validate_interpretation_scope(),
                            private.validate_source_persona_identity_state(),
                            private.assert_identity_state_event_consistency(),
                            private.add_interpretation_promotion_rule_version(
-                             text,text,text,text,text,text,boolean,boolean,boolean,text
+                             text,text,text,text,text,text,boolean,boolean,boolean,text,text
                            )
   FROM PUBLIC,anon,authenticated;
 

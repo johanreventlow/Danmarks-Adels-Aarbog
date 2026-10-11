@@ -130,7 +130,7 @@ BEGIN
       'private.validate_interpretation_promotion()'::regprocedure,
       'private.validate_interpretation_promotion_items(jsonb,boolean)'::regprocedure,
       'private.preview_interpretation_promotions(jsonb,boolean)'::regprocedure,
-      'private.add_interpretation_promotion_rule_version(text,text,text,text,text,text,boolean,boolean,boolean,text)'::regprocedure
+      'private.add_interpretation_promotion_rule_version(text,text,text,text,text,text,boolean,boolean,boolean,text,text)'::regprocedure
     ] LOOP
       IF has_function_privilege(v_role,v_function,'EXECUTE') THEN
         RAISE EXCEPTION 'EVIDENCE_PROMOTION_RLS_TEST_FAILED: % kan kalde %',v_role,v_function;
