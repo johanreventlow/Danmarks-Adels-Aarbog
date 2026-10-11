@@ -25,6 +25,8 @@ ALLOWED = {
     ".claude/skills/daa-extract/scripts/interpretation_proposal_projection.sql",
     # Læser via fortolkningslinks, som kun kan pege på det aktuelle sæt (trigger).
     ".claude/skills/daa-extract/scripts/interpretation_control_rows.sql",
+    # 5b's kontrolark: helposten (parent_observation_id IS NULL) for egen post; klausuler kun via fortolkningslinks.
+    ".claude/skills/daa-extract/scripts/identity_control_rows.sql",
     # Overførslens fingeraftryk og digests (#147): læser kun klausuler via fortolkningslinks.
     ".claude/skills/daa-extract/scripts/interpretation_decision_fingerprint.sql",
     ".claude/skills/daa-extract/scripts/interpretation_transfer_digests.sql",

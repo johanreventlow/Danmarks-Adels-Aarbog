@@ -2929,6 +2929,7 @@ DECLARE
   v_authenticated regprocedure[] := ARRAY[
     'public.red_activate_1939_v50_batch(uuid,uuid)'::regprocedure,
     'public.red_activate_reimport_batch(uuid,uuid)'::regprocedure,
+    'public.red_afgoer_relation_interpretation(uuid,integer,text,bigint,text,jsonb)'::regprocedure,
     'public.red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb)'::regprocedure,
     'public.red_apply_1939_v50_canonical_delta(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_1939_v50_name_completion(uuid,text,jsonb)'::regprocedure,
@@ -2940,6 +2941,7 @@ DECLARE
     'public.red_apply_reimport_clause_evidence(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_clause_revision(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_relation_persona(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_person_create(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_source_evidence(uuid,text,jsonb)'::regprocedure,
     'public.red_begin_1939_v50_name_completion(uuid,text,uuid)'::regprocedure,
@@ -2947,11 +2949,14 @@ DECLARE
     'public.red_begin_reimport(uuid,text,text)'::regprocedure,
     'public.red_begin_reimport_name_completion(uuid,text,uuid)'::regprocedure,
     'public.red_bekraeft_media_upload(bigint,bigint,text)'::regprocedure,
+    'public.red_classify_parent_card(uuid,uuid,integer,text,text,jsonb)'::regprocedure,
+    'public.red_corroborate_family_identities(uuid,text)'::regprocedure,
     'public.red_decide_interpretation(uuid,integer,text,jsonb)'::regprocedure,
     'public.red_decide_source_persona_placement(uuid,integer,text,jsonb)'::regprocedure,
     'public.red_decide_source_record_placement(uuid,integer,text,jsonb)'::regprocedure,
     'public.red_edit_oplysning(bigint,text,text,text)'::regprocedure,
     'public.red_erstat_media_fil(bigint,text,text,bigint,integer,integer,text,text,jsonb)'::regprocedure,
+    'public.red_evaluate_identity_control_run(uuid)'::regprocedure,
     'public.red_finalize_1939_v50_name_completion(uuid)'::regprocedure,
     'public.red_finalize_1939_v50_reimport(uuid)'::regprocedure,
     'public.red_finalize_reimport(uuid)'::regprocedure,
@@ -2965,6 +2970,9 @@ DECLARE
     'public.red_fortryd_person_narrative_publication_event(uuid,text)'::regprocedure,
     'public.red_genopret_media(bigint)'::regprocedure,
     'public.red_identity_candidate_input(bigint,jsonb)'::regprocedure,
+    'public.red_identity_control_sample(uuid)'::regprocedure,
+    'public.red_register_identity_control_run(uuid,text)'::regprocedure,
+    'public.red_relation_persona_input(bigint)'::regprocedure,
     'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
     'public.red_kasser_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
     'public.red_lock_1939_v50_name_completion(text)'::regprocedure,
@@ -3004,6 +3012,7 @@ DECLARE
     'public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)'::regprocedure,
     'public.red_saet_portraet(bigint,bigint)'::regprocedure,
     'public.red_samme_som(bigint,bigint)'::regprocedure,
+    'public.red_seal_identity_control_run(uuid,text,text)'::regprocedure,
     'public.red_set_familie_konfidens(bigint,bigint,text,text)'::regprocedure,
     'public.red_set_familie_ordinal(bigint,bigint,text,integer)'::regprocedure,
     'public.red_set_feed_pin(text,text)'::regprocedure,
@@ -3023,7 +3032,7 @@ DECLARE
     'public.red_slet_story(bigint)'::regprocedure,
     'public.red_source_persona_detail(uuid)'::regprocedure,
     'public.red_source_persona_history(uuid)'::regprocedure,
-    'public.red_source_persona_queue(text,bigint,uuid,integer)'::regprocedure,
+    'public.red_source_persona_queue(text,bigint,uuid,integer,text)'::regprocedure,
     'public.red_suggest(text,text,bigint,text,text,text,jsonb,text)'::regprocedure,
     'public.red_tilbagetraek_fakta(bigint)'::regprocedure,
     'public.red_tilbagetraek_legacy_narrative(uuid,text,text)'::regprocedure,
@@ -4940,6 +4949,37 @@ BEGIN
   RAISE NOTICE 'OK: #151 kandidatlaget findes med RLS og uden API-rettigheder';
 END $identity_candidate_verify$;
 
+DO $relation_party_verify$
+BEGIN
+  IF to_regclass('private.interpretation_party') IS NULL OR to_regclass('private.interpretation_party_current') IS NULL THEN
+    RAISE EXCEPTION 'EVIDENCE_RELATION_PARTY_MISSING';
+  END IF;
+  IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.interpretation_party'::regclass) THEN
+    RAISE EXCEPTION 'EVIDENCE_RELATION_PARTY_RLS_OFF';
+  END IF;
+  IF has_table_privilege('authenticated','private.interpretation_party','SELECT')
+     OR has_table_privilege('anon','private.interpretation_party','SELECT') THEN
+    RAISE EXCEPTION 'EVIDENCE_RELATION_PARTY_GRANT';
+  END IF;
+END $relation_party_verify$;
+
+-- Trin 5b (spec §7): kontrolkørslens tre tabeller findes, har RLS og er lukket for klientroller.
+DO $identity_control_verify$
+DECLARE v_table text;
+BEGIN
+  FOREACH v_table IN ARRAY ARRAY['identity_control_run','identity_control_sample','identity_control_event',
+      'identity_control_exclusion','identity_control_parent_card','identity_control_parent_event'] LOOP
+    IF to_regclass('private.'||v_table) IS NULL THEN RAISE EXCEPTION 'EVIDENCE_IDENTITY_CONTROL_MISSING: %',v_table; END IF;
+    IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid=('private.'||v_table)::regclass) THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_CONTROL_RLS_OFF: %',v_table;
+    END IF;
+    IF has_table_privilege('authenticated','private.'||v_table,'SELECT')
+       OR has_table_privilege('anon','private.'||v_table,'SELECT') THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_CONTROL_GRANT: %',v_table;
+    END IF;
+  END LOOP;
+END $identity_control_verify$;
+
 -- Preview må aldrig kunne promovere mod en revision, der skifter efter preview.
 -- Denne er en reel to-sessions-test: A afgør den accepterede fortolkning igen,
 -- B's batch skal blokere på current-revisionen og derefter afvises som stale.
@@ -5681,13 +5721,13 @@ END $placement_concurrency$;
 -- Task 11: køens fire RPC'er må kun være tilgængelige gennem authenticated.
 DO $source_persona_queue_verify$
 BEGIN
-  IF to_regprocedure('public.red_source_persona_queue(text,bigint,uuid,integer)') IS NULL
+  IF to_regprocedure('public.red_source_persona_queue(text,bigint,uuid,integer,text)') IS NULL
      OR to_regprocedure('public.red_source_persona_detail(uuid)') IS NULL
      OR to_regprocedure('public.red_source_persona_history(uuid)') IS NULL
      OR to_regprocedure('public.red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb)') IS NULL THEN
     RAISE EXCEPTION 'FEJL: Task 11 mangler source-persona-køens RPCer';
   END IF;
-  IF has_function_privilege('anon','public.red_source_persona_queue(text,bigint,uuid,integer)','EXECUTE')
+  IF has_function_privilege('anon','public.red_source_persona_queue(text,bigint,uuid,integer,text)','EXECUTE')
      OR has_function_privilege('anon','public.red_source_persona_detail(uuid)','EXECUTE')
      OR has_function_privilege('anon','public.red_source_persona_history(uuid)','EXECUTE')
      OR has_function_privilege('anon','public.red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb)','EXECUTE') THEN

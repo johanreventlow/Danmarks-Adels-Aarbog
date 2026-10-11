@@ -77,3 +77,38 @@ BEGIN
     ELSE RAISE; END IF;
   END;
 END $identity_detail$;
+
+-- Trin 5b, Task 9: rollefilter, familiekontekst og kandidaternes titler/familie.
+BEGIN;
+\ir fixtures/relation-5b.sql
+DO $identity_detail_5b$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-00000005b901'; s jsonb; p jsonb; c jsonb; v_sp uuid; v_in jsonb; v_run uuid; d jsonb; q record;
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  INSERT INTO person(id,levende,privat,status,visning_navn) VALUES (-5901,false,false,'5b','Hoved'),(-5902,false,false,'5b','Mage');
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-5902,'person',-5902,'titel');
+  INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst) VALUES (-5902,'fact',-5902,'kammerherre');
+  INSERT INTO conclusion(target_type,target_id,valgt_assertion_id) VALUES ('fact',-5902,-5902);
+  s:=pg_temp.f5b_source(-5901);
+  p:=pg_temp.f5b_post(-5901,s,'IX-1','Hoved. g. m. Mage.',ARRAY['Hoved.','g. m. Mage.'],-5901,v_actor);
+  c:=pg_temp.f5b_claim(-5901,s,'relation.marriage',(p->'clauses'->>1)::uuid,'g. m. Mage.');
+  v_sp:=pg_temp.f5b_spouse(-5901,s,p,c,(p->'clauses'->>1)::uuid,'Mage',1);
+  PERFORM pg_temp.f5b_family(-5901,-5902,1);
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  v_in:=red_identity_candidate_input(-5901,'{"mode":"undecided"}');
+  v_run:=red_record_identity_candidates(jsonb_build_object('source_id',-5901,'generator_version','t','config','{}'::jsonb,
+    'input_spec','{"mode":"undecided"}'::jsonb,'input_sha256',v_in->>'input_sha256'),
+    jsonb_build_array(jsonb_build_object('source_persona_id',v_sp,'candidate_person_id',-5902,'rank',1,'score',0.9,'tier','review',
+      'basis','{"signals":["name","family_partner"]}'::jsonb)));
+  d:=red_source_persona_detail(v_sp);
+  SELECT * INTO q FROM red_source_persona_queue(NULL,-5901,NULL,50,'spouse');
+  RESET ROLE;
+  IF d->'family_context'->>'principal_record_key'<>'IX-1' OR (d->'family_context'->>'marriage_ordinal')::int<>1
+     OR d->'candidates'->0->'titles'<>'["kammerherre"]'::jsonb OR (d->'candidates'->0->>'family_id') IS NULL
+     OR q.mention_role<>'spouse' OR q.source_persona_id<>v_sp THEN
+    RAISE EXCEPTION 'IDENTITY_DETAIL_TEST_FAILED: 5b-felter %',d->'family_context';
+  END IF;
+  RAISE NOTICE 'OK: rollefilter, familiekontekst og kandidaternes titler/familie';
+END $identity_detail_5b$;
+ROLLBACK;

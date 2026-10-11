@@ -2,6 +2,67 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: trin 5b — menneskets kontrol omdesignet til korte, besvarlige kort; børn og uoverensstemmelser til del 2 (2026-10-10)
+
+> **Besluttet af projektejeren 2026-10-10** efter design-review (Claude + Codex `gpt-5.6-sol`) af det
+> første kontrolark og et Opus-review af spec-teksten. Spec: `docs/superpowers/specs/2026-10-06-trin5b-relationspersonas-design.md` §22.9
+> og §23. Ændrer betydningen af punkt 2 i posten fra 2026-10-06 nedenfor.
+
+**Baggrund.** Det første kontrolark (63 linjer) kunne ikke besvares: det viste hverken hvem
+hovedpersonen er, hvad bogen skriver, eller forældrelinjens anden forælder, og alle linjer skulle udfyldes,
+også uoverensstemmelser uden for målingen. For børn pegede »familievalget« på flere børn i samme familie.
+Et »bestået« kunne dermed bygge på gæt og autorisere 181 maskinelle afgørelser.
+
+**Besluttet:**
+1. **Børn (`relation.child`) tages ud af del 1** og får deres eget design i del 2 (kandidaten er barnet).
+2. **Arket rummer kun de kort, der skal afgøres:** blinde ægtefællekort (alle navnefæller + `K`
+   tilfældige) med hovedperson, bogens ordrette sætning og kandidaternes leveår, titler, forældre og egen
+   post — men uden score eller maskinens svar — og forældrekort som udsagn (A/R/F/U). Tidsmæssigt umulige
+   kandidater vises ikke; er rang 1 selv umulig, udelukkes personaen fra den maskinelle bekræftelse.
+3. **Ægtefællekontrollen er en advarselslampe, ikke en statistisk validering.** 0 afvigelser tillader
+   maskinel bekræftelse; én afvigelse stopper den, og en ny kontrolkørsel kræver en dokumenteret
+   årsagsrettelse. Rapporten angiver den øvre fejlgrænse, beregnet alene af de tilfældige kort.
+4. **Forældrene afgøres af mennesket** og hverken autoriserer eller blokerer ægtefællernes identitet;
+   `F` (familien i basen passer ikke) og `U` skriver intet og går til del 2.
+5. **Uoverensstemmelserne (31) og forældren uden kandidat behandles i del 2**, prioriteret: først de 9, der
+   kan pege på fejl i databasen. En rettelse af en kanonisk familie kræver sit eget workflow og en ny beslutning.
+6. **Dubletter på et kort besvares `1=2`** (tilføjet samme dag under udfyldningen). Står samme individ to
+   gange i basen, nævner mennesket begge pladser; kortet er enigt med maskinen, hvis maskinens kandidat er
+   blandt dem, og dubletten gemmes til del 2's `samme_som`-arbejde (spec §23.4).
+
+**Uændret:** forseglingen og hashbindingen; ingen fulde afgørelsesark. `family_corroboration`-kernen får
+én ekstra afvisning (udelukket persona). Ægteskaber afgøres maskinelt i del 2 uden kontrolkørsel som
+betingelse, når begge identiteter er afgjort.
+
+## BESLUTTET: trin 5b — familie-forankret maskinel identitet (`family_corroboration`) ændrer 5a §4.2 (2026-10-06)
+
+> **Besluttet af projektejeren 2026-10-06** ved godkendelsen af 5b-specen
+> (`docs/superpowers/specs/2026-10-06-trin5b-relationspersonas-design.md`) efter brainstorm og syv
+> review-runder (Claude + Codex).
+
+**Baggrund.** 5a §4.2 lukkede enhver identitetsskrivning ud fra lighed: kun menneskelige afgørelser,
+oprettelse med kvittering, 149b's faste 1:1-kobling og reversal. 5b skal give de cirka 248
+ægtefæller i 2018-20 en identitet, og et fuldt menneskeark strider mod beslutningen om ingen flere
+fulde afgørelsesark (2026-09-27).
+
+**Besluttet:**
+1. **Ny smal kerne-oprindelse `family_corroboration`.** Den må kun acceptere en ægtefælle-persona
+   som den eneste partner i hovedpersonens familie med det matchende ordenstal. Kernen efterprøver
+   selv proveniens, struktur, kandidat og familiekontekst under rækkelåse (spec §6.2). Alle andre
+   lighedsmatch forbliver lukkede.
+2. **Maskinen må kun skrive efter en bestået kontrolkørsel:** serveren vælger en blind stikprøve,
+   projektejeren afgør den i et forseglet ark, og én afvigelse stopper al maskinel bekræftelse
+   (spec §7).
+3. **Ny oprindelse `relation_person_create`** til nye personer efter et menneskeligt `N`. Nye
+   personer oprettes `staged` og med `levende = true`, indtil dødsfakta afgøres af et menneske.
+4. **Relationer bindes strukturelt til familien** med en ny regeltype `structural_family` ved siden af
+   trin 4's tekstbinding.
+5. **Fortrydelse sker kun ved restore**, som for 4.1c og 4.4. Rettelser i drift sker fremad via
+   menneskelige afgørelser.
+
+**Uændret:** ingen automatisk accept uden for disse to oprindelser; prod kræver en separat
+overførsels-spec og GO; 5a deployes først for sig.
+
 ## BESLUTTET: roadmap-trin 4 afsluttet for 2018-20 — trin 5 aktiveret, 5a først (2026-10-05)
 
 > **Besluttet af projektejeren 2026-10-05** efter prod-overførslen af 2018-20's fortolkningskæde

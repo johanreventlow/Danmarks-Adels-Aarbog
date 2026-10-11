@@ -1,9 +1,10 @@
 import { readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { personaFrames, personFrames, udenAarstal, type MatchPayload, type PersonaExportRow } from './frames';
 import { rankCandidates, rankConfig } from './rank';
+import { clusterMap } from './family';
 import { calibrate } from './calibrate';
 
-const GENERATOR_VERSION = 'identity-candidates-1.0';
+const GENERATOR_VERSION = 'identity-candidates-1.1';
 
 function arg(name: string, required = true): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -28,10 +29,15 @@ if (cmd === 'generate') {
   const evidensNormaliseret = process.argv.includes('--evidens-normaliseret');
   const { frames, origins } = personaFrames(personaRows);
   const persons = personFrames(payload);
-  const candidates = rankCandidates(frames, persons, { topK, origins, evidensNormaliseret });
+  // Trin 5b: familiesignal og samme_som-klynger fra serverens input.
+  const families = new Map(personaRows.filter((r) => r.family_context).map((r) => [r.source_persona_id, r.family_context!] as const));
+  const clusters = clusterMap(((exp.input as { same_as?: Array<[number, number]> }).same_as ?? []));
+  const familyNameMin = Number(arg('family-name-min', false) ?? 0.9);
+  if (!(familyNameMin > 0 && familyNameMin <= 1)) { console.error('--family-name-min skal ligge i (0,1]'); process.exit(2); }
+  const candidates = rankCandidates(frames, persons, { topK, origins, evidensNormaliseret, families, clusters, familyNameMin });
   const run = {
     source_id: sourceId, generator_version: GENERATOR_VERSION, input_spec: exp.input_spec,
-    input_sha256: exp.input_sha256, config: { ...rankConfig({ evidensNormaliseret }), topK },
+    input_sha256: exp.input_sha256, config: { ...rankConfig({ evidensNormaliseret }), topK, familyNameMin },
   };
   const uden = frames.filter((f) => !f.nameKey).length;
   const out = arg('out')!;
@@ -40,7 +46,7 @@ if (cmd === 'generate') {
   writeFileSync(out, JSON.stringify({ run, candidates, stats: { personas: frames.length, uden_navn: uden, uden_aar: udenAar } }), 'utf8');
   chmodSync(out, 0o600);
   const tiers = candidates.filter((c) => c.rank === 1).reduce<Record<string, number>>((m, c) => ({ ...m, [c.tier]: (m[c.tier] ?? 0) + 1 }), {});
-  console.log(`CANDIDATES_OK personas=${frames.length} uden_navn=${uden} kandidater=${candidates.length} rang1_tier=${JSON.stringify(tiers)}`);
+  console.log(`CANDIDATES_OK personas=${frames.length} uden_navn=${uden} kandidater=${candidates.length} rang1_tier=${JSON.stringify(tiers)} egnede=${candidates.filter((c) => c.basis.corroboration_eligible).length}`);
 }
 
 if (cmd === 'calibrate') {

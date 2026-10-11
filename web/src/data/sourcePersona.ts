@@ -7,6 +7,8 @@ export type SourcePersonaAction = 'same' | 'different' | 'unresolved' | 'new_per
 export type SourcePersonaCandidate = {
   candidateId: string; runId: string; rank: number; score: number; tier: string;
   personId: number; personName: string; born: string | null; died: string | null; signals: string[];
+  // Trin 5b: kandidatvisning (titler, egen post, familie med hovedpersonen).
+  titles: string[]; ownPostKey: string | null; familyId: number | null; ordinal: number | null;
 };
 export type SourcePersonaHistoryRow = {
   version: number; decisionStatus: string; canonicalPersonId: number | null;
@@ -23,6 +25,7 @@ export type SourcePersonaQueueRow = {
   mentionCount: number;
   bestTier: string | null;
   reason: string | null;
+  mentionRole: string | null;
 };
 
 export type SourcePersonaDetail = {
@@ -36,11 +39,14 @@ export type SourcePersonaDetail = {
   interpretations: Array<{ predicate: string; value: unknown; status: string; confidence: number; derivation_kind: string }>;
   candidates: SourcePersonaCandidate[];
   collisions: Array<{ personId: number; personaKey: string }>;
+  // Trin 5b: kun for ægtefælle-personas med entydig familiekontekst.
+  familyContext: { principalRecordKey: string; marriageOrdinal: number } | null;
 };
 
-export async function fetchSourcePersonaQueue(status: string | null = null, sourceId: number | null = null, cursor: string | null = null): Promise<SourcePersonaQueueRow[]> {
+export async function fetchSourcePersonaQueue(status: string | null = null, sourceId: number | null = null,
+  cursor: string | null = null, mentionRole: string | null = null): Promise<SourcePersonaQueueRow[]> {
   const { data, error } = await supabase.rpc('red_source_persona_queue', {
-    p_status: status, p_source_id: sourceId, p_cursor: cursor, p_page_size: 50,
+    p_status: status, p_source_id: sourceId, p_cursor: cursor, p_page_size: 50, p_mention_role: mentionRole,
   });
   if (error) throw new Error(error.message);
   return (data ?? []).map((row: Record<string, unknown>) => ({
@@ -50,6 +56,7 @@ export async function fetchSourcePersonaQueue(status: string | null = null, sour
     mentionCount: Number(row.mention_count),
     bestTier: row.best_tier == null ? null : String(row.best_tier),
     reason: row.reason == null ? null : String(row.reason),
+    mentionRole: row.mention_role == null ? null : String(row.mention_role),
   }));
 }
 
@@ -64,7 +71,7 @@ export async function fetchSourcePersonaDetail(sourcePersonaId: string): Promise
       personaKey: String(persona.persona_key), decisionStatus: persona.decision_status == null ? null : String(persona.decision_status),
       version: Number(persona.version), canonicalPersonId: persona.canonical_person_id == null ? null : Number(persona.canonical_person_id),
       mentionCount: Array.isArray(raw.mentions) ? raw.mentions.length : 0,
-      bestTier: null, reason: null,
+      bestTier: null, reason: null, mentionRole: null,
     },
     mentions: Array.isArray(raw.mentions) ? raw.mentions.map((mention) => {
       const value = mention as Record<string, unknown>;
@@ -88,12 +95,20 @@ export async function fetchSourcePersonaDetail(sourcePersonaId: string): Promise
         return { candidateId: String(v.candidate_id), runId: String(v.run_id), rank: Number(v.rank), score: Number(v.score),
           tier: String(v.tier), personId: Number(v.person_id), personName: String(v.person_name ?? ''),
           born: v.born == null ? null : String(v.born), died: v.died == null ? null : String(v.died),
-          signals: Array.isArray((v.basis as Record<string, unknown> | undefined)?.signals) ? ((v.basis as Record<string, unknown>).signals as unknown[]).map(String) : [] };
+          signals: Array.isArray((v.basis as Record<string, unknown> | undefined)?.signals) ? ((v.basis as Record<string, unknown>).signals as unknown[]).map(String) : [],
+          titles: Array.isArray(v.titles) ? (v.titles as unknown[]).map(String) : [],
+          ownPostKey: v.own_post_key == null ? null : String(v.own_post_key),
+          familyId: v.family_id == null ? null : Number(v.family_id),
+          ordinal: v.ordinal == null ? null : Number(v.ordinal) };
       }) : [],
       collisions: Array.isArray(raw.collisions) ? raw.collisions.map((c) => {
         const v = c as Record<string, unknown>;
         return { personId: Number(v.person_id), personaKey: String(v.persona_key) };
       }) : [],
+      familyContext: raw.family_context ? (() => {
+        const fc = raw.family_context as Record<string, unknown>;
+        return { principalRecordKey: String(fc.principal_record_key), marriageOrdinal: Number(fc.marriage_ordinal) };
+      })() : null,
   };
 }
 
