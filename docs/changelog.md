@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-10-11 — trin 5b del 2a: afgjorte ægteskaber og forældre bundet, kilden vist (#151)
+
+Implementeret efter planen `2026-10-11-trin5b-2a-binding.md` på `docs/151-5b-2a-binding`: regeltypen
+`structural_family` adskilt fra assertion-vejen, `private.relation_binding_state` (én tilstand og hash for
+afgørelse, binding og læsning), versionsbundne klassifikationer, kildebundet maskinafgørelse
+(`red_preview_relation_decisions`/`red_decide_relation_interpretations`), hash-autoriseret binding med replay
+(`red_preview_relation_promotions`/`red_promote_relation_interpretations_batch`), offentlig
+`public_family_sources` og kildelinjen i `DetailPanel`. Bevis i en kopi af del 1's bevisbase (ikke prod):
+203 afgjort, 210 bundet, 210 synlige kildelinjer, 0 kanonisk delta, 4 negativtests. Rapport:
+`docs/evidensbaseret-genimport/relationspersonas-5b-2a-bevis.md`. Ikke deployet.
+
 ## 2026-10-05 — trin 5a: én identitetsvej, bevist i restore (#151)
 
 Implementeret efter planen `2026-09-24-trin5a-identitetsvej.md` på `feat/151-identitetsvej`: kandidattabeller
