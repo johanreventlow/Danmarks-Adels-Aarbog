@@ -45,7 +45,7 @@ M5-M10) foldes ind i den halvdel, hvis kode de rører; planen for 2b-i peger hve
 | `relation.marriage` | 203 `accepted` (2a), 45 `proposed` = de 31 + 14 uden ægtefælle-persona |
 | `relation.parent` | 7 `accepted` og bundet, 2 `proposed` (`F`/`U`-kort), 1 `rejected` |
 | Klassifikationer | 3 `ordinal_afvigelse` (bundet trods afvigelsen, 2a-specen §4.3) |
-| Familiebindinger | 210 (203 ægteskab, 7 forælder); 0 forældede; `identity_control_exclusion` 0 rækker |
+| Familiebindinger | 210 (203 ægteskab, 7 forælder); 0 forældede; alle 210 har en `state_sha256` på 64 hex-tegn (0 afvigere); `identity_control_exclusion` 0 rækker |
 
 ## 4. Genbinding (2a-specen §11 pkt. 6, mulighed a)
 
@@ -61,17 +61,20 @@ tabel (mere maskineri for samme resultat) og opdatering/sletning af den gamle r�
   tilstand**.
 - En familiebinding skal have en tilstandshash: `CHECK (target_type<>'family' OR evidence->>'state_sha256' ~
   '^[0-9a-f]{64}$')` (navn `interpretation_promotion_family_state_check`). Ellers ville en `NULL`-hash slippe
-  uden om indekset. De 210 eksisterende rækker opfylder den (manifest-tuplerne i 2a-rapporten).
+  uden om indekset. De 210 eksisterende rækker opfylder den (målt, §3).
 - **Opgradering** (`db-migrations.sql`, idempotent): opret det nye indeks, tilføj CHECK som `NOT VALID` og
   `VALIDATE`, og drop først derefter det gamle indeks, så der aldrig er et vindue uden unikhed. De 210
-  bindinger består uændret.
+  bindinger består uændret. Det gamle indeksnavn står i `schema.sql` (2a-sektionen), `db-migrations.sql`
+  (2a-blokkens `CREATE UNIQUE INDEX IF NOT EXISTS`, som skal blive stående, så en base løftet fra før 2a
+  stadig ender med det nye indeks) og `db-verify.sql` (2a-assertblokken, der skal assertere det nye navn
+  og fraværet af det gamle).
 
 ### 4.2 Preview og batch
 
 `private.preview_relation_promotions` ændres i ét led: et element er `RELATION_PROMOTION_ALREADY_APPLIED`,
 kun når der findes en familiebinding for fortolkningen **med den nuværende `state_sha256`**. Findes der kun
 forældede bindinger, er elementet egnet, og previewet sætter `supersedes_promotion_id` til den seneste
-forældede familiebinding for fortolkningen (ellers `null`). En genbinding kræver, at den nuværende tilstands
+forældede familiebinding for fortolkningen (`ORDER BY promoted_at DESC, id DESC LIMIT 1`, ellers `null`). En genbinding kræver, at den nuværende tilstands
 familie er den forældede bindings familie (`target_id`); ellers er elementet ikke egnet
 (`RELATION_PROMOTION_REBIND_FAMILY_CHANGED`), fordi påstanden blev afgjort for en anden familie. Feltet indgår i elementerne og dermed i
 previewhashen; kontrakten hedder derfor `relation-promotion-preview-v2`. Gamle batches' replay påvirkes ikke:
@@ -141,10 +144,12 @@ Ukendte, manglende, dublerede eller omformede linjer afvises samlet (som del 1).
   arkets note eller standardteksten »ark 2b-i: partner er kandidat nr. 1«.
 - `A` og `U` skriver intet. Personaen forbliver `proposed` og afgøres i køen (§6) med fuld kontekst. Arket
   har dermed kun én skrivevej.
-- `B` → lås familiens rækker (`private.lock_family_rows`), kontrollér at hovedpersonens partnerrække stadig
+- `B` → lås familien og dens rækker (`private.lock_family_rows` med hovedpersonens og ægtefællens
+  person-id'er), kontrollér at hovedpersonens partnerrække stadig
   har familiens nummer fra arket, og kald `red_set_familie_ordinal(familie, hovedperson, 'partner', bogens
   nummer)` (eget change_set). Bindingens tilstand bliver forældet; kilden er skjult, indtil efterkørslen
-  binder igen (§7).
+  binder igen (§7). Klassifikationen `ordinal_afvigelse` bliver stående som historik for den bundne
+  version (klassifikationstabellen er append-only og kender kun den ene værdi).
 - `F` skriver intet. Klassifikationen `ordinal_afvigelse` bliver stående; valget står i rapporten.
 
 `red_afgoer_source_persona` og `red_set_familie_ordinal` ændres ikke.
@@ -253,9 +258,11 @@ Negativtests, hver i sin egen kopi:
   `RELATION_PROMOTION_REBIND_FAMILY_CHANGED`; CHECK afviser en familiebinding uden `state_sha256`; indekset afviser to
   bindinger med samme tilstand.
 - **SQL, detail** (samme job): `principal_partners` og alle fire `review_reason`-grene; redaktionsgaten.
-- **Opgradering** (`tests/sql/test-relation-binding-upgrade.sh`, kun lokalt): fra 2a's head `31008f5` med
-  bindinger → opgrader → de gamle rækker består, indeksskiftet er sket, CHECK er valideret (memory:
-  signaturændring kræver opgraderingstest).
+- **Opgradering** (`tests/sql/test-relation-binding-upgrade.sh`, kun lokalt), to kæder (memory:
+  signaturændring kræver opgraderingstest): (a) fra `ebf2022` (main før 2a) til HEAD — deploystien, hvor
+  2a's og 2b-i's blokke kører efter hinanden; (b) fra 2a's head `31008f5` med familiebindinger til HEAD —
+  indeksskiftet under eksisterende rækker: de gamle rækker består, det nye indeks findes, det gamle ikke,
+  og CHECK er valideret.
 - **Python:** `test_spouse_exception_sheet.py` (render/parse rundtur, afvisning af omformede linjer,
   hash-binding, SQL for `S` og `B`, intet for `A`/`U`/`F`).
 - **Web:** vitest for parsing og boksen/knappen; Playwright-spec for køens detalje med syntetiske svar, som
