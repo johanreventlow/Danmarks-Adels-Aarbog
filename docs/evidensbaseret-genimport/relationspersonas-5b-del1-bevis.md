@@ -39,8 +39,8 @@ Børn, de 31 uoverensstemmelser, nye personer og familiekorrektion er del 2.
 | Skrevet | 491 parter, 234 mentions, 234 ægtefælle-personas, 0 årsfortolkninger |
 | Manifest | `9bd0bf14…` |
 
-Børnepåstandene skrives, men indgår hverken i kontrol eller bekræftelse: 12 af 14 havde 2–16 kandidater i
-samme familie, og arket kunne ikke vise barnets tekst (errata §22.9).
+Børnepåstandene (13 udtrukne elementer) skrives, men indgår hverken i kontrol eller bekræftelse: 12 af
+basens 14 målte børneudsagn havde 2–16 kandidater i samme familie, og arket kunne ikke vise barnets tekst (errata §22.9).
 
 ## Kandidater
 
