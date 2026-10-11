@@ -16011,6 +16011,7 @@ CREATE OR REPLACE FUNCTION private.append_relation_classification(p_interpretati
 RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
 DECLARE v_i private.interpretation%ROWTYPE; v_seq integer; v_state text;
 BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'RELATION_CLASSIFICATION_ACTOR_REQUIRED'; END IF;
   -- Serialisér pr. påstand: lås den (gældende) fortolkningsrække før max(seq)+1.
   SELECT * INTO v_i FROM private.interpretation WHERE id=p_interpretation_id FOR UPDATE;
   IF NOT FOUND OR NOT EXISTS (SELECT 1 FROM private.interpretation_current c
@@ -16023,7 +16024,7 @@ BEGIN
   INSERT INTO private.relation_classification_event(interpretation_key,seq,interpretation_id,interpretation_version,
     state_sha256,classification,evidence,created_by)
     VALUES (v_i.interpretation_key,v_seq,v_i.id,v_i.version,v_state,p_classification,p_evidence,
-            coalesce(auth.uid(),'00000000-0000-0000-0000-000000000000'::uuid));
+            auth.uid());
   RETURN v_seq;
 END $$;
 REVOKE ALL ON FUNCTION private.append_relation_classification(uuid,text,jsonb) FROM PUBLIC,anon,authenticated;
@@ -16038,6 +16039,8 @@ CREATE OR REPLACE FUNCTION private.relation_decision_set(p_source_id bigint)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE v_items jsonb;
 BEGIN
+  -- NULL-kilde ville give en tom mængde uden kildelås (Opus kode-review M1).
+  IF p_source_id IS NULL THEN RAISE EXCEPTION 'RELATION_DECISION_INVALID'; END IF;
   SELECT coalesce(jsonb_agg(x.item ORDER BY x.k COLLATE "C"),'[]'::jsonb) INTO v_items
     FROM (SELECT ic.interpretation_key::text AS k,
                  jsonb_build_object('state',st.s,'classification',
@@ -16072,6 +16075,8 @@ RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pub
 DECLARE v_set jsonb; r record; v_new uuid; v_n integer:=0; v_key uuid;
 BEGIN
   IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  -- NULL-kilde: hashtextextended er STRICT, så kildelåsen ville ikke blive taget (Opus kode-review M1).
+  IF p_source_id IS NULL THEN RAISE EXCEPTION 'RELATION_DECISION_INVALID'; END IF;
   -- Låseorden (spec §4.3, som red_corroborate_family_identities): eksklusiv kildelås →
   -- fortolkningsrækker (sorteret) → person/familie/medlemmer (lock_family_rows).
   PERFORM pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:'||p_source_id::text,0));
@@ -16114,7 +16119,9 @@ CREATE OR REPLACE FUNCTION private.preview_relation_promotions(p_source_id bigin
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE v_items jsonb;
 BEGIN
-  IF jsonb_typeof(p_items)<>'array' OR jsonb_array_length(p_items)=0 OR EXISTS (
+  -- NULL-kilde ville slå både kildetjek og kildelås fra (Opus kode-review M1); NULL-elementer er ikke en liste.
+  IF p_source_id IS NULL THEN RAISE EXCEPTION 'RELATION_PROMOTION_INVALID'; END IF;
+  IF p_items IS NULL OR jsonb_typeof(p_items)<>'array' OR jsonb_array_length(p_items)=0 OR EXISTS (
        SELECT 1 FROM jsonb_array_elements(p_items) e(item)
         WHERE jsonb_typeof(e.item)<>'object'
            -- IS DISTINCT FROM: et tomt objekt giver NULL, som <> ville lade slippe igennem
@@ -16134,11 +16141,15 @@ BEGIN
     PERFORM 1 FROM private.interpretation i
      WHERE i.id IN (SELECT ic.id FROM private.interpretation_current ic
                      JOIN private.interpretation q ON q.interpretation_key=ic.interpretation_key
-                    WHERE q.id IN (SELECT (e.item->>'interpretation_id')::uuid FROM jsonb_array_elements(p_items) e(item)))
+                    WHERE q.id IN (SELECT (e.item->>'interpretation_id')::uuid FROM jsonb_array_elements(p_items) e(item))
+                      AND q.source_id=p_source_id)
      ORDER BY i.id FOR UPDATE;
+    -- Kun elementer fra denne kilde låses; et fremmed element afvises nedenfor (SOURCE_MISMATCH) uden at
+    -- en anden kildes rækker er låst under denne kildes lås (Opus kode-review, MINOR 1).
     PERFORM private.lock_family_rows(ARRAY(
       SELECT DISTINCT (pty->>'canonical_person_id')::bigint
         FROM jsonb_array_elements(p_items) e(item)
+        JOIN private.interpretation q ON q.id=(e.item->>'interpretation_id')::uuid AND q.source_id=p_source_id
         CROSS JOIN LATERAL jsonb_array_elements(coalesce(private.relation_binding_state((e.item->>'interpretation_id')::uuid)->'parties','[]'::jsonb)) pty
        WHERE pty->>'canonical_person_id' IS NOT NULL ORDER BY 1));
   END IF;
@@ -16161,7 +16172,7 @@ BEGIN
   ), judged AS (
     SELECT c.*,CASE
       WHEN c.requested_id IS NULL THEN 'RELATION_PROMOTION_NOT_FOUND'
-      WHEN c.source_id<>p_source_id THEN 'RELATION_PROMOTION_SOURCE_MISMATCH'
+      WHEN c.source_id IS DISTINCT FROM p_source_id THEN 'RELATION_PROMOTION_SOURCE_MISMATCH'
       WHEN c.current_id<>c.interpretation_id THEN 'RELATION_PROMOTION_NOT_CURRENT'
       WHEN c.status<>'accepted' THEN 'RELATION_PROMOTION_NOT_ACCEPTED'
       WHEN c.rule_key IS NULL OR c.rule_mode<>'structural_family' OR c.rule_status<>'active' THEN 'RELATION_PROMOTION_RULE_NOT_ACTIVE'
@@ -16208,9 +16219,11 @@ BEGIN
   IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
   SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text) INTO v_actor_name FROM public.profiles WHERE id=v_actor;
   IF v_actor_name IS NULL OR coalesce(p_preview_sha256,'') !~ '^[0-9a-f]{64}$' THEN RAISE EXCEPTION 'RELATION_PROMOTION_INVALID'; END IF;
+  IF p_source_id IS NULL OR p_items IS NULL THEN RAISE EXCEPTION 'RELATION_PROMOTION_INVALID'; END IF;
   -- Replay (spec §4.4): kildelåsen først, så et samtidigt kald ser den committede batch.
   PERFORM pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:'||p_source_id::text,0));
-  v_items_sha:=private.reimport_canonical_json_sha256(p_items);
+  -- Kilden indgår i digesten: en previewhash fra en anden kilde kan ikke genbruges som replay (Opus, MINOR 3).
+  v_items_sha:=private.reimport_canonical_json_sha256(jsonb_build_object('source_id',p_source_id,'items',p_items));
   SELECT id,items_sha256 INTO v_batch,v_old_items FROM private.interpretation_promotion_batch
    WHERE preview_hash=p_preview_sha256 AND items_sha256 IS NOT NULL;
   IF v_batch IS NOT NULL THEN

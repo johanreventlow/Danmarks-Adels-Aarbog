@@ -10129,13 +10129,16 @@ BEGIN
                      AND tgname='trg_relation_classification_event_append_only_truncate')
      OR NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
                      WHERE c.relname='interpretation_promotion_one_family_per_interpretation'
-                       AND i.indisunique AND i.indpred IS NOT NULL)
+                       AND i.indrelid='private.interpretation_promotion'::regclass
+                       AND i.indisunique AND pg_get_expr(i.indpred,i.indrelid) LIKE '%target_type%family%')
      OR to_regprocedure('private.relation_binding_state(uuid)') IS NULL
      OR to_regprocedure('private.relation_binding_state_sha256(uuid)') IS NULL
      OR to_regprocedure('private.append_relation_classification(uuid,text,jsonb)') IS NULL
      OR has_function_privilege('authenticated','private.relation_binding_state(uuid)','EXECUTE')
      OR has_function_privilege('anon','private.relation_binding_state(uuid)','EXECUTE')
-     OR has_function_privilege('authenticated','private.append_relation_classification(uuid,text,jsonb)','EXECUTE') THEN
+     OR has_function_privilege('authenticated','private.append_relation_classification(uuid,text,jsonb)','EXECUTE')
+     OR has_function_privilege('anon','private.relation_binding_state_sha256(uuid)','EXECUTE')
+     OR has_function_privilege('authenticated','private.relation_binding_state_sha256(uuid)','EXECUTE') THEN
     RAISE EXCEPTION 'RELATION_BINDING_STATE_CONTRACT_INVALID';
   END IF;
   FOREACH v_t IN ARRAY ARRAY['identity_control_exclusion','identity_control_parent_card','identity_control_parent_event'] LOOP
@@ -10154,6 +10157,9 @@ BEGIN
                   AND column_name='items_sha256' AND data_type='text' AND is_nullable='YES')
      OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.interpretation_promotion_batch'::regclass
                      AND contype='c' AND pg_get_constraintdef(oid) LIKE '%items_sha256%^[0-9a-f]{64}$%')
+     OR to_regprocedure('private.relation_decision_set(bigint)') IS NULL
+     OR has_function_privilege('anon','private.relation_decision_set(bigint)','EXECUTE')
+     OR has_function_privilege('authenticated','private.relation_decision_set(bigint)','EXECUTE')
      OR to_regprocedure('private.preview_relation_promotions(bigint,jsonb,boolean)') IS NULL
      OR has_function_privilege('anon','private.preview_relation_promotions(bigint,jsonb,boolean)','EXECUTE')
      OR has_function_privilege('authenticated','private.preview_relation_promotions(bigint,jsonb,boolean)','EXECUTE') THEN
@@ -10189,7 +10195,9 @@ BEGIN
      OR strpos(v_def,'narrative_record_contract_version()')=0
      OR NOT has_function_privilege('anon',f,'EXECUTE')
      OR NOT has_function_privilege('authenticated',f,'EXECUTE')
-     OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(p.proacl) a WHERE p.oid=f AND a.grantee=0) THEN
+     OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(p.proacl) a WHERE p.oid=f AND a.grantee=0)
+     OR (EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role')
+         AND has_function_privilege('service_role',f,'EXECUTE')) THEN
     RAISE EXCEPTION 'FAMILY_SOURCES_CONTRACT_INVALID';
   END IF;
   RAISE NOTICE 'OK: 5b 2a — public_family_sources';

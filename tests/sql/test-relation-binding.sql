@@ -130,6 +130,15 @@ BEGIN
     RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: forældertilstand';
   END IF;
   -- klassifikation: append-only med fortløbende seq
+  -- uden aktør ⇒ afvist (ingen nul-UUID som skaber)
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  BEGIN
+    PERFORM private.append_relation_classification((m->'claim'->>'id')::uuid,'ordinal_afvigelse','{"x":0}');
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: klassifikation uden aktør';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'RELATION_CLASSIFICATION_ACTOR_REQUIRED%' THEN RAISE; END IF;
+  END;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   -- Hvert kald i sin egen sætning: en underforespørgsel i samme IF-udtryk ser ikke rækkerne, som
   -- funktionskald i samme sætning indsætter (ét snapshot pr. sætning).
   IF private.append_relation_classification((m->'claim'->>'id')::uuid,'ordinal_afvigelse','{"x":1}')<>1 THEN
@@ -197,6 +206,13 @@ BEGIN
     RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: anden kilde godtaget';
   EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
     IF v_err NOT LIKE 'RELATION_DECISION_SET_DRIFT%' THEN RAISE; END IF;
+  END;
+  -- NULL-kilde ⇒ afvist (ville ellers springe kildelåsen over)
+  BEGIN
+    PERFORM red_decide_relation_interpretations(NULL,repeat('0',64));
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: NULL-kilde godtaget i afgørelsen';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'RELATION_DECISION_INVALID%' THEN RAISE; END IF;
   END;
   BEGIN
     PERFORM red_decide_relation_interpretations(-2301,repeat('0',64));
@@ -375,7 +391,7 @@ BEGIN
     RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: negative preview-elementer';
   END IF;
   -- forkert form ⇒ undtagelse (også et tomt objekt og et id uden for bigint)
-  FOR items4 IN SELECT x FROM (VALUES ('[{"interpretation_id":"x"}]'::jsonb),('[{}]'::jsonb),('[]'::jsonb),
+  FOR items4 IN SELECT x FROM (VALUES ('[{"interpretation_id":"x"}]'::jsonb),('[{}]'::jsonb),('[]'::jsonb),(NULL::jsonb),
       (jsonb_build_array(jsonb_build_object('interpretation_id',v_mid::text,'family_id',9999999999999999999::numeric)))) t(x) LOOP
     BEGIN
       PERFORM red_preview_relation_promotions(-2401,items4);
@@ -384,6 +400,19 @@ BEGIN
       IF v_err NOT LIKE 'RELATION_PROMOTION_ITEMS_INVALID%' THEN RAISE; END IF;
     END;
   END LOOP;
+  -- NULL-kilde ⇒ afvist i både preview og binding (ville ellers slå kildetjek og kildelås fra)
+  BEGIN
+    PERFORM red_preview_relation_promotions(NULL,items);
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: NULL-kilde godtaget i preview';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'RELATION_PROMOTION_INVALID%' THEN RAISE; END IF;
+  END;
+  BEGIN
+    PERFORM red_promote_relation_interpretations_batch(NULL,items,pv->>'preview_sha256');
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: NULL-kilde godtaget i bindingen';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'RELATION_PROMOTION_INVALID%' THEN RAISE; END IF;
+  END;
   -- forældet preview
   BEGIN
     PERFORM red_promote_relation_interpretations_batch(-2401,items,repeat('0',64));
@@ -415,6 +444,13 @@ BEGIN
   BEGIN
     PERFORM red_promote_relation_interpretations_batch(-2401,jsonb_build_array(items->1,items->0),pv->>'preview_sha256');
     RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: replay med andre elementer godtaget';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'RELATION_PROMOTION_REPLAY_MISMATCH%' THEN RAISE; END IF;
+  END;
+  -- samme previewhash og elementer under en anden kilde er ikke et replay (kilden indgår i digesten)
+  BEGIN
+    PERFORM red_promote_relation_interpretations_batch(-2402,items,pv->>'preview_sha256');
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: replay under anden kilde godtaget';
   EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
     IF v_err NOT LIKE 'RELATION_PROMOTION_REPLAY_MISMATCH%' THEN RAISE; END IF;
   END;
