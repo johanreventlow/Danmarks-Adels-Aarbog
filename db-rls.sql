@@ -1205,6 +1205,9 @@ GRANT EXECUTE ON FUNCTION
   public.public_person_bio_source_versions(bigint[]),
   public.public_person_bio_source_versions_v2(bigint[])
   TO anon,authenticated;
+-- Trin 5b 2a (#151): kildevisning for bundne familier; tom i kontrakt 1 (gaten er i funktionen).
+REVOKE ALL ON FUNCTION public.public_family_sources(bigint[]) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.public_family_sources(bigint[]) TO anon,authenticated;
 
 -- #152 Task 7: one version-aware ACL source of truth is applied after every
 -- historical grant block. A fresh #153 schema intentionally lacks legacy

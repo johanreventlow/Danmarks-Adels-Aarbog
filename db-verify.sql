@@ -10172,3 +10172,25 @@ BEGIN
   END LOOP;
   RAISE NOTICE 'OK: 5b 2a — relationsbindingens flade';
 END $relation_promotion_verify$;
+
+-- Trin 5b del 2a (#151, spec §5.1): public_family_sources er en smal, gatet offentlig læseflade.
+DO $family_sources_verify$
+DECLARE v_def text; f regprocedure:=to_regprocedure('public.public_family_sources(bigint[])');
+BEGIN
+  IF f IS NULL THEN RAISE EXCEPTION 'FAMILY_SOURCES_CONTRACT_INVALID: mangler'; END IF;
+  v_def:=pg_get_functiondef(f);
+  IF NOT (SELECT prosecdef FROM pg_proc WHERE oid=f)
+     OR (SELECT proconfig FROM pg_proc WHERE oid=f) IS DISTINCT FROM ARRAY['search_path=pg_catalog']
+     OR pg_get_function_result(f) IS DISTINCT FROM
+        'TABLE(family_id bigint, slags text, counterpart_person_id bigint, source_record_ref uuid, source_label text, record_label text, citation_label text)'
+     OR strpos(v_def,'person_daa_narrative_publication_allowed')=0
+     OR strpos(v_def,'family_offentlig')=0
+     OR strpos(v_def,'relation_binding_state')=0
+     OR strpos(v_def,'narrative_record_contract_version()')=0
+     OR NOT has_function_privilege('anon',f,'EXECUTE')
+     OR NOT has_function_privilege('authenticated',f,'EXECUTE')
+     OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(p.proacl) a WHERE p.oid=f AND a.grantee=0) THEN
+    RAISE EXCEPTION 'FAMILY_SOURCES_CONTRACT_INVALID';
+  END IF;
+  RAISE NOTICE 'OK: 5b 2a — public_family_sources';
+END $family_sources_verify$;

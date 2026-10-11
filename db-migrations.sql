@@ -21724,4 +21724,66 @@ END $$;
 REVOKE ALL ON FUNCTION public.red_promote_relation_interpretations_batch(bigint,jsonb,text) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.red_promote_relation_interpretations_batch(bigint,jsonb,text) TO authenticated;
 
+-- ===================================================================================
+-- Trin 5b del 2a (#151, spec §5.1): offentlig kildevisning for bundne familier bag publicerings- og
+-- familiegaten. SECURITY DEFINER omgår RLS; hver betingelse er derfor fail-closed i selve funktionen.
+-- ===================================================================================
+CREATE OR REPLACE FUNCTION public.public_family_sources(p_family_ids bigint[])
+RETURNS TABLE(family_id bigint, slags text, counterpart_person_id bigint, source_record_ref uuid, source_label text, record_label text, citation_label text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+  IF public.narrative_record_contract_version()<2 OR p_family_ids IS NULL THEN RETURN; END IF;
+  RETURN QUERY
+  WITH b AS (
+    SELECT p.target_id AS fam,p.interpretation_id,p.evidence->>'state_sha256' AS bound_sha,
+           cur.predicate,cur.source_id,private.relation_binding_state(p.interpretation_id) AS st
+      FROM private.interpretation_promotion p
+      JOIN private.interpretation_promotion_rule r
+        ON r.rule_key=p.rule_key AND r.rule_version=p.rule_version AND r.rule_mode='structural_family'
+      JOIN private.interpretation q ON q.id=p.interpretation_id
+      JOIN private.interpretation_current cur ON cur.interpretation_key=q.interpretation_key
+     WHERE p.target_type='family' AND p.target_id=ANY(p_family_ids)
+       AND cur.id=p.interpretation_id AND cur.status='accepted'
+  ), ok AS (
+    SELECT b.* FROM b
+     WHERE b.st IS NOT NULL
+       AND private.reimport_canonical_json_sha256(b.st)=b.bound_sha
+       AND (b.st#>>'{family,family_id}')::bigint=b.fam
+       AND public.family_offentlig(b.fam)
+  ), rec AS (
+    -- Spec §5.1 trin 3 (r2-M6): præcis én supporting-observation og præcis én accepteret anchor.
+    SELECT ok.*,
+           (SELECT array_agg(a.source_record_id)
+              FROM private.interpretation_observation io
+              JOIN private.source_observation o ON o.id=io.observation_id
+              JOIN private.source_record_anchor_current a ON a.occurrence_id=o.occurrence_id AND a.decision_status='accepted'
+             WHERE io.interpretation_id=ok.interpretation_id AND io.evidence_role='supporting') AS recs,
+           (SELECT count(*) FROM private.interpretation_observation io
+             WHERE io.interpretation_id=ok.interpretation_id AND io.evidence_role='supporting') AS n_support
+      FROM ok
+  ), pub AS (
+    SELECT rec.fam,rec.predicate,rec.st,sr.public_ref,nrp.id AS binding_id,nrp.narrative_id
+      FROM rec
+      JOIN private.source_record sr ON sr.id=rec.recs[1] AND sr.source_id=rec.source_id
+      JOIN private.narrative_record_publication nrp ON nrp.source_record_id=sr.id AND nrp.status='published'
+     WHERE rec.n_support=1 AND cardinality(rec.recs)=1
+       AND (SELECT count(*) FROM private.narrative_record_publication x
+             WHERE x.source_record_id=sr.id AND x.status='published')=1
+  )
+  SELECT pub.fam,CASE pub.predicate WHEN 'relation.marriage' THEN 'aegteskab' ELSE 'foraelder' END,
+         (pub.st->>'counterpart_person_id')::bigint,pub.public_ref,
+         ev.after_state #>> '{source,source_label}',ev.after_state #>> '{labels,record_label}',
+         ev.after_state #>> '{labels,citation_label}'
+    FROM pub
+    JOIN public.narrative n ON n.id=pub.narrative_id
+    JOIN LATERAL (SELECT e.after_state FROM private.narrative_publication_event e
+                   WHERE e.binding_id=pub.binding_id ORDER BY e.stream_version DESC,e.id DESC LIMIT 1) ev ON true
+   WHERE public.person_daa_narrative_publication_allowed(n.id)
+     AND n.subjekt_type='person'
+     AND n.subjekt_id IN (SELECT (x->>'canonical_person_id')::bigint FROM jsonb_array_elements(pub.st->'parties') x)
+   ORDER BY 1,2,3;
+END $$;
+REVOKE ALL ON FUNCTION public.public_family_sources(bigint[]) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.public_family_sources(bigint[]) TO anon,authenticated;
+
 -- 5b-sektionen slutter her (nye 5b-blokke indsættes over denne linje).
