@@ -18745,6 +18745,10 @@ END $$;
 REVOKE ALL ON FUNCTION red_record_identity_candidates(jsonb,jsonb) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION red_record_identity_candidates(jsonb,jsonb) TO authenticated;
 
+-- Trin 5b final review I2: registreringen fik p_cause. Den gamle signatur droppes FØR ACL-klassifikationen
+-- nedenfor, ellers afviser en opgraderet base den som uklassificeret; den nye oprettes i 5b-sektionen.
+DROP FUNCTION IF EXISTS red_register_identity_control_run(uuid);
+
 DO $public_red_revoke$
 DECLARE
   fn regprocedure;

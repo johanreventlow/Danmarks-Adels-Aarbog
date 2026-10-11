@@ -26,6 +26,12 @@ SELECT set_config('daa.verify_dblink_identity','pending',false);
 SELECT set_config('daa.verify_dblink_placement','pending',false);
 SELECT set_config('daa.verify_dblink_ocr_lock','pending',false);
 
+-- koblinger til de syntetiske slægtslinjer fjernes før linjerne (FK; også rester fra en afbrudt kørsel)
+DELETE FROM lineage_scheme_entry_lineage WHERE lineage_id IN (-987659904,-987659903) OR slaegt_id IN (-987659904,-987659903);
+DELETE FROM lineage_scheme_entry_lineage WHERE entry_id IN (SELECT e.id FROM lineage_scheme_entry e
+  JOIN lineage_scheme sc ON sc.id=e.scheme_id WHERE sc.source_id=-987659902);
+DELETE FROM lineage_scheme_entry WHERE scheme_id IN (SELECT id FROM lineage_scheme WHERE source_id=-987659902);
+DELETE FROM lineage_scheme WHERE source_id=-987659902;
 DELETE FROM lineage WHERE id IN (-987659904,-987659903);
 DELETE FROM source WHERE id=-987659902;
 DELETE FROM person WHERE id=-987659901;
@@ -96,6 +102,12 @@ END $all_dblink_gates_executed$;
 DELETE FROM vocab v
 USING task3_db_verify_seeded_vocab s
 WHERE v.scheme='faktatype' AND v.code=s.code;
+-- koblinger til de syntetiske slægtslinjer fjernes før linjerne (FK; også rester fra en afbrudt kørsel)
+DELETE FROM lineage_scheme_entry_lineage WHERE lineage_id IN (-987659904,-987659903) OR slaegt_id IN (-987659904,-987659903);
+DELETE FROM lineage_scheme_entry_lineage WHERE entry_id IN (SELECT e.id FROM lineage_scheme_entry e
+  JOIN lineage_scheme sc ON sc.id=e.scheme_id WHERE sc.source_id=-987659902);
+DELETE FROM lineage_scheme_entry WHERE scheme_id IN (SELECT id FROM lineage_scheme WHERE source_id=-987659902);
+DELETE FROM lineage_scheme WHERE source_id=-987659902;
 DELETE FROM lineage WHERE id IN (-987659904,-987659903);
 DELETE FROM source WHERE id=-987659902;
 DELETE FROM person WHERE id=-987659901;
