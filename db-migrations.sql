@@ -21506,9 +21506,6 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION private.append_relation_classification(uuid,text,jsonb) FROM PUBLIC,anon,authenticated;
 
-CREATE UNIQUE INDEX IF NOT EXISTS interpretation_promotion_one_family_per_interpretation
-  ON private.interpretation_promotion(interpretation_id) WHERE target_type='family';
-
 -- ===================================================================================
 -- Trin 5b del 2a (#151, spec §4.3): maskinel afgørelse af ægteskaber, bundet til kilde og tilstand.
 -- ===================================================================================
@@ -21798,5 +21795,35 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.public_family_sources(bigint[]) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.public_family_sources(bigint[]) TO anon,authenticated;
+
+-- ===================================================================================
+-- Trin 5b 2b-i (#151, spec §4.1): unikhed pr. fortolkning og tilstand. Nye regler først, gamle sidst —
+-- intet vindue uden unikhed. Tabellens UNIQUE findes via kolonnerne, ikke et antaget autogenereret navn.
+-- ===================================================================================
+CREATE UNIQUE INDEX IF NOT EXISTS interpretation_promotion_one_target_per_interpretation
+  ON private.interpretation_promotion(interpretation_id,target_type,target_id) WHERE target_type<>'family';
+CREATE UNIQUE INDEX IF NOT EXISTS interpretation_promotion_one_family_per_state
+  ON private.interpretation_promotion(interpretation_id,(evidence->>'state_sha256')) WHERE target_type='family';
+DO $promotion_family_state$
+DECLARE v_con text;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.interpretation_promotion'::regclass
+                  AND conname='interpretation_promotion_family_state_check') THEN
+    ALTER TABLE private.interpretation_promotion ADD CONSTRAINT interpretation_promotion_family_state_check CHECK (
+      target_type<>'family' OR (evidence ? 'state_sha256' AND jsonb_typeof(evidence->'state_sha256')='string'
+                                AND evidence->>'state_sha256' ~ '^[0-9a-f]{64}$')) NOT VALID;
+    ALTER TABLE private.interpretation_promotion VALIDATE CONSTRAINT interpretation_promotion_family_state_check;
+  END IF;
+  FOR v_con IN
+    SELECT c.conname FROM pg_constraint c
+     WHERE c.conrelid='private.interpretation_promotion'::regclass AND c.contype='u'
+       AND (SELECT array_agg(a.attname::text ORDER BY a.attname::text COLLATE "C")
+              FROM unnest(c.conkey) k JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k)
+           =ARRAY['interpretation_id','target_id','target_type']
+  LOOP
+    EXECUTE format('ALTER TABLE private.interpretation_promotion DROP CONSTRAINT %I',v_con);
+  END LOOP;
+END $promotion_family_state$;
+DROP INDEX IF EXISTS private.interpretation_promotion_one_family_per_interpretation;
 
 -- 5b-sektionen slutter her (nye 5b-blokke indsættes over denne linje).

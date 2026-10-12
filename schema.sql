@@ -1513,14 +1513,24 @@ CREATE TABLE private.interpretation_promotion (
   promoted_by         uuid NOT NULL,
   promoted_by_name    text NOT NULL CHECK (btrim(promoted_by_name)<>''),
   promoted_at         timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (interpretation_id,target_type,target_id),
   CONSTRAINT interpretation_promotion_rule_fk FOREIGN KEY (rule_key,rule_version)
     REFERENCES private.interpretation_promotion_rule(rule_key,rule_version),
   CONSTRAINT interpretation_promotion_rule_pair_check CHECK (
     (rule_key IS NULL AND rule_version IS NULL)
     OR (rule_key IS NOT NULL AND rule_version IS NOT NULL)
-  )
+  ),
+  -- Trin 5b 2b-i (spec §4.1): en familiebinding har altid en tilstandshash. Alle led er ikke-NULL, så
+  -- udtrykket aldrig bliver NULL (en CHECK godtager NULL).
+  CONSTRAINT interpretation_promotion_family_state_check CHECK (
+    target_type<>'family' OR (evidence ? 'state_sha256' AND jsonb_typeof(evidence->'state_sha256')='string'
+                              AND evidence->>'state_sha256' ~ '^[0-9a-f]{64}$'))
 );
+-- Trin 5b 2b-i (spec §4.1): den hidtidige unikhed for alle andre mål; familiemål er unikke pr. tilstand,
+-- så en genbinding efter en rettelse er en ny række ved siden af den gamle (append-only).
+CREATE UNIQUE INDEX interpretation_promotion_one_target_per_interpretation
+  ON private.interpretation_promotion(interpretation_id,target_type,target_id) WHERE target_type<>'family';
+CREATE UNIQUE INDEX interpretation_promotion_one_family_per_state
+  ON private.interpretation_promotion(interpretation_id,(evidence->>'state_sha256')) WHERE target_type='family';
 
 -- Én current-state-række pr. persona gør to samtidige aktive mål umulige.
 -- Hver ændring spejles først i den uforanderlige eventlog nedenfor.
@@ -16028,9 +16038,6 @@ BEGIN
   RETURN v_seq;
 END $$;
 REVOKE ALL ON FUNCTION private.append_relation_classification(uuid,text,jsonb) FROM PUBLIC,anon,authenticated;
-
-CREATE UNIQUE INDEX IF NOT EXISTS interpretation_promotion_one_family_per_interpretation
-  ON private.interpretation_promotion(interpretation_id) WHERE target_type='family';
 
 -- ===================================================================================
 -- Trin 5b del 2a (#151, spec §4.3): maskinel afgørelse af ægteskaber, bundet til kilde og tilstand.

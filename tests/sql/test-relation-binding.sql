@@ -608,3 +608,62 @@ BEGIN
 END $relation_promote_lock_wait$;
 ROLLBACK;
 DELETE FROM person WHERE id=-2494;
+
+-- ---------- 2b-i Task 1: unikhed pr. fortolkning og tilstand (spec §4.1) ----------
+BEGIN;
+\ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
+DO $rebind_unique$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-0000002b0101'; s jsonb; m jsonb; pv jsonb; v_mid uuid; v_batch uuid;
+  v_row private.interpretation_promotion%ROWTYPE; v_bad jsonb;
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  INSERT INTO person(id,levende,privat,status) SELECT g,false,false,'2bi' FROM generate_series(-21120,-21101) g;
+  s:=pg_temp.f5b_source(-21101);
+  m:=pg_temp.f2a_marriage(-21101,s,'U-1',-21101,-21102,v_actor,1,1);
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_decisions(-21101);
+  PERFORM red_decide_relation_interpretations(-21101,pv->>'set_sha256');
+  RESET ROLE;
+  SELECT id INTO v_mid FROM private.interpretation_current WHERE interpretation_key=(m->'claim'->>'key')::uuid;
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_promotions(-21101,jsonb_build_array(jsonb_build_object('interpretation_id',v_mid::text,'family_id',(m->>'family')::bigint)));
+  v_batch:=red_promote_relation_interpretations_batch(-21101,jsonb_build_array(jsonb_build_object('interpretation_id',v_mid::text,'family_id',(m->>'family')::bigint)),pv->>'preview_sha256');
+  RESET ROLE;
+  SELECT * INTO v_row FROM private.interpretation_promotion WHERE batch_id=v_batch;
+
+  -- CHECK: manglende nøgle, JSON-null, tal og forkert format afvises (spec §4.1; Codex r1 #1)
+  FOREACH v_bad IN ARRAY ARRAY[v_row.evidence-'state_sha256', jsonb_set(v_row.evidence,'{state_sha256}','null'),
+                               jsonb_set(v_row.evidence,'{state_sha256}','1'), jsonb_set(v_row.evidence,'{state_sha256}','"abc"')] LOOP
+    BEGIN
+      INSERT INTO private.interpretation_promotion(interpretation_id,rule_key,rule_version,batch_id,target_type,target_id,evidence,promoted_by,promoted_by_name)
+      VALUES (v_row.interpretation_id,v_row.rule_key,v_row.rule_version,v_row.batch_id,'family',v_row.target_id,v_bad,v_row.promoted_by,v_row.promoted_by_name);
+      RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: familiebinding uden gyldig hash godtaget %', v_bad;
+    EXCEPTION WHEN check_violation THEN NULL;
+    END;
+  END LOOP;
+  -- samme fortolkning og familie med en ny tilstand er tilladt (genbinding, spec §4.1; Codex r1 #2)
+  INSERT INTO private.interpretation_promotion(interpretation_id,rule_key,rule_version,batch_id,target_type,target_id,evidence,promoted_by,promoted_by_name)
+  VALUES (v_row.interpretation_id,v_row.rule_key,v_row.rule_version,v_row.batch_id,'family',v_row.target_id,
+          jsonb_set(v_row.evidence,'{state_sha256}',to_jsonb(repeat('e',64))),v_row.promoted_by,v_row.promoted_by_name);
+  -- samme tilstand to gange afvises
+  BEGIN
+    INSERT INTO private.interpretation_promotion(interpretation_id,rule_key,rule_version,batch_id,target_type,target_id,evidence,promoted_by,promoted_by_name)
+    VALUES (v_row.interpretation_id,v_row.rule_key,v_row.rule_version,v_row.batch_id,'family',v_row.target_id,
+            jsonb_set(v_row.evidence,'{state_sha256}',to_jsonb(repeat('e',64))),v_row.promoted_by,v_row.promoted_by_name);
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: to bindinger med samme tilstand godtaget';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+  -- kataloget: den hidtidige regel består for ikke-familiemål, og de gamle regler er væk
+  IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+                  WHERE c.relname='interpretation_promotion_one_target_per_interpretation' AND i.indisunique
+                    AND pg_get_expr(i.indpred,i.indrelid) LIKE '%target_type%<>%family%')
+     OR EXISTS (SELECT 1 FROM pg_class WHERE relname='interpretation_promotion_one_family_per_interpretation')
+     OR EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.interpretation_promotion'::regclass AND contype='u') THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: unikhedsreglerne i kataloget';
+  END IF;
+  RAISE NOTICE 'OK: unikhed pr. fortolkning og tilstand';
+END $rebind_unique$;
+ROLLBACK;

@@ -10127,10 +10127,19 @@ BEGIN
                      AND tgname='trg_relation_classification_event_append_only')
      OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.relation_classification_event'::regclass
                      AND tgname='trg_relation_classification_event_append_only_truncate')
+     -- Trin 5b 2b-i (spec §4.1): unikhed pr. fortolkning og tilstand; de to gamle regler er væk.
      OR NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
-                     WHERE c.relname='interpretation_promotion_one_family_per_interpretation'
-                       AND i.indrelid='private.interpretation_promotion'::regclass
-                       AND i.indisunique AND pg_get_expr(i.indpred,i.indrelid) LIKE '%target_type%family%')
+                     WHERE c.relname='interpretation_promotion_one_family_per_state'
+                       AND i.indrelid='private.interpretation_promotion'::regclass AND i.indisunique
+                       AND pg_get_expr(i.indpred,i.indrelid) LIKE '%target_type%=%family%')
+     OR NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+                     WHERE c.relname='interpretation_promotion_one_target_per_interpretation'
+                       AND i.indrelid='private.interpretation_promotion'::regclass AND i.indisunique
+                       AND pg_get_expr(i.indpred,i.indrelid) LIKE '%target_type%<>%family%')
+     OR EXISTS (SELECT 1 FROM pg_class WHERE relname='interpretation_promotion_one_family_per_interpretation')
+     OR EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.interpretation_promotion'::regclass AND contype='u')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.interpretation_promotion'::regclass
+                     AND conname='interpretation_promotion_family_state_check' AND convalidated)
      OR to_regprocedure('private.relation_binding_state(uuid)') IS NULL
      OR to_regprocedure('private.relation_binding_state_sha256(uuid)') IS NULL
      OR to_regprocedure('private.append_relation_classification(uuid,text,jsonb)') IS NULL
