@@ -2,6 +2,26 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: trin 5b 2b deles i 2b-i og 2b-ii; genbinding som ny binding ved siden af den gamle; review-fund afvejes mod opgaven (2026-10-12)
+
+> **Besluttet af projektejeren 2026-10-11/12** i brainstormen af 2b og efter spec-reviewet. Spec:
+> `docs/superpowers/specs/2026-10-11-trin5b-2b-i-genbinding-og-aegtefaeller-design.md`. Bygger på posten
+> 2026-10-11 nedenfor.
+
+**Besluttet:**
+1. **2b deles:** 2b-i = genbinding efter rettelse, de 3 ordinal-afvigelser og de 31 uafgjorte ægtefæller
+   (22 i et undtagelsesark, 9 i webkøen med partnerkontekst); 2b-ii = nye personer og klausul-dispositionen.
+2. **Genbinding er en ny binding ved siden af den gamle** (append-only), unik pr. fortolkning og tilstand;
+   ingen genbinding, hvis strukturen er flyttet til en anden familie. Tabellens generelle unikhedsregel bliver
+   partiel for ikke-familiemål.
+3. **Arket følger del 1's mekanik** (udtræk + psql-script i én transaktion): ingen nye RPC'er eller tabeller.
+   `F` (behold familiens nummer) skrives som klassifikationshændelsen `ordinal_beholdt`.
+4. **Review-fund afvejes mod opgaven.** Fire Codex-runder voksede spec'en fra ca. 290 til 539 linjer; Opus
+   afvejede fundene (nødvendig / forenkl / kendt begrænsning / afvis), og otte teoretiske risici ved denne
+   skala står som kendte begrænsninger, som overførsels-spec'en skal tage stilling til før prod.
+
+**Uændret:** restore-only fortrydelse; prod først efter 5a's ceremoni og gennem en overførsels-spec.
+
 ## BESLUTTET: trin 5b del 2 i tre skiver; 2a binder det afgjorte og viser kilden for læseren (2026-10-11)
 
 > **Besluttet af projektejeren 2026-10-11** i brainstormen af del 2. Spec:

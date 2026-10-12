@@ -5,7 +5,8 @@ Codex-runder (`gpt-5.6-sol`, alle NO-GO) fandt fire reelle fejl i det godkendte 
 voksede spec'en fra ca. 290 til 539 linjer med nye RPC'er, en kvitteringstabel og en tabellås. Projektejeren
 bad derfor 2026-10-12 Opus afveje hvert fund (nødvendig / forenkl / kendt begrænsning / afvis); dette er den
 slanke version, skrevet efter den afvejning og projektejerens ja (§14). `F` skrives som hændelse
-(`ordinal_beholdt`) efter projektejerens valg. Afventer projektejerens gennemlæsning.
+(`ordinal_beholdt`) efter projektejerens valg. **GODKENDT af projektejeren 2026-10-12** (decisions-post samme
+dato).
 
 **Roadmap:** trin 5, delspec 5b (`docs/superpowers/specs/2026-10-06-trin5b-relationspersonas-design.md`,
 herefter »hovedspecen«), del 2, skive b, første halvdel. Bygger på 2a
