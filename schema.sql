@@ -16169,13 +16169,20 @@ BEGIN
     SELECT p.*,q.id AS requested_id,q.source_id,q.predicate,cur.id AS current_id,cur.status,
            r.rule_key,r.rule_version,r.rule_mode,r.status AS rule_status,
            private.relation_binding_state(p.interpretation_id) AS st,
-           EXISTS (SELECT 1 FROM private.interpretation_promotion x
-                    WHERE x.interpretation_id=p.interpretation_id AND x.target_type='family') AS bound
+           (SELECT x.id FROM private.interpretation_promotion x
+             WHERE x.interpretation_id=p.interpretation_id AND x.target_type='family'
+             ORDER BY x.promoted_at DESC,x.id DESC LIMIT 1) AS last_binding_id,
+           (SELECT x.target_id FROM private.interpretation_promotion x
+             WHERE x.interpretation_id=p.interpretation_id AND x.target_type='family'
+             ORDER BY x.promoted_at DESC,x.id DESC LIMIT 1) AS last_binding_family
       FROM parsed p
       LEFT JOIN private.interpretation q ON q.id=p.interpretation_id
       LEFT JOIN private.interpretation_current cur ON cur.interpretation_key=q.interpretation_key
       LEFT JOIN private.interpretation_promotion_rule_line l ON l.predicate=q.predicate
       LEFT JOIN private.interpretation_promotion_rule_current r ON r.rule_key=l.rule_key
+  ), hashed AS (
+    SELECT c.*,CASE WHEN c.st IS NULL THEN NULL ELSE private.reimport_canonical_json_sha256(c.st) END AS cur_sha
+      FROM checked c
   ), judged AS (
     SELECT c.*,CASE
       WHEN c.requested_id IS NULL THEN 'RELATION_PROMOTION_NOT_FOUND'
@@ -16186,14 +16193,20 @@ BEGIN
       WHEN c.st IS NULL THEN 'RELATION_PROMOTION_STRUCTURE_INVALID'
       WHEN (c.st#>>'{family,family_id}')::bigint<>c.family_id THEN 'RELATION_PROMOTION_FAMILY_MISMATCH'
       WHEN c.dup>1 THEN 'RELATION_PROMOTION_DUPLICATE_ITEM'
-      WHEN c.bound THEN 'RELATION_PROMOTION_ALREADY_APPLIED'
+      -- Trin 5b 2b-i (spec §4.2): kun en binding med den nuværende tilstand er »anvendt«; forældede er historik.
+      WHEN EXISTS (SELECT 1 FROM private.interpretation_promotion x
+                    WHERE x.interpretation_id=c.interpretation_id AND x.target_type='family'
+                      AND x.evidence->>'state_sha256'=c.cur_sha) THEN 'RELATION_PROMOTION_ALREADY_APPLIED'
+      -- En genbinding kun i samme familie: påstanden blev afgjort for den gamle familie (spec §4.4).
+      WHEN c.last_binding_id IS NOT NULL AND c.last_binding_family<>c.family_id THEN 'RELATION_PROMOTION_REBIND_FAMILY_CHANGED'
     END AS reason_code
-      FROM checked c
+      FROM hashed c
   )
   SELECT jsonb_agg(jsonb_build_object('item_ordinal',j.item_ordinal,'interpretation_id',j.interpretation_id::text,
            'family_id',j.family_id,'eligible',j.reason_code IS NULL,'reason_code',j.reason_code,
            'rule_key',j.rule_key,'rule_version',j.rule_version,
-           'state_sha256',CASE WHEN j.st IS NULL THEN NULL ELSE private.reimport_canonical_json_sha256(j.st) END,
+           'state_sha256',j.cur_sha,
+           'supersedes_promotion_id',CASE WHEN j.reason_code IS NULL THEN j.last_binding_id::text END,
            -- Codex plan-r1 #9: vielsesfaktummet er en del af det autoriserede preview; skrivningen bruger
            -- previewets værdi, så det gemte = det hashede. Entydigt ellers null.
            'vielse_fact_id',CASE WHEN j.predicate='relation.marriage' THEN
@@ -16202,7 +16215,7 @@ BEGIN
          ORDER BY j.item_ordinal)
     INTO v_items FROM judged j;
   RETURN jsonb_build_object('items',v_items,'preview_sha256',private.reimport_canonical_json_sha256(jsonb_build_object(
-    'contract','relation-promotion-preview-v1',
+    'contract','relation-promotion-preview-v2',
     'database_identity',jsonb_build_object('database_name',current_database(),
       'system_identifier',(pg_control_system()).system_identifier::text)::text,
     'source_id',p_source_id,'items',v_items)));
@@ -16257,7 +16270,8 @@ BEGIN
   SELECT (i->>'interpretation_id')::uuid,i->>'rule_key',(i->>'rule_version')::int,v_batch,'family',(i->>'family_id')::bigint,
          jsonb_build_object('promotion_kind','structural_family','family_id',(i->>'family_id')::bigint,
            'vielse_fact_id',(i->>'vielse_fact_id')::bigint,
-           'state_sha256',i->>'state_sha256','preview_sha256',p_preview_sha256),
+           'state_sha256',i->>'state_sha256','preview_sha256',p_preview_sha256,
+           'supersedes_promotion_id',i->>'supersedes_promotion_id'),
          v_actor,v_actor_name
     FROM jsonb_array_elements(v_preview->'items') i;
   RETURN v_batch;
