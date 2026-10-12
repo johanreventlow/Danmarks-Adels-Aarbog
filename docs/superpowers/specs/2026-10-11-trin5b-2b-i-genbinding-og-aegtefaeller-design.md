@@ -2,9 +2,10 @@
 
 **Status:** Design godkendt af projektejeren 2026-10-11, afsnit for afsnit (brainstorm samme dato). Revideret
 samme dag efter Codex `gpt-5.6-sol` runde 1 (NO-GO: 4 BLOCKER, 8 MAJOR, 1 MINOR; alle efterprøvet og godtaget,
-§14) og runde 2 (NO-GO: 4 BLOCKER, 6 MAJOR, 1 MINOR; alle efterprøvet og godtaget, §15). To af rettelserne
+§14) runde 2 (NO-GO: 4 BLOCKER, 6 MAJOR, 1 MINOR, §15) og runde 3 (NO-GO: 1 BLOCKER, 3 MAJOR, §16); alle fund
+efterprøvet og godtaget. To af rettelserne
 omgør godkendte designvalg med projektejerens ja: partnerknappen kontrolleres i serveren (§6.3), og `F`
-skrives som hændelse (§5.4). Afventer Codex runde 3 og projektejerens gennemlæsning.
+skrives som hændelse (§5.4). Afventer Codex runde 4 og projektejerens gennemlæsning.
 
 **Roadmap:** trin 5, delspec 5b (`docs/superpowers/specs/2026-10-06-trin5b-relationspersonas-design.md`,
 herefter »hovedspecen«), del 2, skive b, første halvdel. Bygger på 2a
@@ -193,10 +194,17 @@ som projektejeren godkender sammen:
 
 - `sheet_sha256` = SHA-256 af den udfyldte arkfil (menneskets dokument; værktøjet sikrer, at svarene er
   udledt af netop den fil).
-- `answers_sha256` = SHA-256 (hex) af UTF-8-teksten, der består af én linje pr. svar i linjeorden,
-  `line TAB kind TAB id TAB token TAB note` (note `btrim`'et; tom note som tom streng), adskilt af LF uden
-  afsluttende LF. Serveren genberegner den fra `p_answers` (§5.4) — det er den kryptografiske binding mellem
-  de anvendte svar og godkendelsen (Codex r2 #4).
+- `answers_sha256` = SHA-256 (hex, små bogstaver) af UTF-8-teksten, der består af én linje pr. svar i
+  linjeorden, `line TAB kind TAB id TAB token TAB note`, adskilt af LF uden afsluttende LF (Codex r3 #2):
+  - `line` er svarets 1-baserede ordinal blandt arkets **svarlinjer** (`S`/`O`), uafhængigt af filens
+    fysiske linjenumre og kontekstlinjer, skrevet som decimaltal uden foranstillede nuller;
+  - `kind` er `S` eller `O`; `id` er uuid'et med små bogstaver; `token` er ét tegn;
+  - `note` er teksten efter `#`, trimmet for mellemrum (U+0020) i begge ender; tom note er den tomme streng.
+    En note med TAB, CR, LF eller andre kontroltegn (Unicode-kategori Cc) afvises af både værktøj og server.
+  Serveren genberegner hashen fra `p_answers` (§5.4) — det er den kryptografiske binding mellem de anvendte
+  svar og godkendelsen (Codex r2 #4). En delt fixture `tests/fixtures/spouse-exception-answers.json` med
+  svar, den eksakte præimage (som base64) og den forventede hash skal ramme byte-identisk i både Python-testen
+  og SQL-testen.
 
 ### 5.4 `red_apply_spouse_exception_sheet(p_source_id bigint, p_rows_sha256 text, p_sheet_sha256 text, p_answers_sha256 text, p_answers jsonb) RETURNS jsonb`
 
@@ -210,7 +218,14 @@ search_path=pg_catalog,public,private`. Én transaktion; enhver fejl giver 0 skr
 2. **Intet fremmed change_set** (Codex r2 #3): er `app.change_set_id` sat i transaktionen, fejler kaldet med
    `SPOUSE_SHEET_FOREIGN_CHANGE_SET` før første lås og skrivning (som `REIMPORT_CASE_FOREIGN_CHANGE_SET`).
 3. **Kildelås** eksklusivt (`pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:'||source,0))`,
-   samme nøgle som kandidatwriteren og `red_decide_relation_interpretations`).
+   samme nøgle som kandidatwriteren og `red_decide_relation_interpretations`), og derefter `LOCK TABLE
+   public.family_member IN SHARE MODE` under `lock_timeout` (Codex r3 #1). Projektionens medlemskab afhænger
+   af `family_member` (gennem `persona_family_context`), og redaktørens familiewritere tager ikke kildelåsen;
+   tabellåsen blokerer deres `INSERT`/`UPDATE`/`DELETE` til commit, så en række uden for arket ikke kan blive
+   egnet mellem genberegning og commit. Ark-RPC'ens egne `B`-opdateringer er tilladt (samme transaktion).
+   Projektionens øvrige afhængigheder skrives kun under kildelåsen (kandidatkørsler, identiteter,
+   relationsafgørelser og klassifikationer) eller er låst som rækker (kandidaternes `person`-rækker, trin 5).
+   Overskrides `lock_timeout`, fejler kaldet med 0 skrivninger.
 4. **Replay** (Codex r2 #6): findes der en kvittering (§5.5) for `(p_source_id, p_rows_sha256)`, returneres
    dens resultat uden at skrive, hvis `sheet_sha256` og `answers_sha256` er de samme; ellers
    `SPOUSE_SHEET_REPLAY_MISMATCH`. Opslaget sker efter kildelåsen og før genberegningen, fordi skrivningerne
@@ -279,7 +294,13 @@ kildefilter, når rollefiltret er `spouse`, og henter ingen liste uden (Codex r1
 
 Samme signatur (`jsonb`). Alle bigint-id'er i svaret — også de eksisterende i `persona`, `candidates`
 (`person_id`, `family_id`) og `family_context` — udleveres som decimalstrenge (`::text`), så et id aldrig
-afrundes under JSON-parsning i browseren (Codex r2 #9). Nye felter, kun for personas med en `spouse`-mention:
+afrundes under JSON-parsning i browseren (Codex r2 #9). Det samme gælder køen og historikken (Codex r3 #3):
+`red_source_persona_queue` returnerer `source_id` og `canonical_person_id` som `text`, og
+`red_source_persona_history` returnerer `canonical_person_id` som `text`. Argumenttyperne er uændrede, men
+returtypen ændres, så migrationen `DROP`'er og genskaber de to funktioner (samme regprocedure-signatur;
+`db-rls.sql`'s allow-liste genudsteder grants), og `db-verify.sql` asserterer returtyperne. Eneste kalder er
+`web/src/data/sourcePersona.ts` (efterprøvet med `git grep`); `tests/sql/test-identity-detail.sql` tilpasses.
+Nye felter i detaljen, kun for personas med en `spouse`-mention:
 
 - `principal_partners`: hovedpersonens partnere i kanoniske familier, fra `private.persona_family_context`:
   pr. partner `person_id` og `family_id` som decimalstrenge, `name`, `born`, `died`, `ordinal` og
@@ -308,7 +329,9 @@ Dermed skrives identiteten kun, hvis familien stadig ser ud, som redaktøren så
 
 ### 6.4 UI og id-kontrakt (Codex r1 #9)
 
-`web/src/data/sourcePersona.ts` parser de nye felter med id'er som decimalstrenge. `decideSourcePersona`
+`web/src/data/sourcePersona.ts` parser alle id'er fra kø, detalje og historik som decimalstrenge; detaljens
+personatype skilles fra `SourcePersonaQueueRow`, og kildefiltret sendes som valideret decimalstreng.
+`decideSourcePersona`
 tager person-id som decimalstreng (`/^[1-9][0-9]*$/`) og sender den uændret som RPC-argument; eksisterende
 kaldere (kandidatknap, fri personvælger) går over til strenge, og `Number`/`Number.isSafeInteger` forsvinder
 fra vejen. Den frie personvælger (`web/src/data/redaktionRead.ts`) henter `id` som tekst (PostgREST
@@ -372,7 +395,7 @@ løftet med `db-migrations.sql` og `db-rls.sql`; `db-verify.sql` grøn inkl. de 
 | Kanonisk delta | `person`, `family`, `fact`, `assertion`, `citation`, `conclusion` uændrede (md5 som 2a); `family_member` afviger **kun** i `ordinal` på de b rækker fra `B`, alle under arkets change_set |
 | Læsning | `public_family_sources` som `anon` giver 210 + s + k rækker; v2-biografilæsningen for 2a's 50 faste personer uændret |
 | **Lukket univers** (Codex r1 #12) | Hver af kildens gældende relationspåstande (272 ved start) ligger i præcis én spand, og summen er universet: (i) `accepted` med en binding med nuværende tilstand; (ii) `accepted` uden — skal være **0** efter efterkørslen, ellers står hver med `reason_code`, og beviset er ikke grønt; (iii) ikke `accepted`, talt pr. årsag mod en eksplicit liste: ægteskab uden ægtefælle-persona (14), ægtefælle `new_person_needed`/`different`/`unresolved` (fra køen), forælder `proposed` (2), forælder `rejected` (1), `relation.child` (14, 2c). En årsag uden for listen gør beviset rødt. Univers-digest over `(interpretation_id, spand, årsag)` |
-| Globalt | 0 forældede familiebindinger i **alle** kilder efter efterkørslen: ingen gældende, `accepted` fortolkning har familiebindinger, hvoraf ingen passer den nuværende tilstand (Codex r2 #8) |
+| Globalt (Codex r2 #8, r3 #4) | I **alle** kilder efter efterkørslen: **0** gældende `accepted` fortolkninger, der har mindst én familiebinding, men ingen binding, hvis `target_id` og `state_sha256` passer den nuværende tilstand. Historiske bindinger med en anden tilstand er forventede (append-only, §4) og rapporteres særskilt: mindst b, og præcis lig antallet af genbindinger |
 | Genkald | en ekstra efterkørsel giver 0 egnede elementer og 0 nye rækker; et præcist genkald af ark-RPC'en returnerer kvitteringen uden skrivning |
 
 Negativtests, hver i sin egen kopi:
@@ -401,7 +424,9 @@ Negativtests, hver i sin egen kopi:
   stale id-sæt og stale visningsfelt; fremmed change_set (0 skrivninger); replay af præcis samme kald
   (kvitteringen, 0 nye rækker) og af et kald med andre svar (`REPLAY_MISMATCH`); en historisk
   `ordinal_afvigelse`, hvis tilstand er ændret siden, kommer ikke i `o_rows`; `B` afvist ved en gældende
-  binding fra en anden kilde; kontrolstikprøve afvist; redaktionsgate. **To sessioner:** en
+  binding fra en anden kilde; kontrolstikprøve afvist; redaktionsgate. **Fantom:** session 2's
+  `family_member`-indsættelse, der ville gøre en ny ægtefælle egnet, venter på session 1's tabellås og ses
+  først efter commit (Codex r3 #1). **Golden vector:** fixturens `answers_sha256` genberegnes i SQL. **To sessioner:** en
   identitets- eller `family_member`-skrivning i session 2 efter session 1's låse venter, og session 1's
   genberegning ser den ikke; omvendt fejler session 1 med `ROWS_STALE`, når session 2 committer først
   (mønster fra 2a's to-sessionstests).
@@ -419,9 +444,11 @@ Negativtests, hver i sin egen kopi:
   2a-base), og kør derefter hele `db-migrations.sql` og `db-rls.sql` **to gange mere** uden fejl. Begge
   kæder slutter med `db-verify.sql` grøn.
 - **Python:** `test_spouse_exception_sheet.py` — render/check-rundtur, afvisning af omformede, manglende,
-  dublerede og omordnede linjer, svar-JSON, `sheet_sha256`, og stinegativerne fra §5.2.
-- **Web:** vitest for den DB-formede mapper med id'er som strenge (inkl. et id over
-  `Number.MAX_SAFE_INTEGER`, der skal komme uændret ud i RPC-argumentet), partnerboks,
+  dublerede og omordnede linjer, svar-JSON, `sheet_sha256`, golden vector for `answers_sha256` (samme fixture
+  som SQL; også et ark med kontekstlinjer, hvor fysiske og logiske linjenumre afviger), noter med
+  kontroltegn afvist, og stinegativerne fra §5.2.
+- **Web:** vitest for de DB-formede mappere for kø, detalje og historik med id'er som strenge (inkl. et id
+  over `Number.MAX_SAFE_INTEGER`, der skal komme uændret ud i visningen og i RPC-argumentet), partnerboks,
   knap med `partner_family_id`/`family_context_sha256` og kildekravet ved `spouse`; Playwright-spec for køens
   detalje med syntetiske svar, som 2a.
 - **Hele CI lokalt** før push (7 jobs, PG-jobs i hver sin klynge, `env -u PGOPTIONS`).
@@ -446,7 +473,9 @@ gentages i prod gennem samme RPC'er som del af overførslens spec.
    (§5.5).
 7. `red_afgoer_source_persona` får valgfri partnerkontekst (§6.3).
 8. Arkets `A`/`U` skriver intet; de afgøres i køen (§5.4).
-9. `red_source_persona_detail` udleverer bigint-id'er som tekst (§6.2).
+9. `red_source_persona_detail`, `red_source_persona_queue` og `red_source_persona_history` udleverer
+   bigint-id'er som tekst; de to sidste genskabes med ny returtype (§6.2).
+10. Ark-RPC'en tager en `SHARE`-lås på `family_member` i sin korte transaktion (§5.4 trin 3).
 
 ## 13. Uden for 2b-i
 
@@ -496,3 +525,15 @@ TOCTOU lukket. Alle nye fund efterprøvet mod koden og godtaget.
 | 9 | Id'er blev afrundet som JSON-tal før strengkonverteringen | MAJOR | §6.2 `::text` i detail; §6.4 fri vælger `id::text`; test af DB-formet mapper |
 | 10 | Klassifikations-CHECK blev ikke udvidet på en opgraderet 2a-base | MAJOR | §5.5 idempotent constraint-skift; §10 `B`+`F` i opgraderingen |
 | 11 | Projektionens array- og linjeorden udefineret | MINOR | §5.1 orden og kanonisk linjemapping |
+
+## 16. Review runde 3 (Codex `gpt-5.6-sol`, 2026-10-12)
+
+NO-GO: 1 BLOCKER, 3 MAJOR. Runde 2's fund 1, 3, 5, 6, 7, 10 og 11 bekræftet løst; fund 4's serverbinding
+tilføjet; fund 2, 8 og 9 delvist lukket og fulgt op her.
+
+| # | Fund | Alvor | Rettelse |
+| --- | --- | --- | --- |
+| 1 | Rækker uden for arket kunne blive egnede mellem genberegning og commit (familiewritere tager ikke kildelåsen) | BLOCKER | §5.4 trin 3 `SHARE`-lås på `family_member`; fantomtest |
+| 2 | `line` og noter ikke entydige på tværs af Python og SQL | MAJOR | §5.3 logisk linjeordinal, note-normalisering, kontroltegn afvist; delt golden vector |
+| 3 | Kø og historik leverede stadig bigint som JSON-tal | MAJOR | §6.2 tekst-id'er i alle tre RPC'er, DROP/genskab, returtype-asserts; §6.4 typer |
+| 4 | »0 forældede bindinger« modsagde append-only-historikken | MAJOR | §9 præcis invariant; historiske bindinger rapporteret særskilt |
