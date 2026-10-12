@@ -214,6 +214,10 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-relation-decision.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-relation-binding.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-spouse-exception-projection.sql
+          createdb ci5b_2bi_sheet
+          for f in tests/sql/evidence-promotion-bootstrap.sql schema.sql db-rls.sql db-migrations.sql db-migrations.sql db-rls.sql; do
+            psql -q -v ON_ERROR_STOP=1 -d ci5b_2bi_sheet -f "$f" >/dev/null; done
+          bash tests/sql/test-spouse-exception-sheet.sh ci5b_2bi_sheet
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-identity-control-run.sql
           sed -n '/^-- BEGIN 5a-cutover/,/^-- END 5a-cutover/p' db-migrations.sql > /tmp/cutover-5a.sql
           psql -v ON_ERROR_STOP=1 -v cutover=/tmp/cutover-5a.sql -f tests/sql/test-identity-cutover.sql
