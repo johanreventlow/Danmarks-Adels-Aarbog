@@ -82,6 +82,7 @@ export function KildepersonaKo({ role }: { role?: string }) {
   const decide = async (
     row: SourcePersonaQueueRow, action: SourcePersonaAction,
     personId: number | null = null, candidate: { candidateId: string; runId: string } | null = null,
+    noteSuffix = '',
   ) => {
     if (!detail || detail.persona.sourcePersonaId !== row.sourcePersonaId || !detail.mentions.length) {
       setError('Åbn først den ordrette kildevisning; uden synligt grundlag må der ikke afgøres.');
@@ -99,7 +100,7 @@ export function KildepersonaKo({ role }: { role?: string }) {
     setBusy(row.sourcePersonaId);
     setError('');
     try {
-      await decideSourcePersona(row.sourcePersonaId, row.version, action, target, note, candidate);
+      await decideSourcePersona(row.sourcePersonaId, row.version, action, target, `${note.trim()}${noteSuffix}`, candidate);
       await load();
       setDetail(null);
       setCandidates([]);
@@ -142,6 +143,23 @@ export function KildepersonaKo({ role }: { role?: string }) {
     {hasMore && <button style={{ marginTop: 12 }} onClick={() => void load(rows[rows.length - 1]?.sourcePersonaId ?? null, true)}>Hent næste side</button>}
     {detail && <aside style={{ marginTop: 16, padding: 12, background: '#f4efe6', borderRadius: 8 }}>
       {detail.familyContext && <div>ægtefælle nr. {detail.familyContext.marriageOrdinal} i {detail.familyContext.principalRecordKey}</div>}
+      {detail.reviewReason && <div role="status" style={{ fontWeight: 600 }}>{{
+        context_unavailable: 'Hovedpersonens identitet eller ægteskab er ikke entydigt',
+        principal_no_family: 'Hovedpersonen har ingen familie i databasen',
+        partner_is_candidate: 'Partneren er kandidat nr. 1 (undtagelse fra arket)',
+        partner_not_candidate: 'Hovedpersonens partner er ikke blandt kandidaterne',
+      }[detail.reviewReason]}</div>}
+      {detail.principalPartners.length > 0 && <div style={{ marginTop: 8 }}>
+        <strong>Hovedpersonens partnere i databasen</strong>
+        {detail.principalPartners.map((p) => <div key={`${p.familyId}-${p.personId}`} style={{ marginTop: 4 }}>
+          {p.name} · #{p.personId} · {p.born ?? '?'}–{p.died ?? '?'} · familie {p.familyId} nr. {p.ordinal ?? '?'}
+          {p.konfidens.length > 0 ? ` · ${p.konfidens.join(', ')}` : ''}
+          {' '}<button disabled={busy === detail.persona.sourcePersonaId}
+            onClick={() => { const r = rows.find((x) => x.sourcePersonaId === detail.persona.sourcePersonaId);
+              if (r) void decide(r, 'same', p.personId, null, ` (partner i familie ${p.familyId})`); }}>
+            Samme som denne partner</button>
+        </div>)}
+      </div>}
       <strong>Kildegrundlag for {detail.persona.personaKey}</strong> <span style={{ fontSize: 12 }}>(ordret)</span>
       {detail.mentions.map((mention, index) => <div key={index} style={{ marginTop: 8 }}>
         <q>{mention.verbatimText}</q> · s. {mention.pageFrom}{mention.pageTo !== mention.pageFrom ? `–${mention.pageTo}` : ''}

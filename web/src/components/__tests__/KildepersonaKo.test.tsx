@@ -37,6 +37,8 @@ const detail = {
                  titles: [], ownPostKey: null, familyId: null, ordinal: null }],
   familyContext: null,
   collisions: [{ personId: 42, personaKey: 'persona-9' }],
+  principalPartners: [],
+  reviewReason: null,
 };
 
 beforeEach(() => {
@@ -191,7 +193,7 @@ describe('KildepersonaKo', () => {
   it('viser rollefilter og kandidatens titler, egen post og familie', async () => {
     mocks.queue.mockResolvedValue([{ ...row(1), mentionRole: 'spouse' }]);
     mocks.detail.mockResolvedValue({ persona: { ...row(1), mentionRole: 'spouse' }, mentions: [], placements: [], interpretations: [], collisions: [],
-      familyContext: { principalRecordKey: 'IX-1', marriageOrdinal: 2 },
+      familyContext: { principalRecordKey: 'IX-1', marriageOrdinal: 2 }, principalPartners: [], reviewReason: null,
       candidates: [{ candidateId: 'c', runId: 'r', rank: 1, score: 0.9, tier: 'review', personId: 5, personName: 'Mage', born: null, died: null,
                      signals: ['name'], titles: ['kammerherre'], ownPostKey: 'II-4', familyId: 30, ordinal: 2 }] });
     render(<KildepersonaKo role="redaktion" />);
@@ -200,5 +202,29 @@ describe('KildepersonaKo', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Vis kildegrundlag' }));
     expect(await screen.findByText(/ægtefælle nr\. 2 i IX-1/)).toBeTruthy();
     expect(await screen.findByText(/kammerherre · egen post II-4 · familie 30 nr\. 2/)).toBeTruthy();
+  });
+
+  it('2b-i: viser årsag og hovedpersonens partnere, og knappen sender partneren med familie-id i noten', async () => {
+    mocks.detail.mockResolvedValue({ ...detail, candidates: [], collisions: [], reviewReason: 'partner_not_candidate',
+      principalPartners: [{ personId: 10, familyId: 7, name: 'Bo Beta', born: '1801', died: null, ordinal: 1, konfidens: [] }] });
+    render(<KildepersonaKo role="redaktion" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Vis kildegrundlag' }));
+    expect(await screen.findByText('Hovedpersonens partner er ikke blandt kandidaterne')).toBeTruthy();
+    expect(screen.getByText('Hovedpersonens partnere i databasen')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Samme som denne partner' }));
+    expect((await screen.findByRole('alert')).textContent).toMatch(/begrundelse/i);
+    expect(mocks.decide).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Begrundelse'), { target: { value: 'bogens ægtefælle er hovedpersonens partner' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Samme som denne partner' }));
+    await waitFor(() => expect(mocks.decide).toHaveBeenCalledWith(row().sourcePersonaId, 0, 'same', 10,
+      'bogens ægtefælle er hovedpersonens partner (partner i familie 7)', null));
+  });
+
+  it('2b-i: ingen partnerboks uden partnere', async () => {
+    mocks.detail.mockResolvedValue({ ...detail, reviewReason: null, principalPartners: [] });
+    render(<KildepersonaKo role="redaktion" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Vis kildegrundlag' }));
+    await screen.findByText('Johan Example');
+    expect(screen.queryByText('Hovedpersonens partnere i databasen')).toBeNull();
   });
 });
