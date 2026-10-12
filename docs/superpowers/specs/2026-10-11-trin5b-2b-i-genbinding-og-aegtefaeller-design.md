@@ -192,8 +192,9 @@ skrivninger. I denne rækkefølge (Codex r1 #4):
    `token` hører til `kind`. Ellers `SPOUSE_SHEET_INVALID`.
 2. **Låse i fast orden:** kildelåsen eksklusivt (`pg_advisory_xact_lock(hashtextextended('daa-identity-
    candidates:'||source,0))`, samme nøgle som kandidatwriteren og `red_decide_relation_interpretations`); så
-   `private.lock_family_rows` over alle person-id'er, arket berører (hovedpersoner, kandidater, ægtefæller i
-   `o_rows`), sorteret; så fortolkningsrækkerne for `o_rows` `FOR UPDATE`, sorteret. Identitetswriteren
+   fortolkningsrækkerne for `o_rows` `FOR UPDATE`, sorteret; så `private.lock_family_rows` over alle
+   person-id'er, arket berører (hovedpersoner, kandidater, ægtefæller i `o_rows`), sorteret. Det er samme
+   orden som `red_decide_relation_interpretations` (schema.sql ~16080). Identitetswriteren
    (`red_afgoer_source_persona`) tager kildelåsen delt og venter derfor; familiewriterne venter på
    rækkelåsene.
 3. **Genberegning under lås:** projektionen fra §5.1 beregnes igen. Afviger dens `rows_sha256` fra
