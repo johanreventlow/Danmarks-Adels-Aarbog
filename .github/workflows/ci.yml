@@ -209,6 +209,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-identity-candidates.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-identity-decision.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-identity-detail.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/test-spouse-review-context.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-relation-party.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-relation-family-context.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-relation-decision.sql

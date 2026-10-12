@@ -8541,6 +8541,25 @@ BEGIN
           WHERE spm.persona_id=persona.id AND spm.mention_role='spouse' LIMIT 1),
         'marriage_ordinal',(fc->>'marriage_ordinal')::int)
       FROM private.persona_family_context(persona.id) fc WHERE fc IS NOT NULL),
+    -- Trin 5b 2b-i (spec §6.2): hovedpersonens faktiske partnere og en udledt årsag til, at sagen står i køen.
+    'principal_partners',coalesce((SELECT jsonb_agg(jsonb_build_object('person_id',pp.id,'family_id',(f->>'family_id')::bigint,
+        'name',coalesce(pp.visning_fuldt_navn,pp.visning_navn),'born',pp.visning_foedt,'died',pp.visning_doed,
+        'ordinal',(f->>'ordinal')::int,'konfidens',f->'konfidens') ORDER BY (f->>'family_id')::bigint,pp.id)
+      FROM jsonb_array_elements(private.persona_family_context(persona.id)->'families') f
+      CROSS JOIN LATERAL jsonb_array_elements_text(f->'partners') pid
+      JOIN public.person pp ON pp.id=pid::bigint),'[]'::jsonb),
+    'review_reason',CASE
+      WHEN coalesce(identity_state.decision_status,'proposed')<>'proposed'
+        OR NOT EXISTS (SELECT 1 FROM private.source_persona_mention m WHERE m.persona_id=persona.id AND m.mention_role='spouse') THEN NULL
+      WHEN private.persona_family_context(persona.id) IS NULL THEN 'context_unavailable'
+      WHEN jsonb_array_length(private.persona_family_context(persona.id)->'families')=0 THEN 'principal_no_family'
+      WHEN EXISTS (SELECT 1 FROM private.source_persona_identity_candidate c
+                    CROSS JOIN LATERAL jsonb_array_elements(private.persona_family_context(persona.id)->'families') f
+                    WHERE c.source_persona_id=persona.id AND c.rank=1
+                      AND c.run_id=(SELECT r.id FROM private.source_persona_identity_candidate_run r
+                                     WHERE r.source_id=persona.source_id ORDER BY r.run_seq DESC LIMIT 1)
+                      AND f->'partners' @> to_jsonb(c.candidate_person_id)) THEN 'partner_is_candidate'
+      ELSE 'partner_not_candidate' END,
     -- Synlig, ikke blokerende: målarkitekturen kræver, at kollisioner vises.
     'collisions',coalesce((SELECT jsonb_agg(DISTINCT jsonb_build_object('person_id',other.canonical_person_id,'persona_key',op.persona_key))
       FROM private.source_persona_identity other
