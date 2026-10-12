@@ -437,7 +437,7 @@ BEGIN
   v_batch2:=red_promote_relation_interpretations_batch(-2401,items,pv->>'preview_sha256');
   RESET ROLE;
   IF v_batch2 IS DISTINCT FROM v_batch
-     OR (SELECT count(*) FROM private.interpretation_promotion WHERE target_type='family')<>2 THEN
+     OR (SELECT count(*) FROM private.interpretation_promotion WHERE target_type='family' AND interpretation_id IN (v_mid,v_pid))<>2 THEN
     RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: replay';
   END IF;
   SET LOCAL ROLE authenticated;
