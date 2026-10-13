@@ -422,3 +422,19 @@ Rundernes fulde revisioner ligger i git-historikken (`7d23710`, `6cde88b`).
 | Forenklet | r1 #4 (låse før kontrol: scriptets rækkefølge, ikke en RPC), #5 (hash over hele projektionen med samme SQL), #7 (kun `ordinal_beholdt`), #9 (eksisterende tal-kontrakt), #11 (én stikontrol), #12 (univers som rapportforespørgsel); r2 #4 (værktøjet kræver godkendt `sheet_sha256`, som del 1) | §5.1-§5.3, §6.2, §9 |
 | Kendt begrænsning | r1 #6, #13; r2 #6, #8, #9; r3 #1, #3 | §12 |
 | Afvist | r1 #10 (2a ikke deployet: løftet om v1-replay er slettet); r2 #1, #2, #3, #5, r3 #2 (følgefund af RPC'er, der ikke længere findes) | — |
+
+## 15. Errata (2026-10-13, godkendt af projektejeren under færdigbeviset)
+
+1. **Universets liste (§9) får en spand mere:** ægteskab, hvor ægtefællen er `accepted`, men hvor parret står
+   i mere end én familie (issue #240: fem par med en tom dublet ved siden af familien med børn). Den maskinelle
+   afgørelse og `private.relation_binding_state` er fail-closed ved flere familier, så fortolkningen forbliver
+   `proposed` og bindes ikke. Målt 7 i beviset. Når #240 er ryddet op, afgøres og bindes de af en ny
+   efterkørsel (§7 er idempotent); spanden er ikke »`accepted` uden binding«, som fortsat skal være 0.
+2. **Læsekravet (§9)** er 210 + antallet af nye bindinger, ikke 210 + s + k: arkets `S` og køens `same`, hvis
+   par står i flere familier (punkt 1), giver ingen binding. Målt 210 + 20 = 230.
+3. **Kendt begrænsning 9 (§12):** ægteskaber, som først bliver afgjort i efterkørslen, kan have en ny
+   ordinal-afvigelse (målt 4). De var ikke afgjort, da arket blev udtrukket, og kommer derfor på næste
+   undtagelsesark; de er klassificeret `ordinal_afvigelse` og bundet med familiens nummer.
+4. **Kendt begrænsning 10 (§12):** arkets visning af »Partner i familie …« vælger én familie, når parret står i
+   flere (`LIMIT 1` uden orden i `private.spouse_exception_projection`). Kun visning: `S` er en
+   identitetsafgørelse og bruger ikke familie-id'et.
