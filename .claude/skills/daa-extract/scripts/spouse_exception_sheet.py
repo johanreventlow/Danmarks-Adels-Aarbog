@@ -14,7 +14,7 @@ from decision_sheet_core import SheetError, require_hex64, sql_literal, verify_b
 
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 S_RE = re.compile(rf"^S (?P<id>{UUID}) (?P<ver>[0-9]+) : (?P<tok>[SAU])\s*(?:#\s*(?P<note>.*))?$")
-O_RE = re.compile(rf"^O (?P<id>{UUID}) (?P<bog>[0-9]+)/(?P<fam>[0-9]+) : (?P<tok>[BF])\s*(?:#\s*(?P<note>.*))?$")
+O_RE = re.compile(rf"^O (?P<id>{UUID}) (?P<bog>[0-9]+|\?)/(?P<fam>[0-9]+|\?) : (?P<tok>[BF])\s*(?:#\s*(?P<note>.*))?$")
 LOOSE_RE = re.compile(rf"^[SO] {UUID} ")
 
 
@@ -36,6 +36,11 @@ def _years(born, died) -> str:
     return f"{born or '?'}–{died or '?'}"
 
 
+def _nr(n) -> str:
+    # family_member.ordinal (og bogens nummer) kan være NULL; arket viser '?' (Opus kode-review I2)
+    return "?" if n is None else str(n)
+
+
 def render_sheet(rows: dict, forslag: dict[str, str] | None = None) -> str:
     forslag = forslag or {}
     out = ["# UNDTAGELSESARK (trin 5b 2b-i)",
@@ -51,12 +56,12 @@ def render_sheet(rows: dict, forslag: dict[str, str] | None = None) -> str:
                 f"#   Bogen: »{kilde}«",
                 f"#   Kandidat 1: {navn} ({_years(d.get('visning_foedt'), d.get('visning_doed'))}) · {r['candidate_tier']} · "
                 f"score {r['candidate_score']} · {r['candidate_count']} kandidater",
-                f"#   Partner i familie {r['family_id']} (ægteskab nr. {r['family_ordinal']})",
+                f"#   Partner i familie {r['family_id']} (ægteskab nr. {_nr(r['family_ordinal'])})",
                 f"S {r['source_persona_id']} {r['identity_version']} : S", ""]
     for i, r in enumerate(rows["o_rows"], 1):
         tok = forslag.get(r["interpretation_id"], "F")
-        out += [f"## ORDINAL {i}/{len(rows['o_rows'])} · familie {r['family_id']} · bogen nr. {r['book_ordinal']}, familien nr. {r['family_ordinal']}",
-                f"O {r['interpretation_id']} {r['book_ordinal']}/{r['family_ordinal']} : {tok}", ""]
+        out += [f"## ORDINAL {i}/{len(rows['o_rows'])} · familie {r['family_id']} · bogen nr. {_nr(r['book_ordinal'])}, familien nr. {_nr(r['family_ordinal'])}",
+                f"O {r['interpretation_id']} {_nr(r['book_ordinal'])}/{_nr(r['family_ordinal'])} : {tok}", ""]
     return "\n".join(out) + "\n"
 
 
@@ -110,8 +115,12 @@ def sheet_sql(lines: list[Line], rows: dict, *, sheet_sha256: str, rows_sha256: 
     o_by = {r["interpretation_id"]: r for r in rows["o_rows"]}
     persons = sorted({r["principal_person_id"] for r in rows["s_rows"]} | {r["candidate_person_id"] for r in rows["s_rows"]}
                      | {r["principal_person_id"] for r in rows["o_rows"]} | {r["spouse_person_id"] for r in rows["o_rows"]})
+    if any(l.kind == "O" and l.tok == "B" and o_by[l.item_id]["book_ordinal"] is None for l in lines):
+        raise SheetError("SHEET_ORDINAL_B_UDEN_BOGTAL")
     tag = sheet_sha256[:12]
+    # sql_literal fordobler kun '; backslash i en note skal derfor være bogstavelig i sessionen (Opus kode-review I1)
     sql = ["\\set ON_ERROR_STOP on", "BEGIN;", "SET LOCAL TimeZone='UTC';", "SET LOCAL search_path=pg_catalog,public,private;",
+           "SET LOCAL standard_conforming_strings=on;",
            f"SELECT pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:{int(source_id)}',0)) \\g /dev/null",
            f"SELECT private.lock_family_rows(ARRAY[{','.join(str(int(p)) for p in persons)}]::bigint[]) \\g /dev/null",
            "DO $chk$ BEGIN",
@@ -121,7 +130,7 @@ def sheet_sql(lines: list[Line], rows: dict, *, sheet_sha256: str, rows_sha256: 
         if l.kind == "O" and l.tok == "B":
             r = o_by[l.item_id]
             sql.append(f"DO $o{l.line}$ BEGIN IF (SELECT ordinal FROM family_member WHERE family_id={int(r['family_id'])} "
-                       f"AND person_id={int(r['principal_person_id'])} AND rolle='partner') IS DISTINCT FROM {int(r['family_ordinal'])} "
+                       f"AND person_id={int(r['principal_person_id'])} AND rolle='partner') IS DISTINCT FROM {'NULL' if r['family_ordinal'] is None else int(r['family_ordinal'])} "
                        f"THEN RAISE EXCEPTION 'SPOUSE_SHEET_ORDINAL_DRIFT'; END IF; END $o{l.line}$;")
     # Temp-tabellen oprettes EFTER rolleskiftet (som del 1): ellers ejes den af operatøren, og authenticated
     # kan ikke skrive i den.

@@ -107,3 +107,41 @@ def test_cli_hashbinding(tmp_path):
     ok = run("sql", "--sheet", str(ark), "--approved-sha256", hashlib.sha256(ark.read_bytes()).hexdigest(),
              "--rows", str(rows_path), "--expect-rows-sha256", rows_sha, "--source", "1", "--out", str(root / "a.sql"))
     assert ok.returncode == 0 and "Bo Beta" not in ok.stdout + ok.stderr
+
+
+def test_sql_laaser_standard_conforming_strings():
+    # Opus kode-review I1: noterne citeres kun ved fordobling af ', så backslash skal være bogstavelig i sessionen.
+    sql = ses.sheet_sql(ses.parse_sheet(ses.render_sheet(rows())), rows(), sheet_sha256="b" * 64, rows_sha256="c" * 64,
+                        source_id=1)
+    assert sql.index("SET LOCAL standard_conforming_strings=on;") < sql.index("red_afgoer_source_persona")
+
+
+def rows_uden_ordinal(book=2, family=None):
+    r = rows()
+    r["o_rows"][0].update(book_ordinal=book, family_ordinal=family)
+    r["s_rows"][0]["family_ordinal"] = None
+    return r
+
+
+@pytest.mark.parametrize("tok", ["F", "B"])
+def test_tomt_familienummer_rundtur(tok):
+    # Opus kode-review I2: family_member.ordinal kan være NULL; værktøjet skal kunne læse sit eget ark.
+    r = rows_uden_ordinal()
+    ark = ses.render_sheet(r)
+    assert f"O {I1} 2/? : F" in ark and "None" not in ark
+    lines = ses.parse_sheet(ark.replace(f"O {I1} 2/? : F", f"O {I1} 2/? : {tok}"))
+    ses.check_identity(lines, r)
+    sql = ses.sheet_sql(lines, r, sheet_sha256="b" * 64, rows_sha256="c" * 64, source_id=1)
+    if tok == "B":
+        assert "IS DISTINCT FROM NULL THEN RAISE EXCEPTION 'SPOUSE_SHEET_ORDINAL_DRIFT'" in sql
+        assert "'partner', 2)" in sql
+
+
+def test_B_uden_bogtal_afvises():
+    r = rows_uden_ordinal(book=None, family=1)
+    ark = ses.render_sheet(r)
+    assert f"O {I1} ?/1 : F" in ark
+    ses.sheet_sql(ses.parse_sheet(ark), r, sheet_sha256="b" * 64, rows_sha256="c" * 64, source_id=1)   # F går
+    with pytest.raises(SheetError, match="SHEET_ORDINAL_B_UDEN_BOGTAL"):
+        ses.sheet_sql(ses.parse_sheet(ark.replace(": F", ": B")), r, sheet_sha256="b" * 64, rows_sha256="c" * 64,
+                      source_id=1)
