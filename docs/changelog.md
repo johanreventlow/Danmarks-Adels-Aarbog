@@ -11,6 +11,17 @@ afgørelse, binding og læsning), versionsbundne klassifikationer, kildebundet m
 203 afgjort, 210 bundet, 210 synlige kildelinjer, 0 kanonisk delta, 4 negativtests. Rapport:
 `docs/evidensbaseret-genimport/relationspersonas-5b-2a-bevis.md`. Ikke deployet.
 
+## 2026-10-11 — trin 5b del 1: ægtefællers personas og maskinel bekræftelse, bevist i restore (#151)
+
+Implementeret efter planen `2026-10-06-trin5b-del1-identitet.md` og tillægget `2026-10-10-trin5b-del1-kontrolkort.md`
+på `feat/151-5b-del1` (#237, `ebf2022`): relationsparter og relationspersona-writer, deterministisk udtræk af
+ægtefællenavne (kun navne), familiekontekst i kandidatinputtet, kontrolkørsel med blind stikprøve (alle navnefæller +
+`K` = 20 tilfældige), kontrolark med ægtefælle- og forældrekort (dublet-svar `1=2`), og den private kerne med den nye
+oprindelse `family_corroboration`. Bevis i en kopi af den fulde 2018-20-kørsel (ikke prod): 234 ægtefælle-personas,
+203 egnede; arket (30 ægtefællekort, 9 forældrekort) gav 0 afvigelser ⇒ `passed` ⇒ 173 bekræftet maskinelt; øvre
+95 %-grænse ca. 13,9 % (advarselslampe). Børn, 31 uoverensstemmelser, nye personer og familiekorrektion er del 2.
+Rapport: `docs/evidensbaseret-genimport/relationspersonas-5b-del1-bevis.md`. Ikke deployet.
+
 ## 2026-10-05 — trin 5a: én identitetsvej, bevist i restore (#151)
 
 Implementeret efter planen `2026-09-24-trin5a-identitetsvej.md` på `feat/151-identitetsvej`: kandidattabeller
