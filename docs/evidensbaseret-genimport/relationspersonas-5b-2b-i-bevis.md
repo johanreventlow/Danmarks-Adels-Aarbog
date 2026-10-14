@@ -145,8 +145,17 @@ Som 2a: `get_advisors` kan ikke pege på en lokal restore-kopi. `db-verify.sql` 
 ## Review
 
 Spec: Codex `gpt-5.6-sol` r1-r4 (alle NO-GO); Opus afvejede de 28 fund, og projektejeren godkendte den
-slanke version 2026-10-12 (specens §14). Plan: ingen Codex-runde (projektejerens valg). Kode-review af hele
-grenen (Opus) følger efter denne rapport.
+slanke version 2026-10-12 (specens §14). Plan: ingen Codex-runde (projektejerens valg).
+
+Kode-review af hele grenen (Opus, efter beviset): GO med forbehold, 0 Critical, 2 Important, 8 Minor. De to
+Important er rettet i `7d89063`, efter beviset:
+
+- **I1:** arkets SQL låser nu `standard_conforming_strings=on`, så en note med backslash når databasen uændret.
+- **I2:** arket tåler et tomt ægteskabsnummer (`?`). Et `B` uden bogens nummer afvises.
+
+Beviset kørte med værktøjet fra før rettelsen. De rettede stier blev ikke ramt af bevisets input: arket blev
+godkendt uændret, så det havde kun standardnoter uden `'` eller `\`, og ingen af de 3 O-linjer havde et tomt
+nummer. Projektejeren godkendte, at Playwright-testen udelades. De 8 Minor er udskudt.
 
 ## Status
 
