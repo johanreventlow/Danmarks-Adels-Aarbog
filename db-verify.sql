@@ -2952,6 +2952,7 @@ DECLARE
     'public.red_classify_parent_card(uuid,uuid,integer,text,text,jsonb)'::regprocedure,
     'public.red_corroborate_family_identities(uuid,text)'::regprocedure,
     'public.red_decide_interpretation(uuid,integer,text,jsonb)'::regprocedure,
+    'public.red_decide_relation_interpretations(bigint,text)'::regprocedure,
     'public.red_decide_source_persona_placement(uuid,integer,text,jsonb)'::regprocedure,
     'public.red_decide_source_record_placement(uuid,integer,text,jsonb)'::regprocedure,
     'public.red_edit_oplysning(bigint,text,text,text)'::regprocedure,
@@ -2995,6 +2996,9 @@ DECLARE
     'public.red_preflight_reimport_authorization(uuid,text,text)'::regprocedure,
     'public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb)'::regprocedure,
     'public.red_preview_interpretation_promotions(jsonb)'::regprocedure,
+    'public.red_preview_relation_decisions(bigint)'::regprocedure,
+    'public.red_preview_relation_promotions(bigint,jsonb)'::regprocedure,
+    'public.red_promote_relation_interpretations_batch(bigint,jsonb,text)'::regprocedure,
     'public.red_preview_reimport_cases(bigint,text,jsonb)'::regprocedure,
     'public.red_promote_interpretations_batch(jsonb,text)'::regprocedure,
     'public.red_publicer_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
@@ -4351,7 +4355,7 @@ BEGIN
     RAISE EXCEPTION 'FEJL: promotionregel-laget mangler';
   END IF;
   IF to_regclass('private.interpretation_promotion_rule_current') IS NULL
-     OR to_regprocedure('private.add_interpretation_promotion_rule_version(text,text,text,text,text,text,boolean,boolean,boolean,text)') IS NULL THEN
+     OR to_regprocedure('private.add_interpretation_promotion_rule_version(text,text,text,text,text,text,boolean,boolean,boolean,text,text)') IS NULL THEN
     RAISE EXCEPTION 'FEJL: promotionregel-laget mangler current-view/version-writer';
   END IF;
   IF EXISTS (
@@ -4476,7 +4480,7 @@ BEGIN
   END IF;
   IF (
     SELECT count(*) FROM private.interpretation_promotion_rule
-     WHERE rule_version=1 AND status='active'
+     WHERE rule_version=1 AND status='active' AND rule_mode='text_assertion'   -- 5b 2a: strukturregler tjekkes for sig
   )<>5 THEN
     RAISE EXCEPTION 'FEJL: promotionregel-laget har ikke præcis fem aktive v1-regler';
   END IF;
@@ -10086,3 +10090,115 @@ BEGIN
   END IF;
 END
 $verify_ingen_foraeldreloese_evidenskoblinger$;
+
+-- Trin 5b del 2a (#151, spec 2026-10-11 §4.1): regeltypen structural_family er adskilt fra
+-- assertion-vejen; én CHECK pr. regeltype, ingen gammel overload, relationsregler aldrig promoverbare.
+DO $relation_binding_rule_verify$
+BEGIN
+  IF (SELECT attnotnull FROM pg_attribute WHERE attrelid='private.interpretation_promotion_rule'::regclass AND attname='expected_fact_type')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.interpretation_promotion_rule'::regclass
+                     AND conname='interpretation_promotion_rule_mode_check')
+     -- NULL i en CHECK godtages; text_assertion-grenen skal eksplicit kræve faktatypen
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.interpretation_promotion_rule'::regclass
+                     AND conname='interpretation_promotion_rule_mode_check'
+                     AND pg_get_constraintdef(oid) LIKE '%expected_fact_type IS NOT NULL%')
+     OR EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.interpretation_promotion_rule'::regclass
+                 AND conname IN ('interpretation_promotion_rule_interpretation_kind_check','interpretation_promotion_rule_target_type_check',
+                                 'interpretation_promotion_rule_expected_fact_type_check','interpretation_promotion_rule_value_kind_check'))
+     OR to_regprocedure('private.add_interpretation_promotion_rule_version(text,text,text,text,text,text,boolean,boolean,boolean,text)') IS NOT NULL
+     OR (SELECT count(*) FROM private.interpretation_promotion_rule_current
+          WHERE rule_key IN ('relation-marriage-v1','relation-parent-v1') AND rule_mode='structural_family' AND status='active')<>2
+     OR EXISTS (SELECT 1 FROM private.interpretation_predicate_promotable WHERE predicate LIKE 'relation.%') THEN
+    RAISE EXCEPTION 'RELATION_BINDING_RULE_CONTRACT_INVALID';
+  END IF;
+  RAISE NOTICE 'OK: 5b 2a — regeltypen structural_family';
+END $relation_binding_rule_verify$;
+
+-- Trin 5b del 2a (#151, spec §4.2, §4.5, §4.6): tilstandsfunktionen er privat, klassifikationerne
+-- append-only bag RLS, ét familiemål pr. fortolkning, og del 1's kontroltabeller står i RLS-masterlisten.
+DO $relation_binding_state_verify$
+DECLARE v_t text;
+BEGIN
+  IF to_regclass('private.relation_classification_event') IS NULL
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.relation_classification_event'::regclass)
+     OR has_table_privilege('anon','private.relation_classification_event','SELECT')
+     OR has_table_privilege('authenticated','private.relation_classification_event','SELECT')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.relation_classification_event'::regclass
+                     AND tgname='trg_relation_classification_event_append_only')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.relation_classification_event'::regclass
+                     AND tgname='trg_relation_classification_event_append_only_truncate')
+     OR NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+                     WHERE c.relname='interpretation_promotion_one_family_per_interpretation'
+                       AND i.indrelid='private.interpretation_promotion'::regclass
+                       AND i.indisunique AND pg_get_expr(i.indpred,i.indrelid) LIKE '%target_type%family%')
+     OR to_regprocedure('private.relation_binding_state(uuid)') IS NULL
+     OR to_regprocedure('private.relation_binding_state_sha256(uuid)') IS NULL
+     OR to_regprocedure('private.append_relation_classification(uuid,text,jsonb)') IS NULL
+     OR has_function_privilege('authenticated','private.relation_binding_state(uuid)','EXECUTE')
+     OR has_function_privilege('anon','private.relation_binding_state(uuid)','EXECUTE')
+     OR has_function_privilege('authenticated','private.append_relation_classification(uuid,text,jsonb)','EXECUTE')
+     OR has_function_privilege('anon','private.relation_binding_state_sha256(uuid)','EXECUTE')
+     OR has_function_privilege('authenticated','private.relation_binding_state_sha256(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'RELATION_BINDING_STATE_CONTRACT_INVALID';
+  END IF;
+  FOREACH v_t IN ARRAY ARRAY['identity_control_exclusion','identity_control_parent_card','identity_control_parent_event'] LOOP
+    IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid=format('private.%I',v_t)::regclass) THEN
+      RAISE EXCEPTION 'RELATION_BINDING_STATE_CONTRACT_INVALID: % uden RLS', v_t;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: 5b 2a — bindingens tilstand og klassifikationer';
+END $relation_binding_state_verify$;
+
+-- Trin 5b del 2a (#151, spec §4.4): relationsbindingens flade og replay-kolonnen.
+DO $relation_promotion_verify$
+DECLARE f text;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='private' AND table_name='interpretation_promotion_batch'
+                  AND column_name='items_sha256' AND data_type='text' AND is_nullable='YES')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.interpretation_promotion_batch'::regclass
+                     AND contype='c' AND pg_get_constraintdef(oid) LIKE '%items_sha256%^[0-9a-f]{64}$%')
+     OR to_regprocedure('private.relation_decision_set(bigint)') IS NULL
+     OR has_function_privilege('anon','private.relation_decision_set(bigint)','EXECUTE')
+     OR has_function_privilege('authenticated','private.relation_decision_set(bigint)','EXECUTE')
+     OR to_regprocedure('private.preview_relation_promotions(bigint,jsonb,boolean)') IS NULL
+     OR has_function_privilege('anon','private.preview_relation_promotions(bigint,jsonb,boolean)','EXECUTE')
+     OR has_function_privilege('authenticated','private.preview_relation_promotions(bigint,jsonb,boolean)','EXECUTE') THEN
+    RAISE EXCEPTION 'RELATION_PROMOTION_CONTRACT_INVALID';
+  END IF;
+  FOREACH f IN ARRAY ARRAY['public.red_preview_relation_promotions(bigint,jsonb)',
+                           'public.red_promote_relation_interpretations_batch(bigint,jsonb,text)',
+                           'public.red_preview_relation_decisions(bigint)',
+                           'public.red_decide_relation_interpretations(bigint,text)'] LOOP
+    IF to_regprocedure(f) IS NULL
+       OR NOT (SELECT prosecdef FROM pg_proc WHERE oid=to_regprocedure(f))
+       OR NOT has_function_privilege('authenticated',f,'EXECUTE')
+       OR has_function_privilege('anon',f,'EXECUTE') THEN
+      RAISE EXCEPTION 'RELATION_PROMOTION_CONTRACT_INVALID: %', f;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: 5b 2a — relationsbindingens flade';
+END $relation_promotion_verify$;
+
+-- Trin 5b del 2a (#151, spec §5.1): public_family_sources er en smal, gatet offentlig læseflade.
+DO $family_sources_verify$
+DECLARE v_def text; f regprocedure:=to_regprocedure('public.public_family_sources(bigint[])');
+BEGIN
+  IF f IS NULL THEN RAISE EXCEPTION 'FAMILY_SOURCES_CONTRACT_INVALID: mangler'; END IF;
+  v_def:=pg_get_functiondef(f);
+  IF NOT (SELECT prosecdef FROM pg_proc WHERE oid=f)
+     OR (SELECT proconfig FROM pg_proc WHERE oid=f) IS DISTINCT FROM ARRAY['search_path=pg_catalog']
+     OR pg_get_function_result(f) IS DISTINCT FROM
+        'TABLE(family_id bigint, slags text, counterpart_person_id bigint, source_record_ref uuid, source_label text, record_label text, citation_label text)'
+     OR strpos(v_def,'person_daa_narrative_publication_allowed')=0
+     OR strpos(v_def,'family_offentlig')=0
+     OR strpos(v_def,'relation_binding_state')=0
+     OR strpos(v_def,'narrative_record_contract_version()')=0
+     OR NOT has_function_privilege('anon',f,'EXECUTE')
+     OR NOT has_function_privilege('authenticated',f,'EXECUTE')
+     OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(p.proacl) a WHERE p.oid=f AND a.grantee=0)
+     OR (EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role')
+         AND has_function_privilege('service_role',f,'EXECUTE')) THEN
+    RAISE EXCEPTION 'FAMILY_SOURCES_CONTRACT_INVALID';
+  END IF;
+  RAISE NOTICE 'OK: 5b 2a — public_family_sources';
+END $family_sources_verify$;

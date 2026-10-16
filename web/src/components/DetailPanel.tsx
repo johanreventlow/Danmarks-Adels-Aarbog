@@ -9,7 +9,8 @@ import { childrenOf, parentsOf } from '../data/model';
 import { pickPortrait, withUrl } from '../data/media';
 import type { PersonDetailData } from '../data/public';
 import type { Model } from '../data/types';
-import { lifeJourney } from '@daa/core';
+import { familieIderForPerson, kildeLinje, lifeJourney, type BioSourceVersion, type FamilieKilde } from '@daa/core';
+import { fetchFamilySources } from '../data/familySources';
 import { NarrativRenderer } from './NarrativRenderer';
 import { Lightbox } from './Lightbox';
 import { MediaThumb, BookmarkFlag, Label } from './primitives';
@@ -30,8 +31,33 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
   // (ny focusId) — ellers ville et tidligere valgt ældre-udgave-valg lække over på næste person.
   const [bioVersionIdx, setBioVersionIdx] = useState(0);
   useEffect(() => { setBioVersionIdx(0); }, [focusId]);
+  // Trin 5b 2a (spec §5.2): kilder på ægteskab og forældrelinje. Hentes pr. person; et svar for en
+  // tidligere person ignoreres. Fejl giver [] i datalaget, så panelet aldrig brydes. Afhænger af
+  // model.indexes, ikke model: et nyt modelobjekt (fx når geo ankommer) skal ikke hente kilderne igen.
+  const [familieKilder, setFamilieKilder] = useState<FamilieKilde[]>([]);
+  useEffect(() => {
+    let aktiv = true;
+    setFamilieKilder([]);
+    const { aegteskaber, foraeldreFamilier } = familieIderForPerson(model.indexes, focusId);
+    const ids = [...aegteskaber.map((a) => a.familyId), ...foraeldreFamilier];
+    void fetchFamilySources(ids).then((k) => { if (aktiv) setFamilieKilder(k); });
+    return () => { aktiv = false; };
+  }, [focusId, model.indexes]);
   const p = model.byId[focusId];
   if (!p) return null;
+  const familieIder = familieIderForPerson(model.indexes, focusId);
+  const versionerForKilde = detail?.bioVersions ?? [];
+  // Ægteskabskilder for én ægtefælle: familien skal være deres fælles, og modparten ægtefællen eller personen selv.
+  const aegteskabsKilder = (spouseId: string | null) => {
+    const fam = new Set(familieIder.aegteskaber.filter((a) => a.spouseId === spouseId).map((a) => a.familyId));
+    return familieKilder.filter((k) => k.slags === 'aegteskab' && fam.has(k.familyId)
+      && (k.counterpartPersonId === spouseId || k.counterpartPersonId === focusId));
+  };
+  // Forælderkilden hører kun til den forælder, påstanden handler om (aldrig ved begge; spec §5.2).
+  const foraelderKilder = (parentId: string) => familieKilder.filter((k) => k.slags === 'foraelder'
+    && familieIder.foraeldreFamilier.includes(k.familyId) && k.counterpartPersonId === parentId);
+  // Samme ægteskab kan være bundet fra flere udgaver/poster; nøglen skal derfor også bære kilden.
+  const kildeNøgle = (k: FamilieKilde) => [k.familyId, k.slags, k.counterpartPersonId, k.sourceLabel, k.sourceRecordRef ?? k.recordLabel].join('|');
   const parents = parentsOf(model, focusId);
   const spouses = (model.indexes.spousesBy[focusId] ?? []);
   const children = childrenOf(model, focusId);
@@ -111,6 +137,9 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
               <span key={pa.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 {i > 0 && <span style={{ fontFamily: T.serif, fontSize: 16, fontStyle: 'italic', color: T.gold }}>&amp;</span>}
                 <Link href={personPath(pa.id)} onNavigate={() => onPick(pa.id)} style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600, color: T.bordeaux }}>{pa.name} ›</Link>
+                {foraelderKilder(pa.id).map((k) => (
+                  <KildeLinjeVisning key={kildeNøgle(k)} kilde={k} versions={versionerForKilde} onVaelg={setBioVersionIdx} />
+                ))}
               </span>
             ))}
           </div>
@@ -170,6 +199,9 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
               <span key={(sp.id ?? sp.name) + i}>
                 {i > 0 && <span style={{ color: T.gold }}>· </span>}
                 {sp.id ? <Link href={personPath(sp.id)} onNavigate={() => onPick(sp.id!)} style={{ fontWeight: 600, fontStyle: 'normal', color: T.bordeaux }}>{sp.name} ›</Link> : <span>{sp.name}</span>}
+                {aegteskabsKilder(sp.id).map((k) => (
+                  <KildeLinjeVisning key={kildeNøgle(k)} kilde={k} versions={versionerForKilde} onVaelg={setBioVersionIdx} />
+                ))}
               </span>
             ))}
           </div>
@@ -264,4 +296,16 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
     )}
     </>
   );
+}
+
+// Kildelinjen »Kilde: ‹udgave› · ‹post›«. Er posten en af personens egne viste versioner, vælger et klik
+// den version; ellers (fx forælderens post) er linjen ren tekst.
+function KildeLinjeVisning({ kilde, versions, onVaelg }: {
+  kilde: FamilieKilde; versions: BioSourceVersion[]; onVaelg: (idx: number) => void;
+}) {
+  const idx = kilde.sourceRecordRef ? versions.findIndex((v) => v.recordRef === kilde.sourceRecordRef) : -1;
+  const stil = { display: 'block', fontFamily: T.sans, fontSize: 11.5, fontStyle: 'normal' as const, color: T.muted2 };
+  return idx >= 0
+    ? <button type="button" onClick={() => onVaelg(idx)} style={{ ...stil, background: 'none', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}>{kildeLinje(kilde)}</button>
+    : <span style={stil}>{kildeLinje(kilde)}</span>;
 }

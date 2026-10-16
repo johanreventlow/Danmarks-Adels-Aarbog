@@ -2,6 +2,31 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: trin 5b del 2 i tre skiver; 2a binder det afgjorte og viser kilden for læseren (2026-10-11)
+
+> **Besluttet af projektejeren 2026-10-11** i brainstormen af del 2. Spec:
+> `docs/superpowers/specs/2026-10-11-trin5b-2a-binding-design.md`. Bygger på posterne 2026-10-06 og
+> 2026-10-10 nedenfor.
+
+**Baggrund.** Del 2 rummer fire forskellige slags arbejde: binding af det afgjorte, menneskelig
+behandling af uoverensstemmelser og nye personer, børn med eget kortdesign samt to særsager. Samlet ville
+det blive én stor spec og én stor plan, og læseren ville først se noget, når det hele var færdigt.
+
+**Besluttet:**
+1. **Del 2 skæres i tre skiver:** 2a binder de 203 ægteskaber med afgjorte parter og de 7 accepterede
+   forældre; 2b tager de uafklarede (31 uoverensstemmelser, nye personer, »(F.: …)«-fejllæsningen, klausul-dispositionen, M1-M3
+   og M5-M10); 2c tager børnene.
+2. **Læseren skal se kilden.** 2a tilføjer en offentlig læsefunktion `public_family_sources`, så web viser
+   »Kilde: DAA 2018-20 · ‹post›« ved et ægteskab og en forældrelinje. Kilden tages fra bindingen og den
+   publicerede post, ikke fra loaderens vielse-citation (som mangler side og ikke findes for 24 familier).
+3. **Bind trods ordinal-afvigelse.** Afviger bogens ægteskabsnummer fra familiens, men har hovedpersonen
+   kun én familie, bindes ægteskabet og klassificeres `ordinal_afvigelse` til 2b (3 påstande, hver hos en hovedperson med kun én familie).
+   Identitetskernen gør det samme (final review M9).
+4. **Forældrene bindes i 2a,** fordi de allerede er afgjort af projektejeren i del 1.
+
+**Parkeret** (kræver hver sin beslutning): familiekorrektion for `F`-kortet og `samme_som` for dubletten.
+**Uændret:** restore-only fortrydelse; prod først efter 5a's ceremoni og gennem en overførsels-spec.
+
 ## BESLUTTET: trin 5b — menneskets kontrol omdesignet til korte, besvarlige kort; børn og uoverensstemmelser til del 2 (2026-10-10)
 
 > **Besluttet af projektejeren 2026-10-10** efter design-review (Claude + Codex `gpt-5.6-sol`) af det

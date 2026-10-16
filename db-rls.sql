@@ -28,6 +28,8 @@ begin
     'source_persona_identity','source_persona_identity_event',
     'source_persona_identity_candidate_run','source_persona_identity_candidate','person_create_receipt','interpretation_party',
     'identity_control_run','identity_control_sample','identity_control_event',
+    'identity_control_exclusion','identity_control_parent_card','identity_control_parent_event',
+    'relation_classification_event',
     'narrative_record_publication','narrative_publication_event',
     'narrative_legacy_publication'
   ] loop
@@ -679,6 +681,7 @@ BEGIN
     'public.red_classify_parent_card(uuid,uuid,integer,text,text,jsonb)',
     'public.red_corroborate_family_identities(uuid,text)',
     'public.red_decide_interpretation(uuid,integer,text,jsonb)',
+    'public.red_decide_relation_interpretations(bigint,text)',
     'public.red_decide_source_persona_placement(uuid,integer,text,jsonb)',
     'public.red_decide_source_record_placement(uuid,integer,text,jsonb)',
     'public.red_edit_oplysning(bigint,text,text,text)',
@@ -711,6 +714,9 @@ BEGIN
     'public.red_person_narrative_publication_history(bigint)',
     'public.red_person_narrative_records(bigint)',
     'public.red_preview_interpretation_promotions(jsonb)',
+    'public.red_preview_relation_decisions(bigint)',
+    'public.red_preview_relation_promotions(bigint,jsonb)',
+    'public.red_promote_relation_interpretations_batch(bigint,jsonb,text)',
     'public.red_preview_reimport_cases(bigint,text,jsonb)',
     'public.red_promote_interpretations_batch(jsonb,text)',
     'public.red_publicer_personer(bigint[])',
@@ -1199,6 +1205,9 @@ GRANT EXECUTE ON FUNCTION
   public.public_person_bio_source_versions(bigint[]),
   public.public_person_bio_source_versions_v2(bigint[])
   TO anon,authenticated;
+-- Trin 5b 2a (#151): kildevisning for bundne familier; tom i kontrakt 1 (gaten er i funktionen).
+REVOKE ALL ON FUNCTION public.public_family_sources(bigint[]) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.public_family_sources(bigint[]) TO anon,authenticated;
 
 -- #152 Task 7: one version-aware ACL source of truth is applied after every
 -- historical grant block. A fresh #153 schema intentionally lacks legacy

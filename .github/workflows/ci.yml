@@ -212,6 +212,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-relation-party.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-relation-family-context.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-relation-decision.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/test-relation-binding.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-identity-control-run.sql
           sed -n '/^-- BEGIN 5a-cutover/,/^-- END 5a-cutover/p' db-migrations.sql > /tmp/cutover-5a.sql
           psql -v ON_ERROR_STOP=1 -v cutover=/tmp/cutover-5a.sql -f tests/sql/test-identity-cutover.sql
@@ -472,6 +473,9 @@ jobs:
       - name: Family corroboration SQL (5b)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-family-corroboration.sql
+      - name: Familiekilder SQL (5b 2a)
+        env: {PGPASSWORD: postgres}
+        run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-family-sources.sql
       - name: Klausul-writer SQL (#148 4.1c)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-clause-evidence-writer.sql
