@@ -16650,10 +16650,137 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION private.verify_relation_person_create_receipts(uuid) FROM PUBLIC,anon,authenticated,service_role;
 
--- Stub til Task 6 (relation_disposition), så finalize kompilerer og fejler lukket.
+-- ===================================================================================
+-- Trin 5b 2b-ii (#151, spec §8): relation_disposition — afventer_identitet → fortolkning_foreslaaet,
+-- når hver aktør ud over hovedpersonen er en persona med accepteret identitet (identity-per-actor-v1).
+-- ===================================================================================
+-- Aktører og citerende fortolkninger for én klausul, eller NULL hvis den ikke er egnet (§8.2 pkt. 1-3).
+CREATE OR REPLACE FUNCTION private.relation_disposition_state(p_observation_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_cur private.clause_disposition%ROWTYPE; v_ids jsonb; v_actors jsonb; v_bad boolean;
+BEGIN
+  SELECT * INTO v_cur FROM private.clause_disposition_current WHERE observation_id=p_observation_id;
+  IF NOT FOUND OR v_cur.disposition<>'afventer_identitet' OR v_cur.decided_by_kind<>'machine' THEN RETURN NULL; END IF;
+  WITH q AS (
+    SELECT ic.* FROM private.interpretation_observation io
+      JOIN private.interpretation x ON x.id=io.interpretation_id
+      JOIN private.interpretation_current ic ON ic.id=x.id
+     WHERE io.observation_id=p_observation_id
+  ), actors AS (
+    SELECT q.source_persona_id AS p FROM q WHERE q.predicate NOT LIKE 'relation.%'
+    UNION
+    SELECT pc.source_persona_id FROM q JOIN private.interpretation_party_current pc
+      ON pc.interpretation_key=q.interpretation_key AND pc.party_role<>'principal'
+     WHERE q.predicate LIKE 'relation.%'
+  )
+  SELECT
+    coalesce((SELECT jsonb_agg(q.id::text ORDER BY q.id::text COLLATE "C") FROM q),'[]'::jsonb),
+    coalesce((SELECT jsonb_agg(a.p::text ORDER BY a.p::text COLLATE "C") FROM actors a WHERE a.p IS NOT NULL),'[]'::jsonb),
+    EXISTS (SELECT 1 FROM actors a WHERE a.p IS NULL)
+    OR EXISTS (SELECT 1 FROM actors a LEFT JOIN private.source_persona_identity i ON i.source_persona_id=a.p
+                WHERE a.p IS NOT NULL AND i.decision_status IS DISTINCT FROM 'accepted')
+    OR EXISTS (SELECT 1 FROM q WHERE q.predicate LIKE 'relation.%' AND NOT EXISTS (
+                SELECT 1 FROM private.interpretation_party_current pc
+                 WHERE pc.interpretation_key=q.interpretation_key AND pc.party_role<>'principal'))
+    INTO v_ids, v_actors, v_bad;
+  IF v_bad OR jsonb_array_length(v_ids)=0 THEN RETURN NULL; END IF;
+  RETURN jsonb_build_object('observation_id',p_observation_id::text,'from_disposition_version',v_cur.version,
+                            'citing_interpretation_ids',v_ids,'actor_persona_ids',v_actors);
+END $$;
+REVOKE ALL ON FUNCTION private.relation_disposition_state(uuid) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION private.relation_disposition_input(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_elements jsonb;
+BEGIN
+  IF p_source_id IS NULL THEN RAISE EXCEPTION 'RELATION_DISPOSITION_INPUT_INVALID'; END IF;
+  -- Kilden nås via observation → forekomst → rendition (forekomsten har ingen source_id).
+  SELECT coalesce(jsonb_object_agg('relation-disposition:'||d.observation_id::text, st.s),'{}'::jsonb) INTO v_elements
+    FROM private.clause_disposition_current d
+    JOIN private.source_observation o ON o.id=d.observation_id
+    JOIN private.source_record_occurrence oc ON oc.id=o.occurrence_id
+    JOIN private.source_rendition rd ON rd.id=oc.rendition_id AND rd.source_id=p_source_id
+    CROSS JOIN LATERAL (SELECT private.relation_disposition_state(d.observation_id) AS s) st
+   WHERE d.disposition='afventer_identitet' AND d.decided_by_kind='machine' AND st.s IS NOT NULL;
+  RETURN jsonb_build_object('contract','relation-disposition-input-v1','source_id',p_source_id,
+    'expected_counts',jsonb_build_object('person_creates',0,'source_evidence',0,'relation_dispositions',
+       (SELECT count(*) FROM jsonb_object_keys(v_elements))),'authorized_elements',v_elements);
+END $$;
+REVOKE ALL ON FUNCTION private.relation_disposition_input(bigint) FROM PUBLIC,anon,authenticated,service_role;
+CREATE OR REPLACE FUNCTION public.red_relation_disposition_input(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  RETURN private.relation_disposition_input(p_source_id);
+END $$;
+REVOKE ALL ON FUNCTION public.red_relation_disposition_input(bigint) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_relation_disposition_input(bigint) TO authenticated;
+
+CREATE OR REPLACE FUNCTION private.write_relation_disposition(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE; v_state jsonb;
+  v_obs uuid; v_ver integer; v_receipt jsonb; v_hash text;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_batch:=private.require_reimport_open_batch(p_batch_id);
+  PERFORM private.require_reimport_writer_editor();
+  PERFORM private.lock_reimport_writer(v_batch.source_id,v_batch.profile_id);
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-identity-candidates:'||v_batch.source_id::text,0));
+  SELECT * INTO v_auth FROM private.reimport_authorization WHERE id=v_batch.authorization_id;
+  IF NOT FOUND OR NOT v_auth.authorized_elements ? p_element_id
+     OR v_auth.authorized_elements->p_element_id IS DISTINCT FROM p_payload THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_ELEMENT_NOT_AUTHORIZED';
+  END IF;
+  IF jsonb_typeof(p_payload)<>'object'
+     OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(p_payload) k)
+        <> ARRAY['actor_persona_ids','citing_interpretation_ids','from_disposition_version','observation_id']
+     OR coalesce(p_payload->>'observation_id','') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+     OR p_element_id<>'relation-disposition:'||(p_payload->>'observation_id') THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_DISPOSITION_INVALID';
+  END IF;
+  v_obs:=(p_payload->>'observation_id')::uuid;
+  -- Klausulen låses; tilstanden genberegnes i skrivetransaktionen og skal være lig autorisationen.
+  PERFORM 1 FROM private.source_observation WHERE id=v_obs FOR UPDATE;
+  v_state:=private.relation_disposition_state(v_obs);
+  IF v_state IS NULL OR v_state IS DISTINCT FROM p_payload THEN RAISE EXCEPTION 'RELATION_DISPOSITION_NOT_ELIGIBLE'; END IF;
+  v_ver:=(p_payload->>'from_disposition_version')::integer+1;
+  INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence)
+  VALUES (v_obs,v_ver,'fortolkning_foreslaaet','machine',
+          jsonb_build_object('batch_id',p_batch_id,'manifest_sha256',v_batch.manifest_sha256,'rule','identity-per-actor-v1'));
+  v_receipt:=jsonb_build_object('schema','relation-disposition-receipt-v1','observation_id',v_obs::text,'disposition_version',v_ver);
+  v_hash:=private.reimport_canonical_json_sha256(v_receipt);
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256)
+  VALUES (p_batch_id,p_element_id,'relation_disposition',NULL,p_payload||jsonb_build_object('result_receipt',v_receipt),v_hash);
+  RETURN jsonb_build_object('result_receipt_sha256',v_hash);
+END $$;
+REVOKE ALL ON FUNCTION private.write_relation_disposition(uuid,text,jsonb) FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION public.red_apply_reimport_relation_disposition(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN RETURN private.write_relation_disposition(p_batch_id,p_element_id,p_payload); END $$;
+REVOKE ALL ON FUNCTION public.red_apply_reimport_relation_disposition(uuid,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_apply_reimport_relation_disposition(uuid,text,jsonb) TO authenticated;
+
+-- Erstatter stubben fra Task 3.
 CREATE OR REPLACE FUNCTION private.verify_relation_disposition_receipts(p_batch_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
-BEGIN RAISE EXCEPTION 'RELATION_DISPOSITION_NOT_IMPLEMENTED'; END $$;
+DECLARE e record; r jsonb;
+BEGIN
+  FOR e IN SELECT * FROM private.reimport_event WHERE batch_id=p_batch_id AND operation='relation_disposition' ORDER BY element_id LOOP
+    r:=e.payload->'result_receipt';
+    IF r IS NULL OR private.reimport_canonical_json_sha256(r)<>e.after_sha256
+       OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(r) k)<>ARRAY['disposition_version','observation_id','schema']
+       OR r->>'schema'<>'relation-disposition-receipt-v1'
+       OR r->>'observation_id' IS DISTINCT FROM e.payload->>'observation_id'
+       OR NOT EXISTS (SELECT 1 FROM private.clause_disposition d WHERE d.observation_id=(r->>'observation_id')::uuid
+                       AND d.version=(r->>'disposition_version')::integer AND d.disposition='fortolkning_foreslaaet'
+                       AND d.decided_by_kind='machine' AND d.evidence->>'batch_id'=p_batch_id::text
+                       AND d.evidence->>'rule'='identity-per-actor-v1') THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_RECEIPT_INVALID: %',e.element_id;
+    END IF;
+  END LOOP;
+END $$;
 REVOKE ALL ON FUNCTION private.verify_relation_disposition_receipts(uuid) FROM PUBLIC,anon,authenticated,service_role;
 
 -- ===================================================================================
