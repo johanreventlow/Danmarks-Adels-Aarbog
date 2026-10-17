@@ -8611,7 +8611,7 @@ BEGIN
   IF jsonb_typeof(v_ctx)<>'object'
      OR EXISTS (SELECT 1 FROM jsonb_object_keys(v_ctx) k
                  WHERE k NOT IN ('basis','candidate_id','run_id','sheet_sha256','rows_sha256','line','control_run_id','display_position',
-                                 'display_positions'))
+                                 'display_positions','deceased'))
      OR (v_ctx ? 'candidate_id') <> (v_ctx ? 'run_id')
      OR p_action NOT IN ('same','different','unresolved','new_person_needed')
      OR nullif(btrim(p_note),'') IS NULL
@@ -8619,7 +8619,19 @@ BEGIN
      OR v_basis NOT IN ('web_detail','human_sheet')
      OR (v_basis='human_sheet' AND (coalesce(v_ctx->>'sheet_sha256','') !~ '^[0-9a-f]{64}$'
                                    OR coalesce(v_ctx->>'rows_sha256','') !~ '^[0-9a-f]{64}$'
-                                   OR coalesce(v_ctx->>'line','') !~ '^[1-9][0-9]*$')) THEN
+                                   OR coalesce(v_ctx->>'line','') !~ '^[1-9][0-9]*$'))
+     -- Trin 5b 2b-ii (spec §5.4): afdød efter aldersreglen, kun på et arks new_person_needed.
+     OR (v_ctx ? 'deceased' AND (
+          p_action<>'new_person_needed' OR v_basis<>'human_sheet'
+       OR jsonb_typeof(v_ctx->'deceased')<>'object'
+       OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(v_ctx->'deceased') k)
+          <> ARRAY['clause_years','cutoff_year','rule']
+       OR v_ctx#>>'{deceased,rule}' IS DISTINCT FROM 'vielsesaar-120-v1'
+       OR v_ctx#>>'{deceased,cutoff_year}' IS DISTINCT FROM '1921'
+       OR jsonb_typeof(v_ctx#>'{deceased,clause_years}')<>'array'
+       OR jsonb_array_length(v_ctx#>'{deceased,clause_years}')=0
+       OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_ctx#>'{deceased,clause_years}') y
+                   WHERE jsonb_typeof(y)<>'number' OR (y#>>'{}') !~ '^[0-9]{4}$' OR (y#>>'{}')::int>1921))) THEN
     RAISE EXCEPTION 'EVIDENCE_IDENTITY_DECISION_INVALID';
   END IF;
   SELECT source_id INTO v_source FROM private.source_persona WHERE id=p_source_persona_id;
@@ -8714,6 +8726,7 @@ BEGIN
     v_evidence:=v_evidence||jsonb_build_object('sheet_sha256',v_ctx->>'sheet_sha256',
       'rows_sha256',v_ctx->>'rows_sha256','line',(v_ctx->>'line')::int);
   END IF;
+  IF v_ctx ? 'deceased' THEN v_evidence:=v_evidence||jsonb_build_object('deceased',v_ctx->'deceased'); END IF;
   RETURN private.decide_source_persona_identity(p_source_persona_id,v_person,p_expected_version,v_status,v_evidence,'human');
 END $$;
 
