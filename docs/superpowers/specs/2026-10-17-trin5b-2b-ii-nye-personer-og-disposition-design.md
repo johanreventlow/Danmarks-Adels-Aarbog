@@ -313,7 +313,7 @@ overførslen.
    `levende = false`. Ellers oprettes personen ikke. `schema.sql`'s kommentar om, at `levende` er »AFLEDT«,
    rettes, så den passer til praksis.
 
-## 15. Errata ved planlægningen (2026-10-17, afventer projektejerens godkendelse)
+## 15. Errata ved planlægningen (2026-10-17, GODKENDT af projektejeren samme dag)
 
 1. **§5.2 pkt. 1 erstattes.** `narrative_norm_v1` med tegnafbildning finder ikke de 6 `ikke_ordret`. Målt
    (kun tal): alle ord i påstanden står i klausulen (6/6), men påstanden er en omskrivning med udeladte
