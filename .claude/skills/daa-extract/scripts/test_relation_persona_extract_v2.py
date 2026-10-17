@@ -65,3 +65,26 @@ def test_sent_foedselsaar_giver_N():
     # Hvert årstal kan være et fødselsår (errata §15.5): »f. 1918« alene giver ikke D.
     assert v2.propose(row("Gift med Bo Beta, f. 1918.", "Gift med Bo Beta"), 1906)["tok"] == "N"
     assert v2.propose(row("Gift 1905 med Bo Beta, f. 1880.", "Gift med Bo Beta"), 1906)["tok"] == "D"
+
+
+def _navn(t, raw):
+    p = v2.propose(row(t, raw), 1906)
+    return p["tok"], (t[p["name_from"]:p["name_to"]] if "name_from" in p else None)
+
+
+def test_navn_efter_lange_titler_og_stop_ved_smaat_ord():
+    # Plan-ruling Task 8: navnet er løbet af ord med versal (+ partikler); titler foran springes over.
+    t = "Gift 2° 15. jan. 1890 med kammerherre, hofjægermester, r. af Dbg. Bo Carl Beta komtesse til Holm."
+    assert _navn(t, "Gift 2° 15. jan. 1890 med Bo Carl Beta")[1] == "Bo Carl Beta"
+    t = "Gift 12. sept. 1890 på Gods i Sogn med Anna von Berg Holm datter af godsejer Hans Holm."
+    assert _navn(t, "Gift 12. sept. 1890 på Gods i Sogn med Anna von Berg Holm")[1] == "Anna von Berg Holm"
+
+
+def test_datter_af_i_titelloebet_giver_U():
+    tok, navn = _navn("Gift 1890 med en datter af Peter Hansen.", "Gift 1890 med datter af Peter Hansen")
+    assert tok == "U" and navn is None
+
+
+def test_I_kun_uden_versal_efter_gift():
+    assert _navn("Gift 1975.", "Gift 1975.")[0] == "I"
+    assert _navn("Gift 1890 med kammerherre m.fl.", "Gift 1890 med kammerherre")[0] == "I"

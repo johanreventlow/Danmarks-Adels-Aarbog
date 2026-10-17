@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 
-from relation_persona_extract import GIFT, LETTER, MAX_NAME_WORDS, MAX_TITLE_WORDS, MED, NAME_END, UPPER
+from relation_persona_extract import GIFT, LETTER, MAX_NAME_WORDS, MED, UPPER
 
 PROFILE = "relation-persona-2018-20-v2"
 RULE = "aarstal-120-v1"   # errata §15.5: hvert årstal kan være et fødselsår
@@ -41,31 +41,60 @@ def windows(text: str, raw: str) -> list[tuple[int, int]]:
     return sorted((tw[s][0], tw[e][1]) for e, s in found.items())
 
 
-def _name(seg: str):
-    """Del 1's navneregel; uden »med« må navnet følge efter »Gift« og et løb af tal og tegnsætning (spec §5.2 pkt. 3)."""
+PARTICLES = {"von", "de", "af", "du", "la", "van", "zu", "der", "den"}
+CAP = re.compile(r"[A-ZÆØÅÀ-Þ][0-9A-Za-zÀ-ÖØ-öø-ÿ'’‑-]*")
+STOP_TITLE = re.compile(r"\b(datter|søn)\b", re.IGNORECASE)
+TOKEN = re.compile(r"\S+")
+
+
+def _start(seg: str) -> tuple[int, bool]:
     m = MED.search(seg)
-    g = GIFT.match(seg)
     if m:
-        start, after_gift = m.end(), False
-    elif g:
-        start, after_gift = g.end(), True
-    else:
-        start, after_gift = 0, False
-    u = UPPER.search(seg, start)
-    if u is None:
+        return m.end(), False
+    g = GIFT.match(seg)
+    if g:
+        return g.end(), True
+    return 0, False
+
+
+def _name(seg: str):
+    """Navnet efter »med« (eller efter »Gift« + tal): titler, små ord og forkortelser (»Dbg.«) springes over;
+    navnet er det sammenhængende løb af ord med versal, med partikler (von, de, af …) imellem, og det slutter
+    ved første andet ord eller ved komma/punktum. »datter«/»søn« før navnet ⇒ intet forslag (spec §5.2 pkt. 3,
+    plan-ruling Task 8; mennesket verificerer navnet på arket)."""
+    start, after_gift = _start(seg)
+    toks = [(m.start(), m.end(), m.group(0)) for m in TOKEN.finditer(seg, start)]
+    k = 0
+    while k < len(toks):                                   # spring titler/forkortelser over
+        word = toks[k][2]
+        bare = word.rstrip(",.;:")
+        if CAP.fullmatch(bare) and not (word.endswith(".") and len(bare) <= 4):
+            break
+        k += 1
+    if k == len(toks):
         return None
-    titel = seg[start:u.start()]
-    if after_gift:
-        if not re.fullmatch(r"[\s\d.,°/-]*", titel):
-            return None
-    elif any(ch in titel for ch in ";()*†") or re.search(r"\d", titel) or len(titel.split()) > MAX_TITLE_WORDS:
+    titel = seg[start:toks[k][0]]
+    if any(ch in titel for ch in ";()*†") or STOP_TITLE.search(titel):
         return None
-    end_m = NAME_END.search(seg, u.start())
-    end = end_m.start() if end_m else len(seg)
-    name = seg[u.start():end].rstrip()
-    if not LETTER.search(name) or len(name.split()) > MAX_NAME_WORDS:
+    if after_gift and not re.fullmatch(r"[\s\d.,°/-]*", titel):
         return None
-    return u.start(), u.start() + len(name)
+    if not after_gift and re.search(r"\d", titel):
+        return None
+    nf, nt, words = toks[k][0], None, 0
+    while k < len(toks):
+        s, e, word = toks[k]
+        bare = word.rstrip(",.;:")
+        nxt = toks[k + 1][2].rstrip(",.;:") if k + 1 < len(toks) else ""
+        if CAP.fullmatch(bare) or (bare in PARTICLES and nt is not None and CAP.fullmatch(nxt) and bare == word):
+            nt, words = s + len(bare), words + 1
+            if bare != word:                               # komma/punktum afslutter navnet
+                break
+            k += 1
+        else:
+            break
+    if nt is None or words > MAX_NAME_WORDS or not LETTER.search(seg[nf:nt]):
+        return None
+    return nf, nt
 
 
 def _shares_half(name: str, partner: str | None) -> bool:
@@ -87,9 +116,14 @@ def propose(row: dict, cutoff: int) -> dict:
     if len(w) != 1:
         return {"tok": "U", "reason": "intet_vindue" if not w else "tvetydigt_vindue"}
     sf, st = w[0]
-    nm = _name(text[sf:st])
+    seg = text[sf:st]
+    nm = _name(seg)
     if nm is None:
-        return {"tok": "I", "reason": "intet_navn", "span_from": sf, "span_to": st}
+        # I kun når der slet ingen versal er efter »Gift/med« (bogen nævner ikke ægtefællen); ellers er
+        # navnet der, men reglen kan ikke isolere det ⇒ U.
+        if UPPER.search(seg, _start(seg)[0]) is None:
+            return {"tok": "I", "reason": "intet_navn", "span_from": sf, "span_to": st}
+        return {"tok": "U", "reason": "navn_uklart"}
     nf, nt = sf + nm[0], sf + nm[1]
     years = sorted({int(y) for y in YEAR.findall(text)})
     out = {"span_from": sf, "span_to": st, "name_from": nf, "name_to": nt, "clause_years": years}
