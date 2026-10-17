@@ -151,3 +151,9 @@ def test_cli_laeser_arket_én_gang(tmp_path, monkeypatch):
     assert ids.main() == 0
     sql = (tmp_path / "d.sql").read_text(encoding="utf-8")
     assert "'same'" in sql and "'different'" not in sql and læst["n"] == 1
+
+
+def test_sql_laaser_standard_conforming_strings():
+    # Noter citeres kun ved fordobling af '; backslash skal være bogstavelig i sessionen (som 2b-i's I1).
+    sql = decision_sql(parse_sheet(f"D {P1} 0 : 1 # o'hara \\\\ x\n"), [row(P1)], sheet_sha256=H, rows_sha256=H)
+    assert "BEGIN;\nSET LOCAL standard_conforming_strings=on;" in sql

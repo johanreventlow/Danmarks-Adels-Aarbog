@@ -162,7 +162,8 @@ def _call(fn: str, args: str, ctx: dict) -> str:
 def decision_sql(lines: list[Line], rows: dict, *, sheet_sha256: str, rows_sha256: str) -> str:
     require_hex64(sheet_sha256, rows_sha256)
     ctl = rows["control_run_id"]
-    head = ["BEGIN;", "SET LOCAL ROLE authenticated;",
+    # sql_literal fordobler kun '; backslash i en note skal være bogstavelig i sessionen
+    head = ["BEGIN;", "SET LOCAL standard_conforming_strings=on;", "SET LOCAL ROLE authenticated;",
             "SELECT set_config('request.jwt.claim.sub', :'actor', true) IS NOT NULL AS ok \\g /dev/null",
             "CREATE TEMP TABLE decided(v integer) ON COMMIT DROP;"]
     t1 = ["\\set ON_ERROR_STOP on", *head,
