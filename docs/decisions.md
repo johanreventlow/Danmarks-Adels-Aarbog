@@ -2,6 +2,29 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: trin 5b 2b-ii — nye personer kun som afdøde efter aldersregel; disposition pr. aktør; børnene til 2b-iii (2026-10-17)
+
+> **Besluttet af projektejeren 2026-10-17** i brainstormen af 2b-ii, efter råd fra en uafhængig rådgiver (fable)
+> om synlighed. Spec: `docs/superpowers/specs/2026-10-17-trin5b-2b-ii-nye-personer-og-disposition-design.md`.
+> Bygger på posten 2026-10-12 nedenfor.
+
+**Besluttet:**
+1. **Omfang:** 2b-ii = `family.id` som identity, vejen til nye personer (`relation_person_create`), de 14
+   ægteskaber uden ægtefælle-persona (deterministisk andet gennemløb og et privat ark; ingen model læser
+   teksten) og klausul-dispositionen. De 14 børnepåstande flyttes til en egen skive, **2b-iii**.
+2. **Nye personer oprettes kun som afdøde.** Arkets token `D` kræver vielsesår ≤ 1921: ægtefællen er da mindst
+   120 år, samme grænse som feedets nødbremse. Projektejeren bekræfter hver linje. Det giver
+   `levende = false` med grundlaget i kvitteringen. En ny person, der ikke kan erklæres afdød (`N`), oprettes
+   ikke. Den venter, til ægtefællens dødsforslag kan knyttes til personaen. **Det ændrer posten 2026-10-06
+   pkt. 3** (»`levende = true`, indtil dødsfakta afgøres af et menneske«). Grunden: en levende ny person ville
+   være skjult, og den ville også skjule hele sin familie for læserne (`family_offentlig`).
+3. **Klausul-disposition pr. aktør.** En klausul går fra `afventer_identitet` til `fortolkning_foreslaaet`,
+   når hver aktør ud over hovedpersonen har en persona med afgjort identitet. Om forslagene er afgjort, er
+   uden betydning. Aktørforslag uden persona blokerer. Det erstatter hovedspecens krav om, at alle citerende
+   påstande skal være afgjort, som kun ville have frigjort 16 af 390.
+
+**Uændret:** restore-only. Nye personer er `staged`, indtil prod-overførslen aktiverer dem.
+
 ## BESLUTTET: trin 5b 2b deles i 2b-i og 2b-ii; genbinding som ny binding ved siden af den gamle; review-fund afvejes mod opgaven (2026-10-12)
 
 > **Besluttet af projektejeren 2026-10-11/12** i brainstormen af 2b og efter spec-reviewet. Spec:

@@ -12,15 +12,15 @@ Projektejeren valgte derefter 2026-10-17 to ting:
   (token `D`);
 - **»vent«:** en ny ægtefælle, der ikke kan erklæres afdød (`N`), oprettes ikke i 2b-ii.
 
-Spec'en afventer projektejerens gennemsyn.
+**GODKENDT af projektejeren 2026-10-17** (decisions-post samme dato).
 
 **Roadmap:** trin 5, delspec 5b, del 2, skive b, anden halvdel. Dokumenterne kaldes herefter:
 - »hovedspecen«: `docs/superpowers/specs/2026-10-06-trin5b-relationspersonas-design.md`;
 - »2b-i-specen«: `docs/superpowers/specs/2026-10-11-trin5b-2b-i-genbinding-og-aegtefaeller-design.md`, merget i #241.
 
 Spec'en bygger også på 2a-specen og bevisrapporterne for del 1, 2a og 2b-i. Beslutninger: `docs/decisions.md`
-2026-10-06, 2026-10-10, 2026-10-11 og 2026-10-12. Ændringen af dispositionsreglen (§8) og udskydelsen af
-børnene (§2) skrives som decisions-post, når spec'en er godkendt.
+2026-10-06, 2026-10-10, 2026-10-11 og 2026-10-12. Beslutningerne i §14 står i decisions-posten
+2026-10-17.
 
 ## 1. Adgangskrav (roadmap)
 
