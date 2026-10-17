@@ -312,3 +312,21 @@ overførslen.
    `deceased_cutoff_year`) og projektejerens bekræftelse pr. linje. Grundlaget gemmes i kvitteringen, og
    `levende = false`. Ellers oprettes personen ikke. `schema.sql`'s kommentar om, at `levende` er »AFLEDT«,
    rettes, så den passer til praksis.
+
+## 15. Errata ved planlægningen (2026-10-17, afventer projektejerens godkendelse)
+
+1. **§5.2 pkt. 1 erstattes.** `narrative_norm_v1` med tegnafbildning finder ikke de 6 `ikke_ordret`. Målt
+   (kun tal): alle ord i påstanden står i klausulen (6/6), men påstanden er en omskrivning med udeladte
+   dele. Det længste fælles stykke er 17-94 tegn, og ingen simpel normalisering (mellemrum, bindestreg,
+   store og små bogstaver) finder den. I stedet bruges **det entydige minimale ordnede ordvindue**:
+   - Spændet er det eneste minimale udsnit af klausulen, der indeholder påstandens ord i rækkefølge.
+   - Ord er løb af den eksplicitte klasse `[0-9A-Za-zÀ-ÖØ-öø-ÿ]+`, sammenlignet uden forskel på store og
+     små bogstaver. Klassen er eksplicit, så PG's `lc_ctype` ikke påvirker resultatet.
+   - Python og SQL (`private.relation_ordered_windows`) bruger samme regel, og `write_relation_persona`
+     efterprøver den under profil v2.
+   - Intet eller flere vinduer ⇒ U.
+2. **§5.2 pkt. 2 bortfalder.** `write_relation_persona` kræver præcis én citeret klausul, så sagen med to
+   citerede klausuler bliver U.
+3. **`privat = false`** sættes eksplicit på nye personer, som det almindelige standardvalg. Grundlaget er en
+   trykt kilde og en afdød-erklæring pr. linje. `red_opret_person` sætter derimod `privat = true` for
+   redaktørens manuelle oprettelser.
