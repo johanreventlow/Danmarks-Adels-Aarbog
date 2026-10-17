@@ -2,6 +2,7 @@
 \set ON_ERROR_STOP on
 BEGIN;
 \ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
 DO $windows$
 BEGIN
   IF (SELECT array_agg(ARRAY[w_from,w_to]) FROM private.relation_ordered_windows('Gift 1. gang 1890 med Bo Beta, f. 1801.','gift med Bo Beta'))
@@ -15,6 +16,7 @@ BEGIN
      <> ARRAY[ARRAY[6,26]] THEN RAISE EXCEPTION 'V2_TEST_FAILED: danske bogstaver'; END IF;
   IF (SELECT array_agg(ARRAY[w_from,w_to]) FROM private.relation_ordered_windows('Gift 1975.','Gift 1975.')) <> ARRAY[ARRAY[0,9]] THEN
     RAISE EXCEPTION 'V2_TEST_FAILED: tal som ord'; END IF;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;   -- udskudte identitetstjek må ikke skjules af ROLLBACK
   RAISE NOTICE 'OK: ordnede vinduer';
 END $windows$;
 
@@ -26,6 +28,7 @@ BEGIN
   INSERT INTO person(id,levende,privat,status) VALUES (-5241,false,false,'5b');
   s:=pg_temp.f5b_source(-5241);
   p:=pg_temp.f5b_post(-5241,s,'II-41','Anna Alfa. '||v_text,ARRAY['Anna Alfa.',v_text],-5241,v_actor);
+  PERFORM pg_temp.f2a_event_for_state((p->>'principal')::uuid);
   v_clause:=(p->'clauses'->>1)::uuid;
   c:=pg_temp.f5b_claim(-5241,s,'relation.marriage',v_clause,'Gift med Bo Beta.');
   -- v2-input: én række uden persona, med hovedpersonen og (tomme) partnere
@@ -59,6 +62,7 @@ BEGIN
   IF jsonb_array_length(private.relation_persona_v2_input(-5241)->'rows')<>0 THEN
     RAISE EXCEPTION 'V2_TEST_FAILED: skrevet påstand står stadig i v2-input';
   END IF;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;   -- udskudte identitetstjek må ikke skjules af ROLLBACK
   RAISE NOTICE 'OK: relation_persona v2 (vindue, negative, input)';
 END $v2_writer$;
 ROLLBACK;

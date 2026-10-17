@@ -2,6 +2,7 @@
 \set ON_ERROR_STOP on
 BEGIN;
 \ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
 DO $deceased$
 DECLARE v_actor uuid:='11000000-0000-0000-0000-00000005b2b1'; s jsonb; p jsonb; c jsonb; sp uuid; v int;
   h text:=repeat('a',64); ok jsonb; bad jsonb[];
@@ -10,6 +11,7 @@ BEGIN
   INSERT INTO person(id,levende,privat,status) VALUES (-5221,false,false,'5b');
   s:=pg_temp.f5b_source(-5221);
   p:=pg_temp.f5b_post(-5221,s,'II-21','Anna Alfa. Gift 1890 med Bo Beta.',ARRAY['Anna Alfa.','Gift 1890 med Bo Beta.'],-5221,v_actor);
+  PERFORM pg_temp.f2a_event_for_state((p->>'principal')::uuid);
   c:=pg_temp.f5b_claim(-5221,s,'relation.marriage',(p->'clauses'->>1)::uuid,'Gift 1890 med Bo Beta.');
   sp:=pg_temp.f5b_spouse(-5221,s,p,c,(p->'clauses'->>1)::uuid,'Bo Beta',1);
   ok:=jsonb_build_object('basis','human_sheet','sheet_sha256',h,'rows_sha256',h,'line',1,
@@ -42,6 +44,7 @@ BEGIN
      OR (SELECT evidence->>'reason' FROM private.source_persona_identity WHERE source_persona_id=sp)<>'new_person_needed' THEN
     RAISE EXCEPTION 'DECEASED_TEST_FAILED: evidens';
   END IF;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;   -- udskudte identitetstjek må ikke skjules af ROLLBACK
   RAISE NOTICE 'OK: deceased-kontekst valideret og gemt';
 END $deceased$;
 ROLLBACK;

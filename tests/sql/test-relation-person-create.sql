@@ -2,6 +2,7 @@
 \set ON_ERROR_STOP on
 BEGIN;
 \ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
 CREATE OR REPLACE FUNCTION pg_temp.f2bii_npn(p_actor uuid,p_sp uuid,p_years int[]) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
   PERFORM set_config('request.jwt.claim.sub',p_actor::text,true);
@@ -45,6 +46,7 @@ BEGIN
   s:=pg_temp.f5b_source(-5231);
   p:=pg_temp.f5b_post(-5231,s,'II-31','Anna Alfa. Gift 1890 med Bo Beta. Gift 1950 med Cia Ceta.',
        ARRAY['Anna Alfa.','Gift 1890 med Bo Beta.','Gift 1950 med Cia Ceta.'],-5231,v_actor);
+  PERFORM pg_temp.f2a_event_for_state((p->>'principal')::uuid);
   c:=pg_temp.f5b_claim(-5231,s,'relation.marriage',(p->'clauses'->>1)::uuid,'Gift 1890 med Bo Beta.');
   sp:=pg_temp.f5b_spouse(-5231,s,p,c,(p->'clauses'->>1)::uuid,'Bo Beta',1);
   PERFORM pg_temp.f2bii_npn(v_actor,sp,ARRAY[1890]);
@@ -88,6 +90,7 @@ BEGIN
   EXCEPTION WHEN raise_exception THEN
     IF SQLERRM NOT LIKE '%RELATION_PERSON_CREATE_NOT_DECEASED%' THEN RAISE; END IF;
   END;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;   -- udskudte identitetstjek må ikke skjules af ROLLBACK
   RAISE NOTICE 'OK: relation_person_create new, delta, staged/afdød, F afvist';
 END $rpc_new$;
 
@@ -98,6 +101,7 @@ BEGIN
   INSERT INTO person(id,levende,privat,status) VALUES (-5232,false,false,'5b');
   s:=pg_temp.f5b_source(-5232);
   p:=pg_temp.f5b_post(-5232,s,'II-32','Anna Alfa. Gift 1890 med Bo Beta.',ARRAY['Anna Alfa.','Gift 1890 med Bo Beta.'],-5232,v_actor);
+  PERFORM pg_temp.f2a_event_for_state((p->>'principal')::uuid);
   c:=pg_temp.f5b_claim(-5232,s,'relation.marriage',(p->'clauses'->>1)::uuid,'Gift 1890 med Bo Beta.');
   sp:=pg_temp.f5b_spouse(-5232,s,p,c,(p->'clauses'->>1)::uuid,'Bo Beta',1);
   v_fam:=pg_temp.f5b_family(-5232,NULL,NULL);
@@ -113,6 +117,7 @@ BEGIN
      <> '{"person":1,"family":0,"fm":1,"fact":1,"assertion":1,"citation":1,"conclusion":1}'::jsonb THEN
     RAISE EXCEPTION 'RPC_TEST_FAILED: existing-delta';
   END IF;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;   -- udskudte identitetstjek må ikke skjules af ROLLBACK
   RAISE NOTICE 'OK: relation_person_create existing';
 END $rpc_existing$;
 
@@ -123,6 +128,7 @@ BEGIN
   INSERT INTO person(id,levende,privat,status) VALUES (-5233,false,false,'5b');
   s:=pg_temp.f5b_source(-5233);
   p:=pg_temp.f5b_post(-5233,s,'II-33','Anna Alfa. Gift 1890 med Bo Beta.',ARRAY['Anna Alfa.','Gift 1890 med Bo Beta.'],-5233,v_actor);
+  PERFORM pg_temp.f2a_event_for_state((p->>'principal')::uuid);
   c:=pg_temp.f5b_claim(-5233,s,'relation.marriage',(p->'clauses'->>1)::uuid,'Gift 1890 med Bo Beta.');
   sp:=pg_temp.f5b_spouse(-5233,s,p,c,(p->'clauses'->>1)::uuid,'Bo Beta',1);
   PERFORM pg_temp.f2bii_npn(v_actor,sp,ARRAY[1890]);
@@ -134,6 +140,7 @@ BEGIN
   EXCEPTION WHEN raise_exception THEN
     IF SQLERRM NOT LIKE '%RELATION_PERSON_CREATE_FAMILY_DRIFT%' THEN RAISE; END IF;
   END;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;   -- udskudte identitetstjek må ikke skjules af ROLLBACK
   RAISE NOTICE 'OK: relation_person_create familiedrift afvist';
 END $rpc_family_drift$;
 
@@ -144,6 +151,7 @@ BEGIN
   INSERT INTO person(id,levende,privat,status) VALUES (-5234,false,false,'5b');
   s:=pg_temp.f5b_source(-5234);
   p:=pg_temp.f5b_post(-5234,s,'II-34','Anna Alfa. Gift 1890 med Bo Beta.',ARRAY['Anna Alfa.','Gift 1890 med Bo Beta.'],-5234,v_actor);
+  PERFORM pg_temp.f2a_event_for_state((p->>'principal')::uuid);
   c:=pg_temp.f5b_claim(-5234,s,'relation.marriage',(p->'clauses'->>1)::uuid,'Gift 1890 med Bo Beta.');
   sp:=pg_temp.f5b_spouse(-5234,s,p,c,(p->'clauses'->>1)::uuid,'Bo Beta',1);
   PERFORM pg_temp.f2bii_npn(v_actor,sp,ARRAY[1889]);
@@ -154,6 +162,7 @@ BEGIN
   EXCEPTION WHEN raise_exception THEN
     IF SQLERRM NOT LIKE '%RELATION_PERSON_CREATE_YEARS_DRIFT%' THEN RAISE; END IF;
   END;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;   -- udskudte identitetstjek må ikke skjules af ROLLBACK
   RAISE NOTICE 'OK: relation_person_create årsdrift afvist';
 END $rpc_years_drift$;
 ROLLBACK;
