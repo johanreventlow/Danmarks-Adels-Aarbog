@@ -127,7 +127,8 @@ def decision_sql(decisions: list[Decision], *, sheet_sha256: str, rows_sha256: s
     if method not in SHEET_METHODS:
         raise SheetError("SHEET_METHOD_INVALID")
     require_hex64(sheet_sha256, rows_sha256)
-    out = ["\\set ON_ERROR_STOP on", "BEGIN;", "SET LOCAL ROLE authenticated;",
+    # noterne citeres kun ved fordobling af '; backslash skal være bogstavelig i sessionen
+    out = ["\\set ON_ERROR_STOP on", "BEGIN;", "SET LOCAL standard_conforming_strings=on;", "SET LOCAL ROLE authenticated;",
            "SELECT set_config('request.jwt.claim.sub', :'actor', true);",
            "CREATE TEMP TABLE decided(id uuid) ON COMMIT DROP;"]
     for d in decisions:

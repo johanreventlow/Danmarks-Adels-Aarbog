@@ -211,3 +211,11 @@ def test_foraeldrekort_uden_spaend_peger_paa_saetningen():
     text = ics.render_sheet(r)
     assert "#   Bogen: »søn af Carl Berg.«" in text
     assert "#   Spørgsmål: Er den markerede (←) den forælder, bogen nævner i sætningen?" in text
+
+
+def test_hver_transaktion_laaser_standard_conforming_strings():
+    # Noter citeres kun ved fordobling af '; backslash skal være bogstavelig i sessionen (som 2b-i's I1).
+    out = sql_for(["2", "1", "A"])
+    sql = "\n".join(out) if isinstance(out, (tuple, list)) else out
+    assert sql.count("BEGIN;") >= 1
+    assert sql.count("BEGIN;\nSET LOCAL standard_conforming_strings=on;") == sql.count("BEGIN;")

@@ -120,7 +120,8 @@ def decision_sql(decisions: list[IdDecision], rows: list[dict], *, sheet_sha256:
     require_hex64(sheet_sha256, rows_sha256)
     by_id = {r["source_persona_id"]: r for r in rows}
     # Kandidatens kørsel sendes med; RPC'en afviser en forældet kørsel under kildelåsen (Task 3).
-    out = ["\\set ON_ERROR_STOP on", "BEGIN;"]
+    # sql_literal fordobler kun '; backslash i en note skal være bogstavelig i sessionen
+    out = ["\\set ON_ERROR_STOP on", "BEGIN;", "SET LOCAL standard_conforming_strings=on;"]
     out += ["SET LOCAL ROLE authenticated;", "SELECT set_config('request.jwt.claim.sub', :'actor', true);",
             "CREATE TEMP TABLE decided(v integer) ON COMMIT DROP;"]
     for d in decisions:
