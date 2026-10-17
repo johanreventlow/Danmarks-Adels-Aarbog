@@ -12,8 +12,9 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 1. **Omfang:** 2b-ii = `family.id` som identity, vejen til nye personer (`relation_person_create`), de 14
    ægteskaber uden ægtefælle-persona (deterministisk andet gennemløb og et privat ark; ingen model læser
    teksten) og klausul-dispositionen. De 14 børnepåstande flyttes til en egen skive, **2b-iii**.
-2. **Nye personer oprettes kun som afdøde.** Arkets token `D` kræver vielsesår ≤ 1921: ægtefællen er da mindst
-   120 år, samme grænse som feedets nødbremse. Projektejeren bekræfter hver linje. Det giver
+2. **Nye personer oprettes kun som afdøde.** Arkets token `D` kræver, at alle årstal i klausulen er ≤ 1906
+   (2026 − 120; skærpet samme dag fra »gift senest 1921«, fordi hvert årstal kan være et fødselsår, spec errata §15.5):
+   ægtefællen er da mindst 120 år, samme grænse som feedets nødbremse. Projektejeren bekræfter hver linje. Det giver
    `levende = false` med grundlaget i kvitteringen. En ny person, der ikke kan erklæres afdød (`N`), oprettes
    ikke. Den venter, til ægtefællens dødsforslag kan knyttes til personaen. **Det ændrer posten 2026-10-06
    pkt. 3** (»`levende = true`, indtil dødsfakta afgøres af et menneske«). Grunden: en levende ny person ville

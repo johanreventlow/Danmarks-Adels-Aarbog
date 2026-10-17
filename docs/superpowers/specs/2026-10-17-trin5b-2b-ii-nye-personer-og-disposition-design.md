@@ -335,4 +335,10 @@ overførslen.
    forbliver derfor `staged` og skjulte i prod, indtil overførsels-spec'en for 5b eksplicit aktiverer dem.
    Det er bevidst: aktiveringen er en del af overførslen (§12). Overførsels-spec'en **skal** dog nævne
    operationen, ellers bliver D-ægtefællerne aldrig synlige.
+5. **Aldersreglen skærpes** (fund under udførelsen, 2026-10-17). §5.2 pkt. 5 sagde »gift senest 1921«, men
+   udtrækket kan ikke skelne vielsesåret fra andre årstal i klausulen, fx ægtefællens fødselsår. Med den
+   regel ville »f. 1918« alene give D, selvom personen kun ville være 108 år. Nu skal **alle årstal i klausulen
+   være ≤ 1906** (2026 − 120), fordi hvert årstal kan være et fødselsår. Reglen hedder `aarstal-120-v1`, og
+   `deceased_cutoff_year` = 1906. Den fejler lukket: tvivl giver N. Projektejeren bekræfter stadig hver
+   D-linje.
 
