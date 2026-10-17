@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-13 — trin 5b del 2b-i: genbinding, undtagelsesark for ægtefæller og køen afgjort (#151)
+
+Implementeret efter planen `2026-10-12-trin5b-2b-i.md` på `docs/151-5b-2b-i`. Indhold:
+- genbinding efter rettelse (2a-spec §11 pkt. 6, mulighed a) med den nye klassifikation `ordinal_beholdt`;
+- hash-bundet undtagelsesark (`spouse_exception_sheet.py` over `private.spouse_exception_projection`);
+- webkøen viser årsagen og hovedpersonens faktiske partnere;
+- en opgraderingstest fra 2a's head.
+
+Bevis i restore (ikke prod): de 31 ægtefæller fra 2a er afgjort, 22 via arket og 9 via køen (5 samme, 3 uafklaret,
+1 ny person). 20 nye bindinger, så der nu er 230 synlige kilderækker. 0 kanonisk delta og 4 negativtests. 7 ægteskaber
+fejler lukket på grund af dobbelte familier (#240). Efter Opus' kode-review er to fund rettet: strengsemantikken låst
+og tomt ægteskabsnummer. Rapport: `docs/evidensbaseret-genimport/relationspersonas-5b-2b-i-bevis.md`. Ikke deployet.
+
 ## 2026-10-11 — trin 5b del 2a: afgjorte ægteskaber og forældre bundet, kilden vist (#151)
 
 Implementeret efter planen `2026-10-11-trin5b-2a-binding.md` på `docs/151-5b-2a-binding`: regeltypen
