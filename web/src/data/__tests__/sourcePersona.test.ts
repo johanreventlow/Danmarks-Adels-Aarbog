@@ -89,3 +89,25 @@ describe('buildSourcePersonaDecisionCall', () => {
     expect(buildSourcePersonaDecisionCall(ID, 0, 'different', null, 'x', { candidateId: 'cand-1', runId: 'run-1' })).toBeNull();
   });
 });
+
+describe('2b-i: partnerkontekst og årsag', () => {
+  beforeEach(() => rpc.mockReset());
+  const base = { persona: { source_persona_id: ID, source_id: 1, persona_key: 'k', decision_status: 'proposed', version: 0 },
+    mentions: [], placements: [], interpretations: [], candidates: [], collisions: [], family_context: null };
+
+  it('parser partnere og årsag', async () => {
+    rpc.mockResolvedValueOnce({ data: { ...base,
+      principal_partners: [{ person_id: 10, family_id: 7, name: 'Bo Beta', born: '1801', died: null, ordinal: 1, konfidens: [] }],
+      review_reason: 'partner_not_candidate' }, error: null });
+    const d = await fetchSourcePersonaDetail(ID);
+    expect(d.principalPartners).toEqual([{ personId: 10, familyId: 7, name: 'Bo Beta', born: '1801', died: null, ordinal: 1, konfidens: [] }]);
+    expect(d.reviewReason).toBe('partner_not_candidate');
+  });
+
+  it('ukendt årsag og manglende partnere giver null og []', async () => {
+    rpc.mockResolvedValueOnce({ data: { ...base, review_reason: 'noget_andet' }, error: null });
+    const d = await fetchSourcePersonaDetail(ID);
+    expect(d.reviewReason).toBeNull();
+    expect(d.principalPartners).toEqual([]);
+  });
+});

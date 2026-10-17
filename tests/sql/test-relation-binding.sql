@@ -437,7 +437,7 @@ BEGIN
   v_batch2:=red_promote_relation_interpretations_batch(-2401,items,pv->>'preview_sha256');
   RESET ROLE;
   IF v_batch2 IS DISTINCT FROM v_batch
-     OR (SELECT count(*) FROM private.interpretation_promotion WHERE target_type='family')<>2 THEN
+     OR (SELECT count(*) FROM private.interpretation_promotion WHERE target_type='family' AND interpretation_id IN (v_mid,v_pid))<>2 THEN
     RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: replay';
   END IF;
   SET LOCAL ROLE authenticated;
@@ -608,3 +608,185 @@ BEGIN
 END $relation_promote_lock_wait$;
 ROLLBACK;
 DELETE FROM person WHERE id=-2494;
+
+-- ---------- 2b-i Task 1: unikhed pr. fortolkning og tilstand (spec §4.1) ----------
+BEGIN;
+\ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
+DO $rebind_unique$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-0000002b0101'; s jsonb; m jsonb; pv jsonb; v_mid uuid; v_batch uuid;
+  v_row private.interpretation_promotion%ROWTYPE; v_bad jsonb;
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  INSERT INTO person(id,levende,privat,status) SELECT g,false,false,'2bi' FROM generate_series(-21120,-21101) g;
+  s:=pg_temp.f5b_source(-21101);
+  m:=pg_temp.f2a_marriage(-21101,s,'U-1',-21101,-21102,v_actor,1,1);
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_decisions(-21101);
+  PERFORM red_decide_relation_interpretations(-21101,pv->>'set_sha256');
+  RESET ROLE;
+  SELECT id INTO v_mid FROM private.interpretation_current WHERE interpretation_key=(m->'claim'->>'key')::uuid;
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_promotions(-21101,jsonb_build_array(jsonb_build_object('interpretation_id',v_mid::text,'family_id',(m->>'family')::bigint)));
+  v_batch:=red_promote_relation_interpretations_batch(-21101,jsonb_build_array(jsonb_build_object('interpretation_id',v_mid::text,'family_id',(m->>'family')::bigint)),pv->>'preview_sha256');
+  RESET ROLE;
+  SELECT * INTO v_row FROM private.interpretation_promotion WHERE batch_id=v_batch;
+
+  -- CHECK: manglende nøgle, JSON-null, tal og forkert format afvises (spec §4.1; Codex r1 #1)
+  FOREACH v_bad IN ARRAY ARRAY[v_row.evidence-'state_sha256', jsonb_set(v_row.evidence,'{state_sha256}','null'),
+                               jsonb_set(v_row.evidence,'{state_sha256}','1'), jsonb_set(v_row.evidence,'{state_sha256}','"abc"')] LOOP
+    BEGIN
+      INSERT INTO private.interpretation_promotion(interpretation_id,rule_key,rule_version,batch_id,target_type,target_id,evidence,promoted_by,promoted_by_name)
+      VALUES (v_row.interpretation_id,v_row.rule_key,v_row.rule_version,v_row.batch_id,'family',v_row.target_id,v_bad,v_row.promoted_by,v_row.promoted_by_name);
+      RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: familiebinding uden gyldig hash godtaget %', v_bad;
+    EXCEPTION WHEN check_violation THEN NULL;
+    END;
+  END LOOP;
+  -- samme fortolkning og familie med en ny tilstand er tilladt (genbinding, spec §4.1; Codex r1 #2)
+  INSERT INTO private.interpretation_promotion(interpretation_id,rule_key,rule_version,batch_id,target_type,target_id,evidence,promoted_by,promoted_by_name)
+  VALUES (v_row.interpretation_id,v_row.rule_key,v_row.rule_version,v_row.batch_id,'family',v_row.target_id,
+          jsonb_set(v_row.evidence,'{state_sha256}',to_jsonb(repeat('e',64))),v_row.promoted_by,v_row.promoted_by_name);
+  -- samme tilstand to gange afvises
+  BEGIN
+    INSERT INTO private.interpretation_promotion(interpretation_id,rule_key,rule_version,batch_id,target_type,target_id,evidence,promoted_by,promoted_by_name)
+    VALUES (v_row.interpretation_id,v_row.rule_key,v_row.rule_version,v_row.batch_id,'family',v_row.target_id,
+            jsonb_set(v_row.evidence,'{state_sha256}',to_jsonb(repeat('e',64))),v_row.promoted_by,v_row.promoted_by_name);
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: to bindinger med samme tilstand godtaget';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+  -- kataloget: den hidtidige regel består for ikke-familiemål, og de gamle regler er væk
+  IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+                  WHERE c.relname='interpretation_promotion_one_target_per_interpretation' AND i.indisunique
+                    AND pg_get_expr(i.indpred,i.indrelid) LIKE '%target_type%<>%family%')
+     OR EXISTS (SELECT 1 FROM pg_class WHERE relname='interpretation_promotion_one_family_per_interpretation')
+     OR EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.interpretation_promotion'::regclass AND contype='u') THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: unikhedsreglerne i kataloget';
+  END IF;
+  RAISE NOTICE 'OK: unikhed pr. fortolkning og tilstand';
+END $rebind_unique$;
+ROLLBACK;
+
+-- ---------- 2b-i Task 2: genbinding gennem previewet (spec §4.2-§4.4) ----------
+BEGIN;
+\ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
+DO $rebind_preview$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-0000002b0201'; s jsonb; m jsonb; par jsonb; pv jsonb; items jsonb; pitems jsonb;
+  v_mid uuid; v_pid uuid; v_b1 uuid; v_b2 uuid; v_old uuid; v_new uuid; v_first_state text; n int;
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  INSERT INTO person(id,levende,privat,status) SELECT g,false,false,'2bi' FROM generate_series(-21240,-21201) g;
+  s:=pg_temp.f5b_source(-21201);
+  m:=pg_temp.f2a_marriage(-21201,s,'R-1',-21201,-21202,v_actor,2,1);         -- bogens nr. 2, familiens 1
+  -- forælderbinding: -21210 er forælder til -21203 i familien med -21211 (Review Focus 2: en rettelse af
+  -- forælderens partnerrække gør forælderbindingen forældet, og den genbindes)
+  par:=pg_temp.f2a_parent(-21201,s,-21203,-21210,-21211,v_actor);
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_decisions(-21201);
+  PERFORM red_decide_relation_interpretations(-21201,pv->>'set_sha256');
+  RESET ROLE;
+  SELECT id INTO v_mid FROM private.interpretation_current WHERE interpretation_key=(m->'claim'->>'key')::uuid;
+  SELECT id INTO v_pid FROM private.interpretation_current WHERE interpretation_key=(par->'claim'->>'key')::uuid;
+  items:=jsonb_build_array(jsonb_build_object('interpretation_id',v_mid::text,'family_id',(m->>'family')::bigint));
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_promotions(-21201,items);
+  IF pv#>>'{items,0,supersedes_promotion_id}' IS NOT NULL OR NOT (pv->'items'->0) ? 'supersedes_promotion_id' THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: første binding skal have supersedes=null %', pv;
+  END IF;
+  v_b1:=red_promote_relation_interpretations_batch(-21201,items,pv->>'preview_sha256');
+  RESET ROLE;
+  SELECT id,evidence->>'state_sha256' INTO v_old,v_first_state FROM private.interpretation_promotion WHERE batch_id=v_b1;
+
+  -- ret familiens nummer til bogens: kilden skjules (tilstanden er forældet)
+  SET LOCAL ROLE authenticated;
+  PERFORM red_set_familie_ordinal((m->>'family')::bigint,-21201,'partner',2);
+  RESET ROLE;
+  PERFORM set_config('app.change_set_id','',true);
+  -- frisk sti = kontrakt 1, hvor public_family_sources altid giver 0; synligheden prøves i test-family-sources.sql
+  IF private.relation_binding_state_sha256(v_mid) IS NOT DISTINCT FROM v_first_state THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: tilstanden ændrede sig ikke';
+  END IF;
+  -- preview: egnet, med supersedes = den gamle binding
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_promotions(-21201,items);
+  IF NOT (pv#>>'{items,0,eligible}')::boolean OR pv#>>'{items,0,supersedes_promotion_id}' IS DISTINCT FROM v_old::text THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: genbindingspreview %', pv;
+  END IF;
+  v_b2:=red_promote_relation_interpretations_batch(-21201,items,pv->>'preview_sha256');
+  RESET ROLE;
+  SELECT id INTO v_new FROM private.interpretation_promotion WHERE batch_id=v_b2;
+  IF (SELECT count(*) FROM private.interpretation_promotion WHERE interpretation_id=v_mid AND target_type='family')<>2
+     OR (SELECT evidence->>'supersedes_promotion_id' FROM private.interpretation_promotion WHERE id=v_new) IS DISTINCT FROM v_old::text
+     OR (SELECT evidence->>'state_sha256' FROM private.interpretation_promotion WHERE id=v_old) IS DISTINCT FROM v_first_state THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: genbindingens rækker';
+  END IF;
+  -- identisk genkald: samme batch, ingen tredje række; nyt preview: ALREADY_APPLIED
+  SET LOCAL ROLE authenticated;
+  IF red_promote_relation_interpretations_batch(-21201,items,pv->>'preview_sha256') IS DISTINCT FROM v_b2
+     OR red_preview_relation_promotions(-21201,items)#>>'{items,0,reason_code}' IS DISTINCT FROM 'RELATION_PROMOTION_ALREADY_APPLIED' THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: genkald efter genbinding';
+  END IF;
+  RESET ROLE;
+  IF (SELECT count(*) FROM private.interpretation_promotion WHERE interpretation_id=v_mid AND target_type='family')<>2 THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: tredje række';
+  END IF;
+  IF (SELECT evidence->>'state_sha256' FROM private.interpretation_promotion WHERE id=v_new)
+       IS DISTINCT FROM private.relation_binding_state_sha256(v_mid) THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: genbindingen passer ikke den nuværende tilstand';
+  END IF;
+
+  -- tilbage-rettelse: ordinal tilbage til 1 ⇒ den gamle binding passer igen ⇒ ALREADY_APPLIED, intet skrives
+  SET LOCAL ROLE authenticated;
+  PERFORM red_set_familie_ordinal((m->>'family')::bigint,-21201,'partner',1);
+  PERFORM set_config('app.change_set_id','',true);
+  IF red_preview_relation_promotions(-21201,items)#>>'{items,0,reason_code}' IS DISTINCT FROM 'RELATION_PROMOTION_ALREADY_APPLIED' THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: tilbage-rettelse';
+  END IF;
+  RESET ROLE;
+
+  -- ny identitetsversion til samme person ⇒ genbinding
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  PERFORM red_afgoer_source_persona((m->>'spouse_persona')::uuid,1,'same',-21202,'2b-i test: ny version','{}');
+  pv:=red_preview_relation_promotions(-21201,items);
+  IF NOT (pv#>>'{items,0,eligible}')::boolean OR pv#>>'{items,0,supersedes_promotion_id}' IS NULL THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: ny identitetsversion %', pv;
+  END IF;
+  PERFORM red_promote_relation_interpretations_batch(-21201,items,pv->>'preview_sha256');
+  RESET ROLE;
+
+  -- forælderbindingen i samme familie (Review Focus 2): bundet, gjort forældet af ordinal-rettelsen, genbundet
+  pitems:=jsonb_build_array(jsonb_build_object('interpretation_id',v_pid::text,'family_id',(par->>'family')::bigint));
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_promotions(-21201,pitems);
+  PERFORM red_promote_relation_interpretations_batch(-21201,pitems,pv->>'preview_sha256');
+  PERFORM red_set_familie_ordinal((par->>'family')::bigint,-21210,'partner',3);
+  PERFORM set_config('app.change_set_id','',true);
+  pv:=red_preview_relation_promotions(-21201,pitems);
+  IF NOT (pv#>>'{items,0,eligible}')::boolean OR pv#>>'{items,0,supersedes_promotion_id}' IS NULL THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: foraelder_samme_familie %', pv;
+  END IF;
+  RESET ROLE;
+
+  -- strukturen flyttet til en anden familie ⇒ REBIND_FAMILY_CHANGED
+  DELETE FROM family_member WHERE family_id=(m->>'family')::bigint AND person_id=-21202;
+  PERFORM pg_temp.f5b_family(-21201,-21202,1);   -- ny familie med samme par
+  items:=jsonb_build_array(jsonb_build_object('interpretation_id',v_mid::text,
+        'family_id',(private.relation_binding_state(v_mid)#>>'{family,family_id}')::bigint));   -- som ejer (private)
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_promotions(-21201,items);
+  RESET ROLE;
+  IF pv#>>'{items,0,reason_code}' IS DISTINCT FROM 'RELATION_PROMOTION_REBIND_FAMILY_CHANGED' THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: anden familie %', pv;
+  END IF;
+  IF (SELECT count(*) FROM private.interpretation_promotion_batch b
+       WHERE b.id IN (SELECT batch_id FROM private.interpretation_promotion WHERE interpretation_id=v_mid))<>3 THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: antal batches';
+  END IF;
+  RAISE NOTICE 'OK: genbinding gennem previewet';
+END $rebind_preview$;
+ROLLBACK;

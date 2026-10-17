@@ -152,6 +152,23 @@ BEGIN
   IF NOT FOUND THEN RAISE EXCEPTION 'FAMILY_SOURCES_TEST_FAILED: (9) intet narrativ'; END IF;
   IF pg_temp.f2a_visible((m->>'family')::bigint)<>0 THEN RAISE EXCEPTION 'FAMILY_SOURCES_TEST_FAILED: privat narrativ'; END IF;
 
+  -- (2b-i) genbinding: ret ordinal → kilden skjult → genbind → kilden synlig igen (spec §4.3, §10)
+  m:=pg_temp.f2a_bound(-2591,v_actor);
+  v_fam:=(m->>'family')::bigint;
+  IF pg_temp.f2a_visible(v_fam)<>1 THEN RAISE EXCEPTION 'FAMILY_SOURCES_TEST_FAILED: genbinding før'; END IF;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  PERFORM red_set_familie_ordinal(v_fam,-2591,'partner',2);
+  RESET ROLE;
+  PERFORM set_config('app.change_set_id','',true);
+  IF pg_temp.f2a_visible(v_fam)<>0 THEN RAISE EXCEPTION 'FAMILY_SOURCES_TEST_FAILED: forældet binding synlig'; END IF;
+  SELECT jsonb_agg(jsonb_build_object('interpretation_id',ic.id::text,'family_id',v_fam)) INTO items
+    FROM private.interpretation_current ic WHERE ic.interpretation_key=(m->'claim'->>'key')::uuid;
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_promotions(-2591,items);
+  PERFORM red_promote_relation_interpretations_batch(-2591,items,pv->>'preview_sha256');
+  RESET ROLE;
+  IF pg_temp.f2a_visible(v_fam)<>1 THEN RAISE EXCEPTION 'FAMILY_SOURCES_TEST_FAILED: genbundet kilde ikke synlig'; END IF;
   RAISE NOTICE 'OK: public_family_sources og gaten';
 END $family_sources$;
 ROLLBACK;

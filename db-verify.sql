@@ -10127,10 +10127,23 @@ BEGIN
                      AND tgname='trg_relation_classification_event_append_only')
      OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.relation_classification_event'::regclass
                      AND tgname='trg_relation_classification_event_append_only_truncate')
+     -- Trin 5b 2b-i (spec §4.1): unikhed pr. fortolkning og tilstand; de to gamle regler er væk.
      OR NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
-                     WHERE c.relname='interpretation_promotion_one_family_per_interpretation'
-                       AND i.indrelid='private.interpretation_promotion'::regclass
-                       AND i.indisunique AND pg_get_expr(i.indpred,i.indrelid) LIKE '%target_type%family%')
+                     WHERE c.relname='interpretation_promotion_one_family_per_state'
+                       AND i.indrelid='private.interpretation_promotion'::regclass AND i.indisunique
+                       AND pg_get_expr(i.indpred,i.indrelid) LIKE '%target_type%=%family%')
+     OR NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+                     WHERE c.relname='interpretation_promotion_one_target_per_interpretation'
+                       AND i.indrelid='private.interpretation_promotion'::regclass AND i.indisunique
+                       AND pg_get_expr(i.indpred,i.indrelid) LIKE '%target_type%<>%family%')
+     OR EXISTS (SELECT 1 FROM pg_class WHERE relname='interpretation_promotion_one_family_per_interpretation')
+     OR EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.interpretation_promotion'::regclass AND contype='u')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.interpretation_promotion'::regclass
+                     AND conname='interpretation_promotion_family_state_check' AND convalidated)
+     -- Trin 5b 2b-i (spec §5.4): klassifikationen ordinal_beholdt
+     OR (SELECT pg_get_constraintdef(oid) FROM pg_constraint
+          WHERE conrelid='private.relation_classification_event'::regclass AND conname='relation_classification_event_kind_check')
+        IS DISTINCT FROM 'CHECK ((classification = ANY (ARRAY[''ordinal_afvigelse''::text, ''ordinal_beholdt''::text])))'
      OR to_regprocedure('private.relation_binding_state(uuid)') IS NULL
      OR to_regprocedure('private.relation_binding_state_sha256(uuid)') IS NULL
      OR to_regprocedure('private.append_relation_classification(uuid,text,jsonb)') IS NULL
@@ -10148,6 +10161,18 @@ BEGIN
   END LOOP;
   RAISE NOTICE 'OK: 5b 2a — bindingens tilstand og klassifikationer';
 END $relation_binding_state_verify$;
+
+-- Trin 5b 2b-i (spec §5.1): arkets projektion er privat og uden grants.
+DO $spouse_projection_verify$
+BEGIN
+  IF to_regprocedure('private.spouse_exception_projection(bigint)') IS NULL
+     OR has_function_privilege('anon','private.spouse_exception_projection(bigint)','EXECUTE')
+     OR has_function_privilege('authenticated','private.spouse_exception_projection(bigint)','EXECUTE')
+     OR has_function_privilege('service_role','private.spouse_exception_projection(bigint)','EXECUTE')
+     OR NOT (SELECT prosecdef FROM pg_proc WHERE oid='private.spouse_exception_projection(bigint)'::regprocedure) THEN
+    RAISE EXCEPTION 'SPOUSE_EXCEPTION_PROJECTION_CONTRACT_INVALID';
+  END IF;
+END $spouse_projection_verify$;
 
 -- Trin 5b del 2a (#151, spec §4.4): relationsbindingens flade og replay-kolonnen.
 DO $relation_promotion_verify$

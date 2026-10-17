@@ -10,6 +10,13 @@ export type SourcePersonaCandidate = {
   // Trin 5b: kandidatvisning (titler, egen post, familie med hovedpersonen).
   titles: string[]; ownPostKey: string | null; familyId: number | null; ordinal: number | null;
 };
+// Trin 5b 2b-i: hvorfor en ægtefælle står i køen (udledt i databasen) og hovedpersonens faktiske partnere.
+export type ReviewReason = 'context_unavailable' | 'principal_no_family' | 'partner_is_candidate' | 'partner_not_candidate';
+export type PrincipalPartner = {
+  personId: number; familyId: number; name: string; born: string | null; died: string | null; ordinal: number | null; konfidens: string[];
+};
+const REVIEW_REASONS: ReviewReason[] = ['context_unavailable', 'principal_no_family', 'partner_is_candidate', 'partner_not_candidate'];
+
 export type SourcePersonaHistoryRow = {
   version: number; decisionStatus: string; canonicalPersonId: number | null;
   basis: string | null; candidateId: string | null; reason: string | null; decidedByName: string | null; decidedAt: string | null;
@@ -41,6 +48,8 @@ export type SourcePersonaDetail = {
   collisions: Array<{ personId: number; personaKey: string }>;
   // Trin 5b: kun for ægtefælle-personas med entydig familiekontekst.
   familyContext: { principalRecordKey: string; marriageOrdinal: number } | null;
+  principalPartners: PrincipalPartner[];
+  reviewReason: ReviewReason | null;
 };
 
 export async function fetchSourcePersonaQueue(status: string | null = null, sourceId: number | null = null,
@@ -109,6 +118,14 @@ export async function fetchSourcePersonaDetail(sourcePersonaId: string): Promise
         const fc = raw.family_context as Record<string, unknown>;
         return { principalRecordKey: String(fc.principal_record_key), marriageOrdinal: Number(fc.marriage_ordinal) };
       })() : null,
+      principalPartners: Array.isArray(raw.principal_partners) ? raw.principal_partners.map((p) => {
+        const v = p as Record<string, unknown>;
+        return { personId: Number(v.person_id), familyId: Number(v.family_id), name: String(v.name ?? ''),
+          born: v.born == null ? null : String(v.born), died: v.died == null ? null : String(v.died),
+          ordinal: v.ordinal == null ? null : Number(v.ordinal),
+          konfidens: Array.isArray(v.konfidens) ? (v.konfidens as unknown[]).map(String) : [] };
+      }) : [],
+      reviewReason: REVIEW_REASONS.includes(raw.review_reason as ReviewReason) ? raw.review_reason as ReviewReason : null,
   };
 }
 
