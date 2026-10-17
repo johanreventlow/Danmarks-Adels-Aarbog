@@ -10227,3 +10227,17 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: 5b 2a — public_family_sources';
 END $family_sources_verify$;
+
+-- Trin 5b 2b-ii (spec §4): family.id er identity, og sekvensen ligger ikke bag max(id).
+DO $verify_family_id$
+DECLARE v_seq text; v_last bigint; v_called boolean;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='family'
+                  AND column_name='id' AND is_identity='YES') THEN RAISE EXCEPTION 'VERIFY_FAMILY_ID_IDENTITY'; END IF;
+  v_seq:=pg_get_serial_sequence('public.family','id');
+  EXECUTE format('SELECT last_value,is_called FROM %s',v_seq) INTO v_last,v_called;
+  IF (SELECT coalesce(max(id),0) FROM public.family) > (CASE WHEN v_called THEN v_last ELSE v_last-1 END) THEN
+    RAISE EXCEPTION 'VERIFY_FAMILY_ID_SEQUENCE_BEHIND';
+  END IF;
+  RAISE NOTICE 'OK: 5b 2b-ii — family.id identity';
+END $verify_family_id$;
