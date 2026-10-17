@@ -330,3 +330,9 @@ overførslen.
 3. **`privat = false`** sættes eksplicit på nye personer, som det almindelige standardvalg. Grundlaget er en
    trykt kilde og en afdød-erklæring pr. linje. `red_opret_person` sætter derimod `privat = true` for
    redaktørens manuelle oprettelser.
+4. **Aktivering kræver overførsels-spec'en** (fund under udførelsen, 2026-10-17). Den eksisterende `cutover`
+   fjerner kun `staged` fra personer, der er oprettet af `person_create`. `relation_person_create`-personer
+   forbliver derfor `staged` og skjulte i prod, indtil overførsels-spec'en for 5b eksplicit aktiverer dem.
+   Det er bevidst: aktiveringen er en del af overførslen (§12). Overførsels-spec'en **skal** dog nævne
+   operationen, ellers bliver D-ægtefællerne aldrig synlige.
+
