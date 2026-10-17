@@ -14999,7 +14999,7 @@ BEGIN
                  'span_from','span_to']
      OR p_element_id<>'relation-persona:'||coalesce(p_payload->>'interpretation_key','')
      OR coalesce(p_payload->>'predicate','') NOT IN ('relation.marriage','relation.child','relation.parent')
-     OR p_payload->>'profile' IS DISTINCT FROM 'relation-persona-2018-20-v1'
+     OR coalesce(p_payload->>'profile','') NOT IN ('relation-persona-2018-20-v1','relation-persona-2018-20-v2')
      OR coalesce(p_payload->>'clause_set_sha256','') !~ '^[0-9a-f]{64}$'
      OR EXISTS (SELECT 1 FROM unnest(ARRAY['interpretation_version','clause_set_seq','post_offset','span_from','span_to']) k
                  WHERE jsonb_typeof(p_payload->k)<>'number' OR (p_payload->>k) !~ '^[0-9]+$')
@@ -15041,10 +15041,21 @@ BEGIN
   END IF;
 
   v_raw:=v_interp.value->>'raw';
-  IF v_to-v_from<>char_length(v_raw)
-     OR substr(v_clause.verbatim_text,v_from+1,v_to-v_from)<>v_raw
-     OR (char_length(v_clause.verbatim_text)-char_length(replace(v_clause.verbatim_text,v_raw,'')))/char_length(v_raw)<>1
-     OR (p_payload->>'post_offset')::integer<>v_clause.post_char_from+v_from THEN
+  IF p_payload->>'profile'='relation-persona-2018-20-v1' THEN
+    IF v_to-v_from<>char_length(v_raw)
+       OR substr(v_clause.verbatim_text,v_from+1,v_to-v_from)<>v_raw
+       OR (char_length(v_clause.verbatim_text)-char_length(replace(v_clause.verbatim_text,v_raw,'')))/char_length(v_raw)<>1 THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_SPAN_INVALID';
+    END IF;
+  ELSE
+    -- v2 (2b-ii errata §15.1): det eneste minimale ordnede ordvindue.
+    IF (SELECT count(*) FROM private.relation_ordered_windows(v_clause.verbatim_text,v_raw))<>1
+       OR NOT EXISTS (SELECT 1 FROM private.relation_ordered_windows(v_clause.verbatim_text,v_raw) w
+                       WHERE w.w_from=v_from AND w.w_to=v_to) THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_SPAN_INVALID';
+    END IF;
+  END IF;
+  IF (p_payload->>'post_offset')::integer<>v_clause.post_char_from+v_from THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_SPAN_INVALID';
   END IF;
 
@@ -15083,7 +15094,7 @@ BEGIN
 
   IF v_marriage THEN
     INSERT INTO private.source_persona(source_id,persona_key,created_run_id)
-      VALUES (v_batch.source_id,v_record_key||'#rel-marriage-'||(p_payload->>'post_offset')||'-'||char_length(v_raw),v_run)
+      VALUES (v_batch.source_id,v_record_key||'#rel-marriage-'||(p_payload->>'post_offset')||'-'||(v_to-v_from),v_run)
       RETURNING id INTO v_spouse;
     INSERT INTO private.source_mention(observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id)
       VALUES (v_clause.id,'person',v_name_from,v_name_to,
@@ -16644,6 +16655,80 @@ CREATE OR REPLACE FUNCTION private.verify_relation_disposition_receipts(p_batch_
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
 BEGIN RAISE EXCEPTION 'RELATION_DISPOSITION_NOT_IMPLEMENTED'; END $$;
 REVOKE ALL ON FUNCTION private.verify_relation_disposition_receipts(uuid) FROM PUBLIC,anon,authenticated,service_role;
+
+-- ===================================================================================
+-- Trin 5b 2b-ii (#151, spec §5.2 / errata §15.1): det entydige minimale ordnede ordvindue.
+-- Ord = løb af den eksplicitte klasse [0-9A-Za-zÀ-ÖØ-öø-ÿ] (ikke \w, som afhænger af lc_ctype),
+-- sammenlignet med lower(). 0-baserede tegnpositioner, w_to eksklusiv. Python-tvillingen:
+-- relation_persona_extract_v2.windows.
+-- ===================================================================================
+CREATE OR REPLACE FUNCTION private.relation_ordered_windows(p_text text,p_raw text)
+RETURNS TABLE(w_from integer,w_to integer) LANGUAGE plpgsql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
+DECLARE tw text[]:='{}'; tf int[]:='{}'; tt int[]:='{}'; rw text[]; n int:=0; pos int; mlen int; i int; j int; k int;
+  ends int[]:='{}'; starts int[]:='{}';
+BEGIN
+  LOOP
+    pos:=regexp_instr(p_text,'[0-9A-Za-zÀ-ÖØ-öø-ÿ]+',1,n+1);
+    EXIT WHEN pos=0;
+    mlen:=char_length((regexp_match(substr(p_text,pos),'^[0-9A-Za-zÀ-ÖØ-öø-ÿ]+'))[1]);
+    n:=n+1; tw:=tw||lower(substr(p_text,pos,mlen)); tf:=tf||(pos-1); tt:=tt||(pos-1+mlen);
+  END LOOP;
+  SELECT array_agg(lower(m[1])) INTO rw FROM regexp_matches(p_raw,'([0-9A-Za-zÀ-ÖØ-öø-ÿ]+)','g') m;
+  IF rw IS NULL OR n=0 THEN RETURN; END IF;
+  FOR i IN 1..n LOOP
+    CONTINUE WHEN tw[i]<>rw[1];
+    j:=i; k:=2;
+    WHILE k<=array_length(rw,1) LOOP
+      j:=j+1;
+      EXIT WHEN j>n;
+      IF tw[j]=rw[k] THEN k:=k+1; END IF;
+    END LOOP;
+    IF k>array_length(rw,1) THEN starts:=starts||i; ends:=ends||j; END IF;
+  END LOOP;
+  -- Minimale vinduer: for hver slutposition kun det med senest start.
+  RETURN QUERY
+    SELECT tf[max(u.s)], tt[u.e] FROM unnest(starts,ends) AS u(s,e) GROUP BY u.e ORDER BY 1;
+END $$;
+REVOKE ALL ON FUNCTION private.relation_ordered_windows(text,text) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Trin 5b 2b-ii (spec §5.1): rækkefilens projektion — del 1's input for ægteskaber uden persona-part,
+-- plus hovedpersonen og hans/hendes nuværende partnere.
+CREATE OR REPLACE FUNCTION private.relation_persona_v2_input(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_rows jsonb;
+BEGIN
+  IF p_source_id IS NULL THEN RAISE EXCEPTION 'RELATION_PERSONA_V2_INPUT_INVALID'; END IF;
+  SELECT coalesce(jsonb_agg(x.r || jsonb_build_object('principal_person_id',x.principal,
+           'principal_partners',coalesce((
+              SELECT jsonb_agg(jsonb_build_object('person_id',o.person_id,'family_id',o.family_id,'ordinal',o.ordinal,
+                       'navn',coalesce(pp.visning_fuldt_navn,pp.visning_navn),'foedt',pp.visning_foedt,'doed',pp.visning_doed)
+                     ORDER BY o.person_id,o.family_id)
+                FROM public.family_member me JOIN public.family_member o ON o.family_id=me.family_id AND o.rolle='partner'
+                     AND o.person_id<>me.person_id JOIN public.person pp ON pp.id=o.person_id
+               WHERE me.person_id=x.principal AND me.rolle='partner'),'[]'::jsonb))
+         ORDER BY x.r->>'record_key' COLLATE "C", x.r->>'interpretation_key' COLLATE "C"),'[]'::jsonb)
+    INTO v_rows
+    FROM (SELECT r, CASE WHEN (r->>'principal_ok')::boolean THEN (
+                   SELECT pi.canonical_person_id FROM private.source_observation co
+                     JOIN private.source_mention sm ON sm.observation_id=co.parent_observation_id
+                     JOIN private.source_persona_mention spm ON spm.mention_id=sm.id AND spm.mention_role='primary'
+                     JOIN private.source_persona_identity pi ON pi.source_persona_id=spm.persona_id AND pi.decision_status='accepted'
+                    WHERE co.id=(r#>>'{clauses,0,observation_id}')::uuid) END AS principal
+            FROM jsonb_array_elements(private.relation_persona_input(p_source_id)) r
+           WHERE r->>'predicate'='relation.marriage') x;
+  RETURN jsonb_build_object('contract','relation-persona-v2-input','source_id',p_source_id,
+                            'deceased_cutoff_year',1921,'rows',v_rows);
+END $$;
+REVOKE ALL ON FUNCTION private.relation_persona_v2_input(bigint) FROM PUBLIC,anon,authenticated,service_role;
+CREATE OR REPLACE FUNCTION public.red_relation_persona_v2_input(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  RETURN private.relation_persona_v2_input(p_source_id);
+END $$;
+REVOKE ALL ON FUNCTION public.red_relation_persona_v2_input(bigint) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_relation_persona_v2_input(bigint) TO authenticated;
+
 
 
 -- ===================================================================================

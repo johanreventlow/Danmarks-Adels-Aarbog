@@ -699,6 +699,7 @@ BEGIN
     'public.red_register_identity_control_run(uuid,text)',
     'public.red_relation_persona_input(bigint)',
     'public.red_relation_person_create_input(bigint)',
+    'public.red_relation_persona_v2_input(bigint)',
     'public.red_ikke_samme_som(bigint,bigint)',
     'public.red_match_personer()',
     'public.red_ocr_historik(text,text,text)',
