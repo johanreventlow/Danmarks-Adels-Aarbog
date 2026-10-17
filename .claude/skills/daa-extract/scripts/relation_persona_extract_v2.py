@@ -10,7 +10,7 @@ import re
 from relation_persona_extract import GIFT, LETTER, MAX_NAME_WORDS, MAX_TITLE_WORDS, MED, NAME_END, UPPER
 
 PROFILE = "relation-persona-2018-20-v2"
-RULE = "vielsesaar-120-v1"
+RULE = "aarstal-120-v1"   # errata §15.5: hvert årstal kan være et fødselsår
 # Eksplicit ordklasse = SQL-klassen i private.relation_ordered_windows (ikke \w, som i PG afhænger af lc_ctype).
 WORD = re.compile(r"[0-9A-Za-zÀ-ÖØ-öø-ÿ]+")
 YEAR = re.compile(r"\b(1[0-9]{3}|20[0-9]{2})\b")   # = SQL '\m(…)\M' i write_relation_person_create

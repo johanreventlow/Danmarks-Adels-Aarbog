@@ -15,14 +15,15 @@ BEGIN
   c:=pg_temp.f5b_claim(-5221,s,'relation.marriage',(p->'clauses'->>1)::uuid,'Gift 1890 med Bo Beta.');
   sp:=pg_temp.f5b_spouse(-5221,s,p,c,(p->'clauses'->>1)::uuid,'Bo Beta',1);
   ok:=jsonb_build_object('basis','human_sheet','sheet_sha256',h,'rows_sha256',h,'line',1,
-       'deceased',jsonb_build_object('rule','vielsesaar-120-v1','cutoff_year',1921,'clause_years',jsonb_build_array(1890)));
+       'deceased',jsonb_build_object('rule','aarstal-120-v1','cutoff_year',1906,'clause_years',jsonb_build_array(1890)));
   bad:=ARRAY[
-    ok||jsonb_build_object('deceased',jsonb_build_object('rule','x','cutoff_year',1921,'clause_years',jsonb_build_array(1890))),
-    ok||jsonb_build_object('deceased',jsonb_build_object('rule','vielsesaar-120-v1','cutoff_year',1921,'clause_years','[]'::jsonb)),
-    ok||jsonb_build_object('deceased',jsonb_build_object('rule','vielsesaar-120-v1','cutoff_year',1921,'clause_years',jsonb_build_array(1950))),
-    ok||jsonb_build_object('deceased',jsonb_build_object('rule','vielsesaar-120-v1','cutoff_year',1930,'clause_years',jsonb_build_array(1890))),
-    ok||jsonb_build_object('deceased',jsonb_build_object('rule','vielsesaar-120-v1','cutoff_year',1921,'clause_years',jsonb_build_array('1890'))),
-    ok||jsonb_build_object('deceased',jsonb_build_object('rule','vielsesaar-120-v1','cutoff_year',1921,'clause_years',jsonb_build_array(1890),'x',1)),
+    ok||jsonb_build_object('deceased',jsonb_build_object('rule','x','cutoff_year',1906,'clause_years',jsonb_build_array(1890))),
+    ok||jsonb_build_object('deceased',jsonb_build_object('rule','aarstal-120-v1','cutoff_year',1906,'clause_years','[]'::jsonb)),
+    ok||jsonb_build_object('deceased',jsonb_build_object('rule','aarstal-120-v1','cutoff_year',1906,'clause_years',jsonb_build_array(1950))),
+    ok||jsonb_build_object('deceased',jsonb_build_object('rule','aarstal-120-v1','cutoff_year',1930,'clause_years',jsonb_build_array(1890))),
+    ok||jsonb_build_object('deceased',jsonb_build_object('rule','aarstal-120-v1','cutoff_year',1906,'clause_years',jsonb_build_array('1890'))),
+    ok||jsonb_build_object('deceased',jsonb_build_object('rule','aarstal-120-v1','cutoff_year',1906,'clause_years',jsonb_build_array(1890),'x',1)),
+    ok||jsonb_build_object('deceased',jsonb_build_object('rule','aarstal-120-v1','cutoff_year',1906,'clause_years',jsonb_build_array(1880,1918))),
     ok||jsonb_build_object('basis','web_detail')];
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   SET LOCAL ROLE authenticated;

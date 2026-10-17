@@ -21998,12 +21998,12 @@ BEGIN
        OR jsonb_typeof(v_ctx->'deceased')<>'object'
        OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(v_ctx->'deceased') k)
           <> ARRAY['clause_years','cutoff_year','rule']
-       OR v_ctx#>>'{deceased,rule}' IS DISTINCT FROM 'vielsesaar-120-v1'
-       OR v_ctx#>>'{deceased,cutoff_year}' IS DISTINCT FROM '1921'
+       OR v_ctx#>>'{deceased,rule}' IS DISTINCT FROM 'aarstal-120-v1'
+       OR v_ctx#>>'{deceased,cutoff_year}' IS DISTINCT FROM '1906'
        OR jsonb_typeof(v_ctx#>'{deceased,clause_years}')<>'array'
        OR jsonb_array_length(v_ctx#>'{deceased,clause_years}')=0
        OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_ctx#>'{deceased,clause_years}') y
-                   WHERE jsonb_typeof(y)<>'number' OR (y#>>'{}') !~ '^[0-9]{4}$' OR (y#>>'{}')::int>1921))) THEN
+                   WHERE jsonb_typeof(y)<>'number' OR (y#>>'{}') !~ '^[0-9]{4}$' OR (y#>>'{}')::int>1906))) THEN
     RAISE EXCEPTION 'EVIDENCE_IDENTITY_DECISION_INVALID';
   END IF;
   SELECT source_id INTO v_source FROM private.source_persona WHERE id=p_source_persona_id;
@@ -22563,7 +22563,7 @@ BEGIN
     FROM (SELECT DISTINCT m[1]::int AS y FROM regexp_matches(v_clause,'\m(1[0-9]{3}|20[0-9]{2})\M','g') m) q;
   IF v_years IS DISTINCT FROM v_ident.evidence#>'{deceased,clause_years}'
      OR jsonb_array_length(v_years)=0
-     OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_years) y WHERE (y#>>'{}')::int>1921) THEN
+     OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_years) y WHERE (y#>>'{}')::int>1906) THEN
     RAISE EXCEPTION 'RELATION_PERSON_CREATE_YEARS_DRIFT';
   END IF;
 
@@ -22732,7 +22732,7 @@ BEGIN
             FROM jsonb_array_elements(private.relation_persona_input(p_source_id)) r
            WHERE r->>'predicate'='relation.marriage') x;
   RETURN jsonb_build_object('contract','relation-persona-v2-input','source_id',p_source_id,
-                            'deceased_cutoff_year',1921,'rows',v_rows);
+                            'deceased_cutoff_year',1906,'rows',v_rows);
 END $$;
 REVOKE ALL ON FUNCTION private.relation_persona_v2_input(bigint) FROM PUBLIC,anon,authenticated,service_role;
 CREATE OR REPLACE FUNCTION public.red_relation_persona_v2_input(p_source_id bigint)

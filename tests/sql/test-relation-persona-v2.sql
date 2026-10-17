@@ -33,7 +33,7 @@ BEGIN
   c:=pg_temp.f5b_claim(-5241,s,'relation.marriage',v_clause,'Gift med Bo Beta.');
   -- v2-input: én række uden persona, med hovedpersonen og (tomme) partnere
   v_in:=private.relation_persona_v2_input(-5241);
-  IF v_in->>'contract'<>'relation-persona-v2-input' OR (v_in->>'deceased_cutoff_year')::int<>1921
+  IF v_in->>'contract'<>'relation-persona-v2-input' OR (v_in->>'deceased_cutoff_year')::int<>1906
      OR jsonb_array_length(v_in->'rows')<>1 OR (v_in#>>'{rows,0,principal_person_id}')::bigint<>-5241
      OR jsonb_typeof(v_in#>'{rows,0,principal_partners}')<>'array' THEN
     RAISE EXCEPTION 'V2_TEST_FAILED: v2-input %',v_in;

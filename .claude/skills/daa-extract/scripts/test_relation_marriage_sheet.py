@@ -25,7 +25,7 @@ def row(key, text, raw, partners=(), ordinal=1):
 
 
 def rows():
-    return {"contract": "relation-persona-v2-input", "source_id": 1, "deceased_cutoff_year": 1921, "rows": [
+    return {"contract": "relation-persona-v2-input", "source_id": 1, "deceased_cutoff_year": 1906, "rows": [
         row(K1, "Gift 1. gang 1890 med Bo Beta, f. 1801.", "Gift med Bo Beta"),
         row(K2, "Gift 1890 med Cia Ceta.", "Gift med Cia Ceta",
             partners=[{"person_id": 7, "family_id": 3, "ordinal": 1, "navn": "Cia Carla Ceta", "foedt": "1870", "doed": "1940"}]),
@@ -37,7 +37,7 @@ def test_render_forudfylder_og_viser_grundlag():
     ark = rms.render_sheet(rows())
     assert f"M {K1} 1 : D" in ark and f"M {K2} 1 : S" in ark and f"M {K3} 1 : I" in ark and f"M {K4} 1 : N" in ark
     assert "#   Navn: »Bo Beta«" in ark
-    assert "#   Årstal i klausulen: 1801, 1890 · grænse 1921" in ark
+    assert "#   Årstal i klausulen: 1801, 1890 · grænse 1906" in ark
     assert "Cia Carla Ceta (1870–1940) · familie 3 · nr. 1" in ark
     assert all(len(l) and "\n" not in l for l in ark.splitlines() if l.startswith("M "))
 
@@ -91,7 +91,7 @@ def test_identitetsscript_laaser_og_citerer():
     sql = rms.identity_sql(lines, rows(), sheet_sha256="b" * 64, rows_sha256="a" * 64)
     assert sql.index("BEGIN;\nSET LOCAL standard_conforming_strings=on;") < sql.index("red_afgoer_source_persona")
     assert "'same', 7," in sql and sql.count("'new_person_needed', NULL,") == 2
-    assert '"deceased": {"clause_years": [1801, 1890], "cutoff_year": 1921, "rule": "vielsesaar-120-v1"}' in sql
+    assert '"deceased": {"clause_years": [1801, 1890], "cutoff_year": 1906, "rule": "aarstal-120-v1"}' in sql
     assert "O''Brien \\ x" in sql and sql.rstrip().endswith("COMMIT;")
     assert sql.index("interpretation_party_current") < sql.index("SET LOCAL ROLE authenticated")
 

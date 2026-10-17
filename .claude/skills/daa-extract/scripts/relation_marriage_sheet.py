@@ -44,7 +44,8 @@ def _proposals(rows: dict) -> list[dict]:
 def render_sheet(rows: dict) -> str:
     cutoff = int(rows["deceased_cutoff_year"])
     out = ["# ÆGTESKABSARK (trin 5b 2b-ii)",
-           "# S = samme som forslagets partner · D = ny person, afdød efter bogen (gift senest grænseåret)",
+           "# S = samme som forslagets partner · D = ny person, afdød efter bogen (alle årstal senest grænseåret;",
+           "#   hvert årstal kan være et fødselsår — er du i tvivl, så svar N)",
            "# N = ny person, kan ikke erklæres afdød (oprettes ikke nu) · I = intet navn i bogen · U = uafklaret",
            "# Ret kun undtagelser. Er navnespændet forkert, er svaret U. En note må følge efter '#'.",
            "# Gem, og giv hashen i chatten.", ""]

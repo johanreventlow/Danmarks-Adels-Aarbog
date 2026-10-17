@@ -21,41 +21,47 @@ def test_window_matches_sql_fixture():
 
 def test_D_ved_gamle_aar():
     t = "Gift 1. gang 1890 med Bo Beta, f. 1801."
-    p = v2.propose(row(t, "Gift med Bo Beta"), 1921)
+    p = v2.propose(row(t, "Gift med Bo Beta"), 1906)
     assert p["tok"] == "D" and p["clause_years"] == [1801, 1890]
     assert t[p["name_from"]:p["name_to"]] == "Bo Beta" and (p["span_from"], p["span_to"]) == (0, 29)
 
 
 def test_N_ved_nyt_aar_og_ved_intet_aar():
-    assert v2.propose(row("Gift 1950 med Bo Beta.", "Gift med Bo Beta"), 1921)["tok"] == "N"
-    assert v2.propose(row("Gift med Bo Beta.", "Gift med Bo Beta"), 1921)["tok"] == "N"
+    assert v2.propose(row("Gift 1950 med Bo Beta.", "Gift med Bo Beta"), 1906)["tok"] == "N"
+    assert v2.propose(row("Gift med Bo Beta.", "Gift med Bo Beta"), 1906)["tok"] == "N"
 
 
 def test_S_ved_partnermatch():
     p = v2.propose(row("Gift 1890 med Bo Beta.", "Gift med Bo Beta",
-                       partners=[{"person_id": 7, "family_id": 3, "ordinal": 1, "navn": "Bo Carl Beta"}]), 1921)
+                       partners=[{"person_id": 7, "family_id": 3, "ordinal": 1, "navn": "Bo Carl Beta"}]), 1906)
     assert p["tok"] == "S" and p["partner_person_id"] == 7
 
 
 def test_S_kraever_entydig_partner():
     partners = [{"person_id": 7, "navn": "Bo Beta"}, {"person_id": 8, "navn": "Bo Beta"}]
-    assert v2.propose(row("Gift 1890 med Bo Beta.", "Gift med Bo Beta", partners=partners), 1921)["tok"] == "D"
+    assert v2.propose(row("Gift 1890 med Bo Beta.", "Gift med Bo Beta", partners=partners), 1906)["tok"] == "D"
 
 
 def test_navn_uden_med():
     t = "Gift 1925 Anna Xi."
-    p = v2.propose(row(t, "Gift 1925 Anna Xi"), 1921)
+    p = v2.propose(row(t, "Gift 1925 Anna Xi"), 1906)
     assert t[p["name_from"]:p["name_to"]] == "Anna Xi" and p["tok"] == "N"
 
 
 def test_I_U_graenser():
-    assert v2.propose(row("Gift 1975.", "Gift 1975."), 1921)["tok"] == "I"
-    assert v2.propose(row("Gift med Åse Ø. Gift med Åse Ø.", "gift med åse ø"), 1921)["tok"] == "U"   # tvetydigt
-    assert v2.propose(row("Gift med Bo Beta.", "Gift med Bo Beta", principal=None), 1921)["tok"] == "U"
-    assert v2.propose(row("Gift med Bo Beta.", "Gift med Bo Beta", sup=2), 1921)["tok"] == "U"
-    assert v2.propose(row("Gift med Bo Beta.", "Gift med Cia"), 1921)["tok"] == "U"                      # intet vindue
+    assert v2.propose(row("Gift 1975.", "Gift 1975."), 1906)["tok"] == "I"
+    assert v2.propose(row("Gift med Åse Ø. Gift med Åse Ø.", "gift med åse ø"), 1906)["tok"] == "U"   # tvetydigt
+    assert v2.propose(row("Gift med Bo Beta.", "Gift med Bo Beta", principal=None), 1906)["tok"] == "U"
+    assert v2.propose(row("Gift med Bo Beta.", "Gift med Bo Beta", sup=2), 1906)["tok"] == "U"
+    assert v2.propose(row("Gift med Bo Beta.", "Gift med Cia"), 1906)["tok"] == "U"                      # intet vindue
 
 
 def test_U_uden_aegteskabsnummer():
     # write_relation_persona kræver marriage_ordinal for ægteskaber (del 1: intet_nummer)
-    assert v2.propose(row("Gift 1890 med Bo Beta.", "Gift med Bo Beta", ordinal=None), 1921)["tok"] == "U"
+    assert v2.propose(row("Gift 1890 med Bo Beta.", "Gift med Bo Beta", ordinal=None), 1906)["tok"] == "U"
+
+
+def test_sent_foedselsaar_giver_N():
+    # Hvert årstal kan være et fødselsår (errata §15.5): »f. 1918« alene giver ikke D.
+    assert v2.propose(row("Gift med Bo Beta, f. 1918.", "Gift med Bo Beta"), 1906)["tok"] == "N"
+    assert v2.propose(row("Gift 1905 med Bo Beta, f. 1880.", "Gift med Bo Beta"), 1906)["tok"] == "D"

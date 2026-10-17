@@ -10,7 +10,7 @@ BEGIN
   PERFORM red_afgoer_source_persona(p_sp,0,'new_person_needed',NULL,'test',
     jsonb_build_object('basis','human_sheet','sheet_sha256',repeat('a',64),'rows_sha256',repeat('a',64),'line',1)
     || CASE WHEN p_years IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('deceased',jsonb_build_object(
-         'rule','vielsesaar-120-v1','cutoff_year',1921,'clause_years',to_jsonb(p_years))) END);
+         'rule','aarstal-120-v1','cutoff_year',1906,'clause_years',to_jsonb(p_years))) END);
   RESET ROLE;
 END $$;
 CREATE OR REPLACE FUNCTION pg_temp.f2bii_run(p_source bigint,p_actor uuid,p_manifest jsonb) RETURNS jsonb LANGUAGE plpgsql AS $$
