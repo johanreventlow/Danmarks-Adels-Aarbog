@@ -357,7 +357,7 @@ overførslen.
    til bogstaver (»1950erne«), og et overset senere årstal kan give D. Udtrækket og writerens genberegning
    bruger nu `(?<![0-9])(1[0-9]{3}|20[0-9]{2})(?![0-9])`.
 
-## 17. Tillæg: runde 2 — navneregel v3 og den første nye person på bogens data (2026-10-18, AFVENTER projektejerens godkendelse)
+## 17. Tillæg: runde 2 — navneregel v3 og den første nye person på bogens data (2026-10-18, GODKENDT af projektejeren samme dag)
 
 Designet er godkendt i brainstormen 2026-10-18 i tre dele. En uafhængig rådgiver (fable) vurderede hver del.
 Projektejeren valgte:
