@@ -342,7 +342,7 @@ overførslen.
    `deceased_cutoff_year` = 1906. Den fejler lukket: tvivl giver N. Projektejeren bekræfter stadig hver
    D-linje.
 
-## 16. Errata ved slutreviewet (2026-10-18, AFVENTER projektejerens godkendelse)
+## 16. Errata ved slutreviewet (2026-10-18, godkendt af projektejeren 2026-10-18)
 
 1. **§6 pkt. 1 holder ikke for `existing`-placeringer** (helgrensreview, Important 1). En
    `relation_person_create`-person er `staged`, og `family_offentlig` er falsk, så snart ét medlem ikke er

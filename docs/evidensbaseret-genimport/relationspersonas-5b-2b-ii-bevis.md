@@ -143,7 +143,7 @@ blev gentaget med opslaget foretaget først. Kopierne er omdøbt til `slet_1018_
    `D`-linje en dag giver en ny person, skal overførselsspec'en aktivere `relation_person_create`-personer.
    I denne kørsel var der ingen. Slutreviewet viste desuden, at en ny person i hovedpersonens **eksisterende**
    familie skjuler hele familien for læseren, indtil personen aktiveres. Overførslen skal derfor aktivere i
-   samme transaktion (errata §16.1, afventer godkendelse). `existing`-placeringer i denne kørsel: 0.
+   samme transaktion (errata §16.1, godkendt 2026-10-18). `existing`-placeringer i denne kørsel: 0.
 
 Konsekvens for roadmappet: 2b-ii's mekanik er bevist, men dækningen er lav (2 af 14). Næste runde over de 12
 `U` kræver fund 1-3 (deterministisk, ingen model) og eventuelt fund 4. Der går ikke noget tabt i ventetiden:
