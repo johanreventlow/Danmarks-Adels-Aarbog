@@ -342,3 +342,17 @@ overførslen.
    `deceased_cutoff_year` = 1906. Den fejler lukket: tvivl giver N. Projektejeren bekræfter stadig hver
    D-linje.
 
+## 16. Errata ved slutreviewet (2026-10-18, AFVENTER projektejerens godkendelse)
+
+1. **§6 pkt. 1 holder ikke for `existing`-placeringer** (helgrensreview, Important 1). En
+   `relation_person_create`-person er `staged`, og `family_offentlig` er falsk, så snart ét medlem ikke er
+   offentligt. Placeres den nye ægtefælle i hovedpersonens **eksisterende** familie, skjules familiens fakta,
+   noter og narrativer for læseren, indtil personen aktiveres. Sætningen »en skjult person kan aldrig skjule en
+   synlig familie« gælder derfor kun efter aktiveringen. Konsekvenser:
+   - Overførsels-spec'en (errata §15.4) **skal** aktivere `relation_person_create`-personer i samme transaktion,
+     som batchen lander i prod, eller før batchen publiceres. Den må ikke lade en `existing`-familie stå skjult.
+   - Beviset tæller `existing`-placeringer. I 2b-ii's kørsel var der 0, fordi ingen linje blev D. Intet er
+     ramt i dag.
+2. **Årstal findes med cifergrænser** (helgrensreview, Minor 4, rettet). Ordgrænser overså årstal klistret
+   til bogstaver (»1950erne«), og et overset senere årstal kan give D. Udtrækket og writerens genberegning
+   bruger nu `(?<![0-9])(1[0-9]{3}|20[0-9]{2})(?![0-9])`.
