@@ -67,6 +67,13 @@ def test_sent_foedselsaar_giver_N():
     assert v2.propose(row("Gift 1905 med Bo Beta, f. 1880.", "Gift med Bo Beta"), 1906)["tok"] == "D"
 
 
+def test_aarstal_klistret_til_bogstaver_taeller_med():
+    # review 2026-10-18: »1950erne« skal tælle som 1950, ellers kan en senere tid overses og give D.
+    p = v2.propose(row("Gift 1890 med Bo Beta, levede endnu i 1950erne.", "Gift med Bo Beta"), 1906)
+    assert p["tok"] == "N" and 1950 in p["clause_years"]
+    assert v2.propose(row("Gift 1890 med Bo Beta, nr. 18901.", "Gift med Bo Beta"), 1906)["clause_years"] == [1890]
+
+
 def _navn(t, raw):
     p = v2.propose(row(t, raw), 1906)
     return p["tok"], (t[p["name_from"]:p["name_to"]] if "name_from" in p else None)

@@ -165,4 +165,26 @@ BEGIN
   SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;   -- udskudte identitetstjek må ikke skjules af ROLLBACK
   RAISE NOTICE 'OK: relation_person_create årsdrift afvist';
 END $rpc_years_drift$;
+-- Årstal klistret til bogstaver (»1950erne«) tæller med (review 2026-10-18); en deceased-kontekst uden 1950 afvises.
+DO $rpc_years_glued$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-00000005b2b3'; s jsonb; p jsonb; c jsonb; sp uuid; m jsonb;
+BEGIN
+  INSERT INTO person(id,levende,privat,status) VALUES (-5235,false,false,'5b');
+  s:=pg_temp.f5b_source(-5235);
+  p:=pg_temp.f5b_post(-5235,s,'II-35','Anna Alfa. Gift 1890 med Bo Beta, levede i 1950erne.',
+       ARRAY['Anna Alfa.','Gift 1890 med Bo Beta, levede i 1950erne.'],-5235,v_actor);
+  PERFORM pg_temp.f2a_event_for_state((p->>'principal')::uuid);
+  c:=pg_temp.f5b_claim(-5235,s,'relation.marriage',(p->'clauses'->>1)::uuid,'Gift 1890 med Bo Beta.');
+  sp:=pg_temp.f5b_spouse(-5235,s,p,c,(p->'clauses'->>1)::uuid,'Bo Beta',1);
+  PERFORM pg_temp.f2bii_npn(v_actor,sp,ARRAY[1890]);
+  m:=private.relation_person_create_input(-5235);
+  BEGIN
+    PERFORM pg_temp.f2bii_run(-5235,v_actor,m);
+    RAISE EXCEPTION 'RPC_TEST_FAILED: klistret årstal overset';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM NOT LIKE '%RELATION_PERSON_CREATE_YEARS_DRIFT%' THEN RAISE; END IF;
+  END;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  RAISE NOTICE 'OK: relation_person_create klistret årstal afvist';
+END $rpc_years_glued$;
 ROLLBACK;

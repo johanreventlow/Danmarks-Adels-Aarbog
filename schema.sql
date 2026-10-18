@@ -16546,7 +16546,7 @@ BEGIN
   IF v_name IS DISTINCT FROM p_payload->>'name_text' THEN RAISE EXCEPTION 'RELATION_PERSON_CREATE_DRIFT'; END IF;
   -- Aldersreglen genberegnes fra klausulens tekst (spec §5.2 pkt. 5).
   SELECT coalesce(jsonb_agg(y ORDER BY y),'[]'::jsonb) INTO v_years
-    FROM (SELECT DISTINCT m[1]::int AS y FROM regexp_matches(v_clause,'\m(1[0-9]{3}|20[0-9]{2})\M','g') m) q;
+    FROM (SELECT DISTINCT m[1]::int AS y FROM regexp_matches(v_clause,'(?<![0-9])(1[0-9]{3}|20[0-9]{2})(?![0-9])','g') m) q;
   IF v_years IS DISTINCT FROM v_ident.evidence#>'{deceased,clause_years}'
      OR jsonb_array_length(v_years)=0
      OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_years) y WHERE (y#>>'{}')::int>1906) THEN
