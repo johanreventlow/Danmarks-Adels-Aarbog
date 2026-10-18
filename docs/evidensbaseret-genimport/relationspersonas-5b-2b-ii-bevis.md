@@ -13,8 +13,11 @@ disposition. Men af de 14 ægteskaber uden ægtefælle-persona blev kun **2** bu
 gennemgik arket og ændrede 8 af regelens 10 `S`-forslag og regelens ene `N` og ene `I` til `U`. Grunden
 er tre regelfejl og fejl i klausulopdelingen, ikke usikre personer (se »Fund«).
 
-- **0** nye personer: ingen linje blev `D`, så `relation_person_create` havde 0 elementer. Writeren er
-  bevist i CI (`test-relation-person-create.sql`, e2e) og i negativtest C og F her.
+- **0** nye personer: ingen linje blev `D`, så `relation_person_create` havde 0 elementer. **Oprettelsen af
+  en ny afdød ægtefælle er derfor ikke kørt på bogens data.** Den positive vej er kun bevist på opdigtede
+  personer i CI (`test-relation-person-create.sql`, e2e). Negativtest C og F her viser kun, at writeren
+  afviser på rigtige data. Beviset på rigtige data kommer tidligst i næste runde, når navnereglen giver
+  `D`-linjer, og det skal foreligge før en prod-overførsel af 2b-ii.
 - Efterkørslen bandt **2** ægteskaber (230 → 232) uden genbindinger. 2a's tupel-digest er uændret, og en
   genkørsel giver 0.
 - Dispositionen skiftede **122** klausuler (121 + 1 frigjort) til `fortolkning_foreslaaet`. En genkørsel
@@ -149,7 +152,8 @@ binding.
 
 ## Afvigelser fra planen
 
-- `relation_person_create`-batchen er ikke kørt (0 elementer).
+- `relation_person_create`-batchen er ikke kørt (0 elementer). Den positive oprettelsesvej er dermed ubevist på
+  rigtige data (se opsummeringen).
 - Negativtest A er omdefineret (se ovenfor).
 - Bind-preview skrev første gang sit manifest til en løs fil i arbejdsmappen, fordi variablen `manifest`
   ikke var sat. Filen indeholdt kun id'er og hashes og blev flyttet til den private mappe. Den var
