@@ -356,3 +356,204 @@ overførslen.
 2. **Årstal findes med cifergrænser** (helgrensreview, Minor 4, rettet). Ordgrænser overså årstal klistret
    til bogstaver (»1950erne«), og et overset senere årstal kan give D. Udtrækket og writerens genberegning
    bruger nu `(?<![0-9])(1[0-9]{3}|20[0-9]{2})(?![0-9])`.
+
+## 17. Tillæg: runde 2 — navneregel v3 og den første nye person på bogens data (2026-10-18, AFVENTER projektejerens godkendelse)
+
+Designet er godkendt i brainstormen 2026-10-18 i tre dele. En uafhængig rådgiver (fable) vurderede hver del.
+Projektejeren valgte:
+- omfang **A**: de 12 `U` fra 2b-ii og 2b-i-sagen på ét ark;
+- tilgang **2**: bedre regel, og mennesket kan rette, hvor navnet slutter.
+
+Runden er et tillæg, ikke en ny spec. Den sker kun i restore, så review-budgettet er 1 + 1 (decisions
+2026-09-23).
+
+### 17.1 Adgangskrav
+
+| Krav | Svar |
+| --- | --- |
+| Roadmapmål | Trin 5 (#151), 5b |
+| Værdikædeled | Udtræk → identitetsafgørelse → **oprettelse af ny kanonisk person (første gang på bogens data)** → binding → disposition |
+| Leverancetype | Udgaveprofil `relation-persona-2018-20-v3` (navneregel, titelliste) oven på den generelle motor; to stramninger i writeren `relation_person_create` |
+| Redaktionel/læserrettet værdi | Op til 10 ægteskaber får ægtefællen bundet med kilde (proveniens). Én afdød ægtefælle, som bogen nævner, men som databasen mangler, oprettes med kilde. Det sidste ubeviste led før en prod-overførsel bevises på rigtige data |
+| Færdigbevis | §17.8 |
+| Erstatter | Navneregel v2's blindgyde (titel inde i navnet ⇒ `U`); `relation_person_create` kun bevist syntetisk |
+
+### 17.2 Erratum til §3
+
+§3 siger, at 2b-i's `new_person_needed`-klausul »intet år« har. Det er forkert. Klausulen har ét årstal, 1314.
+Projektejeren har læst klausulen 2026-10-18 og bekræftet, at det er et årstal i en persons liv, ikke en
+henvisning. Under `aarstal-120-v1` er sagen derfor `D`. Navnet har 3 ord, intet titelord og én partikel.
+Hovedpersonen har 0 partnerfamilier, så familien bliver ny (`family_mode` `new`).
+
+### 17.3 Afgrænsning
+
+**Med:**
+- de 12 `M`-linjer, der stod `U` i 2b-ii;
+- én `P`-linje for 2b-i's `new_person_needed`;
+- de to mindre fund fra 2b-ii's slutreview i `write_relation_person_create`: aktuel klausul og fortolkningens
+  status.
+
+**Udenfor:**
+- klausulopdelingen (fund 4, trin 4; omsegmenteringen er i prod siden 2026-09-28);
+- linjen med to klausuler;
+- linjen, der venter på hovedpersonens binding;
+- `mention.place` (246 klausuler i `afventer_identitet`; decisions-post udsætter);
+- børnene (2b-iii);
+- #240;
+- prod-overførsel;
+- de øvrige seks mindre fund;
+- **aldersregel v2**. Ingen af de 12 har nul partnertræf og et årstal efter »DAA«, der ville vende sagen. Den
+  noteres som ubrugt i decisions-posten. `red_afgoer_source_persona` og årstalsberegningen er uændrede.
+
+### 17.4 Navneregel v3 (`relation_persona_extract_v3.py`)
+
+1. **Navnestart** som v2: første ord med versal efter »med« (eller efter »Gift« + tal). Titler og
+   forkortelser før navnet springes over som i v2.
+2. **Titler inde i navnet.** Navneløbet fortsætter hen over et ord fra den lukkede titelliste (§17.5), når det
+   næste ord har versal. Titlen kommer med i spændet, fordi spændet er bogens tekst i ét stykke.
+3. **Partikler**: v2's liste plus `und`, `zu`, `dem` og `genannt`.
+4. **Partnersammenligning.** Partikler og titelord fjernes på begge sider. Efternavnet (sidste ord, der ikke er
+   partikel) skal være ens. Desuden skal mindst halvdelen af de resterende ord være fælles.
+5. **Forslag:**
+
+   | Partnertræf | Forslag |
+   | --- | --- |
+   | 1 | `S` (et skævt ægteskabsnummer ændrer det ikke; arket viser det) |
+   | ≥ 2 | `S` for den partner, hvis familie har påstandens nummer, hvis der er netop én; ellers `U` |
+   | 0 | Aldersregel v1 ⇒ `D`, ellers `N`. Begge kræver et titelfrit navn (§17.5), ellers `U` |
+
+   `D` og `N` kræver nul træf, så en eksisterende partner kan aldrig blive oprettet igen. Det var linje 5's
+   fælde.
+
+### 17.5 Titelliste
+
+- **Lukket og versioneret i profilen.** Grundord: `greve`, `grevinde`, `komtesse`, `baron`, `baronesse`,
+  `friherre`, `friherreinde`, `prins`, `prinsesse`, `hertug`, `hertuginde`. Kun på grundord kan stå præfikset
+  `rigs` eller `lens`. Listen kan udvides i planen ud fra Task 0, men kun med ord, der optræder i de 12.
+- **Ét sted i hvert sprog.** Én SQL-konstant (`IMMUTABLE`-funktion) og én Python-konstant. En tvillingtest
+  læser listen ud af `schema.sql` og sammenligner med Python.
+- **Sikring ved `D`.** Hvert ord i navnet skal have versal eller være en partikel. Bogen skriver titler med lille,
+  så en titel uden for listen giver `U` i stedet for et navn med titel (decisions 2026-10-03: titel ≠ navn).
+- `write_relation_person_create` afviser et navn med et ord fra titellisten (`RELATION_PERSON_CREATE_NAME_TITLE`).
+  Det er det eneste sted, hvor navnet bliver kanonisk.
+
+### 17.6 Arket (`ark-v3.txt`, privat, hash-bundet)
+
+**Rækkefil.** `relation_persona_v2_input` uændret (de 12) plus `P`-rækken. `P`-rækken bygges af
+eksisterende kø-/detalje-RPC'er (`red_source_persona_queue`, `red_source_persona_detail`), hvis de giver
+klausul, årstal og den tidligere afgørelse. Ellers bygges en ny læsefunktion, og planen begrunder det.
+
+**`M`-linjer.**
+- Format: `M <key> <ver> : <tok> [navn: »…«] [# note]`.
+- `navn:` må kun skrives, hvor reglen har fundet en navnestart. Teksten skal begynde præcis ved navnestarten.
+  Mennesket retter kun, hvor navnet slutter. Teksten skal stå ordret og netop én gang i klausulen og ligge inden
+  for spændet.
+- Ved et rettet navn genberegnes forslaget (§17.4) på det rettede navn, og det tilladte svar følger det nye
+  forslag. Mennesket kan altså løfte `U` til `S`, men kun når reglen da finder præcis én partner.
+- Arket viser »nr. i bogen ≠ nr. i familien« tydeligt på et `S`-forslag med skævt nummer.
+- Ved `D` viser arket hele posten, ikke kun klausulen. Spørgsmålet er: »Gælder et senere årstal ægtefællen?«
+
+**`P`-linjen.**
+- Format: `P <source_persona_id> <identity_version> : D|N|U`.
+- Den viser den tidligere afgørelse (basis, dato, note), hele posten og årstallene.
+- `D` er kun tilladt, når aldersregel v1 giver `D` og navnet er titelfrit.
+- `N` og `U` skriver intet.
+- Versionen hentes fra rækkefilen og sendes til `red_afgoer_source_persona` som forventet version (ikke 0).
+  Noten henviser til den version, der erstattes.
+
+**Fejl.** Forkert format, forkert identitet, et ikke-tilladt svar, et `navn:`, der ikke står ordret og entydigt
+efter navnestarten, eller en hash, der ikke passer, gør, at værktøjet stopper uden at skrive nogen filer.
+
+### 17.7 Databasen (`schema.sql` og `db-migrations.sql`, holdt ens)
+
+1. **`write_relation_persona`** godtager profilen `relation-persona-2018-20-v3`. Kontrollen er den samme som for
+   v2: ordvindue og navn inden for spændet. Profil v3 kræver tre nøgler: `name_basis` (`rule` eller `sheet`),
+   `sheet_sha256` og `sheet_line`. De ligger hash-bundet i autorisationen og kopieres til `reimport_event`.
+   Der kommer ingen nye kolonner.
+2. **`write_relation_person_create`:**
+   - afviser et titelord i navnet (§17.5);
+   - kræver, at mentionens klausul er `clause_observation_current`;
+   - kræver, at den citerende fortolkning ikke er afløst.
+3. **Titellisten** som SQL-konstant med grants som de øvrige private hjælpefunktioner.
+4. **`db-verify.sql`** asserter profil v3 i writerens whitelist, titelfunktionen og eventuelle nye rettigheder.
+
+### 17.8 Bevis (i en ny kopi af `daa5b_2b_ii_bevis_20261017132417`; selve basen røres ikke)
+
+**Task 0, tørkørsel.** Den læser kun og viser kun tal. Den skriver to ting ned:
+
+- **Fordelingen:** `S`/`D`/`N`/`I`/`U` over de 12 og `P`. Også hvor mange navne der ville kræve en `navn:`-rettelse,
+  og hvor mange `S` med skævt nummer.
+- **For `P`:**
+  - `marriage_ordinal`;
+  - at `relation_person_create_family(principal, ord)` er NULL;
+  - at klausulen er `clause_observation_current`;
+  - `clause_years`.
+
+Afviger fordelingen fra designet (fx et `D` blandt de 12), stopper jeg og spørger projektejeren.
+
+**Kørsel:**
+1. Arket.
+2. Projektejerens godkendelse, hash-bundet.
+3. Persona-batch (`S`).
+4. Ét identitetsscript (`S` og `P` i samme transaktion).
+5. `relation_person_create` (forventet 1).
+6. Efterkørsel (afgørelse og binding).
+7. Disposition.
+
+**Rapporten måler:**
+- bindinger = 232 + antal `S` + 1. Den nye persons ægteskab bindes som alle andre (`structural_family`);
+- nye `ordinal_afvigelse`-klassifikationer;
+- den nye person: `staged`, `levende=false`, `visning_navn` = bogens tekst og titelfri;
+- kæden fakta → påstand → citation (kilde 1, side) → konklusion;
+- 1 ny familie og 2 `family_member`;
+- identiteten `accepted` med `deceased` i evidensen;
+- `verify_relation_person_create_receipts` grøn;
+- arkets hash ens i persona-kvitteringen og i identitetsevidensen;
+- **anon-læsningen uændret**, de kendte hashes, så den nye person ikke kan ses før aktivering;
+- aggregat-hashes ens bortset fra netop de nye rækker;
+- dispositionen: hvilke klausuler der skifter, og hvilke der venter (fx på `mention.place`). Der bygges ingen
+  undtagelse;
+- genkørsler giver 0.
+
+Rapporten siger udtrykkeligt, at kun `family_mode` `new` er bevist. `existing` (errata §16.1) er stadig
+ubevist, og overførslen skal aktivere i samme transaktion under alle omstændigheder.
+
+**Negativtest på rigtige data** (egne kopier, 0 skrivninger):
+- **A:** `P`-linjen køres igen ⇒ `EVIDENCE_IDENTITY_VERSION_CONFLICT`.
+- **C:** `U` løftet til `S` på arket uden regelbekræftelse ⇒ `SHEET_TOKEN_NOT_ALLOWED`.
+
+### 17.9 Test (CI, opdigtede navne)
+
+- **Python:**
+  - et testtilfælde pr. navnemønster: titel inde i navnet, `rigs`/`lens`, `von und zu`, `genannt`;
+  - to partnertræf, hvor nummeret afgør;
+  - to partnertræf uden afgørelse ⇒ `U`;
+  - ukendt titel ⇒ `U`;
+  - `navn:` der ikke er ordret, der begynder før navnestarten, eller der står to gange ⇒ afvist;
+  - `P` besvaret `D`, hvor reglen siger `N` ⇒ afvist;
+  - tvillingtest for titellisten.
+- **SQL:**
+  - profil v3 med og uden de nye nøgler;
+  - `relation_person_create` afviser titelord, afløst klausul og afløst fortolkning (tidligere negativtest D,
+    flyttet til CI);
+  - persona-kvitteringen bærer `sheet_sha256`.
+- **Uændret:** 2b-ii's tests for v2.
+- Hele CI-suiten kører lokalt, plus opgraderingstesten fra main.
+
+### 17.10 Dokumenter
+
+- bevisrapport `relationspersonas-5b-navneregel-v3-bevis.md`;
+- status;
+- changelog;
+- decisions-post: `mention.place` udsættes udtrykkeligt (246 klausuler venter, ingen læserværdi nu); aldersregel
+  v2 er designet, men ubrugt.
+
+Oprydning sker først efter måling og projektejerens ja.
+
+### 17.11 Kendte begrænsninger
+
+- `existing`-familie er ubevist (§16.1).
+- En afskåret klausul kan skjule et senere dødsår. Værnet er, at hele posten vises ved `D`, og at mennesket
+  bekræfter.
+- Titellisten dækker kun de ord, der er set i 2018-20. Andre udgaver kan kræve flere, og en ukendt titel giver
+  `U`.
