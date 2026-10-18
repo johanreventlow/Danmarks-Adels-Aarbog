@@ -36,7 +36,7 @@ def rows():
 def test_render_forudfylder_og_viser_grundlag():
     ark = rms.render_sheet(rows())
     assert f"M {K1} 1 : D" in ark and f"M {K2} 1 : S" in ark and f"M {K3} 1 : I" in ark and f"M {K4} 1 : N" in ark
-    assert "#   Navn: »Bo Beta«" in ark
+    assert "#   Ægtefællens navn: »Bo Beta«" in ark
     assert "#   Årstal i klausulen: 1801, 1890 · grænse 1906" in ark
     assert "Cia Carla Ceta (1870–1940) · familie 3 · nr. 1" in ark
     assert all(len(l) and "\n" not in l for l in ark.splitlines() if l.startswith("M "))

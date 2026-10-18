@@ -55,7 +55,7 @@ def render_sheet(rows: dict) -> str:
         out += [f"## ÆGTESKAB {i}/{n} · post {r.get('record_key') or '?'}",
                 f"#   Bogen: »{_ws(text)}«"]
         if "name_from" in p:
-            out.append(f"#   Navn: »{_ws(text[p['name_from']:p['name_to']])}«")
+            out.append(f"#   Ægtefællens navn: »{_ws(text[p['name_from']:p['name_to']])}«")
         partners = "; ".join(f"{_ws(x.get('navn')) or '(intet navn)'} ({x.get('foedt') or '?'}–{x.get('doed') or '?'})"
                              f" · familie {x.get('family_id')} · nr. {x.get('ordinal') if x.get('ordinal') is not None else '?'}"
                              for x in r.get("principal_partners", []))
