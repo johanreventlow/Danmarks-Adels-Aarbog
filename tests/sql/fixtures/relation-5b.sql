@@ -77,7 +77,14 @@ END $$;
 CREATE OR REPLACE FUNCTION pg_temp.f5b_family(p_a bigint,p_b bigint,p_ordinal int) RETURNS bigint LANGUAGE plpgsql AS $$
 DECLARE v_fam bigint;
 BEGIN
-  INSERT INTO family(id,type) VALUES ((SELECT coalesce(max(id),0)+1 FROM family),'vielse') RETURNING id INTO v_fam;
+  -- 2b-ii: family.id er identity (spec §4); eksplicitte id'er ville lade sekvensen halte. Ældre baser
+  -- (opgraderingstest før migrationen) har ingen identity og får max+1 som før.
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='family'
+              AND column_name='id' AND is_identity='YES') THEN
+    INSERT INTO family(type) VALUES ('vielse') RETURNING id INTO v_fam;
+  ELSE
+    INSERT INTO family(id,type) VALUES ((SELECT coalesce(max(id),0)+1 FROM family),'vielse') RETURNING id INTO v_fam;
+  END IF;
   INSERT INTO family_member(family_id,person_id,rolle,ordinal) VALUES (v_fam,p_a,'partner',p_ordinal);
   IF p_b IS NOT NULL THEN
     INSERT INTO family_member(family_id,person_id,rolle,ordinal) VALUES (v_fam,p_b,'partner',p_ordinal);
@@ -98,7 +105,8 @@ END $$;
 -- authenticated) med aktørens claim sat — samme mønster som test-reimport-name-completion.sql:104-110.
 -- red_authorize_reimport er kun tildelt service_role (schema.sql:4558); som authenticated fejler kaldet.
 -- Databaseidentiteten er JSON-strengen, som schema.sql:3096 sammenligner med — ikke current_database().
-CREATE OR REPLACE FUNCTION pg_temp.f5b_batch(p_source bigint,p_actor uuid,p_prof jsonb,p_elements jsonb) RETURNS jsonb LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION pg_temp.f5b_batch(p_source bigint,p_actor uuid,p_prof jsonb,p_elements jsonb,
+  p_counts jsonb DEFAULT NULL) RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE v_manifest text:=private.reimport_canonical_json_sha256(p_elements); v_auth uuid; v_batch uuid;
 BEGIN
   IF current_user NOT IN (SELECT rolname FROM pg_roles WHERE rolsuper) THEN RAISE EXCEPTION 'F5B_BATCH_MUST_RUN_AS_OWNER'; END IF;
@@ -106,8 +114,8 @@ BEGIN
   v_auth:=public.red_authorize_reimport(v_manifest,v_manifest,
     jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,
     p_source,p_prof->>'profile_id',
-    p_prof->>'profile_sha256',jsonb_build_object('person_creates',0,'source_evidence',0,
-    'relation_personas',(SELECT count(*) FROM jsonb_object_keys(p_elements))),p_elements,gen_random_uuid(),clock_timestamp()+interval '1 hour');
+    p_prof->>'profile_sha256',coalesce(p_counts,jsonb_build_object('person_creates',0,'source_evidence',0,
+    'relation_personas',(SELECT count(*) FROM jsonb_object_keys(p_elements)))),p_elements,gen_random_uuid(),clock_timestamp()+interval '1 hour');
   v_batch:=public.red_begin_reimport(v_auth,v_manifest,v_manifest);
   RETURN jsonb_build_object('auth',v_auth,'batch',v_batch);
 END $$;

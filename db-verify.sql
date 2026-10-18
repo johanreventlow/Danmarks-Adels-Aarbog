@@ -2942,6 +2942,8 @@ DECLARE
     'public.red_apply_reimport_clause_revision(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_relation_persona(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_relation_person_create(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_relation_disposition(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_person_create(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_source_evidence(uuid,text,jsonb)'::regprocedure,
     'public.red_begin_1939_v50_name_completion(uuid,text,uuid)'::regprocedure,
@@ -2974,6 +2976,9 @@ DECLARE
     'public.red_identity_control_sample(uuid)'::regprocedure,
     'public.red_register_identity_control_run(uuid,text)'::regprocedure,
     'public.red_relation_persona_input(bigint)'::regprocedure,
+    'public.red_relation_person_create_input(bigint)'::regprocedure,
+    'public.red_relation_persona_v2_input(bigint)'::regprocedure,
+    'public.red_relation_disposition_input(bigint)'::regprocedure,
     'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
     'public.red_kasser_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
     'public.red_lock_1939_v50_name_completion(text)'::regprocedure,
@@ -10227,3 +10232,17 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: 5b 2a — public_family_sources';
 END $family_sources_verify$;
+
+-- Trin 5b 2b-ii (spec §4): family.id er identity, og sekvensen ligger ikke bag max(id).
+DO $verify_family_id$
+DECLARE v_seq text; v_last bigint; v_called boolean;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='family'
+                  AND column_name='id' AND is_identity='YES') THEN RAISE EXCEPTION 'VERIFY_FAMILY_ID_IDENTITY'; END IF;
+  v_seq:=pg_get_serial_sequence('public.family','id');
+  EXECUTE format('SELECT last_value,is_called FROM %s',v_seq) INTO v_last,v_called;
+  IF (SELECT coalesce(max(id),0) FROM public.family) > (CASE WHEN v_called THEN v_last ELSE v_last-1 END) THEN
+    RAISE EXCEPTION 'VERIFY_FAMILY_ID_SEQUENCE_BEHIND';
+  END IF;
+  RAISE NOTICE 'OK: 5b 2b-ii — family.id identity';
+END $verify_family_id$;

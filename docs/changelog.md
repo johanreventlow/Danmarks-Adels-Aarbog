@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-10-18 — trin 5b del 2b-ii: nye afdøde ægtefæller, de 14 ægteskaber og klausul-dispositionen (#151)
+
+Implementeret efter planen `2026-10-17-trin5b-2b-ii.md` på `docs/151-5b-2b-ii`. Indhold:
+- `family.id` som identity i fersk schema (migrationen løfter kun sekvensen);
+- writer-operationen `relation_person_create` (ny afdød ægtefælle efter aldersreglen ≤ 1906, `staged`, `levende=false`) med ny identitetsoprindelse;
+- persona-profil v2 med entydigt minimalt ordvindue og et hash-bundet ægteskabsark (`relation_marriage_sheet.py`);
+- writer-operationen `relation_disposition` (regel identitet pr. aktør);
+- en opgraderingstest.
+
+Bevis i restore (ikke prod): arkets 14 linjer gav S 2 og U 12, efter at projektejeren rettede 10 af regelens forslag. Det gav 2 nye
+bindinger (232 synlige kilderækker), 0 nye personer og 122 disponerede klausuler. 0 kanonisk delta, og negativtest A-F afviser.
+Fundene til næste runde er titler inde i adelsnavne, partikler i partnersammenligningen, henvisningsår i aldersreglen og
+klausulopdelingen. Rapport: `docs/evidensbaseret-genimport/relationspersonas-5b-2b-ii-bevis.md`. Ikke deployet.
+
 ## 2026-10-13 — trin 5b del 2b-i: genbinding, undtagelsesark for ægtefæller og køen afgjort (#151)
 
 Implementeret efter planen `2026-10-12-trin5b-2b-i.md` på `docs/151-5b-2b-i`. Indhold:
