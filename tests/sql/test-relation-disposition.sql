@@ -1,6 +1,8 @@
 -- Trin 5b 2b-ii (#151, spec §8): relation_disposition — afventer_identitet → fortolkning_foreslaaet pr. aktør.
 \set ON_ERROR_STOP on
 BEGIN;
+-- Aktørernes identitetsrækker skal være låst FOR SHARE af writeren (review 2026-10-18, Important 2).
+CREATE EXTENSION IF NOT EXISTS pgrowlocks;
 \ir fixtures/relation-5b.sql
 \ir fixtures/relation-2a.sql
 -- maskinel disposition v1 = afventer_identitet på en klausul
@@ -42,7 +44,7 @@ BEGIN
 END $$;
 
 DO $disposition$
-DECLARE v_actor uuid:='11000000-0000-0000-0000-00000005b2b6'; s jsonb; p jsonb; c jsonb; k uuid[]; sp uuid; m jsonb; r jsonb;
+DECLARE v_actor uuid:='11000000-0000-0000-0000-00000005b2b6'; s jsonb; p jsonb; c jsonb; k uuid[]; sp uuid; sp1 uuid; m jsonb; r jsonb;
 BEGIN
   PERFORM pg_temp.f5b_actor(v_actor);
   INSERT INTO person(id,levende,privat,status) VALUES (-5261,false,false,'5b'),(-52611,false,false,'5b');
@@ -53,7 +55,7 @@ BEGIN
   SELECT array_agg(x::uuid ORDER BY o) INTO k FROM jsonb_array_elements_text(p->'clauses') WITH ORDINALITY AS t(x,o);
   -- K1 (k[2]): ægtefælle accepteret ⇒ med
   c:=pg_temp.f5b_claim(-5261,s,'relation.marriage',k[2],'Gift med Bo Beta.');
-  sp:=pg_temp.f5b_spouse(-5261,s,p,c,k[2],'Bo Beta',1); PERFORM pg_temp.f2bii_ident(sp,'accepted',-52611,v_actor);
+  sp:=pg_temp.f5b_spouse(-5261,s,p,c,k[2],'Bo Beta',1); PERFORM pg_temp.f2bii_ident(sp,'accepted',-52611,v_actor); sp1:=sp;
   -- K2 (k[3]): som K1 + et aktørforslag uden persona ⇒ ikke med (§8.2 pkt. 2)
   c:=pg_temp.f5b_claim(-5261,s,'relation.marriage',k[3],'Gift med Cia Ceta.');
   sp:=pg_temp.f5b_spouse(-5261,s,p,c,k[3],'Cia Ceta',2); PERFORM pg_temp.f2bii_ident(sp,'accepted',-52611,v_actor);
@@ -78,6 +80,11 @@ BEGIN
     RAISE EXCEPTION 'DISP_TEST_FAILED: K1 skiftede ikke';
   END IF;
   IF r#>'{relation_results,0,derived_counts}'<>'{"dispositions":1}'::jsonb THEN RAISE EXCEPTION 'DISP_TEST_FAILED: derived %',r; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pgrowlocks('private.source_persona_identity') l
+                   JOIN private.source_persona_identity i ON i.ctid=l.locked_row
+                  WHERE i.source_persona_id=sp1 AND 'For Share'=ANY(l.modes)) THEN
+    RAISE EXCEPTION 'DISP_TEST_FAILED: aktørens identitet ikke låst FOR SHARE';
+  END IF;
   IF (SELECT count(*) FROM private.clause_disposition_current WHERE observation_id IN (k[3],k[4],k[5])
         AND disposition='fortolkning_foreslaaet')<>0 THEN RAISE EXCEPTION 'DISP_TEST_FAILED: andre ændret'; END IF;
   IF (private.relation_disposition_input(-5261)->'expected_counts'->>'relation_dispositions')::int<>0 THEN

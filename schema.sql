@@ -16736,12 +16736,21 @@ BEGIN
      OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(p_payload) k)
         <> ARRAY['actor_persona_ids','citing_interpretation_ids','from_disposition_version','observation_id']
      OR coalesce(p_payload->>'observation_id','') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-     OR p_element_id<>'relation-disposition:'||(p_payload->>'observation_id') THEN
+     OR p_element_id<>'relation-disposition:'||(p_payload->>'observation_id')
+     OR jsonb_typeof(p_payload->'actor_persona_ids')<>'array'
+     OR EXISTS (SELECT 1 FROM jsonb_array_elements(p_payload->'actor_persona_ids') x
+                 WHERE jsonb_typeof(x)<>'string'
+                    OR (x#>>'{}') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_DISPOSITION_INVALID';
   END IF;
   v_obs:=(p_payload->>'observation_id')::uuid;
   -- Klausulen låses; tilstanden genberegnes i skrivetransaktionen og skal være lig autorisationen.
   PERFORM 1 FROM private.source_observation WHERE id=v_obs FOR UPDATE;
+  -- Aktørernes identiteter låses FOR SHARE i fast rækkefølge, så en samtidig identitetsafgørelse
+  -- ikke kan ændre en aktør mellem genberegningen og commit (review 2026-10-18, Important 2).
+  PERFORM 1 FROM private.source_persona_identity
+   WHERE source_persona_id IN (SELECT (x#>>'{}')::uuid FROM jsonb_array_elements(p_payload->'actor_persona_ids') x)
+   ORDER BY source_persona_id FOR SHARE;
   v_state:=private.relation_disposition_state(v_obs);
   IF v_state IS NULL OR v_state IS DISTINCT FROM p_payload THEN RAISE EXCEPTION 'RELATION_DISPOSITION_NOT_ELIGIBLE'; END IF;
   v_ver:=(p_payload->>'from_disposition_version')::integer+1;
