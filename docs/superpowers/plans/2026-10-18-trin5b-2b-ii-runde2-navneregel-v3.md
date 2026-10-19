@@ -53,6 +53,10 @@
   - no Claude attribution;
   - no push without the projektejer's yes.
 - **pytest:** `/private/tmp/claude-501/-Users-johanreventlow-TypeScript-danmarksadelsaarbog/661443a4-16c6-44ec-b137-e7792168526d/scratchpad/venv314/bin/python -m pytest`. Recreate it with `python3 -m venv … && …/pip install pytest pyyaml` if tmp cleanup removed it.
+- **Scratchpad helpers** (not in the repo; tmp cleanup can remove them):
+  - `mkdb.sh <db> fresh|migrated|writer` builds a disposable DB from the working tree. `fresh` = `tests/sql/evidence-promotion-bootstrap.sql` + `schema.sql` + `db-rls.sql`. `migrated` = the same plus `db-migrations.sql` twice and `db-rls.sql`. `writer` = `fresh` plus `tests/sql/1939-v50-writer-bootstrap.sql`, then `BEGIN` / `tests/sql/reimport-writer-v2-bootstrap.sql` / `COMMIT`, then `db-rls.sql`. All `psql` runs use `env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1`.
+  - `gen_ci.py <repo> <outdir> <venv>` reads `.github/workflows/ci.yml` and writes one bash script per job. It skips `npm ci` and `install.packages` steps. Each job with a postgres service gets its own `initdb` cluster on its own port (from 55441, `--locale=en_US.UTF-8`, `trust`), with `POSTGRES_DB` created. The step env is exported, and each script ends with `CI_JOB_OK_<job>` when nothing failed.
+  - If either is missing, recreate it from this description before Task 3.
 - **Local test DBs** are named `ci5b_v3_*`. The evidence base `daa5b_2b_ii_bevis_20261017132417` is read-only; the proof runs in a copy.
 - **Review budget** is 1 + 1 (decisions 2026-09-23, restore only).
 
@@ -71,7 +75,7 @@
    - Pinned by `test_P_partner_findes_giver_U` (Task 1).
 5. **Re-running the identity script after the P-line has applied.**
    - Expected: `EVIDENCE_IDENTITY_VERSION_CONFLICT` and 0 new events.
-   - Pinned by the e2e rerun in `test-relation-marriage-sheet-v3.sh` (Task 4) and negative test A (Task 6).
+   - Pinned by the e2e rerun in `test-relation-marriage-sheet-v3.sh` and its separate P-line call (Task 4), and by negative test A with its separate P-line call (Task 6). The script rerun alone stops at the first `M` line and never tests the P-line's lock.
 
 ---
 
@@ -85,7 +89,8 @@
 | `tests/sql/test-relation-persona-v3.sql`, `tests/sql/test-relation-person-create-v3.sql` | writer v3, v3-input, person_create-afvisninger | 3 |
 | `.claude/skills/daa-extract/scripts/relation_marriage_sheet_v3.py` (+ test), `relation_v3_rows.sql` | ark v3: render/sql, `navn:`, P-linjer | 4 |
 | `tests/sql/fixtures/relation-marriage-v3.sql`, `tests/sql/test-relation-marriage-sheet-v3.sh` | ark v3 ende til ende | 4 |
-| `.github/workflows/ci.yml`, `tests/sql/test-2bii-upgrade.sh` | CI og opgradering | 5 |
+| `.github/workflows/ci.yml` | CI | 5 |
+| `.claude/skills/daa-extract/scripts/test_identity_guard_static.py` | ALLOWLIST-tælling for den nye migrationskopi | 3 |
 | `docs/evidensbaseret-genimport/relationspersonas-5b-navneregel-v3-bevis.md`, `status.md`, `docs/changelog.md`, `docs/decisions.md` | bevis og dokumenter | 6 |
 
 ---
@@ -104,7 +109,7 @@
   - `is_title(word: str) -> bool`, `title_free(name: str) -> bool`;
   - `partner_hit(name: str, partner_name: str | None) -> bool`;
   - `class NameOverrideError(ValueError)`;
-  - `propose(row: dict, cutoff: int, name_override: str | None = None) -> dict`. The returned keys are `tok, reason` and, when a name was found, `span_from, span_to, name_from, name_to, clause_years, name_basis`. For `S` it also returns `partner_person_id, partner_ordinal`.
+  - `propose(row: dict, cutoff: int, name_override: str | None = None) -> dict`. The returned keys are `tok, reason` and, when a name was found, `span_from, span_to, name_from, name_to, clause_years, name_basis`. The name keys are present also for `U` with reason `flere_partnere`, `titel_i_navn` or `navn_afkortet`. For `S` it also returns `partner_person_id, partner_ordinal`. A `name_override` on a row without a name start raises `NameOverrideError`.
   - `propose_redecide(prow: dict, cutoff: int) -> dict`. The returned keys are `tok ∈ {D,N,U}, reason`, plus `clause_years` when `tok ∈ {D,N}`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -200,18 +205,65 @@ def test_kapitaliseret_titel_foer_navnet_giver_ikke_D():
     assert p["tok"] == "U" and p["reason"] == "titel_i_navn"
 
 
-def test_ukendt_titel_kommer_aldrig_ind_i_navnet():
-    # »markise« er ikke på listen: navnet stopper før den (afkortet til »Ida«). Titlen når aldrig det kanoniske
-    # navn; det afkortede navn står på arket, og mennesket svarer U eller retter med navn: (spec §17.11).
+def test_ukendt_titel_giver_U():
+    # spec §17.9: »markise« er ikke på listen, så reglen stopper før den (afkortet til »Ida«). Et afkortet navn
+    # må aldrig blive D; forslaget er U, og navnet står på arket, så mennesket kan rette med navn:.
     t = "Gift 1890 med Ida markise Dal."
     p = v3.propose(row(t, "Gift med Ida markise Dal"), 1906)
-    assert name_of(t, p) == "Ida" and v3.title_free(name_of(t, p))
+    assert p["tok"] == "U" and p["reason"] == "navn_afkortet" and name_of(t, p) == "Ida"
+
+
+def test_til_gods_er_ikke_afkortning():
+    # »til <gods>« er ikke en del af navnet (beslutning 2026-10-03) og udløser ikke navn_afkortet
+    t = "Gift 1890 med Ida Dal til Ørum."
+    p = v3.propose(row(t, "Gift med Ida Dal til Ørum"), 1906)
+    assert p["tok"] == "D" and name_of(t, p) == "Ida Dal"
 
 
 def test_navnerettelse_forlaenger_slutningen():
-    t = "Gift 1890 med Ida Dal til Ørum, f. 1801."
-    p = v3.propose(row(t, "Gift med Ida Dal til Ørum", [partner(7, "Ida Dal")]), 1906, name_override="Ida Dal")
-    assert p["tok"] == "S" and p["name_basis"] == "sheet" and name_of(t, p) == "Ida Dal"
+    # reglen stopper før det ulistede »markise« (U); rettelsen forlænger navnet, og så findes partneren
+    t = "Gift 1890 med Ida markise Dal, f. 1801."
+    r = row(t, "Gift med Ida markise Dal", [partner(7, "Ida Dal")])
+    assert v3.propose(r, 1906)["tok"] == "U"
+    p = v3.propose(r, 1906, name_override="Ida markise Dal")
+    assert p["tok"] == "S" and p["name_basis"] == "sheet" and name_of(t, p) == "Ida markise Dal"
+
+
+def test_komma_efter_efternavnet_bag_en_titel():
+    # vinduet rækker ud over navnet, så kommaet ligger inde i segmentet (Fable-review af planen, fund 1)
+    t = "Gift 1890 med Ida komtesse Dal, datter af Ole Hak."
+    p = v3.propose(row(t, "Gift med Ida komtesse Dal, datter af Ole Hak", [partner(7, "Ida Dal")]), 1906)
+    assert p["tok"] == "S" and name_of(t, p) == "Ida komtesse Dal"
+
+
+def test_flere_partnere_og_titel_viser_stadig_navnet():
+    # arket skal vise regelens navn netop dér, hvor mennesket skal rette med navn:
+    t = "Gift 1890 med Eva Fik."
+    rows = [partner(7, "Eva Fik", ordinal=1, fam=3), partner(8, "Eva Fik", ordinal=1, fam=4)]
+    p = v3.propose(row(t, "Gift med Eva Fik", rows, ordinal=2), 1906)
+    assert p["reason"] == "flere_partnere" and name_of(t, p) == "Eva Fik"
+    t2 = "Gift 1890 med Komtesse Ida Dal."
+    p2 = v3.propose(row(t2, "Gift med Komtesse Ida Dal"), 1906)
+    assert p2["reason"] == "titel_i_navn" and name_of(t2, p2) == "Komtesse Ida Dal"
+
+
+def test_navnerettelse_skal_slutte_ved_helt_ord():
+    t = "Gift 1890 med Ida Dal, f. 1801."
+    for bad in ("Ida Da", "Ida Dal,"):
+        with pytest.raises(v3.NameOverrideError):
+            v3.propose(row(t, "Gift med Ida Dal"), 1906, name_override=bad)
+
+
+def test_navnerettelse_uden_navnestart_afvises():
+    # tidlige U (her: intet nummer) må ikke sluge en navn:-rettelse tavst (spec §17.6)
+    t = "Gift 1890 med Ida Dal."
+    with pytest.raises(v3.NameOverrideError):
+        v3.propose(row(t, "Gift med Ida Dal", ordinal=None), 1906, name_override="Ida Dal")
+
+
+def test_bindestregstitel_fanges_som_i_sql():
+    # SQL-tvillingen deler på alle ikke-bogstaver; Python skal fange det samme allerede på arket
+    assert not v3.title_free("Ida Rigs-Grevinde Dal")
 
 
 def test_navnerettelse_skal_starte_ved_navnestarten():
@@ -276,8 +328,10 @@ Deterministisk; ingen model læser teksten. Ordvinduet og årstallene er v2's (S
 """
 from __future__ import annotations
 
+import re
+
 from relation_persona_extract import LETTER, MAX_NAME_WORDS, UPPER
-from relation_persona_extract_v2 import CAP, STOP_TITLE, TOKEN, YEAR, _start, _words, windows
+from relation_persona_extract_v2 import CAP, STOP_TITLE, TOKEN, WORD, YEAR, _start, _words, windows
 from relation_persona_extract_v2 import PARTICLES as _PARTICLES_V2
 
 PROFILE = "relation-persona-2018-20-v3"
@@ -287,6 +341,8 @@ TITLE_WORDS = ("baron", "baronesse", "friherre", "friherreinde", "greve", "grevi
                "komtesse", "prins", "prinsesse")
 TITLE_PREFIXES = ("rigs", "lens")
 PARTICLES = _PARTICLES_V2 | {"und", "zu", "dem", "genannt"}
+NOT_NAME = {"til"}   # »til <gods>« ≠ navn (beslutning 2026-10-03); udløser ikke navn_afkortet
+LOWER_WORD = re.compile(r"[a-zæøåà-öø-ÿ]+")
 
 
 class NameOverrideError(ValueError):
@@ -299,29 +355,39 @@ def is_title(word: str) -> bool:
 
 
 def title_free(name: str) -> bool:
-    """Sikring ved D (spec §17.5): hvert ord har versal eller er en partikel, og intet ord er en titel."""
-    for raw in name.split():
-        w = raw.strip(",.;:")
-        if not w:
-            continue
+    """Sikring ved D (spec §17.5): hvert ord har versal eller er en partikel, og intet ord er en titel.
+    Ordene deles som i SQL-tvillingen (på alle ikke-ordtegn), så »Rigs-Grevinde« fanges allerede på arket."""
+    for m in WORD.finditer(name):
+        w = m.group(0)
         if is_title(w) or not (CAP.fullmatch(w) or w.lower() in PARTICLES):
             return False
     return True
 
 
 def _links_to_name(toks, k: int) -> bool:
-    """Partikler og titler inde i navnet: kæden fra k skal ende i et ord med versal, uden komma/punktum."""
+    """Partikler og titler inde i navnet: kæden fra k skal ende i et ord med versal. Komma/punktum må ikke stå
+    inde i kæden, men gerne efter slutordet (hovedløkken afslutter navnet dér)."""
     j = k
     while j < len(toks):
         word = toks[j][2]
         bare = word.rstrip(",.;:")
-        if bare != word:
-            return False
         if bare.lower() in PARTICLES or is_title(bare):
+            if bare != word:
+                return False
             j += 1
             continue
         return bool(CAP.fullmatch(bare))
     return False
+
+
+def _truncated(text: str, nt: int, st: int) -> bool:
+    """Reglen stoppede foran et ulistet småord, som efterfølges af et versalord (fx en ukendt titel inde i
+    navnet). Sådan et navn er afkortet og må ikke blive D (spec §17.9)."""
+    m = re.match(r"\s+(\S+)\s+(\S+)", text[nt:st])
+    if not m:
+        return False
+    w, nxt = m.group(1), m.group(2).rstrip(",.;:")
+    return bool(LOWER_WORD.fullmatch(w)) and w not in PARTICLES and w not in NOT_NAME and bool(CAP.fullmatch(nxt))
 
 
 def _name(seg: str):
@@ -340,7 +406,7 @@ def _name(seg: str):
     titel = seg[start:toks[k][0]]
     if any(ch in titel for ch in ";()*†") or STOP_TITLE.search(titel):
         return None
-    if after_gift and not __import__("re").fullmatch(r"[\s\d.,°/-]*", titel):
+    if after_gift and not re.fullmatch(r"[\s\d.,°/-]*", titel):
         return None
     if not after_gift and any(ch.isdigit() for ch in titel):
         return None
@@ -376,6 +442,15 @@ def partner_hit(name: str, partner_name: str | None) -> bool:
 
 
 def propose(row: dict, cutoff: int, name_override: str | None = None) -> dict:
+    """Forslag for én række. En navn:-rettelse kræver en navnestart; ellers NameOverrideError (spec §17.6),
+    også ved de tidlige U og ved I, så rettelsen aldrig ignoreres tavst."""
+    p = _propose(row, cutoff, name_override)
+    if name_override is not None and "name_from" not in p:
+        raise NameOverrideError("ingen navnestart")
+    return p
+
+
+def _propose(row: dict, cutoff: int, name_override: str | None) -> dict:
     if not row.get("principal_ok") or row.get("principal_person_id") is None:
         return {"tok": "U", "reason": "ingen_hovedperson"}
     if row["supporting_count"] != 1 or len(row["clauses"]) != 1:
@@ -390,8 +465,6 @@ def propose(row: dict, cutoff: int, name_override: str | None = None) -> dict:
     seg = text[sf:st]
     nm = _name(seg)
     if nm is None:
-        if name_override is not None:
-            raise NameOverrideError("ingen navnestart")
         if UPPER.search(seg, _start(seg)[0]) is None:
             return {"tok": "I", "reason": "intet_navn", "span_from": sf, "span_to": st}
         return {"tok": "U", "reason": "navn_uklart"}
@@ -399,8 +472,10 @@ def propose(row: dict, cutoff: int, name_override: str | None = None) -> dict:
     basis = "rule"
     if name_override is not None:
         o = name_override
+        end = nf + len(o)
         if (o != o.strip() or not LETTER.search(o) or not text.startswith(o, nf)
-                or nf + len(o) > st or text.count(o) != 1):
+                or end > st or text.count(o) != 1
+                or not o[-1].isalpha() or (end < len(text) and text[end].isalnum())):   # helt ord, ingen tegnsætning
             raise NameOverrideError("navn")
         nt, basis = nf + len(o), "sheet"
     name = text[nf:nt]
@@ -416,9 +491,11 @@ def propose(row: dict, cutoff: int, name_override: str | None = None) -> dict:
         if len(same) == 1:
             return {**out, "tok": "S", "reason": "partnermatch_nummer", "partner_person_id": same.pop(),
                     "partner_ordinal": row["marriage_ordinal"]}
-        return {"tok": "U", "reason": "flere_partnere"}
+        return {**out, "tok": "U", "reason": "flere_partnere"}
     if not title_free(name):
-        return {"tok": "U", "reason": "titel_i_navn"}
+        return {**out, "tok": "U", "reason": "titel_i_navn"}
+    if basis == "rule" and _truncated(text, nt, st):
+        return {**out, "tok": "U", "reason": "navn_afkortet"}
     if years and max(years) <= cutoff:
         return {**out, "tok": "D", "reason": "aldersregel"}
     return {**out, "tok": "N", "reason": "kan_ikke_erklaeres_afdoed"}
@@ -442,8 +519,6 @@ def propose_redecide(prow: dict, cutoff: int) -> dict:
         return {"tok": "D", "reason": "aldersregel", "clause_years": years}
     return {"tok": "N", "reason": "kan_ikke_erklaeres_afdoed", "clause_years": years}
 ```
-
-Replace `__import__("re")` with a module-level `import re` (it is there only to keep the excerpt short).
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -490,10 +565,12 @@ git commit -m "feat(151): navneregel v3 med titelliste, partikelkæder og eftern
   - `private.relation_person_create_family(principal, ord) IS NULL`;
   - clause is `clause_observation_current` (t/f);
   - clause years;
-  - name: word count, title (t/f), particle (t/f).
+  - name: word count, title (t/f), particle (t/f);
+  - the spouse-party interpretation's status in `interpretation_current` is `proposed` or `accepted` (t/f), which is the new writer check (c);
+  - the persona is in no sealed control sample (t/f), which `red_afgoer_source_persona`'s guard requires.
 
   Expected:
-  - version 1, ordinal not NULL, principal accepted, family NULL, current t;
+  - version 1, ordinal not NULL, principal accepted, family NULL, current t, interpretation t, not sealed t;
   - years `[1314]`;
   - name 3 words, title f, particle t.
 - [ ] **Step 3: STOP rule.** If any of the 12 gets `D` or `N`, or the P-row deviates from Step 2's expectation, stop and ask the projektejer. Report only the numbers. An `S` count below 9 is **not** a stop: the remaining rows are what `navn:` is for. Write both outputs to the ledger.
@@ -505,6 +582,7 @@ git commit -m "feat(151): navneregel v3 med titelliste, partikelkæder og eftern
 **Files:**
 - Modify: `schema.sql` (in place, next to the 2b-ii definitions), `db-migrations.sql` (new blocks above the 5b end marker), `db-rls.sql:702` (ACL list), `db-verify.sql:2980` (ACL list) plus a new verify block after `$verify_family_id$` (`db-verify.sql:10248`).
 - Create: `tests/sql/test-relation-persona-v3.sql`, `tests/sql/test-relation-person-create-v3.sql`.
+- Modify: `.claude/skills/daa-extract/scripts/test_identity_guard_static.py` (ALLOWLIST: `("db-migrations.sql", "write_relation_person_create", "relation_person_create")` goes from 1 to 2, with the comment `# 2b-ii runde 2: kopi med titelværn og aktualitetstjek`; precedent: `red_afgoer_source_persona … : 2`). Step 4 pkt. 3 adds the second copy, so the guard is red without this.
 
 **Interfaces:**
 - Consumes: the existing fixtures `tests/sql/fixtures/relation-5b.sql` and `relation-2a.sql` (`pg_temp.f5b_actor/_source/_post/_claim/_spouse/_family/_write/_batch/_profile`, `pg_temp.f2a_event_for_state`).
@@ -813,6 +891,7 @@ Spec §17.6 allowed reusing the queue RPCs, but `red_source_persona_detail` carr
 
 - [ ] **Step 5: ACL lists and verify.**
   - In `db-rls.sql:702` and `db-verify.sql:2980`, add `'public.red_relation_persona_v3_input(bigint)'` (with `::regprocedure` in db-verify) on the line after the v2 entry.
+  - Also the older ACL list in `db-migrations.sql` (around line 18826, `to_regprocedure('public.red_relation_persona_v2_input(bigint)')`): add `to_regprocedure('public.red_relation_persona_v3_input(bigint)'),` after the v2 line. 2b-ii added v2 there, and v3 follows that precedent.
   - After `$verify_family_id$` (`db-verify.sql:10248`), add:
 
 ```sql
@@ -834,14 +913,14 @@ END $verify_relation_v3$;
 - [ ] **Step 6: Run to verify they pass.**
   - Rebuild `ci5b_v3_t3` from the edited `schema.sql`.
   - Run both new SQL tests, then the 2b-ii SQL tests (`test-relation-persona-v2.sql`, `test-relation-person-create.sql`, `test-relation-disposition.sql`), then `db-verify.sql`.
-  - Remove the xfail mark from `test_title_words_match_schema` and run `$PY -m pytest test_relation_persona_extract_v3.py -q`.
+  - Remove the xfail mark from `test_title_words_match_schema` and run `$PY -m pytest test_relation_persona_extract_v3.py test_identity_guard_static.py -q`.
   - Expected: every `RAISE NOTICE 'OK: …'` is printed, no ERROR, and pytest is all green.
   - Then the migration path: `ci5b_v3_t3m` = a fresh DB from **origin/main**'s `schema.sql`/`db-rls.sql` plus the writer bootstraps, then HEAD's `db-migrations.sql` twice, `db-rls.sql`, and both new SQL tests. Expected: green.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add schema.sql db-migrations.sql db-rls.sql db-verify.sql tests/sql/test-relation-persona-v3.sql tests/sql/test-relation-person-create-v3.sql .claude/skills/daa-extract/scripts/test_relation_persona_extract_v3.py
+git add schema.sql db-migrations.sql db-rls.sql db-verify.sql tests/sql/test-relation-persona-v3.sql tests/sql/test-relation-person-create-v3.sql .claude/skills/daa-extract/scripts/test_relation_persona_extract_v3.py .claude/skills/daa-extract/scripts/test_identity_guard_static.py
 git commit -m "feat(151): relation_persona profil v3, titelværn i relation_person_create og v3-rækkefil (2b-ii runde 2)"
 ```
 
@@ -922,10 +1001,11 @@ def test_navnerettelse_giver_sheet_basis_og_hash_i_manifest():
 
 
 def test_navn_to_gange_afvises():
+    # K2's klausul rummer »Ole Dal« to gange (rækken er uændret, så vinduet findes og navnestarten nås)
     r = rows()
-    r["rows"][1]["clauses"][0]["verbatim_text"] = "Gift 1890 med Ole Dal, søn af Ole Dal."
+    assert sh.propose(r["rows"][1], 1906)["tok"] == "D"
     with pytest.raises(SheetError, match="SHEET_NAME_INVALID"):
-        sh.check_sheet(sh.parse_sheet(sheet(m2="D") .replace(f"M {K2} 1 : D", f"M {K2} 1 : D navn: »Ole Dal«")), r)
+        sh.check_sheet(sh.parse_sheet(sheet(m2="D").replace(f"M {K2} 1 : D", f"M {K2} 1 : D navn: »Ole Dal«")), r)
 
 
 def test_navn_ved_I_eller_U_afvises():
@@ -1280,7 +1360,7 @@ SELECT (SELECT count(*) FROM private.source_persona_identity i JOIN private.sour
            AND pp.staged AND NOT pp.levende AND pp.visning_navn IN ('Eva von und zu Fik','Gro von Hak'))=2;
 ```
 
-Then rerun the identity script ⇒ `EVIDENCE_IDENTITY_VERSION_CONFLICT`, 0 new identity events. Finish with `echo MARRIAGE_SHEET_V3_E2E_OK`.
+Then rerun the identity script ⇒ `EVIDENCE_IDENTITY_VERSION_CONFLICT`, 0 new identity events. That rerun stops at the first `M` line, so the P-line's lock is tested on its own as well: call `red_afgoer_source_persona(<P persona>, 1, 'new_person_needed', NULL, 'x', <deceased-kontekst>)` alone (as `authenticated` with the actor) ⇒ `EVIDENCE_IDENTITY_VERSION_CONFLICT` (the identity is now version 2 or later), 0 new identity events. Finish with `echo MARRIAGE_SHEET_V3_E2E_OK`.
 
 - [ ] **Step 6: Run the e2e.** Build `ci5b_v3_sheet` like CI's `ci5b_2bii_sheet` (`.github/workflows/ci.yml:495-500`), then run `bash tests/sql/test-relation-marriage-sheet-v3.sh ci5b_v3_sheet`. Expected: `MARRIAGE_SHEET_V3_E2E_OK`. Also run `bash tests/sql/test-relation-marriage-sheet.sh` in a fresh DB, which is expected to give `MARRIAGE_SHEET_E2E_OK` (v2 unchanged).
 
@@ -1295,19 +1375,18 @@ git commit -m "feat(151): ægteskabsark v3 med navnerettelse og P-linjer til gen
 
 ### Task 5: CI, opgradering og fuld lokal CI
 
-**Files:** Modify `.github/workflows/ci.yml` and `tests/sql/test-2bii-upgrade.sh`.
+**Files:** Modify `.github/workflows/ci.yml`. (`tests/sql/test-2bii-upgrade.sh` is left untouched: its DB lacks the writer bootstraps, so the new tests would throw `REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED` there. Task 3 Step 6's `ci5b_v3_t3m` covers the upgrade path with the bootstraps; Fable review of the plan, fund 3.)
 
 - [ ] **Step 1: CI.**
   - At the end of the pytest line (`ci.yml:142`), add `.claude/skills/daa-extract/scripts/test_relation_persona_extract_v3.py .claude/skills/daa-extract/scripts/test_relation_marriage_sheet_v3.py` (before ` -q`).
   - In the loop at `ci.yml:491`, extend the list to `test-relation-persona-v2 test-relation-person-create test-relation-disposition test-relation-persona-v3 test-relation-person-create-v3`.
   - In the e2e step (`ci.yml:501`), add a line after the v2 script: `bash tests/sql/test-relation-marriage-sheet-v3.sh ci5b_2bii_sheet` (other source and person ids, so the same DB works).
-- [ ] **Step 2: Upgrade.** In `tests/sql/test-2bii-upgrade.sh`, add `test-relation-persona-v3.sql` and `test-relation-person-create-v3.sql` to the list of tests run after HEAD's migrations. Its base is `git merge-base origin/main HEAD`, which is main with 2b-ii.
-- [ ] **Step 3: Full local CI.**
-  - Generate the job scripts with the scratchpad `gen_ci.py` and run all 7 jobs plus `bash tests/sql/test-2bii-upgrade.sh ci5b_v3_up`.
+- [ ] **Step 2: Full local CI.**
+  - Generate the job scripts with the scratchpad `gen_ci.py` and run all 7 jobs plus the unchanged `bash tests/sql/test-2bii-upgrade.sh ci5b_v3_up` (regression only).
   - Use `env -u PGOPTIONS env -u NODE_OPTIONS` (memories: PGOPTIONS mutes NOTICE tests, and NODE_OPTIONS points at a removed preload).
   - Expected: `CI_JOB_OK_*` × 7 and `UPGRADE_OK`.
   - Fix any failure before committing. A failure in a repo-wide guard (e.g. `test_clause_readers`) is a finding about the new files, not pre-existing noise.
-- [ ] **Step 4: Commit**: `test(151): CI og opgradering for 2b-ii runde 2`.
+- [ ] **Step 3: Commit**: `test(151): CI for 2b-ii runde 2`.
 
 ---
 
@@ -1340,7 +1419,7 @@ git commit -m "feat(151): ægteskabsark v3 med navnerettelse og P-linjer til gen
   - `red_relation_person_create_input(1)` → manifest; record its hash in the ledger. Expected: 1 element, `family_mode` `new`.
   - `relation_batch_apply.sql operation=relation_person_create`.
 - [ ] **Step 4: Efterkørsel**, as 2b-ii Task 8 Step 4: decide → bind-preview → bind → rerun gives 0. Expected bindings = 232 + `S` + 1. Count new `ordinal_afvigelse` classifications.
-- [ ] **Step 5: Disposition.** `red_relation_disposition_input(1)` → batch; rerun gives 0. Report which clauses switch and which wait, and why (count by blocking reason, as in the brainstorm: `mention.place`, `mention.person`, relation party).
+- [ ] **Step 5: Disposition.** `red_relation_disposition_input(1)` → batch; rerun gives 0. Report the number of clauses that switch and the number that still wait (§17.8 asks for which, not why; no breakdown by blocking reason).
 - [ ] **Step 6: Kontrolmålinger (spec §17.8).**
   - The new person: `staged`, `levende=false`, `visning_navn` = mention text, title-free (`NOT private.relation_name_has_title`).
   - The chain fact → assertion → citation (source 1, page) → conclusion.
@@ -1352,7 +1431,7 @@ git commit -m "feat(151): ægteskabsark v3 med navnerettelse og P-linjer til gen
   - Aggregate hashes unchanged except the new rows.
   - The 2a digest unchanged.
 - [ ] **Step 7: Negativtests.**
-  - **A** (copy `_negA`): run the identity script twice; the second run gives `EVIDENCE_IDENTITY_VERSION_CONFLICT` and 0 new events.
+  - **A** (copy `_negA`): run the identity script twice; the second run gives `EVIDENCE_IDENTITY_VERSION_CONFLICT` and 0 new events. Then call the P-line's `red_afgoer_source_persona(<P>, 1, …)` **alone** (the script's rerun stops at the first `M` line, so it never reaches the P-line). Expected: `EVIDENCE_IDENTITY_VERSION_CONFLICT`, 0 new events.
   - **C** (copy `_negC`, no DB writes needed): a hand-edited sheet with one `U` row raised to `S` (no rule confirmation), with a fresh hash ⇒ `SHEET_TOKEN_NOT_ALLOWED`, 0 files.
   - Then rename the copies to `slet_<MMDD>__…` (quarantine; manifest in `~/.private/5b-navneregel-v3/`).
 - [ ] **Step 8: Dokumenter**, numbers and hashes only.
@@ -1390,10 +1469,25 @@ git commit -m "feat(151): ægteskabsark v3 med navnerettelse og P-linjer til gen
 
 2. **Placeholder scan:**
    - Two adaptation clauses remain (Task 3 Step 1: fixture signatures and trigger paths). Both pin the assertion and require a ruling, which is the executor's documented latitude.
-   - The `__import__("re")` shortcut in Task 1 Step 3 is explicitly called out for replacement.
 3. **Type consistency:**
    - `propose(row, cutoff, name_override=None)` and `propose_redecide(prow, cutoff)` match across Tasks 1, 2 and 4.
    - The keys `name_basis/sheet_line/sheet_sha256` match across Tasks 3 and 4.
    - The contract `relation-persona-v3-input` with `rows`/`redecide_rows` matches across Tasks 3 and 4.
    - The error codes match across Tasks 3 and 6.
 4. **Review Focus:** each of the 5 lines has a named test in its owning task (Tasks 1, 3, 4 and 6).
+5. **Plan review (Fable, 2026-10-19), all findings incorporated:**
+   - (1) `_links_to_name` allows punctuation after the end word (`test_komma_efter_efternavnet_bag_en_titel`);
+   - (2) the `test_identity_guard_static.py` count goes to 2 (Task 3);
+   - (3) the `test-2bii-upgrade.sh` change is cut (Task 5);
+   - (4) `test_navn_to_gange_afvises` uses the unchanged row;
+   - (5) `flere_partnere`/`titel_i_navn` carry `**out`;
+   - (6) `navn:` must end on a whole word;
+   - (7) unknown title ⇒ `U navn_afkortet` (spec §17.9);
+   - (8) the P-line's lock is tested on its own (Task 4 e2e, Task 6 A);
+   - minors:
+     - `navn:` without a name start always raises;
+     - `title_free` splits like SQL;
+     - Task 2 measures the interpretation status and the control-sample seal;
+     - v3 goes into the older ACL list too;
+     - the scratchpad helpers are described;
+     - Task 6 disposition is counts only.
