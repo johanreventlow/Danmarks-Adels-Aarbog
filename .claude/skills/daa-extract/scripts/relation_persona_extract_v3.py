@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 
 from relation_persona_extract import LETTER, MAX_NAME_WORDS, UPPER
-from relation_persona_extract_v2 import CAP, STOP_TITLE, TOKEN, WORD, YEAR, _start, _words, windows
+from relation_persona_extract_v2 import CAP, STOP_TITLE, TOKEN, WORD, YEAR, _shares_half, _start, _words, windows
 from relation_persona_extract_v2 import PARTICLES as _PARTICLES_V2
 
 PROFILE = "relation-persona-2018-20-v3"
@@ -18,7 +18,7 @@ TITLE_WORDS = ("baron", "baronesse", "friherre", "friherreinde", "greve", "grevi
 TITLE_PREFIXES = ("rigs", "lens")
 PARTICLES = _PARTICLES_V2 | {"und", "zu", "dem", "genannt"}
 NOT_NAME = {"til"}   # »til <gods>« ≠ navn (beslutning 2026-10-03); udløser ikke navn_afkortet
-LOWER_WORD = re.compile(r"[a-zæøåà-öø-ÿ]+")
+LOWER_WORD = re.compile(r"[a-zæøåà-öø-ÿ]+(?:-[a-zæøåà-öø-ÿ]+)*")   # også »rigs-grevinde«; ».,;:« strippes først
 
 
 class NameOverrideError(ValueError):
@@ -62,7 +62,7 @@ def _truncated(text: str, nt: int, st: int) -> bool:
     m = re.match(r"\s+(\S+)\s+(\S+)", text[nt:st])
     if not m:
         return False
-    w, nxt = m.group(1), m.group(2).rstrip(",.;:")
+    w, nxt = m.group(1).rstrip(",.;:"), m.group(2).rstrip(",.;:")
     return bool(LOWER_WORD.fullmatch(w)) and w not in PARTICLES and w not in NOT_NAME and bool(CAP.fullmatch(nxt))
 
 
@@ -109,12 +109,18 @@ def _core(name: str | None) -> list[str]:
 
 
 def partner_hit(name: str, partner_name: str | None) -> bool:
-    """Efternavnet (sidste kerneord) skal passe, og mindst halvdelen af navnets kerneord skal være fælles."""
+    """Træf ved S: efternavnet (sidste kerneord) passer, mindst ét kerneord mere er fælles, og mindst halvdelen
+    af navnets kerneord er fælles. Efternavnet alene er ikke nok (final review F2)."""
     a, b = _core(name), _core(partner_name)
     if not a or not b or a[-1] != b[-1]:
         return False
-    sa = set(a)
-    return 2 * len(sa & set(b)) >= len(sa)
+    sa, shared = set(a), set(a) & set(b)
+    return len(shared) >= 2 and 2 * len(shared) >= len(sa)
+
+
+def partner_similar(name: str, partner_name: str | None) -> bool:
+    """Løst dubletværn før D/N og P (final review F2): v2's halvdelsregel eller blot ét fælles kerneord."""
+    return _shares_half(name, partner_name) or bool(set(_core(name)) & set(_core(partner_name)))
 
 
 def propose(row: dict, cutoff: int, name_override: str | None = None) -> dict:
@@ -145,7 +151,7 @@ def _propose(row: dict, cutoff: int, name_override: str | None) -> dict:
             return {"tok": "I", "reason": "intet_navn", "span_from": sf, "span_to": st}
         return {"tok": "U", "reason": "navn_uklart"}
     nf, nt = sf + nm[0], sf + nm[1]
-    basis = "rule"
+    rule_name, basis = text[nf:nt], "rule"
     if name_override is not None:
         o = name_override
         end = nf + len(o)
@@ -168,6 +174,8 @@ def _propose(row: dict, cutoff: int, name_override: str | None) -> dict:
             return {**out, "tok": "S", "reason": "partnermatch_nummer", "partner_person_id": same.pop(),
                     "partner_ordinal": row["marriage_ordinal"]}
         return {**out, "tok": "U", "reason": "flere_partnere"}
+    if any(partner_similar(n, p.get("navn")) for n in {name, rule_name} for p in row.get("principal_partners", [])):
+        return {**out, "tok": "U", "reason": "partner_ligner"}
     if not title_free(name):
         return {**out, "tok": "U", "reason": "titel_i_navn"}
     if basis == "rule" and _truncated(text, nt, st):
@@ -186,7 +194,7 @@ def propose_redecide(prow: dict, cutoff: int) -> dict:
     if prow.get("marriage_ordinal") is None:
         return {"tok": "U", "reason": "intet_nummer"}
     name = prow.get("name_text") or ""
-    if any(partner_hit(name, p.get("navn")) for p in prow.get("principal_partners", [])):
+    if any(partner_similar(name, p.get("navn")) for p in prow.get("principal_partners", [])):
         return {"tok": "U", "reason": "partner_findes"}
     if not title_free(name):
         return {"tok": "U", "reason": "titel_i_navn"}

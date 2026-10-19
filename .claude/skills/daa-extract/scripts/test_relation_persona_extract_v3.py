@@ -96,6 +96,40 @@ def test_ukendt_titel_giver_U():
     assert p["tok"] == "U" and p["reason"] == "navn_afkortet" and name_of(t, p) == "Ida"
 
 
+def test_afkortning_ved_bindestreg_og_forkortelse():
+    # final review F1: et småord med bindestreg eller punktum foran et versalord er også en afkortning
+    for t in ("Gift 1890 med Ida rigs-grevinde Dal.", "Gift 1890 med Ida f. Dal."):
+        p = v3.propose(row(t, t[:-1]), 1906)
+        assert p["tok"] == "U" and p["reason"] == "navn_afkortet" and name_of(t, p) == "Ida", t
+
+
+def test_foedselsaar_efter_navnet_er_ikke_afkortning():
+    t = "Gift 1890 med Ida Dal f. 1801."
+    p = v3.propose(row(t, "Gift med Ida Dal"), 1906)
+    assert p["tok"] == "D" and name_of(t, p) == "Ida Dal"
+
+
+def test_efternavn_alene_er_ikke_partnertraef():
+    # final review F2: samme efternavn, andet fornavn ⇒ ikke S, og heller ikke D (partneren ligner)
+    assert not v3.partner_hit("Eva Fik", "Ida Fik")
+    t = "Gift 1890 med Eva Fik."
+    p = v3.propose(row(t, "Gift med Eva Fik", [partner(7, "Ida Fik")]), 1906)
+    assert p["tok"] == "U" and p["reason"] == "partner_ligner"
+
+
+def test_naesten_dublet_giver_ikke_D():
+    t = "Gift 1890 med Anna Dal Hansen."
+    p = v3.propose(row(t, "Gift med Anna Dal Hansen", [partner(7, "Anna Sophie Daal")]), 1906)
+    assert p["tok"] == "U" and p["reason"] == "partner_ligner"
+
+
+def test_rettet_navn_tjekkes_ogsaa_mod_regelnavnet():
+    # et kortere rettet navn må ikke skjule, at regelens navn ligner en eksisterende partner
+    t = "Gift 1890 med Ida Dal Hansen."
+    p = v3.propose(row(t, "Gift med Ida Dal Hansen", [partner(7, "Bo Hansen")]), 1906, name_override="Ida Dal")
+    assert p["tok"] == "U" and p["reason"] == "partner_ligner"
+
+
 def test_til_gods_er_ikke_afkortning():
     # »til <gods>« er ikke en del af navnet (beslutning 2026-10-03) og udløser ikke navn_afkortet
     t = "Gift 1890 med Ida Dal til Ørum."
@@ -178,6 +212,12 @@ def test_P_D_ved_gammelt_aar():
 
 def test_P_partner_findes_giver_U():
     assert v3.propose_redecide(prow(principal_partners=[partner(9, "Gro Hak")]), 1906)["tok"] == "U"
+
+
+def test_P_lignende_partner_giver_U():
+    # final review F2: P-linjen opretter en ny person, så dubletværnet er det løse (ét fælles kerneord)
+    p = v3.propose_redecide(prow(principal_partners=[partner(9, "Gro Dal")]), 1906)
+    assert p["tok"] == "U" and p["reason"] == "partner_findes"
 
 
 def test_P_titel_og_afloest_klausul_og_nyt_aar():
