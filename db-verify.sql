@@ -2978,6 +2978,7 @@ DECLARE
     'public.red_relation_persona_input(bigint)'::regprocedure,
     'public.red_relation_person_create_input(bigint)'::regprocedure,
     'public.red_relation_persona_v2_input(bigint)'::regprocedure,
+    'public.red_relation_persona_v3_input(bigint)'::regprocedure,
     'public.red_relation_disposition_input(bigint)'::regprocedure,
     'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
     'public.red_kasser_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
@@ -10246,3 +10247,17 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: 5b 2b-ii — family.id identity';
 END $verify_family_id$;
+
+-- Trin 5b 2b-ii runde 2 (spec §17.7): profil v3 og titellisten.
+DO $verify_relation_v3$
+BEGIN
+  IF to_regprocedure('private.relation_title_words()') IS NULL OR to_regprocedure('private.relation_name_has_title(text)') IS NULL
+     OR NOT private.relation_name_has_title('Ida komtesse Dal') OR private.relation_name_has_title('Eva von Fik') THEN
+    RAISE EXCEPTION 'VERIFY_RELATION_TITLE_WORDS';
+  END IF;
+  IF position('relation-persona-2018-20-v3' IN pg_get_functiondef('private.write_relation_persona(uuid,text,jsonb)'::regprocedure))=0
+     OR position('RELATION_PERSON_CREATE_NAME_TITLE' IN pg_get_functiondef('private.write_relation_person_create(uuid,text,jsonb)'::regprocedure))=0 THEN
+    RAISE EXCEPTION 'VERIFY_RELATION_V3_WRITERS';
+  END IF;
+  RAISE NOTICE 'OK: 5b 2b-ii runde 2 — titelliste og writer v3';
+END $verify_relation_v3$;

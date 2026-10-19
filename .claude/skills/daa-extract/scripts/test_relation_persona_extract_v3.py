@@ -187,7 +187,6 @@ def test_P_titel_og_afloest_klausul_og_nyt_aar():
     assert v3.propose_redecide(prow(marriage_ordinal=None), 1906)["tok"] == "U"
 
 
-@pytest.mark.xfail(strict=True, reason="Task 3")
 def test_title_words_match_schema():
     # Tvillingtest (spec §17.5): listen i Python = array-literalen i private.relation_title_words() i schema.sql
     schema = (Path(__file__).resolve().parents[4] / "schema.sql").read_text(encoding="utf-8")

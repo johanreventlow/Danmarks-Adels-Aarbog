@@ -14994,12 +14994,21 @@ BEGIN
   v_marriage:=p_payload->>'predicate'='relation.marriage';
   IF jsonb_typeof(p_payload)<>'object'
      OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(p_payload) k)
-        <> ARRAY['birth_raw','clause_observation_id','clause_set_seq','clause_set_sha256','death_raw','interpretation_key',
-                 'interpretation_version','marriage_ordinal','name_from','name_to','post_offset','predicate','profile',
-                 'span_from','span_to']
+        <> (SELECT array_agg(k ORDER BY k COLLATE "C") FROM unnest(
+             ARRAY['birth_raw','clause_observation_id','clause_set_seq','clause_set_sha256','death_raw','interpretation_key',
+                   'interpretation_version','marriage_ordinal','name_from','name_to','post_offset','predicate','profile',
+                   'span_from','span_to']
+             || CASE WHEN p_payload->>'profile'='relation-persona-2018-20-v3'
+                     THEN ARRAY['name_basis','sheet_line','sheet_sha256'] ELSE '{}'::text[] END) k)
      OR p_element_id<>'relation-persona:'||coalesce(p_payload->>'interpretation_key','')
      OR coalesce(p_payload->>'predicate','') NOT IN ('relation.marriage','relation.child','relation.parent')
-     OR coalesce(p_payload->>'profile','') NOT IN ('relation-persona-2018-20-v1','relation-persona-2018-20-v2')
+     OR coalesce(p_payload->>'profile','') NOT IN ('relation-persona-2018-20-v1','relation-persona-2018-20-v2',
+                                                   'relation-persona-2018-20-v3')
+     -- v3 (2b-ii runde 2, spec §17.7): arkets proveniens; kun ægteskaber
+     OR (p_payload->>'profile'='relation-persona-2018-20-v3' AND (
+           NOT v_marriage OR coalesce(p_payload->>'name_basis','') NOT IN ('rule','sheet')
+           OR coalesce(p_payload->>'sheet_sha256','') !~ '^[0-9a-f]{64}$'
+           OR jsonb_typeof(p_payload->'sheet_line')<>'number' OR (p_payload->>'sheet_line') !~ '^[1-9][0-9]*$'))
      OR coalesce(p_payload->>'clause_set_sha256','') !~ '^[0-9a-f]{64}$'
      OR EXISTS (SELECT 1 FROM unnest(ARRAY['interpretation_version','clause_set_seq','post_offset','span_from','span_to']) k
                  WHERE jsonb_typeof(p_payload->k)<>'number' OR (p_payload->>k) !~ '^[0-9]+$')
@@ -15048,7 +15057,7 @@ BEGIN
       RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_SPAN_INVALID';
     END IF;
   ELSE
-    -- v2 (2b-ii errata §15.1): det eneste minimale ordnede ordvindue.
+    -- v2/v3 (2b-ii errata §15.1, runde 2 §17.7): det eneste minimale ordnede ordvindue.
     IF (SELECT count(*) FROM private.relation_ordered_windows(v_clause.verbatim_text,v_raw))<>1
        OR NOT EXISTS (SELECT 1 FROM private.relation_ordered_windows(v_clause.verbatim_text,v_raw) w
                        WHERE w.w_from=v_from AND w.w_to=v_to) THEN
@@ -16544,6 +16553,16 @@ BEGIN
     JOIN private.source_observation o ON o.id=sm.observation_id
    WHERE spm.persona_id=v_sp AND spm.mention_role='spouse';
   IF v_name IS DISTINCT FROM p_payload->>'name_text' THEN RAISE EXCEPTION 'RELATION_PERSON_CREATE_DRIFT'; END IF;
+  -- 2b-ii runde 2 (spec §17.5/§17.7): titel ≠ navn; kun aktuel klausul og ikke-afløst fortolkning.
+  IF private.relation_name_has_title(v_name) THEN RAISE EXCEPTION 'RELATION_PERSON_CREATE_NAME_TITLE'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM private.clause_observation_current c WHERE c.id=v_obs) THEN
+    RAISE EXCEPTION 'RELATION_PERSON_CREATE_CLAUSE_STALE';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM private.interpretation_party_current sp
+                   JOIN private.interpretation_current ic ON ic.interpretation_key=sp.interpretation_key
+                  WHERE sp.source_persona_id=v_sp AND sp.party_role='spouse' AND ic.status IN ('proposed','accepted')) THEN
+    RAISE EXCEPTION 'RELATION_PERSON_CREATE_INTERPRETATION_STALE';
+  END IF;
   -- Aldersreglen genberegnes fra klausulens tekst (spec §5.2 pkt. 5).
   SELECT coalesce(jsonb_agg(y ORDER BY y),'[]'::jsonb) INTO v_years
     FROM (SELECT DISTINCT m[1]::int AS y FROM regexp_matches(v_clause,'(?<![0-9])(1[0-9]{3}|20[0-9]{2})(?![0-9])','g') m) q;
@@ -16792,6 +16811,21 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION private.verify_relation_disposition_receipts(uuid) FROM PUBLIC,anon,authenticated,service_role;
 
+-- Trin 5b 2b-ii runde 2 (spec §17.5): lukket titelliste = Python-tvillingen TITLE_WORDS (test_title_words_match_schema).
+CREATE OR REPLACE FUNCTION private.relation_title_words()
+RETURNS text[] LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+  SELECT ARRAY['baron','baronesse','friherre','friherreinde','greve','grevinde','hertug','hertuginde','komtesse','prins','prinsesse']::text[]
+$$;
+REVOKE ALL ON FUNCTION private.relation_title_words() FROM PUBLIC,anon,authenticated,service_role;
+-- Titelordene er ASCII, så lower() under C-lc_ctype rækker; ikke-ASCII versaler bliver blot skilletegn.
+CREATE OR REPLACE FUNCTION private.relation_name_has_title(p_name text)
+RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,private AS $$
+  SELECT EXISTS (SELECT 1 FROM regexp_split_to_table(lower(coalesce(p_name,'')),'[^0-9a-zà-öø-ÿ]+') w
+                  WHERE w<>'' AND (w=ANY(private.relation_title_words())
+                        OR (w ~ '^(rigs|lens)' AND substr(w,5)=ANY(private.relation_title_words()))))
+$$;
+REVOKE ALL ON FUNCTION private.relation_name_has_title(text) FROM PUBLIC,anon,authenticated,service_role;
+
 -- ===================================================================================
 -- Trin 5b 2b-ii (#151, spec §5.2 / errata §15.1): det entydige minimale ordnede ordvindue.
 -- Ord = løb af den eksplicitte klasse [0-9A-Za-zÀ-ÖØ-öø-ÿ] (ikke \w, som afhænger af lc_ctype),
@@ -16864,6 +16898,61 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.red_relation_persona_v2_input(bigint) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.red_relation_persona_v2_input(bigint) TO authenticated;
+
+-- Trin 5b 2b-ii runde 2 (spec §17.6): rækkefil til ark v3 — v2-rækkerne med hele posten, plus P-rækkerne
+-- (new_person_needed uden deceased). Privat og læsende; navne og tekst forlader kun via redaktionens RPC.
+CREATE OR REPLACE FUNCTION private.relation_persona_v3_input(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v2 jsonb; v_rows jsonb; v_re jsonb;
+BEGIN
+  IF p_source_id IS NULL THEN RAISE EXCEPTION 'RELATION_PERSONA_V3_INPUT_INVALID'; END IF;
+  v2:=private.relation_persona_v2_input(p_source_id);
+  SELECT coalesce(jsonb_agg(t.r || jsonb_build_object('post_text',(
+           SELECT po.verbatim_text FROM private.source_observation co
+             JOIN private.source_observation po ON po.id=co.parent_observation_id
+            WHERE co.id=(t.r#>>'{clauses,0,observation_id}')::uuid)) ORDER BY t.n),'[]'::jsonb)
+    INTO v_rows FROM jsonb_array_elements(v2->'rows') WITH ORDINALITY AS t(r,n);
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'source_persona_id',i.source_persona_id::text,'identity_version',i.version,
+      'previous',jsonb_build_object('basis',i.evidence->>'basis','note',i.evidence->>'note',
+                                    'decided_at',to_char(i.decided_at AT TIME ZONE 'UTC','YYYY-MM-DD')),
+      'name_text',sm.verbatim_text,'clause_observation_id',o.id::text,'clause_text',o.verbatim_text,
+      'clause_is_current',EXISTS (SELECT 1 FROM private.clause_observation_current cc WHERE cc.id=o.id),
+      'post_text',po.verbatim_text,'record_key',sr.record_key,'page_from',o.page_from,
+      'marriage_ordinal',spp.marriage_ordinal,'principal_person_id',pi.canonical_person_id,
+      'principal_partners',coalesce((
+          SELECT jsonb_agg(jsonb_build_object('person_id',x.person_id,'family_id',x.family_id,'ordinal',x.ordinal,
+                   'navn',coalesce(pp.visning_fuldt_navn,pp.visning_navn),'foedt',pp.visning_foedt,'doed',pp.visning_doed)
+                 ORDER BY x.person_id,x.family_id)
+            FROM public.family_member me JOIN public.family_member x ON x.family_id=me.family_id AND x.rolle='partner'
+                 AND x.person_id<>me.person_id JOIN public.person pp ON pp.id=x.person_id
+           WHERE me.person_id=pi.canonical_person_id AND me.rolle='partner'),'[]'::jsonb))
+     ORDER BY i.source_persona_id::text COLLATE "C"),'[]'::jsonb)
+    INTO v_re
+    FROM private.source_persona_identity i
+    JOIN private.source_persona p ON p.id=i.source_persona_id AND p.source_id=p_source_id
+    JOIN private.source_persona_mention spm ON spm.persona_id=i.source_persona_id AND spm.mention_role='spouse'
+    JOIN private.source_mention sm ON sm.id=spm.mention_id
+    JOIN private.source_observation o ON o.id=sm.observation_id
+    LEFT JOIN private.source_observation po ON po.id=o.parent_observation_id
+    LEFT JOIN private.interpretation_party_current spp ON spp.source_persona_id=i.source_persona_id AND spp.party_role='spouse'
+    LEFT JOIN private.interpretation_party_current pr ON pr.interpretation_key=spp.interpretation_key AND pr.party_role='principal'
+    LEFT JOIN private.source_persona_identity pi ON pi.source_persona_id=pr.source_persona_id AND pi.decision_status='accepted'
+    LEFT JOIN private.source_record_anchor_current ac ON ac.occurrence_id=o.occurrence_id AND ac.decision_status='accepted'
+    LEFT JOIN private.source_record sr ON sr.id=ac.source_record_id
+   WHERE i.decision_status='unresolved' AND i.evidence->>'reason'='new_person_needed' AND NOT (i.evidence ? 'deceased');
+  RETURN jsonb_build_object('contract','relation-persona-v3-input','source_id',p_source_id,
+                            'deceased_cutoff_year',1906,'rows',v_rows,'redecide_rows',v_re);
+END $$;
+REVOKE ALL ON FUNCTION private.relation_persona_v3_input(bigint) FROM PUBLIC,anon,authenticated,service_role;
+CREATE OR REPLACE FUNCTION public.red_relation_persona_v3_input(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  RETURN private.relation_persona_v3_input(p_source_id);
+END $$;
+REVOKE ALL ON FUNCTION public.red_relation_persona_v3_input(bigint) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_relation_persona_v3_input(bigint) TO authenticated;
 
 
 
