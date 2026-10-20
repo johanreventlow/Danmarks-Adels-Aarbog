@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-10-20 — #244: ægteskabsnumrene efter skriverens vindue; 4 numre rettet på ark (#151)
+
+Implementeret efter planen `2026-10-20-244-aegteskabsnumre.md` på `fix/244-aegteskabsnumre`.
+
+**Indhold:**
+- **Rodrettelse:** `private.relation_marriage_ordinals` finder påstandens placering med `private.relation_ordered_windows` (samme vindue som skriveren). Årsagen var en parentes midt i klausulen, ikke en overskreden klausulgrænse.
+- **Værn:** `private.relation_book_ordinal` læser bogens »g. N°«/»gift N°«; `write_relation_persona` afviser med `…_ORDINAL_BOOK_MISMATCH`, og regelen i `relation_persona_extract_v3.py` giver `U nummer_modsiger_bog`.
+- **Rettelse:** tabellen `private.marriage_ordinal_correction` (tilføj-kun) og skriveren `red_ret_aegteskabsnummer`, der skriver en ny ægtefællepart med `origin='ordinal_correction'`. Arket `relation_ordinal_sheet.py` med projektionen `red_marriage_ordinal_correction_input`.
+
+**Bevis i restore (ikke prod):**
+- 4 numre rettet via et hash-bundet ark med 4 linjer; 4 genbindinger i samme familie.
+- 0 kanonisk delta, `family_member.ordinal` uændret, negativtest 6/6 afviser.
+
+**Kendt begrænsning:** prod-genspil af de autoriserede payloads kræver et valg i overførsels-spec'en.
+
+Rapport: `docs/evidensbaseret-genimport/aegteskabsnumre-244-bevis.md`. Ikke deployet.
+
 ## 2026-10-20 — trin 5b del 2b-iii: børneflokkene binder til familien (#151)
 
 Implementeret efter planen `2026-10-20-trin5b-2b-iii-boernehenvisninger.md` på `docs/151-5b-2b-iii`.
