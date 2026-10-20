@@ -1,15 +1,20 @@
 # Trin 5b del 2b-iii — børnehenvisningerne binder til familien (#151)
 
-**Status:** Designet blev godkendt i brainstormen 2026-10-20 i tre dele. Projektejeren valgte:
-- **mål:** kildehenvisning på børnene, frem for kun oprydning;
-- **tilgang A:** flokken binder til forælderens familie, frem for ét barn pr. påstand (B) eller en ny påstandstype (C);
-- **del 1** med køn som blokerende krav og romertal som krav for den maskinelle vej;
-- **del 2:** 6 maskinelt, 2 af dem i stikprøven, og 7 kort med forudfyldte forslag;
-- **del 3:** binding med flok-digest og læservisning i web, kun i restore.
+## Status
 
-**AFVENTER projektejerens gennemgang af den skrevne spec.**
+Designet blev godkendt i brainstormen 2026-10-20 i tre dele. Projektejeren valgte:
+- **Mål:** kildehenvisning på børnene, ikke kun oprydning.
+- **Tilgang A:** flokken binder til forælderens familie. Alternativerne var ét barn pr. påstand (B) og en ny påstandstype (C).
+- **Køn:** blokerende krav.
+- **Webvisning:** med i skiven.
 
-**Roadmap:** trin 5, delspec 5b, del 2, skive b-iii. Dokumenterne kaldes herefter:
+Spec'en er revideret samme dag efter et uafhængigt review (Opus, »GO med rettelser«) og en efterfølgende måling. Målingen viste, at romertallet i henvisningen ikke er linje-præfikset (§2). Projektejeren valgte derefter **ét menneskeligt ark for alle 13** i stedet for en maskinel vej plus stikprøve.
+
+**AFVENTER projektejerens gennemgang af den reviderede spec.**
+
+**Roadmap:** trin 5, delspec 5b, del 2, skive b-iii.
+
+Dokumenterne kaldes herefter:
 - »hovedspecen«: `docs/superpowers/specs/2026-10-06-trin5b-relationspersonas-design.md`;
 - »2a-specen«: `docs/superpowers/specs/2026-10-11-trin5b-2a-binding-design.md`;
 - »2b-ii-specen«: `docs/superpowers/specs/2026-10-17-trin5b-2b-ii-nye-personer-og-disposition-design.md`.
@@ -21,59 +26,69 @@ Beslutninger: `docs/decisions.md` 2026-10-10 (børn taget ud af del 1) og 2026-1
 | Krav | Svar |
 | --- | --- |
 | Roadmapmål | Trin 5 (#151), 5b »personas for ægtefæller og børn« |
-| Værdikædeled | Fortolkning → relationsafgørelse (maskinel regel og menneske) → binding → offentlig læseprojektion med kildehenvisning |
-| Leverancetype | Generel regel `relation-child-v1` (`structural_family`) og en udgaveprofil for 2018-20's henvisningsform. Ingen nye tabeller. |
-| Redaktionel/læserrettet værdi | 8 familier får en kilderække for deres børneflok. Læseren kan se, hvor i DAA 2018-20 forælder→barn-forbindelsen står. |
+| Værdikædeled | Fortolkning → menneskelig relationsafgørelse (hash-bundet ark, serveren håndhæver reglen) → binding → offentlig læseprojektion med kildehenvisning |
+| Leverancetype | Generel regel `relation-child-v1` (`structural_family`) og en henvisningsparser for 2018-20's form. Ingen nye tabeller. |
+| Redaktionel/læserrettet værdi | Op til 12 familier får en kilderække for deres børneflok. Læseren kan se, hvor i DAA 2018-20 forælder→barn-forbindelsen står. |
 | Færdigbevis | §9 |
-| Erstatter | `RELATION_CHILD_DEFERRED`: de 14 `relation.child` står i dag som `proposed` uden vej videre |
+| Erstatter | `RELATION_CHILD_DEFERRED`: de 14 `relation.child` står i dag `proposed` uden vej videre |
 
 ## 2. Erratum til hovedspecen §22.9
 
-§22.9 antog, at en børnepåstand nævner ét barn, så valget stod mellem flere børn. Det er forkert. Målt i bevisbasen `daa5b_navnv3_bevis_20261019200958` den 2026-10-20 er påstandene **krydshenvisninger til en hel børneflok**, i formen »N børn: <ordenstal> slægtled, <romertal>, nr. a–b«. De står sidst i forælderens post, og børnene står i deres egne poster inden for nummerintervallet.
+§22.9 antog, at en børnepåstand nævner ét barn, så valget stod mellem flere børn. Det er forkert. Målt i bevisbasen `daa5b_navnv3_bevis_20261019200958` den 2026-10-20 er påstandene **krydshenvisninger til en hel børneflok**. Formen er »N børn: <ordenstal> [(<ordenstal>)] slægtled, <romertal>, nr. a[–b]«, eventuelt »Datter:« eller »Søn:« for ét barn. Henvisningen står sidst i forælderens post, og børnene står i deres egne poster.
+
+**Felterne i `public.person_external_id`** (schema.sql:141-150):
+- `linje` (I–V, postnøglens præfiks);
+- `nr`;
+- `kuld` (børnegruppe-markør, romertal);
+- `slaegtled_lokal`;
+- `slaegtled_gennem`.
+
+**Henvisningens dele passer med børnenes felter i alle 10 tilfælde, der har et interval:**
+- ordenstallet = børnenes `slaegtled_lokal`;
+- ordenstallet i parentes = `slaegtled_gennem`, hvor det står;
+- romertallet = børnenes `linje` eller `kuld`;
+- intervallet = børnenes `nr` i forælderens `linje`.
+
+Under brainstormen blev romertallet fejlagtigt slået op som linje-præfiks. Det fik 4 henvisninger til at ligne fejl. Det er de ikke: bogen og databasen er enige.
 
 Tilfældene er nummereret 1–14 i påstandenes nøgleorden:
 
 | Tilfælde | Antal | Hvad der passer |
 | --- | --- | --- |
-| 1, 2, 3, 4, 8, 9 | 6 | Det hele: angivet antal = intervallets længde = familiens barnerækker = børn med egen post, og alle ligger i intervallet med forælderens præfiks. |
-| 7, 10, 11, 12 | 4 | Numrene passer med forælderens præfiks, men romertallet peger på en anden afdeling. |
-| 5 | 1 | »9 børn«, men intervallet og familien har 8. |
-| 6 | 1 | »17 børn« uden henvisning; 16 børn med egen post i 2 ægteskaber (6 + 10). |
-| 13 | 1 | »3 sønner (?)« uden henvisning; 3 sønner i én familie. |
-| 14 | 1 | Ingen entydig hovedperson. |
+| 1-4, 7-12 | 10 | Det hele: antal, interval, familiens barnerækker, børn med egen post, slægtled og romertal (linje eller kuld) |
+| 5 | 1 | »9 børn«; intervallet og familien har 8. Alt andet passer. |
+| 6 | 1 | »17 børn« uden henvisning. 16 børn med egen post i 2 ægteskaber (6 + 10). |
+| 13 | 1 | »3 sønner (?)« uden henvisning. 3 sønner i én familie. |
+| 14 | 1 | Ingen entydig hovedperson |
 
-**Romertallet** betegner afdelingen eller linjen i stamtavlen (I–V), samme slags betegnelse som postpræfikset. I de 6 rigtige henvisninger er det lig forælderens præfiks.
-
-I de 4 afvigende tilfælde gennemgik projektejeren navne og årstal den 2026-10-20 og afgjorde, at **databasens familie har ret, og at henvisningen i bogen eller OCR'en er forkert**:
-- **7 og 12:** henvisningens slægtled er umuligt i forhold til forælderens fødselsår.
-- **11 og 12:** posterne findes ikke, fordi afdeling II slutter ved nr. 35.
-- **10:** projektejerens vurdering.
-
-Alle ca. 77 børn sidder allerede som `barn` i forælderens familie. 2b-iii skaber derfor **ingen nye slægtskaber**. Det giver kildehenvisning på forbindelser, der findes i forvejen.
-
-Køn: i de 3 påstande, der siger »døtre« eller »sønner«, har alle børn det rigtige køn (2/2, 4/4 og 3/3). Ingen barnerække i de berørte familier er `omstridt`.
+**Øvrige målinger:**
+- Alle ca. 77 børn sidder allerede som `barn` i forælderens familie. 2b-iii skaber derfor **ingen nye slægtskaber**. Den giver kildehenvisning på forbindelser, der findes i forvejen.
+- Køn: hvor teksten siger »døtre« eller »sønner«, har alle børn det rigtige køn (2/2, 4/4 og 3/3).
+- Ingen barnerække i de berørte familier er `omstridt`.
 
 ## 3. Afgrænsning
 
 **Med:**
 - de 14 `relation.child` i kilde 1;
+- SQL-parseren;
 - reglen `relation-child-v1`;
+- writer-grenen for `relation.child`;
 - `relation_binding_state` for `relation.child`;
 - `public_family_sources` med slags `boern`;
 - web-visning;
-- arket for 2b-iii.
+- arket.
 
 **Udenfor:**
 - prod-overførsel;
 - mobil-appen (kun til udvikling);
-- #244 (ægteskabsnumre);
-- #240 (dobbelte familier);
-- børn uden henvisning i andre udgaver (1939 hører til trin 6);
-- at rette bogens forkerte henvisninger.
+- #244 (ægteskabsnumre) og #240 (dobbelte familier);
+- én påstand bundet til flere familier (tilfælde 6);
+- adopterede, pleje- og stedbørn;
+- 1939 (trin 6).
 
-## 4. Henvisningsparseren (udgaveprofil, Python og SQL-tvilling)
+## 4. Henvisningsparseren (SQL, én implementering)
 
-Henvisningen læses deterministisk af påstandens `raw`; ingen model læser teksten. Grammatikken:
+`private.relation_child_ref(p_raw text) RETURNS jsonb` er IMMUTABLE og deterministisk. Ingen model læser teksten. Grammatikken:
 
 ```
 henvisning := antal [ " (?)" ] [ ":" sted ]
@@ -81,139 +96,171 @@ antal      := TAL (" børn" | " døtre" | " sønner") | "Datter" | "Søn"       
 sted       := ordenstal [ " (" ordenstal ")" ] " slægtled," [ " " ROMERTAL "," ] " nr. " TAL [ BINDESTREG TAL ] [ "." ]
 ```
 
-- `BINDESTREG` omfatter `-`, `‑` (U+2011) og `–`.
-- Resultatet er:
-  - `count`;
-  - `sex`: `kvinde` (døtre/Datter), `mand` (sønner/Søn) eller NULL;
-  - `uncertain`: sand, når `(?)` står i teksten;
-  - `generation_text`;
-  - `section`: romertallet eller NULL;
-  - `nr_from` og `nr_to`.
-- **Tekst, der ikke følger grammatikken, giver `parse = NULL`.** Påstanden bliver så et kort eller U, aldrig en maskinel afgørelse.
-- Python-funktionen (`relation_child_ref.py`) og SQL-tvillingen (`private.relation_child_ref(text)`) låses mod hinanden af en tvillingtest, som i 2b-ii runde 2.
+**Grammatikkens detaljer:**
+- `BINDESTREG` er `-`, `‑` (U+2011) eller `–`.
+- Ordenstal er de danske ordenstalsord fra »første« til »tyvende«, uden hensyn til store og små bogstaver.
+
+**Resultatet:**
+- `count`;
+- `sex`: `kvinde` ved døtre/Datter, `mand` ved sønner/Søn, ellers NULL;
+- `uncertain`: sand ved »(?)«;
+- `gen_local` og `gen_through`: heltal eller NULL;
+- `section`: romertallet eller NULL;
+- `nr_from`;
+- `nr_to`, som sættes til `nr_from`, når bindestregen mangler.
+
+Tekst, der ikke følger grammatikken, giver NULL.
+
+Der er ingen Python-tvilling. Arket renderes fra en privat SQL-projektion (§6), så der kun findes én parser.
 
 ## 5. Matchreglen `relation-child-v1`
 
-En påstand er **maskinelt egnet**, når alle betingelser holder:
+Barnerækker er `family_member` med `rolle='barn'`. Postnøglen er `public.person_external_id`, med `source_id = 1` og felterne `linje`, `nr`, `kuld`, `slaegtled_lokal` og `slaegtled_gennem`. Alle sammenligninger evalueres som `IS [NOT] DISTINCT FROM` eller `coalesce(…, false)`, så en NULL aldrig lader en betingelse passere.
 
-1. Påstanden er `proposed`, citerer præcis én klausul, og hovedpersonen har en accepteret identitet med præcis én postnøgle i kilde 1, med præfiks `P` og nummer.
-2. `parse` er ikke NULL, `section` og `nr_from` er sat, og `uncertain` er falsk.
-3. `section = P`.
-4. `count = nr_to − nr_from + 1`.
-5. Hovedpersonen er `partner` i præcis én familie `F`, hvor der er børn med egen post i kilde 1 (`relation_structural_candidates`). Ingen af `F`'s rækker er `omstridt`.
-6. Mængden af postnøgler for `F`'s børn med egen post er netop `{P-nr_from … P-nr_to}`.
-7. Antallet af barnerækker i `F` er lig `count`.
-8. Er `sex` sat, har alle barnerækker i `F` det køn.
+**Krævet altid (H, kan ikke tilsidesættes):**
 
-**Resultat på de 14 tilfælde:**
+- **H1:** Påstanden er `proposed` og citerer præcis én klausul. Hovedpersonen har en accepteret identitet og præcis én `person_external_id` i kilde 1 med `linje` = `L`.
+- **H2:** `relation_child_ref(raw)` er ikke NULL.
+- **H3:** Hovedpersonen er `partner` i præcis én familie `F` med mindst én barnerække. `F` har ingen `omstridt`-række og ingen række med `rolle` i (`adopteret_barn`, `plejebarn`, `stedbarn`).
+- **H4:** Er `sex` sat, har alle barnerækker i `F` det køn.
+- **H5:** Er `nr_from` sat, gælder alt følgende:
+  - mængden af `nr` for `F`'s børn med `person_external_id` i kilde 1 og `linje = L` er netop `{nr_from … nr_to}`;
+  - ingen af `F`'s børn har en `person_external_id` i kilde 1 med en anden `linje`;
+  - `section`, når det er sat, er lig hvert barns `linje` eller `kuld`;
+  - `gen_local`, når det er sat, er lig hvert barns `slaegtled_lokal`, og tilsvarende for `gen_through`.
+- **H6:** Er `nr_from` ikke sat, har mindst ét barn i `F` en `person_external_id` i kilde 1.
+
+**Afvigelser (A, mennesket kan tilsidesætte, og afvigelsen vises på kortet):**
+- **A1:** `count` er forskellig fra antallet af barnerækker i `F`.
+- **A2:** `nr_from` er sat, og `count` er forskellig fra `nr_to − nr_from + 1`.
+- **A3:** `uncertain`.
+- **A4:** `nr_from` er ikke sat (ingen henvisning).
+
+**Udfald på de 14 tilfælde:**
 
 | Tilfælde | Udfald |
 | --- | --- |
-| 1, 2, 3, 4, 8, 9 | Egnede |
-| 7, 10, 11, 12 | Ikke egnede (3) |
-| 5 | Ikke egnet (4 og 7) |
-| 6, 13 | Ikke egnede (2) |
-| 14 | Ikke egnet (1) |
+| 1-4, 7-12 | H opfyldt og ingen A, altså »passer helt« |
+| 5 | H opfyldt, A1 og A2 |
+| 13 | H opfyldt, A3 og A4 |
+| 6 | H3 brudt (2 familier) |
+| 14 | H1 brudt |
 
-## 6. Afgørelsesvejen
+## 6. Afgørelsesvejen: ét hash-bundet ark
 
-**Den maskinelle vej:** `red_afgoer_relation_interpretation` får `basis = 'machine_rule'`. Kravene er:
-- handlingen er `same`;
-- `p_family_id` er NULL, fordi serveren selv udleder `F` efter §5;
-- konteksten bærer arkets hash, rækkefilens hash og rækkenummeret i rækkefilen (`line`), så også de maskinelle afgørelser er bundet til det godkendte ark.
+**Projektionen.** `private.relation_child_sheet_input(p_source_id)` (REVOKE fra alle API-roller; mønster: `spouse_exception_projection`) returnerer pr. påstand:
+- nøgle og version;
+- `raw` og det parsede resultat;
+- H-udfaldet og A-listen;
+- `F` og børnene: navn, fødselsår, postnøgle, linje, kuld og slægtled.
 
-Serveren genberegner §5 under familielåsen (`lock_family_rows`). Er en betingelse brudt, kaster den `RELATION_CHILD_RULE_NOT_MET`.
+Den kaldes kun af ejeren lokalt mod restore-kopien. Inputtet låses som i 2b-ii (rækkefil-hash).
 
-`RELATION_CHILD_DEFERRED` fjernes. For `relation.child` gælder:
+**Arket** (`relation_child_sheet.py`, mønster: `relation_marriage_sheet_v3.py`) har tre dele:
+- **Første blok:** én kort linje pr. påstand, der »passer helt«, forudfyldt `B`.
+- **Anden blok:** kort for påstande med A-afvigelser, med bogens tekst, de parsede felter og børnene. Forudfyldt `B` for 5 og 13.
+- **Påstande, der bryder H:** står kun som optælling, uden linje. Tilfælde 6 og 14 forbliver `proposed`.
 
-| Handling | Krav |
-| --- | --- |
-| `same` | Basis `machine_rule` eller `human_sheet`. Med `human_sheet` kræves betingelse 1, 5 og 8. Betingelse 6 kræves, når henvisningen har et interval i forælderens afdeling; ellers kræves blot mindst ét barn med egen post i `F`. Betingelse 2, 3, 4 og 7 kan tilsidesættes af mennesket, og kortet viser afvigelsen. |
-| `rejected` / `unresolved` | Kun `human_sheet` eller `web_detail` |
+Tokens: `B` (bind), `R` (afvis) og `U` (lad stå `proposed`; intet skrives). Arket er privat (`~/.private/5b-2b-iii/`, 0600) og kommer aldrig i repo eller chat. Projektejeren gennemgår det med `open -e` og giver hashen i chat. `sql` danner derefter afgørelsesscriptet og manifestet. Python-scriptet afviser tokens uden for `B`/`R`/`U` (`SHEET_TOKEN_NOT_ALLOWED`). Serveren **registrerer** arkets hash, rækkefilens hash og linjen i evidensen, men verificerer ikke arket selv. Bindingen til det godkendte ark beror på scriptets kontrol, som i 2b-ii.
 
-- Der indsættes **ingen** `child`-part. Evidensen bærer `family_id`, flok-digestet (§7) og de parsede felter.
-- Afvigelser fra §5 skrives i afgørelsens evidens som `afvigelser` (fx `henvisning_afviger`, `antal_afviger`, `uden_henvisning`). Klassifikationstabellen bruges ikke, fordi dens CHECK kun gælder ordinal-klassifikationerne.
+**Writeren.** `red_afgoer_relation_interpretation` får en selvstændig gren for `relation.child`. Grenen erstatter `RELATION_CHILD_DEFERRED` (schema.sql:15368) og genbruger ikke forældregrenens kandidatlogik (`v_n<>1`, `child`-part):
 
-**Arket** (`relation_child_sheet.py`) følger 2b-ii's form: rækkefil → render → menneskets gennemgang med `open -e` → hash i chat → `sql` → manifest og afgørelsesscript.
-- **Kort:** de egnede, der ikke er i stikprøven, kommer ikke på arket. Kortene er de ikke-egnede med en hovedperson (7) plus en stikprøve på 2 af de egnede, trukket deterministisk ud fra rækkefilens hash.
-- **Tokens:** `B` (bind), `R` (afvis), `U` (uafgjort). Stikprøven tager kun `B`/`R`; ét `R` i stikprøven stopper hele den maskinelle del.
+- **Basis:** `same` og `rejected` kræver `human_sheet` med hash og linje (uændret validering, schema.sql:15355-15358). `unresolved` afvises for `relation.child` (`RELATION_DECISION_INVALID`), fordi en afgjort fortolkning ikke kan genåbnes (`red_decide_interpretation` kræver `proposed`, schema.sql:8239). »Ikke nu« er derfor arkets `U`, som ikke skriver noget.
+- **`p_family_id` skal være NULL** for `relation.child`, også ved `same`. Det er en undtagelse fra schema.sql:15387. Serveren udleder `F` efter H3.
+- **`same`:** under `lock_family_rows` over hovedpersonen og `F`'s medlemmer genberegner serveren H1-H6. Ved brud kastes `RELATION_CHILD_RULE_NOT_MET`. A-afvigelser er tilladt. Evidensen bærer:
+  - `family_id`;
+  - `flock_digest`: SHA-256 over den kanoniske JSON af `F`'s barnerækker (`person_id`, `rolle`, `konfidens`), sorteret efter `person_id`;
+  - det parsede resultat;
+  - `afvigelser` (A-koderne).
 
-| Kort | Forudfyldt |
-| --- | --- |
-| 7, 10, 11, 12 | `R`, med begrundelsen »fejlhenvisning; familien er rigtig« |
-| 5, 13 | `B` |
-| 6 | `U` (to familier, og påstanden kan kun binde til én) |
-
-- **Hvert kort viser:** bogens tekst, de parsede felter, `F`'s børn (navn, fødselsår, postnøgle) og, ved afvigende afdeling, de poster, henvisningen peger på, og deres forældre.
-- **Arket er privat** (`~/.private/5b-2b-iii/`, 0600), aldrig i repo eller chat.
-- Tilfælde 14 kommer ikke på arket. Det forbliver `proposed`, som i 2b-ii.
+  Der indsættes **ingen** `child`-part. Klassifikationstabellen bruges ikke, fordi dens CHECK kun omfatter ordinal-klassifikationerne (schema.sql:16084).
+- **`rejected`:** kræver kun H1's første del.
 
 ## 7. Bindingen
 
-`private.relation_binding_state` får en gren for `relation.child`. Den kræver en accepteret påstand med `family_id` i evidensen og hovedpersonen som `partner` i familien, og returnerer:
+`private.relation_binding_state` får en gren for `relation.child` (i dag returnerer den NULL, schema.sql:16026). Grenen kræver en accepteret påstand, hvis evidens har `family_id` og `flock_digest`, og at hovedpersonen stadig er `partner` i `F`. Den returnerer **NULL**, når:
+- `F` har en `omstridt`-række;
+- H3 eller H4 er brudt;
+- det aktuelle flok-digest afviger fra afgørelsens `flock_digest`.
+
+Dermed fanger serveren drift både mellem afgørelse og binding og efter bindingen. Et ændret barnesæt kræver en ny afgørelse, ikke blot en genbinding.
+
+Ellers returneres:
 
 ```
 {contract:'relation-binding-state-v1', interpretation:{…}, parties:[principal],
  family:{family_id, rows:[principal-partnerrækken + alle barnerækker (person_id, rolle, ordinal, konfidens)]},
- counterpart_person_id: NULL, children:{count, section, nr_from, nr_to, sex}}
+ counterpart_person_id: <hovedpersonens person_id>, flock_digest, children:{count, section, nr_from, nr_to, sex}}
 ```
 
-- **NULL**, hvis en barnerække er `omstridt`, eller hvis hovedpersonen ikke længere er `partner` i familien.
-- **Drift:** digestet ændrer sig, når et barn tilføjes, fjernes eller flyttes. Den eksisterende kontrol i `public_family_sources` (`reimport_canonical_json_sha256(st) = bound_sha`) skjuler så kilden, indtil genbinding.
-- **Regelregistret:** `('relation-child-v1','relation.child')` og reglen `('relation-child-v1',1,'relation.child','relation','family',NULL,'relation',false,false,true,'active','structural_family')`.
-- **Bindingsvejen:** `decide.sql`, bind-preview og `red_promote_relation_interpretations_batch`, som i 2a.
-- **Ordinal-klassifikationerne** gælder kun ægteskaber. Børn klassificeres ikke.
+Hovedpersonen står som `counterpart_person_id`, så `public_family_sources` (schema.sql:16994) og `mapFamilieKilder` virker uændret. Feltet betyder her »forælderen, kilden vises ved«.
+
+**Reglen og bindingsvejen:**
+- Regelregistret får `('relation-child-v1','relation.child')` og reglen `('relation-child-v1',1,'relation.child','relation','family',NULL,'relation',false,false,true,'active','structural_family')`. Den består `interpretation_promotion_rule_mode_check` og prædikat-triggeren (verificeret i reviewet).
+- Bindingen kører gennem `decide.sql`, bind-preview og `red_promote_relation_interpretations_batch`, som i 2a.
+- Ordinal-klassifikationerne gælder kun ægteskaber.
+
+Både `schema.sql` og `db-migrations.sql` (idempotent) får alle ændringer. `tests/sql/test-relation-decision.sql`, som i dag tester `RELATION_CHILD_DEFERRED`, skrives om.
 
 ## 8. Læseren
 
 **`public_family_sources`:**
 - `slags = CASE predicate WHEN 'relation.marriage' THEN 'aegteskab' WHEN 'relation.parent' THEN 'foraelder' ELSE 'boern' END`;
-- for `boern` er `counterpart_person_id` forælderen (hovedpersonen);
-- publicerings- og familiegaten er uændret.
+- `counterpart_person_id` kommer fra tilstanden, altså forælderen ved `boern`;
+- publicerings- og familiegaten (`family_offentlig`, `db-rls.sql:119`) er uændret. Den afviser hele familien, hvis ét medlem ikke er offentligt, så en børnekilde kan ikke afsløre en levende eller skjult person (verificeret i reviewet).
 
-**`packages/core`:**
-- `FamilieKilde.slags` udvides med `'boern'`, og `mapFamilieKilder` godtager det;
-- `familieIderForPerson` returnerer desuden `boerneFamilier`: de familier, hvor fokuspersonen er partner og har børn.
+**`packages/core/familieKilder.ts`:**
+- `FamilieKilde.slags` udvides med `'boern'`;
+- `mapFamilieKilder` godtager `'boern'`;
+- `familieIderForPerson` returnerer desuden `boerneFamilier`, dvs. familier, hvor fokuspersonen er partner og har børn.
 
-**`DetailPanel` (web):**
-- hos forælderen vises kildelinjen ved børnelisten for den familie, den hører til;
-- hos et barn vises den ved den forælder, der er modpart, og kun i barnets fødselsfamilie.
+**`DetailPanel` (web):** børnene vises i dag som én flad liste.
+- **Hos forælderen:** kildelinjen vises én gang under børnelisten pr. bundet familie, fx »Børn: Kilde: DAA 2018-20 · Post …«.
+- **Hos et barn:** kildelinjen vises ved forælderen i forældresektionen, når barnet er `barn` i familien, og forælderen er `counterpart`.
+- **Den anden forælder** i familien får ikke linjen, fordi henvisningen står i hovedpersonens post.
 
-En ældre klient springer `boern` over, fordi `mapFamilieKilder` frasorterer ukendte slags.
+En ældre klient springer `boern` over.
 
 ## 9. Færdigbevis
 
-**CI (syntetiske personer):**
-- **Parseren og tvillingtesten:** alle former i §4, inkl. `Datter:`, `(?)`, U+2011 og tekst uden henvisning.
-- **Reglen** for hver betingelse i §5: forkert afdeling, forkert antal, et ekstra barn uden post, forkert køn, to familier, `omstridt` og `uncertain`.
+**CI** (syntetiske personer):
+- **Parseren:**
+  - alle former i §4: `Datter:`, `Søn:`, `(?)`, U+2011, enkelt nummer (`nr_to = nr_from`), med og uden parentes-slægtled, uden romertal;
+  - tekst uden for grammatikken giver NULL.
 - **Writeren:**
-  - `machine_rule` med brudt regel giver `RELATION_CHILD_RULE_NOT_MET`;
-  - `human_sheet` kan tilsidesætte 2/3/4/7, men ikke 5/6/8;
-  - `rejected`;
+  - hvert H-brud giver `RELATION_CHILD_RULE_NOT_MET`, inkl. NULL-felter, der ikke må slippe igennem;
+  - A-afvigelser tilladt;
+  - `p_family_id` sat ⇒ afvist;
+  - `unresolved` ⇒ afvist;
+  - `rejected` virker;
   - ingen `child`-part.
-- **Bindingen:** et barn tilføjet efter binding gør kilden usynlig; `omstridt` giver NULL.
-- **Core og web:** `boern` vises ved begge personer, og en ukendt slags springes over.
-- **Arket:** e2e-test (render, hash, `sql`, ét `R` i stikprøven stopper maskindelen), i `.github/workflows/ci.yml`.
+- **Bindingen:**
+  - et barn tilføjet mellem afgørelse og binding ⇒ tilstanden er NULL, og preview afviser;
+  - et barn tilføjet efter binding ⇒ kilden er usynlig;
+  - `omstridt` ⇒ NULL.
+- **Core og web:**
+  - `boern` vises ved forælderen og ved barnet hos den rigtige forælder;
+  - ikke hos den anden forælder;
+  - en ukendt slags springes over.
+- **Arket** (e2e): render, hash, `sql`, `SHEET_TOKEN_NOT_ALLOWED`. Testen skal i `.github/workflows/ci.yml`.
 
-**Restore** (en kopi af `daa5b_navnv3_bevis_20261019200958`, aldrig prod):
-- rækkefil og ark; projektejerens gennemgang og hash; afgørelser; decide; bind-preview; binding; genkørsel 0;
-- **forventet med de forudfyldte svar:**
-  - 8 bindinger (6 maskinelt + 5 og 13);
-  - 4 `rejected`;
-  - 1 `unresolved` (6);
-  - 1 `proposed` (14);
-- læsningen +8 kilderækker af typen `boern`; universets spand `barn_2c_proposed` falder fra 14, og fordelingen på de øvrige spande måles og rapporteres;
-- kanonisk delta 0 (aggregat-hashes ens), 2a's tupel-digest uændret;
-- **negativtests:**
-  - et barn flyttet efter manifestet ⇒ binding afvist;
+**Restore** (kopi af `daa5b_navnv3_bevis_20261019200958`, aldrig prod):
+- **Forløbet:** rækkefil → ark → projektejerens gennemgang og hash → afgørelser → decide → bind-preview → binding → genkørsel giver 0.
+- **Forventet med de forudfyldte svar:** 12 bindinger (de 10, der passer helt, samt 5 og 13); 0 `rejected`; 2 `proposed` (6 og 14).
+- **Læsningen** målt med `read.sql` som i 2a-2b-ii. Kilderækker af typen `boern` stiger med højst 12. Familier med en ikke-offentlig person falder fra (`family_offentlig`), og antallet rapporteres.
+- **Universet**, målt med det private `univers.sql`: spanden for børnepåstande falder fra 14 til 2, og fordelingen rapporteres.
+- **Kanonisk delta 0:** aggregat-hashes ens, 2a's tupel-digest uændret.
+- **Negativtests:**
+  - et barn flyttet mellem afgørelse og binding ⇒ binding afvist;
   - forkert arkhash;
-  - et `U` hævet til `B` ⇒ `SHEET_TOKEN_NOT_ALLOWED`;
-  - `machine_rule` på et ikke-egnet tilfælde ⇒ `RELATION_CHILD_RULE_NOT_MET`.
+  - et `U` hævet til `B` på et H-brud ⇒ `RELATION_CHILD_RULE_NOT_MET`;
+  - ukendt token ⇒ `SHEET_TOKEN_NOT_ALLOWED`.
 
 **Rapport:** `docs/evidensbaseret-genimport/relationspersonas-5b-2b-iii-bevis.md`, kun tal og hashes.
 
 ## 10. Kendte begrænsninger
 
-- Børn med flere fødselsfamilier (adoption, to forældrepar) er ikke set i 2018-20. Reglen fejler lukket (betingelse 5).
-- Tilfælde 6 kræver, at én påstand binder til to familier. Det udskydes, og påstanden står `unresolved`.
-- De 4 forkerte henvisninger afvises. Om fejlen ligger i bogen eller OCR'en, er ikke tjekket i PDF'en (side 142, 97, 103 og 116). Det noteres i rapporten.
+- **Tilfælde 6:** én påstand dækker børn i to ægteskaber. Det kræver binding til flere familier og udskydes. Påstanden står `proposed`.
+- **Adopterede, pleje- og stedbørn** blokerer (H3). De er ikke set i de berørte familier.
+- **Serveren verificerer ikke arkets indhold, kun de registrerede hashes,** som i 2b-ii.
+- **Et ændret barnesæt** efter afgørelsen kræver en ny afgørelse. Den gamle fortolkning er accepteret og kan ikke afgøres igen, så det kræver en ny fortolkningsversion via trin 4-kæden. Det accepteres for 2018-20, hvor stamtræet er stabilt.
