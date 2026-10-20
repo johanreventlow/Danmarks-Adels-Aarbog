@@ -23,7 +23,7 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
    - Alle 4 falske `ordinal_afvigelse` skal besvares »behold familiens nummer«.
    - Rodfejlen rettes i en separat runde, der også genafgør de 2 ældre bindinger.
 
-**Uændret:** restore-only. P-linjens forkerte ægteskabsfortolkning afvises særskilt med `red_decide_interpretation`; det udestår.
+**Uændret:** restore-only. P-linjens forkerte ægteskabsfortolkning er afvist med `red_decide_interpretation` i bevisbasen (2026-10-20).
 
 ## BESLUTTET: trin 5b 2b-ii — nye personer kun som afdøde efter aldersregel; disposition pr. aktør; børnene til 2b-iii (2026-10-17)
 
