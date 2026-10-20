@@ -12,6 +12,8 @@ PGCLIENTENCODING=UTF8 env -u PGOPTIONS psql -X -Atq -v ON_ERROR_STOP=1 -v actor=
   -f $sd/relation_child_rows.sql > "$root/rows.json"
 [ "$(python3 $sd/relation_child_sheet.py render --rows "$root/rows.json" --out "$root/ark.txt" --private-root "$root")" \
   = "ARK_OK passer=1 kort=1 uden=1" ]
+# Arket viser forælderen med navn, fødselsår og post (projektejeren 2026-10-20); fixturens visning_* afledes og er tomme her, så kun posten tjekkes.
+grep -q '^# \[1\] Forælder: .*, post V-1$' "$root/ark.txt"
 rows_sha=$(shasum -a 256 "$root/rows.json" | cut -d' ' -f1); ark_sha=$(shasum -a 256 "$root/ark.txt" | cut -d' ' -f1)
 [ "$(python3 $sd/relation_child_sheet.py sql --rows "$root/rows.json" --sheet "$root/ark.txt" --approved-sha256 "$ark_sha" \
      --expect-rows-sha256 "$rows_sha" --decision-out "$root/d.sql" --private-root "$root")" = "SQL_OK b=2 r=0 u=0" ]

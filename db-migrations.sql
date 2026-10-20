@@ -23882,6 +23882,10 @@ CREATE OR REPLACE FUNCTION private.relation_child_sheet_input(p_source_id bigint
 RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
   SELECT jsonb_build_object('contract','relation-child-sheet-input-v1','source_id',p_source_id,'rows',coalesce(jsonb_agg(
     jsonb_build_object('row_no',x.row_no,'interpretation_key',x.k,'interpretation_version',x.ver,'raw',x.raw,'rule',x.rule,
+      'principal_named',(SELECT jsonb_build_object('navn',pp.visning_navn,'foedt',pp.visning_foedt,
+          'post',(SELECT xe.linje||'-'||xe.nr FROM public.person_external_id xe
+                   WHERE xe.person_id=pp.id AND xe.source_id=p_source_id))
+        FROM public.person pp WHERE pp.id=(x.rule->>'principal_person_id')::bigint),
       'children_named',coalesce((SELECT jsonb_agg(jsonb_build_object('person_id',c->'person_id','navn',p.visning_navn,
           'foedt',p.visning_foedt,'linje',c->'linje','nr',c->'nr','kuld',c->'kuld','gen_local',c->'gen_local')
           ORDER BY (c->>'nr')::integer NULLS LAST,(c->>'person_id')::bigint)

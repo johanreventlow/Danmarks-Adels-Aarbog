@@ -9,7 +9,9 @@ K1, K2, K3 = ("00000000-0000-0000-0000-00000000000" + c for c in "123")
 
 def row(no, key, ok=True, afv=(), brud=()):
     return {"row_no": no, "interpretation_key": key, "interpretation_version": 1, "raw": "3 sønner: Andet slægtled, V, nr. 2-4",
-            "rule": {"ok": ok, "brud": list(brud), "afvigelser": list(afv), "family_id": 7},
+            "rule": {"ok": ok, "brud": list(brud), "afvigelser": list(afv), "family_id": 7,
+                     "ref": {"count": 3, "nr_from": 2, "nr_to": 4}},
+            "principal_named": {"navn": "Ole Alfa", "foedt": "1770", "post": "V-1"},
             "children_named": [{"person_id": 1, "navn": "Ib Alfa", "foedt": "1801", "linje": "V", "nr": 2, "kuld": "V", "gen_local": 2}]}
 
 
@@ -20,8 +22,18 @@ ROWS = {"contract": "relation-child-sheet-input-v1", "source_id": 1,
 def test_render_blokke_og_forudfyldning():
     t = cs.render_sheet(ROWS)
     assert f"C {K1} 1 : B" in t and f"C {K2} 1 : B" in t and K3 not in t
-    assert t.index(K1) < t.index("# Kort") < t.index(K2)
+    assert t.index(K1) < t.index("# DEL 2 —") < t.index(K2)
     assert "Ikke på arket: 1" in t
+
+
+def test_render_er_til_at_navigere():
+    # projektejeren 2026-10-20: nummererede linjer med forælderen, afvigelser i almindelige ord, vejledning øverst
+    t = cs.render_sheet(ROWS)
+    assert "Sådan" in t.split("DEL 1")[0]
+    assert "[1] Forælder: Ole Alfa (f. 1770), post V-1" in t and "[2] Forælder: Ole Alfa" in t
+    assert "databasen: 1 barn" in t                          # ental, ikke »1 børn«
+    assert "bogen er selv usikker" in t and "A3_usikker" not in t
+    assert "forælderen har børn i flere ægteskaber" in t and "H3_familie" not in t
 
 
 def test_beslutnings_sql_b_r_u():

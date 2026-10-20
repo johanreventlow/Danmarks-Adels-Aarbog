@@ -35,27 +35,82 @@ def _ok_rows(rows: dict) -> dict[str, dict]:
     return {r["interpretation_key"]: r for r in rows["rows"] if r["rule"].get("ok")}
 
 
+# Afvigelser og brud i almindelige ord (projektejeren 2026-10-20: arket skal kunne læses uden koder).
+BRUD_TEKST = {"H1_klausul": "påstanden citerer ikke præcis én klausul", "H1_hovedperson": "ingen entydig hovedperson",
+              "H1_postnoegle": "hovedpersonen har ingen entydig post", "H2": "bogens tekst kan ikke læses som henvisning",
+              "H3_familie": "forælderen har børn i flere ægteskaber (eller ingen)",
+              "H3_raekker": "familien har en omstridt eller ikke-biologisk barnerække", "H4": "kønnet passer ikke",
+              "H5_nr": "postnumrene passer ikke", "H5_linje": "et barn står i en anden linje",
+              "H5_romertal": "romertallet passer ikke", "H5_slaegtled": "slægtleddet passer ikke",
+              "H5_slaegtled_gennem": "det gennemgående slægtled passer ikke",
+              "H6": "intet barn har egen post"}
+
+
+def _antal(n: int) -> str:
+    return f"{n} barn" if n == 1 else f"{n} børn"
+
+
+def _afvigelse(code: str, r: dict) -> str:
+    ref, n = r["rule"].get("ref") or {}, len(r["children_named"])
+    if code == "A1_antal_familie":
+        return f"bogen siger {_antal(ref.get('count', 0))}, familien har {_antal(n)}"
+    if code == "A2_antal_interval":
+        k = (ref.get("nr_to") or 0) - (ref.get("nr_from") or 0) + 1
+        return f"bogen siger {_antal(ref.get('count', 0))}, men henviser til {k} poster"
+    if code == "A3_usikker":
+        return "bogen er selv usikker (»(?)«)"
+    if code == "A4_uden_henvisning":
+        return "bogen henviser ikke til poster"
+    return code
+
+
+def _forælder(no: int, r: dict) -> str:
+    p = r.get("principal_named") or {}
+    return f"# [{no}] Forælder: {p.get('navn') or '?'} (f. {p.get('foedt') or '?'}), post {p.get('post') or '?'}"
+
+
 def _child(c: dict) -> str:
-    return f"#     {c['navn']} (f. {c.get('foedt') or '?'}) [{c.get('linje') or '-'}-{c.get('nr') or '-'}, kuld {c.get('kuld') or '-'}, slægtled {c.get('gen_local') or '-'}]"
+    return (f"#        - {c['navn']} (f. {c.get('foedt') or '?'}), post {c.get('linje') or '-'}-{c.get('nr') or '-'}, "
+            f"kuld {c.get('kuld') or '-'}, slægtled {c.get('gen_local') or '-'}")
+
+
+def _poster(r: dict) -> str:
+    nrs = sorted((c["linje"], c["nr"]) for c in r["children_named"] if c.get("linje") and c.get("nr") is not None)
+    if not nrs:
+        return "ingen med egen post"
+    return f"poster {nrs[0][0]}-{nrs[0][1]} … {nrs[-1][0]}-{nrs[-1][1]}" if len(nrs) > 1 else f"post {nrs[0][0]}-{nrs[0][1]}"
 
 
 def render_sheet(rows: dict) -> str:
     ok = _ok_rows(rows)
-    passer = [r for r in ok.values() if not r["rule"]["afvigelser"]]
-    kort = [r for r in ok.values() if r["rule"]["afvigelser"]]
+    passer = sorted((r for r in ok.values() if not r["rule"]["afvigelser"]), key=lambda r: r["row_no"])
+    kort = sorted((r for r in ok.values() if r["rule"]["afvigelser"]), key=lambda r: r["row_no"])
     uden = [r for r in rows["rows"] if not r["rule"].get("ok")]
-    out = ["# Børnearket (2b-iii). Tokens: B = bind, R = afvis påstanden, U = lad stå (intet skrives).",
-           "# Passer helt (alle krav og ingen afvigelser) — forudfyldt B:"]
-    for r in sorted(passer, key=lambda r: r["row_no"]):
-        out.append(f"#   »{r['raw']}« — {len(r['children_named'])} børn")
+    out = ["# ======================== BØRNEARKET (2b-iii) ========================",
+           "# Sådan læses arket:",
+           "#   - Kun linjerne, der starter med »C«, kan ændres — og kun bogstavet til sidst. Alt med »#« er information.",
+           "#   - B = bind (kilden vises for læseren) · R = afvis påstanden for altid · U = lad stå (kan tages op igen).",
+           "#   - DEL 1 passer helt mellem bog og database (antal, numre, slægtled, afdeling, køn); normalt skal intet rettes.",
+           "#   - DEL 2 er kort, hvor bog og database afviger; læs dem og vælg.",
+           "#",
+           f"# DEL 1 — {len(passer)} flokke, der passer helt (forudfyldt B)"]
+    no = 0
+    for r in passer:
+        no += 1
+        out.append(_forælder(no, r))
+        out.append(f"#     bogen: »{r['raw']}«  ·  databasen: {_antal(len(r['children_named']))}, {_poster(r)}")
         out.append(f"C {r['interpretation_key']} {r['interpretation_version']} : B")
-    out.append("# Kort (afvigelser, som du kan tilsidesætte) — forudfyldt B:")
-    for r in sorted(kort, key=lambda r: r["row_no"]):
-        out.append(f"#   »{r['raw']}« — afvigelser: {', '.join(r['rule']['afvigelser'])}")
+    out += ["#", f"# DEL 2 — {len(kort)} kort, hvor bog og database afviger (forudfyldt B)"]
+    for r in kort:
+        no += 1
+        out.append(_forælder(no, r))
+        out.append(f"#     bogen: »{r['raw']}«")
+        out.append("#     afviger: " + "; ".join(_afvigelse(c, r) for c in r["rule"]["afvigelser"]))
+        out.append(f"#     databasens {_antal(len(r['children_named']))}:")
         out.extend(_child(c) for c in r["children_named"])
         out.append(f"C {r['interpretation_key']} {r['interpretation_version']} : B")
-    brud = sorted({b for r in uden for b in r["rule"].get("brud", [])})
-    out.append(f"# Ikke på arket: {len(uden)} (brud: {', '.join(brud) or '-'})")
+    grunde = sorted({BRUD_TEKST.get(b, b) for r in uden for b in r["rule"].get("brud", [])})
+    out += ["#", f"# Ikke på arket: {len(uden)} (grunde: {'; '.join(grunde) or '-'}). De står uændret som forslag."]
     return "\n".join(out) + "\n"
 
 
