@@ -74,6 +74,9 @@ BEGIN
   r:=private.relation_child_ref('3 sønner (?)');
   IF r->>'count'<>'3' OR r->>'sex'<>'mand' OR NOT (r->>'uncertain')::boolean OR r->>'nr_from' IS NOT NULL THEN
     RAISE EXCEPTION 'RELATION_CHILD_TEST_FAILED: usikker %',r; END IF;
+  -- æøå uafhængigt af databasens locale (Opus plan-review fund 2)
+  IF private.relation_child_ref('2 børn: Første slægtled, I, nr. 1-2')->>'gen_local'<>'1' THEN
+    RAISE EXCEPTION 'RELATION_CHILD_TEST_FAILED: første'; END IF;
   IF private.relation_child_ref('17 børn')->>'count'<>'17' THEN RAISE EXCEPTION 'RELATION_CHILD_TEST_FAILED: kun antal'; END IF;
   -- uden for grammatikken ⇒ NULL
   IF private.relation_child_ref('X') IS NOT NULL OR private.relation_child_ref('se nedenfor') IS NOT NULL
@@ -110,7 +113,7 @@ BEGIN
   IF p_raw IS NULL THEN RETURN NULL; END IF;
   m:=regexp_match(btrim(p_raw),
     '^(?:([0-9]{1,3}) (børn|døtre|sønner)|(Datter|Søn))( \(\?\))?'
-    '(?::\s*([[:alpha:]]+)(?: \(([[:alpha:]]+)\))? slægtled,(?: ([IVX]+),)? nr\. ([0-9]{1,4})(?:\s*[-‑–]\s*([0-9]{1,4}))?\.?)?$');
+    '(?::\s*([[:alpha:]æøåÆØÅ]+)(?: \(([[:alpha:]æøåÆØÅ]+)\))? slægtled,(?: ([IVX]+),)? nr\. ([0-9]{1,4})(?:\s*[-‑–]\s*([0-9]{1,4}))?\.?)?$');
   IF m IS NULL THEN RETURN NULL; END IF;
   v_count:=coalesce(m[1]::integer,1);
   IF v_count<1 THEN RETURN NULL; END IF;
@@ -169,7 +172,7 @@ git commit -m "feat(151): parser for bogens børnehenvisninger (2b-iii)"
   - Regelrækken `relation-child-v1`.
   - Afgørelsens evidens har nøglerne `method='relation-child-v1'`, `family_id`, `flock_digest`, `ref`, `afvigelser`, `sheet_sha256`, `rows_sha256` og `line`.
 
-- [ ] **Step 1: Skriv de fejlende tests.** Opret `tests/sql/fixtures/relation-child.sql` med de tre hjælpere nedenfor. De er `pg_temp`-funktioner, så hver transaktion i testfilen starter med `BEGIN;`, `\ir fixtures/relation-5b.sql` og `\ir fixtures/relation-child.sql`.
+- [ ] **Step 1: Skriv de fejlende tests.** Opret `tests/sql/fixtures/relation-child.sql` med de tre hjælpere nedenfor. De er `pg_temp`-funktioner, så hver transaktion i testfilen starter med `BEGIN;`, `\ir fixtures/relation-5b.sql`, `\ir fixtures/relation-2a.sql` (for `f2a_event_for_state` og `f2a_publish`) og `\ir fixtures/relation-child.sql`. Tjek før brug, at `pg_temp.f2a_event_for_state` tager ét `uuid` (persona-id). Hvis signaturen afviger, tilpasses kaldet, og der ledgeres en Ruling. Hver `DO`-blok kører `SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;` efter opsætningen, så en manglende event fejler i testen og ikke først ved commit.
 
 `tests/sql/fixtures/relation-child.sql`:
 
@@ -191,6 +194,9 @@ BEGIN
   END LOOP;
   v_fam:=pg_temp.f5b_family(-5701,-5705,1);
   INSERT INTO family_member(family_id,person_id,rolle) SELECT v_fam,-5700-g,'barn' FROM generate_series(2,4) g;
+  -- identity_state_has_event er en udskudt constraint-trigger; hver accepteret identitet skal have sit event
+  -- (Opus plan-review fund 1; konvention fra fixtures/relation-2a.sql).
+  PERFORM pg_temp.f2a_event_for_state(sp.id) FROM private.source_persona sp WHERE sp.source_id=-5701;
   c:=pg_temp.f5b_claim(-5701,s,'relation.child',(pa->'clauses'->>1)::uuid,p_raw);
   INSERT INTO private.interpretation_party(interpretation_key,party_role,version,source_persona_id,post_offset,origin,origin_ref)
     VALUES ((c->>'key')::uuid,'principal',1,(pa->>'principal')::uuid,0,'relation_persona',gen_random_uuid());
@@ -221,6 +227,7 @@ Tilføj til `tests/sql/test-relation-child.sql` før `\echo RELATION_CHILD_TEST_
 ```sql
 BEGIN;
 \ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
 \ir fixtures/relation-child.sql
 DO $child_rule$
 DECLARE v_actor uuid:='11000000-0000-0000-0000-0000002b3001'; f jsonb; k uuid; r jsonb; v_id uuid;
@@ -248,12 +255,13 @@ END $child_rule$;
 ROLLBACK;
 BEGIN;
 \ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
 \ir fixtures/relation-child.sql
 DO $child_breaks$
 DECLARE v_actor uuid:='11000000-0000-0000-0000-0000002b3001'; f jsonb; v_id uuid; r jsonb;
 BEGIN
   PERFORM pg_temp.f5b_actor(v_actor);
-  -- H5_nr: interval passer ikke (2-5 mod børn 2-4); A2 følger med
+  -- H5_nr: interval passer ikke (2-5 mod børn 2-4)
   f:=pg_temp.fc_setup('4 sønner: Andet slægtled, V, nr. 2-5',v_actor); v_id:=(f->'claim'->>'id')::uuid;
   r:=private.relation_child_rule(v_id);
   IF (r->>'ok')::boolean OR NOT (r->'brud') ? 'H5_nr' THEN RAISE EXCEPTION 'RELATION_CHILD_TEST_FAILED: H5_nr %',r; END IF;
@@ -274,7 +282,13 @@ Tilføj desuden én transaktion pr. brud med samme mønster (setup, `relation_ch
 | Romertal | raw `'3 sønner: Andet slægtled, III, nr. 2-4'` | `H5_romertal` |
 | Slægtled | raw `'3 sønner: Tredje slægtled, V, nr. 2-4'` | `H5_slaegtled` |
 | `omstridt` | lykkelig raw + `UPDATE family_member SET konfidens='omstridt' WHERE person_id=-5702` | `H3_raekker` |
-| To familier | lykkelig raw + `PERFORM pg_temp.f5b_family(-5701,NULL,2); INSERT INTO family_member(family_id,person_id,rolle) VALUES (<ny>,-5706,'barn')` (person -5706 indsættes først) | `H3_familie` |
+| To familier | lykkelig raw + `INSERT INTO person(id,levende,privat,status,koen) VALUES (-5706,false,false,'2b3','mand'); v_f2:=pg_temp.f5b_family(-5701,NULL,2); INSERT INTO family_member(family_id,person_id,rolle) VALUES (v_f2,-5706,'barn');` (erklær `v_f2 bigint`) | `H3_familie` |
+| Anden linje | lykkelig raw + `UPDATE person_external_id SET linje='III' WHERE person_id=-5704 AND source_id=-5701` | `H5_linje` og `H5_nr` |
+| Ingen henvisning og intet barn med post | raw `'3 sønner'` + `DELETE FROM person_external_id WHERE person_id IN (-5702,-5703,-5704)` | `H6` |
+| Gennemgående slægtled | raw `'3 sønner: Andet (femtende) slægtled, V, nr. 2-4'` (børnenes `slaegtled_gennem` er NULL) | `H5_slaegtled_gennem` |
+| NULL-felt | lykkelig raw + `UPDATE person_external_id SET slaegtled_lokal=NULL WHERE person_id=-5703` | `H5_slaegtled` |
+| Hovedperson uden postnøgle | lykkelig raw + `DELETE FROM person_external_id WHERE person_id=-5701` | `H1_postnoegle`; kør også `fc_decide(...,'same',NULL,fc_ctx())` og forvent `RELATION_CHILD_RULE_NOT_MET` |
+| Uden for grammatikken | raw `'se nedenfor'` | `H2` |
 | Enkelt nummer | raw `'Søn: Andet slægtled, V, nr. 2'` | `H5_nr`, fordi børnene er 2-4 |
 | Uden henvisning | raw `'3 sønner (?)'` | `ok=true`, `afvigelser` = `["A3_usikker","A4_uden_henvisning"]` |
 | Antal | raw `'4 sønner: Andet slægtled, V, nr. 2-4'` | `ok=true`, `afvigelser` ⊇ `A1_antal_familie`, `A2_antal_interval` |
@@ -404,8 +418,13 @@ BEGIN
     SELECT i.canonical_person_id INTO v_pid FROM private.interpretation_party_current pc
       JOIN private.source_persona_identity i ON i.source_persona_id=pc.source_persona_id AND i.decision_status='accepted'
      WHERE pc.interpretation_key=p_ic.interpretation_key AND pc.party_role='principal';
-    -- Rækkelåse (personer → familier → medlemmer) før den endelige genberegning af reglen.
-    IF v_pid IS NOT NULL THEN PERFORM private.lock_family_rows(ARRAY[v_pid]); END IF;
+    -- Rækkelåse (spec §6): hovedpersonen og alle personer i hendes/hans familier (personer → familier → medlemmer,
+    -- sorteret), før den endelige genberegning af reglen. Børnenes personrækker (koen) låses dermed også.
+    IF v_pid IS NOT NULL THEN
+      PERFORM private.lock_family_rows(ARRAY(SELECT DISTINCT x FROM unnest(ARRAY[v_pid]||ARRAY(
+        SELECT b.person_id FROM public.family_member p JOIN public.family_member b ON b.family_id=p.family_id
+         WHERE p.person_id=v_pid AND p.rolle='partner')) x ORDER BY 1));
+    END IF;
     v_rule:=private.relation_child_rule(p_ic.id);
     IF v_rule IS NULL OR NOT coalesce((v_rule->>'ok')::boolean,false) THEN
       RAISE EXCEPTION 'RELATION_CHILD_RULE_NOT_MET: %',coalesce(v_rule->>'brud','[]');
@@ -414,6 +433,11 @@ BEGIN
       'flock_digest',v_rule->>'flock_digest','ref',v_rule->'ref','afvigelser',v_rule->'afvigelser');
     v_new:=public.red_decide_interpretation(p_ic.id,p_expected_version,'accepted',v_evidence);
   ELSE
+    -- H1's første del (spec §6): præcis én citeret klausul, også ved afvisning.
+    IF (SELECT count(*) FROM private.interpretation_observation io
+         WHERE io.interpretation_id=p_ic.id AND io.evidence_role='supporting')<>1 THEN
+      RAISE EXCEPTION 'RELATION_CHILD_RULE_NOT_MET: ["H1_klausul"]';
+    END IF;
     v_new:=public.red_decide_interpretation(p_ic.id,p_expected_version,'rejected',v_evidence);
   END IF;
   RETURN (SELECT version FROM private.interpretation WHERE id=v_new);
@@ -436,7 +460,7 @@ Derefter indsættes umiddelbart **efter** linjen `PERFORM pg_advisory_xact_lock_
   END IF;
 ```
 
-Funktionens øvrige krop er uændret.
+Funktionens øvrige krop er uændret. `v_role`'s `'child'`-gren og `relation_structural_candidates`' børnegren bliver dermed ubrugte. Lad dem stå, og ret kommentaren over `RELATION_CHILD_DEFERRED`-stedet til at pege på 2b-iii-grenen.
 
 Regelrækkerne: udvid de to `INSERT`-sætninger i blokken `-- Trin 5b 2a (#151): strukturelle familiebindinger.`. `interpretation_promotion_rule_line` får `('relation-child-v1','relation.child')`, og `interpretation_promotion_rule` får `('relation-child-v1',1,'relation.child','relation','family',NULL,'relation',false,false,true,'active','structural_family')`.
 
@@ -529,6 +553,7 @@ BEGIN
   f:=pg_temp.fc_setup('3 sønner: Andet slægtled, V, nr. 2-4',v_actor);
   k:=(f->'claim'->>'key')::uuid; v_fam:=(f->>'family')::bigint;
   PERFORM pg_temp.f2a_publish(-5701,f->'source',f->'post',-5701,v_actor,'Ole Alfa. 3 sønner: Andet slægtled, V, nr. 2-4');
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
   IF pg_temp.fc_decide(k,1,'same',NULL,pg_temp.fc_ctx(),v_actor)<>'OK' THEN RAISE EXCEPTION 'RELATION_CHILD_TEST_FAILED: afgør'; END IF;
   -- Review Focus 2a: barn UDEN egen post tilføjet før binding ⇒ H holder, den aktuelle flok bindes
   INSERT INTO person(id,levende,privat,status,koen) VALUES (-5707,false,false,'2b3','mand');
@@ -553,7 +578,7 @@ ROLLBACK;
 ```
 
 Tilføj to transaktioner med samme opsætning:
-- **Barn med post uden for intervallet før binding.** Efter `fc_decide(...'same'...)` indsættes person -5709 med `person_external_id` (`linje 'V'`, `nr 9`, `kuld 'V'`, `slaegtled_lokal 2`) som `barn`. Forventet `fc_bind(...)` = `RELATION_PROMOTION_STRUCTURE_INVALID`.
+- **Barn med post uden for intervallet før binding.** Efter `fc_decide(...'same'...)` indsættes person -5709 (`koen 'mand'`) med `person_external_id` (`source_id -5701`, `linje 'V'`, `nr 9`, `record_key 'V-9'`, `kuld 'V'`, `slaegtled_lokal 2`) som `barn`. Forventet `fc_bind(...)` = `RELATION_PROMOTION_STRUCTURE_INVALID`.
 - **Ikke-offentligt medlem (Review Focus 3).** Efter en lykkelig binding sættes `UPDATE person SET levende=true WHERE id=-5703`. Forventet `fc_boern(v_fam)` = 0.
 
 - [ ] **Step 2: Kør testen, og se den fejle.**
@@ -901,7 +926,19 @@ Bemærk:
 - én forælder med to henvisninger, hvor den ene passer helt og den anden er »3 sønner (?)«;
 - én hovedperson med to familier (H3).
 
-Byg den med de rå `INSERT`-mønstre fra `tests/sql/fixtures/relation-marriage-v3.sql`, inklusive `person_external_id` og `koen`.
+Byg den med de rå `INSERT`-mønstre fra `tests/sql/fixtures/relation-marriage-v3.sql`, som committer.
+
+Faste værdier: kilde -22701, og alle `person_external_id` har `source_id` -22701.
+
+| Hovedperson | Familie og børn | Påstand (raw) | Forventet |
+| --- | --- | --- | --- |
+| **A**: person -22711 (`koen 'mand'`), post `V-1` | én familie; sønner -22712..-22714 (`koen 'mand'`) med poster `V-2..V-4`, `linje 'V'`, `kuld 'V'`, `slaegtled_lokal 2` | `'3 sønner: Andet slægtled, V, nr. 2-4.'` | passer helt |
+| **B**: person -22721, post `V-11` | én familie; børn -22722..-22724. Kun -22722 har en post (`V-12`, `linje 'V'`, `slaegtled_lokal 2`) | `'3 børn (?)'` | kort med A3 og A4 |
+| **C**: person -22731, post `V-21` | to partnerfamilier, hver med ét barn | `'2 børn'` | H3 brudt, ikke på arket |
+
+Det giver `ARK_OK passer=1 kort=1 uden=1`.
+
+Hver persona (hovedpersoner og børn) får `pg_temp.f2a_event_for_state(<persona-id>)`, og fixturen slutter med `SET CONSTRAINTS ALL IMMEDIATE;` før `COMMIT;` (Opus plan-review fund 1).
 
 `tests/sql/test-relation-child-sheet.sh` følger `test-relation-marriage-sheet-v3.sh`:
 1. Render og forvent `ARK_OK passer=1 kort=1 uden=1`.
@@ -909,7 +946,7 @@ Byg den med de rå `INSERT`-mønstre fra `tests/sql/fixtures/relation-marriage-v
 3. Kør afgørelsesscriptet med `-v actor=…`.
 4. Forvent 2 `accepted` med `method='relation-child-v1'`.
 5. Kør derefter et preview over de to og forvent 2 egnede.
-6. **Negativ:** et ark med `S` som token giver `SHEET_TOKEN_NOT_ALLOWED` og 0 filer i `$root`.
+6. **Negativ:** et ark med `S` som token giver `SHEET_TOKEN_NOT_ALLOWED`, og stien til `--decision-out` (`$root/neg.sql`) findes ikke bagefter.
 
 Afslut med `echo CHILD_SHEET_E2E_OK`.
 
@@ -943,10 +980,11 @@ git commit -m "feat(151): børnearket — projektion, ark og e2e (2b-iii)"
 
 - [ ] **Step 1: Skriv de fejlende tests.**
 
-I `familieKilder.test.ts` (den eksisterende model-fixture i filen har en union `f10` med børn; brug den):
+I `familieKilder.test.ts`: filen har ingen fælles `m`, og hver test bygger sin egen model med `buildModel` (se linje 12-14). Byg modellen i den nye test på samme måde, med en union `f10` mellem person `'1'` og `'2'` og et barn `'3'`:
 
 ```ts
 it('boern godtages og boerneFamilier er partnerens familier med børn', () => {
+  // m bygges som i filens øvrige tests (buildModel med union f10: '1' + '2', barn '3'; person '4' uden familie)
   const rows = mapFamilieKilder([{ family_id: 10, slags: 'boern', counterpart_person_id: 1, source_record_ref: null,
     source_label: 'DAA X', record_label: 'Post 1', citation_label: 'c' }]);
   expect(rows).toHaveLength(1);
@@ -958,7 +996,7 @@ it('boern godtages og boerneFamilier er partnerens familier med børn', () => {
 
 Tilpas fixture-id'erne til filens eksisterende model, hvis `f10`/`'1'` hedder noget andet. Det ledgeres som Ruling. Ret desuden den eksisterende forventning `toEqual({ aegteskaber: [], foraeldreFamilier: [] })` til også at indeholde `boerneFamilier: []`.
 
-I `DetailPanel.familieKilder.test.tsx`, med samme mock-mønster som de eksisterende `foraelder`-tests:
+I `DetailPanel.familieKilder.test.tsx`, med samme mock-mønster som de eksisterende `foraelder`-tests. Fokusperson `'1'` har ingen børn i filens model. Udvid modellen med et barn i `f10` (fx `'5'`), og lad mocken returnere `{family_id:'10', slags:'boern', counterpart_person_id:'1', …}`. Den eksisterende assertion `kald[0].sort()).toEqual(['10','20'])` skal fortsat holde, jf. at `ids` ikke må få dubletter nedenfor.
 - **(a)** Hos forælderen vises én kildelinje under »Børn«.
 - **(b)** Hos barnet vises linjen ved den forælder, der er modpart, men ikke ved den anden forælder (Review Focus 5).
 - **(c)** En ukendt `slags` springes over.
@@ -998,7 +1036,7 @@ Returtypen udvides med `boerneFamilier: string[]`, og funktionen returnerer `{ a
 ```
 
 I `DetailPanel.tsx`:
-- `ids` får også `...boerneFamilier` med.
+- `ids` ændres **ikke**: `boerneFamilier` er altid en delmængde af `aegteskaber`, hvis familie-id'er allerede er med, og dubletter ville bryde den eksisterende test (Opus plan-review fund 4).
 - Tilføj
 
 ```ts
@@ -1048,6 +1086,7 @@ git commit -m "feat(151): web viser børneflokkens kilde ved forælder og barn"
   4. Tag kopierne `_neg` nu.
 
 - [ ] **Step 3: Rækkefil og ark.**
+  0. **Tidligt tjek:** tæl `private.relation_child_ref(value->>'raw') IS NULL` over de 14 påstande (kun antal). Forventet: 1, nemlig påstanden uden hovedperson, hvis tekst er ét ord. En Python-tørkørsel af samme grammatik 2026-10-20 genkendte de øvrige 13. Afviger tallet, stop og ledger.
   1. `relation_child_rows.sql` → `rows.json` (0600). Forventet: 14 rækker, `ok` 12, brud 2 (H3 og H1).
   2. `render` → `ark.txt`. Forventet: `ARK_OK passer=10 kort=2 uden=2`.
   3. **STOP:** projektejeren gennemgår arket med `open -e` og giver sha256 i chat.
