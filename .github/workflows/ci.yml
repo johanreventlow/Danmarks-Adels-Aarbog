@@ -501,6 +501,7 @@ jobs:
           bash tests/sql/test-relation-marriage-sheet.sh ci5b_2bii_sheet
           bash tests/sql/test-relation-marriage-sheet-v3.sh ci5b_2bii_sheet
           bash tests/sql/test-relation-child-sheet.sh ci5b_2bii_sheet
+          psql -q -v ON_ERROR_STOP=1 -d ci5b_2bii_sheet -f tests/sql/test-marriage-ordinal-lock.sql >/dev/null
       - name: Klausul-writer SQL (#148 4.1c)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-clause-evidence-writer.sql

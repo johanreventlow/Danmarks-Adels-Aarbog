@@ -2980,6 +2980,8 @@ DECLARE
     'public.red_relation_persona_v2_input(bigint)'::regprocedure,
     'public.red_relation_persona_v3_input(bigint)'::regprocedure,
     'public.red_relation_child_sheet_input(bigint)'::regprocedure,
+    'public.red_marriage_ordinal_correction_input(bigint)'::regprocedure,
+    'public.red_ret_aegteskabsnummer(uuid,integer,text,jsonb)'::regprocedure,
     'public.red_relation_disposition_input(bigint)'::regprocedure,
     'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
     'public.red_kasser_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
@@ -10262,3 +10264,33 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: 5b 2b-ii runde 2 — titelliste og writer v3';
 END $verify_relation_v3$;
+
+-- #244 (spec §7.1-§7.2, §5): rettelsestabellen er låst, origin-constraintet har tre værdier, og funktionerne findes.
+DO $verify_244$
+DECLARE r text;
+BEGIN
+  IF to_regclass('private.marriage_ordinal_correction') IS NULL
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.marriage_ordinal_correction'::regclass)
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.marriage_ordinal_correction'::regclass
+                     AND tgname='trg_marriage_ordinal_correction_append_only')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.marriage_ordinal_correction'::regclass
+                     AND tgname='trg_marriage_ordinal_correction_no_truncate') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 244 rettelsestabel';
+  END IF;
+  FOREACH r IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_table_privilege(r,'private.marriage_ordinal_correction','SELECT,INSERT,UPDATE,DELETE') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 244 tabeladgang %',r;
+    END IF;
+  END LOOP;
+  IF (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='private.interpretation_party'::regclass
+       AND conname='interpretation_party_origin_check') LIKE ALL (ARRAY['%relation_persona%','%relation_decision%','%ordinal_correction%'])
+     IS NOT TRUE THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 244 origin-constraint';
+  END IF;
+  IF to_regprocedure('private.relation_book_ordinal(text)') IS NULL OR private.relation_book_ordinal('g. 2° m. X')<>2
+     OR position('relation_ordered_windows' IN pg_get_functiondef('private.relation_marriage_ordinals(uuid)'::regprocedure))=0
+     OR position('ORDINAL_BOOK_MISMATCH' IN pg_get_functiondef('private.write_relation_persona(uuid,text,jsonb)'::regprocedure))=0 THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 244 funktioner';
+  END IF;
+  RAISE NOTICE 'OK: #244 — ægteskabsnummer, bognummer, rettelsestabel';
+END $verify_244$;
