@@ -14896,15 +14896,53 @@ REVOKE ALL ON TABLE private.clause_observation_current FROM PUBLIC,anon,authenti
 -- Trin 5b (#151): relationspersonas (nye funktioner). Ligger sidst, fordi SQL-funktionerne
 -- refererer clause_observation_current, som først oprettes ovenfor.
 -- ===================================================================================
+-- ===================================================================================
+-- Trin 5b 2b-ii (#151, spec §5.2 / errata §15.1): det entydige minimale ordnede ordvindue.
+-- Ord = løb af den eksplicitte klasse [0-9A-Za-zÀ-ÖØ-öø-ÿ] (ikke \w, som afhænger af lc_ctype),
+-- sammenlignet med lower(). 0-baserede tegnpositioner, w_to eksklusiv. Python-tvillingen:
+-- relation_persona_extract_v2.windows.
+-- ===================================================================================
+CREATE OR REPLACE FUNCTION private.relation_ordered_windows(p_text text,p_raw text)
+RETURNS TABLE(w_from integer,w_to integer) LANGUAGE plpgsql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
+DECLARE tw text[]:='{}'; tf int[]:='{}'; tt int[]:='{}'; rw text[]; n int:=0; pos int; mlen int; i int; j int; k int;
+  ends int[]:='{}'; starts int[]:='{}';
+BEGIN
+  LOOP
+    pos:=regexp_instr(p_text,'[0-9A-Za-zÀ-ÖØ-öø-ÿ]+',1,n+1);
+    EXIT WHEN pos=0;
+    mlen:=char_length((regexp_match(substr(p_text,pos),'^[0-9A-Za-zÀ-ÖØ-öø-ÿ]+'))[1]);
+    n:=n+1; tw:=tw||lower(substr(p_text,pos,mlen)); tf:=tf||(pos-1); tt:=tt||(pos-1+mlen);
+  END LOOP;
+  SELECT array_agg(lower(m[1])) INTO rw FROM regexp_matches(p_raw,'([0-9A-Za-zÀ-ÖØ-öø-ÿ]+)','g') m;
+  IF rw IS NULL OR n=0 THEN RETURN; END IF;
+  FOR i IN 1..n LOOP
+    CONTINUE WHEN tw[i]<>rw[1];
+    j:=i; k:=2;
+    WHILE k<=array_length(rw,1) LOOP
+      j:=j+1;
+      EXIT WHEN j>n;
+      IF tw[j]=rw[k] THEN k:=k+1; END IF;
+    END LOOP;
+    IF k>array_length(rw,1) THEN starts:=starts||i; ends:=ends||j; END IF;
+  END LOOP;
+  -- Minimale vinduer: for hver slutposition kun det med senest start.
+  RETURN QUERY
+    SELECT tf[max(u.s)], tt[u.e] FROM unnest(starts,ends) AS u(s,e) GROUP BY u.e ORDER BY 1;
+END $$;
+REVOKE ALL ON FUNCTION private.relation_ordered_windows(text,text) FROM PUBLIC,anon,authenticated,service_role;
+
 -- Trin 5b (#151): serverens ægteskabsnummer. Rang efter (post_offset, spændlængde,
 -- interpretation_key) over ALLE ikke-afviste ægteskabspåstande i posten — også dem,
 -- udtrækket parkerer — så numrene ikke flytter sig mellem kørsler (spec §5.1).
+-- #244: positionen er starten af det eneste minimale ordnede ordvindue (som skriverens spændtjek), ikke strpos:
+-- en påstand, der springer en parentes over, står ikke ordret i klausulen. Uden præcis ét vindue: NULL (sidst).
 CREATE OR REPLACE FUNCTION private.relation_marriage_ordinals(p_occurrence uuid)
 RETURNS TABLE(interpretation_key uuid, marriage_ordinal integer, post_offset integer)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
   WITH m AS (
     SELECT ic.interpretation_key, ic.value->>'raw' AS raw,
-           co.post_char_from+nullif(strpos(co.verbatim_text,ic.value->>'raw'),0)-1 AS post_offset
+           co.post_char_from+(SELECT CASE WHEN count(*)=1 THEN min(w.w_from) END
+                                FROM private.relation_ordered_windows(co.verbatim_text,ic.value->>'raw') w) AS post_offset
       FROM private.interpretation_current ic
       JOIN private.interpretation_observation io ON io.interpretation_id=ic.id AND io.evidence_role='supporting' AND io.ordinal=1
       JOIN private.clause_observation_current co ON co.id=io.observation_id
@@ -17059,41 +17097,6 @@ RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=pg_catalog,private AS $$
                         OR (w ~ '^(rigs|lens)' AND substr(w,5)=ANY(private.relation_title_words()))))
 $$;
 REVOKE ALL ON FUNCTION private.relation_name_has_title(text) FROM PUBLIC,anon,authenticated,service_role;
-
--- ===================================================================================
--- Trin 5b 2b-ii (#151, spec §5.2 / errata §15.1): det entydige minimale ordnede ordvindue.
--- Ord = løb af den eksplicitte klasse [0-9A-Za-zÀ-ÖØ-öø-ÿ] (ikke \w, som afhænger af lc_ctype),
--- sammenlignet med lower(). 0-baserede tegnpositioner, w_to eksklusiv. Python-tvillingen:
--- relation_persona_extract_v2.windows.
--- ===================================================================================
-CREATE OR REPLACE FUNCTION private.relation_ordered_windows(p_text text,p_raw text)
-RETURNS TABLE(w_from integer,w_to integer) LANGUAGE plpgsql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
-DECLARE tw text[]:='{}'; tf int[]:='{}'; tt int[]:='{}'; rw text[]; n int:=0; pos int; mlen int; i int; j int; k int;
-  ends int[]:='{}'; starts int[]:='{}';
-BEGIN
-  LOOP
-    pos:=regexp_instr(p_text,'[0-9A-Za-zÀ-ÖØ-öø-ÿ]+',1,n+1);
-    EXIT WHEN pos=0;
-    mlen:=char_length((regexp_match(substr(p_text,pos),'^[0-9A-Za-zÀ-ÖØ-öø-ÿ]+'))[1]);
-    n:=n+1; tw:=tw||lower(substr(p_text,pos,mlen)); tf:=tf||(pos-1); tt:=tt||(pos-1+mlen);
-  END LOOP;
-  SELECT array_agg(lower(m[1])) INTO rw FROM regexp_matches(p_raw,'([0-9A-Za-zÀ-ÖØ-öø-ÿ]+)','g') m;
-  IF rw IS NULL OR n=0 THEN RETURN; END IF;
-  FOR i IN 1..n LOOP
-    CONTINUE WHEN tw[i]<>rw[1];
-    j:=i; k:=2;
-    WHILE k<=array_length(rw,1) LOOP
-      j:=j+1;
-      EXIT WHEN j>n;
-      IF tw[j]=rw[k] THEN k:=k+1; END IF;
-    END LOOP;
-    IF k>array_length(rw,1) THEN starts:=starts||i; ends:=ends||j; END IF;
-  END LOOP;
-  -- Minimale vinduer: for hver slutposition kun det med senest start.
-  RETURN QUERY
-    SELECT tf[max(u.s)], tt[u.e] FROM unnest(starts,ends) AS u(s,e) GROUP BY u.e ORDER BY 1;
-END $$;
-REVOKE ALL ON FUNCTION private.relation_ordered_windows(text,text) FROM PUBLIC,anon,authenticated,service_role;
 
 -- Trin 5b 2b-ii (spec §5.1): rækkefilens projektion — del 1's input for ægteskaber uden persona-part,
 -- plus hovedpersonen og hans/hendes nuværende partnere.

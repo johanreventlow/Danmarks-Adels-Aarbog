@@ -23906,4 +23906,27 @@ END $$;
 REVOKE ALL ON FUNCTION public.red_relation_child_sheet_input(bigint) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.red_relation_child_sheet_input(bigint) TO authenticated;
 
+-- ===================================================================================
+-- #244 (spec 2026-10-20-244-aegteskabsnumre-design): ægteskabsnummeret placeres med skriverens ordvindue; bognummer,
+-- værn og rettelsesskriver for skævt gemte numre. relation_ordered_windows er defineret tidligere i filen.
+-- ===================================================================================
+CREATE OR REPLACE FUNCTION private.relation_marriage_ordinals(p_occurrence uuid)
+RETURNS TABLE(interpretation_key uuid, marriage_ordinal integer, post_offset integer)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+  WITH m AS (
+    SELECT ic.interpretation_key, ic.value->>'raw' AS raw,
+           co.post_char_from+(SELECT CASE WHEN count(*)=1 THEN min(w.w_from) END
+                                FROM private.relation_ordered_windows(co.verbatim_text,ic.value->>'raw') w) AS post_offset
+      FROM private.interpretation_current ic
+      JOIN private.interpretation_observation io ON io.interpretation_id=ic.id AND io.evidence_role='supporting' AND io.ordinal=1
+      JOIN private.clause_observation_current co ON co.id=io.observation_id
+     WHERE ic.predicate='relation.marriage' AND ic.status<>'rejected' AND co.occurrence_id=p_occurrence)
+  SELECT m.interpretation_key,
+         (row_number() OVER (ORDER BY m.post_offset NULLS LAST,char_length(m.raw),m.interpretation_key::text COLLATE "C"))::integer,
+         m.post_offset
+    FROM m;
+$$;
+REVOKE ALL ON FUNCTION private.relation_marriage_ordinals(uuid) FROM PUBLIC,anon,authenticated;
+-- #244-blokken slutter her.
+
 -- 5b-sektionen slutter her (nye 5b-blokke indsættes over denne linje).
