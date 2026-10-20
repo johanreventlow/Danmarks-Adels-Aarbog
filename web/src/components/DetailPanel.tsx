@@ -53,9 +53,13 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
     return familieKilder.filter((k) => k.slags === 'aegteskab' && fam.has(k.familyId)
       && (k.counterpartPersonId === spouseId || k.counterpartPersonId === focusId));
   };
-  // Forælderkilden hører kun til den forælder, påstanden handler om (aldrig ved begge; spec §5.2).
-  const foraelderKilder = (parentId: string) => familieKilder.filter((k) => k.slags === 'foraelder'
+  // Forælderkilden hører kun til den forælder, påstanden handler om (aldrig ved begge; spec §5.2). 2b-iii: en
+  // børnekilde fra forælderens post vises hos barnet på samme måde (modparten er forælderen).
+  const foraelderKilder = (parentId: string) => familieKilder.filter((k) => (k.slags === 'foraelder' || k.slags === 'boern')
     && familieIder.foraeldreFamilier.includes(k.familyId) && k.counterpartPersonId === parentId);
+  // Trin 5b 2b-iii: børneflokkens kilde hos forælderen (modparten er forælderen selv).
+  const boerneKilder = familieKilder.filter((k) => k.slags === 'boern'
+    && familieIder.boerneFamilier.includes(k.familyId) && k.counterpartPersonId === focusId);
   // Samme ægteskab kan være bundet fra flere udgaver/poster; nøglen skal derfor også bære kilden.
   const kildeNøgle = (k: FamilieKilde) => [k.familyId, k.slags, k.counterpartPersonId, k.sourceLabel, k.sourceRecordRef ?? k.recordLabel].join('|');
   const parents = parentsOf(model, focusId);
@@ -218,6 +222,9 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
                 </Link>
               ))}
             </div>
+            {boerneKilder.map((k) => (
+              <KildeLinjeVisning key={kildeNøgle(k)} kilde={k} versions={versionerForKilde} onVaelg={setBioVersionIdx} />
+            ))}
           </>
         )}
 

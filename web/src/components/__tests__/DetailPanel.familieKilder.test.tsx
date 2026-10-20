@@ -15,12 +15,13 @@ const { DetailPanel } = await import('../DetailPanel');
 
 const person = (id: string): AppPerson => ({ id, name: `Person ${id}`, born: null, died: null, years: '', title: '', bio: '', privat: false });
 const model = buildModel({
-  persons: ['1', '2', '5', '6'].map(person),
+  persons: ['1', '2', '5', '6', '7'].map(person),
   unions: [
     { id: 'f10', p1: '1', p2: '2', p2_name: null, year: null },
     { id: 'f20', p1: '5', p2: '6', p2_name: null, year: null },
   ],
-  parentChild: [{ child: '1', parent: '5', union: 'f20' }, { child: '1', parent: '6', union: 'f20' }],
+  parentChild: [{ child: '1', parent: '5', union: 'f20' }, { child: '1', parent: '6', union: 'f20' },
+    { child: '7', parent: '1', union: 'f10' }, { child: '7', parent: '2', union: 'f10' }],
 }) as unknown as Model;
 
 const detail: PersonDetailData = {
@@ -62,6 +63,25 @@ describe('DetailPanel — familiekilder', () => {
     expect(screen.queryByText('Tidligere udgave')).toBeNull();
     fireEvent.click(knap);
     expect(screen.getByText('Tidligere udgave')).toBeTruthy();
+  });
+  // Trin 5b 2b-iii (spec §8): børneflokkens kilde — hos forælderen under »Børn«, hos barnet ved den forælder,
+  // påstanden står hos (ikke ved den anden forælder); en ukendt slags springes over i datalaget.
+  it('viser børnekilden under Børn hos forælderen', async () => {
+    kilder = [kilde({ slags: 'boern', counterpartPersonId: '1', recordLabel: 'Post 8' })];
+    vis();
+    await screen.findByText('Kilde: DAA X · Post 8');
+    expect(screen.getAllByText('Kilde: DAA X · Post 8')).toHaveLength(1);
+    const børn = screen.getByText('Børn');
+    expect(børn.compareDocumentPosition(screen.getByText('Kilde: DAA X · Post 8')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(kald[0].sort()).toEqual(['10', '20']);
+  });
+  it('viser børnekilden hos barnet kun ved den forælder, der er modpart', async () => {
+    kilder = [kilde({ familyId: '20', slags: 'boern', counterpartPersonId: '5', recordLabel: 'Post 9' })];
+    vis();
+    await screen.findByText('Kilde: DAA X · Post 9');
+    expect(screen.getAllByText('Kilde: DAA X · Post 9')).toHaveLength(1);
+    expect(screen.getByText('Person 5 ›').closest('span')?.textContent).toContain('Kilde: DAA X · Post 9');
+    expect(screen.getByText('Person 6 ›').closest('span')?.textContent).not.toContain('Kilde:');
   });
   it('viser ingen kildelinje uden kilder', async () => {
     vis();
