@@ -27,7 +27,7 @@
   - `MARRIAGE_ORDINAL_CORRECTION_CONTEXT_INVALID|NOT_BOUND|VERSION_MISMATCH|NOT_NEEDED|FAMILY_MISMATCH|BOOK_MISMATCH|STATE_INVALID`;
   - `REIMPORT_WRITER_RELATION_PERSONA_ORDINAL_BOOK_MISMATCH`;
   - `SHEET_TOKEN_NOT_ALLOWED`, `SHEET_LINE_UNKNOWN`, `SHEET_LINE_DUPLICATE`, `SHEET_LINES_MISSING`, `SHEET_HASH_MISMATCH`, `ROWS_CONTRACT_INVALID`.
-- **Bognummer-mønstret** sammenlignes efter `lower()`: `^[ \t]*(g\.|gift)[ \t]*([0-9]{1,3})[ \t]*[°º]`. Det bruger ingen `\s`, `\d` eller `\w`, og loftet på 3 cifre forhindrer overløb i en integer.
+- **Bognummer-mønstret** sammenlignes efter `lower()`: `^[ \t]*(g[.]|gift)[ \t]*([0-9]{1,3})[ \t]*[°º]` (`[.]` i stedet for `\.`, så en sql-krop ikke afhænger af `standard_conforming_strings` ved kaldet). Det bruger ingen `\s`, `\d` eller `\w`, og loftet på 3 cifre forhindrer overløb i en integer.
 - **PII.** Navne og bogens tekst må kun forekomme i `~/.private/244/` (0700/0600). Rapporter, commits og chat indeholder kun tal og hashes. Tests bruger opdigtede navne.
 - **Commits** er atomiske danske Conventional Commits med trailer `Claude-Session: https://claude.ai/code/session_011rKEYw62xDPse4zhLARtjo` og uden Claude-attribution.
 - **Miljø:** `env -u PGOPTIONS` foran psql og `env -u NODE_OPTIONS` foran npm.
@@ -67,15 +67,23 @@
 -- #244: fixtures oven på relation-5b.sql og relation-2a.sql. Kaldes som ejer. Opdigtede navne.
 -- En post med to ægteskaber. Påstand 1 springer en parentes over (som de 6 i 2018-20) og står derfor ikke ordret
 -- i klausulen. Ægtefællepartens nummer gemmes som den gamle funktion gav det (1↔2 byttet); familierne er rigtige.
+-- p_k1/p_raw1 styrer påstand 1 (ret_bog bruger »Gift 2° …« i begge, så vinduet findes, og bogen siger 2).
+-- p_third: en tredje ægteskabspåstand (uden familie, forbliver proposed) til låsetesten.
+-- Posten publiceres (kontrakt 2), så public_family_sources kan vise kilderne (test-family-sources.sql:14).
 CREATE OR REPLACE FUNCTION pg_temp.f244_post(p_source bigint,p_src jsonb,p_key text,p_principal bigint,p_s1 bigint,p_s2 bigint,
-  p_actor uuid) RETURNS jsonb LANGUAGE plpgsql AS $$
-DECLARE p jsonb; c1 jsonb; c2 jsonb; v1 uuid; v2 uuid; f1 bigint; f2 bigint; v_at timestamptz:=clock_timestamp();
-  v_k1 text:='Gift 1° m. Bo Beta (søn af Ole Oma) f. 1800.'; v_k2 text:='Gift 2° m. Cia Ceta.';
+  p_actor uuid,p_k1 text DEFAULT 'Gift 1° m. Bo Beta (søn af Ole Oma) f. 1800.',p_raw1 text DEFAULT 'Gift 1° m. Bo Beta f. 1800.',
+  p_third boolean DEFAULT false) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE p jsonb; c1 jsonb; c2 jsonb; c3 jsonb; v1 uuid; v2 uuid; f1 bigint; f2 bigint; v_at timestamptz:=clock_timestamp();
+  v_k2 text:='Gift 2° m. Cia Ceta.'; v_k3 text:='Gift 3° m. Dy Delta.'; v_text text; v_clauses text[];
 BEGIN
-  p:=pg_temp.f5b_post(p_source,p_src,p_key,'Anna Alfa. '||v_k1||' '||v_k2,ARRAY['Anna Alfa.',v_k1,v_k2],p_principal,p_actor);
+  v_text:='Anna Alfa. '||p_k1||' '||v_k2||CASE WHEN p_third THEN ' '||v_k3 ELSE '' END;
+  v_clauses:=ARRAY['Anna Alfa.',p_k1,v_k2]||CASE WHEN p_third THEN ARRAY[v_k3] ELSE '{}'::text[] END;
+  p:=pg_temp.f5b_post(p_source,p_src,p_key,v_text,v_clauses,p_principal,p_actor);
   PERFORM pg_temp.f2a_event_for_state((p->>'principal')::uuid);
-  c1:=pg_temp.f5b_claim(p_source,p_src,'relation.marriage',(p->'clauses'->>1)::uuid,'Gift 1° m. Bo Beta f. 1800.');
+  PERFORM pg_temp.f2a_publish(p_source,p_src,p,p_principal,p_actor,v_text);
+  c1:=pg_temp.f5b_claim(p_source,p_src,'relation.marriage',(p->'clauses'->>1)::uuid,p_raw1);
   c2:=pg_temp.f5b_claim(p_source,p_src,'relation.marriage',(p->'clauses'->>2)::uuid,v_k2);
+  IF p_third THEN c3:=pg_temp.f5b_claim(p_source,p_src,'relation.marriage',(p->'clauses'->>3)::uuid,v_k3); END IF;
   v1:=pg_temp.f5b_spouse(p_source,p_src,p,c1,(p->'clauses'->>1)::uuid,'Bo Beta',2);
   v2:=pg_temp.f5b_spouse(p_source,p_src,p,c2,(p->'clauses'->>2)::uuid,'Cia Ceta',1);
   INSERT INTO private.source_persona_identity_event(source_persona_id,canonical_person_id,decision_status,version,evidence,
@@ -86,7 +94,7 @@ BEGIN
     VALUES (v1,p_s1,'accepted',1,'{"fixture":"244"}',p_actor,'fixture',v_at),(v2,p_s2,'accepted',1,'{"fixture":"244"}',p_actor,'fixture',v_at);
   f1:=pg_temp.f5b_family(p_principal,p_s1,1);
   f2:=pg_temp.f5b_family(p_principal,p_s2,2);
-  RETURN jsonb_build_object('post',p,'c1',c1,'c2',c2,'s1',v1,'s2',v2,'f1',f1,'f2',f2);
+  RETURN jsonb_build_object('post',p,'c1',c1,'c2',c2,'c3',c3,'s1',v1,'s2',v2,'f1',f1,'f2',f2);
 END $$;
 
 -- Afgør kildens ægteskaber maskinelt (2a) og bind alle egnede (2b-i-vejen) som aktøren. Returnerer antal bindinger.
@@ -108,6 +116,7 @@ BEGIN
            'family_id',(private.relation_binding_state(ic.id)#>>'{family,family_id}')::bigint) ORDER BY ic.id::text COLLATE "C"),'[]')
     INTO v_all FROM private.interpretation_current ic
    WHERE ic.source_id=p_source AND ic.status='accepted' AND private.relation_binding_state(ic.id) IS NOT NULL;
+  IF jsonb_array_length(v_all)=0 THEN RETURN 0; END IF;   -- tom liste giver RELATION_PROMOTION_ITEMS_INVALID
   PERFORM set_config('request.jwt.claim.sub',p_actor::text,true);
   SET LOCAL ROLE authenticated;
   v_pv:=red_preview_relation_promotions(p_source,v_all);
@@ -157,15 +166,18 @@ BEGIN
      IS DISTINCT FROM ARRAY[false,true] THEN
     RAISE EXCEPTION 'ORDINAL_244_TEST_FAILED: uden vindue';
   END IF;
-  -- ordinals_null_raw: NULL-raw giver NULL-position (STRICT), ikke fejl
-  UPDATE private.interpretation SET value=value-'raw' WHERE id=(c->>'id')::uuid;
-  PERFORM 1 FROM private.relation_marriage_ordinals((p->>'occ')::uuid);
+  -- ordinals_null_raw: NULL-raw giver NULL-position (STRICT), ikke fejl. interpretation er tilføj-kun, så en ny post.
+  p:=pg_temp.f5b_post(-24401,s,'O-3','Fie Fi. Gift m. Gro Gamma.',ARRAY['Fie Fi.','Gift m. Gro Gamma.'],-24405,v_actor);
+  PERFORM pg_temp.f5b_claim(-24401,s,'relation.marriage',(p->'clauses'->>1)::uuid,NULL);
+  IF (SELECT o.post_offset FROM private.relation_marriage_ordinals((p->>'occ')::uuid) o) IS NOT NULL THEN
+    RAISE EXCEPTION 'ORDINAL_244_TEST_FAILED: NULL-raw';
+  END IF;
   RAISE NOTICE 'OK: ægteskabsnummer efter vinduet';
 END $ordinals_vindue$;
 ROLLBACK;
 ```
 
-> **Note til implementøren.** Hvis `UPDATE private.interpretation` afvises af en append-only-trigger, så opret i stedet en tredje påstand med `f5b_claim` og `p_raw=NULL` i en ny post, og tjek, at kaldet ikke fejler. Skriv valget som ruling i ledgeren.
+> **Transaktionsramme.** Hver DO-blok i denne fil står i sin egen `BEGIN; \ir fixtures/relation-5b.sql; \ir fixtures/relation-2a.sql; \ir fixtures/marriage-ordinal-244.sql; DO …; ROLLBACK;`. Ellers committes fixturrækker automatisk i `writer_1939`. Det gælder også blokkene i Task 2 og 3.
 
 - [ ] **Step 3: Kør testen og se den fejle.** Byg `writer_1939` som i CI, kør `env -u PGOPTIONS psql -X -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-marriage-ordinal-correction.sql`.
   Expected: `ORDINAL_244_TEST_FAILED: parentes {2,1}`.
@@ -257,19 +269,20 @@ BOOK_FIXTURE = Path(__file__).resolve().parents[4] / "tests" / "fixtures" / "rel
 
 def test_book_ordinal_paritet():
     for case in json.loads(BOOK_FIXTURE.read_text(encoding="utf-8")):
-        assert ex.book_ordinal(case["raw"]) == case["expect"], case["raw"]
+        assert v3.book_ordinal(case["raw"]) == case["expect"], case["raw"]
 
 
 def test_book_ordinal_none():
-    assert ex.book_ordinal(None) is None
+    assert v3.book_ordinal(None) is None
 
 
 def test_nummer_modsiger_bog():
-    r = _row(raw="g. 2° m. Bo Beta, f. 1801.", marriage_ordinal=1)
-    assert ex.propose(r, CUTOFF)["reason"] == "nummer_modsiger_bog"
+    t = "g. 2° m. Bo Beta, f. 1801."
+    assert v3.propose(row(t, t, ordinal=1), 1906)["reason"] == "nummer_modsiger_bog"
+    assert v3.propose(row(t, t, ordinal=2), 1906)["reason"] != "nummer_modsiger_bog"
 ```
 
-  `ex`, `_row` og `CUTOFF` er de navne, test-filen allerede bruger til modulet, rækkefabrikken og afskæringsåret. Brug dem, filen har. Findes rækkefabrikken under et andet navn, så brug det og skriv en ruling i ledgeren. Kontrollér stien i `parents[4]` mod `.claude/skills/daa-extract/scripts/` → reporoden.
+  `v3`, `row(text, raw, …, ordinal=)` og afskæringsåret 1906 er dem, filen allerede bruger (test_relation_persona_extract_v3.py:7-14). Kontrollér, at stien i `parents[4]` fra `.claude/skills/daa-extract/scripts/` peger på reporoden.
 
 - [ ] **Step 3: Kør dem og se dem fejle.** Run: `python3 -m pytest .claude/skills/daa-extract/scripts/test_relation_persona_extract_v3.py -q -k "book_ordinal or modsiger"`.
   Expected: `AttributeError: … book_ordinal`.
@@ -279,7 +292,7 @@ def test_nummer_modsiger_bog():
 
 ```python
 # #244: bogens eget ægteskabsnummer forrest i påstanden (»g. 2°«/»gift 2°«). Eksplicitte klasser, ikke \s/\d (som vinduet).
-BOOK_ORDINAL = re.compile(r"^[ \t]*(g\.|gift)[ \t]*([0-9]{1,3})[ \t]*[°º]")
+BOOK_ORDINAL = re.compile(r"^[ \t]*(g[.]|gift)[ \t]*([0-9]{1,3})[ \t]*[°º]")
 
 
 def book_ordinal(raw: str | None) -> int | None:
@@ -295,7 +308,7 @@ def book_ordinal(raw: str | None) -> int | None:
         return {"tok": "U", "reason": "nummer_modsiger_bog"}
 ```
 
-  - i `propose_redecide`: læs rækkens felter. Bærer `prow` `raw`, så indsæt samme tjek efter dens `intet_nummer`. Ellers ingen ændring, og det skrives som ruling.
+  - `propose_redecide` ændres **ikke**: P-rækkerne fra `relation_persona_v3_input` har ingen `raw` (plan-review). Skriverens værn dækker dem.
 
 - [ ] **Step 5: Python grøn.** Run: hele `test_relation_persona_extract_v3.py`.
   Expected: alle grønne.
@@ -344,17 +357,17 @@ END $book_ordinal$;
 -- relation_persona_extract_v3.book_ordinal; fælles liste tests/fixtures/relation-book-ordinal.json.
 CREATE OR REPLACE FUNCTION private.relation_book_ordinal(p_raw text)
 RETURNS integer LANGUAGE sql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
-  SELECT (regexp_match(lower(p_raw),'^[ \t]*(g\.|gift)[ \t]*([0-9]{1,3})[ \t]*[°º]'))[2]::integer
+  SELECT (regexp_match(lower(p_raw),'^[ \t]*(g[.]|gift)[ \t]*([0-9]{1,3})[ \t]*[°º]'))[2]::integer
 $$;
 REVOKE ALL ON FUNCTION private.relation_book_ordinal(text) FROM PUBLIC,anon,authenticated,service_role;
 ```
 
-  - I `write_relation_persona` efter SPAN-blokken for ægteskaber:
+  - I `write_relation_persona`, inde i `IF v_marriage THEN … END IF` lige efter SPAN-tjekket (schema.sql:~15086–15092). `v_raw` er sat tidligere i funktionen. Tilføj `v_book integer;` i DECLARE.
 
 ```sql
     -- #244 (spec §5): bogens »g. N°« må ikke modsige serverens nummer (alle profiler).
-    IF private.relation_book_ordinal(v_interp.value->>'raw') IS DISTINCT FROM NULL
-       AND private.relation_book_ordinal(v_interp.value->>'raw')<>v_ordinal THEN
+    v_book:=private.relation_book_ordinal(v_raw);
+    IF v_book IS NOT NULL AND v_book<>v_ordinal THEN
       RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_ORDINAL_BOOK_MISMATCH';
     END IF;
 ```
@@ -398,6 +411,7 @@ REVOKE ALL ON FUNCTION private.relation_book_ordinal(text) FROM PUBLIC,anon,auth
 - [ ] **Step 1: Fejlende test** (tilføj til test-filen). Blokken følger nedenfor. Hvert fejltilfælde kører i en savepoint-blok (`BEGIN … EXCEPTION … END`) med `GET STACKED DIAGNOSTICS`, som i `test-relation-binding.sql`.
 
 ```sql
+BEGIN;
 \ir fixtures/relation-5b.sql
 \ir fixtures/relation-2a.sql
 \ir fixtures/marriage-ordinal-244.sql
@@ -414,6 +428,11 @@ BEGIN
   SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
   n:=pg_temp.f244_decide_and_bind(-24421,v_actor);
   IF n<>2 THEN RAISE EXCEPTION 'ORDINAL_244_TEST_FAILED: fixture bandt %',n; END IF;
+  -- før rettelsen: begge synlige og ALREADY_APPLIED (spec §9.1)
+  IF (SELECT count(*) FROM public.public_family_sources(ARRAY[(m->>'f1')::bigint,(m->>'f2')::bigint]) x WHERE x.slags='aegteskab')<>2 THEN
+    RAISE EXCEPTION 'ORDINAL_244_TEST_FAILED: synlig før';
+  END IF;
+  IF pg_temp.f244_bind(-24421,v_actor)<>0 THEN RAISE EXCEPTION 'ORDINAL_244_TEST_FAILED: før-preview ikke ALREADY_APPLIED'; END IF;
   -- input: begge påstande, gemt ≠ nyt
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   SET LOCAL ROLE authenticated;
@@ -474,48 +493,47 @@ BEGIN
     RAISE EXCEPTION 'ORDINAL_244_TEST_FAILED: genbinding';
   END IF;
   IF pg_temp.f244_bind(-24421,v_actor)<>0 THEN RAISE EXCEPTION 'ORDINAL_244_TEST_FAILED: genkørsel'; END IF;
-  -- familiekorroboration (spec §7.5): proveniens afvises for den rettede ægtefælle
-  SET LOCAL ROLE authenticated;
+  -- familiekorroboration (spec §7.5): vejen er stadig lukket for den rettede ægtefælle. Som ejer (funktionen er
+  -- REVOKE'et fra authenticated), med gyldig basis, så proveniens-tjekket (a) nås. Fixturens origin_ref er tilfældig,
+  -- så (a) afviser også før rettelsen; testen viser kun »stadig lukket« og skelner på partens origin.
+  IF (SELECT origin FROM private.interpretation_party_current WHERE interpretation_key=k1 AND party_role='spouse')<>'ordinal_correction' THEN
+    RAISE EXCEPTION 'ORDINAL_244_TEST_FAILED: origin';
+  END IF;
   BEGIN
-    PERFORM private.check_family_corroboration((m->>'s1')::uuid);
+    PERFORM private.check_family_corroboration((m->>'s1')::uuid,-24422,0,'accepted',
+      '{"basis":"family_corroboration","method":"family-corroboration-v1"}'::jsonb);
     RAISE EXCEPTION 'ORDINAL_244_TEST_FAILED: korroboration';
   EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
-    IF v_err NOT LIKE 'FAMILY_CORROBORATION_PROVENANCE_INVALID%' AND v_err NOT LIKE 'EVIDENCE_IDENTITY_BASIS_REQUIRED%' THEN RAISE; END IF;
+    IF v_err NOT LIKE 'FAMILY_CORROBORATION_PROVENANCE_INVALID%' THEN RAISE; END IF;
   END;
-  RESET ROLE;
   RAISE NOTICE 'OK: rettelse og genbinding';
 END $ret$;
+ROLLBACK;
 ```
 
-  Ret `x.slags`/kildefunktionens signatur og kaldet af korroborationstjekket til de faktiske navne:
-  - **`public_family_sources`:** se dens signatur i schema.sql (grep `FUNCTION public.public_family_sources`).
-  - **Korroborationstjekket:** se funktionen omkring schema.sql:~16070. Korroborationen bør kaldes, som `tests/sql/test-family-corroboration.sql` kalder den, så proveniens-tjekket (a) nås. Forvent `FAMILY_CORROBORATION_PROVENANCE_INVALID`.
-  - **`EVIDENCE_IDENTITY_BASIS_REQUIRED`** er kun tilladt, hvis kaldet ikke kan nå (a) uden en ny identitet. Skriv i så fald en ruling, og test i stedet direkte, at `origin<>'relation_persona'` afvises.
+  Kontrollér signaturen af `private.check_family_corroboration` (schema.sql:~16066, 5 argumenter) før kørslen.
 
   Tilføj derefter disse blokke:
   - **`ret_familie_forkert`:** ny post `R-2`; efter afgørelse og binding opdateres `family_member.ordinal` for hovedpersonen i f1 til 3. Forvent `FAMILY_MISMATCH`.
   - **`ret_familie_null`:** samme, men ordinal sat til NULL. Forvent `FAMILY_MISMATCH`.
-  - **`ret_bog`:** post `R-3`, hvor påstand 1's raw er `'Gift 2° m. Bo Beta f. 1800.'` (bogen siger 2, nyt nummer 1). Forvent `BOOK_MISMATCH`.
+  - **`ret_bog`:** post `R-3` med `f244_post(…, p_k1=>'Gift 2° m. Bo Beta (søn af Ole Oma) f. 1800.', p_raw1=>'Gift 2° m. Bo Beta f. 1800.')`. Vinduet findes, bogen siger 2, og det nye nummer er 1. Forvent `BOOK_MISMATCH`.
   - **`ret_ikke_bundet`:** post `R-4` med `f244_post`, men uden `f244_decide_and_bind`. Forvent `NOT_BOUND`.
   - **`ret_rolle`:** en aktør med rollen `laeser`, eller `request.jwt.claim.sub` ikke sat. Forvent `EVIDENCE_ROLE_FORBIDDEN`.
   - **`ret_rettigheder`:**
     - `has_function_privilege('anon','public.red_ret_aegteskabsnummer(uuid,integer,text,jsonb)','EXECUTE')` = false;
     - samme for `service_role`;
     - `authenticated` = true;
+    - samme tre tjek for wrapperen `public.red_marriage_ordinal_correction_input(bigint)`: false for anon og service_role, true for authenticated;
     - `private.marriage_ordinal_correction_input(bigint)` = false for alle tre.
   - **`ret_tabel`:** UPDATE, DELETE og TRUNCATE på `private.marriage_ordinal_correction` afvises (som ejer, i savepoints).
   - **`ret_origin`:** INSERT af en part med `origin='andet'` afvises af `interpretation_party_origin_check`.
 
-  Låsetesten `ret_venter_paa_soeskende` lægges sidst i filen uden for hovedtransaktionen, efter mønstret i `test-relation-binding.sql` (»To sessioner: …«):
-  1. Fixturen committes (`f244_post`, `f244_decide_and_bind`).
-  2. Hovedsessionen starter rettelsen og holder låsene (kald `red_ret_aegteskabsnummer` i en transaktion, der ikke afsluttes, før dblink er prøvet).
-  3. I dblink-sessionen (`SET lock_timeout='300ms'`) kaldes `red_decide_interpretation` for en `proposed` søskendepåstand i samme post. Til det formål har fixturen en tredje påstand `'Gift 3° m. Dy Dy.'` på en fjerde klausul, som forbliver `proposed`, fordi der ikke er en familie.
-  4. Forvent `lock timeout`.
-  5. Ryd op med `DELETE` af de committede fixtur-rækker til sidst (som testens mønster).
-
-  Viser den rækkefølge sig umulig, fordi den holdende session ikke kan vente synkront på dblink, så vend den om som i testens andet eksempel:
-  - dblink holder `FOR UPDATE` på søskendens `interpretation`-række;
-  - hovedsessionen kalder rettelsen med `lock_timeout='300ms'` og forventer `55P03`.
+  Låsetesten `ret_venter_paa_soeskende` lægges sidst i filen uden for hovedtransaktionen. Den følger mønstret `$relation_decide_lock$` i `test-relation-binding.sql:251–286` (retning 1 kan køre):
+  1. **Committet opsætning** i sin egen transaktion (`BEGIN; \ir …; DO …; COMMIT;`): kilde `-24461`, personer `-24461..-24463`, `f244_post(…, p_third=>true)` og `f244_decide_and_bind`. Den tredje påstand (`'Gift 3° m. Dy Delta.'`, ingen familie) forbliver `proposed`. Opsætningen committes, så `red_decide_relation_interpretations`' `FOR UPDATE` på proposed-rækker ikke længere holdes, når testen kører.
+  2. **Positiv kontrol** (uden rettelse). I dblink-sessionen: `BEGIN`, `set_config('request.jwt.claim.sub',<aktør>,true)`, `SET LOCAL ROLE authenticated` og `red_decide_interpretation(<c3-id>,1,'rejected','{…}')`, som skal lykkes. Derefter `ROLLBACK`. Det beviser, at kaldet ellers er tilladt og ikke blokeret.
+  3. **Hovedsessionen** åbner en transaktion og kalder `red_ret_aegteskabsnummer(k1,1,…)` som aktøren. Kaldet lykkes og holder låsene, og transaktionen afsluttes ikke endnu.
+  4. **dblink-sessionen** (`SET lock_timeout='300ms'`) gentager kaldet fra step 2. Forvent `lock timeout`. Hovedsessionen kører derefter `ROLLBACK`.
+  5. **Oprydning** som `test-identity-candidates.sql:236–245`: `SET session_replication_role=replica`, og `DELETE` i FK-orden af alle rækker for kilde `-24461` (promotion → klassifikation → party → interpretation_observation → interpretation → identitet/event → mention/persona → observationer → anchor → occurrence → record → placering/lineage → family_member → family → person → kilde → extraction_run/rendition → profil/auth.users). Til sidst `SET session_replication_role=origin`. Efter oprydningen asserter testen, at der er 0 rækker for kilde `-24461` i `private.interpretation` og `public.family_member` for de tre personer.
 
 - [ ] **Step 2: Kør og se den fejle.**
   Expected: `function red_marriage_ordinal_correction_input(integer) does not exist`.
@@ -556,10 +574,21 @@ END $marriage_ordinal_correction_table$;
   I `db-migrations.sql` (#244-blokken) lægges før tabellen:
 
 ```sql
-ALTER TABLE private.interpretation_party DROP CONSTRAINT IF EXISTS interpretation_party_origin_check;
-ALTER TABLE private.interpretation_party ADD CONSTRAINT interpretation_party_origin_check
-  CHECK (origin IN ('relation_persona','relation_decision','ordinal_correction'));
+-- #244 (spec §7.2): tredje oprindelse for ægtefælleparten. Betinget, som relation_classification_event_kind_check.
+DO $interpretation_party_origin$
+BEGIN
+  IF (SELECT pg_get_constraintdef(oid) FROM pg_constraint
+       WHERE conrelid='private.interpretation_party'::regclass AND conname='interpretation_party_origin_check')
+     IS DISTINCT FROM 'CHECK ((origin = ANY (ARRAY[''relation_persona''::text, ''relation_decision''::text, ''ordinal_correction''::text])))' THEN
+    ALTER TABLE private.interpretation_party DROP CONSTRAINT IF EXISTS interpretation_party_origin_check;
+    ALTER TABLE private.interpretation_party ADD CONSTRAINT interpretation_party_origin_check
+      CHECK (origin IN ('relation_persona','relation_decision','ordinal_correction')) NOT VALID;
+    ALTER TABLE private.interpretation_party VALIDATE CONSTRAINT interpretation_party_origin_check;
+  END IF;
+END $interpretation_party_origin$;
 ```
+
+  Kontrollér den faktiske `pg_get_constraintdef`-tekst på en frisk base. Afviger formatet, så ret sammenligningsstrengen, ellers kører blokken hver gang. Det er harmløst, men ikke idempotent i ånden.
 
   Tabelblokken lægges ordret efter. Den er idempotent med `IF NOT EXISTS` og `DROP TRIGGER IF EXISTS`.
 
@@ -606,6 +635,10 @@ BEGIN
   SELECT i.canonical_person_id INTO v_spouse FROM private.source_persona_identity i
    WHERE i.source_persona_id=v_sp.source_persona_id AND i.decision_status='accepted';
   PERFORM private.lock_family_rows(ARRAY(SELECT x FROM unnest(ARRAY[v_principal,v_spouse]) x WHERE x IS NOT NULL ORDER BY 1));
+  -- Læs igen efter låsene: en samtidig rettelse af samme påstand venter på personlåsen og ser derefter den nye
+  -- partversion (VERSION_MISMATCH i stedet for triggerens EVIDENCE_PARTY_VERSION_CONFLICT).
+  SELECT * INTO v_ic FROM private.interpretation_current WHERE interpretation_key=p_interpretation_key;
+  SELECT * INTO v_sp FROM private.interpretation_party_current WHERE interpretation_key=p_interpretation_key AND party_role='spouse';
   SELECT p.target_id INTO v_fam FROM private.interpretation_promotion p
    WHERE p.interpretation_id=v_ic.id AND p.target_type='family' ORDER BY p.promoted_at DESC,p.id DESC LIMIT 1;
   IF v_ic.status<>'accepted' OR v_ic.decision_evidence->>'method' IS DISTINCT FROM 'family-structure-v1'
@@ -1058,7 +1091,7 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 for f in schema.sql db-rls.sql db-migrations.sql; do git show "$base:$f" > "$tmp/$f"; done
 q() { env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$db" "$@" >/dev/null; }
 createdb "$db"
-for f in tests/sql/evidence-promotion-bootstrap.sql "$tmp/schema.sql" "$tmp/db-rls.sql" "$tmp/db-migrations.sql" "$tmp/db-rls.sql"; do q -f "$f"; done
+for f in tests/sql/evidence-promotion-bootstrap.sql "$tmp/schema.sql" "$tmp/db-rls.sql" "$tmp/db-migrations.sql" "$tmp/db-migrations.sql" "$tmp/db-rls.sql"; do q -f "$f"; done
 [ "$(env -u PGOPTIONS psql -X -At -d "$db" -c "SELECT count(*) FROM pg_constraint WHERE conname='interpretation_party_origin_check'")" = "1" ]
 for f in db-migrations.sql db-rls.sql db-migrations.sql db-rls.sql; do q -f "$f"; done
 [ "$(env -u PGOPTIONS psql -X -At -d "$db" -c "SELECT pg_get_constraintdef(oid) LIKE '%ordinal_correction%' FROM pg_constraint WHERE conname='interpretation_party_origin_check'")" = "t" ]
@@ -1067,12 +1100,20 @@ q -c 'BEGIN' -f tests/sql/reimport-writer-v2-bootstrap.sql -c 'COMMIT'
 q -f db-rls.sql
 q -f tests/sql/test-marriage-ordinal-correction.sql
 db="${1}_v"; createdb "$db"
-for f in tests/sql/evidence-promotion-bootstrap.sql "$tmp/schema.sql" "$tmp/db-rls.sql" "$tmp/db-migrations.sql" "$tmp/db-rls.sql" \
+for f in tests/sql/evidence-promotion-bootstrap.sql "$tmp/schema.sql" "$tmp/db-rls.sql" "$tmp/db-migrations.sql" "$tmp/db-migrations.sql" "$tmp/db-rls.sql" \
          db-migrations.sql db-rls.sql db-migrations.sql db-rls.sql tests/sql/run-db-verify-disposable.sql; do q -f "$f"; done
 echo UPGRADE_OK
 ```
 
-  Writer-bootstrappene på linje 13-15 skal svare til CI's opbygning af `writer_1939`. Se ci.yml-steppet, der opretter `writer_1939`, og kopiér dets rækkefølge. Afviger den, så brug CI's, og skriv en ruling.
+  **Opbygning af writer-basen.** Ingen eksisterende opgraderingstest kører writer-bootstrappene (`1939-v50-writer-bootstrap.sql`, `reimport-writer-v2-bootstrap.sql`) på en migreret base. Testfilen kræver kontrakt 2 (skriveren og publiceringen). Derfor:
+  - **Prøvekør først** bootstrappene på den migrerede base.
+  - **Hvis de virker,** beholdes scriptet som ovenfor.
+  - **Hvis de fejler,** deles testfilen i to:
+    - en kontraktuafhængig kerne `tests/sql/test-marriage-ordinal-core.sql` med `relation_book_ordinal`-listen, rettighedstjekkene, tabellens tilføj-kun-tjek og constraint-tjekket;
+    - den fulde fil, som kun kører på frisk schema i CI.
+
+    Opgraderingstesten kører så kun kernen, og det skrives som ruling.
+  - **Rækkefølgen** følger `test-2bii-upgrade.sh`: den gamle base' migrationer køres **to gange** (`"$tmp/db-migrations.sql" "$tmp/db-migrations.sql"`), før de nye køres to gange.
 
 - [ ] **Step 2: Kør:** `bash tests/sql/test-244-upgrade.sh t244_upg`.
   Expected: `UPGRADE_OK`. Ryd `t244_upg` og `t244_upg_v` op bagefter med `dropdb`. Det er engangsbaser, som scriptet selv har oprettet.
@@ -1094,10 +1135,12 @@ echo UPGRADE_OK
   - `docs/evidensbaseret-genimport/relationspersonas-5b-navneregel-v3-bevis.md` (erratum ved fund 1).
 - Privat: `~/.private/244/` (0700).
 
-- [ ] **Step 1: Kopibase.** Opret `daa244_bevis_<stempel>` som kopi (`createdb -T`) af `daa5b_2b_iii_bevis_20261020182757`, som ikke ændres. Løft kopien med `db-migrations.sql` og `db-rls.sql`, og log til `~/.private/244/`. Mål tiden for `relation_persona_input(1)` (som ejer, `\timing`) i originalen og i kopien.
-  Expected: kopien højst 2 × originalen og højst 10 s.
+- [ ] **Step 1: Kopibase.** Opret `daa244_bevis_<stempel>` som kopi (`createdb -T`) af `daa5b_2b_iii_bevis_20261020182757`, som ikke ændres. Løft kopien med `db-migrations.sql` og `db-rls.sql`, og log til `~/.private/244/`. Mål tiden (som ejer, `\timing`) for `relation_persona_input(1)` og for previewet i `bind-preview.sql` i originalen og i kopien.
+  Expected: kopien højst 2 × originalen og højst 10 s, for begge.
 
-- [ ] **Step 2: Før-målinger.** Kopiér `antal.sql`, `hashes.sql`, `univers.sql`, `read.sql`, `bind-preview.sql` og `bind.sql` fra `~/.private/5b-2b-iii/` til `~/.private/244/`. Kør dem, og gem `foer-*.txt`. Kør desuden disse tællinger (kun tal):
+- [ ] **Step 2: Før-målinger.** Kopiér `antal.sql`, `hashes.sql`, `univers.sql`, `read.sql`, `bind-preview.sql` og `bind.sql` fra `~/.private/5b-2b-iii/` til `~/.private/244/`. Kør `antal.sql`, `hashes.sql`, `univers.sql`, `read.sql` og `bind-preview.sql` (kun preview, **ikke** `bind.sql`, der ville kaste `ALREADY_APPLIED`), og gem `foer-*.txt`.
+
+  **2a-digesten.** Kontrollér først, hvilken udvælgelse `hashes.sql` og `univers.sql` bruger til `tupel_digest_2a`, og notér det i rapporten. `univers.sql` udvælger rækker uden nøglen `supersedes_promotion_id`. Promote skriver altid nøglen, med JSON-null ved første binding, så udvælgelsen giver rækkerne fra før 2b-i. Genbindingen skriver nøglen, og digesten er derfor uændret. Er udvælgelsen en anden, så ændres forventningen til »ændret i 2 tupler« (de 2 ældste af de 4), og det skrives som ruling. Kør desuden disse tællinger (kun tal):
   - bundne ægteskaber med en anden metode end `family-structure-v1`;
   - ægtefælleidentiteter for arkets påstande med status `accepted`;
   - gældende bindinger med `book_ordinal≠family_ordinal`;
