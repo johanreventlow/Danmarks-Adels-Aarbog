@@ -125,4 +125,88 @@ DO $a$ DECLARE r jsonb; BEGIN
     RAISE EXCEPTION 'RELATION_CHILD_TEST_FAILED: antal %',r; END IF;
 END $a$;
 ROLLBACK;
+-- Task 3: binding, drift og læserens kilde (spec §7-§8).
+BEGIN;
+\ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
+\ir fixtures/relation-child.sql
+CREATE OR REPLACE FUNCTION pg_temp.fc_bind(p_src bigint,p_iid uuid,p_fam bigint,p_actor uuid) RETURNS text LANGUAGE plpgsql AS $$
+DECLARE items jsonb:=jsonb_build_array(jsonb_build_object('interpretation_id',p_iid::text,'family_id',p_fam)); pv jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',p_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_promotions(p_src,items);
+  IF NOT (pv->'items'->0->>'eligible')::boolean THEN RESET ROLE; RETURN pv->'items'->0->>'reason_code'; END IF;
+  PERFORM red_promote_relation_interpretations_batch(p_src,items,pv->>'preview_sha256');
+  RESET ROLE;
+  RETURN 'BOUND';
+END $$;
+CREATE OR REPLACE FUNCTION pg_temp.fc_boern(p_fam bigint) RETURNS integer LANGUAGE plpgsql AS $$
+DECLARE n integer;
+BEGIN
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO n FROM public.public_family_sources(ARRAY[p_fam]) s WHERE s.slags='boern' AND s.counterpart_person_id=-5701;
+  RESET ROLE;
+  RETURN n;
+END $$;
+-- Afgjort og publiceret flok: returnerer {fam, iid}.
+CREATE OR REPLACE FUNCTION pg_temp.fc_decided(p_actor uuid) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE f jsonb; k uuid; v_iid uuid;
+BEGIN
+  PERFORM pg_temp.f5b_actor(p_actor);
+  f:=pg_temp.fc_setup('3 sønner: Andet slægtled, V, nr. 2-4',p_actor);
+  k:=(f->'claim'->>'key')::uuid;
+  PERFORM pg_temp.f2a_publish(-5701,f->'source',f->'post',-5701,p_actor,'Ole Alfa. 3 sønner: Andet slægtled, V, nr. 2-4');
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  IF pg_temp.fc_decide(k,1,'same',NULL,pg_temp.fc_ctx(),p_actor)<>'OK' THEN RAISE EXCEPTION 'RELATION_CHILD_TEST_FAILED: afgør'; END IF;
+  SELECT id INTO v_iid FROM private.interpretation_current WHERE interpretation_key=k;
+  RETURN jsonb_build_object('fam',(f->>'family')::bigint,'iid',v_iid);
+END $$;
+SAVEPOINT b1;
+DO $child_bind$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-0000002b3001'; d jsonb; v_fam bigint; v_iid uuid;
+BEGIN
+  d:=pg_temp.fc_decided(v_actor); v_fam:=(d->>'fam')::bigint; v_iid:=(d->>'iid')::uuid;
+  -- Review Focus 2a: barn UDEN egen post tilføjet før binding ⇒ H holder, den aktuelle flok bindes
+  INSERT INTO person(id,levende,privat,status,koen) VALUES (-5707,false,false,'2b3','mand');
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES (v_fam,-5707,'barn');
+  IF pg_temp.fc_bind(-5701,v_iid,v_fam,v_actor)<>'BOUND' THEN RAISE EXCEPTION 'RELATION_CHILD_TEST_FAILED: binding'; END IF;
+  IF (private.relation_binding_state(v_iid)->>'counterpart_person_id')::bigint<>-5701
+     OR pg_temp.fc_boern(v_fam)<>1 THEN RAISE EXCEPTION 'RELATION_CHILD_TEST_FAILED: synlig boern-kilde'; END IF;
+  -- barn tilføjet EFTER binding ⇒ ny tilstand ⇒ usynlig; genbinding bringer den tilbage (H holder)
+  INSERT INTO person(id,levende,privat,status,koen) VALUES (-5708,false,false,'2b3','mand');
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES (v_fam,-5708,'barn');
+  IF pg_temp.fc_boern(v_fam)<>0 THEN RAISE EXCEPTION 'RELATION_CHILD_TEST_FAILED: drift ikke skjult'; END IF;
+  IF pg_temp.fc_bind(-5701,v_iid,v_fam,v_actor)<>'BOUND' OR pg_temp.fc_boern(v_fam)<>1 THEN
+    RAISE EXCEPTION 'RELATION_CHILD_TEST_FAILED: genbinding'; END IF;
+  -- barn med egen post flyttet ud ⇒ H5_nr ⇒ usynlig og genbinding afvist
+  DELETE FROM family_member WHERE family_id=v_fam AND person_id=-5704;
+  IF private.relation_binding_state(v_iid) IS NOT NULL OR pg_temp.fc_boern(v_fam)<>0
+     OR pg_temp.fc_bind(-5701,v_iid,v_fam,v_actor)<>'RELATION_PROMOTION_STRUCTURE_INVALID' THEN
+    RAISE EXCEPTION 'RELATION_CHILD_TEST_FAILED: flyttet barn'; END IF;
+END $child_bind$;
+ROLLBACK TO SAVEPOINT b1;
+DO $child_outside$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-0000002b3001'; d jsonb; v_fam bigint;
+BEGIN
+  -- barn MED egen post uden for intervallet tilføjet mellem afgørelse og binding ⇒ afvist
+  d:=pg_temp.fc_decided(v_actor); v_fam:=(d->>'fam')::bigint;
+  INSERT INTO person(id,levende,privat,status,koen) VALUES (-5709,false,false,'2b3','mand');
+  INSERT INTO person_external_id(person_id,source_id,linje,nr,record_key,kuld,slaegtled_lokal) VALUES (-5709,-5701,'V',9,'V-9','V',2);
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES (v_fam,-5709,'barn');
+  IF pg_temp.fc_bind(-5701,(d->>'iid')::uuid,v_fam,v_actor)<>'RELATION_PROMOTION_STRUCTURE_INVALID' THEN
+    RAISE EXCEPTION 'RELATION_CHILD_TEST_FAILED: barn uden for intervallet'; END IF;
+END $child_outside$;
+ROLLBACK TO SAVEPOINT b1;
+DO $child_private$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-0000002b3001'; d jsonb; v_fam bigint;
+BEGIN
+  -- Review Focus 3: et levende medlem skjuler familiens kilde for anon
+  d:=pg_temp.fc_decided(v_actor); v_fam:=(d->>'fam')::bigint;
+  IF pg_temp.fc_bind(-5701,(d->>'iid')::uuid,v_fam,v_actor)<>'BOUND' OR pg_temp.fc_boern(v_fam)<>1 THEN
+    RAISE EXCEPTION 'RELATION_CHILD_TEST_FAILED: binding før levende'; END IF;
+  UPDATE person SET levende=true WHERE id=-5703;
+  IF pg_temp.fc_boern(v_fam)<>0 THEN RAISE EXCEPTION 'RELATION_CHILD_TEST_FAILED: levende barn lækker kilden'; END IF;
+END $child_private$;
+ROLLBACK;
 \echo RELATION_CHILD_TEST_OK

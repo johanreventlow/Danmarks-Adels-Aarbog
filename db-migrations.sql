@@ -23736,4 +23736,144 @@ INSERT INTO private.interpretation_promotion_rule(rule_key,rule_version,predicat
 SELECT 'relation-child-v1',1,'relation.child','relation','family',NULL,'relation',false,false,true,'active','structural_family'
  WHERE NOT EXISTS (SELECT 1 FROM private.interpretation_promotion_rule WHERE rule_key='relation-child-v1' AND rule_version=1);
 
+CREATE OR REPLACE FUNCTION private.relation_binding_state(p_interpretation_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_i private.interpretation%ROWTYPE; v_role text; v_parties jsonb;
+  v_a bigint; v_b bigint; v_fams bigint[]; v_rows jsonb; v_book integer; v_famord integer; v_rule jsonb;
+BEGIN
+  SELECT * INTO v_i FROM private.interpretation WHERE id=p_interpretation_id;
+  -- Trin 5b 2b-iii (spec §7): børneflokken bindes til familien; reglen genberegnes mod familien, som den ser ud nu.
+  IF FOUND AND v_i.predicate='relation.child' THEN
+    IF v_i.decision_evidence->>'method' IS DISTINCT FROM 'relation-child-v1' THEN RETURN NULL; END IF;
+    v_rule:=private.relation_child_rule(v_i.id);
+    IF v_rule IS NULL OR NOT coalesce((v_rule->>'ok')::boolean,false)
+       OR (v_rule->>'family_id')::bigint IS DISTINCT FROM (v_i.decision_evidence->>'family_id')::bigint THEN
+      RETURN NULL;
+    END IF;
+    SELECT jsonb_agg(jsonb_build_object('party_role',pc.party_role,'version',pc.version,
+             'source_persona_id',pc.source_persona_id::text,'identity_version',i.version,
+             'decision_status',i.decision_status,'canonical_person_id',i.canonical_person_id))
+      INTO v_parties
+      FROM private.interpretation_party_current pc
+      LEFT JOIN private.source_persona_identity i ON i.source_persona_id=pc.source_persona_id
+     WHERE pc.interpretation_key=v_i.interpretation_key AND pc.party_role='principal';
+    SELECT jsonb_agg(jsonb_build_array(fm.person_id,fm.rolle,fm.ordinal,fm.konfidens) ORDER BY fm.person_id,fm.rolle COLLATE "C")
+      INTO v_rows
+      FROM public.family_member fm
+     WHERE fm.family_id=(v_rule->>'family_id')::bigint
+       AND ((fm.person_id=(v_rule->>'principal_person_id')::bigint AND fm.rolle='partner') OR fm.rolle='barn');
+    RETURN jsonb_build_object('contract','relation-binding-state-v1',
+      'interpretation',jsonb_build_object('interpretation_id',v_i.id::text,'interpretation_key',v_i.interpretation_key::text,
+        'version',v_i.version,'status',v_i.status,'predicate',v_i.predicate,'source_id',v_i.source_id),
+      'parties',v_parties,
+      'family',jsonb_build_object('family_id',(v_rule->>'family_id')::bigint,'rows',v_rows),
+      'counterpart_person_id',(v_rule->>'principal_person_id')::bigint,
+      'children',jsonb_build_object('count',v_rule#>'{ref,count}','section',v_rule#>'{ref,section}',
+        'nr_from',v_rule#>'{ref,nr_from}','nr_to',v_rule#>'{ref,nr_to}','sex',v_rule#>'{ref,sex}'),
+      'flock_digest',v_rule->>'flock_digest');
+  END IF;
+  IF NOT FOUND OR v_i.predicate NOT IN ('relation.marriage','relation.parent') THEN RETURN NULL; END IF;
+  v_role:=CASE v_i.predicate WHEN 'relation.marriage' THEN 'spouse' ELSE 'parent' END;
+  SELECT jsonb_agg(jsonb_build_object('party_role',pc.party_role,'version',pc.version,
+           'source_persona_id',pc.source_persona_id::text,'identity_version',i.version,
+           'decision_status',i.decision_status,'canonical_person_id',i.canonical_person_id)
+         ORDER BY pc.party_role COLLATE "C")
+    INTO v_parties
+    FROM private.interpretation_party_current pc
+    LEFT JOIN private.source_persona_identity i ON i.source_persona_id=pc.source_persona_id
+   WHERE pc.interpretation_key=v_i.interpretation_key AND pc.party_role IN ('principal',v_role);
+  IF coalesce(jsonb_array_length(v_parties),0)<>2
+     OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_parties) x
+                 WHERE x->>'decision_status' IS DISTINCT FROM 'accepted' OR x->>'canonical_person_id' IS NULL) THEN
+    RETURN NULL;
+  END IF;
+  SELECT (x->>'canonical_person_id')::bigint INTO v_a FROM jsonb_array_elements(v_parties) x WHERE x->>'party_role'='principal';
+  SELECT (x->>'canonical_person_id')::bigint INTO v_b FROM jsonb_array_elements(v_parties) x WHERE x->>'party_role'=v_role;
+  IF v_a=v_b THEN RETURN NULL; END IF;
+  SELECT array_agg(a.family_id ORDER BY a.family_id) INTO v_fams
+    FROM public.family_member a
+    JOIN public.family_member b ON b.family_id=a.family_id AND b.person_id=v_b AND b.rolle='partner'
+   WHERE a.person_id=v_a AND a.rolle=CASE v_role WHEN 'spouse' THEN 'partner' ELSE 'barn' END;
+  IF coalesce(cardinality(v_fams),0)<>1 THEN RETURN NULL; END IF;
+  SELECT jsonb_agg(jsonb_build_array(fm.person_id,fm.rolle,fm.ordinal,fm.konfidens) ORDER BY fm.person_id,fm.rolle COLLATE "C")
+    INTO v_rows
+    FROM public.family_member fm
+   WHERE fm.family_id=v_fams[1]
+     AND ((fm.person_id=v_a AND fm.rolle=CASE v_role WHEN 'spouse' THEN 'partner' ELSE 'barn' END)
+       OR (fm.person_id=v_b AND fm.rolle='partner'));
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_rows) x WHERE x->>3='omstridt') THEN RETURN NULL; END IF;
+  IF v_role='spouse' THEN
+    SELECT pc.marriage_ordinal INTO v_book FROM private.interpretation_party_current pc
+     WHERE pc.interpretation_key=v_i.interpretation_key AND pc.party_role='spouse';
+    SELECT fm.ordinal INTO v_famord FROM public.family_member fm
+     WHERE fm.family_id=v_fams[1] AND fm.person_id=v_a AND fm.rolle='partner';
+  END IF;
+  RETURN jsonb_build_object('contract','relation-binding-state-v1',
+    'interpretation',jsonb_build_object('interpretation_id',v_i.id::text,'interpretation_key',v_i.interpretation_key::text,
+      'version',v_i.version,'status',v_i.status,'predicate',v_i.predicate,'source_id',v_i.source_id),
+    'parties',v_parties,
+    'family',jsonb_build_object('family_id',v_fams[1],'rows',v_rows),'counterpart_person_id',v_b,
+    'book_ordinal',v_book,'family_ordinal',v_famord);
+END $$;
+REVOKE ALL ON FUNCTION private.relation_binding_state(uuid) FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION public.public_family_sources(p_family_ids bigint[])
+RETURNS TABLE(family_id bigint, slags text, counterpart_person_id bigint, source_record_ref uuid, source_label text, record_label text, citation_label text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+  IF public.narrative_record_contract_version()<2 OR p_family_ids IS NULL THEN RETURN; END IF;
+  RETURN QUERY
+  WITH b AS (
+    SELECT p.target_id AS fam,p.interpretation_id,p.evidence->>'state_sha256' AS bound_sha,
+           cur.predicate,cur.source_id,private.relation_binding_state(p.interpretation_id) AS st
+      FROM private.interpretation_promotion p
+      JOIN private.interpretation_promotion_rule r
+        ON r.rule_key=p.rule_key AND r.rule_version=p.rule_version AND r.rule_mode='structural_family'
+      JOIN private.interpretation q ON q.id=p.interpretation_id
+      JOIN private.interpretation_current cur ON cur.interpretation_key=q.interpretation_key
+     WHERE p.target_type='family' AND p.target_id=ANY(p_family_ids)
+       AND cur.id=p.interpretation_id AND cur.status='accepted'
+  ), ok AS (
+    SELECT b.* FROM b
+     WHERE b.st IS NOT NULL
+       AND private.reimport_canonical_json_sha256(b.st)=b.bound_sha
+       AND (b.st#>>'{family,family_id}')::bigint=b.fam
+       AND public.family_offentlig(b.fam)
+  ), rec AS (
+    -- Spec §5.1 trin 3 (r2-M6): præcis én supporting-observation og præcis én accepteret anchor.
+    SELECT ok.*,
+           (SELECT array_agg(a.source_record_id)
+              FROM private.interpretation_observation io
+              JOIN private.source_observation o ON o.id=io.observation_id
+              JOIN private.source_record_anchor_current a ON a.occurrence_id=o.occurrence_id AND a.decision_status='accepted'
+             WHERE io.interpretation_id=ok.interpretation_id AND io.evidence_role='supporting') AS recs,
+           (SELECT count(*) FROM private.interpretation_observation io
+             WHERE io.interpretation_id=ok.interpretation_id AND io.evidence_role='supporting') AS n_support
+      FROM ok
+  ), pub AS (
+    SELECT rec.fam,rec.predicate,rec.st,sr.public_ref,nrp.id AS binding_id,nrp.narrative_id
+      FROM rec
+      JOIN private.source_record sr ON sr.id=rec.recs[1] AND sr.source_id=rec.source_id
+      JOIN private.narrative_record_publication nrp ON nrp.source_record_id=sr.id AND nrp.status='published'
+     WHERE rec.n_support=1 AND cardinality(rec.recs)=1
+       AND (SELECT count(*) FROM private.narrative_record_publication x
+             WHERE x.source_record_id=sr.id AND x.status='published')=1
+  )
+  SELECT pub.fam,CASE pub.predicate WHEN 'relation.marriage' THEN 'aegteskab' WHEN 'relation.parent' THEN 'foraelder' ELSE 'boern' END,
+         (pub.st->>'counterpart_person_id')::bigint,pub.public_ref,
+         ev.after_state #>> '{source,source_label}',ev.after_state #>> '{labels,record_label}',
+         ev.after_state #>> '{labels,citation_label}'
+    FROM pub
+    JOIN public.narrative n ON n.id=pub.narrative_id
+    JOIN LATERAL (SELECT e.after_state FROM private.narrative_publication_event e
+                   WHERE e.binding_id=pub.binding_id ORDER BY e.stream_version DESC,e.id DESC LIMIT 1) ev ON true
+   WHERE public.person_daa_narrative_publication_allowed(n.id)
+     AND n.subjekt_type='person'
+     AND n.subjekt_id IN (SELECT (x->>'canonical_person_id')::bigint FROM jsonb_array_elements(pub.st->'parties') x)
+   ORDER BY 1,2,3;
+END $$;
+REVOKE ALL ON FUNCTION public.public_family_sources(bigint[]) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.public_family_sources(bigint[]) TO anon,authenticated;
+
 -- 5b-sektionen slutter her (nye 5b-blokke indsættes over denne linje).
