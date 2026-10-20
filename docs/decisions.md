@@ -2,6 +2,29 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: `mention.place` udsættes; aldersregel v2 designet, men ubrugt; strammere partnertræf i navneregel v3; falske ordinal-afvigelser bindes og noteres (2026-10-18/20)
+
+> **Besluttet af projektejeren.**
+> - **18/10:** i brainstormen af 2b-ii runde 2 (spec §17.3).
+> - **20/10:** valget om ordinal-afvigelserne efter rundens slutreview.
+>
+> Rapport: `docs/evidensbaseret-genimport/relationspersonas-5b-navneregel-v3-bevis.md`.
+
+**Besluttet:**
+1. **`mention.place` udsættes.** 246 klausuler stod i `afventer_identitet`, fordi et sted-aktørforslag mangler en persona. Ingen af rundens 12 ægteskaber afhang af det. Det tages op sammen med stedsentiteterne, ikke i 2b-ii.
+2. **Aldersregel v2 er designet, men ikke brugt.** Den udelader årstal inde i en DAA-henvisning. Ingen af de 12 havde nul partnertræf og et årstal efter »DAA«, der ville have vendt sagen. Derfor er `aarstal-120-v1` og `red_afgoer_source_persona` uændrede.
+3. **Partnertræf i navneregel v3 (slutreviewets fund F2).**
+   - **`S`** kræver efternavnet plus mindst ét fælles kerneord mere. Efternavnet alene giver ikke `S`.
+   - **`D`/`N` og P-linjen** kræver 0 *løse* træf. Et løst træf er v2's halvdelsregel eller blot ét fælles kerneord. Ved en `navn:`-rettelse gælder kravet både regelens navn og det rettede navn.
+
+   Det løse værn er bevidst groft. Det skal fange en mulig dublet, før en ny person oprettes. Prisen er flere `U`, og dem afgør et menneske.
+4. **Falske ordinal-afvigelser bindes og noteres** (2026-10-20). Når en påstands tekst rækker ud over klausulen, nummererer `private.relation_marriage_ordinals` forkert. Det gælder 2 poster og 4 påstande i 2018-20.
+   - De 2 ægteskaber i runde 2 er bundet trods fejlen, fordi partneren er rigtig og bekræftet.
+   - Alle 4 falske `ordinal_afvigelse` skal besvares »behold familiens nummer«.
+   - Rodfejlen rettes i en separat runde, der også genafgør de 2 ældre bindinger.
+
+**Uændret:** restore-only. P-linjens forkerte ægteskabsfortolkning afvises særskilt med `red_decide_interpretation`; det udestår.
+
 ## BESLUTTET: trin 5b 2b-ii — nye personer kun som afdøde efter aldersregel; disposition pr. aktør; børnene til 2b-iii (2026-10-17)
 
 > **Besluttet af projektejeren 2026-10-17** i brainstormen af 2b-ii, efter råd fra en uafhængig rådgiver (fable)
