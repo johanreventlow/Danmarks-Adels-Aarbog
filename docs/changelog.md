@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-10-20 — trin 5b del 2b-ii runde 2: navneregel v3 over de 12 `U`-ægteskaber (#151)
+
+Implementeret efter planen `2026-10-18-trin5b-2b-ii-runde2-navneregel-v3.md` på `docs/151-5b-navneregel-v3`.
+
+**Indhold:**
+- **Navneregel v3** (`relation_persona_extract_v3.py`):
+  - lukket titelliste med `rigs-`/`lens-`;
+  - partiklerne und/zu/dem/genannt;
+  - efternavnsbaseret partnertræf;
+  - afkortningsvagt og løst dubletværn før D/N.
+- **SQL-tvillingen** `private.relation_name_has_title`.
+- **Persona-profil v3** med arkets hash i kvitteringen.
+- **`write_relation_person_create`** afviser nu titel i navnet, forældet klausul og forældet fortolkning.
+- **Ark v3** (`relation_marriage_sheet_v3.py`) med `navn:`-rettelse og `P`-linjer.
+- **Læsefunktionen** `red_relation_persona_v3_input`.
+
+**Bevis i restore (ikke prod):**
+- Arket gav S 9 og U 3. P-linjen blev besvaret U, fordi fortolkningen er forkert, og den skal afvises særskilt.
+- Kørslen gav 9 nye bindinger (241 synlige kilderækker) og 9 disponerede klausuler.
+- 0 kanonisk delta, og negativtest A og C afviser.
+- 0 nye personer: oprettelsen er stadig kun bevist på syntetiske data.
+
+**Fund:** systemets ægteskabsnummer bliver forkert, når påstandens tekst rækker ud over klausulen. Det giver 4 falske ordinal-afvigelser, som rettes i en separat runde.
+
+Rapport: `docs/evidensbaseret-genimport/relationspersonas-5b-navneregel-v3-bevis.md`. Ikke deployet.
+
 ## 2026-10-18 — trin 5b del 2b-ii: nye afdøde ægtefæller, de 14 ægteskaber og klausul-dispositionen (#151)
 
 Implementeret efter planen `2026-10-17-trin5b-2b-ii.md` på `docs/151-5b-2b-ii`. Indhold:

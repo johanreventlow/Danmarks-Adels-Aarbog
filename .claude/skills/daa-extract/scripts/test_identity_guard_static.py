@@ -33,7 +33,7 @@ ALLOWLIST = {
     ("db-migrations.sql", "red_reverse_1939_v50_reimport", "reversal"): 3,
     ("db-migrations.sql", "red_reverse_reimport", "reversal"): 1,
     ("db-migrations.sql", "red_corroborate_family_identities", "family_corroboration"): 1,
-    ("db-migrations.sql", "write_relation_person_create", "relation_person_create"): 1,
+    ("db-migrations.sql", "write_relation_person_create", "relation_person_create"): 2,   # 2b-ii runde 2: kopi med titelværn og aktualitetstjek
 }
 
 
