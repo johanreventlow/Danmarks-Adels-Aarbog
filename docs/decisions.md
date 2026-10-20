@@ -11,9 +11,9 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > Rapport: `docs/evidensbaseret-genimport/relationspersonas-5b-navneregel-v3-bevis.md`.
 
 **Besluttet:**
-1. **`mention.place` udsættes.** 246 klausuler stod i `afventer_identitet`, fordi et sted-aktørforslag mangler en persona. Ingen af rundens 12 ægteskaber afhang af det. Det tages op sammen med stedsentiteterne, ikke i 2b-ii.
+1. **`mention.place` udsættes.** 246 klausuler (spec §17.3) stod i `afventer_identitet`, fordi et sted-aktørforslag mangler en persona. Ingen af rundens 12 ægteskaber afhang af det. Det tages op sammen med stedsentiteterne, ikke i 2b-ii.
 2. **Aldersregel v2 er designet, men ikke brugt.** Den udelader årstal inde i en DAA-henvisning. Ingen af de 12 havde nul partnertræf og et årstal efter »DAA«, der ville have vendt sagen. Derfor er `aarstal-120-v1` og `red_afgoer_source_persona` uændrede.
-3. **Partnertræf i navneregel v3 (slutreviewets fund F2).**
+3. **Partnertræf i navneregel v3 (slutreviewets fund F2; indført af sessionen efter slutreviewet, projektejeren bekræfter ved merge).**
    - **`S`** kræver efternavnet plus mindst ét fælles kerneord mere. Efternavnet alene giver ikke `S`.
    - **`D`/`N` og P-linjen** kræver 0 *løse* træf. Et løst træf er v2's halvdelsregel eller blot ét fælles kerneord. Ved en `navn:`-rettelse gælder kravet både regelens navn og det rettede navn.
 
