@@ -1,10 +1,10 @@
-// Trin 5b 2a: kilder på ægteskab og forældrelinje (spec §5.2). Familie-id'et udledes af modellens
+// Trin 5b 2a: kilder på ægteskab og forældrelinje (spec §5.2); 2b-iii: børneflokken (slags 'boern'). Familie-id'et udledes af modellens
 // unions ('f' + family_id) — spousesBy bærer det ikke, og to ægteskaber med samme par er to familier.
 import type { ModelIndexes } from './types';
 
 export type FamilieKilde = {
   familyId: string;
-  slags: 'aegteskab' | 'foraelder';
+  slags: 'aegteskab' | 'foraelder' | 'boern';
   counterpartPersonId: string;
   sourceRecordRef: string | null;
   sourceLabel: string;
@@ -17,13 +17,16 @@ const famId = (unionId: string): string | null => (unionId.startsWith('f') ? uni
 export function familieIderForPerson(
   indexes: ModelIndexes,
   focusId: string,
-): { aegteskaber: { spouseId: string | null; familyId: string }[]; foraeldreFamilier: string[] } {
+): { aegteskaber: { spouseId: string | null; familyId: string }[]; foraeldreFamilier: string[]; boerneFamilier: string[] } {
   const aegteskaber: { spouseId: string | null; familyId: string }[] = [];
+  // Trin 5b 2b-iii: familier, hvor fokuspersonen er partner og har børn (børneflokkens kilde vises dér).
+  const boerneFamilier = new Set<string>();
   for (const u of Object.values(indexes.unionById)) {
     const id = famId(u.id);
     if (!id) continue;
     if (u.p1 === focusId) aegteskaber.push({ spouseId: u.p2 ?? null, familyId: id });
     else if (u.p2 === focusId) aegteskaber.push({ spouseId: u.p1, familyId: id });
+    if ((u.p1 === focusId || u.p2 === focusId) && (indexes.childrenByUnion[focusId]?.[u.id]?.length ?? 0) > 0) boerneFamilier.add(id);
   }
   // Fødselsfamilierne for de forældre, modellen viser (buildModel tager kun barnets første familie med i
   // parentsByChild); en kilde vises aldrig ved en forælder, panelet ikke viser.
@@ -34,7 +37,7 @@ export function familieIderForPerson(
       if (id && børn.includes(focusId)) foraeldreFamilier.add(id);
     }
   }
-  return { aegteskaber, foraeldreFamilier: [...foraeldreFamilier].sort() };
+  return { aegteskaber, foraeldreFamilier: [...foraeldreFamilier].sort(), boerneFamilier: [...boerneFamilier].sort() };
 }
 
 export function kildeLinje(k: FamilieKilde): string {
@@ -59,7 +62,7 @@ export function mapFamilieKilder(rows: unknown): FamilieKilde[] {
   if (!Array.isArray(rows)) return [];
   const ud: FamilieKilde[] = [];
   for (const r of rows as (Record<string, unknown> | null)[]) {
-    if (!r || (r.slags !== 'aegteskab' && r.slags !== 'foraelder')) continue;
+    if (!r || (r.slags !== 'aegteskab' && r.slags !== 'foraelder' && r.slags !== 'boern')) continue;
     if (typeof r.source_label !== 'string' || typeof r.record_label !== 'string') continue;
     const familyId = bigintTekst(r.family_id);
     const counterpartPersonId = bigintTekst(r.counterpart_person_id);

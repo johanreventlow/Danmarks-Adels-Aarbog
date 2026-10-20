@@ -39,7 +39,7 @@ er tre regelfejl og fejl i klausulopdelingen, ikke usikre personer (se »Fund«)
 Før-målingen gav 2b-i's sluttal: universet 272 (bundet 230, uden ægtefælle-persona 14, ægtefælle
 `unresolved` 3, `new_person_needed` 1, struktur uentydig 7, barn 14, forælder `proposed` 2, forælder
 `rejected` 1). Desuden 2a's tupel-digest `89bde760…5923` og læsningen 227 familier / 230 synlige (223
-offentlige, 7 ikke-offentlige).
+ægteskab, 7 forælder).
 
 ## Arket (spec §5, errata §15.1/15.2/15.5)
 
@@ -97,7 +97,7 @@ De to `U`-forslag (ingen hovedperson; ægteskabet citerer to klausuler) blev st�
 | 2a's tupel-digest | `89bde760…5923` | `89bde760…5923` |
 | Univers | 272 | 272 (bundet 232, uden ægtefælle-persona 12, øvrige spande uændrede) |
 | Læsning: familier | 227 | 229 |
-| Læsning: synlige kilderækker (offentlige / ikke-offentlige) | 230 (223 / 7) | 232 (225 / 7) |
+| Læsning: synlige kilderækker (ægteskab / forælder) | 230 (223 / 7) | 232 (225 / 7) |
 
 Synlighed (spec §10 pkt. 3): ægteskaber, der kan blive synlige ved aktiveringen, er D 0 + S 2. De 2 er
 allerede synlige, fordi de binder til eksisterende, aktive personer. Ventende: N 0, I 0, U 12, alle i spanden

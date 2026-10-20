@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-10-20 — trin 5b del 2b-iii: børneflokkene binder til familien (#151)
+
+Implementeret efter planen `2026-10-20-trin5b-2b-iii-boernehenvisninger.md` på `docs/151-5b-2b-iii`.
+
+**Indhold:**
+- **Parser:** `private.relation_child_ref` læser bogens børnehenvisning.
+- **Regel:** `private.relation_child_rule` (`relation-child-v1`).
+- **Writer:** `red_afgoer_relation_interpretation` får en børnegren, der kun kan bruges via arket og uden familie-id. `RELATION_CHILD_DEFERRED` er fjernet.
+- **Binding:** `relation_binding_state` genberegner reglen mod familien, som den ser ud nu.
+- **Læser:** `public_family_sources` giver `slags='boern'`.
+- **Ark:** `relation_child_sheet.py` med projektionen `red_relation_child_sheet_input`.
+- **Web:** viser børneflokkens kilde ved forælder og barn.
+
+**Bevis i restore (ikke prod):**
+- 12 bindinger (253 synlige kilderækker) og 12 børnekilder synlige for anonyme læsere.
+- 0 kanonisk delta, og negativtest A-D afviser.
+- 2 påstande står `proposed`.
+
+**Fund:** en trykfejl i bogen.
+
+Rapport: `docs/evidensbaseret-genimport/relationspersonas-5b-2b-iii-bevis.md`. Ikke deployet.
+
 ## 2026-10-20 — trin 5b: P-linjens forkerte ægteskabsfortolkning afvist i bevisbasen (#151)
 
 Fortolkningen gik fra `proposed` v1 til `rejected` v2 gennem `red_decide_interpretation`. Kanonisk lag og læsning er uændrede. Se tilføjelsen »Efterfølgende« i `relationspersonas-5b-navneregel-v3-bevis.md`. Ikke deployet.

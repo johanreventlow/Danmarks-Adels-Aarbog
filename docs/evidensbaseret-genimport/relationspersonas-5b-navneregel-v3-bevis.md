@@ -42,7 +42,7 @@ Linjen blev besvaret `U`. Derfor havde `relation_person_create` 0 elementer. Opr
 - Antal `person/family/family_member/fact/assertion/citation/conclusion`: 1811/682/2258/7197/9306/8579/9217.
 - Universet: 272, heraf 12 uden ægtefælle-persona.
 - 2a's tupel-digest: `89bde760…5923`.
-- Læsningen: 229 familier og 232 synlige kilderækker (225 offentlige, 7 ikke-offentlige).
+- Læsningen: 229 familier og 232 synlige kilderækker (225 ægteskab, 7 forælder).
 
 ## Tørkørsel (Task 2)
 
@@ -111,7 +111,7 @@ Ingen afvigelse fra spec'ens forventning.
 | 2a's tupel-digest | `89bde760…5923` | `89bde760…5923` |
 | Univers | 272 | 272. Bundet 241, uden ægtefælle-persona 3, de øvrige spande uændrede. |
 | Læsning: familier | 229 | 238 |
-| Læsning: synlige kilderækker (offentlige / ikke-offentlige) | 232 (225 / 7) | 241 (234 / 7) |
+| Læsning: synlige kilderækker (ægteskab / forælder) | 232 (225 / 7) | 241 (234 / 7) |
 
 Kontrollerne af den nye person i §17.8 er ikke relevante, fordi der ikke blev oprettet nogen person. Kontrollerne omfatter `staged`, `levende=false`, titelfrit visningsnavn, kæden fra faktum til konklusion, familie og kvitteringer.
 

@@ -15,7 +15,18 @@ describe('familieIderForPerson', () => {
     expect(familieIderForPerson(m.indexes, '1').aegteskaber).toEqual([{ spouseId: '2', familyId: '10' }]);
     expect(familieIderForPerson(m.indexes, '2').aegteskaber).toEqual([{ spouseId: '1', familyId: '10' }]);
     expect(familieIderForPerson(m.indexes, '3').foraeldreFamilier).toEqual(['10']);
-    expect(familieIderForPerson(m.indexes, '4')).toEqual({ aegteskaber: [], foraeldreFamilier: [] });
+    expect(familieIderForPerson(m.indexes, '4')).toEqual({ aegteskaber: [], foraeldreFamilier: [], boerneFamilier: [] });
+  });
+  // Trin 5b 2b-iii: børneflokkens kilde hos forælderen — partnerens familier med børn.
+  it('boerneFamilier er partnerens familier med børn', () => {
+    const m = buildModel({ persons, unions: [
+      { id: 'f10', p1: '1', p2: '2', p2_name: null, year: null },
+      { id: 'f20', p1: '1', p2: '4', p2_name: null, year: null },
+    ], parentChild: [{ child: '3', parent: '1', union: 'f10' }, { child: '3', parent: '2', union: 'f10' }] });
+    expect(familieIderForPerson(m.indexes, '1').boerneFamilier).toEqual(['10']);
+    expect(familieIderForPerson(m.indexes, '2').boerneFamilier).toEqual(['10']);
+    expect(familieIderForPerson(m.indexes, '4').boerneFamilier).toEqual([]);
+    expect(familieIderForPerson(m.indexes, '3').boerneFamilier).toEqual([]);
   });
   // buildModel viser bevidst kun forældrene fra barnets FØRSTE familie (parentsByChild), og »Barn af« i
   // panelet bygger på dem; kilden følger derfor samme familie (ingen forælderkilde uden en vist forælder).
@@ -37,6 +48,12 @@ describe('familieIderForPerson', () => {
 });
 
 describe('kildeLinje og mapFamilieKilder', () => {
+  it('godtager slags boern', () => {
+    const rows = mapFamilieKilder([{ family_id: 10, slags: 'boern', counterpart_person_id: 1, source_record_ref: null,
+      source_label: 'DAA X', record_label: 'Post 1', citation_label: 'c' }]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].slags).toBe('boern');
+  });
   it('former linjen og dropper ugyldige rækker', () => {
     const rows = mapFamilieKilder([
       { family_id: 10, slags: 'aegteskab', counterpart_person_id: 2, source_record_ref: 'r', source_label: 'DAA X', record_label: 'Post 1', citation_label: 'c' },

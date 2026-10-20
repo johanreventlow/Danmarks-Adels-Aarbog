@@ -18825,6 +18825,7 @@ DECLARE
     to_regprocedure('public.red_relation_person_create_input(bigint)'),
     to_regprocedure('public.red_relation_persona_v2_input(bigint)'),
     to_regprocedure('public.red_relation_persona_v3_input(bigint)'),
+    to_regprocedure('public.red_relation_child_sheet_input(bigint)'),
     to_regprocedure('public.red_relation_disposition_input(bigint)'),
     to_regprocedure('public.red_identity_control_sample(uuid)'),
     'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
@@ -23458,5 +23459,451 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.red_relation_persona_v3_input(bigint) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.red_relation_persona_v3_input(bigint) TO authenticated;
+
+-- Trin 5b 2b-iii (#151): børnehenvisninger.
+-- Trin 5b 2b-iii (#151, spec 2026-10-20 §4): bogens børnehenvisning »N børn: <ordenstal> [(<ordenstal>)] slægtled,
+-- [<romertal>,] nr. a[–b]«. Deterministisk; ingen model læser teksten. NULL = ikke på formen.
+CREATE OR REPLACE FUNCTION private.relation_child_ref(p_raw text)
+RETURNS jsonb LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+DECLARE
+  m text[]; v_count integer; v_gl integer; v_gt integer; v_from integer; v_to integer;
+  v_ord constant text[]:=ARRAY['første','andet','tredje','fjerde','femte','sjette','syvende','ottende','niende','tiende',
+    'ellevte','tolvte','trettende','fjortende','femtende','sekstende','syttende','attende','nittende','tyvende'];
+BEGIN
+  IF p_raw IS NULL THEN RETURN NULL; END IF;
+  m:=regexp_match(btrim(p_raw),
+    '^(?:([0-9]{1,3}) (børn|døtre|sønner)|(Datter|Søn))( \(\?\))?'
+    '(?::\s*([[:alpha:]æøåÆØÅ]+)(?: \(([[:alpha:]æøåÆØÅ]+)\))? slægtled,(?: ([IVX]+),)? nr\. ([0-9]{1,4})(?:\s*[-‑–]\s*([0-9]{1,4}))?\.?)?$');
+  IF m IS NULL THEN RETURN NULL; END IF;
+  v_count:=coalesce(m[1]::integer,1);
+  IF v_count<1 THEN RETURN NULL; END IF;
+  IF m[5] IS NOT NULL THEN
+    v_gl:=array_position(v_ord,lower(m[5]));
+    IF v_gl IS NULL THEN RETURN NULL; END IF;
+  END IF;
+  IF m[6] IS NOT NULL THEN
+    v_gt:=array_position(v_ord,lower(m[6]));
+    IF v_gt IS NULL THEN RETURN NULL; END IF;
+  END IF;
+  IF m[8] IS NOT NULL THEN
+    v_from:=m[8]::integer; v_to:=coalesce(m[9]::integer,v_from);   -- enkelt nummer ⇒ nr_to = nr_from
+    IF v_to<v_from OR v_to-v_from>=200 THEN RETURN NULL; END IF;
+  END IF;
+  RETURN jsonb_build_object('count',v_count,
+    'sex',CASE coalesce(m[2],m[3]) WHEN 'døtre' THEN 'kvinde' WHEN 'Datter' THEN 'kvinde'
+                                   WHEN 'sønner' THEN 'mand' WHEN 'Søn' THEN 'mand' END,
+    'uncertain',m[4] IS NOT NULL,'gen_local',v_gl,'gen_through',v_gt,'section',m[7],'nr_from',v_from,'nr_to',v_to);
+END $$;
+REVOKE ALL ON FUNCTION private.relation_child_ref(text) FROM PUBLIC,anon,authenticated;
+
+-- Trin 5b 2b-iii (spec §5): reglen relation-child-v1 mod familien, som den ser ud nu. Bruges af writeren (§6),
+-- bindingstilstanden (§7) og arkets projektion (§6). H = brud (kan ikke tilsidesættes), A = afvigelser (mennesket kan).
+CREATE OR REPLACE FUNCTION private.relation_child_rule(p_interpretation_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_i private.interpretation%ROWTYPE; v_ref jsonb; v_pid bigint; v_linje text; v_n integer; v_fams bigint[];
+  v_f bigint; v_kids jsonb; v_h text[]:='{}'; v_a text[]:='{}'; v_from integer; v_to integer;
+BEGIN
+  SELECT * INTO v_i FROM private.interpretation WHERE id=p_interpretation_id;
+  IF NOT FOUND OR v_i.predicate<>'relation.child' THEN RETURN NULL; END IF;
+  -- H1: én klausul; hovedperson med accepteret identitet og præcis én postnøgle (linje sat) i kilden
+  IF (SELECT count(*) FROM private.interpretation_observation io
+       WHERE io.interpretation_id=v_i.id AND io.evidence_role='supporting')<>1 THEN v_h:=v_h||'H1_klausul'::text; END IF;
+  SELECT i.canonical_person_id INTO v_pid FROM private.interpretation_party_current pc
+    JOIN private.source_persona_identity i ON i.source_persona_id=pc.source_persona_id AND i.decision_status='accepted'
+   WHERE pc.interpretation_key=v_i.interpretation_key AND pc.party_role='principal';
+  IF v_pid IS NULL THEN
+    v_h:=v_h||'H1_hovedperson'::text;
+  ELSE
+    SELECT min(x.linje),count(*) INTO v_linje,v_n FROM public.person_external_id x
+     WHERE x.person_id=v_pid AND x.source_id=v_i.source_id;
+    IF v_n<>1 OR v_linje IS NULL THEN v_h:=v_h||'H1_postnoegle'::text; END IF;
+    -- H3: præcis én partnerfamilie med børn
+    SELECT array_agg(DISTINCT p.family_id ORDER BY p.family_id) INTO v_fams FROM public.family_member p
+     WHERE p.person_id=v_pid AND p.rolle='partner'
+       AND EXISTS (SELECT 1 FROM public.family_member b WHERE b.family_id=p.family_id AND b.rolle='barn');
+  END IF;
+  v_ref:=private.relation_child_ref(v_i.value->>'raw');
+  IF v_ref IS NULL THEN v_h:=v_h||'H2'::text; END IF;
+  IF coalesce(cardinality(v_fams),0)<>1 THEN
+    v_h:=v_h||'H3_familie'::text;
+  ELSE
+    v_f:=v_fams[1];
+    IF EXISTS (SELECT 1 FROM public.family_member m WHERE m.family_id=v_f
+                AND (m.konfidens='omstridt' OR m.rolle IN ('adopteret_barn','plejebarn','stedbarn'))) THEN
+      v_h:=v_h||'H3_raekker'::text;
+    END IF;
+    SELECT coalesce(jsonb_agg(jsonb_build_object('person_id',b.person_id,'konfidens',b.konfidens,'koen',pp.koen,
+             'linje',x.linje,'nr',x.nr,'kuld',x.kuld,'gen_local',x.slaegtled_lokal,'gen_through',x.slaegtled_gennem)
+             ORDER BY b.person_id),'[]'::jsonb)
+      INTO v_kids
+      FROM public.family_member b
+      JOIN public.person pp ON pp.id=b.person_id
+      LEFT JOIN public.person_external_id x ON x.person_id=b.person_id AND x.source_id=v_i.source_id
+     WHERE b.family_id=v_f AND b.rolle='barn';
+    IF v_ref IS NOT NULL THEN
+      -- H4: køn
+      IF v_ref->>'sex' IS NOT NULL AND EXISTS (SELECT 1 FROM jsonb_array_elements(v_kids) k
+                                                WHERE k->>'koen' IS DISTINCT FROM v_ref->>'sex') THEN
+        v_h:=v_h||'H4'::text;
+      END IF;
+      IF v_ref->>'nr_from' IS NOT NULL THEN
+        v_from:=(v_ref->>'nr_from')::integer; v_to:=(v_ref->>'nr_to')::integer;
+        -- H5: numrene i forælderens linje = intervallet; ingen børn med post i en anden linje; romertal; slægtled
+        IF (SELECT array_agg((k->>'nr')::integer ORDER BY (k->>'nr')::integer) FROM jsonb_array_elements(v_kids) k
+             WHERE k->>'linje' IS NOT DISTINCT FROM v_linje)
+           IS DISTINCT FROM (SELECT array_agg(g ORDER BY g) FROM generate_series(v_from,v_to) g) THEN
+          v_h:=v_h||'H5_nr'::text;
+        END IF;
+        IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_kids) k
+                    WHERE k->>'linje' IS NOT NULL AND k->>'linje' IS DISTINCT FROM v_linje) THEN
+          v_h:=v_h||'H5_linje'::text;
+        END IF;
+        IF v_ref->>'section' IS NOT NULL AND EXISTS (SELECT 1 FROM jsonb_array_elements(v_kids) k
+             WHERE k->>'linje' IS NOT NULL AND v_ref->>'section' IS DISTINCT FROM k->>'linje'
+               AND v_ref->>'section' IS DISTINCT FROM k->>'kuld') THEN
+          v_h:=v_h||'H5_romertal'::text;
+        END IF;
+        IF v_ref->>'gen_local' IS NOT NULL AND EXISTS (SELECT 1 FROM jsonb_array_elements(v_kids) k
+             WHERE k->>'linje' IS NOT NULL AND k->>'gen_local' IS DISTINCT FROM v_ref->>'gen_local') THEN
+          v_h:=v_h||'H5_slaegtled'::text;
+        END IF;
+        IF v_ref->>'gen_through' IS NOT NULL AND EXISTS (SELECT 1 FROM jsonb_array_elements(v_kids) k
+             WHERE k->>'linje' IS NOT NULL AND k->>'gen_through' IS DISTINCT FROM v_ref->>'gen_through') THEN
+          v_h:=v_h||'H5_slaegtled_gennem'::text;
+        END IF;
+      ELSIF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_kids) k WHERE k->>'linje' IS NOT NULL) THEN
+        v_h:=v_h||'H6'::text;   -- uden henvisning: mindst ét barn med egen post
+      END IF;
+      -- A: afvigelser, som mennesket kan tilsidesætte
+      IF (v_ref->>'count')::integer IS DISTINCT FROM jsonb_array_length(v_kids) THEN v_a:=v_a||'A1_antal_familie'::text; END IF;
+      IF v_from IS NOT NULL AND (v_ref->>'count')::integer IS DISTINCT FROM v_to-v_from+1 THEN v_a:=v_a||'A2_antal_interval'::text; END IF;
+      IF (v_ref->>'uncertain')::boolean THEN v_a:=v_a||'A3_usikker'::text; END IF;
+      IF v_from IS NULL THEN v_a:=v_a||'A4_uden_henvisning'::text; END IF;
+    END IF;
+  END IF;
+  RETURN jsonb_build_object('ok',cardinality(v_h)=0,'brud',to_jsonb(v_h),'afvigelser',to_jsonb(v_a),'ref',v_ref,
+    'principal_person_id',v_pid,'linje',v_linje,'family_id',v_f,'children',coalesce(v_kids,'[]'::jsonb),
+    'flock_digest',CASE WHEN v_kids IS NOT NULL THEN private.reimport_canonical_json_sha256(coalesce((
+        SELECT jsonb_agg(jsonb_build_object('person_id',k->'person_id','rolle','barn','konfidens',k->'konfidens')
+                         ORDER BY (k->>'person_id')::bigint) FROM jsonb_array_elements(v_kids) k),'[]'::jsonb)) END);
+END $$;
+REVOKE ALL ON FUNCTION private.relation_child_rule(uuid) FROM PUBLIC,anon,authenticated;
+
+-- Trin 5b 2b-iii (spec §6): børnegrenen af red_afgoer_relation_interpretation. Kun arket (human_sheet); serveren
+-- udleder familien; ingen child-part; unresolved afvises, fordi en afgjort fortolkning ikke kan genåbnes.
+CREATE OR REPLACE FUNCTION private.decide_relation_child(p_ic private.interpretation,p_expected_version integer,
+  p_action text,p_family_id bigint,p_note text,p_ctx jsonb,p_basis text)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_rule jsonb; v_evidence jsonb; v_new uuid; v_pid bigint;
+BEGIN
+  IF p_basis IS DISTINCT FROM 'human_sheet' OR p_ctx ? 'control_run_id' OR p_family_id IS NOT NULL
+     OR p_action NOT IN ('same','rejected') THEN
+    RAISE EXCEPTION 'RELATION_DECISION_INVALID';
+  END IF;
+  v_evidence:=jsonb_build_object('note',btrim(p_note),'action',p_action,'basis',p_basis,'method','relation-child-v1',
+    'sheet_sha256',p_ctx->>'sheet_sha256','rows_sha256',p_ctx->>'rows_sha256','line',(p_ctx->>'line')::integer);
+  IF p_action='same' THEN
+    SELECT i.canonical_person_id INTO v_pid FROM private.interpretation_party_current pc
+      JOIN private.source_persona_identity i ON i.source_persona_id=pc.source_persona_id AND i.decision_status='accepted'
+     WHERE pc.interpretation_key=p_ic.interpretation_key AND pc.party_role='principal';
+    -- Rækkelåse (spec §6): hovedpersonen og alle personer i hendes/hans familier (personer → familier → medlemmer,
+    -- sorteret), før den endelige genberegning af reglen. Børnenes personrækker (koen) låses dermed også.
+    IF v_pid IS NOT NULL THEN
+      PERFORM private.lock_family_rows(ARRAY(SELECT DISTINCT x FROM unnest(ARRAY[v_pid]||ARRAY(
+        SELECT b.person_id FROM public.family_member p JOIN public.family_member b ON b.family_id=p.family_id
+         WHERE p.person_id=v_pid AND p.rolle='partner')) x ORDER BY 1));
+    END IF;
+    v_rule:=private.relation_child_rule(p_ic.id);
+    IF v_rule IS NULL OR NOT coalesce((v_rule->>'ok')::boolean,false) THEN
+      RAISE EXCEPTION 'RELATION_CHILD_RULE_NOT_MET: %',coalesce(v_rule->>'brud','[]');
+    END IF;
+    v_evidence:=v_evidence||jsonb_build_object('family_id',(v_rule->>'family_id')::bigint,
+      'flock_digest',v_rule->>'flock_digest','ref',v_rule->'ref','afvigelser',v_rule->'afvigelser');
+    v_new:=public.red_decide_interpretation(p_ic.id,p_expected_version,'accepted',v_evidence);
+  ELSE
+    -- H1's første del (spec §6): præcis én citeret klausul, også ved afvisning.
+    IF (SELECT count(*) FROM private.interpretation_observation io
+         WHERE io.interpretation_id=p_ic.id AND io.evidence_role='supporting')<>1 THEN
+      RAISE EXCEPTION 'RELATION_CHILD_RULE_NOT_MET: ["H1_klausul"]';
+    END IF;
+    v_new:=public.red_decide_interpretation(p_ic.id,p_expected_version,'rejected',v_evidence);
+  END IF;
+  RETURN (SELECT version FROM private.interpretation WHERE id=v_new);
+END $$;
+REVOKE ALL ON FUNCTION private.decide_relation_child(private.interpretation,integer,text,bigint,text,jsonb,text) FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION red_afgoer_relation_interpretation(
+  p_interpretation_key uuid, p_expected_version integer, p_action text, p_family_id bigint,
+  p_note text, p_context jsonb DEFAULT '{}'::jsonb
+) RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_ctx jsonb:=coalesce(p_context,'{}'::jsonb); v_basis text; v_ic private.interpretation%ROWTYPE;
+  v_role text; v_cand record; v_n integer; v_principal_pid bigint; v_evidence jsonb; v_new uuid;
+  -- record: kontroltabellerne kan oprettes efter funktionen (plpgsql binder %ROWTYPE ved CREATE).
+  v_card record; v_seal record; v_family bigint; v_status text; v_card_partners bigint[]:='{}';
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  v_basis:=coalesce(v_ctx->>'basis','web_detail');
+  IF jsonb_typeof(v_ctx)<>'object'
+     OR EXISTS (SELECT 1 FROM jsonb_object_keys(v_ctx) k WHERE k NOT IN ('basis','sheet_sha256','rows_sha256','line','control_run_id'))
+     OR p_action NOT IN ('same','unresolved','rejected') OR nullif(btrim(p_note),'') IS NULL
+     OR (p_action<>'same' AND p_family_id IS NOT NULL)
+     OR v_basis NOT IN ('web_detail','human_sheet')
+     OR (v_basis='human_sheet' AND (coalesce(v_ctx->>'sheet_sha256','') !~ '^[0-9a-f]{64}$'
+                                   OR coalesce(v_ctx->>'rows_sha256','') !~ '^[0-9a-f]{64}$'
+                                   OR coalesce(v_ctx->>'line','') !~ '^[1-9][0-9]*$')) THEN
+    RAISE EXCEPTION 'RELATION_DECISION_INVALID';
+  END IF;
+  SELECT * INTO v_ic FROM private.interpretation_current WHERE interpretation_key=p_interpretation_key;
+  IF NOT FOUND OR v_ic.predicate NOT IN ('relation.child','relation.parent') THEN RAISE EXCEPTION 'RELATION_DECISION_INVALID'; END IF;
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-identity-candidates:'||v_ic.source_id::text,0));
+  -- Trin 5b 2b-iii (spec 2026-10-20 §6): børnehenvisninger har deres egen gren (flokken binder til familien).
+  IF v_ic.predicate='relation.child' THEN
+    RETURN private.decide_relation_child(v_ic,p_expected_version,p_action,p_family_id,p_note,v_ctx,v_basis);
+  END IF;
+  v_role:=CASE v_ic.predicate WHEN 'relation.child' THEN 'child' ELSE 'parent' END;
+  v_evidence:=jsonb_build_object('note',btrim(p_note),'action',p_action,'basis',v_basis,'method','relation-human-v1');
+  IF v_basis='human_sheet' THEN
+    v_evidence:=v_evidence||jsonb_build_object('sheet_sha256',v_ctx->>'sheet_sha256','rows_sha256',v_ctx->>'rows_sha256',
+      'line',(v_ctx->>'line')::int);
+  END IF;
+  -- Spec §23.4: forældrekortet fra en forseglet kontrolkørsel. Serveren opløser familien; klienten leverer intet id.
+  SELECT NULL::uuid AS id INTO v_card;
+  IF v_ctx ? 'control_run_id' THEN
+    SELECT * INTO v_card FROM private.identity_control_parent_card
+     WHERE control_run_id=(v_ctx->>'control_run_id')::uuid AND interpretation_key=p_interpretation_key;
+    SELECT * INTO v_seal FROM private.identity_control_event
+     WHERE control_run_id=(v_ctx->>'control_run_id')::uuid AND status='sealed';
+    IF v_card.id IS NULL OR v_seal.control_run_id IS NULL OR v_basis<>'human_sheet'
+       OR v_ctx->>'sheet_sha256' IS DISTINCT FROM v_seal.sheet_sha256 OR v_ctx->>'rows_sha256' IS DISTINCT FROM v_seal.rows_sha256
+       OR p_family_id IS NOT NULL OR p_action NOT IN ('same','rejected')
+       OR p_expected_version IS DISTINCT FROM v_card.interpretation_version THEN
+      RAISE EXCEPTION 'PARENT_CARD_CONTEXT_INVALID';
+    END IF;
+    v_family:=CASE WHEN p_action='same' THEN v_card.family_id END;
+    v_card_partners:=v_card.partner_ids;
+    v_evidence:=v_evidence||jsonb_build_object('control_run_id',v_card.control_run_id,'parent_card_id',v_card.id);
+  ELSE
+    v_family:=p_family_id;
+    IF (p_action='same' AND v_family IS NULL) THEN RAISE EXCEPTION 'RELATION_DECISION_INVALID'; END IF;
+  END IF;
+  IF p_action='same' THEN
+    SELECT i.canonical_person_id INTO v_principal_pid FROM private.interpretation_party_current pc
+      JOIN private.source_persona_identity i ON i.source_persona_id=pc.source_persona_id AND i.decision_status='accepted'
+     WHERE pc.interpretation_key=p_interpretation_key AND pc.party_role='principal';
+    IF v_principal_pid IS NULL THEN RAISE EXCEPTION 'RELATION_DECISION_PRINCIPAL_INVALID'; END IF;
+    -- Rækkelåse (spec §6.2) før den sidste genberegning af kandidaterne.
+    PERFORM private.lock_family_rows(ARRAY(SELECT DISTINCT x FROM unnest(ARRAY[v_principal_pid]||ARRAY(
+      SELECT counterpart_person_id FROM private.relation_structural_candidates(p_interpretation_key))||
+      v_card_partners) x ORDER BY 1));
+    -- Kortet holder kun, hvis der stadig er præcis én kandidatrække i alt, lig kortets, med uændret partnermængde.
+    -- Ellers et klassifikationsevent i stedet for en fejl: forældrelinjer må aldrig vælte arkets anvendelse (§23.4).
+    IF v_card.id IS NOT NULL THEN   -- indlejret: uden kort har recorden kun feltet id
+      IF (SELECT count(*) FROM private.relation_structural_candidates(p_interpretation_key))<>1
+         OR NOT EXISTS (SELECT 1 FROM private.relation_structural_candidates(p_interpretation_key) c
+                         WHERE c.family_id=v_card.family_id AND c.counterpart_person_id=v_card.counterpart_person_id
+                           AND c.counterpart_persona_id=v_card.counterpart_persona_id)
+         OR (SELECT array_agg(fm.person_id ORDER BY fm.person_id) FROM public.family_member fm
+              WHERE fm.family_id=v_card.family_id AND fm.rolle='partner') IS DISTINCT FROM v_card_partners THEN
+        PERFORM private.append_parent_card_event(v_card.id,'familie_aendret',btrim(p_note),v_ctx);
+        RETURN 0;
+      END IF;
+    END IF;
+    SELECT count(*) INTO v_n FROM private.relation_structural_candidates(p_interpretation_key) c WHERE c.family_id=v_family;
+    IF v_n<>1 THEN RAISE EXCEPTION 'RELATION_DECISION_FAMILY_INVALID'; END IF;
+    SELECT * INTO v_cand FROM private.relation_structural_candidates(p_interpretation_key) c WHERE c.family_id=v_family;
+    v_evidence:=v_evidence||jsonb_build_object('family_id',v_family,'counterpart_persona_id',v_cand.counterpart_persona_id);
+    v_new:=public.red_decide_interpretation(v_ic.id,p_expected_version,'accepted',v_evidence);
+    INSERT INTO private.interpretation_party(interpretation_key,party_role,version,source_persona_id,origin,origin_ref)
+    VALUES (p_interpretation_key,v_role,
+            (SELECT coalesce(max(version),0)+1 FROM private.interpretation_party
+              WHERE interpretation_key=p_interpretation_key AND party_role=v_role),
+            v_cand.counterpart_persona_id,'relation_decision',v_new);
+  ELSE
+    v_status:=CASE p_action WHEN 'rejected' THEN 'rejected' ELSE 'unresolved' END;
+    v_new:=public.red_decide_interpretation(v_ic.id,p_expected_version,v_status,v_evidence);
+  END IF;
+  RETURN (SELECT version FROM private.interpretation WHERE id=v_new);
+END $$;
+REVOKE ALL ON FUNCTION red_afgoer_relation_interpretation(uuid,integer,text,bigint,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_afgoer_relation_interpretation(uuid,integer,text,bigint,text,jsonb) TO authenticated;
+
+INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate)
+SELECT 'relation-child-v1','relation.child'
+ WHERE NOT EXISTS (SELECT 1 FROM private.interpretation_promotion_rule_line WHERE rule_key='relation-child-v1');
+INSERT INTO private.interpretation_promotion_rule(rule_key,rule_version,predicate,interpretation_kind,target_type,
+  expected_fact_type,value_kind,requires_persona_identity,requires_principal_placement,bulk_eligible,status,rule_mode)
+SELECT 'relation-child-v1',1,'relation.child','relation','family',NULL,'relation',false,false,true,'active','structural_family'
+ WHERE NOT EXISTS (SELECT 1 FROM private.interpretation_promotion_rule WHERE rule_key='relation-child-v1' AND rule_version=1);
+
+CREATE OR REPLACE FUNCTION private.relation_binding_state(p_interpretation_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_i private.interpretation%ROWTYPE; v_role text; v_parties jsonb;
+  v_a bigint; v_b bigint; v_fams bigint[]; v_rows jsonb; v_book integer; v_famord integer; v_rule jsonb;
+BEGIN
+  SELECT * INTO v_i FROM private.interpretation WHERE id=p_interpretation_id;
+  -- Trin 5b 2b-iii (spec §7): børneflokken bindes til familien; reglen genberegnes mod familien, som den ser ud nu.
+  IF FOUND AND v_i.predicate='relation.child' THEN
+    IF v_i.decision_evidence->>'method' IS DISTINCT FROM 'relation-child-v1' THEN RETURN NULL; END IF;
+    v_rule:=private.relation_child_rule(v_i.id);
+    IF v_rule IS NULL OR NOT coalesce((v_rule->>'ok')::boolean,false)
+       OR (v_rule->>'family_id')::bigint IS DISTINCT FROM (v_i.decision_evidence->>'family_id')::bigint THEN
+      RETURN NULL;
+    END IF;
+    SELECT jsonb_agg(jsonb_build_object('party_role',pc.party_role,'version',pc.version,
+             'source_persona_id',pc.source_persona_id::text,'identity_version',i.version,
+             'decision_status',i.decision_status,'canonical_person_id',i.canonical_person_id))
+      INTO v_parties
+      FROM private.interpretation_party_current pc
+      LEFT JOIN private.source_persona_identity i ON i.source_persona_id=pc.source_persona_id
+     WHERE pc.interpretation_key=v_i.interpretation_key AND pc.party_role='principal';
+    SELECT jsonb_agg(jsonb_build_array(fm.person_id,fm.rolle,fm.ordinal,fm.konfidens) ORDER BY fm.person_id,fm.rolle COLLATE "C")
+      INTO v_rows
+      FROM public.family_member fm
+     WHERE fm.family_id=(v_rule->>'family_id')::bigint
+       AND ((fm.person_id=(v_rule->>'principal_person_id')::bigint AND fm.rolle='partner') OR fm.rolle='barn');
+    RETURN jsonb_build_object('contract','relation-binding-state-v1',
+      'interpretation',jsonb_build_object('interpretation_id',v_i.id::text,'interpretation_key',v_i.interpretation_key::text,
+        'version',v_i.version,'status',v_i.status,'predicate',v_i.predicate,'source_id',v_i.source_id),
+      'parties',v_parties,
+      'family',jsonb_build_object('family_id',(v_rule->>'family_id')::bigint,'rows',v_rows),
+      'counterpart_person_id',(v_rule->>'principal_person_id')::bigint,
+      'children',jsonb_build_object('count',v_rule#>'{ref,count}','section',v_rule#>'{ref,section}',
+        'nr_from',v_rule#>'{ref,nr_from}','nr_to',v_rule#>'{ref,nr_to}','sex',v_rule#>'{ref,sex}'),
+      'flock_digest',v_rule->>'flock_digest');
+  END IF;
+  IF NOT FOUND OR v_i.predicate NOT IN ('relation.marriage','relation.parent') THEN RETURN NULL; END IF;
+  v_role:=CASE v_i.predicate WHEN 'relation.marriage' THEN 'spouse' ELSE 'parent' END;
+  SELECT jsonb_agg(jsonb_build_object('party_role',pc.party_role,'version',pc.version,
+           'source_persona_id',pc.source_persona_id::text,'identity_version',i.version,
+           'decision_status',i.decision_status,'canonical_person_id',i.canonical_person_id)
+         ORDER BY pc.party_role COLLATE "C")
+    INTO v_parties
+    FROM private.interpretation_party_current pc
+    LEFT JOIN private.source_persona_identity i ON i.source_persona_id=pc.source_persona_id
+   WHERE pc.interpretation_key=v_i.interpretation_key AND pc.party_role IN ('principal',v_role);
+  IF coalesce(jsonb_array_length(v_parties),0)<>2
+     OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_parties) x
+                 WHERE x->>'decision_status' IS DISTINCT FROM 'accepted' OR x->>'canonical_person_id' IS NULL) THEN
+    RETURN NULL;
+  END IF;
+  SELECT (x->>'canonical_person_id')::bigint INTO v_a FROM jsonb_array_elements(v_parties) x WHERE x->>'party_role'='principal';
+  SELECT (x->>'canonical_person_id')::bigint INTO v_b FROM jsonb_array_elements(v_parties) x WHERE x->>'party_role'=v_role;
+  IF v_a=v_b THEN RETURN NULL; END IF;
+  SELECT array_agg(a.family_id ORDER BY a.family_id) INTO v_fams
+    FROM public.family_member a
+    JOIN public.family_member b ON b.family_id=a.family_id AND b.person_id=v_b AND b.rolle='partner'
+   WHERE a.person_id=v_a AND a.rolle=CASE v_role WHEN 'spouse' THEN 'partner' ELSE 'barn' END;
+  IF coalesce(cardinality(v_fams),0)<>1 THEN RETURN NULL; END IF;
+  SELECT jsonb_agg(jsonb_build_array(fm.person_id,fm.rolle,fm.ordinal,fm.konfidens) ORDER BY fm.person_id,fm.rolle COLLATE "C")
+    INTO v_rows
+    FROM public.family_member fm
+   WHERE fm.family_id=v_fams[1]
+     AND ((fm.person_id=v_a AND fm.rolle=CASE v_role WHEN 'spouse' THEN 'partner' ELSE 'barn' END)
+       OR (fm.person_id=v_b AND fm.rolle='partner'));
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_rows) x WHERE x->>3='omstridt') THEN RETURN NULL; END IF;
+  IF v_role='spouse' THEN
+    SELECT pc.marriage_ordinal INTO v_book FROM private.interpretation_party_current pc
+     WHERE pc.interpretation_key=v_i.interpretation_key AND pc.party_role='spouse';
+    SELECT fm.ordinal INTO v_famord FROM public.family_member fm
+     WHERE fm.family_id=v_fams[1] AND fm.person_id=v_a AND fm.rolle='partner';
+  END IF;
+  RETURN jsonb_build_object('contract','relation-binding-state-v1',
+    'interpretation',jsonb_build_object('interpretation_id',v_i.id::text,'interpretation_key',v_i.interpretation_key::text,
+      'version',v_i.version,'status',v_i.status,'predicate',v_i.predicate,'source_id',v_i.source_id),
+    'parties',v_parties,
+    'family',jsonb_build_object('family_id',v_fams[1],'rows',v_rows),'counterpart_person_id',v_b,
+    'book_ordinal',v_book,'family_ordinal',v_famord);
+END $$;
+REVOKE ALL ON FUNCTION private.relation_binding_state(uuid) FROM PUBLIC,anon,authenticated;
+
+CREATE OR REPLACE FUNCTION public.public_family_sources(p_family_ids bigint[])
+RETURNS TABLE(family_id bigint, slags text, counterpart_person_id bigint, source_record_ref uuid, source_label text, record_label text, citation_label text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+  IF public.narrative_record_contract_version()<2 OR p_family_ids IS NULL THEN RETURN; END IF;
+  RETURN QUERY
+  WITH b AS (
+    SELECT p.target_id AS fam,p.interpretation_id,p.evidence->>'state_sha256' AS bound_sha,
+           cur.predicate,cur.source_id,private.relation_binding_state(p.interpretation_id) AS st
+      FROM private.interpretation_promotion p
+      JOIN private.interpretation_promotion_rule r
+        ON r.rule_key=p.rule_key AND r.rule_version=p.rule_version AND r.rule_mode='structural_family'
+      JOIN private.interpretation q ON q.id=p.interpretation_id
+      JOIN private.interpretation_current cur ON cur.interpretation_key=q.interpretation_key
+     WHERE p.target_type='family' AND p.target_id=ANY(p_family_ids)
+       AND cur.id=p.interpretation_id AND cur.status='accepted'
+  ), ok AS (
+    SELECT b.* FROM b
+     WHERE b.st IS NOT NULL
+       AND private.reimport_canonical_json_sha256(b.st)=b.bound_sha
+       AND (b.st#>>'{family,family_id}')::bigint=b.fam
+       AND public.family_offentlig(b.fam)
+  ), rec AS (
+    -- Spec §5.1 trin 3 (r2-M6): præcis én supporting-observation og præcis én accepteret anchor.
+    SELECT ok.*,
+           (SELECT array_agg(a.source_record_id)
+              FROM private.interpretation_observation io
+              JOIN private.source_observation o ON o.id=io.observation_id
+              JOIN private.source_record_anchor_current a ON a.occurrence_id=o.occurrence_id AND a.decision_status='accepted'
+             WHERE io.interpretation_id=ok.interpretation_id AND io.evidence_role='supporting') AS recs,
+           (SELECT count(*) FROM private.interpretation_observation io
+             WHERE io.interpretation_id=ok.interpretation_id AND io.evidence_role='supporting') AS n_support
+      FROM ok
+  ), pub AS (
+    SELECT rec.fam,rec.predicate,rec.st,sr.public_ref,nrp.id AS binding_id,nrp.narrative_id
+      FROM rec
+      JOIN private.source_record sr ON sr.id=rec.recs[1] AND sr.source_id=rec.source_id
+      JOIN private.narrative_record_publication nrp ON nrp.source_record_id=sr.id AND nrp.status='published'
+     WHERE rec.n_support=1 AND cardinality(rec.recs)=1
+       AND (SELECT count(*) FROM private.narrative_record_publication x
+             WHERE x.source_record_id=sr.id AND x.status='published')=1
+  )
+  SELECT pub.fam,CASE pub.predicate WHEN 'relation.marriage' THEN 'aegteskab' WHEN 'relation.parent' THEN 'foraelder' ELSE 'boern' END,
+         (pub.st->>'counterpart_person_id')::bigint,pub.public_ref,
+         ev.after_state #>> '{source,source_label}',ev.after_state #>> '{labels,record_label}',
+         ev.after_state #>> '{labels,citation_label}'
+    FROM pub
+    JOIN public.narrative n ON n.id=pub.narrative_id
+    JOIN LATERAL (SELECT e.after_state FROM private.narrative_publication_event e
+                   WHERE e.binding_id=pub.binding_id ORDER BY e.stream_version DESC,e.id DESC LIMIT 1) ev ON true
+   WHERE public.person_daa_narrative_publication_allowed(n.id)
+     AND n.subjekt_type='person'
+     AND n.subjekt_id IN (SELECT (x->>'canonical_person_id')::bigint FROM jsonb_array_elements(pub.st->'parties') x)
+   ORDER BY 1,2,3;
+END $$;
+REVOKE ALL ON FUNCTION public.public_family_sources(bigint[]) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.public_family_sources(bigint[]) TO anon,authenticated;
+
+-- Trin 5b 2b-iii (spec §6): arkets input. Kun ejeren lokalt mod restore-kopien; navne forlader aldrig den private mappe.
+CREATE OR REPLACE FUNCTION private.relation_child_sheet_input(p_source_id bigint)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+  SELECT jsonb_build_object('contract','relation-child-sheet-input-v1','source_id',p_source_id,'rows',coalesce(jsonb_agg(
+    jsonb_build_object('row_no',x.row_no,'interpretation_key',x.k,'interpretation_version',x.ver,'raw',x.raw,'rule',x.rule,
+      'principal_named',(SELECT jsonb_build_object('navn',pp.visning_navn,'foedt',pp.visning_foedt,
+          'post',(SELECT xe.linje||'-'||xe.nr FROM public.person_external_id xe
+                   WHERE xe.person_id=pp.id AND xe.source_id=p_source_id))
+        FROM public.person pp WHERE pp.id=(x.rule->>'principal_person_id')::bigint),
+      'children_named',coalesce((SELECT jsonb_agg(jsonb_build_object('person_id',c->'person_id','navn',p.visning_navn,
+          'foedt',p.visning_foedt,'linje',c->'linje','nr',c->'nr','kuld',c->'kuld','gen_local',c->'gen_local')
+          ORDER BY (c->>'nr')::integer NULLS LAST,(c->>'person_id')::bigint)
+        FROM jsonb_array_elements(x.rule->'children') c JOIN public.person p ON p.id=(c->>'person_id')::bigint),'[]'::jsonb))
+    ORDER BY x.row_no),'[]'::jsonb))
+  FROM (SELECT row_number() OVER (ORDER BY ic.interpretation_key::text COLLATE "C") AS row_no,
+               ic.interpretation_key::text AS k,ic.version AS ver,ic.value->>'raw' AS raw,private.relation_child_rule(ic.id) AS rule
+          FROM private.interpretation_current ic
+         WHERE ic.source_id=p_source_id AND ic.predicate='relation.child' AND ic.status='proposed') x;
+$$;
+REVOKE ALL ON FUNCTION private.relation_child_sheet_input(bigint) FROM PUBLIC,anon,authenticated,service_role;
+CREATE OR REPLACE FUNCTION public.red_relation_child_sheet_input(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  RETURN private.relation_child_sheet_input(p_source_id);
+END $$;
+REVOKE ALL ON FUNCTION public.red_relation_child_sheet_input(bigint) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_relation_child_sheet_input(bigint) TO authenticated;
 
 -- 5b-sektionen slutter her (nye 5b-blokke indsættes over denne linje).
