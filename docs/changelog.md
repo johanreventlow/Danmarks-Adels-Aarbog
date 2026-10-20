@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-20 — trin 5b: P-linjens forkerte ægteskabsfortolkning afvist i bevisbasen (#151)
+
+Fortolkningen gik fra `proposed` v1 til `rejected` v2 gennem `red_decide_interpretation`. Kanonisk lag og læsning er uændrede. Se tilføjelsen »Efterfølgende« i `relationspersonas-5b-navneregel-v3-bevis.md`. Ikke deployet.
+
 ## 2026-10-20 — trin 5b del 2b-ii runde 2: navneregel v3 over de 12 `U`-ægteskaber (#151)
 
 Implementeret efter planen `2026-10-18-trin5b-2b-ii-runde2-navneregel-v3.md` på `docs/151-5b-navneregel-v3`.

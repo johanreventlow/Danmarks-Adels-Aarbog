@@ -134,7 +134,7 @@ Kopierne er omdøbt til `slet_1020__navnv3_bevis_20261019200958_neg{A,C}` (2 × 
    - **Hvad det har givet:** Søstrene blev bundet allerede i 2a/2b-i med det omvendte fejlnummer. De står derfor i forvejen som falske `ordinal_afvigelse`.
    - **Projektejerens valg (2026-10-20):** bind alle 9 og notér fejlen. Familiernes numre i databasen er rigtige og røres ikke. De 4 falske afvigelser (2 nye og 2 gamle) skal besvares »behold familiens nummer« (`ordinal_beholdt`), når de kommer på et undtagelsesark.
    - **Opfølgning:** Rodfejlen rettes i en separat runde, der også genafgør søstrene. Den bruges 5 steder og har eksisteret siden 2a.
-2. **P-fortolkningen skal afvises særskilt.** Arkets `U` opretter blot ingen person. Det afviser ikke fortolkningen »de to var gift«, som står som `proposed` (version 1, ikke bundet). Den skal afvises med `red_decide_interpretation`, så den ikke senere tages for gyldig. **Udestår.**
+2. **P-fortolkningen skal afvises særskilt.** Arkets `U` opretter blot ingen person. Det afviser ikke fortolkningen »de to var gift«, som står som `proposed` (version 1, ikke bundet). Den er afvist med `red_decide_interpretation` den 2026-10-20 (se »Efterfølgende«).
 3. **Slutreviewets rettelser af navneregel v3** (commit `de024e5`):
    - **Afkortning:** Et småord med bindestreg eller punktum foran et versalord (»rigs-grevinde«, »f.«) tæller nu som afkortning (`U navn_afkortet`). Før ville navnet være blevet `D` afkortet til fornavnet.
    - **Partnertræf ved `S`:** kræver nu efternavnet plus mindst ét fælles kerneord mere.
@@ -147,6 +147,21 @@ Kopierne er omdøbt til `slet_1020__navnv3_bevis_20261019200958_neg{A,C}` (2 × 
    - fortolkningstjekket i `write_relation_person_create` er ikke bundet til nummerrækken;
    - et partnernavn med bogstaver i parentes giver `U`;
    - `sheet_line` (nummer blandt `M`/`P`-linjer) bør dokumenteres.
+
+## Efterfølgende: P-fortolkningen afvist (2026-10-20)
+
+Projektejeren besluttede at afvise P-linjens ægteskabsfortolkning i bevisbasen. Afvisningen gik gennem `red_decide_interpretation` som redaktion (script `afvis-P.sql`).
+- **Status:** `proposed` version 1 → `rejected` version 2.
+- **Begrundelse i evidensen:** `human_sheet_review` med arkets hash `fb53ab46…f4dc`, linje 13 og årsagen (hovedpersonen er kun vidne; kvinden var gift med en anden).
+
+| Måling | Udfald |
+| --- | --- |
+| Kanoniske aggregat-hashes og offentlig læsning | Uændrede |
+| `relation_person_create_input(1)` | 0 elementer |
+| Klausuler i `afventer_identitet` | 259 (uændret) |
+| Universet | Stadig 272 påstande med samme spande. Kun digesten er ændret (status og version), `b4774fc5…` → `74701e47…`. |
+
+P-personaens identitetsafgørelse er urørt og står stadig som `new_person_needed`. Den udgør ingen risiko, for writeren afviser en oprettelse, når fortolkningen er afvist (`RELATION_PERSON_CREATE_INTERPRETATION_STALE`). En senere oprydning kan dog sætte identiteten tilbage.
 
 ## Hvad der stadig mangler bevis
 
