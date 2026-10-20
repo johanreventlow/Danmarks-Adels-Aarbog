@@ -2,6 +2,25 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: trin 5b 2b-iii — børnehenvisningerne binder flokken til familien; ét ark for alle; drift via reglen (2026-10-20)
+
+> **Besluttet af projektejeren 2026-10-20** i brainstormen af 2b-iii og ved gennemgangen af spec og ark.
+> - Spec: `docs/superpowers/specs/2026-10-20-trin5b-2b-iii-boernehenvisninger-design.md`.
+> - Rapport: `docs/evidensbaseret-genimport/relationspersonas-5b-2b-iii-bevis.md`.
+
+**Besluttet:**
+1. **Målet er kildehenvisning, ikke oprydning.** De 14 `relation.child` er krydshenvisninger til hele børneflokke. Det er et erratum til hovedspecen §22.9, der antog ét barn pr. påstand. Alle børn sad allerede i familien, så 2b-iii skaber ingen nye slægtskaber.
+2. **Flokken binder til forælderens familie (tilgang A).** Der oprettes ingen barn-part, og der indføres ingen ny påstandstype.
+3. **Reglen `relation-child-v1`** består af krav og afvigelser:
+   - **Krav (kan ikke tilsidesættes):** hovedperson og post, én familie med børn, køn, postnumre i forælderens linje, romertal = linje eller kuld, og slægtled.
+   - **Afvigelser (kan tilsidesættes af mennesket):** antal, »(?)« og manglende henvisning.
+
+   Køn blokerer.
+4. **Ét hash-bundet ark for alle, der opfylder kravene.** Der er ingen særskilt maskinel vej. `U` lader påstanden stå, fordi en afgjort fortolkning ikke kan genåbnes.
+5. **Drift håndteres via reglen, ikke via et øjebliksbillede.** Bindingen genberegner kravene mod familien, som den ser ud nu. En ændring, der stadig passer med bogen, kan genbindes uden ny afgørelse.
+
+**Uændret:** restore-only. Én påstand bundet til flere familier er udskudt.
+
 ## BESLUTTET: `mention.place` udsættes; aldersregel v2 designet, men ubrugt; strammere partnertræf i navneregel v3; falske ordinal-afvigelser bindes og noteres (2026-10-18/20)
 
 > **Besluttet af projektejeren.**
