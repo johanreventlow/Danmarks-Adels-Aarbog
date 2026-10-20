@@ -15313,6 +15313,41 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION private.lock_family_rows(bigint[]) FROM PUBLIC,anon,authenticated;
 
+-- Trin 5b 2b-iii (#151, spec 2026-10-20 §4): bogens børnehenvisning »N børn: <ordenstal> [(<ordenstal>)] slægtled,
+-- [<romertal>,] nr. a[–b]«. Deterministisk; ingen model læser teksten. NULL = ikke på formen.
+CREATE OR REPLACE FUNCTION private.relation_child_ref(p_raw text)
+RETURNS jsonb LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+DECLARE
+  m text[]; v_count integer; v_gl integer; v_gt integer; v_from integer; v_to integer;
+  v_ord constant text[]:=ARRAY['første','andet','tredje','fjerde','femte','sjette','syvende','ottende','niende','tiende',
+    'ellevte','tolvte','trettende','fjortende','femtende','sekstende','syttende','attende','nittende','tyvende'];
+BEGIN
+  IF p_raw IS NULL THEN RETURN NULL; END IF;
+  m:=regexp_match(btrim(p_raw),
+    '^(?:([0-9]{1,3}) (børn|døtre|sønner)|(Datter|Søn))( \(\?\))?'
+    '(?::\s*([[:alpha:]æøåÆØÅ]+)(?: \(([[:alpha:]æøåÆØÅ]+)\))? slægtled,(?: ([IVX]+),)? nr\. ([0-9]{1,4})(?:\s*[-‑–]\s*([0-9]{1,4}))?\.?)?$');
+  IF m IS NULL THEN RETURN NULL; END IF;
+  v_count:=coalesce(m[1]::integer,1);
+  IF v_count<1 THEN RETURN NULL; END IF;
+  IF m[5] IS NOT NULL THEN
+    v_gl:=array_position(v_ord,lower(m[5]));
+    IF v_gl IS NULL THEN RETURN NULL; END IF;
+  END IF;
+  IF m[6] IS NOT NULL THEN
+    v_gt:=array_position(v_ord,lower(m[6]));
+    IF v_gt IS NULL THEN RETURN NULL; END IF;
+  END IF;
+  IF m[8] IS NOT NULL THEN
+    v_from:=m[8]::integer; v_to:=coalesce(m[9]::integer,v_from);   -- enkelt nummer ⇒ nr_to = nr_from
+    IF v_to<v_from OR v_to-v_from>=200 THEN RETURN NULL; END IF;
+  END IF;
+  RETURN jsonb_build_object('count',v_count,
+    'sex',CASE coalesce(m[2],m[3]) WHEN 'døtre' THEN 'kvinde' WHEN 'Datter' THEN 'kvinde'
+                                   WHEN 'sønner' THEN 'mand' WHEN 'Søn' THEN 'mand' END,
+    'uncertain',m[4] IS NOT NULL,'gen_local',v_gl,'gen_through',v_gt,'section',m[7],'nr_from',v_from,'nr_to',v_to);
+END $$;
+REVOKE ALL ON FUNCTION private.relation_child_ref(text) FROM PUBLIC,anon,authenticated;
+
 CREATE OR REPLACE FUNCTION private.relation_structural_candidates(p_interpretation_key uuid)
 RETURNS TABLE(family_id bigint, counterpart_persona_id uuid, counterpart_person_id bigint)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
