@@ -14954,6 +14954,15 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
 $$;
 REVOKE ALL ON FUNCTION private.relation_marriage_ordinals(uuid) FROM PUBLIC,anon,authenticated;
 
+-- #244 (spec §5): bogens eget ægteskabsnummer forrest i påstanden (»g. 2°«/»gift 2°«); NULL uden. Eksplicitte klasser
+-- ([.] frem for \. og ingen \s/\d), så kroppen ikke afhænger af standard_conforming_strings eller locale. Python-tvilling:
+-- relation_persona_extract_v3.book_ordinal; fælles liste tests/fixtures/relation-book-ordinal.json.
+CREATE OR REPLACE FUNCTION private.relation_book_ordinal(p_raw text)
+RETURNS integer LANGUAGE sql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
+  SELECT (regexp_match(lower(p_raw),'^[ \t]*(g[.]|gift)[ \t]*([0-9]{1,3})[ \t]*[°º]'))[2]::integer
+$$;
+REVOKE ALL ON FUNCTION private.relation_book_ordinal(text) FROM PUBLIC,anon,authenticated,service_role;
+
 -- Udtrækkets input: gældende relationspåstande uden gældende parter, med den citerede
 -- klausul læst udelukkende fra clause_observation_current (spec §5.1).
 CREATE OR REPLACE FUNCTION private.relation_persona_input(p_source_id bigint)
@@ -15014,6 +15023,7 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,publi
 DECLARE
   v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE;
   v_interp private.interpretation%ROWTYPE; v_clause private.source_observation%ROWTYPE;
+  v_book integer;
   v_record_key text; v_principal uuid; v_principal_n integer; v_spouse uuid; v_mention uuid; v_run uuid; v_run_key text;
   v_raw text; v_ordinal integer; v_year_ids uuid[]:='{}'; v_year_id uuid; v_pred text; v_year text; v_receipt jsonb;
   v_hash text; v_marriage boolean; v_from integer; v_to integer; v_name_from integer; v_name_to integer;
@@ -15128,6 +15138,11 @@ BEGIN
     IF v_ordinal IS DISTINCT FROM (p_payload->>'marriage_ordinal')::integer
        OR v_name_from<v_from OR v_name_to>v_to OR v_name_to<=v_name_from THEN
       RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_SPAN_INVALID';
+    END IF;
+    -- #244 (spec §5): bogens »g. N°« må ikke modsige serverens nummer (alle profiler).
+    v_book:=private.relation_book_ordinal(v_raw);
+    IF v_book IS NOT NULL AND v_book<>v_ordinal THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_ORDINAL_BOOK_MISMATCH';
     END IF;
   END IF;
 

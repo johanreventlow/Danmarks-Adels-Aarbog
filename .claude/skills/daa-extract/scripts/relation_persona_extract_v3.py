@@ -25,6 +25,15 @@ class NameOverrideError(ValueError):
     """Arkets navn: står ikke ordret og entydigt fra navnestarten inden for vinduet."""
 
 
+# #244 (spec §5): bogens eget ægteskabsnummer forrest i påstanden (»g. 2°«/»gift 2°«). Eksplicitte klasser, ikke \s/\d
+# (som vinduet). SQL-tvilling: private.relation_book_ordinal; fælles liste tests/fixtures/relation-book-ordinal.json.
+BOOK_ORDINAL = re.compile(r"^[ \t]*(g[.]|gift)[ \t]*([0-9]{1,3})[ \t]*[°º]")
+
+
+def book_ordinal(raw: str | None) -> int | None:
+    m = BOOK_ORDINAL.match((raw or "").lower())
+    return int(m.group(2)) if m else None
+
 def is_title(word: str) -> bool:
     w = word.lower()
     return w in TITLE_WORDS or any(w.startswith(p) and w[len(p):] in TITLE_WORDS for p in TITLE_PREFIXES)
@@ -139,6 +148,9 @@ def _propose(row: dict, cutoff: int, name_override: str | None) -> dict:
         return {"tok": "U", "reason": "flere_klausuler"}
     if row.get("marriage_ordinal") is None:
         return {"tok": "U", "reason": "intet_nummer"}
+    bo = book_ordinal(row.get("raw"))
+    if bo is not None and bo != row["marriage_ordinal"]:
+        return {"tok": "U", "reason": "nummer_modsiger_bog"}
     text, raw = row["clauses"][0]["verbatim_text"], row.get("raw") or ""
     w = windows(text, raw)
     if len(w) != 1:
