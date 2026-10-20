@@ -169,7 +169,7 @@ Tokens: `B` (bind), `R` (afvis) og `U` (lad stå `proposed`; intet skrives). Ark
 - **`p_family_id` skal være NULL** for `relation.child`, også ved `same`. Det er en undtagelse fra schema.sql:15387. Serveren udleder `F` efter H3.
 - **`same`:** under `lock_family_rows` over hovedpersonen og `F`'s medlemmer genberegner serveren H1-H6. Ved brud kastes `RELATION_CHILD_RULE_NOT_MET`. A-afvigelser er tilladt. Evidensen bærer:
   - `family_id`;
-  - `flock_digest`: SHA-256 over den kanoniske JSON af `F`'s barnerækker (`person_id`, `rolle`, `konfidens`), sorteret efter `person_id`;
+  - `flock_digest`: SHA-256 over den kanoniske JSON af `F`'s barnerækker (`person_id`, `rolle`, `konfidens`), sorteret efter `person_id`. Det er kun et revisionsspor og bruges ikke som drift-vagt (§7);
   - det parsede resultat;
   - `afvigelser` (A-koderne).
 
@@ -178,12 +178,17 @@ Tokens: `B` (bind), `R` (afvis) og `U` (lad stå `proposed`; intet skrives). Ark
 
 ## 7. Bindingen
 
-`private.relation_binding_state` får en gren for `relation.child` (i dag returnerer den NULL, schema.sql:16026). Grenen kræver en accepteret påstand, hvis evidens har `family_id` og `flock_digest`, og at hovedpersonen stadig er `partner` i `F`. Den returnerer **NULL**, når:
-- `F` har en `omstridt`-række;
-- H3 eller H4 er brudt;
-- det aktuelle flok-digest afviger fra afgørelsens `flock_digest`.
+`private.relation_binding_state` får en gren for `relation.child` (i dag returnerer den NULL, schema.sql:16026). Grenen kræver en accepteret påstand, hvis evidens har `family_id`, og at hovedpersonen stadig er `partner` i `F`.
 
-Dermed fanger serveren drift både mellem afgørelse og binding og efter bindingen. Et ændret barnesæt kræver en ny afgørelse, ikke blot en genbinding.
+**Grenen tjekker reglen, ikke et øjebliksbillede** (projektejerens valg 2026-10-20). Den genberegner H1's identitetsdel og H3-H6 mod `F`, **som familien ser ud nu**, med det parsede resultat fra påstanden. Er en H-betingelse brudt, returnerer den **NULL**. Afgørelsens `flock_digest` sammenlignes ikke.
+
+| Ændring | Virkning |
+| --- | --- |
+| Mellem afgørelse og binding | Preview og batch genberegner tilstanden. Et H-brud ⇒ NULL ⇒ bindingen afvises. Passer familien stadig med bogen (fx et 9. barn uden egen post tilføjet), bindes den aktuelle flok. |
+| Efter bindingen | Tilstanden indeholder familiens rækker, så enhver ændring giver en ny tilstands-hash. Den eksisterende kontrol i `public_family_sources` (`reimport_canonical_json_sha256(st) = bound_sha`) skjuler så kilden. |
+| Genopretning | Den eksisterende genbinding fra 2b-i: en ny binding ved siden af den gamle, append-only. Den kræver kun, at reglen stadig holder, ikke en ny afgørelse eller en ny påstand. Ingen genbinding, hvis H er brudt. |
+
+**Konsekvens:** en binding efter en ændring, der stadig passer med bogen, dækker den aktuelle flok, ikke nødvendigvis præcis den, projektejeren så på kortet. Det accepteres, fordi bogens numre, slægtled og køn stadig skal passe.
 
 Ellers returneres:
 
@@ -235,8 +240,10 @@ En ældre klient springer `boern` over.
   - `rejected` virker;
   - ingen `child`-part.
 - **Bindingen:**
-  - et barn tilføjet mellem afgørelse og binding ⇒ tilstanden er NULL, og preview afviser;
-  - et barn tilføjet efter binding ⇒ kilden er usynlig;
+  - et barn med egen post uden for intervallet tilføjet mellem afgørelse og binding ⇒ tilstanden er NULL, og preview afviser;
+  - et barn uden egen post tilføjet mellem afgørelse og binding ⇒ H holder, og den aktuelle flok bindes;
+  - et barn tilføjet efter binding ⇒ kilden er usynlig, og en genbinding bringer den tilbage, når H holder;
+  - et barn flyttet ud efter binding (H5 brudt) ⇒ usynlig, og genbinding afvist;
   - `omstridt` ⇒ NULL.
 - **Core og web:**
   - `boern` vises ved forælderen og ved barnet hos den rigtige forælder;
@@ -251,7 +258,7 @@ En ældre klient springer `boern` over.
 - **Universet**, målt med det private `univers.sql`: spanden for børnepåstande falder fra 14 til 2, og fordelingen rapporteres.
 - **Kanonisk delta 0:** aggregat-hashes ens, 2a's tupel-digest uændret.
 - **Negativtests:**
-  - et barn flyttet mellem afgørelse og binding ⇒ binding afvist;
+  - et barn med egen post flyttet ud af familien mellem afgørelse og binding ⇒ binding afvist;
   - forkert arkhash;
   - et `U` hævet til `B` på et H-brud ⇒ `RELATION_CHILD_RULE_NOT_MET`;
   - ukendt token ⇒ `SHEET_TOKEN_NOT_ALLOWED`.
@@ -263,4 +270,4 @@ En ældre klient springer `boern` over.
 - **Tilfælde 6:** én påstand dækker børn i to ægteskaber. Det kræver binding til flere familier og udskydes. Påstanden står `proposed`.
 - **Adopterede, pleje- og stedbørn** blokerer (H3). De er ikke set i de berørte familier.
 - **Serveren verificerer ikke arkets indhold, kun de registrerede hashes,** som i 2b-ii.
-- **Et ændret barnesæt** efter afgørelsen kræver en ny afgørelse. Den gamle fortolkning er accepteret og kan ikke afgøres igen, så det kræver en ny fortolkningsversion via trin 4-kæden. Det accepteres for 2018-20, hvor stamtræet er stabilt.
+- **Et ændret barnesæt** skjuler kilden, indtil den genbindes (§7). Genbindingen kræver en kørsel af 2b-i's genbindingsvej, ikke en ny afgørelse. Bryder ændringen reglen, kan kilden ikke komme tilbage uden en ny fortolkningsversion via trin 4-kæden. Det er tilsigtet: så passer bogen ikke længere med familien.
