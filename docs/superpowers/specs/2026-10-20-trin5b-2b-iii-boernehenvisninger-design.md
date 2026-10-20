@@ -10,7 +10,7 @@ Designet blev godkendt i brainstormen 2026-10-20 i tre dele. Projektejeren valgt
 
 Spec'en er revideret samme dag efter et uafhængigt review (Opus, »GO med rettelser«) og en efterfølgende måling. Målingen viste, at romertallet i henvisningen ikke er linje-præfikset (§2). Projektejeren valgte derefter **ét menneskeligt ark for alle 13** i stedet for en maskinel vej plus stikprøve.
 
-**AFVENTER projektejerens gennemgang af den reviderede spec.**
+**GODKENDT af projektejeren 2026-10-20** (»ja, skriv planen«), inkl. revisionen af drift-reglen i §7.
 
 **Roadmap:** trin 5, delspec 5b, del 2, skive b-iii.
 
