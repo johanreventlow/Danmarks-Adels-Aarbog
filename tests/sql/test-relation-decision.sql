@@ -28,16 +28,16 @@ BEGIN
 
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   SET LOCAL ROLE authenticated;
-  -- Børn er taget ud af del 1 (errata §22.9): både 'same' og 'unresolved' afvises.
+  -- 2b-iii: et barn afgøres kun via arket og uden familie-id.
   BEGIN
     PERFORM red_afgoer_relation_interpretation((cc->>'key')::uuid,1,'same',v_fam,'barnet passer','{}');
     RAISE EXCEPTION 'RELATION_DECISION_TEST_FAILED: barn afgjort i del 1';
-  EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'RELATION_CHILD_DEFERRED%' THEN RAISE; END IF;
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'RELATION_DECISION_INVALID%' THEN RAISE; END IF;
   END;
   BEGIN
     PERFORM red_afgoer_relation_interpretation((cc->>'key')::uuid,1,'unresolved',NULL,'kan ikke afgøre','{}');
     RAISE EXCEPTION 'RELATION_DECISION_TEST_FAILED: barn U i del 1';
-  EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'RELATION_CHILD_DEFERRED%' THEN RAISE; END IF;
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'RELATION_DECISION_INVALID%' THEN RAISE; END IF;
   END;
   -- familie uden for kandidaterne afvises
   BEGIN
