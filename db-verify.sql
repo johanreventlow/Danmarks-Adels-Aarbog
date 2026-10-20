@@ -2979,6 +2979,7 @@ DECLARE
     'public.red_relation_person_create_input(bigint)'::regprocedure,
     'public.red_relation_persona_v2_input(bigint)'::regprocedure,
     'public.red_relation_persona_v3_input(bigint)'::regprocedure,
+    'public.red_relation_child_sheet_input(bigint)'::regprocedure,
     'public.red_relation_disposition_input(bigint)'::regprocedure,
     'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
     'public.red_kasser_person_narrative_record(bigint,bigint,text,text)'::regprocedure,

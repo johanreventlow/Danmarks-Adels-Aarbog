@@ -15487,6 +15487,31 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION private.decide_relation_child(private.interpretation,integer,text,bigint,text,jsonb,text) FROM PUBLIC,anon,authenticated;
 
+-- Trin 5b 2b-iii (spec §6): arkets input. Kun ejeren lokalt mod restore-kopien; navne forlader aldrig den private mappe.
+CREATE OR REPLACE FUNCTION private.relation_child_sheet_input(p_source_id bigint)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+  SELECT jsonb_build_object('contract','relation-child-sheet-input-v1','source_id',p_source_id,'rows',coalesce(jsonb_agg(
+    jsonb_build_object('row_no',x.row_no,'interpretation_key',x.k,'interpretation_version',x.ver,'raw',x.raw,'rule',x.rule,
+      'children_named',coalesce((SELECT jsonb_agg(jsonb_build_object('person_id',c->'person_id','navn',p.visning_navn,
+          'foedt',p.visning_foedt,'linje',c->'linje','nr',c->'nr','kuld',c->'kuld','gen_local',c->'gen_local')
+          ORDER BY (c->>'nr')::integer NULLS LAST,(c->>'person_id')::bigint)
+        FROM jsonb_array_elements(x.rule->'children') c JOIN public.person p ON p.id=(c->>'person_id')::bigint),'[]'::jsonb))
+    ORDER BY x.row_no),'[]'::jsonb))
+  FROM (SELECT row_number() OVER (ORDER BY ic.interpretation_key::text COLLATE "C") AS row_no,
+               ic.interpretation_key::text AS k,ic.version AS ver,ic.value->>'raw' AS raw,private.relation_child_rule(ic.id) AS rule
+          FROM private.interpretation_current ic
+         WHERE ic.source_id=p_source_id AND ic.predicate='relation.child' AND ic.status='proposed') x;
+$$;
+REVOKE ALL ON FUNCTION private.relation_child_sheet_input(bigint) FROM PUBLIC,anon,authenticated,service_role;
+CREATE OR REPLACE FUNCTION public.red_relation_child_sheet_input(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  RETURN private.relation_child_sheet_input(p_source_id);
+END $$;
+REVOKE ALL ON FUNCTION public.red_relation_child_sheet_input(bigint) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_relation_child_sheet_input(bigint) TO authenticated;
+
 CREATE OR REPLACE FUNCTION private.relation_structural_candidates(p_interpretation_key uuid)
 RETURNS TABLE(family_id bigint, counterpart_persona_id uuid, counterpart_person_id bigint)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
