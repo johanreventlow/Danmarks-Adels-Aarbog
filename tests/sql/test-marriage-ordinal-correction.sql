@@ -142,6 +142,22 @@ BEGIN
      OR (SELECT array_agg(ordinal ORDER BY family_id) FROM family_member WHERE person_id=-24421 AND rolle='partner')<>ARRAY[1,2] THEN
     RAISE EXCEPTION 'ORDINAL_244_TEST_FAILED: rettelse';
   END IF;
+  -- tilføj-kun (spec §7.1): med de 2 rigtige rettelsesrækker afviser triggerne UPDATE/DELETE/TRUNCATE, også for ejeren
+  BEGIN UPDATE private.marriage_ordinal_correction SET family_id=family_id WHERE interpretation_key IN (k1,k2);
+    RAISE EXCEPTION 'ORDINAL_244_TEST_FAILED: UPDATE godtaget';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN RAISE; END IF; END;
+  BEGIN DELETE FROM private.marriage_ordinal_correction WHERE interpretation_key IN (k1,k2);
+    RAISE EXCEPTION 'ORDINAL_244_TEST_FAILED: DELETE godtaget';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN RAISE; END IF; END;
+  BEGIN TRUNCATE private.marriage_ordinal_correction;
+    RAISE EXCEPTION 'ORDINAL_244_TEST_FAILED: TRUNCATE godtaget';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'EVIDENCE_APPEND_ONLY%' THEN RAISE; END IF; END;
+  IF (SELECT count(*) FROM private.marriage_ordinal_correction WHERE interpretation_key IN (k1,k2))<>2 THEN
+    RAISE EXCEPTION 'ORDINAL_244_TEST_FAILED: tilføj-kun rækker';
+  END IF;
   -- ret_gentaget: samme linje igen → version; ret_ikke_noedvendig: med den nye version → NOT_NEEDED
   SET LOCAL ROLE authenticated;
   BEGIN PERFORM red_ret_aegteskabsnummer(k1,1,'n',ctx); RAISE EXCEPTION 'ORDINAL_244_TEST_FAILED: gentaget';
@@ -227,7 +243,7 @@ BEGIN
 END $ret_fejl$;
 ROLLBACK;
 
--- Rettigheder, tilføj-kun-tabel og origin-constraint (spec §7.1-§7.3, §9.1).
+-- Rettigheder og origin-constraint (spec §7.1-§7.3, §9.1). Tilføj-kun testes i $ret$ med rigtige rækker.
 BEGIN;
 DO $ret_adgang$
 DECLARE r text; f text; v_err text;
@@ -248,24 +264,11 @@ BEGIN
   BEGIN UPDATE private.marriage_ordinal_correction SET family_id=family_id; 
   EXCEPTION WHEN OTHERS THEN RAISE EXCEPTION 'ORDINAL_244_TEST_FAILED: tom UPDATE fejlede';
   END;
-  -- med en række: UPDATE/DELETE/TRUNCATE afvises (rækken er syntetisk; FK til en eksisterende fortolkning er ikke nødvendig
-  -- for triggerne, men tabellen kræver den, så der bruges en vilkårlig eksisterende fortolkning hvis den findes)
-  IF EXISTS (SELECT 1 FROM private.interpretation) THEN
-    INSERT INTO private.marriage_ordinal_correction(interpretation_key,interpretation_id,party_version_from,party_version_to,
-      ordinal_from,ordinal_to,family_id,evidence,created_by)
-    SELECT i.interpretation_key,i.id,1,2,2,1,1,'{"t":1}','11000000-0000-0000-0000-000000024441' FROM private.interpretation i LIMIT 1;
-    BEGIN UPDATE private.marriage_ordinal_correction SET family_id=2; RAISE EXCEPTION 'ORDINAL_244_TEST_FAILED: UPDATE';
-    EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT; IF v_err LIKE 'ORDINAL_244%' THEN RAISE; END IF; END;
-    BEGIN DELETE FROM private.marriage_ordinal_correction; RAISE EXCEPTION 'ORDINAL_244_TEST_FAILED: DELETE';
-    EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT; IF v_err LIKE 'ORDINAL_244%' THEN RAISE; END IF; END;
-    BEGIN TRUNCATE private.marriage_ordinal_correction; RAISE EXCEPTION 'ORDINAL_244_TEST_FAILED: TRUNCATE';
-    EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT; IF v_err LIKE 'ORDINAL_244%' THEN RAISE; END IF; END;
-  END IF;
   -- origin-constraint: en ukendt oprindelse afvises
   IF pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname='interpretation_party_origin_check'
        AND conrelid='private.interpretation_party'::regclass)) NOT LIKE '%ordinal_correction%' THEN
     RAISE EXCEPTION 'ORDINAL_244_TEST_FAILED: constraint';
   END IF;
-  RAISE NOTICE 'OK: adgang, tilføj-kun og constraint';
+  RAISE NOTICE 'OK: adgang og constraint';
 END $ret_adgang$;
 ROLLBACK;
