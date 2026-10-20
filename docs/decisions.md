@@ -2,6 +2,21 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: #244 — ægteskabsnummeret efter skriverens vindue; 4 numre rettet på ark; afløser pkt. 4's »genafgør« (2026-10-20)
+
+> **Besluttet af projektejeren 2026-10-20** i brainstormen af #244 og ved gennemgangen af spec og ark.
+> - Spec: `docs/superpowers/specs/2026-10-20-244-aegteskabsnumre-design.md`.
+> - Rapport: `docs/evidensbaseret-genimport/aegteskabsnumre-244-bevis.md`.
+
+**Besluttet:**
+1. **Roden rettes i funktionen.** `private.relation_marriage_ordinals` nummererer efter det eneste minimale ordnede ordvindue, som skriveren allerede bruger. Er vinduet ikke entydigt, er positionen NULL som før.
+2. **Værn mod bogens eget nummer.** Skriveren afviser en ægtefællepart, hvis bogens »g. N°« modsiger systemets nummer. Udtrækket giver `U nummer_modsiger_bog`.
+3. **De 4 skæve numre rettes på et lille hash-bundet ark** (4 linjer, `B`/`U`), ikke med en automatisk regel. Rettelsen er en ny partversion (`origin='ordinal_correction'`) med en rettelsesrække som kilde. Fortolkningen røres ikke, og der skrives ingen nye klassifikationshændelser.
+4. **Genbinding via 2b-i-vejen** i samme familie (`supersedes_promotion_id`). Det **afløser** 2026-10-18/20 pkt. 4's »genafgør de 2 ældre bindinger«: intet genafgøres, kun nummeret rettes.
+5. **Prod-genspil skal løses udtrykkeligt i overførsels-spec'en.** De autoriserede `relation_persona`-payloads bærer det gamle nummer og afvises med `SPAN_INVALID` af den rettede funktion. Overførsels-spec'en skal vælge mellem ny autorisation af de berørte batches eller genspil med den gamle funktion efterfulgt af rettelse og genbinding, bevise valget i restore og håndtere synlighedshullet mellem rettelse og genbinding.
+
+**Uændret:** restore-only. Familiernes numre (`family_member.ordinal`) røres ikke.
+
 ## BESLUTTET: trin 5b 2b-iii — børnehenvisningerne binder flokken til familien; ét ark for alle; drift via reglen (2026-10-20)
 
 > **Besluttet af projektejeren 2026-10-20** i brainstormen af 2b-iii og ved gennemgangen af spec og ark.
@@ -41,6 +56,8 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
    - De 2 ægteskaber i runde 2 er bundet trods fejlen, fordi partneren er rigtig og bekræftet.
    - Alle 4 falske `ordinal_afvigelse` skal besvares »behold familiens nummer«.
    - Rodfejlen rettes i en separat runde, der også genafgør de 2 ældre bindinger.
+
+   > Rettet 2026-10-20 (#244): årsagen er en parentes midt i klausulen, ikke en overskreden klausulgrænse; se aegteskabsnumre-244-bevis.md. »Genafgør« er afløst af rettelse og genbinding (se #244-posten øverst).
 
 **Uændret:** restore-only. P-linjens forkerte ægteskabsfortolkning er afvist med `red_decide_interpretation` i bevisbasen (2026-10-20).
 

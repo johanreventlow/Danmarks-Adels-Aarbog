@@ -1,4 +1,5 @@
 """Trin 5b 2b-ii runde 2 (spec §17.4-17.5): navneregel v3. Kun opdigtede navne."""
+import json
 import re
 from pathlib import Path
 
@@ -235,3 +236,22 @@ def test_title_words_match_schema():
     assert tuple(re.findall(r"'([a-zæøå]+)'", m.group(1))) == v3.TITLE_WORDS
     m2 = re.search(r"FUNCTION private\.relation_name_has_title\(.*?\^\((\w+)\|(\w+)\)", schema, re.S)
     assert m2 and (m2.group(1), m2.group(2)) == v3.TITLE_PREFIXES
+
+
+# #244 (spec §5): bogens »g. N°« — paritet med SQL (tests/fixtures/relation-book-ordinal.json) og værnet.
+BOOK_FIXTURE = Path(__file__).resolve().parents[4] / "tests" / "fixtures" / "relation-book-ordinal.json"
+
+
+def test_book_ordinal_paritet():
+    for case in json.loads(BOOK_FIXTURE.read_text(encoding="utf-8")):
+        assert v3.book_ordinal(case["raw"]) == case["expect"], case["raw"]
+
+
+def test_book_ordinal_none():
+    assert v3.book_ordinal(None) is None
+
+
+def test_nummer_modsiger_bog():
+    t = "g. 2° m. Bo Beta, f. 1801."
+    assert v3.propose(row(t, t, ordinal=1), 1906)["reason"] == "nummer_modsiger_bog"
+    assert v3.propose(row(t, t, ordinal=2), 1906)["reason"] != "nummer_modsiger_bog"

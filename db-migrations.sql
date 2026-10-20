@@ -18826,6 +18826,8 @@ DECLARE
     to_regprocedure('public.red_relation_persona_v2_input(bigint)'),
     to_regprocedure('public.red_relation_persona_v3_input(bigint)'),
     to_regprocedure('public.red_relation_child_sheet_input(bigint)'),
+    to_regprocedure('public.red_marriage_ordinal_correction_input(bigint)'),
+    to_regprocedure('public.red_ret_aegteskabsnummer(uuid,integer,text,jsonb)'),
     to_regprocedure('public.red_relation_disposition_input(bigint)'),
     to_regprocedure('public.red_identity_control_sample(uuid)'),
     'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
@@ -23905,5 +23907,393 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.red_relation_child_sheet_input(bigint) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.red_relation_child_sheet_input(bigint) TO authenticated;
+
+-- ===================================================================================
+-- #244 (spec 2026-10-20-244-aegteskabsnumre-design): ægteskabsnummeret placeres med skriverens ordvindue; bognummer,
+-- værn og rettelsesskriver for skævt gemte numre. relation_ordered_windows er defineret tidligere i filen.
+-- ===================================================================================
+CREATE OR REPLACE FUNCTION private.relation_marriage_ordinals(p_occurrence uuid)
+RETURNS TABLE(interpretation_key uuid, marriage_ordinal integer, post_offset integer)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+  WITH m AS (
+    SELECT ic.interpretation_key, ic.value->>'raw' AS raw,
+           co.post_char_from+(SELECT CASE WHEN count(*)=1 THEN min(w.w_from) END
+                                FROM private.relation_ordered_windows(co.verbatim_text,ic.value->>'raw') w) AS post_offset
+      FROM private.interpretation_current ic
+      JOIN private.interpretation_observation io ON io.interpretation_id=ic.id AND io.evidence_role='supporting' AND io.ordinal=1
+      JOIN private.clause_observation_current co ON co.id=io.observation_id
+     WHERE ic.predicate='relation.marriage' AND ic.status<>'rejected' AND co.occurrence_id=p_occurrence)
+  SELECT m.interpretation_key,
+         (row_number() OVER (ORDER BY m.post_offset NULLS LAST,char_length(m.raw),m.interpretation_key::text COLLATE "C"))::integer,
+         m.post_offset
+    FROM m;
+$$;
+REVOKE ALL ON FUNCTION private.relation_marriage_ordinals(uuid) FROM PUBLIC,anon,authenticated;
+-- #244 (spec §5): bogens eget ægteskabsnummer forrest i påstanden (»g. 2°«/»gift 2°«); NULL uden. Eksplicitte klasser
+-- ([.] frem for \. og ingen \s/\d), så kroppen ikke afhænger af standard_conforming_strings eller locale. Python-tvilling:
+-- relation_persona_extract_v3.book_ordinal; fælles liste tests/fixtures/relation-book-ordinal.json.
+CREATE OR REPLACE FUNCTION private.relation_book_ordinal(p_raw text)
+RETURNS integer LANGUAGE sql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
+  SELECT (regexp_match(lower(p_raw),'^[ \t]*(g[.]|gift)[ \t]*([0-9]{1,3})[ \t]*[°º]'))[2]::integer
+$$;
+REVOKE ALL ON FUNCTION private.relation_book_ordinal(text) FROM PUBLIC,anon,authenticated,service_role;
+
+-- #244 (spec §5): write_relation_persona = seneste krop (2b-ii runde 2) + værnet mod bogens »g. N°«.
+CREATE OR REPLACE FUNCTION private.write_relation_persona(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE
+  v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE;
+  v_interp private.interpretation%ROWTYPE; v_clause private.source_observation%ROWTYPE;
+  v_book integer;
+  v_record_key text; v_principal uuid; v_principal_n integer; v_spouse uuid; v_mention uuid; v_run uuid; v_run_key text;
+  v_raw text; v_ordinal integer; v_year_ids uuid[]:='{}'; v_year_id uuid; v_pred text; v_year text; v_receipt jsonb;
+  v_hash text; v_marriage boolean; v_from integer; v_to integer; v_name_from integer; v_name_to integer;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_batch:=private.require_reimport_open_batch(p_batch_id);
+  PERFORM private.require_reimport_writer_editor();
+  PERFORM private.lock_reimport_writer(v_batch.source_id,v_batch.profile_id);
+  -- Nye personas ændrer kandidatinputtet: delt kildelås, så de eksklusive maskin-RPC'er
+  -- (kandidatkørsel, kontrolregistrering, bekræftelse) aldrig løber samtidig med writeren.
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-identity-candidates:'||v_batch.source_id::text,0));
+  SELECT * INTO v_auth FROM private.reimport_authorization WHERE id=v_batch.authorization_id;
+  IF NOT FOUND OR NOT v_auth.authorized_elements ? p_element_id
+     OR v_auth.authorized_elements->p_element_id IS DISTINCT FROM p_payload THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_ELEMENT_NOT_AUTHORIZED';
+  END IF;
+  v_marriage:=p_payload->>'predicate'='relation.marriage';
+  IF jsonb_typeof(p_payload)<>'object'
+     OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(p_payload) k)
+        <> (SELECT array_agg(k ORDER BY k COLLATE "C") FROM unnest(
+             ARRAY['birth_raw','clause_observation_id','clause_set_seq','clause_set_sha256','death_raw','interpretation_key',
+                   'interpretation_version','marriage_ordinal','name_from','name_to','post_offset','predicate','profile',
+                   'span_from','span_to']
+             || CASE WHEN p_payload->>'profile'='relation-persona-2018-20-v3'
+                     THEN ARRAY['name_basis','sheet_line','sheet_sha256'] ELSE '{}'::text[] END) k)
+     OR p_element_id<>'relation-persona:'||coalesce(p_payload->>'interpretation_key','')
+     OR coalesce(p_payload->>'predicate','') NOT IN ('relation.marriage','relation.child','relation.parent')
+     OR coalesce(p_payload->>'profile','') NOT IN ('relation-persona-2018-20-v1','relation-persona-2018-20-v2',
+                                                   'relation-persona-2018-20-v3')
+     -- v3 (2b-ii runde 2, spec §17.7): arkets proveniens; kun ægteskaber
+     OR (p_payload->>'profile'='relation-persona-2018-20-v3' AND (
+           NOT v_marriage OR coalesce(p_payload->>'name_basis','') NOT IN ('rule','sheet')
+           OR coalesce(p_payload->>'sheet_sha256','') !~ '^[0-9a-f]{64}$'
+           OR jsonb_typeof(p_payload->'sheet_line')<>'number' OR (p_payload->>'sheet_line') !~ '^[1-9][0-9]*$'))
+     OR coalesce(p_payload->>'clause_set_sha256','') !~ '^[0-9a-f]{64}$'
+     OR EXISTS (SELECT 1 FROM unnest(ARRAY['interpretation_version','clause_set_seq','post_offset','span_from','span_to']) k
+                 WHERE jsonb_typeof(p_payload->k)<>'number' OR (p_payload->>k) !~ '^[0-9]+$')
+     OR (v_marriage AND EXISTS (SELECT 1 FROM unnest(ARRAY['marriage_ordinal','name_from','name_to']) k
+                                 WHERE jsonb_typeof(p_payload->k)<>'number' OR (p_payload->>k) !~ '^[0-9]+$'))
+     OR (NOT v_marriage AND EXISTS (SELECT 1 FROM unnest(ARRAY['marriage_ordinal','name_from','name_to','birth_raw','death_raw']) k
+                                     WHERE jsonb_typeof(p_payload->k)<>'null'))
+     OR EXISTS (SELECT 1 FROM unnest(ARRAY['birth_raw','death_raw']) k
+                 WHERE jsonb_typeof(p_payload->k) NOT IN ('string','null')
+                    OR (jsonb_typeof(p_payload->k)='string' AND p_payload->>k !~ '^[0-9]{4}$')) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_INVALID';
+  END IF;
+  v_from:=(p_payload->>'span_from')::integer; v_to:=(p_payload->>'span_to')::integer;
+
+  SELECT * INTO v_interp FROM private.interpretation_current
+   WHERE interpretation_key=(p_payload->>'interpretation_key')::uuid;
+  IF NOT FOUND OR v_interp.source_id<>v_batch.source_id OR v_interp.version<>(p_payload->>'interpretation_version')::integer
+     OR v_interp.predicate<>p_payload->>'predicate' OR v_interp.status NOT IN ('proposed','accepted') THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_DRIFT';
+  END IF;
+  PERFORM 1 FROM private.interpretation WHERE id=v_interp.id FOR SHARE;
+  IF EXISTS (SELECT 1 FROM private.interpretation_party_current
+              WHERE interpretation_key=v_interp.interpretation_key AND source_persona_id IS NOT NULL) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_EXISTS';
+  END IF;
+
+  IF (SELECT count(*) FROM private.interpretation_observation
+       WHERE interpretation_id=v_interp.id AND evidence_role='supporting')<>1 THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_CLAUSE_INVALID';
+  END IF;
+  SELECT co.* INTO v_clause FROM private.clause_observation_current co
+    JOIN private.interpretation_observation io
+      ON io.observation_id=co.id AND io.interpretation_id=v_interp.id AND io.evidence_role='supporting'
+   WHERE co.id=(p_payload->>'clause_observation_id')::uuid;
+  IF NOT FOUND OR coalesce(v_clause.clause_set_seq,1)<>(p_payload->>'clause_set_seq')::integer
+     OR private.clause_set_sha256(v_clause.parent_observation_id,coalesce(v_clause.clause_set_seq,1))
+        IS DISTINCT FROM p_payload->>'clause_set_sha256' THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_CLAUSE_INVALID';
+  END IF;
+
+  v_raw:=v_interp.value->>'raw';
+  IF p_payload->>'profile'='relation-persona-2018-20-v1' THEN
+    IF v_to-v_from<>char_length(v_raw)
+       OR substr(v_clause.verbatim_text,v_from+1,v_to-v_from)<>v_raw
+       OR (char_length(v_clause.verbatim_text)-char_length(replace(v_clause.verbatim_text,v_raw,'')))/char_length(v_raw)<>1 THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_SPAN_INVALID';
+    END IF;
+  ELSE
+    -- v2/v3 (2b-ii errata §15.1, runde 2 §17.7): det eneste minimale ordnede ordvindue.
+    IF (SELECT count(*) FROM private.relation_ordered_windows(v_clause.verbatim_text,v_raw))<>1
+       OR NOT EXISTS (SELECT 1 FROM private.relation_ordered_windows(v_clause.verbatim_text,v_raw) w
+                       WHERE w.w_from=v_from AND w.w_to=v_to) THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_SPAN_INVALID';
+    END IF;
+  END IF;
+  IF (p_payload->>'post_offset')::integer<>v_clause.post_char_from+v_from THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_SPAN_INVALID';
+  END IF;
+
+  -- Hovedpersonen (spec §22.1): eneste primary-mention på helposten, accepteret identitet.
+  SELECT count(*),min(spm.persona_id::text)::uuid INTO v_principal_n,v_principal
+    FROM private.source_mention sm
+    JOIN private.source_persona_mention spm ON spm.mention_id=sm.id AND spm.mention_role='primary'
+   WHERE sm.observation_id=v_clause.parent_observation_id;
+  IF v_principal_n<>1 OR NOT EXISTS (SELECT 1 FROM private.source_persona_identity
+                                      WHERE source_persona_id=v_principal AND decision_status='accepted') THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_PRINCIPAL_INVALID';
+  END IF;
+  SELECT sr.record_key INTO v_record_key FROM private.source_record_anchor_current ac
+    JOIN private.source_record sr ON sr.id=ac.source_record_id
+   WHERE ac.occurrence_id=v_clause.occurrence_id AND ac.decision_status='accepted';
+
+  IF v_marriage THEN
+    v_name_from:=(p_payload->>'name_from')::integer; v_name_to:=(p_payload->>'name_to')::integer;
+    SELECT o.marriage_ordinal INTO v_ordinal FROM private.relation_marriage_ordinals(v_clause.occurrence_id) o
+     WHERE o.interpretation_key=v_interp.interpretation_key;
+    IF v_ordinal IS DISTINCT FROM (p_payload->>'marriage_ordinal')::integer
+       OR v_name_from<v_from OR v_name_to>v_to OR v_name_to<=v_name_from THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_SPAN_INVALID';
+    END IF;
+    -- #244 (spec §5): bogens »g. N°« må ikke modsige serverens nummer (alle profiler).
+    v_book:=private.relation_book_ordinal(v_raw);
+    IF v_book IS NOT NULL AND v_book<>v_ordinal THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_ORDINAL_BOOK_MISMATCH';
+    END IF;
+  END IF;
+
+  v_run_key:='relation-persona:'||(p_payload->>'profile')||':'||v_batch.manifest_sha256;
+  INSERT INTO private.extraction_run(source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+  VALUES (v_batch.source_id,v_run_key,'relation-persona-v1',p_payload->>'profile',p_payload->>'profile',
+          v_batch.manifest_sha256,jsonb_build_object('batch_id',p_batch_id))
+  ON CONFLICT (source_id,run_key) DO NOTHING;
+  SELECT id INTO v_run FROM private.extraction_run
+   WHERE source_id=v_batch.source_id AND run_key=v_run_key AND schema_version='relation-persona-v1'
+     AND input_sha256=v_batch.manifest_sha256 AND manifest=jsonb_build_object('batch_id',p_batch_id);
+  IF v_run IS NULL THEN RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_RUN_DRIFT'; END IF;
+
+  IF v_marriage THEN
+    INSERT INTO private.source_persona(source_id,persona_key,created_run_id)
+      VALUES (v_batch.source_id,v_record_key||'#rel-marriage-'||(p_payload->>'post_offset')||'-'||(v_to-v_from),v_run)
+      RETURNING id INTO v_spouse;
+    INSERT INTO private.source_mention(observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id)
+      VALUES (v_clause.id,'person',v_name_from,v_name_to,
+              substr(v_clause.verbatim_text,v_name_from+1,v_name_to-v_name_from),v_run)
+      RETURNING id INTO v_mention;
+    INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
+      VALUES (v_spouse,v_mention,'spouse',1);
+    FOREACH v_pred IN ARRAY ARRAY['person.birth','person.death'] LOOP
+      v_year:=p_payload->>(CASE v_pred WHEN 'person.birth' THEN 'birth_raw' ELSE 'death_raw' END);
+      CONTINUE WHEN v_year IS NULL;
+      -- Året skal stå i ægtefællens eget segment (efter navnet, inden for spændet).
+      IF strpos(substr(v_clause.verbatim_text,v_name_to+1,v_to-v_name_to),v_year)=0 THEN
+        RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_YEAR_INVALID';
+      END IF;
+      v_year_id:=gen_random_uuid();
+      INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,
+        predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id)
+      VALUES (v_year_id,private.deterministic_uuid(jsonb_build_object('kind','relation-persona-year',
+                'interpretation_key',v_interp.interpretation_key,'predicate',v_pred)::text),
+              1,v_batch.source_id,v_spouse,'property',v_pred,to_jsonb(v_year),'relation-persona-v1',
+              'deterministic',1,'proposed','relation-persona-v1',v_run);
+      INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal)
+        VALUES (v_year_id,v_clause.id,'supporting',1);
+      v_year_ids:=v_year_ids||v_year_id;
+    END LOOP;
+  END IF;
+
+  INSERT INTO private.interpretation_party(interpretation_key,party_role,version,source_persona_id,post_offset,origin,origin_ref)
+  VALUES (v_interp.interpretation_key,'principal',
+          (SELECT coalesce(max(version),0)+1 FROM private.interpretation_party
+            WHERE interpretation_key=v_interp.interpretation_key AND party_role='principal'),
+          v_principal,(p_payload->>'post_offset')::integer,'relation_persona',p_batch_id);
+  IF v_marriage THEN
+    INSERT INTO private.interpretation_party(interpretation_key,party_role,version,source_persona_id,marriage_ordinal,
+      post_offset,origin,origin_ref)
+    VALUES (v_interp.interpretation_key,'spouse',
+            (SELECT coalesce(max(version),0)+1 FROM private.interpretation_party
+              WHERE interpretation_key=v_interp.interpretation_key AND party_role='spouse'),
+            v_spouse,v_ordinal,(p_payload->>'post_offset')::integer,'relation_persona',p_batch_id);
+  END IF;
+
+  v_receipt:=jsonb_build_object('schema','relation-persona-receipt-v1',
+    'principal_source_persona_id',v_principal,'spouse_source_persona_id',v_spouse,'mention_id',v_mention,
+    'year_interpretation_ids',coalesce((SELECT jsonb_agg(y::text ORDER BY y::text COLLATE "C") FROM unnest(v_year_ids) y),'[]'::jsonb),
+    'party_keys',(SELECT jsonb_agg(jsonb_build_array(pc.interpretation_key::text,pc.party_role,pc.version)
+                                   ORDER BY pc.party_role COLLATE "C")
+                    FROM private.interpretation_party_current pc WHERE pc.interpretation_key=v_interp.interpretation_key));
+  v_hash:=private.reimport_canonical_json_sha256(v_receipt);
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256)
+  VALUES (p_batch_id,p_element_id,'relation_persona',v_record_key,
+          p_payload||jsonb_build_object('result_receipt',v_receipt),v_hash);
+  RETURN jsonb_build_object('result_receipt_sha256',v_hash,'spouse_source_persona_id',v_spouse);
+END $$;
+REVOKE ALL ON FUNCTION private.write_relation_persona(uuid,text,jsonb) FROM PUBLIC,anon,authenticated;
+-- #244 (spec §7.2): tredje oprindelse for ægtefælleparten. Betinget, som relation_classification_event_kind_check.
+DO $interpretation_party_origin$
+BEGIN
+  IF (SELECT pg_get_constraintdef(oid) FROM pg_constraint
+       WHERE conrelid='private.interpretation_party'::regclass AND conname='interpretation_party_origin_check')
+     IS DISTINCT FROM 'CHECK ((origin = ANY (ARRAY[''relation_persona''::text, ''relation_decision''::text, ''ordinal_correction''::text])))' THEN
+    ALTER TABLE private.interpretation_party DROP CONSTRAINT IF EXISTS interpretation_party_origin_check;
+    ALTER TABLE private.interpretation_party ADD CONSTRAINT interpretation_party_origin_check
+      CHECK (origin IN ('relation_persona','relation_decision','ordinal_correction')) NOT VALID;
+    ALTER TABLE private.interpretation_party VALIDATE CONSTRAINT interpretation_party_origin_check;
+  END IF;
+END $interpretation_party_origin$;
+
+-- #244 (spec §7.1): rettelse af et skævt gemt ægteskabsnummer i ægtefælleparten. Tilføj-kun; partens origin_ref peger hertil.
+CREATE TABLE IF NOT EXISTS private.marriage_ordinal_correction (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  interpretation_key  uuid NOT NULL,
+  interpretation_id   uuid NOT NULL REFERENCES private.interpretation(id),
+  party_version_from  integer NOT NULL CHECK (party_version_from>=1),
+  party_version_to    integer NOT NULL CHECK (party_version_to=party_version_from+1),
+  ordinal_from        integer NOT NULL CHECK (ordinal_from>=1),
+  ordinal_to          integer NOT NULL CHECK (ordinal_to>=1 AND ordinal_to<>ordinal_from),
+  family_id           bigint NOT NULL,
+  evidence            jsonb NOT NULL CHECK (jsonb_typeof(evidence)='object' AND evidence<>'{}'::jsonb),
+  created_by          uuid NOT NULL,
+  created_at          timestamptz NOT NULL DEFAULT clock_timestamp(),
+  UNIQUE (interpretation_key,party_version_from)
+);
+DO $marriage_ordinal_correction_table$
+BEGIN
+  DROP TRIGGER IF EXISTS trg_marriage_ordinal_correction_append_only ON private.marriage_ordinal_correction;
+  CREATE TRIGGER trg_marriage_ordinal_correction_append_only BEFORE UPDATE OR DELETE ON private.marriage_ordinal_correction
+    FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation();
+  DROP TRIGGER IF EXISTS trg_marriage_ordinal_correction_no_truncate ON private.marriage_ordinal_correction;
+  CREATE TRIGGER trg_marriage_ordinal_correction_no_truncate BEFORE TRUNCATE ON private.marriage_ordinal_correction
+    FOR EACH STATEMENT EXECUTE FUNCTION private.reject_evidence_mutation();
+  ALTER TABLE private.marriage_ordinal_correction ENABLE ROW LEVEL SECURITY;
+  REVOKE ALL ON TABLE private.marriage_ordinal_correction FROM PUBLIC,anon,authenticated,service_role;
+END $marriage_ordinal_correction_table$;
+
+-- #244 (spec §7.3-§7.4): retter det gemte ægteskabsnummer i ægtefælleparten for en bundet påstand, kun fra arket.
+-- Fortolkningen og afgørelsen røres ikke; genbindingen sker ad 2b-i-vejen (bind-preview ser en ny tilstand).
+CREATE OR REPLACE FUNCTION public.red_ret_aegteskabsnummer(p_interpretation_key uuid,p_expected_party_version integer,
+  p_note text,p_ctx jsonb)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_ctx jsonb:=coalesce(p_ctx,'{}'::jsonb); v_ic private.interpretation%ROWTYPE; v_sp private.interpretation_party%ROWTYPE;
+  v_occ uuid; v_principal bigint; v_spouse bigint; v_fam bigint; v_new integer; v_famord integer; v_book integer;
+  v_corr uuid:=gen_random_uuid(); v_st jsonb;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  IF jsonb_typeof(v_ctx)<>'object'
+     OR (SELECT array_agg(k COLLATE "C" ORDER BY k COLLATE "C") FROM jsonb_object_keys(v_ctx) k)
+        IS DISTINCT FROM ARRAY['basis','line','rows_sha256','sheet_sha256']
+     OR v_ctx->>'basis' IS DISTINCT FROM 'human_sheet'
+     OR coalesce(v_ctx->>'sheet_sha256','') !~ '^[0-9a-f]{64}$' OR coalesce(v_ctx->>'rows_sha256','') !~ '^[0-9a-f]{64}$'
+     OR coalesce(v_ctx->>'line','') !~ '^[1-9][0-9]*$' OR nullif(btrim(p_note),'') IS NULL
+     OR p_interpretation_key IS NULL OR p_expected_party_version IS NULL THEN
+    RAISE EXCEPTION 'MARRIAGE_ORDINAL_CORRECTION_CONTEXT_INVALID';
+  END IF;
+  SELECT * INTO v_ic FROM private.interpretation_current WHERE interpretation_key=p_interpretation_key;
+  IF NOT FOUND OR v_ic.predicate<>'relation.marriage' THEN RAISE EXCEPTION 'MARRIAGE_ORDINAL_CORRECTION_NOT_BOUND'; END IF;
+  -- Låse (spec §7.4): kildelåsen som red_afgoer_relation_interpretation, så postens ikke-afviste ægteskabspåstande
+  -- (deres nummer afhænger af hinanden), så personer → familier → medlemmer.
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-identity-candidates:'||v_ic.source_id::text,0));
+  SELECT o.occurrence_id INTO v_occ FROM private.interpretation_observation io JOIN private.source_observation o ON o.id=io.observation_id
+   WHERE io.interpretation_id=v_ic.id AND io.evidence_role='supporting' AND io.ordinal=1;
+  PERFORM 1 FROM private.interpretation i
+   WHERE i.id IN (SELECT c.id FROM private.interpretation_current c
+                    JOIN private.interpretation_observation io ON io.interpretation_id=c.id AND io.evidence_role='supporting' AND io.ordinal=1
+                    JOIN private.source_observation o ON o.id=io.observation_id
+                   WHERE c.predicate='relation.marriage' AND c.status<>'rejected' AND o.occurrence_id=v_occ)
+   ORDER BY i.id FOR SHARE;
+  SELECT * INTO v_sp FROM private.interpretation_party_current WHERE interpretation_key=p_interpretation_key AND party_role='spouse';
+  SELECT i.canonical_person_id INTO v_principal FROM private.interpretation_party_current pc
+    JOIN private.source_persona_identity i ON i.source_persona_id=pc.source_persona_id AND i.decision_status='accepted'
+   WHERE pc.interpretation_key=p_interpretation_key AND pc.party_role='principal';
+  SELECT i.canonical_person_id INTO v_spouse FROM private.source_persona_identity i
+   WHERE i.source_persona_id=v_sp.source_persona_id AND i.decision_status='accepted';
+  PERFORM private.lock_family_rows(ARRAY(SELECT x FROM unnest(ARRAY[v_principal,v_spouse]) x WHERE x IS NOT NULL ORDER BY 1));
+  -- Læs igen efter låsene: en samtidig rettelse af samme påstand venter på personlåsen og ser derefter den nye
+  -- partversion (VERSION_MISMATCH i stedet for triggerens EVIDENCE_PARTY_VERSION_CONFLICT).
+  SELECT * INTO v_ic FROM private.interpretation_current WHERE interpretation_key=p_interpretation_key;
+  SELECT * INTO v_sp FROM private.interpretation_party_current WHERE interpretation_key=p_interpretation_key AND party_role='spouse';
+  SELECT p.target_id INTO v_fam FROM private.interpretation_promotion p
+   WHERE p.interpretation_id=v_ic.id AND p.target_type='family' ORDER BY p.promoted_at DESC,p.id DESC LIMIT 1;
+  IF v_ic.status<>'accepted' OR v_ic.decision_evidence->>'method' IS DISTINCT FROM 'family-structure-v1'
+     OR v_fam IS NULL OR v_principal IS NULL OR v_spouse IS NULL OR v_sp.source_persona_id IS NULL THEN
+    RAISE EXCEPTION 'MARRIAGE_ORDINAL_CORRECTION_NOT_BOUND';
+  END IF;
+  IF v_sp.version IS DISTINCT FROM p_expected_party_version THEN RAISE EXCEPTION 'MARRIAGE_ORDINAL_CORRECTION_VERSION_MISMATCH'; END IF;
+  SELECT o.marriage_ordinal INTO v_new FROM private.relation_marriage_ordinals(v_occ) o WHERE o.interpretation_key=p_interpretation_key;
+  IF v_new IS NULL OR v_new=v_sp.marriage_ordinal THEN RAISE EXCEPTION 'MARRIAGE_ORDINAL_CORRECTION_NOT_NEEDED'; END IF;
+  SELECT fm.ordinal INTO v_famord FROM public.family_member fm WHERE fm.family_id=v_fam AND fm.person_id=v_principal AND fm.rolle='partner';
+  IF v_famord IS NULL OR v_famord<>v_new THEN RAISE EXCEPTION 'MARRIAGE_ORDINAL_CORRECTION_FAMILY_MISMATCH'; END IF;
+  v_book:=private.relation_book_ordinal(v_ic.value->>'raw');
+  IF v_book IS NOT NULL AND v_book<>v_new THEN RAISE EXCEPTION 'MARRIAGE_ORDINAL_CORRECTION_BOOK_MISMATCH'; END IF;
+  INSERT INTO private.marriage_ordinal_correction(id,interpretation_key,interpretation_id,party_version_from,party_version_to,
+    ordinal_from,ordinal_to,family_id,evidence,created_by)
+  VALUES (v_corr,p_interpretation_key,v_ic.id,v_sp.version,v_sp.version+1,v_sp.marriage_ordinal,v_new,v_fam,
+    jsonb_build_object('basis','human_sheet','method','marriage-ordinal-correction-v1','sheet_sha256',v_ctx->>'sheet_sha256',
+      'rows_sha256',v_ctx->>'rows_sha256','line',(v_ctx->>'line')::int,'note',btrim(p_note),'book_ordinal',v_book),
+    auth.uid());
+  INSERT INTO private.interpretation_party(interpretation_key,party_role,version,source_persona_id,marriage_ordinal,post_offset,origin,origin_ref)
+  VALUES (p_interpretation_key,'spouse',v_sp.version+1,v_sp.source_persona_id,v_new,v_sp.post_offset,'ordinal_correction',v_corr);
+  v_st:=private.relation_binding_state(v_ic.id);
+  IF v_st IS NULL OR (v_st#>>'{family,family_id}')::bigint IS DISTINCT FROM v_fam
+     OR (v_st->>'book_ordinal')::integer IS DISTINCT FROM (v_st->>'family_ordinal')::integer THEN
+    RAISE EXCEPTION 'MARRIAGE_ORDINAL_CORRECTION_STATE_INVALID';
+  END IF;
+  RETURN v_sp.version+1;
+END $$;
+REVOKE ALL ON FUNCTION public.red_ret_aegteskabsnummer(uuid,integer,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_ret_aegteskabsnummer(uuid,integer,text,jsonb) TO authenticated;
+
+-- #244 (spec §6): arkets input — bundne ægteskaber, hvor det gemte nummer ≠ serverens. Navne forlader aldrig den private mappe.
+CREATE OR REPLACE FUNCTION private.marriage_ordinal_correction_input(p_source_id bigint)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+  WITH c AS (
+    SELECT ic.id,ic.interpretation_key AS k,ic.version AS ver,ic.value->>'raw' AS raw,o.occurrence_id AS occ
+      FROM private.interpretation_current ic
+      JOIN private.interpretation_observation io ON io.interpretation_id=ic.id AND io.evidence_role='supporting' AND io.ordinal=1
+      JOIN private.source_observation o ON o.id=io.observation_id
+     WHERE ic.source_id=p_source_id AND ic.predicate='relation.marriage' AND ic.status='accepted'
+       AND ic.decision_evidence->>'method'='family-structure-v1'
+       AND EXISTS (SELECT 1 FROM private.interpretation_promotion p WHERE p.interpretation_id=ic.id AND p.target_type='family')
+  ), x AS (
+    SELECT c.*,sp.version AS spv,sp.marriage_ordinal AS stored,
+           (SELECT mo.marriage_ordinal FROM private.relation_marriage_ordinals(c.occ) mo WHERE mo.interpretation_key=c.k) AS new_ord,
+           (SELECT p.target_id FROM private.interpretation_promotion p WHERE p.interpretation_id=c.id AND p.target_type='family'
+             ORDER BY p.promoted_at DESC,p.id DESC LIMIT 1) AS fam,
+           (SELECT i.canonical_person_id FROM private.interpretation_party_current pc
+              JOIN private.source_persona_identity i ON i.source_persona_id=pc.source_persona_id AND i.decision_status='accepted'
+             WHERE pc.interpretation_key=c.k AND pc.party_role='principal') AS principal,
+           (SELECT i.canonical_person_id FROM private.source_persona_identity i
+             WHERE i.source_persona_id=sp.source_persona_id AND i.decision_status='accepted') AS spouse
+      FROM c JOIN private.interpretation_party_current sp ON sp.interpretation_key=c.k AND sp.party_role='spouse'
+  ), y AS (
+    SELECT row_number() OVER (ORDER BY x.k::text COLLATE "C") AS row_no,x.* FROM x WHERE x.new_ord IS DISTINCT FROM x.stored
+  )
+  SELECT jsonb_build_object('contract','relation-ordinal-sheet-input-v1','source_id',p_source_id,'rows',coalesce(jsonb_agg(
+    jsonb_build_object('row_no',y.row_no,'interpretation_key',y.k::text,'interpretation_version',y.ver,
+      'spouse_party_version',y.spv,'stored_ordinal',y.stored,'new_ordinal',y.new_ord,
+      'book_ordinal',private.relation_book_ordinal(y.raw),'family_id',y.fam,
+      'family_ordinal',(SELECT fm.ordinal FROM public.family_member fm WHERE fm.family_id=y.fam AND fm.person_id=y.principal AND fm.rolle='partner'),
+      'principal_named',(SELECT jsonb_build_object('navn',pp.visning_navn,'foedt',pp.visning_foedt,
+          'post',(SELECT xe.linje||'-'||xe.nr FROM public.person_external_id xe WHERE xe.person_id=pp.id AND xe.source_id=p_source_id))
+        FROM public.person pp WHERE pp.id=y.principal),
+      'spouse_named',(SELECT jsonb_build_object('navn',ps.visning_navn,'foedt',ps.visning_foedt) FROM public.person ps WHERE ps.id=y.spouse))
+    ORDER BY y.row_no),'[]'::jsonb))
+  FROM y;
+$$;
+REVOKE ALL ON FUNCTION private.marriage_ordinal_correction_input(bigint) FROM PUBLIC,anon,authenticated,service_role;
+CREATE OR REPLACE FUNCTION public.red_marriage_ordinal_correction_input(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  RETURN private.marriage_ordinal_correction_input(p_source_id);
+END $$;
+REVOKE ALL ON FUNCTION public.red_marriage_ordinal_correction_input(bigint) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_marriage_ordinal_correction_input(bigint) TO authenticated;
+-- #244-blokken slutter her.
 
 -- 5b-sektionen slutter her (nye 5b-blokke indsættes over denne linje).

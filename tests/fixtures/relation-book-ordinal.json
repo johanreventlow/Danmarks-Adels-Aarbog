@@ -1,0 +1,14 @@
+[
+  {"raw": "g. 1° m. Anna Alfa", "expect": 1},
+  {"raw": "Gift 2° m. Bo Beta", "expect": 2},
+  {"raw": "GIFT 3º m. Cia Ceta", "expect": 3},
+  {"raw": "  g.  12 ° m. Dan Delta", "expect": 12},
+  {"raw": "g.1°m. Eva Epsilon", "expect": 1},
+  {"raw": "\tgift\t4°", "expect": 4},
+  {"raw": "m. Fie Fi (g. 1° m. Gro Gamma)", "expect": null},
+  {"raw": "Søn: g. 1° m. Hans", "expect": null},
+  {"raw": "g. m. Ib Iota", "expect": null},
+  {"raw": "gift 1 m. Jo Jota", "expect": null},
+  {"raw": "g. 1234° m. Kim Kappa", "expect": null},
+  {"raw": "", "expect": null}
+]

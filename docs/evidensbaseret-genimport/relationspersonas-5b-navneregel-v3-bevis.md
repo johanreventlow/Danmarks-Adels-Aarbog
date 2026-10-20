@@ -129,6 +129,7 @@ Kopierne er omdøbt til `slet_1020__navnv3_bevis_20261019200958_neg{A,C}` (2 × 
 ## Fund
 
 1. **Ægteskabsnummeret bliver forkert, når påstandens tekst rækker ud over klausulen.**
+   > Rettet 2026-10-20 (#244): årsagen er en parentes midt i klausulen, ikke en overskreden klausulgrænse; se [aegteskabsnumre-244-bevis.md](aegteskabsnumre-244-bevis.md).
    - **Mekanisme:** `private.relation_marriage_ordinals` nummererer en posts ægteskaber efter, hvor påstandens rå tekst står i posten. Står den rå tekst ikke ordret i klausulen, bliver positionen NULL. NULL sorteres sidst, så »Gift 1°« kan blive nr. 2. Årsagen er klausulopdelingen: tekstens begyndelse står i klausulen, men resten gør ikke.
    - **Omfang i kilden:** 248 ægteskabspåstande. 6 har NULL-position, og 4 af dem ligger i poster med flere ægteskaber. Bogens »N°« står i 40 påstande og afviger fra systemets nummer i 4. De 4 ligger i 2 poster: de 2 skæve `S`-linjer i denne runde og deres to »søstre«.
    - **Hvad det har givet:** Søstrene blev bundet allerede i 2a/2b-i med det omvendte fejlnummer. De står derfor i forvejen som falske `ordinal_afvigelse`.
