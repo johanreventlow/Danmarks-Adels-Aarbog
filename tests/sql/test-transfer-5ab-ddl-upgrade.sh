@@ -83,6 +83,32 @@ q "$V" -f tests/sql/run-db-verify-disposable.sql; dropdb "$V"
 qa "$U" -f "$S/transfer_catalog_fingerprint.sql" > "$tmp/u-cat.txt"
 cmp -s <(grep '^L|' "$tmp/p-cat.txt") <(grep '^L|' "$tmp/u-cat.txt") || fail other_schemas_untouched
 
+# outside_dependents_unchanged: funktioner, som objekter uden for public/private afhænger af (storage-politikker),
+# kan fortrydelsens `pg_restore --clean` ikke droppe; de beholder prods tilstand. DDL'en må derfor ikke ændre dem.
+outside_deps() { qa "$1" -c "SET search_path = pg_catalog" -c "SELECT DISTINCT p.oid::regprocedure::text COLLATE \"C\" AS f FROM pg_depend d
+  JOIN pg_proc p ON d.refclassid='pg_proc'::regclass AND d.refobjid=p.oid
+  JOIN pg_namespace pn ON pn.oid=p.pronamespace AND pn.nspname IN ('public','private')
+  JOIN pg_class c ON c.oid = CASE d.classid WHEN 'pg_policy'::regclass THEN (SELECT polrelid FROM pg_policy WHERE oid=d.objid)
+    WHEN 'pg_trigger'::regclass THEN (SELECT tgrelid FROM pg_trigger WHERE oid=d.objid)
+    WHEN 'pg_rewrite'::regclass THEN (SELECT ev_class FROM pg_rewrite WHERE oid=d.objid)
+    WHEN 'pg_attrdef'::regclass THEN (SELECT adrelid FROM pg_attrdef WHERE oid=d.objid) END
+  JOIN pg_namespace cn ON cn.oid=c.relnamespace AND cn.nspname NOT IN ('public','private')
+  ORDER BY 1"; }
+deps=$(outside_deps "$P" | paste -sd ' ' -)
+[ "$deps" = "public.current_rolle() public.media_object_synlig_anon(text)" ] \
+  || fail "outside_dependents (fik '$deps'; ret runbook §6, hvis listen er ændret)"
+[ "$(outside_deps "$U" | paste -sd ' ' -)" = "$deps" ] || fail "outside_dependents (ændret af DDL'en)"
+for fn in $deps; do
+  [ "$(grep -F "P|f|$fn|" "$tmp/p-cat.txt")" = "$(grep -F "P|f|$fn|" "$tmp/u-cat.txt")" ] \
+    && [ -n "$(grep -F "P|f|$fn|" "$tmp/p-cat.txt")" ] || fail "outside_dependents_unchanged ($fn)"
+done
+
+# anon_exec_public: DDL'ens eneste nye anon-kaldbare public-funktion er den tilsigtede (review I3; db-verify
+# dækker kun red_%, og A1 beviser kun rehearsal↔prod-konsistens, ikke lukkethed).
+newanon=$(comm -13 <(grep '^P|m|anon|public\..*|1$' "$tmp/p-acl.txt" | LC_ALL=C sort) \
+                   <(grep '^P|m|anon|public\..*|1$' "$tmp/u-acl.txt" | LC_ALL=C sort) | cut -d'|' -f4 | paste -sd ' ' -)
+[ "$newanon" = "public.public_family_sources(bigint[])" ] || fail "anon_exec_public (nye: '$newanon')"
+
 # removal_restores_identity_set
 out=$("${PY[@]}" "$S/transfer_ddl.py" removal-sql --before "$tmp/p-cat.txt" --after "$tmp/u-cat.txt" --out "$tmp/drop.sql")
 echo "$out"
