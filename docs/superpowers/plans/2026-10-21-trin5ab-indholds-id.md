@@ -25,7 +25,7 @@
 1. **Collation i tekst, der ikke findes i testens data:** en titel, et postnavn eller en note med tegn, hvor `C`, `en_US` og ICU-`da` sorterer forskelligt (»aa«, »Æ«, store/små bogstaver). Det forventede er samme rækkefil i alle baser. Task 2's fixtur skal derfor indeholde netop sådanne strenge.
 2. **CI's psql-klient er version 16 mod en server i version 17.** Hovedtesten må ikke bruge `pg_dump`. Den kopierer med `COPY` (Task 2).
 3. **En kontrolkørsel efter en fejlet kontrol** (`p_cause` sat) på en ny kandidatkørsel skal give et nyt kontrol-id, og den gamle kørsel skal være uændret (Task 5).
-4. **To samtidige writer-batches med samme persona-nøgle** skal give `…_RELATION_PERSONA_EXISTS` eller unik-fejl, aldrig to personas. Det samme id med en anden nøgle skal give `DETERMINISTIC_ID_COLLISION` (Task 3).
+4. **Et v1-rækkefil eller et v1-ark** givet til 2b-i-værktøjets CLI skal give `SHEET_CONTRACT_UNSUPPORTED`/`SHEET_LINE_INVALID`, ikke en Python-traceback (Task 6). (To samtidige writer-batches med samme persona-nøgle er dækket af `UNIQUE (source_id,persona_key)` og writerens `…_RELATION_PERSONA_EXISTS`; det kræver ingen ny test.)
 5. **Et gammelt 2b-i-ark (v1, `O <interpretation_id> b/f`)** givet til det nye værktøj skal afvises med en tydelig fejl, ikke fejlfortolkes (Task 6).
 
 ---
@@ -102,27 +102,33 @@ REVOKE ALL ON FUNCTION private.content_uuid(text,jsonb) FROM PUBLIC,anon,authent
 - Create: `tests/sql/test-indholds-id-determinism.sh`
 
 **Interfaces:**
-- Consumes: fixturhjælperne i `tests/sql/fixtures/relation-5b.sql` (`f5b_actor`, `f5b_source`, `f5b_post`, `f5b_claim`, `f5b_family`, `f5b_life`, `f5b_payload`, `f5b_write`); `private.content_uuid` (Task 1, kun i eksporten).
-- Produces: `bash tests/sql/test-indholds-id-determinism.sh <prefix> [<build>]`, der skriver `DETERMINISM_OK` eller `DETERMINISM_DIFF: <liste af artefakter>` og exit 1. `<build>` er `fresh` (standard) eller `upgrade:<commit>` (Task 7).
+- Consumes: fixturhjælperne i `tests/sql/fixtures/relation-5b.sql` (`f5b_actor`, `f5b_source`, `f5b_post`, `f5b_claim`, `f5b_family`, `f5b_life`, `f5b_payload`, `f5b_write`) og `relation-2a.sql` (`f2a_event_for_state`); `private.content_uuid` (Task 1, kun i eksporten).
+- Produces: `bash tests/sql/test-indholds-id-determinism.sh <prefix> [<build>]` → `DETERMINISM_OK`, eller `DETERMINISM_DIFF: <artefakter>` med exit 1. `<build>` er `fresh` (standard) eller `upgrade:<commit>` (Task 7).
 
-**Fixturkontrakt (spec §5.1):** alt i `indholds-id-dump.sql` køres kun i base A og kopieres med `COPY` til base B. Intet, kæden skriver, ligger i dumpet. Base B får derefter en tilfældig forhistorik i en anden kilde. Begge baser kører `indholds-id-chain.sql`.
+**Fixturkontrakt (spec §5.1):** dumpet køres kun i base A og kopieres med `COPY` til base B. Intet, kæden skriver, ligger i dumpet. Base B får derefter en tilfældig forhistorik i en anden kilde. Begge baser kører kæden.
 
-- [ ] **Step 1: Skriv `tests/sql/fixtures/indholds-id-dump.sql`.** Committet i én transaktion med kilde `-25001`, aktør `11000000-0000-0000-0000-000000025001` og personer `-25001..-25020`. Det skal indeholde:
-  - 3 poster via `f5b_post`, hver med hovedperson. Én post har to ægteskabsklausuler (»Gift 1° m. …«, »Gift 2° m. …«) og to familier via `f5b_family`. Den ene familie har bevidst ordinal 2 for »Gift 1°«, så 2a giver en `ordinal_afvigelse`.
-  - Ægteskabspåstande via `f5b_claim(…,'relation.marriage',…)`.
-  - Kandidatpersoner for ægtefællerne med leveår (`f5b_life`).
-  - **Titelfakta med collation-følsomme strenge** (Review Focus 1). Hver kandidatperson får 3 `titel`-fakta med `vaerdi_tekst` i blandet orden: `'aaben'`, `'Zobel'`, `'Ærø'`, `'baron'`, `'Baron'`. De skrives med `INSERT INTO fact(subjekt_type,subjekt_id,faktatype)` → `assertion(target_type,target_id,vaerdi_tekst)` → `conclusion(…,status 'afklaret')`, efter samme mønster som `f5b_life`.
-  - Postnøgler med blandede store og små bogstaver og »Aa« (fx `'aa-1'`, `'Ab-2'`, `'Zz-3'`).
-  - `COMMIT;` til sidst.
+**Basebygning** (begge tilstande). Writeren kræver narrativkontrakt 2 og writer-v2-bootstrappen, som CI's writer-job (`ci.yml:416-423`, `:496-500`):
+- `fresh`: bootstrap → `schema.sql` → `db-rls.sql` → `tests/sql/1939-v50-writer-bootstrap.sql` → `BEGIN; tests/sql/reimport-writer-v2-bootstrap.sql; COMMIT` → `db-rls.sql`;
+- `upgrade:<c>`: bootstrap → `<c>`'s `schema.sql`, `db-rls.sql`, `db-migrations.sql`, `db-rls.sql` → nuværende `db-migrations.sql`, `db-rls.sql`, `db-migrations.sql`, `db-rls.sql` → de tre writer-bootstrap-trin ovenfor.
 
-- [ ] **Step 2: Skriv `tests/sql/fixtures/indholds-id-chain.sql`** som ejer, i én transaktion:
-  1. Ægtefællepersonas gennem den rigtige writer: `f5b_write(-25001, actor, payloads)` med `f5b_payload` for hver ægteskabspåstand.
-  2. Kandidatkørsel: `red_identity_candidate_input(-25001,'{"mode":"undecided"}')` som `authenticated`. Derefter `red_record_identity_candidates`. Kandidaterne bygges i SQL ud fra inputtet: for hver persona i `input->'personas'` 2 kandidater fra en fast `VALUES`-tabel (`persona_key` → `person_id`, rang, score, tier og basis `{"corroboration_eligible":true,"signals":[]}`). `config` er `{"k":1}`, og `generator_version` er `'test'`.
-  3. Kontrolkørsel: `red_register_identity_control_run(<run>)`.
-  4. Én ægtefælle afgøres `same` via `red_afgoer_source_persona(persona, 0, 'same', person, 'test', ctx)`, hvor `ctx` er `{"basis":"human_sheet","sheet_sha256":repeat('a',64),"rows_sha256":repeat('b',64),"line":1,"candidate_id":…,"run_id":…}`. Vælg en ægtefælle uden for stikprøven.
-  5. 2a for kilden: preview → `red_decide_relation_interpretations` (som `marriage-ordinal-244.sql`'s `f244_decide_and_bind`). Det giver mindst én `ordinal_afvigelse`.
-  6. `COMMIT;`
-
+- [ ] **Step 1: Skriv `tests/sql/fixtures/indholds-id-dump.sql`.** Filen er uden `BEGIN`/`COMMIT`; harnesset indlæser den efter `relation-5b.sql` og `relation-2a.sql` i én transaktion. Kilde `-25001`, aktør `11000000-0000-0000-0000-000000025001` (`f5b_actor`), personer `-25001..-25030`. Indhold:
+  - **Post `'aa-1'`** (hovedperson -25001) med to ægteskabsklausuler »Gift 1° m. Bo Beta f. 1800.« og »Gift 2° m. Cia Ceta f. 1810.«. Familierne laves med `f5b_family(-25001,-25002,2)` og `f5b_family(-25001,-25003,1)`, så bogens 1° står mod familiens 2: det giver afvigelsen.
+  - **Post `'Ab-2'`** (hovedperson -25004) med ét ægteskab »Gift m. Dy Delta f. 1805.«. Familie `f5b_family(-25004,-25005,1)`.
+  - **Post `'Zz-3'`** (hovedperson -25006), barn i familien `f5b_family(-25004,-25005,1)` (`INSERT INTO family_member(family_id,person_id,rolle) VALUES (<fam>,-25006,'barn')`). Den har en **forslået `relation.parent`-påstand** (`f5b_claim(…,'relation.parent',<klausul>,'Søn af Ea Eta.')`) med en principal-part (`INSERT INTO private.interpretation_party(interpretation_key,party_role,version,source_persona_id,post_offset,origin,origin_ref) VALUES (<key>,'principal',1,<post 'Zz-3' principal>,0,'relation_persona',gen_random_uuid())`). Den afgøres **ikke**, så den bliver et forældrekort i kontrolkørslen (`relation_structural_candidates`, `schema.sql:15721-15745`). Bliver kortet ikke dannet, så justér fixturen efter funktionens krav (én familie, én modpart, der er hovedperson-persona i en anden post), ikke testen.
+  - `f2a_event_for_state(<principal>)` for **hver** post med hovedperson. Uden det fejler den udskudte `identity_state_has_event` (`schema.sql:1894-1897`) ved `COMMIT`.
+  - Ægteskabspåstande via `f5b_claim(…,'relation.marriage',<klausul>,<raw>)`.
+  - **Kandidatpersoner** -25010..-25020 med leveår (`f5b_life`) og **collation-følsomme titler**. Hver får 3 `titel`-fakta med `vaerdi_tekst` blandt `'aaben'`, `'Zobel'`, `'Ærø'`, `'baron'`, `'Baron'` i blandet rækkefølge: `INSERT INTO fact(subjekt_type,subjekt_id,faktatype) … 'titel'` → `assertion(target_type,target_id,vaerdi_tekst)` → `conclusion(target_type,target_id,valgt_assertion_id,status) … 'afklaret'`.
+- [ ] **Step 2: Skriv `tests/sql/fixtures/indholds-id-chain.sql`.** Den køres som ejer i harnessets transaktion og afslutter selv med `COMMIT;`.
+  1. **Ægtefællepersonas gennem den rigtige writer:** `pg_temp.f5b_write(-25001,actor, jsonb_object_agg('relation-persona:'||key, pg_temp.f5b_payload(post, claim, klausul, raw, navn)))` for de tre ægteskabspåstande.
+  2. **Kandidatkørsel 1** (`config {"k":1}`, `generator_version 'test'`) som `authenticated` med aktørens claim: `red_identity_candidate_input(-25001,'{"mode":"undecided"}')` → `red_record_identity_candidates`. Kandidaterne bygges i SQL fra `input->'personas'` og en fast `VALUES`-tabel (`persona_key` → `person_id`, rang, score, tier og `corroboration_eligible`):
+     - **Bo Beta** (afvigelsens ægtefælle, post `aa-1`) og **Cia Ceta**: rang 1 med `corroboration_eligible:false`. De bliver dermed ikke trukket til stikprøven (`schema.sql:16144`), men står stadig på undtagelsesarket.
+     - **Dy Delta**: rang 1 med `corroboration_eligible:true`, så stikprøven ikke er tom.
+     - Hver persona får 2 kandidater (rang 1 og 2). Hovedpersonernes egne personas får ingen kandidater.
+  3. **Kontrolkørsel:** `red_register_identity_control_run(<kørsel 1>)`.
+  4. **Bo Beta afgøres `same`:** `red_afgoer_source_persona(<persona>,0,'same',<rang 1-person>,'test', ctx)` med `ctx = {"basis":"human_sheet","sheet_sha256":repeat('a',64),"rows_sha256":repeat('b',64),"line":1,"candidate_id":<rang 1-kandidat>,"run_id":<kørsel 1>}` mens kørsel 1 er den gældende.
+  5. **Kandidatkørsel 2** med `config {"k":2}` og samme regel (spec §5.1: »kandidatkørsel 2«).
+  6. **2a for kilden:** preview → `red_decide_relation_interpretations`, efter mønstret i `marriage-ordinal-244.sql`'s `f244_decide_and_bind`, uden binding. Bo Betas ægteskab får `ordinal_afvigelse`, fordi bogen siger 1° og familien 2.
+  7. `COMMIT;`
 - [ ] **Step 3: Skriv `tests/sql/indholds-id-export.sql`** (læse-kun, `-At`, én linje pr. række, sorteret med `COLLATE "C"`):
 
 ```sql
@@ -146,6 +152,8 @@ SELECT 'sample|'||sp.persona_key||'|'||s.stratum||'|'||s.id||'|'||s.mapping::tex
   JOIN private.identity_control_run r ON r.id=s.control_run_id WHERE r.source_id=-25001 ORDER BY 1 COLLATE "C";
 SELECT 'parent-card|'||pc.interpretation_key||'|'||pc.id FROM private.identity_control_parent_card pc
   JOIN private.identity_control_run r ON r.id=pc.control_run_id WHERE r.source_id=-25001 ORDER BY 1 COLLATE "C";
+SELECT 'antal|'||(SELECT count(*) FROM private.identity_control_parent_card)||'|'||
+       (SELECT count(*) FROM private.identity_control_sample)||'|'||(SELECT count(*) FROM private.source_persona_identity_candidate_run WHERE source_id=-25001);
 ```
 
 - [ ] **Step 4: Skriv `tests/sql/test-indholds-id-determinism.sh`:**
@@ -156,14 +164,19 @@ SELECT 'parent-card|'||pc.interpretation_key||'|'||pc.id FROM private.identity_c
 # forhistorik skal give byte-identiske id'er, stikprøver, rækkefiler og ark-SQL. Ingen pg_dump (CI-klient 16).
 set -euo pipefail
 pre=${1:?prefix}; build=${2:-fresh}; A=${pre}_a; B=${pre}_b
-S=.claude/skills/daa-extract/scripts
+S=.claude/skills/daa-extract/scripts; export PGCLIENTENCODING=UTF8
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-mkdir -p "$tmp/priv/A" "$tmp/priv/B"; chmod 700 "$tmp/priv" "$tmp/priv/A" "$tmp/priv/B"
+mkdir -p "$tmp/priv/A" "$tmp/priv/B" "$tmp/out/A" "$tmp/out/B"; chmod 700 "$tmp/priv" "$tmp/priv/A" "$tmp/priv/B"
 q() { env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$1" "${@:2}" >/dev/null; }
 qa() { env -u PGOPTIONS psql -X -At -v ON_ERROR_STOP=1 -d "$1" "${@:2}"; }
-createdb --template=template0 --locale=C "$A"
-createdb --template=template0 --locale-provider=icu --icu-locale=da --locale=C "$B"
+createdb -E UTF8 --template=template0 --locale=C "$A"
+createdb -E UTF8 --template=template0 --locale-provider=icu --icu-locale=da --locale=C "$B"
 q "$A" -c "ALTER DATABASE \"$A\" SET TimeZone='UTC'"; q "$B" -c "ALTER DATABASE \"$B\" SET TimeZone='Pacific/Chatham'"
+writer_boot() {
+  q "$1" -f tests/sql/1939-v50-writer-bootstrap.sql
+  q "$1" -c 'BEGIN' -f tests/sql/reimport-writer-v2-bootstrap.sql -c 'COMMIT'
+  q "$1" -f db-rls.sql
+}
 build_db() {
   local db=$1
   if [ "$build" = fresh ]; then
@@ -175,52 +188,56 @@ build_db() {
              db-migrations.sql db-rls.sql db-migrations.sql db-rls.sql; do q "$db" -f "$f"; done
     rm -rf "$t"
   fi
+  writer_boot "$db"
 }
 build_db "$A"; build_db "$B"
-# Dumpet: kun i A; kopieres tabel for tabel til B (B's egne seed-rækker ryddes først).
-q "$A" -f tests/sql/fixtures/indholds-id-dump.sql
+# Dumpet: kun i A, i én transaktion med fixturhjælperne; kopieres tabel for tabel til B.
+q "$A" -c 'BEGIN' -f tests/sql/fixtures/relation-5b.sql -f tests/sql/fixtures/relation-2a.sql \
+       -f tests/sql/fixtures/indholds-id-dump.sql -c 'COMMIT'
 tables=$(qa "$A" -c "SELECT format('%I.%I',n.nspname,c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
   WHERE c.relkind='r' AND n.nspname IN ('public','private','auth') ORDER BY 1")
-q "$B" -c "SET session_replication_role=replica; TRUNCATE $(echo $tables | tr ' ' ',') CASCADE"
+q "$B" -c "SET session_replication_role=replica" -c "TRUNCATE $(echo $tables | tr ' ' ',') CASCADE"
 for t in $tables; do
   env -u PGOPTIONS psql -X -q -d "$A" -c "\copy $t TO STDOUT" | \
-    env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$B" -c "SET session_replication_role=replica" -c "\copy $t FROM STDIN"
+    env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$B" -c "SET session_replication_role=replica" -c "\copy $t FROM pstdin"
 done
 qa "$A" -c "SELECT format('SELECT setval(%L,%s,%s);',format('%I.%I',schemaname,sequencename),coalesce(last_value,1),last_value IS NOT NULL)
   FROM pg_sequences WHERE schemaname IN ('public','private')" | env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$B" >/dev/null
 # Tilfældig forhistorik kun i B: en anden kilde med en post (tilfældige id'er, fremskudte sekvenser).
-q "$B" -c "BEGIN" -f tests/sql/fixtures/relation-5b.sql -c "SELECT pg_temp.f5b_post(-25099,pg_temp.f5b_source(-25099),'x',
-  'Anna Alfa.',ARRAY['Anna Alfa.'],NULL,'11000000-0000-0000-0000-000000025001')" -c "COMMIT"
-for db in "$A" "$B"; do
-  d=$tmp/out/$db; mkdir -p "$d"; side=$([ "$db" = "$A" ] && echo A || echo B); P=$tmp/priv/$side
-  q "$db" -c "BEGIN" -f tests/sql/fixtures/relation-5b.sql -f tests/sql/fixtures/relation-2a.sql -f tests/sql/fixtures/indholds-id-chain.sql
+q "$B" -c 'BEGIN' -f tests/sql/fixtures/relation-5b.sql -c "SELECT pg_temp.f5b_post(-25099,pg_temp.f5b_source(-25099),'x',
+  'Anna Alfa.',ARRAY['Anna Alfa.'],NULL,'11000000-0000-0000-0000-000000025001')" -c 'COMMIT'
+for side in A B; do
+  db=$([ $side = A ] && echo "$A" || echo "$B"); d=$tmp/out/$side; P=$tmp/priv/$side
+  q "$db" -c 'BEGIN' -f tests/sql/fixtures/relation-5b.sql -f tests/sql/fixtures/relation-2a.sql -f tests/sql/fixtures/indholds-id-chain.sql
   qa "$db" -f tests/sql/indholds-id-export.sql > "$d/ids.txt"
-  run=$(qa "$db" -c "SELECT id FROM private.source_persona_identity_candidate_run WHERE source_id=-25001 ORDER BY run_seq DESC LIMIT 1")
   ctl=$(qa "$db" -c "SELECT id FROM private.identity_control_run WHERE source_id=-25001")
   qa "$db" -v source_id=-25001 -v mode=undecided -v personas= -f $S/identity_sheet_rows.sql > "$P/identity-rows.json"
   qa "$db" -v control_run_id="$ctl" -f $S/identity_control_rows.sql > "$P/control-rows.json"
-  qa "$db" -v source_id=-25001 -f $S/spouse_exception_rows.sql > "$P/spouse-rows.json"
+  qa "$db" -v source=-25001 -f $S/spouse_exception_rows.sql > "$P/spouse-rows.json"
   env -u NODE_OPTIONS python3 $S/spouse_exception_sheet.py render --rows "$P/spouse-rows.json" --out "$P/spouse-ark.txt" --private-root "$tmp/priv" >/dev/null
   sh=$(shasum -a 256 "$P/spouse-ark.txt" | cut -c1-64); rh=$(shasum -a 256 "$P/spouse-rows.json" | cut -c1-64)
   env -u NODE_OPTIONS python3 $S/spouse_exception_sheet.py sql --rows "$P/spouse-rows.json" --sheet "$P/spouse-ark.txt" \
     --approved-sha256 "$sh" --expect-rows-sha256 "$rh" --source -25001 --out "$P/spouse.sql" --private-root "$tmp/priv" >/dev/null
   cp "$P"/identity-rows.json "$P"/control-rows.json "$P"/spouse-rows.json "$P"/spouse-ark.txt "$P"/spouse.sql "$d/"
 done
-diffs=$(cd "$tmp/out" && for f in $(ls "$A"); do cmp -s "$A/$f" "$B/$f" || echo "$f"; done | tr '\n' ' ')
+grep -q '^parent-card|' "$tmp/out/A/ids.txt" || { echo 'DETERMINISM_SETUP: intet forældrekort'; exit 2; }
+[ "$(grep -c '^candidate-run|' "$tmp/out/A/ids.txt")" = 2 ] || { echo 'DETERMINISM_SETUP: ikke 2 kandidatkørsler'; exit 2; }
+grep -q '^sample|' "$tmp/out/A/ids.txt" || { echo 'DETERMINISM_SETUP: tom stikprøve'; exit 2; }
+diffs=$(cd "$tmp/out" && for f in $(ls A); do cmp -s "A/$f" "B/$f" || echo "$f"; done | tr '\n' ' ')
 if [ -n "$diffs" ]; then
   echo "DETERMINISM_DIFF: $diffs"
-  diff "$tmp/out/$A/ids.txt" "$tmp/out/$B/ids.txt" | cut -d'|' -f1 | sort | uniq -c | sed 's/^/  /'
+  diff "$tmp/out/A/ids.txt" "$tmp/out/B/ids.txt" | grep '^[<>]' | cut -c3- | cut -d'|' -f1 | sort | uniq -c | sed 's/^/  /'
   dropdb "$A"; dropdb "$B"; exit 1
 fi
 dropdb "$A"; dropdb "$B"; echo DETERMINISM_OK
 ```
 
-  Tilpas variabelnavnene i rækkefil-scriptene (`:source_id`, `:mode`, `:personas`, `:control_run_id`) efter scriptenes faktiske `\set`-variabler. Læs hvert scripts hoved først. Afviger et navn, så ret kaldet, ikke scriptet.
+  `spouse_exception_rows.sql` bruger `:source` (`:8`). `identity_sheet_rows.sql` bruger `:source_id`, `:'mode'`, `:'personas'`. `identity_control_rows.sql` bruger `:'control_run_id'`. Exit 2 betyder en fejl i opsætningen, ikke en afvigelse.
 
 - [ ] **Step 5: Kør den mod den nuværende kode.**
   Run: `bash tests/sql/test-indholds-id-determinism.sh t_det`
-  Expected: exit 1 og `DETERMINISM_DIFF:` med mindst `ids.txt`, `identity-rows.json`, `control-rows.json` og `spouse-rows.json` (og `spouse.sql`). Optællingen skal vise linjer for mindst `source-persona`, `candidate-run`, `candidate`, `control-run`, `sample` og `parent-card`.
-  Fejler scriptet på opsætning (ikke på forskel), er det en fejl i testen: ret den, før du går videre.
+  Expected: exit 1 og `DETERMINISM_DIFF:` med mindst `ids.txt`, `identity-rows.json`, `control-rows.json`, `spouse-rows.json` og `spouse.sql`. Optællingen viser mindst `source-persona`, `source-mention`, `identity-event`, `candidate-run`, `candidate`, `control-run`, `sample` og `parent-card`.
+  Exit 2 eller en SQL-fejl i opsætningen er en fejl i testen: ret fixturen, før du går videre.
 
 - [ ] **Step 6: Commit** `test(151): hovedtest for id'er af indholdet (rød mod nuværende kode)` (fire filer). Testen kommer ikke i CI før Task 7.
 
@@ -265,9 +282,9 @@ dropdb "$A"; dropdb "$B"; echo DETERMINISM_OK
       VALUES (v_spouse,v_mention,'spouse',1);
 ```
 
-  Tilføj `v_key text;` i DECLARE. (Omtalens id følger personaens; en kollision på den kræver en kollision på personaen, som er fanget ovenfor.)
+  Tilføj `v_key text;` i DECLARE. Omtalens indsæt pakkes på samme måde: `unique_violation`, og id = `v_mention` med (`persona_id` fra `source_persona_mention`) ≠ `v_spouse` ⇒ `DETERMINISTIC_ID_COLLISION: source-mention`, ellers `RAISE`. Spec §3 kræver håndteringen ved hvert indsæt.
 
-  **I `decide_source_persona_identity`:** tilføj `id` som første kolonne i `INSERT INTO private.source_persona_identity_event(…)` med værdien `private.content_uuid('identity-event',jsonb_build_object('source_persona_id',p_source_persona_id,'version',v_new_version))`. Personarækken er låst `FOR UPDATE` længere oppe, så indsættet er serialiseret pr. persona.
+  **I `decide_source_persona_identity`:** tilføj `id` som første kolonne i `INSERT INTO private.source_persona_identity_event(…)` med værdien `private.content_uuid('identity-event',jsonb_build_object('source_persona_id',p_source_persona_id,'version',v_new_version))`. Personarækken er låst `FOR UPDATE` længere oppe, så indsættet er serialiseret pr. persona. Pak indsættet i `EXCEPTION WHEN unique_violation`: findes en hændelse med samme id og anden (`source_persona_id`, `version`), ⇒ `DETERMINISTIC_ID_COLLISION: identity-event`, ellers `RAISE`.
 - [ ] **Step 4: Kør testene og hele 5b-SQL-sættet** (`test-relation-persona-writer`, `-v2`, `-v3`, `test-identity-decision`, `test-identity-cutover`, `test-relation-person-create`, `-v3`). Expected: alle OK.
 - [ ] **Step 5: Commit** `feat(151): ægtefællepersona, omtale og identitetshændelse får id af indholdet`.
 
@@ -276,7 +293,7 @@ dropdb "$A"; dropdb "$B"; echo DETERMINISM_OK
 ### Task 4: Kandidatkørsel og kandidater
 
 **Files:**
-- Modify: `schema.sql` — `red_record_identity_candidates` (l. ~8909-8925), `private.identity_candidate_input` (l. ~8813, 8820, 8823)
+- Modify: `schema.sql` — `red_record_identity_candidates` (l. ~8909-8925), `private.identity_candidate_input` (l. 8821, 8827, 8830)
 - Modify: `tests/sql/test-identity-candidates.sql`
 
 **Interfaces:**
@@ -287,11 +304,22 @@ dropdb "$A"; dropdb "$B"; echo DETERMINISM_OK
   - Et gentaget kald med samme input og kandidater returnerer samme kørsel. Andre kandidater giver `IDENTITY_CANDIDATE_RUN_CONFLICT`.
   - Kollision: en kørsel indsat som ejer med det afledte id, men med en anden `config_sha256`, giver `DETERMINISTIC_ID_COLLISION: identity-candidate-run`.
 - [ ] **Step 2: Kør.** Expected: FAIL på id-sammenligningen.
-- [ ] **Step 3: Implementér.** I `red_record_identity_candidates` beregnes
+- [ ] **Step 3: Implementér.** Tilføj `v_new uuid;` i `red_record_identity_candidates`' DECLARE (`schema.sql:8862-8864`). Beregn
   `v_new:=private.content_uuid('identity-candidate-run',jsonb_build_object('source_id',v_source,'input_sha256',p_run->>'input_sha256','config_sha256',v_config_hash));`.
   Indsættet får `id` med `v_new`, og `ON CONFLICT (source_id,input_sha256,config_sha256) DO NOTHING` beholdes. Pak indsættet ind i `BEGIN … EXCEPTION WHEN unique_violation THEN` med samme kollisionstjek som Task 3: id = `v_new` og (`source_id`,`input_sha256`,`config_sha256`) afviger ⇒ `DETERMINISTIC_ID_COLLISION: identity-candidate-run`, ellers `RAISE`.
   Kandidatindsættet får `id` med
   `private.content_uuid('identity-candidate',jsonb_build_object('run_id',v_run,'source_persona_id',c->>'source_persona_id','candidate_person_id',(c->>'candidate_person_id')::bigint))`.
+  Kandidatindsættet pakkes i `EXCEPTION WHEN unique_violation`: findes en kandidat, hvis id er en af de afledte, men hvis (`run_id`,`source_persona_id`,`candidate_person_id`) afviger,
+  ```sql
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(p_candidates) c JOIN private.source_persona_identity_candidate x
+               ON x.id=private.content_uuid('identity-candidate',jsonb_build_object('run_id',v_run,'source_persona_id',c->>'source_persona_id',
+                                            'candidate_person_id',(c->>'candidate_person_id')::bigint))
+              WHERE (x.run_id,x.source_persona_id,x.candidate_person_id)
+                    IS DISTINCT FROM (v_run,(c->>'source_persona_id')::uuid,(c->>'candidate_person_id')::bigint)) THEN
+    RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: identity-candidate';
+  END IF;
+  RAISE;
+  ```
   I `identity_candidate_input` ændres de tre `ORDER BY …, ic.id LIMIT 1` til `ORDER BY …, ic.interpretation_key LIMIT 1` (spec §4 pkt. 5).
 - [ ] **Step 4: Kør** `test-identity-candidates`, `test-identity-decision`, `test-identity-control-run`, `test-identity-detail`. Expected: OK.
 - [ ] **Step 5: Commit** `feat(151): kandidatkørsel og kandidater får id af indholdet`.
@@ -315,14 +343,15 @@ dropdb "$A"; dropdb "$B"; echo DETERMINISM_OK
   - **Review Focus 3:** en ny kandidatkørsel (ændret config) efter en `failed`-kontrol med `p_cause` giver et andet kontrol-id, og den gamle kørsels rækker er uændrede.
 - [ ] **Step 2: Kør.** Expected: FAIL.
 - [ ] **Step 3: Implementér:**
-  - `v_id` beregnes som `private.content_uuid('identity-control-run',jsonb_build_object('candidate_run_id',p_candidate_run_id))`. Hent `v_run` (kandidatkørslens række) **før** `ctl_elig` oprettes; i dag sker det kun ved inputdrift-tjekket, så flyt `SELECT * INTO v_run` op over `DROP TABLE IF EXISTS pg_temp.ctl_elig…`.
+  - `v_id` beregnes som `private.content_uuid('identity-control-run',jsonb_build_object('candidate_run_id',p_candidate_run_id))` i DECLARE (erstatter `gen_random_uuid()`). `v_run` hentes allerede før `DROP TABLE` (`schema.sql:16126` mod `:16133`); intet skal flyttes.
   - I `ctl_elig`: join `private.source_persona sp ON sp.id=c.source_persona_id`, tilføj kolonnen `sp.persona_key AS pkey`, og erstat `h` med
     `encode(extensions.digest(convert_to('control-sample-v2:'||v_run.input_sha256||':'||v_run.config_sha256||':'||sp.persona_key,'UTF8'),'sha256'),'hex') AS h`.
   - I `mapping`'s `row_number()`: join `private.source_persona_identity_candidate cc ON cc.id=d.cid`, og sorter efter
     `encode(extensions.digest(convert_to('control-display-v2:'||v_run.input_sha256||':'||v_run.config_sha256||':'||x.pkey||':'||cc.candidate_person_id::text,'UTF8'),'sha256'),'hex')`.
+  - `ORDER BY p.h` (`schema.sql:16197`) og vinduets `ORDER BY` får `COLLATE "C"` (Global Constraints).
   - Indsættet i `identity_control_sample` får `id` med `private.content_uuid('identity-control-sample',jsonb_build_object('control_run_id',v_id,'source_persona_id',x.pid))`.
   - Indsættet i `identity_control_parent_card` får `id` med `private.content_uuid('identity-control-parent-card',jsonb_build_object('control_run_id',v_id,'interpretation_key',k))`.
-  - Indsættet i `identity_control_run` pakkes i `EXCEPTION WHEN unique_violation` med kollisionstjek (`candidate_run_id` afviger ⇒ `DETERMINISTIC_ID_COLLISION: identity-control-run`). Den eksisterende idempotens over `candidate_run_id` er uændret.
+  - Indsættene i `identity_control_run`, `identity_control_sample` og `identity_control_parent_card` pakkes hver i `EXCEPTION WHEN unique_violation` med kollisionstjek på deres naturlige nøgle (`candidate_run_id`; `control_run_id`+`source_persona_id`; `control_run_id`+`interpretation_key`) ⇒ `DETERMINISTIC_ID_COLLISION: <art>`, ellers `RAISE`. Den eksisterende idempotens over `candidate_run_id` er uændret.
 - [ ] **Step 4: Kør** `test-identity-control-run`, `test-identity-candidates`, `test-identity-decision`, `test-spouse-exception-projection`. Expected: OK.
 - [ ] **Step 5: Erratum.** I 5b-spec'ens §23.3 pkt. 4, under den gamle formel: »**Erratum 2026-10-21 (#151, indholds-id):** trækningen bruger nu `sha256('control-sample-v2:' ‖ input_sha256 ‖ ':' ‖ config_sha256 ‖ ':' ‖ persona_key)` og visningen `…'control-display-v2:'… ‖ candidate_person_id`; garantierne er uændrede (indholds-id-spec §3).« I `docs/decisions.md`, under posten for 5b's kontrolkørsel: én linje med samme indhold.
 - [ ] **Step 6: Commit** `feat(151): kontrolkørsel med id og trækning af indholdet; erratum til 5b §23.3`.
@@ -339,22 +368,24 @@ dropdb "$A"; dropdb "$B"; echo DETERMINISM_OK
 **Interfaces:**
 - Produces: projektionskontrakten `spouse-exception-rows-v2`: `o_rows` = `{interpretation_key, interpretation_version, family_id, principal_person_id, spouse_person_id, book_ordinal, family_ordinal}`, sorteret på `interpretation_key COLLATE "C"`, uden `state_sha256`. Arklinjen bliver `O <interpretation_key> <version> <bog>/<fam> : <B|F>`.
 
-- [ ] **Step 1: Fejlende pytest** i `test_spouse_exception_sheet.py`. Opdatér fixturen til v2: `interpretation_key` og `interpretation_version: 2`, intet `state_sha256`. Tilføj:
+- [ ] **Step 1: Fejlende pytest** i `test_spouse_exception_sheet.py`. Modulets fixturfunktion hedder `rows()`, og id-konstanten `I1` (l. 12-28). Opdatér `rows()` til v2: `contract 'spouse-exception-rows-v2'`, `o_rows` med `interpretation_key: K1` (ny konstant, en fast uuid) og `interpretation_version: 2`, uden `interpretation_id` og `state_sha256`. Omskriv hver eksisterende assertion på `O {I1} 2/1`, `2/?`, `?/1` og den parametriserede `"O {i} 2/1 : S"` (l. 34, 43, 66, 131-132, 143) til `O {K1} 2 …`. Tilføj:
 
 ```python
 def test_o_line_keyed_on_interpretation_key_and_resolved_at_runtime():
-    rows = _rows()
-    text = render_sheet(rows)
+    r = rows()
+    text = render_sheet(r)
     assert f"O {K1} 2 2/1 : F" in text
     lines = parse_sheet(text)
-    sql = sheet_sql(lines, rows, sheet_sha256="a" * 64, rows_sha256="b" * 64, source_id=1)
+    sql = sheet_sql(lines, r, sheet_sha256="a" * 64, rows_sha256="b" * 64, source_id=1)
     assert f"interpretation_key='{K1}'::uuid AND ic.version=2" in sql
     assert I1 not in sql   # intet tilfældigt afgørelsesversions-id i ark-SQL
 
 def test_v1_rows_and_v1_o_line_rejected():
-    rows = _rows(); rows["contract"] = "spouse-exception-rows-v1"
+    r = rows(); r["contract"] = "spouse-exception-rows-v1"
     with pytest.raises(SheetError, match="SHEET_CONTRACT_UNSUPPORTED"):
-        render_sheet(rows)
+        render_sheet(r)
+    with pytest.raises(SheetError, match="SHEET_CONTRACT_UNSUPPORTED"):
+        check_identity([], r)
     with pytest.raises(SheetError, match="SHEET_LINE_INVALID"):
         parse_sheet(f"O {I1} 2/1 : F\n")
 ```
@@ -368,7 +399,7 @@ def test_v1_rows_and_v1_o_line_rejected():
     - `parse_sheet` sætter `version=int(m["ver"])` for begge arter.
     - `_expected` giver `("O", r["interpretation_key"], r["interpretation_version"])`.
     - `render_sheet` skriver `O {key} {ver} {bog}/{fam}`, og `forslag` nøgles på `interpretation_key`.
-    - En ny `_require_v2(rows)` kaster `SheetError("SHEET_CONTRACT_UNSUPPORTED")`, hvis `rows.get("contract") != "spouse-exception-rows-v2"`. Den kaldes først i `render_sheet` og i `sheet_sql`.
+    - En ny `_require_v2(rows)` kaster `SheetError("SHEET_CONTRACT_UNSUPPORTED")`, hvis `rows.get("contract") != "spouse-exception-rows-v2"`. Den kaldes først i `render_sheet`, `check_identity` og `sheet_sql`, så et v1-rækkefil gennem CLI'en giver koden og ikke en `KeyError` (Review Focus 4).
     - `o_by` nøgles på `interpretation_key`.
     - F-linjens SQL bliver
 
@@ -412,7 +443,6 @@ sql.append(f"INSERT INTO applied SELECT 'F' FROM (SELECT private.append_relation
 **Files:**
 - Modify: `db-migrations.sql` (ny blok mellem `-- #244-blokken slutter her.` og `-- 5b-sektionen slutter her …`)
 - Create: `tests/sql/inspect-5ab-function-parity.sql`
-- Modify: `tests/sql/inspect-reimport-writer-catalog.sql` (manglende komma, se Step 4)
 - Create: `tests/sql/test-indholds-id-upgrade.sh`
 - Modify: `.github/workflows/ci.yml`
 
@@ -425,7 +455,9 @@ sql.append(f"INSERT INTO applied SELECT 'F' FROM (SELECT private.append_relation
 ```sql
 \set ON_ERROR_STOP on
 SELECT p.oid::regprocedure::text||'|'||p.prosecdef||'|'||coalesce(array_to_string(p.proconfig,','),'')||'|'||
-       coalesce(p.proacl::text,'')||'|'||encode(extensions.digest(convert_to(pg_get_functiondef(p.oid),'UTF8'),'sha256'),'hex')
+       (SELECT string_agg(r||'='||has_function_privilege(r,p.oid,'EXECUTE'),',' ORDER BY r)
+          FROM unnest(ARRAY['anon','authenticated','service_role']) r)||'|'||
+       encode(extensions.digest(convert_to(pg_get_functiondef(p.oid),'UTF8'),'sha256'),'hex')
   FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
  WHERE (n.nspname,p.proname) IN (('private','content_uuid'),('private','decide_source_persona_identity'),
    ('private','identity_candidate_input'),('public','red_record_identity_candidates'),('private','write_relation_persona'),
@@ -459,8 +491,7 @@ SELECT p.oid::regprocedure::text||'|'||p.prosecdef||'|'||coalesce(array_to_strin
   Afslut med `-- Indholds-id-blokken slutter her.`
   Funktioner, der kaldes fra en SQL-funktion med `check_function_bodies`, skal stå efter det, de kalder. `content_uuid` er plpgsql, så rækkefølgen ovenfor er tilstrækkelig.
 - [ ] **Step 3: Kør paritetsfilen igen** i den friske og den migrerede base. Expected: byte-identisk output (`diff` tom).
-- [ ] **Step 4: Ret den gamle fejl i `inspect-reimport-writer-catalog.sql`.** Linjen `'red_apply_reimport_source_evidence','red_apply_reimport_person_create'` mangler et afsluttende komma. SQL slår derfor `'red_apply_reimport_person_create'` og `'red_authorize_reimport_reversal'` sammen til én streng, og ingen af de to funktioner paritetstjekkes. Tilføj kommaet. Kør filen i en frisk og en migreret base (som CI's writer-job). Expected: begge outputs indeholder nu begge funktioner og er stadig ens. Er de ikke ens, er det et ægte paritetsfund: stop og forelæg det.
-- [ ] **Step 5: Opgraderingstesten** `tests/sql/test-indholds-id-upgrade.sh`:
+- [ ] **Step 4: Opgraderingstesten** `tests/sql/test-indholds-id-upgrade.sh`:
 
 ```bash
 #!/usr/bin/env bash
@@ -473,9 +504,12 @@ for f in schema.sql db-rls.sql db-migrations.sql; do git show "$base:$f" > "$tmp
 q() { env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$db" "$@" >/dev/null; }
 createdb "$db"
 for f in tests/sql/evidence-promotion-bootstrap.sql "$tmp/schema.sql" "$tmp/db-rls.sql" "$tmp/db-migrations.sql" "$tmp/db-rls.sql" \
-         db-migrations.sql db-rls.sql db-migrations.sql db-rls.sql; do q -f "$f"; done
+         db-migrations.sql db-rls.sql db-migrations.sql db-rls.sql tests/sql/1939-v50-writer-bootstrap.sql; do q -f "$f"; done
+q -c 'BEGIN' -f tests/sql/reimport-writer-v2-bootstrap.sql -c 'COMMIT'; q -f db-rls.sql
+sed -n '/^-- BEGIN 5a-cutover/,/^-- END 5a-cutover/p' db-migrations.sql > "$tmp/cutover-5a.sql"
+q -v cutover="$tmp/cutover-5a.sql" -f tests/sql/test-identity-cutover.sql
 for t in test-content-uuid test-identity-decision test-identity-candidates test-identity-control-run test-relation-persona-writer \
-         test-relation-persona-v3 test-spouse-exception-projection test-identity-cutover; do q -f "tests/sql/$t.sql"; done
+         test-relation-persona-v3 test-spouse-exception-projection; do q -f "tests/sql/$t.sql"; done
 db="${1}_v"; createdb "$db"
 for f in tests/sql/evidence-promotion-bootstrap.sql "$tmp/schema.sql" "$tmp/db-rls.sql" "$tmp/db-migrations.sql" "$tmp/db-rls.sql" \
          db-migrations.sql db-rls.sql db-migrations.sql db-rls.sql tests/sql/run-db-verify-disposable.sql; do q -f "$f"; done
@@ -485,15 +519,15 @@ echo UPGRADE_OK
 
   Kør: `bash tests/sql/test-indholds-id-upgrade.sh t_up140`. Expected: `DETERMINISM_OK` og `UPGRADE_OK`.
   Fejler den i en opsætning, der ikke har med dette led at gøre (fx bootstrap mod det gamle træ eller ACL-porten), så ledger det som `Ruling:` med fejlteksten og den mindste rettelse i testscriptet. Ret ikke migrationerne for at få testen igennem uden at forelægge det.
-- [ ] **Step 6: Hovedtesten grøn.** `bash tests/sql/test-indholds-id-determinism.sh t_det` → `DETERMINISM_OK`.
-- [ ] **Step 7: CI.** I `ci.yml`:
+- [ ] **Step 5: Hovedtesten grøn.** `bash tests/sql/test-indholds-id-determinism.sh t_det` → `DETERMINISM_OK`.
+- [ ] **Step 6: CI.** I `ci.yml`:
   - i det job, der bygger `reimport_fresh_153` og `reimport_legacy_empty_153` (l. ~357-368), kør `inspect-5ab-function-parity.sql` i begge, og fejl jobbet, hvis outputtet afviger (`diff`);
   - i jobbet med `ci5b_2bii_sheet` (l. ~496-505): `bash tests/sql/test-indholds-id-determinism.sh ci_det`;
   - opgraderingstesten forbliver lokal, som `test-2bii-upgrade.sh`.
 
   Bekræft først, at CI's postgres-image har ICU (`SELECT count(*) FROM pg_collation WHERE collprovider='i'` > 0 i en CI-lignende container eller i jobbets første kørsel). Hvis ikke: ledger en ruling, og lad base B bruge `--locale=en_US.UTF-8` (libc).
-- [ ] **Step 8: Hele den lokale CI** (alle 7 jobs, `run_all.sh`-mønstret fra tidligere led; memory: kør hele jobbet). Expected: 7/7 `CI_JOB_OK`.
-- [ ] **Step 9: Commit** `feat(151): migrationsblok, paritet og opgraderingstest fra prods træ for id'er af indholdet`.
+- [ ] **Step 7: Hele den lokale CI:** alle 7 jobs i `ci.yml` (node, r, python og de 4 PostgreSQL-jobs), hvert job kørt med sine egne trin mod en lokal engangsklynge. Tidligere led genererede scripts til det i workspacet (`.superpowers/sdd/<plan>/ci/`); gør det samme her. Memory: kør hele jobbet, ikke kun de nye tests. Expected: 7/7 `CI_JOB_OK`.
+- [ ] **Step 8: Commit** `feat(151): migrationsblok, paritet og opgraderingstest fra prods træ for id'er af indholdet`.
 
 ---
 
@@ -504,7 +538,7 @@ echo UPGRADE_OK
 
 - [ ] **Step 1: Statusrække.** Tilføj under 5b-rækkerne: »Id'er af indholdet (#151, forudsætning for overførslen) | `isoleret implementeret` (2026-10-21) | 8 rækkearter med id af indholdet, indholdsbaseret kontroltrækning, arkværktøjer uden tilfældige id'er og med `COLLATE "C"`; hovedtest i to baser (collation/tidszone/forhistorik) grøn; opgradering fra prods træ `140a17b` grøn. Ikke deployet; deployes i overførslens DDL-ceremoni.«
 - [ ] **Step 2: Changelog-post** øverst, i samme form som #244's.
-- [ ] **Step 3: Beslutningspost** øverst i `docs/decisions.md`: »#151: id'er af indholdet — forudsætning for 5a+5b-overførslen (2026-10-21)«. Indhold: valg A (serverside afledning), de 8 arter, trækning `-v2`, ark-SQL uden tilfældige id'er, og notatet til overførslens plan om `decision_interpretation_id` (spec §4 pkt. 6).
+- [ ] **Step 3: Beslutningspost** øverst i `docs/decisions.md`: »#151: id'er af indholdet — forudsætning for 5a+5b-overførslen (2026-10-21)«. Indhold: valg A (serverside afledning), de 8 arter, trækning `-v2`, ark-SQL uden tilfældige id'er, og notatet til overførslens plan om `decision_interpretation_id` (spec §4 pkt. 6). Selve rettelsen af overførsels-spec'ens §7 hører til PR #250's gren og laves dér, ikke på denne gren.
 - [ ] **Step 4: Commit** `docs(151): status, changelog og beslutning for id'er af indholdet`.
 
 ---
@@ -523,9 +557,18 @@ echo UPGRADE_OK
 | §5.1 hovedtest med fixturkontrakt | Task 2 (rød), Task 7 (grøn, CI) |
 | §5.2 kollision | Task 3-5 |
 | §5.3 arkværktøjer | Task 6 |
-| §5.4 migrationsvej og paritet | Task 7 Step 1-4 |
-| §5.5 opgradering fra `140a17b` med hovedtesten | Task 7 Step 5 |
-| §5.6 lokal CI | Task 7 Step 8 |
+| §5.4 migrationsvej og paritet | Task 7 Step 1-3 |
+| §5.5 opgradering fra `140a17b` med hovedtesten | Task 7 Step 4 |
+| §5.6 lokal CI | Task 7 Step 7 |
 | §6 modenhed og afgrænsning | Task 8 |
 
 **Rækkefølge:** Task 2 er rød indtil Task 3-6 er gjort; Task 7 gør den grøn og kobler den på CI.
+
+## Revision efter Fable-review (2026-10-21)
+
+Dom: GO med rettelser (6 MAJOR, 13 MINOR). Indarbejdet: writer-bootstrap i basebygningen (M1); dumpet indlæses
+med fixturhjælperne og `f2a_event_for_state` (M2); kandidaternes `corroboration_eligible` styrer stikprøven, og
+`same` rammer afvigelsens ægtefælle (M3); forældrekort og kandidatkørsel 2 i kæden med opsætningsvagter (M4);
+det påståede manglende komma i `inspect-reimport-writer-catalog.sql` var en fejllæsning af afkortet output og er
+fjernet (M5); `test-identity-cutover` får sin `cutover`-variabel (M6); MINOR 2-6, 8-11 og 13 rettet i de
+respektive tasks.
