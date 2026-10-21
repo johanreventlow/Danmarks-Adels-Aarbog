@@ -364,6 +364,15 @@ jobs:
           psql -h localhost -U postgres -d reimport_fresh_153 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-edition-catalog.sql
           psql -h localhost -U postgres -d reimport_fresh_153 -At -f tests/sql/inspect-reimport-writer-catalog.sql > reimport-writer-fresh-catalog.json
           cmp reimport-writer-fresh-catalog.json reimport-writer-upgraded-catalog.json
+          # Indholds-id (#151, spec §5.4): de ændrede funktioner er ens i en ren schema.sql-base og i den migrerede base.
+          createdb -h localhost -U postgres reimport_schema_only_5ab
+          for f in tests/sql/evidence-promotion-bootstrap.sql schema.sql db-rls.sql; do
+            psql -h localhost -U postgres -d reimport_schema_only_5ab -q -v ON_ERROR_STOP=1 -f "$f" >/dev/null; done
+          psql -h localhost -U postgres -d reimport_schema_only_5ab -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-5ab-function-parity.sql > parity-5ab-schema.txt
+          psql -h localhost -U postgres -d reimport_legacy_empty_153 -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-5ab-function-parity.sql > parity-5ab-upgraded.txt
+          test "$(wc -l < parity-5ab-schema.txt)" -eq 9 || { echo "5ab parity: forventede 9 funktioner" >&2; exit 1; }
+          test "$(wc -l < parity-5ab-upgraded.txt)" -eq 9 || { echo "5ab parity: forventede 9 funktioner (migreret)" >&2; exit 1; }
+          cmp parity-5ab-schema.txt parity-5ab-upgraded.txt
           psql -h localhost -U postgres -d reimport_fresh_153 -v ON_ERROR_STOP=1 -c "ALTER TABLE private.reimport_batch ALTER COLUMN expected_counts DROP NOT NULL"
           psql -h localhost -U postgres -d reimport_fresh_153 -At -f tests/sql/inspect-reimport-writer-catalog.sql > reimport-writer-column-drift-catalog.json
           if cmp -s reimport-writer-fresh-catalog.json reimport-writer-column-drift-catalog.json; then
@@ -488,7 +497,7 @@ jobs:
       - name: Ordvindue, relation_person_create og disposition SQL (5b 2b-ii)
         env: {PGPASSWORD: postgres}
         run: |
-          for t in test-relation-persona-v2 test-relation-person-create test-relation-disposition test-relation-persona-v3 test-relation-person-create-v3 test-relation-child test-marriage-ordinal-correction; do
+          for t in test-relation-persona-v2 test-relation-person-create test-relation-disposition test-relation-persona-v3 test-relation-person-create-v3 test-relation-child test-marriage-ordinal-correction test-content-uuid; do
             psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/$t.sql; done
       - name: Ægteskabsark ende til ende (5b 2b-ii)
         env: {PGHOST: localhost, PGUSER: postgres, PGPASSWORD: postgres}
@@ -503,6 +512,7 @@ jobs:
           bash tests/sql/test-relation-child-sheet.sh ci5b_2bii_sheet
           bash tests/sql/test-relation-ordinal-sheet.sh ci5b_2bii_sheet
           psql -q -v ON_ERROR_STOP=1 -d ci5b_2bii_sheet -f tests/sql/test-marriage-ordinal-lock.sql >/dev/null
+          bash tests/sql/test-indholds-id-determinism.sh ci_det
       - name: Klausul-writer SQL (#148 4.1c)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-clause-evidence-writer.sql

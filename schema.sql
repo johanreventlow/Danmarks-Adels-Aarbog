@@ -3800,6 +3800,18 @@ END $$;
 COMMENT ON FUNCTION private.deterministic_uuid(text) IS
   'Project-specific deterministic SHA-256 UUID; NOT RFC UUIDv5 (which is SHA-1 over a namespace). Form prescribed by spec section 7.1.';
 
+-- Trin 5a/5b (#151, indholds-id-spec, afsnittet om deterministiske id'er): id af indhold. kind og key_version adskiller arter og nøgleversioner;
+-- jsonb::text giver kanonisk nøgleorden.
+CREATE OR REPLACE FUNCTION private.content_uuid(p_kind text,p_key jsonb)
+RETURNS uuid LANGUAGE plpgsql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
+BEGIN
+  IF btrim(p_kind)='' OR jsonb_typeof(p_key)<>'object' OR p_key ?| ARRAY['kind','key_version'] THEN
+    RAISE EXCEPTION 'CONTENT_UUID_KEY_INVALID';
+  END IF;
+  RETURN private.deterministic_uuid((jsonb_build_object('kind',p_kind,'key_version',1)||p_key)::text);
+END $$;
+REVOKE ALL ON FUNCTION private.content_uuid(text,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+
 -- #196: receipt bytes are deliberately independent of the generic reimport
 -- canonicalizer.  Historical profile hashes use the latter and may not drift.
 CREATE OR REPLACE FUNCTION private.interpretation_proposal_canonical_json_text(p_value jsonb)
@@ -8460,13 +8472,24 @@ BEGIN
   END IF;
   v_new_version:=v_current_version+1;
 
-  INSERT INTO private.source_persona_identity_event(
-    source_persona_id,canonical_person_id,decision_status,version,evidence,
-    decided_by,decided_by_name,decided_at
-  ) VALUES (
-    p_source_persona_id,p_canonical_person_id,p_decision_status,v_new_version,
-    p_evidence,v_actor,v_actor_name,v_decided_at
-  );
+  -- Indholds-id (#151, spec §3): hændelsens id afledes af (persona, version) for alle oprindelser.
+  BEGIN
+    INSERT INTO private.source_persona_identity_event(
+      id,source_persona_id,canonical_person_id,decision_status,version,evidence,
+      decided_by,decided_by_name,decided_at
+    ) VALUES (
+      private.content_uuid('identity-event',jsonb_build_object('source_persona_id',p_source_persona_id,'version',v_new_version)),
+      p_source_persona_id,p_canonical_person_id,p_decision_status,v_new_version,
+      p_evidence,v_actor,v_actor_name,v_decided_at
+    );
+  EXCEPTION WHEN unique_violation THEN
+    IF EXISTS (SELECT 1 FROM private.source_persona_identity_event
+                WHERE id=private.content_uuid('identity-event',jsonb_build_object('source_persona_id',p_source_persona_id,'version',v_new_version))
+                  AND (source_persona_id,version) IS DISTINCT FROM (p_source_persona_id,v_new_version)) THEN
+      RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: identity-event';
+    END IF;
+    RAISE;
+  END;
   INSERT INTO private.source_persona_identity(
     source_persona_id,canonical_person_id,decision_status,version,evidence,
     decided_by,decided_by_name,decided_at,updated_at
@@ -8818,16 +8841,16 @@ BEGIN
       LEFT JOIN LATERAL (SELECT private.persona_family_context(p.id) AS fc) fctx ON true
       LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v, ic.status||'_interpretation' origin FROM private.interpretation_current ic
                           WHERE ic.source_persona_id=p.id AND ic.predicate='person.name' AND ic.status IN ('accepted','proposed')
-                          ORDER BY (ic.status='accepted') DESC, ic.confidence DESC NULLS LAST, ic.id LIMIT 1) nm ON true
+                          ORDER BY (ic.status='accepted') DESC, ic.confidence DESC NULLS LAST, ic.interpretation_key LIMIT 1) nm ON true
       LEFT JOIN LATERAL (SELECT sm.verbatim_text v FROM private.source_persona_mention spm
                           JOIN private.source_mention sm ON sm.id=spm.mention_id
                           WHERE spm.persona_id=p.id AND sm.mention_kind='person' ORDER BY spm.ordinal LIMIT 1) men ON true
       LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v, ic.status||'_interpretation' origin FROM private.interpretation_current ic
                           WHERE ic.source_persona_id=p.id AND ic.predicate='person.birth' AND ic.status IN ('accepted','proposed')
-                          ORDER BY (ic.status='accepted') DESC, ic.confidence DESC NULLS LAST, ic.id LIMIT 1) b ON true
+                          ORDER BY (ic.status='accepted') DESC, ic.confidence DESC NULLS LAST, ic.interpretation_key LIMIT 1) b ON true
       LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v, ic.status||'_interpretation' origin FROM private.interpretation_current ic
                           WHERE ic.source_persona_id=p.id AND ic.predicate='person.death' AND ic.status IN ('accepted','proposed')
-                          ORDER BY (ic.status='accepted') DESC, ic.confidence DESC NULLS LAST, ic.id LIMIT 1) d ON true
+                          ORDER BY (ic.status='accepted') DESC, ic.confidence DESC NULLS LAST, ic.interpretation_key LIMIT 1) d ON true
      WHERE p.source_id=p_source_id
        AND ((v_mode='undecided' AND (i.source_persona_id IS NULL OR i.decision_status='proposed'))
          OR (v_mode='list' AND p.id=ANY(v_ids)))
@@ -8861,7 +8884,7 @@ CREATE OR REPLACE FUNCTION red_record_identity_candidates(p_run jsonb,p_candidat
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE
   v_actor uuid:=auth.uid(); v_actor_name text; v_source bigint; v_input jsonb; v_cand_hash text; v_config_hash text;
-  v_run uuid; v_existing text;
+  v_run uuid; v_existing text; v_new uuid;
 BEGIN
   IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
   IF jsonb_typeof(p_run)<>'object'
@@ -8903,27 +8926,52 @@ BEGIN
   SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text)
     INTO v_actor_name FROM public.profiles WHERE id=v_actor;
 
-  INSERT INTO private.source_persona_identity_candidate_run(
-    source_id,generator_version,config,config_sha256,input_spec,input_sha256,candidates_sha256,
-    persona_count,candidate_count,created_by,created_by_name
-  ) VALUES (
-    v_source,p_run->>'generator_version',p_run->'config',v_config_hash,p_run->'input_spec',p_run->>'input_sha256',v_cand_hash,
-    jsonb_array_length(v_input->'personas'),jsonb_array_length(p_candidates),v_actor,v_actor_name
-  ) ON CONFLICT (source_id,input_sha256,config_sha256) DO NOTHING
-  RETURNING id INTO v_run;
+  -- Indholds-id (#151, spec 2026-10-21-trin5ab-indholds-id-design.md §3): kørsel og kandidater får id af deres
+  -- naturlige nøgler; samme indhold igen er idempotent som før, en anden nøgle bag samme id fejler lukket.
+  v_new:=private.content_uuid('identity-candidate-run',jsonb_build_object('source_id',v_source,
+           'input_sha256',p_run->>'input_sha256','config_sha256',v_config_hash));
+  BEGIN
+    INSERT INTO private.source_persona_identity_candidate_run(
+      id,source_id,generator_version,config,config_sha256,input_spec,input_sha256,candidates_sha256,
+      persona_count,candidate_count,created_by,created_by_name
+    ) VALUES (
+      v_new,v_source,p_run->>'generator_version',p_run->'config',v_config_hash,p_run->'input_spec',p_run->>'input_sha256',v_cand_hash,
+      jsonb_array_length(v_input->'personas'),jsonb_array_length(p_candidates),v_actor,v_actor_name
+    ) ON CONFLICT (source_id,input_sha256,config_sha256) DO NOTHING
+    RETURNING id INTO v_run;
+  EXCEPTION WHEN unique_violation THEN
+    IF EXISTS (SELECT 1 FROM private.source_persona_identity_candidate_run WHERE id=v_new
+                AND (source_id,input_sha256,config_sha256) IS DISTINCT FROM (v_source,p_run->>'input_sha256',v_config_hash)) THEN
+      RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: identity-candidate-run';
+    END IF;
+    RAISE;
+  END;
   IF v_run IS NULL THEN
     SELECT id,candidates_sha256 INTO v_run,v_existing FROM private.source_persona_identity_candidate_run
      WHERE source_id=v_source AND input_sha256=p_run->>'input_sha256' AND config_sha256=v_config_hash;
     IF v_existing<>v_cand_hash THEN RAISE EXCEPTION 'IDENTITY_CANDIDATE_RUN_CONFLICT'; END IF;
     RETURN v_run;
   END IF;
-  INSERT INTO private.source_persona_identity_candidate(run_id,source_persona_id,candidate_person_id,rank,score,tier,basis,family_context_sha256)
-  SELECT v_run,(c->>'source_persona_id')::uuid,(c->>'candidate_person_id')::bigint,(c->>'rank')::int,
-         (c->>'score')::numeric,c->>'tier',c->'basis',
-         -- Trin 5b: serveren beregner familiekontekstens hash; kernen genberegner den (spec §6.2 c).
-         (SELECT CASE WHEN fc IS NULL THEN NULL ELSE private.reimport_canonical_json_sha256(fc) END
-            FROM private.persona_family_context((c->>'source_persona_id')::uuid) fc)
-    FROM jsonb_array_elements(p_candidates) c;
+  BEGIN
+    INSERT INTO private.source_persona_identity_candidate(id,run_id,source_persona_id,candidate_person_id,rank,score,tier,basis,family_context_sha256)
+    SELECT private.content_uuid('identity-candidate',jsonb_build_object('run_id',v_run,'source_persona_id',(c->>'source_persona_id')::uuid,
+             'candidate_person_id',(c->>'candidate_person_id')::bigint)),
+           v_run,(c->>'source_persona_id')::uuid,(c->>'candidate_person_id')::bigint,(c->>'rank')::int,
+           (c->>'score')::numeric,c->>'tier',c->'basis',
+           -- Trin 5b: serveren beregner familiekontekstens hash; kernen genberegner den (spec §6.2 c).
+           (SELECT CASE WHEN fc IS NULL THEN NULL ELSE private.reimport_canonical_json_sha256(fc) END
+              FROM private.persona_family_context((c->>'source_persona_id')::uuid) fc)
+      FROM jsonb_array_elements(p_candidates) c;
+  EXCEPTION WHEN unique_violation THEN
+    IF EXISTS (SELECT 1 FROM jsonb_array_elements(p_candidates) c JOIN private.source_persona_identity_candidate x
+                 ON x.id=private.content_uuid('identity-candidate',jsonb_build_object('run_id',v_run,
+                      'source_persona_id',(c->>'source_persona_id')::uuid,'candidate_person_id',(c->>'candidate_person_id')::bigint))
+                WHERE (x.run_id,x.source_persona_id,x.candidate_person_id)
+                      IS DISTINCT FROM (v_run,(c->>'source_persona_id')::uuid,(c->>'candidate_person_id')::bigint)) THEN
+      RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: identity-candidate';
+    END IF;
+    RAISE;
+  END;
   RETURN v_run;
 END $$;
 REVOKE ALL ON FUNCTION red_record_identity_candidates(jsonb,jsonb) FROM PUBLIC,anon,authenticated;
@@ -15055,6 +15103,7 @@ DECLARE
   v_record_key text; v_principal uuid; v_principal_n integer; v_spouse uuid; v_mention uuid; v_run uuid; v_run_key text;
   v_raw text; v_ordinal integer; v_year_ids uuid[]:='{}'; v_year_id uuid; v_pred text; v_year text; v_receipt jsonb;
   v_hash text; v_marriage boolean; v_from integer; v_to integer; v_name_from integer; v_name_to integer;
+  v_key text;
 BEGIN
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
   IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
@@ -15185,13 +15234,32 @@ BEGIN
   IF v_run IS NULL THEN RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_RUN_DRIFT'; END IF;
 
   IF v_marriage THEN
-    INSERT INTO private.source_persona(source_id,persona_key,created_run_id)
-      VALUES (v_batch.source_id,v_record_key||'#rel-marriage-'||(p_payload->>'post_offset')||'-'||(v_to-v_from),v_run)
-      RETURNING id INTO v_spouse;
-    INSERT INTO private.source_mention(observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id)
-      VALUES (v_clause.id,'person',v_name_from,v_name_to,
-              substr(v_clause.verbatim_text,v_name_from+1,v_name_to-v_name_from),v_run)
-      RETURNING id INTO v_mention;
+    -- Indholds-id (#151, spec 2026-10-21-trin5ab-indholds-id-design.md §3): persona og omtale får id af deres
+    -- naturlige nøgle; en eksisterende række med samme id og anden nøgle fejler lukket.
+    v_key:=v_record_key||'#rel-marriage-'||(p_payload->>'post_offset')||'-'||(v_to-v_from);
+    v_spouse:=private.content_uuid('source-persona',jsonb_build_object('source_id',v_batch.source_id,'persona_key',v_key));
+    BEGIN
+      INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES (v_spouse,v_batch.source_id,v_key,v_run);
+    EXCEPTION WHEN unique_violation THEN
+      IF EXISTS (SELECT 1 FROM private.source_persona WHERE id=v_spouse
+                  AND (source_id,persona_key) IS DISTINCT FROM (v_batch.source_id,v_key)) THEN
+        RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: source-persona';
+      END IF;
+      RAISE;
+    END;
+    v_mention:=private.content_uuid('source-mention',jsonb_build_object('persona_id',v_spouse,'mention_role','spouse','ordinal',1));
+    BEGIN
+      INSERT INTO private.source_mention(id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id)
+        VALUES (v_mention,v_clause.id,'person',v_name_from,v_name_to,
+                substr(v_clause.verbatim_text,v_name_from+1,v_name_to-v_name_from),v_run);
+    EXCEPTION WHEN unique_violation THEN
+      IF EXISTS (SELECT 1 FROM private.source_mention WHERE id=v_mention)
+         AND NOT EXISTS (SELECT 1 FROM private.source_persona_mention WHERE mention_id=v_mention AND persona_id=v_spouse
+                          AND mention_role='spouse' AND ordinal=1) THEN
+        RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: source-mention';
+      END IF;
+      RAISE;
+    END;
     INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
       VALUES (v_spouse,v_mention,'spouse',1);
     FOREACH v_pred IN ARRAY ARRAY['person.birth','person.death'] LOOP
@@ -15369,7 +15437,7 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,pu
     'marriage_claims_in_post',(SELECT count(*) FROM occ CROSS JOIN LATERAL private.relation_marriage_ordinals(occ.occurrence_id)),
     'families',coalesce((SELECT jsonb_agg(jsonb_build_object(
         'family_id',fm.family_id,'ordinal',fm.ordinal,
-        'konfidens',(SELECT coalesce(jsonb_agg(DISTINCT o.konfidens ORDER BY o.konfidens),'[]'::jsonb) FROM family_member o
+        'konfidens',(SELECT coalesce(jsonb_agg(DISTINCT o.konfidens COLLATE "C" ORDER BY o.konfidens COLLATE "C"),'[]'::jsonb) FROM family_member o
                       WHERE o.family_id=fm.family_id AND o.rolle='partner' AND o.konfidens IS NOT NULL),
         'partners',(SELECT coalesce(jsonb_agg(o.person_id ORDER BY o.person_id),'[]'::jsonb) FROM family_member o
                      WHERE o.family_id=fm.family_id AND o.rolle='partner' AND o.person_id<>fm.person_id))
@@ -16098,7 +16166,9 @@ REVOKE ALL ON FUNCTION private.control_run_status(uuid) FROM PUBLIC,anon,authent
 DROP FUNCTION IF EXISTS red_register_identity_control_run(uuid);   -- signaturen fik p_cause (final review I2)
 CREATE OR REPLACE FUNCTION red_register_identity_control_run(p_candidate_run_id uuid,p_cause text DEFAULT NULL)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
-DECLARE v_source bigint; v_cur uuid; v_id uuid:=gen_random_uuid(); v_ipop text; v_rpop text; v_run private.source_persona_identity_candidate_run%ROWTYPE;
+DECLARE v_source bigint; v_cur uuid; v_ipop text; v_rpop text; v_run private.source_persona_identity_candidate_run%ROWTYPE;
+  -- Indholds-id (#151, spec 2026-10-21-trin5ab-indholds-id-design.md §3): id af kandidatkørslen.
+  v_id uuid:=private.content_uuid('identity-control-run',jsonb_build_object('candidate_run_id',p_candidate_run_id));
   v_existing uuid; v_excl text; v_alloc jsonb; v_k integer:=20;   -- K: projektejerens valg 2026-10-10 (spec §23.2)
 BEGIN
   IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
@@ -16137,9 +16207,13 @@ BEGIN
            private.spouse_principal_person(c.source_persona_id) AS hp,
            CASE WHEN jsonb_array_length(private.persona_family_context(c.source_persona_id)->'families')=1
                 THEN 'single_family' ELSE 'multi_family' END AS fam_stratum,
-           encode(extensions.digest(convert_to(p_candidate_run_id::text||':'||c.source_persona_id::text,'UTF8'),'sha256'),'hex') AS h,
+           sp.persona_key AS pkey,
+           -- Trækning efter indhold (indholds-id-spec §3; erratum til 5b §23.3 pkt. 4).
+           encode(extensions.digest(convert_to('control-sample-v2:'||v_run.input_sha256||':'||v_run.config_sha256||':'||sp.persona_key,
+                  'UTF8'),'sha256'),'hex') AS h,
            '{}'::uuid[] AS homs
       FROM private.source_persona_identity_candidate c
+      JOIN private.source_persona sp ON sp.id=c.source_persona_id
       LEFT JOIN private.source_persona_identity i ON i.source_persona_id=c.source_persona_id
      WHERE c.run_id=p_candidate_run_id AND c.rank=1 AND (c.basis->>'corroboration_eligible')::boolean IS TRUE
        AND (i.source_persona_id IS NULL OR i.decision_status='proposed');
@@ -16169,33 +16243,63 @@ BEGIN
   SELECT private.reimport_canonical_json_sha256(coalesce(jsonb_agg(pid::text ORDER BY pid::text COLLATE "C"),'[]'::jsonb)) INTO v_ipop FROM pg_temp.ctl_ipop;
   SELECT private.reimport_canonical_json_sha256(coalesce(jsonb_agg(k::text ORDER BY k::text COLLATE "C"),'[]'::jsonb)) INTO v_rpop FROM pg_temp.ctl_cards;
   SELECT private.reimport_canonical_json_sha256(coalesce(jsonb_agg(pid::text ORDER BY pid::text COLLATE "C"),'[]'::jsonb)) INTO v_excl FROM pg_temp.ctl_excl;
-  INSERT INTO private.identity_control_run(id,source_id,candidate_run_id,identity_population_sha256,relation_population_sha256,
-    input_list_sha256,excluded_sha256,k_random,cause,created_by)
-    VALUES (v_id,v_source,p_candidate_run_id,v_ipop,v_rpop,private.control_input_list_sha256(p_candidate_run_id),v_excl,v_k,
-            nullif(btrim(p_cause),''),auth.uid());
+  BEGIN
+    INSERT INTO private.identity_control_run(id,source_id,candidate_run_id,identity_population_sha256,relation_population_sha256,
+      input_list_sha256,excluded_sha256,k_random,cause,created_by)
+      VALUES (v_id,v_source,p_candidate_run_id,v_ipop,v_rpop,private.control_input_list_sha256(p_candidate_run_id),v_excl,v_k,
+              nullif(btrim(p_cause),''),auth.uid());
+  EXCEPTION WHEN unique_violation THEN
+    IF EXISTS (SELECT 1 FROM private.identity_control_run WHERE id=v_id AND candidate_run_id IS DISTINCT FROM p_candidate_run_id) THEN
+      RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: identity-control-run';
+    END IF;
+    RAISE;
+  END;
   INSERT INTO private.identity_control_exclusion(control_run_id,source_persona_id,reason) SELECT v_id,pid,reason FROM pg_temp.ctl_excl;
-  INSERT INTO private.identity_control_parent_card(control_run_id,interpretation_key,interpretation_version,family_id,
-    counterpart_person_id,counterpart_persona_id,partner_ids)
-  SELECT v_id,k,v,fam,cp,cpp,(SELECT array_agg(fm.person_id ORDER BY fm.person_id) FROM public.family_member fm
-                               WHERE fm.family_id=fam AND fm.rolle='partner') FROM pg_temp.ctl_cards;
+  BEGIN
+    INSERT INTO private.identity_control_parent_card(id,control_run_id,interpretation_key,interpretation_version,family_id,
+      counterpart_person_id,counterpart_persona_id,partner_ids)
+    SELECT private.content_uuid('identity-control-parent-card',jsonb_build_object('control_run_id',v_id,'interpretation_key',k)),
+           v_id,k,v,fam,cp,cpp,(SELECT array_agg(fm.person_id ORDER BY fm.person_id) FROM public.family_member fm
+                                 WHERE fm.family_id=fam AND fm.rolle='partner') FROM pg_temp.ctl_cards;
+  EXCEPTION WHEN unique_violation THEN
+    IF EXISTS (SELECT 1 FROM pg_temp.ctl_cards x JOIN private.identity_control_parent_card pc
+                 ON pc.id=private.content_uuid('identity-control-parent-card',jsonb_build_object('control_run_id',v_id,'interpretation_key',x.k))
+                WHERE (pc.control_run_id,pc.interpretation_key) IS DISTINCT FROM (v_id,x.k)) THEN
+      RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: identity-control-parent-card';
+    END IF;
+    RAISE;
+  END;
   -- Stikprøve: alle navnefæller + K tilfældige fordelt med største rest. Visning pr. kort: rang 1, navnefæller,
   -- udfyldning efter rang blandt de mulige — højst 3, i blandet orden (spec §23.3 pkt. 5).
   v_alloc:=private.control_allocate((SELECT coalesce(jsonb_object_agg(stratum,n),'{}'::jsonb) FROM (
       SELECT stratum,count(*) AS n FROM pg_temp.ctl_ipop WHERE stratum<>'navnefaelle' GROUP BY stratum) q),v_k);
-  INSERT INTO private.identity_control_sample(control_run_id,sample_kind,stratum,source_persona_id,identity_version,mapping,expected)
-  SELECT v_id,'identity',x.stratum,x.pid,x.ver,
+  BEGIN
+  INSERT INTO private.identity_control_sample(id,control_run_id,sample_kind,stratum,source_persona_id,identity_version,mapping,expected)
+  SELECT private.content_uuid('identity-control-sample',jsonb_build_object('control_run_id',v_id,'source_persona_id',x.pid)),
+         v_id,'identity',x.stratum,x.pid,x.ver,
          (SELECT jsonb_object_agg(m.pos::text,m.cid::text) FROM (
-            SELECT d.cid,row_number() OVER (ORDER BY encode(extensions.digest(convert_to(v_id::text||':'||d.cid::text,'UTF8'),'sha256'),'hex')) AS pos
+            -- Visning efter indhold (indholds-id-spec §3): (input, config, persona_key, kandidatperson).
+            SELECT d.cid,row_number() OVER (ORDER BY encode(extensions.digest(convert_to('control-display-v2:'||v_run.input_sha256||':'||
+                     v_run.config_sha256||':'||x.pkey||':'||cc.candidate_person_id::text,'UTF8'),'sha256'),'hex') COLLATE "C") AS pos
               FROM (SELECT u.cid FROM (
                       SELECT x.cand_id AS cid,0 AS pri,1 AS rk
                       UNION ALL SELECT hm.cid,1,hm.o::integer FROM unnest(x.homs) WITH ORDINALITY hm(cid,o)
                       UNION ALL SELECT c2.id,2,c2.rank FROM private.source_persona_identity_candidate c2
                        WHERE c2.run_id=p_candidate_run_id AND c2.source_persona_id=x.pid AND c2.rank>1
                          AND c2.id<>ALL(x.homs) AND NOT private.candidate_impossible(x.hp,c2.candidate_person_id)) u
-                    ORDER BY u.pri,u.rk LIMIT 3) d) m),
+                    ORDER BY u.pri,u.rk LIMIT 3) d
+              JOIN private.source_persona_identity_candidate cc ON cc.id=d.cid) m),
          x.cand_id::text
-    FROM (SELECT p.*,row_number() OVER (PARTITION BY p.stratum ORDER BY p.h) AS rn FROM pg_temp.ctl_ipop p) x
+    FROM (SELECT p.*,row_number() OVER (PARTITION BY p.stratum ORDER BY p.h COLLATE "C") AS rn FROM pg_temp.ctl_ipop p) x
    WHERE x.stratum='navnefaelle' OR x.rn<=coalesce((v_alloc->>x.stratum)::integer,0);
+  EXCEPTION WHEN unique_violation THEN
+    IF EXISTS (SELECT 1 FROM pg_temp.ctl_ipop x JOIN private.identity_control_sample s
+                 ON s.id=private.content_uuid('identity-control-sample',jsonb_build_object('control_run_id',v_id,'source_persona_id',x.pid))
+                WHERE (s.control_run_id,s.source_persona_id) IS DISTINCT FROM (v_id,x.pid)) THEN
+      RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: identity-control-sample';
+    END IF;
+    RAISE;
+  END;
   IF (SELECT count(*) FROM private.identity_control_sample WHERE control_run_id=v_id)>40 THEN
     RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_TOO_LARGE';
   END IF;
@@ -16850,21 +16954,24 @@ BEGIN
       JOIN private.interpretation q ON q.id=e.interpretation_id AND q.source_id=p_source_id
      ORDER BY e.interpretation_key,e.seq DESC
   ), cur AS (
-    SELECT l.*,ic.id AS cur_id,private.relation_binding_state(ic.id) AS st
+    SELECT l.*,ic.id AS cur_id,ic.version AS cur_version,private.relation_binding_state(ic.id) AS st
       FROM last l JOIN private.interpretation_current ic ON ic.interpretation_key=l.interpretation_key
      WHERE l.classification='ordinal_afvigelse' AND ic.id=l.interpretation_id AND ic.status='accepted'
   )
+  -- Indholds-id (#151, spec §4 pkt. 1): v2 nøgler rækken på fortolkningsnøgle og version (intet tilfældigt
+  -- afgørelsesversions-id, ingen tilstandshash); ligheden med den gældende tilstand tjekkes fortsat nedenfor.
   SELECT coalesce(jsonb_agg(jsonb_build_object(
-      'interpretation_id',cur.cur_id::text,'family_id',(cur.st#>>'{family,family_id}')::bigint,
+      'interpretation_key',cur.interpretation_key::text,'interpretation_version',cur.cur_version,
+      'family_id',(cur.st#>>'{family,family_id}')::bigint,
       'principal_person_id',(SELECT (x->>'canonical_person_id')::bigint FROM jsonb_array_elements(cur.st->'parties') x WHERE x->>'party_role'='principal'),
       'spouse_person_id',(cur.st->>'counterpart_person_id')::bigint,
-      'book_ordinal',(cur.st->>'book_ordinal')::int,'family_ordinal',(cur.st->>'family_ordinal')::int,
-      'state_sha256',l_sha) ORDER BY cur.cur_id::text COLLATE "C"),'[]'::jsonb)
+      'book_ordinal',(cur.st->>'book_ordinal')::int,'family_ordinal',(cur.st->>'family_ordinal')::int)
+      ORDER BY cur.interpretation_key::text COLLATE "C"),'[]'::jsonb)
     INTO v_o
     FROM cur CROSS JOIN LATERAL (SELECT private.reimport_canonical_json_sha256(cur.st) AS l_sha) h
    WHERE cur.st IS NOT NULL AND h.l_sha=cur.state_sha256
      AND (cur.st->>'book_ordinal') IS DISTINCT FROM (cur.st->>'family_ordinal');
-  RETURN jsonb_build_object('contract','spouse-exception-rows-v1','source_id',p_source_id,'s_rows',v_s,'o_rows',v_o);
+  RETURN jsonb_build_object('contract','spouse-exception-rows-v2','source_id',p_source_id,'s_rows',v_s,'o_rows',v_o);
 END $$;
 REVOKE ALL ON FUNCTION private.spouse_exception_projection(bigint) FROM PUBLIC,anon,authenticated,service_role;
 
@@ -17315,8 +17422,8 @@ BEGIN
     INTO v_rows FROM jsonb_array_elements(v2->'rows') WITH ORDINALITY AS t(r,n);
   SELECT coalesce(jsonb_agg(jsonb_build_object(
       'source_persona_id',i.source_persona_id::text,'identity_version',i.version,
-      'previous',jsonb_build_object('basis',i.evidence->>'basis','note',i.evidence->>'note',
-                                    'decided_at',to_char(i.decided_at AT TIME ZONE 'UTC','YYYY-MM-DD')),
+      -- Indholds-id (#151, spec §4 pkt. 3): ingen dato; arkets hash må ikke afhænge af kørselsdagen.
+      'previous',jsonb_build_object('basis',i.evidence->>'basis','note',i.evidence->>'note'),
       'name_text',sm.verbatim_text,'clause_observation_id',o.id::text,'clause_text',o.verbatim_text,
       'clause_is_current',EXISTS (SELECT 1 FROM private.clause_observation_current cc WHERE cc.id=o.id),
       'post_text',po.verbatim_text,'record_key',sr.record_key,'page_from',o.page_from,

@@ -2,6 +2,22 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: #151 — id'er af indholdet; forudsætning for 5a+5b-overførslen (2026-10-21)
+
+> **Besluttet af projektejeren 2026-10-21** i brainstormen og ved godkendelsen af spec'en.
+> - Spec: `docs/superpowers/specs/2026-10-21-trin5ab-indholds-id-design.md`.
+> - Overordnet: `docs/superpowers/specs/2026-10-21-trin5ab-2018-20-prod-overfoersel-design.md` (§4).
+
+**Besluttet:**
+1. **Serveren afleder id'et selv** (tilgang A) med `private.content_uuid(kind, naturlig nøgle)`. Fravalgt: klientleverede id'er i manifestet (B), fordi serveren så skulle stole på klienten, og payloads og signaturer skulle ændres.
+2. **8 rækkearter:** ægtefællepersona, omtale, identitetshændelse, kandidatkørsel, kandidat, kontrolkørsel, stikprøve og forældrekort. De øvrige tilfældige id'er bliver og verificeres pr. nøgle i overførslen.
+3. **Trækning `-v2`:** stikprøve og kortvisning trækkes efter (input, config, persona_key[, kandidatperson]) i stedet for tilfældige id'er; garantierne i 5b §23.3 er uændrede.
+4. **Ark-SQL uden tilfældige id'er:** 2b-i's `O`-linjer slår den gældende afgørelsesversion op ved kørsel.
+
+**Kendt begrænsning (fundet ved implementeringen, afventer projektejerens stillingtagen):** trækningen kan beregnes på forhånd for enhver config, så en redaktør kunne vælge en config med en gunstig stikprøve. Den gamle trækning kunne også fornyes med en ny config, og kontrollen er en advarselslampe mod maskinfejl, ikke et værn mod redaktøren.
+
+**Note til overførslens plan:** klassifikationshændelsers evidensfelt `decision_interpretation_id` føjes til listen over udeladte felter i overførsels-spec'ens §7 (spec §4 pkt. 6). Rettelsen hører til overførslens gren.
+
 ## BESLUTTET: #244 — ægteskabsnummeret efter skriverens vindue; 4 numre rettet på ark; afløser pkt. 4's »genafgør« (2026-10-20)
 
 > **Besluttet af projektejeren 2026-10-20** i brainstormen af #244 og ved gennemgangen af spec og ark.
@@ -161,6 +177,10 @@ Et »bestået« kunne dermed bygge på gæt og autorisere 181 maskinelle afgøre
 **Uændret:** forseglingen og hashbindingen; ingen fulde afgørelsesark. `family_corroboration`-kernen får
 én ekstra afvisning (udelukket persona). Ægteskaber afgøres maskinelt i del 2 uden kontrolkørsel som
 betingelse, når begge identiteter er afgjort.
+
+**Erratum 2026-10-21 (#151, indholds-id):** stikprøven trækkes efter `sha256('control-sample-v2:' ‖ input_sha256 ‖ ':' ‖
+config_sha256 ‖ ':' ‖ persona_key)` og kortene vises efter `…'control-display-v2:'… ‖ candidate_person_id` i stedet
+for kørsels- og persona-id'er, så trækningen kan genspilles i prod; garantierne er uændrede (indholds-id-spec §3).
 
 ## BESLUTTET: trin 5b — familie-forankret maskinel identitet (`family_corroboration`) ændrer 5a §4.2 (2026-10-06)
 

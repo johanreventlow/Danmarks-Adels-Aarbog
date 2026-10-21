@@ -177,6 +177,30 @@ BEGIN
           <>private.reimport_canonical_json_sha256('{"topK":3}'::jsonb) THEN
       RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: serverens antal eller hashes er forkerte';
     END IF;
+    -- Indholds-id (#151, spec §3, §5.2): kørslens og kandidaternes id afledes af deres naturlige nøgler.
+    IF v_id IS DISTINCT FROM (SELECT private.content_uuid('identity-candidate-run',jsonb_build_object('source_id',r.source_id,
+            'input_sha256',r.input_sha256,'config_sha256',r.config_sha256)) FROM private.source_persona_identity_candidate_run r WHERE r.id=v_id)
+       OR EXISTS (SELECT 1 FROM private.source_persona_identity_candidate c WHERE c.run_id=v_id
+                   AND c.id<>private.content_uuid('identity-candidate',jsonb_build_object('run_id',c.run_id,
+                         'source_persona_id',c.source_persona_id::text,'candidate_person_id',c.candidate_person_id))) THEN
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: id ikke af indholdet';
+    END IF;
+    -- Kollision: en kørsel med det afledte id, men en anden config_sha256, fejler lukket.
+    SET LOCAL ROLE authenticated;
+    v_in := red_identity_candidate_input(-987655021,v_spec);
+    RESET ROLE;
+    INSERT INTO private.source_persona_identity_candidate_run(id,
+      source_id,generator_version,config,config_sha256,input_spec,input_sha256,candidates_sha256,persona_count,candidate_count,created_by,created_by_name
+    ) VALUES (private.content_uuid('identity-candidate-run',jsonb_build_object('source_id',-987655021,'input_sha256',v_in->>'input_sha256',
+                'config_sha256',private.reimport_canonical_json_sha256('{"topK":8}'::jsonb))),
+              -987655021,'test','{}',repeat('d',64),v_spec,v_in->>'input_sha256',repeat('c',64),1,1,v_actor,'test');
+    SET LOCAL ROLE authenticated;
+    BEGIN
+      PERFORM red_record_identity_candidates(v_meta || jsonb_build_object('config',jsonb_build_object('topK',8),
+        'input_sha256',v_in->>'input_sha256'), jsonb_build_array(v_cands->0));
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: kollision godtaget';
+    EXCEPTION WHEN OTHERS THEN IF SQLERRM NOT LIKE 'DETERMINISTIC_ID_COLLISION: identity-candidate-run%' THEN RAISE; END IF; END;
+    RESET ROLE;
     RAISE EXCEPTION 'ROLLBACK_5A_CANDIDATE_WRITER';
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM='ROLLBACK_5A_CANDIDATE_WRITER' THEN

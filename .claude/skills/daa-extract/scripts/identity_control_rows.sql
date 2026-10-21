@@ -5,10 +5,13 @@
 \set ON_ERROR_STOP on
 SET default_transaction_read_only=on;
 BEGIN;
+-- Indholds-id (#151, spec §4 pkt. 2 og 5): total rækkefølge og samme bytes på tværs af platforme.
+SET LOCAL TimeZone='UTC';
+SET LOCAL search_path=pg_catalog,public,private,extensions;
 WITH ctl AS (SELECT * FROM private.identity_control_run WHERE id=:'control_run_id'::uuid),
 pv AS (
   SELECT p.id,coalesce(p.visning_fuldt_navn,p.visning_navn) AS name,p.visning_foedt AS born,p.visning_doed AS died,
-    coalesce((SELECT jsonb_agg(DISTINCT a.vaerdi_tekst) FROM fact f JOIN conclusion k ON k.target_type='fact' AND k.target_id=f.id
+    coalesce((SELECT jsonb_agg(DISTINCT a.vaerdi_tekst COLLATE "C" ORDER BY a.vaerdi_tekst COLLATE "C") FROM fact f JOIN conclusion k ON k.target_type='fact' AND k.target_id=f.id
                JOIN assertion a ON a.id=k.valgt_assertion_id WHERE f.subjekt_type='person' AND f.subjekt_id=p.id AND f.faktatype='titel'),'[]'::jsonb) AS titles,
     (SELECT sr.record_key FROM private.source_persona_identity i
        JOIN private.source_persona_mention spm ON spm.persona_id=i.source_persona_id AND spm.mention_role='primary'
@@ -16,7 +19,7 @@ pv AS (
        JOIN private.source_observation o ON o.id=sm.observation_id AND o.parent_observation_id IS NULL
        JOIN private.source_record_anchor_current ac ON ac.occurrence_id=o.occurrence_id AND ac.decision_status='accepted'
        JOIN private.source_record sr ON sr.id=ac.source_record_id
-      WHERE i.canonical_person_id=p.id AND i.decision_status='accepted' ORDER BY sr.record_key LIMIT 1) AS own_post_key,
+      WHERE i.canonical_person_id=p.id AND i.decision_status='accepted' ORDER BY sr.record_key COLLATE "C" LIMIT 1) AS own_post_key,
     coalesce((SELECT jsonb_agg(jsonb_build_object('name',coalesce(pp.visning_fuldt_navn,pp.visning_navn),'born',pp.visning_foedt,
                'died',pp.visning_doed) ORDER BY pp.id)
        FROM family_member fb JOIN family_member fp ON fp.family_id=fb.family_id AND fp.rolle='partner'
@@ -53,7 +56,8 @@ prc AS (
     FROM private.identity_control_parent_card pcard JOIN clause cl ON cl.interpretation_key=pcard.interpretation_key
    WHERE pcard.control_run_id=(SELECT id FROM ctl))
 SELECT jsonb_build_object('control_run_id',(SELECT id FROM ctl),'candidate_run_id',(SELECT candidate_run_id FROM ctl),
-  'k_random',(SELECT k_random FROM ctl),'items',coalesce((SELECT jsonb_agg(item) FROM (
+  'k_random',(SELECT k_random FROM ctl),'items',coalesce((SELECT jsonb_agg(item ORDER BY item->>'kind' COLLATE "C",
+    item->>'record_key' COLLATE "C",coalesce(item->>'source_persona_id',item->>'interpretation_key') COLLATE "C") FROM (
     SELECT jsonb_build_object('kind','identity','stratum',x.stratum,'source_persona_id',x.source_persona_id,'version',x.identity_version,
       'record_key',x.record_key,'pages',CASE WHEN x.page_from=x.page_to THEN x.page_from::text ELSE x.page_from||'–'||x.page_to END,
       'principal',(SELECT jsonb_build_object('name',pv.name,'born',pv.born,'died',pv.died) FROM pv WHERE pv.id=x.hp),

@@ -24,7 +24,7 @@ def rows():
                           [{"person_id": 7, "family_id": 3, "ordinal": 2, "navn": "Ida Dal"}]),
                      mrow(K2, "Gift 1890 med Ole Dal, datter af Ole Dal.", "Gift med Ole Dal, datter af Ole Dal")],
             "redecide_rows": [{"source_persona_id": SP, "identity_version": 1,
-                               "previous": {"basis": "web_detail", "note": "kø", "decided_at": "2026-10-13"},
+                               "previous": {"basis": "web_detail", "note": "kø"},
                                "name_text": "Gro von Hak", "clause_text": "Gift 1314 med Gro von Hak.",
                                "clause_is_current": True, "post_text": "Carl C. Gift 1314 med Gro von Hak.",
                                "record_key": "II-9", "page_from": 9, "marriage_ordinal": 1, "principal_person_id": 6,
@@ -38,8 +38,17 @@ def sheet(m1="S", m2="D", p="D", extra1=""):
 def test_render_viser_skaevt_nummer_hele_posten_og_P():
     out = sh.render_sheet(rows())
     assert "nr. i bogen 1 ≠ nr. i familien 2" in out
-    assert "Hele posten:" in out and "Tidligere afgørelse: web_detail, 2026-10-13" in out
+    assert "Hele posten:" in out and "Tidligere afgørelse: web_detail · note: »kø«" in out
     assert f"P {SP} 1 : D" in out
+
+
+def test_P_kort_uden_dato():
+    # Indholds-id (#151, spec §4 pkt. 3): arkets hash indgår i alle v3-payloads; en dato for den tidligere
+    # afgørelse ville gøre arket afhængigt af kørselsdagen.
+    import re
+    out = sh.render_sheet(rows())
+    p_card = out[out.index("Tidligere afgørelse"):].splitlines()[0]
+    assert not re.search(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", p_card) and "None" not in p_card
 
 
 def test_navnerettelse_giver_sheet_basis_og_hash_i_manifest():

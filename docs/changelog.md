@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-10-21 — #151: id'er af indholdet (forudsætning for overførslen af 5a+5b)
+
+Implementeret efter planen `2026-10-21-trin5ab-indholds-id.md` på `feat/151-indholds-id`.
+
+**Indhold:**
+- **Hjælper:** `private.content_uuid(kind, key)` oven på `private.deterministic_uuid`; `kind` og `key_version` adskiller arter og nøgleversioner.
+- **8 rækkearter med id af indholdet:** ægtefællepersona og omtale (`write_relation_persona`), identitetshændelse (`decide_source_persona_identity`, alle oprindelser), kandidatkørsel og kandidat (`red_record_identity_candidates`), kontrolkørsel, stikprøve og forældrekort (`red_register_identity_control_run`). Kollision ⇒ `DETERMINISTIC_ID_COLLISION: <art>`, også når den opstår som `unique_violation`.
+- **Trækning efter indhold:** `control-sample-v2` og `control-display-v2` (erratum til 5b-spec'ens §23.3 pkt. 4).
+- **Arkværktøjer:** 2b-i's `O`-linjer nøgles på fortolkningsnøgle og version (`spouse-exception-rows-v2`; v1 afvises med `SHEET_CONTRACT_UNSUPPORTED`/`SHEET_LINE_INVALID`); v3-arket viser ikke længere datoen for den tidligere afgørelse; kontrolarkets rækkefil har en total rækkefølge; tekstsortering med `COLLATE "C"` og låst `TimeZone`/`search_path`.
+- **Migration:** én afsluttende blok i `db-migrations.sql`; CI-paritet mellem ren `schema.sql` og migreret base (`tests/sql/inspect-5ab-function-parity.sql`).
+
+**Bevis (lokalt, ikke prod):**
+- Hovedtesten `tests/sql/test-indholds-id-determinism.sh`: samme kæde i to baser (C mod ICU-`da`, UTC mod Pacific/Chatham, forskellig forhistorik). Rød mod den gamle kode (alle 8 arter og alle artefakter afveg), grøn efter.
+- Opgradering fra prods træ `140a17b` med migrationerne to gange: 5a/5b-SQL-testene, hovedtesten og db-verify grønne (`tests/sql/test-indholds-id-upgrade.sh`).
+
+Ikke deployet; deployes i overførslens DDL-ceremoni.
+
 ## 2026-10-20 — #244: ægteskabsnumrene efter skriverens vindue; 4 numre rettet på ark (#151)
 
 Implementeret efter planen `2026-10-20-244-aegteskabsnumre.md` på `fix/244-aegteskabsnumre`.

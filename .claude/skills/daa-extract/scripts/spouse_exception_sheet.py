@@ -14,7 +14,10 @@ from decision_sheet_core import SheetError, require_hex64, sql_literal, verify_b
 
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 S_RE = re.compile(rf"^S (?P<id>{UUID}) (?P<ver>[0-9]+) : (?P<tok>[SAU])\s*(?:#\s*(?P<note>.*))?$")
-O_RE = re.compile(rf"^O (?P<id>{UUID}) (?P<bog>[0-9]+|\?)/(?P<fam>[0-9]+|\?) : (?P<tok>[BF])\s*(?:#\s*(?P<note>.*))?$")
+# Indholds-id (#151, spec §4 pkt. 1): O-linjen nøgles på fortolkningsnøglen og afgørelsesversionen, ikke på et
+# tilfældigt afgørelsesversions-id; et v1-ark (`O <id> b/f`) matcher ikke og afvises.
+O_RE = re.compile(rf"^O (?P<id>{UUID}) (?P<ver>[0-9]+) (?P<bog>[0-9]+|\?)/(?P<fam>[0-9]+|\?) : (?P<tok>[BF])\s*(?:#\s*(?P<note>.*))?$")
+CONTRACT = "spouse-exception-rows-v2"
 LOOSE_RE = re.compile(rf"^[SO] {UUID} ")
 
 
@@ -41,7 +44,13 @@ def _nr(n) -> str:
     return "?" if n is None else str(n)
 
 
+def _require_v2(rows: dict) -> None:
+    if rows.get("contract") != CONTRACT:
+        raise SheetError("SHEET_CONTRACT_UNSUPPORTED")
+
+
 def render_sheet(rows: dict, forslag: dict[str, str] | None = None) -> str:
+    _require_v2(rows)
     forslag = forslag or {}
     out = ["# UNDTAGELSESARK (trin 5b 2b-i)",
            "# S-linjer: S = samme person som kandidat nr. 1 (forudfyldt), A = en anden person, U = kan ikke afgøres.",
@@ -59,9 +68,9 @@ def render_sheet(rows: dict, forslag: dict[str, str] | None = None) -> str:
                 f"#   Partner i familie {r['family_id']} (ægteskab nr. {_nr(r['family_ordinal'])})",
                 f"S {r['source_persona_id']} {r['identity_version']} : S", ""]
     for i, r in enumerate(rows["o_rows"], 1):
-        tok = forslag.get(r["interpretation_id"], "F")
+        tok = forslag.get(r["interpretation_key"], "F")
         out += [f"## ORDINAL {i}/{len(rows['o_rows'])} · familie {r['family_id']} · bogen nr. {_nr(r['book_ordinal'])}, familien nr. {_nr(r['family_ordinal'])}",
-                f"O {r['interpretation_id']} {_nr(r['book_ordinal'])}/{_nr(r['family_ordinal'])} : {tok}", ""]
+                f"O {r['interpretation_key']} {int(r['interpretation_version'])} {_nr(r['book_ordinal'])}/{_nr(r['family_ordinal'])} : {tok}", ""]
     return "\n".join(out) + "\n"
 
 
@@ -74,17 +83,18 @@ def parse_sheet(text: str) -> list[Line]:
         if not m:
             raise SheetError("SHEET_LINE_INVALID" if LOOSE_RE.match(raw) else "SHEET_LINE_UNKNOWN")
         kind = raw[0]
-        lines.append(Line(kind, m["id"], int(m["ver"]) if kind == "S" else None, m["tok"], (m["note"] or "").strip(),
+        lines.append(Line(kind, m["id"], int(m["ver"]), m["tok"], (m["note"] or "").strip(),
                           len(lines) + 1))
     return lines
 
 
 def _expected(rows: dict) -> list[tuple]:
     return ([("S", r["source_persona_id"], r["identity_version"]) for r in rows["s_rows"]]
-            + [("O", r["interpretation_id"], None) for r in rows["o_rows"]])
+            + [("O", r["interpretation_key"], r["interpretation_version"]) for r in rows["o_rows"]])
 
 
 def check_identity(lines: list[Line], rows: dict) -> None:
+    _require_v2(rows)
     if [(l.kind, l.item_id, l.version) for l in lines] != _expected(rows) or not lines:
         raise SheetError("SHEET_IDENTITY_MISMATCH")
 
@@ -110,9 +120,10 @@ def _write_private(path: Path, text: str) -> None:
 
 
 def sheet_sql(lines: list[Line], rows: dict, *, sheet_sha256: str, rows_sha256: str, source_id: int) -> str:
+    _require_v2(rows)
     require_hex64(sheet_sha256, rows_sha256)
     s_by = {r["source_persona_id"]: r for r in rows["s_rows"]}
-    o_by = {r["interpretation_id"]: r for r in rows["o_rows"]}
+    o_by = {r["interpretation_key"]: r for r in rows["o_rows"]}
     persons = sorted({r["principal_person_id"] for r in rows["s_rows"]} | {r["candidate_person_id"] for r in rows["s_rows"]}
                      | {r["principal_person_id"] for r in rows["o_rows"]} | {r["spouse_person_id"] for r in rows["o_rows"]})
     if any(l.kind == "O" and l.tok == "B" and o_by[l.item_id]["book_ordinal"] is None for l in lines):
@@ -160,8 +171,11 @@ def sheet_sql(lines: list[Line], rows: dict, *, sheet_sha256: str, rows_sha256: 
             r = o_by[l.item_id]
             ev = {"sheet_sha256": sheet_sha256, "rows_sha256": rows_sha256, "line": l.line,
                   "book_ordinal": r["book_ordinal"], "family_ordinal": r["family_ordinal"], "note": l.note}
-            sql.append(f"INSERT INTO applied SELECT 'F' FROM (SELECT private.append_relation_classification('{l.item_id}'::uuid, "
-                       f"'ordinal_beholdt', {sql_literal(json.dumps(ev, sort_keys=True))}::jsonb)) x;")
+            # Den gældende afgørelsesversion slås op ved kørsel (ingen række ⇒ SHEET_COUNT_MISMATCH); rækkefil-vagten
+            # ($chk$) under kildelåsen sikrer, at tilstanden er den godkendte.
+            sql.append(f"INSERT INTO applied SELECT 'F' FROM (SELECT private.append_relation_classification(ic.id, 'ordinal_beholdt', "
+                       f"{sql_literal(json.dumps(ev, sort_keys=True))}::jsonb) FROM private.interpretation_current ic "
+                       f"WHERE ic.interpretation_key='{l.item_id}'::uuid AND ic.version={int(l.version)}) x;")
             n["F"] += 1
     sql.append("DO $cnt$ BEGIN IF " + " OR ".join(
         f"(SELECT count(*) FROM applied WHERE kind='{k}')<>{v}" for k, v in sorted(n.items()))

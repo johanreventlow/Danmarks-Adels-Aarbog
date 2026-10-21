@@ -39,6 +39,7 @@ BEGIN
      OR v_in#>>'{redecide_rows,0,source_persona_id}'<>sp::text OR (v_in#>>'{redecide_rows,0,identity_version}')::int<>1
      OR v_in#>>'{redecide_rows,0,clause_text}'<>'Gift 1314 med Gro von Hak.' OR v_in#>>'{redecide_rows,0,name_text}'<>'Gro von Hak'
      OR (v_in#>>'{redecide_rows,0,clause_is_current}')::boolean IS NOT TRUE OR v_in#>>'{redecide_rows,0,previous,basis}'<>'web_detail'
+     OR v_in#>'{redecide_rows,0,previous}' ? 'decided_at'   -- indholds-id (#151, spec §4 pkt. 3): ingen dato i arket
      OR (v_in#>>'{redecide_rows,0,principal_person_id}')::bigint<>-5342 THEN
     RAISE EXCEPTION 'V3_TEST_FAILED: v3-input %',v_in;
   END IF;

@@ -863,6 +863,10 @@ først, så en navnefælle til rang 1 kan ellers stå på rang 4 og aldrig blive
    source_persona_id)`, fordelt på én familie / flere familier med største-rest-metoden og mindst ét kort
    pr. ikke-tomt stratum (lige rester afgøres efter stratumnavn), i alt præcis `K` (eller hele resten, hvis den er
    mindre).
+   **Erratum 2026-10-21 (#151, indholds-id):** trækningen bruger nu `sha256('control-sample-v2:' ‖ input_sha256 ‖ ':'
+   ‖ config_sha256 ‖ ':' ‖ persona_key)` og visningen `sha256('control-display-v2:' ‖ input_sha256 ‖ ':' ‖
+   config_sha256 ‖ ':' ‖ persona_key ‖ ':' ‖ candidate_person_id)`; garantierne er uændrede (indholds-id-spec §3,
+   `docs/superpowers/specs/2026-10-21-trin5ab-indholds-id-design.md`).
 5. **Visning pr. kort:** rang 1 + navnefællerne (prioriteret efter rang) + udfyldning efter rang blandt de
    mulige, i alt højst 3, i blandet orden; den gemte mapping rummer netop de viste. Har en persona mere end 2
    navnefæller, kan de ikke alle vises: personaen udelukkes (grund `navnefaeller_over_3`, som punkt 2). Er der over 40

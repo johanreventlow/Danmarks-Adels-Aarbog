@@ -497,4 +497,116 @@ BEGIN
   RAISE NOTICE 'OK: 1=2 — kun navnefæller, enighed når maskinens plads er nævnt, binding til laveste plads, dublet i evidensen, ugyldige former afvist, afvigelse ellers';
 END $same_individual$;
 
+-- Indholds-id (#151, spec 2026-10-21-trin5ab-indholds-id-design.md §3): kontrolkørsel, stikprøve og forældrekort får id
+-- af indholdet; stikprøven trækkes og kortene vises efter indhold (-v2). 23 egnede personas i ét stratum, så K=20
+-- faktisk vælger (med 3 personas ville alle komme med, og trækningen kunne ikke ses).
+CREATE FUNCTION pg_temp.fid_world(p_source bigint,p_actor uuid,p_n int) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE s jsonb; p jsonb; c jsonb; v_sp uuid; v_ids uuid[]:='{}'; v_in jsonb; v_run uuid; v_cands jsonb:='[]'; i int;
+  v_fam bigint; v_fam1 bigint;
+BEGIN
+  s:=pg_temp.f5b_source(p_source);
+  FOR i IN 1..p_n LOOP
+    INSERT INTO person(id,levende,privat,status) VALUES (p_source*100-i*2,false,false,'5b'),(p_source*100-i*2-1,false,false,'5b');
+    p:=pg_temp.f5b_post(p_source,s,'D-'||i,'Hoved '||i||'. g. m. Mage '||i||'.',ARRAY['Hoved '||i||'.','g. m. Mage '||i||'.'],
+       p_source*100-i*2,p_actor);
+    c:=pg_temp.f5b_claim(p_source,s,'relation.marriage',(p->'clauses'->>1)::uuid,'g. m. Mage '||i||'.');
+    v_sp:=pg_temp.f5b_spouse(p_source,s,p,c,(p->'clauses'->>1)::uuid,'Mage '||i,1);
+    v_fam:=pg_temp.f5b_family(p_source*100-i*2,p_source*100-i*2-1,1);
+    IF i=1 THEN v_fam1:=v_fam; END IF;
+    v_ids:=v_ids||v_sp;
+  END LOOP;
+  -- Et barn i familie 1 med en uafgjort forælderpåstand: ét forældrekort (modparten er hovedperson i D-1).
+  INSERT INTO person(id,levende,privat,status) VALUES (p_source*100-99,false,false,'5b');
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES (v_fam1,p_source*100-99,'barn');
+  p:=pg_temp.f5b_post(p_source,s,'D-barn','Barn Alfa. Søn af Hoved.',ARRAY['Barn Alfa.','Søn af Hoved.'],p_source*100-99,p_actor);
+  c:=pg_temp.f5b_claim(p_source,s,'relation.parent',(p->'clauses'->>1)::uuid,'Søn af Hoved.');
+  INSERT INTO private.interpretation_party(interpretation_key,party_role,version,source_persona_id,post_offset,origin,origin_ref)
+    VALUES ((c->>'key')::uuid,'principal',1,(p->>'principal')::uuid,11,'relation_persona',gen_random_uuid());
+  PERFORM set_config('request.jwt.claim.sub',p_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  v_in:=red_identity_candidate_input(p_source,'{"mode":"undecided"}');
+  FOR i IN 1..p_n LOOP
+    v_cands:=v_cands||jsonb_build_array(
+      jsonb_build_object('source_persona_id',v_ids[i],'candidate_person_id',p_source*100-i*2-1,'rank',1,'score',0.95,'tier','auto',
+        'basis',jsonb_build_object('signals','["name","family_partner"]'::jsonb,'corroboration_eligible',true)),
+      jsonb_build_object('source_persona_id',v_ids[i],'candidate_person_id',p_source*100-i*2,'rank',2,'score',0.4,'tier','none',
+        'basis','{"signals":["name"],"corroboration_eligible":false}'::jsonb),
+      jsonb_build_object('source_persona_id',v_ids[i],'candidate_person_id',p_source*100-((i%p_n)+1)*2-1,'rank',3,'score',0.3,'tier','none',
+        'basis','{"signals":["name"],"corroboration_eligible":false}'::jsonb));
+  END LOOP;
+  v_run:=red_record_identity_candidates(jsonb_build_object('source_id',p_source,'generator_version','t','config','{}'::jsonb,
+    'input_spec','{"mode":"undecided"}'::jsonb,'input_sha256',v_in->>'input_sha256'),v_cands);
+  RESET ROLE;
+  RETURN jsonb_build_object('run',v_run);
+END $$;
+
+DO $det_control$
+DECLARE
+  v_actor uuid:='11000000-0000-0000-0000-00000005b609'; w jsonb; v_ctl uuid; v_ctl2 uuid; v_run private.source_persona_identity_candidate_run%ROWTYPE;
+  v_in jsonb; v_run2 uuid; v_before jsonb;
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  w:=pg_temp.fid_world(-5609,v_actor,23);
+  SELECT * INTO v_run FROM private.source_persona_identity_candidate_run WHERE id=(w->>'run')::uuid;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  v_ctl:=red_register_identity_control_run(v_run.id);
+  RESET ROLE;
+  IF v_ctl IS DISTINCT FROM private.content_uuid('identity-control-run',jsonb_build_object('candidate_run_id',v_run.id)) THEN
+    RAISE EXCEPTION 'CONTROL_TEST_FAILED: kontrol-id ikke af indholdet';
+  END IF;
+  -- Alle kørsler, stikprøver og forældrekort i transaktionen (også de foregående blokkes) har id af indholdet.
+  IF EXISTS (SELECT 1 FROM private.identity_control_run r
+              WHERE r.id<>private.content_uuid('identity-control-run',jsonb_build_object('candidate_run_id',r.candidate_run_id)))
+     OR EXISTS (SELECT 1 FROM private.identity_control_sample s
+              WHERE s.id<>private.content_uuid('identity-control-sample',jsonb_build_object('control_run_id',s.control_run_id,
+                                                'source_persona_id',s.source_persona_id)))
+     OR EXISTS (SELECT 1 FROM private.identity_control_parent_card pc
+              WHERE pc.id<>private.content_uuid('identity-control-parent-card',jsonb_build_object('control_run_id',pc.control_run_id,
+                                                'interpretation_key',pc.interpretation_key)))
+     OR NOT EXISTS (SELECT 1 FROM private.identity_control_parent_card) THEN
+    RAISE EXCEPTION 'CONTROL_TEST_FAILED: stikprøve- eller kort-id ikke af indholdet';
+  END IF;
+  -- Trækningen: de 20 udtrukne er de 20 laveste control-sample-v2-hashes af (input, config, persona_key).
+  IF (SELECT count(*) FROM private.identity_control_sample WHERE control_run_id=v_ctl)<>20
+     OR (SELECT array_agg(s.source_persona_id::text ORDER BY s.source_persona_id::text COLLATE "C")
+           FROM private.identity_control_sample s WHERE s.control_run_id=v_ctl)
+        IS DISTINCT FROM
+        (SELECT array_agg(pid ORDER BY pid COLLATE "C") FROM (
+           SELECT c.source_persona_id::text AS pid FROM private.source_persona_identity_candidate c
+             JOIN private.source_persona sp ON sp.id=c.source_persona_id
+            WHERE c.run_id=v_run.id AND c.rank=1
+            ORDER BY encode(extensions.digest(convert_to('control-sample-v2:'||v_run.input_sha256||':'||v_run.config_sha256||':'||sp.persona_key,
+                     'UTF8'),'sha256'),'hex') COLLATE "C" LIMIT 20) q) THEN
+    RAISE EXCEPTION 'CONTROL_TEST_FAILED: stikprøven er ikke trukket efter indhold';
+  END IF;
+  -- Visningen: kortets pladser følger control-display-v2-hashen af (input, config, persona_key, candidate_person_id).
+  IF EXISTS (SELECT 1 FROM private.identity_control_sample s JOIN private.source_persona sp ON sp.id=s.source_persona_id
+              WHERE s.control_run_id=v_ctl
+                AND (SELECT array_agg(m.value ORDER BY m.key::int) FROM jsonb_each_text(s.mapping) m)
+                    IS DISTINCT FROM
+                    (SELECT array_agg(m.value ORDER BY encode(extensions.digest(convert_to('control-display-v2:'||v_run.input_sha256||':'||
+                              v_run.config_sha256||':'||sp.persona_key||':'||c.candidate_person_id::text,'UTF8'),'sha256'),'hex') COLLATE "C")
+                       FROM jsonb_each_text(s.mapping) m JOIN private.source_persona_identity_candidate c ON c.id=m.value::uuid)) THEN
+    RAISE EXCEPTION 'CONTROL_TEST_FAILED: kortets visning er ikke efter indhold';
+  END IF;
+  -- Review Focus 3: efter failed giver en ny kandidatkørsel (ny config) med årsag et nyt kontrol-id; den gamle er uændret.
+  SELECT jsonb_agg(jsonb_build_array(s.id,s.mapping,s.expected) ORDER BY s.id) INTO v_before
+    FROM private.identity_control_sample s WHERE s.control_run_id=v_ctl;
+  SET LOCAL ROLE authenticated;
+  PERFORM red_seal_identity_control_run(v_ctl,repeat('e',64),repeat('f',64));
+  v_in:=red_identity_candidate_input(-5609,'{"mode":"undecided"}');
+  v_run2:=red_record_identity_candidates(jsonb_build_object('source_id',-5609,'generator_version','t2','config','{"v":2}'::jsonb,
+    'input_spec','{"mode":"undecided"}'::jsonb,'input_sha256',v_in->>'input_sha256'),'[]'::jsonb);
+  IF red_evaluate_identity_control_run(v_ctl)<>'failed' THEN RAISE EXCEPTION 'CONTROL_TEST_FAILED: forældet kørsel bestod'; END IF;
+  v_ctl2:=red_register_identity_control_run(v_run2,'config rettet; test');
+  RESET ROLE;
+  IF v_ctl2=v_ctl OR v_ctl2 IS DISTINCT FROM private.content_uuid('identity-control-run',jsonb_build_object('candidate_run_id',v_run2))
+     OR (SELECT jsonb_agg(jsonb_build_array(s.id,s.mapping,s.expected) ORDER BY s.id) FROM private.identity_control_sample s
+          WHERE s.control_run_id=v_ctl) IS DISTINCT FROM v_before THEN
+    RAISE EXCEPTION 'CONTROL_TEST_FAILED: ny kontrolkørsel efter failed';
+  END IF;
+  RAISE NOTICE 'OK: kontrolkørsel, stikprøve og forældrekort med id af indholdet; trækning og visning efter indhold (-v2)';
+END $det_control$;
+
 ROLLBACK;
