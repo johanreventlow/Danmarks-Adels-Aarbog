@@ -151,7 +151,7 @@ Forventet: de tre digests og `canonical_sha256` som i tabellen. Afviger de, er b
 
 **Interfaces:**
 - Produces: begge SQL-filer kører læse-kun med `psql -X -Atq -f <fil>`, sætter selv `search_path TO pg_catalog` og `TimeZone='UTC'` lokalt i en `BEGIN READ ONLY … COMMIT`, og printer **linjer** sorteret `COLLATE "C"`. Med `-v mode=digest` printer de i stedet én linje: `sha256` (hex) over linjerne forbundet med `\n`.
-- Katalogets linjeformat: `<art>|<identitet>|<md5>` med arterne `r` (relation: `relkind`, `relpersistence`), `c` (kolonne: `schema.tabel.kolonne`, `format_type`, `attnotnull`, `attidentity`, `attgenerated`, md5 af default), `k` (constraint: `schema.tabel.navn`, md5 af `pg_get_constraintdef`), `i` (indeks, md5 af `indexdef`), `f` (funktion/procedure: `regprocedure`, md5 af `pg_get_functiondef`), `v` (view/matview, md5 af `pg_get_viewdef`), `t` (trigger: `schema.tabel.navn`, `tgenabled`, md5 af `pg_get_triggerdef`), `p` (policy: `schema.tabel.navn`, `polcmd`, `polpermissive`, roller sorteret, md5 af `qual`/`with_check`), `s` (sekvens: type, increment, min, max, cycle; **ikke** `last_value`), `y` (type/enum: navn, enum-labels i rækkefølge). Kun skemaerne `public` og `private`; kun objekter, der ikke er ejet af en extension (`pg_depend.deptype='e'`).
+- Katalogets linjeformat: `<art>|<identitet>|<md5>` med arterne `r` (relation: `relkind`, `relpersistence`), `c` (kolonne: `schema.tabel.kolonne`, `format_type`, `attnotnull`, `attidentity`, `attgenerated`, md5 af default), `k` (constraint: `schema.tabel.navn`, md5 af `pg_get_constraintdef`), `i` (indeks, md5 af `indexdef`), `f` (funktion/procedure: `regprocedure`, md5 af `pg_get_functiondef`), `v` (view/matview, md5 af `pg_get_viewdef`), `t` (trigger: `schema.tabel.navn`, `tgenabled`, md5 af `pg_get_triggerdef`), `p` (policy: `schema.tabel.navn`, `polcmd`, `polpermissive`, roller sorteret, md5 af `qual`/`with_check`), `s` (sekvens: type, increment, min, max, cycle; **ikke** `last_value`), `y` (type/enum: navn, enum-labels i rækkefølge). Kun skemaerne `public` og `private`; kun objekter, der ikke er ejet af en extension (`pg_depend.deptype='e'`). Dertil én linje `n|<skema>|<antal relationer>|<antal funktioner>|<md5 af deres navne>` pr. **andet** skema end `public`, `private`, `pg_*` og `information_schema`, så en DDL uden for de to skemaer (som fortrydelsen ikke dækker) bliver synlig.
 - ACL-linjeformat: `g|<art t/s/f/n>|<modtager>|<objekt>|<privilegium>` (som trin 4's `GRANTS_LIST_SQL`, udvidet med `service_role` og skemaerne som art `n`), `d|<rolle>|<skema>|<objtype>|<modtager>|<privilegium>` fra `pg_default_acl` (aclexplode), `m|<rolle>|<regprocedure>|<0/1>` for `has_function_privilege(rolle, fn, 'EXECUTE')` over alle `public`-funktioner og rollerne `anon`, `authenticated`, `service_role` (`PUBLIC` dækkes af `g`-linjerne).
 
 - [ ] **Step 1: Skriv testens fingeraftryksdel (fejler, filerne findes ikke)**
@@ -241,7 +241,7 @@ Expected: `11 passed`.
 
 **Interfaces:**
 - Consumes: Task 1's to SQL-filer; Task 2's `prefix` og `removal-sql`.
-- Produces: `DDL_REHEARSAL_SYNTH_OK` som testens sidste linje. Apply-proceduren i testen er bogstaveligt den, `step_ddl` bruger (Task 4): `psql -X -q -v ON_ERROR_STOP=1 -f db-migrations.sql`, `psql … --single-transaction -f db-rls.sql`, `psql … -c "NOTIFY pgrst, 'reload schema'"`.
+- Produces: `DDL_REHEARSAL_SYNTH_OK` som testens sidste linje. Med miljøvariablen `KEEP_REMOVAL=<sti>` skriver testen den syntetiske DROP-listes `r`-identiteter (én pr. linje, sorteret `C`) til stien (Task 4 Step 2 bruger den). Apply-proceduren i testen er bogstaveligt den, `step_ddl` bruger (Task 4): `psql -X -q -v ON_ERROR_STOP=1 -f db-migrations.sql`, `psql … --single-transaction -f db-rls.sql`, `psql … -c "NOTIFY pgrst, 'reload schema'"`.
 
 - [ ] **Step 1: Skriv integrationspåstandene (fejler, fordi testen endnu kun har Task 1's del)**
 
@@ -250,6 +250,7 @@ Med `_p` fra Task 1 som skabelon (`createdb -T`):
 - `interrupt_<punkt>` for de tre punkter: `_i<n>` får prefix-filen (for `before-rls` hele migrationsfilen og ingen `db-rls.sql`), måler ved afbruddet `has_schema_privilege(r,'private','USAGE')` for `anon` og `authenticated` (skal være falsk) og antallet af private tabeller med `relrowsecurity=false` (rapporteres), får derefter fuld apply ⇒ `F1`/`A1`.
 - `no_data_change`: trin 4's tre digests og `transfer_untouched_hash.sql` er ens i `_p` og `_u` (I8; syntetisk base har 0 rækker, så påstanden er strukturel).
 - `removal_restores_identity_set`: `removal-sql --before <_p's linjer> --after <_u's linjer>` køres i `_u` (rc 0); derefter er mængden af identiteter (`art|identitet`) i `_u` lig `_p`'s, bortset fra `c`/`k`/`i`/`t`/`p` på eksisterende relationer, som skal være præcis `skipped_existing` stk. Listen skal indeholde `r|private.identity_control_run` og `f|public.red_register_identity_control_run(uuid,text)` (vagter mod en tom liste).
+- `other_schemas_untouched`: `n`-linjerne (Task 1) er ens i `_p` og `_u`. Rød betyder, at DDL'en rører et skema, som fortrydelsen ikke dækker: et fund om fingeraftrykkets og fortrydelsens rækkevidde, ikke om testen.
 - `db_verify`: `db-verify.sql` grøn i `_u` (sidst; den seeder).
 
 - [ ] **Step 2: Kør og se den fejle**
@@ -261,7 +262,7 @@ Expected: `DDL_TEST_FAIL: <første manglende påstand>`.
 
 - [ ] **Step 4: Kør og se den bestå; kør derefter hele jobbene `python` og `writer-1939-v50-db` med den lokale runner**
 
-Expected: `DDL_REHEARSAL_SYNTH_OK`; begge jobs grønne. Varigheden noteres (CI-minutbudget).
+Expected: `DDL_REHEARSAL_SYNTH_OK`; begge jobs grønne. Varigheden noteres (CI-minutbudget). **Bemærk:** det er første gang, HEAD's migrationer køres fra prods træ under emulerede default privileges (#251's opgraderingstest emulerede dem ikke). Fejler ACL-porten (`EVIDENCE_PUBLIC_RED_ACL_UNCLASSIFIED`) eller en `REVOKE`-rækkefølge her, er det en fejl i migrationen: STOP, og ret den i en egen PR, før plan A fortsætter. Påstanden lempes aldrig.
 
 - [ ] **Step 5: Commit** `test(151): DDL-overførslen fra prods træ: afbrud, åbne rettigheder og DROP-listen`
 
@@ -278,7 +279,7 @@ Expected: `DDL_REHEARSAL_SYNTH_OK`; begge jobs grønne. Varigheden noteres (CI-m
   - `use_local_database` og `setup_connection` accepterer kun Global Constraints' basenavne.
 - `01-preflight.sh` (læse-kun, ingen argumenter) → `preflight.json` med `status: PREFLIGHT_OK`. Gates i rækkefølge (stopkode i parentes):
   1. mål = `DAA_PROD_TARGET` i prod / ≠ i stand-in (`TARGET`);
-  2. trin 4's tre digests og tal = Konstanterne (`TRANSFER_DRIFT`);
+  2. trin 4's tre digests og tal = Konstanterne; `interpretation_transfer_digests.sql` køres med `-v src=1` som i trin 4 (`TRANSFER_DRIFT`);
   3. 0 `change_set` med `created_at > '2026-10-05T11:03:06Z'` (`CHANGE_SINCE_TRANSFER`); i stand-in-tilstand: 0 efter basens oprettelse;
   4. driftsbaselinen = Konstanterne (`SCHEMA_DRIFT` / `CANONICAL_DRIFT` / `CLAUSE_SET_DRIFT`);
   5. ingen 5a/5b-tabeller: `to_regclass` er NULL for de 11 tabeller i `db-rls.sql`'s liste fra `source_persona_identity_candidate_run` til `relation_classification_event`, og for alle `r`-identiteter i Task 3's syntetiske DROP-liste (listen gemmes som `expected-new-relations.txt` i Task 4 Step 2) (`DDL_ALREADY_PRESENT`);
@@ -307,7 +308,7 @@ En `change_set`-række efter basens oprettelse ⇒ `CHANGE_SINCE_TRANSFER`; `CRE
 
 **Interfaces:**
 - `step_ddl <runmappe>` (lib): fra `cd "$DAA_REPO"` apply-proceduren (Task 3 Produces), stderr til 0600-filer, `WARNING`-linjer skal være 0, `DAA_FAULT=ddl:after_migrations` / `ddl:in_5a_cutover` (kun lokalt) afbryder efter migrationerne / kører kun prefix-filen og returnerer `FAULT_INJECTED`.
-- `ddl_state <preflight.json> <rehearsal-ddl.json>` → `PRE` (katalog = preflightens), `POST` (katalog og ACL = rehearsalens efter-fingeraftryk), `PARTIAL` (alt andet).
+- `ddl_state <preflight.json> [<rehearsal-ddl.json>]` → `PRE` (katalog = preflightens), `POST` (katalog og ACL = rehearsalens efter-fingeraftryk; kun med rapporten), `PARTIAL` (alt andet). Uden rapporten (D0-tidspunktet, før `03` findes) er svaret `PRE` eller `NOT_PRE`.
 - `undo_ddl <runmappe> <dump> <preflight.json> <rehearsal-ddl.json>`: (a) aktuelt katalog måles; `removal-sql --before <preflightens katalog> --after <aktuelt>`; hver identitet i listen skal findes i rehearsalens fulde liste (`UNDO_LIST_UNEXPECTED`); kør som én transaktion; (b) `undo_restore` (trin 4's kommando); (c) `reconcile_grants` mod preflightens grant-linjer; (d) `NOTIFY pgrst, 'reload schema'`; (e) fejllistens hash + antal; restore-hash, katalog- og ACL-fingeraftryk = preflightens ⇒ `REPLY=UNDO_OK`, ellers `UNDO_<felt>_DRIFT`.
 - `02-dump.sh d0|d1`: gates som trin 4 (`assert_freeze_active`; `d0` kræver `PREFLIGHT_OK` fra samme pause og `ddl_state = PRE`; `d1` kræver `DDL_VERIFY_OK` fra samme pause og `ddl_state = POST`). `pg_dump -Fc --no-owner` (læse-kun, med ACL'er). Restoreverifikation: restore til `daa5ab_ddl_<d0|d1>check_<UTC14>`; restore-hash og katalog-fingeraftryk skal være prods, målt straks efter dumpet; ACL-afvigelsen mellem prod og restoren gemmes som linjediff-antal (forventet 0 for objekt-grants; default-ACL'er findes ikke i restoren og sammenlignes ikke) (`RESTORE_FINGERPRINT_DRIFT`). Kvittering `daa-prod-<stamp>.dump.receipt.json` med dump-sha, start, restore-, uberørt-, katalog- og ACL-hash.
 - `03-rehearsal-ddl.sh` (lokal; kræver D0-kvittering og preflight) → `rehearsal-ddl.json` med `status: REHEARSAL_OK`, og `go-hashes.txt`:
