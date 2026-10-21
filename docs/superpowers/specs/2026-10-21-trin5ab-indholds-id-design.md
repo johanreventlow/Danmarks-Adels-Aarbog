@@ -1,6 +1,6 @@
 # Trin 5a + 5b — id'er af indholdet (forudsætningsled for prod-overførslen)
 
-**Status:** designudkast. Godkendt afsnit for afsnit i brainstormen 2026-10-21. **Revideret efter Fable-review** (2026-10-21: GO med rettelser, 3 MAJOR og 8 MINOR, alle indarbejdet; se §7).
+**Status:** **GODKENDT af projektejeren 2026-10-21.** Godkendt afsnit for afsnit i brainstormen 2026-10-21. **Revideret efter Fable-review** (2026-10-21: GO med rettelser, 3 MAJOR og 8 MINOR, alle indarbejdet; se §7).
 
 **Formål:** opfylde §4 i den godkendte overførsels-spec
 (`docs/superpowers/specs/2026-10-21-trin5ab-2018-20-prod-overfoersel-design.md`, draft-PR #250): en arbejdskørsel på
