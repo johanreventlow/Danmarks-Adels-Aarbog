@@ -50,4 +50,19 @@ BEGIN
   c:=pg_temp.f5b_claim(-25001,s,'relation.parent',(p->'clauses'->>1)::uuid,'Søn af Ea Eta.');
   INSERT INTO private.interpretation_party(interpretation_key,party_role,version,source_persona_id,post_offset,origin,origin_ref)
     VALUES ((c->>'key')::uuid,'principal',1,(p->>'principal')::uuid,9,'relation_persona',gen_random_uuid());
+
+  -- Post 'Bc-4' (Review: §5.1 »rækkefilerne for alle ark i §4«): ægteskab 1 skrives af writeren og afgøres
+  -- new_person_needed (v3's genafgørelsesrække); ægteskab 2 skrives ikke (v2/v3-rækker); en børnepåstand (børnearket).
+  p:=pg_temp.f5b_post(-25001,s,'Bc-4','Bent Bo. Gift 1° m. Fie Fot f. 1815. Gift 2° m. Gry Gal f. 1825. Børn: se nedenfor.',
+     ARRAY['Bent Bo.','Gift 1° m. Fie Fot f. 1815.','Gift 2° m. Gry Gal f. 1825.','Børn: se nedenfor.'],-25007,v_actor);
+  PERFORM pg_temp.f2a_event_for_state((p->>'principal')::uuid);
+  PERFORM pg_temp.f5b_claim(-25001,s,'relation.marriage',(p->'clauses'->>1)::uuid,'Gift 1° m. Fie Fot f. 1815.');
+  PERFORM pg_temp.f5b_claim(-25001,s,'relation.marriage',(p->'clauses'->>2)::uuid,'Gift 2° m. Gry Gal f. 1825.');
+  c:=pg_temp.f5b_claim(-25001,s,'relation.child',(p->'clauses'->>3)::uuid,'Børn: se nedenfor.');
+  INSERT INTO private.interpretation_party(interpretation_key,party_role,version,source_persona_id,post_offset,origin,origin_ref)
+    VALUES ((c->>'key')::uuid,'principal',1,(p->>'principal')::uuid,64,'relation_persona',gen_random_uuid());
+
+  -- Kilde -25002: #244-verden (ægtefælleparternes numre byttet) til nummerarket; afgøres og bindes af kæden.
+  INSERT INTO person(id,levende,privat,status) SELECT g,false,false,'5b' FROM generate_series(-25033,-25031) g;
+  PERFORM pg_temp.f244_post(-25002,pg_temp.f5b_source(-25002),'A-1',-25031,-25032,-25033,v_actor);
 END $dump$;

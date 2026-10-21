@@ -25,7 +25,7 @@ BEGIN
     INTO v_el
     FROM private.interpretation_current ic
     JOIN private.interpretation_observation io ON io.interpretation_id=ic.id AND io.ordinal=1
-   WHERE ic.source_id=-25001 AND ic.predicate='relation.marriage';
+   WHERE ic.source_id=-25001 AND ic.predicate='relation.marriage' AND ic.value->>'raw' NOT LIKE '%Gry Gal%';
   PERFORM pg_temp.f5b_write(-25001,v_actor,v_el);
 
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
@@ -55,6 +55,15 @@ BEGIN
   -- 6. 2a for kilden: Bo Betas ægteskab får ordinal_afvigelse (bogen 1°, familien 2). Ingen binding.
   v_pv:=red_preview_relation_decisions(-25001);
   PERFORM red_decide_relation_interpretations(-25001,v_pv->>'set_sha256');
+  -- 7. Fie Fot (Bc-4) afgøres new_person_needed på et ark: v3's genafgørelsesrække.
   RESET ROLE;
+  SELECT spm.persona_id INTO v_bo FROM private.source_persona_mention spm JOIN private.source_mention sm ON sm.id=spm.mention_id
+   WHERE spm.mention_role='spouse' AND sm.verbatim_text='Fie Fot';
+  SET LOCAL ROLE authenticated;
+  PERFORM red_afgoer_source_persona(v_bo,0,'new_person_needed',NULL,'test',jsonb_build_object('basis','human_sheet',
+    'sheet_sha256',repeat('c',64),'rows_sha256',repeat('d',64),'line',2));
+  RESET ROLE;
+  -- 8. Kilde -25002 (#244-verdenen): afgør og bind, så nummerarket har rækker.
+  PERFORM pg_temp.f244_decide_and_bind(-25002,v_actor);
 END $chain$;
 COMMIT;

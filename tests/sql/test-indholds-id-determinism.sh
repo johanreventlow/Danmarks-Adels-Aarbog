@@ -33,8 +33,8 @@ build_db() {
 }
 build_db "$A"; build_db "$B"
 # Dumpet: kun i A, i én transaktion med fixturhjælperne; kopieres tabel for tabel til B.
-q "$A" -c 'BEGIN' -f tests/sql/fixtures/relation-5b.sql -f tests/sql/fixtures/relation-2a.sql \
-       -f tests/sql/fixtures/indholds-id-dump.sql -c 'COMMIT'
+F=(-f tests/sql/fixtures/relation-5b.sql -f tests/sql/fixtures/relation-2a.sql -f tests/sql/fixtures/marriage-ordinal-244.sql)
+q "$A" -c 'BEGIN' "${F[@]}" -f tests/sql/fixtures/indholds-id-dump.sql -c 'COMMIT'
 tables=$(qa "$A" -c "SELECT format('%I.%I',n.nspname,c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
   WHERE c.relkind='r' AND n.nspname IN ('public','private','auth') ORDER BY 1")
 q "$B" -c "SET session_replication_role=replica" -c "TRUNCATE $(echo $tables | tr ' ' ',') CASCADE"
@@ -50,12 +50,16 @@ q "$B" -c 'BEGIN' -f tests/sql/fixtures/relation-5b.sql -c "SELECT pg_temp.f5b_p
   'Anna Alfa.',ARRAY['Anna Alfa.'],NULL,'11000000-0000-0000-0000-000000025001')" -c 'COMMIT'
 for side in A B; do
   db=$([ $side = A ] && echo "$A" || echo "$B"); d=$tmp/out/$side; P=$tmp/priv/$side
-  q "$db" -c 'BEGIN' -f tests/sql/fixtures/relation-5b.sql -f tests/sql/fixtures/relation-2a.sql -f tests/sql/fixtures/indholds-id-chain.sql
+  q "$db" -c 'BEGIN' "${F[@]}" -f tests/sql/fixtures/indholds-id-chain.sql
   qa "$db" -f tests/sql/indholds-id-export.sql > "$d/ids.txt"
   ctl=$(qa "$db" -c "SELECT id FROM private.identity_control_run WHERE source_id=-25001")
   qa "$db" -v source_id=-25001 -v mode=undecided -v personas= -f $S/identity_sheet_rows.sql > "$P/identity-rows.json"
   qa "$db" -v control_run_id="$ctl" -f $S/identity_control_rows.sql > "$P/control-rows.json"
   qa "$db" -v source=-25001 -f $S/spouse_exception_rows.sql > "$P/spouse-rows.json"
+  # De øvrige ark i spec §4 (v2, v3, børn, ægteskabsnumre); nummerarket har sin egen kilde (#244-verdenen).
+  for r in relation_v2_rows relation_v3_rows relation_child_rows; do
+    qa "$db" -v source=-25001 -v actor=11000000-0000-0000-0000-000000025001 -f $S/$r.sql > "$d/$r.json"; done
+  qa "$db" -v source=-25002 -v actor=11000000-0000-0000-0000-000000025001 -f $S/relation_ordinal_rows.sql > "$d/relation_ordinal_rows.json"
   env -u NODE_OPTIONS python3 $S/spouse_exception_sheet.py render --rows "$P/spouse-rows.json" --out "$P/spouse-ark.txt" --private-root "$tmp/priv" >/dev/null
   sh=$(shasum -a 256 "$P/spouse-ark.txt" | cut -c1-64); rh=$(shasum -a 256 "$P/spouse-rows.json" | cut -c1-64)
   env -u NODE_OPTIONS python3 $S/spouse_exception_sheet.py sql --rows "$P/spouse-rows.json" --sheet "$P/spouse-ark.txt" \
@@ -66,6 +70,11 @@ grep -q '^parent-card|' "$tmp/out/A/ids.txt" || { echo 'DETERMINISM_SETUP: intet
 [ "$(grep -c '^candidate-run|' "$tmp/out/A/ids.txt")" = 2 ] || { echo 'DETERMINISM_SETUP: ikke 2 kandidatkørsler'; exit 2; }
 grep -q '^sample|' "$tmp/out/A/ids.txt" || { echo 'DETERMINISM_SETUP: tom stikprøve'; exit 2; }
 grep -q '"o_rows": \[{' "$tmp/out/A/spouse-rows.json" || { echo 'DETERMINISM_SETUP: ingen O-række'; exit 2; }
+for r in relation_v2_rows relation_v3_rows relation_child_rows relation_ordinal_rows; do
+  grep -q '"rows": \[{' "$tmp/out/A/$r.json" || { echo "DETERMINISM_SETUP: tom $r"; exit 2; }; done
+grep -q '"redecide_rows": \[{' "$tmp/out/A/relation_v3_rows.json" || { echo 'DETERMINISM_SETUP: ingen v3-genafgørelse'; exit 2; }
+grep -q '"record_key"' "$tmp/out/A/identity-rows.json" && grep -q '"record_key"' "$tmp/out/A/control-rows.json" \
+  || { echo 'DETERMINISM_SETUP: tomme identitets- eller kontrolrækker'; exit 2; }
 diffs=$(cd "$tmp/out" && for f in $(ls A); do cmp -s "A/$f" "B/$f" || echo "$f"; done | tr '\n' ' ')
 if [ -n "$diffs" ]; then
   echo "DETERMINISM_DIFF: $diffs"
