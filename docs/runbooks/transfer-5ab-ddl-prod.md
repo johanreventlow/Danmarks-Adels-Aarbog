@@ -149,7 +149,7 @@ pr. funktion, så vinduet skal lukkes. Genkørsel: `koer.zsh --saet DAA_DDL_GENK
 
 `09` kører netop rehearsalens kommandofølge: (a) nye objekter droppes i én transaktion efter en liste
 udledt af preflightens katalog mod det aktuelle, og listen skal være en delmængde af rehearsalens
-(`UNDO_LIST_UNEXPECTED`); kolonne-ejede sekvenser (fx `public.family_id_seq`) droppes ikke, de forsvinder
+(`UNDO_LIST_UNEXPECTED`); kolonne-ejede sekvenser (fx `private.source_persona_identity_candidate_run_run_seq_seq`) droppes ikke, de forsvinder
 med restoren; (b) DDL-rollens skema-defaults i `public`/`private` fjernes (`ALTER DEFAULT PRIVILEGES …
 IN SCHEMA … REVOKE`); (c) `pg_restore --clean --if-exists --no-owner --schema=private --schema=public` af D0;
 (d) skema-defaults genskabes fra **preflightens** linjer; (e) grant-afstemning over de portable grants (inkl.
