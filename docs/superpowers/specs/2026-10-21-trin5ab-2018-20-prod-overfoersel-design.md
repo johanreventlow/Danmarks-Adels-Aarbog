@@ -3,7 +3,8 @@
 **Status:** designudkast. Godkendt afsnit for afsnit i brainstormen 2026-10-20/21. **Revideret efter Fable-review
 runde 1** (2026-10-21; afsnit 1 GO med rettelser, afsnit 2 NO-GO, afsnit 3 GO med rettelser; 1 BLOCKER, 11
 MAJOR, 4 MINOR, alle godtaget, to af dem ved projektejerens valg; se §12). Spec'en er ikke et prod-GO: hver
-ceremoni kræver sit eget GO (§8).
+ceremoni kræver sit eget GO (§8). **Runde 2** (2026-10-21; GO med rettelser i alle tre afsnit, 4 MAJOR og 7 MINOR,
+alle indarbejdet; se §13).
 
 **Forudsætning:** forudsætningsleddet i §4 (»id'er af indholdet«) får sin egen spec, sit eget review og bliver
 merget, før planen for denne overførsel skrives.
@@ -106,7 +107,12 @@ Leddet skal levere følgende. Dets spec fastlægger mekanikken og efterprøver l
 2. **Stikprøve og kortvisning** trækkes efter hashes af indhold og konfiguration (fx `input_sha256 ‖
    config_sha256 ‖ persona_key`), ikke efter tilfældige id'er.
 3. **Hashes, som et menneske godkender** (rækkefiler, ark), indeholder ikke databasens identitet og ingen
-   tilfældige id'er. Arklinjer refererer deterministiske id'er eller nøgler.
+   tilfældige id'er. Arklinjer refererer deterministiske id'er eller nøgler, og **genereret ark-SQL må aldrig
+   hårdkode et tilfældigt id**; det slås op på kørselstidspunktet via nøglen (som `relation_marriage_sheet.py`
+   allerede gør). Konkret: `spouse_exception_sheet.py`'s `O`-linjer nøgles på `interpretation_key` i stedet for
+   den gældende afgørelsesversions `interpretation_id` (`schema.sql:16853-16858`). Leddets spec gennemgår
+   hvert arkværktøj (5a-identitetsark, kontrolark, 2b-i-undtagelsesark og -kø, 2b-ii-/v3-ark, børneark,
+   nummerark) og lister, hvad hver linje og hver genereret SQL-sætning refererer.
 4. **Kollision fejler lukket.** Et deterministisk id, der allerede findes med andet indhold, giver en
    fejlkode, aldrig en stille genbrug.
 5. **Ingen ændring af eksisterende rækker eller af delte RPC'er.** 149b-personas, prods `interpretation.id`,
@@ -123,7 +129,7 @@ Måles i prod, læse-kun:
 - **Det kanoniske lag** er lig rodbasens (driftsbaselinen `transfer_baseline.sql`).
 - **Ingen 5a/5b-spor:** de nye tabeller findes ikke. Postgres er version 15 eller nyere (`family.id` identity,
   2b-ii). `narrative_record_contract_version()` er 2. Der er 587 accepterede 149b-identiteter. Der findes en
-  redaktionsprofil.
+  redaktionsprofil. `family.id` er en identitetskolonne i prod (`db-migrations.sql:21953` siger det; det måles).
 - **Rettigheder:** et ACL-fingeraftryk (`proacl`, `relacl`, `pg_default_acl` for `public`/`private`) og en
   `has_function_privilege`-matrix for `anon`/`authenticated`/`service_role`/`PUBLIC` gemmes som
   preflight-liste. `get_advisors` gemmes som baseline.
@@ -142,8 +148,8 @@ sikkerheden er idempotens, en øvet afbrydelse og D0.
 | --- | --- | --- |
 | 1 | Fase 0 (§5) | nej |
 | 2 | **Øvelse** på en restore af D0 med Supabases default privileges emuleret: apply-proceduren, derefter én gang til (idempotens); `db-verify.sql` grøn **her** (aldrig i prod); varigheden måles; katalog- og ACL-fingeraftryk gemmes som forventet efter-tilstand | kun lokalt |
-| 3 | **Afbrudsøvelse:** apply-proceduren afbrydes midt i filen (efter #153's `COMMIT`) og køres derefter færdig. Resultatet er lig trin 2's fingeraftryk | kun lokalt |
-| 4 | **Fortrydelsesøvelse:** D0 gendannes oven på den løftede base med netop den kommando, §8 bruger. Listen over objekter, der skal fjernes, udledes af en katalogforskel mellem D0 og trin 2 (inkl. 2b-ii's `family.id`-identitetssekvens). Grants afstemmes mod preflight-listen som trin 4's `09`. Hele `pg_restore`-fejllisten læses. Bagefter: restore-hash, katalog- og ACL-fingeraftryk lig prods egne fra fase 0 ⇒ `REHEARSAL_OK` (DDL) | kun lokalt |
+| 3 | **Afbrudsøvelse** på tre punkter: efter #153's `COMMIT`; inde i 5a's cutover-vindue (efter `REVOKE`, før den nye wrapper); mellem en 5b-tabels oprettelse og dens RLS/`REVOKE`. Hver gang køres apply derefter færdig, og resultatet er lig trin 2's fingeraftryk. ACL-porten (`EVIDENCE_PUBLIC_RED_ACL_UNCLASSIFIED`) må ikke efterlade åbne rettigheder | kun lokalt |
+| 4 | **Fortrydelsesøvelse** med netop den kommandofølge, §8 bruger: (a) de nye objekter fjernes **først**, i én transaktion, efter en eksplicit liste udledt af katalogforskellen mellem D0 og trin 2 (`CASCADE` kun på listede objekter; nye tabeller har fremmednøgler til eksisterende, så `pg_restore --clean` ellers ikke kan droppe dem); (b) `pg_restore --clean --if-exists --no-owner --schema=private --schema=public` af D0; (c) grants afstemmes mod preflight-listen som trin 4's `09`; (d) `NOTIFY pgrst, 'reload schema'`; (e) hele `pg_restore`-fejllisten læses, og restore-hash, katalog- og ACL-fingeraftryk skal være lig prods egne fra fase 0 ⇒ `REHEARSAL_OK` (DDL) | kun lokalt |
 | 5 | GO 1 | — |
 | 6 | **Prod:** apply-proceduren. Derefter en **læse-kun probe**: katalog- og ACL-fingeraftryk lig øvelsens (trin 2), privilegiematrix som forventet, `get_advisors`-delta kun kendte mønstre, `anon` ser 0 private rækker. Fejler apply midtvejs, køres den igen (idempotens, øvet i trin 3); kan det ikke rettes, ⇒ fortrydelse (§8) | DDL |
 | 7 | **Dump D1** (krypteret, gendannelses-verificeret); restore-hash og ACL-fingeraftryk måles | nej |
@@ -162,10 +168,16 @@ korroborationen.
   fra de bevarede bevisbaser og overfører hvert svar via nøglen. Det printer kun tal og hashes. Et svar
   uden mål eller et mål uden svar stopper scriptet, medmindre netop den linje står på listen over forventede
   bortfald (§6.3).
-- **Godkendelse:** før et regenereret ark hashes, får projektejeren vist en linjevis forskel mod det
-  godkendte ark i beviskæden (tokens pr. nøgle): 0 ændringer ud over de opregnede bortfald. Linjer, der i
+- **Svarene overføres som afklarede værdier, ikke som tokens:** `persona_key` → handling + `person_id`;
+  `interpretation_key` → token. Et rangtal (5a's `1/2/3`) peger på den nye kørsels kandidatliste og kan
+  derfor ramme en anden person; 5a-svar gengives som eksplicit person eller som rang, der verificeres mod det
+  oprindelige `person_id`, ellers stop.
+- **Godkendelse:** før et regenereret ark hashes, får projektejeren vist en forskel over **hele de gengivne
+  linjer** efter id-oversættelse (også kontekst: viste kandidater, familie, nummer, klausul), ikke kun
+  tokens. Ændringer ud over de opregnede bortfald vises og skal accepteres udtrykkeligt. Linjer, der i
   beviskæden blev godkendt med en advarsel, som nu ikke vises (v3's 2 linjer med nummer-OBS), accepteres
-  udtrykkeligt igen. Den gamle arkhash, oversættelsestabellen og den nye arkhash bindes i GO 2.
+  udtrykkeligt igen. Den gamle arkhash, oversættelsestabellen, forskelsrapporten og den nye arkhash bindes i
+  GO 2.
 - **Kontrolarket (5b del 1):** identitetskortene er en ny, blind stikprøve trukket efter indholdet.
   Projektejeren svarer blindt. Fejler kontrollen, stopper overførslen, og det forelægges som en sag for sig.
   Forældrekortene overføres via nøgle.
@@ -180,8 +192,9 @@ korroborationen.
   - For `hash_gated` gemmes ikke hashen, men de forventede items (nøgler, familier, klassifikation,
     supersedes). Genspilleren genberegner hashen i basen, sammenligner items med pakken og kalder med den
     genberegnede hash.
-  - For `writer` klassificeres tilstanden før autorisationen. Autorisationsrækker indgår kun med antal og
-    manifest-hash i digesten.
+  - For `writer` klassificeres tilstanden før autorisationen. Indgangs- og udgangsdigest regnes kun over de
+    nøglede tabeller. En genkørsel efter afbrud genbruger en uudløbet `issued`-autorisation for samme manifest,
+    eller efterlader den; kun `consumed`-autorisationer tælles (§7).
 - **Værn for nye personer:** `relation_person_create_input(1)` giver 0 elementer, og der oprettes 0 personer
   (beslutning 8).
 - **#244-værn:** `ORDINAL_BOOK_MISMATCH` rammes 0 gange, `marriage_ordinal_correction_input(1)` er 0, og
@@ -238,20 +251,25 @@ læse-kun repo-fil gør det. Hver digest hasher rækker som `to_jsonb(…)` med 
 | --- | --- | --- |
 | Personas og omtaler | `persona_key` | id'er, `created_run_id`, tidsstempler |
 | Identiteter (gældende + hændelser) | `persona_key`, version | hændelses-id, tidsstempler, kandidat-/kørsels-id'er i evidensen |
-| Kandidater og kontrol | `persona_key`, rang / stikprøvens `persona_key` | id'er, tidsstempler |
+| Kandidater | kørslens `input_sha256 ‖ config_sha256`, `persona_key`, rang | id'er, tidsstempler |
+| Kontrol: stikprøve, udelukkelser, forældrekort | stikprøvens `persona_key` / udelukkelsens `persona_key` + grund / forældrekortets `interpretation_key` | id'er, tidsstempler |
+| Kontrolhændelser og forældrehændelser | kontrolkørslens indholdsnøgle + løbenummer (forsegl, bestå) / `interpretation_key` + løbenummer + udfald | id'er, tidsstempler |
 | Fortolkninger og afgørelser for 2018-20 (alle prædikater) | `interpretation_key`, version | id'er, tidsstempler, `pack_sha256` |
 | Parter | `interpretation_key`, rolle, version | `origin_ref`, tidsstempler |
 | Klassifikationshændelser | `interpretation_key`, løbenummer | `interpretation_id`, `state_sha256`, tidsstempler |
-| Dispositioner | klausul, aktør (`persona_key`) | `batch_id`, kørsels-id'er |
+| Dispositioner | `observation_id` (klausulobservationer er fælles med prod), version | `batch_id`, kørsels-id'er; `actor_persona_ids`/`citing_interpretation_ids` oversættes til nøgler |
+| Writer-profiler | profilnøgle | tidsstempler |
 | Bindinger | `interpretation_key`, `target_type`, `target_id`, `rule_key`, `rule_version` | id'er, batch, `preview_hash`, `state_sha256`, `supersedes_promotion_id`, tidsstempler |
-| Autorisationer | antal pr. operation og manifest-hash | alt andet |
+| Autorisationer | antal `consumed` pr. operation og manifest-hash | alt andet; `issued` rapporteres separat |
+| Batches, reimport-hændelser, ekstraktionskørsler, bindingsbatches | antal pr. operation | alt andet |
 
 Planen fastlægger den eksakte kolonneliste pr. tabel. Sekvenser og identitetskolonner indgår ikke.
 
 **Ud over digests:**
 - **Kanonisk delta 0:** driftsbaselinen før og efter i samme base.
 - **Uberørt:** `transfer_untouched_hash.sql` udvides med alle tabeller, kæden skriver i. De øvrige skal være
-  uændrede.
+  uændrede. For hver tabel, kæden skriver i, hashes desuden rækkerne for **andre kilder end 2018-20**; de skal
+  være uændrede, så en skrivning uden for kilden ikke er usynlig.
 - **`anon`:** privilegiematrix lig efter-DDL-målingen; `anon` ser 0 private rækker og præcis de forventede
   rækker i `public_family_sources`.
 
@@ -272,10 +290,11 @@ og repo-filer, kontrolleret som mængde.
 
 **Fortrydelse** (begge med netop den kommando, der er øvet, og med grant-afstemning mod preflight-listen
 bagefter; `get_advisors` efter enhver restore):
-- **DDL-ceremonien:** fejler apply midtvejs, køres den igen (idempotens). Kan problemet ikke rettes, gendannes
-  D0, de nye objekter fjernes efter listen fra §6.1 trin 4, og fase 0's målinger skal derefter holde.
+- **DDL-ceremonien:** fejler apply midtvejs, køres den igen (idempotens). Kan problemet ikke rettes, følges
+  kommandofølgen fra §6.1 trin 4: nye objekter fjernes først efter listen, derefter restore af D0,
+  grant-afstemning og `NOTIFY pgrst, 'reload schema'`. Fase 0's målinger skal derefter holde.
 - **Data-ceremonien:** `MIXED`, en digest-afvigelse efter commit eller et STOP, der ikke kan rettes ved at
-  køre et skridt igen, ⇒ D1 gendannes. Pakken genspilles efter rettelse. Projektejerens svar ligger i pakken,
+  køre et skridt igen, ⇒ D1 gendannes, grants afstemmes, og `NOTIFY pgrst, 'reload schema'` sendes. Pakken genspilles efter rettelse. Projektejerens svar ligger i pakken,
   så intet skal afgøres igen.
 
 ## 9. Færdigbevis og modenhed
@@ -285,9 +304,10 @@ bagefter; `get_advisors` efter enhver restore):
 - **Data:** arbejdskørslen bestået inkl. indholdskontrollen (§6.3), `REHEARSAL_OK` (data) og `VERIFY_OK` i
   prod: alle nøglede digests lig arbejdskørslens, kanonisk delta 0, uberørte tabeller uændrede, `anon` som
   forventet, 0 nye personer.
-- **Modenhed (beslutning 8):** 5a og 5b's personas, identiteter, bindinger og børnehenvisninger for 2018-20 ⇒
-  `produktionsverificeret`. Oprettelse af nye personer forbliver `isoleret implementeret`. #244 noteres som
-  »opstod aldrig i prod«.
+- **Modenhed (beslutning 8):** 5a og 5b's personas, identiteter, bindinger, børnehenvisninger,
+  klausuldispositioner, klassifikationshændelser (`ordinal_beholdt`) og P-afvisningen for 2018-20 ⇒
+  `produktionsverificeret`. Oprettelse af nye personer og #244's rettelsesvej (`red_ret_aegteskabsnummer`,
+  deployet men ubrugt) forbliver `isoleret implementeret`. #244 noteres som »opstod aldrig i prod«.
 
 ## 10. Test (test først)
 
@@ -306,6 +326,10 @@ bagefter; `get_advisors` efter enhver restore):
 - **DDL:** afbrudt apply og genkørsel giver samme fingeraftryk; fortrydelse med emulerede default privileges
   og grant-afstemning giver fase 0's ACL-fingeraftryk; PostgREST-reload.
 - **Værn:** `ORDINAL_BOOK_MISMATCH` = 0, korrektionsinput = 0 og 0 personoprettelser i arbejdskørslen.
+- **Runde 2's huller:** genkørsel af et `writer`-skridt med en efterladt `issued`-autorisation; et `sql`-skridt
+  genspillet i to baser, hvor et kæde-skabt id er forskelligt (fanger hårdkodede id'er i ark-SQL);
+  DDL-fortrydelse med nye tabeller, der har fremmednøgler til eksisterende; 5a-svar, hvor samme rang peger
+  på en anden person i den nye kørsel (skal stoppe).
 - **Integration:** genspilsprøven (§6.4) og begge fortrydelsesøvelser.
 
 ## 11. Afgrænsning
@@ -355,3 +379,23 @@ Uafhængig Fable-agent uden samtalekontekst. De bærende påstande (#153's `BEGI
 | MAJOR 3.2 — testhuller | §10 udvidet |
 | MINOR 1.3 / 2.8 — kontrolarket er en ny afgørelse | §3 beslutning 6, §6.2 |
 | MINOR 3.3 — udgavenavne | §11 |
+
+## 13. Revision efter Fable-review runde 2 (2026-10-21)
+
+Ny Fable-agent uden kontekst; dom GO med rettelser i alle tre afsnit. De bærende påstande (O-linjens
+tilfældige `interpretation_id` i `spouse_exception_projection` og den genererede SQL; `pg_restore --clean` uden
+`CASCADE` i runbookens fortrydelse) er efterprøvet mod koden.
+
+| Fund | Ændring |
+| --- | --- |
+| P1-1 MAJOR — 2b-i's `O`-linjer hårdkoder et tilfældigt id | §4 pkt. 3: ark-SQL slår id op via nøgle; `spouse_exception_sheet.py` nøgles på `interpretation_key`; alle arkværktøjer gennemgås |
+| P2-1 MAJOR — fortrydelsens rækkefølge umulig | §6.1 trin 4 og §8: nye objekter fjernes først, så restore, grants, `NOTIFY pgrst` |
+| P2-2 MAJOR — writer-genkørsel modsiger autorisationsdigest | §6.2 og §7: digests kun over nøglede tabeller; kun `consumed` tælles; `issued` genbruges eller rapporteres |
+| P2-3 MAJOR — godkendelsens forskel kun over tokens | §6.2: svar som afklarede værdier; 5a-rang verificeres mod `person_id`; forskel over hele linjer inkl. kontekst |
+| P1-2 MINOR — `family.id` | §5 måles; ikke forhåndslistet til fjernelse |
+| P1-3 MINOR — kandidatnøgle ikke unik | §7: kørslens indholdsnøgle i nøglen |
+| P2-4 MINOR — rækker uden for nøglerummet | §7: kontrol-, forældre- og udelukkelsesdigests, profiler, antal for batches/kørsler, andre kilders rækker |
+| P2-5 MINOR — dispositionernes nøgle | §7: (`observation_id`, version); id'er i evidensen oversættes |
+| P2-6 MINOR — ét afbrudspunkt | §6.1 trin 3: tre afbrudspunkter |
+| P3-1 MINOR — modenhed for dispositioner m.m. | §9 |
+| P3-2 MINOR — testhuller | §10 |
