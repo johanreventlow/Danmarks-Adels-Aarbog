@@ -16166,7 +16166,9 @@ REVOKE ALL ON FUNCTION private.control_run_status(uuid) FROM PUBLIC,anon,authent
 DROP FUNCTION IF EXISTS red_register_identity_control_run(uuid);   -- signaturen fik p_cause (final review I2)
 CREATE OR REPLACE FUNCTION red_register_identity_control_run(p_candidate_run_id uuid,p_cause text DEFAULT NULL)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
-DECLARE v_source bigint; v_cur uuid; v_id uuid:=gen_random_uuid(); v_ipop text; v_rpop text; v_run private.source_persona_identity_candidate_run%ROWTYPE;
+DECLARE v_source bigint; v_cur uuid; v_ipop text; v_rpop text; v_run private.source_persona_identity_candidate_run%ROWTYPE;
+  -- Indholds-id (#151, spec 2026-10-21-trin5ab-indholds-id-design.md §3): id af kandidatkørslen.
+  v_id uuid:=private.content_uuid('identity-control-run',jsonb_build_object('candidate_run_id',p_candidate_run_id));
   v_existing uuid; v_excl text; v_alloc jsonb; v_k integer:=20;   -- K: projektejerens valg 2026-10-10 (spec §23.2)
 BEGIN
   IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
@@ -16205,9 +16207,13 @@ BEGIN
            private.spouse_principal_person(c.source_persona_id) AS hp,
            CASE WHEN jsonb_array_length(private.persona_family_context(c.source_persona_id)->'families')=1
                 THEN 'single_family' ELSE 'multi_family' END AS fam_stratum,
-           encode(extensions.digest(convert_to(p_candidate_run_id::text||':'||c.source_persona_id::text,'UTF8'),'sha256'),'hex') AS h,
+           sp.persona_key AS pkey,
+           -- Trækning efter indhold (indholds-id-spec §3; erratum til 5b §23.3 pkt. 4).
+           encode(extensions.digest(convert_to('control-sample-v2:'||v_run.input_sha256||':'||v_run.config_sha256||':'||sp.persona_key,
+                  'UTF8'),'sha256'),'hex') AS h,
            '{}'::uuid[] AS homs
       FROM private.source_persona_identity_candidate c
+      JOIN private.source_persona sp ON sp.id=c.source_persona_id
       LEFT JOIN private.source_persona_identity i ON i.source_persona_id=c.source_persona_id
      WHERE c.run_id=p_candidate_run_id AND c.rank=1 AND (c.basis->>'corroboration_eligible')::boolean IS TRUE
        AND (i.source_persona_id IS NULL OR i.decision_status='proposed');
@@ -16237,33 +16243,63 @@ BEGIN
   SELECT private.reimport_canonical_json_sha256(coalesce(jsonb_agg(pid::text ORDER BY pid::text COLLATE "C"),'[]'::jsonb)) INTO v_ipop FROM pg_temp.ctl_ipop;
   SELECT private.reimport_canonical_json_sha256(coalesce(jsonb_agg(k::text ORDER BY k::text COLLATE "C"),'[]'::jsonb)) INTO v_rpop FROM pg_temp.ctl_cards;
   SELECT private.reimport_canonical_json_sha256(coalesce(jsonb_agg(pid::text ORDER BY pid::text COLLATE "C"),'[]'::jsonb)) INTO v_excl FROM pg_temp.ctl_excl;
-  INSERT INTO private.identity_control_run(id,source_id,candidate_run_id,identity_population_sha256,relation_population_sha256,
-    input_list_sha256,excluded_sha256,k_random,cause,created_by)
-    VALUES (v_id,v_source,p_candidate_run_id,v_ipop,v_rpop,private.control_input_list_sha256(p_candidate_run_id),v_excl,v_k,
-            nullif(btrim(p_cause),''),auth.uid());
+  BEGIN
+    INSERT INTO private.identity_control_run(id,source_id,candidate_run_id,identity_population_sha256,relation_population_sha256,
+      input_list_sha256,excluded_sha256,k_random,cause,created_by)
+      VALUES (v_id,v_source,p_candidate_run_id,v_ipop,v_rpop,private.control_input_list_sha256(p_candidate_run_id),v_excl,v_k,
+              nullif(btrim(p_cause),''),auth.uid());
+  EXCEPTION WHEN unique_violation THEN
+    IF EXISTS (SELECT 1 FROM private.identity_control_run WHERE id=v_id AND candidate_run_id IS DISTINCT FROM p_candidate_run_id) THEN
+      RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: identity-control-run';
+    END IF;
+    RAISE;
+  END;
   INSERT INTO private.identity_control_exclusion(control_run_id,source_persona_id,reason) SELECT v_id,pid,reason FROM pg_temp.ctl_excl;
-  INSERT INTO private.identity_control_parent_card(control_run_id,interpretation_key,interpretation_version,family_id,
-    counterpart_person_id,counterpart_persona_id,partner_ids)
-  SELECT v_id,k,v,fam,cp,cpp,(SELECT array_agg(fm.person_id ORDER BY fm.person_id) FROM public.family_member fm
-                               WHERE fm.family_id=fam AND fm.rolle='partner') FROM pg_temp.ctl_cards;
+  BEGIN
+    INSERT INTO private.identity_control_parent_card(id,control_run_id,interpretation_key,interpretation_version,family_id,
+      counterpart_person_id,counterpart_persona_id,partner_ids)
+    SELECT private.content_uuid('identity-control-parent-card',jsonb_build_object('control_run_id',v_id,'interpretation_key',k)),
+           v_id,k,v,fam,cp,cpp,(SELECT array_agg(fm.person_id ORDER BY fm.person_id) FROM public.family_member fm
+                                 WHERE fm.family_id=fam AND fm.rolle='partner') FROM pg_temp.ctl_cards;
+  EXCEPTION WHEN unique_violation THEN
+    IF EXISTS (SELECT 1 FROM pg_temp.ctl_cards x JOIN private.identity_control_parent_card pc
+                 ON pc.id=private.content_uuid('identity-control-parent-card',jsonb_build_object('control_run_id',v_id,'interpretation_key',x.k))
+                WHERE (pc.control_run_id,pc.interpretation_key) IS DISTINCT FROM (v_id,x.k)) THEN
+      RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: identity-control-parent-card';
+    END IF;
+    RAISE;
+  END;
   -- Stikprøve: alle navnefæller + K tilfældige fordelt med største rest. Visning pr. kort: rang 1, navnefæller,
   -- udfyldning efter rang blandt de mulige — højst 3, i blandet orden (spec §23.3 pkt. 5).
   v_alloc:=private.control_allocate((SELECT coalesce(jsonb_object_agg(stratum,n),'{}'::jsonb) FROM (
       SELECT stratum,count(*) AS n FROM pg_temp.ctl_ipop WHERE stratum<>'navnefaelle' GROUP BY stratum) q),v_k);
-  INSERT INTO private.identity_control_sample(control_run_id,sample_kind,stratum,source_persona_id,identity_version,mapping,expected)
-  SELECT v_id,'identity',x.stratum,x.pid,x.ver,
+  BEGIN
+  INSERT INTO private.identity_control_sample(id,control_run_id,sample_kind,stratum,source_persona_id,identity_version,mapping,expected)
+  SELECT private.content_uuid('identity-control-sample',jsonb_build_object('control_run_id',v_id,'source_persona_id',x.pid)),
+         v_id,'identity',x.stratum,x.pid,x.ver,
          (SELECT jsonb_object_agg(m.pos::text,m.cid::text) FROM (
-            SELECT d.cid,row_number() OVER (ORDER BY encode(extensions.digest(convert_to(v_id::text||':'||d.cid::text,'UTF8'),'sha256'),'hex')) AS pos
+            -- Visning efter indhold (indholds-id-spec §3): (input, config, persona_key, kandidatperson).
+            SELECT d.cid,row_number() OVER (ORDER BY encode(extensions.digest(convert_to('control-display-v2:'||v_run.input_sha256||':'||
+                     v_run.config_sha256||':'||x.pkey||':'||cc.candidate_person_id::text,'UTF8'),'sha256'),'hex') COLLATE "C") AS pos
               FROM (SELECT u.cid FROM (
                       SELECT x.cand_id AS cid,0 AS pri,1 AS rk
                       UNION ALL SELECT hm.cid,1,hm.o::integer FROM unnest(x.homs) WITH ORDINALITY hm(cid,o)
                       UNION ALL SELECT c2.id,2,c2.rank FROM private.source_persona_identity_candidate c2
                        WHERE c2.run_id=p_candidate_run_id AND c2.source_persona_id=x.pid AND c2.rank>1
                          AND c2.id<>ALL(x.homs) AND NOT private.candidate_impossible(x.hp,c2.candidate_person_id)) u
-                    ORDER BY u.pri,u.rk LIMIT 3) d) m),
+                    ORDER BY u.pri,u.rk LIMIT 3) d
+              JOIN private.source_persona_identity_candidate cc ON cc.id=d.cid) m),
          x.cand_id::text
-    FROM (SELECT p.*,row_number() OVER (PARTITION BY p.stratum ORDER BY p.h) AS rn FROM pg_temp.ctl_ipop p) x
+    FROM (SELECT p.*,row_number() OVER (PARTITION BY p.stratum ORDER BY p.h COLLATE "C") AS rn FROM pg_temp.ctl_ipop p) x
    WHERE x.stratum='navnefaelle' OR x.rn<=coalesce((v_alloc->>x.stratum)::integer,0);
+  EXCEPTION WHEN unique_violation THEN
+    IF EXISTS (SELECT 1 FROM pg_temp.ctl_ipop x JOIN private.identity_control_sample s
+                 ON s.id=private.content_uuid('identity-control-sample',jsonb_build_object('control_run_id',v_id,'source_persona_id',x.pid))
+                WHERE (s.control_run_id,s.source_persona_id) IS DISTINCT FROM (v_id,x.pid)) THEN
+      RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: identity-control-sample';
+    END IF;
+    RAISE;
+  END;
   IF (SELECT count(*) FROM private.identity_control_sample WHERE control_run_id=v_id)>40 THEN
     RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_TOO_LARGE';
   END IF;

@@ -162,6 +162,10 @@ Et »bestået« kunne dermed bygge på gæt og autorisere 181 maskinelle afgøre
 én ekstra afvisning (udelukket persona). Ægteskaber afgøres maskinelt i del 2 uden kontrolkørsel som
 betingelse, når begge identiteter er afgjort.
 
+**Erratum 2026-10-21 (#151, indholds-id):** stikprøven trækkes efter `sha256('control-sample-v2:' ‖ input_sha256 ‖ ':' ‖
+config_sha256 ‖ ':' ‖ persona_key)` og kortene vises efter `…'control-display-v2:'… ‖ candidate_person_id` i stedet
+for kørsels- og persona-id'er, så trækningen kan genspilles i prod; garantierne er uændrede (indholds-id-spec §3).
+
 ## BESLUTTET: trin 5b — familie-forankret maskinel identitet (`family_corroboration`) ændrer 5a §4.2 (2026-10-06)
 
 > **Besluttet af projektejeren 2026-10-06** ved godkendelsen af 5b-specen
