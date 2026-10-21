@@ -15437,7 +15437,7 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,pu
     'marriage_claims_in_post',(SELECT count(*) FROM occ CROSS JOIN LATERAL private.relation_marriage_ordinals(occ.occurrence_id)),
     'families',coalesce((SELECT jsonb_agg(jsonb_build_object(
         'family_id',fm.family_id,'ordinal',fm.ordinal,
-        'konfidens',(SELECT coalesce(jsonb_agg(DISTINCT o.konfidens ORDER BY o.konfidens),'[]'::jsonb) FROM family_member o
+        'konfidens',(SELECT coalesce(jsonb_agg(DISTINCT o.konfidens COLLATE "C" ORDER BY o.konfidens COLLATE "C"),'[]'::jsonb) FROM family_member o
                       WHERE o.family_id=fm.family_id AND o.rolle='partner' AND o.konfidens IS NOT NULL),
         'partners',(SELECT coalesce(jsonb_agg(o.person_id ORDER BY o.person_id),'[]'::jsonb) FROM family_member o
                      WHERE o.family_id=fm.family_id AND o.rolle='partner' AND o.person_id<>fm.person_id))
@@ -16954,21 +16954,24 @@ BEGIN
       JOIN private.interpretation q ON q.id=e.interpretation_id AND q.source_id=p_source_id
      ORDER BY e.interpretation_key,e.seq DESC
   ), cur AS (
-    SELECT l.*,ic.id AS cur_id,private.relation_binding_state(ic.id) AS st
+    SELECT l.*,ic.id AS cur_id,ic.version AS cur_version,private.relation_binding_state(ic.id) AS st
       FROM last l JOIN private.interpretation_current ic ON ic.interpretation_key=l.interpretation_key
      WHERE l.classification='ordinal_afvigelse' AND ic.id=l.interpretation_id AND ic.status='accepted'
   )
+  -- Indholds-id (#151, spec §4 pkt. 1): v2 nøgler rækken på fortolkningsnøgle og version (intet tilfældigt
+  -- afgørelsesversions-id, ingen tilstandshash); ligheden med den gældende tilstand tjekkes fortsat nedenfor.
   SELECT coalesce(jsonb_agg(jsonb_build_object(
-      'interpretation_id',cur.cur_id::text,'family_id',(cur.st#>>'{family,family_id}')::bigint,
+      'interpretation_key',cur.interpretation_key::text,'interpretation_version',cur.cur_version,
+      'family_id',(cur.st#>>'{family,family_id}')::bigint,
       'principal_person_id',(SELECT (x->>'canonical_person_id')::bigint FROM jsonb_array_elements(cur.st->'parties') x WHERE x->>'party_role'='principal'),
       'spouse_person_id',(cur.st->>'counterpart_person_id')::bigint,
-      'book_ordinal',(cur.st->>'book_ordinal')::int,'family_ordinal',(cur.st->>'family_ordinal')::int,
-      'state_sha256',l_sha) ORDER BY cur.cur_id::text COLLATE "C"),'[]'::jsonb)
+      'book_ordinal',(cur.st->>'book_ordinal')::int,'family_ordinal',(cur.st->>'family_ordinal')::int)
+      ORDER BY cur.interpretation_key::text COLLATE "C"),'[]'::jsonb)
     INTO v_o
     FROM cur CROSS JOIN LATERAL (SELECT private.reimport_canonical_json_sha256(cur.st) AS l_sha) h
    WHERE cur.st IS NOT NULL AND h.l_sha=cur.state_sha256
      AND (cur.st->>'book_ordinal') IS DISTINCT FROM (cur.st->>'family_ordinal');
-  RETURN jsonb_build_object('contract','spouse-exception-rows-v1','source_id',p_source_id,'s_rows',v_s,'o_rows',v_o);
+  RETURN jsonb_build_object('contract','spouse-exception-rows-v2','source_id',p_source_id,'s_rows',v_s,'o_rows',v_o);
 END $$;
 REVOKE ALL ON FUNCTION private.spouse_exception_projection(bigint) FROM PUBLIC,anon,authenticated,service_role;
 
@@ -17419,8 +17422,8 @@ BEGIN
     INTO v_rows FROM jsonb_array_elements(v2->'rows') WITH ORDINALITY AS t(r,n);
   SELECT coalesce(jsonb_agg(jsonb_build_object(
       'source_persona_id',i.source_persona_id::text,'identity_version',i.version,
-      'previous',jsonb_build_object('basis',i.evidence->>'basis','note',i.evidence->>'note',
-                                    'decided_at',to_char(i.decided_at AT TIME ZONE 'UTC','YYYY-MM-DD')),
+      -- Indholds-id (#151, spec §4 pkt. 3): ingen dato; arkets hash må ikke afhænge af kørselsdagen.
+      'previous',jsonb_build_object('basis',i.evidence->>'basis','note',i.evidence->>'note'),
       'name_text',sm.verbatim_text,'clause_observation_id',o.id::text,'clause_text',o.verbatim_text,
       'clause_is_current',EXISTS (SELECT 1 FROM private.clause_observation_current cc WHERE cc.id=o.id),
       'post_text',po.verbatim_text,'record_key',sr.record_key,'page_from',o.page_from,

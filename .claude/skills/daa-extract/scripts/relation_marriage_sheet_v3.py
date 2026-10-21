@@ -74,7 +74,7 @@ def render_sheet(rows: dict) -> str:
         p = propose_redecide(q, cutoff)
         prev = q.get("previous") or {}
         out += [f"## GENAFGØRELSE {j} · post {q.get('record_key') or '?'}, s. {q.get('page_from') or '?'}",
-                f"#   Tidligere afgørelse: {prev.get('basis')}, {prev.get('decided_at')} · note: »{_ws(prev.get('note'))}«",
+                f"#   Tidligere afgørelse: {prev.get('basis')} · note: »{_ws(prev.get('note'))}«",
                 f"#   Ægtefællens navn: »{_ws(q.get('name_text'))}«",
                 f"#   Klausulen: »{_ws(q.get('clause_text'))}«",
                 f"#   Hele posten: »{_ws(q.get('post_text'))}«",

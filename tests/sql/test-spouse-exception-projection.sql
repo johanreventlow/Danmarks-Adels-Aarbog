@@ -33,7 +33,16 @@ BEGIN
     jsonb_build_object('persona',d->>'spouse_persona','person',-21306,'rank',1)));
 
   v_proj:=private.spouse_exception_projection(-21301);
-  IF v_proj->>'contract'<>'spouse-exception-rows-v1' OR jsonb_array_length(v_proj->'s_rows')<>1
+  -- Indholds-id (#151, spec §4 pkt. 1): v2 nøgler O-rækken på fortolkningsnøgle og version, uden tilfældigt
+  -- afgørelsesversions-id og uden tilstandshash (ligheden tjekkes fortsat i projektionen).
+  IF v_proj->>'contract'<>'spouse-exception-rows-v2'
+     OR v_proj#>>'{o_rows,0,interpretation_key}' IS DISTINCT FROM o->'claim'->>'key'
+     OR (v_proj#>>'{o_rows,0,interpretation_version}')::int IS DISTINCT FROM
+        (SELECT version FROM private.interpretation_current WHERE interpretation_key=(o->'claim'->>'key')::uuid)
+     OR v_proj->'o_rows'->0 ? 'interpretation_id' OR v_proj->'o_rows'->0 ? 'state_sha256' THEN
+    RAISE EXCEPTION 'SPOUSE_PROJECTION_TEST_FAILED: v2-kontrakt %', v_proj->'o_rows';
+  END IF;
+  IF jsonb_array_length(v_proj->'s_rows')<>1
      OR v_proj#>>'{s_rows,0,source_persona_id}'<>a->>'spouse_persona'
      OR (v_proj#>>'{s_rows,0,candidate_count}')::int<>2 OR (v_proj#>>'{s_rows,0,identity_version}')::int<>0
      OR (v_proj#>>'{s_rows,0,family_id}')::bigint<>(a->>'family')::bigint
