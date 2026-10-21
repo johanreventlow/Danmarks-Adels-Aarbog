@@ -2,6 +2,29 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: #151 — 5a's kalibreringsafgørelser overføres ikke; DDL-ceremoniens errata (2026-10-21)
+
+> **Besluttet af projektejeren 2026-10-21** under planlægningen af overførslen (plan A:
+> `docs/superpowers/plans/2026-10-21-trin5ab-overfoersel-a-ddl.md`; spec
+> `docs/superpowers/specs/2026-10-21-trin5ab-2018-20-prod-overfoersel-design.md`).
+
+**Baggrund:** 5a ligger ikke i beviskæden. 5b del 1's bevisbase er en kopi af roden, ikke af 5a's base, og
+5a's bevisbase blev droppet 2026-10-17. 5a's 31 afgørelser var en blind genbekræftelse af eksisterende
+149b-koblinger (24 bekræftet med kandidat 1, 6 sat til uafklaret, 1 via webkøen). De findes kun i en privat
+mappe uden for Git, som bevares. De 6 uafklarede berører ingen relationer eller bindinger.
+
+**Besluttet:**
+1. **De 31 afgørelser overføres ikke.** Prod beholder alle 587 149b-koblinger. 5a's kode deployes; identitetsvejen
+   bevises i prod af 5b's egne afgørelser, der går gennem samme `decide_source_persona_identity`. Kun webkøens
+   `web_detail`-spor er ubrugt i prod.
+2. **Errata til spec'en** (plan A's tabel): prods DDL-træ er `b42266e` (2026-09-28), ikke `140a17b`; del 1's og 2a's
+   bevisbaser er omdøbt tilbage fra karantæne og er input til plan B; dumps er 0600 på krypteret disk som tidligere
+   ceremonier; fingeraftryk har en portabel og en prod-lokal del; DDL'en skriver tre promotion-regler og to nye
+   felter (tilladt datadelta), så plan B måler »kanonisk delta 0« mod D1, ikke mod rodbasen.
+3. **db-verify i rehearsal** køres i en kopi uden de emulerede default privileges: dens egen probe forudsætter lukkede
+   defaults, mens prod giver `anon` adgang til nye `public`-funktioner. Vinduet måles i stedet direkte og lukkes af
+   migrationernes eksplicitte `REVOKE`; et afbrudt `04` køres igen straks eller fortrydes (runbook §5).
+
 ## BESLUTTET: #151 — id'er af indholdet; forudsætning for 5a+5b-overførslen (2026-10-21)
 
 > **Besluttet af projektejeren 2026-10-21** i brainstormen og ved godkendelsen af spec'en.
