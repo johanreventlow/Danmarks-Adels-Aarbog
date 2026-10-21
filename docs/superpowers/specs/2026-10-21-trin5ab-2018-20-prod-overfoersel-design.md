@@ -1,6 +1,6 @@
 # Trin 5a + 5b — 2018-20's identitetsvej, relationspersonas og bindinger i prod (overførsel)
 
-**Status:** designudkast. Godkendt afsnit for afsnit i brainstormen 2026-10-20/21. **Revideret efter Fable-review
+**Status:** **GODKENDT af projektejeren 2026-10-21.** Godkendt afsnit for afsnit i brainstormen 2026-10-20/21. **Revideret efter Fable-review
 runde 1** (2026-10-21; afsnit 1 GO med rettelser, afsnit 2 NO-GO, afsnit 3 GO med rettelser; 1 BLOCKER, 11
 MAJOR, 4 MINOR, alle godtaget, to af dem ved projektejerens valg; se §12). Spec'en er ikke et prod-GO: hver
 ceremoni kræver sit eget GO (§8). **Runde 2** (2026-10-21; GO med rettelser i alle tre afsnit, 4 MAJOR og 7 MINOR,
