@@ -8472,13 +8472,24 @@ BEGIN
   END IF;
   v_new_version:=v_current_version+1;
 
-  INSERT INTO private.source_persona_identity_event(
-    source_persona_id,canonical_person_id,decision_status,version,evidence,
-    decided_by,decided_by_name,decided_at
-  ) VALUES (
-    p_source_persona_id,p_canonical_person_id,p_decision_status,v_new_version,
-    p_evidence,v_actor,v_actor_name,v_decided_at
-  );
+  -- Indholds-id (#151, spec §3): hændelsens id afledes af (persona, version) for alle oprindelser.
+  BEGIN
+    INSERT INTO private.source_persona_identity_event(
+      id,source_persona_id,canonical_person_id,decision_status,version,evidence,
+      decided_by,decided_by_name,decided_at
+    ) VALUES (
+      private.content_uuid('identity-event',jsonb_build_object('source_persona_id',p_source_persona_id,'version',v_new_version)),
+      p_source_persona_id,p_canonical_person_id,p_decision_status,v_new_version,
+      p_evidence,v_actor,v_actor_name,v_decided_at
+    );
+  EXCEPTION WHEN unique_violation THEN
+    IF EXISTS (SELECT 1 FROM private.source_persona_identity_event
+                WHERE id=private.content_uuid('identity-event',jsonb_build_object('source_persona_id',p_source_persona_id,'version',v_new_version))
+                  AND (source_persona_id,version) IS DISTINCT FROM (p_source_persona_id,v_new_version)) THEN
+      RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: identity-event';
+    END IF;
+    RAISE;
+  END;
   INSERT INTO private.source_persona_identity(
     source_persona_id,canonical_person_id,decision_status,version,evidence,
     decided_by,decided_by_name,decided_at,updated_at
@@ -15067,6 +15078,7 @@ DECLARE
   v_record_key text; v_principal uuid; v_principal_n integer; v_spouse uuid; v_mention uuid; v_run uuid; v_run_key text;
   v_raw text; v_ordinal integer; v_year_ids uuid[]:='{}'; v_year_id uuid; v_pred text; v_year text; v_receipt jsonb;
   v_hash text; v_marriage boolean; v_from integer; v_to integer; v_name_from integer; v_name_to integer;
+  v_key text;
 BEGIN
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
   IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
@@ -15197,13 +15209,32 @@ BEGIN
   IF v_run IS NULL THEN RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_RUN_DRIFT'; END IF;
 
   IF v_marriage THEN
-    INSERT INTO private.source_persona(source_id,persona_key,created_run_id)
-      VALUES (v_batch.source_id,v_record_key||'#rel-marriage-'||(p_payload->>'post_offset')||'-'||(v_to-v_from),v_run)
-      RETURNING id INTO v_spouse;
-    INSERT INTO private.source_mention(observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id)
-      VALUES (v_clause.id,'person',v_name_from,v_name_to,
-              substr(v_clause.verbatim_text,v_name_from+1,v_name_to-v_name_from),v_run)
-      RETURNING id INTO v_mention;
+    -- Indholds-id (#151, spec 2026-10-21-trin5ab-indholds-id-design.md §3): persona og omtale får id af deres
+    -- naturlige nøgle; en eksisterende række med samme id og anden nøgle fejler lukket.
+    v_key:=v_record_key||'#rel-marriage-'||(p_payload->>'post_offset')||'-'||(v_to-v_from);
+    v_spouse:=private.content_uuid('source-persona',jsonb_build_object('source_id',v_batch.source_id,'persona_key',v_key));
+    BEGIN
+      INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES (v_spouse,v_batch.source_id,v_key,v_run);
+    EXCEPTION WHEN unique_violation THEN
+      IF EXISTS (SELECT 1 FROM private.source_persona WHERE id=v_spouse
+                  AND (source_id,persona_key) IS DISTINCT FROM (v_batch.source_id,v_key)) THEN
+        RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: source-persona';
+      END IF;
+      RAISE;
+    END;
+    v_mention:=private.content_uuid('source-mention',jsonb_build_object('persona_id',v_spouse,'mention_role','spouse','ordinal',1));
+    BEGIN
+      INSERT INTO private.source_mention(id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id)
+        VALUES (v_mention,v_clause.id,'person',v_name_from,v_name_to,
+                substr(v_clause.verbatim_text,v_name_from+1,v_name_to-v_name_from),v_run);
+    EXCEPTION WHEN unique_violation THEN
+      IF EXISTS (SELECT 1 FROM private.source_mention WHERE id=v_mention)
+         AND NOT EXISTS (SELECT 1 FROM private.source_persona_mention WHERE mention_id=v_mention AND persona_id=v_spouse
+                          AND mention_role='spouse' AND ordinal=1) THEN
+        RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: source-mention';
+      END IF;
+      RAISE;
+    END;
     INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
       VALUES (v_spouse,v_mention,'spouse',1);
     FOREACH v_pred IN ARRAY ARRAY['person.birth','person.death'] LOOP

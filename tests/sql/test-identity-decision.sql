@@ -167,6 +167,23 @@ BEGIN
        OR (SELECT decision_status FROM private.source_persona_identity WHERE source_persona_id=v_ps[4])<>'unresolved' THEN
       RAISE EXCEPTION 'IDENTITY_DECISION_TEST_FAILED: new_person_needed forkert skrevet (%)',v_ev;
     END IF;
+    -- Indholds-id (#151, spec §3, §5.2): hændelsens id afledes af (persona, version); kollision fejler lukket.
+    IF (SELECT count(*) FROM private.source_persona_identity_event e WHERE e.source_persona_id=ANY(v_ps[1:4]) AND e.version=1
+          AND e.id=private.content_uuid('identity-event',jsonb_build_object('source_persona_id',e.source_persona_id,'version',1)))<>4 THEN
+      RAISE EXCEPTION 'IDENTITY_DECISION_TEST_FAILED: hændelses-id ikke af indholdet';
+    END IF;
+    BEGIN
+      SELECT coalesce(max(version),0) INTO v_i FROM private.source_persona_identity WHERE source_persona_id=v_ps[5];
+      INSERT INTO private.source_persona_identity_event(id,source_persona_id,canonical_person_id,decision_status,version,evidence,
+        decided_by,decided_by_name,decided_at)
+        VALUES (private.content_uuid('identity-event',jsonb_build_object('source_persona_id',v_ps[5],'version',v_i+1)),
+                v_ps[7],-987655031,'accepted',1,'{"fixture":"kollision"}',v_actor,'fixture',clock_timestamp());
+      SET LOCAL ROLE authenticated;
+      PERFORM red_afgoer_source_persona(v_ps[5],v_i,'unresolved',NULL,'kollision','{}');
+      RAISE EXCEPTION 'IDENTITY_DECISION_TEST_FAILED: hændelseskollision godtaget';
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLERRM NOT LIKE 'DETERMINISTIC_ID_COLLISION: identity-event%' THEN RAISE; END IF;
+    END;
     RAISE EXCEPTION 'ROLLBACK_5A_DECISION';
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM='ROLLBACK_5A_DECISION' THEN

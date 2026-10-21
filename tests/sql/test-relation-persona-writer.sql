@@ -119,4 +119,44 @@ BEGIN
   RESET ROLE;
   RAISE NOTICE 'OK: tvetydigt spænd afvises';
 END $relation_persona_negative$;
+
+-- Indholds-id (#151, spec 2026-10-21-trin5ab-indholds-id-design.md §3, §5.2): ægtefællepersona og omtale får id af
+-- indholdet; en eksisterende persona med samme id og anden nøgle giver DETERMINISTIC_ID_COLLISION.
+DO $det_persona$
+DECLARE
+  v_actor uuid:='11000000-0000-0000-0000-00000005b203'; v_src bigint; s jsonb; p jsonb; c jsonb; e jsonb; v_key text;
+  v_raw text:='g. m. Dan Delta.'; v_text text; v_persona uuid; v_mention uuid;
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  FOREACH v_src IN ARRAY ARRAY[-5203,-5204] LOOP
+    INSERT INTO person(id,levende,privat,status) VALUES (v_src,false,false,'5b');
+    s:=pg_temp.f5b_source(v_src);
+    v_text:='Cia Ceta. '||v_raw;
+    p:=pg_temp.f5b_post(v_src,s,'IV-1',v_text,ARRAY['Cia Ceta.',v_raw],v_src,v_actor);
+    c:=pg_temp.f5b_claim(v_src,s,'relation.marriage',(p->'clauses'->>1)::uuid,v_raw);
+    e:=pg_temp.f5b_payload(p,c,(p->'clauses'->>1)::uuid,v_raw,'Dan Delta');
+    v_key:='IV-1#rel-marriage-'||(e->>'post_offset')||'-'||((e->>'span_to')::int-(e->>'span_from')::int);
+    IF v_src=-5203 THEN
+      PERFORM pg_temp.f5b_write(v_src,v_actor,jsonb_build_object('relation-persona:'||(c->>'key'),e));
+      SELECT id INTO v_persona FROM private.source_persona WHERE source_id=v_src AND persona_key=v_key;
+      SELECT mention_id INTO v_mention FROM private.source_persona_mention WHERE persona_id=v_persona AND mention_role='spouse';
+      IF v_persona IS DISTINCT FROM private.content_uuid('source-persona',jsonb_build_object('source_id',v_src,'persona_key',v_key))
+         OR v_mention IS DISTINCT FROM private.content_uuid('source-mention',
+              jsonb_build_object('persona_id',v_persona,'mention_role','spouse','ordinal',1)) THEN
+        RAISE EXCEPTION 'RELATION_WRITER_TEST_FAILED: id ikke af indholdet';
+      END IF;
+    ELSE
+      INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id)
+        VALUES (private.content_uuid('source-persona',jsonb_build_object('source_id',v_src,'persona_key',v_key)),v_src,'andet',
+                (s->>'run')::uuid);
+      BEGIN
+        PERFORM pg_temp.f5b_write(v_src,v_actor,jsonb_build_object('relation-persona:'||(c->>'key'),e));
+        RAISE EXCEPTION 'RELATION_WRITER_TEST_FAILED: kollision godtaget';
+      EXCEPTION WHEN OTHERS THEN
+        IF SQLERRM NOT LIKE 'DETERMINISTIC_ID_COLLISION: source-persona%' THEN RAISE; END IF;
+      END;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: ægtefællepersona og omtale med id af indholdet; kollision fejler lukket';
+END $det_persona$;
 ROLLBACK;
