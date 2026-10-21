@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-10-21 — #151: DDL-ceremonien for 5a+5b-overførslen (plan A)
+
+Implementeret efter planen `2026-10-21-trin5ab-overfoersel-a-ddl.md` på `docs/151-5ab-overfoersel-a`.
+
+- **Repo:** `transfer_catalog_fingerprint.sql` og `transfer_acl_fingerprint.sql` (portabel og prod-lokal del),
+  `transfer_table_hashes.sql`, `transfer_ddl.py` (afbrudsfiler, fortrydelsens DROP-liste, datadelta) og
+  allow-listen for DDL'ens datadelta. Tests: `test_transfer_ddl.py` og `test-transfer-fingerprints.sh` i CI;
+  `test-transfer-5ab-ddl-upgrade.sh` kun lokalt (fra prods træ `b42266e`).
+- **Privat ceremoni** (`~/.private/5ab-overfoersel/`) bygget og øvet på stand-in: fase 0, D0/D1 med check-restore,
+  rehearsal, DDL, probe og fortrydelse. Runbook: `docs/runbooks/transfer-5ab-ddl-prod.md`.
+- **Beslutning:** 5a's 31 kalibreringsafgørelser overføres ikke (decisions 2026-10-21). Prod er uændret.
+
 ## 2026-10-21 — #151: id'er af indholdet (forudsætning for overførslen af 5a+5b)
 
 Implementeret efter planen `2026-10-21-trin5ab-indholds-id.md` på `feat/151-indholds-id`.
