@@ -1,0 +1,5 @@
+# 5a+5b-overførslen (plan A, invariant I8): tabeller, hvis rækker DDL'en fra prods træ b42266e må ændre.
+# Én schema.tabel pr. linje; resten af linjen er en kommentar. Udvides kun med kildeblokken og projektejerens ja.
+private.interpretation_promotion_rule       # db-migrations.sql ~l. 21320: ADD COLUMN rule_mode NOT NULL DEFAULT 'text_assertion'
+private.interpretation_promotion_rule_line  # ~l. 21413 (relation-marriage-v1, relation-parent-v1) og ~l. 23734 (relation-child-v1)
+private.interpretation_promotion_batch      # ~l. 21620: ADD COLUMN items_sha256 (nøglen kommer med i hver eksisterende rækkes to_jsonb)
