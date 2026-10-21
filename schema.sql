@@ -3800,6 +3800,18 @@ END $$;
 COMMENT ON FUNCTION private.deterministic_uuid(text) IS
   'Project-specific deterministic SHA-256 UUID; NOT RFC UUIDv5 (which is SHA-1 over a namespace). Form prescribed by spec section 7.1.';
 
+-- Trin 5a/5b (#151, indholds-id-spec §3): id af indhold. kind og key_version adskiller arter og nøgleversioner;
+-- jsonb::text giver kanonisk nøgleorden.
+CREATE OR REPLACE FUNCTION private.content_uuid(p_kind text,p_key jsonb)
+RETURNS uuid LANGUAGE plpgsql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
+BEGIN
+  IF btrim(p_kind)='' OR jsonb_typeof(p_key)<>'object' OR p_key ?| ARRAY['kind','key_version'] THEN
+    RAISE EXCEPTION 'CONTENT_UUID_KEY_INVALID';
+  END IF;
+  RETURN private.deterministic_uuid((jsonb_build_object('kind',p_kind,'key_version',1)||p_key)::text);
+END $$;
+REVOKE ALL ON FUNCTION private.content_uuid(text,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+
 -- #196: receipt bytes are deliberately independent of the generic reimport
 -- canonicalizer.  Historical profile hashes use the latter and may not drift.
 CREATE OR REPLACE FUNCTION private.interpretation_proposal_canonical_json_text(p_value jsonb)
