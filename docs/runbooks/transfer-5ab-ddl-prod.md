@@ -47,7 +47,7 @@ Forventet: `FREEZE_BEGIN_OK … state=PRE`, `PREFLIGHT_OK … locale_compared=tr
 
 | Gate | Stopkode |
 | --- | --- |
-| Mål = prods identitet | `TARGET` |
+| Mål = prods identitet | »maalidentiteten afviger fra GO-pakken« |
 | Trin 4's tre digests og tal = 2026-10-05 | `TRANSFER_DRIFT` |
 | 0 `change_set` efter `2026-10-05T11:03:06Z` | `CHANGE_SINCE_TRANSFER` |
 | Driftsbaselinen (skema, kanonisk, klausulsæt) | `SCHEMA_DRIFT` / `CANONICAL_DRIFT` / `CLAUSE_SET_DRIFT` |
@@ -56,6 +56,7 @@ Forventet: `FREEZE_BEGIN_OK … state=PRE`, `PREFLIGHT_OK … locale_compared=tr
 | `datctype` og tegnproben = trin 4's prod-preflight | `LOCALE_DRIFT` |
 | Ejerskab over alt i `private`/`public` (fortrydelsen kræver det) | `RESTORE_PRIVILEGES` |
 | Ingen åben global default-ACL for DDL-rollen | `DEFAULT_ACL_GLOBAL` |
+| Ingen grant-option i DDL-rollens skema-defaults (fortrydelsens linjer bærer den ikke) | `DEFAULT_ACL_GRANTABLE` |
 
 `02 d0` dumper læse-kun med ACL'er, måler prod straks efter og laver en fuld lokal check-restore
 (`daa5ab_ddl_d0check_<stempel>`): de portable fingeraftryk, trin 4's digests og tabelhashene skal være
@@ -110,13 +111,14 @@ fejllinjer, og afstemningen tilbagekalder de emulerede grants og giver 16 `PUBLI
 ! /bin/zsh -f ~/.private/5ab-overfoersel/koer.zsh 04-ddl.sh --jeg-mener-det
 ```
 
-`04` verificerer GO-hashes, rent repo og commit før første forbindelse; derefter mål, pause fra før D0,
+`04` verificerer GO-hashes, rent repo og commit før første forbindelse og stopper, hvis DDL'en allerede er
+fortrudt i pausen (`UNDONE_IN_THIS_PAUSE`: luk pausen og start en ny); derefter mål, pause fra før D0,
 `NO_WRITE_SINCE_DUMP` (0 `change_set` og restore-hash = D0's) og tilstanden:
 
 | Tilstand | Handling |
 | --- | --- |
 | `PRE` (portabelt katalog og ACL = preflight) | gate-markør, DDL |
-| `POST` (= rehearsalens F1/A1) | `ALREADY_APPLIED`, intet skrevet |
+| `POST` (= rehearsalens F1/A1) | `ALREADY_APPLIED`: ingen DDL, men `NOTIFY` og alle efterkrav køres igen ⇒ ny `ddl.json` |
 | `PARTIAL` | kun med `DAA_DDL_GENKOERSEL=ja` (sat med `--saet`) og gate-markøren fra samme pause |
 | `ACL_DRIFT` / andet | STOP før skrivning |
 
@@ -147,12 +149,20 @@ pr. funktion, så vinduet skal lukkes. Genkørsel: `koer.zsh --saet DAA_DDL_GENK
 ! /bin/zsh -f ~/.private/5ab-overfoersel/koer.zsh 00-freeze.sh end --efter-fortrydelse
 ```
 
-`09` kører netop rehearsalens kommandofølge: (a) nye objekter droppes i én transaktion efter en liste
+`09` stopper før første skrivning, hvis preflightens linjefiler, rehearsalens DROP-liste eller D0's
+tabellinjer ikke har de hashes, rapporterne bærer; hvis fortrydelsen allerede er gennemført i pausen
+(`ALREADY_UNDONE`: kør `00 end --efter-fortrydelse`); hvis data-ceremonien er gennemført (`VERIFY_OK_FINDES`);
+og hvis tabellerne siden D0 har ændret sig ud over DDL'ens tilladte delta (`UNDO_DATA_LOSS`: fortrydelsen
+ville slette det). Kun efter vurdering af tabet: `koer.zsh --saet DAA_UNDO_TAB_ACCEPTERET=<hash fra stopteksten>`;
+accepten gælder kun netop det målte delta.
+
+Derefter kører `09` rehearsalens kommandofølge: (a) nye objekter droppes i én transaktion efter en liste
 udledt af preflightens katalog mod det aktuelle, og listen skal være en delmængde af rehearsalens
 (`UNDO_LIST_UNEXPECTED`); kolonne-ejede sekvenser (fx `private.source_persona_identity_candidate_run_run_seq_seq`) droppes ikke, de forsvinder
 med restoren; (b) DDL-rollens skema-defaults i `public`/`private` fjernes (`ALTER DEFAULT PRIVILEGES …
 IN SCHEMA … REVOKE`); (c) `pg_restore --clean --if-exists --no-owner --schema=private --schema=public` af D0;
-(d) skema-defaults genskabes fra **preflightens** linjer; (e) grant-afstemning over de portable grants (inkl.
+(d) skema-defaults afstemmes mod **preflightens** linjer (restoren genskaber dem normalt selv til sidst, fra
+D0's `DEFAULT ACL`-poster; (d) er bærende, hvis D0 og preflighten afviger, eller restoren blev afbrudt); (e) grant-afstemning over de portable grants (inkl.
 `service_role` og skemaer); (f) `NOTIFY pgrst, 'reload schema'`; (g) portabelt katalog/ACL = preflight,
 DDL-rollens skema-defaults = preflight, øvrige lokale dele = før fortrydelsen, trin 4's digests og
 tabelhashes = D0's ⇒ `UNDO_OK`. Kør `get_advisors(security)` efter restoren.
@@ -165,9 +175,10 @@ igen. Med (b) åbner restoren intet; rehearsalens R3 kræver 0 tilbagekaldte (`U
 globale række (`REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC`) røres ikke, så restoren mister i stedet 16
 `PUBLIC EXECUTE`, som (e) giver tilbage; det er den lukkede retning.
 
-**Afbrudt `09`: kør det igen.** Stopper `09` mellem (b) og (d), står prod uden skema-defaults: nye objekter
+**Afbrudt `09`: kør det igen.** Stopper `09` mellem (b) og restorens sidste ACL-pas, står prod uden skema-defaults: nye objekter
 får ingen grants til `anon`/`authenticated`/`service_role` (lukket, ikke åbent). En genkørsel genskaber dem
 fra preflighten, ikke fra tilstanden ved start, og er bevist lokalt (afbrud efter (b), genkørsel ⇒ `UNDO_OK`).
+Efter `UNDO_OK` køres `09` ikke igen (`ALREADY_UNDONE`); luk pausen.
 
 **To funktioner kan restoren ikke erstatte.** `public.current_rolle()` og
 `public.media_object_synlig_anon(text)` bruges af fem `storage.objects`-politikker, så `--clean` kan ikke
