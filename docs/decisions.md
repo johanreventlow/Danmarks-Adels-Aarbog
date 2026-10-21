@@ -23,7 +23,12 @@ mappe uden for Git, som bevares. De 6 uafklarede berører ingen relationer eller
    felter (tilladt datadelta), så plan B måler »kanonisk delta 0« mod D1, ikke mod rodbasen.
 3. **db-verify i rehearsal** køres i en kopi uden de emulerede default privileges: dens egen probe forudsætter lukkede
    defaults, mens prod giver `anon` adgang til nye `public`-funktioner. Vinduet måles i stedet direkte og lukkes af
-   migrationernes eksplicitte `REVOKE`; et afbrudt `04` køres igen straks eller fortrydes (runbook §5).
+   migrationernes eksplicitte `REVOKE`; et afbrudt `04` køres igen straks eller fortrydes (runbook §5). Kopien
+   beviser ikke lukkethed for funktioner uden for `red_%`; det gør upgrade-testens `anon_exec_public` (finalreview).
+4. **Fortrydelsen fjerner DDL-rollens skema-defaults under restoren** og genskaber dem fra preflightens linjer
+   (finalreview): ellers åbnede restoren alt i `public` for `anon`/`authenticated`/`service_role` (511 grants), til
+   grant-afstemningen lukkede dem. Den lokale del sammenlignes derfor for DDL-rollens skema-defaults mod
+   preflighten, ikke mod tilstanden ved fortrydelsens start (et afbrud + genkørsel må ikke bage den tomme tilstand ind).
 
 ## BESLUTTET: #151 — id'er af indholdet; forudsætning for 5a+5b-overførslen (2026-10-21)
 

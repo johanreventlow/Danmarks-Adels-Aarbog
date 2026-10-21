@@ -79,10 +79,13 @@ Forventet: `REHEARSAL_OK apply_s=… open_exec=…/0/…/0 drop=89 DATA_DELTA_OK
   `.claude/skills/daa-extract/references/transfer-5ab-ddl-allowed-data-delta.txt`, de lokale dele uændrede,
   og `db-verify.sql` grøn i en kopi. I kopien rulles de emulerede default privileges tilbage, fordi
   db-verify's egen probe (`EVIDENCE_PUBLIC_RED_DEFAULT_ACL_ANON_OPEN`) forudsætter lukkede defaults; prod
-  har `postgres|public|f|anon`, og migrationerne lukker hver funktion eksplicit.
+  har `postgres|public|f|anon`, og migrationerne lukker hver funktion eksplicit. A1-sammenligningen beviser
+  kun, at rehearsal og prod er ens, ikke at de er lukkede; lukketheden bevises i den lokale upgrade-test
+  (`anon_exec_public`: den eneste nye anon-kaldbare `public`-funktion er `public_family_sources(bigint[])`).
 - **R2:** fire afbrud på hver sin restore (efter #153's `COMMIT`, i 5a-cutover-vinduet, i et funktionsvindue,
   hele migrationsfilen uden `db-rls.sql`), derefter fuld apply ⇒ samme fingeraftryk.
-- **R3:** fortrydelsen (afsnit 6) på R1's base ⇒ `UNDO_OK`.
+- **R3:** fortrydelsen (afsnit 6) på R1's base ⇒ `UNDO_OK`, og restoren skal ikke tilbagekalde noget
+  (`UNDO_OPEN_WINDOW`; målt `0|16`).
 
 Rapporten (`rehearsal-ddl.json`) og GO-hashfilen (24 linjer) gemmes i GO-miljøet.
 
@@ -147,11 +150,30 @@ pr. funktion, så vinduet skal lukkes. Genkørsel: `koer.zsh --saet DAA_DDL_GENK
 `09` kører netop rehearsalens kommandofølge: (a) nye objekter droppes i én transaktion efter en liste
 udledt af preflightens katalog mod det aktuelle, og listen skal være en delmængde af rehearsalens
 (`UNDO_LIST_UNEXPECTED`); kolonne-ejede sekvenser (fx `public.family_id_seq`) droppes ikke, de forsvinder
-med restoren; (b) `pg_restore --clean --if-exists --no-owner --schema=private --schema=public` af D0;
-(c) grant-afstemning over de portable grants (inkl. `service_role` og skemaer); (d) `NOTIFY pgrst, 'reload
-schema'`; (e) portabelt katalog/ACL = preflight, lokale dele = før fortrydelsen, trin 4's digests og
-tabelhashes = D0's ⇒ `UNDO_OK`. Kør `get_advisors(security)` efter restoren. Kan køres igen efter et afbrud.
+med restoren; (b) DDL-rollens skema-defaults i `public`/`private` fjernes (`ALTER DEFAULT PRIVILEGES …
+IN SCHEMA … REVOKE`); (c) `pg_restore --clean --if-exists --no-owner --schema=private --schema=public` af D0;
+(d) skema-defaults genskabes fra **preflightens** linjer; (e) grant-afstemning over de portable grants (inkl.
+`service_role` og skemaer); (f) `NOTIFY pgrst, 'reload schema'`; (g) portabelt katalog/ACL = preflight,
+DDL-rollens skema-defaults = preflight, øvrige lokale dele = før fortrydelsen, trin 4's digests og
+tabelhashes = D0's ⇒ `UNDO_OK`. Kør `get_advisors(security)` efter restoren.
 Prisen: alt skrevet i `private`/`public` efter D0's start går tabt; under pausen er det kun DDL'en.
+
+**Hvorfor (b) og (d).** `pg_dump` skriver rettigheder i forhold til PostgreSQL's indbyggede standard, ikke
+i forhold til Supabases skema-defaults (`postgres|public|…|anon` m.fl.). Uden (b) fik alt, restoren opretter i
+`public`, ALL/EXECUTE til `anon`, `authenticated` og `service_role` (målt: 511 grants), indtil (e) tog dem
+igen. Med (b) åbner restoren intet; rehearsalens R3 kræver 0 tilbagekaldte (`UNDO_OPEN_WINDOW`). Den
+globale række (`REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC`) røres ikke, så restoren mister i stedet 16
+`PUBLIC EXECUTE`, som (e) giver tilbage; det er den lukkede retning.
+
+**Afbrudt `09`: kør det igen.** Stopper `09` mellem (b) og (d), står prod uden skema-defaults: nye objekter
+får ingen grants til `anon`/`authenticated`/`service_role` (lukket, ikke åbent). En genkørsel genskaber dem
+fra preflighten, ikke fra tilstanden ved start, og er bevist lokalt (afbrud efter (b), genkørsel ⇒ `UNDO_OK`).
+
+**To funktioner kan restoren ikke erstatte.** `public.current_rolle()` og
+`public.media_object_synlig_anon(text)` bruges af fem `storage.objects`-politikker, så `--clean` kan ikke
+droppe dem (»already exists«), og de beholder prods aktuelle tilstand. DDL'en ændrer dem ikke
+(`outside_dependents_unchanged` i `tests/sql/test-transfer-5ab-ddl-upgrade.sh`); gør en fremtidig DDL det,
+stopper rehearsalens R3 på katalogdrift før GO.
 
 ## 7. Efter `DDL_VERIFY_OK` og D1
 
