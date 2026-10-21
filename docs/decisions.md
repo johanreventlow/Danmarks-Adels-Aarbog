@@ -14,7 +14,7 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 3. **Trækning `-v2`:** stikprøve og kortvisning trækkes efter (input, config, persona_key[, kandidatperson]) i stedet for tilfældige id'er; garantierne i 5b §23.3 er uændrede.
 4. **Ark-SQL uden tilfældige id'er:** 2b-i's `O`-linjer slår den gældende afgørelsesversion op ved kørsel.
 
-**Kendt begrænsning (fundet ved implementeringen, afventer projektejerens stillingtagen):** trækningen kan beregnes på forhånd for enhver config, så en redaktør kunne vælge en config med en gunstig stikprøve. Den gamle trækning kunne også fornyes med en ny config, og kontrollen er en advarselslampe mod maskinfejl, ikke et værn mod redaktøren.
+**Kendt begrænsning (fundet ved implementeringen, accepteret af projektejeren 2026-10-21):** trækningen kan beregnes på forhånd for enhver config, så en redaktør kunne vælge en config med en gunstig stikprøve. Den gamle trækning kunne også fornyes med en ny config, og kontrollen er en advarselslampe mod maskinfejl, ikke et værn mod redaktøren.
 
 **Note til overførslens plan:** klassifikationshændelsers evidensfelt `decision_interpretation_id` føjes til listen over udeladte felter i overførsels-spec'ens §7 (spec §4 pkt. 6). Rettelsen hører til overførslens gren.
 
