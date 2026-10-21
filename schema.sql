@@ -3800,7 +3800,7 @@ END $$;
 COMMENT ON FUNCTION private.deterministic_uuid(text) IS
   'Project-specific deterministic SHA-256 UUID; NOT RFC UUIDv5 (which is SHA-1 over a namespace). Form prescribed by spec section 7.1.';
 
--- Trin 5a/5b (#151, indholds-id-spec §3): id af indhold. kind og key_version adskiller arter og nøgleversioner;
+-- Trin 5a/5b (#151, indholds-id-spec, afsnittet om deterministiske id'er): id af indhold. kind og key_version adskiller arter og nøgleversioner;
 -- jsonb::text giver kanonisk nøgleorden.
 CREATE OR REPLACE FUNCTION private.content_uuid(p_kind text,p_key jsonb)
 RETURNS uuid LANGUAGE plpgsql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
