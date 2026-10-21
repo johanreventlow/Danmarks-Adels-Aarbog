@@ -1,9 +1,10 @@
 -- Katalog-fingeraftryk (5a+5b-overførslen, plan A Task 1). Læse-kun; ingen data, ingen oid'er, ejere eller ACL'er.
 -- Linjer: <del>|<art>|<identitet>|<md5>|<ejet>, sorteret COLLATE "C".
 --   del P (portabel, prod ↔ lokal restore): objekter i public/private, der ikke er ejet af en extension.
---     r tabel (relkind r/p: persistence, RLS, force-RLS, reloptions) · v view/matview (definition + reloptions)
+--     r tabel (relkind r/p: persistence, RLS, force-RLS, reloptions) · v view · m matview (definition + reloptions)
 --     c kolonne · k constraint · i indeks · f funktion/procedure · t trigger · p policy
---     s sekvens (ejet=1 når en kolonne ejer den: serial/identity) · y enum/domæne/sammensat type
+--     s sekvens (ejet=1 når en kolonne ejer den: serial/identity) · y enum/sammensat type · o domæne
+--   c/k/i/t/p har identiteten schema.tabel.navn, så fortrydelsen kan se, om relationen er ny.
 --   del L (prod-lokal, kun prod mod prod over tid): n pr. andet skema (antal relationer|antal funktioner|md5 af navne)
 --     og p for politikker på storage.objects.
 -- Med -v mode=digest: to linjer, »portable <sha256>« og »local <sha256>« (sha over delens linjer forbundet med \n).
@@ -31,7 +32,7 @@ l AS (
          coalesce(array_to_string(reloptions,','),'')))||'|0' AS x
     FROM rel WHERE relkind IN ('r','p')
   UNION ALL
-  SELECT 'P|v|'||nspname||'.'||relname||'|'||md5(concat_ws(';',relkind,pg_get_viewdef(oid),coalesce(array_to_string(reloptions,','),'')))||'|0'
+  SELECT 'P|'||CASE relkind WHEN 'm' THEN 'm' ELSE 'v' END||'|'||nspname||'.'||relname||'|'||md5(concat_ws(';',relkind,pg_get_viewdef(oid),coalesce(array_to_string(reloptions,','),'')))||'|0'
     FROM rel WHERE relkind IN ('v','m')
   UNION ALL
   SELECT 'P|c|'||r.nspname||'.'||r.relname||'.'||a.attname||'|'||md5(concat_ws(';',format_type(a.atttypid,a.atttypmod),a.attnotnull,
@@ -43,7 +44,7 @@ l AS (
   SELECT 'P|k|'||r.nspname||'.'||r.relname||'.'||k.conname||'|'||md5(concat_ws(';',k.contype,pg_get_constraintdef(k.oid)))||'|0'
     FROM pg_constraint k JOIN rel r ON r.oid=k.conrelid
   UNION ALL
-  SELECT 'P|i|'||r.nspname||'.'||ic.relname||'|'||md5(pg_get_indexdef(i.indexrelid))||'|0'
+  SELECT 'P|i|'||r.nspname||'.'||r.relname||'.'||ic.relname||'|'||md5(pg_get_indexdef(i.indexrelid))||'|0'
     FROM pg_index i JOIN rel r ON r.oid=i.indrelid JOIN pg_class ic ON ic.oid=i.indexrelid
   UNION ALL
   SELECT 'P|f|'||p.oid::regprocedure::text||'|'||md5(pg_get_functiondef(p.oid))||'|0'
@@ -67,7 +68,7 @@ l AS (
                               AND d.refclassid='pg_class'::regclass AND d.deptype IN ('a','i')) THEN '1' ELSE '0' END
     FROM rel r JOIN pg_sequence s ON s.seqrelid=r.oid WHERE r.relkind='S'
   UNION ALL
-  SELECT 'P|y|'||ns.nspname||'.'||t.typname||'|'||md5(concat_ws(';',t.typtype,
+  SELECT 'P|'||CASE t.typtype WHEN 'd' THEN 'o' ELSE 'y' END||'|'||ns.nspname||'.'||t.typname||'|'||md5(concat_ws(';',t.typtype,
          CASE t.typtype
            WHEN 'e' THEN (SELECT string_agg(e.enumlabel,',' ORDER BY e.enumsortorder) FROM pg_enum e WHERE e.enumtypid=t.oid)
            WHEN 'd' THEN format_type(t.typbasetype,t.typtypmod)||';'||t.typnotnull||';'||coalesce(t.typdefault,'')||';'
