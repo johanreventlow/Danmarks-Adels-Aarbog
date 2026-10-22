@@ -2,6 +2,33 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: #151 — plan B delt i værktøj (B1) og ceremoni (B2); data-ceremoniens errata (2026-10-22)
+
+> Plan B1: `docs/superpowers/plans/2026-10-22-trin5ab-overfoersel-b1-vaerktoej.md` (to Opus-review-runder, GO med
+> rettelser). Spec: `docs/superpowers/specs/2026-10-21-trin5ab-2018-20-prod-overfoersel-design.md` (§6.2, §6.3, §7-§10).
+> Punkt 6 er projektejerens beslutning 2026-10-22.
+
+**Baggrund:** Data-ceremonien (GO 2) genspiller beviskæden på en restore af D1 og derefter i prod. Beviskædens
+skridt fandtes delvis kun som private scripts, og dens hashes indeholder basens identitet og tilfældige versions-id'er,
+så de kan ikke sammenlignes mellem baser.
+
+**Besluttet:**
+1. **Plan B deles:** B1 er repo-værktøj med CI-tests; B2 er den private ceremoni (runner, arbejdskørsel, genspilsprøve
+   på D1, GO 2). B2's tests kan ikke køre i CI.
+2. **Nøglede digests:** hver uuid i en hashet række oversættes via et nøglekort til en nøgle af indholdet; en uuid,
+   kortet ikke kender, bliver stående og tælles (`n_uuid_unmapped`), så en forskel aldrig skjules af en pladsholder.
+   Base-bundne evidensnøgler (`set_sha256`, `preview_sha256`, `batch_id`, `manifest_sha256` m.fl.) udelades.
+3. **Beviskædens private skridt får repo-versioner med test** (profil, afgør, bind, disposition, afvisning,
+   kandidater, kontrol, korroboration). Items nøgles i pakken; hashes genberegnes altid i basen.
+4. **Errata til spec'en:** autorisationernes manifest-hash sammenlignes kun for `relation_persona` (dispositionernes
+   manifest bærer tilfældige versions-id'er); writer-profilen indsættes som sit eget skridt før første writer;
+   kontrol af alle skridts tilstand bagefter er ikke mulig, fordi lagene overlapper (`decide` og `reject` skriver begge
+   fortolkninger), så runneren klassificerer kun det næste skridt.
+5. **Aktøren angives eksplicit** i hvert skridt og skal være en navngiven redaktørprofil; skridtene vælger den aldrig
+   selv. Hver afgørelse bærer aktørens navn permanent (D1 har én redaktørprofil, målt 2026-10-22).
+6. **Kandidatkørsel 1 (top-k 3) genskabes ikke** (projektejeren); den står som forventet bortfald i §6.3-listen.
+   Køens note bærer arkets hash, så en ny kø giver ny note og dermed et nyt v3-ark (forventet kaskade).
+
 ## BESLUTTET: #151 — 5a's kalibreringsafgørelser overføres ikke; DDL-ceremoniens errata (2026-10-21)
 
 > **Besluttet af projektejeren 2026-10-21** under planlægningen af overførslen (plan A:

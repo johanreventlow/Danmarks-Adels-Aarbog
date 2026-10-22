@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-22 — #151: værktøj til data-ceremonien for 5a+5b (plan B1)
+
+Implementeret efter planen `2026-10-22-trin5ab-overfoersel-b1-vaerktoej.md` på `docs/151-5ab-overfoersel-b1`.
+
+- **Digests:** `transfer_5ab_keymap.sql` (nøglekort), `transfer_5ab_digests.sql` (21 lag; `mode=rows`, `mode=unmapped`),
+  `transfer_5ab_untouched_hash.sql` (uberørt og andre kilder) og `transfer_5ab_guards.sql` (nye personer, nummerrettelser,
+  bogens »N°«). Alt læse-kun.
+- **Skridt-SQL:** `transfer_5ab_step_{profile,decide,bind,disposition,reject,candidates,control,corroborate}.sql` med
+  fælles ind- og udgang; eksplicit aktør; `relation_batch_apply.sql` har fået en fejlkrog mellem sine to transaktioner.
+- **Python:** `identity_queue_sheet.py` (køens ark), `transfer_answers.py` (svaroverførsel), `transfer_steps.py` (pakken).
+- **Tests i CI:** `test-transfer-5ab-digests.sh`, `test-transfer-5ab-steps.sh`, `test-transfer-5ab-del1-steps.sh` og tre
+  pytest-filer. Beslutning: decisions 2026-10-22. Prod er uændret.
+
 ## 2026-10-21 — #151: DDL-ceremonien for 5a+5b-overførslen (plan A)
 
 Implementeret efter planen `2026-10-21-trin5ab-overfoersel-a-ddl.md` på `docs/151-5ab-overfoersel-a`.
