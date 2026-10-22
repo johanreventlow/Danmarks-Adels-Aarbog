@@ -506,3 +506,25 @@ stand-ins), ikke restore. Vinduet er åbent, indtil projektejeren lukker det; in
 **Lært undervejs:** anon-hashen over `x::text` afhænger af serverens locale (macOS citerer værdier med
 byten 0xA0, Linux gør ikke), så prod ↔ lokal restore sammenlignes med en portabel hash over
 `to_jsonb(x)::text`. Målt ens i prod og restore.
+
+## 10. 5a+5b's DDL (#151) — LIVE i prod (2026-10-22, GO 1)
+
+**DDL, ingen kildedata.** 5a's identitetsvej (kandidater, kvittering, spor, kontrolstikprøve) og 5b's relationslag
+(relationspersonas, bindinger, ægtefælle-undtagelser, ægteskabsnumre, børnehenvisninger, indholds-id'er): 12 nye
+`private`-tabeller og 76 nye funktioner (bl.a. `public_family_sources(bigint[])` til læserens kildelinjer); flere eksisterende `red_*` genskabt.
+DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_line`, `rule_mode` og
+`interpretation_promotion_batch.items_sha256`). 5a's 31 kalibreringsafgørelser er ikke overført; prod har fortsat
+587 149b-koblinger.
+
+**Procedure:** `docs/runbooks/transfer-5ab-ddl-prod.md`, private scripts `~/.private/5ab-overfoersel/`.
+
+- **Repo:** `7c645632`. **D0:** `daa-prod-20261022162044-d0.dump` (sha `dc6dfc61…`); **D1:**
+  `daa-prod-20261022180917-d1.dump` (sha `7f7304ce…`), begge 0600 uden for Git og verificeret ved fuld lokal restore.
+- **Rehearsal på D0:** idempotens, fire afbrud (op til 27 åbne `red_*` i et funktionsvindue), fortrydelse
+  (89 objekter, intet åbnet under restoren), `db-verify` grøn.
+- **DDL:** `DDL_OK` fra `PRE`; portabelt katalog/ACL = rehearsal; lokale dele uændrede; trin 4's digests uændrede;
+  `DATA_DELTA_OK changed=3 new=12`.
+- **Probe:** `DDL_VERIFY_OK` (`anon` kan ikke læse `private`, RLS på alle `private`-tabeller).
+- **Advisors (security, CLI):** 48 → 60; de 12 nye er `rls_enabled_no_policy` på de nye `private`-tabeller (med vilje).
+  CLI'en dækker færre lint-typer end dashboardet.
+- **Skrivepausen fortsætter** til plan B's `VERIFY_OK` (data, GO 2) eller en fortrydelse fra D0.
