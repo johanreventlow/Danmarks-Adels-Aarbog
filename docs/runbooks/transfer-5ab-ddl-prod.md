@@ -8,7 +8,8 @@ Ceremonien deployer 5a+5b's DDL i prod og tager D1, som er fortrydelsespunkt og 
 Runbooken nævner aldrig kildetekst, navne eller aktør-uuid; kun tal, koder og hashes.
 
 Prod rammes **kun** af projektejeren i egen shell (`! /bin/zsh -f …`). AI-sessionen kører intet mod prod.
-Undtagelse: `get_advisors(security)` via Supabase-MCP på projektejerens ja i samme tur.
+Sikkerhedsrådgiveren køres med `08-advisors.sh` (`supabase db advisors` over samme forbindelse, læse-kun): MCP-connectoren
+ser ikke DAA-basen. CLI'en dækker færre lint-typer end dashboardet; se derfor også Advisors → Security i dashboardet.
 
 ## 1. Forudsætninger
 
@@ -101,9 +102,9 @@ fejllinjer, og afstemningen tilbagekalder de emulerede grants og giver 16 `PUBLI
 `rehearsal-ddl.json`, GO-hashfilen, freeze-rapporten, `DAA_EXPECTED_COMMIT`, `advisors-before.txt` og
 `advisors-expected.txt`.
 
-- **`advisors-before.txt`:** `get_advisors(security)` før DDL'en, én linje `lint|objekt` pr. fund.
-- **`advisors-expected.txt`:** de lint-typer, projektejeren godkender for 5a/5b's nye objekter (fra
-  rehearsalens fortrydelsesliste); skrives og godkendes før GO 1.
+- **`advisors-before.txt`:** `koer.zsh 08-advisors.sh before` før DDL'en, én linje `lint|skema.objekt` pr. fund.
+- **`advisors-expected.txt`:** de nye fund, målt med `supabase db advisors` på rehearsalens baser (`_a` efter
+  fortrydelsen = før, `_i4` = efter); projektejeren godkender listen før GO 1. 2026-10-22: 12 × `rls_enabled_no_policy`.
 
 ## 5. DDL i prod (GO 1 skrivende)
 
@@ -123,9 +124,10 @@ fortrudt i pausen (`UNDONE_IN_THIS_PAUSE`: luk pausen og start en ny); derefter 
 | `ACL_DRIFT` / andet | STOP før skrivning |
 
 Efter apply: portabelt katalog/ACL = F1/A1, lokale dele uændrede, trin 4's digests uændrede og
-`DATA_DELTA_OK` mod D0 ⇒ `DDL_OK`. Derefter `get_advisors(security)` → `advisors-after.txt`, og:
+`DATA_DELTA_OK` mod D0 ⇒ `DDL_OK`. `04` kan tage over 2 minutter mod prod (målingerne før og efter). Derefter:
 
 ```
+! /bin/zsh -f ~/.private/5ab-overfoersel/koer.zsh 08-advisors.sh after
 ! /bin/zsh -f ~/.private/5ab-overfoersel/koer.zsh 05-probe-ddl.sh
 ! /bin/zsh -f ~/.private/5ab-overfoersel/koer.zsh 02-dump.sh d1
 ```
@@ -165,7 +167,7 @@ IN SCHEMA … REVOKE`); (c) `pg_restore --clean --if-exists --no-owner --schema=
 D0's `DEFAULT ACL`-poster; (d) er bærende, hvis D0 og preflighten afviger, eller restoren blev afbrudt); (e) grant-afstemning over de portable grants (inkl.
 `service_role` og skemaer); (f) `NOTIFY pgrst, 'reload schema'`; (g) portabelt katalog/ACL = preflight,
 DDL-rollens skema-defaults = preflight, øvrige lokale dele = før fortrydelsen, trin 4's digests og
-tabelhashes = D0's ⇒ `UNDO_OK`. Kør `get_advisors(security)` efter restoren.
+tabelhashes = D0's ⇒ `UNDO_OK`. Se Advisors → Security i dashboardet efter restoren.
 Prisen: alt skrevet i `private`/`public` efter D0's start går tabt; under pausen er det kun DDL'en.
 
 **Hvorfor (b) og (d).** `pg_dump` skriver rettigheder i forhold til PostgreSQL's indbyggede standard, ikke

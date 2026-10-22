@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-10-22 — #151: 5a+5b's DDL i prod (GO 1)
+
+Ceremonien efter `docs/runbooks/transfer-5ab-ddl-prod.md`, repo `7c645632`, kørt af projektejeren.
+
+- **Fase 0 og D0** (læse-kun): skrivepause, preflight (`locale_compared=true`; DDL-rolle `postgres`, 48 skema-defaults i
+  `public`, global række lukker `PUBLIC EXECUTE`), D0 12,8 MB verificeret ved fuld lokal restore.
+- **Rehearsal på D0:** første kørsel stoppede på `LOCAL_PARTS_CHANGED (acl, over apply)`: den lokale DDL-rolle manglede prods
+  globale funktionsrække, så `db-rls.sql` oprettede den lokalt (i prod findes den). Emuleringen i den private `lib.zsh`
+  kopierer nu også den globale række; derefter `REHEARSAL_OK` (apply 1 s, open_exec 26/0/27/0, fortrydelse `0|16`).
+- **Sikkerhedsrådgiver:** MCP-connectoren ser ikke DAA-basen, så `supabase db advisors` køres via det nye private
+  `08-advisors.sh`. Prod før = rehearsal før (48 linjer identiske); forventet og målt: 12 nye `rls_enabled_no_policy`
+  (de 12 nye `private`-tabeller). CLI'en dækker færre lint-typer end dashboardet (fx ikke
+  `authenticated_security_definer_function_executable`).
+- **GO 1 → `DDL_OK`** (fra `PRE`, `DATA_DELTA_OK changed=3 new=12`), `DDL_VERIFY_OK advisors=ok`, D1 13,1 MB verificeret.
+
 ## 2026-10-21 — #151: DDL-ceremonien for 5a+5b-overførslen (plan A)
 
 Implementeret efter planen `2026-10-21-trin5ab-overfoersel-a-ddl.md` på `docs/151-5ab-overfoersel-a`.
