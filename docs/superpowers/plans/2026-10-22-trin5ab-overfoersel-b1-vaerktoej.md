@@ -319,7 +319,7 @@ rækken »DDL-ceremonien for 5a+5b« (`i prod`, 2026-10-22). Kortlægning af kæ
 - Privat runner (prod-vagter, `--jeg-mener-det`, GO-hashes) om Task 6's løkke; arbejdskørslen; måling af H2 (ægteskabsnumre i
   del 1) og forhistorikken i bevisbaserne (kontrolkørsler, kandidatkørsel 1) før kørslen; listen over forventede forskelle (§6.3,
   inkl. køens note → v3-kaskaden); nøglekortet kørt på hver bevisbase; uafhængigt review af de private scripts før GO 2.
-- **H3 (afventer projektejeren):** anbefaling: kandidatkørsel 1 (top-k 3) genskabes ikke; forventet bortfald.
+- **H3 (projektejeren 2026-10-22):** kandidatkørsel 1 (top-k 3) genskabes ikke; forventet bortfald i §6.3-listen.
 
 ## Revision efter Opus-review (2026-10-22)
 
