@@ -9,10 +9,12 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT; chmod 700 "$tmp"; umask 077
 source tests/sql/lib-transfer-5ab.sh
 fail() { echo "DEL1STEPS5AB_FAIL: $*"; exit 1; }
 uuid_re='[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+# Aktøren angives altid eksplicit (fixturens redaktør); skridtene vælger den aldrig selv.
+ACTOR=11000000-0000-0000-0000-000000025001
 dg() { qa "$1" -v src=-25101 -f $S/transfer_5ab_digests.sql; }
 step() {
   local db=$1 name=$2 mode=$3 items=$4; shift 4
-  env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$db" -v src=-25101 -v mode="$mode" -v items="$items" "$@" \
+  env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$db" -v src=-25101 -v actor="${STEP_ACTOR-$ACTOR}" -v mode="$mode" -v items="$items" "$@" \
     -f $S/transfer_5ab_step_$name.sql 2>"$tmp/step.err" | tee -a "$tmp/all.out"
 }
 field() { sed -nE "s/.* $1=([^ ]+).*/\1/p" <<<"$2"; }
@@ -20,7 +22,7 @@ field() { sed -nE "s/.* $1=([^ ]+).*/\1/p" <<<"$2"; }
 t5_build_ab tests/sql/fixtures/transfer-5ab-del1-dump.sql
 t5_chain "$A" tests/sql/fixtures/transfer-5ab-del1.sql; t5_chain "$B" tests/sql/fixtures/transfer-5ab-del1.sql
 # Kandidatfilen (generatorens output; pakkens input): rang 1 = posternes rigtige partner, egnet til bekræftelse.
-qa "$A" -c "SELECT set_config('request.jwt.claim.sub',(SELECT id::text FROM public.profiles WHERE rolle='redaktion' ORDER BY id LIMIT 1),false)" \
+qa "$A" -c "SELECT set_config('request.jwt.claim.sub','$ACTOR',false)" \
   -c "WITH i AS (SELECT private.identity_candidate_input(-25101,'{\"mode\":\"undecided\"}') j)
   SELECT jsonb_build_object('run',jsonb_build_object('source_id',-25101,'generator_version','test','config','{\"k\":1}'::jsonb,
       'input_spec','{\"mode\":\"undecided\"}'::jsonb,'input_sha256',private.reimport_canonical_json_sha256(i.j)),
@@ -36,7 +38,7 @@ qa "$A" -c "SELECT set_config('request.jwt.claim.sub',(SELECT id::text FROM publ
 cat > "$tmp/sheet.sql" <<'SQL'
 \set ON_ERROR_STOP on
 BEGIN;
-SELECT set_config('request.jwt.claim.sub',(SELECT id::text FROM public.profiles WHERE rolle='redaktion' ORDER BY id LIMIT 1),true) \g /dev/null
+SELECT set_config('request.jwt.claim.sub','11000000-0000-0000-0000-000000025001',true) \g /dev/null
 DO $$ DECLARE v_ctl uuid; v_run uuid; v_smp jsonb; v_pos text; i int; BEGIN
   SELECT c.id,c.candidate_run_id INTO STRICT v_ctl,v_run FROM private.identity_control_run c WHERE c.source_id=-25101;
   SET LOCAL ROLE authenticated;

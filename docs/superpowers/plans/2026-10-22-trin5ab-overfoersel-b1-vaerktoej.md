@@ -184,8 +184,9 @@ rækken »DDL-ceremonien for 5a+5b« (`i prod`, 2026-10-22). Kortlægning af kæ
 - Test: `tests/sql/test-transfer-5ab-steps.sh`
 
 **Interfaces:**
-- Fælles: `-v src=<id> -v mode=capture|replay -v items=<sti> [-v fault=before_commit|after_authorize]`. Aktøren = første profil
-  med `rolle='redaktion'` (`ORDER BY id`; B2 binder rækkefølgen i GO 2). Items beregnes **som ejer** før
+- Fælles: `-v src=<id> -v mode=capture|replay -v items=<sti> -v actor=<profil-uuid> [-v fault=before_commit|after_authorize]`.
+  Aktøren angives altid eksplicit og skal være en navngiven profil med `rolle='redaktion'`, ellers `STEP_ACTOR_INVALID`
+  (manglende ⇒ `STEP_USAGE`); skridtet vælger den aldrig selv, da hver afgørelse bærer aktørens navn permanent. Items beregnes **som ejer** før
   `SET LOCAL ROLE authenticated`. `capture` skriver de nøglede items (`\o :'items'`) og udfører skridtet; `replay` indlæser
   `items` klientside (Global Constraints), bygger samme items i basen, stopper med `STEP_ITEMS_MISMATCH`, hvis de afviger, og
   kalder RPC'en med hashen **genberegnet i basen**. Udskrift: `STEP_OK <skridt> n=<antal> items_sha256=<hex>`; aldrig et uuid.
@@ -387,8 +388,8 @@ rækken »DDL-ceremonien for 5a+5b« (`i prod`, 2026-10-22). Kortlægning af kæ
   inkl. køens note → v3-kaskaden); nøglekortet kørt på hver bevisbase; uafhængigt review af de private scripts før GO 2.
 - **H3 (projektejeren 2026-10-22):** kandidatkørsel 1 (top-k 3) genskabes ikke; forventet bortfald i §6.3-listen.
 - Fra review runde 2: kør `mode=unmapped` på D1 før arbejdskørslen (149b-evidens kan bære uuid-former, nøglekortet ikke
-  kender); mål dubletter i bevisbasernes kontrol- og kandidatkørsler (kortlægningen H3/H4); bind rækkefølgen af
-  `rolle='redaktion'`-profiler i GO 2; P-evidensens nye nøgler (`sheet_line`, `reason`, `decided_on`, `report`) på §6.3-listen;
+  kender); mål dubletter i bevisbasernes kontrol- og kandidatkørsler (kortlægningen H3/H4); bind aktørens profil-uuid
+  (projektejeren) i GO 2 (D1 har 1 redaktørprofil, målt 2026-10-22); P-evidensens nye nøgler (`sheet_line`, `reason`, `decided_on`, `report`) på §6.3-listen;
   fastlæg del 1's skridtrækkefølge (Task 3b).
 
 ## Revision efter Opus-review (2026-10-22)

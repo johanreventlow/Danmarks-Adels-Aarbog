@@ -1,7 +1,9 @@
 -- Fælles indgang for 5a+5b-skridt-SQL (plan B1 Task 3a/3b; inkluderes med \ir). Variabler: src, mode=capture|replay,
--- items=<sti> [fault]. Åbner skridtets transaktion (REPEATABLE READ, så items-sammenligningen og RPC'en ser samme
--- snapshot), låser sessionsindstillingerne, vælger aktøren (første profil med rolle='redaktion', ORDER BY id) og
--- indlæser i replay pakkens items klientside (aldrig pg_read_file). Printer intet.
+-- items=<sti>, actor=<profil-uuid> [fault]. Åbner skridtets transaktion (REPEATABLE READ, så items-sammenligningen og
+-- RPC'en ser samme snapshot), låser sessionsindstillingerne, kontrollerer aktøren og indlæser i replay pakkens items
+-- klientside (aldrig pg_read_file). Aktøren vælges aldrig af skridtet selv: hver afgørelse, binding og afvisning bærer
+-- aktørens navn permanent, så en redaktør valgt efter sortering kunne stemple projektejerens afgørelser med en
+-- kollegas navn. Printer intet (aktørens uuid står kun i psql-variablen).
 \set ON_ERROR_STOP on
 \set QUIET on
 \pset tuples_only on
@@ -18,6 +20,10 @@ DO $$ BEGIN RAISE EXCEPTION 'STEP_USAGE: -v items mangler'; END $$;
 \else
 DO $$ BEGIN RAISE EXCEPTION 'STEP_USAGE: -v mode mangler'; END $$;
 \endif
+\if :{?actor}
+\else
+DO $$ BEGIN RAISE EXCEPTION 'STEP_USAGE: -v actor mangler'; END $$;
+\endif
 SELECT :'mode' IN ('capture','replay') AS t5_mode_ok, :'mode'='replay' AS t5_replay \gset
 \if :t5_mode_ok
 \else
@@ -32,10 +38,11 @@ SET LOCAL DateStyle='ISO, MDY';
 SET LOCAL IntervalStyle='postgres';
 SET LOCAL extra_float_digits=1;
 SET LOCAL search_path TO pg_catalog, public;
-SELECT id::text AS t5_actor FROM public.profiles WHERE rolle='redaktion' ORDER BY id LIMIT 1 \gset
+SELECT max(id::text) AS t5_actor FROM public.profiles   -- altid én række; NULL fjerner variablen
+ WHERE id::text=:'actor' AND rolle='redaktion' AND nullif(btrim(coalesce(navn,email,'')),'') IS NOT NULL \gset
 \if :{?t5_actor}
 \else
-DO $$ BEGIN RAISE EXCEPTION 'STEP_NO_ACTOR'; END $$;
+DO $$ BEGIN RAISE EXCEPTION 'STEP_ACTOR_INVALID: aktøren er ikke en navngiven redaktørprofil'; END $$;
 \endif
 SELECT set_config('request.jwt.claim.sub', :'t5_actor', true) \g /dev/null
 SELECT set_config('daa.t5_step', :'t5_step', true) \g /dev/null

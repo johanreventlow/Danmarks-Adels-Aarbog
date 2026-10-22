@@ -9,12 +9,14 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT; chmod 700 "$tmp"; umask 077
 source tests/sql/lib-transfer-5ab.sh
 fail() { echo "STEPS5AB_FAIL: $*"; exit 1; }
 uuid_re='[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+# Aktøren angives altid eksplicit (fixturens redaktør); skridtene vælger den aldrig selv.
+ACTOR=11000000-0000-0000-0000-000000025001
 dg() { qa "$1" -v src=-25001 -f $S/transfer_5ab_digests.sql; }
 uh() { qa "$1" -v src=-25001 -f $S/transfer_5ab_untouched_hash.sql; }
 # step <db> <skridt> <mode> <items> [-v …]: stdout (én STEP_OK-linje) gemmes også i all.out; stderr i step.err.
 step() {
   local db=$1 name=$2 mode=$3 items=$4; shift 4
-  env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$db" -v src=-25001 -v mode="$mode" -v items="$items" "$@" \
+  env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$db" -v src=-25001 -v actor="${STEP_ACTOR-$ACTOR}" -v mode="$mode" -v items="$items" "$@" \
     -f $S/transfer_5ab_step_$name.sql 2>"$tmp/step.err" | tee -a "$tmp/all.out"
 }
 # step_fails <kode> <db> <skridt> <mode> <items> […]: skridtet skal fejle med netop den kode.
@@ -39,6 +41,20 @@ q "$B" -c "SET session_replication_role=replica" -c "DO \$\$ DECLARE v_old uuid;
   UPDATE private.interpretation SET id=v_new WHERE id=v_old;
 END \$\$"
 t5_chain "$A" tests/sql/fixtures/transfer-5ab-chain.sql; t5_chain "$B" tests/sql/fixtures/transfer-5ab-chain.sql
+# st_actor_required: uden aktør, med en ukendt og med en ikke-redaktør stopper skridtet, før det skriver noget.
+dg "$A" > "$tmp/pre.dg"
+if env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$A" -v src=-25001 -v mode=capture -v items="$tmp/x.items" \
+     -f $S/transfer_5ab_step_profile.sql >/dev/null 2>"$tmp/step.err"; then fail "st_actor_required: uden aktør lykkedes"; fi
+grep -q 'STEP_USAGE: -v actor mangler' "$tmp/step.err" || fail "st_actor_required: $(grep -m1 -i error "$tmp/step.err")"
+q "$A" -c "INSERT INTO auth.users(id,email) VALUES ('11000000-0000-0000-0000-0000000250ff','laeser@5b.invalid')" \
+       -c "INSERT INTO public.profiles(id,rolle,navn,email) VALUES ('11000000-0000-0000-0000-0000000250ff','medlem','Medlem','laeser@5b.invalid')"
+for bad in 11000000-0000-0000-0000-0000000250ee 11000000-0000-0000-0000-0000000250ff; do
+  STEP_ACTOR=$bad; if step "$A" profile capture "$tmp/x.items" >/dev/null; then fail "st_actor_required: $bad godtaget"; fi
+  grep -q STEP_ACTOR_INVALID "$tmp/step.err" || fail "st_actor_required: $(grep -m1 -i error "$tmp/step.err")"
+done; unset STEP_ACTOR
+q "$A" -c "DELETE FROM public.profiles WHERE id='11000000-0000-0000-0000-0000000250ff'" -c "DELETE FROM auth.users WHERE id='11000000-0000-0000-0000-0000000250ff'"
+dg "$A" > "$tmp/post.dg"; [ -z "$(dgcmp "$tmp/pre.dg" "$tmp/post.dg")" ] || fail "st_actor_required: digests ændret"
+echo "st_actor_required OK"
 dg "$A" > "$tmp/a0.dg"; dg "$B" > "$tmp/b0.dg"; uh "$A" > "$tmp/a0.uh"
 [ -z "$(dgcmp "$tmp/a0.dg" "$tmp/b0.dg")" ] || fail "opsætning: A og B afviger før skridtene: $(dgcmp "$tmp/a0.dg" "$tmp/b0.dg")"
 fie="SELECT sp.persona_key FROM private.source_persona sp JOIN private.source_persona_mention spm ON spm.persona_id=sp.id
@@ -103,6 +119,14 @@ for s in profile:writer_profiles:1 decide:interpretations,classifications:1 bind
   [ "$(field n "$oa")" = "$(field n "$ob")" ] || fail "st_capture_replay $name: n afviger ($oa / $ob)"
   dg "$B" > "$tmp/b-$name.dg"
   d=$(dgcmp "$tmp/a-$name.dg" "$tmp/b-$name.dg" authorizations_issued); [ -z "$d" ] || fail "st_capture_replay $name: A og B afviger: $d"
+  if [ "$name" = decide ]; then
+    # st_actor_explicit: afgørelsens nye versioner bærer netop den angivne aktør, i begge baser.
+    for db in "$A" "$B"; do
+      [ "$(qa "$db" -c "SELECT count(*) FILTER (WHERE decided_by IS DISTINCT FROM '$ACTOR') || ':' || count(*) FROM private.interpretation
+           WHERE source_id=-25001 AND version>1 AND predicate='relation.marriage'")" = "0:$(field n "$oa")" ] || fail "st_actor_explicit: $db"
+    done
+    echo "st_actor_explicit OK"
+  fi
   if [ "$name" = bind ]; then
     # st_rerun: bind igen ⇒ alle pakkens egnede er nu ALREADY_APPLIED ⇒ n=0 uden kald.
     np=$(qa "$B" -c "SELECT count(*) FROM private.interpretation_promotion")
