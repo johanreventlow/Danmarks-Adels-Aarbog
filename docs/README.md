@@ -33,6 +33,7 @@ i historiske planer og afsluttede reviews.
 | [`../db-migrations.sql`](../db-migrations.sql) | Idempotente additive migrationer oven på en deployet base. |
 | [`../db-rls.sql`](../db-rls.sql) | RLS-lag (anon + almindelig authenticated fail-closed; se `database-current-state.md`). |
 | [`../db-verify.sql`](../db-verify.sql) | Adfærds-verifikation (asserts efter deploy). |
+| [`runbooks/`](runbooks/) | Prod-ceremonier (DDL/data-overførsler, rehearsal, fortrydelse). Aktuel: [`transfer-5ab-ddl-prod.md`](runbooks/transfer-5ab-ddl-prod.md) (5a+5b, GO 1). |
 
 ## 🔧 Data-pipelines
 

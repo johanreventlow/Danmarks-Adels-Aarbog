@@ -29,6 +29,9 @@ mappe uden for Git, som bevares. De 6 uafklarede berører ingen relationer eller
    (finalreview): ellers åbnede restoren alt i `public` for `anon`/`authenticated`/`service_role` (511 grants), til
    grant-afstemningen lukkede dem. Den lokale del sammenlignes derfor for DDL-rollens skema-defaults mod
    preflighten, ikke mod tilstanden ved fortrydelsens start (et afbrud + genkørsel må ikke bage den tomme tilstand ind).
+5. **Fortrydelsen sletter ikke data lydløst** (privat review): ændrer tabellerne sig siden D0 ud over DDL'ens tilladte
+   delta, stopper `09` (`UNDO_DATA_LOSS`); projektejeren kan acceptere tabet, bundet til netop det målte deltas hash.
+   `09`'s linjefiler er hash-bundne før brug, og en DDL kan ikke køres igen i en pause, hvor den er fortrudt.
 
 ## BESLUTTET: #151 — id'er af indholdet; forudsætning for 5a+5b-overførslen (2026-10-21)
 
