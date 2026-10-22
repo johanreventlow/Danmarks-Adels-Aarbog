@@ -12,8 +12,12 @@ skridt, der ikke er logført som færdigt. Lag overlapper mellem skridt (decide 
              --digests-in F --digests-out F --seconds S
   validate   --pack P                          ⇒ PACK_OK steps=… pack_sha256=…   (ellers PACK_INVALID <felt>)
   classify   --pack P --n K --digests F        ⇒ WRITE | ALREADY_APPLIED | MIXED (exit 3)
+  inventory-add --pack P --root R --private D --key repo:<sti>|private:<sti>  ⇒ PACK_INVENTORY_OK n=… pack_sha256=…
   inventory  --pack P --root R --private D     ⇒ INVENTORY_OK n=…               (ellers INVENTORY_MISMATCH <sti>)
   next       --pack P --done 1,2,…             ⇒ NEXT n=… name=… | NEXT_NONE
+Et skridts `script` er en inventarnøgle (`repo:<sti>` eller `private:<sti>`). `inventory` kræver, at hvert skridts script og
+alle filer, det trækker ind med `\\ir` (transitivt), står i inventaret med deres sha256. `validate` kræver kontinuitet: deler
+to skridt et lag, er det senere skridts digest ind lig det tidligere skridts digest ud.
 Pakken bærer ingen uuid'er; stdout har kun koder, tal og hashes."""
 from __future__ import annotations
 
@@ -37,6 +41,8 @@ LAYERS = ("personas", "identities", "identity_events", "candidate_runs", "candid
           "classifications", "dispositions", "writer_profiles", "bindings", "family_sources", "authorizations_consumed",
           "authorizations_issued", "counts")
 HEX64 = re.compile(r"[0-9a-f]{64}")
+INCLUDE = re.compile(r"^\\ir\s+(\S+)\s*$", re.M)
+KINDS = ("repo", "private")
 
 
 def _canon(obj) -> bytes:
@@ -82,11 +88,15 @@ def validate(p: dict) -> None:
         bad("inventory")
     if not isinstance(p.get("steps"), list):
         bad("steps")
+    last: dict[str, str] = {}
     for i, s in enumerate(p["steps"], 1):
         if s.get("n") != i:
             bad("n")
-        if not s.get("name") or not isinstance(s.get("script"), str) or not s["script"]:
+        if not s.get("name"):
             bad("name")
+        kind, _, rel = str(s.get("script", "")).partition(":")
+        if kind not in KINDS or not rel:
+            bad("script")
         if s.get("type") not in TYPES:
             bad("type")
         if not isinstance(s.get("vars"), dict) or not isinstance(s.get("inputs"), dict) \
@@ -107,6 +117,11 @@ def validate(p: dict) -> None:
         # Et skridt, der skriver, skal flytte mindst ét af sine lag; ellers kan det ikke skelnes fra ALREADY_APPLIED.
         if s["count"] > 0 and s["digests_in"] == s["digests_out"]:
             bad("digests_out")
+        # Kontinuitet: intet må have skrevet i et lag mellem to skridt, der begge har det (fx et skridt, der blev kørt
+        # men ikke tilføjet). Ellers falder pakken først i genspillet som MIXED, efter at de tidligere skridt har skrevet.
+        if any(last.get(lag, v) != v for lag, v in s["digests_in"].items()):
+            bad("continuity")
+        last.update(s["digests_out"])
     if p.get("pack_sha256") != pack_sha256(p):
         bad("pack_sha256")
 
@@ -131,21 +146,54 @@ def _sha_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _resolve(key: str, root: Path, private: Path) -> Path:
+    kind, _, rel = key.partition(":")
+    if kind not in KINDS or not rel:
+        raise SheetError(f"INVENTORY_MISMATCH {key}")
+    base = (root if kind == "repo" else private).resolve()
+    f = base / rel
+    if f.is_symlink() or not f.is_file() or not f.resolve().is_relative_to(base):
+        raise SheetError(f"INVENTORY_MISMATCH {key}")
+    return f
+
+
+def _includes(key: str, f: Path) -> list[str]:
+    """Nøglerne for de filer, `f` trækker ind med `\\ir` (relativt til f's mappe, samme rod)."""
+    kind, _, rel = key.partition(":")
+    out = []
+    for inc in INCLUDE.findall(f.read_text(encoding="utf-8")):
+        out.append(f"{kind}:" + os.path.normpath(os.path.join(os.path.dirname(rel), inc)).replace(os.sep, "/"))
+    return out
+
+
 def check_inventory(p: dict, root: Path, private: Path) -> int:
     inv = p["inventory"]
     for key in sorted(inv):
-        kind, _, rel = key.partition(":")
-        if kind not in ("repo", "private") or not rel:
+        if _sha_file(_resolve(key, root, private)) != inv[key]:
             raise SheetError(f"INVENTORY_MISMATCH {key}")
-        f = (root if kind == "repo" else private) / rel
-        if not f.is_file() or f.is_symlink() or _sha_file(f) != inv[key]:
+    # Koden, der kører, skal være bundet: hvert skridts script og alt, det trækker ind (transitivt).
+    todo, seen = [s["script"] for s in p["steps"]], set()
+    while todo:
+        key = todo.pop(0)
+        if key in seen:
+            continue
+        seen.add(key)
+        if key not in inv:
             raise SheetError(f"INVENTORY_MISMATCH {key}")
+        f = _resolve(key, root, private)
+        if f.suffix == ".sql":
+            todo.extend(_includes(key, f))
     # Den private mappe må ikke rumme filer, pakken ikke kender (et ark eller manifest, der ikke er bundet).
     for f in sorted(x for x in private.rglob("*") if x.is_file()):
         key = "private:" + f.relative_to(private).as_posix()
         if key not in inv:
             raise SheetError(f"INVENTORY_MISMATCH {key}")
     return len(inv)
+
+
+def inventory_add(p: dict, key: str, root: Path, private: Path) -> None:
+    p["inventory"][key] = _sha_file(_resolve(key, root, private))
+    p["pack_sha256"] = pack_sha256(p)
 
 
 def read_digests(path: Path) -> dict:
@@ -175,7 +223,8 @@ def _save(path: Path, p: dict, *, new: bool = False) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
-    c = {k: sub.add_parser(k) for k in ("init", "add-step", "validate", "classify", "inventory", "next")}
+    c = {k: sub.add_parser(k) for k in ("init", "add-step", "validate", "classify", "inventory-add", "inventory",
+                                       "next")}
     for p in c.values():
         p.add_argument("--pack", required=True)
     c["init"].add_argument("--d1-receipt-sha256", required=True)
@@ -185,8 +234,10 @@ def main() -> int:
         c["add-step"].add_argument(a, required=True)
     c["classify"].add_argument("--n", required=True, type=int)
     c["classify"].add_argument("--digests", required=True)
-    c["inventory"].add_argument("--root", required=True)
-    c["inventory"].add_argument("--private", required=True)
+    for k in ("inventory", "inventory-add"):
+        c[k].add_argument("--root", required=True)
+        c[k].add_argument("--private", required=True)
+    c["inventory-add"].add_argument("--key", required=True)
     c["next"].add_argument("--done", required=True)
     args = ap.parse_args()
     pk = Path(args.pack)
@@ -208,7 +259,12 @@ def main() -> int:
             print(f"PACK_STEP_OK n={len(p['steps'])} pack_sha256={p['pack_sha256']}")
             return 0
         validate(p)
-        if args.cmd == "validate":
+        if args.cmd == "inventory-add":
+            inventory_add(p, args.key, Path(args.root), Path(args.private))
+            validate(p)
+            _save(pk, p)
+            print(f"PACK_INVENTORY_OK n={len(p['inventory'])} pack_sha256={p['pack_sha256']}")
+        elif args.cmd == "validate":
             print(f"PACK_OK steps={len(p['steps'])} pack_sha256={p['pack_sha256']}")
         elif args.cmd == "classify":
             state = classify(p, args.n, read_digests(Path(args.digests)))

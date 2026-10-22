@@ -144,7 +144,7 @@ for s in profile:writer_profiles:1 decide:interpretations,classifications:1 bind
   case $name in profile) ty=sql; pl=writer_profiles;; decide) ty=hash_gated; pl=interpretations,classifications;;
     bind) ty=hash_gated; pl=bindings;; disposition) ty=writer; pl=dispositions,authorizations_consumed;; reject) ty=sql; pl=interpretations;; esac
   inp='{}'; [ "$name" = reject ] && inp="{\"reject-input\":\"$(shasum -a 256 "$tmp/reject-input.json" | cut -c1-64)\"}"
-  TS add-step --pack "$PACK" --name $name --type $ty --script $S/transfer_5ab_step_$name.sql --vars '{"src":-25001}' --inputs "$inp" \
+  TS add-step --pack "$PACK" --name $name --type $ty --script repo:$S/transfer_5ab_step_$name.sql --vars '{"src":-25001}' --inputs "$inp" \
     --items-sha256 "$(field items_sha256 "$oa")" --layers $pl --count "$(field n "$oa")" --digests-in "$prev_a" \
     --digests-out "$tmp/a-$name.dg" --seconds 0 >/dev/null || fail "add-step $name"
   prev_a=$tmp/a-$name.dg; prev_b=$tmp/b-$name.dg
@@ -153,6 +153,14 @@ done
 # st_pack_replay: pakken genspilles på C via løkken classify → replay → classify. Efter bind »glemmes« logføringen (afbrud
 # mellem COMMIT og loggen): classify giver da ALREADY_APPLIED uden skrivning. Til sidst er intet skridt tilbage.
 TS validate --pack "$PACK" | grep -q '^PACK_OK steps=5 ' || fail "st_pack_replay: pakken er ugyldig"
+# st_inventory: skridt-scripts og alt, de trækker ind med \ir, skal være bundet i inventaret; én manglende fil afvises.
+mkdir "$tmp/priv"
+iv=$(TS inventory --pack "$PACK" --root . --private "$tmp/priv" 2>&1) && fail "st_inventory: tomt inventar godtaget"
+[[ "$iv" == "INVENTORY_MISMATCH repo:$S/transfer_5ab_step_profile.sql" ]] || fail "st_inventory: '$iv'"
+for f in $S/transfer_5ab_step_{profile,decide,bind,disposition,reject,begin,items,compare,end}.sql $S/relation_batch_apply.sql; do
+  TS inventory-add --pack "$PACK" --root . --private "$tmp/priv" --key "repo:$f" >/dev/null || fail "st_inventory: $f"; done
+[ "$(TS inventory --pack "$PACK" --root . --private "$tmp/priv")" = "INVENTORY_OK n=10" ] || fail "st_inventory: bundet inventar"
+echo "st_inventory OK"
 done_list=
 for k in 1 2 3 4 5; do
   name=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["steps"][int(sys.argv[2])-1]["name"])' "$PACK" $k)
