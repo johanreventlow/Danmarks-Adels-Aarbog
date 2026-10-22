@@ -4,7 +4,7 @@
 # afvisningens mål er givet et andet id i B), så items skal slås op via nøgler og hashes genberegnes i basen.
 # Brug: bash tests/sql/test-transfer-5ab-steps.sh <prefix>
 set -euo pipefail
-pre=${1:?prefix}; A=${pre}_a; B=${pre}_b; M=${pre}_m
+pre=${1:?prefix}; A=${pre}_a; B=${pre}_b; C=${pre}_c; M=${pre}_m
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT; chmod 700 "$tmp"; umask 077
 source tests/sql/lib-transfer-5ab.sh
 fail() { echo "STEPS5AB_FAIL: $*"; exit 1; }
@@ -57,6 +57,11 @@ dg "$A" > "$tmp/post.dg"; [ -z "$(dgcmp "$tmp/pre.dg" "$tmp/post.dg")" ] || fail
 echo "st_actor_required OK"
 dg "$A" > "$tmp/a0.dg"; dg "$B" > "$tmp/b0.dg"; uh "$A" > "$tmp/a0.uh"
 [ -z "$(dgcmp "$tmp/a0.dg" "$tmp/b0.dg")" ] || fail "opsætning: A og B afviger før skridtene: $(dgcmp "$tmp/a0.dg" "$tmp/b0.dg")"
+# C: en frisk kopi af B før skridtene, til genspillet af pakken (Task 6).
+t5_clone "$B" "$C"
+TS() { env -u NODE_OPTIONS python3 -I $S/transfer_steps.py "$@"; }
+PACK=$tmp/pack.json
+TS init --pack "$PACK" --d1-receipt-sha256 "$(shasum -a 256 "$tmp/a0.dg" | cut -c1-64)" --restore-hash "$(shasum -a 256 "$tmp/a0.uh" | cut -c1-64)" >/dev/null
 fie="SELECT sp.persona_key FROM private.source_persona sp JOIN private.source_persona_mention spm ON spm.persona_id=sp.id
   JOIN private.source_mention sm ON sm.id=spm.mention_id WHERE sm.verbatim_text='Fie Fot' AND spm.mention_role='spouse'"
 pk=$(qa "$A" -c "$fie"); [ -n "$pk" ] || fail "opsætning: ingen persona for Fie Fot"
@@ -135,9 +140,43 @@ for s in profile:writer_profiles:1 decide:interpretations,classifications:1 bind
     [ "$(qa "$B" -c "SELECT count(*) FROM private.interpretation_promotion")" = "$np" ] || fail "st_rerun: nye bindinger"
     echo "st_rerun OK"
   fi
+  # Pakken: skridtet med A's items-hash, lag og digests før/efter.
+  case $name in profile) ty=sql; pl=writer_profiles;; decide) ty=hash_gated; pl=interpretations,classifications;;
+    bind) ty=hash_gated; pl=bindings;; disposition) ty=writer; pl=dispositions,authorizations_consumed;; reject) ty=sql; pl=interpretations;; esac
+  inp='{}'; [ "$name" = reject ] && inp="{\"reject-input\":\"$(shasum -a 256 "$tmp/reject-input.json" | cut -c1-64)\"}"
+  TS add-step --pack "$PACK" --name $name --type $ty --script $S/transfer_5ab_step_$name.sql --vars '{"src":-25001}' --inputs "$inp" \
+    --items-sha256 "$(field items_sha256 "$oa")" --layers $pl --count "$(field n "$oa")" --digests-in "$prev_a" \
+    --digests-out "$tmp/a-$name.dg" --seconds 0 >/dev/null || fail "add-step $name"
   prev_a=$tmp/a-$name.dg; prev_b=$tmp/b-$name.dg
   echo "st_capture_replay $name OK ($oa)" | sed -E 's/ items_sha256=[0-9a-f]+//'
 done
+# st_pack_replay: pakken genspilles på C via løkken classify → replay → classify. Efter bind »glemmes« logføringen (afbrud
+# mellem COMMIT og loggen): classify giver da ALREADY_APPLIED uden skrivning. Til sidst er intet skridt tilbage.
+TS validate --pack "$PACK" | grep -q '^PACK_OK steps=5 ' || fail "st_pack_replay: pakken er ugyldig"
+done_list=
+for k in 1 2 3 4 5; do
+  name=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["steps"][int(sys.argv[2])-1]["name"])' "$PACK" $k)
+  [ "$(TS next --pack "$PACK" --done "$done_list")" = "NEXT n=$k name=$name" ] || fail "st_pack_replay: next før skridt $k"
+  dg "$C" > "$tmp/c.dg"; st=$(TS classify --pack "$PACK" --n $k --digests "$tmp/c.dg") || true
+  [ "$st" = WRITE ] || fail "st_pack_replay: skridt $k ($name) er $st før"
+  cx=(); [ "$name" = disposition ] && cx=(-v manifest="$tmp/$name-c.manifest")
+  oc=$(step "$C" $name replay "$tmp/$name.items" ${cx[@]+"${cx[@]}"}) || fail "st_pack_replay: $name: $(grep -m1 -iE 'error|fatal' "$tmp/step.err")"
+  want=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["steps"][int(sys.argv[2])-1]["items_sha256"])' "$PACK" $k)
+  [ "$(field items_sha256 "$oc")" = "$want" ] || fail "st_pack_replay: items_sha256 for $name"
+  dg "$C" > "$tmp/c.dg"; st=$(TS classify --pack "$PACK" --n $k --digests "$tmp/c.dg") || true
+  [ "$st" = ALREADY_APPLIED ] || fail "st_pack_replay: skridt $k ($name) er $st efter"
+  if [ "$name" = bind ]; then
+    np=$(qa "$C" -c "SELECT count(*) FROM private.interpretation_promotion")
+    st=$(TS classify --pack "$PACK" --n $k --digests "$tmp/c.dg") || true
+    [ "$st" = ALREADY_APPLIED ] && [ "$(qa "$C" -c "SELECT count(*) FROM private.interpretation_promotion")" = "$np" ] \
+      || fail "st_pack_replay: genoptagelse efter afbrud"
+  fi
+  done_list=${done_list:+$done_list,}$k
+done
+[ "$(TS next --pack "$PACK" --done "$done_list")" = NEXT_NONE ] || fail "st_pack_replay: skridt tilbage"
+d=$(dgcmp "$tmp/a-reject.dg" "$tmp/c.dg" authorizations_issued); [ -z "$d" ] || fail "st_pack_replay: C afviger fra A: $d"
+grep -Eq "$uuid_re" "$PACK" && fail "st_pack_replay: uuid i pakken"
+echo "st_pack_replay OK"
 # Uberørt-hashen er uændret af alle skridtene (de skriver kun i kædens tabeller).
 uh "$A" > "$tmp/a1.uh"; cmp -s "$tmp/a0.uh" "$tmp/a1.uh" || fail "uberørt-hashen ændret af skridtene"
 echo "st_untouched OK"
@@ -145,4 +184,4 @@ echo "st_untouched OK"
 grep -Eq "$uuid_re" "$tmp/all.out" && fail "st_no_uuid: uuid i udskriften"
 [ "$(grep -c '^STEP_OK ' "$tmp/all.out")" -ge 11 ] || fail "st_no_uuid: for få STEP_OK-linjer"
 echo "st_no_uuid OK"
-dropdb "$A"; dropdb "$B"; echo STEPS5AB_OK
+dropdb "$A"; dropdb "$B"; dropdb "$C"; echo STEPS5AB_OK
