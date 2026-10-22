@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# 5a+5b-overførslen, plan B1 Task 1-2: nøglekort og nøglede digests. Samme kæde i to baser med forskellig collation,
+# 5a+5b-overførslen, plan B1 Task 1-2: nøglekort, nøglede digests, uberørt-hash, andre kilder og værn. Samme kæde i to baser med forskellig collation,
 # tidszone og tilfældig forhistorik skal give ens digests, selv om tilfældige id'er (fortolkninger, bindinger) er forskellige;
 # en ændret værdi, en ombytning, et andet mål og et ukendt tilfældigt uuid skal derimod give en afvigelse i netop det lag.
 # Brug: bash tests/sql/test-transfer-5ab-digests.sh <prefix>
 set -euo pipefail
-pre=${1:?prefix}; A=${pre}_a; B=${pre}_b; M=${pre}_m; N=${pre}_n; O=${pre}_o
+pre=${1:?prefix}; A=${pre}_a; B=${pre}_b; C=${pre}_c; M=${pre}_m; N=${pre}_n; O=${pre}_o
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT; chmod 700 "$tmp"
 source tests/sql/lib-transfer-5ab.sh
 fail() { echo "DG5AB_FAIL: $*"; exit 1; }
@@ -20,7 +20,9 @@ print(",".join(d))' "$1" "$2"
 }
 dgval() { python3 -I -c 'import json,sys; j=json.loads(open(sys.argv[1]).read().split("=",1)[1]); k=sys.argv[2]; print(j[k] if k=="n_uuid_unmapped" else j[k]["n"])' "$1" "$2"; }
 
-t5_build_ab tests/sql/fixtures/indholds-id-dump.sql
+t5_build_ab tests/sql/fixtures/indholds-id-dump.sql tests/sql/fixtures/transfer-5ab-dispositions-dump.sql
+# C: kopi af A før kæden, til uberørt-målingen med en kæde, der kun skriver i -25001 (Task 2).
+t5_clone "$A" "$C"
 t5_chain "$A" tests/sql/fixtures/indholds-id-chain.sql; t5_chain "$B" tests/sql/fixtures/indholds-id-chain.sql
 for s in -25001 -25002; do dg "$A" $s > "$tmp/a$s.dg"; dg "$B" $s > "$tmp/b$s.dg"; done
 grep -q '^daa.transfer_5ab_digests={' "$tmp/a-25001.dg" || fail "uventet udskrift: $(head -c 80 "$tmp/a-25001.dg")"
@@ -127,4 +129,49 @@ grep -q '^daa.transfer_5ab_digests={' "$tmp/old.dg" || fail "km_old_tree: ingen 
 dropdb "$old"
 echo "km_old_tree OK"
 
-dropdb "$A"; dropdb "$B"; echo DG5AB_OK
+# --- Task 2: uberørt-hash, andre kilder og værn ---
+uh() { qa "$1" -v src="$2" -f $S/transfer_5ab_untouched_hash.sql; }
+gd() { qa "$1" -v src="$2" -f $S/transfer_5ab_guards.sql; }
+# un_before_after: transfer-5ab-chain.sql skriver kun i -25001 ⇒ uberørt-hashen og andre kilder er uændrede i samme base.
+uh "$C" -25001 > "$tmp/c.before"
+grep -Eq '^daa.transfer_5ab_untouched=[0-9a-f]{64}$' "$tmp/c.before" && grep -Eq '^daa.transfer_5ab_other_sources=[0-9a-f]{64}$' "$tmp/c.before" \
+  || fail "un_before_after: uventet udskrift"
+t5_chain "$C" tests/sql/fixtures/transfer-5ab-chain.sql
+uh "$C" -25001 > "$tmp/c.after"
+cmp -s "$tmp/c.before" "$tmp/c.after" || fail "un_before_after: $(diff "$tmp/c.before" "$tmp/c.after" | grep '^>' | cut -d= -f1 | tr '\n' ' ')"
+# Vagt: kæden skrev faktisk (personas i -25001 voksede).
+[ "$(qa "$C" -c "SELECT count(*) FROM private.source_persona WHERE source_id=-25001")" -gt \
+  "$(qa "$A" -c "SELECT count(*) FROM private.source_persona p WHERE p.source_id=-25001 AND p.persona_key NOT LIKE '%#rel-marriage-%'")" ] \
+  || fail "un_before_after: kæden skrev ingen personas"
+echo "un_before_after OK"
+# un_other_source: B's forhistoriske persona i en anden kilde (-25099) ændret ⇒ kun other_sources afviger.
+uh "$B" -25001 > "$tmp/b.uh"
+[ "$(qa "$B" -c "SELECT count(*) FROM private.source_persona WHERE source_id=-25099")" -ge 1 ] || fail "un_other_source: ingen persona i -25099"
+mut other -25001 "UPDATE private.source_persona SET persona_key=persona_key||'-x' WHERE source_id=-25099"
+uh "$M" -25001 > "$tmp/m.uh"; dropdb "$M"
+d=$( { diff "$tmp/b.uh" "$tmp/m.uh" || true; } | { grep '^>' || true; } | cut -c3- | cut -d= -f1 | tr -d '\n')
+[ "$d" = daa.transfer_5ab_other_sources ] || fail "un_other_source: '$d'"
+# Positiv kontrol: en ændring uden for kædens tabeller (public.person) flytter uberørt-hashen.
+mut untouched -25001 "UPDATE public.person SET visning_navn=coalesce(visning_navn,'')||'.' WHERE id=(SELECT min(id) FROM public.person)"
+uh "$M" -25001 > "$tmp/m2.uh"; dropdb "$M"
+d=$( { diff "$tmp/b.uh" "$tmp/m2.uh" || true; } | { grep '^>' || true; } | cut -c3- | cut -d= -f1 | tr -d '\n')
+[ "$d" = daa.transfer_5ab_untouched ] || fail "un_other_source: positiv kontrol '$d'"
+echo "un_other_source OK"
+# dg_dispositions_nonempty: dispositionsfixturen giver ét lag med n ≥ 1, ens i A og B.
+[ "$(dgval "$tmp/a-25001.dg" dispositions)" -ge 1 ] || fail "dg_dispositions_nonempty: tom"
+echo "dg_dispositions_nonempty OK"
+# gd_values: værnene i A.
+gd "$A" -25001 > "$tmp/a1.gd"; gd "$A" -25002 > "$tmp/a2.gd"
+gv() { python3 -I -c 'import json,sys; j=json.loads(open(sys.argv[1]).read().split("=",1)[1]); v=j
+for p in sys.argv[2].split("."): v=v[p]
+print(v)' "$1" "$2"; }
+[ "$(gv "$tmp/a1.gd" person_create_elements)" = 0 ] || fail "gd_values: person_create_elements $(gv "$tmp/a1.gd" person_create_elements)"
+[ "$(gv "$tmp/a2.gd" ordinal_correction_rows)" -ge 1 ] || fail "gd_values: ordinal_correction_rows i -25002"
+[ "$(gv "$tmp/a1.gd" book_ordinal_match.n_total)" -ge 1 ] || fail "gd_values: ingen »N°« i -25001"
+gd "$B" -25001 > "$tmp/b1.gd"; cmp -s "$tmp/a1.gd" "$tmp/b1.gd" || fail "gd_values: A og B afviger"
+PGOPTIONS='-c default_transaction_read_only=on' psql -X -Atq -v ON_ERROR_STOP=1 -d "$A" -v src=-25001 -f $S/transfer_5ab_guards.sql >/dev/null 2>&1 \
+  && PGOPTIONS='-c default_transaction_read_only=on' psql -X -Atq -v ON_ERROR_STOP=1 -d "$A" -v src=-25001 -f $S/transfer_5ab_untouched_hash.sql >/dev/null 2>&1 \
+  || fail "gd_values: værn eller uberørt-hash kører ikke læse-kun"
+echo "gd_values OK"
+
+dropdb "$A"; dropdb "$B"; dropdb "$C"; echo DG5AB_OK
