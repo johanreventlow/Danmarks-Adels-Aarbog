@@ -10,16 +10,6 @@ source tests/sql/lib-transfer-5ab.sh
 fail() { echo "DG5AB_FAIL: $*"; exit 1; }
 dg() { qa "$1" -v src="$2" ${3:+-v mode=$3} -f $S/transfer_5ab_digests.sql; }
 km() { qa "$1" -f $S/transfer_5ab_keymap.sql; }
-# dgcmp <a> <b>: lagene, hvis n eller sha256 afviger (kommasepareret, sorteret); 'unmapped' hvis tællerne afviger.
-dgcmp() {
-  python3 -I -c '
-import json, sys
-a, b = (json.loads(open(p).read().split("=", 1)[1]) for p in sys.argv[1:3])
-d = sorted(k for k in set(a) | set(b) if k != "n_uuid_unmapped" and a.get(k) != b.get(k))
-print(",".join(d))' "$1" "$2"
-}
-dgval() { python3 -I -c 'import json,sys; j=json.loads(open(sys.argv[1]).read().split("=",1)[1]); k=sys.argv[2]; print(j[k] if k=="n_uuid_unmapped" else j[k]["n"])' "$1" "$2"; }
-
 t5_build_ab tests/sql/fixtures/indholds-id-dump.sql tests/sql/fixtures/transfer-5ab-dispositions-dump.sql
 # C: kopi af A før kæden, til uberørt-målingen med en kæde, der kun skriver i -25001 (Task 2).
 t5_clone "$A" "$C"

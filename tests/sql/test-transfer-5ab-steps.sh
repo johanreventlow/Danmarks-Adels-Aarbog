@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# 5a+5b-overførslen, plan B1 Task 3a: skridt-SQL for afgørelse, binding, disposition og afvisning. Hvert skridt køres i
+# capture på A og i replay på B med A's items; B har tilfældige id'er, hvor A har andre (fortolkninger, bindinger, og
+# afvisningens mål er givet et andet id i B), så items skal slås op via nøgler og hashes genberegnes i basen.
+# Brug: bash tests/sql/test-transfer-5ab-steps.sh <prefix>
+set -euo pipefail
+pre=${1:?prefix}; A=${pre}_a; B=${pre}_b; M=${pre}_m
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT; chmod 700 "$tmp"; umask 077
+source tests/sql/lib-transfer-5ab.sh
+fail() { echo "STEPS5AB_FAIL: $*"; exit 1; }
+uuid_re='[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+dg() { qa "$1" -v src=-25001 -f $S/transfer_5ab_digests.sql; }
+uh() { qa "$1" -v src=-25001 -f $S/transfer_5ab_untouched_hash.sql; }
+# step <db> <skridt> <mode> <items> [-v …]: stdout (én STEP_OK-linje) gemmes også i all.out; stderr i step.err.
+step() {
+  local db=$1 name=$2 mode=$3 items=$4; shift 4
+  env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$db" -v src=-25001 -v mode="$mode" -v items="$items" "$@" \
+    -f $S/transfer_5ab_step_$name.sql 2>"$tmp/step.err" | tee -a "$tmp/all.out"
+}
+# step_fails <kode> <db> <skridt> <mode> <items> […]: skridtet skal fejle med netop den kode.
+step_fails() {
+  local code=$1; shift
+  if step "$@" >/dev/null; then fail "$code: skridtet $2 lykkedes"; fi
+  grep -q "$code" "$tmp/step.err" || fail "$code: fejlede af anden grund: $(grep -m1 -iE 'error|fatal' "$tmp/step.err")"
+}
+field() { sed -nE "s/.* $1=([^ ]+).*/\1/p" <<<"$2"; }
+
+t5_build_ab tests/sql/fixtures/indholds-id-dump.sql tests/sql/fixtures/transfer-5ab-dispositions-dump.sql
+# Afvisningens mål (Fie Fots ægteskab, v1 fra dumpet) får et andet id i B: samme logiske version, forskelligt id, som
+# mellem en bevisbase og D1. Alle fremmednøgler til fortolkningens id flyttes med.
+q "$B" -c "SET session_replication_role=replica" -c "DO \$\$ DECLARE v_old uuid; v_new uuid:=gen_random_uuid(); r record; BEGIN
+  SELECT id INTO STRICT v_old FROM private.interpretation WHERE source_id=-25001 AND predicate='relation.marriage' AND value->>'raw' LIKE '%Fie Fot%';
+  FOR r IN SELECT format('%I.%I', n.nspname, c.relname) t, a.attname col FROM pg_constraint k
+             JOIN pg_class c ON c.oid=k.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+             JOIN pg_attribute a ON a.attrelid=k.conrelid AND a.attnum=k.conkey[1]
+            WHERE k.contype='f' AND k.confrelid='private.interpretation'::regclass LOOP
+    EXECUTE format('UPDATE %s SET %I=\$1 WHERE %I=\$2', r.t, r.col, r.col) USING v_new, v_old;
+  END LOOP;
+  UPDATE private.interpretation SET id=v_new WHERE id=v_old;
+END \$\$"
+t5_chain "$A" tests/sql/fixtures/transfer-5ab-chain.sql; t5_chain "$B" tests/sql/fixtures/transfer-5ab-chain.sql
+dg "$A" > "$tmp/a0.dg"; dg "$B" > "$tmp/b0.dg"; uh "$A" > "$tmp/a0.uh"
+[ -z "$(dgcmp "$tmp/a0.dg" "$tmp/b0.dg")" ] || fail "opsætning: A og B afviger før skridtene: $(dgcmp "$tmp/a0.dg" "$tmp/b0.dg")"
+fie="SELECT sp.persona_key FROM private.source_persona sp JOIN private.source_persona_mention spm ON spm.persona_id=sp.id
+  JOIN private.source_mention sm ON sm.id=spm.mention_id WHERE sm.verbatim_text='Fie Fot' AND spm.mention_role='spouse'"
+pk=$(qa "$A" -c "$fie"); [ -n "$pk" ] || fail "opsætning: ingen persona for Fie Fot"
+python3 -I -c 'import json,sys; json.dump([{"persona_key":sys.argv[1],"evidence":{"basis":"human_sheet_review","sheet_sha256":"f"*64,
+  "sheet_line":13,"reason":"test","decided_on":"2026-10-22","report":"test"}}], open(sys.argv[2],"w"))' "$pk" "$tmp/reject-input.json"
+
+# check <skridt> <før> <efter> <lag,…> <n> <min-n>: skridtets lag ændrede sig, og n er mindst det forventede.
+check() {
+  local d; d=$(dgcmp "$2" "$3")
+  [ -n "$d" ] || fail "st_capture_replay $1: ingen digest ændret"
+  for l in ${4//,/ }; do case ",$d," in *",$l,"*) ;; *) fail "st_capture_replay $1: laget $l uændret (ændret: $d)";; esac; done
+  [ "$5" -ge "$6" ] || fail "st_capture_replay $1: n=$5 < $6"
+}
+prev_a=$tmp/a0.dg; prev_b=$tmp/b0.dg
+for s in profile:writer_profiles:1 decide:interpretations,classifications:1 bind:bindings:1 \
+         disposition:dispositions:1 reject:interpretations:1; do
+  name=${s%%:*}; rest=${s#*:}; layers=${rest%%:*}; min=${rest##*:}
+  extra=(); [ "$name" = disposition ] && extra=(-v manifest="$tmp/$name-a.manifest")
+  [ "$name" = reject ] && extra=(-v input="$tmp/reject-input.json")
+  oa=$(step "$A" $name capture "$tmp/$name.items" ${extra[@]+"${extra[@]}"}) || fail "capture $name: $(grep -m1 -iE 'error|fatal' "$tmp/step.err")"
+  [[ "$oa" =~ ^STEP_OK\ $name\ n=[0-9]+\ items_sha256=[0-9a-f]{64}$ ]] || fail "capture $name: udskrift '$oa'"
+  dg "$A" > "$tmp/a-$name.dg"; check "$name" "$prev_a" "$tmp/a-$name.dg" "$layers" "$(field n "$oa")" "$min"
+  bextra=(); [ "$name" = disposition ] && bextra=(-v manifest="$tmp/$name-b.manifest")
+  case $name in
+    decide)
+      # st_mismatch: én item fjernet ⇒ stop før RPC'en, digests uændrede (på en kopi af B).
+      python3 -I -c 'import json,sys; j=json.load(open(sys.argv[1])); json.dump(j[1:], open(sys.argv[2],"w"))' \
+        "$tmp/decide.items" "$tmp/decide-short.items"
+      t5_clone "$B" "$M"; step_fails STEP_ITEMS_MISMATCH "$M" decide replay "$tmp/decide-short.items"
+      dg "$M" > "$tmp/m.dg"; dropdb "$M"; [ -z "$(dgcmp "$prev_b" "$tmp/m.dg")" ] || fail "st_mismatch: digests ændret"
+      echo "st_mismatch OK"
+      # st_fault: fejl lige før COMMIT ⇒ intet skrevet; derefter uden fejl (nedenfor).
+      step_fails STEP_FAULT "$B" decide replay "$tmp/decide.items" -v fault=before_commit
+      dg "$B" > "$tmp/bf.dg"; [ -z "$(dgcmp "$prev_b" "$tmp/bf.dg")" ] || fail "st_fault: digests ændret"
+      echo "st_fault OK";;
+    disposition)
+      # st_writer_issued: afbrudt efter autorisationen ⇒ skridtets lag uændret, én issued-autorisation efterladt.
+      step_fails STEP_FAULT "$B" disposition replay "$tmp/disposition.items" -v manifest="$tmp/disposition-f.manifest" -v fault=after_authorize
+      dg "$B" > "$tmp/bw.dg"; d=$(dgcmp "$prev_b" "$tmp/bw.dg")
+      [ "$d" = authorizations_issued ] || fail "st_writer_issued: '$d'"
+      [ "$(dgval "$tmp/bw.dg" authorizations_issued)" = 1 ] || fail "st_writer_issued: ikke én issued"
+      echo "st_writer_issued OK";;
+    reject)
+      # st_reject_ids_differ (vagt): målets gældende id er forskelligt i A og B.
+      iq="SELECT ic.id FROM private.interpretation_current ic WHERE ic.source_id=-25001 AND ic.predicate='relation.marriage'
+            AND ic.value->>'raw' LIKE '%Fie Fot%'"
+      [ "$(qa "$A" -c "$iq")" != "$(qa "$B" -c "$iq")" ] || fail "st_reject_ids_differ: samme id i A og B"
+      echo "st_reject_ids_differ OK"
+      # st_reject_ambiguous: personaen er ægtefælle i to ægteskaber ⇒ stop.
+      t5_clone "$B" "$M"
+      q "$M" -c "SET session_replication_role=replica" -c "INSERT INTO private.interpretation_party(interpretation_key,party_role,version,
+          source_persona_id,marriage_ordinal,origin,origin_ref) SELECT ic.interpretation_key,'spouse',99,sp.id,1,'relation_persona',gen_random_uuid() FROM private.interpretation_current ic,
+          private.source_persona sp WHERE sp.source_id=-25001 AND sp.persona_key='$pk' AND ic.source_id=-25001
+          AND ic.predicate='relation.marriage' AND ic.value->>'raw' NOT LIKE '%Fie Fot%' ORDER BY ic.interpretation_key LIMIT 1"
+      step_fails STEP_REJECT_AMBIGUOUS "$M" reject replay "$tmp/reject.items"; dropdb "$M"
+      echo "st_reject_ambiguous OK";;
+  esac
+  ob=$(step "$B" $name replay "$tmp/$name.items" ${bextra[@]+"${bextra[@]}"}) || fail "replay $name: $(grep -m1 -iE 'error|fatal' "$tmp/step.err")"
+  [ "$(field items_sha256 "$oa")" = "$(field items_sha256 "$ob")" ] || fail "st_capture_replay $name: items_sha256 afviger"
+  [ "$(field n "$oa")" = "$(field n "$ob")" ] || fail "st_capture_replay $name: n afviger ($oa / $ob)"
+  dg "$B" > "$tmp/b-$name.dg"
+  d=$(dgcmp "$tmp/a-$name.dg" "$tmp/b-$name.dg" authorizations_issued); [ -z "$d" ] || fail "st_capture_replay $name: A og B afviger: $d"
+  if [ "$name" = bind ]; then
+    # st_rerun: bind igen ⇒ alle pakkens egnede er nu ALREADY_APPLIED ⇒ n=0 uden kald.
+    np=$(qa "$B" -c "SELECT count(*) FROM private.interpretation_promotion")
+    or=$(step "$B" bind replay "$tmp/bind.items") || fail "st_rerun: $(grep -m1 -iE 'error|fatal' "$tmp/step.err")"
+    [[ "$or" =~ ^STEP_OK\ bind\ n=0\ already_applied=[1-9][0-9]*\ items_sha256= ]] || fail "st_rerun: '$or'"
+    [ "$(qa "$B" -c "SELECT count(*) FROM private.interpretation_promotion")" = "$np" ] || fail "st_rerun: nye bindinger"
+    echo "st_rerun OK"
+  fi
+  prev_a=$tmp/a-$name.dg; prev_b=$tmp/b-$name.dg
+  echo "st_capture_replay $name OK ($oa)" | sed -E 's/ items_sha256=[0-9a-f]+//'
+done
+# Uberørt-hashen er uændret af alle skridtene (de skriver kun i kædens tabeller).
+uh "$A" > "$tmp/a1.uh"; cmp -s "$tmp/a0.uh" "$tmp/a1.uh" || fail "uberørt-hashen ændret af skridtene"
+echo "st_untouched OK"
+# st_no_uuid: ingen udskrift indeholder et uuid.
+grep -Eq "$uuid_re" "$tmp/all.out" && fail "st_no_uuid: uuid i udskriften"
+[ "$(grep -c '^STEP_OK ' "$tmp/all.out")" -ge 11 ] || fail "st_no_uuid: for få STEP_OK-linjer"
+echo "st_no_uuid OK"
+dropdb "$A"; dropdb "$B"; echo STEPS5AB_OK
