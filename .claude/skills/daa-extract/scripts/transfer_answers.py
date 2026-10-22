@@ -26,8 +26,10 @@ UUID_RE = re.compile(UUID)
 LINE = re.compile(rf"^(?P<t>[A-Z]) (?P<ref>{UUID}) (?P<ver>[0-9]+)(?P<mid>(?: [^:]*?)?) : (?P<ans>.*)$")
 OLD_O = re.compile(rf"^O (?P<ref>{UUID}) (?P<mid>[0-9?]+/[0-9?]+) : (?P<ans>.*)$")   # undtagelsesarket v1 (versions-id)
 LOOSE = re.compile(rf"^[A-Z] {UUID} ")
+# Opslagsklasserne skal være unikke på nøgle. `binding:` er ikke med: intet ark refererer en binding, og en genbinding i
+# samme familie (tilladt, #244) giver to bindings-uuid'er med samme nøgle.
 LOOKUP = ("persona:", "fortolkning:", "kandidatkoersel:", "kandidat:", "kontrol:", "foraelderkort:", "stikproeve:", "omtale:",
-          "binding:", "disposition:")
+          "disposition:")
 # Pr. ark: linjetyper og deres ref (persona-uuid eller interpretation_key); `skip` står tomme i det nye ark (kontrolarkets
 # blinde D-linjer får en ny stikprøve).
 KINDS = {"control": ({"R": "ikey"}, {"D"}), "spouse": ({"S": "persona", "O": "ikey"}, set()), "queue": ({"Q": "persona"}, set()),

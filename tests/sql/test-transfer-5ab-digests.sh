@@ -98,10 +98,10 @@ if ro -c "INSERT INTO public.note DEFAULT VALUES" >/dev/null 2>"$tmp/ro.err"; th
 grep -q 'read-only transaction' "$tmp/ro.err" || fail "dg_readonly: skrivningen fejlede af anden grund: $(head -1 "$tmp/ro.err")"
 echo "dg_readonly OK"
 
-# km_unique: nøglekortet er unikt på uuid; opslagsklasserne er unikke på nøgle; aktørens profil står ikke i kortet.
+# km_unique: nøglekortet er unikt på uuid; opslagsklasserne (ikke binding:, genbinding er tilladt) er unikke på nøgle; aktørens profil står ikke i kortet.
 km "$A" > "$tmp/a.km"
 [ "$(cut -d'|' -f1 "$tmp/a.km" | sort | uniq -d | wc -l | tr -d ' ')" = 0 ] || fail "km_unique: dublet på uuid"
-lk='^(persona|fortolkning|kandidatkoersel|kandidat|kontrol|foraelderkort|stikproeve|omtale|binding|disposition):'
+lk='^(persona|fortolkning|kandidatkoersel|kandidat|kontrol|foraelderkort|stikproeve|omtale|disposition):'
 dup=$(cut -d'|' -f2 "$tmp/a.km" | grep -E "$lk" | sort | uniq -d | head -3); [ -z "$dup" ] || fail "km_unique: dublet på nøgle ($dup)"
 for c in persona fortolkning kandidatkoersel kandidat kontrol stikproeve omtale; do
   grep -q "|$c:" "$tmp/a.km" || fail "km_unique: ingen $c-linjer"; done
@@ -163,5 +163,22 @@ PGOPTIONS='-c default_transaction_read_only=on' psql -X -Atq -v ON_ERROR_STOP=1 
   && PGOPTIONS='-c default_transaction_read_only=on' psql -X -Atq -v ON_ERROR_STOP=1 -d "$A" -v src=-25001 -f $S/transfer_5ab_untouched_hash.sql >/dev/null 2>&1 \
   || fail "gd_values: værn eller uberørt-hash kører ikke læse-kun"
 echo "gd_values OK"
+
+# gd_ordinal_null: en ægtefællepart uden persona har intet nummer (tilladt, interpretation_party_ordinal_check) og modsiger
+# ikke bogen; serverens egen kontrol (ORDINAL_BOOK_MISMATCH) rammer den heller aldrig. Et forkert nummer tæller derimod.
+[ "$(gv "$tmp/a1.gd" ordinal_book_mismatch)" = 0 ] || fail "gd_ordinal_null: ordinal_book_mismatch i A"
+G=${pre}_g; t5_clone "$A" "$G"
+party() { q "$G" -v n="$1" <<'SQL'
+INSERT INTO private.interpretation_party(interpretation_key,party_role,version,source_persona_id,marriage_ordinal,origin,origin_ref)
+SELECT pc.interpretation_key,'spouse',pc.version+1,NULL,nullif(:n,0),'relation_decision',gen_random_uuid()
+  FROM private.interpretation_current ic JOIN private.interpretation_party_current pc
+    ON pc.interpretation_key=ic.interpretation_key AND pc.party_role='spouse'
+ WHERE ic.source_id=-25001 AND ic.predicate='relation.marriage' AND private.relation_book_ordinal(ic.value->>'raw') IS NOT NULL
+ ORDER BY pc.interpretation_key::text COLLATE "C" LIMIT 1;
+SQL
+}
+party 0 >/dev/null; [ "$(gv <(gd "$G" -25001) ordinal_book_mismatch)" = 0 ] || fail "gd_ordinal_null: part uden persona talt som afvigelse"
+party 99 >/dev/null; [ "$(gv <(gd "$G" -25001) ordinal_book_mismatch)" = 1 ] || fail "gd_ordinal_null: forkert nummer ikke talt"
+dropdb "$G"; echo "gd_ordinal_null OK"
 
 dropdb "$A"; dropdb "$B"; dropdb "$C"; echo DG5AB_OK

@@ -157,6 +157,12 @@ def test_keymap_duplicate_only_in_lookup_classes(tmp_path):
         keymaps(tmp_path, extra_new=[f"{NEW_P1}|persona:1:zz"])
 
 
+def test_keymap_rebinding_in_same_family_is_not_a_duplicate(tmp_path):
+    # En genbinding i samme familie (tilladt, #244) giver to bindings-uuid'er med samme nøgle; intet ark refererer bindinger.
+    b = "binding:" + K1 + "#1:family:7:r:1"
+    keymaps(tmp_path, extra_new=[f"77777777-7777-4777-8777-77777777777{i}|{b}" for i in (1, 2)])
+
+
 def test_cli_prints_only_counts_and_writes_0600(tmp_path):
     root = tmp_path / "priv"; root.mkdir()
     old, new = spouse_sheets(old_tok="U")
