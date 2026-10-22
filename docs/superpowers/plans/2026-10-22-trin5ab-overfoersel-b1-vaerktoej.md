@@ -33,8 +33,10 @@ rækken »DDL-ceremonien for 5a+5b« (`i prod`, 2026-10-22). Kortlægning af kæ
 
 ## Global Constraints
 
-- Scripts printer kun tal, koder og hashes; aldrig navne, kildetekst, noter, uuid'er eller aktør-uuid. `set_config`-kald
-  sendes til `\g /dev/null`.
+- Scripts printer kun tal, koder og hashes til stdout; aldrig navne, kildetekst, noter, uuid'er eller aktør-uuid. `set_config`-kald
+  sendes til `\g /dev/null`. Eneste undtagelse: nøglekortet og `mode=rows` (Task 1) bærer uuid'er og skrives **kun** til en
+  0600-fil via `\o`, aldrig til terminalen; aktørens uuid udelades også her (`created_by`/`decided_by` o.l. oversættes til
+  `aktoer` i rækkerne og står ikke i nøglekortet).
 - Filer: kalderen kører med `umask 077` og afviser en eksisterende målfil; psql's `\o` og stdout-omdirigering giver dermed
   0600. Python skriver med `O_EXCL`, 0600.
 - Hashede rækker: `to_jsonb(…)::text`, nøglen i rækken, `ORDER BY … COLLATE "C"`; sessionsindstillinger låst som i
@@ -43,8 +45,13 @@ rækken »DDL-ceremonien for 5a+5b« (`i prod`, 2026-10-22). Kortlægning af kæ
 - Nøglekort, digests, uberørt-hash og værn er læse-kun (`BEGIN READ ONLY`, ingen `CREATE`): prod kører dem under
   `default_transaction_read_only`.
 - Ingen digest eller godkendt hash indeholder `current_database()`, `system_identifier` eller et tilfældigt id.
-- Skridt-SQL: `\set ON_ERROR_STOP on`, én transaktion pr. fil (`BEGIN … COMMIT`), fejlkrog `\if :{?fault}` (kun test) lige
-  før `COMMIT`.
+- Skridt-SQL: `\set ON_ERROR_STOP on`, én transaktion pr. fil (`BEGIN ISOLATION LEVEL REPEATABLE READ … COMMIT`, så
+  items-sammenligningen og RPC'en ser samme snapshot), fejlkrog `\if :{?fault}` (kun test) lige før `COMMIT`. Undtagelse:
+  `writer`-skridt har writerens to transaktioner (autorisation som ejer, derefter batchen); deres fejlkrog er
+  `fault=after_authorize` mellem de to.
+- Filer, som skridt-SQL læser (items, manifest), indlæses klientside: `` \set items_json `cat :items` `` (mønstret fra
+  `relation_persona_apply.sql:4`). Aldrig `pg_read_file`: den læser på databaseserveren, og prod-rollen har ikke
+  `pg_read_server_files`.
 - #153's writer, `red_decide_interpretation` og trin 4's filer ændres ikke. Ingen DDL i B1.
 - Python: kun stdlib; køres med `-I`; fejl som `SystemExit("<KODE> …")`.
 - CI: pytest-listen i `python`-jobbet, bash-tests i `writer-1939-v50-db`. Hele jobbet køres lokalt før push.
@@ -76,15 +83,19 @@ rækken »DDL-ceremonien for 5a+5b« (`i prod`, 2026-10-22). Kortlægning af kæ
   - Opslagsklasser (unikke nøgler, bruges af svaroverførslen): `persona:<persona_key>`, `fortolkning:<interpretation_key>#<version>`,
     `kandidatkoersel:<input_sha256>:<config_sha256>`, `kandidat:<kørselsnøgle>:<persona_key>:<rank>`,
     `kontrol:<kandidatkørselsnøgle>`, `foraelderkort:<kontrolnøgle>:<interpretation_key>`, `stikproeve:<kontrolnøgle>:<persona_key>`,
-    `omtale:<persona_key>:<mention_role>:<ordinal>`, `binding:<interpretation_key>:<target_type>:<target_id>:<rule_key>`,
-    `disposition:<observation_id>#<version>`.
-  - Gennemstrømningsklasser (fælles med D1/prod): `obs:<uuid>` (klausulobservationer), `profil:<uuid>`, og `d1:<uuid>` for
-    primærnøgler i `private.source_record`, `private.source_rendition`, `private.source_mention` (rækker kæden ikke har skrevet) og
-    de øvrige uuid-tabeller, kæden ikke skriver i (implementeren lister dem ud fra `kaede-opskrift.md` §B og noterer listen).
+    `omtale:<persona_key>:<mention_role>:<ordinal>`,
+    `binding:<interpretation_key>#<interpretation_version>:<target_type>:<target_id>:<rule_key>:<rule_version>`,
+    `disposition:<observation_id>#<version>`. Tabellen for bindinger har ingen unik nøgle (`schema.sql:1526-1551`); en
+    tilbageværende dublet er det tilsigtede stop `KEYMAP_DUPLICATE`.
+  - Gennemstrømningsklasser (fælles med D1/prod): `obs:<uuid>` (klausulobservationer), `profil:<uuid>`, og `d1:<uuid>` som
+    **fallback**: enhver uuid-primærnøgle fundet via kataloget (`pg_index`/`pg_attribute`, type `uuid`, skema `private`/`public`),
+    der ikke har en indholdsklasse ovenfor. Klassen afgøres alene af tabellen, ikke af hvem der skrev rækken.
   - Mange-til-én-klasser (tilfældige id'er uden indholdsnøgle): `batch`, `autorisation`, `udtraek`, `haendelse`, `bindingsbatch`.
 - `transfer_5ab_digests.sql -v src=<id> [-v mode=rows]`: uden `mode` én linje `daa.transfer_5ab_digests=<json>`:
   `{"<lag>": {"n": int, "sha256": hex}, …, "n_uuid_unmapped": int}`; med `mode=rows` linjer `<lag>|<nøgle>|<rækkesha>`
-  (til §6.3-kontrollen og fejlsøgning af `MIXED`; kalderen skriver dem til en 0600-fil).
+  (til §6.3-kontrollen og fejlsøgning af `MIXED`; kalderen skriver dem til en 0600-fil); med `mode=unmapped` linjer
+  `<lag>|<tabel>.<kolonnesti>|<antal>` for uoversatte uuid'er, uden selve uuid'erne (diagnose af `n_uuid_unmapped > 0`, fx
+  149b-evidens i D1).
 - Lag og kolonner (alt andet i rækken udelades; derefter uuid-oversættelse):
 
   | Lag | Kilde | Kolonner |
@@ -115,15 +126,18 @@ rækken »DDL-ceremonien for 5a+5b« (`i prod`, 2026-10-22). Kortlægning af kæ
   - `dg_same`: digests fra A = fra B for begge kilder, `n_uuid_unmapped = 0`;
   - `dg_ids_differ`: mindst ét `private.interpretation.id` og ét `interpretation_promotion.id` er forskelligt mellem A og B (vagt);
   - `dg_layers_nonempty`: `personas`, `identities`, `candidates`, `control_samples`, `interpretations`, `parties`,
-    `classifications` og (−25002) `bindings`, `family_sources` har `n ≥ 1` (vagt);
+    `classifications` og (−25002) `bindings`, `family_sources` har `n ≥ 1` (vagt; `dispositions` vagtes i Task 2, hvor
+    dispositionsfixturen findes);
   - `dg_value`: én ændret `marriage_ordinal` i B ⇒ kun `parties` afviger;
   - `dg_swap`: ombyttet `decision_status` mellem to personas i B ⇒ `identities` afviger;
   - `dg_target`: én binding i B (−25002) med andet `target_id` ⇒ `bindings` afviger;
   - `dg_unmapped`: samme logiske række indsat i A og B med hver sin `gen_random_uuid()` i evidensen ⇒ laget afviger, og
-    `n_uuid_unmapped ≥ 1` i begge;
+    `n_uuid_unmapped ≥ 1` i begge, og `mode=unmapped` navngiver netop den tabel og kolonnesti (uden uuid);
   - `dg_rows`: `mode=rows` i A og B er ens linje for linje, og `dg_value`'s ændring giver præcis én afvigende linje;
-  - `dg_readonly`: nøglekort og digests kører under `PGOPTIONS='-c default_transaction_read_only=on'`;
-  - `km_old_tree`: nøglekortet kører på en base bygget fra `b42266e` (uden 5b-tabeller) og giver 0 linjer i 5b-klasserne;
+  - `dg_readonly`: eget kald **uden** harnessets `env -u PGOPTIONS`, med `PGOPTIONS='-c default_transaction_read_only=on'`:
+    nøglekort og digests kører; positiv kontrol under samme indstilling: én `INSERT` fejler med `read-only transaction`;
+  - `km_old_tree`: nøglekortet kører på en base bygget fra `b42266e` (uden 5b-tabeller) og giver 0 linjer i 5b-klasserne.
+    Dækker kun det manglende-tabel-tilfælde; bevisbaser med 5b-tabeller i ældre kolonneform køres i B2;
   - `km_unique`: nøglekortet er unikt på uuid, og opslagsklasserne er unikke på nøgle.
   Slut: `DG5AB_OK`.
 - [ ] **Step 2: Kør** `bash tests/sql/test-transfer-5ab-digests.sh t5abdg` — Expected: FAIL (filerne findes ikke).
@@ -135,6 +149,12 @@ rækken »DDL-ceremonien for 5a+5b« (`i prod`, 2026-10-22). Kortlægning af kæ
 
 **Files:**
 - Create: `.claude/skills/daa-extract/scripts/transfer_5ab_untouched_hash.sql`, `transfer_5ab_guards.sql`
+- Create: `tests/sql/fixtures/transfer-5ab-chain.sql` (som `indholds-id-chain.sql` trin 1-5 og 7, uden trin 6 og 8; skriver
+  kun i kilde −25001)
+- Create: `tests/sql/fixtures/transfer-5ab-dispositions-dump.sql` (dump-siden, så B får rækken via COPY; ikke i
+  `indholds-id-dump.sql`): én `clause_disposition` `afventer_identitet`/`decided_by_kind='machine'` med evidens
+  `{manifest_sha256: <64 hex>, extraction_run_id}` på en klausul i −25001 (målt i review runde 2: giver
+  `relation_dispositions = 1`)
 - Modify: `tests/sql/test-transfer-5ab-digests.sh`
 
 **Interfaces:**
@@ -147,76 +167,120 @@ rækken »DDL-ceremonien for 5a+5b« (`i prod`, 2026-10-22). Kortlægning af kæ
   (`n_match`/`n_total` for bogens »N°«).
 - Consumed by: plan B2 (`VERIFY_OK`, værnene i arbejdskørslen).
 
-- [ ] **Step 1: Udvid testen:** `un_before_after` (i A: kæden ændrer ikke untouched-hashen og ikke `other_sources`, målt før og
-  efter i samme base), `un_other_source` (én række i kilde −25099 ændret i B ⇒ kun `other_sources` afviger fra B's før-måling),
+- [ ] **Step 1: Udvid testen:** `un_before_after` (i et tredje par baser bygget med `transfer-5ab-chain.sql`, der kun skriver i
+  −25001: kæden ændrer ikke untouched-hashen og ikke `other_sources` for −25001, målt før og efter i samme base),
+  `dg_dispositions_nonempty` (med dispositionsfixturen: `dispositions` har `n ≥ 1` og er ens i A og B), `un_other_source` (én række i kilde −25099 ændret i B ⇒ kun `other_sources` afviger fra B's før-måling),
   `gd_values` (værnene i A: −25001 `person_create_elements = 0`; −25002 `ordinal_correction_rows ≥ 1` som fixturen er bygget).
 - [ ] **Step 2: Kør** — Expected: FAIL på de nye asserts.
 - [ ] **Step 3: Implementér.**
 - [ ] **Step 4: Kør** — Expected: `DG5AB_OK`.
 - [ ] **Step 5: Commit** `test(151): uberørt-hash, andre kilder og værn for 5a+5b-kæden`.
 
-### Task 3: Skridt-SQL i repoet
+### Task 3a: Skridt-SQL for afgørelse, binding, disposition og afvisning
 
 **Files:**
-- Create (`.claude/skills/daa-extract/scripts/`): `transfer_5ab_step_profile.sql`, `transfer_5ab_step_candidates.sql`,
-  `transfer_5ab_step_control.sql`, `transfer_5ab_step_corroborate.sql`, `transfer_5ab_step_decide.sql`,
+- Create (`.claude/skills/daa-extract/scripts/`): `transfer_5ab_step_profile.sql`, `transfer_5ab_step_decide.sql`,
   `transfer_5ab_step_bind.sql`, `transfer_5ab_step_disposition.sql`, `transfer_5ab_step_reject.sql`
-- Create: `tests/sql/fixtures/transfer-5ab-chain.sql` (som `indholds-id-chain.sql` trin 1-5 og 7, uden trin 6 og 8)
 - Test: `tests/sql/test-transfer-5ab-steps.sh`
 
 **Interfaces:**
-- Fælles: `-v src=<id> -v mode=capture|replay -v items=<sti> [-v fault=before_commit]`. Aktøren = første profil med
-  `rolle='redaktion'` (`ORDER BY id`). Items beregnes **som ejer** før `SET LOCAL ROLE authenticated`. `capture` skriver de
-  nøglede items (`\o :'items'`) og udfører skridtet; `replay` læser `items` (`pg_read_file`), bygger samme items i basen,
-  stopper med `STEP_ITEMS_MISMATCH`, hvis de afviger, og kalder RPC'en med hashen **genberegnet i basen**. Udskrift:
-  `STEP_OK <skridt> n=<antal> items_sha256=<hex>`; aldrig et uuid.
+- Fælles: `-v src=<id> -v mode=capture|replay -v items=<sti> [-v fault=before_commit|after_authorize]`. Aktøren = første profil
+  med `rolle='redaktion'` (`ORDER BY id`; B2 binder rækkefølgen i GO 2). Items beregnes **som ejer** før
+  `SET LOCAL ROLE authenticated`. `capture` skriver de nøglede items (`\o :'items'`) og udfører skridtet; `replay` indlæser
+  `items` klientside (Global Constraints), bygger samme items i basen, stopper med `STEP_ITEMS_MISMATCH`, hvis de afviger, og
+  kalder RPC'en med hashen **genberegnet i basen**. Udskrift: `STEP_OK <skridt> n=<antal> items_sha256=<hex>`; aldrig et uuid.
 - Pr. skridt (items sorteret `COLLATE "C"`):
-  - `profile` (`sql`): writer-profilerne `relation-persona-2018-20` (v1/v2/v3-konfigurationerne fra `relation_persona_apply.sql`)
-    `ON CONFLICT DO NOTHING`; items = `{profile_id, profile_sha256}`.
-  - `candidates` (`hash_gated`): kandidatfilen (pakkens input) skrives via `red_record_identity_candidates`; serveren genberegner
-    `input_sha256`; items = `{kørselsnøgle, candidates_sha256}`. Erstatter `write-candidates.sql`'s `set_config`-ekko.
-  - `control` (`sql`): `red_register_identity_control_run(<seneste kørsel slået op via kørselsnøgle>)`; items =
-    `{kontrolnøgle, populationshashes, n_samples, n_parent_cards}`.
-  - `corroborate` (`hash_gated`): `corr_set` som `schema.sql:16494-16505`; items = `{persona_key}`; RPC
-    `red_corroborate_family_identities(ctl, set_sha256)`.
-  - `decide` (`hash_gated`): items fra `private.relation_decision_set(src)->'items'` (som ejer) =
-    `{interpretation_key, classification, family_id, book_ordinal, family_ordinal, parter: [{persona_key, person_id}]}`;
+  - `profile` (`sql`): præcis én profilrække `relation-persona-2018-20`/`relation-persona-v1` (primærnøgle
+    `(source_id, profile_id)`, konfigurationen fra `relation_persona_apply.sql:6`) `ON CONFLICT DO NOTHING`; »v1/v2/v3« er
+    payloadens `profile`-felt, ikke profilrækker. items = `{profile_id, profile_sha256}`. `relation_persona_apply.sql`'s egen
+    indsættelse bliver derefter no-op.
+  - `decide` (`hash_gated`): items fra `private.relation_decision_set(src)->'items'` (som ejer); felterne ligger under `state`;
+    parterne bærer `source_persona_id`, som joines til `source_persona.persona_key`. items =
+    `{interpretation_key, version, classification, family_id, book_ordinal, family_ordinal, parter: [{persona_key, person_id}]}`;
     RPC `red_decide_relation_interpretations(src, set_sha256)`, hvor `set_sha256` hentes fra
     `red_preview_relation_decisions(src)` som `authenticated`.
   - `bind` (`hash_gated`): kandidater = accepterede `relation.marriage|parent|child` med bindingstilstand
-    (`interpretation_id` via `interpretation_current`); preview som `authenticated`; items = alle preview-items som
-    `{interpretation_key, family_id, rule_key, rule_version, eligible, reason_code, supersedes_key}`. Kun `eligible` sendes til
-    `red_promote_relation_interpretations_batch` med den genberegnede `preview_sha256`; 0 egnede ⇒ `STEP_OK bind n=0` uden kald.
-    `reason_code` ≠ pakkens ⇒ `STEP_ITEMS_MISMATCH` (efter `~/.private/5b-2b-iii/bind-preview.sql` og `bind.sql`).
+    (`interpretation_id` via `interpretation_current`). Forløb (mønstret fra `f244_bind`, `marriage-ordinal-244.sql:47-66`):
+    preview over **alle** kandidater som `authenticated` → items = alle preview-items som
+    `{interpretation_key, family_id, rule_key, rule_version, eligible, reason_code, supersedes_key}` → udvælg de egnede →
+    **nyt preview over de egnede** → `red_promote_relation_interpretations_batch(src, egnede, <det nye previews preview_sha256>)`.
+    Promote regner previewet om over `p_items` og stopper ved første uegnede (`schema.sql:16878-16882`), derfor det andet preview.
+    0 egnede ⇒ `STEP_OK bind n=0` uden kald (en tom liste giver `RELATION_PROMOTION_ITEMS_INVALID`). Sammenligning i `replay`:
+    ens items ⇒ kør; hvis hver af pakkens egnede items nu er `eligible=false, reason_code='ALREADY_APPLIED'` og alle øvrige
+    items er ens ⇒ `STEP_OK bind n=0 already_applied=<k>` uden kald; alt andet ⇒ `STEP_ITEMS_MISMATCH`.
   - `disposition` (`writer`): manifestet regenereres i basen af `red_relation_disposition_input(src)`; items =
-    `{observation_id, disposition, actor_persona_keys, citing_interpretation_keys}` (sorteret efter oversættelsen); ved
-    match køres `relation_batch_apply.sql`-forløbet med det regenererede manifest.
-  - `reject` (`sql`): items = `{persona_key, interpretation_key, evidence}`; præcis én `relation.marriage` pr. `persona_key`
-    via `interpretation_party_current`, ellers `STEP_REJECT_AMBIGUOUS`; evidens =
+    `{observation_id, from_disposition_version, disposition, actor_persona_keys, citing_interpretations: ["<key>#<version>"]}`
+    (arrays sorteret efter oversættelsen); ved match køres `relation_batch_apply.sql`-forløbet med det regenererede manifest.
+  - `reject` (`sql`): items = `{persona_key, interpretation_key, version, evidence}`; præcis én `relation.marriage` pr.
+    `persona_key` med `party_role='spouse'` via `interpretation_party_current`, ellers `STEP_REJECT_AMBIGUOUS`; `version` skal
+    være fortolkningens aktuelle, ellers `STEP_ITEMS_MISMATCH`; evidens =
     `{basis:'human_sheet_review', sheet_sha256:<v3-arkets hash>, sheet_line, reason, decided_on, report}` (alle felter
-    påkrævet); RPC `red_decide_interpretation(<id slået op>, <version>, 'rejected', evidens)`.
-- Genbruges uændret og står i pakkens inventar: `relation_persona_apply.sql` (`writer`; profilindsættelsen er da no-op),
-  `relation_batch_apply.sql`, `sql`-delen af `identity_control_sheet.py`, `spouse_exception_sheet.py`,
-  `relation_marriage_sheet.py`, `relation_marriage_sheet_v3.py`, `relation_child_sheet.py`.
+    påkrævet); RPC `red_decide_interpretation(<id slået op via nøgle>, <version>, 'rejected', evidens)`.
+- Genbruges uændret og står i pakkens inventar: `relation_persona_apply.sql` (`writer`), `relation_batch_apply.sql`, `sql`-delen
+  af `identity_control_sheet.py`, `spouse_exception_sheet.py`, `relation_marriage_sheet.py`, `relation_marriage_sheet_v3.py`,
+  `relation_child_sheet.py`. For disse skridt er `items_sha256` = sha256 af den genererede indgangsfil (manifestet for
+  writer-skridt, den genererede SQL for ark-skridt), som også står i skridtets `inputs`.
+- Consumes: Task 1 (digests, nøglekort), Task 2 (`transfer-5ab-chain.sql`, dispositionsfixturen).
 - Consumed by: Task 6, plan B2.
 
-- [ ] **Step 1: Skriv fixturen og testen** `tests/sql/test-transfer-5ab-steps.sh <prefix>`: A og B som i Task 1, men med
-  `transfer-5ab-chain.sql`. Opsætningsvagter: ≥ 1 decide-item, ≥ 1 egnet bind-item i −25001, ≥ 1 dispositions-item (ellers
-  udvides fixturen; ruling). Asserts:
-  - `st_capture_replay`: profile, decide, bind, disposition og reject i `capture` på A, `replay` på B med A's items ⇒ ens
-    digests (`interpretations`, `classifications`, `bindings`, `dispositions`, `writer_profiles`) og ens `items_sha256`;
+- [ ] **Step 1: Skriv testen** `tests/sql/test-transfer-5ab-steps.sh <prefix>`: A og B som i Task 1, men med
+  `transfer-5ab-chain.sql` og dispositionsfixturen. Rækkefølge: profile → decide → bind → disposition → reject.
+  Opsætningsvagter: ≥ 1 decide-item før decide; ≥ 1 egnet bind-item **efter** decide (før decide er ægteskabet `proposed` og
+  der er 0 kandidater; målt i review runde 2: decide giver 1 item med `ordinal_afvigelse`, bind 1 egnet); ≥ 1
+  dispositions-item. Asserts:
+  - `st_capture_replay`: hvert skridt i `capture` på A, `replay` på B med A's items ⇒ ens `items_sha256` og ens digests; for
+    hvert skridt kræves desuden `digests_out ≠ digests_in` i skridtets lag og det forventede `n` (profile 1, decide ≥ 1,
+    bind ≥ 1, disposition ≥ 1, reject 1), så to baser, der intet gør, ikke består;
+  - `st_reject_ids_differ`: afvisningens mål er en fortolkningsversion, kæden selv skaber (decide-skridtets nye version af et
+    ægteskab), og dens `private.interpretation.id` er forskellig i A og B (vagt; spec §10's `sql`-skridt med kæde-skabt id);
   - `st_mismatch`: replay med én item fjernet ⇒ `STEP_ITEMS_MISMATCH`, digests uændrede;
-  - `st_rerun`: bind i `replay` to gange ⇒ anden gang `n=0`, 0 nye rækker;
+  - `st_rerun`: bind i `replay` to gange ⇒ anden gang `STEP_OK bind n=0 already_applied=1`, 0 nye rækker;
   - `st_fault`: decide med `fault=before_commit` ⇒ fejl, digests = før; derefter uden fejl ⇒ som `st_capture_replay`;
-  - `st_writer_issued`: dispositionsskridtet afbrudt efter `red_authorize_reimport` ⇒ digests i skridtets lag = før; fuldt
-    skridt bagefter ⇒ som uafbrudt; `authorizations_issued` = 1;
-  - `st_reject_ambiguous`: `reject` på en `persona_key` med to ægteskaber ⇒ `STEP_REJECT_AMBIGUOUS`;
+  - `st_writer_issued`: dispositionsskridtet med `fault=after_authorize` ⇒ digests i skridtets lag = før,
+    `authorizations_issued` = 1; fuldt skridt bagefter ⇒ som uafbrudt;
+  - `st_reject_ambiguous`: `reject` på en `persona_key` med to ægteskaber som `spouse` ⇒ `STEP_REJECT_AMBIGUOUS`;
   - `st_no_uuid`: ingen udskrift indeholder et uuid.
   Slut: `STEPS5AB_OK`.
 - [ ] **Step 2: Kør** `bash tests/sql/test-transfer-5ab-steps.sh t5abst` — Expected: FAIL (filerne findes ikke).
-- [ ] **Step 3: Implementér** de otte filer.
+- [ ] **Step 3: Implementér** de fem filer.
 - [ ] **Step 4: Kør** — Expected: `STEPS5AB_OK`.
-- [ ] **Step 5: Commit** `feat(151): skridt-SQL med nøglede items og hashes genberegnet i basen`.
+- [ ] **Step 5: Commit** `feat(151): skridt-SQL for afgørelse, binding, disposition og afvisning`.
+
+### Task 3b: Skridt-SQL for del 1 (kandidater, kontrol, korroboration)
+
+**Files:**
+- Create (`.claude/skills/daa-extract/scripts/`): `transfer_5ab_step_candidates.sql`, `transfer_5ab_step_control.sql`,
+  `transfer_5ab_step_corroborate.sql`
+- Create: `tests/sql/fixtures/transfer-5ab-del1.sql` (personas og identiteter som `indholds-id-chain.sql`, men **uden**
+  kandidatkørsler og kontrolkørsel; dem laver skridtene)
+- Test: `tests/sql/test-transfer-5ab-del1-steps.sh`
+
+**Interfaces:**
+- Fælles som Task 3a.
+  - `candidates` (`hash_gated`): kandidatfilen (pakkens input) skrives via `red_record_identity_candidates`; serveren genberegner
+    `input_sha256`; items = `{kørselsnøgle, candidates_sha256}`. Erstatter `write-candidates.sql`'s `set_config`-ekko.
+  - `control` (`sql`): `red_register_identity_control_run(<kørsel slået op via kørselsnøgle fra items>)`; items =
+    `{kontrolnøgle, populationshashes, n_samples, n_parent_cards}`.
+  - `corroborate` (`hash_gated`): `corr_set` som `schema.sql:16494-16505`; items = `{persona_key}`; RPC
+    `red_corroborate_family_identities(ctl, set_sha256)`.
+- Rækkefølgen i den rigtige kæde (beviskæden: kørsel 1 → kontrol → kørsel 2; H3: kørsel 1 genskabes ikke) fastlægges i B2;
+  B1 tester skridtene i rækkefølgen candidates → control → corroborate.
+- Consumed by: Task 6, plan B2.
+
+- [ ] **Step 1: Skriv fixturen og testen** `tests/sql/test-transfer-5ab-del1-steps.sh <prefix>`: A og B bygget som Task 1 med
+  `transfer-5ab-del1.sql`. Opsætningsvagter: ≥ 1 kandidat, ≥ 1 stikprøve, ≥ 1 korroborationsitem (ellers udvides fixturen;
+  ruling). Asserts:
+  - `d1_capture_replay`: de tre skridt i `capture` på A, `replay` på B ⇒ ens `items_sha256` og ens digests (`candidate_runs`,
+    `candidates`, `control_runs`, `control_samples`, `control_parent_cards`, `identities`); hvert skridt med
+    `digests_out ≠ digests_in` og forventet `n`;
+  - `d1_ids_differ`: kandidatkørslens og kontrolkørslens id er forskellige i A og B (vagt);
+  - `d1_mismatch`: replay af `candidates` med én kandidat ændret ⇒ `STEP_ITEMS_MISMATCH`;
+  - `d1_no_uuid`: ingen udskrift indeholder et uuid.
+  Slut: `DEL1STEPS5AB_OK`.
+- [ ] **Step 2: Kør** `bash tests/sql/test-transfer-5ab-del1-steps.sh t5abd1` — Expected: FAIL.
+- [ ] **Step 3: Implementér** de tre filer.
+- [ ] **Step 4: Kør** — Expected: `DEL1STEPS5AB_OK`.
+- [ ] **Step 5: Commit** `feat(151): skridt-SQL for del 1 (kandidater, kontrol, korroboration)`.
 
 ### Task 4: Køens ark i repoet
 
@@ -249,8 +313,8 @@ rækken »DDL-ceremonien for 5a+5b« (`i prod`, 2026-10-22). Kortlægning af kæ
 - Test: `.claude/skills/daa-extract/scripts/test_transfer_answers.py`
 
 **Interfaces:**
-- `transfer --kind <control|spouse|queue|marriage|marriage_v3|child> --old-sheet <ark> --old-rows <json> --old-keymap <tsv>
-  --new-sheet <ark> --new-rows <json> --new-keymap <tsv> --expected-dropouts <fil> --out-sheet <sti> --out-report <sti>`.
+- `transfer --kind <control|spouse|queue|marriage|marriage_v3|child> --old-sheet <ark> --old-rows <json> --old-keymap <fil>
+  --new-sheet <ark> --new-rows <json> --new-keymap <fil> --expected-dropouts <fil> --out-sheet <sti> --out-report <sti>`. Nøglekortfilerne er Task 1's `|`-separerede format.
 - Hver svarlinje parses efter værktøjets grammatik; `ref` oversættes gammel uuid → nøgle (opslagsklasse) → ny uuid; nøgle-referencer
   (`interpretation_key`) er uændrede. `spouse` accepterer også den gamle `O <interpretation_id> b/f` (v1) og oversætter id'et via
   `fortolkning:<key>#<ver>` til den nye `O <key> <ver> …`-linje. `control`: kun `R`-linjer overføres; `D` står tomme (`_`).
@@ -282,7 +346,8 @@ rækken »DDL-ceremonien for 5a+5b« (`i prod`, 2026-10-22). Kortlægning af kæ
   steps: [{n, name, type: "sql"|"writer"|"hash_gated", script, vars, inputs: {navn: sha256}, items_sha256, layers: [lag],
   digests_in: {lag: sha}, digests_out: {lag: sha}, seconds}], pack_sha256}`; `pack_sha256` = sha af kanonisk JSON uden feltet.
 - `add-step`, `validate` (`PACK_INVALID <felt>`: rækkefølge, `layers` ⊆ Task 1's lag, `authorizations_issued` aldrig i
-  `layers`, `items_sha256` påkrævet for alle typer), `classify --pack --n --digests` ⇒ `WRITE` / `ALREADY_APPLIED` /
+  `layers`, `items_sha256` påkrævet for alle typer (Task 3a's definition for genbrugte scripts), og et skridt med `n > 0` må
+  ikke have `digests_in = digests_out`), `classify --pack --n --digests` ⇒ `WRITE` / `ALREADY_APPLIED` /
   `MIXED` (exit 3; kun over skridtets lag), `inventory --pack --root --private` (`INVENTORY_MISMATCH`), `next --pack --done`.
   Ukendte argumenter ⇒ exit 2.
 - Genspilsløkken (B2's runner kalder det samme): for hvert skridt `classify` → `WRITE`: kør skridt-SQL i `replay` → mål
@@ -291,7 +356,7 @@ rækken »DDL-ceremonien for 5a+5b« (`i prod`, 2026-10-22). Kortlægning af kæ
 - [ ] **Step 1: Skriv pytest:** gyldig pakke; ukendt type; ude af rækkefølge; `authorizations_issued` i `layers`; de tre
   tilstande kun over skridtets lag; `pack_sha256` ændres af én item-hash; inventar med ekstra og manglende fil; `next` springer
   `ALREADY_APPLIED` over; ukendt argument exit 2.
-- [ ] **Step 2: Udvid `test-transfer-5ab-steps.sh`:** `st_pack_replay` — byg pakken fra A's capture (Task 3's skridt), genspil
+- [ ] **Step 2: Udvid `test-transfer-5ab-steps.sh`:** `st_pack_replay` — byg pakken fra A's capture (Task 3a's og 3b's skridt; del 1-skridtene fra `transfer-5ab-del1.sql`), genspil
   den på en frisk C (bygget som B) via løkken ⇒ hvert skridt `WRITE` → `ALREADY_APPLIED`, og alle digests = A's; anden
   gennemkørsel ⇒ alle `ALREADY_APPLIED` uden skrivning.
 - [ ] **Step 3: Kør begge** — Expected: FAIL.
@@ -303,7 +368,8 @@ rækken »DDL-ceremonien for 5a+5b« (`i prod`, 2026-10-22). Kortlægning af kæ
 
 **Files:**
 - Modify: `.github/workflows/ci.yml` (pytest: `test_identity_queue_sheet.py`, `test_transfer_answers.py`, `test_transfer_steps.py`;
-  `writer-1939-v50-db`: `test-transfer-5ab-digests.sh ci_dg5ab` og `test-transfer-5ab-steps.sh ci_st5ab` efter
+  `writer-1939-v50-db`: `test-transfer-5ab-digests.sh ci_dg5ab` og `test-transfer-5ab-steps.sh ci_st5ab` og
+  `test-transfer-5ab-del1-steps.sh ci_d15ab` efter
   `test-indholds-id-determinism.sh`)
 - Modify: `docs/decisions.md` (plan B delt i B1/B2; errata; skridt-scripts i repoet; profilskridt; dispositionernes manifest-hash),
   `docs/evidensbaseret-genimport/status.md` (række »Værktøj til data-ceremonien (plan B1)«, `isoleret implementeret`),
@@ -320,6 +386,10 @@ rækken »DDL-ceremonien for 5a+5b« (`i prod`, 2026-10-22). Kortlægning af kæ
   del 1) og forhistorikken i bevisbaserne (kontrolkørsler, kandidatkørsel 1) før kørslen; listen over forventede forskelle (§6.3,
   inkl. køens note → v3-kaskaden); nøglekortet kørt på hver bevisbase; uafhængigt review af de private scripts før GO 2.
 - **H3 (projektejeren 2026-10-22):** kandidatkørsel 1 (top-k 3) genskabes ikke; forventet bortfald i §6.3-listen.
+- Fra review runde 2: kør `mode=unmapped` på D1 før arbejdskørslen (149b-evidens kan bære uuid-former, nøglekortet ikke
+  kender); mål dubletter i bevisbasernes kontrol- og kandidatkørsler (kortlægningen H3/H4); bind rækkefølgen af
+  `rolle='redaktion'`-profiler i GO 2; P-evidensens nye nøgler (`sheet_line`, `reason`, `decided_on`, `report`) på §6.3-listen;
+  fastlæg del 1's skridtrækkefølge (Task 3b).
 
 ## Revision efter Opus-review (2026-10-22)
 
@@ -338,3 +408,22 @@ GO med rettelser; 9 MAJOR, alle godtaget efter efterprøvning mod koden (`schema
 | M8 ingen nøglet rækkeudskrift | Task 1: `mode=rows`, `dg_rows` |
 | M9 genspiller og værn | Task 2: værn-SQL; Task 6: genspilsløkke testet på tværs af baser; runneren i B2 |
 | MINOR (kolonneliste, `d1:`-klasse, `dg_unmapped`, `bindingsbatch`, sorterede arrays, notens format, `KOE_ROWS_STALE`, P-evidens, uuid i udskrift, `\o`/0600, dispositionsinput, transaktion og fejlkrog) | Indarbejdet i Global Constraints og Task 1-6 |
+
+## Revision efter Opus-review runde 2 (2026-10-22)
+
+GO med rettelser; ingen BLOCKER, 8 MAJOR, alle godtaget. Efterprøvet mod koden: promote regner previewet om over `p_items` og
+stopper ved første uegnede (`schema.sql:16878-16882`); writeren indlæser filer klientside (`relation_persona_apply.sql:4`).
+Fixtur-fundene (M3, M4) og decide-/bind-tallene er målt af revieweren i en engangsbase.
+
+| Fund | Ændring |
+| --- | --- |
+| M1 `pg_read_file` virker ikke i prod | Global Constraints: klientside `` \set … `cat …` `` |
+| M2 bind: preview over alle, promote over egnede; `st_rerun` umulig | Task 3a: to previews (`f244_bind`-mønstret); `ALREADY_APPLIED`-reglen ⇒ `n=0` |
+| M3 0 dispositions-items | Task 2: `transfer-5ab-dispositions-dump.sql`, `dg_dispositions_nonempty`; Task 3a: bindvagt efter decide |
+| M4 `un_before_after` kan ikke bestå | `transfer-5ab-chain.sql` flyttet til Task 2 (skriver kun −25001), målt på den |
+| M5 afvisningens mål beviser ikke nøgleopslaget; replay der intet gør består | Task 3a: `st_reject_ids_differ`; `digests_out ≠ digests_in` og forventet `n` pr. skridt |
+| M6 tre skridt-filer utestede | Ny Task 3b med `transfer-5ab-del1.sql` og egen test |
+| M7 `items_sha256` udefineret for genbrugte scripts | Task 3a: sha af den genererede indgangsfil; Task 6 `validate` |
+| M8 `dg_readonly` tom | Task 1: eget kald med `PGOPTIONS` + positiv kontrol |
+| MINOR (profil, decide-felter, reject-version/`spouse`, `binding:`-nøgle, `d1:` som fallback, `from_disposition_version`, uuid-undtagelse, writer-transaktioner/fejlkrog, `\|`-format, `km_old_tree`-dækning, `classify` ved uændrede digests) | Indarbejdet i Global Constraints, Task 1, 3a, 5, 6 |
+| Risici (`mode=unmapped`, `REPEATABLE READ`, profilrækkefølge, P-evidensnøgler, dubletter) | Task 1 `mode=unmapped`; Global Constraints `REPEATABLE READ`; resten i »Til plan B2« |
