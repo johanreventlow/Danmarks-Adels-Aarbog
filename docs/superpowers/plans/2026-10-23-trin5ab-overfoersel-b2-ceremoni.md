@@ -132,13 +132,13 @@
 
 **Interfaces:**
 - `transfer_5ab_content.sql -v src=<id>` (læse-kun, låste sessionsindstillinger som digests): linjer `<lag>|<nøgle>|<værdi-json>` sorteret `COLLATE "C"`, kun **gældende** rækker, ingen tilfældige id'er, ingen arkhashes, ingen aktør. Lag og værdi:
-  - `binding`: nøgle `<interpretation_key>`; værdi `{target_type, target_id, rule_key, rule_version}` (kun gældende, ikke-overtrufne)
+  - `binding`: nøgle `<interpretation_key>:<target_type>:<target_id>`; værdi `{rule_key, rule_version}` (kun ikke-overtrufne: ingen anden binding peger på den med `supersedes_promotion_id`; et ændret mål giver en forsvundet og en ny nøgle)
   - `ordinal`: nøgle `<interpretation_key>:<party_role>:<persona_key>`; værdi `{marriage_ordinal}` (gældende partversion)
   - `identity`: nøgle `<persona_key>`; værdi `{status, person_id}`; `origin`: nøgle `<persona_key>`; værdi `{origin}`
   - `classification`: nøgle `<interpretation_key>:<seq>`; værdi `{classification}`
   - `interpretation`: nøgle `<interpretation_key>`; værdi `{status, predicate}` (gældende version)
   - `disposition`: nøgle `<observation_id>`; værdi `{disposition}` (gældende version)
-  - `family_source`: nøgle `<family_id>:<interpretation_key>`; værdi `{slags}` (som `anon`)
+  - `family_source`: nøgle `<family_id>:<slags>:<kildepost>:<modpart>` (som digestens lag); værdi rækken, som `anon` ser den. En nøgle kan forekomme flere gange (2 i `daa244_bevis_…`); sammenligneren tæller værdierne som en mængde med gentagelser
   - `persona`: nøgle `<persona_key>`; værdi `{n_mentions}`
 - `transfer_5ab_content_check.py --old <fil> --new <fil> --expected <forventede-forskelle.json> --report <sti>`: sammenligner pr. (lag, nøgle). En forskel er tilladt, hvis en post i `expected` dækker (lag, nøgle) med `kind` og, for `may_differ`, kun de nævnte felter. Stdout `CONTENT_OK same=… allowed=… unused_expected=…` eller `CONTENT_UNEXPECTED n=… report_sha256=…` (exit 3). Rapporten (0600, `O_EXCL`) har pr. afvigelse lag, nøgle og gamle/nye værdi. `unused_expected > 0` er ikke en fejl (bortfald, der ikke indtraf), men tælles.
 - Consumed by: Task 5 Step 10.

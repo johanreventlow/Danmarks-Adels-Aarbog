@@ -40,14 +40,27 @@ for l in bindings family_sources; do
 echo "dg_layers_nonempty OK"
 
 # mut <navn> <kilde> <sql>: kopi af B med ændringen (triggere slået fra) og digesten målt i kopien.
+ct() { qa "$1" -v src="$2" -f $S/transfer_5ab_content.sql; }
 mut() { t5_clone "$B" "$M"; q "$M" -c "SET session_replication_role=replica" -c "$3"; dg "$M" "$2" > "$tmp/$1.dg"; }
 # dg_value: én ændret marriage_ordinal ⇒ kun parties.
 mut value -25001 "UPDATE private.interpretation_party SET marriage_ordinal=marriage_ordinal+10 WHERE (interpretation_key,party_role,version)=
   (SELECT interpretation_key,party_role,version FROM private.interpretation_party ip WHERE marriage_ordinal IS NOT NULL
      AND interpretation_key IN (SELECT interpretation_key FROM private.interpretation WHERE source_id=-25001) ORDER BY 1,2,3 LIMIT 1)"
 [ "$(dgcmp "$tmp/b-25001.dg" "$tmp/value.dg")" = parties ] || fail "dg_value: $(dgcmp "$tmp/b-25001.dg" "$tmp/value.dg")"
-dg "$M" -25001 rows > "$tmp/value.rows"; dropdb "$M"
+dg "$M" -25001 rows > "$tmp/value.rows"; ct "$M" -25001 > "$tmp/value.ct"; dropdb "$M"
 echo "dg_value OK"
+# ct_same / ct_value (plan B2 Task 2): indholdsprojektionen er ens i A og B trods andre tilfældige id'er, collation og
+# tidszone, og dg_value's ændrede nummer giver præcis én afvigende linje i laget ordinal.
+for s in -25001 -25002; do
+  ct "$A" $s > "$tmp/a$s.ct"; ct "$B" $s > "$tmp/b$s.ct"
+  cmp -s "$tmp/a$s.ct" "$tmp/b$s.ct" || fail "ct_same $s: A og B afviger ($(diff "$tmp/a$s.ct" "$tmp/b$s.ct" | grep -c '^[<>]') linjer)"
+done
+for l in binding ordinal identity origin classification interpretation persona family_source; do
+  cut -d'|' -f1 "$tmp/a-25001.ct" "$tmp/a-25002.ct" | grep -qx "$l" || fail "ct_same: laget $l tomt"; done
+echo "ct_same OK"
+ch=$(comm -3 <(LC_ALL=C sort "$tmp/b-25001.ct") <(LC_ALL=C sort "$tmp/value.ct") | sed 's/^\t//' | cut -d'|' -f1-2 | LC_ALL=C sort -u)
+[ "$(echo "$ch" | wc -l | tr -d ' ')" = 1 ] && [ "${ch%%|*}" = ordinal ] || fail "ct_value: ændringen gav '$ch'"
+echo "ct_value OK"
 # dg_swap: ombyttet afgørelse (canonical_person_id) mellem to accepterede personas ⇒ identities. (decision_status selv kan
 # ikke byttes mellem accepted og andet: source_persona_identity_target_check.)
 mut swap -25001 "WITH p AS (SELECT i.source_persona_id id,i.canonical_person_id c,
@@ -94,6 +107,9 @@ ro() { PGOPTIONS='-c default_transaction_read_only=on' psql -X -Atq -v ON_ERROR_
 ro -v src=-25001 -f $S/transfer_5ab_digests.sql > "$tmp/ro.dg" 2>"$tmp/ro.err" || fail "dg_readonly: digests ($(head -1 "$tmp/ro.err"))"
 cmp -s "$tmp/ro.dg" "$tmp/a-25001.dg" || fail "dg_readonly: anden digest"
 ro -f $S/transfer_5ab_keymap.sql > /dev/null 2>"$tmp/ro.err" || fail "dg_readonly: nøglekort ($(head -1 "$tmp/ro.err"))"
+# ct_readonly: projektionen (med anon-kaldet) kører også under default_transaction_read_only.
+ro -v src=-25002 -f $S/transfer_5ab_content.sql > "$tmp/ro.ct" 2>"$tmp/ro.err" || fail "ct_readonly: $(head -1 "$tmp/ro.err")"
+cmp -s "$tmp/ro.ct" "$tmp/a-25002.ct" || fail "ct_readonly: anden projektion"
 if ro -c "INSERT INTO public.note DEFAULT VALUES" >/dev/null 2>"$tmp/ro.err"; then fail "dg_readonly: skrivning lykkedes"; fi
 grep -q 'read-only transaction' "$tmp/ro.err" || fail "dg_readonly: skrivningen fejlede af anden grund: $(head -1 "$tmp/ro.err")"
 echo "dg_readonly OK"
