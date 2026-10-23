@@ -101,23 +101,25 @@
 - [ ] **Step 5: Gamle ark:** find de godkendte ark og rækkefiler i `~/.private/5b-*/`; verificér hvert arks sha mod præfikset i Konstanter og rækkefilens sha mod bevisrapporten. Mangler et, ⇒ STOP (svaroverførslen kan ikke køre). Assertér 0 `O … : B`-linjer i det gamle 2b-i-ark (en B-linje kalder `red_set_familie_ordinal` = kanonisk skrivning og `change_set`, `schema.sql:6866`). Skriv `gamle-ark.txt`.
 - [ ] **Step 6: Øvrige forventede forskelle** i `forventede-forskelle.json` (aktør og evidens står ikke i Task 2's projektion og skal derfor ikke på listen; aktørforskellen i 2a's base og P-evidensens nye nøgler `sheet_line`, `reason`, `decided_on`, `report` noteres kun i `maalinger.json` og decisions): identitetsoprindelse `human`/`family_corroboration` (`may_differ`, felt `origin`; mængden af accepterede er ikke på listen); #244's 4 genbindinger og partversioner med `origin='ordinal_correction'` (`absent_new`).
 - [ ] **Step 7: D1's sessionsforhold:** `datcollate`/`datctype`/`datlocprovider` i D1-restoren lig plan A's preflight; nøglekortets GUC-størrelse (`length(current_setting('daa.t5_km'))`) og køretid noteret.
-- [ ] **Step 7b: Stikprøvens bortfald kan ikke måles her** (D1 har ingen kandidatkørsel; den nye stikprøve, `control-sample-v2`, tager andre personas ud af 2b-i-arket og køen, R7): listen færdiggøres i Task 5 Step 4b med et målt, nøglet tillæg (`sheet:spouse`, `sheet:queue`: den gamle stikprøves personas giver `+`-linjer, den nye giver `-`-linjer), som projektejeren godkender (ruling).
+- [ ] **Step 7b: Stikprøvens bortfald kan ikke måles her** (D1 har ingen kandidatkørsel; den nye stikprøve, `control-sample-v2`, tager andre personas ud af 2b-i-arket og køen, R7): listen færdiggøres i Task 3 Step 5 (røgtesten trækker præcis den stikprøve, arbejdskørslen trækker, da trækningen er af indholdet) med et målt, nøglet tillæg (`sheet:spouse`, `sheet:queue`: den gamle stikprøves personas giver `+`-linjer, den nye giver `-`-linjer), som projektejeren godkender (ruling).
 - [ ] **Step 8:** Ingen commit (alt privat). Rapportér tal og fund til projektejeren; ét fund, der ændrer kædens form, stopper planen til en ruling.
 
-### Task 1: B1's udskudte minors (repo)
+### Task 1: B1's udskudte minors og forudfyldning af nye linjer (repo)
 
 **Files:**
-- Modify: `.claude/skills/daa-extract/scripts/transfer_5ab_step_control.sql`, `transfer_5ab_step_corroborate.sql`, `transfer_5ab_step_reject.sql`, `transfer_5ab_step_begin.sql`, `transfer_5ab_step_items.sql` (eller den fil, der skriver `capture`-items)
+- Modify: `.claude/skills/daa-extract/scripts/transfer_5ab_step_control.sql`, `transfer_5ab_step_corroborate.sql`, `transfer_5ab_step_reject.sql`, `transfer_5ab_step_begin.sql`, `transfer_5ab_step_items.sql` (eller den fil, der skriver `capture`-items), `transfer_answers.py`
+- Test: `test_transfer_answers.py`
 - Test: `tests/sql/test-transfer-5ab-steps.sh`, `tests/sql/test-transfer-5ab-del1-steps.sh`
 
 **Interfaces:**
 - Uændrede for kaldere; nye fejlkoder: `STEP_FAULT_UNKNOWN`, `STEP_REJECT_TARGET_MISSING`, `STEP_RUN_MISSING`, `STEP_CONTROL_NOT_PASSED`.
+- **Forudfyldning (projektejeren 2026-10-23):** `transfer_answers.py transfer` får `--prefill-control-sheet <gammelt kontrolark> --prefill-control-rows <gammel kontrolrækkefil>`, kun for `--kind spouse|queue`. For en `+`-linje (ny linje uden gammelt svar) slås personaens gamle blinde D-svar op (rang → `person_id` via den gamle rækkefil, persona via nøglekortet). Står samme `person_id` på den nye linje, forudfyldes tokenet (`spouse`: `S`, når personen er linjens kandidat 1; `queue`: `same <person_id>`); gamle `U`/`N`/`X` forudfyldes som samme token, hvor arkets grammatik har det. Ellers står linjen tom. Rapporten markerer linjen `+ forslag (kontrolsvar 10/10)`; stdout får `forudfyldt=<n>`. En forudfyldt linje er stadig en `+`-linje og godkendes aldrig automatisk.
 
-- [ ] **Step 1: Skriv asserts:** `d1_corroborate_failed` (kontrolkørsel med status `failed`: `red_corroborate_family_identities` returnerer 0 uden fejl, `schema.sql:16489-16491` ⇒ skridtet skal stoppe med `STEP_CONTROL_NOT_PASSED` før kaldet, målt som ejer med `private.control_run_status(ctl)`; ved `passed` skal RPC'ens returværdi = items' antal, ellers `STEP_ITEMS_MISMATCH`); `d1_untouched` (del1-testen: `transfer_5ab_untouched_hash.sql` uændret over de tre skridt); `st_fault_unknown` (`-v fault=foo` på hvert skridt ⇒ `STEP_FAULT_UNKNOWN` før første skrivning; også `disposition` med `fault=before_commit`, som i dag ignoreres stille); `st_reject_none` (persona uden ægteskab som `spouse` ⇒ `STEP_REJECT_TARGET_MISSING`, ikke `STEP_REJECT_AMBIGUOUS`); `d1_run_missing` (`control` og `corroborate` uden kandidatkørsel ⇒ `STEP_RUN_MISSING`, ikke en psql-`\gset`-fejl); `st_items_atomic` (capture med `fault=before_commit` efterlader ingen items-fil, kun intet eller en `.tmp`, der ikke er målstien); `st_bind_mismatch_ineligible` (replay af `bind` med ét ændret **uegnet** item ⇒ `STEP_ITEMS_MISMATCH`).
+- [ ] **Step 1: Skriv asserts:** pytest `prefill_match` (gammelt D-svar rang 2 = person P, P er kandidat 1 på den nye S-linje ⇒ `S`, markeret `forslag`), `prefill_moved` (P står ikke på den nye linje ⇒ tom linje), `prefill_queue` (`same P`), `prefill_not_auto` (rapporten med en forudfyldt linje giver stadig `+` og `forudfyldt=1`), `prefill_kind` (`--prefill-*` med `--kind marriage` ⇒ exit 2); `d1_corroborate_failed` (kontrolkørsel med status `failed`: `red_corroborate_family_identities` returnerer 0 uden fejl, `schema.sql:16489-16491` ⇒ skridtet skal stoppe med `STEP_CONTROL_NOT_PASSED` før kaldet, målt som ejer med `private.control_run_status(ctl)`; ved `passed` skal RPC'ens returværdi = items' antal, ellers `STEP_ITEMS_MISMATCH`); `d1_untouched` (del1-testen: `transfer_5ab_untouched_hash.sql` uændret over de tre skridt); `st_fault_unknown` (`-v fault=foo` på hvert skridt ⇒ `STEP_FAULT_UNKNOWN` før første skrivning; også `disposition` med `fault=before_commit`, som i dag ignoreres stille); `st_reject_none` (persona uden ægteskab som `spouse` ⇒ `STEP_REJECT_TARGET_MISSING`, ikke `STEP_REJECT_AMBIGUOUS`); `d1_run_missing` (`control` og `corroborate` uden kandidatkørsel ⇒ `STEP_RUN_MISSING`, ikke en psql-`\gset`-fejl); `st_items_atomic` (capture med `fault=before_commit` efterlader ingen items-fil, kun intet eller en `.tmp`, der ikke er målstien); `st_bind_mismatch_ineligible` (replay af `bind` med ét ændret **uegnet** item ⇒ `STEP_ITEMS_MISMATCH`).
 - [ ] **Step 2: Kør** `bash tests/sql/test-transfer-5ab-steps.sh t5abst && bash tests/sql/test-transfer-5ab-del1-steps.sh t5abd1` — Expected: FAIL på de nye asserts.
 - [ ] **Step 3: Implementér:** `step_begin` afviser `fault` ∉ {`before_commit`, `after_authorize`} og `after_authorize` uden for `writer`-skridt; control/corroborate henter kørslen (og kontrolkørslen) med `max()`/`count()` og rejser `STEP_RUN_MISSING`, så den døde `\if :{?t5_run}`-gren udgår (begge filer, `step_corroborate.sql:12-19`); corroborate tjekker `control_run_status` og returværdien som Step 1; reject skelner 0 og >1; capture skriver items med `\o` til `<sti>.tmp` og omdøber efter `COMMIT` med `\setenv T5_ITEMS :'items'` og `\! /bin/mv -- "$T5_ITEMS.tmp" "$T5_ITEMS"` (`\!` interpolerer ikke psql-variabler; `\setenv` gør).
-- [ ] **Step 4: Kør** — Expected: `STEPS5AB_OK` og `DEL1STEPS5AB_OK`.
-- [ ] **Step 5: Commit** `fix(151): B1's udskudte minors i skridt-SQL (fejlkoder, atomare items)`.
+- [ ] **Step 4: Kør** — Expected: `STEPS5AB_OK`, `DEL1STEPS5AB_OK` og pytest grøn.
+- [ ] **Step 5: Commit** `fix(151): B1's udskudte minors i skridt-SQL og forudfyldning af nye linjer`.
 
 ### Task 2: Indholdskontrollens projektion og sammenligner (repo)
 
@@ -198,7 +200,7 @@
 - [ ] **Step 2: Kør** `/bin/zsh -f ~/.private/5ab-overfoersel/test-runner.sh` — Expected: FAIL.
 - [ ] **Step 3: Implementér** lib-funktionerne, kædefilen og scripts 10-17.
 - [ ] **Step 4: Kør** — Expected: `RUNNER_OK`.
-- [ ] **Step 5: Røgtest på rigtige data:** `10-arbejdskoersel.sh` mod en engangsrestore `daa5ab_data_roeg_<ts>` til og med skridt 4, derefter `12-genspil.sh` på en anden engangsrestore ⇒ skridt 1-4 `WRITE` → `ALREADY_APPLIED`, digests ens. Noter varigheder. Kontrolarket besvares **ikke** (stikprøven er projektejerens blinde opgave i Task 5); røgbaserne kasseres efter måling.
+- [ ] **Step 5: Røgtest på rigtige data:** `10-arbejdskoersel.sh` mod en engangsrestore `daa5ab_data_roeg_<ts>` til og med skridt 4, derefter `12-genspil.sh` på en anden engangsrestore ⇒ skridt 1-4 `WRITE` → `ALREADY_APPLIED`, digests ens. Noter varigheder. **Stikprøvens bortfald måles her** (Task 0 Step 7b): nøglet, hvilke ægtefællepersonas den nye stikprøve tager ud af og lægger ind i 2b-i-arket og køen sammenlignet med beviskæden, og hvor mange nye linjer der kan forudfyldes; tillægget til `forventede-forskelle.json` forelægges projektejeren som tal og godkendes (ruling) før Task 5. Kontrolarket besvares **ikke** (stikprøven er projektejerens blinde opgave i Task 5); røgbaserne kasseres efter måling.
 - [ ] **Step 6:** Ingen commit (privat).
 
 ### Task 4: Uafhængigt review af runneren (før arbejdskørslen)
@@ -210,11 +212,11 @@ Begrundelse for placeringen: en runnerfejl midt i capture koster projektejerens 
 
 ### Task 5: Arbejdskørslen (privat; projektejerens ark)
 
-- [ ] **Step 1: Projektejerens ja til godkendelsespolitikken** (erratum ovenfor): auto-godkendelse af rapporter med kun `=` og listede bortfald; stop ved alt andet. Uden ja: runneren stopper ved hvert menneskepunkt.
+- [ ] **Step 1: Godkendelsespolitikken** (erratum ovenfor) er godkendt af projektejeren 2026-10-23, sammen med G0 og forudfyldningen (Task 1).
 - [ ] **Step 2:** `10-arbejdskoersel.sh init` ⇒ `INIT_OK` og start-målingen lig D1's (`restore_hash` `a60e02a8…`, `n_uuid_unmapped` 0).
 - [ ] **Step 3:** `naeste` ⇒ skridt 1-4, `VENTER_KONTROLARK`. Projektejeren besvarer arkets D-linjer blindt (R-linjerne er overført; deres rapport læses med). Antal kort oplyses (≤ 40, H11).
 - [ ] **Step 4:** `godkend control <sha>` + `naeste` ⇒ skridt 5-6; ved `CONTROL_FAILED` stopper planen (sag for sig).
-- [ ] **Step 4b: Stikprøvens bortfald** (Task 0 Step 7b): mål nøglet, hvilke ægtefællepersonas den nye stikprøve tager ud af og lægger ind i 2b-i-arket og køen sammenlignet med beviskæden; tillægget til `forventede-forskelle.json` forelægges som tal og godkendes af projektejeren, før skridt 9.
+- [ ] **Step 4b:** Stikprøven i arbejdsbasen er lig røgtestens (samme `stikproeve:`-nøgler); ellers STOP. Tillægget fra Task 3 Step 5 gælder derfor uændret.
 - [ ] **Step 5:** `naeste` gentages; ved hvert `VENTER_GODKENDELSE` læser projektejeren rapporten (kun `~`/`+`/`-`-linjer vises øverst), besvarer `+`-linjerne og godkender med `godkend <kind> <sha>`. Forventet stop: v3 altid (de 2 OBS-linjer); 2b-i-arket og køen, hvis stikprøven giver `+`-linjer; kø-rapporten kan bære `~ plads`-markeringer. Efter skridt 9: 0 nye `change_set`.
 - [ ] **Step 6:** Efter skridt 25: værn som kædefilen; `measure_5ab … slut`; kanonisk delta 0 (`canonical_sha256` = `a51323ac…`); `n_uuid_unmapped` 0; `family_sources` 253; bindinger 253 nye.
 - [ ] **Step 7:** `11-indholdskontrol.sh` ⇒ `CONTENT_OK`. `CONTENT_UNEXPECTED` ⇒ STOP; rapporten forelægges (antal og lag i chat, detaljer kun i filen).
@@ -258,7 +260,7 @@ GO med rettelser i alle task-grupper; 0 BLOCKER, 7 MAJOR, 7 MINOR. Efterprøvet 
 
 | Fund | Afgørelse |
 | --- | --- |
-| M1 ny stikprøve flytter linjer på 2b-i-arket og køen | Godtaget: Task 0 Step 7b, Task 5 Step 4b; `+`-linjer kræver altid frisk svar |
+| M1 ny stikprøve flytter linjer på 2b-i-arket og køen | Godtaget: Task 0 Step 7b, målt i Task 3 Step 5, kontrolleret i Task 5 Step 4b; `+`-linjer kræver altid frisk svar, forudfyldt med det gamle blinde kontrolsvar, hvor personen står på linjen (Task 1) |
 | M2 korroboration returnerer 0 ved fejlet kontrol | Godtaget: Task 1 `STEP_CONTROL_NOT_PASSED`; gate i kædefilen n=6 |
 | M3 `child_sheet` mangler `parties` | **Afvist:** børnegrenen returnerer før part-indsættelsen (`schema.sql:15841-15842`); `decide_relation_child` kalder kun `red_decide_interpretation` |
 | M4 indgangsvagt mod genkørsel; tilstand efter fortrydelse | Godtaget: `PRE`/`PARTIAL`, arkivering af run-mappen; `ro_partial`, Task 6 Step 3 |
