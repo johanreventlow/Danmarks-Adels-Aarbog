@@ -7,7 +7,12 @@ at samme person står på samme plads i det nye ark, ellers ANSWER_PERSON_MOVED.
 en ny plads overføres og vises i rapporten (`~ plads: <gammel> → <ny>`); står personen ikke på det nye ark, ANSWER_PERSON_MOVED
 (beslutning 2026-10-23: kandidatkørsel 1 genskabes ikke, så pladser kan flytte). Det nye ark skrives
 med de overførte svar; rapporten viser hver blok (kontekst og svarlinje) før og efter oversættelse til nøgler, markeret
-`=`, `~`, `-`, `+`. Arkene rummer navne og kildetekst; stdout har kun antal og en hash."""
+`=`, `~`, `-`, `+`. Arkene rummer navne og kildetekst; stdout har kun antal og en hash.
+
+Forudfyldning (plan B2 Task 1, projektejeren 2026-10-23; kun `spouse` og `queue`): en ny linje uden gammelt svar (et listet
+bortfald, `+`) får projektejerens gamle blinde kontrolsvar som forslag, når samme person står på den nye linje. Kilden er det,
+svaret skrev i bevisbasen (`transfer_5ab_control_answers.sql`), ikke arket: kontrolrækkefilen bærer kun kandidat-id'er. Linjen
+er stadig `+` og godkendes aldrig automatisk; rapporten og linjen markeres »forslag (kontrolsvar 10/10)«."""
 from __future__ import annotations
 
 import argparse
@@ -168,12 +173,51 @@ class Result:
     transferred: int
     dropouts: int
     changed: int
+    prefilled: int = 0
+
+
+PREFILL_TAG = "forslag (kontrolsvar 10/10)"
+PREFILL_STATUS = ("accepted", "rejected", "unresolved")
+Prefill = dict[str, tuple[str, "int | None", "str | None"]]
+
+
+def load_prefill(path: Path) -> Prefill:
+    """Linjer `<persona-uuid>|<status>|<person-id>|<grund>` (transfer_5ab_control_answers.sql); uuid'erne er bevisbasens."""
+    out: Prefill = {}
+    for n, line in enumerate((x for x in path.read_text(encoding="utf-8").splitlines() if x.strip()), 1):
+        f = line.split("|")
+        if len(f) != 4 or not UUID_RE.fullmatch(f[0]) or f[1] not in PREFILL_STATUS or (f[2] and not f[2].isdigit()) \
+                or (f[1] == "accepted") != bool(f[2]) or f[0] in out:
+            raise SheetError(f"PREFILL_LINE_INVALID {n}")
+        out[f[0]] = (f[1], int(f[2]) if f[2] else None, f[3] or None)
+    return out
+
+
+def _prefill_token(kind: str, b: Answer, rows, answer: tuple) -> str | None:
+    status, person, reason = answer
+    if kind == "spouse" and b.t == "S":
+        if status == "accepted":
+            cand = next((r["candidate_person_id"] for r in rows["s_rows"] if r["source_persona_id"] == b.ref), None)
+            return "S" if cand == person else None
+        return "U" if status == "unresolved" and reason != "new_person_needed" else None
+    if kind == "queue" and b.t == "Q":
+        if status == "accepted":
+            pn = person_of(kind, replace(b, ans=f"same {person}"), rows)
+            return f"same {person}" if pn and pn[0] in ("partner", "kandidat") else None
+        if status == "rejected":
+            return "X"
+        return "N" if reason == "new_person_needed" else "U"
+    return None
 
 
 def transfer(kind: str, old_sheet: str, new_sheet: str, old_rows, new_rows, old_km: Keymap, new_km: Keymap,
-             dropouts: set[str]) -> Result:
+             dropouts: set[str], prefill: Prefill | None = None) -> Result:
     if kind not in KINDS:
         raise SheetError("ANSWER_KIND_UNKNOWN")
+    if prefill is not None and kind not in ("spouse", "queue"):
+        raise SheetError("PREFILL_KIND")
+    # Forslagene nøgles som linjerne: gammel persona-uuid → persona-nøgle via det gamle nøglekort.
+    pf_by_key = {old_km.fwd.get(u, ""): v for u, v in (prefill or {}).items()}
     _, skip = KINDS[kind]
     olds = [a for a in parse(old_sheet, kind, old_km, old=True) if a.t not in skip]
     news_all = parse(new_sheet, kind, new_km, old=False)
@@ -181,7 +225,7 @@ def transfer(kind: str, old_sheet: str, new_sheet: str, old_rows, new_rows, old_
     lines = new_sheet.splitlines()
     report: list[str] = []
     done: set[tuple[str, str]] = set()
-    n_tr = n_drop = n_changed = 0
+    n_tr = n_drop = n_changed = n_pf = 0
     for a in olds:
         b = news.get((a.t, a.key))
         if b is None:
@@ -214,12 +258,15 @@ def transfer(kind: str, old_sheet: str, new_sheet: str, old_rows, new_rows, old_
             continue
         if b.key in dropouts:
             n_drop += 1
+            tok = _prefill_token(kind, b, new_rows, pf_by_key[b.key]) if b.key in pf_by_key else None
+            if tok:
+                lines[b.idx] = f"{b.t} {b.ref} {b.ver}{b.mid} : {tok} # {PREFILL_TAG}"; n_pf += 1
             report += ["", f"## bortfald {b.t} {b.key}"] + [f"+ {_keyed(c, new_km)}" for c in b.context] + [
-                f"+ {_keyed(lines[b.idx], new_km)}"]
+                f"+ {_keyed(lines[b.idx], new_km)}"] + ([f"+ {PREFILL_TAG}"] if tok else [])
             continue
         raise SheetError(f"ANSWER_NO_SOURCE {b.n}")
     end = "\n" if new_sheet.endswith("\n") else ""
-    return Result("\n".join(lines) + end, "\n".join(report).lstrip("\n") + "\n", n_tr, n_drop, n_changed)
+    return Result("\n".join(lines) + end, "\n".join(report).lstrip("\n") + "\n", n_tr, n_drop, n_changed, n_pf)
 
 
 def _diff(old: list[str], new: list[str]) -> tuple[list[str], int]:
@@ -267,7 +314,10 @@ def main() -> int:
               "--out-sheet", "--out-report"):
         t.add_argument(a, required=True)
     t.add_argument("--private-root", default=str(Path.home() / ".private"))
+    t.add_argument("--prefill-answers")
     args = ap.parse_args()
+    if args.prefill_answers and args.kind not in ("spouse", "queue"):
+        ap.error("--prefill-answers kun med --kind spouse|queue")
     root = Path(args.private_root)
     try:
         p = {k: check_private_path(Path(getattr(args, k)), root) for k in
@@ -276,12 +326,13 @@ def main() -> int:
                  if l.strip() and not l.lstrip().startswith("#")}
         r = transfer(args.kind, p["old_sheet"].read_text(encoding="utf-8"), p["new_sheet"].read_text(encoding="utf-8"),
                      json.loads(p["old_rows"].read_text(encoding="utf-8")), json.loads(p["new_rows"].read_text(encoding="utf-8")),
-                     load_keymap(p["old_keymap"]), load_keymap(p["new_keymap"]), drops)
+                     load_keymap(p["old_keymap"]), load_keymap(p["new_keymap"]), drops,
+                     load_prefill(check_private_path(Path(args.prefill_answers), root)) if args.prefill_answers else None)
         _write_new(p["out_sheet"], r.sheet)
         _write_new(p["out_report"], r.report)
     except SheetError as exc:
         raise SystemExit(str(exc).split(" — ")[0])
-    print(f"ANSWERS_OK kind={args.kind} overfoert={r.transferred} bortfald={r.dropouts} aendret={r.changed} "
+    print(f"ANSWERS_OK kind={args.kind} overfoert={r.transferred} bortfald={r.dropouts} aendret={r.changed} forudfyldt={r.prefilled} "
           f"report_sha256={hashlib.sha256(r.report.encode('utf-8')).hexdigest()}")
     return 0
 

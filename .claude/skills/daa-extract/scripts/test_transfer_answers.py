@@ -182,7 +182,7 @@ def test_cli_prints_only_counts_and_writes_0600(tmp_path):
             "--out-sheet", str(root / "ud.txt"), "--out-report", str(root / "rapport.txt"), "--private-root", str(root)]
     r = subprocess.run([sys.executable, "-I", str(Path(ta.__file__)), *args], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
-    assert re.fullmatch(r"ANSWERS_OK kind=spouse overfoert=2 bortfald=0 aendret=0 report_sha256=[0-9a-f]{64}\n", r.stdout)
+    assert re.fullmatch(r"ANSWERS_OK kind=spouse overfoert=2 bortfald=0 aendret=0 forudfyldt=0 report_sha256=[0-9a-f]{64}\n", r.stdout)
     assert not UUID.search(r.stdout + r.stderr) and "Bo Beta" not in r.stdout + r.stderr
     for f in ("ud.txt", "rapport.txt"):
         assert oct((root / f).stat().st_mode & 0o777) == "0o600"
@@ -209,3 +209,77 @@ def test_marriage_s_with_real_v2_proposal(tmp_path):
     run("marriage", old, new, v2_rows(7), v2_rows(7), keymaps(tmp_path))
     with pytest.raises(SheetError, match="^ANSWER_PERSON_MOVED 1$"):
         run("marriage", old, new, v2_rows(7), v2_rows(8), keymaps(tmp_path))
+
+
+# Forudfyldning (plan B2 Task 1, projektejeren 2026-10-23): en ny linje uden gammelt svar (listet bortfald, `+`) får
+# projektejerens gamle blinde kontrolsvar som forslag, når samme person står på den nye linje. Kilden er det, svaret skrev
+# i bevisbasen (transfer_5ab_control_answers.sql): gammel persona-uuid → (status, person, grund).
+def prefill(p=OLD_P2, status="accepted", person=10, reason=None):
+    return {p: (status, person, reason)}
+
+
+def run_pf(kind, old_sheet, new_sheet, old_rows, new_rows, kms, dropouts, pf):
+    return ta.transfer(kind, old_sheet, new_sheet, old_rows, new_rows, kms[0], kms[1], set(dropouts), prefill=pf)
+
+
+def test_prefill_match(tmp_path):
+    rows = {"contract": "spouse-exception-rows-v2", "o_rows": [],
+            "s_rows": [{"source_persona_id": NEW_P1, "candidate_person_id": 10}, {"source_persona_id": NEW_P2, "candidate_person_id": 10}]}
+    r = run_pf("spouse", f"S {OLD_P1} 0 : U\n", f"S {NEW_P1} 0 : S\nS {NEW_P2} 0 : S\n", spouse_rows(OLD_P1), rows,
+               keymaps(tmp_path), {"persona:1:bb-2#rel-1"}, prefill())
+    assert f"S {NEW_P2} 0 : S # forslag (kontrolsvar 10/10)" in r.sheet
+    assert "+ forslag (kontrolsvar 10/10)" in r.report and (r.prefilled, r.dropouts) == (1, 1)
+
+
+def test_prefill_moved(tmp_path):
+    # Personen fra kontrolsvaret står ikke som kandidat 1 på den nye linje: linjen står urørt (rendererens token).
+    rows = {"contract": "spouse-exception-rows-v2", "o_rows": [],
+            "s_rows": [{"source_persona_id": NEW_P1, "candidate_person_id": 10}, {"source_persona_id": NEW_P2, "candidate_person_id": 11}]}
+    r = run_pf("spouse", f"S {OLD_P1} 0 : U\n", f"S {NEW_P1} 0 : S\nS {NEW_P2} 0 : S\n", spouse_rows(OLD_P1), rows,
+               keymaps(tmp_path), {"persona:1:bb-2#rel-1"}, prefill())
+    assert f"S {NEW_P2} 0 : S\n" in r.sheet and "forslag" not in r.sheet and r.prefilled == 0
+
+
+def test_prefill_queue(tmp_path):
+    new = f"Q {NEW_P1} 0 : _ # \nQ {NEW_P2} 0 : _ # \n"
+    nd = details(NEW_P1) + details(NEW_P2, partner=8, cand=10)
+    r = run_pf("queue", f"Q {OLD_P1} 0 : U # ukendt\n", new, details(OLD_P1), nd, keymaps(tmp_path),
+               {"persona:1:bb-2#rel-1"}, prefill())
+    assert f"Q {NEW_P2} 0 : same 10 # forslag (kontrolsvar 10/10)" in r.sheet and r.prefilled == 1
+    r = run_pf("queue", f"Q {OLD_P1} 0 : U # ukendt\n", new, details(OLD_P1), nd, keymaps(tmp_path),
+               {"persona:1:bb-2#rel-1"}, prefill(status="unresolved", person=None, reason="new_person_needed"))
+    assert f"Q {NEW_P2} 0 : N # forslag (kontrolsvar 10/10)" in r.sheet
+    r = run_pf("queue", f"Q {OLD_P1} 0 : U # ukendt\n", new, details(OLD_P1), nd, keymaps(tmp_path),
+               {"persona:1:bb-2#rel-1"}, prefill(person=7))
+    assert f"Q {NEW_P2} 0 : _ # \n" in r.sheet and r.prefilled == 0
+
+
+def test_prefill_not_auto(tmp_path):
+    # En forudfyldt linje er stadig en ny linje (`+`): den tæller som bortfald i rapporten, så runneren aldrig godkender selv.
+    rows = {"contract": "spouse-exception-rows-v2", "o_rows": [],
+            "s_rows": [{"source_persona_id": NEW_P1, "candidate_person_id": 10}, {"source_persona_id": NEW_P2, "candidate_person_id": 10}]}
+    r = run_pf("spouse", f"S {OLD_P1} 0 : U\n", f"S {NEW_P1} 0 : S\nS {NEW_P2} 0 : S\n", spouse_rows(OLD_P1), rows,
+               keymaps(tmp_path), {"persona:1:bb-2#rel-1"}, prefill())
+    assert r.dropouts == 1 and any(l.startswith("+ ") for l in r.report.splitlines())
+
+
+def test_prefill_kind(tmp_path):
+    root = tmp_path / "priv"; root.mkdir()
+    for k in ("o.txt", "n.txt", "o.json", "n.json", "d.txt", "pf.txt"):
+        (root / k).write_text("{}" if k.endswith(".json") else "", encoding="utf-8")
+    keymaps(root)
+    args = ["transfer", "--kind", "marriage", "--old-sheet", str(root / "o.txt"), "--old-rows", str(root / "o.json"),
+            "--old-keymap", str(root / "old.km"), "--new-sheet", str(root / "n.txt"), "--new-rows", str(root / "n.json"),
+            "--new-keymap", str(root / "new.km"), "--expected-dropouts", str(root / "d.txt"), "--out-sheet", str(root / "u.txt"),
+            "--out-report", str(root / "r.txt"), "--private-root", str(root), "--prefill-answers", str(root / "pf.txt")]
+    r = subprocess.run([sys.executable, "-I", str(Path(ta.__file__)), *args], capture_output=True, text=True)
+    assert r.returncode == 2 and not (root / "u.txt").exists()
+
+
+def test_prefill_answers_file_is_translated(tmp_path):
+    root = tmp_path / "priv"; root.mkdir()
+    (root / "pf.txt").write_text(f"{OLD_P2}|accepted|10|\n{OLD_P1}|unresolved||new_person_needed\n", encoding="utf-8")
+    assert ta.load_prefill(root / "pf.txt") == {OLD_P2: ("accepted", 10, None), OLD_P1: ("unresolved", None, "new_person_needed")}
+    (root / "bad.txt").write_text(f"{OLD_P2}|maybe|10|\n", encoding="utf-8")
+    with pytest.raises(SheetError, match="^PREFILL_LINE_INVALID 1$"):
+        ta.load_prefill(root / "bad.txt")

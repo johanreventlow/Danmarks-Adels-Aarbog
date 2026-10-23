@@ -67,6 +67,21 @@ fie="SELECT sp.persona_key FROM private.source_persona sp JOIN private.source_pe
 pk=$(qa "$A" -c "$fie"); [ -n "$pk" ] || fail "opsætning: ingen persona for Fie Fot"
 python3 -I -c 'import json,sys; json.dump([{"persona_key":sys.argv[1],"evidence":{"basis":"human_sheet_review","sheet_sha256":"f"*64,
   "sheet_line":13,"reason":"test","decided_on":"2026-10-22","report":"test"}}], open(sys.argv[2],"w"))' "$pk" "$tmp/reject-input.json"
+# st_fault_unknown (plan B2 Task 1): en ukendt fejlkrog, after_authorize uden for writer-skridt og before_commit på
+# dispositionen (som før blev ignoreret stille) afvises, før skridtet skriver noget.
+t5_clone "$A" "$M"; dg "$M" > "$tmp/fu0.dg"
+for s in profile decide bind reject; do
+  step_fails STEP_FAULT_UNKNOWN "$M" $s capture "$tmp/fu-$s.items" -v fault=foo -v input="$tmp/reject-input.json"; done
+step_fails STEP_FAULT_UNKNOWN "$M" decide capture "$tmp/fu-aa.items" -v fault=after_authorize
+step_fails STEP_FAULT_UNKNOWN "$M" disposition capture "$tmp/fu-d.items" -v manifest="$tmp/fu-d.manifest" -v fault=before_commit
+step_fails STEP_FAULT_UNKNOWN "$M" disposition capture "$tmp/fu-d.items" -v manifest="$tmp/fu-d.manifest" -v fault=foo
+dg "$M" > "$tmp/fu1.dg"; [ -z "$(dgcmp "$tmp/fu0.dg" "$tmp/fu1.dg")" ] || fail "st_fault_unknown: digests ændret"
+ls "$tmp"/fu-*.items >/dev/null 2>&1 && fail "st_fault_unknown: items-fil skrevet"
+echo "st_fault_unknown OK"
+# st_items_atomic: capture, der fejler før COMMIT, efterlader ingen items-fil på målstien (kun evt. <sti>.tmp).
+step_fails STEP_FAULT "$M" decide capture "$tmp/atomic.items" -v fault=before_commit
+[ -e "$tmp/atomic.items" ] && fail "st_items_atomic: items-filen findes trods afbrud"
+dropdb "$M"; echo "st_items_atomic OK"
 
 # check <skridt> <før> <efter> <lag,…> <n> <min-n>: skridtets lag ændrede sig, og n er mindst det forventede.
 check() {
@@ -117,7 +132,12 @@ for s in profile:writer_profiles:1 decide:interpretations,classifications:1 bind
           private.source_persona sp WHERE sp.source_id=-25001 AND sp.persona_key='$pk' AND ic.source_id=-25001
           AND ic.predicate='relation.marriage' AND ic.value->>'raw' NOT LIKE '%Fie Fot%' ORDER BY ic.interpretation_key LIMIT 1"
       step_fails STEP_REJECT_AMBIGUOUS "$M" reject replay "$tmp/reject.items"; dropdb "$M"
-      echo "st_reject_ambiguous OK";;
+      echo "st_reject_ambiguous OK"
+      # st_reject_none: personaen er ikke ægtefælle i noget ægteskab ⇒ TARGET_MISSING, ikke AMBIGUOUS.
+      python3 -I -c 'import json,sys; j=json.load(open(sys.argv[1])); j[0]["persona_key"]="findes-ikke#rel-marriage-0-0"
+json.dump(j, open(sys.argv[2],"w"))' "$tmp/reject.items" "$tmp/reject-none.items"
+      t5_clone "$B" "$M"; step_fails STEP_REJECT_TARGET_MISSING "$M" reject replay "$tmp/reject-none.items"; dropdb "$M"
+      echo "st_reject_none OK";;
   esac
   ob=$(step "$B" $name replay "$tmp/$name.items" ${bextra[@]+"${bextra[@]}"}) || fail "replay $name: $(grep -m1 -iE 'error|fatal' "$tmp/step.err")"
   [ "$(field items_sha256 "$oa")" = "$(field items_sha256 "$ob")" ] || fail "st_capture_replay $name: items_sha256 afviger"
@@ -139,6 +159,15 @@ for s in profile:writer_profiles:1 decide:interpretations,classifications:1 bind
     [[ "$or" =~ ^STEP_OK\ bind\ n=0\ already_applied=[1-9][0-9]*\ items_sha256= ]] || fail "st_rerun: '$or'"
     [ "$(qa "$B" -c "SELECT count(*) FROM private.interpretation_promotion")" = "$np" ] || fail "st_rerun: nye bindinger"
     echo "st_rerun OK"
+    # st_bind_mismatch_ineligible: de egnede er nu ALREADY_APPLIED, men pakken bærer et uegnet item, basen ikke har ⇒
+    # MISMATCH, ikke n=0 (de »øvrige« items sammenlignes også). Fixturen har ingen uegnede items at ændre, så et tilføjet
+    # uegnet item dækker samme gren.
+    python3 -I -c 'import json,sys
+j=json.load(open(sys.argv[1])); x=dict(j[0]); x.update(interpretation_key="00000000-0000-4000-8000-0000000000ff", eligible=False,
+  reason_code="ÆNDRET"); json.dump(sorted(j+[x], key=lambda y: y["interpretation_key"]), open(sys.argv[2],"w"))' \
+      "$tmp/bind.items" "$tmp/bind-bad.items" || fail "opsætning: bind-items"
+    step_fails STEP_ITEMS_MISMATCH "$B" bind replay "$tmp/bind-bad.items"
+    echo "st_bind_mismatch_ineligible OK"
   fi
   # Pakken: skridtet med A's items-hash, lag og digests før/efter.
   case $name in profile) ty=sql; pl=writer_profiles;; decide) ty=hash_gated; pl=interpretations,classifications;;

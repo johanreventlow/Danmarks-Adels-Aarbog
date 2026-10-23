@@ -9,13 +9,22 @@ SELECT current_setting('daa.t5_pack_items')::jsonb->>'control_key' AS t5_want \g
 \else
 \set t5_want ''
 \endif
-SELECT c.id::text AS t5_ctl, r.id::text AS t5_run, r.input_sha256||':'||r.config_sha256 AS t5_ckey
-  FROM private.identity_control_run c JOIN private.source_persona_identity_candidate_run r ON r.id=c.candidate_run_id
- WHERE c.source_id=:src AND (:'t5_want'='' OR r.input_sha256||':'||r.config_sha256=:'t5_want')
- ORDER BY r.run_seq DESC LIMIT 1 \gset
+-- Altid én række (max over højst én); NULL fjerner variablen, så en manglende kørsel giver koden, ikke en \gset-fejl.
+SELECT max(x.ctl) AS t5_ctl, max(x.run) AS t5_run, max(x.k) AS t5_ckey FROM (
+  SELECT c.id::text ctl, r.id::text run, r.input_sha256||':'||r.config_sha256 k
+    FROM private.identity_control_run c JOIN private.source_persona_identity_candidate_run r ON r.id=c.candidate_run_id
+   WHERE c.source_id=:src AND (:'t5_want'='' OR r.input_sha256||':'||r.config_sha256=:'t5_want')
+   ORDER BY r.run_seq DESC LIMIT 1) x \gset
 \if :{?t5_ctl}
 \else
-DO $$ BEGIN RAISE EXCEPTION 'STEP_CONTROL_RUN_UNKNOWN'; END $$;
+DO $$ BEGIN RAISE EXCEPTION 'STEP_RUN_MISSING'; END $$;
+\endif
+-- Kun en bestået kontrol må bekræfte: ved status failed skriver RPC'en en failed-hændelse og returnerer 0 uden fejl
+-- (schema.sql: red_corroborate_family_identities), så en fejlet kontrol ellers ville blive bagt ind i pakken som STEP_OK.
+SELECT max(s.status)='passed' AS t5_passed FROM private.control_run_status(:'t5_ctl'::uuid) s \gset
+\if :t5_passed
+\else
+DO $$ BEGIN RAISE EXCEPTION 'STEP_CONTROL_NOT_PASSED'; END $$;
 \endif
 WITH corr AS (
   SELECT c.source_persona_id pid FROM private.source_persona_identity_candidate c
@@ -32,6 +41,11 @@ SELECT private.reimport_canonical_json_sha256(coalesce((SELECT jsonb_agg(pid::te
 \ir transfer_5ab_step_items.sql
 \ir transfer_5ab_step_compare.sql
 SET LOCAL ROLE authenticated;
-SELECT public.red_corroborate_family_identities(:'t5_ctl'::uuid, :'t5_set') \g /dev/null
+SELECT public.red_corroborate_family_identities(:'t5_ctl'::uuid, :'t5_set') AS t5_ret \gset
 RESET ROLE;
+SELECT :t5_ret=:t5_n AS t5_ret_ok \gset
+\if :t5_ret_ok
+\else
+DO $$ BEGIN RAISE EXCEPTION 'STEP_ITEMS_MISMATCH corroborate'; END $$;
+\endif
 \ir transfer_5ab_step_end.sql

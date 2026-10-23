@@ -36,4 +36,13 @@ COMMIT;
 \ir relation_batch_apply.sql
 \o
 \endif
+\if :t5_replay
+\else
+\set t5_mv `/bin/mv -- :'t5_items_tmp' :'items' && echo ok`
+SELECT :'t5_mv'='ok' AS t5_mv_ok \gset
+\if :t5_mv_ok
+\else
+DO $$ BEGIN RAISE EXCEPTION 'STEP_ITEMS_RENAME'; END $$;
+\endif
+\endif
 \echo STEP_OK :t5_step n=:t5_n items_sha256=:t5_sha

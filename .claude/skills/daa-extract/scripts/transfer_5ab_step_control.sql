@@ -14,13 +14,14 @@ SELECT current_setting('daa.t5_pack_items')::jsonb->>'run_key' AS t5_want, curre
 \set t5_cause :cause
 \endif
 \endif
-SELECT r.id::text AS t5_run, r.input_sha256||':'||r.config_sha256 AS t5_runkey
-  FROM private.source_persona_identity_candidate_run r
- WHERE r.source_id=:src AND (:'t5_want'='' OR r.input_sha256||':'||r.config_sha256=:'t5_want')
- ORDER BY r.run_seq DESC LIMIT 1 \gset
+-- Altid én række (max over højst én); NULL fjerner variablen, så en manglende kørsel giver koden, ikke en \gset-fejl.
+SELECT max(x.id) AS t5_run, max(x.k) AS t5_runkey FROM (
+  SELECT r.id::text id, r.input_sha256||':'||r.config_sha256 k FROM private.source_persona_identity_candidate_run r
+   WHERE r.source_id=:src AND (:'t5_want'='' OR r.input_sha256||':'||r.config_sha256=:'t5_want')
+   ORDER BY r.run_seq DESC LIMIT 1) x \gset
 \if :{?t5_run}
 \else
-DO $$ BEGIN RAISE EXCEPTION 'STEP_CONTROL_RUN_UNKNOWN'; END $$;
+DO $$ BEGIN RAISE EXCEPTION 'STEP_RUN_MISSING'; END $$;
 \endif
 \if :{?t5_cause}
 \else
