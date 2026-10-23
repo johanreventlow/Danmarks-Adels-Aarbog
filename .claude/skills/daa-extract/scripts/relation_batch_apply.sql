@@ -23,6 +23,13 @@ SELECT public.red_authorize_reimport(:'m',:'m',:'dbid',:source_id,'relation-pers
   (:'content'::jsonb)->'expected_counts',(:'content'::jsonb)->'authorized_elements',gen_random_uuid(),
   clock_timestamp()+interval '1 hour') AS auth \gset
 COMMIT;
+-- Fejlkrog (kun test; 5a+5b-skridtet disposition): afbrud mellem autorisationen og batchen.
+\if :{?fault}
+SELECT :'fault'='after_authorize' AS fault_aa \gset
+\if :fault_aa
+DO $$ BEGIN RAISE EXCEPTION 'STEP_FAULT after_authorize'; END $$;
+\endif
+\endif
 BEGIN;
 SELECT set_config('request.jwt.claim.sub', :'actor', true) IS NOT NULL AS ok \g /dev/null
 SET LOCAL ROLE authenticated;
