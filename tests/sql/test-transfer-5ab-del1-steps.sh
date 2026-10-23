@@ -18,6 +18,12 @@ step() {
     -f $S/transfer_5ab_step_$name.sql 2>"$tmp/step.err" | tee -a "$tmp/all.out"
 }
 field() { sed -nE "s/.* $1=([^ ]+).*/\1/p" <<<"$2"; }
+step_fails() {
+  local code=$1; shift
+  if step "$@" >/dev/null; then fail "$code: skridtet $2 lykkedes"; fi
+  grep -q "$code" "$tmp/step.err" || fail "$code: fejlede af anden grund: $(grep -m1 -iE 'error|fatal' "$tmp/step.err")"
+}
+uh() { qa "$1" -v src=-25101 -f $S/transfer_5ab_untouched_hash.sql; }
 
 t5_build_ab tests/sql/fixtures/transfer-5ab-del1-dump.sql
 t5_chain "$A" tests/sql/fixtures/transfer-5ab-del1.sql; t5_chain "$B" tests/sql/fixtures/transfer-5ab-del1.sql
@@ -60,7 +66,18 @@ END $$;
 COMMIT;
 SQL
 
-prev_a=$tmp/a0.dg; prev_b=$tmp/b0.dg; dg "$A" > "$prev_a"; dg "$B" > "$prev_b"
+prev_a=$tmp/a0.dg; prev_b=$tmp/b0.dg; dg "$A" > "$prev_a"; dg "$B" > "$prev_b"; uh "$A" > "$tmp/a0.uh"
+# d1_run_missing (plan B2 Task 1): uden kandidatkørsel stopper control og corroborate med en kode, ikke en psql-\gset-fejl.
+t5_clone "$A" "$M"
+step_fails STEP_RUN_MISSING "$M" control capture "$tmp/rm-c.items"
+step_fails STEP_RUN_MISSING "$M" corroborate capture "$tmp/rm-k.items"
+dropdb "$M"; echo "d1_run_missing OK"
+# d1_fault_unknown: den fælles fejlkrog afviser også i del 1's skridt en ukendt værdi og after_authorize.
+t5_clone "$A" "$M"
+for s in candidates control corroborate; do
+  for f in foo after_authorize; do step_fails STEP_FAULT_UNKNOWN "$M" $s capture "$tmp/fu-$s.items" -v fault=$f -v input="$tmp/cand.json"; done
+done
+dropdb "$M"; echo "d1_fault_unknown OK"
 [ -z "$(dgcmp "$prev_a" "$prev_b")" ] || fail "opsætning: A og B afviger før skridtene: $(dgcmp "$prev_a" "$prev_b")"
 for s in candidates:candidate_runs,candidates:22 control:control_runs,control_samples:20 corroborate:identities,identity_events:1; do
   name=${s%%:*}; rest=${s#*:}; layers=${rest%%:*}; min=${rest##*:}
@@ -86,7 +103,20 @@ for s in candidates:candidate_runs,candidates:22 control:control_runs,control_sa
   dg "$B" > "$tmp/b-$name.dg"; d=$(dgcmp "$tmp/a-$name.dg" "$tmp/b-$name.dg"); [ -z "$d" ] || fail "d1_capture_replay $name: A og B afviger: $d"
   prev_a=$tmp/a-$name.dg; prev_b=$tmp/b-$name.dg
   if [ "$name" = control ]; then
+    # d1_corroborate_failed (a): kontrolkørslen er ikke forseglet ⇒ skridtet stopper selv før RPC'en.
+    t5_clone "$A" "$M"; step_fails STEP_CONTROL_NOT_PASSED "$M" corroborate capture "$tmp/cf1.items"; dropdb "$M"
     q "$A" -f "$tmp/sheet.sql"; q "$B" -f "$tmp/sheet.sql"
+    # d1_corroborate_failed (b): kontrolkørslen har status failed (sidste hændelse). RPC'en skriver da kun en failed-hændelse
+    # og returnerer 0 uden fejl; skridtet skal stoppe i stedet for at melde STEP_OK.
+    t5_clone "$A" "$M"
+    q "$M" -c "SELECT set_config('request.jwt.claim.sub','$ACTOR',false)" -c "SELECT private.append_control_event((SELECT id FROM private.identity_control_run WHERE source_id=-25101),'failed','test')"
+    step_fails STEP_CONTROL_NOT_PASSED "$M" corroborate capture "$tmp/cf2.items"; dropdb "$M"
+    echo "d1_corroborate_failed OK"
+    # d1_control_answers: kontrolsvarenes virkning (kilden til forudfyldning) — én linje pr. stikprøve, alle accepted.
+    qa "$A" -v src=-25101 -v sheet_sha256="$(printf 'a%.0s' $(seq 64))" -f $S/transfer_5ab_control_answers.sql > "$tmp/ca.txt"
+    [ "$(wc -l < "$tmp/ca.txt" | tr -d ' ')" = "$(field n "$oa")" ] || fail "d1_control_answers: antal linjer"
+    grep -vqE "^$uuid_re\|accepted\|-?[0-9]+\|$" "$tmp/ca.txt" && fail "d1_control_answers: linjeform"
+    echo "d1_control_answers OK"
     dg "$A" > "$tmp/a-sheet.dg"; dg "$B" > "$tmp/b-sheet.dg"
     [ -z "$(dgcmp "$tmp/a-sheet.dg" "$tmp/b-sheet.dg")" ] || fail "arkets stedfortræder: A og B afviger"
     prev_a=$tmp/a-sheet.dg; prev_b=$tmp/b-sheet.dg
@@ -100,6 +130,8 @@ for t in source_persona_identity_candidate_run identity_control_run; do
     "$(qa "$B" -c "SELECT string_agg(id::text,',' ORDER BY id) FROM private.$t WHERE source_id=-25101")" ] || fail "d1_ids_content: $t"
 done
 echo "d1_ids_content OK"
+uh "$A" > "$tmp/a1.uh"; cmp -s "$tmp/a0.uh" "$tmp/a1.uh" || fail "d1_untouched: uberørt-hashen ændret af skridtene"
+echo "d1_untouched OK"
 grep -Eq "$uuid_re" "$tmp/all.out" && fail "d1_no_uuid: uuid i udskriften"
 [ "$(grep -c '^STEP_OK ' "$tmp/all.out")" -ge 6 ] || fail "d1_no_uuid: for få STEP_OK-linjer"
 echo "d1_no_uuid OK"

@@ -29,6 +29,15 @@ SELECT :'mode' IN ('capture','replay') AS t5_mode_ok, :'mode'='replay' AS t5_rep
 \else
 DO $$ BEGIN RAISE EXCEPTION 'STEP_USAGE: mode skal være capture eller replay'; END $$;
 \endif
+-- Fejlkrogen (kun test): before_commit i sql-/hash_gated-skridt, after_authorize kun i writer-skridtet (disposition, hvis
+-- første transaktion intet skriver); alt andet afvises, før noget skrives (plan B2 Task 1).
+\if :{?fault}
+SELECT :'fault' IN ('before_commit','after_authorize') AND (:'fault'='after_authorize') = (:'t5_step'='disposition') AS t5_fault_ok \gset
+\if :t5_fault_ok
+\else
+DO $$ BEGIN RAISE EXCEPTION 'STEP_FAULT_UNKNOWN'; END $$;
+\endif
+\endif
 \if :t5_replay
 \set t5_pack_items `cat :items`
 \endif

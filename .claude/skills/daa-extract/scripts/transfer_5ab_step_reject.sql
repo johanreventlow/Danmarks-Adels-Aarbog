@@ -4,6 +4,7 @@
 -- {basis:'human_sheet_review', sheet_sha256, sheet_line, reason, decided_on, report} (alle påkrævet).
 -- capture læser [{persona_key, evidence}] fra :input; replay tager persona_key og evidens fra pakkens items.
 -- items = [{persona_key, interpretation_key, version, evidence}].
+-- Ingen ægteskab som ægtefælle ⇒ STEP_REJECT_TARGET_MISSING; flere ⇒ STEP_REJECT_AMBIGUOUS.
 -- Brug: psql -v src=<kilde> -v mode=capture|replay -v items=<sti> [-v input=<sti>] [-v fault=before_commit]
 --       -f transfer_5ab_step_reject.sql
 \set t5_step reject
@@ -22,7 +23,8 @@ DO $r$
 DECLARE bad text;
 BEGIN
   SELECT s->>'persona_key' INTO bad FROM jsonb_array_elements(current_setting('daa.t5_spec')::jsonb) s
-   WHERE s->'evidence'->>'basis' IS DISTINCT FROM 'human_sheet_review'
+   WHERE nullif(btrim(s->>'persona_key'),'') IS NULL
+      OR s->'evidence'->>'basis' IS DISTINCT FROM 'human_sheet_review'
       OR coalesce(s->'evidence'->>'sheet_sha256','') !~ '^[0-9a-f]{64}$'
       OR jsonb_typeof(s->'evidence'->'sheet_line') IS DISTINCT FROM 'number'
       OR nullif(btrim(s->'evidence'->>'reason'),'') IS NULL
@@ -39,11 +41,16 @@ WITH spec AS (
     JOIN private.interpretation_party_current pc ON pc.source_persona_id=sp.id AND pc.party_role='spouse'
     JOIN private.interpretation_current ic ON ic.interpretation_key=pc.interpretation_key AND ic.predicate='relation.marriage'
 )
-SELECT (SELECT count(*) FROM spec)=(SELECT count(*) FROM m) AND (SELECT count(DISTINCT pk) FROM m)=(SELECT count(*) FROM spec) AS t5_unique,
+SELECT NOT EXISTS (SELECT 1 FROM spec WHERE spec.pk NOT IN (SELECT m.pk FROM m)) AS t5_found_all,
+       (SELECT count(*) FROM spec)=(SELECT count(*) FROM m) AND (SELECT count(DISTINCT pk) FROM m)=(SELECT count(*) FROM spec) AS t5_unique,
        (SELECT count(*) FROM spec) AS t5_n,
        set_config('daa.t5_items', coalesce((SELECT jsonb_agg(jsonb_build_object('persona_key', m.pk, 'interpretation_key', m.interpretation_key,
          'version', m.version, 'evidence', m.ev) ORDER BY m.pk COLLATE "C") FROM m), '[]')::text, true) AS t5_i,
        coalesce((SELECT jsonb_agg(jsonb_build_object('id', m.id, 'version', m.version, 'evidence', m.ev)) FROM m), '[]')::text AS t5_targets \gset
+\if :t5_found_all
+\else
+DO $$ BEGIN RAISE EXCEPTION 'STEP_REJECT_TARGET_MISSING'; END $$;
+\endif
 \if :t5_unique
 \else
 DO $$ BEGIN RAISE EXCEPTION 'STEP_REJECT_AMBIGUOUS'; END $$;
