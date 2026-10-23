@@ -61,8 +61,10 @@ rækken »DDL-ceremonien for 5a+5b« (`i prod`, 2026-10-22). Kortlægning af kæ
 
 1. **En tilfældig uuid, som nøglekortet ikke kender** (fx et versions-id i en ny evidensform): laget skal afvige mellem to
    baser, og `n_uuid_unmapped` skal være > 0; en pladsholder, der skjuler forskellen, er en fejl.
-2. **Samme rang peger på en anden person i den nye kørsel** (kontrollens `R…A`, 2b-i `S`, `M…S`, køens `same <person>`):
-   overførslen stopper (`ANSWER_PERSON_MOVED`).
+2. **Samme rang peger på en anden person i den nye kørsel** (kontrollens `R…A`, 2b-i `S`, `M…S`):
+   overførslen stopper (`ANSWER_PERSON_MOVED`). *Ændret 2026-10-23 (projektejeren, efter final review):* køens
+   `same <person>` bærer selv person-id'et — en ny plads overføres og markeres `~ plads: <gammel> → <ny>` i rapporten; kun
+   en person, der ikke står på det nye ark, stopper (kandidatkørsel 1 genskabes ikke, H3).
 3. **`hash_gated`-skridt, hvor versions-id'et er forskelligt i de to baser:** items slås op via nøgle; afviger basens items
    (også de uegnede med grund) fra pakkens, stopper skridtet før RPC'en.
 4. **Writer-skridt afbrudt efter autorisationen:** den efterladte `issued`-autorisation ændrer ingen digest i skridtets lag;

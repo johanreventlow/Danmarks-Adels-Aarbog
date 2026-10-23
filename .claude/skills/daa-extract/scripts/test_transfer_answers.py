@@ -117,12 +117,17 @@ def details(p, partner=9, cand=10):
              "candidates": [{"rank": 1, "person_id": cand}]}]
 
 
-def test_queue_same_person_must_keep_its_place(tmp_path):
+def test_queue_same_person_on_new_place_is_marked_absent_stops(tmp_path):
+    # `same <person>` bærer et eksplicit person-id: en ny plads ændrer ikke svaret, men vises i rapporten (»~ plads«);
+    # står personen slet ikke på det nye ark, stopper overførslen.
     old, new = f"Q {OLD_P1} 0 : same 9 # partner\n", f"Q {NEW_P1} 0 : _ # \n"
     r = run("queue", old, new, details(OLD_P1), details(NEW_P1), keymaps(tmp_path))
+    assert f"Q {NEW_P1} 0 : same 9 # partner" in r.sheet and "~ plads" not in r.report and r.changed == 0
+    r = run("queue", old, new, details(OLD_P1), details(NEW_P1, partner=8, cand=9), keymaps(tmp_path))
     assert f"Q {NEW_P1} 0 : same 9 # partner" in r.sheet
+    assert "~ plads: partner 0 → kandidat 1" in r.report and r.changed == 1
     with pytest.raises(SheetError, match="^ANSWER_PERSON_MOVED 1$"):
-        run("queue", old, new, details(OLD_P1), details(NEW_P1, partner=8, cand=9), keymaps(tmp_path))
+        run("queue", old, new, details(OLD_P1), details(NEW_P1, partner=8, cand=7), keymaps(tmp_path))
 
 
 def test_marriage_s_uses_proposal_partner(tmp_path, monkeypatch):

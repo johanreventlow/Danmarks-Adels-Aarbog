@@ -2,8 +2,10 @@
 
 Hver svarlinje (`<T> <ref> <ver> … : <svar>`) parses efter værktøjets grammatik. Ref'en oversættes gammelt uuid → nøgle
 (nøglekortets opslagsklasse, transfer_5ab_keymap.sql) → nyt uuid; en interpretation_key er selv en nøgle og står uændret.
-Svar, der peger på en person via en plads (kontrolkortets `R … A`, undtagelsesarkets `S`, ægteskabsarkets `M … S`, køens
-`same <person>`), kræver, at samme person står på samme plads i det nye ark, ellers ANSWER_PERSON_MOVED. Det nye ark skrives
+Svar, der peger på en person via en plads (kontrolkortets `R … A`, undtagelsesarkets `S`, ægteskabsarkets `M … S`), kræver,
+at samme person står på samme plads i det nye ark, ellers ANSWER_PERSON_MOVED. Køens `same <person>` bærer selv person-id'et:
+en ny plads overføres og vises i rapporten (`~ plads: <gammel> → <ny>`); står personen ikke på det nye ark, ANSWER_PERSON_MOVED
+(beslutning 2026-10-23: kandidatkørsel 1 genskabes ikke, så pladser kan flytte). Det nye ark skrives
 med de overførte svar; rapporten viser hver blok (kontekst og svarlinje) før og efter oversættelse til nøgler, markeret
 `=`, `~`, `-`, `+`. Arkene rummer navne og kildetekst; stdout har kun antal og en hash."""
 from __future__ import annotations
@@ -193,7 +195,9 @@ def transfer(kind: str, old_sheet: str, new_sheet: str, old_rows, new_rows, old_
             raise SheetError(f"ANSWER_VERSION_CHANGED {a.n}")
         po = person_of(kind, a, old_rows)
         # Det overførte svar læses mod det nye arks rækker (samme svar, ny plads).
-        if po is not None and po != person_of(kind, replace(b, ans=a.ans), new_rows):
+        pn = person_of(kind, replace(b, ans=a.ans), new_rows)
+        moved = po is not None and po != pn
+        if moved and not (kind == "queue" and pn[0] in ("partner", "kandidat")):
             raise SheetError(f"ANSWER_PERSON_MOVED {a.n}")
         out_line = f"{b.t} {b.ref} {b.ver}{b.mid} : {a.ans}"
         lines[b.idx] = out_line
@@ -201,6 +205,8 @@ def transfer(kind: str, old_sheet: str, new_sheet: str, old_rows, new_rows, old_
         old_block = [_keyed(c, old_km) for c in a.context] + [f"{a.t} {a.key} {a.ver}{a.mid} : {a.ans}"]
         new_block = [_keyed(c, new_km) for c in b.context] + [f"{b.t} {b.key} {b.ver}{b.mid} : {a.ans}"]
         block, changed = _diff(old_block, new_block)
+        if moved:
+            block.append(f"~ plads: {po[0]} {po[1]} → {pn[0]} {pn[1]}"); changed = 1
         n_changed += changed
         report += ["", f"## {b.t} {b.key}"] + block
     for b in news.values():
