@@ -23,7 +23,8 @@ DO $r$
 DECLARE bad text;
 BEGIN
   SELECT s->>'persona_key' INTO bad FROM jsonb_array_elements(current_setting('daa.t5_spec')::jsonb) s
-   WHERE s->'evidence'->>'basis' IS DISTINCT FROM 'human_sheet_review'
+   WHERE nullif(btrim(s->>'persona_key'),'') IS NULL
+      OR s->'evidence'->>'basis' IS DISTINCT FROM 'human_sheet_review'
       OR coalesce(s->'evidence'->>'sheet_sha256','') !~ '^[0-9a-f]{64}$'
       OR jsonb_typeof(s->'evidence'->'sheet_line') IS DISTINCT FROM 'number'
       OR nullif(btrim(s->'evidence'->>'reason'),'') IS NULL

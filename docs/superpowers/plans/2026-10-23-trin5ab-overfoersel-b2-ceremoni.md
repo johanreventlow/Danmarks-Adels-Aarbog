@@ -187,6 +187,7 @@
   `relation_persona_apply.sql` printer `counts` og `relation_results` (uuid'er, `:28-29`): runneren sender writer-skridtenes stdout til en 0600-fil og udtrækker kun tal og koder. Efter hvert `writer`-skridt: kvitteringens `year_interpretations = 0` og 0 `ORDINAL_BOOK_MISMATCH` i stderr-koderne. Efter skridt 25: `transfer_5ab_guards.sql` ⇒ `person_create_elements=0`, `ordinal_correction_rows=0`, `ordinal_book_mismatch=0`, `book_ordinal_match` 40/40.
 - **lib.zsh, nye funktioner** (alle tager mål-db fra `CTX`, skriver kun koder/tal):
   - `measure_5ab <run-mappe> <præfiks>` ⇒ digests, untouched + other_sources, guards, `transfer_baseline.sql`, `transfer_restore_hash.sql` til 0600-filer; `REPLY` = sha over dem.
+  - `step_capture <n>` nægter at starte, hvis `<items>.tmp` findes (et skridt døde mellem COMMIT og omdøbningen; beviset skal ses, før der captures igen: `RUNNER_ITEMS_TMP`).
   - `step_capture <n>` / `step_replay <n>`: kør skridtet (B1's `-v src=1 -v mode=… -v items=… -v actor=…`; writer-skridt via `relation_persona_apply.sql`/`relation_batch_apply.sql` med manifestet; ark-skridt med den genererede SQL), mål digests før og efter over skridtets lag, `transfer_steps.py add-step` (capture) eller `classify` før og efter (replay). Replay af et persona-writer- eller ark-skridt regenererer input/rækkefil i basen og kræver sha lig pakkens (`RUNNER_INPUT_DRIFT`), før filen køres. `disposition_*` er undtaget: manifestet bærer tilfældige versions-id'er og sammenlignes via skridtets nøglede items (`transfer_5ab_step_disposition.sql:14-25`). **Undtagelse `queue_sheet`:** kødetaljedumpet (`red_source_persona_detail`) er ikke platformssikkert (`ORDER BY created_at`, `jsonb_agg(DISTINCT …)` uden `COLLATE "C"`; kortlægningen 3.5), og kæde-skabte rækker har andre `created_at` i prod. Drift er her ulighed i mængden af persona-id'er (B1's `KOE_ROWS_STALE`); dumpets sha er kun evidens og genspilles ordret i den genererede SQL. `bind` i en genkørsel sammenlignes ikke på `items_sha256` (B1-minor 6). Fejlkrog kun lokalt: `DAA_FAULT=step:<navn>:<before_commit|after_authorize>` giver skridtet `-v fault=…`; i prod afvist (I4).
   - `classify_next`: kun det næste skridt (`transfer_steps.py next` → `classify`); `MIXED` ⇒ exit 3.
   - `human_point <kind>`: byg nyt ark og rækkefil, kør `transfer_answers.py transfer --kind <kind> --old-* <fra gamle-ark.txt> --new-* … --expected-dropouts <pakke/bortfald-<kind>.txt>`; erratumets politik opfyldt ⇒ godkend selv (arkets sha i `godkendelser.txt` med `auto`), ellers `VENTER_GODKENDELSE <kind> report_sha256=…` og exit 10. `control` og `marriage_v3`: altid exit 10 (`VENTER_KONTROLARK` hhv. `VENTER_GODKENDELSE`), kontrolarkets D-linjer tomme.
@@ -223,7 +224,7 @@ Begrundelse for placeringen: en runnerfejl midt i capture koster projektejerens 
 - [ ] **Step 4b:** Stikprøven i arbejdsbasen er lig røgtestens (samme `stikproeve:`-nøgler); ellers STOP. Tillægget fra Task 3 Step 5 gælder derfor uændret.
 - [ ] **Step 5:** `naeste` gentages; ved hvert `VENTER_GODKENDELSE` læser projektejeren rapporten (kun `~`/`+`/`-`-linjer vises øverst), besvarer `+`-linjerne og godkender med `godkend <kind> <sha>`. Forventet stop: v3 altid (de 2 OBS-linjer); 2b-i-arket og køen, hvis stikprøven giver `+`-linjer; kø-rapporten kan bære `~ plads`-markeringer. Efter skridt 9: 0 nye `change_set`.
 - [ ] **Step 6:** Efter skridt 25: værn som kædefilen; `measure_5ab … slut`; kanonisk delta 0 (`canonical_sha256` = `a51323ac…`); `n_uuid_unmapped` 0; `family_sources` 253; bindinger 253 nye.
-- [ ] **Step 7:** `11-indholdskontrol.sh` ⇒ `CONTENT_OK`. `CONTENT_UNEXPECTED` ⇒ STOP; rapporten forelægges (antal og lag i chat, detaljer kun i filen).
+- [ ] **Step 7:** `11-indholdskontrol.sh` (sammenligneren med `--require-layers` = alle 9 projektionslag) ⇒ `CONTENT_OK`. `CONTENT_UNEXPECTED` ⇒ STOP; rapporten forelægges (antal og lag i chat, detaljer kun i filen).
 - [ ] **Step 8:** `transfer_steps.py validate` og `pack_inventory_all` ⇒ `PACK_OK`, `pack_sha256` noteret.
 
 ### Task 6: Genspilsprøven (privat) ⇒ `REHEARSAL_OK` (data)
@@ -278,3 +279,30 @@ GO med rettelser i alle task-grupper; 0 BLOCKER, 7 MAJOR, 7 MINOR. Efterprøvet 
 | m5 writer-stdout bærer uuid'er | Godtaget (kædefilen) |
 | m6 `RUNNER_INPUT_DRIFT` for dispositioner; `authorizations_issued` | Godtaget (Task 3, Task 6 Step 3) |
 | m7 død `\if` i corroborate | Godtaget (Task 1 Step 3) |
+
+## Afvigelser ved implementeringen af Task 1+2 og Opus-review (2026-10-23)
+
+Ændret i forhold til den Fable-reviewede plan (til projektejerens godkendelse sammen med G0):
+
+| Plan | Implementeret | Begrundelse |
+| --- | --- | --- |
+| Task 1: `--prefill-control-sheet` + `--prefill-control-rows` | `--prefill-answers` fra ny læse-kun `transfer_5ab_control_answers.sql` | Kontrolrækkefilen bærer kun kandidat-id'er; identitetshændelsen bærer den person, svaret gav |
+| Task 1: omdøbning med `\setenv` + `\!` | backtick-`\set` med `ok`-kontrol (`STEP_ITEMS_RENAME`) | `\!`'s fejl ser psql ikke |
+| Task 1: `st_bind_mismatch_ineligible` med ændret uegnet item | tilføjet uegnet item, basen ikke har | Fixturen har ingen uegnede items |
+| Task 2: `binding`-nøgle `<interpretation_key>` | `<interpretation_key>:<target_type>:<target_id>`, værdi med `current` og `superseded_n` | Et ændret mål giver to synlige forskelle; en genbinding (#244) ses |
+| Task 2: `family_source`-nøgle `<family_id>:<interpretation_key>` | digestens nøgle `<family_id>:<slags>:<kildepost>:<modpart>`, mængde med gentagelser | Kildevisningen bærer ingen fortolkningsnøgle; 2 gentagne nøgler i `daa244_bevis_…` |
+
+Opus-review af diff'en: GO med rettelser (0 BLOCKER, 1 MAJOR, 9 MINOR), testene grønne hos revieweren.
+
+| Fund | Afgørelse |
+| --- | --- |
+| MAJOR forudfyldning: konflikt beholdt rendererens `S` (= accepter kandidat 1, det modsatte af svaret) | Rettet: linjen tømmes (`_`) og markeres `KONFLIKT: kontrolsvar …`, `konflikt=<n>` på stdout; `test_prefill_conflict` |
+| m1 binding ≠ gældende; genbinding usynlig | Rettet: `current`, `superseded_n`; #244's 4 genbindinger som `may_differ` (`superseded_n`) på listen (10 poster) |
+| m2 oprindelse for grov | Rettet: `method` og `batch` med i `origin` |
+| m3 `disposition` i lagvagten | Rettet |
+| m4 tomme filer giver OK | Rettet: `CONTENT_EMPTY`, `--require-layers` (`CONTENT_LAYER_MISSING`) |
+| m5 vindue mellem COMMIT og omdøbning | Regel i Task 3 (`RUNNER_ITEMS_TMP`) |
+| m6 fejlkrog uden batch | Rettet: `STEP_FAULT_UNREACHABLE` |
+| m7 uoversatte forslag, cifre | Rettet: `PREFILL_UNMAPPED` (fail-closed), `-?[0-9]+` |
+| m8 manglende `persona_key` | Rettet: `STEP_REJECT_EVIDENCE_INVALID` |
+| m9 testenes styrke | Delvis: `d1_fault_unknown` for del 1-skridtene; stærkere bind-variant og DISTINCT ON-test udeladt (fixturen har ét item; koden efterprøvet ved læsning) |

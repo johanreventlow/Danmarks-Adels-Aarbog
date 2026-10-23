@@ -182,7 +182,7 @@ def test_cli_prints_only_counts_and_writes_0600(tmp_path):
             "--out-sheet", str(root / "ud.txt"), "--out-report", str(root / "rapport.txt"), "--private-root", str(root)]
     r = subprocess.run([sys.executable, "-I", str(Path(ta.__file__)), *args], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
-    assert re.fullmatch(r"ANSWERS_OK kind=spouse overfoert=2 bortfald=0 aendret=0 forudfyldt=0 report_sha256=[0-9a-f]{64}\n", r.stdout)
+    assert re.fullmatch(r"ANSWERS_OK kind=spouse overfoert=2 bortfald=0 aendret=0 forudfyldt=0 konflikt=0 report_sha256=[0-9a-f]{64}\n", r.stdout)
     assert not UUID.search(r.stdout + r.stderr) and "Bo Beta" not in r.stdout + r.stderr
     for f in ("ud.txt", "rapport.txt"):
         assert oct((root / f).stat().st_mode & 0o777) == "0o600"
@@ -232,12 +232,26 @@ def test_prefill_match(tmp_path):
 
 
 def test_prefill_moved(tmp_path):
-    # Personen fra kontrolsvaret står ikke som kandidat 1 på den nye linje: linjen står urørt (rendererens token).
+    # Personen fra kontrolsvaret står ikke som kandidat 1 på den nye linje: linjen tømmes og markeres KONFLIKT, aldrig
+    # rendererens »S« (= accepter kandidat 1, det modsatte af svaret).
     rows = {"contract": "spouse-exception-rows-v2", "o_rows": [],
             "s_rows": [{"source_persona_id": NEW_P1, "candidate_person_id": 10}, {"source_persona_id": NEW_P2, "candidate_person_id": 11}]}
     r = run_pf("spouse", f"S {OLD_P1} 0 : U\n", f"S {NEW_P1} 0 : S\nS {NEW_P2} 0 : S\n", spouse_rows(OLD_P1), rows,
                keymaps(tmp_path), {"persona:1:bb-2#rel-1"}, prefill())
-    assert f"S {NEW_P2} 0 : S\n" in r.sheet and "forslag" not in r.sheet and r.prefilled == 0
+    assert f"S {NEW_P2} 0 : _ # KONFLIKT: kontrolsvar person 10" in r.sheet and "forslag" not in r.sheet
+    assert (r.prefilled, r.conflicts) == (0, 1) and "+ KONFLIKT: kontrolsvar person 10" in r.report
+
+
+def test_prefill_conflict(tmp_path):
+    rows = {"contract": "spouse-exception-rows-v2", "o_rows": [],
+            "s_rows": [{"source_persona_id": NEW_P1, "candidate_person_id": 10}, {"source_persona_id": NEW_P2, "candidate_person_id": 10}]}
+    for st, person, reason, label in (("rejected", None, None, "afvist"), ("unresolved", None, "new_person_needed", "ny person")):
+        r = run_pf("spouse", f"S {OLD_P1} 0 : U\n", f"S {NEW_P1} 0 : S\nS {NEW_P2} 0 : S\n", spouse_rows(OLD_P1), rows,
+                   keymaps(tmp_path), {"persona:1:bb-2#rel-1"}, prefill(status=st, person=person, reason=reason))
+        assert f"S {NEW_P2} 0 : _ # KONFLIKT: kontrolsvar {label}" in r.sheet and r.conflicts == 1
+    with pytest.raises(SheetError, match="^PREFILL_UNMAPPED 1$"):
+        run_pf("spouse", f"S {OLD_P1} 0 : U\n", f"S {NEW_P1} 0 : S\n", spouse_rows(OLD_P1), rows, keymaps(tmp_path), set(),
+               {"99999999-9999-4999-8999-999999999999": ("accepted", 10, None)})
 
 
 def test_prefill_queue(tmp_path):
@@ -251,7 +265,7 @@ def test_prefill_queue(tmp_path):
     assert f"Q {NEW_P2} 0 : N # forslag (kontrolsvar 10/10)" in r.sheet
     r = run_pf("queue", f"Q {OLD_P1} 0 : U # ukendt\n", new, details(OLD_P1), nd, keymaps(tmp_path),
                {"persona:1:bb-2#rel-1"}, prefill(person=7))
-    assert f"Q {NEW_P2} 0 : _ # \n" in r.sheet and r.prefilled == 0
+    assert f"Q {NEW_P2} 0 : _ # KONFLIKT: kontrolsvar person 7" in r.sheet and (r.prefilled, r.conflicts) == (0, 1)
 
 
 def test_prefill_not_auto(tmp_path):
@@ -278,8 +292,9 @@ def test_prefill_kind(tmp_path):
 
 def test_prefill_answers_file_is_translated(tmp_path):
     root = tmp_path / "priv"; root.mkdir()
-    (root / "pf.txt").write_text(f"{OLD_P2}|accepted|10|\n{OLD_P1}|unresolved||new_person_needed\n", encoding="utf-8")
-    assert ta.load_prefill(root / "pf.txt") == {OLD_P2: ("accepted", 10, None), OLD_P1: ("unresolved", None, "new_person_needed")}
-    (root / "bad.txt").write_text(f"{OLD_P2}|maybe|10|\n", encoding="utf-8")
-    with pytest.raises(SheetError, match="^PREFILL_LINE_INVALID 1$"):
-        ta.load_prefill(root / "bad.txt")
+    (root / "pf.txt").write_text(f"{OLD_P2}|accepted|-10|\n{OLD_P1}|unresolved||new_person_needed\n", encoding="utf-8")
+    assert ta.load_prefill(root / "pf.txt") == {OLD_P2: ("accepted", -10, None), OLD_P1: ("unresolved", None, "new_person_needed")}
+    for bad in (f"{OLD_P2}|maybe|10|", f"{OLD_P2}|accepted|١٠|"):
+        (root / "bad.txt").write_text(bad + "\n", encoding="utf-8")
+        with pytest.raises(SheetError, match="^PREFILL_LINE_INVALID 1$"):
+            ta.load_prefill(root / "bad.txt")

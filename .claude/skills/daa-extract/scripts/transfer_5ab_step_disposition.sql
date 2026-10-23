@@ -21,6 +21,13 @@ SELECT set_config('daa.t5_items', coalesce((SELECT jsonb_agg(x ORDER BY x->>'obs
                              FROM jsonb_array_elements_text(e.value->'citing_interpretation_ids') c JOIN private.interpretation i ON i.id=c::uuid)) x
     FROM jsonb_each(:'t5_manifest'::jsonb->'authorized_elements') e) s), '[]')::text, true) \g /dev/null
 SELECT jsonb_array_length(current_setting('daa.t5_items')::jsonb) AS t5_n, jsonb_array_length(current_setting('daa.t5_items')::jsonb)>0 AS t5_do \gset
+-- En fejlkrog, der ikke kan nås (0 elementer ⇒ ingen batch), afvises, så en afbrudstest ikke består uden at teste noget.
+\if :{?fault}
+\if :t5_do
+\else
+DO $$ BEGIN RAISE EXCEPTION 'STEP_FAULT_UNREACHABLE'; END $$;
+\endif
+\endif
 \ir transfer_5ab_step_items.sql
 \ir transfer_5ab_step_compare.sql
 \o :manifest

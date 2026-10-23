@@ -112,3 +112,18 @@ def test_cli_counts_only_and_report_0600(tmp_path):
     assert not UUID.search(r.stdout + r.stderr) and K1 in rep.read_text(encoding="utf-8")
     r = subprocess.run([sys.executable, "-I", str(Path(cc.__file__)), "--ukendt", "x"], capture_output=True, text=True)
     assert r.returncode == 2
+
+
+def test_cli_empty_and_missing_layers_stop(tmp_path):
+    r, _ = _cli(tmp_path, [], [], expected())
+    assert r.returncode == 1 and "CONTENT_EMPTY old" in r.stderr
+    root = tmp_path / "priv"
+    r = subprocess.run([sys.executable, "-I", str(Path(cc.__file__)), "--old", str(root / "old.txt"), "--new", str(root / "old.txt"),
+                        "--expected", str(root / "exp.json"), "--report", str(root / "r2.txt"), "--require-layers", "binding,ordinal"],
+                       capture_output=True, text=True)
+    assert r.returncode == 1 and "CONTENT_EMPTY" in r.stderr
+    (root / "x.txt").write_text("\n".join(BASE) + "\n", encoding="utf-8")
+    r = subprocess.run([sys.executable, "-I", str(Path(cc.__file__)), "--old", str(root / "x.txt"), "--new", str(root / "x.txt"),
+                        "--expected", str(root / "exp.json"), "--report", str(root / "r3.txt"), "--require-layers", "binding,ordinal"],
+                       capture_output=True, text=True)
+    assert r.returncode == 1 and "CONTENT_LAYER_MISSING old ordinal" in r.stderr

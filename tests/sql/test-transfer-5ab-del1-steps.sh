@@ -72,6 +72,12 @@ t5_clone "$A" "$M"
 step_fails STEP_RUN_MISSING "$M" control capture "$tmp/rm-c.items"
 step_fails STEP_RUN_MISSING "$M" corroborate capture "$tmp/rm-k.items"
 dropdb "$M"; echo "d1_run_missing OK"
+# d1_fault_unknown: den fælles fejlkrog afviser også i del 1's skridt en ukendt værdi og after_authorize.
+t5_clone "$A" "$M"
+for s in candidates control corroborate; do
+  for f in foo after_authorize; do step_fails STEP_FAULT_UNKNOWN "$M" $s capture "$tmp/fu-$s.items" -v fault=$f -v input="$tmp/cand.json"; done
+done
+dropdb "$M"; echo "d1_fault_unknown OK"
 [ -z "$(dgcmp "$prev_a" "$prev_b")" ] || fail "opsætning: A og B afviger før skridtene: $(dgcmp "$prev_a" "$prev_b")"
 for s in candidates:candidate_runs,candidates:22 control:control_runs,control_samples:20 corroborate:identities,identity_events:1; do
   name=${s%%:*}; rest=${s#*:}; layers=${rest%%:*}; min=${rest##*:}

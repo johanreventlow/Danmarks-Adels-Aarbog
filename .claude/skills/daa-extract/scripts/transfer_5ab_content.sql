@@ -1,10 +1,12 @@
 -- Indholdskontrollens projektion for 5a+5b-overførslen (plan B2 Task 2, spec §6.3). Læse-kun; ingen CREATE.
 -- Kun gældende rækker, nøglet på indhold, uden tilfældige id'er, arkhashes og aktør, så en bevisbase og arbejdskørslen kan
 -- sammenlignes linje for linje (transfer_5ab_content_check.py). Lag:
---   binding        <interpretation_key>:<target_type>:<target_id>  {rule_key, rule_version}   (ikke-overtrufne bindinger)
+--   binding        <interpretation_key>:<target_type>:<target_id>  {rule_key, rule_version, current, superseded_n}
+--                  (ikke-overtrufne bindinger; current = bundet til fortolkningens gældende version; superseded_n = antal
+--                  bindinger, den selv har overtrumfet — en genbinding som #244's ser dermed anderledes ud end en direkte)
 --   ordinal        <interpretation_key>:<party_role>:<persona_key> {marriage_ordinal}          (gældende partversion)
 --   identity       <persona_key>                                   {status, person_id}
---   origin         <persona_key>                                   {origin}
+--   origin         <persona_key>                                   {origin, method, batch}
 --   classification <interpretation_key>:<seq>                      {classification}
 --   interpretation <interpretation_key>                            {status, predicate}         (gældende version)
 --   disposition    <observation_id>                                {disposition}               (gældende version)
@@ -36,7 +38,9 @@ WITH ip AS (SELECT i.id, i.interpretation_key FROM private.interpretation i WHER
 sp AS (SELECT p.id, p.persona_key FROM private.source_persona p WHERE p.source_id=:src),
 rows(lag, k, v) AS (
   SELECT 'binding', ip.interpretation_key||':'||p.target_type||':'||p.target_id,
-         jsonb_build_object('rule_key', p.rule_key, 'rule_version', p.rule_version)
+         jsonb_build_object('rule_key', p.rule_key, 'rule_version', p.rule_version,
+           'current', EXISTS (SELECT 1 FROM private.interpretation_current cur WHERE cur.id=p.interpretation_id),
+           'superseded_n', (SELECT count(*) FROM private.interpretation_promotion o WHERE p.evidence->>'supersedes_promotion_id'=o.id::text))
     FROM private.interpretation_promotion p JOIN ip ON ip.id=p.interpretation_id
    WHERE NOT EXISTS (SELECT 1 FROM private.interpretation_promotion n WHERE n.evidence->>'supersedes_promotion_id'=p.id::text)
   UNION ALL
@@ -48,7 +52,8 @@ rows(lag, k, v) AS (
     FROM private.source_persona_identity i JOIN sp ON sp.id=i.source_persona_id
   UNION ALL
   SELECT 'origin', sp.persona_key,
-         jsonb_build_object('origin', coalesce(i.evidence->>'origin', i.evidence->>'basis', i.evidence->>'authority'))
+         jsonb_build_object('origin', coalesce(i.evidence->>'origin', i.evidence->>'basis', i.evidence->>'authority'),
+           'method', i.evidence->>'method', 'batch', i.evidence ? 'batch_id')
     FROM private.source_persona_identity i JOIN sp ON sp.id=i.source_persona_id
   UNION ALL
   SELECT 'classification', e.interpretation_key||':'||e.seq, jsonb_build_object('classification', e.classification)

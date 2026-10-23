@@ -121,10 +121,18 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     for a in ("--old", "--new", "--expected", "--report"):
         ap.add_argument(a, required=True)
+    ap.add_argument("--require-layers", default="", help="kommasepareret; runneren giver alle projektionens lag")
     args = ap.parse_args()
     try:
-        r = compare(parse_lines(Path(args.old).read_text(encoding="utf-8")), parse_lines(Path(args.new).read_text(encoding="utf-8")),
-                    load_expected(json.loads(Path(args.expected).read_text(encoding="utf-8"))))
+        old, new = parse_lines(Path(args.old).read_text(encoding="utf-8")), parse_lines(Path(args.new).read_text(encoding="utf-8"))
+        # Tomme eller lagløse udskrifter (forkert kilde, fejlet omdirigering) må aldrig give CONTENT_OK.
+        for name, rows in (("old", old), ("new", new)):
+            if not rows:
+                raise SheetError(f"CONTENT_EMPTY {name}")
+            missing = [l for l in args.require_layers.split(",") if l and l not in {k[0] for k in rows}]
+            if missing:
+                raise SheetError(f"CONTENT_LAYER_MISSING {name} {','.join(missing)}")
+        r = compare(old, new, load_expected(json.loads(Path(args.expected).read_text(encoding="utf-8"))))
         text = report_text(r)
         _write_new(Path(args.report), text)
     except SheetError as exc:

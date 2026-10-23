@@ -75,6 +75,10 @@ for s in profile decide bind reject; do
 step_fails STEP_FAULT_UNKNOWN "$M" decide capture "$tmp/fu-aa.items" -v fault=after_authorize
 step_fails STEP_FAULT_UNKNOWN "$M" disposition capture "$tmp/fu-d.items" -v manifest="$tmp/fu-d.manifest" -v fault=before_commit
 step_fails STEP_FAULT_UNKNOWN "$M" disposition capture "$tmp/fu-d.items" -v manifest="$tmp/fu-d.manifest" -v fault=foo
+# reject uden persona_key i inputtet ⇒ evidensfejl, ikke AMBIGUOUS.
+python3 -I -c 'import json,sys; json.dump([{"evidence":json.load(open(sys.argv[1]))[0]["evidence"]}], open(sys.argv[2],"w"))' \
+  "$tmp/reject-input.json" "$tmp/reject-nokey.json"
+step_fails STEP_REJECT_EVIDENCE_INVALID "$M" reject capture "$tmp/fu-r.items" -v input="$tmp/reject-nokey.json"
 dg "$M" > "$tmp/fu1.dg"; [ -z "$(dgcmp "$tmp/fu0.dg" "$tmp/fu1.dg")" ] || fail "st_fault_unknown: digests ændret"
 ls "$tmp"/fu-*.items >/dev/null 2>&1 && fail "st_fault_unknown: items-fil skrevet"
 echo "st_fault_unknown OK"

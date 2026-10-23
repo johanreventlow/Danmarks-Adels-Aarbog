@@ -55,7 +55,7 @@ for s in -25001 -25002; do
   ct "$A" $s > "$tmp/a$s.ct"; ct "$B" $s > "$tmp/b$s.ct"
   cmp -s "$tmp/a$s.ct" "$tmp/b$s.ct" || fail "ct_same $s: A og B afviger ($(diff "$tmp/a$s.ct" "$tmp/b$s.ct" | grep -c '^[<>]') linjer)"
 done
-for l in binding ordinal identity origin classification interpretation persona family_source; do
+for l in binding ordinal identity origin classification interpretation persona family_source disposition; do
   cut -d'|' -f1 "$tmp/a-25001.ct" "$tmp/a-25002.ct" | grep -qx "$l" || fail "ct_same: laget $l tomt"; done
 echo "ct_same OK"
 ch=$(comm -3 <(LC_ALL=C sort "$tmp/b-25001.ct") <(LC_ALL=C sort "$tmp/value.ct") | sed 's/^\t//' | cut -d'|' -f1-2 | LC_ALL=C sort -u)
