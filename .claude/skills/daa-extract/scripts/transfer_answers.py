@@ -5,7 +5,9 @@ Hver svarlinje (`<T> <ref> <ver> … : <svar>`) parses efter værktøjets gramma
 Svar, der peger på en person via en plads (kontrolkortets `R … A`, undtagelsesarkets `S`, ægteskabsarkets `M … S`), kræver,
 at samme person står på samme plads i det nye ark, ellers ANSWER_PERSON_MOVED. Køens `same <person>` bærer selv person-id'et:
 en ny plads overføres og vises i rapporten (`~ plads: <gammel> → <ny>`); står personen ikke på det nye ark, ANSWER_PERSON_MOVED
-(beslutning 2026-10-23: kandidatkørsel 1 genskabes ikke, så pladser kan flytte). Det nye ark skrives
+(beslutning 2026-10-23: kandidatkørsel 1 genskabes ikke, så pladser kan flytte). Ægteskabsarkenes `S` sammenlignes med den
+person, svaret faktisk bandt i bevisbasen (`--old-bound`, transfer_5ab_bound_partners.sql), ikke med et forslag genberegnet
+fra de gamle rækker: #244's forkerte ægteskabsnumre giver med nuværende kode U, så S'et ellers pegede på »ingen«. Det nye ark skrives
 med de overførte svar; rapporten viser hver blok (kontekst og svarlinje) før og efter oversættelse til nøgler, markeret
 `=`, `~`, `-`, `+`. Arkene rummer navne og kildetekst; stdout har kun antal og en hash.
 
@@ -196,6 +198,20 @@ def load_prefill(path: Path) -> Prefill:
     return out
 
 
+Bound = dict[str, int]
+
+
+def load_bound(path: Path) -> Bound:
+    """Linjer `<interpretation_key>|<person-id>` (transfer_5ab_bound_partners.sql); nøglerne er bevisbasens."""
+    out: Bound = {}
+    for n, line in enumerate((x for x in path.read_text(encoding="utf-8").splitlines() if x.strip()), 1):
+        f = line.split("|")
+        if len(f) != 2 or not UUID_RE.fullmatch(f[0]) or not re.fullmatch(r"-?[0-9]+", f[1]) or f[0] in out:
+            raise SheetError(f"BOUND_LINE_INVALID {n}")
+        out[f[0]] = int(f[1])
+    return out
+
+
 def _answer_label(answer: tuple) -> str:
     status, person, reason = answer
     if status == "accepted":
@@ -222,11 +238,13 @@ def _prefill_token(kind: str, b: Answer, rows, answer: tuple) -> tuple[str, bool
 
 
 def transfer(kind: str, old_sheet: str, new_sheet: str, old_rows, new_rows, old_km: Keymap, new_km: Keymap,
-             dropouts: set[str], prefill: Prefill | None = None) -> Result:
+             dropouts: set[str], prefill: Prefill | None = None, old_bound: Bound | None = None) -> Result:
     if kind not in KINDS:
         raise SheetError("ANSWER_KIND_UNKNOWN")
     if prefill is not None and kind not in ("spouse", "queue"):
         raise SheetError("PREFILL_KIND")
+    if old_bound is not None and kind not in PROPOSE:
+        raise SheetError("BOUND_KIND")
     # Forslagene nøgles som linjerne: gammel persona-uuid → persona-nøgle via det gamle nøglekort.
     unmapped = [u for u in (prefill or {}) if not old_km.fwd.get(u, "").startswith("persona:")]
     if unmapped:
@@ -234,6 +252,11 @@ def transfer(kind: str, old_sheet: str, new_sheet: str, old_rows, new_rows, old_
     pf_by_key = {old_km.fwd[u]: v for u, v in (prefill or {}).items()}
     _, skip = KINDS[kind]
     olds = [a for a in parse(old_sheet, kind, old_km, old=True) if a.t not in skip]
+    # Et S-svar på et ægteskabsark peger på den person, svaret faktisk bandt i bevisbasen. Det gamle forslag kan ikke altid
+    # genberegnes med nuværende kode fra de gamle rækker (#244: et forkert ægteskabsnummer giver i dag U, så S'et pegede
+    # tilsyneladende på »ingen«). Bindingsfilen skal dække præcis arkets S-svar.
+    if old_bound is not None and set(old_bound) != {a.ref for a in olds if a.t == "M" and a.tok == "S"}:
+        raise SheetError("BOUND_MISMATCH")
     news_all = parse(new_sheet, kind, new_km, old=False)
     news = {(a.t, a.key): a for a in news_all if a.t not in skip}
     lines = new_sheet.splitlines()
@@ -252,6 +275,8 @@ def transfer(kind: str, old_sheet: str, new_sheet: str, old_rows, new_rows, old_
         if b.ver != a.ver:
             raise SheetError(f"ANSWER_VERSION_CHANGED {a.n}")
         po = person_of(kind, a, old_rows)
+        bound = ("forslag", old_bound[a.ref]) if old_bound is not None and a.ref in old_bound else None
+        po, recomputed = (bound, po) if bound is not None else (po, None)
         # Det overførte svar læses mod det nye arks rækker (samme svar, ny plads).
         pn = person_of(kind, replace(b, ans=a.ans), new_rows)
         moved = po is not None and po != pn
@@ -265,6 +290,9 @@ def transfer(kind: str, old_sheet: str, new_sheet: str, old_rows, new_rows, old_
         block, changed = _diff(old_block, new_block)
         if moved:
             block.append(f"~ plads: {po[0]} {po[1]} → {pn[0]} {pn[1]}"); changed = 1
+        if recomputed is not None and recomputed != po:   # bindingen afgjorde; vis det, så arket ikke godkendes blindt
+            block.append(f"~ bundet: person {po[1]} (genberegnet forslag: {recomputed[1] if recomputed[1] is not None else 'ingen'})")
+            changed = 1
         n_changed += changed
         report += ["", f"## {b.t} {b.key}"] + block
     for b in news.values():
@@ -332,9 +360,12 @@ def main() -> int:
         t.add_argument(a, required=True)
     t.add_argument("--private-root", default=str(Path.home() / ".private"))
     t.add_argument("--prefill-answers")
+    t.add_argument("--old-bound")
     args = ap.parse_args()
     if args.prefill_answers and args.kind not in ("spouse", "queue"):
         ap.error("--prefill-answers kun med --kind spouse|queue")
+    if args.old_bound and args.kind not in PROPOSE:
+        ap.error("--old-bound kun med --kind marriage|marriage_v3")
     root = Path(args.private_root)
     try:
         p = {k: check_private_path(Path(getattr(args, k)), root) for k in
@@ -344,7 +375,8 @@ def main() -> int:
         r = transfer(args.kind, p["old_sheet"].read_text(encoding="utf-8"), p["new_sheet"].read_text(encoding="utf-8"),
                      json.loads(p["old_rows"].read_text(encoding="utf-8")), json.loads(p["new_rows"].read_text(encoding="utf-8")),
                      load_keymap(p["old_keymap"]), load_keymap(p["new_keymap"]), drops,
-                     load_prefill(check_private_path(Path(args.prefill_answers), root)) if args.prefill_answers else None)
+                     load_prefill(check_private_path(Path(args.prefill_answers), root)) if args.prefill_answers else None,
+                     load_bound(check_private_path(Path(args.old_bound), root)) if args.old_bound else None)
         _write_new(p["out_sheet"], r.sheet)
         _write_new(p["out_report"], r.report)
     except SheetError as exc:

@@ -41,6 +41,12 @@ q "$B" -c "SET session_replication_role=replica" -c "DO \$\$ DECLARE v_old uuid;
   UPDATE private.interpretation SET id=v_new WHERE id=v_old;
 END \$\$"
 t5_chain "$A" tests/sql/fixtures/transfer-5ab-chain.sql; t5_chain "$B" tests/sql/fixtures/transfer-5ab-chain.sql
+# st_bound_partners: ægteskabsarkenes S-svar, som de blev bundet (svaroverførslens --old-bound). Bo Betas same på ark »a…«
+# giver én linje med hans person; Fie Fots new_person_needed på ark »c…« binder ingen.
+bp() { qa "$A" -v src=-25001 -v sheet_sha256="$(printf "$1%.0s" $(seq 64))" -f $S/transfer_5ab_bound_partners.sql; }
+[[ "$(bp a | sed -E "s/^$uuid_re\|/K|/")" == "K|-25002" ]] || fail "st_bound_partners: ark a"
+[[ -z "$(bp c)" ]] || fail "st_bound_partners: ark c"
+echo "st_bound_partners OK"
 # st_actor_required: uden aktør, med en ukendt og med en ikke-redaktør stopper skridtet, før det skriver noget.
 dg "$A" > "$tmp/pre.dg"
 if env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$A" -v src=-25001 -v mode=capture -v items="$tmp/x.items" \

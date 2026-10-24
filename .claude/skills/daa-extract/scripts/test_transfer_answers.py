@@ -211,6 +211,83 @@ def test_marriage_s_with_real_v2_proposal(tmp_path):
         run("marriage", old, new, v2_rows(7), v2_rows(8), keymaps(tmp_path))
 
 
+# #244 i v3-arket: de gamle rækker har et forkert ægteskabsnummer, som nuværende kode afviser (U/nummer_modsiger_bog), så
+# et genberegnet gammelt forslag peger på »ingen«. S'et sammenlignes derfor med den person, svaret bandt i bevisbasen.
+def v3_rows(ordinal, partners=()):
+    t = "Gift 1° 1890 med Bo Beta, f. 1801."
+    return {"deceased_cutoff_year": 1906, "rows": [
+        {"interpretation_key": K1, "interpretation_version": 1, "predicate": "relation.marriage", "raw": t, "record_key": "II-1",
+         "marriage_ordinal": ordinal, "supporting_count": 1, "principal_ok": True, "principal_person_id": 1,
+         "principal_partners": [{"person_id": p, "family_id": 3, "ordinal": 1, "navn": "Bo Beta"} for p in partners],
+         "post_text": "Anna A. " + t, "clauses": [{"observation_id": "o1", "clause_set_seq": 1, "clause_set_sha256": "a" * 64,
+                                                   "verbatim_text": t, "post_char_from": 8, "post_char_to": 8 + len(t)}]}]}
+
+
+def run_b(kind, old_sheet, new_sheet, old_rows, new_rows, kms, bound):
+    return ta.transfer(kind, old_sheet, new_sheet, old_rows, new_rows, kms[0], kms[1], set(), old_bound=bound)
+
+
+def test_marriage_v3_s_compares_with_bound_person(tmp_path):
+    old, new = f"M {K1} 1 : S\nM {K2} 1 : U\n", f"M {K1} 1 : S\nM {K2} 1 : U\n"
+    rows_old, rows_new = v3_rows(2, [7]), v3_rows(1, [7])
+    rows_old["rows"].append({**rows_old["rows"][0], "interpretation_key": K2})
+    rows_new["rows"].append({**rows_new["rows"][0], "interpretation_key": K2})
+    assert ta.PROPOSE["marriage_v3"](rows_old, K1, None) is None and ta.PROPOSE["marriage_v3"](rows_new, K1, None) == 7
+    with pytest.raises(SheetError, match="^ANSWER_PERSON_MOVED 1$"):
+        run("marriage_v3", old, new, rows_old, rows_new, keymaps(tmp_path))
+    r = run_b("marriage_v3", old, new, rows_old, rows_new, keymaps(tmp_path), {K1: 7})
+    assert f"M {K1} 1 : S" in r.sheet and r.transferred == 2
+    assert "~ bundet: person 7 (genberegnet forslag: ingen)" in r.report and r.changed == 1
+    r = run_b("marriage_v3", old, new, rows_new, rows_new, keymaps(tmp_path), {K1: 7})
+    assert "~ bundet" not in r.report and r.changed == 0
+    with pytest.raises(SheetError, match="^ANSWER_PERSON_MOVED 1$"):
+        run_b("marriage_v3", old, new, rows_old, rows_new, keymaps(tmp_path), {K1: 8})
+
+
+def test_bound_must_cover_exactly_the_s_answers(tmp_path):
+    old, new = f"M {K1} 1 : S\nM {K2} 1 : U\n", f"M {K1} 1 : S\nM {K2} 1 : U\n"
+    rows = v3_rows(1, [7])
+    for bound in ({}, {K1: 7, K2: 7}):
+        with pytest.raises(SheetError, match="^BOUND_MISMATCH$"):
+            run_b("marriage_v3", old, new, rows, rows, keymaps(tmp_path), bound)
+    with pytest.raises(SheetError, match="^BOUND_KIND$"):
+        run_b("spouse", *spouse_sheets(), spouse_rows(OLD_P1), spouse_rows(NEW_P1), keymaps(tmp_path), {})
+
+
+def test_load_bound(tmp_path):
+    p = tmp_path / "b.txt"
+    p.write_text(f"{K1}|7\n\n{K2}|-25002\n", encoding="utf-8")
+    assert ta.load_bound(p) == {K1: 7, K2: -25002}
+    for bad in (f"{K1}|7\n{K1}|8\n", f"{K1}|\n", f"{K1}|x\n", "k1|7\n", f"{K1}|7|1\n"):
+        p.write_text(bad, encoding="utf-8")
+        with pytest.raises(SheetError, match="^BOUND_LINE_INVALID"):
+            ta.load_bound(p)
+
+
+def test_bound_v2_name_override_and_dropout(tmp_path, monkeypatch):
+    # v2: S med bindingen; et bortfaldet S-svar skal stadig stå i bindingsfilen. v3: navnerettelsen bruges stadig på den nye side.
+    old, new = f"M {K1} 1 : S\nM {K2} 1 : S\n", f"M {K1} 1 : S\n"
+    r = ta.transfer("marriage", old, new, v2_rows(7), v2_rows(7), *keymaps(tmp_path), {f"ikey:{K2}"}, old_bound={K1: 7, K2: 9})
+    assert r.transferred == 1 and r.dropouts == 1
+    with pytest.raises(SheetError, match="^BOUND_MISMATCH$"):
+        ta.transfer("marriage", old, new, v2_rows(7), v2_rows(7), *keymaps(tmp_path), {f"ikey:{K2}"}, old_bound={K1: 7})
+    seen = []
+    monkeypatch.setitem(ta.PROPOSE, "marriage_v3", lambda rows, key, navn: seen.append(navn) or (5 if navn == "Bo Beta" else None))
+    old, new = f"M {K1} 1 : S navn: »Bo Beta«\n", f"M {K1} 1 : S\n"
+    run_b("marriage_v3", old, new, {}, {}, keymaps(tmp_path), {K1: 5})
+    assert "Bo Beta" in seen
+    with pytest.raises(SheetError, match="^ANSWER_PERSON_MOVED 1$"):
+        run_b("marriage_v3", old, new, {}, {}, keymaps(tmp_path), {K1: 6})
+
+
+def test_cli_old_bound_only_for_marriage_kinds(tmp_path):
+    r = subprocess.run([sys.executable, "-I", str(Path(ta.__file__)), "transfer", "--kind", "spouse", "--old-bound", "x",
+                        *[a for k in ("old-sheet", "old-rows", "old-keymap", "new-sheet", "new-rows", "new-keymap",
+                                      "expected-dropouts", "out-sheet", "out-report") for a in (f"--{k}", "x")]],
+                       capture_output=True, text=True)
+    assert r.returncode == 2 and "--old-bound" in r.stderr
+
+
 # Forudfyldning (plan B2 Task 1, projektejeren 2026-10-23): en ny linje uden gammelt svar (listet bortfald, `+`) får
 # projektejerens gamle blinde kontrolsvar som forslag, når samme person står på den nye linje. Kilden er det, svaret skrev
 # i bevisbasen (transfer_5ab_control_answers.sql): gammel persona-uuid → (status, person, grund).

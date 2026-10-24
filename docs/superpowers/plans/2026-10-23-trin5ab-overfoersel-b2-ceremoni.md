@@ -306,3 +306,12 @@ Opus-review af diff'en: GO med rettelser (0 BLOCKER, 1 MAJOR, 9 MINOR), testene 
 | m7 uoversatte forslag, cifre | Rettet: `PREFILL_UNMAPPED` (fail-closed), `-?[0-9]+` |
 | m8 manglende `persona_key` | Rettet: `STEP_REJECT_EVIDENCE_INVALID` |
 | m9 testenes styrke | Delvis: `d1_fault_unknown` for del 1-skridtene; stærkere bind-variant og DISTINCT ON-test udeladt (fixturen har ét item; koden efterprøvet ved læsning) |
+
+## Afvigelse under arbejdskørslen (Task 5, 2026-10-24)
+
+Arbejdskørsel 2 stoppede ved skridt 18 (`persona_v3`, v3-ægteskabsarket) med `ANSWER_PERSON_MOVED` før skrivning (Review Focus 1). Målt: 2 af de 13 gamle v3-svar (begge `S`) så flyttede ud, men bandt i v3-bevisbasen præcis de personer, det nye ark foreslår; kortene er ens bortset fra OBS-linjen om #244's falske nummerafvigelse. Årsag: overførslen genberegnede det gamle forslag med nuværende kode fra de gamle rækker, og #244's forkerte ægteskabsnummer giver i dag `U` (`nummer_modsiger_bog`), så `S` pegede tilsyneladende på »ingen«. Projektejeren valgte rettelse og ny optagelse frem for at besvare v3-arket på ny med en testkrog.
+
+| Plan | Ændret | Begrundelse |
+| --- | --- | --- |
+| Task 1/3: ægteskabsarkenes `S` kontrolleres mod et genberegnet gammelt forslag | `transfer_answers.py --old-bound` fra ny læse-kun `transfer_5ab_bound_partners.sql` (pr. ægteskab den person, svaret bandt); filen skal dække præcis arkets `S`-svar (`BOUND_MISMATCH`); runneren eksporterer den fra bevisbasen for `marriage` og `marriage_v3` og binder den i pakken | Samme princip som forudfyldningen: kilden er det, svaret skrev i bevisbasen. Målt på de rigtige filer: v3 overfører 13/13; v2's resultat er byte-ens med det godkendte ark |
+| Task 5: én arbejdskørsel ved `d2aced8e` | Ny arbejdskørsel ved rettelsens commit; kontrol-, 2b-i-, kø- og v2-arkets svar er de godkendte (forventet samme hashes) | Optagelsen skal ske med den endelige kode |
