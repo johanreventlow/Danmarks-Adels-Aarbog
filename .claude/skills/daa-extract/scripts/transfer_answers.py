@@ -206,7 +206,7 @@ def load_bound(path: Path) -> Bound:
     out: Bound = {}
     for n, line in enumerate((x for x in path.read_text(encoding="utf-8").splitlines() if x.strip()), 1):
         f = line.split("|")
-        if len(f) != 2 or not UUID_RE.fullmatch(f[0]) or not re.fullmatch(r"[0-9]+", f[1]) or f[0] in out:
+        if len(f) != 2 or not UUID_RE.fullmatch(f[0]) or not re.fullmatch(r"-?[0-9]+", f[1]) or f[0] in out:
             raise SheetError(f"BOUND_LINE_INVALID {n}")
         out[f[0]] = int(f[1])
     return out
@@ -274,7 +274,9 @@ def transfer(kind: str, old_sheet: str, new_sheet: str, old_rows, new_rows, old_
             raise SheetError(f"ANSWER_NO_TARGET {a.n}")
         if b.ver != a.ver:
             raise SheetError(f"ANSWER_VERSION_CHANGED {a.n}")
-        po = ("forslag", old_bound[a.ref]) if old_bound is not None and a.ref in old_bound else person_of(kind, a, old_rows)
+        po = person_of(kind, a, old_rows)
+        bound = ("forslag", old_bound[a.ref]) if old_bound is not None and a.ref in old_bound else None
+        po, recomputed = (bound, po) if bound is not None else (po, None)
         # Det overførte svar læses mod det nye arks rækker (samme svar, ny plads).
         pn = person_of(kind, replace(b, ans=a.ans), new_rows)
         moved = po is not None and po != pn
@@ -288,6 +290,9 @@ def transfer(kind: str, old_sheet: str, new_sheet: str, old_rows, new_rows, old_
         block, changed = _diff(old_block, new_block)
         if moved:
             block.append(f"~ plads: {po[0]} {po[1]} → {pn[0]} {pn[1]}"); changed = 1
+        if recomputed is not None and recomputed != po:   # bindingen afgjorde; vis det, så arket ikke godkendes blindt
+            block.append(f"~ bundet: person {po[1]} (genberegnet forslag: {recomputed[1] if recomputed[1] is not None else 'ingen'})")
+            changed = 1
         n_changed += changed
         report += ["", f"## {b.t} {b.key}"] + block
     for b in news.values():

@@ -237,6 +237,9 @@ def test_marriage_v3_s_compares_with_bound_person(tmp_path):
         run("marriage_v3", old, new, rows_old, rows_new, keymaps(tmp_path))
     r = run_b("marriage_v3", old, new, rows_old, rows_new, keymaps(tmp_path), {K1: 7})
     assert f"M {K1} 1 : S" in r.sheet and r.transferred == 2
+    assert "~ bundet: person 7 (genberegnet forslag: ingen)" in r.report and r.changed == 1
+    r = run_b("marriage_v3", old, new, rows_new, rows_new, keymaps(tmp_path), {K1: 7})
+    assert "~ bundet" not in r.report and r.changed == 0
     with pytest.raises(SheetError, match="^ANSWER_PERSON_MOVED 1$"):
         run_b("marriage_v3", old, new, rows_old, rows_new, keymaps(tmp_path), {K1: 8})
 
@@ -253,12 +256,28 @@ def test_bound_must_cover_exactly_the_s_answers(tmp_path):
 
 def test_load_bound(tmp_path):
     p = tmp_path / "b.txt"
-    p.write_text(f"{K1}|7\n\n{K2}|730\n", encoding="utf-8")
-    assert ta.load_bound(p) == {K1: 7, K2: 730}
+    p.write_text(f"{K1}|7\n\n{K2}|-25002\n", encoding="utf-8")
+    assert ta.load_bound(p) == {K1: 7, K2: -25002}
     for bad in (f"{K1}|7\n{K1}|8\n", f"{K1}|\n", f"{K1}|x\n", "k1|7\n", f"{K1}|7|1\n"):
         p.write_text(bad, encoding="utf-8")
         with pytest.raises(SheetError, match="^BOUND_LINE_INVALID"):
             ta.load_bound(p)
+
+
+def test_bound_v2_name_override_and_dropout(tmp_path, monkeypatch):
+    # v2: S med bindingen; et bortfaldet S-svar skal stadig stå i bindingsfilen. v3: navnerettelsen bruges stadig på den nye side.
+    old, new = f"M {K1} 1 : S\nM {K2} 1 : S\n", f"M {K1} 1 : S\n"
+    r = ta.transfer("marriage", old, new, v2_rows(7), v2_rows(7), *keymaps(tmp_path), {f"ikey:{K2}"}, old_bound={K1: 7, K2: 9})
+    assert r.transferred == 1 and r.dropouts == 1
+    with pytest.raises(SheetError, match="^BOUND_MISMATCH$"):
+        ta.transfer("marriage", old, new, v2_rows(7), v2_rows(7), *keymaps(tmp_path), {f"ikey:{K2}"}, old_bound={K1: 7})
+    seen = []
+    monkeypatch.setitem(ta.PROPOSE, "marriage_v3", lambda rows, key, navn: seen.append(navn) or (5 if navn == "Bo Beta" else None))
+    old, new = f"M {K1} 1 : S navn: »Bo Beta«\n", f"M {K1} 1 : S\n"
+    run_b("marriage_v3", old, new, {}, {}, keymaps(tmp_path), {K1: 5})
+    assert "Bo Beta" in seen
+    with pytest.raises(SheetError, match="^ANSWER_PERSON_MOVED 1$"):
+        run_b("marriage_v3", old, new, {}, {}, keymaps(tmp_path), {K1: 6})
 
 
 def test_cli_old_bound_only_for_marriage_kinds(tmp_path):
