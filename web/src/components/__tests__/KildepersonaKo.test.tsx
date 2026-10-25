@@ -95,6 +95,14 @@ describe('KildepersonaKo', () => {
     expect((await screen.findByRole('alert')).textContent).toMatch(/EVIDENCE_IDENTITY_VERSION_CONFLICT/);
   });
 
+  it('dubletreglen: filtrerer uafklarede dubletter og viser årsagen', async () => {
+    mocks.queue.mockResolvedValue([{ ...row(), decisionStatus: 'accepted', version: 1, reason: 'duplicate_unresolved' }]);
+    render(<KildepersonaKo role="redaktion" />);
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'duplicate_unresolved' } });
+    await waitFor(() => expect(mocks.queue).toHaveBeenLastCalledWith('duplicate_unresolved', null, null, null));
+    expect(await screen.findByText(/dublet uafklaret/)).toBeTruthy();
+  });
+
   it('sender source-filter og cursor ved næste side', async () => {
     const firstPage = Array.from({ length: 50 }, (_, index) => row(index + 1));
     mocks.queue.mockImplementation((_status, sourceId, cursor) => Promise.resolve(
