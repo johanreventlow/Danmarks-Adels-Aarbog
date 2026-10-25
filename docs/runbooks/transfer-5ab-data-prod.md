@@ -86,7 +86,7 @@ GO 2-filen bygges efter Task 7's merge. `17-go2.sh` er lokal og skriver kun file
 ! /bin/zsh -f ~/.private/5ab-overfoersel/koer.zsh 17-go2.sh <run-3-mappe> \
     <run-3-mappe>/rapport/indholdskontrol-20261025091518.txt b2/maalinger/forventede-forskelle.json \
     b2/rehearsal-data.json b2/rehearsal-data-<genspilsbase>.json <run-3-mappe>/rapport/*.rapport \
-    prod/go-hashes-ddl-<ts>.txt
+    b2/rapport-opsummering-20261025.txt prod/go-hashes-ddl-<ts>.txt
 ```
 
 Indholdskontrollens rapport er `CONTENT_OK`-kørslen (`indholdskontrol-20261025091518.txt`), ikke den første
@@ -101,8 +101,11 @@ godkendelsesmåde). `12`, `14` og `15` kræver, at alle disse faste linjer står
 (ubundet: …)`). Desuden rapporterne givet som argumenter: indholdskontrollen, listen over forventede
 forskelle (afgørelse A; `17` binder den ikke selv), `rehearsal-data.json` og svaroverførslens rapporter.
 
-Projektejeren læser før GO 2 alle overførselsrapporter samlet (plan B2 Task 7 Step 5, også de auto-godkendte)
-og bekræfter i chatten. GO 2 er projektejerens ord i chatten, bundet til `DAA_GO2_HASHES_SHA256`.
+Overførselsrapporterne (plan B2 Task 7 Step 5): projektejeren besluttede 2026-10-25, at en formopsummering
+(antal og linjetyper pr. rapport, intet indhold; `b2/rapport-opsummering-20261025.txt`) træder i stedet for fuld
+gennemlæsning. Alle svar er overført; de markerede linjer er kort- og kommentartekst efter den nye stikprøve,
+#244-bortfaldet og v3's OBS- og `bundet`-linjer. Opsummeringen gives som argument til `17` og bindes. GO 2 er
+projektejerens ord i chatten, bundet til `DAA_GO2_HASHES_SHA256`.
 
 ## 4. Genspil i prod (GO 2 skrivende)
 
