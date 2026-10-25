@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-10-25 — #151: 5a+5b's data i prod (GO 2)
+
+Data-ceremonien efter `docs/runbooks/transfer-5ab-data-prod.md`, repo `8f52969d`, kørt af projektejeren.
+
+- **Pakken:** arbejdskørsel 3 på en ICU-restore af D1 (`PACK_OK` `46f5d1e5…`, 25 skridt), `CONTENT_OK same=8827
+  allowed=51` efter afgørelse A (252 bindinger, ikke 253; decisions 2026-10-25), genspilsprøve `REHEARSAL_OK`.
+- **Første forsøg (GO 2 `d66e19f8…`):** skridt 1-2 skrevet, stop ved skridt 3 (`STATEMENT_TIMEOUT`). Prod afbryder
+  enkeltsætninger efter 2 min (4.4's G7); 5ab-runneren manglede forhøjelsen, og lokale baser har ingen grænse.
+  Den private `lib.zsh` sætter nu `statement_timeout = '15min'` for hvert skridt og stopper med `TIMEOUT_NOT_SET`,
+  hvis værdien ikke når sessionen. Bevist på en stand-in med samme grænse (gamle bytes: samme stop; nye: genoptagelse
+  til `REPLAY_OK` + `VERIFY_OK`), derefter `RUNNER_OK`, genspilsprøve (771 s), ny GO 1-hashfil og ny GO 2-fil.
+- **Genoptagelse (GO 2 `4bd78fa9…`):** fra `PARTIAL` ved skridt 3 (231 s i prod) → `REPLAY_OK steps=25`,
+  `VERIFY_OK measure_sha256=92a609f5…`, `ADVISORS_DATA_OK nye=0`, webtjek, `FREEZE_END_OK mode=verify`.
+- **Kilde 1 (2018-20):** bindinger 622 → 874, `public_family_sources` 0 → 252, personas og identiteter 587 → 832,
+  0 nye personer. Skrivepausen fra 2026-10-22 er slut.
+
 ## 2026-10-22 — #151: værktøj til data-ceremonien for 5a+5b (plan B1)
 
 Implementeret efter planen `2026-10-22-trin5ab-overfoersel-b1-vaerktoej.md` på `docs/151-5ab-overfoersel-b1`.

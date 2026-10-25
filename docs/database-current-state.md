@@ -527,4 +527,22 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
 - **Probe:** `DDL_VERIFY_OK` (`anon` kan ikke læse `private`, RLS på alle `private`-tabeller).
 - **Advisors (security, CLI):** 48 → 60; de 12 nye er `rls_enabled_no_policy` på de nye `private`-tabeller (med vilje).
   CLI'en dækker færre lint-typer end dashboardet.
-- **Skrivepausen fortsætter** til plan B's `VERIFY_OK` (data, GO 2) eller en fortrydelse fra D0.
+- **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
+
+## 11. 5a+5b's data for 2018-20 (#151) — LIVE i prod (2026-10-25, GO 2)
+
+**Kilde 1's identitets- og relationslag.** Arbejdskørsel 3's pakke (`46f5d1e5…`, 25 skridt) genspillet i prod: profil og
+personas, kandidater, kontrolstikprøve og -ark, korroboration, afgørelser og bindinger (2a, 2b-i, kø, 2b-ii, v3),
+ægtefælle-dispositioner, P-afvisningen og børnehenvisninger (2b-iii). Ingen nye kanoniske personer.
+
+**Procedure:** `docs/runbooks/transfer-5ab-data-prod.md`, private scripts `~/.private/5ab-overfoersel/`.
+
+- **Repo:** `8f52969d`. **GO 2-fil:** `4bd78fa9…` (efter første forsøgs `STATEMENT_TIMEOUT` ved skridt 3; runbookens
+  afsnit 9).
+- **Verifikation:** `VERIFY_OK measure_sha256=92a609f5…` (alle nøglede digests = pakkens slut, kanonisk baseline =
+  D1's, uberørte tabeller og andre kilder uændrede, `anon`-matrixen = D1's), `authorizations_issued=1`.
+- **Advisors (security, CLI):** 60, uændret fra GO 1 (`ADVISORS_DATA_OK nye=0 forsvundne=0`).
+- **Tal (kilde 1; = pakkens slut, bekræftet af `VERIFY_OK`):** bindinger 622 → 874, `public_family_sources` 0 → 252, personas og identiteter 587 → 832,
+  fortolkninger 4.415 → 4.669, dispositioner 1.747 → 1.878, kandidater 2.327, kontrolstikprøve 30.
+- **Kendt afvigelse:** ét ægteskab står som forslag uden binding (dubletreglen, 5b §23.4; rettes før 1939).
+- **Skrivepausen** er slut (`FREEZE_END_OK mode=verify`); webfladen er åben for redigering igen.
