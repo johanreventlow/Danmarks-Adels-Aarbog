@@ -8522,7 +8522,8 @@ CREATE OR REPLACE FUNCTION red_source_persona_queue(
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 BEGIN
   IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
-  IF p_status IS NOT NULL AND p_status NOT IN ('proposed','accepted','rejected','unresolved','superseded','new_person_needed') THEN
+  IF p_status IS NOT NULL AND p_status NOT IN ('proposed','accepted','rejected','unresolved','superseded','new_person_needed',
+                                               'duplicate_unresolved') THEN
     RAISE EXCEPTION 'EVIDENCE_IDENTITY_STATUS_INVALID';
   END IF;
   -- Trin 5b: rollefilter (hovedperson/ægtefælle).
@@ -8538,7 +8539,8 @@ BEGIN
            WHERE c.source_persona_id=persona.id AND c.rank=1
              AND c.run_id=(SELECT r.id FROM private.source_persona_identity_candidate_run r
                             WHERE r.source_id=persona.source_id ORDER BY r.run_seq DESC LIMIT 1)),
-         identity_state.evidence->>'reason',
+         coalesce(identity_state.evidence->>'reason',
+                  CASE WHEN identity_state.evidence->>'duplicate_binding'='rank' THEN 'duplicate_unresolved' END),
          (SELECT spm.mention_role FROM private.source_persona_mention spm WHERE spm.persona_id=persona.id ORDER BY spm.ordinal LIMIT 1)
     FROM private.source_persona persona
     LEFT JOIN private.source_persona_identity identity_state ON identity_state.source_persona_id=persona.id
@@ -8549,7 +8551,11 @@ BEGIN
      AND (p_status IS NULL
           OR (p_status='new_person_needed' AND identity_state.decision_status='unresolved'
               AND identity_state.evidence->>'reason'='new_person_needed')
-          OR (p_status<>'new_person_needed' AND coalesce(identity_state.decision_status,'proposed')=p_status))
+          -- Dubletreglen (decisions 2026-10-25): accepteret til bedst rangerede, ægteskabet venter på redaktøren.
+          OR (p_status='duplicate_unresolved' AND identity_state.decision_status='accepted'
+              AND identity_state.evidence->>'duplicate_binding'='rank')
+          OR (p_status NOT IN ('new_person_needed','duplicate_unresolved')
+              AND coalesce(identity_state.decision_status,'proposed')=p_status))
    ORDER BY persona.id
    LIMIT greatest(1,least(coalesce(p_page_size,50),100));
 END $$;
@@ -8685,7 +8691,7 @@ DECLARE
   v_ctx jsonb:=coalesce(p_context,'{}'::jsonb); v_person bigint:=p_canonical_person_id;
   -- record, ikke %ROWTYPE: kontroltabellerne oprettes i 5b-sektionen EFTER denne funktion, og plpgsql
   -- binder %ROWTYPE ved CREATE.
-  v_smp record; v_seal record; v_pos text; v_dup jsonb;
+  v_smp record; v_seal record; v_pos text; v_dup jsonb; v_fam_pos text[]; v_bind text; v_fc jsonb;
 BEGIN
   IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
   v_basis:=coalesce(v_ctx->>'basis','web_detail');
@@ -8760,8 +8766,11 @@ BEGIN
         'candidate_rank',v_cand.rank,'display_position',v_pos::int);
     END IF;
     -- Spec §23.4 (errata 2026-10-10): `1=2` — flere pladser er samme individ (dublet i basen). Stigende, uden
-    -- gentagelser, 2-3 pladser i mappingen, og den laveste er display_position (bindingen). Writeren ser aldrig
+    -- gentagelser, 2-3 pladser i mappingen, og den laveste er display_position i konteksten. Writeren ser aldrig
     -- 'expected'; status afgør enigheden. Dubletparret gemmes til del 2's samme_som-arbejde.
+    -- Bindingen (decisions 2026-10-25, dubletreglen; retter pkt. 6) afhænger ikke af den blandede visningsplads:
+    -- den post, der står som partner i en familie med hovedpersonen, vinder; står ingen eller flere der, den bedst
+    -- rangerede kandidat, og evidensen markerer dubletten som uafklaret (ægteskabet bliver stående som forslag).
     IF v_ctx ? 'display_positions' THEN
       v_dup:=v_ctx->'display_positions';
       IF NOT v_ctx ? 'display_position' OR jsonb_typeof(v_dup)<>'array' OR jsonb_array_length(v_dup) NOT BETWEEN 2 AND 3
@@ -8784,6 +8793,28 @@ BEGIN
                     AND NOT coalesce(lower(btrim(p.visning_fuldt_navn))=lower(btrim(f.visning_fuldt_navn)),false)) THEN
         RAISE EXCEPTION 'IDENTITY_CONTROL_DUPLICATE_NOT_HOMONYM';
       END IF;
+      v_fc:=private.persona_family_context(p_source_persona_id);
+      SELECT coalesce(array_agg(e.v ORDER BY e.v),'{}') INTO v_fam_pos FROM jsonb_array_elements_text(v_dup) e(v)
+        JOIN private.source_persona_identity_candidate c ON c.id=(v_smp.mapping->>e.v)::uuid
+       WHERE c.candidate_person_id IN (
+         SELECT pt::bigint FROM jsonb_array_elements(coalesce(v_fc->'families','[]'::jsonb)) f,
+                LATERAL jsonb_array_elements_text(f->'partners') pt);
+      IF cardinality(v_fam_pos)=1 THEN
+        v_bind:=v_fam_pos[1];
+      ELSE
+        SELECT e.v INTO v_bind FROM jsonb_array_elements_text(v_dup) e(v)
+          JOIN private.source_persona_identity_candidate c ON c.id=(v_smp.mapping->>e.v)::uuid
+         -- hovedpersonen selv vælges aldrig foran en anden post (review 2026-10-25, fund 3)
+         ORDER BY c.candidate_person_id IS NOT DISTINCT FROM private.spouse_principal_person(p_source_persona_id), c.rank, e.v::int
+         LIMIT 1;
+      END IF;
+      SELECT c.id,c.run_id,c.rank,c.candidate_person_id INTO v_cand
+        FROM private.source_persona_identity_candidate c WHERE c.id=(v_smp.mapping->>v_bind)::uuid;
+      v_person:=v_cand.candidate_person_id;
+      v_evidence:=v_evidence||jsonb_build_object('candidate_id',v_cand.id,'run_id',v_cand.run_id,
+        'candidate_rank',v_cand.rank,'display_position',v_bind::int,
+        'duplicate_binding',CASE WHEN cardinality(v_fam_pos)=1 THEN 'family' ELSE 'rank' END,
+        'duplicate_family_matches',CASE WHEN v_fc IS NULL THEN NULL ELSE cardinality(v_fam_pos) END);
       v_evidence:=v_evidence||jsonb_build_object('display_positions',v_dup,'same_individual_person_ids',
         (SELECT jsonb_agg(c.candidate_person_id ORDER BY e.o) FROM jsonb_array_elements_text(v_dup) WITH ORDINALITY e(v,o)
            JOIN private.source_persona_identity_candidate c ON c.id=(v_smp.mapping->>e.v)::uuid));
@@ -16122,7 +16153,7 @@ RETURNS TABLE(status text,reason text) LANGUAGE plpgsql STABLE SECURITY DEFINER 
 DECLARE r private.identity_control_run%ROWTYPE; v_last private.identity_control_event%ROWTYPE;
   v_seal private.identity_control_event%ROWTYPE; smp private.identity_control_sample%ROWTYPE;
   v_id private.source_persona_identity%ROWTYPE; v_cur uuid; v_wait boolean:=false;
-  v_ev jsonb; v_at timestamptz; v_set text[];
+  v_ev jsonb; v_at timestamptz; v_set text[]; v_es text;
 BEGIN
   SELECT * INTO r FROM private.identity_control_run WHERE id=p_control_run_id;
   IF NOT FOUND THEN RAISE EXCEPTION 'IDENTITY_CONTROL_RUN_UNKNOWN'; END IF;
@@ -16142,13 +16173,23 @@ BEGIN
     IF coalesce(v_id.version,0)=smp.identity_version AND (v_id.source_persona_id IS NULL OR v_id.decision_status='proposed') THEN
       v_wait:=true; CONTINUE;
     END IF;
-    v_ev:=v_id.evidence; v_at:=v_id.decided_at;
-    -- Afgørelsen skal være netop den samplede version + 1 (ingen »vask« via en mellemliggende afgørelse).
-    IF v_id.decision_status<>'accepted' OR v_id.version<>smp.identity_version+1 THEN
+    -- Afgørelsen skal være netop den samplede version + 1 (ingen »vask« via en mellemliggende afgørelse); den læses
+    -- som hændelsen for den version (uforanderlig).
+    SELECT e.decision_status,e.evidence,e.decided_at INTO v_es,v_ev,v_at
+      FROM private.source_persona_identity_event e
+     WHERE e.source_persona_id=smp.source_persona_id AND e.version=smp.identity_version+1;
+    IF NOT FOUND OR v_es<>'accepted' THEN
+      RETURN QUERY SELECT 'failed'::text,'afvigelse'::text; RETURN;
+    END IF;
+    -- Den seneste status er autoritativ (§7.2): en senere afgørelse gør kørslen failed — undtagen når et dubletsvar
+    -- afklares inden for den dubletmængde, mennesket selv nævnte (samme individ; dubletreglen, decisions 2026-10-25).
+    IF v_id.version<>smp.identity_version+1
+       AND NOT (v_id.decision_status='accepted' AND v_ev ? 'same_individual_person_ids'
+                AND v_ev->'same_individual_person_ids' @> to_jsonb(v_id.canonical_person_id)) THEN
       RETURN QUERY SELECT 'failed'::text,'afvigelse'::text; RETURN;
     END IF;
     -- Enighed: maskinens kandidat er blandt de pladser, mennesket nævnte — én plads, eller flere ved en
-    -- dublet (`1=2`, spec §23.4 errata 2026-10-10). Bindingen er altid den laveste plads.
+    -- dublet (`1=2`, spec §23.4 errata 2026-10-10). Bindingen er evidensens display_position (dubletreglen).
     v_set:=ARRAY(SELECT smp.mapping->>p FROM jsonb_array_elements_text(
                    coalesce(v_ev->'display_positions',jsonb_build_array(v_ev->'display_position'))) p);
     IF v_ev->>'basis' IS DISTINCT FROM 'human_sheet' OR v_ev->>'sheet_sha256' IS DISTINCT FROM v_seal.sheet_sha256
@@ -16581,6 +16622,14 @@ BEGIN
   SELECT (x->>'canonical_person_id')::bigint INTO v_a FROM jsonb_array_elements(v_parties) x WHERE x->>'party_role'='principal';
   SELECT (x->>'canonical_person_id')::bigint INTO v_b FROM jsonb_array_elements(v_parties) x WHERE x->>'party_role'=v_role;
   IF v_a=v_b THEN RETURN NULL; END IF;
+  -- Dubletreglen (decisions 2026-10-25): en uafklaret dublet (ingen eller flere af dubletpladserne i familien) binder
+  -- identiteten til den bedst rangerede kandidat, men ægteskabet venter på redaktøren (ny identitetsafgørelse).
+  IF v_role='spouse' AND EXISTS (SELECT 1 FROM private.interpretation_party_current pc
+       JOIN private.source_persona_identity i ON i.source_persona_id=pc.source_persona_id
+      WHERE pc.interpretation_key=v_i.interpretation_key AND pc.party_role='spouse'
+        AND i.evidence->>'duplicate_binding'='rank') THEN
+    RETURN NULL;
+  END IF;
   SELECT array_agg(a.family_id ORDER BY a.family_id) INTO v_fams
     FROM public.family_member a
     JOIN public.family_member b ON b.family_id=a.family_id AND b.person_id=v_b AND b.rolle='partner'

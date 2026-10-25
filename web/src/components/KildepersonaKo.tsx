@@ -121,7 +121,7 @@ export function KildepersonaKo({ role }: { role?: string }) {
     <p>Forekomster i en bogkilde. En afgørelse ændrer ikke den offentlige visning og er altid versionskontrolleret.</p>
     <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
       <label>Status <select value={status} onChange={(e) => setStatus(e.target.value)}>
-        {['proposed', 'accepted', 'rejected', 'unresolved', 'new_person_needed'].map((item) => <option key={item}>{item}</option>)}
+        {['proposed', 'accepted', 'rejected', 'unresolved', 'new_person_needed', 'duplicate_unresolved'].map((item) => <option key={item}>{item}</option>)}
       </select></label>
       <label>Rolle <select value={mentionRole} onChange={(e) => setMentionRole(e.target.value)}>
         <option value="">alle</option><option value="primary">hovedperson</option><option value="spouse">ægtefælle</option>
@@ -132,6 +132,7 @@ export function KildepersonaKo({ role }: { role?: string }) {
     {shown.map((row) => <article key={row.sourcePersonaId} style={{ marginTop: 12, padding: 12, border: '1px solid #cabfa9', borderRadius: 8 }}>
       <strong>{row.personaKey}</strong> · kilde {row.sourceId} · {row.mentionCount} omtaler · v{row.version}
       {' · '}{row.bestTier ?? 'ingen kandidat'}{row.reason === 'new_person_needed' ? ' · ny person nødvendig' : ''}
+      {row.reason === 'duplicate_unresolved' ? ' · dublet uafklaret' : ''}
       <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
         <button onClick={() => void showEvidence(row)}>Vis kildegrundlag</button>
         <button disabled={busy === row.sourcePersonaId} onClick={() => void decide(row, 'same')}>Samme person</button>

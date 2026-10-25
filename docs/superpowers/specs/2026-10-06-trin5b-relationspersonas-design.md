@@ -896,6 +896,12 @@ af forældrekortene.
     identiteten bindes til den laveste plads. Writeren ser aldrig `expected`.
   - Evidensen gemmer `display_positions` og `same_individual_person_ids` til del 2's `samme_som`-arbejde.
   - Status tæller kortet som enighed, når maskinens kandidat er blandt de nævnte pladser; ellers afvigelse.
+  - *Rettet 2026-10-25 (dubletreglen, decisions samme dato):* bindingen er ikke længere den laveste plads, men
+    den dubletpost, der står som partner i en familie med hovedpersonen; står ingen eller flere der, den bedst
+    rangerede kandidat med `duplicate_binding = 'rank'`, og ægteskabet bindes ikke maskinelt (venter på redaktøren).
+    Konteksten bærer fortsat den laveste plads som `display_position`; evidensens `display_position` er bindingens.
+    Køen viser sagen (`duplicate_unresolved`). Kontrolstatus læser arkets afgørelse som hændelsen for version + 1;
+    en senere accepteret afgørelse inden for den nævnte dubletmængde er ikke en ændret stikprøveafgørelse (§7.2).
   - *Skærpet efter final review (I1):* de nævnte kandidater skal være navnefæller efter §23.3 pkt. 3 (samme
     `visning_navn` eller `visning_fuldt_navn` som den laveste plads), ellers `IDENTITY_CONTROL_DUPLICATE_NOT_HOMONYM`.
     Uden kravet ville `1=2=3` altid tælle som enighed. Dublet-kort rapporteres særskilt i færdigbeviset.

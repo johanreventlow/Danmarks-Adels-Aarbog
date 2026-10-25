@@ -2,6 +2,38 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: #151 — dubletreglen: familiens post vinder, uafklarede dubletter venter på redaktøren (2026-10-25)
+
+> Retter punkt 6 i GO 2-beslutningen nedenfor. Spec 5b §23.4 (rettelse samme dato). Projektejerens valg i chatten.
+
+**Baggrund:** Et dubletsvar på kontrolarket (`1=3`: »de to personposter er samme individ, og ægtefællen er
+ham/hende«) bandt identiteten til den laveste visningsplads. Pladserne blandes pr. stikprøve, så udfaldet var
+tilfældigt; i GO 2 blev ét ægteskab derfor stående som forslag (252 bindinger, ikke 253). 1939 har langt flere
+navnefæller.
+
+**Besluttet:**
+1. **Den post, der står i familien, vinder:** bindes til den dubletpost, der står som partner i en familie med
+   hovedpersonen (`persona_family_context`). Det er netop den post, ægteskabet kan bindes til. Punkt 6's »bedst
+   rangerede« er kun reserven.
+2. **Ingen eller flere i familien ⇒ sag til redaktøren:** identiteten bindes til den bedst rangerede kandidat
+   (uafhængig af visningspladsen), evidensen får `duplicate_binding = 'rank'` og `duplicate_family_matches`, og
+   `relation_binding_state` binder ikke ægteskabet maskinelt. Redaktøren afgør identiteten igen i den eksisterende
+   identitetskø (filter `duplicate_unresolved`, årsag »dublet uafklaret«); den nye evidens frigiver bindingen.
+   Ingen ny webflade. Reserven vælger aldrig hovedpersonen selv; `duplicate_family_matches` er `null`, når
+   familiekonteksten mangler (hovedpersonen er ikke afgjort).
+3. **Kontrolkørslen holder:** status læser arkets afgørelse som hændelsen for den samplede version + 1. »Den seneste
+   status er autoritativ« (5b §7.2) gælder fortsat, med én undtagelse: en senere accepteret afgørelse, der peger på
+   en af de poster, mennesket selv nævnte som samme individ, er en afklaring af dubletten, ikke en ændret
+   stikprøveafgørelse, og vælter ikke kørslen. En afgørelse uden for dubletmængden giver stadig `failed`.
+4. **Rækkefølgen på arket er uden betydning** (`1=3` = `3=1`; arkværktøjet sorterer allerede).
+5. **Fravalgt:** at fjerne `1=2`-svaret (et korrekt svar på navnefællen ville igen tælle som afvigelse), at lade
+   rækkefølgen bære valget (fejlbart i en tekstfil), et nyt webvalg (sideprojekt) og en regel om »samme udgave«
+   (personposter har ingen udgave; reglen ville fastholde udgavelokale dubletter og afgør ikke dubletter inden
+   for én udgave).
+6. **Prod:** kun DDL (`red_afgoer_source_persona`, `control_run_status`, `relation_binding_state`,
+   `red_source_persona_queue`) og webkøens filter; eksisterende afgørelser er uændrede. Deployes efter GO 2's
+   `VERIFY_OK` (2026-10-25) i en DDL-ceremoni før 1939; GO 2-pakken er optaget mod de gamle funktioner. Det ene ægteskab fra 2018-20 afgøres separat.
+
 ## BESLUTTET: #151 — data-ceremonien (GO 2): godkendelsespolitik, 252 bindinger, dubletreglen til rettelse (2026-10-25)
 
 > Plan B2: `docs/superpowers/plans/2026-10-23-trin5ab-overfoersel-b2-ceremoni.md` (Task 5-7). Runbook:
