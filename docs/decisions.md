@@ -2,6 +2,31 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: #151 — dubletreglen: familiens post vinder, uafklarede dubletter venter på redaktøren (2026-10-25)
+
+> Retter punkt 6 i GO 2-beslutningen nedenfor. Spec 5b §23.4 (rettelse samme dato). Projektejerens valg i chatten.
+
+**Baggrund:** Et dubletsvar på kontrolarket (`1=3`: »de to personposter er samme individ, og ægtefællen er
+ham/hende«) bandt identiteten til den laveste visningsplads. Pladserne blandes pr. stikprøve, så udfaldet var
+tilfældigt; i GO 2 blev ét ægteskab derfor stående som forslag (252 bindinger, ikke 253). 1939 har langt flere
+navnefæller.
+
+**Besluttet:**
+1. **Den post, der står i familien, vinder:** bindes til den dubletpost, der står som partner i en familie med
+   hovedpersonen (`persona_family_context`). Det er netop den post, ægteskabet kan bindes til. Punkt 6's »bedst
+   rangerede« er kun reserven.
+2. **Ingen eller flere i familien ⇒ sag til redaktøren:** identiteten bindes til den bedst rangerede kandidat
+   (uafhængig af visningspladsen), evidensen får `duplicate_binding = 'rank'` og `duplicate_family_matches`, og
+   `relation_binding_state` binder ikke ægteskabet maskinelt. Redaktøren afgør identiteten igen i den eksisterende
+   identitetskø; den nye evidens frigiver bindingen. Ingen ny webflade.
+3. **Rækkefølgen på arket er uden betydning** (`1=3` = `3=1`; arkværktøjet sorterer allerede).
+4. **Fravalgt:** at fjerne `1=2`-svaret (et korrekt svar på navnefællen ville igen tælle som afvigelse), at lade
+   rækkefølgen bære valget (fejlbart i en tekstfil), et nyt webvalg (sideprojekt) og en regel om »samme udgave«
+   (personposter har ingen udgave; reglen ville fastholde udgavelokale dubletter og afgør ikke dubletter inden
+   for én udgave).
+5. **Prod:** kun DDL (`red_afgoer_source_persona`, `control_run_status`, `relation_binding_state`); eksisterende
+   afgørelser er uændrede. Deployes i en DDL-ceremoni før 1939. Det ene ægteskab fra 2018-20 afgøres separat.
+
 ## BESLUTTET: #151 — data-ceremonien (GO 2): godkendelsespolitik, 252 bindinger, dubletreglen til rettelse (2026-10-25)
 
 > Plan B2: `docs/superpowers/plans/2026-10-23-trin5ab-overfoersel-b2-ceremoni.md` (Task 5-7). Runbook:
