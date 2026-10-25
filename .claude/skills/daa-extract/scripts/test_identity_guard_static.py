@@ -26,7 +26,7 @@ ALLOWLIST = {
     ("schema.sql", "red_corroborate_family_identities", "family_corroboration"): 1,
     # Trin 5b 2b-ii: ny oprindelse relation_person_create (hovedspec §8.4; decisions 2026-10-06 pkt. 3, ændret 2026-10-17).
     ("schema.sql", "write_relation_person_create", "relation_person_create"): 1,
-    ("db-migrations.sql", "red_afgoer_source_persona", "human"): 2,   # 2b-ii: kopi med deceased-konteksten
+    ("db-migrations.sql", "red_afgoer_source_persona", "human"): 3,   # 2b-ii: kopi med deceased-konteksten; dubletreglen (2026-10-25)
     ("db-migrations.sql", "red_apply_1939_v50_person_create", "person_create"): 1,
     ("db-migrations.sql", "red_apply_reimport_person_create", "person_create"): 2,
     ("db-migrations.sql", "migrate_legacy_narrative_record", "legacy_match"): 1,
