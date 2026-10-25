@@ -315,3 +315,45 @@ Arbejdskørsel 2 stoppede ved skridt 18 (`persona_v3`, v3-ægteskabsarket) med `
 | --- | --- | --- |
 | Task 1/3: ægteskabsarkenes `S` kontrolleres mod et genberegnet gammelt forslag | `transfer_answers.py --old-bound` fra ny læse-kun `transfer_5ab_bound_partners.sql` (pr. ægteskab den person, svaret bandt); filen skal dække præcis arkets `S`-svar (`BOUND_MISMATCH`); runneren eksporterer den fra bevisbasen for `marriage` og `marriage_v3` og binder den i pakken | Samme princip som forudfyldningen: kilden er det, svaret skrev i bevisbasen. Målt på de rigtige filer: v3 overfører 13/13; v2's resultat er byte-ens med det godkendte ark |
 | Task 5: én arbejdskørsel ved `d2aced8e` | Ny arbejdskørsel ved rettelsens commit; kontrol-, 2b-i-, kø- og v2-arkets svar er de godkendte (forventet samme hashes) | Optagelsen skal ske med den endelige kode |
+
+## Udfald af arbejdskørsel 3 og genspilsprøven (Task 5-7, 2026-10-25)
+
+Arbejdskørsel 3 (`daa5ab_data_arbejd_20261024221304`, commit `1edb762b`) nåede `CAPTURE_DONE` (25 skridt,
+`n_uuid_unmapped` 0, kanonisk delta kun i `identity`) og `PACK_OK` (`pack_sha256` `46f5d1e5…`). Indholdskontrollen
+gav først `CONTENT_UNEXPECTED n=42`, derefter `CONTENT_OK same=8827 allowed=51` efter projektejerens afgørelse A
+(`decisions.md` 2026-10-25). Genspilsprøven gav `REHEARSAL_OK`.
+
+| Plan | Udfald | Begrundelse |
+| --- | --- | --- |
+| Task 5 Step 6: bindinger 253 nye, `family_sources` 253 | 252 og 252 | Et dubletsvar (`1=3`) bindes efter spec 5b §23.4 til laveste visningsplads, og den nye stikprøve blander pladserne anderledes end beviskæden; ét ægteskab forbliver forslag. Afgørelse A; reglen rettes før 1939 |
+| Task 0 Step 6: `origin` `may_differ` for #244 K4's ene nøgle | + 38 nøgler (19 `human_sheet` → `family_corroboration`, 19 modsat) | Følge af den nye stikprøve (R7/M1); Task 3 Step 5's tillæg målte kun arklagene. Verificeret: de 19 nye `human_sheet` står alle på det nye kontrolark, de 19 andre i korroborationen |
+| Task 5 Step 6: »kanonisk delta 0« | Delta kun i `identity` | Erratum 23/10 (`canon_delta` udelader 5b's eget lag) |
+| Task 6 Step 3-4: stand-in »med prod-tilstandens vagter« | Stand-in = ICU-restore af D1 omdøbt til `daa5ab_data_standin_<ts>`; GO 2-fil fra `17-go2.sh` (kasseres); skrivepausens begin-rapport kopieret fra prod med stand-in'ens måleidentitet | En ny pause på stand-in'en ville begynde efter D1's dump-start (`FREEZE_TIME`); alt andet er de rigtige scripts i stand-in-tilstand |
+| Task 6 Step 4: ændret `change_set` ⇒ `NO_WRITE_SINCE_DUMP` | ⇒ `ENTRY_RESTORE_HASH` | Restore-hashen står før og fanger ændringen; `NO_WRITE_SINCE_DUMP` er forsvar i dybden. Begge stopper før første skrivning |
+| Task 6 Step 3: `authorizations_issued` +1 | `reimport` issued 1 → 2 | Som forventet; 14 udelader laget |
+| Task 7 Step 1: GO 2-filen | `17-go2.sh` binder ikke listen over forventede forskelle selv; den gives som rapportargument sammen med indholdskontrollen og `rehearsal-data.json` | Afgørelse A ændrede listen efter G0 |
+| Task 8 Step 4: `08-advisors.sh` | Ny variant `08-advisors.sh data` (kræver 0 nye fund mod GO 1's `advisors-after.txt`); `08` er nu bundet i GO 2 | `after` fandtes fra GO 1 (`findes allerede`), så Task 8 ville stoppe |
+| Task 8 Step 3: »undo, ret, genspil« | Efter `15-undo-data.sh` fortsætter pausen; `end --efter-fortrydelse` gælder kun GO 1's DDL-fortrydelse | Indgangen kræver en pause fra før D1's dump; en ny pause kan ikke erstatte den |
+
+### Task 7 Step 4: Fable-review og Opus' afvejning (2026-10-25)
+
+Fable: GO med rettelser (8 Important, 6 Minor; fremadvejen 12 → 14 korrekt, fundene i fortrydelses- og
+udgangsvejene). Opus afvejede hvert fund mod koden:
+
+| Fund | Dom | Rettelse |
+| --- | --- | --- |
+| 1 `15` fortryder umålt, hvis genspillet aldrig begyndte | Nødvendig (forenklet) | `UNDO_NOT_STARTED` uden `started.txt`; test i `test-runner.sh`; runbook: `ENTRY_*` i `PRE` ⇒ mål, ikke `15` |
+| 2 GO 1-hashfilen passer ikke (`lib.zsh`, `koer.zsh` ændret) ⇒ `09` død | Nødvendig | Ny GO 1-hashfil på de endelige bytes efter projektejerens ja; bundet i GO 2 |
+| 3 `15` tjekker kun P-delen af D1's ACL-fil, men lægger L-linjerne på | Forenkl | L-delen = kvitteringens `acl_local` (målt: lig) |
+| 4 `comm` under da_DK-kollation; `08 data` kun én gang | Nødvendig | `LC_ALL=C`; tidsstemplet `advisors-data-<ts>.txt` |
+| 5 Ingen vej mellem `VERIFY_OK` og `00 end` | Kendt begrænsning | Runbook: webtjek før `00 end`; fortrydelse efter `VERIFY_OK` kræver beslutning og flyttet markør |
+| 6 `15` måler intet katalog efter `pg_restore --clean` | Forenkl | Portabelt katalog før = efter og = D1's `catalog_portable`; `transfer_catalog_fingerprint.sql` i `B2_REPO_FILES`. Fejllisten sammenlignes manuelt |
+| 7 `verify_go2_hashes` kræver ikke målelinjerne | Forenkl | `go2_fixed_inputs`; hver fast linje skal stå i filen (eksakt sti) |
+| 8 `advisors-after.txt` ubundet | Forenkl | sha som konstant i `lib.zsh`; `08 data` kræver den |
+| 9 `17` uden commit-tjek | Valgfri, taget | `assert_expected_commit`, når `DAA_EXPECTED_COMMIT` er sat |
+| 10-12, 14 Runbook-mangler | Tekst | aktør, git, `ACTOR_*`, `PARTIAL`, uoprettelige koder, ny GO 2 vs. ny arbejdskørsel, konkrete `17`-argumenter, hold-varm |
+| 13 Tilde-stier | Afvist | Redaktion i review-kopien; runbooken kræver absolutte stier |
+| (Opus) `15`'s prod-gren aldrig kørt | Nødvendig | Køres på en genspillet stand-in før GO 2 |
+
+Ændringerne giver nye bytes i private scripts, så genspilsprøven (13) og stand-in-prøverne køres igen på de
+endelige bytes (I1).
