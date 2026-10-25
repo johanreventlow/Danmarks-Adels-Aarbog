@@ -183,7 +183,7 @@ def decision_sql(lines: list[Line], rows: dict, *, sheet_sha256: str, rows_sha25
                     raise SheetError(f"SHEET_POSITION_INVALID line={l.line}")
                 ctx = {**base, "display_position": ps[0]}
                 if len(ps) > 1:
-                    ctx["display_positions"] = ps          # §23.4 errata: dublet; serveren binder til laveste plads
+                    ctx["display_positions"] = ps          # §23.4 errata: dublet; serveren binder efter dubletreglen (familiens post)
                 t1.append(_call("red_afgoer_source_persona", f"{pid}, 'same', NULL, {note}", ctx))
             else:
                 act = {"X": "different", "N": "new_person_needed", "U": "unresolved"}[l.tok]

@@ -13,5 +13,5 @@ SELECT l FROM (
      ('private','persona_family_context'),('public','red_register_identity_control_run'),
      ('private','spouse_exception_projection'),('private','relation_persona_v3_input'),
      ('public','red_afgoer_source_persona'),('private','control_run_status'),
-     ('private','relation_binding_state'))) x
+     ('private','relation_binding_state'),('public','red_source_persona_queue'))) x
  ORDER BY l COLLATE "C";
