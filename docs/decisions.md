@@ -2,6 +2,49 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: #151 — data-ceremonien (GO 2): godkendelsespolitik, 252 bindinger, dubletreglen til rettelse (2026-10-25)
+
+> Plan B2: `docs/superpowers/plans/2026-10-23-trin5ab-overfoersel-b2-ceremoni.md` (Task 5-7). Runbook:
+> `docs/runbooks/transfer-5ab-data-prod.md`. Spec: `docs/superpowers/specs/2026-10-21-trin5ab-2018-20-prod-overfoersel-design.md`
+> (§3 beslutning 4 og 8, §6.3, §11). Punkt 1 og 5 er projektejerens beslutninger 2026-10-23 og 2026-10-25.
+
+**Baggrund:** Arbejdskørsel 3 (commit `1edb762b`, #257) er pakken, prod genspiller (`PACK_OK`, `pack_sha256`
+`46f5d1e5…`; genspilsprøven `REHEARSAL_OK`). Indholdskontrollen mod beviskæden fandt 42 uventede forskelle,
+som projektejeren har afgjort.
+
+**Besluttet:**
+1. **Godkendelsespolitikken:** runneren godkender selv et overført ark, kun når overførslen giver `aendret=0`,
+   hvert bortfald står på arkets egen bortfaldsliste, og arket hverken er kontrolarket eller v3-ægteskabsarket.
+   Alt andet venter på projektejeren; en ny linje uden gammelt svar kræver altid et frisk svar. Alle
+   overførselsrapporter læses samlet før GO 2 og bindes i GO 2. Udfald: fem ark godkendt af projektejeren
+   (kontrol, 2b-i, kø, v2, v3), børnearket automatisk; kontrol-, 2b-i-, kø- og v2-arket er byte-ens med
+   arbejdskørsel 2's.
+2. **Kandidatkørsel 1 (top-k 3) og dens kontrolkørsel genskabes ikke (H3);** de står som forventede bortfald.
+3. **#244 opstod aldrig i prod** (spec beslutning 4). Arbejdskørslen regenererede persona-manifesterne med rigtige
+   ægteskabsnumre; prod har aldrig haft de 4 fejlnumre. Rettelsesvejen (`red_ret_aegteskabsnummer`) er deployet,
+   men ubrugt, og genbindingen med `supersedes` er ikke øvet i prod. Svaroverførslen sammenligner derfor
+   ægteskabsarkenes `S` med den person, svaret bandt i bevisbasen, ikke med et genberegnet gammelt forslag (#257).
+4. **Aktørforskellen:** 2a's bevisbase havde en ekstra redaktørprofil, der traf 2a's afgørelser og ikke findes i
+   de senere baser. I prod er aktøren prods ene redaktørprofil for alle skridt; det er en forventet forskel, som
+   indholdsprojektionen ikke ser.
+5. **252 bindinger, ikke 253 (afgørelse A).** Kontrolarket bruger en ny stikprøve og blander kandidaternes
+   visningspladser. Spec 5b §23.4's dubletregel binder et svar som `1=3` (to personposter er samme individ) til
+   den **laveste visningsplads**. På ét kort stod i beviskæden den personpost øverst, som familien bruger; i
+   arbejdskørslen den anden. Ægtefællen bindes derfor til den anden post, og ægteskabet bliver stående som
+   forslag uden binding og kildehenvisning, til dubletten slås sammen. Desuden skifter 38 identiteter oprindelse
+   mellem kontrolark og familieopslag, fordi stikprøven er ny (19 hver vej; samme personer). Begge dele står som
+   forventede forskelle. Fravalgt: at rette reglen før GO 2 (ny DDL-ceremoni og ny arbejdskørsel for ét
+   ægteskab) og at ændre det blinde kontrolsvar efter udfaldet.
+6. **Dubletreglen rettes før 1939 (åben backlog, DDL):** en dublet skal binde til den bedst rangerede kandidat i
+   dubletmængden, uafhængigt af den blandede visningsplads. Det er latent i 2018-20 (ét tilfælde), men 1939 har
+   langt flere navnefæller.
+7. **Modenhed (spec beslutning 8):** efter `VERIFY_OK` er 5a og 5b's personas, identiteter, bindinger,
+   børnehenvisninger, dispositioner, klassifikationer og P-afvisningen for 2018-20 `produktionsverificeret`.
+   Oprettelse af nye kanoniske personer (0 i hele kæden) og #244's rettelsesvej forbliver `isoleret
+   implementeret`.
+8. **Udgavenavne (spec §11):** ingen nye i permanente overflader. Kædefilen er privat, og
+   `transfer_5ab_content.sql` tager kilden som argument.
+
 ## BESLUTTET: #151 — plan B delt i værktøj (B1) og ceremoni (B2); data-ceremoniens errata (2026-10-22)
 
 > Plan B1: `docs/superpowers/plans/2026-10-22-trin5ab-overfoersel-b1-vaerktoej.md` (to Opus-review-runder, GO med
