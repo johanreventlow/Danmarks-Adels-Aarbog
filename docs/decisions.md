@@ -18,14 +18,21 @@ navnefæller.
 2. **Ingen eller flere i familien ⇒ sag til redaktøren:** identiteten bindes til den bedst rangerede kandidat
    (uafhængig af visningspladsen), evidensen får `duplicate_binding = 'rank'` og `duplicate_family_matches`, og
    `relation_binding_state` binder ikke ægteskabet maskinelt. Redaktøren afgør identiteten igen i den eksisterende
-   identitetskø; den nye evidens frigiver bindingen. Ingen ny webflade.
-3. **Rækkefølgen på arket er uden betydning** (`1=3` = `3=1`; arkværktøjet sorterer allerede).
-4. **Fravalgt:** at fjerne `1=2`-svaret (et korrekt svar på navnefællen ville igen tælle som afvigelse), at lade
+   identitetskø (filter `duplicate_unresolved`, årsag »dublet uafklaret«); den nye evidens frigiver bindingen.
+   Ingen ny webflade. Reserven vælger aldrig hovedpersonen selv; `duplicate_family_matches` er `null`, når
+   familiekonteksten mangler (hovedpersonen er ikke afgjort).
+3. **Kontrolkørslen holder:** status læser arkets afgørelse som hændelsen for den samplede version + 1. »Den seneste
+   status er autoritativ« (5b §7.2) gælder fortsat, med én undtagelse: en senere accepteret afgørelse, der peger på
+   en af de poster, mennesket selv nævnte som samme individ, er en afklaring af dubletten, ikke en ændret
+   stikprøveafgørelse, og vælter ikke kørslen. En afgørelse uden for dubletmængden giver stadig `failed`.
+4. **Rækkefølgen på arket er uden betydning** (`1=3` = `3=1`; arkværktøjet sorterer allerede).
+5. **Fravalgt:** at fjerne `1=2`-svaret (et korrekt svar på navnefællen ville igen tælle som afvigelse), at lade
    rækkefølgen bære valget (fejlbart i en tekstfil), et nyt webvalg (sideprojekt) og en regel om »samme udgave«
    (personposter har ingen udgave; reglen ville fastholde udgavelokale dubletter og afgør ikke dubletter inden
    for én udgave).
-5. **Prod:** kun DDL (`red_afgoer_source_persona`, `control_run_status`, `relation_binding_state`); eksisterende
-   afgørelser er uændrede. Deployes i en DDL-ceremoni før 1939. Det ene ægteskab fra 2018-20 afgøres separat.
+6. **Prod:** kun DDL (`red_afgoer_source_persona`, `control_run_status`, `relation_binding_state`,
+   `red_source_persona_queue`) og webkøens filter; eksisterende afgørelser er uændrede. Deployes efter GO 2's
+   `VERIFY_OK` (2026-10-25) i en DDL-ceremoni før 1939; GO 2-pakken er optaget mod de gamle funktioner. Det ene ægteskab fra 2018-20 afgøres separat.
 
 ## BESLUTTET: #151 — data-ceremonien (GO 2): godkendelsespolitik, 252 bindinger, dubletreglen til rettelse (2026-10-25)
 
