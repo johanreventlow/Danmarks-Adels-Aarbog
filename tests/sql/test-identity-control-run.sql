@@ -437,11 +437,14 @@ BEGIN
       PERFORM pg_temp.f5b_decide_same(v_ctl,v_p,jsonb_build_array(least(v_pe,v_po),greatest(v_pe,v_po)),v_sheet,v_rows);
       RESET ROLE;
       SELECT i.evidence,i.canonical_person_id INTO v_ev,v_person FROM private.source_persona_identity i WHERE i.source_persona_id=v_p;
+      -- Dubletreglen (decisions 2026-10-25): maskinens plads (rang 1) står i familien med hovedpersonen, navnefællen
+      -- (rang 2, hovedpersonen selv) gør ikke ⇒ bindingen er maskinens plads, uanset om den er den laveste.
       IF v_ev->'display_positions'<>jsonb_build_array(least(v_pe,v_po),greatest(v_pe,v_po))
-         OR (v_ev->>'display_position')::int<>least(v_pe,v_po)
+         OR (v_ev->>'display_position')::int<>v_pe
+         OR v_ev->>'duplicate_binding' IS DISTINCT FROM 'family' OR (v_ev->>'duplicate_family_matches')::int<>1
          OR jsonb_array_length(v_ev->'same_individual_person_ids')<>2
          OR v_person<>(SELECT c.candidate_person_id FROM private.identity_control_sample s
-                         JOIN private.source_persona_identity_candidate c ON c.id=(s.mapping->>least(v_pe,v_po)::text)::uuid
+                         JOIN private.source_persona_identity_candidate c ON c.id=(s.mapping->>v_pe::text)::uuid
                         WHERE s.control_run_id=v_ctl AND s.source_persona_id=v_p) THEN
         RAISE EXCEPTION 'CONTROL_TEST_FAILED: dublet-evidens %',v_ev;
       END IF;
@@ -494,8 +497,74 @@ BEGIN
   PERFORM pg_temp.f5b_decide_same(v_ctl,v_p,v_bad,v_sheet,v_rows);
   IF red_evaluate_identity_control_run(v_ctl)<>'failed' THEN RAISE EXCEPTION 'CONTROL_TEST_FAILED: dublet uden maskinens plads bestod'; END IF;
   RESET ROLE;
-  RAISE NOTICE 'OK: 1=2 — kun navnefæller, enighed når maskinens plads er nævnt, binding til laveste plads, dublet i evidensen, ugyldige former afvist, afvigelse ellers';
+  RAISE NOTICE 'OK: 1=2 — kun navnefæller, enighed når maskinens plads er nævnt, binding til familiens post, dublet i evidensen, ugyldige former afvist, afvigelse ellers';
 END $same_individual$;
+
+-- Dubletreglen (#151, decisions 2026-10-25): bindingen afhænger ikke af den blandede visningsplads. Kort 0's ægtefælle
+-- besvares `rang 1 = rang 3` (navnefæller); familien med hovedpersonen afgør: præcis én partner ⇒ den ('family'),
+-- ingen eller begge ⇒ den bedst rangerede ('rank', uafklaret). Hver sag i sin egen verden (personer deles ikke).
+CREATE FUNCTION pg_temp.f5b_dup_case(p_source bigint,p_actor uuid,p_case text) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE w jsonb; v_ctl uuid; v_smp jsonb; v_p uuid; v_sheet text:=repeat('a',64); v_rows text:=repeat('b',64);
+  v_b bigint; v_a bigint; v_x bigint; v_fam bigint; v_pb int; v_px int; v_ev jsonb; v_person bigint; v_state jsonb;
+BEGIN
+  w:=pg_temp.f5b_control_world(p_source,p_actor,'par');
+  PERFORM set_config('request.jwt.claim.sub',p_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  v_ctl:=red_register_identity_control_run((w->>'run')::uuid);
+  v_smp:=red_identity_control_sample(v_ctl);
+  PERFORM red_seal_identity_control_run(v_ctl,v_sheet,v_rows);
+  RESET ROLE;
+  v_p:=(v_smp->'samples'->0->>'source_persona_id')::uuid;
+  SELECT max(c.candidate_person_id) FILTER (WHERE c.rank=1),max(c.candidate_person_id) FILTER (WHERE c.rank=2),
+         max(c.candidate_person_id) FILTER (WHERE c.rank=3) INTO v_b,v_a,v_x
+    FROM private.source_persona_identity_candidate c WHERE c.run_id=(w->>'run')::uuid AND c.source_persona_id=v_p;
+  SELECT max(m.key::int) FILTER (WHERE c.rank=1),max(m.key::int) FILTER (WHERE c.rank=3) INTO v_pb,v_px
+    FROM private.identity_control_sample s, jsonb_each_text(s.mapping) m
+    JOIN private.source_persona_identity_candidate c ON c.id=m.value::uuid
+   WHERE s.control_run_id=v_ctl AND s.source_persona_id=v_p;
+  SELECT fm.family_id INTO v_fam FROM family_member fm WHERE fm.person_id=v_b AND fm.rolle='partner'
+     AND EXISTS (SELECT 1 FROM family_member o WHERE o.family_id=fm.family_id AND o.person_id=v_a AND o.rolle='partner');
+  IF v_fam IS NULL OR v_pb IS NULL OR v_px IS NULL THEN RAISE EXCEPTION 'CONTROL_TEST_FAILED: dubletverden % %',p_case,v_fam; END IF;
+  UPDATE person SET visning_navn=(SELECT visning_navn FROM person WHERE id=v_b) WHERE id=v_x;   -- navnefæller
+  IF p_case IN ('family','none') THEN DELETE FROM family_member WHERE family_id=v_fam AND person_id=v_b; END IF;
+  IF p_case='family' THEN INSERT INTO family_member(family_id,person_id,rolle) VALUES (v_fam,v_x,'partner'); END IF;
+  IF p_case='both' THEN    -- rang 3's post i en anden familie med hovedpersonen (andet ægteskab)
+    UPDATE family_member SET ordinal=1 WHERE family_id=v_fam AND person_id=v_a;
+    PERFORM pg_temp.f5b_family(v_a,v_x,2);
+  END IF;
+  SET LOCAL ROLE authenticated;
+  PERFORM pg_temp.f5b_decide_same(v_ctl,v_p,jsonb_build_array(least(v_pb,v_px),greatest(v_pb,v_px)),v_sheet,v_rows);
+  RESET ROLE;
+  SELECT i.evidence,i.canonical_person_id INTO v_ev,v_person FROM private.source_persona_identity i WHERE i.source_persona_id=v_p;
+  -- ægteskabets maskinelle binding: kun når dubletten er afklaret af familien
+  SELECT private.relation_binding_state(ic.id) INTO v_state FROM private.interpretation_party_current pc
+    JOIN private.interpretation_current ic ON ic.interpretation_key=pc.interpretation_key
+   WHERE pc.source_persona_id=v_p AND pc.party_role='spouse';
+  RETURN jsonb_build_object('ev',v_ev,'person',v_person,'b',v_b,'x',v_x,'pb',v_pb,'px',v_px,'state',v_state);
+END $$;
+
+DO $duplicate_family$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-00000005b609'; r jsonb; c text; v_n int; v_want text;
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  FOR c, v_n IN SELECT * FROM (VALUES ('family',-5621),('none',-5622),('both',-5623)) t LOOP
+    r:=pg_temp.f5b_dup_case(v_n,v_actor,c);
+    v_want:=CASE c WHEN 'family' THEN 'x' ELSE 'b' END;   -- rang 3's post kun ved præcis én partner; ellers rang 1
+    IF (r->>'person')::bigint<>(r->>v_want)::bigint
+       OR (r#>>'{ev,display_position}')::int<>(r->>('p'||v_want))::int
+       OR r#>>'{ev,candidate_rank}'<>(CASE c WHEN 'family' THEN '3' ELSE '1' END)
+       OR r#>>'{ev,duplicate_binding}'<>(CASE c WHEN 'family' THEN 'family' ELSE 'rank' END)
+       OR (r#>>'{ev,duplicate_family_matches}')::int<>(CASE c WHEN 'family' THEN 1 WHEN 'none' THEN 0 ELSE 2 END)
+       OR jsonb_array_length(r#>'{ev,same_individual_person_ids}')<>2
+       -- ægteskabet: bindes kun ved 'family' (til rang 3's post); ved 'both' står rang 1 i en familie med hovedpersonen,
+       -- så uden vagten ville det bindes maskinelt — det skal vente på redaktøren
+       OR (c='family' AND (r#>>'{state,counterpart_person_id}')::bigint IS DISTINCT FROM (r->>'x')::bigint)
+       OR (c<>'family' AND jsonb_typeof(r->'state') IS DISTINCT FROM 'null' AND r->'state' IS NOT NULL) THEN
+      RAISE EXCEPTION 'CONTROL_TEST_FAILED: dubletregel % %',c,r;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: dubletreglen — familiens post vinder (også rang 3 og uanset plads) og ægteskabet bindes; ingen eller begge i familien ⇒ bedst rangerede, uafklaret, ægteskabet venter';
+END $duplicate_family$;
 
 -- Indholds-id (#151, spec 2026-10-21-trin5ab-indholds-id-design.md §3): kontrolkørsel, stikprøve og forældrekort får id
 -- af indholdet; stikprøven trækkes og kortene vises efter indhold (-v2). 23 egnede personas i ét stratum, så K=20

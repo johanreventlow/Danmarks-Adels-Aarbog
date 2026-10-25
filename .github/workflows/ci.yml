@@ -370,8 +370,8 @@ jobs:
             psql -h localhost -U postgres -d reimport_schema_only_5ab -q -v ON_ERROR_STOP=1 -f "$f" >/dev/null; done
           psql -h localhost -U postgres -d reimport_schema_only_5ab -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-5ab-function-parity.sql > parity-5ab-schema.txt
           psql -h localhost -U postgres -d reimport_legacy_empty_153 -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-5ab-function-parity.sql > parity-5ab-upgraded.txt
-          test "$(wc -l < parity-5ab-schema.txt)" -eq 9 || { echo "5ab parity: forventede 9 funktioner" >&2; exit 1; }
-          test "$(wc -l < parity-5ab-upgraded.txt)" -eq 9 || { echo "5ab parity: forventede 9 funktioner (migreret)" >&2; exit 1; }
+          test "$(wc -l < parity-5ab-schema.txt)" -eq 12 || { echo "5ab parity: forventede 12 funktioner" >&2; exit 1; }
+          test "$(wc -l < parity-5ab-upgraded.txt)" -eq 12 || { echo "5ab parity: forventede 12 funktioner (migreret)" >&2; exit 1; }
           cmp parity-5ab-schema.txt parity-5ab-upgraded.txt
           psql -h localhost -U postgres -d reimport_fresh_153 -v ON_ERROR_STOP=1 -c "ALTER TABLE private.reimport_batch ALTER COLUMN expected_counts DROP NOT NULL"
           psql -h localhost -U postgres -d reimport_fresh_153 -At -f tests/sql/inspect-reimport-writer-catalog.sql > reimport-writer-column-drift-catalog.json
