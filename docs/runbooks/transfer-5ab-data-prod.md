@@ -140,7 +140,13 @@ Derefter:
 
 Forventet: 25 linjer `STEP n <navn> WRITE s=…` (skridt uden skrivning: `ALREADY_APPLIED`) og
 `REPLAY_OK steps=25`. Lokalt tog skridtene i alt ca. 6 minutter (kandidater ~150 s, korroboration ~55 s,
-kontrol ~37 s); mod prod forventes det flere gange længere.
+kontrol ~37 s); i prod 2026-10-25 tog kandidater 231 s, korroboration 101 s og kontrol 67 s.
+
+**Tidsgrænsen:** prod afbryder en enkeltsætning efter 2 min (4.4's G7). Runneren sætter derfor
+`statement_timeout = '15min'` for hvert skridts forbindelse og stopper med `TIMEOUT_NOT_SET`, hvis værdien ikke
+når sessionen (rettet 2026-10-25, efter at første forsøg stoppede ved skridt 3 med `STATEMENT_TIMEOUT`). Lokale
+baser har ingen grænse, så en genspilsprøve fanger det kun på en stand-in med `ALTER DATABASE … SET
+statement_timeout = '2min'`.
 
 **Stop i indgangen (`state=PRE`) er ikke en fortrydelsessag.** Intet er skrevet; en `ENTRY_*`-kode betyder,
 at prod har ændret sig siden D1 (også en rullet-tilbage webskrivning ændrer sekvenserne og dermed
@@ -232,3 +238,15 @@ dump. Opgives overførslen helt, fortrydes også DDL'en efter GO 1-runbookens af
 - **Oprydning** af arbejds-, genspils-, stand-in- og diagnosebaser (`daa5ab_data_*`) og karantænen
   `karantaene-test-20261024` (tidligst 2026-11-07): kun efter måling og projektejerens ja. Dumps, pakken,
   `go-env.txt` og bevisbaserne bevares.
+
+## 9. Udfald 2026-10-25
+
+- **GO 2 `d66e19f8…`:** `HOLD_VARM_OK`, `ENTRY_OK state=PRE`; genspillet skrev skridt 1-2 og stoppede ved skridt 3
+  (`STEP_FAILED 3 candidates (STATEMENT_TIMEOUT)`; ét RPC-kald, rullet tilbage). Prod stod i `PARTIAL`, skrivepausen
+  aktiv.
+- **Rettelsen** (afsnit 4, Tidsgrænsen) blev bevist på stand-in s3 med en grænse på 2 min: de gamle bytes gav samme
+  stop, og med de nye fortsatte genoptagelsen fra skridt 3 til `REPLAY_OK` og `VERIFY_OK`. Derefter `RUNNER_OK`, ny
+  genspilsprøve (`REHEARSAL_OK`, 771 s), ny GO 1-hashfil (kun `lib.zsh` afviger) og ny GO 2-fil `4bd78fa9…`.
+- **GO 2 `4bd78fa9…`:** `ENTRY_OK state=PARTIAL NEXT n=3 name=candidates`, skridt 3-25 skrevet,
+  `REPLAY_OK steps=25 slut_sha256=92a609f5…`; `VERIFY_OK` med samme sha, `authorizations_issued=1`;
+  `ADVISORS_DATA_OK nye=0 forsvundne=0` (60 fund, sha = GO 1's); webtjek; `FREEZE_END_OK mode=verify`.
