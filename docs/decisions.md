@@ -2,6 +2,43 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: #240 — de 5 dobbeltfamilier samles; vielsespåstanden flyttes, ikke slettes (2026-10-26)
+
+> Issue #240. Projektejerens valg i chatten (valg A). Runbook: `docs/runbooks/fix-240-dobbeltfamilier-prod.md`.
+> Scripts: `.claude/skills/daa-extract/scripts/fix_240_*.sql`. Reviewet af en uafhængig Opus-reviewer før scripts.
+
+**Baggrund:** 5 par står hver i to familier: én med børn og én tom (188/11, 282/256, 354/363, 361/371, 377/372).
+Indlæseren oprettede én familie og én vielse pr. ægtefælles post, når posterne henviste til hinanden. Fordi
+`relation_binding_state` er fail-closed ved mere end én familie, kunne 7 ægteskaber fra 2018-20 (par 1, 3, 4, 5)
+ikke bindes; de stod som `proposed`. Målt på en kopi af prod efter GO 2: den tomme familie har 0 børn, samme
+partnere (ordinal 1), kun noter og (par 2-5) ét vielsesfaktum, der peger på den. Intet andet i public/private
+henviser til den.
+
+**Besluttet:**
+1. **Familien med børn overlever.** Den tomme families noter (indlæserens kildenoter) flyttes til den.
+2. **Vielsespåstanden flyttes som endnu et belæg** (valg A). Dato, sted, værdi og kilde er ens, men citatet er
+   den anden ægtefælles post, altså et selvstændigt sted i bogen. Påstanden og dens citat flyttes til familiens
+   vielsesfaktum; familiens konklusion beholder sin valgte påstand. Kun den tomme families konklusion og det nu
+   påstandsløse faktum slettes. Invariant 1 holdes; konventionen »én påstand pr. vielse« er ikke et krav i
+   skemaet, og promotion kræver kun ét vielsesfaktum pr. familie. Fravalgt: at slette påstanden som dublet.
+3. **Ægteskaberne afgøres maskinelt bagefter**, med samme RPC'er som GO 2's decide- og bind-skridt
+   (`red_decide_relation_interpretations`, `red_promote_relation_interpretations_batch`), og kun når
+   beslutnings- og promotionsmængden er netop de 7 i den samlede familie. Webfladen afgør ikke ægteskaber.
+4. **Kendt følge: 2018-20's kontrolkørsel beregnes nu som `failed` (`kandidatinput_aendret`).** Den er brugt op:
+   korroborationen af de 174 identiteter skete i GO 2, hændelserne står `sealed → passed`, og kun
+   `red_evaluate_identity_control_run` og `red_corroborate_family_identities` læser den beregnede status (ingen
+   af dem kaldes fra web, og der er intet tilbage at korroborere). Afgørelser læser kun forseglingen. En fremtidig
+   evaluering vil skrive `failed`; det er forventet og ikke en fejl.
+5. **Fortryd** (`red_fortryd_change_set`) er byte-trofast, men kun indtil ægteskaberne er afgjort; bagefter ville
+   den genskabe en anden familie under 7 accepterede tolkninger.
+6. **Synlighed:** par 2's familie med børn er ikke offentlig (et medlem er ikke offentligt), mens den tomme var.
+   Efter sammenlægningen ser anonyme læsere ikke længere parrets vielse og noter. Strammere, i tråd med
+   invariant 8.
+7. **Prod:** én session i projektejerens shell (`18-fix-240.sh`): måling → dump → dubletreglens DDL (#260) →
+   måling → sammenlægning → ægteskaber → måling. Før 1939's kandidatkørsel registreres, så 1939 ser én familie
+   pr. par. Grundårsagen i indlæseren rettes ikke nu (`load_daa.R` er historisk; genimport går gennem
+   evidenskæden), men en genindlæsning med den gamle indlæser ville genskabe dobbeltfamilierne.
+
 ## BESLUTTET: #151 — dubletreglen: familiens post vinder, uafklarede dubletter venter på redaktøren (2026-10-25)
 
 > Retter punkt 6 i GO 2-beslutningen nedenfor. Spec 5b §23.4 (rettelse samme dato). Projektejerens valg i chatten.
