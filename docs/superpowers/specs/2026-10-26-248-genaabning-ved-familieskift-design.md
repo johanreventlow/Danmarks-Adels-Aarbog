@@ -1,7 +1,8 @@
 # #248 rute A: genåbning af et accepteret ægteskab ved familieskift — design
 
 - **Issue:** #248. **Beslutning:** `docs/decisions.md` (#248, 2026-10-26), punkt 2 og 4.
-- **Forudsætning:** skridt 1 (`fix_248_identitet.sql`) er kørt i prod. De to ægtefæller peger på den rigtige
+- **Forudsætning:** skridt 1 (`fix_248_identitet.sql`) er kørt i prod 2026-10-26 (PR #265, GO 248 `cc3d684e`,
+  `FIX248 fase=efter`; kørselsnote PR #266). De to ægtefæller peger på den rigtige
   person, og deres ægteskaber står `accepted` uden gældende binding.
 - **Review:** ruterne er reviewet af Fable (GO til A med ændringer). Ændringerne er indarbejdet her.
 
