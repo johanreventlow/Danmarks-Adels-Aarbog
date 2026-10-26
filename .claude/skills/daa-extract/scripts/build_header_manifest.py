@@ -195,7 +195,11 @@ def _invariants(headers: list[dict[str, Any]], posts: list[dict[str, Any]],
 
 
 def build_manifest(rendition_bytes: bytes, profile: dict[str, Any],
-                   legacy: list[dict[str, Any]]) -> dict[str, Any]:
+                   legacy: list[dict[str, Any]],
+                   parents: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """parents: 5b-bundne forælder-barn-par som {child, parent} record_keys. Barn og forælder i samme linje
+    skal stå præcis ét slægtled fra hinanden; ellers unresolved (et skift uden overskrift midt i et slægtled
+    ses ikke af legacy, der er samme læsning af teksten)."""
     expected_sha = profile.get('raw_text_sha256')
     if expected_sha is not None and hashlib.sha256(rendition_bytes).hexdigest() != expected_sha:
         raise HeaderManifestError('HEADER_RENDITION_SHA_MISMATCH')
@@ -250,6 +254,19 @@ def build_manifest(rendition_bytes: bytes, profile: dict[str, Any],
             'status': 'unresolved' if reasons else 'machine_ok',
             'reasons': reasons,
         })
+
+    by_key = {p['record_key']: p for p in placements}
+    flagged: set[str] = set()
+    for pair in parents or []:
+        child, parent = by_key.get(pair['child']), by_key.get(pair['parent'])
+        if child is None or parent is None or child['entry_code'] != parent['entry_code'] \
+                or child['generation_local'] is None or parent['generation_local'] is None:
+            continue
+        if child['generation_local'] != parent['generation_local'] + 1 and child['record_key'] not in flagged:
+            flagged.add(child['record_key'])
+            child['reasons'].append('uenig:foraelder_generation')
+            child['status'] = 'unresolved'
+            disagreements.append({'record_key': child['record_key'], 'field': 'foraelder_generation'})
 
     rendered = {p['record_key'] for p in placements}
     for key in sorted(set(legacy_by_key) - rendered):
@@ -307,7 +324,7 @@ def main(argv: list[str] | None = None) -> int:
     # Renditionen (work/raw_full.txt) er sha-bundet af profilen; kun manifestet og legacy er private.
     manifest = build_manifest(Path(args.rendition_text).read_bytes(),
                               {'raw_text_sha256': profile['raw_text_sha256'], 'entry_codes': legacy['entries']},
-                              legacy['rows'])
+                              legacy['rows'], legacy.get('parents'))
     fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, 'w', encoding='utf-8') as fh:
         json.dump(manifest, fh, ensure_ascii=False, sort_keys=True, indent=1)

@@ -139,6 +139,22 @@ class TestHeaderManifest(unittest.TestCase):
         for navn, mm in brudt.items():
             self.assertFalse(mm['invariants'][navn], navn)
 
+    def test_foraelder_generation_krydscheck(self):
+        # 5b-bundne forælder-barn-par: barnet skal stå præcis ét slægtled under forælderen i samme linje.
+        # Et skift uden overskrift midt i et slægtled ses ellers ikke (legacy er samme læsning).
+        parents = [{'child': 'I-1a', 'parent': 'I-1'}, {'child': 'I-2', 'parent': 'I-1'},
+                   {'child': 'I-3', 'parent': 'I-2'},          # samme slægtled → brud
+                   {'child': 'II-1', 'parent': 'I-3'},         # anden linje → ikke sammenlignet
+                   {'child': 'I-1', 'parent': 'X-9'}]          # forælder uden placering → ikke sammenlignet
+        m = bhm.build_manifest(rendition(*BASIS), {'entry_codes': ENTRIES}, LEGACY, parents)
+        p = placement(m, 'I-3')
+        self.assertEqual(p['status'], 'unresolved')
+        self.assertIn('uenig:foraelder_generation', p['reasons'])
+        self.assertIn({'record_key': 'I-3', 'field': 'foraelder_generation'}, m['disagreements'])
+        for key in ('I-1', 'I-1a', 'I-2', 'II-1'):
+            self.assertEqual(placement(m, key)['status'], 'machine_ok', key)
+        self.assertEqual(placement(build(), 'I-3')['status'], 'machine_ok')   # uden par: uændret
+
     def test_nr_hul_daekket_af_trykt_interval(self):
         # Bogen samler numre i ét kollektivt opslag (»95.-97. Ord.«); kun et hul, som et
         # interval dækker præcist, er tilladt. Andre huller bryder stadig invarianten.
