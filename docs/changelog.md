@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-10-26 — GO 2's ene dubletægteskab rettet i prod
+
+Opfølgning i `docs/runbooks/fix-240-dobbeltfamilier-prod.md` (afsnittet efter trin 9), repo `82039701` (PR #263),
+GO 240 `ebffa718` (= generalprøvens), kørt af projektejeren med `~/.private/5ab-overfoersel/18-fix-240.sh`.
+
+- **Måling før:** `MAAL_240_OK ddl151=efter fase=bundet` (sha `576215b99bfe…`, uændret siden #240), `DUBLET_GO2
+  fase=foer`.
+- **Rettelse:** ægtefællen afgjort igen til familiens post 753 med `red_afgoer_source_persona`; ægteskabet afgjort og
+  bundet til familie 202 (`DUBLET_GO2_OK identitet=753 decided=1 promoted=1`). Kun data, ingen DDL.
+- **Måling efter:** `MAAL_240_OK ddl151=efter fase=bundet` (samme sha, #240 uberørt), `DUBLET_GO2 fase=efter`.
+  GO 2's bindinger er dermed 253, som oprindeligt forventet (252 + 1; decisions 2026-10-25, afgørelse A).
+
 ## 2026-10-26 — #240 og dubletreglen i prod
 
 Prod-session efter `docs/runbooks/fix-240-dobbeltfamilier-prod.md`, repo `34a016f2` (PR #261), GO 240 `9e7bfa20`,

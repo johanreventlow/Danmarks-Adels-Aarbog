@@ -70,6 +70,9 @@ Prøvet på en kopi af prod i dagens tilstand (2-minutters grænse). Rækkeantal
 public og private: +1 i identitetshændelser, fortolkninger, observationer, promotioner og promotionsbatcher, 0 i
 kanoniske tabeller. Ingen fortryd-vej; dumpet fra trin 4 er nødudvejen.
 
+**Kørt i prod 2026-10-26** (repo `82039701`, GO 240 `ebffa718`): alle fire skridt gav det forventede, og shaen
+`576215b99bfe` var uændret før og efter.
+
 ## Fortrydelse
 
 - **Efter trin 7 og før trin 8:** `18-fix-240.sh fortryd <cs> --jeg-mener-det --go <kode>` giver
