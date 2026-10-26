@@ -2983,6 +2983,9 @@ DECLARE
     'public.red_marriage_ordinal_correction_input(bigint)'::regprocedure,
     'public.red_ret_aegteskabsnummer(uuid,integer,text,jsonb)'::regprocedure,
     'public.red_genaabn_relation_interpretation(uuid,integer,text,jsonb)'::regprocedure,
+    'public.red_preview_placement_memberships(bigint)'::regprocedure,
+    'public.red_promote_placement_memberships(bigint,text)'::regprocedure,
+    'public.red_reverse_placement_membership(bigint,bigint,text)'::regprocedure,
     'public.red_relation_disposition_input(bigint)'::regprocedure,
     'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
     'public.red_kasser_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
@@ -10374,5 +10377,13 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.slaegt'::regclass AND tgname='trg_log_slaegt') THEN
     RAISE EXCEPTION 'VERIFY_FAILED: 150 slaegt versioneres ikke';
   END IF;
+  FOREACH f IN ARRAY ARRAY['private.membership_state(uuid)','private.membership_is_current(bigint,bigint)',
+      'private.placement_membership_not_current()','private.placement_membership_set(bigint)'] LOOP
+    IF to_regprocedure(f) IS NULL OR has_function_privilege('authenticated',f,'EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 150 membership-funktion %',f;
+    END IF;
+  END LOOP;
+  -- Helbred (spec §4.4): promoverede memberships, hvis tilstand er ændret siden; 5c-2's læsere filtrerer på gældende.
+  RAISE NOTICE 'PLACEMENT_MEMBERSHIP_NOT_CURRENT n=%',private.placement_membership_not_current();
   RAISE NOTICE 'OK: #150 — legacy-ledger, private placement-skrivefunktioner, slaegt versioneret';
 END $verify_150_ledger$;

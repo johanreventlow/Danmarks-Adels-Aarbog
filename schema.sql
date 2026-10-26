@@ -2931,6 +2931,166 @@ END $$;
 REVOKE ALL ON FUNCTION private.lineage_of_entry(bigint) FROM PUBLIC,anon,authenticated,service_role;
 -- Placement-skrivefunktionerne slutter her.
 
+-- #150 trin 5c-1 (spec §4.4): membership via promotion. Tilstanden for en accepteret principal_member-persona-placement
+-- med accepteret identitet; NULL ellers. En membership gælder kun, når dens state_sha256 svarer til den nuværende
+-- tilstand (som relationsbindinger, #248): en senere identitets- eller placement-rettelse gør den ikke-gældende.
+CREATE OR REPLACE FUNCTION private.membership_state(p_persona_placement_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SET search_path=pg_catalog,public,private AS $$
+DECLARE v jsonb;
+BEGIN
+  SELECT jsonb_build_object('person_id',i.canonical_person_id,'lineage_id',private.lineage_of_entry(rp.scheme_entry_id),
+           'slaegt_id',e.slaegt_id,'persona_placement_id',pp.id,'record_placement_id',rp.id,
+           'identity_version',i.version,'rule_version','placement-membership-v1')
+    INTO v
+    FROM private.source_persona_placement_current pp
+    JOIN private.source_record_placement_current rp ON rp.id=pp.record_placement_id AND rp.decision_status='accepted'
+    JOIN public.lineage_scheme_entry e ON e.id=rp.scheme_entry_id
+    JOIN private.source_persona_identity i ON i.source_persona_id=pp.source_persona_id
+     AND i.decision_status='accepted' AND i.canonical_person_id IS NOT NULL
+   WHERE pp.id=p_persona_placement_id AND pp.decision_status='accepted' AND pp.placement_role='principal_member';
+  RETURN v;
+END $$;
+REVOKE ALL ON FUNCTION private.membership_state(uuid) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION private.membership_is_current(p_person_id bigint,p_lineage_id bigint)
+RETURNS boolean LANGUAGE plpgsql STABLE SET search_path=pg_catalog,public,private AS $$
+DECLARE b jsonb; v jsonb; v_sha text;
+BEGIN
+  SELECT source_basis INTO b FROM public.person_lineage_membership WHERE person_id=p_person_id AND lineage_id=p_lineage_id;
+  IF b IS NULL OR b->>'persona_placement_id' IS NULL THEN RETURN false; END IF;
+  v:=private.membership_state((b->>'persona_placement_id')::uuid);
+  IF v IS NULL THEN RETURN false; END IF;
+  v_sha:=private.reimport_canonical_json_sha256(v);
+  RETURN v_sha=b->>'state_sha256' AND (v->>'person_id')::bigint=p_person_id AND (v->>'lineage_id')::bigint=p_lineage_id
+     AND EXISTS (SELECT 1 FROM public.person_slaegt_membership m WHERE m.person_id=p_person_id
+                   AND m.slaegt_id=(v->>'slaegt_id')::bigint AND m.source_basis->>'state_sha256'=v_sha);
+END $$;
+REVOKE ALL ON FUNCTION private.membership_is_current(bigint,bigint) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Helbredstal (db-verify NOTICE): promoverede linjemedlemskaber, der ikke længere er gældende.
+CREATE OR REPLACE FUNCTION private.placement_membership_not_current()
+RETURNS bigint LANGUAGE plpgsql STABLE SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  RETURN (SELECT count(*) FROM public.person_lineage_membership m
+           WHERE m.source_basis->>'rule_version'='placement-membership-v1'
+             AND NOT private.membership_is_current(m.person_id,m.lineage_id));
+END $$;
+REVOKE ALL ON FUNCTION private.placement_membership_not_current() FROM PUBLIC,anon,authenticated,service_role;
+
+-- Promotionssættet for én kilde: ét item pr. gældende principal_member-persona-placement. reason_code: eligible,
+-- already_current, not_accepted, conflict (en række ejes af noget andet, eller to placements giver samme person).
+CREATE OR REPLACE FUNCTION private.placement_membership_set(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SET search_path=pg_catalog,public,private AS $$
+DECLARE v_items jsonb;
+BEGIN
+  WITH pp AS (
+    SELECT pc.id,private.membership_state(pc.id) AS st
+      FROM private.source_persona_placement_current pc
+      JOIN private.source_record_placement rp ON rp.id=pc.record_placement_id
+      JOIN private.source_record r ON r.id=rp.source_record_id AND r.source_id=p_source_id
+     WHERE pc.placement_role='principal_member'
+  ), x AS (
+    SELECT pp.id,pp.st,private.reimport_canonical_json_sha256(pp.st) AS sha,
+           (pp.st->>'person_id')::bigint AS person_id,(pp.st->>'lineage_id')::bigint AS lineage_id,
+           (pp.st->>'slaegt_id')::bigint AS slaegt_id,
+           (SELECT l.source_basis FROM public.person_lineage_membership l
+             WHERE l.person_id=(pp.st->>'person_id')::bigint AND l.lineage_id=(pp.st->>'lineage_id')::bigint) AS lb,
+           (SELECT m.source_basis FROM public.person_slaegt_membership m
+             WHERE m.person_id=(pp.st->>'person_id')::bigint AND m.slaegt_id=(pp.st->>'slaegt_id')::bigint) AS sb,
+           count(*) FILTER (WHERE pp.st IS NOT NULL) OVER (PARTITION BY pp.st->>'person_id') AS same_person
+      FROM pp
+  ), y AS (
+    SELECT x.*,CASE
+      WHEN x.st IS NULL THEN 'not_accepted'
+      WHEN x.same_person>1 THEN 'conflict'
+      WHEN (x.lb IS NOT NULL AND x.lb->>'persona_placement_id' IS DISTINCT FROM x.id::text)
+        OR (x.sb IS NOT NULL AND x.sb->>'persona_placement_id' IS DISTINCT FROM x.id::text) THEN 'conflict'
+      WHEN x.lb->>'state_sha256'=x.sha AND x.sb->>'state_sha256'=x.sha THEN 'already_current'
+      ELSE 'eligible' END AS reason_code
+      FROM x
+  )
+  SELECT coalesce(jsonb_agg(jsonb_build_object('persona_placement_id',y.id,'person_id',y.person_id,'lineage_id',y.lineage_id,
+           'slaegt_id',y.slaegt_id,'state_sha256',y.sha,'eligible',y.reason_code='eligible','reason_code',y.reason_code)
+           ORDER BY y.id::text COLLATE "C"),'[]'::jsonb)
+    INTO v_items FROM y;
+  RETURN jsonb_build_object('items',v_items,'preview_sha256',private.reimport_canonical_json_sha256(jsonb_build_object(
+    'contract','placement-membership-preview-v1','source_id',p_source_id,'items',v_items,
+    'database_identity',jsonb_build_object('database_name',current_database(),
+      'system_identifier',(pg_control_system()).system_identifier::text)::text)));
+END $$;
+REVOKE ALL ON FUNCTION private.placement_membership_set(bigint) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION public.red_preview_placement_memberships(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  RETURN private.placement_membership_set(p_source_id);
+END $$;
+REVOKE ALL ON FUNCTION public.red_preview_placement_memberships(bigint) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_preview_placement_memberships(bigint) TO authenticated;
+
+-- Fremmer de egnede items under ét eget change_set: person_lineage_membership (member) og person_slaegt_membership
+-- (agnatic; gifte-ind får aldrig et item). source_basis = tilstanden + state_sha256 + source_id. Fail-closed ved drift
+-- eller konflikt. Rydder app.change_set_id før retur.
+CREATE OR REPLACE FUNCTION public.red_promote_placement_memberships(p_source_id bigint,p_preview_sha256 text)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_set jsonb; i jsonb; v_basis jsonb; v_n integer:=0;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_CHANGE_SET';
+  END IF;
+  v_set:=private.placement_membership_set(p_source_id);
+  IF v_set->>'preview_sha256' IS DISTINCT FROM p_preview_sha256 THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_PREVIEW_DRIFT'; END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_set->'items') x WHERE x->>'reason_code'='conflict') THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_CONFLICT';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_set->'items') x WHERE (x->>'eligible')::boolean) THEN RETURN 0; END IF;
+  PERFORM public.begin_change_set('placement_membership','placement-membership-v1 source '||p_source_id);
+  FOR i IN SELECT x FROM jsonb_array_elements(v_set->'items') x WHERE (x->>'eligible')::boolean LOOP
+    v_basis:=private.membership_state((i->>'persona_placement_id')::uuid)
+             ||jsonb_build_object('state_sha256',i->>'state_sha256','source_id',p_source_id);
+    INSERT INTO public.person_lineage_membership(person_id,lineage_id,role,source_basis)
+      VALUES ((i->>'person_id')::bigint,(i->>'lineage_id')::bigint,'member',v_basis)
+      ON CONFLICT (person_id,lineage_id) DO UPDATE SET role='member',source_basis=excluded.source_basis;
+    INSERT INTO public.person_slaegt_membership(person_id,slaegt_id,membership_kind,source_basis)
+      VALUES ((i->>'person_id')::bigint,(i->>'slaegt_id')::bigint,'agnatic',v_basis)
+      ON CONFLICT (person_id,slaegt_id) DO UPDATE SET membership_kind='agnatic',source_basis=excluded.source_basis;
+    v_n:=v_n+1;
+  END LOOP;
+  PERFORM set_config('app.change_set_id','',true);
+  RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION public.red_promote_placement_memberships(bigint,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_promote_placement_memberships(bigint,text) TO authenticated;
+
+-- Fortrydelse af én promoveret membership: sletter linje- og slægtsrækken under et eget change_set (før-billedet
+-- bevares i change_event). Kun rækker, promotionen ejer.
+CREATE OR REPLACE FUNCTION public.red_reverse_placement_membership(p_person_id bigint,p_lineage_id bigint,p_note text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE b jsonb;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_CHANGE_SET';
+  END IF;
+  IF btrim(coalesce(p_note,''))='' THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_NOTE_REQUIRED'; END IF;
+  SELECT source_basis INTO b FROM public.person_lineage_membership
+   WHERE person_id=p_person_id AND lineage_id=p_lineage_id FOR UPDATE;
+  IF b IS NULL OR b->>'rule_version' IS DISTINCT FROM 'placement-membership-v1' THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_NOT_FOUND';
+  END IF;
+  PERFORM public.begin_change_set('placement_membership_reversal',btrim(p_note),'person',p_person_id);
+  DELETE FROM public.person_lineage_membership WHERE person_id=p_person_id AND lineage_id=p_lineage_id;
+  DELETE FROM public.person_slaegt_membership
+   WHERE person_id=p_person_id AND slaegt_id=(b->>'slaegt_id')::bigint
+     AND source_basis->>'persona_placement_id'=b->>'persona_placement_id';
+  PERFORM set_config('app.change_set_id','',true);
+END $$;
+REVOKE ALL ON FUNCTION public.red_reverse_placement_membership(bigint,bigint,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_reverse_placement_membership(bigint,bigint,text) TO authenticated;
+-- Membership-promotionen slutter her.
+
 -- ---------- UDLEDT SLÆGTSNAVN: cyklus-sikre lineage-graf-walkers ----------
 -- Bruges BÅDE til skrive-tids cyklus-forebyggelse (BEFORE-trigger nedenfor) OG læse-tids
 -- efternavns-opslag/subtræ-regen (docs/superpowers/specs/2026-07-03-udledt-slaegtsnavn-design.md
