@@ -886,6 +886,20 @@ BEGIN
      OR (private.relation_binding_state(v_id2)->>'counterpart_person_id')::bigint<>-24803 THEN
     RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: dobbeltmål-kontrol';
   END IF;
+  -- kontrol: en ægtefælle i en ANDEN post accepteret til samme person som sp1 er ikke et dobbeltmål
+  p:=pg_temp.f5b_post(-24801,s,'N-2','Anden N. g. m. Navnefælle.',ARRAY['Anden N.','g. m. Navnefælle.'],-24804,v_actor);
+  PERFORM pg_temp.f2a_event_for_state((p->>'principal')::uuid);
+  c2:=pg_temp.f5b_claim(-24801,s,'relation.marriage',(p->'clauses'->>1)::uuid,'g. m. Navnefælle.');
+  sp2:=pg_temp.f5b_spouse(-24801,s,p,c2,(p->'clauses'->>1)::uuid,'Navnefælle',1);
+  INSERT INTO private.source_persona_identity_event(source_persona_id,canonical_person_id,decision_status,version,evidence,
+    decided_by,decided_by_name,decided_at) VALUES (sp2,-24802,'accepted',1,'{"fixture":"248"}',v_actor,'fixture',v_at);
+  INSERT INTO private.source_persona_identity(source_persona_id,canonical_person_id,decision_status,version,evidence,
+    decided_by,decided_by_name,decided_at) VALUES (sp2,-24802,'accepted',1,'{"fixture":"248"}',v_actor,'fixture',v_at);
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  IF private.relation_binding_state(v_id1) IS NULL
+     OR (private.relation_binding_state(v_id1)->>'counterpart_person_id')::bigint<>-24802 THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: anden post ramt af vagten';
+  END IF;
   RAISE NOTICE 'OK: dobbeltmål på menneskevejen';
 END $dobbeltmaal_menneskevej$;
 ROLLBACK;
