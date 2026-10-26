@@ -139,6 +139,19 @@ class TestHeaderManifest(unittest.TestCase):
         for navn, mm in brudt.items():
             self.assertFalse(mm['invariants'][navn], navn)
 
+    def test_nr_hul_daekket_af_trykt_interval(self):
+        # Bogen samler numre i ét kollektivt opslag (»95.-97. Ord.«); kun et hul, som et
+        # interval dækker præcist, er tilladt. Andre huller bryder stadig invarianten.
+        lines = [l.replace('3.  Dora', '6.  Dora') for l in BASIS]
+        daekket = lines[:10] + ['            3.-5.   Sønner.'] + lines[10:]
+        legacy = [dict(r, record_key='I-6', nr=6) if r['record_key'] == 'I-3' else r for r in LEGACY]
+        self.assertTrue(build(daekket, legacy)['invariants']['nr_fortloebende'])
+        for interval in ('3.-4.', '4.-5.', '3.-6.'):
+            forkert = lines[:10] + [f'            {interval}   Sønner.'] + lines[10:]
+            self.assertFalse(build(forkert, legacy)['invariants']['nr_fortloebende'], interval)
+        efter = lines + ['            3.-5.   Sønner.']
+        self.assertFalse(build(efter, legacy)['invariants']['nr_fortloebende'])
+
     def test_offsets_renditionsabsolutte(self):
         raw = rendition(*BASIS)
         text = raw.decode('utf-8')

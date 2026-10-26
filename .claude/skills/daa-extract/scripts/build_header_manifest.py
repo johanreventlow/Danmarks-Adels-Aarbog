@@ -19,6 +19,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -34,6 +35,8 @@ HEADER_RULE_VERSION = 'header-2018-20-v1'
 LEVELS = ('linje', 'slaegtled', 'kuld', 'aegteskab')
 LEGACY_FIELDS = ('linje', 'nr', 'slaegtled_lokal', 'slaegtled_gennem', 'kuld')
 ROMAN_VALUES = {'I': 1, 'V': 5, 'X': 10}
+# Bogens kollektive opslag over flere numre (»95.-97. Ord.«): ingen person, men det dækker et nr-hul.
+RANGE_RE = re.compile(r'^\s*(\d{1,4})\.\s*[-–]\s*(\d{1,4})\.\s')
 
 
 class HeaderManifestError(ValueError):
@@ -77,8 +80,8 @@ def _header(kind: str, text: str, char_from: int, char_to: int, page_from: int |
     }
 
 
-def _scan(text: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Overskrifter og poster i dokumentorden; hver post bærer de aktive overskrifter."""
+def _scan(text: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Overskrifter, poster og nr-intervaller i dokumentorden; hver post bærer de aktive overskrifter."""
     lines = text.split('\n')
     bases, pages, cursor, page = [], [], 0, None
     for line in lines:
@@ -91,6 +94,7 @@ def _scan(text: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
 
     headers: list[dict[str, Any]] = []
     posts: list[dict[str, Any]] = []
+    ranges: list[dict[str, Any]] = []
     active: dict[str, dict[str, Any]] = {}
     consumed: set[int] = set()
 
@@ -135,11 +139,28 @@ def _scan(text: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         if m:
             posts.append({'nr': int(m.group(2)), 'nr_label': m.group(2) + m.group(3),
                           'active': dict(active)})
-    return headers, posts
+            continue
+        m = RANGE_RE.match(line)
+        if m and 'linje' in active:
+            ranges.append({'lo': int(m.group(1)), 'hi': int(m.group(2)),
+                           'linje': active['linje']['element_id'], 'after_posts': len(posts)})
+    return headers, posts, ranges
+
+
+def _numbers_consecutive(seq: list[tuple[int, int]]) -> bool:
+    """seq = (fra, til) i dokumentorden: en post er (nr, nr), et interval (lo, hi). Start i 1;
+    en post må gentage forrige nr (15a/15b); et interval skal begynde lige efter forrige nr."""
+    prev, prev_is_post = 0, False
+    for lo, hi in seq:
+        is_post = lo == hi
+        if not (lo == prev + 1 or (is_post and prev_is_post and lo == prev)) or hi < lo:
+            return False
+        prev, prev_is_post = hi, is_post
+    return True
 
 
 def _invariants(headers: list[dict[str, Any]], posts: list[dict[str, Any]],
-                entry_codes: list[str]) -> dict[str, bool]:
+                ranges: list[dict[str, Any]], entry_codes: list[str]) -> dict[str, bool]:
     linje_romans = [h['parsed']['roman'] for h in headers if h['kind'] == 'header_linje']
     ordinals: dict[str, list] = {}
     kuld: dict[str, list] = {}
@@ -153,20 +174,22 @@ def _invariants(headers: list[dict[str, Any]], posts: list[dict[str, Any]],
             ordinals.setdefault(linje, []).append(h['parsed']['ordinal'])
         elif h['kind'] == 'header_kuld':
             kuld.setdefault(f'{linje}/{slaegtled}', []).append(roman_to_int(h['parsed']['kuld']))
-    numbers: dict[str, list[int]] = {}
+    numbers: dict[str, list[tuple[int, int, int]]] = {}
     keys = []
-    for p in posts:
+    for index, p in enumerate(posts):
         if 'linje' in p['active']:
-            numbers.setdefault(p['active']['linje']['element_id'], []).append(p['nr'])
+            numbers.setdefault(p['active']['linje']['element_id'], []).append((index, p['nr'], p['nr']))
         keys.append(p['record_key'])
+    for r in ranges:  # et interval efter post k står før post k+1
+        numbers.setdefault(r['linje'], []).append((r['after_posts'] - 0.5, r['lo'], r['hi']))
     return {
         'linje_overskrifter_svarer_til_entries': linje_romans == list(entry_codes),
         'poster_har_linje': all(p['entry_code'] is not None for p in posts),
         'slaegtled_fortloebende': all(None not in seq and all(b == a + 1 for a, b in zip(seq, seq[1:]))
                                       for seq in ordinals.values()),
         'kuld_stigende': all(all(b > a for a, b in zip(seq, seq[1:])) for seq in kuld.values()),
-        'nr_fortloebende': all(not seq or (seq[0] == 1 and all(b - a in (0, 1) for a, b in zip(seq, seq[1:])))
-                               for key, seq in numbers.items() if key.startswith('header:')),
+        'nr_fortloebende': all(_numbers_consecutive([(lo, hi) for _, lo, hi in sorted(seq)])
+                               for seq in numbers.values()),
         'record_keys_unikke': len(keys) == len(set(keys)),
     }
 
@@ -177,7 +200,7 @@ def build_manifest(rendition_bytes: bytes, profile: dict[str, Any],
     if expected_sha is not None and hashlib.sha256(rendition_bytes).hexdigest() != expected_sha:
         raise HeaderManifestError('HEADER_RENDITION_SHA_MISMATCH')
     entry_codes = list(profile['entry_codes'])
-    headers, posts = _scan(rendition_bytes.decode('utf-8'))
+    headers, posts, ranges = _scan(rendition_bytes.decode('utf-8'))
     legacy_by_key = {row['record_key']: row for row in legacy}
 
     placements = []
@@ -236,7 +259,7 @@ def build_manifest(rendition_bytes: bytes, profile: dict[str, Any],
         'header_rule_version': HEADER_RULE_VERSION,
         'headers': headers,
         'placements': placements,
-        'invariants': _invariants(headers, posts, entry_codes),
+        'invariants': _invariants(headers, posts, ranges, entry_codes),
         'disagreements': sorted(disagreements, key=lambda d: (str(d['record_key']), d['field'])),
     }
 
