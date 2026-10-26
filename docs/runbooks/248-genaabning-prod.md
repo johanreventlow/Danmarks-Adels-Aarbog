@@ -18,8 +18,8 @@ AI'en har ingen prod-forbindelse.
 
 | Sag | Ægteskab | Afgjort for | Bindes til |
 |---|---|---|---|
-| 1 | Iwan (94), 4° | familie 64 | familie 65 |
-| 2 | Abel (286), 2° | familie 193 | familie 194 |
+| 1 | person 94, 4° | familie 64 | familie 65 |
+| 2 | person 286, 2° | familie 193 | familie 194 |
 
 Søskendeægteskaberne (3° på familie 64, 1° på familie 193) røres ikke.
 

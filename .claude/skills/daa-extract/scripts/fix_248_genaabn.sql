@@ -4,8 +4,8 @@
 -- (GO 248's arkkontekst), afgøres med red_decide_relation_interpretations og bindes til den rigtige familie med
 -- red_promote_relation_interpretations_batch — samme RPC'er som overførslen, i én transaktion og kun når beslutnings-
 -- og promotionsmængden er netop de to.
---   Sag 1: Iwan Reventlow (94), 4°: afgjort for familie 64, bindes til familie 65.
---   Sag 2: Abel Reventlow (286), 2°: afgjort for familie 193, bindes til familie 194.
+--   Sag 1: person 94, 4°: afgjort for familie 64, bindes til familie 65.
+--   Sag 2: person 286, 2°: afgjort for familie 193, bindes til familie 194.
 -- Søskendeægteskaberne (3° på familie 64, 1° på familie 193) må ikke røres.
 -- Forhåndsbetingelser `FIX248A_PRE_*`, efterbetingelser `FIX248A_POST_*`; én transaktion.
 -- Brug: psql -X -At -v ON_ERROR_STOP=1 -v actor=<redaktør-uuid> -v src=1 -f fix_248_genaabn.sql
