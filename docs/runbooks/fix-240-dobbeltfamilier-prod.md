@@ -53,6 +53,23 @@ Alle kommandoer køres som `/bin/zsh -f ~/.private/5ab-overfoersel/koer.zsh <scr
 10. `18-fix-240.sh advisors`: sikkerhedsrådgiveren (Supabase CLI, som `08-advisors.sh`); ingen nye fund mod GO 1's
     `advisors-after.txt`, `ADVISORS_240_OK nye=0`.
 
+## Opfølgning: GO 2's ene dubletægteskab (efter trin 9)
+
+I GO 2 svarede kontrolarket `731=753` på ét ægtefællekort (samme kvinde som to personposter). Den gamle regel bandt
+hende til 731 (familie 179 med 261); ægteskabet er med 294 (familie 202 med 753) og kunne derfor ikke bindes. Efter
+den nye regel er 753 familiens post og kandidat nr. 1.
+
+1. `18-fix-240.sh go` (filmængden omfatter nu `fix_go2_dublet*.sql`; ny GO-kode) og `GO 240 <kode>`.
+2. `18-fix-240.sh maal`: forventet `MAAL_240_OK ddl151=efter fase=bundet` og `DUBLET_GO2 fase=foer`.
+3. `18-fix-240.sh dublet --jeg-mener-det --go <kode>`: afgør hende igen til 753 med webfladens RPC
+   (`red_afgoer_source_persona`) og afgør og promoverer netop det ene ægteskab til familie 202. Forventet
+   `DUBLET_GO2_OK identitet=753 decided=1 promoted=1`. For- og efterbetingelser `FIXDUB_*`.
+4. `18-fix-240.sh maal`: forventet `fase=bundet` (uændret) og `DUBLET_GO2 fase=efter`.
+
+Prøvet på en kopi af prod i dagens tilstand (2-minutters grænse). Rækkeantal før og efter i alle tabeller i
+public og private: +1 i identitetshændelser, fortolkninger, observationer, promotioner og promotionsbatcher, 0 i
+kanoniske tabeller. Ingen fortryd-vej; dumpet fra trin 4 er nødudvejen.
+
 ## Fortrydelse
 
 - **Efter trin 7 og før trin 8:** `18-fix-240.sh fortryd <cs> --jeg-mener-det --go <kode>` giver

@@ -70,6 +70,9 @@ navnefæller.
 6. **Prod:** kun DDL (`red_afgoer_source_persona`, `control_run_status`, `relation_binding_state`,
    `red_source_persona_queue`) og webkøens filter; eksisterende afgørelser er uændrede. Deployes efter GO 2's
    `VERIFY_OK` (2026-10-25) i en DDL-ceremoni før 1939; GO 2-pakken er optaget mod de gamle funktioner. Det ene ægteskab fra 2018-20 afgøres separat.
+   *Tillæg 2026-10-26:* DDL'en kom i prod med #240 (PR #261). Ægteskabet rettes med `fix_go2_dublet.sql`:
+   ægtefællen afgøres igen til familiens post 753 (kandidat nr. 1 i dubletmængden `731=753`), som den nye regel
+   ville have valgt; derefter afgøres og bindes ægteskabet til familie 202 (runbook `fix-240-dobbeltfamilier-prod.md`).
 
 ## BESLUTTET: #151 — data-ceremonien (GO 2): godkendelsespolitik, 252 bindinger, dubletreglen til rettelse (2026-10-25)
 
