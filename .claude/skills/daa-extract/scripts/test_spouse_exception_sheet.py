@@ -180,3 +180,40 @@ def test_cli_v1_rows_give_code_not_traceback(tmp_path):
     res = subprocess.run(["python3", str(Path(ses.__file__)), "render", "--rows", str(rows_path), "--out", str(root / "ark.txt"),
                           "--private-root", str(root)], capture_output=True, text=True)
     assert res.returncode == 1 and res.stdout.strip() == "SHEET_CONTRACT_UNSUPPORTED" and "Traceback" not in res.stderr
+
+
+# #248 rute A (spec §3.3): kandidat nr. 1 deles med en anden ægtefælle i posten ⇒ linjen står ubesvaret.
+def rival_rows():
+    r = rows()
+    r["s_rows"][0]["post_rivals"] = 1
+    return r
+
+
+def test_rival_render_ubesvaret():
+    ark = ses.render_sheet(rival_rows())
+    assert f"S {P1} 0 : ?" in ark and f"S {P1} 0 : S" not in ark
+    assert "#   ADVARSEL: kandidat 1 er også kandidat for 1 anden ægtefælle i posten" in ark
+
+
+def test_rival_ubesvaret_afvises():
+    lines = ses.parse_sheet(ses.render_sheet(rival_rows()))
+    with pytest.raises(SheetError, match="SHEET_UNANSWERED"):
+        ses.check_identity(lines, rival_rows())
+    with pytest.raises(SheetError, match="SHEET_UNANSWERED"):
+        ses.sheet_sql(lines, rival_rows(), sheet_sha256="b" * 64, rows_sha256="c" * 64, source_id=1)
+
+
+def test_rival_besvaret_godtages():
+    ark = ses.render_sheet(rival_rows()).replace(f"S {P1} 0 : ?", f"S {P1} 0 : A  # navnefælle")
+    lines = ses.parse_sheet(ark)
+    ses.check_identity(lines, rival_rows())
+    sql = ses.sheet_sql(lines, rival_rows(), sheet_sha256="b" * 64, rows_sha256="c" * 64, source_id=1)
+    assert "red_afgoer_source_persona" not in sql
+
+
+def test_uden_rival_uaendret():
+    r0 = rows()
+    r1 = rows()
+    r1["s_rows"][0]["post_rivals"] = 0
+    assert ses.render_sheet(r0) == ses.render_sheet(r1)
+    assert "ADVARSEL" not in ses.render_sheet(r0)

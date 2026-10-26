@@ -96,3 +96,44 @@ BEGIN
   RAISE NOTICE 'OK: arkets projektion';
 END $spouse_projection$;
 ROLLBACK;
+
+-- ---------- #248 rute A (spec §3.3): post_rivals — kandidat nr. 1 deles med en anden ægtefælle i posten ----------
+BEGIN;
+\ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
+\ir fixtures/relation-2bi.sql
+DO $post_rivals$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-000000248071'; s jsonb; p jsonb; c1 jsonb; c2 jsonb; sp1 uuid; sp2 uuid; e jsonb;
+  v_proj jsonb; r jsonb;
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  INSERT INTO person(id,levende,privat,status,visning_navn) SELECT g,false,false,'248','P'||abs(g) FROM generate_series(-24880,-24871) g;
+  s:=pg_temp.f5b_source(-24871);
+  -- én post med to ægteskaber; begge ægtefællers kandidat nr. 1 er den samme person (#248's navnefælle)
+  p:=pg_temp.f5b_post(-24871,s,'R-1','Hoved R. g. 1° m. Navnefælle. g. 2° m. Navnefælle.',
+     ARRAY['Hoved R.','g. 1° m. Navnefælle.','g. 2° m. Navnefælle.'],-24871,v_actor);
+  PERFORM pg_temp.f2a_event_for_state((p->>'principal')::uuid);
+  c1:=pg_temp.f5b_claim(-24871,s,'relation.marriage',(p->'clauses'->>1)::uuid,'g. 1° m. Navnefælle.');
+  c2:=pg_temp.f5b_claim(-24871,s,'relation.marriage',(p->'clauses'->>2)::uuid,'g. 2° m. Navnefælle.');
+  sp1:=pg_temp.f5b_spouse(-24871,s,p,c1,(p->'clauses'->>1)::uuid,'Navnefælle',1);
+  sp2:=pg_temp.f5b_spouse(-24871,s,p,c2,(p->'clauses'->>2)::uuid,'Navnefælle',2);
+  PERFORM pg_temp.f5b_family(-24871,-24872,1); PERFORM pg_temp.f5b_family(-24871,-24873,2);
+  -- kontrol: en ægtefælle i en anden post med SAMME kandidat nr. 1 tæller ikke (kun samme post)
+  e:=pg_temp.f2bi_open_marriage(-24871,s,'R-2',-24874,-24875,v_actor,1,1);
+  PERFORM pg_temp.f5b_family(-24874,-24872,2);
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  PERFORM pg_temp.f2bi_candidates(-24871,v_actor,jsonb_build_array(
+    jsonb_build_object('persona',sp1,'person',-24872,'rank',1),jsonb_build_object('persona',sp1,'person',-24873,'rank',2),
+    jsonb_build_object('persona',sp2,'person',-24872,'rank',1),jsonb_build_object('persona',sp2,'person',-24873,'rank',2),
+    jsonb_build_object('persona',e->>'spouse_persona','person',-24872,'rank',1)));
+  v_proj:=private.spouse_exception_projection(-24871);
+  IF jsonb_array_length(v_proj->'s_rows')<>3 THEN RAISE EXCEPTION 'SPOUSE_PROJECTION_TEST_FAILED: post_rivals rækker %',v_proj; END IF;
+  FOR r IN SELECT x FROM jsonb_array_elements(v_proj->'s_rows') x LOOP
+    IF (r->>'post_rivals') IS NULL
+       OR (r->>'post_rivals')::int<>(CASE WHEN (r->>'source_persona_id')::uuid=ANY(ARRAY[sp1,sp2]) THEN 1 ELSE 0 END) THEN
+      RAISE EXCEPTION 'SPOUSE_PROJECTION_TEST_FAILED: post_rivals %',r;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: post_rivals';
+END $post_rivals$;
+ROLLBACK;

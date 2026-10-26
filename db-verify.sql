@@ -2982,6 +2982,7 @@ DECLARE
     'public.red_relation_child_sheet_input(bigint)'::regprocedure,
     'public.red_marriage_ordinal_correction_input(bigint)'::regprocedure,
     'public.red_ret_aegteskabsnummer(uuid,integer,text,jsonb)'::regprocedure,
+    'public.red_genaabn_relation_interpretation(uuid,integer,text,jsonb)'::regprocedure,
     'public.red_relation_disposition_input(bigint)'::regprocedure,
     'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
     'public.red_kasser_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
@@ -10294,3 +10295,27 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: #244 — ægteskabsnummer, bognummer, rettelsestabel';
 END $verify_244$;
+
+-- #248 rute A (spec §3.1-§3.3): genåbningstabellen er låst, RPC'en findes, og vagten mod dobbeltmål står i tilstanden.
+DO $verify_248$
+DECLARE r text;
+BEGIN
+  IF to_regclass('private.relation_reopen') IS NULL
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.relation_reopen'::regclass)
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.relation_reopen'::regclass
+                     AND tgname='trg_relation_reopen_append_only')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.relation_reopen'::regclass
+                     AND tgname='trg_relation_reopen_no_truncate') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 248 genåbningstabel';
+  END IF;
+  FOREACH r IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_table_privilege(r,'private.relation_reopen','SELECT,INSERT,UPDATE,DELETE') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 248 tabeladgang %',r;
+    END IF;
+  END LOOP;
+  IF to_regprocedure('public.red_genaabn_relation_interpretation(uuid,integer,text,jsonb)') IS NULL
+     OR position('v_rivals' IN pg_get_functiondef('private.relation_binding_state(uuid)'::regprocedure))=0 THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 248 funktioner';
+  END IF;
+  RAISE NOTICE 'OK: #248 — genåbning ved familieskift, vagt mod dobbeltmål';
+END $verify_248$;

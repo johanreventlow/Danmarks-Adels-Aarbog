@@ -16571,7 +16571,7 @@ CREATE OR REPLACE FUNCTION private.relation_binding_state(p_interpretation_id uu
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE
   v_i private.interpretation%ROWTYPE; v_role text; v_parties jsonb;
-  v_a bigint; v_b bigint; v_fams bigint[]; v_rows jsonb; v_book integer; v_famord integer; v_rule jsonb;
+  v_a bigint; v_b bigint; v_fams bigint[]; v_rows jsonb; v_book integer; v_famord integer; v_rule jsonb; v_rivals uuid[]; v_nb bigint;
 BEGIN
   SELECT * INTO v_i FROM private.interpretation WHERE id=p_interpretation_id;
   -- Trin 5b 2b-iii (spec §7): børneflokken bindes til familien; reglen genberegnes mod familien, som den ser ud nu.
@@ -16630,11 +16630,41 @@ BEGIN
         AND i.evidence->>'duplicate_binding'='rank') THEN
     RETURN NULL;
   END IF;
-  SELECT array_agg(a.family_id ORDER BY a.family_id) INTO v_fams
+  -- v_nb (#248): ægtefællens accepterede personas, højst 2 — forfilter til vagten nedenfor, i samme udsagn.
+  SELECT array_agg(a.family_id ORDER BY a.family_id),
+         (SELECT count(*) FROM (SELECT 1 FROM private.source_persona_identity i2
+                                 WHERE i2.canonical_person_id=v_b AND i2.decision_status='accepted' LIMIT 2) x)
+    INTO v_fams,v_nb
     FROM public.family_member a
     JOIN public.family_member b ON b.family_id=a.family_id AND b.person_id=v_b AND b.rolle='partner'
    WHERE a.person_id=v_a AND a.rolle=CASE v_role WHEN 'spouse' THEN 'partner' ELSE 'barn' END;
   IF coalesce(cardinality(v_fams),0)<>1 THEN RETURN NULL; END IF;
+  -- #248 rute A (spec §3.3): en anden ægtefælle i samme post afgjort til samme person er et dobbeltmål (navnefælle);
+  -- ægteskabet venter på redaktøren, som maskinvejens FAMILY_CORROBORATION_DOUBLE_TARGET. Funktionen kaldes for hver
+  -- kilderække i public_family_sources, så først et billigt opslag i personindekset (næsten altid tomt).
+  -- Ægtefællens egen persona er én af personens accepterede; en rival kræver mindst to (v_nb).
+  IF v_role='spouse' AND v_nb=2 THEN
+    SELECT array_agg(i2.source_persona_id) INTO v_rivals FROM private.source_persona_identity i2
+     WHERE i2.canonical_person_id=v_b AND i2.decision_status='accepted'
+       AND i2.source_persona_id<>(SELECT (x->>'source_persona_id')::uuid FROM jsonb_array_elements(v_parties) x WHERE x->>'party_role'='spouse');
+    -- Basistabeller med seneste version via (nøgle, version)-indekset; de gældende views beregner hele tabellen.
+    IF v_rivals IS NOT NULL AND EXISTS (
+         SELECT 1 FROM private.source_persona_mention spm
+           JOIN private.source_mention sm ON sm.id=spm.mention_id
+           JOIN private.source_observation o2 ON o2.id=sm.observation_id
+           JOIN private.interpretation_party pp ON pp.source_persona_id=spm.persona_id AND pp.party_role='spouse'
+           CROSS JOIN LATERAL (SELECT q.predicate,q.status FROM private.interpretation q
+                                WHERE q.interpretation_key=pp.interpretation_key ORDER BY q.version DESC LIMIT 1) ic2
+          WHERE spm.persona_id=ANY(v_rivals) AND spm.mention_role='spouse'
+            AND NOT EXISTS (SELECT 1 FROM private.interpretation_party n WHERE n.interpretation_key=pp.interpretation_key
+                              AND n.party_role='spouse' AND n.version>pp.version)
+            AND ic2.predicate='relation.marriage' AND ic2.status<>'rejected'
+            AND o2.occurrence_id=(SELECT o.occurrence_id FROM private.interpretation_observation io
+                                    JOIN private.source_observation o ON o.id=io.observation_id
+                                   WHERE io.interpretation_id=v_i.id AND io.evidence_role='supporting' AND io.ordinal=1)) THEN
+      RETURN NULL;
+    END IF;
+  END IF;
   SELECT jsonb_agg(jsonb_build_array(fm.person_id,fm.rolle,fm.ordinal,fm.konfidens) ORDER BY fm.person_id,fm.rolle COLLATE "C")
     INTO v_rows
     FROM public.family_member fm
@@ -16792,6 +16822,111 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.red_decide_relation_interpretations(bigint,text) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.red_decide_relation_interpretations(bigint,text) TO authenticated;
+
+-- #248 rute A (spec §3.2): genåbning af et accepteret ægteskab ved familieskift. Tilføj-kun; kæden fra den gamle
+-- binding til den nye version (previewet sætter supersedes_promotion_id=null for den nye version).
+CREATE TABLE IF NOT EXISTS private.relation_reopen (
+  to_interpretation_id     uuid PRIMARY KEY REFERENCES private.interpretation(id),
+  interpretation_key       uuid NOT NULL,
+  from_interpretation_id   uuid NOT NULL UNIQUE REFERENCES private.interpretation(id),
+  superseded_promotion_id  uuid NOT NULL REFERENCES private.interpretation_promotion(id),
+  from_family_id           bigint NOT NULL,
+  to_family_id             bigint NOT NULL CHECK (to_family_id<>from_family_id),
+  spouse_source_persona_id uuid NOT NULL,
+  spouse_identity_version  integer NOT NULL CHECK (spouse_identity_version>=1),
+  note                     text NOT NULL CHECK (btrim(note)<>''),
+  context                  jsonb NOT NULL CHECK (jsonb_typeof(context)='object'),
+  reopened_by              uuid NOT NULL,
+  reopened_by_name         text NOT NULL,
+  reopened_at              timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+DO $relation_reopen_table$
+BEGIN
+  DROP TRIGGER IF EXISTS trg_relation_reopen_append_only ON private.relation_reopen;
+  CREATE TRIGGER trg_relation_reopen_append_only BEFORE UPDATE OR DELETE ON private.relation_reopen
+    FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation();
+  DROP TRIGGER IF EXISTS trg_relation_reopen_no_truncate ON private.relation_reopen;
+  CREATE TRIGGER trg_relation_reopen_no_truncate BEFORE TRUNCATE ON private.relation_reopen
+    FOR EACH STATEMENT EXECUTE FUNCTION private.reject_evidence_mutation();
+  ALTER TABLE private.relation_reopen ENABLE ROW LEVEL SECURITY;
+  REVOKE ALL ON TABLE private.relation_reopen FROM PUBLIC,anon,authenticated,service_role;
+END $relation_reopen_table$;
+
+-- #248 rute A (spec §3.1): genåbner et accepteret ægteskab, hvis tilstand efter en identitetsrettelse peger på en
+-- anden familie end den, det blev afgjort for. Ny proposed-version; afgørelse og binding går ad den sædvanlige vej
+-- (begge spærrer gælder pr. versions-id). Kun fra et hash-bundet ark.
+CREATE OR REPLACE FUNCTION public.red_genaabn_relation_interpretation(p_interpretation_id uuid,p_expected_version integer,
+  p_note text,p_context jsonb)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_ctx jsonb:=coalesce(p_context,'{}'::jsonb); v_i private.interpretation%ROWTYPE; v_st jsonb; v_actor uuid:=auth.uid();
+  v_actor_name text; v_last uuid; v_last_fam bigint; v_dec_fam bigint; v_new uuid; v_spouse jsonb;
+BEGIN
+  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  IF jsonb_typeof(v_ctx)<>'object'
+     OR (SELECT array_agg(k COLLATE "C" ORDER BY k COLLATE "C") FROM jsonb_object_keys(v_ctx) k)
+        IS DISTINCT FROM ARRAY['basis','line','rows_sha256','sheet_sha256']
+     OR v_ctx->>'basis' IS DISTINCT FROM 'human_sheet'
+     OR coalesce(v_ctx->>'sheet_sha256','') !~ '^[0-9a-f]{64}$' OR coalesce(v_ctx->>'rows_sha256','') !~ '^[0-9a-f]{64}$'
+     OR coalesce(v_ctx->>'line','') !~ '^[1-9][0-9]*$' OR nullif(btrim(p_note),'') IS NULL
+     OR p_interpretation_id IS NULL OR p_expected_version IS NULL THEN
+    RAISE EXCEPTION 'RELATION_REOPEN_CONTEXT_INVALID';
+  END IF;
+  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text) INTO v_actor_name FROM public.profiles WHERE id=v_actor;
+  IF v_actor_name IS NULL THEN RAISE EXCEPTION 'EVIDENCE_ACTOR_REQUIRED'; END IF;
+  SELECT * INTO v_i FROM private.interpretation WHERE id=p_interpretation_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'RELATION_REOPEN_NOT_FOUND'; END IF;
+  -- Låseorden som red_decide_relation_interpretations: eksklusiv kildelås → fortolkningsrækken → personer/familier.
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:'||v_i.source_id::text,0));
+  PERFORM 1 FROM private.interpretation q
+   WHERE q.id=(SELECT c.id FROM private.interpretation_current c WHERE c.interpretation_key=v_i.interpretation_key) FOR UPDATE;
+  v_st:=private.relation_binding_state(p_interpretation_id);
+  PERFORM private.lock_family_rows(ARRAY(SELECT DISTINCT (x->>'canonical_person_id')::bigint
+                                           FROM jsonb_array_elements(coalesce(v_st->'parties','[]'::jsonb)) x
+                                          WHERE x->>'canonical_person_id' IS NOT NULL ORDER BY 1));
+  -- Læs igen efter låsene: et samtidigt kald ser den nye version og afvises som ikke-gældende.
+  SELECT * INTO v_i FROM private.interpretation WHERE id=p_interpretation_id;
+  IF v_i.id IS DISTINCT FROM (SELECT c.id FROM private.interpretation_current c WHERE c.interpretation_key=v_i.interpretation_key)
+     OR v_i.predicate<>'relation.marriage' OR v_i.status<>'accepted'
+     OR v_i.decision_evidence->>'method' IS DISTINCT FROM 'family-structure-v1' THEN
+    RAISE EXCEPTION 'RELATION_REOPEN_NOT_ELIGIBLE';
+  END IF;
+  IF v_i.version<>p_expected_version THEN RAISE EXCEPTION 'RELATION_REOPEN_VERSION_MISMATCH'; END IF;
+  v_st:=private.relation_binding_state(v_i.id);
+  IF v_st IS NULL THEN RAISE EXCEPTION 'RELATION_REOPEN_STATE_INVALID'; END IF;
+  v_dec_fam:=(v_i.decision_evidence->>'family_id')::bigint;
+  IF (v_st#>>'{family,family_id}')::bigint IS NOT DISTINCT FROM v_dec_fam THEN RAISE EXCEPTION 'RELATION_REOPEN_NOT_NEEDED'; END IF;
+  SELECT p.id,p.target_id INTO v_last,v_last_fam FROM private.interpretation_promotion p
+   WHERE p.interpretation_id=v_i.id AND p.target_type='family' ORDER BY p.promoted_at DESC,p.id DESC LIMIT 1;
+  IF v_last IS NULL OR v_last_fam IS DISTINCT FROM v_dec_fam THEN RAISE EXCEPTION 'RELATION_REOPEN_BINDING_INVALID'; END IF;
+  -- Ny version: indholdsfelterne kopieres som i red_decide_interpretation; afgørelsesfelterne er tomme (proposed).
+  v_new:=private.content_uuid('interpretation-reopen',jsonb_build_object('interpretation_key',v_i.interpretation_key,
+                                                                         'version',v_i.version+1));
+  INSERT INTO private.interpretation(
+    id,interpretation_key,version,source_id,source_persona_id,
+    interpretation_kind,predicate,value,schema_version,derivation_kind,
+    confidence,status,method,model_version,prompt_version,extraction_run_id,
+    supersedes_id,decision_evidence,decided_by,decided_by_name,decided_at
+  ) VALUES (
+    v_new,v_i.interpretation_key,v_i.version+1,v_i.source_id,
+    v_i.source_persona_id,v_i.interpretation_kind,v_i.predicate,
+    v_i.value,v_i.schema_version,v_i.derivation_kind,
+    v_i.confidence,'proposed',v_i.method,v_i.model_version,
+    v_i.prompt_version,v_i.extraction_run_id,v_i.id,'{}'::jsonb,NULL,NULL,NULL
+  );
+  INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal)
+  SELECT v_new,observation_id,evidence_role,ordinal FROM private.interpretation_observation WHERE interpretation_id=v_i.id;
+  SELECT x INTO v_spouse FROM jsonb_array_elements(v_st->'parties') x WHERE x->>'party_role'='spouse';
+  INSERT INTO private.relation_reopen(to_interpretation_id,interpretation_key,from_interpretation_id,superseded_promotion_id,
+    from_family_id,to_family_id,spouse_source_persona_id,spouse_identity_version,note,context,reopened_by,reopened_by_name)
+  VALUES (v_new,v_i.interpretation_key,v_i.id,v_last,v_dec_fam,(v_st#>>'{family,family_id}')::bigint,
+    (v_spouse->>'source_persona_id')::uuid,(v_spouse->>'identity_version')::integer,btrim(p_note),
+    jsonb_build_object('basis','human_sheet','sheet_sha256',v_ctx->>'sheet_sha256','rows_sha256',v_ctx->>'rows_sha256',
+      'line',(v_ctx->>'line')::int),
+    v_actor,v_actor_name);
+  RETURN v_new;
+END $$;
+REVOKE ALL ON FUNCTION public.red_genaabn_relation_interpretation(uuid,integer,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_genaabn_relation_interpretation(uuid,integer,text,jsonb) TO authenticated;
 
 -- ===================================================================================
 -- Trin 5b del 2a (#151, spec §4.4): strukturel binding af afgjorte relationer til familien.
@@ -16985,6 +17120,22 @@ BEGIN
       'candidate_tier',cand.tier,'candidate_score',cand.score,'candidate_count',cand.n,
       'candidate_person_id',cand.candidate_person_id,'principal_person_id',(cand.fc->>'principal_person_id')::bigint,
       'family_id',(cand.fam->>'family_id')::bigint,'family_ordinal',(cand.fam->>'ordinal')::int,
+      -- #248 rute A (spec §3.3): andre ægtefæller i samme post, hvis kandidat nr. 1 eller accepterede identitet er den
+      -- samme person (navnefælle); arket lader linjen stå ubesvaret.
+      'post_rivals',(SELECT count(DISTINCT spm2.persona_id)
+                       FROM private.source_persona_mention spm1
+                       JOIN private.source_mention sm1 ON sm1.id=spm1.mention_id
+                       JOIN private.source_observation o1 ON o1.id=sm1.observation_id
+                       JOIN private.source_observation o2 ON o2.occurrence_id=o1.occurrence_id
+                       JOIN private.source_mention sm2 ON sm2.observation_id=o2.id
+                       JOIN private.source_persona_mention spm2 ON spm2.mention_id=sm2.id AND spm2.mention_role='spouse'
+                      WHERE spm1.persona_id=cand.persona_id AND spm1.mention_role='spouse' AND spm2.persona_id<>cand.persona_id
+                        AND (EXISTS (SELECT 1 FROM private.source_persona_identity_candidate x
+                                      WHERE x.run_id=v_run AND x.source_persona_id=spm2.persona_id AND x.rank=1
+                                        AND x.candidate_person_id=cand.candidate_person_id)
+                          OR EXISTS (SELECT 1 FROM private.source_persona_identity i
+                                      WHERE i.source_persona_id=spm2.persona_id AND i.decision_status='accepted'
+                                        AND i.canonical_person_id=cand.candidate_person_id))),
       'candidate_display',(SELECT jsonb_build_object('visning_navn',p.visning_navn,'visning_fuldt_navn',p.visning_fuldt_navn,
                             'visning_foedt',p.visning_foedt,'visning_doed',p.visning_doed) FROM public.person p WHERE p.id=cand.candidate_person_id),
       'mentions',(SELECT jsonb_agg(jsonb_build_object('mention_role',spm.mention_role,'verbatim_text',sm.verbatim_text) ORDER BY spm.ordinal)

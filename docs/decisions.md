@@ -34,6 +34,11 @@ alle 16 accepterede identiteter med en navnefælle blandt kandidaterne fandt ing
 5. **Kendte følger af skridt 1:** to gældende `ordinal_afvigelse` bliver uden binding; kun to rækker i
    `source_persona_identity_event` (målt over alle tabeller i public og private); 0 kanonisk delta. Ingen
    fortryd-vej; dumpet før skrivning er nødudvejen.
+6. **Præcisering af punkt 4 for ægtefællearket (spec §3.3, rute A):** arket forudfylder ikke et svar, når kandidat
+   nr. 1 også er kandidat nr. 1 eller accepteret identitet for en anden ægtefælle i samme post
+   (`post_rivals` > 0 i `spouse_exception_projection`). Linjen får en advarsel og står `?`, og et ark med `?`
+   afvises (`SHEET_UNANSWERED`), før der skrives SQL. Ark uden navnefæller er byte-identiske med før. Runbook for
+   rute A: `docs/runbooks/248-genaabning-prod.md`.
 
 ## BESLUTTET: #240 — de 5 dobbeltfamilier samles; vielsespåstanden flyttes, ikke slettes (2026-10-26)
 

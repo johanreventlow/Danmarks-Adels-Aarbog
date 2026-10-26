@@ -13,7 +13,8 @@ from pathlib import Path
 from decision_sheet_core import SheetError, require_hex64, sql_literal, verify_bound
 
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-S_RE = re.compile(rf"^S (?P<id>{UUID}) (?P<ver>[0-9]+) : (?P<tok>[SAU])\s*(?:#\s*(?P<note>.*))?$")
+# `?` (#248): en linje, hvis kandidat nr. 1 deles med en anden ægtefælle i posten, står ubesvaret.
+S_RE = re.compile(rf"^S (?P<id>{UUID}) (?P<ver>[0-9]+) : (?P<tok>[SAU?])\s*(?:#\s*(?P<note>.*))?$")
 # Indholds-id (#151, spec §4 pkt. 1): O-linjen nøgles på fortolkningsnøglen og afgørelsesversionen, ikke på et
 # tilfældigt afgørelsesversions-id; et v1-ark (`O <id> b/f`) matcher ikke og afvises.
 O_RE = re.compile(rf"^O (?P<id>{UUID}) (?P<ver>[0-9]+) (?P<bog>[0-9]+|\?)/(?P<fam>[0-9]+|\?) : (?P<tok>[BF])\s*(?:#\s*(?P<note>.*))?$")
@@ -65,8 +66,12 @@ def render_sheet(rows: dict, forslag: dict[str, str] | None = None) -> str:
                 f"#   Bogen: »{kilde}«",
                 f"#   Kandidat 1: {navn} ({_years(d.get('visning_foedt'), d.get('visning_doed'))}) · {r['candidate_tier']} · "
                 f"score {r['candidate_score']} · {r['candidate_count']} kandidater",
-                f"#   Partner i familie {r['family_id']} (ægteskab nr. {_nr(r['family_ordinal'])})",
-                f"S {r['source_persona_id']} {r['identity_version']} : S", ""]
+                f"#   Partner i familie {r['family_id']} (ægteskab nr. {_nr(r['family_ordinal'])})"]
+        # #248 rute A (spec §3.3): et forudfyldt S skjulte, at kandidat nr. 1 var hovedpersonens anden ægtefælle.
+        rivals = int(r.get("post_rivals", 0))
+        if rivals:
+            out.append(f"#   ADVARSEL: kandidat 1 er også kandidat for {rivals} anden ægtefælle i posten — navnefælle? Svar S, A eller U.")
+        out += [f"S {r['source_persona_id']} {r['identity_version']} : {'?' if rivals else 'S'}", ""]
     for i, r in enumerate(rows["o_rows"], 1):
         tok = forslag.get(r["interpretation_key"], "F")
         out += [f"## ORDINAL {i}/{len(rows['o_rows'])} · familie {r['family_id']} · bogen nr. {_nr(r['book_ordinal'])}, familien nr. {_nr(r['family_ordinal'])}",
@@ -93,10 +98,16 @@ def _expected(rows: dict) -> list[tuple]:
             + [("O", r["interpretation_key"], r["interpretation_version"]) for r in rows["o_rows"]])
 
 
+def _require_answered(lines: list[Line]) -> None:
+    if any(l.tok == "?" for l in lines):
+        raise SheetError("SHEET_UNANSWERED")
+
+
 def check_identity(lines: list[Line], rows: dict) -> None:
     _require_v2(rows)
     if [(l.kind, l.item_id, l.version) for l in lines] != _expected(rows) or not lines:
         raise SheetError("SHEET_IDENTITY_MISMATCH")
+    _require_answered(lines)
 
 
 def check_private_path(path: Path, root: Path) -> Path:
@@ -121,6 +132,7 @@ def _write_private(path: Path, text: str) -> None:
 
 def sheet_sql(lines: list[Line], rows: dict, *, sheet_sha256: str, rows_sha256: str, source_id: int) -> str:
     _require_v2(rows)
+    _require_answered(lines)
     require_hex64(sheet_sha256, rows_sha256)
     s_by = {r["source_persona_id"]: r for r in rows["s_rows"]}
     o_by = {r["interpretation_key"]: r for r in rows["o_rows"]}
