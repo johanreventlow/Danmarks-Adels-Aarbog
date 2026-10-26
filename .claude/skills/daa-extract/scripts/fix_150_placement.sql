@@ -225,6 +225,12 @@ BEGIN
   PERFORM set_config('app.change_set_id','',true);
   IF private.placement_header_violations(v_src)<>0 THEN RAISE EXCEPTION 'FIX150_WRITE_NEAREST'; END IF;
 END $skriv$;
+-- Planner-statistik: de nye tabeller går fra 0 til hundredvis af rækker i denne transaktion; uden ANALYZE planlægges
+-- de efterfølgende læsninger som mod tomme tabeller (øvelse 2: paritet efter 574 s mod 2 s før). ANALYZE er tilladt i
+-- en transaktionsblok og tæller transaktionens egne rækker med.
+ANALYZE private.source_record_occurrence, private.source_observation, private.extraction_run,
+  private.source_record_placement, private.source_record_placement_decision, private.source_persona_placement,
+  private.source_persona_placement_decision, private.legacy_placement_disposition, public.slaegt;
 
 -- Skrivning 2: memberships gennem promotions-RPC'en (eget change_set), som redaktør.
 SET LOCAL ROLE authenticated;
@@ -249,6 +255,7 @@ END $mid$;
 SET LOCAL ROLE authenticated;
 SELECT public.red_promote_placement_memberships(:src, :'g_pv'::jsonb->>'preview_sha256') AS g_promoted \gset
 RESET ROLE;
+ANALYZE public.person_lineage_membership, public.person_slaegt_membership, public.change_set, public.change_event;
 
 -- Skrivning 3: revalidering. Én klientdrevet sætning pr. forældet publicering; app.change_set_id ryddes før hvert kald
 -- (RPC'en afviser et fremmed change_set). Tilstands-sha'en læses som ejer, sætningerne køres som redaktør.
@@ -265,6 +272,7 @@ SET LOCAL ROLE authenticated;
 SELECT stmt FROM fix150_reval ORDER BY ord \gexec
 \o
 RESET ROLE;
+ANALYZE private.narrative_publication_event, private.narrative_record_publication, public.change_set, public.change_event;
 SELECT set_config('app.change_set_id','',true), set_config('fix150.reval', :'g_reval', true),
        set_config('fix150.promoted', :'g_promoted', true) \g /dev/null
 SELECT pg_temp.fix150_paritet('efter') \g /dev/null
