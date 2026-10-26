@@ -221,6 +221,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-placement-header.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-placement-writer.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-placement-membership.sql
+          bash tests/sql/test-150-ceremoni.sh ci150_ceremoni
           createdb ci5b_2bi_sheet
           for f in tests/sql/evidence-promotion-bootstrap.sql schema.sql db-rls.sql db-migrations.sql db-migrations.sql db-rls.sql; do
             psql -q -v ON_ERROR_STOP=1 -d ci5b_2bi_sheet -f "$f" >/dev/null; done
