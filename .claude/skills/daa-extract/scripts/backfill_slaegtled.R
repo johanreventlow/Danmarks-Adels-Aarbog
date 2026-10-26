@@ -79,6 +79,17 @@ if (length(conflicts)) {
 # NOTE: wiring ind i post_load_fixup.R (med dens egen transaktions-isolation)
 # er UDSKUDT til et separat trin — dette script gøres her blot reload-sikkert
 # som standalone.
+# LegacyBackfillFreeze (#150 trin 5c-1, spec §1.6): når placement-ledgeren har dispositioner for kilden, er
+# slægtled kildebundet evidens (placement) og legacy-kolonnerne frosne. Fejl i opslaget (fx manglende tabel/rettighed)
+# stopper også — hellere ingen backfill end en skrivning uden om ledgeren. post_load_fixup.R arver vagten.
+frozen <- tryCatch(q(sprintf(
+  "SELECT count(*) AS n FROM private.legacy_placement_disposition WHERE source_id=%d", sid))$n[[1]],
+  error = function(e) stop("LegacyBackfillFreeze: placement-ledgeren kunne ikke læses — backfill stoppet: ", conditionMessage(e)))
+if (frozen > 0) {
+  stop(sprintf("LegacyBackfillFreeze: source_id=%s har %d placement-dispositioner (#150) — slægtled skrives ikke længere her.",
+               sid, frozen))
+}
+
 existing <- q(sprintf(
   "SELECT count(*) AS n FROM person_external_id WHERE source_id=%d AND slaegtled_lokal IS NOT NULL",
   sid))$n[[1]]
