@@ -25708,6 +25708,91 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.red_genaabn_relation_interpretation(uuid,integer,text,jsonb) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.red_genaabn_relation_interpretation(uuid,integer,text,jsonb) TO authenticated;
+
+CREATE OR REPLACE FUNCTION private.spouse_exception_projection(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_s jsonb; v_o jsonb; v_run uuid;
+BEGIN
+  IF p_source_id IS NULL OR NOT EXISTS (SELECT 1 FROM public.source WHERE id=p_source_id) THEN
+    RAISE EXCEPTION 'SPOUSE_SHEET_INVALID';
+  END IF;
+  SELECT r.id INTO v_run FROM private.source_persona_identity_candidate_run r
+   WHERE r.source_id=p_source_id ORDER BY r.run_seq DESC LIMIT 1;
+  WITH sp AS (
+    SELECT persona.id AS persona_id,coalesce(i.version,0) AS identity_version,private.persona_family_context(persona.id) AS fc
+      FROM private.source_persona persona
+      LEFT JOIN private.source_persona_identity i ON i.source_persona_id=persona.id
+     WHERE persona.source_id=p_source_id
+       AND coalesce(i.decision_status,'proposed')='proposed'
+       AND EXISTS (SELECT 1 FROM private.source_persona_mention m WHERE m.persona_id=persona.id AND m.mention_role='spouse')
+  ), cand AS (
+    SELECT sp.*,c.id AS candidate_id,c.rank,c.tier,c.score,c.candidate_person_id,
+           (SELECT count(*) FROM private.source_persona_identity_candidate x WHERE x.run_id=v_run AND x.source_persona_id=sp.persona_id) AS n,
+           (SELECT f FROM jsonb_array_elements(sp.fc->'families') f WHERE f->'partners' @> to_jsonb(c.candidate_person_id) LIMIT 1) AS fam
+      FROM sp JOIN private.source_persona_identity_candidate c
+        ON c.run_id=v_run AND c.source_persona_id=sp.persona_id AND c.rank=1
+     WHERE sp.fc IS NOT NULL
+  )
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'source_persona_id',cand.persona_id::text,'identity_version',cand.identity_version,
+      'candidate_id',cand.candidate_id::text,'run_id',v_run::text,'candidate_rank',cand.rank,
+      'candidate_tier',cand.tier,'candidate_score',cand.score,'candidate_count',cand.n,
+      'candidate_person_id',cand.candidate_person_id,'principal_person_id',(cand.fc->>'principal_person_id')::bigint,
+      'family_id',(cand.fam->>'family_id')::bigint,'family_ordinal',(cand.fam->>'ordinal')::int,
+      -- #248 rute A (spec §3.3): andre ægtefæller i samme post, hvis kandidat nr. 1 eller accepterede identitet er den
+      -- samme person (navnefælle); arket lader linjen stå ubesvaret.
+      'post_rivals',(SELECT count(DISTINCT spm2.persona_id)
+                       FROM private.source_persona_mention spm1
+                       JOIN private.source_mention sm1 ON sm1.id=spm1.mention_id
+                       JOIN private.source_observation o1 ON o1.id=sm1.observation_id
+                       JOIN private.source_observation o2 ON o2.occurrence_id=o1.occurrence_id
+                       JOIN private.source_mention sm2 ON sm2.observation_id=o2.id
+                       JOIN private.source_persona_mention spm2 ON spm2.mention_id=sm2.id AND spm2.mention_role='spouse'
+                      WHERE spm1.persona_id=cand.persona_id AND spm1.mention_role='spouse' AND spm2.persona_id<>cand.persona_id
+                        AND (EXISTS (SELECT 1 FROM private.source_persona_identity_candidate x
+                                      WHERE x.run_id=v_run AND x.source_persona_id=spm2.persona_id AND x.rank=1
+                                        AND x.candidate_person_id=cand.candidate_person_id)
+                          OR EXISTS (SELECT 1 FROM private.source_persona_identity i
+                                      WHERE i.source_persona_id=spm2.persona_id AND i.decision_status='accepted'
+                                        AND i.canonical_person_id=cand.candidate_person_id))),
+      'candidate_display',(SELECT jsonb_build_object('visning_navn',p.visning_navn,'visning_fuldt_navn',p.visning_fuldt_navn,
+                            'visning_foedt',p.visning_foedt,'visning_doed',p.visning_doed) FROM public.person p WHERE p.id=cand.candidate_person_id),
+      'mentions',(SELECT jsonb_agg(jsonb_build_object('mention_role',spm.mention_role,'verbatim_text',sm.verbatim_text) ORDER BY spm.ordinal)
+                    FROM private.source_persona_mention spm JOIN private.source_mention sm ON sm.id=spm.mention_id
+                   WHERE spm.persona_id=cand.persona_id))
+      ORDER BY cand.persona_id::text COLLATE "C"),'[]'::jsonb)
+    INTO v_s FROM cand WHERE cand.fam IS NOT NULL;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_s) r JOIN private.identity_control_sample smp
+               ON smp.source_persona_id=(r->>'source_persona_id')::uuid) THEN
+    RAISE EXCEPTION 'SPOUSE_SHEET_CONTROL_SAMPLE';
+  END IF;
+  -- Gældende ordinal-afvigelse (2a-specen §4.5; Codex r2 #7): seneste hændelse, gældende version, samme tilstand,
+  -- og numrene afviger stadig.
+  WITH last AS (
+    SELECT DISTINCT ON (e.interpretation_key) e.* FROM private.relation_classification_event e
+      JOIN private.interpretation q ON q.id=e.interpretation_id AND q.source_id=p_source_id
+     ORDER BY e.interpretation_key,e.seq DESC
+  ), cur AS (
+    SELECT l.*,ic.id AS cur_id,ic.version AS cur_version,private.relation_binding_state(ic.id) AS st
+      FROM last l JOIN private.interpretation_current ic ON ic.interpretation_key=l.interpretation_key
+     WHERE l.classification='ordinal_afvigelse' AND ic.id=l.interpretation_id AND ic.status='accepted'
+  )
+  -- Indholds-id (#151, spec §4 pkt. 1): v2 nøgler rækken på fortolkningsnøgle og version (intet tilfældigt
+  -- afgørelsesversions-id, ingen tilstandshash); ligheden med den gældende tilstand tjekkes fortsat nedenfor.
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'interpretation_key',cur.interpretation_key::text,'interpretation_version',cur.cur_version,
+      'family_id',(cur.st#>>'{family,family_id}')::bigint,
+      'principal_person_id',(SELECT (x->>'canonical_person_id')::bigint FROM jsonb_array_elements(cur.st->'parties') x WHERE x->>'party_role'='principal'),
+      'spouse_person_id',(cur.st->>'counterpart_person_id')::bigint,
+      'book_ordinal',(cur.st->>'book_ordinal')::int,'family_ordinal',(cur.st->>'family_ordinal')::int)
+      ORDER BY cur.interpretation_key::text COLLATE "C"),'[]'::jsonb)
+    INTO v_o
+    FROM cur CROSS JOIN LATERAL (SELECT private.reimport_canonical_json_sha256(cur.st) AS l_sha) h
+   WHERE cur.st IS NOT NULL AND h.l_sha=cur.state_sha256
+     AND (cur.st->>'book_ordinal') IS DISTINCT FROM (cur.st->>'family_ordinal');
+  RETURN jsonb_build_object('contract','spouse-exception-rows-v2','source_id',p_source_id,'s_rows',v_s,'o_rows',v_o);
+END $$;
+REVOKE ALL ON FUNCTION private.spouse_exception_projection(bigint) FROM PUBLIC,anon,authenticated,service_role;
 -- Genåbnings-blokken slutter her.
 
 -- 5b-sektionen slutter her (nye 5b-blokke indsættes over denne linje).

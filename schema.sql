@@ -17120,6 +17120,22 @@ BEGIN
       'candidate_tier',cand.tier,'candidate_score',cand.score,'candidate_count',cand.n,
       'candidate_person_id',cand.candidate_person_id,'principal_person_id',(cand.fc->>'principal_person_id')::bigint,
       'family_id',(cand.fam->>'family_id')::bigint,'family_ordinal',(cand.fam->>'ordinal')::int,
+      -- #248 rute A (spec §3.3): andre ægtefæller i samme post, hvis kandidat nr. 1 eller accepterede identitet er den
+      -- samme person (navnefælle); arket lader linjen stå ubesvaret.
+      'post_rivals',(SELECT count(DISTINCT spm2.persona_id)
+                       FROM private.source_persona_mention spm1
+                       JOIN private.source_mention sm1 ON sm1.id=spm1.mention_id
+                       JOIN private.source_observation o1 ON o1.id=sm1.observation_id
+                       JOIN private.source_observation o2 ON o2.occurrence_id=o1.occurrence_id
+                       JOIN private.source_mention sm2 ON sm2.observation_id=o2.id
+                       JOIN private.source_persona_mention spm2 ON spm2.mention_id=sm2.id AND spm2.mention_role='spouse'
+                      WHERE spm1.persona_id=cand.persona_id AND spm1.mention_role='spouse' AND spm2.persona_id<>cand.persona_id
+                        AND (EXISTS (SELECT 1 FROM private.source_persona_identity_candidate x
+                                      WHERE x.run_id=v_run AND x.source_persona_id=spm2.persona_id AND x.rank=1
+                                        AND x.candidate_person_id=cand.candidate_person_id)
+                          OR EXISTS (SELECT 1 FROM private.source_persona_identity i
+                                      WHERE i.source_persona_id=spm2.persona_id AND i.decision_status='accepted'
+                                        AND i.canonical_person_id=cand.candidate_person_id))),
       'candidate_display',(SELECT jsonb_build_object('visning_navn',p.visning_navn,'visning_fuldt_navn',p.visning_fuldt_navn,
                             'visning_foedt',p.visning_foedt,'visning_doed',p.visning_doed) FROM public.person p WHERE p.id=cand.candidate_person_id),
       'mentions',(SELECT jsonb_agg(jsonb_build_object('mention_role',spm.mention_role,'verbatim_text',sm.verbatim_text) ORDER BY spm.ordinal)
