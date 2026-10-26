@@ -73,7 +73,8 @@ def sample(m: dict, k: int = 20, seed: int = 150) -> list[str]:
 def render_kontrolark(m: dict, keys: list[str]) -> str:
     by = {p['record_key']: p for p in m['placements']}
     out = ['# ============ KONTROLSTIKPRØVE: PLACEMENT 2018-20 (#150) ============',
-           '# Slå hver post op i PDF\'en (linje og nr. står i nøglen, fx II-15 = linje II, nr. 15; siden er en hjælp).',
+           '# Slå hver post op i PDF\'en (linje og nr. står i nøglen, fx II-15 = linje II, nr. 15). »side« er PDF-filens',
+           '# sidenummer (som PDF-læseren viser det), ikke bogens trykte sidetal; posten kan begynde nederst på siden.',
            '# Skriv efter kolonet: slægtleddet som tal (lokalt i linjen, fx 3 for »Tredje slægtled«) og kuld-markøren',
            '# over posten som romertal, eller - hvis posten ikke står under nogen kuld-markør i sit slægtled.',
            '#   Eksempel:  K II-15 side 412 : 3 II        K I-1 side 10 : 1 -',
