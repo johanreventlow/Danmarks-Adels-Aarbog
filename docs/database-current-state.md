@@ -548,6 +548,12 @@ Repo `34a016f2` (PR #261), GO 240 `9e7bfa20`; dump før skrivning `daa-prod-2026
   navnefælle-ægtefæller afgjort igen (624 → 625, 744 → 745); de to forkerte bindinger på familie 64/193 gælder ikke
   længere, søskendeægteskaberne er urørte. Kun data. `FIX248 fase=foer` → `FIX248_IDENTITET_OK` → `fase=efter`.
   Ægteskaberne står `accepted` uden binding til rute A (genåbning) er i prod.
+- **#248 rute A samme dag (PR #267, GO 248A `d910500c`; dump `daa-prod-20261026152510-248a.dump`):** DDL'en
+  (`private.relation_reopen`, `red_genaabn_relation_interpretation`, vagten i `relation_binding_state`, `post_rivals`)
+  og derefter de to ægteskaber genåbnet, afgjort og bundet til familie 65/194. `ddl248a=foer fase=efter` →
+  `DDL248A_OK` → `FIX248A_GENAABN_OK genaabnet=2 afgjort=2 bundet=2` → `ddl248a=efter fase=bundet`. Rådgiveren: +1
+  `rls_enabled_no_policy` (`private.relation_reopen`, med vilje). `18-fix-240.sh maal` melder nu `ddl151=ukendt`
+  (DDL'en omdefinerer `relation_binding_state`); ikke drift.
 
 ## 11. 5a+5b's data for 2018-20 (#151) — LIVE i prod (2026-10-25, GO 2)
 
