@@ -790,3 +790,48 @@ BEGIN
   RAISE NOTICE 'OK: genbinding gennem previewet';
 END $rebind_preview$;
 ROLLBACK;
+
+-- ---------- #248 rute A (spec §3.3): to ægtefæller i samme post afgjort til samme person ----------
+BEGIN;
+\ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
+DO $dobbeltmaal_menneskevej$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-000000248001'; s jsonb; p jsonb; c1 jsonb; c2 jsonb; sp1 uuid; sp2 uuid;
+  v_at timestamptz:=clock_timestamp(); v_id1 uuid; v_id2 uuid;
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  INSERT INTO person(id,levende,privat,status) SELECT g,false,false,'248' FROM generate_series(-24810,-24801) g;
+  s:=pg_temp.f5b_source(-24801);
+  p:=pg_temp.f5b_post(-24801,s,'N-1','Hoved N. g. 1° m. Navnefælle. g. 2° m. Navnefælle.',
+     ARRAY['Hoved N.','g. 1° m. Navnefælle.','g. 2° m. Navnefælle.'],-24801,v_actor);
+  PERFORM pg_temp.f2a_event_for_state((p->>'principal')::uuid);
+  c1:=pg_temp.f5b_claim(-24801,s,'relation.marriage',(p->'clauses'->>1)::uuid,'g. 1° m. Navnefælle.');
+  c2:=pg_temp.f5b_claim(-24801,s,'relation.marriage',(p->'clauses'->>2)::uuid,'g. 2° m. Navnefælle.');
+  sp1:=pg_temp.f5b_spouse(-24801,s,p,c1,(p->'clauses'->>1)::uuid,'Navnefælle',1);
+  sp2:=pg_temp.f5b_spouse(-24801,s,p,c2,(p->'clauses'->>2)::uuid,'Navnefælle',2);
+  -- begge ægtefæller accepteret til samme person (#248's mønster); én familie med hovedpersonen
+  INSERT INTO private.source_persona_identity_event(source_persona_id,canonical_person_id,decision_status,version,evidence,
+    decided_by,decided_by_name,decided_at)
+    VALUES (sp1,-24802,'accepted',1,'{"fixture":"248"}',v_actor,'fixture',v_at),(sp2,-24802,'accepted',1,'{"fixture":"248"}',v_actor,'fixture',v_at);
+  INSERT INTO private.source_persona_identity(source_persona_id,canonical_person_id,decision_status,version,evidence,
+    decided_by,decided_by_name,decided_at)
+    VALUES (sp1,-24802,'accepted',1,'{"fixture":"248"}',v_actor,'fixture',v_at),(sp2,-24802,'accepted',1,'{"fixture":"248"}',v_actor,'fixture',v_at);
+  PERFORM pg_temp.f5b_family(-24801,-24802,1);
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  v_id1:=(c1->>'id')::uuid; v_id2:=(c2->>'id')::uuid;
+  IF private.relation_binding_state(v_id1) IS NOT NULL OR private.relation_binding_state(v_id2) IS NOT NULL THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: dobbeltmål giver en tilstand';
+  END IF;
+  -- kontrol: den anden ægtefælle afgøres igen til en anden person med egen familie ⇒ begge tilstande findes
+  PERFORM pg_temp.f5b_family(-24801,-24803,2);
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  PERFORM red_afgoer_source_persona(sp2,1,'same',-24803,'#248 test: anden person','{}');
+  RESET ROLE;
+  IF private.relation_binding_state(v_id1) IS NULL OR private.relation_binding_state(v_id2) IS NULL
+     OR (private.relation_binding_state(v_id2)->>'counterpart_person_id')::bigint<>-24803 THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: dobbeltmål-kontrol';
+  END IF;
+  RAISE NOTICE 'OK: dobbeltmål på menneskevejen';
+END $dobbeltmaal_menneskevej$;
+ROLLBACK;
