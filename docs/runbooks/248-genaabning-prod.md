@@ -45,17 +45,19 @@ Alle kommandoer køres som `/bin/zsh -f ~/.private/5ab-overfoersel/koer.zsh 20-2
 
 1. `go` → `GO248A_KODE=<8 hex>` og commit. Projektejeren skriver `GO 248A <kode>`.
 2. `maal` → `MAAL_248A_OK ddl248a=foer fase=efter`.
-3. `dump` → `DUMP_248A_OK …` (fuldt dump i en læsetransaktion før første skrivning).
+3. `dump` → `DUMP_248A_OK …` (fuldt dump i en læsetransaktion før første skrivning). `ddl` og `genaabn` stopper
+   med `DUMP_248A_MANGLER`, hvis der ikke er et dump fra de seneste 12 timer.
 4. `advisors` → `ADVISORS_248A_OK nye=0` (mod GO 1's `advisors-after.txt`).
 5. `ddl --jeg-mener-det --go <kode>` → `DDL248A_OK`. Runneren tjekker fingeraftrykket `foer`, fasen `efter` og
-   blokkens sha, lægger blokken i én transaktion (statement_timeout 15 min), genindlæser PostgREST-skemaet og
+   blokkens sha samt dumpet, lægger blokken i én transaktion (statement_timeout 15 min), genindlæser PostgREST-skemaet og
    tjekker fingeraftrykket `efter` og fasen igen.
 6. `maal` → `MAAL_248A_OK ddl248a=efter fase=efter`.
 7. `advisors` → `ADVISORS_248A_OK nye=1`. Det ene nye fund skal være `rls_enabled_no_policy|private.relation_reopen`
    (med vilje: kun SECURITY DEFINER-RPC'en skriver i tabellen); alt andet stopper.
 8. `genaabn --jeg-mener-det --go <kode>` → `FIX248A_GENAABN_OK genaabnet=2 afgjort=2 bundet=2`. Runneren kræver
-   fasen `efter` før og `bundet` bagefter; scriptet har egne for- og efterbetingelser (`FIX248A_PRE_*`,
-   `FIX248A_MID_*`, `FIX248A_POST_*`) i samme transaktion.
+   dumpet og fasen `efter` før og `bundet` bagefter; scriptet har egne for- og efterbetingelser (`FIX248A_PRE_*`,
+   `FIX248A_MID_*`, `FIX248A_POST_*`) i samme transaktion; forhåndsbetingelserne binder hovedperson og ægtefælle
+   via familiernes partnere (`FIX248A_PRE_FAMILIES`).
 9. `maal` → `MAAL_248A_OK ddl248a=efter fase=bundet`.
 
 ## Noter
@@ -68,15 +70,16 @@ Alle kommandoer køres som `/bin/zsh -f ~/.private/5ab-overfoersel/koer.zsh 20-2
 ## Prøvet
 
 På en frisk kopi af stand-in'en af prod efter skridt 1 (dump `8d17f579…`, 2026-10-26) med
-`statement_timeout='2min'` på basen, som i prod, og hele forløbet gennem runneren (øvelsens GO-kode `d65dd787`):
+`statement_timeout='2min'` på basen, som i prod, og hele forløbet gennem runneren (øvelsens GO-kode `d910500c`, efter review-rettelserne):
 
 - Alle ni skridt gav det forventede. Advisors før: 0 nye; efter: netop `private.relation_reopen`.
-- Afvist: manglende `--jeg-mener-det`, ukendt argument, forkert GO-kode, `genaabn` før DDL'en, `ddl` igen
+- Afvist: manglende `--jeg-mener-det`, ukendt argument, forkert GO-kode, `ddl` og `genaabn` uden dump, `ddl` igen
   (fingeraftrykket er `efter`) og `genaabn` igen (fasen er `bundet`).
 - Rækkeantal i alle tabeller i public og private før og efter: `private.interpretation` +4 (2 genåbnet + 2 afgjort),
   `private.interpretation_observation` +4 (1 link pr. version), `private.relation_reopen` +2,
   `private.interpretation_promotion` +2 og `private.interpretation_promotion_batch` +1. Ingen ændring i `public.*`,
   beslutnings- eller klassifikationstabeller.
+- Uden for runneren: `fix_248_genaabn.sql` med en forkert hovedperson stopper med `FIX248A_PRE_FAMILIES`.
 - `public_family_sources` over alle familier: 258 → 260 rækker; median af 3 målt til 518 ms efter mod 463 ms
   før (+12 %).
 
