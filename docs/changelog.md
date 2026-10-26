@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-10-26 — #248 skridt 1 i prod: to navnefælle-ægtefæller afgjort igen
+
+Prod-kørsel efter `docs/runbooks/fix-248-identitet-prod.md`, repo `1f02d436` (PR #265), GO 248 `cc3d684e`
+(= øvelsens), kørt af projektejeren med `~/.private/5ab-overfoersel/19-fix-248.sh`; dump før skrivning
+`daa-prod-20261026124140-248.dump` (sha `8d17f579efc0…`).
+
+- **Måling før:** `FIX248 fase=foer` (begge sager: identitet v1 til navnefællen, én gældende binding på den forkerte
+  familie, 2 kilderækker der, 0 på den rigtige).
+- **Rettelse:** Iwan Reventlows (94) 4° afgjort igen fra 624 til 625, Abel Reventlows (286) 2° fra 744 til 745, med
+  `red_afgoer_source_persona` og GO 248-arkets kontekst (`FIX248_IDENTITET_OK identiteter=2 bindinger_ophoert=2
+  soeskende_uroert=2`). Kun data, ingen DDL.
+- **Måling efter:** `FIX248 fase=efter`: identitet v2, tilstanden på familie 65/194, 0 gældende bindinger, søskende-
+  ægteskabernes binding uændret, 1 kilderække tilbage på familie 64/193 og 0 på 65/194.
+- **Følge:** de to ægteskaber står `accepted` uden binding, indtil genåbning ved familieskift (rute A) er i prod;
+  #248 holdes åben.
+
 ## 2026-10-26 — GO 2's ene dubletægteskab rettet i prod
 
 Opfølgning i `docs/runbooks/fix-240-dobbeltfamilier-prod.md` (afsnittet efter trin 9), repo `82039701` (PR #263),

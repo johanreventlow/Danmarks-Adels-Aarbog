@@ -39,6 +39,13 @@ På en stand-in-kopi af prod efter #240 (2026-10-26): forkert GO-kode og manglen
 tabeller i public og private før og efter: kun `private.source_persona_identity_event` +2. Ingen DDL, så
 sikkerhedsrådgiveren køres ikke.
 
+## Kørt i prod (2026-10-26)
+
+Repo `1f02d436` (PR #265), GO 248 `cc3d684e` (= øvelsens); dump `daa-prod-20261026124140-248.dump` (13,6 MB,
+sha `8d17f579efc0…`). `FIX248_MAAL_OK fase=foer` → `FIX248_IDENTITET_OK identiteter=2 bindinger_ophoert=2
+soeskende_uroert=2` → runnerens efter-måling `FIX248 fase=efter` (person 625/745, version 2, tilstand 65/194,
+gældende 0, søskende 1, kilder 1/0). Ingen fejl på stderr.
+
 ## Fortrydelse
 
 Ingen fortryd-vej: en identitetsafgørelse er append-only. Dumpet fra skridt 3 er nødudvejen.

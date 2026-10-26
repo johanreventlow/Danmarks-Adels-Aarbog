@@ -544,6 +544,10 @@ Repo `34a016f2` (PR #261), GO 240 `9e7bfa20`; dump før skrivning `daa-prod-2026
 - **Opfølgning samme dag (PR #263, GO 240 `ebffa718`):** GO 2's ene dubletægteskab rettet: ægtefællen afgjort igen
   til post 753, ægteskabet bundet til familie 202 (`DUBLET_GO2_OK identitet=753 decided=1 promoted=1`). Kun data.
   Efter: `MAAL_240_OK` med uændret sha og `DUBLET_GO2 fase=efter`.
+- **#248 skridt 1 samme dag (PR #265, GO 248 `cc3d684e`; dump `daa-prod-20261026124140-248.dump`):** to
+  navnefælle-ægtefæller afgjort igen (624 → 625, 744 → 745); de to forkerte bindinger på familie 64/193 gælder ikke
+  længere, søskendeægteskaberne er urørte. Kun data. `FIX248 fase=foer` → `FIX248_IDENTITET_OK` → `fase=efter`.
+  Ægteskaberne står `accepted` uden binding til rute A (genåbning) er i prod.
 
 ## 11. 5a+5b's data for 2018-20 (#151) — LIVE i prod (2026-10-25, GO 2)
 
