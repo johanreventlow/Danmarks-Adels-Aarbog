@@ -6,6 +6,7 @@
  "placements":[
   {"record_key":"I-1","entry_code":"I","printed_number":"1","generation_local":1,"generation_label_raw":"Første","generation_global":null,"kuld_label":null,"section_path":["header:100","header:200"],"header_ids":{"linje":"header:100","slaegtled":"header:200"},"status":"machine_ok","reasons":[]},
   {"record_key":"I-2","entry_code":"I","printed_number":"2","generation_local":2,"generation_label_raw":"Andet","generation_global":null,"kuld_label":null,"section_path":["header:100","header:1500"],"header_ids":{"linje":"header:100","slaegtled":"header:1500"},"status":"machine_ok","reasons":[]},
-  {"record_key":"I-3","entry_code":"I","printed_number":"3","generation_local":2,"generation_label_raw":"Andet","generation_global":null,"kuld_label":null,"section_path":["header:100","header:1500"],"header_ids":{"linje":"header:100","slaegtled":"header:1500"},"status":"unresolved","reasons":["uenig:kuld"]}],
+  {"record_key":"I-3","entry_code":"I","printed_number":"3","generation_local":2,"generation_label_raw":"Andet","generation_global":null,"kuld_label":null,"section_path":["header:100","header:1500"],"header_ids":{"linje":"header:100","slaegtled":"header:1500"},"status":"unresolved","reasons":["uenig:kuld"]},
+  {"record_key":"I-4","entry_code":"I","printed_number":"4","generation_local":2,"generation_label_raw":"Andet","generation_global":null,"kuld_label":null,"section_path":["header:100","header:1500"],"header_ids":{"linje":"header:100","slaegtled":"header:1500"},"status":"machine_ok","reasons":[]}],
  "invariants":{"kuld_stigende":true,"linje_overskrifter_svarer_til_entries":true,"nr_fortloebende":true,"poster_har_linje":true,"record_keys_unikke":true,"slaegtled_fortloebende":true},
  "disagreements":[{"record_key":"I-3","field":"kuld"}]}

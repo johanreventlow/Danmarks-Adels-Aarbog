@@ -22,12 +22,12 @@ M=tests/sql/fixtures/manifest-150.json
 echo '{"sheet_sha256":"'"$(printf x | shasum -a 256 | cut -c1-64)"'","record_keys":[]}' > "$tmp/ingen.json"
 echo '{"sheet_sha256":"'"$(printf y | shasum -a 256 | cut -c1-64)"'","record_keys":["I-3"]}' > "$tmp/i3.json"
 sha() { shasum -a 256 "$1" | cut -c1-64; }
-# ceremoni <base> <afgørelsesfil> <placements> <revalideret> → stdout+stderr til $tmp/<base>.out
+# ceremoni <base> <afgørelsesfil> <placements> <revalideret> [memberships] → stdout+stderr til $tmp/<base>.out
 ceremoni() {
   env -u PGOPTIONS psql -X -At -v ON_ERROR_STOP=1 -d "$1" -v actor=a1500000-0000-0000-0000-000000000150 -v src=-1550 \
     -v manifest_path="$M" -v approvals_path="$2" -v manifest_sha="$(sha "$M")" -v approvals_sha="$(sha "$2")" -v go=deadbeef \
     -v rendition_sha="$(printf '2%.0s' {1..64})" -v expect_headers=3 -v expect_placements="$3" -v expect_published=2 \
-    -v expect_bindings=3 -v expect_ledger=4 -v expect_revalidated="$4" -f $S/fix_150_placement.sql > "$tmp/$1.out" 2>&1
+    -v expect_bindings=3 -v expect_ledger=5 -v expect_revalidated="$4" -v expect_memberships="${5:-2}" -f $S/fix_150_placement.sql > "$tmp/$1.out" 2>&1
 }
 fase() { env -u PGOPTIONS psql -X -At -v ON_ERROR_STOP=1 -v src=-1550 -d "$1" -f $S/fix_150_maal.sql | tail -1; }
 for c in neg go genk human fortryd; do createdb -T "$db" "${db}_$c"; done
@@ -51,34 +51,36 @@ UPDATE private.source_persona_identity i SET canonical_person_id=-155099,version
  WHERE e.source_persona_id=i.source_persona_id AND e.version=2;
 COMMIT;
 SQL
-if ceremoni "${db}_neg" "$tmp/ingen.json" 2 2; then fail "manipuleret identitet godtaget"; fi
+if ceremoni "${db}_neg" "$tmp/ingen.json" 3 2; then fail "manipuleret identitet godtaget"; fi
 grep -q 'FIX150_PRE_IDENTITY' "$tmp/${db}_neg.out" || fail "forventede FIX150_PRE_IDENTITY: $(grep -o 'FIX150_[A-Z_]*' "$tmp/${db}_neg.out" | head -1)"
 [ "$(fase "${db}_neg")" = "FIX150 ddl=efter fase=foer" ] || fail "negativen skrev"
 
-# $revalider_to_i_traek$: to publicerede revalideres i samme transaktion; begge published, 0 stale; ledger 4 gældende;
-# memberships for de 2 egnede.
+# $revalider_to_i_traek$: to publicerede revalideres i samme transaktion; begge published, 0 stale; ledger 5 gældende;
+# memberships for de 2 egnede; I-4 (ingen persona) får record-placement, men ingen membership.
 [ "$(fase "${db}_go")" = "FIX150 ddl=efter fase=foer" ] || fail "fase før"
-ceremoni "${db}_go" "$tmp/ingen.json" 2 2 || fail "ceremoni: $(grep -o 'FIX150_[A-Z_]*[^:]*' "$tmp/${db}_go.out" | head -1)"
-grep -q '^FIX150_OK headers=3 placements=2 ledger=4 memberships=2 revalideret=2$' "$tmp/${db}_go.out" || fail "kvittering"
+ceremoni "${db}_go" "$tmp/ingen.json" 3 2 || fail "ceremoni: $(grep -o 'FIX150_[A-Z_]*[^:]*' "$tmp/${db}_go.out" | head -1)"
+grep -q '^FIX150_OK headers=3 placements=3 ledger=5 memberships=2 revalideret=2$' "$tmp/${db}_go.out" || fail "kvittering"
 [ "$(fase "${db}_go")" = "FIX150 ddl=efter fase=bundet" ] || fail "fase efter: $(fase "${db}_go")"
 [ "$(v "${db}_go" "SELECT count(*) FILTER (WHERE s->>'publication_status'='published')||'/'||count(*) FILTER (WHERE s->>'publication_status'='stale_published')
        FROM public.person_external_id pe, LATERAL private.narrative_record_state(pe.person_id,pe.source_id,pe.record_key) s WHERE pe.source_id=-1550")" = "2/0" ] \
   || fail "publicering efter"
 [ "$(v "${db}_go" "SELECT string_agg(disposition,',' ORDER BY person_id) FROM private.legacy_placement_disposition_current WHERE is_current")" \
-  = "retained_legacy,unresolved,mapped,mapped" ] || fail "ledger"
+  = "retained_legacy,mapped,unresolved,mapped,mapped" ] || fail "ledger"
+[ "$(v "${db}_go" "SELECT count(*) FROM private.source_persona_placement pp JOIN private.source_record_placement rp ON rp.id=pp.record_placement_id
+       JOIN private.source_record r ON r.id=rp.source_record_id WHERE r.source_id=-1550")" = "2" ] || fail "persona-placements"
 
 # Genkørsel → FIX150_PRE_FASE.
-ceremoni "${db}_genk" "$tmp/ingen.json" 2 2 || fail "første kørsel (genk)"
-if ceremoni "${db}_genk" "$tmp/ingen.json" 2 2; then fail "genkørsel godtaget"; fi
+ceremoni "${db}_genk" "$tmp/ingen.json" 3 2 || fail "første kørsel (genk)"
+if ceremoni "${db}_genk" "$tmp/ingen.json" 3 2; then fail "genkørsel godtaget"; fi
 grep -q 'FIX150_PRE_FASE' "$tmp/${db}_genk.out" || fail "forventede FIX150_PRE_FASE"
 
-# Godkendt i token-filen (I-3): tre placements; draften revalideres ikke (den var aldrig publiceret).
-ceremoni "${db}_human" "$tmp/i3.json" 3 2 || fail "ceremoni m. godkendelse: $(grep -o 'FIX150_[A-Z_]*' "$tmp/${db}_human.out" | head -1)"
+# Godkendt i token-filen (I-3): fire placements; draften revalideres ikke (den var aldrig publiceret).
+ceremoni "${db}_human" "$tmp/i3.json" 4 2 3 || fail "ceremoni m. godkendelse: $(grep -o 'FIX150_[A-Z_]*' "$tmp/${db}_human.out" | head -1)"
 [ "$(v "${db}_human" "SELECT evidence->>'basis' FROM private.source_record_placement_current pc JOIN private.source_record r ON r.id=pc.source_record_id
        WHERE r.record_key='I-3' AND r.source_id=-1550")" = "human_group_review" ] || fail "godkendt post bærer ikke basis"
 
 # $fortryd_en_post$: runbookens manuelle rækkefølge for I-2 ender med published og 0 stale.
-ceremoni "${db}_fortryd" "$tmp/ingen.json" 2 2 || fail "ceremoni (fortryd)"
+ceremoni "${db}_fortryd" "$tmp/ingen.json" 3 2 || fail "ceremoni (fortryd)"
 q -d "${db}_fortryd" >/dev/null <<'SQL' || fail "fortrydelse"
 BEGIN;
 SELECT set_config('request.jwt.claim.sub','a1500000-0000-0000-0000-000000000150',true);

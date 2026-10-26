@@ -18,6 +18,11 @@ t AS (
        JOIN private.source_record_placement rp ON rp.id=pc.record_placement_id
        JOIN private.source_record r ON r.id=rp.source_record_id, k
       WHERE r.source_id=k.src AND pc.decision_status='accepted' AND pc.placement_role='principal_member') AS persona_placements,
+    (SELECT count(*) FROM private.source_persona_placement_current pc
+       JOIN private.source_record_placement rp ON rp.id=pc.record_placement_id
+       JOIN private.source_record r ON r.id=rp.source_record_id
+       JOIN private.source_persona_identity i ON i.source_persona_id=pc.source_persona_id AND i.decision_status='accepted', k
+      WHERE r.source_id=k.src AND pc.decision_status='accepted' AND pc.placement_role='principal_member') AS med_identitet,
     (SELECT count(*) FROM private.source_observation o, k
       WHERE o.observation_kind IN ('header_linje','header_slaegtled','header_kuld','header_aegteskab')
         AND EXISTS (SELECT 1 FROM private.extraction_run r WHERE r.id=o.extraction_run_id AND r.source_id=k.src)) AS headers,
@@ -48,8 +53,8 @@ SELECT format('pei_src=%s pei_alle=%s headers=%s record_placements=%s persona_pl
        ||E'\nFIX150 ddl='||CASE WHEN (SELECT ddl FROM d) THEN 'efter' ELSE 'foer' END
        ||' fase='||CASE
           WHEN record_placements=0 AND persona_placements=0 AND headers=0 AND ledger_raekker=0 AND memberships=0 THEN 'foer'
-          WHEN record_placements>0 AND persona_placements=record_placements AND ledger_gaeldende=pei_alle
-               AND ledger_raekker=pei_alle AND memberships=persona_placements AND ikke_gaeldende=0 AND slaegt_status='active'
+          WHEN record_placements>0 AND persona_placements<=record_placements AND ledger_gaeldende=pei_alle
+               AND ledger_raekker=pei_alle AND memberships=med_identitet AND ikke_gaeldende=0 AND slaegt_status='active'
                AND coalesce((SELECT n FROM p WHERE status='stale_published'),0)=0 THEN 'bundet'
           ELSE 'ukendt' END
   FROM t;

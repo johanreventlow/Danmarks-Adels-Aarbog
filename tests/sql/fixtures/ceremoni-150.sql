@@ -69,6 +69,26 @@ BEGIN
   RESET ROLE;
 END $$;
 
+CREATE OR REPLACE FUNCTION pg_temp.c150_uden_persona(f jsonb,p_key text,p_person bigint,p_nr int,p_slaegtled int,p_char int)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_run uuid:=(f->>'run')::uuid; v_rec uuid; v_occ uuid; v_text text:='Opdigtet tekst uden navn nr. '||p_nr||'.';
+BEGIN
+  INSERT INTO public.person(id) VALUES (p_person);
+  INSERT INTO private.source_record(source_id,record_key,record_kind,created_run_id)
+    VALUES ((f->>'source')::bigint,p_key,'person_post',v_run) RETURNING id INTO v_rec;
+  INSERT INTO private.source_record_occurrence(rendition_id,occurrence_key,page_from,page_to,char_from,char_to,
+    verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id)
+    VALUES ((f->>'rend')::uuid,'occ-'||p_key,10,10,p_char,p_char+char_length(v_text),v_text,repeat('3',64),repeat('4',64),v_run)
+    RETURNING id INTO v_occ;
+  INSERT INTO private.source_record_anchor_event(occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name)
+    VALUES (v_occ,v_rec,'accepted','{"fixture":"150"}',1,(f->>'actor')::uuid,'fixture');
+  INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,
+    verbatim_text,quality_status,extraction_method,extraction_run_id)
+    VALUES (v_occ,'person_post',10,10,p_char,p_char+char_length(v_text),v_text,'clear','fixture',v_run);
+  INSERT INTO public.person_external_id(person_id,source_id,linje,nr,record_key,slaegtled_lokal)
+    VALUES (p_person,(f->>'source')::bigint,'I',p_nr,p_key,p_slaegtled);
+END $$;
+
 CREATE OR REPLACE FUNCTION pg_temp.c150_revalider(p_person bigint,p_source bigint,p_key text) RETURNS void
 LANGUAGE plpgsql AS $$
 DECLARE h text:=private.narrative_record_state(p_person,p_source,p_key,true)->>'state_sha256';
@@ -111,6 +131,9 @@ BEGIN
   ALTER TABLE private.source_record_placement ENABLE TRIGGER USER;
   PERFORM pg_temp.c150_revalider(-155001,-1550,'I-1');
   PERFORM pg_temp.c150_revalider(-155002,-1550,'I-2');
+  -- I-4: en post uden hovedperson-persona (som prods 4 sidste poster pr. linje): forekomst, anker og helpost, men
+  -- ingen mention/persona. Den får record-placement, men hverken persona-placement eller membership.
+  PERFORM pg_temp.c150_uden_persona(f,'I-4',-155004,4,2,4000);
   g:=pg_temp.f5b_source(-1551);
   INSERT INTO public.person(id) VALUES (-155101);
   INSERT INTO public.person_external_id(person_id,source_id,linje,nr,record_key) VALUES (-155101,-1551,'1939',1,'I-1');

@@ -9,7 +9,9 @@
 -- Brug: psql -X -At -v ON_ERROR_STOP=1 -v actor=<uuid> -v src=1 -v manifest_path=<fil> -v approvals_path=<fil>
 --   -v manifest_sha=<sha256 af manifestfilen> -v approvals_sha=<sha256 af afgørelsesfilen> -v go=<GO-kode>
 --   -v rendition_sha=<renditionens content_sha256> -v expect_headers=N -v expect_placements=N -v expect_published=N
---   -v expect_bindings=N -v expect_ledger=N -v expect_revalidated=N -f fix_150_placement.sql
+--   -v expect_bindings=N -v expect_ledger=N -v expect_revalidated=N -v expect_memberships=N -f fix_150_placement.sql
+-- En post uden hovedperson-persona (prod: de 4 sidste poster i linje I-IV) får record-placement og ledger mapped, men
+-- hverken persona-placement eller membership (spec §5: record_label følger linjen).
 \set QUIET on
 \set ON_ERROR_STOP on
 \set m `cat :'manifest_path'`
@@ -22,7 +24,7 @@ SELECT set_config('request.jwt.claim.sub', :'actor', true), set_config('fix150.s
        set_config('fix150.approvals_sha', :'approvals_sha', true), set_config('fix150.rendition_sha', :'rendition_sha', true),
        set_config('fix150.expect', json_build_object('headers', :'expect_headers'::int, 'placements', :'expect_placements'::int,
          'published', :'expect_published'::int, 'bindings', :'expect_bindings'::int, 'ledger', :'expect_ledger'::int,
-         'revalidated', :'expect_revalidated'::int)::text, true) \g /dev/null
+         'revalidated', :'expect_revalidated'::int, 'memberships', :'expect_memberships'::int)::text, true) \g /dev/null
 CREATE TEMP TABLE fix150_input ON COMMIT DROP AS SELECT :'m'::jsonb AS m, :'a'::jsonb AS a;
 
 -- Poster, der skrives: maskinelt enige eller godkendt i token-filen. Én række pr. post med record, persona og helpost.
@@ -142,23 +144,36 @@ BEGIN
   SELECT p->>'record_key', p, CASE WHEN p->>'status'='machine_ok' THEN 'machine' ELSE 'human_group_review' END
     FROM jsonb_array_elements(m->'placements') p
    WHERE p->>'status'='machine_ok' OR p->>'record_key' IN (SELECT jsonb_array_elements_text(a->'record_keys'));
-  UPDATE fix150_post f SET record_id=x.record_id, persona_id=x.persona_id, basis_obs=x.basis_obs
-    FROM (SELECT sr.record_key, sr.id AS record_id, spm.persona_id, o.id AS basis_obs,
-                 count(*) OVER (PARTITION BY sr.record_key) AS n
+  -- Record og helpost (præcis én accepteret helpost); hovedperson-persona højst én (ingen er tilladt, flere stopper).
+  UPDATE fix150_post f SET record_id=x.record_id, basis_obs=x.basis_obs,
+         persona_id=(SELECT spm.persona_id FROM private.source_mention sm
+                       JOIN private.source_persona_mention spm ON spm.mention_id=sm.id AND spm.mention_role='primary'
+                      WHERE sm.observation_id=x.basis_obs)
+    FROM (SELECT sr.record_key, sr.id AS record_id, o.id AS basis_obs, count(*) OVER (PARTITION BY sr.record_key) AS n
             FROM private.source_record sr
             JOIN private.source_record_anchor_current ac ON ac.source_record_id=sr.id AND ac.decision_status='accepted'
             JOIN private.source_observation o ON o.occurrence_id=ac.occurrence_id AND o.parent_observation_id IS NULL
-            JOIN private.source_mention sm ON sm.observation_id=o.id
-            JOIN private.source_persona_mention spm ON spm.mention_id=sm.id AND spm.mention_role='primary'
+                                              AND o.observation_kind='person_post'
            WHERE sr.source_id=v_src) x
    WHERE x.record_key=f.record_key AND x.n=1;
   UPDATE fix150_post f SET person_id=pe.person_id FROM public.person_external_id pe
    WHERE pe.source_id=v_src AND pe.record_key=f.record_key;
   UPDATE fix150_post f SET entry_id=e2.id FROM public.lineage_scheme s JOIN public.lineage_scheme_entry e2 ON e2.scheme_id=s.id
    WHERE s.source_id=v_src AND s.kind='stamtavle' AND e2.code=f.p->>'entry_code';
-  IF EXISTS (SELECT 1 FROM fix150_post WHERE record_id IS NULL OR persona_id IS NULL OR person_id IS NULL OR entry_id IS NULL) THEN
-    RAISE EXCEPTION 'FIX150_PRE_RECORDS n=%', (SELECT count(*) FROM fix150_post WHERE record_id IS NULL OR persona_id IS NULL
-                                                 OR person_id IS NULL OR entry_id IS NULL);
+  IF EXISTS (SELECT 1 FROM fix150_post WHERE record_id IS NULL OR person_id IS NULL OR entry_id IS NULL) THEN
+    RAISE EXCEPTION 'FIX150_PRE_RECORDS n=%', (SELECT count(*) FROM fix150_post WHERE record_id IS NULL OR person_id IS NULL
+                                                 OR entry_id IS NULL);
+  END IF;
+  -- Ingen helpost med mere end én hovedperson-persona.
+  IF EXISTS (SELECT 1 FROM fix150_post f JOIN private.source_mention sm ON sm.observation_id=f.basis_obs
+               JOIN private.source_persona_mention spm ON spm.mention_id=sm.id AND spm.mention_role='primary'
+              GROUP BY f.record_key HAVING count(*)>1) THEN
+    RAISE EXCEPTION 'FIX150_PRE_PERSONA';
+  END IF;
+  -- Memberships: placerede hovedpersoner med accepteret identitet.
+  IF (SELECT count(*) FROM fix150_post f JOIN private.source_persona_identity i ON i.source_persona_id=f.persona_id
+        AND i.decision_status='accepted')<>(e->>'memberships')::bigint THEN
+    RAISE EXCEPTION 'FIX150_PRE_MEMBERSHIPS';
   END IF;
   IF (SELECT count(*) FROM fix150_post)<>(e->>'placements')::bigint THEN
     RAISE EXCEPTION 'FIX150_PRE_PLACEMENTS n=%', (SELECT count(*) FROM fix150_post);
@@ -193,7 +208,8 @@ BEGIN
   END LOOP;
   UPDATE fix150_post SET pp=private.write_persona_placement(persona_id, rp, basis_obs,
     jsonb_build_object('rule_version','placement-membership-v1','record_placement_id',rp,'go',current_setting('fix150.go'),
-      'manifest_sha256',current_setting('fix150.manifest_sha'),'decided_by_name','#150 trin 5c-1 (GO 2)'));
+      'manifest_sha256',current_setting('fix150.manifest_sha'),'decided_by_name','#150 trin 5c-1 (GO 2)'))
+   WHERE persona_id IS NOT NULL;
   -- Ledger: alle legacy-rækker. Kilden: mapped med placement, ellers unresolved; andre kilder: retained_legacy.
   PERFORM private.record_legacy_disposition(pe.person_id, pe.source_id,
             CASE WHEN f.rp IS NOT NULL THEN 'mapped' WHEN pe.source_id=v_src THEN 'unresolved' ELSE 'retained_legacy' END,
@@ -216,10 +232,16 @@ SELECT public.red_preview_placement_memberships(:src)::text AS g_pv \gset
 RESET ROLE;
 SELECT set_config('fix150.pv', :'g_pv', true) \g /dev/null
 DO $mid$
-DECLARE v jsonb:=current_setting('fix150.pv')::jsonb;
+DECLARE v jsonb:=current_setting('fix150.pv')::jsonb; e jsonb:=current_setting('fix150.expect')::jsonb;
 BEGIN
-  IF (SELECT count(*) FROM jsonb_array_elements(v->'items') i WHERE (i->>'eligible')::boolean)<>(SELECT count(*) FROM fix150_post)
-     OR EXISTS (SELECT 1 FROM jsonb_array_elements(v->'items') i WHERE NOT (i->>'eligible')::boolean)
+  -- Egnede = de forventede memberships; ikke-egnede kun not_accepted for en persona uden accepteret identitet.
+  IF (SELECT count(*) FROM jsonb_array_elements(v->'items') i WHERE (i->>'eligible')::boolean)<>(e->>'memberships')::bigint
+     OR EXISTS (SELECT 1 FROM jsonb_array_elements(v->'items') i
+                 WHERE NOT (i->>'eligible')::boolean
+                   AND (i->>'reason_code'<>'not_accepted'
+                        OR EXISTS (SELECT 1 FROM private.source_persona_placement pp
+                                     JOIN private.source_persona_identity id ON id.source_persona_id=pp.source_persona_id
+                                    WHERE pp.id=(i->>'persona_placement_id')::uuid AND id.decision_status='accepted')))
      OR btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN
     RAISE EXCEPTION 'FIX150_MID_MEMBERSHIP_PREVIEW';
   END IF;
@@ -273,12 +295,12 @@ BEGIN
     RAISE EXCEPTION 'FIX150_POST_LEDGER n=%', v_n; END IF;
   IF (SELECT count(*) FROM private.legacy_placement_disposition_current WHERE source_id=v_src AND disposition='mapped')
        <>(SELECT count(*) FROM fix150_post) THEN RAISE EXCEPTION 'FIX150_POST_LEDGER_MAPPED'; END IF;
-  -- Memberships: én pr. placeret hovedperson, alle gældende.
-  IF current_setting('fix150.promoted')::bigint<>(SELECT count(*) FROM fix150_post)
+  -- Memberships: én pr. placeret hovedperson med accepteret identitet, alle gældende.
+  IF current_setting('fix150.promoted')::bigint<>(e->>'memberships')::bigint
      OR (SELECT count(*) FROM public.person_lineage_membership WHERE source_basis->>'rule_version'='placement-membership-v1')
-          <>(SELECT count(*) FROM fix150_post)
+          <>(e->>'memberships')::bigint
      OR (SELECT count(*) FROM public.person_slaegt_membership WHERE source_basis->>'rule_version'='placement-membership-v1')
-          <>(SELECT count(*) FROM fix150_post)
+          <>(e->>'memberships')::bigint
      OR private.placement_membership_not_current()<>0 THEN
     RAISE EXCEPTION 'FIX150_POST_MEMBERSHIPS'; END IF;
   IF private.placement_header_violations(v_src)<>0 THEN RAISE EXCEPTION 'FIX150_POST_NEAREST'; END IF;
