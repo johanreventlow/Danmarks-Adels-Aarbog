@@ -604,6 +604,11 @@ INSERT INTO private.vocab(scheme,code,label) VALUES
   -- vokabularet blev lukket). Inventeret 2026-09-06 ved at køre hele suiten med en
   -- NOTICE-udgave af triggeren (se Task 2 Step 3); reelt sæt = 8 + 5.
   ('observation_kind','header','Slægtledsoverskrift (placement-header, validate_source_record_placement)'),
+  -- #150 trin 5c-1: overskrifter som strukturelle forekomster mellem posterne; niveauet er koden.
+  ('observation_kind','header_linje','Linjeoverskrift (strukturel forekomst, placement-header sti ii)'),
+  ('observation_kind','header_slaegtled','Slægtledsoverskrift (strukturel forekomst)'),
+  ('observation_kind','header_kuld','Kuld-markør (strukturel forekomst)'),
+  ('observation_kind','header_aegteskab','Ægteskabskontekst (strukturel forekomst)'),
   ('observation_kind','name_clause','Fixture-kode (test-evidence-promotion)'),
   ('observation_kind','death_clause','Fixture-kode (db-verify)'),
   ('observation_kind','person_name','Fixture-kode (db-verify, evidence_contract-fixture)'),
@@ -2308,7 +2313,12 @@ SELECT placement.*,decision.version,decision.decision_status,decision.evidence,
          ORDER BY placement_id,version DESC) decision
     ON decision.placement_id=placement.id;
 
-CREATE FUNCTION private.validate_source_record_placement()
+-- #150 trin 5c-1 (spec §4.1): to stier til en placement-header. (i) den oprindelige: kind 'header' i postens egen
+-- ankrede forekomst (1939/trin 6). (ii) 2018-20: overskrifterne står mellem posterne som uankrede strukturelle
+-- forekomster; header_linje i samme rendition som postens tidligste accepterede forekomst, før den, og fra
+-- forekomstens egen (header-)kørsel. Kun strukturelle forhold her; nærmeste-reglen efterprøves af
+-- private.placement_header_violations (db-verify og ceremoniens POST).
+CREATE OR REPLACE FUNCTION private.validate_source_record_placement()
 RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
 BEGIN
   IF NOT EXISTS (
@@ -2319,6 +2329,22 @@ BEGIN
        AND o.observation_kind='header'
        AND anchor.source_record_id=NEW.source_record_id
        AND anchor.decision_status='accepted'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM private.source_observation o
+      JOIN private.source_record_occurrence header ON header.id=o.occurrence_id
+      JOIN LATERAL (
+        SELECT occurrence.rendition_id,occurrence.char_from
+          FROM private.source_record_anchor_current anchor
+          JOIN private.source_record_occurrence occurrence ON occurrence.id=anchor.occurrence_id
+         WHERE anchor.source_record_id=NEW.source_record_id AND anchor.decision_status='accepted'
+         ORDER BY occurrence.page_from,occurrence.char_from,occurrence.id LIMIT 1
+      ) post ON true
+     WHERE o.id=NEW.header_observation_id
+       AND o.observation_kind='header_linje'
+       AND o.extraction_run_id=header.extraction_run_id
+       AND header.rendition_id=post.rendition_id
+       AND header.char_from<post.char_from
+       AND NOT EXISTS (SELECT 1 FROM private.source_record_anchor_event event WHERE event.occurrence_id=header.id)
   ) THEN
     RAISE EXCEPTION 'EVIDENCE_PLACEMENT_HEADER_REQUIRED';
   END IF;
@@ -2624,6 +2650,50 @@ REVOKE ALL ON FUNCTION red_decide_source_record_placement(uuid,integer,text,json
                        red_decide_source_persona_placement(uuid,integer,text,jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION red_decide_source_record_placement(uuid,integer,text,jsonb),
                           red_decide_source_persona_placement(uuid,integer,text,jsonb) TO authenticated;
+
+-- #150 trin 5c-1 (spec §4.1): nærmeste-reglen for accepterede sti ii-placements i én kilde. For hvert niveau
+-- (linje > slægtled > kuld > ægteskab) er den forventede overskrift den nærmeste foregående i placementens
+-- header-kørsel og rendition, medmindre en overskrift af højere niveau står efter den. evidence.header_ids skal
+-- svare præcis (intet opfundet, intet udeladt), og linje-id'et skal være header_observation_id. Returnerer antal brud.
+CREATE OR REPLACE FUNCTION private.placement_header_violations(p_source_id bigint)
+RETURNS bigint LANGUAGE sql STABLE SET search_path=pg_catalog,public,private AS $$
+  WITH lv(level,kind,rank) AS (
+    VALUES ('linje','header_linje',1),('slaegtled','header_slaegtled',2),('kuld','header_kuld',3),
+           ('aegteskab','header_aegteskab',4)
+  ), p AS (
+    SELECT pc.id,pc.header_observation_id,pc.evidence->'header_ids' AS ids,ho.extraction_run_id AS run,
+           hocc.rendition_id AS rend,
+           (SELECT occ.char_from FROM private.source_record_anchor_current a
+              JOIN private.source_record_occurrence occ ON occ.id=a.occurrence_id
+             WHERE a.source_record_id=pc.source_record_id AND a.decision_status='accepted'
+               AND occ.rendition_id=hocc.rendition_id
+             ORDER BY occ.char_from LIMIT 1) AS post_from
+      FROM private.source_record_placement_current pc
+      JOIN private.source_record r ON r.id=pc.source_record_id AND r.source_id=p_source_id
+      JOIN private.source_observation ho ON ho.id=pc.header_observation_id
+      JOIN private.source_record_occurrence hocc ON hocc.id=ho.occurrence_id
+     WHERE pc.decision_status='accepted' AND ho.observation_kind='header_linje'
+  ), h AS (
+    SELECT p.id AS pid,o.id AS oid,lv.level,lv.rank,o.char_from
+      FROM p
+      JOIN private.source_observation o ON o.extraction_run_id=p.run
+      JOIN private.source_record_occurrence occ ON occ.id=o.occurrence_id AND occ.rendition_id=p.rend
+      JOIN lv ON lv.kind=o.observation_kind
+     WHERE o.char_from<p.post_from
+  ), nearest AS (
+    SELECT DISTINCT ON (h.pid,h.level) h.* FROM h ORDER BY h.pid,h.level,h.char_from DESC
+  ), expected AS (
+    SELECT n.pid,n.level,n.oid FROM nearest n
+     WHERE NOT EXISTS (SELECT 1 FROM h x WHERE x.pid=n.pid AND x.rank<n.rank AND x.char_from>n.char_from)
+  )
+  SELECT count(*) FROM p
+   WHERE p.post_from IS NULL OR p.ids IS NULL OR jsonb_typeof(p.ids)<>'object'
+      OR p.ids->>'linje' IS DISTINCT FROM p.header_observation_id::text
+      OR EXISTS (SELECT 1 FROM jsonb_object_keys(p.ids) k WHERE k NOT IN (SELECT level FROM lv))
+      OR EXISTS (SELECT 1 FROM lv WHERE (p.ids->>lv.level) IS DISTINCT FROM
+                   (SELECT e.oid::text FROM expected e WHERE e.pid=p.id AND e.level=lv.level));
+$$;
+REVOKE ALL ON FUNCTION private.placement_header_violations(bigint) FROM PUBLIC,anon,authenticated,service_role;
 
 -- ---------- UDLEDT SLÆGTSNAVN: cyklus-sikre lineage-graf-walkers ----------
 -- Bruges BÅDE til skrive-tids cyklus-forebyggelse (BEFORE-trigger nedenfor) OG læse-tids

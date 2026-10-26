@@ -3674,6 +3674,30 @@ BEGIN
   END;
 END $slaegt_verify$;
 
+-- ===== #150 trin 5c-1: placement-header som strukturel forekomst (sti ii) og nærmeste-reglen =====
+DO $placement_header_150_verify$
+DECLARE v_source bigint; v_n bigint;
+BEGIN
+  IF (SELECT count(*) FROM private.vocab WHERE scheme='observation_kind'
+       AND code IN ('header_linje','header_slaegtled','header_kuld','header_aegteskab'))<>4 THEN
+    RAISE EXCEPTION 'FEJL: #150 header-vokabularet mangler';
+  END IF;
+  IF to_regprocedure('private.placement_header_violations(bigint)') IS NULL
+     OR position('header_linje' IN pg_get_functiondef('private.validate_source_record_placement()'::regprocedure))=0 THEN
+    RAISE EXCEPTION 'FEJL: #150 placement-header sti ii mangler';
+  END IF;
+  IF has_function_privilege('anon','private.placement_header_violations(bigint)','EXECUTE')
+     OR has_function_privilege('authenticated','private.placement_header_violations(bigint)','EXECUTE') THEN
+    RAISE EXCEPTION 'FEJL: placement_header_violations er API-eksekverbar';
+  END IF;
+  FOR v_source IN SELECT DISTINCT r.source_id FROM private.source_record_placement_current pc
+                    JOIN private.source_record r ON r.id=pc.source_record_id WHERE pc.decision_status='accepted' LOOP
+    v_n:=private.placement_header_violations(v_source);
+    IF v_n<>0 THEN RAISE EXCEPTION 'FEJL: PLACEMENT_HEADER_VIOLATIONS source=% n=%',v_source,v_n; END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: placement-header sti ii og nærmeste-reglen';
+END $placement_header_150_verify$;
+
 -- ===== Evidensimport Fase 3 / Task 8: generelle beskrivelser og heraldik =====
 DO $entity_description_verify$
 DECLARE
