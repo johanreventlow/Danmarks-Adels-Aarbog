@@ -541,6 +541,9 @@ Repo `34a016f2` (PR #261), GO 240 `9e7bfa20`; dump før skrivning `daa-prod-2026
   vielsespåstande flyttet til 188, 282, 354, 361, 377). 7 ægteskaber afgjort og bundet (7 nye promotioner).
   Fortryd er ikke længere muligt med change_set alene (decisions #240 punkt 5); dumpet er nødudvejen.
 - **Verifikation:** `MAAL_240_OK ddl151=efter fase=bundet` (= generalprøvens sha), `ADVISORS_240_OK nye=0 forsvundne=0`.
+- **Opfølgning samme dag (PR #263, GO 240 `ebffa718`):** GO 2's ene dubletægteskab rettet: ægtefællen afgjort igen
+  til post 753, ægteskabet bundet til familie 202 (`DUBLET_GO2_OK identitet=753 decided=1 promoted=1`). Kun data.
+  Efter: `MAAL_240_OK` med uændret sha og `DUBLET_GO2 fase=efter`.
 
 ## 11. 5a+5b's data for 2018-20 (#151) — LIVE i prod (2026-10-25, GO 2)
 
