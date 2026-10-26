@@ -78,6 +78,8 @@ class TestHeaderManifest(unittest.TestCase):
         self.assertEqual(p['section_path'], [p['header_ids'][k] for k in ('linje', 'slaegtled', 'kuld', 'aegteskab')])
         self.assertEqual(p['status'], 'machine_ok')
         self.assertEqual(placement(m, 'I-1a')['printed_number'], '1a')
+        # Postens side (opslag i PDF'en for kontrolarket) — ikke en placeringsværdi.
+        self.assertEqual((placement(m, 'I-1')['page'], placement(m, 'II-1')['page']), (10, 11))
 
     def test_hoejere_niveau_annullerer(self):
         lines = BASIS[:12] + [

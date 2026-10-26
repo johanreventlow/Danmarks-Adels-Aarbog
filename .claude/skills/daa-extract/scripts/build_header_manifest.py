@@ -138,7 +138,7 @@ def _scan(text: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[d
         m = segment.POST_RE.match(line)
         if m:
             posts.append({'nr': int(m.group(2)), 'nr_label': m.group(2) + m.group(3),
-                          'active': dict(active)})
+                          'page': pages[i], 'active': dict(active)})
             continue
         m = RANGE_RE.match(line)
         if m and 'linje' in active:
@@ -245,6 +245,7 @@ def build_manifest(rendition_bytes: bytes, profile: dict[str, Any],
             'record_key': record_key,
             'entry_code': post['entry_code'],
             'printed_number': post['nr_label'],
+            'page': post['page'],
             'generation_local': values['slaegtled_lokal'],
             'generation_label_raw': slaegtled['parsed']['label_raw'] if slaegtled else None,
             'generation_global': values['slaegtled_gennem'],
