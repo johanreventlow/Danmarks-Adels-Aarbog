@@ -16,6 +16,7 @@ nogen læser ændres.
 **Tech Stack:** PostgreSQL 17 (plpgsql), Python 3 (manifest og pytest), bash/zsh (opgraderingstest, privat runner).
 
 **Spec:** `docs/superpowers/specs/2026-10-26-trin5c-placement-membership-design.md` (Fable-reviewet 2026-10-26).
+**Plan-review:** Codex r1 NO-GO (5B/6M) 2026-10-26 → Opus-dom (7 nødvendige, 4 forenklede) → indarbejdet.
 
 ## Global Constraints
 
@@ -51,7 +52,8 @@ nogen læser ændres.
 4. **En identitetsrettelse efter promotion.** Membershippen skal blive ikke-gældende, og helbredsassert'en skal
    tælle den. Låses af `$membership_forael$` i Task 4.
 5. **En persona-placement, hvis identitet peger på en anden person end bindingens.** Dataceremonien skal stoppe
-   før skrivning (`FIX5C_PRE_IDENTITY`), ikke efterlade en blokeret binding. Låses af negativen i Task 7, trin 5.
+   før skrivning (`FIX150_PRE_IDENTITY`), ikke efterlade en blokeret binding — også når posten selv er `unresolved`.
+   Låses af negativen i Task 6, trin 1, og Task 7, trin 5.
 
 ---
 
@@ -72,6 +74,8 @@ nogen læser ændres.
 
 **Files:**
 - Create: `.claude/skills/daa-extract/scripts/build_header_manifest.py`
+- Create: `.claude/skills/daa-extract/scripts/fix_150_eksport.sql` (read-only SELECT af kilde 1's legacy-rækker som
+  JSON `{record_key, linje, nr, slaegtled_lokal, slaegtled_gennem, kuld}`; ingen navne; læsetransaktion)
 - Test: `.claude/skills/daa-extract/scripts/test_build_header_manifest.py`
 
 **Interfaces:**
@@ -104,7 +108,8 @@ nogen læser ændres.
 - [ ] **Trin 3: Implementér** `build_manifest` og CLI'en. Hierarki: linje > slægtled > kuld > ægteskab; en
   overskrift nulstiller alle lavere niveauer. `element_id` = `header:<char_from>`. Ingen netværk, ingen model.
 - [ ] **Trin 4:** Kør pytest igen. Forventet: alle grønne.
-- [ ] **Trin 5:** Kør på den rigtige tekst (stdout+stderr til fil under `~/.private/5c/`). Notér antal pr.
+- [ ] **Trin 5:** Eksportér legacy med `fix_150_eksport.sql` mod stand-in'en (til `~/.private/5c/legacy.json`), og kør
+  manifestet på den rigtige tekst (stdout+stderr til fil under `~/.private/5c/`). Notér antal pr.
   `status`, alle `invariants` og antal `disagreements` i `maaling.txt`. Er et invariant falsk, stop og vis
   projektejeren antallet.
 - [ ] **Trin 6: Commit** `feat(150): overskriftsmanifest for 2018-20`.
@@ -119,8 +124,12 @@ nogen læser ændres.
 **Interfaces:**
 - Produces: `validate_source_record_placement` accepterer (i) den eksisterende sti (kind `header` i postens egen
   ankrede forekomst) eller (ii) kind `header_linje` på en forekomst i samme rendition som postens tidligste ankrede
-  forekomst, uden noget `source_record_anchor_event`, med `char_from` < postens forekomsts `char_from`. Ellers
+  forekomst, uden noget `source_record_anchor_event`, med `char_from` < postens forekomsts `char_from` og
+  `o.extraction_run_id = forekomstens extraction_run_id` (samme header-kørsel). Ellers
   `EVIDENCE_PLACEMENT_HEADER_REQUIRED`. `EVIDENCE_PLACEMENT_SOURCE_MISMATCH` uændret.
+  - `private.placement_header_violations(p_source_id bigint) RETURNS bigint`: antal accepterede placements, hvor en
+    header-id i `evidence` ikke deler kørsel med `header_observation_id`, har forkert kind, ikke står før posten, eller
+    hvor en overskrift af samme eller højere niveau står imellem (nærmeste-reglen). Bruges af db-verify og ceremoniens POST.
 
 - [ ] **Trin 1: Skriv den fejlende test** `tests/sql/test-placement-header.sql` med fixtures fra
   `fixtures/relation-5b.sql` (post + rendition) og en strukturel forekomst:
@@ -129,6 +138,8 @@ nogen læser ændres.
   - `$sti_ii_ankret$`: header-forekomsten er ankret til en record → afvist.
   - `$sti_ii_anden_rendition$` → afvist. `$sti_ii_forkert_kind$` (`header_kuld`) → afvist.
   - `$sti_i_uaendret$`: den gamle sti (kind `header` i postens forekomst) virker stadig.
+  - `$sti_ii_anden_koersel$`: observationens kørsel ≠ forekomstens → afvist.
+  - `$ikke_naermeste$`: en ældre linjeoverskrift med en nyere imellem → `placement_header_violations=1`.
 - [ ] **Trin 2:** Kør testen. Forventet: `$sti_ii_ok$` fejler med `EVIDENCE_PLACEMENT_HEADER_REQUIRED`.
 - [ ] **Trin 3: Implementér** vokabularkoderne og validatoren (`CREATE OR REPLACE`, samme signatur), og kopiér
   til migrationsblokken.
@@ -140,8 +151,9 @@ nogen læser ændres.
 ### Task 3: Ledger og private skrivefunktioner
 
 **Files:**
-- Modify: `schema.sql` (ny tabel + view + funktioner efter placement-RPC'erne, `:2600`), migrationsblokken,
-  `db-verify.sql` (ACL- og tabelblok som `private.relation_reopen`)
+- Modify: `schema.sql` (ny tabel + view + funktioner efter placement-RPC'erne, `:2600`; `slaegt` i
+  `version_pk_registry` efter mønstret `:9414-9419`), migrationsblokken (registrering + eksplicit `log_change`-trigger,
+  fordi triggerløkken allerede har kørt), `db-verify.sql` (ACL- og tabelblok som `private.relation_reopen`)
 - Test: `tests/sql/test-placement-writer.sql` (ny)
 
 **Interfaces:**
@@ -152,7 +164,8 @@ nogen læser ændres.
     private.source_record_placement(id), evidence jsonb NOT NULL CHECK (jsonb_typeof(evidence)='object'),
     decided_by_name text NOT NULL, decided_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     PRIMARY KEY (person_id,source_id,version), CHECK ((disposition='mapped')=(placement_id IS NOT NULL)))` + view
-    `private.legacy_placement_disposition_current`.
+    `private.legacy_placement_disposition_current` med kolonnen `is_current = (legacy_sha256 IS NOT DISTINCT FROM
+    private.legacy_external_id_sha256(person_id,source_id))` (slettet legacy-række → NULL → ikke gældende).
   - `private.legacy_external_id_sha256(p_person_id bigint, p_source_id bigint) RETURNS text` (sha over linje, nr,
     record_key, slaegtled_lokal, slaegtled_gennem, kuld med `private.reimport_canonical_json_sha256`).
   - `private.write_header_evidence(p_source_id bigint, p_rendition_id uuid, p_run jsonb, p_headers jsonb) RETURNS integer`:
@@ -161,16 +174,20 @@ nogen læser ændres.
     Idempotent: findes id'et med samme indhold, springes det over; afviger indholdet → `PLACEMENT_HEADER_DRIFT`.
   - `private.write_record_placement(p_record_id uuid, p_entry_id bigint, p_values jsonb, p_header_obs uuid,
     p_evidence jsonb) RETURNS uuid`: placement (`content_uuid('record-placement',{source_record_id,scheme_entry_id,header_rule_version})`)
-    + afgørelse v1 `proposed` og v2 `accepted` med `decision_origin='migration'`.
+    med `initial_status='accepted'` og én afgørelse v1 `accepted`, `decision_origin='migration'` (triggeren tillader det
+    kun for v1, `schema.sql:2393-2402`); v1's evidence bærer GO-, manifest- og kontrolark-sha. En senere supersede er v2
+    gennem `red_decide_*` med `p_expected_version=1`.
   - `private.write_persona_placement(p_persona_id uuid, p_record_placement_id uuid, p_basis_obs uuid,
-    p_evidence jsonb) RETURNS uuid`: `principal_member`, samme mønster (`'persona-placement'`).
+    p_evidence jsonb) RETURNS uuid`: `principal_member`, samme mønster (`'persona-placement'`); skrives efter record-afgørelsen (`:2415-2421`).
   - `private.record_legacy_disposition(p_person_id bigint, p_source_id bigint, p_disposition text,
     p_placement_id uuid, p_evidence jsonb) RETURNS integer` (ny version; ingen ændring → ingen ny række).
   - `private.lineage_of_entry(p_entry_id bigint) RETURNS bigint`: præcis én `canonical`, ellers `PLACEMENT_ENTRY_LINEAGE_INVALID`.
 
 - [ ] **Trin 1: Skriv de fejlende tests:** genkørsel giver samme id'er og 0 nye rækker; ændret header-tekst →
   `PLACEMENT_HEADER_DRIFT`; disposition `mapped` uden placement → CHECK-fejl; to canonicals → `PLACEMENT_ENTRY_LINEAGE_INVALID`;
-  `legacy_sha256` skifter, når en legacy-værdi ændres; anon/authenticated har ingen adgang til tabellen.
+  en UPDATE af `person_external_id` efter registreret disposition slår `is_current` til false; anon/authenticated har
+  ingen adgang til tabellen; v1-afgørelsen er `accepted`/`migration` og en v2-supersede via `red_decide_*` virker;
+  `slaegt` er registreret i `version_pk_registry`, og en UPDATE under en change_set giver én `change_event`.
 - [ ] **Trin 2:** Kør. Forventet: funktionerne findes ikke.
 - [ ] **Trin 3: Implementér**, kopiér til migrationsblokken, registrér tabellen i db-verify.
 - [ ] **Trin 4:** Kør testen og db-verify. Forventet: grønne.
@@ -194,17 +211,18 @@ nogen læser ændres.
   - `public.red_promote_placement_memberships(p_source_id bigint, p_preview_sha256 text) RETURNS integer`: egen
     change_set (`begin_change_set('placement_membership', …)`), skriver `person_lineage_membership` (`member`) og
     `person_slaegt_membership` (`agnatic`) med `source_basis` = state + `state_sha256`; rydder `app.change_set_id` før retur.
-    Fejl: `EVIDENCE_ROLE_FORBIDDEN`, `PLACEMENT_MEMBERSHIP_PREVIEW_DRIFT`, `PLACEMENT_MEMBERSHIP_CONFLICT` (anden kilde
+    Fejl: `PLACEMENT_MEMBERSHIP_FOREIGN_CHANGE_SET` (GUC'en er sat ved indgang, husmønstret fra `:3417`), `EVIDENCE_ROLE_FORBIDDEN`, `PLACEMENT_MEMBERSHIP_PREVIEW_DRIFT`, `PLACEMENT_MEMBERSHIP_CONFLICT` (anden kilde
     ejer rækken).
   - `public.red_reverse_placement_membership(p_person_id bigint, p_lineage_id bigint, p_note text) RETURNS void`
-    (sletter begge rækker under egen change_set).
+    (sletter begge rækker under egen change_set; samme GUC-vagt).
   - `private.membership_is_current(p_person_id bigint, p_lineage_id bigint) RETURNS boolean`.
   - db-verify-helbredsassert: `PLACEMENT_MEMBERSHIP_NOT_CURRENT n=<antal>` som NOTICE (ikke fejl).
 
 - [ ] **Trin 1: Skriv de fejlende tests:** preview → promote → begge tabeller har rækken og `membership_is_current`;
   `$membership_forael$`: identiteten afgøres igen til en anden person → `membership_is_current=false` og assert'en
   tæller 1; reversal fjerner rækkerne og logger `change_event`; anden preview-sha → drift-fejl; rolle uden
-  `redaktion` → `EVIDENCE_ROLE_FORBIDDEN`; ægtefælle-persona får aldrig et item.
+  `redaktion` → `EVIDENCE_ROLE_FORBIDDEN`; kald med et fremmed aktivt change_set → `PLACEMENT_MEMBERSHIP_FOREIGN_CHANGE_SET`;
+  ægtefælle-persona får aldrig et item.
 - [ ] **Trin 2:** Kør. Forventet: funktionerne findes ikke.
 - [ ] **Trin 3: Implementér**, ACL, kopiér til migrationsblokken, registrér i db-rls og db-verify.
 - [ ] **Trin 4:** Kør testen, db-verify og `tests/sql/test-relation-binding.sql` (uændret grøn).
@@ -225,34 +243,44 @@ nogen læser ændres.
 ### Task 6: Dataceremoniens SQL
 
 **Files:**
-- Create: `.claude/skills/daa-extract/scripts/fix_150_eksport.sql` (legacy-rækker for kilde 1 som JSON til Task 1;
-  ingen navne), `fix_150_maal.sql` (faser `foer|ddl|bundet|ukendt` + tal), `fix_150_fingeraftryk.sql` (som
+- Create: `.claude/skills/daa-extract/scripts/fix_150_maal.sql` (faser `foer|ddl|bundet|ukendt` + tal), `fix_150_fingeraftryk.sql` (som
   `fix_248_a_fingeraftryk.sql` over Task 2-4's funktioner og tabeller), `fix_150_placement.sql` (ceremonien)
-- Test: `tests/sql/test-150-ceremoni.sql` (ny, syntetisk mini-kilde gennem hele ceremonien)
+- Test: `tests/sql/test-150-ceremoni.sql` (ny, syntetisk mini-kilde gennem hele ceremonien) +
+  `tests/sql/fixtures/manifest-150.json` (syntetisk manifest) og `tests/sql/test-150-ceremoni.sh` (kalder scriptet med
+  `-v manifest_path=… -v expect_*=…`, som runneren gør)
 
 **Interfaces:**
-- Consumes: Task 1's skrivemanifest, indlæst klientside med `\copy pg_temp.manifest(j) FROM :'manifest_path'`
-  (ingen serverside filadgang), forventede antal som psql-variabler (`-v expect_published=541` osv. fra runneren),
+- Consumes: Task 1's skrivemanifest, indlæst klientside med `` \set m `cat :'manifest_path'` `` og `:'m'::jsonb`
+  (aldrig `\copy` i text-format: backslash-escapes ødelægger JSON; `\copy` interpolerer heller ikke variabler; ingen
+  serverside filadgang; scriptets stderr går til en privat fil, da en fejl kan ekkoe manifesttekst), forventede antal som psql-variabler (`-v expect_published=541` osv. fra runneren),
   Task 3-4's funktioner, `red_revalider_person_narrative_record(p_person_id,
   p_source_id, p_record_key, p_expected_state_sha256)`.
 - Produces: kvitteringen `\echo FIX150_OK headers=<n> placements=<n> ledger=<n> memberships=<n> revalideret=<n>`.
 
 - [ ] **Trin 1: Skriv den fejlende test** `tests/sql/test-150-ceremoni.sql`: 3 poster, 2 publicerede, 1 `unresolved`.
   `$revalider_to_i_traek$`: begge publicerede er `published` bagefter, 0 `stale_published`; ledgeren har 3
-  dispositioner; memberships for de 2 egnede; genkørsel → `FIX150_PRE_FASE`.
+  gældende (`is_current`) dispositioner; memberships for de 2 egnede; genkørsel → `FIX150_PRE_FASE`;
+  identitet ≠ bindingens person på den `unresolved` post → `FIX150_PRE_IDENTITY` uden skrivning;
+  `$fortryd_en_post$`: runbookens manuelle rækkefølge for én post (membership-reversal → persona- og record-placement
+  `superseded` via `red_decide_*` → `red_revalider_person_narrative_record` → `record_legacy_disposition`) ender med
+  `published` og 0 stale.
 - [ ] **Trin 2:** Kør. Forventet: scriptet findes ikke.
 - [ ] **Trin 3: Implementér** `fix_150_placement.sql` som `fix_248_genaabn.sql` (én transaktion, `SET LOCAL
-  statement_timeout='15min'`, aktør via `request.jwt.claim.sub`, `\g /dev/null` på alle `set_config`):
+  statement_timeout='15min'` med assert lige efter, aktør via `request.jwt.claim.sub`, `\g /dev/null` på alle
+  `set_config`). 15 min er husvalget (som `fix_248_genaabn.sql:15`); runneren printer `SHOW statement_timeout` før
+  `BEGIN` (stand-in: 2min som prod) og skriver `\timing` til en privat fil:
   - `FIX150_PRE_*`: rolle; 0 placements for kilde 1 (ellers `FIX150_PRE_FASE`); manifestets `invariants` alle sande;
-    manifestets sha = den GO-bundne; identitetens person = bindingens person for
-    alle egnede; alle `:expect_published` `publication_allowed=true`, tekst-sha = seneste event, 0 `stale_published`; præcis én
+    manifestets sha = den GO-bundne; for alle `:expect_bindings` (587) bindinger i kilde 1 med accepteret
+    hovedperson-identitet er identitetens person = bindingens person (uafhængigt af manifeststatus); alle `:expect_published` `publication_allowed=true`, tekst-sha = seneste event, 0 `stale_published`; præcis én
     canonical pr. entry; `app.change_set_id` tom.
   - Skriv overskrifter, placements (kun `machine_ok`), ledger (alle rækker: kilde 1 `mapped`/`unresolved`, kilde 3
-    `retained_legacy`), `slaegt` → `active` under én change_set, preview + promote memberships.
+    `retained_legacy`), `slaegt` → `active` under én change_set, **ryd `app.change_set_id`**, preview + promote
+    memberships, assert tom GUC.
   - Revalidering: én genereret sætning pr. post med `\gexec` (`set_config('app.change_set_id','',true)` + RPC'en med
-    den aktuelle tilstands-sha), så prods 2-minuttersgrænse gælder pr. kald.
+    den aktuelle tilstands-sha), fordi GUC'en skal ryddes før hvert kald (`NARRATIVE_RECORD_FOREIGN_CHANGE_SET`); tom
+    GUC assertes efter sidste kald.
   - `FIX150_POST_*`: `:expect_published` `published`, 0 `stale_published`, 0 blokerede, uændret eligibility; ledger = 1.167
-    gældende dispositioner; memberships = antal `machine_ok`; paritet for de fem læsere (hash før = efter, beregnet
+    gældende og `is_current` dispositioner; memberships = antal `machine_ok`; `placement_header_violations(1)=0`; paritet for de fem læsere (hash før = efter, beregnet
     i transaktionen).
 - [ ] **Trin 4:** Kør testen. Forventet: grøn.
 - [ ] **Trin 5: Commit** `feat(150): scripts til placement-ceremonien`.
@@ -272,12 +300,17 @@ nogen læser ændres.
   afvigelse i stikprøven stopper kørslen og går tilbage til Task 1.
 - [ ] **Trin 3: Runner og runbook** (form som `docs/runbooks/248-genaabning-prod.md`): `go → maal → dump → advisors →
   ddl → maal → advisors (+1 rls_enabled_no_policy) → placement → maal (fase bundet)`; dump-vagt; kendte følger fra spec §5.
+  Fortrydelse: dumpet er nødudvejen (som #248); runbooken lister den manuelle rækkefølge pr. post (som
+  `$fortryd_en_post$`) og at `db-rls.sql` køres igen efter en restore (DEFAULT PRIVILEGES).
 - [ ] **Trin 4: Øv** på en frisk kopi af `…_5ct` med `ALTER DATABASE … SET statement_timeout='2min'`: hele runbooken,
-  rækkediff (kun spec §5's tabeller), paritet, målt varighed.
+  rækkediff (kun spec §5's tabeller), paritet; notér maks. tid pr. sætning og samlet varighed fra `\timing`-filen.
 - [ ] **Trin 5: Negativer:** forkert GO, manglende flag, gentaget `placement` (fase), og en manipuleret identitet
   (persona-placementens person ≠ bindingens) → `FIX150_PRE_IDENTITY` uden skrivning.
-- [ ] **Trin 6: Commit** arket og runbooken hver for sig (`feat(150): kontrolark for placement`,
-  `docs(150): runbook for placement i prod`).
+- [ ] **Trin 6: LegacyBackfillFreeze:** ca. 6 linjer ved F6-vagten i `backfill_slaegtled.R`: tæl
+  `private.legacy_placement_disposition` for kilden; count > 0 eller enhver fejl → stop. `post_load_fixup.R` arver
+  vagten (kalder scriptet som underproces, `:157`). Køres ikke (læser `~/.Renviron` = prod); verificeres ved review.
+- [ ] **Trin 7: Commit** hver for sig: `feat(150): kontrolark for placement`, `fix(150): backfill_slaegtled fryses efter 5c`,
+  `docs(150): runbook for placement i prod`.
 
 ### Task 8: Review og PR
 
