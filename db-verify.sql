@@ -10343,3 +10343,36 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: #248 — genåbning ved familieskift, vagt mod dobbeltmål';
 END $verify_248$;
+
+-- #150 trin 5c-1 (spec §4.3): legacy-ledgeren er låst, skrivefunktionerne er private, og slaegt versioneres.
+DO $verify_150_ledger$
+DECLARE r text; f text;
+BEGIN
+  IF to_regclass('private.legacy_placement_disposition') IS NULL
+     OR to_regclass('private.legacy_placement_disposition_current') IS NULL
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.legacy_placement_disposition'::regclass)
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.legacy_placement_disposition'::regclass
+                     AND tgname='trg_legacy_placement_disposition_append_only')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.legacy_placement_disposition'::regclass
+                     AND tgname='trg_legacy_placement_disposition_no_truncate') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 150 ledger-tabel';
+  END IF;
+  FOREACH r IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_table_privilege(r,'private.legacy_placement_disposition','SELECT,INSERT,UPDATE,DELETE')
+       OR has_table_privilege(r,'private.legacy_placement_disposition_current','SELECT') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 150 tabeladgang %',r;
+    END IF;
+    FOREACH f IN ARRAY ARRAY['private.legacy_external_id_sha256(bigint,bigint)','private.header_observation_uuid(uuid,text,integer)',
+        'private.write_header_evidence(bigint,uuid,jsonb,jsonb)','private.write_record_placement(uuid,bigint,jsonb,uuid,jsonb)',
+        'private.write_persona_placement(uuid,uuid,uuid,jsonb)','private.record_legacy_disposition(bigint,bigint,text,uuid,jsonb)',
+        'private.lineage_of_entry(bigint)'] LOOP
+      IF to_regprocedure(f) IS NULL THEN RAISE EXCEPTION 'VERIFY_FAILED: 150 mangler %',f; END IF;
+      IF has_function_privilege(r,f,'EXECUTE') THEN RAISE EXCEPTION 'VERIFY_FAILED: 150 % eksekverbar for %',f,r; END IF;
+    END LOOP;
+  END LOOP;
+  IF NOT EXISTS (SELECT 1 FROM version_pk_registry WHERE tabel='slaegt')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.slaegt'::regclass AND tgname='trg_log_slaegt') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 150 slaegt versioneres ikke';
+  END IF;
+  RAISE NOTICE 'OK: #150 — legacy-ledger, private placement-skrivefunktioner, slaegt versioneret';
+END $verify_150_ledger$;
