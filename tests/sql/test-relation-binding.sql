@@ -675,6 +675,7 @@ BEGIN;
 DO $rebind_preview$
 DECLARE v_actor uuid:='11000000-0000-0000-0000-0000002b0201'; s jsonb; m jsonb; par jsonb; pv jsonb; items jsonb; pitems jsonb;
   v_mid uuid; v_pid uuid; v_b1 uuid; v_b2 uuid; v_old uuid; v_new uuid; v_first_state text; n int;
+  v_newfam bigint; v_ver int; v_key uuid; v_lastb uuid; v_reo uuid; r private.interpretation%ROWTYPE;
 BEGIN
   PERFORM pg_temp.f5b_actor(v_actor);
   INSERT INTO person(id,levende,privat,status) SELECT g,false,false,'2bi' FROM generate_series(-21240,-21201) g;
@@ -788,6 +789,59 @@ BEGIN
     RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: antal batches';
   END IF;
   RAISE NOTICE 'OK: genbinding gennem previewet';
+
+  -- #248 rute A (spec §3.1-§3.2): genåbn → afgør → bind i den nye familie. public_family_sources giver 0 i denne
+  -- base (kontrakt 1); »gældende« prøves med læserens definition: gældende version, tilstandens sha og familie.
+  v_newfam:=(private.relation_binding_state(v_mid)#>>'{family,family_id}')::bigint;
+  SELECT version,interpretation_key INTO v_ver,v_key FROM private.interpretation WHERE id=v_mid;
+  SELECT id INTO v_lastb FROM private.interpretation_promotion WHERE interpretation_id=v_mid AND target_type='family'
+   ORDER BY promoted_at DESC,id DESC LIMIT 1;
+  SELECT count(*) INTO n FROM private.interpretation_promotion WHERE interpretation_id=v_pid;
+  SET LOCAL ROLE authenticated;
+  v_reo:=red_genaabn_relation_interpretation(v_mid,v_ver,'test: familieskift',
+    jsonb_build_object('basis','human_sheet','line',1,'sheet_sha256',repeat('a',64),'rows_sha256',repeat('b',64)));
+  RESET ROLE;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  SELECT * INTO r FROM private.interpretation WHERE id=v_reo;
+  IF r.status<>'proposed' OR r.version<>v_ver+1 OR r.supersedes_id<>v_mid OR r.decided_by IS NOT NULL OR r.decision_evidence<>'{}'
+     OR v_reo<>private.content_uuid('interpretation-reopen',jsonb_build_object('interpretation_key',v_key,'version',v_ver+1))
+     OR (SELECT count(*) FROM private.interpretation_observation WHERE interpretation_id=v_reo)
+        <>(SELECT count(*) FROM private.interpretation_observation WHERE interpretation_id=v_mid) THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: genåbnet version %',to_jsonb(r);
+  END IF;
+  IF (SELECT count(*) FROM private.relation_reopen WHERE to_interpretation_id=v_reo AND from_interpretation_id=v_mid
+        AND interpretation_key=v_key AND superseded_promotion_id=v_lastb AND from_family_id=(m->>'family')::bigint
+        AND to_family_id=v_newfam AND spouse_source_persona_id=(m->>'spouse_persona')::uuid AND spouse_identity_version=2
+        AND context->>'basis'='human_sheet')<>1 THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: relation_reopen';
+  END IF;
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_decisions(-21201);
+  IF (pv->>'count')::int<>1 THEN RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: genåbnet ikke i beslutningsmængden %',pv; END IF;
+  PERFORM red_decide_relation_interpretations(-21201,pv->>'set_sha256');
+  RESET ROLE;
+  SELECT id INTO v_new FROM private.interpretation_current WHERE interpretation_key=v_key;
+  items:=jsonb_build_array(jsonb_build_object('interpretation_id',v_new::text,'family_id',v_newfam));
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_promotions(-21201,items);
+  IF NOT (pv#>>'{items,0,eligible}')::boolean OR pv#>>'{items,0,supersedes_promotion_id}' IS NOT NULL THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: binding efter genåbning %',pv;
+  END IF;
+  PERFORM red_promote_relation_interpretations_batch(-21201,items,pv->>'preview_sha256');
+  RESET ROLE;
+  IF (SELECT count(*) FROM private.interpretation_current ic JOIN private.interpretation_promotion x
+        ON x.interpretation_id=ic.id AND x.target_type='family'
+       WHERE ic.interpretation_key=v_key AND x.target_id=v_newfam
+         AND x.evidence->>'state_sha256'=private.reimport_canonical_json_sha256(private.relation_binding_state(ic.id)))<>1
+     OR EXISTS (SELECT 1 FROM private.interpretation_current ic JOIN private.interpretation_promotion x
+                  ON x.interpretation_id=ic.id AND x.target_type='family'
+                 WHERE ic.interpretation_key=v_key AND x.target_id=(m->>'family')::bigint)
+     -- forælderbindingen (anden nøgle) er urørt af genåbningen
+     OR (SELECT id FROM private.interpretation_current WHERE interpretation_key=(par->'claim'->>'key')::uuid)<>v_pid
+     OR (SELECT count(*) FROM private.interpretation_promotion WHERE interpretation_id=v_pid)<>n THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: gældende efter genåbning';
+  END IF;
+  RAISE NOTICE 'OK: genåbning ved familieskift';
 END $rebind_preview$;
 ROLLBACK;
 
@@ -834,4 +888,103 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: dobbeltmål på menneskevejen';
 END $dobbeltmaal_menneskevej$;
+ROLLBACK;
+
+-- ---------- #248 rute A (spec §3.1, §5): genåbningens afvisninger ----------
+BEGIN;
+\ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
+DO $genaabn_negativ$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-000000248021'; s jsonb; m jsonb:='{}'; par jsonb; pv jsonb; items jsonb:='[]';
+  k text; v_err text; v_case text; v_expect text; v_id uuid; v_ver int; v_ctx jsonb; v_note text; v_n int; v_reo uuid;
+  ctx jsonb:=jsonb_build_object('basis','human_sheet','line',1,'sheet_sha256',repeat('a',64),'rows_sha256',repeat('b',64));
+  v_occ uuid; v_help uuid;
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  INSERT INTO person(id,levende,privat,status) SELECT g,false,false,'248' FROM generate_series(-24860,-24821) g;
+  s:=pg_temp.f5b_source(-24821);
+  -- g1 samme familie · g2 flyttet (hovedcasen) · g3 ægtefælle unresolved · g4 aldrig bundet · g5 uafgjort · g6 klausul revideret
+  FOREACH k IN ARRAY ARRAY['g1','g2','g3','g4','g5','g6'] LOOP
+    m:=m||jsonb_build_object(k,pg_temp.f2a_marriage(-24821,s,'N-'||k,-24820-2*substr(k,2)::int,-24821-2*substr(k,2)::int,
+                                                    v_actor,1,1,k<>'g5'));
+  END LOOP;
+  par:=pg_temp.f2a_parent(-24821,s,-24850,-24851,-24852,v_actor);
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_decisions(-24821);
+  PERFORM red_decide_relation_interpretations(-24821,pv->>'set_sha256');
+  RESET ROLE;
+  FOREACH k IN ARRAY ARRAY['g1','g2','g3','g6'] LOOP
+    items:=items||jsonb_build_object('interpretation_id',(SELECT id::text FROM private.interpretation_current
+                                                         WHERE interpretation_key=(m->k->'claim'->>'key')::uuid),
+                                     'family_id',(m->k->>'family')::bigint);
+  END LOOP;
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_promotions(-24821,items);
+  PERFORM red_promote_relation_interpretations_batch(-24821,items,pv->>'preview_sha256');
+  RESET ROLE;
+  -- strukturen flyttes til en ny familie for g2, g4 og g6
+  FOREACH k IN ARRAY ARRAY['g2','g4','g6'] LOOP
+    DELETE FROM family_member WHERE family_id=(m->k->>'family')::bigint AND person_id=-24821-2*substr(k,2)::int;
+    PERFORM pg_temp.f5b_family(-24820-2*substr(k,2)::int,-24821-2*substr(k,2)::int,1);
+  END LOOP;
+  SET LOCAL ROLE authenticated;
+  PERFORM red_afgoer_source_persona((m->'g3'->>'spouse_persona')::uuid,1,'unresolved',NULL,'#248 test: uklart','{}');
+  RESET ROLE;
+  -- g6: klausulsættet revideres (sæt 2 under samme helpost); den kopierede observationslink er ikke længere gældende
+  SELECT o.occurrence_id,o.parent_observation_id INTO v_occ,v_help FROM private.source_observation o
+   WHERE o.id=(m->'g6'->'post'->'clauses'->>1)::uuid;
+  INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,
+    quality_status,extraction_method,extraction_run_id,parent_observation_id,post_char_from,post_char_to,clause_ordinal,
+    clause_classification,clause_flags,clause_set_seq)
+    VALUES (v_occ,'clause',10,10,1000,1010,'Anna Alfa.','clear','clause_segment_v1',(s->>'run')::uuid,v_help,0,10,1,
+      'record_text','[]'::jsonb,2);
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+
+  FOR v_case,v_expect IN SELECT * FROM (VALUES
+      ('samme_familie','RELATION_REOPEN_NOT_NEEDED'),('null_tilstand','RELATION_REOPEN_STATE_INVALID'),
+      ('ikke_aegteskab','RELATION_REOPEN_NOT_ELIGIBLE'),('proposed','RELATION_REOPEN_NOT_ELIGIBLE'),
+      ('ikke_gaeldende','RELATION_REOPEN_NOT_ELIGIBLE'),('forkert_version','RELATION_REOPEN_VERSION_MISMATCH'),
+      ('kontekst_basis','RELATION_REOPEN_CONTEXT_INVALID'),('kontekst_ekstra','RELATION_REOPEN_CONTEXT_INVALID'),
+      ('kontekst_linje','RELATION_REOPEN_CONTEXT_INVALID'),('kontekst_note','RELATION_REOPEN_CONTEXT_INVALID'),
+      ('ukendt','RELATION_REOPEN_NOT_FOUND'),('rolle','EVIDENCE_ROLE_FORBIDDEN'),
+      ('ingen_binding','RELATION_REOPEN_BINDING_INVALID'),('revideret_klausul','INTERPRETATION_OBSERVATION_CLAUSE_NOT_CURRENT'),
+      ('gentaget','RELATION_REOPEN_NOT_ELIGIBLE')) x(c,e) LOOP
+    k:=CASE v_case WHEN 'samme_familie' THEN 'g1' WHEN 'null_tilstand' THEN 'g3' WHEN 'proposed' THEN 'g5'
+                   WHEN 'ingen_binding' THEN 'g4' WHEN 'revideret_klausul' THEN 'g6' ELSE 'g2' END;
+    SELECT id,version INTO v_id,v_ver FROM private.interpretation_current WHERE interpretation_key=(m->k->'claim'->>'key')::uuid;
+    v_ctx:=ctx; v_note:='#248 test';
+    IF v_case='ikke_aegteskab' THEN
+      SELECT id,version INTO v_id,v_ver FROM private.interpretation_current WHERE interpretation_key=(par->'claim'->>'key')::uuid;
+    ELSIF v_case='ikke_gaeldende' THEN v_id:=(m->'g2'->'claim'->>'id')::uuid; v_ver:=1;
+    ELSIF v_case='forkert_version' THEN v_ver:=v_ver-1;
+    ELSIF v_case='kontekst_basis' THEN v_ctx:=ctx||'{"basis":"web"}';
+    ELSIF v_case='kontekst_ekstra' THEN v_ctx:=ctx||'{"x":1}';
+    ELSIF v_case='kontekst_linje' THEN v_ctx:=ctx||'{"line":"0"}';
+    ELSIF v_case='kontekst_note' THEN v_note:='  ';
+    ELSIF v_case='ukendt' THEN v_id:=gen_random_uuid();
+    ELSIF v_case='gentaget' THEN
+      SET LOCAL ROLE authenticated;
+      v_reo:=red_genaabn_relation_interpretation(v_id,v_ver,v_note,v_ctx);   -- første kald lykkes
+      RESET ROLE;
+    END IF;
+    SELECT count(*) INTO v_n FROM private.interpretation WHERE interpretation_key=(m->k->'claim'->>'key')::uuid;
+    PERFORM set_config('request.jwt.claim.sub',CASE WHEN v_case='rolle' THEN '' ELSE v_actor::text END,true);
+    SET LOCAL ROLE authenticated;
+    BEGIN
+      PERFORM red_genaabn_relation_interpretation(v_id,v_ver,v_note,v_ctx);
+      RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: genaabn_% godtaget',v_case;
+    EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+      IF v_err NOT LIKE v_expect||'%' THEN RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: genaabn_% gav %',v_case,v_err; END IF;
+    END;
+    RESET ROLE;
+    PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+    IF (SELECT count(*) FROM private.interpretation WHERE interpretation_key=(m->k->'claim'->>'key')::uuid)<>v_n
+       OR (v_case<>'gentaget' AND EXISTS (SELECT 1 FROM private.relation_reopen WHERE interpretation_key=(m->k->'claim'->>'key')::uuid)) THEN
+      RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: genaabn_% skrev halvt',v_case;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: genåbning afviser';
+END $genaabn_negativ$;
 ROLLBACK;

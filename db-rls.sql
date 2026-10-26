@@ -704,6 +704,7 @@ BEGIN
     'public.red_relation_child_sheet_input(bigint)',
     'public.red_marriage_ordinal_correction_input(bigint)',
     'public.red_ret_aegteskabsnummer(uuid,integer,text,jsonb)',
+    'public.red_genaabn_relation_interpretation(uuid,integer,text,jsonb)',
     'public.red_relation_disposition_input(bigint)',
     'public.red_ikke_samme_som(bigint,bigint)',
     'public.red_match_personer()',

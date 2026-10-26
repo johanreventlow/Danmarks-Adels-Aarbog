@@ -18828,6 +18828,7 @@ DECLARE
     to_regprocedure('public.red_relation_child_sheet_input(bigint)'),
     to_regprocedure('public.red_marriage_ordinal_correction_input(bigint)'),
     to_regprocedure('public.red_ret_aegteskabsnummer(uuid,integer,text,jsonb)'),
+    to_regprocedure('public.red_genaabn_relation_interpretation(uuid,integer,text,jsonb)'),
     to_regprocedure('public.red_relation_disposition_input(bigint)'),
     to_regprocedure('public.red_identity_control_sample(uuid)'),
     'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
@@ -25602,6 +25603,111 @@ BEGIN
     'book_ordinal',v_book,'family_ordinal',v_famord);
 END $$;
 REVOKE ALL ON FUNCTION private.relation_binding_state(uuid) FROM PUBLIC,anon,authenticated;
+
+-- #248 rute A (spec §3.2): genåbning af et accepteret ægteskab ved familieskift. Tilføj-kun; kæden fra den gamle
+-- binding til den nye version (previewet sætter supersedes_promotion_id=null for den nye version).
+CREATE TABLE IF NOT EXISTS private.relation_reopen (
+  to_interpretation_id     uuid PRIMARY KEY REFERENCES private.interpretation(id),
+  interpretation_key       uuid NOT NULL,
+  from_interpretation_id   uuid NOT NULL UNIQUE REFERENCES private.interpretation(id),
+  superseded_promotion_id  uuid NOT NULL REFERENCES private.interpretation_promotion(id),
+  from_family_id           bigint NOT NULL,
+  to_family_id             bigint NOT NULL CHECK (to_family_id<>from_family_id),
+  spouse_source_persona_id uuid NOT NULL,
+  spouse_identity_version  integer NOT NULL CHECK (spouse_identity_version>=1),
+  note                     text NOT NULL CHECK (btrim(note)<>''),
+  context                  jsonb NOT NULL CHECK (jsonb_typeof(context)='object'),
+  reopened_by              uuid NOT NULL,
+  reopened_by_name         text NOT NULL,
+  reopened_at              timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+DO $relation_reopen_table$
+BEGIN
+  DROP TRIGGER IF EXISTS trg_relation_reopen_append_only ON private.relation_reopen;
+  CREATE TRIGGER trg_relation_reopen_append_only BEFORE UPDATE OR DELETE ON private.relation_reopen
+    FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation();
+  DROP TRIGGER IF EXISTS trg_relation_reopen_no_truncate ON private.relation_reopen;
+  CREATE TRIGGER trg_relation_reopen_no_truncate BEFORE TRUNCATE ON private.relation_reopen
+    FOR EACH STATEMENT EXECUTE FUNCTION private.reject_evidence_mutation();
+  ALTER TABLE private.relation_reopen ENABLE ROW LEVEL SECURITY;
+  REVOKE ALL ON TABLE private.relation_reopen FROM PUBLIC,anon,authenticated,service_role;
+END $relation_reopen_table$;
+
+-- #248 rute A (spec §3.1): genåbner et accepteret ægteskab, hvis tilstand efter en identitetsrettelse peger på en
+-- anden familie end den, det blev afgjort for. Ny proposed-version; afgørelse og binding går ad den sædvanlige vej
+-- (begge spærrer gælder pr. versions-id). Kun fra et hash-bundet ark.
+CREATE OR REPLACE FUNCTION public.red_genaabn_relation_interpretation(p_interpretation_id uuid,p_expected_version integer,
+  p_note text,p_context jsonb)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_ctx jsonb:=coalesce(p_context,'{}'::jsonb); v_i private.interpretation%ROWTYPE; v_st jsonb; v_actor uuid:=auth.uid();
+  v_actor_name text; v_last uuid; v_last_fam bigint; v_dec_fam bigint; v_new uuid; v_spouse jsonb;
+BEGIN
+  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  IF jsonb_typeof(v_ctx)<>'object'
+     OR (SELECT array_agg(k COLLATE "C" ORDER BY k COLLATE "C") FROM jsonb_object_keys(v_ctx) k)
+        IS DISTINCT FROM ARRAY['basis','line','rows_sha256','sheet_sha256']
+     OR v_ctx->>'basis' IS DISTINCT FROM 'human_sheet'
+     OR coalesce(v_ctx->>'sheet_sha256','') !~ '^[0-9a-f]{64}$' OR coalesce(v_ctx->>'rows_sha256','') !~ '^[0-9a-f]{64}$'
+     OR coalesce(v_ctx->>'line','') !~ '^[1-9][0-9]*$' OR nullif(btrim(p_note),'') IS NULL
+     OR p_interpretation_id IS NULL OR p_expected_version IS NULL THEN
+    RAISE EXCEPTION 'RELATION_REOPEN_CONTEXT_INVALID';
+  END IF;
+  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text) INTO v_actor_name FROM public.profiles WHERE id=v_actor;
+  IF v_actor_name IS NULL THEN RAISE EXCEPTION 'EVIDENCE_ACTOR_REQUIRED'; END IF;
+  SELECT * INTO v_i FROM private.interpretation WHERE id=p_interpretation_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'RELATION_REOPEN_NOT_FOUND'; END IF;
+  -- Låseorden som red_decide_relation_interpretations: eksklusiv kildelås → fortolkningsrækken → personer/familier.
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:'||v_i.source_id::text,0));
+  PERFORM 1 FROM private.interpretation q
+   WHERE q.id=(SELECT c.id FROM private.interpretation_current c WHERE c.interpretation_key=v_i.interpretation_key) FOR UPDATE;
+  v_st:=private.relation_binding_state(p_interpretation_id);
+  PERFORM private.lock_family_rows(ARRAY(SELECT DISTINCT (x->>'canonical_person_id')::bigint
+                                           FROM jsonb_array_elements(coalesce(v_st->'parties','[]'::jsonb)) x
+                                          WHERE x->>'canonical_person_id' IS NOT NULL ORDER BY 1));
+  -- Læs igen efter låsene: et samtidigt kald ser den nye version og afvises som ikke-gældende.
+  SELECT * INTO v_i FROM private.interpretation WHERE id=p_interpretation_id;
+  IF v_i.id IS DISTINCT FROM (SELECT c.id FROM private.interpretation_current c WHERE c.interpretation_key=v_i.interpretation_key)
+     OR v_i.predicate<>'relation.marriage' OR v_i.status<>'accepted'
+     OR v_i.decision_evidence->>'method' IS DISTINCT FROM 'family-structure-v1' THEN
+    RAISE EXCEPTION 'RELATION_REOPEN_NOT_ELIGIBLE';
+  END IF;
+  IF v_i.version<>p_expected_version THEN RAISE EXCEPTION 'RELATION_REOPEN_VERSION_MISMATCH'; END IF;
+  v_st:=private.relation_binding_state(v_i.id);
+  IF v_st IS NULL THEN RAISE EXCEPTION 'RELATION_REOPEN_STATE_INVALID'; END IF;
+  v_dec_fam:=(v_i.decision_evidence->>'family_id')::bigint;
+  IF (v_st#>>'{family,family_id}')::bigint IS NOT DISTINCT FROM v_dec_fam THEN RAISE EXCEPTION 'RELATION_REOPEN_NOT_NEEDED'; END IF;
+  SELECT p.id,p.target_id INTO v_last,v_last_fam FROM private.interpretation_promotion p
+   WHERE p.interpretation_id=v_i.id AND p.target_type='family' ORDER BY p.promoted_at DESC,p.id DESC LIMIT 1;
+  IF v_last IS NULL OR v_last_fam IS DISTINCT FROM v_dec_fam THEN RAISE EXCEPTION 'RELATION_REOPEN_BINDING_INVALID'; END IF;
+  -- Ny version: indholdsfelterne kopieres som i red_decide_interpretation; afgørelsesfelterne er tomme (proposed).
+  v_new:=private.content_uuid('interpretation-reopen',jsonb_build_object('interpretation_key',v_i.interpretation_key,
+                                                                         'version',v_i.version+1));
+  INSERT INTO private.interpretation(
+    id,interpretation_key,version,source_id,source_persona_id,
+    interpretation_kind,predicate,value,schema_version,derivation_kind,
+    confidence,status,method,model_version,prompt_version,extraction_run_id,
+    supersedes_id,decision_evidence,decided_by,decided_by_name,decided_at
+  ) VALUES (
+    v_new,v_i.interpretation_key,v_i.version+1,v_i.source_id,
+    v_i.source_persona_id,v_i.interpretation_kind,v_i.predicate,
+    v_i.value,v_i.schema_version,v_i.derivation_kind,
+    v_i.confidence,'proposed',v_i.method,v_i.model_version,
+    v_i.prompt_version,v_i.extraction_run_id,v_i.id,'{}'::jsonb,NULL,NULL,NULL
+  );
+  INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal)
+  SELECT v_new,observation_id,evidence_role,ordinal FROM private.interpretation_observation WHERE interpretation_id=v_i.id;
+  SELECT x INTO v_spouse FROM jsonb_array_elements(v_st->'parties') x WHERE x->>'party_role'='spouse';
+  INSERT INTO private.relation_reopen(to_interpretation_id,interpretation_key,from_interpretation_id,superseded_promotion_id,
+    from_family_id,to_family_id,spouse_source_persona_id,spouse_identity_version,note,context,reopened_by,reopened_by_name)
+  VALUES (v_new,v_i.interpretation_key,v_i.id,v_last,v_dec_fam,(v_st#>>'{family,family_id}')::bigint,
+    (v_spouse->>'source_persona_id')::uuid,(v_spouse->>'identity_version')::integer,btrim(p_note),
+    jsonb_build_object('basis','human_sheet','sheet_sha256',v_ctx->>'sheet_sha256','rows_sha256',v_ctx->>'rows_sha256',
+      'line',(v_ctx->>'line')::int),
+    v_actor,v_actor_name);
+  RETURN v_new;
+END $$;
+REVOKE ALL ON FUNCTION public.red_genaabn_relation_interpretation(uuid,integer,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.red_genaabn_relation_interpretation(uuid,integer,text,jsonb) TO authenticated;
 -- Genåbnings-blokken slutter her.
 
 -- 5b-sektionen slutter her (nye 5b-blokke indsættes over denne linje).
