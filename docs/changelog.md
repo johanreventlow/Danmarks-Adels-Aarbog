@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-10-26 — #248 rute A i prod: genåbning ved familieskift (DDL + data)
+
+Prod-kørsel efter `docs/runbooks/248-genaabning-prod.md`, repo `db67fb17` (PR #267), GO 248A `d910500c`
+(= øvelsens), kørt af projektejeren med `~/.private/5ab-overfoersel/20-248-a.sh`; dump før skrivning
+`daa-prod-20261026152510-248a.dump` (sha `ea28e0d8c467…`).
+
+- **Før:** `MAAL_248A_OK ddl248a=foer fase=efter`; `ADVISORS_248A_OK nye=0 forsvundne=0`.
+- **DDL:** genåbnings-blokken (tabel `private.relation_reopen`, RPC `red_genaabn_relation_interpretation`, vagten i
+  `relation_binding_state`, `post_rivals` i `spouse_exception_projection`) i én transaktion: `DDL248A_OK`; derefter
+  `ddl248a=efter fase=efter` og `ADVISORS_248A_OK nye=1` (netop `rls_enabled_no_policy|private.relation_reopen`, med vilje).
+- **Data:** de to ægteskaber (person 94, 4°; person 286, 2°) genåbnet, afgjort og bundet til familie 65 og 194:
+  `FIX248A_GENAABN_OK genaabnet=2 afgjort=2 bundet=2`.
+- **Efter:** `MAAL_248A_OK ddl248a=efter fase=bundet` (1 gældende binding på den rigtige familie, 1 kilderække på
+  hver familie, søskendeægteskaberne urørte, 1 række i `relation_reopen` pr. ægteskab). Ingen fortryd-vej for data.
+
 ## 2026-10-26 — #248 skridt 1 i prod: to navnefælle-ægtefæller afgjort igen
 
 Prod-kørsel efter `docs/runbooks/fix-248-identitet-prod.md`, repo `1f02d436` (PR #265), GO 248 `cc3d684e`

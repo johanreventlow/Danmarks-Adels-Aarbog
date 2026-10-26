@@ -83,6 +83,9 @@ På en frisk kopi af stand-in'en af prod efter skridt 1 (dump `8d17f579…`, 202
 - `public_family_sources` over alle familier: 258 → 260 rækker; median af 3 målt til 518 ms efter mod 463 ms
   før (+12 %).
 
+**Kørt i prod 2026-10-26** (repo `db67fb17`, PR #267, GO 248A `d910500c`; dump
+`daa-prod-20261026152510-248a.dump`, sha `ea28e0d8…`): alle ni skridt gav det forventede, slut `fase=bundet`.
+
 ## Fortrydelse
 
 - **DDL'en:** de gamle definitioner af `relation_binding_state` og `spouse_exception_projection` står i dumpet fra
