@@ -1,6 +1,6 @@
 # Trin 5c: slægt, linje og generation som placement og membership (#150) — design
 
-**Status:** UDKAST 2026-10-26, afventer projektejerens afgørelser i §8.
+**Status:** afgørelserne i §8 truffet af projektejeren 2026-10-26 (anbefalingerne fulgt); review før plan.
 **Gren:** `docs/150-5c-spec` fra `main` (`db67fb17`).
 **Grundlag:** issue #150; `docs/decisions.md` 2026-10-05 (trin 5 aktiveret, 5a → 5b → 5c) og 2026-09-04 (149b valg A:
 »begge udgaver revalideres samlet, når #150/#151 leverer placements«); planen 2026-08-02 Task 17 trin 3;
@@ -42,7 +42,7 @@ afvigelsesvurderingen 2026-08-22 §7.4. Målt på en kopi af prod efter #248 (20
 - Læsere af legacy (bl.a. `red_person_grid` med `max(slaegtled_lokal)`, `red_match_personer`,
   `regen_person_visning`'s slægtsnavn, web/mobil/core) er kortlagt i Task 6-inventaret.
 
-## 3. Afgrænsning: 5c deles i to (anbefalet, §8 spørgsmål 1)
+## 3. Afgrænsning: 5c deles i to (§8 afgørelse 1)
 
 - **5c-1 (denne spec):** header-evidens, placements for kilde 1, ledger for alle legacy-rækker,
   membership-promotion, `slaegt` → `active`, revalidering. **Ingen læser ændres**; paritet bevises (§7).
@@ -52,9 +52,9 @@ afvigelsesvurderingen 2026-08-22 §7.4. Målt på en kopi af prod efter #248 (20
 
 ## 4. Design (5c-1)
 
-### 4.1 Overskrifter som kildebundne observationer (§8 spørgsmål 2)
+### 4.1 Overskrifter som kildebundne observationer (§8 afgørelse 2)
 
-**Anbefalet (A): strukturelle forekomster.** Hver overskrift i 2018-20's rendition bliver en
+**Valgt (A): strukturelle forekomster.** Hver overskrift i 2018-20's rendition bliver en
 `source_record_occurrence` med eget `occurrence_key` (fx `header:<side>:<char_from>`) og eget
 `extraction_run`, aldrig ankret til en source record, med én `source_observation` af kind `header`
 (rå tekst, side, tegnspænd, overskriftsniveau `linje|slaegtled|kuld|aegteskab` i en kontrolleret
@@ -96,16 +96,16 @@ Ny tilføj-kun tabel (privat) med præcis én gældende disposition pr. `person_
 `archived_by_editor`, `unresolved` (kræver menneske). Alle 1.167 rækker får en disposition i 5c-1; kilde 3's 576
 får `retained_legacy`. Ingen legacy-række ændres eller slettes.
 
-### 4.4 Membership via promotion (§8 spørgsmål 3)
+### 4.4 Membership via promotion (§8 afgørelse 3)
 
 Én promotions-RPC (SECURITY DEFINER, `redaktion`) fra accepteret persona-placement (`principal_member`) +
 accepteret identitet → `person_lineage_membership` (`role='member'`) og `person_slaegt_membership`.
 `source_basis` bærer placement-id'er, identitetsversion og regelversion; en tilstands-sha som ved
-relationsbindinger gør en binding forældet, når placement eller identitet ændres. Forslag:
+relationsbindinger gør en binding forældet, når placement eller identitet ændres.
 `membership_kind='agnatic'` for alle hovedpersoner i stamtavlen; `adopted`/`editorial` kun ved en menneskelig
 afgørelse. `slaegt` Reventlow sættes til `active`.
 
-### 4.5 Revalidering af publiceringerne (§8 spørgsmål 4)
+### 4.5 Revalidering af publiceringerne (§8 afgørelse 4)
 
 De 541 publicerede bindinger i kilde 1 revalideres i **samme transaktion** som placementerne accepteres, med
 `red_revalider_person_narrative_record`, så læseren aldrig ser `stale_published`. Forhånds- og efterbetingelse:
@@ -142,13 +142,13 @@ placements for kilde 3).
 - Prod: begge GO'er kørt med forventede kvitteringer; status-snapshot hæver »Placement og membership« til
   `produktionsverificeret` for kilde 1.
 
-## 8. Afgørelser for projektejeren
+## 8. Afgørelser (projektejeren 2026-10-26)
 
-1. **Opdeling:** 5c-1 (evidens, placement, membership) nu og 5c-2 (læserskift) som egen spec? *Anbefalet: ja.*
-2. **Overskriftsmodel:** strukturelle forekomster (A) med omskrevet validator? *Anbefalet: A.*
-3. **Membership-art:** alle stamtavlens hovedpersoner som `agnatic`? Gifte-ind får aldrig membership.
-4. **Revalidering:** de 541 publiceringer revalideres maskinelt i samme transaktion (uændret eligibility), eller
-   skal de ses af et menneske først?
+1. **Opdeling:** 5c-1 (evidens, placement, membership) nu; 5c-2 (læserskift) som egen spec.
+2. **Overskriftsmodel:** strukturelle forekomster (A) med omskrevet validator.
+3. **Membership-art:** alle stamtavlens hovedpersoner som `agnatic`; gifte-ind får aldrig membership.
+4. **Revalidering:** de 541 publiceringer revalideres maskinelt i samme transaktion (uændret eligibility er en
+   efterbetingelse; afviger den, stopper kørslen).
 
 Mine egne valg (kan rettes): K = 20 i kontrolstikprøven; kun hovedpersonens persona-placement i 5c-1;
 `occurrence_key`-form og `header_rule_version` overlades til planen.
