@@ -70,11 +70,12 @@ kontrolark.
 2. `maal` → `MAAL_150_OK ddl150=foer fase=foer`.
 3. `dump` → `DUMP_150_OK …` (fuldt dump i en læsetransaktion). `ddl` og `placement` stopper med `DUMP_150_MANGLER`
    uden et dump fra de seneste 12 timer.
-4. `advisors` → `ADVISORS_150_OK nye=0`.
+4. `advisors` → `ADVISORS_150_OK nye=1`: netop `rls_enabled_no_policy|private.relation_reopen` fra #248 (GO 1's
+   baseline `advisors-after.txt` er fra før #248).
 5. `ddl --jeg-mener-det --go <kode>` → `DDL150_OK` (fingeraftryk `foer` → `efter`, blokkens sha, PostgREST genindlæst).
 6. `maal` → `MAAL_150_OK ddl150=efter fase=foer`.
-7. `advisors` → `ADVISORS_150_OK nye=1`: netop `rls_enabled_no_policy|private.legacy_placement_disposition` (med vilje:
-   kun private skrivefunktioner skriver i ledgeren).
+7. `advisors` → `ADVISORS_150_OK nye=2`: #248's fund plus `rls_enabled_no_policy|private.legacy_placement_disposition`
+   (med vilje: kun private skrivefunktioner skriver i ledgeren).
 8. **Skrivepause:** ingen redaktørskrivninger til kilde 1's poster under GO 2 (læsning er uberørt).
    `placement --jeg-mener-det --go <kode>` → `FIX150_OK headers=266 placements=<n> ledger=1167 memberships=<n>
    revalideret=<n>`. Runneren viser `statement_timeout` før `BEGIN` (prod: 2min; scriptet sætter 15 min lokalt) og
@@ -83,10 +84,27 @@ kontrolark.
 
 ## Prøvet
 
-Øvelse 1 (2026-10-27) på en kopi af stand-in'en af prod efter #248 (dump `b03b1128…`) med `statement_timeout='2min'`
-på basen og tom afgørelsesfil: DDL på under 1 s, fingeraftryk `5e900dc6…` (n=1) → `91bd1410…` (n=16), ceremonien
-gennemløb alle for- og mellembetingelser og stoppede på den bevidst forkerte `expect_revalidated` (faktisk 498);
-alt blev rullet tilbage. Den endelige øvelse gennem runneren med de godkendte filer noteres her.
+På kopier af stand-in'en af prod efter #248 (dump `b03b1128…`, 2026-10-26) med `statement_timeout='2min'` på basen,
+som i prod, og en øvelses-afgørelsesfil uden godkendelser (543 maskinelt enige poster):
+
+- **Gennem runneren** (stand-in `_5cr5`, øvelsens GO-kode `2ef426eb`): alle ni skridt gav det forventede. Advisors før:
+  1 nyt (`relation_reopen`); efter: 2. `FIX150_OK headers=266 placements=543 ledger=1167 memberships=541
+  revalideret=498` på 83 s, længste sætning 23 s.
+- **Afvist:** manglende `--jeg-mener-det`, ukendt argument, forkert GO-kode, `ddl` uden dump, `placement` før DDL'en
+  (fingeraftrykket), `ddl` igen og `placement` igen (fasen er `bundet`).
+- **Uden for runneren:** en identitet på en uafklaret post (V-82) afgjort til en anden person end bindingens stopper
+  med `FIX150_PRE_IDENTITY`; fasen forbliver `foer`.
+- **Rækkeantal** i alle tabeller i public og private før og efter: kun `private.extraction_run` +1,
+  `source_record_occurrence` og `source_observation` +266, `source_record_placement`(+`_decision`) +543,
+  `source_persona_placement`(+`_decision`) +541, `legacy_placement_disposition` +1167,
+  `narrative_publication_event` +498, `vocab` +4, `public.person_lineage_membership` og `person_slaegt_membership`
+  +541, `version_pk_registry` +1 og `change_set` +500 (498 revalideringer, slægten, promotionen) med deres
+  `change_event`. Ingen andre ændringer.
+- **Fuld `db-verify.sql`** mod den skrevne kopi (efter `db-rls.sql` og med dblink, som efter enhver restore): grøn,
+  `PLACEMENT_MEMBERSHIP_NOT_CURRENT n=0`.
+- **Varighed:** uden `ANALYZE` mellem skrivefaserne tog ceremonien 1269 s (paritetshashen efter skrivningen 574 s,
+  fordi planneren så de nye tabeller som tomme); med `ANALYZE` 82-83 s.
+- Den endelige øvelse med de godkendte filer (kontrolark og token-fil) køres, før GO 2 bindes, og noteres her.
 
 ## Fortrydelse
 
