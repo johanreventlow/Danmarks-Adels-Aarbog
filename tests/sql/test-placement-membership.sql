@@ -153,6 +153,10 @@ BEGIN
   IF has_function_privilege('anon','public.red_preview_placement_memberships(bigint)','EXECUTE')
      OR has_function_privilege('anon','public.red_promote_placement_memberships(bigint,text)','EXECUTE')
      OR has_function_privilege('anon','public.red_reverse_placement_membership(bigint,bigint,text)','EXECUTE')
+     -- Supabase's DEFAULT PRIVILEGES giver service_role EXECUTE på nye funktioner i prod; RPC'erne skal fratage den.
+     OR has_function_privilege('service_role','public.red_preview_placement_memberships(bigint)','EXECUTE')
+     OR has_function_privilege('service_role','public.red_promote_placement_memberships(bigint,text)','EXECUTE')
+     OR has_function_privilege('service_role','public.red_reverse_placement_membership(bigint,bigint,text)','EXECUTE')
      OR NOT has_function_privilege('authenticated','public.red_promote_placement_memberships(bigint,text)','EXECUTE')
      OR has_function_privilege('authenticated','private.membership_state(uuid)','EXECUTE')
      OR has_function_privilege('authenticated','private.membership_is_current(bigint,bigint)','EXECUTE') THEN

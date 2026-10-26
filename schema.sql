@@ -3026,7 +3026,7 @@ BEGIN
   IF auth.uid() IS NULL OR public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
   RETURN private.placement_membership_set(p_source_id);
 END $$;
-REVOKE ALL ON FUNCTION public.red_preview_placement_memberships(bigint) FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION public.red_preview_placement_memberships(bigint) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_preview_placement_memberships(bigint) TO authenticated;
 
 -- Fremmer de egnede items under ét eget change_set: person_lineage_membership (member) og person_slaegt_membership
@@ -3061,7 +3061,7 @@ BEGIN
   PERFORM set_config('app.change_set_id','',true);
   RETURN v_n;
 END $$;
-REVOKE ALL ON FUNCTION public.red_promote_placement_memberships(bigint,text) FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION public.red_promote_placement_memberships(bigint,text) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_promote_placement_memberships(bigint,text) TO authenticated;
 
 -- Fortrydelse af én promoveret membership: sletter linje- og slægtsrækken under et eget change_set (før-billedet
@@ -3087,7 +3087,7 @@ BEGIN
      AND source_basis->>'persona_placement_id'=b->>'persona_placement_id';
   PERFORM set_config('app.change_set_id','',true);
 END $$;
-REVOKE ALL ON FUNCTION public.red_reverse_placement_membership(bigint,bigint,text) FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION public.red_reverse_placement_membership(bigint,bigint,text) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_reverse_placement_membership(bigint,bigint,text) TO authenticated;
 -- Membership-promotionen slutter her.
 
@@ -17393,7 +17393,8 @@ BEGIN
     v_actor,v_actor_name);
   RETURN v_new;
 END $$;
-REVOKE ALL ON FUNCTION public.red_genaabn_relation_interpretation(uuid,integer,text,jsonb) FROM PUBLIC,anon,authenticated;
+-- service_role med (#150): Supabase's DEFAULT PRIVILEGES gav den EXECUTE i prod (db-verify: EVIDENCE_PUBLIC_RED_ACL_DRIFT).
+REVOKE ALL ON FUNCTION public.red_genaabn_relation_interpretation(uuid,integer,text,jsonb) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_genaabn_relation_interpretation(uuid,integer,text,jsonb) TO authenticated;
 
 -- ===================================================================================

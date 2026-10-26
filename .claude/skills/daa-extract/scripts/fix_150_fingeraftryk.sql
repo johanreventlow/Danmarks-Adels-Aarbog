@@ -1,10 +1,11 @@
 -- Fingeraftryk af placement-blokkens DDL (#150 trin 5c-1, db-migrations.sql): sha256 over definitionen af blokkens
--- funktioner og om anon/authenticated må kalde dem (ikke rå proacl, som bærer ejerens rollenavn), plus linjer for
+-- funktioner og om anon/authenticated/service_role må kalde dem (ikke rå proacl, som bærer ejerens rollenavn), plus linjer for
 -- ledger-tabellen, dens view, de fire vokabularkoder og slaegt-versioneringen. Kan køre før blokken (funktionerne
 -- mangler: lavere n og `findes=false`). Læsetransaktion.
 SELECT 'DDL150 sha='||encode(sha256(convert_to(string_agg(l, E'\n' ORDER BY l COLLATE "C"), 'UTF8')), 'hex')||' n='||count(*) FILTER (WHERE fn)
   FROM (SELECT true fn, p.oid::regprocedure::text||E'\t'||pg_get_functiondef(p.oid)
-               ||E'\tanon='||has_function_privilege('anon',p.oid,'EXECUTE')||E'\tauthenticated='||has_function_privilege('authenticated',p.oid,'EXECUTE') l
+               ||E'\tanon='||has_function_privilege('anon',p.oid,'EXECUTE')||E'\tauthenticated='||has_function_privilege('authenticated',p.oid,'EXECUTE')
+               ||E'\tservice_role='||has_function_privilege('service_role',p.oid,'EXECUTE') l
           FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
          WHERE (n.nspname,p.proname) IN (('private','validate_source_record_placement'),('private','placement_header_violations'),
                  ('private','legacy_external_id_sha256'),('private','header_observation_uuid'),('private','write_header_evidence'),

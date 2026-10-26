@@ -25816,6 +25816,10 @@ ON CONFLICT (tabel) DO UPDATE SET pk_cols=excluded.pk_cols, skip_cols=excluded.s
 DROP TRIGGER IF EXISTS trg_log_slaegt ON slaegt;
 CREATE TRIGGER trg_log_slaegt AFTER INSERT OR UPDATE OR DELETE ON slaegt FOR EACH ROW EXECUTE FUNCTION log_change();
 
+-- #248's genåbnings-RPC fik service_role-EXECUTE af Supabase's DEFAULT PRIVILEGES i prod, fordi blokken kun fratog
+-- PUBLIC, anon og authenticated (db-verify: EVIDENCE_PUBLIC_RED_ACL_DRIFT). schema.sql fratager den nu også service_role.
+REVOKE ALL ON FUNCTION public.red_genaabn_relation_interpretation(uuid,integer,text,jsonb) FROM service_role;
+
 -- #150 trin 5c-1 (spec §4.1): to stier til en placement-header. (i) den oprindelige: kind 'header' i postens egen
 -- ankrede forekomst (1939/trin 6). (ii) 2018-20: overskrifterne står mellem posterne som uankrede strukturelle
 -- forekomster; header_linje i samme rendition som postens tidligste accepterede forekomst, før den, og fra
@@ -26238,7 +26242,7 @@ BEGIN
   IF auth.uid() IS NULL OR public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
   RETURN private.placement_membership_set(p_source_id);
 END $$;
-REVOKE ALL ON FUNCTION public.red_preview_placement_memberships(bigint) FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION public.red_preview_placement_memberships(bigint) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_preview_placement_memberships(bigint) TO authenticated;
 
 -- Fremmer de egnede items under ét eget change_set: person_lineage_membership (member) og person_slaegt_membership
@@ -26273,7 +26277,7 @@ BEGIN
   PERFORM set_config('app.change_set_id','',true);
   RETURN v_n;
 END $$;
-REVOKE ALL ON FUNCTION public.red_promote_placement_memberships(bigint,text) FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION public.red_promote_placement_memberships(bigint,text) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_promote_placement_memberships(bigint,text) TO authenticated;
 
 -- Fortrydelse af én promoveret membership: sletter linje- og slægtsrækken under et eget change_set (før-billedet
@@ -26299,7 +26303,7 @@ BEGIN
      AND source_basis->>'persona_placement_id'=b->>'persona_placement_id';
   PERFORM set_config('app.change_set_id','',true);
 END $$;
-REVOKE ALL ON FUNCTION public.red_reverse_placement_membership(bigint,bigint,text) FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION public.red_reverse_placement_membership(bigint,bigint,text) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_reverse_placement_membership(bigint,bigint,text) TO authenticated;
 -- Membership-promotionen slutter her.
 -- Placement-blokken slutter her.
