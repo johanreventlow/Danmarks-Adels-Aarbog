@@ -2,6 +2,39 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: #248 — to navnefælle-ægtefæller rettes; genåbning ved familieskift bygges (rute A) (2026-10-26)
+
+> Issue #248 (kommentar 2026-10-26). Projektejerens svar på to hash-bundne ark: GO 248 `1556cec6…` (F, F) og
+> navnefælle-kontrollen `b7ada21b…` (6 × V). Runbook: `docs/runbooks/fix-248-identitet-prod.md`. Ruterne er
+> reviewet af en uafhængig Fable-reviewer (GO til A med ændringer).
+
+**Baggrund:** #248's to »N°«-afvigelser er ikke forkerte familienumre. I begge poster har bogen to ægteskaber med
+navnefæller (Iwan 3°/4°: to Margaretha von Rantzau; Abel 1°/2°: to Hans von Rantzau), og 2b-i's ægtefælleark
+(ark 9 i GO 2, `6ff659f4…`) forudfyldte »S = kandidat nr. 1« og viste kun kandidat 1. Begge ægtefæller blev
+derfor afgjort til samme person, og 4°/2° blev bundet til 3°/1°'s familie. Læseren viser kildeteksten på den
+forkerte, offentlige familie. Familienumrene er rigtige (projektejerens afgørelse 2026-10-20 holder). Et tjek af
+alle 16 accepterede identiteter med en navnefælle blandt kandidaterne fandt ingen flere fejl.
+
+**Besluttet:**
+1. **Skridt 1 nu (rute C, ingen DDL):** de to ægtefæller afgøres igen til partneren i den ubundne familie
+   (kandidat nr. 2) med `red_afgoer_source_persona` og GO 248's arkkontekst (`fix_248_identitet.sql`). Den gamle
+   binding holder op med at gælde, så kildeteksten forsvinder fra den forkerte familie. Ægteskaberne står
+   derefter `accepted` uden binding; #248 holdes åben, til de er bundet.
+2. **Rute A bygges:** en genåbning af et accepteret ægteskab, når dets nuværende tilstands familie ≠ familien i
+   afgørelsen. Den nye version er `proposed`, og den eksisterende afgørelses- og bindingsvej binder den til den
+   rigtige familie; den gamle binding bliver historik. Det lukker hullet, som 2b-i-spec'en (§13 pkt. 1) udskød til
+   2b-ii, og som 2b-ii ikke leverede. 2b-i-beslutningens punkt 2 præciseres: ingen genbinding til en anden familie
+   *uden en ny version*. Egen spec; DDL- og dataceremoni.
+3. **Rute B fravalgt** (løsne `RELATION_PROMOTION_REBIND_FAMILY_CHANGED`): den gemte afgørelse ville sige den
+   gamle familie, mens bindingen sagde den nye.
+4. **Forebyggelse med i A's DDL:** bindingstilstanden skal være fail-closed, når to ægtefællepersonas i samme post
+   er afgjort til samme person (maskinvejens `FAMILY_CORROBORATION_DOUBLE_TARGET` har ingen modpart på
+   menneskevejen). Identitetsark skal vise, når kandidat nr. 1 allerede er partner i posten, og tunge
+   prod-rettelser bruger ikke-forudfyldte ark.
+5. **Kendte følger af skridt 1:** to gældende `ordinal_afvigelse` bliver uden binding; kun to rækker i
+   `source_persona_identity_event` (målt over alle tabeller i public og private); 0 kanonisk delta. Ingen
+   fortryd-vej; dumpet før skrivning er nødudvejen.
+
 ## BESLUTTET: #240 — de 5 dobbeltfamilier samles; vielsespåstanden flyttes, ikke slettes (2026-10-26)
 
 > Issue #240. Projektejerens valg i chatten (valg A). Runbook: `docs/runbooks/fix-240-dobbeltfamilier-prod.md`.
