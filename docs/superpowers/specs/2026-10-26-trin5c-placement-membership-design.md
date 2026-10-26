@@ -18,8 +18,9 @@ afvigelsesvurderingen 2026-08-22 §7.4. Målt på en kopi af prod efter #248 (20
 4. **Værdi:** redaktionelt: hver persons placering i slægten har kilde, afgørelse og fortrydelse; multi-slægt
    bliver en tilstand, ikke en mulighed (invariant 9 i datavejen). Læserværdi kommer først med 5c-2 (§3).
 5. **Færdigbevis:** se §7.
-6. **Erstatter:** `backfill_slaegtled.R`/`post_load_fixup.R` som skrivevej for slægtled (fryses, Task 6
-   **LegacyBackfillFreeze**); `person_external_id` som eneste bærer af placering.
+6. **Erstatter:** `backfill_slaegtled.R`/`post_load_fixup.R` som skrivevej for slægtled (fryses: Task 6
+   **LegacyBackfillFreeze** = `backfill_slaegtled.R` stopper, når ledgeren har rækker for kilden, og
+   `post_load_fixup.R` arver vagten); `person_external_id` som eneste bærer af placering.
 
 ## 2. Problem og målt udgangspunkt
 
@@ -139,8 +140,9 @@ De 541 publicerede bindinger i kilde 1 revalideres i **samme transaktion** som p
 - **Mekanik:** RPC'en kræver `auth.uid()` (`request.jwt.claim.sub` sat i transaktionen) og afviser et allerede
   sat `app.change_set_id` (`NARRATIVE_RECORD_FOREIGN_CHANGE_SET`). Derfor ryddes GUC'en mellem kaldene
   (`set_config('app.change_set_id','',true)`, husmønstret fra reversal-koden), og kaldene er **klientdrevne
-  enkeltsætninger pr. post** (ikke én plpgsql-løkke, der som én sætning ville ramme prods 2-minuttersgrænse) med
-  `SET LOCAL statement_timeout='15min'` for transaktionen. Varigheden måles på stand-in med 2-minuttersgrænsen.
+  enkeltsætninger pr. post** (`\gexec`), så GUC'en kan ryddes før hvert kald. Transaktionen sætter
+  `SET LOCAL statement_timeout='15min'` (husvalget fra #240/#248; prods default er 2 min); runneren viser den
+  effektive grænse, og tiden pr. kald og samlet måles på stand-in med prods 2-minutters default.
 - **Forhåndsbetingelser:** for alle 587 er identitetens person = bindingens person; for alle 541
   `publication_allowed=true` og tekst-sha = seneste event; 0 `stale_published` før.
 - **Efterbetingelser:** 541 `published`, uændret eligibility, 0 `stale_published`, 0 blokerede. De 46 drafts'
@@ -171,8 +173,10 @@ De 541 publicerede bindinger i kilde 1 revalideres i **samme transaktion** som p
    kontrolark og token-fil hash-bundne i GO'en. Øves på stand-in med 2-minuttersgrænsen; varigheden noteres.
 3. **Paritet:** `red_person_grid`, `red_match_personer`, `regen_person_visning`-resultater,
    `public_family_sources` og `public_person_bio_source_versions_v2` er byte-identiske før og efter.
-4. **Fortrydelse** spejler kørslen: memberships trækkes tilbage → placements `superseded` → de berørte bindinger
-   revalideres → ledger-dispositioner opdateres. DDL via dumpet. Dumpet er nødudvejen.
+4. **Fortrydelse:** dumpet er nødudvejen (som #248); `db-rls.sql` køres igen efter en restore. Runbooken lister den
+   manuelle rækkefølge pr. post med de eksisterende RPC'er: membership-reversal → persona- og record-placement
+   `superseded` (`red_decide_*`) → revalidering → ny ledger-disposition; den prøves på én post i ceremonitesten.
+   Der bygges ingen samlet fortrydelsesceremoni. DDL via dumpet.
 
 ## 7. Færdigbevis
 
@@ -208,3 +212,7 @@ pr. entry (D7); ledger-nøgle og værdi-hash (D8); fortrydelsens rækkefølge (D
 PII i kontrolark (D12); skrivepausevindue (D13); faktarettelser (F3, F5-F7). Forenklet: membership-forældelse
 som »gældende kun ved passende sha« + helbredsassert i stedet for vagter i identitetsvejene (D6); ceremoniscript
 over genbrugelige funktioner i stedet for en ny batch-writer (D9).
+
+**Codex plan-review r1 2026-10-26: NO-GO** (5 BLOCKER, 6 MAJOR) → Opus-dom: 7 nødvendige, 4 forenklede, intet
+afvist. Spec'en rettet i §1.6 (freeze), §4.5 (begrundelsen for `\gexec` og 15 min) og §6.4 (fortrydelse); resten
+er planrettelser.
