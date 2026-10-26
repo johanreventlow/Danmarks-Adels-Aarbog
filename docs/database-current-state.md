@@ -529,6 +529,19 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 12. Dubletreglen (#151) og #240's dobbeltfamilier — LIVE i prod (2026-10-26)
+
+**Procedure:** `docs/runbooks/fix-240-dobbeltfamilier-prod.md`, privat script `~/.private/5ab-overfoersel/18-fix-240.sh`.
+Repo `34a016f2` (PR #261), GO 240 `9e7bfa20`; dump før skrivning `daa-prod-20261026072444-240.dump`.
+
+- **DDL:** dubletreglens blok (4 funktioner: `red_afgoer_source_persona`, `private.control_run_status`,
+  `private.relation_binding_state`, `red_source_persona_queue`). **Afvigelse fra §5:** kun den sha-bundne blok, ikke
+  hele `db-migrations.sql`; fingeraftryk før/efter kontrolleret.
+- **Data (kilde 1):** change_set 2142 samler de 5 par (familie 11, 256, 363, 371, 372 fjernet; noter og
+  vielsespåstande flyttet til 188, 282, 354, 361, 377). 7 ægteskaber afgjort og bundet (7 nye promotioner).
+  Fortryd er ikke længere muligt med change_set alene (decisions #240 punkt 5); dumpet er nødudvejen.
+- **Verifikation:** `MAAL_240_OK ddl151=efter fase=bundet` (= generalprøvens sha), `ADVISORS_240_OK nye=0 forsvundne=0`.
+
 ## 11. 5a+5b's data for 2018-20 (#151) — LIVE i prod (2026-10-25, GO 2)
 
 **Kilde 1's identitets- og relationslag.** Arbejdskørsel 3's pakke (`46f5d1e5…`, 25 skridt) genspillet i prod: profil og
@@ -544,5 +557,6 @@ personas, kandidater, kontrolstikprøve og -ark, korroboration, afgørelser og b
 - **Advisors (security, CLI):** 60, uændret fra GO 1 (`ADVISORS_DATA_OK nye=0 forsvundne=0`).
 - **Tal (kilde 1; = pakkens slut, bekræftet af `VERIFY_OK`):** bindinger 622 → 874, `public_family_sources` 0 → 252, personas og identiteter 587 → 832,
   fortolkninger 4.415 → 4.669, dispositioner 1.747 → 1.878, kandidater 2.327, kontrolstikprøve 30.
-- **Kendt afvigelse:** ét ægteskab står som forslag uden binding (dubletreglen, 5b §23.4; rettes før 1939).
+- **Kendt afvigelse:** ét ægteskab står som forslag uden binding (dubletreglen, 5b §23.4). Reglen er rettet i prod
+  2026-10-26 (§12); selve ægteskabet afgøres separat.
 - **Skrivepausen** er slut (`FREEZE_END_OK mode=verify`); webfladen er åben for redigering igen.

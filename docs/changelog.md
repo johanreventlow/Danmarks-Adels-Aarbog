@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-10-26 — #240 og dubletreglen i prod
+
+Prod-session efter `docs/runbooks/fix-240-dobbeltfamilier-prod.md`, repo `34a016f2` (PR #261), GO 240 `9e7bfa20`,
+kørt af projektejeren med `~/.private/5ab-overfoersel/18-fix-240.sh`.
+
+- **Måling før:** `MAAL_240_OK ddl151=foer fase=pre` (sha `2b1388057151…` = generalprøvens); dump
+  `daa-prod-20261026072444-240.dump` (13,56 MB).
+- **Dubletreglens DDL (#260):** blokken sidst i `db-migrations.sql` (sha `f2a786da…`) i én transaktion, `DDL151_OK`;
+  fingeraftrykket for de 4 funktioner = generalprøvens. Data uændret (`fase=pre`, samme sha).
+- **#240:** de 5 par samlet i familien med børn som change_set 2142 (`SAML_240_OK`): 5 tomme familier fjernet, 6 noter
+  og 4 vielsespåstande (med citat) flyttet. Derefter de 7 ægteskaber fra 2018-20 afgjort og bundet til den samlede
+  familie (`AEGTESKABER_240_OK decided=7 promoted=7`).
+- **Måling efter:** `MAAL_240_OK ddl151=efter fase=bundet` (sha `576215b99bfe…` = generalprøvens).
+  Rådgiveren: `ADVISORS_240_OK nye=0 forsvundne=0`.
+- **Kendte følger:** 2018-20's kontrolkørsel beregnes nu som `failed` (`kandidatinput_aendret`; brugt op, decisions
+  #240 punkt 4); par 2's vielse og noter er ikke længere offentlige. Det ene ægteskab, der i GO 2 blev stående
+  efter den gamle dubletregel, er ikke omfattet og afgøres separat.
+
 ## 2026-10-25 — #151: 5a+5b's data i prod (GO 2)
 
 Data-ceremonien efter `docs/runbooks/transfer-5ab-data-prod.md`, repo `8f52969d`, kørt af projektejeren.
