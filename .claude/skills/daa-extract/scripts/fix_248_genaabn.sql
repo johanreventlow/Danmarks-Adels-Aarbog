@@ -48,8 +48,14 @@ BEGIN
     -- Skridt 1 er sket: ægtefællen er afgjort til den rigtige (version 2).
     IF NOT EXISTS (SELECT 1 FROM private.source_persona_identity i
                     WHERE i.source_persona_id=r.sp AND i.version=2 AND i.decision_status='accepted' AND i.canonical_person_id=r.up
-                      AND i.evidence->>'sheet_sha256'='1556cec66746b767a26c1b95135e37d2880303cfaa6dc123d283ee6135e9d764') THEN
+                      AND i.evidence->>'sheet_sha256'='1556cec66746b767a26c1b95135e37d2880303cfaa6dc123d283ee6135e9d764'
+                      AND (i.evidence->>'line')::int=r.linje AND (i.evidence->>'candidate_rank')::int=2) THEN
       RAISE EXCEPTION 'FIX248A_PRE_IDENTITY linje %', r.linje; END IF;
+    -- Familierne: hovedpersonen med den forkerte hhv. den rigtige ægtefælle (som skridt 1). Sammen med tilstandens
+    -- familie (nedenfor) binder det både hovedperson og ægtefælle.
+    IF (SELECT array_agg(person_id ORDER BY person_id) FROM public.family_member WHERE family_id=r.fid AND rolle='partner') IS DISTINCT FROM ARRAY[least(r.pp,r.bp),greatest(r.pp,r.bp)]
+       OR (SELECT array_agg(person_id ORDER BY person_id) FROM public.family_member WHERE family_id=r.ufid AND rolle='partner') IS DISTINCT FROM ARRAY[least(r.pp,r.up),greatest(r.pp,r.up)]
+      THEN RAISE EXCEPTION 'FIX248A_PRE_FAMILIES linje %', r.linje; END IF;
     -- Ægteskabet: gældende version accepteret med familiestrukturen for den forkerte familie.
     SELECT * INTO v_ic FROM private.interpretation_current ic WHERE ic.interpretation_key=r.ik;
     IF v_ic.id IS NULL OR v_ic.source_id<>v_src OR v_ic.predicate<>'relation.marriage' OR v_ic.status<>'accepted'
