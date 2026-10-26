@@ -1,9 +1,12 @@
 -- #240 (decisions 2026-10-26): læsemåling af de 5 par, der hver står i to familier. Kun id'er, antal og ja/nej.
 -- Udskriver nøgle=værdi-linjer og til sidst `MAAL_240 fase=<pre|samlet|bundet|ukendt> sha=<sha256>`, hvor sha'en er
 -- over alle linjerne. Fasen afgør, hvilken sha prod skal give (fastlagt ved prøvekørslen på en kopi af prod).
+-- Kontrolkørslens status er bevidst ikke med: den genberegner hele kandidatinputtet (tungt) og er tjekket én gang
+-- i fix_240_saml.sql's forhåndsbetingelse; bagefter er `failed` forventet (decisions #240 punkt 4).
 -- Brug (læsetransaktion): psql -X -At -v ON_ERROR_STOP=1 -v actor=<redaktør-uuid> -v src=1 -f fix_240_maal.sql
 \set QUIET on
 BEGIN READ ONLY;
+SET LOCAL statement_timeout = '15min';  -- prod har 2 min; måling og beslutningsmængde kan tage længere
 SELECT set_config('request.jwt.claim.sub', :'actor', true) \g /dev/null
 WITH m240_par(n, fuld, tom, a, b) AS (
   VALUES (1,188::bigint,11::bigint,16::bigint,278::bigint),(2,282,256,373,425),(3,354,363,544,560),(4,361,371,558,575),(5,377,372,577,587)),
@@ -46,9 +49,7 @@ JOIN LATERAL (
 GROUP BY n
 UNION ALL
 SELECT 500, 'beslutningsmaengde='||jsonb_array_length(coalesce(private.relation_decision_set(:src)->'items','[]'::jsonb))
-UNION ALL
-SELECT 600, 'kontrolstatus='||coalesce((SELECT string_agg(s.status||'/'||s.reason, ',' ORDER BY r.id)
-  FROM private.identity_control_run r, private.control_run_status(r.id) s WHERE r.source_id=:src),'ingen'))
+)
 SELECT linje FROM (SELECT nr, linje FROM m240_linjer
 UNION ALL
 SELECT 999, 'MAAL_240 fase='||CASE
