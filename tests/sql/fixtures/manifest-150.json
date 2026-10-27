@@ -1,0 +1,12 @@
+{"header_rule_version":"header-2018-20-v1",
+ "headers":[
+  {"element_id":"header:100","kind":"header_linje","page_from":10,"page_to":10,"char_from":100,"char_to":119,"verbatim_text":"I DEN TESTSKE LINJE","verbatim_sha256":"03691c8ca95aab4a65c732fac2120409b87e7bf25bca9622f18fc29ab963862d","parsed":{"roman":"I"}},
+  {"element_id":"header:200","kind":"header_slaegtled","page_from":10,"page_to":10,"char_from":200,"char_to":215,"verbatim_text":"Første slægtled","verbatim_sha256":"f57019e1b0ddfbaa0dc2e24808868ce5d7892bc3556ce4a8bb92eb7b1afd9c9b","parsed":{"ordinal":1,"label_raw":"Første","gennem":null}},
+  {"element_id":"header:1500","kind":"header_slaegtled","page_from":10,"page_to":10,"char_from":1500,"char_to":1514,"verbatim_text":"Andet slægtled","verbatim_sha256":"034d9e4d1904ada296882529e83725b64cb30cd7df84f2d4a23a2d7825020342","parsed":{"ordinal":2,"label_raw":"Andet","gennem":null}}],
+ "placements":[
+  {"record_key":"I-1","entry_code":"I","printed_number":"1","generation_local":1,"generation_label_raw":"Første","generation_global":null,"kuld_label":null,"section_path":["header:100","header:200"],"header_ids":{"linje":"header:100","slaegtled":"header:200"},"status":"machine_ok","reasons":[]},
+  {"record_key":"I-2","entry_code":"I","printed_number":"2","generation_local":2,"generation_label_raw":"Andet","generation_global":null,"kuld_label":null,"section_path":["header:100","header:1500"],"header_ids":{"linje":"header:100","slaegtled":"header:1500"},"status":"machine_ok","reasons":[]},
+  {"record_key":"I-3","entry_code":"I","printed_number":"3","generation_local":2,"generation_label_raw":"Andet","generation_global":null,"kuld_label":null,"section_path":["header:100","header:1500"],"header_ids":{"linje":"header:100","slaegtled":"header:1500"},"status":"unresolved","reasons":["uenig:kuld"]},
+  {"record_key":"I-4","entry_code":"I","printed_number":"4","generation_local":2,"generation_label_raw":"Andet","generation_global":null,"kuld_label":null,"section_path":["header:100","header:1500"],"header_ids":{"linje":"header:100","slaegtled":"header:1500"},"status":"machine_ok","reasons":[]}],
+ "invariants":{"kuld_stigende":true,"linje_overskrifter_svarer_til_entries":true,"nr_fortloebende":true,"poster_har_linje":true,"record_keys_unikke":true,"slaegtled_fortloebende":true},
+ "disagreements":[{"record_key":"I-3","field":"kuld"}]}

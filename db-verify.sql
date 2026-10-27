@@ -2983,6 +2983,9 @@ DECLARE
     'public.red_marriage_ordinal_correction_input(bigint)'::regprocedure,
     'public.red_ret_aegteskabsnummer(uuid,integer,text,jsonb)'::regprocedure,
     'public.red_genaabn_relation_interpretation(uuid,integer,text,jsonb)'::regprocedure,
+    'public.red_preview_placement_memberships(bigint)'::regprocedure,
+    'public.red_promote_placement_memberships(bigint,text)'::regprocedure,
+    'public.red_reverse_placement_membership(bigint,bigint,text)'::regprocedure,
     'public.red_relation_disposition_input(bigint)'::regprocedure,
     'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
     'public.red_kasser_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
@@ -3673,6 +3676,30 @@ BEGIN
     END IF;
   END;
 END $slaegt_verify$;
+
+-- ===== #150 trin 5c-1: placement-header som strukturel forekomst (sti ii) og nærmeste-reglen =====
+DO $placement_header_150_verify$
+DECLARE v_source bigint; v_n bigint;
+BEGIN
+  IF (SELECT count(*) FROM private.vocab WHERE scheme='observation_kind'
+       AND code IN ('header_linje','header_slaegtled','header_kuld','header_aegteskab'))<>4 THEN
+    RAISE EXCEPTION 'FEJL: #150 header-vokabularet mangler';
+  END IF;
+  IF to_regprocedure('private.placement_header_violations(bigint)') IS NULL
+     OR position('header_linje' IN pg_get_functiondef('private.validate_source_record_placement()'::regprocedure))=0 THEN
+    RAISE EXCEPTION 'FEJL: #150 placement-header sti ii mangler';
+  END IF;
+  IF has_function_privilege('anon','private.placement_header_violations(bigint)','EXECUTE')
+     OR has_function_privilege('authenticated','private.placement_header_violations(bigint)','EXECUTE') THEN
+    RAISE EXCEPTION 'FEJL: placement_header_violations er API-eksekverbar';
+  END IF;
+  FOR v_source IN SELECT DISTINCT r.source_id FROM private.source_record_placement_current pc
+                    JOIN private.source_record r ON r.id=pc.source_record_id WHERE pc.decision_status='accepted' LOOP
+    v_n:=private.placement_header_violations(v_source);
+    IF v_n<>0 THEN RAISE EXCEPTION 'FEJL: PLACEMENT_HEADER_VIOLATIONS source=% n=%',v_source,v_n; END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: placement-header sti ii og nærmeste-reglen';
+END $placement_header_150_verify$;
 
 -- ===== Evidensimport Fase 3 / Task 8: generelle beskrivelser og heraldik =====
 DO $entity_description_verify$
@@ -10319,3 +10346,44 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: #248 — genåbning ved familieskift, vagt mod dobbeltmål';
 END $verify_248$;
+
+-- #150 trin 5c-1 (spec §4.3): legacy-ledgeren er låst, skrivefunktionerne er private, og slaegt versioneres.
+DO $verify_150_ledger$
+DECLARE r text; f text;
+BEGIN
+  IF to_regclass('private.legacy_placement_disposition') IS NULL
+     OR to_regclass('private.legacy_placement_disposition_current') IS NULL
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.legacy_placement_disposition'::regclass)
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.legacy_placement_disposition'::regclass
+                     AND tgname='trg_legacy_placement_disposition_append_only')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.legacy_placement_disposition'::regclass
+                     AND tgname='trg_legacy_placement_disposition_no_truncate') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 150 ledger-tabel';
+  END IF;
+  FOREACH r IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_table_privilege(r,'private.legacy_placement_disposition','SELECT,INSERT,UPDATE,DELETE')
+       OR has_table_privilege(r,'private.legacy_placement_disposition_current','SELECT') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 150 tabeladgang %',r;
+    END IF;
+    FOREACH f IN ARRAY ARRAY['private.legacy_external_id_sha256(bigint,bigint)','private.header_observation_uuid(uuid,text,integer)',
+        'private.write_header_evidence(bigint,uuid,jsonb,jsonb)','private.write_record_placement(uuid,bigint,jsonb,uuid,jsonb)',
+        'private.write_persona_placement(uuid,uuid,uuid,jsonb)','private.record_legacy_disposition(bigint,bigint,text,uuid,jsonb)',
+        'private.lineage_of_entry(bigint)'] LOOP
+      IF to_regprocedure(f) IS NULL THEN RAISE EXCEPTION 'VERIFY_FAILED: 150 mangler %',f; END IF;
+      IF has_function_privilege(r,f,'EXECUTE') THEN RAISE EXCEPTION 'VERIFY_FAILED: 150 % eksekverbar for %',f,r; END IF;
+    END LOOP;
+  END LOOP;
+  IF NOT EXISTS (SELECT 1 FROM version_pk_registry WHERE tabel='slaegt')
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.slaegt'::regclass AND tgname='trg_log_slaegt') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 150 slaegt versioneres ikke';
+  END IF;
+  FOREACH f IN ARRAY ARRAY['private.membership_state(uuid)','private.membership_is_current(bigint,bigint)',
+      'private.placement_membership_not_current()','private.placement_membership_set(bigint)'] LOOP
+    IF to_regprocedure(f) IS NULL OR has_function_privilege('authenticated',f,'EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 150 membership-funktion %',f;
+    END IF;
+  END LOOP;
+  -- Helbred (spec §4.4): promoverede memberships, hvis tilstand er ændret siden; 5c-2's læsere filtrerer på gældende.
+  RAISE NOTICE 'PLACEMENT_MEMBERSHIP_NOT_CURRENT n=%',private.placement_membership_not_current();
+  RAISE NOTICE 'OK: #150 — legacy-ledger, private placement-skrivefunktioner, slaegt versioneret';
+END $verify_150_ledger$;

@@ -604,6 +604,11 @@ INSERT INTO private.vocab(scheme,code,label) VALUES
   -- vokabularet blev lukket). Inventeret 2026-09-06 ved at køre hele suiten med en
   -- NOTICE-udgave af triggeren (se Task 2 Step 3); reelt sæt = 8 + 5.
   ('observation_kind','header','Slægtledsoverskrift (placement-header, validate_source_record_placement)'),
+  -- #150 trin 5c-1: overskrifter som strukturelle forekomster mellem posterne; niveauet er koden.
+  ('observation_kind','header_linje','Linjeoverskrift (strukturel forekomst, placement-header sti ii)'),
+  ('observation_kind','header_slaegtled','Slægtledsoverskrift (strukturel forekomst)'),
+  ('observation_kind','header_kuld','Kuld-markør (strukturel forekomst)'),
+  ('observation_kind','header_aegteskab','Ægteskabskontekst (strukturel forekomst)'),
   ('observation_kind','name_clause','Fixture-kode (test-evidence-promotion)'),
   ('observation_kind','death_clause','Fixture-kode (db-verify)'),
   ('observation_kind','person_name','Fixture-kode (db-verify, evidence_contract-fixture)'),
@@ -2308,7 +2313,12 @@ SELECT placement.*,decision.version,decision.decision_status,decision.evidence,
          ORDER BY placement_id,version DESC) decision
     ON decision.placement_id=placement.id;
 
-CREATE FUNCTION private.validate_source_record_placement()
+-- #150 trin 5c-1 (spec §4.1): to stier til en placement-header. (i) den oprindelige: kind 'header' i postens egen
+-- ankrede forekomst (1939/trin 6). (ii) 2018-20: overskrifterne står mellem posterne som uankrede strukturelle
+-- forekomster; header_linje i samme rendition som postens tidligste accepterede forekomst, før den, og fra
+-- forekomstens egen (header-)kørsel. Kun strukturelle forhold her; nærmeste-reglen efterprøves af
+-- private.placement_header_violations (db-verify og ceremoniens POST).
+CREATE OR REPLACE FUNCTION private.validate_source_record_placement()
 RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
 BEGIN
   IF NOT EXISTS (
@@ -2319,6 +2329,22 @@ BEGIN
        AND o.observation_kind='header'
        AND anchor.source_record_id=NEW.source_record_id
        AND anchor.decision_status='accepted'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM private.source_observation o
+      JOIN private.source_record_occurrence header ON header.id=o.occurrence_id
+      JOIN LATERAL (
+        SELECT occurrence.rendition_id,occurrence.char_from
+          FROM private.source_record_anchor_current anchor
+          JOIN private.source_record_occurrence occurrence ON occurrence.id=anchor.occurrence_id
+         WHERE anchor.source_record_id=NEW.source_record_id AND anchor.decision_status='accepted'
+         ORDER BY occurrence.page_from,occurrence.char_from,occurrence.id LIMIT 1
+      ) post ON true
+     WHERE o.id=NEW.header_observation_id
+       AND o.observation_kind='header_linje'
+       AND o.extraction_run_id=header.extraction_run_id
+       AND header.rendition_id=post.rendition_id
+       AND header.char_from<post.char_from
+       AND NOT EXISTS (SELECT 1 FROM private.source_record_anchor_event event WHERE event.occurrence_id=header.id)
   ) THEN
     RAISE EXCEPTION 'EVIDENCE_PLACEMENT_HEADER_REQUIRED';
   END IF;
@@ -2624,6 +2650,449 @@ REVOKE ALL ON FUNCTION red_decide_source_record_placement(uuid,integer,text,json
                        red_decide_source_persona_placement(uuid,integer,text,jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION red_decide_source_record_placement(uuid,integer,text,jsonb),
                           red_decide_source_persona_placement(uuid,integer,text,jsonb) TO authenticated;
+
+-- #150 trin 5c-1 (spec §4.1): nærmeste-reglen for accepterede sti ii-placements i én kilde. For hvert niveau
+-- (linje > slægtled > kuld > ægteskab) er den forventede overskrift den nærmeste foregående i placementens
+-- header-kørsel og rendition, medmindre en overskrift af højere niveau står efter den. evidence.header_ids skal
+-- svare præcis (intet opfundet, intet udeladt), og linje-id'et skal være header_observation_id. Returnerer antal brud.
+CREATE OR REPLACE FUNCTION private.placement_header_violations(p_source_id bigint)
+RETURNS bigint LANGUAGE sql STABLE SET search_path=pg_catalog,public,private AS $$
+  WITH lv(level,kind,rank) AS (
+    VALUES ('linje','header_linje',1),('slaegtled','header_slaegtled',2),('kuld','header_kuld',3),
+           ('aegteskab','header_aegteskab',4)
+  ), p AS (
+    SELECT pc.id,pc.header_observation_id,pc.evidence->'header_ids' AS ids,ho.extraction_run_id AS run,
+           hocc.rendition_id AS rend,
+           (SELECT occ.char_from FROM private.source_record_anchor_current a
+              JOIN private.source_record_occurrence occ ON occ.id=a.occurrence_id
+             WHERE a.source_record_id=pc.source_record_id AND a.decision_status='accepted'
+               AND occ.rendition_id=hocc.rendition_id
+             ORDER BY occ.char_from LIMIT 1) AS post_from
+      FROM private.source_record_placement_current pc
+      JOIN private.source_record r ON r.id=pc.source_record_id AND r.source_id=p_source_id
+      JOIN private.source_observation ho ON ho.id=pc.header_observation_id
+      JOIN private.source_record_occurrence hocc ON hocc.id=ho.occurrence_id
+     WHERE pc.decision_status='accepted' AND ho.observation_kind='header_linje'
+  ), h AS (
+    SELECT p.id AS pid,o.id AS oid,lv.level,lv.rank,o.char_from
+      FROM p
+      JOIN private.source_observation o ON o.extraction_run_id=p.run
+      JOIN private.source_record_occurrence occ ON occ.id=o.occurrence_id AND occ.rendition_id=p.rend
+                                              AND occ.extraction_run_id=p.run
+      JOIN lv ON lv.kind=o.observation_kind
+     -- Kun strukturelle (uankrede) overskrifter, der slutter før posten (Codex r1 #4).
+     WHERE occ.char_to<=p.post_from
+       AND NOT EXISTS (SELECT 1 FROM private.source_record_anchor_event ev WHERE ev.occurrence_id=occ.id)
+  ), nearest AS (
+    SELECT DISTINCT ON (h.pid,h.level) h.* FROM h ORDER BY h.pid,h.level,h.char_from DESC
+  ), expected AS (
+    SELECT n.pid,n.level,n.oid FROM nearest n
+     WHERE NOT EXISTS (SELECT 1 FROM h x WHERE x.pid=n.pid AND x.rank<n.rank AND x.char_from>n.char_from)
+  )
+  SELECT count(*) FROM p
+   WHERE p.post_from IS NULL OR p.ids IS NULL OR jsonb_typeof(p.ids)<>'object'
+      OR p.ids->>'linje' IS DISTINCT FROM p.header_observation_id::text
+      OR EXISTS (SELECT 1 FROM jsonb_object_keys(p.ids) k WHERE k NOT IN (SELECT level FROM lv))
+      OR EXISTS (SELECT 1 FROM lv WHERE (p.ids->>lv.level) IS DISTINCT FROM
+                   (SELECT e.oid::text FROM expected e WHERE e.pid=p.id AND e.level=lv.level));
+$$;
+REVOKE ALL ON FUNCTION private.placement_header_violations(bigint) FROM PUBLIC,anon,authenticated,service_role;
+
+-- #150 trin 5c-1 (spec §4.3): én disposition pr. legacy-række i person_external_id. Tilføj-kun; hver version bærer
+-- en værdi-hash af legacy-rækken, så en senere ændring af legacy gør dispositionen forældet. Legacy røres aldrig.
+CREATE TABLE IF NOT EXISTS private.legacy_placement_disposition (
+  person_id       bigint NOT NULL,
+  source_id       bigint NOT NULL,
+  version         integer NOT NULL CHECK (version>=1),
+  disposition     text NOT NULL CHECK (disposition IN ('mapped','retained_legacy','archived_by_editor','unresolved')),
+  legacy_sha256   text NOT NULL CHECK (legacy_sha256 ~ '^[0-9a-f]{64}$'),
+  placement_id    uuid REFERENCES private.source_record_placement(id),
+  evidence        jsonb NOT NULL CHECK (jsonb_typeof(evidence)='object'),
+  decided_by_name text NOT NULL CHECK (btrim(decided_by_name)<>''),
+  decided_at      timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (person_id,source_id,version),
+  CHECK ((disposition='mapped')=(placement_id IS NOT NULL))
+);
+DO $legacy_placement_disposition_table$
+BEGIN
+  DROP TRIGGER IF EXISTS trg_legacy_placement_disposition_append_only ON private.legacy_placement_disposition;
+  CREATE TRIGGER trg_legacy_placement_disposition_append_only BEFORE UPDATE OR DELETE ON private.legacy_placement_disposition
+    FOR EACH ROW EXECUTE FUNCTION private.reject_evidence_mutation();
+  DROP TRIGGER IF EXISTS trg_legacy_placement_disposition_no_truncate ON private.legacy_placement_disposition;
+  CREATE TRIGGER trg_legacy_placement_disposition_no_truncate BEFORE TRUNCATE ON private.legacy_placement_disposition
+    FOR EACH STATEMENT EXECUTE FUNCTION private.reject_evidence_mutation();
+  ALTER TABLE private.legacy_placement_disposition ENABLE ROW LEVEL SECURITY;
+  REVOKE ALL ON TABLE private.legacy_placement_disposition FROM PUBLIC,anon,authenticated,service_role;
+END $legacy_placement_disposition_table$;
+
+-- Værdi-hash af én legacy-række (NULL, hvis rækken ikke findes).
+CREATE OR REPLACE FUNCTION private.legacy_external_id_sha256(p_person_id bigint,p_source_id bigint)
+RETURNS text LANGUAGE plpgsql STABLE SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  RETURN (SELECT private.reimport_canonical_json_sha256(jsonb_build_object('linje',pe.linje,'nr',pe.nr,
+            'record_key',pe.record_key,'slaegtled_lokal',pe.slaegtled_lokal,'slaegtled_gennem',pe.slaegtled_gennem,
+            'kuld',pe.kuld))
+            FROM public.person_external_id pe WHERE pe.person_id=p_person_id AND pe.source_id=p_source_id);
+END $$;
+REVOKE ALL ON FUNCTION private.legacy_external_id_sha256(bigint,bigint) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE VIEW private.legacy_placement_disposition_current
+WITH (security_invoker=true) AS
+SELECT DISTINCT ON (d.person_id,d.source_id) d.*,
+       (d.legacy_sha256 IS NOT DISTINCT FROM private.legacy_external_id_sha256(d.person_id,d.source_id)) AS is_current
+  FROM private.legacy_placement_disposition d
+ ORDER BY d.person_id,d.source_id,d.version DESC;
+REVOKE ALL ON TABLE private.legacy_placement_disposition_current FROM PUBLIC,anon,authenticated,service_role;
+
+-- Indholds-id for en strukturel header-observation (samme nøgle som write_header_evidence).
+CREATE OR REPLACE FUNCTION private.header_observation_uuid(p_rendition_id uuid,p_run_key text,p_char_from integer)
+RETURNS uuid LANGUAGE plpgsql IMMUTABLE STRICT SET search_path=pg_catalog,private AS $$
+BEGIN
+  RETURN private.content_uuid('header-observation',jsonb_build_object('occurrence_id',
+    private.content_uuid('header-occurrence',jsonb_build_object('rendition_id',p_rendition_id,'run_key',p_run_key,
+      'char_from',p_char_from))));
+END $$;
+REVOKE ALL ON FUNCTION private.header_observation_uuid(uuid,text,integer) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Header-evidens (spec §4.1): én extraction_run (run_key = header_rule_version) og pr. overskrift én uankret
+-- forekomst med én observation (kind = niveauet). Indholds-id'er; idempotent: samme indhold springes over, afvigende
+-- indhold under samme id er PLACEMENT_HEADER_DRIFT. Returnerer antal nyskrevne overskrifter.
+CREATE OR REPLACE FUNCTION private.write_header_evidence(p_source_id bigint,p_rendition_id uuid,p_run jsonb,p_headers jsonb)
+RETURNS integer LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+DECLARE v_key text:=p_run->>'run_key'; v_run uuid; v_occ uuid; v_obs uuid; h jsonb; v_n integer:=0; v_text text;
+BEGIN
+  IF btrim(coalesce(v_key,''))='' OR jsonb_typeof(p_headers)<>'array'
+     OR NOT EXISTS (SELECT 1 FROM private.source_rendition WHERE id=p_rendition_id AND source_id=p_source_id) THEN
+    RAISE EXCEPTION 'PLACEMENT_HEADER_INPUT_INVALID';
+  END IF;
+  v_run:=private.content_uuid('header-run',jsonb_build_object('source_id',p_source_id,'run_key',v_key));
+  IF EXISTS (SELECT 1 FROM private.extraction_run r WHERE r.source_id=p_source_id AND r.run_key=v_key
+               AND (r.id<>v_run OR r.schema_version IS DISTINCT FROM p_run->>'schema_version'
+                    OR r.extractor_version IS DISTINCT FROM p_run->>'extractor_version'
+                    OR r.profile_version IS DISTINCT FROM p_run->>'profile_version'
+                    OR r.input_sha256 IS DISTINCT FROM p_run->>'input_sha256'
+                    OR r.manifest IS DISTINCT FROM coalesce(p_run->'manifest','{}'::jsonb))) THEN
+    RAISE EXCEPTION 'PLACEMENT_HEADER_DRIFT: kørsel';
+  END IF;
+  INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+    VALUES (v_run,p_source_id,v_key,p_run->>'schema_version',p_run->>'extractor_version',p_run->>'profile_version',
+      p_run->>'input_sha256',coalesce(p_run->'manifest','{}'::jsonb))
+    ON CONFLICT (id) DO NOTHING;
+  FOR h IN SELECT x FROM jsonb_array_elements(p_headers) x LOOP
+    v_text:=h->>'verbatim_text';
+    IF h->>'kind' NOT IN ('header_linje','header_slaegtled','header_kuld','header_aegteskab')
+       OR h->>'element_id' IS DISTINCT FROM 'header:'||(h->>'char_from')
+       OR coalesce(v_text,'')='' OR h->>'verbatim_sha256' IS DISTINCT FROM encode(extensions.digest(v_text,'sha256'),'hex') THEN
+      RAISE EXCEPTION 'PLACEMENT_HEADER_INPUT_INVALID: %',h->>'element_id';
+    END IF;
+    v_occ:=private.content_uuid('header-occurrence',jsonb_build_object('rendition_id',p_rendition_id,'run_key',v_key,
+      'char_from',(h->>'char_from')::integer));
+    v_obs:=private.header_observation_uuid(p_rendition_id,v_key,(h->>'char_from')::integer);
+    IF EXISTS (SELECT 1 FROM private.source_record_occurrence WHERE id=v_occ) THEN
+      IF NOT EXISTS (SELECT 1 FROM private.source_record_occurrence occ
+                       JOIN private.source_observation o ON o.id=v_obs AND o.occurrence_id=occ.id
+                      WHERE occ.id=v_occ AND occ.rendition_id=p_rendition_id AND occ.extraction_run_id=v_run
+                        AND occ.occurrence_key=h->>'element_id' AND occ.verbatim_text=v_text
+                        AND occ.page_from=(h->>'page_from')::integer AND occ.page_to=(h->>'page_to')::integer
+                        AND occ.char_from=(h->>'char_from')::integer AND occ.char_to=(h->>'char_to')::integer
+                        AND o.observation_kind=h->>'kind' AND o.verbatim_text=v_text AND o.extraction_run_id=v_run
+                        AND o.char_from=occ.char_from AND o.char_to=occ.char_to) THEN
+        RAISE EXCEPTION 'PLACEMENT_HEADER_DRIFT: %',h->>'element_id';
+      END IF;
+      CONTINUE;
+    END IF;
+    INSERT INTO private.source_record_occurrence(id,rendition_id,occurrence_key,page_from,page_to,char_from,char_to,
+      verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id)
+      VALUES (v_occ,p_rendition_id,h->>'element_id',(h->>'page_from')::integer,(h->>'page_to')::integer,
+        (h->>'char_from')::integer,(h->>'char_to')::integer,v_text,h->>'verbatim_sha256',
+        (h->>'kind')||':'||(h->>'char_from'),v_run);
+    INSERT INTO private.source_observation(id,occurrence_id,observation_kind,page_from,page_to,char_from,char_to,
+      verbatim_text,quality_status,extraction_method,extraction_run_id)
+      VALUES (v_obs,v_occ,h->>'kind',(h->>'page_from')::integer,(h->>'page_to')::integer,(h->>'char_from')::integer,
+        (h->>'char_to')::integer,v_text,'clear',v_key,v_run);
+    v_n:=v_n+1;
+  END LOOP;
+  RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION private.write_header_evidence(bigint,uuid,jsonb,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Record-placement (spec §4.2) som accepteret v1 med decision_origin='migration' (triggeren tillader det kun for v1);
+-- en senere supersede er v2 gennem red_decide_source_record_placement. evidence bærer rule_version og header_ids
+-- (nærmeste-reglen) samt GO-, manifest- og kontrolark-sha. Idempotent; afvigende indhold er PLACEMENT_RECORD_DRIFT.
+CREATE OR REPLACE FUNCTION private.write_record_placement(p_record_id uuid,p_entry_id bigint,p_values jsonb,
+  p_header_obs uuid,p_evidence jsonb)
+RETURNS uuid LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+DECLARE v_id uuid; v_path text[];
+BEGIN
+  IF jsonb_typeof(p_values)<>'object' OR jsonb_typeof(p_evidence)<>'object'
+     OR btrim(coalesce(p_evidence->>'rule_version',''))='' OR jsonb_typeof(p_evidence->'header_ids')<>'object' THEN
+    RAISE EXCEPTION 'PLACEMENT_RECORD_INPUT_INVALID';
+  END IF;
+  v_path:=ARRAY(SELECT jsonb_array_elements_text(coalesce(p_values->'section_path','[]'::jsonb)));
+  v_id:=private.content_uuid('record-placement',jsonb_build_object('source_record_id',p_record_id,
+    'scheme_entry_id',p_entry_id,'header_rule_version',p_evidence->>'rule_version'));
+  IF EXISTS (SELECT 1 FROM private.source_record_placement WHERE id=v_id) THEN
+    IF NOT EXISTS (SELECT 1 FROM private.source_record_placement p
+                     JOIN private.source_record_placement_decision d ON d.placement_id=p.id AND d.version=1
+                    WHERE p.id=v_id AND p.source_record_id=p_record_id AND p.scheme_entry_id=p_entry_id
+                      AND p.header_observation_id=p_header_obs AND p.section_path=v_path
+                      AND p.printed_number IS NOT DISTINCT FROM p_values->>'printed_number'
+                      AND p.generation_local IS NOT DISTINCT FROM (p_values->>'generation_local')::integer
+                      AND p.generation_global IS NOT DISTINCT FROM (p_values->>'generation_global')::integer
+                      AND p.generation_label_raw IS NOT DISTINCT FROM p_values->>'generation_label_raw'
+                      AND p.kuld_label IS NOT DISTINCT FROM p_values->>'kuld_label'
+                      AND d.evidence=p_evidence) THEN
+      RAISE EXCEPTION 'PLACEMENT_RECORD_DRIFT: %',v_id;
+    END IF;
+    RETURN v_id;
+  END IF;
+  INSERT INTO private.source_record_placement(id,source_record_id,scheme_entry_id,printed_number,generation_local,
+    generation_global,generation_label_raw,kuld_label,section_path,header_observation_id,initial_status)
+    VALUES (v_id,p_record_id,p_entry_id,p_values->>'printed_number',(p_values->>'generation_local')::integer,
+      (p_values->>'generation_global')::integer,p_values->>'generation_label_raw',p_values->>'kuld_label',v_path,
+      p_header_obs,'accepted');
+  INSERT INTO private.source_record_placement_decision(id,placement_id,version,decision_status,evidence,decision_origin,
+    decided_by_name)
+    VALUES (private.content_uuid('record-placement-decision',jsonb_build_object('placement_id',v_id,'version',1)),
+      v_id,1,'accepted',p_evidence,'migration',coalesce(nullif(btrim(p_evidence->>'decided_by_name'),''),'placement-migration'));
+  RETURN v_id;
+END $$;
+REVOKE ALL ON FUNCTION private.write_record_placement(uuid,bigint,jsonb,uuid,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Hovedpersonens persona-placement (principal_member; spec §4.2), skrevet efter record-afgørelsen. Samme mønster.
+CREATE OR REPLACE FUNCTION private.write_persona_placement(p_persona_id uuid,p_record_placement_id uuid,p_basis_obs uuid,
+  p_evidence jsonb)
+RETURNS uuid LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+DECLARE v_id uuid;
+BEGIN
+  IF jsonb_typeof(p_evidence)<>'object' OR p_evidence='{}'::jsonb THEN
+    RAISE EXCEPTION 'PLACEMENT_PERSONA_INPUT_INVALID';
+  END IF;
+  v_id:=private.content_uuid('persona-placement',jsonb_build_object('source_persona_id',p_persona_id,
+    'record_placement_id',p_record_placement_id,'placement_role','principal_member'));
+  IF EXISTS (SELECT 1 FROM private.source_persona_placement WHERE id=v_id) THEN
+    IF NOT EXISTS (SELECT 1 FROM private.source_persona_placement p
+                     JOIN private.source_persona_placement_decision d ON d.placement_id=p.id AND d.version=1
+                    WHERE p.id=v_id AND p.basis_observation_id=p_basis_obs AND d.evidence=p_evidence) THEN
+      RAISE EXCEPTION 'PLACEMENT_PERSONA_DRIFT: %',v_id;
+    END IF;
+    RETURN v_id;
+  END IF;
+  INSERT INTO private.source_persona_placement(id,source_persona_id,record_placement_id,placement_role,
+    basis_observation_id,initial_status)
+    VALUES (v_id,p_persona_id,p_record_placement_id,'principal_member',p_basis_obs,'accepted');
+  INSERT INTO private.source_persona_placement_decision(id,placement_id,version,decision_status,evidence,decision_origin,
+    decided_by_name)
+    VALUES (private.content_uuid('persona-placement-decision',jsonb_build_object('placement_id',v_id,'version',1)),
+      v_id,1,'accepted',p_evidence,'migration',coalesce(nullif(btrim(p_evidence->>'decided_by_name'),''),'placement-migration'));
+  RETURN v_id;
+END $$;
+REVOKE ALL ON FUNCTION private.write_persona_placement(uuid,uuid,uuid,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Ny ledger-version for én legacy-række; uændret (disposition, placement, værdi-hash) giver ingen ny række.
+-- mapped kræver en gældende accepteret placement for netop denne posts source record.
+CREATE OR REPLACE FUNCTION private.record_legacy_disposition(p_person_id bigint,p_source_id bigint,p_disposition text,
+  p_placement_id uuid,p_evidence jsonb)
+RETURNS integer LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+DECLARE v_key text; v_sha text; v_cur private.legacy_placement_disposition%ROWTYPE;
+BEGIN
+  SELECT record_key INTO v_key FROM public.person_external_id
+   WHERE person_id=p_person_id AND source_id=p_source_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'PLACEMENT_LEGACY_ROW_MISSING: %/%',p_person_id,p_source_id; END IF;
+  v_sha:=private.legacy_external_id_sha256(p_person_id,p_source_id);
+  IF p_placement_id IS NOT NULL AND NOT EXISTS (
+       SELECT 1 FROM private.source_record_placement_current pc
+         JOIN private.source_record r ON r.id=pc.source_record_id
+        WHERE pc.id=p_placement_id AND pc.decision_status='accepted' AND r.source_id=p_source_id
+          AND r.record_key IS NOT DISTINCT FROM v_key) THEN
+    RAISE EXCEPTION 'PLACEMENT_LEGACY_MAPPING_INVALID: %/%',p_person_id,p_source_id;
+  END IF;
+  SELECT * INTO v_cur FROM private.legacy_placement_disposition
+   WHERE person_id=p_person_id AND source_id=p_source_id ORDER BY version DESC LIMIT 1;
+  IF FOUND AND v_cur.disposition=p_disposition AND v_cur.placement_id IS NOT DISTINCT FROM p_placement_id
+     AND v_cur.legacy_sha256=v_sha THEN
+    RETURN v_cur.version;
+  END IF;
+  INSERT INTO private.legacy_placement_disposition(person_id,source_id,version,disposition,legacy_sha256,placement_id,
+    evidence,decided_by_name)
+    VALUES (p_person_id,p_source_id,coalesce(v_cur.version,0)+1,p_disposition,v_sha,p_placement_id,p_evidence,
+      coalesce(nullif(btrim(p_evidence->>'decided_by_name'),''),'placement-migration'));
+  RETURN coalesce(v_cur.version,0)+1;
+END $$;
+REVOKE ALL ON FUNCTION private.record_legacy_disposition(bigint,bigint,text,uuid,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Entryens linje: præcis én canonical-mapping (spec §4.2), ellers stop.
+CREATE OR REPLACE FUNCTION private.lineage_of_entry(p_entry_id bigint)
+RETURNS bigint LANGUAGE plpgsql STABLE SET search_path=pg_catalog,public,private AS $$
+DECLARE v_ids bigint[];
+BEGIN
+  SELECT array_agg(lineage_id) INTO v_ids FROM public.lineage_scheme_entry_lineage
+   WHERE entry_id=p_entry_id AND relation_kind='canonical';
+  IF coalesce(cardinality(v_ids),0)<>1 THEN RAISE EXCEPTION 'PLACEMENT_ENTRY_LINEAGE_INVALID: %',p_entry_id; END IF;
+  RETURN v_ids[1];
+END $$;
+REVOKE ALL ON FUNCTION private.lineage_of_entry(bigint) FROM PUBLIC,anon,authenticated,service_role;
+-- Placement-skrivefunktionerne slutter her.
+
+-- #150 trin 5c-1 (spec §4.4): membership via promotion. Tilstanden for en accepteret principal_member-persona-placement
+-- med accepteret identitet; NULL ellers. En membership gælder kun, når dens state_sha256 svarer til den nuværende
+-- tilstand (som relationsbindinger, #248): en senere identitets- eller placement-rettelse gør den ikke-gældende.
+CREATE OR REPLACE FUNCTION private.membership_state(p_persona_placement_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SET search_path=pg_catalog,public,private AS $$
+DECLARE v jsonb;
+BEGIN
+  SELECT jsonb_build_object('person_id',i.canonical_person_id,'lineage_id',private.lineage_of_entry(rp.scheme_entry_id),
+           'slaegt_id',e.slaegt_id,'persona_placement_id',pp.id,'record_placement_id',rp.id,
+           'identity_version',i.version,'rule_version','placement-membership-v1')
+    INTO v
+    FROM private.source_persona_placement_current pp
+    JOIN private.source_record_placement_current rp ON rp.id=pp.record_placement_id AND rp.decision_status='accepted'
+    JOIN public.lineage_scheme_entry e ON e.id=rp.scheme_entry_id
+    JOIN private.source_persona_identity i ON i.source_persona_id=pp.source_persona_id
+     AND i.decision_status='accepted' AND i.canonical_person_id IS NOT NULL
+   WHERE pp.id=p_persona_placement_id AND pp.decision_status='accepted' AND pp.placement_role='principal_member';
+  RETURN v;
+END $$;
+REVOKE ALL ON FUNCTION private.membership_state(uuid) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION private.membership_is_current(p_person_id bigint,p_lineage_id bigint)
+RETURNS boolean LANGUAGE plpgsql STABLE SET search_path=pg_catalog,public,private AS $$
+DECLARE b jsonb; v jsonb; v_sha text;
+BEGIN
+  SELECT source_basis INTO b FROM public.person_lineage_membership WHERE person_id=p_person_id AND lineage_id=p_lineage_id;
+  IF b IS NULL OR b->>'persona_placement_id' IS NULL THEN RETURN false; END IF;
+  v:=private.membership_state((b->>'persona_placement_id')::uuid);
+  IF v IS NULL THEN RETURN false; END IF;
+  v_sha:=private.reimport_canonical_json_sha256(v);
+  RETURN v_sha=b->>'state_sha256' AND (v->>'person_id')::bigint=p_person_id AND (v->>'lineage_id')::bigint=p_lineage_id
+     AND EXISTS (SELECT 1 FROM public.person_slaegt_membership m WHERE m.person_id=p_person_id
+                   AND m.slaegt_id=(v->>'slaegt_id')::bigint AND m.source_basis->>'state_sha256'=v_sha);
+END $$;
+REVOKE ALL ON FUNCTION private.membership_is_current(bigint,bigint) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Helbredstal (db-verify NOTICE): promoverede linjemedlemskaber, der ikke længere er gældende.
+CREATE OR REPLACE FUNCTION private.placement_membership_not_current()
+RETURNS bigint LANGUAGE plpgsql STABLE SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  RETURN (SELECT count(*) FROM public.person_lineage_membership m
+           WHERE m.source_basis->>'rule_version'='placement-membership-v1'
+             AND NOT private.membership_is_current(m.person_id,m.lineage_id));
+END $$;
+REVOKE ALL ON FUNCTION private.placement_membership_not_current() FROM PUBLIC,anon,authenticated,service_role;
+
+-- Promotionssættet for én kilde: ét item pr. gældende principal_member-persona-placement. reason_code: eligible,
+-- already_current, not_accepted, conflict (en række ejes af noget andet, eller to placements giver samme person).
+CREATE OR REPLACE FUNCTION private.placement_membership_set(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SET search_path=pg_catalog,public,private AS $$
+DECLARE v_items jsonb;
+BEGIN
+  WITH pp AS (
+    SELECT pc.id,private.membership_state(pc.id) AS st
+      FROM private.source_persona_placement_current pc
+      JOIN private.source_record_placement rp ON rp.id=pc.record_placement_id
+      JOIN private.source_record r ON r.id=rp.source_record_id AND r.source_id=p_source_id
+     WHERE pc.placement_role='principal_member'
+  ), x AS (
+    SELECT pp.id,pp.st,private.reimport_canonical_json_sha256(pp.st) AS sha,
+           (pp.st->>'person_id')::bigint AS person_id,(pp.st->>'lineage_id')::bigint AS lineage_id,
+           (pp.st->>'slaegt_id')::bigint AS slaegt_id,
+           (SELECT l.source_basis FROM public.person_lineage_membership l
+             WHERE l.person_id=(pp.st->>'person_id')::bigint AND l.lineage_id=(pp.st->>'lineage_id')::bigint) AS lb,
+           (SELECT m.source_basis FROM public.person_slaegt_membership m
+             WHERE m.person_id=(pp.st->>'person_id')::bigint AND m.slaegt_id=(pp.st->>'slaegt_id')::bigint) AS sb,
+           count(*) FILTER (WHERE pp.st IS NOT NULL) OVER (PARTITION BY pp.st->>'person_id') AS same_person
+      FROM pp
+  ), y AS (
+    SELECT x.*,CASE
+      WHEN x.st IS NULL THEN 'not_accepted'
+      WHEN x.same_person>1 THEN 'conflict'
+      WHEN (x.lb IS NOT NULL AND x.lb->>'persona_placement_id' IS DISTINCT FROM x.id::text)
+        OR (x.sb IS NOT NULL AND x.sb->>'persona_placement_id' IS DISTINCT FROM x.id::text) THEN 'conflict'
+      WHEN x.lb->>'state_sha256'=x.sha AND x.sb->>'state_sha256'=x.sha THEN 'already_current'
+      ELSE 'eligible' END AS reason_code
+      FROM x
+  )
+  SELECT coalesce(jsonb_agg(jsonb_build_object('persona_placement_id',y.id,'person_id',y.person_id,'lineage_id',y.lineage_id,
+           'slaegt_id',y.slaegt_id,'state_sha256',y.sha,'eligible',y.reason_code='eligible','reason_code',y.reason_code)
+           ORDER BY y.id::text COLLATE "C"),'[]'::jsonb)
+    INTO v_items FROM y;
+  RETURN jsonb_build_object('items',v_items,'preview_sha256',private.reimport_canonical_json_sha256(jsonb_build_object(
+    'contract','placement-membership-preview-v1','source_id',p_source_id,'items',v_items,
+    'database_identity',jsonb_build_object('database_name',current_database(),
+      'system_identifier',(pg_control_system()).system_identifier::text)::text)));
+END $$;
+REVOKE ALL ON FUNCTION private.placement_membership_set(bigint) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION public.red_preview_placement_memberships(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  RETURN private.placement_membership_set(p_source_id);
+END $$;
+REVOKE ALL ON FUNCTION public.red_preview_placement_memberships(bigint) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_preview_placement_memberships(bigint) TO authenticated;
+
+-- Fremmer de egnede items under ét eget change_set: person_lineage_membership (member) og person_slaegt_membership
+-- (agnatic; gifte-ind får aldrig et item). source_basis = tilstanden + state_sha256 + source_id. Fail-closed ved drift
+-- eller konflikt. Rydder app.change_set_id før retur.
+CREATE OR REPLACE FUNCTION public.red_promote_placement_memberships(p_source_id bigint,p_preview_sha256 text)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_set jsonb; i jsonb; v_basis jsonb; v_n integer:=0;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_CHANGE_SET';
+  END IF;
+  v_set:=private.placement_membership_set(p_source_id);
+  IF v_set->>'preview_sha256' IS DISTINCT FROM p_preview_sha256 THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_PREVIEW_DRIFT'; END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_set->'items') x WHERE x->>'reason_code'='conflict') THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_CONFLICT';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_set->'items') x WHERE (x->>'eligible')::boolean) THEN RETURN 0; END IF;
+  PERFORM public.begin_change_set('placement_membership','placement-membership-v1 source '||p_source_id);
+  FOR i IN SELECT x FROM jsonb_array_elements(v_set->'items') x WHERE (x->>'eligible')::boolean LOOP
+    v_basis:=private.membership_state((i->>'persona_placement_id')::uuid)
+             ||jsonb_build_object('state_sha256',i->>'state_sha256','source_id',p_source_id);
+    INSERT INTO public.person_lineage_membership(person_id,lineage_id,role,source_basis)
+      VALUES ((i->>'person_id')::bigint,(i->>'lineage_id')::bigint,'member',v_basis)
+      ON CONFLICT (person_id,lineage_id) DO UPDATE SET role='member',source_basis=excluded.source_basis;
+    INSERT INTO public.person_slaegt_membership(person_id,slaegt_id,membership_kind,source_basis)
+      VALUES ((i->>'person_id')::bigint,(i->>'slaegt_id')::bigint,'agnatic',v_basis)
+      ON CONFLICT (person_id,slaegt_id) DO UPDATE SET membership_kind='agnatic',source_basis=excluded.source_basis;
+    v_n:=v_n+1;
+  END LOOP;
+  PERFORM set_config('app.change_set_id','',true);
+  RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION public.red_promote_placement_memberships(bigint,text) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_promote_placement_memberships(bigint,text) TO authenticated;
+
+-- Fortrydelse af én promoveret membership: sletter linje- og slægtsrækken under et eget change_set (før-billedet
+-- bevares i change_event). Kun rækker, promotionen ejer.
+CREATE OR REPLACE FUNCTION public.red_reverse_placement_membership(p_person_id bigint,p_lineage_id bigint,p_note text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE b jsonb;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_CHANGE_SET';
+  END IF;
+  IF btrim(coalesce(p_note,''))='' THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_NOTE_REQUIRED'; END IF;
+  SELECT source_basis INTO b FROM public.person_lineage_membership
+   WHERE person_id=p_person_id AND lineage_id=p_lineage_id FOR UPDATE;
+  IF b IS NULL OR b->>'rule_version' IS DISTINCT FROM 'placement-membership-v1' THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_NOT_FOUND';
+  END IF;
+  PERFORM public.begin_change_set('placement_membership_reversal',btrim(p_note),'person',p_person_id);
+  DELETE FROM public.person_lineage_membership WHERE person_id=p_person_id AND lineage_id=p_lineage_id;
+  DELETE FROM public.person_slaegt_membership
+   WHERE person_id=p_person_id AND slaegt_id=(b->>'slaegt_id')::bigint
+     AND source_basis->>'persona_placement_id'=b->>'persona_placement_id';
+  PERFORM set_config('app.change_set_id','',true);
+END $$;
+REVOKE ALL ON FUNCTION public.red_reverse_placement_membership(bigint,bigint,text) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_reverse_placement_membership(bigint,bigint,text) TO authenticated;
+-- Membership-promotionen slutter her.
 
 -- ---------- UDLEDT SLÆGTSNAVN: cyklus-sikre lineage-graf-walkers ----------
 -- Bruges BÅDE til skrive-tids cyklus-forebyggelse (BEFORE-trigger nedenfor) OG læse-tids
@@ -7699,7 +8168,9 @@ INSERT INTO version_pk_registry (tabel, pk_cols, skip_cols) VALUES
   -- blokerede sletningen). Uden registrering ville den sletning være ufortrydelig: fortryd
   -- ville give personen tilbage uden dens slægts- og linjetilhør.
   ('person_slaegt_membership',  ARRAY['person_id','slaegt_id'],  '{}'),
-  ('person_lineage_membership', ARRAY['person_id','lineage_id'], '{}')
+  ('person_lineage_membership', ARRAY['person_id','lineage_id'], '{}'),
+  -- #150 trin 5c-1: slægtens status (historical → active) skrives under et change_set og skal kunne fortrydes.
+  ('slaegt',                    ARRAY['id'],                     '{}')
 ON CONFLICT (tabel) DO UPDATE SET pk_cols=excluded.pk_cols, skip_cols=excluded.skip_cols;
 -- ---------- VERSIONERING: change_set / change_event ----------
 CREATE TABLE IF NOT EXISTS change_set (
@@ -16925,7 +17396,8 @@ BEGIN
     v_actor,v_actor_name);
   RETURN v_new;
 END $$;
-REVOKE ALL ON FUNCTION public.red_genaabn_relation_interpretation(uuid,integer,text,jsonb) FROM PUBLIC,anon,authenticated;
+-- service_role med (#150): Supabase's DEFAULT PRIVILEGES gav den EXECUTE i prod (db-verify: EVIDENCE_PUBLIC_RED_ACL_DRIFT).
+REVOKE ALL ON FUNCTION public.red_genaabn_relation_interpretation(uuid,integer,text,jsonb) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_genaabn_relation_interpretation(uuid,integer,text,jsonb) TO authenticated;
 
 -- ===================================================================================
