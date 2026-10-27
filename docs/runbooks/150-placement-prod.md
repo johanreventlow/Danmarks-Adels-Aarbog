@@ -107,6 +107,9 @@ som i prod, og en øvelses-afgørelsesfil uden godkendelser (543 maskinelt enige
   `PLACEMENT_MEMBERSHIP_NOT_CURRENT n=0`.
 - **Varighed:** uden `ANALYZE` mellem skrivefaserne tog ceremonien 1269 s (paritetshashen efter skrivningen 574 s,
   fordi planneren så de nye tabeller som tomme); med `ANALYZE` 82-83 s.
+- **Efter Codex-review r1** (kopi `_5cra`, øvelsens GO-kode `61577e95`): alle skridt igen grønne; `FIX150_OK
+  headers=266 placements=543 ledger=1167 memberships=541 revalideret=498` på 72 s. Identitetstjekket pr. binding tog
+  uden materialisering over 15 min på en frisk restore (ingen planner-statistik); nu ca. 11 s.
 - Den endelige øvelse med de godkendte filer (kontrolark og token-fil) køres, før GO 2 bindes, og noteres her.
 
 ## Fortrydelse

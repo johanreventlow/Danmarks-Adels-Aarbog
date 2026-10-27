@@ -2,6 +2,47 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: #150 trin 5c-1 — overskrifter som strukturelle forekomster; legacy-ledger; membership gælder kun ved passende tilstand (2026-10-26/27)
+
+> Spec `docs/superpowers/specs/2026-10-26-trin5c-placement-membership-design.md` (Fable-reviewet), plan
+> `docs/superpowers/plans/2026-10-26-trin5c-placement-membership.md` (Codex/Opus-reviewet), runbook
+> `docs/runbooks/150-placement-prod.md`. Implementeringen Codex-reviewet (r1 NO-GO → Opus-dom: GO efter rettelser).
+
+**Baggrund:** 2018-20's slægt, linje og generation lå kun i `person_external_id`. Placement-skelettet kunne ikke
+opfyldes, fordi bogens overskrifter står *mellem* posterne, mens validatoren krævede en header i postens egen
+forekomst.
+
+**Besluttet:**
+1. **Overskrifter som strukturelle forekomster (sti ii):** hver overskrift i renditionen er en uankret
+   `source_record_occurrence` med én observation af kind `header_linje`/`_slaegtled`/`_kuld`/`_aegteskab` i én
+   header-kørsel. Validatoren udvides (den gamle sti i bevares til 1939/trin 6); »nærmeste foregående overskrift pr.
+   niveau, et højere niveau annullerer de lavere« står i placementens evidence og efterprøves af
+   `private.placement_header_violations` (db-verify og ceremoniens POST), ikke af triggeren.
+2. **Maskinel accept kun ved enighed og strukturinvarianter** (5 linjer ↔ 5 entries, fortløbende slægtled og nr. —
+   et nr-hul er kun tilladt, når et trykt interval »N.-M.« dækker det præcist — og stigende kuld), plus et
+   forælder-barn-krydstjek: barn og forælder i samme linje skal stå præcis ét slægtled fra hinanden. Målt:
+   543 maskinelt enige, 37 uenige om kuld (legacy arvede kuld over slægtledsgrænser; 6 gruppelinjer i token-filen),
+   11 børn i forælderens slægtled (V-82..V-92: mulig umarkeret slægtledsfald eller forkert relation; **står
+   uafklaret i 5c-1** og kan ikke godkendes i token-filen — opfølgning).
+3. **Blind kontrolstikprøve** K=20 (stratificeret, fast seed): projektejeren skriver selv slægtled og kuld mod PDF'en;
+   arket skal være netop stikprøven, og én afvigelse stopper.
+4. **Legacy-ledger** `private.legacy_placement_disposition`: tilføj-kun, én disposition pr. legacy-række
+   (`mapped`/`retained_legacy`/`archived_by_editor`/`unresolved`) med værdi-hash; en senere ændring af legacy gør
+   dispositionen forældet. Legacy røres ikke; `backfill_slaegtled.R` fryses for kilder med dispositioner.
+5. **Membership gælder kun ved passende tilstand:** promotionen skriver `member` + `agnatic` med `source_basis` =
+   tilstanden (placements, identitetsversion, regelversion) og dens sha; en senere identitets- eller
+   placement-rettelse gør den ikke-gældende uden yderligere vagt, og db-verify tæller ikke-gældende som NOTICE.
+   5c-2's læsere skal filtrere på gældende. Gifte-ind får aldrig membership; poster uden hovedperson-persona får
+   record-placement, men ingen membership.
+6. **Revalidering i samme transaktion** af hver publicering, der bliver `stale_published` (målt 498 af 541; de
+   publicerede poster, der står uafklaret, ændrer ikke tilstand og kan ikke revalideres) — projektejerens afgørelse
+   2026-10-27, spec §4.5 rettet. 0 `stale_published` og uændret eligibility er efterbetingelser.
+7. **ACL i prod:** Supabase's DEFAULT PRIVILEGES giver `service_role` EXECUTE på nye funktioner; nye `red_*`-RPC'er
+   skal også fratage `service_role`. Placement-blokken retter samme drift på #248's `red_genaabn_relation_interpretation`
+   (fuld db-verify mod en kopi af prod: `EVIDENCE_PUBLIC_RED_ACL_DRIFT`).
+8. **Ceremoniens ydelse:** `ANALYZE` efter hver skrivefase og materialiserede view-joins; uden dem tog øvelsen
+   21 min (tomme-tabel-planer), med dem ca. 70 s.
+
 ## BESLUTTET: #248 — to navnefælle-ægtefæller rettes; genåbning ved familieskift bygges (rute A) (2026-10-26)
 
 > Issue #248 (kommentar 2026-10-26). Projektejerens svar på to hash-bundne ark: GO 248 `1556cec6…` (F, F) og
