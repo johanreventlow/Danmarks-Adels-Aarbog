@@ -70,3 +70,24 @@ tjekker rådgiveren (`get_advisors`) i dashboardet.
 
 T0 → (T1-T5 lokalt, ét commit pr. task) → review-runde → GO-fil → T6 → T7. Prod berøres kun i T0 (læse-kun) og T6
 (efter GO). Ingen push uden projektejerens ord; PR som draft.
+
+## Udført lokalt og reviewet (2026-10-27)
+
+T1-T5 committet (`8aa51edc`..`1333e6e8`) og efter ét uafhængigt Opus-review (ingen P1, 8 × P3) rettet i
+`dc9c0d16`..`61641756`: `date_certainty` arves kun ved uændret datotekst; web viser slet-knappen kun ved
+`uforanderlig === false`; tests for manglende `family_id`, NULL-status og en NOTICE-tælling i `db-verify`
+(`TRIN_B_DECISION_FAMILY_CHANGED_UNBOUND`). Prod T0 (læse-kun): 0 ikke-afklarede cachede konklusioner (NULL talt med),
+0 `uforanderlig` NULL, 248/248 accepterede relationer med `family_id`, bundet og uden afvigelse — ceremonien ændrer
+kun funktioner, ingen data.
+
+**Kendte begrænsninger (bevidst ikke rettet her):**
+- Mobil viser stadig slet-knappen på alle oplysninger (`mobile/src/app/redaktion/person/[id].tsx:229`); RPC'en afviser.
+  Mobil er kun til udvikling.
+- `red_source_persona_detail` (`schema.sql:9074`) joiner `conclusion` uden statusfilter; samme fejlklasse som T4.
+- `RELATION_PROMOTION_REBIND_FAMILY_CHANGED` skygges af den nye vagt og har ingen direkte test; den værner kun mod
+  gamle fejldata.
+- `red_set_konklusion` nulstiller ikke status; »gør til konklusion« på et tilbagetrukket navn giver en tom cache
+  (latent: `tilbagetrukket` bruges i dag ikke på cachede faktatyper).
+- Genspil af en 5ab-pakke optaget før ceremonien kan give `STEP_ITEMS_MISMATCH`, hvis en afvisningsgrund er skiftet
+  (fail-closed; ingen kendte tilfælde).
+- Datogrænserne `date_min/max` følger fortsat den gamle påstand ved rettelse (se T2).
