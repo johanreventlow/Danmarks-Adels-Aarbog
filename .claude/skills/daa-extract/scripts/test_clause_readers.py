@@ -39,6 +39,8 @@ ALLOWED = {
     # Læser kun helposten (parent_observation_id IS NULL), ikke klausuler.
     ".claude/skills/daa-extract/scripts/export_clause_source_texts.R",
     ".claude/skills/daa-extract/scripts/export_model_eligibility.R",
+    # #150 placement-ceremonien: helposten som persona-placementens grundlag og identitetstjekket.
+    ".claude/skills/daa-extract/scripts/fix_150_placement.sql",
     # Ingen databaselæsning: kontrakter, manifester og ark bygget af eksporterede data.
     ".claude/skills/daa-extract/scripts/build_43b_judgement_sheet.py",
     ".claude/skills/daa-extract/scripts/build_43b_proposal_manifest.py",
