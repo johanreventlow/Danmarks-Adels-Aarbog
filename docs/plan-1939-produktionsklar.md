@@ -1,6 +1,6 @@
 # Plan: 1939-stamtavlen produktionsklar + dato-hærdning + cutover
 
-**Status:** Aktiv styringsplan. **Oprettet:** 2026-07-17. **Sidst afstemt mod kode:** 2026-07-19
+**Status:** HISTORISK — ikke gældende styring (afløst af genimportens roadmap, model 2 2026-08-25; markeret ved review 2026-10-27, 1a-14). **Oprettet:** 2026-07-17. **Sidst afstemt mod kode:** 2026-07-19
 (A3b-narrativkvalitet genåbnet og rettet; se A3b og kvalitetsrapporten nedenfor).
 **Formål:** Samle alle udestående tråde (Fase 4-cutover, 1939-load, dato-hærdning, Wave 3-backlog)
 i ét prioriteret overblik, så intet tabes undervejs.

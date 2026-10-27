@@ -3312,7 +3312,8 @@ Efter fuld gennemgang af familiens TNG-dump (`jr_tng_reventlow.sql`, se
   medielink, geokodning+proveniens på medier): UDSKUDT SAMLET.** Ønsket, men skal
   designes som én sammenhængende medie-arkitektur-beslutning, ikke fire spredte
   enkelt-features. Ingen implementering før den samlede session.
-- **Gemte rapporter/smart-lister: NÆSTE FOKUS.** TNG-familien har 193 reelt brugte
+- **Gemte rapporter/smart-lister: NÆSTE FOKUS.** *(Afløst: blev aldrig bygget; genimportprogrammet (model 2,
+  2026-08-25) overtog prioriteringen. Udskudt, ikke afvist — markeret ved review 2026-10-27, 1a-14.)* TNG-familien har 193 reelt brugte
   brugerdefinerede lister — det eneste §7-punkt med både stærk evidens for værdi OG
   eksplicit bruger-interesse nu. Implementeres som parametriserede forespørgsler i
   app-koden (ikke TNG's rå `sqlselect`-tekstfelt — SQL-injektions-mønster).
