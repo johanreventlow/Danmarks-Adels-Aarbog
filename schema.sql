@@ -17437,7 +17437,7 @@ BEGIN
            count(*) OVER (PARTITION BY (e.item->>'interpretation_id')::uuid) AS dup
       FROM jsonb_array_elements(p_items) WITH ORDINALITY e(item,ord)
   ), checked AS (
-    SELECT p.*,q.id AS requested_id,q.source_id,q.predicate,cur.id AS current_id,cur.status,
+    SELECT p.*,q.id AS requested_id,q.source_id,q.predicate,q.decision_evidence,cur.id AS current_id,cur.status,
            r.rule_key,r.rule_version,r.rule_mode,r.status AS rule_status,
            private.relation_binding_state(p.interpretation_id) AS st,
            (SELECT x.id FROM private.interpretation_promotion x
@@ -17464,6 +17464,11 @@ BEGIN
       WHEN c.st IS NULL THEN 'RELATION_PROMOTION_STRUCTURE_INVALID'
       WHEN (c.st#>>'{family,family_id}')::bigint<>c.family_id THEN 'RELATION_PROMOTION_FAMILY_MISMATCH'
       WHEN c.dup>1 THEN 'RELATION_PROMOTION_DUPLICATE_ITEM'
+      -- Review trin B (1d.3b-01): afgørelsen gælder familien i decision_evidence; er strukturen siden flyttet til en
+      -- anden familie, kræver bindingen en ny afgørelse (som børnegrenens vagt i relation_binding_state).
+      WHEN c.predicate IN ('relation.marriage','relation.parent')
+       AND (c.st#>>'{family,family_id}')::bigint IS DISTINCT FROM (c.decision_evidence->>'family_id')::bigint
+        THEN 'RELATION_PROMOTION_DECISION_FAMILY_CHANGED'
       -- Trin 5b 2b-i (spec §4.2): kun en binding med den nuværende tilstand er »anvendt«; forældede er historik.
       WHEN EXISTS (SELECT 1 FROM private.interpretation_promotion x
                     WHERE x.interpretation_id=c.interpretation_id AND x.target_type='family'

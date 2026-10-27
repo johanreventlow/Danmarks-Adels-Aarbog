@@ -773,7 +773,8 @@ BEGIN
   END IF;
   RESET ROLE;
 
-  -- strukturen flyttet til en anden familie ⇒ REBIND_FAMILY_CHANGED
+  -- strukturen flyttet til en anden familie ⇒ DECISION_FAMILY_CHANGED (review trin B, 1d.3b-01: afgørelsens familie
+  -- prøves før genbindingens; REBIND_FAMILY_CHANGED rammer herefter kun en binding i en anden familie end afgørelsens)
   DELETE FROM family_member WHERE family_id=(m->>'family')::bigint AND person_id=-21202;
   PERFORM pg_temp.f5b_family(-21201,-21202,1);   -- ny familie med samme par
   items:=jsonb_build_array(jsonb_build_object('interpretation_id',v_mid::text,
@@ -781,7 +782,7 @@ BEGIN
   SET LOCAL ROLE authenticated;
   pv:=red_preview_relation_promotions(-21201,items);
   RESET ROLE;
-  IF pv#>>'{items,0,reason_code}' IS DISTINCT FROM 'RELATION_PROMOTION_REBIND_FAMILY_CHANGED' THEN
+  IF pv#>>'{items,0,reason_code}' IS DISTINCT FROM 'RELATION_PROMOTION_DECISION_FAMILY_CHANGED' THEN
     RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: anden familie %', pv;
   END IF;
   IF (SELECT count(*) FROM private.interpretation_promotion_batch b
@@ -1001,4 +1002,99 @@ BEGIN
   END LOOP;
   RAISE NOTICE 'OK: genåbning afviser';
 END $genaabn_negativ$;
+ROLLBACK;
+
+-- ---------- Review trin B (1d.3b-01): førstebinding efter familieskift ----------
+-- En accepteret, aldrig bundet relation, hvis struktur er flyttet til en anden familie, må ikke førstebindes til den
+-- nye familie: afgørelsen gælder familien i decision_evidence (børnegrenen har samme vagt i relation_binding_state).
+-- Uændret familie binder fortsat.
+BEGIN;
+\ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
+DO $decision_family$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-0000001d3b01'; s jsonb; m jsonb; m2 jsonb; par jsonb; par2 jsonb; pv jsonb;
+  items jsonb; v_mid uuid; v_m2 uuid; v_pid uuid; v_p2 uuid; v_fam bigint; v_pfam bigint; v_err text; v_batch uuid;
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  INSERT INTO person(id,levende,privat,status) SELECT g,false,false,'1d3b' FROM generate_series(-31340,-31301) g;
+  s:=pg_temp.f5b_source(-31301);
+  m:=pg_temp.f2a_marriage(-31301,s,'D-1',-31301,-31302,v_actor,1,1);      -- flyttes
+  m2:=pg_temp.f2a_marriage(-31301,s,'D-2',-31303,-31304,v_actor,1,1);     -- uændret
+  par:=pg_temp.f2a_parent(-31301,s,-31305,-31306,-31307,v_actor);         -- flyttes
+  par2:=pg_temp.f2a_parent(-31301,s,-31309,-31310,-31311,v_actor);        -- uændret
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_decisions(-31301);
+  PERFORM red_decide_relation_interpretations(-31301,pv->>'set_sha256');
+  RESET ROLE;
+  SELECT id INTO v_mid FROM private.interpretation_current WHERE interpretation_key=(m->'claim'->>'key')::uuid;
+  SELECT id INTO v_m2 FROM private.interpretation_current WHERE interpretation_key=(m2->'claim'->>'key')::uuid;
+  SELECT id INTO v_pid FROM private.interpretation_current WHERE interpretation_key=(par->'claim'->>'key')::uuid;
+  SELECT id INTO v_p2 FROM private.interpretation_current WHERE interpretation_key=(par2->'claim'->>'key')::uuid;
+  -- forudsætning: alle fire er accepteret for deres oprindelige familie og aldrig bundet
+  IF (SELECT count(*) FROM private.interpretation i
+       WHERE (i.id,(i.decision_evidence->>'family_id')::bigint) IN
+             ((v_mid,(m->>'family')::bigint),(v_m2,(m2->>'family')::bigint),
+              (v_pid,(par->>'family')::bigint),(v_p2,(par2->>'family')::bigint))
+         AND i.status='accepted')<>4
+     OR EXISTS (SELECT 1 FROM private.interpretation_promotion WHERE interpretation_id IN (v_mid,v_m2,v_pid,v_p2)) THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: decision_family forudsætning';
+  END IF;
+
+  -- ægteskabet flyttes: parret i en ny familie (som rute A-testene)
+  DELETE FROM family_member WHERE family_id=(m->>'family')::bigint AND person_id=-31302;
+  v_fam:=pg_temp.f5b_family(-31301,-31302,1);
+  -- forælderen flyttes: barnet i en ny familie med forælderen og en anden partner
+  DELETE FROM family_member WHERE family_id=(par->>'family')::bigint AND person_id=-31305 AND rolle='barn';
+  v_pfam:=pg_temp.f5b_family(-31306,-31308,2);
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES (v_pfam,-31305,'barn');
+  IF (private.relation_binding_state(v_mid)#>>'{family,family_id}')::bigint IS DISTINCT FROM v_fam
+     OR (private.relation_binding_state(v_pid)#>>'{family,family_id}')::bigint IS DISTINCT FROM v_pfam THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: decision_family flytning % %',
+      private.relation_binding_state(v_mid),private.relation_binding_state(v_pid);
+  END IF;
+
+  -- førstebinding til den nye familie afvises i previewet for både ægteskab og forælder
+  items:=jsonb_build_array(jsonb_build_object('interpretation_id',v_mid::text,'family_id',v_fam),
+                           jsonb_build_object('interpretation_id',v_pid::text,'family_id',v_pfam));
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_promotions(-31301,items);
+  RESET ROLE;
+  IF pv#>>'{items,0,reason_code}' IS DISTINCT FROM 'RELATION_PROMOTION_DECISION_FAMILY_CHANGED'
+     OR pv#>>'{items,1,reason_code}' IS DISTINCT FROM 'RELATION_PROMOTION_DECISION_FAMILY_CHANGED'
+     OR (pv#>>'{items,0,eligible}')::boolean OR (pv#>>'{items,1,eligible}')::boolean THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: decision_family preview %', pv;
+  END IF;
+  -- og i bindingen (hver for sig, så begge prædikater prøves gennem skrivevejen)
+  FOR items IN SELECT jsonb_build_array(x) FROM jsonb_array_elements(items) x LOOP
+    SET LOCAL ROLE authenticated;
+    pv:=red_preview_relation_promotions(-31301,items);
+    BEGIN
+      PERFORM red_promote_relation_interpretations_batch(-31301,items,pv->>'preview_sha256');
+      RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: decision_family binding godtaget %', items;
+    EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+      IF v_err NOT LIKE 'RELATION_PROMOTION_DECISION_FAMILY_CHANGED%' THEN RAISE; END IF;
+    END;
+    RESET ROLE;
+  END LOOP;
+  IF EXISTS (SELECT 1 FROM private.interpretation_promotion WHERE interpretation_id IN (v_mid,v_pid)) THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: decision_family skrev en binding';
+  END IF;
+
+  -- uændret familie binder fortsat (ægteskab og forælder)
+  items:=jsonb_build_array(jsonb_build_object('interpretation_id',v_m2::text,'family_id',(m2->>'family')::bigint),
+                           jsonb_build_object('interpretation_id',v_p2::text,'family_id',(par2->>'family')::bigint));
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_promotions(-31301,items);
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(pv->'items') i WHERE NOT (i->>'eligible')::boolean) THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: decision_family uændret preview %', pv;
+  END IF;
+  v_batch:=red_promote_relation_interpretations_batch(-31301,items,pv->>'preview_sha256');
+  RESET ROLE;
+  IF (SELECT count(*) FROM private.interpretation_promotion WHERE batch_id=v_batch AND target_type='family')<>2 THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: decision_family uændret binding';
+  END IF;
+  RAISE NOTICE 'OK: førstebinding efter familieskift afvist';
+END $decision_family$;
 ROLLBACK;

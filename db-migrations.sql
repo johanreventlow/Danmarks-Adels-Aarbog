@@ -26312,3 +26312,113 @@ GRANT EXECUTE ON FUNCTION public.red_reverse_placement_membership(bigint,bigint,
 -- Placement-blokken slutter her.
 
 -- 5b-sektionen slutter her (nye 5b-blokke indsættes over denne linje).
+
+-- BEGIN review-trin-b (review-handling trin B, docs/superpowers/plans/2026-10-27-review-trin-b-ddl.md): fire
+-- funktionsrettelser (1d.3b-01, 1d.1-03, 1d.1-02, 1d.1-04). Kun CREATE OR REPLACE af fulde kroppe — idempotent;
+-- signaturer uændrede, så eksisterende grants og revokes bevares. schema.sql bærer de samme kroppe byte for byte
+-- (paritetsvagten tests/sql/inspect-5ab-function-parity.sql).
+
+CREATE OR REPLACE FUNCTION private.preview_relation_promotions(p_source_id bigint,p_items jsonb,p_lock boolean)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_items jsonb;
+BEGIN
+  -- NULL-kilde ville slå både kildetjek og kildelås fra (Opus kode-review M1); NULL-elementer er ikke en liste.
+  IF p_source_id IS NULL THEN RAISE EXCEPTION 'RELATION_PROMOTION_INVALID'; END IF;
+  IF p_items IS NULL OR jsonb_typeof(p_items)<>'array' OR jsonb_array_length(p_items)=0 OR EXISTS (
+       SELECT 1 FROM jsonb_array_elements(p_items) e(item)
+        WHERE jsonb_typeof(e.item)<>'object'
+           -- IS DISTINCT FROM: et tomt objekt giver NULL, som <> ville lade slippe igennem
+           OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(e.item) k) IS DISTINCT FROM ARRAY['family_id','interpretation_id']
+           OR jsonb_typeof(e.item->'interpretation_id')<>'string'
+           OR e.item->>'interpretation_id' !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+           OR jsonb_typeof(e.item->'family_id')<>'number' OR e.item->>'family_id' !~ '^-?[0-9]{1,19}$') THEN
+    RAISE EXCEPTION 'RELATION_PROMOTION_ITEMS_INVALID';
+  END IF;
+  -- 19 cifre kan stadig ligge uden for bigint; castet range-checker og giver samme fejlkode.
+  BEGIN
+    PERFORM (e.item->>'family_id')::bigint FROM jsonb_array_elements(p_items) e(item);
+  EXCEPTION WHEN numeric_value_out_of_range THEN RAISE EXCEPTION 'RELATION_PROMOTION_ITEMS_INVALID';
+  END;
+  IF p_lock THEN
+    PERFORM pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:'||p_source_id::text,0));
+    PERFORM 1 FROM private.interpretation i
+     WHERE i.id IN (SELECT ic.id FROM private.interpretation_current ic
+                     JOIN private.interpretation q ON q.interpretation_key=ic.interpretation_key
+                    WHERE q.id IN (SELECT (e.item->>'interpretation_id')::uuid FROM jsonb_array_elements(p_items) e(item))
+                      AND q.source_id=p_source_id)
+     ORDER BY i.id FOR UPDATE;
+    -- Kun elementer fra denne kilde låses; et fremmed element afvises nedenfor (SOURCE_MISMATCH) uden at
+    -- en anden kildes rækker er låst under denne kildes lås (Opus kode-review, MINOR 1).
+    PERFORM private.lock_family_rows(ARRAY(
+      SELECT DISTINCT (pty->>'canonical_person_id')::bigint
+        FROM jsonb_array_elements(p_items) e(item)
+        JOIN private.interpretation q ON q.id=(e.item->>'interpretation_id')::uuid AND q.source_id=p_source_id
+        CROSS JOIN LATERAL jsonb_array_elements(coalesce(private.relation_binding_state((e.item->>'interpretation_id')::uuid)->'parties','[]'::jsonb)) pty
+       WHERE pty->>'canonical_person_id' IS NOT NULL ORDER BY 1));
+  END IF;
+  WITH parsed AS (
+    SELECT ord::integer AS item_ordinal,(e.item->>'interpretation_id')::uuid AS interpretation_id,
+           (e.item->>'family_id')::bigint AS family_id,
+           count(*) OVER (PARTITION BY (e.item->>'interpretation_id')::uuid) AS dup
+      FROM jsonb_array_elements(p_items) WITH ORDINALITY e(item,ord)
+  ), checked AS (
+    SELECT p.*,q.id AS requested_id,q.source_id,q.predicate,q.decision_evidence,cur.id AS current_id,cur.status,
+           r.rule_key,r.rule_version,r.rule_mode,r.status AS rule_status,
+           private.relation_binding_state(p.interpretation_id) AS st,
+           (SELECT x.id FROM private.interpretation_promotion x
+             WHERE x.interpretation_id=p.interpretation_id AND x.target_type='family'
+             ORDER BY x.promoted_at DESC,x.id DESC LIMIT 1) AS last_binding_id,
+           (SELECT x.target_id FROM private.interpretation_promotion x
+             WHERE x.interpretation_id=p.interpretation_id AND x.target_type='family'
+             ORDER BY x.promoted_at DESC,x.id DESC LIMIT 1) AS last_binding_family
+      FROM parsed p
+      LEFT JOIN private.interpretation q ON q.id=p.interpretation_id
+      LEFT JOIN private.interpretation_current cur ON cur.interpretation_key=q.interpretation_key
+      LEFT JOIN private.interpretation_promotion_rule_line l ON l.predicate=q.predicate
+      LEFT JOIN private.interpretation_promotion_rule_current r ON r.rule_key=l.rule_key
+  ), hashed AS (
+    SELECT c.*,CASE WHEN c.st IS NULL THEN NULL ELSE private.reimport_canonical_json_sha256(c.st) END AS cur_sha
+      FROM checked c
+  ), judged AS (
+    SELECT c.*,CASE
+      WHEN c.requested_id IS NULL THEN 'RELATION_PROMOTION_NOT_FOUND'
+      WHEN c.source_id IS DISTINCT FROM p_source_id THEN 'RELATION_PROMOTION_SOURCE_MISMATCH'
+      WHEN c.current_id<>c.interpretation_id THEN 'RELATION_PROMOTION_NOT_CURRENT'
+      WHEN c.status<>'accepted' THEN 'RELATION_PROMOTION_NOT_ACCEPTED'
+      WHEN c.rule_key IS NULL OR c.rule_mode<>'structural_family' OR c.rule_status<>'active' THEN 'RELATION_PROMOTION_RULE_NOT_ACTIVE'
+      WHEN c.st IS NULL THEN 'RELATION_PROMOTION_STRUCTURE_INVALID'
+      WHEN (c.st#>>'{family,family_id}')::bigint<>c.family_id THEN 'RELATION_PROMOTION_FAMILY_MISMATCH'
+      WHEN c.dup>1 THEN 'RELATION_PROMOTION_DUPLICATE_ITEM'
+      -- Review trin B (1d.3b-01): afgørelsen gælder familien i decision_evidence; er strukturen siden flyttet til en
+      -- anden familie, kræver bindingen en ny afgørelse (som børnegrenens vagt i relation_binding_state).
+      WHEN c.predicate IN ('relation.marriage','relation.parent')
+       AND (c.st#>>'{family,family_id}')::bigint IS DISTINCT FROM (c.decision_evidence->>'family_id')::bigint
+        THEN 'RELATION_PROMOTION_DECISION_FAMILY_CHANGED'
+      -- Trin 5b 2b-i (spec §4.2): kun en binding med den nuværende tilstand er »anvendt«; forældede er historik.
+      WHEN EXISTS (SELECT 1 FROM private.interpretation_promotion x
+                    WHERE x.interpretation_id=c.interpretation_id AND x.target_type='family'
+                      AND x.evidence->>'state_sha256'=c.cur_sha) THEN 'RELATION_PROMOTION_ALREADY_APPLIED'
+      -- En genbinding kun i samme familie: påstanden blev afgjort for den gamle familie (spec §4.4).
+      WHEN c.last_binding_id IS NOT NULL AND c.last_binding_family<>c.family_id THEN 'RELATION_PROMOTION_REBIND_FAMILY_CHANGED'
+    END AS reason_code
+      FROM hashed c
+  )
+  SELECT jsonb_agg(jsonb_build_object('item_ordinal',j.item_ordinal,'interpretation_id',j.interpretation_id::text,
+           'family_id',j.family_id,'eligible',j.reason_code IS NULL,'reason_code',j.reason_code,
+           'rule_key',j.rule_key,'rule_version',j.rule_version,
+           'state_sha256',j.cur_sha,
+           'supersedes_promotion_id',CASE WHEN j.reason_code IS NULL THEN j.last_binding_id::text END,
+           -- Codex plan-r1 #9: vielsesfaktummet er en del af det autoriserede preview; skrivningen bruger
+           -- previewets værdi, så det gemte = det hashede. Entydigt ellers null.
+           'vielse_fact_id',CASE WHEN j.predicate='relation.marriage' THEN
+              (SELECT CASE WHEN count(*)=1 THEN min(f.id) END FROM public.fact f
+                WHERE f.subjekt_type='family' AND f.subjekt_id=j.family_id AND f.faktatype='vielse') END)
+         ORDER BY j.item_ordinal)
+    INTO v_items FROM judged j;
+  RETURN jsonb_build_object('items',v_items,'preview_sha256',private.reimport_canonical_json_sha256(jsonb_build_object(
+    'contract','relation-promotion-preview-v2',
+    'database_identity',jsonb_build_object('database_name',current_database(),
+      'system_identifier',(pg_control_system()).system_identifier::text)::text,
+    'source_id',p_source_id,'items',v_items)));
+END $$;
+-- END review-trin-b
