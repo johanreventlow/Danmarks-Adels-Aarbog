@@ -1,5 +1,11 @@
 # Fase 0a — målinger (helhedsreview trin 1-5)
 
+> **Rettelse efter fase 1 (2026-10-27):** §3 og tillæg D's »110 testfiler ikke kørt af CI« er forkert i begge
+> retninger (tekstsøgning, ikke kørsel). 15 af 17 R-tests kører via `tests/testthat`-wrappere, 4 SQL-tests via en løkke
+> (`ci.yml:504`); omvendt mangler `test_validate.py` og `test_make_boundary_text_1939.py`. Korrigeret: ca. 92 (73 Python,
+> 2 R, ca. 17 SQL/integration) — se `fund-1c.md` 1c-06. De »2 røde« Python-tests er miljø (`rg`/`node`), ikke kode (1c-03).
+> §1: `red_decide_source_record_placement` er efterprøvet kosmetisk; 18 af de 34 har adfærdsforskel (`fund-1b.md` §3).
+
 > Mekaniske tal fra en ren eksport af repoet (`git archive` af `docs/review-trin-1-5` @ `37a7d408`, dvs. `main` `8ac893c5` + spec og plan,
 > 2.170 sporede filer, ingen `work*`-mapper). Ingen vurdering: tallene er input til fase 1. Scripts:
 > scratchpad `maal/maal.py`. Docs-PR #271 (5c-1 i prod) var ikke merget, da eksporten blev taget.

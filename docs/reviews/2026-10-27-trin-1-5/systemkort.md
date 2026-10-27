@@ -1,5 +1,9 @@
 # Systemkort: dataarbejdet i Danmarks Adels Aarbog
 
+> **Rettelse efter fase 1 (2026-10-27):** »Uklarheder« pkt. 3 er forkert om R-testene: 15 af 19 `test_*.R` kører i CI
+> via `tests/testthat`-wrappere, og `test-reimport-interpretation-proposal.R` kører via `tests/ci/interpretation-proposal-db.sh`
+> (`ci.yml:266`). Se `fund-1c.md` 1c-06. Død-kandidaterne `apply_reimport.R`, `segment_presens.py` og `validate_presens.py` er levende (1c-07).
+
 > **Note fra hovedsessionen:** Eksporten er taget før docs-PR #271 (5c-1 i prod 2026-10-27: `database-current-state.md` §13, changelog, `status.md` → `produktionsverificeret`). Kortets »forældet«-bemærkninger om 5c-1 skyldes det tidspunkt og er ikke et fund.
 
 Kortlægning uden vurdering. Genereret fra eksport-træet `scratchpad/eksport` (dato-snapshot: branch `docs/review-trin-1-5`, HEAD `37a7d408`). Alle linjenumre er fra dette eksport-træ.
