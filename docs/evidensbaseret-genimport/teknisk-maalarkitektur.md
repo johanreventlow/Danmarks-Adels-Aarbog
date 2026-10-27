@@ -155,9 +155,14 @@ Gaterne anvendes i denne rækkefølge:
    måltilstand, kontraktgyldighed og fravær af uafklarede konflikter.
 7. **publication gate:** beviser en særskilt positiv beslutning, korrekt
    versionsbinding, synlighedspolicy og komplet kildehenvisning.
-8. **apply/reversal gate:** beviser, at en anvendelse eller fortrydelse rammer
-   præcis den godkendte mængde, bevarer audit og kan efterprøves mod før- og
-   eftertilstand.
+8. **apply/reversal gate:** beviser, at en anvendelse rammer præcis den godkendte
+   mængde, bevarer audit og er målt før og efter. Fortrydelse sker enten som en
+   særskilt, auditeret handling med eget write-set *eller* som restore af et dateret
+   dump inden for et deklareret vindue. Vinduet lukkes udtrykkeligt, og alt skrevet i
+   vinduet efter dumpet er kendt tab. Ved restore-fortrydelse findes dumpet i to
+   kopier (én uden for maskinen), hashen er noteret i `docs/database-current-state.md`,
+   og »dump findes og hash passer« er første skridt i ceremonien (decisions
+   2026-10-27, B1).
 
 Hver gate producerer et versionsbundet resultat: bestået, afvist eller
 uafklaret. Kun et bestået resultat åbner næste relevante tilstand. En senere
@@ -207,7 +212,10 @@ ende-til-ende:
 
 - både 2018-20 og 1939 bruger samme kæde;
 - en tredje årbog kan tilføjes uden nye permanente editionsnavngivne
-  overflader eller permanente databaseoverflader;
+  overflader eller permanente databaseoverflader — både som en ny udgave af en
+  eksisterende slægt (roadmap 7a) og som en ny slægt uden eksisterende bestand,
+  hvor kæden selv opretter personer, familier og fakta (roadmap 7b; decisions
+  2026-10-27, B3/B4);
 - kun profil, kontrolleret vokabular og dokumenterede mappingregler ændres;
 - redaktøren bruger én varig beslutningsvej;
 - det publicerede resultat kan spores tilbage og reproduceres eller

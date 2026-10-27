@@ -5,24 +5,9 @@
 
 ## Aktivt programmål
 
-Trin 1-3 er `produktionsverificeret` pr. 2026-09-06: #152's cutover til
-narrativ-record-kontrakt version 2, #153's generelle writer, 149a (2018-20
-kilderegnskab) og 149b (2018-20 narrativ-binding) blev anvendt og efterverificeret
-i produktion 2026-09-05/06 (GO 1-4, se `docs/changelog.md`). C3's fem-sagers scope
-var anvendt 2026-08-29 ([production-apply-rapporten](c3-production-apply-2026-08-29.md)).
-
-**Trin 4** (den fælles fortolkningskæde og klausulgranularitet, #147/#148), aktiveret
-2026-09-06, er **afsluttet for 2018-20** (`docs/decisions.md` 2026-10-05): klausulerne er kørt
-i prod 2026-09-18 og omsegmenteret 2026-09-28, og hele 2018-20's kæde — 3.739 forslag, 676
-afgørelser, 622 bindinger — er overført til prod 2026-10-05 med `VERIFY_OK`. Ingest og
-afgørelse er `produktionsverificeret` for 2018-20; promotion kun for bindingsdelen. 1939's
-kæde hører til trin 6.
-
-Projektejeren har 2026-10-05 aktiveret **trin 5: placement/membership og én identitetsvej
-(#150/#151)**, delt i tre delspecs: **5a** én identitetsvej (#151) → **5b** personas for
-ægtefæller og børn samt oprettelse af nye kanoniske personer → **5c** placement/membership
-(#150). 5a er merget 2026-10-06 (#236) og 5b del 1 (ægtefællers identitet) 2026-10-11 (#237),
-begge bevist i restore og ikke deployet; næste arbejde er 5b del 2 (decisions 2026-10-10).
+**Trin 5, sidste del:** 5c-2 (læserskift) sammen med læserværdien (B11), efter reviewets gates før trin 6.
+Status, modenhed pr. led og gates: [status.md](status.md). Sektionen her og status' »Aktivt programmål« skal
+sige det samme.
 
 ## Styrende rækkefølge
 
@@ -33,9 +18,19 @@ Når C3 har nået sin stopport, er rækkefølgen:
 3. 2018-20 får fase A-ækvivalent provenance (#149).
 4. Den fælles fortolkningskæde og klausulgranularitet færdiggøres (#147/#148).
 5. Placement/membership og én identitetsvej konsolideres (#150/#151).
-6. Kæden køres ende-til-ende på begge referenceudgaver.
+6. Kæden køres ende-til-ende på begge referenceudgaver. Færdigbevis: (a) 1939's
+   klausuler, fortolkning, identitet, placement og publicering går gennem de samme
+   operationer som 2018-20; (b) læseren ser fakta med kildehenvisning i
+   persondetaljen (B11); (c) et medlemskab kan bæres af to kilder — en anden kildes
+   placement bekræfter (`corroborated`) i stedet for at give konflikt (B6).
 7. En tredje årbog beviser, at kun en lille profil og dokumenterede
-   vokabularudvidelser kræves.
+   vokabularudvidelser kræves. Trinnet er delt i to (B3), og kandidat-årbogen
+   vælges, før det specificeres:
+   - **7a** — en ny udgave af en slægt, der allerede findes: identitetsafstemning
+     mod den eksisterende bestand med kun profil og vokabular.
+   - **7b** — en ny slægt uden eksisterende bestand: segmenteringsprofil, oprettelse
+     af personer, familier og fakta, placement og publicering uden `load_daa.R`.
+     Kræver spec for opret-benet først (B4).
 
 Roadmaprækkefølgen må kun ændres gennem en begrundet beslutningspost i
 `docs/decisions.md`. En implementerende agent må ikke selv omprioritere
@@ -51,6 +46,8 @@ Enhver ny plan eller implementeringsopgave inden for scope skal angive:
 4. Hvilken redaktionel eller brugerrettet værdi den muliggør.
 5. Hvilket konkret bevis der gør leverancen færdig.
 6. Hvilke parallelle eller ældre workflows den erstatter.
+7. Sit review-budget (antal runder og modeller) på én linje i spec-hovedet.
+   Overskridelse kræver én linje i `docs/decisions.md` (B13).
 
 Kan en opgave ikke besvare disse seks spørgsmål, er den som udgangspunkt uden
 for scope og kræver en udtrykkelig beslutning, før den planlægges.
@@ -73,7 +70,8 @@ konkrete bevis, som målet selv kræver.
 Et akut dataintegritets- eller produktionsproblem må afbryde roadmappet, når
 det registreres som en afgrænset hændelse med indgangsgrund, slutkriterium og
 tilbagevenden til det aktive mål. Hændelsen må ikke stiltiende blive et nyt
-programspor.
+programspor. Den registreres med én linje i `docs/decisions.md` (grund, slutkriterium,
+tilbagevenden), når den begynder (B13).
 
 ## Hvad der er parkeret
 
