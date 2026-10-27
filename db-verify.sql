@@ -10279,6 +10279,33 @@ BEGIN
   RAISE NOTICE 'OK: 5b 2b-ii — family.id identity';
 END $verify_family_id$;
 
+-- RED-8 (review-handling A3, fund 1b-01): alle 25 bigint-id-tabeller er identity, og ingen sekvens ligger
+-- bag max(id). Samme form som family-blokken ovenfor; en loader, der sætter eksplicitte id'er uden at
+-- synke sekvensen bagefter, ville ellers give duplicate key ved næste DEFAULT-insert.
+DO $verify_red8_id$
+DECLARE t text; v_seq text; v_last bigint; v_called boolean; v_max bigint;
+BEGIN
+  FOREACH t IN ARRAY ARRAY[
+    'assertion','change_event','change_set','citation','coat_of_arms',
+    'conclusion','estate','fact','family','feed_pin','haendelse',
+    'historical_event','lineage','media','media_variant','narrative','note',
+    'organisation','person','place','relation','repository','source',
+    'story','story_kilde'] LOOP
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name=t
+                    AND column_name='id' AND data_type='bigint' AND is_identity='YES') THEN
+      RAISE EXCEPTION 'VERIFY_RED8_ID_IDENTITY: %', t;
+    END IF;
+    v_seq:=pg_get_serial_sequence(format('public.%I',t),'id');
+    EXECUTE format('SELECT last_value,is_called FROM %s',v_seq) INTO v_last,v_called;
+    EXECUTE format('SELECT coalesce(max(id),0) FROM public.%I',t) INTO v_max;
+    IF v_max > (CASE WHEN v_called THEN v_last ELSE v_last-1 END) THEN
+      RAISE EXCEPTION 'VERIFY_RED8_ID_SEQUENCE_BEHIND: % (max % > sekvens %)', t, v_max,
+        CASE WHEN v_called THEN v_last ELSE v_last-1 END;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: RED-8 — 25 id-tabeller er identity, ingen sekvens bag max(id)';
+END $verify_red8_id$;
+
 -- Trin 5b 2b-ii runde 2 (spec §17.7): profil v3 og titellisten.
 DO $verify_relation_v3$
 BEGIN

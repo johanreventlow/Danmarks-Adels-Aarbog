@@ -82,6 +82,8 @@ BEGIN
   INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
   VALUES(v_run,3,'name-completion-legacy-facade','fixture','fixture','fixture',repeat('a',64),'{}') ON CONFLICT(id) DO NOTHING;
   INSERT INTO public.person(id,staged) VALUES(1846,true) ON CONFLICT(id) DO NOTHING;
+  -- RED-8 (A3): eksplicit id ovenfor; synk sekvensen, så senere DEFAULT-inserts og db-verify's sekvenstjek holder.
+  PERFORM setval(pg_get_serial_sequence('public.person','id'),(SELECT coalesce(max(id),0)+1 FROM public.person),false);
   INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id)
   VALUES('10000000-0000-4000-8000-000000000001',3,'legacy-name-record','person',v_run) ON CONFLICT(id) DO NOTHING;
   INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id)

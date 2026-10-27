@@ -1,6 +1,8 @@
 -- Indholds-id (#151, spec 2026-10-21-trin5ab-indholds-id-design.md §5.4): de ændrede funktioner skal være ens i en
 -- frisk base (schema.sql) og en migreret base (db-migrations.sql). Én linje pr. funktion; antallet tjekkes af kalderen,
 -- så en manglende funktion ikke giver en tom og dermed falsk ens diff.
+-- Review-handling A3 (fund 1b-01/1b-02, B9): også de 17 RED-8-funktioner (id-tildeling via DEFAULT i stedet for
+-- max(id)+1), så schema.sql ikke igen kan halte efter migrationerne her. I alt 13 + 17 = 30 linjer.
 \set ON_ERROR_STOP on
 SELECT l FROM (
   SELECT p.oid::regprocedure::text||'|'||p.prosecdef||'|'||coalesce(array_to_string(p.proconfig,','),'')||'|'||
@@ -13,5 +15,12 @@ SELECT l FROM (
      ('private','persona_family_context'),('public','red_register_identity_control_run'),
      ('private','spouse_exception_projection'),('private','relation_persona_v3_input'),
      ('public','red_afgoer_source_persona'),('private','control_run_status'),
-     ('private','relation_binding_state'),('public','red_source_persona_queue'))) x
+     ('private','relation_binding_state'),('public','red_source_persona_queue'),
+     -- RED-8 (A3)
+     ('public','red_opret_person'),('public','red_opret_kilde'),('public','red_opret_estate'),
+     ('public','red_opret_organisation'),('public','red_opret_media'),('public','red_registrer_media_variant'),
+     ('public','red_opret_story'),('public','red_set_story_kilder'),('public','red_set_feed_pin'),
+     ('public','begin_change_set'),('public','log_change'),('public','_ensure_foraeldrefamilie_redaktionel'),
+     ('public','red_opret_fakta'),('public','red_upsert_fakta'),('public','red_tilfoej_oplysning'),
+     ('public','red_edit_oplysning'),('public','red_tilfoej_foraeldre_paastand'))) x
  ORDER BY l COLLATE "C";
