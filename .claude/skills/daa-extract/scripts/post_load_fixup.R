@@ -4,7 +4,10 @@
 #  load_daa.R's automatiske pipeline, men som ellers går tabt ved næste reload
 #  (lineage-navne, redaktør-profil, identitets-links). Kør EFTER load_daa.R.
 #
-#  Brug:  Rscript .claude/skills/daa-extract/scripts/post_load_fixup.R
+#  Brug:  Rscript .claude/skills/daa-extract/scripts/post_load_fixup.R [udgave] --jeg-mener-det
+#  FROSSET (docs/decisions.md 2026-10-27, B5): kører kun mod en base med
+#  narrative-record-kontrakt v1; prod er v2, så scriptet stopper før enhver
+#  skrivning. --jeg-mener-det er obligatorisk, og ukendte flag afvises.
 #  Login fra ~/.Renviron. Alt er idempotent (ON CONFLICT / eksistens-guards),
 #  så gentagne kørsler er sikre. Par-opslag sker på (linje, nr) — IKKE på
 #  person-id — så scriptet er reload-sikkert (id'er skifter ved reload).
@@ -18,6 +21,10 @@
 # =====================================================================
 suppressMessages({library(DBI); library(jsonlite)})
 
+script_dir <- dirname(sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1]))
+source(file.path(script_dir, "load_helpers.R"))
+args <- parse_legacy_script_args(commandArgs(TRUE), "brug: post_load_fixup.R [udgave] --jeg-mener-det", 1L)
+
 host <- Sys.getenv("SUPABASE_HOST"); user <- Sys.getenv("SUPABASE_USER"); pw <- Sys.getenv("SUPABASE_PASSWORD")
 if (host == "" || user == "" || pw == "") stop("Sæt SUPABASE_HOST/USER/PASSWORD i ~/.Renviron.")
 con <- dbConnect(RPostgres::Postgres(), host = host,
@@ -26,6 +33,7 @@ con <- dbConnect(RPostgres::Postgres(), host = host,
                  user = user, password = pw, sslmode = "require", bigint = "integer")
 ex <- function(sql, p = list()) if (length(p)) dbExecute(con, sql, params = p) else dbExecute(con, sql)
 one <- function(sql, p = list()) { r <- if (length(p)) dbGetQuery(con, sql, params = p) else dbGetQuery(con, sql); if (nrow(r)) r[[1]][1] else NA }
+assert_legacy_contract_open(one("SELECT public.narrative_record_contract_version()"))
 # Id-gulv inkluderer versioneringshistorikkens højeste id pr. tabel (historik
 # over slettede rækker må ikke genoplives af id-genbrug).
 nid <- function(t) as.integer(one(sprintf(
@@ -36,8 +44,7 @@ nid <- function(t) as.integer(one(sprintf(
 # (linje,nr)-opslag og grundlægger-links IKKE ramme forkert udgaves person. Resolvér den
 # specifikke udgave EKSPLICIT og STOP ved 0 eller 2+ kandidater (i stedet for ORDER BY id
 # LIMIT 1, som stille valgte en vilkårlig udgave). Udgave kan overstyres som 1. argument.
-udgave_arg <- commandArgs(TRUE)
-udgave <- if (length(udgave_arg) >= 1 && !startsWith(udgave_arg[1], "--")) udgave_arg[1] else "DAA 2018-20"
+udgave <- if (length(args$positional)) args$positional[[1]] else "DAA 2018-20"
 src_rows <- dbGetQuery(con, "SELECT id FROM source WHERE udgave = $1", params = list(udgave))
 if (nrow(src_rows) == 0) stop(sprintf("Ingen source med udgave='%s' — kør load_daa.R først.", udgave))
 if (nrow(src_rows) > 1) stop(sprintf("Flere sources (%d) med udgave='%s' — tvetydigt, afbryder (fail-closed).", nrow(src_rows), udgave))
@@ -143,7 +150,6 @@ tryCatch({
   if (!is.na(already) && already > 0) {
     message(sprintf("  generations-backfill: allerede anvendt (%s rækker) — sprunget over", already))
   } else {
-    script_dir <- dirname(sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1]))
     seg_script <- file.path(script_dir, "segment.py")
     backfill   <- file.path(script_dir, "backfill_slaegtled.R")
     repo_root  <- normalizePath(file.path(script_dir, "..", "..", "..", ".."), mustWork = FALSE)
@@ -154,7 +160,7 @@ tryCatch({
     } else {
       if (system2("python3", c(shQuote(seg_script), shQuote(raw_txt)), stdout = seg_json, stderr = FALSE) != 0 || !file.exists(seg_json))
         stop("segment.py fejlede")
-      rc <- system2("Rscript", c(shQuote(backfill), shQuote(seg_json)))
+      rc <- system2("Rscript", c(shQuote(backfill), shQuote(seg_json), "--jeg-mener-det"))
       if (rc != 0) stop(sprintf("backfill_slaegtled.R exit %s", rc))
       message("  generations-backfill: anvendt")
     }
