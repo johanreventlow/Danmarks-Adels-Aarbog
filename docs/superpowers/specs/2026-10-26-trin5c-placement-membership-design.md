@@ -134,7 +134,9 @@ Fortrydelse: RPC'ens reversal sletter rækken under en change_set (før-billedet
 
 ### 4.5 Revalidering af publiceringerne (§8 afgørelse 4)
 
-De 541 publicerede bindinger i kilde 1 revalideres i **samme transaktion** som placementerne accepteres, med
+Hver publicering i kilde 1, der bliver `stale_published`, fordi dens post får en accepteret placement (målt 498 = de
+541 publicerede minus de 43 publicerede poster, der står uafklaret), revalideres i **samme transaktion** som
+placementerne accepteres, med
 `red_revalider_person_narrative_record`, så læseren aldrig ser `stale_published`.
 
 - **Mekanik:** RPC'en kræver `auth.uid()` (`request.jwt.claim.sub` sat i transaktionen) og afviser et allerede
@@ -145,7 +147,9 @@ De 541 publicerede bindinger i kilde 1 revalideres i **samme transaktion** som p
   effektive grænse, og tiden pr. kald og samlet måles på stand-in med prods 2-minutters default.
 - **Forhåndsbetingelser:** for alle 587 er identitetens person = bindingens person; for alle 541
   `publication_allowed=true` og tekst-sha = seneste event; 0 `stale_published` før.
-- **Efterbetingelser:** 541 `published`, uændret eligibility, 0 `stale_published`, 0 blokerede. De 46 drafts'
+- **Efterbetingelser:** 541 `published`, uændret eligibility, 0 `stale_published`, 0 blokerede; antal revalideringer =
+  publicerede poster med placement (udledt i transaktionen). En uændret publicering kan ikke revalideres
+  (`NARRATIVE_RECORD_TRANSITION_INVALID`) og har intet at revalidere. De 46 drafts'
   tilstands-sha ændres (forventet, dokumenteres). 1939's 563 er uberørte.
 - Under transaktionen er redaktørskrivninger til de berørte poster låst; læsning er uberørt. Kørslen lægges i et
   kort skrivepausevindue.
@@ -153,7 +157,8 @@ De 541 publicerede bindinger i kilde 1 revalideres i **samme transaktion** som p
 ## 5. Følger
 
 - Rækkediff: nye rækker i placement-, decision-, membership- og ledger-tabellerne, forekomster/observationer
-  for overskrifter, én header-`extraction_run`, 541 `narrative_publication_event` og deres change_sets; én
+  for overskrifter, én header-`extraction_run`, én `narrative_publication_event` pr. revalidering (målt 498) og deres
+  change_sets; én
   opdateret række i `slaegt` (status). Ingen andre kanoniske ændringer.
 - En record uden binding med én accepteret placement får `record_label` = linjens label (`narrative_record_labels`,
   `:12182`): rammer de 4 `unresolved_text` og fremtidige publiceringer. Dokumenteres; justeres evt. i 5c-2.
@@ -192,7 +197,8 @@ De 541 publicerede bindinger i kilde 1 revalideres i **samme transaktion** som p
 1. **Opdeling:** 5c-1 (evidens, placement, membership) nu; 5c-2 (læserskift) som egen spec.
 2. **Overskriftsmodel:** strukturelle forekomster (A) med udvidet validator.
 3. **Membership-art:** alle stamtavlens hovedpersoner som `agnatic`; gifte-ind får aldrig membership.
-4. **Revalidering:** de 541 publiceringer revalideres maskinelt i samme transaktion (uændret eligibility er en
+4. **Revalidering:** de publiceringer, der bliver forældede (målt 498 af 541), revalideres maskinelt i samme
+   transaktion (uændret eligibility er en
    efterbetingelse; afviger den, stopper kørslen).
 
 Mine egne valg (kan rettes): K = 20 i en stratificeret kontrolstikprøve; kun hovedpersonens persona-placement i
@@ -216,3 +222,9 @@ over genbrugelige funktioner i stedet for en ny batch-writer (D9).
 **Codex plan-review r1 2026-10-26: NO-GO** (5 BLOCKER, 6 MAJOR) → Opus-dom: 7 nødvendige, 4 forenklede, intet
 afvist. Spec'en rettet i §1.6 (freeze), §4.5 (begrundelsen for `\gexec` og 15 min) og §6.4 (fortrydelse); resten
 er planrettelser.
+
+**Codex review r1 2026-10-27 (implementering): NO-GO** (3 BLOCKER, 2 MAJOR) → Opus-dom: GO efter rettelser.
+Projektejerens afgørelser samme dag: (1) poster, hvor barnet står i forælderens slægtled (forælder-barn-krydstjekket,
+V-82..V-92), står uafklaret i 5c-1 og kan ikke godkendes i token-filen; (2) revalideringen omfatter de publiceringer,
+der bliver forældede (målt 498), ikke alle 541 — §4.5, §5 og §8.4 rettet. Kontrolarket skal være netop stikprøven,
+nærmeste-reglen ser kun uankrede overskrifter før posten, og identitetstjekket er pr. binding.
