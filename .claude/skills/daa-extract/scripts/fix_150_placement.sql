@@ -111,17 +111,25 @@ BEGIN
   -- Identitet = binding for ALLE bindinger, uanset manifeststatus (spec §4.5; en placement for en post, hvis identitet
   -- peger på en anden person, ville blokere bindingen): hver binding har præcis én accepteret hovedperson-identitet,
   -- og den er bindingens person (pr. binding, ikke som samlet optælling — Codex r1 #5).
+  -- Hovedperson-identiteterne pr. record materialiseres først (med egen statistik), og bindingerne kobles på bagefter:
+  -- uden statistik genberegnede planneren anker-viewet pr. binding (over 15 min på en kopi af prod; nu ca. 10 s).
+  CREATE TEMP TABLE fix150_pi ON COMMIT DROP AS
+  SELECT ac.source_record_id, i.canonical_person_id
+    FROM private.source_record sr
+    JOIN private.source_record_anchor_current ac ON ac.source_record_id=sr.id AND ac.decision_status='accepted'
+    JOIN private.source_observation o ON o.occurrence_id=ac.occurrence_id AND o.parent_observation_id IS NULL
+    JOIN private.source_mention sm ON sm.observation_id=o.id
+    JOIN private.source_persona_mention spm ON spm.mention_id=sm.id AND spm.mention_role='primary'
+    JOIN private.source_persona_identity i ON i.source_persona_id=spm.persona_id AND i.decision_status='accepted'
+   WHERE sr.source_id=v_src;
+  ANALYZE fix150_pi;
   CREATE TEMP TABLE fix150_binding ON COMMIT DROP AS
   SELECT b.id AS binding_id, n.subjekt_id AS person_id,
-         count(i.source_persona_id) AS identiteter,
-         count(i.source_persona_id) FILTER (WHERE i.canonical_person_id IS DISTINCT FROM n.subjekt_id) AS andre
+         count(pi.source_record_id) AS identiteter,
+         count(pi.source_record_id) FILTER (WHERE pi.canonical_person_id IS DISTINCT FROM n.subjekt_id) AS andre
     FROM private.narrative_record_publication b
     JOIN public.narrative n ON n.id=b.narrative_id AND n.source_id=v_src AND n.subjekt_type='person'
-    LEFT JOIN private.source_record_anchor_current ac ON ac.source_record_id=b.source_record_id AND ac.decision_status='accepted'
-    LEFT JOIN private.source_observation o ON o.occurrence_id=ac.occurrence_id AND o.parent_observation_id IS NULL
-    LEFT JOIN private.source_mention sm ON sm.observation_id=o.id
-    LEFT JOIN private.source_persona_mention spm ON spm.mention_id=sm.id AND spm.mention_role='primary'
-    LEFT JOIN private.source_persona_identity i ON i.source_persona_id=spm.persona_id AND i.decision_status='accepted'
+    LEFT JOIN fix150_pi pi ON pi.source_record_id=b.source_record_id
    GROUP BY b.id, n.subjekt_id;
   IF EXISTS (SELECT 1 FROM fix150_binding WHERE identiteter<>1 OR andre<>0) THEN
     RAISE EXCEPTION 'FIX150_PRE_IDENTITY n=%', (SELECT count(*) FROM fix150_binding WHERE identiteter<>1 OR andre<>0);
