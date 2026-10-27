@@ -110,7 +110,13 @@ som i prod, og en øvelses-afgørelsesfil uden godkendelser (543 maskinelt enige
 - **Efter Codex-review r1** (kopi `_5cra`, øvelsens GO-kode `61577e95`): alle skridt igen grønne; `FIX150_OK
   headers=266 placements=543 ledger=1167 memberships=541 revalideret=498` på 72 s. Identitetstjekket pr. binding tog
   uden materialisering over 15 min på en frisk restore (ingen planner-statistik); nu ca. 11 s.
-- Den endelige øvelse med de godkendte filer (kontrolark og token-fil) køres, før GO 2 bindes, og noteres her.
+- **Endelig øvelse med de godkendte filer** (2026-10-27; `APPROVALS_OK kontrol=20 godkendt=37`, alle 6 kuld-grupper
+  J): `expect.json` = `headers=266 placements=580 published=541 bindings=587 ledger=1167 revalidated=530
+  memberships=576`, forudsagt skrivebeskyttet på skabelonen `_5ct` (543+37 placements; 541+35 memberships, 2 af de
+  37 uden hovedperson-persona; 498+32 publicerede poster med placement). Gennem runneren på frisk kopi `_5cf`
+  (øvelsens GO-kode `621c797d`, prods `statement_timeout='2min'`): alle ni skridt som forventet, advisors 1 → 2,
+  `FIX150_OK headers=266 placements=580 ledger=1167 memberships=576 revalideret=530` på 77 s, derefter
+  `MAAL_150_OK ddl150=efter fase=bundet`.
 
 ## Fortrydelse
 
