@@ -10414,3 +10414,23 @@ BEGIN
   RAISE NOTICE 'PLACEMENT_MEMBERSHIP_NOT_CURRENT n=%',private.placement_membership_not_current();
   RAISE NOTICE 'OK: #150 — legacy-ledger, private placement-skrivefunktioner, slaegt versioneret';
 END $verify_150_ledger$;
+
+-- ===== Review trin B (1d.3b-01): accepterede, ubundne relationer hvis familie er skiftet siden afgørelsen =====
+-- Kun en måling (NOTICE), aldrig en fejl: tæller accepterede, gældende relation.marriage/relation.parent uden
+-- familiebinding, hvis bindingstilstand findes og peger på en anden familie end decision_evidence->>'family_id'
+-- (også manglende family_id). Sådanne afvises nu ved førstebinding (RELATION_PROMOTION_DECISION_FAMILY_CHANGED)
+-- og kræver en ny afgørelse. Forventet: 0.
+DO $verify_trin_b_decision_family$
+DECLARE n bigint;
+BEGIN
+  SELECT count(*) INTO n
+    FROM private.interpretation_current ic
+    CROSS JOIN LATERAL (SELECT private.relation_binding_state(ic.id) AS st) s
+   WHERE ic.status='accepted' AND ic.predicate IN ('relation.marriage','relation.parent')
+     AND NOT EXISTS (SELECT 1 FROM private.interpretation_promotion p WHERE p.interpretation_id=ic.id AND p.target_type='family')
+     AND s.st IS NOT NULL
+     AND (s.st#>>'{family,family_id}')::bigint IS DISTINCT FROM (ic.decision_evidence->>'family_id')::bigint;
+  RAISE NOTICE 'TRIN_B_DECISION_FAMILY_CHANGED_UNBOUND n=% (forventet 0)',n;
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'TRIN_B_DECISION_FAMILY_CHANGED_UNBOUND kunne ikke måles: %',SQLERRM;
+END $verify_trin_b_decision_family$;
