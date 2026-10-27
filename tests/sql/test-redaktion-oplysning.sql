@@ -104,6 +104,8 @@ BEGIN
     END;
   END LOOP;
   RESET ROLE;
+  -- NB: change_set-tællingen beviser ikke, at afvisningen sker før begin_change_set — en undtagelse ruller også et
+  -- allerede oprettet change_set tilbage. Den viser kun, at en afvist sletning ikke efterlader spor.
   IF (SELECT count(*) FROM assertion WHERE id IN (a_imp,a_null))<>2
      OR NOT EXISTS (SELECT 1 FROM citation WHERE assertion_id=a_imp)
      OR (SELECT count(*) FROM change_set)<>n_cs THEN
@@ -127,7 +129,7 @@ ROLLBACK;
 -- ---------- T4 (1d.1-04): læsecachen bygger kun på afklarede konklusioner ----------
 BEGIN;
 DO $cache_status$
-DECLARE f_a bigint; f_b bigint; f_f bigint; a bigint;
+DECLARE f_a bigint; f_b bigint; f_f bigint; f_t bigint; a bigint;
 BEGIN
   INSERT INTO person(id,levende,privat) VALUES (-41004,false,false);
   -- to navne-faktaer: det afklarede »Aaa« og et forældet »Zzz« (max() ville vælge Zzz)
@@ -141,11 +143,17 @@ BEGIN
   INSERT INTO fact(subjekt_type,subjekt_id,faktatype) VALUES ('person',-41004,'fødsel') RETURNING id INTO f_f;
   INSERT INTO assertion(target_type,target_id,date_raw) VALUES ('fact',f_f,'1650') RETURNING id INTO a;
   INSERT INTO conclusion(target_type,target_id,valgt_assertion_id,status) VALUES ('fact',f_f,a,'omstridt');
+  -- en konklusion uden status (NULL) er ikke afklaret og indgår heller ikke
+  INSERT INTO fact(subjekt_type,subjekt_id,faktatype) VALUES ('person',-41004,'titel') RETURNING id INTO f_t;
+  INSERT INTO assertion(target_type,target_id,vaerdi_tekst) VALUES ('fact',f_t,'kammerherre') RETURNING id INTO a;
+  INSERT INTO conclusion(target_type,target_id,valgt_assertion_id,status) VALUES ('fact',f_t,a,NULL);
   PERFORM regen_person_visning(-41004);
   IF (SELECT visning_navn FROM person WHERE id=-41004) IS DISTINCT FROM 'Aaa'
-     OR (SELECT visning_foedt FROM person WHERE id=-41004) IS NOT NULL THEN
-    RAISE EXCEPTION 'REDAKTION_OPLYSNING_TEST_FAILED: cachen bruger ikke-afklarede konklusioner (navn %, født %)',
-      (SELECT visning_navn FROM person WHERE id=-41004),(SELECT visning_foedt FROM person WHERE id=-41004);
+     OR (SELECT visning_foedt FROM person WHERE id=-41004) IS NOT NULL
+     OR (SELECT visning_titel FROM person WHERE id=-41004) IS NOT NULL THEN
+    RAISE EXCEPTION 'REDAKTION_OPLYSNING_TEST_FAILED: cachen bruger ikke-afklarede konklusioner (navn %, født %, titel %)',
+      (SELECT visning_navn FROM person WHERE id=-41004),(SELECT visning_foedt FROM person WHERE id=-41004),
+      (SELECT visning_titel FROM person WHERE id=-41004);
   END IF;
   -- trækkes det afklarede navn tilbage (status ≠ afklaret), forsvinder det fra cachen
   UPDATE conclusion SET status='omstridt' WHERE target_type='fact' AND target_id=f_a;
