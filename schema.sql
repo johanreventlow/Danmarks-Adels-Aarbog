@@ -5894,13 +5894,17 @@ BEGIN
   SELECT * INTO v_old FROM assertion WHERE id=p_assertion_id;
   IF v_old.id IS NULL THEN RAISE EXCEPTION 'Ukendt assertion %', p_assertion_id; END IF;
 
-  -- Review trin B (1d.1-03): date_certainty følger med. Kendt begrænsning: date_min/max kopieres også, når
-  -- p_date_raw ændres (NULL betyder »åben« og kan ikke bruges som nulstilling; kræver parsede grænser fra web).
+  -- Review trin B (1d.1-03): date_certainty følger kun med, når datoteksten er uændret (web sender altid
+  -- p_date_raw = værdien; rettes '147(5?)' til '1475', må 'uncertain' ikke arves). Kendt begrænsning: date_min/max
+  -- kopieres også, når p_date_raw ændres (NULL betyder »åben« og kan ikke bruges som nulstilling; kræver parsede
+  -- grænser fra web).
   INSERT INTO assertion(target_type, target_id, vaerdi_tekst, date_min, date_max,
                         date_qualifier, date_raw, calendar, date_certainty, uforanderlig)
     VALUES (v_old.target_type, v_old.target_id,
             p_vaerdi, v_old.date_min, v_old.date_max, v_old.date_qualifier,
-            coalesce(p_date_raw, v_old.date_raw), v_old.calendar, v_old.date_certainty, false)
+            coalesce(p_date_raw, v_old.date_raw), v_old.calendar,
+            CASE WHEN p_date_raw IS NULL OR p_date_raw IS NOT DISTINCT FROM v_old.date_raw THEN v_old.date_certainty END,
+            false)
     RETURNING id INTO v_new;
 
   INSERT INTO citation(assertion_id, source_id, citat_tekst)

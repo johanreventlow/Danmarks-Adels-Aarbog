@@ -6,7 +6,7 @@
 BEGIN;
 DO $edit_oplysning$
 DECLARE v_actor uuid:='11000000-0000-0000-0000-0000001d1031'; v_fact bigint; v_fact2 bigint; a1 bigint; a2 bigint;
-  r jsonb; n1 bigint; n2 bigint; n3 bigint; v_valgt bigint;
+  r jsonb; n1 bigint; n2 bigint; n3 bigint; n4 bigint; v_valgt bigint;
 BEGIN
   INSERT INTO auth.users(id,email) VALUES (v_actor,'trinb-t2@example.invalid');
   INSERT INTO profiles(id,rolle,navn,email) VALUES (v_actor,'redaktion','trin B','trinb-t2@example.invalid');
@@ -20,7 +20,8 @@ BEGIN
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   SET LOCAL ROLE authenticated;
 
-  -- (a) en IKKE-valgt oplysning rettes: ny påstand, men konklusionen bliver på den valgte
+  -- (a) en IKKE-valgt oplysning rettes (ny datotekst): ny påstand, men konklusionen bliver på den valgte, og
+  --     date_certainty arves ikke, fordi datoteksten er ændret
   PERFORM set_config('app.change_set_id','',true);
   r:=red_edit_oplysning(a2,NULL,'1702?',NULL);
   n2:=(r->>'ny_assertion_id')::bigint;
@@ -28,21 +29,29 @@ BEGIN
   IF v_valgt IS DISTINCT FROM a1 THEN
     RAISE EXCEPTION 'REDAKTION_OPLYSNING_TEST_FAILED: ikke-valgt rettelse ompegede konklusionen (% i stedet for %)',v_valgt,a1;
   END IF;
-  IF (SELECT date_certainty FROM assertion WHERE id=n2) IS DISTINCT FROM 'ambiguous'
+  IF (SELECT date_certainty FROM assertion WHERE id=n2) IS NOT NULL
      OR (SELECT date_raw FROM assertion WHERE id=n2) IS DISTINCT FROM '1702?' THEN
-    RAISE EXCEPTION 'REDAKTION_OPLYSNING_TEST_FAILED: date_certainty ikke kopieret (ikke-valgt)';
+    RAISE EXCEPTION 'REDAKTION_OPLYSNING_TEST_FAILED: date_certainty arvet trods ændret datotekst';
   END IF;
 
-  -- (b) den VALGTE oplysning rettes: konklusionen følger med til den nye påstand
+  -- (b) den VALGTE oplysning rettes med uændret datotekst (som web sender): konklusionen følger med, og
+  --     date_certainty arves
   PERFORM set_config('app.change_set_id','',true);
-  r:=red_edit_oplysning(a1,NULL,'1701?',NULL);
+  r:=red_edit_oplysning(a1,NULL,'1701',NULL);
   n1:=(r->>'ny_assertion_id')::bigint;
   SELECT valgt_assertion_id INTO v_valgt FROM conclusion WHERE target_type='fact' AND target_id=v_fact;
   IF v_valgt IS DISTINCT FROM n1 THEN
     RAISE EXCEPTION 'REDAKTION_OPLYSNING_TEST_FAILED: valgt rettelse flyttede ikke konklusionen (% i stedet for %)',v_valgt,n1;
   END IF;
   IF (SELECT date_certainty FROM assertion WHERE id=n1) IS DISTINCT FROM 'uncertain' THEN
-    RAISE EXCEPTION 'REDAKTION_OPLYSNING_TEST_FAILED: date_certainty ikke kopieret (valgt)';
+    RAISE EXCEPTION 'REDAKTION_OPLYSNING_TEST_FAILED: date_certainty ikke arvet ved uændret datotekst';
+  END IF;
+  -- uden datotekst (p_date_raw NULL) er teksten også uændret: arves
+  PERFORM set_config('app.change_set_id','',true);
+  n4:=(red_edit_oplysning(n1,'kilde siger 1701',NULL,NULL)->>'ny_assertion_id')::bigint;
+  IF (SELECT date_certainty FROM assertion WHERE id=n4) IS DISTINCT FROM 'uncertain'
+     OR (SELECT date_raw FROM assertion WHERE id=n4) IS DISTINCT FROM '1701' THEN
+    RAISE EXCEPTION 'REDAKTION_OPLYSNING_TEST_FAILED: date_certainty ikke arvet uden datotekst';
   END IF;
   -- de gamle påstande er urørte (append)
   IF (SELECT count(*) FROM assertion WHERE id IN (a1,a2) AND date_raw IN ('1701','1702'))<>2 THEN
@@ -60,7 +69,7 @@ BEGIN
     RAISE EXCEPTION 'REDAKTION_OPLYSNING_TEST_FAILED: konklusion ikke oprettet for faktum uden konklusion';
   END IF;
   RESET ROLE;
-  RAISE NOTICE 'OK: red_edit_oplysning ompeger kun den valgte og kopierer date_certainty';
+  RAISE NOTICE 'OK: red_edit_oplysning ompeger kun den valgte og arver date_certainty kun ved uændret datotekst';
 END $edit_oplysning$;
 ROLLBACK;
 
