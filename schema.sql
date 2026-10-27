@@ -233,8 +233,9 @@ BEGIN
   ), resolved_rollup AS (
     -- Ankeruafhængigt display-fallback: den allerede AFKLAREDE evidens (samme kilde som
     -- selected_assertions ovenfor), uden anker-gaten field_candidates lægger nedenfor.
-    -- Bevidst IKKE person.visning_*: regen_person_visning() ser bort fra conclusion.status
-    -- og ville derfor kunne lække en forældet (ikke-afklaret) værdi ind i visningen.
+    -- Bevidst IKKE person.visning_*: cachen er en afledt envejsprojektion. regen_person_visning() så tidligere
+    -- bort fra conclusion.status; siden review trin B (1d.1-04) bruger den kun afklarede konklusioner, men denne
+    -- sti læser fortsat den afklarede evidens direkte frem for at afhænge af cachens aktualitet.
     -- "Præcis 1"-reglen genbruges, så en tvetydig (flere_importerede_facts) situation
     -- forbliver blank her ligesom i den anker-gaterede sti, i stedet for at gætte.
     SELECT grid_person_id,felt,
