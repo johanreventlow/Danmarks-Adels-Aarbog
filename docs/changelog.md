@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-10-27 — #150 trin 5c-1 i prod: placement og membership for 2018-20 (DDL + data)
+
+Prod-kørsel efter `docs/runbooks/150-placement-prod.md`, repo `8ac893c5` (PR #269), GO 150 `3e69560f`, kørt af
+projektejeren med `~/.private/5ab-overfoersel/21-150-5c.sh`; dump før skrivning `daa-prod-20261027124656-150.dump`
+(sha `df49373f9fa7…`).
+
+- **Forarbejde:** kontrolark 20/20 mod PDF'en (efter én rettelse af en forvekslet post, II-1) og 6 kuld-grupper
+  godkendt (J) → `APPROVALS_OK kontrol=20 godkendt=37`. Endelig øvelse på frisk stand-in `_5cf` med de bundne filer:
+  samme kvitteringer som prod, 77 s.
+- **Før:** `MAAL_150_OK ddl150=foer fase=foer`; `ADVISORS_150_OK nye=1` (#248's `relation_reopen`).
+- **DDL:** `DDL150_OK`; derefter `ddl150=efter fase=foer` og `ADVISORS_150_OK nye=2` (+
+  `private.legacy_placement_disposition`, med vilje).
+- **Data:** `FIX150_OK headers=266 placements=580 ledger=1167 memberships=576 revalideret=530`; længste sætning 39,5 s
+  under prods 2 min.
+- **Efter:** `MAAL_150_OK ddl150=efter fase=bundet`. Opfølgning: V-82..V-92 (barn i forælderens slægtled) står
+  uafklaret; 5c-2 skifter læserne.
+
 ## 2026-10-26 — #248 rute A i prod: genåbning ved familieskift (DDL + data)
 
 Prod-kørsel efter `docs/runbooks/248-genaabning-prod.md`, repo `db67fb17` (PR #267), GO 248A `d910500c`
