@@ -82,13 +82,15 @@ match upålidelig. Flaggede blokke loades ikke før review.
 ### ⑤ Load (append) til Supabase
 
 ```bash
-Rscript .claude/skills/daa-presens/scripts/load_presens.R work_presens/clean.json "DAA 2012-2014"
+Rscript .claude/skills/daa-presens/scripts/load_presens.R work_presens/clean.json "DAA 2012-2014" --jeg-mener-det
 ```
 
 **Append som default** (ingen TRUNCATE): præsenslisten er en ny `source` der
-sameksisterer med stamtavle-data; id'er allokeres fra `MAX(id)`. `--reset` kun
-hvis du vil starte forfra. Loader personer (`levende=TRUE`) + fakta + forælder-
-barn/ægtefælle-familier + kollateral-relation til gren-hoved.
+sameksisterer med stamtavle-data; id'er allokeres fra `MAX(id)`. Scriptet skriver
+til prod: `--jeg-mener-det` er obligatorisk, og ukendte flag afvises. `--reset` er
+fjernet (review 2026-10-27, fund 1c-01) — start forfra ved restore af et dump.
+Loader personer (`levende=TRUE`) + fakta + forælder-barn/ægtefælle-familier +
+kollateral-relation til gren-hoved.
 
 **Forældrefamilie-slot (Problem 2):** hver 'barn'-række ledsages af `member_evidence()`
 (slot-`fact('forældrefamilie')` + `assertion(objekt=familien)` + citation + afklaret
