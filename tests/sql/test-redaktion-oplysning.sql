@@ -114,3 +114,36 @@ BEGIN
   RAISE NOTICE 'OK: red_slet_oplysning afviser kildepåstande og sletter redaktørens egne';
 END $slet_oplysning$;
 ROLLBACK;
+
+-- ---------- T4 (1d.1-04): læsecachen bygger kun på afklarede konklusioner ----------
+BEGIN;
+DO $cache_status$
+DECLARE f_a bigint; f_b bigint; f_f bigint; a bigint;
+BEGIN
+  INSERT INTO person(id,levende,privat) VALUES (-41004,false,false);
+  -- to navne-faktaer: det afklarede »Aaa« og et forældet »Zzz« (max() ville vælge Zzz)
+  INSERT INTO fact(subjekt_type,subjekt_id,faktatype) VALUES ('person',-41004,'navn') RETURNING id INTO f_a;
+  INSERT INTO assertion(target_type,target_id,vaerdi_tekst) VALUES ('fact',f_a,'Aaa') RETURNING id INTO a;
+  INSERT INTO conclusion(target_type,target_id,valgt_assertion_id,status) VALUES ('fact',f_a,a,'afklaret');
+  INSERT INTO fact(subjekt_type,subjekt_id,faktatype) VALUES ('person',-41004,'navn') RETURNING id INTO f_b;
+  INSERT INTO assertion(target_type,target_id,vaerdi_tekst) VALUES ('fact',f_b,'Zzz') RETURNING id INTO a;
+  INSERT INTO conclusion(target_type,target_id,valgt_assertion_id,status) VALUES ('fact',f_b,a,'forældet');
+  -- en omstridt fødsel indgår heller ikke
+  INSERT INTO fact(subjekt_type,subjekt_id,faktatype) VALUES ('person',-41004,'fødsel') RETURNING id INTO f_f;
+  INSERT INTO assertion(target_type,target_id,date_raw) VALUES ('fact',f_f,'1650') RETURNING id INTO a;
+  INSERT INTO conclusion(target_type,target_id,valgt_assertion_id,status) VALUES ('fact',f_f,a,'omstridt');
+  PERFORM regen_person_visning(-41004);
+  IF (SELECT visning_navn FROM person WHERE id=-41004) IS DISTINCT FROM 'Aaa'
+     OR (SELECT visning_foedt FROM person WHERE id=-41004) IS NOT NULL THEN
+    RAISE EXCEPTION 'REDAKTION_OPLYSNING_TEST_FAILED: cachen bruger ikke-afklarede konklusioner (navn %, født %)',
+      (SELECT visning_navn FROM person WHERE id=-41004),(SELECT visning_foedt FROM person WHERE id=-41004);
+  END IF;
+  -- trækkes det afklarede navn tilbage (status ≠ afklaret), forsvinder det fra cachen
+  UPDATE conclusion SET status='omstridt' WHERE target_type='fact' AND target_id=f_a;
+  PERFORM regen_person_visning(-41004);
+  IF (SELECT visning_navn FROM person WHERE id=-41004) IS NOT NULL THEN
+    RAISE EXCEPTION 'REDAKTION_OPLYSNING_TEST_FAILED: tilbagetrukket navn står i cachen';
+  END IF;
+  RAISE NOTICE 'OK: regen_person_visning bruger kun afklarede konklusioner';
+END $cache_status$;
+ROLLBACK;

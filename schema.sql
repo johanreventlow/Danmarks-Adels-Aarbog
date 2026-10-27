@@ -5618,7 +5618,8 @@ BEGIN
       max(coalesce(a.date_raw,a.vaerdi_tekst)) FILTER (WHERE f.faktatype='død')    AS doed,
       max(a.vaerdi_tekst) FILTER (WHERE f.faktatype='titel') AS titel
     FROM fact f
-    JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id
+    -- Review trin B (1d.1-04): kun afklarede konklusioner (en omstridt/forældet/tilbagetrukket indgår ikke).
+    JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id AND c.status='afklaret'
     JOIN assertion  a ON a.id = c.valgt_assertion_id
     WHERE f.subjekt_type='person' AND f.subjekt_id = pid
   ),
@@ -5651,7 +5652,7 @@ BEGIN
     INSERT INTO slaegtsnavn_karantaene(person_id, n_distinct) VALUES (pid, v_n_distinct)
       ON CONFLICT (person_id) DO UPDATE SET n_distinct=excluded.n_distinct, noteret_at=now();
   ELSE
-    DELETE FROM slaegtsnavn_karantaene WHERE person_id = pid;  -- selv-helbred hvis tvetydigheden er løst
+    DELETE FROM slaegtsnavn_karantaene WHERE person_id = pid;
   END IF;
 END $$;
 

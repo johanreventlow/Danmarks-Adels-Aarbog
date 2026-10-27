@@ -26500,4 +26500,59 @@ BEGIN
   DELETE FROM citation  WHERE assertion_id = p_assertion_id;
   DELETE FROM assertion WHERE id = p_assertion_id;
 END $$;
+
+CREATE OR REPLACE FUNCTION regen_person_visning(pid BIGINT)
+RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE v_n_distinct INT; v_slaegtsnavn TEXT;
+BEGIN
+  SELECT count(DISTINCT sn.v), min(sn.v) INTO v_n_distinct, v_slaegtsnavn
+  FROM person_external_id pei
+  JOIN lineage l ON l.source_id = pei.source_id AND l.kode = pei.linje
+  CROSS JOIN LATERAL (SELECT lineage_effective_slaegtsnavn(l.id) AS v) sn
+  WHERE pei.person_id = pid;
+
+  WITH navn_agg AS (
+    SELECT
+      max(a.vaerdi_tekst) FILTER (WHERE f.faktatype='navn')  AS navn,
+      max(coalesce(a.date_raw,a.vaerdi_tekst)) FILTER (WHERE f.faktatype='fødsel') AS foedt,
+      max(coalesce(a.date_raw,a.vaerdi_tekst)) FILTER (WHERE f.faktatype='død')    AS doed,
+      max(a.vaerdi_tekst) FILTER (WHERE f.faktatype='titel') AS titel
+    FROM fact f
+    -- Review trin B (1d.1-04): kun afklarede konklusioner (en omstridt/forældet/tilbagetrukket indgår ikke).
+    JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id AND c.status='afklaret'
+    JOIN assertion  a ON a.id = c.valgt_assertion_id
+    WHERE f.subjekt_type='person' AND f.subjekt_id = pid
+  ),
+  final AS (
+    SELECT
+      navn_agg.navn, navn_agg.foedt, navn_agg.doed, navn_agg.titel,
+      CASE
+        WHEN navn_agg.navn IS NULL THEN NULL
+        WHEN coalesce(v_n_distinct,0) <> 1 THEN NULL
+        WHEN slaegtsnavn_suffiks_match(navn_agg.navn, v_slaegtsnavn) THEN NULL
+        ELSE v_slaegtsnavn
+      END AS efternavn,
+      CASE
+        WHEN navn_agg.navn IS NULL THEN NULL
+        WHEN coalesce(v_n_distinct,0) <> 1 THEN navn_agg.navn
+        WHEN slaegtsnavn_suffiks_match(navn_agg.navn, v_slaegtsnavn) THEN navn_agg.navn
+        ELSE navn_agg.navn || ' ' || v_slaegtsnavn
+      END AS fuldt
+    FROM navn_agg
+  )
+  UPDATE person p SET
+    visning_navn = final.navn, visning_foedt = final.foedt, visning_doed = final.doed,
+    visning_titel = final.titel, visning_efternavn = final.efternavn, visning_fuldt_navn = final.fuldt
+  FROM final
+  WHERE p.id = pid
+    AND (p.visning_navn, p.visning_foedt, p.visning_doed, p.visning_titel, p.visning_efternavn, p.visning_fuldt_navn)
+        IS DISTINCT FROM (final.navn, final.foedt, final.doed, final.titel, final.efternavn, final.fuldt);
+
+  IF v_n_distinct > 1 THEN
+    INSERT INTO slaegtsnavn_karantaene(person_id, n_distinct) VALUES (pid, v_n_distinct)
+      ON CONFLICT (person_id) DO UPDATE SET n_distinct=excluded.n_distinct, noteret_at=now();
+  ELSE
+    DELETE FROM slaegtsnavn_karantaene WHERE person_id = pid;
+  END IF;
+END $$;
 -- END review-trin-b
