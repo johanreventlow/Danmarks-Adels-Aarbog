@@ -3,9 +3,13 @@
 > To uafhængige Opus-dommere (læse-kun, ren eksport). Dom pr. fund: nødvendig / forenkl / kendt begrænsning / afvis.
 > Samlet: nødvendig 4 · forenkl 11 · kendt begrænsning 10 · afvis 3. **Reelt P1 efter afvejning: 0** (Codex: 20 × P1).
 >
-> **Projektejerens afgørelse ved kontrolpunkt 2 (2026-10-27):** 1b-01 er **P1**, ikke P2. Grøn CI beviser ikke det,
-> vi tror, fordi CI bygger fra `schema.sql`, mens prod kører migrationskroppene. 1d.1-05 er en delmængde af 1b-01 og
-> følger den i fase 3. Afvejningens P2 i afsnittet om 1d.1-05 står som Opus' oprindelige dom.
+> **Projektejerens afgørelse ved kontrolpunkt 2 (2026-10-27):** 1b-01 er **P1**, ikke P2. Begrundelsen er
+> bevis-aksen, ikke data-aksen. Kernekæden i `evidence-promotion-db` køres på en migreret base
+> (`ci.yml:197-233`). Men `writer-1939-v50-db` bygger kun fra `schema.sql` (`ci.yml:305`) og bærer 5b's writer-tests
+> (`ci.yml:500-513`: relation-person-create v2/v3, child, ordinal, content-uuid, 2b-ii-ark). De tester altså
+> id-kroppe, prod ikke kører. Paritetsvagten dækker kun 13 funktioner (1b-02). Prod-data er ikke i fare.
+> 1d.1-05 er en delmængde af 1b-01 og følger den i fase 3. Afvejningens P2 i afsnittet om 1d.1-05 står som Opus'
+> oprindelige dom.
 
 ---
 
