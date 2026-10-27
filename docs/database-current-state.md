@@ -529,6 +529,24 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 13. Placement og membership for 2018-20 (#150, trin 5c-1) — LIVE i prod (2026-10-27)
+
+**Procedure:** `docs/runbooks/150-placement-prod.md`, privat script `~/.private/5ab-overfoersel/21-150-5c.sh`.
+Repo `8ac893c5` (PR #269), GO 150 `3e69560f`; dump før skrivning `daa-prod-20261027124656-150.dump` (sha
+`df49373f…`). Afgørelsesfil: `APPROVALS_OK kontrol=20 godkendt=37`.
+
+- **DDL (GO 1):** placement-/membership-blokken (header-observationer, `private.legacy_placement_disposition`,
+  placement- og membership-RPC'er, `private.placement_header_violations`). `ddl150=foer` → `DDL150_OK` →
+  `ddl150=efter fase=foer`. Rådgiveren: 1 → 2 nye (`rls_enabled_no_policy|private.legacy_placement_disposition`, med
+  vilje; det første er #248's `relation_reopen`).
+- **Data (GO 2, kilde 1):** `FIX150_OK headers=266 placements=580 ledger=1167 memberships=576 revalideret=530` i én
+  transaktion (prods `statement_timeout` 2 min; længste sætning 39,5 s). 543 maskinelt enige + 37 godkendte i 6
+  kuld-grupper; 4 poster uden hovedperson-persona har placement uden membership; V-82..V-92 står `unresolved` i
+  ledgeren.
+- **Efter:** `MAAL_150_OK ddl150=efter fase=bundet` (0 `stale_published`, slægten `active`, memberships = placerede
+  hovedpersoner med accepteret identitet). Ingen læser er ændret (5c-2). Fortryd: kun dumpet eller én post ad gangen
+  (runbookens »Fortrydelse«).
+
 ## 12. Dubletreglen (#151) og #240's dobbeltfamilier — LIVE i prod (2026-10-26)
 
 **Procedure:** `docs/runbooks/fix-240-dobbeltfamilier-prod.md`, privat script `~/.private/5ab-overfoersel/18-fix-240.sh`.
