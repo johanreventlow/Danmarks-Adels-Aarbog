@@ -47,8 +47,8 @@ Tilladte tilstande: `specificeret`, `isoleret implementeret`, `integreret ende-t
 |---|---|---|
 | A1 | `load_presens.R`: `--reset` fjernet, `--jeg-mener-det` krævet (1c-01) | gjort, gren `fix/review-trin-a` |
 | A2 | De gamle loadere frosset ved kontrakt v2 (B5) | gjort, samme gren |
-| A3 | RED-8 porteret til `schema.sql`, paritetsvagt, sekvens-verify (1b-01) | åben |
-| A4 | Styringsdokumenter afstemt (1a-01, 1a-14) | i gang |
+| A3 | RED-8 porteret til `schema.sql`, paritetsvagt, sekvens-verify (1b-01) | gjort, samme gren (verify-blokken er ikke kørt mod prod endnu) |
+| A4 | Styringsdokumenter afstemt (1a-01, 1a-14) | gjort, samme gren |
 | A5 | C3-deployfil stoppet, røde R-tests arkiveret (1b-04, 1c-04/05) | gjort, samme gren |
 | A6 | Projektejeren læser de 13 `NOISE_RE`-linjer mod kilden (1d.3a-03) | åben (menneskearbejde) |
 | B | Én DDL-ceremoni: 1d.3b-01, 1d.1-03, 1d.1-02, 1d.1-04 (mål cachen først) | åben, kræver GO |
