@@ -2,6 +2,24 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: de 13 `NOISE_RE`-linjer midt på en side — 12 er prosa, der mangler i 2018-20's tekst (2026-10-27)
+
+> Review-handling A6 (fund 1d.3a-03). Ark og konverter i `work/noise-re-13/` (gitignoreret); ark-sha `5dbc5e20d83c…`,
+> dispositioner-sha `2b383d0f6dfd…`. Projektejeren bekræftede de forudfyldte anbefalinger.
+
+**Baggrund:** `segment.py`'s `NOISE_RE` (`von\s+R\s*E.*|Ridder\s+.+sønner`) springer linjer over midt i en post. Af 100
+træf i 2018-20's rå tekst står 87 lige efter et sideskift (alle korte, uden komma og tal: sidehoveder), 13 midt på
+en side.
+
+**Besluttet:**
+1. **12 linjer er prosa** (L190, L210, L294, L427, L440, L619, L627, L795, L1284, L1350, L2606, L3430 i
+   `work/raw_full.txt`): de begynder midt i en sætning med »von Reventlow …« og mangler i den publicerede
+   `narrative.tekst` for kilde 1 og i klausulerne bygget på den.
+2. **L22** (»Ridder … sønner«, side 93) er en overskrift, ikke prosa; den forbliver udeladt.
+3. **Opfølgning (gate før trin 6, egen plan og GO):** `NOISE_RE` strammes til sidehovedpositionen (lige efter
+   `### PAGE`), ny segmenteringsversion, og de berørte narrativer og klausuler rettes gennem den normale
+   tekstrettelsesvej. Det er en ændring af prod-data.
+
 ## BESLUTTET: helhedsreview trin 1-5 — 13 beslutninger før trin 6 (B1-B13) (2026-10-27)
 
 > Grundlag: `docs/reviews/2026-10-27-trin-1-5/rapport.md` §5 (fase 3) med fund i samme mappe. Projektejeren sagde ja
