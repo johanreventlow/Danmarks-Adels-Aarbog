@@ -5932,6 +5932,11 @@ BEGIN
   IF (SELECT f.faktatype FROM assertion a JOIN fact f ON f.id=a.target_id AND a.target_type='fact' WHERE a.id=p_assertion_id) = 'forældrefamilie' THEN
     RAISE EXCEPTION 'Forældrefamilie-slottets påstande slettes ikke (uforanderlige) — skift kanonisk valg med red_vaelg_foraeldre';
   END IF;
+  -- Review trin B (1d.1-02): importerede kildepåstande er uforanderlige (invariant 1); kun redaktørens egne
+  -- (uforanderlig=false) slettes. NULL behandles som kolonnens default (sand). Ukendt id: uændret (stille retur nedenfor).
+  IF EXISTS (SELECT 1 FROM assertion WHERE id=p_assertion_id AND uforanderlig IS NOT FALSE) THEN
+    RAISE EXCEPTION 'Kildepåstande slettes ikke (uforanderlige) — kun redaktørens egne oplysninger kan slettes; tilføj eller ret en oplysning og vælg den i stedet';
+  END IF;
   PERFORM begin_change_set('red_slet_oplysning', format('Slettede oplysning %s', p_assertion_id), NULL, NULL);
   SELECT target_type, target_id INTO v_target_type, v_target_id
     FROM assertion WHERE id = p_assertion_id;

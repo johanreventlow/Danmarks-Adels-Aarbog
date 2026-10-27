@@ -26463,4 +26463,41 @@ BEGIN
 
   RETURN jsonb_build_object('ny_assertion_id', v_new, 'citation_id', v_cit);
 END $$;
+
+CREATE OR REPLACE FUNCTION red_slet_oplysning(p_assertion_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_target_type text; v_target_id bigint; v_was_chosen boolean; v_next bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF (SELECT f.faktatype FROM assertion a JOIN fact f ON f.id=a.target_id AND a.target_type='fact' WHERE a.id=p_assertion_id) = 'forældrefamilie' THEN
+    RAISE EXCEPTION 'Forældrefamilie-slottets påstande slettes ikke (uforanderlige) — skift kanonisk valg med red_vaelg_foraeldre';
+  END IF;
+  -- Review trin B (1d.1-02): importerede kildepåstande er uforanderlige (invariant 1); kun redaktørens egne
+  -- (uforanderlig=false) slettes. NULL behandles som kolonnens default (sand). Ukendt id: uændret (stille retur nedenfor).
+  IF EXISTS (SELECT 1 FROM assertion WHERE id=p_assertion_id AND uforanderlig IS NOT FALSE) THEN
+    RAISE EXCEPTION 'Kildepåstande slettes ikke (uforanderlige) — kun redaktørens egne oplysninger kan slettes; tilføj eller ret en oplysning og vælg den i stedet';
+  END IF;
+  PERFORM begin_change_set('red_slet_oplysning', format('Slettede oplysning %s', p_assertion_id), NULL, NULL);
+  SELECT target_type, target_id INTO v_target_type, v_target_id
+    FROM assertion WHERE id = p_assertion_id;
+  IF v_target_id IS NULL THEN RETURN; END IF;
+  SELECT (valgt_assertion_id = p_assertion_id) INTO v_was_chosen
+    FROM conclusion WHERE target_type=v_target_type AND target_id=v_target_id;
+  -- VIGTIGT: slip FK'en (conclusion.valgt_assertion_id -> assertion.id) FØR assertion slettes,
+  -- ellers fejler DELETE med conclusion_valgt_assertion_id_fkey. Re-peg til første tilbageværende
+  -- oplysning (ekskl. den der slettes); ingen tilbage -> drop conclusion. Fact-slot bevares.
+  IF coalesce(v_was_chosen,false) THEN
+    SELECT id INTO v_next FROM assertion
+      WHERE target_type=v_target_type AND target_id=v_target_id AND id <> p_assertion_id
+      ORDER BY id LIMIT 1;
+    IF v_next IS NULL THEN
+      DELETE FROM conclusion WHERE target_type=v_target_type AND target_id=v_target_id;
+    ELSE
+      UPDATE conclusion SET valgt_assertion_id=v_next
+        WHERE target_type=v_target_type AND target_id=v_target_id;
+    END IF;
+  END IF;
+  DELETE FROM citation  WHERE assertion_id = p_assertion_id;
+  DELETE FROM assertion WHERE id = p_assertion_id;
+END $$;
 -- END review-trin-b

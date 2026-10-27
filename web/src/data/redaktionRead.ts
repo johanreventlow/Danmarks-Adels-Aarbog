@@ -62,6 +62,9 @@ export type Oplysning = {
   dato?: { min: string | null; max: string | null; qualifier: string | null; raw: string | null };
   kilder: Kilde[];
   erKonklusion: boolean;
+  // Importerede kildepåstande er uforanderlige og kan ikke slettes (red_slet_oplysning afviser dem, review trin B
+  // 1d.1-02); kun redaktørens egne (uforanderlig=false i basen) er sletbare. Mangler feltet, behandles det som sandt.
+  uforanderlig?: boolean;
 };
 export type FeltEvidens = {
   felt: string;
@@ -77,7 +80,8 @@ export type PersonEvidence = { felter: Record<string, FeltEvidens[]>; koen: stri
 
 type RawFact = { id: number; faktatype: string };
 type RawAssert = { id: number; target_id: number; vaerdi_tekst: string | null;
-  date_min: string | null; date_max: string | null; date_qualifier: string | null; date_raw: string | null };
+  date_min: string | null; date_max: string | null; date_qualifier: string | null; date_raw: string | null;
+  uforanderlig?: boolean | null };
 type RawConc = { target_id: number; valgt_assertion_id: number | null };
 type RawCit = { assertion_id: number; source_id: number | null; side: string | null;
   citat_tekst: string | null; citat_dato: string | null; source?: { titel?: string } | null };
@@ -110,6 +114,7 @@ export function joinEvidence(rows: {
           ? { min: a.date_min, max: a.date_max, qualifier: a.date_qualifier, raw: a.date_raw } : undefined,
         kilder: citByAssert.get(a.id) ?? [],
         erKonklusion: a.id === valgt,
+        uforanderlig: a.uforanderlig !== false,
       }));
     // uenig = >1 DISTINKT NON-TOM værdi inden for DETTE fact. Tomme værdier ekskluderes
     // (ellers ville en rigtig værdi + en tom assertion give falsk "uenig").
@@ -134,7 +139,7 @@ export async function fetchPersonEvidence(personId: string): Promise<PersonEvide
     return { felter: {}, koen: p0?.koen ?? null };
   }
   const [{ data: assertions }, { data: conclusions }, { data: person }] = await Promise.all([
-    supabase.from('assertion').select('id,target_id,vaerdi_tekst,date_min,date_max,date_qualifier,date_raw')
+    supabase.from('assertion').select('id,target_id,vaerdi_tekst,date_min,date_max,date_qualifier,date_raw,uforanderlig')
       .eq('target_type', 'fact').in('target_id', factIds),
     supabase.from('conclusion').select('target_id,valgt_assertion_id')
       .eq('target_type', 'fact').in('target_id', factIds),

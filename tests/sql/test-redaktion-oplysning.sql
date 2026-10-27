@@ -63,3 +63,54 @@ BEGIN
   RAISE NOTICE 'OK: red_edit_oplysning ompeger kun den valgte og kopierer date_certainty';
 END $edit_oplysning$;
 ROLLBACK;
+
+-- ---------- T3 (1d.1-02): red_slet_oplysning sletter kun redaktørens egne påstande ----------
+BEGIN;
+DO $slet_oplysning$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-0000001d1021'; v_fact bigint; a_imp bigint; a_null bigint; a_egen bigint;
+  a_egen2 bigint; v_err text; n_cs bigint;
+BEGIN
+  INSERT INTO auth.users(id,email) VALUES (v_actor,'trinb-t3@example.invalid');
+  INSERT INTO profiles(id,rolle,navn,email) VALUES (v_actor,'redaktion','trin B','trinb-t3@example.invalid');
+  INSERT INTO person(id,levende,privat) VALUES (-41002,false,false);
+  INSERT INTO fact(subjekt_type,subjekt_id,faktatype) VALUES ('person',-41002,'titel') RETURNING id INTO v_fact;
+  INSERT INTO assertion(target_type,target_id,vaerdi_tekst,uforanderlig) VALUES ('fact',v_fact,'importeret',true) RETURNING id INTO a_imp;
+  INSERT INTO citation(assertion_id,source_id,citat_tekst) VALUES (a_imp,NULL,'kilde');
+  INSERT INTO assertion(target_type,target_id,vaerdi_tekst,uforanderlig) VALUES ('fact',v_fact,'uden markering',NULL) RETURNING id INTO a_null;
+  INSERT INTO assertion(target_type,target_id,vaerdi_tekst,uforanderlig) VALUES ('fact',v_fact,'egen',false) RETURNING id INTO a_egen;
+  INSERT INTO assertion(target_type,target_id,vaerdi_tekst,uforanderlig) VALUES ('fact',v_fact,'egen 2',false) RETURNING id INTO a_egen2;
+  INSERT INTO conclusion(target_type,target_id,valgt_assertion_id,status) VALUES ('fact',v_fact,a_egen,'afklaret');
+  SELECT count(*) INTO n_cs FROM change_set;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+
+  -- (a) importeret kildepåstand (uforanderlig=true) og en umarkeret (NULL, kolonnens default er sand) afvises
+  FOREACH a_egen2 IN ARRAY ARRAY[a_imp,a_null] LOOP
+    PERFORM set_config('app.change_set_id','',true);
+    BEGIN
+      PERFORM red_slet_oplysning(a_egen2);
+      RAISE EXCEPTION 'REDAKTION_OPLYSNING_TEST_FAILED: uforanderlig påstand % slettet',a_egen2;
+    EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+      IF v_err NOT LIKE 'Kildepåstande slettes ikke%' THEN RAISE; END IF;
+    END;
+  END LOOP;
+  RESET ROLE;
+  IF (SELECT count(*) FROM assertion WHERE id IN (a_imp,a_null))<>2
+     OR NOT EXISTS (SELECT 1 FROM citation WHERE assertion_id=a_imp)
+     OR (SELECT count(*) FROM change_set)<>n_cs THEN
+    RAISE EXCEPTION 'REDAKTION_OPLYSNING_TEST_FAILED: afvist sletning efterlod spor';
+  END IF;
+
+  -- (b) redaktørens egen (uforanderlig=false) kan fortsat slettes; var den valgt, ompeges konklusionen
+  SELECT id INTO a_egen2 FROM assertion WHERE target_type='fact' AND target_id=v_fact AND vaerdi_tekst='egen 2';
+  SET LOCAL ROLE authenticated;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_slet_oplysning(a_egen);
+  RESET ROLE;
+  IF EXISTS (SELECT 1 FROM assertion WHERE id=a_egen)
+     OR (SELECT valgt_assertion_id FROM conclusion WHERE target_type='fact' AND target_id=v_fact) IS NULL THEN
+    RAISE EXCEPTION 'REDAKTION_OPLYSNING_TEST_FAILED: egen påstand ikke slettet';
+  END IF;
+  RAISE NOTICE 'OK: red_slet_oplysning afviser kildepåstande og sletter redaktørens egne';
+END $slet_oplysning$;
+ROLLBACK;
