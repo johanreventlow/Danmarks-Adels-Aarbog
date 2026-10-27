@@ -65,39 +65,53 @@ class TestKontrolark(unittest.TestCase):
         keys = ['I-1', 'I-12']
         text = pcs.render_kontrolark(m, keys)
         svar = text.replace('K I-1 side 10 : ', 'K I-1 side 10 : 1 -').replace('K I-12 side 12 : ', 'K I-12 side 12 : 2 II')
-        self.assertEqual(pcs.check_kontrolark(svar, m), keys)
+        self.assertEqual(pcs.check_kontrolark(svar, m, keys), keys)
         forkert = svar.replace('K I-12 side 12 : 2 II', 'K I-12 side 12 : 2 I')
         with self.assertRaises(SheetError) as e:
-            pcs.check_kontrolark(forkert, m)
+            pcs.check_kontrolark(forkert, m, keys)
         self.assertEqual(str(e.exception).split()[0], 'KONTROL_AFVIGELSE')
         with self.assertRaises(SheetError) as e:
-            pcs.check_kontrolark(text, m)
+            pcs.check_kontrolark(text, m, keys)
         self.assertEqual(str(e.exception).split()[0], 'SHEET_UNANSWERED')
+
+    def test_ark_skal_vaere_hele_stikproeven(self):
+        # Et afkortet, omordnet eller side-ændret ark er ikke den blinde stikprøve (Codex r1 #2).
+        m = manifest()
+        keys = ['I-1', 'I-12']
+        svar = pcs.render_kontrolark(m, keys).replace('K I-1 side 10 : ', 'K I-1 side 10 : 1 -').replace(
+            'K I-12 side 12 : ', 'K I-12 side 12 : 2 II')
+        for bad in ('\n'.join(l for l in svar.splitlines() if not l.startswith('K I-12')),
+                    svar.replace('K I-12 side 12', 'K I-12 side 11')):
+            with self.assertRaises(SheetError) as e:
+                pcs.check_kontrolark(bad, m, keys)
+            self.assertEqual(str(e.exception).split()[0], 'SHEET_SAMPLE_MISMATCH')
+        with self.assertRaises(SheetError) as e:
+            pcs.check_kontrolark(svar, m, ['I-12', 'I-1'])
+        self.assertEqual(str(e.exception).split()[0], 'SHEET_SAMPLE_MISMATCH')
 
 
 class TestTokenfil(unittest.TestCase):
     def test_grupper(self):
+        # Forælder-generation er ikke en godkendelsesgruppe (projektejeren 2026-10-27: står uafklaret i 5c-1).
         g = pcs.groups(manifest())
-        self.assertEqual([(x['kind'], x['record_keys']) for x in g],
-                         [('kuld', ['II-2', 'II-3', 'II-4', 'II-5']), ('foraelder_generation', ['II-5', 'II-6'])])
+        self.assertEqual([(x['kind'], x['record_keys']) for x in g], [('kuld', ['II-2', 'II-3', 'II-4', 'II-5'])])
 
     def test_token_uden_forudfyldte_svar(self):
         text = pcs.render_token(manifest())
         g = [l for l in text.splitlines() if l.startswith('G ')]
-        self.assertEqual(g, ['G kuld:header:1100 : ', 'G foraelder_generation:header:1100 : '])
+        self.assertEqual(g, ['G kuld:header:1100 : '])
+        self.assertIn('II-6', text)          # vises som uafklaret uden gruppe
 
     def test_godkendelser(self):
         m = manifest()
         text = pcs.render_token(m)
-        both = text.replace('G kuld:header:1100 : ', 'G kuld:header:1100 : J').replace(
-            'G foraelder_generation:header:1100 : ', 'G foraelder_generation:header:1100 : A')
-        sha = hashlib.sha256(both.encode()).hexdigest()
-        self.assertEqual(pcs.approvals(both, m, sha)['record_keys'], ['II-2', 'II-3', 'II-4', 'II-5', 'II-6'])
-        kun_kuld = both.replace('foraelder_generation:header:1100 : A', 'foraelder_generation:header:1100 : U')
-        # II-5 har begge årsager; den godkendes kun, når begge grupper godkendes.
-        self.assertEqual(pcs.approvals(kun_kuld, m, sha)['record_keys'], ['II-2', 'II-3', 'II-4'])
-        self.assertEqual(pcs.approvals(kun_kuld, m, sha)['sheet_sha256'], sha)
-        for bad, code in ((text, 'SHEET_UNANSWERED'), (both.replace(': J', ': A'), 'SHEET_TOKEN_NOT_ALLOWED')):
+        ja = text.replace('G kuld:header:1100 : ', 'G kuld:header:1100 : J')
+        sha = hashlib.sha256(ja.encode()).hexdigest()
+        # II-5 har også forælder-generation og godkendes derfor aldrig; II-6 har ingen godkendelig årsag.
+        self.assertEqual(pcs.approvals(ja, m, sha)['record_keys'], ['II-2', 'II-3', 'II-4'])
+        self.assertEqual(pcs.approvals(ja, m, sha)['sheet_sha256'], sha)
+        self.assertEqual(pcs.approvals(ja.replace(': J', ': N'), m, sha)['record_keys'], [])
+        for bad, code in ((text, 'SHEET_UNANSWERED'), (ja.replace(': J', ': A'), 'SHEET_TOKEN_NOT_ALLOWED')):
             with self.assertRaises(SheetError) as e:
                 pcs.approvals(bad, m, sha)
             self.assertEqual(str(e.exception).split()[0], code)

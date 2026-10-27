@@ -3,9 +3,10 @@
 Kontrolarket (K poster, fast seed) viser kun postens nøgle og side; projektejeren slår posten op i PDF'en og
 skriver selv slægtled (tal) og kuld (romertal eller -). `approvals` sammenligner med manifestet: én afvigelse
 stopper (KONTROL_AFVIGELSE). Token-filen samler de unresolved poster i grupper pr. slægtled og årsag, uden
-forudfyldte svar: kuld (J = ingen kuld-markør i slægtleddet, accepter uden kuld · N = lad stå) og forælder-
-generation (A = overskriften er rigtig, relationen undersøges separat · U = lad stå). `approvals` skriver
-afgørelsesfilen {sheet_sha256, kontrolark_sha256, record_keys}, som fix_150_placement.sql læser.
+forudfyldte svar: kuld (J = ingen kuld-markør i slægtleddet, accepter uden kuld · N = lad stå). Forælder-
+generation (barnet i forælderens slægtled) godkendes ikke her: posten står uafklaret i 5c-1 (projektejeren
+2026-10-27). `approvals` kræver, at kontrolarket er netop stikprøven (nøgler, rækkefølge, sider) og skriver
+afgørelsesfilen {manifest_sha256, sheet_sha256, kontrolark_sha256, record_keys}, som fix_150_placement.sql læser.
 Manifest, ark og token-fil hører under ~/.private (ægteskabsoverskrifter nævner levende); værktøjet printer kun tal.
 """
 from __future__ import annotations
@@ -21,9 +22,10 @@ from decision_sheet_core import SheetError
 from spouse_exception_sheet import _write_private, check_private_path
 
 QUOTA = {'slaegtled': 4, 'kuld': 4, 'laengste': 3, 'side': 2}
-GROUP_KINDS = {'uenig:kuld': 'kuld', 'uenig:foraelder_generation': 'foraelder_generation'}
-TOKENS = {'kuld': {'J', 'N'}, 'foraelder_generation': {'A', 'U'}}
-APPROVE = {'kuld': 'J', 'foraelder_generation': 'A'}
+# Kun disse årsager kan godkendes i token-filen; fix_150_placement.sql håndhæver samme liste (FIX150_PRE_APPROVALS).
+GROUP_KINDS = {'uenig:kuld': 'kuld'}
+TOKENS = {'kuld': {'J', 'N'}}
+APPROVE = {'kuld': 'J'}
 K_RE = re.compile(r'^K (?P<key>\S+) side (?P<page>\d+) : ?(?P<ans>.*)$')
 ANS_RE = re.compile(r'^(?P<gen>\d+) (?P<kuld>[IVX]+|-)$')
 G_RE = re.compile(r'^G (?P<kind>[a-z_]+):(?P<hid>header:\d+) : ?(?P<tok>\S*)\s*$')
@@ -84,7 +86,8 @@ def render_kontrolark(m: dict, keys: list[str]) -> str:
     return '\n'.join(out) + '\n'
 
 
-def check_kontrolark(text: str, m: dict) -> list[str]:
+def check_kontrolark(text: str, m: dict, expected: list[str]) -> list[str]:
+    """expected = stikprøven (sample(m, k, seed)); arket skal have netop de nøgler, i den rækkefølge, med sider."""
     by = {p['record_key']: p for p in m['placements']}
     keys = []
     for raw in text.splitlines():
@@ -93,6 +96,8 @@ def check_kontrolark(text: str, m: dict) -> list[str]:
         mm = K_RE.match(raw)
         if mm is None or mm['key'] not in by or by[mm['key']]['status'] != 'machine_ok' or mm['key'] in keys:
             raise SheetError('SHEET_LINE_INVALID')
+        if int(mm['page']) != by[mm['key']]['page']:
+            raise SheetError('SHEET_SAMPLE_MISMATCH')
         ans = mm['ans'].strip()
         if not ans:
             raise SheetError('SHEET_UNANSWERED')
@@ -103,8 +108,8 @@ def check_kontrolark(text: str, m: dict) -> list[str]:
         if int(a['gen']) != p['generation_local'] or (None if a['kuld'] == '-' else a['kuld']) != p['kuld_label']:
             raise SheetError(f"KONTROL_AFVIGELSE {mm['key']}")
         keys.append(mm['key'])
-    if not keys:
-        raise SheetError('SHEET_LINES_MISSING')
+    if keys != list(expected):
+        raise SheetError('SHEET_SAMPLE_MISMATCH')
     return keys
 
 
@@ -128,9 +133,7 @@ def render_token(m: dict) -> str:
     out = ['# ============ UAFKLAREDE PLACERINGER 2018-20 (#150) ============',
            '# Kun linjerne, der starter med »G«, kan ændres — skriv bogstavet efter kolonet. Alt med »#« er information.',
            '# KULD: legacy har et kuld fra forrige slægtled; overskrifterne giver intet kuld i dette slægtled.',
-           '#   J = slægtleddet har ingen kuld-markør før disse poster (accepter uden kuld) · N = lad stå uafklaret',
-           '# FORÆLDER-GENERATION: barnet står i samme slægtled som forælderen (forventet: ét slægtled lavere).',
-           '#   A = overskriften er rigtig, relationen undersøges separat (placering skrives) · U = lad stå uafklaret']
+           '#   J = slægtleddet har ingen kuld-markør før disse poster (accepter uden kuld) · N = lad stå uafklaret']
     for g in groups(m):
         h = hs.get(g['header_id'], {})
         p0 = by[g['record_keys'][0]]
@@ -139,8 +142,9 @@ def render_token(m: dict) -> str:
                      f"{', '.join(g['record_keys'])} (sider {by[g['record_keys'][0]]['page']}-{by[g['record_keys'][-1]]['page']})",
                 f"G {g['kind']}:{g['header_id']} : "]
     rest = [p['record_key'] for p in m['placements'] if p['status'] == 'unresolved'
-            and not any(r in GROUP_KINDS for r in p['reasons'])]
-    out += ['#', f'# Uafklarede uden gruppe (står uafklaret): {len(rest)}']
+            and not all(r in GROUP_KINDS for r in p['reasons'])]
+    out += ['#', f'# Står uafklaret uden afgørelse her ({len(rest)}; fx barn i forælderens slægtled — opfølgning): '
+                 + ', '.join(rest)]
     return '\n'.join(out) + '\n'
 
 
@@ -180,8 +184,9 @@ def main() -> int:
     for x in (r, a):
         x.add_argument('--manifest', required=True)
         x.add_argument('--private-root', default=str(Path.home() / '.private'))
-    r.add_argument('--k', type=int, default=20)
-    r.add_argument('--seed', type=int, default=150)
+    for x in (r, a):
+        x.add_argument('--k', type=int, default=20)
+        x.add_argument('--seed', type=int, default=150)
     r.add_argument('--out-kontrolark', required=True)
     r.add_argument('--out-token', required=True)
     for opt in ('--kontrolark', '--token', '--approved-token-sha256', '--out'):
@@ -201,9 +206,10 @@ def main() -> int:
         tok_sha = hashlib.sha256(tok).hexdigest()
         if tok_sha != args.approved_token_sha256:
             raise SheetError('SHEET_SHA_MISMATCH')
-        kontrol = check_kontrolark(ark.decode('utf-8'), m)
+        kontrol = check_kontrolark(ark.decode('utf-8'), m, sample(m, args.k, args.seed))
         res = approvals(tok.decode('utf-8'), m, tok_sha)
         res['kontrolark_sha256'] = hashlib.sha256(ark).hexdigest()
+        res['manifest_sha256'] = hashlib.sha256(Path(args.manifest).read_bytes()).hexdigest()
         _write_private(check_private_path(Path(args.out), root), json.dumps(res, sort_keys=True) + '\n')
     except SheetError as exc:
         print(str(exc).split(' ')[0])
