@@ -28,10 +28,10 @@ Hemmeligheder ligger i `~/.Renviron` / env-variabler — aldrig i kode eller git
 
 ## Datamodellens invarianter (SKAL respekteres)
 
-1. **Evidensbaseret.** Et forhold = uforanderlige **påstande** (én kildes udsagn, kildebundne) + én foranderlig **konklusion** ovenpå. Gælder fakta *og* relationer. Påstande overskrives aldrig — rettelse = ny påstand + ny konklusion.
+1. **Evidensbaseret.** Et forhold = uforanderlige **påstande** (én kildes udsagn, kildebundne) + én foranderlig **konklusion** ovenpå. Gælder fakta *og* relationer. Påstande overskrives aldrig — rettelse = ny påstand + ny konklusion. *Undtagelser:* OCR-rettelse (`red_ret_ocr_felt`) retter transskriptionen i stedet for at skabe en ny påstand; originalen bevares i `import_korrektion` og `change_event` (`docs/decisions.md` 2026-10-27, B12). `red_slet_oplysning` kan slette en påstand; importerede (`uforanderlig`) påstande spærres i reviewets trin B (1d.1-02).
 2. **Lille fast entitetssæt + én generisk, polymorf relation** (rolle + periode + kilde + konfidens; enhver entitet → enhver entitet). Nye behov bliver nye *rolle-/faktatyper* (data), ikke nye tabeller.
 3. **Alt er et faktum.** Events/attributter = `fact` på enhver entitet (også sted, ejendom, våben har egne tidslinjer).
-4. **Cache er en envejs-projektion.** `person.visning_*` og `person.koen` afledes af konklusioner — **redigér aldrig direkte**; regenereres når en konklusion ændres.
+4. **Cache er en envejs-projektion.** `person.visning_*` afledes af konklusioner — **redigér aldrig direkte**; regenereres når en konklusion ændres. (`person.koen` er en arbejdsværdi direkte på personen, jf. `datamodel-oversigt.md`, og skrives af `red_set_koen` — review 1b-12.)
 5. **Fuzzy datoer** = `(date_min, date_max)` + kvalifikator + rå tekst (gem altid originalen). Floruit (dokumenteret-aktiv span) ≠ levetid.
 6. **Narrativ vs. struktureret.** Lang biografisk prosa bevares ordret i `narrative` (fuldtekstsøgbar); strukturerede fakta udtrækkes *selektivt* — kun hvor de bærer rygrad, forbindelse eller funktion.
 7. **Konfidens på links.** `family_member.konfidens` (sikker/sandsynlig/formodet/omstridt) flager usikre slægtskaber; finderen skal *vise* usikkerhed, ikke skjule den.
