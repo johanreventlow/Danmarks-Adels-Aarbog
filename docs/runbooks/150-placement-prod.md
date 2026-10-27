@@ -22,7 +22,8 @@ AI'en har ingen prod-forbindelse.
    - slægten Reventlow `historical` → `active` under et eget change_set;
    - memberships (`member` + `agnatic`) for de placerede hovedpersoner med accepteret identitet, gennem promotions-RPC'en;
    - revalidering af hver publicering, der er blevet `stale_published`, med `red_revalider_person_narrative_record`
-     (én sætning pr. post via `\gexec`; `app.change_set_id` ryddes før hvert kald).
+     (én sætning pr. post via `\gexec`; `app.change_set_id` ryddes før hvert kald). Det er de publicerede poster, der
+     får placement (målt 498); de publicerede, der står uafklaret, ændrer ikke tilstand. Tallet udledes i transaktionen.
 
 Ingen læser ændres. Ceremonien hasher fem læsere før og efter i transaktionen og stopper ved forskel
 (`red_person_grid`, `red_match_personer`, `regen_person_visning`, `public_family_sources`,
@@ -36,9 +37,11 @@ Ingen læser ændres. Ceremonien hasher fem læsere før og efter i transaktione
    …/daa-2018-20-source-evidence-v1.json --legacy-json ~/.private/5c/legacy.json --out ~/.private/5c/manifest.json`.
    Alle seks invarianter skal være sande.
 3. `placement_control_sheet.py render --manifest ~/.private/5c/manifest.json --out-kontrolark ~/.private/5c/kontrolark.txt
-   --out-token ~/.private/5c/token.txt` → `ARK_OK kontrol=20 grupper=7`.
+   --out-token ~/.private/5c/token.txt` → `ARK_OK kontrol=20 grupper=6`.
 4. Projektejeren udfylder kontrolarket mod PDF'en (slægtled som tal, kuld som romertal eller `-`) og token-filen
-   (kuld: J/N, forælder-generation: A/U). Én afvigelse i kontrolarket stopper og sender opgaven tilbage til manifestet.
+   (6 kuld-grupper: J/N). Én afvigelse i kontrolarket stopper og sender opgaven tilbage til manifestet; arket skal
+   være netop stikprøven (nøgler, rækkefølge, sider). Poster, hvor barnet står i forælderens slægtled (V-82..V-92),
+   kan ikke godkendes og står uafklaret (projektejerens afgørelse 2026-10-27; opfølgning).
 5. `placement_control_sheet.py approvals --manifest … --kontrolark … --token … --approved-token-sha256 <sha>
    --out ~/.private/5c/approvals.json` → `APPROVALS_OK kontrol=20 godkendt=<n>`.
 6. Øv ceremonien på en stand-in med netop disse filer; `~/.private/5c/expect.json` får de målte antal
