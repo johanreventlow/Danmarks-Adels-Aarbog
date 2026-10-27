@@ -25,7 +25,11 @@ forekomst.
    11 børn i forælderens slægtled (V-82..V-92: mulig umarkeret slægtledsfald eller forkert relation; **står
    uafklaret i 5c-1** og kan ikke godkendes i token-filen — opfølgning).
 3. **Blind kontrolstikprøve** K=20 (stratificeret, fast seed): projektejeren skriver selv slægtled og kuld mod PDF'en;
-   arket skal være netop stikprøven, og én afvigelse stopper.
+   arket skal være netop stikprøven, og én afvigelse stopper. Udfyldt 2026-10-27 (20/20 efter én rettelse af en
+   forvekslet post, II-1). Arket blev aflæst i dialog med agenten, der anvendte reglens definition (kuld = romertal
+   alene på en linje; »X's børn med Y:« = ægteskabsoverskrift), så det bekræfter overskrifternes tilknytning, ikke
+   definitionen; projektejeren har efterfølgende bekræftet definitionen mod alle 20 poster og fravalgt en ny blind
+   stikprøve. Token-filen (6 × J) er projektejerens egen afgørelse.
 4. **Legacy-ledger** `private.legacy_placement_disposition`: tilføj-kun, én disposition pr. legacy-række
    (`mapped`/`retained_legacy`/`archived_by_editor`/`unresolved`) med værdi-hash; en senere ændring af legacy gør
    dispositionen forældet. Legacy røres ikke; `backfill_slaegtled.R` fryses for kilder med dispositioner.
