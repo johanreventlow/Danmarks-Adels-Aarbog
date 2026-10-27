@@ -1012,14 +1012,16 @@ BEGIN;
 \ir fixtures/relation-5b.sql
 \ir fixtures/relation-2a.sql
 DO $decision_family$
-DECLARE v_actor uuid:='11000000-0000-0000-0000-0000001d3b01'; s jsonb; m jsonb; m2 jsonb; par jsonb; par2 jsonb; pv jsonb;
-  items jsonb; v_mid uuid; v_m2 uuid; v_pid uuid; v_p2 uuid; v_fam bigint; v_pfam bigint; v_err text; v_batch uuid;
+DECLARE v_actor uuid:='11000000-0000-0000-0000-0000001d3b01'; s jsonb; m jsonb; m2 jsonb; m3 jsonb; par jsonb; par2 jsonb;
+  pv jsonb; items jsonb; v_mid uuid; v_m2 uuid; v_m3 uuid; v_pid uuid; v_p2 uuid; v_fam bigint; v_pfam bigint; v_err text;
+  v_batch uuid;
 BEGIN
   PERFORM pg_temp.f5b_actor(v_actor);
   INSERT INTO person(id,levende,privat,status) SELECT g,false,false,'1d3b' FROM generate_series(-31340,-31301) g;
   s:=pg_temp.f5b_source(-31301);
   m:=pg_temp.f2a_marriage(-31301,s,'D-1',-31301,-31302,v_actor,1,1);      -- flyttes
   m2:=pg_temp.f2a_marriage(-31301,s,'D-2',-31303,-31304,v_actor,1,1);     -- uændret
+  m3:=pg_temp.f2a_marriage(-31301,s,'D-3',-31312,-31313,v_actor,1,1);     -- afgørelse uden family_id
   par:=pg_temp.f2a_parent(-31301,s,-31305,-31306,-31307,v_actor);         -- flyttes
   par2:=pg_temp.f2a_parent(-31301,s,-31309,-31310,-31311,v_actor);        -- uændret
   SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
@@ -1032,6 +1034,7 @@ BEGIN
   SELECT id INTO v_m2 FROM private.interpretation_current WHERE interpretation_key=(m2->'claim'->>'key')::uuid;
   SELECT id INTO v_pid FROM private.interpretation_current WHERE interpretation_key=(par->'claim'->>'key')::uuid;
   SELECT id INTO v_p2 FROM private.interpretation_current WHERE interpretation_key=(par2->'claim'->>'key')::uuid;
+  SELECT id INTO v_m3 FROM private.interpretation_current WHERE interpretation_key=(m3->'claim'->>'key')::uuid;
   -- forudsætning: alle fire er accepteret for deres oprindelige familie og aldrig bundet
   IF (SELECT count(*) FROM private.interpretation i
        WHERE (i.id,(i.decision_evidence->>'family_id')::bigint) IN
@@ -1080,6 +1083,21 @@ BEGIN
   END LOOP;
   IF EXISTS (SELECT 1 FROM private.interpretation_promotion WHERE interpretation_id IN (v_mid,v_pid)) THEN
     RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: decision_family skrev en binding';
+  END IF;
+
+  -- en accepteret relation uden family_id i decision_evidence (familien ikke registreret ved afgørelsen, fx ældre
+  -- data) afvises med samme kode, selv om familien er uændret. Den ældre afgørelse simuleres ved at omgå
+  -- append-only-triggeren (kun i testen; rulles tilbage).
+  SET LOCAL session_replication_role=replica;
+  UPDATE private.interpretation SET decision_evidence=decision_evidence-'family_id' WHERE id=v_m3;
+  SET LOCAL session_replication_role=origin;
+  items:=jsonb_build_array(jsonb_build_object('interpretation_id',v_m3::text,'family_id',(m3->>'family')::bigint));
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_promotions(-31301,items);
+  RESET ROLE;
+  IF (private.relation_binding_state(v_m3)#>>'{family,family_id}')::bigint IS DISTINCT FROM (m3->>'family')::bigint
+     OR pv#>>'{items,0,reason_code}' IS DISTINCT FROM 'RELATION_PROMOTION_DECISION_FAMILY_CHANGED' THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: decision_family uden family_id %', pv;
   END IF;
 
   -- uændret familie binder fortsat (ægteskab og forælder)

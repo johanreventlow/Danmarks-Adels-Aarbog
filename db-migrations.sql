@@ -26390,7 +26390,8 @@ BEGIN
       WHEN (c.st#>>'{family,family_id}')::bigint<>c.family_id THEN 'RELATION_PROMOTION_FAMILY_MISMATCH'
       WHEN c.dup>1 THEN 'RELATION_PROMOTION_DUPLICATE_ITEM'
       -- Review trin B (1d.3b-01): afgørelsen gælder familien i decision_evidence; er strukturen siden flyttet til en
-      -- anden familie, kræver bindingen en ny afgørelse (som børnegrenens vagt i relation_binding_state).
+      -- anden familie, kræver bindingen en ny afgørelse (som børnegrenens vagt i relation_binding_state). Koden dækker
+      -- også »familie ikke registreret«: mangler family_id i decision_evidence, afvises bindingen (fail-closed).
       WHEN c.predicate IN ('relation.marriage','relation.parent')
        AND (c.st#>>'{family,family_id}')::bigint IS DISTINCT FROM (c.decision_evidence->>'family_id')::bigint
         THEN 'RELATION_PROMOTION_DECISION_FAMILY_CHANGED'
