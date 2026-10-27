@@ -76,6 +76,8 @@ sætter `model` eksplicit. Workflow-værktøjet bruges ikke uden et særskilt ja
 | 0c | `systemkort.md` | Sonnet | Pr. trin (og forarbejdet fra sommeren: datamodel, første importer, 1939 C0-C3): mål ifølge roadmap, specs, planer, hovedfiler i kode og SQL, tests og CI-job, bevisrapporter, runbooks, prod-status (fra `status.md` og `database-current-state.md`) og åbne issues. |
 | 0d | `udestaaende-raa.md` | Sonnet | Rå indsamling uden vurdering: `status.md`, åben backlog i `decisions.md`, ledgernes `minor (deferred)`, bevisrapporternes »kendte begrænsninger«, åbne GitHub-issues og de kendte punkter i hukommelsen (P-identiteten bag 1314, ordinal-rodfejlen, personoprettelse kun syntetisk bevist). |
 
+| 0e | `leverancetidslinje.md` | hovedsessionen med scripts | Tilføjet 2026-10-27 efter et sidenotat: hvad der *faktisk blev lavet* pr. uge (changelog-overskrifter, titler på mergede PR'er, commits pr. scope). Uden den kan 1a kun se nedskrevne beslutninger, ikke glidning, som ingen besluttede. |
+
 0b, 0c og 0d skriver hver til sin egen mappe i scratchpad. Hovedsessionen samler og committer. **Kontrolpunkt 1:**
 Projektejeren ser oversigterne, før fase 1 bruger tokens.
 
@@ -83,7 +85,7 @@ Projektejeren ser oversigterne, før fase 1 bruger tokens.
 
 | # | Spor | Model | Input |
 |---|---|---|---|
-| 1a | Beslutningssporet (spørgsmål 5) | Opus | 0b + `vision.md`/`roadmap.md` + de citerede kilder ved behov |
+| 1a | Beslutningssporet (spørgsmål 5) | Opus | 0b + 0e (sammenlign det lavede med det besluttede) + `vision.md`/`roadmap.md` + de citerede kilder ved behov |
 | 1b | SQL-kvalitet (spørgsmål 1-2) | Opus | 0a + `schema.sql`/`db-migrations.sql`/`db-verify.sql`/`db-rls.sql`, med 0c som vejviser |
 | 1c | Python/R-kvalitet og tests (spørgsmål 1-2) | Opus | 0a + `.claude/skills/daa-*/scripts/` + `tests/`, med 0c som vejviser |
 | 1d | Adversarial kodereview | Codex (model-id verificeres i runtime før kaldet; projektejeren nævner 6.1 terra) | Samme filer som 1b og 1c, uden 1b/1c's fund, så blikket er uafhængigt |
