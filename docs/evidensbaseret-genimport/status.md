@@ -57,8 +57,9 @@ Tilladte tilstande: `specificeret`, `isoleret implementeret`, `integreret ende-t
 
 Seneste restorepunkt: dumpet før 5c-1, `daa-prod-20261027124656-150.dump` (sha `df49373f…`;
 `database-current-state.md` §13). Fortrydelse sker efter gate 8 som omformuleret 2026-10-27 (B1): en særskilt
-handling eller restore inden for et deklareret vindue. B1's betingelse — to kopier, hash noteret, tjek som første
-skridt — er ikke kontrolleret for dette dump.
+handling eller restore inden for et deklareret vindue. B1's betingelse — to kopier (den eksterne krypteret og under
+projektejerens kontrol), hash noteret, tjek som første skridt — er ikke kontrolleret for dette dump. **Åbent:** hvor
+den krypterede eksterne kopi skal ligge, er ikke besluttet.
 
 ## Parkeret
 

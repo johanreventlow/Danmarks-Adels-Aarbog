@@ -160,7 +160,8 @@ Gaterne anvendes i denne rækkefølge:
    særskilt, auditeret handling med eget write-set *eller* som restore af et dateret
    dump inden for et deklareret vindue. Vinduet lukkes udtrykkeligt, og alt skrevet i
    vinduet efter dumpet er kendt tab. Ved restore-fortrydelse findes dumpet i to
-   kopier (én uden for maskinen), hashen er noteret i `docs/database-current-state.md`,
+   kopier (én uden for maskinen, krypteret og under projektejerens kontrol, fordi
+   dumpet rummer levende personer), hashen er noteret i `docs/database-current-state.md`,
    og »dump findes og hash passer« er første skridt i ceremonien (decisions
    2026-10-27, B1).
 

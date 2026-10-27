@@ -16,7 +16,9 @@ resultatet (1a-03). Beslutningerne nedenfor lukker eller udskyder det, før trin
 1. **B1 — gate 8 omformuleres:** fortrydelse er enten en særskilt, auditeret handling med eget write-set *eller*
    restore af et dateret dump inden for et deklareret vindue, som lukkes udtrykkeligt. Betingelse (2-06): hvert
    restorepunkt findes i to kopier (én uden for maskinen), hashen noteres i `database-current-state.md`, og »dump
-   findes og hash passer« er første skridt i enhver ceremoni. *Formaliserer* restore-only-posterne 2026-09-17,
+   findes og hash passer« er første skridt i enhver ceremoni. Dumpet indeholder levende personer (invariant 8):
+   kopien uden for maskinen skal være **krypteret** og ligge et sted, projektejeren selv kontrollerer (fx et krypteret
+   eksternt drev) — aldrig ukrypteret hos en skytjeneste. Stedet vælges, før reglen bruges første gang. *Formaliserer* restore-only-posterne 2026-09-17,
    2026-09-23 og deres efterfølgere (1a-04: ni steder).
 2. **B2 — genspilspakken droppes som standard:** prod-skrivning sker i 5c-1's form (frisk dump → kørsel mod prod med
    `--jeg-mener-det` → før/efter-måling med nøglede digests). Indholds-id'erne (2026-10-21) beholdes. *Afløser*
