@@ -18,7 +18,13 @@ resultatet (1a-03). Beslutningerne nedenfor lukker eller udskyder det, før trin
    restorepunkt findes i to kopier (én uden for maskinen), hashen noteres i `database-current-state.md`, og »dump
    findes og hash passer« er første skridt i enhver ceremoni. Dumpet indeholder levende personer (invariant 8):
    kopien uden for maskinen skal være **krypteret** og ligge et sted, projektejeren selv kontrollerer (fx et krypteret
-   eksternt drev) — aldrig ukrypteret hos en skytjeneste. Stedet vælges, før reglen bruges første gang. *Formaliserer* restore-only-posterne 2026-09-17,
+   eksternt drev) — aldrig ukrypteret hos en skytjeneste. **Valgt 2026-10-27:** projektejerens SFTP-server hos en
+   udbyder. Dumpet krypteres lokalt med `age` før upload (`<dump>.age`); den hemmelige nøgle ligger kun hos
+   projektejeren (adgangskodemanager / `~/.private/`), aldrig på serveren, så udbyderen kun ser krypterede bytes.
+   Serverens adresse og login ligger i `~/.private/`, ikke i repoet. Hashen noteres for både dumpet og `.age`-filen;
+   ceremoniens første skridt tjekker den lokale kopi og den eksterne fils størrelse og hash. Én prøvegendannelse
+   (hent, dekryptér, `pg_restore --list`) udføres, før reglen bruges første gang. Scriptet bygges med trin B's
+   ceremoni. *Formaliserer* restore-only-posterne 2026-09-17,
    2026-09-23 og deres efterfølgere (1a-04: ni steder).
 2. **B2 — genspilspakken droppes som standard:** prod-skrivning sker i 5c-1's form (frisk dump → kørsel mod prod med
    `--jeg-mener-det` → før/efter-måling med nøglede digests). Indholds-id'erne (2026-10-21) beholdes. *Afløser*
