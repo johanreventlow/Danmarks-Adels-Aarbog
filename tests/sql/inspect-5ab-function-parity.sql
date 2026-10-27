@@ -2,7 +2,9 @@
 -- frisk base (schema.sql) og en migreret base (db-migrations.sql). Én linje pr. funktion; antallet tjekkes af kalderen,
 -- så en manglende funktion ikke giver en tom og dermed falsk ens diff.
 -- Review-handling A3 (fund 1b-01/1b-02, B9): også de 17 RED-8-funktioner (id-tildeling via DEFAULT i stedet for
--- max(id)+1), så schema.sql ikke igen kan halte efter migrationerne her. I alt 13 + 17 = 30 linjer.
+-- max(id)+1), så schema.sql ikke igen kan halte efter migrationerne her.
+-- Review-handling trin B (blokken review-trin-b): også preview_relation_promotions, red_slet_oplysning og
+-- regen_person_visning (red_edit_oplysning er allerede med under RED-8). I alt 13 + 17 + 3 = 33 linjer.
 \set ON_ERROR_STOP on
 SELECT l FROM (
   SELECT p.oid::regprocedure::text||'|'||p.prosecdef||'|'||coalesce(array_to_string(p.proconfig,','),'')||'|'||
@@ -22,5 +24,7 @@ SELECT l FROM (
      ('public','red_opret_story'),('public','red_set_story_kilder'),('public','red_set_feed_pin'),
      ('public','begin_change_set'),('public','log_change'),('public','_ensure_foraeldrefamilie_redaktionel'),
      ('public','red_opret_fakta'),('public','red_upsert_fakta'),('public','red_tilfoej_oplysning'),
-     ('public','red_edit_oplysning'),('public','red_tilfoej_foraeldre_paastand'))) x
+     ('public','red_edit_oplysning'),('public','red_tilfoej_foraeldre_paastand'),
+     -- review-trin-b
+     ('private','preview_relation_promotions'),('public','red_slet_oplysning'),('public','regen_person_visning'))) x
  ORDER BY l COLLATE "C";
