@@ -2678,8 +2678,11 @@ RETURNS bigint LANGUAGE sql STABLE SET search_path=pg_catalog,public,private AS 
       FROM p
       JOIN private.source_observation o ON o.extraction_run_id=p.run
       JOIN private.source_record_occurrence occ ON occ.id=o.occurrence_id AND occ.rendition_id=p.rend
+                                              AND occ.extraction_run_id=p.run
       JOIN lv ON lv.kind=o.observation_kind
-     WHERE o.char_from<p.post_from
+     -- Kun strukturelle (uankrede) overskrifter, der slutter før posten (Codex r1 #4).
+     WHERE occ.char_to<=p.post_from
+       AND NOT EXISTS (SELECT 1 FROM private.source_record_anchor_event ev WHERE ev.occurrence_id=occ.id)
   ), nearest AS (
     SELECT DISTINCT ON (h.pid,h.level) h.* FROM h ORDER BY h.pid,h.level,h.char_from DESC
   ), expected AS (

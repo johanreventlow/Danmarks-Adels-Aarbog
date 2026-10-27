@@ -188,5 +188,32 @@ BEGIN
   END IF;
 END $udeladt_slaegtled$;
 
+-- Codex r1 #4: en ankret forekomst eller en overskrift, der overlapper posten, er ikke en strukturel overskrift før posten
+-- og må ikke regnes som »nærmeste« (en placement, der udelader den, er korrekt).
+DO $anker_og_overlap$
+DECLARE f jsonb; v_l uuid; v_s uuid; v_p uuid; v_rec uuid; r uuid; h uuid;
+BEGIN
+  f:=pg_temp.f150_setup(-1511); r:=(f#>>'{src,rend}')::uuid; h:=(f->>'hrun')::uuid;
+  v_l:=pg_temp.f150_header(r,h,'header_linje',100,'I DEN TESTSKE LINJE');
+  v_s:=pg_temp.f150_header(r,h,'header_slaegtled',600,'Andet slægtled');
+  INSERT INTO private.source_record(source_id,record_key,record_kind,created_run_id)
+    VALUES (-1511,'I-0','person_post',h) RETURNING id INTO v_rec;
+  INSERT INTO private.source_record_anchor_event(occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name)
+    SELECT o.occurrence_id,v_rec,'accepted','{"fixture":"150"}',1,(f->>'actor')::uuid,'fixture' FROM private.source_observation o WHERE o.id=v_s;
+  v_p:=pg_temp.f150_place(f,v_l);
+  PERFORM pg_temp.f150_accept(v_p,jsonb_build_object('linje',v_l));
+  IF private.placement_header_violations(-1511)<>0 THEN
+    RAISE EXCEPTION 'PLACEMENT_HEADER_TEST_FAILED: ankret slægtledsforekomst regnet som nærmeste';
+  END IF;
+  f:=pg_temp.f150_setup(-1512); r:=(f#>>'{src,rend}')::uuid; h:=(f->>'hrun')::uuid;
+  v_l:=pg_temp.f150_header(r,h,'header_linje',100,'I DEN TESTSKE LINJE');
+  PERFORM pg_temp.f150_header(r,h,'header_slaegtled',990,'Overlappende slægtled');
+  v_p:=pg_temp.f150_place(f,v_l);
+  PERFORM pg_temp.f150_accept(v_p,jsonb_build_object('linje',v_l));
+  IF private.placement_header_violations(-1512)<>0 THEN
+    RAISE EXCEPTION 'PLACEMENT_HEADER_TEST_FAILED: overskrift, der overlapper posten, regnet som nærmeste';
+  END IF;
+END $anker_og_overlap$;
+
 \echo PLACEMENT_HEADER_TEST_OK
 ROLLBACK;
