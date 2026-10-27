@@ -19,18 +19,25 @@ q -d "$db" -f db-rls.sql >/dev/null
 [ "$(v "$db" "SELECT public.narrative_record_contract_version()")" = "2" ] || fail "kontrakt v2"
 
 M=tests/sql/fixtures/manifest-150.json
-echo '{"sheet_sha256":"'"$(printf x | shasum -a 256 | cut -c1-64)"'","record_keys":[]}' > "$tmp/ingen.json"
-echo '{"sheet_sha256":"'"$(printf y | shasum -a 256 | cut -c1-64)"'","record_keys":["I-3"]}' > "$tmp/i3.json"
 sha() { shasum -a 256 "$1" | cut -c1-64; }
-# ceremoni <base> <afgørelsesfil> <placements> <revalideret> [memberships] → stdout+stderr til $tmp/<base>.out
+ms=$(sha "$M")
+echo '{"manifest_sha256":"'"$ms"'","sheet_sha256":"'"$(printf x | shasum -a 256 | cut -c1-64)"'","record_keys":[]}' > "$tmp/ingen.json"
+echo '{"manifest_sha256":"'"$ms"'","sheet_sha256":"'"$(printf y | shasum -a 256 | cut -c1-64)"'","record_keys":["I-3"]}' > "$tmp/i3.json"
+# Negativer for afgørelsesfilen: en ikke-godkendelig årsag (forælder-generation) og et andet manifest.
+sed 's/"reasons":\["uenig:kuld"\]/"reasons":["uenig:foraelder_generation"]/' "$M" > "$tmp/m-foraelder.json"
+echo '{"manifest_sha256":"'"$(sha "$tmp/m-foraelder.json")"'","sheet_sha256":"'"$(printf y | shasum -a 256 | cut -c1-64)"'","record_keys":["I-3"]}' > "$tmp/i3-foraelder.json"
+echo '{"manifest_sha256":"'"$(printf z | shasum -a 256 | cut -c1-64)"'","sheet_sha256":"'"$(printf y | shasum -a 256 | cut -c1-64)"'","record_keys":[]}' > "$tmp/andet-manifest.json"
+# ceremoni <base> <afgørelsesfil> <placements> <revalideret> [memberships] [bindinger] → stdout+stderr til $tmp/<base>.out
+# (manifestet kan skiftes med MF=<fil>)
 ceremoni() {
+  local mf=${MF:-$M}
   env -u PGOPTIONS psql -X -At -v ON_ERROR_STOP=1 -d "$1" -v actor=a1500000-0000-0000-0000-000000000150 -v src=-1550 \
-    -v manifest_path="$M" -v approvals_path="$2" -v manifest_sha="$(sha "$M")" -v approvals_sha="$(sha "$2")" -v go=deadbeef \
+    -v manifest_path="$mf" -v approvals_path="$2" -v manifest_sha="$(sha "$mf")" -v approvals_sha="$(sha "$2")" -v go=deadbeef \
     -v rendition_sha="$(printf '2%.0s' {1..64})" -v expect_headers=3 -v expect_placements="$3" -v expect_published=2 \
-    -v expect_bindings=3 -v expect_ledger=5 -v expect_revalidated="$4" -v expect_memberships="${5:-2}" -f $S/fix_150_placement.sql > "$tmp/$1.out" 2>&1
+    -v expect_bindings="${6:-3}" -v expect_ledger=5 -v expect_revalidated="$4" -v expect_memberships="${5:-2}" -f $S/fix_150_placement.sql > "$tmp/$1.out" 2>&1
 }
 fase() { env -u PGOPTIONS psql -X -At -v ON_ERROR_STOP=1 -v src=-1550 -d "$1" -f $S/fix_150_maal.sql | tail -1; }
-for c in neg go genk human fortryd; do createdb -T "$db" "${db}_$c"; done
+for c in neg go genk human fortryd appr appr2 bind; do createdb -T "$db" "${db}_$c"; done
 
 # FIX150_PRE_IDENTITY: identiteten på den unresolved post (I-3, draft) peger på en anden person end bindingen → stop
 # før skrivning.
@@ -54,6 +61,34 @@ SQL
 if ceremoni "${db}_neg" "$tmp/ingen.json" 3 2; then fail "manipuleret identitet godtaget"; fi
 grep -q 'FIX150_PRE_IDENTITY' "$tmp/${db}_neg.out" || fail "forventede FIX150_PRE_IDENTITY: $(grep -o 'FIX150_[A-Z_]*' "$tmp/${db}_neg.out" | head -1)"
 [ "$(fase "${db}_neg")" = "FIX150 ddl=efter fase=foer" ] || fail "negativen skrev"
+
+# FIX150_PRE_APPROVALS: kun uenig:kuld kan godkendes (Codex r1 #1), og afgørelsesfilen skal høre til manifestet.
+if MF="$tmp/m-foraelder.json" ceremoni "${db}_appr" "$tmp/i3-foraelder.json" 4 2 3; then fail "forælder-generation godkendt"; fi
+grep -q 'FIX150_PRE_APPROVALS' "$tmp/${db}_appr.out" || fail "forventede FIX150_PRE_APPROVALS (årsag)"
+if ceremoni "${db}_appr2" "$tmp/andet-manifest.json" 3 2; then fail "afgørelsesfil til andet manifest godtaget"; fi
+grep -q 'FIX150_PRE_APPROVALS' "$tmp/${db}_appr2.out" || fail "forventede FIX150_PRE_APPROVALS (manifest)"
+
+# FIX150_PRE_IDENTITY pr. binding (Codex r1 #5): en binding uden accepteret hovedperson-identitet stopper, også når
+# den samlede optælling (her 2 = expect_bindings) ville passe.
+q -d "${db}_bind" >/dev/null <<'SQL'
+BEGIN;
+WITH p AS (SELECT spm.persona_id, i.version FROM private.source_record sr
+             JOIN private.source_record_anchor_current ac ON ac.source_record_id=sr.id
+             JOIN private.source_observation o ON o.occurrence_id=ac.occurrence_id AND o.parent_observation_id IS NULL
+             JOIN private.source_mention sm ON sm.observation_id=o.id
+             JOIN private.source_persona_mention spm ON spm.mention_id=sm.id AND spm.mention_role='primary'
+             JOIN private.source_persona_identity i ON i.source_persona_id=spm.persona_id
+            WHERE sr.source_id=-1550 AND sr.record_key='I-3')
+INSERT INTO private.source_persona_identity_event(source_persona_id,canonical_person_id,decision_status,version,evidence,
+  decided_by,decided_by_name,decided_at)
+SELECT persona_id,NULL,'proposed',version+1,'{"fixture":"bind"}',NULL,NULL,NULL FROM p;
+UPDATE private.source_persona_identity i SET canonical_person_id=NULL,decision_status='proposed',version=e.version,
+  evidence='{"fixture":"bind"}',decided_by=NULL,decided_by_name=NULL,decided_at=NULL FROM private.source_persona_identity_event e
+ WHERE e.source_persona_id=i.source_persona_id AND e.evidence='{"fixture":"bind"}';
+COMMIT;
+SQL
+if ceremoni "${db}_bind" "$tmp/ingen.json" 3 2 2 2; then fail "binding uden identitet godtaget"; fi
+grep -q 'FIX150_PRE_IDENTITY' "$tmp/${db}_bind.out" || fail "forventede FIX150_PRE_IDENTITY (binding uden identitet): $(grep -o 'FIX150_[A-Z_]*' "$tmp/${db}_bind.out" | head -1)"
 
 # $revalider_to_i_traek$: to publicerede revalideres i samme transaktion; begge published, 0 stale; ledger 5 gældende;
 # memberships for de 2 egnede; I-4 (ingen persona) får record-placement, men ingen membership.

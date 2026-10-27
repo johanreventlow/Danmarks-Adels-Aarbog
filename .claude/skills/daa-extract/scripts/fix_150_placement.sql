@@ -87,10 +87,15 @@ BEGIN
      OR (SELECT count(*) FROM jsonb_each(m->'invariants'))<6 THEN
     RAISE EXCEPTION 'FIX150_PRE_INVARIANTS';
   END IF;
-  IF jsonb_typeof(a->'record_keys')<>'array'
+  -- Afgørelsesfilen hører til netop dette manifest, og en godkendt post er unresolved med kun godkendelige årsager
+  -- (uenig:kuld; samme liste som placement_control_sheet.py — forælder-generation står uafklaret, Codex r1 #1).
+  IF jsonb_typeof(a->'record_keys')<>'array' OR a->>'manifest_sha256' IS DISTINCT FROM current_setting('fix150.manifest_sha')
      OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(a->'record_keys') k
                  WHERE NOT EXISTS (SELECT 1 FROM jsonb_array_elements(m->'placements') p
-                                    WHERE p->>'record_key'=k AND p->>'status'='unresolved')) THEN
+                                    WHERE p->>'record_key'=k AND p->>'status'='unresolved'
+                                      AND jsonb_array_length(p->'reasons')>0
+                                      AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(p->'reasons') r
+                                                       WHERE r<>'uenig:kuld'))) THEN
     RAISE EXCEPTION 'FIX150_PRE_APPROVALS';
   END IF;
   -- Renditionen: præcis én for kilden med det bundne indhold.
@@ -103,28 +108,26 @@ BEGIN
     BEGIN PERFORM private.lineage_of_entry(v_entry);
     EXCEPTION WHEN OTHERS THEN RAISE EXCEPTION 'FIX150_PRE_LINEAGE entry %', v_entry; END;
   END LOOP;
-  -- Identitet = binding for ALLE bindinger med accepteret hovedperson-identitet, uanset manifeststatus (spec §4.5;
-  -- en placement for en post, hvis identitet peger på en anden person, ville blokere bindingen).
-  SELECT count(*) INTO v_n
+  -- Identitet = binding for ALLE bindinger, uanset manifeststatus (spec §4.5; en placement for en post, hvis identitet
+  -- peger på en anden person, ville blokere bindingen): hver binding har præcis én accepteret hovedperson-identitet,
+  -- og den er bindingens person (pr. binding, ikke som samlet optælling — Codex r1 #5).
+  CREATE TEMP TABLE fix150_binding ON COMMIT DROP AS
+  SELECT b.id AS binding_id, n.subjekt_id AS person_id,
+         count(i.source_persona_id) AS identiteter,
+         count(i.source_persona_id) FILTER (WHERE i.canonical_person_id IS DISTINCT FROM n.subjekt_id) AS andre
     FROM private.narrative_record_publication b
     JOIN public.narrative n ON n.id=b.narrative_id AND n.source_id=v_src AND n.subjekt_type='person'
-    JOIN private.source_record_anchor_current ac ON ac.source_record_id=b.source_record_id AND ac.decision_status='accepted'
-    JOIN private.source_observation o ON o.occurrence_id=ac.occurrence_id AND o.parent_observation_id IS NULL
-    JOIN private.source_mention sm ON sm.observation_id=o.id
-    JOIN private.source_persona_mention spm ON spm.mention_id=sm.id AND spm.mention_role='primary'
-    JOIN private.source_persona_identity i ON i.source_persona_id=spm.persona_id AND i.decision_status='accepted';
-  IF v_n<>(e->>'bindings')::bigint THEN RAISE EXCEPTION 'FIX150_PRE_BINDINGS n=%', v_n; END IF;
-  IF EXISTS (
-    SELECT 1 FROM private.narrative_record_publication b
-      JOIN public.narrative n ON n.id=b.narrative_id AND n.source_id=v_src AND n.subjekt_type='person'
-      JOIN private.source_record_anchor_current ac ON ac.source_record_id=b.source_record_id AND ac.decision_status='accepted'
-      JOIN private.source_observation o ON o.occurrence_id=ac.occurrence_id AND o.parent_observation_id IS NULL
-      JOIN private.source_mention sm ON sm.observation_id=o.id
-      JOIN private.source_persona_mention spm ON spm.mention_id=sm.id AND spm.mention_role='primary'
-      JOIN private.source_persona_identity i ON i.source_persona_id=spm.persona_id AND i.decision_status='accepted'
-     WHERE i.canonical_person_id IS DISTINCT FROM n.subjekt_id) THEN
-    RAISE EXCEPTION 'FIX150_PRE_IDENTITY';
+    LEFT JOIN private.source_record_anchor_current ac ON ac.source_record_id=b.source_record_id AND ac.decision_status='accepted'
+    LEFT JOIN private.source_observation o ON o.occurrence_id=ac.occurrence_id AND o.parent_observation_id IS NULL
+    LEFT JOIN private.source_mention sm ON sm.observation_id=o.id
+    LEFT JOIN private.source_persona_mention spm ON spm.mention_id=sm.id AND spm.mention_role='primary'
+    LEFT JOIN private.source_persona_identity i ON i.source_persona_id=spm.persona_id AND i.decision_status='accepted'
+   GROUP BY b.id, n.subjekt_id;
+  IF EXISTS (SELECT 1 FROM fix150_binding WHERE identiteter<>1 OR andre<>0) THEN
+    RAISE EXCEPTION 'FIX150_PRE_IDENTITY n=%', (SELECT count(*) FROM fix150_binding WHERE identiteter<>1 OR andre<>0);
   END IF;
+  SELECT count(*) INTO v_n FROM fix150_binding;
+  IF v_n<>(e->>'bindings')::bigint THEN RAISE EXCEPTION 'FIX150_PRE_BINDINGS n=%', v_n; END IF;
   -- Publiceringstilstand før: præcis de forventede publicerede, alle tilladte, ingen forældede.
   INSERT INTO fix150_foer
   SELECT pe.record_key, pe.person_id, s->>'publication_status', s->>'eligibility_status', (s->>'blocking_reason') IS NOT NULL
@@ -281,7 +284,11 @@ DO $post$
 DECLARE v_src bigint:=current_setting('fix150.src')::bigint; e jsonb:=current_setting('fix150.expect')::jsonb; v_n bigint;
 BEGIN
   IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN RAISE EXCEPTION 'FIX150_POST_GUC'; END IF;
-  IF current_setting('fix150.reval')::bigint<>(e->>'revalidated')::bigint THEN
+  -- Revalideret = de publicerede poster, der fik placement (de øvrige ændrer ikke tilstand; spec §4.5 efter
+  -- projektejerens afgørelse 2026-10-27); tallet udledes her og skal også svare til det forventede.
+  IF current_setting('fix150.reval')::bigint<>(e->>'revalidated')::bigint
+     OR current_setting('fix150.reval')::bigint<>(SELECT count(*) FROM fix150_foer f JOIN fix150_post p USING (record_key)
+                                                   WHERE f.status='published') THEN
     RAISE EXCEPTION 'FIX150_POST_REVALIDATED n=%', current_setting('fix150.reval'); END IF;
   -- Publiceringer: samme antal publicerede, ingen forældede, ingen nye blokeringer, uændret eligibility pr. post.
   CREATE TEMP TABLE fix150_efter ON COMMIT DROP AS
