@@ -38,6 +38,26 @@ LINJE_NAME = re.compile(r'^[A-ZÆØÅ0-9 .]*\bLINJEN?\b[A-ZÆØÅ0-9 .]*$')
 SLGT_RE    = re.compile(r'^\s*(\w+)(?:\s*\((\w+)\))?\s+slægtled\s*$', re.I)
 MARR_RE    = re.compile(r'^\s*((?:af [\w ]+ ægteskab )?med .+):[\s\-–—]*$', re.I)
 NOISE_RE   = re.compile(r'^\s*(von\s+R\s*E.*|Ridder\s+.+sønner)\s*$', re.I)
+# Støjreglen er versioneret pr. udgaveprofil (A6b, decisions 2026-10-27/-28).
+# 'anywhere' (v1) fjerner NOISE_RE-linjer overalt og er frosset, så 149a-,
+# klausul- og header-manifester kan genbygges. Den fjernede også 12 prosalinjer
+# midt på en side (»… von Reventlow …«). 'page_header' (v2) fjerner kun en
+# NOISE_RE-linje, der er første ikke-tomme linje efter ### PAGE: et sidehoved.
+NOISE_RULES = ('anywhere', 'page_header')
+
+
+def is_noise(lines, i, rule):
+    """Er lines[i] støj efter støjreglen `rule`?"""
+    if rule not in NOISE_RULES:
+        raise ValueError(f'ukendt støjregel: {rule!r}')
+    if not NOISE_RE.match(lines[i]):
+        return False
+    if rule == 'anywhere':
+        return True
+    k = i - 1
+    while k >= 0 and not lines[k].strip():
+        k -= 1
+    return k >= 0 and bool(PAGE_RE.match(lines[k]))
 
 # 1939 har en anden typografi og dermed andre sikre grænser. Regexerne bor
 # samlet i udgaveprofilen nedenfor; de må ikke "forbedre" 2018-20-matchene.
@@ -149,11 +169,11 @@ def flush(posts, cur):
         posts.append(cur)
 
 
-def significant(lines, k):
+def significant(lines, k, noise_rule='anywhere'):
     """Indeks for første betydende linje fra k (spring blanke/støj/page over)."""
     while k < len(lines):
         ln = lines[k]
-        if not (PAGE_RE.match(ln) or not ln.strip() or NOISE_RE.match(ln)
+        if not (PAGE_RE.match(ln) or not ln.strip() or is_noise(lines, k, noise_rule)
                 or LINJE_NAME.search(ln)):
             return k
         k += 1
@@ -199,7 +219,7 @@ def _segment_2018_20(lines, profile):
                 cur['_pages'].append(page)
             i += 1; continue
 
-        if not line.strip() or NOISE_RE.match(line):
+        if not line.strip() or is_noise(lines, i, profile['noise_rule']):
             i += 1; continue
 
         if LINJE_NAME.search(line):          # gren-header uden forudgående romertal
@@ -211,7 +231,7 @@ def _segment_2018_20(lines, profile):
         m = ROMAN_RE.match(line)
         if m:
             roman = m.group(1)
-            j = significant(lines, i + 1)
+            j = significant(lines, i + 1, profile['noise_rule'])
             # romertal er en LINJE kun hvis selve header-teksten lige fulgte;
             # ellers er det en kuld-markør (forælder-enumerering)
             nxt = lines[i + 1] if i + 1 < len(lines) else ''
@@ -917,6 +937,7 @@ UDGAVE_PROFILER = {
         'filter_page_noise': False,
         'post_requires_spaerret_navn': False,
         'lokal_id_dele': ('linje', 'nr_label'),
+        'noise_rule': 'anywhere',
     },
     '1939': {
         'segmenter': _segment_1939,
@@ -961,6 +982,13 @@ UDGAVE_PROFILER['1939-v2'] = {
     'base_profile': UDGAVE_PROFILER['1939'],
     'lokal_id_dele_unummereret':
         ('linje', 'slaegtled', 'afsnit?', 'U-position'),
+}
+
+# 2018-20-v2 (A6b) adskiller sig KUN ved støjreglen: sidehoveder fjernes, prosa
+# midt på en side bevares. '2018-20' er CLI-default og forbliver v1.
+UDGAVE_PROFILER['2018-20-v2'] = {
+    **UDGAVE_PROFILER['2018-20'],
+    'noise_rule': 'page_header',
 }
 
 
@@ -1051,7 +1079,8 @@ if __name__ == '__main__':
           and sys.argv[4] == '--emit-evidence-ledger'):
         main(sys.argv[1], udgave=sys.argv[3], emit_evidence_ledger=sys.argv[5])
     elif (len(sys.argv) == 4 and sys.argv[2] == '--udgave'
-          and sys.argv[3] in ('1939', '1939-v2')):
+          and sys.argv[3] in ('1939', '1939-v2', '2018-20-v2')):
         main(sys.argv[1], udgave=sys.argv[3])
     else:
-        sys.exit('brug: segment.py raw.txt [--udgave 1939|1939-v2] [--emit-evidence-ledger ledger.json] > posts.json')
+        sys.exit('brug: segment.py raw.txt [--udgave 1939|1939-v2|2018-20-v2] '
+                 '[--emit-evidence-ledger ledger.json] > posts.json')
