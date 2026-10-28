@@ -1,6 +1,6 @@
 # Evidensbaseret genimport — aktuel status
 
-**Snapshot 2026-10-28**, efter reviewets trin B i prod (efter trin 5c-1 og helhedsreviewet af trin 1-5,
+**Snapshot 2026-10-28**, efter A6b i prod (efter reviewets trin B, trin 5c-1 og helhedsreviewet af trin 1-5,
 [rapport](../reviews/2026-10-27-trin-1-5/rapport.md)). Dokumentet **overskrives** ved hvert trinskifte og hver
 prod-ændring; der skrives ikke tillæg (opdateringsreglen nederst). Det gamle dokument med tillæg til og med
 2026-10-27 står i [status-arkiv-til-2026-10-27.md](status-arkiv-til-2026-10-27.md).
@@ -8,7 +8,8 @@ prod-ændring; der skrives ikke tillæg (opdateringsreglen nederst). Det gamle d
 ## Aktivt programmål
 
 **Trin 5 (#150/#151), sidste del:** 5c-2 (læserskift) sammen med læserværdien fra B11. Reviewets trin A og B er gjort
-(B i prod 2026-10-28); tilbage er A6b. Derefter skrives trin 6-spec'en. Rækkefølge og
+(B i prod 2026-10-28), og A6b er i prod 2026-10-28 (narrativerne; kildetekst og klausuler i trin 6). Derefter
+skrives trin 6-spec'en. Rækkefølge og
 indhold: [rapport §6](../reviews/2026-10-27-trin-1-5/rapport.md); beslutningerne: `docs/decisions.md` 2026-10-27 (B1-B13).
 
 ## Samlet dom
@@ -27,7 +28,7 @@ Tilladte tilstande: `specificeret`, `isoleret implementeret`, `integreret ende-t
 |---|---|---|
 | Narrativ-record-kontrakt (#152) og generel writer (#153) | `produktionsverificeret` 2026-09-06 (kontrakt v2; gælder alle udgaver) | samme |
 | Rendition, source records, forekomster, ankre | `produktionsverificeret` 2026-09-06 (149a: 591 records, nul kanonisk delta) | `produktionsverificeret` (læse-kun måling 2026-08-22; afgrænset 1939-leverance) |
-| Narrativbinding og -publicering | `produktionsverificeret` 2026-09-06 (149b: 541 publicerede, 46 kladder; 4 `unresolved_text`: I-133, II-35, III-129, IV-94) | `produktionsverificeret` (C3 2026-08-29: 5 sager; afgrænset) |
+| Narrativbinding og -publicering | `produktionsverificeret` 2026-09-06 (149b: 541 publicerede, 46 kladder; 4 `unresolved_text`: I-133, II-35, III-129, IV-94; A6b 2026-10-28: 10 narrativer revideret med de beskårne prosalinjer, kildeteksten følger i trin 6) | `produktionsverificeret` (C3 2026-08-29: 5 sager; afgrænset) |
 | Klausuler | `produktionsverificeret` 2026-09-18, omsegmenteret 2026-09-28 | ikke påbegyndt (ingen `clause_rules` i 1939-profilen) |
 | Extractor-runner | `integreret ende-til-ende` (alle 488 tilladte poster kørt i restore 2026-10-01—03; resultatet overført) | ikke påbegyndt |
 | Forslag og afgørelse (trin 4) | `produktionsverificeret` 2026-10-05 (3.739 forslag, 676 afgørelser) | ikke påbegyndt |
@@ -51,16 +52,17 @@ Tilladte tilstande: `specificeret`, `isoleret implementeret`, `integreret ende-t
 | A4 | Styringsdokumenter afstemt (1a-01, 1a-14) | gjort, samme gren |
 | A5 | C3-deployfil stoppet, røde R-tests arkiveret (1b-04, 1c-04/05) | gjort, samme gren |
 | A6 | Projektejeren læser de 13 `NOISE_RE`-linjer mod kilden (1d.3a-03) | gjort: 12 er prosa, der mangler i teksten (decisions 2026-10-27) |
-| A6b | `NOISE_RE` strammes, ny segmenteringsversion, de 12 linjer rettes ind i narrativer og klausuler i prod | afgrænset 2026-10-28 (decisions): de 10 publicerede narrativer nu, kildetekst og klausuler i trin 6; plan `docs/superpowers/plans/2026-10-28-a6b-noise-re-narrativer.md`, kræver GO |
-| B | Én DDL-ceremoni: 1d.3b-01, 1d.1-03, 1d.1-02, 1d.1-04 (mål cachen først) | gjort, i prod 2026-10-28 (GO trinb `33f99750`; `database-current-state.md` §14). Grenen er ikke merget |
+| A6b | `NOISE_RE` strammes, ny segmenteringsversion, de 12 linjer rettes ind i narrativer og klausuler i prod | gjort for narrativerne, i prod 2026-10-28 (GO a6b `5522a891`, PR #273; `database-current-state.md` §15): profil `2018-20-v2`, 10 narrativer revideret. Kildetekst og klausuler for de 11 poster følger i trin 6 (decisions 2026-10-28) |
+| B | Én DDL-ceremoni: 1d.3b-01, 1d.1-03, 1d.1-02, 1d.1-04 (mål cachen først) | gjort, i prod 2026-10-28 (GO trinb `33f99750`; `database-current-state.md` §14), merget (PR #272) |
 
 ## Restorepunkt og fortrydelse
 
-Seneste restorepunkt: dumpet før trin B, `daa-prod-20261028184913-trinb.dump` (sha `e253f352…`;
-`database-current-state.md` §14). Fortrydelse sker efter gate 8 som omformuleret 2026-10-27 (B1): en særskilt
+Seneste restorepunkt: dumpet før A6b, `daa-prod-20261028224757-a6b.dump` (sha `58351421…`;
+`database-current-state.md` §15). Fortrydelse sker efter gate 8 som omformuleret 2026-10-27 (B1): en særskilt
 handling eller restore inden for et deklareret vindue. B1's betingelse er opfyldt for dette dump: to kopier (lokalt og
-`age`-krypteret på projektejerens SFTP-server, sha `0e5bc17f…`), begge hashes noteret, rundtur og prøvegendannelse
-gennemført før skrivningen. Trin B's fire funktioner fortrydes uden restore (runbookens opskrift).
+`age`-krypteret på projektejerens SFTP-server, sha `84b9d988…`), begge hashes noteret, rundtur gennemført og
+genkontrolleret ved skrivningen. A6b fortrydes uden restore (`apply --tilbage`, ny revision tilbage til den gamle tekst);
+trin B's fire funktioner ligeledes (runbookens opskrift).
 
 ## Parkeret
 

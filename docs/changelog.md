@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-10-28 — A6b i prod: 10 narrativer får de beskårne prosalinjer (ingen DDL)
+
+Prod-kørsel efter `docs/runbooks/a6b-narrativ-revision-prod.md`, repo `39a812f7` (`main`, PR #273), GO a6b `5522a891`,
+kørt af projektejeren med `~/.private/5ab-overfoersel/23-a6b.sh`; dump før skrivning
+`daa-prod-20261028224757-a6b.dump` (sha `58351421…`, ekstern `age`-kopi `84b9d988…`).
+
+- **Afgrænsning:** decisions 2026-10-28 — narrativerne nu; kildetekst og klausuler for de 11 poster i trin 6 (ingen
+  skrivevej for helpost-tekst; `clause_revision` kan ikke tilføje tekst og afviser 74 fortolkninger). III-129 urørt.
+- **Kode:** `segment.py` profil `2018-20-v2` (kun sidehoveder fjernes; v1 frosset og byte-identisk med `main`),
+  `build_narrative_revision_manifest.py`, `fix_a6b_maal.sql`, `fix_a6b_narrative_revision.sql`; segmenteringstestene i CI.
+  To Codex-runder (plan NO-GO 6 fund, diff NO-GO 3 fund), alle afvejet og rettet.
+- **Før:** `A6B_MAAL_OK tilstand=gammel events=3314 change_sets=2069 change_events=9222`.
+- **Skrivning:** `B1_A6B_OK`; `A6B_OK retning=frem revideret=10 ubundet=1 change_sets=10 go=5522a891`.
+- **Efter:** `A6B_MAAL_OK tilstand=ny events=3324 change_sets=2079 change_events=9232`; øvrige narrativer uændrede.
+
 ## 2026-10-28 — Review trin B i prod: fire funktionsrettelser (DDL) og første eksterne dumpkopi
 
 Prod-kørsel efter `docs/runbooks/review-trin-b-prod.md`, repo `f3850eec` (gren `fix/review-trin-b`), GO trinb
