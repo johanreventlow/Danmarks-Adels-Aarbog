@@ -40,6 +40,15 @@ BEGIN
      OR v_m->>'manifest_sha256' IS DISTINCT FROM current_setting('a6b.manifest_sha') THEN
     RAISE EXCEPTION 'A6B_PRE_MANIFEST_SHA'; END IF;
 
+  -- Lås alle manifestets source records, også den ubundne, før bindingerne læses: FOR UPDATE blokerer nye bindinger
+  -- (en FK-indsættelse tager FOR KEY SHARE på posten), så mængderne nedenfor afgøres på en tilstand, der holder.
+  IF (SELECT count(*) FROM (SELECT 1 FROM private.source_record sr
+                             WHERE sr.source_id=v_src
+                               AND sr.record_key IN (SELECT x->>'record_key' FROM jsonb_array_elements(v_m->'elements') x)
+                             ORDER BY sr.record_key COLLATE "C" FOR UPDATE) l)
+     <> jsonb_array_length(v_m->'elements') THEN
+    RAISE EXCEPTION 'A6B_PRE_MAENGDE'; END IF;
+
   INSERT INTO a6b_post (rk, person_id, narrative_id, fra_text, til_text, fra_sha, til_sha)
   SELECT x->>'record_key', n.subjekt_id, n.id,
          CASE WHEN v_frem THEN x->>'old_text' ELSE x->>'new_text' END,
@@ -54,6 +63,21 @@ BEGIN
                                        OR encode(sha256(convert_to(til_text,'UTF8')),'hex')<>til_sha) THEN
     RAISE EXCEPTION 'A6B_PRE_MANIFEST_SHA'; END IF;
 
+  -- Lås og tilstand pr. bundet post (nøgleorden), derefter bindinger, mængder og tekst under låsene.
+  FOR r IN SELECT rk, person_id FROM a6b_post WHERE narrative_id IS NOT NULL ORDER BY rk COLLATE "C" LOOP
+    UPDATE a6b_post SET state=private.narrative_record_state(r.person_id, v_src, r.rk, true),
+                        events_foer=(SELECT coalesce(array_agg(e.id),'{}') FROM private.narrative_publication_event e
+                                      WHERE e.narrative_id=a6b_post.narrative_id)
+     WHERE rk=r.rk;
+  END LOOP;
+  -- Bindingerne genlæses under låsene og skal være dem, der blev materialiseret.
+  IF EXISTS (SELECT 1 FROM a6b_post p
+               LEFT JOIN private.source_record sr ON sr.source_id=v_src AND sr.record_key=p.rk
+               LEFT JOIN private.narrative_record_publication pub ON pub.source_record_id=sr.id
+               LEFT JOIN public.narrative n ON n.id=pub.narrative_id AND n.subjekt_type='person'
+              WHERE n.id IS DISTINCT FROM p.narrative_id OR n.subjekt_id IS DISTINCT FROM p.person_id) THEN
+    RAISE EXCEPTION 'A6B_PRE_MAENGDE'; END IF;
+
   -- Mængder, ikke antal: præcis de godkendte bundne og ubundne nøgler.
   v_bundne:=string_to_array(current_setting('a6b.bundne'),',');
   v_ubundne:=string_to_array(current_setting('a6b.ubundne'),',');
@@ -62,14 +86,6 @@ BEGIN
      OR (SELECT coalesce(array_agg(rk ORDER BY rk),'{}') FROM a6b_post WHERE narrative_id IS NULL)
        IS DISTINCT FROM (SELECT coalesce(array_agg(k ORDER BY k),'{}') FROM unnest(v_ubundne) k) THEN
     RAISE EXCEPTION 'A6B_PRE_MAENGDE'; END IF;
-
-  -- Lås og tilstand pr. bundet post (nøgleorden), derefter teksten under låsen.
-  FOR r IN SELECT rk, person_id FROM a6b_post WHERE narrative_id IS NOT NULL ORDER BY rk COLLATE "C" LOOP
-    UPDATE a6b_post SET state=private.narrative_record_state(r.person_id, v_src, r.rk, true),
-                        events_foer=(SELECT coalesce(array_agg(e.id),'{}') FROM private.narrative_publication_event e
-                                      WHERE e.narrative_id=a6b_post.narrative_id)
-     WHERE rk=r.rk;
-  END LOOP;
   IF NOT EXISTS (SELECT 1 FROM a6b_post p JOIN public.narrative n ON n.id=p.narrative_id
                   WHERE encode(sha256(convert_to(n.tekst,'UTF8')),'hex')<>p.til_sha) THEN
     RAISE EXCEPTION 'A6B_PRE_ALLEREDE_ANVENDT'; END IF;
