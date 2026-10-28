@@ -23,9 +23,16 @@ Når C3 har nået sin stopport, er rækkefølgen:
    operationer som 2018-20; (b) læseren ser fakta med kildehenvisning i
    persondetaljen (B11); (c) et medlemskab kan bæres af to kilder — en anden kildes
    placement bekræfter (`corroborated`) i stedet for at give konflikt (B6).
-7. En tredje årbog beviser, at kun en lille profil og dokumenterede
-   vokabularudvidelser kræves. Trinnet er delt i to (B3), og kandidat-årbogen
-   vælges, før det specificeres:
+   **Projektets mål slutter her** (decisions 2026-10-28).
+
+   **Beslutningspunkt efter trin 6:** projektejeren vurderer, om PoC'en leverer
+   værdi for læser og redaktør, og hvad en fortsættelse koster. Udfaldet
+   registreres i `docs/decisions.md`: stop, fortsæt med 7a, eller forelæg
+   foreningen en fortsættelse. Trin 7 planlægges ikke før det.
+7. *Mulig fortsættelse, ikke en del af projektets mål.* En tredje årbog beviser,
+   at kun en lille profil og dokumenterede vokabularudvidelser kræves. Trinnet er
+   delt i to (B3), og kandidat-årbogen vælges, før det specificeres. 7b og
+   foreningens samlede data forudsætter foreningens accept:
    - **7a** — en ny udgave af en slægt, der allerede findes: identitetsafstemning
      mod den eksisterende bestand med kun profil og vokabular.
    - **7b** — en ny slægt uden eksisterende bestand: segmenteringsprofil, oprettelse

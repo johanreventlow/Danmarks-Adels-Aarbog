@@ -2,6 +2,30 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: projektets mål slutter med trin 6; skalering er en mulig fortsættelse, ikke et mål (2026-10-28)
+
+> Projektejerens afgørelse 2026-10-28 efter spørgsmålet, om reviewets fund (særligt Fables 2-01 og 2-04) kan
+> adresseres, så projektet når i mål.
+
+**Baggrund:** Roadmappet fører fra trin 6 (begge referenceudgaver gennem kæden) til trin 7a/7b og videre mod
+foreningens samlede data. Reviewet viste, at de egentlige fejl kan rettes på få dage (trin A og B er gjort), men at
+skalering kræver to ting, projektet ikke selv råder over: et opret-ben, som endnu ikke er designet (2-01, B4), og et
+behandlingsgrundlag for foreningens data, som kræver en jurist (2-04, B10). Foreningens data er desuden kun relevant,
+hvis foreningen vil fortsætte.
+
+**Besluttet:**
+1. **Projektets mål er PoC'en for Reventlow:** trin 1-6 med trin 6's færdigbevis (begge referenceudgaver gennem samme
+   operationer, læseren ser fakta med kildehenvisning (B11), medlemskab fra to kilder (B6)).
+2. **Beslutningspunkt efter trin 6:** projektejeren vurderer, om PoC'en leverer værdi for læser og redaktør, og hvad
+   en fortsættelse koster. Udfaldet registreres som en ny post her: stop, fortsæt med 7a, eller forelæg foreningen en
+   fortsættelse.
+3. **Trin 7a og 7b samt foreningens samlede data er en mulig fortsættelse,** ikke en del af projektets mål. 7b og
+   foreningens data forudsætter foreningens accept. Opret-benet (B4) og behandlingsgrundlaget (B10's juristdel) hører
+   til fortsættelsen og planlægges ikke før beslutningspunktet.
+4. **Konsekvens for prioritering:** arbejde, der kun tjener skalering (opret-benet ud over 1939's 16 `[NY]`-records,
+   udgavelogik ud af fælles kode (2-02), GDPR på foreningsniveau), tages ikke ind før beslutningspunktet. Visionens krav om
+   at metoden *kan* udvides til nye udgaver står uændret.
+
 ## BESLUTTET: de 13 `NOISE_RE`-linjer midt på en side — 12 er prosa, der mangler i 2018-20's tekst (2026-10-27)
 
 > Review-handling A6 (fund 1d.3a-03). Ark og konverter i `work/noise-re-13/` (gitignoreret); ark-sha `5dbc5e20d83c…`,
