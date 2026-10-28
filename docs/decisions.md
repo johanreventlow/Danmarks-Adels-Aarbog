@@ -2,6 +2,36 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: A6b afgrænses til narrativerne; kildetekst og klausuler følger i trin 6 (2026-10-28)
+
+> Projektejerens valg 2026-10-28 (»smal nu, resten i trin 6«). Afgrænser opfølgningen i posten 2026-10-27 om de 13
+> `NOISE_RE`-linjer (punkt 3). Plan: `docs/superpowers/plans/2026-10-28-a6b-noise-re-narrativer.md`.
+
+**Baggrund:** Posten 2026-10-27 forudsatte, at narrativer *og* klausuler kunne rettes ad »den normale
+tekstrettelsesvej«. Kortlægningen og en læse-kun måling på en genskabt kopi af prod 2026-10-28 viste:
+- De 12 prosalinjer ligger i 11 poster (I-9 har to; I-11, I-17, I-18, I-32, I-33, I-44, I-84, I-89, III-37, III-129).
+  En positionsbestemt regel (kun første ikke-tomme linje efter `### PAGE`) flytter ingen postgrænser: 591 poster, samme
+  nøgler, kun de 11 posters tekst ændres. L22 står før første post og forbliver uden for enhver post.
+- 10 af posterne har et publiceret narrativ om en afdød person uden hændelser; teksten er uredigeret siden importen og
+  kan revideres med `red_revider_publiceret_person_narrative_record` (en ny `narrative_publication_event` med før- og
+  eftertilstand; intet overskrives uden audit).
+- Kildeteksten (helpost/occurrence) har ingen skrivevej: `source_observation_text`, anker-version 2 og
+  `source_record_revision_event` findes i DDL'en uden writer. `clause_revision` kan ikke tilføje tekst og afviser poster
+  med fortolkninger; 9 af posterne har 74 fortolkninger.
+- III-129 er ubundet (en af 149b's fire `unresolved_text`). Årsagen er ikke de manglende linjer — de mangler både i
+  narrativ og kildetekst — og den er ukendt. Der er ingen rettelsesvej for posten.
+
+**Besluttet:**
+1. **Nu (A6b):** `segment.py` får en versioneret støjregel (profil `2018-20-v2`, kun sidehoveder); `2018-20` (v1) er
+   frosset, så tidligere manifester kan genbygges. De 10 publicerede narrativer revideres i én ceremoni med dump,
+   måling og GO; fortrydelse er samme ceremoni baglæns.
+2. **Trin 6:** helpostens kildetekst og klausulerne for de 11 poster får linjerne gennem en kildetekst-revision, der gør
+   afhængige fortolkninger forældede. Trin 6 skal alligevel kunne gøre forældet; mekanismen bygges én gang dér.
+3. **Kendt følge:** efter A6b er `narrative.tekst` ≠ helpostens `verbatim_text` for de 10 poster, indtil trin 6 retter
+   kildeteksten. En genkørsel af 149b's komparator vil vise dem. III-129 røres ikke.
+4. **Review-budget (B13):** to Codex-runder i stedet for én — planen fik NO-GO i runde 1 (6 fund, rettet), og diffen
+   reviewes før prod.
+
 ## BESLUTTET: projektets mål slutter med trin 6; skalering er en mulig fortsættelse, ikke et mål (2026-10-28)
 
 > Projektejerens afgørelse 2026-10-28 efter spørgsmålet, om reviewets fund (særligt Fables 2-01 og 2-04) kan
