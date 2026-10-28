@@ -18,7 +18,8 @@ III-37) med redaktør-RPC'en `red_revider_publiceret_person_narrative_record`. P
 Kildetekst (helpost) og klausuler røres ikke; de følger i trin 6. III-129 er ubundet og røres ikke.
 
 Manifestet `work/a6b/manifest.json` (mode 600, gitignoreret, rummer posttekst) har `manifest_sha256` `f80e8156…`.
-Runneren binder manifestet, de to SQL-filer, aktørfilen og retningen i GO-koden.
+Runneren binder commit'en, manifestet, de eksekverede SQL-filer (også målidentiteten), aktørfilen, sig selv og retningen
+i GO-koden og tjekker koden, før den forbinder. En ny commit efter `go` kræver derfor en ny kode.
 
 ## Forløb (projektejerens shell)
 
@@ -48,7 +49,9 @@ På stand-in'en `daa5ab_ddl_standin_20261028190000_a6b` (trin B-dumpet `e253f352
   `anon`-læseren `public_person_bio_source_versions_v2` viser den nye tekst for 10/10. Køretid ca. 1 s.
 - **Gennem runneren:** `maal`, `go` (frem og tilbage), `dump` med lokal SFTP-simulering, og så tilbage → frem → tilbage
   → frem. Afvist: en frem-kode brugt til `--tilbage` (`GO_MISMATCH`), frem i tilstand `ny` (`A6B_FOER`), en ændret
-  ekstern kopi (`B1_EKSTERN_BYTES`).
+  ekstern kopi (`B1_EKSTERN_BYTES`), en kode udstedt før en ny commit (`GO_MISMATCH`).
+- **Låsen (Codex runde 2):** en anden session med `FOR KEY SHARE` på III-129's source record (som en ny binding) får
+  ceremonien til at vente og stoppe på `lock_timeout` uden at skrive.
 
 ## Fortrydelse
 

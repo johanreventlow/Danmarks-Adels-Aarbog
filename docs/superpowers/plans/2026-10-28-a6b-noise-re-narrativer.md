@@ -30,6 +30,15 @@ Grundlag: review-fund 1d.3a-03 (`docs/reviews/2026-10-27-trin-1-5/afvejning-code
 
 NO-GO med 6 fund; Opus' afvejning: (1) audit-kontekst mellem RPC-kald — nødvendig, rettet i Task 3 (SQL-CI-test afvist: engangsscript, øvelsen kører alle 10 kald på rigtige data); (2) runnerens førmåling blokerede fortrydelse — nødvendig, Task 4; (3) ubundet kun som antal — forenklet til præcise nøglemængder under lås, Task 3; (4) rest-hash for smal og write-set ufuldstændigt — nødvendig, Task 3; (5) B1-genkontrol ved apply — nødvendig, Task 4; (6) v1-reproducerbarhed bredere — forenklet til main-mod-ny for segmentering, projektion og header-manifest + `significant()`-test, Task 1.
 
+## Review-runde 2 (Codex på diffen, 2026-10-28)
+
+NO-GO med 3 fund (P2); Opus' afvejning: (1) mængdetjekket læste bindingerne før låsen, og den ubundne post blev aldrig
+låst — nødvendig, rettet: alle manifestets source records låses `FOR UPDATE` først, bindingerne genlæses under låsene
+(prøvet: en `FOR KEY SHARE` på III-129 i en anden session giver lock timeout); (2) GO-koden bandt hverken commit'en eller
+`clause_evidence_target_identity.sql`, og forbindelsen blev åbnet før GO-tjekket — nødvendig, rettet i runneren;
+(3) en eksisterende 0644-manifestfil blev skrevet i før chmod — forenklet: ny 0600-fil + atomisk erstatning, symlink
+afvises. Codex fandt v1 uændret (729 syntetiske kombinationer mod `main`) og ingen umålte skriveeffekter.
+
 ## Global Constraints
 
 - PII (invariant 8): `work/raw_full.txt`, manifestet og alt med postttekst ligger i `work/a6b/` (gitignoreret) eller `~/.private/`; ingen tekst i stdout, chat, commits eller testfixtures. Scripts udskriver kun antal, nøgler og hashes. Probes sender stdout og stderr til fil.
