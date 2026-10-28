@@ -61,6 +61,39 @@ verify_gate_manifest <- function(manifest, faktisk_sha256, taerskel = 0.90) {
   list(ok = TRUE, grund = sprintf("gate GRØN: andel_rene %.1f%%", 100 * andel))
 }
 
+# De gamle prod-skriveveje (post_load_fixup.R, backfill_slaegtled.R) er frosset
+# (docs/decisions.md 2026-10-27, B5). Argumenter: --jeg-mener-det er obligatorisk,
+# ukendte flag afvises (et opfundet flag må aldrig ignoreres stille), og kun
+# navngivne værdiflag (fx "--source-id=") er tilladt.
+parse_legacy_script_args <- function(argv, usage, max_positional, value_flags = character()) {
+  flags <- argv[startsWith(argv, "--")]
+  is_value <- vapply(flags, function(f) any(startsWith(f, value_flags)), logical(1))
+  unknown <- flags[flags != "--jeg-mener-det" & !is_value]
+  if (length(unknown)) stop("Ukendt argument: ", paste(unknown, collapse = ", "), "\n", usage, call. = FALSE)
+  if (!"--jeg-mener-det" %in% flags)
+    stop("--jeg-mener-det er obligatorisk: scriptet skriver til prod.\n", usage, call. = FALSE)
+  values <- list()
+  for (vf in value_flags) {
+    hit <- flags[startsWith(flags, vf)]
+    if (length(hit) > 1L) stop(vf, " må kun angives én gang", call. = FALSE)
+    if (length(hit)) values[[vf]] <- substring(hit, nchar(vf) + 1L)
+  }
+  positional <- argv[!startsWith(argv, "--")]
+  if (length(positional) > max_positional)
+    stop("for mange positionelle argumenter: ", paste(positional, collapse = " "), "\n", usage, call. = FALSE)
+  list(positional = positional, values = values)
+}
+
+# Kontraktporten for de frosne loadere: kun en v1-base (før narrative-record-
+# cutoveren) må skrives af dem. Prod er v2 siden 2026-09-06 og kan kun komme
+# tilbage til v1 ved restore, så tjekket kan stå før transaktionen uden lås.
+assert_legacy_contract_open <- function(version) {
+  if (length(version) != 1L || is.na(version) || !identical(as.integer(version), 1L))
+    stop("LEGACY_LOADER_FROZEN: narrative-record-kontrakten er ikke v1 — de gamle loadere er lukket ",
+         "(docs/decisions.md 2026-10-27, B5). Genåbning kræver en ny beslutning.", call. = FALSE)
+  invisible(TRUE)
+}
+
 # Korrektionsimporter skal have en stabil, eksplicit nøgle. Ældre importer er kun
 # tilladt med et bevidst legacy-flag og får derfor NULL import_key/record_key i DB.
 parse_load_daa_args <- function(argv) {

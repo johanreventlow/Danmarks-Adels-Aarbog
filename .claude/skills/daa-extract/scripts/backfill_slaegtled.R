@@ -3,20 +3,28 @@
 # Join-nøgle: (source_id, linje, nr). NULL/ukendt linje karantænes (ikke matchet).
 # Fortrydbart: ét change_set (operation='backfill_slaegtled'). Fortryd: red_fortryd_change_set(<id>).
 # Kør EFTER db-migrations.sql (kolonner skal findes). Idempotent via guard.
+# Brug:  Rscript backfill_slaegtled.R seg.json [source_id | --source-id=<id>] --jeg-mener-det
+# FROSSET (docs/decisions.md 2026-10-27, B5): kører kun mod en base med
+# narrative-record-kontrakt v1; prod er v2, så scriptet stopper før enhver skrivning.
 suppressMessages({library(DBI); library(RPostgres); library(jsonlite)})
 
-args <- commandArgs(trailingOnly = TRUE)
-seg_path <- if (length(args)) args[[1]] else "/tmp/seg.json"
+script_dir <- dirname(sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1]))
+source(file.path(script_dir, "load_helpers.R"))
+args <- parse_legacy_script_args(commandArgs(trailingOnly = TRUE),
+  "brug: backfill_slaegtled.R seg.json [source_id | --source-id=<id>] --jeg-mener-det", 2L,
+  value_flags = "--source-id=")
+seg_path <- if (length(args$positional)) args$positional[[1]] else "/tmp/seg.json"
 posts <- fromJSON(seg_path, simplifyDataFrame = TRUE)
 
 # F4: eksplicit source-id-pin (2. arg, evt. "--source-id=<id>"). Fail-closed
 # hvis udeladt og mere end én kilde kvalificerer (se resolution nedenfor).
 source_id_arg <- NULL
-if (length(args) >= 2) {
-  raw <- args[[2]]
-  if (grepl("^--source-id=", raw)) raw <- sub("^--source-id=", "", raw)
+raw <- if (length(args$positional) >= 2) args$positional[[2]] else args$values[["--source-id="]]
+if (length(args$positional) >= 2 && !is.null(args$values[["--source-id="]]))
+  stop("Angiv source-id enten som 2. argument eller som --source-id=, ikke begge.")
+if (!is.null(raw)) {
   source_id_arg <- suppressWarnings(as.integer(raw))
-  if (is.na(source_id_arg)) stop(sprintf("Ugyldig --source-id/2. arg: '%s' er ikke et heltal.", args[[2]]))
+  if (is.na(source_id_arg)) stop(sprintf("Ugyldig --source-id/2. arg: '%s' er ikke et heltal.", raw))
 }
 
 host <- Sys.getenv("SUPABASE_HOST"); user <- Sys.getenv("SUPABASE_USER"); pw <- Sys.getenv("SUPABASE_PASSWORD")
@@ -27,6 +35,7 @@ con <- dbConnect(RPostgres::Postgres(), host = host,
                  user = user, password = pw, sslmode = "require", bigint = "integer")
 on.exit(dbDisconnect(con), add = TRUE)
 q  <- function(sql, p = list()) if (length(p)) dbGetQuery(con, sql, params = p) else dbGetQuery(con, sql)
+assert_legacy_contract_open(q("SELECT public.narrative_record_contract_version() AS v")$v)
 
 # F4: Resolvér DAA-stamtavle-kilden fail-closed. Pinnet eksplicit vinder;
 # ellers kun automatisk hvis PRÆCIS én source_id rent faktisk bruger de

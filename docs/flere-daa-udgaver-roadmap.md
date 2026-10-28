@@ -1,6 +1,11 @@
 # Roadmap: Flere DAA-udgaver — præsenslister over tid, modstridende relationer, tværudgave-identifikation
 
-> Status: **specificeret, ikke implementeret** (2026-07-15). Alle tre problemer er nu
+> **HISTORISK — ikke styrende** (markeret ved review 2026-10-27, fund 1a-14/2-07). Teksten er fra før 1939 blev
+> indlæst, og »det eneste der er indlæst i dag — DAA 2018-20« gælder ikke længere. Flerudgavearbejdet styres af
+> `docs/evidensbaseret-genimport/roadmap.md` (trin 6, 7a og 7b; decisions 2026-10-27, B3). Specs, der linkes herfra,
+> kan stadig bruges som idégrundlag.
+>
+> Oprindelig status: **specificeret, ikke implementeret** (2026-07-15). Alle tre problemer er nu
 > udfoldet i grundige design-specs (skrevet af Fable, se links i hvert afsnit nedenfor).
 > Ingen kode endnu — afventer en konkret PDF af en anden DAA-udgave (typisk en
 > præsensliste) at implementere og kalibrere mod.

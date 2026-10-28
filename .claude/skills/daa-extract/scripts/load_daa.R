@@ -3,6 +3,11 @@
 #  load_daa.R — loader VALIDERET DAA-udtræk (clean.json) til Supabase.
 #  Erstatter det håndtransskriberede udsnit i supabase_load.R.
 #
+#  HISTORISK, FROSSET (docs/decisions.md 2026-10-27, B5): kontraktporten i
+#  LOAD-transaktionen stopper loaderen før enhver skrivning, når basen har
+#  narrative-record-kontrakt v2 — det har prod. Nye udgaver og genimport går
+#  gennem evidenskæden. Genåbning kræver en ny beslutning.
+#
 #  Brug:  Rscript load_daa.R clean.json [udgave] --import-key=<stabil nøgle> [--reset]
 #         Legacy: Rscript load_daa.R clean.json [udgave] --legacy-import
 #         udgave default "DAA 2018-20".

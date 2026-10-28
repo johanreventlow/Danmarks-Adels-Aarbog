@@ -3,6 +3,7 @@ import {
   buildTidslinje,
   formatMedieAlder,
   fetchKandidatDetalje,
+  joinEvidence,
   klassificerMedie,
   mapFamilieRows,
   mapHaendelser,
@@ -37,6 +38,26 @@ describe('fetchKandidatDetalje', () => {
     expect(loaders.narrativer).toHaveBeenCalledWith('person', 42);
     expect(loaders.familie).toHaveBeenCalledWith('42');
     expect(loaders.relationer).toHaveBeenCalledWith('42');
+  });
+});
+
+describe('joinEvidence: uforanderlige kildepåstande (review trin B, 1d.1-02)', () => {
+  it('markerer kun redaktørens egne (uforanderlig=false) som sletbare; NULL og manglende felt er uforanderlige', () => {
+    const base = { target_id: 7, date_min: null, date_max: null, date_qualifier: null, date_raw: null };
+    const ev = joinEvidence({
+      facts: [{ id: 7, faktatype: 'titel' }],
+      assertions: [
+        { ...base, id: 1, vaerdi_tekst: 'importeret', uforanderlig: true },
+        { ...base, id: 2, vaerdi_tekst: 'egen', uforanderlig: false },
+        { ...base, id: 3, vaerdi_tekst: 'umarkeret', uforanderlig: null },
+        { ...base, id: 4, vaerdi_tekst: 'uden felt' },
+      ],
+      conclusions: [{ target_id: 7, valgt_assertion_id: 1 }],
+      citations: [],
+      koen: null,
+    });
+    const opl = Object.values(ev.felter).flat()[0].oplysninger;
+    expect(opl.map((o) => [o.assertionId, o.uforanderlig])).toEqual([[1, true], [2, false], [3, true], [4, true]]);
   });
 });
 

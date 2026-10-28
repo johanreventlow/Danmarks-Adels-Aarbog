@@ -1,3 +1,14 @@
+-- HISTORISK — MÅ IKKE KØRES (review 2026-10-27, fund 1b-04/1c-05; review 35 S6).
+-- Filen er forældet: ingen af dens 28 funktioner er ens med schema.sql eller
+-- db-migrations.sql, og en kørsel ville rulle #152's sletnings- og fortrydelsesværn
+-- og RED-8's sekvens-allokering tilbage. Prod har migrationskroppene. De tre
+-- C3-sekvenstests, der indlæser filen med \ir, kører ikke i CI og stopper nu her.
+\set ON_ERROR_STOP on
+DO $historisk$ BEGIN
+  RAISE EXCEPTION 'HISTORISK: db-migrations-c3-identity.sql må ikke køres (review 2026-10-27, 1b-04)';
+END $historisk$;
+\q
+
 -- Focused additive deployment artifact for 1939 v50 C3 identity hardening.
 -- Apply to the pre-feature database state with ON_ERROR_STOP and one transaction.
 -- This is independent of schema.sql and deliberately does not replay db-migrations.sql.

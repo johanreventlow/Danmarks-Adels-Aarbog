@@ -215,6 +215,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-relation-family-context.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-relation-decision.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-relation-binding.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/test-redaktion-oplysning.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-spouse-exception-projection.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-family-id-identity.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-identity-deceased-context.sql
@@ -374,9 +375,15 @@ jobs:
             psql -h localhost -U postgres -d reimport_schema_only_5ab -q -v ON_ERROR_STOP=1 -f "$f" >/dev/null; done
           psql -h localhost -U postgres -d reimport_schema_only_5ab -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-5ab-function-parity.sql > parity-5ab-schema.txt
           psql -h localhost -U postgres -d reimport_legacy_empty_153 -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-5ab-function-parity.sql > parity-5ab-upgraded.txt
-          test "$(wc -l < parity-5ab-schema.txt)" -eq 13 || { echo "5ab parity: forventede 13 funktioner" >&2; exit 1; }
-          test "$(wc -l < parity-5ab-upgraded.txt)" -eq 13 || { echo "5ab parity: forventede 13 funktioner (migreret)" >&2; exit 1; }
+          test "$(wc -l < parity-5ab-schema.txt)" -eq 33 || { echo "5ab+RED-8+trin B parity: forventede 33 funktioner" >&2; exit 1; }
+          test "$(wc -l < parity-5ab-upgraded.txt)" -eq 33 || { echo "5ab+RED-8+trin B parity: forventede 33 funktioner (migreret)" >&2; exit 1; }
           cmp parity-5ab-schema.txt parity-5ab-upgraded.txt
+          # RED-8 (A3): kolonnerne i de 25 id-tabeller (inkl. identity) er ens i ren schema.sql-base og migreret base.
+          psql -h localhost -U postgres -d reimport_schema_only_5ab -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-red8-column-parity.sql > parity-red8-schema.txt
+          psql -h localhost -U postgres -d reimport_legacy_empty_153 -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-red8-column-parity.sql > parity-red8-upgraded.txt
+          test "$(cut -d'|' -f1 parity-red8-schema.txt | sort -u | wc -l)" -eq 25 || { echo "RED-8 kolonneparitet: forventede 25 tabeller" >&2; exit 1; }
+          test "$(cut -d'|' -f1 parity-red8-upgraded.txt | sort -u | wc -l)" -eq 25 || { echo "RED-8 kolonneparitet: forventede 25 tabeller (migreret)" >&2; exit 1; }
+          cmp parity-red8-schema.txt parity-red8-upgraded.txt
           psql -h localhost -U postgres -d reimport_fresh_153 -v ON_ERROR_STOP=1 -c "ALTER TABLE private.reimport_batch ALTER COLUMN expected_counts DROP NOT NULL"
           psql -h localhost -U postgres -d reimport_fresh_153 -At -f tests/sql/inspect-reimport-writer-catalog.sql > reimport-writer-column-drift-catalog.json
           if cmp -s reimport-writer-fresh-catalog.json reimport-writer-column-drift-catalog.json; then

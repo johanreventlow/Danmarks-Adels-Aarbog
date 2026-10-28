@@ -20,7 +20,7 @@ målet foreningens samlede data.
 | Monorepo | npm workspaces, ÉN rod-lockfile → `npm ci` fra roden, kør pr. workspace: `npm run test -w @daa/core`. Delt DOM/RN-fri kerne: `packages/core` + `packages/feed`. |
 | `web/` | `npm run dev` · `npm run build` · `npm run test` (vitest) · `npm run e2e` (Playwright) |
 | `mobile/` | `npm start` · `npm run ios` / `npm run android` (expo) · `npm test` (jest) |
-| Data | Indgange: `/daa-extract` (stamtavle) · `/daa-presens` (præsensliste) · `/daa-haendelser`. Load går gennem skill'ens `load_daa.R` (append/staged) — **`supabase_load.R` i roden er historisk, brug den aldrig mod prod.** `Rscript run-tests.R` = R-suiten. |
+| Data | Indgange: `/daa-extract` (stamtavle) · `/daa-presens` (præsensliste) · `/daa-haendelser`. Genimport og nye udgaver går gennem evidenskæden (`docs/evidensbaseret-genimport/`). **`load_daa.R`, `post_load_fixup.R` og `backfill_slaegtled.R` er frosset** (lukket ved kontrakt v2; `docs/decisions.md` 2026-10-27, B5), og **`supabase_load.R` i roden er historisk, brug den aldrig mod prod.** `Rscript run-tests.R` = R-suiten. |
 | DB | `schema.sql` = **source of truth** · `db-migrations.sql` (idempotent → prod) · `db-verify.sql` (asserts) · `db-rls.sql` (politikker) |
 | CI | `.github/workflows/ci.yml` — kører kun på PR'er (ikke docs/`.md`-rene) + manuelt (`workflow_dispatch`), **ikke** ved push til main: Actions-minutter er begrænsede. 7 jobs: node (core · feed · web · mobil m. `tsc --noEmit`) · r · python · 4 PostgreSQL-jobs. `[skip ci]` i commit-beskeden sparer mellemliggende push |
 
@@ -28,10 +28,10 @@ Hemmeligheder ligger i `~/.Renviron` / env-variabler — aldrig i kode eller git
 
 ## Datamodellens invarianter (SKAL respekteres)
 
-1. **Evidensbaseret.** Et forhold = uforanderlige **påstande** (én kildes udsagn, kildebundne) + én foranderlig **konklusion** ovenpå. Gælder fakta *og* relationer. Påstande overskrives aldrig — rettelse = ny påstand + ny konklusion.
+1. **Evidensbaseret.** Et forhold = uforanderlige **påstande** (én kildes udsagn, kildebundne) + én foranderlig **konklusion** ovenpå. Gælder fakta *og* relationer. Påstande overskrives aldrig — rettelse = ny påstand + ny konklusion. *Undtagelser:* OCR-rettelse (`red_ret_ocr_felt`) retter transskriptionen i stedet for at skabe en ny påstand; originalen bevares i `import_korrektion` og `change_event` (`docs/decisions.md` 2026-10-27, B12). `red_slet_oplysning` kan slette en påstand; importerede (`uforanderlig`) påstande spærres i reviewets trin B (1d.1-02).
 2. **Lille fast entitetssæt + én generisk, polymorf relation** (rolle + periode + kilde + konfidens; enhver entitet → enhver entitet). Nye behov bliver nye *rolle-/faktatyper* (data), ikke nye tabeller.
 3. **Alt er et faktum.** Events/attributter = `fact` på enhver entitet (også sted, ejendom, våben har egne tidslinjer).
-4. **Cache er en envejs-projektion.** `person.visning_*` og `person.koen` afledes af konklusioner — **redigér aldrig direkte**; regenereres når en konklusion ændres.
+4. **Cache er en envejs-projektion.** `person.visning_*` afledes af konklusioner — **redigér aldrig direkte**; regenereres når en konklusion ændres. (`person.koen` er en arbejdsværdi direkte på personen, jf. `datamodel-oversigt.md`, og skrives af `red_set_koen` — review 1b-12.)
 5. **Fuzzy datoer** = `(date_min, date_max)` + kvalifikator + rå tekst (gem altid originalen). Floruit (dokumenteret-aktiv span) ≠ levetid.
 6. **Narrativ vs. struktureret.** Lang biografisk prosa bevares ordret i `narrative` (fuldtekstsøgbar); strukturerede fakta udtrækkes *selektivt* — kun hvor de bærer rygrad, forbindelse eller funktion.
 7. **Konfidens på links.** `family_member.konfidens` (sikker/sandsynlig/formodet/omstridt) flager usikre slægtskaber; finderen skal *vise* usikkerhed, ikke skjule den.

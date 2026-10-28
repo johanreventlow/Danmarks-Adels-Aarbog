@@ -55,7 +55,7 @@ Trin 3 er det eneste LLM-trin. Trin 5 loader.
 PDF ──①pdftotext──> rå tekst ──②segment.py──> posts.json
    ──③LLM-udtræk──> extracted.json ──④validate.py──> {clean.json, review.json, escalation.json}
    ──④b Opus-eskalering (flaggede) ──> opdateret clean.json + escalation-diff.md
-   ──⑤load_daa.R──> Supabase   (kun clean.json; review.json kræver menneske)
+   ──⑤load_daa.R──> Supabase   (HISTORISK: lukket ved kontrakt v2, se ⑤)
 ```
 
 ### ① Tekstudtræk (deterministisk)
@@ -157,7 +157,16 @@ Hvis trin ④ flagger poster i `escalation.json`, køres denne drift af agenten:
 
 **ÉT forsøg per post:** gen-eskalér aldrig en post der allerede er prøvet med Opus.
 
-### ⑤ Load til Supabase (R)
+### ⑤ Load til Supabase (R) — historisk, frosset
+
+> **Frosset (docs/decisions.md 2026-10-27, B5).** `load_daa.R` stopper før enhver
+> skrivning med `NARRATIVE_RECORD_LOADER_MIGRATION_REQUIRED`, fordi prod har
+> narrative-record-kontrakt v2; `post_load_fixup.R` og `backfill_slaegtled.R` stopper
+> med `LEGACY_LOADER_FROZEN` og kræver `--jeg-mener-det`. Nye udgaver og genimport går
+> gennem evidenskæden (`docs/evidensbaseret-genimport/`: `teknisk-maalarkitektur.md`,
+> `status.md`). Den gamle vej skaber dobbeltfamilier og spøgelses-unioner (#240) og
+> kan ikke oprette fra kilde gennem kæden endnu (review 2026-10-27, 2-01). Genåbning
+> kræver en ny beslutning. Afsnittet nedenfor beskriver, hvordan 2018-20 blev indlæst.
 
 ```bash
 Rscript scripts/load_daa.R work/clean.json "DAA 2018-20" \
@@ -185,8 +194,8 @@ konkurrerende forældre-påstande fra andre udgaver kan hænges på samme slot. 
 at DB'en er migreret** (`db-migrations.sql`: `assertion.objekt_type/objekt_id`,
 `family_member`-EXCLUDE-constraint) — loaderen fejler ellers på objekt-kolonnerne.
 
-**Erstatter** det håndtransskriberede udsnit i `supabase_load.R` — det var kun
-en opstart. `load_daa.R` er den fremadrettede loader.
+**Erstattede** det håndtransskriberede udsnit i `supabase_load.R`. Begge er nu
+historiske; se rammen øverst i ⑤.
 
 ## Hurtig kørsel (hele PoC-scope)
 
@@ -199,7 +208,7 @@ python3 .claude/skills/daa-extract/scripts/segment.py work/raw.txt > work/posts.
 # trin ③: udtræk per post (se ovenfor) -> work/extracted/*.json
 python3 .claude/skills/daa-extract/scripts/validate.py \
   work/posts.json work/extracted/ --clean work/clean.json --review work/review.json
-# gennemgå work/review.json (menneske) -> godkend -> derefter:
+# gennemgå work/review.json (menneske) -> godkend -> derefter (HISTORISK, se ⑤):
 Rscript .claude/skills/daa-extract/scripts/load_daa.R work/clean.json "DAA 2018-20" \
   --import-key=daa:2018-20:reventlow
 ```

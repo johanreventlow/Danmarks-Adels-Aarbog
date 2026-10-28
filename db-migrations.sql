@@ -26312,3 +26312,252 @@ GRANT EXECUTE ON FUNCTION public.red_reverse_placement_membership(bigint,bigint,
 -- Placement-blokken slutter her.
 
 -- 5b-sektionen slutter her (nye 5b-blokke indsættes over denne linje).
+
+-- BEGIN review-trin-b (review-handling trin B, docs/superpowers/plans/2026-10-27-review-trin-b-ddl.md): fire
+-- funktionsrettelser (1d.3b-01, 1d.1-03, 1d.1-02, 1d.1-04). Kun CREATE OR REPLACE af fulde kroppe — idempotent;
+-- signaturer uændrede, så eksisterende grants og revokes bevares. schema.sql bærer de samme kroppe byte for byte
+-- (paritetsvagten tests/sql/inspect-5ab-function-parity.sql).
+
+CREATE OR REPLACE FUNCTION private.preview_relation_promotions(p_source_id bigint,p_items jsonb,p_lock boolean)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_items jsonb;
+BEGIN
+  -- NULL-kilde ville slå både kildetjek og kildelås fra (Opus kode-review M1); NULL-elementer er ikke en liste.
+  IF p_source_id IS NULL THEN RAISE EXCEPTION 'RELATION_PROMOTION_INVALID'; END IF;
+  IF p_items IS NULL OR jsonb_typeof(p_items)<>'array' OR jsonb_array_length(p_items)=0 OR EXISTS (
+       SELECT 1 FROM jsonb_array_elements(p_items) e(item)
+        WHERE jsonb_typeof(e.item)<>'object'
+           -- IS DISTINCT FROM: et tomt objekt giver NULL, som <> ville lade slippe igennem
+           OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(e.item) k) IS DISTINCT FROM ARRAY['family_id','interpretation_id']
+           OR jsonb_typeof(e.item->'interpretation_id')<>'string'
+           OR e.item->>'interpretation_id' !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+           OR jsonb_typeof(e.item->'family_id')<>'number' OR e.item->>'family_id' !~ '^-?[0-9]{1,19}$') THEN
+    RAISE EXCEPTION 'RELATION_PROMOTION_ITEMS_INVALID';
+  END IF;
+  -- 19 cifre kan stadig ligge uden for bigint; castet range-checker og giver samme fejlkode.
+  BEGIN
+    PERFORM (e.item->>'family_id')::bigint FROM jsonb_array_elements(p_items) e(item);
+  EXCEPTION WHEN numeric_value_out_of_range THEN RAISE EXCEPTION 'RELATION_PROMOTION_ITEMS_INVALID';
+  END;
+  IF p_lock THEN
+    PERFORM pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:'||p_source_id::text,0));
+    PERFORM 1 FROM private.interpretation i
+     WHERE i.id IN (SELECT ic.id FROM private.interpretation_current ic
+                     JOIN private.interpretation q ON q.interpretation_key=ic.interpretation_key
+                    WHERE q.id IN (SELECT (e.item->>'interpretation_id')::uuid FROM jsonb_array_elements(p_items) e(item))
+                      AND q.source_id=p_source_id)
+     ORDER BY i.id FOR UPDATE;
+    -- Kun elementer fra denne kilde låses; et fremmed element afvises nedenfor (SOURCE_MISMATCH) uden at
+    -- en anden kildes rækker er låst under denne kildes lås (Opus kode-review, MINOR 1).
+    PERFORM private.lock_family_rows(ARRAY(
+      SELECT DISTINCT (pty->>'canonical_person_id')::bigint
+        FROM jsonb_array_elements(p_items) e(item)
+        JOIN private.interpretation q ON q.id=(e.item->>'interpretation_id')::uuid AND q.source_id=p_source_id
+        CROSS JOIN LATERAL jsonb_array_elements(coalesce(private.relation_binding_state((e.item->>'interpretation_id')::uuid)->'parties','[]'::jsonb)) pty
+       WHERE pty->>'canonical_person_id' IS NOT NULL ORDER BY 1));
+  END IF;
+  WITH parsed AS (
+    SELECT ord::integer AS item_ordinal,(e.item->>'interpretation_id')::uuid AS interpretation_id,
+           (e.item->>'family_id')::bigint AS family_id,
+           count(*) OVER (PARTITION BY (e.item->>'interpretation_id')::uuid) AS dup
+      FROM jsonb_array_elements(p_items) WITH ORDINALITY e(item,ord)
+  ), checked AS (
+    SELECT p.*,q.id AS requested_id,q.source_id,q.predicate,q.decision_evidence,cur.id AS current_id,cur.status,
+           r.rule_key,r.rule_version,r.rule_mode,r.status AS rule_status,
+           private.relation_binding_state(p.interpretation_id) AS st,
+           (SELECT x.id FROM private.interpretation_promotion x
+             WHERE x.interpretation_id=p.interpretation_id AND x.target_type='family'
+             ORDER BY x.promoted_at DESC,x.id DESC LIMIT 1) AS last_binding_id,
+           (SELECT x.target_id FROM private.interpretation_promotion x
+             WHERE x.interpretation_id=p.interpretation_id AND x.target_type='family'
+             ORDER BY x.promoted_at DESC,x.id DESC LIMIT 1) AS last_binding_family
+      FROM parsed p
+      LEFT JOIN private.interpretation q ON q.id=p.interpretation_id
+      LEFT JOIN private.interpretation_current cur ON cur.interpretation_key=q.interpretation_key
+      LEFT JOIN private.interpretation_promotion_rule_line l ON l.predicate=q.predicate
+      LEFT JOIN private.interpretation_promotion_rule_current r ON r.rule_key=l.rule_key
+  ), hashed AS (
+    SELECT c.*,CASE WHEN c.st IS NULL THEN NULL ELSE private.reimport_canonical_json_sha256(c.st) END AS cur_sha
+      FROM checked c
+  ), judged AS (
+    SELECT c.*,CASE
+      WHEN c.requested_id IS NULL THEN 'RELATION_PROMOTION_NOT_FOUND'
+      WHEN c.source_id IS DISTINCT FROM p_source_id THEN 'RELATION_PROMOTION_SOURCE_MISMATCH'
+      WHEN c.current_id<>c.interpretation_id THEN 'RELATION_PROMOTION_NOT_CURRENT'
+      WHEN c.status<>'accepted' THEN 'RELATION_PROMOTION_NOT_ACCEPTED'
+      WHEN c.rule_key IS NULL OR c.rule_mode<>'structural_family' OR c.rule_status<>'active' THEN 'RELATION_PROMOTION_RULE_NOT_ACTIVE'
+      WHEN c.st IS NULL THEN 'RELATION_PROMOTION_STRUCTURE_INVALID'
+      WHEN (c.st#>>'{family,family_id}')::bigint<>c.family_id THEN 'RELATION_PROMOTION_FAMILY_MISMATCH'
+      WHEN c.dup>1 THEN 'RELATION_PROMOTION_DUPLICATE_ITEM'
+      -- Review trin B (1d.3b-01): afgørelsen gælder familien i decision_evidence; er strukturen siden flyttet til en
+      -- anden familie, kræver bindingen en ny afgørelse (som børnegrenens vagt i relation_binding_state). Koden dækker
+      -- også »familie ikke registreret«: mangler family_id i decision_evidence, afvises bindingen (fail-closed).
+      WHEN c.predicate IN ('relation.marriage','relation.parent')
+       AND (c.st#>>'{family,family_id}')::bigint IS DISTINCT FROM (c.decision_evidence->>'family_id')::bigint
+        THEN 'RELATION_PROMOTION_DECISION_FAMILY_CHANGED'
+      -- Trin 5b 2b-i (spec §4.2): kun en binding med den nuværende tilstand er »anvendt«; forældede er historik.
+      WHEN EXISTS (SELECT 1 FROM private.interpretation_promotion x
+                    WHERE x.interpretation_id=c.interpretation_id AND x.target_type='family'
+                      AND x.evidence->>'state_sha256'=c.cur_sha) THEN 'RELATION_PROMOTION_ALREADY_APPLIED'
+      -- En genbinding kun i samme familie: påstanden blev afgjort for den gamle familie (spec §4.4).
+      WHEN c.last_binding_id IS NOT NULL AND c.last_binding_family<>c.family_id THEN 'RELATION_PROMOTION_REBIND_FAMILY_CHANGED'
+    END AS reason_code
+      FROM hashed c
+  )
+  SELECT jsonb_agg(jsonb_build_object('item_ordinal',j.item_ordinal,'interpretation_id',j.interpretation_id::text,
+           'family_id',j.family_id,'eligible',j.reason_code IS NULL,'reason_code',j.reason_code,
+           'rule_key',j.rule_key,'rule_version',j.rule_version,
+           'state_sha256',j.cur_sha,
+           'supersedes_promotion_id',CASE WHEN j.reason_code IS NULL THEN j.last_binding_id::text END,
+           -- Codex plan-r1 #9: vielsesfaktummet er en del af det autoriserede preview; skrivningen bruger
+           -- previewets værdi, så det gemte = det hashede. Entydigt ellers null.
+           'vielse_fact_id',CASE WHEN j.predicate='relation.marriage' THEN
+              (SELECT CASE WHEN count(*)=1 THEN min(f.id) END FROM public.fact f
+                WHERE f.subjekt_type='family' AND f.subjekt_id=j.family_id AND f.faktatype='vielse') END)
+         ORDER BY j.item_ordinal)
+    INTO v_items FROM judged j;
+  RETURN jsonb_build_object('items',v_items,'preview_sha256',private.reimport_canonical_json_sha256(jsonb_build_object(
+    'contract','relation-promotion-preview-v2',
+    'database_identity',jsonb_build_object('database_name',current_database(),
+      'system_identifier',(pg_control_system()).system_identifier::text)::text,
+    'source_id',p_source_id,'items',v_items)));
+END $$;
+
+CREATE OR REPLACE FUNCTION red_edit_oplysning(
+  p_assertion_id bigint, p_vaerdi text, p_date_raw text DEFAULT NULL, p_kilde_fritekst text DEFAULT NULL)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_old assertion; v_new bigint; v_cit bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF (SELECT f.faktatype FROM assertion a JOIN fact f ON f.id=a.target_id AND a.target_type='fact' WHERE a.id=p_assertion_id) = 'forældrefamilie' THEN
+    RAISE EXCEPTION 'Forældrefamilie-slottets påstande redigeres ikke (uforanderlige) — brug red_tilfoej_foraeldre_paastand';
+  END IF;
+  PERFORM begin_change_set('red_edit_oplysning', format('Rettede oplysning %s', p_assertion_id), NULL, NULL);
+  SELECT * INTO v_old FROM assertion WHERE id=p_assertion_id;
+  IF v_old.id IS NULL THEN RAISE EXCEPTION 'Ukendt assertion %', p_assertion_id; END IF;
+
+  -- Review trin B (1d.1-03): date_certainty følger kun med, når datoteksten er uændret (web sender altid
+  -- p_date_raw = værdien; rettes '147(5?)' til '1475', må 'uncertain' ikke arves). Kendt begrænsning: date_min/max
+  -- kopieres også, når p_date_raw ændres (NULL betyder »åben« og kan ikke bruges som nulstilling; kræver parsede
+  -- grænser fra web).
+  INSERT INTO assertion(target_type, target_id, vaerdi_tekst, date_min, date_max,
+                        date_qualifier, date_raw, calendar, date_certainty, uforanderlig)
+    VALUES (v_old.target_type, v_old.target_id,
+            p_vaerdi, v_old.date_min, v_old.date_max, v_old.date_qualifier,
+            coalesce(p_date_raw, v_old.date_raw), v_old.calendar,
+            CASE WHEN p_date_raw IS NULL OR p_date_raw IS NOT DISTINCT FROM v_old.date_raw THEN v_old.date_certainty END,
+            false)
+    RETURNING id INTO v_new;
+
+  INSERT INTO citation(assertion_id, source_id, citat_tekst)
+    VALUES (v_new, NULL,
+            coalesce(p_kilde_fritekst, '(kilde mangler)'))
+    RETURNING id INTO v_cit;
+
+  -- intern re-peg (ikke RPC): kun hvis den gamle påstand var den valgte
+  UPDATE conclusion SET valgt_assertion_id=v_new, blaastemplet_naar=current_date
+    WHERE target_type=v_old.target_type AND target_id=v_old.target_id
+      AND valgt_assertion_id=p_assertion_id;
+  -- Review trin B (1d.1-03): kun et faktum uden konklusion får én; en konklusion på en anden oplysning bliver stående.
+  IF NOT FOUND THEN
+    INSERT INTO conclusion(target_type, target_id, valgt_assertion_id, status, blaastemplet_af, blaastemplet_naar)
+      VALUES (v_old.target_type, v_old.target_id,
+              v_new, 'afklaret', 'Redaktør', current_date)
+    ON CONFLICT (target_type, target_id) DO NOTHING;
+  END IF;
+
+  RETURN jsonb_build_object('ny_assertion_id', v_new, 'citation_id', v_cit);
+END $$;
+
+CREATE OR REPLACE FUNCTION red_slet_oplysning(p_assertion_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_target_type text; v_target_id bigint; v_was_chosen boolean; v_next bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF (SELECT f.faktatype FROM assertion a JOIN fact f ON f.id=a.target_id AND a.target_type='fact' WHERE a.id=p_assertion_id) = 'forældrefamilie' THEN
+    RAISE EXCEPTION 'Forældrefamilie-slottets påstande slettes ikke (uforanderlige) — skift kanonisk valg med red_vaelg_foraeldre';
+  END IF;
+  -- Review trin B (1d.1-02): importerede kildepåstande er uforanderlige (invariant 1); kun redaktørens egne
+  -- (uforanderlig=false) slettes. NULL behandles som kolonnens default (sand). Ukendt id: uændret (stille retur nedenfor).
+  IF EXISTS (SELECT 1 FROM assertion WHERE id=p_assertion_id AND uforanderlig IS NOT FALSE) THEN
+    RAISE EXCEPTION 'Kildepåstande slettes ikke (uforanderlige) — kun redaktørens egne oplysninger kan slettes; tilføj eller ret en oplysning og vælg den i stedet';
+  END IF;
+  PERFORM begin_change_set('red_slet_oplysning', format('Slettede oplysning %s', p_assertion_id), NULL, NULL);
+  SELECT target_type, target_id INTO v_target_type, v_target_id
+    FROM assertion WHERE id = p_assertion_id;
+  IF v_target_id IS NULL THEN RETURN; END IF;
+  SELECT (valgt_assertion_id = p_assertion_id) INTO v_was_chosen
+    FROM conclusion WHERE target_type=v_target_type AND target_id=v_target_id;
+  -- VIGTIGT: slip FK'en (conclusion.valgt_assertion_id -> assertion.id) FØR assertion slettes,
+  -- ellers fejler DELETE med conclusion_valgt_assertion_id_fkey. Re-peg til første tilbageværende
+  -- oplysning (ekskl. den der slettes); ingen tilbage -> drop conclusion. Fact-slot bevares.
+  IF coalesce(v_was_chosen,false) THEN
+    SELECT id INTO v_next FROM assertion
+      WHERE target_type=v_target_type AND target_id=v_target_id AND id <> p_assertion_id
+      ORDER BY id LIMIT 1;
+    IF v_next IS NULL THEN
+      DELETE FROM conclusion WHERE target_type=v_target_type AND target_id=v_target_id;
+    ELSE
+      UPDATE conclusion SET valgt_assertion_id=v_next
+        WHERE target_type=v_target_type AND target_id=v_target_id;
+    END IF;
+  END IF;
+  DELETE FROM citation  WHERE assertion_id = p_assertion_id;
+  DELETE FROM assertion WHERE id = p_assertion_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION regen_person_visning(pid BIGINT)
+RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE v_n_distinct INT; v_slaegtsnavn TEXT;
+BEGIN
+  SELECT count(DISTINCT sn.v), min(sn.v) INTO v_n_distinct, v_slaegtsnavn
+  FROM person_external_id pei
+  JOIN lineage l ON l.source_id = pei.source_id AND l.kode = pei.linje
+  CROSS JOIN LATERAL (SELECT lineage_effective_slaegtsnavn(l.id) AS v) sn
+  WHERE pei.person_id = pid;
+
+  WITH navn_agg AS (
+    SELECT
+      max(a.vaerdi_tekst) FILTER (WHERE f.faktatype='navn')  AS navn,
+      max(coalesce(a.date_raw,a.vaerdi_tekst)) FILTER (WHERE f.faktatype='fødsel') AS foedt,
+      max(coalesce(a.date_raw,a.vaerdi_tekst)) FILTER (WHERE f.faktatype='død')    AS doed,
+      max(a.vaerdi_tekst) FILTER (WHERE f.faktatype='titel') AS titel
+    FROM fact f
+    -- Review trin B (1d.1-04): kun afklarede konklusioner (en omstridt/forældet/tilbagetrukket indgår ikke).
+    JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id AND c.status='afklaret'
+    JOIN assertion  a ON a.id = c.valgt_assertion_id
+    WHERE f.subjekt_type='person' AND f.subjekt_id = pid
+  ),
+  final AS (
+    SELECT
+      navn_agg.navn, navn_agg.foedt, navn_agg.doed, navn_agg.titel,
+      CASE
+        WHEN navn_agg.navn IS NULL THEN NULL
+        WHEN coalesce(v_n_distinct,0) <> 1 THEN NULL
+        WHEN slaegtsnavn_suffiks_match(navn_agg.navn, v_slaegtsnavn) THEN NULL
+        ELSE v_slaegtsnavn
+      END AS efternavn,
+      CASE
+        WHEN navn_agg.navn IS NULL THEN NULL
+        WHEN coalesce(v_n_distinct,0) <> 1 THEN navn_agg.navn
+        WHEN slaegtsnavn_suffiks_match(navn_agg.navn, v_slaegtsnavn) THEN navn_agg.navn
+        ELSE navn_agg.navn || ' ' || v_slaegtsnavn
+      END AS fuldt
+    FROM navn_agg
+  )
+  UPDATE person p SET
+    visning_navn = final.navn, visning_foedt = final.foedt, visning_doed = final.doed,
+    visning_titel = final.titel, visning_efternavn = final.efternavn, visning_fuldt_navn = final.fuldt
+  FROM final
+  WHERE p.id = pid
+    AND (p.visning_navn, p.visning_foedt, p.visning_doed, p.visning_titel, p.visning_efternavn, p.visning_fuldt_navn)
+        IS DISTINCT FROM (final.navn, final.foedt, final.doed, final.titel, final.efternavn, final.fuldt);
+
+  IF v_n_distinct > 1 THEN
+    INSERT INTO slaegtsnavn_karantaene(person_id, n_distinct) VALUES (pid, v_n_distinct)
+      ON CONFLICT (person_id) DO UPDATE SET n_distinct=excluded.n_distinct, noteret_at=now();
+  ELSE
+    DELETE FROM slaegtsnavn_karantaene WHERE person_id = pid;
+  END IF;
+END $$;
+-- END review-trin-b

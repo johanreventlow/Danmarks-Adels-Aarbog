@@ -2,13 +2,14 @@
 # =====================================================================
 #  load_presens.R — loader VALIDERET præsensliste-udtræk (clean.json).
 #
-#  Brug:  Rscript load_presens.R clean.json [udgave] [--reset]
+#  Brug:  Rscript load_presens.R clean.json [udgave] --jeg-mener-det
 #         udgave default "DAA 2012-2014".
-#  Login fra ~/.Renviron.
+#  Login fra ~/.Renviron. SKRIVER TIL PROD: --jeg-mener-det er obligatorisk, og
+#  ukendte flag afvises (presens_args.R).
 #
-#  APPEND-mode som default: præsenslisten er en NY source der sameksisterer
-#  med stamtavle-data — id'er allokeres fra MAX(id) i basen, ingen TRUNCATE.
-#  --reset tømmer model-tabellerne først (kun hvis du vil starte forfra).
+#  APPEND-only: præsenslisten er en NY source der sameksisterer med
+#  stamtavle-data — id'er allokeres fra MAX(id) i basen. Der er ingen TRUNCATE;
+#  --reset blev fjernet i review 2026-10-27 (fund 1c-01).
 #
 #  Loader pr. person: person (levende=TRUE) + fakta (navn/fødsel/død/erhverv/
 #  bopæl/titel) + forælder-barn- og ægtefælle-familier + kollateral-relation
@@ -16,11 +17,11 @@
 # =====================================================================
 suppressMessages({library(DBI); library(jsonlite)})
 
-argv   <- commandArgs(trailingOnly = TRUE)
-if (length(argv) < 1) stop("brug: load_presens.R clean.json [udgave] [--reset]")
-path   <- argv[1]
-udgave <- if (length(argv) >= 2 && !startsWith(argv[2], "--")) argv[2] else "DAA 2012-2014"
-RESET  <- "--reset" %in% argv
+script_dir <- dirname(sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1]))
+source(file.path(script_dir, "presens_args.R"))
+args   <- parse_load_presens_args(commandArgs(trailingOnly = TRUE))
+path   <- args$path
+udgave <- args$udgave
 
 # source.aar = tidsserie-aksen (schema.sql:37 — udgave-fritekst er upålidelig til sortering).
 # Konvention: SIDSTE dækkede år. Fail-closed: uparsebar udgave-streng stopper FØR DB-kontakt,
@@ -55,9 +56,6 @@ ex <- function(sql, params = list()) if (length(params)) dbExecute(con, sql, par
 # relation FØR assertion); inversion mellem samtidige LOCK-statements = deadlock.
 id_tables <- c("source","person","place","estate","organisation",
                "family","note","narrative","fact","relation","assertion","citation","conclusion")
-model_tables <- c("note","citation","conclusion","assertion","relation","fact",
-                  "family_member","family","person_external_id","narrative","person",
-                  "estate","organisation","place","source")
 
 .seq <- new.env(parent = emptyenv())
 # Id-gulv = GREATEST(levende max, højeste id i versioneringshistorikken) —
@@ -137,8 +135,6 @@ tryCatch({
   # fra MAX(id) kræver eksklusiv skrive-lås — ellers kan en samtidig RPC's
   # nextval tage samme id. Læsere passerer uhindret.
   ex(paste0("LOCK TABLE ", paste(id_tables, collapse = ", "), " IN EXCLUSIVE MODE"))
-  if (RESET) { message("RESET: tømmer model-tabeller…")
-    ex(paste0("TRUNCATE ", paste(model_tables, collapse=", "), " CASCADE;")) }
   seed_seq()
 
   src <- nid("source")

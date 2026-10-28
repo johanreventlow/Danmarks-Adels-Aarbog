@@ -1846,7 +1846,8 @@ export default function Redaktion() {
               {!o.erKonklusion && <div onClick={() => run({ art: 'setKonklusion', subjektType: 'person', subjektId: pid, assertionId: String(o.assertionId) }, 'Konklusion')} style={{ fontSize: 12, fontWeight: 600, color: T.green, border: '1px solid rgba(31,91,58,.4)', borderRadius: 7, padding: '6px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Gør til konklusion</div>}
               <div style={{ display: 'flex', gap: 4 }}>
                 <span onClick={() => { setEditingAssert(o.assertionId); setAddingFact(null); setSc('ed:' + o.assertionId + ':v', o.vaerdi); setSc('ed:' + o.assertionId + ':src', kildeAf(o) === 'ingen kilde' ? '' : kildeAf(o)); }} title="Redigér" style={iconBtn}>✎</span>
-                <span onClick={() => run({ art: 'sletOplysning', subjektType: 'person', subjektId: pid, assertionId: String(o.assertionId) }, 'Slet oplysning')} title="Slet" style={{ ...iconBtn, border: '1px solid rgba(138,43,43,.3)', color: T.red }}>🗑</span>
+                {/* Kun redaktørens egne oplysninger (uforanderlig eksplicit false) kan slettes; importerede kildepåstande er uforanderlige (review trin B, 1d.1-02). Fail-closed: mangler feltet, vises knappen ikke. */}
+                {o.uforanderlig === false && <span onClick={() => run({ art: 'sletOplysning', subjektType: 'person', subjektId: pid, assertionId: String(o.assertionId) }, 'Slet oplysning')} title="Slet" style={{ ...iconBtn, border: '1px solid rgba(138,43,43,.3)', color: T.red }}>🗑</span>}
               </div>
             </div>
           </>

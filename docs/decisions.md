@@ -2,6 +2,103 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: projektets mål slutter med trin 6; skalering er en mulig fortsættelse, ikke et mål (2026-10-28)
+
+> Projektejerens afgørelse 2026-10-28 efter spørgsmålet, om reviewets fund (særligt Fables 2-01 og 2-04) kan
+> adresseres, så projektet når i mål.
+
+**Baggrund:** Roadmappet fører fra trin 6 (begge referenceudgaver gennem kæden) til trin 7a/7b og videre mod
+foreningens samlede data. Reviewet viste, at de egentlige fejl kan rettes på få dage (trin A og B er gjort), men at
+skalering kræver to ting, projektet ikke selv råder over: et opret-ben, som endnu ikke er designet (2-01, B4), og et
+behandlingsgrundlag for foreningens data, som kræver en jurist (2-04, B10). Foreningens data er desuden kun relevant,
+hvis foreningen vil fortsætte.
+
+**Besluttet:**
+1. **Projektets mål er PoC'en for Reventlow:** trin 1-6 med trin 6's færdigbevis (begge referenceudgaver gennem samme
+   operationer, læseren ser fakta med kildehenvisning (B11), medlemskab fra to kilder (B6)).
+2. **Beslutningspunkt efter trin 6:** projektejeren vurderer, om PoC'en leverer værdi for læser og redaktør, og hvad
+   en fortsættelse koster. Udfaldet registreres som en ny post her: stop, fortsæt med 7a, eller forelæg foreningen en
+   fortsættelse.
+3. **Trin 7a og 7b samt foreningens samlede data er en mulig fortsættelse,** ikke en del af projektets mål. 7b og
+   foreningens data forudsætter foreningens accept. Opret-benet (B4) og behandlingsgrundlaget (B10's juristdel) hører
+   til fortsættelsen og planlægges ikke før beslutningspunktet.
+4. **Konsekvens for prioritering:** arbejde, der kun tjener skalering (opret-benet ud over 1939's 16 `[NY]`-records,
+   udgavelogik ud af fælles kode (2-02), GDPR på foreningsniveau), tages ikke ind før beslutningspunktet. Visionens krav om
+   at metoden *kan* udvides til nye udgaver står uændret.
+
+## BESLUTTET: de 13 `NOISE_RE`-linjer midt på en side — 12 er prosa, der mangler i 2018-20's tekst (2026-10-27)
+
+> Review-handling A6 (fund 1d.3a-03). Ark og konverter i `work/noise-re-13/` (gitignoreret); ark-sha `5dbc5e20d83c…`,
+> dispositioner-sha `2b383d0f6dfd…`. Projektejeren bekræftede de forudfyldte anbefalinger.
+
+**Baggrund:** `segment.py`'s `NOISE_RE` (`von\s+R\s*E.*|Ridder\s+.+sønner`) springer linjer over midt i en post. Af 100
+træf i 2018-20's rå tekst står 87 lige efter et sideskift (alle korte, uden komma og tal: sidehoveder), 13 midt på
+en side.
+
+**Besluttet:**
+1. **12 linjer er prosa** (L190, L210, L294, L427, L440, L619, L627, L795, L1284, L1350, L2606, L3430 i
+   `work/raw_full.txt`): de begynder midt i en sætning med »von Reventlow …« og mangler i den publicerede
+   `narrative.tekst` for kilde 1 og i klausulerne bygget på den.
+2. **L22** (»Ridder … sønner«, side 93) er en overskrift, ikke prosa; den forbliver udeladt.
+3. **Opfølgning (gate før trin 6, egen plan og GO):** `NOISE_RE` strammes til sidehovedpositionen (lige efter
+   `### PAGE`), ny segmenteringsversion, og de berørte narrativer og klausuler rettes gennem den normale
+   tekstrettelsesvej. Det er en ændring af prod-data.
+
+## BESLUTTET: helhedsreview trin 1-5 — 13 beslutninger før trin 6 (B1-B13) (2026-10-27)
+
+> Grundlag: `docs/reviews/2026-10-27-trin-1-5/rapport.md` §5 (fase 3) med fund i samme mappe. Projektejeren sagde ja
+> til alle hovedsessionens anbefalinger 2026-10-27. Tekstændringer i vision, roadmap og målarkitektur følger i en
+> særskilt rettelse (review-handling A4).
+
+**Baggrund:** Reviewet fandt, at kernen (evidenslaget, writeren, klausullaget) holder, men at overførslen til prod er
+dyr, at de gamle loadere aldrig blev lukket, at kæden ikke kan oprette noget nyt (2-01), og at læseren ikke ser
+resultatet (1a-03). Beslutningerne nedenfor lukker eller udskyder det, før trin 6 specificeres.
+
+**Besluttet:**
+1. **B1 — gate 8 omformuleres:** fortrydelse er enten en særskilt, auditeret handling med eget write-set *eller*
+   restore af et dateret dump inden for et deklareret vindue, som lukkes udtrykkeligt. Betingelse (2-06): hvert
+   restorepunkt findes i to kopier (én uden for maskinen), hashen noteres i `database-current-state.md`, og »dump
+   findes og hash passer« er første skridt i enhver ceremoni. Dumpet indeholder levende personer (invariant 8):
+   kopien uden for maskinen skal være **krypteret** og ligge et sted, projektejeren selv kontrollerer (fx et krypteret
+   eksternt drev) — aldrig ukrypteret hos en skytjeneste. **Valgt 2026-10-27:** projektejerens SFTP-server hos en
+   udbyder. Dumpet krypteres lokalt med `age` før upload (`<dump>.age`); den hemmelige nøgle ligger kun hos
+   projektejeren (adgangskodemanager / `~/.private/`), aldrig på serveren, så udbyderen kun ser krypterede bytes.
+   Serverens adresse og login ligger i `~/.private/`, ikke i repoet. Hashen noteres for både dumpet og `.age`-filen;
+   ceremoniens første skridt tjekker den lokale kopi og den eksterne fils størrelse og hash. Én prøvegendannelse
+   (hent, dekryptér, `pg_restore --list`) udføres, før reglen bruges første gang. Scriptet bygges med trin B's
+   ceremoni. *Formaliserer* restore-only-posterne 2026-09-17,
+   2026-09-23 og deres efterfølgere (1a-04: ni steder).
+2. **B2 — genspilspakken droppes som standard:** prod-skrivning sker i 5c-1's form (frisk dump → kørsel mod prod med
+   `--jeg-mener-det` → før/efter-måling med nøglede digests). Indholds-id'erne (2026-10-21) beholdes. *Afløser*
+   »hele 2018-20 køres i restoren og overføres samlet« (2026-10-01) som mønster for nye trin.
+3. **B3 — trin 7 deles:** 7a = ny udgave af samme slægt (identitetsafstemning mod eksisterende bestand); 7b = ny slægt
+   fra ingenting. Kandidat-årbog vælges, før trin 7 specificeres.
+4. **B4 — opret-benet specificeres før 7b**, med 1939's 16 `[NY]`-records (#160) som første rigtige prøve. *Afløser*
+   »promotion er binding, ikke oprettelse« (2026-09-06 pkt. 6) som princip for 7b; for trin 4 gælder det fortsat.
+   Rækkefølge: efter trin 6.
+5. **B5 — de gamle loadere fryses:** `load_daa.R` er lukket ved kontrakt v2 (porten er frysningen);
+   `post_load_fixup.R` og `backfill_slaegtled.R` får samme port og kræver `--jeg-mener-det`. CLAUDE.md og
+   `daa-extract/SKILL.md` peger på evidenskæden, ikke loaderen. Genåbning kræver en ny post her. *Afløser* SKILL.md's
+   »fremadrettede loader« og lukker kursskiftet i #240-posten (2026-10-26).
+6. **B6 — medlemskab fra en anden kilde bliver `corroborated`, ikke `conflict`** (1d.1-07). Specificeres i trin 6.
+7. **B7 — `verbatim_text`'s betydning på tværs af udgaver er *ikke* besluttet;** den afgøres i trin 6-spec'en
+   (1d.3a-01).
+8. **B8 — kontrolmodellens stikprøve er en røgtest:** forsegling, hash-bundet trækning og `-v2`-trækning bortfalder;
+   »én fejl stopper« og stikprøvens størrelse består. *Justerer* 2026-09-27; »ingen fulde afgørelsesark« består.
+9. **B9 — `schema.sql` bringes i paritet ved håndportering nu** (RED-8: 17 kroppe, 16 tabeller; 1b-01). At generere
+   skemaet fra en migreret base (1b-05) er en særskilt beslutning efter trin 6.
+10. **B10 — GDPR ved skalering:** udelukkelsen fra modelkald strammes fra »afdød« til »død før (indeværende år − 10)«.
+    Behandlingsgrundlaget (2026-09-06 pkt. 5) afklares med en jurist på foreningsniveau, før foreningens data
+    behandles. Det standser trin 7, ikke trin 6.
+11. **B11 — læserværdi er en del af trin 6's færdigbevis:** fakta med kildehenvisning i persondetaljen (1a-03),
+    leveret sammen med 5c-2.
+12. **B12 — genbekræftet:** OCR-rettelse er ikke en ny påstand (`docs/superpowers/specs/2026-07-26-person-ocr-kvalitetsark-design.md:38-40`)
+    og strider ikke mod visionens »originalen er uforanderlig« (2026-08-25): originalen bevares i
+    `import_korrektion` og `change_event`. Ingen ny beslutning; CLAUDE.md's invariant 1 skal nævne undtagelsen (1a-08).
+13. **B13 — review-budget og kontrollerede afbrydelser håndhæves:** hver spec har én linje med sit review-budget;
+    overskridelse eller en afbrydelse som #240/#248 kræver én linje her (grund, slut, retur). *Håndhæver*
+    2026-09-03 og 2026-09-23.
+
 ## BESLUTTET: #150 trin 5c-1 — overskrifter som strukturelle forekomster; legacy-ledger; membership gælder kun ved passende tilstand (2026-10-26/27)
 
 > Spec `docs/superpowers/specs/2026-10-26-trin5c-placement-membership-design.md` (Fable-reviewet), plan
@@ -3265,7 +3362,8 @@ Efter fuld gennemgang af familiens TNG-dump (`jr_tng_reventlow.sql`, se
   medielink, geokodning+proveniens på medier): UDSKUDT SAMLET.** Ønsket, men skal
   designes som én sammenhængende medie-arkitektur-beslutning, ikke fire spredte
   enkelt-features. Ingen implementering før den samlede session.
-- **Gemte rapporter/smart-lister: NÆSTE FOKUS.** TNG-familien har 193 reelt brugte
+- **Gemte rapporter/smart-lister: NÆSTE FOKUS.** *(Afløst: blev aldrig bygget; genimportprogrammet (model 2,
+  2026-08-25) overtog prioriteringen. Udskudt, ikke afvist — markeret ved review 2026-10-27, 1a-14.)* TNG-familien har 193 reelt brugte
   brugerdefinerede lister — det eneste §7-punkt med både stærk evidens for værdi OG
   eksplicit bruger-interesse nu. Implementeres som parametriserede forespørgsler i
   app-koden (ikke TNG's rå `sqlselect`-tekstfelt — SQL-injektions-mønster).
