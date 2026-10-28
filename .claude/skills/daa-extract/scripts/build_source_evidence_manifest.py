@@ -57,18 +57,21 @@ def _project_line(line: str, base: int) -> tuple[list[str], list[int]]:
     return chars, offsets
 
 
-def project_rendition(text: str) -> tuple[str, list[int]]:
+def project_rendition(text: str,
+                      noise_rule: str = "anywhere") -> tuple[str, list[int]]:
     """Samme linjeregler som segment._segment_2018_20: PAGE-, blanke og
     NOISE-linjer springes over, øvrige linjer strippes og samles med ét
-    mellemrum."""
+    mellemrum. `noise_rule` følger segmentprofilen; default er v1, som de
+    eksisterende manifester er bygget med."""
     chars: list[str] = []
     offsets: list[int] = []
     cursor = 0
-    for line in text.split("\n"):
+    lines = text.split("\n")
+    for index, line in enumerate(lines):
         base = cursor
         cursor += len(line) + 1
         if segment.PAGE_RE.match(line) or not line.strip() \
-                or segment.NOISE_RE.match(line):
+                or segment.is_noise(lines, index, noise_rule):
             continue
         line_chars, line_offsets = _project_line(line, base)
         if not line_chars:

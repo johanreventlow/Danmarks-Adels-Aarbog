@@ -42,6 +42,27 @@ def posts():
     ]
 
 
+STOEJ = (
+    "### PAGE 1 ###\n"
+    "von REVENTLOW\n"
+    "Alfa  Bravo\n"
+    "von Reventlow, Echo\n"
+)
+
+
+def test_project_rendition_v2_bevarer_midtsidelinje():
+    assert "von Reventlow, Echo" not in builder.project_rendition(STOEJ)[0]
+    assert "von Reventlow, Echo" in builder.project_rendition(STOEJ, noise_rule="page_header")[0]
+
+
+def test_project_rendition_default_fastlaast():
+    # v1 er frosset (149a-, klausul- og header-manifester genbygges med den):
+    # tekst OG offsets er låst som literals.
+    projection, offsets = builder.project_rendition(STOEJ)
+    assert projection == "Alfa Bravo"
+    assert offsets == [29, 30, 31, 32, 35, 35, 36, 37, 38, 39]
+
+
 def test_projection_collapses_whitespace_and_drops_page_markers():
     projection, offsets = builder.project_rendition(RENDITION)
     assert "### PAGE" not in projection

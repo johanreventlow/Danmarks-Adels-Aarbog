@@ -317,5 +317,73 @@ class TestPegepindKrydstjek1939(unittest.TestCase):
         self.assertEqual(segment._pegepind_krydstjek_1939(posts, self._profil()), [])
 
 
+class TestStoejregel(unittest.TestCase):
+    """A6b (decisions 2026-10-27/-28): NOISE_RE må kun fjerne sidehoveder. v1
+    ('2018-20') er frosset, så gamle manifester kan genbygges; v2 ('2018-20-v2')
+    bevarer en støjlignende linje midt på en side, fordi den er prosa."""
+
+    MIDTSIDE = "\n".join([
+        "### PAGE 1 ###",
+        "I",
+        "DEN TESTLIGE LINJE",
+        "        1.       Anders Testesen, * 1801. Han var gift med Inger",
+        "von Reventlow, der ejede Testgaard.",
+        "                  Han døde 1860.",
+    ])
+    SIDEHOVED = "\n".join([
+        "### PAGE 1 ###",
+        "I",
+        "DEN TESTLIGE LINJE",
+        "        1.       Anders Testesen, * 1801.",
+        "### PAGE 2 ###",
+        "",
+        "von REVENTLOW",
+        "                  Han døde 1860.",
+    ])
+
+    def test_v1_springer_midtsidelinje_over(self):
+        posts = run_segment(self.MIDTSIDE)
+        self.assertNotIn("Testgaard", posts[0]["raw_text"])
+
+    def test_v2_bevarer_midtsidelinje(self):
+        posts = run_segment(self.MIDTSIDE, udgave="2018-20-v2")
+        self.assertIn("von Reventlow, der ejede Testgaard.", posts[0]["raw_text"])
+
+    def test_v2_springer_sidehoved_over_ogsaa_efter_blank_linje(self):
+        posts = run_segment(self.SIDEHOVED, udgave="2018-20-v2")
+        self.assertNotIn("REVENTLOW", posts[0]["raw_text"])
+        self.assertIn("Han døde 1860.", posts[0]["raw_text"])
+
+    def test_v2_stoej_foer_foerste_page_er_ikke_sidehoved(self):
+        raw = "\n".join([
+            "Ridder Testesens sønner",
+            "### PAGE 1 ###",
+            "I",
+            "DEN TESTLIGE LINJE",
+            "        1.       Anders Testesen, * 1801.",
+        ])
+        self.assertFalse(segment.is_noise(raw.split("\n"), 0, "page_header"))
+        posts = run_segment(raw, udgave="2018-20-v2")
+        self.assertTrue(all("Ridder" not in p["raw_text"] for p in posts))
+
+    def test_significant_ser_forbi_sidehoved_men_ikke_forbi_midtsidelinje(self):
+        lines = ["### PAGE 1 ###", "von REVENTLOW", "tekst", "von Reventlow, der ejede", "mere"]
+        self.assertEqual(segment.significant(lines, 1, "page_header"), 2)
+        self.assertEqual(segment.significant(lines, 3, "page_header"), 3)
+        self.assertEqual(segment.significant(lines, 1), 2)
+        self.assertEqual(segment.significant(lines, 3), 4)
+
+    def test_profilerne_er_ens_bortset_fra_stoejregel(self):
+        p = segment.UDGAVE_PROFILER
+        self.assertEqual(p["2018-20"]["noise_rule"], "anywhere")
+        self.assertEqual(p["2018-20-v2"]["noise_rule"], "page_header")
+        uden = lambda d: {k: v for k, v in d.items() if k != "noise_rule"}
+        self.assertEqual(uden(p["2018-20-v2"]), uden(p["2018-20"]))
+
+    def test_ukendt_stoejregel_afvises(self):
+        with self.assertRaises(ValueError):
+            segment.is_noise(["x"], 0, "overalt")
+
+
 if __name__ == "__main__":
     unittest.main()

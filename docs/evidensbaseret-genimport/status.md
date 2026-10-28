@@ -51,7 +51,7 @@ Tilladte tilstande: `specificeret`, `isoleret implementeret`, `integreret ende-t
 | A4 | Styringsdokumenter afstemt (1a-01, 1a-14) | gjort, samme gren |
 | A5 | C3-deployfil stoppet, røde R-tests arkiveret (1b-04, 1c-04/05) | gjort, samme gren |
 | A6 | Projektejeren læser de 13 `NOISE_RE`-linjer mod kilden (1d.3a-03) | gjort: 12 er prosa, der mangler i teksten (decisions 2026-10-27) |
-| A6b | `NOISE_RE` strammes, ny segmenteringsversion, de 12 linjer rettes ind i narrativer og klausuler i prod | åben, kræver plan og GO |
+| A6b | `NOISE_RE` strammes, ny segmenteringsversion, de 12 linjer rettes ind i narrativer og klausuler i prod | afgrænset 2026-10-28 (decisions): de 10 publicerede narrativer nu, kildetekst og klausuler i trin 6; plan `docs/superpowers/plans/2026-10-28-a6b-noise-re-narrativer.md`, kræver GO |
 | B | Én DDL-ceremoni: 1d.3b-01, 1d.1-03, 1d.1-02, 1d.1-04 (mål cachen først) | gjort, i prod 2026-10-28 (GO trinb `33f99750`; `database-current-state.md` §14). Grenen er ikke merget |
 
 ## Restorepunkt og fortrydelse
