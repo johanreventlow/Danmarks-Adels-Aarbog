@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-28 — Review trin B i prod: fire funktionsrettelser (DDL) og første eksterne dumpkopi
+
+Prod-kørsel efter `docs/runbooks/review-trin-b-prod.md`, repo `f3850eec` (gren `fix/review-trin-b`), GO trinb
+`33f99750` (= øvelsens), kørt af projektejeren med `~/.private/5ab-overfoersel/22-trin-b.sh`; dump før skrivning
+`daa-prod-20261028184913-trinb.dump` (sha `e253f352…`).
+
+- **Forarbejde:** `age`-nøgle og SFTP-nøgle-login hos projektejerens udbyder sat op (B1). Øvelse på en genskabt kopi af
+  prod efter 5c-1: alle afvisninger, blokken idempotent, fuld `db-verify` grøn, fortrydelse af de fire funktioner prøvet.
+- **Før:** `MAAL_TRINB_OK ddl=foer`; `ADVISORS_TRINB_OK nye=2`.
+- **Ekstern kopi:** `EKSTERN_TRINB_OK … rundtur=ok`; prøvegendannelse `PROEVE_TRINB_OK … personer=1811`.
+- **DDL:** `DDL_TRINB_OK` (1d.3b-01, 1d.1-03, 1d.1-02, 1d.1-04); måling 0/0/0 før og efter, ingen data ændret.
+- **Efter:** `MAAL_TRINB_OK ddl=efter`; `ADVISORS_TRINB_OK nye=2 forsvundne=0`.
+
 ## 2026-10-27 — #150 trin 5c-1 i prod: placement og membership for 2018-20 (DDL + data)
 
 Prod-kørsel efter `docs/runbooks/150-placement-prod.md`, repo `8ac893c5` (PR #269), GO 150 `3e69560f`, kørt af

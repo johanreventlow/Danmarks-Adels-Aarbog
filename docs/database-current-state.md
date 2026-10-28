@@ -529,6 +529,26 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 14. Review trin B: fire funktionsrettelser — LIVE i prod (2026-10-28)
+
+**Procedure:** `docs/runbooks/review-trin-b-prod.md`, privat script `~/.private/5ab-overfoersel/22-trin-b.sh`.
+Repo `f3850eec` (gren `fix/review-trin-b`, før merge), GO trinb `33f99750` (= øvelsens); dump før skrivning
+`daa-prod-20261028184913-trinb.dump` (14,6 MB, sha `e253f352…`).
+
+- **Ekstern kopi (B1, første brug):** dumpet `age`-krypteret (sha `0e5bc17f…`) på projektejerens SFTP-server, hentet
+  tilbage, sammenlignet byte for byte og dekrypteret (`EKSTERN_TRINB_OK … rundtur=ok`). Prøvegendannelsen genskabte
+  den hentede kopi lokalt: `PROEVE_TRINB_OK … personer=1811`, fingeraftryk som prod.
+- **DDL:** blokken `-- BEGIN/END review-trin-b` i én transaktion (`lock_timeout` 5 s; prods `statement_timeout` 2 min):
+  `private.preview_relation_promotions` (1d.3b-01: `RELATION_PROMOTION_DECISION_FAMILY_CHANGED` for ægteskab og forælder),
+  `red_edit_oplysning` (1d.1-03: ompeger ikke en konklusion; arver `date_certainty` ved uændret datotekst),
+  `red_slet_oplysning` (1d.1-02: afviser importerede, `uforanderlig`, påstande) og `regen_person_visning` (1d.1-04: kun
+  `afklaret` navne i cachen). Fingeraftryk `912e25df…` → `faeef822…` (`DDL_TRINB_OK`), PostgREST genindlæst.
+- **Måling før og efter:** `ikke_afklaret=0 ufor_null=0 ufor_false=44 relationer=248 uden_family_id=0 ubundne=0
+  afvigere=0`. Ingen data ændret. Rådgiveren: `nye=2` før og efter (5c-1's to kendte fund), ingen nye.
+- **db-verify:** seeder testrækker og køres ikke mod prod. Den fulde `db-verify.sql` er grøn på en genskabt kopi af prod
+  efter blokken: `TRIN_B_DECISION_FAMILY_CHANGED_UNBOUND n=0`, og RED-8-blokken (A3) bestod på prod-data.
+- **Fortryd:** de fire gamle definitioner fra dumpet (runbookens opskrift, prøvet på en kopi); nødudvej fuld restore.
+
 ## 13. Placement og membership for 2018-20 (#150, trin 5c-1) — LIVE i prod (2026-10-27)
 
 **Procedure:** `docs/runbooks/150-placement-prod.md`, privat script `~/.private/5ab-overfoersel/21-150-5c.sh`.

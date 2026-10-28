@@ -12,8 +12,9 @@
 4. **Værdi:** en relation kan ikke længere førstebindes til en anden familie end den afgjorte (samme fejlklasse som
    #248, der blev offentlig); redaktøren kan ikke stille ompege en konklusion eller slette importerede kildepåstande.
 5. **Færdigbevis:** nye SQL-tests røde mod gammel kode og grønne mod ny; alle berørte CI-job grønne lokalt;
-   ceremonien `DDL_OK` + før/efter-måling + `db-verify` grøn i prod; ingen ændring i prod-data, medmindre T0 viser
-   noget (se T4).
+   ceremonien `DDL_OK` + før/efter-måling i prod + `db-verify` grøn på en genskabt kopi af prod efter blokken
+   (db-verify seeder testrækker og køres aldrig mod prod); ingen ændring i prod-data, medmindre T0 viser noget (se T4).
+   *Opfyldt 2026-10-28 (`database-current-state.md` §14).*
 6. **Erstatter:** intet workflow; lukker fund 1d.3b-01, 1d.1-03, 1d.1-02, 1d.1-04.
 
 ## Fortrydelse og dump (B1, første brug)

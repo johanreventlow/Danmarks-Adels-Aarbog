@@ -1,14 +1,14 @@
 # Evidensbaseret genimport — aktuel status
 
-**Snapshot 2026-10-27**, efter trin 5c-1 i prod og helhedsreviewet af trin 1-5
-([rapport](../reviews/2026-10-27-trin-1-5/rapport.md)). Dokumentet **overskrives** ved hvert trinskifte og hver
+**Snapshot 2026-10-28**, efter reviewets trin B i prod (efter trin 5c-1 og helhedsreviewet af trin 1-5,
+[rapport](../reviews/2026-10-27-trin-1-5/rapport.md)). Dokumentet **overskrives** ved hvert trinskifte og hver
 prod-ændring; der skrives ikke tillæg (opdateringsreglen nederst). Det gamle dokument med tillæg til og med
 2026-10-27 står i [status-arkiv-til-2026-10-27.md](status-arkiv-til-2026-10-27.md).
 
 ## Aktivt programmål
 
-**Trin 5 (#150/#151), sidste del:** 5c-2 (læserskift) sammen med læserværdien fra B11. Før det lukkes reviewets
-gates: trin A (uden prod-berøring, i gang) og trin B (én DDL-ceremoni). Derefter skrives trin 6-spec'en. Rækkefølge og
+**Trin 5 (#150/#151), sidste del:** 5c-2 (læserskift) sammen med læserværdien fra B11. Reviewets trin A og B er gjort
+(B i prod 2026-10-28); tilbage er A6b. Derefter skrives trin 6-spec'en. Rækkefølge og
 indhold: [rapport §6](../reviews/2026-10-27-trin-1-5/rapport.md); beslutningerne: `docs/decisions.md` 2026-10-27 (B1-B13).
 
 ## Samlet dom
@@ -47,21 +47,20 @@ Tilladte tilstande: `specificeret`, `isoleret implementeret`, `integreret ende-t
 |---|---|---|
 | A1 | `load_presens.R`: `--reset` fjernet, `--jeg-mener-det` krævet (1c-01) | gjort, gren `fix/review-trin-a` |
 | A2 | De gamle loadere frosset ved kontrakt v2 (B5) | gjort, samme gren |
-| A3 | RED-8 porteret til `schema.sql`, paritetsvagt, sekvens-verify (1b-01) | gjort, samme gren (verify-blokken er ikke kørt mod prod endnu) |
+| A3 | RED-8 porteret til `schema.sql`, paritetsvagt, sekvens-verify (1b-01) | gjort, samme gren; verify-blokken grøn på en genskabt kopi af prod 2026-10-28 (db-verify køres ikke mod prod) |
 | A4 | Styringsdokumenter afstemt (1a-01, 1a-14) | gjort, samme gren |
 | A5 | C3-deployfil stoppet, røde R-tests arkiveret (1b-04, 1c-04/05) | gjort, samme gren |
 | A6 | Projektejeren læser de 13 `NOISE_RE`-linjer mod kilden (1d.3a-03) | gjort: 12 er prosa, der mangler i teksten (decisions 2026-10-27) |
 | A6b | `NOISE_RE` strammes, ny segmenteringsversion, de 12 linjer rettes ind i narrativer og klausuler i prod | åben, kræver plan og GO |
-| B | Én DDL-ceremoni: 1d.3b-01, 1d.1-03, 1d.1-02, 1d.1-04 (mål cachen først) | åben, kræver GO |
+| B | Én DDL-ceremoni: 1d.3b-01, 1d.1-03, 1d.1-02, 1d.1-04 (mål cachen først) | gjort, i prod 2026-10-28 (GO trinb `33f99750`; `database-current-state.md` §14). Grenen er ikke merget |
 
 ## Restorepunkt og fortrydelse
 
-Seneste restorepunkt: dumpet før 5c-1, `daa-prod-20261027124656-150.dump` (sha `df49373f…`;
-`database-current-state.md` §13). Fortrydelse sker efter gate 8 som omformuleret 2026-10-27 (B1): en særskilt
-handling eller restore inden for et deklareret vindue. B1's betingelse — to kopier (den eksterne krypteret og under
-projektejerens kontrol), hash noteret, tjek som første skridt — er ikke kontrolleret for dette dump. Den eksterne
-kopi lægges `age`-krypteret på projektejerens SFTP-server hos en udbyder (decisions 2026-10-27, B1); scriptet og
-prøvegendannelsen bygges med trin B's ceremoni.
+Seneste restorepunkt: dumpet før trin B, `daa-prod-20261028184913-trinb.dump` (sha `e253f352…`;
+`database-current-state.md` §14). Fortrydelse sker efter gate 8 som omformuleret 2026-10-27 (B1): en særskilt
+handling eller restore inden for et deklareret vindue. B1's betingelse er opfyldt for dette dump: to kopier (lokalt og
+`age`-krypteret på projektejerens SFTP-server, sha `0e5bc17f…`), begge hashes noteret, rundtur og prøvegendannelse
+gennemført før skrivningen. Trin B's fire funktioner fortrydes uden restore (runbookens opskrift).
 
 ## Parkeret
 
