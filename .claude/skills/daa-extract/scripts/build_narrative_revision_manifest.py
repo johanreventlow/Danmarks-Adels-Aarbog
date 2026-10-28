@@ -100,6 +100,23 @@ def build_revision_manifest(raw_text: str, fra: str, til: str,
     return manifest
 
 
+def _write_private(out: Path, manifest: dict[str, Any]) -> None:
+    """Skriv til en ny fil, der er 0600 fra første byte, og erstat `out`
+    atomisk. En eksisterende fil med bredere mode bliver aldrig skrevet i."""
+    if out.is_symlink():
+        _fail("NARRATIVE_REVISION_OUT_SYMLINK")
+    tmp = out.with_name(f".{out.name}.{os.getpid()}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(manifest, fh, ensure_ascii=False, indent=2, sort_keys=True)
+            fh.write("\n")
+        os.replace(tmp, out)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--raw", required=True)
@@ -111,11 +128,7 @@ def main(argv: list[str] | None = None) -> int:
 
     raw_text = Path(args.raw).read_text(encoding="utf-8")
     manifest = build_revision_manifest(raw_text, args.fra, args.til, args.source_id)
-    fd = os.open(args.out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        json.dump(manifest, fh, ensure_ascii=False, indent=2, sort_keys=True)
-        fh.write("\n")
-    os.chmod(args.out, 0o600)
+    _write_private(Path(args.out), manifest)
     keys = ",".join(e["record_key"] for e in manifest["elements"])
     print(f"NARRATIVE_REVISION_MANIFEST elements={len(manifest['elements'])} "
           f"keys={keys} sha={manifest['manifest_sha256']}")

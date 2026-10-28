@@ -79,5 +79,33 @@ def test_manifest_sha_er_deterministisk():
     assert first["manifest_sha256"] == hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _main_paa(tmp_path, out):
+    raw = tmp_path / "raw.txt"
+    raw.write_text(RAW, encoding="utf-8")
+    return builder.main(["--raw", str(raw), "--fra", "2018-20", "--til", "2018-20-v2",
+                         "--source-id", "7", "--out", str(out)])
+
+
+def test_eksisterende_fil_erstattes_med_ny_0600(tmp_path):
+    out = tmp_path / "manifest.json"
+    out.write_text("gammel", encoding="utf-8")
+    out.chmod(0o644)
+    gammel_inode = out.stat().st_ino
+    assert _main_paa(tmp_path, out) == 0
+    assert out.stat().st_mode & 0o777 == 0o600
+    assert out.stat().st_ino != gammel_inode  # ny fil, aldrig skrevet ind i den gamle 0644-fil
+    assert json.loads(out.read_text(encoding="utf-8"))["kind"] == "narrative_revision"
+
+
+def test_symlink_som_out_afvises(tmp_path):
+    maal = tmp_path / "andet.json"
+    maal.write_text("", encoding="utf-8")
+    out = tmp_path / "manifest.json"
+    out.symlink_to(maal)
+    with pytest.raises(builder.ManifestError, match="NARRATIVE_REVISION_OUT_SYMLINK"):
+        _main_paa(tmp_path, out)
+    assert maal.read_text(encoding="utf-8") == ""
+
+
 def test_ingen_aendringer_giver_tomt_manifest():
     assert build(til="2018-20")["elements"] == []
