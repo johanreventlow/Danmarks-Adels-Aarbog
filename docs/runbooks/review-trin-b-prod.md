@@ -36,8 +36,9 @@ Alle kommandoer køres som `/bin/zsh -f ~/.private/5ab-overfoersel/koer.zsh 22-t
 `fix/review-trin-b` før merge (ikke fra `main` som 5c-1). GO-filen noterer commit'en, og PR'en kontrolleres senere mod den.
 De bundne repo-filer skal være uændrede.
 
-1. `go` → `GO_TRINB_KODE=<8 hex>` og commit. Projektejeren skriver `GO trinb <kode>`.
-2. `maal` → `MAAL_TRINB_OK ddl=foer`.
+1. `maal` → `MAAL_TRINB_OK ddl=foer`. Først, fordi `TRINB_FOER` er målt på en kopi: afviger prod, stopper `maal` med
+   `MAAL_TRINB_UKENDT`, før en GO-kode er udstedt.
+2. `go` → `GO_TRINB_KODE=<8 hex>` og commit. Projektejeren skriver `GO trinb <kode>`.
 3. `dump` → `DUMP_TRINB_OK …` og `EKSTERN_TRINB_OK … rundtur=ok`.
 4. `proeve` → `PROEVE_TRINB_OK standin=daa5ab_ddl_standin_<stempel>_tb personer=<n>`, fingeraftryk `(foer)`.
 5. `advisors` → `ADVISORS_TRINB_OK nye=2 … ddl=foer`, altså 5c-1's to kendte fund
@@ -65,8 +66,8 @@ På en kopi af stand-in'en `_5cf` (prod efter 5c-1), gennem runneren:
 - **Fuld `db-verify.sql`** efter blokken og `db-rls.sql`: grøn på 32 s, 0 `ERROR`/`WARNING`.
   `TRIN_B_DECISION_FAMILY_CHANGED_UNBOUND n=0`, og RED-8-blokken (`OK: RED-8 — 25 id-tabeller er identity`) er hermed
   første gang kørt på prod-data.
-- Ikke prøvet lokalt: rigtig SFTP i runneren. Nøgle-login og mappen er testet med `sftp -b` (2026-10-28), og
-  `dump` i prod stopper ved enhver fejl, før `ddl` kan køre.
+- **Rigtig SFTP** med runnerens egne `load_sftp` og `sftp_cmd`: en prøvefil lagt op, hentet tilbage (samme bytes) og
+  slettet igen; mappen var tom bagefter.
 
 ## Fortrydelse
 
