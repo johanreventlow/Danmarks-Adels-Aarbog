@@ -15,6 +15,9 @@
 \set QUIET on
 \set ON_ERROR_STOP on
 BEGIN READ ONLY;
+-- Prods statement_timeout er 2 min; efter-målingen tager ~3 min i prod (hvert bindingstjek læser
+-- interpretation_current), så grænsen hæves kun for denne læse-kun transaktion.
+SET LOCAL statement_timeout = '10min';
 SELECT count(*) AS n FROM pg_proc p JOIN pg_namespace s ON s.oid=p.pronamespace
  WHERE (s.nspname,p.proname) IN (('private','assertion_binding_current'),('public','public_person_facts'),
                                  ('public','public_person_source_coordinates')) \gset fn_
