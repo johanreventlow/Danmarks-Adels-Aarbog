@@ -1,7 +1,7 @@
 # Trin 6: 1939 gennem den fælles kæde — overordnet design
 
-**Status:** udkast. Formål, omfang og opdeling afklaret med projektejeren 2026-10-29 (§3). Næste: builder-check,
-derefter projektejerens godkendelse og delspec for 6a.
+**Status:** udkast. Formål, omfang, opdeling og visning afklaret med projektejeren 2026-10-29 (§3); builder-check
+indarbejdet (§6 pkt. 3, 7, 8). Næste: projektejerens godkendelse, Codex-runden, derefter delspec for 6a.
 **Gren:** `docs/trin6-spec` fra `main` (`19106f21`).
 **Review-budget (B13):** denne spec: builder-check (frisk agent) + 1 Codex-runde (`gpt-6.1-sol`, Opus dømmer). Hver
 delspec (6a-6e): 1 Codex-runde på spec+plan og 1 på diffen før prod. Fable én gang, før beslutningspunktet efter
@@ -67,6 +67,11 @@ Projektejerens afgørelser:
 3. **Redaktørens rolle:** projektejeren afgør navnefæller og uenigheder mellem bogen og databasen. Enighed afgøres
    automatisk (kontrolmodellen).
 4. **Rettelse:** når bogen og databasen er uenige, og projektejeren vælger bogen, kan trin 6 rette databasen.
+5. **Fakta pr. udgave:** 2018-20-visningen (standard) viser fakta med 2018-20 som kilde plus fakta uden kilde.
+   1939-visningen viser alle fakta med 1939 som kilde: bundne med postreference, ubundne som »fra den oprindelige
+   import«, så intet forsvinder. Personer, der kun findes i 1939, har ingen vælger og viser 1939's fakta. Følge,
+   accepteret: i dag viser en sammenfoldet person 1939's importerede fakta blandet med 2018-20's; efter 6e ses de
+   først, når man vælger 1939.
 
 **Mine valg, markeret som sådan:**
 
