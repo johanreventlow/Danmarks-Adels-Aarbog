@@ -1,7 +1,8 @@
 # Trin 6: 1939 gennem den fælles kæde — overordnet design
 
 **Status:** udkast. Formål, omfang, opdeling og visning afklaret med projektejeren 2026-10-29 (§3); builder-check
-indarbejdet (§6 pkt. 3, 7, 8). Næste: projektejerens godkendelse, Codex-runden, derefter delspec for 6a.
+indarbejdet (§6 pkt. 3, 7, 8). Godkendt af projektejeren 2026-10-29. Codex-runde 1 (`gpt-6.1-sol`): NO-GO, 7 fund,
+alle accepteret og indarbejdet (§9). Næste: delspec for 6a.
 **Gren:** `docs/trin6-spec` fra `main` (`19106f21`).
 **Review-budget (B13):** denne spec: builder-check (frisk agent) + 1 Codex-runde (`gpt-6.1-sol`, Opus dømmer). Hver
 delspec (6a-6e): 1 Codex-runde på spec+plan og 1 på diffen før prod. Fable én gang, før beslutningspunktet efter
@@ -40,16 +41,28 @@ Kilde: `status.md` 2026-10-29, `database-current-state.md`, afvigelsesvurderinge
   `samme_som`-kobling til en anden person (typisk 2018-20); 97 står alene (anon-måling 2026-10-29).
 - **2018-20 til sammenligning:** 3.739 forslag; 1.276 promoverbare klassificeret 622 `MATCH`, 570 `SKRIVEMAADE`,
   54 `REAL_DIFF`, 30 `NO_FACT`; ét ark på 74 kort (20 stikprøve + 54 uenigheder); 622 bindinger.
-- **Identitet før binding:** alle aktive promotionsregler kræver en accepteret `source_persona_identity`, og
-  faktummets subjekt skal være personaens kanoniske person (`validate_interpretation_promotion_items`). 2018-20 fik
-  identiteten fra 149b's `legacy_match`, før trin 4. Den vej er lukket for 1939, fordi narrativerne allerede er
-  publiceret (`LEGACY_MIGRATION_ALREADY_BOUND`).
+- **Identitet før binding:** de fem aktive regler for påstandsbinding (tekst og dato) kræver en accepteret
+  `source_persona_identity`, og faktummets subjekt skal være præcis personaens kanoniske personrække
+  (`schema.sql:1430-1434`, `:9750-9757`). De tre strukturelle familieregler kræver ikke persona-identitet, men har
+  deres egen partsvalidering mod præcise person-id'er (`:1473-1479`, `:17139-17172`). 2018-20 fik identiteten fra
+  149b's `legacy_match`, før trin 4. Migreringen afviser records, der allerede har en publiceringsbinding
+  (`LEGACY_MIGRATION_ALREADY_BOUND`, `:3968`, uanset status), men understøtter ellers publicerede legacy-narrativer;
+  hvor mange 1939-records den kan bruges på, er ikke målt.
 - **Læseren:** anon-rollens `statement_timeout` er 3 s; `public_person_facts` koster op til ~1,9 s for de tungeste
   2018-20-personer, fordi hvert bindingstjek læser `interpretation_current` (vej B). Fakta grupperes i dag kun pr.
   faktum; udgavevælgeren styrer kun prosaen.
 - **Rettelsesvejen:** `red_ret_ocr_felt` retter `navn`, `foedsel`, `doed`, `koen` på stedet (journal i
-  `import_korrektion`/`change_set`), kræver én `person_external_id` og gør en eksisterende binding ugyldig, fordi
-  `assertion_binding_current` sammenligner værdien.
+  `import_korrektion`/`change_set`), kræver én `person_external_id` og vælger selv den ene valgte påstand under en
+  afklaret konklusion med citation til kilden (`schema.sql:1984-2025`). `assertion_binding_current` sammenligner
+  normaliseret tekst eller `date_raw` (`:18291-18296`): en tekstrettelse gør en binding ugyldig, en rettelse af
+  `koen` eller af en dato uden ændret `date_raw` gør ikke. Kontrolklassifikationens `REAL_DIFF` peger ikke på én
+  bestemt påstand; den sammenligner alle personens påstande af typen
+  (`.claude/skills/daa-extract/scripts/interpretation_control_classification.sql:30-37,74-77`).
+- **Medlemskab:** et medlemskab har i dag ét `source_basis`, én persona-placement og ét tilstandshash; promotion
+  overskriver grundlaget, og læsningen tjekker placementen mod det præcise person-id (`schema.sql:2217-2225`,
+  `:2959-2970`, `:3055-3062`, `:3111-3128`).
+- **Børneflokke:** 5b's børneflok-regel læser børnenes `person_external_id.linje/nr` direkte
+  (`schema.sql:16083-16130`), dvs. netop 1939's syntetiske koordinater.
 
 ## 3. Formål og projektejerens afgørelser (2026-10-29)
 
@@ -115,9 +128,9 @@ kørsel mod prod med flag og GO, måling før og efter. Rækkefølgen er bindend
 | Del | Indhold | Afhænger af |
 |---|---|---|
 | **6a — klausuler og forældelse** | 1939-klausulregler i profilen (pkt. 15); den generelle kildetekst-revision, der gør afhængige fortolkninger forældede (A6b pkt. 2), bygget og bevist, men ikke anvendt på prod-data her (§6 pkt. 7); B7 (§6) | — |
-| **6b — identitet** | Ny indgang til personas og identitet for allerede publicerede 1939-records; kandidater med årstal fra rå tekst og `samme_som`-klynger (pkt. 16); navnefæller til projektejeren | 6a (records og klausuler står fast) |
+| **6b — identitet** | 1939-records opdeles efter eksisterende binding, publiceringstilstand, eksisterende persona og tvetydig identitet; 149b's migrering genbruges, hvor den gælder, og en idempotent persona-indgang bygges for resten (ingen nye personas for eksisterende, ingen genpublicering); kandidater med årstal fra rå tekst og `samme_som`-klynger (pkt. 16); navnefæller til projektejeren | 6a (planlægningsvalg: records står fast; ikke en teknisk forudsætning) |
 | **6c — fortolkning, rettelse og binding** | Runneren på de tilladte 1939-poster med næste promptversion (pkt. 20) og lukkede sandbox-huller (pkt. 22); kontrolmodellen; rettelsesvejen (§6); vej B før bindingerne skrives; A6b-resten for 2018-20's 11 poster (revision, genkørsel og genbinding i én ceremoni, §6 pkt. 7) | 6a; 6b (identitet kræves af promotionen) |
-| **6d — relationer og placement** | Ægteskaber, børneflokke og numre for 1939 (5b-vejen, pkt. 19); 1939-placement og -membership med bogens egne numre, der afløser `linje='1939'` (pkt. 17, §6 pkt. 8); B6 `corroborated` (§6 pkt. 3) | 6b; 6c for fakta-afhængige relationer |
+| **6d — placement, relationer og medlemskab** | Intern rækkefølge: (1) 1939's linjeskema og mapping til slægtslinjer, (2) placements med bogens egne numre, der afløser `linje='1939'` (pkt. 17, §6 pkt. 8), (3) relationer (ægteskaber, børneflokke, numre; 5b-vejen, pkt. 19) vurderet på placementernes koordinater, ikke legacy, (4) binding og medlemskab med B6 (§6 pkt. 3) | 6b; 6c for fakta-afhængige relationer |
 | **6e — læserflade** | Fakta pr. udgave fulgt af udgavevælgeren; 1939-koordinater fra placement; browsertjek | 6c, 6d |
 
 ## 6. Tværgående beslutninger
@@ -128,14 +141,29 @@ kørsel mod prod med flag og GO, måling før og efter. Rækkefølgen er bindend
    6c's måling, at 1939's ældre retskrivning giver langt flere, tages det op i 6c-delspec'en.
 2. **Rettelse før binding.** Vælger projektejeren »bogen har ret« til en `REAL_DIFF`, rettes 1939's legacy-påstand
    (transskriptionsrettelse, B12, originalen bevaret i journalen), og først derefter bindes den, så bindingen er
-   gældende fra starten. *Mit valg:* rettelsesvejen udvides fra `red_ret_ocr_felt`'s fire felter til de faktatyper,
-   promotionsreglerne dækker, og en rettelse, der ville bryde en eksisterende binding, afvises eller kræver ny binding
-   i samme transaktion (ingen tavse tab). De tre valg for projektejeren er »bogen har ret«, »databasen har ret«
-   (intet ændres; uenigheden noteres) og »ved ikke« (står uafklaret).
+   gældende fra starten. De tre valg for projektejeren er »bogen har ret«, »databasen har ret« (intet ændres;
+   uenigheden noteres) og »ved ikke« (står uafklaret). Kontrakt for rettelsen:
+   - **Præcist mål:** kortet og afgørelsen bærer ét versionsbundet påstands-id, som projektejeren har set, med den
+     forventede konklusion og citationsmængde. Rettelsen verificerer dem i skrive-transaktionen og afviser ved drift.
+   - **Kun 1939's egen påstand:** målet skal kun være citeret af kilde 3. En påstand, som en anden udgave også
+     citerer, flere kandidater eller intet mål giver ingen rettelse, men en synlig disposition (»ved ikke« med grund).
+     Der oprettes aldrig en ny påstand i stedet (opret-benet).
+   - *Mit valg:* rettelsesvejen udvides fra `red_ret_ocr_felt`'s fire felter til de faktatyper, påstandsreglerne
+     dækker, med ovenstående mål-krav i stedet for dens selvvalgte påstand.
+   - **Ingen tavse tab:** en rettelse, der ville gøre en eksisterende binding ugyldig (tekst eller `date_raw`),
+     afvises eller binder igen i samme transaktion. Ændringer i strukturerede værdier (datogrænser, kalender,
+     sikkerhed, `koen`) måles for sig, da bindingens gyldighed ikke viser dem.
 3. **B6:** et medlemskab fra en anden kilde bekræfter (`corroborated`) i stedet for at give `conflict`, når det
    angår samme person (direkte eller gennem en afklaret `samme_som`) og samme slægtslinje; ellers er det fortsat en
    konflikt til review. Numrene sammenlignes ikke: 1939's numre er gruppe-lokale (`docs/plan-1939-produktionsklar.md`
-   A3a) og kan ikke stemme med 2018-20's. Detaljerne i 6d.
+   A3a) og kan ikke stemme med 2018-20's. Kontrakt:
+   - Et medlemskab kan have **flere kildegrundlag**. Hvert gemmes og valideres for sig med sin persona, personrække,
+     placement og tilstandshash; et nyt grundlag overskriver aldrig et eksisterende.
+   - Læsningen af medlemskabet (projektionen) er gyldig, så længe mindst ét grundlag er gyldigt; begge udgavers
+     koordinater forbliver læsbare hver for sig.
+   - Mister et grundlag sin gyldighed (placement ugyldig, `samme_som` trukket tilbage, identitet skiftet), bliver
+     bekræftelsen stale og går til review; det andet grundlag står uændret.
+   - Datamodellen for flere grundlag afgøres i 6d's delspec.
 4. **B7, *mit valg*:** `verbatim_text`'s betydning deklareres pr. udgave i profilen (rå OCR eller normaliseret), og
    enhver sammenligning på tværs af udgaver går gennem `narrative_norm_v1`. Én fælles betydning ville kræve, at
    1939's eller 2018-20's tekst genskrives.
@@ -145,11 +173,17 @@ kørsel mod prod med flag og GO, måling før og efter. Rækkefølgen er bindend
    arbejdsmapper med prosa forbliver gitignorerede og sendes aldrig til en model.
 7. **A6b-resten uden tab, *mit valg*:** 9 af de 11 poster har 74 fortolkninger, nogle bundne. Gøres de forældede for
    sig, falder bindingerne ud af læseren. Kildetekst-revisionen af de 11 poster, genkørslen og genbindingen sker derfor
-   i én ceremoni i 6c, hvor runneren alligevel kører; 6a bygger og beviser kun mekanismen.
+   i én ceremoni i 6c, hvor runneren alligevel kører; 6a bygger og beviser kun mekanismen. Afstemningen er nøglet:
+   hver binding, der var gældende før ceremonien, ender enten genbundet til en gældende, accepteret fortolkning eller
+   som en udtrykkelig, projektejer-godkendt tilbagetrækning, der er synlig i læseren som »fra den oprindelige import«.
+   Et antal før og efter er ikke bevis; afstemningen listes pr. binding.
 8. **Hvor 1939 hører hjemme, *mit valg*:** 1939's personas peger på kilde 3-personrækken, hvor 1939's påstande ligger,
    så faktabindingen virker uden at flytte fakta, og 1939 forbliver sin egen stemme. Sammenhængen med 2018-20 bæres af
-   den afklarede `samme_som`. Hvor reglerne skal se på tværs af udgaver (B6 i 6d, fakta pr. udgave i 6e), lærer de at
-   følge afklarede `samme_som`-koblinger som en generel, editionsneutral mekanisme. 1939-placements bærer bogens egne
+   den afklarede `samme_som`. Hvor reglerne skal se på tværs af udgaver (B6 og familiebinding i 6d, fakta pr. udgave
+   i 6e), lærer de at følge afklarede `samme_som`-koblinger som en generel, editionsneutral mekanisme; det gælder også
+   familieopslaget og partsvalideringen i 5b-vejen, hvor et relevant familiemedlem kan stå på en anden række i
+   komponenten. Tilfælde, mekanismen ikke dækker, får en synlig disposition; der indsættes aldrig familiemedlemmer
+   eller familier (opret-benet). 1939-placements bærer bogens egne
    linjer og numre (læseren skal se bogen); om 1939's grupper svarer til eksisterende slægtslinjer, måles i 6d, og
    kræver det nye linjer, er det opret-benet og parkeres synligt.
 
@@ -174,8 +208,25 @@ kørsel mod prod med flag og GO, måling før og efter. Rækkefølgen er bindend
   - personsiden for de tungeste personer svarer under anons grænse med god margen (mål sættes i 6c).
 - **(c) To kilder:** mindst ét medlemskab er båret af både 2018-20 og 1939 og står `corroborated`; antal målt.
 - **Tal i prod:** forslag, `MATCH`/`SKRIVEMAADE`/`REAL_DIFF`/`NO_FACT`, afgørelser (maskine/menneske), rettelser,
-  bindinger, uafklarede; ingen binding falder ud.
+  bindinger, uafklarede. Hver binding, der var gældende før en ceremoni, er gældende efter eller står i den nøglede
+  afstemning som godkendt tilbagetrækning (§6 pkt. 7); antal alene beviser det ikke.
 - **A6b-resten:** de 11 posters kildetekst og klausuler har linjerne; afhængige fortolkninger er forældede og
-  genafgjort eller stående synligt.
+  genafgjort, eller de står synligt uafklarede uden at have båret en binding, der ikke er afstemt.
 - **Status:** `status.md`'s 1939-kolonne hæves led for led til `produktionsverificeret` med dato; derefter
   beslutningspunktet (roadmap).
+
+## 9. Codex-runde 1 (2026-10-29, `gpt-6.1-sol`): NO-GO, 7 fund — afvejet
+
+Alle fund er korrekte mod koden og ændrer ingen af projektejerens afgørelser i §3. De strammer den overordnede kontrakt.
+
+| # | Alvor | Fund | Afvejning | Indarbejdet |
+|---|---|---|---|---|
+| 1 | HIGH | Rettelsen har intet sikkert mål: `REAL_DIFF` peger ikke på én påstand; RPC'en vælger selv | nødvendig | §6 pkt. 2: versionsbundet påstands-id, kun kilde 3's egen påstand, ellers synlig disposition |
+| 2 | HIGH | B6 kræver flere kildegrundlag pr. medlemskab og deres livscyklus | nødvendig | §6 pkt. 3: flere grundlag, projektion, stale ved tab af grundlag eller `samme_som` |
+| 3 | HIGH | 6d: børneflok-reglen læser legacy-koordinater; familieopslag kræver præcise person-id'er | nødvendig | §5 6d's interne rækkefølge; §6 pkt. 8 udvidet til familieopslag og partsvalidering |
+| 4 | MEDIUM | A6b: »uafklaret« og »ingen binding falder ud« modsiger hinanden; antal beviser ikke | nødvendig | §6 pkt. 7 nøglet afstemning; §8 |
+| 5 | MEDIUM | Ikke alle aktive regler kræver persona-identitet (strukturelle familieregler) | rettelse af fakta | §2 |
+| 6 | MEDIUM | Publicering er ikke grunden til, at 149b-vejen er lukket; kun eksisterende publiceringsbinding | rettelse af fakta; forenkler 6b | §2; §5 6b genbruger migreringen, hvor den gælder |
+| 7 | LOW | En rettelse gør ikke altid en binding ugyldig (`koen`, dato uden ændret `date_raw`) | rettelse af fakta | §2; §6 pkt. 2 måler strukturerede værdier for sig |
+
+Codex bemærkede desuden, at 6b ikke teknisk afhænger af 6a; rækkefølgen er nu markeret som planlægningsvalg (§5).
