@@ -233,7 +233,8 @@ grænse på 2 minutter. Inden for én transaktion sker følgende i denne rækkef
    `source_text_revision`. Forslagsnøglen (`interpretation_proposal_key_material`) får en `key_version 2`, der
    indeholder hashen af klausulsættets tekstversion, så en genkørsel med samme ordinal og værdi ikke kolliderer
    med den forældede nøgle. Eksisterende nøgler (version 1) er uændrede. 6a bygger og CI-tester spærrens åbning
-   og nøglen. 6c bruger dem.
+   og nøglen. 6c bruger dem. 6a rører kun forslags-writeren for S4 og nøglen, fordi de hører til forældelsens
+   kontrakt. Helpost-skiftet i samme writer venter til 6c, hvor 1939-fixturerne til forslag findes.
 7. **Fortrydelse:** forældelse kan ikke rulles tilbage (`superseded` er endelig), og tekstversioner tilføjes kun.
    Fortrydelse er restore af dumpet i det deklarerede vindue (B1) eller en fremadrettet revision med en ny version
    af den tidligere tekst. 6c planlægger med det.
