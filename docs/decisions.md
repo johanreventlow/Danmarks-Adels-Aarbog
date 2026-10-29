@@ -2,6 +2,12 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## NOTERET: review-budget for delspec 6a overskredet med én Fable-læsning (2026-10-29)
+
+> B13-overskridelse. Projektejeren bad om reviews og gav ja til Fable 2026-10-29. Fable læste delspec 6a
+> (`2026-10-29-trin6a-klausuler-og-kildetekst-revision-design.md`) adversarialt før planen: GO med rettelser,
+> 12 fund (heriblandt 7 familiebindinger, som drifttjekket ikke dækkede). Budgettet for resten af 6a er uændret.
+
 ## BESLUTTET: 5c-2 + B11's efterkontrol rettes uden ny DDL (vej A); set-baseret bindingstjek i trin 6 (vej B) (2026-10-29)
 
 > Projektejerens valg 2026-10-29. Runbook: `docs/runbooks/5c2-b11-prod.md`; tilstand: `database-current-state.md` §16.
