@@ -1,23 +1,25 @@
 # Evidensbaseret genimport — aktuel status
 
-**Snapshot 2026-10-28**, efter A6b i prod (efter reviewets trin B, trin 5c-1 og helhedsreviewet af trin 1-5,
-[rapport](../reviews/2026-10-27-trin-1-5/rapport.md)). Dokumentet **overskrives** ved hvert trinskifte og hver
+**Snapshot 2026-10-29**, efter 5c-2 + B11 i prod (efter A6b, reviewets trin B, trin 5c-1 og helhedsreviewet af
+trin 1-5, [rapport](../reviews/2026-10-27-trin-1-5/rapport.md)). Dokumentet **overskrives** ved hvert trinskifte og hver
 prod-ændring; der skrives ikke tillæg (opdateringsreglen nederst). Det gamle dokument med tillæg til og med
 2026-10-27 står i [status-arkiv-til-2026-10-27.md](status-arkiv-til-2026-10-27.md).
 
 ## Aktivt programmål
 
-**Trin 5 (#150/#151), sidste del:** 5c-2 (læserskift) sammen med læserværdien fra B11. Reviewets trin A og B er gjort
-(B i prod 2026-10-28), og A6b er i prod 2026-10-28 (narrativerne; kildetekst og klausuler i trin 6). Derefter
-skrives trin 6-spec'en. Rækkefølge og
-indhold: [rapport §6](../reviews/2026-10-27-trin-1-5/rapport.md); beslutningerne: `docs/decisions.md` 2026-10-27 (B1-B13).
+**Trin 6-spec'en:** 1939 gennem de samme operationer som 2018-20 (roadmap trin 6, færdigbevis a-c). Trin 5 er
+afsluttet: 5c-2 og B11 er i prod 2026-10-29, og reviewets gates før trin 6 er gjort. Spec'en skal også rumme
+A6b's kildetekst og klausuler (decisions 2026-10-28) og det set-baserede bindingstjek (vej B, decisions 2026-10-29).
+Rækkefølge og indhold: [rapport §6](../reviews/2026-10-27-trin-1-5/rapport.md); beslutningerne: `docs/decisions.md`
+2026-10-27 (B1-B13).
 
 ## Samlet dom
 
 Kernen holder: evidenslaget, den generelle writer og klausullaget er bevist på den rigtige bog uden kanonisk delta.
 Kæden kan **binde** det eksisterende til kilden, men har endnu ikke **oprettet** noget nyt på rigtige data (0 nye
-fakta, 0 nye personer; review 2-01), og læseren ser kun familiernes kildelinje (1a-03). For 2018-20 er trin 1-5c-1
-i prod. For 1939 er kun proveniens og narrativpublicering i prod; resten er trin 6.
+fakta, 0 nye personer; review 2-01). Læseren ser nu personens fakta med kilde, og 622 af de 6.473 offentlige
+fakta-rækker er bundet til bogens post (B11). For 2018-20 er trin 1-5 i prod. For 1939 er kun proveniens og
+narrativpublicering i prod; resten er trin 6.
 
 ## Modenhed pr. værdikædeled
 
@@ -37,8 +39,8 @@ Tilladte tilstande: `specificeret`, `isoleret implementeret`, `integreret ende-t
 | Identitet (5a) | `produktionsverificeret` 2026-10-25 (GO 2) | ikke påbegyndt |
 | Relationer (5b): ægtefæller, børneflokke, ægteskabsnumre | `produktionsverificeret` 2026-10-25 (GO 2); dubletregel, #240 og #248 rettet 2026-10-26. Rettelsesvejen for numre (#244) er `isoleret implementeret` (deployet, ubrugt) | ikke påbegyndt |
 | Placement og membership (5c-1) | `produktionsverificeret` 2026-10-27 (GO 150 `3e69560f`: 580 placements, 1167 ledger-dispositioner, 576 memberships, 530 revalideringer). V-82..V-92 står `unresolved` | ikke påbegyndt (trin 6) |
-| Læsere på placement/membership (5c-2) | ikke påbegyndt | — |
-| Læserflade: fakta med kildehenvisning (B11) | ikke påbegyndt. Familiernes kildelinje i `DetailPanel` findes (5b 2a) | — |
+| Læsere på placement/membership (5c-2) | `produktionsverificeret` 2026-10-29 (GO 5c2 `bb1678f9`: 1.113 koordinater, 530 fra placement, 583 legacy; diff mod legacy 37 felter = forventet, træparitet ok; browsertjek som anon) | — (kilde 3 vises fra legacy indtil trin 6) |
+| Læserflade: fakta med kildehenvisning (B11) | `produktionsverificeret` 2026-10-29 (6.473 fakta-rækker over alle offentlige personer: 622 bundet til bogens post, 5.765 fra importen, 86 uden kilde; 0 bindinger falder ud; PostgREST-gate og browsertjek som anon). Læserkaldet koster op til ~1,9 s pr. person mod anons 3 s (vej B) | — |
 | C3 reversal | — | `integreret ende-til-ende` (ikke udført i prod) |
 | Trin 6 (1939 gennem kæden), 7a, 7b | ikke påbegyndt; ingen spec | ikke påbegyndt |
 
@@ -57,12 +59,13 @@ Tilladte tilstande: `specificeret`, `isoleret implementeret`, `integreret ende-t
 
 ## Restorepunkt og fortrydelse
 
-Seneste restorepunkt: dumpet før A6b, `daa-prod-20261028224757-a6b.dump` (sha `58351421…`;
-`database-current-state.md` §15). Fortrydelse sker efter gate 8 som omformuleret 2026-10-27 (B1): en særskilt
+Seneste restorepunkt: dumpet før 5c-2 + B11, `daa-prod-20261029180320-5c2.dump` (sha `0e988082…`;
+`database-current-state.md` §16). Fortrydelse sker efter gate 8 som omformuleret 2026-10-27 (B1): en særskilt
 handling eller restore inden for et deklareret vindue. B1's betingelse er opfyldt for dette dump: to kopier (lokalt og
-`age`-krypteret på projektejerens SFTP-server, sha `84b9d988…`), begge hashes noteret, rundtur gennemført og
-genkontrolleret ved skrivningen. A6b fortrydes uden restore (`apply --tilbage`, ny revision tilbage til den gamle tekst);
-trin B's fire funktioner ligeledes (runbookens opskrift).
+`age`-krypteret på projektejerens SFTP-server, sha `eb1ec566…`), begge hashes noteret, rundtur gennemført og
+genkontrolleret ved skrivningen. 5c-2 + B11 fortrydes uden restore (revert af klient-PR #277; funktionerne bliver
+stående, ingen data er skrevet). A6b fortrydes ligeledes uden restore (`apply --tilbage`, ny revision tilbage til den
+gamle tekst); trin B's fire funktioner ligeledes (runbookens opskrift).
 
 ## Parkeret
 
