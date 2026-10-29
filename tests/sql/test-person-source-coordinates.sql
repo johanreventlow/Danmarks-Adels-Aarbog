@@ -41,7 +41,8 @@ BEGIN
 END $$;
 
 DO $coordinates$
-DECLARE f jsonb; r jsonb; v_src2 jsonb; n int; v_dup int; v_order int;
+DECLARE f jsonb; r jsonb; v_src2 jsonb; n int; v_dup int; v_order int; v_sl2 bigint; v_lin2 bigint; v_sch2 bigint;
+  v_ent2 bigint; v_post2 jsonb; v_obs2 uuid; v_rp2 uuid; v_pp2 uuid; v_state jsonb; v_sha text;
 BEGIN
   -- (1) placement: linje fra entryens code, heltal + label, slægtled og kuld fra placementen
   f:=pg_temp.fco_placed(-5201,-520101);
@@ -89,6 +90,50 @@ BEGIN
   IF (SELECT count(*) FROM pg_temp.fco_rows(-522101))<>0 OR (SELECT count(*) FROM pg_temp.fco_rows(-522101,'authenticated'))<>0 THEN
     RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: privat';
   END IF;
+
+  -- (6) to gyldige memberships i samme kilde (to slægter; syntetisk som ejer — promotionen afviser det) ⇒ legacy
+  f:=pg_temp.fco_placed(-5231,-523101);
+  INSERT INTO public.slaegt(navn,sorteringsnavn,slug,status) VALUES ('5c2 anden','5c2 anden','f5c2-anden','historical')
+    RETURNING id INTO v_sl2;
+  INSERT INTO public.lineage(slaegt_id,canonical_label,navn) VALUES (v_sl2,'II. linje','5c2 anden linje') RETURNING id INTO v_lin2;
+  INSERT INTO public.lineage_scheme(slaegt_id,source_id,kind,label) VALUES (v_sl2,-5231,'stamtavle','5c2 anden') RETURNING id INTO v_sch2;
+  INSERT INTO public.lineage_scheme_entry(scheme_id,slaegt_id,code,label,sort_order) VALUES (v_sch2,v_sl2,'II','II. linje',1)
+    RETURNING id INTO v_ent2;
+  INSERT INTO public.lineage_scheme_entry_lineage(entry_id,lineage_id,slaegt_id,relation_kind) VALUES (v_ent2,v_lin2,v_sl2,'canonical');
+  v_post2:=pg_temp.f5b_post(-5231,f,'II-1','Anden Testesen, f. 1650.',ARRAY['Anden Testesen'],-523101,(f->>'actor')::uuid);
+  PERFORM private.write_header_evidence(-5231,(f->>'rend')::uuid,pg_temp.f150_run(),
+    jsonb_build_array(pg_temp.f150_h('header_linje',600,'II DEN ANDEN LINJE')));
+  v_obs2:=private.header_observation_uuid((f->>'rend')::uuid,'header-2018-20-v1',600);
+  v_rp2:=private.write_record_placement((v_post2->>'record')::uuid,v_ent2,'{"printed_number":"1"}',v_obs2,
+    jsonb_build_object('rule_version','header-2018-20-v1','header_ids',jsonb_build_object('linje',v_obs2)));
+  v_pp2:=private.write_persona_placement((v_post2->>'principal')::uuid,v_rp2,(v_post2->>'helpost')::uuid,'{"rule":"test"}');
+  v_state:=private.membership_state(v_pp2);
+  IF v_state IS NULL THEN RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: (6) ingen membership_state'; END IF;
+  v_sha:=private.reimport_canonical_json_sha256(v_state);
+  INSERT INTO public.person_lineage_membership(person_id,lineage_id,role,source_basis)
+    VALUES (-523101,v_lin2,'member',v_state||jsonb_build_object('state_sha256',v_sha));
+  INSERT INTO public.person_slaegt_membership(person_id,slaegt_id,membership_kind,source_basis)
+    VALUES (-523101,v_sl2,'agnatic',v_state||jsonb_build_object('state_sha256',v_sha));
+  IF NOT private.membership_is_current(-523101,v_lin2) OR NOT private.membership_is_current(-523101,(f->>'lineage')::bigint) THEN
+    RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: (6) begge memberships skal være gældende';
+  END IF;
+  SELECT count(*) INTO n FROM pg_temp.fco_rows(-523101);
+  SELECT r2 INTO r FROM pg_temp.fco_rows(-523101) r2;
+  IF n<>1 OR r->>'provenance_kind'<>'legacy_external_id' OR r->>'printed_number_label'<>'15' THEN
+    RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: (6) to memberships n=% %',n,r;
+  END IF;
+
+  -- (7) en membership-række med ugyldigt record_placement_id må ikke vælte RPC'en for alle
+  -- (membership_is_current tjekker ikke source_basis' record_placement_id, så rækken er stadig gældende) ⇒ legacy
+  f:=pg_temp.fco_placed(-5241,-524101);
+  UPDATE public.person_lineage_membership
+     SET source_basis=jsonb_set(source_basis,'{record_placement_id}','"ikke-en-uuid"')
+   WHERE person_id=-524101;
+  IF NOT private.membership_is_current(-524101,(f->>'lineage')::bigint) THEN
+    RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: (7) forudsætning: rækken skal stadig være gældende';
+  END IF;
+  SELECT r2 INTO r FROM pg_temp.fco_rows(-524101) r2;
+  IF r->>'provenance_kind'<>'legacy_external_id' THEN RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: (7) ugyldig uuid %',r; END IF;
 
   -- (5) total orden: (person_id, source_id) entydig og sorteret
   SET LOCAL ROLE anon;

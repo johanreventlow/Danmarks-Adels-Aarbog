@@ -9,7 +9,7 @@ AI'en har ingen prod-forbindelse.
 
 ## Hvad der skrives
 
-Additiv DDL, ingen data. Blokken `-- BEGIN 5c2-b11` … `-- END 5c2-b11` i `db-migrations.sql` (sha `d802b234…`) lægger
+Additiv DDL, ingen data. Blokken `-- BEGIN 5c2-b11` … `-- END 5c2-b11` i `db-migrations.sql` (sha `97a69759…`) lægger
 tre funktioner i én transaktion:
 
 - `private.assertion_binding_current(uuid)`: genkontrollerer en trin 4-bindings identitet, faktatype og værdi mod

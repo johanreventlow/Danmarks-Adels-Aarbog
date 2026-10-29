@@ -3110,7 +3110,11 @@ BEGIN
     -- Gældende memberships med deres bundne record-placement og dennes kilde.
     SELECT plm.person_id,sr.source_id,rp.id AS rp_id
       FROM public.person_lineage_membership plm
-      JOIN private.source_record_placement rp ON rp.id=(plm.source_basis->>'record_placement_id')::uuid
+      -- Castet er beskyttet: ét ugyldigt id i én række må ikke vælte RPC'en for alle læsere (rækken falder til legacy).
+      JOIN private.source_record_placement rp
+        ON rp.id=CASE WHEN plm.source_basis->>'record_placement_id'
+                           ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                      THEN (plm.source_basis->>'record_placement_id')::uuid END
       JOIN private.source_record sr ON sr.id=rp.source_record_id
      WHERE private.membership_is_current(plm.person_id,plm.lineage_id)
   ), m1 AS (
