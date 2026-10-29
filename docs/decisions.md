@@ -13,7 +13,7 @@ målingen tog ~3 min og RPC-gatens bidder på 500 personer over 80 s.
 
 **Besluttet:**
 1. **Vej A nu:** målingen hæver grænsen lokalt i sin læse-kun transaktion (`SET LOCAL statement_timeout = '10min'`),
-   og RPC-gaten kalder fakta én person ad gangen, som læseren (PR #278 og denne gren). Ingen ny DDL og ingen
+   og RPC-gaten kalder fakta én person ad gangen, som læseren (PR #278 og docs-opfølgningen). Ingen ny DDL og ingen
    tilbagerulning: projektet har ingen offentlige læsere endnu.
 2. **Vej B i trin 6:** bindingstjekket gøres set-baseret, så fakta-RPC'en ikke læser `interpretation_current` én gang
    pr. binding. Det haster med trin 6's bindinger: i dag koster de tungeste personer op til ~1,9 s mod anon-rollens

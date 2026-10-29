@@ -554,7 +554,9 @@ Repo `bd86d833` (`main` med PR #275-#277), GO 5c2 `bb1678f9`; dump før skrivnin
   rækker som `anon` timer også ud (100 rækker: 0,5 s).
 - **Bemærk:** `uden_narrativ` tæller personer uden række i `public.narrative`, ikke personer uden synlig prosa;
   2018-20's prosa vises via `public_person_bio_source_versions_v2` (stikprøve: 5 af 83 personer uden prosa).
-- **Udestår:** `get_advisors` (sikkerhed) efter blokken, runbookens skridt 6.
+- **Rådgiver (skridt 6):** `22-trin-b.sh advisors` → `ADVISORS_TRINB_OK nye=2 forsvundne=0` (netop 5c-1's to fund). CLI-
+  rådgiverens lint-sæt melder kun `rls_enabled_no_policy`, så SECURITY DEFINER-funktioner (også `public_family_sources`)
+  ses ikke dér; deres grants er målt af `maal` (`definer=2 anon=true auth=true`).
 - **Fortryd:** revert af klient-PR #277 (funktionerne bliver stående); nødudvej restore af dumpet + `db-rls.sql`.
 
 ## 15. A6b: 10 narrativrevisioner (de beskårne prosalinjer) — LIVE i prod (2026-10-28)

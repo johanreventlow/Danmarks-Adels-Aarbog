@@ -13,7 +13,7 @@ projektejeren med `~/.private/5ab-overfoersel/24-5c2-b11.sh`; dump før skrivnin
   i trin 6.
 - **Efter:** `C2B11_MAAL_OK tilstand=efter`; `C2B11_DIFF n=37 noegler=ens genparitet=ok`; `RPC_GATE … resultat=OK`
   (1.113 koordinater, 6.473 fakta, 622 bundet). Browsertjek som anon: alle ja.
-- **Udestår:** `get_advisors` efter blokken.
+- **Rådgiver:** `ADVISORS_TRINB_OK nye=2 forsvundne=0` — ingen nye fund.
 
 ## 2026-10-28 — A6b i prod: 10 narrativer får de beskårne prosalinjer (ingen DDL)
 
