@@ -77,7 +77,8 @@ kun antal og strukturkoder er læst, ingen posttekst.
 SECURITY DEFINER, STABLE, `search_path=pg_catalog`, `REVOKE ALL … GRANT EXECUTE TO anon,authenticated`, som
 `public_family_sources`. Returnerer `[]` når `narrative_record_contract_version()<2` eller input er NULL.
 
-Én række pr. påstand på et personfaktum:
+Én række pr. påstand og citation på et personfaktum (i dag 1:1; en påstand uden citation giver én række med
+NULL-kilde, så intet tabes):
 
 | Kolonne | Indhold |
 |---|---|
@@ -106,10 +107,11 @@ NULL, og faktummet vises med citationsniveauet. Betingelserne er kopieret fra `p
 4. **Påstanden er uændret siden bindingen.** En assertion-binding har ingen tilstands-sha, og
    `red_ret_ocr_felt` retter `vaerdi_tekst`/`date_raw` på samme assertion-id (B12). Derfor genkontrolleres
    promotionsvalidatorens målinvarianter ved læsning (`schema.sql:9694-9708`): faktummets `subjekt_id` = fortolkningens
-   kanoniske person, `faktatype` = reglens forventede type, og værdien (`vaerdi_tekst` eller `date_raw` efter
-   reglens `value_kind`) er lig fortolkningens værdi under samme normalisering (`lower(btrim(normalize(…,NFC)))`).
-   Planen trækker invarianterne ud i én privat hjælper, som både validatoren og RPC'en kalder, så de ikke kan
-   glide fra hinanden.
+   kanoniske person, `faktatype` = den *gemte* regels forventede type (`interpretation_promotion.rule_key/version`,
+   ikke den aktuelt aktive regel), og værdien (`vaerdi_tekst` eller `date_raw` efter reglens `value_kind`) er lig
+   fortolkningens værdi under samme normalisering (`lower(btrim(normalize(…,NFC)))`). Invarianterne ligger i én
+   privat læsehjælper. Validatoren ændres ikke (skrivevejen røres ikke, og DDL'en forbliver additiv); en test låser,
+   at hjælperen og validatoren er enige om de samme tilfælde.
 5. Etiketterne tages fra bindingens seneste `narrative_publication_event.after_state` (`source.source_label`,
    `labels.record_label`, `labels.citation_label`), som i familie-RPC'en.
 
@@ -202,8 +204,9 @@ Kolonner: formen fra `person_source_coordinate_legacy` (`person_id`, `source_id`
    commit og filer; dump med B1-disciplin. Bagefter `NOTIFY pgrst` og `get_advisors`. db-verify køres ikke mod
    prod. Øves på en stand-in med prods 2-minutters grænse. Varigheden noteres.
 3. **Merge-gate for PR 2, gennem PostgREST (ikke psql):** begge RPC'er kaldes over HTTP med den offentlige nøgle
-   (`anon`) og som indlogget bruger (`authenticated`), med samme `getAll`-paginering som klienten, til sidste side.
-   Det beviser grants og schema-cache. Antal rækker, fordelingen af `provenance_kind` og antal fakta pr.
+   (`anon`), med samme `getAll`-paginering som klienten, til sidste side. Det beviser schema-cache og anon-adgang.
+   `authenticated`'s EXECUTE-ret tjekkes i målingens SQL (`has_function_privilege`); et HTTP-kald som indlogget
+   bruger ville kræve, at en brugertoken håndteres i shell'en. Antal rækker, fordelingen af `provenance_kind` og antal fakta pr.
    kildevisning skal svare til stand-in'en. Kun antal; output til fil.
 4. **Merge af PR 2** → Vercel. Browsertjek mod prod (§7).
 5. **Fortrydelse (særskilt handling):** revert af PR 2 (Vercel redeployer). RPC'erne bliver stående, så åbne
@@ -227,9 +230,10 @@ Kolonner: formen fra `person_source_coordinate_legacy` (`person_id`, `source_id`
   - Forskellen mellem `public_person_source_coordinates` og `person_source_coordinate_legacy`, over de rækker
     `anon` kan se og med legacy-label normaliseret til `nr::text`, er præcis det fastlåste sæt på 40
     `(person_id, felt)`. `provenance_kind` er en forventet ny kolonne og indgår ikke.
-  - **Træparitet (`CandidateRingPlacementParity`):** `buildGenCoords` og kandidatringens kuldgrupper (`tree.ts`)
-    beregnes på begge inputs. Eneste tilladte forskel er kuld for de 35 fastlåste personer; personmængde, linje og
-    slægtled pr. person er identiske.
+  - **Træparitet (`CandidateRingPlacementParity`):** kandidatringens kuldgrupper (`tree.ts`) er en ren funktion af
+    `buildGenCoords`, og `buildGenCoords` projicerer kun `(person, kilde, linje, slægtled lokal/gennem, kuld)`
+    (låst af en core-test). Pariteten måles derfor i SQL på netop de felter over begge inputs: eneste tilladte
+    forskel er kuld for de 35 fastlåste personer; personmængde, linje og slægtled pr. person er identiske.
   - Fakta-RPC'en: antal fakta pr. kildevisning (bundet / import / ingen kilde), antal personer uden narrativ med
     mindst ét faktum (forventet 621), og antal bindinger der falder ud på betingelse 3. Kun antal; output til
     fil.
