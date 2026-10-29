@@ -109,10 +109,10 @@ kørsel mod prod med flag og GO, måling før og efter. Rækkefølgen er bindend
 
 | Del | Indhold | Afhænger af |
 |---|---|---|
-| **6a — klausuler og forældelse** | 1939-klausulregler i profilen (pkt. 15); den generelle kildetekst-revision, der gør afhængige fortolkninger forældede (A6b pkt. 2), anvendt på 2018-20's 11 poster; B7 (§6) | — |
+| **6a — klausuler og forældelse** | 1939-klausulregler i profilen (pkt. 15); den generelle kildetekst-revision, der gør afhængige fortolkninger forældede (A6b pkt. 2), bygget og bevist, men ikke anvendt på prod-data her (§6 pkt. 7); B7 (§6) | — |
 | **6b — identitet** | Ny indgang til personas og identitet for allerede publicerede 1939-records; kandidater med årstal fra rå tekst og `samme_som`-klynger (pkt. 16); navnefæller til projektejeren | 6a (records og klausuler står fast) |
-| **6c — fortolkning, rettelse og binding** | Runneren på de tilladte 1939-poster med næste promptversion (pkt. 20) og lukkede sandbox-huller (pkt. 22); kontrolmodellen; rettelsesvejen (§6); vej B før bindingerne skrives | 6b (identitet kræves af promotionen) |
-| **6d — relationer og placement** | Ægteskaber, børneflokke og numre for 1939 (5b-vejen, pkt. 19); 1939-placement og -membership, der afløser `linje='1939'` (pkt. 17); B6 `corroborated` | 6b; 6c for fakta-afhængige relationer |
+| **6c — fortolkning, rettelse og binding** | Runneren på de tilladte 1939-poster med næste promptversion (pkt. 20) og lukkede sandbox-huller (pkt. 22); kontrolmodellen; rettelsesvejen (§6); vej B før bindingerne skrives; A6b-resten for 2018-20's 11 poster (revision, genkørsel og genbinding i én ceremoni, §6 pkt. 7) | 6a; 6b (identitet kræves af promotionen) |
+| **6d — relationer og placement** | Ægteskaber, børneflokke og numre for 1939 (5b-vejen, pkt. 19); 1939-placement og -membership med bogens egne numre, der afløser `linje='1939'` (pkt. 17, §6 pkt. 8); B6 `corroborated` (§6 pkt. 3) | 6b; 6c for fakta-afhængige relationer |
 | **6e — læserflade** | Fakta pr. udgave fulgt af udgavevælgeren; 1939-koordinater fra placement; browsertjek | 6c, 6d |
 
 ## 6. Tværgående beslutninger
@@ -127,8 +127,10 @@ kørsel mod prod med flag og GO, måling før og efter. Rækkefølgen er bindend
    promotionsreglerne dækker, og en rettelse, der ville bryde en eksisterende binding, afvises eller kræver ny binding
    i samme transaktion (ingen tavse tab). De tre valg for projektejeren er »bogen har ret«, »databasen har ret«
    (intet ændres; uenigheden noteres) og »ved ikke« (står uafklaret).
-3. **B6:** et medlemskab fra en anden kilde bekræfter (`corroborated`) i stedet for at give `conflict`, når linje,
-   nr. og forældre stemmer; ellers er det fortsat en konflikt til review. Detaljerne i 6d.
+3. **B6:** et medlemskab fra en anden kilde bekræfter (`corroborated`) i stedet for at give `conflict`, når det
+   angår samme person (direkte eller gennem en afklaret `samme_som`) og samme slægtslinje; ellers er det fortsat en
+   konflikt til review. Numrene sammenlignes ikke: 1939's numre er gruppe-lokale (`docs/plan-1939-produktionsklar.md`
+   A3a) og kan ikke stemme med 2018-20's. Detaljerne i 6d.
 4. **B7, *mit valg*:** `verbatim_text`'s betydning deklareres pr. udgave i profilen (rå OCR eller normaliseret), og
    enhver sammenligning på tværs af udgaver går gennem `narrative_norm_v1`. Én fælles betydning ville kræve, at
    1939's eller 2018-20's tekst genskrives.
@@ -136,13 +138,20 @@ kørsel mod prod med flag og GO, måling før og efter. Rækkefølgen er bindend
    læser `interpretation_current` én gang pr. binding. Måles mod prod-størrelser, ikke stand-in-tid.
 6. **Persondata:** kun poster om afdøde, offentlige personer sendes til en model (som 2018-20's 488 tilladte poster);
    arbejdsmapper med prosa forbliver gitignorerede og sendes aldrig til en model.
+7. **A6b-resten uden tab, *mit valg*:** 9 af de 11 poster har 74 fortolkninger, nogle bundne. Gøres de forældede for
+   sig, falder bindingerne ud af læseren. Kildetekst-revisionen af de 11 poster, genkørslen og genbindingen sker derfor
+   i én ceremoni i 6c, hvor runneren alligevel kører; 6a bygger og beviser kun mekanismen.
+8. **Hvor 1939 hører hjemme, *mit valg*:** 1939's personas peger på kilde 3-personrækken, hvor 1939's påstande ligger,
+   så faktabindingen virker uden at flytte fakta, og 1939 forbliver sin egen stemme. Sammenhængen med 2018-20 bæres af
+   den afklarede `samme_som`. Hvor reglerne skal se på tværs af udgaver (B6 i 6d, fakta pr. udgave i 6e), lærer de at
+   følge afklarede `samme_som`-koblinger som en generel, editionsneutral mekanisme. 1939-placements bærer bogens egne
+   linjer og numre (læseren skal se bogen); om 1939's grupper svarer til eksisterende slægtslinjer, måles i 6d, og
+   kræver det nye linjer, er det opret-benet og parkeres synligt.
 
 ## 7. Overladt til delspec'erne
 
 - 6b's konkrete indgang til personas for allerede publicerede records (ny writer eller udvidet migrering), og hvordan
   de 472 `samme_som`-koblinger bruges: som kandidat, ikke som afgørelse.
-- Hvilke kanoniske personer 1939-personas peger på: kilde 3-personrækken eller den sammenfoldede 2018-20-person.
-  Begge giver samme læseroplevelse via `samme_som`; valget afgør, hvor 1939's påstande hører hjemme.
 - Rettelsesvejens tekniske form (§6 pkt. 2).
 - Hvordan fakta-RPC'en og `buildPersonFacts` grupperer pr. udgave (6e).
 - Disposition af #158, #159, #161, #162, #163 (synlig, ikke løst, medmindre de blokerer).
