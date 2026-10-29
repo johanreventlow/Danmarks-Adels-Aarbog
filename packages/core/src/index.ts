@@ -7,6 +7,7 @@ export * from './pickPreferredBio';
 export * from './bioVersions';
 export * from './relationship';
 export * from './collapseSameAs';
+export * from './placementCoordinates';
 export * from './sammeSomPreflight';
 export * from './buildFamilyGraph';
 export * from './buildGeo';

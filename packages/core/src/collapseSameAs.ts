@@ -271,7 +271,7 @@ export function resolveSameAs(
 export function collapseSameAs(
   rawDb: Db,
   edges: SameAsEdge[],
-  ext: Map<string, { linje: string | null; nr: number | null }>,
+  ext: Map<string, { linje: string | null; nr: number | null; nr_label?: string | null }>,
 ): CollapseResult {
   const { accepted, quarantined } = resolveSameAs(rawDb, edges);
 
@@ -309,6 +309,7 @@ export function collapseSameAs(
       personId: id,
       linje: ext.get(id)?.linje ?? null,
       nr: ext.get(id)?.nr ?? null,
+      nr_label: ext.get(id)?.nr_label ?? null,
     }));
     for (const id of ids) if (id !== canonId) droppedAlias.add(id);
   }
