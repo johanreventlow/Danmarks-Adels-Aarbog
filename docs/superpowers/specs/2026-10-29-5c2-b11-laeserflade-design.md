@@ -1,7 +1,7 @@
 # Trin 5c-2 + B11: læseren ser placering og fakta med kilde — design
 
 **Status:** afgørelserne i §8 truffet af projektejeren 2026-10-29 (anbefalingerne fulgt i alle fire). Skrevet uden
-afklarende spørgsmål (projektejeren sprang dem over). Næste: Codex-review af spec'en, derefter plan.
+afklarende spørgsmål (projektejeren sprang dem over). Codex-review r1 indarbejdet (§10). Næste: plan.
 **Gren:** `docs/5c2-b11-spec` fra `main` (`39a812f7`).
 **Review-budget (B13):** spec 1 Codex-runde (`gpt-6.1-sol`, Opus dømmer); plan 1 Codex-runde; implementering 1
 Codex-runde. Fable kun efter projektejerens ja. Overskridelse kræver én linje i `docs/decisions.md`.
@@ -22,8 +22,8 @@ kun antal og strukturkoder er læst, ingen posttekst.
    post«. Linje, nr. og kuld i læserfladen kommer fra afgjort evidens i stedet for legacy-tabellen.
 5. **Færdigbevis:** §7.
 6. **Erstatter:** `person_source_coordinate_legacy` (web) og direkte læsning af `person_external_id` (mobil) som
-   læserens kilde til koordinater; `fetchProveniens` (citation → source for personer uden bog-nummer) erstattes af
-   fakta-RPC'en.
+   læserens kilde til koordinater. `fetchProveniens` (»Kilde i Aarbogen« for personer uden bog-nummer) bliver
+   stående uændret.
 7. **Review-budget:** i hovedet ovenfor.
 
 ## 2. Problem og målt udgangspunkt
@@ -103,10 +103,18 @@ NULL, og faktummet vises med citationsniveauet. Betingelserne er kopieret fra `p
 3. Source recorden har præcis én `narrative_record_publication` med `status='published'`, dens narrativ har
    `subjekt_type='person'` og `subjekt_id` = faktummets person, og `person_daa_narrative_publication_allowed`
    er sand.
-4. Etiketterne tages fra bindingens seneste `narrative_publication_event.after_state` (`source.source_label`,
+4. **Påstanden er uændret siden bindingen.** En assertion-binding har ingen tilstands-sha, og
+   `red_ret_ocr_felt` retter `vaerdi_tekst`/`date_raw` på samme assertion-id (B12). Derfor genkontrolleres
+   promotionsvalidatorens målinvarianter ved læsning (`schema.sql:9694-9708`): faktummets `subjekt_id` = fortolkningens
+   kanoniske person, `faktatype` = reglens forventede type, og værdien (`vaerdi_tekst` eller `date_raw` efter
+   reglens `value_kind`) er lig fortolkningens værdi under samme normalisering (`lower(btrim(normalize(…,NFC)))`).
+   Planen trækker invarianterne ud i én privat hjælper, som både validatoren og RPC'en kalder, så de ikke kan
+   glide fra hinanden.
+5. Etiketterne tages fra bindingens seneste `narrative_publication_event.after_state` (`source.source_label`,
    `labels.record_label`, `labels.citation_label`), som i familie-RPC'en.
 
-Betingelse 3 binder kun til personens egen post. Et `samme_som`-medlem, hvis post er publiceret under det
+Bindingen hører til påstanden, ikke til konklusionen: en påstand under »Andre udsagn« beholder sin binding, selv
+om konklusionen har valgt en anden. Betingelse 3 binder kun til personens egen post. Et `samme_som`-medlem, hvis post er publiceret under det
 kanoniske id, får derfor ingen binding. Det er fail-closed og tælles i §7.
 
 ### 4.2 Koordinat-RPC: `public.public_person_source_coordinates()`
@@ -119,10 +127,12 @@ Kolonner: formen fra `person_source_coordinate_legacy` (`person_id`, `source_id`
 `printed_number`, `generation_local`, `generation_global`, `kuld_label`) plus `printed_number_label text` og
 `provenance_kind ∈ {'placement','legacy_external_id'}`.
 
-- Én række pr. `person_external_id`-række (i dag 1.167). Har personen en gældende membership
-  (`membership_is_current`), hvis record-placement hører til samme kilde, kommer linje (entryens `code`), nr.,
-  slægtled og kuld fra placementen, og rækken får `provenance_kind='placement'`. Ellers kommer værdierne fra
-  legacy-rækken, og rækken får `'legacy_external_id'`.
+- Én række pr. `person_external_id`-række (i dag 1.167). Har personen **præcis én** gældende membership
+  (`membership_is_current`), hvis record-placement (præcis den, `source_basis.record_placement_id` peger på)
+  hører til samme kilde, kommer linje (entryens `code`), nr., slægtled og kuld fra placementen, og rækken får
+  `provenance_kind='placement'`. Ved ingen eller flere sådanne memberships kommer værdierne fra legacy-rækken, og
+  rækken får `'legacy_external_id'`. Det er en entydighedsgate, ikke en rangordning; målt er der én pr. person.
+  `(person_id, source_id)` er dermed entydig, og `ORDER BY person_id, source_id` er en total orden.
 - `printed_number` (heltal) = de foranstillede cifre i placementens `printed_number`. Legacy-værdien er allerede
   heltal. `printed_number_label` = den trykte tekst (»15a«); for legacy `nr::text`. Sorteringen bevarer dermed
   sin form, og visningen får suffikset.
@@ -137,17 +147,21 @@ Kolonner: formen fra `person_source_coordinate_legacy` (`person_id`, `source_id`
 ### 4.3 Klienter
 
 - **`packages/core`:** `RawExtId` får `nr_label?: string | null` og `provenance?: 'placement' | 'legacy_external_id'`.
-  Visningen (`DetailPanel.tsx:84`, `sources.ts:20`, mobilens `person/[id].tsx:98` og `buildAux.ts:72`) bruger
-  `nr_label ?? nr`. Linjehovedet vælges stadig som laveste `nr`; ved lige `nr` afgør `nr_label` (15a før 15b).
+  Labelen føres hele vejen: begge klienters `extMap` (`web/src/data/model.ts:153`, `mobile/src/data/load.ts:350`),
+  `collapseSameAs`' `mergedFrom` og typen `Provenance` (`packages/core/src/types.ts:131`), så »Optræder i
+  Aarbogen som« for en foldet person også viser suffikset. Visningen (`DetailPanel.tsx:84`, `sources.ts:20`,
+  mobilens `person/[id].tsx:98` og `buildAux.ts:72`) bruger `nr_label ?? nr`. Linjehovedet vælges stadig som laveste `nr`; ved lige `nr` afgør `nr_label` (15a før 15b).
   Ny ren funktion `buildPersonFacts(rows)` i `packages/core/src/personFacts.ts` står for gruppering pr. faktum,
   udeladelser, rækkefølge og etiketter (§4.4) og testes i core.
 - **Web:** `loadModel` henter koordinater med `getAll(() => supabase.rpc('public_person_source_coordinates'))`.
   Ved fejl skrives en advarsel, og der degraderes til `[]` som i dag. Der er bevidst intet fald tilbage til
-  legacy-viewet, så en fejlslagen deploy ikke skjules. `fetchPersonDetail` henter fakta med
-  `public_person_facts(numIds)` (union over `samme_som`-medlemmer, som narrativ og relationer) og erstatter
-  `fetchProveniens`. En fejl giver teksten »Fakta kunne ikke hentes« i sektionen, ikke en tom sektion.
-- **Mobil:** `load.ts` skifter til samme RPC og mapper til `RawExtId`; `tsc --noEmit` i CI er beviset. Ingen
-  enhedstest.
+  legacy-viewet, så en fejlslagen deploy ikke skjules. `fetchPersonDetail` henter desuden fakta med
+  `public_person_facts(numIds)` (union over `samme_som`-medlemmer, som narrativ og relationer). `fetchProveniens`
+  og »Kilde i Aarbogen« er uændrede. En fejl giver teksten »Fakta kunne ikke hentes« i sektionen, ikke en tom
+  sektion.
+- **Mobil:** `load.ts` skifter til samme RPC. Mappingen fra RPC-række til `RawExtId` ligger i én ren funktion i
+  `packages/core`, som web og mobil deler og som testes (null-koordinater, label, provenance); `tsc --noEmit` i
+  CI dækker resten.
 
 ### 4.4 Fakta-sektionen i `DetailPanel`
 
@@ -187,27 +201,35 @@ Kolonner: formen fra `person_source_coordinate_legacy` (`person_id`, `source_id`
    (`maal`, `go`, `dump`, `apply --jeg-mener-det --go`). Blokken er additiv i én transaktion; GO-koden binder
    commit og filer; dump med B1-disciplin. Bagefter `NOTIFY pgrst` og `get_advisors`. db-verify køres ikke mod
    prod. Øves på en stand-in med prods 2-minutters grænse. Varigheden noteres.
-3. **Efter ceremonien, læse-kun som `anon`:** antal rækker fra begge RPC'er og fordelingen af `provenance_kind`.
-   Bindingsniveauet tælles mod de forventede antal fra stand-in'en.
+3. **Merge-gate for PR 2, gennem PostgREST (ikke psql):** begge RPC'er kaldes over HTTP med den offentlige nøgle
+   (`anon`) og som indlogget bruger (`authenticated`), med samme `getAll`-paginering som klienten, til sidste side.
+   Det beviser grants og schema-cache. Antal rækker, fordelingen af `provenance_kind` og antal fakta pr.
+   kildevisning skal svare til stand-in'en. Kun antal; output til fil.
 4. **Merge af PR 2** → Vercel. Browsertjek mod prod (§7).
-5. **Fortrydelse (særskilt handling):** revert af PR 2 (Vercel redeployer), derefter `DROP FUNCTION` af de to.
-   Ingen data er skrevet; legacy-viewet står. Dumpet er nødudvejen.
+5. **Fortrydelse (særskilt handling):** revert af PR 2 (Vercel redeployer). RPC'erne bliver stående, så åbne
+   klienter med den nye kode ikke degraderer; de fjernes først med en senere, særskilt `DROP FUNCTION`, hvis det
+   besluttes. Ingen data er skrevet; legacy-viewet står. Dumpet er nødudvejen.
 
 ## 7. Færdigbevis
 
 - **CI (pg-job):**
   - Begge RPC'er giver 0 rækker for en levende person og for en ikke-offentlig person, også kaldt som
     `authenticated`.
-  - Bindingen udfyldes kun under alle fire betingelser. Hver betingelse brudt for sig giver NULL i `record_*`,
-    mens faktummet stadig returneres.
-  - Koordinater: `placement` ved gældende membership og legacy ellers; en membership gjort ugældende (sha-brud)
-    falder tilbage til legacy.
+  - Bindingen udfyldes kun under alle fem betingelser. Hver betingelse brudt for sig giver NULL i `record_*`,
+    mens faktummet stadig returneres. Herunder en OCR-rettelse med `red_ret_ocr_felt` på den bundne assertion.
+  - Koordinater: `placement` ved præcis én gældende membership og legacy ellers; en membership gjort ugældende
+    (sha-brud) og to kvalificerende memberships i samme kilde falder begge tilbage til legacy.
   - Opgraderingstest fra prods skema.
 - **CI (core/web):** `buildPersonFacts` (udeladelser, rækkefølge, flere påstande, omstridt, tre kildevisninger);
-  linjehoved ved »15a/15b«; `tsc` for mobil.
+  linjehoved ved »15a/15b«; RPC-række → `RawExtId`-mappingen; en foldet person med suffiks i `mergedFrom`; `tsc`
+  for mobil.
 - **Stand-in (kopi af prod):**
-  - Forskellen mellem `public_person_source_coordinates` og `person_source_coordinate_legacy` er præcis det
-    fastlåste sæt på 40 `(person_id, felt)`.
+  - Forskellen mellem `public_person_source_coordinates` og `person_source_coordinate_legacy`, over de rækker
+    `anon` kan se og med legacy-label normaliseret til `nr::text`, er præcis det fastlåste sæt på 40
+    `(person_id, felt)`. `provenance_kind` er en forventet ny kolonne og indgår ikke.
+  - **Træparitet (`CandidateRingPlacementParity`):** `buildGenCoords` og kandidatringens kuldgrupper (`tree.ts`)
+    beregnes på begge inputs. Eneste tilladte forskel er kuld for de 35 fastlåste personer; personmængde, linje og
+    slægtled pr. person er identiske.
   - Fakta-RPC'en: antal fakta pr. kildevisning (bundet / import / ingen kilde), antal personer uden narrativ med
     mindst ét faktum (forventet 621), og antal bindinger der falder ud på betingelse 3. Kun antal; output til
     fil.
@@ -254,4 +276,15 @@ fakta-sektion på mobil; ordrette uddrag (§8.4); konfidens fra bindingens oprin
 
 ## 10. Reviewlog
 
-*(tom)*
+**Codex spec-review r1 2026-10-29 (`gpt-6.1-sol`): NO-GO** (1 P1, 5 P2; ingen privacy-læk fundet, gaterne bekræftet)
+→ Opus-dom: 5 nødvendige, 1 forenklet, intet afvist. Rettet:
+- **P1:** bindingen genkontrollerer målinvarianterne ved læsning, så en OCR-rettet værdi ikke vises som bundet
+  (§4.1 betingelse 4, test i §7).
+- **P2:** `nr_label` føres gennem `mergedFrom`/`Provenance` (§4.3).
+- **P2:** træparitet indgår i færdigbeviset (§7).
+- **P2:** entydighedsgate pr. `(person, kilde)` (§4.2).
+- **P2:** merge-gate gennem PostgREST, og RPC'erne bliver stående ved rollback (§6.3, §6.5).
+- **Forenklet:** `fetchProveniens` erstattes ikke men bliver stående, så ingen hidtil vist kilde kan forsvinde
+  (§1.6, §4.3).
+
+Review-budgettet for spec'en er brugt.
