@@ -529,6 +529,27 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 15. A6b: 10 narrativrevisioner (de beskårne prosalinjer) — LIVE i prod (2026-10-28)
+
+**Procedure:** `docs/runbooks/a6b-narrativ-revision-prod.md`, privat script `~/.private/5ab-overfoersel/23-a6b.sh`.
+Repo `39a812f7` (`main`, PR #273), GO a6b `5522a891` (bundet til commit, filer og retning `frem`); dump før skrivning
+`daa-prod-20261028224757-a6b.dump` (14,6 MB, sha `58351421…`).
+
+- **Hvad:** ingen DDL. De 10 publicerede 2018-20-narrativer (I-9, I-11, I-17, I-18, I-32, I-33, I-44, I-84, I-89,
+  III-37) fik de prosalinjer, v1-støjreglen fjernede (`decisions.md` 2026-10-27/-28), med
+  `red_revider_publiceret_person_narrative_record` i én transaktion. Manifest `work/a6b/manifest.json` (gitignoreret,
+  mode 600), `manifest_sha256` `f80e8156…`.
+- **Ekstern kopi (B1):** `age`-krypteret (sha `84b9d988…`) på projektejerens SFTP-server, rundtur ok; ved `apply` blev
+  dumpet og den eksterne kopi tjekket igen (`B1_A6B_OK`).
+- **Kvitteringer:** før `A6B_MAAL_OK tilstand=gammel events=3314 change_sets=2069 change_events=9222`;
+  `A6B_OK retning=frem revideret=10 ubundet=1 change_sets=10 go=5522a891`; efter
+  `A6B_MAAL_OK tilstand=ny events=3324 change_sets=2079 change_events=9232`. Øvrige narrativer og målenes øvrige felter
+  uændrede (rest-hashes = øvelsens).
+- **Kendt følge:** `narrative.tekst` ≠ helpostens `verbatim_text` for de 10 poster, indtil trin 6 retter kildeteksten og
+  klausulerne. III-129 (ubundet) er urørt.
+- **Fortryd:** `go --tilbage` + `apply --jeg-mener-det --go <kode> --tilbage` (ny revision tilbage til den gamle tekst;
+  prøvet gennem runneren); nødudvej restore af dumpet.
+
 ## 14. Review trin B: fire funktionsrettelser — LIVE i prod (2026-10-28)
 
 **Procedure:** `docs/runbooks/review-trin-b-prod.md`, privat script `~/.private/5ab-overfoersel/22-trin-b.sh`.
