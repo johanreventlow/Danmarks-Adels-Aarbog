@@ -1,8 +1,9 @@
 # Trin 6a: 1939's klausuler og kildetekst-revision — design
 
-**Status:** udkast, revideret efter builder-check og Fable-læsning (§11). Skrevet uden afklarende spørgsmål
-(projektejeren sprang dem over 2026-10-29 og bad om bedste skøn plus reviews). Mine valg er markeret *mit valg*.
-Projektejerens afgørelse (§9) truffet 2026-10-29: I-84 parkeres. Næste: plan, Codex-runde på spec+plan.
+**Status:** revideret efter builder-check, Fable-læsning og Codex-runden på spec+plan (§11). Skrevet uden
+afklarende spørgsmål (projektejeren sprang dem over 2026-10-29 og bad om bedste skøn plus reviews). Mine valg er
+markeret *mit valg*. Projektejerens afgørelse (§9) er truffet 2026-10-29: I-84 parkeres. Næste: projektejeren
+læser planen og vælger udførelse.
 **Gren:** `docs/trin6a-spec` fra `docs/trin6-spec` (`02d3e400`; PR #280 er ikke merget).
 **Review-budget (B13):** builder-check (frisk agent) + én Fable-læsning af spec'en (projektejerens ja 2026-10-29;
 overskridelse noteret i `docs/decisions.md`) + 1 Codex-runde på spec+plan (`gpt-6.1-sol`, Opus dømmer) + 1
@@ -147,7 +148,7 @@ med postspændene:
 
 - **Definition:** en records helpost er den ene accepterede forekomst, hvis top-observation har profilens
   `helpost_observation_kind` (2018-20 `person_post`, 1939 `person`). Alle andre accepterede forekomster for samme
-  record skal ligge inde i helpostens spænd.
+  record skal ligge i samme rendition og inde i helpostens spænd (Codex F9).
   - Ingen eller flere kandidater giver `RECORD_HELPOST_AMBIGUOUS`.
   - En underforekomst uden for spændet giver `RECORD_HELPOST_SUBOCCURRENCE_OUTSIDE`.
 - **Kun i basen:** reglen bor i én privat funktion. Klausul-writeren og klausuleksporten bruger den. Eksporten
@@ -201,6 +202,14 @@ Operationen tager én record pr. kald. Preflighten beregner afhængighedsmængde
 før noget skrives, og autorisationen binder mængden pr. post. Hvert kald er sit eget statement under prods
 grænse på 2 minutter. Inden for én transaktion sker følgende i denne rækkefølge, som triggerne kræver:
 
+0. **Lås før måling (Codex F1).** Helpost-observationen, det aktuelle sæts rækker og de afhængige fortolkningers
+   aktuelle rækker låses (`FOR UPDATE`, i nøgleorden), før afhængigheds- og bindingsmængden beregnes og sammenlignes.
+   Promotionsvejen låser de samme fortolkningsrækker. En samtidig promotion er derfor enten committet før målingen
+   og med i mængden, eller den venter til efter revisionen og møder en `superseded` fortolkning.
+   - **Afhængigheder, der ikke understøttes, afvises (Codex F7 og F8, latente: 0 på de 10 poster).** Det gælder
+     en aktuel fortolkning, der linker til selve helposten eller til en anden observation end en klausul under den.
+     Det gælder også en fortolkning, der citerer klausuler under mere end én helpost. Begge giver
+     `TEXT_REVISION_DEPENDENCY_UNSUPPORTED`, og preflighten afviser dem for hele batchen.
 1. **Tekstversion:** den nye tekst skrives med proveniens: profil, projektionsregel og version, kørsel,
    manifest-hash og aktør. Manglende kolonner tilføjes som nullable, så db-verify's eksisterende indsættelse
    stadig virker. Versionen gøres foretrukken. Basisteksten i `source_observation` bevares.
@@ -228,12 +237,19 @@ grænse på 2 minutter. Inden for én transaktion sker følgende i denne rækkef
      parts-rækker og personas, hvis fortolkninger blev forældet.
    - Personas skrives ikke om. Deres mentions står gyldigt mod den klausultekst, de blev skåret af.
    - 6c's ceremoni genbinder og afstemmer mod netop den liste: 16 bindinger for de 10 poster.
-6. **Genkørselskontrakt (lukker Fable fund 4):** S4-spærren (`REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS`)
-   åbner for en record, når alle fortolkninger fra dens tidligere forslags-events er `superseded` med grundlaget
-   `source_text_revision`. Forslagsnøglen (`interpretation_proposal_key_material`) får en `key_version 2`, der
-   indeholder hashen af klausulsættets tekstversion, så en genkørsel med samme ordinal og værdi ikke kolliderer
-   med den forældede nøgle. Eksisterende nøgler (version 1) er uændrede. 6a bygger og CI-tester spærrens åbning
-   og nøglen. 6c bruger dem. 6a rører kun forslags-writeren for S4 og nøglen, fordi de hører til forældelsens
+6. **Genkørselskontrakt (lukker Fable fund 4; strammet efter Codex F2, F5 og F6):**
+   - **Spærren åbner kun på en faktisk revision.** S4 (`REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS`) åbner for
+     en record, når der findes en `source_text_revision`-event for recorden, hvis kvittering omfatter alle
+     fortolkningsnøgler fra recordens tidligere forslags-events, og hvis tekstversion er den aktuelle. En
+     `basis`-streng alene autoriserer ikke.
+   - **Grundlaget er reserveret.** `red_decide_interpretation` afviser `decision_evidence->>'basis' =
+     'source_text_revision'`, så redaktør-RPC'en ikke kan efterligne en revision.
+   - **Nøglen binder til tekstversionen.** Forslagsnøglen får en `key_version 2`, der indeholder helpostens
+     *tekstversionsnummer* (`source_observation_text.version`, deterministisk og overførbart, ikke et tilfældigt
+     id). En tekstvej B → C → B giver tre forskellige nøgler. Eksisterende nøgler (version 1) er uændrede.
+   - **Projektionen følger nøglen.** Writer, kvittering og projektion (`interpretation_proposal_projection.sql`
+     og komparatoren) udleder nøgleversion og tekstversion af det samme historiske grundlag.
+   - 6a bygger og CI-tester spærrens åbning, reservationen og nøglen. 6c bruger dem. 6a rører kun forslags-writeren for S4 og nøglen, fordi de hører til forældelsens
    kontrakt. Helpost-skiftet i samme writer venter til 6c, hvor 1939-fixturerne til forslag findes.
 7. **Fortrydelse:** forældelse kan ikke rulles tilbage (`superseded` er endelig), og tekstversioner tilføjes kun.
    Fortrydelse er restore af dumpet i det deklarerede vindue (B1) eller en fremadrettet revision med en ny version
@@ -251,6 +267,19 @@ basisteksten. Kendte læsere:
 - **Narrativ og visning:** `migrate_legacy_narrative_record` og 149b's komparator
   (`export_legacy_migration_candidates_helpers.R`, `build_legacy_migration_manifest.py`; læser forekomstens tekst)
   samt `red_source_persona_detail`.
+
+**Partsbaserede input mister autoritet (Codex F3).** `interpretation_party_current` vælger seneste part uden
+statusfilter. Skriveinput, der bygger på parter (kendt: `relation_person_create_input`, `relation_persona_input`,
+`relation_persona_v3_input`), skal kræve, at partens fortolkning aktuelt er `proposed` eller `accepted`. Planen
+inventerer dem sammen med tekstlæserne. Parts-historikken bevares.
+
+**Hele writer-kæden (Codex F4).** Operationen skal være kendt overalt, hvor reimport-kæden validerer:
+- autorisationens og finalize'ens tællinger (`red_finalize_reimport`);
+- R-kædens manifestvalidering og dispatch (`apply_reimport_helpers.R`);
+- `reimport_profile.py`'s profilskemaer;
+- en registreret `reimport_writer_profile`-række for revisionsprofilen.
+
+Elementprefixet er `source-text-revision:`.
 
 **`clause_revision` består** for poster uden afhængigheder (ren omsegmentering). Den nye operation bruges, når
 kildeteksten ændres.
@@ -393,3 +422,23 @@ målepåstande i §2 bekræftet undtagen de nedenfor rettede.
 | 10 | P3 | 357, ikke 349 records med ét anker | rettelse af fakta | §2.1 |
 | 11 | P3 | Granularitet og 2-minutters grænsen | nødvendig | §4.4, §7 pkt. 2 |
 | 12 | P3 | Små klassifikations- og vokabularsteder | til planen; delvis bortfaldet (ingen `page_layout`) | planen |
+
+**Codex spec+plan r1 2026-10-30 (`gpt-6.1-sol`, læse-kun, `work*/` udelukket i kommandoerne): NO-GO**, 2 P1 og 7
+P2. Opus' afvejning: alle 9 er gyldige, intet afvist. F2 er verificeret i koden: `red_decide_interpretation` tillader
+`superseded` med et vilkårligt grundlag. F7 og F8 er målt til 0 på de 10 poster og er altså latente; de lukkes
+ved afvisning, ikke ved understøttelse.
+
+| # | Alvor | Fund | Afvejning (Opus) | Indarbejdet |
+|---|---|---|---|---|
+| F1 | P1 | Bindingsmængden måles før låsene: race mod en samtidig promotion | nødvendig | §4.4 pkt. 0; plan Task 5 (to-sessionstest) |
+| F2 | P1 | S4 kan åbnes med `red_decide_interpretation` og et falsk grundlag | nødvendig (verificeret) | §4.4 pkt. 6: event-krav, reserveret grundlag; plan Task 6 |
+| F3 | P2 | Forældede parter driver stadig partsbaserede skriveinput | nødvendig | §4.4 »Partsbaserede input«; plan Task 7 |
+| F4 | P2 | Ingen hel authorize–apply–finalize-kæde, R-dispatch og profilregistrering | nødvendig | §4.4 »Hele writer-kæden«; plan Task 5 og 12 |
+| F5 | P2 | `key_version 2` på teksthash kolliderer ved B → C → B | nødvendig | §4.4 pkt. 6: tekstversionsnummer; plan Task 6 |
+| F6 | P2 | v2-forslag bryder projektionskomparatoren | nødvendig | §4.4 pkt. 6; plan Task 13 |
+| F7 | P2 | Fortolkninger, der linker til helposten direkte, overses | nødvendig (latent: 0) | §4.4 pkt. 0: afvises |
+| F8 | P2 | Delte fortolkninger på tværs af poster gør batchmængderne ukomponerbare | nødvendig (latent: 0) | §4.4 pkt. 0: preflight afviser |
+| F9 | P2 | Helpost-reglen tjekker ikke samme rendition | nødvendig | §4.2; plan Task 1 |
+
+Budgettet for spec+plan er brugt. Rettelserne går ikke gennem en ny Codex-runde. Diff-runden (Task 16) tester dem
+i kode.

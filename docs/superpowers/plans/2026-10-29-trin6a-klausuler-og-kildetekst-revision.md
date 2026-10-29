@@ -35,7 +35,9 @@ task; tal og navne nedenfor er derfra).
   - Helpost-reglen: `RECORD_HELPOST_AMBIGUOUS`, `RECORD_HELPOST_SUBOCCURRENCE_OUTSIDE`.
   - `raw`-kontrollen: `CLAUSE_EVIDENCE_RAW_OFFSET_MISMATCH`.
   - Revisionen: `TEXT_REVISION_BINDING_SET_DRIFT`, `TEXT_REVISION_KEY_SET_DRIFT`, `TEXT_REVISION_SPAN_MISMATCH`,
-    `TEXT_REVISION_NOOP`, `TEXT_REVISION_TARGET_TYPE_UNSUPPORTED`, `TEXT_REVISION_BASE_DRIFT`.
+    `TEXT_REVISION_NOOP`, `TEXT_REVISION_TARGET_TYPE_UNSUPPORTED`, `TEXT_REVISION_BASE_DRIFT`,
+    `TEXT_REVISION_DEPENDENCY_UNSUPPORTED`.
+  - Det reserverede grundlag i `red_decide_interpretation`: `EVIDENCE_BASIS_RESERVED`.
 - Forældelsens grundlag hedder præcis `source_text_revision` (`decision_evidence->>'basis'`).
 - Persondata:
   - Intet script eller output viser posttekst. Målinger skriver antal, nøgler og hashes til fil.
@@ -101,11 +103,14 @@ task; tal og navne nedenfor er derfra).
   - Assertér også at `record_helpost_observation` rejser den rigtige kode for (c), (d) og (e).
   - Og at en 2018-20-lignende record med `person_post` og kind `person_post` giver `ok`, mens kind `person` giver
     `none`.
+  - (f) som (b), men `fact`-forekomsten ligger i en *anden* rendition fra samme kilde med offsets inde i
+    helpostens → `outside` (Codex F9).
 - [ ] **Step 2:** `psql -v ON_ERROR_STOP=1 -d <lokal testbase med schema.sql> -f tests/sql/test-record-helpost.sql`.
   Forventet: fejl, fordi funktionen ikke findes.
 - [ ] **Step 3: Implementér.** Forekomster for recorden med accepteret `source_record_anchor_current`, hvis eneste
   top-observation har `observation_kind = p_helpost_kind`, er kandidater. Er der præcis én kandidat, tjekkes alle
-  øvrige accepterede forekomster for samme record: `char_from >= helpost.char_from AND char_to <= helpost.char_to`.
+  øvrige accepterede forekomster for samme record: `rendition_id = helpost.rendition_id AND char_from >=
+  helpost.char_from AND char_to <= helpost.char_to`.
 - [ ] **Step 4:** Kør testen mod en frisk base med `schema.sql` og mod en base bygget med `db-migrations.sql` kørt
   to gange. Forventet: `PASS` (testfilens egen `RAISE NOTICE 'OK'`-mønster).
 - [ ] **Step 5:** Commit `feat(db): helpost-regel for records med flere forekomster`.
@@ -209,7 +214,12 @@ task; tal og navne nedenfor er derfra).
 - Produces:
   - `private.text_revision_dependents(p_parent_observation_id uuid) RETURNS TABLE(interpretation_key uuid,
     current_id uuid, current_status text)`: aktuelle versioner af nøgler, hvis aktuelle version har et link til en
-    klausul i helpostens *aktuelle* sæt, og hvis status ∉ {`rejected`,`superseded`}.
+    klausul i helpostens *aktuelle* sæt, og hvis status ∉ {`rejected`,`superseded`}. Funktionen rejser
+    `TEXT_REVISION_DEPENDENCY_UNSUPPORTED` (Codex F7 og F8), hvis en sådan nøgle:
+    - også linker til helposten selv;
+    - linker til en anden observation end en klausul under helposten;
+    - eller citerer klausuler under mere end én helpost.
+    Samme kontrol gælder for nøgler, der *kun* linker til helposten direkte.
   - `private.text_revision_binding_set(p_interpretation_keys uuid[]) RETURNS TABLE(promotion_id uuid, target_type
     text, interpretation_key uuid, target_id text)`: kun *gældende* bindinger.
     - `assertion`: `private.assertion_binding_current(p.id)`.
@@ -229,11 +239,14 @@ task; tal og navne nedenfor er derfra).
   - `test_binding_set_assertion_and_family`: en fixture med én gældende assertion-promotion, én gældende
     family-promotion og én family-promotion med forældet `state_sha256`. Resultatet er præcis de to første.
   - `test_binding_set_unknown_target_type_raises`
+  - `test_dependents_direct_helpost_link_raises` og `test_dependents_cross_post_key_raises`
   - `test_supersede_copies_links_and_sets_basis`: den nye version har samme link-mængde, og `decision_evidence->>
     'basis'` er `source_text_revision`. `assertion_binding_current` er false efter.
 - [ ] **Step 2:** Kør. Forventet: fejl.
-- [ ] **Step 3: Implementér.** Før indsættelse låses nøglernes aktuelle rækker i `interpretation_key`-orden (`FOR
-  UPDATE`). Status-overgangen tillades kun gennem denne funktion. `red_decide_interpretation` er uændret.
+- [ ] **Step 3: Implementér.** Status-overgangen tillades kun gennem `supersede_for_text_revision`.
+  `red_decide_interpretation` afviser `p_evidence->>'basis' = 'source_text_revision'` med
+  `EVIDENCE_BASIS_RESERVED` (Codex F2); tilføj testen `test_decide_rejects_reserved_basis`. Låsene tages i Task 5,
+  før målingen, ikke her.
 - [ ] **Step 4:** Kør. Forventet: `PASS`.
 - [ ] **Step 5:** Commit `feat(db): afhængighedsmængde og forældelse ved kildetekst-revision`.
 
@@ -243,11 +256,19 @@ task; tal og navne nedenfor er derfra).
 - Modify: `schema.sql`:
   - ny `private.write_source_text_revision` og `public.red_apply_reimport_source_text_revision` efter
     `write_clause_revision` (ca. linje 4312);
-  - `private.validate_reimport_authorization_payload` (ca. linje 3689): `expected_counts.source_text_revision`.
+  - `private.validate_reimport_authorization_payload` (ca. linje 3689): `expected_counts.source_text_revision`;
+  - `public.red_finalize_reimport` (ca. linje 4675-4691): tællingen af `source_text_revision`-events i det faste
+    nøglesæt (Codex F4);
+  - seed af `reimport_writer_profile`-rækken `daa-2018-20-source-text-revision-v1` (`source_id` 1, `text_form`
+    `folded_projection@page_header`, `helpost_observation_kind` `person_post`, `run_key_prefix`
+    `reimport-source-text-revision:`), mønster som Task 2.
 - Modify: `db-migrations.sql`: blok med `PERFORM private.ensure_reimport_operations(ARRAY['source_text_revision'])`
   efter mønstret ved `db-migrations.sql:18038`.
 - Create: `tests/sql/test-source-text-revision.sql`.
+- Create: `tests/integration/test-source-text-revision-concurrency.R` efter mønstret i
+  `tests/integration/test-narrative-record-concurrency.R`.
 - Modify: `.github/workflows/ci.yml`.
+- Elementprefix: `source-text-revision:<record_key>`.
 
 **Interfaces:**
 - Consumes: Task 1-4 og `private.clause_write_prepare` / `private.clause_write_set`.
@@ -267,8 +288,10 @@ task; tal og navne nedenfor er derfra).
 
 Rækkefølgen i writeren (spec §4.4) er bindende:
 1. prepare;
-2. tekst og kontroller;
-3. afhængigheder, drift og bindingsmængde;
+2. **lås** helpost-observationen, det aktuelle sæts rækker og de afhængige nøglers aktuelle
+   `private.interpretation`-rækker (`FOR UPDATE`, i `interpretation_key`-orden). Promotionsvejen låser de samme
+   rækker (`schema.sql:9599-9612`). Afhængighederne beregnes efter låsen (Codex F1);
+3. tekst og kontroller, afhængigheder, drift og bindingsmængde;
 4. `source_observation_text`-række (foretrukken, proveniens);
 5. `supersede_for_text_revision`;
 6. nyt sæt via `clause_write_set` med `parent_text_id`;
@@ -299,6 +322,14 @@ Rækkefølgen i writeren (spec §4.4) er bindende:
     hashes før og efter, og de er ens.
   - `test_revision_multi_set_post`: en post med sæt 1 (`erstattet`, en nøgle citerer kun den) og sæt 2 (aktuelt).
     Kun sæt 2-nøgler forældes.
+  - `test_revision_full_chain`: authorize → preflight → apply → `red_finalize_reimport` med `expected_counts
+    {"source_text_revision":1}` lykkes. En anden apply af samme element afvises, og finalize-tællingen stemmer.
+  - **Samtidighed** (`test-source-text-revision-concurrency.R`, to sessioner):
+    - session A låser via revisionens trin 2 og venter (`pg_sleep` i en testkrog eller en advisory-barriere);
+    - session B forsøger en promotion af en accepteret afhængig fortolkning og skal vente;
+    - A committer, og B fejler eller promoverer en `superseded` version (afvises).
+    - Omvendt rækkefølge: B committer først, A's måling indeholder den nye binding og afviser med
+      `TEXT_REVISION_BINDING_SET_DRIFT` mod et manifest uden den.
 - [ ] **Step 2:** Kør. Forventet: fejl.
 - [ ] **Step 3: Implementér** efter rækkefølgen ovenfor. Brug `clause_write_prepare(…, 'source_text_revision')`,
   udvidet med operationen og dens nøglesæt. Writeren læser og hasher den nuværende tekst via
@@ -317,15 +348,19 @@ Rækkefølgen i writeren (spec §4.4) er bindende:
 **Interfaces:**
 - Produces:
   - `private.interpretation_proposal_key_material_v2(p_source_id bigint, p_record_key text, p_predicate text,
-    p_cited_clauses jsonb, p_value jsonb, p_text_sha256 text) RETURNS text`: som v1 med `'key_version',2` og
-    `'text_sha256',p_text_sha256`.
+    p_cited_clauses jsonb, p_value jsonb, p_text_version integer) RETURNS text`: som v1 med `'key_version',2` og
+    `'text_version',p_text_version` (`source_observation_text.version`, deterministisk). En tekstvej B → C → B giver
+    tre forskellige nøgler (Codex F5).
   - v1's signatur og krop er uændrede.
+  - Forslagets kvittering i `reimport_event.payload` får `key_version` og `text_version`, så projektionen kan
+    genberegne med samme input (Codex F6).
 - Regler:
-  - S4 tillader et nyt forslag for recorden, hvis alle fortolkningsnøgler skabt af tidligere
-    `interpretation_proposal`-events for recorden har aktuel status `superseded` med `decision_evidence->>'basis' =
-    'source_text_revision'`.
-  - Nøglen bruger v2 med hashen af `helpost_text_current(...).verbatim_text`, når helposten har en foretrukken
-    tekstversion. Ellers bruges v1.
+  - **S4 åbner kun på en faktisk revision (Codex F2).** Der skal findes en `reimport_event` med `operation =
+    'source_text_revision'` for recorden, hvis kvitterings-`superseded_keys` ⊇ alle nøgler fra recordens tidligere
+    `interpretation_proposal`-events, og hvis `text_id` er helpostens aktuelle foretrukne version. En `basis`-streng
+    alene er ikke nok.
+  - Nøglen bruger v2 med helpostens aktuelle `text_version`, når helposten har en foretrukken tekstversion. Ellers
+    bruges v1.
   - Writerens helpost-valg ændres *ikke* her; det sker i 6c.
 
 - [ ] **Step 1: Skriv tests:**
@@ -335,6 +370,11 @@ Rækkefølgen i writeren (spec §4.4) er bindende:
   - `test_s4_blocks_if_any_key_not_superseded_by_revision`: én nøgle `rejected` i stedet giver
     `REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS`.
   - `test_key_v1_unchanged`: et kendt v1-input giver samme streng som før.
+  - `test_s4_not_opened_by_forged_basis`: alle nøgler sat til `superseded` uden revisions-event (direkte indsat i
+    testen som tabelejer, da `red_decide_interpretation` nu afviser grundlaget) giver
+    `REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS`.
+  - `test_key_v2_b_c_b`: tekstvej B → C → B med et forslag efter hver revision og samme ordinal og værdi. Alle tre
+    accepteres med tre forskellige nøgler.
 - [ ] **Step 2:** Kør. Forventet: fejl.
 - [ ] **Step 3:** Implementér.
 - [ ] **Step 4:** Kør. Forventet: `PASS`. Tilføj en opgraderingstest i
@@ -360,6 +400,11 @@ Rækkefølgen i writeren (spec §4.4) er bindende:
     `write_interpretation_proposal`, `migrate_legacy_narrative_record`, `red_source_persona_detail`,
     `relation_persona_v3_input`, `clause_evidence_projection.sql`, `interpretation_proposal_projection.sql`,
     `export_43b_runner_input.R` og 149b-komparatoren.
+  - **Partsbaserede skriveinput (Codex F3):** `git grep -n "interpretation_party_current" -- schema.sql ':!work*'`.
+    Hver skrive- eller inputfunktion (kendt: `relation_person_create_input`, `relation_persona_input`,
+    `relation_persona_v3_input`) skal kræve, at partens fortolkning aktuelt er `proposed` eller `accepted`. Tilføj
+    testen `test_party_inputs_ignore_superseded` (efter en revision giver `relation_person_create_input` ingen
+    række for den forældede relation).
 - [ ] **Step 2:** Skriv en test pr. flyttet DB-læser i `tests/sql/test-source-text-revision.sql`: efter en revision
   ser læseren den nye tekst. Kør. Forventet: fejl.
 - [ ] **Step 3:** Flyt DB-læserne.
@@ -488,7 +533,16 @@ Rækkefølgen i writeren (spec §4.4) er bindende:
 - Create: `.claude/skills/daa-extract/references/reimport-profiles/daa-2018-20-source-text-revision-v1.json`
   (`source_id` 1; `text_form` `folded_projection@page_header`; `expected_counts.source_text_revision` 10).
 - Modify: `.claude/skills/daa-extract/scripts/test_clause_readers.py` (ALLOWED + begrundelse for de nye filer).
-- Test: `.claude/skills/daa-extract/scripts/test_build_source_text_revision_manifest.py`.
+- Modify (Codex F4):
+  - `.claude/skills/daa-extract/scripts/reimport_profile.py`: profilskemaet `reimport-source-text-revision-profile-v1`
+    med `expected_counts` `{"source_text_revision"}` (ved siden af profilerne i linje 261-270);
+  - `.claude/skills/daa-extract/scripts/apply_reimport_helpers.R`: manifestvalidering og tællinger (linje 38-51),
+    writer-tællingsfilteret (linje 175-179) og dispatch-grenen til `red_apply_reimport_source_text_revision` (linje
+    285-302).
+- Test:
+  - `.claude/skills/daa-extract/scripts/test_build_source_text_revision_manifest.py`;
+  - `tests/integration/test-reimport-source-text-revision.R`: hele R-kæden authorize → apply → finalize mod en
+    fixture-base med det faktiske manifestformat, rollback og genkørsel efter gennemført apply (afvist).
 
 **Interfaces:**
 - CLI: `--profile --rendition --texts --dependencies --output`.
@@ -522,6 +576,12 @@ Rækkefølgen i writeren (spec §4.4) er bindende:
 
 - [ ] **Step 1:** Pr. fil: en test, der efter en revision i en lokal fixture-base ser den nye tekst (R-integration
   eller pytest efter filens eksisterende testmønster). Kør. Forventet: fejl.
+- [ ] **Step 1b (Codex F6):** `interpretation_proposal_projection.sql` (linje 110-113) genberegner nøglemateriale og
+  `key_matches` med den version, kvitteringen bærer (`key_version`, `text_version`). v1-kvitteringer bruger
+  v1-funktionen, v2 bruger v2.
+  - Test: `test_compare_interpretation_proposal_projection.py` får en fixture med både et v1- og et v2-forslag, og
+    komparatoren (`compare_interpretation_proposal_projection.py:836-859`) giver `key_matches: True` for begge.
+  - Historiske v1-nøgler må ikke genberegnes mod den aktuelle tekst.
 - [ ] **Step 2:** Flyt læseren til `private.helpost_text_current`.
 - [ ] **Step 3:** Kør hele python- og R-jobbet lokalt (`Rscript run-tests.R` og pytest). Forventet: `PASS`.
 - [ ] **Step 4:** Commit `refactor(daa-extract): helpost-tekst læses gennem basens funktion`.
