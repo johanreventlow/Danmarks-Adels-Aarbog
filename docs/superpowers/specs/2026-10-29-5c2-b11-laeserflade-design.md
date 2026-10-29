@@ -97,7 +97,8 @@ faktatype; visningsvalget ligger i klienten (§4.3), fordi alle fakta i forvejen
 NULL, og faktummet vises med citationsniveauet. Betingelserne er kopieret fra `public_family_sources`
 (`schema.sql:18159-18205`):
 
-1. `interpretation_promotion` med `target_type='assertion'` og `target_id` = påstanden, og
+1. Præcis én `interpretation_promotion` med `target_type='assertion'` og `target_id` = påstanden opfylder 2-4
+   (to eller flere giver ingen binding: fail-closed og ingen dubletrækker), og
    `interpretation_current` for fortolkningens nøgle har `id = interpretation_id` og `status='accepted'`.
 2. Fortolkningen har præcis én `supporting`-observation, og den har præcis én accepteret anchor → én source record
    i fortolkningens kilde.

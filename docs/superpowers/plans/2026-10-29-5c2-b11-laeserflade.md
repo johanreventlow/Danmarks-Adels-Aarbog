@@ -71,23 +71,38 @@ Gren `feat/5c2-b11-db` fra `docs/5c2-b11-spec`.
   konklusion og citation; en accepteret fortolkning af et promoverbart dødsprædikat med én supporting-observation
   ankret til posten; promotion til assertionen via `red_preview_interpretation_promotions` +
   `red_promote_interpretations_batch` (mønster: `test-interpretation-promotion-targets.sql:92-97`). Returnerer
-  `{person, fact, assertion, promotion, source, post}`.
+  `{person, fact, assertion, promotion, source, post, import_key, record_key}`. Forudsætninger for
+  `red_ret_ocr_felt` (`schema.sql:1990-2040`): kilden får et `import_key`; personen har præcis én
+  `person_external_id`-række i kilden med `record_key`; `død`-faktummets valgte assertion har præcis én citation i
+  den kilde.
 - [ ] **Step 2: Skriv de fejlende tests** i `tests/sql/test-person-facts.sql` (`BEGIN … ROLLBACK`, `DO`-blokke med
   `RAISE EXCEPTION` ved fejl, kaldt som `anon` via `SET LOCAL ROLE anon`):
   - `bundet`: én række; `record_ref` = postens `public_ref`, `record_label` og `citation_label` ikke NULL,
     `chosen` = true, `source_label` = kildens udgave.
-  - Hver betingelse brudt for sig giver stadig én række med `record_ref`, `record_label` og `citation_label` NULL:
-    (a) fortolkningen superseded af en ny version; (b) en ekstra supporting-observation; (c) publiceringen
-    trukket tilbage (`red_*`-tilbagetrækning brugt i `test-family-sources.sql`); (d) **`red_ret_ocr_felt` med
-    `status='rettet'` på den bundne assertions `date_raw`**; (e) faktummets `faktatype` ændret til en anden type
-    som owner; (f) posten publiceret under et andet person-id.
-  - Enighed med validatoren: for (d) og (e) giver `private.validate_interpretation_promotion_items` med samme item
-    en `reason_code` ≠ NULL, og for den ubrudte binding gælder `assertion_binding_current` = true, mens validatoren
-    giver `EVIDENCE_PROMOTION_ALREADY_PROMOTED` (dvs. alle tidligere grene bestået).
+  - Hver betingelse brudt for sig (i egen savepoint) giver stadig én række med `record_ref`, `record_label` og
+    `citation_label` NULL:
+    (a) fortolkningen superseded af en ny version;
+    (b) en ekstra supporting-observation;
+    (b2) anchoren gjort ikke-accepteret;
+    (b3) anchoren peger på en record i en anden kilde;
+    (c) publiceringen trukket tilbage (mønster: `test-family-sources.sql:105`);
+    (c2) narrativets publiceringsgate falsk (som owner: `narrative.privat=true`);
+    (d) **`red_ret_ocr_felt(p_person_id, p_import_key, p_record_key, 'doed', <fingerprint>, 'rettet',
+    '{"raw":"<anden dato>", …}')`** med fingerprint fra `private.ocr_fingerprint(…, private.ocr_importeret('doed',
+    …), <citat_tekst>)` som funktionen selv beregner;
+    (e) faktummets `faktatype` ændret til en anden type som owner;
+    (e2) faktummets `subjekt_id` flyttet til en anden offentlig person som owner (identitetsbrud);
+    (f) narrativets `subjekt_id` sat til en anden offentlig person som owner (betingelse 3 alene; syntetisk).
+  - Gemt regel, ikke aktiv: en nyere aktiv regelversion med en anden `expected_fact_type` ændrer ikke bindingen.
+  - Entydighed: to gyldige promotions på samme assertion → `record_*` NULL (fail-closed, ingen dubletrækker).
+  - Enighed med validatoren, kaldt som owner efter `RESET ROLE`: (d) giver `EVIDENCE_PROMOTION_VALUE_MISMATCH`,
+    (e) `EVIDENCE_PROMOTION_FACT_TYPE_MISMATCH`, (e2) `EVIDENCE_PROMOTION_IDENTITY_MISMATCH`. Den ubrudte binding
+    giver `assertion_binding_current` = true og validatoren `EVIDENCE_PROMOTION_ALREADY_PROMOTED` (alle tidligere
+    grene bestået, `schema.sql:9688`).
   - Gate: levende person (`levende=true`) og `privat=true` → 0 rækker, både som `anon` og `authenticated`.
-  - Konklusion `forældet` → 0 rækker; `omstridt` med `valgt_assertion_id` NULL → rækker med `chosen=false`.
+  - Konklusion `forældet` → 0 rækker; `omstridt` med `valgt_assertion_id` NULL → rækker med `chosen IS FALSE`.
   - Kilde uden `udgave` → `source_label` = `titel`; citation med `source_id` NULL → række med `source_*` NULL;
-    assertion uden citation → én række med `source_*` NULL.
+    assertion uden citation → én række med `source_*` NULL; to citationer → to rækker i citation-id-orden.
   - `narrative_record_contract_version()<2` (midlertidigt omdefineret i transaktionen) eller NULL-input → 0 rækker.
 - [ ] **Step 3: Kør og se dem fejle.** `psql -d <lokal testbase bygget som writer-1939-jobbet> -v ON_ERROR_STOP=1 -f
   tests/sql/test-person-facts.sql`. Forventet: fejl `function public.public_person_facts(bigint[]) does not exist`.
@@ -100,12 +115,13 @@ Gren `feat/5c2-b11-db` fra `docs/5c2-b11-spec`.
 - [ ] **Step 5: Implementér `public.public_person_facts`.** Struktur som `public_family_sources`: guard på
   kontraktversion; fakta `subjekt_type='person' AND subjekt_id=ANY(p_person_ids) AND
   public.entitet_offentlig('person',subjekt_id)`; konklusion `status IN ('afklaret','omstridt')`; alle assertions på
-  faktummet, `chosen = (assertion.id = conclusion.valgt_assertion_id)`; `LEFT JOIN citation` + `source`
-  (`coalesce(udgave,titel)`); `LEFT JOIN LATERAL` på bindingen: promotion med `assertion_binding_current`, præcis én
+  faktummet, `chosen = coalesce(assertion.id = conclusion.valgt_assertion_id, false)`; `LEFT JOIN citation` +
+  `source` (`coalesce(udgave,titel)`); `LEFT JOIN LATERAL` på bindingen, der først tæller kvalificerende promotions
+  og kun udfylder etiketterne ved præcis én: promotion med `assertion_binding_current`, præcis én
   supporting-observation med præcis én accepteret anchor (`:18176-18184`), præcis én publiceret
   `narrative_record_publication` for recorden, narrativ med `subjekt_type='person'`, `subjekt_id` = faktummets
   person og `person_daa_narrative_publication_allowed`, etiketter fra seneste `narrative_publication_event`
-  (`:18201-18202`). `ORDER BY person_id, fact_id, assertion_id`.
+  (`:18201-18202`). `ORDER BY person_id, fact_id, assertion_id, citation.id NULLS LAST`.
 - [ ] **Step 6: Samme blok i `db-migrations.sql`** mellem `-- BEGIN 5c2-b11` og `-- END 5c2-b11`; tilføj
   `('private','assertion_binding_current'),('public','public_person_facts')` til paritetsinspektøren og ret
   kommentaren og antallet 33 → 35 i `ci.yml:378-379`; tilføj trinnet `psql … -f tests/sql/test-person-facts.sql` i
@@ -138,7 +154,7 @@ Gren `feat/5c2-b11-db` fra `docs/5c2-b11-spec`.
     `printed_number_label = nr::text` (Review Focus 4).
   - Membership gjort ugældende (ret identitetens version, så sha'en ikke passer) → legacy.
   - To kvalificerende memberships i samme kilde (to lineages) → legacy.
-  - Levende person → 0 rækker for personen, som `anon` og `authenticated`.
+  - Levende person og person med `privat=true` → 0 rækker for personen, som `anon` og `authenticated`.
   - Rækkerne er sorteret efter `(person_id, source_id)` og `(person_id, source_id)` er entydig.
 - [ ] **Step 2: Kør og se dem fejle.** Forventet: `function public.public_person_source_coordinates() does not exist`.
 - [ ] **Step 3: Implementér** (spec §4.2): én række pr. `person_external_id`-række med
@@ -155,20 +171,23 @@ Gren `feat/5c2-b11-db` fra `docs/5c2-b11-spec`.
 
 **Files:**
 - Create: `.claude/skills/daa-extract/scripts/maal_5c2_b11.sql`, `.claude/skills/daa-extract/scripts/check_5c2_coordinate_diff.sql`,
-  `.claude/skills/daa-extract/scripts/5c2_forventet_diff.txt`, `docs/runbooks/5c2-b11-prod.md`
+  `.claude/skills/daa-extract/scripts/5c2_forventet_diff.txt`, `.claude/skills/daa-extract/scripts/5c2_forventet_maal.txt`,
+  `docs/runbooks/5c2-b11-prod.md`
 - Private (ikke i git): `~/.private/5ab-overfoersel/24-5c2-b11.sh`
 
 **Interfaces:**
 - Consumes: migrationsblokken `-- BEGIN 5c2-b11 … -- END 5c2-b11` fra Task 1-2.
 - Produces: `maal_5c2_b11.sql` printer én linje `C2B11_MAAL funktioner=<0|3> definer=<n> anon=<t|f> auth=<t|f>
   koord=<n> placement=<n> legacy=<n> fakta=<n> bundet=<n> import=<n> ingen_kilde=<n> uden_narrativ=<n>
-  binding_udfald=<n>` (antal; `funktioner=0` før DDL'en, og så er resten tomt).
+  udfald_i_alt=<n> udfald_publicering=<n>` (antal; `funktioner=0` før DDL'en, og så er resten tomt).
   `check_5c2_coordinate_diff.sql` printer diff-sættet som `person_id|felt`-linjer og én slutlinje
   `C2B11_DIFF n=<n> genparitet=<ok|fejl>`.
 
 - [ ] **Step 1: Skriv `maal_5c2_b11.sql`** (læse-kun; `has_function_privilege` for anon og authenticated; tællinger
   kaldt `SET LOCAL ROLE anon`; `uden_narrativ` = offentlige personer uden narrativ med ≥1 række fra fakta-RPC'en;
-  `binding_udfald` = assertion-promotions på offentlige personers fakta, hvor `record_ref` er NULL).
+  `udfald_i_alt` = assertion-promotions på offentlige personers fakta, hvor `record_ref` er NULL;
+  `udfald_publicering` = de af dem, hvor `assertion_binding_current` og betingelse 2 holder, men betingelse 3
+  fejler — spec §7's tal for betingelse 3).
 - [ ] **Step 2: Skriv `check_5c2_coordinate_diff.sql`.** Felterne `legacy_line_code`, `printed_number`,
   `printed_number_label` (legacy normaliseret til `nr::text`), `generation_local`, `generation_global`,
   `kuld_label`; sammenlign RPC'en med `person_source_coordinate_legacy` som `anon`; `provenance_kind` indgår ikke.
@@ -180,15 +199,18 @@ Gren `feat/5c2-b11-db` fra `docs/5c2-b11-spec`.
   Forventet: `C2B11_DIFF genparitet=ok` med højst 40 linjer (35 `kuld_label`, 5 `printed_number_label`; færre kun
   hvis nogle af personerne er levende og derfor skjult for `anon`), `placement + legacy = koord` (højst 576 + 591),
   `uden_narrativ=621`. Skriv det målte diff-sæt til `5c2_forventet_diff.txt` (person-id'er og feltnavne, ingen
-  tekst) og tallene i runbooken; de er runnerens forventning i prod. Afviger noget andet: stop og ledger en ruling.
+  tekst) og `maal`-linjen efter DDL'en til `5c2_forventet_maal.txt`; begge er prods forventning (runner og
+  HTTP-gate) og står også i runbooken. Afviger noget andet: stop og ledger en ruling.
 - [ ] **Step 4: Skriv runbooken** (husets form, jf. `docs/runbooks/a6b-narrativ-revision-prod.md`): hvad skrives
   (tre funktioner, ingen data), forløb `maal → go → dump → apply → maal → NOTIFY pgrst → get_advisors →
   PostgREST-gate`, stand-in-tal fra Step 3, fortrydelse (revert PR 2; funktionerne bliver stående; dumpet er
   nødudvejen).
 - [ ] **Step 5: Skriv den private runner** `24-5c2-b11.sh` efter `23-a6b.sh`-mønstret (`lib.zsh`, `koer.zsh`):
-  `maal`, `go` (GO-kode over commit + migrationsblok + de to SQL-filer + forventet-diff), `dump` (B1, age, rundtur),
-  `apply --jeg-mener-det --go X` (B1-genkontrol, `maal` før = `funktioner=0`, blokken udtrukket med `sed` fra
-  markørerne i én transaktion, `NOTIFY pgrst`, `maal` efter, diff mod `5c2_forventet_diff.txt` → `C2B11_APPLY_OK`).
+  `maal`, `go` (GO-kode over commit + migrationsblok + de to SQL-filer + begge forventningsfiler + runneren selv og
+  de `lib.zsh`-hjælpere, den kører, som i `docs/runbooks/a6b-narrativ-revision-prod.md:21`), `dump` (B1, age,
+  rundtur), `apply --jeg-mener-det --go X` (B1-genkontrol, `maal` før = `funktioner=0`, blokken udtrukket med `sed`
+  fra markørerne i én transaktion, `NOTIFY pgrst`, `maal` efter = `5c2_forventet_maal.txt` byte for byte, diff =
+  `5c2_forventet_diff.txt` → `C2B11_APPLY_OK`).
   Øv den mod stand-in'en fra Step 3 (frisk kopi), inkl. et afvist forsøg med forkert GO-kode.
 - [ ] **Step 6: Commit** (kun repo-filerne) `feat(5c2): måling, diffkontrol og runbook til prod`. Push og draft-PR
   kun efter projektejerens ja.
@@ -304,20 +326,24 @@ Gren `feat/5c2-b11-klient` fra `main` efter PR 1's merge. Kan skrives før cerem
 ### Task 8: Prod (projektejeren) og merge-gate
 
 **Files:**
-- Create: `web/scripts/verify-public-rpcs.mjs`
+- Create: `web/scripts/verify-public-rpcs.mjs`, `web/scripts/verify-public-rpcs.test.mjs`
 
-- [ ] **Step 1: Skriv `verify-public-rpcs.mjs`.** Læser `VITE_SUPABASE_URL` og `VITE_SUPABASE_ANON_KEY` fra
-  `web/.env.local` uden at printe dem; pager begge RPC'er over PostgREST med `Range`-headeren i sider af 1000 til en
-  kort side (som `getAll`); fakta-RPC'en kaldes med alle offentlige person-id'er fra koordinat-svaret i bidder af
-  500. Printer kun `RPC_GATE koord=<n> placement=<n> legacy=<n> fakta=<n> bundet=<n> import=<n> ingen=<n>`.
-  Test mod en lokal PostgREST er ikke muligt; scriptet køres mod prod i Step 3 og tallene sammenlignes med
-  stand-in'en. Commit på PR 2-grenen: `chore(web): PostgREST-gate for de offentlige RPC'er`.
+- [ ] **Step 1: Skriv `verify-public-rpcs.mjs`** med `@supabase/supabase-js` (som appen), så pagineringen er
+  klientens egen: `supabase.rpc(navn, args).range(from, from+999)` til en kort side, fejl kaster. Læser
+  `VITE_SUPABASE_URL` og `VITE_SUPABASE_ANON_KEY` fra `web/.env.local` uden at printe dem. Personmængden er alle
+  offentlige person-id'er fra `person` (`select('id')`, pagineret, som `anon`), ikke kun dem med koordinater, så
+  personer uden bog-nummer kommer med; fakta-RPC'en kaldes i bidder af 500 id'er. Printer kun
+  `RPC_GATE koord=<n> placement=<n> legacy=<n> fakta=<n> bundet=<n> import=<n> ingen=<n> resultat=<OK|AFVIGER>`,
+  hvor resultatet er sammenligningen med de tilsvarende felter i `5c2_forventet_maal.txt`.
+  `verify-public-rpcs.test.mjs` (`node --test`, hermetisk `fetch`-mock): tre sider (1000, 1000, 17) giver 2017
+  rækker; en 500-fejl på side 2 giver exit ≠ 0; nøglen forekommer ikke i output. Commit på PR 2-grenen:
+  `chore(web): PostgREST-gate for de offentlige RPC'er`.
 - [ ] **Step 2: Ceremonien** (efter PR 1's merge; projektejerens shell, én kommando ad gangen):
   `koer.zsh 24-5c2-b11.sh maal` → `funktioner=0`; `go` → kode; `dump` → `EKSTERN_… rundtur=ok`;
   `apply --jeg-mener-det --go <kode>` → `C2B11_APPLY_OK`; derefter `get_advisors` (forventet: de to RPC'er som
   anon-eksponerede SECURITY DEFINER, som `public_family_sources`; intet andet nyt).
-- [ ] **Step 3: Merge-gate.** `node web/scripts/verify-public-rpcs.mjs` mod prod. Forventet: tallene fra
-  `maal` efter (Step 2). Afviger de: PR 2 merges ikke.
+- [ ] **Step 3: Merge-gate.** `node web/scripts/verify-public-rpcs.mjs` mod prod. Forventet: `resultat=OK`
+  (lig `5c2_forventet_maal.txt`, som GO-koden bandt). Afviger de: PR 2 merges ikke.
 - [ ] **Step 4: Merge PR 2** (projektejeren) → Vercel. Browsertjek som `anon` (spec §7): person uden prosa med
   fakta; bundet faktum med postreference; en kuld-rettet person og en »15a«-person med uændret linjehoved; en
   kilde 3-person; en levende person uden fakta-sektion. Notér kun person-id'er og ja/nej.
@@ -332,3 +358,20 @@ Gren `feat/5c2-b11-klient` fra `main` efter PR 1's merge. Kan skrives før cerem
   »Aktivt programmål« → trin 6-spec'en (sig det samme i `roadmap.md`s »Aktivt programmål«). Ny § i
   `database-current-state.md` (funktioner, GO-kode, dump-sha, tal). Changelog-post.
 - [ ] **Step 2: Commit** på en `docs/`-gren: `docs(status): 5c-2 og B11 i prod`.
+
+## Reviewlog
+
+**Codex plan-review r1 2026-10-29 (`gpt-6.1-sol`): NO-GO** (2 P1, 6 P2) → Opus-dom: alle 8 nødvendige, intet afvist.
+Rettet:
+- **P1:** HTTP-gaten bruger alle offentlige personer og klientens `.range()`-paginering, med en hermetisk test
+  (Task 8).
+- **P2:**
+  - forventningsfilen `5c2_forventet_maal.txt` bundet i GO-koden og brugt af runner og gate (Task 3, Task 8)
+  - `chosen` via `coalesce`
+  - entydighedsgate for bindingen og citation-id i sorteringen
+  - præcis OCR-fixture
+  - negative tests for anchor, kilde, publiceringsgate, identitet, gemt regel og privat koordinatperson, med
+    validatorens konkrete koder (Task 1-2)
+  - udfaldsmålingen delt i i alt og betingelse 3 (Task 3)
+
+Spec §4.1 betingelse 1 fik entydigheden. Review-budgettet for planen er brugt.
