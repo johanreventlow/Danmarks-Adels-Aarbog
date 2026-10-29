@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const SIDE = 1000;
-const BID = 500;
+// anon-rollens statement_timeout er få sekunder, og public_person_facts koster ~160 ms pr. person i prod;
+// RPC_GATE_BID sænker bidden yderligere, hvis en bid alligevel timer ud.
+export const BID = Number(process.env.RPC_GATE_BID ?? 10);
 
 // Alle rækker fra en PostgREST-forespørgsel: sider på 1000 til en kort side; en fejl kaster.
 export async function hentAlle(lavForespoergsel) {
