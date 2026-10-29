@@ -95,7 +95,7 @@ export default function PersonScreen() {
       ? mergedFrom
           .map((m) => {
             const navn = m.linje ? aux?.linjeNavn[m.linje] ?? `linje ${m.linje}` : 'ukendt linje';
-            const ref = m.linje && m.nr != null ? ` (${m.linje}-${m.nr})` : '';
+            const ref = m.linje && m.nr != null ? ` (${m.linje}-${m.nr_label ?? m.nr})` : '';
             return `${navn}${ref}`;
           })
           .join(' og ')

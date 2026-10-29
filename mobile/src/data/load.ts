@@ -6,8 +6,8 @@ import { buildAux } from './buildAux';
 import {
   buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, buildBioSourceVersions,
   mapPublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, fmtYears, parseYear, getAll, EMPTY_GEO,
-  citationRowsTilProveniens,
-  type GenCoord, type ParentsUnknown, type CitationProvenanceRow, type RaaCitationRow,
+  citationRowsTilProveniens, coordinateRowToExtId,
+  type GenCoord, type PublicCoordinateRow, type ParentsUnknown, type CitationProvenanceRow, type RaaCitationRow,
 } from '@daa/core';
 import {
   buildHaendelserBy,
@@ -215,9 +215,10 @@ export async function loadFromSupabase(opts?: {
       // ikke-migreret base. Uden .catch ville en manglende kolonne fælde HELE Promise.all'et og
       // erstatte det levende datasæt med det indlejrede SEED (F1, dual-review 2026-07-05) —
       // degrader i stedet til "ingen linje/generations-data" som web's model.ts-pendant.
-      getAll<RawExtId>(() =>
-        sb.from('person_external_id').select('person_id,source_id,linje,nr,slaegtled_lokal,slaegtled_gennem,kuld'),
-      ).catch((e) => { console.warn('[loadFromSupabase] person_external_id utilgængelig — linjer/generationer degraderet:', e); return [] as RawExtId[]; }),
+      // 5c-2: koordinater fra public_person_source_coordinates (placement ved gældende membership, ellers legacy).
+      getAll<PublicCoordinateRow>(() => sb.rpc('public_person_source_coordinates'))
+        .then((rows) => rows.map(coordinateRowToExtId))
+        .catch((e) => { console.warn('[loadFromSupabase] public_person_source_coordinates utilgængelig — linjer/generationer degraderet:', e); return [] as RawExtId[]; }),
       getAll<RawSource>(() => sb.from('source').select('id,slags,titel,udgave,aar,ekstern')),
       getAll<RawRelation>(() =>
         sb
@@ -347,7 +348,7 @@ export async function loadFromSupabase(opts?: {
       : (sameAsRel || [])
           .filter((r) => approved.has(String(r.id)))
           .map((r) => ({ alias: String(r.subjekt_id), canonical: String(r.objekt_id) }));
-  const extMap = new Map((extIds || []).map((x) => [String(x.person_id), { linje: x.linje, nr: x.nr }]));
+  const extMap = new Map((extIds || []).map((x) => [String(x.person_id), { linje: x.linje, nr: x.nr, nr_label: x.nr_label ?? null }]));
   const collapsed = collapseSameAs(rawDb, edges, extMap);
   if (collapsed.quarantined.length) {
     console.warn('[samme_som] karantæne (foldes ikke):', collapsed.quarantined);

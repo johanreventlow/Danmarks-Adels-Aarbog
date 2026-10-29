@@ -1,6 +1,6 @@
 // Port af buildAux() fra design-HTML (linje 808-868). Bygger hjælpe-indekser pr. person:
 // kilder (bogreference), embeder/godser (relation), linjer (grene I–V), medier.
-import { buildProvenanceSources, compareDanish, flettKilder, parseYear, stripParen, type CitationProvenanceRow } from '@daa/core';
+import { buildProvenanceSources, compareDanish, compareLineHead, flettKilder, parseYear, stripParen, type CitationProvenanceRow } from '@daa/core';
 import { findMedieDubletKandidatIds, klassificerMedie, type MedieKoe } from './redaktionRead';
 import { dedupPreferPrimaer } from '../lib/media';
 import type {
@@ -69,7 +69,8 @@ export function buildAux(
   (extIds || []).forEach((x) => {
     const src = srcById[String(x.source_id)] || ({} as RawSource);
     const work = src.titel || src.udgave || 'Kilde';
-    const place = [x.linje ? 'Linje ' + x.linje : '', x.nr != null ? 'nr. ' + x.nr : '']
+    const nrTekst = x.nr_label ?? (x.nr != null ? String(x.nr) : null);
+    const place = [x.linje ? 'Linje ' + x.linje : '', nrTekst != null ? 'nr. ' + nrTekst : '']
       .filter(Boolean)
       .join(', ');
     const pid = cid(String(x.person_id));
@@ -86,7 +87,7 @@ export function buildAux(
   // (laveste nr). En collapsed grundlægger tilhører både oprindelses- og grundlagt-linje.
   const linjeByPerson: Aux['linjeByPerson'] = {};
   const linjeCounts: Record<string, number> = {};
-  const linjeHead: Record<string, { id: string; nr: number }> = {};
+  const linjeHead: Record<string, { id: string; nr: number; nr_label: string | null }> = {};
   (extIds || []).forEach((x) => {
     if (!x.linje) return;
     const pid = cid(String(x.person_id));
@@ -97,9 +98,10 @@ export function buildAux(
       arr.push(x.linje);
       linjeCounts[x.linje] = (linjeCounts[x.linje] || 0) + 1;
     }
+    // Laveste trykte nr.; ved samme tal afgør bogstavsuffikset (15a før 15b), jf. 5c-2.
+    const kand = { id: pid, nr: x.nr ?? 9999, nr_label: x.nr_label ?? null };
     const cur = linjeHead[x.linje];
-    const nr = x.nr == null ? 9999 : x.nr;
-    if (!cur || nr < cur.nr) linjeHead[x.linje] = { id: pid, nr };
+    if (!cur || compareLineHead(kand, cur) < 0) linjeHead[x.linje] = kand;
   });
   // Linje-navne fra lineage-tabellen (kode → navn). Fallback til kode hvis tabellen mangler/tom.
   const linjeNavn: Aux['linjeNavn'] = {};

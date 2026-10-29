@@ -265,3 +265,21 @@ test('buildAux: citation-nøglen kanoniseres som resten af aux', () => {
   expect(aux.sourcesBy['841']).toEqual([{ work: 'DAA 1939', ref: 's. 578' }]);
   expect(aux.sourcesBy['1690']).toBeUndefined();
 });
+
+describe('buildAux — 5c-2: nr.-etiket med bogstavsuffiks', () => {
+  const extIds: RawExtId[] = [
+    { person_id: 31, source_id: 1, linje: 'II', nr: 15, nr_label: '15b' },
+    { person_id: 30, source_id: 1, linje: 'II', nr: 15, nr_label: '15a' }, // samme tal, laveste label → stamfader
+    { person_id: 32, source_id: 1, linje: 'II', nr: 16, nr_label: '16' },
+  ];
+  const sources: RawSource[] = [{ id: 1, slags: 'DAA-udgave', titel: 'DAA', udgave: 'DAA 2018-20', aar: 2018, ekstern: null } as RawSource];
+  const aux = buildAux({ extIds, sources, relations: [], estates: [], orgs: [], media: [] });
+
+  test('linjehovedet er 15a før 15b', () => {
+    expect(aux.linjeList.find((l) => l.linje === 'II')?.headId).toBe('30');
+  });
+
+  test('kilden viser etiketten', () => {
+    expect(aux.sourcesBy['30']?.[0]?.ref).toBe('Linje II, nr. 15a');
+  });
+});
