@@ -4,7 +4,8 @@
 -- Review-handling A3 (fund 1b-01/1b-02, B9): også de 17 RED-8-funktioner (id-tildeling via DEFAULT i stedet for
 -- max(id)+1), så schema.sql ikke igen kan halte efter migrationerne her.
 -- Review-handling trin B (blokken review-trin-b): også preview_relation_promotions, red_slet_oplysning og
--- regen_person_visning (red_edit_oplysning er allerede med under RED-8). I alt 13 + 17 + 3 = 33 linjer.
+-- regen_person_visning (red_edit_oplysning er allerede med under RED-8). 5c-2/B11 (blokken 5c2-b11): de offentlige
+-- læse-RPC'er og bindingshjælperen. I alt 13 + 17 + 3 + 2 = 35 linjer.
 \set ON_ERROR_STOP on
 SELECT l FROM (
   SELECT p.oid::regprocedure::text||'|'||p.prosecdef||'|'||coalesce(array_to_string(p.proconfig,','),'')||'|'||
@@ -26,5 +27,7 @@ SELECT l FROM (
      ('public','red_opret_fakta'),('public','red_upsert_fakta'),('public','red_tilfoej_oplysning'),
      ('public','red_edit_oplysning'),('public','red_tilfoej_foraeldre_paastand'),
      -- review-trin-b
-     ('private','preview_relation_promotions'),('public','red_slet_oplysning'),('public','regen_person_visning'))) x
+     ('private','preview_relation_promotions'),('public','red_slet_oplysning'),('public','regen_person_visning'),
+     -- 5c2-b11
+     ('private','assertion_binding_current'),('public','public_person_facts'))) x
  ORDER BY l COLLATE "C";
