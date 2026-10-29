@@ -1,0 +1,1 @@
+C2B11_MAAL funktioner=3 definer=2 anon=true auth=true koord=1113 placement=530 legacy=583 fakta=6473 bundet=622 import=5765 ingen_kilde=86 uden_narrativ=621 udfald_i_alt=0 udfald_publicering=0
