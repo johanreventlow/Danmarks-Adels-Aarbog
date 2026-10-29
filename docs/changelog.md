@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-10-29 — 5c-2 + B11 i prod: læseren ser placering og fakta med kilde (DDL, ingen data)
+
+Prod-kørsel efter `docs/runbooks/5c2-b11-prod.md`, repo `bd86d833` (PR #275-#277), GO 5c2 `bb1678f9`, kørt af
+projektejeren med `~/.private/5ab-overfoersel/24-5c2-b11.sh`; dump før skrivning `daa-prod-20261029180320-5c2.dump`
+(sha `0e988082…`, ekstern `age`-kopi `eb1ec566…`).
+
+- **DDL:** `assertion_binding_current`, `public_person_facts`, `public_person_source_coordinates` (blok `97a69759…`).
+  Klienten (#277) viser fakta med tre kildevisninger og linjehovedet fra placement. #277 blev merget før ceremonien.
+- **Afbrudt:** målingen efter stoppede på prods `statement_timeout` (2 min). Vej A (decisions 2026-10-29): #278 hæver
+  grænsen lokalt i målingen; RPC-gaten kalder fakta én person ad gangen (anon: 3 s). Vej B (set-baseret bindingstjek)
+  i trin 6.
+- **Efter:** `C2B11_MAAL_OK tilstand=efter`; `C2B11_DIFF n=37 noegler=ens genparitet=ok`; `RPC_GATE … resultat=OK`
+  (1.113 koordinater, 6.473 fakta, 622 bundet). Browsertjek som anon: alle ja.
+- **Udestår:** `get_advisors` efter blokken.
+
 ## 2026-10-28 — A6b i prod: 10 narrativer får de beskårne prosalinjer (ingen DDL)
 
 Prod-kørsel efter `docs/runbooks/a6b-narrativ-revision-prod.md`, repo `39a812f7` (`main`, PR #273), GO a6b `5522a891`,

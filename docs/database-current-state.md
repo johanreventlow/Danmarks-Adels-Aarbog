@@ -529,6 +529,34 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 16. 5c-2 + B11: læserne på placement og fakta med kilde — LIVE i prod (2026-10-29)
+
+**Procedure:** `docs/runbooks/5c2-b11-prod.md`, privat script `~/.private/5ab-overfoersel/24-5c2-b11.sh`.
+Repo `bd86d833` (`main` med PR #275-#277), GO 5c2 `bb1678f9`; dump før skrivning `daa-prod-20261029180320-5c2.dump`
+(sha `0e988082…`). Efterkontrol fra `db169779` (PR #278).
+
+- **DDL (additiv, ingen data):** blokken `-- BEGIN/END 5c2-b11` (sha `97a69759…`) i én transaktion:
+  `private.assertion_binding_current(uuid)` (ingen grants), `public.public_person_facts(bigint[])` og
+  `public.public_person_source_coordinates()` (begge SECURITY DEFINER, EXECUTE til `anon` og `authenticated`).
+  PostgREST genindlæst. `person_source_coordinate_legacy` og alle tabeller uændrede.
+- **Ekstern kopi (B1):** `age`-krypteret (sha `eb1ec566…`) på projektejerens SFTP-server, rundtur ok.
+- **Afbrudt og genoptaget (decisions 2026-10-29):** målingen efter stoppede på prods `statement_timeout` (2 min); hvert
+  bindingstjek læser `private.interpretation_current` (~130 ms pr. kald i prod). Målingen hæver nu grænsen lokalt;
+  ingen ny DDL.
+- **Kvitteringer:** før `C2B11_MAAL funktioner=0`; efter `C2B11_MAAL_OK tilstand=efter` (linjen =
+  `5c2_forventet_maal.txt`: `koord=1113 placement=530 legacy=583 fakta=6473 bundet=622 import=5765 ingen_kilde=86
+  uden_narrativ=621 udfald_i_alt=0 udfald_publicering=0`) og `C2B11_DIFF n=37 noegler=ens genparitet=ok`.
+  PostgREST-gaten som `anon`: `RPC_GATE … resultat=OK` (samme tal).
+- **Browsertjek (anon, prod-web):** person uden prosa med fakta, bundet faktum med postreference, 15a/15b, kuld-rettet
+  person, kilde 3 (sammenfoldet og ufoldet) og en ikke-offentlig person: alle som forventet.
+- **Ydelse:** anon-rollens `statement_timeout` er 3 s. `public_person_facts` koster op til ~1,9 s for de tungeste
+  personer (id ~380-560) og timer ud i bidder af 10; klienten kalder én person ad gangen. Et `narrative`-udtræk på 1000
+  rækker som `anon` timer også ud (100 rækker: 0,5 s).
+- **Bemærk:** `uden_narrativ` tæller personer uden række i `public.narrative`, ikke personer uden synlig prosa;
+  2018-20's prosa vises via `public_person_bio_source_versions_v2` (stikprøve: 5 af 83 personer uden prosa).
+- **Udestår:** `get_advisors` (sikkerhed) efter blokken, runbookens skridt 6.
+- **Fortryd:** revert af klient-PR #277 (funktionerne bliver stående); nødudvej restore af dumpet + `db-rls.sql`.
+
 ## 15. A6b: 10 narrativrevisioner (de beskårne prosalinjer) — LIVE i prod (2026-10-28)
 
 **Procedure:** `docs/runbooks/a6b-narrativ-revision-prod.md`, privat script `~/.private/5ab-overfoersel/23-a6b.sh`.

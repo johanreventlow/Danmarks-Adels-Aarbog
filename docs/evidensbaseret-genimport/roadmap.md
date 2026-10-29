@@ -5,8 +5,8 @@
 
 ## Aktivt programmål
 
-**Trin 5, sidste del:** 5c-2 (læserskift) sammen med læserværdien (B11), efter reviewets gates før trin 6.
-Status, modenhed pr. led og gates: [status.md](status.md). Sektionen her og status' »Aktivt programmål« skal
+**Trin 6-spec'en:** 1939 gennem de samme operationer som 2018-20 (trin 6 nedenfor). Trin 5 er afsluttet med 5c-2
+og B11 i prod 2026-10-29. Status, modenhed pr. led og gates: [status.md](status.md). Sektionen her og status' »Aktivt programmål« skal
 sige det samme.
 
 ## Styrende rækkefølge

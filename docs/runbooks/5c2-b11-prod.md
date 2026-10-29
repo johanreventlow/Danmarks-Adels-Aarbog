@@ -40,7 +40,11 @@ PR 1.
 5. `maal` → `C2B11_MAAL_OK tilstand=efter`.
 6. `get_advisors` (sikkerhed): forventet at de to nye RPC'er meldes som SECURITY DEFINER-funktioner, der kan kaldes af
    `anon`/`authenticated`, som `public_family_sources`; intet andet nyt.
-7. Merge-gate for PR 2: `node web/scripts/verify-public-rpcs.mjs` mod prod → `resultat=OK`.
+7. Merge-gate for PR 2: `node web/scripts/verify-public-rpcs.mjs` mod prod → `resultat=OK`. Gaten kalder fakta én
+   person ad gangen (anon: 3 s; prod 2026-10-29, `database-current-state.md` §16).
+
+Udført 2026-10-29: målingen efter i skridt 4 stoppede på prods 2-minutters grænse og blev genkørt med skridt 5 efter
+PR #278 (`SET LOCAL statement_timeout = '10min'`); en ny `apply` stopper på `C2B11_FOER` og er harmløs.
 
 ## Prøvet (2026-10-29)
 

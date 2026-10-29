@@ -2,6 +2,25 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 5c-2 + B11's efterkontrol rettes uden ny DDL (vej A); set-baseret bindingstjek i trin 6 (vej B) (2026-10-29)
+
+> Projektejerens valg 2026-10-29. Runbook: `docs/runbooks/5c2-b11-prod.md`; tilstand: `database-current-state.md` §16.
+
+**Baggrund:** Blokken blev committet i prod, men målingen efter stoppede på prods `statement_timeout` (2 min) i
+`assertion_binding_current`: hvert bindingstjek læser `private.interpretation_current` (~130 ms pr. kald i prod mod
+~3 ms på stand-in'en). Læsernes kald holdt (koordinater 0,7 s; fakta for én person typisk under 1 s), men hele
+målingen tog ~3 min og RPC-gatens bidder på 500 personer over 80 s.
+
+**Besluttet:**
+1. **Vej A nu:** målingen hæver grænsen lokalt i sin læse-kun transaktion (`SET LOCAL statement_timeout = '10min'`),
+   og RPC-gaten kalder fakta én person ad gangen, som læseren (PR #278 og denne gren). Ingen ny DDL og ingen
+   tilbagerulning: projektet har ingen offentlige læsere endnu.
+2. **Vej B i trin 6:** bindingstjekket gøres set-baseret, så fakta-RPC'en ikke læser `interpretation_current` én gang
+   pr. binding. Det haster med trin 6's bindinger: i dag koster de tungeste personer op til ~1,9 s mod anon-rollens
+   grænse på 3 s.
+3. **Kontrolleret afbrydelse (B13):** grund: efterkontrollen timede ud i prod; slut: maal + diff og gaten grønne
+   2026-10-29; retur: trin 6-spec'en.
+
 ## BESLUTTET: A6b afgrænses til narrativerne; kildetekst og klausuler følger i trin 6 (2026-10-28)
 
 > Projektejerens valg 2026-10-28 (»smal nu, resten i trin 6«). Afgrænser opfølgningen i posten 2026-10-27 om de 13
