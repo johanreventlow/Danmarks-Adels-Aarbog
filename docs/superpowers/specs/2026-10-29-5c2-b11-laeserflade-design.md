@@ -1,7 +1,7 @@
 # Trin 5c-2 + B11: læseren ser placering og fakta med kilde — design
 
-**Status:** udkast 2026-10-29, skrevet uden afklarende spørgsmål (projektejeren sprang dem over). Afgørelserne i §8
-venter på projektejerens ja; først derefter skrives planen.
+**Status:** afgørelserne i §8 truffet af projektejeren 2026-10-29 (anbefalingerne fulgt i alle fire). Skrevet uden
+afklarende spørgsmål (projektejeren sprang dem over). Næste: Codex-review af spec'en, derefter plan.
 **Gren:** `docs/5c2-b11-spec` fra `main` (`39a812f7`).
 **Review-budget (B13):** spec 1 Codex-runde (`gpt-6.1-sol`, Opus dømmer); plan 1 Codex-runde; implementering 1
 Codex-runde. Fable kun efter projektejerens ja. Overskridelse kræver én linje i `docs/decisions.md`.
@@ -221,7 +221,7 @@ Kolonner: formen fra `person_source_coordinate_legacy` (`person_id`, `source_id`
   kildehenvisning (B11)« hæves til `produktionsverificeret` for 2018-20 med dato. Trin 6's færdigbevis (b) er
   opfyldt for 2018-20, med bindingsandelen angivet (§8.2).
 
-## 8. Afgørelser (venter på projektejeren; anbefaling først)
+## 8. Afgørelser (projektejeren 2026-10-29: anbefalingen fulgt i 1-4)
 
 1. **5c-2's omfang.** *Anbefalet:* kun de offentlige læsere nu (§3). `red_person_grid`, `red_match_personer` og
    præsenslistens projektion flyttes til trin 6. De er redaktørflader, legacy-rækkerne er uændrede, og trin 6 skal
