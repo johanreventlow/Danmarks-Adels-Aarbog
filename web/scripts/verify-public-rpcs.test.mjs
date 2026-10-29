@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from '@supabase/supabase-js';
-import { hentAlle, maalGate, sammenlign } from './verify-public-rpcs.mjs';
+import { BID, hentAlle, maalGate, sammenlign } from './verify-public-rpcs.mjs';
 
 const NOEGLE = 'hemmelig-test-noegle-123';
 
@@ -52,7 +52,7 @@ test('linjen sammenlignes med forventningen og indeholder ikke nøglen', async (
   assert.match(afv.linje, /resultat=AFVIGER$/);
 });
 
-test('maalGate tæller over alle offentlige personer i bidder af 500', async () => {
+test('maalGate tæller over alle offentlige personer i bidder af BID', async () => {
   const personer = Array.from({ length: 1203 }, (_, i) => ({ id: i + 1 }));
   const bidder = [];
   const sb = {
@@ -70,6 +70,8 @@ test('maalGate tæller over alle offentlige personer i bidder af 500', async () 
     }),
   };
   const t = await maalGate(sb);
-  assert.deepEqual(bidder, [500, 500, 203]);
-  assert.deepEqual(t, { koord: 2, placement: 1, legacy: 1, fakta: 9, bundet: 3, import: 3, ingen: 3 });
+  const fulde = Math.floor(1203 / BID);
+  assert.deepEqual(bidder, [...Array(fulde).fill(BID), ...(1203 % BID ? [1203 % BID] : [])]);
+  const n = bidder.length;
+  assert.deepEqual(t, { koord: 2, placement: 1, legacy: 1, fakta: 3 * n, bundet: n, import: n, ingen: n });
 });
