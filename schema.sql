@@ -3093,6 +3093,58 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.red_reverse_placement_membership(bigint,bigint,text) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_reverse_placement_membership(bigint,bigint,text) TO authenticated;
+
+-- 5c-2 (spec §4.2): læserens kildekoordinater. Én række pr. person_external_id-række. Har personen præcis én gældende
+-- membership (membership_is_current), hvis bundne record-placement hører til samme kilde, kommer linje, nr., slægtled og
+-- kuld fra placementen; ellers fra legacy-rækken. printed_number er de foranstillede cifre (sortering);
+-- printed_number_label er den trykte tekst (»15a«). SECURITY DEFINER omgår RLS; persongaten er i selve funktionen.
+CREATE OR REPLACE FUNCTION public.public_person_source_coordinates()
+RETURNS TABLE(person_id bigint, source_id bigint, legacy_line_code text, printed_number integer,
+  printed_number_label text, generation_local integer, generation_global integer, kuld_label text,
+  provenance_kind text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+#variable_conflict use_column
+BEGIN
+  RETURN QUERY
+  WITH m AS (
+    -- Gældende memberships med deres bundne record-placement og dennes kilde.
+    SELECT plm.person_id,sr.source_id,rp.id AS rp_id
+      FROM public.person_lineage_membership plm
+      JOIN private.source_record_placement rp ON rp.id=(plm.source_basis->>'record_placement_id')::uuid
+      JOIN private.source_record sr ON sr.id=rp.source_record_id
+     WHERE private.membership_is_current(plm.person_id,plm.lineage_id)
+  ), m1 AS (
+    -- Entydighedsgate: præcis én pr. (person, kilde).
+    SELECT m.person_id,m.source_id,min(m.rp_id::text)::uuid AS rp_id
+      FROM m GROUP BY m.person_id,m.source_id HAVING count(*)=1
+  ), pl AS (
+    SELECT m1.person_id,m1.source_id,e.code,rp.printed_number,rp.generation_local,rp.generation_global,rp.kuld_label
+      FROM m1
+      JOIN private.source_record_placement rp ON rp.id=m1.rp_id
+      JOIN public.lineage_scheme_entry e ON e.id=rp.scheme_entry_id
+  )
+  SELECT x.person_id,x.source_id,
+         CASE WHEN pl.person_id IS NULL THEN x.linje ELSE pl.code END,
+         CASE WHEN pl.person_id IS NULL THEN x.nr ELSE substring(pl.printed_number from '^[0-9]+')::integer END,
+         CASE WHEN pl.person_id IS NULL THEN x.nr::text ELSE pl.printed_number END,
+         CASE WHEN pl.person_id IS NULL THEN x.slaegtled_lokal ELSE pl.generation_local END,
+         CASE WHEN pl.person_id IS NULL THEN x.slaegtled_gennem ELSE pl.generation_global END,
+         CASE WHEN pl.person_id IS NULL THEN x.kuld ELSE pl.kuld_label END,
+         CASE WHEN pl.person_id IS NULL THEN 'legacy_external_id' ELSE 'placement' END
+    FROM public.person_external_id x
+    LEFT JOIN pl ON pl.person_id=x.person_id AND pl.source_id=x.source_id
+   WHERE public.entitet_offentlig('person',x.person_id)
+  UNION ALL
+  -- En gældende placement uden legacy-række (målt 0) tabes ikke.
+  SELECT pl.person_id,pl.source_id,pl.code,substring(pl.printed_number from '^[0-9]+')::integer,pl.printed_number,
+         pl.generation_local,pl.generation_global,pl.kuld_label,'placement'
+    FROM pl
+   WHERE public.entitet_offentlig('person',pl.person_id)
+     AND NOT EXISTS (SELECT 1 FROM public.person_external_id x WHERE x.person_id=pl.person_id AND x.source_id=pl.source_id)
+   ORDER BY 1,2;
+END $$;
+REVOKE ALL ON FUNCTION public.public_person_source_coordinates() FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.public_person_source_coordinates() TO anon,authenticated;
 -- Membership-promotionen slutter her.
 
 -- ---------- UDLEDT SLÆGTSNAVN: cyklus-sikre lineage-graf-walkers ----------
