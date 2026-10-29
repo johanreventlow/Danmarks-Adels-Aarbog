@@ -3,7 +3,7 @@
 // viser en tom-tilstand frem for at vælte siden — men breakage er ikke HELT tavst (console).
 import { supabase } from '../supabase';
 import type { Model } from './types';
-import { pickPreferredBio, buildBioSourceVersions, mapPublicBioSourceVersionsV2 as mapCorePublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, buildBioVersions, getAll, buildProvenanceSources, citationRowsTilProveniens, type BioSourceVersion, type BioSourceVersionV2, type NarrativeCand, type RaaCitationRow, type SourceRef } from '@daa/core';
+import { pickPreferredBio, buildBioSourceVersions, mapPublicBioSourceVersionsV2 as mapCorePublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, buildBioVersions, getAll, buildProvenanceSources, citationRowsTilProveniens, buildPersonFacts, type BioSourceVersion, type BioSourceVersionV2, type NarrativeCand, type PersonFactView, type PublicPersonFactRow, type RaaCitationRow, type SourceRef } from '@daa/core';
 import { fetchPersonMedia, fetchObjectMedia, type MediaItem } from './media';
 
 // Rå narrativ-række med source-join (PostgREST embedded resource).
@@ -173,11 +173,13 @@ export type PersonEstate = { id: string; navn: string };
 // kaldere der kun læser .bio er upåvirkede).
 // sources: kilde udledt af EVIDENSLAGET (citation→source). Hentes kun når personen ikke har et
 // bog-nummer (person_external_id) — se hentKilder nedenfor.
-export type PersonDetailData = { bio: string; bioVersions: BioSourceVersion[]; offices: PersonOffice[]; estates: PersonEstate[]; media: MediaItem[]; sources: SourceRef[] };
+// facts/factsError (B11, spec 2026-10-29 §4.3-4.4): personens fakta med kilde fra public_person_facts; en fejl dér
+// sætter factsError, så sektionen siger det i stedet for at stå tom, mens resten af detaljen vises.
+export type PersonDetailData = { bio: string; bioVersions: BioSourceVersion[]; offices: PersonOffice[]; estates: PersonEstate[]; media: MediaItem[]; sources: SourceRef[]; facts: PersonFactView[]; factsError: boolean };
 
 type RawPersonRel = { objekt_type: string; objekt_id: number; rolle: string | null; periode_raw: string | null };
 
-export const TOM_PERSONDETALJE: PersonDetailData = { bio: '', bioVersions: [], offices: [], estates: [], media: [], sources: [] };
+export const TOM_PERSONDETALJE: PersonDetailData = { bio: '', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false };
 
 // Proveniens for personer UDEN bog-nummer (de 627 ægtefæller): fact → assertion → citation →
 // source. Tre flade opslag, fordi assertion.target_id er polymorf og derfor uden FK at neste på.
@@ -226,7 +228,7 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
     }
     const contractVersion = versionResult.data;
     const usesV2 = contractVersion >= 2;
-    const [narr, rels, media, rpcVersions] = await Promise.all([
+    const [narr, rels, media, rpcVersions, factRows] = await Promise.all([
       // V1 keeps its existing fallback query.  At contract v2 this query is
       // never issued: event text is available only through the v2 RPC.
       usesV2
@@ -257,6 +259,12 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
           if (usesV2) throw new PublicNarrativeFetchError('PUBLIC_BIO_SOURCE_V2_UNAVAILABLE');
           throw e;
         }),
+      // B11: fakta med kilde for alle medlems-id'er; null = fejl (sektionen siger det, resten står).
+      Promise.resolve()
+        .then(() => rpcClient.rpc!('public_person_facts', { p_person_ids: numIds }))
+        .then((res) => (!res || res.error || !Array.isArray(res.data) ? null : (res.data as PublicPersonFactRow[])))
+        // .catch, ikke then(_, fejl): også et kast i selve svarbehandlingen må kun ramme fakta-sektionen.
+        .catch(() => null),
     ]);
     // Udgave-versioner (§7.18): ÉN version pr. DAA-udgave, nyeste først. Kandidater ordnet
     // kanonisk (id) FØRST, så en samme_som-foldet person med narrativ i samme udgave fra
@@ -300,7 +308,8 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
       (e) => e.id,
     );
     const sources = hentKilder ? await fetchProveniens(numIds) : [];
-    return { bio, bioVersions, offices, estates, media, sources };
+    const facts = factRows ? buildPersonFacts(factRows) : [];
+    return { bio, bioVersions, offices, estates, media, sources, facts, factsError: factRows === null };
   }, empty, 'fetchPersonDetail');
 }
 

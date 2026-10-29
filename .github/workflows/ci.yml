@@ -83,6 +83,9 @@ jobs:
       - name: web · build
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run build -w web
+      - name: web · PostgREST-gate (node:test)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: node --test web/scripts/verify-public-rpcs.test.mjs
       # jest parser ikke alle filer (fx WebView-komponenter uden tests), så en ren
       # jest-kørsel fanger ikke syntaks-/type-fejl i dem — kør tsc eksplicit.
       - name: mobil · tsc

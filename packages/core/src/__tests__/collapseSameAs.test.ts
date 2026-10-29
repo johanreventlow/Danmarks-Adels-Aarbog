@@ -203,6 +203,20 @@ describe('collapseSameAs (fuld)', () => {
       ]),
     );
   });
+  it('nr_label følger med i mergedFrom (»41b« for en foldet person)', () => {
+    const rawDb: Db = { persons: [P('A'), P('B')], unions: [], parentChild: [] };
+    const extL = new Map([
+      ['A', { linje: 'II', nr: 41, nr_label: '41b' }],
+      ['B', { linje: 'V', nr: 3 }],
+    ]);
+    const r = collapseSameAs(rawDb, [{ alias: 'A', canonical: 'B' }], extL);
+    expect(r.mergedFrom['B']).toEqual(
+      expect.arrayContaining([
+        { personId: 'A', linje: 'II', nr: 41, nr_label: '41b' },
+        { personId: 'B', linje: 'V', nr: 3, nr_label: null },
+      ]),
+    );
+  });
   it('privat = OR', () => {
     const rawDb: Db = {
       persons: [P('A', { privat: false }), P('B', { privat: true })],

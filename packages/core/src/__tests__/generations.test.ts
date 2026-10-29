@@ -22,6 +22,13 @@ describe('buildGenCoords', () => {
     expect(buildGenCoords(ext, lineage, { '5': '5' })['5']).toBeUndefined();
   });
 
+  it('projicerer kun linje, slægtled og kuld: nr, nr_label og provenance ændrer ikke output (træparitet)', () => {
+    const base = { person_id: '7', source_id: '1', linje: 'III', slaegtled_lokal: 3, slaegtled_gennem: 3, kuld: 'II' };
+    const a = buildGenCoords([{ ...base, nr: 15 }], lineage, { '7': '7' });
+    const b = buildGenCoords([{ ...base, nr: 15, nr_label: '15a', provenance: 'placement' as const }], lineage, { '7': '7' });
+    expect(b).toEqual(a);
+  });
+
   it('bærer lokal/gennem/kuld + linje-navn videre pr. koordinat', () => {
     const ext = [{ person_id: '7', source_id: '1', linje: 'III', nr: 3, slaegtled_lokal: 3, slaegtled_gennem: 3, kuld: 'II' }];
     const coords = buildGenCoords(ext, lineage, { '7': '7' });

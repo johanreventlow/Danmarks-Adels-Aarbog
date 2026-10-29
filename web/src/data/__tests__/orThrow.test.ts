@@ -108,6 +108,21 @@ describe('fetchPersonDetail v2 RPC', () => {
     warn.mockRestore();
   });
 
+  it('B11: et misdannet svar fra public_person_facts rammer kun fakta-sektionen', async () => {
+    rpc.mockReset();
+    rpc.mockImplementation(async (navn: string) => {
+      if (navn === 'narrative_record_contract_version') return { data: 2, error: null };
+      if (navn === 'public_person_bio_source_versions_v2') return { data: [], error: null };
+      return undefined; // misdannet fakta-svar
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const d = await fetchPersonDetail('1');
+    expect(d.factsError).toBe(true);
+    expect(d.facts).toEqual([]);
+    expect(d.bioVersions).toEqual([]);
+    warn.mockRestore();
+  });
+
   it('lader et synkront v2 RPC-kast være en eksplicit hente-fejl', async () => {
     rpc.mockReset();
     rpc

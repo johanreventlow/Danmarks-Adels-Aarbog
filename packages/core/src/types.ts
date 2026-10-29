@@ -15,6 +15,9 @@ export type RawExtId = {
   slaegtled_lokal?: number | null;
   slaegtled_gennem?: number | null;
   kuld?: string | null;
+  // 5c-2: den trykte nr.-tekst (»15a«; nr er dens foranstillede heltal) og koordinatens proveniens.
+  nr_label?: string | null;
+  provenance?: 'placement' | 'legacy_external_id';
 };
 export type RawLineage = {
   source_id: number | string;
@@ -128,7 +131,7 @@ export type Db = {
 // (subjekt=alias, objekt=kanonisk); afklarede identiteter foldes, konflikter karantæneres.
 // Se docs/superpowers/specs/2026-07-02-samme-som-collapse-design.md.
 export type SameAsEdge = { alias: string; canonical: string; konfidens?: Konfidens };
-export type Provenance = { personId: string; linje: string | null; nr: number | null };
+export type Provenance = { personId: string; linje: string | null; nr: number | null; nr_label: string | null };
 export type QuarantineNote = { members: string[]; reason: string };
 export type CollapseResult = {
   db: Db;

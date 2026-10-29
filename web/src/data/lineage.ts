@@ -5,6 +5,7 @@ import type {
   Lineage, LineageContext, RawExtId, RawLineageContext,
   RawLineageScheme, RawLineageSchemeEntry, RawLineageSchemeEntryLineage,
 } from './types';
+import { compareLineHead } from '@daa/core';
 
 /** Stabile nøgler for klienttilstand; den trykte kode er aldrig selv nøglen. */
 export function lineageContextKey(context: LineageContext): string {
@@ -31,7 +32,7 @@ export function buildLineage(
   const cid = (id: string) => canonicalIdById[id] ?? id;
   const byPerson: Record<string, string[]> = {};
   const counts: Record<string, number> = {};
-  const head: Record<string, { id: string; nr: number }> = {};
+  const head: Record<string, { id: string; nr: number; nr_label: string | null }> = {};
 
   const rowsBySourceCode = new Map<string, RawLineageContext>();
   const rowsById = new Map<string, RawLineageContext>();
@@ -101,9 +102,10 @@ export function buildLineage(
       arr.push(key);
       counts[key] = (counts[key] || 0) + 1;
     }
-    const nr = x.nr == null ? 9999 : x.nr;
+    // Linjens hoved = laveste trykte nr.; ved samme tal afgør bogstavsuffikset (15a før 15b), jf. 5c-2.
+    const kand = { id: pid, nr: x.nr ?? 9999, nr_label: x.nr_label ?? null };
     const cur = head[key];
-    if (!cur || nr < cur.nr) head[key] = { id: pid, nr };
+    if (!cur || compareLineHead(kand, cur) < 0) head[key] = kand;
   });
 
   // Linje-navne fra lineage-tabellen (kode → navn); fallback til kode hvis tom/mangler.

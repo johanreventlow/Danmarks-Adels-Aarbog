@@ -25,7 +25,7 @@ const model = buildModel({
 }) as unknown as Model;
 
 const detail: PersonDetailData = {
-  bio: 'Ny tekst.', offices: [], estates: [], media: [], sources: [],
+  bio: 'Ny tekst.', offices: [], estates: [], media: [], sources: [], facts: [], factsError: false,
   bioVersions: [
     { recordRef: 'r0', sourceLabel: 'DAA Y', recordLabel: 'Post 0', narrativeText: 'Ny tekst.', citationLabel: '', provenanceKind: 'source_record' },
     { recordRef: 'r1', sourceLabel: 'DAA X', recordLabel: 'Post 1', narrativeText: 'Gammel tekst.', citationLabel: '', provenanceKind: 'source_record' },
