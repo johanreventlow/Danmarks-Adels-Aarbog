@@ -12,6 +12,7 @@ import type { Model } from '../data/types';
 import { familieIderForPerson, kildeLinje, lifeJourney, type BioSourceVersion, type FamilieKilde } from '@daa/core';
 import { fetchFamilySources } from '../data/familySources';
 import { NarrativRenderer } from './NarrativRenderer';
+import { PersonFakta } from './PersonFakta';
 import { Lightbox } from './Lightbox';
 import { MediaThumb, BookmarkFlag, Label } from './primitives';
 import { ExpandableMiniMap, MapFallback } from './lazyMaps';
@@ -81,7 +82,7 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
       ? mergedFrom
           .map((m) => {
             const navn = m.linje ? model.lineage?.navn[m.linje] ?? `linje ${m.linje}` : 'ukendt linje';
-            const ref = m.linje && m.nr != null ? ` (${m.linje}-${m.nr})` : '';
+            const ref = m.linje && m.nr != null ? ` (${m.linje}-${m.nr_label ?? m.nr})` : '';
             return `${navn}${ref}`;
           })
           .join(' og ')
@@ -227,6 +228,8 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
             ))}
           </>
         )}
+
+        {detail && <PersonFakta facts={detail.facts} error={detail.factsError} />}
 
         {detail && detail.offices.length > 0 && (
           <>

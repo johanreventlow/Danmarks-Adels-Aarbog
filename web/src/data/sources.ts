@@ -17,7 +17,8 @@ export function buildSources(
   (extIds || []).forEach((x) => {
     const src = srcById[String(x.source_id)] ?? ({} as RawSource);
     const work = src.titel || src.udgave || 'Kilde';
-    const ref = [x.linje ? 'Linje ' + x.linje : '', x.nr != null ? 'nr. ' + x.nr : '']
+    const nrTekst = x.nr_label ?? (x.nr != null ? String(x.nr) : null);
+    const ref = [x.linje ? 'Linje ' + x.linje : '', nrTekst != null ? 'nr. ' + nrTekst : '']
       .filter(Boolean)
       .join(', ');
     (out[cid(String(x.person_id))] ??= []).push({ ref, work });

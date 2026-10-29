@@ -2,7 +2,7 @@
 // → buildModel. Lean udgave af mobile/src/data/load.ts (kun det stamtræ + slægtskabsfinder
 // behøver — ikke Aux/godser/våben). Rolle-vokab: partner = forælder-par, barn = blodslægt.
 import { supabase } from '../supabase';
-import { buildGenCoords, buildParentsUnknown, buildGeo, buildModel, collapseSameAs, fmtYears, parseYear, getAll, EMPTY_GEO } from '@daa/core';
+import { buildGenCoords, buildParentsUnknown, buildGeo, buildModel, collapseSameAs, coordinateRowToExtId, fmtYears, parseYear, getAll, EMPTY_GEO, type PublicCoordinateRow } from '@daa/core';
 import { buildLineage } from './lineage';
 import { buildSources } from './sources';
 import { normalizeKoen, normalizeKonfidens, type AppModel, type AppPerson, type Db, type Geo, type Model, type ModelPerson, type ParentChild, type RawEstate, type RawExtId, type RawFact, type RawLineageContext, type RawLineageScheme, type RawLineageSchemeEntry, type RawLineageSchemeEntryLineage, type RawPlace, type RawSource, type Union } from './types';
@@ -34,11 +34,6 @@ type RawPerson = {
   visning_doed: string | null; visning_titel: string | null; koen: string | null; privat: boolean | null;
 };
 type RawMember = { family_id: number | string; person_id: number | string; rolle: string | null; ordinal: number | null; konfidens: string | null };
-type RawLegacyCoordinate = {
-  person_id: number | string; source_id: number | string; legacy_line_code: string | null;
-  printed_number: number | null; generation_local: number | null;
-  generation_global: number | null; kuld_label: string | null;
-};
 
 // Sorterer forældre (partner-rolle-medlemmer af en familie) så far kommer før mor —
 // DAA er patrilineær, linje/nr følger mandslinjen. `ordinal` er ægteskabs-nummer
@@ -69,13 +64,11 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
     // Linje/nr pr. person (grene) — tolerant: tabellen/kolonnerne kan mangle i ældre baser.
     // Review 15: log ved fejl, så en RLS/drifts-fejl ikke stiltiende ligner "ingen linjer"
     // (graceful degradation bevares, men degraderingen bliver synlig i konsol/telemetri).
-    getAll<RawLegacyCoordinate>(() => supabase.from('person_source_coordinate_legacy').select('person_id,source_id,legacy_line_code,printed_number,generation_local,generation_global,kuld_label'))
-      .then((rows) => rows.map((row): RawExtId => ({
-        person_id: row.person_id, source_id: row.source_id, linje: row.legacy_line_code,
-        nr: row.printed_number, slaegtled_lokal: row.generation_local,
-        slaegtled_gennem: row.generation_global, kuld: row.kuld_label,
-      })))
-      .catch((e) => { console.warn('[loadModel] placement-kompatibilitetsview utilgængeligt ikke — linjer/kilder degraderet:', e); return [] as RawExtId[]; }),
+    // 5c-2: koordinater fra public_person_source_coordinates (placement ved gældende membership, ellers legacy).
+    // Bevidst intet fald tilbage til legacy-viewet: en fejlslagen deploy skal ses som manglende linjer, ikke skjules.
+    getAll<PublicCoordinateRow>(() => supabase.rpc('public_person_source_coordinates'))
+      .then((rows) => rows.map(coordinateRowToExtId))
+      .catch((e) => { console.warn('[loadModel] public_person_source_coordinates utilgængelig — linjer/kilder degraderet:', e); return [] as RawExtId[]; }),
     // Linje-navne — lineage-tabellen findes måske ikke endnu (fallback til 'Linje {kode}').
     getAll<RawLineageContext>(() => supabase.from('lineage').select('id,source_id,kode,navn,canonical_label,slaegt_id,slaegtsnavn,parent_lineage_id')).catch((e) => { console.warn('[loadModel] lineage utilgængelig — bruger linje-koder som navne:', e); return [] as RawLineageContext[]; }),
     getAll<RawLineageScheme>(() => supabase.from('lineage_scheme').select('id,slaegt_id,source_id,kind')).catch((e) => { console.warn('[loadModel] lineage schemes utilgængelige ikke — bruger kanonisk lineage-kontekst:', e); return [] as RawLineageScheme[]; }),
@@ -150,7 +143,7 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
       : (sameAsRel || [])
           .filter((r) => approved.has(String(r.id)))
           .map((r) => ({ alias: String(r.subjekt_id), canonical: String(r.objekt_id) }));
-  const extMap = new Map((extIds || []).map((x) => [String(x.person_id), { linje: x.linje, nr: x.nr }]));
+  const extMap = new Map((extIds || []).map((x) => [String(x.person_id), { linje: x.linje, nr: x.nr, nr_label: x.nr_label ?? null }]));
   const collapsed = collapseSameAs(rawDb, edges, extMap);
   if (collapsed.quarantined.length) console.warn('[samme_som] karantæne (foldes ikke):', collapsed.quarantined);
 
