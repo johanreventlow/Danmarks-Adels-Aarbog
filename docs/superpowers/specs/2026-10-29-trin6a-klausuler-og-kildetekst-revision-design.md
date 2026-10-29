@@ -2,7 +2,7 @@
 
 **Status:** udkast, revideret efter builder-check og Fable-læsning (§11). Skrevet uden afklarende spørgsmål
 (projektejeren sprang dem over 2026-10-29 og bad om bedste skøn plus reviews). Mine valg er markeret *mit valg*.
-Én afgørelse venter på projektejeren (§9). Næste: projektejerens godkendelse, plan, Codex-runde på spec+plan.
+Projektejerens afgørelse (§9) truffet 2026-10-29: I-84 parkeres. Næste: plan, Codex-runde på spec+plan.
 **Gren:** `docs/trin6a-spec` fra `docs/trin6-spec` (`02d3e400`; PR #280 er ikke merget).
 **Review-budget (B13):** builder-check (frisk agent) + én Fable-læsning af spec'en (projektejerens ja 2026-10-29;
 overskridelse noteret i `docs/decisions.md`) + 1 Codex-runde på spec+plan (`gpt-6.1-sol`, Opus dømmer) + 1
@@ -265,7 +265,7 @@ kildeteksten ændres.
 - I-84 får en synlig disposition: »kildeteksten mangler én linje uden for postens afgrænsning; narrativet har
   den«. Grænserevision henvises til samme spor som opret-benet (B4).
 - **Afvigelse fra den overordnede spec:** §4's mål »2018-20's 11 poster får de manglende linjer« bliver 10 i
-  trin 6. Det kræver projektejerens ok (§9).
+  trin 6. Projektejeren godkendte afvigelsen 2026-10-29 (§9).
 
 ## 6. Følger
 
@@ -276,6 +276,10 @@ kildeteksten ændres.
 - 6c's normalisering fjerner sidemarkører og orddelinger fra modelinput.
 - 6c's afstemning omfatter 16 bindinger (9 assertion og 7 family) og de 13 parts-rækker. Genbrug af de 3
   relations-personas følger 5b's regler.
+- Forældelsen er endelig, og fortrydelse kræver restore af dumpet (§4.4 pkt. 7). Indtil genbindingen viser
+  læseren de 9 fakta som »fra den oprindelige import«, og de 7 familiers kildelinje er væk. 6c's ceremoni skal
+  derfor være én samlet ceremoni (revision, genkørsel og genbinding), med et frisk dump med B1-disciplin lige før
+  og med restore-vinduet deklareret i runbooken.
 
 ## 7. Prod
 
@@ -341,8 +345,8 @@ kildeteksten ændres.
 ## 9. Afgørelser
 
 **Til projektejeren:**
-1. **I-84 parkeres** (§5), så A6b-resten i trin 6 bliver 10 poster, ikke 11. Anbefaling: ja. Alternativet er at
-   bygge grænserevision i 6a eller 6c for én post.
+1. **I-84 parkeres** (§5), så A6b-resten i trin 6 bliver 10 poster, ikke 11. **Afgjort 2026-10-29: ja**
+   (`docs/decisions.md`).
 
 **Mine egne valg (kan rettes):**
 - 1939's klausuler i prod allerede i 6a: rækkerne er nye og tilføjes kun, ingen læser påvirkes, og 6c får et

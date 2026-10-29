@@ -2,6 +2,22 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: I-84 parkeres i trin 6; B7 som deklareret tekstform pr. udgave (2026-10-29)
+
+> Projektejerens valg 2026-10-29 (I-84). B7 er mit valg i delspec 6a
+> (`2026-10-29-trin6a-klausuler-og-kildetekst-revision-design.md` §4.1 og §5); projektejeren sprang de
+> afklarende spørgsmål over og bad om bedste skøn.
+
+1. **I-84 parkeres.** Den genfundne linje ligger uden for postens forekomstspænd (mellem I-84 og I-85), så en
+   rettelse kræver grænserevision (ny forekomst og nyt anker). Den gør publicerede narrativer `stale_published`
+   og rammer alle læsere af ankre. Posten har 0 fortolkninger, og narrativet har linjen siden A6b. I-84 får en
+   synlig disposition; grænserevision følger opret-benets spor (B4). *Justerer* posten 2026-10-28 pkt. 2: trin 6
+   retter 10 af de 11 poster.
+2. **B7 besluttet:** helpostens tekstform deklareres pr. udgave i profilen (`raw` for 1939,
+   `folded_projection` med projektionsregel og version for 2018-20). Basen håndhæver nøjagtige offsets for `raw`.
+   Sammenligning på tværs af udgaver går kun gennem `narrative_norm_v1`, og ingen tekst genskrives. *Lukker*
+   2026-10-27 pkt. 7 (B7).
+
 ## NOTERET: review-budget for delspec 6a overskredet med én Fable-læsning (2026-10-29)
 
 > B13-overskridelse. Projektejeren bad om reviews og gav ja til Fable 2026-10-29. Fable læste delspec 6a

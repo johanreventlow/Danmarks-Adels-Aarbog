@@ -101,7 +101,8 @@ Projektejerens afgørelser:
 
 - Færdigbevis (a)-(c) fra roadmappet for 1939 (§8).
 - 1939-fakta synlige og sporbare i læseren, valgt med udgavevælgeren.
-- A6b-resten: 2018-20's 11 poster får de manglende linjer i kildetekst og klausuler.
+- A6b-resten: 2018-20's 10 poster med linjen inde i postens afgrænsning får de manglende linjer i kildetekst og
+  klausuler. I-84 er parkeret (linjen ligger uden for afgrænsningen; projektejeren 2026-10-29, delspec 6a §5).
 - Vej B: læserens fakta-kald holder sig klart under anons 3 s, også efter 1939's bindinger.
 
 **Ikke-mål**
@@ -129,7 +130,7 @@ kørsel mod prod med flag og GO, måling før og efter. Rækkefølgen er bindend
 |---|---|---|
 | **6a — klausuler og forældelse** | 1939-klausulregler i profilen (pkt. 15); den generelle kildetekst-revision, der gør afhængige fortolkninger forældede (A6b pkt. 2), bygget og bevist, men ikke anvendt på prod-data her (§6 pkt. 7); B7 (§6) | — |
 | **6b — identitet** | 1939-records opdeles efter eksisterende binding, publiceringstilstand, eksisterende persona og tvetydig identitet; 149b's migrering genbruges, hvor den gælder, og en idempotent persona-indgang bygges for resten (ingen nye personas for eksisterende, ingen genpublicering); kandidater med årstal fra rå tekst og `samme_som`-klynger (pkt. 16); navnefæller til projektejeren | 6a (planlægningsvalg: records står fast; ikke en teknisk forudsætning) |
-| **6c — fortolkning, rettelse og binding** | Runneren på de tilladte 1939-poster med næste promptversion (pkt. 20) og lukkede sandbox-huller (pkt. 22); kontrolmodellen; rettelsesvejen (§6); vej B før bindingerne skrives; A6b-resten for 2018-20's 11 poster (revision, genkørsel og genbinding i én ceremoni, §6 pkt. 7) | 6a; 6b (identitet kræves af promotionen) |
+| **6c — fortolkning, rettelse og binding** | Runneren på de tilladte 1939-poster med næste promptversion (pkt. 20) og lukkede sandbox-huller (pkt. 22); kontrolmodellen; rettelsesvejen (§6); vej B før bindingerne skrives; A6b-resten for 2018-20's 10 poster (I-84 parkeret; revision, genkørsel og genbinding i én ceremoni, §6 pkt. 7) | 6a; 6b (identitet kræves af promotionen) |
 | **6d — placement, relationer og medlemskab** | Intern rækkefølge: (1) 1939's linjeskema og mapping til slægtslinjer, (2) placements med bogens egne numre, der afløser `linje='1939'` (pkt. 17, §6 pkt. 8), (3) relationer (ægteskaber, børneflokke, numre; 5b-vejen, pkt. 19) vurderet på placementernes koordinater, ikke legacy, (4) binding og medlemskab med B6 (§6 pkt. 3) | 6b; 6c for fakta-afhængige relationer |
 | **6e — læserflade** | Fakta pr. udgave fulgt af udgavevælgeren; 1939-koordinater fra placement; browsertjek | 6c, 6d |
 
@@ -210,7 +211,7 @@ kørsel mod prod med flag og GO, måling før og efter. Rækkefølgen er bindend
 - **Tal i prod:** forslag, `MATCH`/`SKRIVEMAADE`/`REAL_DIFF`/`NO_FACT`, afgørelser (maskine/menneske), rettelser,
   bindinger, uafklarede. Hver binding, der var gældende før en ceremoni, er gældende efter eller står i den nøglede
   afstemning som godkendt tilbagetrækning (§6 pkt. 7); antal alene beviser det ikke.
-- **A6b-resten:** de 11 posters kildetekst og klausuler har linjerne; afhængige fortolkninger er forældede og
+- **A6b-resten:** de 10 posters kildetekst (I-84 parkeret, delspec 6a §5) og klausuler har linjerne; afhængige fortolkninger er forældede og
   genafgjort, eller de står synligt uafklarede uden at have båret en binding, der ikke er afstemt.
 - **Status:** `status.md`'s 1939-kolonne hæves led for led til `produktionsverificeret` med dato; derefter
   beslutningspunktet (roadmap).
