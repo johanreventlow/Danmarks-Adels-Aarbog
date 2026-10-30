@@ -84,7 +84,7 @@ BEGIN
   END IF;
   -- Writeren skriver via den fælles sæt-funktion, som sætter clause_set_seq.
   IF pg_get_functiondef('private.write_clause_evidence(uuid,text,jsonb)'::regprocedure) NOT LIKE '%private.clause_write_set(%'
-     OR pg_get_functiondef('private.clause_write_set(jsonb,jsonb,integer,text)'::regprocedure) NOT LIKE '%clause_set_seq%' THEN
+     OR pg_get_functiondef('private.clause_write_set(jsonb,jsonb,integer,text,uuid)'::regprocedure) NOT LIKE '%clause_set_seq%' THEN
     RAISE EXCEPTION 'CLAUSE_SET_WRITER_NOT_UPGRADED';
   END IF;
   -- De tre triggere findes og er aktive.

@@ -2803,7 +2803,7 @@ BEGIN
   IF v_def IS NULL OR v_def NOT LIKE '%private.clause_write_set(%' THEN
     RAISE EXCEPTION 'FEJL: write_clause_evidence skriver ikke via clause_write_set';
   END IF;
-  v_def:=pg_get_functiondef(to_regprocedure('private.clause_write_set(jsonb,jsonb,integer,text)'));
+  v_def:=pg_get_functiondef(to_regprocedure('private.clause_write_set(jsonb,jsonb,integer,text,uuid)'));
   IF v_def IS NULL OR v_def NOT LIKE '%clause_set_seq%' THEN
     RAISE EXCEPTION 'FEJL: clause_write_set sætter ikke clause_set_seq';
   END IF;
@@ -2950,6 +2950,7 @@ DECLARE
     'public.red_apply_reimport_legacy_migration(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_clause_evidence(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_clause_revision(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_source_text_revision(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_relation_persona(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_relation_person_create(uuid,text,jsonb)'::regprocedure,

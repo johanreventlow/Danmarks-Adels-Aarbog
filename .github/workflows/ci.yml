@@ -302,7 +302,7 @@ jobs:
           fetch-depth: 0
       - uses: r-lib/actions/setup-r@v2
         with: {use-public-rspm: true}
-      - run: Rscript -e 'install.packages(c("DBI","RPostgres","jsonlite","digest"))'
+      - run: Rscript -e 'install.packages(c("DBI","RPostgres","jsonlite","digest","processx"))'
       - name: Bootstrap og writer-kontrakt
         env: {PGPASSWORD: postgres}
         run: |
@@ -311,9 +311,10 @@ jobs:
           psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f db-rls.sql
           psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/1939-v50-writer-bootstrap.sql
           psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-1939-v50-production-writer.sql
-      - name: Profil-seeds (trin 6a) · migrationer to gange på base med source 3
+      - name: Profil-seeds (trin 6a) · migrationer to gange på base med source 3 og source 1
         env: {PGPASSWORD: postgres}
         run: |
+          psql -q -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -c "INSERT INTO public.source(id,titel,udgave,slags) VALUES(1,'Danmarks Adels Aarbog','2018-20','DAA-udgave') ON CONFLICT(id) DO NOTHING"
           psql -q -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f db-migrations.sql > /dev/null
           psql -q -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f db-migrations.sql > /dev/null
           psql -q -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f db-rls.sql > /dev/null
@@ -550,6 +551,21 @@ jobs:
       - name: Afhængighedsmængde og forældelse ved kildetekst-revision (trin 6a)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-text-revision-dependencies.sql
+      - name: Kildetekst-revision SQL (trin 6a)
+        env: {PGPASSWORD: postgres}
+        run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-source-text-revision.sql
+      - name: Kildetekst-revision · migrationer to gange og to samtidige sessioner (trin 6a)
+        env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres, PGDATABASE: ci6a_text_revision}
+        run: |
+          createdb ci6a_text_revision
+          for f in tests/sql/evidence-promotion-bootstrap.sql schema.sql db-rls.sql tests/sql/1939-v50-writer-bootstrap.sql; do
+            psql -q -v ON_ERROR_STOP=1 -f "$f" >/dev/null; done
+          psql -q -v ON_ERROR_STOP=1 -c 'BEGIN' -f tests/sql/reimport-writer-v2-bootstrap.sql -c 'COMMIT' >/dev/null
+          psql -q -v ON_ERROR_STOP=1 -f db-migrations.sql >/dev/null
+          psql -q -v ON_ERROR_STOP=1 -f db-migrations.sql >/dev/null
+          psql -q -v ON_ERROR_STOP=1 -f db-rls.sql >/dev/null
+          psql -v ON_ERROR_STOP=1 -f tests/sql/test-source-text-revision.sql
+          Rscript tests/integration/test-source-text-revision-concurrency.R
       - name: Klausul-writer SQL (#148 4.1c)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-clause-evidence-writer.sql
