@@ -208,6 +208,54 @@ BEGIN
   RAISE NOTICE 'OK: test_s4_not_opened_by_forged_basis';
 END $t$;
 
+-- test_s4_not_opened_by_editor_supersede_after_revision (vagt i: nøglerne skal stå i en revisions superseded_keys):
+-- efter en ægte revision og et nyt forslag forælder en redaktør det nye forslag med et ikke-reserveret grundlag.
+-- Nøglen er forældet, og den gældende tekst er skrevet af revisionen, men ingen revision har forældet nøglen.
+-- Det tredje forslag er et andet claim (anden ordinal og værdi), så nøglekollisionen med k2 ikke er det, der spærrer.
+DO $t$
+DECLARE fx jsonb; r2 jsonb; k2 uuid; v_id uuid;
+BEGIN
+  fx:=pg_temp.rr_fixture(-66601,'11000000-0000-0000-0000-00000006a606');
+  PERFORM pg_temp.rr_propose(fx,jsonb_build_array(pg_temp.rr_claim(fx,'c1',1,'Anna Alfa')),'editor-1');
+  PERFORM pg_temp.rr_revise(fx,'Anna Alfa. Gift m. Bo Beta.',ARRAY['Anna Alfa.','Gift m. Bo Beta.'],'editor-rev');
+  r2:=pg_temp.rr_propose(fx,jsonb_build_array(pg_temp.rr_claim(fx,'c1',1,'Anna Alfa')),'editor-2');
+  k2:=pg_temp.rr_key(r2,'c1');
+  SELECT id INTO v_id FROM private.interpretation_current WHERE interpretation_key=k2;
+  PERFORM set_config('request.jwt.claim.sub',fx->>'actor',true);
+  PERFORM set_config('app.change_set_id','',true);
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_decide_interpretation(v_id,1,'superseded','{"basis":"redaktør: genudtræk ønskes"}');
+  RESET ROLE;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  IF (SELECT status FROM private.interpretation_current WHERE interpretation_key=k2)<>'superseded' THEN
+    RAISE EXCEPTION 'PROPOSAL_RERUN_TEST_FAILED: redaktøren forældede ikke k2';
+  END IF;
+  PERFORM pg_temp.expect_error(format('SELECT pg_temp.rr_propose(%L::jsonb,%L::jsonb,%L)',fx,
+    jsonb_build_array(pg_temp.rr_claim(fx,'c9',2,'Bo Beta')),'editor-3'),'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS');
+  RAISE NOTICE 'OK: test_s4_not_opened_by_editor_supersede_after_revision';
+END $t$;
+
+-- test_s4_not_opened_by_text_replaced_after_revision (vagt iii: den gældende tekst skal være skrevet af en revision):
+-- en ægte revision har forældet forslagets nøgle, men tabelejeren lægger bagefter en ny foretrukken tekstversion
+-- direkte. Nøgledækningen holder, men den gældende tekst er ikke revideret; S4 forbliver lukket.
+DO $t$
+DECLARE fx jsonb; rev jsonb; v_prev private.source_observation_text%ROWTYPE; v_text uuid;
+BEGIN
+  fx:=pg_temp.rr_fixture(-66701,'11000000-0000-0000-0000-00000006a607');
+  PERFORM pg_temp.rr_propose(fx,jsonb_build_array(pg_temp.rr_claim(fx,'c1',1,'Anna Alfa')),'replaced-1');
+  rev:=pg_temp.rr_revise(fx,'Anna Alfa. Gift m. Bo Beta.',ARRAY['Anna Alfa.','Gift m. Bo Beta.'],'replaced-rev');
+  SELECT * INTO v_prev FROM private.source_observation_text WHERE id=(rev->>'text_id')::uuid;
+  INSERT INTO private.source_observation_text(observation_id,rendition_id,version,verbatim_text,char_from,char_to,is_preferred,supersedes_id)
+    VALUES (v_prev.observation_id,v_prev.rendition_id,v_prev.version+1,'Anna Alfa. Gift m. B. Beta.',v_prev.char_from,v_prev.char_to,true,v_prev.id)
+    RETURNING id INTO v_text;
+  IF (SELECT text_id FROM private.helpost_text_current(v_prev.observation_id)) IS DISTINCT FROM v_text THEN
+    RAISE EXCEPTION 'PROPOSAL_RERUN_TEST_FAILED: den direkte tekstversion er ikke gældende';
+  END IF;
+  PERFORM pg_temp.expect_error(format('SELECT pg_temp.rr_propose(%L::jsonb,%L::jsonb,%L)',fx,
+    jsonb_build_array(pg_temp.rr_claim(fx,'c1',1,'Anna Alfa')),'replaced-2'),'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS');
+  RAISE NOTICE 'OK: test_s4_not_opened_by_text_replaced_after_revision';
+END $t$;
+
 -- test_key_v2_b_c_b: tekstvejen B → C → B med et forslag før den første og efter hver revision, samme ordinal og
 -- værdi. Alle tre accepteres med tre forskellige nøgler: v1, v2 med version 1 og v2 med version 2.
 DO $t$
