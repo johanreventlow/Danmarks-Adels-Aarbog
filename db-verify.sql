@@ -2799,6 +2799,11 @@ BEGIN
   IF v_def IS NULL OR v_def NOT LIKE '%clause_observation_current%' OR v_def NOT LIKE '%b.source_id=v_batch.source_id%' THEN
     RAISE EXCEPTION 'FEJL: write_interpretation_proposal er ikke sæt-bevidst eller mangler S4-tjekket';
   END IF;
+  -- Trin 6a (spec §4.4 pkt. 6): S4 åbner kun på revisions-events (superseded_keys), og nøglen kan være v2.
+  IF v_def NOT LIKE '%e.operation=''source_text_revision''%' OR v_def NOT LIKE '%superseded_keys%'
+     OR v_def NOT LIKE '%interpretation_proposal_key_material_v2(%' THEN
+    RAISE EXCEPTION 'FEJL: write_interpretation_proposal mangler genkørselskontrakten (S4-åbning, nøgle v2)';
+  END IF;
   v_def:=pg_get_functiondef(to_regprocedure('private.write_clause_evidence(uuid,text,jsonb)'));
   IF v_def IS NULL OR v_def NOT LIKE '%private.clause_write_set(%' THEN
     RAISE EXCEPTION 'FEJL: write_clause_evidence skriver ikke via clause_write_set';
@@ -2829,6 +2834,7 @@ BEGIN
      OR to_regprocedure('private.interpretation_proposal_key_material(bigint,text,text,jsonb,jsonb)') IS NULL
      OR to_regprocedure('private.interpretation_proposal_key_material_sha256(bigint,text,text,jsonb,jsonb)') IS NULL
      OR to_regprocedure('private.interpretation_proposal_key(bigint,text,text,jsonb,jsonb)') IS NULL
+     OR to_regprocedure('private.interpretation_proposal_key_material_v2(bigint,text,text,jsonb,jsonb,integer)') IS NULL
      OR to_regprocedure('private.write_interpretation_proposal(uuid,text,jsonb)') IS NULL
      OR to_regprocedure('public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)') IS NULL THEN
     RAISE EXCEPTION 'MISSING: #147 4.4 interpretation_proposal writer';
@@ -2838,6 +2844,7 @@ BEGIN
      OR NOT has_function_privilege('authenticated','public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)','EXECUTE')
      OR has_function_privilege('authenticated','private.interpretation_proposal_canonical_json_text(jsonb)','EXECUTE')
      OR has_function_privilege('authenticated','private.interpretation_proposal_key(bigint,text,text,jsonb,jsonb)','EXECUTE')
+     OR has_function_privilege('authenticated','private.interpretation_proposal_key_material_v2(bigint,text,text,jsonb,jsonb,integer)','EXECUTE')
      OR has_function_privilege('authenticated','private.write_interpretation_proposal(uuid,text,jsonb)','EXECUTE') THEN
     RAISE EXCEPTION 'INVALID: #147 4.4 authorization/ACL';
   END IF;

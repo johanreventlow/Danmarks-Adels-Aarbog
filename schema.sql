@@ -4838,6 +4838,30 @@ RETURNS uuid LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog,
   SELECT private.deterministic_uuid(private.interpretation_proposal_key_material(p_source_id,p_record_key,p_predicate,p_cited_clauses,p_value))
 $$;
 
+-- Trin 6a (spec §4.4 pkt. 6; Codex F5): nøglemateriale version 2 binder forslaget til helpostens
+-- tekstversionsnummer (source_observation_text.version, deterministisk og overførbart). Ellers som v1, der er
+-- uændret og bruges, når helposten ikke har en tekstversion. En tekstvej B → C → B giver tre forskellige nøgler.
+CREATE OR REPLACE FUNCTION private.interpretation_proposal_key_material_v2(
+  p_source_id bigint,p_record_key text,p_predicate text,p_cited_clauses jsonb,p_value jsonb,p_text_version integer)
+RETURNS text LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog,extensions AS $$
+BEGIN
+  IF p_text_version IS NULL OR p_text_version<1 THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_KEY_VERSION_INVALID';
+  END IF;
+  RETURN (SELECT jsonb_build_object(
+    'key_version',2,
+    'source_id',p_source_id,
+    'record_key',p_record_key,
+    'predicate',p_predicate,
+    'ordinals',jsonb_agg(DISTINCT (c.value->>'ordinal')::integer ORDER BY (c.value->>'ordinal')::integer),
+    'value_sha256',encode(digest(convert_to(p_value::text,'UTF8'),'sha256'),'hex'),
+    'text_version',p_text_version
+  )::text
+  FROM jsonb_array_elements(p_cited_clauses) c(value));
+END $$;
+REVOKE ALL ON FUNCTION private.interpretation_proposal_key_material_v2(bigint,text,text,jsonb,jsonb,integer)
+  FROM PUBLIC,anon,authenticated,service_role;
+
 CREATE OR REPLACE FUNCTION private.interpretation_proposal_interpretation_receipt(p_row private.interpretation)
 RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
   SELECT jsonb_build_object(
@@ -4889,6 +4913,7 @@ DECLARE
   v_interpretation_row private.interpretation%ROWTYPE;
   v_before private.clause_disposition%ROWTYPE; v_written private.clause_disposition%ROWTYPE;
   v_observations jsonb; v_result_receipt jsonb;
+  v_text_id uuid; v_text_version integer; v_key_material text;
 BEGIN
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
   IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
@@ -4911,15 +4936,6 @@ BEGIN
   END IF;
   SELECT * INTO v_record FROM private.source_record WHERE source_id=v_batch.source_id AND record_key=p_payload->>'source_record_key' FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_INVALID'; END IF;
-  -- S4 (review 35): enhver tidligere forslags-event for posten i samme kilde — ikke kun i
-  -- denne batch. Et nyt batch må ikke lægge nye `proposed` ved siden af de gamle;
-  -- genudtræk kræver en menneskelig superseded-beslutning (trin 6). reimport_event bærer
-  -- ikke source_id, og record_key er kun unik pr. kilde, derfor joinet.
-  IF EXISTS(SELECT 1 FROM private.reimport_event e JOIN private.reimport_batch b ON b.id=e.batch_id
-             WHERE e.operation='interpretation_proposal' AND b.source_id=v_batch.source_id
-               AND e.source_record_key=v_record.record_key) THEN
-    RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS';
-  END IF;
   IF (SELECT count(*) FROM private.source_record_anchor_current WHERE source_record_id=v_record.id AND decision_status='accepted')<>1 THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_FOREIGN_POST';
   END IF;
@@ -4928,6 +4944,47 @@ BEGIN
     RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_FOREIGN_POST';
   END IF;
   SELECT id INTO v_parent FROM private.source_observation WHERE occurrence_id=v_occurrence AND parent_observation_id IS NULL FOR UPDATE;
+  -- Helpostens gældende tekstversion (trin 6a): NULL = basisteksten (nøgle v1), ellers versionsnummeret (nøgle v2).
+  SELECT c.text_id INTO v_text_id FROM private.helpost_text_current(v_parent) c;
+  IF v_text_id IS NOT NULL THEN
+    SELECT t.version INTO v_text_version FROM private.source_observation_text t WHERE t.id=v_text_id;
+  END IF;
+  -- S4 (review 35): enhver tidligere forslags-event for posten i samme kilde — ikke kun i
+  -- denne batch. Et nyt batch må ikke lægge nye `proposed` ved siden af de gamle.
+  -- reimport_event bærer ikke source_id, og record_key er kun unik pr. kilde, derfor joinet.
+  -- Trin 6a (spec §4.4 pkt. 6; Codex F2): spærren åbner kun efter en faktisk kildetekst-revision. Hver nøgle fra
+  -- postens tidligere forslags-events skal stå i superseded_keys i en source_text_revision-event for posten (og være
+  -- forældet nu), og en revisions-event for posten skal have skrevet helpostens gældende tekstversion. Et grundlag
+  -- (decision_evidence.basis) alene åbner ikke. Recorden og helposten er låst ovenfor, som revisionen låser dem.
+  IF EXISTS(SELECT 1 FROM private.reimport_event e JOIN private.reimport_batch b ON b.id=e.batch_id
+             WHERE e.operation='interpretation_proposal' AND b.source_id=v_batch.source_id
+               AND e.source_record_key=v_record.record_key) THEN
+    IF v_text_id IS NULL
+       OR NOT EXISTS(SELECT 1 FROM private.reimport_event e JOIN private.reimport_batch b ON b.id=e.batch_id
+                      WHERE e.operation='source_text_revision' AND b.source_id=v_batch.source_id
+                        AND e.source_record_key=v_record.record_key
+                        AND e.payload->>'text_id'=v_text_id::text AND e.payload->>'parent_observation_id'=v_parent::text)
+       OR EXISTS(SELECT 1 FROM private.reimport_event e JOIN private.reimport_batch b ON b.id=e.batch_id
+                  WHERE e.operation='interpretation_proposal' AND b.source_id=v_batch.source_id
+                    AND e.source_record_key=v_record.record_key
+                    AND (jsonb_typeof(e.payload->'result_receipt'->'claims') IS DISTINCT FROM 'array'
+                         OR jsonb_array_length(e.payload->'result_receipt'->'claims')=0))
+       OR EXISTS(SELECT 1 FROM private.reimport_event e JOIN private.reimport_batch b ON b.id=e.batch_id
+                   CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(e.payload->'result_receipt'->'claims')='array'
+                                                                THEN e.payload->'result_receipt'->'claims' ELSE '[]'::jsonb END) c(claim)
+                  WHERE e.operation='interpretation_proposal' AND b.source_id=v_batch.source_id
+                    AND e.source_record_key=v_record.record_key
+                    AND (c.claim->>'interpretation_key' IS NULL
+                         OR NOT EXISTS(SELECT 1 FROM private.reimport_event r JOIN private.reimport_batch rb ON rb.id=r.batch_id
+                                        WHERE r.operation='source_text_revision' AND rb.source_id=v_batch.source_id
+                                          AND r.source_record_key=v_record.record_key
+                                          AND jsonb_typeof(r.payload->'superseded_keys')='array'
+                                          AND r.payload->'superseded_keys' ? (c.claim->>'interpretation_key'))
+                         OR NOT EXISTS(SELECT 1 FROM private.interpretation_current ic
+                                        WHERE ic.interpretation_key::text=c.claim->>'interpretation_key' AND ic.status='superseded'))) THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS';
+    END IF;
+  END IF;
   SELECT spm.persona_id INTO v_persona
     FROM private.source_mention sm JOIN private.source_persona_mention spm ON spm.mention_id=sm.id
    WHERE sm.observation_id=v_parent AND spm.mention_role='primary';
@@ -4980,8 +5037,14 @@ BEGIN
     IF v_confidence IS NULL OR v_confidence<0 OR v_confidence>1 THEN RAISE EXCEPTION 'REIMPORT_WRITER_CONFIDENCE_INVALID'; END IF;
     v_value_hash:=encode(extensions.digest(convert_to(v_value::text,'UTF8'),'sha256'),'hex');
     v_receipt_value_sha:=private.interpretation_proposal_canonical_json_sha256(v_value);
-    v_key_material_sha:=private.interpretation_proposal_key_material_sha256(v_batch.source_id,v_record.record_key,v_predicate.predicate,v_claim->'cited_clauses',v_value);
-    v_key:=private.interpretation_proposal_key(v_batch.source_id,v_record.record_key,v_predicate.predicate,v_claim->'cited_clauses',v_value);
+    IF v_text_version IS NULL THEN
+      v_key_material_sha:=private.interpretation_proposal_key_material_sha256(v_batch.source_id,v_record.record_key,v_predicate.predicate,v_claim->'cited_clauses',v_value);
+      v_key:=private.interpretation_proposal_key(v_batch.source_id,v_record.record_key,v_predicate.predicate,v_claim->'cited_clauses',v_value);
+    ELSE
+      v_key_material:=private.interpretation_proposal_key_material_v2(v_batch.source_id,v_record.record_key,v_predicate.predicate,v_claim->'cited_clauses',v_value,v_text_version);
+      v_key_material_sha:=encode(extensions.digest(convert_to(v_key_material,'UTF8'),'sha256'),'hex');
+      v_key:=private.deterministic_uuid(v_key_material);
+    END IF;
     IF EXISTS(SELECT 1 FROM private.interpretation WHERE interpretation_key=v_key) THEN RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS'; END IF;
     INSERT INTO private.interpretation(interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,value,schema_version,
       derivation_kind,confidence,status,method,model_version,prompt_version,extraction_run_id)
@@ -5058,9 +5121,12 @@ BEGIN
   v_result_receipt:=jsonb_build_object('schema_version','interpretation-proposal-result-v1',
     'claims',coalesce((SELECT jsonb_agg(receipt ORDER BY claim_id COLLATE "C") FROM pg_temp.proposal_claim_receipt),'[]'::jsonb),
     'clause_dispositions',coalesce((SELECT jsonb_agg(receipt ORDER BY observation_id::text COLLATE "C") FROM pg_temp.proposal_disposition_receipt),'[]'::jsonb));
+  -- key_version og text_version (trin 6a; Codex F6) ligger ved siden af result_receipt, så projektionen kan
+  -- genberegne nøglen med samme input; receiptets nøglesæt er uændret.
   INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256)
   VALUES(p_batch_id,p_element_id,'interpretation_proposal',v_record.record_key,
-    p_payload||jsonb_build_object('run_id',v_run,'result_receipt',v_result_receipt),
+    p_payload||jsonb_build_object('run_id',v_run,'result_receipt',v_result_receipt,
+      'key_version',CASE WHEN v_text_version IS NULL THEN 1 ELSE 2 END,'text_version',v_text_version),
     private.interpretation_proposal_canonical_json_sha256(v_result_receipt));
   RETURN jsonb_build_object('interpretations_written',v_claim_count,'clauses_dispositioned',v_clause_count,
     'run_id',v_run,'result_receipt_sha256',private.interpretation_proposal_canonical_json_sha256(v_result_receipt));

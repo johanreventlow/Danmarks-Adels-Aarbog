@@ -27,7 +27,7 @@ WITH targets AS (
     'red_apply_1939_v50_name_completion','red_finalize_1939_v50_name_completion'
   )) OR (n.nspname='private' AND p.proname IN (
     'require_reimport_writer_editor','require_reimport_open_batch','lock_reimport_writer','validate_reimport_authorization_payload','validate_reimport_writer_config','ensure_reimport_source_evidence',
-    'validate_reimport_name_completion','reject_reimport_writer_mutation','migrate_legacy_narrative_record','write_clause_evidence','write_clause_revision','write_source_text_revision','clause_write_prepare','clause_write_set',
+    'validate_reimport_name_completion','reject_reimport_writer_mutation','migrate_legacy_narrative_record','write_clause_evidence','write_clause_revision','write_source_text_revision','write_interpretation_proposal','interpretation_proposal_key_material_v2','clause_write_prepare','clause_write_set',
     'legacy_migration_reversal_state','record_reimport_legacy_reversal',
     'reimport_canonical_json_text','reimport_canonical_json_sha256',
     'require_reimport_1939_editor','require_reimport_1939_open_batch',

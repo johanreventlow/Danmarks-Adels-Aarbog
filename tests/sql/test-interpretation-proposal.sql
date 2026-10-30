@@ -99,6 +99,56 @@ BEGIN
   END IF;
 END $proposal_receipt_helper_contract$;
 
+-- test_key_v1_unchanged (trin 6a, spec §4.4 pkt. 6): en kendt v1-vektor er fastlåst. Samme vektor måles før og
+-- efter migrationen i tests/sql/test-proposal-key-v1-upgrade.sh (prods skema → aktuelle migrationer).
+DO $key_v1_unchanged$
+DECLARE v_cited jsonb := '[{"ordinal":2,"verbatim_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},{"ordinal":1,"verbatim_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},{"ordinal":2,"verbatim_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]';
+BEGIN
+  IF private.interpretation_proposal_key(3,'record-1','person.name',v_cited,'"Anna Alfa"'::jsonb)
+       <> '501f645f-62b6-5ad6-84a9-38173cb1a9fd'::uuid
+     OR private.interpretation_proposal_key_material(3,'record-1','person.name',v_cited,'"Anna Alfa"'::jsonb)
+       <> '{"ordinals": [1, 2], "predicate": "person.name", "source_id": 3, "record_key": "record-1", "key_version": 1, "value_sha256": "'
+          ||encode(extensions.digest(convert_to('"Anna Alfa"','UTF8'),'sha256'),'hex')||'"}' THEN
+    RAISE EXCEPTION 'PROPOSAL_KEY_V1_CHANGED';
+  END IF;
+END $key_v1_unchanged$;
+
+-- key_version 2 (trin 6a, spec §4.4 pkt. 6; Codex F5): som v1 med key_version 2 og helpostens tekstversionsnummer.
+-- Tekstvejen B → C → B giver tre forskellige nøgler (v1 uden version, v2 med version 1 og 2); nøglen er deterministisk
+-- og uafhængig af citaternes rækkefølge og hashes; en manglende version afvises.
+DO $key_v2$
+DECLARE v_cited jsonb := '[{"ordinal":2,"verbatim_sha256":"b"},{"ordinal":1,"verbatim_sha256":"a"}]';
+  v_value jsonb := '"Anna Alfa"'; k_b uuid; k_c uuid; k_b2 uuid;
+BEGIN
+  IF to_regprocedure('private.interpretation_proposal_key_material_v2(bigint,text,text,jsonb,jsonb,integer)') IS NULL THEN
+    RAISE EXCEPTION 'PROPOSAL_KEY_V2_MISSING';
+  END IF;
+  IF has_function_privilege('authenticated','private.interpretation_proposal_key_material_v2(bigint,text,text,jsonb,jsonb,integer)','EXECUTE')
+     OR has_function_privilege('anon','private.interpretation_proposal_key_material_v2(bigint,text,text,jsonb,jsonb,integer)','EXECUTE')
+     OR has_function_privilege('service_role','private.interpretation_proposal_key_material_v2(bigint,text,text,jsonb,jsonb,integer)','EXECUTE') THEN
+    RAISE EXCEPTION 'PROPOSAL_KEY_V2_ACL_INVALID';
+  END IF;
+  IF private.interpretation_proposal_key_material_v2(3,'record-1','person.name',v_cited,v_value,7)::jsonb
+       <> private.interpretation_proposal_key_material(3,'record-1','person.name',v_cited,v_value)::jsonb
+          ||'{"key_version":2,"text_version":7}'::jsonb
+     OR private.interpretation_proposal_key_material_v2(3,'record-1','person.name',v_cited,v_value,7)
+       <> private.interpretation_proposal_key_material_v2(3,'record-1','person.name',
+            '[{"ordinal":1,"verbatim_sha256":"x"},{"ordinal":2,"verbatim_sha256":"y"},{"ordinal":1,"verbatim_sha256":"z"}]',v_value,7) THEN
+    RAISE EXCEPTION 'PROPOSAL_KEY_V2_MATERIAL_INVALID: %',private.interpretation_proposal_key_material_v2(3,'record-1','person.name',v_cited,v_value,7);
+  END IF;
+  k_b := private.interpretation_proposal_key(3,'record-1','person.name',v_cited,v_value);
+  k_c := private.deterministic_uuid(private.interpretation_proposal_key_material_v2(3,'record-1','person.name',v_cited,v_value,1));
+  k_b2 := private.deterministic_uuid(private.interpretation_proposal_key_material_v2(3,'record-1','person.name',v_cited,v_value,2));
+  IF k_b=k_c OR k_c=k_b2 OR k_b=k_b2
+     OR k_c<>private.deterministic_uuid(private.interpretation_proposal_key_material_v2(3,'record-1','person.name',v_cited,v_value,1)) THEN
+    RAISE EXCEPTION 'PROPOSAL_KEY_V2_B_C_B_COLLISION';
+  END IF;
+  PERFORM pg_temp.expect_error('REIMPORT_WRITER_INTERPRETATION_KEY_VERSION_INVALID',
+    $q$SELECT private.interpretation_proposal_key_material_v2(3,'record-1','person.name','[{"ordinal":1}]','"x"',NULL)$q$);
+  PERFORM pg_temp.expect_error('REIMPORT_WRITER_INTERPRETATION_KEY_VERSION_INVALID',
+    $q$SELECT private.interpretation_proposal_key_material_v2(3,'record-1','person.name','[{"ordinal":1}]','"x"',0)$q$);
+END $key_v2$;
+
 -- Operation-vokabularet må ikke kunne indsnævres af en migrationsblok.
 -- (Fejlen 2026-09-14: 149b's blok fjernede clause_evidence, så en genkørsel mod
 --  en base med klausuldata fejlede. private.ensure_reimport_operations udvider nu.)
