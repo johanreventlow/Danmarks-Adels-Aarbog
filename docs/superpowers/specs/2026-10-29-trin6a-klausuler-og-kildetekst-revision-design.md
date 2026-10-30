@@ -3,8 +3,7 @@
 **Status:** revideret efter builder-check, Fable-læsning og Codex-runden på spec+plan (§11). Skrevet uden
 afklarende spørgsmål (projektejeren sprang dem over 2026-10-29 og bad om bedste skøn plus reviews). Mine valg er
 markeret *mit valg*. Projektejerens afgørelse (§9) er truffet 2026-10-29: I-84 parkeres. Spec'en som helhed,
-herunder B7 og mine valg i §9, er **ikke godkendt endnu**. Næste: projektejeren læser §9 og planen, godkender
-eller retter, og vælger udførelse.
+herunder B7 og mine valg i §9, er **godkendt 2026-10-30**. Udførelse: subagent-drevet efter planen.
 **Gren:** `docs/trin6a-spec` fra `docs/trin6-spec` (`02d3e400`; PR #280 er ikke merget).
 **Review-budget (B13):** builder-check (frisk agent) + én Fable-læsning af spec'en (projektejerens ja 2026-10-29;
 overskridelse noteret i `docs/decisions.md`) + 1 Codex-runde på spec+plan (`gpt-6.1-sol`, Opus dømmer) + 1
@@ -143,7 +142,7 @@ med postspændene:
 - **Basen** håndhæver for `raw` nøjagtig offset-lighed. For `folded_projection` gælder fortsat »inde i og
   monotont«.
 - **På tværs af udgaver** sammenlignes kun gennem `narrative_norm_v1`. Ingen tekst genskrives.
-- B7 skrives i `docs/decisions.md`, når spec'en er godkendt.
+- B7 er skrevet i `docs/decisions.md` (godkendt 2026-10-30).
 
 ### 4.2 Helposten: én regel, én definition (*mit valg*)
 
