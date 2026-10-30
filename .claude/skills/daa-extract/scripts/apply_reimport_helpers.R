@@ -40,7 +40,8 @@ validate_reimport_manifest <- function(manifest) {
         identical(sort(count_names), sort(c(base_counts, "legacy_migrations"))) ||
         identical(sort(count_names), sort(c(base_counts, "clause_evidence"))) ||
         identical(sort(count_names), sort(c(base_counts, "interpretation_proposals"))) ||
-        identical(sort(count_names), sort(c(base_counts, "clause_revisions")))) ||
+        identical(sort(count_names), sort(c(base_counts, "clause_revisions"))) ||
+        identical(sort(count_names), sort(c(base_counts, "source_text_revision")))) ||
       any(!vapply(manifest$expected_counts, function(value) is.integer(value) && length(value) == 1L &&
         !is.na(value) && value >= 0L, logical(1))) || !is.list(manifest$operations))
     stop_reimport("REIMPORT_MANIFEST_COUNTS_INVALID")
@@ -48,7 +49,8 @@ validate_reimport_manifest <- function(manifest) {
     is.list(operation) && is.character(operation$element_id) && length(operation$element_id) == 1L &&
       nzchar(operation$element_id) &&
       operation$dependency_class %in% c("source_evidence", "person_create", "legacy_migration",
-                                        "clause_evidence", "interpretation_proposal", "clause_revision"),
+                                        "clause_evidence", "interpretation_proposal", "clause_revision",
+                                        "source_text_revision"),
     logical(1))) || anyDuplicated(vapply(manifest$operations, `[[`, "", "element_id")))
     stop_reimport("REIMPORT_MANIFEST_OPERATIONS_INVALID")
   counts <- c(
@@ -80,6 +82,15 @@ validate_reimport_manifest <- function(manifest) {
     counts[["clause_revisions"]] <- sum(vapply(manifest$operations, function(operation)
       identical(operation$dependency_class, "clause_revision"), logical(1)))
   } else if (has_clause_revision_ops) {
+    stop_reimport("REIMPORT_MANIFEST_COUNTS_INVALID")
+  }
+  # Kildetekst-revision (trin 6a): tællingen hedder som basens (source_text_revision, ental).
+  has_source_text_revision_ops <- any(vapply(manifest$operations, function(operation)
+    identical(operation$dependency_class, "source_text_revision"), logical(1)))
+  if ("source_text_revision" %in% count_names) {
+    counts[["source_text_revision"]] <- sum(vapply(manifest$operations, function(operation)
+      identical(operation$dependency_class, "source_text_revision"), logical(1)))
+  } else if (has_source_text_revision_ops) {
     stop_reimport("REIMPORT_MANIFEST_COUNTS_INVALID")
   }
   has_proposal_ops <- any(vapply(manifest$operations, function(operation)
@@ -176,7 +187,7 @@ reimport_writer_expected_counts <- function(manifest) {
   validate_reimport_manifest(manifest)
   manifest$expected_counts[intersect(
     c("person_creates", "source_evidence", "legacy_migrations", "clause_evidence",
-      "interpretation_proposals", "clause_revisions"), names(manifest$expected_counts))]
+      "interpretation_proposals", "clause_revisions", "source_text_revision"), names(manifest$expected_counts))]
 }
 
 validate_reimport_preflight <- function(preflight, manifest) {
@@ -290,6 +301,14 @@ execute_reimport <- function(manifest, preview_sha256, mode = c("dry-run", "appl
         call("clause_evidence", batch_id, operation$element_id, payload)
       } else if (identical(operation$dependency_class, "clause_revision")) {
         call("clause_revision", batch_id, operation$element_id, payload)
+      } else if (identical(operation$dependency_class, "source_text_revision")) {
+        # Kvitteringen skal svare til payloaden: alle klausuler skrevet og præcis de forventede nøgler
+        # forældet (writeren afviser drift; dette fanger en gateway, der taber noget undervejs).
+        receipt <- call("source_text_revision", batch_id, operation$element_id, payload)
+        if (!identical(as.integer(receipt$clauses_written), length(operation$clauses)) ||
+            !identical(as.character(unlist(receipt$superseded_keys)),
+                       as.character(unlist(operation$expected_superseded_keys))))
+          stop_reimport("REIMPORT_WRITER_SOURCE_TEXT_REVISION_RECEIPT_MISMATCH")
       } else if (identical(operation$dependency_class, "interpretation_proposal")) {
         # Writeren returnerer interpretations_written pr. element. Batchens
         # expected_counts tæller kun ELEMENTER, så et tabt claim ville slippe
@@ -399,6 +418,12 @@ new_reimport_dbi_gateway <- function(connection_factory, sql_observer = NULL, tr
       },
       clause_revision = {
         result <- query("SELECT public.red_apply_reimport_clause_revision($1,$2,$3::jsonb)::text AS value", list(
+          args[[1L]], args[[2L]], jsonlite::toJSON(args[[3L]], auto_unbox = TRUE, null = "null")))$value[[1L]]
+        query("SELECT set_config('app.change_set_id','',true)")
+        jsonlite::fromJSON(result, simplifyVector = FALSE)
+      },
+      source_text_revision = {
+        result <- query("SELECT public.red_apply_reimport_source_text_revision($1,$2,$3::jsonb)::text AS value", list(
           args[[1L]], args[[2L]], jsonlite::toJSON(args[[3L]], auto_unbox = TRUE, null = "null")))$value[[1L]]
         query("SELECT set_config('app.change_set_id','',true)")
         jsonlite::fromJSON(result, simplifyVector = FALSE)
