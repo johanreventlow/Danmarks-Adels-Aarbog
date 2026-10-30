@@ -311,6 +311,13 @@ jobs:
           psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f db-rls.sql
           psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/1939-v50-writer-bootstrap.sql
           psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-1939-v50-production-writer.sql
+      - name: Profil-seeds (trin 6a) · migrationer to gange på base med source 3
+        env: {PGPASSWORD: postgres}
+        run: |
+          psql -q -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f db-migrations.sql > /dev/null
+          psql -q -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f db-migrations.sql > /dev/null
+          psql -q -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f db-rls.sql > /dev/null
+          psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-profile-seeds.sql
       - name: Virkelig rollback/apply/reversal integration
         env:
           PGHOST: localhost
