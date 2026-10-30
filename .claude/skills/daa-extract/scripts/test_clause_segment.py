@@ -1,3 +1,9 @@
+"""Tør kørsel 2026-10-30 på 584 1939-helposter med clause-rules-1939-v1 (kun antal).
+Før forkortelseslisten: 1028 klausuler, unknown_abbreviation 324, short_clause 80.
+Efter (15 tokens): 1025 klausuler, unknown_abbreviation 62, short_clause 78.
+Uændret: page_marker_in_clause 77, possible_layout_line 21, unbalanced_parentheses 126,
+multiple_marriages 1, uncertain_marker 7.
+"""
 import json
 import os
 import sys
@@ -286,6 +292,11 @@ class Test1939Rules(unittest.TestCase):
         for clause in result["clauses"]:
             self.assertNotIn("page_marker_in_clause", clause["flags"])
             self.assertNotIn("possible_layout_line", clause["flags"])
+
+    def test_ltnt_abbreviation_does_not_split(self):
+        """Før forkortelseslisten splittede "Ltnt. Hansen." efter "Ltnt."; nu én klausul."""
+        result = _build("Ltnt. Hansen.")
+        self.assertEqual(len(result["clauses"]), 1)
 
     def test_2018_rules_unchanged(self):
         """Byte-identisk output med 2018-20-reglerne: pin af hash over hele det syntetiske fixture
