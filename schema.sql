@@ -4490,7 +4490,8 @@ DECLARE v_ctx jsonb; v_parent private.source_observation%ROWTYPE; v_rendition uu
   v_binding_measured jsonb; v_parties jsonb; v_personas jsonb; v_cur_text_id uuid; v_cur_text text; v_prev private.source_observation_text%ROWTYPE;
   v_version integer; v_text_id uuid; v_before_set text; v_after_set text; v_actor uuid; v_actor_name text; v_superseded integer;
   v_count integer; v_old integer; v_obs record; v_receipt jsonb;
-  v_lock_keys uuid[]; v_lock_assertions bigint[]; v_lock_personas uuid[]; v_lock_persons bigint[];
+  v_lock_keys uuid[]; v_lock_assertions bigint[]; v_lock_personas uuid[]; v_lock_persons bigint[]; v_lock_families bigint[];
+  v_lock_members bigint[]; v_rival_keys uuid[]; v_rival_locked bigint;
 BEGIN
   -- 1. prepare
   v_ctx:=private.clause_write_prepare(p_batch_id,p_element_id,p_payload,'source_text_revision');
@@ -4517,18 +4518,34 @@ BEGIN
   PERFORM 1 FROM private.interpretation i
    WHERE i.id IN (SELECT (e->>'id')::uuid FROM jsonb_array_elements(v_deps) e)
    ORDER BY i.interpretation_key FOR UPDATE;
-  -- 2b. De kanoniske rækker, bindingernes gyldighed læser, FOR SHARE for ALLE promotions på nøglerne (gyldige og p.t.
+  -- 2b. De kanoniske rækker, bindingernes gyldighed læser, låses for ALLE promotions på nøglerne (gyldige og p.t.
   -- ugyldige: den farlige vending er ugyldig → gyldig mellem målingen og commit, så tabet ikke kvitteres).
-  -- assertion_binding_current læser assertion (værdi), fact (faktatype, subjekt) og personaens identitet;
-  -- relation_binding_state (inkl. relation_child_rule) læser parternes identiteter, rivaliserende identiteter på
-  -- samme person, family_member for personerne og målfamilierne samt børnenes person- og person_external_id-række.
-  -- Promotion, regel, fortolkning, parter, mentions og observationer er append-only. FOR SHARE blokerer UPDATE og
-  -- DELETE af rækkerne, men ikke nye rækker (fantomer, se rapporten). Fast rækkefølge: assertion, fact, identitet,
-  -- person, family_member, person_external_id.
+  -- assertion_binding_current læser assertion (værdi), fact (faktatype, subjekt) og personaens identitet.
+  -- relation_binding_state (inkl. relation_child_rule) læser parternes identiteter, family_member for parternes
+  -- familier og målfamilien, børnenes person- og person_external_id-rækker, hovedpersonens person_external_id og
+  -- #248-rivaltjekket: accepterede identiteter på ægtefællens person og rivalnøglernes seneste version og
+  -- spouse-part. Promotion, regel, partsversioner, mentions og observationer er append-only.
+  -- Låsene: FOR SHARE blokerer UPDATE og DELETE af eksisterende rækker. Nye rækker lukkes, hvor writeren først
+  -- låser en eksisterende række, vi også låser: identitets-writeren (decide_source_persona_identity) låser
+  -- source_persona FOR UPDATE, partner-indsættelser låser family FOR UPDATE (_tjek_partner_loft), og nye fortolknings-
+  -- og partsversioner på en rivalnøgle kræver writerens lås på nøglens aktuelle række (FOR UPDATE her).
+  -- RESTRISIKO (INSERT-drevne vendinger ugyldig → gyldig, som FOR SHARE ikke stopper):
+  --   a) family_member INSERT af en partner i en NY familie (red_opret_union, write_relation_person_create): kan gøre
+  --      ægteskabets/forælderens fælles familie entydig (0 → 1);
+  --   b) family_member INSERT af et barn (red_tilfoej_barn, write_relation_person_create): kan rette børneflokken eller
+  --      forælderrelationen (barn-rækken), så relation_child_rule/relation_binding_state bliver gyldig;
+  --   c) person_external_id INSERT (red_apply_reimport_person_create) for hovedpersonen (H1_postnoegle 0 → 1) eller et
+  --      barn (linje/nr/kuld for flokken).
+  --   Nye rivaliserende identiteter, mentions eller rivalnøgler kan kun gøre bindingen ugyldig (over-rapportering).
+  -- Fast rækkefølge: assertion, fact, source_persona, identitet, person (parter), family, family_member, øvrige
+  -- personer, rivalidentiteter, rivalnøgler, person_external_id.
   SELECT coalesce(array_agg((e->>'key')::uuid ORDER BY (e->>'key')::uuid),'{}') INTO v_lock_keys FROM jsonb_array_elements(v_deps) e;
   SELECT coalesce(array_agg(DISTINCT p.target_id),'{}') INTO v_lock_assertions
     FROM private.interpretation_promotion p JOIN private.interpretation q ON q.id=p.interpretation_id
    WHERE q.interpretation_key=ANY(v_lock_keys) AND p.target_type='assertion';
+  SELECT coalesce(array_agg(DISTINCT p.target_id),'{}') INTO v_lock_families
+    FROM private.interpretation_promotion p JOIN private.interpretation q ON q.id=p.interpretation_id
+   WHERE q.interpretation_key=ANY(v_lock_keys) AND p.target_type='family';
   PERFORM 1 FROM public.assertion a WHERE a.id=ANY(v_lock_assertions) ORDER BY a.id FOR SHARE;
   PERFORM 1 FROM public.fact f
    WHERE f.id IN (SELECT a.target_id FROM public.assertion a WHERE a.id=ANY(v_lock_assertions) AND a.target_type='fact')
@@ -4537,25 +4554,44 @@ BEGIN
     SELECT q.source_persona_id AS x FROM private.interpretation q WHERE q.interpretation_key=ANY(v_lock_keys)
     UNION SELECT pt.source_persona_id FROM private.interpretation_party pt WHERE pt.interpretation_key=ANY(v_lock_keys)) y
    WHERE x IS NOT NULL;
+  PERFORM 1 FROM private.source_persona sp WHERE sp.id=ANY(v_lock_personas) ORDER BY sp.id FOR SHARE;
   PERFORM 1 FROM private.source_persona_identity i WHERE i.source_persona_id=ANY(v_lock_personas)
    ORDER BY i.source_persona_id FOR SHARE;
+  -- Parternes og faktaenes personer (afledt af låste rækker).
   SELECT coalesce(array_agg(DISTINCT x),'{}') INTO v_lock_persons FROM (
     SELECT i.canonical_person_id AS x FROM private.source_persona_identity i WHERE i.source_persona_id=ANY(v_lock_personas)
     UNION SELECT f.subjekt_id FROM public.fact f JOIN public.assertion a ON a.target_type='fact' AND a.target_id=f.id
-           WHERE a.id=ANY(v_lock_assertions) AND f.subjekt_type='person'
-    UNION SELECT fm.person_id FROM public.family_member fm
-           WHERE fm.family_id IN (SELECT p.target_id FROM private.interpretation_promotion p JOIN private.interpretation q ON q.id=p.interpretation_id
-                                   WHERE q.interpretation_key=ANY(v_lock_keys) AND p.target_type='family')) y
+           WHERE a.id=ANY(v_lock_assertions) AND f.subjekt_type='person') y
    WHERE x IS NOT NULL;
+  PERFORM 1 FROM public.person pe WHERE pe.id=ANY(v_lock_persons) ORDER BY pe.id FOR SHARE;
+  -- Familierne (personernes og målfamilierne), derefter deres medlemsrækker; først derefter afledes de øvrige
+  -- medlemmer (fx børn), så en barn-række, der committes før låsen, også får sin person- og eksterne række låst.
+  SELECT coalesce(array_agg(DISTINCT x),'{}') INTO v_lock_families FROM (
+    SELECT unnest(v_lock_families) AS x
+    UNION SELECT m.family_id FROM public.family_member m WHERE m.person_id=ANY(v_lock_persons)) y
+   WHERE x IS NOT NULL;
+  PERFORM 1 FROM public.family fa WHERE fa.id=ANY(v_lock_families) ORDER BY fa.id FOR SHARE;
+  PERFORM 1 FROM public.family_member fm WHERE fm.family_id=ANY(v_lock_families)
+   ORDER BY fm.family_id,fm.person_id,fm.rolle FOR SHARE;
+  SELECT coalesce(array_agg(DISTINCT fm.person_id),'{}') INTO v_lock_members FROM public.family_member fm
+   WHERE fm.family_id=ANY(v_lock_families) AND NOT fm.person_id=ANY(v_lock_persons);
+  PERFORM 1 FROM public.person pe WHERE pe.id=ANY(v_lock_members) ORDER BY pe.id FOR SHARE;
+  v_lock_persons:=v_lock_persons||v_lock_members;
+  -- #248-rivaltjekket: accepterede identiteter på de samme personer og deres spouse-nøgler.
   PERFORM 1 FROM private.source_persona_identity i
    WHERE i.canonical_person_id=ANY(v_lock_persons) AND NOT i.source_persona_id=ANY(v_lock_personas)
    ORDER BY i.source_persona_id FOR SHARE;
-  PERFORM 1 FROM public.person pe WHERE pe.id=ANY(v_lock_persons) ORDER BY pe.id FOR SHARE;
-  PERFORM 1 FROM public.family_member fm
-   WHERE fm.family_id IN (SELECT m.family_id FROM public.family_member m WHERE m.person_id=ANY(v_lock_persons))
-      OR fm.family_id IN (SELECT p.target_id FROM private.interpretation_promotion p JOIN private.interpretation q ON q.id=p.interpretation_id
-                           WHERE q.interpretation_key=ANY(v_lock_keys) AND p.target_type='family')
-   ORDER BY fm.family_id,fm.person_id,fm.rolle FOR SHARE;
+  SELECT coalesce(array_agg(DISTINCT pt.interpretation_key ORDER BY pt.interpretation_key),'{}') INTO v_rival_keys
+    FROM private.interpretation_party pt
+   WHERE pt.party_role='spouse' AND NOT pt.interpretation_key=ANY(v_lock_keys)
+     AND pt.source_persona_id IN (SELECT i.source_persona_id FROM private.source_persona_identity i
+                                   WHERE i.canonical_person_id=ANY(v_lock_persons) AND i.decision_status='accepted');
+  PERFORM 1 FROM private.interpretation i WHERE i.interpretation_key=ANY(v_rival_keys)
+   ORDER BY i.interpretation_key,i.version FOR UPDATE;
+  GET DIAGNOSTICS v_rival_locked = ROW_COUNT;
+  IF (SELECT count(*) FROM private.interpretation i WHERE i.interpretation_key=ANY(v_rival_keys))<>v_rival_locked THEN
+    RAISE EXCEPTION 'TEXT_REVISION_KEY_SET_DRIFT: en rivalnøgle fik en ny version under låsningen';
+  END IF;
   PERFORM 1 FROM public.person_external_id x WHERE x.person_id=ANY(v_lock_persons) ORDER BY x.person_id,x.source_id FOR SHARE;
 
   -- 3. Mål igen efter låsene (ny sætning, nyt snapshot). Ændrede mængden sig under låsningen, fejler vi lukket.

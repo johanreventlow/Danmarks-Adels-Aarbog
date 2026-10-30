@@ -16,6 +16,9 @@
 #                 retter session E assertionens værdi tilbage (ugyldig → gyldig). E skal vente på A's FOR SHARE på
 #                 assertion-rækken; efter A's commit er fortolkningen forældet, og bindingen er stadig ugyldig.
 #                 Uden låsen ville bindingen være gyldig mellem målingen og A's commit og forsvinde uden kvittering.
+#   Rækkefølge 4: ægtefællens person har en anden accepteret persona, der er spouse-part på en anden ægteskabsnøgle
+#                 (#248-rivaltjekkets rivalnøgle). En afgørelse på rivalnøglen skal vente på revisionen, fordi en ny
+#                 version dér kan ændre rivaltjekket (ugyldig → gyldig).
 #   Rækkefølge 2: B promoverer først i en åben transaktion. A skal vente på B, før den måler. B committer; A's
 #                 måling indeholder den nye binding og afviser mod et manifest uden den
 #                 (TEXT_REVISION_BINDING_SET_DRIFT). Havde A målt før låsen, ville den have overset bindingen og
@@ -258,6 +261,33 @@ expect_true(!(promotion3 %in% vapply(receipt_a3$binding_loss, function(b) b$prom
             "TEXT_REVISION_CONCURRENCY_3_INVALID_BINDING_IN_RECEIPT")
 expect_true(identical(scalar(controller, "SELECT date_raw FROM public.assertion WHERE id=$1::bigint", list(assertion3)), "1850") &&
               !binding_current(), "TEXT_REVISION_CONCURRENCY_3_BINDING_VALID_AFTER_REVISION")
+
+# ---------------------------------------------------------------------------------------------------------------
+# Rækkefølge 4: rivalnøglen låses.
+case4_fx <- psql_value(sprintf("SELECT pg_temp.t5_post(%d,'%s',false,false)::text", -66401L, actor))
+rival_key <- psql_value(sprintf(paste0(
+  "INSERT INTO person(id,levende,privat,status) VALUES (-66411,false,false,'t5'); ",
+  "SELECT pg_temp.f2a_marriage(-66411,pg_temp.f5b_source(-66411),'T5-RIV',-66411,-66402,'%s',1,1,false)->'claim'->>'key'"), actor))
+rival_id <- scalar(controller, "SELECT id::text FROM private.interpretation_current WHERE interpretation_key=$1::uuid", list(rival_key))
+case4 <- prepare_case(controller, NA_integer_, "order-4", fx_text = case4_fx)
+barrier4 <- connect("t5_barrier4")
+DBI::dbBegin(barrier4)
+invisible(scalar(barrier4, "SELECT count(*) FROM (SELECT 1 FROM private.source_rendition WHERE id=$1::uuid FOR UPDATE) x", list(case4$fx$src$rend)))
+barrier4_pid <- as.integer(scalar(barrier4, "SELECT pg_backend_pid()"))
+job_a4 <- launch_worker("t5_a4", apply_sql(case4))
+wait_blocked_by(observer, "t5_a4", barrier4_pid)
+a4_pid <- backend_pid(observer, "t5_a4")
+job_e4 <- launch_worker("t5_e4", sprintf(
+  "SELECT public.red_decide_interpretation('%s'::uuid,1,'rejected','{\"basis\":\"t5 rival\"}'::jsonb)::text", rival_id))
+wait_blocked_by(observer, "t5_e4", a4_pid)
+DBI::dbCommit(barrier4)
+DBI::dbDisconnect(barrier4)
+result_a4 <- collect_worker(job_a4)
+result_e4 <- collect_worker(job_e4)
+expect_true(identical(result_a4$code, "OK"), paste0("TEXT_REVISION_CONCURRENCY_4_A_FAILED: ", result_a4$output))
+expect_true(identical(result_e4$code, "OK") && identical(scalar(controller,
+  "SELECT status FROM private.interpretation_current WHERE interpretation_key=$1::uuid", list(rival_key)), "rejected"),
+  paste0("TEXT_REVISION_CONCURRENCY_4_E_FAILED: ", result_e4$output))
 
 # ---------------------------------------------------------------------------------------------------------------
 # Rækkefølge 2: B promoverer først (åben transaktion); A venter på B før målingen og afviser bagefter med drift.
