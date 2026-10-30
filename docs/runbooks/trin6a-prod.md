@@ -6,7 +6,9 @@ Spec: `docs/superpowers/specs/2026-10-29-trin6a-klausuler-og-kildetekst-revision
 - **Ceremoni A** lægger trin 6a's DDL i prod: blokken fra `-- ===== trin 6a: helpost-regel =====` til slutningen af
   `db-migrations.sql`, i én transaktion. Den er additiv: 12 nye funktioner (heraf `clause_write_set` med 5
   argumenter, der erstatter udgaven med 4), nye kolonner og views, og klausul-writeren skiftet til helpost-reglen
-  og den rå tekstform. Den eneste data er to nye rækker i `private.reimport_writer_profile`.
+  og den rå tekstform. A skriver kun data i form af to nye rækker i `private.reimport_writer_profile`. A ændrer
+  desuden redaktørens 5b-ægteskabsark: v3-inputtet viser kun ægtefælleparten ved en aktuel `proposed`/`accepted`-
+  relation. Målt på stand-in bliver 1 række U i stedet for et forslag (spec, Codex F3). Læserfladen ændres ikke.
 - **Ceremoni B** skriver 1939's klausuler: 584 helposter og 954 klausuler med profilen `daa-1939-clause-evidence-v1`,
   gennem reimport-writerens kæde (authorize → apply → finalize). Det kanoniske lag og læserfladen ændres ikke.
 - **Kildetekst-revisionen anvendes ikke i prod i 6a.** Første brug er 6c's samlede ceremoni (spec §7 pkt. 5).
@@ -121,9 +123,15 @@ Kør aldrig `apply-b` igen, når batchen er `finalized`: tilstanden er så ikke 
   deklarerede vindue (`db-rls.sql` igen bagefter). Er det kun reglerne, der var forkerte, kan et nyt sæt i stedet
   lægges med `clause_revision`.
 - **Ceremoni A:** de tidligere funktionskroppe fra dumpet fra skridt 3 (ikke scriptet og ikke øvet; bygges kun,
-  hvis det bliver nødvendigt). Det kræver: genskab `clause_write_set` med 4 argumenter og dens REVOKE'er, drop
-  udgaven med 5 argumenter og de 11 andre nye funktioner, og tag stilling til de to profilrækker. Nye kolonner kan
-  blive stående. Alternativt restore af dumpet fra skridt 3, hvis intet andet er skrevet i vinduet.
+  hvis det bliver nødvendigt). Det kræver:
+  - drop de 12 nye funktioner på listen i `.claude/skills/daa-extract/scripts/maal_trin6a.sql` (`WITH fn AS`,
+    linje 32-42), heraf `clause_write_set` med 5 argumenter;
+  - genskab `clause_write_set` med 4 argumenter og dens REVOKE'er;
+  - genskab de 14 andre funktioner, blokken ændrer (hver `CREATE OR REPLACE FUNCTION` i blokken, der ikke står på
+    listen). Deres og `clause_write_set`'s tidligere kroppe hentes fra dumpet fra skridt 3;
+  - tag stilling til de to profilrækker. Nye kolonner kan blive stående.
+
+  Alternativt restore af dumpet fra skridt 3, hvis intet andet er skrevet i vinduet.
 
 ## Kendte begrænsninger i 1939-segmenteringen (røgtest 2026-10-30)
 
@@ -165,6 +173,7 @@ Stand-in'erne blev bygget af 5c-2-dumpet (`0e988082…`, taget før 5c-2-blokken
 | `go-a` → `apply-a` uden dump | `STOPPORT: DUMP_6A_MANGLER` |
 | `dump` → `apply-a` | `DUMP_6A_OK tilstand=foer`; `T6A_APPLY_A_OK funktioner=12 profiler=2 view=t`, `k1` uændret |
 | `eksport` | 584 / 8 |
+| ledger | 584 poster / 8 uden helpost; `gap_violations {}` (0 gap-brud, spec §8) |
 | `manifest` | indhold `e35f72be…` |
 | `go-b` → `apply-b` med dumpet fra tilstand `foer` | `STOPPORT: DUMP_6A_TILSTAND` |
 | `apply-b` med forkert kode (første øvelse) | `STOPPORT: GO_MISMATCH` |
