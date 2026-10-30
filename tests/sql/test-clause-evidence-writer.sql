@@ -56,14 +56,14 @@ CREATE FUNCTION pg_temp.ce_clauses(p_text text) RETURNS jsonb LANGUAGE sql AS $$
 $$;
 
 -- Kør én clause_evidence-batch med ét element og vilkårlig payload.
-CREATE FUNCTION pg_temp.ce_apply(p_fx jsonb, p_payload jsonb, p_element_key text, p_nonce text) RETURNS jsonb LANGUAGE plpgsql AS $$
+CREATE FUNCTION pg_temp.ce_apply(p_fx jsonb, p_payload jsonb, p_element_key text, p_nonce text, p_extra jsonb DEFAULT '{}'::jsonb) RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE v_profile text := 'fixture-ce-'||(p_fx->>'record_key'); v_config jsonb; v_sha text; v_auth uuid; v_batch uuid; v_result jsonb;
   v_msha text := encode(extensions.digest(p_nonce,'sha256'),'hex');
 BEGIN
   v_config:=jsonb_build_object('citation_label_template','Synthetic side {page_from}','extractor_version','clause-evidence-v1',
     'observation_extraction_method','clause_segment_v1','rendition_key','fixture-r1','rendition_kind','pdf_text_layer',
     'rendition_metadata',jsonb_build_object('edition','fixture','pdf_sha256',repeat('a',64),'pdftotext_version','fixture 0.0'),
-    'run_key_prefix','reimport-clause-evidence:','schema_version','clause-evidence-manifest-v1');
+    'run_key_prefix','reimport-clause-evidence:','schema_version','clause-evidence-manifest-v1')||p_extra;
   v_sha:=private.reimport_canonical_json_sha256(v_config);
   INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config) VALUES((p_fx->>'source_id')::bigint,v_profile,'clause-evidence-v1',v_sha,v_config) ON CONFLICT DO NOTHING;
   PERFORM set_config('request.jwt.claim.sub',p_fx->>'actor',true);
@@ -167,6 +167,85 @@ BEGIN
   PERFORM pg_temp.expect_error(format('SELECT pg_temp.ce_apply(%L::jsonb,%L::jsonb,%L,%L)',fx,pg_temp.ce_payload(fx,c),'CE2','n8'),'REIMPORT_WRITER_CLAUSE_EVIDENCE_EXISTS');
   RAISE NOTICE 't3 rejections OK';
 END $t3_rejections$;
+
+-- Trin 6a Task 2: valgfri profilnøgler, helpost-regel og raw-offset.
+-- Fixture: en record med helpost (kind p_kind) og to underforekomster indeni, alt i én rendition (content_sha 'c'*64).
+CREATE FUNCTION pg_temp.hp_fixture(p_key text, p_text text, p_kind text) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE v_source bigint := 616100 + abs(hashtext(p_key)) % 100000; v_run uuid := gen_random_uuid(); v_rend uuid; v_rec uuid; v_occ uuid; v_actor uuid; i integer;
+  v_len integer := char_length(p_text);
+BEGIN
+  INSERT INTO public.source(id,titel,udgave,aar,slags) VALUES(v_source,'Fixture '||p_key,'synthetic','1900','DAA-udgave') ON CONFLICT(id) DO NOTHING;
+  INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+  VALUES(v_run,v_source,'hp-'||v_run::text,'fixture','fixture','fixture',repeat('1',64),'{}');
+  INSERT INTO private.source_rendition(source_id,rendition_key,rendition_kind,content_sha256,metadata) VALUES(v_source,'hp-r1','ocr_text',repeat('c',64),'{}') RETURNING id INTO v_rend;
+  INSERT INTO private.source_record(source_id,record_key,record_kind,created_run_id) VALUES(v_source,p_key,'person',v_run) RETURNING id INTO v_rec;
+  FOR i IN 0..2 LOOP
+    INSERT INTO private.source_record_occurrence(rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id)
+    VALUES(v_rend,p_key||'-o'||i,10,10,CASE i WHEN 0 THEN 100 WHEN 1 THEN 110 ELSE 130 END,CASE i WHEN 0 THEN 100+v_len WHEN 1 THEN 120 ELSE 140 END,
+           CASE i WHEN 0 THEN p_text ELSE repeat('x',10) END,repeat('3',64),repeat('4',64),v_run) RETURNING id INTO v_occ;
+    INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id)
+    VALUES(v_occ,CASE i WHEN 0 THEN p_kind ELSE 'fact' END,10,10,CASE i WHEN 0 THEN 100 WHEN 1 THEN 110 ELSE 130 END,CASE i WHEN 0 THEN 100+v_len WHEN 1 THEN 120 ELSE 140 END,
+           CASE i WHEN 0 THEN p_text ELSE repeat('x',10) END,'clear','fixture',v_run);
+    INSERT INTO private.source_record_anchor_event(occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name)
+    VALUES(v_occ,v_rec,'accepted','{"fixture":true}'::jsonb,1,gen_random_uuid(),'fixture');
+  END LOOP;
+  SELECT id INTO v_actor FROM public.profiles WHERE rolle='redaktion' ORDER BY id LIMIT 1;
+  RETURN jsonb_build_object('source_id',v_source,'actor',v_actor,'record_key',p_key,'text',p_text,'parent_sha256',encode(extensions.digest(p_text,'sha256'),'hex'));
+END $$;
+
+DO $t5_profile_keys$
+DECLARE v_cfg jsonb; v_sha text;
+BEGIN
+  -- 2018-20-profilens writer_config (uden de nye nøgler) har uændret hash.
+  v_cfg:='{"citation_label_template":"DAA 2018-20 side {page_from}","extractor_version":"clause-evidence-v1","observation_extraction_method":"clause_segment_v1","rendition_key":"daa-2018-20-pdftotext-r1","rendition_kind":"pdf_text_layer","rendition_metadata":{"edition":"2018-20","pdf_sha256":"3beadfc15e3fa1a4090589af56cd4e95599a9231e8f979dfb60c4e27bbd8252a","pdftotext_version":"26.07.0"},"run_key_prefix":"reimport-clause-evidence:","schema_version":"clause-evidence-manifest-v1"}'::jsonb;
+  IF NOT private.validate_reimport_writer_config(v_cfg) THEN RAISE EXCEPTION 'T5_2018_CONFIG_REJECTED'; END IF;
+  v_sha:=private.reimport_canonical_json_sha256(v_cfg);
+  IF v_sha<>'7696cb87b9d5fecb3693d201d023ec84d27d25b35dee92f09bd6b75e88ce31f5' THEN RAISE EXCEPTION 'T5_2018_PROFILE_HASH_CHANGED: %', v_sha; END IF;
+  IF private.writer_config_text_form(v_cfg)<>'folded_projection@anywhere' OR private.writer_config_helpost_kind(v_cfg)<>'person_post' THEN RAISE EXCEPTION 'T5_DEFAULTS'; END IF;
+  -- De to valgfri nøgler accepteres med lukkede værdisæt.
+  IF NOT private.validate_reimport_writer_config(v_cfg||'{"text_form":"raw","helpost_observation_kind":"person"}'::jsonb) THEN RAISE EXCEPTION 'T5_RAW_CONFIG_REJECTED'; END IF;
+  IF NOT private.validate_reimport_writer_config(v_cfg||'{"text_form":"folded_projection@page_header"}'::jsonb) THEN RAISE EXCEPTION 'T5_PAGE_HEADER_REJECTED'; END IF;
+  IF private.validate_reimport_writer_config(v_cfg||'{"text_form":"folded"}'::jsonb) THEN RAISE EXCEPTION 'T5_UNKNOWN_TEXT_FORM_ACCEPTED'; END IF;
+  IF private.validate_reimport_writer_config(v_cfg||'{"helpost_observation_kind":" "}'::jsonb) THEN RAISE EXCEPTION 'T5_BLANK_KIND_ACCEPTED'; END IF;
+  IF private.validate_reimport_writer_config(v_cfg||'{"andet":1}'::jsonb) THEN RAISE EXCEPTION 'T5_UNKNOWN_KEY_ACCEPTED'; END IF;
+  IF private.validate_reimport_writer_config(v_cfg-'rendition_key') THEN RAISE EXCEPTION 'T5_MISSING_KEY_ACCEPTED'; END IF;
+  -- CHECK-constraint på tabellen afviser en ukendt tekstform.
+  BEGIN
+    INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
+    SELECT id,'t5-bad-text-form','clause-evidence-v1',private.reimport_canonical_json_sha256(v_cfg||'{"text_form":"folded"}'::jsonb),v_cfg||'{"text_form":"folded"}'::jsonb FROM public.source LIMIT 1;
+    RAISE EXCEPTION 'T5_CHECK_NOT_ENFORCED';
+  EXCEPTION WHEN check_violation THEN NULL; END;
+  RAISE NOTICE 't5 profile keys OK';
+END $t5_profile_keys$;
+
+DO $t6_helpost_and_raw$
+DECLARE fx jsonb; r jsonb; p jsonb; c jsonb; v_text text := 'Alfa Bravo, f. 1801, d. 1860. Gift 1830 m. Charlie Delta.'; v_extra jsonb := '{"text_form":"raw","helpost_observation_kind":"person"}'::jsonb; v_parent uuid; v_n integer;
+BEGIN
+  -- Tre ankre (helpost + to underforekomster), raw-profil: klausuler skrives under helposten.
+  fx:=pg_temp.hp_fixture('HP1',v_text,'person');
+  c:=pg_temp.ce_clauses(v_text);
+  r:=pg_temp.ce_apply(fx,pg_temp.ce_payload(fx,c),'HP1','hp1-n1',v_extra);
+  IF (r->>'clauses')::int<>2 THEN RAISE EXCEPTION 'T6_CLAUSES: %', r; END IF;
+  SELECT ob.id INTO v_parent FROM private.source_observation ob JOIN private.source_record_occurrence o ON o.id=ob.occurrence_id
+   WHERE o.occurrence_key='HP1-o0' AND ob.parent_observation_id IS NULL;
+  IF (r->>'parent_observation_id')::uuid<>v_parent THEN RAISE EXCEPTION 'T6_PARENT_IS_NOT_HELPOST'; END IF;
+  SELECT count(*) INTO v_n FROM private.source_observation WHERE parent_observation_id=v_parent AND observation_kind='clause';
+  IF v_n<>2 THEN RAISE EXCEPTION 'T6_CLAUSE_ROWS: %', v_n; END IF;
+  -- raw: offset forskudt med 1 afvises.
+  fx:=pg_temp.hp_fixture('HP2',v_text,'person');
+  p:=pg_temp.ce_payload(fx,jsonb_set(c,'{0,rendition_char_from}',to_jsonb(101)));
+  PERFORM pg_temp.expect_error(format('SELECT pg_temp.ce_apply(%L::jsonb,%L::jsonb,%L,%L,%L::jsonb)',fx,p,'HP2','hp2-n1',v_extra),'CLAUSE_EVIDENCE_RAW_OFFSET_MISMATCH');
+  p:=pg_temp.ce_payload(fx,jsonb_set(c,'{1,rendition_char_to}',to_jsonb(100+char_length(v_text)-1)));
+  PERFORM pg_temp.expect_error(format('SELECT pg_temp.ce_apply(%L::jsonb,%L::jsonb,%L,%L,%L::jsonb)',fx,p,'HP2','hp2-n2',v_extra),'CLAUSE_EVIDENCE_RAW_OFFSET_MISMATCH');
+  -- Default-profil (2018-20, person_post) finder ingen helpost på en person-post med slags 'person'.
+  fx:=pg_temp.hp_fixture('HP3',v_text,'person');
+  PERFORM pg_temp.expect_error(format('SELECT pg_temp.ce_apply(%L::jsonb,%L::jsonb,%L,%L)',fx,pg_temp.ce_payload(fx,c),'HP3','hp3-n1'),'RECORD_HELPOST_AMBIGUOUS');
+  -- Default-profil på en post med slags person_post og tre ankre: helposten findes (foldet projektion, ingen raw-kontrol).
+  fx:=pg_temp.hp_fixture('HP4',v_text,'person_post');
+  r:=pg_temp.ce_apply(fx,pg_temp.ce_payload(fx,c),'HP4','hp4-n1');
+  IF (r->>'clauses')::int<>2 THEN RAISE EXCEPTION 'T6_DEFAULT_CLAUSES: %', r; END IF;
+  RAISE NOTICE 't6 helpost and raw OK';
+END $t6_helpost_and_raw$;
 
 DO $t4_acl$
 BEGIN
